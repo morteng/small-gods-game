@@ -1,0 +1,776 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Small Gods - AI Map Generation Pipeline</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      color: #e8e8e8;
+      min-height: 100vh;
+      padding: 20px;
+    }
+
+    h1 {
+      text-align: center;
+      margin-bottom: 10px;
+      color: #ffd700;
+      text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+    }
+
+    .subtitle {
+      text-align: center;
+      color: #888;
+      margin-bottom: 30px;
+    }
+
+    .pipeline {
+      display: flex;
+      gap: 20px;
+      justify-content: center;
+      align-items: flex-start;
+      flex-wrap: wrap;
+      margin-bottom: 40px;
+    }
+
+    .stage {
+      background: rgba(0,0,0,0.3);
+      border-radius: 12px;
+      padding: 15px;
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+
+    .stage h3 {
+      text-align: center;
+      margin-bottom: 10px;
+      color: #4ecdc4;
+      font-size: 14px;
+    }
+
+    .arrow {
+      display: flex;
+      align-items: center;
+      font-size: 30px;
+      color: #ffd700;
+      padding-top: 80px;
+    }
+
+    /* Isometric Grid */
+    .iso-grid {
+      position: relative;
+      width: 280px;
+      height: 200px;
+    }
+
+    .iso-tile {
+      position: absolute;
+      width: 40px;
+      height: 20px;
+      transform: rotateX(60deg) rotateZ(45deg);
+      transform-style: preserve-3d;
+    }
+
+    /* Skeleton tiles - clean geometric */
+    .skeleton .iso-tile {
+      background: #445;
+      border: 1px solid #667;
+    }
+    .skeleton .iso-tile.water { background: #336; border-color: #447; }
+    .skeleton .iso-tile.grass { background: #353; border-color: #464; }
+    .skeleton .iso-tile.forest { background: #242; border-color: #353; }
+    .skeleton .iso-tile.sand { background: #554; border-color: #665; }
+    .skeleton .iso-tile.building { background: #444; border-color: #555; }
+    .skeleton .iso-tile.road { background: #433; border-color: #544; }
+
+    /* Segment map - solid colors */
+    .segment .iso-tile {
+      border: none;
+    }
+    .segment .iso-tile.water { background: #0066CC; }
+    .segment .iso-tile.grass { background: #00AA00; }
+    .segment .iso-tile.forest { background: #006400; }
+    .segment .iso-tile.sand { background: #F4D03F; }
+    .segment .iso-tile.building { background: #A9A9A9; }
+    .segment .iso-tile.road { background: #8B4513; }
+
+    /* Painted result - rich textures via gradients */
+    .painted .iso-tile {
+      border: none;
+      box-shadow: inset 0 0 10px rgba(0,0,0,0.3);
+    }
+    .painted .iso-tile.water {
+      background: linear-gradient(135deg, #1e90ff 0%, #4169e1 50%, #0066cc 100%);
+      animation: water-shimmer 3s ease-in-out infinite;
+    }
+    .painted .iso-tile.grass {
+      background: linear-gradient(135deg, #7ccd7c 0%, #228b22 50%, #006400 100%);
+    }
+    .painted .iso-tile.forest {
+      background: linear-gradient(135deg, #2d5a2d 0%, #1a3a1a 50%, #0d2d0d 100%);
+      box-shadow: inset 0 -5px 10px rgba(0,100,0,0.5);
+    }
+    .painted .iso-tile.sand {
+      background: linear-gradient(135deg, #f5deb3 0%, #daa520 50%, #b8860b 100%);
+    }
+    .painted .iso-tile.building {
+      background: linear-gradient(135deg, #d4c4a8 0%, #a0926a 50%, #8b7355 100%);
+      box-shadow: inset 0 5px 10px rgba(255,255,255,0.2), inset 0 -5px 10px rgba(0,0,0,0.3);
+    }
+    .painted .iso-tile.road {
+      background: linear-gradient(135deg, #a0522d 0%, #8b4513 50%, #654321 100%);
+    }
+
+    @keyframes water-shimmer {
+      0%, 100% { filter: brightness(1); }
+      50% { filter: brightness(1.1); }
+    }
+
+    /* Legend */
+    .legend {
+      display: flex;
+      justify-content: center;
+      gap: 20px;
+      flex-wrap: wrap;
+      margin-bottom: 30px;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+    }
+
+    .legend-swatch {
+      width: 20px;
+      height: 20px;
+      border-radius: 3px;
+      border: 1px solid rgba(255,255,255,0.2);
+    }
+
+    /* Pipeline description */
+    .description {
+      max-width: 900px;
+      margin: 0 auto 40px;
+      background: rgba(0,0,0,0.3);
+      border-radius: 12px;
+      padding: 20px;
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+
+    .description h2 {
+      color: #ffd700;
+      margin-bottom: 15px;
+    }
+
+    .description p {
+      margin-bottom: 10px;
+      line-height: 1.6;
+    }
+
+    .description code {
+      background: rgba(255,255,255,0.1);
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-family: 'Consolas', monospace;
+    }
+
+    /* God Identity Demo */
+    .god-section {
+      max-width: 900px;
+      margin: 0 auto 40px;
+    }
+
+    .god-evolution {
+      display: flex;
+      gap: 20px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+    .god-stage {
+      background: rgba(0,0,0,0.3);
+      border-radius: 12px;
+      padding: 20px;
+      text-align: center;
+      width: 200px;
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+
+    .god-stage h4 {
+      color: #4ecdc4;
+      margin-bottom: 10px;
+      font-size: 12px;
+    }
+
+    .god-avatar {
+      width: 100px;
+      height: 100px;
+      margin: 0 auto 10px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 50px;
+      transition: all 0.3s;
+    }
+
+    .god-stage:nth-child(1) .god-avatar {
+      background: radial-gradient(circle, rgba(100,100,100,0.2) 0%, transparent 70%);
+      opacity: 0.4;
+      font-size: 30px;
+    }
+    .god-stage:nth-child(2) .god-avatar {
+      background: radial-gradient(circle, rgba(139,119,101,0.4) 0%, transparent 70%);
+      opacity: 0.7;
+    }
+    .god-stage:nth-child(3) .god-avatar {
+      background: radial-gradient(circle, rgba(0,128,0,0.5) 0%, transparent 70%);
+    }
+    .god-stage:nth-child(4) .god-avatar {
+      background: radial-gradient(circle, rgba(255,215,0,0.6) 0%, transparent 70%);
+      box-shadow: 0 0 30px rgba(255,215,0,0.4);
+      font-size: 60px;
+    }
+
+    .god-stage .believers {
+      font-size: 11px;
+      color: #888;
+    }
+
+    .god-stage .form-note {
+      font-size: 10px;
+      color: #666;
+      font-style: italic;
+      margin-top: 5px;
+    }
+
+    /* NPC Portrait Demo */
+    .npc-section {
+      max-width: 900px;
+      margin: 0 auto 40px;
+    }
+
+    .npc-section h2 {
+      text-align: center;
+      color: #ffd700;
+      margin-bottom: 20px;
+    }
+
+    .npc-aging {
+      display: flex;
+      gap: 15px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+    .npc-portrait {
+      background: rgba(0,0,0,0.3);
+      border-radius: 8px;
+      padding: 12px;
+      text-align: center;
+      width: 120px;
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+
+    .npc-portrait .avatar {
+      width: 70px;
+      height: 70px;
+      margin: 0 auto 8px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #deb887 0%, #8b7355 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 35px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    /* Age progression via overlays */
+    .npc-portrait.child .avatar { font-size: 25px; }
+    .npc-portrait.adult .avatar::after {
+      content: '';
+      position: absolute;
+      bottom: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 20px;
+      height: 5px;
+      background: #654321;
+      border-radius: 2px;
+    }
+    .npc-portrait.elderly .avatar {
+      filter: grayscale(30%);
+    }
+    .npc-portrait.elderly .avatar::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: linear-gradient(transparent 60%, rgba(200,200,200,0.3) 100%);
+    }
+
+    .npc-portrait .age-label {
+      font-size: 11px;
+      color: #4ecdc4;
+      margin-bottom: 4px;
+    }
+
+    .npc-portrait .name {
+      font-size: 10px;
+      color: #888;
+    }
+
+    /* Voice Demo */
+    .voice-section {
+      max-width: 900px;
+      margin: 0 auto 40px;
+    }
+
+    .voice-section h2 {
+      text-align: center;
+      color: #ffd700;
+      margin-bottom: 20px;
+    }
+
+    .conversation {
+      background: rgba(0,0,0,0.4);
+      border-radius: 12px;
+      padding: 20px;
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+
+    .conversation-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 15px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+    }
+
+    .importance-badge {
+      background: #8b0000;
+      color: white;
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 10px;
+      text-transform: uppercase;
+    }
+
+    .importance-badge.critical { background: #8b0000; }
+    .importance-badge.notable { background: #b8860b; }
+
+    .conversation-line {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 12px;
+      align-items: flex-start;
+    }
+
+    .speaker-avatar {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #deb887 0%, #8b7355 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      flex-shrink: 0;
+    }
+
+    .speech-content {
+      flex: 1;
+    }
+
+    .speaker-name {
+      font-size: 11px;
+      color: #4ecdc4;
+      margin-bottom: 3px;
+    }
+
+    .speech-text {
+      background: rgba(255,255,255,0.1);
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-size: 13px;
+      line-height: 1.4;
+    }
+
+    .voice-indicator {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      margin-left: 10px;
+      font-size: 10px;
+      color: #4ecdc4;
+    }
+
+    .voice-wave {
+      display: flex;
+      gap: 2px;
+      align-items: center;
+    }
+
+    .voice-wave span {
+      width: 3px;
+      height: 10px;
+      background: #4ecdc4;
+      border-radius: 2px;
+      animation: wave 0.5s ease-in-out infinite;
+    }
+
+    .voice-wave span:nth-child(2) { animation-delay: 0.1s; }
+    .voice-wave span:nth-child(3) { animation-delay: 0.2s; }
+    .voice-wave span:nth-child(4) { animation-delay: 0.3s; }
+
+    @keyframes wave {
+      0%, 100% { height: 5px; }
+      50% { height: 15px; }
+    }
+
+    /* Tech Stack */
+    .tech-stack {
+      max-width: 900px;
+      margin: 0 auto;
+      background: rgba(0,0,0,0.3);
+      border-radius: 12px;
+      padding: 20px;
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+
+    .tech-stack h2 {
+      color: #ffd700;
+      margin-bottom: 15px;
+    }
+
+    .tech-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 15px;
+    }
+
+    .tech-item {
+      background: rgba(255,255,255,0.05);
+      padding: 12px;
+      border-radius: 8px;
+    }
+
+    .tech-item h4 {
+      color: #4ecdc4;
+      font-size: 12px;
+      margin-bottom: 8px;
+    }
+
+    .tech-item p {
+      font-size: 11px;
+      color: #888;
+      line-height: 1.4;
+    }
+
+    .tech-item a {
+      color: #ffd700;
+      text-decoration: none;
+    }
+
+    .tech-item a:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <h1>AI-Generated Map Pipeline</h1>
+  <p class="subtitle">Skeleton Tiles + ControlNet Segmentation = Rich Painted World</p>
+
+  <!-- Pipeline Visualization -->
+  <div class="pipeline">
+    <div class="stage skeleton">
+      <h3>1. Skeleton Tiles</h3>
+      <div class="iso-grid" id="skeleton-grid"></div>
+    </div>
+
+    <div class="arrow">→</div>
+
+    <div class="stage segment">
+      <h3>2. Segment Map</h3>
+      <div class="iso-grid" id="segment-grid"></div>
+    </div>
+
+    <div class="arrow">→</div>
+
+    <div class="stage painted">
+      <h3>3. AI-Painted Result</h3>
+      <div class="iso-grid" id="painted-grid"></div>
+    </div>
+  </div>
+
+  <!-- Legend -->
+  <div class="legend">
+    <div class="legend-item">
+      <div class="legend-swatch" style="background: #0066CC;"></div>
+      <span>Water</span>
+    </div>
+    <div class="legend-item">
+      <div class="legend-swatch" style="background: #00AA00;"></div>
+      <span>Grass</span>
+    </div>
+    <div class="legend-item">
+      <div class="legend-swatch" style="background: #006400;"></div>
+      <span>Forest</span>
+    </div>
+    <div class="legend-item">
+      <div class="legend-swatch" style="background: #F4D03F;"></div>
+      <span>Sand</span>
+    </div>
+    <div class="legend-item">
+      <div class="legend-swatch" style="background: #A9A9A9;"></div>
+      <span>Building</span>
+    </div>
+    <div class="legend-item">
+      <div class="legend-swatch" style="background: #8B4513;"></div>
+      <span>Road</span>
+    </div>
+  </div>
+
+  <!-- Description -->
+  <div class="description">
+    <h2>How It Works</h2>
+    <p>
+      <strong>Step 1:</strong> The game generates a map using clean isometric skeleton tiles
+      (like <a href="https://route1rodent.itch.io/isometric-sandbox-pixel-world-32x32" target="_blank" style="color: #4ecdc4;">route1rodent's 32x32 set</a>).
+      These provide the structural geometry for game logic - pathfinding, collision, tile types.
+    </p>
+    <p>
+      <strong>Step 2:</strong> A segment map is generated where each tile type becomes a solid color.
+      This acts as a <code>ControlNet</code> conditioning input - telling the AI "grass here, water there, building here".
+    </p>
+    <p>
+      <strong>Step 3:</strong> Both images feed into an AI image generator (SDXL + ControlNet Seg).
+      The skeleton provides structural depth, the segment map defines regions.
+      A style prompt adds atmosphere: <em>"Fantasy isometric world, painterly, magical ambiance, golden hour lighting"</em>.
+    </p>
+    <p>
+      <strong>Result:</strong> A beautifully painted map that matches your tile data exactly.
+      The game logic uses the original tile types; players see the painted version.
+      Time of day, weather, and magical effects can be repainted on demand.
+    </p>
+  </div>
+
+  <!-- God Identity Evolution -->
+  <div class="god-section">
+    <h2 style="text-align: center; color: #ffd700; margin-bottom: 20px;">Emergent God Identity</h2>
+    <p style="text-align: center; color: #888; margin-bottom: 20px; font-size: 14px;">
+      The believers define the god, not the other way around. Form emerges from aggregate belief.
+    </p>
+
+    <div class="god-evolution">
+      <div class="god-stage">
+        <h4>Forgotten (3 believers)</h4>
+        <div class="god-avatar">?</div>
+        <div class="believers">Barely remembered</div>
+        <div class="form-note">No consistent form yet</div>
+      </div>
+
+      <div class="god-stage">
+        <h4>Emerging (28 believers)</h4>
+        <div class="god-avatar">🐢</div>
+        <div class="believers">Stories spread of "the patient one"</div>
+        <div class="form-note">Turtle form gaining traction</div>
+      </div>
+
+      <div class="god-stage">
+        <h4>Established (156 believers)</h4>
+        <div class="god-avatar">🐢</div>
+        <div class="believers">Temple built, rituals formed</div>
+        <div class="form-note">Form solidified by collective belief</div>
+      </div>
+
+      <div class="god-stage">
+        <h4>Ascendant (892 believers)</h4>
+        <div class="god-avatar">🐢</div>
+        <div class="believers">Dominant regional deity</div>
+        <div class="form-note">Radiant, undeniable presence</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- NPC Aging Portraits -->
+  <div class="npc-section">
+    <h2>Dynamic NPC Portraits</h2>
+    <p style="text-align: center; color: #888; margin-bottom: 20px; font-size: 14px;">
+      AI-generated portraits evolve as NPCs age. Life events (scars, blessings) modify appearance.
+    </p>
+
+    <div class="npc-aging">
+      <div class="npc-portrait child">
+        <div class="avatar">👦</div>
+        <div class="age-label">Child (8)</div>
+        <div class="name">Young Marten</div>
+      </div>
+      <div class="npc-portrait">
+        <div class="avatar">🧑</div>
+        <div class="age-label">Young Adult (22)</div>
+        <div class="name">Marten the Eager</div>
+      </div>
+      <div class="npc-portrait adult">
+        <div class="avatar">👨</div>
+        <div class="age-label">Adult (38)</div>
+        <div class="name">Marten the Smith</div>
+      </div>
+      <div class="npc-portrait elderly">
+        <div class="avatar">👴</div>
+        <div class="age-label">Elder (67)</div>
+        <div class="name">Old Marten</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Voice Demo -->
+  <div class="voice-section">
+    <h2>Voiced Conversations (Pocket TTS)</h2>
+    <p style="text-align: center; color: #888; margin-bottom: 20px; font-size: 14px;">
+      The LLM GM flags key conversations. You overhear villagers discussing your miracles.
+    </p>
+
+    <div class="conversation">
+      <div class="conversation-header">
+        <span class="importance-badge critical">Critical</span>
+        <span style="font-size: 12px; color: #888;">Overheard at the village well</span>
+      </div>
+
+      <div class="conversation-line">
+        <div class="speaker-avatar">👩</div>
+        <div class="speech-content">
+          <div class="speaker-name">Elena the Weaver</div>
+          <div class="speech-text">
+            Did you hear? Old Marcus says he saw the turtle god appear in the sacred pool!
+            <span class="voice-indicator">
+              <span class="voice-wave"><span></span><span></span><span></span><span></span></span>
+              voiced
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div class="conversation-line">
+        <div class="speaker-avatar">👨</div>
+        <div class="speech-content">
+          <div class="speaker-name">Thom the Miller</div>
+          <div class="speech-text">
+            Marcus? He drinks too much honey wine. Though... my crops did survive the drought when I prayed.
+            <span class="voice-indicator">
+              <span class="voice-wave"><span></span><span></span><span></span><span></span></span>
+              voiced
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div class="conversation-line">
+        <div class="speaker-avatar">👧</div>
+        <div class="speech-content">
+          <div class="speaker-name">Little Sara</div>
+          <div class="speech-text">
+            I saw it too! A big turtle made of light!
+            <span class="voice-indicator">
+              <span class="voice-wave"><span></span><span></span><span></span><span></span></span>
+              voiced
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tech Stack -->
+  <div class="tech-stack">
+    <h2>Technology Stack</h2>
+    <div class="tech-grid">
+      <div class="tech-item">
+        <h4>Map Generation</h4>
+        <p>
+          <a href="https://huggingface.co/SargeZT/sdxl-controlnet-seg">SDXL + ControlNet Seg</a>
+          for segmentation-conditioned generation.
+          Skeleton provides depth, segment map defines tile types.
+        </p>
+      </div>
+      <div class="tech-item">
+        <h4>Portrait Generation</h4>
+        <p>
+          SDXL with consistent seeds for base portraits.
+          img2img with age modifiers for temporal evolution.
+          Event-driven regeneration for scars/blessings.
+        </p>
+      </div>
+      <div class="tech-item">
+        <h4>Voice Synthesis</h4>
+        <p>
+          <a href="https://kyutai.org/blog/2026-01-13-pocket-tts">Kyutai Pocket TTS</a> -
+          lightweight, fast text-to-speech.
+          Per-NPC voice profiles derived from attributes.
+        </p>
+      </div>
+      <div class="tech-item">
+        <h4>Skeleton Tiles</h4>
+        <p>
+          <a href="https://route1rodent.itch.io/isometric-sandbox-pixel-world-32x32">route1rodent's Isometric Set</a>
+          or <a href="https://kenney.nl/assets">Kenney Assets</a> (CC0).
+          Clean geometry for AI conditioning.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Map layout (7x6 grid)
+    const mapData = [
+      ['water', 'water', 'grass', 'grass', 'forest', 'forest', 'forest'],
+      ['water', 'grass', 'grass', 'road', 'grass', 'forest', 'forest'],
+      ['sand', 'sand', 'grass', 'road', 'building', 'grass', 'forest'],
+      ['sand', 'sand', 'road', 'road', 'road', 'grass', 'grass'],
+      ['grass', 'grass', 'grass', 'road', 'grass', 'grass', 'water'],
+      ['forest', 'grass', 'grass', 'grass', 'water', 'water', 'water'],
+    ];
+
+    function createIsoGrid(containerId, mapData) {
+      const container = document.getElementById(containerId);
+      const tileWidth = 40;
+      const tileHeight = 20;
+
+      mapData.forEach((row, y) => {
+        row.forEach((tileType, x) => {
+          const tile = document.createElement('div');
+          tile.className = `iso-tile ${tileType}`;
+
+          // Isometric positioning
+          const isoX = (x - y) * (tileWidth / 2) + 120;
+          const isoY = (x + y) * (tileHeight / 2) + 20;
+
+          tile.style.left = `${isoX}px`;
+          tile.style.top = `${isoY}px`;
+          tile.style.zIndex = x + y;
+
+          container.appendChild(tile);
+        });
+      });
+    }
+
+    // Create all three grids
+    createIsoGrid('skeleton-grid', mapData);
+    createIsoGrid('segment-grid', mapData);
+    createIsoGrid('painted-grid', mapData);
+  </script>
+</body>
+</html>

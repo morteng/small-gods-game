@@ -1,0 +1,911 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Small Gods - Story Cards Prototype</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    :root {
+      --bg-darkest: #0a0a15;
+      --bg-dark: #0f0f1a;
+      --bg-medium: #151525;
+      --bg-light: #1a1a2e;
+      --bg-lighter: #252540;
+      --border-dark: #2a2a4a;
+      --border-light: #3a3a5c;
+      --text-primary: #eeeeee;
+      --text-secondary: #aaaacc;
+      --text-muted: #666688;
+      --gold: #ffd700;
+      --gold-dark: #b8860b;
+      --red: #ff4444;
+      --green: #44ff44;
+      --blue: #4488ff;
+      --purple: #aa44ff;
+      --parchment: #d4b896;
+      --parchment-dark: #8b7355;
+    }
+
+    body {
+      font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg-darkest);
+      color: var(--text-primary);
+      min-height: 100vh;
+      padding: 40px;
+    }
+
+    h1 {
+      text-align: center;
+      margin-bottom: 40px;
+      color: var(--text-secondary);
+      font-weight: 400;
+    }
+
+    .cards-container {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 24px;
+      justify-content: center;
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+
+    /* Story Card Base */
+    .story-card {
+      width: 360px;
+      background: linear-gradient(145deg, #2a1f1a, #1a1510);
+      border: 2px solid var(--parchment-dark);
+      border-radius: 16px;
+      overflow: hidden;
+      transition: transform 0.3s, box-shadow 0.3s;
+    }
+
+    .story-card:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 8px 32px rgba(139,69,19,0.3);
+    }
+
+    .story-card.endangered {
+      border-color: var(--red);
+      animation: endangeredPulse 2s infinite;
+    }
+
+    @keyframes endangeredPulse {
+      0%, 100% { box-shadow: 0 0 10px rgba(255,68,68,0.2); }
+      50% { box-shadow: 0 0 20px rgba(255,68,68,0.4); }
+    }
+
+    .story-card.thriving {
+      border-color: var(--green);
+      box-shadow: 0 0 15px rgba(68,255,68,0.15);
+    }
+
+    /* Story Header */
+    .story-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 16px;
+      background: linear-gradient(135deg, rgba(139,69,19,0.3), rgba(139,69,19,0.1));
+    }
+
+    .story-icon {
+      font-size: 40px;
+      filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));
+    }
+
+    .story-title-area {
+      flex: 1;
+    }
+
+    .story-name {
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 2px;
+      color: var(--parchment);
+    }
+
+    .story-type {
+      font-size: 11px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .fidelity-badge {
+      padding: 8px 14px;
+      border-radius: 20px;
+      font-size: 14px;
+      font-weight: bold;
+    }
+
+    .fidelity-badge.high {
+      background: rgba(68, 255, 68, 0.2);
+      color: #88ff88;
+    }
+
+    .fidelity-badge.medium {
+      background: rgba(255, 215, 0, 0.2);
+      color: var(--gold);
+    }
+
+    .fidelity-badge.low {
+      background: rgba(255, 68, 68, 0.2);
+      color: #ff8888;
+    }
+
+    /* Story Body */
+    .story-body {
+      padding: 16px;
+    }
+
+    /* Current Telling */
+    .current-telling {
+      padding: 16px;
+      background: rgba(212, 184, 150, 0.08);
+      border-left: 3px solid var(--parchment-dark);
+      border-radius: 0 8px 8px 0;
+      margin-bottom: 16px;
+      font-style: italic;
+      color: var(--parchment);
+      line-height: 1.7;
+      position: relative;
+    }
+
+    .current-telling::before {
+      content: '"';
+      position: absolute;
+      top: 8px;
+      left: 8px;
+      font-size: 32px;
+      color: var(--parchment-dark);
+      opacity: 0.5;
+    }
+
+    .current-telling p {
+      padding-left: 20px;
+    }
+
+    /* Truth Box */
+    .truth-box {
+      padding: 12px;
+      background: rgba(68, 255, 68, 0.08);
+      border: 1px solid rgba(68, 255, 68, 0.2);
+      border-radius: 8px;
+      margin-bottom: 16px;
+    }
+
+    .truth-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--green);
+      margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .truth-content {
+      font-size: 12px;
+      color: var(--text-secondary);
+      line-height: 1.5;
+    }
+
+    /* Story Lineage */
+    .lineage-section {
+      margin-bottom: 16px;
+    }
+
+    .section-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--text-muted);
+      margin-bottom: 10px;
+    }
+
+    .lineage-flow {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      overflow-x: auto;
+      padding: 8px 0;
+    }
+
+    .lineage-node {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 8px 12px;
+      background: rgba(255,255,255,0.05);
+      border-radius: 8px;
+      min-width: 70px;
+      transition: all 0.2s;
+    }
+
+    .lineage-node:hover {
+      background: rgba(255,255,255,0.1);
+      transform: scale(1.05);
+    }
+
+    .lineage-node.origin {
+      background: rgba(68, 255, 68, 0.15);
+      border: 1px solid rgba(68, 255, 68, 0.3);
+    }
+
+    .lineage-node.current {
+      background: rgba(255, 215, 0, 0.15);
+      border: 1px solid rgba(255, 215, 0, 0.5);
+    }
+
+    .lineage-gen {
+      font-size: 9px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+    }
+
+    .lineage-name {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin: 2px 0;
+    }
+
+    .lineage-fidelity {
+      font-size: 10px;
+      color: var(--text-secondary);
+    }
+
+    .lineage-fidelity.high { color: var(--green); }
+    .lineage-fidelity.medium { color: var(--gold); }
+    .lineage-fidelity.low { color: var(--red); }
+
+    .lineage-arrow {
+      color: var(--text-muted);
+      font-size: 16px;
+    }
+
+    /* Stats Grid */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .stat-box {
+      text-align: center;
+      padding: 12px;
+      background: rgba(0,0,0,0.3);
+      border-radius: 8px;
+    }
+
+    .stat-value {
+      font-size: 24px;
+      font-weight: bold;
+      color: var(--text-primary);
+    }
+
+    .stat-label {
+      font-size: 10px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      margin-top: 4px;
+    }
+
+    /* Themes */
+    .themes-section {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-bottom: 16px;
+    }
+
+    .theme-tag {
+      padding: 4px 12px;
+      background: rgba(139, 69, 19, 0.2);
+      border: 1px solid rgba(139, 69, 19, 0.3);
+      border-radius: 12px;
+      font-size: 11px;
+      color: var(--parchment);
+    }
+
+    /* Carriers */
+    .carriers-section {
+      padding: 12px;
+      background: rgba(0,0,0,0.2);
+      border-radius: 8px;
+    }
+
+    .carriers-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+
+    .carriers-count {
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+
+    .carrier-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .carrier {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 8px;
+      background: rgba(255,255,255,0.05);
+      border-radius: 12px;
+      font-size: 11px;
+    }
+
+    .carrier.witness {
+      background: rgba(255, 215, 0, 0.15);
+      border: 1px solid rgba(255, 215, 0, 0.3);
+    }
+
+    .carrier.elder {
+      background: rgba(170, 68, 255, 0.15);
+    }
+
+    .carrier-emoji {
+      font-size: 12px;
+    }
+
+    /* Story Status Banner */
+    .story-status {
+      padding: 10px 16px;
+      text-align: center;
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    .story-status.active {
+      background: rgba(68, 255, 68, 0.15);
+      color: #88ff88;
+    }
+
+    .story-status.endangered {
+      background: rgba(255, 68, 68, 0.2);
+      color: #ff8888;
+    }
+
+    .story-status.spreading {
+      background: rgba(255, 215, 0, 0.15);
+      color: var(--gold);
+    }
+
+    /* Story Footer */
+    .story-footer {
+      display: flex;
+      justify-content: space-between;
+      padding: 10px 16px;
+      background: rgba(0,0,0,0.3);
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    /* Version History (Expanded View) */
+    .version-history {
+      margin-top: 16px;
+      padding-top: 16px;
+      border-top: 1px solid var(--border-dark);
+    }
+
+    .version-item {
+      padding: 12px;
+      background: rgba(0,0,0,0.2);
+      border-radius: 8px;
+      margin-bottom: 8px;
+      font-size: 12px;
+    }
+
+    .version-header {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 6px;
+    }
+
+    .version-meta {
+      color: var(--text-muted);
+    }
+
+    .version-fidelity {
+      font-weight: 600;
+    }
+
+    .version-text {
+      color: var(--parchment);
+      font-style: italic;
+      line-height: 1.5;
+    }
+
+    /* Comparison View */
+    .comparison-card {
+      width: 100%;
+      max-width: 800px;
+    }
+
+    .comparison-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      padding: 16px;
+    }
+
+    .comparison-side {
+      padding: 16px;
+      border-radius: 8px;
+    }
+
+    .comparison-side.truth {
+      background: rgba(68, 255, 68, 0.1);
+      border: 1px solid rgba(68, 255, 68, 0.2);
+    }
+
+    .comparison-side.myth {
+      background: rgba(255, 68, 68, 0.1);
+      border: 1px solid rgba(255, 68, 68, 0.2);
+    }
+
+    .comparison-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 8px;
+    }
+
+    .comparison-side.truth .comparison-label { color: var(--green); }
+    .comparison-side.myth .comparison-label { color: var(--red); }
+
+    .comparison-content {
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    /* Section Headers */
+    h2 {
+      width: 100%;
+      text-align: center;
+      margin: 40px 0 20px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--border-dark);
+      color: var(--text-muted);
+      font-weight: 400;
+      font-size: 14px;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+    }
+
+    h2:first-of-type {
+      margin-top: 0;
+    }
+  </style>
+</head>
+<body>
+  <h1>Story Cards Prototype</h1>
+
+  <div class="cards-container">
+    <h2>Active Stories</h2>
+
+    <!-- Thriving Story -->
+    <div class="story-card thriving">
+      <div class="story-header">
+        <span class="story-icon">📜</span>
+        <div class="story-title-area">
+          <div class="story-name">The Rain of Mira</div>
+          <div class="story-type">Miracle Story</div>
+        </div>
+        <span class="fidelity-badge low">34%</span>
+      </div>
+
+      <div class="story-body">
+        <div class="current-telling">
+          <p>The prophet Mira climbed the sacred mountain and wrestled the Storm God for three days. She won, and the god's tears became rain that saved the village from the Great Drought.</p>
+        </div>
+
+        <div class="truth-box">
+          <div class="truth-label">✓ What Actually Happened</div>
+          <div class="truth-content">
+            Turn 5: You caused rain during a drought. Mira witnessed while praying at the old stone.
+          </div>
+        </div>
+
+        <div class="lineage-section">
+          <div class="section-label">Story Lineage</div>
+          <div class="lineage-flow">
+            <div class="lineage-node origin">
+              <span class="lineage-gen">Gen 1</span>
+              <span class="lineage-name">Mira</span>
+              <span class="lineage-fidelity high">98%</span>
+            </div>
+            <span class="lineage-arrow">→</span>
+            <div class="lineage-node">
+              <span class="lineage-gen">Gen 2</span>
+              <span class="lineage-name">Kira</span>
+              <span class="lineage-fidelity medium">71%</span>
+            </div>
+            <span class="lineage-arrow">→</span>
+            <div class="lineage-node">
+              <span class="lineage-gen">Gen 3</span>
+              <span class="lineage-name">Tam</span>
+              <span class="lineage-fidelity medium">45%</span>
+            </div>
+            <span class="lineage-arrow">→</span>
+            <div class="lineage-node current">
+              <span class="lineage-gen">Gen 4</span>
+              <span class="lineage-name">Village</span>
+              <span class="lineage-fidelity low">34%</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="stats-grid">
+          <div class="stat-box">
+            <div class="stat-value">47</div>
+            <div class="stat-label">Carriers</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-value">12</div>
+            <div class="stat-label">Told/Year</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-value">+8</div>
+            <div class="stat-label">Belief Impact</div>
+          </div>
+        </div>
+
+        <div class="themes-section">
+          <span class="theme-tag">rain</span>
+          <span class="theme-tag">prophet</span>
+          <span class="theme-tag">sacrifice</span>
+          <span class="theme-tag">salvation</span>
+        </div>
+
+        <div class="carriers-section">
+          <div class="carriers-header">
+            <span class="section-label">Notable Carriers</span>
+            <span class="carriers-count">47 total</span>
+          </div>
+          <div class="carrier-list">
+            <span class="carrier witness"><span class="carrier-emoji">👁️</span> Mira</span>
+            <span class="carrier elder"><span class="carrier-emoji">👴</span> Elder Tam</span>
+            <span class="carrier"><span class="carrier-emoji">👤</span> Kira</span>
+            <span class="carrier"><span class="carrier-emoji">👤</span> Jin</span>
+            <span class="carrier"><span class="carrier-emoji">👤</span> +43 more</span>
+          </div>
+        </div>
+
+        <div class="story-status spreading">
+          📈 Spreading • Told 3 times this season
+        </div>
+      </div>
+
+      <div class="story-footer">
+        <span>Created: Year 5, Turn 24</span>
+        <span>Last told: 2 days ago</span>
+      </div>
+    </div>
+
+    <!-- Endangered Story -->
+    <div class="story-card endangered">
+      <div class="story-header">
+        <span class="story-icon">📜</span>
+        <div class="story-title-area">
+          <div class="story-name">The Old Stone</div>
+          <div class="story-type">Origin Story</div>
+        </div>
+        <span class="fidelity-badge low">12%</span>
+      </div>
+
+      <div class="story-body">
+        <div class="current-telling">
+          <p>Before the village was born, before the first tree grew, there was the Stone. The god emerged from within it, shaped from the earth's own dreams.</p>
+        </div>
+
+        <div class="truth-box">
+          <div class="truth-label">✓ What Actually Happened</div>
+          <div class="truth-content">
+            Turn 1: You first manifested near an old boulder. A shepherd felt your presence and built a small cairn.
+          </div>
+        </div>
+
+        <div class="lineage-section">
+          <div class="section-label">Story Lineage</div>
+          <div class="lineage-flow">
+            <div class="lineage-node origin">
+              <span class="lineage-gen">Gen 1</span>
+              <span class="lineage-name">Shepherd</span>
+              <span class="lineage-fidelity high">89%</span>
+            </div>
+            <span class="lineage-arrow">→</span>
+            <div class="lineage-node">
+              <span class="lineage-gen">Gen 2</span>
+              <span class="lineage-name">...</span>
+              <span class="lineage-fidelity medium">54%</span>
+            </div>
+            <span class="lineage-arrow">→</span>
+            <div class="lineage-node">
+              <span class="lineage-gen">...</span>
+              <span class="lineage-name">...</span>
+              <span class="lineage-fidelity">...</span>
+            </div>
+            <span class="lineage-arrow">→</span>
+            <div class="lineage-node current">
+              <span class="lineage-gen">Gen 6</span>
+              <span class="lineage-name">Tam</span>
+              <span class="lineage-fidelity low">12%</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="stats-grid">
+          <div class="stat-box">
+            <div class="stat-value" style="color: var(--red);">2</div>
+            <div class="stat-label">Carriers</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-value" style="color: var(--red);">0</div>
+            <div class="stat-label">Told/Year</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-value">+15</div>
+            <div class="stat-label">Belief Impact</div>
+          </div>
+        </div>
+
+        <div class="themes-section">
+          <span class="theme-tag">origin</span>
+          <span class="theme-tag">creation</span>
+          <span class="theme-tag">stone</span>
+          <span class="theme-tag">ancient</span>
+        </div>
+
+        <div class="carriers-section">
+          <div class="carriers-header">
+            <span class="section-label">⚠️ Last Carriers</span>
+            <span class="carriers-count">2 remaining</span>
+          </div>
+          <div class="carrier-list">
+            <span class="carrier elder"><span class="carrier-emoji">👴</span> Elder Tam (87, failing)</span>
+            <span class="carrier elder"><span class="carrier-emoji">👴</span> Old Wren (82, recluse)</span>
+          </div>
+        </div>
+
+        <div class="story-status endangered">
+          ⚠️ ENDANGERED • Not told in 5 years • May be lost
+        </div>
+      </div>
+
+      <div class="story-footer">
+        <span>Created: Year 1, Turn 1</span>
+        <span>Last told: 5 years ago</span>
+      </div>
+    </div>
+
+    <!-- High Fidelity Story -->
+    <div class="story-card">
+      <div class="story-header">
+        <span class="story-icon">📜</span>
+        <div class="story-title-area">
+          <div class="story-name">The Healing of Jin</div>
+          <div class="story-type">Miracle Story</div>
+        </div>
+        <span class="fidelity-badge high">78%</span>
+      </div>
+
+      <div class="story-body">
+        <div class="current-telling">
+          <p>Young Jin fell ill with the river fever. His mother prayed at the shrine for three nights. On the fourth morning, Jin awoke, the fever broken, with no memory of his sickness.</p>
+        </div>
+
+        <div class="truth-box">
+          <div class="truth-label">✓ What Actually Happened</div>
+          <div class="truth-content">
+            Turn 38: You healed Jin after his mother Kira prayed. She witnessed a warm light at the shrine.
+          </div>
+        </div>
+
+        <div class="lineage-section">
+          <div class="section-label">Story Lineage</div>
+          <div class="lineage-flow">
+            <div class="lineage-node origin">
+              <span class="lineage-gen">Gen 1</span>
+              <span class="lineage-name">Kira</span>
+              <span class="lineage-fidelity high">95%</span>
+            </div>
+            <span class="lineage-arrow">→</span>
+            <div class="lineage-node current">
+              <span class="lineage-gen">Gen 2</span>
+              <span class="lineage-name">Village</span>
+              <span class="lineage-fidelity high">78%</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="stats-grid">
+          <div class="stat-box">
+            <div class="stat-value">12</div>
+            <div class="stat-label">Carriers</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-value">4</div>
+            <div class="stat-label">Told/Year</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-value">+10</div>
+            <div class="stat-label">Belief Impact</div>
+          </div>
+        </div>
+
+        <div class="themes-section">
+          <span class="theme-tag">healing</span>
+          <span class="theme-tag">prayer</span>
+          <span class="theme-tag">child</span>
+          <span class="theme-tag">mother</span>
+        </div>
+
+        <div class="story-status active">
+          ✓ Active • Recent story, high fidelity
+        </div>
+      </div>
+
+      <div class="story-footer">
+        <span>Created: Year 38, Turn 1824</span>
+        <span>Last told: 3 weeks ago</span>
+      </div>
+    </div>
+
+    <h2>Story Comparison View</h2>
+
+    <!-- Side-by-side comparison -->
+    <div class="story-card comparison-card">
+      <div class="story-header">
+        <span class="story-icon">📜</span>
+        <div class="story-title-area">
+          <div class="story-name">The Rain of Mira</div>
+          <div class="story-type">Truth vs. Myth Comparison</div>
+        </div>
+      </div>
+
+      <div class="comparison-grid">
+        <div class="comparison-side truth">
+          <div class="comparison-label">✓ What You Did (Truth)</div>
+          <div class="comparison-content">
+            <p><strong>Turn 5:</strong> You caused rain during a drought.</p>
+            <p><strong>Witness:</strong> Mira, a farmer, age 23</p>
+            <p><strong>Location:</strong> The old stone by the river</p>
+            <p><strong>Context:</strong> She was praying for her crops</p>
+            <p><strong>Your action:</strong> Small miracle (15 power)</p>
+          </div>
+        </div>
+
+        <div class="comparison-side myth">
+          <div class="comparison-label">📖 What They Believe (Myth)</div>
+          <div class="comparison-content">
+            <p><strong>The Prophet:</strong> Mira became a "prophet" who could speak to the Storm God</p>
+            <p><strong>The Journey:</strong> She "climbed the sacred mountain" (was actually by the river)</p>
+            <p><strong>The Battle:</strong> She "wrestled the Storm God for three days" (she prayed for one afternoon)</p>
+            <p><strong>The Miracle:</strong> The god's "tears" became rain (you just... made it rain)</p>
+            <p><strong>The Stakes:</strong> "Great Drought" (it was a dry spell)</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="story-body">
+        <div class="version-history">
+          <div class="section-label">📚 Version History</div>
+
+          <div class="version-item">
+            <div class="version-header">
+              <span class="version-meta">Gen 1 • Mira (eyewitness) • Year 5</span>
+              <span class="version-fidelity" style="color: var(--green);">98%</span>
+            </div>
+            <div class="version-text">
+              "I prayed at the old stone, and the sky darkened. Rain came. The god heard me."
+            </div>
+          </div>
+
+          <div class="version-item">
+            <div class="version-header">
+              <span class="version-meta">Gen 2 • Kira (daughter) • Year 25</span>
+              <span class="version-fidelity" style="color: var(--gold);">71%</span>
+            </div>
+            <div class="version-text">
+              "When mother was young, a great drought came. She walked to the forbidden stone where grandmother prayed. She begged the sky spirit, and thunder answered."
+            </div>
+          </div>
+
+          <div class="version-item">
+            <div class="version-header">
+              <span class="version-meta">Gen 3 • Elder Tam • Year 45</span>
+              <span class="version-fidelity" style="color: var(--gold);">45%</span>
+            </div>
+            <div class="version-text">
+              "Mira was a holy woman who could speak to the Rain Bringer. Once, during the Great Drought, she called forth a flood that saved the village."
+            </div>
+          </div>
+
+          <div class="version-item">
+            <div class="version-header">
+              <span class="version-meta">Gen 4 • Village tradition • Year 65</span>
+              <span class="version-fidelity" style="color: var(--red);">34%</span>
+            </div>
+            <div class="version-text">
+              "The prophet Mira climbed the sacred mountain and wrestled the Storm God for three days. She won, and the god's tears became rain that saved the village."
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="story-footer">
+        <span>Drift rate: ~16% per generation</span>
+        <span>60 years of mutation</span>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Add interactive hover effects
+    document.querySelectorAll('.lineage-node').forEach(node => {
+      node.addEventListener('click', () => {
+        // Could expand to show that generation's version
+        node.style.transform = 'scale(1.1)';
+        setTimeout(() => {
+          node.style.transform = '';
+        }, 200);
+      });
+    });
+
+    // Animate stats on scroll into view
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          entry.target.querySelectorAll('.stat-value').forEach(stat => {
+            const value = stat.textContent;
+            stat.textContent = '0';
+            animateValue(stat, 0, parseInt(value) || 0, 1000);
+          });
+          observer.unobserve(entry.target);
+        }
+      });
+    });
+
+    document.querySelectorAll('.stats-grid').forEach(grid => {
+      observer.observe(grid);
+    });
+
+    function animateValue(element, start, end, duration) {
+      const startTime = performance.now();
+      const prefix = element.textContent.includes('+') ? '+' : '';
+
+      function update(currentTime) {
+        const elapsed = currentTime - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+
+        const current = Math.floor(progress * (end - start) + start);
+        element.textContent = prefix + current;
+
+        if (progress < 1) {
+          requestAnimationFrame(update);
+        }
+      }
+
+      requestAnimationFrame(update);
+    }
+  </script>
+</body>
+</html>

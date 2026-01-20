@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Small Gods - Game Demo</title>
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+  <div class="app">
+    <div class="main">
+      <!-- Left Panel: Controls -->
+      <div class="panel panel-left">
+        <div class="panel-scroll">
+          <h2>Cost Tracker</h2>
+          <div class="cost-tracker">
+            <div class="cost-row">
+              <span class="label">Map Paint</span>
+              <span class="value" id="costPaint">$0.000</span>
+            </div>
+            <div class="cost-row">
+              <span class="label">NPCs</span>
+              <span class="value" id="costNPCs">$0.000</span>
+            </div>
+            <div class="cost-row">
+              <span class="label">Zoom Views</span>
+              <span class="value" id="costZoom">$0.000</span>
+            </div>
+            <div class="cost-row total">
+              <span class="label">Session Total</span>
+              <span class="value" id="costTotal">$0.000</span>
+            </div>
+          </div>
+
+          <h2>Controls</h2>
+          <div id="statusBox" class="status"></div>
+
+          <div class="api-status">
+            <span class="api-badge fal">fal.ai</span> API key loaded from server
+          </div>
+
+          <div class="control-group">
+            <label>World Seed</label>
+            <input type="number" id="seedInput" value="12345" />
+          </div>
+
+          <div class="control-group">
+            <label>Generation Mode</label>
+            <select id="genMode">
+              <option value="noise">Noise (Fast)</option>
+              <option value="wfc">WFC (Constraint-Based)</option>
+            </select>
+          </div>
+
+          <button class="btn-secondary" id="btnWorldSeed" onclick="openWorldSeedEditor()">
+            Edit World Seed (WFC)
+          </button>
+
+          <h2 class="section-header">Map Settings</h2>
+          <div class="size-grid">
+            <div class="control-group compact">
+              <label>Width</label>
+              <input type="number" id="mapWidth" value="24" min="10" max="48" />
+            </div>
+            <div class="control-group compact">
+              <label>Height</label>
+              <input type="number" id="mapHeight" value="18" min="10" max="36" />
+            </div>
+          </div>
+
+          <div class="control-group">
+            <label>Villages (1-5)</label>
+            <input type="range" id="villageCount" min="1" max="5" value="3" />
+            <div class="range-labels">
+              <span>1</span><span id="villageValue">3</span><span>5</span>
+            </div>
+          </div>
+
+          <div class="control-group">
+            <label>Forest Density</label>
+            <input type="range" id="forestDensity" min="0" max="100" value="55" />
+            <div class="range-labels">
+              <span>Sparse</span><span id="forestValue">55%</span><span>Dense</span>
+            </div>
+          </div>
+
+          <div class="control-group">
+            <label>Water Level</label>
+            <input type="range" id="waterLevel" min="10" max="50" value="35" />
+            <div class="range-labels">
+              <span>Low</span><span id="waterValue">35%</span><span>High</span>
+            </div>
+          </div>
+
+          <button class="btn-primary" id="btnGenerate" onclick="generateWorld()">
+            Generate World <span class="price">FREE</span>
+          </button>
+
+          <button class="btn-secondary" id="btnPaint" onclick="paintWorld()">
+            AI Paint Map <span class="price" id="paintPrice">~$0.06</span>
+          </button>
+
+          <div class="control-group controlnet-toggles">
+            <label>ControlNets</label>
+            <div class="controlnet-row">
+              <label class="checkbox-label">
+                <input type="checkbox" id="chkSegmentation" checked onchange="updateControlNetConfig()" />
+                Segmentation
+              </label>
+              <input type="range" id="segScale" min="0" max="100" value="70"
+                     onchange="updateControlNetConfig()" oninput="updateScaleLabel('seg')" />
+              <span class="scale-value" id="segScaleValue">0.7</span>
+            </div>
+            <div class="controlnet-row">
+              <label class="checkbox-label">
+                <input type="checkbox" id="chkCanny" onchange="updateControlNetConfig()" />
+                Canny Edge
+              </label>
+              <input type="range" id="cannyScale" min="0" max="100" value="50"
+                     onchange="updateControlNetConfig()" oninput="updateScaleLabel('canny')" />
+              <span class="scale-value" id="cannyScaleValue">0.5</span>
+            </div>
+            <div class="controlnet-param">
+              <label>img2img Strength</label>
+              <input type="range" id="i2iStrength" min="0" max="100" value="65"
+                     onchange="updateControlNetConfig()" oninput="updateScaleLabel('i2i')" />
+              <span class="scale-value" id="i2iStrengthValue">0.65</span>
+            </div>
+            <div class="controlnet-param">
+              <label>ControlNet Influence</label>
+              <input type="range" id="cnScale" min="0" max="100" value="60"
+                     onchange="updateControlNetConfig()" oninput="updateScaleLabel('cn')" />
+              <span class="scale-value" id="cnScaleValue">0.6</span>
+            </div>
+          </div>
+
+          <button class="btn-secondary" id="btnNPCs" onclick="generateNPCs()">
+            Generate NPCs <span class="price">~$0.01/ea</span>
+          </button>
+
+          <h2 class="section-header">Prompt Preview</h2>
+          <div id="promptPreview" class="prompt-preview-panel">
+            <div class="empty-state">Generate to see prompt</div>
+          </div>
+
+          <button class="btn-success" id="btnSimStart" onclick="startSimulation()">
+            Start Simulation <span class="price">FREE</span>
+          </button>
+
+          <button class="btn-secondary" id="btnSimStop" onclick="stopSimulation()">
+            Stop Simulation
+          </button>
+
+          <h2 class="section-header">Editor</h2>
+          <button class="btn-secondary" id="btnToggleEditor" onclick="toggleEditor()">
+            Edit Map
+          </button>
+
+          <div class="price-list">
+            <strong>API Pricing (v2 + LoRA):</strong>
+            <div><span>ControlNet + LoRA Paint</span><span>~$0.017</span></div>
+            <div><span>NPC Sprite</span><span>~$0.003</span></div>
+            <div><span>Zoom View</span><span>~$0.05</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Center Panel: Canvas -->
+      <div class="panel panel-center">
+        <div class="layer-tabs">
+          <div class="layer-tab active" data-layer="map" onclick="setLayer('map')">Map</div>
+          <div class="layer-tab" data-layer="segmentation" onclick="setLayer('segmentation')">Segmentation</div>
+          <div class="layer-tab" data-layer="edge" onclick="setLayer('edge')">Edge</div>
+          <div class="layer-tab disabled" data-layer="painted" onclick="setLayer('painted')">Painted</div>
+          <div class="layer-tab disabled" data-layer="final" onclick="setLayer('final')">Final</div>
+        </div>
+
+        <!-- Editor Toolbar -->
+        <div class="editor-toolbar" id="editorToolbar">
+          <button class="editor-tool active" data-mode="select" onclick="setEditorMode('select')">
+            <span>Select</span><span class="key">1</span>
+          </button>
+          <button class="editor-tool" data-mode="move" onclick="setEditorMode('move')">
+            <span>Move</span><span class="key">2</span>
+          </button>
+          <div class="editor-divider"></div>
+          <button class="editor-tool" data-mode="add-poi" onclick="setEditorMode('add-poi')">
+            <span>+ POI</span><span class="key">3</span>
+          </button>
+          <button class="editor-tool" data-mode="add-road-endpoint" onclick="setEditorMode('add-road-endpoint')">
+            <span>+ Road</span><span class="key">4</span>
+          </button>
+          <button class="editor-tool" data-mode="add-connection" onclick="setEditorMode('add-connection')">
+            <span>+ Connect</span><span class="key">5</span>
+          </button>
+          <div class="editor-divider"></div>
+          <label class="editor-checkbox">
+            <input type="checkbox" checked onchange="editor.showLabels = this.checked; redraw();" />
+            Labels
+          </label>
+          <label class="editor-checkbox">
+            <input type="checkbox" checked onchange="editor.showOverlay = this.checked; redraw();" />
+            Overlay
+          </label>
+        </div>
+
+        <div class="canvas-area">
+          <div class="canvas-overlay">
+            <span id="zoomLevel">100%</span> | <span id="cursorPos">-</span>
+          </div>
+          <div class="canvas-container" id="canvasContainer">
+            <canvas id="gameCanvas" width="1024" height="1024"></canvas>
+          </div>
+          <div class="canvas-message" id="canvasMessage">
+            <div id="messageText">Click "AI Paint Map" to generate painted version</div>
+            <button class="btn-primary" id="messageBtn" style="display:none;">Paint Map (~$0.02)</button>
+          </div>
+          <div class="zoom-controls">
+            <button class="zoom-btn" onclick="zoomIn()">+</button>
+            <button class="zoom-btn" onclick="zoomOut()">−</button>
+            <button class="zoom-btn" onclick="resetZoom()">⟲</button>
+          </div>
+        </div>
+
+        <div class="canvas-hint">Scroll to zoom • Drag to pan • Click tile for info</div>
+      </div>
+
+      <!-- Right Panel: Info -->
+      <div class="panel panel-right">
+        <div class="panel-scroll">
+          <h2>Selected Tile</h2>
+          <div id="tileInfoPanel" class="tile-info-panel">
+            <div class="empty-state">Click a tile to see info</div>
+          </div>
+
+          <h2>World Stats</h2>
+          <div class="stats-grid">
+            <div class="stat-box">
+              <div class="value" id="statTiles">0</div>
+              <div class="label">Tiles</div>
+            </div>
+            <div class="stat-box">
+              <div class="value" id="statVillages">0</div>
+              <div class="label">Villages</div>
+            </div>
+            <div class="stat-box">
+              <div class="value" id="statNPCs">0</div>
+              <div class="label">NPCs</div>
+            </div>
+            <div class="stat-box">
+              <div class="value" id="statWalkable">0%</div>
+              <div class="label">Walkable</div>
+            </div>
+          </div>
+
+          <h2>NPCs</h2>
+          <div class="npc-grid" id="npcList">
+            <div class="empty-state" style="grid-column:1/-1;">No NPCs yet</div>
+          </div>
+
+          <!-- Zoom View disabled for now
+          <h2 class="section-header">Zoom View <span class="subtitle">(~$0.05)</span></h2>
+          <div class="zoom-preview" id="zoomPreview">
+            <div class="placeholder">Click map tile</div>
+          </div>
+          -->
+
+          <h2>Minimap</h2>
+          <div class="minimap" id="minimapContainer">
+            <canvas id="minimapCanvas" width="200" height="150"></canvas>
+            <div class="viewport" id="viewport"></div>
+          </div>
+
+          <h2>Control Images <span class="subtitle">(for LoRAs)</span></h2>
+          <div class="control-images-panel" id="controlImagePreviews">
+            <div class="empty-state">Generate world to see control images</div>
+          </div>
+          <button class="btn-secondary btn-small" id="btnGenControlImages" onclick="generateControlImages()">
+            Regenerate Control Images
+          </button>
+
+          <!-- Editor Properties Panel -->
+          <div class="editor-props-panel" id="editorPropsPanel">
+            <h2>Properties</h2>
+            <div id="propertiesPanel">
+              <div class="empty-state">Select an object to edit</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- World Seed Editor Modal -->
+  <div class="modal-overlay" id="worldSeedModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>World Seed Editor</h2>
+        <button class="modal-close" onclick="closeWorldSeedEditor()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="modal-sidebar">
+          <div class="control-group">
+            <label>World Name</label>
+            <input type="text" id="wsName" value="New World" />
+          </div>
+          <div class="control-group">
+            <label>Biome</label>
+            <select id="wsBiome">
+              <option value="temperate">Temperate</option>
+              <option value="desert">Desert</option>
+              <option value="arctic">Arctic</option>
+              <option value="tropical">Tropical</option>
+              <option value="volcanic">Volcanic</option>
+              <option value="swamp">Swamp</option>
+            </select>
+          </div>
+
+          <h3 class="poi-header">Points of Interest</h3>
+          <div id="poiList" class="poi-list">
+            <div class="empty-state">No POIs defined</div>
+          </div>
+
+          <h3 class="quick-add-header">Quick Add</h3>
+          <div class="quick-add-btns">
+            <button class="btn-secondary" onclick="quickAddPOI('village')">+ Village</button>
+            <button class="btn-secondary" onclick="quickAddPOI('castle')">+ Castle</button>
+            <button class="btn-secondary" onclick="quickAddPOI('forest')">+ Forest</button>
+            <button class="btn-secondary" onclick="quickAddPOI('lake')">+ Lake</button>
+            <button class="btn-secondary" onclick="quickAddPOI('mountain')">+ Mountain</button>
+            <button class="btn-secondary" onclick="quickAddPOI('port')">+ Port</button>
+          </div>
+        </div>
+        <div class="modal-main">
+          <div id="validationBox" class="validation-msg valid">Valid JSON</div>
+          <div class="modal-editor">
+            <textarea id="worldSeedJson" spellcheck="false"></textarea>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <input type="file" id="fileInput" accept=".json" style="display:none;" onchange="loadWorldSeedFile(event)" />
+        <button class="btn-secondary" onclick="document.getElementById('fileInput').click()">Load File</button>
+        <button class="btn-secondary" onclick="downloadWorldSeed()">Save File</button>
+        <button class="btn-secondary" onclick="loadDefaultWorld()">Load Default</button>
+        <button class="btn-secondary" onclick="closeWorldSeedEditor()">Cancel</button>
+        <button class="btn-primary" onclick="applyWorldSeed()">Apply & Generate</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- WFC Engine -->
+  <script src="/src/wfc/Tile.js"></script>
+  <script src="/src/wfc/Cell.js"></script>
+  <script src="/src/wfc/Grid.js"></script>
+  <script src="/src/wfc/Propagator.js"></script>
+  <script src="/src/wfc/Solver.js"></script>
+  <script src="/src/wfc/WFCEngine.js"></script>
+  <script src="/src/worldseed/Schema.js"></script>
+
+  <!-- App Scripts -->
+  <script src="/js/state.js"></script>
+  <script src="/js/noise.js"></script>
+  <script src="/js/map-generator.js"></script>
+  <script src="/js/renderer.js"></script>
+  <script src="/js/ui.js"></script>
+  <script src="/js/world-seed-editor.js"></script>
+  <script src="/js/ai-integration-v2.js"></script>
+  <script src="/js/simulation.js"></script>
+  <script src="/js/editor.js"></script>
+  <script src="/js/editor-overlay.js"></script>
+  <script src="/js/app.js"></script>
+</body>
+</html>

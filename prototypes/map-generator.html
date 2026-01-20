@@ -1,0 +1,678 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Small Gods - Map Generator</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: #1a1a2e;
+      color: #e8e8e8;
+      min-height: 100vh;
+      padding: 20px;
+    }
+
+    h1 {
+      text-align: center;
+      color: #ffd700;
+      margin-bottom: 5px;
+    }
+
+    .subtitle {
+      text-align: center;
+      color: #888;
+      margin-bottom: 20px;
+      font-size: 14px;
+    }
+
+    .controls {
+      display: flex;
+      justify-content: center;
+      gap: 15px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+    }
+
+    .control-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .control-group label {
+      font-size: 12px;
+      color: #888;
+    }
+
+    input[type="number"] {
+      width: 60px;
+      padding: 5px;
+      border: 1px solid #444;
+      border-radius: 4px;
+      background: #2a2a4e;
+      color: #fff;
+    }
+
+    button {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 13px;
+      transition: all 0.2s;
+    }
+
+    .btn-primary {
+      background: #4ecdc4;
+      color: #1a1a2e;
+    }
+
+    .btn-primary:hover {
+      background: #3dbdb5;
+    }
+
+    .btn-secondary {
+      background: #444;
+      color: #fff;
+    }
+
+    .btn-secondary:hover {
+      background: #555;
+    }
+
+    .maps-container {
+      display: flex;
+      gap: 20px;
+      justify-content: center;
+      flex-wrap: wrap;
+      margin-bottom: 20px;
+    }
+
+    .map-panel {
+      background: rgba(0,0,0,0.3);
+      border-radius: 12px;
+      padding: 15px;
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+
+    .map-panel h3 {
+      text-align: center;
+      color: #4ecdc4;
+      margin-bottom: 10px;
+      font-size: 14px;
+    }
+
+    .map-panel p {
+      text-align: center;
+      color: #666;
+      font-size: 11px;
+      margin-bottom: 10px;
+    }
+
+    canvas {
+      display: block;
+      border-radius: 4px;
+    }
+
+    .skeleton-canvas {
+      background: #2d3748;
+    }
+
+    .segment-canvas {
+      background: #1a1a1a;
+    }
+
+    /* Isometric canvas for skeleton */
+    .iso-container {
+      position: relative;
+      overflow: hidden;
+      border-radius: 4px;
+      background: linear-gradient(180deg, #87CEEB 0%, #E0F0FF 100%);
+    }
+
+    /* Legend */
+    .legend {
+      display: flex;
+      justify-content: center;
+      gap: 15px;
+      flex-wrap: wrap;
+      margin-bottom: 20px;
+      padding: 10px;
+      background: rgba(0,0,0,0.2);
+      border-radius: 8px;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+    }
+
+    .legend-swatch {
+      width: 16px;
+      height: 16px;
+      border-radius: 3px;
+      border: 1px solid rgba(255,255,255,0.2);
+    }
+
+    /* Download links */
+    .downloads {
+      display: flex;
+      justify-content: center;
+      gap: 15px;
+      margin-bottom: 20px;
+    }
+
+    .downloads a {
+      color: #4ecdc4;
+      text-decoration: none;
+      font-size: 12px;
+      padding: 5px 10px;
+      border: 1px solid #4ecdc4;
+      border-radius: 4px;
+      transition: all 0.2s;
+    }
+
+    .downloads a:hover {
+      background: #4ecdc4;
+      color: #1a1a2e;
+    }
+
+    /* Stats */
+    .stats {
+      text-align: center;
+      color: #888;
+      font-size: 12px;
+      margin-bottom: 20px;
+    }
+
+    .stats span {
+      margin: 0 10px;
+      padding: 3px 8px;
+      background: rgba(255,255,255,0.1);
+      border-radius: 4px;
+    }
+
+    /* Tile data display */
+    .tile-data {
+      max-width: 800px;
+      margin: 0 auto;
+      background: rgba(0,0,0,0.3);
+      border-radius: 8px;
+      padding: 15px;
+      font-family: monospace;
+      font-size: 11px;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+
+    .tile-data h4 {
+      color: #4ecdc4;
+      margin-bottom: 10px;
+    }
+
+    .tile-data pre {
+      white-space: pre-wrap;
+      color: #aaa;
+    }
+  </style>
+</head>
+<body>
+  <h1>Procedural Map Generator</h1>
+  <p class="subtitle">Generates skeleton tiles + segment map for AI painting</p>
+
+  <div class="controls">
+    <div class="control-group">
+      <label>Width:</label>
+      <input type="number" id="mapWidth" value="16" min="8" max="32">
+    </div>
+    <div class="control-group">
+      <label>Height:</label>
+      <input type="number" id="mapHeight" value="12" min="8" max="24">
+    </div>
+    <div class="control-group">
+      <label>Seed:</label>
+      <input type="number" id="seed" value="42" min="1" max="99999">
+    </div>
+    <button class="btn-primary" onclick="generateMap()">Generate Map</button>
+    <button class="btn-secondary" onclick="randomSeed()">Random Seed</button>
+  </div>
+
+  <div class="stats" id="stats"></div>
+
+  <div class="legend">
+    <div class="legend-item"><div class="legend-swatch" style="background: #0066CC;"></div> Deep Water</div>
+    <div class="legend-item"><div class="legend-swatch" style="background: #4A90D9;"></div> Shallow Water</div>
+    <div class="legend-item"><div class="legend-swatch" style="background: #7CCD7C;"></div> Grass</div>
+    <div class="legend-item"><div class="legend-swatch" style="background: #228B22;"></div> Forest</div>
+    <div class="legend-item"><div class="legend-swatch" style="background: #F4D03F;"></div> Sand</div>
+    <div class="legend-item"><div class="legend-swatch" style="background: #8B7355;"></div> Dirt Road</div>
+    <div class="legend-item"><div class="legend-swatch" style="background: #A9A9A9;"></div> Stone Building</div>
+    <div class="legend-item"><div class="legend-swatch" style="background: #DEB887;"></div> Wood Building</div>
+    <div class="legend-item"><div class="legend-swatch" style="background: #808080;"></div> Stone Road</div>
+  </div>
+
+  <div class="maps-container">
+    <div class="map-panel">
+      <h3>Skeleton Tilemap</h3>
+      <p>Clean isometric structure for game logic</p>
+      <div class="iso-container" id="skeletonContainer"></div>
+    </div>
+    <div class="map-panel">
+      <h3>Segment Color Map</h3>
+      <p>Tile types as colors for ControlNet conditioning</p>
+      <canvas id="segmentCanvas" class="segment-canvas"></canvas>
+    </div>
+  </div>
+
+  <div class="downloads" id="downloads"></div>
+
+  <div class="tile-data">
+    <h4>Tile Data (JSON)</h4>
+    <pre id="tileDataJson"></pre>
+  </div>
+
+  <script>
+    // Tile types and their segment colors
+    const TILE_TYPES = {
+      deep_water:    { color: '#0066CC', name: 'Deep Water', walkable: false },
+      shallow_water: { color: '#4A90D9', name: 'Shallow Water', walkable: false },
+      grass:         { color: '#7CCD7C', name: 'Grass', walkable: true },
+      forest:        { color: '#228B22', name: 'Forest', walkable: true },
+      sand:          { color: '#F4D03F', name: 'Sand', walkable: true },
+      dirt_road:     { color: '#8B7355', name: 'Dirt Road', walkable: true },
+      stone_road:    { color: '#808080', name: 'Stone Road', walkable: true },
+      building_wood: { color: '#DEB887', name: 'Wood Building', walkable: false },
+      building_stone:{ color: '#A9A9A9', name: 'Stone Building', walkable: false },
+    };
+
+    // Seeded random number generator
+    class SeededRandom {
+      constructor(seed) {
+        this.seed = seed;
+      }
+      next() {
+        this.seed = (this.seed * 1103515245 + 12345) & 0x7fffffff;
+        return this.seed / 0x7fffffff;
+      }
+      range(min, max) {
+        return Math.floor(this.next() * (max - min + 1)) + min;
+      }
+      pick(arr) {
+        return arr[this.range(0, arr.length - 1)];
+      }
+    }
+
+    // Noise function for terrain
+    function noise2D(x, y, seed) {
+      const rng = new SeededRandom(seed + x * 374761393 + y * 668265263);
+      return rng.next();
+    }
+
+    function smoothNoise(x, y, seed, scale) {
+      const xi = Math.floor(x / scale);
+      const yi = Math.floor(y / scale);
+      const xf = (x / scale) - xi;
+      const yf = (y / scale) - yi;
+
+      const n00 = noise2D(xi, yi, seed);
+      const n10 = noise2D(xi + 1, yi, seed);
+      const n01 = noise2D(xi, yi + 1, seed);
+      const n11 = noise2D(xi + 1, yi + 1, seed);
+
+      const nx0 = n00 * (1 - xf) + n10 * xf;
+      const nx1 = n01 * (1 - xf) + n11 * xf;
+
+      return nx0 * (1 - yf) + nx1 * yf;
+    }
+
+    function fractalNoise(x, y, seed, octaves = 4) {
+      let value = 0;
+      let amplitude = 1;
+      let frequency = 1;
+      let maxValue = 0;
+
+      for (let i = 0; i < octaves; i++) {
+        value += smoothNoise(x * frequency, y * frequency, seed + i * 1000, 4) * amplitude;
+        maxValue += amplitude;
+        amplitude *= 0.5;
+        frequency *= 2;
+      }
+
+      return value / maxValue;
+    }
+
+    // Map generation
+    function generateMapData(width, height, seed) {
+      const rng = new SeededRandom(seed);
+      const tiles = [];
+
+      // Generate base terrain using noise
+      for (let y = 0; y < height; y++) {
+        const row = [];
+        for (let x = 0; x < width; x++) {
+          const elevation = fractalNoise(x, y, seed, 4);
+          const moisture = fractalNoise(x, y, seed + 500, 3);
+
+          let type;
+          if (elevation < 0.3) {
+            type = elevation < 0.2 ? 'deep_water' : 'shallow_water';
+          } else if (elevation < 0.4) {
+            type = 'sand';
+          } else if (elevation < 0.75) {
+            type = moisture > 0.5 ? 'forest' : 'grass';
+          } else {
+            type = 'grass';
+          }
+
+          row.push({
+            type,
+            elevation: Math.round(elevation * 100) / 100,
+            x, y
+          });
+        }
+        tiles.push(row);
+      }
+
+      // Add a village (cluster of buildings + roads)
+      const villageX = rng.range(4, width - 5);
+      const villageY = rng.range(4, height - 5);
+
+      // Place buildings
+      const buildingPositions = [
+        [0, 0], [1, 0], [-1, 0], [0, 1], [0, -1],
+        [2, 1], [-2, 0], [1, 2], [-1, -2]
+      ];
+
+      for (const [dx, dy] of buildingPositions) {
+        const bx = villageX + dx;
+        const by = villageY + dy;
+        if (bx >= 0 && bx < width && by >= 0 && by < height) {
+          const tile = tiles[by][bx];
+          if (tile.type !== 'deep_water' && tile.type !== 'shallow_water') {
+            tile.type = rng.next() > 0.3 ? 'building_wood' : 'building_stone';
+          }
+        }
+      }
+
+      // Add roads connecting buildings
+      for (let y = villageY - 2; y <= villageY + 2; y++) {
+        for (let x = villageX - 3; x <= villageX + 3; x++) {
+          if (x >= 0 && x < width && y >= 0 && y < height) {
+            const tile = tiles[y][x];
+            if (tile.type === 'grass' || tile.type === 'sand') {
+              if (y === villageY || x === villageX) {
+                tile.type = rng.next() > 0.3 ? 'dirt_road' : 'stone_road';
+              }
+            }
+          }
+        }
+      }
+
+      // Add a road from village to edge
+      let roadY = villageY;
+      for (let x = villageX + 3; x < width; x++) {
+        if (tiles[roadY][x].type === 'grass' || tiles[roadY][x].type === 'forest') {
+          tiles[roadY][x].type = 'dirt_road';
+        }
+        if (rng.next() > 0.7) roadY += rng.range(-1, 1);
+        roadY = Math.max(0, Math.min(height - 1, roadY));
+      }
+
+      return { tiles, width, height, seed, villageCenter: { x: villageX, y: villageY } };
+    }
+
+    // Render segment map (flat colors)
+    function renderSegmentMap(mapData, canvas) {
+      const tileSize = 24;
+      canvas.width = mapData.width * tileSize;
+      canvas.height = mapData.height * tileSize;
+
+      const ctx = canvas.getContext('2d');
+
+      for (let y = 0; y < mapData.height; y++) {
+        for (let x = 0; x < mapData.width; x++) {
+          const tile = mapData.tiles[y][x];
+          ctx.fillStyle = TILE_TYPES[tile.type].color;
+          ctx.fillRect(x * tileSize, y * tileSize, tileSize, tileSize);
+        }
+      }
+
+      return canvas;
+    }
+
+    // Render skeleton isometric map
+    function renderSkeletonMap(mapData, container) {
+      const tileWidth = 32;
+      const tileHeight = 16;
+
+      // Calculate canvas size for isometric view
+      const canvasWidth = (mapData.width + mapData.height) * (tileWidth / 2) + 20;
+      const canvasHeight = (mapData.width + mapData.height) * (tileHeight / 2) + 60;
+
+      container.style.width = canvasWidth + 'px';
+      container.style.height = canvasHeight + 'px';
+      container.innerHTML = '';
+
+      const canvas = document.createElement('canvas');
+      canvas.width = canvasWidth;
+      canvas.height = canvasHeight;
+      container.appendChild(canvas);
+
+      const ctx = canvas.getContext('2d');
+
+      // Sort tiles by render order (back to front)
+      const renderOrder = [];
+      for (let y = 0; y < mapData.height; y++) {
+        for (let x = 0; x < mapData.width; x++) {
+          renderOrder.push({ x, y, order: x + y });
+        }
+      }
+      renderOrder.sort((a, b) => a.order - b.order);
+
+      // Draw tiles
+      for (const pos of renderOrder) {
+        const tile = mapData.tiles[pos.y][pos.x];
+
+        // Convert to isometric coordinates
+        const isoX = (pos.x - pos.y) * (tileWidth / 2) + canvasWidth / 2;
+        const isoY = (pos.x + pos.y) * (tileHeight / 2) + 20;
+
+        drawIsometricTile(ctx, isoX, isoY, tileWidth, tileHeight, tile);
+      }
+
+      return canvas;
+    }
+
+    function drawIsometricTile(ctx, x, y, width, height, tile) {
+      const halfW = width / 2;
+      const halfH = height / 2;
+
+      // Get colors based on tile type
+      const colors = getTileColors(tile.type);
+
+      // Draw top face (diamond)
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + halfW, y + halfH);
+      ctx.lineTo(x, y + height);
+      ctx.lineTo(x - halfW, y + halfH);
+      ctx.closePath();
+      ctx.fillStyle = colors.top;
+      ctx.fill();
+      ctx.strokeStyle = colors.outline;
+      ctx.lineWidth = 0.5;
+      ctx.stroke();
+
+      // Draw height for buildings
+      if (tile.type.startsWith('building')) {
+        const buildingHeight = 12;
+
+        // Left face
+        ctx.beginPath();
+        ctx.moveTo(x - halfW, y + halfH);
+        ctx.lineTo(x, y + height);
+        ctx.lineTo(x, y + height + buildingHeight);
+        ctx.lineTo(x - halfW, y + halfH + buildingHeight);
+        ctx.closePath();
+        ctx.fillStyle = colors.left;
+        ctx.fill();
+        ctx.strokeStyle = colors.outline;
+        ctx.stroke();
+
+        // Right face
+        ctx.beginPath();
+        ctx.moveTo(x + halfW, y + halfH);
+        ctx.lineTo(x, y + height);
+        ctx.lineTo(x, y + height + buildingHeight);
+        ctx.lineTo(x + halfW, y + halfH + buildingHeight);
+        ctx.closePath();
+        ctx.fillStyle = colors.right;
+        ctx.fill();
+        ctx.strokeStyle = colors.outline;
+        ctx.stroke();
+
+        // Roof
+        ctx.beginPath();
+        ctx.moveTo(x, y - buildingHeight + 4);
+        ctx.lineTo(x + halfW, y + halfH - buildingHeight + 4);
+        ctx.lineTo(x, y + height - buildingHeight + 4);
+        ctx.lineTo(x - halfW, y + halfH - buildingHeight + 4);
+        ctx.closePath();
+        ctx.fillStyle = colors.roof || colors.top;
+        ctx.fill();
+        ctx.strokeStyle = colors.outline;
+        ctx.stroke();
+      }
+
+      // Draw trees for forest
+      if (tile.type === 'forest') {
+        drawTree(ctx, x, y - 4);
+      }
+    }
+
+    function drawTree(ctx, x, y) {
+      // Simple triangular tree
+      ctx.fillStyle = '#1a4d1a';
+      ctx.beginPath();
+      ctx.moveTo(x, y - 12);
+      ctx.lineTo(x + 6, y + 2);
+      ctx.lineTo(x - 6, y + 2);
+      ctx.closePath();
+      ctx.fill();
+
+      // Trunk
+      ctx.fillStyle = '#4a3728';
+      ctx.fillRect(x - 1.5, y + 2, 3, 4);
+    }
+
+    function getTileColors(type) {
+      const colorSchemes = {
+        deep_water:    { top: '#1a4a7a', outline: '#0d3d6b', left: '#15406d', right: '#1f5488' },
+        shallow_water: { top: '#3d7ab8', outline: '#2d6aa8', left: '#3570a8', right: '#4584c8' },
+        grass:         { top: '#5cb85c', outline: '#4a9f4a', left: '#4da84d', right: '#6ec86e' },
+        forest:        { top: '#3d7a3d', outline: '#2d6a2d', left: '#357035', right: '#458445' },
+        sand:          { top: '#e6d175', outline: '#c9b560', left: '#d4c068', right: '#f5e285' },
+        dirt_road:     { top: '#8b6b4a', outline: '#6b5238', left: '#7a5f42', right: '#9c7752' },
+        stone_road:    { top: '#808080', outline: '#606060', left: '#707070', right: '#909090' },
+        building_wood: { top: '#c4a67a', outline: '#9a805a', left: '#a8906a', right: '#d4b68a', roof: '#8b4513' },
+        building_stone:{ top: '#9a9a9a', outline: '#6a6a6a', left: '#808080', right: '#aaaaaa', roof: '#5a5a5a' },
+      };
+      return colorSchemes[type] || colorSchemes.grass;
+    }
+
+    // Count tile types
+    function countTiles(mapData) {
+      const counts = {};
+      for (let y = 0; y < mapData.height; y++) {
+        for (let x = 0; x < mapData.width; x++) {
+          const type = mapData.tiles[y][x].type;
+          counts[type] = (counts[type] || 0) + 1;
+        }
+      }
+      return counts;
+    }
+
+    // Generate downloadable images
+    function setupDownloads(skeletonCanvas, segmentCanvas, mapData) {
+      const container = document.getElementById('downloads');
+      container.innerHTML = '';
+
+      // Skeleton download
+      const skeletonLink = document.createElement('a');
+      skeletonLink.textContent = 'Download Skeleton PNG';
+      skeletonLink.href = skeletonCanvas.toDataURL('image/png');
+      skeletonLink.download = `skeleton_map_${mapData.seed}.png`;
+      container.appendChild(skeletonLink);
+
+      // Segment download
+      const segmentLink = document.createElement('a');
+      segmentLink.textContent = 'Download Segment Map PNG';
+      segmentLink.href = segmentCanvas.toDataURL('image/png');
+      segmentLink.download = `segment_map_${mapData.seed}.png`;
+      container.appendChild(segmentLink);
+
+      // JSON data download
+      const jsonLink = document.createElement('a');
+      jsonLink.textContent = 'Download Tile Data JSON';
+      const jsonBlob = new Blob([JSON.stringify(mapData, null, 2)], { type: 'application/json' });
+      jsonLink.href = URL.createObjectURL(jsonBlob);
+      jsonLink.download = `map_data_${mapData.seed}.json`;
+      container.appendChild(jsonLink);
+    }
+
+    // Main generation function
+    function generateMap() {
+      const width = parseInt(document.getElementById('mapWidth').value);
+      const height = parseInt(document.getElementById('mapHeight').value);
+      const seed = parseInt(document.getElementById('seed').value);
+
+      // Generate map data
+      const mapData = generateMapData(width, height, seed);
+
+      // Render skeleton
+      const skeletonContainer = document.getElementById('skeletonContainer');
+      const skeletonCanvas = renderSkeletonMap(mapData, skeletonContainer);
+
+      // Render segment map
+      const segmentCanvas = document.getElementById('segmentCanvas');
+      renderSegmentMap(mapData, segmentCanvas);
+
+      // Update stats
+      const counts = countTiles(mapData);
+      const statsHtml = Object.entries(counts)
+        .map(([type, count]) => `<span>${TILE_TYPES[type].name}: ${count}</span>`)
+        .join('');
+      document.getElementById('stats').innerHTML = statsHtml;
+
+      // Setup downloads
+      setupDownloads(skeletonCanvas, segmentCanvas, mapData);
+
+      // Display JSON
+      document.getElementById('tileDataJson').textContent = JSON.stringify({
+        seed: mapData.seed,
+        dimensions: { width: mapData.width, height: mapData.height },
+        villageCenter: mapData.villageCenter,
+        tileCounts: counts,
+        tiles: mapData.tiles.map(row => row.map(t => t.type))
+      }, null, 2);
+    }
+
+    function randomSeed() {
+      document.getElementById('seed').value = Math.floor(Math.random() * 99999) + 1;
+      generateMap();
+    }
+
+    // Generate on load
+    generateMap();
+  </script>
+</body>
+</html>
