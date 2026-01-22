@@ -5,7 +5,7 @@
 function updateCosts() {
   try {
     const total = costs.paint + costs.npcs + costs.zoom;
-    console.log('Updating costs:', costs, 'Total:', total);
+    debugLog('Updating costs:', costs, 'Total:', total);
 
     const paintEl = document.getElementById('costPaint');
     const npcsEl = document.getElementById('costNPCs');
@@ -139,6 +139,33 @@ function resetZoom() {
   updateMinimap();
 }
 
+/**
+ * Zoom to 1:1 pixel ratio (actual size)
+ * This shows the pixel art at its native resolution
+ */
+function zoom1to1() {
+  const container = document.getElementById('canvasContainer');
+  const canvas = document.getElementById('gameCanvas');
+
+  if (!container || !canvas) return;
+
+  // Set zoom to 1:1 (100% - actual pixels)
+  state.camera.zoom = 1;
+
+  // Center the canvas in the container
+  const containerWidth = container.clientWidth;
+  const containerHeight = container.clientHeight;
+  const canvasWidth = canvas.width;
+  const canvasHeight = canvas.height;
+
+  // Position so canvas is centered (or top-left if larger than container)
+  state.camera.x = Math.max(0, (containerWidth - canvasWidth) / 2);
+  state.camera.y = Math.max(0, (containerHeight - canvasHeight) / 2);
+
+  updateTransform();
+  updateMinimap();
+}
+
 function centerMap() {
   const container = document.getElementById('canvasContainer');
   const canvas = document.getElementById('gameCanvas');
@@ -224,6 +251,97 @@ function showTileInfo(tile, x, y) {
   state.selectedTile = { x, y, tile };
 }
 
+/**
+ * Show segment color info when clicking on segmentation map
+ */
+function showSegmentInfo(hexColor, px, py) {
+  const panel = document.getElementById('tileInfoPanel');
+  if (!panel) return;
+
+  // Get ADE20K color names (reverse lookup)
+  const ADE20K = window.WFC?.ADE20K || {};
+  let segmentName = 'Unknown';
+  for (const [name, color] of Object.entries(ADE20K)) {
+    if (color.toUpperCase() === hexColor) {
+      segmentName = name;
+      break;
+    }
+  }
+
+  // Find all tile types that use this segment color
+  const matchingTiles = [];
+  const TileTypes = window.WFC?.TILES || {};
+  for (const [tileId, tileData] of Object.entries(TileTypes)) {
+    if (tileData.segColor?.toUpperCase() === hexColor) {
+      matchingTiles.push({ id: tileId, ...tileData });
+    }
+  }
+
+  // Count how many tiles of each type exist in the current map
+  const tileCounts = {};
+  if (state.map?.tiles) {
+    for (const row of state.map.tiles) {
+      for (const tile of row) {
+        const tt = TileTypes[tile.type];
+        if (tt?.segColor?.toUpperCase() === hexColor) {
+          tileCounts[tile.type] = (tileCounts[tile.type] || 0) + 1;
+        }
+      }
+    }
+  }
+  const totalCount = Object.values(tileCounts).reduce((a, b) => a + b, 0);
+
+  // Build the info panel HTML
+  panel.innerHTML = `
+    <div class="tile-info-header">
+      <div class="tile-color" style="background:${hexColor}"></div>
+      <div class="tile-name">${segmentName}</div>
+    </div>
+    <div class="tile-info-grid">
+      <div class="info-row">
+        <span class="label">Hex Color</span>
+        <span class="value" style="font-family:monospace">${hexColor}</span>
+      </div>
+      <div class="info-row">
+        <span class="label">Pixel Position</span>
+        <span class="value">${px}, ${py}</span>
+      </div>
+      <div class="info-row">
+        <span class="label">Total Tiles</span>
+        <span class="value">${totalCount}</span>
+      </div>
+    </div>
+    ${matchingTiles.length > 0 ? `
+    <div class="tile-info-section">
+      <div class="section-title">Tile Types Using This Segment</div>
+      ${matchingTiles.map(t => `
+        <div class="info-row">
+          <span class="label" style="display:flex;align-items:center;gap:4px">
+            <span style="width:12px;height:12px;background:${t.color};border-radius:2px;display:inline-block"></span>
+            ${t.id.replace(/_/g, ' ')}
+          </span>
+          <span class="value">${tileCounts[t.id] || 0}</span>
+        </div>
+      `).join('')}
+    </div>
+    <div class="tile-info-section">
+      <div class="section-title">Properties</div>
+      <div class="info-row">
+        <span class="label">Category</span>
+        <span class="value">${matchingTiles[0]?.category || '-'}</span>
+      </div>
+      <div class="info-row">
+        <span class="label">Walkable</span>
+        <span class="value">${matchingTiles.some(t => t.walkable) ? 'Some/All' : 'None'}</span>
+      </div>
+    </div>
+    ` : '<div class="empty-state">No tiles use this segment color</div>'}
+  `;
+
+  // Clear selected tile since we're showing segment info
+  state.selectedTile = null;
+}
+
 function updatePaintPrice() {
   const priceEl = document.getElementById('paintPrice');
   if (priceEl) {
@@ -265,6 +383,7 @@ function updateNPCList() {
 
 /**
  * Redraw the main canvas with current layer
+ * All layers are 1024x1024, so view position/zoom is preserved across layer switches
  */
 function redraw() {
   const canvas = document.getElementById('gameCanvas');
@@ -298,9 +417,12 @@ function redraw() {
     return;
   }
 
-  // Resize canvas to match image
-  canvas.width = img.width;
-  canvas.height = img.height;
+  // All images should be 1024x1024 for consistent coordinates
+  // Only resize if needed (changing size clears canvas)
+  if (canvas.width !== img.width || canvas.height !== img.height) {
+    canvas.width = img.width;
+    canvas.height = img.height;
+  }
 
   // Draw the base image
   ctx.drawImage(img, 0, 0);
@@ -310,6 +432,8 @@ function redraw() {
     drawNPCs(ctx);
   }
 
+  // Ensure CSS transform is applied (preserves zoom/pan)
+  updateTransform();
   updateMinimap();
 }
 
@@ -338,6 +462,7 @@ function drawNPCs(ctx) {
 
 /**
  * Update the minimap with current view
+ * Shows the full map and a red rectangle indicating the visible viewport
  */
 function updateMinimap() {
   const miniCanvas = document.getElementById('minimapCanvas');
@@ -347,38 +472,177 @@ function updateMinimap() {
   ctx.fillStyle = '#1a1a2e';
   ctx.fillRect(0, 0, miniCanvas.width, miniCanvas.height);
 
-  // Get current displayed image
-  let img = state.images.painted || state.images.segment;
+  // Get current displayed image (all layers are 1024x1024)
+  const img = state.images.painted || state.images.segment;
   if (!img) return;
 
-  // Draw scaled version
+  // Scale to fit minimap while maintaining aspect ratio
   const scale = Math.min(miniCanvas.width / img.width, miniCanvas.height / img.height);
-  const w = img.width * scale;
-  const h = img.height * scale;
-  const x = (miniCanvas.width - w) / 2;
-  const y = (miniCanvas.height - h) / 2;
+  const imgW = img.width * scale;
+  const imgH = img.height * scale;
+  const imgX = (miniCanvas.width - imgW) / 2;
+  const imgY = (miniCanvas.height - imgH) / 2;
 
-  ctx.drawImage(img, x, y, w, h);
+  ctx.drawImage(img, imgX, imgY, imgW, imgH);
 
-  // Draw viewport rectangle
+  // Draw viewport rectangle showing what's currently visible
   const container = document.getElementById('canvasContainer');
-  if (container && state.camera) {
-    const viewW = container.clientWidth / state.camera.zoom;
-    const viewH = container.clientHeight / state.camera.zoom;
-    const viewX = -state.camera.x;
-    const viewY = -state.camera.y;
+  const canvas = document.getElementById('gameCanvas');
+  if (!container || !canvas || !state.camera) return;
 
-    ctx.strokeStyle = '#f5576c';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(
-      x + viewX * scale,
-      y + viewY * scale,
-      viewW * scale,
-      viewH * scale
-    );
+  const zoom = state.camera.zoom;
+  const camX = state.camera.x;
+  const camY = state.camera.y;
+
+  // Calculate visible area in canvas coordinates
+  // CSS transform: scale(zoom) translate(x, y)
+  // The canvas is scaled first, then translated
+  // Visible top-left in canvas coords: -camX, -camY
+  // Visible size in canvas coords: containerSize / zoom
+  const visibleW = container.clientWidth / zoom;
+  const visibleH = container.clientHeight / zoom;
+  const visibleX = -camX;
+  const visibleY = -camY;
+
+  // Clamp to canvas bounds (0 to canvasSize)
+  const canvasW = canvas.width;
+  const canvasH = canvas.height;
+
+  const clampedX = Math.max(0, Math.min(visibleX, canvasW - visibleW));
+  const clampedY = Math.max(0, Math.min(visibleY, canvasH - visibleH));
+  const clampedW = Math.min(visibleW, canvasW);
+  const clampedH = Math.min(visibleH, canvasH);
+
+  // Convert to minimap coordinates
+  ctx.strokeStyle = '#f5576c';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(
+    imgX + clampedX * scale,
+    imgY + clampedY * scale,
+    clampedW * scale,
+    clampedH * scale
+  );
+}
+
+// =============================================================================
+// World Save/Load Functions
+// =============================================================================
+
+/**
+ * Save current world to localStorage
+ */
+function saveCurrentWorld() {
+  if (!state.worldSeed) {
+    setStatus('No world to save', 'error');
+    return;
   }
+
+  const name = prompt('Save world as:', state.worldSeed.name || 'My World');
+  if (!name) return;
+
+  try {
+    WorldManager.saveToStorage(name, state.worldSeed);
+    setStatus(`World "${name}" saved!`, 'success');
+    setTimeout(hideStatus, 2000);
+  } catch (error) {
+    setStatus('Failed to save world: ' + error.message, 'error');
+  }
+}
+
+/**
+ * Load world from file input
+ */
+async function loadWorldFromFile(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  try {
+    setStatus('Loading world...', 'loading');
+    const worldSeed = await WorldManager.loadFromFileInput(file);
+
+    state.worldSeed = worldSeed;
+
+    // Update UI with loaded world settings
+    if (worldSeed.size) {
+      document.getElementById('mapWidth').value = worldSeed.size.width || 24;
+      document.getElementById('mapHeight').value = worldSeed.size.height || 18;
+    }
+
+    // Save to localStorage for persistence
+    saveWorldSeedToStorage();
+
+    setStatus(`World "${worldSeed.name}" loaded!`, 'success');
+    setTimeout(hideStatus, 2000);
+
+    // Regenerate the map with new world seed
+    await generateWorld();
+  } catch (error) {
+    setStatus('Failed to load world: ' + error.message, 'error');
+  }
+
+  // Reset file input
+  event.target.value = '';
+}
+
+/**
+ * Download current world as JSON file
+ */
+function downloadCurrentWorld() {
+  if (!state.worldSeed) {
+    setStatus('No world to download', 'error');
+    return;
+  }
+
+  try {
+    WorldManager.downloadAsFile(state.worldSeed);
+    setStatus('World downloaded!', 'success');
+    setTimeout(hideStatus, 2000);
+  } catch (error) {
+    setStatus('Failed to download: ' + error.message, 'error');
+  }
+}
+
+/**
+ * Show dialog to load from saved worlds
+ */
+function showLoadWorldDialog() {
+  const savedWorlds = WorldManager.listSavedWorlds();
+
+  if (savedWorlds.length === 0) {
+    setStatus('No saved worlds found', 'error');
+    setTimeout(hideStatus, 2000);
+    return;
+  }
+
+  const worldList = savedWorlds.map(w =>
+    `${w.name} (${w.worldName}) - ${new Date(w.savedAt).toLocaleDateString()}`
+  ).join('\n');
+
+  const selected = prompt(
+    `Saved worlds:\n${worldList}\n\nEnter name to load:`,
+    savedWorlds[0].name
+  );
+
+  if (!selected) return;
+
+  const worldSeed = WorldManager.loadFromStorage(selected);
+  if (!worldSeed) {
+    setStatus(`World "${selected}" not found`, 'error');
+    return;
+  }
+
+  state.worldSeed = worldSeed;
+  saveWorldSeedToStorage();
+  setStatus(`World "${worldSeed.name}" loaded!`, 'success');
+  setTimeout(hideStatus, 2000);
+
+  generateWorld();
 }
 
 // Export for global access
 window.redraw = redraw;
 window.updateMinimap = updateMinimap;
+window.saveCurrentWorld = saveCurrentWorld;
+window.loadWorldFromFile = loadWorldFromFile;
+window.downloadCurrentWorld = downloadCurrentWorld;
+window.showLoadWorldDialog = showLoadWorldDialog;

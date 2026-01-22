@@ -18,6 +18,55 @@
  *   - Creates natural road networks that follow terrain
  */
 
+// Terrain weight constants
+// Base weight range: slider value 0% gives MIN, 100% gives MIN + RANGE
+const TERRAIN_WEIGHTS = {
+  // Base weight values
+  MIN_WEIGHT: 0.02,           // Minimum weight when slider is at 0%
+  MAX_GRASS_FOREST: 0.18,     // Maximum weight for grass/forest at extreme slider positions
+  GRASS_FOREST_RANGE: 0.16,   // Weight range controlled by forestDensity slider
+  WATER_RANGE: 0.14,          // Weight range controlled by waterLevel slider
+
+  // Forest variant multipliers (relative to base forest weight)
+  FOREST: {
+    DENSE: 0.7,
+    PINE: 0.6,
+    DEAD: 0.2
+  },
+
+  // Open terrain multipliers (relative to base grass weight)
+  GRASS: {
+    MEADOW: 0.85,
+    GLEN: 0.6,
+    SCRUBLAND: 0.5
+  },
+
+  // Water variant multipliers (relative to base water weight)
+  WATER: {
+    SHALLOW: 1.1,
+    RIVER: 0.7,
+    MARSH: 0.5,
+    SWAMP: 0.3,  // Uses (forestWeight + waterWeight) * this
+    BOG: 0.4
+  },
+
+  // Highland weights
+  HILLS: {
+    BASE: 0.07,          // Base hill weight
+    WATER_REDUCTION: 0.02, // Reduced by waterLevel * this
+    ROCKY: 0.7,
+    MOUNTAIN: 0.5,
+    PEAK: 0.3,
+    CLIFFS: 0.4
+  },
+
+  // Sand weights
+  SAND: {
+    BASE: 0.04,
+    WATER_BONUS: 0.04    // Added: waterLevel * this
+  }
+};
+
 class WFCEngine {
   // Get class references (works in both Node.js and browser)
   static get TileSetClass() {
@@ -150,7 +199,8 @@ class WFCEngine {
 
     // Solve
     if (this.options.animated) {
-      this.result = await this.solver.solveAnimated(this.options.animationDelay);
+      // stepsPerFrame controls speed - higher = faster generation
+      this.result = await this.solver.solveAnimated(this.options.stepsPerFrame || 50);
     } else {
       this.result = this.solver.solve();
     }
@@ -318,18 +368,19 @@ class WFCEngine {
    */
   applyTerrainOptions() {
     const { forestDensity, waterLevel } = this.options.terrainOptions;
+    const TW = TERRAIN_WEIGHTS;
 
     // Direct weight values based on sliders
     // forestDensity 0-1 controls forest vs grass balance
     // waterLevel 0-1 controls water amount
     //
-    // At forestDensity 0%:   grass ~0.18, forest ~0.02
-    // At forestDensity 50%:  grass ~0.10, forest ~0.10 (balanced)
-    // At forestDensity 100%: grass ~0.02, forest ~0.18
+    // At forestDensity 0%:   grass ~MAX, forest ~MIN
+    // At forestDensity 50%:  grass and forest balanced
+    // At forestDensity 100%: grass ~MIN, forest ~MAX
 
-    const forestWeight = 0.02 + (forestDensity * 0.16);  // 0.02 to 0.18
-    const grassWeight = 0.18 - (forestDensity * 0.16);   // 0.18 to 0.02
-    const waterWeight = 0.02 + (waterLevel * 0.14);      // 0.02 to 0.16
+    const forestWeight = TW.MIN_WEIGHT + (forestDensity * TW.GRASS_FOREST_RANGE);
+    const grassWeight = TW.MAX_GRASS_FOREST - (forestDensity * TW.GRASS_FOREST_RANGE);
+    const waterWeight = TW.MIN_WEIGHT + (waterLevel * TW.WATER_RANGE);
 
     // SET weights directly on all cells (replaces previous weights)
     for (let y = 0; y < this.height; y++) {
@@ -338,34 +389,34 @@ class WFCEngine {
         if (cell && !cell.isCollapsed()) {
           // Forest tiles
           if (cell.weights.forest !== undefined) cell.weights.forest = forestWeight;
-          if (cell.weights.dense_forest !== undefined) cell.weights.dense_forest = forestWeight * 0.7;
-          if (cell.weights.pine_forest !== undefined) cell.weights.pine_forest = forestWeight * 0.6;
-          if (cell.weights.dead_forest !== undefined) cell.weights.dead_forest = forestWeight * 0.2;
+          if (cell.weights.dense_forest !== undefined) cell.weights.dense_forest = forestWeight * TW.FOREST.DENSE;
+          if (cell.weights.pine_forest !== undefined) cell.weights.pine_forest = forestWeight * TW.FOREST.PINE;
+          if (cell.weights.dead_forest !== undefined) cell.weights.dead_forest = forestWeight * TW.FOREST.DEAD;
 
           // Open terrain (inversely related to forest)
           if (cell.weights.grass !== undefined) cell.weights.grass = grassWeight;
-          if (cell.weights.meadow !== undefined) cell.weights.meadow = grassWeight * 0.85;
-          if (cell.weights.glen !== undefined) cell.weights.glen = grassWeight * 0.6;
-          if (cell.weights.scrubland !== undefined) cell.weights.scrubland = grassWeight * 0.5;
+          if (cell.weights.meadow !== undefined) cell.weights.meadow = grassWeight * TW.GRASS.MEADOW;
+          if (cell.weights.glen !== undefined) cell.weights.glen = grassWeight * TW.GRASS.GLEN;
+          if (cell.weights.scrubland !== undefined) cell.weights.scrubland = grassWeight * TW.GRASS.SCRUBLAND;
 
           // Water tiles
           if (cell.weights.deep_water !== undefined) cell.weights.deep_water = waterWeight;
-          if (cell.weights.shallow_water !== undefined) cell.weights.shallow_water = waterWeight * 1.1;
-          if (cell.weights.river !== undefined) cell.weights.river = waterWeight * 0.7;
-          if (cell.weights.marsh !== undefined) cell.weights.marsh = waterWeight * 0.5;
-          if (cell.weights.swamp !== undefined) cell.weights.swamp = (forestWeight + waterWeight) * 0.3;
-          if (cell.weights.bog !== undefined) cell.weights.bog = waterWeight * 0.4;
+          if (cell.weights.shallow_water !== undefined) cell.weights.shallow_water = waterWeight * TW.WATER.SHALLOW;
+          if (cell.weights.river !== undefined) cell.weights.river = waterWeight * TW.WATER.RIVER;
+          if (cell.weights.marsh !== undefined) cell.weights.marsh = waterWeight * TW.WATER.MARSH;
+          if (cell.weights.swamp !== undefined) cell.weights.swamp = (forestWeight + waterWeight) * TW.WATER.SWAMP;
+          if (cell.weights.bog !== undefined) cell.weights.bog = waterWeight * TW.WATER.BOG;
 
           // Highland (stable, slightly reduced by water)
-          const hillWeight = 0.07 - (waterLevel * 0.02);
+          const hillWeight = TW.HILLS.BASE - (waterLevel * TW.HILLS.WATER_REDUCTION);
           if (cell.weights.hills !== undefined) cell.weights.hills = hillWeight;
-          if (cell.weights.rocky !== undefined) cell.weights.rocky = hillWeight * 0.7;
-          if (cell.weights.mountain !== undefined) cell.weights.mountain = hillWeight * 0.5;
-          if (cell.weights.peak !== undefined) cell.weights.peak = hillWeight * 0.3;
-          if (cell.weights.cliffs !== undefined) cell.weights.cliffs = hillWeight * 0.4;
+          if (cell.weights.rocky !== undefined) cell.weights.rocky = hillWeight * TW.HILLS.ROCKY;
+          if (cell.weights.mountain !== undefined) cell.weights.mountain = hillWeight * TW.HILLS.MOUNTAIN;
+          if (cell.weights.peak !== undefined) cell.weights.peak = hillWeight * TW.HILLS.PEAK;
+          if (cell.weights.cliffs !== undefined) cell.weights.cliffs = hillWeight * TW.HILLS.CLIFFS;
 
           // Sand (more with water)
-          if (cell.weights.sand !== undefined) cell.weights.sand = 0.04 + (waterLevel * 0.04);
+          if (cell.weights.sand !== undefined) cell.weights.sand = TW.SAND.BASE + (waterLevel * TW.SAND.WATER_BONUS);
         }
       }
     }
@@ -683,7 +734,15 @@ class WFCEngine {
       const toPos = poiPositions[conn.to];
 
       if (fromPos && toPos) {
-        this.carveRoad(tiles, fromPos.x, fromPos.y, toPos.x, toPos.y, conn.style || 'dirt');
+        const style = conn.style || 'dirt';
+        const autoBridge = conn.autoBridge !== false; // Default to true
+
+        // Use waypoints if present, otherwise direct path
+        if (conn.waypoints && conn.waypoints.length > 0) {
+          this.carveRoadWithWaypoints(tiles, fromPos, toPos, conn.waypoints, style, autoBridge);
+        } else {
+          this.carveRoad(tiles, fromPos.x, fromPos.y, toPos.x, toPos.y, style, autoBridge);
+        }
       }
     }
 
@@ -696,13 +755,33 @@ class WFCEngine {
   }
 
   /**
-   * Carve a road between two points using simple A* or direct path
+   * Terrain classification for bridge placement
    */
-  carveRoad(tiles, x1, y1, x2, y2, style) {
+  static WALKABLE_TERRAIN = ['grass', 'meadow', 'glen', 'scrubland', 'sand', 'forest', 'dense_forest', 'pine_forest', 'hills', 'farm_field', 'marsh'];
+  static WATER_TERRAIN = ['deep_water', 'shallow_water', 'river'];
+
+  /**
+   * Determine bridge direction based on path direction
+   */
+  getBridgeDirection(prevX, prevY, x, y, nextX, nextY) {
+    // Calculate overall direction of the road at this point
+    const dx = (nextX !== undefined ? nextX - prevX : x - prevX);
+    const dy = (nextY !== undefined ? nextY - prevY : y - prevY);
+
+    // Horizontal bridge if moving more horizontally than vertically
+    return Math.abs(dx) >= Math.abs(dy) ? 'horizontal' : 'vertical';
+  }
+
+  /**
+   * Carve a road between two points using simple A* or direct path
+   * Now supports auto-bridge placement when crossing water
+   */
+  carveRoad(tiles, x1, y1, x2, y2, style, autoBridge = true) {
     const roadTile = style === 'stone' ? 'stone_road' : 'dirt_road';
 
     // Simple bresenham-like path with some natural variation
     let x = x1, y = y1;
+    let prevX = x1, prevY = y1;
     const dx = Math.sign(x2 - x1);
     const dy = Math.sign(y2 - y1);
 
@@ -712,11 +791,27 @@ class WFCEngine {
     while ((x !== x2 || y !== y2) && steps < maxSteps) {
       steps++;
 
-      // Set road tile if terrain allows (most walkable terrain)
+      // Get current tile
       const current = tiles[y]?.[x];
-      if (current && ['grass', 'meadow', 'glen', 'scrubland', 'sand', 'forest', 'dense_forest', 'pine_forest', 'hills', 'farm_field', 'marsh'].includes(current.type)) {
-        this.setTile(tiles, x, y, roadTile);
+      if (current) {
+        if (WFCEngine.WALKABLE_TERRAIN.includes(current.type)) {
+          // Normal walkable terrain - place road
+          this.setTile(tiles, x, y, roadTile);
+        } else if (autoBridge && WFCEngine.WATER_TERRAIN.includes(current.type)) {
+          // Water crossing - place bridge tile
+          this.setTile(tiles, x, y, 'bridge');
+
+          // Store bridge direction as metadata for decoration rendering
+          const direction = this.getBridgeDirection(prevX, prevY, x, y, x2, y2);
+          if (tiles[y][x]) {
+            tiles[y][x].bridgeDirection = direction;
+          }
+        }
       }
+
+      // Remember previous position for direction calculation
+      prevX = x;
+      prevY = y;
 
       // Move toward target with some randomness for natural look
       if (this.rng() < 0.7) {
@@ -738,6 +833,21 @@ class WFCEngine {
       // Clamp to bounds
       x = Math.max(0, Math.min(this.width - 1, x));
       y = Math.max(0, Math.min(this.height - 1, y));
+    }
+  }
+
+  /**
+   * Carve a road through a series of waypoints
+   */
+  carveRoadWithWaypoints(tiles, fromPos, toPos, waypoints, style, autoBridge = true) {
+    // Build complete path: [fromPos, ...waypoints, toPos]
+    const path = [fromPos, ...(waypoints || []), toPos];
+
+    // Carve road segment by segment
+    for (let i = 0; i < path.length - 1; i++) {
+      const from = path[i];
+      const to = path[i + 1];
+      this.carveRoad(tiles, from.x, from.y, to.x, to.y, style, autoBridge);
     }
   }
 

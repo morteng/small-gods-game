@@ -96,7 +96,9 @@ function selectPOI(index) {
         textarea.setSelectionRange(pos, pos + searchStr.length);
       }
     }
-  } catch (e) {}
+  } catch (e) {
+    console.warn('selectPOI: Invalid JSON or POI index', e.message);
+  }
 }
 
 function quickAddPOI(type) {
@@ -311,11 +313,13 @@ function loadWorldSeedFile(event) {
 
 function saveWorldSeedToStorage() {
   const textarea = document.getElementById('worldSeedJson');
+  if (!textarea) return;
+
   try {
     const seed = JSON.parse(textarea.value);
     localStorage.setItem('smallGods_worldSeed', JSON.stringify(seed));
   } catch (e) {
-    // Ignore invalid JSON
+    console.warn('saveWorldSeedToStorage: Invalid JSON in textarea', e.message);
   }
 }
 
@@ -326,6 +330,8 @@ function loadWorldSeedFromStorage() {
       state.worldSeed = JSON.parse(saved);
       return true;
     } catch (e) {
+      console.warn('loadWorldSeedFromStorage: Corrupted data in localStorage', e.message);
+      localStorage.removeItem('smallGods_worldSeed'); // Clean up corrupted data
       return false;
     }
   }

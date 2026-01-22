@@ -15,6 +15,7 @@ async function generateWorld() {
     const forestDensity = parseInt(document.getElementById('forestDensity').value) || 55;
     const waterLevel = parseInt(document.getElementById('waterLevel').value) || 35;
     const genMode = document.getElementById('genMode').value;
+    const animated = document.getElementById('chkAnimated')?.checked || false;
 
     // Generate based on mode
     if (genMode === 'wfc') {
@@ -22,7 +23,8 @@ async function generateWorld() {
       state.map = await generateWithWFC(width, height, seed, state.worldSeed, {
         forestDensity,
         waterLevel,
-        villageCount
+        villageCount,
+        animated
       });
       setStatus('WFC generation complete!', 'success');
     } else {
@@ -30,7 +32,22 @@ async function generateWorld() {
       state.map = generateMap(width, height, seed, { villageCount, forestDensity, waterLevel });
     }
 
-    state.images.segment = renderMap(state.map);
+    // Auto-place modular decorations (if system is loaded)
+    if (typeof autoPlaceDecorations === 'function' && window.DecorationRegistry?.getAllIds()?.length > 0) {
+      setStatus('Placing decorations...', 'loading');
+      const decoStats = autoPlaceDecorations(state.map, state.worldSeed?.biome || 'temperate', seed);
+      debugLog('Decorations placed:', decoStats);
+    }
+
+    // Render at full map resolution (map's actual isometric bounds)
+    // AI_SIZE is only used when preparing slices for AI processing
+    const bounds = getMapIsoBounds(state.map);
+    state.images.segment = renderMapFullRes(state.map);
+    state.controlImages.segmentation = renderSegmentationMapFullRes(state.map);
+    state.controlImages.edge = renderEdgeMapFullRes(state.map);
+
+    console.log(`Map rendered at ${bounds.width}x${bounds.height}, tiles: ${state.map.width}x${state.map.height}`);
+
     state.images.painted = null;
     state.images.final = null;
     state.npcs = [];
@@ -40,11 +57,6 @@ async function generateWorld() {
     updatePaintPrice();
     setLayer('map');
     updateNPCList();
-
-    // Generate control images for LoRA preview
-    if (typeof generateControlImages === 'function') {
-      generateControlImages();
-    }
 
     // Center map on screen after generation
     setTimeout(centerMap, 50);
@@ -77,17 +89,28 @@ function setupCanvasHandlers() {
       state.camera.lastY = e.clientY;
       state.camera.startX = e.clientX;
       state.camera.startY = e.clientY;
-      container.style.cursor = 'grabbing';
     }
   });
 
   container.addEventListener('mousemove', e => {
-    const rect = container.getBoundingClientRect();
-    const x = Math.round((e.clientX - rect.left) / state.camera.zoom - state.camera.x);
-    const y = Math.round((e.clientY - rect.top) / state.camera.zoom - state.camera.y);
-    document.getElementById('cursorPos').textContent = `${x}, ${y}`;
+    // Show tile coordinates if on map
+    if (state.map && typeof screenToTile === 'function') {
+      const tile = screenToTile(e.clientX, e.clientY);
+      if (tile.x >= 0 && tile.x < state.map.width && tile.y >= 0 && tile.y < state.map.height) {
+        document.getElementById('cursorPos').textContent = `Tile: ${tile.x}, ${tile.y}`;
+      } else if (typeof screenToCanvas === 'function') {
+        const canvas = screenToCanvas(e.clientX, e.clientY);
+        document.getElementById('cursorPos').textContent = `${Math.round(canvas.x)}, ${Math.round(canvas.y)}`;
+      }
+    }
 
     if (state.camera.dragging) {
+      // Check if we've moved enough to be considered a drag
+      const isDragging = Math.abs(e.clientX - state.camera.startX) > 5 || Math.abs(e.clientY - state.camera.startY) > 5;
+      if (isDragging) {
+        container.style.cursor = 'grabbing';
+      }
+
       const dx = (e.clientX - state.camera.lastX) / state.camera.zoom;
       const dy = (e.clientY - state.camera.lastY) / state.camera.zoom;
       state.camera.x += dx;
@@ -102,40 +125,68 @@ function setupCanvasHandlers() {
   container.addEventListener('mouseup', e => {
     const wasDrag = Math.abs(e.clientX - state.camera.startX) > 5 || Math.abs(e.clientY - state.camera.startY) > 5;
     state.camera.dragging = false;
-    container.style.cursor = 'grab';
+    container.style.cursor = 'default';
 
-    // Show tile info on click (not drag)
+    // Skip tile info when editor is enabled (editor handles selection)
+    if (editor?.enabled) {
+      return;
+    }
+
+    // Show info on click (not drag)
     if (!wasDrag && state.map) {
-      const rect = container.getBoundingClientRect();
-      const x = (e.clientX - rect.left) / state.camera.zoom - state.camera.x;
-      const y = (e.clientY - rect.top) / state.camera.zoom - state.camera.y;
-      const { tw, th, ox, oy } = getMapOffsets(state.map);
-      const mx = Math.floor(((x - ox) / (tw/2) + (y - oy) / (th/2)) / 2);
-      const my = Math.floor(((y - oy) / (th/2) - (x - ox) / (tw/2)) / 2);
-      if (mx >= 0 && mx < state.map.width && my >= 0 && my < state.map.height) {
-        const tile = state.map.tiles[my]?.[mx];
-        if (tile) showTileInfo(tile, mx, my);
+      // Handle segmentation layer click - show segment color info
+      if (state.layer === 'segmentation' && state.controlImages?.segmentation) {
+        const { x: canvasX, y: canvasY } = screenToCanvas(e.clientX, e.clientY);
+
+        if (canvasX >= 0 && canvasX < AI_SIZE && canvasY >= 0 && canvasY < AI_SIZE) {
+          const segCanvas = state.controlImages.segmentation;
+          const ctx = segCanvas.getContext('2d');
+          const px = Math.floor(canvasX);
+          const py = Math.floor(canvasY);
+
+          if (px >= 0 && px < segCanvas.width && py >= 0 && py < segCanvas.height) {
+            const pixel = ctx.getImageData(px, py, 1, 1).data;
+            const hexColor = '#' + [pixel[0], pixel[1], pixel[2]].map(c => c.toString(16).padStart(2, '0')).join('').toUpperCase();
+            showSegmentInfo(hexColor, px, py);
+          }
+        }
+        return;
+      }
+
+      // Handle regular map click - show tile info using shared coordinate conversion
+      if (typeof screenToTile === 'function') {
+        const tile = screenToTile(e.clientX, e.clientY);
+        if (tile.x >= 0 && tile.x < state.map.width && tile.y >= 0 && tile.y < state.map.height) {
+          const tileData = state.map.tiles[tile.y]?.[tile.x];
+          if (tileData) showTileInfo(tileData, tile.x, tile.y);
+        }
       }
     }
   });
 
   container.addEventListener('mouseleave', () => {
     state.camera.dragging = false;
-    container.style.cursor = 'grab';
+    container.style.cursor = 'default';
   });
 }
 
 // Initialize
 document.addEventListener('DOMContentLoaded', async () => {
-  // Slider value displays
-  document.getElementById('villageCount').addEventListener('input', e => {
-    document.getElementById('villageValue').textContent = e.target.value;
-  });
-  document.getElementById('forestDensity').addEventListener('input', e => {
-    document.getElementById('forestValue').textContent = e.target.value + '%';
-  });
-  document.getElementById('waterLevel').addEventListener('input', e => {
-    document.getElementById('waterValue').textContent = e.target.value + '%';
+  // Setup slider value displays
+  const sliderConfig = [
+    { input: 'villageCount', display: 'villageValue', suffix: '' },
+    { input: 'forestDensity', display: 'forestValue', suffix: '%' },
+    { input: 'waterLevel', display: 'waterValue', suffix: '%' }
+  ];
+
+  sliderConfig.forEach(({ input, display, suffix }) => {
+    const slider = document.getElementById(input);
+    const label = document.getElementById(display);
+    if (slider && label) {
+      slider.addEventListener('input', e => {
+        label.textContent = e.target.value + suffix;
+      });
+    }
   });
 
   // Setup canvas handlers

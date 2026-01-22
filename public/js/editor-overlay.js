@@ -37,15 +37,43 @@ function drawEditorOverlay(ctx) {
 }
 
 /**
- * Draw connection lines between POIs
+ * Get visual style for a connection type
+ */
+function getConnectionStyle(type, style) {
+  const styles = {
+    road: {
+      color: 'rgba(205, 133, 63, 0.7)',  // Brown
+      width: 3,
+      dash: [5, 5]
+    },
+    river: {
+      color: 'rgba(65, 105, 225, 0.7)',  // Blue
+      width: 4,
+      dash: []  // Solid
+    },
+    wall: {
+      color: 'rgba(128, 128, 128, 0.7)', // Gray
+      width: 3,
+      dash: [2, 4]  // Dotted
+    }
+  };
+
+  const baseStyle = styles[type] || styles.road;
+
+  // Modify for stone road
+  if (style === 'stone') {
+    baseStyle.color = 'rgba(128, 128, 128, 0.7)';
+  }
+
+  return baseStyle;
+}
+
+/**
+ * Draw connection lines between POIs with waypoint support
  */
 function drawConnections(ctx, tw, th, ox, oy) {
   const connections = state.worldSeed.connections || [];
   const pois = state.worldSeed.pois || [];
-
-  ctx.strokeStyle = 'rgba(205, 133, 63, 0.6)';
-  ctx.lineWidth = 3;
-  ctx.setLineDash([5, 5]);
 
   for (const conn of connections) {
     const fromPoi = pois.find(p => p.id === conn.from);
@@ -58,16 +86,196 @@ function drawConnections(ctx, tw, th, ox, oy) {
 
     if (!fromPos || !toPos) continue;
 
-    const from = tileToScreen(fromPos.x, fromPos.y);
-    const to = tileToScreen(toPos.x, toPos.y);
+    // Get connection style
+    const connStyle = getConnectionStyle(conn.type || 'road', conn.style);
+
+    // Build path points: [fromPos, ...waypoints, toPos]
+    const pathPoints = [fromPos, ...(conn.waypoints || []), toPos];
+
+    // Convert to screen coordinates
+    const screenPoints = pathPoints.map(p => tileToScreen(p.x, p.y));
+
+    // Check if this connection is being edited
+    const isEditing = editor.mode === 'edit-path' && editor.editingPath &&
+      editor.editingPath.from === conn.from && editor.editingPath.to === conn.to;
+
+    // Draw the path
+    ctx.strokeStyle = isEditing ? '#f093fb' : connStyle.color;
+    ctx.lineWidth = isEditing ? connStyle.width + 1 : connStyle.width;
+    ctx.setLineDash(connStyle.dash);
 
     ctx.beginPath();
-    ctx.moveTo(from.x, from.y);
-    ctx.lineTo(to.x, to.y);
+    ctx.moveTo(screenPoints[0].x, screenPoints[0].y);
+    for (let i = 1; i < screenPoints.length; i++) {
+      ctx.lineTo(screenPoints[i].x, screenPoints[i].y);
+    }
     ctx.stroke();
+
+    // Draw waypoint handles when editing this connection
+    if (isEditing && editor.pathWaypoints) {
+      drawWaypointHandles(ctx, editor.pathWaypoints);
+    }
   }
 
   ctx.setLineDash([]);
+}
+
+/**
+ * Draw circular handles at each waypoint for editing
+ */
+function drawWaypointHandles(ctx, waypoints) {
+  for (let i = 0; i < waypoints.length; i++) {
+    const wp = waypoints[i];
+    const screen = tileToScreen(wp.x, wp.y);
+
+    const isSelected = editor.selectedWaypoint === i;
+    const isHovered = editor.hoveredWaypoint === i;
+
+    // Draw handle
+    const radius = isSelected ? 8 : (isHovered ? 7 : 6);
+    const fillColor = isSelected ? '#f093fb' : (isHovered ? '#ff9800' : '#ffffff');
+
+    ctx.beginPath();
+    ctx.arc(screen.x, screen.y, radius, 0, Math.PI * 2);
+    ctx.fillStyle = fillColor;
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.5)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Draw index number
+    ctx.font = 'bold 10px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = isSelected || isHovered ? '#fff' : '#333';
+    ctx.fillText(String(i + 1), screen.x, screen.y);
+  }
+}
+
+/**
+ * Find a connection at screen position (for clicking on lines)
+ * Takes clientX, clientY from mouse event
+ */
+function findConnectionAtPosition(clientX, clientY, threshold = 10) {
+  if (!state.worldSeed) return null;
+  if (typeof screenToCanvas !== 'function') return null;
+
+  // Convert client coordinates to canvas coordinates
+  const { x: canvasX, y: canvasY } = screenToCanvas(clientX, clientY);
+
+  const connections = state.worldSeed.connections || [];
+  const pois = state.worldSeed.pois || [];
+
+  for (const conn of connections) {
+    const fromPoi = pois.find(p => p.id === conn.from);
+    const toPoi = pois.find(p => p.id === conn.to);
+
+    if (!fromPoi || !toPoi) continue;
+
+    const fromPos = getPOIPosition(fromPoi);
+    const toPos = getPOIPosition(toPoi);
+
+    if (!fromPos || !toPos) continue;
+
+    // Build path points
+    const pathPoints = [fromPos, ...(conn.waypoints || []), toPos];
+
+    // Check distance to each segment
+    for (let i = 0; i < pathPoints.length - 1; i++) {
+      const p1 = tileToScreen(pathPoints[i].x, pathPoints[i].y);
+      const p2 = tileToScreen(pathPoints[i + 1].x, pathPoints[i + 1].y);
+
+      const dist = pointToSegmentDistance(canvasX, canvasY, p1.x, p1.y, p2.x, p2.y);
+      if (dist < threshold) {
+        return { connection: conn, segmentIndex: i };
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Calculate distance from a point to a line segment
+ */
+function pointToSegmentDistance(px, py, x1, y1, x2, y2) {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const len2 = dx * dx + dy * dy;
+
+  if (len2 === 0) {
+    // Segment is a point
+    return Math.sqrt((px - x1) * (px - x1) + (py - y1) * (py - y1));
+  }
+
+  // Project point onto line
+  let t = ((px - x1) * dx + (py - y1) * dy) / len2;
+  t = Math.max(0, Math.min(1, t));
+
+  const nearestX = x1 + t * dx;
+  const nearestY = y1 + t * dy;
+
+  return Math.sqrt((px - nearestX) * (px - nearestX) + (py - nearestY) * (py - nearestY));
+}
+
+/**
+ * Find waypoint at position for editing
+ */
+function findWaypointAtPosition(screenX, screenY, waypoints, threshold = 15) {
+  if (!waypoints) return null;
+
+  for (let i = 0; i < waypoints.length; i++) {
+    const wp = waypoints[i];
+    const screen = tileToScreen(wp.x, wp.y);
+    const dist = Math.sqrt((screenX - screen.x) ** 2 + (screenY - screen.y) ** 2);
+
+    if (dist < threshold) {
+      return i;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Insert a waypoint at a position on the path
+ * Takes clientX, clientY from mouse event
+ */
+function insertWaypointAtPosition(waypoints, fromPos, toPos, clientX, clientY) {
+  if (typeof screenToCanvas !== 'function') return waypoints || [];
+
+  // Convert client coordinates to canvas coordinates
+  const { x: canvasX, y: canvasY } = screenToCanvas(clientX, clientY);
+
+  // Build full path
+  const path = [fromPos, ...(waypoints || []), toPos];
+
+  // Find which segment was clicked
+  let insertIndex = waypoints ? waypoints.length : 0;
+  let minDist = Infinity;
+
+  for (let i = 0; i < path.length - 1; i++) {
+    const p1 = tileToScreen(path[i].x, path[i].y);
+    const p2 = tileToScreen(path[i + 1].x, path[i + 1].y);
+    const dist = pointToSegmentDistance(canvasX, canvasY, p1.x, p1.y, p2.x, p2.y);
+
+    if (dist < minDist) {
+      minDist = dist;
+      // Insert after the first point of this segment
+      // i=0 means insert at waypoint index 0
+      // i=1 means insert at waypoint index 1
+      insertIndex = i;
+    }
+  }
+
+  // Convert client to tile position using screenToTile (which takes client coords)
+  const tile = screenToTile(clientX, clientY);
+
+  // Insert new waypoint
+  const newWaypoints = [...(waypoints || [])];
+  newWaypoints.splice(insertIndex, 0, { x: tile.x, y: tile.y });
+
+  return newWaypoints;
 }
 
 /**
@@ -239,11 +447,7 @@ function drawConnectionInProgress(ctx, tw, th, ox, oy) {
 
   const from = tileToScreen(fromPos.x, fromPos.y);
 
-  // Draw line from start POI to cursor
-  const container = document.getElementById('canvasContainer');
-  const rect = container.getBoundingClientRect();
-
-  // Get current mouse position (we'll need to track this)
+  // Draw pulsing marker on the start POI
   ctx.strokeStyle = '#f093fb';
   ctx.lineWidth = 2;
   ctx.setLineDash([10, 5]);
@@ -322,3 +526,8 @@ redraw = function() {
 // Export
 window.drawEditorOverlay = drawEditorOverlay;
 window.getPOIPosition = getPOIPosition;
+window.getConnectionStyle = getConnectionStyle;
+window.findConnectionAtPosition = findConnectionAtPosition;
+window.findWaypointAtPosition = findWaypointAtPosition;
+window.insertWaypointAtPosition = insertWaypointAtPosition;
+window.pointToSegmentDistance = pointToSegmentDistance;

@@ -1,0 +1,816 @@
+{
+  "tree": {
+    "id": "tree",
+    "name": "Deciduous Tree",
+    "category": "vegetation",
+    "blocksMovement": false,
+    "prompt": {
+      "description": "leafy deciduous tree with round canopy"
+    },
+    "segmentation": {
+      "color": "#04C803",
+      "extent": { "width": 0.6, "heightAbove": 18, "heightVariance": [-4, 4] }
+    },
+    "placement": {
+      "allowedTiles": ["glen", "meadow", "grass"],
+      "probability": 0.05,
+      "minDistance": 3,
+      "maxPerTile": 1,
+      "randomOffset": true
+    },
+    "drawing": {
+      "palettes": {
+        "trunk": ["#5D4037", "#4E342E", "#6D4C41", "#795548"],
+        "foliage": ["#228B22", "#2E7D32", "#1B5E20", "#388E3C"]
+      },
+      "variants": {
+        "canopyStyle": [
+          {
+            "name": "round",
+            "layers": [
+              { "type": "circle", "x": 0, "y": -14, "r": 7, "color": { "palette": "foliage", "index": 0 } },
+              { "type": "circle", "x": -3, "y": -12, "r": 5, "color": { "palette": "foliage", "index": 0, "darken": 0.15 } }
+            ]
+          },
+          {
+            "name": "bushy",
+            "layers": [
+              { "type": "circle", "x": 0, "y": -14, "r": 6, "color": { "palette": "foliage", "index": 0 } },
+              { "type": "circle", "x": -4, "y": -11, "r": 5, "color": { "palette": "foliage", "index": 0 } },
+              { "type": "circle", "x": 4, "y": -11, "r": 5, "color": { "palette": "foliage", "index": 0 } }
+            ]
+          },
+          {
+            "name": "oval",
+            "layers": [
+              { "type": "ellipse", "x": 0, "y": -13, "rx": 5, "ry": 8, "color": { "palette": "foliage", "index": 0 } }
+            ]
+          },
+          {
+            "name": "layered",
+            "layers": [
+              { "type": "circle", "x": 0, "y": -13, "r": 6, "color": { "palette": "foliage", "index": 0, "darken": 0.1 } },
+              { "type": "circle", "x": 0, "y": -9, "r": 5, "color": { "palette": "foliage", "index": 0 } }
+            ]
+          }
+        ]
+      },
+      "layers": [
+        { "type": "rect", "x": -1, "y": -8, "width": 2, "height": 10, "color": { "palette": "trunk", "random": true }, "variance": { "width": [-0.5, 0.5] } },
+        { "variant": "canopyStyle" }
+      ]
+    }
+  },
+
+  "pine": {
+    "id": "pine",
+    "name": "Pine Tree",
+    "category": "vegetation",
+    "blocksMovement": false,
+    "prompt": {
+      "description": "tall conifer pine tree with triangular shape"
+    },
+    "segmentation": {
+      "color": "#04C803",
+      "extent": { "width": 0.5, "heightAbove": 22, "heightVariance": [-4, 4] }
+    },
+    "placement": {
+      "allowedTiles": ["hills", "rocky"],
+      "probability": 0.03,
+      "minDistance": 4,
+      "maxPerTile": 1,
+      "randomOffset": true
+    },
+    "drawing": {
+      "palettes": {
+        "trunk": ["#4A3728", "#3E2723", "#5D4037"],
+        "foliage": ["#1B5E20", "#2E7D32", "#1565C0", "#004D40"]
+      },
+      "layers": [
+        { "type": "rect", "x": -2, "y": -4, "width": 4, "height": 8, "color": { "palette": "trunk", "random": true } },
+        { "type": "triangle", "x": 0, "y": -16, "width": 14, "height": 8, "color": { "palette": "foliage", "random": true, "darken": 0.1 } },
+        { "type": "triangle", "x": 0, "y": -21, "width": 11, "height": 7, "color": { "palette": "foliage", "random": true } },
+        { "type": "triangle", "x": 0, "y": -25, "width": 8, "height": 6, "color": { "palette": "foliage", "random": true }, "condition": { "type": "random", "probability": 0.5 } }
+      ]
+    }
+  },
+
+  "dead_tree": {
+    "id": "dead_tree",
+    "name": "Dead Tree",
+    "category": "vegetation",
+    "blocksMovement": false,
+    "prompt": {
+      "description": "bare dead tree with twisted branches"
+    },
+    "segmentation": {
+      "color": "#9C7E63",
+      "extent": { "width": 0.4, "heightAbove": 16, "heightVariance": [-2, 3] }
+    },
+    "placement": {
+      "allowedTiles": ["rocky", "scrubland"],
+      "probability": 0.04,
+      "minDistance": 4,
+      "maxPerTile": 1,
+      "randomOffset": true
+    },
+    "drawing": {
+      "palettes": {
+        "bark": ["#5D4037", "#4E342E", "#795548", "#6D4C41"]
+      },
+      "variants": {
+        "branchStyle": [
+          {
+            "name": "style1",
+            "layers": [
+              { "type": "line", "x1": 0, "y1": -10, "x2": -6, "y2": -14, "width": 1.5, "color": { "palette": "bark", "random": true } },
+              { "type": "line", "x1": 0, "y1": -8, "x2": 5, "y2": -12, "width": 1.5, "color": { "palette": "bark", "random": true } }
+            ]
+          },
+          {
+            "name": "style2",
+            "layers": [
+              { "type": "line", "x1": 0, "y1": -11, "x2": -6, "y2": -16, "width": 1.5, "color": { "palette": "bark", "random": true } },
+              { "type": "line", "x1": 0, "y1": -11, "x2": 5, "y2": -15, "width": 1.5, "color": { "palette": "bark", "random": true } },
+              { "type": "line", "x1": 0, "y1": -7, "x2": -4, "y2": -10, "width": 1.5, "color": { "palette": "bark", "random": true } }
+            ]
+          },
+          {
+            "name": "style3",
+            "layers": [
+              { "type": "line", "x1": 0, "y1": -9, "x2": 6, "y2": -14, "width": 1.5, "color": { "palette": "bark", "random": true } },
+              { "type": "line", "x1": 0, "y1": -6, "x2": -5, "y2": -11, "width": 1.5, "color": { "palette": "bark", "random": true } }
+            ]
+          }
+        ]
+      },
+      "layers": [
+        { "type": "line", "x1": 0, "y1": 0, "x2": 0, "y2": -14, "width": 2, "color": { "palette": "bark", "random": true }, "variance": { "y2": [-2, 2] } },
+        { "variant": "branchStyle" }
+      ]
+    }
+  },
+
+  "flowers": {
+    "id": "flowers",
+    "name": "Wildflowers",
+    "category": "vegetation",
+    "blocksMovement": false,
+    "prompt": {
+      "description": "colorful wildflowers scattered in grass"
+    },
+    "segmentation": {
+      "color": "#04C803",
+      "extent": { "width": 0.3, "heightAbove": 4 }
+    },
+    "placement": {
+      "allowedTiles": ["grass", "glen"],
+      "probability": 0.08,
+      "minDistance": 2,
+      "maxPerTile": 1
+    },
+    "drawing": {
+      "palettes": {
+        "petals": ["#FF6B6B", "#FFE66D", "#4ECDC4", "#FF69B4", "#DDA0DD", "#FF8A65", "#AED581"],
+        "center": ["#FFE082", "#FFF176"]
+      },
+      "layers": [
+        {
+          "type": "circle",
+          "x": 0, "y": -1,
+          "r": 2,
+          "color": { "palette": "petals", "random": true },
+          "repeat": { "min": 2, "max": 4 },
+          "scatter": { "x": 6, "y": 3 },
+          "variance": { "r": [-0.5, 0.5] }
+        }
+      ]
+    }
+  },
+
+  "rocks": {
+    "id": "rocks",
+    "name": "Rocks",
+    "category": "terrain_feature",
+    "blocksMovement": false,
+    "prompt": {
+      "description": "scattered gray rocks and stones"
+    },
+    "segmentation": {
+      "color": "#808080",
+      "extent": { "width": 0.4, "heightAbove": 6 }
+    },
+    "placement": {
+      "allowedTiles": ["hills", "scrubland", "grass"],
+      "probability": 0.06,
+      "minDistance": 3,
+      "maxPerTile": 1
+    },
+    "drawing": {
+      "palettes": {
+        "stone": ["#757575", "#616161", "#9E9E9E", "#546E7A", "#78909C"]
+      },
+      "layers": [
+        {
+          "type": "ellipse",
+          "x": 0, "y": 0,
+          "rx": 4, "ry": 2.5,
+          "color": { "palette": "stone", "random": true },
+          "highlight": { "amount": 0.2, "offsetX": -1, "offsetY": -0.5, "scale": 0.35 },
+          "repeat": { "min": 1, "max": 3 },
+          "scatter": { "x": 5, "y": 3 },
+          "variance": { "rx": [-1, 1], "ry": [-0.5, 0.5] }
+        }
+      ]
+    }
+  },
+
+  "reeds": {
+    "id": "reeds",
+    "name": "Reeds",
+    "category": "vegetation",
+    "blocksMovement": false,
+    "prompt": {
+      "description": "tall swaying marsh reeds"
+    },
+    "segmentation": {
+      "color": "#04C803",
+      "extent": { "width": 0.5, "heightAbove": 10 }
+    },
+    "placement": {
+      "allowedTiles": ["sand"],
+      "probability": 0.05,
+      "minDistance": 3,
+      "maxPerTile": 1
+    },
+    "drawing": {
+      "palettes": {
+        "stem": ["#8D6E63", "#795548", "#6D4C41", "#A1887F"],
+        "head": ["#5D4037"]
+      },
+      "layers": [
+        {
+          "type": "group",
+          "repeat": { "min": 3, "max": 6 },
+          "scatter": { "x": 6, "y": 0 },
+          "layers": [
+            { "type": "quadCurve", "x1": 0, "y1": 2, "cpx": 2, "cpy": -3, "x2": 1, "y2": -7, "width": 1, "color": { "palette": "stem", "random": true }, "variance": { "cpx": [-2, 2], "y2": [-2, 2] } },
+            { "type": "ellipse", "x": 1, "y": -8, "rx": 1.5, "ry": 2.5, "color": { "palette": "head", "index": 0 }, "condition": { "type": "random", "probability": 0.33 } }
+          ]
+        }
+      ]
+    }
+  },
+
+  "cactus": {
+    "id": "cactus",
+    "name": "Cactus",
+    "category": "vegetation",
+    "blocksMovement": false,
+    "prompt": {
+      "description": "desert cactus with spines"
+    },
+    "segmentation": {
+      "color": "#04C803",
+      "extent": { "width": 0.4, "heightAbove": 14 }
+    },
+    "placement": {
+      "allowedTiles": [],
+      "probability": 0,
+      "minDistance": 3,
+      "maxPerTile": 1,
+      "randomOffset": true
+    },
+    "drawing": {
+      "palettes": {
+        "body": ["#2E7D32", "#388E3C", "#43A047", "#1B5E20"],
+        "spine": ["#FFF9C4"]
+      },
+      "variants": {
+        "cactusStyle": [
+          {
+            "name": "tall",
+            "layers": [
+              { "type": "rect", "x": -2, "y": -12, "width": 4, "height": 12, "color": { "palette": "body", "random": true } },
+              { "type": "rect", "x": -2, "y": -12, "width": 1.5, "height": 12, "color": { "palette": "body", "random": true, "darken": 0.15 } }
+            ]
+          },
+          {
+            "name": "arms",
+            "layers": [
+              { "type": "rect", "x": -2, "y": -12, "width": 4, "height": 12, "color": { "palette": "body", "random": true } },
+              { "type": "rect", "x": -6, "y": -8, "width": 4, "height": 3, "color": { "palette": "body", "random": true } },
+              { "type": "rect", "x": -6, "y": -11, "width": 3, "height": 4, "color": { "palette": "body", "random": true } },
+              { "type": "rect", "x": 2, "y": -6, "width": 4, "height": 3, "color": { "palette": "body", "random": true } },
+              { "type": "rect", "x": 4, "y": -8, "width": 3, "height": 4, "color": { "palette": "body", "random": true } }
+            ]
+          },
+          {
+            "name": "round",
+            "layers": [
+              { "type": "ellipse", "x": 0, "y": -4, "rx": 4, "ry": 5, "color": { "palette": "body", "random": true } },
+              { "type": "ellipse", "x": -1, "y": -4, "rx": 2, "ry": 4, "color": { "palette": "body", "random": true, "darken": 0.2 } }
+            ]
+          }
+        ]
+      },
+      "layers": [
+        { "variant": "cactusStyle" },
+        { "type": "rect", "x": -3, "y": -10, "width": 1, "height": 1, "color": { "palette": "spine", "index": 0 } },
+        { "type": "rect", "x": 2, "y": -9, "width": 1, "height": 1, "color": { "palette": "spine", "index": 0 } },
+        { "type": "rect", "x": -3, "y": -6, "width": 1, "height": 1, "color": { "palette": "spine", "index": 0 } },
+        { "type": "rect", "x": 2, "y": -5, "width": 1, "height": 1, "color": { "palette": "spine", "index": 0 } }
+      ]
+    }
+  },
+
+  "grass_tufts": {
+    "id": "grass_tufts",
+    "name": "Grass Tufts",
+    "category": "vegetation",
+    "blocksMovement": false,
+    "prompt": {
+      "description": "small tufts of grass"
+    },
+    "segmentation": {
+      "color": "#04C803",
+      "extent": { "width": 0.3, "heightAbove": 5 }
+    },
+    "placement": {
+      "allowedTiles": [],
+      "probability": 0,
+      "minDistance": 0,
+      "maxPerTile": 1
+    },
+    "drawing": {
+      "palettes": {
+        "grass": ["#4CAF50", "#66BB6A", "#81C784", "#388E3C", "#43A047"]
+      },
+      "layers": [
+        {
+          "type": "group",
+          "repeat": { "min": 2, "max": 4 },
+          "scatter": { "x": 6, "y": 3 },
+          "layers": [
+            { "type": "quadCurve", "x1": -1, "y1": 0, "cpx": 0, "cpy": -2, "x2": -0.5, "y2": -4, "width": 0.8, "color": { "palette": "grass", "random": true }, "variance": { "cpx": [-1, 1], "y2": [-1, 1] } },
+            { "type": "quadCurve", "x1": 0, "y1": 0, "cpx": 1, "cpy": -2, "x2": 0.5, "y2": -4, "width": 0.8, "color": { "palette": "grass", "random": true }, "variance": { "cpx": [-1, 1], "y2": [-1, 1] } }
+          ]
+        }
+      ]
+    }
+  },
+
+  "building": {
+    "id": "building",
+    "name": "Building",
+    "category": "structure",
+    "blocksMovement": true,
+    "prompt": {
+      "description": "small rustic building with wooden walls and roof"
+    },
+    "segmentation": {
+      "color": "#946B2D",
+      "extent": { "width": 0.7, "heightAbove": 20, "heightVariance": [-2, 4] }
+    },
+    "placement": {
+      "allowedTiles": [],
+      "probability": 0,
+      "minDistance": 1,
+      "maxPerTile": 1,
+      "randomOffset": true
+    },
+    "drawing": {
+      "palettes": {
+        "wall": ["#D4A574", "#C9B896", "#E8D5B7", "#B8956E", "#A0785A"],
+        "roof": ["#8B4513", "#6D3610", "#A0522D", "#5D4037", "#4E342E"],
+        "door": ["#5D4037", "#4E342E", "#3E2723", "#6D4C41"],
+        "window": ["#87CEEB"]
+      },
+      "variants": {
+        "roofStyle": [
+          {
+            "name": "peaked",
+            "layers": [
+              {
+                "type": "polygon",
+                "points": [
+                  { "x": -8, "y": -12 },
+                  { "x": 0, "y": -20 },
+                  { "x": 8, "y": -12 }
+                ],
+                "color": { "palette": "roof", "random": true }
+              }
+            ]
+          },
+          {
+            "name": "flat",
+            "layers": [
+              { "type": "rect", "x": -7, "y": -14, "width": 14, "height": 3, "color": { "palette": "roof", "random": true } }
+            ]
+          },
+          {
+            "name": "slanted",
+            "layers": [
+              {
+                "type": "polygon",
+                "points": [
+                  { "x": -8, "y": -12 },
+                  { "x": -8, "y": -17 },
+                  { "x": 8, "y": -14 },
+                  { "x": 8, "y": -12 }
+                ],
+                "color": { "palette": "roof", "random": true }
+              }
+            ]
+          },
+          {
+            "name": "double",
+            "layers": [
+              {
+                "type": "polygon",
+                "points": [
+                  { "x": -7, "y": -12 },
+                  { "x": -3, "y": -17 },
+                  { "x": 0, "y": -12 },
+                  { "x": 3, "y": -17 },
+                  { "x": 7, "y": -12 }
+                ],
+                "color": { "palette": "roof", "random": true }
+              }
+            ]
+          }
+        ]
+      },
+      "layers": [
+        { "type": "rect", "x": -6, "y": -12, "width": 12, "height": 12, "color": { "palette": "wall", "random": true } },
+        { "type": "rect", "x": -6, "y": -12, "width": 4, "height": 12, "color": { "palette": "wall", "random": true, "darken": 0.2 } },
+        { "variant": "roofStyle" },
+        { "type": "rect", "x": -1.5, "y": -5, "width": 3, "height": 5, "color": { "palette": "door", "random": true } },
+        { "type": "rect", "x": -4, "y": -9, "width": 3, "height": 3, "color": { "palette": "window", "index": 0 } },
+        { "type": "rect", "x": 2, "y": -9, "width": 3, "height": 3, "color": { "palette": "window", "index": 0 }, "condition": { "type": "random", "probability": 0.5 } }
+      ]
+    }
+  },
+
+  "water_ripples": {
+    "id": "water_ripples",
+    "name": "Water Ripples",
+    "category": "effect",
+    "blocksMovement": false,
+    "prompt": {
+      "description": "gentle ripples on water surface"
+    },
+    "segmentation": {
+      "color": "#6EBDFF",
+      "extent": { "width": 0.3, "heightAbove": 2 }
+    },
+    "placement": {
+      "allowedTiles": [],
+      "probability": 0,
+      "minDistance": 0,
+      "maxPerTile": 2
+    },
+    "drawing": {
+      "palettes": {
+        "ripple": ["rgba(255,255,255,0.3)"]
+      },
+      "layers": [
+        {
+          "type": "ellipse",
+          "x": 0, "y": 0,
+          "rx": 3, "ry": 1,
+          "color": { "palette": "ripple", "index": 0 },
+          "repeat": { "min": 1, "max": 2 },
+          "scatter": { "x": 5, "y": 3 }
+        }
+      ]
+    }
+  },
+
+  "mountain": {
+    "id": "mountain",
+    "name": "Mountain",
+    "category": "terrain_feature",
+    "blocksMovement": true,
+    "prompt": {
+      "description": "tall rocky mountain peak with snow cap"
+    },
+    "segmentation": {
+      "color": "#808080",
+      "extent": { "width": 0.8, "heightAbove": 26, "heightVariance": [-4, 8] }
+    },
+    "placement": {
+      "allowedTiles": [],
+      "probability": 0,
+      "minDistance": 0,
+      "maxPerTile": 1,
+      "randomOffset": true
+    },
+    "drawing": {
+      "palettes": {
+        "rock": ["#607D8B", "#546E7A", "#78909C", "#455A64", "#37474F"],
+        "snow": ["#ECEFF1", "#FAFAFA", "#E0E0E0"]
+      },
+      "variants": {
+        "peakStyle": [
+          {
+            "name": "single",
+            "layers": [
+              {
+                "type": "polygon",
+                "points": [
+                  { "x": 0, "y": -22 },
+                  { "x": 10, "y": 0 },
+                  { "x": -10, "y": 0 }
+                ],
+                "color": { "palette": "rock", "random": true }
+              },
+              {
+                "type": "polygon",
+                "points": [
+                  { "x": 0, "y": -22 },
+                  { "x": -10, "y": 0 },
+                  { "x": 0, "y": 0 }
+                ],
+                "color": { "palette": "rock", "random": true, "darken": 0.2 }
+              },
+              {
+                "type": "polygon",
+                "points": [
+                  { "x": 0, "y": -22 },
+                  { "x": 4, "y": -17 },
+                  { "x": -4, "y": -17 }
+                ],
+                "color": { "palette": "snow", "random": true },
+                "condition": { "type": "random", "probability": 0.66 }
+              }
+            ]
+          }
+        ]
+      },
+      "layers": [
+        { "variant": "peakStyle" }
+      ]
+    }
+  },
+
+  "mushrooms": {
+    "id": "mushrooms",
+    "name": "Mushrooms",
+    "category": "vegetation",
+    "blocksMovement": false,
+    "prompt": {
+      "description": "small mushrooms growing in clusters"
+    },
+    "segmentation": {
+      "color": "#E85D04",
+      "extent": { "width": 0.3, "heightAbove": 4 }
+    },
+    "placement": {
+      "allowedTiles": ["forest", "dense_forest", "glen", "swamp"],
+      "probability": 0.08,
+      "minDistance": 4,
+      "maxPerTile": 1
+    },
+    "drawing": {
+      "palettes": {
+        "cap": ["#D32F2F", "#F57C00", "#FFA000", "#7B1FA2", "#5D4037"],
+        "stem": ["#F5F5F5", "#E0E0E0", "#BDBDBD"],
+        "spots": ["#FFFFFF"]
+      },
+      "layers": [
+        {
+          "type": "group",
+          "repeat": { "min": 2, "max": 4 },
+          "scatter": { "x": 5, "y": 2 },
+          "layers": [
+            { "type": "rect", "x": -0.5, "y": -2, "width": 1, "height": 3, "color": { "palette": "stem", "random": true } },
+            { "type": "ellipse", "x": 0, "y": -3, "rx": 2.5, "ry": 1.5, "color": { "palette": "cap", "random": true }, "variance": { "rx": [-0.5, 0.5] } },
+            { "type": "circle", "x": 0.5, "y": -3.5, "r": 0.5, "color": { "palette": "spots", "index": 0 }, "condition": { "type": "random", "probability": 0.5 } }
+          ]
+        }
+      ]
+    }
+  },
+
+  "fence": {
+    "id": "fence",
+    "name": "Fence",
+    "category": "structure",
+    "blocksMovement": true,
+    "prompt": {
+      "description": "wooden fence posts"
+    },
+    "segmentation": {
+      "color": "#946B2D",
+      "extent": { "width": 0.8, "heightAbove": 8 }
+    },
+    "placement": {
+      "allowedTiles": ["farm_field", "orchard"],
+      "probability": 0.15,
+      "minDistance": 2,
+      "maxPerTile": 1
+    },
+    "drawing": {
+      "palettes": {
+        "wood": ["#8D6E63", "#795548", "#6D4C41", "#5D4037"]
+      },
+      "layers": [
+        { "type": "rect", "x": -6, "y": -8, "width": 2, "height": 8, "color": { "palette": "wood", "random": true } },
+        { "type": "rect", "x": 4, "y": -8, "width": 2, "height": 8, "color": { "palette": "wood", "random": true } },
+        { "type": "rect", "x": -6, "y": -6, "width": 12, "height": 1.5, "color": { "palette": "wood", "random": true } },
+        { "type": "rect", "x": -6, "y": -3, "width": 12, "height": 1.5, "color": { "palette": "wood", "random": true } }
+      ]
+    }
+  },
+
+  "campfire": {
+    "id": "campfire",
+    "name": "Campfire",
+    "category": "effect",
+    "blocksMovement": false,
+    "prompt": {
+      "description": "small campfire with flames"
+    },
+    "segmentation": {
+      "color": "#E85D04",
+      "extent": { "width": 0.3, "heightAbove": 8 }
+    },
+    "placement": {
+      "allowedTiles": ["grass", "glen", "scrubland"],
+      "probability": 0.01,
+      "minDistance": 15,
+      "maxPerTile": 1
+    },
+    "drawing": {
+      "palettes": {
+        "log": ["#5D4037", "#4E342E", "#3E2723"],
+        "flame": ["#FF6F00", "#FF8F00", "#FFA000", "#FF5722"],
+        "ember": ["#BF360C", "#D84315"]
+      },
+      "layers": [
+        { "type": "ellipse", "x": 0, "y": 1, "rx": 4, "ry": 2, "color": { "palette": "ember", "random": true } },
+        { "type": "rect", "x": -4, "y": -1, "width": 3, "height": 2, "color": { "palette": "log", "random": true } },
+        { "type": "rect", "x": 1, "y": -1, "width": 3, "height": 2, "color": { "palette": "log", "random": true } },
+        { "type": "ellipse", "x": 0, "y": -2, "rx": 2, "ry": 4, "color": { "palette": "flame", "index": 0 } },
+        { "type": "ellipse", "x": -1, "y": -3, "rx": 1.5, "ry": 3, "color": { "palette": "flame", "index": 1 } },
+        { "type": "ellipse", "x": 1, "y": -2.5, "rx": 1, "ry": 2.5, "color": { "palette": "flame", "index": 2 } }
+      ]
+    }
+  },
+
+  "barrel": {
+    "id": "barrel",
+    "name": "Barrel",
+    "category": "object",
+    "blocksMovement": false,
+    "prompt": {
+      "description": "wooden barrel"
+    },
+    "segmentation": {
+      "color": "#946B2D",
+      "extent": { "width": 0.25, "heightAbove": 8 }
+    },
+    "placement": {
+      "allowedTiles": ["dock", "market"],
+      "probability": 0.2,
+      "minDistance": 2,
+      "maxPerTile": 2
+    },
+    "drawing": {
+      "palettes": {
+        "wood": ["#8D6E63", "#795548", "#6D4C41"],
+        "band": ["#424242", "#616161"]
+      },
+      "layers": [
+        { "type": "ellipse", "x": 0, "y": 0, "rx": 4, "ry": 2, "color": { "palette": "wood", "random": true } },
+        { "type": "rect", "x": -4, "y": -8, "width": 8, "height": 8, "color": { "palette": "wood", "random": true } },
+        { "type": "rect", "x": -4.5, "y": -7, "width": 9, "height": 1, "color": { "palette": "band", "random": true } },
+        { "type": "rect", "x": -4.5, "y": -3, "width": 9, "height": 1, "color": { "palette": "band", "random": true } },
+        { "type": "ellipse", "x": 0, "y": -8, "rx": 4, "ry": 2, "color": { "palette": "wood", "random": true, "lighten": 0.1 } }
+      ]
+    }
+  },
+
+  "crop_wheat": {
+    "id": "crop_wheat",
+    "name": "Wheat Field",
+    "category": "vegetation",
+    "blocksMovement": false,
+    "prompt": {
+      "description": "golden wheat stalks"
+    },
+    "segmentation": {
+      "color": "#FFD54F",
+      "extent": { "width": 0.6, "heightAbove": 6 }
+    },
+    "placement": {
+      "allowedTiles": ["farm_field"],
+      "probability": 0.3,
+      "minDistance": 0,
+      "maxPerTile": 1
+    },
+    "drawing": {
+      "palettes": {
+        "stalk": ["#FFA000", "#FFB300", "#FFC107"],
+        "head": ["#FFD54F", "#FFCA28", "#FFE082"]
+      },
+      "layers": [
+        {
+          "type": "group",
+          "repeat": { "min": 5, "max": 8 },
+          "scatter": { "x": 7, "y": 2 },
+          "layers": [
+            { "type": "line", "x1": 0, "y1": 0, "x2": 0, "y2": -5, "width": 0.8, "color": { "palette": "stalk", "random": true }, "variance": { "y2": [-1, 1] } },
+            { "type": "ellipse", "x": 0, "y": -6, "rx": 1, "ry": 2, "color": { "palette": "head", "random": true } }
+          ]
+        }
+      ]
+    }
+  },
+
+  "signpost": {
+    "id": "signpost",
+    "name": "Signpost",
+    "category": "structure",
+    "blocksMovement": false,
+    "prompt": {
+      "description": "wooden signpost pointing directions"
+    },
+    "segmentation": {
+      "color": "#946B2D",
+      "extent": { "width": 0.4, "heightAbove": 14 }
+    },
+    "placement": {
+      "allowedTiles": ["dirt_road", "stone_road"],
+      "probability": 0.03,
+      "minDistance": 10,
+      "maxPerTile": 1
+    },
+    "drawing": {
+      "palettes": {
+        "wood": ["#6D4C41", "#5D4037", "#4E342E"]
+      },
+      "layers": [
+        { "type": "rect", "x": -1, "y": -14, "width": 2, "height": 14, "color": { "palette": "wood", "random": true } },
+        {
+          "type": "polygon",
+          "points": [
+            { "x": -1, "y": -12 },
+            { "x": -1, "y": -10 },
+            { "x": -8, "y": -10 },
+            { "x": -10, "y": -11 },
+            { "x": -8, "y": -12 }
+          ],
+          "color": { "palette": "wood", "random": true, "lighten": 0.1 }
+        },
+        {
+          "type": "polygon",
+          "points": [
+            { "x": 1, "y": -9 },
+            { "x": 1, "y": -7 },
+            { "x": 8, "y": -7 },
+            { "x": 10, "y": -8 },
+            { "x": 8, "y": -9 }
+          ],
+          "color": { "palette": "wood", "random": true, "lighten": 0.1 }
+        }
+      ]
+    }
+  },
+
+  "palm_tree": {
+    "id": "palm_tree",
+    "name": "Palm Tree",
+    "category": "vegetation",
+    "blocksMovement": false,
+    "prompt": {
+      "description": "tropical palm tree with curved trunk"
+    },
+    "segmentation": {
+      "color": "#04C803",
+      "extent": { "width": 0.6, "heightAbove": 20 }
+    },
+    "placement": {
+      "allowedTiles": ["sand"],
+      "probability": 0.06,
+      "minDistance": 4,
+      "maxPerTile": 1,
+      "randomOffset": true
+    },
+    "drawing": {
+      "palettes": {
+        "trunk": ["#8D6E63", "#795548", "#6D4C41"],
+        "frond": ["#2E7D32", "#388E3C", "#43A047"]
+      },
+      "layers": [
+        { "type": "quadCurve", "x1": 0, "y1": 0, "cpx": 3, "cpy": -8, "x2": 2, "y2": -16, "width": 3, "color": { "palette": "trunk", "random": true } },
+        { "type": "quadCurve", "x1": 2, "y1": -16, "cpx": -6, "cpy": -20, "x2": -8, "y2": -14, "width": 2, "color": { "palette": "frond", "random": true } },
+        { "type": "quadCurve", "x1": 2, "y1": -16, "cpx": 8, "cpy": -20, "x2": 10, "y2": -14, "width": 2, "color": { "palette": "frond", "random": true } },
+        { "type": "quadCurve", "x1": 2, "y1": -16, "cpx": -2, "cpy": -24, "x2": -4, "y2": -18, "width": 2, "color": { "palette": "frond", "random": true } },
+        { "type": "quadCurve", "x1": 2, "y1": -16, "cpx": 6, "cpy": -24, "x2": 8, "y2": -18, "width": 2, "color": { "palette": "frond", "random": true } },
+        { "type": "quadCurve", "x1": 2, "y1": -16, "cpx": 2, "cpy": -26, "x2": 2, "y2": -20, "width": 2, "color": { "palette": "frond", "random": true } }
+      ]
+    }
+  }
+}

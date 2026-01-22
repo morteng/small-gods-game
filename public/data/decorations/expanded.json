@@ -1,0 +1,666 @@
+{
+  "willow_tree": {
+    "id": "willow_tree",
+    "name": "Willow Tree",
+    "category": "vegetation",
+    "blocksMovement": false,
+    "prompt": {
+      "description": "weeping willow tree with drooping branches"
+    },
+    "segmentation": {
+      "color": "#04C803",
+      "extent": { "width": 0.7, "heightAbove": 20, "heightVariance": [-2, 4] }
+    },
+    "placement": {
+      "allowedTiles": ["grass", "glen", "marsh"],
+      "probability": 0.02,
+      "minDistance": 6,
+      "maxPerTile": 1,
+      "randomOffset": true
+    },
+    "drawing": {
+      "palettes": {
+        "trunk": ["#5D4037", "#4E342E", "#6D4C41"],
+        "foliage": ["#558B2F", "#689F38", "#7CB342", "#8BC34A"]
+      },
+      "layers": [
+        { "type": "rect", "x": -2, "y": -10, "width": 4, "height": 12, "color": { "palette": "trunk", "random": true } },
+        { "type": "ellipse", "x": 0, "y": -14, "rx": 5, "ry": 4, "color": { "palette": "foliage", "random": true } },
+        { "type": "quadCurve", "x1": -4, "y1": -14, "cpx": -10, "cpy": -8, "x2": -8, "y2": 0, "width": 2, "color": { "palette": "foliage", "random": true } },
+        { "type": "quadCurve", "x1": 4, "y1": -14, "cpx": 10, "cpy": -8, "x2": 8, "y2": 0, "width": 2, "color": { "palette": "foliage", "random": true } },
+        { "type": "quadCurve", "x1": -2, "y1": -16, "cpx": -6, "cpy": -10, "x2": -5, "y2": -2, "width": 1.5, "color": { "palette": "foliage", "random": true } },
+        { "type": "quadCurve", "x1": 2, "y1": -16, "cpx": 6, "cpy": -10, "x2": 5, "y2": -2, "width": 1.5, "color": { "palette": "foliage", "random": true } },
+        { "type": "quadCurve", "x1": 0, "y1": -17, "cpx": 0, "cpy": -12, "x2": 0, "y2": -4, "width": 1.5, "color": { "palette": "foliage", "random": true } }
+      ]
+    }
+  },
+
+  "birch_tree": {
+    "id": "birch_tree",
+    "name": "Birch Tree",
+    "category": "vegetation",
+    "blocksMovement": false,
+    "prompt": {
+      "description": "slender birch tree with white bark"
+    },
+    "segmentation": {
+      "color": "#04C803",
+      "extent": { "width": 0.4, "heightAbove": 18, "heightVariance": [-3, 3] }
+    },
+    "placement": {
+      "allowedTiles": ["forest", "glen"],
+      "probability": 0.03,
+      "minDistance": 3,
+      "maxPerTile": 1,
+      "randomOffset": true
+    },
+    "drawing": {
+      "palettes": {
+        "trunk": ["#F5F5F5", "#EEEEEE", "#E0E0E0"],
+        "marks": ["#424242", "#616161"],
+        "foliage": ["#8BC34A", "#9CCC65", "#AED581", "#C5E1A5"]
+      },
+      "layers": [
+        { "type": "rect", "x": -1.5, "y": -14, "width": 3, "height": 16, "color": { "palette": "trunk", "random": true } },
+        { "type": "rect", "x": -1, "y": -12, "width": 1, "height": 1, "color": { "palette": "marks", "random": true } },
+        { "type": "rect", "x": 0, "y": -8, "width": 1, "height": 1, "color": { "palette": "marks", "random": true } },
+        { "type": "rect", "x": -0.5, "y": -4, "width": 1, "height": 0.8, "color": { "palette": "marks", "random": true } },
+        { "type": "ellipse", "x": 0, "y": -17, "rx": 5, "ry": 6, "color": { "palette": "foliage", "random": true } },
+        { "type": "ellipse", "x": -3, "y": -14, "rx": 3, "ry": 4, "color": { "palette": "foliage", "random": true } },
+        { "type": "ellipse", "x": 3, "y": -15, "rx": 3, "ry": 4, "color": { "palette": "foliage", "random": true } }
+      ]
+    }
+  },
+
+  "cherry_blossom": {
+    "id": "cherry_blossom",
+    "name": "Cherry Blossom Tree",
+    "category": "vegetation",
+    "blocksMovement": false,
+    "prompt": {
+      "description": "delicate cherry blossom tree with pink flowers"
+    },
+    "segmentation": {
+      "color": "#F48FB1",
+      "extent": { "width": 0.6, "heightAbove": 16, "heightVariance": [-2, 3] }
+    },
+    "placement": {
+      "allowedTiles": ["grass", "glen", "garden"],
+      "probability": 0.015,
+      "minDistance": 5,
+      "maxPerTile": 1,
+      "randomOffset": true
+    },
+    "drawing": {
+      "palettes": {
+        "trunk": ["#5D4037", "#4E342E", "#6D4C41"],
+        "blossoms": ["#F8BBD9", "#F48FB1", "#F06292", "#EC407A", "#FFCDD2"]
+      },
+      "layers": [
+        { "type": "rect", "x": -1.5, "y": -8, "width": 3, "height": 10, "color": { "palette": "trunk", "random": true } },
+        { "type": "line", "x1": -1, "y1": -8, "x2": -4, "y2": -12, "width": 1.5, "color": { "palette": "trunk", "random": true } },
+        { "type": "line", "x1": 1, "y1": -8, "x2": 4, "y2": -11, "width": 1.5, "color": { "palette": "trunk", "random": true } },
+        { "type": "circle", "x": 0, "y": -12, "r": 5, "color": { "palette": "blossoms", "random": true } },
+        { "type": "circle", "x": -4, "y": -14, "r": 4, "color": { "palette": "blossoms", "random": true } },
+        { "type": "circle", "x": 4, "y": -13, "r": 4, "color": { "palette": "blossoms", "random": true } },
+        { "type": "circle", "x": -2, "y": -16, "r": 3, "color": { "palette": "blossoms", "random": true } },
+        { "type": "circle", "x": 2, "y": -15, "r": 3, "color": { "palette": "blossoms", "random": true } }
+      ]
+    }
+  },
+
+  "oak_tree": {
+    "id": "oak_tree",
+    "name": "Oak Tree",
+    "category": "vegetation",
+    "blocksMovement": false,
+    "prompt": {
+      "description": "mighty oak tree with wide spreading branches"
+    },
+    "segmentation": {
+      "color": "#04C803",
+      "extent": { "width": 0.8, "heightAbove": 22, "heightVariance": [-3, 5] }
+    },
+    "placement": {
+      "allowedTiles": ["grass", "meadow"],
+      "probability": 0.02,
+      "minDistance": 5,
+      "maxPerTile": 1,
+      "randomOffset": true
+    },
+    "drawing": {
+      "palettes": {
+        "trunk": ["#4E342E", "#3E2723", "#5D4037", "#6D4C41"],
+        "foliage": ["#1B5E20", "#2E7D32", "#388E3C", "#43A047"]
+      },
+      "layers": [
+        { "type": "rect", "x": -3, "y": -10, "width": 6, "height": 12, "color": { "palette": "trunk", "random": true } },
+        { "type": "rect", "x": -2, "y": -10, "width": 2, "height": 12, "color": { "palette": "trunk", "random": true, "darken": 0.15 } },
+        { "type": "circle", "x": 0, "y": -16, "r": 9, "color": { "palette": "foliage", "random": true } },
+        { "type": "circle", "x": -7, "y": -14, "r": 6, "color": { "palette": "foliage", "random": true } },
+        { "type": "circle", "x": 7, "y": -13, "r": 6, "color": { "palette": "foliage", "random": true } },
+        { "type": "circle", "x": -4, "y": -20, "r": 5, "color": { "palette": "foliage", "random": true } },
+        { "type": "circle", "x": 4, "y": -19, "r": 5, "color": { "palette": "foliage", "random": true } }
+      ]
+    }
+  },
+
+  "tower": {
+    "id": "tower",
+    "name": "Watch Tower",
+    "category": "structure",
+    "blocksMovement": true,
+    "prompt": {
+      "description": "stone watch tower with crenellations"
+    },
+    "segmentation": {
+      "color": "#808080",
+      "extent": { "width": 0.5, "heightAbove": 30, "heightVariance": [-2, 4] }
+    },
+    "placement": {
+      "allowedTiles": [],
+      "probability": 0,
+      "minDistance": 1,
+      "maxPerTile": 1,
+      "randomOffset": true
+    },
+    "drawing": {
+      "palettes": {
+        "stone": ["#757575", "#616161", "#9E9E9E", "#546E7A"],
+        "roof": ["#5D4037", "#4E342E", "#6D4C41"],
+        "window": ["#263238"]
+      },
+      "layers": [
+        { "type": "rect", "x": -5, "y": -28, "width": 10, "height": 28, "color": { "palette": "stone", "random": true } },
+        { "type": "rect", "x": -5, "y": -28, "width": 3, "height": 28, "color": { "palette": "stone", "random": true, "darken": 0.15 } },
+        { "type": "rect", "x": -6, "y": -30, "width": 2, "height": 4, "color": { "palette": "stone", "random": true } },
+        { "type": "rect", "x": -2, "y": -30, "width": 2, "height": 4, "color": { "palette": "stone", "random": true } },
+        { "type": "rect", "x": 2, "y": -30, "width": 2, "height": 4, "color": { "palette": "stone", "random": true } },
+        { "type": "rect", "x": -2, "y": -20, "width": 2, "height": 4, "color": { "palette": "window", "index": 0 } },
+        { "type": "rect", "x": -2, "y": -12, "width": 2, "height": 4, "color": { "palette": "window", "index": 0 } }
+      ]
+    }
+  },
+
+  "windmill": {
+    "id": "windmill",
+    "name": "Windmill",
+    "category": "structure",
+    "blocksMovement": true,
+    "prompt": {
+      "description": "rustic windmill with rotating blades"
+    },
+    "segmentation": {
+      "color": "#946B2D",
+      "extent": { "width": 0.6, "heightAbove": 28, "heightVariance": [-2, 3] }
+    },
+    "placement": {
+      "allowedTiles": ["farm_field", "grass"],
+      "probability": 0.005,
+      "minDistance": 15,
+      "maxPerTile": 1,
+      "randomOffset": true
+    },
+    "drawing": {
+      "palettes": {
+        "wall": ["#D4A574", "#C9B896", "#E8D5B7"],
+        "roof": ["#8B4513", "#6D3610", "#A0522D"],
+        "blade": ["#8D6E63", "#795548"]
+      },
+      "layers": [
+        { "type": "rect", "x": -6, "y": -20, "width": 12, "height": 20, "color": { "palette": "wall", "random": true } },
+        { "type": "rect", "x": -6, "y": -20, "width": 4, "height": 20, "color": { "palette": "wall", "random": true, "darken": 0.15 } },
+        { "type": "polygon", "points": [{"x": -7, "y": -20}, {"x": 0, "y": -28}, {"x": 7, "y": -20}], "color": { "palette": "roof", "random": true } },
+        { "type": "circle", "x": 0, "y": -18, "r": 2, "color": { "palette": "wall", "random": true, "darken": 0.2 } },
+        { "type": "rect", "x": -1, "y": -18, "width": 2, "height": 14, "color": { "palette": "blade", "random": true } },
+        { "type": "rect", "x": -7, "y": -19, "width": 14, "height": 2, "color": { "palette": "blade", "random": true } },
+        { "type": "rect", "x": -2, "y": -5, "width": 4, "height": 6, "color": { "palette": "roof", "random": true, "darken": 0.1 } }
+      ]
+    }
+  },
+
+  "well": {
+    "id": "well",
+    "name": "Well",
+    "category": "structure",
+    "blocksMovement": false,
+    "prompt": {
+      "description": "stone well with wooden roof"
+    },
+    "segmentation": {
+      "color": "#808080",
+      "extent": { "width": 0.4, "heightAbove": 12 }
+    },
+    "placement": {
+      "allowedTiles": ["grass", "dirt_road"],
+      "probability": 0.008,
+      "minDistance": 12,
+      "maxPerTile": 1
+    },
+    "drawing": {
+      "palettes": {
+        "stone": ["#757575", "#616161", "#9E9E9E"],
+        "wood": ["#6D4C41", "#5D4037", "#4E342E"],
+        "water": ["#1976D2", "#1565C0"]
+      },
+      "layers": [
+        { "type": "ellipse", "x": 0, "y": 0, "rx": 5, "ry": 2.5, "color": { "palette": "water", "random": true } },
+        { "type": "ellipse", "x": 0, "y": 0, "rx": 6, "ry": 3, "color": { "palette": "stone", "random": true } },
+        { "type": "rect", "x": -6, "y": -4, "width": 12, "height": 4, "color": { "palette": "stone", "random": true } },
+        { "type": "rect", "x": -1, "y": -12, "width": 2, "height": 12, "color": { "palette": "wood", "random": true } },
+        { "type": "rect", "x": -5, "y": -12, "width": 2, "height": 8, "color": { "palette": "wood", "random": true } },
+        { "type": "rect", "x": 3, "y": -12, "width": 2, "height": 8, "color": { "palette": "wood", "random": true } },
+        { "type": "polygon", "points": [{"x": -6, "y": -12}, {"x": 0, "y": -14}, {"x": 6, "y": -12}], "color": { "palette": "wood", "random": true } }
+      ]
+    }
+  },
+
+  "market_stall": {
+    "id": "market_stall",
+    "name": "Market Stall",
+    "category": "structure",
+    "blocksMovement": false,
+    "prompt": {
+      "description": "colorful market stall with awning"
+    },
+    "segmentation": {
+      "color": "#946B2D",
+      "extent": { "width": 0.6, "heightAbove": 14 }
+    },
+    "placement": {
+      "allowedTiles": ["market", "plaza"],
+      "probability": 0.2,
+      "minDistance": 3,
+      "maxPerTile": 1
+    },
+    "drawing": {
+      "palettes": {
+        "wood": ["#8D6E63", "#795548", "#6D4C41"],
+        "awning": ["#D32F2F", "#1976D2", "#388E3C", "#F57C00", "#7B1FA2"],
+        "goods": ["#FFEB3B", "#4CAF50", "#FF5722", "#9C27B0"]
+      },
+      "layers": [
+        { "type": "rect", "x": -7, "y": -5, "width": 14, "height": 5, "color": { "palette": "wood", "random": true } },
+        { "type": "rect", "x": -6, "y": -12, "width": 2, "height": 8, "color": { "palette": "wood", "random": true } },
+        { "type": "rect", "x": 4, "y": -12, "width": 2, "height": 8, "color": { "palette": "wood", "random": true } },
+        { "type": "polygon", "points": [{"x": -8, "y": -12}, {"x": 0, "y": -14}, {"x": 8, "y": -12}], "color": { "palette": "awning", "random": true } },
+        { "type": "circle", "x": -3, "y": -3, "r": 2, "color": { "palette": "goods", "random": true } },
+        { "type": "circle", "x": 2, "y": -3, "r": 2, "color": { "palette": "goods", "random": true } },
+        { "type": "rect", "x": -1, "y": -4, "width": 2, "height": 3, "color": { "palette": "goods", "random": true } }
+      ]
+    }
+  },
+
+  "boat": {
+    "id": "boat",
+    "name": "Small Boat",
+    "category": "object",
+    "blocksMovement": false,
+    "prompt": {
+      "description": "small wooden fishing boat"
+    },
+    "segmentation": {
+      "color": "#946B2D",
+      "extent": { "width": 0.5, "heightAbove": 8 }
+    },
+    "placement": {
+      "allowedTiles": ["dock", "sand"],
+      "probability": 0.08,
+      "minDistance": 5,
+      "maxPerTile": 1
+    },
+    "drawing": {
+      "palettes": {
+        "hull": ["#6D4C41", "#5D4037", "#795548"],
+        "trim": ["#D32F2F", "#1976D2", "#388E3C"]
+      },
+      "layers": [
+        { "type": "ellipse", "x": 0, "y": 0, "rx": 8, "ry": 3, "color": { "palette": "hull", "random": true } },
+        { "type": "ellipse", "x": 0, "y": -1, "rx": 7, "ry": 2.5, "color": { "palette": "hull", "random": true, "lighten": 0.1 } },
+        { "type": "rect", "x": -0.5, "y": -8, "width": 1, "height": 8, "color": { "palette": "hull", "random": true } },
+        { "type": "polygon", "points": [{"x": 0, "y": -8}, {"x": 5, "y": -4}, {"x": 0, "y": -4}], "color": { "palette": "trim", "random": true } }
+      ]
+    }
+  },
+
+  "cart": {
+    "id": "cart",
+    "name": "Wooden Cart",
+    "category": "object",
+    "blocksMovement": false,
+    "prompt": {
+      "description": "wooden cart with wheels"
+    },
+    "segmentation": {
+      "color": "#946B2D",
+      "extent": { "width": 0.5, "heightAbove": 10 }
+    },
+    "placement": {
+      "allowedTiles": ["dirt_road", "market", "farm_field"],
+      "probability": 0.03,
+      "minDistance": 8,
+      "maxPerTile": 1
+    },
+    "drawing": {
+      "palettes": {
+        "wood": ["#8D6E63", "#795548", "#6D4C41"],
+        "wheel": ["#4E342E", "#3E2723"],
+        "hay": ["#FFC107", "#FFB300"]
+      },
+      "layers": [
+        { "type": "rect", "x": -6, "y": -6, "width": 12, "height": 6, "color": { "palette": "wood", "random": true } },
+        { "type": "rect", "x": -6, "y": -8, "width": 1.5, "height": 4, "color": { "palette": "wood", "random": true } },
+        { "type": "rect", "x": 4.5, "y": -8, "width": 1.5, "height": 4, "color": { "palette": "wood", "random": true } },
+        { "type": "circle", "x": -5, "y": 0, "r": 3, "color": { "palette": "wheel", "random": true } },
+        { "type": "circle", "x": 5, "y": 0, "r": 3, "color": { "palette": "wheel", "random": true } },
+        { "type": "circle", "x": -5, "y": 0, "r": 1, "color": { "palette": "wood", "random": true } },
+        { "type": "circle", "x": 5, "y": 0, "r": 1, "color": { "palette": "wood", "random": true } },
+        { "type": "ellipse", "x": 0, "y": -8, "rx": 5, "ry": 3, "color": { "palette": "hay", "random": true }, "condition": { "type": "random", "probability": 0.5 } }
+      ]
+    }
+  },
+
+  "torch": {
+    "id": "torch",
+    "name": "Torch",
+    "category": "object",
+    "blocksMovement": false,
+    "prompt": {
+      "description": "burning wall torch"
+    },
+    "segmentation": {
+      "color": "#E85D04",
+      "extent": { "width": 0.2, "heightAbove": 10 }
+    },
+    "placement": {
+      "allowedTiles": [],
+      "probability": 0,
+      "minDistance": 4,
+      "maxPerTile": 1
+    },
+    "drawing": {
+      "palettes": {
+        "handle": ["#5D4037", "#4E342E"],
+        "flame": ["#FF6F00", "#FF8F00", "#FFA000", "#FF5722"]
+      },
+      "layers": [
+        { "type": "rect", "x": -1, "y": -6, "width": 2, "height": 8, "color": { "palette": "handle", "random": true } },
+        { "type": "ellipse", "x": 0, "y": -8, "rx": 2, "ry": 4, "color": { "palette": "flame", "index": 0 } },
+        { "type": "ellipse", "x": 0, "y": -9, "rx": 1.5, "ry": 3, "color": { "palette": "flame", "index": 1 } },
+        { "type": "ellipse", "x": 0, "y": -9.5, "rx": 1, "ry": 2, "color": { "palette": "flame", "index": 2 } }
+      ]
+    }
+  },
+
+  "statue": {
+    "id": "statue",
+    "name": "Statue",
+    "category": "structure",
+    "blocksMovement": true,
+    "prompt": {
+      "description": "stone statue on pedestal"
+    },
+    "segmentation": {
+      "color": "#808080",
+      "extent": { "width": 0.4, "heightAbove": 18 }
+    },
+    "placement": {
+      "allowedTiles": ["plaza", "garden"],
+      "probability": 0.05,
+      "minDistance": 10,
+      "maxPerTile": 1
+    },
+    "drawing": {
+      "palettes": {
+        "stone": ["#9E9E9E", "#BDBDBD", "#757575"]
+      },
+      "layers": [
+        { "type": "rect", "x": -4, "y": -4, "width": 8, "height": 4, "color": { "palette": "stone", "random": true } },
+        { "type": "rect", "x": -3, "y": -6, "width": 6, "height": 2, "color": { "palette": "stone", "random": true, "lighten": 0.1 } },
+        { "type": "rect", "x": -1.5, "y": -12, "width": 3, "height": 6, "color": { "palette": "stone", "random": true } },
+        { "type": "circle", "x": 0, "y": -14, "r": 2, "color": { "palette": "stone", "random": true, "lighten": 0.1 } },
+        { "type": "rect", "x": -4, "y": -10, "width": 2, "height": 4, "color": { "palette": "stone", "random": true } },
+        { "type": "rect", "x": 2, "y": -10, "width": 2, "height": 4, "color": { "palette": "stone", "random": true } }
+      ]
+    }
+  },
+
+  "bridge_section": {
+    "id": "bridge_section",
+    "name": "Bridge Section",
+    "category": "structure",
+    "blocksMovement": false,
+    "prompt": {
+      "description": "wooden bridge planks"
+    },
+    "segmentation": {
+      "color": "#946B2D",
+      "extent": { "width": 0.8, "heightAbove": 4 }
+    },
+    "placement": {
+      "allowedTiles": ["bridge"],
+      "probability": 0.9,
+      "minDistance": 0,
+      "maxPerTile": 1
+    },
+    "drawing": {
+      "palettes": {
+        "planks": ["#8D6E63", "#795548", "#6D4C41", "#A1887F"],
+        "rope": ["#5D4037"]
+      },
+      "layers": [
+        { "type": "rect", "x": -8, "y": -2, "width": 16, "height": 4, "color": { "palette": "planks", "random": true } },
+        { "type": "line", "x1": -8, "y1": -1, "x2": 8, "y2": -1, "width": 1, "color": { "palette": "planks", "random": true, "darken": 0.2 } },
+        { "type": "line", "x1": -8, "y1": 1, "x2": 8, "y2": 1, "width": 1, "color": { "palette": "planks", "random": true, "darken": 0.2 } },
+        { "type": "rect", "x": -9, "y": -4, "width": 2, "height": 6, "color": { "palette": "planks", "random": true } },
+        { "type": "rect", "x": 7, "y": -4, "width": 2, "height": 6, "color": { "palette": "planks", "random": true } }
+      ]
+    }
+  },
+
+  "lily_pad": {
+    "id": "lily_pad",
+    "name": "Lily Pad",
+    "category": "vegetation",
+    "blocksMovement": false,
+    "prompt": {
+      "description": "floating lily pad with flower"
+    },
+    "segmentation": {
+      "color": "#04C803",
+      "extent": { "width": 0.3, "heightAbove": 3 }
+    },
+    "placement": {
+      "allowedTiles": ["shallow_water"],
+      "probability": 0.06,
+      "minDistance": 3,
+      "maxPerTile": 2
+    },
+    "drawing": {
+      "palettes": {
+        "pad": ["#2E7D32", "#388E3C", "#43A047"],
+        "flower": ["#F8BBD9", "#F48FB1", "#FFFFFF", "#FFEB3B"]
+      },
+      "layers": [
+        { "type": "ellipse", "x": 0, "y": 0, "rx": 4, "ry": 2, "color": { "palette": "pad", "random": true } },
+        { "type": "circle", "x": 1, "y": -1, "r": 1.5, "color": { "palette": "flower", "random": true }, "condition": { "type": "random", "probability": 0.4 } }
+      ]
+    }
+  },
+
+  "bush": {
+    "id": "bush",
+    "name": "Bush",
+    "category": "vegetation",
+    "blocksMovement": false,
+    "prompt": {
+      "description": "small green bush"
+    },
+    "segmentation": {
+      "color": "#04C803",
+      "extent": { "width": 0.4, "heightAbove": 6 }
+    },
+    "placement": {
+      "allowedTiles": ["grass", "glen", "garden"],
+      "probability": 0.06,
+      "minDistance": 2,
+      "maxPerTile": 1
+    },
+    "drawing": {
+      "palettes": {
+        "foliage": ["#2E7D32", "#388E3C", "#43A047", "#4CAF50"],
+        "berry": ["#D32F2F", "#7B1FA2", "#1976D2"]
+      },
+      "layers": [
+        { "type": "ellipse", "x": 0, "y": -3, "rx": 5, "ry": 3.5, "color": { "palette": "foliage", "random": true } },
+        { "type": "ellipse", "x": -2, "y": -4, "rx": 3, "ry": 2.5, "color": { "palette": "foliage", "random": true } },
+        { "type": "ellipse", "x": 2, "y": -4, "rx": 3, "ry": 2.5, "color": { "palette": "foliage", "random": true } },
+        { "type": "circle", "x": -1, "y": -3, "r": 0.8, "color": { "palette": "berry", "random": true }, "condition": { "type": "random", "probability": 0.3 } },
+        { "type": "circle", "x": 2, "y": -2, "r": 0.8, "color": { "palette": "berry", "random": true }, "condition": { "type": "random", "probability": 0.3 } }
+      ]
+    }
+  },
+
+  "fallen_log": {
+    "id": "fallen_log",
+    "name": "Fallen Log",
+    "category": "terrain_feature",
+    "blocksMovement": false,
+    "prompt": {
+      "description": "fallen tree log covered in moss"
+    },
+    "segmentation": {
+      "color": "#5D4037",
+      "extent": { "width": 0.6, "heightAbove": 5 }
+    },
+    "placement": {
+      "allowedTiles": ["forest", "dense_forest", "glen"],
+      "probability": 0.04,
+      "minDistance": 5,
+      "maxPerTile": 1
+    },
+    "drawing": {
+      "palettes": {
+        "bark": ["#5D4037", "#4E342E", "#6D4C41"],
+        "moss": ["#558B2F", "#689F38"]
+      },
+      "layers": [
+        { "type": "ellipse", "x": 0, "y": 0, "rx": 8, "ry": 2.5, "color": { "palette": "bark", "random": true } },
+        { "type": "ellipse", "x": -7, "y": 0, "rx": 2, "ry": 2.5, "color": { "palette": "bark", "random": true, "darken": 0.1 } },
+        { "type": "ellipse", "x": 2, "y": -1, "rx": 3, "ry": 1.5, "color": { "palette": "moss", "random": true } },
+        { "type": "ellipse", "x": -3, "y": -0.5, "rx": 2, "ry": 1, "color": { "palette": "moss", "random": true } }
+      ]
+    }
+  },
+
+  "gravestone": {
+    "id": "gravestone",
+    "name": "Gravestone",
+    "category": "structure",
+    "blocksMovement": false,
+    "prompt": {
+      "description": "old weathered gravestone"
+    },
+    "segmentation": {
+      "color": "#808080",
+      "extent": { "width": 0.3, "heightAbove": 8 }
+    },
+    "placement": {
+      "allowedTiles": ["graveyard"],
+      "probability": 0.3,
+      "minDistance": 2,
+      "maxPerTile": 1
+    },
+    "drawing": {
+      "palettes": {
+        "stone": ["#757575", "#9E9E9E", "#BDBDBD", "#616161"]
+      },
+      "variants": {
+        "shape": [
+          {
+            "name": "rounded",
+            "layers": [
+              { "type": "rect", "x": -2, "y": -5, "width": 4, "height": 5, "color": { "palette": "stone", "random": true } },
+              { "type": "ellipse", "x": 0, "y": -5, "rx": 2, "ry": 2, "color": { "palette": "stone", "random": true } }
+            ]
+          },
+          {
+            "name": "cross",
+            "layers": [
+              { "type": "rect", "x": -1, "y": -8, "width": 2, "height": 8, "color": { "palette": "stone", "random": true } },
+              { "type": "rect", "x": -3, "y": -7, "width": 6, "height": 2, "color": { "palette": "stone", "random": true } }
+            ]
+          },
+          {
+            "name": "pointed",
+            "layers": [
+              { "type": "rect", "x": -2, "y": -5, "width": 4, "height": 5, "color": { "palette": "stone", "random": true } },
+              { "type": "polygon", "points": [{"x": -2, "y": -5}, {"x": 0, "y": -8}, {"x": 2, "y": -5}], "color": { "palette": "stone", "random": true } }
+            ]
+          }
+        ]
+      },
+      "layers": [
+        { "variant": "shape" }
+      ]
+    }
+  },
+
+  "bridge_planks": {
+    "id": "bridge_planks",
+    "name": "Bridge Planks",
+    "category": "structure",
+    "blocksMovement": false,
+    "prompt": {
+      "description": "wooden bridge planks with rope railings"
+    },
+    "segmentation": {
+      "color": "#946B2D",
+      "extent": { "width": 1.0, "heightAbove": 6 }
+    },
+    "placement": {
+      "allowedTiles": ["bridge"],
+      "probability": 1.0,
+      "minDistance": 0,
+      "maxPerTile": 1
+    },
+    "drawing": {
+      "palettes": {
+        "wood": ["#8D6E63", "#795548", "#6D4C41"],
+        "rope": ["#5D4037", "#4E342E"]
+      },
+      "variants": {
+        "orientation": [
+          {
+            "name": "horizontal",
+            "layers": [
+              { "type": "rect", "x": -12, "y": -2, "width": 24, "height": 6, "color": { "palette": "wood", "random": true } },
+              { "type": "line", "x1": -12, "y1": -1, "x2": 12, "y2": -1, "width": 1, "color": { "palette": "wood", "random": true, "darken": 0.15 } },
+              { "type": "line", "x1": -12, "y1": 1, "x2": 12, "y2": 1, "width": 1, "color": { "palette": "wood", "random": true, "darken": 0.15 } },
+              { "type": "line", "x1": -12, "y1": 3, "x2": 12, "y2": 3, "width": 1, "color": { "palette": "wood", "random": true, "darken": 0.15 } },
+              { "type": "rect", "x": -13, "y": -5, "width": 2, "height": 8, "color": { "palette": "wood", "random": true, "darken": 0.1 } },
+              { "type": "rect", "x": 11, "y": -5, "width": 2, "height": 8, "color": { "palette": "wood", "random": true, "darken": 0.1 } },
+              { "type": "line", "x1": -12, "y1": -4, "x2": 12, "y2": -4, "width": 1.5, "color": { "palette": "rope", "random": true } }
+            ]
+          },
+          {
+            "name": "vertical",
+            "layers": [
+              { "type": "rect", "x": -6, "y": -10, "width": 12, "height": 22, "color": { "palette": "wood", "random": true } },
+              { "type": "line", "x1": -4, "y1": -10, "x2": -4, "y2": 12, "width": 1, "color": { "palette": "wood", "random": true, "darken": 0.15 } },
+              { "type": "line", "x1": 0, "y1": -10, "x2": 0, "y2": 12, "width": 1, "color": { "palette": "wood", "random": true, "darken": 0.15 } },
+              { "type": "line", "x1": 4, "y1": -10, "x2": 4, "y2": 12, "width": 1, "color": { "palette": "wood", "random": true, "darken": 0.15 } },
+              { "type": "rect", "x": -8, "y": -11, "width": 4, "height": 2, "color": { "palette": "wood", "random": true, "darken": 0.1 } },
+              { "type": "rect", "x": 4, "y": -11, "width": 4, "height": 2, "color": { "palette": "wood", "random": true, "darken": 0.1 } },
+              { "type": "line", "x1": -7, "y1": -10, "x2": -7, "y2": 12, "width": 1.5, "color": { "palette": "rope", "random": true } },
+              { "type": "line", "x1": 7, "y1": -10, "x2": 7, "y2": 12, "width": 1.5, "color": { "palette": "rope", "random": true } }
+            ]
+          }
+        ]
+      },
+      "layers": [
+        { "variant": "orientation" }
+      ]
+    }
+  }
+}

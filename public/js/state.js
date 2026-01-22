@@ -2,6 +2,14 @@
  * Small Gods - Global State & Constants
  */
 
+// Debug mode - set to true for verbose logging
+const DEBUG = false;
+
+// Debug logging utility - only logs when DEBUG is true
+function debugLog(...args) {
+  if (DEBUG) console.log('[DEBUG]', ...args);
+}
+
 // Cost tracking
 const costs = { paint: 0, npcs: 0, zoom: 0 };
 const PRICES = { PAINT: 0.015, NPC: 0.003, ZOOM: 0.05 };
@@ -19,7 +27,10 @@ const state = {
 };
 
 /**
- * DEFAULT WORLD SEED
+ * DEFAULT WORLD SEED (legacy fallback)
+ *
+ * This is kept for backward compatibility. The preferred way to load worlds
+ * is via WorldManager.loadDefault() which loads from /data/worlds/default.json
  *
  * Terrain zones bias WFC generation, then settlements are placed on suitable terrain.
  */
@@ -172,4 +183,56 @@ const DEFAULT_WORLD_SEED = {
 const TileTypes = window.WFC?.TILES;
 if (!TileTypes) {
   console.error('WFC.TILES not loaded! Check script order in index.html');
+}
+
+// =============================================================================
+// DECORATION SYSTEM INITIALIZATION
+// =============================================================================
+
+/**
+ * Load and register decoration definitions from JSON files
+ */
+async function initDecorationSystem() {
+  if (!window.DecorationRegistry) {
+    console.warn('DecorationRegistry not found, skipping decoration initialization');
+    return;
+  }
+
+  // List of decoration files to load
+  const decorationFiles = [
+    '/data/decorations/core.json',
+    '/data/decorations/expanded.json'
+  ];
+
+  let totalCount = 0;
+
+  for (const file of decorationFiles) {
+    try {
+      const response = await fetch(file);
+      if (!response.ok) {
+        console.warn(`Failed to load ${file}: ${response.statusText}`);
+        continue;
+      }
+
+      const definitions = await response.json();
+      const count = DecorationRegistry.registerAll(definitions);
+      totalCount += count;
+      console.log(`DecorationSystem: Loaded ${count} decorations from ${file}`);
+    } catch (error) {
+      console.warn(`Error loading ${file}:`, error);
+    }
+  }
+
+  console.log(`DecorationSystem: Total registered ${totalCount} decorations`);
+
+  // Log stats
+  const stats = DecorationRegistry.getStats();
+  console.log('DecorationSystem stats:', stats);
+}
+
+// Initialize decoration system when DOM is ready
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initDecorationSystem);
+} else {
+  initDecorationSystem();
 }

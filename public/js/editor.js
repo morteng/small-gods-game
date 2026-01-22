@@ -10,7 +10,7 @@
 
 const editor = {
   enabled: false,
-  mode: 'select', // 'select', 'move', 'add-poi', 'add-road-endpoint', 'add-connection'
+  mode: 'select', // 'select', 'move', 'add-poi', 'add-road-endpoint', 'add-connection', 'edit-path'
   selection: null, // { type: 'poi'|'roadEndpoint'|'connection', id: string, data: object }
   dragging: false,
   dragStart: null,
@@ -18,6 +18,13 @@ const editor = {
   showOverlay: true,
   showLabels: true,
   connectionStart: null, // For drawing connections between POIs
+
+  // Path editing state
+  editingPath: null,      // Connection being edited
+  pathWaypoints: [],      // Working copy of waypoints
+  selectedWaypoint: null, // Index of selected waypoint
+  hoveredWaypoint: null,  // Index of hovered waypoint
+  draggingWaypoint: false,// Whether dragging a waypoint
 };
 
 // POI types with their visual properties
@@ -84,6 +91,11 @@ function toggleEditor() {
  * Set editor tool/mode
  */
 function setEditorMode(mode) {
+  // Exit path editing if switching away from it
+  if (editor.mode === 'edit-path' && mode !== 'edit-path') {
+    exitPathEditing(false); // Don't save
+  }
+
   editor.mode = mode;
   editor.connectionStart = null;
   updateEditorUI();
@@ -102,22 +114,41 @@ function setEditorMode(mode) {
     case 'add-connection':
       container.style.cursor = 'pointer';
       break;
+    case 'edit-path':
+      container.style.cursor = 'pointer';
+      break;
   }
+}
+
+/**
+ * Convert screen coordinates to canvas coordinates (0-1024 space)
+ * Accounts for CSS transform on the canvas element
+ */
+function screenToCanvas(screenX, screenY) {
+  const canvas = document.getElementById('gameCanvas');
+  const rect = canvas.getBoundingClientRect();
+
+  // rect.width/height are the VISUAL size after CSS transforms
+  // Map screen position to the actual canvas pixel space
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+
+  return {
+    x: (screenX - rect.left) * scaleX,
+    y: (screenY - rect.top) * scaleY
+  };
 }
 
 /**
  * Convert screen coordinates to map tile coordinates
  */
 function screenToTile(screenX, screenY) {
-  const container = document.getElementById('canvasContainer');
-  const rect = container.getBoundingClientRect();
+  const { x: canvasX, y: canvasY } = screenToCanvas(screenX, screenY);
 
-  const x = (screenX - rect.left) / state.camera.zoom - state.camera.x;
-  const y = (screenY - rect.top) / state.camera.zoom - state.camera.y;
-
+  // Convert canvas coordinates to tile coordinates
   const { tw, th, ox, oy } = getMapOffsets(state.map);
-  const mx = Math.floor(((x - ox) / (tw / 2) + (y - oy) / (th / 2)) / 2);
-  const my = Math.floor(((y - oy) / (th / 2) - (x - ox) / (tw / 2)) / 2);
+  const mx = Math.floor(((canvasX - ox) / (tw / 2) + (canvasY - oy) / (th / 2)) / 2);
+  const my = Math.floor(((canvasY - oy) / (th / 2) - (canvasX - ox) / (tw / 2)) / 2);
 
   return { x: mx, y: my };
 }
@@ -141,12 +172,9 @@ function findItemAtPosition(screenX, screenY) {
   const tile = screenToTile(screenX, screenY);
   const threshold = 3; // Tile distance threshold for selection
 
-  // Check POIs
+  // Check POIs first (highest priority)
   for (const poi of state.worldSeed.pois || []) {
-    const pos = poi.position || (poi.region ? {
-      x: Math.floor((poi.region.x_min + (poi.region.x_max || poi.region.x_min + 5)) / 2),
-      y: Math.floor((poi.region.y_min + (poi.region.y_max || poi.region.y_min + 5)) / 2)
-    } : null);
+    const pos = typeof getPOIPosition === 'function' ? getPOIPosition(poi) : poi.position;
 
     if (pos) {
       const dist = Math.abs(pos.x - tile.x) + Math.abs(pos.y - tile.y);
@@ -165,6 +193,17 @@ function findItemAtPosition(screenX, screenY) {
         return { type: 'roadEndpoint', id: endpoint.direction, data: endpoint };
       }
     }
+  }
+
+  // Check connections (lowest priority - only if clicking directly on line)
+  const connResult = findConnectionAtPosition(screenX, screenY);
+  if (connResult) {
+    const conn = connResult.connection;
+    return {
+      type: 'connection',
+      id: `${conn.from}-${conn.to}`,
+      data: conn
+    };
   }
 
   return null;
@@ -208,6 +247,45 @@ function handleEditorClick(e) {
         redraw();
       }
       break;
+
+    case 'edit-path':
+      handleEditPathClick(e);
+      break;
+  }
+}
+
+/**
+ * Handle clicks in edit-path mode
+ */
+function handleEditPathClick(e) {
+  const { x: canvasX, y: canvasY } = screenToCanvas(e.clientX, e.clientY);
+
+  // If we're already editing a path
+  if (editor.editingPath) {
+    // Ctrl+click adds a new waypoint
+    if (e.ctrlKey || e.metaKey) {
+      addWaypointAtClick(e.clientX, e.clientY);
+      return;
+    }
+
+    // Check if clicking on a waypoint
+    const wpIndex = findWaypointAtPosition(canvasX, canvasY, editor.pathWaypoints);
+    if (wpIndex !== null) {
+      editor.selectedWaypoint = wpIndex;
+      redraw();
+      return;
+    }
+
+    // Clicking elsewhere deselects waypoint
+    editor.selectedWaypoint = null;
+    redraw();
+    return;
+  }
+
+  // Not editing yet - check if clicking on a connection to start editing
+  const connResult = findConnectionAtPosition(e.clientX, e.clientY);
+  if (connResult) {
+    startPathEditing(connResult.connection);
   }
 }
 
@@ -216,6 +294,33 @@ function handleEditorClick(e) {
  */
 function handleEditorMouseMove(e) {
   if (!editor.enabled) return;
+
+  const container = document.getElementById('canvasContainer');
+
+  // Handle waypoint dragging in edit-path mode
+  if (editor.mode === 'edit-path' && editor.editingPath) {
+    const { x: canvasX, y: canvasY } = screenToCanvas(e.clientX, e.clientY);
+
+    if (editor.draggingWaypoint && editor.selectedWaypoint !== null) {
+      // Move the selected waypoint
+      const tile = screenToTile(e.clientX, e.clientY);
+      tile.x = Math.max(0, Math.min(state.map.width - 1, tile.x));
+      tile.y = Math.max(0, Math.min(state.map.height - 1, tile.y));
+
+      editor.pathWaypoints[editor.selectedWaypoint] = { x: tile.x, y: tile.y };
+      redraw();
+      return;
+    }
+
+    // Check hover on waypoints
+    const wpIndex = findWaypointAtPosition(canvasX, canvasY, editor.pathWaypoints);
+    if (wpIndex !== editor.hoveredWaypoint) {
+      editor.hoveredWaypoint = wpIndex;
+      container.style.cursor = wpIndex !== null ? 'grab' : 'pointer';
+      redraw();
+    }
+    return;
+  }
 
   if (editor.dragging && editor.selection) {
     const tile = screenToTile(e.clientX, e.clientY);
@@ -271,6 +376,23 @@ function handleEditorMouseMove(e) {
 function handleEditorMouseDown(e) {
   if (!editor.enabled || editor.mode === 'add-poi' || editor.mode === 'add-road-endpoint') return;
 
+  // Handle waypoint dragging in edit-path mode
+  if (editor.mode === 'edit-path' && editor.editingPath) {
+    const container = document.getElementById('canvasContainer');
+    const { x: canvasX, y: canvasY } = screenToCanvas(e.clientX, e.clientY);
+
+    const wpIndex = findWaypointAtPosition(canvasX, canvasY, editor.pathWaypoints);
+    if (wpIndex !== null) {
+      editor.selectedWaypoint = wpIndex;
+      editor.draggingWaypoint = true;
+      container.style.cursor = 'grabbing';
+      e.preventDefault();
+      e.stopPropagation();
+      redraw();
+      return;
+    }
+  }
+
   const item = findItemAtPosition(e.clientX, e.clientY);
   if (item && (editor.mode === 'move' || editor.mode === 'select')) {
     editor.selection = item;
@@ -285,6 +407,15 @@ function handleEditorMouseDown(e) {
  * Handle mouse up for drag end
  */
 function handleEditorMouseUp(e) {
+  // Handle waypoint drag end
+  if (editor.draggingWaypoint) {
+    editor.draggingWaypoint = false;
+    const container = document.getElementById('canvasContainer');
+    container.style.cursor = editor.hoveredWaypoint !== null ? 'grab' : 'pointer';
+    redraw();
+    return;
+  }
+
   if (editor.dragging) {
     editor.dragging = false;
     saveWorldSeedToStorage();
@@ -297,6 +428,28 @@ function handleEditorMouseUp(e) {
  */
 function handleEditorKeyDown(e) {
   if (!editor.enabled) return;
+
+  // Handle special keys in edit-path mode
+  if (editor.mode === 'edit-path' && editor.editingPath) {
+    switch (e.key) {
+      case 'Delete':
+      case 'Backspace':
+        if (editor.selectedWaypoint !== null) {
+          deleteSelectedWaypoint();
+          e.preventDefault();
+          return;
+        }
+        break;
+      case 'Escape':
+        exitPathEditing(true); // Cancel
+        e.preventDefault();
+        return;
+      case 'Enter':
+        savePathEditing();
+        e.preventDefault();
+        return;
+    }
+  }
 
   switch (e.key) {
     case 'Delete':
@@ -326,6 +479,9 @@ function handleEditorKeyDown(e) {
       break;
     case '5':
       setEditorMode('add-connection');
+      break;
+    case '6':
+      setEditorMode('edit-path');
       break;
   }
 }
@@ -551,6 +707,51 @@ function updatePropertiesPanel() {
       </div>
       <button class="btn-danger" onclick="deleteSelection()">Delete Endpoint</button>
     `;
+  } else if (editor.selection.type === 'connection') {
+    const waypointCount = data.waypoints ? data.waypoints.length : 0;
+    const autoBridge = data.autoBridge !== false;
+
+    html = `
+      <div class="prop-header">🔗 Connection</div>
+      <div class="prop-group">
+        <label>From → To</label>
+        <div style="font-size: 11px; color: #ccc; padding: 4px 0;">${data.from} → ${data.to}</div>
+      </div>
+      <div class="prop-group">
+        <label>Type</label>
+        <select onchange="updateConnectionProp('type', this.value)">
+          <option value="road" ${data.type === 'road' ? 'selected' : ''}>Road</option>
+          <option value="river" ${data.type === 'river' ? 'selected' : ''}>River</option>
+          <option value="wall" ${data.type === 'wall' ? 'selected' : ''}>Wall</option>
+        </select>
+      </div>
+      <div class="prop-group">
+        <label>Style</label>
+        <select onchange="updateConnectionProp('style', this.value)">
+          <option value="dirt" ${data.style === 'dirt' ? 'selected' : ''}>Dirt</option>
+          <option value="stone" ${data.style === 'stone' ? 'selected' : ''}>Stone</option>
+          <option value="bridge" ${data.style === 'bridge' ? 'selected' : ''}>Bridge</option>
+        </select>
+      </div>
+      <div class="prop-group">
+        <label class="checkbox-label">
+          <input type="checkbox" ${autoBridge ? 'checked' : ''} onchange="updateConnectionProp('autoBridge', this.checked)" />
+          Auto-place bridges over water
+        </label>
+      </div>
+      <div class="prop-group">
+        <label>Waypoints</label>
+        <div style="font-size: 11px; color: #ccc; padding: 4px 0;">${waypointCount} waypoint${waypointCount !== 1 ? 's' : ''}</div>
+      </div>
+      <button class="btn-secondary" onclick="startPathEditing(editor.selection.data)">
+        ✏️ Edit Path
+      </button>
+      <div class="prop-group">
+        <label>Description</label>
+        <textarea onchange="updateConnectionProp('description', this.value)">${data.description || ''}</textarea>
+      </div>
+      <button class="btn-danger" onclick="deleteConnection()">Delete Connection</button>
+    `;
   }
 
   panel.innerHTML = html;
@@ -611,6 +812,160 @@ function updateEditorUI() {
   updatePropertiesPanel();
 }
 
+// ========================================
+// Connection Property Functions
+// ========================================
+
+/**
+ * Update a property on a connection
+ */
+function updateConnectionProp(prop, value) {
+  if (!editor.selection || editor.selection.type !== 'connection') return;
+
+  const conn = state.worldSeed.connections?.find(
+    c => c.from === editor.selection.data.from && c.to === editor.selection.data.to
+  );
+
+  if (conn) {
+    conn[prop] = value;
+    editor.selection.data = conn;
+    saveWorldSeedToStorage();
+    regenerateMap();
+    updatePropertiesPanel();
+  }
+}
+
+/**
+ * Delete the selected connection
+ */
+function deleteConnection() {
+  if (!editor.selection || editor.selection.type !== 'connection') return;
+
+  const data = editor.selection.data;
+  state.worldSeed.connections = (state.worldSeed.connections || []).filter(
+    c => !(c.from === data.from && c.to === data.to)
+  );
+
+  editor.selection = null;
+  saveWorldSeedToStorage();
+  regenerateMap();
+  updatePropertiesPanel();
+  setStatus('Connection deleted', 'success');
+}
+
+// ========================================
+// Path Editing Functions
+// ========================================
+
+/**
+ * Start editing a path/connection
+ */
+function startPathEditing(connection) {
+  editor.mode = 'edit-path';
+  editor.editingPath = connection;
+  editor.pathWaypoints = connection.waypoints ? [...connection.waypoints.map(w => ({ ...w }))] : [];
+  editor.selectedWaypoint = null;
+  editor.hoveredWaypoint = null;
+  editor.draggingWaypoint = false;
+
+  // Select the connection
+  editor.selection = {
+    type: 'connection',
+    id: `${connection.from}-${connection.to}`,
+    data: connection
+  };
+
+  setStatus('Editing path. Ctrl+click to add waypoint. Delete to remove. Enter to save.', 'loading');
+  updateEditorUI();
+  redraw();
+}
+
+/**
+ * Save path editing changes
+ */
+function savePathEditing() {
+  if (!editor.editingPath) return;
+
+  // Find the connection in the world seed and update its waypoints
+  const conn = state.worldSeed.connections?.find(
+    c => c.from === editor.editingPath.from && c.to === editor.editingPath.to
+  );
+
+  if (conn) {
+    conn.waypoints = editor.pathWaypoints.length > 0
+      ? editor.pathWaypoints.map(w => ({ x: w.x, y: w.y }))
+      : undefined;
+
+    saveWorldSeedToStorage();
+    regenerateMap();
+    setStatus('Path saved', 'success');
+  }
+
+  exitPathEditing(false);
+}
+
+/**
+ * Exit path editing mode
+ */
+function exitPathEditing(cancelled = true) {
+  editor.editingPath = null;
+  editor.pathWaypoints = [];
+  editor.selectedWaypoint = null;
+  editor.hoveredWaypoint = null;
+  editor.draggingWaypoint = false;
+
+  if (cancelled) {
+    setStatus('Path editing cancelled', 'error');
+  }
+
+  editor.mode = 'select';
+  updateEditorUI();
+  redraw();
+}
+
+/**
+ * Delete the selected waypoint
+ */
+function deleteSelectedWaypoint() {
+  if (editor.selectedWaypoint === null || !editor.editingPath) return;
+
+  editor.pathWaypoints.splice(editor.selectedWaypoint, 1);
+  editor.selectedWaypoint = null;
+
+  setStatus(`Waypoint deleted. ${editor.pathWaypoints.length} remaining.`, 'loading');
+  redraw();
+}
+
+/**
+ * Add a waypoint at the clicked position (Ctrl+click)
+ */
+function addWaypointAtClick(screenX, screenY) {
+  if (!editor.editingPath) return;
+
+  // Get POI positions
+  const fromPoi = state.worldSeed.pois.find(p => p.id === editor.editingPath.from);
+  const toPoi = state.worldSeed.pois.find(p => p.id === editor.editingPath.to);
+
+  if (!fromPoi || !toPoi) return;
+
+  const fromPos = getPOIPosition(fromPoi);
+  const toPos = getPOIPosition(toPoi);
+
+  if (!fromPos || !toPos) return;
+
+  // Insert waypoint at the appropriate position
+  editor.pathWaypoints = insertWaypointAtPosition(
+    editor.pathWaypoints,
+    fromPos,
+    toPos,
+    screenX,
+    screenY
+  );
+
+  setStatus(`Waypoint added. ${editor.pathWaypoints.length} total.`, 'loading');
+  redraw();
+}
+
 // Export for global access
 window.editor = editor;
 window.initEditor = initEditor;
@@ -622,3 +977,15 @@ window.POI_VISUALS = POI_VISUALS;
 window.DIRECTION_POSITIONS = DIRECTION_POSITIONS;
 window.tileToScreen = tileToScreen;
 window.screenToTile = screenToTile;
+window.screenToCanvas = screenToCanvas;
+
+// Connection editing exports
+window.updateConnectionProp = updateConnectionProp;
+window.deleteConnection = deleteConnection;
+
+// Path editing exports
+window.startPathEditing = startPathEditing;
+window.savePathEditing = savePathEditing;
+window.exitPathEditing = exitPathEditing;
+window.deleteSelectedWaypoint = deleteSelectedWaypoint;
+window.addWaypointAtClick = addWaypointAtClick;

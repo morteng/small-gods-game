@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Small Gods - Game Demo</title>
-  <link rel="stylesheet" href="/css/styles.css">
+  <link rel="stylesheet" crossorigin href="/assets/main-BwjmWBOo.css">
 </head>
 <body>
   <div class="app">
@@ -55,13 +55,6 @@
           <button class="btn-secondary" id="btnWorldSeed" onclick="openWorldSeedEditor()">
             Edit World Seed (WFC)
           </button>
-
-          <div class="world-file-controls">
-            <button class="btn-small" onclick="saveCurrentWorld()">Save World</button>
-            <button class="btn-small" onclick="document.getElementById('worldFileInput').click()">Load World</button>
-            <button class="btn-small" onclick="downloadCurrentWorld()">Download</button>
-            <input type="file" id="worldFileInput" accept=".json" onchange="loadWorldFromFile(event)" style="display:none" />
-          </div>
 
           <h2 class="section-header">Map Settings</h2>
           <div class="size-grid">
@@ -114,15 +107,6 @@
           <button class="btn-secondary" id="btnPaint" onclick="paintWorld()">
             AI Paint Map <span class="price" id="paintPrice">~$0.06</span>
           </button>
-
-          <div class="control-group">
-            <label>AI Model</label>
-            <select id="aiModelSelect" onchange="updateAIModel()">
-              <option value="flux">FLUX.1 [dev] - Artistic (Recommended)</option>
-              <option value="sdxl" disabled>SDXL Union - ⚠️ API Issues</option>
-            </select>
-            <small id="modelDescription" class="model-desc">High quality, artistic style</small>
-          </div>
 
           <div class="control-group controlnet-toggles">
             <label>ControlNets</label>
@@ -216,9 +200,6 @@
           </button>
           <button class="editor-tool" data-mode="add-connection" onclick="setEditorMode('add-connection')">
             <span>+ Connect</span><span class="key">5</span>
-          </button>
-          <button class="editor-tool" data-mode="edit-path" onclick="setEditorMode('edit-path')">
-            <span>Edit Path</span><span class="key">6</span>
           </button>
           <div class="editor-divider"></div>
           <label class="editor-checkbox">
@@ -392,8 +373,6 @@
   <script src="/js/decorations/DecorationPlacer.js"></script>
 
   <!-- App Scripts -->
-  <script src="/js/ai-constants.js"></script>
-  <script src="/js/WorldManager.js"></script>
   <script src="/js/state.js"></script>
   <script src="/js/noise.js"></script>
   <script src="/js/map-generator.js"></script>

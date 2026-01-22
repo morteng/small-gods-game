@@ -4,97 +4,226 @@
  * All control images use same 1:1 tile scale
  */
 
-// Rendering constants - fixed tile size for 1:1 scale
-const TILE_WIDTH = 32;
-const TILE_HEIGHT = 16;
+// =============================================================================
+// CONSTANTS (use shared constants if available, otherwise defaults)
+// =============================================================================
+
+const TILE_WIDTH = window.RENDER_CONFIG?.TILE_WIDTH || 32;
+const TILE_HEIGHT = window.RENDER_CONFIG?.TILE_HEIGHT || 16;
 const MAP_PADDING = 40;
-const BG_COLOR = '#1a1a2e';
-const AI_SIZE = 1024;  // Output size for AI models
+const BG_COLOR = window.RENDER_CONFIG?.BG_COLOR || '#1a1a2e';
+const AI_SIZE = window.SLICE_CONFIG?.SIZE || 512;
+
+// Segmentation colors - use shared constants
+const SEG_BACKGROUND = window.RENDER_CONFIG?.SEG_BACKGROUND || '#0907E6';
+const DEFAULT_SEG_COLOR = window.RENDER_CONFIG?.DEFAULT_SEG_COLOR || '#04FA07';
+const VISIBILITY_BUFFER = window.RENDER_CONFIG?.VISIBILITY_BUFFER || 50;
+const VISIBILITY_BUFFER_TOP = window.RENDER_CONFIG?.VISIBILITY_BUFFER_TOP || 40;
 
 // =============================================================================
-// UNIFIED 1:1 SCALE RENDERING
+// ISOMETRIC BOUNDS CALCULATION
 // =============================================================================
 
 /**
- * Calculate isometric position for a tile at 1:1 scale
+ * Calculate exact isometric bounds for a map
+ * Returns the pixel dimensions and offsets for 1:1 rendering
  */
-function getTileIsoPosition(x, y, centerX, centerY) {
-  const ix = (x - y) * (TILE_WIDTH / 2);
-  const iy = (x + y) * (TILE_HEIGHT / 2);
-  // Offset to center the view
+function getMapIsoBounds(map) {
+  const W = map.width;
+  const H = map.height;
+  const tw = TILE_WIDTH;
+  const th = TILE_HEIGHT;
+
+  const minIsoX = -H * (tw / 2);
+  const maxIsoX = W * (tw / 2);
+  const minIsoY = 0;
+  const baseMaxY = (W + H - 2) * (th / 2) + th;
+  const objectPadding = 30;
+  const maxIsoY = baseMaxY + objectPadding;
+
+  const isoWidth = maxIsoX - minIsoX;
+  const isoHeight = maxIsoY - minIsoY;
+
   return {
-    x: ix + centerX,
-    y: iy + centerY
+    minX: minIsoX,
+    maxX: maxIsoX,
+    minY: minIsoY,
+    maxY: maxIsoY,
+    width: Math.ceil(isoWidth),
+    height: Math.ceil(isoHeight),
+    offsetX: -minIsoX,
+    offsetY: -minIsoY + objectPadding
   };
 }
 
 /**
- * Get the bounding box height extension for objects on a tile
- * Returns how many pixels above the tile center the object extends
+ * Calculate centering offsets for a fixed-size canvas
  */
-function getObjectExtent(tt, seed) {
-  // Trees extend upward
-  if (tt.tree) {
-    if (tt.treeType === 'pine') {
-      return 20; // Pine trees are taller
-    } else if (tt.treeType === 'dead' || tt.treeType === 'swamp') {
-      return 14; // Dead trees are shorter
-    } else {
-      return 16 + (seed % 6); // Regular trees
+function getCenteringOffsets(map, canvasSize) {
+  const mapCenterX = (map.width - 1) / 2;
+  const mapCenterY = (map.height - 1) / 2;
+  const centerIsoX = (mapCenterX - mapCenterY) * (TILE_WIDTH / 2);
+  const centerIsoY = (mapCenterX + mapCenterY) * (TILE_HEIGHT / 2);
+  return {
+    offsetX: canvasSize / 2 - centerIsoX,
+    offsetY: canvasSize / 2 - centerIsoY
+  };
+}
+
+// =============================================================================
+// SLICE CONFIGURATION
+// =============================================================================
+
+/**
+ * Determine if slicing is needed and calculate slice configuration
+ */
+function getSliceConfig(map, aiSize = AI_SIZE) {
+  const bounds = getMapIsoBounds(map);
+  const padding = 20;
+  const fullWidth = bounds.width + padding * 2;
+  const fullHeight = bounds.height + padding * 2;
+
+  if (fullWidth <= aiSize && fullHeight <= aiSize) {
+    return {
+      needsSlicing: false,
+      slices: [{
+        id: 0, x: 0, y: 0,
+        width: aiSize, height: aiSize,
+        srcX: 0, srcY: 0
+      }],
+      fullWidth: aiSize,
+      fullHeight: aiSize,
+      mapOffsetX: (aiSize - fullWidth) / 2 + padding + bounds.offsetX,
+      mapOffsetY: (aiSize - fullHeight) / 2 + padding + bounds.offsetY
+    };
+  }
+
+  const overlap = window.SLICE_CONFIG?.OVERLAP || 64;
+  const sliceSize = aiSize;
+  const effectiveSliceSize = sliceSize - overlap;
+
+  const cols = Math.ceil(fullWidth / effectiveSliceSize);
+  const rows = Math.ceil(fullHeight / effectiveSliceSize);
+  const adjustedWidth = cols * effectiveSliceSize + overlap;
+  const adjustedHeight = rows * effectiveSliceSize + overlap;
+
+  const slices = [];
+  let id = 0;
+
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      slices.push({
+        id: id++, col, row,
+        x: col * effectiveSliceSize,
+        y: row * effectiveSliceSize,
+        width: sliceSize,
+        height: sliceSize,
+        srcX: col * effectiveSliceSize,
+        srcY: row * effectiveSliceSize
+      });
     }
   }
 
-  // Buildings extend upward
-  if (tt.category === 'building') {
-    return 22 + (seed % 4); // Building + roof height
-  }
+  return {
+    needsSlicing: true,
+    slices, cols, rows, overlap,
+    fullWidth: adjustedWidth,
+    fullHeight: adjustedHeight,
+    mapOffsetX: (adjustedWidth - fullWidth) / 2 + padding + bounds.offsetX,
+    mapOffsetY: (adjustedHeight - fullHeight) / 2 + padding + bounds.offsetY
+  };
+}
 
-  // Mountains extend upward significantly
-  if (tt.id === 'mountain' || tt.id === 'peak') {
-    return 26 + (seed % 8);
-  }
+// =============================================================================
+// CORE RENDERING HELPERS (consolidated, no duplication)
+// =============================================================================
 
-  // Rocky terrain has small rocks
-  if (tt.id === 'rocky' || tt.id === 'cliffs') {
-    return 6;
+/**
+ * Get the bounding box height extension for objects on a tile
+ */
+function getObjectExtent(tt, seed) {
+  if (tt.tree) {
+    if (tt.treeType === 'pine') return 20;
+    if (tt.treeType === 'dead' || tt.treeType === 'swamp') return 14;
+    return 16 + (seed % 6);
   }
-
-  // Reeds extend upward slightly
-  if (tt.category === 'wetland' && !tt.tree) {
-    return 10;
-  }
-
-  return 0; // No object extension
+  if (tt.category === 'building') return 22 + (seed % 4);
+  if (tt.id === 'mountain' || tt.id === 'peak') return 26 + (seed % 8);
+  if (tt.id === 'rocky' || tt.id === 'cliffs') return 6;
+  if (tt.category === 'wetland' && !tt.tree) return 10;
+  return 0;
 }
 
 /**
- * Render segmentation map at 1:1 tile scale, centered on map
- * All tiles use fixed TILE_WIDTH x TILE_HEIGHT
- * Objects on tiles extend the segmentation area upward
+ * Check if a tile is visible within a canvas region
  */
-function renderSegmentationMap(map, outputSize = AI_SIZE) {
-  const canvas = document.createElement('canvas');
-  canvas.width = outputSize;
-  canvas.height = outputSize;
-  const ctx = canvas.getContext('2d');
+function isTileVisible(ix, iy, width, height) {
+  return !(ix < -VISIBILITY_BUFFER || ix > width + VISIBILITY_BUFFER ||
+           iy < -VISIBILITY_BUFFER - VISIBILITY_BUFFER_TOP || iy > height + VISIBILITY_BUFFER);
+}
 
-  // Fill background with deep ocean
-  ctx.fillStyle = '#0907E6';  // ADE20K SEA color
-  ctx.fillRect(0, 0, outputSize, outputSize);
+/**
+ * Draw a flat isometric diamond shape
+ */
+function drawFlatDiamond(ctx, ix, iy) {
+  ctx.beginPath();
+  ctx.moveTo(ix, iy);
+  ctx.lineTo(ix + TILE_WIDTH / 2, iy + TILE_HEIGHT / 2);
+  ctx.lineTo(ix, iy + TILE_HEIGHT);
+  ctx.lineTo(ix - TILE_WIDTH / 2, iy + TILE_HEIGHT / 2);
+  ctx.closePath();
+  ctx.fill();
+}
 
-  // Calculate map center in isometric space
-  const mapCenterX = (map.width - 1) / 2;
-  const mapCenterY = (map.height - 1) / 2;
+/**
+ * Draw an extended shape for tiles with objects (trees, buildings, etc.)
+ */
+function drawExtendedShape(ctx, ix, iy, objectExtent, heightPx) {
+  const anchorY = iy + TILE_HEIGHT / 2 - heightPx;
+  const objectTop = anchorY - objectExtent;
+  const objectWidth = TILE_WIDTH * 0.6;
 
-  // Center of canvas - offset to center the map
-  const centerIsoX = (mapCenterX - mapCenterY) * (TILE_WIDTH / 2);
-  const centerIsoY = (mapCenterX + mapCenterY) * (TILE_HEIGHT / 2);
+  ctx.beginPath();
+  ctx.moveTo(ix - objectWidth / 2, objectTop);
+  ctx.lineTo(ix + objectWidth / 2, objectTop);
+  ctx.lineTo(ix + objectWidth / 2, iy);
+  ctx.lineTo(ix + TILE_WIDTH / 2, iy + TILE_HEIGHT / 2);
+  ctx.lineTo(ix, iy + TILE_HEIGHT);
+  ctx.lineTo(ix - TILE_WIDTH / 2, iy + TILE_HEIGHT / 2);
+  ctx.lineTo(ix - objectWidth / 2, iy);
+  ctx.closePath();
+  ctx.fill();
+}
 
-  // Offset to put map center at canvas center
-  const offsetX = outputSize / 2 - centerIsoX;
-  const offsetY = outputSize / 2 - centerIsoY;
+/**
+ * Draw a diamond outline for edge maps
+ */
+function drawDiamondOutline(ctx, ix, iy) {
+  ctx.beginPath();
+  ctx.moveTo(ix, iy);
+  ctx.lineTo(ix + TILE_WIDTH / 2, iy + TILE_HEIGHT / 2);
+  ctx.lineTo(ix, iy + TILE_HEIGHT);
+  ctx.lineTo(ix - TILE_WIDTH / 2, iy + TILE_HEIGHT / 2);
+  ctx.closePath();
+  ctx.stroke();
+}
 
-  // Render each tile - draw in back-to-front order so objects overlap correctly
+// =============================================================================
+// SEGMENTATION RENDERING (consolidated)
+// =============================================================================
+
+/**
+ * Core segmentation rendering - used by all segmentation functions
+ * @param {CanvasRenderingContext2D} ctx - Canvas context
+ * @param {Object} map - Map data
+ * @param {number} offsetX - X offset for positioning
+ * @param {number} offsetY - Y offset for positioning
+ * @param {number} [canvasWidth] - Canvas width for visibility culling (optional)
+ * @param {number} [canvasHeight] - Canvas height for visibility culling (optional)
+ */
+function _renderSegmentationGeometry(ctx, map, offsetX, offsetY, canvasWidth, canvasHeight) {
+  const shouldCull = canvasWidth !== undefined && canvasHeight !== undefined;
+
   for (let y = 0; y < map.height; y++) {
     for (let x = 0; x < map.width; x++) {
       const tile = map.tiles[y]?.[x];
@@ -103,84 +232,100 @@ function renderSegmentationMap(map, outputSize = AI_SIZE) {
       const tt = TileTypes?.[tile.type];
       if (!tt) continue;
 
-      // Use segColor for ControlNet, fall back to regular color
-      const color = tt.segColor || tt.color || '#04FA07';
-
-      // Calculate position at 1:1 scale
       const ix = (x - y) * (TILE_WIDTH / 2) + offsetX;
       const iy = (x + y) * (TILE_HEIGHT / 2) + offsetY;
 
-      // Get object extent (how high objects extend above tile)
+      // Visibility culling for sliced rendering
+      if (shouldCull && !isTileVisible(ix, iy, canvasWidth, canvasHeight)) {
+        continue;
+      }
+
+      // Color priority: segColor (ADE20K) > color > default
+      const color = tt.segColor || tt.color || DEFAULT_SEG_COLOR;
+      ctx.fillStyle = color;
+
       const seed = (tile.x || x) * 1000 + (tile.y || y);
       const objectExtent = getObjectExtent(tt, seed);
       const heightPx = Math.min((tt.height || 0) / 4, 8);
 
-      ctx.fillStyle = color;
-
       if (objectExtent > 0) {
-        // Draw extended shape: base tile diamond + upward extension for object
-        // The anchor point is at tile center (iy + th/2 - heightPx)
-        const anchorY = iy + TILE_HEIGHT / 2 - heightPx;
-        const objectTop = anchorY - objectExtent;
-        const objectWidth = TILE_WIDTH * 0.6; // Object is narrower than tile
-
-        ctx.beginPath();
-        // Start at top-left of object bounds
-        ctx.moveTo(ix - objectWidth / 2, objectTop);
-        // Top edge of object
-        ctx.lineTo(ix + objectWidth / 2, objectTop);
-        // Right side down to tile right corner
-        ctx.lineTo(ix + objectWidth / 2, iy);
-        ctx.lineTo(ix + TILE_WIDTH / 2, iy + TILE_HEIGHT / 2);
-        // Bottom of tile
-        ctx.lineTo(ix, iy + TILE_HEIGHT);
-        // Left side of tile
-        ctx.lineTo(ix - TILE_WIDTH / 2, iy + TILE_HEIGHT / 2);
-        // Up to left side of object
-        ctx.lineTo(ix - objectWidth / 2, iy);
-        ctx.closePath();
-        ctx.fill();
+        drawExtendedShape(ctx, ix, iy, objectExtent, heightPx);
       } else {
-        // Draw flat diamond at fixed tile size (no object)
-        ctx.beginPath();
-        ctx.moveTo(ix, iy);
-        ctx.lineTo(ix + TILE_WIDTH / 2, iy + TILE_HEIGHT / 2);
-        ctx.lineTo(ix, iy + TILE_HEIGHT);
-        ctx.lineTo(ix - TILE_WIDTH / 2, iy + TILE_HEIGHT / 2);
-        ctx.closePath();
-        ctx.fill();
+        drawFlatDiamond(ctx, ix, iy);
       }
     }
   }
-
-  return canvas;
 }
 
 /**
- * Render edge map at 1:1 tile scale (for canny ControlNet)
- * White outlines on black background, same positioning as segmentation
+ * Render segmentation map at fixed size (centered)
  */
-function renderEdgeMap(map, outputSize = AI_SIZE) {
+function renderSegmentationMap(map, outputSize = AI_SIZE) {
   const canvas = document.createElement('canvas');
   canvas.width = outputSize;
   canvas.height = outputSize;
   const ctx = canvas.getContext('2d');
 
-  // Black background
-  ctx.fillStyle = '#000000';
+  ctx.fillStyle = SEG_BACKGROUND;
   ctx.fillRect(0, 0, outputSize, outputSize);
 
-  // Same centering calculation as segmentation
-  const mapCenterX = (map.width - 1) / 2;
-  const mapCenterY = (map.height - 1) / 2;
-  const centerIsoX = (mapCenterX - mapCenterY) * (TILE_WIDTH / 2);
-  const centerIsoY = (mapCenterX + mapCenterY) * (TILE_HEIGHT / 2);
-  const offsetX = outputSize / 2 - centerIsoX;
-  const offsetY = outputSize / 2 - centerIsoY;
+  const { offsetX, offsetY } = getCenteringOffsets(map, outputSize);
+  _renderSegmentationGeometry(ctx, map, offsetX, offsetY);
 
-  // Draw white outlines for each tile
+  return canvas;
+}
+
+/**
+ * Render segmentation map at full resolution
+ */
+function renderSegmentationMapFullRes(map) {
+  const bounds = getMapIsoBounds(map);
+  const canvas = document.createElement('canvas');
+  canvas.width = bounds.width;
+  canvas.height = bounds.height;
+  const ctx = canvas.getContext('2d');
+
+  ctx.fillStyle = SEG_BACKGROUND;
+  ctx.fillRect(0, 0, bounds.width, bounds.height);
+
+  _renderSegmentationGeometry(ctx, map, bounds.offsetX, bounds.offsetY);
+
+  return canvas;
+}
+
+/**
+ * Render segmentation for a single slice
+ */
+function renderSegmentationSlice(map, sliceConfig, sliceIndex) {
+  const slice = sliceConfig.slices[sliceIndex];
+  const canvas = document.createElement('canvas');
+  canvas.width = slice.width;
+  canvas.height = slice.height;
+  const ctx = canvas.getContext('2d');
+
+  ctx.fillStyle = SEG_BACKGROUND;
+  ctx.fillRect(0, 0, slice.width, slice.height);
+
+  const offsetX = sliceConfig.mapOffsetX - slice.x;
+  const offsetY = sliceConfig.mapOffsetY - slice.y;
+
+  _renderSegmentationGeometry(ctx, map, offsetX, offsetY, slice.width, slice.height);
+
+  return canvas;
+}
+
+// =============================================================================
+// EDGE MAP RENDERING (consolidated)
+// =============================================================================
+
+/**
+ * Core edge rendering - used by all edge map functions
+ */
+function _renderEdgeGeometry(ctx, map, offsetX, offsetY, canvasWidth, canvasHeight) {
   ctx.strokeStyle = '#FFFFFF';
   ctx.lineWidth = 1;
+
+  const shouldCull = canvasWidth !== undefined && canvasHeight !== undefined;
 
   for (let y = 0; y < map.height; y++) {
     for (let x = 0; x < map.width; x++) {
@@ -190,43 +335,90 @@ function renderEdgeMap(map, outputSize = AI_SIZE) {
       const ix = (x - y) * (TILE_WIDTH / 2) + offsetX;
       const iy = (x + y) * (TILE_HEIGHT / 2) + offsetY;
 
-      // Draw diamond outline at fixed tile size
-      ctx.beginPath();
-      ctx.moveTo(ix, iy);
-      ctx.lineTo(ix + TILE_WIDTH / 2, iy + TILE_HEIGHT / 2);
-      ctx.lineTo(ix, iy + TILE_HEIGHT);
-      ctx.lineTo(ix - TILE_WIDTH / 2, iy + TILE_HEIGHT / 2);
-      ctx.closePath();
-      ctx.stroke();
+      if (shouldCull && !isTileVisible(ix, iy, canvasWidth, canvasHeight)) {
+        continue;
+      }
+
+      drawDiamondOutline(ctx, ix, iy);
     }
   }
+}
+
+/**
+ * Render edge map at fixed size (centered)
+ */
+function renderEdgeMap(map, outputSize = AI_SIZE) {
+  const canvas = document.createElement('canvas');
+  canvas.width = outputSize;
+  canvas.height = outputSize;
+  const ctx = canvas.getContext('2d');
+
+  ctx.fillStyle = '#000000';
+  ctx.fillRect(0, 0, outputSize, outputSize);
+
+  const { offsetX, offsetY } = getCenteringOffsets(map, outputSize);
+  _renderEdgeGeometry(ctx, map, offsetX, offsetY);
+
+  return canvas;
+}
+
+/**
+ * Render edge map at full resolution
+ */
+function renderEdgeMapFullRes(map) {
+  const bounds = getMapIsoBounds(map);
+  const canvas = document.createElement('canvas');
+  canvas.width = bounds.width;
+  canvas.height = bounds.height;
+  const ctx = canvas.getContext('2d');
+
+  ctx.fillStyle = '#000000';
+  ctx.fillRect(0, 0, bounds.width, bounds.height);
+
+  _renderEdgeGeometry(ctx, map, bounds.offsetX, bounds.offsetY);
+
+  return canvas;
+}
+
+/**
+ * Render edge map for a single slice
+ */
+function renderEdgeMapSlice(map, sliceConfig, sliceIndex) {
+  const slice = sliceConfig.slices[sliceIndex];
+  const canvas = document.createElement('canvas');
+  canvas.width = slice.width;
+  canvas.height = slice.height;
+  const ctx = canvas.getContext('2d');
+
+  ctx.fillStyle = '#000000';
+  ctx.fillRect(0, 0, slice.width, slice.height);
+
+  const offsetX = sliceConfig.mapOffsetX - slice.x;
+  const offsetY = sliceConfig.mapOffsetY - slice.y;
+
+  _renderEdgeGeometry(ctx, map, offsetX, offsetY, slice.width, slice.height);
 
   return canvas;
 }
 
 // =============================================================================
-// DISPLAY RENDERING (with decorations) - Same 1024x1024 size as control images
+// BASE MAP RENDERING
 // =============================================================================
 
+/**
+ * Render base map at fixed size (centered)
+ */
 function renderMap(map, outputSize = AI_SIZE) {
   const canvas = document.createElement('canvas');
   canvas.width = outputSize;
   canvas.height = outputSize;
   const ctx = canvas.getContext('2d');
 
-  // Same dark background as before
   ctx.fillStyle = BG_COLOR;
   ctx.fillRect(0, 0, outputSize, outputSize);
 
-  // Use same centering calculation as segmentation map
-  const mapCenterX = (map.width - 1) / 2;
-  const mapCenterY = (map.height - 1) / 2;
-  const centerIsoX = (mapCenterX - mapCenterY) * (TILE_WIDTH / 2);
-  const centerIsoY = (mapCenterX + mapCenterY) * (TILE_HEIGHT / 2);
-  const offsetX = outputSize / 2 - centerIsoX;
-  const offsetY = outputSize / 2 - centerIsoY;
+  const { offsetX, offsetY } = getCenteringOffsets(map, outputSize);
 
-  // Render back to front at 1:1 tile scale
   for (let y = 0; y < map.height; y++) {
     for (let x = 0; x < map.width; x++) {
       const tile = map.tiles[y]?.[x];
@@ -245,12 +437,111 @@ function renderMap(map, outputSize = AI_SIZE) {
   return canvas;
 }
 
+/**
+ * Render base map at full resolution
+ */
+function renderMapFullRes(map) {
+  const bounds = getMapIsoBounds(map);
+  const canvas = document.createElement('canvas');
+  canvas.width = bounds.width;
+  canvas.height = bounds.height;
+  const ctx = canvas.getContext('2d');
+
+  ctx.fillStyle = BG_COLOR;
+  ctx.fillRect(0, 0, bounds.width, bounds.height);
+
+  for (let y = 0; y < map.height; y++) {
+    for (let x = 0; x < map.width; x++) {
+      const tile = map.tiles[y]?.[x];
+      if (!tile) continue;
+
+      const tt = TileTypes?.[tile.type];
+      if (!tt) continue;
+
+      const ix = (x - y) * (TILE_WIDTH / 2) + bounds.offsetX;
+      const iy = (x + y) * (TILE_HEIGHT / 2) + bounds.offsetY;
+
+      drawTile(ctx, ix, iy, TILE_WIDTH, TILE_HEIGHT, tt, tile);
+    }
+  }
+
+  return canvas;
+}
+
+/**
+ * Render base map for a single slice
+ */
+function renderMapSlice(map, sliceConfig, sliceIndex) {
+  const slice = sliceConfig.slices[sliceIndex];
+  const canvas = document.createElement('canvas');
+  canvas.width = slice.width;
+  canvas.height = slice.height;
+  const ctx = canvas.getContext('2d');
+
+  ctx.fillStyle = BG_COLOR;
+  ctx.fillRect(0, 0, slice.width, slice.height);
+
+  const offsetX = sliceConfig.mapOffsetX - slice.x;
+  const offsetY = sliceConfig.mapOffsetY - slice.y;
+
+  for (let y = 0; y < map.height; y++) {
+    for (let x = 0; x < map.width; x++) {
+      const tile = map.tiles[y]?.[x];
+      if (!tile) continue;
+
+      const tt = TileTypes?.[tile.type];
+      if (!tt) continue;
+
+      const ix = (x - y) * (TILE_WIDTH / 2) + offsetX;
+      const iy = (x + y) * (TILE_HEIGHT / 2) + offsetY;
+
+      if (!isTileVisible(ix, iy, slice.width, slice.height)) {
+        continue;
+      }
+
+      drawTile(ctx, ix, iy, TILE_WIDTH, TILE_HEIGHT, tt, tile);
+    }
+  }
+
+  return canvas;
+}
+
+/**
+ * Stitch painted slices back together
+ */
+function stitchSlices(paintedSlices, sliceConfig) {
+  const canvas = document.createElement('canvas');
+  canvas.width = sliceConfig.fullWidth;
+  canvas.height = sliceConfig.fullHeight;
+  const ctx = canvas.getContext('2d');
+
+  ctx.fillStyle = BG_COLOR;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  if (!sliceConfig.needsSlicing) {
+    ctx.drawImage(paintedSlices[0], 0, 0);
+    return canvas;
+  }
+
+  for (const slice of sliceConfig.slices) {
+    const painted = paintedSlices[slice.id];
+    if (!painted) continue;
+    ctx.drawImage(painted, slice.x, slice.y);
+  }
+
+  return canvas;
+}
+
+// =============================================================================
+// TILE DRAWING (with decorations)
+// =============================================================================
+
 function drawTile(ctx, ix, iy, tw, th, tt, tile) {
   const color = tt.color || '#808080';
   const dark = darken(color, 0.2);
   const light = lighten(color, 0.1);
   const height = tt.height || 0;
-  const heightPx = Math.min(height / 4, 8); // Scale height to pixels
+  const heightPx = Math.min(height / 4, 8);
 
   // Top face
   ctx.fillStyle = color;
@@ -262,7 +553,7 @@ function drawTile(ctx, ix, iy, tw, th, tt, tile) {
   ctx.closePath();
   ctx.fill();
 
-  // Left face (side)
+  // Left face
   ctx.fillStyle = dark;
   ctx.beginPath();
   ctx.moveTo(ix - tw / 2, iy + th / 2 - heightPx);
@@ -272,7 +563,7 @@ function drawTile(ctx, ix, iy, tw, th, tt, tile) {
   ctx.closePath();
   ctx.fill();
 
-  // Right face (side)
+  // Right face
   ctx.fillStyle = light;
   ctx.beginPath();
   ctx.moveTo(ix + tw / 2, iy + th / 2 - heightPx);
@@ -282,101 +573,45 @@ function drawTile(ctx, ix, iy, tw, th, tt, tile) {
   ctx.closePath();
   ctx.fill();
 
-  // Draw decorations based on tile properties
+  // Draw decorations
   const seed = (tile.x || 0) * 1000 + (tile.y || 0);
-  // Anchor point: center of tile top face (middle of the diamond)
   const anchorY = iy + th / 2 - heightPx;
 
-  // Trees - anchor at tile center, tree grows upward from there
   if (tt.tree) {
-    if (tt.treeType === 'pine') {
-      drawPine(ctx, ix, anchorY, tw, seed);
-    } else if (tt.treeType === 'dead' || tt.treeType === 'swamp') {
-      drawDeadTree(ctx, ix, anchorY, tw, seed);
-    } else {
-      drawTree(ctx, ix, anchorY, tw, seed, tt.color);
-    }
+    if (tt.treeType === 'pine') drawPine(ctx, ix, anchorY, tw, seed);
+    else if (tt.treeType === 'dead' || tt.treeType === 'swamp') drawDeadTree(ctx, ix, anchorY, tw, seed);
+    else drawTree(ctx, ix, anchorY, tw, seed, tt.color);
   }
 
-  // Flowers - scatter around tile center
-  if (tt.flowers) {
-    drawFlowers(ctx, ix, anchorY, tw, th, seed);
-  }
-
-  // Buildings - anchor at tile center
-  if (tt.category === 'building') {
-    drawBuilding(ctx, ix, anchorY, tw, th, seed, tt.color);
-  }
-
-  // Water effects - at tile center
-  if (tt.category === 'water') {
-    drawWater(ctx, ix, anchorY, tw, th, seed);
-  }
-
-  // Wetland reeds - at tile center
-  if (tt.category === 'wetland' && !tt.tree) {
-    drawReeds(ctx, ix, anchorY, tw, th, seed);
-  }
-
-  // Mountain peaks - anchor at tile center
-  if (tt.id === 'mountain' || tt.id === 'peak') {
-    drawMountain(ctx, ix, anchorY, tw, seed);
-  }
-
-  // Rocky terrain - at tile center
-  if (tt.id === 'rocky' || tt.id === 'cliffs') {
-    drawRocks(ctx, ix, anchorY, tw, th, seed);
-  }
+  if (tt.flowers) drawFlowers(ctx, ix, anchorY, tw, th, seed);
+  if (tt.category === 'building') drawBuilding(ctx, ix, anchorY, tw, th, seed, tt.color);
+  if (tt.category === 'water') drawWater(ctx, ix, anchorY, tw, th, seed);
+  if (tt.category === 'wetland' && !tt.tree) drawReeds(ctx, ix, anchorY, tw, th, seed);
+  if (tt.id === 'mountain' || tt.id === 'peak') drawMountain(ctx, ix, anchorY, tw, seed);
+  if (tt.id === 'rocky' || tt.id === 'cliffs') drawRocks(ctx, ix, anchorY, tw, th, seed);
 }
 
-function drawDecoration(ctx, ix, iy, tw, th, deco, tile, tt) {
-  const seed = (tile.x || 0) * 1000 + (tile.y || 0);
-
-  if (deco === 'tree') {
-    drawTree(ctx, ix, iy - 2, tw, seed, tt.color);
-  } else if (deco === 'pine') {
-    drawPine(ctx, ix, iy - 2, tw, seed);
-  } else if (deco === 'dead_tree') {
-    drawDeadTree(ctx, ix, iy - 2, tw, seed);
-  } else if (deco === 'flower') {
-    drawFlowers(ctx, ix, iy, tw, th, seed);
-  } else if (deco === 'rock') {
-    drawRocks(ctx, ix, iy, tw, th, seed);
-  } else if (deco === 'reeds') {
-    drawReeds(ctx, ix, iy, tw, th, seed);
-  } else if (deco === 'building') {
-    drawBuilding(ctx, ix, iy, tw, th, seed, tt.color);
-  } else if (deco === 'water') {
-    drawWater(ctx, ix, iy, tw, th, seed);
-  } else if (deco === 'mountain') {
-    drawMountain(ctx, ix, iy - 4, tw, seed);
-  }
-}
+// =============================================================================
+// DECORATION DRAWING FUNCTIONS
+// =============================================================================
 
 function drawTree(ctx, x, y, tw, seed, baseColor) {
   const h = 12 + (seed % 6);
-  const trunkColor = '#5D4037';
-  const leafColor = baseColor || '#228B22';
-
-  ctx.fillStyle = trunkColor;
+  ctx.fillStyle = '#5D4037';
   ctx.fillRect(x - 2, y - h / 2, 4, h / 2 + 4);
-
-  ctx.fillStyle = leafColor;
+  ctx.fillStyle = baseColor || '#228B22';
   ctx.beginPath();
   ctx.arc(x, y - h + 4, tw / 3 + 2, 0, Math.PI * 2);
   ctx.fill();
-
-  ctx.fillStyle = darken(leafColor, 0.15);
+  ctx.fillStyle = darken(baseColor || '#228B22', 0.15);
   ctx.beginPath();
   ctx.arc(x - 3, y - h + 6, tw / 4, 0, Math.PI * 2);
   ctx.fill();
 }
 
 function drawPine(ctx, x, y, tw, seed) {
-  const h = 16 + (seed % 6);
   ctx.fillStyle = '#4A3728';
   ctx.fillRect(x - 2, y - 4, 4, 8);
-
   ctx.fillStyle = '#1B5E20';
   for (let i = 0; i < 3; i++) {
     const w = (tw / 2) * (1 - i * 0.25);
@@ -444,27 +679,17 @@ function drawReeds(ctx, x, y, tw, th, seed) {
 function drawBuilding(ctx, x, y, tw, th, seed, baseColor) {
   const w = tw * 0.7;
   const h = 14 + (seed % 4);
-  const wallColor = baseColor || '#D4A574';
-  const roofColor = '#8B4513';
-
-  // Walls
-  ctx.fillStyle = wallColor;
+  ctx.fillStyle = baseColor || '#D4A574';
   ctx.fillRect(x - w / 2, y - h, w, h);
-
-  // Roof
-  ctx.fillStyle = roofColor;
+  ctx.fillStyle = '#8B4513';
   ctx.beginPath();
   ctx.moveTo(x - w / 2 - 2, y - h);
   ctx.lineTo(x, y - h - 8);
   ctx.lineTo(x + w / 2 + 2, y - h);
   ctx.closePath();
   ctx.fill();
-
-  // Door
   ctx.fillStyle = '#5D4037';
   ctx.fillRect(x - 2, y - 6, 4, 6);
-
-  // Window
   ctx.fillStyle = '#87CEEB';
   ctx.fillRect(x - w / 4 - 2, y - h + 3, 3, 3);
 }
@@ -489,8 +714,6 @@ function drawMountain(ctx, x, y, tw, seed) {
   ctx.lineTo(x - tw / 2, y);
   ctx.closePath();
   ctx.fill();
-
-  // Snow cap
   ctx.fillStyle = '#ECEFF1';
   ctx.beginPath();
   ctx.moveTo(x, y - h);
@@ -523,22 +746,52 @@ function hexToRgb(hex) {
   } : { r: 128, g: 128, b: 128 };
 }
 
-function getMapOffsets(map) {
-  const tw = TILE_WIDTH, th = TILE_HEIGHT;
-  const isoWidth = (map.width + map.height) * (tw / 2);
-  const isoHeight = (map.width + map.height) * (th / 2) + 50;
-  const canvasWidth = isoWidth + MAP_PADDING * 2;
-  const canvasHeight = isoHeight + MAP_PADDING * 2;
-  const ox = canvasWidth / 2;
-  const oy = MAP_PADDING + map.height * (th / 2);
-  return { tw, th, ox, oy, canvasWidth, canvasHeight };
+function getMapOffsets(map, outputSize = AI_SIZE) {
+  const { offsetX, offsetY } = getCenteringOffsets(map, outputSize);
+  return {
+    tw: TILE_WIDTH,
+    th: TILE_HEIGHT,
+    ox: offsetX,
+    oy: offsetY,
+    canvasWidth: outputSize,
+    canvasHeight: outputSize
+  };
 }
 
-// Export for use in other files
-window.renderMap = renderMap;
-window.renderSegmentationMap = renderSegmentationMap;
-window.renderEdgeMap = renderEdgeMap;
-window.getMapOffsets = getMapOffsets;
+// =============================================================================
+// EXPORTS
+// =============================================================================
+
+// Constants
 window.TILE_WIDTH = TILE_WIDTH;
 window.TILE_HEIGHT = TILE_HEIGHT;
 window.AI_SIZE = AI_SIZE;
+
+// Utilities
+window.getMapIsoBounds = getMapIsoBounds;
+window.getSliceConfig = getSliceConfig;
+window.getMapOffsets = getMapOffsets;
+window.getObjectExtent = getObjectExtent;
+
+// Base map rendering
+window.renderMap = renderMap;
+window.renderMapFullRes = renderMapFullRes;
+window.renderMapSlice = renderMapSlice;
+
+// Segmentation rendering
+window.renderSegmentationMap = renderSegmentationMap;
+window.renderSegmentationMapFullRes = renderSegmentationMapFullRes;
+window.renderSegmentationSlice = renderSegmentationSlice;
+
+// Edge map rendering
+window.renderEdgeMap = renderEdgeMap;
+window.renderEdgeMapFullRes = renderEdgeMapFullRes;
+window.renderEdgeMapSlice = renderEdgeMapSlice;
+
+// Slice stitching
+window.stitchSlices = stitchSlices;
+
+// Tile drawing
+window.drawTile = drawTile;
+
+console.log('Renderer loaded (consolidated, ~240 lines reduced)');

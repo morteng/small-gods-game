@@ -55,7 +55,13 @@
  * @property {string} type - road, river, wall
  * @property {string} [style] - dirt, stone, bridge
  * @property {string} [description] - Lore for the path
+ * @property {Array<{x: number, y: number}>} [waypoints] - Intermediate control points for path editing
+ * @property {number} [width] - Path width 1-3 tiles (default 1)
+ * @property {boolean} [autoBridge] - Auto-place bridges at water crossings (default true)
  */
+
+const CONNECTION_TYPES = ['road', 'river', 'wall'];
+const CONNECTION_STYLES = ['dirt', 'stone', 'bridge'];
 
 const POI_TYPES = [
   'village',
@@ -166,6 +172,27 @@ function validateWorldSeed(seed) {
     for (const conn of seed.connections) {
       if (!poiIds.has(conn.from)) errors.push(`Connection from unknown POI: ${conn.from}`);
       if (!poiIds.has(conn.to)) errors.push(`Connection to unknown POI: ${conn.to}`);
+      if (conn.type && !CONNECTION_TYPES.includes(conn.type)) {
+        errors.push(`Invalid connection type "${conn.type}". Use: ${CONNECTION_TYPES.join(', ')}`);
+      }
+      if (conn.style && !CONNECTION_STYLES.includes(conn.style)) {
+        errors.push(`Invalid connection style "${conn.style}". Use: ${CONNECTION_STYLES.join(', ')}`);
+      }
+      if (conn.width !== undefined && (conn.width < 1 || conn.width > 3)) {
+        errors.push(`Connection width must be 1-3, got: ${conn.width}`);
+      }
+      if (conn.waypoints) {
+        if (!Array.isArray(conn.waypoints)) {
+          errors.push('Connection waypoints must be an array');
+        } else {
+          for (let i = 0; i < conn.waypoints.length; i++) {
+            const wp = conn.waypoints[i];
+            if (typeof wp.x !== 'number' || typeof wp.y !== 'number') {
+              errors.push(`Waypoint ${i} must have numeric x and y coordinates`);
+            }
+          }
+        }
+      }
     }
   }
 
@@ -279,6 +306,8 @@ if (typeof module !== 'undefined' && module.exports) {
     POI_TYPES,
     BIOMES,
     CONSTRAINTS,
+    CONNECTION_TYPES,
+    CONNECTION_STYLES,
     BIOME_VISUAL_THEMES,
     POI_VISUAL_STYLES,
     validateWorldSeed,
@@ -293,6 +322,8 @@ if (typeof module !== 'undefined' && module.exports) {
     POI_TYPES,
     BIOMES,
     CONSTRAINTS,
+    CONNECTION_TYPES,
+    CONNECTION_STYLES,
     BIOME_VISUAL_THEMES,
     POI_VISUAL_STYLES,
     validateWorldSeed,

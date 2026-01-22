@@ -181,14 +181,25 @@ class Solver {
 
   /**
    * Solve with animation (returns Promise)
-   * @param {number} delay - Delay between steps in ms
+   * Uses requestAnimationFrame for smooth rendering and batches steps for performance
+   * @param {number} stepsPerFrame - Number of WFC steps per animation frame (higher = faster)
    * @returns {Promise<Object>}
    */
-  async solveAnimated(delay = 10) {
+  async solveAnimated(stepsPerFrame = 50) {
     return new Promise((resolve) => {
-      const animate = () => {
-        const result = this.step();
+      const raf = typeof requestAnimationFrame !== 'undefined'
+        ? requestAnimationFrame
+        : (cb) => setTimeout(cb, 16);
 
+      const animate = () => {
+        // Do multiple steps per frame for better performance
+        let lastResult = null;
+        for (let i = 0; i < stepsPerFrame; i++) {
+          lastResult = this.step();
+          if (lastResult.done) break;
+        }
+
+        // Report progress once per frame (not per step)
         if (this.options.onProgress) {
           this.options.onProgress({
             progress: this.grid.getProgress(),
@@ -199,19 +210,19 @@ class Solver {
           });
         }
 
-        if (result.done) {
+        if (lastResult.done) {
           resolve({
-            success: result.success,
+            success: lastResult.success,
             iterations: this.iterations,
             backtracks: this.backtracks,
-            error: result.error
+            error: lastResult.error
           });
         } else {
-          setTimeout(animate, delay);
+          raf(animate);
         }
       };
 
-      animate();
+      raf(animate);
     });
   }
 
