@@ -1,127 +1,129 @@
 # Small Gods - Development Notes
 
-## AI Integration (fal.ai)
+## Game Concept
 
-### Working Configuration (as of 2025-01-21)
+A god game inspired by Terry Pratchett's *Small Gods*. The player is a minor deity who must cultivate genuine belief among NPCs through indirect influence (whispers, omens, dreams, miracles). Rival spirits compete for the same followers. NPCs run on a programmatic simulation layer; an LLM "backfills" rich narrative whenever the player pays attention.
 
-**Model:** FLUX.1 [dev] - Better quality than SDXL, native segmentation support
+**Two-layer architecture:**
+- **Sim layer** (always running) — NPC state: beliefs, needs, mood, relationships. Belief propagates along social graphs. Events (droughts, festivals, rival actions) shift NPC needs and create opportunities for divine intervention.
+- **Narration layer** (on-demand) — LLM generates dialogue, scene descriptions, and dramatic moments from compact sim state when the player focuses on anything. Returns structured state deltas that feed back into the sim.
 
-**Endpoints:**
-- `fal-ai/flux-general/image-to-image` - **PRIMARY** - img2img + easycontrols (segmentation, canny)
-- `fal-ai/flux/dev/image-to-image` - Fallback img2img only (no ControlNet)
+## Project Documentation
 
-**Recommended Mode:** Pure img2img (segmentation disabled)
-- FLUX interprets ADE20K colors too literally, producing colored block artifacts
-- img2img at 0.65 strength balances detail preservation vs artistic style
-- Higher strength (0.75+) = more artistic but can look blocky/soft
-- Lower strength (0.55-) = preserves more detail but less painterly
+**Primary References:**
+- **[TECH_SPEC.md](docs/TECH_SPEC.md)** - Complete technical specification (gameplay systems, architecture, data models)
+- **[IMPLEMENTATION.md](docs/IMPLEMENTATION.md)** - Implementation plan with phases and task breakdowns
+- **[TS Migration Design](docs/plans/2026-02-20-ts-migration-design.md)** - TypeScript migration design doc
+- **[TS Migration Plan](docs/plans/2026-02-20-ts-migration.md)** - Detailed migration implementation plan
 
-**Generation Strategy (auto-selected):**
-- Maps ≤1024x1024 → Single-pass generation (one API call, no style inconsistency)
-- Maps >1024x1024 → Slice-based generation (512px tiles with 64px overlap, outpainting context)
+**Current Status:** Map system migrated to TypeScript with simple top-down renderer. Gameplay (Phases 7-11) not started.
 
-**Control Methods (via easycontrols) - DISABLED BY DEFAULT:**
-- `seg` - Segmentation control - causes colored block artifacts with FLUX
-- `canny` - Edge detection
-- `depth` - Depth map
-- `pose` - Pose detection
+## Tech Stack
 
-**UI Controls:**
-- Checkboxes in left panel to toggle segmentation/canny controls
-- Segmentation checkbox should remain OFF for best results
-- Use `updateControlNetConfig()` to sync UI with config
+- **TypeScript** ES modules, bundled by **Vite**
+- **Canvas 2D** top-down colored-rectangle renderer (placeholder art)
+- **WFC** (Wave Function Collapse) procedural map generation
+- **Vitest** for testing (97 tests)
+- Embeddable as iframe via `Game` class + postMessage API
 
-### Code Locations
+## Architecture
 
-- `public/js/ai-integration-v2.js` - Main AI integration code
-  - `AI_CONFIG` - Configuration object (size: 512, maxSinglePass: 1024)
-  - `paintWorldV2()` - Main entry point (auto-routes to single-pass or sliced)
-  - `paintMapSinglePass()` - Single-pass for maps ≤1024x1024 (pads to square, crops result)
-  - `paintMapSliced()` - Slice-based for large maps (512px tiles, 64px overlap, outpainting)
-  - `paintSlice()` - Paint individual slice with outpainting context from adjacent slices
-  - `compositeSlices()` - Blend painted slices with alpha gradient on overlaps
-  - `buildPrompt()` - Generates prompts from map data
+```
+src/
+  main.ts              — Entry point, mounts Game into #app
+  game.ts              — Game class (embeddable component)
 
-- `public/js/renderer.js` - Rendering and slice management
-  - `getMapIsoBounds()` - Calculate exact isometric pixel bounds
-  - `getSliceConfig()` - Determine if slicing needed, generate slice positions
-  - `renderMapSlice()` - Render a single slice of the base map
-  - `renderSegmentationSlice()` - Render a single slice of segmentation map
-  - `renderMapFullRes()` - Full resolution rendering for display
-  - `stitchSlices()` - Combine painted slices back together
+  core/
+    state.ts           — GameState interface + factory
+    types.ts           — All type definitions
+    constants.ts       — Tile sizes, colors, POI icons
+    noise.ts           — Seeded RNG + noise functions
+    schema.ts          — World seed validation + defaults
 
-- `server.cjs` - API proxy server
-  - Proxies requests to fal.ai with server-side API key
-  - Logs requests to `fal-debug.log`
+  map/
+    map-generator.ts   — Map generation (WFC + noise)
+    autotiler.ts       — Semantic-to-visual tile mapping
+    chunk-manager.ts   — Chunked infinite maps (LRU cache)
+    world-manager.ts   — Save/load worlds
 
-### Smart Generation Routing
+  wfc/
+    index.ts           — Re-exports
+    tile.ts            — Tile definitions + adjacency rules
+    cell.ts            — WFC cell state
+    grid.ts            — WFC grid
+    propagator.ts      — AC-3 constraint propagation
+    solver.ts          — WFC solver with backtracking
+    engine.ts          — 3-phase generation engine
 
-The system auto-selects the best generation strategy based on map size:
+  render/
+    renderer.ts        — Top-down colored-rectangle renderer
+    camera.ts          — Pan/zoom state and transforms
+    minimap.ts         — Minimap rendering
 
-**Map Size Calculation:**
-- Isometric width: `(W + H) * 16` pixels (TILE_WIDTH = 32)
-- Isometric height: `(W + H) * 8 + padding` pixels (TILE_HEIGHT = 16)
-- Example: 24x18 map = ~672x368 pixels (fits in single pass)
-- Example: 48x36 map = ~1344x716 pixels (requires slicing)
+  ui/
+    controls.ts        — Mouse/keyboard input handlers
 
-**Single-Pass (maps ≤1024x1024) - PREFERRED:**
-- Pads map to square (max dimension, centered)
-- Single API call = consistent style across entire map
-- Crops result back to actual map bounds
-- No seams or style inconsistency
-
-**Slice-Based (maps >1024x1024):**
-- AI_SIZE = 512 for 1:1 pixel mapping
-- 64px overlap between slices
-- Outpainting context: adjacent painted regions included in input
-- Alpha gradient blending on overlap edges
-- Slices painted in order (top-left to bottom-right)
-
-### API Request Format (FLUX)
-
-**Default format (img2img only - recommended):**
-```javascript
-{
-  image_url: "data:image/png;base64,...",  // Base map image (for img2img)
-  prompt: "pixel art, 16-bit retro game style...",
-  image_size: { width: 512, height: 512 },  // Explicit 512x512 for 1:1 mapping
-  num_inference_steps: 28,
-  guidance_scale: 3.5,  // FLUX uses lower guidance than SDXL
-  strength: 0.75,
-  seed: 12345,
-  sync_mode: true,
-  enable_safety_checker: false
-}
+  embed/
+    api.ts             — PostMessage API for iframe host
+    mount.ts           — Mount game into arbitrary DOM container
 ```
 
-**With segmentation (NOT recommended - causes artifacts):**
-```javascript
-{
-  // ... same as above, plus:
-  easycontrols: [
-    {
-      control_method_url: "seg",
-      image_url: "data:image/png;base64,...",  // Segmentation map
-      scale: 1.0
-    }
-  ]
-}
+## Rendering
+
+Simple top-down 2D grid (placeholder for future art):
+- Each tile = colored rectangle (green=grass, blue=water, brown=road, etc.)
+- POIs = geometric shapes (circle=village, triangle=mountain, etc.)
+- Camera: pan (drag) + zoom (scroll wheel) on canvas
+- Grid lines shown at zoom >= 2x
+- Minimap with viewport indicator
+
+## Iframe Embedding
+
+The game is designed to be embeddable in a secure iframe (for MCP UI):
+
+```ts
+import { mount } from './embed/mount';
+const game = mount('#container');
+await game.generateWorld();
 ```
 
-### Debugging
+- `Game` class: `new Game(containerElement, options?)` — mounts into any DOM element
+- No `document.body` assumptions — everything scoped to container
+- No inline event handlers — all `addEventListener`
+- CSP-compatible — no dynamic code execution, no inline scripts
+- PostMessage API for host communication
+- Responsive to container size changes via ResizeObserver
 
-Server logs API requests to `/Users/Morten/mcpui/small-gods-game/fal-debug.log`
+## Key File Locations
 
-To see what's being sent:
+| Purpose | File |
+|---------|------|
+| Entry point | `src/main.ts` |
+| Game class | `src/game.ts` |
+| State management | `src/core/state.ts` |
+| Type definitions | `src/core/types.ts` |
+| Game constants | `src/core/constants.ts` |
+| Map renderer | `src/render/renderer.ts` |
+| Camera transforms | `src/render/camera.ts` |
+| WFC engine | `src/wfc/engine.ts` |
+| Map generation | `src/map/map-generator.ts` |
+| Autotiler | `src/map/autotiler.ts` |
+| World seeds | `public/data/worlds/default.json` |
+| World seed schema | `src/core/schema.ts` |
+
+## Development
+
 ```bash
-cat fal-debug.log
+npm run dev        # Start Vite dev server
+npm run build      # TypeScript check + Vite production build
+npm test           # Run all tests (vitest)
+npm run test:watch # Watch mode
 ```
 
-### Known Issues
+## Gameplay Architecture (Phases 7-10, not yet started)
 
-1. **Browser caching** - Use hard refresh (Cmd+Shift+R) after code changes.
-
-2. **Server restart** - After editing server.js, restart with:
-   ```bash
-   lsof -ti:3000 | xargs kill -9; node server.js
-   ```
+- NPC sim: personality traits, belief per spirit (faith/understanding/devotion), needs (safety/prosperity/community/meaning), social graph, event ring buffer
+- Divine actions: whisper, omen, answer prayer, dream, miracle — each costs belief-power
+- LLM backfill: ~500 token prompt → narrative + JSON state delta, target <200ms via high-speed inference
+- Rival spirits: personality-driven programmatic actions, LLM-narrated when intersecting with player
+- DM agent: background LLM (larger model, infrequent) that manages pacing, plot threads, rival coaching, escalation, and player modeling
