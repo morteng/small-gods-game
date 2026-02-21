@@ -162,8 +162,7 @@ export class Game {
     if (!this.state.map) return;
     const w = this.canvas.width / devicePixelRatio;
     const h = this.canvas.height / devicePixelRatio;
-    // Note: Task 8 will add npcs + sheets params; for now call without them
-    renderMap(this.ctx, this.state.map, this.state.camera, w, h);
+    renderMap(this.ctx, this.state.map, this.state.camera, w, h, this.state.npcs, this.sheets);
   }
 
   private onTileClick(x: number, y: number): void {

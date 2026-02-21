@@ -1,5 +1,6 @@
-import type { GameMap, Camera } from '@/core/types';
+import type { GameMap, Camera, NpcInstance } from '@/core/types';
 import { TILE_SIZE, TILE_COLORS, BG_COLOR, POI_ICONS } from '@/core/constants';
+import { getSpriteCoords } from '@/render/npc-animator';
 
 /** Render the map to a canvas context */
 export function renderMap(
@@ -8,6 +9,8 @@ export function renderMap(
   camera: Camera,
   canvasWidth: number,
   canvasHeight: number,
+  npcs: NpcInstance[] = [],
+  sheets: Map<string, HTMLCanvasElement> = new Map(),
 ): void {
   // Clear
   ctx.fillStyle = BG_COLOR;
@@ -101,6 +104,29 @@ export function renderMap(
     ctx.font = `${Math.max(8, 10 / camera.zoom)}px sans-serif`;
     ctx.textAlign = 'center';
     ctx.fillText(v.name, px, py - TILE_SIZE);
+  }
+
+  // Draw NPC sprites
+  ctx.imageSmoothingEnabled = false;
+  const camLeft   = camera.x;
+  const camTop    = camera.y;
+  const camRight  = camera.x + canvasWidth  / camera.zoom;
+  const camBottom = camera.y + canvasHeight / camera.zoom;
+  const npcSize   = 32; // 2×2 tiles world-space
+
+  for (const npc of npcs) {
+    const sheet = sheets.get(npc.id);
+    if (!sheet) continue;
+
+    const screenX = npc.tileX * TILE_SIZE;
+    const screenY = npc.tileY * TILE_SIZE;
+
+    // Cull off-screen
+    if (screenX + npcSize < camLeft  || screenX > camRight  ||
+        screenY + npcSize < camTop   || screenY > camBottom) continue;
+
+    const { sx, sy } = getSpriteCoords(npc);
+    ctx.drawImage(sheet, sx, sy, 64, 64, screenX, screenY, npcSize, npcSize);
   }
 
   ctx.restore();
