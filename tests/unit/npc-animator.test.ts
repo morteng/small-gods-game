@@ -5,6 +5,7 @@ import type { NpcInstance } from '@/core/types';
 function makeNpc(overrides: Partial<NpcInstance> = {}): NpcInstance {
   return {
     id: 'test',
+    name: 'Test NPC',
     role: 'farmer',
     seed: 0,
     tileX: 0,

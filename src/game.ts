@@ -8,6 +8,8 @@ import { WorldManager } from '@/map/world-manager';
 import type { GameMap, WorldSeed, TerrainOptions, NpcInstance, NpcRole } from '@/core/types';
 import { updateNpcs, FRAME_MS } from '@/render/npc-animator';
 import { buildCharacterSpec, getOrGenerateSheet } from '@/render/lpc';
+import { initNpcSim, tickAllNpcs, SIM_TICK_MS } from '@/sim/npc-sim';
+import { drawNpcOverlay } from '@/render/sim-overlay';
 
 export interface GameOptions {
   width?: number;
@@ -36,6 +38,7 @@ export class Game {
   private resizeObserver: ResizeObserver;
   private rafId: number | null = null;
   private lastTime: number = 0;
+  private simTickAcc: number = 0;
   /** Resolved spritesheets keyed by NPC id */
   private sheets = new Map<string, HTMLCanvasElement>();
 
@@ -98,6 +101,7 @@ export class Game {
   /** Spawn NPCs from POI definitions */
   private spawnNpcs(ws: WorldSeed, map: GameMap): void {
     this.state.npcs = [];
+    this.state.npcSim.clear();
     this.sheets.clear();
 
     for (const poi of ws.pois) {
@@ -110,6 +114,7 @@ export class Game {
         const seed = hashId(id);
         const role = npcDef.role as NpcRole;
         const safeRole: NpcRole = VALID_ROLES.includes(role) ? role : 'farmer';
+        const name = npcDef.name || safeRole;
 
         // Place near POI; clamp to map bounds
         const tileX = Math.max(0, Math.min(map.width  - 1, px + (seed % 3) - 1));
@@ -117,6 +122,7 @@ export class Game {
 
         const npc: NpcInstance = {
           id,
+          name,
           role: safeRole,
           seed,
           tileX,
@@ -127,6 +133,9 @@ export class Game {
         };
 
         this.state.npcs.push(npc);
+
+        const sim = initNpcSim(id, name, safeRole, seed);
+        this.state.npcSim.set(id, sim);
 
         // Kick off async spritesheet generation
         const spec = buildCharacterSpec(safeRole, seed);
@@ -140,11 +149,17 @@ export class Game {
   private startLoop(): void {
     if (this.rafId !== null) return;
     this.lastTime = performance.now();
+    this.simTickAcc = 0;
 
     const loop = (now: number) => {
       const deltaMs = Math.min(now - this.lastTime, 100);
       this.lastTime = now;
       updateNpcs(this.state.npcs, deltaMs);
+      this.simTickAcc += deltaMs;
+      while (this.simTickAcc >= SIM_TICK_MS) {
+        this.simTickAcc -= SIM_TICK_MS;
+        tickAllNpcs(this.state.npcSim);
+      }
       this.render();
       this.rafId = requestAnimationFrame(loop);
     };
@@ -163,12 +178,23 @@ export class Game {
     const w = this.canvas.width / devicePixelRatio;
     const h = this.canvas.height / devicePixelRatio;
     renderMap(this.ctx, this.state.map, this.state.camera, w, h, this.state.npcs, this.sheets);
+    if (this.state.selectedNpcId) {
+      const npc = this.state.npcs.find(n => n.id === this.state.selectedNpcId);
+      const sim = this.state.npcSim.get(this.state.selectedNpcId);
+      if (npc && sim) {
+        drawNpcOverlay(this.ctx, npc, sim, this.state.camera, w, h);
+      }
+    }
   }
 
   private onTileClick(x: number, y: number): void {
     if (!this.state.map) return;
-    const tile = this.state.map.tiles[y]?.[x];
-    if (tile) console.log(`Tile (${x}, ${y}): ${tile.type}`);
+    const clickedNpc = this.state.npcs.find(npc => npc.tileX === x && npc.tileY === y);
+    if (clickedNpc) {
+      this.state.selectedNpcId = this.state.selectedNpcId === clickedNpc.id ? null : clickedNpc.id;
+    } else {
+      this.state.selectedNpcId = null;
+    }
   }
 
   destroy(): void {

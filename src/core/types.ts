@@ -114,6 +114,7 @@ export type Direction = 'up' | 'down' | 'left' | 'right';
 /** A live NPC instance on the map */
 export interface NpcInstance {
   id: string;
+  name: string;
   role: NpcRole;
   seed: number;       // deterministic appearance seed, derived from id
   tileX: number;
@@ -121,4 +122,34 @@ export interface NpcInstance {
   direction: Direction;
   frame: number;      // 0 = idle stand, 1–8 = walk cycle
   frameTimer: number; // ms accumulator since last frame advance
+}
+
+export interface NpcPersonality {
+  assertiveness: number;  // 0–1: how strongly they share beliefs (Phase 8+ propagation)
+  skepticism:    number;  // 0–1: resistance to faith change
+  piety:         number;  // 0–1: baseline religious tendency
+  sociability:   number;  // 0–1: social pressure weight (reserved for propagation)
+}
+
+export interface SpiritBelief {
+  faith:         number;  // 0–1: raw belief strength
+  understanding: number;  // 0–1: depth of comprehension (quality multiplier)
+  devotion:      number;  // 0–1: behavioral commitment
+}
+
+export interface NpcNeeds {
+  safety:     number;  // 0–1 (higher = more satisfied)
+  prosperity: number;
+  community:  number;
+  meaning:    number;
+}
+
+export interface NpcSimState {
+  npcId:       string;
+  name:        string;
+  role:        NpcRole;
+  personality: NpcPersonality;
+  beliefs:     Record<string, SpiritBelief>;  // key = spirit id, e.g. 'player'
+  needs:       NpcNeeds;
+  mood:        number;  // 0–1, derived from needs each tick
 }
