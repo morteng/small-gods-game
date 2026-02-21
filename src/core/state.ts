@@ -1,4 +1,4 @@
-import type { GameMap, Camera, WorldSeed, NpcInstance } from '@/core/types';
+import type { GameMap, Camera, WorldSeed, NpcInstance, DecorationInstance } from '@/core/types';
 import { createCamera } from '@/render/camera';
 
 export interface GameState {
@@ -6,6 +6,8 @@ export interface GameState {
   camera: Camera;
   worldSeed: WorldSeed | null;
   npcs: NpcInstance[];
+  visualMap: string[][] | null;
+  decorations: DecorationInstance[];
   debug: boolean;
 }
 
@@ -15,6 +17,8 @@ export function createState(): GameState {
     camera: createCamera(),
     worldSeed: null,
     npcs: [],
+    visualMap: null,
+    decorations: [],
     debug: false,
   };
 }
