@@ -5,11 +5,13 @@ import { renderMap } from '@/render/renderer';
 import { centerOn } from '@/render/camera';
 import { attachControls } from '@/ui/controls';
 import { WorldManager } from '@/map/world-manager';
-import type { GameMap, WorldSeed, TerrainOptions, NpcInstance, NpcRole } from '@/core/types';
+import type { GameMap, WorldSeed, TerrainOptions, NpcInstance, NpcRole, RenderContext } from '@/core/types';
 import { updateNpcs, FRAME_MS } from '@/render/npc-animator';
 import { buildCharacterSpec, getOrGenerateSheet } from '@/render/lpc';
 import { initNpcSim, tickAllNpcs, SIM_TICK_MS } from '@/sim/npc-sim';
 import { drawNpcOverlay } from '@/render/sim-overlay';
+import { Autotiler } from '@/map/autotiler';
+import { placeDecorations } from '@/map/decoration-placer';
 
 export interface GameOptions {
   width?: number;
@@ -41,6 +43,8 @@ export class Game {
   private simTickAcc: number = 0;
   /** Resolved spritesheets keyed by NPC id */
   private sheets = new Map<string, HTMLCanvasElement>();
+  private tileAtlas: HTMLImageElement | null = null;
+  private treeSheets = new Map<string, HTMLImageElement>();
 
   constructor(container: HTMLElement, _options: GameOptions = {}) {
     this.container = container;
@@ -84,6 +88,15 @@ export class Game {
     const map = await engine.generate(ws);
     this.state.map = map;
     this.state.worldSeed = ws;
+    this.state.visualMap = Autotiler.computeVisualMap(map);
+    this.state.decorations = placeDecorations(map, map.seed);
+
+    if (!this.tileAtlas) {
+      this.tileAtlas = await this.loadTileAtlas();
+    }
+    if (this.treeSheets.size === 0) {
+      await this.loadTreeSheets();
+    }
 
     centerOn(
       this.state.camera,
@@ -146,6 +159,26 @@ export class Game {
     }
   }
 
+  private loadTileAtlas(): Promise<HTMLImageElement | null> {
+    return new Promise(resolve => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => resolve(null);
+      img.src = '/sprites/tiles/kenney-town.png';
+    });
+  }
+
+  private loadTreeSheets(): Promise<void> {
+    const variants = ['green', 'orange', 'dead', 'pale', 'brown'];
+    const promises = variants.map(v => new Promise<void>(resolve => {
+      const img = new Image();
+      img.onload = () => { this.treeSheets.set(v, img); resolve(); };
+      img.onerror = () => resolve(); // skip missing silently
+      img.src = `/sprites/trees/trees-${v}.png`;
+    }));
+    return Promise.all(promises).then(() => {});
+  }
+
   private startLoop(): void {
     if (this.rafId !== null) return;
     this.lastTime = performance.now();
@@ -175,14 +208,24 @@ export class Game {
 
   render(): void {
     if (!this.state.map) return;
-    const w = this.canvas.width / devicePixelRatio;
-    const h = this.canvas.height / devicePixelRatio;
-    renderMap(this.ctx, this.state.map, this.state.camera, w, h, this.state.npcs, this.sheets);
+    const rc: RenderContext = {
+      map: this.state.map,
+      camera: this.state.camera,
+      canvasWidth: this.canvas.width / devicePixelRatio,
+      canvasHeight: this.canvas.height / devicePixelRatio,
+      npcs: this.state.npcs,
+      npcSheets: this.sheets,
+      visualMap: this.state.visualMap,
+      tileAtlas: this.tileAtlas,
+      decorations: this.state.decorations,
+      treeSheets: this.treeSheets,
+    };
+    renderMap(this.ctx, rc);
     if (this.state.selectedNpcId) {
       const npc = this.state.npcs.find(n => n.id === this.state.selectedNpcId);
       const sim = this.state.npcSim.get(this.state.selectedNpcId);
       if (npc && sim) {
-        drawNpcOverlay(this.ctx, npc, sim, this.state.camera, w, h);
+        drawNpcOverlay(this.ctx, npc, sim, this.state.camera, rc.canvasWidth, rc.canvasHeight);
       }
     }
   }

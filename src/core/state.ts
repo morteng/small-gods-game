@@ -1,4 +1,4 @@
-import type { GameMap, Camera, WorldSeed, NpcInstance, NpcSimState } from '@/core/types';
+import type { GameMap, Camera, WorldSeed, NpcInstance, NpcSimState, DecorationInstance } from '@/core/types';
 import { createCamera } from '@/render/camera';
 
 export interface GameState {
@@ -8,6 +8,8 @@ export interface GameState {
   npcs: NpcInstance[];
   npcSim: Map<string, NpcSimState>;
   selectedNpcId: string | null;
+  visualMap: string[][] | null;
+  decorations: DecorationInstance[];
   debug: boolean;
 }
 
@@ -19,6 +21,8 @@ export function createState(): GameState {
     npcs: [],
     npcSim: new Map(),
     selectedNpcId: null,
+    visualMap: null,
+    decorations: [],
     debug: false,
   };
 }

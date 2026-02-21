@@ -47,6 +47,95 @@ export const TILE_COLORS: Record<string, string> = {
   bog: '#5D6B3A',
 };
 
+/** Native size of each tile in the Kenney spritesheet */
+export const KENNEY_TILE_SIZE = 16;
+
+/**
+ * Maps autotiler visual variant IDs to Kenney Tiny Town tilemap coords.
+ * Kenney tilemap: 12×11 grid, 16×16 tiles, at public/sprites/tiles/kenney-town.png
+ *
+ * Ground tiles (rows 0-3):
+ *   Row 0: grass (3 variants), then sprite objects
+ *   Row 1: dirt (3 variants), vegetation sprites
+ *   Row 2: path/stone (3 variants), sand at col 3
+ *   Row 3: mixed dirt cols 0-6, stone building starts col 7
+ * Buildings (rows 3-6):
+ *   Cols 0-6 rows 4-5: Blue-gray stone wall (90,105,136)
+ *   Cols 8-11 rows 3-5: Brown wood wall (189,108,74)
+ * Castle/stone floor (rows 8-9):
+ *   Cols 0-6: Light blue-gray stone floor (192,203,220)
+ */
+export const TILE_SPRITE_MAP: Record<string, { col: number; row: number }> = {
+  // === Grass and grass-based variants ===
+  'grass':              { col: 0, row: 0 },
+  'meadow':             { col: 1, row: 0 },
+  'glen':               { col: 1, row: 0 },
+  'farm_field':         { col: 2, row: 0 },
+  'orchard':            { col: 2, row: 0 },
+
+  // Shore variants (grass tile, autotiler provides edge variant ID)
+  'shore_n':            { col: 0, row: 0 },
+  'shore_e':            { col: 0, row: 0 },
+  'shore_s':            { col: 0, row: 0 },
+  'shore_w':            { col: 0, row: 0 },
+  'shore_corner_ne':    { col: 0, row: 0 },
+  'shore_corner_se':    { col: 0, row: 0 },
+  'shore_corner_sw':    { col: 0, row: 0 },
+  'shore_corner_nw':    { col: 0, row: 0 },
+
+  // Hill variants (grass base)
+  'hill':               { col: 0, row: 0 },
+  'hill_n':             { col: 0, row: 0 },
+  'hill_e':             { col: 0, row: 0 },
+  'hill_s':             { col: 0, row: 0 },
+  'hill_w':             { col: 0, row: 0 },
+  'hill_ne':            { col: 0, row: 0 },
+  'hill_se':            { col: 0, row: 0 },
+  'hill_sw':            { col: 0, row: 0 },
+  'hill_nw':            { col: 0, row: 0 },
+
+  // === Dirt and path ===
+  'dirt':               { col: 0, row: 1 },
+  'dirt_road':          { col: 0, row: 1 },
+  'scrubland':          { col: 1, row: 1 },
+
+  // Lot/foundation variants (light dirt)
+  'lot':                { col: 2, row: 1 },
+  'lot_n':              { col: 2, row: 1 },
+  'lot_e':              { col: 2, row: 1 },
+  'lot_s':              { col: 2, row: 1 },
+  'lot_w':              { col: 2, row: 1 },
+  'lot_ne':             { col: 2, row: 1 },
+  'lot_se':             { col: 2, row: 1 },
+  'lot_sw':             { col: 2, row: 1 },
+  'lot_nw':             { col: 2, row: 1 },
+
+  // === Sand and beach ===
+  'sand':               { col: 3, row: 2 },
+  'beach':              { col: 3, row: 2 },
+  'beach_n':            { col: 3, row: 2 },
+  'beach_e':            { col: 3, row: 2 },
+  'beach_s':            { col: 3, row: 2 },
+  'beach_w':            { col: 3, row: 2 },
+  'beach_corner_ne':    { col: 3, row: 2 },
+  'beach_corner_se':    { col: 3, row: 2 },
+  'beach_corner_sw':    { col: 3, row: 2 },
+  'beach_corner_nw':    { col: 3, row: 2 },
+
+  // === Buildings — use representative center tile ===
+  'building_stone':     { col: 1, row: 4 },  // blue-gray stone wall
+  'castle_wall':        { col: 2, row: 4 },  // darker stone
+  'castle_tower':       { col: 0, row: 4 },  // darker stone variant
+  'ruins':              { col: 0, row: 4 },  // dark stone
+
+  'building_wood':      { col: 9, row: 3 },  // brown wood wall center
+  'market':             { col: 9, row: 3 },  // treat like wood building
+
+  // Stone floor (light blue-gray) — used for castle interior
+  'well':               { col: 1, row: 8 },  // light stone
+  'dock':               { col: 1, row: 8 },  // light stone floor
+};
+
 /** POI marker icons for the map overlay */
 export const POI_ICONS: Record<string, { color: string; shape: 'circle' | 'triangle' | 'square' | 'diamond' }> = {
   village:    { color: '#FFD54F', shape: 'circle' },

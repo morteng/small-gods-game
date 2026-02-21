@@ -1,17 +1,11 @@
-import type { GameMap, Camera, NpcInstance } from '@/core/types';
-import { TILE_SIZE, TILE_COLORS, BG_COLOR, POI_ICONS } from '@/core/constants';
+import type { RenderContext } from '@/core/types';
+import { TILE_SIZE, TILE_COLORS, BG_COLOR, POI_ICONS, TILE_SPRITE_MAP, KENNEY_TILE_SIZE } from '@/core/constants';
 import { getSpriteCoords } from '@/render/npc-animator';
 
 /** Render the map to a canvas context */
-export function renderMap(
-  ctx: CanvasRenderingContext2D,
-  map: GameMap,
-  camera: Camera,
-  canvasWidth: number,
-  canvasHeight: number,
-  npcs: NpcInstance[] = [],
-  sheets: Map<string, HTMLCanvasElement> = new Map(),
-): void {
+export function renderMap(ctx: CanvasRenderingContext2D, rc: RenderContext): void {
+  const { map, camera, canvasWidth, canvasHeight, npcs, npcSheets } = rc;
+
   // Clear
   ctx.fillStyle = BG_COLOR;
   ctx.fillRect(0, 0, canvasWidth, canvasHeight);
@@ -26,13 +20,26 @@ export function renderMap(
   const endX = Math.min(map.width, Math.ceil((camera.x + canvasWidth / camera.zoom) / TILE_SIZE) + 1);
   const endY = Math.min(map.height, Math.ceil((camera.y + canvasHeight / camera.zoom) / TILE_SIZE) + 1);
 
-  // Draw tiles
+  // Draw tiles — sprites where available, TILE_COLORS fallback
+  ctx.imageSmoothingEnabled = false;
   for (let y = startY; y < endY; y++) {
     for (let x = startX; x < endX; x++) {
       const tile = map.tiles[y]?.[x];
       if (!tile) continue;
-      ctx.fillStyle = TILE_COLORS[tile.type] || '#FF00FF';
-      ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+      const variant = rc.visualMap?.[y]?.[x] ?? tile.type;
+      const spriteCoord = TILE_SPRITE_MAP[variant];
+      if (spriteCoord && rc.tileAtlas) {
+        ctx.drawImage(
+          rc.tileAtlas,
+          spriteCoord.col * KENNEY_TILE_SIZE, spriteCoord.row * KENNEY_TILE_SIZE,
+          KENNEY_TILE_SIZE, KENNEY_TILE_SIZE,
+          x * TILE_SIZE, y * TILE_SIZE,
+          TILE_SIZE, TILE_SIZE,
+        );
+      } else {
+        ctx.fillStyle = TILE_COLORS[tile.type] || '#FF00FF';
+        ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+      }
     }
   }
 
@@ -51,6 +58,33 @@ export function renderMap(
       ctx.moveTo(x * TILE_SIZE, startY * TILE_SIZE);
       ctx.lineTo(x * TILE_SIZE, endY * TILE_SIZE);
       ctx.stroke();
+    }
+  }
+
+  // Draw tree decorations — after tiles, before POI markers and NPCs
+  // Tree sprite: 64×64 px source, drawn at 64×96 world-px (2w × 3h tiles), base anchored at tile bottom
+  if (rc.treeSheets.size > 0) {
+    const SPRITE_SRC = 64;          // source sprite size in the LPC sheet
+    const TREE_W = TILE_SIZE * 2;   // 32px wide = 2 tiles
+    const TREE_H = TILE_SIZE * 3;   // 48px tall = 3 tiles (3/4 oblique — taller than wide)
+    const camLeft   = camera.x;
+    const camTop    = camera.y;
+    const camRight  = camera.x + canvasWidth  / camera.zoom;
+    const camBottom = camera.y + canvasHeight / camera.zoom;
+
+    for (const deco of rc.decorations) {
+      const sheet = rc.treeSheets.get(deco.variant);
+      if (!sheet) continue;
+      const worldX = (deco.tileX + deco.offsetX) * TILE_SIZE - TREE_W / 2 + TILE_SIZE / 2;
+      const worldY = (deco.tileY + deco.offsetY + 1) * TILE_SIZE - TREE_H; // base at tile bottom
+      // Cull off-screen
+      if (worldX + TREE_W < camLeft || worldX > camRight  ||
+          worldY + TREE_H < camTop  || worldY > camBottom) continue;
+      ctx.drawImage(
+        sheet,
+        deco.spriteCol * SPRITE_SRC, deco.spriteRow * SPRITE_SRC, SPRITE_SRC, SPRITE_SRC,
+        worldX, worldY, TREE_W, TREE_H,
+      );
     }
   }
 
@@ -95,17 +129,6 @@ export function renderMap(
     }
   }
 
-  // Draw village markers (from WFC generation)
-  for (const v of map.villages) {
-    if (!v.name) continue;
-    const px = (v.x + 0.5) * TILE_SIZE;
-    const py = (v.y + 0.5) * TILE_SIZE;
-    ctx.fillStyle = '#fff';
-    ctx.font = `${Math.max(8, 10 / camera.zoom)}px sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.fillText(v.name, px, py - TILE_SIZE);
-  }
-
   // Draw NPC sprites
   ctx.imageSmoothingEnabled = false;
   const camLeft   = camera.x;
@@ -115,7 +138,7 @@ export function renderMap(
   const npcSize   = 32; // 2×2 tiles world-space
 
   for (const npc of npcs) {
-    const sheet = sheets.get(npc.id);
+    const sheet = npcSheets.get(npc.id);
     if (!sheet) continue;
 
     const screenX = npc.tileX * TILE_SIZE;
