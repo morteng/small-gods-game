@@ -202,4 +202,30 @@ describe('tickNpcSim', () => {
     tickNpcSim(sim);
     expect(sim.beliefs['player'].faith).toBeGreaterThanOrEqual(before);
   });
+
+  it('whisperCooldown decrements by 1 per tick', () => {
+    const sim = initNpcSim('id', 'X', 'farmer', 5);
+    sim.whisperCooldown = 3;
+    tickNpcSim(sim);
+    expect(sim.whisperCooldown).toBe(2);
+  });
+
+  it('whisperCooldown does not go below 0', () => {
+    const sim = initNpcSim('id', 'X', 'farmer', 5);
+    sim.whisperCooldown = 0;
+    tickNpcSim(sim);
+    expect(sim.whisperCooldown).toBe(0);
+  });
+});
+
+describe('initNpcSim defaults', () => {
+  it('recentEvents starts as empty array', () => {
+    const sim = initNpcSim('id', 'X', 'farmer', 42);
+    expect(sim.recentEvents).toEqual([]);
+  });
+
+  it('whisperCooldown starts at 0', () => {
+    const sim = initNpcSim('id', 'X', 'farmer', 42);
+    expect(sim.whisperCooldown).toBe(0);
+  });
 });

@@ -11,6 +11,7 @@ export interface GameState {
   visualMap: string[][] | null;
   decorations: DecorationInstance[];
   debug: boolean;
+  playerPower: number;
 }
 
 export function createState(): GameState {
@@ -24,5 +25,6 @@ export function createState(): GameState {
     visualMap: null,
     decorations: [],
     debug: false,
+    playerPower: 3,
   };
 }

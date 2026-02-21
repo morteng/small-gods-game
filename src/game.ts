@@ -9,7 +9,9 @@ import type { GameMap, WorldSeed, TerrainOptions, NpcInstance, NpcRole, RenderCo
 import { updateNpcs, FRAME_MS } from '@/render/npc-animator';
 import { buildCharacterSpec, getOrGenerateSheet } from '@/render/lpc';
 import { initNpcSim, tickAllNpcs, SIM_TICK_MS } from '@/sim/npc-sim';
-import { drawNpcOverlay } from '@/render/sim-overlay';
+import { drawNpcOverlay, type OverlayHitAreas } from '@/render/sim-overlay';
+import { whisperNpc, computePowerRegen } from '@/sim/divine-actions';
+import { drawPowerHud } from '@/render/hud';
 import { Autotiler } from '@/map/autotiler';
 import { placeDecorations } from '@/map/decoration-placer';
 
@@ -41,6 +43,8 @@ export class Game {
   private rafId: number | null = null;
   private lastTime: number = 0;
   private simTickAcc: number = 0;
+  private overlayHitAreas: OverlayHitAreas = [];
+  private lastWhisperTime: number = -Infinity;
   /** Resolved spritesheets keyed by NPC id */
   private sheets = new Map<string, HTMLCanvasElement>();
   private tileAtlas: HTMLImageElement | null = null;
@@ -63,6 +67,7 @@ export class Game {
 
     this.cleanupControls = attachControls(this.canvas, this.state.camera, {
       onTileClick: (x, y) => this.onTileClick(x, y),
+      onCanvasClick: (sx, sy) => this.onCanvasClick(sx, sy),
       onRedraw: () => {},
     });
   }
@@ -192,6 +197,7 @@ export class Game {
       while (this.simTickAcc >= SIM_TICK_MS) {
         this.simTickAcc -= SIM_TICK_MS;
         tickAllNpcs(this.state.npcSim);
+        this.state.playerPower += computePowerRegen(this.state.npcSim);
       }
       this.render();
       this.rafId = requestAnimationFrame(loop);
@@ -221,13 +227,47 @@ export class Game {
       treeSheets: this.treeSheets,
     };
     renderMap(this.ctx, rc);
+
+    // Gold flash when a whisper was just cast
+    const flashAge = performance.now() - this.lastWhisperTime;
+    if (flashAge < 300) {
+      const alpha = 0.25 * (1 - flashAge / 300);
+      this.ctx.fillStyle = `rgba(255, 215, 0, ${alpha.toFixed(3)})`;
+      this.ctx.fillRect(0, 0, rc.canvasWidth, rc.canvasHeight);
+    }
+
     if (this.state.selectedNpcId) {
       const npc = this.state.npcs.find(n => n.id === this.state.selectedNpcId);
       const sim = this.state.npcSim.get(this.state.selectedNpcId);
       if (npc && sim) {
-        drawNpcOverlay(this.ctx, npc, sim, this.state.camera, rc.canvasWidth, rc.canvasHeight);
+        this.overlayHitAreas = drawNpcOverlay(
+          this.ctx, npc, sim, this.state.camera,
+          rc.canvasWidth, rc.canvasHeight,
+          this.state.playerPower,
+        );
+      }
+    } else {
+      this.overlayHitAreas = [];
+    }
+
+    const regenPerSec = computePowerRegen(this.state.npcSim);
+    drawPowerHud(this.ctx, this.state.playerPower, regenPerSec);
+  }
+
+  private onCanvasClick(sx: number, sy: number): boolean {
+    for (const area of this.overlayHitAreas) {
+      if (sx >= area.x && sx <= area.x + area.w && sy >= area.y && sy <= area.y + area.h) {
+        if (area.action === 'whisper' && area.active) {
+          const sim = this.state.npcSim.get(area.npcId);
+          if (sim) {
+            this.state.playerPower = whisperNpc(sim, this.state.playerPower);
+            this.lastWhisperTime = performance.now();
+          }
+        }
+        return true;
       }
     }
+    return false;
   }
 
   private onTileClick(x: number, y: number): void {

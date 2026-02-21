@@ -3,10 +3,22 @@ import { worldToScreen } from '@/render/camera';
 import { TILE_SIZE } from '@/core/constants';
 
 const CARD_W = 200;
-const CARD_H = 195;
+const CARD_H = 245;
 const CARD_PAD = 10;
 const BAR_H = 10;
 const BAR_W = CARD_W - CARD_PAD * 2 - 50;
+
+export interface OverlayHitArea {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  action: 'whisper' | 'card';
+  npcId: string;
+  active: boolean;
+}
+
+export type OverlayHitAreas = OverlayHitArea[];
 
 function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number): void {
   ctx.beginPath();
@@ -56,7 +68,8 @@ export function drawNpcOverlay(
   camera: Camera,
   canvasWidth: number,
   canvasHeight: number,
-): void {
+  playerPower: number,
+): OverlayHitAreas {
   // Position card near the NPC tile (above it)
   const { sx, sy } = worldToScreen(camera, npc.tileX, npc.tileY, TILE_SIZE);
   const tileScreenSize = TILE_SIZE * camera.zoom;
@@ -148,5 +161,55 @@ export function drawNpcOverlay(
     drawBar(ctx, bx, row,    'Devotn',   belief.devotion,      '#FF8A65');
   }
 
+  // Separator before divine actions
+  row += BAR_H + 6;
+  ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+  ctx.beginPath();
+  ctx.moveTo(cx + CARD_PAD, row);
+  ctx.lineTo(cx + CARD_W - CARD_PAD, row);
+  ctx.stroke();
+
+  // Divine actions section
+  row += 12;
+  ctx.font = '9px sans-serif';
+  ctx.fillStyle = 'rgba(255,255,255,0.4)';
+  ctx.fillText('DIVINE ACTIONS', cx + CARD_PAD, row);
+
+  // Whisper button
+  row += 6;
+  const btnX = cx + CARD_PAD;
+  const btnY = row;
+  const btnW = CARD_W - CARD_PAD * 2;
+  const btnH = 22;
+  const whisperActive = playerPower >= 1 && sim.whisperCooldown === 0;
+
+  roundRect(ctx, btnX, btnY, btnW, btnH, 4);
+  if (whisperActive) {
+    ctx.fillStyle = '#B8860B';
+    ctx.fill();
+    ctx.strokeStyle = '#FFD700';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  } else {
+    ctx.fillStyle = 'rgba(80,80,80,0.6)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(150,150,150,0.4)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+
+  ctx.font = 'bold 10px sans-serif';
+  ctx.fillStyle = whisperActive ? '#FFD700' : 'rgba(180,180,180,0.5)';
+  ctx.textBaseline = 'middle';
+  const cooldownSuffix = sim.whisperCooldown > 0 ? ` (${sim.whisperCooldown}s)` : '';
+  const btnLabel = `🗣 Whisper (-1⚡)${cooldownSuffix}`;
+  ctx.fillText(btnLabel, btnX + 6, btnY + btnH / 2);
+
   ctx.restore();
+
+  // Return hit areas — card blocks click-through, whisper captures action
+  return [
+    { x: cx, y: cy, w: CARD_W, h: CARD_H, action: 'card', npcId: npc.id, active: true },
+    { x: btnX, y: btnY, w: btnW, h: btnH, action: 'whisper', npcId: npc.id, active: whisperActive },
+  ];
 }

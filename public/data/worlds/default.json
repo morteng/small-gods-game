@@ -55,7 +55,8 @@
       "description": "A prosperous farming village.",
       "npcs": [
         { "name": "Elder Bramwell", "role": "elder" },
-        { "name": "Rosa the Baker", "role": "merchant" }
+        { "name": "Rosa the Baker", "role": "merchant" },
+        { "name": "Brother Aldric", "role": "priest" }
       ]
     },
     {
@@ -64,7 +65,10 @@
       "name": "The Old Watchtower",
       "position": { "x": 30, "y": 8 },
       "size": "small",
-      "description": "An ancient tower on the mountain slopes."
+      "description": "An ancient tower on the mountain slopes.",
+      "npcs": [
+        { "name": "Captain Hale", "role": "soldier" }
+      ]
     },
     {
       "id": "millbrook_farm",
@@ -72,7 +76,11 @@
       "name": "Millbrook Farm",
       "position": { "x": 14, "y": 16 },
       "size": "medium",
-      "description": "The largest farm in the valley."
+      "description": "The largest farm in the valley.",
+      "npcs": [
+        { "name": "Tom Greenfield", "role": "farmer" },
+        { "name": "Marta Greenfield", "role": "farmer" }
+      ]
     },
     {
       "id": "crossroads_inn",
@@ -80,7 +88,11 @@
       "name": "The Wandering Minstrel",
       "position": { "x": 22, "y": 12 },
       "size": "small",
-      "description": "A welcoming inn at the crossroads."
+      "description": "A welcoming inn at the crossroads.",
+      "npcs": [
+        { "name": "Pip the Urchin", "role": "child" },
+        { "name": "Old Silas", "role": "beggar" }
+      ]
     },
     {
       "id": "lakeside_dock",
