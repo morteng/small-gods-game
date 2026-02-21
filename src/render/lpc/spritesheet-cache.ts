@@ -4,7 +4,10 @@ import type { CharacterSpec } from './character-builder';
 
 /** Stable hash of a CharacterSpec — used as cache key */
 function specHash(spec: CharacterSpec): string {
-  return JSON.stringify({ s: spec.sex, b: spec.bodyType, i: spec.items });
+  const sortedItems = Object.fromEntries(
+    Object.keys(spec.items).sort().map(k => [k, spec.items[k]])
+  );
+  return JSON.stringify({ s: spec.sex, b: spec.bodyType, i: sortedItems });
 }
 
 // Cache: hash → settled canvas (null if generation failed)
