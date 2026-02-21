@@ -104,3 +104,21 @@ export interface TerrainOptions {
   waterLevel: number;
   villageCount: number;
 }
+
+/** NPC role in the world */
+export type NpcRole = 'farmer' | 'priest' | 'soldier' | 'merchant' | 'elder' | 'child' | 'noble' | 'beggar';
+
+/** Direction an NPC is facing */
+export type Direction = 'up' | 'down' | 'left' | 'right';
+
+/** A live NPC instance on the map */
+export interface NpcInstance {
+  id: string;
+  role: NpcRole;
+  seed: number;       // deterministic appearance seed, derived from id
+  tileX: number;
+  tileY: number;
+  direction: Direction;
+  frame: number;      // 0 = idle stand, 1–8 = walk cycle
+  frameTimer: number; // ms accumulator since last frame advance
+}
