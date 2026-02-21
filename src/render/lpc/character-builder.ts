@@ -9,7 +9,8 @@ export interface CharacterSpec {
 
 /** Seeded pick from an array. Stable for same seed+offset. */
 function pick<T>(seed: number, offset: number, options: readonly T[]): T {
-  return options[Math.abs((seed + offset) * 2654435761) % options.length];
+  const hash = Math.imul(seed + offset, 2654435761) >>> 0;
+  return options[hash % options.length];
 }
 
 /** Skin tone variants available on most human head/body items */

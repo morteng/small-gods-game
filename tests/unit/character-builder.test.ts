@@ -17,14 +17,12 @@ describe('buildCharacterSpec', () => {
   });
 
   it('different seeds produce different hair variants for same role', () => {
-    const s1 = buildCharacterSpec('farmer', 0);
+    const s1 = buildCharacterSpec('farmer', 1);
     const s2 = buildCharacterSpec('farmer', 999);
-    // At least one item should differ (hair or skin)
-    const s1Hair = JSON.stringify(s1.items['hair']);
-    const s2Hair = JSON.stringify(s2.items['hair']);
-    // May or may not differ — just verify both are defined
-    expect(s1Hair).toBeTruthy();
-    expect(s2Hair).toBeTruthy();
+    expect(s1.items['hair']).toBeDefined();
+    expect(s2.items['hair']).toBeDefined();
+    // Seeds should produce distinct hair colours
+    expect(s1.items['hair']!.variant).not.toBe(s2.items['hair']!.variant);
   });
 
   it('all 8 roles return a spec without throwing', () => {
