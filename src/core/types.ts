@@ -172,11 +172,13 @@ export interface NpcNeeds {
 }
 
 export interface NpcSimState {
-  npcId:       string;
-  name:        string;
-  role:        NpcRole;
-  personality: NpcPersonality;
-  beliefs:     Record<string, SpiritBelief>;  // key = spirit id, e.g. 'player'
-  needs:       NpcNeeds;
-  mood:        number;  // 0–1, derived from needs each tick
+  npcId:           string;
+  name:            string;
+  role:            NpcRole;
+  personality:     NpcPersonality;
+  beliefs:         Record<string, SpiritBelief>;  // key = spirit id, e.g. 'player'
+  needs:           NpcNeeds;
+  mood:            number;  // 0–1, derived from needs each tick
+  recentEvents:    string[];   // ring buffer, max 5
+  whisperCooldown: number;     // integer seconds remaining (ticked per sim tick)
 }

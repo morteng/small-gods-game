@@ -4,6 +4,7 @@ import { TILE_SIZE } from '@/core/constants';
 
 export interface ControlsCallbacks {
   onTileClick?: (x: number, y: number) => void;
+  onCanvasClick?: (sx: number, sy: number) => boolean;
   onRedraw: () => void;
 }
 
@@ -34,10 +35,15 @@ export function attachControls(canvas: HTMLCanvasElement, camera: Camera, callba
     // If barely moved, treat as click
     const dx = Math.abs(e.clientX - lastX);
     const dy = Math.abs(e.clientY - lastY);
-    if (dx < 3 && dy < 3 && callbacks.onTileClick) {
+    if (dx < 3 && dy < 3) {
       const rect = canvas.getBoundingClientRect();
-      const { wx, wy } = screenToWorld(camera, e.clientX - rect.left, e.clientY - rect.top, TILE_SIZE);
-      callbacks.onTileClick(wx, wy);
+      const sx = e.clientX - rect.left;
+      const sy = e.clientY - rect.top;
+      if (callbacks.onCanvasClick?.(sx, sy)) return;
+      if (callbacks.onTileClick) {
+        const { wx, wy } = screenToWorld(camera, sx, sy, TILE_SIZE);
+        callbacks.onTileClick(wx, wy);
+      }
     }
   }
 

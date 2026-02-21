@@ -70,6 +70,8 @@ export function initNpcSim(npcId: string, name: string, role: NpcRole, seed: num
     beliefs: { player: belief },
     needs,
     mood: computeMood(needs),
+    recentEvents: [],
+    whisperCooldown: 0,
   };
 }
 
@@ -78,6 +80,9 @@ export function computeMood(needs: NpcNeeds): number {
 }
 
 export function tickNpcSim(sim: NpcSimState): void {
+  // 0. Decrement whisper cooldown
+  if (sim.whisperCooldown > 0) sim.whisperCooldown -= 1;
+
   // 1. Decay faith per spirit
   for (const belief of Object.values(sim.beliefs)) {
     const decay = FAITH_DECAY_BASE * sim.personality.skepticism;
