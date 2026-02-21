@@ -14,7 +14,7 @@ export declare function renderCharacter(
 export declare function renderSingleItem(
   itemId: string,
   variant: string,
-  bodyType: string,
+  bodyType: 'male' | 'female' | 'teen' | 'child' | 'muscular',
   selections: LpcSelections,
   singleLayer?: number | null,
 ): Promise<HTMLCanvasElement | null>;
