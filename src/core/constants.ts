@@ -136,6 +136,50 @@ export const TILE_SPRITE_MAP: Record<string, { col: number; row: number }> = {
   // Stone floor (light blue-gray) — used for castle interior
   'well':               { col: 1, row: 8 },  // light stone
   'dock':               { col: 1, row: 8 },  // light stone floor
+
+  // === New terrain types (Phase A+) ===
+  'sacred_grove':       { col: 1, row: 0 },  // meadow grass (lighter than plain grass)
+  'quarry':             { col: 0, row: 1 },  // dirt/earth
+
+  // === Road directional variants (from autotiler) ===
+  'road':               { col: 0, row: 2 },  // stone path
+  'road_ns':            { col: 0, row: 2 },
+  'road_ew':            { col: 0, row: 2 },
+  'road_ne':            { col: 1, row: 2 },
+  'road_nw':            { col: 1, row: 2 },
+  'road_se':            { col: 1, row: 2 },
+  'road_sw':            { col: 1, row: 2 },
+  'road_end_n':         { col: 0, row: 2 },
+  'road_end_e':         { col: 0, row: 2 },
+  'road_end_s':         { col: 0, row: 2 },
+  'road_end_w':         { col: 0, row: 2 },
+  'road_t_nes':         { col: 2, row: 2 },
+  'road_t_new':         { col: 2, row: 2 },
+  'road_t_nsw':         { col: 2, row: 2 },
+  'road_t_esw':         { col: 2, row: 2 },
+  'road_cross':         { col: 2, row: 2 },
+
+  // === Dirt road directional variants ===
+  'dirt_road_ns':       { col: 0, row: 1 },
+  'dirt_road_ew':       { col: 0, row: 1 },
+  'dirt_road_ne':       { col: 1, row: 1 },
+  'dirt_road_nw':       { col: 1, row: 1 },
+  'dirt_road_se':       { col: 1, row: 1 },
+  'dirt_road_sw':       { col: 1, row: 1 },
+  'dirt_road_end_n':    { col: 0, row: 1 },
+  'dirt_road_end_e':    { col: 0, row: 1 },
+  'dirt_road_end_s':    { col: 0, row: 1 },
+  'dirt_road_end_w':    { col: 0, row: 1 },
+  'dirt_road_t_nes':    { col: 2, row: 1 },
+  'dirt_road_t_new':    { col: 2, row: 1 },
+  'dirt_road_t_nsw':    { col: 2, row: 1 },
+  'dirt_road_t_esw':    { col: 2, row: 1 },
+  'dirt_road_cross':    { col: 2, row: 1 },
+
+  // === Bridge variants ===
+  'bridge_ns':          { col: 0, row: 3 },
+  'bridge_ew':          { col: 1, row: 3 },
+  'stone_road':         { col: 0, row: 2 },
 };
 
 /** POI marker icons for the map overlay */
