@@ -65,10 +65,3 @@ export const POI_ICONS: Record<string, { color: string; shape: 'circle' | 'trian
   bridge:     { color: '#8D6E63', shape: 'square' },
   crossroads: { color: '#BDBDBD', shape: 'circle' },
 };
-
-/** Cost tracking for AI generation calls */
-export const PRICES = {
-  fluxDev: 0.025,       // per image
-  birefnet: 0.0,        // free
-  totalSpent: 0,
-};
