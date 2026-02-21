@@ -7,7 +7,7 @@ export function renderMap(
   map: GameMap,
   camera: Camera,
   canvasWidth: number,
-  canvasHeight: number
+  canvasHeight: number,
 ): void {
   // Clear
   ctx.fillStyle = BG_COLOR;
