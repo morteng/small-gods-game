@@ -287,6 +287,21 @@ export const SPECIAL_VARIANTS: Record<string, TileDef> = {
     color: '#A1887F',
     category: 'terrain',
     baseType: 'dirt'
+  },
+  // Zone-of-influence terrain types (Phase D)
+  sacred_grove: {
+    id: 'sacred_grove',
+    walkable: true,
+    color: '#A8D8A8',
+    category: 'terrain',
+    baseType: 'grass'
+  },
+  quarry: {
+    id: 'quarry',
+    walkable: true,
+    color: '#8B7B6B',
+    category: 'terrain',
+    baseType: 'hill'
   }
 };
 
@@ -311,15 +326,17 @@ export const TILES: Record<string, TileDef> = {
 // ADJACENCY RULES (for base semantic types)
 // =============================================================================
 export const ADJACENCY: Record<string, string[]> = {
-  grass: ['grass', 'water', 'road', 'river', 'dirt', 'forest', 'hill', 'beach', 'lot'],
+  grass: ['grass', 'water', 'road', 'river', 'dirt', 'forest', 'hill', 'beach', 'lot', 'sacred_grove'],
   water: ['water', 'grass', 'river', 'dirt', 'beach'],
   road: ['road', 'grass', 'dirt', 'forest', 'lot'],
   river: ['river', 'water', 'grass', 'beach'],
   dirt: ['dirt', 'grass', 'road', 'water', 'forest', 'beach'],
   forest: ['forest', 'grass', 'road', 'dirt', 'hill'],
-  hill: ['hill', 'grass', 'forest', 'dirt'],
+  hill: ['hill', 'grass', 'forest', 'dirt', 'quarry'],
   beach: ['beach', 'water', 'grass', 'dirt', 'river'],
-  lot: ['lot', 'grass', 'road', 'dirt']
+  lot: ['lot', 'grass', 'road', 'dirt'],
+  sacred_grove: ['sacred_grove', 'grass', 'road'],
+  quarry: ['quarry', 'hill', 'grass', 'dirt'],
 };
 
 // =============================================================================

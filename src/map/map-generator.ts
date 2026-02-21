@@ -103,6 +103,7 @@ export function generateMap(width: number, height: number, seed: number, options
     success: true,
     worldSeed: null,
     stats: { iterations: 0, backtracks: 0 },
+    buildings: [],
   };
 }
 
@@ -179,6 +180,7 @@ export async function generateWithWFC(
       success: mapData.success,
       worldSeed: worldSeed,
       stats: mapData.stats,
+      buildings: mapData.buildings,
     };
 
   } catch (e) {

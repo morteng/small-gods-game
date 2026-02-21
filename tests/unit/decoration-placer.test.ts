@@ -21,6 +21,7 @@ function makeMap(tileType: string, width = 10, height = 10): GameMap {
     success: true,
     worldSeed: null,
     stats: { iterations: 0, backtracks: 0 },
+    buildings: [],
   };
 }
 

@@ -13,7 +13,9 @@ import { drawNpcOverlay, type OverlayHitAreas } from '@/render/sim-overlay';
 import { whisperNpc, computePowerRegen } from '@/sim/divine-actions';
 import { drawPowerHud } from '@/render/hud';
 import { Autotiler } from '@/map/autotiler';
+import { computeBlobMap } from '@/map/blob-autotiler';
 import { placeDecorations } from '@/map/decoration-placer';
+import { getBuildingTemplate } from '@/map/building-templates';
 
 export interface GameOptions {
   width?: number;
@@ -48,6 +50,7 @@ export class Game {
   /** Resolved spritesheets keyed by NPC id */
   private sheets = new Map<string, HTMLCanvasElement>();
   private tileAtlas: HTMLImageElement | null = null;
+  private terrainAtlas: HTMLImageElement | null = null;
   private treeSheets = new Map<string, HTMLImageElement>();
 
   constructor(container: HTMLElement, _options: GameOptions = {}) {
@@ -94,10 +97,14 @@ export class Game {
     this.state.map = map;
     this.state.worldSeed = ws;
     this.state.visualMap = Autotiler.computeVisualMap(map);
+    this.state.blobMap = computeBlobMap(map.tiles, map.width, map.height);
     this.state.decorations = placeDecorations(map, map.seed);
 
     if (!this.tileAtlas) {
-      this.tileAtlas = await this.loadTileAtlas();
+      this.tileAtlas = await this.loadImage('/sprites/tiles/kenney-town.png');
+    }
+    if (!this.terrainAtlas) {
+      this.terrainAtlas = await this.loadImage('/sprites/terrain/lpc-terrain.png');
     }
     if (this.treeSheets.size === 0) {
       await this.loadTreeSheets();
@@ -126,6 +133,9 @@ export class Game {
       if (!poi.npcs?.length || !poi.position) continue;
       const { x: px, y: py } = poi.position;
 
+      // Find buildings belonging to this POI for home assignment
+      const poiBuildings = (map.buildings ?? []).filter(b => b.poiId === poi.id);
+
       for (let i = 0; i < poi.npcs.length; i++) {
         const npcDef = poi.npcs[i];
         const id = `${poi.id}-npc-${i}`;
@@ -134,9 +144,25 @@ export class Game {
         const safeRole: NpcRole = VALID_ROLES.includes(role) ? role : 'farmer';
         const name = npcDef.name || safeRole;
 
-        // Place near POI; clamp to map bounds
-        const tileX = Math.max(0, Math.min(map.width  - 1, px + (seed % 3) - 1));
-        const tileY = Math.max(0, Math.min(map.height - 1, py + ((seed >> 2) % 3) - 1));
+        // Find home building by role preference
+        const homeBuilding = assignHomeBuilding(safeRole, poiBuildings, i);
+        let tileX: number;
+        let tileY: number;
+
+        if (homeBuilding) {
+          const template = getBuildingTemplate(homeBuilding.templateId);
+          if (template) {
+            // Place NPC at building's door cell
+            tileX = homeBuilding.tileX + template.doorCell.x;
+            tileY = homeBuilding.tileY + template.doorCell.y;
+          } else {
+            tileX = Math.max(0, Math.min(map.width  - 1, px + (seed % 3) - 1));
+            tileY = Math.max(0, Math.min(map.height - 1, py + ((seed >> 2) % 3) - 1));
+          }
+        } else {
+          tileX = Math.max(0, Math.min(map.width  - 1, px + (seed % 3) - 1));
+          tileY = Math.max(0, Math.min(map.height - 1, py + ((seed >> 2) % 3) - 1));
+        }
 
         const npc: NpcInstance = {
           id,
@@ -148,11 +174,15 @@ export class Game {
           direction: DIRECTIONS[seed % 4],
           frame: (seed % 8) + 1,
           frameTimer: seed % FRAME_MS,
+          homeBuildingId: homeBuilding?.id,
+          homePoiId: poi.id,
         };
 
         this.state.npcs.push(npc);
 
         const sim = initNpcSim(id, name, safeRole, seed);
+        sim.homeBuildingId = homeBuilding?.id;
+        sim.homePoiId = poi.id;
         this.state.npcSim.set(id, sim);
 
         // Kick off async spritesheet generation
@@ -164,12 +194,12 @@ export class Game {
     }
   }
 
-  private loadTileAtlas(): Promise<HTMLImageElement | null> {
+  private loadImage(src: string): Promise<HTMLImageElement | null> {
     return new Promise(resolve => {
       const img = new Image();
       img.onload = () => resolve(img);
       img.onerror = () => resolve(null);
-      img.src = '/sprites/tiles/kenney-town.png';
+      img.src = src;
     });
   }
 
@@ -222,7 +252,9 @@ export class Game {
       npcs: this.state.npcs,
       npcSheets: this.sheets,
       visualMap: this.state.visualMap,
+      blobMap: this.state.blobMap ?? null,
       tileAtlas: this.tileAtlas,
+      terrainAtlas: this.terrainAtlas,
       decorations: this.state.decorations,
       treeSheets: this.treeSheets,
     };
@@ -286,4 +318,41 @@ export class Game {
     this.resizeObserver.disconnect();
     this.canvas.remove();
   }
+}
+
+// =============================================================================
+// NPC home assignment helpers (Phase E)
+// =============================================================================
+
+import type { BuildingInstance } from '@/core/types';
+
+/** Role → preferred building template category */
+const ROLE_PREFERRED_CATEGORY: Record<string, string> = {
+  priest:   'religious',
+  farmer:   'farm',
+  merchant: 'commercial',
+  soldier:  'military',
+  noble:    'residential',
+  elder:    'residential',
+  child:    'residential',
+  beggar:   'residential',
+};
+
+function assignHomeBuilding(
+  role: string,
+  buildings: BuildingInstance[],
+  index: number,
+): BuildingInstance | undefined {
+  if (!buildings.length) return undefined;
+  const preferred = ROLE_PREFERRED_CATEGORY[role];
+  // Try preferred category first
+  if (preferred) {
+    const match = buildings.find(b => {
+      const t = getBuildingTemplate(b.templateId);
+      return t?.category === preferred;
+    });
+    if (match) return match;
+  }
+  // Fall back to round-robin assignment
+  return buildings[index % buildings.length];
 }

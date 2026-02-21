@@ -1,5 +1,5 @@
-/** Pixels per tile in the top-down renderer */
-export const TILE_SIZE = 16;
+/** Pixels per tile in the top-down renderer (LPC 32×32 tiles) */
+export const TILE_SIZE = 32;
 
 /** Canvas background color */
 export const BG_COLOR = '#1a1a2e';
@@ -45,6 +45,8 @@ export const TILE_COLORS: Record<string, string> = {
   marsh: '#6D7B3E',
   swamp: '#4E6B3D',
   bog: '#5D6B3A',
+  sacred_grove: '#A8D8A8',
+  quarry: '#8B7B6B',
 };
 
 /** Native size of each tile in the Kenney spritesheet */

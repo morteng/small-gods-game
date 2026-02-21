@@ -23,7 +23,8 @@ import { Grid } from './grid';
 import { Propagator } from './propagator';
 import { Solver, createRNG } from './solver';
 import type { SolveResult } from './solver';
-import type { GameMap, WorldSeed, POI, Tile, TerrainOptions } from '@/core/types';
+import type { GameMap, WorldSeed, POI, Tile, TerrainOptions, BuildingInstance } from '@/core/types';
+import { getBuildingTemplate } from '@/map/building-templates';
 
 // Terrain weight constants
 // Base weight range: slider value 0% gives MIN, 100% gives MIN + RANGE
@@ -114,6 +115,7 @@ export class WFCEngine {
   result: SolveResult | null;
   worldSeed: WorldSeed | null;
   finalTiles: TileData[][] | null;
+  buildings: BuildingInstance[];
 
   static readonly WALKABLE_TERRAIN = ['grass', 'meadow', 'glen', 'scrubland', 'sand', 'forest', 'dense_forest', 'pine_forest', 'hills', 'farm_field', 'marsh'];
   static readonly WATER_TERRAIN = ['deep_water', 'shallow_water', 'river'];
@@ -143,6 +145,7 @@ export class WFCEngine {
     this.result = null;
     this.worldSeed = null;
     this.finalTiles = null;
+    this.buildings = [];
   }
 
   /** Main generation entry point */
@@ -523,32 +526,92 @@ export class WFCEngine {
     const size = poi.size === 'large' ? 3 : poi.size === 'medium' ? 2 : 1;
 
     switch (poi.type) {
-      case 'village': this.placeVillage(tiles, cx, cy, size); break;
-      case 'city': this.placeCity(tiles, cx, cy, size); break;
-      case 'castle': this.placeCastle(tiles, cx, cy, size); break;
-      case 'farm': this.placeFarm(tiles, cx, cy, size); break;
-      case 'tavern': this.placeTavern(tiles, cx, cy); break;
-      case 'tower': this.placeTower(tiles, cx, cy); break;
-      case 'ruins': this.placeRuins(tiles, cx, cy, size); break;
-      case 'port': this.placePort(tiles, cx, cy); break;
+      case 'village': this.placeVillage(tiles, cx, cy, size, poi.id); break;
+      case 'city': this.placeCity(tiles, cx, cy, size, poi.id); break;
+      case 'castle': this.placeCastle(tiles, cx, cy, size, poi.id); break;
+      case 'farm': this.placeFarm(tiles, cx, cy, size, poi.id); break;
+      case 'tavern': this.placeTavern(tiles, cx, cy, poi.id); break;
+      case 'tower': this.placeTower(tiles, cx, cy, poi.id); break;
+      case 'ruins': this.placeRuins(tiles, cx, cy, size, poi.id); break;
+      case 'port': this.placePort(tiles, cx, cy, poi.id); break;
+      case 'temple': this.placeTemple(tiles, cx, cy, poi.id); break;
+      case 'mine': this.placeMine(tiles, cx, cy, poi.id); break;
     }
   }
 
-  private placeVillage(tiles: TileData[][], cx: number, cy: number, size: number): void {
+  private placeTemple(tiles: TileData[][], cx: number, cy: number, poiId?: string): void {
+    this.registerBuilding(tiles, 'temple_small', cx - 2, cy - 2, poiId);
+    // Sacred grove around temple
+    for (let dy = -3; dy <= 5; dy++) {
+      for (let dx = -3; dx <= 5; dx++) {
+        const x = cx + dx, y = cy + dy;
+        if (this.isValidPlacement(tiles, x, y, ['grass', 'meadow', 'forest'])) {
+          this.setTile(tiles, x, y, 'sacred_grove');
+        }
+      }
+    }
+    this.setTile(tiles, cx, cy + 3, 'stone_road');
+  }
+
+  private placeMine(tiles: TileData[][], cx: number, cy: number, poiId?: string): void {
+    this.registerBuilding(tiles, 'tower', cx, cy, poiId);
+    // Rocky terrain around mine
+    for (let dy = -2; dy <= 2; dy++) {
+      for (let dx = -2; dx <= 2; dx++) {
+        const x = cx + dx, y = cy + dy;
+        if (this.isValidPlacement(tiles, x, y, ['grass', 'hills', 'rocky', 'forest'])) {
+          this.setTile(tiles, x, y, 'quarry');
+        }
+      }
+    }
+    this.setTile(tiles, cx + 1, cy + 3, 'dirt_road');
+  }
+
+  /** Register a building instance and mark its footprint tiles as non-walkable */
+  private registerBuilding(
+    tiles: TileData[][],
+    templateId: string,
+    tileX: number,
+    tileY: number,
+    poiId?: string,
+  ): BuildingInstance | null {
+    const template = getBuildingTemplate(templateId);
+    if (!template) return null;
+
+    const id = `${poiId ?? 'anon'}-${templateId}-${this.buildings.length}`;
+    const instance: BuildingInstance = { id, templateId, tileX, tileY, poiId, state: 'intact' };
+    this.buildings.push(instance);
+
+    // Mark footprint tiles as non-walkable per template walkableCells
+    for (let dy = 0; dy < template.footprint.h; dy++) {
+      for (let dx = 0; dx < template.footprint.w; dx++) {
+        const walkable = template.walkableCells[dy]?.[dx] ?? false;
+        const tx = tileX + dx;
+        const ty = tileY + dy;
+        if (ty >= 0 && ty < this.height && tx >= 0 && tx < this.width && tiles[ty]?.[tx]) {
+          tiles[ty][tx].type = walkable ? 'lot' : 'building_stone';
+          tiles[ty][tx].walkable = walkable;
+        }
+      }
+    }
+    return instance;
+  }
+
+  private placeVillage(tiles: TileData[][], cx: number, cy: number, size: number, poiId?: string): void {
     const radius = size + 1;
     this.setTile(tiles, cx, cy, 'dirt_road');
 
     const buildingSpots: [number, number][] = [
-      [-1, -1], [0, -1], [1, -1],
-      [-1, 0], [1, 0],
-      [-1, 1], [0, 1], [1, 1]
+      [-2, -2], [0, -2], [2, -2],
+      [-2, 0],           [2, 0],
+      [-2, 2],  [0, 2],  [2, 2]
     ];
 
     for (const [dx, dy] of buildingSpots) {
       const x = cx + dx, y = cy + dy;
-      if (this.isValidPlacement(tiles, x, y, ['grass', 'sand', 'forest'])) {
+      if (this.isValidPlacement(tiles, x, y, ['grass', 'sand', 'forest', 'meadow'])) {
         if (this.rng() > 0.3) {
-          this.setTile(tiles, x, y, 'building_wood');
+          this.registerBuilding(tiles, 'cottage', x, y, poiId);
         } else {
           this.setTile(tiles, x, y, 'farm_field');
         }
@@ -558,14 +621,14 @@ export class WFCEngine {
     for (let d = 1; d <= radius; d++) {
       for (const [dx, dy] of [[0, -1], [0, 1], [-1, 0], [1, 0]] as [number, number][]) {
         const x = cx + dx * d, y = cy + dy * d;
-        if (this.isValidPlacement(tiles, x, y, ['grass', 'sand', 'forest'])) {
+        if (this.isValidPlacement(tiles, x, y, ['grass', 'sand', 'forest', 'meadow'])) {
           this.setTile(tiles, x, y, 'dirt_road');
         }
       }
     }
   }
 
-  private placeCity(tiles: TileData[][], cx: number, cy: number, size: number): void {
+  private placeCity(tiles: TileData[][], cx: number, cy: number, size: number, poiId?: string): void {
     const radius = size + 2;
     this.setTile(tiles, cx, cy, 'market');
 
@@ -578,79 +641,96 @@ export class WFCEngine {
       }
     }
 
-    for (let dy = -2; dy <= 2; dy++) {
-      for (let dx = -2; dx <= 2; dx++) {
-        if (Math.abs(dx) + Math.abs(dy) > 1 && Math.abs(dx) + Math.abs(dy) <= 3) {
+    for (let dy = -3; dy <= 3; dy++) {
+      for (let dx = -3; dx <= 3; dx++) {
+        if (Math.abs(dx) + Math.abs(dy) > 2 && Math.abs(dx) + Math.abs(dy) <= 4) {
           const x = cx + dx, y = cy + dy;
           if (this.isValidPlacement(tiles, x, y, ['grass', 'sand']) && this.rng() > 0.3) {
-            this.setTile(tiles, x, y, 'building_stone');
+            this.registerBuilding(tiles, 'tavern', x, y, poiId);
           }
         }
       }
     }
+    // Market stall at center
+    this.registerBuilding(tiles, 'market_stall', cx, cy, poiId);
   }
 
-  private placeCastle(tiles: TileData[][], cx: number, cy: number, _size: number): void {
-    this.setTile(tiles, cx, cy, 'castle_tower');
+  private placeCastle(tiles: TileData[][], cx: number, cy: number, _size: number, poiId?: string): void {
+    // Place keep at center
+    this.registerBuilding(tiles, 'castle_keep', cx - 2, cy - 2, poiId);
 
+    // Castle wall tiles around perimeter (legacy tile approach)
     const wallSpots: [number, number][] = [
-      [-1, -1], [0, -1], [1, -1],
-      [-1, 0], [1, 0],
-      [-1, 1], [0, 1], [1, 1]
+      [-3, -3], [-2, -3], [-1, -3], [0, -3], [1, -3], [2, -3], [3, -3],
+      [-3, 3],  [-2, 3],  [-1, 3],  [0, 3],  [1, 3],  [2, 3],  [3, 3],
+      [-3, -2], [-3, -1], [-3, 0],  [-3, 1], [-3, 2],
+      [3, -2],  [3, -1],  [3, 0],   [3, 1],  [3, 2],
     ];
 
     for (const [dx, dy] of wallSpots) {
-      this.setTile(tiles, cx + dx, cy + dy, 'castle_wall');
+      if (this.isValidPlacement(tiles, cx + dx, cy + dy, ['grass', 'sand', 'lot'])) {
+        this.setTile(tiles, cx + dx, cy + dy, 'castle_wall');
+      }
     }
 
-    for (let d = 2; d <= 3; d++) {
+    for (let d = 4; d <= 5; d++) {
       this.setTile(tiles, cx, cy + d, 'stone_road');
     }
   }
 
-  private placeFarm(tiles: TileData[][], cx: number, cy: number, _size: number): void {
-    this.setTile(tiles, cx, cy, 'building_wood');
+  private placeFarm(tiles: TileData[][], cx: number, cy: number, _size: number, poiId?: string): void {
+    // Place barn
+    this.registerBuilding(tiles, 'farm_barn', cx, cy, poiId);
 
-    for (let dy = -1; dy <= 1; dy++) {
-      for (let dx = -2; dx <= 2; dx++) {
-        if (dx === 0 && dy === 0) continue;
+    // Surround with farm fields
+    for (let dy = -1; dy <= 3; dy++) {
+      for (let dx = -3; dx <= 5; dx++) {
         const x = cx + dx, y = cy + dy;
-        if (this.isValidPlacement(tiles, x, y, ['grass'])) {
+        if (this.isValidPlacement(tiles, x, y, ['grass', 'meadow'])) {
           this.setTile(tiles, x, y, 'farm_field');
         }
       }
     }
 
-    this.setTile(tiles, cx, cy + 2, 'dirt_road');
+    this.setTile(tiles, cx + 1, cy + 3, 'dirt_road');
   }
 
-  private placeTavern(tiles: TileData[][], cx: number, cy: number): void {
-    this.setTile(tiles, cx, cy, 'building_wood');
-    this.setTile(tiles, cx, cy + 1, 'dirt_road');
+  private placeTavern(tiles: TileData[][], cx: number, cy: number, poiId?: string): void {
+    this.registerBuilding(tiles, 'tavern', cx, cy, poiId);
+    this.setTile(tiles, cx + 1, cy + 3, 'dirt_road');
   }
 
-  private placeTower(tiles: TileData[][], cx: number, cy: number): void {
-    this.setTile(tiles, cx, cy, 'building_stone');
-    for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]] as [number, number][]) {
-      if (this.isValidPlacement(tiles, cx + dx, cy + dy, ['grass', 'forest', 'hills'])) {
+  private placeTower(tiles: TileData[][], cx: number, cy: number, poiId?: string): void {
+    this.registerBuilding(tiles, 'tower', cx, cy, poiId);
+    for (const [dx, dy] of [[-1, 0], [2, 0], [0, -1], [0, 3]] as [number, number][]) {
+      if (this.isValidPlacement(tiles, cx + dx, cy + dy, ['grass', 'forest', 'hills', 'rocky'])) {
         this.setTile(tiles, cx + dx, cy + dy, 'grass');
       }
     }
   }
 
-  private placeRuins(tiles: TileData[][], cx: number, cy: number, _size: number): void {
-    const spots: [number, number][] = [[0, 0], [-1, 0], [1, 1], [0, -1]];
+  private placeRuins(tiles: TileData[][], cx: number, cy: number, _size: number, poiId?: string): void {
+    const spots: [number, number][] = [[0, 0], [-2, 0], [2, 2], [0, -2]];
     for (const [dx, dy] of spots) {
       if (this.rng() > 0.3) {
+        const inst: BuildingInstance = {
+          id: `${poiId ?? 'ruins'}-ruin-${this.buildings.length}`,
+          templateId: 'cottage',
+          tileX: cx + dx,
+          tileY: cy + dy,
+          poiId,
+          state: 'ruined',
+        };
+        this.buildings.push(inst);
         this.setTile(tiles, cx + dx, cy + dy, 'building_stone');
       }
     }
   }
 
-  private placePort(tiles: TileData[][], cx: number, cy: number): void {
-    this.setTile(tiles, cx, cy, 'dock');
-    this.setTile(tiles, cx, cy - 1, 'building_wood');
-    this.setTile(tiles, cx, cy + 1, 'dirt_road');
+  private placePort(tiles: TileData[][], cx: number, cy: number, poiId?: string): void {
+    this.registerBuilding(tiles, 'dock', cx, cy, poiId);
+    this.registerBuilding(tiles, 'market_stall', cx - 3, cy - 1, poiId);
+    this.setTile(tiles, cx + 1, cy + 3, 'dirt_road');
   }
 
   /** Helper to set a tile safely */
@@ -929,7 +1009,8 @@ export class WFCEngine {
       stats: {
         iterations: this.result?.iterations || 0,
         backtracks: this.result?.backtracks || 0
-      }
+      },
+      buildings: this.buildings,
     };
   }
 

@@ -1,3 +1,5 @@
+import type { BlobTile } from '@/map/blob-autotiler';
+
 /** A single tile in the map grid */
 export interface Tile {
   type: string;
@@ -6,6 +8,16 @@ export interface Tile {
   walkable: boolean;
   height?: number;
   bridgeDirection?: string;
+}
+
+/** A placed building on the map */
+export interface BuildingInstance {
+  id: string;
+  templateId: string;
+  tileX: number;         // top-left corner of footprint
+  tileY: number;
+  poiId?: string;        // owning POI
+  state: 'intact' | 'damaged' | 'ruined' | 'construction';
 }
 
 /** Generated map data */
@@ -18,6 +30,7 @@ export interface GameMap {
   success: boolean;
   worldSeed: WorldSeed | null;
   stats: { iterations: number; backtracks: number };
+  buildings: BuildingInstance[];
 }
 
 /** Village/settlement on the map */
@@ -111,17 +124,17 @@ export type NpcRole = 'farmer' | 'priest' | 'soldier' | 'merchant' | 'elder' | '
 /** Direction an NPC is facing */
 export type Direction = 'up' | 'down' | 'left' | 'right';
 
-/** A decoration sprite placed on a tile (trees, rocks, etc.) */
+/** A decoration sprite placed on a tile (trees, rocks, furniture, etc.) */
 export interface DecorationInstance {
   id: string;
-  category: 'tree';
-  variant: string;       // 'green' | 'orange' | 'dead' | 'pale' | 'brown'
+  category: 'tree' | 'flora' | 'furniture' | 'structure' | 'rock';
+  variant: string;       // 'green' | 'orange' | 'dead' | 'pale' | 'brown' for trees
   tileX: number;
   tileY: number;
   offsetX: number;       // sub-tile jitter [-0.15, 0.15] in tile units
   offsetY: number;
-  spriteCol: number;     // col index in the 16×16 spritesheet grid
-  spriteRow: number;     // row index in the 16×16 spritesheet grid
+  spriteCol: number;     // col index in the spritesheet grid
+  spriteRow: number;     // row index in the spritesheet grid
 }
 
 /** Context passed to renderMap */
@@ -133,7 +146,9 @@ export interface RenderContext {
   npcs: NpcInstance[];
   npcSheets: Map<string, HTMLCanvasElement>;
   visualMap: string[][] | null;
+  blobMap: BlobTile[][] | null;
   tileAtlas: HTMLImageElement | null;
+  terrainAtlas: HTMLImageElement | null;
   decorations: DecorationInstance[];
   treeSheets: Map<string, HTMLImageElement>;
 }
@@ -149,6 +164,8 @@ export interface NpcInstance {
   direction: Direction;
   frame: number;      // 0 = idle stand, 1–8 = walk cycle
   frameTimer: number; // ms accumulator since last frame advance
+  homeBuildingId?: string;
+  homePoiId?: string;
 }
 
 export interface NpcPersonality {
@@ -181,4 +198,6 @@ export interface NpcSimState {
   mood:            number;  // 0–1, derived from needs each tick
   recentEvents:    string[];   // ring buffer, max 5
   whisperCooldown: number;     // integer seconds remaining (ticked per sim tick)
+  homeBuildingId?: string;
+  homePoiId?:      string;
 }
