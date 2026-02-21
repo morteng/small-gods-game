@@ -13,5 +13,17 @@ fal-debug.log
 .DS_Store
 Thumbs.db
 
-# Output
+# Output and generated content
 output/
+test-renders/
+tiles/debug/
+
+# Build artifacts
+dist/
+
+# IDE
+.vscode/
+.idea/
+
+# Git worktrees
+.worktrees/
