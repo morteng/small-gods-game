@@ -17,14 +17,15 @@
       "id": "crystal_lake",
       "type": "lake",
       "name": "Crystal Lake",
-      "region": { "x_min": 24, "x_max": 34, "y_min": 18, "y_max": 26 },
-      "density": 0.5,
+      "position": { "x": 28, "y": 22 },
+      "size": "large",
       "description": "A pristine lake fed by mountain springs."
     },
     {
       "id": "murkmire_swamp",
       "type": "swamp",
       "name": "Murkmire Swamp",
+      "position": { "x": 4, "y": 24 },
       "region": { "x_min": 0, "x_max": 8, "y_min": 20, "y_max": 27 },
       "density": 0.4,
       "description": "A marshy lowland with scattered dead trees."
@@ -53,8 +54,8 @@
       "size": "medium",
       "description": "A prosperous farming village.",
       "npcs": [
-        { "name": "Elder Bramwell", "role": "village elder" },
-        { "name": "Rosa the Baker", "role": "baker" }
+        { "name": "Elder Bramwell", "role": "elder" },
+        { "name": "Rosa the Baker", "role": "merchant" }
       ]
     },
     {
@@ -107,11 +108,12 @@
     }
   ],
   "connections": [
-    { "from": "oakshire", "to": "millbrook_farm", "style": "dirt" },
-    { "from": "oakshire", "to": "crossroads_inn", "style": "dirt" },
-    { "from": "crossroads_inn", "to": "old_watchtower", "style": "dirt" },
-    { "from": "crossroads_inn", "to": "lakeside_dock", "style": "dirt" },
-    { "from": "oakshire", "to": "forest_ruins", "style": "dirt" }
+    { "from": "oakshire", "to": "millbrook_farm", "type": "road", "style": "dirt" },
+    { "from": "oakshire", "to": "crossroads_inn", "type": "road", "style": "dirt" },
+    { "from": "crossroads_inn", "to": "old_watchtower", "type": "road", "style": "dirt" },
+    { "from": "crossroads_inn", "to": "lakeside_dock", "type": "road", "style": "dirt" },
+    { "from": "oakshire", "to": "forest_ruins", "type": "road", "style": "dirt" },
+    { "from": "crystal_lake", "to": "murkmire_swamp", "type": "river" }
   ],
   "roadEndpoints": [
     { "direction": "east", "destination": "The Eastern Kingdoms", "style": "dirt" },

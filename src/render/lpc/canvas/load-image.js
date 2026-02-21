@@ -38,6 +38,7 @@ export function loadImage(src) {
       imagesLoaded++;
       reject(new Error(`Failed to load ${src}`));
     };
+    img.crossOrigin = 'anonymous';
     img.src = src.startsWith('http') ? src : LPC_BASE_URL + src;
     imagesToLoad++;
   });

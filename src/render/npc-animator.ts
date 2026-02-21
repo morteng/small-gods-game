@@ -4,10 +4,10 @@ import type { NpcInstance } from '@/core/types';
 export const FRAME_MS = 150;
 
 const DIRECTION_ROW: Record<string, number> = {
-  up: 2,
-  left: 3,
-  down: 4,
-  right: 5,
+  up: 8,
+  left: 9,
+  down: 10,
+  right: 11,
 };
 
 /**
@@ -29,9 +29,9 @@ export function updateNpcs(npcs: NpcInstance[], deltaMs: number): void {
 /**
  * Get source coordinates within an LPC spritesheet for a given NPC state.
  * Spritesheet frame size: 64×64px.
- * Row layout: up=2, left=3, down=4, right=5.
+ * Row layout: up=8, left=9, down=10, right=11.
  */
 export function getSpriteCoords(npc: NpcInstance): { sx: number; sy: number } {
-  const row = DIRECTION_ROW[npc.direction] ?? 4;
+  const row = DIRECTION_ROW[npc.direction] ?? 10;
   return { sx: npc.frame * 64, sy: row * 64 };
 }

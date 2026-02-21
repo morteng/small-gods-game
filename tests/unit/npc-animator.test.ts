@@ -46,24 +46,24 @@ describe('updateNpcs', () => {
 });
 
 describe('getSpriteCoords', () => {
-  it('maps direction up to row 2', () => {
+  it('maps direction up to row 8', () => {
     const { sy } = getSpriteCoords(makeNpc({ direction: 'up', frame: 0 }));
-    expect(sy).toBe(2 * 64);
+    expect(sy).toBe(8 * 64);
   });
 
-  it('maps direction left to row 3', () => {
+  it('maps direction left to row 9', () => {
     const { sy } = getSpriteCoords(makeNpc({ direction: 'left', frame: 0 }));
-    expect(sy).toBe(3 * 64);
+    expect(sy).toBe(9 * 64);
   });
 
-  it('maps direction down to row 4', () => {
+  it('maps direction down to row 10', () => {
     const { sy } = getSpriteCoords(makeNpc({ direction: 'down', frame: 0 }));
-    expect(sy).toBe(4 * 64);
+    expect(sy).toBe(10 * 64);
   });
 
-  it('maps direction right to row 5', () => {
+  it('maps direction right to row 11', () => {
     const { sy } = getSpriteCoords(makeNpc({ direction: 'right', frame: 0 }));
-    expect(sy).toBe(5 * 64);
+    expect(sy).toBe(11 * 64);
   });
 
   it('computes sx as frame * 64', () => {
