@@ -15,7 +15,7 @@ import { drawPowerHud } from '@/render/hud';
 import { Autotiler } from '@/map/autotiler';
 import { computeBlobMap } from '@/map/blob-autotiler';
 import { placeDecorations } from '@/map/decoration-placer';
-import { getBuildingTemplate } from '@/map/building-templates';
+import { getBuildingTemplate, BUILDING_TEMPLATES } from '@/map/building-templates';
 
 export interface GameOptions {
   width?: number;
@@ -50,7 +50,8 @@ export class Game {
   /** Resolved spritesheets keyed by NPC id */
   private sheets = new Map<string, HTMLCanvasElement>();
   private tileAtlas: HTMLImageElement | null = null;
-  private terrainAtlas: HTMLImageElement | null = null;
+  private terrainSheets = new Map<string, HTMLImageElement>();
+  private buildingSprites = new Map<string, HTMLImageElement>();
   private treeSheets = new Map<string, HTMLImageElement>();
 
   constructor(container: HTMLElement, _options: GameOptions = {}) {
@@ -103,9 +104,8 @@ export class Game {
     if (!this.tileAtlas) {
       this.tileAtlas = await this.loadImage('/sprites/tiles/kenney-town.png');
     }
-    if (!this.terrainAtlas) {
-      this.terrainAtlas = await this.loadImage('/sprites/terrain/lpc-terrain.png');
-    }
+    await this.loadTerrainSheets();
+    await this.loadBuildingSprites();
     if (this.treeSheets.size === 0) {
       await this.loadTreeSheets();
     }
@@ -214,6 +214,25 @@ export class Game {
     return Promise.all(promises).then(() => {});
   }
 
+  private async loadTerrainSheets(): Promise<void> {
+    const groups = ['grass', 'water', 'dirt', 'sand', 'stone', 'rocky'];
+    await Promise.all(groups.map(async (g) => {
+      if (!this.terrainSheets.has(g)) {
+        const img = await this.loadImage(`/sprites/terrain/${g}.png`);
+        if (img) this.terrainSheets.set(g, img);
+      }
+    }));
+  }
+
+  private async loadBuildingSprites(): Promise<void> {
+    await Promise.all(BUILDING_TEMPLATES.map(async (tpl) => {
+      if (!this.buildingSprites.has(tpl.id)) {
+        const img = await this.loadImage(`/sprites/buildings/${tpl.id}.png`);
+        if (img) this.buildingSprites.set(tpl.id, img);
+      }
+    }));
+  }
+
   private startLoop(): void {
     if (this.rafId !== null) return;
     this.lastTime = performance.now();
@@ -254,7 +273,8 @@ export class Game {
       visualMap: this.state.visualMap,
       blobMap: this.state.blobMap ?? null,
       tileAtlas: this.tileAtlas,
-      terrainAtlas: this.terrainAtlas,
+      terrainSheets: this.terrainSheets,
+      buildingSprites: this.buildingSprites,
       decorations: this.state.decorations,
       treeSheets: this.treeSheets,
     };

@@ -148,7 +148,8 @@ export interface RenderContext {
   visualMap: string[][] | null;
   blobMap: BlobTile[][] | null;
   tileAtlas: HTMLImageElement | null;
-  terrainAtlas: HTMLImageElement | null;
+  terrainSheets: Map<string, HTMLImageElement>;
+  buildingSprites: Map<string, HTMLImageElement>;
   decorations: DecorationInstance[];
   treeSheets: Map<string, HTMLImageElement>;
 }

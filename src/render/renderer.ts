@@ -1,7 +1,7 @@
 import type { RenderContext } from '@/core/types';
 import { TILE_SIZE, TILE_COLORS, BG_COLOR, POI_ICONS, TILE_SPRITE_MAP, KENNEY_TILE_SIZE } from '@/core/constants';
 import { getSpriteCoords } from '@/render/npc-animator';
-import { getTerrainAtlasCoords } from '@/render/terrain-atlas';
+import { getTerrainSpriteCoords, LPC_TILE_SIZE } from '@/render/terrain-atlas';
 import type { BuildingTemplate } from '@/map/building-templates';
 import { BUILDING_TEMPLATES } from '@/map/building-templates';
 
@@ -46,16 +46,16 @@ function drawTerrain(ctx: CanvasRenderingContext2D, rc: RenderContext): void {
       const px = x * TILE_SIZE;
       const py = y * TILE_SIZE;
 
-      // --- LPC terrain atlas (blob autotiled) ---
-      if (rc.blobMap && rc.terrainAtlas) {
+      // --- LPC terrain sheets (blob autotiled, one PNG per terrain group) ---
+      if (rc.blobMap && rc.terrainSheets.size > 0) {
         const blob = rc.blobMap[y]?.[x];
-        if (blob) {
-          const coords = getTerrainAtlasCoords(blob.terrainGroup, blob.blobIndex);
-          if (coords) {
-            ctx.drawImage(rc.terrainAtlas, coords.sx, coords.sy, coords.sw, coords.sh, px, py, TILE_SIZE, TILE_SIZE);
-            drawRoadOverlay(ctx, rc, x, y, px, py);
-            continue;
-          }
+        const sheet = blob ? rc.terrainSheets.get(blob.terrainGroup) : undefined;
+        if (blob && sheet) {
+          const { col, row } = getTerrainSpriteCoords(blob.blobIndex);
+          ctx.drawImage(sheet, col * LPC_TILE_SIZE, row * LPC_TILE_SIZE, LPC_TILE_SIZE, LPC_TILE_SIZE,
+                        px, py, TILE_SIZE, TILE_SIZE);
+          drawRoadOverlay(ctx, rc, x, y, px, py);
+          continue;
         }
       }
 
@@ -199,26 +199,41 @@ function drawYSortedEntities(ctx: CanvasRenderingContext2D, rc: RenderContext): 
     const bh = template.footprint.h * TILE_SIZE;
     if (bx + bw < camLeft || bx > camRight || by + bh < camTop || by > camBottom) continue;
 
-    const color = BUILDING_COLORS[template.category] ?? '#A1887F';
     const sortY = (building.tileY + template.footprint.h) * TILE_SIZE;
-    const name = template.name;
-    const zoom = camera.zoom;
-    entities.push({
-      sortY,
-      draw: (c) => {
-        c.fillStyle = color;
-        c.fillRect(bx, by, bw, bh);
-        c.strokeStyle = 'rgba(0,0,0,0.4)';
-        c.lineWidth = 1;
-        c.strokeRect(bx, by, bw, bh);
-        if (zoom >= 0.5) {
-          c.fillStyle = '#fff';
-          c.font = `${Math.max(6, 9 / zoom)}px sans-serif`;
-          c.textAlign = 'center';
-          c.fillText(name, bx + bw / 2, by + bh / 2 + 3);
-        }
-      },
-    });
+    const sprite = rc.buildingSprites.get(building.templateId);
+
+    if (sprite) {
+      // LPC sprite: draw at spriteOffset from tile origin, at spriteSize pixels
+      const dx = bx + template.spriteOffset.x;
+      const dy = by + template.spriteOffset.y;
+      const sw = template.spriteSize.w;
+      const sh = template.spriteSize.h;
+      entities.push({
+        sortY,
+        draw: (c) => { c.drawImage(sprite, 0, 0, sw, sh, dx, dy, sw, sh); },
+      });
+    } else {
+      // Fallback: colored rectangle with name label
+      const color = BUILDING_COLORS[template.category] ?? '#A1887F';
+      const name = template.name;
+      const zoom = camera.zoom;
+      entities.push({
+        sortY,
+        draw: (c) => {
+          c.fillStyle = color;
+          c.fillRect(bx, by, bw, bh);
+          c.strokeStyle = 'rgba(0,0,0,0.4)';
+          c.lineWidth = 1;
+          c.strokeRect(bx, by, bw, bh);
+          if (zoom >= 0.5) {
+            c.fillStyle = '#fff';
+            c.font = `${Math.max(6, 9 / zoom)}px sans-serif`;
+            c.textAlign = 'center';
+            c.fillText(name, bx + bw / 2, by + bh / 2 + 3);
+          }
+        },
+      });
+    }
   }
 
   // NPCs
