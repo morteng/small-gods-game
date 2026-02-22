@@ -44,9 +44,9 @@ export const BUILDING_TEMPLATES: BuildingTemplate[] = [
       [false, true,  false],
     ],
     doorCell: { x: 1, y: 2 },
-    spriteOffset: { x: 0, y: -32 }, // sprite taller than footprint
-    spriteSize: { w: 96, h: 128 },
-    atlasRegion: { x: 0, y: 0, w: 96, h: 128 },
+    spriteOffset: { x: -16, y: -32 }, // 128px sprite centered in 96px footprint, 1 tile above
+    spriteSize: { w: 128, h: 128 },
+    atlasRegion: { x: 0, y: 0, w: 128, h: 128 },
     sortYOffset: 3,
   },
   {
