@@ -269,6 +269,13 @@ export const Autotiler = {
       return this.getRoadVariantForType(tileType, neighbors);
     }
 
+    // Bridge tiles (placed by map generator over water)
+    if (tileType === 'bridge') {
+      const roadMask = this.buildGridMask(neighbors, t => this.isRoad(t));
+      const suffix = this.DIRECTION_SUFFIXES[roadMask] || 'ns';
+      return `bridge_${suffix}`;
+    }
+
     // River tiles
     if (tileType === 'river') {
       return this.getRiverVariant(neighbors);
@@ -327,9 +334,9 @@ export const Autotiler = {
   // ==========================================================================
 
   getRoadVariant(neighbors: Neighbors): string {
+    // Top-down: grid directions map directly to screen (no isometric rotation)
     const gridMask = this.buildGridMask(neighbors, t => this.isRoad(t));
-    const visualMask = this.gridMaskToVisual(gridMask);
-    return this.ROAD_VARIANTS[visualMask] || 'road_ns';
+    return this.ROAD_VARIANTS[gridMask] || 'road_ns';
   },
 
   /** Get road variant string for a specific road type (road, dirt_road, stone_road) */
@@ -337,22 +344,23 @@ export const Autotiler = {
     const prefix = roadType === 'dirt_road' ? 'dirt_road'
                  : roadType === 'stone_road' ? 'stone_road'
                  : 'road';
+    // Top-down: grid directions map directly to screen (no isometric rotation)
     const gridMask = this.buildGridMask(neighbors, t => this.isRoad(t));
-    const visualMask = this.gridMaskToVisual(gridMask);
-    const suffix = this.DIRECTION_SUFFIXES[visualMask] || 'ns';
+    const suffix = this.DIRECTION_SUFFIXES[gridMask] || 'ns';
     return `${prefix}_${suffix}`;
   },
 
   getBridgeVariant(neighbors: Neighbors): string | null {
     // Bridge when road has water on perpendicular sides
+    // Top-down: grid directions map directly to screen (N=up, E=right, S=down, W=left)
     const roadMask = this.buildGridMask(neighbors, t => this.isRoad(t));
     const waterMask = this.buildGridMask(neighbors, t => this.isWater(t));
 
-    // NS bridge: road connects N-S, water on E-W
+    // NS bridge: road connects N-S (vertical), water on E-W
     if ((roadMask & 0b0101) === 0b0101 && (waterMask & 0b1010) === 0b1010) {
       return 'bridge_ns';
     }
-    // EW bridge: road connects E-W, water on N-S
+    // EW bridge: road connects E-W (horizontal), water on N-S
     if ((roadMask & 0b1010) === 0b1010 && (waterMask & 0b0101) === 0b0101) {
       return 'bridge_ew';
     }
@@ -360,9 +368,9 @@ export const Autotiler = {
   },
 
   getRiverVariant(neighbors: Neighbors): string {
+    // Top-down: grid directions map directly to screen (no isometric rotation)
     const gridMask = this.buildGridMask(neighbors, t => this.isWater(t));
-    const visualMask = this.gridMaskToVisual(gridMask);
-    return this.RIVER_VARIANTS[visualMask] || 'river_ns';
+    return this.RIVER_VARIANTS[gridMask] || 'river_ns';
   },
 
   getShoreVariant(neighbors: Neighbors): string | null {

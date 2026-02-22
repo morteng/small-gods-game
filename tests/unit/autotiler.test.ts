@@ -145,8 +145,8 @@ describe('Autotiler road variants', () => {
       n: 'stone_road', e: 'grass', s: 'stone_road', w: 'grass',
     });
     expect(variant).toMatch(/^dirt_road_/);
-    // Grid N+S → Visual E+W (90° CW rotation) → ew straight variant
-    expect(variant).toContain('ew');
+    // Top-down: Grid N+S → ns straight variant
+    expect(variant).toContain('ns');
   });
 
   it('stone_road sees dirt_road neighbors as road connections (cross-type)', () => {

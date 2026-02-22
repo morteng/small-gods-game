@@ -265,8 +265,19 @@ function bresenhamApply(
     }
     if (x === x1 && y === y1) break;
     const e2 = 2 * err;
-    if (e2 > -dy) { err -= dy; x += sx; }
-    if (e2 <  dx) { err += dx; y += sy; }
+    const xStep = e2 > -dy;
+    const yStep = e2 <  dx;
+    if (xStep) { err -= dy; x += sx; }
+    if (yStep) { err += dx; y += sy; }
+    // Diagonal step → fill elbow tile so road tiles are orthogonally connected.
+    // Without this, the autotiler sees every tile as isolated (no NSEW road neighbours).
+    if (xStep && yStep) {
+      const elbow = tiles[y - sy]?.[x];
+      if (elbow && !WATER_TYPES.has(elbow.type)) {
+        elbow.type = type;
+        elbow.walkable = (type !== 'river');
+      }
+    }
   }
 }
 

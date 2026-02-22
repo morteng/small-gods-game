@@ -25,6 +25,129 @@ export function renderMap(ctx: CanvasRenderingContext2D, rc: RenderContext): voi
 }
 
 // =============================================================================
+// Procedural road rendering
+// =============================================================================
+
+/** Connection mask for each road direction suffix — bits: N=1 E=2 S=4 W=8 */
+const ROAD_DIRS: Record<string, number> = {
+  ns: 0b0101, ew: 0b1010,
+  ne: 0b0011, nw: 0b1001, se: 0b0110, sw: 0b1100,
+  end_n: 0b0001, end_e: 0b0010, end_s: 0b0100, end_w: 0b1000,
+  t_nes: 0b0111, t_new: 0b1011, t_nsw: 0b1101, t_esw: 0b1110,
+  cross: 0b1111,
+};
+
+/** Parse road type prefix and direction suffix from a variant string */
+function parseRoadVariant(variant: string): { prefix: string; suffix: string } | null {
+  if (variant.startsWith('dirt_road_'))  return { prefix: 'dirt_road',  suffix: variant.slice(10) };
+  if (variant.startsWith('stone_road_')) return { prefix: 'stone_road', suffix: variant.slice(11) };
+  if (variant.startsWith('bridge_'))     return { prefix: 'bridge',     suffix: variant.slice(7)  };
+  if (variant.startsWith('road_'))       return { prefix: 'road',       suffix: variant.slice(5)  };
+  return null;
+}
+
+/** Road fill + edge colors by type */
+const ROAD_STYLE: Record<string, { fill: string; edge: string }> = {
+  dirt_road:  { fill: '#C4956A', edge: '#9E7B4F' },
+  stone_road: { fill: '#A0A0A0', edge: '#787878' },
+  road:       { fill: '#A0A0A0', edge: '#787878' },
+  bridge:     { fill: '#A08060', edge: '#6B5340' },
+};
+
+/**
+ * Draw a road tile procedurally. Returns true if variant was a road (handled).
+ * Draws a grass/water base, then colored road strips in connected directions.
+ */
+function drawRoadProcedural(
+  ctx: CanvasRenderingContext2D,
+  rc: RenderContext,
+  variant: string,
+  tileType: string,
+  px: number, py: number,
+): boolean {
+  const parsed = parseRoadVariant(variant);
+  if (!parsed) return false;
+
+  const mask = ROAD_DIRS[parsed.suffix];
+  if (mask === undefined) return false;
+
+  const isBridge = parsed.prefix === 'bridge' || tileType === 'bridge';
+
+  // Draw terrain base underneath the road
+  if (isBridge) {
+    // Water base for bridges
+    ctx.fillStyle = TILE_COLORS['shallow_water'] || '#64B5F6';
+    ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
+  } else {
+    // Grass base for regular roads — use LPC grass sheet if available
+    const grassSheet = rc.terrainSheets.get('grass');
+    if (grassSheet) {
+      // Blob index 46 = fully interior tile (all 8 neighbors match)
+      const { col, row } = getTerrainSpriteCoords(46);
+      ctx.drawImage(grassSheet, col * LPC_TILE_SIZE, row * LPC_TILE_SIZE,
+                    LPC_TILE_SIZE, LPC_TILE_SIZE, px, py, TILE_SIZE, TILE_SIZE);
+    } else if (rc.tileAtlas) {
+      // Kenney grass sprite
+      ctx.drawImage(rc.tileAtlas, 0, 0, KENNEY_TILE_SIZE, KENNEY_TILE_SIZE,
+                    px, py, TILE_SIZE, TILE_SIZE);
+    } else {
+      ctx.fillStyle = TILE_COLORS['grass'] || '#66BB6A';
+      ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
+    }
+  }
+
+  // Road geometry: two crossing strips (horizontal + vertical)
+  const S = TILE_SIZE;
+  const rw = Math.round(S * 0.44); // road width (~14px at 32)
+  const m = Math.round((S - rw) / 2); // margin from edge (~9px)
+  const b = 1; // border width
+
+  const hasN = !!(mask & 0b0001);
+  const hasE = !!(mask & 0b0010);
+  const hasS = !!(mask & 0b0100);
+  const hasW = !!(mask & 0b1000);
+
+  // Horizontal strip bounds (extends left/right from center)
+  const hx0 = hasW ? 0 : m;
+  const hx1 = hasE ? S : m + rw;
+  // Vertical strip bounds (extends up/down from center)
+  const vy0 = hasN ? 0 : m;
+  const vy1 = hasS ? S : m + rw;
+
+  const style = ROAD_STYLE[parsed.prefix] || ROAD_STYLE.road;
+
+  // Draw edge (border) — slightly larger
+  ctx.fillStyle = style.edge;
+  if (hx1 > hx0) ctx.fillRect(px + hx0, py + m - b, hx1 - hx0, rw + 2 * b);
+  if (vy1 > vy0) ctx.fillRect(px + m - b, py + vy0, rw + 2 * b, vy1 - vy0);
+
+  // Draw fill
+  ctx.fillStyle = style.fill;
+  if (hx1 > hx0) ctx.fillRect(px + hx0 + b, py + m, hx1 - hx0 - 2 * b, rw);
+  if (vy1 > vy0) ctx.fillRect(px + m, py + vy0 + b, rw, vy1 - vy0 - 2 * b);
+
+  // Fill center square (covers border overlap)
+  ctx.fillRect(px + m, py + m, rw, rw);
+
+  // Bridge railings
+  if (isBridge) {
+    ctx.fillStyle = '#5D4037';
+    if (hasN || hasS) {
+      // Vertical bridge — railings on left and right
+      ctx.fillRect(px + m - 1, py + vy0, 1, vy1 - vy0);
+      ctx.fillRect(px + m + rw, py + vy0, 1, vy1 - vy0);
+    }
+    if (hasE || hasW) {
+      // Horizontal bridge — railings on top and bottom
+      ctx.fillRect(px + hx0, py + m - 1, hx1 - hx0, 1);
+      ctx.fillRect(px + hx0, py + m + rw, hx1 - hx0, 1);
+    }
+  }
+
+  return true;
+}
+
+// =============================================================================
 // Pass 0: Terrain ground (blob-autotiled LPC or TILE_COLORS fallback)
 // =============================================================================
 
@@ -61,6 +184,12 @@ function drawTerrain(ctx: CanvasRenderingContext2D, rc: RenderContext): void {
 
       // --- Kenney atlas fallback (roads, rivers use visualMap variants) ---
       const variant = rc.visualMap?.[y]?.[x] ?? tile.type;
+
+      // Road/bridge tiles: draw grass/water base + procedural road overlay
+      if (drawRoadProcedural(ctx, rc, variant, tile.type, px, py)) {
+        continue;
+      }
+
       const spriteCoord = TILE_SPRITE_MAP[variant];
       if (spriteCoord && rc.tileAtlas) {
         ctx.drawImage(

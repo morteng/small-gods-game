@@ -27,7 +27,6 @@ const TERRAIN_GROUPS: Record<string, string> = {
   beach:        'sand',
   // Dirt group
   dirt:         'dirt',
-  dirt_road:    'dirt',
   lot:          'dirt',
   farm_field:   'dirt',
   // Grass group (forest rendered as grass base + tree decorations)
@@ -41,11 +40,14 @@ const TERRAIN_GROUPS: Record<string, string> = {
   pine_forest:  'grass',
   dead_forest:  'grass',
   sacred_grove: 'grass',
-  // Stone/road group
-  road:         'stone',
-  stone_road:   'stone',
+  // Stone group (buildings, walls)
   building_stone:'stone',
   castle_wall:  'stone',
+  // Road group (no terrain sheet PNG — falls through to Kenney atlas directional sprites)
+  dirt_road:    'road',
+  stone_road:   'road',
+  road:         'road',
+  bridge:       'road',
   // Rocky group
   hill:         'rocky',
   hills:        'rocky',

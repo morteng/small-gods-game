@@ -57,7 +57,6 @@ describe('getTerrainGroup', () => {
 
   it('groups dirt types together', () => {
     expect(getTerrainGroup('dirt')).toBe('dirt');
-    expect(getTerrainGroup('dirt_road')).toBe('dirt');
     expect(getTerrainGroup('farm_field')).toBe('dirt');
     expect(getTerrainGroup('lot')).toBe('dirt');
   });
@@ -68,9 +67,14 @@ describe('getTerrainGroup', () => {
   });
 
   it('groups stone types together', () => {
-    expect(getTerrainGroup('road')).toBe('stone');
-    expect(getTerrainGroup('stone_road')).toBe('stone');
     expect(getTerrainGroup('building_stone')).toBe('stone');
+  });
+
+  it('groups road types together', () => {
+    expect(getTerrainGroup('dirt_road')).toBe('road');
+    expect(getTerrainGroup('stone_road')).toBe('road');
+    expect(getTerrainGroup('road')).toBe('road');
+    expect(getTerrainGroup('bridge')).toBe('road');
   });
 
   it('groups rocky terrain together', () => {
@@ -133,7 +137,7 @@ describe('computeBlobMap terrain groups', () => {
     expect(groups[0][1]).toBe('water');
     expect(groups[0][2]).toBe('sand');
     expect(groups[1][0]).toBe('dirt');
-    expect(groups[1][1]).toBe('stone');
+    expect(groups[1][1]).toBe('road');
     expect(groups[1][2]).toBe('rocky');
   });
 });
