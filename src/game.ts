@@ -1,6 +1,5 @@
 import { createState, type GameState } from '@/core/state';
 import { TILE_SIZE } from '@/core/constants';
-import { WFCEngine } from '@/wfc';
 import { renderMap } from '@/render/renderer';
 import { centerOn } from '@/render/camera';
 import { attachControls } from '@/ui/controls';
@@ -16,6 +15,7 @@ import { Autotiler } from '@/map/autotiler';
 import { computeBlobMap } from '@/map/blob-autotiler';
 import { placeDecorations } from '@/map/decoration-placer';
 import { getBuildingTemplate, BUILDING_TEMPLATES } from '@/map/building-templates';
+import { generateWithNoise } from '@/map/map-generator';
 
 export interface GameOptions {
   width?: number;
@@ -83,20 +83,18 @@ export class Game {
     this.ctx.scale(devicePixelRatio, devicePixelRatio);
   }
 
-  async generateWorld(worldSeed?: WorldSeed, terrainOptions?: Partial<TerrainOptions>): Promise<GameMap> {
+  async generateWorld(worldSeed?: WorldSeed, _terrainOptions?: Partial<TerrainOptions>): Promise<GameMap> {
     const ws = worldSeed || await WorldManager.loadDefault();
-    const engine = new WFCEngine(ws.size.width, ws.size.height, {
-      seed: Date.now(),
-      terrainOptions: {
-        forestDensity: terrainOptions?.forestDensity ?? 0.5,
-        waterLevel:    terrainOptions?.waterLevel    ?? 0.35,
-        villageCount:  terrainOptions?.villageCount  ?? 3,
-      },
-    });
+    const seed = Date.now();
 
-    const map = await engine.generate(ws);
+    const { map, registry } = await generateWithNoise(
+      ws.size.width, ws.size.height, seed, ws,
+      { onProgress: (msg) => console.log('[terrain]', msg) },
+    );
+
     this.state.map = map;
     this.state.worldSeed = ws;
+    this.state.entityRegistry = registry;
     this.state.visualMap = Autotiler.computeVisualMap(map);
     this.state.blobMap = computeBlobMap(map.tiles, map.width, map.height);
     this.state.decorations = placeDecorations(map, map.seed);

@@ -189,6 +189,63 @@ export interface NpcNeeds {
   meaning:    number;
 }
 
+// ─── Terrain system (Phase I) ─────────────────────────────────────────────────
+
+export interface TerrainConfig {
+  seed: number;
+  width: number;
+  height: number;
+  elevationScale?: number;   // default 0.02
+  moistureScale?: number;    // default 0.03
+  seaLevel?: number;         // default 0.35
+  poleFalloff?: boolean;     // temperature drops at poles
+  continentWarp?: number;    // domain warp strength (0 = off)
+}
+
+export interface TerrainField {
+  elevation: Float32Array;   // [width * height], range [0, 1]
+  moisture: Float32Array;
+  temperature: Float32Array;
+}
+
+export interface BiomeMap {
+  biomes: string[];          // Biome enum values, length = width * height
+  width: number;
+  height: number;
+}
+
+// ─── Entity system (Phase II) ─────────────────────────────────────────────────
+
+export type Era = 'primordial' | 'ancient' | 'classical' | 'medieval' | 'current';
+export type ReligiousSignificance = 'sacred' | 'profane' | 'neutral' | 'contested';
+export type EntityCategory =
+  | 'building' | 'tree' | 'rock' | 'flora' | 'furniture'
+  | 'resource' | 'landmark' | 'npc' | 'item';
+
+export interface WorldEntity {
+  id: string;
+  category: EntityCategory;
+  type: string;                    // 'cottage', 'oak_tree', 'shrine', etc.
+  templateId?: string;             // links to BuildingTemplate etc.
+  tileX: number;
+  tileY: number;
+  footprint?: { w: number; h: number };
+  offsetX?: number;                // sub-tile jitter
+  offsetY?: number;
+  poiId?: string;
+  ownerId?: string;
+  era: Era;
+  religiousSignificance: ReligiousSignificance;
+  name?: string;
+  lore?: string;
+  state: string;                   // 'intact' | 'ruined' | 'growing' | etc.
+  metadata: Record<string, unknown>;
+  spriteCol?: number;
+  spriteRow?: number;
+  variant?: string;
+  sortYOffset?: number;
+}
+
 export interface NpcSimState {
   npcId:           string;
   name:            string;

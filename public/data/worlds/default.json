@@ -1,7 +1,7 @@
 {
   "name": "Verdant Vale",
   "description": "A realm of misty forests, crystal lakes, treacherous swamps, and rolling meadows. Ancient ruins dot the landscape.",
-  "size": { "width": 36, "height": 28 },
+  "size": { "width": 128, "height": 96 },
   "biome": "temperate",
   "visualTheme": "fantasy medieval world, vibrant colors",
   "pois": [
@@ -9,7 +9,7 @@
       "id": "whispering_woods",
       "type": "forest",
       "name": "Whispering Woods",
-      "region": { "x_min": 0, "x_max": 12, "y_min": 0, "y_max": 10 },
+      "region": { "x_min": 0, "x_max": 43, "y_min": 0, "y_max": 34 },
       "density": 0.4,
       "description": "Ancient woodland with scattered clearings."
     },
@@ -17,7 +17,7 @@
       "id": "crystal_lake",
       "type": "lake",
       "name": "Crystal Lake",
-      "position": { "x": 28, "y": 22 },
+      "position": { "x": 100, "y": 75 },
       "size": "large",
       "description": "A pristine lake fed by mountain springs."
     },
@@ -25,8 +25,8 @@
       "id": "murkmire_swamp",
       "type": "swamp",
       "name": "Murkmire Swamp",
-      "position": { "x": 4, "y": 24 },
-      "region": { "x_min": 0, "x_max": 8, "y_min": 20, "y_max": 27 },
+      "position": { "x": 14, "y": 82 },
+      "region": { "x_min": 0, "x_max": 29, "y_min": 69, "y_max": 93 },
       "density": 0.4,
       "description": "A marshy lowland with scattered dead trees."
     },
@@ -34,7 +34,8 @@
       "id": "eastern_peaks",
       "type": "mountain",
       "name": "Eastern Peaks",
-      "region": { "x_min": 30, "x_max": 35, "y_min": 0, "y_max": 12 },
+      "position": { "x": 116, "y": 20 },
+      "region": { "x_min": 107, "x_max": 127, "y_min": 0, "y_max": 41 },
       "density": 0.5,
       "description": "Rocky highlands with occasional peaks."
     },
@@ -42,7 +43,7 @@
       "id": "golden_meadows",
       "type": "plains",
       "name": "Golden Meadows",
-      "region": { "x_min": 10, "x_max": 28, "y_min": 6, "y_max": 20 },
+      "region": { "x_min": 36, "x_max": 100, "y_min": 21, "y_max": 69 },
       "density": 0.7,
       "description": "Rolling meadows perfect for farming."
     },
@@ -50,7 +51,7 @@
       "id": "oakshire",
       "type": "village",
       "name": "Oakshire",
-      "position": { "x": 18, "y": 14 },
+      "position": { "x": 64, "y": 48 },
       "size": "medium",
       "description": "A prosperous farming village.",
       "npcs": [
@@ -63,7 +64,7 @@
       "id": "old_watchtower",
       "type": "tower",
       "name": "The Old Watchtower",
-      "position": { "x": 30, "y": 8 },
+      "position": { "x": 107, "y": 27 },
       "size": "small",
       "description": "An ancient tower on the mountain slopes.",
       "npcs": [
@@ -74,7 +75,7 @@
       "id": "millbrook_farm",
       "type": "farm",
       "name": "Millbrook Farm",
-      "position": { "x": 14, "y": 16 },
+      "position": { "x": 50, "y": 55 },
       "size": "medium",
       "description": "The largest farm in the valley.",
       "npcs": [
@@ -86,7 +87,7 @@
       "id": "crossroads_inn",
       "type": "tavern",
       "name": "The Wandering Minstrel",
-      "position": { "x": 22, "y": 12 },
+      "position": { "x": 78, "y": 41 },
       "size": "small",
       "description": "A welcoming inn at the crossroads.",
       "npcs": [
@@ -98,7 +99,7 @@
       "id": "lakeside_dock",
       "type": "port",
       "name": "Fisher's Rest",
-      "position": { "x": 24, "y": 18 },
+      "position": { "x": 85, "y": 62 },
       "size": "small",
       "description": "A small fishing dock on the lake."
     },
@@ -106,7 +107,7 @@
       "id": "forest_ruins",
       "type": "ruins",
       "name": "Temple of the Moon",
-      "position": { "x": 6, "y": 6 },
+      "position": { "x": 21, "y": 21 },
       "size": "medium",
       "description": "Overgrown ruins in the forest depths."
     },
@@ -114,23 +115,36 @@
       "id": "swamp_shrine",
       "type": "ruins",
       "name": "The Sunken Shrine",
-      "position": { "x": 4, "y": 22 },
+      "position": { "x": 14, "y": 75 },
       "size": "small",
       "description": "Ancient stones rising from the mire."
     }
   ],
   "connections": [
-    { "from": "oakshire", "to": "millbrook_farm", "type": "road", "style": "dirt" },
-    { "from": "oakshire", "to": "crossroads_inn", "type": "road", "style": "dirt" },
-    { "from": "crossroads_inn", "to": "old_watchtower", "type": "road", "style": "dirt" },
-    { "from": "crossroads_inn", "to": "lakeside_dock", "type": "road", "style": "dirt" },
-    { "from": "oakshire", "to": "forest_ruins", "type": "road", "style": "dirt" },
-    { "from": "crystal_lake", "to": "murkmire_swamp", "type": "river" }
-  ],
-  "roadEndpoints": [
-    { "direction": "east", "destination": "The Eastern Kingdoms", "style": "dirt" },
-    { "direction": "south", "destination": "The Southern Coast", "style": "dirt" },
-    { "direction": "north", "destination": "The Northern Reaches", "style": "dirt" }
+    {
+      "from": "oakshire", "to": "millbrook_farm", "type": "road", "style": "dirt",
+      "waypoints": [{"x": 64, "y": 48}, {"x": 57, "y": 52}, {"x": 50, "y": 55}]
+    },
+    {
+      "from": "oakshire", "to": "crossroads_inn", "type": "road", "style": "dirt",
+      "waypoints": [{"x": 64, "y": 48}, {"x": 71, "y": 45}, {"x": 78, "y": 41}]
+    },
+    {
+      "from": "crossroads_inn", "to": "old_watchtower", "type": "road", "style": "dirt",
+      "waypoints": [{"x": 78, "y": 41}, {"x": 93, "y": 34}, {"x": 107, "y": 27}]
+    },
+    {
+      "from": "crossroads_inn", "to": "lakeside_dock", "type": "road", "style": "dirt",
+      "waypoints": [{"x": 78, "y": 41}, {"x": 82, "y": 52}, {"x": 85, "y": 62}]
+    },
+    {
+      "from": "oakshire", "to": "forest_ruins", "type": "road", "style": "dirt",
+      "waypoints": [{"x": 64, "y": 48}, {"x": 43, "y": 35}, {"x": 21, "y": 21}]
+    },
+    {
+      "from": "crystal_lake", "to": "murkmire_swamp", "type": "river",
+      "waypoints": [{"x": 100, "y": 75}, {"x": 57, "y": 79}, {"x": 14, "y": 82}]
+    }
   ],
   "lore": {
     "history": "Verdant Vale was settled three centuries ago by refugees fleeing the Great Collapse.",

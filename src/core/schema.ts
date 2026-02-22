@@ -19,6 +19,12 @@ export const POI_TYPES = [
   'tower',
   'bridge',
   'crossroads',
+  'swamp',
+  'desert',
+  'volcano',
+  'glacier',
+  'oasis',
+  'plains',
 ] as const;
 
 export const BIOMES = [
@@ -79,11 +85,11 @@ export function validateWorldSeed(seed: Partial<WorldSeed>): { valid: boolean; e
 
   if (!seed.name) errors.push('Missing name');
   if (!seed.size) errors.push('Missing size');
-  if (seed.size && (seed.size.width < 16 || seed.size.width > 64)) {
-    errors.push('Width must be 16-64');
+  if (seed.size && (seed.size.width < 16 || seed.size.width > 512)) {
+    errors.push('Width must be 16-512');
   }
-  if (seed.size && (seed.size.height < 16 || seed.size.height > 48)) {
-    errors.push('Height must be 16-48');
+  if (seed.size && (seed.size.height < 16 || seed.size.height > 512)) {
+    errors.push('Height must be 16-512');
   }
   if (!seed.biome || !(BIOMES as readonly string[]).includes(seed.biome)) {
     errors.push(`Invalid biome. Use: ${BIOMES.join(', ')}`);
