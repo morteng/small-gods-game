@@ -122,7 +122,8 @@ function drawRoadOverlay(
 
 function isPathVariant(variant: string): boolean {
   return variant.startsWith('road_') || variant.startsWith('river_') ||
-         variant.startsWith('bridge_') || variant.startsWith('dirt_road_');
+         variant.startsWith('bridge_') || variant.startsWith('dirt_road_') ||
+         variant.startsWith('stone_road_');
 }
 
 // =============================================================================

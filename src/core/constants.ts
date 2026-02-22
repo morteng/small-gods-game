@@ -176,10 +176,27 @@ export const TILE_SPRITE_MAP: Record<string, { col: number; row: number }> = {
   'dirt_road_t_esw':    { col: 2, row: 1 },
   'dirt_road_cross':    { col: 2, row: 1 },
 
+  // === Stone road directional variants (same stone path sprites as road_*) ===
+  'stone_road':         { col: 0, row: 2 },
+  'stone_road_ns':      { col: 0, row: 2 },
+  'stone_road_ew':      { col: 0, row: 2 },
+  'stone_road_ne':      { col: 1, row: 2 },
+  'stone_road_nw':      { col: 1, row: 2 },
+  'stone_road_se':      { col: 1, row: 2 },
+  'stone_road_sw':      { col: 1, row: 2 },
+  'stone_road_end_n':   { col: 0, row: 2 },
+  'stone_road_end_e':   { col: 0, row: 2 },
+  'stone_road_end_s':   { col: 0, row: 2 },
+  'stone_road_end_w':   { col: 0, row: 2 },
+  'stone_road_t_nes':   { col: 2, row: 2 },
+  'stone_road_t_new':   { col: 2, row: 2 },
+  'stone_road_t_nsw':   { col: 2, row: 2 },
+  'stone_road_t_esw':   { col: 2, row: 2 },
+  'stone_road_cross':   { col: 2, row: 2 },
+
   // === Bridge variants ===
   'bridge_ns':          { col: 0, row: 3 },
   'bridge_ew':          { col: 1, row: 3 },
-  'stone_road':         { col: 0, row: 2 },
 };
 
 /** POI marker icons for the map overlay */

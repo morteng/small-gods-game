@@ -776,11 +776,45 @@ export class WFCEngine {
         } else {
           const style = conn.style || 'dirt';
           const autoBridge = conn.autoBridge !== false;
+          const width = conn.width ?? 1;
 
           if (conn.waypoints && conn.waypoints.length > 0) {
             this.carveRoadWithWaypoints(tiles, fromPos, toPos, conn.waypoints, style, autoBridge);
           } else {
             this.carveRoad(tiles, fromPos.x, fromPos.y, toPos.x, toPos.y, style, autoBridge);
+          }
+
+          // Draw extra parallel lines for road width > 1
+          if (width > 1) {
+            const dx = toPos.x - fromPos.x;
+            const dy = toPos.y - fromPos.y;
+            // Perpendicular offset: rotate 90°, clamp to unit step
+            const len = Math.sqrt(dx * dx + dy * dy) || 1;
+            const perpX = Math.round(-dy / len);
+            const perpY = Math.round(dx / len);
+            for (let w = 1; w < width; w++) {
+              const offsets = w === 1 ? [1] : [1, -1];
+              for (const sign of offsets) {
+                const ox = perpX * sign;
+                const oy = perpY * sign;
+                if (conn.waypoints && conn.waypoints.length > 0) {
+                  const shiftedWaypoints = conn.waypoints.map(p => ({ x: p.x + ox, y: p.y + oy }));
+                  this.carveRoadWithWaypoints(
+                    tiles,
+                    { x: fromPos.x + ox, y: fromPos.y + oy },
+                    { x: toPos.x + ox, y: toPos.y + oy },
+                    shiftedWaypoints, style, autoBridge,
+                  );
+                } else {
+                  this.carveRoad(
+                    tiles,
+                    fromPos.x + ox, fromPos.y + oy,
+                    toPos.x + ox, toPos.y + oy,
+                    style, autoBridge,
+                  );
+                }
+              }
+            }
           }
         }
       }

@@ -92,11 +92,8 @@ export const Autotiler = {
   },
 
   isRoad(type: string | null): boolean {
-    return type === 'road' || type === 'dirt_road' || (type != null && type.startsWith('road_'));
-  },
-
-  isDirtRoad(type: string | null): boolean {
-    return type === 'dirt_road' || (type != null && type.startsWith('dirt_road_'));
+    return type === 'road' || type === 'dirt_road' || type === 'stone_road'
+      || (type != null && (type.startsWith('road_') || type.startsWith('dirt_road_') || type.startsWith('stone_road_')));
   },
 
   isBeach(type: string | null): boolean {
@@ -233,6 +230,29 @@ export const Autotiler = {
     0b1010: 'bridge_ew',  // E + W (visual)
   } as VariantTable,
 
+  /**
+   * Direction suffixes indexed by VISUAL direction mask — shared across all road types.
+   * Used by getRoadVariantForType() to produce type-specific variant strings.
+   */
+  DIRECTION_SUFFIXES: {
+    0b0000: 'ns',       // Isolated (default to straight)
+    0b0001: 'end_n',
+    0b0010: 'end_e',
+    0b0011: 'ne',
+    0b0100: 'end_s',
+    0b0101: 'ns',       // N+S straight
+    0b0110: 'se',
+    0b0111: 't_nes',
+    0b1000: 'end_w',
+    0b1001: 'nw',
+    0b1010: 'ew',       // E+W straight
+    0b1011: 't_new',
+    0b1100: 'sw',
+    0b1101: 't_nsw',
+    0b1110: 't_esw',
+    0b1111: 'cross',
+  } as VariantTable,
+
   // ==========================================================================
   // CORE AUTOTILING FUNCTIONS
   // ==========================================================================
@@ -241,12 +261,12 @@ export const Autotiler = {
    * Get visual variant for a tile based on its type and neighbors
    */
   getVisualVariant(tileType: string, neighbors: Neighbors): string {
-    // Road tiles (including dirt_road - uses same Kenney road tiles for base)
-    if (tileType === 'road' || tileType === 'dirt_road') {
+    // Road tiles — all road types handled polymorphically
+    if (tileType === 'road' || tileType === 'dirt_road' || tileType === 'stone_road') {
       // Check if this is a bridge (road with water on perpendicular sides)
       const bridgeVariant = this.getBridgeVariant(neighbors);
       if (bridgeVariant) return bridgeVariant;
-      return this.getRoadVariant(neighbors);
+      return this.getRoadVariantForType(tileType, neighbors);
     }
 
     // River tiles
@@ -310,6 +330,17 @@ export const Autotiler = {
     const gridMask = this.buildGridMask(neighbors, t => this.isRoad(t));
     const visualMask = this.gridMaskToVisual(gridMask);
     return this.ROAD_VARIANTS[visualMask] || 'road_ns';
+  },
+
+  /** Get road variant string for a specific road type (road, dirt_road, stone_road) */
+  getRoadVariantForType(roadType: string, neighbors: Neighbors): string {
+    const prefix = roadType === 'dirt_road' ? 'dirt_road'
+                 : roadType === 'stone_road' ? 'stone_road'
+                 : 'road';
+    const gridMask = this.buildGridMask(neighbors, t => this.isRoad(t));
+    const visualMask = this.gridMaskToVisual(gridMask);
+    const suffix = this.DIRECTION_SUFFIXES[visualMask] || 'ns';
+    return `${prefix}_${suffix}`;
   },
 
   getBridgeVariant(neighbors: Neighbors): string | null {

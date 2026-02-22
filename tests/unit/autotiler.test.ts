@@ -40,7 +40,10 @@ describe('Autotiler predicates', () => {
   it('isRoad recognizes road types', () => {
     expect(Autotiler.isRoad('road')).toBe(true);
     expect(Autotiler.isRoad('dirt_road')).toBe(true);
+    expect(Autotiler.isRoad('stone_road')).toBe(true);
     expect(Autotiler.isRoad('road_ns')).toBe(true);
+    expect(Autotiler.isRoad('dirt_road_ns')).toBe(true);
+    expect(Autotiler.isRoad('stone_road_ew')).toBe(true);
     expect(Autotiler.isRoad('grass')).toBe(false);
   });
 
@@ -120,9 +123,38 @@ describe('Autotiler road variants', () => {
     expect(variant).toBe('road_cross');
   });
 
-  it('handles dirt_road same as road', () => {
+  it('handles dirt_road with dirt_road_ prefix', () => {
     const variant = Autotiler.getVisualVariant('dirt_road', neighbors({ n: 'dirt_road', s: 'dirt_road' }));
-    expect(variant).toMatch(/^road_|^bridge_/);
+    expect(variant).toMatch(/^dirt_road_|^bridge_/);
+  });
+
+  it('handles stone_road with stone_road_ prefix', () => {
+    const variant = Autotiler.getVisualVariant('stone_road', neighbors({ n: 'stone_road', s: 'stone_road' }));
+    expect(variant).toMatch(/^stone_road_/);
+  });
+
+  it('stone_road cross when all neighbors are stone_roads', () => {
+    const variant = Autotiler.getVisualVariant('stone_road', {
+      n: 'stone_road', e: 'stone_road', s: 'stone_road', w: 'stone_road',
+    });
+    expect(variant).toBe('stone_road_cross');
+  });
+
+  it('dirt_road sees stone_road neighbors as road connections (cross-type)', () => {
+    const variant = Autotiler.getVisualVariant('dirt_road', {
+      n: 'stone_road', e: 'grass', s: 'stone_road', w: 'grass',
+    });
+    expect(variant).toMatch(/^dirt_road_/);
+    // Grid N+S → Visual E+W (90° CW rotation) → ew straight variant
+    expect(variant).toContain('ew');
+  });
+
+  it('stone_road sees dirt_road neighbors as road connections (cross-type)', () => {
+    const variant = Autotiler.getVisualVariant('stone_road', {
+      n: 'dirt_road', e: 'grass', s: 'grass', w: 'grass',
+    });
+    // Has one road neighbor to the grid-N
+    expect(variant).toMatch(/^stone_road_/);
   });
 });
 
