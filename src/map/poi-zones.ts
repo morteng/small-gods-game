@@ -24,18 +24,26 @@ export interface ZoneRule {
   internalRoads: boolean;
   /** Tile type for internal roads */
   internalRoadType: string;
+  /** Clear trees/forest tiles inside zone before placing buildings */
+  clearForest?: boolean;
+  /** Tile types that buildings must be adjacent to (e.g. 'shallow_water' for docks) */
+  adjacencyRequirement?: string;
+  /** Road layout algorithm: 'linear' (single spine), 'branching' (main + side paths), 'grid' */
+  roadLayout?: 'linear' | 'branching' | 'grid' | 'none';
 }
 
 /** Zone rules per POI type */
 export const POI_ZONE_RULES: Record<string, ZoneRule> = {
   village: {
     radius: { min: 5, max: 8 },
-    terrainFill: undefined, // keep existing grass
+    terrainFill: undefined,
     buildings: ['cottage', 'cottage', 'market_stall', 'tavern'],
     buildingCount: { min: 3, max: 8 },
     decorations: ['well', 'sign_post', 'bench', 'lamp'],
     internalRoads: true,
     internalRoadType: 'dirt_road',
+    clearForest: true,
+    roadLayout: 'branching',
   },
   city: {
     radius: { min: 6, max: 10 },
@@ -45,6 +53,8 @@ export const POI_ZONE_RULES: Record<string, ZoneRule> = {
     decorations: ['lamp', 'bench'],
     internalRoads: true,
     internalRoadType: 'stone_road',
+    clearForest: true,
+    roadLayout: 'grid',
   },
   farm: {
     radius: { min: 3, max: 5 },
@@ -54,6 +64,8 @@ export const POI_ZONE_RULES: Record<string, ZoneRule> = {
     decorations: ['fence', 'crop_row'],
     internalRoads: true,
     internalRoadType: 'dirt_road',
+    clearForest: true,
+    roadLayout: 'linear',
   },
   temple: {
     radius: { min: 4, max: 6 },
@@ -63,6 +75,8 @@ export const POI_ZONE_RULES: Record<string, ZoneRule> = {
     decorations: ['flower_patch', 'statue'],
     internalRoads: false,
     internalRoadType: 'stone_road',
+    clearForest: false,
+    roadLayout: 'none',
   },
   castle: {
     radius: { min: 6, max: 10 },
@@ -72,6 +86,8 @@ export const POI_ZONE_RULES: Record<string, ZoneRule> = {
     decorations: ['banner', 'guard_post'],
     internalRoads: true,
     internalRoadType: 'stone_road',
+    clearForest: true,
+    roadLayout: 'linear',
   },
   mine: {
     radius: { min: 3, max: 5 },
@@ -81,6 +97,8 @@ export const POI_ZONE_RULES: Record<string, ZoneRule> = {
     decorations: ['rock_pile', 'cart'],
     internalRoads: false,
     internalRoadType: 'dirt_road',
+    clearForest: false,
+    roadLayout: 'none',
   },
   port: {
     radius: { min: 4, max: 6 },
@@ -90,6 +108,9 @@ export const POI_ZONE_RULES: Record<string, ZoneRule> = {
     decorations: ['crates', 'nets'],
     internalRoads: true,
     internalRoadType: 'dirt_road',
+    clearForest: false,
+    adjacencyRequirement: 'shallow_water',
+    roadLayout: 'linear',
   },
   tavern: {
     radius: { min: 2, max: 3 },
@@ -99,6 +120,8 @@ export const POI_ZONE_RULES: Record<string, ZoneRule> = {
     decorations: ['sign_post', 'bench'],
     internalRoads: false,
     internalRoadType: 'dirt_road',
+    clearForest: false,
+    roadLayout: 'none',
   },
   tower: {
     radius: { min: 2, max: 3 },
@@ -108,15 +131,19 @@ export const POI_ZONE_RULES: Record<string, ZoneRule> = {
     decorations: [],
     internalRoads: false,
     internalRoadType: 'stone_road',
+    clearForest: false,
+    roadLayout: 'none',
   },
   ruins: {
     radius: { min: 3, max: 5 },
-    terrainFill: undefined, // keep grass + rubble overlay (future)
+    terrainFill: undefined,
     buildings: ['cottage'],
     buildingCount: { min: 1, max: 3 },
     decorations: ['rubble', 'vine'],
     internalRoads: false,
     internalRoadType: 'dirt_road',
+    clearForest: false,
+    roadLayout: 'none',
   },
 };
 

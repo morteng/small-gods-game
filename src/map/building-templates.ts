@@ -13,6 +13,8 @@
  *   [LPC] Medieval Village Decorations — opengameart.org/content/lpc-medieval-village-decorations
  */
 
+import type { Era, ReligiousSignificance } from '@/core/types';
+
 export interface BuildingTemplate {
   id: string;
   name: string;
@@ -30,6 +32,10 @@ export interface BuildingTemplate {
   atlasRegion: { x: number; y: number; w: number; h: number };
   /** Y-sort anchor = footprint bottom in tile units (relative to tileY) */
   sortYOffset: number;
+  /** Default era for this building type */
+  era: Era;
+  /** Default religious significance */
+  religiousSignificance: ReligiousSignificance;
 }
 
 export const BUILDING_TEMPLATES: BuildingTemplate[] = [
@@ -48,6 +54,8 @@ export const BUILDING_TEMPLATES: BuildingTemplate[] = [
     spriteSize: { w: 128, h: 128 },
     atlasRegion: { x: 0, y: 0, w: 128, h: 128 },
     sortYOffset: 3,
+    era: 'medieval',
+    religiousSignificance: 'neutral',
   },
   {
     id: 'temple_small',
@@ -65,6 +73,8 @@ export const BUILDING_TEMPLATES: BuildingTemplate[] = [
     spriteSize: { w: 128, h: 160 },
     atlasRegion: { x: 96, y: 0, w: 128, h: 160 },
     sortYOffset: 4,
+    era: 'classical',
+    religiousSignificance: 'sacred',
   },
   {
     id: 'farm_barn',
@@ -80,6 +90,8 @@ export const BUILDING_TEMPLATES: BuildingTemplate[] = [
     spriteSize: { w: 96, h: 96 },
     atlasRegion: { x: 224, y: 0, w: 96, h: 96 },
     sortYOffset: 2,
+    era: 'medieval',
+    religiousSignificance: 'neutral',
   },
   {
     id: 'market_stall',
@@ -95,6 +107,8 @@ export const BUILDING_TEMPLATES: BuildingTemplate[] = [
     spriteSize: { w: 64, h: 80 },
     atlasRegion: { x: 320, y: 0, w: 64, h: 80 },
     sortYOffset: 2,
+    era: 'medieval',
+    religiousSignificance: 'neutral',
   },
   {
     id: 'tavern',
@@ -111,6 +125,8 @@ export const BUILDING_TEMPLATES: BuildingTemplate[] = [
     spriteSize: { w: 96, h: 128 },
     atlasRegion: { x: 384, y: 0, w: 96, h: 128 },
     sortYOffset: 3,
+    era: 'medieval',
+    religiousSignificance: 'neutral',
   },
   {
     id: 'tower',
@@ -127,6 +143,8 @@ export const BUILDING_TEMPLATES: BuildingTemplate[] = [
     spriteSize: { w: 64, h: 160 },
     atlasRegion: { x: 480, y: 0, w: 64, h: 160 },
     sortYOffset: 3,
+    era: 'medieval',
+    religiousSignificance: 'neutral',
   },
   {
     id: 'castle_keep',
@@ -144,6 +162,8 @@ export const BUILDING_TEMPLATES: BuildingTemplate[] = [
     spriteSize: { w: 128, h: 192 },
     atlasRegion: { x: 544, y: 0, w: 128, h: 192 },
     sortYOffset: 4,
+    era: 'medieval',
+    religiousSignificance: 'neutral',
   },
   {
     id: 'dock',
@@ -160,6 +180,8 @@ export const BUILDING_TEMPLATES: BuildingTemplate[] = [
     spriteSize: { w: 64, h: 96 },
     atlasRegion: { x: 672, y: 0, w: 64, h: 96 },
     sortYOffset: 3,
+    era: 'medieval',
+    religiousSignificance: 'neutral',
   },
 ];
 

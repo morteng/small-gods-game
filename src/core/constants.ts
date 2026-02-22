@@ -11,7 +11,7 @@ export const TILE_COLORS: Record<string, string> = {
   deep_water: '#1565C0',
   shallow_water: '#64B5F6',
   road: '#9E9E9E',
-  dirt_road: '#A1887F',
+  dirt_road: '#C4956A',
   stone_road: '#78909C',
   river: '#2196F3',
   dirt: '#A1887F',
