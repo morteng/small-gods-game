@@ -22,6 +22,12 @@ import type { ZoneRule } from '@/map/poi-zones';
 import type { POI } from '@/core/types';
 import { Random } from '@/core/noise';
 
+/** Water tile types — road tiles must not be placed on these */
+const WATER_TYPES = new Set(['deep_water', 'shallow_water', 'river', 'ocean', 'water']);
+
+/** Road tile types — door paths stop when they reach an existing road */
+const ROAD_TYPES = new Set(['dirt_road', 'stone_road', 'bridge']);
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface PlacementConstraint {
@@ -133,14 +139,22 @@ export function placeSettlement(
     const startX = cx - mainDir.dx * radius;
     const startY = cy - mainDir.dy * radius;
     for (let i = 0; i <= roadLength; i++) {
-      const rx = startX + mainDir.dx * i;
-      const ry = startY + mainDir.dy * i;
-      roadTiles.push({ x: rx, y: ry, type: roadType });
+      const rx = Math.round(startX + mainDir.dx * i);
+      const ry = Math.round(startY + mainDir.dy * i);
+      if (!WATER_TYPES.has(tiles[ry]?.[rx]?.type)) {
+        roadTiles.push({ x: rx, y: ry, type: roadType });
+      }
       if (zoneRule.roadLayout === 'branching' && i === Math.floor(roadLength / 2)) {
         // Add one short perpendicular branch
         for (let b = 1; b <= Math.min(3, radius); b++) {
-          roadTiles.push({ x: rx + perpDir.dx * b, y: ry + perpDir.dy * b, type: roadType });
-          roadTiles.push({ x: rx - perpDir.dx * b, y: ry - perpDir.dy * b, type: roadType });
+          const brx1 = rx + perpDir.dx * b, bry1 = ry + perpDir.dy * b;
+          const brx2 = rx - perpDir.dx * b, bry2 = ry - perpDir.dy * b;
+          if (!WATER_TYPES.has(tiles[bry1]?.[brx1]?.type)) {
+            roadTiles.push({ x: brx1, y: bry1, type: roadType });
+          }
+          if (!WATER_TYPES.has(tiles[bry2]?.[brx2]?.type)) {
+            roadTiles.push({ x: brx2, y: bry2, type: roadType });
+          }
         }
       }
     }
@@ -203,13 +217,18 @@ export function placeSettlement(
     registry.add(entity);
     entities.push(entity);
 
-    // 4. Carve path from door to nearest road tile
+    // 4. Carve path from door toward main road — stop at water, road, or 6 tiles
     if (zoneRule.internalRoads) {
       const doorX = result.tileX + template.doorCell.x;
       const doorY = result.tileY + template.doorCell.y;
+      const roadPositions = new Set(roadTiles.map(rt => `${rt.x},${rt.y}`));
       const path  = bresenhamLine(doorX, doorY, cx, cy);
-      for (const pt of path.slice(0, 4)) {
+      for (let pi = 0; pi < Math.min(6, path.length); pi++) {
+        const pt = path[pi];
+        const tileType = tiles[pt.y]?.[pt.x]?.type;
+        if (WATER_TYPES.has(tileType)) break;
         roadTiles.push({ x: pt.x, y: pt.y, type: roadType });
+        if (roadPositions.has(`${pt.x},${pt.y}`) || ROAD_TYPES.has(tileType)) break;
       }
     }
 

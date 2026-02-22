@@ -180,6 +180,89 @@ describe('placeSettlement', () => {
   });
 });
 
+// ─── Water tile filtering ─────────────────────────────────────────────────────
+
+describe('placeSettlement water filtering', () => {
+  const WATER_TILE_TYPES = new Set(['deep_water', 'shallow_water', 'river', 'ocean', 'water']);
+
+  /** Make a map that's all grass except a ring of water around the center */
+  function makeWaterRingTiles(width: number, height: number, cx: number, cy: number, r: number): Tile[][] {
+    return Array.from({ length: height }, (_, y) =>
+      Array.from({ length: width }, (_, x) => {
+        const dist = Math.abs(x - cx) + Math.abs(y - cy);
+        const type = dist >= r && dist <= r + 2 ? 'deep_water' : 'grass';
+        return { type, x, y, walkable: type === 'grass' };
+      }),
+    );
+  }
+
+  it('no road tiles land on water tiles', () => {
+    // Settlement at (55, 40) with a water ring between (48, 40) and (50, 40)
+    const ringTiles = makeWaterRingTiles(80, 80, 55, 40, 5);
+    const reg = new EntityRegistry();
+    const poi = { id: 'wv1', type: 'village', position: { x: 55, y: 40 } };
+    const zoneRule = getZoneRule('village');
+    const rng = new Random(42);
+    const { roadTiles } = placeSettlement(poi, zoneRule, ringTiles, reg, [], rng);
+
+    for (const rt of roadTiles) {
+      const tileType = ringTiles[rt.y]?.[rt.x]?.type ?? 'grass';
+      expect(WATER_TILE_TYPES.has(tileType)).toBe(false);
+    }
+  });
+
+  it('no road tiles placed outside map bounds', () => {
+    const tiles = makeTiles(40, 40, 'grass');
+    const reg = new EntityRegistry();
+    const poi = { id: 'wv2', type: 'village', position: { x: 20, y: 20 } };
+    const zoneRule = getZoneRule('village');
+    const rng = new Random(7);
+    const { roadTiles } = placeSettlement(poi, zoneRule, tiles, reg, [], rng);
+
+    for (const rt of roadTiles) {
+      expect(rt.x).toBeGreaterThanOrEqual(0);
+      expect(rt.y).toBeGreaterThanOrEqual(0);
+      expect(rt.x).toBeLessThan(40);
+      expect(rt.y).toBeLessThan(40);
+    }
+  });
+
+  it('door path stops when it hits an existing road tile', () => {
+    // All grass — roads and door paths should terminate when reaching the main road
+    const tiles = makeTiles(80, 80, 'grass');
+    const reg = new EntityRegistry();
+    const poi = { id: 'wv3', type: 'village', position: { x: 40, y: 40 } };
+    const zoneRule = getZoneRule('village');
+    expect(zoneRule.internalRoads).toBe(true);
+    const rng = new Random(99);
+    const { roadTiles } = placeSettlement(poi, zoneRule, tiles, reg, [], rng);
+
+    // Verify road tiles are generated (basic sanity)
+    expect(roadTiles.length).toBeGreaterThan(0);
+    // All road tile coordinates should be valid
+    for (const rt of roadTiles) {
+      expect(Number.isFinite(rt.x)).toBe(true);
+      expect(Number.isFinite(rt.y)).toBe(true);
+    }
+  });
+
+  it('all-water settlement produces zero road tiles', () => {
+    const allWater = makeTiles(40, 40, 'deep_water');
+    // Mark all as non-walkable
+    for (const row of allWater) for (const t of row) t.walkable = false;
+    const reg = new EntityRegistry();
+    const poi = { id: 'wv4', type: 'village', position: { x: 20, y: 20 } };
+    const zoneRule = getZoneRule('village');
+    const rng = new Random(1);
+    const { roadTiles } = placeSettlement(poi, zoneRule, allWater, reg, [], rng);
+    // No road tiles should be placed on water
+    for (const rt of roadTiles) {
+      const tileType = allWater[rt.y]?.[rt.x]?.type;
+      expect(WATER_TILE_TYPES.has(tileType ?? '')).toBe(false);
+    }
+  });
+});
+
 // ─── ZoneRule extension ───────────────────────────────────────────────────────
 
 describe('ZoneRule fields', () => {

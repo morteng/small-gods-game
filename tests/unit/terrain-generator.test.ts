@@ -6,6 +6,7 @@ import {
   classifyBiomes,
   sampleTiles,
   generateTerrain,
+  recomputeRegion,
 } from '@/terrain/terrain-generator';
 
 // ─── Noise tests ──────────────────────────────────────────────────────────────
@@ -227,5 +228,85 @@ describe('generateTerrain', () => {
     const t0 = Date.now();
     generateTerrain(config);
     expect(Date.now() - t0).toBeLessThan(5000);
+  });
+});
+
+// ─── Spatial coherence (noise-based sampling) ─────────────────────────────────
+
+describe('sampleTiles spatial coherence', () => {
+  /**
+   * Measure average same-type neighbor count across all tiles.
+   * Random baseline for a 4-neighbour check with a distribution like
+   * TemperateGrassland (60% grass) gives ~2.4. Noise-based sampling
+   * should produce spatially coherent patches, giving > 2.5.
+   */
+  function avgSameNeighborCount(tiles: string[][], width: number, height: number): number {
+    let total = 0, count = 0;
+    const dirs = [[0, 1], [0, -1], [1, 0], [-1, 0]];
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const t = tiles[y][x];
+        let same = 0;
+        for (const [dx, dy] of dirs) {
+          const nx = x + dx, ny = y + dy;
+          if (nx >= 0 && nx < width && ny >= 0 && ny < height && tiles[ny][nx] === t) same++;
+        }
+        total += same;
+        count++;
+      }
+    }
+    return total / count;
+  }
+
+  it('produces spatially coherent patches (avg same-neighbour > 2.5)', () => {
+    // Force a single-biome map so we're measuring tile coherence, not biome boundaries
+    const W = 64, H = 64;
+    const config = { seed: 42, width: W, height: H, seaLevel: 0.0 };
+    const { biomeMap, tiles, fields } = generateTerrain(config);
+    // Override all biomes to TemperateGrassland for a clean single-biome test
+    biomeMap.biomes.fill(Biome.TemperateGrassland);
+    const noiseTiles = sampleTiles(biomeMap, fields, config);
+    const avg = avgSameNeighborCount(noiseTiles, W, H);
+    expect(avg).toBeGreaterThan(2.5);
+  });
+
+  it('is deterministic (same seed → same tiles)', () => {
+    const config = { seed: 77, width: 32, height: 32 };
+    const { biomeMap: bm1, fields: f1 } = generateTerrain(config);
+    const { biomeMap: bm2, fields: f2 } = generateTerrain(config);
+    const t1 = sampleTiles(bm1, f1, config);
+    const t2 = sampleTiles(bm2, f2, config);
+    expect(t1[10][15]).toBe(t2[10][15]);
+    expect(t1[5][5]).toBe(t2[5][5]);
+  });
+});
+
+// ─── recomputeRegion consistency ──────────────────────────────────────────────
+
+describe('recomputeRegion', () => {
+  it('recomputed sub-region tiles match full-map generation', () => {
+    const config = { seed: 99, width: 32, height: 32 };
+    const { fields, biomeMap, tiles } = generateTerrain(config);
+
+    // Re-generate a 4x4 sub-region in a fresh copy
+    const { biomeMap: freshBiomeMap, tiles: freshTiles, fields: freshFields } = generateTerrain(config);
+
+    // Mutate the copy and recompute region [8,8]→[11,11]
+    recomputeRegion(freshFields, freshBiomeMap, freshTiles, config, 8, 8, 11, 11);
+
+    // recomputeRegion should produce tiles matching the original (deterministic)
+    for (let y = 8; y <= 11; y++) {
+      for (let x = 8; x <= 11; x++) {
+        expect(freshTiles[y][x]).toBe(tiles[y][x]);
+      }
+    }
+    void fields; // used implicitly via reference generation
+  });
+
+  it('recomputeRegion clamped to map bounds does not throw', () => {
+    const config = { seed: 7, width: 16, height: 16 };
+    const { fields, biomeMap, tiles } = generateTerrain(config);
+    expect(() => recomputeRegion(fields, biomeMap, tiles, config, -5, -5, 5, 5)).not.toThrow();
+    expect(() => recomputeRegion(fields, biomeMap, tiles, config, 12, 12, 30, 30)).not.toThrow();
   });
 });

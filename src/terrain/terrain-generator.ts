@@ -16,7 +16,7 @@
  * Performance target: 256×256 map in <200ms.
  */
 
-import { fbm, warpedNoise, ridgeNoise, Random } from '@/core/noise';
+import { fbm, warpedNoise, ridgeNoise } from '@/core/noise';
 import type { TerrainConfig, TerrainField, BiomeMap } from '@/core/types';
 import { classifyBiome, sampleBiomeTile, Biome } from './biomes';
 
@@ -125,23 +125,34 @@ export function classifyBiomes(fields: TerrainField, config: TerrainConfig): Bio
   return { biomes, width, height };
 }
 
+/**
+ * Sample a tile type from a biome's distribution using a spatially-coherent
+ * noise value in [0, 1] instead of a random value.
+ * Identical CDF walk to sampleBiomeTile — only the input source changes.
+ */
+export function sampleTileFromNoise(biome: Biome, noiseValue: number): string {
+  return sampleBiomeTile(biome, noiseValue);
+}
+
 /** Sample a tile type string for every cell from its biome's distribution. */
 export function sampleTiles(
   biomeMap: BiomeMap,
-  _fields: TerrainField,
+  fields: TerrainField,
   config: TerrainConfig,
 ): string[][] {
   const { width, height, seed } = config;
-  const rng = new Random((seed * 9973 + 7919) | 0);
+  const detailSeed = (seed * 9973 + 7919) | 0;
   const tiles: string[][] = [];
   for (let y = 0; y < height; y++) {
     const row: string[] = [];
     for (let x = 0; x < width; x++) {
       const biome = biomeMap.biomes[y * width + x] as Biome;
-      row.push(sampleBiomeTile(biome, rng.next()));
+      const noiseValue = fbm(x * 0.15, y * 0.15, { seed: detailSeed, octaves: 3 });
+      row.push(sampleTileFromNoise(biome, noiseValue));
     }
     tiles.push(row);
   }
+  void fields; // fields reserved for future per-tile moisture/elevation overrides
   return tiles;
 }
 
@@ -175,7 +186,7 @@ export function recomputeRegion(
   const { width, height, seaLevel = 0.35, seed } = config;
   const cx0 = Math.max(0, x0), cy0 = Math.max(0, y0);
   const cx1 = Math.min(width - 1, x1), cy1 = Math.min(height - 1, y1);
-  const rng  = new Random((seed * 9973 + 7919) | 0);
+  const detailSeed = (seed * 9973 + 7919) | 0;
 
   for (let y = cy0; y <= cy1; y++) {
     for (let x = cx0; x <= cx1; x++) {
@@ -187,7 +198,8 @@ export function recomputeRegion(
         seaLevel,
       ) as Biome;
       biomeMap.biomes[idx] = biome;
-      tiles[y][x] = sampleBiomeTile(biome, rng.next());
+      const noiseValue = fbm(x * 0.15, y * 0.15, { seed: detailSeed, octaves: 3 });
+      tiles[y][x] = sampleTileFromNoise(biome, noiseValue);
     }
   }
 }

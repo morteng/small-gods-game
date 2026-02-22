@@ -11,7 +11,7 @@
 
 import { WFCEngine } from '@/wfc';
 import { Random, fractalNoise } from '@/core/noise';
-import type { GameMap, WorldSeed, Tile, BuildingInstance, TerrainConfig } from '@/core/types';
+import type { GameMap, WorldSeed, Tile, BuildingInstance, TerrainConfig, POI } from '@/core/types';
 import { generateTerrainFields, classifyBiomes, sampleTiles } from '@/terrain/terrain-generator';
 import { applyPoiInfluences } from '@/terrain/poi-influence';
 import { EntityRegistry } from '@/world/entity-registry';
@@ -60,6 +60,9 @@ const BLOCKING_TYPES = new Set([
   'deep_water', 'shallow_water', 'river', 'ocean',
   'mountain', 'peak', 'rocky',
 ]);
+
+/** Water tile types — roads bridge over these instead of overwriting */
+const WATER_TYPES = new Set(['deep_water', 'shallow_water', 'river', 'ocean', 'water']);
 
 function tileWalkable(type: string): boolean {
   if (BLOCKING_TYPES.has(type)) return false;
@@ -119,12 +122,7 @@ export async function generateWithNoise(
     row.map((type, x) => ({ type, x, y, walkable: tileWalkable(type) })),
   );
 
-  // Apply connection roads from worldSeed
-  if (worldSeed?.connections) {
-    carveConnections(tiles, worldSeed.connections, width, height);
-  }
-
-  // Place settlements for each POI
+  // Place settlements for each POI (before inter-POI roads so roads take priority)
   report('Placing settlements...');
   const registry = new EntityRegistry();
   const buildings: BuildingInstance[] = [];
@@ -139,7 +137,11 @@ export async function generateWithNoise(
       const zoneRule = getZoneRule(poi.type);
       if (!poi.position) continue;
 
-      const result = placeSettlement(poi, zoneRule, tiles, registry, [], rng);
+      const connectedDirs = worldSeed.connections
+        ? computeConnectedDirections(poi.id, worldSeed.connections, worldSeed.pois)
+        : [];
+
+      const result = placeSettlement(poi, zoneRule, tiles, registry, connectedDirs, rng);
 
       // Apply road tiles to the grid
       for (const rt of result.roadTiles) {
@@ -163,6 +165,12 @@ export async function generateWithNoise(
     }
   }
 
+  // Apply inter-POI connection roads AFTER settlements so they take priority
+  if (worldSeed?.connections) {
+    report('Carving road connections...');
+    carveConnections(tiles, worldSeed.connections, worldSeed.pois ?? []);
+  }
+
   const map: GameMap = {
     tiles,
     width,
@@ -178,36 +186,118 @@ export async function generateWithNoise(
   return { map, registry };
 }
 
-/** Carve road/river tiles along connection waypoints (straight line if no waypoints). */
+/**
+ * Carve road/river tiles along connection waypoints.
+ * Falls back to a straight line when no waypoints are defined.
+ * Supports road width and auto-bridging over water tiles.
+ */
 function carveConnections(
   tiles: Tile[][],
   connections: WorldSeed['connections'],
-  _width: number,
-  _height: number,
+  pois: POI[],
 ): void {
+  // Build POI position lookup for waypoint fallback
+  const poiPositions = new Map(
+    pois.filter(p => p.position).map(p => [p.id, p.position!]),
+  );
+
   for (const conn of connections) {
-    if (!conn.waypoints?.length) continue;
     const roadType = conn.type === 'river' ? 'river'
       : conn.style === 'stone' ? 'stone_road' : 'dirt_road';
-    for (let i = 0; i < conn.waypoints.length - 1; i++) {
-      const a = conn.waypoints[i], b = conn.waypoints[i + 1];
-      bresenhamApply(tiles, a.x, a.y, b.x, b.y, roadType);
+    const autoBridge = conn.autoBridge ?? (conn.type !== 'river');
+    const roadWidth  = conn.width ?? 1;
+
+    // Build point list: use waypoints or fall back to straight POI-to-POI line
+    let points: { x: number; y: number }[];
+    if (conn.waypoints?.length) {
+      points = conn.waypoints;
+    } else {
+      const fromPos = poiPositions.get(conn.from);
+      const toPos   = poiPositions.get(conn.to);
+      if (!fromPos || !toPos) continue;
+      points = [fromPos, toPos];
+    }
+
+    for (let i = 0; i < points.length - 1; i++) {
+      const a = points[i], b = points[i + 1];
+      if (roadWidth <= 1) {
+        bresenhamApply(tiles, a.x, a.y, b.x, b.y, roadType, autoBridge);
+      } else {
+        // Perpendicular offset for road width — same pattern as WFC engine
+        const ddx = b.x - a.x, ddy = b.y - a.y;
+        const len = Math.sqrt(ddx * ddx + ddy * ddy);
+        const px = len > 0 ? -ddy / len : 0;
+        const py = len > 0 ?  ddx / len : 0;
+        for (let w = 0; w < roadWidth; w++) {
+          const off = w - Math.floor(roadWidth / 2);
+          const ox = Math.round(px * off), oy = Math.round(py * off);
+          bresenhamApply(tiles, a.x + ox, a.y + oy, b.x + ox, b.y + oy, roadType, autoBridge);
+        }
+      }
     }
   }
 }
 
-function bresenhamApply(tiles: Tile[][], x0: number, y0: number, x1: number, y1: number, type: string): void {
+/**
+ * Apply a road/river tile type along a Bresenham line.
+ * When autoBridge is true, water tiles become 'bridge' instead of being overwritten.
+ */
+function bresenhamApply(
+  tiles: Tile[][],
+  x0: number, y0: number,
+  x1: number, y1: number,
+  type: string,
+  autoBridge = false,
+): void {
   const dx = Math.abs(x1 - x0), dy = Math.abs(y1 - y0);
   const sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
   let err = dx - dy, x = x0, y = y0;
   while (true) {
     const t = tiles[y]?.[x];
-    if (t) { t.type = type; t.walkable = (type !== 'river'); }
+    if (t) {
+      if (WATER_TYPES.has(t.type)) {
+        if (autoBridge) { t.type = 'bridge'; t.walkable = true; }
+        // else: skip water — do not overwrite
+      } else {
+        t.type = type;
+        t.walkable = (type !== 'river');
+      }
+    }
     if (x === x1 && y === y1) break;
     const e2 = 2 * err;
     if (e2 > -dy) { err -= dy; x += sx; }
     if (e2 <  dx) { err += dx; y += sy; }
   }
+}
+
+/**
+ * Compute unit direction vectors from a POI toward each connected POI.
+ * Used to align settlement roads with incoming connections.
+ */
+function computeConnectedDirections(
+  poiId:       string,
+  connections: WorldSeed['connections'],
+  pois:        POI[],
+): { dx: number; dy: number }[] {
+  const poiMap   = new Map(pois.filter(p => p.position).map(p => [p.id, p.position!]));
+  const selfPos  = poiMap.get(poiId);
+  if (!selfPos) return [];
+
+  const dirs: { dx: number; dy: number }[] = [];
+  for (const conn of connections) {
+    const otherId = conn.from === poiId ? conn.to
+                  : conn.to   === poiId ? conn.from
+                  : null;
+    if (!otherId) continue;
+    const otherPos = poiMap.get(otherId);
+    if (!otherPos) continue;
+    const ddx = otherPos.x - selfPos.x;
+    const ddy = otherPos.y - selfPos.y;
+    const len = Math.sqrt(ddx * ddx + ddy * ddy);
+    if (len < 0.001) continue;
+    dirs.push({ dx: ddx / len, dy: ddy / len });
+  }
+  return dirs;
 }
 
 /**
