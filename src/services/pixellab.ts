@@ -1,6 +1,8 @@
 import type {
+  AssetQuery,
+  AssetSummary,
+  LibraryAsset,
   PixelLabBalance,
-  PixelLabCachedAsset,
   PixelLabGenerateOpts,
   PixelLabKeyStatus,
 } from '@/core/types';
@@ -11,7 +13,7 @@ const LS_KEY = 'smallgods.pixellab.apiKey';
 
 const DB_NAME = 'smallgods.pixellab';
 const DB_STORE = 'assets';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 /**
  * Project-wide style recipe baked into every call. The palette swatch
@@ -74,21 +76,70 @@ async function sha256Hex(input: string): Promise<string> {
 
 // ─── IndexedDB cache ──────────────────────────────────────────────────────────
 
+/** Cached connection — reused across calls; closed by `_resetDbForTesting`. */
+let _db: IDBDatabase | null = null;
+
+/**
+ * Test-only: close the cached DB connection so that tests can call
+ * `indexedDB.deleteDatabase` without hitting a blocked state.
+ * Not needed in production (the browser closes the connection on unload).
+ */
+export function _resetDbForTesting(): void {
+  if (_db) { _db.close(); _db = null; }
+}
+
 function openDb(): Promise<IDBDatabase> {
+  if (_db) return Promise.resolve(_db);
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
-    req.onupgradeneeded = () => {
+    req.onupgradeneeded = (event) => {
       const db = req.result;
+      const tx = req.transaction!;
+      const oldVersion = event.oldVersion;
+
+      let store: IDBObjectStore;
       if (!db.objectStoreNames.contains(DB_STORE)) {
-        db.createObjectStore(DB_STORE, { keyPath: 'key' });
+        store = db.createObjectStore(DB_STORE, { keyPath: 'key' });
+      } else {
+        store = tx.objectStore(DB_STORE);
+      }
+
+      // v1 → v2: backfill metadata fields and add indexes
+      if (oldVersion < 2) {
+        // Backfill every existing record
+        const cursorReq = store.openCursor();
+        cursorReq.onsuccess = () => {
+          const cursor = cursorReq.result;
+          if (!cursor) return;
+          const v = cursor.value as Record<string, unknown>;
+          // Only touch records that don't already have schemaVersion
+          if (v.schemaVersion !== 2) {
+            cursor.update({
+              ...v,
+              schemaVersion: 2,
+              curated: 'pending',
+              origin: 'sandbox',
+              kind: 'unknown',
+              tags: [],
+            });
+          }
+          cursor.continue();
+        };
+
+        // Create new indexes
+        if (!store.indexNames.contains('kind')) store.createIndex('kind', 'kind');
+        if (!store.indexNames.contains('curated')) store.createIndex('curated', 'curated');
+        if (!store.indexNames.contains('tags')) {
+          store.createIndex('tags', 'tags', { multiEntry: true });
+        }
       }
     };
-    req.onsuccess = () => resolve(req.result);
+    req.onsuccess = () => { _db = req.result; resolve(_db); };
     req.onerror = () => reject(req.error);
   });
 }
 
-async function cacheGet(key: string): Promise<PixelLabCachedAsset | null> {
+async function cacheGet(key: string): Promise<LibraryAsset | null> {
   const db = await openDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(DB_STORE, 'readonly');
@@ -98,7 +149,7 @@ async function cacheGet(key: string): Promise<PixelLabCachedAsset | null> {
   });
 }
 
-async function cachePut(asset: PixelLabCachedAsset): Promise<void> {
+async function cachePut(asset: LibraryAsset): Promise<void> {
   const db = await openDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(DB_STORE, 'readwrite');

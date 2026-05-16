@@ -4,13 +4,17 @@ import {
   buildCacheKeyInput,
   buildRequestBody,
   cacheClear,
+  cacheGet,
+  cachePut,
   generate,
   loadApiKey,
   saveApiKey,
   clearApiKey,
   normalizeTags,
+  _resetDbForTesting,
   RECIPE_V,
 } from '@/services/pixellab';
+import type { LibraryAsset } from '@/core/types';
 
 const TINY_PNG_B64 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGBgAAAABQABh6FO1AAAAABJRU5ErkJggg==';
@@ -154,5 +158,81 @@ describe('normalizeTags', () => {
 
   it('preserves order of first occurrence', () => {
     expect(normalizeTags(['ruin', 'tree', 'Ruin'])).toEqual(['ruin', 'tree']);
+  });
+});
+
+// Helper: open the IDB directly at a given version to seed legacy data.
+function openRawDb(version: number): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open('smallgods.pixellab', version);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains('assets')) {
+        db.createObjectStore('assets', { keyPath: 'key' });
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+describe('schema migration v1 → v2', () => {
+  beforeEach(async () => {
+    // Close the module's cached DB connection so deleteDatabase isn't blocked.
+    _resetDbForTesting();
+    // Wipe IDB between migration tests so we always start fresh.
+    await new Promise<void>((resolve) => {
+      const req = indexedDB.deleteDatabase('smallgods.pixellab');
+      req.onsuccess = () => resolve();
+      req.onerror = () => resolve();
+      req.onblocked = () => resolve();
+    });
+  });
+
+  afterEach(() => {
+    // Reset again after each migration test so subsequent tests start clean.
+    _resetDbForTesting();
+  });
+
+  it('backfills legacy v1 records with safe defaults', async () => {
+    // Seed a v1-shaped record directly
+    const db = await openRawDb(1);
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction('assets', 'readwrite');
+      tx.objectStore('assets').put({
+        key: 'legacy-key-1',
+        blob: new Blob([new Uint8Array([1, 2, 3])]),
+        prompt: 'legacy prompt',
+        width: 32,
+        height: 32,
+        generatedAt: 1000,
+      });
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+
+    // Now read via the module — this opens at v2 and runs the migration
+    const migrated = (await cacheGet('legacy-key-1')) as LibraryAsset | null;
+    expect(migrated).not.toBeNull();
+    expect(migrated!.schemaVersion).toBe(2);
+    expect(migrated!.curated).toBe('pending');
+    expect(migrated!.origin).toBe('sandbox');
+    expect(migrated!.kind).toBe('unknown');
+    expect(migrated!.tags).toEqual([]);
+    expect(migrated!.prompt).toBe('legacy prompt');
+  });
+
+  it('creates the new indexes on upgrade', async () => {
+    // Trigger an upgrade by reading once
+    await cacheGet('does-not-exist');
+    // Now inspect the schema
+    const db = await openRawDb(2);
+    const store = db.transaction('assets', 'readonly').objectStore('assets');
+    const names = Array.from(store.indexNames);
+    expect(names).toContain('kind');
+    expect(names).toContain('curated');
+    expect(names).toContain('tags');
+    db.close();
   });
 });
