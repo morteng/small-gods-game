@@ -6,6 +6,7 @@ import { attachControls } from '@/ui/controls';
 import { WorldManager } from '@/map/world-manager';
 import type { GameMap, WorldSeed, TerrainOptions, NpcInstance, NpcRole, RenderContext } from '@/core/types';
 import { updateNpcs, FRAME_MS } from '@/render/npc-animator';
+import { tickNpcMovement } from '@/sim/npc-movement';
 import { buildCharacterSpec, getOrGenerateSheet } from '@/render/lpc';
 import { initNpcSim, tickAllNpcs, SIM_TICK_MS } from '@/sim/npc-sim';
 import { drawNpcOverlay, type OverlayHitAreas } from '@/render/sim-overlay';
@@ -237,6 +238,7 @@ export class Game {
       const deltaMs = Math.min(now - this.lastTime, 100);
       this.lastTime = now;
       updateNpcs(this.state.npcs, deltaMs);
+      if (this.state.map) tickNpcMovement(this.state.npcs, this.state.map, deltaMs);
       this.simTickAcc += deltaMs;
       while (this.simTickAcc >= SIM_TICK_MS) {
         this.simTickAcc -= SIM_TICK_MS;

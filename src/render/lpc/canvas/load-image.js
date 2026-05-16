@@ -1,11 +1,29 @@
-const LPC_BASE_URL = 'https://liberatedpixelcup.github.io/Universal-LPC-Spritesheet-Character-Generator/';
+// Sprites are vendored under public/sprites/lpc/ — see scripts/vendor-lpc-sprites.sh.
+// Keeping this relative means the iframe-embedded game also resolves correctly
+// against the host's origin.
+const LPC_BASE_URL = '/sprites/lpc/';
 
 let loadedImages = {};
+let knownMissing = new Set();
 let imagesToLoad = 0;
 let imagesLoaded = 0;
 
 /**
- * Load an image
+ * Derive a variantless fallback URL.
+ * Many LPC layers (body, head, face, hair, longsleeve, armour plates) dropped
+ * per-variant subfolders upstream: ".../walk/black.png" no longer exists, only
+ * ".../walk.png". When the variant path 404s, try the flat path.
+ */
+function variantlessFallback(src) {
+  const m = src.match(/^(.*)\/([^\/]+)\/([^\/]+)\.png$/);
+  if (!m) return null;
+  const [, prefix, animFolder] = m;
+  return `${prefix}/${animFolder}.png`;
+}
+
+/**
+ * Load an image, with variantless fallback for layers whose per-variant files
+ * were removed from upstream LPC.
  */
 export function loadImage(src) {
   return new Promise((resolve, reject) => {
@@ -14,53 +32,61 @@ export function loadImage(src) {
       return;
     }
 
-    // Mark start of image load for profiling
     const profiler = window.profiler;
-    if (profiler) {
-      profiler.mark(`image-load:${src}:start`);
+    if (profiler) profiler.mark(`image-load:${src}:start`);
+
+    const resolveFullUrl = (s) => s.startsWith('http') ? s : LPC_BASE_URL + s;
+    const primaryUrl = resolveFullUrl(src);
+
+    // Skip primary entirely if we already know it's missing.
+    const fallbackSrc = variantlessFallback(src);
+    const fallbackUrl = fallbackSrc ? resolveFullUrl(fallbackSrc) : null;
+
+    const tryLoad = (url, isFallback) => {
+      const img = new Image();
+      img.onload = () => {
+        loadedImages[src] = img;
+        imagesLoaded++;
+        if (profiler) {
+          profiler.mark(`image-load:${src}:end`);
+          profiler.measure(`image-load:${src}`, `image-load:${src}:start`, `image-load:${src}:end`);
+        }
+        resolve(img);
+      };
+      img.onerror = () => {
+        if (!isFallback && fallbackUrl) {
+          knownMissing.add(url);
+          tryLoad(fallbackUrl, true);
+          return;
+        }
+        knownMissing.add(url);
+        imagesLoaded++;
+        // Silent failure: the LPC compositor tolerates missing layers.
+        // Surface in window.DEBUG mode only.
+        if (window.DEBUG) console.warn(`Failed to load image: ${src}`);
+        reject(new Error(`Failed to load ${src}`));
+      };
+      img.crossOrigin = 'anonymous';
+      img.src = url;
+    };
+
+    if (knownMissing.has(primaryUrl) && fallbackUrl) {
+      tryLoad(fallbackUrl, true);
+    } else {
+      tryLoad(primaryUrl, false);
     }
-
-    const img = new Image();
-    img.onload = () => {
-      loadedImages[src] = img;
-      imagesLoaded++;
-
-      // Mark end and measure
-      if (profiler) {
-        profiler.mark(`image-load:${src}:end`);
-        profiler.measure(`image-load:${src}`, `image-load:${src}:start`, `image-load:${src}:end`);
-      }
-
-      resolve(img);
-    };
-    img.onerror = () => {
-      console.error(`Failed to load image: ${src}`);
-      imagesLoaded++;
-      reject(new Error(`Failed to load ${src}`));
-    };
-    img.crossOrigin = 'anonymous';
-    img.src = src.startsWith('http') ? src : LPC_BASE_URL + src;
     imagesToLoad++;
   });
 }
 
 /**
- * Load multiple images in parallel
- * @param {Array} items - Array of items with a spritePath property
- * @param {Function} getPath - Optional function to extract path from item (defaults to item.spritePath)
- * @returns {Promise<Array>} Array of {item, img, success} objects
+ * Load multiple images in parallel.
  */
 export async function loadImagesInParallel(items, getPath = (item) => item.spritePath) {
   const promises = items.map(item =>
     loadImage(getPath(item))
       .then(img => ({ item, img, success: true }))
-      .catch(err => {
-        if (window.DEBUG) {
-          console.warn(`Failed to load sprite: ${getPath(item)}`);
-        }
-        return { item, img: null, success: false };
-      })
+      .catch(() => ({ item, img: null, success: false }))
   );
-
   return Promise.all(promises);
 }

@@ -34,10 +34,10 @@ const ROLE_SPECS: Record<NpcRole, (seed: number) => CharacterSpec> = {
     sex: 'male', bodyType: 'male',
     items: {
       ...base(seed, 'heads_human_male'),
-      hair:    { itemId: 'hair_buzzcut',        variant: pick(seed, 1, ['chestnut', 'sandy', 'black', 'dark brown'] as const) },
-      clothes: { itemId: 'torso_clothes_tunic', variant: pick(seed, 2, EARTH) },
-      legs:    { itemId: 'legs_hose',           variant: 'leather' },
-      shoes:   { itemId: 'feet_boots_basic',    variant: 'black' },
+      hair:    { itemId: 'hair_buzzcut',                    variant: pick(seed, 1, ['chestnut', 'sandy', 'black', 'dark brown'] as const) },
+      clothes: { itemId: 'torso_clothes_longsleeve2_polo',  variant: pick(seed, 2, EARTH) },
+      legs:    { itemId: 'legs_hose',                       variant: 'leather' },
+      shoes:   { itemId: 'feet_boots_basic',                variant: 'black' },
     },
   }),
 
@@ -45,10 +45,10 @@ const ROLE_SPECS: Record<NpcRole, (seed: number) => CharacterSpec> = {
     sex: 'male', bodyType: 'male',
     items: {
       ...base(seed, 'heads_human_male'),
-      hair:    { itemId: 'hair_plain',          variant: pick(seed, 1, ['blonde', 'sandy', 'white', 'black'] as const) },
-      clothes: { itemId: 'torso_clothes_robe',  variant: pick(seed, 2, ['blue', 'black', 'brown'] as const) },
-      legs:    { itemId: 'legs_hose',           variant: 'black' },
-      shoes:   { itemId: 'feet_sandals',        variant: 'brown' },
+      hair:    { itemId: 'hair_plain',                          variant: pick(seed, 1, ['blonde', 'sandy', 'white', 'black'] as const) },
+      clothes: { itemId: 'torso_clothes_longsleeve2_buttoned',  variant: pick(seed, 2, ['blue', 'black'] as const) },
+      legs:    { itemId: 'legs_hose',                           variant: 'black' },
+      shoes:   { itemId: 'feet_sandals',                        variant: 'brown' },
     },
   }),
 
@@ -79,11 +79,11 @@ const ROLE_SPECS: Record<NpcRole, (seed: number) => CharacterSpec> = {
     sex: 'male', bodyType: 'male',
     items: {
       ...base(seed, 'heads_human_male_elderly'),
-      hair:    { itemId: 'hair_balding',       variant: pick(seed, 1, ['gray', 'white', 'dark gray'] as const) },
-      beard:   { itemId: 'beards_beard',       variant: pick(seed, 2, ['white', 'gray'] as const) },
-      clothes: { itemId: 'torso_clothes_robe', variant: pick(seed, 3, ['black', 'blue', 'brown'] as const) },
-      legs:    { itemId: 'legs_hose',          variant: 'leather' },
-      shoes:   { itemId: 'feet_sandals',       variant: 'brown' },
+      hair:    { itemId: 'hair_balding',                        variant: pick(seed, 1, ['gray', 'white', 'dark gray'] as const) },
+      // beards_beard upstream restructured to /<style>/<bodyType>/; revisit after vendoring
+      clothes: { itemId: 'torso_clothes_longsleeve2_buttoned',  variant: pick(seed, 3, ['black', 'blue'] as const) },
+      legs:    { itemId: 'legs_hose',                           variant: 'leather' },
+      shoes:   { itemId: 'feet_sandals',                        variant: 'brown' },
     },
   }),
 
@@ -113,8 +113,8 @@ const ROLE_SPECS: Record<NpcRole, (seed: number) => CharacterSpec> = {
     items: {
       ...base(seed, 'heads_human_male_gaunt'),
       hair:    { itemId: pick(seed, 1, ['hair_messy1', 'hair_messy2', 'hair_unkempt'] as const), variant: pick(seed, 2, ['black', 'dark brown', 'dark gray'] as const) },
-      clothes: { itemId: 'torso_clothes_tunic', variant: 'black' },
-      legs:    { itemId: 'legs_hose',           variant: 'black' },
+      clothes: { itemId: 'torso_clothes_longsleeve2_polo',  variant: 'black' },
+      legs:    { itemId: 'legs_hose',                       variant: 'black' },
     },
   }),
 };

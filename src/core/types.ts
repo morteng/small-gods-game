@@ -155,6 +155,9 @@ export interface NpcInstance {
   frameTimer: number; // ms accumulator since last frame advance
   homeBuildingId?: string;
   homePoiId?: string;
+  // Random-walk movement scaffolding (placeholder until proper schedules land).
+  // moveCooldown counts down in ms; on reach 0 the NPC picks a new step.
+  moveCooldown?: number;
 }
 
 export interface NpcPersonality {
