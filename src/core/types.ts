@@ -340,8 +340,10 @@ export interface PixelLabGenerateOpts {
 }
 
 export interface PixelLabBalance {
+  /** Remaining free-tier monthly generations. */
   generationsRemaining: number;
   generationsTotal: number;
+  /** Pay-as-you-go credits in USD (0 on pure free tier). */
   creditsUsd: number;
 }
 
@@ -388,6 +390,8 @@ export interface AssetSummary {
   description?: string;
   width: number;
   height: number;
+  /** When this asset entered the library (epoch ms). Equals `LibraryAsset.generatedAt`
+   *  for entries created via `generate()`; will differ for future imported entries. */
   addedAt: number;
 }
 
