@@ -68,6 +68,43 @@ describe('attachControls keyboard', () => {
     expect(onTogglePause).not.toHaveBeenCalled();
   });
 
+  it('invokes onToggleLabels on L', () => {
+    const onToggleLabels = vi.fn();
+    cleanup = attachControls(canvas, createCamera(), {
+      onRedraw: () => {},
+      onToggleLabels,
+    });
+    fireKey('KeyL');
+    expect(onToggleLabels).toHaveBeenCalledTimes(1);
+  });
+
+  it('invokes onTogglePoiMarkers on M', () => {
+    const onTogglePoiMarkers = vi.fn();
+    cleanup = attachControls(canvas, createCamera(), {
+      onRedraw: () => {},
+      onTogglePoiMarkers,
+    });
+    fireKey('KeyM');
+    expect(onTogglePoiMarkers).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not invoke toggles when an input is focused', () => {
+    const onToggleLabels = vi.fn();
+    const onTogglePoiMarkers = vi.fn();
+    const input = document.createElement('input');
+    document.body.appendChild(input);
+    input.focus();
+    cleanup = attachControls(canvas, createCamera(), {
+      onRedraw: () => {},
+      onToggleLabels,
+      onTogglePoiMarkers,
+    });
+    fireKey('KeyL', input);
+    fireKey('KeyM', input);
+    expect(onToggleLabels).not.toHaveBeenCalled();
+    expect(onTogglePoiMarkers).not.toHaveBeenCalled();
+  });
+
   it('cleanup removes the key listener', () => {
     const onTogglePause = vi.fn();
     cleanup = attachControls(canvas, createCamera(), {

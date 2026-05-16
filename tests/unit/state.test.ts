@@ -11,4 +11,14 @@ describe('createState', () => {
     const s = createState();
     expect(s.debug).toBe(false);
   });
+
+  it('starts with labels visible', () => {
+    const s = createState();
+    expect(s.showLabels).toBe(true);
+  });
+
+  it('starts with POI markers visible', () => {
+    const s = createState();
+    expect(s.showPoiMarkers).toBe(true);
+  });
 });

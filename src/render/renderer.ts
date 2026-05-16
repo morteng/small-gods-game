@@ -319,7 +319,7 @@ function drawEntityFallback(ctx: CanvasRenderingContext2D, rc: RenderContext, e:
   }
   ctx.fill();
   ctx.globalAlpha = 1;
-  if (rc.camera.zoom >= 1.5) {
+  if (rc.camera.zoom >= 1.5 && rc.showLabels !== false) {
     ctx.fillStyle = '#fff';
     ctx.font = `${Math.max(6, 8 / rc.camera.zoom)}px sans-serif`;
     ctx.textAlign = 'center';
@@ -411,6 +411,9 @@ function drawOverlays(ctx: CanvasRenderingContext2D, rc: RenderContext): void {
   const { map, camera } = rc;
 
   if (!map.worldSeed?.pois) return;
+  const showMarkers = rc.showPoiMarkers !== false;
+  const showLabels = rc.showLabels !== false;
+  if (!showMarkers && !showLabels) return;
 
   for (const poi of map.worldSeed.pois) {
     if (!poi.position) continue;
@@ -419,29 +422,31 @@ function drawOverlays(ctx: CanvasRenderingContext2D, rc: RenderContext): void {
     const py = (poi.position.y + 0.5) * TILE_SIZE;
     const r = TILE_SIZE * 0.8;
 
-    ctx.fillStyle = icon.color;
-    ctx.globalAlpha = 0.85;
-    ctx.beginPath();
-    if (icon.shape === 'circle') {
-      ctx.arc(px, py, r, 0, Math.PI * 2);
-    } else if (icon.shape === 'triangle') {
-      ctx.moveTo(px, py - r);
-      ctx.lineTo(px - r, py + r * 0.6);
-      ctx.lineTo(px + r, py + r * 0.6);
-      ctx.closePath();
-    } else if (icon.shape === 'square') {
-      ctx.rect(px - r * 0.7, py - r * 0.7, r * 1.4, r * 1.4);
-    } else { // diamond
-      ctx.moveTo(px, py - r);
-      ctx.lineTo(px + r, py);
-      ctx.lineTo(px, py + r);
-      ctx.lineTo(px - r, py);
-      ctx.closePath();
+    if (showMarkers) {
+      ctx.fillStyle = icon.color;
+      ctx.globalAlpha = 0.85;
+      ctx.beginPath();
+      if (icon.shape === 'circle') {
+        ctx.arc(px, py, r, 0, Math.PI * 2);
+      } else if (icon.shape === 'triangle') {
+        ctx.moveTo(px, py - r);
+        ctx.lineTo(px - r, py + r * 0.6);
+        ctx.lineTo(px + r, py + r * 0.6);
+        ctx.closePath();
+      } else if (icon.shape === 'square') {
+        ctx.rect(px - r * 0.7, py - r * 0.7, r * 1.4, r * 1.4);
+      } else { // diamond
+        ctx.moveTo(px, py - r);
+        ctx.lineTo(px + r, py);
+        ctx.lineTo(px, py + r);
+        ctx.lineTo(px - r, py);
+        ctx.closePath();
+      }
+      ctx.fill();
+      ctx.globalAlpha = 1;
     }
-    ctx.fill();
-    ctx.globalAlpha = 1;
 
-    if (poi.name && camera.zoom >= 0.5) {
+    if (showLabels && poi.name && camera.zoom >= 0.5) {
       ctx.fillStyle = '#fff';
       ctx.font = `${Math.max(8, 10 / camera.zoom)}px sans-serif`;
       ctx.textAlign = 'center';

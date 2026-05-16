@@ -140,6 +140,8 @@ export interface RenderContext {
   buildingSprites: Map<string, HTMLImageElement>;
   treeSheets: Map<string, HTMLImageElement>;
   world: World;
+  showLabels?: boolean;
+  showPoiMarkers?: boolean;
 }
 
 /** A live NPC instance on the map */

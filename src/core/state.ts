@@ -14,6 +14,8 @@ export interface GameState {
   blobMap: BlobTile[][] | null;
   debug: boolean;
   paused: boolean;
+  showLabels: boolean;
+  showPoiMarkers: boolean;
   playerPower: number;
   /** Unified world facade — buildings, trees, rocks, landmarks, etc. */
   world: World | null;
@@ -35,6 +37,8 @@ export function createState(): GameState {
     blobMap: null,
     debug: false,
     paused: false,
+    showLabels: true,
+    showPoiMarkers: true,
     playerPower: 3,
     world: null,
     terrainFields: null,

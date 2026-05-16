@@ -88,6 +88,8 @@ export class Game {
       onTileClick: (x, y) => this.onTileClick(x, y),
       onCanvasClick: (sx, sy) => this.onCanvasClick(sx, sy),
       onTogglePause: () => this.togglePause(),
+      onToggleLabels: () => { this.state.showLabels = !this.state.showLabels; },
+      onTogglePoiMarkers: () => { this.state.showPoiMarkers = !this.state.showPoiMarkers; },
       onRedraw: () => {},
     });
   }
@@ -297,6 +299,8 @@ export class Game {
       buildingSprites: this.buildingSprites,
       treeSheets: this.treeSheets,
       world: this.state.world!,
+      showLabels: this.state.showLabels,
+      showPoiMarkers: this.state.showPoiMarkers,
     };
     renderMap(this.ctx, rc);
 

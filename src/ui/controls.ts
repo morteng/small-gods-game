@@ -6,6 +6,8 @@ export interface ControlsCallbacks {
   onTileClick?: (x: number, y: number) => void;
   onCanvasClick?: (sx: number, sy: number) => boolean;
   onTogglePause?: () => void;
+  onToggleLabels?: () => void;
+  onTogglePoiMarkers?: () => void;
   onRedraw: () => void;
 }
 
@@ -67,9 +69,17 @@ export function attachControls(canvas: HTMLCanvasElement, camera: Camera, callba
 
   function onKeyDown(e: KeyboardEvent) {
     if (isTextInputFocused()) return;
-    if (e.code === 'Space') {
-      e.preventDefault();
-      callbacks.onTogglePause?.();
+    switch (e.code) {
+      case 'Space':
+        e.preventDefault();
+        callbacks.onTogglePause?.();
+        break;
+      case 'KeyL':
+        callbacks.onToggleLabels?.();
+        break;
+      case 'KeyM':
+        callbacks.onTogglePoiMarkers?.();
+        break;
     }
   }
 
