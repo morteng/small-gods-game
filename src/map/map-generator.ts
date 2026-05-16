@@ -11,10 +11,11 @@
 
 import { WFCEngine } from '@/wfc';
 import { Random, fractalNoise } from '@/core/noise';
-import type { GameMap, WorldSeed, Tile, BuildingInstance, TerrainConfig, POI } from '@/core/types';
+import type { GameMap, WorldSeed, Tile, BuildingInstance, TerrainConfig, POI, TerrainField } from '@/core/types';
 import { generateTerrainFields, classifyBiomes, sampleTiles } from '@/terrain/terrain-generator';
 import { applyPoiInfluences } from '@/terrain/poi-influence';
 import { generateHydrology } from '@/terrain/hydrology';
+import { walkRoad } from '@/terrain/road-walker';
 import { EntityRegistry } from '@/world/entity-registry';
 import { placeSettlement } from '@/world/building-placer';
 import { getZoneRule } from '@/map/poi-zones';
@@ -187,7 +188,7 @@ export async function generateWithNoise(
   // Apply inter-POI connection roads AFTER settlements so they take priority
   if (worldSeed?.connections) {
     report('Carving road connections...');
-    carveConnections(tiles, worldSeed.connections, worldSeed.pois ?? []);
+    carveConnections(tiles, worldSeed.connections, worldSeed.pois ?? [], fields);
   }
 
   const map: GameMap = {
@@ -206,16 +207,17 @@ export async function generateWithNoise(
 }
 
 /**
- * Carve road/river tiles along connection waypoints.
- * Falls back to a straight line when no waypoints are defined.
- * Supports road width and auto-bridging over water tiles.
+ * Carve road/river tiles along connection waypoints using the agent walker.
+ * Falls back to a straight POI-to-POI walk when no waypoints are defined.
+ * Bridges are placed only where the walker chose to traverse water with
+ * autoBridge enabled.
  */
 function carveConnections(
   tiles: Tile[][],
   connections: WorldSeed['connections'],
   pois: POI[],
+  fields: TerrainField,
 ): void {
-  // Build POI position lookup for waypoint fallback
   const poiPositions = new Map(
     pois.filter(p => p.position).map(p => [p.id, p.position!]),
   );
@@ -224,9 +226,7 @@ function carveConnections(
     const roadType = conn.type === 'river' ? 'river'
       : conn.style === 'stone' ? 'stone_road' : 'dirt_road';
     const autoBridge = conn.autoBridge ?? (conn.type !== 'river');
-    const roadWidth  = conn.width ?? 1;
 
-    // Build point list: use waypoints or fall back to straight POI-to-POI line
     let points: { x: number; y: number }[];
     if (conn.waypoints?.length) {
       points = conn.waypoints;
@@ -239,62 +239,24 @@ function carveConnections(
 
     for (let i = 0; i < points.length - 1; i++) {
       const a = points[i], b = points[i + 1];
-      if (roadWidth <= 1) {
-        bresenhamApply(tiles, a.x, a.y, b.x, b.y, roadType, autoBridge);
-      } else {
-        // Perpendicular offset for road width — same pattern as WFC engine
-        const ddx = b.x - a.x, ddy = b.y - a.y;
-        const len = Math.sqrt(ddx * ddx + ddy * ddy);
-        const px = len > 0 ? -ddy / len : 0;
-        const py = len > 0 ?  ddx / len : 0;
-        for (let w = 0; w < roadWidth; w++) {
-          const off = w - Math.floor(roadWidth / 2);
-          const ox = Math.round(px * off), oy = Math.round(py * off);
-          bresenhamApply(tiles, a.x + ox, a.y + oy, b.x + ox, b.y + oy, roadType, autoBridge);
-        }
-      }
-    }
-  }
-}
+      const result = walkRoad(a, b, tiles, fields, { autoBridge });
+      if (result.cells.length === 0) continue;
 
-/**
- * Apply a road/river tile type along a Bresenham line.
- * When autoBridge is true, water tiles become 'bridge' instead of being overwritten.
- */
-function bresenhamApply(
-  tiles: Tile[][],
-  x0: number, y0: number,
-  x1: number, y1: number,
-  type: string,
-  autoBridge = false,
-): void {
-  const dx = Math.abs(x1 - x0), dy = Math.abs(y1 - y0);
-  const sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
-  let err = dx - dy, x = x0, y = y0;
-  while (true) {
-    const t = tiles[y]?.[x];
-    if (t) {
-      if (WATER_TYPES.has(t.type)) {
-        if (autoBridge) { t.type = 'bridge'; t.walkable = true; }
-        // else: skip water — do not overwrite
-      } else {
-        t.type = type;
-        t.walkable = (type !== 'river');
-      }
-    }
-    if (x === x1 && y === y1) break;
-    const e2 = 2 * err;
-    const xStep = e2 > -dy;
-    const yStep = e2 <  dx;
-    if (xStep) { err -= dy; x += sx; }
-    if (yStep) { err += dx; y += sy; }
-    // Diagonal step → fill elbow tile so road tiles are orthogonally connected.
-    // Without this, the autotiler sees every tile as isolated (no NSEW road neighbours).
-    if (xStep && yStep) {
-      const elbow = tiles[y - sy]?.[x];
-      if (elbow && !WATER_TYPES.has(elbow.type)) {
-        elbow.type = type;
-        elbow.walkable = (type !== 'river');
+      const width = tiles[0]?.length ?? 0;
+      for (const cell of result.cells) {
+        const t = tiles[cell.y]?.[cell.x];
+        if (!t) continue;
+        const idx = cell.y * width + cell.x;
+        if (result.bridgeCells.has(idx)) {
+          t.type = 'bridge';
+          t.walkable = true;
+        } else if (WATER_TYPES.has(t.type)) {
+          // Walker chose to stop at water (autoBridge=false); leave it untouched.
+          continue;
+        } else {
+          t.type = roadType;
+          t.walkable = (roadType !== 'river');
+        }
       }
     }
   }
