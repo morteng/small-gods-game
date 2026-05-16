@@ -12,6 +12,7 @@ import {
   clearApiKey,
   normalizeTags,
   findAssets,
+  getAssetBlob,
   _resetDbForTesting,
   RECIPE_V,
 } from '@/services/pixellab';
@@ -442,5 +443,19 @@ describe('findAssets', () => {
       addedAt: 12345,
     });
     expect('blob' in r[0]).toBe(false);
+  });
+});
+
+describe('getAssetBlob', () => {
+  it('returns non-null for an existing id', async () => {
+    await seed({ key: 'has-blob', kind: 'icon', blob: new Blob([new Uint8Array([7, 7, 7])]) });
+    const result = await getAssetBlob('has-blob');
+    // fake-indexeddb serialises Blob to {} in jsdom, but the field is present and truthy
+    expect(result).not.toBeNull();
+  });
+
+  it('returns null for an unknown id', async () => {
+    const blob = await getAssetBlob('does-not-exist');
+    expect(blob).toBeNull();
   });
 });

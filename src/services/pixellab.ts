@@ -380,5 +380,11 @@ function toSummary(a: LibraryAsset): AssetSummary {
   };
 }
 
+/** Resolve an asset id (= LibraryAsset.key) to its blob, or null if missing. */
+export async function getAssetBlob(id: string): Promise<Blob | null> {
+  const entry = await cacheGet(id);
+  return entry?.blob ?? null;
+}
+
 // Re-export so the UI / tests can poke at the cache directly.
 export { cacheGet, cachePut, cacheClear };
