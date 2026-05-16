@@ -125,19 +125,6 @@ export type NpcRole = 'farmer' | 'priest' | 'soldier' | 'merchant' | 'elder' | '
 /** Direction an NPC is facing */
 export type Direction = 'up' | 'down' | 'left' | 'right';
 
-/** A decoration sprite placed on a tile (trees, rocks, furniture, etc.) */
-export interface DecorationInstance {
-  id: string;
-  category: 'tree' | 'flora' | 'furniture' | 'structure' | 'rock';
-  variant: string;       // 'green' | 'orange' | 'dead' | 'pale' | 'brown' for trees
-  tileX: number;
-  tileY: number;
-  offsetX: number;       // sub-tile jitter [-0.15, 0.15] in tile units
-  offsetY: number;
-  spriteCol: number;     // col index in the spritesheet grid
-  spriteRow: number;     // row index in the spritesheet grid
-}
-
 /** Context passed to renderMap */
 export interface RenderContext {
   map: GameMap;
