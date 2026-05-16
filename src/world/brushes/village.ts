@@ -6,9 +6,29 @@ import type { Entity, Region, BrushContext } from '@/core/types';
 const BRUSH = 'village';
 const PLACEABLE = new Set(['grass', 'dirt']);
 const ROAD = new Set(['dirt_road', 'stone_road', 'bridge', 'road']);
+const WELL_SEARCH_RADIUS = 3;
 
 function tileHasBuilding(ctx: BrushContext, x: number, y: number): boolean {
   return ctx.world.query({ region: { x, y, w: 1, h: 1 }, tag: 'building' }).length > 0;
+}
+
+function canPlaceWell(ctx: BrushContext, x: number, y: number): boolean {
+  const tile = ctx.tiles.tiles[y]?.[x];
+  if (!tile || !PLACEABLE.has(tile.type)) return false;
+  return !tileHasBuilding(ctx, x, y);
+}
+
+function findWellPosition(ctx: BrushContext, cx: number, cy: number): { x: number; y: number } | null {
+  for (let r = 0; r <= WELL_SEARCH_RADIUS; r++) {
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+        const x = cx + dx, y = cy + dy;
+        if (canPlaceWell(ctx, x, y)) return { x, y };
+      }
+    }
+  }
+  return null;
 }
 
 export function villageBrush(region: Region, seed: number, ctx: BrushContext): Entity[] {
@@ -16,12 +36,9 @@ export function villageBrush(region: Region, seed: number, ctx: BrushContext): E
   const cx = Math.floor(region.x + region.w / 2);
   const cy = Math.floor(region.y + region.h / 2);
 
-  const centerTile = ctx.tiles.tiles[cy]?.[cx];
-  const centerPlaceable = centerTile !== undefined && PLACEABLE.has(centerTile.type);
-  const centerHasBuilding = tileHasBuilding(ctx, cx, cy);
-
-  if (centerPlaceable && !centerHasBuilding) {
-    out.push(defaultEntity(BRUSH, 'well', cx + 0.5, cy + 0.5, { poiKind: 'village' }));
+  const wellPos = findWellPosition(ctx, cx, cy);
+  if (wellPos) {
+    out.push(defaultEntity(BRUSH, 'well', wellPos.x + 0.5, wellPos.y + 0.5, { poiKind: 'village' }));
   }
 
   // Scattered props on placeable, non-building tiles
@@ -31,7 +48,7 @@ export function villageBrush(region: Region, seed: number, ctx: BrushContext): E
       if (!tile || !PLACEABLE.has(tile.type)) continue;
       if (tileHasBuilding(ctx, x, y)) continue;
       // Skip the well tile we already placed
-      if (x === cx && y === cy && centerPlaceable && !centerHasBuilding) continue;
+      if (wellPos && x === wellPos.x && y === wellPos.y) continue;
 
       const r = noise(x, y, seed);
       if (r < 0.02) out.push(defaultEntity(BRUSH, 'bench', x + 0.5, y + 0.5));

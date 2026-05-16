@@ -40,6 +40,17 @@ describe('farm brush', () => {
     expect(crops.length).toBe(63);
   });
 
+  it('emits crop_rows on grass tiles (with sparse hay_bales)', () => {
+    const grass = (w: number, h: number) => Array.from({ length: h }, () => Array<string>(w).fill('grass'));
+    const c = buildCtx(grass(8, 8));
+    const out = farmBrush({ x: 0, y: 0, w: 8, h: 8 }, 1, c);
+    const crops = out.filter(e => e.kind === 'crop_row');
+    const hay = out.filter(e => e.kind === 'hay_bale');
+    // crops dominate, hay is rare (~3% noise rate)
+    expect(crops.length).toBeGreaterThan(40);
+    expect(crops.length + hay.length).toBe(63); // 64 - 1 scarecrow
+  });
+
   it('emits one scarecrow at the region center', () => {
     const c = buildCtx(allFarm(10, 10));
     const out = farmBrush({ x: 0, y: 0, w: 10, h: 10 }, 1, c);

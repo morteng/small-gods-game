@@ -44,9 +44,29 @@ describe('village brush', () => {
     expect(Math.floor(wells[0].y)).toBe(5);
   });
 
-  it('skips well if center tile has a building', () => {
+  it('places well at nearest non-building tile when center has a building', () => {
     const rows = grass(10, 10);
     const ctx = buildCtxWithWorld(rows, [{ id: 'cottage-at-center', x: 5, y: 5 }]);
+    const out = villageBrush({ x: 0, y: 0, w: 10, h: 10 }, 1, ctx);
+    const wells = out.filter(e => e.kind === 'well');
+    expect(wells.length).toBe(1);
+    // Center (5,5) is blocked; spiral finds an immediate Chebyshev neighbor
+    expect(Math.floor(wells[0].x)).not.toBe(5);
+    expect(Math.floor(wells[0].y)).not.toBe(5);
+    expect(Math.abs(Math.floor(wells[0].x) - 5)).toBeLessThanOrEqual(1);
+    expect(Math.abs(Math.floor(wells[0].y) - 5)).toBeLessThanOrEqual(1);
+  });
+
+  it('skips well if all tiles within search radius are blocked', () => {
+    const rows = grass(10, 10);
+    const buildings: Array<{ id: string; x: number; y: number }> = [];
+    // Fill the entire 7x7 Chebyshev-radius-3 area around (5,5) with buildings
+    for (let dy = -3; dy <= 3; dy++) {
+      for (let dx = -3; dx <= 3; dx++) {
+        buildings.push({ id: `b-${dx}-${dy}`, x: 5 + dx, y: 5 + dy });
+      }
+    }
+    const ctx = buildCtxWithWorld(rows, buildings);
     const out = villageBrush({ x: 0, y: 0, w: 10, h: 10 }, 1, ctx);
     expect(out.some(e => e.kind === 'well')).toBe(false);
   });

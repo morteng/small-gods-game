@@ -32,8 +32,14 @@ export function farmBrush(region: Region, seed: number, ctx: BrushContext): Enti
       if (!tile || tileHasBuilding(ctx, x, y)) continue;
       if (FIELD_TYPES.has(tile.type)) {
         out.push(defaultEntity(BRUSH, 'crop_row', x + 0.5, y + 0.5));
-      } else if (HAY_TYPES.has(tile.type) && noise(x, y, seed + 100) < 0.03) {
-        out.push(defaultEntity(BRUSH, 'hay_bale', x + 0.5, y + 0.5));
+      } else if (HAY_TYPES.has(tile.type)) {
+        // Farms in the noise-based terrain path sit on grass/dirt — emit crop_rows
+        // there too, with sparse hay_bales sprinkled in.
+        if (noise(x, y, seed + 100) < 0.03) {
+          out.push(defaultEntity(BRUSH, 'hay_bale', x + 0.5, y + 0.5));
+        } else {
+          out.push(defaultEntity(BRUSH, 'crop_row', x + 0.5, y + 0.5));
+        }
       }
     }
   }
