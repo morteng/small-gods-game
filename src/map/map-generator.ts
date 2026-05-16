@@ -244,6 +244,10 @@ export async function generateWithNoise(
     }
   }
 
+  // Emit one summary warn for accumulated brush drops (overlapping bbox regions
+  // produce many duplicate ids; keep that visible without per-call noise).
+  world.flushBrushDiagnostics();
+
   const map: GameMap = {
     tiles,
     width,

@@ -70,8 +70,12 @@ export class World {
     return out;
   }
 
+  /** Per-generation aggregate of drops from applyBrush calls. Flushed by
+   *  flushBrushDiagnostics(), which emits a single summary warn and resets. */
+  private brushDrops = new Map<string, { oob: number; dupe: number }>();
+
   /** Brush dispatcher. Calls registered brush, validates returned entities,
-   *  drops out-of-bounds + duplicates with a single warn each. */
+   *  accumulates out-of-bounds + duplicate drops for the caller to flush. */
   applyBrush(brushName: string, region: Region, seed: number): EntityId[] {
     const fn = getBrush(brushName);
     const ctx: BrushContext = { world: this.asReadOnly(), tiles: this.tiles };
@@ -91,9 +95,34 @@ export class World {
       this.addEntity(e);
       ids.push(e.id);
     }
-    if (droppedOOB > 0) console.warn(`[brush:${brushName}] dropped ${droppedOOB} out-of-bounds entities`);
-    if (droppedDupe > 0) console.warn(`[brush:${brushName}] dropped ${droppedDupe} duplicate ids`);
+    if (droppedOOB > 0 || droppedDupe > 0) {
+      const cur = this.brushDrops.get(brushName) ?? { oob: 0, dupe: 0 };
+      cur.oob += droppedOOB;
+      cur.dupe += droppedDupe;
+      this.brushDrops.set(brushName, cur);
+    }
     return ids;
+  }
+
+  /** Emit one aggregated warn for all brush drops since the last flush, then
+   *  reset. Intended to be called once after a full generation pass. No-op if
+   *  nothing was dropped. */
+  flushBrushDiagnostics(): void {
+    if (this.brushDrops.size === 0) return;
+    let totalOob = 0, totalDupe = 0;
+    const parts: string[] = [];
+    for (const [name, { oob, dupe }] of this.brushDrops) {
+      totalOob += oob;
+      totalDupe += dupe;
+      parts.push(`${name}(${dupe}d/${oob}o)`);
+    }
+    if (totalOob > 0 || totalDupe > 0) {
+      console.warn(
+        `[brush] dropped ${totalDupe} duplicate ids, ${totalOob} out-of-bounds ` +
+        `across ${this.brushDrops.size} brush(es): ${parts.join(', ')}`,
+      );
+    }
+    this.brushDrops.clear();
   }
 
   /** Read-only view exposed to brushes via BrushContext. */

@@ -100,4 +100,61 @@ describe('World', () => {
     const ids = w.applyBrush('outofbounds', { x: 0, y: 0, w: 16, h: 16 }, 1);
     expect(ids).toEqual(['b']);
   });
+
+  it('flushBrushDiagnostics emits one aggregated warn for drops across brushes', () => {
+    registerBrush('oob', () => [
+      { id: 'oob-a', kind: 'oak_tree', x: -1, y: 0 },
+      { id: 'oob-b', kind: 'oak_tree', x: 5, y: 5 },
+    ]);
+    registerBrush('dupe', () => [
+      { id: 'oob-b', kind: 'oak_tree', x: 6, y: 6 }, // duplicate
+      { id: 'dupe-a', kind: 'oak_tree', x: 7, y: 7 },
+    ]);
+    const map = emptyMap(); map.width = 16; map.height = 16;
+    const w = new World(map);
+    w.applyBrush('oob',  { x: 0, y: 0, w: 16, h: 16 }, 1);
+    w.applyBrush('dupe', { x: 0, y: 0, w: 16, h: 16 }, 1);
+
+    const warns: string[] = [];
+    const orig = console.warn;
+    console.warn = (msg: string) => { warns.push(msg); };
+    try { w.flushBrushDiagnostics(); } finally { console.warn = orig; }
+
+    expect(warns.length).toBe(1);
+    expect(warns[0]).toMatch(/^\[brush\] dropped 1 duplicate ids, 1 out-of-bounds/);
+    expect(warns[0]).toContain('oob');
+    expect(warns[0]).toContain('dupe');
+  });
+
+  it('flushBrushDiagnostics is silent and idempotent when nothing was dropped', () => {
+    registerBrush('clean', () => [{ id: 'ok', kind: 'oak_tree', x: 1, y: 1 }]);
+    const map = emptyMap(); map.width = 16; map.height = 16;
+    const w = new World(map);
+    w.applyBrush('clean', { x: 0, y: 0, w: 16, h: 16 }, 1);
+
+    const warns: string[] = [];
+    const orig = console.warn;
+    console.warn = (msg: string) => { warns.push(msg); };
+    try {
+      w.flushBrushDiagnostics();
+      w.flushBrushDiagnostics();
+    } finally { console.warn = orig; }
+    expect(warns.length).toBe(0);
+  });
+
+  it('flushBrushDiagnostics resets counters so a second flush is silent', () => {
+    registerBrush('oob2', () => [{ id: 'x', kind: 'oak_tree', x: -1, y: 0 }]);
+    const map = emptyMap(); map.width = 16; map.height = 16;
+    const w = new World(map);
+    w.applyBrush('oob2', { x: 0, y: 0, w: 16, h: 16 }, 1);
+
+    const warns: string[] = [];
+    const orig = console.warn;
+    console.warn = (msg: string) => { warns.push(msg); };
+    try {
+      w.flushBrushDiagnostics();
+      w.flushBrushDiagnostics();
+    } finally { console.warn = orig; }
+    expect(warns.length).toBe(1);
+  });
 });
