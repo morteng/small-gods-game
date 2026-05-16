@@ -1,0 +1,100 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`dock brush > produces a stable snapshot 1`] = `
+[
+  {
+    "id": "dock-anchor-4-4",
+    "kind": "anchor",
+    "properties": {},
+    "tags": [
+      "nautical",
+    ],
+    "x": 4.5,
+    "y": 4.5,
+  },
+  {
+    "id": "dock-barrel-2-2",
+    "kind": "barrel",
+    "properties": {},
+    "tags": [
+      "storage",
+    ],
+    "x": 2.5,
+    "y": 2.5,
+  },
+  {
+    "id": "dock-rope_coil-3-2",
+    "kind": "rope_coil",
+    "properties": {},
+    "tags": [
+      "nautical",
+    ],
+    "x": 3.5,
+    "y": 2.5,
+  },
+  {
+    "id": "dock-crate-4-2",
+    "kind": "crate",
+    "properties": {},
+    "tags": [
+      "storage",
+      "commercial",
+    ],
+    "x": 4.5,
+    "y": 2.5,
+  },
+  {
+    "id": "dock-crate-5-2",
+    "kind": "crate",
+    "properties": {},
+    "tags": [
+      "storage",
+      "commercial",
+    ],
+    "x": 5.5,
+    "y": 2.5,
+  },
+  {
+    "id": "dock-barrel-2-5",
+    "kind": "barrel",
+    "properties": {},
+    "tags": [
+      "storage",
+    ],
+    "x": 2.5,
+    "y": 5.5,
+  },
+  {
+    "id": "dock-rope_coil-3-5",
+    "kind": "rope_coil",
+    "properties": {},
+    "tags": [
+      "nautical",
+    ],
+    "x": 3.5,
+    "y": 5.5,
+  },
+  {
+    "id": "dock-crate-4-5",
+    "kind": "crate",
+    "properties": {},
+    "tags": [
+      "storage",
+      "commercial",
+    ],
+    "x": 4.5,
+    "y": 5.5,
+  },
+  {
+    "id": "dock-crate-5-5",
+    "kind": "crate",
+    "properties": {},
+    "tags": [
+      "storage",
+      "commercial",
+    ],
+    "x": 5.5,
+    "y": 5.5,
+  },
+]
+`;

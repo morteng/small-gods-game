@@ -1,0 +1,319 @@
+/**
+ * Small Gods - Tile System Styles
+ * Tile info panel, tile status, tile rendering, and related components
+ */
+
+/* =========================================================================
+   TILE SYSTEM PANEL
+   ========================================================================= */
+
+.tile-system-panel {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-lg);
+  margin-bottom: var(--spacing-xl);
+}
+
+/* =========================================================================
+   TILE STATUS
+   ========================================================================= */
+
+.tile-status {
+  margin: var(--spacing-md) 0;
+  font-size: var(--font-md);
+}
+
+.tile-status-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 3px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.tile-status-row .label {
+  color: var(--color-text-muted);
+}
+
+.tile-status-row .value {
+  color: var(--color-success);
+  font-weight: 500;
+}
+
+.tile-status-row.missing .value {
+  color: var(--color-error);
+  font-size: var(--font-sm);
+}
+
+/* =========================================================================
+   TILE CONFIG PANEL
+   ========================================================================= */
+
+.tile-config-panel {
+  margin: var(--spacing-md) 0;
+  font-size: var(--font-md);
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-md);
+}
+
+.tile-config-panel .config-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 3px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.tile-config-panel .config-row:last-child {
+  border-bottom: none;
+}
+
+.tile-config-panel .label {
+  color: var(--color-text-muted);
+}
+
+.tile-config-panel .value {
+  color: #60a5fa;
+  font-family: monospace;
+}
+
+/* =========================================================================
+   TILE BUTTONS
+   ========================================================================= */
+
+.tile-buttons {
+  display: flex;
+  gap: var(--spacing-sm);
+  margin-top: var(--spacing-md);
+}
+
+.tile-buttons .btn-small,
+.tile-buttons a.btn-secondary {
+  flex: 1;
+  font-size: var(--font-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
+  text-decoration: none;
+  text-align: center;
+}
+
+/* =========================================================================
+   TILE PROGRESS
+   ========================================================================= */
+
+.tile-progress {
+  margin-top: var(--spacing-md);
+  background: var(--color-surface-dark);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  height: 6px;
+}
+
+.tile-progress .fill {
+  height: 100%;
+  background: linear-gradient(90deg, #7c3aed, var(--color-accent));
+  transition: width var(--transition-normal) ease;
+}
+
+/* =========================================================================
+   TILE VARIANTS PREVIEW
+   ========================================================================= */
+
+.tile-variants-preview {
+  display: flex;
+  gap: var(--spacing-xs);
+  flex-wrap: wrap;
+  margin-top: var(--spacing-md);
+}
+
+.tile-variants-preview img {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-dark);
+}
+
+/* =========================================================================
+   TILE GENERATION STATUS
+   ========================================================================= */
+
+.tile-generation-status {
+  font-size: var(--font-sm);
+  padding: var(--spacing-xs) var(--spacing-md);
+  border-radius: 3px;
+  margin-top: var(--spacing-sm);
+}
+
+.tile-generation-status.generating {
+  background: rgba(124, 58, 237, 0.3);
+  color: var(--color-accent);
+}
+
+.tile-generation-status.ready {
+  background: rgba(74, 222, 128, 0.2);
+  color: var(--color-success);
+}
+
+.tile-generation-status.missing {
+  background: rgba(248, 113, 113, 0.2);
+  color: var(--color-error);
+}
+
+/* =========================================================================
+   TILE INFO PANEL
+   ========================================================================= */
+
+.tile-info-panel {
+  background: var(--color-surface-dark);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-md);
+  margin-bottom: var(--spacing-xl);
+}
+
+.tile-info-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  margin-bottom: var(--spacing-md);
+  padding-bottom: var(--spacing-sm);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.tile-info-header .tile-color,
+.tile-color {
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border-light);
+}
+
+.tile-info-header .tile-name,
+.tile-name {
+  font-weight: 600;
+  text-transform: capitalize;
+  color: var(--color-primary);
+}
+
+/* =========================================================================
+   TILE INFO GRID
+   ========================================================================= */
+
+.tile-info-grid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  font-size: var(--font-md);
+}
+
+.tile-info-panel .info-row,
+.tile-info-grid .info-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 3px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.tile-info-panel .info-row .label,
+.tile-info-grid .info-row .label {
+  color: var(--color-text-muted);
+}
+
+.tile-info-panel .info-row .value,
+.tile-info-grid .info-row .value {
+  color: #ccc;
+  text-transform: capitalize;
+}
+
+/* =========================================================================
+   TILE INFO SECTION
+   ========================================================================= */
+
+.tile-info-section {
+  margin-top: var(--spacing-lg);
+  padding-top: var(--spacing-md);
+  border-top: 1px solid var(--color-border);
+}
+
+.tile-info-section .section-title {
+  font-size: var(--font-sm);
+  font-weight: bold;
+  color: var(--color-primary);
+  margin-bottom: var(--spacing-sm);
+  text-transform: uppercase;
+}
+
+/* =========================================================================
+   TILE RENDER SECTION
+   ========================================================================= */
+
+.tile-render-section {
+  margin-top: var(--spacing-xl);
+  padding-top: var(--spacing-lg);
+  border-top: 1px solid var(--color-border);
+}
+
+.tile-previews {
+  display: flex;
+  gap: var(--spacing-md);
+  margin-bottom: var(--spacing-lg);
+}
+
+.tile-preview-item {
+  flex: 1;
+  text-align: center;
+}
+
+.tile-preview-item .preview-label {
+  font-size: var(--font-sm);
+  color: var(--color-text-muted);
+  margin-bottom: var(--spacing-xs);
+}
+
+.tile-preview-item canvas {
+  width: 100%;
+  max-width: 90px;
+  height: auto;
+  aspect-ratio: 1;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-dark);
+  image-rendering: pixelated;
+}
+
+/* =========================================================================
+   TILE RENDER RESULT
+   ========================================================================= */
+
+.tile-render-result {
+  margin-top: var(--spacing-xl);
+  text-align: center;
+}
+
+.tile-render-result .preview-label {
+  font-size: var(--font-sm);
+  color: var(--color-success);
+  margin-bottom: var(--spacing-sm);
+}
+
+.tile-render-result canvas {
+  width: 100%;
+  max-width: 200px;
+  height: auto;
+  border-radius: var(--radius-md);
+  border: 2px solid rgba(74, 222, 128, 0.3);
+  background: var(--color-bg-dark);
+  image-rendering: pixelated;
+}
+
+/* =========================================================================
+   TILE RENDER BUTTON
+   ========================================================================= */
+
+#btnRenderTile {
+  width: 100%;
+  margin-top: var(--spacing-md);
+}
+
+#btnRenderTile:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}

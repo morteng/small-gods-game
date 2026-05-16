@@ -1,0 +1,216 @@
+/**
+ * Small Gods - Layout Styles
+ * App structure, panels, header, and main layout
+ */
+
+/* =========================================================================
+   MAIN APP LAYOUT
+   ========================================================================= */
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  padding: var(--spacing-lg);
+  gap: var(--spacing-lg);
+}
+
+/* =========================================================================
+   HEADER
+   ========================================================================= */
+
+.header {
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.header h1 {
+  font-size: 1.5em;
+  background: linear-gradient(90deg, var(--color-primary), var(--color-primary-dark));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.header .subtitle {
+  color: var(--color-text-dim);
+  font-size: var(--font-lg);
+}
+
+/* =========================================================================
+   MAIN CONTENT AREA
+   ========================================================================= */
+
+.main {
+  display: flex;
+  gap: var(--spacing-lg);
+  flex: 1;
+  min-height: 0;
+}
+
+/* =========================================================================
+   PANELS
+   ========================================================================= */
+
+.panel {
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-xl);
+  border: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.panel-left {
+  width: 240px;
+  flex-shrink: 0;
+}
+
+.panel-center {
+  flex: 1;
+  min-width: 0;
+}
+
+.panel-right {
+  width: 220px;
+  flex-shrink: 0;
+  overflow-y: auto;
+}
+
+.panel h2 {
+  font-size: 0.85em;
+  margin-bottom: var(--spacing-md);
+  color: var(--color-primary);
+  border-bottom: 1px solid var(--color-border);
+  padding-bottom: var(--spacing-sm);
+  flex-shrink: 0;
+}
+
+.panel h2.section-header {
+  margin-top: var(--spacing-xl);
+}
+
+.panel h2 .subtitle {
+  font-size: var(--font-xs);
+  color: var(--color-text-dim);
+  font-weight: normal;
+}
+
+h2 .subtitle {
+  font-size: var(--font-sm);
+  color: var(--color-text-dim);
+  font-weight: normal;
+}
+
+/* Scrollable panel content */
+.panel-scroll {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+/* =========================================================================
+   STATS GRID
+   ========================================================================= */
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-lg);
+}
+
+.stat-box {
+  background: var(--color-surface-dark);
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-sm);
+  text-align: center;
+}
+
+.stat-box .value {
+  font-size: 1.1em;
+  font-weight: bold;
+  color: var(--color-primary);
+}
+
+.stat-box .label {
+  font-size: var(--font-xs);
+  color: var(--color-text-dim);
+}
+
+/* =========================================================================
+   MINIMAP
+   ========================================================================= */
+
+.minimap {
+  background: var(--color-surface-dark);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  position: relative;
+  aspect-ratio: 4/3;
+}
+
+.minimap canvas {
+  width: 100%;
+  height: 100%;
+}
+
+.minimap .viewport {
+  position: absolute;
+  border: 2px solid var(--color-primary);
+  pointer-events: none;
+}
+
+/* =========================================================================
+   COST TRACKER
+   ========================================================================= */
+
+.cost-tracker {
+  background: var(--color-surface-dark);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-md);
+  margin-bottom: var(--spacing-lg);
+  font-size: var(--font-md);
+}
+
+.cost-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 3px 0;
+}
+
+.cost-row .label {
+  color: var(--color-text-muted);
+}
+
+.cost-row .value {
+  color: var(--color-success-dark);
+  font-weight: 500;
+}
+
+.cost-row.total {
+  border-top: 1px solid var(--color-border);
+  margin-top: var(--spacing-xs);
+  padding-top: var(--spacing-sm);
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+/* =========================================================================
+   PRICE LIST
+   ========================================================================= */
+
+.price-list {
+  font-size: var(--font-xs);
+  color: var(--color-text-dimmer);
+  margin-top: var(--spacing-md);
+  padding-top: var(--spacing-md);
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.price-list div {
+  display: flex;
+  justify-content: space-between;
+  padding: 1px 0;
+}

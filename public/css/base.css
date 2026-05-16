@@ -1,0 +1,111 @@
+/**
+ * Small Gods - Base Styles
+ * Reset, CSS variables, typography, and base elements
+ */
+
+/* =========================================================================
+   CSS CUSTOM PROPERTIES (Variables)
+   ========================================================================= */
+
+:root {
+  /* Colors - Primary */
+  --color-primary: #f093fb;
+  --color-primary-dark: #f5576c;
+  --color-accent: #a855f7;
+
+  /* Colors - Status */
+  --color-success: #4ade80;
+  --color-success-dark: #38ef7d;
+  --color-error: #f87171;
+  --color-error-dark: #f5576c;
+  --color-warning: #fbbf24;
+
+  /* Colors - UI */
+  --color-bg-dark: #1a1a2e;
+  --color-bg-darker: #16213e;
+  --color-text: #fff;
+  --color-text-muted: #888;
+  --color-text-dim: #666;
+  --color-text-dimmer: #555;
+
+  /* Colors - Borders & Surfaces */
+  --color-border: rgba(255, 255, 255, 0.1);
+  --color-border-light: rgba(255, 255, 255, 0.2);
+  --color-surface: rgba(255, 255, 255, 0.05);
+  --color-surface-dark: rgba(0, 0, 0, 0.3);
+  --color-surface-darker: rgba(0, 0, 0, 0.4);
+
+  /* Spacing */
+  --spacing-xs: 4px;
+  --spacing-sm: 6px;
+  --spacing-md: 8px;
+  --spacing-lg: 10px;
+  --spacing-xl: 12px;
+  --spacing-2xl: 15px;
+
+  /* Border Radius */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+
+  /* Font Sizes */
+  --font-xs: 9px;
+  --font-sm: 10px;
+  --font-md: 11px;
+  --font-lg: 12px;
+  --font-xl: 13px;
+
+  /* Transitions */
+  --transition-fast: 0.2s;
+  --transition-normal: 0.3s;
+}
+
+/* =========================================================================
+   RESET
+   ========================================================================= */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  background: linear-gradient(135deg, var(--color-bg-dark) 0%, var(--color-bg-darker) 100%);
+  color: var(--color-text);
+}
+
+/* =========================================================================
+   ANIMATIONS
+   ========================================================================= */
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: var(--color-text);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+/* =========================================================================
+   UTILITY CLASSES
+   ========================================================================= */
+
+.empty-state {
+  color: var(--color-text-dimmer);
+  font-size: var(--font-sm);
+  text-align: center;
+  padding: var(--spacing-lg);
+}
