@@ -54,6 +54,53 @@ describe('generateHydrology (flow accumulation)', () => {
     expect(result.flowField.length).toBe(20);
   });
 
+  it('fills closed basins so rivers reach water', () => {
+    // 9×3 grid; mountain walls (elev 1.0) on top/bottom rows and on x=0;
+    // interior row y=1 carries a peak → pit → wall → coast chain that ends
+    // in water at x=7,8.
+    //
+    //   y=0:  1   1   1   1   1   1   1   1   1   (mountain wall)
+    //   y=1:  1  0.9 0.8 0.6 0.8 0.5 0.4 0.1 0.1  (interior + coast)
+    //                       ^pit (both x-neighbours higher)
+    //   y=2:  1   1   1   1   1   1   1   1   1
+    //
+    // Without pit-fill, the pit at (3,1) has no strictly-lower 4-neighbour and
+    // breaks the drainage chain. With pit-fill, the pit virtually raises to
+    // its lowest spill-over (the (4,1) wall plus an ε), so flow continues
+    // (1,1) → (2,1) → (3,1) → (4,1) → (5,1) → (6,1) → water at (7,1).
+    const w = 9, h = 3;
+    const elev = new Float32Array(w * h);
+    for (let i = 0; i < w * h; i++) elev[i] = 1.0;
+    const set = (x: number, y: number, e: number) => { elev[y * w + x] = e; };
+    set(1, 1, 0.9);
+    set(2, 1, 0.8);
+    set(3, 1, 0.6);
+    set(4, 1, 0.8);
+    set(5, 1, 0.5);
+    set(6, 1, 0.4);
+    set(7, 1, 0.1);
+    set(8, 1, 0.1);
+
+    const fields: TerrainField = {
+      elevation: elev,
+      moisture: new Float32Array(w * h),
+      temperature: new Float32Array(w * h),
+    };
+    const config: TerrainConfig = { seed: 1, width: w, height: h, seaLevel: 0.35 };
+
+    const result = generateHydrology(fields, config, { riverFlowThreshold: 2 });
+
+    const idx = (x: number, y: number) => y * w + x;
+    expect(result.riverMask[idx(3, 1)]).toBe(1); // the pit gets the river
+    // Continuous chain from pit through wall to coast.
+    expect(result.riverMask[idx(4, 1)]).toBe(1);
+    expect(result.riverMask[idx(5, 1)]).toBe(1);
+    expect(result.riverMask[idx(6, 1)]).toBe(1);
+    // Water itself is never river-marked.
+    expect(result.riverMask[idx(7, 1)]).toBe(0);
+    expect(result.riverMask[idx(8, 1)]).toBe(0);
+  });
+
   it('water tiles generate no rain of their own but can receive land drainage', () => {
     // 3×1 strip: land, land, water
     const elev = new Float32Array([0.9, 0.5, 0.1]);

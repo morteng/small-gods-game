@@ -51,10 +51,11 @@ describe('Hydrology in generateWithNoise', () => {
         if (map.tiles[y]?.[x]?.type === 'river') rivers++;
       }
     }
-    // Calibrated empirically: on default settings, seed=1 produces ~71 rivers
-    // (seeds 1..10 ranged 59–71). We assert a generous tolerance to allow
-    // future small tuning without brittleness.
-    expect(rivers).toBeGreaterThanOrEqual(35);
-    expect(rivers).toBeLessThanOrEqual(142);
+    // Calibrated empirically after pit-filling (Barnes 2014 priority-flood)
+    // started routing all drainage to water: seed=1 produces ~280 rivers at
+    // the default threshold of 500. Tolerance allows small tuning without
+    // brittleness.
+    expect(rivers).toBeGreaterThanOrEqual(120);
+    expect(rivers).toBeLessThanOrEqual(560);
   });
 });
