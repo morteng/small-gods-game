@@ -19,19 +19,27 @@
  * does not mutate input.
  */
 
-const DEFAULT_NUM_PARTICLES = 2000;
+// Tuning rationale (2026-05): the previous defaults (np=2000, e=0.30, d=0.30)
+// over-eroded a 128×96 noise field — they crushed the elevation tails, dropping
+// "water" cells from ~254 → ~25 and "peaks" from ~124 → ~19 vs raw noise, and
+// nearly halved river output. The values below were selected from a parameter
+// sweep (see commit history / probe) as the combination whose post-erosion
+// distribution stays closest to the raw-noise baseline (mean within ±0.001,
+// peaks ~80% retained, water ~50% retained) while still producing visible
+// smoothing of single-cell spikes and gentle valley deposition.
+const DEFAULT_NUM_PARTICLES = 500;
 const DEFAULT_INERTIA = 0.1;
 const DEFAULT_SEDIMENT_CAPACITY_FACTOR = 4;
 const DEFAULT_MIN_SLOPE = 0.01;
-const DEFAULT_ERODE_FACTOR = 0.3;
-const DEFAULT_DEPOSIT_FACTOR = 0.3;
+const DEFAULT_ERODE_FACTOR = 0.05;
+const DEFAULT_DEPOSIT_FACTOR = 0.05;
 const DEFAULT_EVAPORATION = 0.01;
 const DEFAULT_GRAVITY = 4;
 const DEFAULT_MAX_STEPS = 64;
 const DEFAULT_SEED = 1;
 
 export interface ErosionOptions {
-  /** Number of erosion particles to simulate. Default 2000. */
+  /** Number of erosion particles to simulate. Default 500. */
   numParticles?: number;
   /** Velocity inertia [0..1]. 0 = pure gradient descent, 1 = ballistic. Default 0.1. */
   inertia?: number;
@@ -39,9 +47,9 @@ export interface ErosionOptions {
   sedimentCapacityFactor?: number;
   /** Minimum slope to treat as positive (numerical floor). Default 0.01. */
   minSlope?: number;
-  /** Fraction of available capacity eroded per step. Default 0.3. */
+  /** Fraction of available capacity eroded per step. Default 0.05. */
   erodeFactor?: number;
-  /** Fraction of excess sediment deposited per step. Default 0.3. */
+  /** Fraction of excess sediment deposited per step. Default 0.05. */
   depositFactor?: number;
   /** Per-step water evaporation. Default 0.01. */
   evaporation?: number;
