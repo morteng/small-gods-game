@@ -43,7 +43,6 @@ src/
   map/
     map-generator.ts   — Map generation (WFC + noise)
     autotiler.ts       — Semantic-to-visual tile mapping
-    chunk-manager.ts   — Chunked infinite maps (LRU cache)
     world-manager.ts   — Save/load worlds
 
   wfc/

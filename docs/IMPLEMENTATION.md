@@ -28,19 +28,6 @@ Core map generation and rendering. Originally isometric + AI-rendered tiles; now
 | ~~Decoration system~~ | Removed | Will revisit when art pipeline matures |
 | ~~Isometric renderer~~ | Removed | Replaced by top-down view |
 
-### Phase 2: Chunked Infinite Maps
-**Status**: ✅ Core Complete
-
-| Task | Status | Notes |
-|------|--------|-------|
-| ChunkManager class | ✅ Done | `src/map/chunk-manager.ts` |
-| In-memory caching (LRU) | ✅ Done | Configurable max chunks |
-| Cross-chunk edge constraints | ✅ Done | Neighbor edge seeding |
-| Chunk coordinate system | ✅ Done | World↔Chunk↔Local conversion |
-| Viewport-based chunk loading | 🟡 Partial | API ready, needs UI integration |
-| IndexedDB persistence | ⬜ Pending | Future enhancement |
-| Seamless chunk rendering | 🟡 Partial | Needs TileMapRenderer integration |
-
 ### Phase 3: Enhanced POI System
 **Status**: ✅ Complete
 
@@ -179,41 +166,6 @@ Background LLM agent that turns simulation into story. Never interacts with play
 
 ## 2. Detailed Task Breakdown
 
-### 2.1 ChunkManager Implementation
-
-```javascript
-// Location: /public/js/ChunkManager.js
-
-class ChunkManager {
-  constructor(options) {
-    this.chunkSize = options.chunkSize || 16;
-    this.worldSeed = options.worldSeed;
-    this.cache = new Map();  // In-memory cache
-    this.generating = new Set();  // Currently generating
-  }
-
-  // Core methods
-  async getChunk(cx, cy);           // Get or generate chunk
-  async generateChunk(cx, cy);      // Generate new chunk
-  getNeighborConstraints(cx, cy);   // Edge constraints from neighbors
-  unloadDistantChunks(viewportCenter, radius);
-
-  // Batch operations
-  async preloadArea(cx, cy, radius);
-  clearCache();
-}
-```
-
-**Implementation Steps:**
-
-1. Create ChunkManager class with basic structure
-2. Implement single-chunk generation (extract from current code)
-3. Add edge constraint extraction from neighbors
-4. Implement WFC with pre-seeded edges
-5. Add memory cache with LRU eviction
-6. Add IndexedDB persistence
-7. Integrate with TileMapRenderer
-
 ### 2.2 POI Editor Implementation
 
 ```javascript
@@ -337,7 +289,6 @@ small-gods-game/
 │   │   ├── state.js           # Global state management
 │   │   ├── ui.js              # UI event handlers
 │   │   ├── renderer.js        # Canvas rendering
-│   │   ├── ChunkManager.js    # NEW: Chunk management
 │   │   ├── poi-editor.js      # NEW: POI editing
 │   │   ├── road-editor.js     # NEW: Road editing
 │   │   ├── auto-bridge.js     # NEW: Auto-bridge logic
@@ -393,17 +344,6 @@ small-gods-game/
 ---
 
 ## 4. Migration Notes
-
-### 4.1 Current State → Chunked Maps
-
-**Data Migration:**
-- Current maps store all tiles in single array
-- New format stores chunks independently
-- Migration: Convert existing map to chunk-0,0
-
-**API Changes:**
-- `map.tiles[y][x]` → `chunkManager.getTile(x, y)`
-- `map.width/height` → Infinite (viewport-based)
 
 ### 4.2 POI Schema Enhancement
 
