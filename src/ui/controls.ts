@@ -28,11 +28,15 @@ export function attachControls(canvas: HTMLCanvasElement, camera: Camera, callba
   let dragging = false;
   let lastX = 0;
   let lastY = 0;
+  let downX = 0;
+  let downY = 0;
 
   function onMouseDown(e: MouseEvent) {
     dragging = true;
     lastX = e.clientX;
     lastY = e.clientY;
+    downX = e.clientX;
+    downY = e.clientY;
   }
 
   function onMouseMove(e: MouseEvent) {
@@ -56,9 +60,11 @@ export function attachControls(canvas: HTMLCanvasElement, camera: Camera, callba
   function onMouseUp(e: MouseEvent) {
     if (!dragging) return;
     dragging = false;
-    // If barely moved, treat as click
-    const dx = Math.abs(e.clientX - lastX);
-    const dy = Math.abs(e.clientY - lastY);
+    // If barely moved since mousedown, treat as click. Compare against the
+    // mousedown position, NOT lastX/lastY (which track the most recent
+    // mousemove during a drag and would always read ~0 here).
+    const dx = Math.abs(e.clientX - downX);
+    const dy = Math.abs(e.clientY - downY);
     if (dx < 3 && dy < 3) {
       const rect = canvas.getBoundingClientRect();
       const sx = e.clientX - rect.left;

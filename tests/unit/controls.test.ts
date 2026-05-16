@@ -146,6 +146,33 @@ describe('attachControls keyboard', () => {
     expect(onTogglePoiMarkers).not.toHaveBeenCalled();
   });
 
+  it('does not invoke onTileClick after a drag-pan', () => {
+    const onTileClick = vi.fn();
+    const onCanvasClick = vi.fn();
+    cleanup = attachControls(canvas, createCamera(), {
+      onRedraw: () => {},
+      onTileClick,
+      onCanvasClick,
+    });
+    canvas.dispatchEvent(new MouseEvent('mousedown', { clientX: 100, clientY: 100, bubbles: true }));
+    canvas.dispatchEvent(new MouseEvent('mousemove', { clientX: 150, clientY: 120, bubbles: true }));
+    canvas.dispatchEvent(new MouseEvent('mousemove', { clientX: 200, clientY: 140, bubbles: true }));
+    canvas.dispatchEvent(new MouseEvent('mouseup', { clientX: 200, clientY: 140, bubbles: true }));
+    expect(onTileClick).not.toHaveBeenCalled();
+    expect(onCanvasClick).not.toHaveBeenCalled();
+  });
+
+  it('invokes onTileClick on a stationary click (no drag)', () => {
+    const onTileClick = vi.fn();
+    cleanup = attachControls(canvas, createCamera(), {
+      onRedraw: () => {},
+      onTileClick,
+    });
+    canvas.dispatchEvent(new MouseEvent('mousedown', { clientX: 100, clientY: 100, bubbles: true }));
+    canvas.dispatchEvent(new MouseEvent('mouseup', { clientX: 101, clientY: 101, bubbles: true }));
+    expect(onTileClick).toHaveBeenCalledTimes(1);
+  });
+
   it('cleanup removes the key listener', () => {
     const onTogglePause = vi.fn();
     cleanup = attachControls(canvas, createCamera(), {
