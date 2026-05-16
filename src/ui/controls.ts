@@ -9,7 +9,7 @@ export interface ControlsCallbacks {
   onToggleLabels?: () => void;
   onTogglePoiMarkers?: () => void;
   onToggleDebug?: () => void;
-  onHoverTile?: (x: number, y: number) => void;
+  onHoverTile?: (tileX: number, tileY: number, screenX: number, screenY: number) => void;
   onRedraw: () => void;
 }
 
@@ -36,8 +36,10 @@ export function attachControls(canvas: HTMLCanvasElement, camera: Camera, callba
   function onMouseMove(e: MouseEvent) {
     if (callbacks.onHoverTile) {
       const rect = canvas.getBoundingClientRect();
-      const { wx, wy } = screenToWorld(camera, e.clientX - rect.left, e.clientY - rect.top, TILE_SIZE);
-      callbacks.onHoverTile(wx, wy);
+      const sx = e.clientX - rect.left;
+      const sy = e.clientY - rect.top;
+      const { wx, wy } = screenToWorld(camera, sx, sy, TILE_SIZE);
+      callbacks.onHoverTile(wx, wy, sx, sy);
     }
     if (!dragging) return;
     const dx = e.clientX - lastX;

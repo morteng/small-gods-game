@@ -14,6 +14,7 @@ import { whisperNpc, computePowerRegen } from '@/sim/divine-actions';
 import { drawPowerHud } from '@/render/hud';
 import { formatDebugHud } from '@/ui/debug-hud';
 import { renderNpcInfoPanel } from '@/ui/npc-info-panel';
+import { formatNpcTooltip } from '@/ui/npc-tooltip';
 import { Autotiler } from '@/map/autotiler';
 import { computeBlobMap } from '@/map/blob-autotiler';
 import { getBuildingTemplate, BUILDING_TEMPLATES } from '@/map/building-templates';
@@ -56,7 +57,9 @@ export class Game {
   private renderedPinned: boolean = false;
   private lastInfoRefresh: number = 0;
   private hoverTile: { x: number; y: number } | null = null;
+  private hoverScreen: { x: number; y: number } | null = null;
   private fpsEma: number = 60;
+  private tooltip: HTMLDivElement;
   /** Resolved spritesheets keyed by NPC id */
   private sheets = new Map<string, HTMLCanvasElement>();
   private tileAtlas: HTMLImageElement | null = null;
@@ -109,6 +112,16 @@ export class Game {
     ].join(';');
     container.appendChild(this.npcInfoPanel);
 
+    this.tooltip = document.createElement('div');
+    this.tooltip.style.cssText = [
+      'position:absolute', 'padding:3px 8px',
+      'background:rgba(10,10,20,0.85)', 'color:#fff',
+      'font:11px sans-serif', 'border-radius:3px',
+      'pointer-events:none', 'display:none', 'z-index:11',
+      'white-space:nowrap', 'transform:translate(12px, 12px)',
+    ].join(';');
+    container.appendChild(this.tooltip);
+
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(container);
     this.resize();
@@ -123,7 +136,10 @@ export class Game {
         this.state.debug = !this.state.debug;
         this.debugHud.style.display = this.state.debug ? 'block' : 'none';
       },
-      onHoverTile: (x, y) => { this.hoverTile = { x, y }; },
+      onHoverTile: (x, y, sx, sy) => {
+        this.hoverTile = { x, y };
+        this.hoverScreen = { x: sx, y: sy };
+      },
       onRedraw: () => {},
     });
   }
@@ -386,6 +402,8 @@ export class Game {
     const regenPerSec = computePowerRegen(this.state.npcSim);
     drawPowerHud(this.ctx, this.state.playerPower, regenPerSec);
 
+    this.updateTooltip();
+
     if (this.state.debug) {
       this.debugHud.textContent = formatDebugHud({
         fps: this.fpsEma,
@@ -396,6 +414,28 @@ export class Game {
         zoom: this.state.camera.zoom,
       });
     }
+  }
+
+  private updateTooltip(): void {
+    if (!this.hoverTile || !this.hoverScreen) {
+      this.tooltip.style.display = 'none';
+      return;
+    }
+    const { x, y } = this.hoverTile;
+    const hovered = this.state.npcs.find(n => n.tileX === x && n.tileY === y);
+    if (!hovered || hovered.id === this.state.selectedNpcId) {
+      this.tooltip.style.display = 'none';
+      return;
+    }
+    const sim = this.state.npcSim.get(hovered.id);
+    if (!sim) {
+      this.tooltip.style.display = 'none';
+      return;
+    }
+    this.tooltip.textContent = formatNpcTooltip({ name: sim.name, role: sim.role, mood: sim.mood });
+    this.tooltip.style.left = `${this.hoverScreen.x}px`;
+    this.tooltip.style.top  = `${this.hoverScreen.y}px`;
+    this.tooltip.style.display = 'block';
   }
 
   private onCanvasClick(sx: number, sy: number): boolean {
@@ -434,6 +474,7 @@ export class Game {
     this.pausedBanner.remove();
     this.debugHud.remove();
     this.npcInfoPanel.remove();
+    this.tooltip.remove();
     this.canvas.remove();
   }
 }
