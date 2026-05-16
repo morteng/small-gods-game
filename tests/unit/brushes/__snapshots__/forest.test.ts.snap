@@ -1,0 +1,276 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`forest brush > produces a stable snapshot 1`] = `
+[
+  {
+    "id": "forest-pale_tree-6--1",
+    "kind": "pale_tree",
+    "properties": {
+      "offsetX": 0.10675463688408705,
+      "offsetY": -0.039086079545824826,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+      "forest",
+    ],
+    "x": 6.106754636884087,
+    "y": -0.039086079545824826,
+  },
+  {
+    "id": "forest-pale_tree-7--1",
+    "kind": "pale_tree",
+    "properties": {
+      "offsetX": 0.09335203182108329,
+      "offsetY": -0.05248868460882859,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+      "forest",
+    ],
+    "x": 7.093352031821083,
+    "y": -0.05248868460882859,
+  },
+  {
+    "id": "forest-pale_tree-0-1",
+    "kind": "pale_tree",
+    "properties": {
+      "offsetX": 0.08716632138805759,
+      "offsetY": -0.05867435927906742,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+      "forest",
+    ],
+    "x": 0.08716632138805759,
+    "y": 1.9413256407209325,
+  },
+  {
+    "id": "forest-orange_tree-1-1",
+    "kind": "orange_tree",
+    "properties": {
+      "offsetX": 0.0737637520878407,
+      "offsetY": -0.07207696434207118,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+      "forest",
+    ],
+    "x": 1.0737637520878407,
+    "y": 1.9279230356579289,
+  },
+  {
+    "id": "forest-orange_tree-2-1",
+    "kind": "orange_tree",
+    "properties": {
+      "offsetX": 0.06036114702483692,
+      "offsetY": -0.08547956940507496,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+      "forest",
+    ],
+    "x": 2.060361147024837,
+    "y": 1.914520430594925,
+  },
+  {
+    "id": "forest-orange_tree-3-1",
+    "kind": "orange_tree",
+    "properties": {
+      "offsetX": 0.046958541961833154,
+      "offsetY": -0.09888217446807873,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+      "forest",
+    ],
+    "x": 3.0469585419618332,
+    "y": 1.9011178255319212,
+  },
+  {
+    "id": "forest-orange_tree-4-1",
+    "kind": "orange_tree",
+    "properties": {
+      "offsetX": 0.03355593689882939,
+      "offsetY": -0.11228470800550873,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+      "forest",
+    ],
+    "x": 4.033555936898829,
+    "y": 1.8877152919944913,
+  },
+  {
+    "id": "forest-orange_tree-5-1",
+    "kind": "orange_tree",
+    "properties": {
+      "offsetX": 0.020153331835825617,
+      "offsetY": -0.1256873130685125,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+      "forest",
+    ],
+    "x": 5.020153331835826,
+    "y": 1.8743126869314874,
+  },
+  {
+    "id": "forest-pale_tree-6-2",
+    "kind": "pale_tree",
+    "properties": {
+      "offsetX": 0.10674891483818595,
+      "offsetY": -0.03909187311729969,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+      "forest",
+    ],
+    "x": 6.106748914838186,
+    "y": 2.9609081268827,
+  },
+  {
+    "id": "forest-pale_tree-7-2",
+    "kind": "pale_tree",
+    "properties": {
+      "offsetX": 0.09334630977518218,
+      "offsetY": -0.05249447818030346,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+      "forest",
+    ],
+    "x": 7.093346309775182,
+    "y": 2.9475055218196964,
+  },
+  {
+    "id": "forest-pale_tree-0-4",
+    "kind": "pale_tree",
+    "properties": {
+      "offsetX": 0.08716056357936959,
+      "offsetY": -0.05868015285054229,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+      "forest",
+    ],
+    "x": 0.08716056357936959,
+    "y": 4.941319847149458,
+  },
+  {
+    "id": "forest-orange_tree-1-4",
+    "kind": "orange_tree",
+    "properties": {
+      "offsetX": 0.07375795851636582,
+      "offsetY": -0.07208268638797229,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+      "forest",
+    ],
+    "x": 1.073757958516366,
+    "y": 4.927917313612028,
+  },
+  {
+    "id": "forest-orange_tree-2-4",
+    "kind": "orange_tree",
+    "properties": {
+      "offsetX": 0.06035535345336206,
+      "offsetY": -0.08548529145097607,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+      "forest",
+    ],
+    "x": 2.060355353453362,
+    "y": 4.9145147085490235,
+  },
+  {
+    "id": "forest-orange_tree-3-4",
+    "kind": "orange_tree",
+    "properties": {
+      "offsetX": 0.04695281991593205,
+      "offsetY": -0.09888796803955359,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+      "forest",
+    ],
+    "x": 3.046952819915932,
+    "y": 4.901112031960446,
+  },
+  {
+    "id": "forest-orange_tree-4-4",
+    "kind": "orange_tree",
+    "properties": {
+      "offsetX": 0.033550214852928285,
+      "offsetY": -0.11229043005140983,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+      "forest",
+    ],
+    "x": 4.033550214852928,
+    "y": 4.88770956994859,
+  },
+  {
+    "id": "forest-orange_tree-5-4",
+    "kind": "orange_tree",
+    "properties": {
+      "offsetX": 0.020147609789924515,
+      "offsetY": -0.1256930351144136,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+      "forest",
+    ],
+    "x": 5.020147609789925,
+    "y": 4.874306964885586,
+  },
+  {
+    "id": "forest-pale_tree-6-5",
+    "kind": "pale_tree",
+    "properties": {
+      "offsetX": 0.10674304974113732,
+      "offsetY": -0.03909759516320079,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+      "forest",
+    ],
+    "x": 6.106743049741137,
+    "y": 5.9609024048368,
+  },
+  {
+    "id": "forest-pale_tree-7-5",
+    "kind": "pale_tree",
+    "properties": {
+      "offsetX": 0.09334044467813356,
+      "offsetY": -0.05250020022620456,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+      "forest",
+    ],
+    "x": 7.093340444678134,
+    "y": 5.947499799773795,
+  },
+]
+`;
