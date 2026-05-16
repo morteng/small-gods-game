@@ -142,9 +142,11 @@ export interface RenderContext {
   world: World;
   showLabels?: boolean;
   showPoiMarkers?: boolean;
-  /** Player-placed decorations to render above terrain. Part 1 renders these
-   *  as placeholder squares; Part 2 will swap in real LibraryAsset blobs. */
+  /** Player-placed decorations to render, y-sorted with other entities. */
   generatedDecorations?: GeneratedDecoration[];
+  /** Resolves an asset id to its cached `<img>`; null until the image
+   *  finishes loading (renderer falls back to a placeholder square). */
+  resolveDecorationImage?: (assetId: string) => HTMLImageElement | null;
 }
 
 /** A live NPC instance on the map */

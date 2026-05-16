@@ -21,6 +21,7 @@ import {
   type DecorationPlacementModalHandle,
 } from '@/ui/decoration-placement-modal';
 import { loadDecorations, saveDecorations } from '@/services/decoration-store';
+import { DecorationImageCache } from '@/render/decoration-image-cache';
 import { Autotiler } from '@/map/autotiler';
 import { computeBlobMap } from '@/map/blob-autotiler';
 import { getBuildingTemplate, BUILDING_TEMPLATES } from '@/map/building-templates';
@@ -69,6 +70,7 @@ export class Game {
   private settingsPanel: SettingsPanelHandle;
   private settingsBtn: HTMLButtonElement;
   private placementModal: DecorationPlacementModalHandle;
+  private decorationImages = new DecorationImageCache();
   /** Resolved spritesheets keyed by NPC id */
   private sheets = new Map<string, HTMLCanvasElement>();
   private tileAtlas: HTMLImageElement | null = null;
@@ -227,6 +229,9 @@ export class Game {
 
     this.spawnNpcs(ws, map);
     this.state.generatedDecorations = loadDecorations(ws.name);
+    // Kick off image preloading; missing ids resolve to null and the renderer
+    // falls back to placeholder squares until the load completes.
+    void this.decorationImages.preload(this.state.generatedDecorations.map(d => d.assetId));
     this.startLoop();
     return map;
   }
@@ -245,6 +250,7 @@ export class Game {
     if (this.state.worldSeed) {
       saveDecorations(this.state.worldSeed.name, this.state.generatedDecorations);
     }
+    void this.decorationImages.load(result.assetId);
   }
 
   /** Spawn NPCs from POI definitions */
@@ -412,6 +418,7 @@ export class Game {
       showLabels: this.state.showLabels,
       showPoiMarkers: this.state.showPoiMarkers,
       generatedDecorations: this.state.generatedDecorations,
+      resolveDecorationImage: (id: string) => this.decorationImages.get(id),
     };
     renderMap(this.ctx, rc);
 
@@ -552,6 +559,7 @@ export class Game {
     this.settingsBtn.remove();
     this.settingsPanel.destroy();
     this.placementModal.destroy();
+    this.decorationImages.destroy();
     this.canvas.remove();
   }
 }

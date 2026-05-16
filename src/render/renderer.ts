@@ -1,4 +1,4 @@
-import type { RenderContext, Entity } from '@/core/types';
+import type { RenderContext, Entity, GeneratedDecoration } from '@/core/types';
 import { TILE_SIZE, TILE_COLORS, BG_COLOR, POI_ICONS, TILE_SPRITE_MAP, KENNEY_TILE_SIZE } from '@/core/constants';
 import { getSpriteCoords } from '@/render/npc-animator';
 import { getTerrainSpriteCoords, LPC_TILE_SIZE } from '@/render/terrain-atlas';
@@ -19,7 +19,6 @@ export function renderMap(ctx: CanvasRenderingContext2D, rc: RenderContext): voi
   ctx.translate(-camera.x, -camera.y);
 
   drawTerrain(ctx, rc);
-  drawGeneratedDecorations(ctx, rc);
   drawYSortedEntities(ctx, rc);
   drawOverlays(ctx, rc);
 
@@ -377,37 +376,29 @@ function drawNpcs(
 }
 
 /**
- * Player-placed decorations (Part 1: colored-square placeholder).
- *
- * Rendered between terrain and y-sorted entities so they sit on the ground but
- * below trees/buildings/NPCs. Part 2 will replace this pass with a blob-backed
- * image cache that draws each LibraryAsset at its tile.
+ * Player-placed decoration. Drawn at its full TILE_SIZE×TILE_SIZE footprint
+ * via the cached `<img>`; falls back to a yellow square while the blob is
+ * still loading from IndexedDB.
  */
-function drawGeneratedDecorations(ctx: CanvasRenderingContext2D, rc: RenderContext): void {
-  const list = rc.generatedDecorations;
-  if (!list || list.length === 0) return;
-  const { camera, canvasWidth, canvasHeight } = rc;
-  const camLeft   = camera.x / TILE_SIZE;
-  const camTop    = camera.y / TILE_SIZE;
-  const camRight  = (camera.x + canvasWidth  / camera.zoom) / TILE_SIZE;
-  const camBottom = (camera.y + canvasHeight / camera.zoom) / TILE_SIZE;
-
-  ctx.save();
-  for (const d of list) {
-    if (d.tileX + 1 < camLeft || d.tileX > camRight ||
-        d.tileY + 1 < camTop  || d.tileY > camBottom) continue;
-    const px = d.tileX * TILE_SIZE;
-    const py = d.tileY * TILE_SIZE;
-    // Filled square with a contrasting border so placements are visible
-    // regardless of underlying terrain.
-    ctx.fillStyle = 'rgba(255, 213, 79, 0.55)';
-    ctx.fillRect(px + 2, py + 2, TILE_SIZE - 4, TILE_SIZE - 4);
-    ctx.strokeStyle = '#FFD54F';
-    ctx.lineWidth = 1.5;
-    ctx.strokeRect(px + 2.5, py + 2.5, TILE_SIZE - 5, TILE_SIZE - 5);
+function drawDecoration(ctx: CanvasRenderingContext2D, rc: RenderContext, d: GeneratedDecoration): void {
+  const px = d.tileX * TILE_SIZE;
+  const py = d.tileY * TILE_SIZE;
+  const img = rc.resolveDecorationImage?.(d.assetId) ?? null;
+  if (img) {
+    ctx.drawImage(img, px, py, TILE_SIZE, TILE_SIZE);
+    return;
   }
-  ctx.restore();
+  // Placeholder until the image is ready.
+  ctx.fillStyle = 'rgba(255, 213, 79, 0.55)';
+  ctx.fillRect(px + 2, py + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+  ctx.strokeStyle = '#FFD54F';
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect(px + 2.5, py + 2.5, TILE_SIZE - 5, TILE_SIZE - 5);
 }
+
+type SortedItem =
+  | { sortY: number; kind: 'entity'; entity: Entity }
+  | { sortY: number; kind: 'decoration'; placement: GeneratedDecoration };
 
 function drawYSortedEntities(ctx: CanvasRenderingContext2D, rc: RenderContext): void {
   const { camera, canvasWidth, canvasHeight, world } = rc;
@@ -424,14 +415,26 @@ function drawYSortedEntities(ctx: CanvasRenderingContext2D, rc: RenderContext): 
   };
   const entities = world.query({ region });
 
-  entities.sort((a, b) => {
-    const ad = tryGetEntityKindDef(a.kind);
-    const bd = tryGetEntityKindDef(b.kind);
-    return (a.y + (ad?.yOffsetForSort ?? 0)) - (b.y + (bd?.yOffsetForSort ?? 0));
+  const items: SortedItem[] = entities.map(e => {
+    const def = tryGetEntityKindDef(e.kind);
+    return { sortY: e.y + (def?.yOffsetForSort ?? 0), kind: 'entity' as const, entity: e };
   });
 
+  // Decorations interleave with entities via y-sort. Sort key = tile bottom
+  // (tileY + 1) so a decoration on tile (x, 5) sorts behind a tree at y≈6.
+  for (const d of rc.generatedDecorations ?? []) {
+    if (d.tileX + 1 < camLeft || d.tileX > camRight ||
+        d.tileY + 1 < camTop  || d.tileY > camBottom) continue;
+    items.push({ sortY: d.tileY + 1, kind: 'decoration', placement: d });
+  }
+
+  items.sort((a, b) => a.sortY - b.sortY);
+
   ctx.imageSmoothingEnabled = false;
-  for (const e of entities) drawEntity(ctx, rc, e);
+  for (const item of items) {
+    if (item.kind === 'entity') drawEntity(ctx, rc, item.entity);
+    else drawDecoration(ctx, rc, item.placement);
+  }
 
   // NPCs render last (z-order regression intentional per Spec A)
   drawNpcs(ctx, rc, camLeft, camTop, camRight, camBottom);
