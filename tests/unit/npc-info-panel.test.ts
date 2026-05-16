@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { renderNpcInfoPanel } from '@/ui/npc-info-panel';
 import type { NpcSimState } from '@/core/types';
 
@@ -56,6 +56,27 @@ describe('renderNpcInfoPanel', () => {
     sim.beliefs = {};
     renderNpcInfoPanel(panel, sim);
     expect(panel.textContent).toContain('faith');
+  });
+
+  it('shows an unpinned pin button by default', () => {
+    renderNpcInfoPanel(panel, makeSim());
+    const btn = panel.querySelector<HTMLButtonElement>('button[data-sg="pin"]');
+    expect(btn).not.toBeNull();
+    expect(btn!.getAttribute('aria-pressed')).toBe('false');
+  });
+
+  it('renders the pin button as pressed when pinned=true', () => {
+    renderNpcInfoPanel(panel, makeSim(), { pinned: true });
+    const btn = panel.querySelector<HTMLButtonElement>('button[data-sg="pin"]');
+    expect(btn!.getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('clicking the pin button calls onTogglePin', () => {
+    const onTogglePin = vi.fn();
+    renderNpcInfoPanel(panel, makeSim(), { onTogglePin });
+    const btn = panel.querySelector<HTMLButtonElement>('button[data-sg="pin"]');
+    btn!.click();
+    expect(onTogglePin).toHaveBeenCalledTimes(1);
   });
 
   it('updates content when called twice with different sims', () => {

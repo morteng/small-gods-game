@@ -14,6 +14,10 @@ const FAITH_COLORS = {
 } as const;
 
 const STYLE = `
+.sg-header { display: flex; justify-content: flex-end; margin: -4px -4px 4px 0; }
+.sg-pin { all: unset; cursor: pointer; pointer-events: auto; padding: 2px 6px; border-radius: 3px; color: rgba(255,255,255,0.5); font: 12px sans-serif; }
+.sg-pin:hover { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.85); }
+.sg-pin[aria-pressed="true"] { color: #FFD54F; background: rgba(255,213,79,0.12); }
 .sg-section { margin-bottom: 8px; }
 .sg-section:last-child { margin-bottom: 0; }
 .sg-section-title { font-size: 9px; letter-spacing: 1px; color: rgba(255,255,255,0.45); margin-bottom: 4px; text-transform: uppercase; }
@@ -25,6 +29,11 @@ const STYLE = `
 .sg-track { flex: 1 1 auto; height: 6px; background: rgba(255,255,255,0.12); border-radius: 3px; overflow: hidden; margin: 0 6px; }
 .sg-fill { height: 100%; }
 `;
+
+export interface NpcInfoPanelOptions {
+  pinned?: boolean;
+  onTogglePin?: () => void;
+}
 
 function makeBarRow(label: string, value: number, color: string): HTMLDivElement {
   const row = document.createElement('div');
@@ -61,7 +70,11 @@ function makeSection(title: string, ...children: HTMLElement[]): HTMLDivElement 
   return sec;
 }
 
-export function renderNpcInfoPanel(panel: HTMLElement, sim: NpcSimState): void {
+export function renderNpcInfoPanel(
+  panel: HTMLElement,
+  sim: NpcSimState,
+  opts: NpcInfoPanelOptions = {},
+): void {
   const belief = sim.beliefs['player'] ?? { faith: 0, understanding: 0, devotion: 0 };
   const home = sim.homePoiId ?? '—';
 
@@ -70,6 +83,25 @@ export function renderNpcInfoPanel(panel: HTMLElement, sim: NpcSimState): void {
   const style = document.createElement('style');
   style.textContent = STYLE;
   panel.appendChild(style);
+
+  const header = document.createElement('div');
+  header.className = 'sg-header';
+  const pin = document.createElement('button');
+  pin.className = 'sg-pin';
+  pin.dataset.sg = 'pin';
+  pin.type = 'button';
+  pin.textContent = '📌';
+  const pinned = opts.pinned === true;
+  pin.setAttribute('aria-pressed', pinned ? 'true' : 'false');
+  pin.title = pinned ? 'Unpin card' : 'Pin card open';
+  if (opts.onTogglePin) {
+    pin.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      opts.onTogglePin!();
+    });
+  }
+  header.appendChild(pin);
+  panel.appendChild(header);
 
   const idName = document.createElement('div');
   idName.className = 'sg-id-name';

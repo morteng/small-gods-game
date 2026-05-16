@@ -21,4 +21,9 @@ describe('createState', () => {
     const s = createState();
     expect(s.showPoiMarkers).toBe(true);
   });
+
+  it('starts with no pinned NPC', () => {
+    const s = createState();
+    expect(s.pinnedNpcId).toBeNull();
+  });
 });

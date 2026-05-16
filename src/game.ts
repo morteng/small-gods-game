@@ -53,6 +53,7 @@ export class Game {
   private debugHud: HTMLDivElement;
   private npcInfoPanel: HTMLDivElement;
   private renderedNpcId: string | null = null;
+  private renderedPinned: boolean = false;
   private lastInfoRefresh: number = 0;
   private hoverTile: { x: number; y: number } | null = null;
   private fpsEma: number = 60;
@@ -359,10 +360,19 @@ export class Game {
           this.state.playerPower,
         );
         const now = performance.now();
+        const pinned = this.state.pinnedNpcId === sim.npcId;
         const switched = this.renderedNpcId !== sim.npcId;
-        if (switched || now - this.lastInfoRefresh > 500) {
-          renderNpcInfoPanel(this.npcInfoPanel, sim);
+        const pinChanged = this.renderedPinned !== pinned;
+        if (switched || pinChanged || now - this.lastInfoRefresh > 500) {
+          renderNpcInfoPanel(this.npcInfoPanel, sim, {
+            pinned,
+            onTogglePin: () => {
+              this.state.pinnedNpcId = this.state.pinnedNpcId === sim.npcId ? null : sim.npcId;
+              this.lastInfoRefresh = 0; // force re-render
+            },
+          });
           this.renderedNpcId = sim.npcId;
+          this.renderedPinned = pinned;
           this.lastInfoRefresh = now;
         }
         this.npcInfoPanel.style.display = 'block';
@@ -409,7 +419,10 @@ export class Game {
     const clickedNpc = this.state.npcs.find(npc => npc.tileX === x && npc.tileY === y);
     if (clickedNpc) {
       this.state.selectedNpcId = this.state.selectedNpcId === clickedNpc.id ? null : clickedNpc.id;
-    } else {
+      if (this.state.pinnedNpcId && this.state.pinnedNpcId !== this.state.selectedNpcId) {
+        this.state.pinnedNpcId = null;
+      }
+    } else if (!this.state.pinnedNpcId) {
       this.state.selectedNpcId = null;
     }
   }
