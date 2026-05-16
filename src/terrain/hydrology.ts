@@ -58,5 +58,52 @@ export function findPeaks(
   return peaks.slice(0, maxRivers).map(({ x, y }) => ({ x, y }));
 }
 
-// HydrologyOptions and findPeaks are the public surface for Task 2.
-// Task 3 will add walkDownhill; Task 4 will add generateHydrology.
+/**
+ * Walk strictly downhill from (startX, startY), stepping to the lowest 4-neighbor
+ * each iteration. Stops when:
+ *   - the current cell is water (elevation < seaLevel), OR
+ *   - no neighbor is strictly lower than the current cell, OR
+ *   - we step off the map (cannot happen given bounded neighbors, but guarded anyway).
+ *
+ * Returns the path (including start). If the start is already water,
+ * returns just [start].
+ *
+ * A safety cap of (width + height) * 2 steps prevents pathological loops.
+ */
+export function walkDownhill(
+  startX: number,
+  startY: number,
+  fields: TerrainField,
+  config: TerrainConfig,
+): Array<{ x: number; y: number }> {
+  const { width, height, seaLevel = 0.35 } = config;
+  const { elevation } = fields;
+  const maxSteps = (width + height) * 2;
+
+  const path: Array<{ x: number; y: number }> = [{ x: startX, y: startY }];
+  let x = startX, y = startY;
+
+  for (let step = 0; step < maxSteps; step++) {
+    const here = elevation[y * width + x];
+    if (here < seaLevel) break; // reached water — stop
+
+    // Find lowest strictly-lower 4-neighbor.
+    let bestX = -1, bestY = -1, bestE = here;
+    const neighbors: Array<[number, number]> = [
+      [x, y - 1], [x, y + 1], [x - 1, y], [x + 1, y],
+    ];
+    for (const [nx, ny] of neighbors) {
+      if (nx < 0 || nx >= width || ny < 0 || ny >= height) continue;
+      const ne = elevation[ny * width + nx];
+      if (ne < bestE) { bestE = ne; bestX = nx; bestY = ny; }
+    }
+    if (bestX < 0) break; // no lower neighbor — local minimum
+    x = bestX; y = bestY;
+    path.push({ x, y });
+  }
+
+  return path;
+}
+
+// HydrologyOptions, findPeaks, walkDownhill are the public surface for Task 3.
+// Task 4 will add generateHydrology.
