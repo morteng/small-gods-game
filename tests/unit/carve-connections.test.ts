@@ -80,3 +80,21 @@ describe('carveConnections: water handling', () => {
     void waterEncounters;
   });
 });
+
+describe('carveConnections: width', () => {
+  it('carves a 3-tile-wide road when width=3', async () => {
+    const seed = minimalSeed({
+      connections: [{ from: 'a', to: 'b', type: 'road', style: 'dirt', width: 3 }],
+    });
+    const { map } = await generateWithNoise(32, 32, 1, seed);
+
+    for (const y of [15, 16, 17]) {
+      let roads = 0;
+      for (let x = 5; x <= 26; x++) {
+        const t = map.tiles[y]?.[x];
+        if (t && (t.type === 'dirt_road' || t.type === 'bridge')) roads++;
+      }
+      expect(roads).toBeGreaterThanOrEqual(10);
+    }
+  });
+});
