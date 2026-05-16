@@ -459,3 +459,53 @@ describe('getAssetBlob', () => {
     expect(blob).toBeNull();
   });
 });
+
+import {
+  markAssetKept,
+  markAssetRejected,
+  updateAssetMetadata,
+} from '@/services/pixellab';
+
+describe('curation actions', () => {
+  it('markAssetKept flips pending to kept', async () => {
+    await seed({ key: 'x', kind: 'decoration', curated: 'pending' });
+    await markAssetKept('x');
+    expect((await cacheGet('x'))!.curated).toBe('kept');
+  });
+
+  it('markAssetRejected flips pending to rejected', async () => {
+    await seed({ key: 'x', kind: 'decoration', curated: 'pending' });
+    await markAssetRejected('x');
+    expect((await cacheGet('x'))!.curated).toBe('rejected');
+  });
+
+  it('markAssetKept is a no-op on unknown id (no throw)', async () => {
+    await expect(markAssetKept('ghost')).resolves.not.toThrow();
+  });
+
+  it('updateAssetMetadata patches kind/tags/description', async () => {
+    await seed({
+      key: 'x', kind: 'unknown', tags: ['old'], description: 'old-desc',
+    });
+    await updateAssetMetadata('x', {
+      kind: 'decoration',
+      tags: ['NEW', 'shiny'],
+      description: 'new-desc',
+    });
+    const after = (await cacheGet('x'))!;
+    expect(after.kind).toBe('decoration');
+    expect(after.tags).toEqual(['new', 'shiny']);   // normalized
+    expect(after.description).toBe('new-desc');
+  });
+
+  it('updateAssetMetadata leaves unspecified fields unchanged', async () => {
+    await seed({
+      key: 'x', kind: 'decoration', tags: ['tree'], description: 'an oak',
+    });
+    await updateAssetMetadata('x', { tags: ['oak'] });
+    const after = (await cacheGet('x'))!;
+    expect(after.kind).toBe('decoration');
+    expect(after.tags).toEqual(['oak']);
+    expect(after.description).toBe('an oak');
+  });
+});

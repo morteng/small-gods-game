@@ -386,5 +386,37 @@ export async function getAssetBlob(id: string): Promise<Blob | null> {
   return entry?.blob ?? null;
 }
 
+// ─── Curation actions ─────────────────────────────────────────────────────────
+
+/** Read-modify-write a single asset. No-op if id is unknown. */
+async function patchAsset(id: string, patch: Partial<LibraryAsset>): Promise<void> {
+  const existing = await cacheGet(id);
+  if (!existing) return;
+  await cachePut({ ...existing, ...patch });
+}
+
+/** Mark an asset as kept (queryable by `findAssets`). No-op if id unknown. */
+export async function markAssetKept(id: string): Promise<void> {
+  await patchAsset(id, { curated: 'kept' });
+}
+
+/** Mark an asset as rejected (excluded from `findAssets`). No-op if id unknown. */
+export async function markAssetRejected(id: string): Promise<void> {
+  await patchAsset(id, { curated: 'rejected' });
+}
+
+/**
+ * Patch caller-facing metadata. Any provided field is overwritten; omitted
+ * fields are unchanged. Tags are re-normalized.
+ */
+export async function updateAssetMetadata(
+  id: string,
+  patch: Partial<Pick<LibraryAsset, 'kind' | 'tags' | 'description'>>,
+): Promise<void> {
+  const normalized: Partial<LibraryAsset> = { ...patch };
+  if (patch.tags !== undefined) normalized.tags = normalizeTags(patch.tags);
+  await patchAsset(id, normalized);
+}
+
 // Re-export so the UI / tests can poke at the cache directly.
 export { cacheGet, cachePut, cacheClear };
