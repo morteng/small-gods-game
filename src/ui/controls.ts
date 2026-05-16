@@ -5,7 +5,17 @@ import { TILE_SIZE } from '@/core/constants';
 export interface ControlsCallbacks {
   onTileClick?: (x: number, y: number) => void;
   onCanvasClick?: (sx: number, sy: number) => boolean;
+  onTogglePause?: () => void;
   onRedraw: () => void;
+}
+
+const TEXT_INPUT_TAGS = new Set(['INPUT', 'TEXTAREA', 'SELECT']);
+
+function isTextInputFocused(): boolean {
+  const el = document.activeElement;
+  if (!el) return false;
+  if (TEXT_INPUT_TAGS.has(el.tagName)) return true;
+  return (el as HTMLElement).isContentEditable === true;
 }
 
 export function attachControls(canvas: HTMLCanvasElement, camera: Camera, callbacks: ControlsCallbacks): () => void {
@@ -55,11 +65,20 @@ export function attachControls(canvas: HTMLCanvasElement, camera: Camera, callba
     callbacks.onRedraw();
   }
 
+  function onKeyDown(e: KeyboardEvent) {
+    if (isTextInputFocused()) return;
+    if (e.code === 'Space') {
+      e.preventDefault();
+      callbacks.onTogglePause?.();
+    }
+  }
+
   canvas.addEventListener('mousedown', onMouseDown);
   canvas.addEventListener('mousemove', onMouseMove);
   canvas.addEventListener('mouseup', onMouseUp);
   canvas.addEventListener('mouseleave', () => { dragging = false; });
   canvas.addEventListener('wheel', onWheel, { passive: false });
+  window.addEventListener('keydown', onKeyDown);
 
   // Return cleanup function
   return () => {
@@ -67,5 +86,6 @@ export function attachControls(canvas: HTMLCanvasElement, camera: Camera, callba
     canvas.removeEventListener('mousemove', onMouseMove);
     canvas.removeEventListener('mouseup', onMouseUp);
     canvas.removeEventListener('wheel', onWheel);
+    window.removeEventListener('keydown', onKeyDown);
   };
 }

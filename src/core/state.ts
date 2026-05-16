@@ -13,6 +13,7 @@ export interface GameState {
   visualMap: string[][] | null;
   blobMap: BlobTile[][] | null;
   debug: boolean;
+  paused: boolean;
   playerPower: number;
   /** Unified world facade — buildings, trees, rocks, landmarks, etc. */
   world: World | null;
@@ -33,6 +34,7 @@ export function createState(): GameState {
     visualMap: null,
     blobMap: null,
     debug: false,
+    paused: false,
     playerPower: 3,
     world: null,
     terrainFields: null,

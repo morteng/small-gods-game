@@ -47,6 +47,7 @@ export class Game {
   private simTickAcc: number = 0;
   private overlayHitAreas: OverlayHitAreas = [];
   private lastWhisperTime: number = -Infinity;
+  private pausedBanner: HTMLDivElement;
   /** Resolved spritesheets keyed by NPC id */
   private sheets = new Map<string, HTMLCanvasElement>();
   private tileAtlas: HTMLImageElement | null = null;
@@ -65,6 +66,20 @@ export class Game {
     container.appendChild(this.canvas);
     this.ctx = this.canvas.getContext('2d')!;
 
+    if (getComputedStyle(container).position === 'static') {
+      container.style.position = 'relative';
+    }
+
+    this.pausedBanner = document.createElement('div');
+    this.pausedBanner.textContent = 'PAUSED';
+    this.pausedBanner.style.cssText = [
+      'position:absolute', 'top:12px', 'left:50%', 'transform:translateX(-50%)',
+      'padding:6px 14px', 'background:rgba(0,0,0,0.65)', 'color:#fff',
+      'font:bold 14px sans-serif', 'letter-spacing:2px', 'border-radius:4px',
+      'pointer-events:none', 'display:none', 'z-index:10',
+    ].join(';');
+    container.appendChild(this.pausedBanner);
+
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(container);
     this.resize();
@@ -72,8 +87,14 @@ export class Game {
     this.cleanupControls = attachControls(this.canvas, this.state.camera, {
       onTileClick: (x, y) => this.onTileClick(x, y),
       onCanvasClick: (sx, sy) => this.onCanvasClick(sx, sy),
+      onTogglePause: () => this.togglePause(),
       onRedraw: () => {},
     });
+  }
+
+  private togglePause(): void {
+    this.state.paused = !this.state.paused;
+    this.pausedBanner.style.display = this.state.paused ? 'block' : 'none';
   }
 
   private resize(): void {
@@ -237,13 +258,15 @@ export class Game {
     const loop = (now: number) => {
       const deltaMs = Math.min(now - this.lastTime, 100);
       this.lastTime = now;
-      updateNpcs(this.state.npcs, deltaMs);
-      if (this.state.map) tickNpcMovement(this.state.npcs, this.state.map, deltaMs);
-      this.simTickAcc += deltaMs;
-      while (this.simTickAcc >= SIM_TICK_MS) {
-        this.simTickAcc -= SIM_TICK_MS;
-        tickAllNpcs(this.state.npcSim);
-        this.state.playerPower += computePowerRegen(this.state.npcSim);
+      if (!this.state.paused) {
+        updateNpcs(this.state.npcs, deltaMs);
+        if (this.state.map) tickNpcMovement(this.state.npcs, this.state.map, deltaMs);
+        this.simTickAcc += deltaMs;
+        while (this.simTickAcc >= SIM_TICK_MS) {
+          this.simTickAcc -= SIM_TICK_MS;
+          tickAllNpcs(this.state.npcSim);
+          this.state.playerPower += computePowerRegen(this.state.npcSim);
+        }
       }
       this.render();
       this.rafId = requestAnimationFrame(loop);
@@ -333,6 +356,7 @@ export class Game {
     this.stopLoop();
     this.cleanupControls?.();
     this.resizeObserver.disconnect();
+    this.pausedBanner.remove();
     this.canvas.remove();
   }
 }
