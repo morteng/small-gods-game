@@ -118,6 +118,30 @@
       "position": { "x": 14, "y": 75 },
       "size": "small",
       "description": "Ancient stones rising from the mire."
+    },
+    {
+      "id": "dawn_temple",
+      "type": "temple",
+      "name": "Temple of the Dawn",
+      "position": { "x": 90, "y": 14 },
+      "size": "medium",
+      "description": "A serene stone temple on the northern meadows, said to catch the first light of every sunrise.",
+      "npcs": [
+        { "name": "High Priestess Lyra", "role": "priest" },
+        { "name": "Novice Caelum", "role": "priest" }
+      ]
+    },
+    {
+      "id": "ironkeep_castle",
+      "type": "castle",
+      "name": "Ironkeep",
+      "position": { "x": 43, "y": 65 },
+      "size": "medium",
+      "description": "A weathered stone castle watching over the meadow-swamp border.",
+      "npcs": [
+        { "name": "Lord Garrick", "role": "noble" },
+        { "name": "Sergeant Vell", "role": "soldier" }
+      ]
     }
   ],
   "connections": [
@@ -144,6 +168,14 @@
     {
       "from": "crystal_lake", "to": "murkmire_swamp", "type": "river",
       "waypoints": [{"x": 100, "y": 75}, {"x": 57, "y": 79}, {"x": 14, "y": 82}]
+    },
+    {
+      "from": "crossroads_inn", "to": "dawn_temple", "type": "road", "style": "stone",
+      "waypoints": [{"x": 78, "y": 41}, {"x": 84, "y": 28}, {"x": 90, "y": 14}]
+    },
+    {
+      "from": "oakshire", "to": "ironkeep_castle", "type": "road", "style": "stone",
+      "waypoints": [{"x": 64, "y": 48}, {"x": 54, "y": 57}, {"x": 43, "y": 65}]
     }
   ],
   "lore": {
