@@ -303,8 +303,23 @@ export type PixelLabShading =
 
 export type PixelLabDetail = 'low detail' | 'medium detail' | 'highly detailed';
 
+// ─── Asset library metadata ───────────────────────────────────────────────────
+
+export type AssetKind =
+  | 'decoration'
+  | 'building'
+  | 'npc-portrait'
+  | 'npc-sprite'
+  | 'icon'
+  | 'terrain-stamp'
+  | 'unknown';
+
+export type CurationStatus = 'pending' | 'kept' | 'rejected';
+
+export type AssetOrigin = 'sandbox' | 'official' | 'imported';
+
 /** Options for a single PixelLab generation call. The client bakes in the
- * project style recipe (color_image, outline, shading, detail) on top. */
+ *  project style recipe (color_image, outline, shading, detail) on top. */
 export interface PixelLabGenerateOpts {
   prompt: string;
   width: number;
@@ -315,25 +330,65 @@ export interface PixelLabGenerateOpts {
   detail?: PixelLabDetail;
   /** Deterministic seed for reproducibility. */
   seed?: number;
+
+  // Library metadata. Required logically for 'official' origin (callers should
+  // supply them); for 'sandbox' (default) they may be omitted and will default.
+  kind?: AssetKind;
+  tags?: string[];
+  description?: string;
+  origin?: AssetOrigin;
 }
 
 export interface PixelLabBalance {
-  /** Remaining free-tier monthly generations. */
   generationsRemaining: number;
   generationsTotal: number;
-  /** Pay-as-you-go credits in USD (0 on pure free tier). */
   creditsUsd: number;
 }
 
-/** Cached generated asset stored in IndexedDB. */
-export interface PixelLabCachedAsset {
-  /** SHA-256 hex of the canonical call shape. */
+/** A single asset in the library (also the cache record). */
+export interface LibraryAsset {
+  /** SHA-256 hex of the canonical call shape. Primary key. */
   key: string;
+  schemaVersion: 2;
+
   blob: Blob;
   prompt: string;
   width: number;
   height: number;
-  generatedAt: number;  // epoch ms
+  generatedAt: number;
+
+  curated: CurationStatus;
+  origin: AssetOrigin;
+
+  kind: AssetKind;
+  tags: string[];
+  description?: string;
+}
+
+/** Structured library query — designed for the future LLM agent's tool call. */
+export interface AssetQuery {
+  kind: AssetKind;
+  /** OR-match: result must contain at least one of these tags. */
+  tagsAny?: string[];
+  /** AND-match: result must contain all of these tags. */
+  tagsAll?: string[];
+  /** Exact-match dimensions. */
+  size?: { w: number; h: number };
+  /** Default 16. */
+  limit?: number;
+}
+
+/** Metadata-only summary returned by `findAssets`. Callers fetch the blob
+ *  separately via `getAssetBlob(id)`. */
+export interface AssetSummary {
+  id: string;
+  kind: AssetKind;
+  tags: string[];
+  prompt: string;
+  description?: string;
+  width: number;
+  height: number;
+  addedAt: number;
 }
 
 export type PixelLabKeyStatus = 'missing' | 'unverified' | 'valid' | 'invalid';
