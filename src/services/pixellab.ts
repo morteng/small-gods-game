@@ -355,6 +355,7 @@ export async function findAssets(q: AssetQuery): Promise<AssetSummary[]> {
       cursor.continue();
     };
     req.onerror = () => reject(req.error);
+    tx.onerror = () => reject(tx.error);
   });
 }
 
