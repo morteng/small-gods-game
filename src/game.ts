@@ -87,14 +87,14 @@ export class Game {
     const ws = worldSeed || await WorldManager.loadDefault();
     const seed = Date.now();
 
-    const { map, registry } = await generateWithNoise(
+    const { map, world } = await generateWithNoise(
       ws.size.width, ws.size.height, seed, ws,
       { onProgress: (msg) => console.log('[terrain]', msg) },
     );
 
     this.state.map = map;
     this.state.worldSeed = ws;
-    this.state.entityRegistry = registry;
+    this.state.world = world;
     this.state.visualMap = Autotiler.computeVisualMap(map);
     this.state.blobMap = computeBlobMap(map.tiles, map.width, map.height);
     this.state.decorations = placeDecorations(map, map.seed);
