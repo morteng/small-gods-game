@@ -269,3 +269,47 @@ export interface NpcSimState {
   homeBuildingId?: string;
   homePoiId?:      string;
 }
+
+// ─── Entity system v2 (Spec A) ────────────────────────────────────────────────
+
+export type EntityId = string;
+
+/** Spec-A Entity: every visible world object collapses into this shape. */
+export interface Entity {
+  id: EntityId;
+  kind: string;
+  x: number;                                  // tile coords, sub-tile allowed
+  y: number;
+  properties?: Record<string, unknown>;
+  tags?: ReadonlyArray<string>;
+}
+
+export interface Region {
+  x: number;       // top-left tile x
+  y: number;       // top-left tile y
+  w: number;       // width in tiles
+  h: number;
+}
+
+export interface SpriteRef {
+  atlas?: string;                            // atlas key e.g. 'lpc-terrain'
+  region?: { sx: number; sy: number; sw: number; sh: number };
+  fallbackColor?: string;                    // e.g. '#7ab06e'
+  fallbackShape?: 'circle' | 'square' | 'triangle';
+}
+
+/** Read-only view of the World, passed to brushes. */
+export interface WorldReadOnly {
+  query(opts: {
+    region?: Region;
+    kind?: string;
+    tag?: string;
+    limit?: number;
+  }): Entity[];
+  tileAt(x: number, y: number): Tile | undefined;
+}
+
+export interface BrushContext {
+  world: WorldReadOnly;
+  tiles: GameMap;
+}
