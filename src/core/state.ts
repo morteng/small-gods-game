@@ -1,6 +1,6 @@
-import type { GameMap, Camera, WorldSeed, NpcInstance, NpcSimState, DecorationInstance, TerrainField, BiomeMap } from '@/core/types';
+import type { GameMap, Camera, WorldSeed, NpcInstance, NpcSimState, TerrainField, BiomeMap } from '@/core/types';
 import type { BlobTile } from '@/map/blob-autotiler';
-import type { EntityRegistry } from '@/world/entity-registry';
+import type { World } from '@/world/world';
 import { createCamera } from '@/render/camera';
 
 export interface GameState {
@@ -12,11 +12,10 @@ export interface GameState {
   selectedNpcId: string | null;
   visualMap: string[][] | null;
   blobMap: BlobTile[][] | null;
-  decorations: DecorationInstance[];
   debug: boolean;
   playerPower: number;
-  /** Unified entity registry — buildings, trees, rocks, landmarks, etc. */
-  entityRegistry: EntityRegistry | null;
+  /** Unified world facade — buildings, trees, rocks, landmarks, etc. */
+  world: World | null;
   /** Terrain noise fields (elevation, moisture, temperature) */
   terrainFields: TerrainField | null;
   /** Biome classification per tile */
@@ -33,10 +32,9 @@ export function createState(): GameState {
     selectedNpcId: null,
     visualMap: null,
     blobMap: null,
-    decorations: [],
     debug: false,
     playerPower: 3,
-    entityRegistry: null,
+    world: null,
     terrainFields: null,
     biomeMap: null,
   };

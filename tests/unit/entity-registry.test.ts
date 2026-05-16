@@ -1,22 +1,25 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { SpatialHashGrid } from '@/world/spatial-hash';
 import { EntityRegistry } from '@/world/entity-registry';
-import type { WorldEntity } from '@/core/types';
+import type { Entity } from '@/core/types';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function makeEntity(overrides: Partial<WorldEntity> & { id: string }): WorldEntity {
+function makeEntity(overrides: Partial<Entity> & { id: string; properties?: Record<string, unknown> }): Entity {
+  const { id, x = 0, y = 0, properties, tags, kind = 'cottage', ...rest } = overrides;
   return {
-    category:              'building',
-    type:                  'cottage',
-    tileX:                 0,
-    tileY:                 0,
-    era:                   'medieval',
-    religiousSignificance: 'neutral',
-    state:                 'intact',
-    metadata:              {},
-    ...overrides,
-  } as WorldEntity;
+    id,
+    kind,
+    x,
+    y,
+    tags,
+    properties: {
+      category: 'building',
+      state: 'intact',
+      ...properties,
+    },
+    ...rest,
+  };
 }
 
 // ─── SpatialHashGrid ─────────────────────────────────────────────────────────
@@ -78,7 +81,7 @@ describe('EntityRegistry — CRUD', () => {
   beforeEach(() => { reg = new EntityRegistry(); });
 
   it('add and get', () => {
-    const e = makeEntity({ id: 'e1', tileX: 5, tileY: 5 });
+    const e = makeEntity({ id: 'e1', x: 5, y: 5 });
     reg.add(e);
     expect(reg.get('e1')).toBe(e);
     expect(reg.size).toBe(1);
@@ -103,9 +106,9 @@ describe('EntityRegistry — CRUD', () => {
   });
 
   it('update changes entity fields', () => {
-    reg.add(makeEntity({ id: 'u1', tileX: 3, tileY: 3, state: 'intact' }));
-    reg.update('u1', { state: 'ruined' });
-    expect(reg.get('u1')!.state).toBe('ruined');
+    reg.add(makeEntity({ id: 'u1', x: 3, y: 3, properties: { state: 'intact' } }));
+    reg.update('u1', { properties: { state: 'ruined' } });
+    expect(reg.get('u1')!.properties?.state).toBe('ruined');
   });
 
   it('has()', () => {
@@ -119,9 +122,9 @@ describe('EntityRegistry — spatial queries', () => {
   let reg: EntityRegistry;
   beforeEach(() => {
     reg = new EntityRegistry();
-    reg.add(makeEntity({ id: 'near',  tileX: 5, tileY: 5 }));
-    reg.add(makeEntity({ id: 'mid',   tileX: 15, tileY: 15 }));
-    reg.add(makeEntity({ id: 'far',   tileX: 100, tileY: 100 }));
+    reg.add(makeEntity({ id: 'near',  x: 5, y: 5 }));
+    reg.add(makeEntity({ id: 'mid',   x: 15, y: 15 }));
+    reg.add(makeEntity({ id: 'far',   x: 100, y: 100 }));
   });
 
   it('getInRadius', () => {
@@ -146,7 +149,7 @@ describe('EntityRegistry — spatial queries', () => {
   });
 
   it('getAtTile respects footprint', () => {
-    const cottage = makeEntity({ id: 'c1', tileX: 10, tileY: 10, footprint: { w: 3, h: 3 } });
+    const cottage = makeEntity({ id: 'c1', x: 10, y: 10, properties: { footprint: { w: 3, h: 3 } } });
     reg.add(cottage);
     // Interior cell
     expect(reg.getAtTile(11, 11).map(e => e.id)).toContain('c1');
@@ -157,7 +160,7 @@ describe('EntityRegistry — spatial queries', () => {
   });
 
   it('move updates spatial position', () => {
-    reg.update('near', { tileX: 50, tileY: 50 });
+    reg.update('near', { x: 50, y: 50 });
     expect(reg.getAtTile(5, 5).map(e => e.id)).not.toContain('near');
     expect(reg.getAtTile(50, 50).map(e => e.id)).toContain('near');
   });
@@ -167,9 +170,9 @@ describe('EntityRegistry — index queries', () => {
   let reg: EntityRegistry;
   beforeEach(() => {
     reg = new EntityRegistry();
-    reg.add(makeEntity({ id: 'b1', poiId: 'poi1', category: 'building' }));
-    reg.add(makeEntity({ id: 'b2', poiId: 'poi1', category: 'building' }));
-    reg.add(makeEntity({ id: 't1', poiId: 'poi2', category: 'tree', type: 'oak' }));
+    reg.add(makeEntity({ id: 'b1', properties: { poiId: 'poi1', category: 'building' } }));
+    reg.add(makeEntity({ id: 'b2', properties: { poiId: 'poi1', category: 'building' } }));
+    reg.add(makeEntity({ id: 't1', kind: 'oak', properties: { poiId: 'poi2', category: 'tree' } }));
   });
 
   it('getByPoi', () => {
@@ -198,7 +201,7 @@ describe('EntityRegistry — occupancy', () => {
   let reg: EntityRegistry;
   beforeEach(() => {
     reg = new EntityRegistry();
-    reg.add(makeEntity({ id: 'block', tileX: 10, tileY: 10, footprint: { w: 3, h: 3 } }));
+    reg.add(makeEntity({ id: 'block', x: 10, y: 10, properties: { footprint: { w: 3, h: 3 } } }));
   });
 
   it('isOccupied true inside footprint', () => {
@@ -222,14 +225,14 @@ describe('EntityRegistry — occupancy', () => {
 describe('EntityRegistry — serialization', () => {
   it('round-trips toJSON / fromJSON', () => {
     const orig = new EntityRegistry();
-    orig.add(makeEntity({ id: 's1', tileX: 3, tileY: 7, type: 'shrine', poiId: 'pA' }));
-    orig.add(makeEntity({ id: 's2', tileX: 5, tileY: 2, category: 'tree' }));
+    orig.add(makeEntity({ id: 's1', x: 3, y: 7, kind: 'shrine', properties: { poiId: 'pA', category: 'building' } }));
+    orig.add(makeEntity({ id: 's2', x: 5, y: 2, properties: { category: 'tree' } }));
 
     const json = orig.toJSON();
     const loaded = EntityRegistry.fromJSON(json);
 
     expect(loaded.size).toBe(2);
-    expect(loaded.get('s1')?.tileX).toBe(3);
+    expect(loaded.get('s1')?.x).toBe(3);
     expect(loaded.getByPoi('pA')).toHaveLength(1);
     expect(loaded.getByCategory('tree')).toHaveLength(1);
   });

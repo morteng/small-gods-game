@@ -16,14 +16,15 @@ function makeTiles(width: number, height: number, type = 'grass'): Tile[][] {
   );
 }
 
-function countNonOverlapping(entities: { tileX: number; tileY: number; footprint?: { w: number; h: number } }[]): boolean {
+function countNonOverlapping(entities: { x: number; y: number; properties?: Record<string, unknown> }[]): boolean {
   const occupied = new Set<string>();
   for (const e of entities) {
-    const fw = e.footprint?.w ?? 1;
-    const fh = e.footprint?.h ?? 1;
+    const fp = e.properties?.footprint as { w: number; h: number } | undefined;
+    const fw = fp?.w ?? 1;
+    const fh = fp?.h ?? 1;
     for (let dy = 0; dy < fh; dy++) {
       for (let dx = 0; dx < fw; dx++) {
-        const key = `${e.tileX + dx},${e.tileY + dy}`;
+        const key = `${e.x + dx},${e.y + dy}`;
         if (occupied.has(key)) return false;
         occupied.add(key);
       }
@@ -71,16 +72,18 @@ describe('findPlacement', () => {
     expect(r1).not.toBeNull();
     reg2.add({
       id: 'first',
-      category: 'building',
-      type: 'cottage',
-      templateId: 'cottage',
-      tileX: r1!.tileX,
-      tileY: r1!.tileY,
-      footprint: template.footprint,
-      era: 'medieval',
-      religiousSignificance: 'neutral',
-      state: 'intact',
-      metadata: {},
+      kind: 'cottage',
+      x: r1!.tileX,
+      y: r1!.tileY,
+      tags: ['building', 'residential'],
+      properties: {
+        category: 'building',
+        templateId: 'cottage',
+        footprint: template.footprint,
+        era: 'medieval',
+        religiousSignificance: 'neutral',
+        state: 'intact',
+      },
     });
 
     // Try to place another building at exactly the same spot
@@ -135,7 +138,7 @@ describe('placeSettlement', () => {
     const rng = new Random(11);
     const { entities } = placeSettlement(poi, zoneRule, tiles, registry, [], rng);
     for (const e of entities) {
-      expect(e.poiId).toBe('v4');
+      expect(e.properties?.poiId).toBe('v4');
     }
   });
 
@@ -175,8 +178,8 @@ describe('placeSettlement', () => {
     const zoneRule = getZoneRule('village');
     const a = placeSettlement(poi, zoneRule, makeTiles(80, 80, 'grass'), new EntityRegistry(), [], new Random(42));
     const b = placeSettlement(poi, zoneRule, makeTiles(80, 80, 'grass'), new EntityRegistry(), [], new Random(42));
-    expect(a.entities.map(e => e.tileX)).toEqual(b.entities.map(e => e.tileX));
-    expect(a.entities.map(e => e.tileY)).toEqual(b.entities.map(e => e.tileY));
+    expect(a.entities.map(e => e.x)).toEqual(b.entities.map(e => e.x));
+    expect(a.entities.map(e => e.y)).toEqual(b.entities.map(e => e.y));
   });
 });
 

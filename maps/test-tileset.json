@@ -1,0 +1,201 @@
+{
+  "name": "Tile System Demo",
+  "description": "Test map using semantic types - Autotiler computes visual variants",
+  "version": "3.0",
+  "width": 12,
+  "height": 12,
+  "style": "medieval_fantasy",
+  "tiles": [
+    [
+      {"type": "forest"},
+      {"type": "forest"},
+      {"type": "grass"},
+      {"type": "dirt_road"},
+      {"type": "grass"},
+      {"type": "grass"},
+      {"type": "river"},
+      {"type": "grass"},
+      {"type": "grass"},
+      {"type": "hills"},
+      {"type": "hills"},
+      {"type": "hills"}
+    ],
+    [
+      {"type": "forest"},
+      {"type": "grass"},
+      {"type": "grass"},
+      {"type": "dirt_road"},
+      {"type": "grass"},
+      {"type": "grass"},
+      {"type": "river"},
+      {"type": "grass"},
+      {"type": "grass"},
+      {"type": "grass"},
+      {"type": "hills"},
+      {"type": "hills"}
+    ],
+    [
+      {"type": "grass"},
+      {"type": "grass"},
+      {"type": "dirt_road"},
+      {"type": "dirt_road"},
+      {"type": "dirt_road"},
+      {"type": "dirt_road"},
+      {"type": "dirt_road"},
+      {"type": "dirt_road"},
+      {"type": "dirt_road"},
+      {"type": "grass"},
+      {"type": "grass"},
+      {"type": "hills"}
+    ],
+    [
+      {"type": "grass"},
+      {"type": "grass"},
+      {"type": "dirt_road"},
+      {"type": "grass"},
+      {"type": "grass"},
+      {"type": "grass"},
+      {"type": "river"},
+      {"type": "river"},
+      {"type": "river"},
+      {"type": "grass"},
+      {"type": "grass"},
+      {"type": "grass"}
+    ],
+    [
+      {"type": "grass"},
+      {"type": "grass"},
+      {"type": "dirt_road"},
+      {"type": "dirt_road"},
+      {"type": "dirt_road"},
+      {"type": "dirt_road"},
+      {"type": "river"},
+      {"type": "grass"},
+      {"type": "river"},
+      {"type": "grass"},
+      {"type": "grass"},
+      {"type": "grass"}
+    ],
+    [
+      {"type": "grass"},
+      {"type": "grass"},
+      {"type": "dirt_road"},
+      {"type": "grass"},
+      {"type": "grass"},
+      {"type": "dirt_road"},
+      {"type": "river"},
+      {"type": "river"},
+      {"type": "river"},
+      {"type": "grass"},
+      {"type": "grass"},
+      {"type": "water"}
+    ],
+    [
+      {"type": "forest"},
+      {"type": "grass"},
+      {"type": "dirt_road"},
+      {"type": "dirt_road"},
+      {"type": "dirt_road"},
+      {"type": "dirt_road"},
+      {"type": "grass"},
+      {"type": "grass"},
+      {"type": "grass"},
+      {"type": "grass"},
+      {"type": "water"},
+      {"type": "water"}
+    ],
+    [
+      {"type": "forest"},
+      {"type": "forest"},
+      {"type": "grass"},
+      {"type": "grass"},
+      {"type": "grass"},
+      {"type": "grass"},
+      {"type": "grass"},
+      {"type": "grass"},
+      {"type": "grass"},
+      {"type": "water"},
+      {"type": "water"},
+      {"type": "water"}
+    ],
+    [
+      {"type": "forest"},
+      {"type": "forest"},
+      {"type": "forest"},
+      {"type": "grass"},
+      {"type": "grass"},
+      {"type": "meadow"},
+      {"type": "meadow"},
+      {"type": "grass"},
+      {"type": "grass"},
+      {"type": "water"},
+      {"type": "water"},
+      {"type": "grass"}
+    ],
+    [
+      {"type": "hills"},
+      {"type": "forest"},
+      {"type": "grass"},
+      {"type": "grass"},
+      {"type": "meadow"},
+      {"type": "meadow"},
+      {"type": "grass"},
+      {"type": "grass"},
+      {"type": "grass"},
+      {"type": "grass"},
+      {"type": "grass"},
+      {"type": "grass"}
+    ],
+    [
+      {"type": "hills"},
+      {"type": "hills"},
+      {"type": "grass"},
+      {"type": "grass"},
+      {"type": "grass"},
+      {"type": "grass"},
+      {"type": "grass"},
+      {"type": "grass"},
+      {"type": "grass"},
+      {"type": "grass"},
+      {"type": "grass"},
+      {"type": "fog_of_war"}
+    ],
+    [
+      {"type": "hills"},
+      {"type": "hills"},
+      {"type": "hills"},
+      {"type": "grass"},
+      {"type": "grass"},
+      {"type": "grass"},
+      {"type": "grass"},
+      {"type": "grass"},
+      {"type": "grass"},
+      {"type": "grass"},
+      {"type": "fog_of_war"},
+      {"type": "fog_of_war"}
+    ]
+  ],
+  "pois": [
+    {
+      "id": "crossroads",
+      "name": "Crossroads",
+      "type": "intersection",
+      "position": {"x": 3, "y": 2}
+    },
+    {
+      "id": "lake",
+      "name": "Crystal Lake",
+      "type": "lake",
+      "position": {"x": 11, "y": 7}
+    }
+  ],
+  "features": {
+    "roads": "Uses semantic dirt_road type - Autotiler computes visual variants",
+    "rivers": "Uses semantic river type - Autotiler computes visual variants",
+    "shores": "Grass tiles adjacent to water become shores via Autotiler",
+    "terrain": "Mixed terrain: grass, forest, hills, meadow, fog_of_war"
+  },
+  "requiredTiles": [
+    "grass", "meadow", "hills", "forest", "fog_of_war", "dirt_road", "river", "water"
+  ]
+}

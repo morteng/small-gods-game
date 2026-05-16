@@ -1,0 +1,174 @@
+/**
+ * Small Gods - Editor Styles
+ * Editor toolbar, properties panel, and editor-specific UI
+ */
+
+/* =========================================================================
+   EDITOR TOOLBAR
+   ========================================================================= */
+
+.editor-toolbar {
+  display: none;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-md);
+  background: var(--color-surface-darker);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--spacing-md);
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.editor-toolbar.show {
+  display: flex;
+}
+
+.editor-toolbar button {
+  margin: 0;
+}
+
+/* =========================================================================
+   EDITOR TOOL BUTTONS
+   ========================================================================= */
+
+.editor-tool {
+  padding: var(--spacing-sm) var(--spacing-lg);
+  font-size: var(--font-md);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-light);
+  color: #aaa;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  transition: all var(--transition-fast);
+  margin: 0;
+  width: auto;
+}
+
+.editor-tool:hover {
+  background: rgba(255, 255, 255, 0.2);
+  color: var(--color-text);
+}
+
+.editor-tool.active {
+  background: rgba(240, 147, 251, 0.3);
+  border-color: var(--color-primary);
+  color: var(--color-text);
+}
+
+.editor-tool .key {
+  font-size: var(--font-xs);
+  padding: 1px var(--spacing-xs);
+  background: var(--color-surface-dark);
+  border-radius: 2px;
+  color: var(--color-text-dim);
+}
+
+/* =========================================================================
+   EDITOR DIVIDER
+   ========================================================================= */
+
+.editor-divider {
+  width: 1px;
+  height: 24px;
+  background: var(--color-border-light);
+  margin: 0 var(--spacing-xs);
+}
+
+.editor-toggle {
+  margin-left: auto;
+}
+
+/* =========================================================================
+   EDITOR CHECKBOX
+   ========================================================================= */
+
+.editor-checkbox {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  font-size: var(--font-md);
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.editor-checkbox input {
+  width: auto;
+  margin: 0;
+}
+
+/* =========================================================================
+   PROPERTIES PANEL
+   ========================================================================= */
+
+.editor-props-panel {
+  display: none;
+  background: var(--color-surface-dark);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-lg);
+  margin-top: var(--spacing-lg);
+}
+
+.editor-props-panel.show {
+  display: block;
+}
+
+.prop-header {
+  font-size: var(--font-xl);
+  font-weight: 600;
+  color: var(--color-primary);
+  margin-bottom: var(--spacing-lg);
+  padding-bottom: var(--spacing-sm);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.prop-group {
+  margin-bottom: var(--spacing-md);
+}
+
+.prop-group label {
+  display: block;
+  font-size: var(--font-sm);
+  color: var(--color-text-muted);
+  margin-bottom: 3px;
+}
+
+.prop-group input,
+.prop-group select,
+.prop-group textarea {
+  width: 100%;
+  padding: 5px var(--spacing-md);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-dark);
+  color: var(--color-text);
+  font-size: var(--font-md);
+}
+
+.prop-group textarea {
+  min-height: 50px;
+  resize: vertical;
+  font-family: inherit;
+}
+
+.prop-row {
+  display: flex;
+  gap: var(--spacing-xs);
+}
+
+/* =========================================================================
+   EDITOR ACTIVE STATE
+   ========================================================================= */
+
+body.editor-active .canvas-container {
+  cursor: default;
+}
+
+body.editor-active .canvas-hint {
+  color: var(--color-primary);
+}
+
+body.editor-active[data-mode="edit-path"] .canvas-container {
+  cursor: pointer;
+}

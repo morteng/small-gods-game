@@ -1,0 +1,50 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`castle brush > produces a stable snapshot 1`] = `
+[
+  {
+    "id": "castle-banner-0-0",
+    "kind": "banner",
+    "properties": {},
+    "tags": [
+      "monument",
+      "heraldry",
+    ],
+    "x": 0.5,
+    "y": 0.5,
+  },
+  {
+    "id": "castle-banner-9-0",
+    "kind": "banner",
+    "properties": {},
+    "tags": [
+      "monument",
+      "heraldry",
+    ],
+    "x": 9.5,
+    "y": 0.5,
+  },
+  {
+    "id": "castle-banner-0-9",
+    "kind": "banner",
+    "properties": {},
+    "tags": [
+      "monument",
+      "heraldry",
+    ],
+    "x": 0.5,
+    "y": 9.5,
+  },
+  {
+    "id": "castle-banner-9-9",
+    "kind": "banner",
+    "properties": {},
+    "tags": [
+      "monument",
+      "heraldry",
+    ],
+    "x": 9.5,
+    "y": 9.5,
+  },
+]
+`;

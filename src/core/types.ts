@@ -1,4 +1,5 @@
 import type { BlobTile } from '@/map/blob-autotiler';
+import type { World } from '@/world/world';
 
 /** A single tile in the map grid */
 export interface Tile {
@@ -124,19 +125,6 @@ export type NpcRole = 'farmer' | 'priest' | 'soldier' | 'merchant' | 'elder' | '
 /** Direction an NPC is facing */
 export type Direction = 'up' | 'down' | 'left' | 'right';
 
-/** A decoration sprite placed on a tile (trees, rocks, furniture, etc.) */
-export interface DecorationInstance {
-  id: string;
-  category: 'tree' | 'flora' | 'furniture' | 'structure' | 'rock';
-  variant: string;       // 'green' | 'orange' | 'dead' | 'pale' | 'brown' for trees
-  tileX: number;
-  tileY: number;
-  offsetX: number;       // sub-tile jitter [-0.15, 0.15] in tile units
-  offsetY: number;
-  spriteCol: number;     // col index in the spritesheet grid
-  spriteRow: number;     // row index in the spritesheet grid
-}
-
 /** Context passed to renderMap */
 export interface RenderContext {
   map: GameMap;
@@ -150,8 +138,8 @@ export interface RenderContext {
   tileAtlas: HTMLImageElement | null;
   terrainSheets: Map<string, HTMLImageElement>;
   buildingSprites: Map<string, HTMLImageElement>;
-  decorations: DecorationInstance[];
   treeSheets: Map<string, HTMLImageElement>;
+  world: World;
 }
 
 /** A live NPC instance on the map */
@@ -224,37 +212,13 @@ export interface HydrologyResult {
   flowField: Float32Array; // [width * height], ≥ 0
 }
 
-// ─── Entity system (Phase II) ─────────────────────────────────────────────────
+// ─── Entity system (Phase II) — legacy type aliases ──────────────────────────
+// These kept for code that still imports them. WorldEntity is now an alias for
+// Entity; the old fields (category, type, tileX, tileY, etc.) are gone — they
+// live in Entity.properties and Entity.x/y respectively.
 
 export type Era = 'primordial' | 'ancient' | 'classical' | 'medieval' | 'current';
 export type ReligiousSignificance = 'sacred' | 'profane' | 'neutral' | 'contested';
-export type EntityCategory =
-  | 'building' | 'tree' | 'rock' | 'flora' | 'furniture'
-  | 'resource' | 'landmark' | 'npc' | 'item';
-
-export interface WorldEntity {
-  id: string;
-  category: EntityCategory;
-  type: string;                    // 'cottage', 'oak_tree', 'shrine', etc.
-  templateId?: string;             // links to BuildingTemplate etc.
-  tileX: number;
-  tileY: number;
-  footprint?: { w: number; h: number };
-  offsetX?: number;                // sub-tile jitter
-  offsetY?: number;
-  poiId?: string;
-  ownerId?: string;
-  era: Era;
-  religiousSignificance: ReligiousSignificance;
-  name?: string;
-  lore?: string;
-  state: string;                   // 'intact' | 'ruined' | 'growing' | etc.
-  metadata: Record<string, unknown>;
-  spriteCol?: number;
-  spriteRow?: number;
-  variant?: string;
-  sortYOffset?: number;
-}
 
 export interface NpcSimState {
   npcId:           string;
@@ -268,4 +232,51 @@ export interface NpcSimState {
   whisperCooldown: number;     // integer seconds remaining (ticked per sim tick)
   homeBuildingId?: string;
   homePoiId?:      string;
+}
+
+// ─── Entity system v2 (Spec A) ────────────────────────────────────────────────
+
+export type EntityId = string;
+
+/** Spec-A Entity: every visible world object collapses into this shape. */
+export interface Entity {
+  id: EntityId;
+  kind: string;
+  x: number;                                  // tile coords, sub-tile allowed
+  y: number;
+  properties?: Record<string, unknown>;
+  tags?: ReadonlyArray<string>;
+}
+
+/** Backwards-compat alias — all consumers should migrate to Entity. */
+export type WorldEntity = Entity;
+
+export interface Region {
+  x: number;       // top-left tile x
+  y: number;       // top-left tile y
+  w: number;       // width in tiles
+  h: number;
+}
+
+export interface SpriteRef {
+  atlas?: string;                            // atlas key e.g. 'lpc-terrain'
+  region?: { sx: number; sy: number; sw: number; sh: number };
+  fallbackColor?: string;                    // e.g. '#7ab06e'
+  fallbackShape?: 'circle' | 'square' | 'triangle';
+}
+
+/** Read-only view of the World, passed to brushes. */
+export interface WorldReadOnly {
+  query(opts: {
+    region?: Region;
+    kind?: string;
+    tag?: string;
+    limit?: number;
+  }): Entity[];
+  tileAt(x: number, y: number): Tile | undefined;
+}
+
+export interface BrushContext {
+  world: WorldReadOnly;
+  tiles: GameMap;
 }

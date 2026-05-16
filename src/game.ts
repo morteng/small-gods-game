@@ -13,7 +13,6 @@ import { whisperNpc, computePowerRegen } from '@/sim/divine-actions';
 import { drawPowerHud } from '@/render/hud';
 import { Autotiler } from '@/map/autotiler';
 import { computeBlobMap } from '@/map/blob-autotiler';
-import { placeDecorations } from '@/map/decoration-placer';
 import { getBuildingTemplate, BUILDING_TEMPLATES } from '@/map/building-templates';
 import { generateWithNoise } from '@/map/map-generator';
 
@@ -87,18 +86,16 @@ export class Game {
     const ws = worldSeed || await WorldManager.loadDefault();
     const seed = Date.now();
 
-    const { map, registry } = await generateWithNoise(
+    const { map, world } = await generateWithNoise(
       ws.size.width, ws.size.height, seed, ws,
       { onProgress: (msg) => console.log('[terrain]', msg) },
     );
 
     this.state.map = map;
     this.state.worldSeed = ws;
-    this.state.entityRegistry = registry;
+    this.state.world = world;
     this.state.visualMap = Autotiler.computeVisualMap(map);
     this.state.blobMap = computeBlobMap(map.tiles, map.width, map.height);
-    this.state.decorations = placeDecorations(map, map.seed);
-
     if (!this.tileAtlas) {
       this.tileAtlas = await this.loadImage('/sprites/tiles/kenney-town.png');
     }
@@ -273,8 +270,8 @@ export class Game {
       tileAtlas: this.tileAtlas,
       terrainSheets: this.terrainSheets,
       buildingSprites: this.buildingSprites,
-      decorations: this.state.decorations,
       treeSheets: this.treeSheets,
+      world: this.state.world!,
     };
     renderMap(this.ctx, rc);
 

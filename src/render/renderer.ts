@@ -1,9 +1,10 @@
-import type { RenderContext } from '@/core/types';
+import type { RenderContext, Entity } from '@/core/types';
 import { TILE_SIZE, TILE_COLORS, BG_COLOR, POI_ICONS, TILE_SPRITE_MAP, KENNEY_TILE_SIZE } from '@/core/constants';
 import { getSpriteCoords } from '@/render/npc-animator';
 import { getTerrainSpriteCoords, LPC_TILE_SIZE } from '@/render/terrain-atlas';
 import type { BuildingTemplate } from '@/map/building-templates';
 import { BUILDING_TEMPLATES } from '@/map/building-templates';
+import { tryGetEntityKindDef } from '@/world/entity-kinds';
 
 /** Render the map to a canvas context */
 export function renderMap(ctx: CanvasRenderingContext2D, rc: RenderContext): void {
@@ -256,13 +257,8 @@ function isPathVariant(variant: string): boolean {
 }
 
 // =============================================================================
-// Pass 1: Y-sorted entities (trees, buildings, NPCs)
+// Pass 1: Y-sorted entities (world entities via world.query, then NPCs)
 // =============================================================================
-
-interface YSortable {
-  sortY: number;
-  draw(ctx: CanvasRenderingContext2D): void;
-}
 
 const _templateCache = new Map<string, BuildingTemplate>();
 function getBuildingTemplate(id: string): BuildingTemplate | null {
@@ -272,128 +268,139 @@ function getBuildingTemplate(id: string): BuildingTemplate | null {
   return tpl;
 }
 
-const BUILDING_COLORS: Record<string, string> = {
-  residential: '#C4956A',
-  religious:   '#CE93D8',
-  commercial:  '#FFB74D',
-  military:    '#78909C',
-  farm:        '#AED581',
-  special:     '#80DEEA',
-};
+function treeSheetForKind(kind: string): string | null {
+  switch (kind) {
+    case 'oak_tree':    return 'green';
+    case 'orange_tree': return 'orange';
+    case 'pale_tree':   return 'pale';
+    case 'brown_tree':  return 'brown';
+    case 'dead_tree':   return 'dead';
+    case 'pine_tree':   return 'pale';
+    case 'birch_tree':  return 'pale';
+    default: return null;
+  }
+}
 
-function drawYSortedEntities(ctx: CanvasRenderingContext2D, rc: RenderContext): void {
-  const { map, camera, canvasWidth, canvasHeight } = rc;
-  const camLeft   = camera.x;
-  const camTop    = camera.y;
-  const camRight  = camera.x + canvasWidth  / camera.zoom;
-  const camBottom = camera.y + canvasHeight / camera.zoom;
+function drawTreeSprite(ctx: CanvasRenderingContext2D, sheet: HTMLImageElement, e: Entity): void {
+  const SPRITE_SRC = 64;
+  const TREE_W = TILE_SIZE * 2;
+  const TREE_H = TILE_SIZE * 3;
+  const offsetX = (e.properties?.offsetX as number) ?? 0;
+  const offsetY = (e.properties?.offsetY as number) ?? 0;
+  const tileX = Math.floor(e.x);
+  const tileY = Math.floor(e.y);
+  const worldX = (tileX + offsetX) * TILE_SIZE - TREE_W / 2 + TILE_SIZE / 2;
+  const worldY = (tileY + offsetY + 1) * TILE_SIZE - TREE_H;
+  // Deterministic sprite column from tile coords
+  const spriteCol = Math.abs(((tileX * 13) ^ (tileY * 7))) % 8;
+  ctx.drawImage(sheet, spriteCol * SPRITE_SRC, 0, SPRITE_SRC, SPRITE_SRC,
+                worldX, worldY, TREE_W, TREE_H);
+}
 
-  const entities: YSortable[] = [];
+function drawEntityFallback(ctx: CanvasRenderingContext2D, rc: RenderContext, e: Entity): void {
+  const def = tryGetEntityKindDef(e.kind);
+  const color = def?.sprite.fallbackColor ?? '#FF00FF';
+  const shape = def?.sprite.fallbackShape ?? 'square';
+  const px = e.x * TILE_SIZE;
+  const py = e.y * TILE_SIZE;
+  const r = TILE_SIZE * 0.35;
+  ctx.fillStyle = color;
+  ctx.globalAlpha = 0.9;
+  ctx.beginPath();
+  if (shape === 'circle') {
+    ctx.arc(px, py, r, 0, Math.PI * 2);
+  } else if (shape === 'triangle') {
+    ctx.moveTo(px, py - r);
+    ctx.lineTo(px - r, py + r);
+    ctx.lineTo(px + r, py + r);
+    ctx.closePath();
+  } else {
+    ctx.rect(px - r, py - r, r * 2, r * 2);
+  }
+  ctx.fill();
+  ctx.globalAlpha = 1;
+  if (rc.camera.zoom >= 1.5) {
+    ctx.fillStyle = '#fff';
+    ctx.font = `${Math.max(6, 8 / rc.camera.zoom)}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillText(e.kind, px, py - r - 2);
+  }
+}
 
-  // Trees
-  if (rc.treeSheets.size > 0) {
-    const SPRITE_SRC = 64;
-    const TREE_W = TILE_SIZE * 2;
-    const TREE_H = TILE_SIZE * 3;
-
-    for (const deco of rc.decorations) {
-      if (deco.category !== 'tree') continue;
-      const sheet = rc.treeSheets.get(deco.variant);
-      if (!sheet) continue;
-      const worldX = (deco.tileX + deco.offsetX) * TILE_SIZE - TREE_W / 2 + TILE_SIZE / 2;
-      const worldY = (deco.tileY + deco.offsetY + 1) * TILE_SIZE - TREE_H;
-      if (worldX + TREE_W < camLeft || worldX > camRight ||
-          worldY + TREE_H < camTop  || worldY > camBottom) continue;
-
-      const sortY = (deco.tileY + 1) * TILE_SIZE;
-      // capture loop vars
-      const wx = worldX; const wy = worldY;
-      const sc = deco.spriteCol; const sr = deco.spriteRow;
-      const sh = sheet;
-      entities.push({
-        sortY,
-        draw: (c) => {
-          c.drawImage(sh, sc * SPRITE_SRC, sr * SPRITE_SRC, SPRITE_SRC, SPRITE_SRC, wx, wy, TREE_W, TREE_H);
-        },
-      });
+function drawEntity(ctx: CanvasRenderingContext2D, rc: RenderContext, e: Entity): void {
+  // 1. Building sprite path
+  const templateId = (e.properties?.templateId as string | undefined) ?? e.kind;
+  const buildingSprite = rc.buildingSprites.get(templateId);
+  if (buildingSprite) {
+    const tpl = getBuildingTemplate(templateId);
+    if (tpl) {
+      const bx = Math.floor(e.x) * TILE_SIZE + tpl.spriteOffset.x;
+      const by = Math.floor(e.y) * TILE_SIZE + tpl.spriteOffset.y;
+      ctx.drawImage(buildingSprite, 0, 0, tpl.spriteSize.w, tpl.spriteSize.h,
+                    bx, by, tpl.spriteSize.w, tpl.spriteSize.h);
+      return;
     }
   }
 
-  // Buildings
-  for (const building of (map.buildings ?? [])) {
-    const template = getBuildingTemplate(building.templateId);
-    if (!template) continue;
-    const bx = building.tileX * TILE_SIZE;
-    const by = building.tileY * TILE_SIZE;
-    const bw = template.footprint.w * TILE_SIZE;
-    const bh = template.footprint.h * TILE_SIZE;
-    if (bx + bw < camLeft || bx > camRight || by + bh < camTop || by > camBottom) continue;
-
-    const sortY = (building.tileY + template.footprint.h) * TILE_SIZE;
-    const sprite = rc.buildingSprites.get(building.templateId);
-
-    if (sprite) {
-      // LPC sprite: draw at spriteOffset from tile origin, at spriteSize pixels
-      const dx = bx + template.spriteOffset.x;
-      const dy = by + template.spriteOffset.y;
-      const sw = template.spriteSize.w;
-      const sh = template.spriteSize.h;
-      entities.push({
-        sortY,
-        draw: (c) => { c.drawImage(sprite, 0, 0, sw, sh, dx, dy, sw, sh); },
-      });
-    } else {
-      // Fallback: colored rectangle with name label
-      const color = BUILDING_COLORS[template.category] ?? '#A1887F';
-      const name = template.name;
-      const zoom = camera.zoom;
-      entities.push({
-        sortY,
-        draw: (c) => {
-          c.fillStyle = color;
-          c.fillRect(bx, by, bw, bh);
-          c.strokeStyle = 'rgba(0,0,0,0.4)';
-          c.lineWidth = 1;
-          c.strokeRect(bx, by, bw, bh);
-          if (zoom >= 0.5) {
-            c.fillStyle = '#fff';
-            c.font = `${Math.max(6, 9 / zoom)}px sans-serif`;
-            c.textAlign = 'center';
-            c.fillText(name, bx + bw / 2, by + bh / 2 + 3);
-          }
-        },
-      });
+  // 2. Tree sprite path
+  const treeSheetName = treeSheetForKind(e.kind);
+  if (treeSheetName) {
+    const sheet = rc.treeSheets.get(treeSheetName);
+    if (sheet) {
+      drawTreeSprite(ctx, sheet, e);
+      return;
     }
   }
 
-  // NPCs
-  const npcSize = TILE_SIZE; // 1×1 tile at LPC natural size (32×32)
+  // 3. Fallback shape
+  drawEntityFallback(ctx, rc, e);
+}
 
+function drawNpcs(
+  ctx: CanvasRenderingContext2D,
+  rc: RenderContext,
+  camLeft: number,
+  camTop: number,
+  camRight: number,
+  camBottom: number,
+): void {
+  const npcSize = TILE_SIZE;
   for (const npc of rc.npcs) {
     const sheet = rc.npcSheets.get(npc.id);
     if (!sheet) continue;
-    const screenX = npc.tileX * TILE_SIZE;
-    const screenY = npc.tileY * TILE_SIZE;
-    if (screenX + npcSize < camLeft || screenX > camRight ||
-        screenY + npcSize < camTop  || screenY > camBottom) continue;
-
+    if (npc.tileX + 1 < camLeft || npc.tileX > camRight ||
+        npc.tileY + 1 < camTop  || npc.tileY > camBottom) continue;
     const { sx, sy } = getSpriteCoords(npc);
-    const sortY = (npc.tileY + 1) * TILE_SIZE;
-    const npcSheet = sheet;
-    const nsx = sx; const nsy = sy;
-    const nscX = screenX; const nscY = screenY;
-    entities.push({
-      sortY,
-      draw: (c) => {
-        c.drawImage(npcSheet, nsx, nsy, 64, 64, nscX, nscY, npcSize, npcSize);
-      },
-    });
+    ctx.drawImage(sheet, sx, sy, 64, 64, npc.tileX * TILE_SIZE, npc.tileY * TILE_SIZE, npcSize, npcSize);
   }
+}
 
-  // Sort by sortY ascending (entities with lower feet drawn first = behind)
-  entities.sort((a, b) => a.sortY - b.sortY);
+function drawYSortedEntities(ctx: CanvasRenderingContext2D, rc: RenderContext): void {
+  const { camera, canvasWidth, canvasHeight, world } = rc;
+  const camLeft   = camera.x / TILE_SIZE;
+  const camTop    = camera.y / TILE_SIZE;
+  const camRight  = (camera.x + canvasWidth  / camera.zoom) / TILE_SIZE;
+  const camBottom = (camera.y + canvasHeight / camera.zoom) / TILE_SIZE;
+
+  const region = {
+    x: Math.max(0, Math.floor(camLeft) - 1),
+    y: Math.max(0, Math.floor(camTop) - 1),
+    w: Math.ceil(camRight - camLeft) + 2,
+    h: Math.ceil(camBottom - camTop) + 2,
+  };
+  const entities = world.query({ region });
+
+  entities.sort((a, b) => {
+    const ad = tryGetEntityKindDef(a.kind);
+    const bd = tryGetEntityKindDef(b.kind);
+    return (a.y + (ad?.yOffsetForSort ?? 0)) - (b.y + (bd?.yOffsetForSort ?? 0));
+  });
+
   ctx.imageSmoothingEnabled = false;
-  for (const e of entities) e.draw(ctx);
+  for (const e of entities) drawEntity(ctx, rc, e);
+
+  // NPCs render last (z-order regression intentional per Spec A)
+  drawNpcs(ctx, rc, camLeft, camTop, camRight, camBottom);
 }
 
 // =============================================================================

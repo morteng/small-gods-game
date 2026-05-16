@@ -1,0 +1,485 @@
+/**
+ * Small Gods - Component Styles
+ * Buttons, inputs, forms, status messages, and other UI components
+ */
+
+/* =========================================================================
+   FORM CONTROLS
+   ========================================================================= */
+
+.control-group {
+  margin-bottom: var(--spacing-lg);
+}
+
+.control-group.compact {
+  margin: 0;
+}
+
+.control-group label {
+  display: block;
+  font-size: 0.75em;
+  color: var(--color-text-muted);
+  margin-bottom: 3px;
+}
+
+.model-desc {
+  display: block;
+  font-size: 0.65em;
+  color: var(--color-text-dim);
+  margin-top: 3px;
+  font-style: italic;
+}
+
+input[type="text"],
+input[type="number"],
+select {
+  width: 100%;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-dark);
+  color: var(--color-text);
+  font-size: var(--font-md);
+}
+
+input[type="range"] {
+  width: 100%;
+}
+
+.range-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--font-xs);
+  color: var(--color-text-dim);
+}
+
+.size-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-lg);
+}
+
+/* =========================================================================
+   CONTROLNET TOGGLES
+   ========================================================================= */
+
+.controlnet-toggles {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-md);
+  margin-bottom: var(--spacing-lg);
+}
+
+.controlnet-row {
+  display: grid;
+  grid-template-columns: 100px 1fr 32px;
+  align-items: center;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-sm);
+}
+
+.controlnet-param {
+  display: grid;
+  grid-template-columns: 100px 1fr 32px;
+  align-items: center;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-xs);
+  padding-top: var(--spacing-xs);
+  border-top: 1px solid var(--color-border);
+}
+
+.controlnet-param:first-of-type {
+  margin-top: var(--spacing-sm);
+}
+
+.controlnet-param label {
+  font-size: var(--font-sm);
+  color: var(--color-text-muted);
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  font-size: var(--font-md);
+  color: #ccc;
+  cursor: pointer;
+}
+
+.checkbox-label input[type="checkbox"] {
+  width: auto;
+  margin: 0;
+  accent-color: var(--color-primary);
+}
+
+.checkbox-label:hover {
+  color: var(--color-text);
+}
+
+.sub-control {
+  margin-top: var(--spacing-sm);
+  margin-left: var(--spacing-md);
+  padding-left: var(--spacing-sm);
+  border-left: 2px solid var(--color-border-light);
+}
+
+.sub-control input[type="range"] {
+  width: 100%;
+}
+
+.control-hint {
+  display: block;
+  font-size: var(--font-sm);
+  color: var(--color-text-dim);
+  margin-top: 2px;
+  font-style: italic;
+}
+
+.controlnet-toggles input[type="range"] {
+  height: 4px;
+  -webkit-appearance: none;
+  background: var(--color-border-light);
+  border-radius: 2px;
+}
+
+.controlnet-toggles input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  background: var(--color-primary);
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.scale-value {
+  font-size: var(--font-sm);
+  color: var(--color-text-muted);
+  text-align: right;
+  font-family: monospace;
+}
+
+/* =========================================================================
+   BUTTONS
+   ========================================================================= */
+
+button {
+  width: 100%;
+  padding: var(--spacing-md) var(--spacing-lg);
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-md);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  margin-bottom: var(--spacing-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-sm);
+  position: relative;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+button .price {
+  font-size: var(--font-xs);
+  opacity: 0.7;
+  font-weight: normal;
+  margin-left: auto;
+}
+
+.btn-primary {
+  background: linear-gradient(90deg, var(--color-primary), var(--color-primary-dark));
+  color: var(--color-text);
+}
+
+.btn-primary:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 3px 10px rgba(240, 147, 251, 0.3);
+}
+
+.btn-secondary {
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.btn-success {
+  background: linear-gradient(90deg, #11998e, var(--color-success-dark));
+  color: var(--color-text);
+}
+
+.btn-danger {
+  background: linear-gradient(90deg, var(--color-primary-dark), var(--color-primary));
+  color: var(--color-text);
+  margin-top: var(--spacing-lg);
+}
+
+.btn-danger:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.btn-small {
+  padding: var(--spacing-xs) var(--spacing-md);
+  font-size: var(--font-sm);
+  border-radius: var(--radius-sm);
+  border: none;
+  background: var(--color-surface);
+  color: #ccc;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.btn-small:hover {
+  background: rgba(255, 255, 255, 0.2);
+  color: var(--color-text);
+}
+
+.world-file-controls {
+  display: flex;
+  gap: var(--spacing-xs);
+  margin: var(--spacing-md) 0;
+  flex-wrap: wrap;
+}
+
+/* =========================================================================
+   STATUS MESSAGES
+   ========================================================================= */
+
+.status {
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-sm);
+  margin-bottom: var(--spacing-md);
+  display: none;
+}
+
+.status.show {
+  display: block;
+}
+
+.status.loading {
+  background: rgba(240, 147, 251, 0.2);
+  color: var(--color-primary);
+}
+
+.status.success {
+  background: rgba(56, 239, 125, 0.2);
+  color: var(--color-success-dark);
+}
+
+.status.error {
+  background: rgba(245, 87, 108, 0.2);
+  color: var(--color-primary-dark);
+}
+
+/* =========================================================================
+   API STATUS BADGE
+   ========================================================================= */
+
+.api-status {
+  font-size: var(--font-sm);
+  color: var(--color-text-muted);
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: var(--radius-sm);
+  margin-bottom: var(--spacing-xl);
+}
+
+.api-badge {
+  display: inline-block;
+  padding: 2px var(--spacing-sm);
+  border-radius: 3px;
+  font-weight: bold;
+  font-size: var(--font-xs);
+  margin-right: var(--spacing-xs);
+}
+
+.api-badge.fal {
+  background: linear-gradient(135deg, #7c3aed, var(--color-accent));
+  color: white;
+}
+
+/* =========================================================================
+   VALIDATION MESSAGES
+   ========================================================================= */
+
+.validation-msg {
+  padding: var(--spacing-md);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-sm);
+  margin: var(--spacing-2xl) var(--spacing-2xl) 0;
+}
+
+.validation-msg.valid {
+  background: rgba(56, 239, 125, 0.2);
+  color: var(--color-success-dark);
+}
+
+.validation-msg.invalid {
+  background: rgba(245, 87, 108, 0.2);
+  color: var(--color-primary-dark);
+}
+
+/* =========================================================================
+   NPC GRID
+   ========================================================================= */
+
+.npc-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--spacing-sm);
+}
+
+.npc-card {
+  background: var(--color-surface-dark);
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-sm);
+  text-align: center;
+  cursor: pointer;
+  border: 2px solid transparent;
+}
+
+.npc-card:hover {
+  background: var(--color-surface);
+}
+
+.npc-card.selected {
+  border-color: var(--color-primary);
+}
+
+.npc-card canvas {
+  width: 32px;
+  height: 32px;
+  image-rendering: pixelated;
+}
+
+.npc-card .name {
+  font-size: var(--font-xs);
+  color: var(--color-text-muted);
+  margin-top: 2px;
+}
+
+/* =========================================================================
+   ZOOM PREVIEW
+   ========================================================================= */
+
+.zoom-preview {
+  background: var(--color-surface-dark);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  margin-bottom: var(--spacing-lg);
+}
+
+.zoom-preview img {
+  width: 100%;
+  display: block;
+  image-rendering: pixelated;
+}
+
+.zoom-preview .placeholder {
+  padding: 20px var(--spacing-lg);
+  text-align: center;
+  color: var(--color-text-dimmer);
+  font-size: var(--font-sm);
+}
+
+/* =========================================================================
+   PROMPT PREVIEW PANEL
+   ========================================================================= */
+
+.prompt-preview-panel {
+  background: var(--color-surface-dark);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-md);
+  font-size: var(--font-sm);
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.prompt-preview h4 {
+  color: var(--color-primary);
+  margin-bottom: var(--spacing-md);
+  font-size: var(--font-md);
+}
+
+.prompt-preview .prompt-section {
+  margin-bottom: var(--spacing-md);
+}
+
+.prompt-preview .prompt-section label {
+  display: block;
+  color: var(--color-text-muted);
+  font-size: var(--font-xs);
+  text-transform: uppercase;
+  margin-bottom: 2px;
+}
+
+.prompt-preview .prompt-text {
+  background: var(--color-surface-dark);
+  padding: var(--spacing-sm);
+  border-radius: var(--radius-sm);
+  font-family: monospace;
+  font-size: var(--font-xs);
+  line-height: 1.4;
+  color: var(--color-success);
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.prompt-preview .prompt-text.negative {
+  color: var(--color-error);
+}
+
+.prompt-preview .prompt-text.controlnet {
+  color: #60a5fa;
+}
+
+/* =========================================================================
+   CONTROL IMAGES PREVIEW
+   ========================================================================= */
+
+.control-images-panel {
+  display: flex;
+  gap: var(--spacing-md);
+  flex-wrap: wrap;
+  padding: var(--spacing-md);
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: var(--radius-lg);
+  min-height: 60px;
+}
+
+.control-image-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+.control-image-label {
+  font-size: var(--font-sm);
+  color: #aaa;
+  text-transform: uppercase;
+}
+
+.control-image-preview {
+  width: 60px;
+  height: 60px;
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  image-rendering: pixelated;
+}
+
+.control-image-preview:hover {
+  border-color: var(--color-primary-dark);
+  transform: scale(1.1);
+}

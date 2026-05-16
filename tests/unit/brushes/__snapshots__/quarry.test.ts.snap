@@ -1,0 +1,303 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`quarry brush > produces a stable snapshot 1`] = `
+[
+  {
+    "id": "quarry-pebbles-3-0",
+    "kind": "pebbles",
+    "properties": {},
+    "tags": [
+      "rock",
+      "small",
+    ],
+    "x": 3.5,
+    "y": 0.5,
+  },
+  {
+    "id": "quarry-pebbles-4-0",
+    "kind": "pebbles",
+    "properties": {},
+    "tags": [
+      "rock",
+      "small",
+    ],
+    "x": 4.5,
+    "y": 0.5,
+  },
+  {
+    "id": "quarry-pebbles-5-0",
+    "kind": "pebbles",
+    "properties": {},
+    "tags": [
+      "rock",
+      "small",
+    ],
+    "x": 5.5,
+    "y": 0.5,
+  },
+  {
+    "id": "quarry-ore_vein-6-0",
+    "kind": "ore_vein",
+    "properties": {},
+    "tags": [
+      "resource",
+      "rock",
+    ],
+    "x": 6.5,
+    "y": 0.5,
+  },
+  {
+    "id": "quarry-boulder-7-0",
+    "kind": "boulder",
+    "properties": {},
+    "tags": [
+      "rock",
+      "obstacle",
+    ],
+    "x": 7.5,
+    "y": 0.5,
+  },
+  {
+    "id": "quarry-boulder-0-2",
+    "kind": "boulder",
+    "properties": {},
+    "tags": [
+      "rock",
+      "obstacle",
+    ],
+    "x": 0.5,
+    "y": 2.5,
+  },
+  {
+    "id": "quarry-boulder-1-2",
+    "kind": "boulder",
+    "properties": {},
+    "tags": [
+      "rock",
+      "obstacle",
+    ],
+    "x": 1.5,
+    "y": 2.5,
+  },
+  {
+    "id": "quarry-boulder-2-2",
+    "kind": "boulder",
+    "properties": {},
+    "tags": [
+      "rock",
+      "obstacle",
+    ],
+    "x": 2.5,
+    "y": 2.5,
+  },
+  {
+    "id": "quarry-boulder-3-2",
+    "kind": "boulder",
+    "properties": {},
+    "tags": [
+      "rock",
+      "obstacle",
+    ],
+    "x": 3.5,
+    "y": 2.5,
+  },
+  {
+    "id": "quarry-stone_block-4-2",
+    "kind": "stone_block",
+    "properties": {},
+    "tags": [
+      "resource",
+      "quarry",
+    ],
+    "x": 4.5,
+    "y": 2.5,
+  },
+  {
+    "id": "quarry-stone_block-5-2",
+    "kind": "stone_block",
+    "properties": {},
+    "tags": [
+      "resource",
+      "quarry",
+    ],
+    "x": 5.5,
+    "y": 2.5,
+  },
+  {
+    "id": "quarry-pebbles-3-3",
+    "kind": "pebbles",
+    "properties": {},
+    "tags": [
+      "rock",
+      "small",
+    ],
+    "x": 3.5,
+    "y": 3.5,
+  },
+  {
+    "id": "quarry-pebbles-4-3",
+    "kind": "pebbles",
+    "properties": {},
+    "tags": [
+      "rock",
+      "small",
+    ],
+    "x": 4.5,
+    "y": 3.5,
+  },
+  {
+    "id": "quarry-pebbles-5-3",
+    "kind": "pebbles",
+    "properties": {},
+    "tags": [
+      "rock",
+      "small",
+    ],
+    "x": 5.5,
+    "y": 3.5,
+  },
+  {
+    "id": "quarry-ore_vein-6-3",
+    "kind": "ore_vein",
+    "properties": {},
+    "tags": [
+      "resource",
+      "rock",
+    ],
+    "x": 6.5,
+    "y": 3.5,
+  },
+  {
+    "id": "quarry-boulder-7-3",
+    "kind": "boulder",
+    "properties": {},
+    "tags": [
+      "rock",
+      "obstacle",
+    ],
+    "x": 7.5,
+    "y": 3.5,
+  },
+  {
+    "id": "quarry-boulder-0-5",
+    "kind": "boulder",
+    "properties": {},
+    "tags": [
+      "rock",
+      "obstacle",
+    ],
+    "x": 0.5,
+    "y": 5.5,
+  },
+  {
+    "id": "quarry-boulder-1-5",
+    "kind": "boulder",
+    "properties": {},
+    "tags": [
+      "rock",
+      "obstacle",
+    ],
+    "x": 1.5,
+    "y": 5.5,
+  },
+  {
+    "id": "quarry-boulder-2-5",
+    "kind": "boulder",
+    "properties": {},
+    "tags": [
+      "rock",
+      "obstacle",
+    ],
+    "x": 2.5,
+    "y": 5.5,
+  },
+  {
+    "id": "quarry-boulder-3-5",
+    "kind": "boulder",
+    "properties": {},
+    "tags": [
+      "rock",
+      "obstacle",
+    ],
+    "x": 3.5,
+    "y": 5.5,
+  },
+  {
+    "id": "quarry-stone_block-4-5",
+    "kind": "stone_block",
+    "properties": {},
+    "tags": [
+      "resource",
+      "quarry",
+    ],
+    "x": 4.5,
+    "y": 5.5,
+  },
+  {
+    "id": "quarry-stone_block-5-5",
+    "kind": "stone_block",
+    "properties": {},
+    "tags": [
+      "resource",
+      "quarry",
+    ],
+    "x": 5.5,
+    "y": 5.5,
+  },
+  {
+    "id": "quarry-pebbles-3-6",
+    "kind": "pebbles",
+    "properties": {},
+    "tags": [
+      "rock",
+      "small",
+    ],
+    "x": 3.5,
+    "y": 6.5,
+  },
+  {
+    "id": "quarry-pebbles-4-6",
+    "kind": "pebbles",
+    "properties": {},
+    "tags": [
+      "rock",
+      "small",
+    ],
+    "x": 4.5,
+    "y": 6.5,
+  },
+  {
+    "id": "quarry-pebbles-5-6",
+    "kind": "pebbles",
+    "properties": {},
+    "tags": [
+      "rock",
+      "small",
+    ],
+    "x": 5.5,
+    "y": 6.5,
+  },
+  {
+    "id": "quarry-ore_vein-6-6",
+    "kind": "ore_vein",
+    "properties": {},
+    "tags": [
+      "resource",
+      "rock",
+    ],
+    "x": 6.5,
+    "y": 6.5,
+  },
+  {
+    "id": "quarry-boulder-7-6",
+    "kind": "boulder",
+    "properties": {},
+    "tags": [
+      "rock",
+      "obstacle",
+    ],
+    "x": 7.5,
+    "y": 6.5,
+  },
+]
+`;

@@ -11,15 +11,18 @@
 
 import { WFCEngine } from '@/wfc';
 import { Random, fractalNoise } from '@/core/noise';
-import type { GameMap, WorldSeed, Tile, BuildingInstance, TerrainConfig, POI, TerrainField } from '@/core/types';
+import type { GameMap, WorldSeed, Tile, BuildingInstance, TerrainConfig, POI, TerrainField, Region } from '@/core/types';
 import { generateTerrainFields, classifyBiomes, sampleTiles } from '@/terrain/terrain-generator';
 import { applyPoiInfluences } from '@/terrain/poi-influence';
 import { generateHydrology } from '@/terrain/hydrology';
 import { walkRoad } from '@/terrain/road-walker';
 import { erodeElevation } from '@/terrain/erosion';
-import { EntityRegistry } from '@/world/entity-registry';
 import { placeSettlement } from '@/world/building-placer';
 import { getZoneRule } from '@/map/poi-zones';
+import { World } from '@/world/world';
+import { biomeRegions } from '@/world/biome-regions';
+import { brushForBiome, brushForPoiType } from '@/world/brushes/index';
+import '@/world/brushes/index';
 
 /** Options for noise-based generation */
 export interface NoiseGenOptions {
@@ -75,8 +78,8 @@ function tileWalkable(type: string): boolean {
 // ─── Result type for noise generation ────────────────────────────────────────
 
 export interface NoiseGenResult {
-  map:      GameMap;
-  registry: EntityRegistry;
+  map:   GameMap;
+  world: World;
 }
 
 // ─── Primary noise-based generator ───────────────────────────────────────────
@@ -149,10 +152,23 @@ export async function generateWithNoise(
 
   // Place settlements for each POI (before inter-POI roads so roads take priority)
   report('Placing settlements...');
-  const registry = new EntityRegistry();
   const buildings: BuildingInstance[] = [];
   const villages: GameMap['villages'] = [];
   const rng = new Random((seed * 6271 + 9999) | 0);
+
+  // Build a stub GameMap to construct World (world needs tile dims; buildings filled in after)
+  const mapStub: GameMap = {
+    tiles,
+    width,
+    height,
+    villages: [],
+    seed,
+    success: true,
+    worldSeed: worldSeed ?? null,
+    stats: { iterations: 0, backtracks: 0 },
+    buildings: [],
+  };
+  const world = new World(mapStub);
 
   if (worldSeed?.pois) {
     for (const poi of worldSeed.pois) {
@@ -166,7 +182,12 @@ export async function generateWithNoise(
         ? computeConnectedDirections(poi.id, worldSeed.connections, worldSeed.pois)
         : [];
 
-      const result = placeSettlement(poi, zoneRule, tiles, registry, connectedDirs, rng);
+      const result = placeSettlement(poi, zoneRule, tiles, world.registry, connectedDirs, rng);
+
+      // Keep World's secondary indexes in sync with entities added directly via registry
+      for (const e of result.entities) {
+        world.indexExisting(e);
+      }
 
       // Apply road tiles to the grid
       for (const rt of result.roadTiles) {
@@ -174,15 +195,16 @@ export async function generateWithNoise(
         if (t) { t.type = rt.type; t.walkable = true; }
       }
 
-      // Convert WorldEntity buildings → BuildingInstance for backwards compat
+      // Convert Entity buildings → BuildingInstance for backwards compat
       for (const e of result.entities) {
-        if (e.category === 'building' && e.templateId) {
+        const props = e.properties ?? {};
+        if (props.category === 'building' && props.templateId) {
           buildings.push({
             id: e.id,
-            templateId: e.templateId,
-            tileX: e.tileX,
-            tileY: e.tileY,
-            poiId: e.poiId,
+            templateId: props.templateId as string,
+            tileX: e.x,
+            tileY: e.y,
+            poiId: props.poiId as string | undefined,
             state: 'intact',
           });
         }
@@ -194,6 +216,32 @@ export async function generateWithNoise(
   if (worldSeed?.connections) {
     report('Carving road connections...');
     carveConnections(tiles, worldSeed.connections, worldSeed.pois ?? [], fields);
+  }
+
+  // Run biome-based brush passes to populate vegetation / rocks / etc.
+  report('Running biome brushes...');
+  for (const region of biomeRegions(biomeMap)) {
+    const brushName = brushForBiome(region.biome);
+    if (!brushName) continue;
+    world.applyBrush(brushName, region, seed);
+  }
+
+  // Run POI-zone brush passes for additional flavour entities around each POI
+  report('Running POI zone brushes...');
+  if (worldSeed?.pois) {
+    for (const poi of worldSeed.pois) {
+      if (!poi.position) continue;
+      const zoneRule = getZoneRule(poi.type);
+      const radius = Math.round((zoneRule.radius.min + zoneRule.radius.max) / 2);
+      const x0 = Math.max(0, poi.position.x - radius);
+      const y0 = Math.max(0, poi.position.y - radius);
+      const x1 = Math.min(width  - 1, poi.position.x + radius);
+      const y1 = Math.min(height - 1, poi.position.y + radius);
+      const region: Region = { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
+      if (region.w > 0 && region.h > 0) {
+        world.applyBrush(brushForPoiType(poi.type), region, seed);
+      }
+    }
   }
 
   const map: GameMap = {
@@ -208,7 +256,7 @@ export async function generateWithNoise(
     buildings,
   };
 
-  return { map, registry };
+  return { map, world };
 }
 
 /**

@@ -1,0 +1,151 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`scrubland brush > produces a stable snapshot 1`] = `
+[
+  {
+    "id": "scrubland-boulder-4-1",
+    "kind": "boulder",
+    "properties": {},
+    "tags": [
+      "rock",
+      "obstacle",
+    ],
+    "x": 4.5,
+    "y": 1.5,
+  },
+  {
+    "id": "scrubland-cactus-2-1",
+    "kind": "cactus",
+    "properties": {
+      "offsetX": 0.06036114702483692,
+      "offsetY": -0.08547956940507496,
+    },
+    "tags": [
+      "vegetation",
+      "arid",
+    ],
+    "x": 2.060361147024837,
+    "y": 1.914520430594925,
+  },
+  {
+    "id": "scrubland-cactus-3-1",
+    "kind": "cactus",
+    "properties": {
+      "offsetX": 0.046958541961833154,
+      "offsetY": -0.09888217446807873,
+    },
+    "tags": [
+      "vegetation",
+      "arid",
+    ],
+    "x": 3.0469585419618332,
+    "y": 1.9011178255319212,
+  },
+  {
+    "id": "scrubland-cactus-4-1",
+    "kind": "cactus",
+    "properties": {
+      "offsetX": 0.03355593689882939,
+      "offsetY": -0.11228470800550873,
+    },
+    "tags": [
+      "vegetation",
+      "arid",
+    ],
+    "x": 4.033555936898829,
+    "y": 1.8877152919944913,
+  },
+  {
+    "id": "scrubland-cactus-5-1",
+    "kind": "cactus",
+    "properties": {
+      "offsetX": 0.020153331835825617,
+      "offsetY": -0.1256873130685125,
+    },
+    "tags": [
+      "vegetation",
+      "arid",
+    ],
+    "x": 5.020153331835826,
+    "y": 1.8743126869314874,
+  },
+  {
+    "id": "scrubland-boulder-4-4",
+    "kind": "boulder",
+    "properties": {},
+    "tags": [
+      "rock",
+      "obstacle",
+    ],
+    "x": 4.5,
+    "y": 4.5,
+  },
+  {
+    "id": "scrubland-cactus-2-4",
+    "kind": "cactus",
+    "properties": {
+      "offsetX": 0.06035535345336206,
+      "offsetY": -0.08548529145097607,
+    },
+    "tags": [
+      "vegetation",
+      "arid",
+    ],
+    "x": 2.060355353453362,
+    "y": 4.9145147085490235,
+  },
+  {
+    "id": "scrubland-cactus-3-4",
+    "kind": "cactus",
+    "properties": {
+      "offsetX": 0.04695281991593205,
+      "offsetY": -0.09888796803955359,
+    },
+    "tags": [
+      "vegetation",
+      "arid",
+    ],
+    "x": 3.046952819915932,
+    "y": 4.901112031960446,
+  },
+  {
+    "id": "scrubland-cactus-4-4",
+    "kind": "cactus",
+    "properties": {
+      "offsetX": 0.033550214852928285,
+      "offsetY": -0.11229043005140983,
+    },
+    "tags": [
+      "vegetation",
+      "arid",
+    ],
+    "x": 4.033550214852928,
+    "y": 4.88770956994859,
+  },
+  {
+    "id": "scrubland-cactus-5-4",
+    "kind": "cactus",
+    "properties": {
+      "offsetX": 0.020147609789924515,
+      "offsetY": -0.1256930351144136,
+    },
+    "tags": [
+      "vegetation",
+      "arid",
+    ],
+    "x": 5.020147609789925,
+    "y": 4.874306964885586,
+  },
+  {
+    "id": "scrubland-boulder-4-7",
+    "kind": "boulder",
+    "properties": {},
+    "tags": [
+      "rock",
+      "obstacle",
+    ],
+    "x": 4.5,
+    "y": 7.5,
+  },
+]
+`;
