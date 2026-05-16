@@ -464,6 +464,7 @@ import {
   markAssetKept,
   markAssetRejected,
   updateAssetMetadata,
+  listRecentAssets,
 } from '@/services/pixellab';
 
 describe('curation actions', () => {
@@ -507,5 +508,19 @@ describe('curation actions', () => {
     expect(after.kind).toBe('decoration');
     expect(after.tags).toEqual(['oak']);
     expect(after.description).toBe('an oak');
+  });
+});
+
+describe('listRecentAssets', () => {
+  it('returns all curation statuses, newest-first, respecting limit', async () => {
+    await seed({ key: 'a', kind: 'decoration', curated: 'kept',     generatedAt: 100 });
+    await seed({ key: 'b', kind: 'decoration', curated: 'pending',  generatedAt: 200 });
+    await seed({ key: 'c', kind: 'decoration', curated: 'rejected', generatedAt: 150 });
+
+    const r = await listRecentAssets(10);
+    expect(r.map(a => a.key)).toEqual(['b', 'c', 'a']);
+
+    const limited = await listRecentAssets(2);
+    expect(limited).toHaveLength(2);
   });
 });

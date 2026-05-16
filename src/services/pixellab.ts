@@ -418,5 +418,28 @@ export async function updateAssetMetadata(
   await patchAsset(id, normalized);
 }
 
+/** Diagnostic / dev-tool helper: list every asset (any curation status),
+ *  ordered newest-first. Returns full LibraryAsset records (including blob). */
+export async function listRecentAssets(limit = 20): Promise<LibraryAsset[]> {
+  const db = await openDb();
+  const tx = db.transaction(DB_STORE, 'readonly');
+  const store = tx.objectStore(DB_STORE);
+  return new Promise<LibraryAsset[]>((resolve, reject) => {
+    const out: LibraryAsset[] = [];
+    const req = store.openCursor();
+    req.onsuccess = () => {
+      const cursor = req.result;
+      if (!cursor) {
+        out.sort((a, b) => b.generatedAt - a.generatedAt);
+        resolve(out.slice(0, limit));
+        return;
+      }
+      out.push(cursor.value as LibraryAsset);
+      cursor.continue();
+    };
+    req.onerror = () => reject(req.error);
+  });
+}
+
 // Re-export so the UI / tests can poke at the cache directly.
 export { cacheGet, cachePut, cacheClear };
