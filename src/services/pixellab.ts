@@ -41,6 +41,22 @@ function arrayBufferToBase64(buf: ArrayBuffer): string {
   return btoa(bin);
 }
 
+/** Normalize tags: lowercase, trim, dedupe (preserve first-occurrence order),
+ *  drop empties. Called at write time so reads can be dumb. */
+export function normalizeTags(tags: string[] | undefined): string[] {
+  if (!tags || tags.length === 0) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of tags) {
+    const t = raw.trim().toLowerCase();
+    if (!t) continue;
+    if (seen.has(t)) continue;
+    seen.add(t);
+    out.push(t);
+  }
+  return out;
+}
+
 function base64ToBlob(b64: string, mime = 'image/png'): Blob {
   const bin = atob(b64);
   const bytes = new Uint8Array(bin.length);

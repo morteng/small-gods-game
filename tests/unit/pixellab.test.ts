@@ -8,6 +8,7 @@ import {
   loadApiKey,
   saveApiKey,
   clearApiKey,
+  normalizeTags,
   RECIPE_V,
 } from '@/services/pixellab';
 
@@ -126,5 +127,32 @@ describe('API key storage', () => {
     expect(loadApiKey()).toBe('abc');
     clearApiKey();
     expect(loadApiKey()).toBeNull();
+  });
+});
+
+describe('normalizeTags', () => {
+  it('lowercases', () => {
+    expect(normalizeTags(['Tree', 'ROCK'])).toEqual(['tree', 'rock']);
+  });
+
+  it('trims whitespace', () => {
+    expect(normalizeTags(['  tree ', 'rock '])).toEqual(['tree', 'rock']);
+  });
+
+  it('dedupes after normalization', () => {
+    expect(normalizeTags(['Tree', 'tree', 'TREE '])).toEqual(['tree']);
+  });
+
+  it('drops empty entries', () => {
+    expect(normalizeTags(['tree', '', '   '])).toEqual(['tree']);
+  });
+
+  it('returns [] for undefined/empty input', () => {
+    expect(normalizeTags(undefined)).toEqual([]);
+    expect(normalizeTags([])).toEqual([]);
+  });
+
+  it('preserves order of first occurrence', () => {
+    expect(normalizeTags(['ruin', 'tree', 'Ruin'])).toEqual(['ruin', 'tree']);
   });
 });
