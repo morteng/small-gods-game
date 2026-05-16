@@ -142,6 +142,9 @@ export interface RenderContext {
   world: World;
   showLabels?: boolean;
   showPoiMarkers?: boolean;
+  /** Player-placed decorations to render above terrain. Part 1 renders these
+   *  as placeholder squares; Part 2 will swap in real LibraryAsset blobs. */
+  generatedDecorations?: GeneratedDecoration[];
 }
 
 /** A live NPC instance on the map */
@@ -396,3 +399,13 @@ export interface AssetSummary {
 }
 
 export type PixelLabKeyStatus = 'missing' | 'unverified' | 'valid' | 'invalid';
+
+// ─── Player-placed decorations ────────────────────────────────────────────────
+
+/** A decoration the player placed via right-click. References a LibraryAsset
+ *  by its content-hash id (= LibraryAsset.key). Persisted per world seed. */
+export interface GeneratedDecoration {
+  tileX: number;
+  tileY: number;
+  assetId: string;
+}

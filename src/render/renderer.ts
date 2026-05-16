@@ -19,6 +19,7 @@ export function renderMap(ctx: CanvasRenderingContext2D, rc: RenderContext): voi
   ctx.translate(-camera.x, -camera.y);
 
   drawTerrain(ctx, rc);
+  drawGeneratedDecorations(ctx, rc);
   drawYSortedEntities(ctx, rc);
   drawOverlays(ctx, rc);
 
@@ -373,6 +374,39 @@ function drawNpcs(
     const { sx, sy } = getSpriteCoords(npc);
     ctx.drawImage(sheet, sx, sy, 64, 64, npc.tileX * TILE_SIZE, npc.tileY * TILE_SIZE, npcSize, npcSize);
   }
+}
+
+/**
+ * Player-placed decorations (Part 1: colored-square placeholder).
+ *
+ * Rendered between terrain and y-sorted entities so they sit on the ground but
+ * below trees/buildings/NPCs. Part 2 will replace this pass with a blob-backed
+ * image cache that draws each LibraryAsset at its tile.
+ */
+function drawGeneratedDecorations(ctx: CanvasRenderingContext2D, rc: RenderContext): void {
+  const list = rc.generatedDecorations;
+  if (!list || list.length === 0) return;
+  const { camera, canvasWidth, canvasHeight } = rc;
+  const camLeft   = camera.x / TILE_SIZE;
+  const camTop    = camera.y / TILE_SIZE;
+  const camRight  = (camera.x + canvasWidth  / camera.zoom) / TILE_SIZE;
+  const camBottom = (camera.y + canvasHeight / camera.zoom) / TILE_SIZE;
+
+  ctx.save();
+  for (const d of list) {
+    if (d.tileX + 1 < camLeft || d.tileX > camRight ||
+        d.tileY + 1 < camTop  || d.tileY > camBottom) continue;
+    const px = d.tileX * TILE_SIZE;
+    const py = d.tileY * TILE_SIZE;
+    // Filled square with a contrasting border so placements are visible
+    // regardless of underlying terrain.
+    ctx.fillStyle = 'rgba(255, 213, 79, 0.55)';
+    ctx.fillRect(px + 2, py + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+    ctx.strokeStyle = '#FFD54F';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(px + 2.5, py + 2.5, TILE_SIZE - 5, TILE_SIZE - 5);
+  }
+  ctx.restore();
 }
 
 function drawYSortedEntities(ctx: CanvasRenderingContext2D, rc: RenderContext): void {

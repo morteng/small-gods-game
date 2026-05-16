@@ -5,6 +5,7 @@ import { TILE_SIZE } from '@/core/constants';
 export interface ControlsCallbacks {
   onTileClick?: (x: number, y: number) => void;
   onCanvasClick?: (sx: number, sy: number) => boolean;
+  onTileRightClick?: (tileX: number, tileY: number, screenX: number, screenY: number) => void;
   onTogglePause?: () => void;
   onToggleLabels?: () => void;
   onTogglePoiMarkers?: () => void;
@@ -33,6 +34,9 @@ export function attachControls(canvas: HTMLCanvasElement, camera: Camera, callba
   let downY = 0;
 
   function onMouseDown(e: MouseEvent) {
+    // Only the primary button starts a drag/click. Right-click is handled by
+    // the contextmenu listener and must not be treated as a left-click.
+    if (e.button !== 0) return;
     dragging = true;
     lastX = e.clientX;
     lastY = e.clientY;
@@ -78,6 +82,16 @@ export function attachControls(canvas: HTMLCanvasElement, camera: Camera, callba
     }
   }
 
+  function onContextMenu(e: MouseEvent) {
+    if (!callbacks.onTileRightClick) return;
+    e.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    const sx = e.clientX - rect.left;
+    const sy = e.clientY - rect.top;
+    const { wx, wy } = screenToWorld(camera, sx, sy, TILE_SIZE);
+    callbacks.onTileRightClick(wx, wy, sx, sy);
+  }
+
   function onWheel(e: WheelEvent) {
     e.preventDefault();
     const rect = canvas.getBoundingClientRect();
@@ -116,6 +130,7 @@ export function attachControls(canvas: HTMLCanvasElement, camera: Camera, callba
   canvas.addEventListener('mousemove', onMouseMove);
   canvas.addEventListener('mouseup', onMouseUp);
   canvas.addEventListener('mouseleave', () => { dragging = false; });
+  canvas.addEventListener('contextmenu', onContextMenu);
   canvas.addEventListener('wheel', onWheel, { passive: false });
   window.addEventListener('keydown', onKeyDown);
 
@@ -124,6 +139,7 @@ export function attachControls(canvas: HTMLCanvasElement, camera: Camera, callba
     canvas.removeEventListener('mousedown', onMouseDown);
     canvas.removeEventListener('mousemove', onMouseMove);
     canvas.removeEventListener('mouseup', onMouseUp);
+    canvas.removeEventListener('contextmenu', onContextMenu);
     canvas.removeEventListener('wheel', onWheel);
     window.removeEventListener('keydown', onKeyDown);
   };

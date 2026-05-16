@@ -31,4 +31,9 @@ describe('createState', () => {
     const s = createState();
     expect(s.followNpc).toBe(false);
   });
+
+  it('starts with no generated decorations', () => {
+    const s = createState();
+    expect(s.generatedDecorations).toEqual([]);
+  });
 });

@@ -1,4 +1,4 @@
-import type { GameMap, Camera, WorldSeed, NpcInstance, NpcSimState, TerrainField, BiomeMap } from '@/core/types';
+import type { GameMap, Camera, WorldSeed, NpcInstance, NpcSimState, TerrainField, BiomeMap, GeneratedDecoration } from '@/core/types';
 import type { BlobTile } from '@/map/blob-autotiler';
 import type { World } from '@/world/world';
 import { createCamera } from '@/render/camera';
@@ -25,6 +25,8 @@ export interface GameState {
   terrainFields: TerrainField | null;
   /** Biome classification per tile */
   biomeMap: BiomeMap | null;
+  /** Decorations placed via right-click. Keyed by tile coords + library asset id. */
+  generatedDecorations: GeneratedDecoration[];
 }
 
 export function createState(): GameState {
@@ -47,5 +49,6 @@ export function createState(): GameState {
     world: null,
     terrainFields: null,
     biomeMap: null,
+    generatedDecorations: [],
   };
 }

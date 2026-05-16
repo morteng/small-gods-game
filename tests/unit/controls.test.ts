@@ -196,6 +196,36 @@ describe('attachControls keyboard', () => {
     expect(onTileClick).toHaveBeenCalledTimes(1);
   });
 
+  it('invokes onTileRightClick on contextmenu and prevents default', () => {
+    const onTileRightClick = vi.fn();
+    cleanup = attachControls(canvas, createCamera(), {
+      onRedraw: () => {},
+      onTileRightClick,
+    });
+    const ev = new MouseEvent('contextmenu', {
+      clientX: 64, clientY: 96, bubbles: true, cancelable: true,
+    });
+    canvas.dispatchEvent(ev);
+    expect(onTileRightClick).toHaveBeenCalledTimes(1);
+    expect(ev.defaultPrevented).toBe(true);
+  });
+
+  it('does not invoke onTileClick after a right-click', () => {
+    const onTileClick = vi.fn();
+    const onTileRightClick = vi.fn();
+    cleanup = attachControls(canvas, createCamera(), {
+      onRedraw: () => {},
+      onTileClick,
+      onTileRightClick,
+    });
+    // Right-click: button 2 mousedown + contextmenu + mouseup
+    canvas.dispatchEvent(new MouseEvent('mousedown', { button: 2, clientX: 50, clientY: 50, bubbles: true }));
+    canvas.dispatchEvent(new MouseEvent('contextmenu', { clientX: 50, clientY: 50, bubbles: true, cancelable: true }));
+    canvas.dispatchEvent(new MouseEvent('mouseup', { button: 2, clientX: 50, clientY: 50, bubbles: true }));
+    expect(onTileRightClick).toHaveBeenCalledTimes(1);
+    expect(onTileClick).not.toHaveBeenCalled();
+  });
+
   it('cleanup removes the key listener', () => {
     const onTogglePause = vi.fn();
     cleanup = attachControls(canvas, createCamera(), {

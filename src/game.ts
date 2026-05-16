@@ -16,6 +16,11 @@ import { formatDebugHud } from '@/ui/debug-hud';
 import { renderNpcInfoPanel } from '@/ui/npc-info-panel';
 import { formatNpcTooltip } from '@/ui/npc-tooltip';
 import { createSettingsPanel, type SettingsPanelHandle } from '@/ui/settings-panel';
+import {
+  createDecorationPlacementModal,
+  type DecorationPlacementModalHandle,
+} from '@/ui/decoration-placement-modal';
+import { loadDecorations, saveDecorations } from '@/services/decoration-store';
 import { Autotiler } from '@/map/autotiler';
 import { computeBlobMap } from '@/map/blob-autotiler';
 import { getBuildingTemplate, BUILDING_TEMPLATES } from '@/map/building-templates';
@@ -63,6 +68,7 @@ export class Game {
   private tooltip: HTMLDivElement;
   private settingsPanel: SettingsPanelHandle;
   private settingsBtn: HTMLButtonElement;
+  private placementModal: DecorationPlacementModalHandle;
   /** Resolved spritesheets keyed by NPC id */
   private sheets = new Map<string, HTMLCanvasElement>();
   private tileAtlas: HTMLImageElement | null = null;
@@ -145,6 +151,7 @@ export class Game {
     container.appendChild(this.settingsBtn);
 
     this.settingsPanel = createSettingsPanel(container);
+    this.placementModal = createDecorationPlacementModal(container);
 
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(container);
@@ -153,6 +160,7 @@ export class Game {
     this.cleanupControls = attachControls(this.canvas, this.state.camera, {
       onTileClick: (x, y) => this.onTileClick(x, y),
       onCanvasClick: (sx, sy) => this.onCanvasClick(sx, sy),
+      onTileRightClick: (x, y) => void this.onTileRightClick(x, y),
       onTogglePause: () => this.togglePause(),
       onToggleLabels: () => { this.state.showLabels = !this.state.showLabels; },
       onTogglePoiMarkers: () => { this.state.showPoiMarkers = !this.state.showPoiMarkers; },
@@ -218,8 +226,25 @@ export class Game {
     );
 
     this.spawnNpcs(ws, map);
+    this.state.generatedDecorations = loadDecorations(ws.name);
     this.startLoop();
     return map;
+  }
+
+  private async onTileRightClick(tileX: number, tileY: number): Promise<void> {
+    const map = this.state.map;
+    if (!map) return;
+    if (tileX < 0 || tileY < 0 || tileX >= map.width || tileY >= map.height) return;
+    const tile = map.tiles[tileY]?.[tileX];
+    if (!tile || !tile.walkable) return;
+
+    const result = await this.placementModal.open({ x: tileX, y: tileY });
+    if (!result) return;
+    const placement = { tileX, tileY, assetId: result.assetId };
+    this.state.generatedDecorations = [...this.state.generatedDecorations, placement];
+    if (this.state.worldSeed) {
+      saveDecorations(this.state.worldSeed.name, this.state.generatedDecorations);
+    }
   }
 
   /** Spawn NPCs from POI definitions */
@@ -386,6 +411,7 @@ export class Game {
       world: this.state.world!,
       showLabels: this.state.showLabels,
       showPoiMarkers: this.state.showPoiMarkers,
+      generatedDecorations: this.state.generatedDecorations,
     };
     renderMap(this.ctx, rc);
 
@@ -525,6 +551,7 @@ export class Game {
     this.tooltip.remove();
     this.settingsBtn.remove();
     this.settingsPanel.destroy();
+    this.placementModal.destroy();
     this.canvas.remove();
   }
 }
