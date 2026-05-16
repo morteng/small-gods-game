@@ -1,0 +1,28 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`wilderness brush > produces a stable snapshot 1`] = `
+[
+  {
+    "id": "wilderness-stump-5-2",
+    "kind": "stump",
+    "properties": {},
+    "tags": [
+      "debris",
+      "forest",
+    ],
+    "x": 5.5,
+    "y": 2.5,
+  },
+  {
+    "id": "wilderness-stump-5-5",
+    "kind": "stump",
+    "properties": {},
+    "tags": [
+      "debris",
+      "forest",
+    ],
+    "x": 5.5,
+    "y": 5.5,
+  },
+]
+`;
