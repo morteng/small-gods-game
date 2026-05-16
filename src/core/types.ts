@@ -214,6 +214,16 @@ export interface BiomeMap {
   height: number;
 }
 
+/**
+ * Output of the drainage-basin hydrology pass.
+ * `riverMask[i] === 1` means cell i should become a river tile.
+ * `flowField[i]` is the accumulated flow count (number of paths that visited cell i).
+ */
+export interface HydrologyResult {
+  riverMask: Uint8Array;   // [width * height], 0 or 1
+  flowField: Float32Array; // [width * height], ≥ 0
+}
+
 // ─── Entity system (Phase II) ─────────────────────────────────────────────────
 
 export type Era = 'primordial' | 'ancient' | 'classical' | 'medieval' | 'current';
