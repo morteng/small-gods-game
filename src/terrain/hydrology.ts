@@ -9,6 +9,11 @@
 
 import type { TerrainField, TerrainConfig, HydrologyResult } from '@/core/types';
 
+const DEFAULT_PEAK_THRESHOLD = 0.7;
+const DEFAULT_RIVER_FLOW_THRESHOLD = 3;
+const DEFAULT_MAX_RIVERS = 32;
+const DEFAULT_MIN_RIVER_LENGTH = 4;
+
 export interface HydrologyOptions {
   /** Minimum elevation to start a river. Default 0.7. */
   peakThreshold?: number;
@@ -32,8 +37,8 @@ export function findPeaks(
 ): Array<{ x: number; y: number }> {
   const { width, height } = config;
   const { elevation } = fields;
-  const peakThreshold = options.peakThreshold ?? 0.7;
-  const maxRivers = options.maxRivers ?? 32;
+  const peakThreshold = options.peakThreshold ?? DEFAULT_PEAK_THRESHOLD;
+  const maxRivers = options.maxRivers ?? DEFAULT_MAX_RIVERS;
 
   const peaks: Array<{ x: number; y: number; e: number }> = [];
 
@@ -115,8 +120,8 @@ export function generateHydrology(
   options: HydrologyOptions = {},
 ): HydrologyResult {
   const { width, height } = config;
-  const minRiverLength = options.minRiverLength ?? 4;
-  const riverFlowThreshold = options.riverFlowThreshold ?? 3;
+  const minRiverLength = options.minRiverLength ?? DEFAULT_MIN_RIVER_LENGTH;
+  const riverFlowThreshold = options.riverFlowThreshold ?? DEFAULT_RIVER_FLOW_THRESHOLD;
 
   const flowField = new Float32Array(width * height);
   const peaks = findPeaks(fields, config, options);

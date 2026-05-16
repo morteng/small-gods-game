@@ -42,6 +42,23 @@ describe('findPeaks', () => {
     const peaks = findPeaks(fields, config, { peakThreshold: 0.95 });
     expect(peaks).toEqual([]);
   });
+
+  it('finds a peak at a map corner', () => {
+    // 3×3 with the maximum at (0,0) — uses -Infinity sentinels on missing neighbors
+    const elev = new Float32Array([
+      0.9, 0.3, 0.0,
+      0.3, 0.1, 0.0,
+      0.0, 0.0, 0.0,
+    ]);
+    const fields: TerrainField = {
+      elevation: elev,
+      moisture: new Float32Array(9),
+      temperature: new Float32Array(9),
+    };
+    const config: TerrainConfig = { seed: 1, width: 3, height: 3, seaLevel: 0.0 };
+    const peaks = findPeaks(fields, config, { peakThreshold: 0.7 });
+    expect(peaks).toContainEqual({ x: 0, y: 0 });
+  });
 });
 
 describe('walkDownhill', () => {
@@ -98,6 +115,19 @@ describe('walkDownhill', () => {
     const config: TerrainConfig = { seed: 1, width: 3, height: 1, seaLevel: 0.1 };
     const path = walkDownhill(0, 0, fields, config);
     expect(path).toEqual([{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 2, y: 0 }]);
+  });
+
+  it('returns just the start cell when start is already water', () => {
+    // 3×1 strip, all below seaLevel
+    const elev = new Float32Array([0.1, 0.05, 0.0]);
+    const fields: TerrainField = {
+      elevation: elev,
+      moisture: new Float32Array(3),
+      temperature: new Float32Array(3),
+    };
+    const config: TerrainConfig = { seed: 1, width: 3, height: 1, seaLevel: 0.35 };
+    const path = walkDownhill(0, 0, fields, config);
+    expect(path).toEqual([{ x: 0, y: 0 }]);
   });
 });
 
