@@ -327,5 +327,57 @@ export async function generate(
   return { blob, cached: false, key };
 }
 
+/**
+ * Library query. Returns only assets with `curated === 'kept'`, narrowed by
+ * `kind` (required) and optional tag/size filters. Results are ordered
+ * newest-first by `generatedAt`. Default limit 16.
+ */
+export async function findAssets(q: AssetQuery): Promise<AssetSummary[]> {
+  const db = await openDb();
+  const tx = db.transaction(DB_STORE, 'readonly');
+  const store = tx.objectStore(DB_STORE);
+  const index = store.index('kind');
+
+  return new Promise<AssetSummary[]>((resolve, reject) => {
+    const matches: LibraryAsset[] = [];
+    const limit = q.limit ?? 16;
+    const req = index.openCursor(IDBKeyRange.only(q.kind));
+    req.onsuccess = () => {
+      const cursor = req.result;
+      if (!cursor) {
+        // Sort newest-first, then slice to limit, then project to summary
+        matches.sort((a, b) => b.generatedAt - a.generatedAt);
+        resolve(matches.slice(0, limit).map(toSummary));
+        return;
+      }
+      const a = cursor.value as LibraryAsset;
+      if (passesFilters(a, q)) matches.push(a);
+      cursor.continue();
+    };
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function passesFilters(a: LibraryAsset, q: AssetQuery): boolean {
+  if (a.curated !== 'kept') return false;
+  if (q.size && (a.width !== q.size.w || a.height !== q.size.h)) return false;
+  if (q.tagsAll && !q.tagsAll.every(t => a.tags.includes(t))) return false;
+  if (q.tagsAny && !q.tagsAny.some(t => a.tags.includes(t))) return false;
+  return true;
+}
+
+function toSummary(a: LibraryAsset): AssetSummary {
+  return {
+    id: a.key,
+    kind: a.kind,
+    tags: a.tags,
+    prompt: a.prompt,
+    description: a.description,
+    width: a.width,
+    height: a.height,
+    addedAt: a.generatedAt,
+  };
+}
+
 // Re-export so the UI / tests can poke at the cache directly.
 export { cacheGet, cachePut, cacheClear };

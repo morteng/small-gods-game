@@ -11,10 +11,11 @@ import {
   saveApiKey,
   clearApiKey,
   normalizeTags,
+  findAssets,
   _resetDbForTesting,
   RECIPE_V,
 } from '@/services/pixellab';
-import type { LibraryAsset } from '@/core/types';
+import type { AssetKind, LibraryAsset } from '@/core/types';
 
 const TINY_PNG_B64 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGBgAAAABQABh6FO1AAAAABJRU5ErkJggg==';
@@ -322,5 +323,124 @@ describe('generate — library metadata', () => {
     expect(stored!.curated).toBe('kept');
     expect(stored!.kind).toBe('icon');
     expect(stored!.tags).toEqual(['star']);
+  });
+});
+
+// Helper to put a fully-formed library asset directly (bypasses generate).
+async function seed(asset: Partial<LibraryAsset> & {
+  key: string; kind: AssetKind; tags?: string[];
+}): Promise<void> {
+  const full: LibraryAsset = {
+    key: asset.key,
+    schemaVersion: 2,
+    blob: asset.blob ?? new Blob([new Uint8Array([0])]),
+    prompt: asset.prompt ?? 'p',
+    width: asset.width ?? 32,
+    height: asset.height ?? 32,
+    generatedAt: asset.generatedAt ?? Date.now(),
+    curated: asset.curated ?? 'kept',
+    origin: asset.origin ?? 'official',
+    kind: asset.kind,
+    tags: asset.tags ?? [],
+    description: asset.description,
+  };
+  await cachePut(full);
+}
+
+describe('findAssets', () => {
+  it('returns only kept entries matching kind', async () => {
+    await seed({ key: 'a', kind: 'decoration', curated: 'kept' });
+    await seed({ key: 'b', kind: 'decoration', curated: 'pending' });
+    await seed({ key: 'c', kind: 'decoration', curated: 'rejected' });
+    await seed({ key: 'd', kind: 'icon', curated: 'kept' });
+
+    const r = await findAssets({ kind: 'decoration' });
+    const ids = r.map(a => a.id).sort();
+    expect(ids).toEqual(['a']);
+  });
+
+  it('orders results newest-first by generatedAt', async () => {
+    await seed({ key: 'old', kind: 'decoration', generatedAt: 100 });
+    await seed({ key: 'new', kind: 'decoration', generatedAt: 200 });
+    await seed({ key: 'mid', kind: 'decoration', generatedAt: 150 });
+
+    const r = await findAssets({ kind: 'decoration' });
+    expect(r.map(a => a.id)).toEqual(['new', 'mid', 'old']);
+  });
+
+  it('respects limit', async () => {
+    for (let i = 0; i < 5; i++) {
+      await seed({ key: `x${i}`, kind: 'decoration', generatedAt: i });
+    }
+    const r = await findAssets({ kind: 'decoration', limit: 2 });
+    expect(r).toHaveLength(2);
+  });
+
+  it('defaults limit to 16', async () => {
+    for (let i = 0; i < 20; i++) {
+      await seed({ key: `y${i}`, kind: 'decoration', generatedAt: i });
+    }
+    const r = await findAssets({ kind: 'decoration' });
+    expect(r).toHaveLength(16);
+  });
+
+  it('tagsAll AND-filters', async () => {
+    await seed({ key: 'a', kind: 'decoration', tags: ['tree', 'oak'] });
+    await seed({ key: 'b', kind: 'decoration', tags: ['tree', 'pine'] });
+    await seed({ key: 'c', kind: 'decoration', tags: ['oak', 'leaf'] });
+
+    const r = await findAssets({ kind: 'decoration', tagsAll: ['tree', 'oak'] });
+    expect(r.map(a => a.id)).toEqual(['a']);
+  });
+
+  it('tagsAny OR-filters', async () => {
+    await seed({ key: 'a', kind: 'decoration', tags: ['tree'] });
+    await seed({ key: 'b', kind: 'decoration', tags: ['rock'] });
+    await seed({ key: 'c', kind: 'decoration', tags: ['water'] });
+
+    const r = await findAssets({ kind: 'decoration', tagsAny: ['tree', 'rock'] });
+    expect(r.map(a => a.id).sort()).toEqual(['a', 'b']);
+  });
+
+  it('combines tagsAll and tagsAny correctly', async () => {
+    await seed({ key: 'a', kind: 'decoration', tags: ['tree', 'oak', 'dead'] });   // matches both
+    await seed({ key: 'b', kind: 'decoration', tags: ['tree', 'pine', 'alive'] }); // matches tagsAll only
+    await seed({ key: 'c', kind: 'decoration', tags: ['tree', 'oak'] });           // matches tagsAll but no tagsAny
+
+    const r = await findAssets({
+      kind: 'decoration',
+      tagsAll: ['tree', 'oak'],
+      tagsAny: ['dead', 'alive'],
+    });
+    expect(r.map(a => a.id).sort()).toEqual(['a']);
+  });
+
+  it('size exact-matches', async () => {
+    await seed({ key: 'a', kind: 'decoration', width: 32, height: 32 });
+    await seed({ key: 'b', kind: 'decoration', width: 64, height: 64 });
+    await seed({ key: 'c', kind: 'decoration', width: 32, height: 64 });
+
+    const r = await findAssets({ kind: 'decoration', size: { w: 32, h: 32 } });
+    expect(r.map(a => a.id)).toEqual(['a']);
+  });
+
+  it('returns AssetSummary shape (no blob)', async () => {
+    await seed({
+      key: 'a', kind: 'decoration', tags: ['tree'],
+      prompt: 'an oak', description: 'old oak', width: 48, height: 48,
+      generatedAt: 12345,
+    });
+    const r = await findAssets({ kind: 'decoration' });
+    expect(r[0]).toEqual({
+      id: 'a',
+      kind: 'decoration',
+      tags: ['tree'],
+      prompt: 'an oak',
+      description: 'old oak',
+      width: 48,
+      height: 48,
+      addedAt: 12345,
+    });
+    expect('blob' in r[0]).toBe(false);
   });
 });
