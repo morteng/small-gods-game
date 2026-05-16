@@ -471,6 +471,7 @@ function renderLibItem(a: LibraryAsset, refs: UiRefs): HTMLElement {
   const item = el('div', 'sg-set-item');
   const img = new Image(40, 40);
   img.src = URL.createObjectURL(a.blob);
+  img.addEventListener('load', () => URL.revokeObjectURL(img.src), { once: true });
   item.appendChild(img);
 
   const body = el('div', 'sg-set-item-body');
