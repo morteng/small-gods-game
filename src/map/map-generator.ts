@@ -174,15 +174,16 @@ export async function generateWithNoise(
         if (t) { t.type = rt.type; t.walkable = true; }
       }
 
-      // Convert WorldEntity buildings → BuildingInstance for backwards compat
+      // Convert Entity buildings → BuildingInstance for backwards compat
       for (const e of result.entities) {
-        if (e.category === 'building' && e.templateId) {
+        const props = e.properties ?? {};
+        if (props.category === 'building' && props.templateId) {
           buildings.push({
             id: e.id,
-            templateId: e.templateId,
-            tileX: e.tileX,
-            tileY: e.tileY,
-            poiId: e.poiId,
+            templateId: props.templateId as string,
+            tileX: e.x,
+            tileY: e.y,
+            poiId: props.poiId as string | undefined,
             state: 'intact',
           });
         }

@@ -14,7 +14,7 @@
  *   6. Carve short dirt paths connecting doors to nearest road tile
  */
 
-import type { WorldEntity, Tile, Era, ReligiousSignificance } from '@/core/types';
+import type { Entity, Tile, Era } from '@/core/types';
 import type { EntityRegistry } from './entity-registry';
 import type { BuildingTemplate } from '@/map/building-templates';
 import { getBuildingTemplate } from '@/map/building-templates';
@@ -50,7 +50,7 @@ export interface RoadTile {
 }
 
 export interface SettlementResult {
-  entities:  WorldEntity[];
+  entities:  Entity[];
   roadTiles: RoadTile[];
 }
 
@@ -120,7 +120,7 @@ export function placeSettlement(
 ): SettlementResult {
   const cx = poi.position?.x ?? 0;
   const cy = poi.position?.y ?? 0;
-  const entities:  WorldEntity[] = [];
+  const entities:  Entity[] = [];
   const roadTiles: RoadTile[]    = [];
   const roadType  = zoneRule.internalRoadType ?? 'dirt_road';
   const buildingCount = rng.int(zoneRule.buildingCount.min, zoneRule.buildingCount.max);
@@ -193,25 +193,26 @@ export function placeSettlement(
     if (!result) continue;
 
     const entityId = `${poi.id}_bld_${placed}`;
-    const religious: ReligiousSignificance =
+    const religious =
       template.category === 'religious' ? 'sacred'
-      : template.category === 'special'  ? 'neutral'
       : 'neutral';
 
-    const entity: WorldEntity = {
-      id:                    entityId,
-      category:              'building',
-      type:                  templateId,
-      templateId,
-      tileX:                 result.tileX,
-      tileY:                 result.tileY,
-      footprint:             { ...template.footprint },
-      poiId:                 poi.id,
-      era:                   template.era ?? era,
-      religiousSignificance: template.religiousSignificance ?? religious,
-      state:                 'intact',
-      metadata:              {},
-      sortYOffset:           template.sortYOffset,
+    const entity: Entity = {
+      id:   entityId,
+      kind: templateId,
+      x:    result.tileX,
+      y:    result.tileY,
+      tags: ['building', template.category],
+      properties: {
+        category:              'building',
+        templateId,
+        poiId:                 poi.id,
+        footprint:             { ...template.footprint },
+        era:                   template.era ?? era,
+        religiousSignificance: template.religiousSignificance ?? religious,
+        state:                 'intact',
+        sortYOffset:           template.sortYOffset,
+      },
     };
 
     registry.add(entity);

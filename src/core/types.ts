@@ -224,37 +224,13 @@ export interface HydrologyResult {
   flowField: Float32Array; // [width * height], ≥ 0
 }
 
-// ─── Entity system (Phase II) ─────────────────────────────────────────────────
+// ─── Entity system (Phase II) — legacy type aliases ──────────────────────────
+// These kept for code that still imports them. WorldEntity is now an alias for
+// Entity; the old fields (category, type, tileX, tileY, etc.) are gone — they
+// live in Entity.properties and Entity.x/y respectively.
 
 export type Era = 'primordial' | 'ancient' | 'classical' | 'medieval' | 'current';
 export type ReligiousSignificance = 'sacred' | 'profane' | 'neutral' | 'contested';
-export type EntityCategory =
-  | 'building' | 'tree' | 'rock' | 'flora' | 'furniture'
-  | 'resource' | 'landmark' | 'npc' | 'item';
-
-export interface WorldEntity {
-  id: string;
-  category: EntityCategory;
-  type: string;                    // 'cottage', 'oak_tree', 'shrine', etc.
-  templateId?: string;             // links to BuildingTemplate etc.
-  tileX: number;
-  tileY: number;
-  footprint?: { w: number; h: number };
-  offsetX?: number;                // sub-tile jitter
-  offsetY?: number;
-  poiId?: string;
-  ownerId?: string;
-  era: Era;
-  religiousSignificance: ReligiousSignificance;
-  name?: string;
-  lore?: string;
-  state: string;                   // 'intact' | 'ruined' | 'growing' | etc.
-  metadata: Record<string, unknown>;
-  spriteCol?: number;
-  spriteRow?: number;
-  variant?: string;
-  sortYOffset?: number;
-}
 
 export interface NpcSimState {
   npcId:           string;
@@ -283,6 +259,9 @@ export interface Entity {
   properties?: Record<string, unknown>;
   tags?: ReadonlyArray<string>;
 }
+
+/** Backwards-compat alias — all consumers should migrate to Entity. */
+export type WorldEntity = Entity;
 
 export interface Region {
   x: number;       // top-left tile x
