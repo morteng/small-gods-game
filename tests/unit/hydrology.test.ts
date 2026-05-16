@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { findPeaks, walkDownhill } from '@/terrain/hydrology';
+import { findPeaks, walkDownhill, generateHydrology } from '@/terrain/hydrology';
 import type { TerrainField, TerrainConfig } from '@/core/types';
 
 /**
@@ -98,5 +98,50 @@ describe('walkDownhill', () => {
     const config: TerrainConfig = { seed: 1, width: 3, height: 1, seaLevel: 0.1 };
     const path = walkDownhill(0, 0, fields, config);
     expect(path).toEqual([{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 2, y: 0 }]);
+  });
+});
+
+describe('generateHydrology', () => {
+  /**
+   * Two peaks at opposite ends of an 11×1 strip, valley in the middle.
+   * Both peaks walk inward toward the minimum at x=5.
+   *
+   *   x:  0    1   2   3   4   5   6   7   8   9   10
+   *   e: 0.9 0.8 0.7 0.6 0.5 0.4 0.5 0.6 0.7 0.8 0.9
+   */
+  it('marks cells visited by multiple paths as river', () => {
+    const elev = new Float32Array([0.9,0.8,0.7,0.6,0.5,0.4,0.5,0.6,0.7,0.8,0.9]);
+    const fields: TerrainField = {
+      elevation: elev,
+      moisture: new Float32Array(11),
+      temperature: new Float32Array(11),
+    };
+    const config: TerrainConfig = { seed: 1, width: 11, height: 1, seaLevel: 0.0 };
+
+    const result = generateHydrology(fields, config, {
+      peakThreshold: 0.85,
+      riverFlowThreshold: 2,
+      minRiverLength: 1,
+    });
+
+    // The minimum (x=5) is visited by both paths → flow ≥ 2 → river
+    expect(result.riverMask[5]).toBe(1);
+    // The peaks themselves are visited by only one path → flow = 1 → not river
+    expect(result.riverMask[0]).toBe(0);
+    expect(result.riverMask[10]).toBe(0);
+    // flow field is populated
+    expect(result.flowField[5]).toBeGreaterThanOrEqual(2);
+  });
+
+  it('produces sized result arrays matching width*height', () => {
+    const fields: TerrainField = {
+      elevation: new Float32Array(20),
+      moisture: new Float32Array(20),
+      temperature: new Float32Array(20),
+    };
+    const config: TerrainConfig = { seed: 1, width: 4, height: 5, seaLevel: 0.35 };
+    const result = generateHydrology(fields, config);
+    expect(result.riverMask.length).toBe(20);
+    expect(result.flowField.length).toBe(20);
   });
 });

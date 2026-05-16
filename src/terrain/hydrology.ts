@@ -105,5 +105,34 @@ export function walkDownhill(
   return path;
 }
 
-// HydrologyOptions, findPeaks, walkDownhill are the public surface for Task 3.
-// Task 4 will add generateHydrology.
+/**
+ * Run the full drainage-basin pass: find peaks, walk downhill from each,
+ * accumulate flow, mark river tiles where flow ≥ riverFlowThreshold.
+ */
+export function generateHydrology(
+  fields: TerrainField,
+  config: TerrainConfig,
+  options: HydrologyOptions = {},
+): HydrologyResult {
+  const { width, height } = config;
+  const minRiverLength = options.minRiverLength ?? 4;
+  const riverFlowThreshold = options.riverFlowThreshold ?? 3;
+
+  const flowField = new Float32Array(width * height);
+  const peaks = findPeaks(fields, config, options);
+
+  for (const peak of peaks) {
+    const path = walkDownhill(peak.x, peak.y, fields, config);
+    if (path.length < minRiverLength) continue;
+    for (const p of path) {
+      flowField[p.y * width + p.x] += 1;
+    }
+  }
+
+  const riverMask = new Uint8Array(width * height);
+  for (let i = 0; i < riverMask.length; i++) {
+    if (flowField[i] >= riverFlowThreshold) riverMask[i] = 1;
+  }
+
+  return { riverMask, flowField };
+}
