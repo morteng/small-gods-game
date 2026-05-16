@@ -1,0 +1,162 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`village brush > produces a stable snapshot 1`] = `
+[
+  {
+    "id": "village-well-4-4",
+    "kind": "well",
+    "properties": {
+      "poiKind": "village",
+    },
+    "tags": [
+      "water-source",
+      "settlement",
+    ],
+    "x": 4.5,
+    "y": 4.5,
+  },
+  {
+    "id": "village-sign_post-5-2",
+    "kind": "sign_post",
+    "properties": {},
+    "tags": [
+      "information",
+      "settlement",
+    ],
+    "x": 5.5,
+    "y": 2.5,
+  },
+  {
+    "id": "village-sign_post-5-5",
+    "kind": "sign_post",
+    "properties": {},
+    "tags": [
+      "information",
+      "settlement",
+    ],
+    "x": 5.5,
+    "y": 5.5,
+  },
+  {
+    "id": "village-fence_post-0-0",
+    "kind": "fence_post",
+    "properties": {},
+    "tags": [
+      "barrier",
+      "settlement",
+    ],
+    "x": 0.5,
+    "y": 0.5,
+  },
+  {
+    "id": "village-fence_post-0-7",
+    "kind": "fence_post",
+    "properties": {},
+    "tags": [
+      "barrier",
+      "settlement",
+    ],
+    "x": 0.5,
+    "y": 7.5,
+  },
+  {
+    "id": "village-fence_post-1-0",
+    "kind": "fence_post",
+    "properties": {},
+    "tags": [
+      "barrier",
+      "settlement",
+    ],
+    "x": 1.5,
+    "y": 0.5,
+  },
+  {
+    "id": "village-fence_post-1-7",
+    "kind": "fence_post",
+    "properties": {},
+    "tags": [
+      "barrier",
+      "settlement",
+    ],
+    "x": 1.5,
+    "y": 7.5,
+  },
+  {
+    "id": "village-fence_post-2-0",
+    "kind": "fence_post",
+    "properties": {},
+    "tags": [
+      "barrier",
+      "settlement",
+    ],
+    "x": 2.5,
+    "y": 0.5,
+  },
+  {
+    "id": "village-fence_post-2-7",
+    "kind": "fence_post",
+    "properties": {},
+    "tags": [
+      "barrier",
+      "settlement",
+    ],
+    "x": 2.5,
+    "y": 7.5,
+  },
+  {
+    "id": "village-fence_post-3-7",
+    "kind": "fence_post",
+    "properties": {},
+    "tags": [
+      "barrier",
+      "settlement",
+    ],
+    "x": 3.5,
+    "y": 7.5,
+  },
+  {
+    "id": "village-fence_post-4-7",
+    "kind": "fence_post",
+    "properties": {},
+    "tags": [
+      "barrier",
+      "settlement",
+    ],
+    "x": 4.5,
+    "y": 7.5,
+  },
+  {
+    "id": "village-fence_post-5-7",
+    "kind": "fence_post",
+    "properties": {},
+    "tags": [
+      "barrier",
+      "settlement",
+    ],
+    "x": 5.5,
+    "y": 7.5,
+  },
+  {
+    "id": "village-fence_post-6-7",
+    "kind": "fence_post",
+    "properties": {},
+    "tags": [
+      "barrier",
+      "settlement",
+    ],
+    "x": 6.5,
+    "y": 7.5,
+  },
+  {
+    "id": "village-fence_post-7-7",
+    "kind": "fence_post",
+    "properties": {},
+    "tags": [
+      "barrier",
+      "settlement",
+    ],
+    "x": 7.5,
+    "y": 7.5,
+  },
+]
+`;
