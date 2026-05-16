@@ -9,6 +9,8 @@ export interface ControlsCallbacks {
   onToggleLabels?: () => void;
   onTogglePoiMarkers?: () => void;
   onToggleDebug?: () => void;
+  onToggleFollow?: () => void;
+  onUserCameraInput?: () => void;
   onHoverTile?: (tileX: number, tileY: number, screenX: number, screenY: number) => void;
   onRedraw: () => void;
 }
@@ -46,6 +48,7 @@ export function attachControls(canvas: HTMLCanvasElement, camera: Camera, callba
     const dy = e.clientY - lastY;
     lastX = e.clientX;
     lastY = e.clientY;
+    if (dx !== 0 || dy !== 0) callbacks.onUserCameraInput?.();
     pan(camera, dx, dy);
     callbacks.onRedraw();
   }
@@ -73,6 +76,7 @@ export function attachControls(canvas: HTMLCanvasElement, camera: Camera, callba
     const rect = canvas.getBoundingClientRect();
     const factor = e.deltaY > 0 ? 0.9 : 1.1;
     zoomAt(camera, factor, e.clientX - rect.left, e.clientY - rect.top);
+    callbacks.onUserCameraInput?.();
     callbacks.onRedraw();
   }
 
@@ -91,6 +95,9 @@ export function attachControls(canvas: HTMLCanvasElement, camera: Camera, callba
         break;
       case 'Backquote':
         callbacks.onToggleDebug?.();
+        break;
+      case 'KeyF':
+        callbacks.onToggleFollow?.();
         break;
     }
   }

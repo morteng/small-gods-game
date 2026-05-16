@@ -17,6 +17,7 @@ export interface GameState {
   showLabels: boolean;
   showPoiMarkers: boolean;
   pinnedNpcId: string | null;
+  followNpc: boolean;
   playerPower: number;
   /** Unified world facade — buildings, trees, rocks, landmarks, etc. */
   world: World | null;
@@ -41,6 +42,7 @@ export function createState(): GameState {
     showLabels: true,
     showPoiMarkers: true,
     pinnedNpcId: null,
+    followNpc: false,
     playerPower: 3,
     world: null,
     terrainFields: null,

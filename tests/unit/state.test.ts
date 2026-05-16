@@ -26,4 +26,9 @@ describe('createState', () => {
     const s = createState();
     expect(s.pinnedNpcId).toBeNull();
   });
+
+  it('starts with follow mode off', () => {
+    const s = createState();
+    expect(s.followNpc).toBe(false);
+  });
 });

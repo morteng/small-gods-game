@@ -68,6 +68,37 @@ describe('attachControls keyboard', () => {
     expect(onTogglePause).not.toHaveBeenCalled();
   });
 
+  it('invokes onToggleFollow on F', () => {
+    const onToggleFollow = vi.fn();
+    cleanup = attachControls(canvas, createCamera(), {
+      onRedraw: () => {},
+      onToggleFollow,
+    });
+    fireKey('KeyF');
+    expect(onToggleFollow).toHaveBeenCalledTimes(1);
+  });
+
+  it('fires onUserCameraInput when the user pans', () => {
+    const onUserCameraInput = vi.fn();
+    cleanup = attachControls(canvas, createCamera(), {
+      onRedraw: () => {},
+      onUserCameraInput,
+    });
+    canvas.dispatchEvent(new MouseEvent('mousedown', { clientX: 0, clientY: 0, bubbles: true }));
+    canvas.dispatchEvent(new MouseEvent('mousemove', { clientX: 50, clientY: 0, bubbles: true }));
+    expect(onUserCameraInput).toHaveBeenCalled();
+  });
+
+  it('fires onUserCameraInput when the user zooms', () => {
+    const onUserCameraInput = vi.fn();
+    cleanup = attachControls(canvas, createCamera(), {
+      onRedraw: () => {},
+      onUserCameraInput,
+    });
+    canvas.dispatchEvent(new WheelEvent('wheel', { deltaY: 100, bubbles: true, cancelable: true }));
+    expect(onUserCameraInput).toHaveBeenCalled();
+  });
+
   it('invokes onToggleDebug on Backquote', () => {
     const onToggleDebug = vi.fn();
     cleanup = attachControls(canvas, createCamera(), {

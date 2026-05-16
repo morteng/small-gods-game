@@ -140,6 +140,11 @@ export class Game {
         this.hoverTile = { x, y };
         this.hoverScreen = { x: sx, y: sy };
       },
+      onToggleFollow: () => {
+        if (!this.state.selectedNpcId) return;
+        this.state.followNpc = !this.state.followNpc;
+      },
+      onUserCameraInput: () => { this.state.followNpc = false; },
       onRedraw: () => {},
     });
   }
@@ -324,6 +329,7 @@ export class Game {
           this.state.playerPower += computePowerRegen(this.state.npcSim);
         }
       }
+      this.applyFollowCamera();
       this.render();
       this.rafId = requestAnimationFrame(loop);
     };
@@ -414,6 +420,23 @@ export class Game {
         zoom: this.state.camera.zoom,
       });
     }
+  }
+
+  private applyFollowCamera(): void {
+    if (!this.state.followNpc) return;
+    if (!this.state.selectedNpcId) {
+      this.state.followNpc = false;
+      return;
+    }
+    const npc = this.state.npcs.find(n => n.id === this.state.selectedNpcId);
+    if (!npc) return;
+    const cam = this.state.camera;
+    const viewW = this.canvas.width  / devicePixelRatio / cam.zoom;
+    const viewH = this.canvas.height / devicePixelRatio / cam.zoom;
+    const targetX = (npc.tileX + 0.5) * TILE_SIZE - viewW / 2;
+    const targetY = (npc.tileY + 0.5) * TILE_SIZE - viewH / 2;
+    cam.x += (targetX - cam.x) * 0.15;
+    cam.y += (targetY - cam.y) * 0.15;
   }
 
   private updateTooltip(): void {
