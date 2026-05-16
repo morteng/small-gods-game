@@ -1,4 +1,4 @@
-import type { GameMap, Camera, WorldSeed, NpcInstance, NpcSimState, DecorationInstance, TerrainField, BiomeMap } from '@/core/types';
+import type { GameMap, Camera, WorldSeed, NpcInstance, NpcSimState, TerrainField, BiomeMap } from '@/core/types';
 import type { BlobTile } from '@/map/blob-autotiler';
 import type { World } from '@/world/world';
 import { createCamera } from '@/render/camera';
@@ -12,7 +12,6 @@ export interface GameState {
   selectedNpcId: string | null;
   visualMap: string[][] | null;
   blobMap: BlobTile[][] | null;
-  decorations: DecorationInstance[];
   debug: boolean;
   playerPower: number;
   /** Unified world facade — buildings, trees, rocks, landmarks, etc. */
@@ -33,7 +32,6 @@ export function createState(): GameState {
     selectedNpcId: null,
     visualMap: null,
     blobMap: null,
-    decorations: [],
     debug: false,
     playerPower: 3,
     world: null,

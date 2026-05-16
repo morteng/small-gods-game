@@ -1,4 +1,5 @@
 import type { BlobTile } from '@/map/blob-autotiler';
+import type { World } from '@/world/world';
 
 /** A single tile in the map grid */
 export interface Tile {
@@ -150,8 +151,8 @@ export interface RenderContext {
   tileAtlas: HTMLImageElement | null;
   terrainSheets: Map<string, HTMLImageElement>;
   buildingSprites: Map<string, HTMLImageElement>;
-  decorations: DecorationInstance[];
   treeSheets: Map<string, HTMLImageElement>;
+  world: World;
 }
 
 /** A live NPC instance on the map */
