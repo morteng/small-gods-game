@@ -236,3 +236,91 @@ describe('schema migration v1 → v2', () => {
     db.close();
   });
 });
+
+describe('generate — library metadata', () => {
+  function mockGen(): void {
+    mockFetch(async (url: string) => {
+      if (url.includes('lpc-anchor.png')) return new Response(new Uint8Array([0]).buffer);
+      return jsonResponse({ image: { base64: TINY_PNG_B64 }, usage: { type: 'usd', usd: 0 } });
+    });
+  }
+
+  it('writes pending/sandbox/unknown defaults when opts have no metadata', async () => {
+    mockGen();
+    const r = await generate('k', { prompt: 'a-spooky-shrine', width: 32, height: 32 });
+    const stored = await cacheGet(r.key);
+    expect(stored).not.toBeNull();
+    expect(stored!.curated).toBe('pending');
+    expect(stored!.origin).toBe('sandbox');
+    expect(stored!.kind).toBe('unknown');
+    expect(stored!.tags).toEqual([]);
+  });
+
+  it('writes kept/official with caller metadata on official origin', async () => {
+    mockGen();
+    const r = await generate('k', {
+      prompt: 'a-spooky-shrine-2',
+      width: 32,
+      height: 32,
+      origin: 'official',
+      kind: 'decoration',
+      tags: ['Shrine', 'spooky'],
+      description: 'a moss-covered shrine',
+    });
+    const stored = await cacheGet(r.key);
+    expect(stored!.curated).toBe('kept');
+    expect(stored!.origin).toBe('official');
+    expect(stored!.kind).toBe('decoration');
+    expect(stored!.tags).toEqual(['shrine', 'spooky']);   // normalized
+    expect(stored!.description).toBe('a moss-covered shrine');
+    expect(stored!.schemaVersion).toBe(2);
+  });
+
+  it('promotes sandbox entry to kept on later official cache hit', async () => {
+    mockGen();
+    // First call: sandbox
+    const r1 = await generate('k', { prompt: 'twin-call', width: 32, height: 32 });
+    expect((await cacheGet(r1.key))!.curated).toBe('pending');
+
+    // Second call (same shape): official with metadata — should hit cache AND promote
+    const r2 = await generate('k', {
+      prompt: 'twin-call',
+      width: 32,
+      height: 32,
+      origin: 'official',
+      kind: 'decoration',
+      tags: ['rune'],
+      description: 'glowing rune',
+    });
+    expect(r2.cached).toBe(true);
+    expect(r2.key).toBe(r1.key);
+
+    const stored = await cacheGet(r2.key);
+    expect(stored!.curated).toBe('kept');
+    expect(stored!.origin).toBe('official');
+    expect(stored!.kind).toBe('decoration');
+    expect(stored!.tags).toEqual(['rune']);
+    expect(stored!.description).toBe('glowing rune');
+  });
+
+  it('does NOT demote a kept entry on later sandbox cache hit', async () => {
+    mockGen();
+    // First: official → kept
+    const r1 = await generate('k', {
+      prompt: 'pinned',
+      width: 32,
+      height: 32,
+      origin: 'official',
+      kind: 'icon',
+      tags: ['star'],
+    });
+    expect((await cacheGet(r1.key))!.curated).toBe('kept');
+
+    // Second: sandbox — should hit cache and leave the entry alone
+    await generate('k', { prompt: 'pinned', width: 32, height: 32 });
+    const stored = await cacheGet(r1.key);
+    expect(stored!.curated).toBe('kept');
+    expect(stored!.kind).toBe('icon');
+    expect(stored!.tags).toEqual(['star']);
+  });
+});

@@ -271,8 +271,25 @@ export async function generate(
   opts: PixelLabGenerateOpts,
 ): Promise<GenerateResult> {
   const key = await sha256Hex(buildCacheKeyInput(opts));
+  const origin = opts.origin ?? 'sandbox';
   const hit = await cacheGet(key);
-  if (hit) return { blob: hit.blob, cached: true, key };
+
+  if (hit) {
+    // Promotion: if caller asked for official origin and the existing entry
+    // is not yet kept, upgrade it in place with the caller's metadata.
+    if (origin === 'official' && hit.curated !== 'kept') {
+      const promoted: LibraryAsset = {
+        ...hit,
+        curated: 'kept',
+        origin: 'official',
+        kind: opts.kind ?? hit.kind,
+        tags: opts.tags ? normalizeTags(opts.tags) : hit.tags,
+        description: opts.description ?? hit.description,
+      };
+      await cachePut(promoted);
+    }
+    return { blob: hit.blob, cached: true, key };
+  }
 
   const body = await buildRequestBody(opts);
   const res = await fetch(`${API_BASE}/create-image-pixflux`, {
@@ -292,14 +309,21 @@ export async function generate(
   if (!b64) throw new Error('generate: missing image.base64 in response');
 
   const blob = base64ToBlob(b64);
-  await cachePut({
+  const asset: LibraryAsset = {
     key,
+    schemaVersion: 2,
     blob,
     prompt: opts.prompt,
-    width:  opts.width,
+    width: opts.width,
     height: opts.height,
     generatedAt: Date.now(),
-  });
+    curated: origin === 'official' ? 'kept' : 'pending',
+    origin,
+    kind: opts.kind ?? 'unknown',
+    tags: normalizeTags(opts.tags),
+    description: opts.description,
+  };
+  await cachePut(asset);
   return { blob, cached: false, key };
 }
 
