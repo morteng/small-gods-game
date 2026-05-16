@@ -27,3 +27,7 @@ dist/
 
 # Git worktrees
 .worktrees/
+
+# Playwright artifacts (ad-hoc dev screenshots + generated reports)
+playwright-report/
+test-results/
