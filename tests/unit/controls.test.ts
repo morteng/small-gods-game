@@ -68,6 +68,16 @@ describe('attachControls keyboard', () => {
     expect(onTogglePause).not.toHaveBeenCalled();
   });
 
+  it('invokes onToggleDebug on Backquote', () => {
+    const onToggleDebug = vi.fn();
+    cleanup = attachControls(canvas, createCamera(), {
+      onRedraw: () => {},
+      onToggleDebug,
+    });
+    fireKey('Backquote');
+    expect(onToggleDebug).toHaveBeenCalledTimes(1);
+  });
+
   it('invokes onToggleLabels on L', () => {
     const onToggleLabels = vi.fn();
     cleanup = attachControls(canvas, createCamera(), {

@@ -8,6 +8,8 @@ export interface ControlsCallbacks {
   onTogglePause?: () => void;
   onToggleLabels?: () => void;
   onTogglePoiMarkers?: () => void;
+  onToggleDebug?: () => void;
+  onHoverTile?: (x: number, y: number) => void;
   onRedraw: () => void;
 }
 
@@ -32,6 +34,11 @@ export function attachControls(canvas: HTMLCanvasElement, camera: Camera, callba
   }
 
   function onMouseMove(e: MouseEvent) {
+    if (callbacks.onHoverTile) {
+      const rect = canvas.getBoundingClientRect();
+      const { wx, wy } = screenToWorld(camera, e.clientX - rect.left, e.clientY - rect.top, TILE_SIZE);
+      callbacks.onHoverTile(wx, wy);
+    }
     if (!dragging) return;
     const dx = e.clientX - lastX;
     const dy = e.clientY - lastY;
@@ -79,6 +86,9 @@ export function attachControls(canvas: HTMLCanvasElement, camera: Camera, callba
         break;
       case 'KeyM':
         callbacks.onTogglePoiMarkers?.();
+        break;
+      case 'Backquote':
+        callbacks.onToggleDebug?.();
         break;
     }
   }
