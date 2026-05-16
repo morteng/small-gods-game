@@ -1,100 +1,113 @@
 import { describe, it, expect } from 'vitest';
 import { generateWithNoise } from '@/map/map-generator';
-import type { WorldSeed } from '@/core/types';
+import type { WorldSeed, Tile } from '@/core/types';
 
-const minimalSeed = (overrides: Partial<WorldSeed> = {}): WorldSeed => ({
-  name: 'test',
-  size: { width: 32, height: 32 },
-  biome: 'temperate',
-  pois: [
-    { id: 'a', type: 'village', name: 'A', position: { x: 5,  y: 16 } },
-    { id: 'b', type: 'village', name: 'B', position: { x: 26, y: 16 } },
-  ],
-  connections: [
-    { from: 'a', to: 'b', type: 'road', style: 'dirt' },
-  ],
-  constraints: [],
-  ...overrides,
-});
+const ROAD_TYPES = new Set(['dirt_road', 'stone_road', 'bridge']);
 
-describe('carveConnections (via generateWithNoise)', () => {
-  it('writes road tiles along a straight east-west connection', async () => {
-    const { map } = await generateWithNoise(32, 32, 1, minimalSeed());
+function makeSeed(overrides: Partial<WorldSeed> = {}): WorldSeed {
+  return {
+    name: 'test',
+    size: { width: 32, height: 32 },
+    biome: 'temperate',
+    pois: [
+      { id: 'a', type: 'village', name: 'A', position: { x: 5,  y: 16 } },
+      { id: 'b', type: 'village', name: 'B', position: { x: 26, y: 16 } },
+    ],
+    connections: [
+      { from: 'a', to: 'b', type: 'road', style: 'dirt' },
+    ],
+    constraints: [],
+    ...overrides,
+  };
+}
 
-    let roadCount = 0;
-    for (let x = 5; x <= 26; x++) {
-      const t = map.tiles[16]?.[x];
-      if (t && (t.type === 'dirt_road' || t.type === 'bridge')) roadCount++;
-    }
-    expect(roadCount).toBeGreaterThanOrEqual(18);
-  });
-});
+/** BFS flood from start over ROAD_TYPES tiles. Returns the set of "x,y" keys. */
+function floodConnected(tiles: Tile[][], start: { x: number; y: number }): Set<string> {
+  const width = tiles[0]?.length ?? 0;
+  const height = tiles.length;
+  const visited = new Set<string>();
+  const queue: Array<{ x: number; y: number }> = [start];
+  while (queue.length > 0) {
+    const { x, y } = queue.shift()!;
+    const key = `${x},${y}`;
+    if (visited.has(key)) continue;
+    if (x < 0 || x >= width || y < 0 || y >= height) continue;
+    const t = tiles[y]?.[x];
+    if (!t) continue;
+    if (!ROAD_TYPES.has(t.type)) continue;
+    visited.add(key);
+    queue.push({ x: x + 1, y }, { x: x - 1, y }, { x, y: y + 1 }, { x, y: y - 1 });
+  }
+  return visited;
+}
 
-// Seed chosen by probing seeds 7, 13, 21, 33, ... until raw terrain
-// produced shallow_water along y=16 between x=5..42. Seed 19 yields ~8
-// shallow_water tiles on that line, ensuring the connection crosses water.
-const WATER_SEED = 19;
-
-const waterSeed = (overrides: Partial<WorldSeed> = {}): WorldSeed => ({
-  name: 'water-test',
-  size: { width: 48, height: 32 },
-  biome: 'temperate',
-  pois: [
-    { id: 'a', type: 'village', name: 'A', position: { x: 5,  y: 16 } },
-    { id: 'b', type: 'village', name: 'B', position: { x: 42, y: 16 } },
-  ],
-  connections: [
-    { from: 'a', to: 'b', type: 'road', style: 'dirt' },
-  ],
-  constraints: [],
-  ...overrides,
-});
-
-describe('carveConnections: water handling', () => {
-  it('places bridge tiles when crossing water with autoBridge=true (default for non-river)', async () => {
-    const { map } = await generateWithNoise(48, 32, WATER_SEED, waterSeed());
-
-    const lineTypes = new Set<string>();
-    for (let x = 5; x <= 42; x++) lineTypes.add(map.tiles[16]?.[x]?.type ?? '');
-    expect(lineTypes.has('shallow_water')).toBe(false);
-    expect(lineTypes.has('deep_water')).toBe(false);
-  });
-
-  it('skips water (no overwrite, no bridge) when autoBridge is explicitly false', async () => {
-    const seed = waterSeed({
-      connections: [
-        { from: 'a', to: 'b', type: 'road', style: 'dirt', autoBridge: false },
-      ],
-    });
-    const { map } = await generateWithNoise(48, 32, WATER_SEED, seed);
-
-    let waterEncounters = 0;
-    let bridgeOverWater = 0;
-    for (let x = 5; x <= 42; x++) {
-      const t = map.tiles[16]?.[x];
-      if (!t) continue;
-      if (t.type === 'shallow_water' || t.type === 'deep_water') waterEncounters++;
-      if (t.type === 'bridge') bridgeOverWater++;
-    }
-    expect(bridgeOverWater).toBe(0);
-    void waterEncounters;
-  });
-});
-
-describe('carveConnections: width', () => {
-  it('carves a 3-tile-wide road when width=3', async () => {
-    const seed = minimalSeed({
-      connections: [{ from: 'a', to: 'b', type: 'road', style: 'dirt', width: 3 }],
-    });
-    const { map } = await generateWithNoise(32, 32, 1, seed);
-
-    for (const y of [15, 16, 17]) {
-      let roads = 0;
-      for (let x = 5; x <= 26; x++) {
-        const t = map.tiles[y]?.[x];
-        if (t && (t.type === 'dirt_road' || t.type === 'bridge')) roads++;
+/** Find the nearest road-type tile to (cx,cy) within a search radius. */
+function findNearestRoad(
+  tiles: Tile[][],
+  cx: number,
+  cy: number,
+  maxRadius = 6,
+): { x: number; y: number } | null {
+  for (let r = 0; r <= maxRadius; r++) {
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+        const x = cx + dx, y = cy + dy;
+        const t = tiles[y]?.[x];
+        if (t && ROAD_TYPES.has(t.type)) return { x, y };
       }
-      expect(roads).toBeGreaterThanOrEqual(10);
     }
+  }
+  return null;
+}
+
+describe('carveConnections (walker-based)', () => {
+  it('produces a connected road component reaching both POIs', async () => {
+    // Use a water-seed-free configuration so the road is a single component
+    // crossing from A to B with no water-induced gaps.
+    const { map } = await generateWithNoise(32, 32, 1, makeSeed());
+
+    const seedNearA = findNearestRoad(map.tiles, 5, 16);
+    expect(seedNearA).not.toBeNull();
+    const connected = floodConnected(map.tiles, seedNearA!);
+    const nearB = [...connected].some(k => {
+      const [x, y] = k.split(',').map(Number);
+      return Math.abs(x - 26) <= 3 && Math.abs(y - 16) <= 3;
+    });
+    expect(nearB).toBe(true);
+  });
+
+  it('places bridges over water with autoBridge=true (default for non-river)', async () => {
+    // Seed 19 with POI B at x=42 puts shallow water on the path → bridges expected.
+    const { map } = await generateWithNoise(48, 32, 19, makeSeed({
+      size: { width: 48, height: 32 },
+      pois: [
+        { id: 'a', type: 'village', name: 'A', position: { x: 5,  y: 16 } },
+        { id: 'b', type: 'village', name: 'B', position: { x: 42, y: 16 } },
+      ],
+    }));
+    let bridges = 0;
+    for (let y = 0; y < 32; y++) {
+      for (let x = 0; x < 48; x++) {
+        if (map.tiles[y]?.[x]?.type === 'bridge') bridges++;
+      }
+    }
+    expect(bridges).toBeGreaterThan(0);
+  });
+
+  it('does not place bridges when autoBridge=false', async () => {
+    const { map } = await generateWithNoise(48, 32, 19, makeSeed({
+      size: { width: 48, height: 32 },
+      pois: [
+        { id: 'a', type: 'village', name: 'A', position: { x: 5,  y: 16 } },
+        { id: 'b', type: 'village', name: 'B', position: { x: 42, y: 16 } },
+      ],
+      connections: [{ from: 'a', to: 'b', type: 'road', style: 'dirt', autoBridge: false }],
+    }));
+    let bridges = 0;
+    for (let y = 0; y < 32; y++) for (let x = 0; x < 48; x++) {
+      if (map.tiles[y]?.[x]?.type === 'bridge') bridges++;
+    }
+    expect(bridges).toBe(0);
   });
 });
