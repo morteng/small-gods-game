@@ -16,6 +16,7 @@ import { generateTerrainFields, classifyBiomes, sampleTiles } from '@/terrain/te
 import { applyPoiInfluences } from '@/terrain/poi-influence';
 import { generateHydrology } from '@/terrain/hydrology';
 import { walkRoad } from '@/terrain/road-walker';
+import { erodeElevation } from '@/terrain/erosion';
 import { EntityRegistry } from '@/world/entity-registry';
 import { placeSettlement } from '@/world/building-placer';
 import { getZoneRule } from '@/map/poi-zones';
@@ -107,6 +108,10 @@ export async function generateWithNoise(
   };
 
   const fields = generateTerrainFields(config);
+
+  // Apply hydraulic erosion to soften peaks and deposit valleys.
+  report('Eroding terrain...');
+  fields.elevation = erodeElevation(fields.elevation, width, height, { seed });
 
   // Apply POI influences on the noise fields before biome classification
   if (worldSeed?.pois?.length) {
