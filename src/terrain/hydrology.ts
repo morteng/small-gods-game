@@ -1,141 +1,84 @@
 /**
  * Drainage-basin hydrology pass.
  *
- * Walks paths downhill from elevation peaks; cells visited by enough paths
- * become rivers. Operates on the existing TerrainField; does not modify it.
+ * Standard flow-accumulation algorithm:
+ *   1. For each land cell, find its drainage target (lowest 4-neighbor strictly
+ *      lower than self). -1 if no lower neighbor exists (local minimum or water-adjacent).
+ *   2. Sort land cells by elevation descending.
+ *   3. Each land cell starts with flow = 1 (one unit of "rain").
+ *   4. Process cells in descending elevation order; add each cell's flow to its
+ *      drainage target. Flow cascades downhill correctly because higher cells
+ *      push their flow before lower cells process.
+ *   5. Cells with accumulated flow ≥ riverFlowThreshold become rivers.
  *
- * Algorithm: see docs/superpowers/plans/2026-05-16-terrain-phase-1-drainage-rivers.md
+ * Operates on the existing TerrainField; does not modify it.
  */
 
 import type { TerrainField, TerrainConfig, HydrologyResult } from '@/core/types';
 
-const DEFAULT_PEAK_THRESHOLD = 0.7;
-const DEFAULT_RIVER_FLOW_THRESHOLD = 3;
-const DEFAULT_MAX_RIVERS = 32;
-const DEFAULT_MIN_RIVER_LENGTH = 4;
+const DEFAULT_RIVER_FLOW_THRESHOLD = 50;
 
 export interface HydrologyOptions {
-  /** Minimum elevation to start a river. Default 0.7. */
-  peakThreshold?: number;
-  /** Minimum flow count to mark a tile as river. Default 3. */
+  /**
+   * Minimum accumulated flow (in "rain units") for a cell to become a river.
+   * Default 50 — on a 64×64 map this picks out the dozen-or-so largest drainage paths.
+   * Tune downward for more (smaller) rivers, upward for fewer (larger) ones.
+   */
   riverFlowThreshold?: number;
-  /** Cap on number of rivers (highest peaks first). Default 32. */
-  maxRivers?: number;
-  /** Skip paths shorter than this. Default 4. */
-  minRiverLength?: number;
 }
 
 /**
- * Find local elevation maxima ≥ peakThreshold.
- * A cell is a local max if its elevation is strictly greater than all 4 cardinal neighbors.
- * Returns peaks sorted by elevation descending, capped at maxRivers.
- */
-export function findPeaks(
-  fields: TerrainField,
-  config: TerrainConfig,
-  options: HydrologyOptions = {},
-): Array<{ x: number; y: number }> {
-  const { width, height } = config;
-  const { elevation } = fields;
-  const peakThreshold = options.peakThreshold ?? DEFAULT_PEAK_THRESHOLD;
-  const maxRivers = options.maxRivers ?? DEFAULT_MAX_RIVERS;
-
-  const peaks: Array<{ x: number; y: number; e: number }> = [];
-
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const i = y * width + x;
-      const e = elevation[i];
-      if (e < peakThreshold) continue;
-
-      // Check 4 cardinal neighbors — must be strictly higher than all of them.
-      const n  = y > 0          ? elevation[i - width] : -Infinity;
-      const s  = y < height - 1 ? elevation[i + width] : -Infinity;
-      const w  = x > 0          ? elevation[i - 1]     : -Infinity;
-      const ee = x < width - 1  ? elevation[i + 1]     : -Infinity;
-      if (e > n && e > s && e > w && e > ee) {
-        peaks.push({ x, y, e });
-      }
-    }
-  }
-
-  peaks.sort((a, b) => b.e - a.e);
-  return peaks.slice(0, maxRivers).map(({ x, y }) => ({ x, y }));
-}
-
-/**
- * Walk strictly downhill from (startX, startY), stepping to the lowest 4-neighbor
- * each iteration. Stops when:
- *   - the current cell is water (elevation < seaLevel), OR
- *   - no neighbor is strictly lower than the current cell, OR
- *   - we step off the map (cannot happen given bounded neighbors, but guarded anyway).
- *
- * Returns the path (including start). If the start is already water,
- * returns just [start].
- *
- * A safety cap of (width + height) * 2 steps prevents pathological loops.
- */
-export function walkDownhill(
-  startX: number,
-  startY: number,
-  fields: TerrainField,
-  config: TerrainConfig,
-): Array<{ x: number; y: number }> {
-  const { width, height, seaLevel = 0.35 } = config;
-  const { elevation } = fields;
-  const maxSteps = (width + height) * 2;
-
-  const path: Array<{ x: number; y: number }> = [{ x: startX, y: startY }];
-  let x = startX, y = startY;
-
-  for (let step = 0; step < maxSteps; step++) {
-    const here = elevation[y * width + x];
-    if (here < seaLevel) break; // reached water — stop
-
-    // Find lowest strictly-lower 4-neighbor.
-    let bestX = -1, bestY = -1, bestE = here;
-    const neighbors: Array<[number, number]> = [
-      [x, y - 1], [x, y + 1], [x - 1, y], [x + 1, y],
-    ];
-    for (const [nx, ny] of neighbors) {
-      if (nx < 0 || nx >= width || ny < 0 || ny >= height) continue;
-      const ne = elevation[ny * width + nx];
-      if (ne < bestE) { bestE = ne; bestX = nx; bestY = ny; }
-    }
-    if (bestX < 0) break; // no lower neighbor — local minimum
-    x = bestX; y = bestY;
-    path.push({ x, y });
-  }
-
-  return path;
-}
-
-/**
- * Run the full drainage-basin pass: find peaks, walk downhill from each,
- * accumulate flow, mark river tiles where flow ≥ riverFlowThreshold.
+ * Compute drainage flow accumulation and river mask for a terrain field.
  */
 export function generateHydrology(
   fields: TerrainField,
   config: TerrainConfig,
   options: HydrologyOptions = {},
 ): HydrologyResult {
-  const { width, height } = config;
-  const minRiverLength = options.minRiverLength ?? DEFAULT_MIN_RIVER_LENGTH;
+  const { width, height, seaLevel = 0.35 } = config;
+  const { elevation } = fields;
+  const total = width * height;
   const riverFlowThreshold = options.riverFlowThreshold ?? DEFAULT_RIVER_FLOW_THRESHOLD;
 
-  const flowField = new Float32Array(width * height);
-  const peaks = findPeaks(fields, config, options);
+  // 1. Compute drainTo: lowest 4-neighbor (strictly lower) per land cell.
+  const drainTo = new Int32Array(total);
+  for (let i = 0; i < total; i++) drainTo[i] = -1;
 
-  for (const peak of peaks) {
-    const path = walkDownhill(peak.x, peak.y, fields, config);
-    if (path.length < minRiverLength) continue;
-    for (const p of path) {
-      flowField[p.y * width + p.x] += 1;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const i = y * width + x;
+      const here = elevation[i];
+      if (here < seaLevel) continue; // water — no drainage
+
+      let bestI = -1, bestE = here;
+      if (y > 0)          { const ni = i - width; const ne = elevation[ni]; if (ne < bestE) { bestE = ne; bestI = ni; } }
+      if (y < height - 1) { const ni = i + width; const ne = elevation[ni]; if (ne < bestE) { bestE = ne; bestI = ni; } }
+      if (x > 0)          { const ni = i - 1;     const ne = elevation[ni]; if (ne < bestE) { bestE = ne; bestI = ni; } }
+      if (x < width - 1)  { const ni = i + 1;     const ne = elevation[ni]; if (ne < bestE) { bestE = ne; bestI = ni; } }
+      drainTo[i] = bestI;
     }
   }
 
-  const riverMask = new Uint8Array(width * height);
-  for (let i = 0; i < riverMask.length; i++) {
+  // 2. Collect land-cell indices and sort by elevation descending.
+  const landOrder: number[] = [];
+  for (let i = 0; i < total; i++) {
+    if (elevation[i] >= seaLevel) landOrder.push(i);
+  }
+  landOrder.sort((a, b) => elevation[b] - elevation[a]);
+
+  // 3 + 4. Initialise flow to 1 per land cell; cascade downhill in elevation order.
+  const flowField = new Float32Array(total);
+  for (const i of landOrder) flowField[i] = 1;
+  for (const i of landOrder) {
+    const target = drainTo[i];
+    if (target >= 0) flowField[target] += flowField[i];
+  }
+
+  // 5. Mark river tiles where flow accumulation exceeds threshold.
+  //    Water tiles (already wet) are never marked: rivers don't overwrite existing water.
+  const riverMask = new Uint8Array(total);
+  for (let i = 0; i < total; i++) {
+    if (elevation[i] < seaLevel) continue;
     if (flowField[i] >= riverFlowThreshold) riverMask[i] = 1;
   }
 

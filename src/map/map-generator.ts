@@ -14,6 +14,7 @@ import { Random, fractalNoise } from '@/core/noise';
 import type { GameMap, WorldSeed, Tile, BuildingInstance, TerrainConfig, POI } from '@/core/types';
 import { generateTerrainFields, classifyBiomes, sampleTiles } from '@/terrain/terrain-generator';
 import { applyPoiInfluences } from '@/terrain/poi-influence';
+import { generateHydrology } from '@/terrain/hydrology';
 import { EntityRegistry } from '@/world/entity-registry';
 import { placeSettlement } from '@/world/building-placer';
 import { getZoneRule } from '@/map/poi-zones';
@@ -121,6 +122,24 @@ export async function generateWithNoise(
   const tiles: Tile[][] = tileTypes.map((row, y) =>
     row.map((type, x) => ({ type, x, y, walkable: tileWalkable(type) })),
   );
+
+  // Generate rivers from drainage basins before placing settlements,
+  // so settlements can be placed with awareness of where rivers exist.
+  report('Carving rivers...');
+  const hydrology = generateHydrology(fields, config);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const idx = y * width + x;
+      if (hydrology.riverMask[idx]) {
+        const t = tiles[y]?.[x];
+        if (!t) continue;
+        // Do not overwrite existing water tiles — they're already wet.
+        if (WATER_TYPES.has(t.type)) continue;
+        t.type = 'river';
+        t.walkable = false;
+      }
+    }
+  }
 
   // Place settlements for each POI (before inter-POI roads so roads take priority)
   report('Placing settlements...');
