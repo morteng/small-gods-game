@@ -15,6 +15,7 @@ import { drawPowerHud } from '@/render/hud';
 import { formatDebugHud } from '@/ui/debug-hud';
 import { renderNpcInfoPanel } from '@/ui/npc-info-panel';
 import { formatNpcTooltip } from '@/ui/npc-tooltip';
+import { createSettingsPanel, type SettingsPanelHandle } from '@/ui/settings-panel';
 import { Autotiler } from '@/map/autotiler';
 import { computeBlobMap } from '@/map/blob-autotiler';
 import { getBuildingTemplate, BUILDING_TEMPLATES } from '@/map/building-templates';
@@ -60,6 +61,8 @@ export class Game {
   private hoverScreen: { x: number; y: number } | null = null;
   private fpsEma: number = 60;
   private tooltip: HTMLDivElement;
+  private settingsPanel: SettingsPanelHandle;
+  private settingsBtn: HTMLButtonElement;
   /** Resolved spritesheets keyed by NPC id */
   private sheets = new Map<string, HTMLCanvasElement>();
   private tileAtlas: HTMLImageElement | null = null;
@@ -122,6 +125,27 @@ export class Game {
     ].join(';');
     container.appendChild(this.tooltip);
 
+    this.settingsBtn = document.createElement('button');
+    this.settingsBtn.type = 'button';
+    this.settingsBtn.title = 'PixelLab settings (K)';
+    this.settingsBtn.textContent = '⚙ API key';
+    this.settingsBtn.style.cssText = [
+      'all:unset', 'position:absolute', 'bottom:8px', 'right:8px',
+      'padding:5px 10px', 'background:rgba(10,10,20,0.75)', 'color:#9fd8ff',
+      'border:1px solid rgba(255,255,255,0.15)', 'border-radius:4px',
+      'font:11px sans-serif', 'cursor:pointer', 'z-index:10',
+    ].join(';');
+    this.settingsBtn.addEventListener('mouseenter', () => {
+      this.settingsBtn.style.background = 'rgba(20,20,32,0.92)';
+    });
+    this.settingsBtn.addEventListener('mouseleave', () => {
+      this.settingsBtn.style.background = 'rgba(10,10,20,0.75)';
+    });
+    this.settingsBtn.addEventListener('click', () => this.settingsPanel.toggle());
+    container.appendChild(this.settingsBtn);
+
+    this.settingsPanel = createSettingsPanel(container);
+
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(container);
     this.resize();
@@ -145,6 +169,7 @@ export class Game {
         this.state.followNpc = !this.state.followNpc;
       },
       onUserCameraInput: () => { this.state.followNpc = false; },
+      onToggleSettings: () => this.settingsPanel.toggle(),
       onRedraw: () => {},
     });
   }
@@ -498,6 +523,8 @@ export class Game {
     this.debugHud.remove();
     this.npcInfoPanel.remove();
     this.tooltip.remove();
+    this.settingsBtn.remove();
+    this.settingsPanel.destroy();
     this.canvas.remove();
   }
 }

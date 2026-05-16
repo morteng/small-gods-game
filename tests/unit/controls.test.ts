@@ -146,6 +146,29 @@ describe('attachControls keyboard', () => {
     expect(onTogglePoiMarkers).not.toHaveBeenCalled();
   });
 
+  it('invokes onToggleSettings on K', () => {
+    const onToggleSettings = vi.fn();
+    cleanup = attachControls(canvas, createCamera(), {
+      onRedraw: () => {},
+      onToggleSettings,
+    });
+    fireKey('KeyK');
+    expect(onToggleSettings).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not invoke onToggleSettings when an input is focused', () => {
+    const onToggleSettings = vi.fn();
+    const input = document.createElement('input');
+    document.body.appendChild(input);
+    input.focus();
+    cleanup = attachControls(canvas, createCamera(), {
+      onRedraw: () => {},
+      onToggleSettings,
+    });
+    fireKey('KeyK', input);
+    expect(onToggleSettings).not.toHaveBeenCalled();
+  });
+
   it('does not invoke onTileClick after a drag-pan', () => {
     const onTileClick = vi.fn();
     const onCanvasClick = vi.fn();

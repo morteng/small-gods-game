@@ -10,6 +10,7 @@ export interface ControlsCallbacks {
   onTogglePoiMarkers?: () => void;
   onToggleDebug?: () => void;
   onToggleFollow?: () => void;
+  onToggleSettings?: () => void;
   onUserCameraInput?: () => void;
   onHoverTile?: (tileX: number, tileY: number, screenX: number, screenY: number) => void;
   onRedraw: () => void;
@@ -104,6 +105,9 @@ export function attachControls(canvas: HTMLCanvasElement, camera: Camera, callba
         break;
       case 'KeyF':
         callbacks.onToggleFollow?.();
+        break;
+      case 'KeyK':
+        callbacks.onToggleSettings?.();
         break;
     }
   }

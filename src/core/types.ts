@@ -285,3 +285,55 @@ export interface BrushContext {
   world: WorldReadOnly;
   tiles: GameMap;
 }
+
+// ─── PixelLab integration (user-supplied API key) ─────────────────────────────
+
+export type PixelLabOutline =
+  | 'single color black outline'
+  | 'single color outline'
+  | 'selective outline'
+  | 'lineless';
+
+export type PixelLabShading =
+  | 'flat shading'
+  | 'basic shading'
+  | 'medium shading'
+  | 'detailed shading'
+  | 'highly detailed shading';
+
+export type PixelLabDetail = 'low detail' | 'medium detail' | 'highly detailed';
+
+/** Options for a single PixelLab generation call. The client bakes in the
+ * project style recipe (color_image, outline, shading, detail) on top. */
+export interface PixelLabGenerateOpts {
+  prompt: string;
+  width: number;
+  height: number;
+  /** Overrides for the baked-in style recipe (rarely used). */
+  outline?: PixelLabOutline;
+  shading?: PixelLabShading;
+  detail?: PixelLabDetail;
+  /** Deterministic seed for reproducibility. */
+  seed?: number;
+}
+
+export interface PixelLabBalance {
+  /** Remaining free-tier monthly generations. */
+  generationsRemaining: number;
+  generationsTotal: number;
+  /** Pay-as-you-go credits in USD (0 on pure free tier). */
+  creditsUsd: number;
+}
+
+/** Cached generated asset stored in IndexedDB. */
+export interface PixelLabCachedAsset {
+  /** SHA-256 hex of the canonical call shape. */
+  key: string;
+  blob: Blob;
+  prompt: string;
+  width: number;
+  height: number;
+  generatedAt: number;  // epoch ms
+}
+
+export type PixelLabKeyStatus = 'missing' | 'unverified' | 'valid' | 'invalid';
