@@ -21,8 +21,11 @@ const DEFAULT_RIVER_FLOW_THRESHOLD = 50;
 export interface HydrologyOptions {
   /**
    * Minimum accumulated flow (in "rain units") for a cell to become a river.
-   * Default 50 — on a 64×64 map this picks out the dozen-or-so largest drainage paths.
+   * Default 50 — empirically tuned on a 128×96 map (the game's standard size)
+   * to produce a small number of distinct rivers from elevation peaks to water.
    * Tune downward for more (smaller) rivers, upward for fewer (larger) ones.
+   * Flow scales roughly with drainage-basin area, so different map sizes may need
+   * proportional adjustment.
    */
   riverFlowThreshold?: number;
 }
@@ -40,7 +43,9 @@ export function generateHydrology(
   const total = width * height;
   const riverFlowThreshold = options.riverFlowThreshold ?? DEFAULT_RIVER_FLOW_THRESHOLD;
 
-  // 1. Compute drainTo: lowest 4-neighbor (strictly lower) per land cell.
+  // 1. Compute drainTo: lowest 4-neighbor strictly lower than self, per land cell.
+  //    A water-adjacent land cell drains INTO the water cell (which is lower).
+  //    -1 only for true local minima above sea level.
   const drainTo = new Int32Array(total);
   for (let i = 0; i < total; i++) drainTo[i] = -1;
 
