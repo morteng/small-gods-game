@@ -13,6 +13,7 @@ import { drawNpcOverlay, type OverlayHitAreas } from '@/render/sim-overlay';
 import { whisperNpc, computePowerRegen } from '@/sim/divine-actions';
 import { drawPowerHud } from '@/render/hud';
 import { formatDebugHud } from '@/ui/debug-hud';
+import { renderNpcInfoPanel } from '@/ui/npc-info-panel';
 import { Autotiler } from '@/map/autotiler';
 import { computeBlobMap } from '@/map/blob-autotiler';
 import { getBuildingTemplate, BUILDING_TEMPLATES } from '@/map/building-templates';
@@ -50,6 +51,9 @@ export class Game {
   private lastWhisperTime: number = -Infinity;
   private pausedBanner: HTMLDivElement;
   private debugHud: HTMLDivElement;
+  private npcInfoPanel: HTMLDivElement;
+  private renderedNpcId: string | null = null;
+  private lastInfoRefresh: number = 0;
   private hoverTile: { x: number; y: number } | null = null;
   private fpsEma: number = 60;
   /** Resolved spritesheets keyed by NPC id */
@@ -93,6 +97,16 @@ export class Game {
       'white-space:nowrap',
     ].join(';');
     container.appendChild(this.debugHud);
+
+    this.npcInfoPanel = document.createElement('div');
+    this.npcInfoPanel.style.cssText = [
+      'position:absolute', 'top:8px', 'left:8px', 'width:220px',
+      'padding:10px 12px', 'background:rgba(10,10,20,0.88)',
+      'border:1px solid rgba(255,255,255,0.18)', 'border-radius:6px',
+      'color:#fff', 'pointer-events:none', 'display:none', 'z-index:10',
+      'box-sizing:border-box',
+    ].join(';');
+    container.appendChild(this.npcInfoPanel);
 
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(container);
@@ -344,9 +358,19 @@ export class Game {
           rc.canvasWidth, rc.canvasHeight,
           this.state.playerPower,
         );
+        const now = performance.now();
+        const switched = this.renderedNpcId !== sim.npcId;
+        if (switched || now - this.lastInfoRefresh > 500) {
+          renderNpcInfoPanel(this.npcInfoPanel, sim);
+          this.renderedNpcId = sim.npcId;
+          this.lastInfoRefresh = now;
+        }
+        this.npcInfoPanel.style.display = 'block';
       }
     } else {
       this.overlayHitAreas = [];
+      this.npcInfoPanel.style.display = 'none';
+      this.renderedNpcId = null;
     }
 
     const regenPerSec = computePowerRegen(this.state.npcSim);
@@ -396,6 +420,7 @@ export class Game {
     this.resizeObserver.disconnect();
     this.pausedBanner.remove();
     this.debugHud.remove();
+    this.npcInfoPanel.remove();
     this.canvas.remove();
   }
 }
