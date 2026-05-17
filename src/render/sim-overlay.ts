@@ -1,22 +1,14 @@
 import type { Camera, NpcInstance, NpcSimState } from '@/core/types';
 import { worldToScreen } from '@/render/camera';
 import { TILE_SIZE } from '@/core/constants';
+import type { OverlayHitArea } from '@/ui/overlay-dispatcher';
+
+export type { OverlayHitArea };
+export type OverlayHitAreas = OverlayHitArea[];
 
 const BTN_W = 130;
 const BTN_H = 22;
 const BTN_GAP = 8;
-
-export interface OverlayHitArea {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-  action: 'whisper';
-  npcId: string;
-  active: boolean;
-}
-
-export type OverlayHitAreas = OverlayHitArea[];
 
 function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number): void {
   ctx.beginPath();
@@ -81,6 +73,6 @@ export function drawNpcOverlay(
   ctx.restore();
 
   return [
-    { x: bx, y: by, w: BTN_W, h: BTN_H, action: 'whisper', npcId: npc.id, active: whisperActive },
+    { x: bx, y: by, w: BTN_W, h: BTN_H, action: 'whisper', payload: { npcId: npc.id }, active: whisperActive },
   ];
 }

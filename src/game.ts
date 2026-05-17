@@ -9,6 +9,7 @@ import { FRAME_MS } from '@/render/npc-animator';
 import { drawNpcOverlay, type OverlayHitAreas } from '@/render/sim-overlay';
 import { whisper } from '@/sim/whisper';
 import { initNpcProps, getNpc, toRenderNpc, npcProps } from '@/world/npc-helpers';
+import { OverlayDispatcher } from '@/ui/overlay-dispatcher';
 import { buildCharacterSpec, getOrGenerateSheet } from '@/render/lpc';
 import { drawPowerHud } from '@/render/hud';
 import { formatDebugHud } from '@/ui/debug-hud';
@@ -68,10 +69,23 @@ export class Game {
   /** Resolved spritesheets keyed by NPC id */
   private sheets = new Map<string, HTMLCanvasElement>();
   private assets = new AssetManager();
+  private dispatcher = new OverlayDispatcher();
 
   constructor(container: HTMLElement, _options: GameOptions = {}) {
     this.container = container;
     this.state = createState();
+
+    this.dispatcher.register('whisper', (payload) => {
+      const p = payload as { npcId: string };
+      if (!this.state.world) return false;
+      const e = getNpc(this.state.world, p.npcId);
+      const player = this.state.spirits.get('player')!;
+      if (e && whisper(player, e, this.state.eventLog)) {
+        this.lastWhisperTime = performance.now();
+        return true;
+      }
+      return false;
+    });
 
     this.scheduler = new Scheduler();
     this.scheduler.register(new NpcMovementSystem(() => this.state.map));
@@ -435,19 +449,7 @@ export class Game {
   }
 
   private onCanvasClick(sx: number, sy: number): boolean {
-    for (const area of this.overlayHitAreas) {
-      if (sx >= area.x && sx <= area.x + area.w && sy >= area.y && sy <= area.y + area.h) {
-        if (area.action === 'whisper' && area.active && this.state.world) {
-          const e = getNpc(this.state.world, area.npcId);
-          const player = this.state.spirits.get('player')!;
-          if (e && whisper(player, e, this.state.eventLog)) {
-            this.lastWhisperTime = performance.now();
-          }
-        }
-        return true;
-      }
-    }
-    return false;
+    return this.dispatcher.tryDispatch(sx, sy, this.overlayHitAreas);
   }
 
   private onTileClick(x: number, y: number): void {
