@@ -57,3 +57,38 @@ export function restoreSnapshot(state: GameState, snap: Snapshot): void {
   }
   state.world = fresh;
 }
+
+export interface SnapshotStoreOptions {
+  capacity: number;
+}
+
+export class SnapshotStore {
+  private readonly capacity: number;
+  private buf: Snapshot[] = [];
+
+  constructor(opts: SnapshotStoreOptions) {
+    if (opts.capacity < 1) throw new Error('SnapshotStore capacity must be >= 1');
+    this.capacity = opts.capacity;
+  }
+
+  push(snap: Snapshot): void {
+    this.buf.push(snap);
+    while (this.buf.length > this.capacity) this.buf.shift();
+  }
+
+  nearestAtOrBefore(tick: number): Snapshot | null {
+    let best: Snapshot | null = null;
+    for (const s of this.buf) {
+      if (s.tick <= tick && (!best || s.tick > best.tick)) best = s;
+    }
+    return best;
+  }
+
+  truncateAfter(tick: number): void {
+    this.buf = this.buf.filter(s => s.tick <= tick);
+  }
+
+  list(): readonly Snapshot[] { return this.buf; }
+
+  size(): number { return this.buf.length; }
+}
