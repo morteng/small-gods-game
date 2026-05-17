@@ -21,9 +21,9 @@ import {
 } from '@/ui/decoration-placement-modal';
 import { loadDecorations, saveDecorations } from '@/services/decoration-store';
 import { DecorationImageCache } from '@/render/decoration-image-cache';
+import { AssetManager } from '@/render/asset-manager';
 import { Autotiler } from '@/map/autotiler';
 import { computeBlobMap } from '@/map/blob-autotiler';
-import { BUILDING_TEMPLATES } from '@/map/building-templates';
 import { generateWithNoise } from '@/map/map-generator';
 import { Scheduler } from '@/core/scheduler';
 import { NpcMovementSystem } from '@/sim/systems/npc-movement-system';
@@ -67,10 +67,7 @@ export class Game {
   private decorationImages = new DecorationImageCache();
   /** Resolved spritesheets keyed by NPC id */
   private sheets = new Map<string, HTMLCanvasElement>();
-  private tileAtlas: HTMLImageElement | null = null;
-  private terrainSheets = new Map<string, HTMLImageElement>();
-  private buildingSprites = new Map<string, HTMLImageElement>();
-  private treeSheets = new Map<string, HTMLImageElement>();
+  private assets = new AssetManager();
 
   constructor(container: HTMLElement, _options: GameOptions = {}) {
     this.container = container;
@@ -210,14 +207,7 @@ export class Game {
     this.state.world = world;
     this.state.visualMap = Autotiler.computeVisualMap(map);
     this.state.blobMap = computeBlobMap(map.tiles, map.width, map.height);
-    if (!this.tileAtlas) {
-      this.tileAtlas = await this.loadImage('/sprites/tiles/kenney-town.png');
-    }
-    await this.loadTerrainSheets();
-    await this.loadBuildingSprites();
-    if (this.treeSheets.size === 0) {
-      await this.loadTreeSheets();
-    }
+    await this.assets.loadAll();
 
     centerOn(
       this.state.camera,
@@ -260,45 +250,6 @@ export class Game {
       saveDecorations(this.state.worldSeed.name, this.state.generatedDecorations);
     }
     void this.decorationImages.load(result.assetId);
-  }
-
-  private loadImage(src: string): Promise<HTMLImageElement | null> {
-    return new Promise(resolve => {
-      const img = new Image();
-      img.onload = () => resolve(img);
-      img.onerror = () => resolve(null);
-      img.src = src;
-    });
-  }
-
-  private loadTreeSheets(): Promise<void> {
-    const variants = ['green', 'orange', 'dead', 'pale', 'brown'];
-    const promises = variants.map(v => new Promise<void>(resolve => {
-      const img = new Image();
-      img.onload = () => { this.treeSheets.set(v, img); resolve(); };
-      img.onerror = () => resolve(); // skip missing silently
-      img.src = `/sprites/trees/trees-${v}.png`;
-    }));
-    return Promise.all(promises).then(() => {});
-  }
-
-  private async loadTerrainSheets(): Promise<void> {
-    const groups = ['grass', 'water', 'dirt', 'sand', 'stone', 'rocky'];
-    await Promise.all(groups.map(async (g) => {
-      if (!this.terrainSheets.has(g)) {
-        const img = await this.loadImage(`/sprites/terrain/${g}.png`);
-        if (img) this.terrainSheets.set(g, img);
-      }
-    }));
-  }
-
-  private async loadBuildingSprites(): Promise<void> {
-    await Promise.all(BUILDING_TEMPLATES.map(async (tpl) => {
-      if (!this.buildingSprites.has(tpl.id)) {
-        const img = await this.loadImage(`/sprites/buildings/${tpl.id}.png`);
-        if (img) this.buildingSprites.set(tpl.id, img);
-      }
-    }));
   }
 
   private kickOffNpcSpritesheets(): void {
@@ -370,10 +321,10 @@ export class Game {
       npcSheets: this.sheets,
       visualMap: this.state.visualMap,
       blobMap: this.state.blobMap ?? null,
-      tileAtlas: this.tileAtlas,
-      terrainSheets: this.terrainSheets,
-      buildingSprites: this.buildingSprites,
-      treeSheets: this.treeSheets,
+      tileAtlas: this.assets.getTileAtlas(),
+      terrainSheets: this.assets.getTerrainSheets(),
+      buildingSprites: this.assets.getBuildingSprites(),
+      treeSheets: this.assets.getTreeSheets(),
       world: this.state.world!,
       showLabels: this.state.showLabels,
       showPoiMarkers: this.state.showPoiMarkers,
