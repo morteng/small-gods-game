@@ -308,6 +308,7 @@ export class Game {
           spirits: this.state.spirits,
           log: this.state.eventLog,
           clock: this.state.clock,
+          rng: this.state.rng,
         });
       }
       this.applyFollowCamera();
