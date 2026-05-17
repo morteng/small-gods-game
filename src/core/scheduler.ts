@@ -60,6 +60,13 @@ export class Scheduler {
     }
   }
 
+  /** Clear per-system accumulators. Used by TimelineController after a snapshot restore. */
+  resetAccumulators(): void {
+    for (const key of this.accumulators.keys()) {
+      this.accumulators.set(key, 0);
+    }
+  }
+
   setRate(scale: number): void {
     this.rateScale = Math.max(0, scale);
   }
