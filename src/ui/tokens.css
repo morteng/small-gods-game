@@ -432,3 +432,17 @@ button { font-family: inherit; color: inherit; }
   margin: -8px -12px 8px -12px;
   border-radius: var(--r-4) var(--r-4) 0 0;
 }
+.sg-time-bar__transport, .sg-time-bar__speed { display:flex; gap:4px; }
+.sg-icon-btn, .sg-time-bar__speed-btn, .sg-time-bar__dismiss {
+  background: transparent; border: 1px solid transparent;
+  color: var(--ink-2); padding: 4px 10px; border-radius: var(--r-2);
+  cursor: pointer; font-family: var(--f-sans); font-size: var(--t-small);
+}
+.sg-icon-btn:hover, .sg-time-bar__speed-btn:hover { background: var(--paper-2); }
+.sg-time-bar__speed-btn[aria-checked="true"] {
+  background: oklch(0.95 0.04 45 / 0.8);
+  border-color: oklch(0.78 0.07 45);
+  color: var(--w-dusk);
+}
+.sg-time-bar__label { font-family: var(--f-mono); color: var(--ink-3); margin-left:auto; }
+.sg-time-bar__track { flex:1; height: 32px; position: relative; }
