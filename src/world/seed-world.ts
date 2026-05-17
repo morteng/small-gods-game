@@ -3,6 +3,7 @@ import type { EventLog } from '@/core/events';
 import type { SimClock } from '@/core/clock';
 import type { Spirit, SpiritId } from '@/core/spirit';
 import type { Oracle } from '@/world/oracle';
+import type { Rng } from '@/core/rng';
 import { World } from '@/world/world';
 import { PerceptionSystem } from '@/world/perception-system';
 import { initNpcProps } from '@/world/npc-helpers';
@@ -14,13 +15,14 @@ export interface SeedWorldArgs {
   log: EventLog;
   clock: SimClock;
   spirits: Map<SpiritId, Spirit>;
+  rng: Rng;
   worldSeed: WorldSeed;
   map: GameMap;
   oracle: Oracle;
 }
 
 export function seedWorld(args: SeedWorldArgs): void {
-  const { world, log, clock, spirits, worldSeed, map, oracle } = args;
+  const { world, log, clock, spirits, rng, worldSeed, map, oracle } = args;
 
   // 1. Mark every tile void
   for (const row of map.tiles) for (const t of row) t.state = 'void';
@@ -51,7 +53,7 @@ export function seedWorld(args: SeedWorldArgs): void {
   // 4. Run PerceptionSystem once to realize the cradle bubble
   const perception = new PerceptionSystem(oracle, () => map);
   perception.tick({
-    world, spirits, log, clock,
+    world, spirits, log, clock, rng,
     dt: 500, now: clock.now(),
   });
 

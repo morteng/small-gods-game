@@ -4,6 +4,7 @@ import { World } from '@/world/world';
 import { SimClock } from '@/core/clock';
 import { EventLog } from '@/core/events';
 import { initNpcProps } from '@/world/npc-helpers';
+import { createRng } from '@/core/rng';
 import type { Entity, GameMap, NpcProperties } from '@/core/types';
 import type { Spirit, SpiritId } from '@/core/spirit';
 
@@ -17,7 +18,7 @@ function ctx(spirits: Map<SpiritId, Spirit>) {
     tiles: [], width: 10, height: 10, villages: [], seed: 1,
     success: true, worldSeed: null, stats: { iterations: 0, backtracks: 0 }, buildings: [],
   } as GameMap);
-  return { world, log, clock, spirits };
+  return { world, log, clock, spirits, rng: createRng(0) };
 }
 function addBeliever(world: World, id: string, faiths: Record<string, number>) {
   const props = initNpcProps('Alice', 'farmer', 1);

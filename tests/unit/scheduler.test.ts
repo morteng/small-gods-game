@@ -3,6 +3,7 @@ import { Scheduler, type System, type SystemContext } from '@/core/scheduler';
 import { SimClock } from '@/core/clock';
 import { EventLog } from '@/core/events';
 import { World } from '@/world/world';
+import { createRng } from '@/core/rng';
 import type { GameMap } from '@/core/types';
 
 function makeMap(): GameMap {
@@ -20,6 +21,7 @@ function makeCtx(): Omit<SystemContext, 'dt' | 'now'> {
     spirits: new Map(),
     log: new EventLog(clock),
     clock,
+    rng: createRng(0),
   };
 }
 

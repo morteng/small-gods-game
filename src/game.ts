@@ -243,6 +243,7 @@ export class Game {
       log: this.state.eventLog,
       clock: this.state.clock,
       spirits: this.state.spirits,
+      rng: this.state.rng,
       worldSeed: ws,
       map,
       oracle: identityOracle,
