@@ -466,3 +466,14 @@ button { font-family: inherit; color: inherit; }
   background: currentColor; opacity: 0.85;
   pointer-events: none;
 }
+.sg-commit__dot {
+  display:inline-block; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--time); animation: sg-shimmer 1.6s ease-in-out infinite;
+  margin-right: 6px; vertical-align: middle;
+}
+.sg-commit__sub { color: var(--ink-3); }
+.sg-commit__actions { margin-left:auto; display:flex; gap: 6px; }
+.sg-btn { padding: 6px 12px; border-radius: var(--r-2); border: 1px solid var(--line);
+          background: var(--paper); color: var(--ink); cursor: pointer; font: var(--t-small)/1 var(--f-sans); }
+.sg-btn--default { background: var(--w-dusk); color: var(--paper); border-color: transparent; }
+.sg-btn--danger  { background: var(--paper); color: var(--danger); border-color: var(--danger); }
