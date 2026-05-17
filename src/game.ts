@@ -2,7 +2,7 @@ import { createState, type GameState } from '@/core/state';
 import { TILE_SIZE } from '@/core/constants';
 import { renderMap } from '@/render/renderer';
 import { centerOn } from '@/render/camera';
-import { attachControls } from '@/ui/controls';
+import { attachControls, attachTimeKeys } from '@/ui/controls';
 import { WorldManager } from '@/map/world-manager';
 import type { GameMap, WorldSeed, TerrainOptions, RenderContext, Entity, NpcSimState, NpcProperties } from '@/core/types';
 import { FRAME_MS } from '@/render/npc-animator';
@@ -81,6 +81,7 @@ export class Game {
   private veil!: ReturnType<typeof mountPastVeil>;
   private timeChip!: TimeChipHandle;
   private timeBar: TimeBarHandle | null = null;
+  private detachTimeKeys: (() => void) | null = null;
 
   constructor(container: HTMLElement, _options: GameOptions = {}) {
     this.container = container;
@@ -129,6 +130,14 @@ export class Game {
       getRate: () => this.scheduler.getRate(),
       isPaused: () => this.scheduler.getRate() === 0,
       onClick: () => this.toggleTimeBar(),
+    });
+
+    this.detachTimeKeys = attachTimeKeys(window, {
+      onToggleTimeBar: () => this.toggleTimeBar(),
+      onTogglePause:   () => this.scheduler.setRate(this.scheduler.getRate() === 0 ? 1 : 0),
+      onSetRate:       (n) => this.scheduler.setRate(n),
+      timeBarOpen:     () => this.timeBar !== null,
+      onEscape:        () => { if (this.timeBar) this.toggleTimeBar(); },
     });
 
     this.pausedBanner = document.createElement('div');
@@ -527,6 +536,7 @@ export class Game {
     this.settingsPanel.destroy();
     this.placementModal.destroy();
     this.decorationImages.destroy();
+    this.detachTimeKeys?.();
     this.timeBar?.dispose();
     this.timeChip.dispose();
     this.veil.dispose();
