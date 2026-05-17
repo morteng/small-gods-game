@@ -35,5 +35,8 @@ describe('NpcMovementSystem determinism', () => {
     const ea = a.world.registry.get('n1')!;
     const eb = b.world.registry.get('n1')!;
     expect({ x: ea.x, y: ea.y }).toEqual({ x: eb.x, y: eb.y });
+    // Sanity check: a real walk happened. Without this, a regression that
+    // froze NPCs in place would still see both runs match at {10, 10}.
+    expect(ea.x !== 10 || ea.y !== 10).toBe(true);
   });
 });
