@@ -6,9 +6,7 @@ import { attachControls } from '@/ui/controls';
 import { WorldManager } from '@/map/world-manager';
 import type { GameMap, WorldSeed, TerrainOptions, NpcRole, RenderContext, Entity, NpcSimState, NpcProperties } from '@/core/types';
 import { FRAME_MS } from '@/render/npc-animator';
-import { tickNpcMovementEntities } from '@/sim/npc-movement';
 import { buildCharacterSpec, getOrGenerateSheet } from '@/render/lpc';
-import { tickAllNpcEntities, SIM_TICK_MS } from '@/sim/npc-sim';
 import { drawNpcOverlay, type OverlayHitAreas } from '@/render/sim-overlay';
 import { whisper } from '@/sim/whisper';
 import { initNpcProps, getNpc, toRenderNpc } from '@/world/npc-helpers';
@@ -27,6 +25,10 @@ import { Autotiler } from '@/map/autotiler';
 import { computeBlobMap } from '@/map/blob-autotiler';
 import { getBuildingTemplate, BUILDING_TEMPLATES } from '@/map/building-templates';
 import { generateWithNoise } from '@/map/map-generator';
+import { Scheduler } from '@/core/scheduler';
+import { NpcMovementSystem } from '@/sim/systems/npc-movement-system';
+import { NpcSimSystem } from '@/sim/systems/npc-sim-system';
+import { SpiritSystem, POWER_REGEN_RATE } from '@/sim/spirit-system';
 
 export interface GameOptions {
   width?: number;
@@ -50,11 +52,11 @@ export class Game {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
   private state: GameState;
+  private scheduler: Scheduler;
   private cleanupControls: (() => void) | null = null;
   private resizeObserver: ResizeObserver;
   private rafId: number | null = null;
   private lastTime: number = 0;
-  private simTickAcc: number = 0;
   private overlayHitAreas: OverlayHitAreas = [];
   private lastWhisperTime: number = -Infinity;
   private pausedBanner: HTMLDivElement;
@@ -81,6 +83,11 @@ export class Game {
   constructor(container: HTMLElement, _options: GameOptions = {}) {
     this.container = container;
     this.state = createState();
+
+    this.scheduler = new Scheduler();
+    this.scheduler.register(new NpcMovementSystem(() => this.state.map));
+    this.scheduler.register(new NpcSimSystem());
+    this.scheduler.register(new SpiritSystem());
 
     this.canvas = document.createElement('canvas');
     this.canvas.style.width = '100%';
@@ -365,7 +372,6 @@ export class Game {
   private startLoop(): void {
     if (this.rafId !== null) return;
     this.lastTime = performance.now();
-    this.simTickAcc = 0;
 
     const loop = (now: number) => {
       const deltaMs = Math.min(now - this.lastTime, 100);
@@ -375,21 +381,13 @@ export class Game {
         this.fpsEma = this.fpsEma * 0.9 + instantFps * 0.1;
       }
       if (!this.state.paused && this.state.world) {
-        this.updateNpcFrames(deltaMs);
-        if (this.state.map) tickNpcMovementEntities(this.state.world, this.state.map, deltaMs);
-        this.simTickAcc += deltaMs;
-        while (this.simTickAcc >= SIM_TICK_MS) {
-          this.simTickAcc -= SIM_TICK_MS;
-          tickAllNpcEntities(this.state.world);
-          // Per-spirit power regen (inlined; Task 4.3 moves to SpiritSystem)
-          const player = this.state.spirits.get('player')!;
-          let total = 0;
-          for (const e of this.state.world.query({ kind: 'npc' })) {
-            const p = e.properties as unknown as NpcProperties;
-            total += p.beliefs['player']?.faith ?? 0;
-          }
-          player.power += total * 0.02;
-        }
+        this.updateNpcFrames(deltaMs);  // presentation animation — not a scheduled system
+        this.scheduler.tick(deltaMs, {
+          world: this.state.world,
+          spirits: this.state.spirits,
+          log: this.state.eventLog,
+          clock: this.state.clock,
+        });
       }
       this.applyFollowCamera();
       this.render();
@@ -480,7 +478,7 @@ export class Game {
         totalFaith += p.beliefs['player']?.faith ?? 0;
       }
     }
-    const regenPerSec = totalFaith * 0.02;
+    const regenPerSec = totalFaith * POWER_REGEN_RATE;
     drawPowerHud(this.ctx, player.power, regenPerSec);
 
     this.updateTooltip();
