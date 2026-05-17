@@ -59,4 +59,22 @@ describe('TimelineController.jumpTo / returnToLive', () => {
     expect(tl.isScrubbed).toBe(false);
     expect(state.clock.now()).toBe(liveTick);
   });
+
+  it('jumpTo clamps targets beyond maxTick — no infinite loop', () => {
+    const state = createState();
+    attachWorld(state);
+    const sched = buildScheduler(() => state.map);
+    const tl = new TimelineController({ state, scheduler: sched });
+
+    for (let i = 0; i < 30; i++) {
+      sched.tick(333, { world: state.world!, spirits: state.spirits, log: state.eventLog, clock: state.clock, rng: state.rng });
+      tl.onAfterLiveTick();
+    }
+    const liveTick = state.clock.now();
+
+    // Insane target — should clamp to maxTick, not loop forever.
+    tl.jumpTo(liveTick * 1000);
+    expect(tl.isScrubbed).toBe(true);
+    expect(state.clock.now()).toBeLessThanOrEqual(liveTick);
+  });
 });

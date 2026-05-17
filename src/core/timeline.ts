@@ -63,9 +63,11 @@ export class TimelineController {
       this.liveSnapshot = captureSnapshot(this.state);
       this._isScrubbed = true;
     }
-    const snap = this.store.nearestAtOrBefore(targetTick);
+    // Clamp so forwardSilent can never loop past the most recent live tick.
+    const clamped = Math.min(Math.max(0, targetTick), this.maxTick);
+    const snap = this.store.nearestAtOrBefore(clamped);
     if (!snap) {
-      if (this.liveSnapshot && this.liveSnapshot.tick >= targetTick) {
+      if (this.liveSnapshot && this.liveSnapshot.tick >= clamped) {
         restoreSnapshot(this.state, this.liveSnapshot);
         this.scheduler.resetAccumulators();
       }
@@ -73,7 +75,7 @@ export class TimelineController {
     }
     restoreSnapshot(this.state, snap);
     this.scheduler.resetAccumulators();
-    this.forwardSilent(targetTick);
+    this.forwardSilent(clamped);
   }
 
   returnToLive(): void {
@@ -93,7 +95,7 @@ export class TimelineController {
       events: tail,
       rerolled: opts.reroll,
     });
-    truncateEventLogAt(this.state.eventLog, cutoff);
+    this.state.eventLog.truncateAfter(cutoff);
     this.store.truncateAfter(cutoff);
     if (opts.reroll) {
       const newSeed = this.state.rng.nextInt(0x7fffffff);
@@ -120,8 +122,3 @@ export class TimelineController {
   }
 }
 
-/** Tactical shim: EventLog doesn't expose internal events array. */
-function truncateEventLogAt(log: GameState['eventLog'], cutoff: number): void {
-  const internal = log as unknown as { events: { t: number }[] };
-  internal.events = internal.events.filter(e => e.t <= cutoff);
-}

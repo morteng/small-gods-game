@@ -68,6 +68,17 @@ export class EventLog {
   size(): number {
     return this.events.length;
   }
+
+  /**
+   * Drop every event with `t > cutoff`. Keeps `nextId` ahead of the highest
+   * retained id so future appends never reuse a discarded id. Used by
+   * `TimelineController.commit` when truncating after a scrub-and-commit.
+   */
+  truncateAfter(cutoff: number): void {
+    this.events = this.events.filter(e => e.t <= cutoff);
+    const highest = this.events.reduce((m, e) => (e.id > m ? e.id : m), 0);
+    this.nextId = highest + 1;
+  }
 }
 
 /**
