@@ -35,7 +35,7 @@ class Sfc32 implements Rng {
     this.d = state[3] >>> 0;
   }
   next(): number {
-    const t = (this.a + this.b | 0) + this.d | 0;
+    const t = (((this.a + this.b) | 0) + this.d) | 0;
     this.d = (this.d + 1) | 0;
     this.a = this.b ^ (this.b >>> 9);
     this.b = (this.c + (this.c << 3)) | 0;
