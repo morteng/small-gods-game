@@ -460,3 +460,9 @@ button { font-family: inherit; color: inherit; }
 .sg-time-bar__handle:active { cursor: grabbing; }
 .sg-time-bar--scrubbed .sg-time-bar__handle { background: var(--time); }
 .sg-time-bar__track { cursor: pointer; }
+.sg-time-bar__glyph {
+  position: absolute; top: 50%; transform: translate(-50%, -50%);
+  width: 12px; height: 12px; border-radius: 2px;
+  background: currentColor; opacity: 0.85;
+  pointer-events: none;
+}
