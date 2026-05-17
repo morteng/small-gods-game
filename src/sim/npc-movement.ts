@@ -7,7 +7,8 @@ const MOVE_INTERVAL_MS = 400;
 
 function tileWalkable(map: GameMap, x: number, y: number): boolean {
   if (x < 0 || y < 0 || x >= map.width || y >= map.height) return false;
-  return map.tiles[y]?.[x]?.walkable === true;
+  const t = map.tiles[y]?.[x];
+  return t?.walkable === true && t.state === 'realized';
 }
 
 export function tickNpcMovementEntities(world: World, map: GameMap, dtMs: number): void {
