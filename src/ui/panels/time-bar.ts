@@ -31,9 +31,31 @@ export function mountTimeBar(container: HTMLElement, deps: TimeBarDeps): TimeBar
 
   container.appendChild(root);
 
+  let commitRow: HTMLElement | null = null;
+
+  function refreshScrubState(): void {
+    const wantsCommit = deps.timeline.isScrubbed;
+    if (wantsCommit && !commitRow) {
+      commitRow = buildCommitRow(deps);
+      root.insertBefore(commitRow, root.firstChild);
+      root.classList.add('sg-time-bar--scrubbed');
+    } else if (!wantsCommit && commitRow) {
+      commitRow.remove();
+      commitRow = null;
+      root.classList.remove('sg-time-bar--scrubbed');
+    }
+    if (commitRow) {
+      const tickEl = commitRow.querySelector('.sg-commit__tick') as HTMLElement | null;
+      if (tickEl) tickEl.textContent = String(deps.timeline.currentTick);
+    }
+  }
+
+  refreshScrubState();
+
   function refresh(): void {
     const main = root.querySelector('.sg-time-bar__row--main') as HTMLElement & { __positionHandle?: () => void };
     main.__positionHandle?.();
+    refreshScrubState();
   }
 
   return {
@@ -196,6 +218,52 @@ function makeIconBtn(action: string, glyph: string, onClick: () => void): HTMLBu
   b.dataset.action = action;
   b.className = 'sg-icon-btn';
   b.textContent = glyph;
+  b.addEventListener('click', onClick);
+  return b;
+}
+
+function buildCommitRow(deps: TimeBarDeps): HTMLElement {
+  const row = document.createElement('div');
+  row.className = 'sg-time-bar__row sg-time-bar__row--commit';
+
+  const prompt = document.createElement('div');
+  prompt.className = 'sg-commit__prompt';
+
+  const dot = document.createElement('span');
+  dot.className = 'sg-commit__dot';
+  prompt.appendChild(dot);
+
+  prompt.appendChild(document.createTextNode(" You're looking back to tick "));
+
+  const tickSpan = document.createElement('span');
+  tickSpan.className = 'sg-commit__tick';
+  tickSpan.textContent = String(deps.timeline.currentTick);
+  prompt.appendChild(tickSpan);
+
+  prompt.appendChild(document.createTextNode('. '));
+
+  const sub = document.createElement('span');
+  sub.className = 'sg-commit__sub';
+  sub.textContent = 'Change what happens next?';
+  prompt.appendChild(sub);
+
+  row.appendChild(prompt);
+
+  const actions = document.createElement('div');
+  actions.className = 'sg-commit__actions';
+  actions.appendChild(mkActionBtn('back-to-now',         'Back to now',         'sg-btn',                () => deps.timeline.returnToLive()));
+  actions.appendChild(mkActionBtn('commit',              'Continue',            'sg-btn sg-btn--default', () => deps.timeline.commit({ reroll: false })));
+  actions.appendChild(mkActionBtn('reroll',              'Try a different way', 'sg-btn sg-btn--danger',  () => deps.timeline.commit({ reroll: true })));
+  row.appendChild(actions);
+
+  return row;
+}
+
+function mkActionBtn(action: string, label: string, klass: string, onClick: () => void): HTMLButtonElement {
+  const b = document.createElement('button');
+  b.dataset.action = action;
+  b.className = klass;
+  b.textContent = label;
   b.addEventListener('click', onClick);
   return b;
 }
