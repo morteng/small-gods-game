@@ -11,7 +11,7 @@ import { Random } from '@/core/noise';
 function makeTiles(width: number, height: number, type = 'grass'): Tile[][] {
   return Array.from({ length: height }, (_, y) =>
     Array.from({ length: width }, (_, x) => ({
-      type, x, y, walkable: true,
+      type, x, y, walkable: true, state: 'realized' as const,
     })),
   );
 }
@@ -194,7 +194,7 @@ describe('placeSettlement water filtering', () => {
       Array.from({ length: width }, (_, x) => {
         const dist = Math.abs(x - cx) + Math.abs(y - cy);
         const type = dist >= r && dist <= r + 2 ? 'deep_water' : 'grass';
-        return { type, x, y, walkable: type === 'grass' };
+        return { type, x, y, walkable: type === 'grass', state: 'realized' as const };
       }),
     );
   }

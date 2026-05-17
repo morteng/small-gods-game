@@ -7,6 +7,7 @@
 
 import { Cell } from './cell';
 import { TileSet } from './tile';
+import type { Tile } from '@/core/types';
 
 export class Grid {
   width: number;
@@ -200,10 +201,10 @@ export class Grid {
   }
 
   /** Convert grid to tile map (after fully collapsed) */
-  toTileMap(): { tiles: { type: string; x: number; y: number; walkable: boolean; height: number }[][]; width: number; height: number } {
-    const tiles: { type: string; x: number; y: number; walkable: boolean; height: number }[][] = [];
+  toTileMap(): { tiles: Tile[][]; width: number; height: number } {
+    const tiles: Tile[][] = [];
     for (let y = 0; y < this.height; y++) {
-      const row: { type: string; x: number; y: number; walkable: boolean; height: number }[] = [];
+      const row: Tile[] = [];
       for (let x = 0; x < this.width; x++) {
         const cell = this.cells[y][x];
         const tileId = cell.getTile();
@@ -213,6 +214,7 @@ export class Grid {
           x,
           y,
           walkable: tileDef?.walkable ?? true,
+          state: 'realized',
           height: 0
         });
       }

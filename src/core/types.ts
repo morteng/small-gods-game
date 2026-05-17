@@ -2,12 +2,17 @@ import type { BlobTile } from '@/map/blob-autotiler';
 import type { World } from '@/world/world';
 import type { SpiritId } from '@/core/spirit';
 
+export type TileState = 'void' | 'realizing' | 'realized';
+
 /** A single tile in the map grid */
 export interface Tile {
   type: string;
   x: number;
   y: number;
   walkable: boolean;
+  /** Reality state. 'realizing' is reserved for Spec D animation + Oracle override window; Spec A never produces it. */
+  state: TileState;
+  realizedAt?: number;
   height?: number;
   bridgeDirection?: string;
 }

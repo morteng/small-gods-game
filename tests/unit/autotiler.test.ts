@@ -21,7 +21,7 @@ function neighbors(overrides: Partial<Neighbors> = {}): Neighbors {
 /** Helper to build a small tile grid */
 function makeTileGrid(types: string[][]): Tile[][] {
   return types.map((row, y) =>
-    row.map((type, x) => ({ type, x, y, walkable: type !== 'water' }))
+    row.map((type, x) => ({ type, x, y, walkable: type !== 'water', state: 'realized' as const }))
   );
 }
 
