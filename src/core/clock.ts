@@ -24,4 +24,9 @@ export class SimClock {
   now(): number {
     return this.ticks;
   }
+
+  setNow(t: number): void {
+    this.ticks = t;
+    this.accumMs = 0;
+  }
 }
