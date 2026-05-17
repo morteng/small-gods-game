@@ -3,6 +3,7 @@ import { seedWorld } from '@/world/seed-world';
 import { SimClock } from '@/core/clock';
 import { EventLog } from '@/core/events';
 import { World } from '@/world/world';
+import { createRng } from '@/core/rng';
 import type { GameMap, Tile, WorldSeed } from '@/core/types';
 import type { Spirit, SpiritId } from '@/core/spirit';
 import { identityOracle } from '@/world/oracle';
@@ -43,7 +44,7 @@ describe('seedWorld', () => {
     }]]);
     const ws = minimalWorldSeed();
 
-    seedWorld({ world, log, clock, spirits, worldSeed: ws, map, oracle: identityOracle });
+    seedWorld({ world, log, clock, spirits, rng: createRng(map.seed), worldSeed: ws, map, oracle: identityOracle });
 
     const types = log.since(0).map(a => a.event.type);
     expect(types).toContain('npc_spawn');
@@ -63,7 +64,7 @@ describe('seedWorld', () => {
     }]]);
     const ws = minimalWorldSeed();
 
-    seedWorld({ world, log, clock, spirits, worldSeed: ws, map, oracle: identityOracle });
+    seedWorld({ world, log, clock, spirits, rng: createRng(map.seed), worldSeed: ws, map, oracle: identityOracle });
 
     const realized = map.tiles.flat().filter(t => t.state === 'realized').length;
     const total = map.width * map.height;
@@ -81,7 +82,7 @@ describe('seedWorld', () => {
     }]]);
     const ws = minimalWorldSeed();
 
-    seedWorld({ world, log, clock, spirits, worldSeed: ws, map, oracle: identityOracle });
+    seedWorld({ world, log, clock, spirits, rng: createRng(map.seed), worldSeed: ws, map, oracle: identityOracle });
 
     const npcs = world.query({ kind: 'npc' });
     expect(npcs.length).toBe(1);

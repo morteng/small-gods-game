@@ -90,7 +90,7 @@ export class SilentEventLog extends EventLog {
     return { id: 0, t: 0, event };
   }
 
-  override subscribe(): () => void {
+  override subscribe(_fn: (e: AppendedEvent) => void): () => void {
     return () => {};
   }
 
