@@ -35,6 +35,9 @@ import { PerceptionSystem } from '@/world/perception-system';
 import { identityOracle } from '@/world/oracle';
 import { seedWorld } from '@/world/seed-world';
 import { injectTokens } from '@/ui/inject-tokens';
+import { mountChrome, mountPastVeil, type ChromeHandle } from '@/ui/chrome';
+import { mountTimeChip, type TimeChipHandle } from '@/ui/panels/time-chip';
+import { mountTimeBar, type TimeBarHandle } from '@/ui/panels/time-bar';
 
 export interface GameOptions {
   width?: number;
@@ -74,6 +77,10 @@ export class Game {
   private sheets = new Map<string, HTMLCanvasElement>();
   private assets = new AssetManager();
   private dispatcher = new OverlayDispatcher();
+  private chrome!: ChromeHandle;
+  private veil!: ReturnType<typeof mountPastVeil>;
+  private timeChip!: TimeChipHandle;
+  private timeBar: TimeBarHandle | null = null;
 
   constructor(container: HTMLElement, _options: GameOptions = {}) {
     this.container = container;
@@ -114,6 +121,15 @@ export class Game {
     }
 
     this.cleanupTokens = injectTokens(this.container);
+
+    this.chrome = mountChrome(this.container);
+    this.veil = mountPastVeil(this.container);
+    this.timeChip = mountTimeChip(this.chrome.anchorTopRight, {
+      clock: this.state.clock,
+      getRate: () => this.scheduler.getRate(),
+      isPaused: () => this.scheduler.getRate() === 0,
+      onClick: () => this.toggleTimeBar(),
+    });
 
     this.pausedBanner = document.createElement('div');
     this.pausedBanner.textContent = 'PAUSED';
@@ -209,6 +225,21 @@ export class Game {
   private togglePause(): void {
     this.state.paused = !this.state.paused;
     this.pausedBanner.style.display = this.state.paused ? 'block' : 'none';
+  }
+
+  private toggleTimeBar(): void {
+    if (this.timeBar) {
+      this.timeBar.dispose();
+      this.timeBar = null;
+      return;
+    }
+    this.timeBar = mountTimeBar(this.container, {
+      timeline: this.timeline,
+      scheduler: this.scheduler,
+      eventLog: this.state.eventLog,
+      clock: this.state.clock,
+      onDismiss: () => this.toggleTimeBar(),
+    });
   }
 
   private resize(): void {
@@ -326,6 +357,9 @@ export class Game {
       }
       this.applyFollowCamera();
       this.render();
+      this.timeChip.refresh();
+      this.timeBar?.refresh();
+      this.veil.setActive(this.timeline.isScrubbed);
       this.rafId = requestAnimationFrame(loop);
     };
     this.rafId = requestAnimationFrame(loop);
@@ -493,6 +527,10 @@ export class Game {
     this.settingsPanel.destroy();
     this.placementModal.destroy();
     this.decorationImages.destroy();
+    this.timeBar?.dispose();
+    this.timeChip.dispose();
+    this.veil.dispose();
+    this.chrome.dispose();
     this.canvas.remove();
   }
 }
