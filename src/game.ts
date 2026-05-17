@@ -4,14 +4,14 @@ import { renderMap } from '@/render/renderer';
 import { centerOn } from '@/render/camera';
 import { attachControls } from '@/ui/controls';
 import { WorldManager } from '@/map/world-manager';
-import type { GameMap, WorldSeed, TerrainOptions, NpcInstance, NpcRole, RenderContext } from '@/core/types';
-import { updateNpcs, FRAME_MS } from '@/render/npc-animator';
-import { tickNpcMovement } from '@/sim/npc-movement';
+import type { GameMap, WorldSeed, TerrainOptions, NpcRole, RenderContext, Entity, NpcSimState, NpcProperties } from '@/core/types';
+import { FRAME_MS } from '@/render/npc-animator';
+import { tickNpcMovementEntities } from '@/sim/npc-movement';
 import { buildCharacterSpec, getOrGenerateSheet } from '@/render/lpc';
-import { initNpcSim, tickAllNpcs, SIM_TICK_MS } from '@/sim/npc-sim';
+import { tickAllNpcEntities, SIM_TICK_MS } from '@/sim/npc-sim';
 import { drawNpcOverlay, type OverlayHitAreas } from '@/render/sim-overlay';
-import { computePowerRegen } from '@/sim/divine-actions';
-import { whisper } from '@/sim/whisper';
+import { whisperEntity } from '@/sim/whisper';
+import { initNpcProps, getNpc, toRenderNpc } from '@/world/npc-helpers';
 import { drawPowerHud } from '@/render/hud';
 import { formatDebugHud } from '@/ui/debug-hud';
 import { renderNpcInfoPanel } from '@/ui/npc-info-panel';
@@ -43,7 +43,6 @@ function hashId(str: string): number {
   return Math.abs(h);
 }
 
-const DIRECTIONS = ['up', 'down', 'left', 'right'] as const;
 const VALID_ROLES: readonly NpcRole[] = ['farmer', 'priest', 'soldier', 'merchant', 'elder', 'child', 'noble', 'beggar'];
 
 export class Game {
@@ -256,15 +255,16 @@ export class Game {
 
   /** Spawn NPCs from POI definitions */
   private spawnNpcs(ws: WorldSeed, map: GameMap): void {
-    this.state.npcs = [];
-    this.state.npcSim.clear();
+    if (!this.state.world) return;
+    // Remove any existing npc entities (game restart)
+    for (const e of this.state.world.query({ kind: 'npc' })) {
+      this.state.world.removeEntity(e.id);
+    }
     this.sheets.clear();
 
     for (const poi of ws.pois) {
       if (!poi.npcs?.length || !poi.position) continue;
       const { x: px, y: py } = poi.position;
-
-      // Find buildings belonging to this POI for home assignment
       const poiBuildings = (map.buildings ?? []).filter(b => b.poiId === poi.id);
 
       for (let i = 0; i < poi.npcs.length; i++) {
@@ -274,16 +274,13 @@ export class Game {
         const role = npcDef.role as NpcRole;
         const safeRole: NpcRole = VALID_ROLES.includes(role) ? role : 'farmer';
         const name = npcDef.name || safeRole;
-
-        // Find home building by role preference
         const homeBuilding = assignHomeBuilding(safeRole, poiBuildings, i);
+
         let tileX: number;
         let tileY: number;
-
         if (homeBuilding) {
           const template = getBuildingTemplate(homeBuilding.templateId);
           if (template) {
-            // Place NPC at building's door cell
             tileX = homeBuilding.tileX + template.doorCell.x;
             tileY = homeBuilding.tileY + template.doorCell.y;
           } else {
@@ -295,26 +292,15 @@ export class Game {
           tileY = Math.max(0, Math.min(map.height - 1, py + ((seed >> 2) % 3) - 1));
         }
 
-        const npc: NpcInstance = {
-          id,
-          name,
-          role: safeRole,
-          seed,
-          tileX,
-          tileY,
-          direction: DIRECTIONS[seed % 4],
-          frame: (seed % 8) + 1,
-          frameTimer: seed % FRAME_MS,
-          homeBuildingId: homeBuilding?.id,
-          homePoiId: poi.id,
-        };
+        const props = initNpcProps(name, safeRole, seed);
+        props.homeBuildingId = homeBuilding?.id;
+        props.homePoiId = poi.id;
 
-        this.state.npcs.push(npc);
-
-        const sim = initNpcSim(id, name, safeRole, seed);
-        sim.homeBuildingId = homeBuilding?.id;
-        sim.homePoiId = poi.id;
-        this.state.npcSim.set(id, sim);
+        this.state.world.addEntity({
+          id, kind: 'npc', x: tileX, y: tileY,
+          properties: props as unknown as Record<string, unknown>,
+        });
+        this.state.eventLog.append({ type: 'npc_spawn', npcId: id, role: safeRole, poiId: poi.id });
 
         // Kick off async spritesheet generation
         const spec = buildCharacterSpec(safeRole, seed);
@@ -364,6 +350,18 @@ export class Game {
     }));
   }
 
+  private updateNpcFrames(deltaMs: number): void {
+    if (!this.state.world) return;
+    for (const e of this.state.world.query({ kind: 'npc' })) {
+      const p = e.properties as unknown as NpcProperties;
+      p.frameTimer += deltaMs;
+      if (p.frameTimer >= FRAME_MS) {
+        p.frameTimer -= FRAME_MS;
+        p.frame = (p.frame % 8) + 1;
+      }
+    }
+  }
+
   private startLoop(): void {
     if (this.rafId !== null) return;
     this.lastTime = performance.now();
@@ -376,15 +374,21 @@ export class Game {
         const instantFps = 1000 / deltaMs;
         this.fpsEma = this.fpsEma * 0.9 + instantFps * 0.1;
       }
-      if (!this.state.paused) {
-        updateNpcs(this.state.npcs, deltaMs);
-        if (this.state.map) tickNpcMovement(this.state.npcs, this.state.map, deltaMs);
+      if (!this.state.paused && this.state.world) {
+        this.updateNpcFrames(deltaMs);
+        if (this.state.map) tickNpcMovementEntities(this.state.world, this.state.map, deltaMs);
         this.simTickAcc += deltaMs;
         while (this.simTickAcc >= SIM_TICK_MS) {
           this.simTickAcc -= SIM_TICK_MS;
-          tickAllNpcs(this.state.npcSim);
+          tickAllNpcEntities(this.state.world);
+          // Per-spirit power regen (inlined; Task 4.3 moves to SpiritSystem)
           const player = this.state.spirits.get('player')!;
-          player.power += computePowerRegen(this.state.npcSim);
+          let total = 0;
+          for (const e of this.state.world.query({ kind: 'npc' })) {
+            const p = e.properties as unknown as NpcProperties;
+            total += p.beliefs['player']?.faith ?? 0;
+          }
+          player.power += total * 0.02;
         }
       }
       this.applyFollowCamera();
@@ -408,7 +412,7 @@ export class Game {
       camera: this.state.camera,
       canvasWidth: this.canvas.width / devicePixelRatio,
       canvasHeight: this.canvas.height / devicePixelRatio,
-      npcs: this.state.npcs,
+      npcs: this.state.world ? this.state.world.query({ kind: 'npc' }).map(toRenderNpc) : [],
       npcSheets: this.sheets,
       visualMap: this.state.visualMap,
       blobMap: this.state.blobMap ?? null,
@@ -432,14 +436,16 @@ export class Game {
       this.ctx.fillRect(0, 0, rc.canvasWidth, rc.canvasHeight);
     }
 
-    if (this.state.selectedNpcId) {
-      const npc = this.state.npcs.find(n => n.id === this.state.selectedNpcId);
-      const sim = this.state.npcSim.get(this.state.selectedNpcId);
-      if (npc && sim) {
+    if (this.state.selectedNpcId && this.state.world) {
+      const entity = getNpc(this.state.world, this.state.selectedNpcId);
+      if (entity) {
+        const npc = toRenderNpc(entity);
+        const sim = simStateFromEntity(entity);
+        const player = this.state.spirits.get('player')!;
         this.overlayHitAreas = drawNpcOverlay(
           this.ctx, npc, sim, this.state.camera,
           rc.canvasWidth, rc.canvasHeight,
-          this.state.spirits.get('player')!.power,
+          player.power,
         );
         const now = performance.now();
         const pinned = this.state.pinnedNpcId === sim.npcId;
@@ -450,7 +456,7 @@ export class Game {
             pinned,
             onTogglePin: () => {
               this.state.pinnedNpcId = this.state.pinnedNpcId === sim.npcId ? null : sim.npcId;
-              this.lastInfoRefresh = 0; // force re-render
+              this.lastInfoRefresh = 0;
             },
           });
           this.renderedNpcId = sim.npcId;
@@ -465,8 +471,17 @@ export class Game {
       this.renderedNpcId = null;
     }
 
-    const regenPerSec = computePowerRegen(this.state.npcSim);
-    drawPowerHud(this.ctx, this.state.spirits.get('player')!.power, regenPerSec);
+    const player = this.state.spirits.get('player')!;
+    // Per-second regen estimate for HUD
+    let totalFaith = 0;
+    if (this.state.world) {
+      for (const e of this.state.world.query({ kind: 'npc' })) {
+        const p = e.properties as unknown as NpcProperties;
+        totalFaith += p.beliefs['player']?.faith ?? 0;
+      }
+    }
+    const regenPerSec = totalFaith * 0.02;
+    drawPowerHud(this.ctx, player.power, regenPerSec);
 
     this.updateTooltip();
 
@@ -475,7 +490,7 @@ export class Game {
         fps: this.fpsEma,
         mouseTile: this.hoverTile,
         entityCount: this.state.world?.query({}).length ?? 0,
-        npcCount: this.state.npcs.length,
+        npcCount: this.state.world?.query({ kind: 'npc' }).length ?? 0,
         paused: this.state.paused,
         zoom: this.state.camera.zoom,
       });
@@ -483,39 +498,32 @@ export class Game {
   }
 
   private applyFollowCamera(): void {
-    if (!this.state.followNpc) return;
-    if (!this.state.selectedNpcId) {
-      this.state.followNpc = false;
-      return;
-    }
-    const npc = this.state.npcs.find(n => n.id === this.state.selectedNpcId);
-    if (!npc) return;
+    if (!this.state.followNpc || !this.state.selectedNpcId || !this.state.world) return;
+    const e = getNpc(this.state.world, this.state.selectedNpcId);
+    if (!e) { this.state.followNpc = false; return; }
     const cam = this.state.camera;
     const viewW = this.canvas.width  / devicePixelRatio / cam.zoom;
     const viewH = this.canvas.height / devicePixelRatio / cam.zoom;
-    const targetX = (npc.tileX + 0.5) * TILE_SIZE - viewW / 2;
-    const targetY = (npc.tileY + 0.5) * TILE_SIZE - viewH / 2;
+    const targetX = (e.x + 0.5) * TILE_SIZE - viewW / 2;
+    const targetY = (e.y + 0.5) * TILE_SIZE - viewH / 2;
     cam.x += (targetX - cam.x) * 0.15;
     cam.y += (targetY - cam.y) * 0.15;
   }
 
   private updateTooltip(): void {
-    if (!this.hoverTile || !this.hoverScreen) {
+    if (!this.hoverTile || !this.hoverScreen || !this.state.world) {
       this.tooltip.style.display = 'none';
       return;
     }
     const { x, y } = this.hoverTile;
-    const hovered = this.state.npcs.find(n => n.tileX === x && n.tileY === y);
+    const hovered = this.state.world.query({ kind: 'npc' })
+      .find(e => Math.floor(e.x) === x && Math.floor(e.y) === y);
     if (!hovered || hovered.id === this.state.selectedNpcId) {
       this.tooltip.style.display = 'none';
       return;
     }
-    const sim = this.state.npcSim.get(hovered.id);
-    if (!sim) {
-      this.tooltip.style.display = 'none';
-      return;
-    }
-    this.tooltip.textContent = formatNpcTooltip({ name: sim.name, role: sim.role, mood: sim.mood });
+    const p = hovered.properties as unknown as NpcProperties;
+    this.tooltip.textContent = formatNpcTooltip({ name: p.name, role: p.role, mood: p.mood });
     this.tooltip.style.left = `${this.hoverScreen.x}px`;
     this.tooltip.style.top  = `${this.hoverScreen.y}px`;
     this.tooltip.style.display = 'block';
@@ -524,10 +532,10 @@ export class Game {
   private onCanvasClick(sx: number, sy: number): boolean {
     for (const area of this.overlayHitAreas) {
       if (sx >= area.x && sx <= area.x + area.w && sy >= area.y && sy <= area.y + area.h) {
-        if (area.action === 'whisper' && area.active) {
-          const sim = this.state.npcSim.get(area.npcId);
+        if (area.action === 'whisper' && area.active && this.state.world) {
+          const e = getNpc(this.state.world, area.npcId);
           const player = this.state.spirits.get('player')!;
-          if (sim && whisper(player, sim, this.state.eventLog)) {
+          if (e && whisperEntity(player, e, this.state.eventLog)) {
             this.lastWhisperTime = performance.now();
           }
         }
@@ -538,10 +546,11 @@ export class Game {
   }
 
   private onTileClick(x: number, y: number): void {
-    if (!this.state.map) return;
-    const clickedNpc = this.state.npcs.find(npc => npc.tileX === x && npc.tileY === y);
-    if (clickedNpc) {
-      this.state.selectedNpcId = this.state.selectedNpcId === clickedNpc.id ? null : clickedNpc.id;
+    if (!this.state.map || !this.state.world) return;
+    const clicked = this.state.world.query({ kind: 'npc' })
+      .find(e => Math.floor(e.x) === x && Math.floor(e.y) === y);
+    if (clicked) {
+      this.state.selectedNpcId = this.state.selectedNpcId === clicked.id ? null : clicked.id;
       if (this.state.pinnedNpcId && this.state.pinnedNpcId !== this.state.selectedNpcId) {
         this.state.pinnedNpcId = null;
       }
@@ -564,6 +573,22 @@ export class Game {
     this.decorationImages.destroy();
     this.canvas.remove();
   }
+}
+
+// =============================================================================
+// Entity → legacy-shape adapter (keeps overlay/info-panel code working until
+// those are refactored to read NpcProperties directly)
+// =============================================================================
+
+function simStateFromEntity(e: Entity): NpcSimState {
+  const p = e.properties as unknown as NpcProperties;
+  return {
+    npcId: e.id, name: p.name, role: p.role, personality: p.personality,
+    beliefs: p.beliefs, needs: p.needs, mood: p.mood,
+    recentEvents: [],  // legacy field; recentEventIds is the new home
+    whisperCooldown: p.whisperCooldown,
+    homeBuildingId: p.homeBuildingId, homePoiId: p.homePoiId,
+  };
 }
 
 // =============================================================================
