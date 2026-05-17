@@ -1,5 +1,5 @@
 import { Random } from '@/core/noise';
-import type { NpcRole, NpcPersonality, SpiritBelief, NpcNeeds, NpcSimState, Entity } from '@/core/types';
+import type { NpcRole, NpcPersonality, SpiritBelief, NpcNeeds, Entity } from '@/core/types';
 import { npcProps, forEachNpc } from '@/world/npc-helpers';
 import type { World } from '@/world/world';
 
@@ -44,82 +44,12 @@ export function personalityFromSeed(seed: number, role: NpcRole): NpcPersonality
   };
 }
 
-export function initNpcSim(npcId: string, name: string, role: NpcRole, seed: number): NpcSimState {
-  const personality = personalityFromSeed(seed, role);
-  const baseFaith = ROLE_FAITH[role] * (0.5 + personality.piety * 0.5);
-
-  const needsRng = new Random(seed ^ 0xdeadbeef);
-  const jitter = () => (needsRng.next() - 0.5) * 0.2;
-
-  const needs: NpcNeeds = {
-    safety:     clamp01(0.6 + jitter()),
-    prosperity: clamp01(0.5 + jitter()),
-    community:  clamp01(0.55 + jitter()),
-    meaning:    clamp01(0.45 + jitter()),
-  };
-
-  const belief: SpiritBelief = {
-    faith:         clamp01(baseFaith),
-    understanding: 0.1,
-    devotion:      0.05,
-  };
-
-  return {
-    npcId,
-    name,
-    role,
-    personality,
-    beliefs: { player: belief },
-    needs,
-    mood: computeMood(needs),
-    recentEvents: [],
-    whisperCooldown: 0,
-  };
-}
-
 export function computeMood(needs: NpcNeeds): number {
   return (needs.safety + needs.prosperity + needs.community + needs.meaning) / 4;
 }
 
-export function tickNpcSim(sim: NpcSimState): void {
-  // 0. Decrement whisper cooldown
-  if (sim.whisperCooldown > 0) sim.whisperCooldown -= 1;
+// ─── Entity-based sim functions ──────────────────────────────────────────────
 
-  // 1. Decay faith per spirit
-  for (const belief of Object.values(sim.beliefs)) {
-    const decay = FAITH_DECAY_BASE * sim.personality.skepticism;
-    belief.faith = clamp01(belief.faith - decay);
-  }
-
-  // 2. Low-need desperation boosts faith
-  const avgNeeds = computeMood(sim.needs);
-  if (avgNeeds < 0.4) {
-    const desperation = (0.4 - avgNeeds) / 0.4;
-    const boost = NEED_FAITH_BOOST * desperation * sim.personality.piety;
-    for (const belief of Object.values(sim.beliefs)) {
-      belief.faith = clamp01(belief.faith + boost);
-    }
-  }
-
-  // 3. Slow natural need decay
-  sim.needs.safety     = clamp01(sim.needs.safety     - 0.001);
-  sim.needs.prosperity = clamp01(sim.needs.prosperity - 0.001);
-  sim.needs.community  = clamp01(sim.needs.community  - 0.0005);
-  sim.needs.meaning    = clamp01(sim.needs.meaning    - 0.0005);
-
-  // 4. Recompute mood
-  sim.mood = computeMood(sim.needs);
-}
-
-export function tickAllNpcs(sims: Map<string, NpcSimState>): void {
-  for (const sim of sims.values()) {
-    tickNpcSim(sim);
-  }
-}
-
-// ─── Entity-based sim functions (Spec A migration target) ────────────────────
-
-/** Entity-based version of tickNpcSim. Spec A migration target. */
 export function tickNpcEntity(e: Entity): void {
   const p = npcProps(e);
 

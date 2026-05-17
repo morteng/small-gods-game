@@ -10,7 +10,7 @@ import { tickNpcMovementEntities } from '@/sim/npc-movement';
 import { buildCharacterSpec, getOrGenerateSheet } from '@/render/lpc';
 import { tickAllNpcEntities, SIM_TICK_MS } from '@/sim/npc-sim';
 import { drawNpcOverlay, type OverlayHitAreas } from '@/render/sim-overlay';
-import { whisperEntity } from '@/sim/whisper';
+import { whisper } from '@/sim/whisper';
 import { initNpcProps, getNpc, toRenderNpc } from '@/world/npc-helpers';
 import { drawPowerHud } from '@/render/hud';
 import { formatDebugHud } from '@/ui/debug-hud';
@@ -535,7 +535,7 @@ export class Game {
         if (area.action === 'whisper' && area.active && this.state.world) {
           const e = getNpc(this.state.world, area.npcId);
           const player = this.state.spirits.get('player')!;
-          if (e && whisperEntity(player, e, this.state.eventLog)) {
+          if (e && whisper(player, e, this.state.eventLog)) {
             this.lastWhisperTime = performance.now();
           }
         }

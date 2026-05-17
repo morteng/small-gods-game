@@ -1,4 +1,4 @@
-import type { GameMap, Camera, WorldSeed, NpcInstance, NpcSimState, TerrainField, BiomeMap, GeneratedDecoration, EntityId } from '@/core/types';
+import type { GameMap, Camera, WorldSeed, TerrainField, BiomeMap, GeneratedDecoration, EntityId } from '@/core/types';
 import type { BlobTile } from '@/map/blob-autotiler';
 import type { World } from '@/world/world';
 import type { Spirit, SpiritId } from '@/core/spirit';
@@ -10,8 +10,6 @@ export interface GameState {
   map: GameMap | null;
   camera: Camera;
   worldSeed: WorldSeed | null;
-  npcs: NpcInstance[];                          // removed in PR 3
-  npcSim: Map<string, NpcSimState>;             // removed in PR 3
   selectedNpcId: string | null;
   visualMap: string[][] | null;
   blobMap: BlobTile[][] | null;
@@ -53,8 +51,6 @@ export function createState(): GameState {
     map: null,
     camera: createCamera(),
     worldSeed: null,
-    npcs: [],
-    npcSim: new Map(),
     selectedNpcId: null,
     visualMap: null,
     blobMap: null,

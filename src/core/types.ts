@@ -150,7 +150,7 @@ export interface RenderContext {
   resolveDecorationImage?: (assetId: string) => HTMLImageElement | null;
 }
 
-/** A live NPC instance on the map */
+/** Render-only adapter shape (built via toRenderNpc in npc-helpers.ts). Not stored anywhere persistent. */
 export interface NpcInstance {
   id: string;
   name: string;
@@ -231,6 +231,7 @@ export interface HydrologyResult {
 export type Era = 'primordial' | 'ancient' | 'classical' | 'medieval' | 'current';
 export type ReligiousSignificance = 'sacred' | 'profane' | 'neutral' | 'contested';
 
+/** Legacy shape consumed by render-overlay/info-panel helpers; built via simStateFromEntity. Not stored. */
 export interface NpcSimState {
   npcId:           string;
   name:            string;
