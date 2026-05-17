@@ -392,7 +392,7 @@ button { font-family: inherit; color: inherit; }
 .sg-time-chip {
   pointer-events: auto;
   display: inline-flex; align-items: center; gap: 6px;
-  padding: 6px 12px;
+  padding: 6px 12px; /* overrides .sg-chip 6px 10px */
   background: var(--shade);
   border: 1px solid var(--line);
   border-radius: var(--r-pill);
@@ -400,6 +400,7 @@ button { font-family: inherit; color: inherit; }
   font-size: var(--t-base);
   color: var(--ink);
   cursor: pointer;
+  -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
   box-shadow: var(--lift-1);
 }
