@@ -387,3 +387,28 @@ button { font-family: inherit; color: inherit; }
 .sg-img--portrait { border-radius: var(--r-3); }
 .sg-img--vista    { border-radius: var(--r-3); }
 .sg-img--scene    { border-radius: var(--r-3); }
+
+/* Time chip ───────────────────────────────────────────────── */
+.sg-time-chip {
+  pointer-events: auto;
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 12px;
+  background: var(--shade);
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  font-family: var(--f-sans);
+  font-size: var(--t-base);
+  color: var(--ink);
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  box-shadow: var(--lift-1);
+}
+.sg-time-chip__rate {
+  font-family: var(--f-mono);
+  font-size: var(--t-tiny);
+  color: var(--ink-3);
+  padding: 2px 6px;
+  border-radius: var(--r-pill);
+  background: var(--paper-2);
+}
+.sg-time-chip--paused .sg-time-chip__rate { color: var(--time); }
