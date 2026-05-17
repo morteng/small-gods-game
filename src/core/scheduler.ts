@@ -1,9 +1,7 @@
 import type { SimClock } from '@/core/clock';
-import type { EventLog, SpiritId } from '@/core/events';
+import type { EventLog } from '@/core/events';
+import type { Spirit, SpiritId } from '@/core/spirit';
 import type { World } from '@/world/world';
-
-// Temporary stub — Task 1.4 replaces this with `import type { Spirit } from '@/core/spirit';`
-interface Spirit { id: string }
 
 export interface SystemContext {
   world: World;

@@ -1,8 +1,6 @@
 import type { SimClock } from '@/core/clock';
 import type { EntityId, NpcRole, Region, WorldSeed } from '@/core/types';
-
-// Provisional — moved to '@/core/spirit' in Task 1.4
-export type SpiritId = string;
+import type { SpiritId } from '@/core/spirit';
 
 export type SimEvent =
   | { type: 'world_seeded';       worldSeed: WorldSeed; substrateSeed: number }
@@ -71,3 +69,5 @@ export class EventLog {
     return this.events.length;
   }
 }
+
+export type { SpiritId };
