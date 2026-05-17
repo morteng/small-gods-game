@@ -20,13 +20,11 @@ export interface GameState {
   showPoiMarkers: boolean;
   pinnedNpcId: string | null;
   followNpc: boolean;
-  // NEW:
   spirits: Map<SpiritId, Spirit>;
   eventLog: EventLog;
   clock: SimClock;
   cameraLock: { mode: 'follower' | 'free'; targetId?: EntityId };
   rng: Rng;
-  // REMOVED: playerPower
   world: World | null;
   terrainFields: TerrainField | null;
   biomeMap: BiomeMap | null;
