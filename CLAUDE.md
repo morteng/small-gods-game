@@ -16,14 +16,14 @@ A god game inspired by Terry Pratchett's *Small Gods*. The player is a minor dei
 - **[TS Migration Design](docs/plans/2026-02-20-ts-migration-design.md)** - TypeScript migration design doc
 - **[TS Migration Plan](docs/plans/2026-02-20-ts-migration.md)** - Detailed migration implementation plan
 
-**Current Status:** Map system migrated to TypeScript with simple top-down renderer. Gameplay (Phases 7-11) not started.
+**Current Status:** Spec A (architectural spine) and Spec B (Time) shipped. Sim is fully deterministic with seedable RNG; snapshot/replay layer supports scrub + commit + re-roll; summoned Time bar UI with past-veil scrubbed treatment; keyboard shortcuts T/Space/1/2/4/8/Esc. 576 tests passing.
 
 ## Tech Stack
 
 - **TypeScript** ES modules, bundled by **Vite**
 - **Canvas 2D** top-down colored-rectangle renderer (placeholder art)
 - **WFC** (Wave Function Collapse) procedural map generation
-- **Vitest** for testing (97 tests)
+- **Vitest** for testing (576 tests)
 - Embeddable as iframe via `Game` class + postMessage API
 
 ## Architecture
@@ -109,6 +109,16 @@ await game.generateWorld();
 | Autotiler | `src/map/autotiler.ts` |
 | World seeds | `public/data/worlds/default.json` |
 | World seed schema | `src/core/schema.ts` |
+| Seedable world RNG (sfc32) | `src/core/rng.ts` |
+| Snapshot capture/restore + store | `src/core/snapshot.ts` |
+| Timeline controller (scrub/commit/re-roll) | `src/core/timeline.ts` |
+| Silent event log (replay) | `src/core/events.ts` (`SilentEventLog`) |
+| Calendar helper (tick → "Y1 spring · 30/96") | `src/core/calendar.ts` |
+| UI chrome scaffold + past-veil | `src/ui/chrome.ts` |
+| Time chip | `src/ui/panels/time-chip.ts` |
+| Time bar (summoned) | `src/ui/panels/time-bar.ts` |
+| Design tokens (scoped to container) | `src/ui/tokens.css` |
+| Time keyboard shortcuts | `src/ui/controls.ts` (`attachTimeKeys`) |
 
 ## Development
 
