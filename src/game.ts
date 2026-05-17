@@ -27,6 +27,7 @@ import { Autotiler } from '@/map/autotiler';
 import { computeBlobMap } from '@/map/blob-autotiler';
 import { generateWithNoise } from '@/map/map-generator';
 import { Scheduler } from '@/core/scheduler';
+import { TimelineController } from '@/core/timeline';
 import { NpcMovementSystem } from '@/sim/systems/npc-movement-system';
 import { NpcSimSystem } from '@/sim/systems/npc-sim-system';
 import { SpiritSystem, POWER_REGEN_RATE } from '@/sim/spirit-system';
@@ -46,6 +47,7 @@ export class Game {
   private ctx: CanvasRenderingContext2D;
   private state: GameState;
   private scheduler: Scheduler;
+  private timeline!: TimelineController;
   private cleanupControls: (() => void) | null = null;
   private resizeObserver: ResizeObserver;
   private rafId: number | null = null;
@@ -92,6 +94,11 @@ export class Game {
     this.scheduler.register(new NpcSimSystem());
     this.scheduler.register(new SpiritSystem());
     this.scheduler.register(new PerceptionSystem(identityOracle, () => this.state.map));
+
+    this.timeline = new TimelineController({
+      state: this.state,
+      scheduler: this.scheduler,
+    });
 
     this.canvas = document.createElement('canvas');
     this.canvas.style.width = '100%';
@@ -301,7 +308,7 @@ export class Game {
         const instantFps = 1000 / deltaMs;
         this.fpsEma = this.fpsEma * 0.9 + instantFps * 0.1;
       }
-      if (!this.state.paused && this.state.world) {
+      if (!this.state.paused && this.state.world && !this.timeline.isScrubbed) {
         this.updateNpcFrames(deltaMs);  // presentation animation — not a scheduled system
         this.scheduler.tick(deltaMs, {
           world: this.state.world,
@@ -310,6 +317,7 @@ export class Game {
           clock: this.state.clock,
           rng: this.state.rng,
         });
+        this.timeline.onAfterLiveTick();
       }
       this.applyFollowCamera();
       this.render();
