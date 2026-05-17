@@ -11,6 +11,6 @@ export class NpcMovementSystem implements System {
   tick(ctx: SystemContext): void {
     const map = this.getMap();
     if (!map) return;
-    tickNpcMovementEntities(ctx.world, map, ctx.dt);
+    tickNpcMovementEntities(ctx.world, map, ctx.dt, ctx.rng);
   }
 }
