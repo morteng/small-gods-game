@@ -1,5 +1,6 @@
 import type { BlobTile } from '@/map/blob-autotiler';
 import type { World } from '@/world/world';
+import type { SpiritId } from '@/core/spirit';
 
 /** A single tile in the map grid */
 export interface Tile {
@@ -242,6 +243,32 @@ export interface NpcSimState {
   whisperCooldown: number;     // integer seconds remaining (ticked per sim tick)
   homeBuildingId?: string;
   homePoiId?:      string;
+}
+
+/** Properties stored on an Entity with kind: 'npc'. Replaces NpcInstance + NpcSimState. */
+export interface NpcProperties {
+  // identity
+  name: string;
+  role: NpcRole;
+  seed: number;
+  // movement / animation
+  direction: Direction;
+  frame: number;
+  frameTimer: number;
+  moveCooldown?: number;
+  // home
+  homeBuildingId?: string;
+  homePoiId?: string;
+  // sim
+  personality: NpcPersonality;
+  beliefs: Record<SpiritId, SpiritBelief>;
+  needs: NpcNeeds;
+  mood: number;
+  whisperCooldown: number;
+  // possession marker
+  possessedBy?: SpiritId;
+  // narrative breadcrumbs
+  recentEventIds: number[];
 }
 
 // ─── Entity system v2 (Spec A) ────────────────────────────────────────────────
