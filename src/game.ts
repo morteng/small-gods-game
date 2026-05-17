@@ -8,7 +8,8 @@ import type { GameMap, WorldSeed, TerrainOptions, RenderContext, Entity, NpcSimS
 import { FRAME_MS } from '@/render/npc-animator';
 import { drawNpcOverlay, type OverlayHitAreas } from '@/render/sim-overlay';
 import { whisper } from '@/sim/whisper';
-import { initNpcProps, getNpc, toRenderNpc } from '@/world/npc-helpers';
+import { initNpcProps, getNpc, toRenderNpc, npcProps } from '@/world/npc-helpers';
+import { buildCharacterSpec, getOrGenerateSheet } from '@/render/lpc';
 import { drawPowerHud } from '@/render/hud';
 import { formatDebugHud } from '@/ui/debug-hud';
 import { renderNpcInfoPanel } from '@/ui/npc-info-panel';
@@ -235,6 +236,7 @@ export class Game {
       map,
       oracle: identityOracle,
     });
+    this.kickOffNpcSpritesheets();
     this.state.generatedDecorations = loadDecorations(ws.name);
     // Kick off image preloading; missing ids resolve to null and the renderer
     // falls back to placeholder squares until the load completes.
@@ -297,6 +299,18 @@ export class Game {
         if (img) this.buildingSprites.set(tpl.id, img);
       }
     }));
+  }
+
+  private kickOffNpcSpritesheets(): void {
+    if (!this.state.world) return;
+    for (const e of this.state.world.query({ kind: 'npc' })) {
+      if (this.sheets.has(e.id)) continue;
+      const p = npcProps(e);
+      const spec = buildCharacterSpec(p.role, p.seed);
+      getOrGenerateSheet(spec).then(canvas => {
+        if (canvas) this.sheets.set(e.id, canvas);
+      });
+    }
   }
 
   private updateNpcFrames(deltaMs: number): void {
