@@ -70,4 +70,30 @@ export class EventLog {
   }
 }
 
+/**
+ * No-op replacement for EventLog used during replay. Append/subscribe are
+ * no-ops so re-running systems doesn't pollute the canonical log.
+ */
+export class SilentEventLog extends EventLog {
+  override append(event: SimEvent): AppendedEvent {
+    return { id: 0, t: 0, event };
+  }
+
+  override subscribe(): () => void {
+    return () => {};
+  }
+
+  override since(): AppendedEvent[] {
+    return [];
+  }
+
+  override range(): AppendedEvent[] {
+    return [];
+  }
+
+  override size(): number {
+    return 0;
+  }
+}
+
 export type { SpiritId };
