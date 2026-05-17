@@ -76,6 +76,11 @@ export class SnapshotStore {
     while (this.buf.length > this.capacity) this.buf.shift();
   }
 
+  /**
+   * Highest-tick snapshot with tick <= target, or null if none.
+   * O(n) scan is fine: the buffer is bounded by capacity (40 by default)
+   * and snapshots arrive in ascending tick order.
+   */
   nearestAtOrBefore(tick: number): Snapshot | null {
     let best: Snapshot | null = null;
     for (const s of this.buf) {
