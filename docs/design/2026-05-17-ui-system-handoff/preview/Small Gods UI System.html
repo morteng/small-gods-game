@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=1400" />
+<title>Small Gods — UI System</title>
+<link rel="stylesheet" href="tokens.css" />
+<style>
+  html, body { background: var(--void-0); }
+  /* design canvas frame tweaks for our dark theme */
+  body { color: var(--bone); }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="image-slot.js"></script>
+
+<script type="text/babel" src="design-canvas.jsx"></script>
+<script type="text/babel" src="components/world-placeholder.jsx"></script>
+<script type="text/babel" src="components/primitives.jsx"></script>
+<script type="text/babel" src="components/foundations.jsx"></script>
+<script type="text/babel" src="components/spirit-dock.jsx"></script>
+<script type="text/babel" src="components/selection-card.jsx"></script>
+<script type="text/babel" src="components/event-ticker.jsx"></script>
+<script type="text/babel" src="components/time-bar-safe.jsx"></script>
+<script type="text/babel" src="components/full-screen.jsx"></script>
+<script type="text/babel" src="components/branching.jsx"></script>
+<script type="text/babel" src="components/cinematic.jsx"></script>
+<script type="text/babel" src="components/book.jsx"></script>
+<script type="text/babel" src="app.jsx"></script>
+
+</body>
+</html>
