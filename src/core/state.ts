@@ -1,14 +1,17 @@
-import type { GameMap, Camera, WorldSeed, NpcInstance, NpcSimState, TerrainField, BiomeMap, GeneratedDecoration } from '@/core/types';
+import type { GameMap, Camera, WorldSeed, NpcInstance, NpcSimState, TerrainField, BiomeMap, GeneratedDecoration, EntityId } from '@/core/types';
 import type { BlobTile } from '@/map/blob-autotiler';
 import type { World } from '@/world/world';
+import type { Spirit, SpiritId } from '@/core/spirit';
+import { EventLog } from '@/core/events';
+import { SimClock } from '@/core/clock';
 import { createCamera } from '@/render/camera';
 
 export interface GameState {
   map: GameMap | null;
   camera: Camera;
   worldSeed: WorldSeed | null;
-  npcs: NpcInstance[];
-  npcSim: Map<string, NpcSimState>;
+  npcs: NpcInstance[];                          // removed in PR 3
+  npcSim: Map<string, NpcSimState>;             // removed in PR 3
   selectedNpcId: string | null;
   visualMap: string[][] | null;
   blobMap: BlobTile[][] | null;
@@ -18,18 +21,34 @@ export interface GameState {
   showPoiMarkers: boolean;
   pinnedNpcId: string | null;
   followNpc: boolean;
-  playerPower: number;
-  /** Unified world facade — buildings, trees, rocks, landmarks, etc. */
+  // NEW:
+  spirits: Map<SpiritId, Spirit>;
+  eventLog: EventLog;
+  clock: SimClock;
+  cameraLock: { mode: 'follower' | 'free'; targetId?: EntityId };
+  // REMOVED: playerPower
   world: World | null;
-  /** Terrain noise fields (elevation, moisture, temperature) */
   terrainFields: TerrainField | null;
-  /** Biome classification per tile */
   biomeMap: BiomeMap | null;
-  /** Decorations placed via right-click. Keyed by tile coords + library asset id. */
   generatedDecorations: GeneratedDecoration[];
 }
 
 export function createState(): GameState {
+  const clock = new SimClock();
+  const eventLog = new EventLog(clock);
+  const spirits = new Map<SpiritId, Spirit>();
+  // Seed the player spirit. Named "Fooob" placeholder — naming ritual is Spec E.
+  spirits.set('player', {
+    id: 'player',
+    name: 'Fooob',
+    sigil: '⊙',
+    color: '#ffd700',
+    isPlayer: true,
+    power: 3,
+    manifestation: null,
+  });
+  eventLog.append({ type: 'spirit_birth', spiritId: 'player', name: 'Fooob', isPlayer: true });
+
   return {
     map: null,
     camera: createCamera(),
@@ -45,7 +64,10 @@ export function createState(): GameState {
     showPoiMarkers: true,
     pinnedNpcId: null,
     followNpc: false,
-    playerPower: 3,
+    spirits,
+    eventLog,
+    clock,
+    cameraLock: { mode: 'free' },
     world: null,
     terrainFields: null,
     biomeMap: null,

@@ -382,7 +382,8 @@ export class Game {
         while (this.simTickAcc >= SIM_TICK_MS) {
           this.simTickAcc -= SIM_TICK_MS;
           tickAllNpcs(this.state.npcSim);
-          this.state.playerPower += computePowerRegen(this.state.npcSim);
+          const player = this.state.spirits.get('player')!;
+          player.power += computePowerRegen(this.state.npcSim);
         }
       }
       this.applyFollowCamera();
@@ -437,7 +438,7 @@ export class Game {
         this.overlayHitAreas = drawNpcOverlay(
           this.ctx, npc, sim, this.state.camera,
           rc.canvasWidth, rc.canvasHeight,
-          this.state.playerPower,
+          this.state.spirits.get('player')!.power,
         );
         const now = performance.now();
         const pinned = this.state.pinnedNpcId === sim.npcId;
@@ -464,7 +465,7 @@ export class Game {
     }
 
     const regenPerSec = computePowerRegen(this.state.npcSim);
-    drawPowerHud(this.ctx, this.state.playerPower, regenPerSec);
+    drawPowerHud(this.ctx, this.state.spirits.get('player')!.power, regenPerSec);
 
     this.updateTooltip();
 
@@ -525,7 +526,8 @@ export class Game {
         if (area.action === 'whisper' && area.active) {
           const sim = this.state.npcSim.get(area.npcId);
           if (sim) {
-            this.state.playerPower = whisperNpc(sim, this.state.playerPower);
+            const player = this.state.spirits.get('player')!;
+            player.power = whisperNpc(sim, player.power);
             this.lastWhisperTime = performance.now();
           }
         }
