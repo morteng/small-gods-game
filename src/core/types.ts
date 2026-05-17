@@ -1,5 +1,8 @@
 import type { BlobTile } from '@/map/blob-autotiler';
 import type { World } from '@/world/world';
+import type { SpiritId } from '@/core/spirit';
+
+export type TileState = 'void' | 'realizing' | 'realized';
 
 /** A single tile in the map grid */
 export interface Tile {
@@ -7,6 +10,9 @@ export interface Tile {
   x: number;
   y: number;
   walkable: boolean;
+  /** Reality state. 'realizing' is reserved for Spec D animation + Oracle override window; Spec A never produces it. */
+  state: TileState;
+  realizedAt?: number;
   height?: number;
   bridgeDirection?: string;
 }
@@ -149,7 +155,7 @@ export interface RenderContext {
   resolveDecorationImage?: (assetId: string) => HTMLImageElement | null;
 }
 
-/** A live NPC instance on the map */
+/** Render-only adapter shape (built via toRenderNpc in npc-helpers.ts). Not stored anywhere persistent. */
 export interface NpcInstance {
   id: string;
   name: string;
@@ -230,6 +236,7 @@ export interface HydrologyResult {
 export type Era = 'primordial' | 'ancient' | 'classical' | 'medieval' | 'current';
 export type ReligiousSignificance = 'sacred' | 'profane' | 'neutral' | 'contested';
 
+/** Legacy shape consumed by render-overlay/info-panel helpers; built via simStateFromEntity. Not stored. */
 export interface NpcSimState {
   npcId:           string;
   name:            string;
@@ -242,6 +249,32 @@ export interface NpcSimState {
   whisperCooldown: number;     // integer seconds remaining (ticked per sim tick)
   homeBuildingId?: string;
   homePoiId?:      string;
+}
+
+/** Properties stored on an Entity with kind: 'npc'. Replaces NpcInstance + NpcSimState. */
+export interface NpcProperties {
+  // identity
+  name: string;
+  role: NpcRole;
+  seed: number;
+  // movement / animation
+  direction: Direction;
+  frame: number;
+  frameTimer: number;
+  moveCooldown?: number;
+  // home
+  homeBuildingId?: string;
+  homePoiId?: string;
+  // sim
+  personality: NpcPersonality;
+  beliefs: Record<SpiritId, SpiritBelief>;
+  needs: NpcNeeds;
+  mood: number;
+  whisperCooldown: number;
+  // possession marker
+  possessedBy?: SpiritId;
+  // narrative breadcrumbs
+  recentEventIds: number[];
 }
 
 // ─── Entity system v2 (Spec A) ────────────────────────────────────────────────

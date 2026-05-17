@@ -7,7 +7,7 @@ function buildCtx(rows: string[][]): BrushContext {
   const h = rows.length,
     w = rows[0].length;
   const tiles: Tile[][] = rows.map((row, y) =>
-    row.map((type, x) => ({ type, x, y, walkable: true })),
+    row.map((type, x) => ({ type, x, y, walkable: true, state: 'realized' as const })),
   );
   const map: GameMap = {
     tiles,

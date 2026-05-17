@@ -7,7 +7,7 @@ function makeTiles(w: number, h: number, fill: string = 'grass'): Tile[][] {
   for (let y = 0; y < h; y++) {
     const row: Tile[] = [];
     for (let x = 0; x < w; x++) {
-      row.push({ type: fill, x, y, walkable: true });
+      row.push({ type: fill, x, y, walkable: true, state: 'realized' });
     }
     rows.push(row);
   }

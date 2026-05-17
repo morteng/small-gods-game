@@ -6,7 +6,7 @@ import type { BrushContext, GameMap, Tile } from '@/core/types';
 
 function buildCtx(rows: string[][]): BrushContext {
   const h = rows.length, w = rows[0].length;
-  const tiles: Tile[][] = rows.map((row, y) => row.map((type, x) => ({ type, x, y, walkable: true })));
+  const tiles: Tile[][] = rows.map((row, y) => row.map((type, x) => ({ type, x, y, walkable: true, state: 'realized' as const })));
   const map: GameMap = { tiles, width: w, height: h, villages: [], seed: 0, success: true, worldSeed: null, stats: { iterations: 0, backtracks: 0 }, buildings: [] };
   return { ...EMPTY_CONTEXT, tiles: map };
 }

@@ -129,7 +129,7 @@ export async function generateWithNoise(
   // Convert to Tile[][]
   report('Building tile grid...');
   const tiles: Tile[][] = tileTypes.map((row, y) =>
-    row.map((type, x) => ({ type, x, y, walkable: tileWalkable(type) })),
+    row.map((type, x) => ({ type, x, y, walkable: tileWalkable(type), state: 'realized' as const })),
   );
 
   // Generate rivers from drainage basins before placing settlements,
@@ -372,7 +372,7 @@ export function generateMap(width: number, height: number, seed: number, options
       else if (e < waterThresh + 0.07) type = 'sand';
       else if (e < 0.75) type = m > (1 - forestThresh) ? 'forest' : 'grass';
       else type = 'grass';
-      row.push({ type, x, y, walkable: WALKABLE_TYPES[type] ?? false });
+      row.push({ type, x, y, walkable: WALKABLE_TYPES[type] ?? false, state: 'realized' });
     }
     tiles.push(row);
   }

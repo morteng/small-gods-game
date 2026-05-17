@@ -166,6 +166,7 @@ function drawTerrain(ctx: CanvasRenderingContext2D, rc: RenderContext): void {
     for (let x = startX; x < endX; x++) {
       const tile = map.tiles[y]?.[x];
       if (!tile) continue;
+      if (tile.state === 'void') continue;
 
       const px = x * TILE_SIZE;
       const py = y * TILE_SIZE;
@@ -370,6 +371,8 @@ function drawNpcs(
     if (!sheet) continue;
     if (npc.tileX + 1 < camLeft || npc.tileX > camRight ||
         npc.tileY + 1 < camTop  || npc.tileY > camBottom) continue;
+    const underTile = rc.map.tiles[Math.floor(npc.tileY)]?.[Math.floor(npc.tileX)];
+    if (underTile?.state === 'void') continue;
     const { sx, sy } = getSpriteCoords(npc);
     ctx.drawImage(sheet, sx, sy, 64, 64, npc.tileX * TILE_SIZE, npc.tileY * TILE_SIZE, npcSize, npcSize);
   }
@@ -432,8 +435,17 @@ function drawYSortedEntities(ctx: CanvasRenderingContext2D, rc: RenderContext): 
 
   ctx.imageSmoothingEnabled = false;
   for (const item of items) {
-    if (item.kind === 'entity') drawEntity(ctx, rc, item.entity);
-    else drawDecoration(ctx, rc, item.placement);
+    if (item.kind === 'entity') {
+      const e = item.entity;
+      const underTile = rc.map.tiles[Math.floor(e.y)]?.[Math.floor(e.x)];
+      if (underTile?.state === 'void') continue;
+      drawEntity(ctx, rc, e);
+    } else {
+      const d = item.placement;
+      const underTile = rc.map.tiles[Math.floor(d.tileY)]?.[Math.floor(d.tileX)];
+      if (underTile?.state === 'void') continue;
+      drawDecoration(ctx, rc, d);
+    }
   }
 
   // NPCs render last (z-order regression intentional per Spec A)

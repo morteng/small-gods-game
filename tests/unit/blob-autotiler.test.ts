@@ -17,7 +17,7 @@ import type { Tile } from '@/core/types';
 // Helper to build a tile grid from type strings
 function makeGrid(types: string[][]): Tile[][] {
   return types.map((row, y) =>
-    row.map((type, x) => ({ type, x, y, walkable: true }))
+    row.map((type, x) => ({ type, x, y, walkable: true, state: 'realized' as const }))
   );
 }
 

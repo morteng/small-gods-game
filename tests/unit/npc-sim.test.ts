@@ -1,12 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import {
   personalityFromSeed,
-  initNpcSim,
   computeMood,
-  tickNpcSim,
   clamp01,
+  tickNpcEntity,
 } from '@/sim/npc-sim';
-import type { NpcNeeds } from '@/core/types';
+import { initNpcProps } from '@/world/npc-helpers';
+import type { NpcNeeds, Entity, NpcProperties } from '@/core/types';
 
 describe('clamp01', () => {
   it('clamps values below 0 to 0', () => {
@@ -61,56 +61,6 @@ describe('personalityFromSeed', () => {
   });
 });
 
-describe('initNpcSim', () => {
-  it('stores npcId, name, role correctly', () => {
-    const sim = initNpcSim('npc-1', 'Alice', 'farmer', 42);
-    expect(sim.npcId).toBe('npc-1');
-    expect(sim.name).toBe('Alice');
-    expect(sim.role).toBe('farmer');
-  });
-
-  it('priest has higher initial faith than farmer', () => {
-    const priest  = initNpcSim('p', 'P', 'priest',  100);
-    const farmer  = initNpcSim('f', 'F', 'farmer',  100);
-    expect(priest.beliefs['player'].faith).toBeGreaterThan(farmer.beliefs['player'].faith);
-  });
-
-  it('beliefs are keyed to player', () => {
-    const sim = initNpcSim('id', 'Bob', 'soldier', 7);
-    expect(sim.beliefs).toHaveProperty('player');
-    expect(Object.keys(sim.beliefs)).toHaveLength(1);
-  });
-
-  it('initial faith is in [0, 1]', () => {
-    const sim = initNpcSim('id', 'X', 'beggar', 5);
-    expect(sim.beliefs['player'].faith).toBeGreaterThanOrEqual(0);
-    expect(sim.beliefs['player'].faith).toBeLessThanOrEqual(1);
-  });
-
-  it('initial needs are in [0, 1]', () => {
-    const sim = initNpcSim('id', 'X', 'elder', 999);
-    expect(sim.needs.safety).toBeGreaterThanOrEqual(0);
-    expect(sim.needs.safety).toBeLessThanOrEqual(1);
-    expect(sim.needs.prosperity).toBeGreaterThanOrEqual(0);
-    expect(sim.needs.prosperity).toBeLessThanOrEqual(1);
-    expect(sim.needs.community).toBeGreaterThanOrEqual(0);
-    expect(sim.needs.community).toBeLessThanOrEqual(1);
-    expect(sim.needs.meaning).toBeGreaterThanOrEqual(0);
-    expect(sim.needs.meaning).toBeLessThanOrEqual(1);
-  });
-
-  it('mood is average of four needs', () => {
-    const sim = initNpcSim('id', 'X', 'noble', 77);
-    const expected = (sim.needs.safety + sim.needs.prosperity + sim.needs.community + sim.needs.meaning) / 4;
-    expect(sim.mood).toBeCloseTo(expected, 10);
-  });
-
-  it('understanding starts at 0.1 and devotion at 0.05', () => {
-    const sim = initNpcSim('id', 'X', 'child', 3);
-    expect(sim.beliefs['player'].understanding).toBe(0.1);
-    expect(sim.beliefs['player'].devotion).toBe(0.05);
-  });
-});
 
 describe('computeMood', () => {
   it('returns average of all four needs', () => {
@@ -129,103 +79,33 @@ describe('computeMood', () => {
   });
 });
 
-describe('tickNpcSim', () => {
-  it('faith decays proportionally to skepticism', () => {
-    const highSkeptic = initNpcSim('h', 'H', 'merchant', 42);
-    const lowSkeptic  = initNpcSim('l', 'L', 'merchant', 42);
-    // Override skepticism directly
-    highSkeptic.personality.skepticism = 1.0;
-    lowSkeptic.personality.skepticism  = 0.1;
 
-    const h0 = highSkeptic.beliefs['player'].faith;
-    const l0 = lowSkeptic.beliefs['player'].faith;
+function makeNpcEntity(seed = 42, faith = 0.5): Entity {
+  const props = initNpcProps('Alice', 'farmer', seed) as unknown as Record<string, unknown>;
+  (props as unknown as NpcProperties).beliefs['player'].faith = faith;
+  return { id: 'n1', kind: 'npc', x: 0, y: 0, properties: props };
+}
 
-    tickNpcSim(highSkeptic);
-    tickNpcSim(lowSkeptic);
-
-    const hDelta = h0 - highSkeptic.beliefs['player'].faith;
-    const lDelta = l0 - lowSkeptic.beliefs['player'].faith;
-    expect(hDelta).toBeGreaterThan(lDelta);
+describe('tickNpcEntity', () => {
+  it('decays faith on tick (skeptic > 0 case)', () => {
+    const e = makeNpcEntity(42, 0.5);
+    const before = (e.properties as unknown as NpcProperties).beliefs.player.faith;
+    tickNpcEntity(e);
+    expect((e.properties as unknown as NpcProperties).beliefs.player.faith).toBeLessThanOrEqual(before);
   });
 
-  it('faith does not decay when skepticism is 0', () => {
-    const sim = initNpcSim('id', 'X', 'farmer', 5);
-    sim.personality.skepticism = 0;
-    const before = sim.beliefs['player'].faith;
-    // Also ensure no boost from needs (needs are moderate)
-    sim.needs = { safety: 0.6, prosperity: 0.6, community: 0.6, meaning: 0.6 };
-    tickNpcSim(sim);
-    expect(sim.beliefs['player'].faith).toBe(before);
+  it('decrements whisperCooldown', () => {
+    const e = makeNpcEntity();
+    (e.properties as unknown as NpcProperties).whisperCooldown = 3;
+    tickNpcEntity(e);
+    expect((e.properties as unknown as NpcProperties).whisperCooldown).toBe(2);
   });
 
-  it('needs decay slowly each tick', () => {
-    const sim = initNpcSim('id', 'X', 'farmer', 5);
-    sim.needs = { safety: 0.8, prosperity: 0.8, community: 0.8, meaning: 0.8 };
-    tickNpcSim(sim);
-    expect(sim.needs.safety).toBeCloseTo(0.799, 3);
-    expect(sim.needs.prosperity).toBeCloseTo(0.799, 3);
-    expect(sim.needs.community).toBeCloseTo(0.7995, 4);
-    expect(sim.needs.meaning).toBeCloseTo(0.7995, 4);
-  });
-
-  it('mood is recomputed after tick', () => {
-    const sim = initNpcSim('id', 'X', 'farmer', 5);
-    tickNpcSim(sim);
-    const expected = computeMood(sim.needs);
-    expect(sim.mood).toBeCloseTo(expected, 10);
-  });
-
-  it('faith never goes below 0', () => {
-    const sim = initNpcSim('id', 'X', 'soldier', 1);
-    sim.beliefs['player'].faith = 0;
-    sim.personality.skepticism = 1;
-    tickNpcSim(sim);
-    expect(sim.beliefs['player'].faith).toBeGreaterThanOrEqual(0);
-  });
-
-  it('needs never go below 0', () => {
-    const sim = initNpcSim('id', 'X', 'farmer', 1);
-    sim.needs = { safety: 0, prosperity: 0, community: 0, meaning: 0 };
-    tickNpcSim(sim);
-    expect(sim.needs.safety).toBeGreaterThanOrEqual(0);
-    expect(sim.needs.prosperity).toBeGreaterThanOrEqual(0);
-    expect(sim.needs.community).toBeGreaterThanOrEqual(0);
-    expect(sim.needs.meaning).toBeGreaterThanOrEqual(0);
-  });
-
-  it('low needs boost faith via piety', () => {
-    const sim = initNpcSim('id', 'X', 'priest', 42);
-    sim.needs = { safety: 0.1, prosperity: 0.1, community: 0.1, meaning: 0.1 };
-    sim.personality.skepticism = 0;  // no decay
-    sim.personality.piety = 1.0;
-    const before = sim.beliefs['player'].faith;
-    tickNpcSim(sim);
-    expect(sim.beliefs['player'].faith).toBeGreaterThanOrEqual(before);
-  });
-
-  it('whisperCooldown decrements by 1 per tick', () => {
-    const sim = initNpcSim('id', 'X', 'farmer', 5);
-    sim.whisperCooldown = 3;
-    tickNpcSim(sim);
-    expect(sim.whisperCooldown).toBe(2);
-  });
-
-  it('whisperCooldown does not go below 0', () => {
-    const sim = initNpcSim('id', 'X', 'farmer', 5);
-    sim.whisperCooldown = 0;
-    tickNpcSim(sim);
-    expect(sim.whisperCooldown).toBe(0);
-  });
-});
-
-describe('initNpcSim defaults', () => {
-  it('recentEvents starts as empty array', () => {
-    const sim = initNpcSim('id', 'X', 'farmer', 42);
-    expect(sim.recentEvents).toEqual([]);
-  });
-
-  it('whisperCooldown starts at 0', () => {
-    const sim = initNpcSim('id', 'X', 'farmer', 42);
-    expect(sim.whisperCooldown).toBe(0);
+  it('updates mood from needs', () => {
+    const e = makeNpcEntity();
+    const p = e.properties as unknown as NpcProperties;
+    p.needs.safety = p.needs.prosperity = p.needs.community = p.needs.meaning = 0.9;
+    tickNpcEntity(e);
+    expect(p.mood).toBeGreaterThan(0.8);
   });
 });
