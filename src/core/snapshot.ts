@@ -1,7 +1,7 @@
 import type { GameState } from '@/core/state';
 import type { Entity } from '@/core/types';
 import type { RngState } from '@/core/rng';
-import type { Manifestation } from '@/core/spirit';
+import type { Spirit } from '@/core/spirit';
 import { fromState } from '@/core/rng';
 import { World } from '@/world/world';
 
@@ -14,8 +14,8 @@ export interface Snapshot {
   rng: RngState;
   /** Deep-cloned copies of every world entity. */
   entities: Entity[];
-  /** Snapshot of every spirit: id, power, and manifestation. */
-  spirits: Array<{ id: string; power: number; manifestation: Manifestation | null }>;
+  /** Complete deep-cloned copies of every spirit. Snapshot is authoritative. */
+  spirits: Spirit[];
 }
 
 export function captureSnapshot(state: GameState): Snapshot {
@@ -26,11 +26,7 @@ export function captureSnapshot(state: GameState): Snapshot {
     ...e,
     properties: structuredClone(e.properties),
   }));
-  const spirits = Array.from(state.spirits.values()).map(s => ({
-    id: s.id,
-    power: s.power,
-    manifestation: s.manifestation ? structuredClone(s.manifestation) : null,
-  }));
+  const spirits = Array.from(state.spirits.values()).map(s => structuredClone(s));
   return {
     tick: state.clock.now(),
     eventId: state.eventLog.size(),
@@ -47,12 +43,12 @@ export function restoreSnapshot(state: GameState, snap: Snapshot): void {
   state.clock.setNow(snap.tick);
   state.rng = fromState(snap.rng);
 
-  for (const ss of snap.spirits) {
-    const live = state.spirits.get(ss.id);
-    if (live) {
-      live.power = ss.power;
-      live.manifestation = ss.manifestation;
-    }
+  // Snapshot is authoritative: replace the spirits map wholesale so spirits
+  // present at capture time are reinstated, and any added after capture are
+  // dropped (matches "rewind == go back to that exact world" semantics).
+  state.spirits.clear();
+  for (const s of snap.spirits) {
+    state.spirits.set(s.id, structuredClone(s));
   }
 
   const fresh = new World(state.map);

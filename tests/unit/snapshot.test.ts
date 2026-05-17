@@ -51,4 +51,36 @@ describe('snapshot', () => {
     restoreSnapshot(s, snap);
     expect(s.rng.next()).toBe(after);
   });
+
+  it('spirits added after capture are dropped on restore (snapshot is authoritative)', () => {
+    const s = createState();
+    attachWorld(s);
+    const snap = captureSnapshot(s);
+    s.spirits.set('rival', {
+      id: 'rival', name: 'The Wandering Minstrel', sigil: '◐', color: '#a55',
+      isPlayer: false, power: 7, manifestation: null,
+      ai: { policy: 'tempt-merchants', cooldowns: { whisper: 12 } },
+    });
+    expect(s.spirits.size).toBe(2);
+    restoreSnapshot(s, snap);
+    expect(s.spirits.size).toBe(1);
+    expect(s.spirits.has('rival')).toBe(false);
+  });
+
+  it('spirit ai cooldowns are deep-cloned and survive the round-trip', () => {
+    const s = createState();
+    attachWorld(s);
+    s.spirits.set('rival', {
+      id: 'rival', name: 'Rival', sigil: '◐', color: '#a55',
+      isPlayer: false, power: 4, manifestation: null,
+      ai: { policy: 'aggressive', cooldowns: { miracle: 5, whisper: 2 } },
+    });
+    const snap = captureSnapshot(s);
+    // Mutate the live state.
+    s.spirits.get('rival')!.ai!.cooldowns.miracle = 99;
+    s.spirits.get('rival')!.power = 0;
+    restoreSnapshot(s, snap);
+    expect(s.spirits.get('rival')!.ai!.cooldowns.miracle).toBe(5);
+    expect(s.spirits.get('rival')!.power).toBe(4);
+  });
 });
