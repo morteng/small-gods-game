@@ -4,6 +4,8 @@ import { SimClock } from '@/core/clock';
 import { EventLog } from '@/core/events';
 import { World } from '@/world/world';
 import { Scheduler } from '@/core/scheduler';
+import { createRng } from '@/core/rng';
+import { NpcMovementSystem } from '@/sim/systems/npc-movement-system';
 import { NpcSimSystem } from '@/sim/systems/npc-sim-system';
 import { SpiritSystem } from '@/sim/spirit-system';
 import { PerceptionSystem } from '@/world/perception-system';
@@ -27,6 +29,7 @@ function makeWorld(): { world: World; map: GameMap } {
 function runScenario(): string[] {
   const clock = new SimClock();
   const log = new EventLog(clock);
+  const rng = createRng(99);
   const spirits = new Map<SpiritId, Spirit>([['player', {
     id: 'player', name: 'Fooob', sigil: '⊙', color: '#ffd700', isPlayer: true, power: 5, manifestation: null,
   }]]);
@@ -35,24 +38,18 @@ function runScenario(): string[] {
   world.addEntity({ id: 'n1', kind: 'npc', x: 15, y: 15, properties: npcProps as unknown as Record<string, unknown> });
 
   const sched = new Scheduler();
-  // Deliberately NOT registering NpcMovementSystem — its random walk breaks determinism.
+  sched.register(new NpcMovementSystem(() => map));
   sched.register(new NpcSimSystem());
   sched.register(new SpiritSystem());
   sched.register(new PerceptionSystem(identityOracle, () => map));
 
-  const ctx = { world, spirits, log, clock };
+  const ctx = { world, spirits, log, clock, rng };
 
-  // Run 10 sim seconds
   for (let i = 0; i < 30; i++) sched.tick(333, ctx);
-
-  // Then whisper at fixed point
   const e = world.registry.get('n1')!;
   whisper(spirits.get('player')!, e, log);
-
-  // Run another 5 seconds
   for (let i = 0; i < 15; i++) sched.tick(333, ctx);
 
-  // Stringify each event's content (excluding wall-clock-derived fields if any)
   return log.since(0).map(a => JSON.stringify(a.event));
 }
 
