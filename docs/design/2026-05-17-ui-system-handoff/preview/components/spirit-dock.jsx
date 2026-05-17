@@ -19,15 +19,25 @@ function SpiritChip({ open = false, onClick }) {
   );
 }
 
-function SpiritPanel({ width = 280 }) {
+function SpiritPanel({ width = 280, imgState = "ready" }) {
   return (
     <Panel floating style={{ width, padding: 14, display: "flex", flexDirection: "column", gap: 12 }} className="sg-fade-up">
       {/* identity */}
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        <Sigil glyph="ƒ" size="lg" />
+        <ImageSlot
+          state={imgState}
+          kind="portrait"
+          size={{ width: 52, height: 52, font: 18 }}
+          initials="ƒ"
+          art={imgState === "ready" || imgState === "stale" ? <StubPortraitArt seed={1} hueShift={0} accessory="halo" /> : null}
+          alt="god portrait"
+        />
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 15, fontWeight: 600, color: "var(--ink)" }}>A spirit, unnamed</div>
           <div style={{ fontSize: 11, color: "var(--ink-3)" }}>Stirring · regen +0.04/s</div>
+          <div style={{ fontSize: 10, color: "var(--ink-4)", fontStyle: "italic", marginTop: 2 }}>
+            as Mira sees you
+          </div>
         </div>
       </div>
 

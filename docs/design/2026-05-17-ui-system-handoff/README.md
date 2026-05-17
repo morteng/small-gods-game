@@ -457,7 +457,151 @@ in 14/1.65 with italic margin notes. Right page: "what actually happened"
 inset (`--paper-2`), lineage (G1→G2→G3→G4 nodes with fidelity %), themes
 badges.
 
-## 9. Behavior
+## 9. Generated imagery (NPC portraits · area vistas · chapter scenes · god portrait)
+
+Per `docs/AI_VISUALS_AND_AUDIO.md` and `docs/ai-asset-generation-plan.md`,
+the game commissions painted images at runtime: NPC portraits per age-stage
+(rd-animation), high-res isometric scenes when the player zooms in
+(rd-plus, 384×384), and a god portrait that emerges from believer
+narratives. Budget is finite (~50 portraits/session, ~10 map regens/hr).
+
+The UI is designed so **generation feels intentional**: latency is visible,
+absence is honest, the budget is a quiet companion not an error state.
+
+### 9.1 The six states (every painted asset passes through these)
+
+| State      | Treatment                                                       | When                              |
+|------------|------------------------------------------------------------------|-----------------------------------|
+| `empty`    | Initials over diagonal-stripe paper                              | Never requested yet               |
+| `queued`   | Same placeholder + `queue · 3` corner badge                      | Awaiting capacity                 |
+| `painting` | Sweep animation across the slot + `painting · 12s` corner badge  | Request in flight                 |
+| `ready`    | The image, fade-in blur 280ms                                    | Generation complete               |
+| `stale`    | Image dimmed (brightness 0.9, saturate 0.85) + `repaint pending` corner | Entity changed, regen queued |
+| `failed`   | Initials + `↻ retry` button in corner                            | Generation failed                 |
+
+Implementation reference: `preview/components/image-slot.jsx` (`ImageSlot`).
+
+**Slot sizes:**
+
+| Kind       | Pixels    | Use                                                  |
+|------------|-----------|------------------------------------------------------|
+| `portrait` | 96×96     | NPC face, god face. Used inside selection card and spirit dock |
+| `vista`    | 320×200   | Area painting (rd-plus output rendered down)         |
+| `scene`    | 480×270   | Chapter beat painting, used in the Book and event log |
+
+### 9.2 Where painted assets appear
+
+| Surface                | Asset                       | State the player most often sees                          |
+|------------------------|-----------------------------|-----------------------------------------------------------|
+| Spirit dock identity   | God portrait (52×52)        | `ready` after first chapter; `stale` during form shift    |
+| Selection card header  | NPC portrait (64×64)        | `painting` for newly-met NPCs; `stale` when they age      |
+| Event ticker chapter   | Scene thumb (48×32)         | `ready` once the chapter is logged; `painting` while it's being made |
+| Vista panel            | Area vista (full width)     | `painting` for first 10–20s when "look closer" is invoked |
+| Book chapter spread    | Scene image (420×200)       | `ready` — this is the canonical, slowly-painted version   |
+| God portrait evolution | Portrait at increasing size | Demonstrates the form coalescing over generations         |
+
+### 9.3 The Vista panel
+
+A new surface. Anchor: `left: 18px; bottom: 60px` (sits above the time bar
+if the time bar is also open; otherwise above the help hint).
+
+Triggered by:
+- **Double-clicking a tile** on the world canvas
+- **Pressing `V`** with a tile or NPC selected
+- **Clicking a chapter row** in the event panel (jumps to the moment + opens vista of where it happened)
+
+Contains:
+- Header: "look closer" eyebrow, place name, brief location subtitle, close button.
+- The `ImageSlot` (kind `vista`) — shows the painting while it's being made.
+- Three or four place-related badges (terrain counts, building count, believer count).
+- A short prose paragraph in the world's voice.
+- Footer: ghost actions (`Stories from here`, `Hold the view`).
+
+Wiring:
+```ts
+// when triggered
+const req = await imageService.requestVista({
+  centerX, centerY, radius: 5,
+  styleSeed: world.styleSeed,
+  weatherTimePrompt: world.atmosphere(),
+});
+panel.setState({ imgState: 'queued', queuePos: req.queuePos });
+req.onStart(() => panel.setState({ imgState: 'painting', eta: req.eta }));
+req.onReady(img => panel.setState({ imgState: 'ready', src: img.url }));
+req.onError(()  => panel.setState({ imgState: 'failed' }));
+```
+
+### 9.4 The Image-queue chip
+
+A fourth corner indicator, top-right, placed left of the Events chip when
+there's anything pending or in flight. Hidden completely when the queue is
+empty (showQueue ? ... : null).
+
+Shows total `painting + queued`. Click expands to a list of current
+requests with thumbnails (not designed in detail yet — propose to land that
+in a follow-up).
+
+### 9.5 God portrait evolution
+
+The god portrait in the Spirit dock is **the player's first emotional
+attachment** to their spirit. It changes with belief, and that change is
+itself a moment:
+
+- When the dominant believer perception shifts (per `GodIdentity`
+  `dominantForm`), mark the current portrait `stale` and queue a repaint.
+- When the new portrait is ready, swap it with a 280ms blur-in fade.
+- **Append an `entity_emerged` (or new `god_form_shifted`) event to the
+  log** so the chapter detector and the Book can mark this beat.
+
+UI copy: the eyebrow above the portrait reads "as Mira sees you" (or "as
+the faithful see you" once there are multiple). This subtle attribution is
+how the Pratchett principle reads.
+
+### 9.6 NPC portrait life events
+
+When a life event from `APPEARANCE_MODIFIERS` (battle scar, divine
+blessing, plague survivor, etc.) fires for a known NPC:
+
+1. Mark the cached portrait `stale`.
+2. Queue a repaint with the modified prompt.
+3. On ready, swap. The selection card shows a one-line italic note above
+   the portrait: `the years have changed her — a new likeness is being
+   painted` (during `stale`) or `marked by the divine blessing` (when
+   `ready` and the cause was a blessing event).
+
+### 9.7 Fallback hierarchy
+
+Per `docs/AI_VISUALS_AND_AUDIO.md` §5, when generation is unavailable or
+budget exceeded:
+
+| Asset          | Fallback                                                      |
+|----------------|---------------------------------------------------------------|
+| NPC portrait   | Initials placeholder (state stays `empty`) — never blocks UI  |
+| Area vista     | Vista panel renders a stylized iso-world-tinted stub          |
+| Chapter scene  | The Book renders the page without the image, prose only       |
+| God portrait   | Sigil glyph fallback (the "ƒ" / spirit name initial)          |
+
+All surfaces must remain functional when no images can be generated.
+**No surface should require a painted image to be usable.**
+
+### 9.8 Principles (summary)
+
+A. **Latency is part of the design** — generation is slow, the UI shows it.
+B. **The placeholder is honest** — initials over stripes, not fake silhouettes.
+C. **Absence is a state, not an error** — only `failed` shows a retry.
+D. **The budget is a quiet companion** — chip is small, never alarming.
+
+### 9.9 Acceptance for generated imagery
+
+- [ ] `ImageSlot` component supports all six states + three kinds; mounted in spirit dock, selection card, vista panel, book, event ticker.
+- [ ] `ImageQueueChip` appears in the corner whenever painting/queued > 0; hides otherwise.
+- [ ] Vista panel opens on double-click or `V`; mounts and unmounts cleanly; image requests are cancellable on dismiss.
+- [ ] God portrait evolves over time; transitions emit a log event.
+- [ ] All surfaces remain usable with all images failing (fallback hierarchy honored).
+
+---
+
+## 10. Behavior
 
 ### 9.1 Mounting
 
@@ -466,13 +610,14 @@ It owns the four corner anchors and three panels. Panel mount/unmount is
 animated with the `sg-fade-up` keyframe (200ms ease-out, `translateY(4px)`
 + opacity 0 → 1).
 
-### 9.2 Keyboard
+### 10.2 Keyboard
 
 | Key       | Action                                  |
 |-----------|-----------------------------------------|
 | `Space`   | Toggle pause                            |
 | `T`       | Toggle time bar                         |
 | `L`       | Toggle events panel                     |
+| `V`       | Open Vista panel (look closer)          |
 | `1/2/4/8` | Set rate (when time bar is visible)     |
 | `W`       | Whisper (on selected NPC)               |
 | `R`       | Make rain (if power suffices)           |
@@ -559,16 +704,18 @@ preview/
   image-slot.js                  ← drag-drop image slot (web component, optional)
   components/
     primitives.jsx               ← Panel, Chip, Btn, Sigil, Meter, Badge, Eyebrow, G
+    image-slot.jsx               ← ImageSlot, ImageQueueChip — state machine for generated assets
+    vista.jsx                    ← Vista panel + stub painting helpers
     foundations.jsx              ← tokens specimen (reference)
     world-placeholder.jsx        ← iso 2D stub (reference)
-    spirit-dock.jsx              ← spirit chip + panel
-    selection-card.jsx           ← NPC callout + card
-    event-ticker.jsx             ← events chip + panel
+    spirit-dock.jsx              ← spirit chip + panel (with god portrait)
+    selection-card.jsx           ← NPC callout + card (with portrait)
+    event-ticker.jsx             ← events chip + panel (with chapter thumbs)
     time-bar-safe.jsx            ← time chip + bar
     full-screen.jsx              ← composed 1920×1080 demos
     branching.jsx                ← Spec C teaser
     cinematic.jsx                ← Spec D teaser
-    book.jsx                     ← Spec E teaser
+    book.jsx                     ← Spec E teaser (with chapter scene image)
 ```
 
 ## 13. Acceptance — done means

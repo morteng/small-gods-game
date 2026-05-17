@@ -27,6 +27,7 @@ Spec B turns that latent capability into a feature. The player can pause, accele
 - **LLM-narrated rewind / cinematic scrub** — Spec D.
 - **Movement-event logging for replay** — we chose seedable RNG instead.
 - **Camera/selection rewind tied to scrub position** — out of scope; view state is sticky as you scrub (open question, may revisit).
+- **Generated imagery surfaces** (NPC portraits, area vistas, god portrait, chapter scenes, `ImageSlot`, `ImageQueueChip`, Vista panel) — covered by the design handoff's Generated-imagery section but owned by a separate AI-imagery track, not Spec B.
 
 ## Architecture overview
 
@@ -324,7 +325,7 @@ class TimeBar {
 
 If the broader Chrome scaffold from the UI handoff hasn't landed yet when Spec B starts, the plan adds a small leading task: stand up `Chrome` + tokens just enough to host the Time chip. The Spirit chip, Events chip, and Selection card stay out of scope.
 
-### 4.10 Plain-copy table (verbatim, from design handoff §10)
+### 4.10 Plain-copy table (verbatim, from design handoff "Voice & copy" section)
 
 | String | Use |
 |---|---|

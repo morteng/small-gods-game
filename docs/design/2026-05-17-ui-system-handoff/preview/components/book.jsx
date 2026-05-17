@@ -28,7 +28,18 @@ function Book() {
             <Eyebrow>chapter the third</Eyebrow>
             <span className="sg-data" style={{ fontSize: 10, color: "var(--ink-4)" }}>page 14 — 15</span>
           </div>
-          <h3 style={{ fontSize: 22, fontWeight: 700, margin: "0 0 6px", letterSpacing: "-0.01em" }}>The Rain of Mira</h3>
+          <h3 style={{ fontSize: 22, fontWeight: 700, margin: "0 0 8px", letterSpacing: "-0.01em" }}>The Rain of Mira</h3>
+
+          {/* chapter scene image */}
+          <ImageSlot
+            state="ready"
+            kind="scene"
+            art={<StubSceneArt seed={1} />}
+            label="painted from event #135 · seed gwyddon-3"
+            size={{ width: 420, height: 200, font: 28 }}
+            style={{ marginBottom: 14 }}
+          />
+
           <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
             <Badge tone="time">fidelity 34%</Badge>
             <Badge>4 generations</Badge>

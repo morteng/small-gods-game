@@ -32,24 +32,30 @@ function SelectionCallout() {
   );
 }
 
-function SelectionCard() {
+function SelectionCard({ portraitState = "ready" }) {
   return (
     <Panel floating style={{ width: 320, padding: 14, display: "flex", flexDirection: "column", gap: 12 }} className="sg-fade-up">
       {/* identity */}
       <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
-        <image-slot
-          id="mira-portrait"
-          shape="rounded"
-          radius="2"
-          placeholder="PORTRAIT"
-          style={{ width: 52, height: 52, flexShrink: 0 }}
-        ></image-slot>
+        <ImageSlot
+          state={portraitState}
+          kind="portrait"
+          size={{ width: 64, height: 64, font: 22 }}
+          initials="Mi"
+          art={portraitState === "ready" || portraitState === "stale" ? <StubPortraitArt seed={2} hueShift={20} /> : null}
+          alt="Mira's portrait"
+        />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
             <span style={{ fontSize: 16, fontWeight: 600 }}>Mira</span>
             <Badge tone="you">believer</Badge>
           </div>
           <div style={{ fontSize: 11, color: "var(--ink-3)" }}>farmer · age 34 · the cradle field</div>
+          {portraitState === "stale" && (
+            <div style={{ fontSize: 10, color: "var(--w-sun)", fontStyle: "italic", marginTop: 4 }}>
+              the years have changed her — a new likeness is being painted
+            </div>
+          )}
         </div>
         <button className="sg-btn sg-btn--ghost sg-btn--icon" title="close">{G.close}</button>
       </div>

@@ -1,8 +1,10 @@
-/* global React, Panel, Chip, Eyebrow, Btn, Badge, Sigil, Meter, Hr, G, Key */
+/* global React, Panel, Chip, Eyebrow, Btn, Badge, Sigil, Meter, Hr, G, Key,
+   ImageSlot, StubSceneArt */
 
 // EVENT LOG — collapsed-by-default chip with a "new" indicator.
 // Expanded form is a small panel of recent narrated events. Click any row to
-// scrub the time bar to that point.
+// scrub the time bar to that point. Chapter-marked rows include a tiny
+// painted thumbnail of the moment.
 
 const TICKER_EVENTS = [
   { id: 142, t: 1840, type: "whisper",     prose: <><b>You</b> whisper to <b>Mira</b>.</>, color: "you" },
@@ -12,7 +14,7 @@ const TICKER_EVENTS = [
   { id: 138, t: 1788, type: "whisper",     prose: <><b>You</b> whisper to <b>Kira</b>.</>, color: "you" },
   { id: 137, t: 1740, type: "birth",       prose: <><b>Orin</b> takes a wife.</>, color: "life" },
   { id: 136, t: 1700, type: "rival",       prose: <><i>Something</i> stirs by the river.</>, color: "danger" },
-  { id: 135, t: 1620, type: "miracle",     prose: <><b>You</b> brought rain. <b>Mira</b> witnessed.</>, color: "faith", chapter: true },
+  { id: 135, t: 1620, type: "miracle",     prose: <><b>You</b> brought rain. <b>Mira</b> witnessed.</>, color: "faith", chapter: true, scene: true },
 ];
 
 function EventChip({ newCount = 3, onClick }) {
@@ -66,7 +68,7 @@ function TickerRow({ e }) {
   return (
     <div
       style={{
-        display: "grid", gridTemplateColumns: "44px 20px 1fr",
+        display: "grid", gridTemplateColumns: e.scene ? "44px 20px 1fr 56px" : "44px 20px 1fr",
         gap: 8, padding: "7px 12px",
         cursor: "pointer", position: "relative",
         alignItems: "center",
@@ -81,6 +83,14 @@ function TickerRow({ e }) {
       <span className="sg-data" style={{ fontSize: 10, color: "var(--ink-4)", textAlign: "right" }}>t {e.t}</span>
       <span style={{ color: c, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>{G[e.type]}</span>
       <div style={{ fontSize: 12.5, color: "var(--ink)", lineHeight: 1.45 }}>{e.prose}</div>
+      {e.scene && (
+        <ImageSlot
+          state="ready"
+          kind="scene"
+          art={<StubSceneArt seed={3} />}
+          size={{ width: 48, height: 32, font: 12 }}
+        />
+      )}
     </div>
   );
 }

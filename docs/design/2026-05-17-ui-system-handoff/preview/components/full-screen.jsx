@@ -16,6 +16,7 @@ function FullScreen({ state = "calm" }) {
   //   "deep"     — npc card open on the right
   //   "time"     — time bar slid up
   //   "scrubbed" — time bar slid up, scrub head moved back
+  //   "vista"    — area "look closer" panel open
 
   const showSpirit   = state === "spirit";
   const showSelected = state === "selected" || state === "deep";
@@ -23,6 +24,8 @@ function FullScreen({ state = "calm" }) {
   const showTime     = state === "time" || state === "scrubbed";
   const scrubbed     = state === "scrubbed";
   const showEvents   = state === "deep" || state === "spirit";
+  const showVista    = state === "vista";
+  const showQueue    = state === "vista" || state === "deep";
 
   return (
     <div style={{
@@ -43,40 +46,48 @@ function FullScreen({ state = "calm" }) {
         {showSpirit && <SpiritPanel />}
       </div>
 
-      {/* TOP-RIGHT: time + events */}
+      {/* TOP-RIGHT: time + events + (optional) queue */}
       <div style={{ position: "absolute", top: 18, right: 18, display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-end" }}>
         <div style={{ display: "flex", gap: 8 }}>
+          {showQueue && <ImageQueueChip painting={1} queued={2} />}
           <EventChip newCount={3} />
           <TimeChip rate={scrubbed ? 0 : 1} />
         </div>
         {showEvents && <EventPanel width={340} heightLimit={340} />}
       </div>
 
-      {/* RIGHT-MIDDLE: NPC card if "deep" */}
+      {/* RIGHT-MIDDLE: NPC card */}
       {showDeep && (
         <div style={{ position: "absolute", top: 110, right: 18 }}>
-          <SelectionCard />
+          <SelectionCard portraitState="painting" />
         </div>
       )}
 
-      {/* NPC callout (anchored loosely above middle of map) */}
+      {/* NPC callout */}
       {showSelected && !showDeep && (
         <div style={{ position: "absolute", left: "50%", top: "50%", transform: "translate(-30px, -120px)" }}>
           <SelectionCallout />
         </div>
       )}
 
-      {/* BOTTOM: time bar when summoned */}
+      {/* VISTA panel (anchored bottom-left, larger) */}
+      {showVista && (
+        <div style={{ position: "absolute", left: 18, bottom: 60 }}>
+          <Vista imgState="painting" />
+        </div>
+      )}
+
+      {/* BOTTOM: time bar */}
       {showTime && (
         <div style={{ position: "absolute", left: 18, right: 18, bottom: 18 }}>
           <TimeBar initialTick={scrubbed ? 1180 : MAX_TICK} initialRate={1} />
         </div>
       )}
 
-      {/* tiny help hint (bottom-left), barely-there */}
+      {/* tiny help hint */}
       <div style={{
         position: "absolute", left: 18, bottom: 18,
-        display: showTime ? "none" : "flex", alignItems: "center", gap: 6,
+        display: (showTime || showVista) ? "none" : "flex", alignItems: "center", gap: 6,
         background: "var(--shade)",
         backdropFilter: "blur(8px)",
         WebkitBackdropFilter: "blur(8px)",
@@ -89,16 +100,10 @@ function FullScreen({ state = "calm" }) {
         <span style={{ margin: "0 4px", color: "var(--ink-4)" }}>·</span>
         <Key>L</Key> <span>log</span>
         <span style={{ margin: "0 4px", color: "var(--ink-4)" }}>·</span>
+        <Key>V</Key> <span>look closer</span>
+        <span style={{ margin: "0 4px", color: "var(--ink-4)" }}>·</span>
         <Key>Space</Key> <span>pause</span>
       </div>
-
-      {/* tiny screen label */}
-      <div style={{
-        position: "absolute", left: 18, top: "50%", transform: "translateY(-50%)",
-        writingMode: "vertical-rl", textOrientation: "mixed",
-        fontSize: 10, color: "var(--ink-4)", letterSpacing: "0.2em", textTransform: "uppercase",
-        opacity: 0,
-      }}>state · {state}</div>
     </div>
   );
 }

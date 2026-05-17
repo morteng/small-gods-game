@@ -321,3 +321,69 @@ button { font-family: inherit; color: inherit; }
   to   { opacity: 1; transform: translateY(0); }
 }
 .sg-fade-up { animation: sg-fade-up 200ms ease-out; }
+
+/* Generated-image states ────────────────────────────────────
+   Every painted asset in the game passes through these. The UI must
+   read at every stage — empty, queued, painting, ready, stale, failed. */
+@keyframes sg-paint-sweep {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+@keyframes sg-shimmer {
+  0%, 100% { opacity: 0.85; }
+  50%      { opacity: 1; }
+}
+@keyframes sg-fade-in-img {
+  from { opacity: 0; filter: blur(8px); }
+  to   { opacity: 1; filter: blur(0); }
+}
+
+.sg-img {
+  position: relative;
+  overflow: hidden;
+  background: var(--paper-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-2);
+}
+.sg-img__pic {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  object-fit: cover;
+  animation: sg-fade-in-img 280ms ease-out;
+}
+.sg-img__stripe {
+  position: absolute; inset: 0;
+  background:
+    repeating-linear-gradient(45deg,
+      oklch(0.92 0.012 70) 0 4px,
+      var(--paper-2) 4px 8px);
+  opacity: 0.7;
+}
+.sg-img__init {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--f-sans); font-weight: 600;
+  color: var(--ink-3);
+}
+.sg-img__sweep {
+  position: absolute; top: 0; bottom: 0; width: 60%;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    oklch(0.99 0.008 80 / 0.85) 50%,
+    transparent 100%);
+  animation: sg-paint-sweep 1.8s ease-in-out infinite;
+  mix-blend-mode: lighten;
+  pointer-events: none;
+}
+.sg-img__corner {
+  position: absolute; top: 4px; right: 4px;
+  font-family: var(--f-mono); font-size: 9px; font-weight: 500;
+  padding: 2px 5px; border-radius: var(--r-pill);
+  background: var(--shade); border: 1px solid var(--line);
+  color: var(--ink-3); letter-spacing: 0.04em;
+  display: inline-flex; align-items: center; gap: 4px;
+}
+.sg-img--stale .sg-img__pic { filter: brightness(0.9) saturate(0.85); }
+.sg-img--portrait { border-radius: var(--r-3); }
+.sg-img--vista    { border-radius: var(--r-3); }
+.sg-img--scene    { border-radius: var(--r-3); }
