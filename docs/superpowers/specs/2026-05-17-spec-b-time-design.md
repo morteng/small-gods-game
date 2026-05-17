@@ -125,19 +125,25 @@ class TimelineController {
 
 **Replay mechanics**
 
-Systems are *not* re-run during replay. Replay folds events into state via pure reducers:
+Replay restores the nearest snapshot, then re-runs the scheduler forward to the target tick using a **silent event log** (a stub that drops `append` calls instead of recording them). The systems' deterministic behavior — combined with a seeded RNG (Section 3) — produces the same state at the target tick that the original run did, without re-appending events that already exist in the canonical log.
 
 ```ts
-function applyEvent(state: GameState, event: SimEvent): void { … }
+// pseudocode
+function replayTo(targetTick: number, store: SnapshotStore, scheduler: Scheduler) {
+  const snap = store.nearestAtOrBefore(targetTick);
+  restoreState(snap);                       // restores world, spirits, clock, rng
+  const silentCtx = { ...liveCtx, log: SILENT_LOG };
+  while (state.clock.now() < targetTick) {
+    scheduler.tick(SIM_STEP_MS, silentCtx); // systems mutate state; events go nowhere
+  }
+}
 ```
 
-One switch over the 15 `SimEvent` arms. Each arm mutates exactly the fields that the original-system emitter mutated. This forces us to write down what each event canonically *means* for state, which is healthy discipline.
+This avoids per-event reducer arms (which the existing event payloads don't carry enough data to support) and keeps the systems as the single source of state mutation. Events remain a passive narrative record.
 
 **Determinism precondition**
 
-`tests/unit/determinism.test.ts` already proves `NpcSimSystem + SpiritSystem + PerceptionSystem` are deterministic given identical inputs. Adding seedable RNG to `NpcMovementSystem` (Section 3 below) extends that test to cover movement. The test becomes the replay correctness gate.
-
-**Trade-off acknowledged:** the `applyEvent` reducer must stay in sync with every system that emits events. If a system mutates `state` without emitting an event, replay diverges silently. **Mitigation:** add a debug-build assertion that snapshots state-hash after each system tick and compares to applyEvent-only replay; CI flag.
+`tests/unit/determinism.test.ts` already proves `NpcSimSystem + SpiritSystem + PerceptionSystem` are deterministic given identical inputs. Adding seedable RNG to `NpcMovementSystem` (Section 3 below) extends that test to cover movement — at which point the *entire* sim is deterministic and the replay-equivalence test (Section 5, test 9) becomes a one-liner: "run to N, snapshot at K < N, jump back to K and forward to N, assert state equal."
 
 ## Section 3 — Seedable world RNG
 
@@ -343,7 +349,7 @@ If the broader Chrome scaffold from the UI handoff hasn't landed yet when Spec B
 1. **`sfc32` correctness.** Vector test against the algorithm's published reference sequence (seed → first N outputs). Detects regressions in the implementation.
 2. **`Rng.getState()` round-trip.** `fromState(rng.getState()).next() === rng.next()` for any number of draws.
 3. **`SnapshotStore` ring buffer.** Capacity respected; oldest evicted first; `nearestSnapshot(tick)` returns correct entry.
-4. **`applyEvent` reducer parity.** For every `SimEvent` arm, a focused test: emit one event, capture the state diff from the system, capture the state diff from `applyEvent`, assert equal. This is the discipline that keeps replay correct.
+4. **Silent log discards.** Wrapping a scheduler call with the silent log produces zero new entries on the real log.
 
 **Integration-level**
 
@@ -351,7 +357,7 @@ If the broader Chrome scaffold from the UI handoff hasn't landed yet when Spec B
 6. **Scrub round-trip.** Run sim for 500 ticks. Capture state hash. `jumpTo(250)` then `returnToLive()`. Final state hash must equal pre-scrub hash.
 7. **Commit + replay forward.** Run to 500. `jumpTo(250)`. `commit({ reroll: false })`. Run forward another 250 ticks. The event log from 250 → 500 must match the original 250 → 500 byte-for-byte (same RNG path).
 8. **Re-roll + replay forward.** Same as 7 but `commit({ reroll: true })`. The new event log from 250 → 500 must differ from the original (otherwise the re-roll didn't take effect). And — discarded future at tick 250 contains the original tail.
-9. **Snapshot/replay equivalence.** Pure replay from tick 0 (no snapshots) and hybrid replay (with snapshots) must produce identical state at any target tick. Catches `applyEvent` parity bugs early.
+9. **Snapshot/replay equivalence.** With and without intermediate snapshots, replay must produce identical state at any target tick. Confirms snapshot serialize/restore preserves everything the systems depend on.
 
 **UI/DOM-level**
 
