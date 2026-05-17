@@ -4,9 +4,8 @@ import { renderMap } from '@/render/renderer';
 import { centerOn } from '@/render/camera';
 import { attachControls } from '@/ui/controls';
 import { WorldManager } from '@/map/world-manager';
-import type { GameMap, WorldSeed, TerrainOptions, NpcRole, RenderContext, Entity, NpcSimState, NpcProperties } from '@/core/types';
+import type { GameMap, WorldSeed, TerrainOptions, RenderContext, Entity, NpcSimState, NpcProperties } from '@/core/types';
 import { FRAME_MS } from '@/render/npc-animator';
-import { buildCharacterSpec, getOrGenerateSheet } from '@/render/lpc';
 import { drawNpcOverlay, type OverlayHitAreas } from '@/render/sim-overlay';
 import { whisper } from '@/sim/whisper';
 import { initNpcProps, getNpc, toRenderNpc } from '@/world/npc-helpers';
@@ -23,29 +22,21 @@ import { loadDecorations, saveDecorations } from '@/services/decoration-store';
 import { DecorationImageCache } from '@/render/decoration-image-cache';
 import { Autotiler } from '@/map/autotiler';
 import { computeBlobMap } from '@/map/blob-autotiler';
-import { getBuildingTemplate, BUILDING_TEMPLATES } from '@/map/building-templates';
+import { BUILDING_TEMPLATES } from '@/map/building-templates';
 import { generateWithNoise } from '@/map/map-generator';
 import { Scheduler } from '@/core/scheduler';
 import { NpcMovementSystem } from '@/sim/systems/npc-movement-system';
 import { NpcSimSystem } from '@/sim/systems/npc-sim-system';
 import { SpiritSystem, POWER_REGEN_RATE } from '@/sim/spirit-system';
+import { PerceptionSystem } from '@/world/perception-system';
+import { identityOracle } from '@/world/oracle';
+import { seedWorld } from '@/world/seed-world';
 
 export interface GameOptions {
   width?: number;
   height?: number;
   seed?: number;
 }
-
-/** Simple string hash → stable integer */
-function hashId(str: string): number {
-  let h = 0;
-  for (let i = 0; i < str.length; i++) {
-    h = (Math.imul(31, h) + str.charCodeAt(i)) | 0;
-  }
-  return Math.abs(h);
-}
-
-const VALID_ROLES: readonly NpcRole[] = ['farmer', 'priest', 'soldier', 'merchant', 'elder', 'child', 'noble', 'beggar'];
 
 export class Game {
   private container: HTMLElement;
@@ -88,6 +79,7 @@ export class Game {
     this.scheduler.register(new NpcMovementSystem(() => this.state.map));
     this.scheduler.register(new NpcSimSystem());
     this.scheduler.register(new SpiritSystem());
+    this.scheduler.register(new PerceptionSystem(identityOracle, () => this.state.map));
 
     this.canvas = document.createElement('canvas');
     this.canvas.style.width = '100%';
@@ -234,7 +226,15 @@ export class Game {
       this.canvas.height / devicePixelRatio,
     );
 
-    this.spawnNpcs(ws, map);
+    seedWorld({
+      world: this.state.world!,
+      log: this.state.eventLog,
+      clock: this.state.clock,
+      spirits: this.state.spirits,
+      worldSeed: ws,
+      map,
+      oracle: identityOracle,
+    });
     this.state.generatedDecorations = loadDecorations(ws.name);
     // Kick off image preloading; missing ids resolve to null and the renderer
     // falls back to placeholder squares until the load completes.
@@ -258,64 +258,6 @@ export class Game {
       saveDecorations(this.state.worldSeed.name, this.state.generatedDecorations);
     }
     void this.decorationImages.load(result.assetId);
-  }
-
-  /** Spawn NPCs from POI definitions */
-  private spawnNpcs(ws: WorldSeed, map: GameMap): void {
-    if (!this.state.world) return;
-    // Remove any existing npc entities (game restart)
-    for (const e of this.state.world.query({ kind: 'npc' })) {
-      this.state.world.removeEntity(e.id);
-    }
-    this.sheets.clear();
-
-    for (const poi of ws.pois) {
-      if (!poi.npcs?.length || !poi.position) continue;
-      const { x: px, y: py } = poi.position;
-      const poiBuildings = (map.buildings ?? []).filter(b => b.poiId === poi.id);
-
-      for (let i = 0; i < poi.npcs.length; i++) {
-        const npcDef = poi.npcs[i];
-        const id = `${poi.id}-npc-${i}`;
-        const seed = hashId(id);
-        const role = npcDef.role as NpcRole;
-        const safeRole: NpcRole = VALID_ROLES.includes(role) ? role : 'farmer';
-        const name = npcDef.name || safeRole;
-        const homeBuilding = assignHomeBuilding(safeRole, poiBuildings, i);
-
-        let tileX: number;
-        let tileY: number;
-        if (homeBuilding) {
-          const template = getBuildingTemplate(homeBuilding.templateId);
-          if (template) {
-            tileX = homeBuilding.tileX + template.doorCell.x;
-            tileY = homeBuilding.tileY + template.doorCell.y;
-          } else {
-            tileX = Math.max(0, Math.min(map.width  - 1, px + (seed % 3) - 1));
-            tileY = Math.max(0, Math.min(map.height - 1, py + ((seed >> 2) % 3) - 1));
-          }
-        } else {
-          tileX = Math.max(0, Math.min(map.width  - 1, px + (seed % 3) - 1));
-          tileY = Math.max(0, Math.min(map.height - 1, py + ((seed >> 2) % 3) - 1));
-        }
-
-        const props = initNpcProps(name, safeRole, seed);
-        props.homeBuildingId = homeBuilding?.id;
-        props.homePoiId = poi.id;
-
-        this.state.world.addEntity({
-          id, kind: 'npc', x: tileX, y: tileY,
-          properties: props as unknown as Record<string, unknown>,
-        });
-        this.state.eventLog.append({ type: 'npc_spawn', npcId: id, role: safeRole, poiId: poi.id });
-
-        // Kick off async spritesheet generation
-        const spec = buildCharacterSpec(safeRole, seed);
-        getOrGenerateSheet(spec).then(canvas => {
-          if (canvas) this.sheets.set(id, canvas);
-        });
-      }
-    }
   }
 
   private loadImage(src: string): Promise<HTMLImageElement | null> {
@@ -589,39 +531,3 @@ function simStateFromEntity(e: Entity): NpcSimState {
   };
 }
 
-// =============================================================================
-// NPC home assignment helpers (Phase E)
-// =============================================================================
-
-import type { BuildingInstance } from '@/core/types';
-
-/** Role → preferred building template category */
-const ROLE_PREFERRED_CATEGORY: Record<string, string> = {
-  priest:   'religious',
-  farmer:   'farm',
-  merchant: 'commercial',
-  soldier:  'military',
-  noble:    'residential',
-  elder:    'residential',
-  child:    'residential',
-  beggar:   'residential',
-};
-
-function assignHomeBuilding(
-  role: string,
-  buildings: BuildingInstance[],
-  index: number,
-): BuildingInstance | undefined {
-  if (!buildings.length) return undefined;
-  const preferred = ROLE_PREFERRED_CATEGORY[role];
-  // Try preferred category first
-  if (preferred) {
-    const match = buildings.find(b => {
-      const t = getBuildingTemplate(b.templateId);
-      return t?.category === preferred;
-    });
-    if (match) return match;
-  }
-  // Fall back to round-robin assignment
-  return buildings[index % buildings.length];
-}
