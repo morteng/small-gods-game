@@ -10,7 +10,8 @@ import { tickNpcMovement } from '@/sim/npc-movement';
 import { buildCharacterSpec, getOrGenerateSheet } from '@/render/lpc';
 import { initNpcSim, tickAllNpcs, SIM_TICK_MS } from '@/sim/npc-sim';
 import { drawNpcOverlay, type OverlayHitAreas } from '@/render/sim-overlay';
-import { whisperNpc, computePowerRegen } from '@/sim/divine-actions';
+import { computePowerRegen } from '@/sim/divine-actions';
+import { whisper } from '@/sim/whisper';
 import { drawPowerHud } from '@/render/hud';
 import { formatDebugHud } from '@/ui/debug-hud';
 import { renderNpcInfoPanel } from '@/ui/npc-info-panel';
@@ -525,9 +526,8 @@ export class Game {
       if (sx >= area.x && sx <= area.x + area.w && sy >= area.y && sy <= area.y + area.h) {
         if (area.action === 'whisper' && area.active) {
           const sim = this.state.npcSim.get(area.npcId);
-          if (sim) {
-            const player = this.state.spirits.get('player')!;
-            player.power = whisperNpc(sim, player.power);
+          const player = this.state.spirits.get('player')!;
+          if (sim && whisper(player, sim, this.state.eventLog)) {
             this.lastWhisperTime = performance.now();
           }
         }
