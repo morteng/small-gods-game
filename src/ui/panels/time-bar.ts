@@ -126,13 +126,6 @@ function buildMainRow(deps: TimeBarDeps, cleanups: Array<() => void>): HTMLEleme
   renderGlyphs();
   cleanups.push(deps.eventLog.subscribe(() => renderGlyphs()));
 
-  const positionHandle = (): void => {
-    const max = Math.max(1, deps.timeline.maxTick);
-    const pct = Math.min(100, Math.max(0, (deps.timeline.currentTick / max) * 100));
-    handle.style.left = `${pct}%`;
-  };
-  positionHandle();
-
   const tickFromClientX = (clientX: number): number => {
     const rect = track.getBoundingClientRect();
     const rel = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
@@ -156,6 +149,9 @@ function buildMainRow(deps: TimeBarDeps, cleanups: Array<() => void>): HTMLEleme
     dragging = false;
     handle.releasePointerCapture?.(e.pointerId);
   });
+  // The browser synthesizes a click on the handle after pointerup; it bubbles
+  // to the track and would re-fire jumpTo with the same tick. Suppress it.
+  handle.addEventListener('click', (e) => { e.stopPropagation(); });
 
   track.addEventListener('keydown', (e) => {
     const step = e.shiftKey ? 50 : 1;
@@ -165,16 +161,27 @@ function buildMainRow(deps: TimeBarDeps, cleanups: Array<() => void>): HTMLEleme
     if (e.key === 'End')        deps.timeline.jumpTo(deps.timeline.maxTick);
   });
 
-  // Tag the row with a refresh hook so the bar's outer refresh() can call positionHandle.
-  (row as HTMLElement & { __positionHandle?: () => void }).__positionHandle = positionHandle;
-
   row.appendChild(track);
 
   // Tick label.
   const tickLabel = document.createElement('div');
   tickLabel.className = 'sg-time-bar__label';
-  tickLabel.textContent = `${deps.timeline.currentTick} / ${deps.timeline.maxTick}`;
   row.appendChild(tickLabel);
+
+  // Position handle + sync ARIA + label. Declared after tickLabel so it can
+  // read/update it; the outer refresh() invokes this each frame.
+  const positionHandle = (): void => {
+    const max = Math.max(1, deps.timeline.maxTick);
+    const pct = Math.min(100, Math.max(0, (deps.timeline.currentTick / max) * 100));
+    handle.style.left = `${pct}%`;
+    track.setAttribute('aria-valuemax', String(deps.timeline.maxTick));
+    track.setAttribute('aria-valuenow', String(deps.timeline.currentTick));
+    tickLabel.textContent = `${deps.timeline.currentTick} / ${deps.timeline.maxTick}`;
+  };
+  positionHandle();
+
+  // Tag the row with a refresh hook so the bar's outer refresh() can call positionHandle.
+  (row as HTMLElement & { __positionHandle?: () => void }).__positionHandle = positionHandle;
 
   // Speed buttons.
   const speed = document.createElement('div');
