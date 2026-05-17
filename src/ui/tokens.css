@@ -1,0 +1,389 @@
+/* ──────────────────────────────────────────────────────────────────────────
+   SMALL GODS — Unified UI tokens
+   Direction: simple, clean, friendly, unobtrusive.
+   Palette is drawn from the iso 2D world the UI sits alongside —
+   grass, earth, water, sun, harvest — so chrome and graphics agree
+   without the chrome trying to mimic pixel art.
+
+   Voice: calm and small. The drama is in the world. The UI just helps.
+   ──────────────────────────────────────────────────────────────────────── */
+
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+:root {
+  /* ── World-derived palette (the same colors the iso art uses) ──
+     These are the SOURCE; UI tokens below pull from them.            */
+  --w-sky:    oklch(0.94 0.012 230);   /* horizon */
+  --w-grass:  oklch(0.62 0.10  140);   /* fields */
+  --w-leaf:   oklch(0.50 0.10  150);
+  --w-water:  oklch(0.55 0.09  225);
+  --w-sand:   oklch(0.80 0.05  80);    /* roads */
+  --w-earth:  oklch(0.46 0.06  50);    /* timber */
+  --w-stone:  oklch(0.68 0.012 60);
+  --w-sun:    oklch(0.78 0.13  85);    /* harvest gold */
+  --w-dusk:   oklch(0.65 0.14  45);    /* late afternoon */
+  --w-clay:   oklch(0.52 0.16  30);    /* terracotta */
+
+  /* ── Surfaces (light, warm, daylight) ─────────────────────── */
+  --bg:       oklch(0.965 0.010 80);   /* page */
+  --paper:    oklch(0.985 0.008 80);   /* card surface */
+  --paper-2:  oklch(0.945 0.012 80);   /* alt / hover */
+  --line:     oklch(0.88 0.012 70);    /* hairline */
+  --line-2:   oklch(0.80 0.014 70);    /* stronger border */
+  --shade:    oklch(0.97 0.008 80 / 0.85); /* translucent surface */
+
+  /* ── Ink (text) ───────────────────────────────────────────── */
+  --ink:      oklch(0.26 0.020 50);    /* primary */
+  --ink-2:    oklch(0.42 0.018 55);    /* secondary */
+  --ink-3:    oklch(0.58 0.014 60);    /* muted */
+  --ink-4:    oklch(0.72 0.012 65);    /* whisper */
+
+  /* ── Accents (each carries meaning) ──────────────────────── */
+  --you:        var(--w-dusk);                  /* player spirit, primary */
+  --you-soft:   oklch(0.65 0.14 45 / 0.14);
+  --you-line:   oklch(0.65 0.14 45 / 0.45);
+
+  --time:       var(--w-water);                 /* time, replay, lore */
+  --time-soft:  oklch(0.55 0.09 225 / 0.14);
+  --time-line:  oklch(0.55 0.09 225 / 0.45);
+
+  --faith:      var(--w-sun);                   /* belief thresholds, miracle */
+  --faith-soft: oklch(0.78 0.13 85 / 0.18);
+
+  --life:       var(--w-grass);                 /* good, growing */
+  --life-soft:  oklch(0.62 0.10 140 / 0.16);
+
+  --warn:       oklch(0.62 0.18 60);            /* attention */
+  --warn-soft:  oklch(0.62 0.18 60 / 0.16);
+
+  --danger:     var(--w-clay);                  /* rivals, loss */
+  --danger-soft: oklch(0.52 0.16 30 / 0.14);
+
+  /* ── Geometry ────────────────────────────────────────────── */
+  --r-1: 4px;
+  --r-2: 6px;
+  --r-3: 8px;
+  --r-4: 12px;
+  --r-pill: 999px;
+
+  /* ── Spacing (4-base) ────────────────────────────────────── */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 24px;
+  --s-6: 32px;
+
+  /* ── Elevation ─────────────────────────────────────────────
+     Soft, warm, no harsh blacks. Like sunlight cast through paper. */
+  --lift-1: 0 1px 0 oklch(0.20 0.02 60 / 0.04), 0 1px 2px oklch(0.20 0.02 60 / 0.06);
+  --lift-2: 0 2px 4px oklch(0.20 0.02 60 / 0.06), 0 8px 24px oklch(0.20 0.02 60 / 0.08);
+
+  /* ── Type ────────────────────────────────────────────────── */
+  --f-sans:  'Manrope', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --f-mono:  'IBM Plex Mono', ui-monospace, monospace;
+
+  --t-micro: 10px;
+  --t-tiny:  11px;
+  --t-small: 12px;
+  --t-base:  13px;
+  --t-md:    14px;
+  --t-lg:    16px;
+  --t-xl:    20px;
+  --t-display: 28px;
+}
+
+/* ── Base ────────────────────────────────────────────────────── */
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: var(--f-sans);
+  font-size: var(--t-base);
+  color: var(--ink);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+button { font-family: inherit; color: inherit; }
+
+/* ── Building blocks ──────────────────────────────────────── */
+
+/* Card: soft paper surface with hairline border */
+.sg-card {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--r-3);
+  box-shadow: var(--lift-1);
+}
+.sg-card--floating { box-shadow: var(--lift-2); }
+.sg-card--alt { background: var(--paper-2); }
+
+/* Chip: a tiny pill anchored to a screen corner */
+.sg-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: 6px 10px;
+  background: var(--shade);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  box-shadow: var(--lift-1);
+  font-size: var(--t-small);
+  cursor: pointer;
+  transition: background 120ms ease, transform 80ms ease;
+}
+.sg-chip:hover { background: var(--paper); }
+.sg-chip:active { transform: translateY(1px); }
+
+/* Eyebrow: a tiny section label */
+.sg-eyebrow {
+  font-family: var(--f-sans);
+  font-weight: 600;
+  font-size: var(--t-micro);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+/* Data: tabular numbers */
+.sg-data {
+  font-family: var(--f-mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+/* Buttons (light, restrained) */
+.sg-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: 6px 12px;
+  background: var(--paper);
+  color: var(--ink);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-2);
+  font-family: var(--f-sans);
+  font-size: var(--t-base);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, transform 80ms ease;
+  box-shadow: var(--lift-1);
+}
+.sg-btn:hover  { background: var(--paper-2); border-color: var(--ink-3); }
+.sg-btn:active { transform: translateY(1px); }
+.sg-btn[aria-pressed="true"], .sg-btn.is-active {
+  background: var(--you-soft);
+  border-color: var(--you-line);
+  color: var(--you);
+}
+
+.sg-btn--ghost {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+.sg-btn--ghost:hover { background: var(--paper-2); border-color: var(--line); }
+
+.sg-btn--primary {
+  background: var(--you);
+  border-color: var(--you);
+  color: white;
+}
+.sg-btn--primary:hover { background: oklch(0.62 0.14 45); }
+
+.sg-btn--time {
+  background: var(--time-soft);
+  border-color: var(--time-line);
+  color: var(--time);
+}
+.sg-btn--time:hover { background: oklch(0.55 0.09 225 / 0.22); }
+
+.sg-btn--danger {
+  background: var(--paper);
+  border-color: oklch(0.52 0.16 30 / 0.55);
+  color: var(--danger);
+}
+.sg-btn--danger:hover { background: var(--danger-soft); }
+
+.sg-btn--big { padding: 9px 14px; font-size: var(--t-md); }
+.sg-btn--icon { padding: 6px; min-width: 28px; justify-content: center; }
+
+/* Key caps */
+.sg-key {
+  display: inline-block;
+  min-width: 14px;
+  padding: 1px 5px;
+  font-family: var(--f-mono);
+  font-size: var(--t-micro);
+  color: var(--ink-3);
+  background: var(--paper);
+  border: 1px solid var(--line-2);
+  border-bottom-width: 2px;
+  border-radius: var(--r-1);
+  text-align: center;
+}
+
+/* Sigil — your spirit's mark, small and friendly */
+.sg-sigil {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px; height: 26px;
+  background: var(--you-soft);
+  border: 1px solid var(--you-line);
+  border-radius: var(--r-2);
+  color: var(--you);
+  font-weight: 700;
+  font-size: 14px;
+}
+.sg-sigil--lg { width: 36px; height: 36px; font-size: 18px; border-radius: var(--r-3); }
+.sg-sigil--xl { width: 48px; height: 48px; font-size: 22px; border-radius: var(--r-3); }
+.sg-sigil--time   { background: var(--time-soft);   border-color: var(--time-line);   color: var(--time); }
+.sg-sigil--danger { background: var(--danger-soft); border-color: oklch(0.52 0.16 30 / 0.4); color: var(--danger); }
+
+/* Badge */
+.sg-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 8px;
+  font-size: var(--t-tiny);
+  font-weight: 500;
+  background: var(--paper-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  color: var(--ink-2);
+}
+.sg-badge--you    { background: var(--you-soft);    border-color: var(--you-line);   color: var(--you); }
+.sg-badge--time   { background: var(--time-soft);   border-color: var(--time-line);  color: var(--time); }
+.sg-badge--life   { background: var(--life-soft);   border-color: oklch(0.62 0.10 140 / 0.4); color: var(--w-leaf); }
+.sg-badge--danger { background: var(--danger-soft); border-color: oklch(0.52 0.16 30 / 0.4); color: var(--danger); }
+.sg-badge--faith  { background: var(--faith-soft);  border-color: oklch(0.78 0.13 85 / 0.5); color: oklch(0.55 0.13 80); }
+
+/* Meter — thin, low-key */
+.sg-meter {
+  position: relative;
+  height: 4px;
+  background: var(--paper-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+}
+.sg-meter__fill {
+  height: 100%;
+  border-radius: var(--r-pill);
+  background: var(--you);
+}
+.sg-meter--faith .sg-meter__fill { background: linear-gradient(90deg, oklch(0.68 0.13 95), oklch(0.78 0.13 85)); }
+.sg-meter--time  .sg-meter__fill { background: var(--time); }
+.sg-meter--life  .sg-meter__fill { background: var(--w-grass); }
+.sg-meter--danger .sg-meter__fill { background: var(--danger); }
+.sg-meter__pip {
+  position: absolute; top: -2px;
+  width: 1px; height: calc(100% + 4px);
+  background: var(--line-2);
+}
+
+/* Hairline */
+.sg-hr {
+  height: 1px;
+  background: var(--line);
+  border: 0;
+}
+
+/* Past-veil (when scrubbed) — very gentle */
+.sg-past-veil {
+  position: absolute; inset: 0;
+  background:
+    linear-gradient(180deg, oklch(0.55 0.09 225 / 0.04), oklch(0.55 0.09 225 / 0.08));
+  pointer-events: none;
+}
+.sg-past-veil::after {
+  content: ""; position: absolute; inset: 0;
+  background:
+    repeating-linear-gradient(0deg, oklch(0.55 0.09 225 / 0.03) 0 1px, transparent 1px 4px);
+  pointer-events: none;
+}
+
+/* Scrollbar */
+.sg-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+.sg-scroll::-webkit-scrollbar-track { background: transparent; }
+.sg-scroll::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: var(--r-pill); }
+.sg-scroll::-webkit-scrollbar-thumb:hover { background: var(--ink-4); }
+
+/* Animations */
+@keyframes sg-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+@keyframes sg-fade-up {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.sg-fade-up { animation: sg-fade-up 200ms ease-out; }
+
+/* Generated-image states ────────────────────────────────────
+   Every painted asset in the game passes through these. The UI must
+   read at every stage — empty, queued, painting, ready, stale, failed. */
+@keyframes sg-paint-sweep {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+@keyframes sg-shimmer {
+  0%, 100% { opacity: 0.85; }
+  50%      { opacity: 1; }
+}
+@keyframes sg-fade-in-img {
+  from { opacity: 0; filter: blur(8px); }
+  to   { opacity: 1; filter: blur(0); }
+}
+
+.sg-img {
+  position: relative;
+  overflow: hidden;
+  background: var(--paper-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-2);
+}
+.sg-img__pic {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  object-fit: cover;
+  animation: sg-fade-in-img 280ms ease-out;
+}
+.sg-img__stripe {
+  position: absolute; inset: 0;
+  background:
+    repeating-linear-gradient(45deg,
+      oklch(0.92 0.012 70) 0 4px,
+      var(--paper-2) 4px 8px);
+  opacity: 0.7;
+}
+.sg-img__init {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--f-sans); font-weight: 600;
+  color: var(--ink-3);
+}
+.sg-img__sweep {
+  position: absolute; top: 0; bottom: 0; width: 60%;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    oklch(0.99 0.008 80 / 0.85) 50%,
+    transparent 100%);
+  animation: sg-paint-sweep 1.8s ease-in-out infinite;
+  mix-blend-mode: lighten;
+  pointer-events: none;
+}
+.sg-img__corner {
+  position: absolute; top: 4px; right: 4px;
+  font-family: var(--f-mono); font-size: 9px; font-weight: 500;
+  padding: 2px 5px; border-radius: var(--r-pill);
+  background: var(--shade); border: 1px solid var(--line);
+  color: var(--ink-3); letter-spacing: 0.04em;
+  display: inline-flex; align-items: center; gap: 4px;
+}
+.sg-img--stale .sg-img__pic { filter: brightness(0.9) saturate(0.85); }
+.sg-img--portrait { border-radius: var(--r-3); }
+.sg-img--vista    { border-radius: var(--r-3); }
+.sg-img--scene    { border-radius: var(--r-3); }
