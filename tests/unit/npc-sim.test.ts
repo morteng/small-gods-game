@@ -5,8 +5,10 @@ import {
   computeMood,
   tickNpcSim,
   clamp01,
+  tickNpcEntity,
 } from '@/sim/npc-sim';
-import type { NpcNeeds } from '@/core/types';
+import { initNpcProps } from '@/world/npc-helpers';
+import type { NpcNeeds, Entity, NpcProperties } from '@/core/types';
 
 describe('clamp01', () => {
   it('clamps values below 0 to 0', () => {
@@ -227,5 +229,35 @@ describe('initNpcSim defaults', () => {
   it('whisperCooldown starts at 0', () => {
     const sim = initNpcSim('id', 'X', 'farmer', 42);
     expect(sim.whisperCooldown).toBe(0);
+  });
+});
+
+function makeNpcEntity(seed = 42, faith = 0.5): Entity {
+  const props = initNpcProps('Alice', 'farmer', seed) as unknown as Record<string, unknown>;
+  (props as unknown as NpcProperties).beliefs['player'].faith = faith;
+  return { id: 'n1', kind: 'npc', x: 0, y: 0, properties: props };
+}
+
+describe('tickNpcEntity', () => {
+  it('decays faith on tick (skeptic > 0 case)', () => {
+    const e = makeNpcEntity(42, 0.5);
+    const before = (e.properties as unknown as NpcProperties).beliefs.player.faith;
+    tickNpcEntity(e);
+    expect((e.properties as unknown as NpcProperties).beliefs.player.faith).toBeLessThanOrEqual(before);
+  });
+
+  it('decrements whisperCooldown', () => {
+    const e = makeNpcEntity();
+    (e.properties as unknown as NpcProperties).whisperCooldown = 3;
+    tickNpcEntity(e);
+    expect((e.properties as unknown as NpcProperties).whisperCooldown).toBe(2);
+  });
+
+  it('updates mood from needs', () => {
+    const e = makeNpcEntity();
+    const p = e.properties as unknown as NpcProperties;
+    p.needs.safety = p.needs.prosperity = p.needs.community = p.needs.meaning = 0.9;
+    tickNpcEntity(e);
+    expect(p.mood).toBeGreaterThan(0.8);
   });
 });

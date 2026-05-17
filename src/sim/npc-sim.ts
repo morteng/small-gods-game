@@ -1,5 +1,7 @@
 import { Random } from '@/core/noise';
-import type { NpcRole, NpcPersonality, SpiritBelief, NpcNeeds, NpcSimState } from '@/core/types';
+import type { NpcRole, NpcPersonality, SpiritBelief, NpcNeeds, NpcSimState, Entity } from '@/core/types';
+import { npcProps, forEachNpc } from '@/world/npc-helpers';
+import type { World } from '@/world/world';
 
 export const SIM_TICK_MS = 1000;
 const FAITH_DECAY_BASE = 0.002;
@@ -113,4 +115,38 @@ export function tickAllNpcs(sims: Map<string, NpcSimState>): void {
   for (const sim of sims.values()) {
     tickNpcSim(sim);
   }
+}
+
+// ─── Entity-based sim functions (Spec A migration target) ────────────────────
+
+/** Entity-based version of tickNpcSim. Spec A migration target. */
+export function tickNpcEntity(e: Entity): void {
+  const p = npcProps(e);
+
+  if (p.whisperCooldown > 0) p.whisperCooldown -= 1;
+
+  for (const belief of Object.values(p.beliefs)) {
+    const decay = FAITH_DECAY_BASE * p.personality.skepticism;
+    belief.faith = clamp01(belief.faith - decay);
+  }
+
+  const avgNeeds = computeMood(p.needs);
+  if (avgNeeds < 0.4) {
+    const desperation = (0.4 - avgNeeds) / 0.4;
+    const boost = NEED_FAITH_BOOST * desperation * p.personality.piety;
+    for (const belief of Object.values(p.beliefs)) {
+      belief.faith = clamp01(belief.faith + boost);
+    }
+  }
+
+  p.needs.safety     = clamp01(p.needs.safety     - 0.001);
+  p.needs.prosperity = clamp01(p.needs.prosperity - 0.001);
+  p.needs.community  = clamp01(p.needs.community  - 0.0005);
+  p.needs.meaning    = clamp01(p.needs.meaning    - 0.0005);
+
+  p.mood = computeMood(p.needs);
+}
+
+export function tickAllNpcEntities(world: World): void {
+  forEachNpc(world, tickNpcEntity);
 }
