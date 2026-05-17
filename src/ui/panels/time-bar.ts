@@ -26,7 +26,8 @@ export function mountTimeBar(container: HTMLElement, deps: TimeBarDeps): TimeBar
   root.setAttribute('role', 'toolbar');
   root.setAttribute('aria-label', 'Timeline');
 
-  root.appendChild(buildMainRow(deps));
+  const cleanups: Array<() => void> = [];
+  root.appendChild(buildMainRow(deps, cleanups));
 
   container.appendChild(root);
 
@@ -37,11 +38,14 @@ export function mountTimeBar(container: HTMLElement, deps: TimeBarDeps): TimeBar
 
   return {
     refresh,
-    dispose() { root.remove(); },
+    dispose() {
+      for (const c of cleanups) c();
+      root.remove();
+    },
   };
 }
 
-function buildMainRow(deps: TimeBarDeps): HTMLElement {
+function buildMainRow(deps: TimeBarDeps, cleanups: Array<() => void>): HTMLElement {
   const row = document.createElement('div');
   row.className = 'sg-time-bar__row sg-time-bar__row--main';
 
@@ -98,7 +102,7 @@ function buildMainRow(deps: TimeBarDeps): HTMLElement {
   }
 
   renderGlyphs();
-  deps.eventLog.subscribe(() => renderGlyphs());
+  cleanups.push(deps.eventLog.subscribe(() => renderGlyphs()));
 
   const positionHandle = (): void => {
     const max = Math.max(1, deps.timeline.maxTick);
