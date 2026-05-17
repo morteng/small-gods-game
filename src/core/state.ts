@@ -5,6 +5,7 @@ import type { Spirit, SpiritId } from '@/core/spirit';
 import { EventLog } from '@/core/events';
 import { SimClock } from '@/core/clock';
 import { createCamera } from '@/render/camera';
+import { createRng, type Rng } from '@/core/rng';
 
 export interface GameState {
   map: GameMap | null;
@@ -24,6 +25,7 @@ export interface GameState {
   eventLog: EventLog;
   clock: SimClock;
   cameraLock: { mode: 'follower' | 'free'; targetId?: EntityId };
+  rng: Rng;
   // REMOVED: playerPower
   world: World | null;
   terrainFields: TerrainField | null;
@@ -34,6 +36,7 @@ export interface GameState {
 export function createState(): GameState {
   const clock = new SimClock();
   const eventLog = new EventLog(clock);
+  const rng = createRng(1);
   const spirits = new Map<SpiritId, Spirit>();
   // Seed the player spirit. Named "Fooob" placeholder — naming ritual is Spec E.
   spirits.set('player', {
@@ -64,6 +67,7 @@ export function createState(): GameState {
     eventLog,
     clock,
     cameraLock: { mode: 'free' },
+    rng,
     world: null,
     terrainFields: null,
     biomeMap: null,

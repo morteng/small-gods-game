@@ -2,12 +2,14 @@ import type { SimClock } from '@/core/clock';
 import type { EventLog } from '@/core/events';
 import type { Spirit, SpiritId } from '@/core/spirit';
 import type { World } from '@/world/world';
+import type { Rng } from '@/core/rng';
 
 export interface SystemContext {
   world: World;
   spirits: Map<SpiritId, Spirit>;
   log: EventLog;
   clock: SimClock;
+  rng: Rng;
   dt: number;   // sim ms accumulated since this system last ticked
   now: number;  // current sim tick (clock.now() after advance)
 }
