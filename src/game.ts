@@ -34,6 +34,7 @@ import { SpiritSystem, POWER_REGEN_RATE } from '@/sim/spirit-system';
 import { PerceptionSystem } from '@/world/perception-system';
 import { identityOracle } from '@/world/oracle';
 import { seedWorld } from '@/world/seed-world';
+import { injectTokens } from '@/ui/inject-tokens';
 
 export interface GameOptions {
   width?: number;
@@ -49,6 +50,7 @@ export class Game {
   private scheduler: Scheduler;
   private timeline!: TimelineController;
   private cleanupControls: (() => void) | null = null;
+  private cleanupTokens: (() => void) | null = null;
   private resizeObserver: ResizeObserver;
   private rafId: number | null = null;
   private lastTime: number = 0;
@@ -110,6 +112,8 @@ export class Game {
     if (getComputedStyle(container).position === 'static') {
       container.style.position = 'relative';
     }
+
+    this.cleanupTokens = injectTokens(this.container);
 
     this.pausedBanner = document.createElement('div');
     this.pausedBanner.textContent = 'PAUSED';
@@ -479,6 +483,7 @@ export class Game {
   destroy(): void {
     this.stopLoop();
     this.cleanupControls?.();
+    this.cleanupTokens?.();
     this.resizeObserver.disconnect();
     this.pausedBanner.remove();
     this.debugHud.remove();
