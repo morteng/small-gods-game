@@ -445,4 +445,18 @@ button { font-family: inherit; color: inherit; }
   color: var(--w-dusk);
 }
 .sg-time-bar__label { font-family: var(--f-mono); color: var(--ink-3); margin-left:auto; }
-.sg-time-bar__track { flex:1; height: 32px; position: relative; }
+.sg-time-bar__track { flex:1; height: 32px; position: relative; cursor: pointer; }
+.sg-time-bar__line  {
+  position: absolute; left: 0; right: 0; top: 50%;
+  height: 2px; transform: translateY(-1px); background: var(--time);
+  border-radius: var(--r-pill);
+}
+.sg-time-bar__handle {
+  position: absolute; top: 50%; transform: translate(-50%, -50%);
+  width: 10px; height: 10px; border-radius: 50%;
+  background: var(--w-dusk); border: 2px solid var(--paper);
+  cursor: grab;
+}
+.sg-time-bar__handle:active { cursor: grabbing; }
+.sg-time-bar--scrubbed .sg-time-bar__handle { background: var(--time); }
+.sg-time-bar__track { cursor: pointer; }

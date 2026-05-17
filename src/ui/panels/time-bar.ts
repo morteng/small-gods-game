@@ -31,7 +31,8 @@ export function mountTimeBar(container: HTMLElement, deps: TimeBarDeps): TimeBar
   container.appendChild(root);
 
   function refresh(): void {
-    // No-op in the skeleton; later tasks populate it.
+    const main = root.querySelector('.sg-time-bar__row--main') as HTMLElement & { __positionHandle?: () => void };
+    main.__positionHandle?.();
   }
 
   return {
@@ -55,10 +56,65 @@ function buildMainRow(deps: TimeBarDeps): HTMLElement {
   transport.appendChild(makeIconBtn('jump-to-now', '►|', () => deps.timeline.returnToLive()));
   row.appendChild(transport);
 
-  // Track placeholder (Task 18 fills in glyphs and handle).
+  // Track with scrub handle (Task 18).
   const track = document.createElement('div');
   track.className = 'sg-time-bar__track';
   track.setAttribute('role', 'slider');
+  track.setAttribute('tabindex', '0');
+  track.setAttribute('aria-valuemin', '0');
+  track.setAttribute('aria-valuemax', String(deps.timeline.maxTick));
+  track.setAttribute('aria-valuenow', String(deps.timeline.currentTick));
+
+  const line = document.createElement('div');
+  line.className = 'sg-time-bar__line';
+  track.appendChild(line);
+
+  const handle = document.createElement('div');
+  handle.className = 'sg-time-bar__handle';
+  track.appendChild(handle);
+
+  const positionHandle = (): void => {
+    const max = Math.max(1, deps.timeline.maxTick);
+    const pct = Math.min(100, Math.max(0, (deps.timeline.currentTick / max) * 100));
+    handle.style.left = `${pct}%`;
+  };
+  positionHandle();
+
+  const tickFromClientX = (clientX: number): number => {
+    const rect = track.getBoundingClientRect();
+    const rel = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+    return Math.round(rel * deps.timeline.maxTick);
+  };
+
+  track.addEventListener('click', (e) => {
+    deps.timeline.jumpTo(tickFromClientX((e as MouseEvent).clientX));
+  });
+
+  let dragging = false;
+  handle.addEventListener('pointerdown', (e) => {
+    dragging = true;
+    handle.setPointerCapture?.(e.pointerId);
+  });
+  handle.addEventListener('pointermove', (e) => {
+    if (!dragging) return;
+    deps.timeline.jumpTo(tickFromClientX(e.clientX));
+  });
+  handle.addEventListener('pointerup', (e) => {
+    dragging = false;
+    handle.releasePointerCapture?.(e.pointerId);
+  });
+
+  track.addEventListener('keydown', (e) => {
+    const step = e.shiftKey ? 50 : 1;
+    if (e.key === 'ArrowLeft')  deps.timeline.jumpTo(Math.max(0, deps.timeline.currentTick - step));
+    if (e.key === 'ArrowRight') deps.timeline.jumpTo(Math.min(deps.timeline.maxTick, deps.timeline.currentTick + step));
+    if (e.key === 'Home')       deps.timeline.jumpTo(0);
+    if (e.key === 'End')        deps.timeline.jumpTo(deps.timeline.maxTick);
+  });
+
+  // Tag the row with a refresh hook so the bar's outer refresh() can call positionHandle.
+  (row as HTMLElement & { __positionHandle?: () => void }).__positionHandle = positionHandle;
+
   row.appendChild(track);
 
   // Tick label.
