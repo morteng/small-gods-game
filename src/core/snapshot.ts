@@ -7,7 +7,7 @@ import { World } from '@/world/world';
 
 export interface Snapshot {
   /** Sim tick count at capture time. */
-  clockMs: number;
+  tick: number;
   /** Number of events in the log at capture time. */
   eventId: number;
   /** Serialized RNG state. */
@@ -32,7 +32,7 @@ export function captureSnapshot(state: GameState): Snapshot {
     manifestation: s.manifestation ? structuredClone(s.manifestation) : null,
   }));
   return {
-    clockMs: state.clock.now(),
+    tick: state.clock.now(),
     eventId: state.eventLog.size(),
     rng: state.rng.getState(),
     entities,
@@ -44,7 +44,7 @@ export function restoreSnapshot(state: GameState, snap: Snapshot): void {
   if (!state.world || !state.map) {
     throw new Error('restoreSnapshot: world/map not initialized');
   }
-  state.clock.setNow(snap.clockMs);
+  state.clock.setNow(snap.tick);
   state.rng = fromState(snap.rng);
 
   for (const ss of snap.spirits) {
