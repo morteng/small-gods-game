@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { attachControls } from '@/ui/controls';
+import { attachControls, attachTimeKeys } from '@/ui/controls';
 import { createCamera } from '@/render/camera';
 
 function makeCanvas(): HTMLCanvasElement {
@@ -36,23 +36,32 @@ describe('attachControls keyboard', () => {
     resetBody();
   });
 
-  it('invokes onTogglePause when Space is pressed', () => {
+  it('Space is no longer handled by attachControls (owned by attachTimeKeys)', () => {
+    // Space was moved to attachTimeKeys so that the time system owns pause.
+    // attachControls should NOT call onTogglePause for Space any more.
     const onTogglePause = vi.fn();
     cleanup = attachControls(canvas, createCamera(), {
       onRedraw: () => {},
       onTogglePause,
     });
     fireKey('Space');
-    expect(onTogglePause).toHaveBeenCalledTimes(1);
+    expect(onTogglePause).not.toHaveBeenCalled();
   });
 
-  it('prevents default scrolling on Space', () => {
-    cleanup = attachControls(canvas, createCamera(), {
-      onRedraw: () => {},
-      onTogglePause: () => {},
+  it('attachTimeKeys invokes onTogglePause when Space is pressed', () => {
+    const onTogglePause = vi.fn();
+    const detach = attachTimeKeys(window, {
+      onToggleTimeBar: () => {},
+      onTogglePause,
+      onSetRate: () => {},
+      timeBarOpen: () => false,
+      onEscape: () => {},
     });
-    const ev = fireKey('Space');
+    const ev = new KeyboardEvent('keydown', { key: ' ', code: 'Space', cancelable: true, bubbles: true });
+    window.dispatchEvent(ev);
+    expect(onTogglePause).toHaveBeenCalledTimes(1);
     expect(ev.defaultPrevented).toBe(true);
+    detach();
   });
 
   it('does not invoke onTogglePause when focus is in an input', () => {
@@ -227,14 +236,14 @@ describe('attachControls keyboard', () => {
   });
 
   it('cleanup removes the key listener', () => {
-    const onTogglePause = vi.fn();
+    const onToggleLabels = vi.fn();
     cleanup = attachControls(canvas, createCamera(), {
       onRedraw: () => {},
-      onTogglePause,
+      onToggleLabels,
     });
     cleanup();
     cleanup = null;
-    fireKey('Space');
-    expect(onTogglePause).not.toHaveBeenCalled();
+    fireKey('KeyL');
+    expect(onToggleLabels).not.toHaveBeenCalled();
   });
 });

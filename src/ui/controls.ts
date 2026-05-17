@@ -104,10 +104,6 @@ export function attachControls(canvas: HTMLCanvasElement, camera: Camera, callba
   function onKeyDown(e: KeyboardEvent) {
     if (isTextInputFocused()) return;
     switch (e.code) {
-      case 'Space':
-        e.preventDefault();
-        callbacks.onTogglePause?.();
-        break;
       case 'KeyL':
         callbacks.onToggleLabels?.();
         break;
@@ -143,4 +139,43 @@ export function attachControls(canvas: HTMLCanvasElement, camera: Camera, callba
     canvas.removeEventListener('wheel', onWheel);
     window.removeEventListener('keydown', onKeyDown);
   };
+}
+
+// =============================================================================
+// Time keyboard shortcuts
+// =============================================================================
+
+export interface TimeKeyOptions {
+  onToggleTimeBar(): void;
+  onTogglePause(): void;
+  onSetRate(rate: number): void;
+  timeBarOpen(): boolean;
+  onEscape(): void;
+}
+
+export function attachTimeKeys(target: HTMLElement | Window, opts: TimeKeyOptions): () => void {
+  const handler = (e: KeyboardEvent): void => {
+    if (e.key === 't' || e.key === 'T') {
+      e.preventDefault();
+      opts.onToggleTimeBar();
+      return;
+    }
+    if (e.key === ' ') {
+      e.preventDefault();
+      opts.onTogglePause();
+      return;
+    }
+    if (['1', '2', '4', '8'].includes(e.key) && opts.timeBarOpen()) {
+      e.preventDefault();
+      opts.onSetRate(Number(e.key));
+      return;
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      opts.onEscape();
+      return;
+    }
+  };
+  (target as EventTarget).addEventListener('keydown', handler as EventListener);
+  return () => (target as EventTarget).removeEventListener('keydown', handler as EventListener);
 }
