@@ -73,6 +73,33 @@ function buildMainRow(deps: TimeBarDeps): HTMLElement {
   handle.className = 'sg-time-bar__handle';
   track.appendChild(handle);
 
+  const TYPE_TO_GLYPH: Record<string, { type: string; color: string }> = {
+    whisper:         { type: 'whisper',     color: 'var(--w-dusk)' },
+    belief_cross:    { type: 'beliefRise',  color: 'var(--w-sun)'  },
+    region_realized: { type: 'realize',     color: 'var(--time)'   },
+    spirit_manifest: { type: 'rival',       color: 'var(--danger)' },
+    mood_cross:      { type: 'mood',        color: 'var(--ink-3)'  },
+  };
+
+  function renderGlyphs(): void {
+    track.querySelectorAll('.sg-time-bar__glyph').forEach(el => el.remove());
+    const max = Math.max(1, deps.timeline.maxTick);
+    for (const a of deps.eventLog.since(0)) {
+      const meta = TYPE_TO_GLYPH[a.event.type];
+      if (!meta) continue;
+      const el = document.createElement('div');
+      el.className = 'sg-time-bar__glyph';
+      el.dataset.glyphType = meta.type;
+      el.style.left = `${(a.t / max) * 100}%`;
+      el.style.color = meta.color;
+      el.title = `tick ${a.t} · ${meta.type}`;
+      track.appendChild(el);
+    }
+  }
+
+  renderGlyphs();
+  deps.eventLog.subscribe(() => renderGlyphs());
+
   const positionHandle = (): void => {
     const max = Math.max(1, deps.timeline.maxTick);
     const pct = Math.min(100, Math.max(0, (deps.timeline.currentTick / max) * 100));
