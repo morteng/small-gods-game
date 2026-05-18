@@ -23,7 +23,8 @@ function isTextInputFocused(): boolean {
   const el = document.activeElement;
   if (!el) return false;
   if (TEXT_INPUT_TAGS.has(el.tagName)) return true;
-  return (el as HTMLElement).isContentEditable === true;
+  const htmlEl = el as HTMLElement;
+  return htmlEl.isContentEditable === true || htmlEl.contentEditable === 'true';
 }
 
 export function attachControls(canvas: HTMLCanvasElement, camera: Camera, callbacks: ControlsCallbacks): () => void {
@@ -155,6 +156,7 @@ export interface TimeKeyOptions {
 
 export function attachTimeKeys(target: HTMLElement | Window, opts: TimeKeyOptions): () => void {
   const handler = (e: KeyboardEvent): void => {
+    if (isTextInputFocused()) return;
     if (e.key === 't' || e.key === 'T') {
       e.preventDefault();
       opts.onToggleTimeBar();
