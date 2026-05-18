@@ -11,6 +11,20 @@ describe('TimeBar skeleton', () => {
     bar.dispose();
     expect(container.querySelector('.sg-time-bar')).toBeNull();
   });
+
+  it('mounts the time history strip as the first child, above the main row', () => {
+    const c = document.createElement('div');
+    const handle = mountTimeBar(c, makeFakeDeps());
+
+    const strip = c.querySelector('.sg-time-history');
+    expect(strip).not.toBeNull();
+
+    const root = c.querySelector('.sg-time-bar')!;
+    expect(root.firstElementChild?.classList.contains('sg-time-history')).toBe(true);
+
+    handle.dispose();
+    expect(c.querySelector('.sg-time-history')).toBeNull();
+  });
 });
 
 function makeFakeDeps() {

@@ -2,6 +2,7 @@ import type { TimelineController } from '@/core/timeline';
 import type { Scheduler } from '@/core/scheduler';
 import type { EventLog } from '@/core/events';
 import type { SimClock } from '@/core/clock';
+import { mountTimeHistory, type TimeHistoryHandle } from '@/ui/panels/time-history';
 
 export interface TimeBarDeps {
   timeline: TimelineController;
@@ -27,9 +28,17 @@ export function mountTimeBar(container: HTMLElement, deps: TimeBarDeps): TimeBar
   root.setAttribute('aria-label', 'Timeline');
 
   const cleanups: Array<() => void> = [];
-  root.appendChild(buildMainRow(deps, cleanups));
-
   container.appendChild(root);
+
+  // Strip first — becomes the first child of root.
+  const historyHandle: TimeHistoryHandle = mountTimeHistory(root, {
+    eventLog: deps.eventLog,
+    timeline: deps.timeline,
+  });
+  cleanups.push(() => historyHandle.dispose());
+
+  // Main row second — sits below the strip.
+  root.appendChild(buildMainRow(deps, cleanups));
 
   let commitRow: HTMLElement | null = null;
 
@@ -37,7 +46,8 @@ export function mountTimeBar(container: HTMLElement, deps: TimeBarDeps): TimeBar
     const wantsCommit = deps.timeline.isScrubbed;
     if (wantsCommit && !commitRow) {
       commitRow = buildCommitRow(deps);
-      root.insertBefore(commitRow, root.firstChild);
+      const mainRow = root.querySelector('.sg-time-bar__row--main');
+      root.insertBefore(commitRow, mainRow);
       root.classList.add('sg-time-bar--scrubbed');
     } else if (!wantsCommit && commitRow) {
       commitRow.remove();
