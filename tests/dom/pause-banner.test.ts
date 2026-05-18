@@ -1,5 +1,5 @@
 /** @vitest-environment jsdom */
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { Game } from '@/game';
 
 // jsdom doesn't implement ResizeObserver — stub it
@@ -21,6 +21,11 @@ describe('pause banner', () => {
     container.style.height = '600px';
     document.body.appendChild(container);
     game = new Game(container);
+  });
+
+  afterEach(() => {
+    game.destroy();
+    container.remove();
   });
 
   function findBanner(): HTMLElement | undefined {
