@@ -95,4 +95,42 @@ describe('TimelineController.commit', () => {
     expect(futures[0].parentTick).toBe(midTick);
     expect(futures[0].rerolled).toBe(false);
   });
+
+  it('appends a timeline_commit event at the cutoff tick when committing without reroll', () => {
+    const state = createState();
+    attachWorld(state);
+    const sched = buildSched(state);
+    const tl = new TimelineController({ state, scheduler: sched });
+
+    tickFor(state, sched, tl, 60);
+    const midTick = state.clock.now();
+    tickFor(state, sched, tl, 30);
+
+    tl.jumpTo(midTick);
+    tl.commit({ reroll: false });
+
+    const commitEvents = state.eventLog.since(0).filter(e => e.event.type === 'timeline_commit');
+    expect(commitEvents).toHaveLength(1);
+    expect(commitEvents[0].t).toBe(midTick);
+    expect((commitEvents[0].event as any).parentTick).toBe(midTick);
+    expect((commitEvents[0].event as any).rerolled).toBe(false);
+  });
+
+  it('records rerolled: true when committing with reroll', () => {
+    const state = createState();
+    attachWorld(state);
+    const sched = buildSched(state);
+    const tl = new TimelineController({ state, scheduler: sched });
+
+    tickFor(state, sched, tl, 60);
+    const midTick = state.clock.now();
+    tickFor(state, sched, tl, 30);
+
+    tl.jumpTo(midTick);
+    tl.commit({ reroll: true });
+
+    const last = state.eventLog.since(0).at(-1)!;
+    expect(last.event.type).toBe('timeline_commit');
+    expect((last.event as any).rerolled).toBe(true);
+  });
 });
