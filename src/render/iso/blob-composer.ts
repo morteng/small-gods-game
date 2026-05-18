@@ -77,21 +77,23 @@ function bitsFor(quadrant: Quadrant, mask: number): { A: boolean; B: boolean; D:
 
 /**
  * Build a reverse lookup: blobIndex (0..46) → a representative 8-bit mask
- * that maps to it. Picks the lowest mask for determinism.
+ * that maps to it. Picks the HIGHEST mask preimage for each blob index.
  *
- * Special case: blob index 46 is defined semantically as "fully surrounded"
- * (all 8 neighbors present) and is forced to mask 0xFF regardless of the
- * table mapping. This ensures all four quadrants resolve to CENTER as
- * expected by the standard blob47 layout contract.
+ * Why highest: blobIndex N is produced at runtime by computeBlobMap for any
+ * mask in the table where `BLOB_INDEX_MAP[mask] % 47 === N`. Many such masks
+ * may exist per blob index (the % 47 reduction is many-to-one). The highest
+ * mask tends to be the most-connected topology (most neighbor bits set),
+ * which produces the visually richer art for a slot that will be sampled
+ * by tiles in a variety of contexts. In particular, blob 7 ← mask 0xFF
+ * (fully surrounded), so a fully-surrounded tile at runtime gets all-CENTER
+ * quadrants — matching the visual expectation.
  */
 function buildBlobIndexToMask(): Map<number, number> {
   const map = new Map<number, number>();
   for (let mask = 0; mask < 256; mask++) {
     const blobIndex = BLOB_INDEX_MAP_FOR_TEST[mask] % 47;
-    if (!map.has(blobIndex)) map.set(blobIndex, mask);
+    map.set(blobIndex, mask); // overwrite — keeps the last (highest) mask seen
   }
-  // Force blob 46 ("fully surrounded") to mask 0xFF so all quadrants → CENTER.
-  map.set(46, 0xFF);
   return map;
 }
 

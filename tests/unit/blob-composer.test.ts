@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { composeBlob47Atlas, PRIMITIVE_W, PRIMITIVE_H, OUTPUT_W, OUTPUT_H, CELL_W, CELL_H } from '@/render/iso/blob-composer';
+import { BLOB_INDEX_MAP_FOR_TEST } from '@/map/blob-autotiler';
 
 // jsdom doesn't implement OffscreenCanvas — stub it using a regular canvas
 if (typeof (globalThis as any).OffscreenCanvas === 'undefined') {
@@ -50,16 +51,18 @@ function pixelAt(canvas: OffscreenCanvas, x: number, y: number): string {
 }
 
 describe('composeBlob47Atlas', () => {
-  it('blob index 46 (fully surrounded) sources all 4 quadrants from center primitive', () => {
+  it('the blob index for "fully surrounded" (mask 0xFF) sources all 4 quadrants from the center primitive', () => {
+    // At runtime, computeBlobMap reduces mask 0xFF → some blobIndex via the
+    // table. The composer must put all-CENTER art at that slot.
+    const fullySurroundedBlob = BLOB_INDEX_MAP_FOR_TEST[0xFF] % 47;
+
     const primitives = buildSyntheticPrimitiveSheet();
     const target = new OffscreenCanvas(OUTPUT_W, OUTPUT_H);
     composeBlob47Atlas(primitives, target);
 
-    // Blob index 46 → col = 46 % 6 = 4, row = floor(46 / 6) = 7
-    // Center primitive lives at (1, 1) → color #210000
-    const cellX = (46 % 6) * CELL_W;
-    const cellY = Math.floor(46 / 6) * CELL_H;
-    // Sample one pixel inside each quadrant
+    // Center primitive lives at (1, 1) → color #210000.
+    const cellX = (fullySurroundedBlob % 6) * CELL_W;
+    const cellY = Math.floor(fullySurroundedBlob / 6) * CELL_H;
     expect(pixelAt(target, cellX + 10,           cellY + 5)).toBe('#210000');         // TL
     expect(pixelAt(target, cellX + CELL_W - 10,  cellY + 5)).toBe('#210000');         // TR
     expect(pixelAt(target, cellX + 10,           cellY + CELL_H - 5)).toBe('#210000');// BL
