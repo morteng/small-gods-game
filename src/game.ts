@@ -232,8 +232,13 @@ export class Game {
   }
 
   private togglePause(): void {
-    this.state.paused = !this.state.paused;
-    this.pausedBanner.style.display = this.state.paused ? 'block' : 'none';
+    const paused = this.scheduler.getRate() === 0;
+    this.scheduler.setRate(paused ? 1 : 0);
+    this.refreshPauseBanner();
+  }
+
+  private refreshPauseBanner(): void {
+    this.pausedBanner.style.display = this.scheduler.getRate() === 0 ? 'block' : 'none';
   }
 
   private toggleTimeBar(): void {
@@ -353,7 +358,7 @@ export class Game {
         const instantFps = 1000 / deltaMs;
         this.fpsEma = this.fpsEma * 0.9 + instantFps * 0.1;
       }
-      if (!this.state.paused && this.state.world && !this.timeline.isScrubbed) {
+      if (this.scheduler.getRate() > 0 && this.state.world && !this.timeline.isScrubbed) {
         this.updateNpcFrames(deltaMs);  // presentation animation — not a scheduled system
         this.scheduler.tick(deltaMs, {
           world: this.state.world,
@@ -367,6 +372,7 @@ export class Game {
       this.applyFollowCamera();
       this.render();
       this.timeChip.refresh();
+      this.refreshPauseBanner();
       this.timeBar?.refresh();
       this.veil.setActive(this.timeline.isScrubbed);
       this.rafId = requestAnimationFrame(loop);
@@ -467,7 +473,7 @@ export class Game {
         mouseTile: this.hoverTile,
         entityCount: this.state.world?.query({}).length ?? 0,
         npcCount: this.state.world?.query({ kind: 'npc' }).length ?? 0,
-        paused: this.state.paused,
+        paused: this.scheduler.getRate() === 0,
         zoom: this.state.camera.zoom,
       });
     }
