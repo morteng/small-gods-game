@@ -16,14 +16,14 @@ A god game inspired by Terry Pratchett's *Small Gods*. The player is a minor dei
 - **[TS Migration Design](docs/plans/2026-02-20-ts-migration-design.md)** - TypeScript migration design doc
 - **[TS Migration Plan](docs/plans/2026-02-20-ts-migration.md)** - Detailed migration implementation plan
 
-**Current Status:** Spec A (architectural spine) and Spec B (Time) shipped. Sim is fully deterministic with seedable RNG; snapshot/replay layer supports scrub + commit + re-roll; summoned Time bar UI with past-veil scrubbed treatment; keyboard shortcuts T/Space/1/2/4/8/Esc. 576 tests passing.
+**Current Status:** Spec A (spine), Spec B (Time), and Spec C (minimal — clickable time history strip) shipped. Sim is fully deterministic with seedable RNG; snapshot/replay layer supports scrub + commit + re-roll; summoned Time bar UI with past-veil scrubbed treatment, clickable history strip of past commits/whispers above the transport row, and keyboard shortcuts T/Space/1/2/4/8/Esc. `state.paused` retired in favor of `scheduler.getRate()`. `NpcMovementSystem` now consumes the canonical per-tick interval (matches silent replay exactly). 594 tests passing.
 
 ## Tech Stack
 
 - **TypeScript** ES modules, bundled by **Vite**
 - **Canvas 2D** top-down colored-rectangle renderer (placeholder art)
 - **WFC** (Wave Function Collapse) procedural map generation
-- **Vitest** for testing (576 tests)
+- **Vitest** for testing (594 tests)
 - Embeddable as iframe via `Game` class + postMessage API
 
 ## Architecture
@@ -117,6 +117,7 @@ await game.generateWorld();
 | UI chrome scaffold + past-veil | `src/ui/chrome.ts` |
 | Time chip | `src/ui/panels/time-chip.ts` |
 | Time bar (summoned) | `src/ui/panels/time-bar.ts` |
+| Time history strip (clickable chips) | `src/ui/panels/time-history.ts` |
 | Design tokens (scoped to container) | `src/ui/tokens.css` |
 | Time keyboard shortcuts | `src/ui/controls.ts` (`attachTimeKeys`) |
 
