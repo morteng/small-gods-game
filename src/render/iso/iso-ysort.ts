@@ -11,6 +11,20 @@ export interface YSortEntry {
   sortTy?: number;
 }
 
+export interface BuildingFootprint {
+  tx: number;
+  ty: number;
+  footprintW: number;
+  footprintH: number;
+}
+
+export function buildingSortKey(b: BuildingFootprint): { sortTx: number; sortTy: number } {
+  return {
+    sortTx: b.tx + b.footprintW - 1,
+    sortTy: b.ty + b.footprintH - 1,
+  };
+}
+
 export function buildYSortBucket(entries: YSortEntry[]): YSortEntry[] {
   const sorted = [...entries];
   sorted.sort((a, b) => {
