@@ -24,6 +24,10 @@ function isTextInputFocused(): boolean {
   if (!el) return false;
   if (TEXT_INPUT_TAGS.has(el.tagName)) return true;
   const htmlEl = el as HTMLElement;
+  // isContentEditable is the spec-compliant boolean; the string fallback
+  // (`contentEditable === 'true'`) is a jsdom compatibility shim — jsdom does
+  // not populate the reflected boolean property for contenteditable elements,
+  // so the string attribute is the only reliable check in that environment.
   return htmlEl.isContentEditable === true || htmlEl.contentEditable === 'true';
 }
 
