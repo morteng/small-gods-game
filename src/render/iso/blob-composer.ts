@@ -1,6 +1,6 @@
 /**
  * Pure-function blob47 composer. Consumes a 5×3 primitive sheet (640×192)
- * and writes a 6×8 blob atlas (768×384) into the supplied target canvas.
+ * and writes a 6×8 blob atlas (768×512) into the supplied target canvas.
  *
  * Algorithm: standard quadrant-minitile composition
  * (cr31.co.uk/stagecast/wang/blob). Each of 47 output cells is built from
@@ -19,7 +19,7 @@ export const PRIMITIVE_H = CELL_H * PRIMITIVE_ROWS; // 192
 export const ATLAS_COLS = 6;
 export const ATLAS_ROWS = 8;
 export const OUTPUT_W = CELL_W * ATLAS_COLS; // 768
-export const OUTPUT_H = CELL_H * ATLAS_ROWS; // 384
+export const OUTPUT_H = CELL_H * ATLAS_ROWS; // 512
 
 // Primitive sheet cell coordinates (col, row).
 const PRIM = {
@@ -128,6 +128,9 @@ export function composeBlob47Atlas(primitives: Source, target: Surface): void {
   const halfW = CELL_W / 2;
   const halfH = CELL_H / 2;
 
+  // Note: BLOB_INDEX_MAP never produces blob indices 11, 27, 40, 41, 42, or 43,
+  // so those atlas cells remain transparent by design. computeBlobMap never
+  // emits these indices at runtime either.
   for (let blobIndex = 0; blobIndex <= 46; blobIndex++) {
     const mask = reverseLookup.get(blobIndex);
     if (mask === undefined) continue;
