@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { worldToScreen, screenToTile } from '@/render/iso/iso-projection';
+import { worldToScreen, screenToTile, visibleTileBounds } from '@/render/iso/iso-projection';
 import { ISO_TILE_W, ISO_TILE_H } from '@/render/iso/iso-constants';
 
 describe('iso-projection: worldToScreen', () => {
@@ -41,5 +41,23 @@ describe('iso-projection: screenToTile (inverse)', () => {
     expect(screenToTile(cx, cy, 0, 0)).toEqual({ tx: 5, ty: 5 });
     expect(screenToTile(cx + 10, cy, 0, 0)).toEqual({ tx: 5, ty: 5 });
     expect(screenToTile(cx - 10, cy, 0, 0)).toEqual({ tx: 5, ty: 5 });
+  });
+});
+
+describe('iso-projection: visibleTileBounds', () => {
+  it('returns a bounding tile range covering the viewport corners', () => {
+    const b = visibleTileBounds({ originX: 400, originY: 300 }, 800, 600);
+    expect(b.minTx).toBeLessThan(0);
+    expect(b.maxTx).toBeGreaterThan(0);
+    expect(b.minTy).toBeLessThan(0);
+    expect(b.maxTy).toBeGreaterThan(0);
+  });
+
+  it('clamps to provided map bounds when given', () => {
+    const b = visibleTileBounds({ originX: 400, originY: 300 }, 800, 600, { mapW: 128, mapH: 96 });
+    expect(b.minTx).toBeGreaterThanOrEqual(0);
+    expect(b.minTy).toBeGreaterThanOrEqual(0);
+    expect(b.maxTx).toBeLessThan(128);
+    expect(b.maxTy).toBeLessThan(96);
   });
 });

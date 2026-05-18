@@ -21,3 +21,36 @@ export function screenToTile(
     ty: Math.round((fy - fx) / 2),
   };
 }
+
+export interface IsoOrigin { originX: number; originY: number }
+export interface TileBounds { minTx: number; maxTx: number; minTy: number; maxTy: number }
+
+export function visibleTileBounds(
+  origin: IsoOrigin,
+  canvasWidth: number,
+  canvasHeight: number,
+  clamp?: { mapW: number; mapH: number },
+): TileBounds {
+  const corners: Array<{ tx: number; ty: number }> = [
+    screenToTile(0, 0, origin.originX, origin.originY),
+    screenToTile(canvasWidth, 0, origin.originX, origin.originY),
+    screenToTile(0, canvasHeight, origin.originX, origin.originY),
+    screenToTile(canvasWidth, canvasHeight, origin.originX, origin.originY),
+  ];
+  let minTx = corners[0].tx, maxTx = corners[0].tx;
+  let minTy = corners[0].ty, maxTy = corners[0].ty;
+  for (const c of corners) {
+    if (c.tx < minTx) minTx = c.tx;
+    if (c.tx > maxTx) maxTx = c.tx;
+    if (c.ty < minTy) minTy = c.ty;
+    if (c.ty > maxTy) maxTy = c.ty;
+  }
+  minTx -= 1; minTy -= 1; maxTx += 1; maxTy += 1;
+  if (clamp) {
+    minTx = Math.max(0, minTx);
+    minTy = Math.max(0, minTy);
+    maxTx = Math.min(clamp.mapW - 1, maxTx);
+    maxTy = Math.min(clamp.mapH - 1, maxTy);
+  }
+  return { minTx, maxTx, minTy, maxTy };
+}
