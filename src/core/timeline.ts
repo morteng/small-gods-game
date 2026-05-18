@@ -101,6 +101,15 @@ export class TimelineController {
       const newSeed = this.state.rng.nextInt(0x7fffffff);
       this.state.rng = createRng(newSeed);
     }
+    // Make the commit visible in the canonical event log so the time history
+    // strip (and any future consumer) has one source of truth. Append AFTER
+    // truncate so the event's tick is the cutoff and it isn't immediately
+    // truncated by itself.
+    this.state.eventLog.append({
+      type: 'timeline_commit',
+      parentTick: cutoff,
+      rerolled: opts.reroll,
+    });
     this.liveSnapshot = null;
     this._isScrubbed = false;
     this.lastSnapshotEventCount = this.state.eventLog.size();
