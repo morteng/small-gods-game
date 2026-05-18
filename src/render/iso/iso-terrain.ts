@@ -1,4 +1,5 @@
 import type { GameMap } from '@/core/types';
+import type { BlobTile } from '@/map/blob-autotiler';
 import { TILE_COLORS } from '@/core/constants';
 import { worldToScreen } from './iso-projection';
 import { ISO_TILE_W, ISO_TILE_H } from './iso-constants';
@@ -8,13 +9,14 @@ import type { TileBounds } from './iso-projection';
 export interface IsoTerrainArgs {
   map: GameMap;
   atlas: IsoAtlas;
+  blobMap: BlobTile[][] | null;
   bounds: TileBounds;
   originX: number;
   originY: number;
 }
 
 export function drawIsoTerrain(ctx: CanvasRenderingContext2D, args: IsoTerrainArgs): void {
-  const { map, atlas, bounds, originX, originY } = args;
+  const { map, atlas, blobMap, bounds, originX, originY } = args;
   const iMin = bounds.minTx + bounds.minTy;
   const iMax = bounds.maxTx + bounds.maxTy;
   for (let i = iMin; i <= iMax; i++) {
@@ -25,7 +27,8 @@ export function drawIsoTerrain(ctx: CanvasRenderingContext2D, args: IsoTerrainAr
       const tile = map.tiles[ty]?.[tx];
       if (!tile) continue;
       const tileType = tile.type;
-      const sprite = atlas.getTerrain(tileType, 0);
+      const variant = blobMap?.[ty]?.[tx]?.blobIndex ?? 0;
+      const sprite = atlas.getTerrain(tileType, variant);
       const { sx, sy } = worldToScreen(tx, ty, 0, originX, originY);
       if (sprite) {
         ctx.drawImage(sprite.img, sprite.sx, sprite.sy, sprite.sw, sprite.sh,

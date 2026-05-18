@@ -31,7 +31,7 @@ export function renderMap(ctx: CanvasRenderingContext2D, rc: RenderContext): voi
     { mapW: map.width, mapH: map.height },
   );
 
-  drawIsoTerrain(ctx, { map, atlas, bounds, originX, originY });
+  drawIsoTerrain(ctx, { map, atlas, blobMap: rc.blobMap, bounds, originX, originY });
 
   const entries: YSortEntry[] = [];
   for (const b of (map as any).buildings ?? []) {
