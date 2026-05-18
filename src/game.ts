@@ -1,6 +1,6 @@
 import { createState, type GameState } from '@/core/state';
 import { TILE_SIZE } from '@/core/constants';
-import { renderMap } from '@/render/renderer';
+import { selectRenderer, type RenderFn } from '@/render/select-renderer';
 import { centerOn } from '@/render/camera';
 import { attachControls, attachTimeKeys } from '@/ui/controls';
 import { WorldManager } from '@/map/world-manager';
@@ -82,6 +82,7 @@ export class Game {
   private timeChip!: TimeChipHandle;
   private timeBar: TimeBarHandle | null = null;
   private detachTimeKeys: (() => void) | null = null;
+  private renderMap: RenderFn | null = null;
 
   constructor(container: HTMLElement, _options: GameOptions = {}) {
     this.container = container;
@@ -264,6 +265,7 @@ export class Game {
   }
 
   async generateWorld(worldSeed?: WorldSeed, _terrainOptions?: Partial<TerrainOptions>): Promise<GameMap> {
+    this.renderMap = await selectRenderer();
     const ws = worldSeed || await WorldManager.loadDefault();
     const seed = Date.now();
 
@@ -408,7 +410,7 @@ export class Game {
       generatedDecorations: this.state.generatedDecorations,
       resolveDecorationImage: (id: string) => this.decorationImages.get(id),
     };
-    renderMap(this.ctx, rc);
+    if (this.renderMap) this.renderMap(this.ctx, rc);
 
     // Gold flash when a whisper was just cast
     const flashAge = performance.now() - this.lastWhisperTime;
