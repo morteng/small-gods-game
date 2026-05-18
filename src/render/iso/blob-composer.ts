@@ -109,12 +109,16 @@ function toDrawable(src: Source): CanvasImageSource {
   if (src instanceof HTMLCanvasElement || src instanceof HTMLImageElement) {
     return src;
   }
-  // OffscreenCanvas (real or stub) — extract the underlying canvas/context.
-  const maybeCtx = (src as OffscreenCanvas).getContext('2d');
-  if (maybeCtx && (maybeCtx as CanvasRenderingContext2D).canvas) {
-    return (maybeCtx as CanvasRenderingContext2D).canvas;
+  // OffscreenCanvas (real or stub) — extract the underlying canvas via the
+  // 2d context, which the jsdom test stub uses to expose its backing
+  // HTMLCanvasElement.
+  const maybeCtx = (src as OffscreenCanvas).getContext('2d') as
+    | { canvas?: HTMLCanvasElement }
+    | null;
+  if (maybeCtx?.canvas) {
+    return maybeCtx.canvas;
   }
-  // Fallback: hope the runtime accepts it directly (e.g. real browser OffscreenCanvas).
+  // Real browser OffscreenCanvas — accepted natively by drawImage.
   return src as unknown as CanvasImageSource;
 }
 
