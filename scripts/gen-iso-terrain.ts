@@ -51,21 +51,30 @@ const STYLE_RECIPE = {
   detail: 'medium detail',
 } as const;
 
-/** Wang→primitive (col,row) mapping for the 5x3 sheet the composer expects. */
+/**
+ * Wang→primitive (col,row) mapping for the 5x3 sheet the composer expects.
+ *
+ * PixelLab's Wang-16 convention treats a set bit as "this corner contains the
+ * UPPER (transition) terrain"; the unset (lower) corners are the ones that
+ * belong to the tile's own group. So Wang 0 (no bits) is the all-lower cell
+ * (= CENTER) and Wang 15 (all bits) is the all-upper cell (unused). Each key
+ * below is the bit-complement (^15) of what a "1 = lower" convention would
+ * use, picking exactly the same 13 cells but at the correct positions.
+ */
 const WANG_TO_PRIM_COORD: Record<number, readonly [number, number]> = {
-  8:  [0, 0], // NW_OUTER
-  12: [1, 0], // N_EDGE
-  4:  [2, 0], // NE_OUTER
-  10: [0, 1], // W_EDGE
-  15: [1, 1], // CENTER
-  5:  [2, 1], // E_EDGE
-  7:  [3, 1], // NW_INNER
-  11: [4, 1], // NE_INNER
-  2:  [0, 2], // SW_OUTER
-  3:  [1, 2], // S_EDGE
-  1:  [2, 2], // SE_OUTER
-  13: [3, 2], // SW_INNER
-  14: [4, 2], // SE_INNER
+  7:  [0, 0], // NW_OUTER  (only NW is lower)
+  3:  [1, 0], // N_EDGE    (north half lower)
+  11: [2, 0], // NE_OUTER  (only NE is lower)
+  5:  [0, 1], // W_EDGE    (west half lower)
+  0:  [1, 1], // CENTER    (all lower)
+  10: [2, 1], // E_EDGE    (east half lower)
+  8:  [3, 1], // NW_INNER  (only NW is upper)
+  4:  [4, 1], // NE_INNER  (only NE is upper)
+  13: [0, 2], // SW_OUTER  (only SW is lower)
+  12: [1, 2], // S_EDGE    (south half lower)
+  14: [2, 2], // SE_OUTER  (only SE is lower)
+  2:  [3, 2], // SW_INNER  (only SW is upper)
+  1:  [4, 2], // SE_INNER  (only SE is upper)
 };
 
 function sha256Hex(input: string): string {
