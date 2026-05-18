@@ -1,6 +1,6 @@
 import type { Camera } from '@/core/types';
-import { pan, zoomAt, screenToWorld } from '@/render/camera';
-import { TILE_SIZE } from '@/core/constants';
+import { pan, zoomAt } from '@/render/camera';
+import { pickTile } from '@/ui/pick-tile';
 
 export interface ControlsCallbacks {
   onTileClick?: (x: number, y: number) => void;
@@ -54,8 +54,8 @@ export function attachControls(canvas: HTMLCanvasElement, camera: Camera, callba
       const rect = canvas.getBoundingClientRect();
       const sx = e.clientX - rect.left;
       const sy = e.clientY - rect.top;
-      const { wx, wy } = screenToWorld(camera, sx, sy, TILE_SIZE);
-      callbacks.onHoverTile(wx, wy, sx, sy);
+      const { tx, ty } = pickTile(camera, sx, sy);
+      callbacks.onHoverTile(tx, ty, sx, sy);
     }
     if (!dragging) return;
     const dx = e.clientX - lastX;
@@ -81,8 +81,8 @@ export function attachControls(canvas: HTMLCanvasElement, camera: Camera, callba
       const sy = e.clientY - rect.top;
       if (callbacks.onCanvasClick?.(sx, sy)) return;
       if (callbacks.onTileClick) {
-        const { wx, wy } = screenToWorld(camera, sx, sy, TILE_SIZE);
-        callbacks.onTileClick(wx, wy);
+        const { tx, ty } = pickTile(camera, sx, sy);
+        callbacks.onTileClick(tx, ty);
       }
     }
   }
@@ -93,8 +93,8 @@ export function attachControls(canvas: HTMLCanvasElement, camera: Camera, callba
     const rect = canvas.getBoundingClientRect();
     const sx = e.clientX - rect.left;
     const sy = e.clientY - rect.top;
-    const { wx, wy } = screenToWorld(camera, sx, sy, TILE_SIZE);
-    callbacks.onTileRightClick(wx, wy, sx, sy);
+    const { tx, ty } = pickTile(camera, sx, sy);
+    callbacks.onTileRightClick(tx, ty, sx, sy);
   }
 
   function onWheel(e: WheelEvent) {
