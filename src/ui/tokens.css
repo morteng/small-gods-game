@@ -476,3 +476,41 @@ button { font-family: inherit; color: inherit; }
           background: var(--paper); color: var(--ink); cursor: pointer; font: var(--t-small)/1 var(--f-sans); }
 .sg-btn--default { background: var(--w-dusk); color: var(--paper); border-color: transparent; }
 .sg-btn--danger  { background: var(--paper); color: var(--danger); border-color: var(--danger); }
+
+/* Time history strip ──────────────────────────────────── */
+.sg-time-history {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 4px 8px;
+  scrollbar-width: thin;
+}
+.sg-time-history::-webkit-scrollbar { height: 4px; }
+.sg-time-history::-webkit-scrollbar-track { background: transparent; }
+.sg-time-history::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: var(--r-pill); }
+
+.sg-time-history__chip {
+  flex: 0 0 auto;
+  background: var(--paper-2);
+  color: var(--ink-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  padding: 2px 8px;
+  font-size: var(--t-tiny);
+  font-family: var(--f-mono);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.sg-time-history__chip:hover {
+  background: var(--paper);
+  border-color: var(--line-2);
+}
+.sg-time-history__chip[data-kind="timeline_commit"] {
+  color: var(--time);
+  border-color: var(--time-line);
+  background: var(--time-soft);
+}
+.sg-time-history__chip[data-kind="timeline_commit"]:hover {
+  background: oklch(0.55 0.09 225 / 0.22);
+}
