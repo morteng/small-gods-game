@@ -86,6 +86,62 @@ describe('drawIsoTerrain — blob variant integration', () => {
     expect(indices).toEqual([0, 1, 2, 7, 9, 12, 13, 14, 46]);
   });
 
+  it('uses blob.terrainGroup (not tile.type) for atlas lookup', () => {
+    // meadow, dense_forest, scrubland all belong to the 'grass' group.
+    // The atlas is keyed by group, so all three must resolve to 'grass'.
+    const tiles: Tile[][] = [
+      [
+        { type: 'meadow', state: 'realized' } as Tile,
+        { type: 'dense_forest', state: 'realized' } as Tile,
+        { type: 'scrubland', state: 'realized' } as Tile,
+      ],
+    ];
+    const map = { width: 3, height: 1, tiles, buildings: [] } as unknown as GameMap;
+    const blobMap: BlobTile[][] = [[
+      { terrainGroup: 'grass', blobIndex: 5 },
+      { terrainGroup: 'grass', blobIndex: 6 },
+      { terrainGroup: 'grass', blobIndex: 7 },
+    ]];
+    const calls: Array<[string, number]> = [];
+    const fakeAtlas: IsoAtlas = {
+      getTerrain: (type, variant) => { calls.push([type, variant]); return null; },
+      getBuilding: () => null,
+      getCharacter: () => null,
+      getTree: () => null,
+    };
+    const ctx = new OffscreenCanvas(2000, 2000).getContext('2d')!;
+    drawIsoTerrain(ctx as unknown as CanvasRenderingContext2D, {
+      map,
+      atlas: fakeAtlas,
+      blobMap,
+      bounds: { minTx: 0, maxTx: 2, minTy: 0, maxTy: 0 },
+      originX: 1000, originY: 1000,
+    });
+    expect(calls).toHaveLength(3);
+    expect(calls.every(([type]) => type === 'grass')).toBe(true);
+  });
+
+  it('falls back to tile.type when blobMap is null', () => {
+    const tiles: Tile[][] = [[{ type: 'meadow', state: 'realized' } as Tile]];
+    const map = { width: 1, height: 1, tiles, buildings: [] } as unknown as GameMap;
+    const calls: Array<[string, number]> = [];
+    const fakeAtlas: IsoAtlas = {
+      getTerrain: (type, variant) => { calls.push([type, variant]); return null; },
+      getBuilding: () => null,
+      getCharacter: () => null,
+      getTree: () => null,
+    };
+    const ctx = new OffscreenCanvas(2000, 2000).getContext('2d')!;
+    drawIsoTerrain(ctx as unknown as CanvasRenderingContext2D, {
+      map,
+      atlas: fakeAtlas,
+      blobMap: null,
+      bounds: { minTx: 0, maxTx: 0, minTy: 0, maxTy: 0 },
+      originX: 1000, originY: 1000,
+    });
+    expect(calls).toEqual([['meadow', 0]]);
+  });
+
   it('null blobMap → all tiles request variant 0 (back-compat)', () => {
     const calls: number[] = [];
     const fakeAtlas: IsoAtlas = {

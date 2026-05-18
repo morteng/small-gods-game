@@ -26,15 +26,16 @@ export function drawIsoTerrain(ctx: CanvasRenderingContext2D, args: IsoTerrainAr
       const ty = i - tx;
       const tile = map.tiles[ty]?.[tx];
       if (!tile) continue;
-      const tileType = tile.type;
-      const variant = blobMap?.[ty]?.[tx]?.blobIndex ?? 0;
-      const sprite = atlas.getTerrain(tileType, variant);
+      const blob = blobMap?.[ty]?.[tx];
+      const group = blob?.terrainGroup ?? tile.type;
+      const variant = blob?.blobIndex ?? 0;
+      const sprite = atlas.getTerrain(group, variant);
       const { sx, sy } = worldToScreen(tx, ty, 0, originX, originY);
       if (sprite) {
         ctx.drawImage(sprite.img, sprite.sx, sprite.sy, sprite.sw, sprite.sh,
                       sx - ISO_TILE_W / 2, sy - ISO_TILE_H / 2, ISO_TILE_W, ISO_TILE_H);
       } else {
-        ctx.fillStyle = TILE_COLORS[tileType] ?? '#444';
+        ctx.fillStyle = TILE_COLORS[tile.type] ?? '#444';
         ctx.beginPath();
         ctx.moveTo(sx, sy - ISO_TILE_H / 2);
         ctx.lineTo(sx + ISO_TILE_W / 2, sy);
