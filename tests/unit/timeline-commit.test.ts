@@ -131,7 +131,8 @@ describe('TimelineController.commit', () => {
     tl.jumpTo(midTick);
     tl.commit({ reroll: true });
 
-    const last = state.eventLog.since(0).at(-1)!;
+    const events = state.eventLog.since(0);
+    const last = events[events.length - 1];
     expect(last.t).toBe(midTick);
     const ev = last.event;
     if (ev.type !== 'timeline_commit') throw new Error('unexpected event type');
