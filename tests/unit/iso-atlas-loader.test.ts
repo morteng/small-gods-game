@@ -26,3 +26,62 @@ describe('loadIsoTerrainAtlas', () => {
     expect(s!.sy).toBe(64);
   });
 });
+
+describe('loadIsoTerrainAtlas — fallback', () => {
+  function makeFakeImage(): HTMLImageElement {
+    return { width: 768, height: 384 } as unknown as HTMLImageElement;
+  }
+
+  it('returns null sprites for terrains whose PNG failed to load, others still work', async () => {
+    const warnings: string[] = [];
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation((msg: string) => {
+      warnings.push(msg);
+    });
+    try {
+      const loadImage: ImageLoader = async (url) =>
+        url.includes('grass') ? null : makeFakeImage();
+      const atlas = await loadIsoTerrainAtlas({ loadImage });
+      expect(atlas.getTerrain('grass', 0)).toBeNull();
+      expect(atlas.getTerrain('dirt', 0)).not.toBeNull();
+      expect(warnings.some((w) => w.includes('grass'))).toBe(true);
+      expect(warnings.some((w) => w.includes('dirt'))).toBe(false);
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('all 6 PNGs fail to load → atlas where every getTerrain returns null (still valid)', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const loadImage: ImageLoader = async () => null;
+      const atlas = await loadIsoTerrainAtlas({ loadImage });
+      for (const type of ISO_TERRAIN_TYPES) {
+        expect(atlas.getTerrain(type, 0)).toBeNull();
+      }
+      expect(atlas.getBuilding('any')).toBeNull();
+      expect(atlas.getCharacter('any')).toBeNull();
+      expect(atlas.getTree('any')).toBeNull();
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('no warning emitted for successful loads', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const loadImage: ImageLoader = async () => ({ width: 768, height: 384 }) as unknown as HTMLImageElement;
+      await loadIsoTerrainAtlas({ loadImage });
+      expect(warnSpy).not.toHaveBeenCalled();
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('variant index math: blob 11 → col 5 row 1 → sx=640, sy=64', async () => {
+    const loadImage: ImageLoader = async () => ({ width: 768, height: 384 }) as unknown as HTMLImageElement;
+    const atlas = await loadIsoTerrainAtlas({ loadImage });
+    const s = atlas.getTerrain('water', 11)!;
+    expect(s.sx).toBe(640);
+    expect(s.sy).toBe(64);
+  });
+});
