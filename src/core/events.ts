@@ -11,13 +11,13 @@ export type SimEvent =
   | { type: 'spirit_gaze_shift';  spiritId: SpiritId; fromNpcId?: EntityId; toNpcId: EntityId }
   | { type: 'npc_spawn';          npcId: EntityId; role: NpcRole; poiId: string }
   | { type: 'whisper';            spiritId: SpiritId; npcId: EntityId }
+  | { type: 'timeline_commit';    parentTick: number; rerolled: boolean }
   | { type: 'belief_cross';       npcId: EntityId; spiritId: SpiritId; kind: 'high' | 'low'; faith: number }
   | { type: 'mood_cross';         npcId: EntityId; kind: 'high' | 'low'; mood: number }
   | { type: 'power_depleted';     spiritId: SpiritId }
   | { type: 'region_realized';    region: Region; cause: 'belief_spread' | 'miracle' | 'cradle_start' }
   | { type: 'tile_collapsed';     x: number; y: number; becameType: string; by: 'wfc' | 'oracle' }
   | { type: 'entity_emerged';     entityId: EntityId; kind: string; x: number; y: number }
-  | { type: 'timeline_commit';    parentTick: number; rerolled: boolean }
   | { type: 'system_error';       system: string; message: string };
 
 export interface AppendedEvent {
