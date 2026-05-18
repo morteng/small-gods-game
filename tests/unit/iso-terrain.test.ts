@@ -4,9 +4,13 @@ import { createNullAtlas } from '@/render/iso/iso-atlas';
 import type { GameMap } from '@/core/types';
 
 function makeMap(w: number, h: number, fill = 'grass'): GameMap {
-  const tiles: string[][] = [];
+  const tiles = [];
   for (let y = 0; y < h; y++) {
-    tiles.push(Array(w).fill(fill));
+    const row = [];
+    for (let x = 0; x < w; x++) {
+      row.push({ type: fill, x, y, walkable: true, state: 'realized' });
+    }
+    tiles.push(row);
   }
   return { width: w, height: h, tiles, pois: [], buildings: [] } as unknown as GameMap;
 }

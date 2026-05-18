@@ -22,8 +22,9 @@ export function drawIsoTerrain(ctx: CanvasRenderingContext2D, args: IsoTerrainAr
     const txHi = Math.min(bounds.maxTx, i - bounds.minTy);
     for (let tx = txLo; tx <= txHi; tx++) {
       const ty = i - tx;
-      const tileType = map.tiles[ty]?.[tx];
-      if (!tileType) continue;
+      const tile = map.tiles[ty]?.[tx];
+      if (!tile) continue;
+      const tileType = tile.type;
       const sprite = atlas.getTerrain(tileType, 0);
       const { sx, sy } = worldToScreen(tx, ty, 0, originX, originY);
       if (sprite) {
