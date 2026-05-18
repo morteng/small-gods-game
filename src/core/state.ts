@@ -15,7 +15,6 @@ export interface GameState {
   visualMap: string[][] | null;
   blobMap: BlobTile[][] | null;
   debug: boolean;
-  paused: boolean;
   showLabels: boolean;
   showPoiMarkers: boolean;
   pinnedNpcId: string | null;
@@ -56,7 +55,6 @@ export function createState(): GameState {
     visualMap: null,
     blobMap: null,
     debug: false,
-    paused: false,
     showLabels: true,
     showPoiMarkers: true,
     pinnedNpcId: null,
