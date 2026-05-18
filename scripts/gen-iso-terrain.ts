@@ -128,24 +128,32 @@ async function fetchTilesetJson(type: IsoTerrainType, apiKey: string): Promise<T
   if (!tilesetId) throw new Error(`create-tileset response missing tileset_id: ${JSON.stringify(postJson)}`);
   console.log(`[gen-iso-terrain] ${type}: tileset_id=${tilesetId} status=${postJson.status}`);
 
-  // Poll.
+  // Poll. PixelLab returns HTTP 423 (Locked) with `{detail: "still being generated"}`
+  // while the job is in progress; treat that and HTTP 202 as keep-polling signals.
+  // Only HTTP 200 with a populated `tileset.tiles` indicates completion.
   const startedAt = Date.now();
   while (Date.now() - startedAt < POLL_TIMEOUT_MS) {
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
     const getRes = await fetch(`${PIXELLAB_API_BASE}/tilesets/${tilesetId}`, {
       headers: { Authorization: `Bearer ${apiKey}` },
     });
+    const text = await getRes.text();
+    let json: (TilesetResponse & { detail?: string }) | null = null;
+    try { json = JSON.parse(text) as TilesetResponse & { detail?: string }; } catch { /* ignore */ }
+    if (getRes.status === 423 || getRes.status === 202) {
+      const msg = json?.detail ?? `HTTP ${getRes.status}`;
+      console.log(`[gen-iso-terrain] ${type}: ${msg}`);
+      continue;
+    }
     if (!getRes.ok) {
-      const text = await getRes.text().catch(() => '');
-      throw new Error(`GET /tilesets/${tilesetId} HTTP ${getRes.status}: ${text}`.trim());
+      throw new Error(`GET /tilesets/${tilesetId} HTTP ${getRes.status}: ${text.trim()}`);
     }
-    const getJson = (await getRes.json()) as TilesetResponse & { detail?: string };
-    if (getJson.tileset?.tiles?.length) {
-      console.log(`[gen-iso-terrain] ${type}: tileset ready (${getJson.tileset.tiles.length} tiles)`);
-      return getJson;
+    if (json?.tileset?.tiles?.length) {
+      console.log(`[gen-iso-terrain] ${type}: tileset ready (${json.tileset.tiles.length} tiles)`);
+      return json;
     }
-    if (typeof getJson.detail === 'string') {
-      console.log(`[gen-iso-terrain] ${type}: ${getJson.detail}`);
+    if (typeof json?.detail === 'string') {
+      console.log(`[gen-iso-terrain] ${type}: ${json.detail}`);
     }
   }
   throw new Error(`Polling timeout for tileset ${tilesetId}`);

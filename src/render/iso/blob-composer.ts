@@ -106,19 +106,24 @@ type Surface = OffscreenCanvas | HTMLCanvasElement;
  * exposes its backing HTMLCanvasElement through getContext('2d').canvas.
  */
 function toDrawable(src: Source): CanvasImageSource {
-  if (src instanceof HTMLCanvasElement || src instanceof HTMLImageElement) {
+  // In Node (e.g. @napi-rs/canvas) the HTMLCanvasElement / HTMLImageElement
+  // globals don't exist; the source is already a drawable canvas-image type.
+  // Guard the instanceof checks so the same module works in browser, jsdom,
+  // and Node baking-script contexts.
+  if (typeof HTMLCanvasElement !== 'undefined' && src instanceof HTMLCanvasElement) {
     return src;
   }
-  // OffscreenCanvas (real or stub) — extract the underlying canvas via the
-  // 2d context, which the jsdom test stub uses to expose its backing
-  // HTMLCanvasElement.
-  const maybeCtx = (src as OffscreenCanvas).getContext('2d') as
-    | { canvas?: HTMLCanvasElement }
-    | null;
-  if (maybeCtx?.canvas) {
-    return maybeCtx.canvas;
+  if (typeof HTMLImageElement !== 'undefined' && src instanceof HTMLImageElement) {
+    return src;
   }
-  // Real browser OffscreenCanvas — accepted natively by drawImage.
+  // OffscreenCanvas in jsdom test stub exposes its backing canvas via
+  // getContext('2d').canvas. In real browsers and in node-canvas the source
+  // is acceptable to drawImage directly.
+  if (typeof OffscreenCanvas !== 'undefined' && src instanceof OffscreenCanvas) {
+    const maybeCtx = src.getContext('2d') as { canvas?: HTMLCanvasElement } | null;
+    if (maybeCtx?.canvas) return maybeCtx.canvas;
+  }
+  // Real browser OffscreenCanvas or node-canvas Canvas — accepted by drawImage.
   return src as unknown as CanvasImageSource;
 }
 
