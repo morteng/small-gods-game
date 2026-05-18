@@ -105,9 +105,49 @@ async function fetchPrimitiveSheet(type: IsoTerrainType): Promise<Buffer> {
   const apiKey = process.env.PIXELLAB_API_KEY;
   if (!apiKey) throw new Error('PIXELLAB_API_KEY env var not set');
 
-  // PixelLab call goes here in Task 11. For now, the dry-run branch above
-  // covers the no-key case and this throw signals: implement Task 11 next.
-  throw new Error(`[gen-iso-terrain] ${type}: PixelLab call not implemented yet (Task 11)`);
+  // ---- Real PixelLab call ----
+  // Reuse the project palette anchor to keep iso assets color-coherent.
+  const palettePath = join(PROJECT_ROOT, 'public/sprites/palette/lpc-anchor.png');
+  if (!existsSync(palettePath)) {
+    throw new Error(`palette swatch not found at ${palettePath}`);
+  }
+  const paletteB64 = readFileSync(palettePath).toString('base64');
+
+  const body = {
+    description: recipe.prompt,
+    image_size: { width: PRIMITIVE_W, height: PRIMITIVE_H },
+    no_background: true,
+    outline: STYLE_RECIPE.outline,
+    shading: STYLE_RECIPE.shading,
+    detail: STYLE_RECIPE.detail,
+    color_image: { type: 'base64', base64: paletteB64, format: 'png' },
+    seed: recipe.seed,
+    // PixelLab view-angle field — confirmed by call result; if API rejects
+    // with "unknown field", remove this line and rely on prompt wording.
+    view: 'side-front-2-1-isometric',
+  };
+
+  console.log(`[gen-iso-terrain] ${type}: calling PixelLab (sha ${sha.substring(0, 8)})`);
+  const res = await fetch(`${PIXELLAB_API_BASE}/create-image-pixflux`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`PixelLab HTTP ${res.status}: ${text}`.trim());
+  }
+  const json = (await res.json()) as { image?: { base64?: string } };
+  const b64 = json.image?.base64;
+  if (!b64) throw new Error('PixelLab response missing image.base64');
+
+  const buf = Buffer.from(b64, 'base64');
+  writeFileSync(cachePath, buf);
+  console.log(`[gen-iso-terrain] ${type}: cached at ${cachePath}`);
+  return buf;
 }
 
 async function bakeOne(type: IsoTerrainType): Promise<void> {
