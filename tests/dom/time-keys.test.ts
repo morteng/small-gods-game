@@ -43,4 +43,52 @@ describe('time keys', () => {
     expect(onSetRate2).toHaveBeenCalledWith(4);
     detach2();
   });
+
+  it('does nothing while a text input is focused', () => {
+    const onPause = vi.fn();
+    const onToggle = vi.fn();
+    const input = document.createElement('input');
+    document.body.appendChild(input);
+    input.focus();
+
+    const detach = attachTimeKeys(window, {
+      onToggleTimeBar: onToggle,
+      onTogglePause: onPause,
+      onSetRate: () => {},
+      timeBarOpen: () => true,
+      onEscape: () => {},
+    });
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 't', bubbles: true }));
+
+    expect(onPause).not.toHaveBeenCalled();
+    expect(onToggle).not.toHaveBeenCalled();
+
+    detach();
+    input.remove();
+  });
+
+  it('does nothing while a contenteditable element is focused', () => {
+    const onPause = vi.fn();
+    const div = document.createElement('div');
+    div.contentEditable = 'true';
+    div.tabIndex = 0;
+    document.body.appendChild(div);
+    div.focus();
+
+    const detach = attachTimeKeys(window, {
+      onToggleTimeBar: () => {},
+      onTogglePause: onPause,
+      onSetRate: () => {},
+      timeBarOpen: () => false,
+      onEscape: () => {},
+    });
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+    expect(onPause).not.toHaveBeenCalled();
+
+    detach();
+    div.remove();
+  });
 });
