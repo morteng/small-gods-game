@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { worldToScreen } from '@/render/iso/iso-projection';
+import { worldToScreen, screenToTile } from '@/render/iso/iso-projection';
 import { ISO_TILE_W, ISO_TILE_H } from '@/render/iso/iso-constants';
 
 describe('iso-projection: worldToScreen', () => {
@@ -24,5 +24,22 @@ describe('iso-projection: worldToScreen', () => {
   it('z subtracts from sy (height lifts sprite up)', () => {
     const { sy } = worldToScreen(0, 0, 32, 0, 0);
     expect(sy).toBe(-32);
+  });
+});
+
+describe('iso-projection: screenToTile (inverse)', () => {
+  it('inverts worldToScreen on the foot of the tile', () => {
+    for (const [tx, ty] of [[0, 0], [3, 7], [15, 2], [9, 9]]) {
+      const { sx, sy } = worldToScreen(tx, ty, 0, 1000, 500);
+      const tile = screenToTile(sx, sy, 1000, 500);
+      expect(tile).toEqual({ tx, ty });
+    }
+  });
+
+  it('picks the same tile for any point inside its diamond footprint', () => {
+    const { sx: cx, sy: cy } = worldToScreen(5, 5, 0, 0, 0);
+    expect(screenToTile(cx, cy, 0, 0)).toEqual({ tx: 5, ty: 5 });
+    expect(screenToTile(cx + 10, cy, 0, 0)).toEqual({ tx: 5, ty: 5 });
+    expect(screenToTile(cx - 10, cy, 0, 0)).toEqual({ tx: 5, ty: 5 });
   });
 });
