@@ -92,13 +92,6 @@ const BLOB_INDEX_MAP: number[] = [
 ];
 
 /**
- * Test-only / composer export of the 256-entry blob mask → variant table.
- * Production code should prefer computeBlobMap() which encapsulates corner
- * cleanup and the % 47 reduction.
- */
-export const BLOB_INDEX_MAP_FOR_TEST: readonly number[] = BLOB_INDEX_MAP;
-
-/**
  * Clamp a blob raw index (0-149+) to valid range 0-46 by modulo-style wrap.
  * The raw values in BLOB_INDEX_MAP may exceed 46 — we apply a canonical
  * reduction based on the RPG Maker / Tiled 47-tile layout.
