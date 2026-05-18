@@ -34,8 +34,8 @@ describe('iso-renderer: integration', () => {
       canvasWidth: 800,
       canvasHeight: 600,
       npcs: [
-        { id: 'n1', name: 'Alice', role: 'villager', seed: 1, tileX: 2, tileY: 2,
-          direction: 'south', frame: 0, frameTimer: 0 } as NpcInstance,
+        { id: 'n1', name: 'Alice', role: 'farmer', seed: 1, tileX: 2, tileY: 2,
+          direction: 'down', frame: 0, frameTimer: 0 } as NpcInstance,
       ],
       npcSheets: new Map(),
       visualMap: null,
