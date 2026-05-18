@@ -112,8 +112,10 @@ describe('TimelineController.commit', () => {
     const commitEvents = state.eventLog.since(0).filter(e => e.event.type === 'timeline_commit');
     expect(commitEvents).toHaveLength(1);
     expect(commitEvents[0].t).toBe(midTick);
-    expect((commitEvents[0].event as any).parentTick).toBe(midTick);
-    expect((commitEvents[0].event as any).rerolled).toBe(false);
+    const ev = commitEvents[0].event;
+    if (ev.type !== 'timeline_commit') throw new Error('unexpected event type');
+    expect(ev.parentTick).toBe(midTick);
+    expect(ev.rerolled).toBe(false);
   });
 
   it('records rerolled: true when committing with reroll', () => {
@@ -130,7 +132,9 @@ describe('TimelineController.commit', () => {
     tl.commit({ reroll: true });
 
     const last = state.eventLog.since(0).at(-1)!;
-    expect(last.event.type).toBe('timeline_commit');
-    expect((last.event as any).rerolled).toBe(true);
+    expect(last.t).toBe(midTick);
+    const ev = last.event;
+    if (ev.type !== 'timeline_commit') throw new Error('unexpected event type');
+    expect(ev.rerolled).toBe(true);
   });
 });
