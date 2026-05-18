@@ -1,5 +1,13 @@
 # Iso Terrain Art (PR 2 of iso renderer) Implementation Plan
 
+> **⚠️ PARTIALLY SUPERSEDED (2026-05-18, same day).** Tasks 1–8 of this plan landed and stay good (atlas-loader, iso-renderer factory, select-renderer wiring — all `create-tileset`-agnostic). Tasks 9–14 are replaced by a new plan that uses PixelLab's `create-tileset` endpoint instead of the composer + 5×3 primitive sheet approach. Reason: at first call against the live API, `create-image-pixflux`'s `view` enum had no iso option and `image_size` capped at 400×400, while deeper docs reading revealed `create-tileset` natively does Wang/47-blob terrain transitions. The composer module is now redundant and gets deleted in the pivot plan.
+>
+> **Replaced by:** [Iso Terrain Art Pivot Implementation Plan](2026-05-18-iso-terrain-art-pivot.md).
+>
+> The original plan text below is preserved for historical reference. Tasks 1–8 commits stay on `feat/iso-terrain-art`; the composer module + tests get reverted in the pivot.
+
+---
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Ship the iso renderer's terrain art — one 47-variant blob atlas PNG per of 6 base terrain groups (water, sand, dirt, grass, stone, rocky), pre-baked at author time from a single PixelLab "primitive sheet" per type via a procedural quadrant-minitile composer, wired into `iso-terrain.ts` so tiles select the correct variant.
