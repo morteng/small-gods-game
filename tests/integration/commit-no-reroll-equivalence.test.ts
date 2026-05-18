@@ -94,4 +94,37 @@ describe('commit({ reroll: false }) preserves the fate', () => {
 
     expect(fateOf(b)).toEqual(originalFate);
   });
+
+  it('replay at rate=2 produces identical NPC positions to live (no reroll)', () => {
+    // At rate=2 the scheduler accumulator grows to 2*interval per sched.tick
+    // and the while-loop fires twice, passing ctx.dt = 2*interval on the first
+    // iteration. Silent replay (forwardSilent) also runs through the same
+    // scheduler at rate=2, so the per-iteration dt must match the fixed
+    // per-tick interval — not the raw accumulator — to keep both paths
+    // bit-identical. This test locks in that fix.
+    const STEPS = 800;
+    const a = createState();
+    attach(a);
+    const schedA = buildSched(a);
+    const tlA = new TimelineController({ state: a, scheduler: schedA });
+    schedA.setRate(2);
+    tickFor(a, schedA, tlA, STEPS);
+    const fateAtMid = fateOf(a);
+    tickFor(a, schedA, tlA, STEPS);
+    const originalFate = fateOf(a);
+
+    const b = createState();
+    attach(b);
+    const schedB = buildSched(b);
+    const tlB = new TimelineController({ state: b, scheduler: schedB });
+    schedB.setRate(2);
+    tickFor(b, schedB, tlB, STEPS);
+    tickFor(b, schedB, tlB, STEPS);
+    tlB.jumpTo(Math.floor(b.clock.now() / 2));
+    expect(fateOf(b)).toEqual(fateAtMid);
+    tlB.commit({ reroll: false });
+    tickFor(b, schedB, tlB, STEPS);
+
+    expect(fateOf(b)).toEqual(originalFate);
+  });
 });
