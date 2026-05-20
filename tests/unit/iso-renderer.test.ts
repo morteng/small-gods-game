@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { renderMap } from '@/render/iso/iso-renderer';
+import { renderMap, createIsoRenderMap } from '@/render/iso/iso-renderer';
 import type { RenderContext, GameMap, NpcInstance } from '@/core/types';
 import { createIsoCamera } from '@/render/iso/iso-camera';
 
@@ -25,28 +25,46 @@ function makeMockCtx() {
   } as unknown as CanvasRenderingContext2D;
 }
 
+function makeRc(w = 8, h = 6): RenderContext {
+  return {
+    map: makeMap(w, h),
+    camera: createIsoCamera(),
+    canvasWidth: 800,
+    canvasHeight: 600,
+    npcs: [
+      { id: 'n1', name: 'Alice', role: 'farmer', seed: 1, tileX: 2, tileY: 2,
+        direction: 'down', frame: 0, frameTimer: 0 } as NpcInstance,
+    ],
+    npcSheets: new Map(),
+    visualMap: null,
+    blobMap: null,
+    tileAtlas: null,
+    terrainSheets: new Map(),
+    buildingSprites: new Map(),
+    treeSheets: new Map(),
+    world: { entities: new Map(), query: () => [] } as any,
+  };
+}
+
 describe('iso-renderer: integration', () => {
   it('renders without throwing on a populated RenderContext', () => {
     const ctx = makeMockCtx();
-    const rc: RenderContext = {
-      map: makeMap(8, 6),
-      camera: createIsoCamera(),
-      canvasWidth: 800,
-      canvasHeight: 600,
-      npcs: [
-        { id: 'n1', name: 'Alice', role: 'farmer', seed: 1, tileX: 2, tileY: 2,
-          direction: 'down', frame: 0, frameTimer: 0 } as NpcInstance,
-      ],
-      npcSheets: new Map(),
-      visualMap: null,
-      blobMap: null,
-      tileAtlas: null,
-      terrainSheets: new Map(),
-      buildingSprites: new Map(),
-      treeSheets: new Map(),
-      world: { entities: new Map(), query: () => [] } as any,
-    };
+    const rc = makeRc();
     expect(() => renderMap(ctx, rc)).not.toThrow();
+    expect((ctx.fill as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(0);
+  });
+});
+
+describe('iso-renderer: factory', () => {
+  it('back-compat renderMap export runs without throwing', () => {
+    const ctx = makeMockCtx();
+    expect(() => renderMap(ctx, makeRc())).not.toThrow();
+  });
+
+  it('createIsoRenderMap(null) returns a callable renderMap that does not throw', () => {
+    const fn = createIsoRenderMap(null);
+    const ctx = makeMockCtx();
+    expect(() => fn(ctx, makeRc())).not.toThrow();
     expect((ctx.fill as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(0);
   });
 });

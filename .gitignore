@@ -31,3 +31,8 @@ dist/
 # Playwright artifacts (ad-hoc dev screenshots + generated reports)
 playwright-report/
 test-results/
+
+# PixelLab on-disk cache used by scripts/gen-iso-terrain.ts.
+# The cache survives across script runs to avoid re-spending API credits;
+# it is intentionally not committed.
+var/
