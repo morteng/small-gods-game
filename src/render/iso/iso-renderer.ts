@@ -1,14 +1,15 @@
-import type { RenderContext } from '@/core/types';
+import type { RenderContext, Entity } from '@/core/types';
 import { drawIsoTerrain } from './iso-terrain';
-import { drawIsoNpc, drawIsoBuilding, drawIsoTree } from './iso-sprites';
+import { drawIsoNpc, drawIsoBuilding, drawIsoVegetation } from './iso-sprites';
 import { drawIsoOverlays } from './iso-overlay';
 import { createNullAtlas } from './iso-atlas';
 import { visibleTileBounds } from './iso-projection';
 import { buildYSortBucket, buildingSortKey, type YSortEntry } from './iso-ysort';
+import { tryGetEntityKindDef } from '@/world/entity-kinds';
 
 const BG_COLOR = '#1a1a24';
 const KIND_PRIORITY: Record<string, number> = {
-  river: 0, road: 1, deco: 2, tree: 3, building: 4, npc: 5,
+  river: 0, road: 1, deco: 2, vegetation: 3, building: 4, npc: 5,
 };
 
 export type RenderMap = (ctx: CanvasRenderingContext2D, rc: RenderContext) => void;
@@ -61,6 +62,22 @@ export function createIsoRenderMap(): RenderMap {
       });
     }
 
+    const vegById = new Map<string, Entity>();
+    const region = {
+      x: bounds.minTx, y: bounds.minTy,
+      w: bounds.maxTx - bounds.minTx + 1,
+      h: bounds.maxTy - bounds.minTy + 1,
+    };
+    for (const e of rc.world.query({ region })) {
+      if (tryGetEntityKindDef(e.kind)?.category !== 'vegetation') continue;
+      vegById.set(e.id, e);
+      entries.push({
+        id: e.id, kind: 'vegetation',
+        tx: e.x, ty: e.y, z: 0,
+        kindPriority: KIND_PRIORITY.vegetation,
+      });
+    }
+
     const sorted = buildYSortBucket(entries);
     for (const e of sorted) {
       if (e.kind === 'building') {
@@ -69,8 +86,9 @@ export function createIsoRenderMap(): RenderMap {
       } else if (e.kind === 'npc') {
         const n = rc.npcs.find((x) => x.id === e.id);
         if (n) drawIsoNpc({ ctx, atlas: effectiveAtlas, originX, originY }, n);
-      } else if (e.kind === 'tree') {
-        drawIsoTree({ ctx, atlas: effectiveAtlas, originX, originY }, e.tx, e.ty, '#3a7a3a');
+      } else if (e.kind === 'vegetation') {
+        const v = vegById.get(e.id);
+        if (v) drawIsoVegetation({ ctx, atlas: effectiveAtlas, originX, originY }, v);
       }
     }
 

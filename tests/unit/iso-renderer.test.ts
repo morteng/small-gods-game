@@ -55,6 +55,28 @@ describe('iso-renderer: integration', () => {
   });
 });
 
+describe('iso-renderer: vegetation', () => {
+  it('draws vegetation entities returned by world.query', () => {
+    const veg = [
+      { id: 'oak1', kind: 'oak_tree', x: 2, y: 2 },
+      { id: 'fern1', kind: 'fern', x: 3, y: 3 },
+    ];
+    const rc = makeRc();
+    rc.world = { entities: new Map(), query: () => veg } as any;
+    const ctx = makeMockCtx();
+    renderMap(ctx, rc);
+    // each vegetation entity draws a ground-shadow ellipse
+    expect((ctx.ellipse as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('ignores non-vegetation entities from world.query', () => {
+    const rc = makeRc();
+    rc.world = { entities: new Map(), query: () => [{ id: 'c1', kind: 'cottage', x: 1, y: 1 }] } as any;
+    const ctx = makeMockCtx();
+    expect(() => renderMap(ctx, rc)).not.toThrow();
+  });
+});
+
 describe('iso-renderer: factory', () => {
   it('back-compat renderMap export runs without throwing', () => {
     const ctx = makeMockCtx();

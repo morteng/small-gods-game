@@ -15,7 +15,7 @@ describe('iso-ysort: single-tile entities', () => {
   it('breaks ties with z then kindPriority', () => {
     const entries: YSortEntry[] = [
       { id: 'low',  kind: 'npc',  tx: 3, ty: 3, z: 0, kindPriority: 1 },
-      { id: 'high', kind: 'tree', tx: 3, ty: 3, z: 50, kindPriority: 0 },
+      { id: 'high', kind: 'vegetation', tx: 3, ty: 3, z: 50, kindPriority: 0 },
       { id: 'same', kind: 'deco', tx: 3, ty: 3, z: 0, kindPriority: 0 },
     ];
     const sorted = buildYSortBucket(entries);

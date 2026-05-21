@@ -1,4 +1,4 @@
-export type IsoEntityKind = 'npc' | 'tree' | 'deco' | 'building' | 'road' | 'river';
+export type IsoEntityKind = 'npc' | 'vegetation' | 'deco' | 'building' | 'road' | 'river';
 
 export interface YSortEntry {
   id: string;

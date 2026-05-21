@@ -1,7 +1,8 @@
 import { ISO_TILE_W, ISO_TILE_H } from './iso-constants';
 import { worldToScreen } from './iso-projection';
 import type { IsoAtlas } from './iso-atlas';
-import type { NpcInstance, BuildingInstance } from '@/core/types';
+import type { NpcInstance, BuildingInstance, Entity } from '@/core/types';
+import { tryGetEntityKindDef } from '@/world/entity-kinds';
 
 export interface IsoDrawCtx {
   ctx: CanvasRenderingContext2D;
@@ -89,20 +90,47 @@ export function drawIsoBuilding(
   ctx.fill();
 }
 
-export function drawIsoTree(dc: IsoDrawCtx, tx: number, ty: number, color: string): void {
-  const sprite = dc.atlas.getTree(color);
-  if (sprite) return;
-  const { sx, sy } = worldToScreen(tx, ty, 0, dc.originX, dc.originY);
+const TRUNK_COLOR = '#5a4030';
+
+/**
+ * Draw a vegetation entity as an iso primitive: ground shadow, an optional
+ * trunk for tall trees, and a canopy whose shape/color come from the entity
+ * kind catalog. `yOffsetForSort` doubles as a size class (0.1 ground cover →
+ * 1.5 mature tree). No-op for non-vegetation kinds.
+ */
+export function drawIsoVegetation(dc: IsoDrawCtx, e: Entity): void {
+  const def = tryGetEntityKindDef(e.kind);
+  if (!def || def.category !== 'vegetation') return;
+
   const ctx = dc.ctx;
+  const { sx, sy } = worldToScreen(e.x, e.y, 0, dc.originX, dc.originY);
+  const size = def.yOffsetForSort ?? 0.5;
+  const isTree = size >= 1;
+  const canopyR = 10 + size * 22;
+  const trunkH = isTree ? 16 + size * 24 : 0;
+
   ctx.fillStyle = 'rgba(0,0,0,0.3)';
   ctx.beginPath();
-  ctx.ellipse(sx, sy, ISO_TILE_W / 5, ISO_TILE_H / 5, 0, 0, Math.PI * 2);
+  ctx.ellipse(sx, sy, canopyR * 0.8, canopyR * 0.4, 0, 0, Math.PI * 2);
   ctx.fill();
-  ctx.fillStyle = color;
+
+  if (isTree) {
+    ctx.fillStyle = TRUNK_COLOR;
+    ctx.fillRect(sx - 2, sy - trunkH, 4, trunkH);
+  }
+
+  const cy = sy - trunkH - (isTree ? 0 : canopyR * 0.3);
+  ctx.fillStyle = def.sprite.fallbackColor ?? '#3a7a3a';
   ctx.beginPath();
-  ctx.moveTo(sx, sy - 48);
-  ctx.lineTo(sx + 16, sy - 4);
-  ctx.lineTo(sx - 16, sy - 4);
-  ctx.closePath();
+  if (def.sprite.fallbackShape === 'triangle') {
+    ctx.moveTo(sx, cy - canopyR * 1.6);
+    ctx.lineTo(sx + canopyR, cy + canopyR * 0.4);
+    ctx.lineTo(sx - canopyR, cy + canopyR * 0.4);
+    ctx.closePath();
+  } else if (def.sprite.fallbackShape === 'square') {
+    ctx.rect(sx - canopyR, cy - canopyR, canopyR * 2, canopyR * 2);
+  } else {
+    ctx.arc(sx, cy, canopyR, 0, Math.PI * 2);
+  }
   ctx.fill();
 }
