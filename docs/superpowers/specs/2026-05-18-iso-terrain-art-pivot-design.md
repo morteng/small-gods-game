@@ -1,5 +1,9 @@
 # Iso Terrain Art — Pivot (create-tileset) Design Spec
 
+> **STALE (2026-05-21):** Superseded. The iso renderer now uses plain
+> per-terrain colored diamonds; the Wang/blob-47 autotiling described below
+> was ripped out. Kept for history only.
+
 **Status:** Design (2026-05-18) — pivot from the same-day superseded design
 **Author:** brainstormed via Claude + Morten after PR-2-time PixelLab API discovery
 **Supersedes:** [Iso Terrain Art design (superseded)](2026-05-18-iso-terrain-art-design.md)

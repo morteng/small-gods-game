@@ -1,5 +1,9 @@
 # Iso Terrain Art Pivot Implementation Plan
 
+> **STALE (2026-05-21):** Superseded. The iso renderer now uses plain
+> per-terrain colored diamonds; the Wang/blob-47 autotiling described below
+> was ripped out. Kept for history only.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to execute this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Pivot PR 2 from the (superseded) composer + 5×3 primitive sheet approach to PixelLab's `create-tileset` endpoint + iso warp post-process. Ship the 6 iso terrain atlas PNGs and the rebuilt baking script.

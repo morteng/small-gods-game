@@ -61,8 +61,8 @@ describe('iso-renderer: factory', () => {
     expect(() => renderMap(ctx, makeRc())).not.toThrow();
   });
 
-  it('createIsoRenderMap(null) returns a callable renderMap that does not throw', () => {
-    const fn = createIsoRenderMap(null);
+  it('createIsoRenderMap() returns a callable renderMap that does not throw', () => {
+    const fn = createIsoRenderMap();
     const ctx = makeMockCtx();
     expect(() => fn(ctx, makeRc())).not.toThrow();
     expect((ctx.fill as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(0);

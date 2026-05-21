@@ -1,5 +1,9 @@
 # Iso Terrain Art (PR 2 of iso renderer) — Design Spec
 
+> **STALE (2026-05-21):** Superseded. The iso renderer now uses plain
+> per-terrain colored diamonds; the Wang/blob-47 autotiling described below
+> was ripped out. Kept for history only.
+
 > **⚠️ SUPERSEDED (2026-05-18, same day):** This design assumed PixelLab's `create-image-pixflux` endpoint would accept a 5×3 primitive sheet at 640×192 with a custom view-angle field, then we'd procedurally compose 47 blob variants from the primitives. At first call against the live API both assumptions failed: `image_size` caps at 400×400 per dim, and `view` is a strict enum (`'side' | 'low top-down' | 'high top-down'` — no iso). Worse, deeper API-doc reading revealed `create-tileset` natively generates Wang/47-blob terrain transitions, making the composer module redundant.
 >
 > **Replaced by:** [Iso Terrain Art — Pivot (create-tileset) Design](2026-05-18-iso-terrain-art-pivot-design.md). The composer module (`src/render/iso/blob-composer.ts`) + its 15 unit tests are dropped. The atlas-loader, iso-renderer factory, and select-renderer wiring (Tasks 4–8 of the original plan) are kept since they're agnostic to how the PNGs are produced.

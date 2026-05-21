@@ -14,12 +14,8 @@ export async function selectRenderer(): Promise<RenderFn> {
     // localStorage may be unavailable (iframe with storage disabled etc.)
   }
   if (mode === 'iso') {
-    const [{ createIsoRenderMap }, { loadIsoTerrainAtlas }] = await Promise.all([
-      import('@/render/iso/iso-renderer'),
-      import('@/render/iso/iso-atlas-loader'),
-    ]);
-    const atlas = await loadIsoTerrainAtlas();
-    return createIsoRenderMap(atlas);
+    const { createIsoRenderMap } = await import('@/render/iso/iso-renderer');
+    return createIsoRenderMap();
   }
   const mod = await import('@/render/renderer');
   return mod.renderMap;

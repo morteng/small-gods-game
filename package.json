@@ -9,14 +9,12 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:ui": "vitest --ui",
-    "gen:iso-terrain": "tsx scripts/gen-iso-terrain.ts"
+    "test:ui": "vitest --ui"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "devDependencies": {
-    "@napi-rs/canvas": "^1.0.0",
     "@types/node": "^25.0.9",
     "@vitest/ui": "^4.0.18",
     "fake-indexeddb": "^6.2.5",

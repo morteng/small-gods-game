@@ -2,7 +2,7 @@ import type { RenderContext } from '@/core/types';
 import { drawIsoTerrain } from './iso-terrain';
 import { drawIsoNpc, drawIsoBuilding, drawIsoTree } from './iso-sprites';
 import { drawIsoOverlays } from './iso-overlay';
-import { createNullAtlas, type IsoAtlas } from './iso-atlas';
+import { createNullAtlas } from './iso-atlas';
 import { visibleTileBounds } from './iso-projection';
 import { buildYSortBucket, buildingSortKey, type YSortEntry } from './iso-ysort';
 
@@ -14,12 +14,12 @@ const KIND_PRIORITY: Record<string, number> = {
 export type RenderMap = (ctx: CanvasRenderingContext2D, rc: RenderContext) => void;
 
 /**
- * Factory: build a renderMap closure that captures the provided atlas.
- * If atlas is null (load failed), fall back to the null atlas — renderer
- * still produces output via the per-tile diamond/extruded-box fallback.
+ * Factory: build a renderMap closure. Terrain is drawn as plain colored
+ * diamonds; building/tree/npc sprite helpers use the null atlas (they
+ * already fall back to extruded-box/diamond primitives).
  */
-export function createIsoRenderMap(atlas: IsoAtlas | null): RenderMap {
-  const effectiveAtlas = atlas ?? createNullAtlas();
+export function createIsoRenderMap(): RenderMap {
+  const effectiveAtlas = createNullAtlas();
   return function renderMap(ctx: CanvasRenderingContext2D, rc: RenderContext): void {
     const { camera, canvasWidth, canvasHeight, map } = rc;
     ctx.fillStyle = BG_COLOR;
@@ -38,12 +38,7 @@ export function createIsoRenderMap(atlas: IsoAtlas | null): RenderMap {
       { mapW: map.width, mapH: map.height },
     );
 
-    drawIsoTerrain(ctx, {
-      map,
-      atlas: effectiveAtlas,
-      blobMap: rc.blobMap,
-      bounds, originX, originY,
-    });
+    drawIsoTerrain(ctx, { map, bounds, originX, originY });
 
     const entries: YSortEntry[] = [];
     for (const b of (map as any).buildings ?? []) {
@@ -85,11 +80,4 @@ export function createIsoRenderMap(atlas: IsoAtlas | null): RenderMap {
   };
 }
 
-/**
- * Back-compat shim: existing dynamic-import paths reference `renderMap`
- * as a top-level export. Now that the renderer is a factory we expose a
- * fallback `renderMap` constructed with a null atlas (i.e. the same
- * behavior as before). select-renderer.ts replaces this at runtime by
- * calling createIsoRenderMap(atlas) with the loaded atlas.
- */
-export const renderMap: RenderMap = createIsoRenderMap(null);
+export const renderMap: RenderMap = createIsoRenderMap();

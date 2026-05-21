@@ -1,5 +1,9 @@
 # Iso Terrain Art (PR 2 of iso renderer) Implementation Plan
 
+> **STALE (2026-05-21):** Superseded. The iso renderer now uses plain
+> per-terrain colored diamonds; the Wang/blob-47 autotiling described below
+> was ripped out. Kept for history only.
+
 > **⚠️ PARTIALLY SUPERSEDED (2026-05-18, same day).** Tasks 1–8 of this plan landed and stay good (atlas-loader, iso-renderer factory, select-renderer wiring — all `create-tileset`-agnostic). Tasks 9–14 are replaced by a new plan that uses PixelLab's `create-tileset` endpoint instead of the composer + 5×3 primitive sheet approach. Reason: at first call against the live API, `create-image-pixflux`'s `view` enum had no iso option and `image_size` capped at 400×400, while deeper docs reading revealed `create-tileset` natively does Wang/47-blob terrain transitions. The composer module is now redundant and gets deleted in the pivot plan.
 >
 > **Replaced by:** [Iso Terrain Art Pivot Implementation Plan](2026-05-18-iso-terrain-art-pivot.md).
