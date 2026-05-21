@@ -416,6 +416,32 @@ describe('composeBlob47Atlas', () => {
       expect(nonTransparentPixels).toBe(expectedPixels);
     });
 
+    it('square cell mode: composes at caller-supplied cell dimensions', () => {
+      // Compose-then-warp pipeline composes in topdown SQUARE space (e.g. 64×64)
+      // and warps afterwards. The composer must honour caller-supplied cell dims.
+      const sqCellW = 64, sqCellH = 64;
+      const sheet = new OffscreenCanvas(sqCellW * 5, sqCellH * 3);
+      const sctx = sheet.getContext('2d')!;
+      const cells: Array<[number, number, string]> = [
+        [0, 0, '#100000'], [1, 0, '#110000'], [2, 0, '#120000'], [3, 0, '#130000'], [4, 0, '#140000'],
+        [0, 1, '#200000'], [1, 1, '#210000'], [2, 1, '#220000'], [3, 1, '#230000'], [4, 1, '#240000'],
+        [0, 2, '#300000'], [1, 2, '#310000'], [2, 2, '#320000'], [3, 2, '#330000'], [4, 2, '#340000'],
+      ];
+      for (const [c, r, color] of cells) {
+        sctx.fillStyle = color;
+        sctx.fillRect(c * sqCellW, r * sqCellH, sqCellW, sqCellH);
+      }
+      const target = new OffscreenCanvas(sqCellW * ATLAS_COLS, sqCellH * 8);
+      composeBlob47Atlas(sheet, target, sqCellW, sqCellH);
+
+      // Fully-surrounded blob → all 4 quadrants from CENTER primitive (#210000).
+      const fullBlob = BLOB_INDEX_MAP_FOR_TEST[0xFF] % 47;
+      const cx = (fullBlob % ATLAS_COLS) * sqCellW;
+      const cy = Math.floor(fullBlob / ATLAS_COLS) * sqCellH;
+      expect(pixelAt(target, cx + 8, cy + 8)).toBe('#210000');
+      expect(pixelAt(target, cx + sqCellW - 8, cy + sqCellH - 8)).toBe('#210000');
+    });
+
     it('W-only cardinal topology: TL and BL use N_EDGE/S_EDGE, TR and BR use NE_OUTER/SE_OUTER', () => {
       // Find a blob whose representative mask has W=1, N=0, S=0, E=0
       const blobToMask = computeBlobToMask();

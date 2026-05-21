@@ -1,14 +1,21 @@
 /**
- * Author-time iso terrain baker (pivot of pivot).
+ * Author-time iso terrain baker.
  *
  * Flow per terrain type:
  *   1. POST /v2/create-tileset (returns tileset_id + status:processing)
  *   2. Poll GET /v2/tilesets/{id} until tiles array materializes
  *   3. Decode 16 Wang cells (32x32 each)
- *   4. Per cell: upscale 32→128 nearest-neighbor + iso-warp to 128x64
- *   5. Stitch 13 warped cells into a 5x3 primitive sheet
- *   6. composeBlob47Atlas(sheet) → 768x512 atlas
+ *   4. Stitch 13 cells (upscaled to 128px, unwarped) into a 5x3 topdown sheet
+ *   5. composeBlob47Atlas in topdown square space → 768x1024 topdown atlas
+ *   6. Iso-warp each of the 48 finished cells → 768x512 iso atlas
  *   7. Write public/sprites/iso/terrain/<type>-blob47.png
+ *
+ * Compose-then-warp: the blob composer is a topdown corner-method assembler —
+ * it copies bounding-box quarters and treats each as a tile corner bordered by
+ * two cardinal edges. That holds for square tiles, not for iso diamonds (a
+ * tile's grid-corner maps to a diamond vertex whose region straddles two
+ * quarters). So composition must happen in topdown space; the warp is applied
+ * once, afterwards, to each finished tile.
  *
  * Run: PIXELLAB_API_KEY=… npm run gen:iso-terrain
  * Single type: npm run gen:iso-terrain -- --type=grass
@@ -20,10 +27,12 @@ import { dirname, join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
-import {
-  composeBlob47Atlas,
-  PRIMITIVE_W, PRIMITIVE_H, OUTPUT_W, OUTPUT_H, CELL_W, CELL_H,
-} from '../src/render/iso/blob-composer';
+import { composeBlob47Atlas, OUTPUT_W, OUTPUT_H, CELL_W, CELL_H } from '../src/render/iso/blob-composer';
+
+/** Topdown primitive/atlas cell size (square) used during composition. */
+const TD_CELL = 128;
+const ATLAS_COLS = 6;
+const ATLAS_ROWS = 8;
 import { ISO_TERRAIN_TYPES, type IsoTerrainType } from '../src/render/iso/iso-atlas-loader';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -54,27 +63,32 @@ const STYLE_RECIPE = {
 /**
  * Wang→primitive (col,row) mapping for the 5x3 sheet the composer expects.
  *
- * PixelLab's Wang-16 convention treats a set bit as "this corner contains the
- * UPPER (transition) terrain"; the unset (lower) corners are the ones that
- * belong to the tile's own group. So Wang 0 (no bits) is the all-lower cell
- * (= CENTER) and Wang 15 (all bits) is the all-upper cell (unused). Each key
- * below is the bit-complement (^15) of what a "1 = lower" convention would
- * use, picking exactly the same 13 cells but at the correct positions.
+ * A PixelLab create-tileset Wang id is the bitmask of corners holding the
+ * UPPER (transition) terrain — verified by decoding the 16 cells. Bit layout:
+ * bit0=SE, bit1=SW, bit2=NE, bit3=NW.
+ *
+ * The composer samples each slot's bounding-box quarter as a topdown tile
+ * corner (e.g. the TL quarter is the NW corner, bordered by the N and W edges).
+ * So each slot needs the cell whose dirt corners match the slot's role:
+ *  - CENTER: no dirt corners.
+ *  - EDGE: the two corners on the foreign side are dirt.
+ *  - INNER (concave): only the single diagonal corner is dirt.
+ *  - OUTER (convex): every corner except the center-ward one is dirt.
  */
 const WANG_TO_PRIM_COORD: Record<number, readonly [number, number]> = {
-  7:  [0, 0], // NW_OUTER  (only NW is lower)
-  3:  [1, 0], // N_EDGE    (north half lower)
-  11: [2, 0], // NE_OUTER  (only NE is lower)
-  5:  [0, 1], // W_EDGE    (west half lower)
-  0:  [1, 1], // CENTER    (all lower)
-  10: [2, 1], // E_EDGE    (east half lower)
-  8:  [3, 1], // NW_INNER  (only NW is upper)
-  4:  [4, 1], // NE_INNER  (only NE is upper)
-  13: [0, 2], // SW_OUTER  (only SW is lower)
-  12: [1, 2], // S_EDGE    (south half lower)
-  14: [2, 2], // SE_OUTER  (only SE is lower)
-  2:  [3, 2], // SW_INNER  (only SW is upper)
-  1:  [4, 2], // SE_INNER  (only SE is upper)
+  14: [0, 0], // NW_OUTER  — dirt NW+NE+SW (lower only at SE)
+  12: [1, 0], // N_EDGE    — dirt NW+NE
+  13: [2, 0], // NE_OUTER  — dirt NW+NE+SE (lower only at SW)
+  10: [0, 1], // W_EDGE    — dirt NW+SW
+  0:  [1, 1], // CENTER    — all lower
+  5:  [2, 1], // E_EDGE    — dirt NE+SE
+  8:  [3, 1], // NW_INNER  — dirt only at NW
+  4:  [4, 1], // NE_INNER  — dirt only at NE
+  11: [0, 2], // SW_OUTER  — dirt NW+SW+SE (lower only at NE)
+  3:  [1, 2], // S_EDGE    — dirt SW+SE
+  7:  [2, 2], // SE_OUTER  — dirt NE+SW+SE (lower only at NW)
+  2:  [3, 2], // SW_INNER  — dirt only at SW
+  1:  [4, 2], // SE_INNER  — dirt only at SE
 };
 
 function sha256Hex(input: string): string {
@@ -193,26 +207,19 @@ async function fetchTilesetCached(type: IsoTerrainType): Promise<TilesetResponse
 }
 
 /**
- * Iso-warp a single Wang cell from 32×32 → 128×64 dimetric.
- * Steps: upscale to 128×128 (nearest-neighbor), then 45° rotate + 2:1 squash.
+ * Iso-warp one finished topdown tile (TD_CELL×TD_CELL) → 128×64 dimetric.
+ * Steps: 45° rotate + 2:1 squash. Nearest-neighbor throughout (pixel art).
  */
-function warpWangCell(img: NodeImage): NodeImage {
-  // Step 1: nearest-neighbor upscale 32×32 → 128×128.
-  const big = createCanvas(128, 128);
-  const bCtx = big.getContext('2d');
-  bCtx.imageSmoothingEnabled = false;
-  bCtx.drawImage(img, 0, 0, 128, 128);
-
-  // Step 2: rotate 45° around centre on a diag-sized canvas.
-  const diag = Math.ceil(128 * Math.SQRT2);
+function warpCell(img: NodeImage): NodeImage {
+  const diag = Math.ceil(TD_CELL * Math.SQRT2);
   const rot = createCanvas(diag, diag);
   const rCtx = rot.getContext('2d');
   rCtx.imageSmoothingEnabled = false;
   rCtx.translate(diag / 2, diag / 2);
   rCtx.rotate(Math.PI / 4);
-  rCtx.drawImage(big as unknown as NodeImage, -64, -64);
+  rCtx.drawImage(img, -TD_CELL / 2, -TD_CELL / 2);
 
-  // Step 3: scale to 128×64 (the rotated bbox is square; resampling to 2:1 produces the dimetric squash).
+  // The rotated bbox is square; resampling to 2:1 produces the dimetric squash.
   const out = createCanvas(CELL_W, CELL_H);
   const oCtx = out.getContext('2d');
   oCtx.imageSmoothingEnabled = false;
@@ -220,10 +227,13 @@ function warpWangCell(img: NodeImage): NodeImage {
   return out as unknown as NodeImage;
 }
 
-async function buildPrimitiveSheet(tileset: TilesetResponse['tileset']): Promise<NodeImage> {
-  if (!tileset?.tiles?.length) throw new Error('buildPrimitiveSheet: empty tileset');
+/**
+ * Stitch the 13 named Wang cells (upscaled to TD_CELL, NOT warped) into the
+ * 5×3 topdown primitive sheet the composer expects.
+ */
+async function buildTopdownPrimitiveSheet(tileset: TilesetResponse['tileset']): Promise<NodeImage> {
+  if (!tileset?.tiles?.length) throw new Error('buildTopdownPrimitiveSheet: empty tileset');
 
-  // Index cells by Wang id.
   const byWangId = new Map<number, { base64: string }>();
   for (const tile of tileset.tiles) {
     const n = Number(tile.id);
@@ -231,7 +241,7 @@ async function buildPrimitiveSheet(tileset: TilesetResponse['tileset']): Promise
     byWangId.set(n, tile.image);
   }
 
-  const sheet = createCanvas(PRIMITIVE_W, PRIMITIVE_H);
+  const sheet = createCanvas(TD_CELL * 5, TD_CELL * 3);
   const sCtx = sheet.getContext('2d');
   sCtx.imageSmoothingEnabled = false;
 
@@ -243,8 +253,8 @@ async function buildPrimitiveSheet(tileset: TilesetResponse['tileset']): Promise
       continue;
     }
     const cellImg = await loadImage(Buffer.from(tile.base64, 'base64'));
-    const warped = warpWangCell(cellImg);
-    sCtx.drawImage(warped, col * CELL_W, row * CELL_H);
+    // Nearest-neighbor upscale 32→TD_CELL; warp is deferred until after composition.
+    sCtx.drawImage(cellImg, col * TD_CELL, row * TD_CELL, TD_CELL, TD_CELL);
   }
 
   return sheet as unknown as NodeImage;
@@ -252,11 +262,35 @@ async function buildPrimitiveSheet(tileset: TilesetResponse['tileset']): Promise
 
 async function bakeOne(type: IsoTerrainType): Promise<void> {
   const json = await fetchTilesetCached(type);
-  const primSheet = await buildPrimitiveSheet(json.tileset);
+  const primSheet = await buildTopdownPrimitiveSheet(json.tileset);
 
-  // Compose 47-blob atlas from the warped primitive sheet.
+  // Compose the 47-blob atlas in topdown square space.
+  const topdown = createCanvas(TD_CELL * ATLAS_COLS, TD_CELL * ATLAS_ROWS);
+  composeBlob47Atlas(
+    primSheet as unknown as HTMLImageElement,
+    topdown as unknown as OffscreenCanvas,
+    TD_CELL, TD_CELL,
+  );
+
+  // Iso-warp each finished cell into the 768×512 iso atlas.
   const atlas = createCanvas(OUTPUT_W, OUTPUT_H);
-  composeBlob47Atlas(primSheet as unknown as HTMLImageElement, atlas as unknown as OffscreenCanvas);
+  const aCtx = atlas.getContext('2d');
+  aCtx.imageSmoothingEnabled = false;
+  const cell = createCanvas(TD_CELL, TD_CELL);
+  const cellCtx = cell.getContext('2d');
+  cellCtx.imageSmoothingEnabled = false;
+  for (let row = 0; row < ATLAS_ROWS; row++) {
+    for (let col = 0; col < ATLAS_COLS; col++) {
+      cellCtx.clearRect(0, 0, TD_CELL, TD_CELL);
+      cellCtx.drawImage(
+        topdown as unknown as NodeImage,
+        col * TD_CELL, row * TD_CELL, TD_CELL, TD_CELL,
+        0, 0, TD_CELL, TD_CELL,
+      );
+      const warped = warpCell(cell as unknown as NodeImage);
+      aCtx.drawImage(warped, col * CELL_W, row * CELL_H);
+    }
+  }
 
   const outPath = join(OUTPUT_DIR, `${type}-blob47.png`);
   ensureDir(dirname(outPath));

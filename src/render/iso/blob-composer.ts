@@ -127,15 +127,29 @@ function toDrawable(src: Source): CanvasImageSource {
   return src as unknown as CanvasImageSource;
 }
 
-export function composeBlob47Atlas(primitives: Source, target: Surface): void {
+/**
+ * Compose the 47-blob atlas from a 5×3 primitive sheet.
+ *
+ * `cellW`/`cellH` default to the iso tile size, but the compose-then-warp
+ * baking pipeline passes a square size: it composes in topdown space first,
+ * then warps each finished cell. The composer's corner-method assembly assumes
+ * a bounding-box quarter equals a tile corner — true for square tiles, false
+ * for pre-warped iso diamonds — so composition must happen before the warp.
+ */
+export function composeBlob47Atlas(
+  primitives: Source,
+  target: Surface,
+  cellW: number = CELL_W,
+  cellH: number = CELL_H,
+): void {
   const ctx = (target as OffscreenCanvas).getContext('2d');
   if (!ctx) throw new Error('composeBlob47Atlas: 2d context unavailable');
-  ctx.clearRect(0, 0, OUTPUT_W, OUTPUT_H);
+  ctx.clearRect(0, 0, cellW * ATLAS_COLS, cellH * ATLAS_ROWS);
   const drawablePrimitives = toDrawable(primitives);
 
   const reverseLookup = buildBlobIndexToMask();
-  const halfW = CELL_W / 2;
-  const halfH = CELL_H / 2;
+  const halfW = cellW / 2;
+  const halfH = cellH / 2;
 
   // Note: BLOB_INDEX_MAP never produces blob indices 11, 27, 40, 41, 42, or 43,
   // so those atlas cells remain transparent by design. computeBlobMap never
@@ -145,8 +159,8 @@ export function composeBlob47Atlas(primitives: Source, target: Surface): void {
     if (mask === undefined) continue;
     const outCol = blobIndex % ATLAS_COLS;
     const outRow = Math.floor(blobIndex / ATLAS_COLS);
-    const outX = outCol * CELL_W;
-    const outY = outRow * CELL_H;
+    const outX = outCol * cellW;
+    const outY = outRow * cellH;
 
     const quadrants: Array<{ q: Quadrant; dx: number; dy: number }> = [
       { q: 'TL', dx: 0,     dy: 0 },
@@ -158,8 +172,8 @@ export function composeBlob47Atlas(primitives: Source, target: Surface): void {
     for (const { q, dx, dy } of quadrants) {
       const { A, B, D } = bitsFor(q, mask);
       const [pCol, pRow] = pickPrimitive(q, A, B, D);
-      const srcX = pCol * CELL_W + dx;
-      const srcY = pRow * CELL_H + dy;
+      const srcX = pCol * cellW + dx;
+      const srcY = pRow * cellH + dy;
       ctx.drawImage(
         drawablePrimitives,
         srcX, srcY, halfW, halfH,
