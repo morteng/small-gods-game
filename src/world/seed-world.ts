@@ -42,6 +42,8 @@ export function seedWorld(args: SeedWorldArgs): void {
   const seed = hashId(id);
   const props = initNpcProps(name, role, seed);
   props.homePoiId = seedPoi.id;
+  props.homeX = seedPoi.position.x;
+  props.homeY = seedPoi.position.y;
   // Cradle starts with low faith — the believer barely believes
   props.beliefs['player'].faith = 0.2;
   world.addEntity({

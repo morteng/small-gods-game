@@ -31,6 +31,7 @@ import { TimelineController } from '@/core/timeline';
 import { NpcMovementSystem } from '@/sim/systems/npc-movement-system';
 import { NpcSimSystem } from '@/sim/systems/npc-sim-system';
 import { BeliefPropagationSystem } from '@/sim/systems/belief-propagation-system';
+import { NpcActivitySystem } from '@/sim/systems/npc-activity-system';
 import { SpiritSystem, POWER_REGEN_RATE } from '@/sim/spirit-system';
 import { PerceptionSystem } from '@/world/perception-system';
 import { identityOracle } from '@/world/oracle';
@@ -104,6 +105,7 @@ export class Game {
 
     this.scheduler = new Scheduler();
     this.scheduler.register(new NpcMovementSystem(() => this.state.map));
+    this.scheduler.register(new NpcActivitySystem());
     this.scheduler.register(new NpcSimSystem());
     this.scheduler.register(new BeliefPropagationSystem());
     this.scheduler.register(new SpiritSystem());

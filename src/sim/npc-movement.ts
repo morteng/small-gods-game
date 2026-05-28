@@ -43,11 +43,10 @@ export function tickNpcMovementEntities(
   forEachNpc(world, (e) => {
     const p = npcProps(e);
 
-    // ── Idle-pick cooldown. Counts down each tick; when expired the
-    //    NPC picks a new destination. Also gates standing still (frame=0). ──
+    // ── Move cooldown ticks down; gates standing still. ──
     p.moveCooldown = (p.moveCooldown ?? 0) - dtMs;
 
-    // ── 1. No path? Wait cooldown, then pick a destination ──
+    // ── 1. No path? Pick a destination based on activity target or random roam ──
     if (!p.currentPath || (p.pathIndex ?? -1) < 0 || (p.pathIndex ?? 0) >= p.currentPath.length) {
       if (p.moveCooldown > 0) {
         // NPC standing still — set idle frame
@@ -56,7 +55,25 @@ export function tickNpcMovementEntities(
       }
       p.moveCooldown = IDLE_PICK_INTERVAL_MS;
 
-      // Pick a random walkable destination within roam radius
+      // If the NPC has an activity target and is not already there, path to it
+      if (p.activityTargetX !== undefined && p.activityTargetY !== undefined) {
+        // If already at the target, clear it and stay put
+        if (isAtTile(e.x, e.y, { x: p.activityTargetX, y: p.activityTargetY })) {
+          p.activityTargetX = undefined;
+          p.activityTargetY = undefined;
+          return; // stay put until next activity tick
+        }
+        const dest = { x: p.activityTargetX, y: p.activityTargetY };
+        const result = findPath(map, e.x, e.y, dest.x, dest.y);
+        if (result && result.path.length >= 2) {
+          p.currentPath = result.path;
+          p.pathIndex = 0;
+          p.pathSpeedMul = 1;
+        }
+        return;
+      }
+
+      // Idle or wander: pick a random walkable destination within roam radius
       const dest = pickRandomDestination(map, e.x, e.y, IDLE_ROAM_RADIUS, rng);
       if (!dest) return;
 

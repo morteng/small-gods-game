@@ -279,12 +279,22 @@ export interface NpcProperties {
   // home
   homeBuildingId?: string;
   homePoiId?: string;
+  // home coords (spawn position, used for sleep/work targets)
+  homeX: number;
+  homeY: number;
   // sim
   personality: NpcPersonality;
   beliefs: Record<SpiritId, SpiritBelief>;
   needs: NpcNeeds;
   mood: number;
   whisperCooldown: number;
+  // activity state machine
+  activity: NpcActivity;
+  /** Tile the NPC is trying to reach. May be home or a place of work/worship. */
+  activityTargetX?: number;
+  activityTargetY?: number;
+  /** Ticks remaining for the current activity before the next activity tick re-evaluates. */
+  activityDuration: number;
   // social graph
   relationships: Relationship[];
   // possession marker
@@ -292,6 +302,15 @@ export interface NpcProperties {
   // narrative breadcrumbs
   recentEventIds: number[];
 }
+
+/** NPC activity state */
+export type NpcActivity =
+  | 'sleep'
+  | 'work'
+  | 'socialize'
+  | 'worship'
+  | 'idle'
+  | 'wander';
 
 // ─── Entity system v2 (Spec A) ────────────────────────────────────────────────
 

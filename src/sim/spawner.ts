@@ -69,6 +69,8 @@ export function spawnAllPoiNpcs(args: {
       const props = initNpcProps(name, role, seed);
       props.homeBuildingId = home?.id;
       props.homePoiId = poi.id;
+      props.homeX = tileX;
+      props.homeY = tileY;
       world.addEntity({
         id, kind: 'npc', x: tileX, y: tileY,
         properties: props as unknown as Record<string, unknown>,

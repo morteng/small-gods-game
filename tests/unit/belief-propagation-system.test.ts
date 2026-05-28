@@ -32,7 +32,7 @@ function makeNpc(world: World, id: string, role: 'farmer' | 'priest' | 'merchant
 
 function createContext(world: World, seed = 42) {
   const clock = { now: () => 0, advance: () => {} } as any;
-  const log = new SilentEventLog();
+  const log = new SilentEventLog(null as any);
   const rng = createRng(seed);
   return {
     world,
