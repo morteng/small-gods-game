@@ -1,6 +1,6 @@
 import { createState, type GameState } from '@/core/state';
 import { TILE_SIZE } from '@/core/constants';
-import { selectRenderer, type RenderFn } from '@/render/select-renderer';
+import { selectRenderer, toggleRenderMode, readRenderMode, type RenderFn } from '@/render/select-renderer';
 import { centerOn } from '@/render/camera';
 import { attachControls, attachTimeKeys } from '@/ui/controls';
 import { WorldManager } from '@/map/world-manager';
@@ -54,6 +54,7 @@ export class Game {
   private timeline!: TimelineController;
   private cleanupControls: (() => void) | null = null;
   private cleanupTokens: (() => void) | null = null;
+  private cleanupRenderToggle: (() => void) | null = null;
   private resizeObserver: ResizeObserver;
   private rafId: number | null = null;
   private lastTime: number = 0;
@@ -123,6 +124,9 @@ export class Game {
     }
 
     this.cleanupTokens = injectTokens(this.container);
+
+    // Ctrl+Shift+I toggles render mode (topdown ↔ iso) and reloads
+    this.cleanupRenderToggle = this.attachRenderToggleKey();
 
     this.chrome = mountChrome(this.container);
     this.veil = mountPastVeil(this.container);
@@ -232,6 +236,17 @@ export class Game {
     });
   }
 
+  private attachRenderToggleKey(): () => void {
+    const handler = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.shiftKey && e.code === 'KeyI') {
+        e.preventDefault();
+        toggleRenderMode();
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }
+
   private togglePause(): void {
     const paused = this.scheduler.getRate() === 0;
     this.scheduler.setRate(paused ? 1 : 0);
@@ -288,6 +303,18 @@ export class Game {
       this.canvas.width  / devicePixelRatio,
       this.canvas.height / devicePixelRatio,
     );
+
+    // In iso mode the camera coordinate space is different — recentre
+    if (readRenderMode() === 'iso') {
+      const { centerOnTile } = await import('@/render/iso/iso-camera');
+      centerOnTile(
+        this.state.camera,
+        Math.floor(map.width / 2),
+        Math.floor(map.height / 2),
+        this.canvas.width  / devicePixelRatio,
+        this.canvas.height / devicePixelRatio,
+      );
+    }
 
     seedWorld({
       world: this.state.world!,
@@ -535,6 +562,7 @@ export class Game {
     this.stopLoop();
     this.cleanupControls?.();
     this.cleanupTokens?.();
+    this.cleanupRenderToggle?.();
     this.resizeObserver.disconnect();
     this.pausedBanner.remove();
     this.debugHud.remove();

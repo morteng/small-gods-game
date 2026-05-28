@@ -7,21 +7,21 @@ describe('pickTile: mode dispatch', () => {
     localStorage.clear();
   });
 
-  it('uses topdown math when flag absent', () => {
+  it('uses iso math by default', () => {
     const cam = createCamera();
     cam.zoom = 1;
+    // (64, 96) in screen coords → (2, 1) in iso tile coords
     const { tx, ty } = pickTile(cam, 64, 96);
-    // TILE_SIZE = 32 → (64/32, 96/32) = (2, 3)
     expect(tx).toBe(2);
-    expect(ty).toBe(3);
+    expect(ty).toBe(1);
   });
 
-  it('uses iso math when flag is "iso"', () => {
-    localStorage.setItem('smallgods.render.mode', 'iso');
+  it('uses topdown math when flag is "topdown"', () => {
+    localStorage.setItem('smallgods.render.mode', 'topdown');
     const cam = createCamera();
     cam.zoom = 1;
-    cam.x = 0; cam.y = 0;
-    expect(pickTile(cam, 0, 0)).toEqual({ tx: 0, ty: 0 });
+    // TILE_SIZE = 32 → (64/32, 96/32) = (2, 3)
+    expect(pickTile(cam, 64, 96)).toEqual({ tx: 2, ty: 3 });
     localStorage.removeItem('smallgods.render.mode');
   });
 });

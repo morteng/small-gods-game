@@ -3,16 +3,7 @@ import type { Camera } from '@/core/types';
 import { TILE_SIZE } from '@/core/constants';
 import { screenToWorld } from '@/render/camera';
 import { screenToTile as isoScreenToTile } from '@/render/iso/iso-projection';
-
-const LS_KEY = 'smallgods.render.mode';
-
-function readRenderMode(): 'topdown' | 'iso' {
-  try {
-    return localStorage.getItem(LS_KEY) === 'iso' ? 'iso' : 'topdown';
-  } catch {
-    return 'topdown';
-  }
-}
+import { readRenderMode } from '@/render/select-renderer';
 
 export function pickTile(camera: Camera, sx: number, sy: number): { tx: number; ty: number } {
   if (readRenderMode() === 'iso') {
