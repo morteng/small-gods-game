@@ -6,6 +6,7 @@ import { createNullAtlas } from './iso-atlas';
 import { visibleTileBounds } from './iso-projection';
 import { buildYSortBucket, buildingSortKey, type YSortEntry } from './iso-ysort';
 import { tryGetEntityKindDef } from '@/world/entity-kinds';
+import { getBuildingTemplate } from '@/map/building-templates';
 
 const BG_COLOR = '#1a1a24';
 const KIND_PRIORITY: Record<string, number> = {
@@ -43,9 +44,12 @@ export function createIsoRenderMap(): RenderMap {
 
     const entries: YSortEntry[] = [];
     for (const b of (map as any).buildings ?? []) {
+      const tpl = getBuildingTemplate(b.templateId);
+      const footprintW = tpl?.footprint.w ?? 1;
+      const footprintH = tpl?.footprint.h ?? 1;
       const key = buildingSortKey({
         tx: b.tileX, ty: b.tileY,
-        footprintW: b.footprintW ?? 1, footprintH: b.footprintH ?? 1,
+        footprintW, footprintH,
       });
       entries.push({
         id: b.id, kind: 'building',
@@ -78,17 +82,21 @@ export function createIsoRenderMap(): RenderMap {
       });
     }
 
+    const drawCtx = { ctx, atlas: effectiveAtlas, originX, originY, npcSheets: rc.npcSheets };
     const sorted = buildYSortBucket(entries);
     for (const e of sorted) {
       if (e.kind === 'building') {
         const b = (map as any).buildings.find((x: any) => x.id === e.id);
-        if (b) drawIsoBuilding({ ctx, atlas: effectiveAtlas, originX, originY }, b, b.footprintW ?? 1, b.footprintH ?? 1);
+        if (b) {
+          const btpl = getBuildingTemplate(b.templateId);
+          drawIsoBuilding(drawCtx, b, btpl?.footprint.w ?? 1, btpl?.footprint.h ?? 1);
+        }
       } else if (e.kind === 'npc') {
         const n = rc.npcs.find((x) => x.id === e.id);
-        if (n) drawIsoNpc({ ctx, atlas: effectiveAtlas, originX, originY }, n);
+        if (n) drawIsoNpc(drawCtx, n);
       } else if (e.kind === 'vegetation') {
         const v = vegById.get(e.id);
-        if (v) drawIsoVegetation({ ctx, atlas: effectiveAtlas, originX, originY }, v);
+        if (v) drawIsoVegetation(drawCtx, v);
       }
     }
 

@@ -3,12 +3,15 @@ import { worldToScreen } from './iso-projection';
 import type { IsoAtlas } from './iso-atlas';
 import type { NpcInstance, BuildingInstance, Entity } from '@/core/types';
 import { tryGetEntityKindDef } from '@/world/entity-kinds';
+import { getSpriteCoords } from '@/render/npc-animator';
 
 export interface IsoDrawCtx {
   ctx: CanvasRenderingContext2D;
   atlas: IsoAtlas;
   originX: number;
   originY: number;
+  /** LPC spritesheets keyed by NPC id (shared with top-down renderer). */
+  npcSheets?: Map<string, HTMLCanvasElement>;
 }
 
 const NPC_COLOR_BY_ROLE: Record<string, string> = {
@@ -17,13 +20,44 @@ const NPC_COLOR_BY_ROLE: Record<string, string> = {
   default:  '#e0e0e0',
 };
 
+/**
+ * Pixel height of the LPC sprite billboard above the ground.
+ * Must match the z-offset in worldToScreen (z is in raw screen pixels).
+ */
+const BILLBOARD_H_PX = 64;
+
 export function drawIsoNpc(dc: IsoDrawCtx, npc: NpcInstance): void {
   const { sx, sy } = worldToScreen(npc.tileX, npc.tileY, 0, dc.originX, dc.originY);
-  const sheet = dc.atlas.getCharacter(npc.role);
-  if (sheet) {
+  const ctx = dc.ctx;
+
+  // 1. Iso character atlas (future PR 4) — not available yet
+  const isoSprite = dc.atlas.getCharacter(npc.role);
+  if (isoSprite) {
     return;
   }
-  const ctx = dc.ctx;
+
+  // 2. Billboard from LPC spritesheet (reuse top-down art)
+  const sheet = dc.npcSheets?.get(npc.id);
+  if (sheet) {
+    const { sx: sheetSx, sy: sheetSy } = getSpriteCoords(npc);
+    const top = worldToScreen(npc.tileX, npc.tileY, BILLBOARD_H_PX, dc.originX, dc.originY);
+    const billboardH = sy - top.sy;
+    const billboardW = billboardH; // square sprite
+
+    // Shadow on ground
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx.beginPath();
+    ctx.ellipse(sx, sy, billboardW * 0.35, ISO_TILE_H * 0.22, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Sprite billboard
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(sheet, sheetSx, sheetSy, 64, 64,
+                  sx - billboardW / 2, sy - billboardH, billboardW, billboardH);
+    return;
+  }
+
+  // 3. Fallback colored circle (no art available)
   ctx.fillStyle = 'rgba(0,0,0,0.35)';
   ctx.beginPath();
   ctx.ellipse(sx, sy, ISO_TILE_W / 4, ISO_TILE_H / 4, 0, 0, Math.PI * 2);
