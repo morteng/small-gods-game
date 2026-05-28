@@ -262,6 +262,13 @@ export interface NpcProperties {
   frame: number;
   frameTimer: number;
   moveCooldown?: number;
+  // pathfinding / smooth movement
+  /** Ordered tile positions to walk through. First entry is the NPC's immediate destination. */
+  currentPath?: { x: number; y: number }[];
+  /** Index into currentPath; 0 means currentPath[0] is the next tile. -1 means no path loaded. */
+  pathIndex?: number;
+  /** Speed multiplier (1.0 = default, >1 = fast, <1 = slow). */
+  pathSpeedMul?: number;
   // home
   homeBuildingId?: string;
   homePoiId?: string;

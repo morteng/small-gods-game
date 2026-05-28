@@ -1,35 +1,131 @@
-import type { Direction, GameMap } from '@/core/types';
+import type { GameMap, Direction } from '@/core/types';
 import { npcProps, forEachNpc } from '@/world/npc-helpers';
 import type { World } from '@/world/world';
 import type { Rng } from '@/core/rng';
+import { findPath, pickRandomDestination } from '@/sim/pathfinding';
 
-const MOVE_INTERVAL_MS = 400;
+/** NPC walk speed in tiles per second. At 60 Hz ≈ 20 ticks per tile. */
+export const NPC_WALK_SPEED = 3;
 
-function tileWalkable(map: GameMap, x: number, y: number): boolean {
-  if (x < 0 || y < 0 || x >= map.width || y >= map.height) return false;
-  const t = map.tiles[y]?.[x];
-  return t?.walkable === true && t.state === 'realized';
+/** Seconds between picking a new destination when the NPC is idle. */
+const IDLE_PICK_INTERVAL_MS = 2000;
+
+/** Radius in tile-units for random destination search. */
+const IDLE_ROAM_RADIUS = 5;
+
+/** Fractional distance threshold to consider a waypoint "arrived".
+ * Using ≤1 tick-worth prevents overshoot snapping. */
+const WAYPOINT_ARRIVAL = NPC_WALK_SPEED / 60 + 0.01;
+
+/** Derive cardinal direction from a movement delta. */
+function directionFromDelta(dx: number, dy: number): Direction {
+  if (Math.abs(dx) >= Math.abs(dy)) {
+    return dx >= 0 ? 'right' : 'left';
+  }
+  return dy >= 0 ? 'down' : 'up';
 }
 
+/**
+ * Advance one NPC along its current path (or pick a new path if idle).
+ *
+ * This function is called once per NpcMovementSystem tick (60Hz) for every
+ * NPC. It only draws RNG for destination/pathfinding decisions; movement
+ * interpolation is deterministic arithmetic so silent replay stays identical.
+ */
 export function tickNpcMovementEntities(
   world: World,
   map: GameMap,
   dtMs: number,
   rng: Rng,
 ): void {
-  const dirs: Direction[] = ['up', 'down', 'left', 'right'];
+  const dt = dtMs / 1000; // seconds
+
   forEachNpc(world, (e) => {
     const p = npcProps(e);
-    p.moveCooldown = (p.moveCooldown ?? 0) - dtMs;
-    if (p.moveCooldown > 0) return;
-    p.moveCooldown = MOVE_INTERVAL_MS;
 
-    const dir = rng.pick(dirs);
-    const tx = Math.floor(e.x) + (dir === 'left' ? -1 : dir === 'right' ? 1 : 0);
-    const ty = Math.floor(e.y) + (dir === 'up'   ? -1 : dir === 'down'  ? 1 : 0);
-    if (tileWalkable(map, tx, ty)) {
-      world.registry.update(e.id, { x: tx, y: ty });
-      p.direction = dir;
+    // ── Idle-pick cooldown. Counts down each tick; when expired the
+    //    NPC picks a new destination. Also gates standing still (frame=0). ──
+    p.moveCooldown = (p.moveCooldown ?? 0) - dtMs;
+
+    // ── 1. No path? Wait cooldown, then pick a destination ──
+    if (!p.currentPath || (p.pathIndex ?? -1) < 0 || (p.pathIndex ?? 0) >= p.currentPath.length) {
+      if (p.moveCooldown > 0) {
+        // NPC standing still — set idle frame
+        p.frame = 0;
+        return;
+      }
+      p.moveCooldown = IDLE_PICK_INTERVAL_MS;
+
+      // Pick a random walkable destination within roam radius
+      const dest = pickRandomDestination(map, e.x, e.y, IDLE_ROAM_RADIUS, rng);
+      if (!dest) return;
+
+      const result = findPath(map, e.x, e.y, dest.x, dest.y);
+      if (!result || result.path.length < 2) return;
+
+      p.currentPath = result.path;
+      p.pathIndex = 0; // next tile is path[0] (the start tile — we skip to 1 in step 2)
+      p.pathSpeedMul = 1;
+    }
+
+    // ── 2. Advance toward next waypoint ──
+    const path = p.currentPath;
+    let pathIdx = p.pathIndex ?? 0;
+
+    // Skip the current tile (path[0] is where we already are)
+    while (pathIdx < path.length && isAtTile(e.x, e.y, path[pathIdx])) {
+      pathIdx++;
+    }
+    p.pathIndex = pathIdx;
+
+    if (pathIdx >= path.length) {
+      // Path exhausted — NPC reached the end
+      p.currentPath = undefined;
+      p.pathIndex = -1;
+      p.frame = 0;
+      return;
+    }
+
+    const target = path[pathIdx];
+    const tx = target.x + 0.5; // tile center
+    const ty = target.y + 0.5;
+    const speed = NPC_WALK_SPEED * (p.pathSpeedMul ?? 1);
+    const step = speed * dt;
+
+    const dx = tx - e.x;
+    const dy = ty - e.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+
+    if (dist <= step || dist <= WAYPOINT_ARRIVAL) {
+      // Snap to waypoint
+      e.x = tx;
+      e.y = ty;
+      world.registry.update(e.id, { x: e.x, y: e.y });
+      // direction will update on the next tick when we aim at the next waypoint
+    } else {
+      // Move toward waypoint
+      const ratio = step / dist;
+      e.x += dx * ratio;
+      e.y += dy * ratio;
+      world.registry.update(e.id, { x: e.x, y: e.y });
+
+      // Face the direction we're moving
+      p.direction = directionFromDelta(dx, dy);
+
+      // Animate walk cycle
+      if (p.frame === 0) p.frame = 1;
+      p.frameTimer += dtMs;
+      if (p.frameTimer >= 150) {
+        p.frameTimer -= 150;
+        p.frame = p.frame >= 8 ? 1 : p.frame + 1;
+      }
     }
   });
+}
+
+/** Returns true when the entity position is within range of a tile center. */
+function isAtTile(x: number, y: number, tile: { x: number; y: number }): boolean {
+  const dx = x - (tile.x + 0.5);
+  const dy = y - (tile.y + 0.5);
+  return Math.sqrt(dx * dx + dy * dy) < WAYPOINT_ARRIVAL;
 }
