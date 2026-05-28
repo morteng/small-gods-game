@@ -1,8 +1,9 @@
-import type { BuildingInstance, NpcRole, WorldSeed, GameMap } from '@/core/types';
+import type { BuildingInstance, NpcRole, WorldSeed, GameMap, Entity } from '@/core/types';
 import type { World } from '@/world/world';
 import type { EventLog } from '@/core/events';
-import { initNpcProps } from '@/world/npc-helpers';
+import { initNpcProps, forEachNpc } from '@/world/npc-helpers';
 import { getBuildingTemplate } from '@/map/building-templates';
+import { seedSocialGraph } from '@/sim/social-graph';
 
 const VALID_ROLES: NpcRole[] = ['farmer', 'priest', 'soldier', 'merchant', 'elder', 'child', 'noble', 'beggar'];
 
@@ -75,4 +76,9 @@ export function spawnAllPoiNpcs(args: {
       log.append({ type: 'npc_spawn', npcId: id, role, poiId: poi.id });
     }
   }
+
+  // Seed social graph among all NPCs
+  const allNpcs: Entity[] = [];
+  forEachNpc(world, e => allNpcs.push(e));
+  seedSocialGraph(allNpcs, map.seed);
 }

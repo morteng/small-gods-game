@@ -173,6 +173,12 @@ export interface NpcInstance {
   moveCooldown?: number;
 }
 
+export interface Relationship {
+  npcId: string;
+  type: 'family' | 'friend' | 'rival' | 'lover' | 'mentor';
+  trust: number;  // 0–1
+}
+
 export interface NpcPersonality {
   assertiveness: number;  // 0–1: how strongly they share beliefs (Phase 8+ propagation)
   skepticism:    number;  // 0–1: resistance to faith change
@@ -247,6 +253,7 @@ export interface NpcSimState {
   mood:            number;  // 0–1, derived from needs each tick
   recentEvents:    string[];   // ring buffer, max 5
   whisperCooldown: number;     // integer seconds remaining (ticked per sim tick)
+  relationships:  Relationship[];
   homeBuildingId?: string;
   homePoiId?:      string;
 }
@@ -278,6 +285,8 @@ export interface NpcProperties {
   needs: NpcNeeds;
   mood: number;
   whisperCooldown: number;
+  // social graph
+  relationships: Relationship[];
   // possession marker
   possessedBy?: SpiritId;
   // narrative breadcrumbs

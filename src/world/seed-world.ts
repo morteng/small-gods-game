@@ -1,4 +1,4 @@
-import type { GameMap, WorldSeed, NpcRole } from '@/core/types';
+import type { GameMap, WorldSeed, NpcRole, Entity } from '@/core/types';
 import type { EventLog } from '@/core/events';
 import type { SimClock } from '@/core/clock';
 import type { Spirit, SpiritId } from '@/core/spirit';
@@ -6,7 +6,8 @@ import type { Oracle } from '@/world/oracle';
 import type { Rng } from '@/core/rng';
 import { World } from '@/world/world';
 import { PerceptionSystem } from '@/world/perception-system';
-import { initNpcProps } from '@/world/npc-helpers';
+import { initNpcProps, forEachNpc } from '@/world/npc-helpers';
+import { seedSocialGraph } from '@/sim/social-graph';
 
 const VALID_ROLES: NpcRole[] = ['farmer', 'priest', 'soldier', 'merchant', 'elder', 'child', 'noble', 'beggar'];
 
@@ -50,14 +51,19 @@ export function seedWorld(args: SeedWorldArgs): void {
   });
   log.append({ type: 'npc_spawn', npcId: id, role, poiId: seedPoi.id });
 
-  // 4. Run PerceptionSystem once to realize the cradle bubble
+  // 4. Seed social graph (single seed NPC at this point, no-op; prepares for more)
+  const allNpcs: Entity[] = [];
+  forEachNpc(world, e => allNpcs.push(e));
+  seedSocialGraph(allNpcs, map.seed);
+
+  // 5. Run PerceptionSystem once to realize the cradle bubble
   const perception = new PerceptionSystem(oracle, () => map);
   perception.tick({
     world, spirits, log, clock, rng,
     dt: 500, now: clock.now(),
   });
 
-  // 5. Append world_seeded as the final cradle event (chapter zero marker)
+  // 6. Append world_seeded as the final cradle event (chapter zero marker)
   log.append({
     type: 'world_seeded',
     worldSeed,

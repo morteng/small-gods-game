@@ -592,6 +592,7 @@ function simStateFromEntity(e: Entity): NpcSimState {
     npcId: e.id, name: p.name, role: p.role, personality: p.personality,
     beliefs: p.beliefs, needs: p.needs, mood: p.mood,
     recentEvents: [],  // legacy field; recentEventIds is the new home
+    relationships: p.relationships,
     whisperCooldown: p.whisperCooldown,
     homeBuildingId: p.homeBuildingId, homePoiId: p.homePoiId,
   };

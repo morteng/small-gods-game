@@ -12,6 +12,7 @@ function makeSim(overrides: Partial<NpcSimState> = {}): NpcSimState {
     needs: { safety: 0.8, prosperity: 0.6, community: 0.7, meaning: 0.5 },
     mood: 0.65,
     recentEvents: [],
+    relationships: [],
     whisperCooldown: 0,
     homePoiId: 'oakshire',
     ...overrides,

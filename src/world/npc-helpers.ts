@@ -83,6 +83,7 @@ export function initNpcProps(name: string, role: NpcRole, seed: number): NpcProp
     needs,
     mood,
     whisperCooldown: 0,
+    relationships: [],
     recentEventIds: [],
   };
 }
