@@ -3,7 +3,7 @@ import type { Snapshot } from '@/core/snapshot';
 import { SnapshotStore } from '@/core/snapshot';
 
 function fakeSnap(tick: number, eventId: number): Snapshot {
-  return { tick, eventId, rng: [0, 0, 0, 0], entities: [], spirits: [] };
+  return { tick, eventId, rng: [0, 0, 0, 0], entities: [], activeEvents: [], spirits: [] };
 }
 
 describe('SnapshotStore', () => {

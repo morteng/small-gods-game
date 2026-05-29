@@ -32,6 +32,7 @@ import { NpcMovementSystem } from '@/sim/systems/npc-movement-system';
 import { NpcSimSystem } from '@/sim/systems/npc-sim-system';
 import { BeliefPropagationSystem } from '@/sim/systems/belief-propagation-system';
 import { NpcActivitySystem } from '@/sim/systems/npc-activity-system';
+import { SettlementEventSystem } from '@/sim/systems/settlement-event-system';
 import { SpiritSystem, POWER_REGEN_RATE } from '@/sim/spirit-system';
 import { PerceptionSystem } from '@/world/perception-system';
 import { identityOracle } from '@/world/oracle';
@@ -105,8 +106,11 @@ export class Game {
 
     this.scheduler = new Scheduler();
     this.scheduler.register(new NpcMovementSystem(() => this.state.map));
-    this.scheduler.register(new NpcActivitySystem());
+    // Order: settlement events affect needs → NpcSimSystem decays needs + recomputes mood
+    // → activity system picks activities from needs → belief propagation → spirits
+    this.scheduler.register(new SettlementEventSystem());
     this.scheduler.register(new NpcSimSystem());
+    this.scheduler.register(new NpcActivitySystem());
     this.scheduler.register(new BeliefPropagationSystem());
     this.scheduler.register(new SpiritSystem());
     this.scheduler.register(new PerceptionSystem(identityOracle, () => this.state.map));

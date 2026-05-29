@@ -1,5 +1,5 @@
 import type { GameState } from '@/core/state';
-import type { Entity } from '@/core/types';
+import type { Entity, ActiveEvent } from '@/core/types';
 import type { RngState } from '@/core/rng';
 import type { Spirit } from '@/core/spirit';
 import { fromState } from '@/core/rng';
@@ -14,6 +14,8 @@ export interface Snapshot {
   rng: RngState;
   /** Deep-cloned copies of every world entity. */
   entities: Entity[];
+  /** Active settlement events keyed by POI id. */
+  activeEvents: [string, ActiveEvent[]][];
   /** Complete deep-cloned copies of every spirit. Snapshot is authoritative. */
   spirits: Spirit[];
 }
@@ -27,11 +29,18 @@ export function captureSnapshot(state: GameState): Snapshot {
     properties: structuredClone(e.properties),
   }));
   const spirits = Array.from(state.spirits.values()).map(s => structuredClone(s));
+  const activeEvents: [string, ActiveEvent[]][] = [];
+  if (state.world) {
+    for (const [poiId, events] of state.world.activeEvents) {
+      activeEvents.push([poiId, structuredClone(events)]);
+    }
+  }
   return {
     tick: state.clock.now(),
     eventId: state.eventLog.size(),
     rng: state.rng.getState(),
     entities,
+    activeEvents,
     spirits,
   };
 }
@@ -54,6 +63,9 @@ export function restoreSnapshot(state: GameState, snap: Snapshot): void {
   const fresh = new World(state.map);
   for (const e of snap.entities) {
     fresh.addEntity({ ...e, properties: structuredClone(e.properties) });
+  }
+  for (const [poiId, events] of snap.activeEvents) {
+    fresh.activeEvents.set(poiId, structuredClone(events));
   }
   state.world = fresh;
 }

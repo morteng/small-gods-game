@@ -1,5 +1,5 @@
 import type { SimClock } from '@/core/clock';
-import type { EntityId, NpcRole, Region, WorldSeed } from '@/core/types';
+import type { EntityId, NpcRole, Region, WorldSeed, SettlementEventType } from '@/core/types';
 import type { SpiritId } from '@/core/spirit';
 
 export type SimEvent =
@@ -18,6 +18,8 @@ export type SimEvent =
   | { type: 'region_realized';    region: Region; cause: 'belief_spread' | 'miracle' | 'cradle_start' }
   | { type: 'tile_collapsed';     x: number; y: number; becameType: string; by: 'wfc' | 'oracle' }
   | { type: 'entity_emerged';     entityId: EntityId; kind: string; x: number; y: number }
+  | { type: 'settlement_begin';   poiId: string; eventType: SettlementEventType; severity: number; durationTicks: number }
+  | { type: 'settlement_end';     poiId: string; eventType: SettlementEventType }
   | { type: 'system_error';       system: string; message: string };
 
 export interface AppendedEvent {

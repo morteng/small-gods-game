@@ -1,4 +1,4 @@
-import type { Entity, EntityId, Region, GameMap, Tile, WorldReadOnly, BrushContext } from '@/core/types';
+import type { Entity, EntityId, Region, GameMap, Tile, WorldReadOnly, BrushContext, ActiveEvent } from '@/core/types';
 import { EntityRegistry } from './entity-registry';
 import { SpatialIndex, KindIndex, TagIndex } from './indexes';
 import { getBrush } from './brushes';
@@ -15,6 +15,9 @@ export class World {
   private spatial = new SpatialIndex(4);
   private kindIdx = new KindIndex();
   private tagIdx = new TagIndex();
+
+  /** Active settlement events keyed by POI id. */
+  readonly activeEvents = new Map<string, ActiveEvent[]>();
 
   constructor(public readonly tiles: GameMap) {}
 

@@ -312,6 +312,26 @@ export type NpcActivity =
   | 'idle'
   | 'wander';
 
+/** Settlement-level event types (Sprint 4). */
+export type SettlementEventType =
+  | 'drought'
+  | 'festival'
+  | 'dispute'
+  | 'plague'
+  | 'raiders'
+  | 'trading_caravan'
+  | 'stranger_arrives'
+  | 'harvest_blessing';
+
+/** An active settlement event affecting all NPCs in a POI. */
+export interface ActiveEvent {
+  type: SettlementEventType;
+  poiId: string;
+  severity: number;   // 0–1, fraction of max effect
+  durationTicks: number;  // total lifespan in ticks
+  ticksElapsed: number;
+}
+
 // ─── Entity system v2 (Spec A) ────────────────────────────────────────────────
 
 export type EntityId = string;
