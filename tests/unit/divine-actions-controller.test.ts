@@ -56,7 +56,7 @@ describe('DivineActionsController', () => {
     expect(ctrl.lastCastTime).toBe(-Infinity);
   });
 
-  it('dream triggers effect when power is sufficient', () => {
+  it('dream returns true and triggers effect when power is sufficient', () => {
     const state = createState();
     const world = makeWorld();
     const props = initNpcProps('Cara', 'farmer', 1) as any;
@@ -68,8 +68,24 @@ describe('DivineActionsController', () => {
     const fx = { trigger: (type: string) => { triggerType = type; } } as unknown as DivineEffects;
     const ctrl = new DivineActionsController({ state, divineEffects: fx, now: () => 0 });
     const npc = world.query({ kind: 'npc' })[0];
-    ctrl.dream(npc);
+    expect(ctrl.dream(npc)).toBe(true);
     expect(triggerType).toBe('dream');
+  });
+
+  it('dream returns false and does not trigger effect when power is too low', () => {
+    const state = createState();
+    const world = makeWorld();
+    const props = initNpcProps('Eve', 'farmer', 1) as any;
+    world.addEntity({ id: 'n5', kind: 'npc', x: 1, y: 1, properties: props, tags: [] });
+    state.world = world;
+    const player = state.spirits.get('player')!;
+    player.power = 0;
+    let triggers = 0;
+    const fx = { trigger: () => { triggers++; } } as unknown as DivineEffects;
+    const ctrl = new DivineActionsController({ state, divineEffects: fx, now: () => 0 });
+    const npc = world.query({ kind: 'npc' })[0];
+    expect(ctrl.dream(npc)).toBe(false);
+    expect(triggers).toBe(0);
   });
 
   it('register hooks up dispatcher for whisper action', () => {

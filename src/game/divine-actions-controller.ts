@@ -64,14 +64,14 @@ export class DivineActionsController {
     return false;
   }
 
-  dream(npc: Entity): void {
-    if (dream(this.player(), npc, this.log())) {
-      this.deps.divineEffects.trigger('dream', npc.x, npc.y);
-    }
+  dream(npc: Entity): boolean {
+    const ok = dream(this.player(), npc, this.log());
+    if (ok) this.deps.divineEffects.trigger('dream', npc.x, npc.y);
+    return ok;
   }
 
-  answerPrayer(npc: Entity): void {
-    answerPrayer(this.player(), npc, this.log());
+  answerPrayer(npc: Entity): boolean {
+    return answerPrayer(this.player(), npc, this.log());
   }
 
   /** Cast omen at a specific POI id (dispatcher path — no particle effect). */
@@ -132,8 +132,7 @@ export class DivineActionsController {
       const w = world();
       if (!w) return false;
       const e = getNpc(w, (p as { npcId: string }).npcId);
-      if (e) { this.dream(e); return true; }
-      return false;
+      return !!e && this.dream(e);
     });
 
     dispatcher.register('miracle', (p) => {
@@ -144,8 +143,7 @@ export class DivineActionsController {
       const w = world();
       if (!w) return false;
       const e = getNpc(w, (p as { npcId: string }).npcId);
-      if (e) { this.answerPrayer(e); return true; }
-      return false;
+      return !!e && this.answerPrayer(e);
     });
   }
 }
