@@ -12,24 +12,11 @@ import { createProvider, type ProviderConfig, loadProviderConfig } from '@/llm/p
 import { npcProps, simStateFromEntity } from '@/world/npc-helpers';
 import { OverlayDispatcher } from '@/ui/overlay-dispatcher';
 import { buildCharacterSpec, getOrGenerateSheet } from '@/render/lpc';
-// NEW: Import unified settings and new UI components
-import { createSettingsPanel as createUnifiedSettings, type SettingsHandle } from '@/ui/settings-unified';
-import { createMainMenu, type MainMenuHandle } from '@/ui/main-menu';
-import { createSpiritHud, type SpiritHudHandle } from '@/ui/spirit-hud';
-import { createRivalPanel, type RivalPanelHandle } from '@/ui/rival-panel';
-import { createMinimapPanel, type MinimapHandle } from '@/ui/minimap-panel';
-import { createTutorial, type TutorialHandle } from '@/ui/tutorial';
-import { DivineEffects } from '@/render/divine-effects';
 import { DivineActionsController } from '@/game/divine-actions-controller';
-import {
-  createDecorationPlacementModal,
-  type DecorationPlacementModalHandle,
-} from '@/ui/decoration-placement-modal';
+import { GameUi } from '@/game/game-ui';
 import { loadDecorations } from '@/services/decoration-store';
 import { DecorationImageCache } from '@/render/decoration-image-cache';
 import { AssetManager } from '@/render/asset-manager';
-import { createLlmDisplay, type LlmDisplayHandle } from '@/ui/llm-display';
-import { createLLMSettings, type LLMSettingsHandle } from "@/ui/llm-settings-new";
 import { Autotiler } from '@/map/autotiler';
 import { computeBlobMap } from '@/map/blob-autotiler';
 import { generateWithNoise } from '@/map/map-generator';
@@ -76,23 +63,9 @@ export class Game {
   private rafId: number | null = null;
   private lastTime: number = 0;
   private divine!: DivineActionsController;
-  private pausedBanner: HTMLDivElement;
-  private debugHud: HTMLDivElement;
-  private npcInfoPanel: HTMLDivElement;
-  // NEW: UI components
-  private mainMenu!: MainMenuHandle;
-  private spiritHud!: SpiritHudHandle;
-  private rivalPanel!: RivalPanelHandle;
-  private minimap!: MinimapHandle;
-  private tutorial!: TutorialHandle;
-  private divineEffects!: DivineEffects;
-  private unifiedSettings!: SettingsHandle;
-  // Legacy components
-  private llmDisplay: LlmDisplayHandle;
+  private ui!: GameUi;
   private llmClient!: LLMClient;
   private llmBackfill!: LlmBackfillService;
-  private tooltip: HTMLDivElement;
-  private placementModal: DecorationPlacementModalHandle;
   private decorationImages = new DecorationImageCache();
   /** Resolved spritesheets keyed by NPC id */
   private sheets = new Map<string, HTMLCanvasElement>();
@@ -108,7 +81,6 @@ export class Game {
   private renderer!: FrameRenderer;
   private interaction = createInteractionState();
   private input!: InteractionController;
-  private llmSettingsBtn!: HTMLButtonElement;
 
   constructor(container: HTMLElement, _options: GameOptions = {}) {
     this.container = container;
@@ -168,139 +140,49 @@ export class Game {
       onEscape:        () => { if (this.timeBar) this.toggleTimeBar(); },
     });
 
-    this.pausedBanner = document.createElement('div');
-    this.pausedBanner.textContent = 'PAUSED';
-    this.pausedBanner.style.cssText = [
-      'position:absolute', 'top:12px', 'left:50%', 'transform:translateX(-50%)',
-      'padding:6px 14px', 'background:rgba(0,0,0,0.65)', 'color:#fff',
-      'font:bold 14px sans-serif', 'letter-spacing:2px', 'border-radius:4px',
-      'pointer-events:none', 'display:none', 'z-index:10',
-    ].join(';');
-    container.appendChild(this.pausedBanner);
-
-    this.debugHud = document.createElement('div');
-    this.debugHud.style.cssText = [
-      'position:absolute', 'top:8px', 'right:8px',
-      'padding:4px 8px', 'background:rgba(0,0,0,0.6)', 'color:#9fd8ff',
-      'font:11px ui-monospace,monospace', 'border-radius:3px',
-      'pointer-events:none', 'display:none', 'z-index:10',
-      'white-space:nowrap',
-    ].join(';');
-    container.appendChild(this.debugHud);
-
-    this.npcInfoPanel = document.createElement('div');
-    this.npcInfoPanel.style.cssText = [
-      'position:absolute', 'top:8px', 'left:8px', 'width:220px',
-      'padding:10px 12px', 'background:rgba(10,10,20,0.88)',
-      'border:1px solid rgba(255,255,255,0.18)', 'border-radius:6px',
-      'color:#fff', 'pointer-events:none', 'display:none', 'z-index:10',
-      'box-sizing:border-box',
-    ].join(';');
-    container.appendChild(this.npcInfoPanel);
-
-    // LLM display (shows dialogue/narration from LLM backfill)
-    this.llmDisplay = createLlmDisplay(container, {
-      onClose: () => {
-        // Optional: do something when LLM display is closed
-      },
-    });
-
-    this.llmBackfill = new LlmBackfillService({
-      state: this.state,
-      llmDisplay: this.llmDisplay,
-      client: this.llmClient,
-      onWriteback: () => this.renderer.forceInfoRefresh(),
-    });
-
-    this.tooltip = document.createElement('div');
-    this.tooltip.style.cssText = [
-      'position:absolute', 'padding:3px 8px',
-      'background:rgba(10,10,20,0.85)', 'color:#fff',
-      'font:11px sans-serif', 'border-radius:3px',
-      'pointer-events:none', 'display:none', 'z-index:11',
-      'white-space:nowrap', 'transform:translate(12px, 12px)',
-    ].join(';');
-    container.appendChild(this.tooltip);
-
-    // ── Unified Settings (replaces old settings) ────────────
-    this.unifiedSettings = createUnifiedSettings(container, {
-      onClose: () => { /* handle close */ },
-      onLLMConfigChange: (config) => {
-        // Update LLM client config
-        console.log('[settings] LLM config changed:', config);
-      },
-      onGameSettingChange: (key, value) => {
-        if (key === 'showLabels') this.state.showLabels = value as boolean;
-        if (key === 'showPoiMarkers') this.state.showPoiMarkers = value as boolean;
-        if (key === 'debug') {
-          this.state.debug = value as boolean;
-          this.debugHud.style.display = this.state.debug ? 'block' : 'none';
-        }
-      },
-    });
-
-    // ── NEW: Main Menu ────────────────────────────────────
-    this.mainMenu = createMainMenu(this.container, {
+    this.ui = new GameUi(this.container, {
       onStart: () => {
         if (!this.state.map) {
           void this.generateWorld();
         }
       },
-      onSettings: () => this.unifiedSettings.toggle(),
-      version: '1.0.0',
-    });
-
-    // ── NEW: Tutorial System ──────────────────────────────
-    this.tutorial = createTutorial(this.container, {
-      onComplete: () => {
-        localStorage.setItem('small-gods-tutorial-seen', 'true');
-        console.log('[tutorial] Completed');
-      },
-      onSkip: () => {
-        localStorage.setItem('small-gods-tutorial-seen', 'true');
-        console.log('[tutorial] Skipped');
-      },
-    });
-
-    // ── NEW: Spirit HUD ───────────────────────────────────
-    this.spiritHud = createSpiritHud(this.container, {
       onSelectRival: (rivalId) => {
         const rival = this.state.spirits.get(rivalId);
         if (rival && this.state.world) {
           // Find competing NPCs (simplified - get first few NPCs)
           const entities = this.state.world.query({ kind: 'npc' }).slice(0, 5);
           const npcSimStates = entities.map(e => simStateFromEntity(e) as any);
-          this.rivalPanel.update(rival as any, npcSimStates);
-          this.rivalPanel.show();
+          this.ui.rivalPanel.update(rival as any, npcSimStates);
+          this.ui.rivalPanel.show();
         }
       },
-    });
-    this.spiritHud.hide(); // Hidden until world gen
-
-    // ── NEW: Rival Panel ───────────────────────────────────
-    this.rivalPanel = createRivalPanel(this.container, {
-      onClose: () => { /* panel handles hide internally */ },
       onTargetNpc: (npcId) => {
         this.state.selectedNpcId = npcId;
       },
-    });
-
-    // ── NEW: Minimap ──────────────────────────────────────
-    this.minimap = createMinimapPanel(this.container, {
-      onToggle: (visible) => {
-        console.log('[minimap] visible:', visible);
-      },
-      onClickTile: (x, y) => {
+      onClickMinimapTile: (x, y) => {
         // Move camera to tile
         const cam = this.state.camera;
         cam.x = x * TILE_SIZE - (this.canvas.width / devicePixelRatio) / 2;
         cam.y = y * TILE_SIZE - (this.canvas.height / devicePixelRatio) / 2;
       },
+      onGameSettingChange: (key, value) => {
+        if (key === 'showLabels') this.state.showLabels = value as boolean;
+        if (key === 'showPoiMarkers') this.state.showPoiMarkers = value as boolean;
+        if (key === 'debug') {
+          this.state.debug = value as boolean;
+          this.ui.debugHud.style.display = this.state.debug ? 'block' : 'none';
+        }
+      },
     });
 
-    // ── NEW: Divine Effects ────────────────────────────────
-    this.divineEffects = new DivineEffects();
-    this.divine = new DivineActionsController({ state: this.state, divineEffects: this.divineEffects });
+    this.llmBackfill = new LlmBackfillService({
+      state: this.state,
+      llmDisplay: this.ui.llmDisplay,
+      client: this.llmClient,
+      onWriteback: () => this.renderer.forceInfoRefresh(),
+    });
+
+    this.divine = new DivineActionsController({ state: this.state, divineEffects: this.ui.divineEffects });
     this.divine.register(this.dispatcher);
 
     this.dev = new DevModeController({
@@ -310,8 +192,8 @@ export class Game {
 
     this.renderer = new FrameRenderer({
       ctx: this.ctx, state: this.state,
-      ui: { minimap: this.minimap, spiritHud: this.spiritHud, divineEffects: this.divineEffects,
-            npcInfoPanel: this.npcInfoPanel, tooltip: this.tooltip, debugHud: this.debugHud },
+      ui: { minimap: this.ui.minimap, spiritHud: this.ui.spiritHud, divineEffects: this.ui.divineEffects,
+            npcInfoPanel: this.ui.npcInfoPanel, tooltip: this.ui.tooltip, debugHud: this.ui.debugHud },
       divine: this.divine, dev: this.dev, llmBackfill: this.llmBackfill,
       interaction: this.interaction,
       getRenderDeps: () => this.renderDeps(), getViewport: () => this.viewport(),
@@ -319,25 +201,9 @@ export class Game {
       isPaused: () => this.scheduler.getRate() === 0,
     });
 
-    // LLM settings button
-    this.llmSettingsBtn = document.createElement('button');
-    this.llmSettingsBtn.textContent = '⚙ LLM';
-    this.llmSettingsBtn.style.cssText = [
-      'position:absolute', 'bottom:8px', 'left:8px',
-      'background:rgba(10,10,20,0.75)', 'color:#9ea0aa', 'border:none',
-      'cursor:pointer', 'z-index:10',
-    ].join(';');
-    this.llmSettingsBtn.addEventListener('click', () => {
-      this.unifiedSettings.toggle();
-    });
-    container.appendChild(this.llmSettingsBtn);
-
-    // OLD: this.settingsPanel = createSettingsPanel(container); // REPLACED by unifiedSettings
-    this.placementModal = createDecorationPlacementModal(container);
-
     this.input = new InteractionController({
       state: this.state, dispatcher: this.dispatcher, interaction: this.interaction,
-      dev: this.dev, placementModal: this.placementModal, decorationImages: this.decorationImages,
+      dev: this.dev, placementModal: this.ui.placementModal, decorationImages: this.decorationImages,
     });
 
     this.resizeObserver = new ResizeObserver(() => this.resize());
@@ -354,9 +220,9 @@ export class Game {
       onTogglePoiMarkers: () => { this.state.showPoiMarkers = !this.state.showPoiMarkers; },
       onToggleDebug: () => {
         this.state.debug = !this.state.debug;
-        this.debugHud.style.display = this.state.debug ? 'block' : 'none';
+        this.ui.debugHud.style.display = this.state.debug ? 'block' : 'none';
         // Sync with unified settings
-        this.unifiedSettings.updateGameSetting('debug', this.state.debug);
+        this.ui.unifiedSettings.updateGameSetting('debug', this.state.debug);
       },
       onHoverTile: (x, y, sx, sy) => {
         this.interaction.hoverTile = { x, y };
@@ -367,9 +233,9 @@ export class Game {
         this.state.followNpc = !this.state.followNpc;
       },
       onUserCameraInput: () => { this.state.followNpc = false; },
-      onToggleSettings: () => this.unifiedSettings.toggle(),
-      onToggleMinimap: () => this.minimap?.toggle(),
-      onShowTutorial: () => this.tutorial?.show('welcome'),
+      onToggleSettings: () => this.ui.unifiedSettings.toggle(),
+      onToggleMinimap: () => this.ui.minimap?.toggle(),
+      onShowTutorial: () => this.ui.tutorial?.show('welcome'),
       onRedraw: () => {},
     });
   }
@@ -392,7 +258,7 @@ export class Game {
   }
 
   private refreshPauseBanner(): void {
-    this.pausedBanner.style.display = this.scheduler.getRate() === 0 ? 'block' : 'none';
+    this.ui.pausedBanner.style.display = this.scheduler.getRate() === 0 ? 'block' : 'none';
   }
 
   private toggleTimeBar(): void {
@@ -489,12 +355,12 @@ export class Game {
     void this.decorationImages.preload(this.state.generatedDecorations.map(d => d.assetId));
     
     // NEW: Hide main menu, show game UI
-    this.mainMenu.hide();
-    this.spiritHud.show();
-    
+    this.ui.mainMenu.hide();
+    this.ui.spiritHud.show();
+
     // Show tutorial on first visit
     if (!localStorage.getItem('small-gods-tutorial-seen')) {
-      setTimeout(() => this.tutorial.show('welcome'), 500);
+      setTimeout(() => this.ui.tutorial.show('welcome'), 500);
     }
     
     // Update World Inspector with new world data
@@ -559,13 +425,7 @@ export class Game {
     this.cleanupTokens?.();
     this.cleanupRenderToggle?.();
     this.resizeObserver.disconnect();
-    this.pausedBanner.remove();
-    this.debugHud.remove();
-    this.npcInfoPanel.remove();
-    this.tooltip.remove();
-    this.llmSettingsBtn.remove();
-    this.unifiedSettings.destroy();
-    this.placementModal.destroy();
+    this.ui.destroy();
     this.decorationImages.destroy();
     this.detachTimeKeys?.();
     this.timeBar?.dispose();
