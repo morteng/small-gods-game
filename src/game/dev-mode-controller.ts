@@ -1,5 +1,5 @@
 import type { GameState } from '@/core/state';
-import type { HitResult, Entity, UndoAction, DevModeState } from '@/core/types';
+import type { HitResult, Entity, UndoAction, DevModeState, RenderContext } from '@/core/types';
 import type { Scheduler } from '@/core/scheduler';
 import type { Viewport } from './viewport';
 import type { RenderContextDeps } from './render-context';
@@ -357,9 +357,8 @@ export class DevModeController {
   }
 
   /** Called each frame (from render/FrameRenderer) when dev mode is on. */
-  drawOverlays(ctx: CanvasRenderingContext2D, deps: RenderContextDeps): void {
+  drawOverlays(ctx: CanvasRenderingContext2D, rc: RenderContext): void {
     if (!this.devMode.enabled) return;
-    const rc = buildRenderContext(deps);
     const debugOpts = {
       showBeliefHeatmap: !!this.devMode.showBeliefHeatmap,
       showNeeds: !!this.devMode.showNeeds,

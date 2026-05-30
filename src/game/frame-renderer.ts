@@ -65,13 +65,13 @@ export class FrameRenderer {
     const renderMap = this.deps.renderMap();
     if (renderMap) renderMap(this.deps.ctx, rc);
 
-    // NEW: Update and render divine effects
+    // Update and render divine effects
     if (this.deps.ui.divineEffects) {
       this.deps.ui.divineEffects.update(deltaMs);
       this.deps.ui.divineEffects.render(this.deps.ctx as any, this.deps.state.camera, TILE_SIZE);
     }
 
-    // NEW: Update minimap when visible
+    // Update minimap when visible
     if (this.deps.ui.minimap && this.deps.ui.minimap.isVisible() && this.deps.state.map) {
       const npcs = this.deps.state.world?.query({ kind: 'npc' }).map(toRenderNpc) ?? [];
       this.deps.ui.minimap.update(
@@ -83,7 +83,7 @@ export class FrameRenderer {
       );
     }
 
-    // NEW: Update Spirit HUD
+    // Update Spirit HUD
     if (this.deps.ui.spiritHud && this.deps.ui.spiritHud.isVisible() && this.deps.state.world) {
       const player = this.deps.state.spirits.get('player')!;
       const rivals = Array.from(this.deps.state.spirits.entries())
@@ -100,7 +100,7 @@ export class FrameRenderer {
     }
 
     // Draw debug overlays if dev mode is enabled
-    this.deps.dev.drawOverlays(this.deps.ctx, this.deps.getRenderDeps());
+    this.deps.dev.drawOverlays(this.deps.ctx, rc);
 
     // Gold flash when a divine action was just cast
     const flashAge = performance.now() - this.deps.divine.lastCastTime;

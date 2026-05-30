@@ -4,7 +4,7 @@ import { selectRenderer, toggleRenderMode, readRenderMode, type RenderFn } from 
 import { centerOn } from '@/render/camera';
 import { attachControls, attachTimeKeys } from '@/ui/controls';
 import { WorldManager } from '@/map/world-manager';
-import type { GameMap, WorldSeed, TerrainOptions, NpcProperties } from '@/core/types';
+import type { GameMap, WorldSeed, TerrainOptions } from '@/core/types';
 import { advanceNpcFrames } from '@/render/npc-animator';
 // divine-actions functions now invoked via DivineActionsController
 import { LLMClient } from "@/llm/llm-client";
