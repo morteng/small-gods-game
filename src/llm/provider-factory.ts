@@ -5,7 +5,7 @@
  * Supports: mock, openai, openrouter
  */
 
-import type { LLMProvider, LLMOptions, LLMResponse } from './llm-client';
+import type { LLMProvider } from './llm-client';
 import { MockLLMProvider, OpenAIProvider, OpenRouterProvider, type OpenAIConfig, type OpenRouterConfig } from './llm-client';
 
 export type ProviderType = 'mock' | 'openai' | 'openrouter';
@@ -105,53 +105,5 @@ export function getProviderDisplayName(type: ProviderType): string {
     case 'mock': return 'Mock (No API Key)';
     case 'openai': return 'OpenAI';
     case 'openrouter': return 'OpenRouter (100+ Models)';
-  }
-}
-
-/**
- * Simple LLM client wrapper that uses the provider factory.
- */
-export class LLMClient {
-  private provider: LLMProvider;
-
-  constructor(config: ProviderConfig) {
-    this.provider = createProvider(config);
-  }
-
-  /**
-   * Switch to a different provider.
-   */
-  updateConfig(config: ProviderConfig): void {
-    this.provider = createProvider(config);
-    saveProviderConfig(config);
-  }
-
-  /**
-   * Generate text from a prompt.
-   */
-  async generate(
-    systemPrompt: string,
-    userPrompt: string,
-    opts?: LLMOptions,
-  ): Promise<LLMResponse> {
-    const messages = [
-      { role: 'system' as const, content: systemPrompt },
-      { role: 'user' as const, content: userPrompt },
-    ];
-    return this.provider.generate(messages, opts);
-  }
-
-  /**
-   * Check if the provider is available.
-   */
-  isAvailable(): boolean {
-    return this.provider.isAvailable();
-  }
-
-  /**
-   * Get provider name for logging.
-   */
-  getProviderName(): string {
-    return this.provider.name();
   }
 }
