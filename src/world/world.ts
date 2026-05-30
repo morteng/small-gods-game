@@ -41,6 +41,31 @@ export class World {
     this.registry.setProperty(id, key, value);
   }
 
+  /**
+   * Apply field changes to an entity, keeping both the registry and World's
+   * own spatial/kind/tag indexes in sync. Use this (not direct mutation) when
+   * editing x/y/kind/tags so queries stay correct. Returns the updated entity.
+   */
+  updateEntity(id: EntityId, changes: Partial<Entity>): Entity | undefined {
+    const e = this.registry.get(id);
+    if (!e) return undefined;
+
+    // De-index from World's indexes using current values.
+    this.spatial.remove(id, e.x, e.y);
+    this.kindIdx.remove(id, e.kind);
+    this.tagIdx.remove(id, e.tags);
+
+    // registry.update applies the change and syncs the registry's own indexes.
+    this.registry.update(id, changes);
+
+    // Re-index in World's indexes using the new values.
+    const updated = this.registry.get(id)!;
+    this.spatial.add(id, updated.x, updated.y);
+    this.kindIdx.add(id, updated.kind);
+    this.tagIdx.add(id, updated.tags);
+    return updated;
+  }
+
   query(opts: QueryOpts = {}): Entity[] {
     let candidateIds: Iterable<string>;
 

@@ -4,7 +4,7 @@ import { selectRenderer, toggleRenderMode, readRenderMode, type RenderFn } from 
 import { centerOn } from '@/render/camera';
 import { attachControls, attachTimeKeys } from '@/ui/controls';
 import { WorldManager } from '@/map/world-manager';
-import type { GameMap, WorldSeed, TerrainOptions, RenderContext, Entity, NpcSimState, NpcProperties, UndoAction, DevModeState, HitResult } from '@/core/types';
+import type { GameMap, WorldSeed, TerrainOptions, RenderContext, Entity, NpcSimState, NpcProperties, UndoAction, DevModeState, HitResult, Tile } from '@/core/types';
 import { FRAME_MS } from '@/render/npc-animator';
 import { drawNpcOverlay, drawPoiOverlay, type OverlayHitAreas } from '@/render/sim-overlay';
 import { whisper, omen, dream, miracle, answerPrayer } from '@/sim/divine-actions';
@@ -391,6 +391,7 @@ export class Game {
       onUndo: () => this.undo(),
       onRedo: () => this.redo(),
     });
+    this.inspectorPanel.setOnChange((hit, key, value) => this.applyInspectorEdit(hit, key, value));
     this.debugOverlayPanel = mountDebugOverlayPanel(this.container);
     this.timeDebugPanel = mountTimeDebugPanel(this.container, {
       clock: this.state.clock,
@@ -1119,6 +1120,64 @@ export class Game {
     }
   }
 
+  /**
+   * Apply an edit from the Inspector property grid to the underlying state.
+   * Records an undo action, mutates the world/map/decoration, and refreshes
+   * the panel. The RAF loop redraws the canvas on the next frame.
+   */
+  private applyInspectorEdit(hit: HitResult, key: string, value: unknown): void {
+    if (hit.type === 'entity' || hit.type === 'npc') {
+      const id = hit.type === 'entity' ? (hit.entity as Entity | undefined)?.id : hit.npc?.id;
+      if (!id || !this.state.world) return;
+      const entity = this.state.world.query({}).find(e => e.id === id);
+      if (!entity) return;
+
+      const before = JSON.parse(JSON.stringify(entity));
+      if (key === 'x' || key === 'y') {
+        this.state.world.updateEntity(id, { [key]: Number(value) });
+      } else if (key === 'kind') {
+        this.state.world.updateEntity(id, { kind: String(value) });
+      } else if (key === 'properties' && value && typeof value === 'object') {
+        this.state.world.updateEntity(id, { properties: value as Record<string, unknown> });
+      } else {
+        // NPC sim/identity fields live in the properties bag.
+        this.state.world.setProperty(id, key, value);
+      }
+      const after = this.state.world.query({}).find(e => e.id === id);
+      this.pushUndo({
+        type: 'entity_update',
+        target: { tileX: Math.floor(entity.x), tileY: Math.floor(entity.y), entityId: id },
+        before,
+        after: after ? JSON.parse(JSON.stringify(after)) : null,
+      });
+    } else if (hit.type === 'tile') {
+      const map = this.state.map;
+      const tile = map?.tiles[hit.tileY]?.[hit.tileX];
+      if (!tile) return;
+      const before = { ...tile };
+      (tile as unknown as Record<string, unknown>)[key] = value;
+      this.pushUndo({
+        type: 'tile_update',
+        target: { tileX: hit.tileX, tileY: hit.tileY },
+        before,
+        after: { ...tile },
+      });
+    } else if (hit.type === 'decoration' && hit.decoration) {
+      (hit.decoration as unknown as Record<string, unknown>)[key] = value;
+    } else {
+      return;
+    }
+
+    // Refresh the panel so committed values are reflected.
+    this.inspectorPanel.update(this.devMode.selected, this.devMode);
+  }
+
+  /** Push an undo action and clear the redo stack. */
+  private pushUndo(action: UndoAction): void {
+    this.devMode.undoStack.push(action);
+    this.devMode.redoStack = [];
+  }
+
   /** Delete the currently selected entity */
   private deleteSelectedEntity(): void {
     if (!this.devMode.selected || !this.state.world) return;
@@ -1162,9 +1221,15 @@ export class Game {
     } else if (action.type === 'entity_delete' && action.before) {
       // Undo delete = re-add entity
       this.state.world?.addEntity(action.before as Entity);
+    } else if (action.type === 'entity_update' && action.before) {
+      // Undo edit = restore the pre-edit snapshot
+      this.restoreEntitySnapshot(action.target.entityId!, action.before as Entity);
+    } else if (action.type === 'tile_update' && action.before) {
+      this.restoreTileSnapshot(action.target.tileX, action.target.tileY, action.before as Partial<Tile>);
     }
 
     this.devMode.redoStack.push(action);
+    this.refreshInspectorAfterHistory();
     console.log(`[dev] Undo: ${action.type} ${action.target.entityId}`);
   }
 
@@ -1179,10 +1244,42 @@ export class Game {
     } else if (action.type === 'entity_delete' && action.before) {
       // Redo delete = remove entity again
       this.state.world?.removeEntity(action.target.entityId!);
+    } else if (action.type === 'entity_update' && action.after) {
+      // Redo edit = re-apply the post-edit snapshot
+      this.restoreEntitySnapshot(action.target.entityId!, action.after as Entity);
+    } else if (action.type === 'tile_update' && action.after) {
+      this.restoreTileSnapshot(action.target.tileX, action.target.tileY, action.after as Partial<Tile>);
     }
 
     this.devMode.undoStack.push(action);
+    this.refreshInspectorAfterHistory();
     console.log(`[dev] Redo: ${action.type} ${action.target.entityId}`);
+  }
+
+  /** Restore an entity's full field set from an undo/redo snapshot. */
+  private restoreEntitySnapshot(id: string, snapshot: Entity): void {
+    if (!this.state.world) return;
+    this.state.world.updateEntity(id, {
+      kind: snapshot.kind,
+      x: snapshot.x,
+      y: snapshot.y,
+      properties: snapshot.properties,
+      tags: snapshot.tags,
+    });
+  }
+
+  /** Restore a tile's fields from an undo/redo snapshot. */
+  private restoreTileSnapshot(tx: number, ty: number, snapshot: Partial<Tile>): void {
+    const tile = this.state.map?.tiles[ty]?.[tx];
+    if (!tile) return;
+    Object.assign(tile, snapshot);
+  }
+
+  /** After undo/redo, keep the Inspector in sync if a selection is showing. */
+  private refreshInspectorAfterHistory(): void {
+    if (this.devMode.selected) {
+      this.inspectorPanel.update(this.devMode.selected, this.devMode);
+    }
   }
 
   /** Trigger LLM backfill for an NPC — generates narration from sim state */
