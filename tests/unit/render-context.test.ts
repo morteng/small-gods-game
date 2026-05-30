@@ -24,4 +24,20 @@ describe('buildRenderContext', () => {
     expect(rc.camera).toBe(state.camera);
     expect(rc.showLabels).toBe(state.showLabels);
   });
+
+  it('uses world.query for npcs when world is present', () => {
+    const state = createState();
+    state.map = { width: 1, height: 1, tiles: [] } as any;
+    state.world = { query: () => [] } as any;
+    const rc = buildRenderContext({
+      state,
+      viewport: { width: 100, height: 100 },
+      sheets: new Map(),
+      assets: new AssetManager(),
+      decorationImages: new DecorationImageCache(),
+      devMode: createDevMode(),
+    });
+    expect(rc.npcs).toEqual([]);
+    expect(rc.world).toBe(state.world);
+  });
 });

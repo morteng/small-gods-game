@@ -15,8 +15,8 @@ export interface RenderContextDeps {
 }
 
 /** Single source of truth for the per-frame RenderContext.
- *  `map` is asserted non-null — every caller guards before calling.
- *  `world` may be null; npcs defaults to [] in that case. */
+ *  `map` and `world` are asserted non-null — every caller guards both before calling.
+ *  `npcs` is [] when no world exists yet (pre-generation). */
 export function buildRenderContext(deps: RenderContextDeps): RenderContext {
   const { state, viewport, sheets, assets, decorationImages, devMode } = deps;
   return {

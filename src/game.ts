@@ -4,7 +4,7 @@ import { selectRenderer, toggleRenderMode, readRenderMode, type RenderFn } from 
 import { centerOn } from '@/render/camera';
 import { attachControls, attachTimeKeys } from '@/ui/controls';
 import { WorldManager } from '@/map/world-manager';
-import type { GameMap, WorldSeed, TerrainOptions, RenderContext, Entity, NpcSimState, NpcProperties, UndoAction, DevModeState, HitResult, Tile } from '@/core/types';
+import type { GameMap, WorldSeed, TerrainOptions, Entity, NpcSimState, NpcProperties, UndoAction, DevModeState, HitResult, Tile } from '@/core/types';
 import { FRAME_MS } from '@/render/npc-animator';
 import { drawNpcOverlay, drawPoiOverlay, type OverlayHitAreas } from '@/render/sim-overlay';
 import { whisper, omen, dream, miracle, answerPrayer } from '@/sim/divine-actions';
