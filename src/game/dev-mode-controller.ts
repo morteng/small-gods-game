@@ -114,7 +114,7 @@ export class DevModeController {
     }
   }
 
-  attachKeyboard(): void {
+  private attachKeyboard(): void {
     const handler = (e: KeyboardEvent) => {
       if (!this.devMode.enabled) return;
       // Ctrl+Shift+D toggles dev mode
@@ -189,7 +189,7 @@ export class DevModeController {
   }
 
   /** Spawn a new entity from spawner options */
-  spawnEntity(opts: { kind: string; x: number; y: number; properties?: Record<string, unknown> }): void {
+  private spawnEntity(opts: { kind: string; x: number; y: number; properties?: Record<string, unknown> }): void {
     if (!this.deps.state.world) return;
 
     const id = `dev_${Date.now().toString(36)}`;
@@ -280,7 +280,7 @@ export class DevModeController {
   }
 
   /** Delete the currently selected entity */
-  deleteSelected(): void {
+  private deleteSelected(): void {
     const world = this.deps.state.world;
     if (!this.devMode.selected || !world) return;
     const hit = this.devMode.selected;
@@ -338,7 +338,7 @@ export class DevModeController {
   }
 
   /** Paint a tile on the map (dev mode) */
-  paintTile(x: number, y: number, tileType: string): void {
+  private paintTile(x: number, y: number, tileType: string): void {
     if (!this.deps.state.map) {
       console.warn('[dev] No map loaded');
       return;
