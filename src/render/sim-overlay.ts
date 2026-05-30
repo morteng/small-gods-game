@@ -1,6 +1,7 @@
 import type { Camera, NpcInstance, NpcSimState } from '@/core/types';
 import { worldToScreen } from '@/render/camera';
 import { TILE_SIZE } from '@/core/constants';
+import { CANVAS, CANVAS_FONT } from '@/render/canvas-palette';
 import type { OverlayHitArea } from '@/ui/overlay-dispatcher';
 
 export type { OverlayHitArea };
@@ -51,21 +52,21 @@ export function drawNpcOverlay(
   ctx.save();
   roundRect(ctx, bx, by, BTN_W, BTN_H, 4);
   if (whisperActive) {
-    ctx.fillStyle = '#B8860B';
+    ctx.fillStyle = CANVAS.whisperFill;
     ctx.fill();
-    ctx.strokeStyle = '#FFD700';
+    ctx.strokeStyle = CANVAS.whisperLine;
     ctx.lineWidth = 1.5;
     ctx.stroke();
   } else {
-    ctx.fillStyle = 'rgba(30,30,40,0.85)';
+    ctx.fillStyle = CANVAS.inactiveFill;
     ctx.fill();
-    ctx.strokeStyle = 'rgba(150,150,150,0.4)';
+    ctx.strokeStyle = CANVAS.inactiveLine;
     ctx.lineWidth = 1;
     ctx.stroke();
   }
 
-  ctx.font = 'bold 10px sans-serif';
-  ctx.fillStyle = whisperActive ? '#FFD700' : 'rgba(180,180,180,0.5)';
+  ctx.font = CANVAS_FONT.buttonSmall;
+  ctx.fillStyle = whisperActive ? CANVAS.onAction : CANVAS.inactiveText;
   ctx.textBaseline = 'middle';
   ctx.textAlign = 'center';
   const cooldownSuffix = sim.whisperCooldown > 0 ? ` (${sim.whisperCooldown}s)` : '';
@@ -107,18 +108,18 @@ export function drawPoiOverlay(
   ctx.save();
   roundRect(ctx, bx, by, BTN_W, BTN_H, 4);
   if (omenActive) {
-    ctx.fillStyle = '#2E7D32';
+    ctx.fillStyle = CANVAS.omenFill;
     ctx.fill();
-    ctx.strokeStyle = '#66BB6A';
+    ctx.strokeStyle = CANVAS.omenLine;
   } else {
-    ctx.fillStyle = 'rgba(30,30,40,0.85)';
+    ctx.fillStyle = CANVAS.inactiveFill;
     ctx.fill();
-    ctx.strokeStyle = 'rgba(150,150,150,0.4)';
+    ctx.strokeStyle = CANVAS.inactiveLine;
   }
   ctx.lineWidth = 1.5;
   ctx.stroke();
-  ctx.font = 'bold 10px sans-serif';
-  ctx.fillStyle = omenActive ? '#A5D6A7' : 'rgba(180,180,180,0.5)';
+  ctx.font = CANVAS_FONT.buttonSmall;
+  ctx.fillStyle = omenActive ? CANVAS.onAction : CANVAS.inactiveText;
   ctx.textBaseline = 'middle';
   ctx.textAlign = 'center';
   ctx.fillText(`⛈ Omen (-3⚡)`, bx + BTN_W / 2, by + BTN_H / 2);
@@ -129,18 +130,18 @@ export function drawPoiOverlay(
   ctx.save();
   roundRect(ctx, bx, by + BTN_H + BTN_GAP, BTN_W, BTN_H, 4);
   if (miracleActive) {
-    ctx.fillStyle = '#E65100';
+    ctx.fillStyle = CANVAS.miracleFill;
     ctx.fill();
-    ctx.strokeStyle = '#FF9800';
+    ctx.strokeStyle = CANVAS.miracleLine;
   } else {
-    ctx.fillStyle = 'rgba(30,30,40,0.85)';
+    ctx.fillStyle = CANVAS.inactiveFill;
     ctx.fill();
-    ctx.strokeStyle = 'rgba(150,150,150,0.4)';
+    ctx.strokeStyle = CANVAS.inactiveLine;
   }
   ctx.lineWidth = 1.5;
   ctx.stroke();
-  ctx.font = 'bold 10px sans-serif';
-  ctx.fillStyle = miracleActive ? '#FFE0B2' : 'rgba(180,180,180,0.5)';
+  ctx.font = CANVAS_FONT.buttonSmall;
+  ctx.fillStyle = miracleActive ? CANVAS.onAction : CANVAS.inactiveText;
   ctx.textBaseline = 'middle';
   ctx.textAlign = 'center';
   ctx.fillText(`✨ Miracle (-10⚡)`, bx + BTN_W / 2, by + BTN_H + BTN_GAP + BTN_H / 2);
