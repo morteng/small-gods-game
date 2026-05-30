@@ -25,7 +25,7 @@ import {
   createDecorationPlacementModal,
   type DecorationPlacementModalHandle,
 } from '@/ui/decoration-placement-modal';
-import { loadDecorations, saveDecorations } from '@/services/decoration-store';
+import { loadDecorations } from '@/services/decoration-store';
 import { DecorationImageCache } from '@/render/decoration-image-cache';
 import { AssetManager } from '@/render/asset-manager';
 import { createLlmDisplay, type LlmDisplayHandle } from '@/ui/llm-display';
@@ -54,6 +54,7 @@ import { LlmBackfillService } from '@/game/llm-backfill';
 import { DevModeController } from '@/game/dev-mode-controller';
 import { FrameRenderer } from '@/game/frame-renderer';
 import { createInteractionState } from '@/game/interaction-state';
+import { InteractionController } from '@/game/interaction-controller';
 
 export interface GameOptions {
   width?: number;
@@ -106,6 +107,7 @@ export class Game {
   private dev!: DevModeController;
   private renderer!: FrameRenderer;
   private interaction = createInteractionState();
+  private input!: InteractionController;
   private llmSettingsBtn!: HTMLButtonElement;
 
   constructor(container: HTMLElement, _options: GameOptions = {}) {
@@ -333,15 +335,20 @@ export class Game {
     // OLD: this.settingsPanel = createSettingsPanel(container); // REPLACED by unifiedSettings
     this.placementModal = createDecorationPlacementModal(container);
 
+    this.input = new InteractionController({
+      state: this.state, dispatcher: this.dispatcher, interaction: this.interaction,
+      dev: this.dev, placementModal: this.placementModal, decorationImages: this.decorationImages,
+    });
+
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(container);
     this.resize();
 
     this.cleanupControls = attachControls(this.canvas, this.state.camera, {
-      onTileClick: (x, y) => this.onTileClick(x, y),
-      onCanvasClick: (sx, sy) => this.onCanvasClick(sx, sy),
-      onTileRightClick: (x, y) => void this.onTileRightClick(x, y),
-      onRightClick: (sx, sy) => void this.dev.handleRightClick(sx, sy),
+      onTileClick: (x, y) => this.input.onTileClick(x, y),
+      onCanvasClick: (sx, sy) => this.input.onCanvasClick(sx, sy),
+      onTileRightClick: (x, y) => void this.input.onTileRightClick(x, y),
+      onRightClick: (sx, sy) => void this.input.onRightClick(sx, sy),
       onTogglePause: () => this.togglePause(),
       onToggleLabels: () => { this.state.showLabels = !this.state.showLabels; },
       onTogglePoiMarkers: () => { this.state.showPoiMarkers = !this.state.showPoiMarkers; },
@@ -497,40 +504,6 @@ export class Game {
     return map;
   }
 
-  private async onTileRightClick(tileX: number, tileY: number): Promise<void> {
-    const map = this.state.map;
-    if (!map) return;
-    if (tileX < 0 || tileY < 0 || tileX >= map.width || tileY >= map.height) return;
-    const tile = map.tiles[tileY]?.[tileX];
-    if (!tile || !tile.walkable) return;
-
-    // Check if this tile belongs to a POI
-    let poiId: string | undefined;
-    if (this.state.worldSeed) {
-      for (const poi of this.state.worldSeed.pois) {
-        if (poi.position && poi.position.x === tileX && poi.position.y === tileY) {
-          poiId = poi.id;
-          break;
-        }
-      }
-    }
-
-    if (poiId) {
-      // Show POI overlay for Omen/Miracle
-      this.interaction.poiOverlay = { poiId, tileX, tileY };
-      return;
-    }
-
-    const result = await this.placementModal.open({ x: tileX, y: tileY });
-    if (!result) return;
-    const placement = { tileX, tileY, assetId: result.assetId };
-    this.state.generatedDecorations = [...this.state.generatedDecorations, placement];
-    if (this.state.worldSeed) {
-      saveDecorations(this.state.worldSeed.name, this.state.generatedDecorations);
-    }
-    void this.decorationImages.load(result.assetId);
-  }
-
   private kickOffNpcSpritesheets(): void {
     if (!this.state.world) return;
     for (const e of this.state.world.query({ kind: 'npc' })) {
@@ -577,29 +550,6 @@ export class Game {
     if (this.rafId !== null) {
       cancelAnimationFrame(this.rafId);
       this.rafId = null;
-    }
-  }
-
-  private onCanvasClick(sx: number, sy: number): boolean {
-    // Clear POI overlay if clicking elsewhere
-    this.interaction.poiOverlay = null;
-    return this.dispatcher.tryDispatch(sx, sy, this.interaction.overlayHitAreas);
-  }
-
-  private onTileClick(x: number, y: number): void {
-    if (!this.state.map || !this.state.world) return;
-    // Clear POI overlay on any left-click
-    this.interaction.poiOverlay = null;
-
-    const clicked = this.state.world.query({ kind: 'npc' })
-      .find(e => Math.floor(e.x) === x && Math.floor(e.y) === y);
-    if (clicked) {
-      this.state.selectedNpcId = this.state.selectedNpcId === clicked.id ? null : clicked.id;
-      if (this.state.pinnedNpcId && this.state.pinnedNpcId !== this.state.selectedNpcId) {
-        this.state.pinnedNpcId = null;
-      }
-    } else if (!this.state.pinnedNpcId) {
-      this.state.selectedNpcId = null;
     }
   }
 
