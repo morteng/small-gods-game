@@ -1,0 +1,47 @@
+/** @vitest-environment jsdom */
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { DevModeController } from '@/game/dev-mode-controller';
+import { createState } from '@/core/state';
+import { Scheduler } from '@/core/scheduler';
+import { World } from '@/world/world';
+import type { GameMap, Tile, HitResult } from '@/core/types';
+
+function makeMap(w = 5, h = 5): GameMap {
+  const tiles: Tile[][] = [];
+  for (let y = 0; y < h; y++) {
+    const row: Tile[] = [];
+    for (let x = 0; x < w; x++) row.push({ type: 'grass', x, y, walkable: true, state: 'realized' });
+    tiles.push(row);
+  }
+  return { tiles, width: w, height: h, villages: [], seed: 1, success: true, worldSeed: null, stats: { iterations: 0, backtracks: 0 }, buildings: [] };
+}
+
+function makeWorld() {
+  return new World(makeMap());
+}
+
+describe('DevModeController.applyInspectorEdit', () => {
+  let container: HTMLElement;
+  beforeEach(() => { container = document.createElement('div'); document.body.appendChild(container); });
+  afterEach(() => container?.remove());
+
+  it('persists an entity x/y edit through World.updateEntity and records undo', () => {
+    const state = createState();
+    const world = makeWorld();
+    world.addEntity({ id: 'e1', kind: 'rock', x: 1, y: 1, properties: {}, tags: [] } as any);
+    state.world = world;
+    let ctrl!: DevModeController;
+    ctrl = new DevModeController({
+      container, state, scheduler: new Scheduler(),
+      getViewport: () => ({ width: 800, height: 600 }),
+      getRenderDeps: () => ({ state, viewport: { width: 800, height: 600 }, sheets: new Map(), assets: {} as any, decorationImages: {} as any, devMode: ctrl.devMode }) as any,
+    });
+    const entity = world.query({}).find(e => e.id === 'e1')!;
+    const hit: HitResult = { type: 'entity', tileX: 1, tileY: 1, entity };
+    ctrl.devMode.selected = hit;
+    ctrl.applyInspectorEdit(hit, 'x', 7);
+    expect(world.query({}).find(e => e.id === 'e1')!.x).toBe(7);
+    expect(ctrl.devMode.undoStack.length).toBe(1);
+    ctrl.destroy();
+  });
+});

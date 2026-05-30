@@ -4,13 +4,13 @@ import { selectRenderer, toggleRenderMode, readRenderMode, type RenderFn } from 
 import { centerOn } from '@/render/camera';
 import { attachControls, attachTimeKeys } from '@/ui/controls';
 import { WorldManager } from '@/map/world-manager';
-import type { GameMap, WorldSeed, TerrainOptions, Entity, NpcProperties, UndoAction, DevModeState, HitResult, Tile } from '@/core/types';
+import type { GameMap, WorldSeed, TerrainOptions, NpcProperties } from '@/core/types';
 import { advanceNpcFrames } from '@/render/npc-animator';
 import { drawNpcOverlay, drawPoiOverlay, type OverlayHitAreas } from '@/render/sim-overlay';
 // divine-actions functions now invoked via DivineActionsController
 import { LLMClient } from "@/llm/llm-client";
 import { createProvider, type ProviderConfig, loadProviderConfig } from '@/llm/provider-factory';
-import { initNpcProps, getNpc, toRenderNpc, npcProps, simStateFromEntity } from '@/world/npc-helpers';
+import { getNpc, toRenderNpc, npcProps, simStateFromEntity } from '@/world/npc-helpers';
 import { OverlayDispatcher } from '@/ui/overlay-dispatcher';
 import { buildCharacterSpec, getOrGenerateSheet } from '@/render/lpc';
 import { drawPowerHud } from '@/render/hud';
@@ -53,19 +53,11 @@ import { injectTokens } from '@/ui/inject-tokens';
 import { mountChrome, mountPastVeil, type ChromeHandle } from '@/ui/chrome';
 import { mountTimeChip, type TimeChipHandle } from '@/ui/panels/time-chip';
 import { mountTimeBar, type TimeBarHandle } from '@/ui/panels/time-bar';
-import { createDevMode, toggleDevMode } from '@/dev/DevMode';
-import { hitTest } from '@/dev/hit-tester';
-import { mountInspectorPanel, type InspectorPanelHandle } from '@/dev/InspectorPanel';
-import { mountTimeDebugPanel, type TimeDebugPanelHandle } from '@/dev/TimeDebugPanel';
-import { mountDebugOverlayPanel, type DebugOverlayPanelHandle } from '@/dev/DebugOverlayPanel';
-import { mountWorldInspector, type WorldInspectorHandle } from '@/dev/WorldInspector';
-import { createEntitySpawner, type EntitySpawnerHandle } from '@/dev/EntitySpawner';
-import { mountMapEditorPanel, type MapEditorPanelHandle } from '@/dev/MapEditorPanel';
 import { formatDevTooltip } from '@/dev/tooltip';
-import { drawDebugOverlays, DEFAULT_DEBUG_OVERLAY_OPTIONS } from '@/render/debug-overlays';
 import { buildRenderContext, type RenderContextDeps } from '@/game/render-context';
 import { applyFollowCamera } from '@/game/camera-follow';
 import { LlmBackfillService } from '@/game/llm-backfill';
+import { DevModeController } from '@/game/dev-mode-controller';
 
 export interface GameOptions {
   width?: number;
@@ -123,16 +115,8 @@ export class Game {
   private timeBar: TimeBarHandle | null = null;
   private detachTimeKeys: (() => void) | null = null;
   private renderMap: RenderFn | null = null;
-  private devMode!: DevModeState;
-  private inspectorPanel!: InspectorPanelHandle;
-  private debugOverlayPanel!: DebugOverlayPanelHandle;
-  private entitySpawner!: EntitySpawnerHandle;
-  private timeDebugPanel!: TimeDebugPanelHandle;
-  private mapEditorPanel!: MapEditorPanelHandle;
-  private worldInspector!: WorldInspectorHandle;
+  private dev!: DevModeController;
   private llmSettingsBtn!: HTMLButtonElement;
-  private devModeBtn!: HTMLButtonElement;
-  private devModeCleanup: (() => void) | null = null;
 
   constructor(container: HTMLElement, _options: GameOptions = {}) {
     this.container = container;
@@ -327,40 +311,10 @@ export class Game {
     this.divine = new DivineActionsController({ state: this.state, divineEffects: this.divineEffects });
     this.divine.register(this.dispatcher);
 
-    // ── Dev Mode Toggle Button ────────────────────────────
-    this.devModeBtn = document.createElement('button');
-    this.devModeBtn.type = 'button';
-    this.devModeBtn.title = 'Toggle Dev Mode';
-    this.devModeBtn.textContent = '🔧 Dev';
-    this.devModeBtn.style.cssText = [
-      'all:unset', 'position:absolute', 'bottom:8px', 'right:120px',
-      'padding:5px 10px', 'background:rgba(10,10,20,0.75)', 'color:#9fd8ff',
-      'border:1px solid rgba(255,255,255,0.15)', 'border-radius:4px',
-      'font:11px sans-serif', 'cursor:pointer', 'z-index:10',
-    ].join(';');
-    this.devModeBtn.addEventListener('mouseenter', () => {
-      this.devModeBtn.style.background = 'rgba(20,20,32,0.92)';
+    this.dev = new DevModeController({
+      container: this.container, state: this.state, scheduler: this.scheduler,
+      getViewport: () => this.viewport(), getRenderDeps: () => this.renderDeps(),
     });
-    this.devModeBtn.addEventListener('mouseleave', () => {
-      this.devModeBtn.style.background = 'rgba(10,10,20,0.75)';
-    });
-    this.devModeBtn.addEventListener('click', () => this.onToggleDevMode());
-    container.appendChild(this.devModeBtn);
-
-    // ── Dev Mode Panels ───────────────────────────────────
-    this.inspectorPanel = mountInspectorPanel(this.container, {
-      onDelete: () => this.deleteSelectedEntity(),
-      onUndo: () => this.undo(),
-      onRedo: () => this.redo(),
-    });
-    this.inspectorPanel.setOnChange((hit, key, value) => this.applyInspectorEdit(hit, key, value));
-    this.debugOverlayPanel = mountDebugOverlayPanel(this.container);
-    this.timeDebugPanel = mountTimeDebugPanel(this.container, {
-      clock: this.state.clock,
-      scheduler: this.scheduler,
-      eventLog: this.state.eventLog,
-    });
-    this.entitySpawner = createEntitySpawner(this.container);
 
     // LLM settings button
     this.llmSettingsBtn = document.createElement('button');
@@ -374,18 +328,6 @@ export class Game {
       this.unifiedSettings.toggle();
     });
     container.appendChild(this.llmSettingsBtn);
-    this.mapEditorPanel = mountMapEditorPanel(this.container, {
-      onPaintTile: (x, y, tileType) => this.paintTile(x, y, tileType),
-    });
-
-    // ── Dev Mode: World Inspector ──────────────────────
-    this.worldInspector = mountWorldInspector(container);
-    // Wire camera focus callback
-    this.worldInspector.setCameraFocusCallback((x, y) => {
-      const cam = this.state.camera;
-      cam.x = x * TILE_SIZE - (this.canvas.width / devicePixelRatio) / 2;
-      cam.y = y * TILE_SIZE - (this.canvas.height / devicePixelRatio) / 2;
-    });
 
     // OLD: this.settingsPanel = createSettingsPanel(container); // REPLACED by unifiedSettings
     this.placementModal = createDecorationPlacementModal(container);
@@ -398,7 +340,7 @@ export class Game {
       onTileClick: (x, y) => this.onTileClick(x, y),
       onCanvasClick: (sx, sy) => this.onCanvasClick(sx, sy),
       onTileRightClick: (x, y) => void this.onTileRightClick(x, y),
-      onRightClick: (sx, sy) => this.onRightClick(sx, sy),
+      onRightClick: (sx, sy) => void this.dev.handleRightClick(sx, sy),
       onTogglePause: () => this.togglePause(),
       onToggleLabels: () => { this.state.showLabels = !this.state.showLabels; },
       onTogglePoiMarkers: () => { this.state.showPoiMarkers = !this.state.showPoiMarkers; },
@@ -422,63 +364,6 @@ export class Game {
       onShowTutorial: () => this.tutorial?.show('welcome'),
       onRedraw: () => {},
     });
-
-    // ── Dev Mode ──────────────────────────────────────────────
-    this.devMode = createDevMode();
-    this.attachDevKeyboardShortcuts();
-  }
-
-
-  private attachDevKeyboardShortcuts(): void {
-    const handler = (e: KeyboardEvent) => {
-      if (!this.devMode.enabled) return;
-      // Ctrl+Shift+D toggles dev mode
-      if (e.ctrlKey && e.shiftKey && e.code === "KeyD") {
-        e.preventDefault();
-        this.onToggleDevMode();
-        return;
-      }
-      // Ctrl+Shift+I: Toggle World Inspector
-      if (e.ctrlKey && e.shiftKey && e.code === "KeyI") {
-        e.preventDefault();
-        if (this.worldInspector) {
-          if (this.worldInspector.isVisible()) {
-            this.worldInspector.hide();
-          } else {
-            this.worldInspector.show();
-            // Update with current state
-            this.worldInspector.update(
-              this.state.world,
-              this.state.map,
-              this.state.spirits,
-              this.state.generatedDecorations
-            );
-          }
-        }
-        return;
-      }
-
-      // Ctrl+Z: Undo
-      if (e.ctrlKey && !e.shiftKey && e.code === "KeyZ") {
-        e.preventDefault();
-        this.undo();
-        return;
-      }
-      // Ctrl+Shift+Z or Ctrl+Y: Redo
-      if ((e.ctrlKey && e.shiftKey && e.code === "KeyZ") || (e.ctrlKey && e.code === "KeyY")) {
-        e.preventDefault();
-        this.redo();
-        return;
-      }
-      // Delete/Backspace: Delete selected entity
-      if ((e.code === "Delete" || e.code === "Backspace") && this.devMode.selected) {
-        e.preventDefault();
-        this.deleteSelectedEntity();
-        return;
-      }
-    };
-    window.addEventListener("keydown", handler);
-    this.devModeCleanup = () => window.removeEventListener("keydown", handler);
   }
 
   private attachRenderToggleKey(): () => void {
@@ -517,51 +402,6 @@ export class Game {
     });
   }
 
-  /** Toggle dev mode on/off */
-  private onToggleDevMode(): void {
-    const enabled = toggleDevMode(this.devMode);
-    console.log(`[dev] mode ${enabled ? 'enabled' : 'disabled'}`);
-    // Update button appearance
-    if (enabled) {
-      this.devModeBtn.style.background = 'rgba(255, 215, 0, 0.75)';
-      this.devModeBtn.style.color = '#000';
-      this.devModeBtn.textContent = '🔧 Dev ON';
-      // Initialize debug overlay options if not set
-      if (this.devMode.showBeliefHeatmap === undefined) {
-        Object.assign(this.devMode, DEFAULT_DEBUG_OVERLAY_OPTIONS);
-      }
-    } else {
-      this.devModeBtn.style.background = 'rgba(10,10,20,0.75)';
-      this.devModeBtn.style.color = '#9fd8ff';
-      this.devModeBtn.textContent = '🔧 Dev';
-      this.devMode.selected = null;
-      this.inspectorPanel.update(null, this.devMode);
-      this.debugOverlayPanel.update(this.devMode);
-    }
-  }
-
-  /** Handle right-click on canvas for dev mode hit-testing */
-  private async onRightClick(sx: number, sy: number): Promise<void> {
-    if (!this.devMode.enabled) return;
-    if (!this.state.map || !this.state.world) return;
-
-    const rc = buildRenderContext(this.renderDeps());
-
-    const hit = hitTest(rc, sx, sy);
-
-    if (hit.type === null) {
-      // No entity under cursor - offer to spawn new entity
-      const spawnOpts = await this.entitySpawner.open(hit.tileX, hit.tileY);
-      if (spawnOpts) {
-        this.spawnEntity(spawnOpts);
-      }
-      return;
-    }
-
-    this.devMode.selected = hit;
-    this.inspectorPanel.update(hit, this.devMode);
-  }
-
   private viewport(): { width: number; height: number } {
     return {
       width: this.canvas.width / devicePixelRatio,
@@ -576,7 +416,7 @@ export class Game {
       sheets: this.sheets,
       assets: this.assets,
       decorationImages: this.decorationImages,
-      devMode: this.devMode,
+      devMode: this.dev.devMode,
     };
   }
 
@@ -650,15 +490,8 @@ export class Game {
     }
     
     // Update World Inspector with new world data
-    if (this.worldInspector) {
-      this.worldInspector.update(
-        this.state.world,
-        this.state.map,
-        this.state.spirits,
-        this.state.generatedDecorations
-      );
-    }
-    
+    this.dev.updateWorldInspector();
+
     this.startLoop();
     return map;
   }
@@ -736,7 +569,7 @@ export class Game {
       this.timeChip.refresh();
       this.refreshPauseBanner();
       this.timeBar?.refresh();
-      this.updateTimeDebugPanel();
+      this.dev.updateTimeDebug();
       this.veil.setActive(this.timeline.isScrubbed);
       this.rafId = requestAnimationFrame(loop);
     };
@@ -790,19 +623,7 @@ export class Game {
     }
 
     // Draw debug overlays if dev mode is enabled
-    if (this.devMode.enabled) {
-      const debugOpts = {
-        showBeliefHeatmap: !!this.devMode.showBeliefHeatmap,
-        showNeeds: !!this.devMode.showNeeds,
-        showMood: !!this.devMode.showMood,
-        showSocialConnections: !!this.devMode.showSocialConnections,
-        beliefThreshold: this.devMode.beliefThreshold ?? 0.3,
-        selectedSpiritId: this.devMode.selectedSpiritId ?? null,
-      };
-      drawDebugOverlays(this.ctx, this.state.camera, this.state.world!, rc.npcs, debugOpts);
-      // Update the debug overlay panel
-      this.debugOverlayPanel.update(this.devMode);
-    }
+    this.dev.drawOverlays(this.ctx, this.renderDeps());
 
     // Gold flash when a divine action was just cast
     const flashAge = performance.now() - this.divine.lastCastTime;
@@ -900,10 +721,8 @@ export class Game {
     }
 
     // In dev mode: show tooltips for ALL objects (tiles, entities, NPCs, decorations)
-    if (this.devMode.enabled) {
-      const rc = buildRenderContext(this.renderDeps());
-
-      const hit = hitTest(rc, this.hoverScreen.x, this.hoverScreen.y);
+    if (this.dev.isEnabled()) {
+      const hit = this.dev.hitTest(this.hoverScreen.x, this.hoverScreen.y);
       if (hit.type === null) {
         this.tooltip.style.display = 'none';
         return;
@@ -953,226 +772,6 @@ export class Game {
     }
   }
 
-  // ── Dev Mode: Entity Spawning & Undo/Redo ─────────────────────
-
-  /** Spawn a new entity from spawner options */
-  private spawnEntity(opts: { kind: string; x: number; y: number; properties?: Record<string, unknown> }): void {
-    if (!this.state.world) return;
-
-    const id = `dev_${Date.now().toString(36)}`;
-    const entity: Entity = {
-      id,
-      kind: opts.kind,
-      x: opts.x,
-      y: opts.y,
-      properties: opts.properties ?? {},
-      tags: ['dev_spawned'],
-    };
-
-    // Deep copy state for undo
-    const undoAction: UndoAction = {
-      type: 'entity_create',
-      target: { tileX: opts.x, tileY: opts.y, entityId: id },
-      before: null,
-      after: JSON.parse(JSON.stringify(entity)),
-    };
-
-    try {
-      this.state.world.addEntity(entity);
-      this.devMode.undoStack.push(undoAction);
-      this.devMode.redoStack = []; // Clear redo stack on new action
-      console.log(`[dev] Spawned ${opts.kind} at (${opts.x}, ${opts.y}), id=${id}`);
-    } catch (err) {
-      console.error('[dev] Failed to spawn entity:', err);
-    }
-  }
-
-  /**
-   * Apply an edit from the Inspector property grid to the underlying state.
-   * Records an undo action, mutates the world/map/decoration, and refreshes
-   * the panel. The RAF loop redraws the canvas on the next frame.
-   */
-  private applyInspectorEdit(hit: HitResult, key: string, value: unknown): void {
-    if (hit.type === 'entity' || hit.type === 'npc') {
-      const id = hit.type === 'entity' ? (hit.entity as Entity | undefined)?.id : hit.npc?.id;
-      if (!id || !this.state.world) return;
-      const entity = this.state.world.query({}).find(e => e.id === id);
-      if (!entity) return;
-
-      const before = JSON.parse(JSON.stringify(entity));
-      if (key === 'x' || key === 'y') {
-        this.state.world.updateEntity(id, { [key]: Number(value) });
-      } else if (key === 'kind') {
-        this.state.world.updateEntity(id, { kind: String(value) });
-      } else if (key === 'properties' && value && typeof value === 'object') {
-        this.state.world.updateEntity(id, { properties: value as Record<string, unknown> });
-      } else {
-        // NPC sim/identity fields live in the properties bag.
-        this.state.world.setProperty(id, key, value);
-      }
-      const after = this.state.world.query({}).find(e => e.id === id);
-      this.pushUndo({
-        type: 'entity_update',
-        target: { tileX: Math.floor(entity.x), tileY: Math.floor(entity.y), entityId: id },
-        before,
-        after: after ? JSON.parse(JSON.stringify(after)) : null,
-      });
-    } else if (hit.type === 'tile') {
-      const map = this.state.map;
-      const tile = map?.tiles[hit.tileY]?.[hit.tileX];
-      if (!tile) return;
-      const before = { ...tile };
-      (tile as unknown as Record<string, unknown>)[key] = value;
-      this.pushUndo({
-        type: 'tile_update',
-        target: { tileX: hit.tileX, tileY: hit.tileY },
-        before,
-        after: { ...tile },
-      });
-    } else if (hit.type === 'decoration' && hit.decoration) {
-      (hit.decoration as unknown as Record<string, unknown>)[key] = value;
-    } else {
-      return;
-    }
-
-    // Refresh the panel so committed values are reflected.
-    this.inspectorPanel.update(this.devMode.selected, this.devMode);
-  }
-
-  /** Push an undo action and clear the redo stack. */
-  private pushUndo(action: UndoAction): void {
-    this.devMode.undoStack.push(action);
-    this.devMode.redoStack = [];
-  }
-
-  /** Delete the currently selected entity */
-  private deleteSelectedEntity(): void {
-    if (!this.devMode.selected || !this.state.world) return;
-    const hit = this.devMode.selected;
-    if (hit.type === null) return;
-
-    let entityId: string | undefined;
-    if (hit.type === 'entity') entityId = (hit.entity as Entity)?.id;
-    else if (hit.type === 'npc') entityId = hit.npc?.id;
-    else if (hit.type === 'decoration') entityId = (hit.decoration as any)?.id;
-
-    if (!entityId) return;
-
-    const entity = this.state.world.query({}).find(e => e.id === entityId);
-    if (!entity) return;
-
-    // Save for undo
-    const undoAction: UndoAction = {
-      type: 'entity_delete',
-      target: { tileX: Math.floor(entity.x), tileY: Math.floor(entity.y), entityId },
-      before: JSON.parse(JSON.stringify(entity)),
-      after: null,
-    };
-
-    this.state.world.removeEntity(entityId);
-    this.devMode.undoStack.push(undoAction);
-    this.devMode.redoStack = [];
-    this.devMode.selected = null;
-    this.inspectorPanel.update(null, this.devMode);
-    console.log(`[dev] Deleted entity ${entityId}`);
-  }
-
-  /** Undo the last action */
-  private undo(): void {
-    if (this.devMode.undoStack.length === 0) return;
-    const action = this.devMode.undoStack.pop()!;
-
-    if (action.type === 'entity_create' && action.after) {
-      // Undo spawn = remove entity
-      this.state.world?.removeEntity(action.target.entityId!);
-    } else if (action.type === 'entity_delete' && action.before) {
-      // Undo delete = re-add entity
-      this.state.world?.addEntity(action.before as Entity);
-    } else if (action.type === 'entity_update' && action.before) {
-      // Undo edit = restore the pre-edit snapshot
-      this.restoreEntitySnapshot(action.target.entityId!, action.before as Entity);
-    } else if (action.type === 'tile_update' && action.before) {
-      this.restoreTileSnapshot(action.target.tileX, action.target.tileY, action.before as Partial<Tile>);
-    }
-
-    this.devMode.redoStack.push(action);
-    this.refreshInspectorAfterHistory();
-    console.log(`[dev] Undo: ${action.type} ${action.target.entityId}`);
-  }
-
-  /** Redo the last undone action */
-  private redo(): void {
-    if (this.devMode.redoStack.length === 0) return;
-    const action = this.devMode.redoStack.pop()!;
-    
-    if (action.type === 'entity_create' && action.after) {
-      // Redo spawn = add entity back
-      this.state.world?.addEntity(action.after as Entity);
-    } else if (action.type === 'entity_delete' && action.before) {
-      // Redo delete = remove entity again
-      this.state.world?.removeEntity(action.target.entityId!);
-    } else if (action.type === 'entity_update' && action.after) {
-      // Redo edit = re-apply the post-edit snapshot
-      this.restoreEntitySnapshot(action.target.entityId!, action.after as Entity);
-    } else if (action.type === 'tile_update' && action.after) {
-      this.restoreTileSnapshot(action.target.tileX, action.target.tileY, action.after as Partial<Tile>);
-    }
-
-    this.devMode.undoStack.push(action);
-    this.refreshInspectorAfterHistory();
-    console.log(`[dev] Redo: ${action.type} ${action.target.entityId}`);
-  }
-
-  /** Restore an entity's full field set from an undo/redo snapshot. */
-  private restoreEntitySnapshot(id: string, snapshot: Entity): void {
-    if (!this.state.world) return;
-    this.state.world.updateEntity(id, {
-      kind: snapshot.kind,
-      x: snapshot.x,
-      y: snapshot.y,
-      properties: snapshot.properties,
-      tags: snapshot.tags,
-    });
-  }
-
-  /** Restore a tile's fields from an undo/redo snapshot. */
-  private restoreTileSnapshot(tx: number, ty: number, snapshot: Partial<Tile>): void {
-    const tile = this.state.map?.tiles[ty]?.[tx];
-    if (!tile) return;
-    Object.assign(tile, snapshot);
-  }
-
-  /** After undo/redo, keep the Inspector in sync if a selection is showing. */
-  private refreshInspectorAfterHistory(): void {
-    if (this.devMode.selected) {
-      this.inspectorPanel.update(this.devMode.selected, this.devMode);
-    }
-  }
-
-  /** Paint a tile on the map (dev mode) */
-  private paintTile(x: number, y: number, tileType: string): void {
-    if (!this.state.map) {
-      console.warn('[dev] No map loaded');
-      return;
-    }
-    const map = this.state.map;
-    if (y >= 0 && y < map.tiles.length && x >= 0 && x < map.tiles[0].length) {
-      const tile = map.tiles[y][x];
-      const oldType = tile.type;
-      tile.type = tileType;
-      // Update walkable based on common tile types
-      tile.walkable = !['water', 'mountain'].includes(tileType);
-      console.log(`[dev] Painted tile (${x}, ${y}): ${oldType} → ${tileType}`);
-    } else {
-      console.warn(`[dev] Tile (${x}, ${y}) out of bounds`);
-    }
-  }
-
-  private updateTimeDebugPanel(): void {
-    if (!this.devMode?.enabled) return;
-    this.timeDebugPanel?.update(this.state.clock, this.scheduler, this.state.eventLog);
-  }
-
   destroy(): void {
     this.stopLoop();
     this.cleanupControls?.();
@@ -1184,7 +783,6 @@ export class Game {
     this.npcInfoPanel.remove();
     this.tooltip.remove();
     this.llmSettingsBtn.remove();
-    this.devModeBtn.remove();
     this.unifiedSettings.destroy();
     this.placementModal.destroy();
     this.decorationImages.destroy();
@@ -1193,7 +791,7 @@ export class Game {
     this.timeChip.dispose();
     this.veil.dispose();
     this.chrome.dispose();
-    this.inspectorPanel.destroy();
+    this.dev.destroy();
     this.canvas.remove();
   }
 }
