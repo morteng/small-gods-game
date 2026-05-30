@@ -66,6 +66,7 @@ import { createEntitySpawner, type EntitySpawnerHandle } from '@/dev/EntitySpawn
 import { mountMapEditorPanel, type MapEditorPanelHandle } from '@/dev/MapEditorPanel';
 import { formatDevTooltip } from '@/dev/tooltip';
 import { drawDebugOverlays, DEFAULT_DEBUG_OVERLAY_OPTIONS } from '@/render/debug-overlays';
+import { buildRenderContext, type RenderContextDeps } from '@/game/render-context';
 
 export interface GameOptions {
   width?: number;
@@ -583,26 +584,7 @@ export class Game {
     if (!this.devMode.enabled) return;
     if (!this.state.map || !this.state.world) return;
 
-    const rc: RenderContext = {
-      map: this.state.map,
-      camera: this.state.camera,
-      canvasWidth: this.canvas.width / devicePixelRatio,
-      canvasHeight: this.canvas.height / devicePixelRatio,
-      npcs: this.state.world.query({ kind: 'npc' }).map(toRenderNpc),
-      npcSheets: this.sheets,
-      visualMap: this.state.visualMap,
-      blobMap: this.state.blobMap ?? null,
-      tileAtlas: this.assets.getTileAtlas(),
-      terrainSheets: this.assets.getTerrainSheets(),
-      buildingSprites: this.assets.getBuildingSprites(),
-      treeSheets: this.assets.getTreeSheets(),
-      world: this.state.world,
-      showLabels: this.state.showLabels,
-      showPoiMarkers: this.state.showPoiMarkers,
-      generatedDecorations: this.state.generatedDecorations,
-      resolveDecorationImage: (id: string) => this.decorationImages.get(id),
-      devMode: this.devMode,
-    };
+    const rc = buildRenderContext(this.renderDeps());
 
     const hit = hitTest(rc, sx, sy);
 
@@ -617,6 +599,24 @@ export class Game {
 
     this.devMode.selected = hit;
     this.inspectorPanel.update(hit, this.devMode);
+  }
+
+  private viewport(): { width: number; height: number } {
+    return {
+      width: this.canvas.width / devicePixelRatio,
+      height: this.canvas.height / devicePixelRatio,
+    };
+  }
+
+  private renderDeps(): RenderContextDeps {
+    return {
+      state: this.state,
+      viewport: this.viewport(),
+      sheets: this.sheets,
+      assets: this.assets,
+      decorationImages: this.decorationImages,
+      devMode: this.devMode,
+    };
   }
 
   private resize(): void {
@@ -803,26 +803,7 @@ export class Game {
 
   render(deltaMs: number): void {
     if (!this.state.map) return;
-    const rc: RenderContext = {
-      map: this.state.map,
-      camera: this.state.camera,
-      canvasWidth: this.canvas.width / devicePixelRatio,
-      canvasHeight: this.canvas.height / devicePixelRatio,
-      npcs: this.state.world ? this.state.world.query({ kind: 'npc' }).map(toRenderNpc) : [],
-      npcSheets: this.sheets,
-      visualMap: this.state.visualMap,
-      blobMap: this.state.blobMap ?? null,
-      tileAtlas: this.assets.getTileAtlas(),
-      terrainSheets: this.assets.getTerrainSheets(),
-      buildingSprites: this.assets.getBuildingSprites(),
-      treeSheets: this.assets.getTreeSheets(),
-      world: this.state.world!,
-      showLabels: this.state.showLabels,
-      showPoiMarkers: this.state.showPoiMarkers,
-      generatedDecorations: this.state.generatedDecorations,
-      resolveDecorationImage: (id: string) => this.decorationImages.get(id),
-      devMode: this.devMode,
-    };
+    const rc = buildRenderContext(this.renderDeps());
     if (this.renderMap) this.renderMap(this.ctx, rc);
 
     // NEW: Update and render divine effects
@@ -1015,26 +996,7 @@ export class Game {
 
     // In dev mode: show tooltips for ALL objects (tiles, entities, NPCs, decorations)
     if (this.devMode.enabled) {
-      const rc: RenderContext = {
-        map: this.state.map!,
-        camera: this.state.camera,
-        canvasWidth: this.canvas.width / devicePixelRatio,
-        canvasHeight: this.canvas.height / devicePixelRatio,
-        npcs: this.state.world.query({ kind: 'npc' }).map(toRenderNpc),
-        npcSheets: this.sheets,
-        visualMap: this.state.visualMap,
-        blobMap: this.state.blobMap ?? null,
-        tileAtlas: this.assets.getTileAtlas(),
-        terrainSheets: this.assets.getTerrainSheets(),
-        buildingSprites: this.assets.getBuildingSprites(),
-        treeSheets: this.assets.getTreeSheets(),
-        world: this.state.world,
-        showLabels: this.state.showLabels,
-        showPoiMarkers: this.state.showPoiMarkers,
-        generatedDecorations: this.state.generatedDecorations,
-        resolveDecorationImage: (id: string) => this.decorationImages.get(id),
-        devMode: this.devMode,
-      };
+      const rc = buildRenderContext(this.renderDeps());
 
       const hit = hitTest(rc, this.hoverScreen.x, this.hoverScreen.y);
       if (hit.type === null) {
