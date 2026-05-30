@@ -1,25 +1,18 @@
 import { createState, type GameState } from '@/core/state';
 import { TILE_SIZE } from '@/core/constants';
-import { selectRenderer, toggleRenderMode, readRenderMode, type RenderFn } from '@/render/select-renderer';
-import { centerOn } from '@/render/camera';
+import { selectRenderer, toggleRenderMode, type RenderFn } from '@/render/select-renderer';
 import { attachControls, attachTimeKeys } from '@/ui/controls';
-import { WorldManager } from '@/map/world-manager';
 import type { GameMap, WorldSeed, TerrainOptions } from '@/core/types';
 import { advanceNpcFrames } from '@/render/npc-animator';
 // divine-actions functions now invoked via DivineActionsController
 import { LLMClient } from "@/llm/llm-client";
 import { createProvider, type ProviderConfig, loadProviderConfig } from '@/llm/provider-factory';
-import { npcProps, simStateFromEntity } from '@/world/npc-helpers';
+import { simStateFromEntity } from '@/world/npc-helpers';
 import { OverlayDispatcher } from '@/ui/overlay-dispatcher';
-import { buildCharacterSpec, getOrGenerateSheet } from '@/render/lpc';
 import { DivineActionsController } from '@/game/divine-actions-controller';
 import { GameUi } from '@/game/game-ui';
-import { loadDecorations } from '@/services/decoration-store';
 import { DecorationImageCache } from '@/render/decoration-image-cache';
 import { AssetManager } from '@/render/asset-manager';
-import { Autotiler } from '@/map/autotiler';
-import { computeBlobMap } from '@/map/blob-autotiler';
-import { generateWithNoise } from '@/map/map-generator';
 import { Scheduler } from '@/core/scheduler';
 import { TimelineController } from '@/core/timeline';
 import { NpcMovementSystem } from '@/sim/systems/npc-movement-system';
@@ -30,7 +23,7 @@ import { SettlementEventSystem } from '@/sim/systems/settlement-event-system';
 import { SpiritSystem } from '@/sim/spirit-system';
 import { PerceptionSystem } from '@/world/perception-system';
 import { identityOracle } from '@/world/oracle';
-import { seedWorld } from '@/world/seed-world';
+import { bootstrapWorld } from '@/game/bootstrap-world';
 import { injectTokens } from '@/ui/inject-tokens';
 import { mountChrome, mountPastVeil, type ChromeHandle } from '@/ui/chrome';
 import { mountTimeChip, type TimeChipHandle } from '@/ui/panels/time-chip';
@@ -303,83 +296,19 @@ export class Game {
 
   async generateWorld(worldSeed?: WorldSeed, _terrainOptions?: Partial<TerrainOptions>): Promise<GameMap> {
     this.renderMap = await selectRenderer();
-    const ws = worldSeed || await WorldManager.loadDefault();
-    const seed = Date.now();
-
-    const { map, world } = await generateWithNoise(
-      ws.size.width, ws.size.height, seed, ws,
-      { onProgress: (msg) => console.log('[terrain]', msg) },
-    );
-
-    this.state.map = map;
-    this.state.worldSeed = ws;
-    this.state.world = world;
-    this.state.visualMap = Autotiler.computeVisualMap(map);
-    this.state.blobMap = computeBlobMap(map.tiles, map.width, map.height);
-    await this.assets.loadAll();
-
-    centerOn(
-      this.state.camera,
-      (map.width  * TILE_SIZE) / 2,
-      (map.height * TILE_SIZE) / 2,
-      this.canvas.width  / devicePixelRatio,
-      this.canvas.height / devicePixelRatio,
-    );
-
-    // In iso mode the camera coordinate space is different - recentre
-    if (readRenderMode() === 'iso') {
-      const { centerOnTile } = await import('@/render/iso/iso-camera');
-      centerOnTile(
-        this.state.camera,
-        Math.floor(map.width / 2),
-        Math.floor(map.height / 2),
-        this.canvas.width  / devicePixelRatio,
-        this.canvas.height / devicePixelRatio,
-      );
-    }
-
-    seedWorld({
-      world: this.state.world!,
-      log: this.state.eventLog,
-      clock: this.state.clock,
-      spirits: this.state.spirits,
-      rng: this.state.rng,
-      worldSeed: ws,
-      map,
-      oracle: identityOracle,
+    const map = await bootstrapWorld({
+      state: this.state, assets: this.assets, sheets: this.sheets,
+      decorationImages: this.decorationImages, getViewport: () => this.viewport(),
+      worldSeed,
+      onReady: () => {
+        this.ui.mainMenu.hide();
+        this.ui.spiritHud.show();
+        if (!localStorage.getItem('small-gods-tutorial-seen')) setTimeout(() => this.ui.tutorial.show('welcome'), 500);
+        this.dev.updateWorldInspector();
+      },
     });
-    this.kickOffNpcSpritesheets();
-    this.state.generatedDecorations = loadDecorations(ws.name);
-    // Kick off image preloading; missing ids resolve to null and the renderer
-    // falls back to placeholder squares until the load completes.
-    void this.decorationImages.preload(this.state.generatedDecorations.map(d => d.assetId));
-    
-    // NEW: Hide main menu, show game UI
-    this.ui.mainMenu.hide();
-    this.ui.spiritHud.show();
-
-    // Show tutorial on first visit
-    if (!localStorage.getItem('small-gods-tutorial-seen')) {
-      setTimeout(() => this.ui.tutorial.show('welcome'), 500);
-    }
-    
-    // Update World Inspector with new world data
-    this.dev.updateWorldInspector();
-
     this.startLoop();
     return map;
-  }
-
-  private kickOffNpcSpritesheets(): void {
-    if (!this.state.world) return;
-    for (const e of this.state.world.query({ kind: 'npc' })) {
-      if (this.sheets.has(e.id)) continue;
-      const p = npcProps(e);
-      const spec = buildCharacterSpec(p.role, p.seed);
-      getOrGenerateSheet(spec).then(canvas => {
-        if (canvas) this.sheets.set(e.id, canvas);
-      });
-    }
   }
 
   private startLoop(): void {
