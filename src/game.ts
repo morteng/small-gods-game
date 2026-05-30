@@ -8,12 +8,8 @@ import type { GameMap, WorldSeed, TerrainOptions, Entity, NpcProperties, UndoAct
 import { advanceNpcFrames } from '@/render/npc-animator';
 import { drawNpcOverlay, drawPoiOverlay, type OverlayHitAreas } from '@/render/sim-overlay';
 import { whisper, omen, dream, miracle, answerPrayer } from '@/sim/divine-actions';
-import { buildNpcPrompt, type BuiltPrompt, type NpcPromptContext } from '@/llm/npc-prompt-builder';
-import { applyLLMWriteback, type LLMResponse } from '@/llm/state-writeback';
-import { LLMClient, MockLLMProvider } from "@/llm/llm-client";
+import { LLMClient } from "@/llm/llm-client";
 import { createProvider, type ProviderConfig, loadProviderConfig } from '@/llm/provider-factory';
-import type { SettlementEventType } from '@/core/types';
-import { getRecentEventDescriptions } from '@/world/npc-helpers';
 import { initNpcProps, getNpc, toRenderNpc, npcProps, simStateFromEntity } from '@/world/npc-helpers';
 import { OverlayDispatcher } from '@/ui/overlay-dispatcher';
 import { buildCharacterSpec, getOrGenerateSheet } from '@/render/lpc';
@@ -67,6 +63,8 @@ import { mountMapEditorPanel, type MapEditorPanelHandle } from '@/dev/MapEditorP
 import { formatDevTooltip } from '@/dev/tooltip';
 import { drawDebugOverlays, DEFAULT_DEBUG_OVERLAY_OPTIONS } from '@/render/debug-overlays';
 import { buildRenderContext, type RenderContextDeps } from '@/game/render-context';
+import { applyFollowCamera } from '@/game/camera-follow';
+import { LlmBackfillService } from '@/game/llm-backfill';
 
 export interface GameOptions {
   width?: number;
@@ -109,6 +107,7 @@ export class Game {
   private hoverTile: { x: number; y: number } | null = null;
   private hoverScreen: { x: number; y: number } | null = null;
   private llmClient!: LLMClient;
+  private llmBackfill!: LlmBackfillService;
   private fpsEma: number = 60;
   private tooltip: HTMLDivElement;
   private placementModal: DecorationPlacementModalHandle;
@@ -275,6 +274,13 @@ export class Game {
       onClose: () => {
         // Optional: do something when LLM display is closed
       },
+    });
+
+    this.llmBackfill = new LlmBackfillService({
+      state: this.state,
+      llmDisplay: this.llmDisplay,
+      client: this.llmClient,
+      onWriteback: () => { this.lastInfoRefresh = 0; },
     });
 
     this.tooltip = document.createElement('div');
@@ -770,7 +776,7 @@ export class Game {
         });
         this.timeline.onAfterLiveTick();
       }
-      this.applyFollowCamera();
+      applyFollowCamera(this.state, this.viewport());
       this.render(deltaMs);
       this.timeChip.refresh();
       this.refreshPauseBanner();
@@ -922,7 +928,7 @@ export class Game {
               }
             },
             onLlmBackfill: async () => {
-              await this.triggerLlmBackfill(entity);
+              await this.llmBackfill.trigger(entity);
             },
           });
           this.renderedNpcId = sim.npcId;
@@ -961,19 +967,6 @@ export class Game {
         zoom: this.state.camera.zoom,
       });
     }
-  }
-
-  private applyFollowCamera(): void {
-    if (!this.state.followNpc || !this.state.selectedNpcId || !this.state.world) return;
-    const e = getNpc(this.state.world, this.state.selectedNpcId);
-    if (!e) { this.state.followNpc = false; return; }
-    const cam = this.state.camera;
-    const viewW = this.canvas.width  / devicePixelRatio / cam.zoom;
-    const viewH = this.canvas.height / devicePixelRatio / cam.zoom;
-    const targetX = (e.x + 0.5) * TILE_SIZE - viewW / 2;
-    const targetY = (e.y + 0.5) * TILE_SIZE - viewH / 2;
-    cam.x += (targetX - cam.x) * 0.15;
-    cam.y += (targetY - cam.y) * 0.15;
   }
 
   private updateTooltip(): void {
@@ -1231,99 +1224,6 @@ export class Game {
       this.inspectorPanel.update(this.devMode.selected, this.devMode);
     }
   }
-
-  /** Trigger LLM backfill for an NPC — generates narration from sim state */
-  private async triggerLlmBackfill(npcEntity: Entity): Promise<void> {
-    if (!this.state.world) return;
-    
-    const props = npcProps(npcEntity);
-    const player = this.state.spirits.get('player');
-    if (!player) return;
-
-    // Build prompt from NPC state
-    const context: NpcPromptContext = {
-      npc: npcEntity,
-      world: this.state.world,
-      recentEvents: getRecentEventDescriptions(props),
-      previousInteractions: [], // TODO: track these
-      nearbyNpcNames: this.getNearbyNpcNames(npcEntity, 3),
-      activeEvents: this.getActiveEventsForPoi(props.homePoiId),
-      playerSpiritId: 'player',
-    };
-
-    const prompt = buildNpcPrompt(context);
-    console.log('[LLM] Built prompt (estimated', prompt.estimatedTokens, 'tokens):', prompt.user.slice(0, 200));
-
-    // Use mock provider for now (replace with real LLM later)
-    const client = new LLMClient(new MockLLMProvider(100)); // 100ms mock delay
-    try {
-      const response = await client.generateNpcBackfill(prompt.system, prompt.user, {
-        maxTokens: 200,
-        temperature: 0.7,
-      });
-
-      console.log('[LLM] Response:', response.content, `(${response.latencyMs}ms)`);
-
-      // Apply writeback to sim state
-      const writeback = applyLLMWriteback(npcEntity, this.parseLLMJson(response.content), 'player', this.state.eventLog);
-
-      // Show narration/dialogue in UI
-      if (writeback.narration && writeback.dialogue) {
-        this.llmDisplay.showBoth(props.name, writeback.dialogue, writeback.narration);
-      } else if (writeback.dialogue) {
-        this.llmDisplay.showDialogue(props.name, writeback.dialogue);
-      } else if (writeback.narration) {
-        this.llmDisplay.showNarration(writeback.narration);
-      }
-
-      // Refresh the NPC info panel to show updated state
-      this.lastInfoRefresh = 0;
-    } catch (err) {
-      console.error('[LLM] Backfill failed:', err);
-    }
-  }
-
-  /** Parse LLM response, handling JSON or plain text */
-  private parseLLMJson(content: string): LLMResponse {
-    try {
-      return JSON.parse(content);
-    } catch {
-      // Not JSON — treat as narration
-      return { narration: content };
-    }
-  }
-
-  /** Get names of NPCs near the given NPC */
-  private getNearbyNpcNames(npc: Entity, radius: number): string[] {
-    if (!this.state.world) return [];
-    const nearby = this.state.world.query({
-      region: { x: Math.floor(npc.x) - radius, y: Math.floor(npc.y) - radius, w: radius * 2 + 1, h: radius * 2 + 1 },
-      kind: 'npc',
-    });
-    return nearby.filter(e => e.id !== npc.id).map(e => npcProps(e).name);
-  }
-
-  /** Get active events for a POI */
-  private getActiveEventsForPoi(poiId?: string): SettlementEventType[] {
-    if (!poiId || !this.state.world) return [];
-    const events = this.state.world.activeEvents.get(poiId);
-    return events?.map(e => e.type) ?? [];
-  }
-  /*
-  // Old popup method - replaced by llmDisplay
-  private showNarrationPopup(text: string): void {
-    const popup = document.createElement('div');
-    popup.style.cssText = [
-      'position:fixed', 'top:50%', 'left:50%', 'transform:translate(-50%,-50%)',
-      'background:rgba(0,0,0,0.9)', 'color:#fff', 'padding:16px 24px',
-      'border-radius:8px', 'font:14px sans-serif', 'max-width:400px',
-      'z-index:1000', 'pointer-events:none', 'text-align:center',
-    ].join(';');
-    popup.textContent = text;
-    document.body.appendChild(popup);
-    setTimeout(() => popup.remove(), 3000); // 3s timeout
-  }
-  */
 
   /** Paint a tile on the map (dev mode) */
   private paintTile(x: number, y: number, tileType: string): void {
