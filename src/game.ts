@@ -6,7 +6,7 @@ import type { GameMap, WorldSeed, TerrainOptions } from '@/core/types';
 import { advanceNpcFrames } from '@/render/npc-animator';
 // divine-actions functions now invoked via DivineActionsController
 import { LLMClient } from "@/llm/llm-client";
-import { createProvider, type ProviderConfig, loadProviderConfig } from '@/llm/provider-factory';
+import { createProvider, loadProviderConfig } from '@/llm/provider-factory';
 import { simStateFromEntity } from '@/world/npc-helpers';
 import { OverlayDispatcher } from '@/ui/overlay-dispatcher';
 import { DivineActionsController } from '@/game/divine-actions-controller';

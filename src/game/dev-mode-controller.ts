@@ -388,5 +388,10 @@ export class DevModeController {
     this.detachKeys?.();
     this.btn.remove();
     this.inspector.destroy?.();
+    this.debugOverlay.destroy?.();
+    this.timeDebug.destroy?.();
+    this.spawner.destroy?.();
+    this.mapEditor.destroy?.();
+    this.worldInspector.destroy?.();
   }
 }
