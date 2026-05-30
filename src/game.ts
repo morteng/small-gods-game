@@ -7,7 +7,7 @@ import { WorldManager } from '@/map/world-manager';
 import type { GameMap, WorldSeed, TerrainOptions, Entity, NpcProperties, UndoAction, DevModeState, HitResult, Tile } from '@/core/types';
 import { advanceNpcFrames } from '@/render/npc-animator';
 import { drawNpcOverlay, drawPoiOverlay, type OverlayHitAreas } from '@/render/sim-overlay';
-import { whisper, omen, dream, miracle, answerPrayer } from '@/sim/divine-actions';
+// divine-actions functions now invoked via DivineActionsController
 import { LLMClient } from "@/llm/llm-client";
 import { createProvider, type ProviderConfig, loadProviderConfig } from '@/llm/provider-factory';
 import { initNpcProps, getNpc, toRenderNpc, npcProps, simStateFromEntity } from '@/world/npc-helpers';
@@ -25,6 +25,7 @@ import { createRivalPanel, type RivalPanelHandle } from '@/ui/rival-panel';
 import { createMinimapPanel, type MinimapHandle } from '@/ui/minimap-panel';
 import { createTutorial, type TutorialHandle } from '@/ui/tutorial';
 import { DivineEffects } from '@/render/divine-effects';
+import { DivineActionsController } from '@/game/divine-actions-controller';
 import {
   createDecorationPlacementModal,
   type DecorationPlacementModalHandle,
@@ -87,7 +88,7 @@ export class Game {
   private lastTime: number = 0;
   private overlayHitAreas: OverlayHitAreas = [];
   private poiOverlay: { poiId: string; tileX: number; tileY: number } | null = null;
-  private lastWhisperTime: number = -Infinity;
+  private divine!: DivineActionsController;
   private pausedBanner: HTMLDivElement;
   private debugHud: HTMLDivElement;
   private npcInfoPanel: HTMLDivElement;
@@ -136,54 +137,6 @@ export class Game {
   constructor(container: HTMLElement, _options: GameOptions = {}) {
     this.container = container;
     this.state = createState();
-
-    this.dispatcher.register('whisper', (payload) => {
-      const p = payload as { npcId: string };
-      if (!this.state.world) return false;
-      const e = getNpc(this.state.world, p.npcId);
-      const player = this.state.spirits.get('player')!;
-      if (e && whisper(player, e, this.state.eventLog)) {
-        this.lastWhisperTime = performance.now();
-        return true;
-      }
-      return false;
-    });
-
-    this.dispatcher.register('omen', (payload) => {
-      const p = payload as { poiId: string };
-      if (!this.state.world) return false;
-      const player = this.state.spirits.get('player')!;
-      return omen(player, p.poiId, this.state.world, this.state.eventLog);
-    });
-
-    this.dispatcher.register('dream', (payload) => {
-      const p = payload as { npcId: string };
-      if (!this.state.world) return false;
-      const e = getNpc(this.state.world, p.npcId);
-      const player = this.state.spirits.get('player')!;
-      if (e && dream(player, e, this.state.eventLog)) {
-        return true;
-      }
-      return false;
-    });
-
-    this.dispatcher.register('miracle', (payload) => {
-      const p = payload as { poiId: string };
-      if (!this.state.world) return false;
-      const player = this.state.spirits.get('player')!;
-      return miracle(player, p.poiId, this.state.world, this.state.eventLog);
-    });
-
-    this.dispatcher.register('answer_prayer', (payload) => {
-      const p = payload as { npcId: string };
-      if (!this.state.world) return false;
-      const e = getNpc(this.state.world, p.npcId);
-      const player = this.state.spirits.get('player')!;
-      if (e && answerPrayer(player, e, this.state.eventLog)) {
-        return true;
-      }
-      return false;
-    });
 
     this.scheduler = new Scheduler();
     this.scheduler.register(new NpcMovementSystem(() => this.state.map));
@@ -371,6 +324,8 @@ export class Game {
 
     // ── NEW: Divine Effects ────────────────────────────────
     this.divineEffects = new DivineEffects();
+    this.divine = new DivineActionsController({ state: this.state, divineEffects: this.divineEffects });
+    this.divine.register(this.dispatcher);
 
     // ── Dev Mode Toggle Button ────────────────────────────
     this.devModeBtn = document.createElement('button');
@@ -849,8 +804,8 @@ export class Game {
       this.debugOverlayPanel.update(this.devMode);
     }
 
-    // Gold flash when a whisper was just cast
-    const flashAge = performance.now() - this.lastWhisperTime;
+    // Gold flash when a divine action was just cast
+    const flashAge = performance.now() - this.divine.lastCastTime;
     if (flashAge < 300) {
       const alpha = 0.25 * (1 - flashAge / 300);
       this.ctx.fillStyle = `rgba(255, 215, 0, ${alpha.toFixed(3)})`;
@@ -891,42 +846,11 @@ export class Game {
               this.state.pinnedNpcId = this.state.pinnedNpcId === sim.npcId ? null : sim.npcId;
               this.lastInfoRefresh = 0;
             },
-            onWhisper: () => {
-              if (whisper(player, entity, this.state.eventLog)) {
-                this.lastWhisperTime = performance.now();
-                // NEW: Trigger divine effect
-                this.divineEffects.trigger('whisper', entity.x, entity.y);
-              }
-            },
-            onDream: () => {
-              dream(player, entity, this.state.eventLog);
-              this.divineEffects.trigger('dream', entity.x, entity.y);
-            },
-            onAnswerPrayer: () => {
-              answerPrayer(player, entity, this.state.eventLog);
-            },
-            onOmen: () => {
-              const p = npcProps(entity);
-              if (p.homePoiId) {
-                omen(player, p.homePoiId, this.state.world!, this.state.eventLog);
-                // NEW: Trigger omen effect at POI location
-                const poi = this.state.worldSeed?.pois.find(poi => poi.id === p.homePoiId);
-                if (poi?.position) {
-                  this.divineEffects.trigger('omen', poi.position.x, poi.position.y);
-                }
-              }
-            },
-            onMiracle: () => {
-              const p = npcProps(entity);
-              if (p.homePoiId) {
-                miracle(player, p.homePoiId, this.state.world!, this.state.eventLog);
-                // NEW: Trigger miracle effect at POI location
-                const poi = this.state.worldSeed?.pois.find(poi => poi.id === p.homePoiId);
-                if (poi?.position) {
-                  this.divineEffects.trigger('miracle', poi.position.x, poi.position.y);
-                }
-              }
-            },
+            onWhisper: () => { this.divine.whisper(entity); },
+            onDream: () => { this.divine.dream(entity); },
+            onAnswerPrayer: () => { this.divine.answerPrayer(entity); },
+            onOmen: () => { this.divine.omenForNpc(entity); },
+            onMiracle: () => { this.divine.miracleForNpc(entity); },
             onLlmBackfill: async () => {
               await this.llmBackfill.trigger(entity);
             },
