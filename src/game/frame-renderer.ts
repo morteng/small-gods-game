@@ -1,0 +1,228 @@
+import type { GameState } from '@/core/state';
+import type { Viewport } from './viewport';
+import type { RenderContextDeps } from './render-context';
+import type { RenderFn } from '@/render/select-renderer';
+import type { InteractionState } from './interaction-state';
+import type { DivineActionsController } from './divine-actions-controller';
+import type { DevModeController } from './dev-mode-controller';
+import type { LlmBackfillService } from './llm-backfill';
+import type { MinimapHandle } from '@/ui/minimap-panel';
+import type { SpiritHudHandle } from '@/ui/spirit-hud';
+import type { DivineEffects } from '@/render/divine-effects';
+import { buildRenderContext } from './render-context';
+import { getNpc, toRenderNpc, simStateFromEntity } from '@/world/npc-helpers';
+import { drawNpcOverlay, drawPoiOverlay } from '@/render/sim-overlay';
+import { renderNpcInfoPanel } from '@/ui/npc-info-panel';
+import { formatNpcTooltip } from '@/ui/npc-tooltip';
+import { formatDevTooltip } from '@/dev/tooltip';
+import { drawPowerHud } from '@/render/hud';
+import { formatDebugHud } from '@/ui/debug-hud';
+import { POWER_REGEN_RATE } from '@/sim/spirit-system';
+import { TILE_SIZE } from '@/core/constants';
+import type { NpcProperties } from '@/core/types';
+
+export interface FrameRendererUi {
+  minimap: MinimapHandle;
+  spiritHud: SpiritHudHandle;
+  divineEffects: DivineEffects;
+  npcInfoPanel: HTMLDivElement;
+  tooltip: HTMLDivElement;
+  debugHud: HTMLDivElement;
+}
+
+export interface FrameRendererDeps {
+  ctx: CanvasRenderingContext2D;
+  state: GameState;
+  ui: FrameRendererUi;
+  divine: DivineActionsController;
+  dev: DevModeController;
+  llmBackfill: LlmBackfillService;
+  interaction: InteractionState;
+  getRenderDeps: () => RenderContextDeps;
+  getViewport: () => Viewport;
+  renderMap: () => RenderFn | null;
+  isPaused: () => boolean;
+}
+
+export class FrameRenderer {
+  private renderedNpcId: string | null = null;
+  private renderedPinned = false;
+  private lastInfoRefresh = 0;
+  private fpsEma = 60;
+
+  constructor(private deps: FrameRendererDeps) {}
+
+  /** External hook so LlmBackfillService.onWriteback can force a panel refresh. */
+  forceInfoRefresh(): void { this.lastInfoRefresh = 0; }
+
+  render(deltaMs: number): void {
+    if (!this.deps.state.map) return;
+    if (deltaMs > 0) {
+      const instantFps = 1000 / deltaMs;
+      this.fpsEma = this.fpsEma * 0.9 + instantFps * 0.1;
+    }
+    const rc = buildRenderContext(this.deps.getRenderDeps());
+    const renderMap = this.deps.renderMap();
+    if (renderMap) renderMap(this.deps.ctx, rc);
+
+    // NEW: Update and render divine effects
+    if (this.deps.ui.divineEffects) {
+      this.deps.ui.divineEffects.update(deltaMs);
+      this.deps.ui.divineEffects.render(this.deps.ctx as any, this.deps.state.camera, TILE_SIZE);
+    }
+
+    // NEW: Update minimap when visible
+    if (this.deps.ui.minimap && this.deps.ui.minimap.isVisible() && this.deps.state.map) {
+      const npcs = this.deps.state.world?.query({ kind: 'npc' }).map(toRenderNpc) ?? [];
+      this.deps.ui.minimap.update(
+        this.deps.state.map,
+        npcs,
+        this.deps.state.camera,
+        rc.canvasWidth,
+        rc.canvasHeight,
+      );
+    }
+
+    // NEW: Update Spirit HUD
+    if (this.deps.ui.spiritHud && this.deps.ui.spiritHud.isVisible() && this.deps.state.world) {
+      const player = this.deps.state.spirits.get('player')!;
+      const rivals = Array.from(this.deps.state.spirits.entries())
+        .filter(([id]) => id !== 'player')
+        .map(([, spirit]) => spirit);
+
+      let totalFollowers = 0;
+      for (const npc of this.deps.state.world.query({ kind: 'npc' })) {
+        const p = npc.properties as unknown as NpcProperties;
+        if ((p.beliefs['player']?.faith ?? 0) > 0.3) totalFollowers++;
+      }
+
+      this.deps.ui.spiritHud.update(player, rivals as any[], totalFollowers);
+    }
+
+    // Draw debug overlays if dev mode is enabled
+    this.deps.dev.drawOverlays(this.deps.ctx, this.deps.getRenderDeps());
+
+    // Gold flash when a divine action was just cast
+    const flashAge = performance.now() - this.deps.divine.lastCastTime;
+    if (flashAge < 300) {
+      const alpha = 0.25 * (1 - flashAge / 300);
+      this.deps.ctx.fillStyle = `rgba(255, 215, 0, ${alpha.toFixed(3)})`;
+      this.deps.ctx.fillRect(0, 0, rc.canvasWidth, rc.canvasHeight);
+    }
+
+    if (this.deps.state.selectedNpcId && this.deps.state.world) {
+      const entity = getNpc(this.deps.state.world, this.deps.state.selectedNpcId);
+      if (entity) {
+        const npc = toRenderNpc(entity);
+        const sim = simStateFromEntity(entity);
+        const player = this.deps.state.spirits.get('player')!;
+        this.deps.interaction.overlayHitAreas = drawNpcOverlay(
+          this.deps.ctx, npc, sim, this.deps.state.camera,
+          rc.canvasWidth, rc.canvasHeight,
+          player.power,
+        );
+
+        // POI overlay (right-click on POI)
+        if (this.deps.interaction.poiOverlay && this.deps.state.world) {
+          const { poiId, tileX, tileY } = this.deps.interaction.poiOverlay;
+          const poiAreas = drawPoiOverlay(
+            this.deps.ctx, poiId, tileX, tileY, this.deps.state.camera,
+            rc.canvasWidth, rc.canvasHeight, player.power,
+          );
+          this.deps.interaction.overlayHitAreas = [...this.deps.interaction.overlayHitAreas, ...poiAreas];
+        }
+
+        const now = performance.now();
+        const pinned = this.deps.state.pinnedNpcId === sim.npcId;
+        const switched = this.renderedNpcId !== sim.npcId;
+        const pinChanged = this.renderedPinned !== pinned;
+        if (switched || pinChanged || now - this.lastInfoRefresh > 500) {
+          renderNpcInfoPanel(this.deps.ui.npcInfoPanel, sim, {
+            pinned,
+            power: player.power,
+            onTogglePin: () => {
+              this.deps.state.pinnedNpcId = this.deps.state.pinnedNpcId === sim.npcId ? null : sim.npcId;
+              this.lastInfoRefresh = 0;
+            },
+            onWhisper: () => { this.deps.divine.whisper(entity); },
+            onDream: () => { this.deps.divine.dream(entity); },
+            onAnswerPrayer: () => { this.deps.divine.answerPrayer(entity); },
+            onOmen: () => { this.deps.divine.omenForNpc(entity); },
+            onMiracle: () => { this.deps.divine.miracleForNpc(entity); },
+            onLlmBackfill: async () => {
+              await this.deps.llmBackfill.trigger(entity);
+            },
+          });
+          this.renderedNpcId = sim.npcId;
+          this.renderedPinned = pinned;
+          this.lastInfoRefresh = now;
+        }
+        this.deps.ui.npcInfoPanel.style.display = 'block';
+      }
+    } else {
+      this.deps.interaction.overlayHitAreas = [];
+      this.deps.ui.npcInfoPanel.style.display = 'none';
+      this.renderedNpcId = null;
+    }
+
+    const player = this.deps.state.spirits.get('player')!;
+    // Per-second regen estimate for HUD
+    let totalFaith = 0;
+    if (this.deps.state.world) {
+      for (const e of this.deps.state.world.query({ kind: 'npc' })) {
+        const p = e.properties as unknown as NpcProperties;
+        totalFaith += p.beliefs['player']?.faith ?? 0;
+      }
+    }
+    const regenPerSec = totalFaith * POWER_REGEN_RATE;
+    drawPowerHud(this.deps.ctx, player.power, regenPerSec);
+
+    this.updateTooltip();
+
+    if (this.deps.state.debug) {
+      this.deps.ui.debugHud.textContent = formatDebugHud({
+        fps: this.fpsEma,
+        mouseTile: this.deps.interaction.hoverTile,
+        entityCount: this.deps.state.world?.query({}).length ?? 0,
+        npcCount: this.deps.state.world?.query({ kind: 'npc' }).length ?? 0,
+        paused: this.deps.isPaused(),
+        zoom: this.deps.state.camera.zoom,
+      });
+    }
+  }
+
+  private updateTooltip(): void {
+    if (!this.deps.interaction.hoverTile || !this.deps.interaction.hoverScreen || !this.deps.state.world) {
+      this.deps.ui.tooltip.style.display = 'none';
+      return;
+    }
+
+    // In dev mode: show tooltips for ALL objects (tiles, entities, NPCs, decorations)
+    if (this.deps.dev.isEnabled()) {
+      const hit = this.deps.dev.hitTest(this.deps.interaction.hoverScreen.x, this.deps.interaction.hoverScreen.y);
+      if (hit.type === null) {
+        this.deps.ui.tooltip.style.display = 'none';
+        return;
+      }
+      this.deps.ui.tooltip.textContent = formatDevTooltip(hit);
+      this.deps.ui.tooltip.style.left = `${this.deps.interaction.hoverScreen.x}px`;
+      this.deps.ui.tooltip.style.top  = `${this.deps.interaction.hoverScreen.y}px`;
+      this.deps.ui.tooltip.style.display = 'block';
+      return;
+    }
+
+    // Normal mode: only show NPC tooltips
+    const { x, y } = this.deps.interaction.hoverTile;
+    const hovered = this.deps.state.world.query({ kind: 'npc' })
+      .find(e => Math.floor(e.x) === x && Math.floor(e.y) === y);
+    if (!hovered || hovered.id === this.deps.state.selectedNpcId) {
+      this.deps.ui.tooltip.style.display = 'none';
+      return;
+    }
+    const p = hovered.properties as unknown as NpcProperties;
+    this.deps.ui.tooltip.textContent = formatNpcTooltip({ name: p.name, role: p.role, mood: p.mood });
+    this.deps.ui.tooltip.style.left = `${this.deps.interaction.hoverScreen.x}px`;
+    this.deps.ui.tooltip.style.top  = `${this.deps.interaction.hoverScreen.y}px`;
+    this.deps.ui.tooltip.style.display = 'block';
+  }
+}

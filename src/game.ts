@@ -6,17 +6,12 @@ import { attachControls, attachTimeKeys } from '@/ui/controls';
 import { WorldManager } from '@/map/world-manager';
 import type { GameMap, WorldSeed, TerrainOptions, NpcProperties } from '@/core/types';
 import { advanceNpcFrames } from '@/render/npc-animator';
-import { drawNpcOverlay, drawPoiOverlay, type OverlayHitAreas } from '@/render/sim-overlay';
 // divine-actions functions now invoked via DivineActionsController
 import { LLMClient } from "@/llm/llm-client";
 import { createProvider, type ProviderConfig, loadProviderConfig } from '@/llm/provider-factory';
-import { getNpc, toRenderNpc, npcProps, simStateFromEntity } from '@/world/npc-helpers';
+import { npcProps, simStateFromEntity } from '@/world/npc-helpers';
 import { OverlayDispatcher } from '@/ui/overlay-dispatcher';
 import { buildCharacterSpec, getOrGenerateSheet } from '@/render/lpc';
-import { drawPowerHud } from '@/render/hud';
-import { formatDebugHud } from '@/ui/debug-hud';
-import { renderNpcInfoPanel } from '@/ui/npc-info-panel';
-import { formatNpcTooltip } from '@/ui/npc-tooltip';
 // NEW: Import unified settings and new UI components
 import { createSettingsPanel as createUnifiedSettings, type SettingsHandle } from '@/ui/settings-unified';
 import { createMainMenu, type MainMenuHandle } from '@/ui/main-menu';
@@ -45,7 +40,7 @@ import { NpcSimSystem } from '@/sim/systems/npc-sim-system';
 import { BeliefPropagationSystem } from '@/sim/systems/belief-propagation-system';
 import { NpcActivitySystem } from '@/sim/systems/npc-activity-system';
 import { SettlementEventSystem } from '@/sim/systems/settlement-event-system';
-import { SpiritSystem, POWER_REGEN_RATE } from '@/sim/spirit-system';
+import { SpiritSystem } from '@/sim/spirit-system';
 import { PerceptionSystem } from '@/world/perception-system';
 import { identityOracle } from '@/world/oracle';
 import { seedWorld } from '@/world/seed-world';
@@ -53,11 +48,12 @@ import { injectTokens } from '@/ui/inject-tokens';
 import { mountChrome, mountPastVeil, type ChromeHandle } from '@/ui/chrome';
 import { mountTimeChip, type TimeChipHandle } from '@/ui/panels/time-chip';
 import { mountTimeBar, type TimeBarHandle } from '@/ui/panels/time-bar';
-import { formatDevTooltip } from '@/dev/tooltip';
-import { buildRenderContext, type RenderContextDeps } from '@/game/render-context';
+import type { RenderContextDeps } from '@/game/render-context';
 import { applyFollowCamera } from '@/game/camera-follow';
 import { LlmBackfillService } from '@/game/llm-backfill';
 import { DevModeController } from '@/game/dev-mode-controller';
+import { FrameRenderer } from '@/game/frame-renderer';
+import { createInteractionState } from '@/game/interaction-state';
 
 export interface GameOptions {
   width?: number;
@@ -78,8 +74,6 @@ export class Game {
   private resizeObserver: ResizeObserver;
   private rafId: number | null = null;
   private lastTime: number = 0;
-  private overlayHitAreas: OverlayHitAreas = [];
-  private poiOverlay: { poiId: string; tileX: number; tileY: number } | null = null;
   private divine!: DivineActionsController;
   private pausedBanner: HTMLDivElement;
   private debugHud: HTMLDivElement;
@@ -94,14 +88,8 @@ export class Game {
   private unifiedSettings!: SettingsHandle;
   // Legacy components
   private llmDisplay: LlmDisplayHandle;
-  private renderedNpcId: string | null = null;
-  private renderedPinned: boolean = false;
-  private lastInfoRefresh: number = 0;
-  private hoverTile: { x: number; y: number } | null = null;
-  private hoverScreen: { x: number; y: number } | null = null;
   private llmClient!: LLMClient;
   private llmBackfill!: LlmBackfillService;
-  private fpsEma: number = 60;
   private tooltip: HTMLDivElement;
   private placementModal: DecorationPlacementModalHandle;
   private decorationImages = new DecorationImageCache();
@@ -116,6 +104,8 @@ export class Game {
   private detachTimeKeys: (() => void) | null = null;
   private renderMap: RenderFn | null = null;
   private dev!: DevModeController;
+  private renderer!: FrameRenderer;
+  private interaction = createInteractionState();
   private llmSettingsBtn!: HTMLButtonElement;
 
   constructor(container: HTMLElement, _options: GameOptions = {}) {
@@ -217,7 +207,7 @@ export class Game {
       state: this.state,
       llmDisplay: this.llmDisplay,
       client: this.llmClient,
-      onWriteback: () => { this.lastInfoRefresh = 0; },
+      onWriteback: () => this.renderer.forceInfoRefresh(),
     });
 
     this.tooltip = document.createElement('div');
@@ -316,6 +306,17 @@ export class Game {
       getViewport: () => this.viewport(), getRenderDeps: () => this.renderDeps(),
     });
 
+    this.renderer = new FrameRenderer({
+      ctx: this.ctx, state: this.state,
+      ui: { minimap: this.minimap, spiritHud: this.spiritHud, divineEffects: this.divineEffects,
+            npcInfoPanel: this.npcInfoPanel, tooltip: this.tooltip, debugHud: this.debugHud },
+      divine: this.divine, dev: this.dev, llmBackfill: this.llmBackfill,
+      interaction: this.interaction,
+      getRenderDeps: () => this.renderDeps(), getViewport: () => this.viewport(),
+      renderMap: () => this.renderMap,
+      isPaused: () => this.scheduler.getRate() === 0,
+    });
+
     // LLM settings button
     this.llmSettingsBtn = document.createElement('button');
     this.llmSettingsBtn.textContent = '⚙ LLM';
@@ -351,8 +352,8 @@ export class Game {
         this.unifiedSettings.updateGameSetting('debug', this.state.debug);
       },
       onHoverTile: (x, y, sx, sy) => {
-        this.hoverTile = { x, y };
-        this.hoverScreen = { x: sx, y: sy };
+        this.interaction.hoverTile = { x, y };
+        this.interaction.hoverScreen = { x: sx, y: sy };
       },
       onToggleFollow: () => {
         if (!this.state.selectedNpcId) return;
@@ -516,7 +517,7 @@ export class Game {
 
     if (poiId) {
       // Show POI overlay for Omen/Miracle
-      this.poiOverlay = { poiId, tileX, tileY };
+      this.interaction.poiOverlay = { poiId, tileX, tileY };
       return;
     }
 
@@ -549,10 +550,6 @@ export class Game {
     const loop = (now: number) => {
       const deltaMs = Math.min(now - this.lastTime, 100);
       this.lastTime = now;
-      if (deltaMs > 0) {
-        const instantFps = 1000 / deltaMs;
-        this.fpsEma = this.fpsEma * 0.9 + instantFps * 0.1;
-      }
       if (this.scheduler.getRate() > 0 && this.state.world && !this.timeline.isScrubbed) {
         advanceNpcFrames(this.state.world, deltaMs);  // presentation animation - not a scheduled system
         this.scheduler.tick(deltaMs, {
@@ -565,7 +562,7 @@ export class Game {
         this.timeline.onAfterLiveTick();
       }
       applyFollowCamera(this.state, this.viewport());
-      this.render(deltaMs);
+      this.renderer.render(deltaMs);
       this.timeChip.refresh();
       this.refreshPauseBanner();
       this.timeBar?.refresh();
@@ -583,182 +580,16 @@ export class Game {
     }
   }
 
-  render(deltaMs: number): void {
-    if (!this.state.map) return;
-    const rc = buildRenderContext(this.renderDeps());
-    if (this.renderMap) this.renderMap(this.ctx, rc);
-
-    // NEW: Update and render divine effects
-    if (this.divineEffects) {
-      this.divineEffects.update(deltaMs);
-      this.divineEffects.render(this.ctx as any, this.state.camera, TILE_SIZE);
-    }
-
-    // NEW: Update minimap when visible
-    if (this.minimap && this.minimap.isVisible() && this.state.map) {
-      const npcs = this.state.world?.query({ kind: 'npc' }).map(toRenderNpc) ?? [];
-      this.minimap.update(
-        this.state.map,
-        npcs,
-        this.state.camera,
-        rc.canvasWidth,
-        rc.canvasHeight,
-      );
-    }
-
-    // NEW: Update Spirit HUD
-    if (this.spiritHud && this.spiritHud.isVisible() && this.state.world) {
-      const player = this.state.spirits.get('player')!;
-      const rivals = Array.from(this.state.spirits.entries())
-        .filter(([id]) => id !== 'player')
-        .map(([, spirit]) => spirit);
-      
-      let totalFollowers = 0;
-      for (const npc of this.state.world.query({ kind: 'npc' })) {
-        const p = npc.properties as unknown as NpcProperties;
-        if ((p.beliefs['player']?.faith ?? 0) > 0.3) totalFollowers++;
-      }
-      
-      this.spiritHud.update(player, rivals as any[], totalFollowers);
-    }
-
-    // Draw debug overlays if dev mode is enabled
-    this.dev.drawOverlays(this.ctx, this.renderDeps());
-
-    // Gold flash when a divine action was just cast
-    const flashAge = performance.now() - this.divine.lastCastTime;
-    if (flashAge < 300) {
-      const alpha = 0.25 * (1 - flashAge / 300);
-      this.ctx.fillStyle = `rgba(255, 215, 0, ${alpha.toFixed(3)})`;
-      this.ctx.fillRect(0, 0, rc.canvasWidth, rc.canvasHeight);
-    }
-
-    if (this.state.selectedNpcId && this.state.world) {
-      const entity = getNpc(this.state.world, this.state.selectedNpcId);
-      if (entity) {
-        const npc = toRenderNpc(entity);
-        const sim = simStateFromEntity(entity);
-        const player = this.state.spirits.get('player')!;
-        this.overlayHitAreas = drawNpcOverlay(
-          this.ctx, npc, sim, this.state.camera,
-          rc.canvasWidth, rc.canvasHeight,
-          player.power,
-        );
-
-        // POI overlay (right-click on POI)
-        if (this.poiOverlay && this.state.world) {
-          const { poiId, tileX, tileY } = this.poiOverlay;
-          const poiAreas = drawPoiOverlay(
-            this.ctx, poiId, tileX, tileY, this.state.camera,
-            rc.canvasWidth, rc.canvasHeight, player.power,
-          );
-          this.overlayHitAreas = [...this.overlayHitAreas, ...poiAreas];
-        }
-
-        const now = performance.now();
-        const pinned = this.state.pinnedNpcId === sim.npcId;
-        const switched = this.renderedNpcId !== sim.npcId;
-        const pinChanged = this.renderedPinned !== pinned;
-        if (switched || pinChanged || now - this.lastInfoRefresh > 500) {
-          renderNpcInfoPanel(this.npcInfoPanel, sim, {
-            pinned,
-            power: player.power,
-            onTogglePin: () => {
-              this.state.pinnedNpcId = this.state.pinnedNpcId === sim.npcId ? null : sim.npcId;
-              this.lastInfoRefresh = 0;
-            },
-            onWhisper: () => { this.divine.whisper(entity); },
-            onDream: () => { this.divine.dream(entity); },
-            onAnswerPrayer: () => { this.divine.answerPrayer(entity); },
-            onOmen: () => { this.divine.omenForNpc(entity); },
-            onMiracle: () => { this.divine.miracleForNpc(entity); },
-            onLlmBackfill: async () => {
-              await this.llmBackfill.trigger(entity);
-            },
-          });
-          this.renderedNpcId = sim.npcId;
-          this.renderedPinned = pinned;
-          this.lastInfoRefresh = now;
-        }
-        this.npcInfoPanel.style.display = 'block';
-      }
-    } else {
-      this.overlayHitAreas = [];
-      this.npcInfoPanel.style.display = 'none';
-      this.renderedNpcId = null;
-    }
-
-    const player = this.state.spirits.get('player')!;
-    // Per-second regen estimate for HUD
-    let totalFaith = 0;
-    if (this.state.world) {
-      for (const e of this.state.world.query({ kind: 'npc' })) {
-        const p = e.properties as unknown as NpcProperties;
-        totalFaith += p.beliefs['player']?.faith ?? 0;
-      }
-    }
-    const regenPerSec = totalFaith * POWER_REGEN_RATE;
-    drawPowerHud(this.ctx, player.power, regenPerSec);
-
-    this.updateTooltip();
-
-    if (this.state.debug) {
-      this.debugHud.textContent = formatDebugHud({
-        fps: this.fpsEma,
-        mouseTile: this.hoverTile,
-        entityCount: this.state.world?.query({}).length ?? 0,
-        npcCount: this.state.world?.query({ kind: 'npc' }).length ?? 0,
-        paused: this.scheduler.getRate() === 0,
-        zoom: this.state.camera.zoom,
-      });
-    }
-  }
-
-  private updateTooltip(): void {
-    if (!this.hoverTile || !this.hoverScreen || !this.state.world) {
-      this.tooltip.style.display = 'none';
-      return;
-    }
-
-    // In dev mode: show tooltips for ALL objects (tiles, entities, NPCs, decorations)
-    if (this.dev.isEnabled()) {
-      const hit = this.dev.hitTest(this.hoverScreen.x, this.hoverScreen.y);
-      if (hit.type === null) {
-        this.tooltip.style.display = 'none';
-        return;
-      }
-      this.tooltip.textContent = formatDevTooltip(hit);
-      this.tooltip.style.left = `${this.hoverScreen.x}px`;
-      this.tooltip.style.top  = `${this.hoverScreen.y}px`;
-      this.tooltip.style.display = 'block';
-      return;
-    }
-
-    // Normal mode: only show NPC tooltips
-    const { x, y } = this.hoverTile;
-    const hovered = this.state.world.query({ kind: 'npc' })
-      .find(e => Math.floor(e.x) === x && Math.floor(e.y) === y);
-    if (!hovered || hovered.id === this.state.selectedNpcId) {
-      this.tooltip.style.display = 'none';
-      return;
-    }
-    const p = hovered.properties as unknown as NpcProperties;
-    this.tooltip.textContent = formatNpcTooltip({ name: p.name, role: p.role, mood: p.mood });
-    this.tooltip.style.left = `${this.hoverScreen.x}px`;
-    this.tooltip.style.top  = `${this.hoverScreen.y}px`;
-    this.tooltip.style.display = 'block';
-  }
-
   private onCanvasClick(sx: number, sy: number): boolean {
     // Clear POI overlay if clicking elsewhere
-    this.poiOverlay = null;
-    return this.dispatcher.tryDispatch(sx, sy, this.overlayHitAreas);
+    this.interaction.poiOverlay = null;
+    return this.dispatcher.tryDispatch(sx, sy, this.interaction.overlayHitAreas);
   }
 
   private onTileClick(x: number, y: number): void {
     if (!this.state.map || !this.state.world) return;
     // Clear POI overlay on any left-click
-    this.poiOverlay = null;
+    this.interaction.poiOverlay = null;
 
     const clicked = this.state.world.query({ kind: 'npc' })
       .find(e => Math.floor(e.x) === x && Math.floor(e.y) === y);
