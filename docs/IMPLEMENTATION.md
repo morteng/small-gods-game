@@ -1,8 +1,8 @@
 # Small Gods - Implementation Plan
 
-**Version**: 2.0.0
+**Version**: 2.1.0
 **Status**: Active
-**Last Updated**: 2026-02-20
+**Last Updated**: 2026-05-29
 
 > **Note:** As of 2026-02-20, the codebase was migrated from global-scope JS (`public/js/`) to TypeScript ES modules (`src/`) bundled by Vite. The isometric + AI rendering pipeline (~4,000 lines) was replaced with a simple top-down colored-rectangle renderer (~200 lines). See `docs/plans/2026-02-20-ts-migration-design.md` for details.
 
@@ -80,56 +80,58 @@ Core map generation and rendering. Originally isometric + AI-rendered tiles; now
 | Version migration | ⬜ Pending | Low priority |
 
 ### Phase 7: NPC Simulation Layer
-**Status**: ⬜ Not Started
+**Status**: ✅ Complete
 
 Core programmatic simulation that runs every tick without LLM calls.
 
 | Task | Status | Notes |
 |------|--------|-------|
-| NPC data model | ⬜ Pending | personality, beliefs, needs, mood, relationships |
-| NPC generation (per settlement) | ⬜ Pending | Seed-based, role distribution, social graph |
-| Tick system (needs + mood) | ⬜ Pending | Update needs from world events, derive mood |
-| Belief decay/growth per tick | ⬜ Pending | Event-driven + social pressure + time decay |
-| Belief propagation on social graph | ⬜ Pending | Contagion model: assertiveness × trust × faith |
-| Activity state machine | ⬜ Pending | Time-of-day schedule, event interrupts |
-| Settlement-level event generation | ⬜ Pending | Droughts, festivals, disputes, births, deaths |
-| NPC event ring buffer | ⬜ Pending | Last ~10 events per NPC, compact storage |
-| Settlement aggregate belief | ⬜ Pending | Dominant religion per settlement |
+| NPC data model | ✅ Done | `src/core/types.ts` - NpcProperties, NpcPersonality, SpiritBelief, NpcNeeds |
+| NPC generation (per settlement) | ✅ Done | `src/world/npc-helpers.ts` - initNpcProps() |
+| Tick system (needs + mood) | ✅ Done | `src/sim/npc-sim.ts` - tickNpcEntity(), computeMood() |
+| Belief decay/growth per tick | ✅ Done | `src/sim/npc-sim.ts` - faith decay, need-based faith boost |
+| Belief propagation on social graph | ✅ Done | `src/sim/systems/belief-propagation-system.ts` |
+| Activity state machine | ✅ Done | `src/sim/systems/npc-activity-system.ts` - sleep/work/worship/socialize/wander |
+| Settlement-level event generation | ✅ Done | `src/sim/systems/settlement-event-system.ts` - 8 event types |
+| NPC event ring buffer | ✅ Done | `recentEventIds` on NpcProperties, max 8 entries |
+| Settlement aggregate belief | ✅ Done | Computed in SpiritSystem from belief totals |
 
 ### Phase 8: Divine Action System
-**Status**: ⬜ Not Started
+**Status**: ✅ Complete
 
 Player powers and the belief economy.
 
 | Task | Status | Notes |
 |------|--------|-------|
-| Player god state model | ⬜ Pending | Power, domain tags, follower list |
-| Power economy (regen from belief) | ⬜ Pending | power = Σ(faith × understanding × devotion) |
-| Whisper action | ⬜ Pending | Target 1 NPC, low cost, triggers LLM |
-| Omen action | ⬜ Pending | Area effect, medium cost, visual event |
-| Answer prayer action | ⬜ Pending | Respond to NPC prayer, low cost |
-| Dream action | ⬜ Pending | Visit sleeping NPC, medium cost |
-| Miracle action | ⬜ Pending | Settlement-wide, high cost, meets a need |
-| Domain tag tracking | ⬜ Pending | Tags accumulate from action types |
+| Player god state model | ✅ Done | `src/core/spirit.ts` - Spirit interface with power, manifestation |
+| Power economy (regen from belief) | ✅ Done | `src/sim/spirit-system.ts` - POWER_REGEN_RATE = 0.02 |
+| Whisper action | ✅ Done | `src/sim/divine-actions.ts` - cost 1, faith++ on target NPC |
+| Omen action | ✅ Done | `src/sim/divine-actions.ts` - cost 3, area effect on settlement |
+| Answer prayer action | ✅ Done | `src/sim/divine-actions.ts` - cost 2, requires worship activity |
+| Dream action | ✅ Done | `src/sim/divine-actions.ts` - cost 4, deep influence during sleep |
+| Miracle action | ✅ Done | `src/sim/divine-actions.ts` - cost 10, meets settlement need |
+| Domain tag tracking | 🟡 Partial | Infrastructure ready, tags not yet accumulated |
 | Divine action UI | ⬜ Pending | Player interface for selecting/targeting actions |
 
 ### Phase 9: LLM Integration (Backfill System)
-**Status**: ⬜ Not Started
+**Status**: 🟡 In Progress (Prompt builder, client, writeback done)
 
-On-demand LLM narration that makes the sim feel alive.
+**Prerequisite**: Phase 7 (NPC Simulation) ✅ Complete, Phase 8 (Divine Actions) ✅ Complete
 
 | Task | Status | Notes |
 |------|--------|-------|
-| NPC card prompt builder | ⬜ Pending | Compact NPC state → ~150 token prompt |
-| LLM backfill on player focus | ⬜ Pending | Observe NPC/scene → generate narrative |
-| Structured output (narrative + state delta) | ⬜ Pending | LLM returns text + JSON state changes |
-| State writeback from LLM | ⬜ Pending | Apply belief/mood changes from interactions |
-| Interaction memory (compress + store) | ⬜ Pending | Summarize LLM exchanges, store ~5 per NPC |
-| LLM provider integration | ⬜ Pending | High-speed inference API (target: <200ms) |
-| Conversation UI | ⬜ Pending | Player sees NPC dialogue, scene narration |
+| NPC card prompt builder | ✅ Done | `src/llm/npc-prompt-builder.ts` |
+| LLM backfill on player focus | 🟡 In Progress | Integration pending |
+| Structured output (narrative + state delta) | ✅ Done | `src/llm/state-writeback.ts` |
+| State writeback from LLM | ✅ Done | Validates, clamps, logs events |
+| Interaction memory (compress + store) | 🟡 Partial | `createInteractionSummary()` exists |
+| LLM provider integration | ✅ Done | `src/llm/llm-client.ts` - MockProvider for testing |
+| Conversation UI | ⬜ Pending | See Phase 9 UI |
 
 ### Phase 10: Rival Spirit System
 **Status**: ⬜ Not Started
+
+**Prerequisite**: Phase 7 (NPC Simulation) ✅ Complete, Phase 8 (Divine Actions) ✅ Complete
 
 | Task | Status | Notes |
 |------|--------|-------|
@@ -143,6 +145,8 @@ On-demand LLM narration that makes the sim feel alive.
 
 ### Phase 11: DM Agent (Background Director)
 **Status**: ⬜ Not Started
+
+**Prerequisite**: Phase 9 (LLM Integration), Phase 10 (Rival Spirits)
 
 Background LLM agent that turns simulation into story. Never interacts with player directly.
 

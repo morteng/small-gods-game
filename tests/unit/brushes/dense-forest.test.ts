@@ -28,7 +28,7 @@ describe('dense_forest brush', () => {
     expect(denseForestBrush({ x: 0, y: 0, w: 8, h: 8 }, 42, c)).toMatchSnapshot();
   });
 
-  it('emits zero entities on non-dense_forest tiles', () => {
+  it('emits zero on non-dense_forest tiles', () => {
     const c = ctx([['grass', 'grass'], ['grass', 'grass']]);
     expect(denseForestBrush({ x: 0, y: 0, w: 2, h: 2 }, 1, c)).toEqual([]);
   });
@@ -43,7 +43,7 @@ describe('dense_forest brush', () => {
 
   it('only emits the allowed kinds', () => {
     const c = allDense(16, 16);
-    const allowed = new Set(['oak_tree', 'brown_tree', 'shrub', 'fern']);
+    const allowed = new Set(['oak_tree', 'brown_tree', 'shrub', 'fern', 'mushroom']);
     for (const e of denseForestBrush({ x: 0, y: 0, w: 16, h: 16 }, 3, c)) {
       expect(allowed.has(e.kind)).toBe(true);
     }

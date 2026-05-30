@@ -6,12 +6,16 @@ export interface ControlsCallbacks {
   onTileClick?: (x: number, y: number) => void;
   onCanvasClick?: (sx: number, sy: number) => boolean;
   onTileRightClick?: (tileX: number, tileY: number, screenX: number, screenY: number) => void;
+  onRightClick?: (screenX: number, screenY: number) => void;
   onTogglePause?: () => void;
   onToggleLabels?: () => void;
   onTogglePoiMarkers?: () => void;
   onToggleDebug?: () => void;
   onToggleFollow?: () => void;
   onToggleSettings?: () => void;
+  onToggleMinimap?: () => void;
+  onShowTutorial?: () => void;
+  onToggleDevMode?: () => void;
   onUserCameraInput?: () => void;
   onHoverTile?: (tileX: number, tileY: number, screenX: number, screenY: number) => void;
   onRedraw: () => void;
@@ -88,11 +92,15 @@ export function attachControls(canvas: HTMLCanvasElement, camera: Camera, callba
   }
 
   function onContextMenu(e: MouseEvent) {
-    if (!callbacks.onTileRightClick) return;
     e.preventDefault();
     const rect = canvas.getBoundingClientRect();
     const sx = e.clientX - rect.left;
     const sy = e.clientY - rect.top;
+    if (callbacks.onRightClick) {
+      callbacks.onRightClick(sx, sy);
+      return;
+    }
+    if (!callbacks.onTileRightClick) return;
     const { tx, ty } = pickTile(camera, sx, sy);
     callbacks.onTileRightClick(tx, ty, sx, sy);
   }
@@ -113,7 +121,12 @@ export function attachControls(canvas: HTMLCanvasElement, camera: Camera, callba
         callbacks.onToggleLabels?.();
         break;
       case 'KeyM':
-        callbacks.onTogglePoiMarkers?.();
+        // Toggle minimap (new) or POI markers (old) — check callback
+        if (callbacks.onToggleMinimap) {
+          callbacks.onToggleMinimap();
+        } else {
+          callbacks.onTogglePoiMarkers?.();
+        }
         break;
       case 'Backquote':
         callbacks.onToggleDebug?.();
@@ -123,6 +136,12 @@ export function attachControls(canvas: HTMLCanvasElement, camera: Camera, callba
         break;
       case 'KeyK':
         callbacks.onToggleSettings?.();
+        break;
+      case 'Slash':
+        // '?' key (Shift+/ = ?)
+        if (e.shiftKey) {
+          callbacks.onShowTutorial?.();
+        }
         break;
     }
   }

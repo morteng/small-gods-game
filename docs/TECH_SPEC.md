@@ -1,8 +1,8 @@
 # Small Gods - Technical Specification
 
-**Version**: 2.0.0
+**Version**: 2.1.0
 **Status**: Active
-**Last Updated**: 2026-02-20
+**Last Updated**: 2026-05-29
 
 ---
 
@@ -14,7 +14,14 @@ The world runs on a two-layer architecture:
 - **Simulation layer** — every NPC has compact programmatic state (beliefs, needs, relationships, mood) that ticks cheaply and continuously
 - **Narration layer** — when the player pays attention to anything, an LLM "backfills" rich dialogue, emotion, and drama from the sim state, so the world appears to have a deep narrative tapestry at all times
 
-The map system uses Wave Function Collapse (WFC) for procedural terrain, a decoration system for environmental detail, and AI-powered tile rendering (FLUX) for visual output.
+The map system uses Wave Function Collapse (WFC) for procedural terrain, a decoration system for environmental detail, and a simple top-down colored-rectangle renderer (isometric + AI rendering replaced in TS migration).
+
+**Current Implementation Status:**
+- ✅ Phase 7: NPC Simulation Layer - Complete (tick system, beliefs, needs, activities, events)
+- ✅ Phase 8: Divine Action System - Complete (whisper, omen, dream, miracle, answer prayer)
+- ⬜ Phase 9: LLM Integration - Not Started
+- ⬜ Phase 10: Rival Spirit System - Not Started  
+- ⬜ Phase 11: DM Agent - Not Started
 
 ### 1.1 Goals
 
@@ -47,23 +54,25 @@ Player observes world → identifies opportunity (unmet need, crisis, receptive 
 
 ### 2.2 NPC Simulation Layer (Programmatic)
 
+**Status**: ✅ Complete (Phase 7)
+
 Every NPC runs on compact state that ticks every game cycle without LLM calls.
 
 **Per-NPC per-tick:**
 1. Update needs from world state (drought → prosperity--, war → safety--)
 2. Compute mood as composite of needs
 3. Belief decay/growth:
-   - Recent miracle witnessed → faith++
-   - Social pressure from believing friends → faith++ (weighted by trust × assertiveness × inverse skepticism)
-   - Unmet needs with no divine help → faith--
-   - Time without divine contact → slow decay
-4. Activity state machine (sleeping/farming/trading/gossiping/praying)
-5. If gossiping: propagate beliefs along social graph edges
+   - Time decay based on skepticism (`src/sim/npc-sim.ts`)
+   - Need-based faith boost when desperate (`src/sim/npc-sim.ts`)
+   - Social propagation from relationships (`src/sim/systems/belief-propagation-system.ts`)
+4. Activity state machine (sleeping/working/trading/praying/wandering)
+   - Time-of-day schedule: sleep at night, work/day, worship if low meaning (`src/sim/systems/npc-activity-system.ts`)
+5. Settlement events affect needs (`src/sim/systems/settlement-event-system.ts`)
 
 **Per-settlement per-tick:**
-1. Aggregate belief levels → settlement's dominant religion
-2. Roll for random events (weighted by world state): drought, festival, dispute, rival action
-3. Apply event effects to relevant NPCs
+1. Aggregate belief levels → spirit power calculation (`src/sim/spirit-system.ts`)
+2. Roll for random events (8 types: drought, festival, dispute, plague, raiders, trading caravan, stranger arrives, harvest blessing)
+3. Apply event effects to relevant NPCs (severity-scaled need modifiers)
 
 ### 2.3 Belief Propagation
 
@@ -84,19 +93,23 @@ A vocal skeptic can erode faith the same way.
 
 ### 2.4 Divine Actions
 
-| Action | Cost | Scope | Sim Effect |
-|--------|------|-------|------------|
-| Whisper | Low | 1 NPC | faith++, adds event, triggers LLM dialogue |
-| Omen | Medium | Area | faith+ for witnesses, event recorded |
-| Answer prayer | Low | 1 NPC | faith++, understanding++, devotion boost |
-| Dream | Medium | 1 NPC | deep influence, can shift personality slightly |
-| Miracle | High | Settlement | meets a need (rain in drought), massive faith boost, attracts rival attention |
+**Status**: ✅ Complete (Phase 8)
+
+| Action | Cost | Scope | Sim Effect | Implementation |
+|--------|------|-------|------------|----------------|
+| Whisper | 1 | 1 NPC | faith++, understanding++, sets cooldown | `src/sim/divine-actions.ts` |
+| Omen | 3 | Area | faith+ for witnesses, severity boost to active events | `src/sim/divine-actions.ts` |
+| Answer prayer | 2 | 1 NPC | faith++, understanding++, devotion++, need boost | `src/sim/divine-actions.ts` |
+| Dream | 4 | 1 NPC | deep influence, personality drift, extends sleep | `src/sim/divine-actions.ts` |
+| Miracle | 10 | Settlement | meets a need, massive faith boost | `src/sim/divine-actions.ts` |
 
 **Power economy:**
 ```
 power = Σ (faith × understanding × devotion) across all followers
 ```
-Actions drain power. Ongoing belief regenerates it. The player must maintain positive flow — spend too much and you fade, spend nothing and you're forgotten.
+- Regeneration: `POWER_REGEN_RATE = 0.02` applied each tick in `src/sim/spirit-system.ts`
+- Actions drain power (checked before execution)
+- Player must maintain positive flow — spend too much and you fade
 
 ### 2.5 Rival Spirits
 

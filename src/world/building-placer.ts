@@ -15,6 +15,7 @@
  */
 
 import type { Entity, Tile, Era } from '@/core/types';
+import type { World } from '@/world/world';
 import type { EntityRegistry } from './entity-registry';
 import type { BuildingTemplate } from '@/map/building-templates';
 import { getBuildingTemplate } from '@/map/building-templates';
@@ -54,6 +55,51 @@ export interface SettlementResult {
   roadTiles: RoadTile[];
 }
 
+/** Vegetation/ nature entity categories that should be removed when building. */
+const NATURE_CATEGORIES = new Set(['vegetation', 'terrain-feature']);
+
+/**
+ * Remove nature entities (trees, boulders, etc.) that overlap with the
+ * given footprint rectangle. Also updates ground tiles to 'grass' (or the
+ * specified tile type) under the building.
+ */
+function clearFootprint(
+  x: number, y: number, w: number, h: number,
+  registry: EntityRegistry,
+  world: World | null | undefined,
+  tiles: Tile[][],
+  newGroundType = 'grass',
+): void {
+  // 1. Remove nature entities in the footprint
+  for (let dy = 0; dy < h; dy++) {
+    for (let dx = 0; dx < w; dx++) {
+      const entities = registry.getAtTile(x + dx, y + dy);
+      for (const e of entities) {
+        const def = tryGetEntityKindDef(e.kind);
+        if (def && NATURE_CATEGORIES.has(def.category)) {
+          registry.remove(e.id);
+          // Also remove from world if provided
+          if (world) world.removeEntity(e.id);
+        }
+      }
+    }
+  }
+
+  // 2. Update ground tiles under the building
+  for (let dy = 0; dy < h; dy++) {
+    for (let dx = 0; dx < w; dx++) {
+      const tile = tiles[y + dy]?.[x + dx];
+      if (tile) {
+        tile.type = newGroundType;
+        tile.walkable = false; // Building footprint is not walkable
+      }
+    }
+  }
+}
+
+// Need to import tryGetEntityKindDef
+import { tryGetEntityKindDef } from './entity-kinds';
+
 // ─── Spiral search ────────────────────────────────────────────────────────────
 
 /**
@@ -87,8 +133,8 @@ export function findPlacement(
       // Terrain check — all footprint cells must be in allowedTerrain
       if (!footprintOnTerrain(x0, y0, w, h, tiles, allowedTerrain)) continue;
 
-      // Occupancy check (includes margin)
-      if (!registry.canPlace(x0, y0, w, h, margin)) continue;
+      // Occupancy check (includes margin) — vegetation is allowed (will be cleared)
+      if (!canPlaceIgnoringNature(x0, y0, w, h, margin, registry)) continue;
 
       // Water adjacency check
       if (nearWater !== undefined) {
@@ -99,6 +145,28 @@ export function findPlacement(
     }
   }
   return null;
+}
+
+/** Check placement ignoring vegetation/terrain entities (which get cleared). */
+function canPlaceIgnoringNature(
+  x: number, y: number, w: number, h: number,
+  margin: number, registry: EntityRegistry,
+): boolean {
+  const x0 = x - margin, y0 = y - margin;
+  const x1 = x + w - 1 + margin, y1 = y + h - 1 + margin;
+  for (let ty = y0; ty <= y1; ty++) {
+    for (let tx = x0; tx <= x1; tx++) {
+      const entities = registry.getAtTile(tx, ty);
+      // Only block if there are non-vegetation entities
+      const hasBlocking = entities.some(e => {
+        const def = tryGetEntityKindDef(e.kind);
+        if (!def) return true; // Unknown entity = block
+        return !NATURE_CATEGORIES.has(def.category);
+      });
+      if (hasBlocking) return false;
+    }
+  }
+  return true;
 }
 
 // ─── Settlement layout ────────────────────────────────────────────────────────
@@ -117,6 +185,7 @@ export function placeSettlement(
   connectedDirections: { dx: number; dy: number }[],
   rng:                 Random,
   era:                 Era = 'medieval',
+  world?:              World,  // Optional World reference for entity sync
 ): SettlementResult {
   const cx = poi.position?.x ?? 0;
   const cy = poi.position?.y ?? 0;
@@ -214,6 +283,15 @@ export function placeSettlement(
         sortYOffset:           template.sortYOffset,
       },
     };
+
+    // Clear nature entities and update ground tiles under the building
+    clearFootprint(
+      result.tileX, result.tileY,
+      template.footprint.w, template.footprint.h,
+      registry,
+      world,
+      tiles,
+    );
 
     registry.add(entity);
     entities.push(entity);

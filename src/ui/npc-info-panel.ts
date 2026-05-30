@@ -28,11 +28,32 @@ const STYLE = `
 .sg-row-num { flex: 0 0 32px; text-align: right; color: rgba(255,255,255,0.55); font-variant-numeric: tabular-nums; }
 .sg-track { flex: 1 1 auto; height: 6px; background: rgba(255,255,255,0.12); border-radius: 3px; overflow: hidden; margin: 0 6px; }
 .sg-fill { height: 100%; }
+.sg-actions { display: flex; gap: 4px; margin-top: 6px; }
+.sg-action { all: unset; cursor: pointer; pointer-events: auto; padding: 3px 8px; border-radius: 3px;
+  font: bold 10px sans-serif; letter-spacing: 0.5px; text-transform: uppercase;
+  background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.7);
+  transition: background 0.1s, color 0.1s; }
+.sg-action:hover { background: rgba(255,255,255,0.18); color: #fff; }
+.sg-action:disabled { opacity: 0.3; cursor: default; }
+.sg-action-cost { color: #FFD54F; font-weight: normal; margin-left: 2px; }
 `;
+
+const WHISPER_COST = 1;
+const DREAM_COST = 4;
+const ANSWER_PRAYER_COST = 2;
+const OMEN_COST = 3;
+const MIRACLE_COST = 10;
 
 export interface NpcInfoPanelOptions {
   pinned?: boolean;
+  power?: number;
   onTogglePin?: () => void;
+  onWhisper?: () => void;
+  onDream?: () => void;
+  onAnswerPrayer?: () => void;
+  onOmen?: () => void;
+  onMiracle?: () => void;
+  onLlmBackfill?: () => void;  // New: trigger LLM narration
 }
 
 function makeBarRow(label: string, value: number, color: string): HTMLDivElement {
@@ -77,6 +98,8 @@ export function renderNpcInfoPanel(
 ): void {
   const belief = sim.beliefs['player'] ?? { faith: 0, understanding: 0, devotion: 0 };
   const home = sim.homePoiId ?? '—';
+  const power = opts.power ?? 0;
+  const isPraying = sim.activity === 'worship';
 
   while (panel.firstChild) panel.removeChild(panel.firstChild);
 
@@ -125,4 +148,63 @@ export function renderNpcInfoPanel(
     makeBarRow('understanding', belief.understanding, FAITH_COLORS.understanding),
     makeBarRow('devotion',      belief.devotion,      FAITH_COLORS.devotion),
   ));
+
+  // Divine action buttons
+  const actions = document.createElement('div');
+  actions.className = 'sg-actions';
+
+  // LLM Backfill button (generates narration)
+  const backfillBtn = document.createElement('button');
+  backfillBtn.className = 'sg-action';
+  backfillBtn.type = 'button';
+  backfillBtn.innerHTML = `💭 Backfill<span class="sg-action-cost">LLM</span>`;
+  backfillBtn.disabled = power < 1; // Costs 1 power (same as whisper)
+  backfillBtn.addEventListener('click', (ev) => { ev.stopPropagation(); opts.onLlmBackfill?.(); });
+  actions.appendChild(backfillBtn);
+
+  const whisperBtn = document.createElement('button');
+  whisperBtn.className = 'sg-action';
+  whisperBtn.type = 'button';
+  whisperBtn.innerHTML = `💬 Whisper<span class="sg-action-cost">${WHISPER_COST}p</span>`;
+  whisperBtn.disabled = power < WHISPER_COST || (sim as any).whisperCooldown > 0;
+  whisperBtn.addEventListener('click', (ev) => { ev.stopPropagation(); opts.onWhisper?.(); });
+  actions.appendChild(whisperBtn);
+
+  const dreamBtn = document.createElement('button');
+  dreamBtn.className = 'sg-action';
+  dreamBtn.type = 'button';
+  dreamBtn.innerHTML = `🌙 Dream<span class="sg-action-cost">${DREAM_COST}p</span>`;
+  dreamBtn.disabled = power < DREAM_COST;
+  dreamBtn.addEventListener('click', (ev) => { ev.stopPropagation(); opts.onDream?.(); });
+  actions.appendChild(dreamBtn);
+
+  const prayBtn = document.createElement('button');
+  prayBtn.className = 'sg-action';
+  prayBtn.type = 'button';
+  prayBtn.innerHTML = `🙏 Answer<span class="sg-action-cost">${ANSWER_PRAYER_COST}p</span>`;
+  prayBtn.disabled = power < ANSWER_PRAYER_COST || !isPraying;
+  prayBtn.title = isPraying ? 'NPC is praying' : 'NPC must be praying';
+  prayBtn.addEventListener('click', (ev) => { ev.stopPropagation(); opts.onAnswerPrayer?.(); });
+  actions.appendChild(prayBtn);
+
+  // Omen & Miracle target the NPC's home POI
+  if (sim.homePoiId) {
+    const omenBtn = document.createElement('button');
+    omenBtn.className = 'sg-action';
+    omenBtn.type = 'button';
+    omenBtn.innerHTML = `⛈ Omen<span class="sg-action-cost">${OMEN_COST}p</span>`;
+    omenBtn.disabled = power < OMEN_COST;
+    omenBtn.addEventListener('click', (ev) => { ev.stopPropagation(); opts.onOmen?.(); });
+    actions.appendChild(omenBtn);
+
+    const miracleBtn = document.createElement('button');
+    miracleBtn.className = 'sg-action';
+    miracleBtn.type = 'button';
+    miracleBtn.innerHTML = `✨ Miracle<span class="sg-action-cost">${MIRACLE_COST}p</span>`;
+    miracleBtn.disabled = power < MIRACLE_COST;
+    miracleBtn.addEventListener('click', (ev) => { ev.stopPropagation(); opts.onMiracle?.(); });
+    actions.appendChild(miracleBtn);
+  }
+
+  panel.appendChild(actions);
 }

@@ -11,6 +11,10 @@ export type SimEvent =
   | { type: 'spirit_gaze_shift';  spiritId: SpiritId; fromNpcId?: EntityId; toNpcId: EntityId }
   | { type: 'npc_spawn';          npcId: EntityId; role: NpcRole; poiId: string }
   | { type: 'whisper';            spiritId: SpiritId; npcId: EntityId }
+  | { type: 'omen';               spiritId: SpiritId; poiId: string; severity: number }
+  | { type: 'dream';              spiritId: SpiritId; npcId: EntityId }
+  | { type: 'miracle';            spiritId: SpiritId; poiId: string; needType: string; amount: number }
+  | { type: 'answer_prayer';      spiritId: SpiritId; npcId: EntityId }
   | { type: 'timeline_commit';    parentTick: number; rerolled: boolean }
   | { type: 'belief_cross';       npcId: EntityId; spiritId: SpiritId; kind: 'high' | 'low'; faith: number }
   | { type: 'mood_cross';         npcId: EntityId; kind: 'high' | 'low'; mood: number }

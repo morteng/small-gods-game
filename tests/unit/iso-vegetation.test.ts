@@ -9,6 +9,8 @@ function makeMockCtx() {
     beginPath: vi.fn(), moveTo: vi.fn(), lineTo: vi.fn(), closePath: vi.fn(),
     fill: vi.fn(), fillRect: vi.fn(), ellipse: vi.fn(), arc: vi.fn(),
     fillStyle: '',
+    save: vi.fn(), restore: vi.fn(),
+    translate: vi.fn(), rotate: vi.fn(),
   } as unknown as CanvasRenderingContext2D;
 }
 

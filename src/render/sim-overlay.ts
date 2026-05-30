@@ -76,3 +76,76 @@ export function drawNpcOverlay(
     { x: bx, y: by, w: BTN_W, h: BTN_H, action: 'whisper', payload: { npcId: npc.id }, active: whisperActive },
   ];
 }
+
+// ─── Settlement overlay (right-click on POI) ──────────────────────
+
+export function drawPoiOverlay(
+  ctx: CanvasRenderingContext2D,
+  poiId: string,
+  px: number,
+  py: number,
+  camera: Camera,
+  canvasWidth: number,
+  canvasHeight: number,
+  playerPower: number,
+): OverlayHitAreas {
+  const { sx, sy } = worldToScreen(camera, px, py, TILE_SIZE);
+  const tileScreenSize = TILE_SIZE * camera.zoom;
+
+  const totalH = BTN_H * 2 + BTN_GAP;
+  let bx = sx + tileScreenSize / 2 - BTN_W / 2;
+  let by = sy - totalH - BTN_GAP;
+  bx = Math.max(4, Math.min(canvasWidth  - BTN_W - 4, bx));
+  by = Math.max(4, Math.min(canvasHeight - totalH - 4, by));
+
+  const omenActive = playerPower >= 3;
+  const miracleActive = playerPower >= 10;
+
+  const areas: OverlayHitAreas = [];
+
+  // Omen button
+  ctx.save();
+  roundRect(ctx, bx, by, BTN_W, BTN_H, 4);
+  if (omenActive) {
+    ctx.fillStyle = '#2E7D32';
+    ctx.fill();
+    ctx.strokeStyle = '#66BB6A';
+  } else {
+    ctx.fillStyle = 'rgba(30,30,40,0.85)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(150,150,150,0.4)';
+  }
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  ctx.font = 'bold 10px sans-serif';
+  ctx.fillStyle = omenActive ? '#A5D6A7' : 'rgba(180,180,180,0.5)';
+  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'center';
+  ctx.fillText(`⛈ Omen (-3⚡)`, bx + BTN_W / 2, by + BTN_H / 2);
+  ctx.restore();
+  areas.push({ x: bx, y: by, w: BTN_W, h: BTN_H, action: 'omen', payload: { poiId }, active: omenActive });
+
+  // Miracle button
+  ctx.save();
+  roundRect(ctx, bx, by + BTN_H + BTN_GAP, BTN_W, BTN_H, 4);
+  if (miracleActive) {
+    ctx.fillStyle = '#E65100';
+    ctx.fill();
+    ctx.strokeStyle = '#FF9800';
+  } else {
+    ctx.fillStyle = 'rgba(30,30,40,0.85)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(150,150,150,0.4)';
+  }
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  ctx.font = 'bold 10px sans-serif';
+  ctx.fillStyle = miracleActive ? '#FFE0B2' : 'rgba(180,180,180,0.5)';
+  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'center';
+  ctx.fillText(`✨ Miracle (-10⚡)`, bx + BTN_W / 2, by + BTN_H + BTN_GAP + BTN_H / 2);
+  ctx.restore();
+  areas.push({ x: bx, y: by + BTN_H + BTN_GAP, w: BTN_W, h: BTN_H, action: 'miracle', payload: { poiId }, active: miracleActive });
+
+  return areas;
+}

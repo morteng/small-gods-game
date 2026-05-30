@@ -1,33 +1,29 @@
-import { noise } from '@/core/noise';
 import { defaultEntity } from '@/world/brush-helpers';
+import { placeVegetation } from './vegetation-placer';
 import { registerBrush } from '@/world/brushes';
 import type { Entity, Region, BrushContext } from '@/core/types';
 
 const BRUSH = 'dense_forest';
-const TREE_DENSITY = 0.70;
-const UNDERGROWTH_DENSITY = 0.10;
+
+const DENSE_FOREST_PARAMS: import('./vegetation-placer').VegetationParams = {
+  brush: BRUSH,
+  tileType: 'dense_forest',
+  kinds: [
+    ['oak_tree', 0.6],
+    ['brown_tree', 0.4],
+  ],
+  density: 0.70,
+  scaleRange: [0.9, 1.3],
+  rotationRange: 15,
+  offsetRange: [0.35, 0.35],
+  undergrowth: [
+    ['shrub', 0.5, 0.10],
+    ['fern', 0.5, 0.10],
+  ],
+};
 
 export function denseForestBrush(region: Region, seed: number, ctx: BrushContext): Entity[] {
-  const out: Entity[] = [];
-  for (let y = region.y; y < region.y + region.h; y++) {
-    for (let x = region.x; x < region.x + region.w; x++) {
-      const tile = ctx.tiles.tiles[y]?.[x];
-      if (!tile || tile.type !== 'dense_forest') continue;
-
-      if (noise(x, y, seed) < TREE_DENSITY) {
-        const variant = noise(x, y, seed + 1);
-        const kind = variant < 0.6 ? 'oak_tree' : 'brown_tree';
-        const ox = (noise(x, y, seed + 3) - 0.5) * 0.3;
-        const oy = (noise(x, y, seed + 4) - 0.5) * 0.3;
-        out.push(defaultEntity(BRUSH, kind, x + ox, y + oy, { offsetX: ox, offsetY: oy }));
-      } else if (noise(x, y, seed + 10) < UNDERGROWTH_DENSITY) {
-        const v = noise(x, y, seed + 11);
-        const kind = v < 0.5 ? 'shrub' : 'fern';
-        out.push(defaultEntity(BRUSH, kind, x + 0.5, y + 0.5));
-      }
-    }
-  }
-  return out;
+  return placeVegetation(region, seed, ctx, DENSE_FOREST_PARAMS);
 }
 
 registerBrush(BRUSH, denseForestBrush);

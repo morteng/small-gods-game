@@ -138,33 +138,43 @@ export function drawIsoVegetation(dc: IsoDrawCtx, e: Entity): void {
 
   const ctx = dc.ctx;
   const { sx, sy } = worldToScreen(e.x, e.y, 0, dc.originX, dc.originY);
-  const size = def.yOffsetForSort ?? 0.5;
-  const isTree = size >= 1;
-  const canopyR = 10 + size * 22;
-  const trunkH = isTree ? 16 + size * 24 : 0;
+  
+  // Get scale from entity properties (set by brush), fallback to yOffsetForSort
+  const scale = (e.properties?.scale as number) ?? Math.max(def.yOffsetForSort ?? 0.5, 0.5);
+  const rotation = (e.properties?.rotation as number) ?? 0;
+  
+  // Trees have 'tree' in their defaultTags; ground cover (fern, shrub) does not
+  const isTree = def.defaultTags.includes('tree');
+  const canopyR = 10 + scale * 22;
+  const trunkH = isTree ? 16 + scale * 24 : 0;
+
+  ctx.save();
+  ctx.translate(sx, sy);
+  if (rotation) ctx.rotate((rotation * Math.PI) / 180);
 
   ctx.fillStyle = 'rgba(0,0,0,0.3)';
   ctx.beginPath();
-  ctx.ellipse(sx, sy, canopyR * 0.8, canopyR * 0.4, 0, 0, Math.PI * 2);
+  ctx.ellipse(0, 0, canopyR * 0.8, canopyR * 0.4, 0, 0, Math.PI * 2);
   ctx.fill();
 
   if (isTree) {
     ctx.fillStyle = TRUNK_COLOR;
-    ctx.fillRect(sx - 2, sy - trunkH, 4, trunkH);
+    ctx.fillRect(-2, -trunkH, 4, trunkH);
   }
 
-  const cy = sy - trunkH - (isTree ? 0 : canopyR * 0.3);
+  const cy = -trunkH - (isTree ? 0 : canopyR * 0.3);
   ctx.fillStyle = def.sprite.fallbackColor ?? '#3a7a3a';
   ctx.beginPath();
   if (def.sprite.fallbackShape === 'triangle') {
-    ctx.moveTo(sx, cy - canopyR * 1.6);
-    ctx.lineTo(sx + canopyR, cy + canopyR * 0.4);
-    ctx.lineTo(sx - canopyR, cy + canopyR * 0.4);
+    ctx.moveTo(0, cy - canopyR * 1.6);
+    ctx.lineTo(canopyR, cy + canopyR * 0.4);
+    ctx.lineTo(-canopyR, cy + canopyR * 0.4);
     ctx.closePath();
   } else if (def.sprite.fallbackShape === 'square') {
-    ctx.rect(sx - canopyR, cy - canopyR, canopyR * 2, canopyR * 2);
+    ctx.rect(-canopyR, cy - canopyR, canopyR * 2, canopyR * 2);
   } else {
-    ctx.arc(sx, cy, canopyR, 0, Math.PI * 2);
+    ctx.arc(0, cy, canopyR, 0, Math.PI * 2);
   }
   ctx.fill();
+  ctx.restore();
 }

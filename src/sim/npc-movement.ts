@@ -64,7 +64,7 @@ export function tickNpcMovementEntities(
           return; // stay put until next activity tick
         }
         const dest = { x: p.activityTargetX, y: p.activityTargetY };
-        const result = findPath(map, e.x, e.y, dest.x, dest.y);
+        const result = findPath(map, e.x, e.y, dest.x, dest.y, world, e.id);
         if (result && result.path.length >= 2) {
           p.currentPath = result.path;
           p.pathIndex = 0;
@@ -74,10 +74,10 @@ export function tickNpcMovementEntities(
       }
 
       // Idle or wander: pick a random walkable destination within roam radius
-      const dest = pickRandomDestination(map, e.x, e.y, IDLE_ROAM_RADIUS, rng);
+      const dest = pickRandomDestination(map, e.x, e.y, IDLE_ROAM_RADIUS, rng, world, e.id);
       if (!dest) return;
 
-      const result = findPath(map, e.x, e.y, dest.x, dest.y);
+      const result = findPath(map, e.x, e.y, dest.x, dest.y, world, e.id);
       if (!result || result.path.length < 2) return;
 
       p.currentPath = result.path;

@@ -153,6 +153,20 @@ export interface RenderContext {
   /** Resolves an asset id to its cached `<img>`; null until the image
    *  finishes loading (renderer falls back to a placeholder square). */
   resolveDecorationImage?: (assetId: string) => HTMLImageElement | null;
+  /** Dev mode state — when present and enabled, renderer draws highlights. */
+  devMode?: DevModeState;
+  /** Debug overlay options (extracted from devMode for convenience). */
+  debugOverlays?: DebugOverlayOptions;
+}
+
+/** Options for debug visualization overlays */
+export interface DebugOverlayOptions {
+  showBeliefHeatmap: boolean;
+  showNeeds: boolean;
+  showMood: boolean;
+  showSocialConnections: boolean;
+  beliefThreshold: number;
+  selectedSpiritId: string | null;
 }
 
 /** Render-only adapter shape (built via toRenderNpc in npc-helpers.ts). Not stored anywhere persistent. */
@@ -256,6 +270,7 @@ export interface NpcSimState {
   relationships:  Relationship[];
   homeBuildingId?: string;
   homePoiId?:      string;
+  activity:        NpcActivity;
 }
 
 /** Properties stored on an Entity with kind: 'npc'. Replaces NpcInstance + NpcSimState. */
@@ -499,3 +514,51 @@ export interface GeneratedDecoration {
   tileY: number;
   assetId: string;
 }
+
+// ─── Dev Mode & World Inspector (Phase 1+) ────────────────────────────────────
+
+/** Result of a hit-test against the world at a screen position. */
+export interface HitResult {
+  type: 'tile' | 'entity' | 'npc' | 'decoration' | null;
+  tileX: number;
+  tileY: number;
+  tile?: Tile;
+  entity?: Entity;
+  npc?: NpcInstance;
+  decoration?: GeneratedDecoration;
+}
+
+/** Dev mode undo/redo action. */
+export interface UndoAction {
+  type: 'entity_update' | 'tile_update' | 'entity_delete' | 'entity_create';
+  target: { tileX: number; tileY: number; entityId?: string };
+  before: unknown;
+  after: unknown;
+}
+
+/** Developer mode state exposed on GameState. */
+export interface DevModeState {
+  enabled: boolean;
+  selected: HitResult | null;
+  clipboard: Entity | null;
+  undoStack: UndoAction[];
+  redoStack: UndoAction[];
+  activeTool: 'select' | 'paint' | 'erase' | 'place';
+  brushType?: string;
+  showGrid?: boolean;
+  showCoords?: boolean;
+  // Debug visualization overlays
+  showBeliefHeatmap?: boolean;
+  showNeeds?: boolean;
+  showMood?: boolean;
+  showSocialConnections?: boolean;
+  beliefThreshold?: number;
+  selectedSpiritId?: string | null;
+  // Time debug
+  showEventLog?: boolean;
+  showSimState?: boolean;
+}
+
+// ─── Extend RenderContext with devMode ────────────────────────────────────────
+// (Done inline to avoid circular dependency — see renderContext definition above)
+// The RenderContext interface should have devMode?: DevModeState added to it.

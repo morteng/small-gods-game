@@ -16,7 +16,20 @@ A god game inspired by Terry Pratchett's *Small Gods*. The player is a minor dei
 - **[TS Migration Design](docs/plans/2026-02-20-ts-migration-design.md)** - TypeScript migration design doc
 - **[TS Migration Plan](docs/plans/2026-02-20-ts-migration.md)** - Detailed migration implementation plan
 
-**Current Status:** Spec A (spine), Spec B (Time), and Spec C (minimal — clickable time history strip) shipped. Sim is fully deterministic with seedable RNG; snapshot/replay layer supports scrub + commit + re-roll; summoned Time bar UI with past-veil scrubbed treatment, clickable history strip of past commits/whispers above the transport row, and keyboard shortcuts T/Space/1/2/4/8/Esc. `state.paused` retired in favor of `scheduler.getRate()`. `NpcMovementSystem` now consumes the canonical per-tick interval (matches silent replay exactly). 594 tests passing.
+**Current Status:** Spec A (spine), Spec B (Time), Spec C (minimal — clickable time history strip), **Phase 7 (NPC Simulation Layer) + Phase 8 (Divine Action System) shipped**, and **Phase 9 (LLM Integration) partially complete**. 
+
+**Phase 9 Progress:**
+- ✅ NPC prompt builder (`src/llm/npc-prompt-builder.ts`)
+- ✅ LLM client abstraction (`src/llm/llm-client.ts`)
+- ✅ State writeback from LLM responses (`src/llm/state-writeback.ts`)
+- 🟡 Integration with NPC focus/inspector (in progress)
+- ⬜ Conversation UI
+
+Sim is fully deterministic with seedable RNG; snapshot/replay layer supports scrub + commit + re-roll; summoned Time bar UI with past-veil scrubbed treatment, clickable history strip of past commits/whispers above the transport row, and keyboard shortcuts T/Space/1/2/4/8/Esc. `state.paused` retired in favor of `scheduler.getRate()`. `NpcMovementSystem` now consumes the canonical per-tick interval (matches silent replay exactly). 733 tests passing.
+
+**Phase 7 Complete:** NPC simulation layer with tick system, belief propagation, activity state machine, settlement events (8 event types), and event ring buffer.
+
+**Phase 8 Complete:** Divine action system with whisper, omen, dream, miracle, answer prayer. Power economy regenerates from belief × understanding × devotion.
 
 ## Tech Stack
 
@@ -120,6 +133,10 @@ await game.generateWorld();
 | Time history strip (clickable chips) | `src/ui/panels/time-history.ts` |
 | Design tokens (scoped to container) | `src/ui/tokens.css` |
 | Time keyboard shortcuts | `src/ui/controls.ts` (`attachTimeKeys`) |
+| **NPC simulation** | `src/sim/npc-sim.ts`, `src/sim/systems/` |
+| **Divine actions** | `src/sim/divine-actions.ts` |
+| **Spirit system** | `src/sim/spirit-system.ts`, `src/core/spirit.ts` |
+| **NPC helpers** | `src/world/npc-helpers.ts` |
 
 ## Development
 

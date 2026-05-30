@@ -582,15 +582,18 @@ export class WFCEngine {
     const instance: BuildingInstance = { id, templateId, tileX, tileY, poiId, state: 'intact' };
     this.buildings.push(instance);
 
-    // Mark footprint tiles as non-walkable per template walkableCells
-    for (let dy = 0; dy < template.footprint.h; dy++) {
-      for (let dx = 0; dx < template.footprint.w; dx++) {
-        const walkable = template.walkableCells[dy]?.[dx] ?? false;
-        const tx = tileX + dx;
-        const ty = tileY + dy;
-        if (ty >= 0 && ty < this.height && tx >= 0 && tx < this.width && tiles[ty]?.[tx]) {
-          tiles[ty][tx].type = walkable ? 'lot' : 'building_stone';
-          tiles[ty][tx].walkable = walkable;
+    // Mark footprint tiles as non-walkable per template floors[0].walkable
+    const groundFloor = template.floors[0];
+    if (groundFloor) {
+      for (let dy = 0; dy < template.footprint.h; dy++) {
+        for (let dx = 0; dx < template.footprint.w; dx++) {
+          const walkable = groundFloor.walkable[dy]?.[dx] ?? false;
+          const tx = tileX + dx;
+          const ty = tileY + dy;
+          if (ty >= 0 && ty < this.height && tx >= 0 && tx < this.width && tiles[ty]?.[tx]) {
+            tiles[ty][tx].type = walkable ? 'lot' : 'building_stone';
+            tiles[ty][tx].walkable = walkable;
+          }
         }
       }
     }

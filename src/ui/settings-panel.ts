@@ -19,7 +19,8 @@ const STYLE = `
 .sg-set-modal { width: 420px; max-width: calc(100vw - 32px);
   background: #181820; border: 1px solid #2b2b36; border-radius: 8px;
   padding: 20px 22px; box-shadow: 0 16px 48px rgba(0,0,0,0.6);
-  display: flex; flex-direction: column; gap: 14px; }
+  display: flex; flex-direction: column; gap: 14px; max-height: calc(100vh - 40px);
+  overflow-y: auto; }
 .sg-set-head { display: flex; justify-content: space-between; align-items: baseline; }
 .sg-set-title { font-size: 15px; font-weight: 600; }
 .sg-set-close { all: unset; cursor: pointer; padding: 2px 8px;
@@ -96,6 +97,14 @@ const STYLE = `
 .sg-set-mini.keep:hover { background: rgba(74,222,128,0.20); color: #4ade80; }
 .sg-set-mini.rej:hover  { background: rgba(239,68,68,0.20);  color: #ef4444; }
 .sg-set-modal { max-height: calc(100vh - 40px); overflow-y: auto; }
+/* LLM Settings */
+.sg-set-tabs { display: flex; gap: 2px; margin-bottom: 8px; }
+.sg-set-tab { all: unset; cursor: pointer; padding: 6px 12px; font-size: 11px;
+  border-radius: 4px 4px 0 0; background: rgba(255,255,255,0.04); color: #9ea0aa; }
+.sg-set-tab.active { background: #2b2b36; color: #e6e6ea; }
+.sg-set-tab:hover:not(.active) { background: rgba(255,255,255,0.08); }
+.sg-set-llm-section { display: none; }
+.sg-set-llm-section.visible { display: flex; flex-direction: column; gap: 12px; }
 `;
 
 export interface SettingsPanelHandle {

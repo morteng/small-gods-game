@@ -132,8 +132,7 @@ export async function generateWithNoise(
     row.map((type, x) => ({ type, x, y, walkable: tileWalkable(type), state: 'realized' as const })),
   );
 
-  // Generate rivers from drainage basins before placing settlements,
-  // so settlements can be placed with awareness of where rivers exist.
+  // Generate rivers from drainage basins
   report('Carving rivers...');
   const hydrology = generateHydrology(fields, config);
   for (let y = 0; y < height; y++) {
@@ -150,25 +149,30 @@ export async function generateWithNoise(
     }
   }
 
-  // Place settlements for each POI (before inter-POI roads so roads take priority)
-  report('Placing settlements...');
-  const buildings: BuildingInstance[] = [];
-  const villages: GameMap['villages'] = [];
-  const rng = new Random((seed * 6271 + 9999) | 0);
-
-  // Build a stub GameMap to construct World (world needs tile dims; buildings filled in after)
+  // Build World early so biome brushes and buildings can use it
   const mapStub: GameMap = {
-    tiles,
-    width,
-    height,
-    villages: [],
-    seed,
-    success: true,
+    tiles, width, height, villages: [], seed, success: true,
     worldSeed: worldSeed ?? null,
     stats: { iterations: 0, backtracks: 0 },
     buildings: [],
   };
   const world = new World(mapStub);
+
+  // Run biome-based brush passes FIRST to populate vegetation / rocks / etc.
+  // Buildings placed next will clear nature entities from their footprints.
+  report('Running biome brushes...');
+  for (const region of biomeRegions(biomeMap)) {
+    const brushName = brushForBiome(region.biome);
+    if (!brushName) continue;
+    world.applyBrush(brushName, region, seed);
+  }
+
+  // Place settlements for each POI (AFTER biome brushes so buildings
+  // can clear nature entities that overlap with their footprints)
+  report('Placing settlements...');
+  const buildings: BuildingInstance[] = [];
+  const villages: GameMap['villages'] = [];
+  const rng = new Random((seed * 6271 + 9999) | 0);
 
   if (worldSeed?.pois) {
     for (const poi of worldSeed.pois) {
@@ -182,7 +186,7 @@ export async function generateWithNoise(
         ? computeConnectedDirections(poi.id, worldSeed.connections, worldSeed.pois)
         : [];
 
-      const result = placeSettlement(poi, zoneRule, tiles, world.registry, connectedDirs, rng);
+      const result = placeSettlement(poi, zoneRule, tiles, world.registry, connectedDirs, rng, 'medieval', world);
 
       // Keep World's secondary indexes in sync with entities added directly via registry
       for (const e of result.entities) {
@@ -200,12 +204,9 @@ export async function generateWithNoise(
         const props = e.properties ?? {};
         if (props.category === 'building' && props.templateId) {
           buildings.push({
-            id: e.id,
-            templateId: props.templateId as string,
-            tileX: e.x,
-            tileY: e.y,
-            poiId: props.poiId as string | undefined,
-            state: 'intact',
+            id: e.id, templateId: props.templateId as string,
+            tileX: e.x, tileY: e.y,
+            poiId: props.poiId as string | undefined, state: 'intact',
           });
         }
       }
@@ -218,15 +219,8 @@ export async function generateWithNoise(
     carveConnections(tiles, worldSeed.connections, worldSeed.pois ?? [], fields);
   }
 
-  // Run biome-based brush passes to populate vegetation / rocks / etc.
-  report('Running biome brushes...');
-  for (const region of biomeRegions(biomeMap)) {
-    const brushName = brushForBiome(region.biome);
-    if (!brushName) continue;
-    world.applyBrush(brushName, region, seed);
-  }
-
   // Run POI-zone brush passes for additional flavour entities around each POI
+  // These run after buildings so they don't place trees on top of structures.
   report('Running POI zone brushes...');
   if (worldSeed?.pois) {
     for (const poi of worldSeed.pois) {

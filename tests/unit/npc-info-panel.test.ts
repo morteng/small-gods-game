@@ -15,6 +15,7 @@ function makeSim(overrides: Partial<NpcSimState> = {}): NpcSimState {
     relationships: [],
     whisperCooldown: 0,
     homePoiId: 'oakshire',
+    activity: 'idle',
     ...overrides,
   };
 }

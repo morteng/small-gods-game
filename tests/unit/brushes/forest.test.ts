@@ -33,10 +33,10 @@ describe('forest brush', () => {
     expect(forestBrush({ x: 0, y: 0, w: 2, h: 2 }, 1, c)).toEqual([]);
   });
 
-  it('emits only oak/orange/pale tree kinds', () => {
+  it('emits only oak/orange/pale tree and undergrowth kinds', () => {
     const c = allForest(16, 16);
     const out = forestBrush({ x: 0, y: 0, w: 16, h: 16 }, 7, c);
-    const allowed = new Set(['oak_tree', 'orange_tree', 'pale_tree']);
+    const allowed = new Set(['oak_tree', 'orange_tree', 'pale_tree', 'shrub', 'fern']);
     for (const e of out) expect(allowed.has(e.kind)).toBe(true);
   });
 

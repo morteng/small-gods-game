@@ -1,10 +1,10 @@
-import type { RenderContext, Entity, GeneratedDecoration } from '@/core/types';
+import type { RenderContext, Entity, GeneratedDecoration, NpcInstance } from '@/core/types';
 import { TILE_SIZE, TILE_COLORS, BG_COLOR, POI_ICONS, TILE_SPRITE_MAP, KENNEY_TILE_SIZE } from '@/core/constants';
 import { getSpriteCoords } from '@/render/npc-animator';
 import { getTerrainSpriteCoords, LPC_TILE_SIZE } from '@/render/terrain-atlas';
 import type { BuildingTemplate } from '@/map/building-templates';
-import { BUILDING_TEMPLATES } from '@/map/building-templates';
 import { tryGetEntityKindDef } from '@/world/entity-kinds';
+import { BUILDING_TEMPLATES } from '@/map/building-templates';
 
 /** Render the map to a canvas context */
 export function renderMap(ctx: CanvasRenderingContext2D, rc: RenderContext): void {
@@ -21,6 +21,11 @@ export function renderMap(ctx: CanvasRenderingContext2D, rc: RenderContext): voi
   drawTerrain(ctx, rc);
   drawYSortedEntities(ctx, rc);
   drawOverlays(ctx, rc);
+
+  // ── Dev Mode: draw selection highlight ──────────────────
+  if (rc.devMode?.enabled && rc.devMode.selected) {
+    drawSelectionHighlight(ctx, rc);
+  }
 
   ctx.restore();
 }
@@ -284,18 +289,34 @@ function treeSheetForKind(kind: string): string | null {
 
 function drawTreeSprite(ctx: CanvasRenderingContext2D, sheet: HTMLImageElement, e: Entity): void {
   const SPRITE_SRC = 64;
-  const TREE_W = TILE_SIZE * 2;
-  const TREE_H = TILE_SIZE * 3;
+  const BASE_W = TILE_SIZE * 2;
+  const BASE_H = TILE_SIZE * 3;
   const offsetX = (e.properties?.offsetX as number) ?? 0;
   const offsetY = (e.properties?.offsetY as number) ?? 0;
   const tileX = Math.floor(e.x);
   const tileY = Math.floor(e.y);
+  
+  // Get scale from entity properties (set by brush), fallback to deterministic variation
+  const scale = (e.properties?.scale as number) ?? (0.8 + ((tileX * 7 + tileY * 13) % 40) / 100);
+  const rotation = (e.properties?.rotation as number) ?? ((tileX * 3 + tileY * 5) % 11) - 5;
+  
+  const TREE_W = BASE_W * scale;
+  const TREE_H = BASE_H * scale;
+  
   const worldX = (tileX + offsetX) * TILE_SIZE - TREE_W / 2 + TILE_SIZE / 2;
   const worldY = (tileY + offsetY + 1) * TILE_SIZE - TREE_H;
+  const centerX = worldX + TREE_W / 2;
+  const centerY = worldY + TREE_H;
+  
   // Deterministic sprite column from tile coords
   const spriteCol = Math.abs(((tileX * 13) ^ (tileY * 7))) % 8;
+  
+  ctx.save();
+  ctx.translate(centerX, centerY);
+  ctx.rotate((rotation * Math.PI) / 180);
   ctx.drawImage(sheet, spriteCol * SPRITE_SRC, 0, SPRITE_SRC, SPRITE_SRC,
-                worldX, worldY, TREE_W, TREE_H);
+                -TREE_W / 2, -TREE_H, TREE_W, TREE_H);
+  ctx.restore();
 }
 
 function drawEntityFallback(ctx: CanvasRenderingContext2D, rc: RenderContext, e: Entity): void {
@@ -357,25 +378,32 @@ function drawEntity(ctx: CanvasRenderingContext2D, rc: RenderContext, e: Entity)
   drawEntityFallback(ctx, rc, e);
 }
 
-function drawNpcs(
-  ctx: CanvasRenderingContext2D,
-  rc: RenderContext,
-  camLeft: number,
-  camTop: number,
-  camRight: number,
-  camBottom: number,
-): void {
-  const npcSize = TILE_SIZE;
-  for (const npc of rc.npcs) {
-    const sheet = rc.npcSheets.get(npc.id);
-    if (!sheet) continue;
-    if (npc.tileX + 1 < camLeft || npc.tileX > camRight ||
-        npc.tileY + 1 < camTop  || npc.tileY > camBottom) continue;
-    const underTile = rc.map.tiles[Math.floor(npc.tileY)]?.[Math.floor(npc.tileX)];
-    if (underTile?.state === 'void') continue;
-    const { sx, sy } = getSpriteCoords(npc);
-    ctx.drawImage(sheet, sx, sy, 64, 64, npc.tileX * TILE_SIZE, npc.tileY * TILE_SIZE, npcSize, npcSize);
+/**
+ * Get the Y-sort value for an entity. Buildings sort at their footprint bottom
+ * (y + sortYOffset), trees sort at their tile center + height offset.
+ */
+export function getEntitySortY(e: Entity): number {
+  const def = tryGetEntityKindDef(e.kind);
+  if (!def) return e.y;
+
+  // Buildings sort at their TOP (e.y) so NPCs in front render ON TOP of them.
+  // The spriteOffset in drawEntity() handles the visual placement.
+  if (def.category === 'building') {
+    return e.y; // Top of building footprint
   }
+
+  // Trees and other entities use their yOffsetForSort
+  // Trees should sort at tile center (e.y + 0.5) so NPCs correctly render
+  // in front of them when below, and behind when above
+  return e.y + (def.yOffsetForSort ?? 0);
+}
+
+function drawNpc(ctx: CanvasRenderingContext2D, rc: RenderContext, npc: NpcInstance): void {
+  const sheet = rc.npcSheets.get(npc.id);
+  if (!sheet) return;
+  const npcSize = TILE_SIZE;
+  const { sx, sy } = getSpriteCoords(npc);
+  ctx.drawImage(sheet, sx, sy, 64, 64, npc.tileX * TILE_SIZE, npc.tileY * TILE_SIZE, npcSize, npcSize);
 }
 
 /**
@@ -401,7 +429,8 @@ function drawDecoration(ctx: CanvasRenderingContext2D, rc: RenderContext, d: Gen
 
 type SortedItem =
   | { sortY: number; kind: 'entity'; entity: Entity }
-  | { sortY: number; kind: 'decoration'; placement: GeneratedDecoration };
+  | { sortY: number; kind: 'decoration'; placement: GeneratedDecoration }
+  | { sortY: number; kind: 'npc'; npc: NpcInstance };
 
 function drawYSortedEntities(ctx: CanvasRenderingContext2D, rc: RenderContext): void {
   const { camera, canvasWidth, canvasHeight, world } = rc;
@@ -419,8 +448,7 @@ function drawYSortedEntities(ctx: CanvasRenderingContext2D, rc: RenderContext): 
   const entities = world.query({ region });
 
   const items: SortedItem[] = entities.map(e => {
-    const def = tryGetEntityKindDef(e.kind);
-    return { sortY: e.y + (def?.yOffsetForSort ?? 0), kind: 'entity' as const, entity: e };
+    return { sortY: getEntitySortY(e), kind: 'entity' as const, entity: e };
   });
 
   // Decorations interleave with entities via y-sort. Sort key = tile bottom
@@ -429,6 +457,14 @@ function drawYSortedEntities(ctx: CanvasRenderingContext2D, rc: RenderContext): 
     if (d.tileX + 1 < camLeft || d.tileX > camRight ||
         d.tileY + 1 < camTop  || d.tileY > camBottom) continue;
     items.push({ sortY: d.tileY + 1, kind: 'decoration', placement: d });
+  }
+
+  // Add NPCs to the sorted items list for proper Y-sorting with buildings
+  for (const npc of rc.npcs) {
+    const underTile = rc.map.tiles[Math.floor(npc.tileY)]?.[Math.floor(npc.tileX)];
+    if (underTile?.state === 'void') continue;
+    // NPCs sort at tileY + 1 (bottom of their tile) for proper Y-sorting
+    items.push({ sortY: npc.tileY + 1, kind: 'npc', npc });
   }
 
   items.sort((a, b) => a.sortY - b.sortY);
@@ -440,16 +476,16 @@ function drawYSortedEntities(ctx: CanvasRenderingContext2D, rc: RenderContext): 
       const underTile = rc.map.tiles[Math.floor(e.y)]?.[Math.floor(e.x)];
       if (underTile?.state === 'void') continue;
       drawEntity(ctx, rc, e);
-    } else {
+    } else if (item.kind === 'decoration') {
       const d = item.placement;
       const underTile = rc.map.tiles[Math.floor(d.tileY)]?.[Math.floor(d.tileX)];
       if (underTile?.state === 'void') continue;
       drawDecoration(ctx, rc, d);
+    } else {
+      // item.kind === 'npc'
+      drawNpc(ctx, rc, item.npc);
     }
   }
-
-  // NPCs render last (z-order regression intentional per Spec A)
-  drawNpcs(ctx, rc, camLeft, camTop, camRight, camBottom);
 }
 
 // =============================================================================
@@ -502,4 +538,62 @@ function drawOverlays(ctx: CanvasRenderingContext2D, rc: RenderContext): void {
       ctx.fillText(poi.name, px, py + r + 10 / camera.zoom);
     }
   }
+}
+
+// =============================================================================
+// Dev Mode — Selection Highlight
+// =============================================================================
+
+function drawSelectionHighlight(ctx: CanvasRenderingContext2D, rc: RenderContext): void {
+  const hit = rc.devMode!.selected;
+  if (!hit || hit.type === null) return;
+
+  ctx.save();
+  ctx.strokeStyle = '#FFD700';
+  ctx.lineWidth = 2 / rc.camera.zoom;
+  ctx.setLineDash([4 / rc.camera.zoom, 4 / rc.camera.zoom]);
+
+  const TILE = TILE_SIZE;
+
+  switch (hit.type) {
+    case 'tile': {
+      const x = hit.tileX * TILE;
+      const y = hit.tileY * TILE;
+      ctx.strokeRect(x, y, TILE, TILE);
+      break;
+    }
+    case 'entity': {
+      const e = hit.entity!;
+      // Draw at entity position
+      const x = e.x * TILE;
+      const y = e.y * TILE;
+      // For buildings, use footprint dimensions if available
+      const def = tryGetEntityKindDef(e.kind);
+      if (def?.category === 'building') {
+        const tpl = getBuildingTemplate((e.properties?.templateId as string) ?? e.kind);
+        if (tpl) {
+          ctx.strokeRect(x, y, tpl.footprint.w * TILE, tpl.footprint.h * TILE);
+          break;
+        }
+      }
+      ctx.strokeRect(x, y, TILE, TILE);
+      break;
+    }
+    case 'npc': {
+      const n = hit.npc!;
+      const x = n.tileX * TILE;
+      const y = n.tileY * TILE;
+      ctx.strokeRect(x, y, TILE, TILE);
+      break;
+    }
+    case 'decoration': {
+      const d = hit.decoration!;
+      const x = d.tileX * TILE;
+      const y = d.tileY * TILE;
+      ctx.strokeRect(x, y, TILE, TILE);
+      break;
+    }
+  }
+
+  ctx.restore();
 }

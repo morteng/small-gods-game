@@ -8,7 +8,9 @@
  * Water, mountains, and void tiles are impassable.
  */
 
-import type { GameMap, Tile } from '@/core/types';
+import type { GameMap, Tile, Entity, EntityId } from '@/core/types';
+import type { World } from '@/world/world';
+import { tryGetEntityKindDef } from '@/world/entity-kinds';
 
 // ─── Terrain cost ───────────────────────────────────────────────────────────
 
@@ -59,13 +61,72 @@ export function tileCost(tile: Tile): number {
 
 /**
  * Returns true when a tile can be entered: in-bounds, realized, walkable,
- * and terrain is not impassable.
+ * terrain is not impassable, AND no blocking entity occupies the tile.
+ *
+ * @param world - When provided, also checks for blocking entities (buildings,
+ *                boulders, etc.) at the given tile position.
+ * @param excludeEntityId - Optional entity ID to exclude from blocking checks
+ *                          (used to prevent an NPC from blocking itself).
  */
-export function isWalkable(map: GameMap, x: number, y: number): boolean {
+export function isWalkable(
+  map: GameMap,
+  x: number,
+  y: number,
+  world?: World,
+  excludeEntityId?: EntityId,
+): boolean {
   if (x < 0 || y < 0 || x >= map.width || y >= map.height) return false;
   const t = map.tiles[y]?.[x];
   if (!t || t.state !== 'realized' || !t.walkable) return false;
-  return tileCost(t) !== Infinity;
+  if (tileCost(t) === Infinity) return false;
+
+  // Check for blocking entities if world is provided
+  if (world) {
+    const blocking = getBlockingEntities(world, x, y, excludeEntityId);
+    if (blocking.length > 0) return false;
+  }
+
+  return true;
+}
+
+/**
+ * Find blocking entities at a tile position.
+ * A tile is blocked if any entity at that position (floor(x), floor(y)) has:
+ * - tag 'obstacle', OR
+ * - category 'building'
+ *
+ * @param excludeEntityId - Optional entity ID to exclude (prevents self-blocking).
+ */
+function getBlockingEntities(
+  world: World,
+  tileX: number,
+  tileY: number,
+  excludeEntityId?: EntityId,
+): Entity[] {
+  const region = { x: tileX, y: tileY, w: 1, h: 1 };
+  const entities = world.query({ region });
+  return entities.filter(e => {
+    // Skip excluded entity (e.g., the NPC checking its own path)
+    if (excludeEntityId && e.id === excludeEntityId) return false;
+    // Entity must be at this tile (using floor since entities can have sub-tile positions)
+    if (Math.floor(e.x) !== tileX || Math.floor(e.y) !== tileY) return false;
+    // Check if entity blocks movement
+    return entityBlocksMovement(e);
+  });
+}
+
+/**
+ * Returns true if the entity should block NPC movement.
+ * Blocks if: has 'obstacle' tag, or category is 'building'.
+ */
+function entityBlocksMovement(e: Entity): boolean {
+  const def = tryGetEntityKindDef(e.kind);
+  if (!def) return false;
+  // Buildings always block
+  if (def.category === 'building') return true;
+  // Explicit obstacle tag
+  if (e.tags?.includes('obstacle')) return true;
+  return false;
 }
 
 // ─── A* ─────────────────────────────────────────────────────────────────────
@@ -118,13 +179,15 @@ export function findPath(
   startY: number,
   endX: number,
   endY: number,
+  world?: World,
+  excludeEntityId?: EntityId,
 ): PathResult | null {
   const sx = Math.floor(startX);
   const sy = Math.floor(startY);
   const ex = Math.floor(endX);
   const ey = Math.floor(endY);
 
-  if (!isWalkable(map, sx, sy) || !isWalkable(map, ex, ey)) return null;
+  if (!isWalkable(map, sx, sy, world, excludeEntityId) || !isWalkable(map, ex, ey, world, excludeEntityId)) return null;
   if (sx === ex && sy === ey) return { path: [{ x: sx, y: sy }], cost: 0 };
 
   const open = new Map<string, AStarNode>();
@@ -178,7 +241,7 @@ export function findPath(
       const nk = key(nx, ny);
 
       if (closed.has(nk)) continue;
-      if (!isWalkable(map, nx, ny)) continue;
+      if (!isWalkable(map, nx, ny, world, excludeEntityId)) continue;
 
       const stepCost = tileCost(map.tiles[ny][nx]);
       const g = current.g + stepCost;
@@ -207,12 +270,14 @@ export function pickRandomDestination(
   cy: number,
   radius: number,
   rng: { next: () => number },
+  world?: World,
+  excludeEntityId?: EntityId,
   maxAttempts = 50,
 ): { x: number; y: number } | null {
   for (let i = 0; i < maxAttempts; i++) {
     const x = Math.floor(cx) + Math.floor(rng.next() * radius * 2) - radius;
     const y = Math.floor(cy) + Math.floor(rng.next() * radius * 2) - radius;
-    if (isWalkable(map, x, y)) return { x, y };
+    if (isWalkable(map, x, y, world, excludeEntityId)) return { x, y };
   }
   return null;
 }

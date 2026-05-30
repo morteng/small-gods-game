@@ -1,0 +1,45 @@
+import type { RenderContext, HitResult, Tile, Entity, NpcInstance, GeneratedDecoration } from '@/core/types';
+import { TILE_SIZE } from '@/core/constants';
+import { getEntitySortY } from '@/render/renderer';
+
+/**
+ * Convert screen (canvas) coordinates to world coordinates and perform
+ * a hit-test against NPCs → entities → decorations → tiles.
+ *
+ * Returns a HitResult describing what (if anything) was clicked.
+ */
+export function hitTest(rc: RenderContext, canvasX: number, canvasY: number): HitResult {
+  const worldX = (canvasX / rc.camera.zoom) + rc.camera.x;
+  const worldY = (canvasY / rc.camera.zoom) + rc.camera.y;
+
+  const tileX = Math.floor(worldX / TILE_SIZE);
+  const tileY = Math.floor(worldY / TILE_SIZE);
+
+  // 1. Check NPCs (rendered on top of everything)
+  for (const npc of rc.npcs) {
+    if (Math.floor(npc.tileX) === tileX && Math.floor(npc.tileY) === tileY) {
+      return { type: 'npc', npc, tileX, tileY };
+    }
+  }
+
+  // 2. Check entities (buildings, trees, rocks) via spatial query
+  if (rc.world) {
+    const entities = rc.world.query({ region: { x: tileX, y: tileY, w: 1, h: 1 } });
+    if (entities.length > 0) {
+      // Sort by y-sort order so the topmost entity is selected
+      entities.sort((a, b) => getEntitySortY(b) - getEntitySortY(a));
+      return { type: 'entity', entity: entities[0], tileX, tileY };
+    }
+  }
+
+  // 3. Check decorations
+  for (const d of rc.generatedDecorations ?? []) {
+    if (d.tileX === tileX && d.tileY === tileY) {
+      return { type: 'decoration', decoration: d, tileX, tileY };
+    }
+  }
+
+  // 4. Return tile info
+  const tile = rc.map.tiles[tileY]?.[tileX];
+  return { type: 'tile', tile, tileX, tileY };
+}

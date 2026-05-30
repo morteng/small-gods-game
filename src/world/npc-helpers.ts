@@ -52,6 +52,15 @@ const ROLE_PIETY_BONUS: Record<NpcRole, number> = {
 };
 function clamp01(v: number): number { return Math.max(0, Math.min(1, v)); }
 
+/** Get recent event descriptions for an NPC (stub - returns empty for now) */
+// TODO: Implement proper event description retrieval from event log
+function getRecentEventDescriptions(props: NpcProperties): string[] {
+  // For now, return empty array - this will be implemented with proper event log integration
+  return [];
+}
+
+export { getRecentEventDescriptions };
+
 /** Build a complete NpcProperties record from role + seed. Replaces initNpcSim. */
 export function initNpcProps(name: string, role: NpcRole, seed: number): NpcProperties {
   const rng = new Random(seed);
