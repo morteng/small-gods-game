@@ -33,7 +33,9 @@ export interface DivineActionsDeps {
 }
 
 export class DivineActionsController {
-  /** Timestamp of the last successful divine cast (for gold-flash overlay). */
+  /** Timestamp of the last successful whisper (drives the gold-flash overlay).
+   *  Only whisper sets this — matching the pre-refactor `lastWhisperTime`; dream/
+   *  omen/miracle trigger particles but no flash. */
   lastCastTime = -Infinity;
   private now: () => number;
 
