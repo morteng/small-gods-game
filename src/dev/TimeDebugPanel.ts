@@ -10,6 +10,25 @@ export interface TimeDebugPanelHandle {
   destroy(): void;
 }
 
+/**
+ * Create a disabled placeholder button for a feature that is not yet wired up.
+ * Keeps the dev UI honest: the control is visible (so the layout reads true)
+ * but clearly non-functional rather than silently doing nothing on click.
+ */
+function makeStubButton(label: string, reason: string): HTMLButtonElement {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.textContent = label;
+  btn.disabled = true;
+  btn.title = `${reason} (not yet implemented)`;
+  btn.style.cssText = [
+    'flex:1', 'padding:6px 8px', 'background:rgba(255,255,255,0.04)',
+    'color:#777', 'border:1px dashed #555', 'border-radius:3px',
+    'font:11px sans-serif', 'cursor:not-allowed', 'opacity:0.6',
+  ].join(';');
+  return btn;
+}
+
 export function mountTimeDebugPanel(
   container: HTMLElement,
   deps: {
@@ -158,34 +177,10 @@ export function mountTimeDebugPanel(
   const snapBtns = document.createElement('div');
   snapBtns.style.cssText = 'display:flex; gap:4px;';
 
-  const saveBtn = document.createElement('button');
-  saveBtn.type = 'button';
-  saveBtn.textContent = '💾 Save';
-  saveBtn.style.cssText = [
-    'flex:1', 'padding:6px 8px', 'background:rgba(255,255,255,0.1)',
-    'color:#e0e0e0', 'border:1px solid #555', 'border-radius:3px',
-    'font:11px sans-serif', 'cursor:pointer',
-  ].join(';');
-  saveBtn.addEventListener('mouseenter', () => { saveBtn.style.background = 'rgba(255,255,255,0.2)'; });
-  saveBtn.addEventListener('mouseleave', () => { saveBtn.style.background = 'rgba(255,255,255,0.1)'; });
-  saveBtn.addEventListener('click', () => {
-    console.log('[dev] Save snapshot (TODO: implement)');
-  });
+  const saveBtn = makeStubButton('💾 Save', 'Snapshot save not yet implemented');
   snapBtns.appendChild(saveBtn);
 
-  const loadBtn = document.createElement('button');
-  loadBtn.type = 'button';
-  loadBtn.textContent = '📂 Load';
-  loadBtn.style.cssText = [
-    'flex:1', 'padding:6px 8px', 'background:rgba(255,255,255,0.1)',
-    'color:#e0e0e0', 'border:1px solid #555', 'border-radius:3px',
-    'font:11px sans-serif', 'cursor:pointer',
-  ].join(';');
-  loadBtn.addEventListener('mouseenter', () => { loadBtn.style.background = 'rgba(255,255,255,0.2)'; });
-  loadBtn.addEventListener('mouseleave', () => { loadBtn.style.background = 'rgba(255,255,255,0.1)'; });
-  loadBtn.addEventListener('click', () => {
-    console.log('[dev] Load snapshot (TODO: implement)');
-  });
+  const loadBtn = makeStubButton('📂 Load', 'Snapshot load not yet implemented');
   snapBtns.appendChild(loadBtn);
   snapSection.appendChild(snapBtns);
   panel.appendChild(snapSection);
@@ -210,20 +205,10 @@ export function mountTimeDebugPanel(
   }
   eventSection.appendChild(eventSelect);
 
-  const injectBtn = document.createElement('button');
-  injectBtn.type = 'button';
-  injectBtn.textContent = '💉 Inject';
-  injectBtn.style.cssText = [
-    'width:100%', 'padding:6px 8px', 'background:rgba(255,165,0,0.2)',
-    'color:#ffa500', 'border:1px solid #ffa500', 'border-radius:3px',
-    'font:11px sans-serif', 'cursor:pointer',
-  ].join(';');
-  injectBtn.addEventListener('mouseenter', () => { injectBtn.style.background = 'rgba(255,165,0,0.4)'; });
-  injectBtn.addEventListener('mouseleave', () => { injectBtn.style.background = 'rgba(255,165,0,0.2)'; });
-  injectBtn.addEventListener('click', () => {
-    const evt = eventSelect.value;
-    console.log(`[dev] Inject event: ${evt} (TODO: implement)`);
-  });
+  const injectBtn = makeStubButton('💉 Inject', 'Event injection not yet implemented');
+  injectBtn.style.width = '100%';
+  eventSelect.disabled = true;
+  eventSelect.style.opacity = '0.4';
   eventSection.appendChild(injectBtn);
   panel.appendChild(eventSection);
 
