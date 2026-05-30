@@ -1,4 +1,5 @@
-import type { NpcInstance } from '@/core/types';
+import type { NpcInstance, NpcProperties } from '@/core/types';
+import type { World } from '@/world/world';
 
 /** Walk cycle frame duration in ms (~6.7 FPS) */
 export const FRAME_MS = 150;
@@ -34,4 +35,16 @@ export function updateNpcs(npcs: NpcInstance[], deltaMs: number): void {
 export function getSpriteCoords(npc: NpcInstance): { sx: number; sy: number } {
   const row = DIRECTION_ROW[npc.direction] ?? 10;
   return { sx: npc.frame * 64, sy: row * 64 };
+}
+
+/** Advance walk-cycle frames on the canonical entity properties (source of truth). */
+export function advanceNpcFrames(world: World, deltaMs: number): void {
+  for (const e of world.query({ kind: 'npc' })) {
+    const p = e.properties as unknown as NpcProperties;
+    p.frameTimer += deltaMs;
+    if (p.frameTimer >= FRAME_MS) {
+      p.frameTimer -= FRAME_MS;
+      p.frame = (p.frame % 8) + 1;
+    }
+  }
 }

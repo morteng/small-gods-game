@@ -1,4 +1,4 @@
-import type { Entity, EntityId, NpcProperties, NpcRole, Direction, NpcInstance, Region } from '@/core/types';
+import type { Entity, EntityId, NpcProperties, NpcRole, Direction, NpcInstance, NpcSimState, Region } from '@/core/types';
 import type { World } from '@/world/world';
 import { Random } from '@/core/noise';
 
@@ -60,6 +60,24 @@ function getRecentEventDescriptions(props: NpcProperties): string[] {
 }
 
 export { getRecentEventDescriptions };
+
+// =============================================================================
+// Entity → legacy-shape adapter (keeps overlay/info-panel code working until
+// those are refactored to read NpcProperties directly)
+// =============================================================================
+
+export function simStateFromEntity(e: Entity): NpcSimState {
+  const p = e.properties as unknown as NpcProperties;
+  return {
+    npcId: e.id, name: p.name, role: p.role, personality: p.personality,
+    beliefs: p.beliefs, needs: p.needs, mood: p.mood,
+    recentEvents: [],  // legacy field; recentEventIds is the new home
+    relationships: p.relationships,
+    whisperCooldown: p.whisperCooldown,
+    homeBuildingId: p.homeBuildingId, homePoiId: p.homePoiId,
+    activity: p.activity,
+  };
+}
 
 /** Build a complete NpcProperties record from role + seed. Replaces initNpcSim. */
 export function initNpcProps(name: string, role: NpcRole, seed: number): NpcProperties {

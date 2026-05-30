@@ -4,8 +4,8 @@ import { selectRenderer, toggleRenderMode, readRenderMode, type RenderFn } from 
 import { centerOn } from '@/render/camera';
 import { attachControls, attachTimeKeys } from '@/ui/controls';
 import { WorldManager } from '@/map/world-manager';
-import type { GameMap, WorldSeed, TerrainOptions, Entity, NpcSimState, NpcProperties, UndoAction, DevModeState, HitResult, Tile } from '@/core/types';
-import { FRAME_MS } from '@/render/npc-animator';
+import type { GameMap, WorldSeed, TerrainOptions, Entity, NpcProperties, UndoAction, DevModeState, HitResult, Tile } from '@/core/types';
+import { advanceNpcFrames } from '@/render/npc-animator';
 import { drawNpcOverlay, drawPoiOverlay, type OverlayHitAreas } from '@/render/sim-overlay';
 import { whisper, omen, dream, miracle, answerPrayer } from '@/sim/divine-actions';
 import { buildNpcPrompt, type BuiltPrompt, type NpcPromptContext } from '@/llm/npc-prompt-builder';
@@ -14,7 +14,7 @@ import { LLMClient, MockLLMProvider } from "@/llm/llm-client";
 import { createProvider, type ProviderConfig, loadProviderConfig } from '@/llm/provider-factory';
 import type { SettlementEventType } from '@/core/types';
 import { getRecentEventDescriptions } from '@/world/npc-helpers';
-import { initNpcProps, getNpc, toRenderNpc, npcProps } from '@/world/npc-helpers';
+import { initNpcProps, getNpc, toRenderNpc, npcProps, simStateFromEntity } from '@/world/npc-helpers';
 import { OverlayDispatcher } from '@/ui/overlay-dispatcher';
 import { buildCharacterSpec, getOrGenerateSheet } from '@/render/lpc';
 import { drawPowerHud } from '@/render/hud';
@@ -748,18 +748,6 @@ export class Game {
     }
   }
 
-  private updateNpcFrames(deltaMs: number): void {
-    if (!this.state.world) return;
-    for (const e of this.state.world.query({ kind: 'npc' })) {
-      const p = e.properties as unknown as NpcProperties;
-      p.frameTimer += deltaMs;
-      if (p.frameTimer >= FRAME_MS) {
-        p.frameTimer -= FRAME_MS;
-        p.frame = (p.frame % 8) + 1;
-      }
-    }
-  }
-
   private startLoop(): void {
     if (this.rafId !== null) return;
     this.lastTime = performance.now();
@@ -772,7 +760,7 @@ export class Game {
         this.fpsEma = this.fpsEma * 0.9 + instantFps * 0.1;
       }
       if (this.scheduler.getRate() > 0 && this.state.world && !this.timeline.isScrubbed) {
-        this.updateNpcFrames(deltaMs);  // presentation animation - not a scheduled system
+        advanceNpcFrames(this.state.world, deltaMs);  // presentation animation - not a scheduled system
         this.scheduler.tick(deltaMs, {
           world: this.state.world,
           spirits: this.state.spirits,
@@ -1386,21 +1374,4 @@ export class Game {
   }
 }
 
-// =============================================================================
-// Entity → legacy-shape adapter (keeps overlay/info-panel code working until
-// those are refactored to read NpcProperties directly)
-// =============================================================================
-
-function simStateFromEntity(e: Entity): NpcSimState {
-  const p = e.properties as unknown as NpcProperties;
-  return {
-    npcId: e.id, name: p.name, role: p.role, personality: p.personality,
-    beliefs: p.beliefs, needs: p.needs, mood: p.mood,
-    recentEvents: [],  // legacy field; recentEventIds is the new home
-    relationships: p.relationships,
-    whisperCooldown: p.whisperCooldown,
-    homeBuildingId: p.homeBuildingId, homePoiId: p.homePoiId,
-    activity: p.activity,
-  };
-}
 
