@@ -20,6 +20,6 @@ describe('GameUi', () => {
     const after = container.childElementCount;
     ui.destroy();
     ui = null;
-    expect(container.childElementCount).toBeLessThan(after);
+    expect(container.childElementCount).toBe(before);
   });
 });

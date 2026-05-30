@@ -160,6 +160,11 @@ export class GameUi {
     this.npcInfoPanel.remove();
     this.tooltip.remove();
     this.llmSettingsBtn.remove();
+    this.mainMenu.destroy();
+    this.spiritHud.destroy();
+    this.rivalPanel.destroy();
+    this.minimap.destroy();
+    this.tutorial.destroy();
     this.unifiedSettings.destroy();
     this.placementModal.destroy();
     this.llmDisplay.destroy();
