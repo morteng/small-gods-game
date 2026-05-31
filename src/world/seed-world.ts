@@ -9,8 +9,6 @@ import { PerceptionSystem } from '@/world/perception-system';
 import { initNpcProps, forEachNpc } from '@/world/npc-helpers';
 import { seedSocialGraph } from '@/sim/social-graph';
 
-const VALID_ROLES: NpcRole[] = ['farmer', 'priest', 'soldier', 'merchant', 'elder', 'child', 'noble', 'beggar'];
-
 export interface SeedWorldArgs {
   world: World;
   log: EventLog;
@@ -68,7 +66,7 @@ export function seedWorld(args: SeedWorldArgs): void {
     log.append({ type: 'npc_spawn', npcId: id, role: member.role, poiId: seedPoi.id });
   });
 
-  // 4. Seed social graph (single seed NPC at this point, no-op; prepares for more)
+  // 4. Seed social graph over the initial band
   const allNpcs: Entity[] = [];
   forEachNpc(world, e => allNpcs.push(e));
   seedSocialGraph(allNpcs, map.seed);
