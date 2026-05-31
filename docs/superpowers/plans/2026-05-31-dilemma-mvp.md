@@ -1382,6 +1382,8 @@ Where the HUD is updated each frame (the `spiritHud` handle from `game-ui.ts`), 
 
 (If `spiritHud` isn't already on `frame-renderer`'s deps, add it to the deps interface and pass it from `game-ui.ts`/`game.ts` where the HUD is created — follow the existing wiring of `npcInfoPanel`.)
 
+Fix the now-stale regen readout: `frame-renderer.ts` (~lines 170–177) and `spirit-hud.ts` (~line 343) still compute the HUD "+/s" regen by summing raw `faith` and showing the flat `POWER_REGEN_RATE`. After Task 1, true regen is `Σ faith × (1+2u) × (1+2d) × POWER_REGEN_RATE`. Update the `totalFaith` accumulation in `frame-renderer.ts` to sum the full contribution (import `POWER_UNDERSTANDING_COEFF`, `POWER_DEVOTION_COEFF` from `@/sim/spirit-system` and apply `faith × (1+2u) × (1+2d)` per believer), and pass that through so the HUD badge reflects the real rate rather than under-reporting.
+
 Make acts land instantly: the panel currently refreshes at most every 500 ms. In the `onAnswerPrayer` and `onDream` callbacks (around lines 148–149), force an immediate refresh by resetting the throttle after the act:
 
 ```typescript

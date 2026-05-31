@@ -5,7 +5,7 @@ import { SimClock } from '@/core/clock';
 import { EventLog } from '@/core/events';
 import { initNpcProps } from '@/world/npc-helpers';
 import { createRng } from '@/core/rng';
-import type { GameMap, Entity, NpcProperties, NpcRole } from '@/core/types';
+import type { GameMap, Entity, NpcRole } from '@/core/types';
 import type { Spirit, SpiritId } from '@/core/spirit';
 
 function emptyMap(): GameMap {
