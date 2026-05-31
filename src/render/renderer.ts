@@ -386,10 +386,18 @@ export function getEntitySortY(e: Entity): number {
   const def = tryGetEntityKindDef(e.kind);
   if (!def) return e.y;
 
-  // Buildings sort at their TOP (e.y) so NPCs in front render ON TOP of them.
-  // The spriteOffset in drawEntity() handles the visual placement.
+  // Buildings sort at their footprint's FRONT (south) edge so an NPC standing
+  // in front of a building paints on top of it, while one stepping behind it is
+  // occluded. `sortYOffset` is the per-template footprint bottom in tile units
+  // (see building-templates.ts); fall back to the footprint height, then the
+  // kind's yOffsetForSort. Sorting at the bare top (e.y) is wrong: it makes
+  // every NPC overlapping the footprint paint over the building.
   if (def.category === 'building') {
-    return e.y; // Top of building footprint
+    const offset =
+      (e.properties?.sortYOffset as number | undefined) ??
+      (e.properties?.footprint as { h?: number } | undefined)?.h ??
+      def.yOffsetForSort ?? 1;
+    return e.y + offset;
   }
 
   // Trees and other entities use their yOffsetForSort

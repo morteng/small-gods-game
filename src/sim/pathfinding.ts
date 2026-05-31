@@ -8,9 +8,9 @@
  * Water, mountains, and void tiles are impassable.
  */
 
-import type { GameMap, Tile, Entity, EntityId } from '@/core/types';
+import type { GameMap, Tile, EntityId } from '@/core/types';
 import type { World } from '@/world/world';
-import { tryGetEntityKindDef } from '@/world/entity-kinds';
+import { tileBlockedByBuilding } from '@/world/building-collision';
 
 // ─── Terrain cost ───────────────────────────────────────────────────────────
 
@@ -80,52 +80,31 @@ export function isWalkable(
   if (!t || t.state !== 'realized' || !t.walkable) return false;
   if (tileCost(t) === Infinity) return false;
 
-  // Check for blocking entities if world is provided
+  // Check for blocking entities if world is provided. Both checks use the
+  // registry tile index (footprint-aware) rather than World's point-based
+  // spatial index, so a multi-tile building blocks its WHOLE footprint.
   if (world) {
-    const blocking = getBlockingEntities(world, x, y, excludeEntityId);
-    if (blocking.length > 0) return false;
+    if (tileBlockedByBuilding(world, x, y, excludeEntityId)) return false;
+    if (tileHasObstacle(world, x, y, excludeEntityId)) return false;
   }
 
   return true;
 }
 
 /**
- * Find blocking entities at a tile position.
- * A tile is blocked if any entity at that position (floor(x), floor(y)) has:
- * - tag 'obstacle', OR
- * - category 'building'
- *
- * @param excludeEntityId - Optional entity ID to exclude (prevents self-blocking).
+ * True if a non-building obstacle (tag 'obstacle', e.g. a boulder) occupies the
+ * tile. Building footprints are handled separately by tileBlockedByBuilding.
  */
-function getBlockingEntities(
+function tileHasObstacle(
   world: World,
   tileX: number,
   tileY: number,
   excludeEntityId?: EntityId,
-): Entity[] {
-  const region = { x: tileX, y: tileY, w: 1, h: 1 };
-  const entities = world.query({ region });
-  return entities.filter(e => {
-    // Skip excluded entity (e.g., the NPC checking its own path)
-    if (excludeEntityId && e.id === excludeEntityId) return false;
-    // Entity must be at this tile (using floor since entities can have sub-tile positions)
-    if (Math.floor(e.x) !== tileX || Math.floor(e.y) !== tileY) return false;
-    // Check if entity blocks movement
-    return entityBlocksMovement(e);
-  });
-}
-
-/**
- * Returns true if the entity should block NPC movement.
- * Blocks if: has 'obstacle' tag, or category is 'building'.
- */
-function entityBlocksMovement(e: Entity): boolean {
-  const def = tryGetEntityKindDef(e.kind);
-  if (!def) return false;
-  // Buildings always block
-  if (def.category === 'building') return true;
-  // Explicit obstacle tag
-  if (e.tags?.includes('obstacle')) return true;
+): boolean {
+  for (const e of world.registry.getAtTile(tileX, tileY)) {
+    if (excludeEntityId && e.id === excludeEntityId) continue;
+    if (e.tags?.includes('obstacle')) return true;
+  }
   return false;
 }
 

@@ -18,6 +18,7 @@ import { generateHydrology } from '@/terrain/hydrology';
 import { walkRoad } from '@/terrain/road-walker';
 import { erodeElevation } from '@/terrain/erosion';
 import { placeSettlement } from '@/world/building-placer';
+import { clearObstructedVegetation } from '@/world/vegetation-clear';
 import { getZoneRule } from '@/map/poi-zones';
 import { World } from '@/world/world';
 import { biomeRegions } from '@/world/biome-regions';
@@ -253,6 +254,13 @@ export async function generateWithNoise(
     stats: { iterations: 0, backtracks: 0 },
     buildings,
   };
+
+  // Reconcile vegetation against terrain/structures: roads and rivers clear
+  // trees, and nothing vegetates on a building footprint. Runs last so it
+  // catches flora dropped by every prior pass regardless of their order.
+  report('Clearing obstructed vegetation...');
+  const cleared = clearObstructedVegetation(world, map);
+  if (cleared > 0) report(`Cleared ${cleared} obstructed nature entities`);
 
   return { map, world };
 }
