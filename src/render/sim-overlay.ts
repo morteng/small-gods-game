@@ -164,10 +164,11 @@ export function drawPrayerMarkers(
   ctx.font = '16px serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'bottom';
+  const tileScreenSize = TILE_SIZE * camera.zoom;
   for (const e of queryNpcs(world)) {
     if (npcProps(e).activity !== 'worship') continue;
     const { sx, sy } = worldToScreen(camera, e.x, e.y, TILE_SIZE);
-    ctx.fillText('🙏', sx + TILE_SIZE / 2, sy - 2);
+    ctx.fillText('🙏', sx + tileScreenSize / 2, sy - 2);
   }
   ctx.restore();
 }
