@@ -108,6 +108,11 @@ Resolve against the kept design reference `docs/design/2026-05-17-ui-system-hand
   chapter detection, narrative rendering). The strongest expression of VISION §6.
 - **Act 0 stone-age tutorial** — first believer; an unpreventable Fate-loss the
   player can only give *meaning* (VISION §7, Act 0). Teaches the Gods-vs-Fate stakes.
+  Its front-end is the **Drifting Spirit** opening (powerless roving spirit drifts &
+  illuminates the dark, drawn to minds, free first-contact bootstraps belief, 1–3
+  hand-scripted Fate scenarios) — specced as "Slice 2" in
+  `docs/superpowers/specs/2026-05-31-dilemma-mvp-design.md` §12, to follow the
+  Dilemma MVP (Slice 1).
 - **Spec C full — Branching** (parallel universes, discarded futures, lineage UI;
   `TimelineController.getDiscardedFutures()` is the in-place hook).
 - **Spec D — Cinematic** (cutscenes, camera director, void visual polish).

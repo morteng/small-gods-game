@@ -27,7 +27,8 @@ dilemma works.
 
 **In:**
 - Single player-spirit, with a **starting power stipend** (~10) so the player has
-  agency from tick 0.
+  agency from tick 0. (Slice-1 scaffold — Slice 2, §12, replaces it with the
+  powerless drift + free first-contact bootstrap.)
 - A **seeded band of ~6 NPCs** in the realized area (see §2.1) — the dilemma needs
   several simultaneous claims on limited power. The intimate one-NPC cradle is an
   Act-0 tutorial concern and is out of scope.
@@ -268,3 +269,28 @@ part of 6 (believer accounting / soft win) and 7 (fading, in the per-NPC
 abandonment form). It does **not** touch understanding's sign-perception/prayer-
 efficacy roles (Track 1 item 4 detail), rivals, or Fate. VISION remains canonical;
 nothing here contradicts it.
+
+## 12. Next slice — The Drifting Spirit (deferred, not built here)
+
+Captured so it isn't lost. Slice 1 proves the belief *loop*; Slice 2 proves the
+*opening*, layering the front-end of the Act-0 experience onto the same systems:
+
+- **Powerless, roving start.** The spirit begins with **0 power**. Its only free
+  verbs are *drift* (move a point of attention through the dark) and *illuminate*
+  (passive realization of nearby tiles — the sphere of attention from VISION §2.3
+  becomes mobile and embodied, instead of Slice 1's fixed cradle bubble).
+- **Drawn to minds.** The spirit is naturally pulled toward creatures, preferring
+  higher *potential belief* (maps to the existing `ROLE_FAITH` ceilings). MVP form:
+  a soft visual cue / shimmer on high-potential creatures in range; an optional
+  gentle drift-pull is a later nicety, not core.
+- **Free first contact = the bootstrap.** Reaching a creature with an unmet need
+  lets the spirit make a free first touch/whisper that plants seed faith (~0.1).
+  This **replaces the Slice-1 power stipend**: once the first believer exists, power
+  regen begins and the paid Answer/Deepen economy comes online.
+- **Fate as authored content, not the agent.** Seed **1–3 hand-scripted scenarios**
+  (a lost sheep, a frightened child, a death) for the player to stumble onto and
+  exploit. The live DM agent stays **out** (ROADMAP Track 4) — this is static
+  scenario authoring only.
+- **Added scope vs Slice 1:** spirit-as-avatar movement, dynamic spirit-centred
+  realization (touches `PerceptionSystem` + renderer), and scenario authoring. Gets
+  its own brainstorm → spec → plan when picked up.
