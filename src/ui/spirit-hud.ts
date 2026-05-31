@@ -12,6 +12,7 @@ export interface SpiritHudOptions {
 
 export interface SpiritHudHandle {
   update(player: Spirit, rivals: Spirit[], totalFollowers: number): void;
+  setBelieverStats(total: number, durable: number, goal: number): void;
   show(): void;
   hide(): void;
   isVisible(): boolean;
@@ -305,6 +306,25 @@ export function createSpiritHud(
 
   hud.appendChild(followerRow);
 
+  // Believer/durable stat row
+  const believerRow = document.createElement('div');
+  believerRow.className = 'sg-spirit-hud__stat-row';
+
+  const believerLabel = document.createElement('div');
+  believerLabel.className = 'sg-spirit-hud__stat-label';
+  believerLabel.textContent = 'Believers';
+  believerRow.appendChild(believerLabel);
+
+  const believerValue = document.createElement('div');
+  believerValue.className = 'sg-spirit-hud__stat-value';
+  believerRow.appendChild(believerValue);
+
+  const durableValue = document.createElement('div');
+  durableValue.className = 'sg-spirit-hud__regen';
+  believerRow.appendChild(durableValue);
+
+  hud.appendChild(believerRow);
+
   // Divider
   const divider = document.createElement('div');
   divider.className = 'sg-spirit-hud__divider';
@@ -398,20 +418,26 @@ export function createSpiritHud(
     }
   }
 
+  function setBelieverStats(total: number, durable: number, goal: number): void {
+    believerValue.textContent = String(total);
+    durableValue.textContent = `Durable ${durable}/${goal}`;
+  }
+
   function show() {
     hud.style.display = 'block';
   }
-  
+
   function hide() {
     hud.style.display = 'none';
   }
-  
+
   function isVisible(): boolean {
     return hud.style.display !== 'none';
   }
-  
+
   return {
     update,
+    setBelieverStats,
     show,
     hide,
     isVisible,

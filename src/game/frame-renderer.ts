@@ -11,13 +11,14 @@ import type { SpiritHudHandle } from '@/ui/spirit-hud';
 import type { DivineEffects } from '@/render/divine-effects';
 import { buildRenderContext } from './render-context';
 import { getNpc, toRenderNpc, simStateFromEntity } from '@/world/npc-helpers';
-import { drawNpcOverlay, drawPoiOverlay } from '@/render/sim-overlay';
+import { drawNpcOverlay, drawPoiOverlay, drawPrayerMarkers } from '@/render/sim-overlay';
 import { renderNpcInfoPanel } from '@/ui/npc-info-panel';
 import { formatNpcTooltip } from '@/ui/npc-tooltip';
 import { formatDevTooltip } from '@/dev/tooltip';
 import { drawPowerHud } from '@/render/hud';
 import { formatDebugHud } from '@/ui/debug-hud';
-import { POWER_REGEN_RATE } from '@/sim/spirit-system';
+import { POWER_REGEN_RATE, POWER_UNDERSTANDING_COEFF, POWER_DEVOTION_COEFF } from '@/sim/spirit-system';
+import { countPlayerBelievers, countDurableBelievers } from '@/sim/believers';
 import { TILE_SIZE } from '@/core/constants';
 import type { NpcProperties } from '@/core/types';
 
@@ -83,6 +84,11 @@ export class FrameRenderer {
       );
     }
 
+    // Draw prayer markers (independent of selection)
+    if (this.deps.state.world) {
+      drawPrayerMarkers(this.deps.ctx, this.deps.state.world, this.deps.state.camera);
+    }
+
     // Update Spirit HUD
     if (this.deps.ui.spiritHud && this.deps.ui.spiritHud.isVisible() && this.deps.state.world) {
       const player = this.deps.state.spirits.get('player')!;
@@ -97,6 +103,11 @@ export class FrameRenderer {
       }
 
       this.deps.ui.spiritHud.update(player, rivals as any[], totalFollowers);
+      this.deps.ui.spiritHud.setBelieverStats(
+        countPlayerBelievers(this.deps.state.world),
+        countDurableBelievers(this.deps.state.world),
+        4,
+      );
     }
 
     // Draw debug overlays if dev mode is enabled
@@ -145,8 +156,8 @@ export class FrameRenderer {
               this.lastInfoRefresh = 0;
             },
             onWhisper: () => { this.deps.divine.whisper(entity); },
-            onDream: () => { this.deps.divine.dream(entity); },
-            onAnswerPrayer: () => { this.deps.divine.answerPrayer(entity); },
+            onDream: () => { this.deps.divine.dream(entity); this.lastInfoRefresh = 0; },
+            onAnswerPrayer: () => { this.deps.divine.answerPrayer(entity); this.lastInfoRefresh = 0; },
             onOmen: () => { this.deps.divine.omenForNpc(entity); },
             onMiracle: () => { this.deps.divine.miracleForNpc(entity); },
             onLlmBackfill: async () => {
@@ -166,15 +177,21 @@ export class FrameRenderer {
     }
 
     const player = this.deps.state.spirits.get('player')!;
-    // Per-second regen estimate for HUD
-    let totalFaith = 0;
+    // Per-second regen estimate for HUD — mirrors SpiritSystem formula exactly
+    let totalContribution = 0;
     if (this.deps.state.world) {
       for (const e of this.deps.state.world.query({ kind: 'npc' })) {
         const p = e.properties as unknown as NpcProperties;
-        totalFaith += p.beliefs['player']?.faith ?? 0;
+        const b = p.beliefs['player'];
+        if (b) {
+          totalContribution +=
+            b.faith *
+            (1 + POWER_UNDERSTANDING_COEFF * b.understanding) *
+            (1 + POWER_DEVOTION_COEFF * b.devotion);
+        }
       }
     }
-    const regenPerSec = totalFaith * POWER_REGEN_RATE;
+    const regenPerSec = totalContribution * POWER_REGEN_RATE;
     drawPowerHud(this.deps.ctx, player.power, regenPerSec);
 
     this.updateTooltip();

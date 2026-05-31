@@ -1,4 +1,5 @@
 import type { NpcSimState } from '@/core/types';
+import { npcStatusHint } from '@/sim/believers';
 
 const NEED_COLORS = {
   safety: '#4CAF50',
@@ -36,6 +37,7 @@ const STYLE = `
 .sg-action:hover { background: rgba(255,255,255,0.18); color: #fff; }
 .sg-action:disabled { opacity: 0.3; cursor: default; }
 .sg-action-cost { color: #FFD54F; font-weight: normal; margin-left: 2px; }
+.sg-status-hint { font: italic 10px sans-serif; color: rgba(255,213,79,0.85); margin-bottom: 4px; }
 `;
 
 const WHISPER_COST = 1;
@@ -142,8 +144,13 @@ export function renderNpcInfoPanel(
     makeBarRow('meaning',    sim.needs.meaning,    NEED_COLORS.meaning),
   ));
 
+  const hint = npcStatusHint(sim.beliefs['player'], sim.needs, sim.activity);
+  const hintEl = document.createElement('div');
+  hintEl.className = 'sg-status-hint';
+  hintEl.textContent = hint;
   panel.appendChild(makeSection(
     'faith in you',
+    hintEl,
     makeBarRow('faith',         belief.faith,         FAITH_COLORS.faith),
     makeBarRow('understanding', belief.understanding, FAITH_COLORS.understanding),
     makeBarRow('devotion',      belief.devotion,      FAITH_COLORS.devotion),
