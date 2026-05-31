@@ -30,7 +30,7 @@ describe('Answer', () => {
     expect(P(e).needs.meaning).toBeCloseTo(0.4, 5);
     expect(P(e).beliefs['player'].faith).toBeCloseTo(0.5, 5);
     expect(P(e).beliefs['player'].devotion).toBeCloseTo(0.2, 5); // unchanged — Deepen owns devotion
-    expect(P(e).activity).not.toBe('worship');
+    expect(P(e).activity).toBe('idle');
     expect(P(e).activityDuration).toBe(0);
   });
 
@@ -41,7 +41,8 @@ describe('Answer', () => {
       delete (p.beliefs as Record<string, unknown>)['player'];
     });
     answerPrayer(spirit(), e, log());
-    expect(P(e).beliefs['player'].faith).toBeGreaterThan(0);
+    expect(P(e).beliefs['player'].faith).toBeCloseTo(0.2, 5);
+    expect(P(e).beliefs['player'].devotion).toBe(0);
   });
 
   it('refuses when the NPC is not praying', () => {
