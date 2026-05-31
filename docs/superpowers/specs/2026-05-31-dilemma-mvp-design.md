@@ -287,10 +287,24 @@ Captured so it isn't lost. Slice 1 proves the belief *loop*; Slice 2 proves the
   lets the spirit make a free first touch/whisper that plants seed faith (~0.1).
   This **replaces the Slice-1 power stipend**: once the first believer exists, power
   regen begins and the paid Answer/Deepen economy comes online.
-- **Fate as authored content, not the agent.** Seed **1–3 hand-scripted scenarios**
-  (a lost sheep, a frightened child, a death) for the player to stumble onto and
-  exploit. The live DM agent stays **out** (ROADMAP Track 4) — this is static
-  scenario authoring only.
+- **Fate v0 = a rules-based scenario deck (the real backbone).** Rather than
+  hand-scripting throwaway scenarios, Slice 2 builds the smallest honest version of
+  Fate: a deck of pre-authored **scenario cards**, each with a **trigger predicate**
+  over sim stats + context, a **weight/priority**, a **structured effect** (push a
+  need, spawn a situation, set a context flag — *never prose*), and
+  **cooldown/one-shot** flags. A low-frequency selector evaluates eligible cards and
+  pops one onto the **same event channel the player and rivals use**.
+
+  This is the key architectural insight: **"Fate" is a contract, not an
+  implementation.** The same contract has three brains of increasing intelligence —
+  (1) random/scheduled, (2) this rules-based deck, (3) the online LLM DM (Track 4).
+  The deck is **Fate v0** *and* the schema the LLM will later emit into; the LLM
+  replaces the *selector/author*, not the machinery. Structured-effects-only keeps
+  the deck and the future DM interchangeable (same two-layer rule as
+  `LLM_INTEGRATION.md`: sim is truth, narration interprets). The existing
+  `SettlementEventSystem` + `world.activeEvents` + `SettlementEventType`s are the
+  primitive this generalizes. Deterministic + seedable + inspectable → strictly
+  better than an LLM for *testing* the mechanics before spending a token.
 - **Added scope vs Slice 1:** spirit-as-avatar movement, dynamic spirit-centred
-  realization (touches `PerceptionSystem` + renderer), and scenario authoring. Gets
-  its own brainstorm → spec → plan when picked up.
+  realization (touches `PerceptionSystem` + renderer), and the scenario-deck system.
+  Gets its own brainstorm → spec → plan when picked up.
