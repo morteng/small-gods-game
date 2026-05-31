@@ -129,6 +129,19 @@ Resolve against the kept design reference `docs/design/2026-05-17-ui-system-hand
   POI zones, **6** normal-map lighting (from the archived terrain roadmap).
 - **Open design question:** independent magic-users (wizards/heroes who bend
   reality outside the belief economy) — yes/no, and if yes, how (VISION §10).
+- **3D/voxel pivot + Fate-driven asset generation.** 🔬 Researched, not scheduled —
+  see [ANIMATION_AND_ASSET_GENERATION.md](ANIMATION_AND_ASSET_GENERATION.md). Animate
+  the eventual NPC/animal/monster zoo (and ever-growing worship vocabulary) by moving
+  to a WebGL/voxel renderer and giving Fate a **cache-or-generate asset library**:
+  reuse a pre-generated motion/model when one fits (caption→embed→retrieve), else
+  prompt a generator (AnyTop for arbitrary-topology creature motion; HY-Motion/Kimodo
+  for humanoids; Meshy/Tripo or open Hunyuan3D/TRELLIS for bodies), then write it back
+  for reuse. **Three coupled future tracks:** (1) WebGL renderer, (2) self-hosted
+  generation service, (3) the Fate asset-library/retrieval layer (the novel heart;
+  spec this one first). **Determinism rule:** the library is the deterministic
+  interface — generation never touches the sim/replay path; bind chosen asset IDs into
+  scenario state. **Now:** keep building Tracks 1–4 with placeholders; do not start the
+  renderer rewrite or gen-service yet.
 - **Persistence principle + death & remains.** Worldbuilding rule: *once an NPC
   is instantiated it never leaves the world* — no sim-driven hard-deletes. Losing
   faith is a **lapse** (already shipped: `AbandonmentSystem` marks `believer_lost`
