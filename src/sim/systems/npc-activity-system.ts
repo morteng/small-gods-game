@@ -15,6 +15,7 @@ import type { Entity, NpcActivity, NpcNeeds } from '@/core/types';
 import { npcProps, forEachNpc } from '@/world/npc-helpers';
 import { Random } from '@/core/noise';
 import type { System, SystemContext } from '@/core/scheduler';
+import { clamp01 } from '@/sim/npc-sim';
 
 const TICKS_PER_DAY = 240;
 const NIGHT_START = 180;
@@ -46,6 +47,9 @@ const COMMUNITY_THRESHOLD = 0.35;
  */
 const MEANING_THRESHOLD = 0.3;
 
+/** Need restored when an NPC completes a self-serviced activity. */
+const SELF_AGENCY_RESTORE = 0.3;
+
 export class NpcActivitySystem implements System {
   readonly name = 'npc_activity';
   readonly tickHz = 1;
@@ -65,6 +69,15 @@ export class NpcActivitySystem implements System {
     if (props.activityDuration > 0) {
       props.activityDuration--;
       return;
+    }
+
+    // Self-agency: the finished activity restores its own need (the god is the margin).
+    // `worship` is excluded — meaning is restored only when a god Answers.
+    switch (props.activity) {
+      case 'work':      props.needs.prosperity = clamp01(props.needs.prosperity + SELF_AGENCY_RESTORE); break;
+      case 'socialize': props.needs.community  = clamp01(props.needs.community  + SELF_AGENCY_RESTORE); break;
+      case 'sleep':     props.needs.safety     = clamp01(props.needs.safety     + SELF_AGENCY_RESTORE); break;
+      default: break; // idle, wander, worship → no self-restore
     }
 
     // Determine new activity and target
