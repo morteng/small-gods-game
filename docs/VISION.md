@@ -105,11 +105,16 @@ There is **one** belief model. (Historically the code tracked a lean
 `Stories/Credence` model. The doc model is **retired**; its good ideas are folded
 in below. See §9.)
 
-Each NPC tracks belief **per spirit**:
+Each NPC tracks belief **per spirit**, and a mortal can hold belief in *several*
+spirits at once. Mortals **know** the gods exist — the whole pantheon, and more
+they've never heard of; mere existence is common knowledge, not the currency.
+What a god lives on is **practised allegiance**: do they *follow*, *pray*,
+*sacrifice* to you — or to a rival, or to several? That distribution of practice
+across gods is the source of every god's power, summed per spirit.
 
 | Component | What it is | Earned from | Its job (must be wired) |
 |---|---|---|---|
-| **Faith** | Raw belief that this god exists and can help | Answered need, witnessed intervention | The *floor* of power and existence. Cheap, fast, **fickle** — decays over time, **defects to rivals** when unanswered. |
+| **Faith** | Active allegiance — that this god is the one worth *following and praying to* (not mere awareness that it exists; everyone knows that) | Answered need, witnessed intervention | The *floor* of power. Cheap, fast, **fickle** — decays over time, **defects to rivals** when unanswered. |
 | **Understanding** | How well they grasp *who* this god is — its domain, the correct form to invoke it | Dreams, teaching, accurate stories, ritual | **Story fidelity.** Gates whether they perceive your signs, pray effectively, and pass on *accurate* belief. Low understanding = belief in "something," misattributed. |
 | **Devotion** | Behavioural commitment — costly acts | Sacrifice, shrine-building, prayer, evangelism | **Power multiplier + propagation engine.** Makes belief *durable* (survives comfort) and *contagious* along the social graph. |
 

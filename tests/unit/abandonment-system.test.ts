@@ -31,7 +31,7 @@ function faithOf(world: World, id: string): NpcProperties['beliefs']['player'] {
 }
 
 describe('AbandonmentSystem', () => {
-  it('removes an ex-believer whose faith reaches 0, after the grace period', () => {
+  it('marks an ex-believer as turned away (believer_lost) but never removes them', () => {
     const world = new World(emptyMap());
     add(world, 'gone', 0.5);                  // was a believer
     const { ctx, events } = makeCtx(world);
@@ -41,31 +41,62 @@ describe('AbandonmentSystem', () => {
     faithOf(world, 'gone').faith = 0;         // now their faith collapses
     for (let i = 1; i <= 12; i++) sys.tick({ ...ctx, now: i });
 
-    expect(world.registry.get('gone')).toBeUndefined();
-    expect(events).toContain('gone');
+    expect(world.registry.get('gone')).toBeDefined(); // never deleted
+    expect(events).toContain('gone');                 // but the lapse is marked
   });
 
-  it('never removes an NPC who was never a believer', () => {
+  it('emits believer_lost only once per lapse, not every tick', () => {
+    const world = new World(emptyMap());
+    add(world, 'gone', 0.5);
+    const { ctx, events } = makeCtx(world);
+    const sys = new AbandonmentSystem();
+
+    sys.tick({ ...ctx, now: 0 });
+    faithOf(world, 'gone').faith = 0;
+    for (let i = 1; i <= 30; i++) sys.tick({ ...ctx, now: i });
+
+    expect(events.filter((id) => id === 'gone')).toHaveLength(1);
+  });
+
+  it('re-arms after re-conversion: a won-back believer can lapse (and be marked) again', () => {
+    const world = new World(emptyMap());
+    add(world, 'fickle', 0.5);
+    const { ctx, events } = makeCtx(world);
+    const sys = new AbandonmentSystem();
+
+    sys.tick({ ...ctx, now: 0 });
+    faithOf(world, 'fickle').faith = 0;                       // first lapse
+    for (let i = 1; i <= 12; i++) sys.tick({ ...ctx, now: i });
+    faithOf(world, 'fickle').faith = 0.5;                     // won back above the line
+    sys.tick({ ...ctx, now: 13 });
+    faithOf(world, 'fickle').faith = 0;                       // lapses a second time
+    for (let i = 14; i <= 26; i++) sys.tick({ ...ctx, now: i });
+
+    expect(events.filter((id) => id === 'fickle')).toHaveLength(2);
+  });
+
+  it('never marks an NPC who was never a believer', () => {
     const world = new World(emptyMap());
     add(world, 'pagan', 0); // faith 0 from the start, never ≥0.15
-    const { ctx } = makeCtx(world);
+    const { ctx, events } = makeCtx(world);
     const sys = new AbandonmentSystem();
     for (let i = 0; i < 30; i++) sys.tick({ ...ctx, now: i });
     expect(world.registry.get('pagan')).toBeDefined();
+    expect(events).toHaveLength(0);
   });
 
-  it('scrubs relationships pointing at the departed', () => {
+  it('preserves the relationships of a turned-away ex-believer (still a person in the village)', () => {
     const world = new World(emptyMap());
     add(world, 'gone', 0.5);
     add(world, 'friend', 0.5, [{ npcId: 'gone', type: 'friend', trust: 0.8 }]);
     const { ctx } = makeCtx(world);
     const sys = new AbandonmentSystem();
 
-    sys.tick({ ...ctx, now: 0 });             // observe both while believing
+    sys.tick({ ...ctx, now: 0 });
     faithOf(world, 'gone').faith = 0;
     for (let i = 1; i <= 12; i++) sys.tick({ ...ctx, now: i });
 
     const friend = world.registry.get('friend')!.properties as unknown as NpcProperties;
-    expect(friend.relationships.find((r) => r.npcId === 'gone')).toBeUndefined();
+    expect(friend.relationships.find((r) => r.npcId === 'gone')).toBeDefined();
   });
 });

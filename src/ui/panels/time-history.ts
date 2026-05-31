@@ -28,7 +28,7 @@ const CHIP_LABELS: Record<ChipType, { icon: string; label: string }> = {
   whisper:         { icon: '≈', label: 'whisper' },
   answer_prayer:   { icon: '🙏', label: 'answered' },
   dream:           { icon: '🌙', label: 'deepened' },
-  believer_lost:   { icon: '✗', label: 'lost' },
+  believer_lost:   { icon: '✗', label: 'turned away' },
 };
 
 export function mountTimeHistory(container: HTMLElement, deps: TimeHistoryDeps): TimeHistoryHandle {

@@ -27,20 +27,25 @@ describe('believer accounting', () => {
     expect(isDurable(undefined)).toBe(false);
   });
 
-  it('counts believers (faith>0) and durable believers separately', () => {
+  it('counts active believers (faith ≥ the believer line) and durable believers separately', () => {
     const world = new World(emptyMap());
-    add(world, 'a', { faith: 0.5, understanding: 0, devotion: 0.5 }); // durable
-    add(world, 'b', { faith: 0.5, understanding: 0, devotion: 0.0 }); // believer, not durable
-    add(world, 'c', { faith: 0.0, understanding: 0, devotion: 0.0 }); // not a believer
+    add(world, 'a', { faith: 0.5,  understanding: 0, devotion: 0.5 }); // durable
+    add(world, 'b', { faith: 0.5,  understanding: 0, devotion: 0.0 }); // believer, not durable
+    add(world, 'c', { faith: 0.0,  understanding: 0, devotion: 0.0 }); // never a believer
+    add(world, 'd', { faith: 0.05, understanding: 0, devotion: 0.0 }); // lapsed ex-believer: lingers, doesn't count
     expect(countPlayerBelievers(world)).toBe(2);
     expect(countDurableBelievers(world)).toBe(1);
   });
 });
 
 describe('npcStatusHint', () => {
-  it('flags about-to-abandon first', () => {
+  it('flags a turned-away ex-believer at the floor', () => {
+    expect(npcStatusHint({ faith: 0.02, understanding: 0, devotion: 0 }, needs(0.5), 'idle'))
+      .toBe('turned away from you');
+  });
+  it('flags fading faith below the believer line first', () => {
     expect(npcStatusHint({ faith: 0.1, understanding: 0, devotion: 0 }, needs(0.5), 'idle'))
-      .toBe('about to abandon you');
+      .toBe('faith fading');
   });
   it('flags praying', () => {
     expect(npcStatusHint({ faith: 0.5, understanding: 0, devotion: 0 }, needs(0.1), 'worship'))

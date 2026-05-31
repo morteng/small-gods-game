@@ -34,7 +34,9 @@ export function seedWorld(args: SeedWorldArgs): void {
 
   // 3. Spawn a band of ~6 NPCs around the seed POI. Varied roles → varied
   //    skepticism/piety so they decay and convert at different rates. Each starts
-  //    as a near-non-believer: faith ≈ 0.1, understanding = devotion = 0.
+  //    as a shallow believer: faith ≈ 0.18 (just above the 0.15 believer line),
+  //    understanding = devotion = 0 — a small flock to keep from drifting, not yet
+  //    deepened. The secularization dilemma is live from turn one.
   const BAND: { name: string; role: NpcRole; dx: number; dy: number }[] = [
     { name: 'Tola',  role: 'farmer',   dx: 0,  dy: 0 },
     { name: 'Bram',  role: 'elder',    dx: 1,  dy: 0 },
@@ -57,8 +59,9 @@ export function seedWorld(args: SeedWorldArgs): void {
     p.homePoiId = seedPoi.id;
     p.homeX = x;
     p.homeY = y;
-    // Near-non-believer start (override initNpcProps' role-scaled belief).
-    p.beliefs['player'] = { faith: 0.1, understanding: 0, devotion: 0 };
+    // Shallow-believer start (override initNpcProps' role-scaled belief):
+    // just above the 0.15 believer line, no understanding/devotion yet.
+    p.beliefs['player'] = { faith: 0.18, understanding: 0, devotion: 0 };
     world.addEntity({
       id, kind: 'npc', x, y,
       properties: p as unknown as Record<string, unknown>,

@@ -62,7 +62,7 @@ describe('mountTimeHistory', () => {
     expect(chips).toHaveLength(3);
     expect(chips[0].textContent).toMatch(/answered/i);
     expect(chips[1].textContent).toMatch(/deepened/i);
-    expect(chips[2].textContent).toMatch(/lost/i);
+    expect(chips[2].textContent).toMatch(/turned away/i);
     handle.dispose();
   });
 

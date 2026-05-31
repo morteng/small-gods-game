@@ -1,51 +1,50 @@
 import type { System, SystemContext } from '@/core/scheduler';
-import type { Entity } from '@/core/types';
 import { forEachNpc, npcProps } from '@/world/npc-helpers';
-import { PLAYER_SPIRIT_ID } from '@/sim/believers';
+import { PLAYER_SPIRIT_ID, BELIEVER_THRESHOLD, LAPSED_FLOOR } from '@/sim/believers';
 
-const BELIEVER_THRESHOLD = 0.15; // faith at/above this once → counts as "was a believer"
-const ABANDON_FLOOR = 0.02;      // faith at/below this → lapsing
-const GRACE_TICKS = 10;          // consecutive lapsed ticks before departure
+const GRACE_TICKS = 10; // consecutive floored ticks before we call it a lapse
 
-/** Removes ex-believers whose faith in the player has collapsed to ~0. They stop
- *  believing and leave the world; their belief no longer feeds the god's power.
- *  "Ever believed" is learned by observation: in real play faith decays gradually,
- *  so the system sees a believer above the threshold before it bleeds to zero. */
+/** Detects when a believer turns away from the player — their faith collapses to
+ *  ~0 after having once been an active believer. It marks the moment with a
+ *  `believer_lost` event (once per lapse), but it does NOT remove the NPC: per the
+ *  world's rule, an instantiated soul never leaves the world. A lapsed ex-believer
+ *  keeps living — walking, working, socializing — as a non-believer, no longer
+ *  feeding the god's power, and is re-convertible if the player wins them back.
+ *
+ *  "Ever believed" is learned by observation: faith decays gradually, so the system
+ *  sees a believer above the threshold before it bleeds to the floor. */
 export class AbandonmentSystem implements System {
   readonly name = 'abandonment';
   readonly tickHz = 1;
   private everBelieved = new Set<string>();
   private lapsed = new Map<string, number>();
+  private announced = new Set<string>();
 
   tick(ctx: SystemContext): void {
-    const toRemove: Entity[] = [];
-
     forEachNpc(ctx.world, (e) => {
       const b = npcProps(e).beliefs[PLAYER_SPIRIT_ID];
       const faith = b?.faith ?? 0;
-      if (faith >= BELIEVER_THRESHOLD) this.everBelieved.add(e.id);
-      if (!this.everBelieved.has(e.id)) return;
 
-      if (faith <= ABANDON_FLOOR) {
+      if (faith >= BELIEVER_THRESHOLD) {
+        // Active believer (possibly re-converted) — re-arm a future lapse.
+        this.everBelieved.add(e.id);
+        this.lapsed.delete(e.id);
+        this.announced.delete(e.id);
+        return;
+      }
+      if (!this.everBelieved.has(e.id)) return; // never a believer → nothing to lose
+
+      if (faith <= LAPSED_FLOOR) {
         const n = (this.lapsed.get(e.id) ?? 0) + 1;
         this.lapsed.set(e.id, n);
-        if (n >= GRACE_TICKS) toRemove.push(e);
+        if (n >= GRACE_TICKS && !this.announced.has(e.id)) {
+          this.announced.add(e.id);
+          ctx.log.append({ type: 'believer_lost', npcId: e.id });
+        }
       } else {
+        // Declining but not yet floored — reset the grace counter.
         this.lapsed.delete(e.id);
       }
     });
-
-    for (const e of toRemove) {
-      forEachNpc(ctx.world, (other) => {
-        const op = npcProps(other);
-        if (op.relationships.length > 0) {
-          op.relationships = op.relationships.filter((r) => r.npcId !== e.id);
-        }
-      });
-      ctx.world.removeEntity(e.id);
-      this.everBelieved.delete(e.id);
-      this.lapsed.delete(e.id);
-      ctx.log.append({ type: 'believer_lost', npcId: e.id });
-    }
   }
 }

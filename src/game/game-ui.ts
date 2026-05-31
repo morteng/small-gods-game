@@ -126,9 +126,10 @@ export class GameUi {
 
     // ── NEW: Rival Panel ───────────────────────────────────
     this.rivalPanel = createRivalPanel(container, {
-      onClose: () => { /* panel handles hide internally */ },
+      onClose: () => this.rivalPanel.hide(),
       onTargetNpc: (npcId) => cb.onTargetNpc(npcId),
     });
+    this.rivalPanel.hide(); // Hidden until a rival is selected (no rivals in single-god slice)
 
     // ── NEW: Minimap ──────────────────────────────────────
     this.minimap = createMinimapPanel(container, {

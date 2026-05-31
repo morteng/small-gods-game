@@ -129,6 +129,15 @@ Resolve against the kept design reference `docs/design/2026-05-17-ui-system-hand
   POI zones, **6** normal-map lighting (from the archived terrain roadmap).
 - **Open design question:** independent magic-users (wizards/heroes who bend
   reality outside the belief economy) — yes/no, and if yes, how (VISION §10).
+- **Persistence principle + death & remains.** Worldbuilding rule: *once an NPC
+  is instantiated it never leaves the world* — no sim-driven hard-deletes. Losing
+  faith is a **lapse** (already shipped: `AbandonmentSystem` marks `believer_lost`
+  and the soul lives on as a re-convertible non-believer), **not** death. Death is
+  a separate, rarer event that converts the actor into a persistent **remains**
+  entity (skeleton / grave / abandoned dwelling) discoverable for ~100+ in-game
+  years, slowly weathering but never fully disappearing — the world accretes its
+  own archaeology. Needs: a `remains` entity kind, a death trigger (age/famine/
+  plague — distinct from lapse), a long weathering decay, and renderer support.
 
 ---
 
