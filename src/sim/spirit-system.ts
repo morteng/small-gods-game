@@ -3,6 +3,10 @@ import type { SpiritId } from '@/core/spirit';
 import { forEachNpc, npcProps } from '@/world/npc-helpers';
 
 export const POWER_REGEN_RATE = 0.02;
+/** Understanding & devotion are multipliers on a believer's faith contribution.
+ *  contribution = faith × (1 + U·understanding) × (1 + D·devotion). */
+export const POWER_UNDERSTANDING_COEFF = 2;
+export const POWER_DEVOTION_COEFF = 2;
 
 export class SpiritSystem implements System {
   readonly name = 'spirits';
@@ -14,7 +18,11 @@ export class SpiritSystem implements System {
     forEachNpc(ctx.world, (e) => {
       const p = npcProps(e);
       for (const [sid, b] of Object.entries(p.beliefs)) {
-        totals.set(sid, (totals.get(sid) ?? 0) + b.faith);
+        const contribution =
+          b.faith *
+          (1 + POWER_UNDERSTANDING_COEFF * b.understanding) *
+          (1 + POWER_DEVOTION_COEFF * b.devotion);
+        totals.set(sid, (totals.get(sid) ?? 0) + contribution);
       }
     });
 
