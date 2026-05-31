@@ -46,6 +46,26 @@ describe('mountTimeHistory', () => {
     handle.dispose();
   });
 
+  it('surfaces divine acts and losses (answer_prayer, dream, believer_lost) as chips', () => {
+    const deps = makeDeps();
+    deps.clock.advance(5);
+    deps.eventLog.append({ type: 'answer_prayer', spiritId: 'player' as any, npcId: 'n1' as any });
+    deps.clock.advance(5);
+    deps.eventLog.append({ type: 'dream', spiritId: 'player' as any, npcId: 'n1' as any });
+    deps.clock.advance(5);
+    deps.eventLog.append({ type: 'believer_lost', npcId: 'n2' as any });
+
+    const c = makeContainer();
+    const handle = mountTimeHistory(c, deps as any);
+
+    const chips = c.querySelectorAll('.sg-time-history__chip');
+    expect(chips).toHaveLength(3);
+    expect(chips[0].textContent).toMatch(/answered/i);
+    expect(chips[1].textContent).toMatch(/deepened/i);
+    expect(chips[2].textContent).toMatch(/lost/i);
+    handle.dispose();
+  });
+
   it('filters out non-relevant events (e.g. belief_cross)', () => {
     const deps = makeDeps();
     deps.clock.advance(10);

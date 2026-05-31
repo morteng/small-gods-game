@@ -3,6 +3,8 @@ import { worldToScreen } from '@/render/camera';
 import { TILE_SIZE } from '@/core/constants';
 import { CANVAS, CANVAS_FONT } from '@/render/canvas-palette';
 import type { OverlayHitArea } from '@/ui/overlay-dispatcher';
+import { queryNpcs, npcProps } from '@/world/npc-helpers';
+import type { World } from '@/world/world';
 
 export type { OverlayHitArea };
 export type OverlayHitAreas = OverlayHitArea[];
@@ -149,4 +151,24 @@ export function drawPoiOverlay(
   areas.push({ x: bx, y: by + BTN_H + BTN_GAP, w: BTN_W, h: BTN_H, action: 'miracle', payload: { poiId }, active: miracleActive });
 
   return areas;
+}
+
+/** Draw a 🙏 over every NPC currently in `worship`, so the player can see who
+ *  needs them at a glance. Independent of selection. */
+export function drawPrayerMarkers(
+  ctx: CanvasRenderingContext2D,
+  world: World,
+  camera: Camera,
+): void {
+  ctx.save();
+  ctx.font = '16px serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'bottom';
+  const tileScreenSize = TILE_SIZE * camera.zoom;
+  for (const e of queryNpcs(world)) {
+    if (npcProps(e).activity !== 'worship') continue;
+    const { sx, sy } = worldToScreen(camera, e.x, e.y, TILE_SIZE);
+    ctx.fillText('🙏', sx + tileScreenSize / 2, sy - 2);
+  }
+  ctx.restore();
 }

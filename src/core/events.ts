@@ -15,6 +15,7 @@ export type SimEvent =
   | { type: 'dream';              spiritId: SpiritId; npcId: EntityId }
   | { type: 'miracle';            spiritId: SpiritId; poiId: string; needType: string; amount: number }
   | { type: 'answer_prayer';      spiritId: SpiritId; npcId: EntityId }
+  | { type: 'believer_lost';      npcId: EntityId }
   | { type: 'timeline_commit';    parentTick: number; rerolled: boolean }
   | { type: 'belief_cross';       npcId: EntityId; spiritId: SpiritId; kind: 'high' | 'low'; faith: number }
   | { type: 'mood_cross';         npcId: EntityId; kind: 'high' | 'low'; mood: number }

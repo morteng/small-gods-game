@@ -12,11 +12,24 @@ export interface TimeHistoryHandle {
 
 const MAX_CHIPS = 50;
 
+type ChipType = 'timeline_commit' | 'whisper' | 'answer_prayer' | 'dream' | 'believer_lost';
+
 interface ChipEntry {
   tick: number;
-  type: 'timeline_commit' | 'whisper';
+  type: ChipType;
   el: HTMLElement;
 }
+
+/** Icon + short label per surfaced event type. Acts the player takes (Answer,
+ *  Deepen) and consequences (a believer lost) appear alongside whispers/commits
+ *  so each act visibly lands in the history strip. */
+const CHIP_LABELS: Record<ChipType, { icon: string; label: string }> = {
+  timeline_commit: { icon: '▼', label: 'commit' },
+  whisper:         { icon: '≈', label: 'whisper' },
+  answer_prayer:   { icon: '🙏', label: 'answered' },
+  dream:           { icon: '🌙', label: 'deepened' },
+  believer_lost:   { icon: '✗', label: 'lost' },
+};
 
 export function mountTimeHistory(container: HTMLElement, deps: TimeHistoryDeps): TimeHistoryHandle {
   const root = document.createElement('div');
@@ -29,19 +42,18 @@ export function mountTimeHistory(container: HTMLElement, deps: TimeHistoryDeps):
 
   function buildChip(ev: AppendedEvent): ChipEntry | null {
     const t = ev.event.type;
-    if (t !== 'timeline_commit' && t !== 'whisper') return null;
+    if (!(t in CHIP_LABELS)) return null;
+    const { icon, label } = CHIP_LABELS[t as ChipType];
     const el = document.createElement('button');
     el.type = 'button';
     el.className = 'sg-time-history__chip';
     el.setAttribute('role', 'listitem');
     el.dataset.tick = String(ev.t);
     el.dataset.kind = t;
-    const icon = t === 'timeline_commit' ? '▼' : '≈';
-    const label = t === 'timeline_commit' ? 'commit' : 'whisper';
     el.textContent = icon + ' ' + label + ' ' + ev.t;
     el.title = label + ' at tick ' + ev.t + ' — click to scrub';
     el.addEventListener('click', () => deps.timeline.jumpTo(ev.t));
-    return { tick: ev.t, type: t, el };
+    return { tick: ev.t, type: t as ChipType, el };
   }
 
   function appendChip(entry: ChipEntry) {

@@ -22,6 +22,7 @@ import { NpcActivitySystem } from '@/sim/systems/npc-activity-system';
 import { SettlementEventSystem } from '@/sim/systems/settlement-event-system';
 import { SpiritSystem } from '@/sim/spirit-system';
 import { PerceptionSystem } from '@/world/perception-system';
+import { AbandonmentSystem } from '@/sim/systems/abandonment-system';
 import { identityOracle } from '@/world/oracle';
 import { bootstrapWorld } from '@/game/bootstrap-world';
 import { injectTokens } from '@/ui/inject-tokens';
@@ -85,6 +86,7 @@ export class Game {
     // → activity system picks activities from needs → belief propagation → spirits
     this.scheduler.register(new SettlementEventSystem());
     this.scheduler.register(new NpcSimSystem());
+    this.scheduler.register(new AbandonmentSystem());
     this.scheduler.register(new NpcActivitySystem());
     this.scheduler.register(new BeliefPropagationSystem());
     this.scheduler.register(new SpiritSystem());

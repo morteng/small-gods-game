@@ -42,7 +42,7 @@ export function createState(): GameState {
     sigil: '⊙',
     color: '#ffd700',
     isPlayer: true,
-    power: 3,
+    power: 10, // Slice-1 stipend so the player can act before belief generates power
     manifestation: null,
   });
   eventLog.append({ type: 'spirit_birth', spiritId: 'player', name: 'Fooob', isPlayer: true });

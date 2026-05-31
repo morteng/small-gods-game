@@ -22,9 +22,9 @@ const WHISPER_COOLDOWN = 5;
 const OMEN_FAITH_BOOST = 0.08;     // per witness NPC
 const OMEN_SEVERITY_BOOST = 0.2;   // boosts active event severity if one exists
 
-const DREAM_FAITH_BOOST = 0.25;
-const DREAM_UNDERSTANDING_BOOST = 0.10;
-const DREAM_DEVOTION_BOOST = 0.08;
+const DREAM_FAITH_BOOST = 0.05;
+const DREAM_UNDERSTANDING_BOOST = 0.12;
+const DREAM_DEVOTION_BOOST = 0.12;
 const DREAM_PERSONALITY_DRIFT = 0.05; // small personality shift
 
 const MIRACLE_NEED_BOOST = 0.4;    // major need restoration
@@ -32,8 +32,7 @@ const MIRACLE_FAITH_BOOST = 0.3;   // per NPC in settlement
 const MIRACLE_UNDERSTANDING_BOOST = 0.05;
 
 const ANSWER_PRAYER_FAITH_BOOST = 0.2;
-const ANSWER_PRAYER_UNDERSTANDING_BOOST = 0.15;
-const ANSWER_PRAYER_DEVOTION_BOOST = 0.1;
+const ANSWER_PRAYER_MEANING_BOOST = 0.3; // Answer restores the divine need specifically
 
 // ─── Whisper (already exists in whisper.ts, reproduced here for completeness) ──
 
@@ -206,33 +205,27 @@ export function answerPrayer(spirit: Spirit, npc: Entity, log: EventLog): boolea
   if (spirit.power < ANSWER_PRAYER_COST) return false;
   const p = npcProps(npc);
 
-  // Can only answer if NPC is praying
+  // Can only answer a standing plea.
   if (p.activity !== 'worship') return false;
 
   spirit.power -= ANSWER_PRAYER_COST;
 
+  // Recruitment: creates the belief entry if this is a non-believer praying.
   const existing = p.beliefs[spirit.id];
   if (existing) {
     existing.faith = clamp01(existing.faith + ANSWER_PRAYER_FAITH_BOOST);
-    existing.understanding = clamp01(existing.understanding + ANSWER_PRAYER_UNDERSTANDING_BOOST);
-    existing.devotion = clamp01(existing.devotion + ANSWER_PRAYER_DEVOTION_BOOST);
   } else {
     p.beliefs[spirit.id] = {
       faith: ANSWER_PRAYER_FAITH_BOOST,
-      understanding: ANSWER_PRAYER_UNDERSTANDING_BOOST,
-      devotion: ANSWER_PRAYER_DEVOTION_BOOST,
+      understanding: 0,
+      devotion: 0,
     };
   }
 
-  // Boost their lowest need slightly
-  const needs = p.needs;
-  const entries = Object.entries(needs) as [keyof typeof needs, number][];
-  const minEntry = entries.reduce<[string, number]>(
-    (min, [k, v]) => (v < min[1] ? [k, v] : min),
-    ["safety", 1],
-  );
-  const lowestKey = minEntry[0] as keyof typeof needs;
-  p.needs[lowestKey] = clamp01(p.needs[lowestKey] + 0.15);
+  // Restore the divine need and clear the worship state so the 🙏 lifts.
+  p.needs.meaning = clamp01(p.needs.meaning + ANSWER_PRAYER_MEANING_BOOST);
+  p.activity = 'idle';
+  p.activityDuration = 0;
 
   const appended = log.append({ type: 'answer_prayer', spiritId: spirit.id, npcId: npc.id });
   p.recentEventIds.push(appended.id);
