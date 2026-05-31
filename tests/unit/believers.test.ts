@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isDurable, countPlayerBelievers, countDurableBelievers, npcStatusHint } from '@/sim/believers';
+import { isDurable, countPlayerBelievers, countDurableBelievers, npcStatusHint, PLAYER_SPIRIT_ID } from '@/sim/believers';
 import { World } from '@/world/world';
 import { initNpcProps } from '@/world/npc-helpers';
 import type { GameMap, NpcNeeds, SpiritBelief } from '@/core/types';
@@ -16,6 +16,10 @@ function add(world: World, id: string, b: SpiritBelief) {
 const needs = (meaning: number): NpcNeeds => ({ safety: 0.5, prosperity: 0.5, community: 0.5, meaning });
 
 describe('believer accounting', () => {
+  it('exposes the player spirit id', () => {
+    expect(PLAYER_SPIRIT_ID).toBe('player');
+  });
+
   it('isDurable requires faith>0.3 and devotion>0.4', () => {
     expect(isDurable({ faith: 0.5, understanding: 0, devotion: 0.5 })).toBe(true);
     expect(isDurable({ faith: 0.5, understanding: 0, devotion: 0.3 })).toBe(false);
@@ -49,5 +53,8 @@ describe('npcStatusHint', () => {
   it('flags devoted and ripe-to-deepen', () => {
     expect(npcStatusHint({ faith: 0.5, understanding: 0, devotion: 0.6 }, needs(0.5), 'idle')).toBe('devoted');
     expect(npcStatusHint({ faith: 0.5, understanding: 0, devotion: 0.1 }, needs(0.5), 'idle')).toBe('ripe to deepen');
+  });
+  it('falls back to wavering for a mid believer who is none of the above', () => {
+    expect(npcStatusHint({ faith: 0.2, understanding: 0, devotion: 0 }, needs(0.5), 'idle')).toBe('wavering');
   });
 });
