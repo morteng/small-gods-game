@@ -1,4 +1,4 @@
-import type { Entity, EntityId, Region, GameMap, Tile, WorldReadOnly, BrushContext, ActiveEvent } from '@/core/types';
+import type { Entity, EntityId, Region, GameMap, Tile, WorldReadOnly, BrushContext, ActiveEvent, NpcProperties } from '@/core/types';
 import { EntityRegistry } from './entity-registry';
 import { SpatialIndex, KindIndex, TagIndex } from './indexes';
 import { getBrush } from './brushes';
@@ -22,6 +22,13 @@ export class World {
   constructor(public readonly tiles: GameMap) {}
 
   addEntity(e: Entity): void {
+    // If this NPC already has meaningful faith, mark them as a (past) believer so
+    // AbandonmentSystem can distinguish ex-believers from lifelong non-believers.
+    if (e.kind === 'npc') {
+      const p = e.properties as unknown as NpcProperties;
+      const faith = p.beliefs?.['player']?.faith ?? 0;
+      if (faith >= 0.15) p.wasBeliever = true;
+    }
     this.registry.add(e);
     this.spatial.add(e.id, e.x, e.y);
     this.kindIdx.add(e.id, e.kind);
