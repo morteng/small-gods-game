@@ -2,6 +2,8 @@
 
 A flexible system for wizards, monsters, heroes, and anything the LLM imagines.
 
+> **Canonical reference:** Cosmology and the belief→power model are defined in [VISION.md](VISION.md). Divine power in this game is belief-funded; this doc defers to VISION.md on how gods and belief work.
+
 ---
 
 ## Design Philosophy
@@ -579,7 +581,9 @@ Magic users have complex relationships with gods:
 
 ```typescript
 interface MagicUserBeliefInteraction {
-  // Wizards might not contribute belief
+  // Wizards might not contribute belief.
+  // Canonical: belief is per-spirit faith/understanding/devotion and power
+  // regenerates ∝ Σ(faith × understanding × devotion) — see VISION.md §3.
   beliefContribution: number;  // Often 0 or negative
 
   // But they can affect others' beliefs
@@ -597,6 +601,11 @@ A wizard might:
 - Explain away your miracles as natural magic
 - Serve you as a divine agent (cleric/priest)
 - Oppose you as a rationalist threat
+
+> **Canonical clarification (per [VISION.md](VISION.md) §10 — open design question).**
+> The default stance is that there is **no independent reality-bending outside belief**. Priests and divine agents **channel a god's belief-power** — they are extensions of the god, not independent reality-benders. A priest (or wizard) with no god-patron has no divine ability; any "miracle" they perform is borrowed from a god who spends belief to intervene at the margin.
+>
+> If the design later wants *truly* independent magic-users, frame them as **rare** entities tapping Fate's rules directly — operating outside the belief economy, whom gods can only ally with, curse, or seduce (never fund). This is an **OPEN design question** pending its own brainstorm; treat the fields above (`canCastMiracles`, `canDispelDivine`) as speculative until then.
 
 ---
 
@@ -816,6 +825,8 @@ MYTHOLOGICAL SOURCES:
 
 ### Scaling Mythological Power
 
+> For **gods specifically**, the tiers below are a coarse mythological scale; the canonical god-tier progression (small god → cult → ascension) is defined in [VISION.md](VISION.md) §5 (cast of gods) and §7 (the Arc), and a god's power is belief-funded per §3, not a fixed `powerScale`.
+
 ```typescript
 interface MythologicalScale {
   tier: "minor" | "major" | "greater" | "cosmic";
@@ -840,6 +851,8 @@ interface MythologicalScale {
 ## Interaction with God System
 
 ### How Entities Affect Belief
+
+> The canonical belief model is **per-spirit `faith / understanding / devotion`** (with the four needs `safety / prosperity / community / meaning`), and a god's power regenerates ∝ Σ(faith × understanding × devotion) per [VISION.md](VISION.md) §3. The qualitative effects below feed *into* those per-spirit components — they are not a separate belief currency.
 
 | Entity Type | Belief Effect |
 |-------------|---------------|

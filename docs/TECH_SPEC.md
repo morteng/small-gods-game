@@ -8,6 +8,8 @@
 
 ## 1. Overview
 
+> **Canonical reference:** Cosmology, the belief model, progression, and the Gods-vs-Fate framing are defined in [VISION.md](VISION.md). This spec defers to it on those topics.
+
 Small Gods is a god game inspired by Terry Pratchett's *Small Gods*. The player takes the role of a minor deity — barely more than a whisper — who must cultivate genuine belief among LLM-driven NPCs in a procedurally generated world. Power comes from faith, not force: the player cannot command anyone, only influence through whispers, omens, dreams, and miracles. Rival spirits compete for the same mortal attention.
 
 The world runs on a two-layer architecture:
@@ -51,6 +53,8 @@ Player observes world → identifies opportunity (unmet need, crisis, receptive 
         → player's power grows from increased genuine belief
           → rival spirits react → cycle continues
 ```
+
+**Progression and win condition** (canonical: [VISION.md §7](VISION.md)): the arc runs tiny → major → supplant. The win is **attribution, not comfort** — you win by becoming the name mortals reach for *in crisis and in plenty*, not by making everyone safe (universal comfort triggers **secularization** and dissolves you). Supplanting rivals and great gods means starving their belief until they fade to "nothing but names." This counter-pressure — comfort kills belief, rivals eat neglect, Fate escalates against dominance — is the central anti-snowball tension.
 
 ### 2.2 NPC Simulation Layer (Programmatic)
 
@@ -103,11 +107,12 @@ A vocal skeptic can erode faith the same way.
 | Dream | 4 | 1 NPC | deep influence, personality drift, extends sleep | `src/sim/divine-actions.ts` |
 | Miracle | 10 | Settlement | meets a need, massive faith boost | `src/sim/divine-actions.ts` |
 
-**Power economy:**
+**Power economy** (canonical: [VISION.md §3](VISION.md)):
 ```
-power = Σ (faith × understanding × devotion) across all followers
+power regen ∝ Σ_believers (faith × understanding × devotion)
 ```
-- Regeneration: `POWER_REGEN_RATE = 0.02` applied each tick in `src/sim/spirit-system.ts`
+- This is the canonical formula. **Known open loop:** current CODE regenerates with `Σ faith × 0.02` (`POWER_REGEN_RATE = 0.02` in `src/sim/spirit-system.ts`); `understanding` and `devotion` are written but read by nothing. Wiring the full product is VISION.md §9 item 1.
+- Quantity of believers ≠ power: a hundred who *understand* and are *devoted* outweigh a million fearful nominal believers.
 - Actions drain power (checked before execution)
 - Player must maintain positive flow — spend too much and you fade
 
@@ -121,6 +126,8 @@ Other spirits compete for mortal belief. They run on the sim layer with personal
 - **Established deities** — powerful, with organized religions and institutional inertia
 
 Each rival has: `aggression`, `subtlety`, `territoriality` traits and a current strategy (`expand` / `defend` / `undermine` / `coexist`). Their actions are programmatic most of the time, but when they **directly intersect with the player** (competing for the same NPC, countering a miracle), that moment gets LLM treatment — the rival manifests through their most devoted follower.
+
+**Player-modelling lives here, not in Fate** ([VISION.md §5](VISION.md)): rivals learn the player's strategy, claim the prayers the player ignores, and adapt their own play to counter the player. Fate (§2.8) is impersonal and does not model the player.
 
 ### 2.6 Domain Emergence
 
@@ -151,13 +158,15 @@ The state delta feeds back into the sim layer, ensuring LLM interactions have la
 
 **Observation principle:** anything the player isn't looking at runs on the sim. The moment they pay attention, it gets backfilled. Conversations, arguments, prayers, doubts — all generated from the compact state so they're consistent with history but richly detailed.
 
-### 2.8 DM Agent (Background Director)
+### 2.8 Fate (Background Director / DM Agent)
 
-A background LLM agent that the player never interacts with directly. It turns raw simulation into *story* by injecting events, coaching rival spirits, and managing narrative pacing. The DM creates situations, never outcomes — it puts a drought on the table, but whether the player's miracle saves the village is up to the sim and the player's choices.
+This background agent **is Fate** (see [VISION.md §2.1](VISION.md)): impersonal, reactive, and **unpetitionable from in-world** — no mortal prays to it, no one bargains with it. The player never interacts with it directly. Fate does **not** inject arbitrary plot; it **amplifies and escalates what the simulation is already producing**, turning the sim's emergent tendencies into *story* by biasing event timing/severity, coaching rival spirits, and managing narrative pacing. It puts a drought on the table (because the climate system makes it plausible), but whether the player's miracle saves the village is up to the sim and the player's choices.
+
+> **Player-modelling lives in rival spirits, not in Fate.** Learning the player's strategy and skewing behaviour toward/against their preferences is a **rival spirit** capability (§2.5). Fate is impersonal and does not track player taste.
 
 **Cadence:** Runs once per game-day, or when significant state changes accumulate (conversion cascade, miracle, settlement flipping religion). Can take 2-5 seconds since it's a background process — completely different latency budget than NPC dialogue.
 
-**Model:** Larger model than NPC backfill (70B or frontier). Needs to reason about narrative arcs, pacing, player psychology, and multi-faction dynamics. Runs infrequently enough that cost/latency is acceptable. Can use a different provider than the NPC layer.
+**Model:** Larger model than NPC backfill (70B or frontier). Needs to reason about narrative arcs, pacing, and multi-faction dynamics. (Reasoning about *player psychology* belongs to rival spirits — Fate stays impersonal.) Runs infrequently enough that cost/latency is acceptable. Can use a different provider than the NPC layer.
 
 **Core responsibilities:**
 
@@ -165,19 +174,17 @@ A background LLM agent that the player never interacts with directly. It turns r
 
 2. **Narrative arc management** — Recognizes emerging stories in the sim state ("NPC A converted B, but B's sister is devout to a rival — family schism incoming") and nudges events to bring them to the surface. Tracks plot threads to completion (Chekhov's gun management).
 
-3. **Rival spirit coaching** — Makes rival behavior dramatically interesting rather than randomly weighted. "The river spirit should challenge now because the player just performed a water miracle — domain conflict."
+3. **Rival spirit coaching** — Makes rival behavior dramatically interesting rather than randomly weighted. "The river spirit should challenge now because the player just performed a water miracle — domain conflict." (The rivals themselves carry the player-modelling; Fate only times their moves for drama.)
 
-4. **Escalation ladder** — Calibrates challenge to player progression. Early: one village, household spirits. Mid: multiple settlements, organized rivals. Late: crusades, established religions, existential threats.
+4. **Escalation ladder** — Calibrates challenge to player progression. Early: one village, household spirits. Mid: multiple settlements, organized rivals. Late: crusades, established religions, existential threats. Fate resists ascension: the more dominant the player, the harder Fate pushes back (a winning god is a boring story).
 
 5. **Anti-grinding** — Detects repetitive player strategies and introduces complications. Always whispering to farmers? Here's a skeptic philosopher immune to whispers.
 
-6. **Player modeling** — Learns what the player enjoys (political intrigue vs war vs peaceful expansion vs theological debate) and skews events toward those preferences.
+6. **Macro narration** — Provides world-scale backfill when the player zooms out: the state of factions, spreading influence, brewing conflicts.
 
-7. **Macro narration** — Provides world-scale backfill when the player zooms out: the state of factions, spreading influence, brewing conflicts.
+**Invisible hand constraint:** Fate works *with* the simulation, amplifying emerging trends rather than injecting arbitrary plot devices. Events should feel like natural consequences of the world state. A drought comes because the climate system makes it plausible, not because it's time for drama.
 
-**Invisible hand constraint:** The DM works *with* the simulation, amplifying emerging trends rather than injecting arbitrary plot devices. Events should feel like natural consequences of the world state. A drought comes because the climate system makes it plausible, not because it's time for drama.
-
-**DM output feeds into NPC prompts:** When the DM injects "rumors of plague from the north," this becomes part of the world context block in every NPC backfill prompt, ensuring NPCs mention it naturally.
+**Fate's output feeds into NPC prompts:** When Fate surfaces "rumors of plague from the north," this becomes part of the world context block in every NPC backfill prompt, ensuring NPCs mention it naturally.
 
 **Input (~2000 tokens):**
 - World state summary: settlement beliefs, faction strengths, recent events
@@ -236,11 +243,10 @@ interface DMState {
     resolutionConditions: string;
   }[];
 
-  playerModel: {
-    playStyleWeights: Record<string, number>;  // "intrigue": 0.7, "war": 0.2, "expansion": 0.5
-    engagementSignals: string[];               // What they spend time observing
-    currentChallenges: string[];               // What the DM is testing them with
-  };
+  // NOTE: no playerModel here. Player-modelling (play-style weights, what the
+  // player is observing, defection opportunities) lives on RIVAL SPIRITS — see
+  // §2.5 and VISION.md §5. Fate is impersonal and unpetitionable; it does not
+  // track player taste.
 
   pacing: {
     tensionLevel: number;        // 0-1

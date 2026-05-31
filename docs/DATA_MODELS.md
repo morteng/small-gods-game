@@ -2,9 +2,20 @@
 
 Core data structures for Small Gods.
 
+> **Canonical reference:** The belief model and cosmology are defined in [VISION.md](VISION.md). Where this doc's data structures differ, VISION.md's model (per-spirit faith/understanding/devotion + four needs) is authoritative; legacy structures below are retained for reference and marked accordingly.
+
 ---
 
 ## World State
+
+> **Two layers (VISION.md §2).** The computed, deterministic simulation IS **Fate's
+> layer** — the true state of the world (geography, population, needs, events),
+> which grinds forward with or without belief. **Belief is the *interpretation*
+> layer**: how mortals attribute Fate's events to gods (faith/understanding/devotion
+> per spirit). No standalone `FateState` interface is needed — `WorldState` below
+> *is* Fate's substrate; the belief fields layered onto NPCs are the interpretation.
+> The two must never contradict: narration interprets Fate's numbers, never overrides
+> them.
 
 ```typescript
 interface WorldState {
@@ -169,6 +180,22 @@ interface CredenceModifier {
   expires?: number;    // Optional expiry turn
 }
 
+// (legacy — superseded)
+//
+// The single-target `strength` + `BeliefType` enum model below is RETIRED in favor
+// of the canonical continuous, per-spirit model (VISION.md §3):
+//
+//   SpiritBelief { faith: number; understanding: number; devotion: number }  // each 0-1
+//
+// tracked per spirit (each NPC holds belief toward multiple gods), alongside
+// NpcNeeds { safety, prosperity, community, meaning }.
+//
+// The genuine/habitual/fearful/skeptic/heretic enum is NOT a stored field anymore.
+// The two "registers" are EMERGENT from the continuous values, not an enum:
+//   - Fearful / transactional  = high faith, low understanding + devotion
+//   - Devotional / identity     = high understanding + devotion
+// (curious/skeptic/heretic likewise fall out of low/zero faith + personality
+// `skepticism`.) See VISION.md §3 "Two registers of belief".
 interface BeliefState {
   // Who they worship (if anyone)
   target: GodId | null;
@@ -275,6 +302,13 @@ type PhysicalTrait =
 ---
 
 ## Story
+
+> **(legacy — folded into understanding.)** The Stories/Credence subsystem is
+> RETIRED as a separate subsystem (VISION.md §3, §9 item 8). Story **fidelity**
+> folds into the per-spirit `understanding` component (how accurately belief is
+> grasped and passed on); **credence** folds into personality `skepticism`. The
+> `Story`/`StoryVersion`/`StoryTelling` structs below are retained for reference
+> only — there is no parallel Story model in the canonical design.
 
 ```typescript
 interface Story {
@@ -561,12 +595,26 @@ interface GameSettings {
   llmMaxTokens: number;
 }
 
+// Canonical win = ATTRIBUTION (VISION.md §7). You do not win by making everyone
+// safe (that dissolves you — secularization). You win by becoming the NAME mortals
+// reach for in crisis AND in plenty — understanding + devotion so deep that comfort
+// no longer erodes you — while rivals and great gods starve to "nothing but names".
+// "dominion" and "ascension" are reframed onto this single arc; the others are
+// secondary/optional, subsumed by the attribution arc.
 type VictoryCondition =
+  // Canonical:
+  | { type: "attribution";   // the name credited in crisis AND plenty
+      crisisAttribution: number;   // 0-1 share of crisis prayers reaching for you
+      plentyAttribution: number;   // 0-1 share in comfort (the hard part)
+      rivalsFaded: boolean;        // rivals + great gods reduced to "nothing but names"
+    }
+  // Reframed onto attribution (legacy shapes, retained for reference):
+  | { type: "dominion"; believers: number }   // → share of attribution, not raw count
+  | { type: "ascension"; powerLevel: number } // → understanding×devotion depth, not raw power
+  // Secondary / optional variants (subsumed by the attribution arc):
   | { type: "survival"; generations: number }
-  | { type: "dominion"; believers: number }
   | { type: "truth"; minFidelity: number; generations: number }
   | { type: "mystery"; maxFidelity: number; believers: number }
-  | { type: "ascension"; powerLevel: number }
   | { type: "legacy"; stories: number; generations: number };
 ```
 
@@ -739,4 +787,4 @@ function generateId(prefix: string): string {
 
 ---
 
-*Document version: 0.1*
+*Document version: 0.2 — reconciled to [VISION.md](VISION.md) (canonical belief model + cosmology).*

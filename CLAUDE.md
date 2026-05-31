@@ -11,10 +11,11 @@ A god game inspired by Terry Pratchett's *Small Gods*. The player is a minor dei
 ## Project Documentation
 
 **Primary References:**
+- **[VISION.md](docs/VISION.md)** — 🧭 **Canonical** cosmology, belief model, and start-to-end arc. Read first; all other design docs defer to it on cosmology / belief / Fate / progression.
+- **[ROADMAP.md](docs/ROADMAP.md)** — 🛣️ The **single** forward plan (replaces the old IMPLEMENTATION.md/MVP_ROADMAP.md). Every not-yet-built track lives here; each gets its own brainstorm → spec → plan under `docs/superpowers/`.
 - **[TECH_SPEC.md](docs/TECH_SPEC.md)** - Complete technical specification (gameplay systems, architecture, data models)
-- **[IMPLEMENTATION.md](docs/IMPLEMENTATION.md)** - Implementation plan with phases and task breakdowns
-- **[TS Migration Design](docs/plans/2026-02-20-ts-migration-design.md)** - TypeScript migration design doc
-- **[TS Migration Plan](docs/plans/2026-02-20-ts-migration.md)** - Detailed migration implementation plan
+
+> Completed/superseded specs & plans are archived under `docs/archive/` (organized by epic). New design work goes in `docs/superpowers/{specs,plans}/`.
 
 **Current Status:** Spec A (spine), Spec B (Time), Spec C (minimal — clickable time history strip), **Phase 7 (NPC Simulation Layer) + Phase 8 (Divine Action System) shipped**, and **Phase 9 (LLM Integration) partially complete**. 
 
@@ -30,6 +31,12 @@ Sim is fully deterministic with seedable RNG; snapshot/replay layer supports scr
 **Phase 7 Complete:** NPC simulation layer with tick system, belief propagation, activity state machine, settlement events (8 event types), and event ring buffer.
 
 **Phase 8 Complete:** Divine action system with whisper, omen, dream, miracle, answer prayer. Power economy regenerates from belief × understanding × devotion.
+
+## Known gaps & gotchas (code reality)
+
+- **`World` has TWO index layers.** `EntityRegistry` has its own spatial/kind/tile indexes AND `World` (`world.ts`) keeps separate `spatial`/`kindIdx`/`tagIdx`; `query()` uses World's. When mutating `x/y/kind/tags`, call **`World.updateEntity()`** (it syncs both) — never mutate entity position directly.
+- **LLM backfill is stubbed.** `triggerLlmBackfill` hardcodes `MockLLMProvider(100)` (game.ts ~1270) instead of the configured provider. Real wiring is a [ROADMAP](docs/ROADMAP.md) item (= VISION §9 open loop #4).
+- **Time-Debug snapshot/inject are honest stubs** (disabled `makeStubButton()`s). Wiring Save/Load → `TimelineController`/`snapshot.ts` and Inject → settlement events (`world.activeEvents` + `settlement_begin` log) is a ROADMAP item.
 
 ## Tech Stack
 

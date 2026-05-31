@@ -459,7 +459,7 @@ badges.
 
 ## 9. Generated imagery (NPC portraits · area vistas · chapter scenes · god portrait)
 
-Per `docs/AI_VISUALS_AND_AUDIO.md` and `docs/ai-asset-generation-plan.md`,
+Per `docs/AI_VISUALS_AND_AUDIO.md` and `docs/archive/art-pipeline/ai-asset-generation-plan.md`,
 the game commissions painted images at runtime: NPC portraits per age-stage
 (rd-animation), high-res isometric scenes when the player zooms in
 (rd-plus, 384×384), and a god portrait that emerges from believer

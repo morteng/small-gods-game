@@ -2,6 +2,8 @@
 
 How the LLM animates the world.
 
+> **Canonical reference:** see [VISION.md](VISION.md). Two-layer rule: the simulation is truth (Fate); the LLM animates it and never contradicts its numbers.
+
 ---
 
 ## Overview
@@ -13,6 +15,27 @@ The LLM serves as the "soul" of the simulation. It handles:
 3. **World Events** - Generating organic events
 4. **NPC Inner Lives** - Thoughts, dialogue, personality expression
 5. **Interpretation** - How the world makes meaning of miracles
+
+---
+
+## Two-layer LLM strategy
+
+Per VISION.md §2.1 and §9 (item 4), the game runs on two layers and the LLM lives
+on only one of them:
+
+- **Layer 1 — Fate (deterministic sim, no LLM).** Needs, the
+  `faith / understanding / devotion` belief math, power regen, and settlement
+  events are all algorithmic. This layer is *truth*; it runs with or without the
+  player's attention.
+- **Layer 2 — Narration (LLM).** The LLM *animates* the sim: it explains *why* a
+  number shifted (a believer's faith rose because their need was answered), voices
+  NPC reactions, and frames events. It **never invents or contradicts the sim's
+  numbers** — it interprets them.
+
+LLM writeback must feed structured deltas back into the sim without overriding
+Fate (VISION.md §9 item 4): narration may *propose* state changes that the sim
+applies, but it cannot silently rewrite belief, needs, or power against Fate's
+computed values.
 
 ---
 
@@ -81,6 +104,9 @@ All prompts include this base context:
 SYSTEM:
 You are the world-soul of a fantasy simulation called "Small Gods."
 You animate villagers, mutate stories, and generate events.
+
+You are the voice of the world, not its author. The simulation is truth;
+make that truth compelling.
 
 WORLD RULES:
 - Gods gain power from genuine belief, not fear or habit

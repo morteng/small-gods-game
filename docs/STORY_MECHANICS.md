@@ -1,5 +1,9 @@
 # Story Mechanics - Deep Dive
 
+> **Status: superseded / folded into the canonical model.** The separate Stories/Credence subsystem described here is retired (see [VISION.md](VISION.md) §3, §9). Its mechanics are folded into the canonical belief model: **story fidelity → the `understanding` belief component; credence → personality `skepticism`.** This document is retained for reference and design background; implement against VISION.md, not this doc.
+
+**How this maps into the canonical model:** Stories are how mortals *interpret* divine intervention against Fate's baseline. Fate (the computed sim) produces events — the drought, the rain, the death; what a mortal turns those events *into* is a story, and a story's **fidelity** is now read as the listener's **`understanding`** of who this god is. A god "wins" a story when mortals attribute Fate's events to *it* — accurate attribution raises `understanding`, gates whether they perceive signs and pray effectively, and lets them pass on *accurate* (rather than misattributed) belief. The story-evolution machinery below is no longer a standalone subsystem; treat it as design background for how `understanding` is earned, drifts, and propagates.
+
 Stories are the core innovation of Small Gods. This document details how they work.
 
 ---

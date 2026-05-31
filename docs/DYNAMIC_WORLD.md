@@ -2,6 +2,8 @@
 
 Supporting any event the LLM can imagine.
 
+> **Canonical reference:** see [VISION.md](VISION.md). Events INTERPRET what the simulation (Fate) produces — they do not invent plot.
+
 ---
 
 ## The Challenge
@@ -100,6 +102,14 @@ type EffectType =
 ---
 
 ## LLM Event Generation
+
+> **Constraint (VISION.md §2.1):** Fate is **impersonal and reactive**. The
+> "complete creative freedom" below is bounded — generated events must be
+> plausible *interpretations or escalations of current sim state*, not free-form
+> plot injection. The deterministic sim is Fate's substrate; the LLM amplifies
+> what that substrate is already producing (rising tensions, unmet needs, recent
+> divine activity) — it does not invent arbitrary plot devices, and Fate is never
+> addressed or bargained with from in-world.
 
 The LLM generates events with structured effect descriptions:
 
@@ -539,6 +549,12 @@ async function determineSpread(
 ---
 
 ## Player Interaction with Effects
+
+> **Intervention is at the margin (VISION.md §2.2):** a divine intervention
+> overrides a Fate tendency *for that turn only*. Countering a flood or drought
+> reduces the effect's intensity now, but if the god does not keep spending
+> belief, Fate's underlying tendency regenerates next turn and the drought
+> returns. **Gods are not destiny; gods are intervention at the margin.**
 
 Players can try to counter effects:
 

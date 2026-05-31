@@ -1,5 +1,9 @@
 # Story Credence System
 
+> **Status: superseded / folded into the canonical model.** The separate Stories/Credence subsystem described here is retired (see [VISION.md](VISION.md) §3, §9). Its mechanics are folded into the canonical belief model: **story fidelity → the `understanding` belief component; credence → personality `skepticism`.** This document is retained for reference and design background; implement against VISION.md, not this doc.
+
+**How this maps into the canonical model:** Credence is now read as the inverse of personality **`skepticism`**, modulated by witnessed evidence — a skeptical mortal discounts what it has not seen; firsthand witness of intervention overrides that discount. The key tension this doc captures survives in canonical form: there is a gap between **what Fate did** (the events the computed sim actually produced) and **what mortals believe a *god* did** (the attribution they accept), and closing that gap — getting a skeptic to attribute Fate's events to you — is exactly where a god spends power. The credulity tables, evidence factors, and trust networks below are design background for how that gap widens or narrows; they are not a separate system to implement.
+
 How much NPCs believe the stories they hear.
 
 ---
