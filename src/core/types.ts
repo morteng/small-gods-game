@@ -316,10 +316,6 @@ export interface NpcProperties {
   possessedBy?: SpiritId;
   // narrative breadcrumbs
   recentEventIds: number[];
-  /** True once this NPC's faith in the player has ever reached BELIEVER_THRESHOLD.
-   *  Set at entity-add time (or by AbandonmentSystem on faith crossing). Used to
-   *  distinguish ex-believers from lifelong non-believers. */
-  wasBeliever?: boolean;
 }
 
 /** NPC activity state */

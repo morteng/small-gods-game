@@ -9,29 +9,22 @@ const GRACE_TICKS = 10;          // consecutive lapsed ticks before departure
 
 /** Removes ex-believers whose faith in the player has collapsed to ~0. They stop
  *  believing and leave the world; their belief no longer feeds the god's power.
- *
- *  Only NPCs who *were* believers (faith ever ≥ BELIEVER_THRESHOLD) are eligible.
- *  Lifelong non-believers never "abandon." The `wasBeliever` flag is set on entity
- *  properties either at add-time (world.addEntity) or here when faith first crosses
- *  the threshold during the simulation. */
+ *  "Ever believed" is learned by observation: in real play faith decays gradually,
+ *  so the system sees a believer above the threshold before it bleeds to zero. */
 export class AbandonmentSystem implements System {
   readonly name = 'abandonment';
   readonly tickHz = 1;
+  private everBelieved = new Set<string>();
   private lapsed = new Map<string, number>();
 
   tick(ctx: SystemContext): void {
     const toRemove: Entity[] = [];
 
     forEachNpc(ctx.world, (e) => {
-      const p = npcProps(e);
-      const b = p.beliefs[PLAYER_SPIRIT_ID];
+      const b = npcProps(e).beliefs[PLAYER_SPIRIT_ID];
       const faith = b?.faith ?? 0;
-
-      // Update wasBeliever if faith crosses the threshold during simulation.
-      if (faith >= BELIEVER_THRESHOLD) p.wasBeliever = true;
-
-      // Only eligible if the NPC was once a believer.
-      if (!p.wasBeliever) return;
+      if (faith >= BELIEVER_THRESHOLD) this.everBelieved.add(e.id);
+      if (!this.everBelieved.has(e.id)) return;
 
       if (faith <= ABANDON_FLOOR) {
         const n = (this.lapsed.get(e.id) ?? 0) + 1;
@@ -43,7 +36,6 @@ export class AbandonmentSystem implements System {
     });
 
     for (const e of toRemove) {
-      // Scrub relationships pointing at the departed so nothing dangles.
       forEachNpc(ctx.world, (other) => {
         const op = npcProps(other);
         if (op.relationships.length > 0) {
@@ -51,6 +43,7 @@ export class AbandonmentSystem implements System {
         }
       });
       ctx.world.removeEntity(e.id);
+      this.everBelieved.delete(e.id);
       this.lapsed.delete(e.id);
       ctx.log.append({ type: 'believer_lost', npcId: e.id });
     }

@@ -26,6 +26,9 @@ function makeCtx(world: World) {
   log.subscribe((a) => { if (a.event.type === 'believer_lost') events.push((a.event as { npcId: string }).npcId); });
   return { ctx: { world, spirits: new Map(), log, clock, rng: createRng(0), dt: 1000, now: 0 }, events };
 }
+function faithOf(world: World, id: string): NpcProperties['beliefs']['player'] {
+  return (world.registry.get(id)!.properties as unknown as NpcProperties).beliefs['player'];
+}
 
 describe('AbandonmentSystem', () => {
   it('removes an ex-believer whose faith reaches 0, after the grace period', () => {
@@ -34,8 +37,9 @@ describe('AbandonmentSystem', () => {
     const { ctx, events } = makeCtx(world);
     const sys = new AbandonmentSystem();
 
-    (world.registry.get('gone')!.properties as unknown as NpcProperties).beliefs['player'].faith = 0;
-    for (let i = 0; i < 12; i++) sys.tick({ ...ctx, now: i });
+    sys.tick({ ...ctx, now: 0 });             // observed while still believing
+    faithOf(world, 'gone').faith = 0;         // now their faith collapses
+    for (let i = 1; i <= 12; i++) sys.tick({ ...ctx, now: i });
 
     expect(world.registry.get('gone')).toBeUndefined();
     expect(events).toContain('gone');
@@ -56,8 +60,11 @@ describe('AbandonmentSystem', () => {
     add(world, 'friend', 0.5, [{ npcId: 'gone', type: 'friend', trust: 0.8 }]);
     const { ctx } = makeCtx(world);
     const sys = new AbandonmentSystem();
-    (world.registry.get('gone')!.properties as unknown as NpcProperties).beliefs['player'].faith = 0;
-    for (let i = 0; i < 12; i++) sys.tick({ ...ctx, now: i });
+
+    sys.tick({ ...ctx, now: 0 });             // observe both while believing
+    faithOf(world, 'gone').faith = 0;
+    for (let i = 1; i <= 12; i++) sys.tick({ ...ctx, now: i });
+
     const friend = world.registry.get('friend')!.properties as unknown as NpcProperties;
     expect(friend.relationships.find((r) => r.npcId === 'gone')).toBeUndefined();
   });
