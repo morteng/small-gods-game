@@ -72,7 +72,7 @@ describe('seedWorld', () => {
     expect(realized).toBeLessThan(total);
   });
 
-  it('spawns the seed NPC at the configured POI', () => {
+  it('spawns a band of 6 NPCs at/near the configured POI', () => {
     const clock = new SimClock();
     const log = new EventLog(clock);
     const map = emptyMap();
@@ -85,8 +85,11 @@ describe('seedWorld', () => {
     seedWorld({ world, log, clock, spirits, rng: createRng(map.seed), worldSeed: ws, map, oracle: identityOracle });
 
     const npcs = world.query({ kind: 'npc' });
-    expect(npcs.length).toBe(1);
-    expect(Math.abs(npcs[0].x - 10)).toBeLessThanOrEqual(1);
-    expect(Math.abs(npcs[0].y - 10)).toBeLessThanOrEqual(1);
+    expect(npcs.length).toBe(6);
+    // All band members are placed within 3 tiles of the POI origin (10,10).
+    for (const npc of npcs) {
+      expect(Math.abs(npc.x - 10)).toBeLessThanOrEqual(3);
+      expect(Math.abs(npc.y - 10)).toBeLessThanOrEqual(3);
+    }
   });
 });
