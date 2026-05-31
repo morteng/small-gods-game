@@ -76,6 +76,7 @@ describe('the dilemma (headless proof)', () => {
 
   it('answer-everything → can never build durable believers (Answer gives no devotion)', () => {
     const r = run('answerAll', 800);
+    expect(r.believers).toBeGreaterThan(0); // believers DO survive — so durable===0 is non-vacuous
     expect(r.durable).toBe(0);
   });
 
