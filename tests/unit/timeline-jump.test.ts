@@ -60,6 +60,30 @@ describe('TimelineController.jumpTo / returnToLive', () => {
     expect(state.clock.now()).toBe(liveTick);
   });
 
+  it('jumpTo terminates and rewinds when the live scheduler is paused (rate 0)', () => {
+    // Regression: pausing then scrubbing previously hung forever — the silent
+    // replay advanced the clock by realDt * rateScale, and rateScale === 0 when
+    // paused, so the `while (now < target)` loop never terminated (tab freeze).
+    const state = createState();
+    attachWorld(state);
+    const sched = buildScheduler(() => state.map);
+    const tl = new TimelineController({ state, scheduler: sched, snapshotEveryNEvents: 50 });
+
+    for (let i = 0; i < 90; i++) {
+      sched.tick(333, { world: state.world!, spirits: state.spirits, log: state.eventLog, clock: state.clock, rng: state.rng });
+      tl.onAfterLiveTick();
+    }
+    const liveTick = state.clock.now();
+
+    sched.setRate(0); // pause, THEN scrub
+    tl.jumpTo(Math.floor(liveTick / 2));
+
+    expect(tl.isScrubbed).toBe(true);
+    expect(state.clock.now()).toBeLessThanOrEqual(liveTick / 2 + 1);
+    expect(state.clock.now()).toBeGreaterThan(0); // silent replay actually advanced
+    expect(sched.getRate()).toBe(0); // live pause rate restored after replay
+  });
+
   it('jumpTo clamps targets beyond maxTick — no infinite loop', () => {
     const state = createState();
     attachWorld(state);

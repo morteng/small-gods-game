@@ -125,8 +125,20 @@ export class TimelineController {
       clock: this.state.clock,
       rng: this.state.rng,
     };
-    while (this.state.clock.now() < targetTick) {
-      this.scheduler.tick(SIM_STEP_MS, baseCtx);
+    // Silent replay must advance the clock independent of the live play/pause
+    // rate. `scheduler.tick` advances by `realDt * rateScale`, so if the game
+    // is paused (rateScale === 0) the clock never moves and this loop spins
+    // forever — a hard tab freeze, reachable by pausing then scrubbing. Force
+    // rate to 1 for the replay (also makes each step a deterministic
+    // SIM_STEP_MS of sim time regardless of the live rate), then restore.
+    const savedRate = this.scheduler.getRate();
+    this.scheduler.setRate(1);
+    try {
+      while (this.state.clock.now() < targetTick) {
+        this.scheduler.tick(SIM_STEP_MS, baseCtx);
+      }
+    } finally {
+      this.scheduler.setRate(savedRate);
     }
   }
 }
