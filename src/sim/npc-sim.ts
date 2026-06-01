@@ -37,6 +37,14 @@ export function clamp01(v: number): number {
   return Math.max(0, Math.min(1, v));
 }
 
+/** Fraction of a divine signal's effect an NPC absorbs, gated by understanding.
+ *  understanding=0 → SIGN_RESPONSE_FLOOR; understanding=1 → 1.0. */
+export const SIGN_RESPONSE_FLOOR = 0.5;
+export function signResponse(understanding: number): number {
+  const u = clamp01(understanding);
+  return SIGN_RESPONSE_FLOOR + (1 - SIGN_RESPONSE_FLOOR) * u;
+}
+
 export function personalityFromSeed(seed: number, role: NpcRole): NpcPersonality {
   const rng = new Random(seed);
   const piety = clamp01(rng.next() + ROLE_PIETY_BONUS[role]);
