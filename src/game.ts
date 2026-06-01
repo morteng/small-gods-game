@@ -272,6 +272,7 @@ export class Game {
       eventLog: this.state.eventLog,
       clock: this.state.clock,
       onDismiss: () => this.toggleTimeBar(),
+      onSkip: (_years: number) => { /* D2 wiring pending */ },
     });
   }
 

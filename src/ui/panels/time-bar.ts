@@ -10,6 +10,7 @@ export interface TimeBarDeps {
   eventLog: EventLog;
   clock: SimClock;
   onDismiss(): void;
+  onSkip(years: number): void;
 }
 
 export interface TimeBarHandle {
@@ -211,6 +212,22 @@ function buildMainRow(deps: TimeBarDeps, cleanups: Array<() => void>): HTMLEleme
     speed.appendChild(b);
   }
   row.appendChild(speed);
+
+  // Jump-forward presets (D2 time-skip). Each commits a one-way era boundary.
+  const jump = document.createElement('div');
+  jump.className = 'sg-time-bar__jump';
+  jump.setAttribute('role', 'group');
+  jump.setAttribute('aria-label', 'Jump forward');
+  for (const years of [10, 25, 50] as const) {
+    const b = document.createElement('button');
+    b.dataset.skipYears = String(years);
+    b.className = 'sg-time-bar__jump-btn';
+    b.textContent = `+${years}y`;
+    b.title = `Jump forward ${years} years`;
+    b.addEventListener('click', () => deps.onSkip(years));
+    jump.appendChild(b);
+  }
+  row.appendChild(jump);
 
   // Dismiss.
   const dismiss = document.createElement('button');
