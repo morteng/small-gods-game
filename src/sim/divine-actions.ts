@@ -45,11 +45,13 @@ export function whisper(spirit: Spirit, npc: Entity, log: EventLog): boolean {
 
   const existing = p.beliefs[spirit.id];
   if (existing) {
-    existing.faith = clamp01(existing.faith + WHISPER_FAITH_BOOST);
+    // Order matters: faith scales by *pre-whisper* understanding; the teaching
+    // boost is applied after, so it can't inflate this same whisper's faith gain.
+    existing.faith = clamp01(existing.faith + WHISPER_FAITH_BOOST * signResponse(existing.understanding));
     existing.understanding = clamp01(existing.understanding + WHISPER_UNDERSTANDING_BOOST);
   } else {
     p.beliefs[spirit.id] = {
-      faith: WHISPER_FAITH_BOOST,
+      faith: WHISPER_FAITH_BOOST * signResponse(0),
       understanding: WHISPER_UNDERSTANDING_BOOST,
       devotion: 0,
     };

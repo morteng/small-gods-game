@@ -100,3 +100,29 @@ describe('Omen', () => {
     expect(P(wise).beliefs['player'].faith).toBeCloseTo(0.38, 5);
   });
 });
+
+describe('Whisper', () => {
+  it('scales faith gain by understanding but raises understanding flatly', () => {
+    const e = npc((p) => {
+      p.whisperCooldown = 0;
+      p.beliefs['player'] = { faith: 0.3, understanding: 0.2, devotion: 0.1 };
+    });
+    whisper(spirit(), e, log());
+    // WHISPER_FAITH_BOOST=0.15; signResponse(0.2)=0.6 → +0.09 → 0.39
+    expect(P(e).beliefs['player'].faith).toBeCloseTo(0.39, 5);
+    // WHISPER_UNDERSTANDING_BOOST=0.03, ungated → 0.23
+    expect(P(e).beliefs['player'].understanding).toBeCloseTo(0.23, 5);
+  });
+
+  it('bootstraps a new believer at the floor response', () => {
+    const e = npc((p) => {
+      p.whisperCooldown = 0;
+      delete (p.beliefs as Record<string, unknown>)['player'];
+    });
+    whisper(spirit(), e, log());
+    // new believer: faith = 0.15 * signResponse(0) = 0.075; understanding = 0.03
+    expect(P(e).beliefs['player'].faith).toBeCloseTo(0.075, 5);
+    expect(P(e).beliefs['player'].understanding).toBeCloseTo(0.03, 5);
+    expect(P(e).beliefs['player'].devotion).toBe(0);
+  });
+});
