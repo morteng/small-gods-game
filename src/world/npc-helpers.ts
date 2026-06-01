@@ -3,6 +3,7 @@ import type { World } from '@/world/world';
 import { Random } from '@/core/noise';
 
 export const NPC_KIND = 'npc';
+export const REMAINS_KIND = 'remains';
 
 export function getNpc(world: World, id: EntityId): Entity | undefined {
   const e = world.registry.get(id);
@@ -107,6 +108,9 @@ export function initNpcProps(name: string, role: NpcRole, seed: number): NpcProp
     frameTimer: seed % 100,
     homeX: 0,
     homeY: 0,
+    birthTick: 0,
+    parentIds: [],
+    lineageId: '',
     personality,
     beliefs: { player: { faith: clamp01(baseFaith), understanding: 0.1, devotion: 0.05 } },
     needs,
@@ -117,4 +121,30 @@ export function initNpcProps(name: string, role: NpcRole, seed: number): NpcProp
     relationships: [],
     recentEventIds: [],
   };
+}
+
+// =============================================================================
+// Lineage queries — operate over both living NPCs and their remains, since a
+// dead parent is still a parent and a lineage spans the living and the dead.
+// =============================================================================
+
+/** All NPC-or-remains entities, in stable insertion order. */
+function npcsAndRemains(world: World): Entity[] {
+  return world.registry.all().filter(e => e.kind === NPC_KIND || e.kind === REMAINS_KIND);
+}
+
+/** Resolve an NPC's 0–2 parent entities (living or remains). */
+export function getParents(world: World, npc: Entity): Entity[] {
+  const ids = npcProps(npc).parentIds ?? [];
+  return ids.map(id => world.registry.get(id)).filter((e): e is Entity => e !== undefined);
+}
+
+/** All entities whose parentIds include the given npc id (living or remains). */
+export function getChildren(world: World, npc: Entity): Entity[] {
+  return npcsAndRemains(world).filter(e => (npcProps(e).parentIds ?? []).includes(npc.id));
+}
+
+/** All entities (living + remains) sharing a root-ancestor lineage id. */
+export function lineageMembers(world: World, lineageId: string): Entity[] {
+  return npcsAndRemains(world).filter(e => npcProps(e).lineageId === lineageId);
 }

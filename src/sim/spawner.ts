@@ -4,6 +4,7 @@ import type { EventLog } from '@/core/events';
 import { initNpcProps, forEachNpc } from '@/world/npc-helpers';
 import { getBuildingTemplate } from '@/map/building-templates';
 import { seedSocialGraph } from '@/sim/social-graph';
+import { TICKS_PER_YEAR } from '@/sim/mortality';
 
 const VALID_ROLES: NpcRole[] = ['farmer', 'priest', 'soldier', 'merchant', 'elder', 'child', 'noble', 'beggar'];
 
@@ -71,6 +72,12 @@ export function spawnAllPoiNpcs(args: {
       props.homePoiId = poi.id;
       props.homeX = tileX;
       props.homeY = tileY;
+      // Each POI-spawned NPC founds its own lineage and starts as an adult.
+      // Deterministic from the per-NPC `seed` (no rng in this function's scope).
+      const ageYears = 20 + (seed % 26); // 20–45
+      props.birthTick = -ageYears * TICKS_PER_YEAR;
+      props.lineageId = id;
+      props.parentIds = [];
       world.addEntity({
         id, kind: 'npc', x: tileX, y: tileY,
         properties: props as unknown as Record<string, unknown>,
