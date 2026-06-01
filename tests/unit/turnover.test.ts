@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { World } from '@/world/world';
 import { createRng } from '@/core/rng';
-import { initNpcProps, npcProps } from '@/world/npc-helpers';
+import { initNpcProps, npcProps, queryNpcs } from '@/world/npc-helpers';
 import { projectTurnover } from '@/sim/turnover';
 import { TICKS_PER_YEAR } from '@/sim/mortality';
 import type { GameMap, Entity } from '@/core/types';
@@ -45,6 +45,19 @@ describe('projectTurnover', () => {
       expect(d.deathYearOffset).toBeGreaterThanOrEqual(0);
       expect(d.deathYearOffset).toBeLessThan(100);
     }
+  });
+
+  it('synthesized children carry their parents homePoiId', () => {
+    const world = new World(emptyMap());
+    const mk = (id: string) => {
+      const p = initNpcProps(id, 'farmer', (id.charCodeAt(0) * 31) | 0);
+      p.lineageId = id; p.birthTick = -30 * TICKS_PER_YEAR; p.homePoiId = 'village';
+      world.addEntity({ id, kind: 'npc', x: 1, y: 1, properties: p as unknown as Record<string, unknown> });
+    };
+    mk('mum'); mk('dad');
+    const { births } = projectTurnover(queryNpcs(world), 20, 0, createRng(7));
+    expect(births.length).toBeGreaterThan(0);
+    expect(births.every(b => b.homePoiId === 'village')).toBe(true);
   });
 
   it('synthesizes children with valid lineage and diluted belief', () => {

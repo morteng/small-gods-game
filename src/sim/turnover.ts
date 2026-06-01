@@ -32,6 +32,7 @@ export interface SynthChild {
   lineageId: NpcId;
   birthYearOffset: number;
   beliefs: Record<string, SpiritBelief>;
+  homePoiId?: string;
 }
 
 /** A soul considered by the projection (input NPC or a synthesized child). */
@@ -139,7 +140,7 @@ export function projectTurnover(
           souls.push(child);
           births.push({
             id: child.id, parentIds: [pa.id, pb.id], lineageId: child.lineageId,
-            birthYearOffset: y, beliefs,
+            birthYearOffset: y, beliefs, homePoiId: pa.homePoiId,
           });
           headroom--;
         }
