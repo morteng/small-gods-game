@@ -3,6 +3,7 @@ import type { World } from '@/world/world';
 import { Random } from '@/core/noise';
 
 export const NPC_KIND = 'npc';
+export const REMAINS_KIND = 'remains';
 
 export function getNpc(world: World, id: EntityId): Entity | undefined {
   const e = world.registry.get(id);
@@ -107,6 +108,9 @@ export function initNpcProps(name: string, role: NpcRole, seed: number): NpcProp
     frameTimer: seed % 100,
     homeX: 0,
     homeY: 0,
+    birthTick: 0,
+    parentIds: [],
+    lineageId: '',
     personality,
     beliefs: { player: { faith: clamp01(baseFaith), understanding: 0.1, devotion: 0.05 } },
     needs,

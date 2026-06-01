@@ -279,6 +279,17 @@ export interface NpcProperties {
   name: string;
   role: NpcRole;
   seed: number;
+  // lineage & mortality
+  /** Sim tick at which this soul was born. Age is DERIVED, never stored-mutated. */
+  birthTick: number;
+  /** 0 (founder), 1, or 2 parent entity ids. */
+  parentIds: NpcId[];
+  /** Root-ancestor id for "house of X" grouping. Founders: their own id. */
+  lineageId: NpcId;
+  /** Set only on a converted `remains` entity. Sim tick of death. */
+  deathTick?: number;
+  /** Set only on a converted `remains` entity. e.g. 'old_age'. */
+  deathCause?: string;
   // movement / animation
   direction: Direction;
   frame: number;
@@ -350,6 +361,9 @@ export interface ActiveEvent {
 // ─── Entity system v2 (Spec A) ────────────────────────────────────────────────
 
 export type EntityId = string;
+
+/** An entity id known to refer to an NPC (or its remains). */
+export type NpcId = EntityId;
 
 /** Spec-A Entity: every visible world object collapses into this shape. */
 export interface Entity {
