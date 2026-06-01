@@ -350,6 +350,26 @@ function drawEntityFallback(ctx: CanvasRenderingContext2D, rc: RenderContext, e:
 }
 
 function drawEntity(ctx: CanvasRenderingContext2D, rc: RenderContext, e: Entity): void {
+  // 0. Remains: a cheap gray grave marker (rich weathering visuals deferred).
+  if (e.kind === 'remains') {
+    const px = e.x * TILE_SIZE;
+    const py = e.y * TILE_SIZE;
+    const w = TILE_SIZE * 0.28;
+    const h = TILE_SIZE * 0.42;
+    ctx.fillStyle = '#8a8a8a';
+    ctx.globalAlpha = 0.85;
+    // headstone: a rounded-top slab
+    ctx.beginPath();
+    ctx.moveTo(px - w / 2, py + h / 2);
+    ctx.lineTo(px - w / 2, py - h * 0.2);
+    ctx.arc(px, py - h * 0.2, w / 2, Math.PI, 0);
+    ctx.lineTo(px + w / 2, py + h / 2);
+    ctx.closePath();
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    return;
+  }
+
   // 1. Building sprite path
   const templateId = (e.properties?.templateId as string | undefined) ?? e.kind;
   const buildingSprite = rc.buildingSprites.get(templateId);
