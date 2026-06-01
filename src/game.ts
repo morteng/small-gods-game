@@ -25,6 +25,7 @@ import { PerceptionSystem } from '@/world/perception-system';
 import { AbandonmentSystem } from '@/sim/systems/abandonment-system';
 import { MortalitySystem } from '@/sim/systems/mortality-system';
 import { BirthSystem } from '@/sim/systems/birth-system';
+import { applySkip } from '@/sim/time-skip';
 import { identityOracle } from '@/world/oracle';
 import { bootstrapWorld } from '@/game/bootstrap-world';
 import { injectTokens } from '@/ui/inject-tokens';
@@ -272,7 +273,16 @@ export class Game {
       eventLog: this.state.eventLog,
       clock: this.state.clock,
       onDismiss: () => this.toggleTimeBar(),
-      onSkip: (_years: number) => { /* D2 wiring pending */ },
+      onSkip: (years: number) => {
+        if (!this.state.world) return;
+        // Skips are committed one-way boundaries; never run while scrubbing the past.
+        if (this.timeline.isScrubbed) this.timeline.returnToLive();
+        applySkip(this.state.world, this.state.clock, this.state.rng, this.state.eventLog, years);
+        this.timeline.commitSkip();
+        // Immediate chrome refresh (the era_skipped chip self-appends via the event log).
+        this.timeChip.refresh();
+        this.timeBar?.refresh();
+      },
     });
   }
 
