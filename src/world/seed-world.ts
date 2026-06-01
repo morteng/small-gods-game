@@ -8,6 +8,11 @@ import { World } from '@/world/world';
 import { PerceptionSystem } from '@/world/perception-system';
 import { initNpcProps, forEachNpc } from '@/world/npc-helpers';
 import { seedSocialGraph } from '@/sim/social-graph';
+import { TICKS_PER_YEAR } from '@/sim/mortality';
+
+/** Founders start as young adults so the cradle never opens with elders. */
+const FOUNDER_MIN_AGE = 20;
+const FOUNDER_MAX_AGE = 30;
 
 export interface SeedWorldArgs {
   world: World;
@@ -59,6 +64,13 @@ export function seedWorld(args: SeedWorldArgs): void {
     p.homePoiId = seedPoi.id;
     p.homeX = x;
     p.homeY = y;
+    // Found a lineage and back-date birth so each opens as a young adult (age in
+    // [FOUNDER_MIN_AGE, FOUNDER_MAX_AGE]). Uses the seeded world rng for replay
+    // parity. now is 0 at seed time, so birthTick is negative.
+    const founderAge = FOUNDER_MIN_AGE + rng.next() * (FOUNDER_MAX_AGE - FOUNDER_MIN_AGE);
+    p.birthTick = -Math.round(founderAge * TICKS_PER_YEAR);
+    p.lineageId = id;
+    p.parentIds = [];
     // Shallow-believer start (override initNpcProps' role-scaled belief):
     // just above the 0.15 believer line, no understanding/devotion yet.
     p.beliefs['player'] = { faith: 0.18, understanding: 0, devotion: 0 };

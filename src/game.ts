@@ -23,6 +23,8 @@ import { SettlementEventSystem } from '@/sim/systems/settlement-event-system';
 import { SpiritSystem } from '@/sim/spirit-system';
 import { PerceptionSystem } from '@/world/perception-system';
 import { AbandonmentSystem } from '@/sim/systems/abandonment-system';
+import { MortalitySystem } from '@/sim/systems/mortality-system';
+import { BirthSystem } from '@/sim/systems/birth-system';
 import { identityOracle } from '@/world/oracle';
 import { bootstrapWorld } from '@/game/bootstrap-world';
 import { injectTokens } from '@/ui/inject-tokens';
@@ -90,6 +92,8 @@ export class Game {
     this.scheduler.register(new NpcActivitySystem());
     this.scheduler.register(new BeliefPropagationSystem());
     this.scheduler.register(new SpiritSystem());
+    this.scheduler.register(new MortalitySystem());
+    this.scheduler.register(new BirthSystem());
     this.scheduler.register(new PerceptionSystem(identityOracle, () => this.state.map));
 
     this.timeline = new TimelineController({

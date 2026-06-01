@@ -8,7 +8,16 @@ import {
 } from '@/sim/systems/birth-system';
 import { INHERIT_FAITH_FRAC, INHERIT_UNDERSTANDING_FRAC } from '@/world/npc-lifecycle';
 
-/** Annual per-pair birth rate, derived from the per-day system rate. */
+/**
+ * Annual per-pair birth chance for the once-per-year projection roll. Derived
+ * LINEARLY from the per-day system rate, which matches the live `BirthSystem`'s
+ * *expected birth count* per pair-year (DAYS_PER_YEAR daily rolls of
+ * BIRTH_RATE_PER_PAIR ≈ 0.288 expected births). Note this is NOT the same as
+ * P(at least one birth) under daily compounding (1-(1-rate)^DAYS_PER_YEAR ≈ 0.25);
+ * the projection rolls a single Bernoulli/pair/year so it cannot yield 2+ births
+ * in one year the way the daily system can. D2 should revisit this calibration if
+ * the time-skip's population trajectory needs to track real-time play exactly.
+ */
 export const BIRTH_RATE_PER_PAIR_YEAR = BIRTH_RATE_PER_PAIR * DAYS_PER_YEAR;
 
 export interface ProjectedDeath {
