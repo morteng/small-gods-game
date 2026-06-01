@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { answerPrayer, dream } from '@/sim/divine-actions';
+import { answerPrayer, dream, whisper, omen } from '@/sim/divine-actions';
+import { World } from '@/world/world';
+import type { GameMap } from '@/core/types';
 import { SimClock } from '@/core/clock';
 import { EventLog } from '@/core/events';
 import { initNpcProps } from '@/world/npc-helpers';
@@ -63,5 +65,38 @@ describe('Deepen (dream)', () => {
     expect(P(e).beliefs['player'].devotion).toBeCloseTo(0.22, 5);
     expect(P(e).beliefs['player'].faith).toBeCloseTo(0.35, 5);
     expect(P(e).needs.meaning).toBeCloseTo(meaningBefore, 5);
+  });
+});
+
+function tinyMap(): GameMap {
+  const tiles = [] as GameMap['tiles'];
+  for (let y = 0; y < 3; y++) {
+    const row = [];
+    for (let x = 0; x < 3; x++) row.push({ type: 'grass', x, y, walkable: true, state: 'realized' as const });
+    tiles.push(row);
+  }
+  return { tiles, width: 3, height: 3, villages: [], seed: 1, success: true, worldSeed: null, stats: { iterations: 0, backtracks: 0 }, buildings: [] };
+}
+
+function worldNpc(id: string, poiId: string, belief: { faith: number; understanding: number; devotion: number }): Entity {
+  const p = initNpcProps(id, 'farmer', 7);
+  p.homePoiId = poiId;
+  p.beliefs['player'] = belief;
+  return { id, kind: 'npc', x: 0, y: 0, properties: p as unknown as Record<string, unknown> };
+}
+
+describe('Omen', () => {
+  it('boosts faith proportional to each witness understanding', () => {
+    const world = new World(tinyMap());
+    const dull = worldNpc('dull', 'poi1', { faith: 0.3, understanding: 0.0, devotion: 0 });
+    const wise = worldNpc('wise', 'poi1', { faith: 0.3, understanding: 1.0, devotion: 0 });
+    world.addEntity(dull);
+    world.addEntity(wise);
+
+    omen(spirit(), 'poi1', world, log());
+
+    // OMEN_FAITH_BOOST=0.08; signResponse(0)=0.5 → +0.04; signResponse(1)=1.0 → +0.08
+    expect(P(dull).beliefs['player'].faith).toBeCloseTo(0.34, 5);
+    expect(P(wise).beliefs['player'].faith).toBeCloseTo(0.38, 5);
   });
 });

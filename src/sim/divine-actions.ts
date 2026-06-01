@@ -2,7 +2,7 @@ import type { Spirit, SpiritId } from '@/core/spirit';
 import type { Entity, SettlementEventType, NpcActivity } from '@/core/types';
 import type { EventLog } from '@/core/events';
 import { npcProps, forEachNpc } from '@/world/npc-helpers';
-import { clamp01 } from '@/sim/npc-sim';
+import { clamp01, signResponse } from '@/sim/npc-sim';
 import type { World } from '@/world/world';
 
 // ─── Power costs ──────────────────────────────────────────────────────────────
@@ -75,7 +75,7 @@ export function omen(spirit: Spirit, poiId: string, world: World, log: EventLog)
     if (p.homePoiId !== poiId) return;
     const existing = p.beliefs[spirit.id];
     if (existing) {
-      existing.faith = clamp01(existing.faith + OMEN_FAITH_BOOST);
+      existing.faith = clamp01(existing.faith + OMEN_FAITH_BOOST * signResponse(existing.understanding));
     }
     affected++;
   });
