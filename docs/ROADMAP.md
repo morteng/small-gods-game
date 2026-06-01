@@ -34,19 +34,22 @@ progression. Closing those loops is the work below.
 
 ---
 
-## Track 1 — Close the belief-model loops  ⭐ foundational, do first
+## Track 1 — Close the belief-model loops  ⭐ foundational — ✅ **shipped**
 
 These make VISION's central thesis *true in code*. Cheap, high-leverage, unblock
-everything else. (VISION §9.)
+everything else. (VISION §9.) **Shipped via the Dilemma MVP + the "make understanding
+matter" slice (merge `f8dce2c`, 2026-06-01).** The genuinely self-contained loops are
+closed; the few remaining items below are deferred *by dependency* into their natural
+later tracks (noted inline).
 
-| Item | Current state | Target |
+| Item | State | Notes |
 |---|---|---|
-| **Power formula** | `power += Σ faith × 0.02`; `understanding`/`devotion` read by nothing | `power regen ∝ Σ(faith × understanding × devotion)` so quantity ≠ power (VISION §3) |
-| **Mortal self-agency** | activities set a target but never satisfy needs | on activity completion, restore the matching need (worship→meaning, socialize→community, work→prosperity) — the god is the *margin* (VISION tenet 9) |
-| **Devotion has a job** | only Answer-Prayer writes it; nothing reads it | devotion drives power multiplier + propagation strength + unlocks costly acts (sacrifice/shrine/monument) |
-| **Understanding has a job** | written, unread | gates sign-perception, prayer efficacy, and *story fidelity* (folds in the retired Stories subsystem — VISION §3, §9 #8) |
-| **Consume belief events** | `belief_cross`/`mood_cross` fire, nothing listens | drive the Book, the timeline UI, and Fate's attention from them (VISION §9 #5) |
-| **Secularization** | faith decays, but comfort isn't modeled as the trap | tune so met-needs → faith decay; surface it as the core tension (VISION §3) |
+| **Power formula** | ✅ done | `power regen ∝ Σ faith·(1+2u)·(1+2d)` — `spirit-system.ts`. Quantity ≠ power (a deepened believer ≈ 9× a fearful one). |
+| **Mortal self-agency** | ✅ done | activity completion restores the matching need (work→prosperity, socialize→community, sleep→safety); **worship is excluded — the god is the margin for meaning** (`npc-activity-system.ts`). |
+| **Secularization** | ✅ done | comfort decay + abandonment decay + desperation boost (`npc-sim.ts`); devotion resists both. |
+| **Understanding has a job** | ✅ done | gates sign-perception (omen/whisper/realization reach) + prayer efficacy via `signResponse` (`f8dce2c`). *Story-fidelity / misattribution* — the 3rd VISION §3 job — **deferred to Tracks 2–3** (needs LLM + rivals). |
+| **Devotion has a job** | 🟡 2/3 | power multiplier ✅ + propagation ✅; **costly-acts gating ❌ deferred** — needs the costly acts (sacrifice/shrine/monument) to exist first (Track 7 / progression). |
+| **Consume belief events** | 🟡 emitted | `belief_cross`/`mood_cross`/`believer_lost` fire and feed the timeline UI; **driving Fate's attention deferred to Track 4**, the Book to Track 6. |
 
 ## Track 2 — Phase 9: LLM backfill (partial → done)
 
