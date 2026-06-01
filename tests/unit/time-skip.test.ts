@@ -71,12 +71,17 @@ describe('applySkip', () => {
     expect(summary.deaths).toBe(remains);
   });
 
-  it('is deterministic: same seed -> identical world shape', () => {
+  it('is deterministic: same seed -> identical world (full state, not just id:kind)', () => {
     const run = () => {
       const h = harness(99);
       addNpc(h.world, 'm', 24); addNpc(h.world, 'f', 26); addNpc(h.world, 'g', 40);
       applySkip(h.world, h.clock, h.rng, h.log, 30);
-      return h.world.registry.all().map(e => `${e.id}:${e.kind}`).sort().join('|');
+      // Hash the FULL post-skip state — ids, kinds, positions, and properties
+      // (beliefs, birthTick, lineageId, parentIds) — so the assertion catches
+      // any rng-order drift, not merely a changed set of id:kind pairs.
+      return h.world.registry.all()
+        .map(e => `${e.id}:${e.kind}:${e.x},${e.y}:${JSON.stringify(e.properties)}`)
+        .sort().join('|');
     };
     expect(run()).toBe(run());
   });
