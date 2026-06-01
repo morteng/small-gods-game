@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { PerceptionSystem } from '@/world/perception-system';
+import { PerceptionSystem, perceptionReach } from '@/world/perception-system';
 import { World } from '@/world/world';
 import { SimClock } from '@/core/clock';
 import { EventLog } from '@/core/events';
@@ -83,5 +83,44 @@ describe('PerceptionSystem', () => {
     const tileEvents = s.log.since(0).map(a => a.event).filter(e => e.type === 'tile_collapsed') as Array<{ x: number; y: number }>;
     const set = new Set(tileEvents.map(t => `${t.x},${t.y}`));
     expect(set.size).toBe(tileEvents.length);
+  });
+});
+
+describe('perceptionReach', () => {
+  it('opens a base bubble even at zero faith and understanding', () => {
+    expect(perceptionReach(0, 0)).toBe(3);
+  });
+
+  it('faith is the primary driver (+4 at full faith)', () => {
+    expect(perceptionReach(1, 0)).toBe(7);
+  });
+
+  it('understanding extends reach secondarily (+2 at full understanding)', () => {
+    expect(perceptionReach(0, 1)).toBe(5);
+    expect(perceptionReach(1, 1)).toBe(9);
+  });
+
+  it('combines both, flooring the sum', () => {
+    expect(perceptionReach(0.5, 0.5)).toBe(6); // 3 + floor(2 + 1)
+  });
+});
+
+describe('PerceptionSystem understanding reach', () => {
+  it('realizes more tiles when the dominant belief has higher understanding', () => {
+    // setup() adds the entity to the world by reference, so mutating .beliefs
+    // in place updates the same object the world holds — do NOT reassign .properties.
+    const lowU = setup(0.5);
+    (lowU.e.properties as any).beliefs = { player: { faith: 0.5, understanding: 0.0, devotion: 0 } };
+    const highU = setup(0.5);
+    (highU.e.properties as any).beliefs = { player: { faith: 0.5, understanding: 1.0, devotion: 0 } };
+
+    const sysLow = new PerceptionSystem(identityOracle, () => lowU.map);
+    const sysHigh = new PerceptionSystem(identityOracle, () => highU.map);
+    sysLow.tick({ world: lowU.world, log: lowU.log, clock: new SimClock(), spirits: new Map(), rng: createRng(0), dt: 500, now: 1 });
+    sysHigh.tick({ world: highU.world, log: highU.log, clock: new SimClock(), spirits: new Map(), rng: createRng(0), dt: 500, now: 1 });
+
+    const countLow = lowU.map.tiles.flat().filter(t => t.state === 'realized').length;
+    const countHigh = highU.map.tiles.flat().filter(t => t.state === 'realized').length;
+    expect(countHigh).toBeGreaterThan(countLow);
   });
 });
