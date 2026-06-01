@@ -115,6 +115,22 @@ export class TimelineController {
     this.lastSnapshotEventCount = this.state.eventLog.size();
   }
 
+  /**
+   * Commit a closed-form time-skip as a one-way baseline. The skipped span has no
+   * recorded ticks, so `forwardSilent` could not reproduce it; discard all pre-skip
+   * snapshots and anchor a single fresh snapshot at the (already-advanced) current
+   * tick. Afterward `jumpTo(t)` for any pre-skip `t` resolves to this baseline
+   * rather than restoring unreachable pre-skip state. Call AFTER applySkip has
+   * advanced the clock and mutated the world.
+   */
+  commitSkip(): void {
+    this.store.reset();
+    this.store.push(captureSnapshot(this.state));
+    this.lastSnapshotEventCount = this.state.eventLog.size();
+    this.liveSnapshot = null;
+    this._isScrubbed = false;
+  }
+
   getDiscardedFutures(): readonly DiscardedTail[] { return this.discardedFutures; }
 
   private forwardSilent(targetTick: number): void {
