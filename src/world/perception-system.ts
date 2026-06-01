@@ -3,8 +3,15 @@ import type { GameMap, Region, Tile } from '@/core/types';
 import { forEachNpc, npcProps } from '@/world/npc-helpers';
 import type { Oracle } from '@/world/oracle';
 
-const BASE_RADIUS = 3;
-const MAX_FAITH_BONUS = 4;
+export const BASE_RADIUS = 3;
+export const FAITH_BONUS = 4;
+export const UNDERSTANDING_BONUS = 2;
+
+/** Tile-realization radius for a believer. Faith is primary (+4), understanding
+ *  secondary (+2); BASE_RADIUS guarantees the cradle opens at understanding≈0. */
+export function perceptionReach(faith: number, understanding: number): number {
+  return BASE_RADIUS + Math.floor(faith * FAITH_BONUS + understanding * UNDERSTANDING_BONUS);
+}
 
 export class PerceptionSystem implements System {
   readonly name = 'perception';
@@ -26,11 +33,15 @@ export class PerceptionSystem implements System {
     const reaches: Array<{ x: number; y: number; r: number }> = [];
     forEachNpc(ctx.world, (e) => {
       const p = npcProps(e);
-      let bestFaith = 0;
+      let domFaith = 0;
+      let domUnderstanding = 0;
       for (const b of Object.values(p.beliefs)) {
-        if (b.faith > bestFaith) bestFaith = b.faith;
+        if (b.faith > domFaith) {
+          domFaith = b.faith;
+          domUnderstanding = b.understanding;
+        }
       }
-      const r = BASE_RADIUS + Math.floor(bestFaith * MAX_FAITH_BONUS);
+      const r = perceptionReach(domFaith, domUnderstanding);
       reaches.push({ x: Math.floor(e.x), y: Math.floor(e.y), r });
     });
 

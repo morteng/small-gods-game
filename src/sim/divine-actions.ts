@@ -2,7 +2,7 @@ import type { Spirit, SpiritId } from '@/core/spirit';
 import type { Entity, SettlementEventType, NpcActivity } from '@/core/types';
 import type { EventLog } from '@/core/events';
 import { npcProps, forEachNpc } from '@/world/npc-helpers';
-import { clamp01 } from '@/sim/npc-sim';
+import { clamp01, signResponse } from '@/sim/npc-sim';
 import type { World } from '@/world/world';
 
 // ─── Power costs ──────────────────────────────────────────────────────────────
@@ -33,6 +33,7 @@ const MIRACLE_UNDERSTANDING_BOOST = 0.05;
 
 const ANSWER_PRAYER_FAITH_BOOST = 0.2;
 const ANSWER_PRAYER_MEANING_BOOST = 0.3; // Answer restores the divine need specifically
+const ANSWER_UNDERSTANDING_BOOST = 0.04; // a heard prayer teaches a little of your form
 
 // ─── Whisper (already exists in whisper.ts, reproduced here for completeness) ──
 
@@ -45,11 +46,13 @@ export function whisper(spirit: Spirit, npc: Entity, log: EventLog): boolean {
 
   const existing = p.beliefs[spirit.id];
   if (existing) {
-    existing.faith = clamp01(existing.faith + WHISPER_FAITH_BOOST);
+    // Order matters: faith scales by *pre-whisper* understanding; the teaching
+    // boost is applied after, so it can't inflate this same whisper's faith gain.
+    existing.faith = clamp01(existing.faith + WHISPER_FAITH_BOOST * signResponse(existing.understanding));
     existing.understanding = clamp01(existing.understanding + WHISPER_UNDERSTANDING_BOOST);
   } else {
     p.beliefs[spirit.id] = {
-      faith: WHISPER_FAITH_BOOST,
+      faith: WHISPER_FAITH_BOOST * signResponse(0),
       understanding: WHISPER_UNDERSTANDING_BOOST,
       devotion: 0,
     };
@@ -75,7 +78,7 @@ export function omen(spirit: Spirit, poiId: string, world: World, log: EventLog)
     if (p.homePoiId !== poiId) return;
     const existing = p.beliefs[spirit.id];
     if (existing) {
-      existing.faith = clamp01(existing.faith + OMEN_FAITH_BOOST);
+      existing.faith = clamp01(existing.faith + OMEN_FAITH_BOOST * signResponse(existing.understanding));
     }
     affected++;
   });
@@ -213,11 +216,14 @@ export function answerPrayer(spirit: Spirit, npc: Entity, log: EventLog): boolea
   // Recruitment: creates the belief entry if this is a non-believer praying.
   const existing = p.beliefs[spirit.id];
   if (existing) {
-    existing.faith = clamp01(existing.faith + ANSWER_PRAYER_FAITH_BOOST);
+    // Order matters: faith scales by *pre-answer* understanding; the comprehension
+    // nudge is applied after, so it can't inflate this same answer's faith gain.
+    existing.faith = clamp01(existing.faith + ANSWER_PRAYER_FAITH_BOOST * signResponse(existing.understanding));
+    existing.understanding = clamp01(existing.understanding + ANSWER_UNDERSTANDING_BOOST);
   } else {
     p.beliefs[spirit.id] = {
-      faith: ANSWER_PRAYER_FAITH_BOOST,
-      understanding: 0,
+      faith: ANSWER_PRAYER_FAITH_BOOST * signResponse(0),
+      understanding: ANSWER_UNDERSTANDING_BOOST,
       devotion: 0,
     };
   }
