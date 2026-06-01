@@ -54,7 +54,7 @@ export function mountTimeHistory(container: HTMLElement, deps: TimeHistoryDeps):
     if (t === 'era_skipped' && ev.event.type === 'era_skipped') {
       const yrs = ev.event.years;
       el.textContent = `${icon} +${yrs}y`;
-      el.title = `skipped ${yrs} years at tick ${ev.t} — click to view`;
+      el.title = `era skipped ${yrs} years — committed at tick ${ev.t}`;
     } else {
       el.textContent = icon + ' ' + label + ' ' + ev.t;
       el.title = label + ' at tick ' + ev.t + ' — click to scrub';
