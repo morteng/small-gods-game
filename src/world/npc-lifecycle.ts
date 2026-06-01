@@ -73,6 +73,9 @@ export function birthNpc(
 
   const role: NpcRole = 'child';
   const props = initNpcProps(rng.pick(NEWBORN_NAMES), role, rng.nextInt(0x7fffffff));
+  // The two lines below intentionally override initNpcProps' role-derived personality
+  // and beliefs with the blended/diluted inheritance computed above — do not remove
+  // them as "redundant" or inherited belief silently breaks.
   props.personality = personality;
   props.beliefs = beliefs;
   props.birthTick = birthTick;
