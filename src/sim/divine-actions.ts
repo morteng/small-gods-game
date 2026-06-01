@@ -33,6 +33,7 @@ const MIRACLE_UNDERSTANDING_BOOST = 0.05;
 
 const ANSWER_PRAYER_FAITH_BOOST = 0.2;
 const ANSWER_PRAYER_MEANING_BOOST = 0.3; // Answer restores the divine need specifically
+const ANSWER_UNDERSTANDING_BOOST = 0.04; // a heard prayer teaches a little of your form
 
 // ─── Whisper (already exists in whisper.ts, reproduced here for completeness) ──
 
@@ -215,11 +216,14 @@ export function answerPrayer(spirit: Spirit, npc: Entity, log: EventLog): boolea
   // Recruitment: creates the belief entry if this is a non-believer praying.
   const existing = p.beliefs[spirit.id];
   if (existing) {
-    existing.faith = clamp01(existing.faith + ANSWER_PRAYER_FAITH_BOOST);
+    // Order matters: faith scales by *pre-answer* understanding; the comprehension
+    // nudge is applied after, so it can't inflate this same answer's faith gain.
+    existing.faith = clamp01(existing.faith + ANSWER_PRAYER_FAITH_BOOST * signResponse(existing.understanding));
+    existing.understanding = clamp01(existing.understanding + ANSWER_UNDERSTANDING_BOOST);
   } else {
     p.beliefs[spirit.id] = {
-      faith: ANSWER_PRAYER_FAITH_BOOST,
-      understanding: 0,
+      faith: ANSWER_PRAYER_FAITH_BOOST * signResponse(0),
+      understanding: ANSWER_UNDERSTANDING_BOOST,
       devotion: 0,
     };
   }

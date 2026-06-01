@@ -30,7 +30,10 @@ describe('Answer', () => {
     const ok = answerPrayer(spirit(), e, log());
     expect(ok).toBe(true);
     expect(P(e).needs.meaning).toBeCloseTo(0.4, 5);
-    expect(P(e).beliefs['player'].faith).toBeCloseTo(0.5, 5);
+    // ANSWER_PRAYER_FAITH_BOOST=0.2; signResponse(0.2)=0.6 → +0.12 → 0.42
+    expect(P(e).beliefs['player'].faith).toBeCloseTo(0.42, 5);
+    // a successful answer nudges understanding up by 0.04 → 0.24
+    expect(P(e).beliefs['player'].understanding).toBeCloseTo(0.24, 5);
     expect(P(e).beliefs['player'].devotion).toBeCloseTo(0.2, 5); // unchanged — Deepen owns devotion
     expect(P(e).activity).toBe('idle');
     expect(P(e).activityDuration).toBe(0);
@@ -43,7 +46,9 @@ describe('Answer', () => {
       delete (p.beliefs as Record<string, unknown>)['player'];
     });
     answerPrayer(spirit(), e, log());
-    expect(P(e).beliefs['player'].faith).toBeCloseTo(0.2, 5);
+    // recruit: faith = 0.2 * signResponse(0) = 0.1; understanding seeded at 0.04
+    expect(P(e).beliefs['player'].faith).toBeCloseTo(0.1, 5);
+    expect(P(e).beliefs['player'].understanding).toBeCloseTo(0.04, 5);
     expect(P(e).beliefs['player'].devotion).toBe(0);
   });
 
