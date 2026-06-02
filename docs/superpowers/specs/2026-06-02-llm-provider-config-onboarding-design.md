@@ -68,6 +68,18 @@ The dialogs must read as **clean, simple, and straightforward**. Concrete rules:
 - **No decoration, no icons beyond the existing `⚙`/`✕`.** Labels are short nouns ("API key", "Model", "Capable model"). Reuse `tokens.css` variables; no new color invented.
 - The welcome modal is the minimal case: title, one line of copy, key, model, two buttons. Nothing else.
 
+### 0.5. Shared form/modal primitives (`src/ui/tokens.css`)
+
+The token system has buttons, cards, chips, and badges but **no form or modal primitives** — today `llm-settings-new.ts` and `settings-unified.ts` hand-roll inline `cssText`, and `game-ui.ts`'s `⚙ LLM` button hardcodes `rgba(10,10,20,0.75)`. To keep the new dialogs consistent (and stop the drift), add a small set of primitives to `tokens.css`, then build **both** dialogs and the refactored settings form on them:
+
+- `.sg-field` — vertical label+control stack (`display:flex; flex-direction:column; gap:var(--s-1)`), with `.sg-field__label` (uses `--t-small`, `--ink-2`).
+- `.sg-input`, `.sg-select` — text/select controls: `var(--paper-2)` bg, `1px solid var(--line)`, `var(--r-2)`, `var(--t-base)`, `--ink`, `padding:6px 8px`; `:focus` → `border-color:var(--you-line)`.
+- `.sg-modal-overlay` + `.sg-modal` — lift the proven overlay/scale-in pattern out of `settings-unified.ts` (dimmed `inset:0` overlay, centered `.sg-card`-style panel, `sg-fade-in`/`sg-scale-in`). `settings-unified.ts` is migrated to reuse these so the pattern lives in one place.
+- `.sg-link` — the quiet "Get a key ↗" affordance: `color:var(--time)`, `--t-small`, underline-on-hover.
+- `.sg-form-status` — the one-line post-Save/Test status row (hidden until set; success uses `--life`/`--faith`, error uses `--danger`).
+
+Buttons reuse the existing `.sg-btn--primary` (Begin / Save) and `.sg-btn--ghost` (Skip / Test). **Retrofitting the rest of the game UI is out of scope** — only `tokens.css` (additions), the two dialogs, the settings form, and the `⚙ LLM` button (switch to `.sg-btn--ghost`/`.sg-btn--icon`) change here.
+
 ### 1. Config shape (`provider-factory.ts`)
 
 Add one optional field to `ProviderConfig`:
@@ -188,14 +200,15 @@ NPC focus → LlmBackfillService.trigger → llmClient.generateNpcBackfill
 
 | File | Change |
 |------|--------|
+| `src/ui/tokens.css` | **add** `.sg-field`/`.sg-input`/`.sg-select`/`.sg-modal-overlay`/`.sg-modal`/`.sg-link`/`.sg-form-status` |
 | `src/llm/provider-factory.ts` | add `openrouterModelCapable`; refresh defaults |
 | `src/llm/filter-provider-tokens.ts` | **new** — ported pure filter |
 | `src/llm/llm-client.ts` | apply filter in `OpenRouterProvider.generate` |
 | `src/game/llm-backfill.ts` | add `setClient()` |
-| `src/ui/llm-settings-new.ts` | refresh catalog, capable dropdown, custom-ID, `onSave` |
-| `src/ui/settings-unified.ts` | retype + forward `onLLMConfigChange` → `onSave` |
-| `src/ui/welcome-modal.ts` | **new** — first-run modal |
-| `src/game/game-ui.ts` | forward `onLLMConfigChange` callback |
+| `src/ui/llm-settings-new.ts` | refresh catalog, capable dropdown, custom-ID, `onSave`; rebuild on `.sg-field`/`.sg-input`/`.sg-select`, Advanced disclosure |
+| `src/ui/settings-unified.ts` | retype + forward `onLLMConfigChange` → `onSave`; migrate modal to `.sg-modal-overlay`/`.sg-modal` |
+| `src/ui/welcome-modal.ts` | **new** — first-run modal, built on shared primitives |
+| `src/game/game-ui.ts` | forward `onLLMConfigChange` callback; `⚙ LLM` button → `.sg-btn--ghost` |
 | `src/game.ts` | `applyLlmConfig`, `llmClientCapable`, mount welcome modal |
 | `CLAUDE.md` | correct stale gotcha; note new seams |
 | tests (4 files) | as above |
