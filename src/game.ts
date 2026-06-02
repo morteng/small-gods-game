@@ -6,7 +6,8 @@ import type { GameMap, WorldSeed, TerrainOptions } from '@/core/types';
 import { advanceNpcFrames } from '@/render/npc-animator';
 // divine-actions functions now invoked via DivineActionsController
 import { LLMClient } from "@/llm/llm-client";
-import { createProvider, loadProviderConfig } from '@/llm/provider-factory';
+import { createProvider, loadProviderConfig, type ProviderConfig } from '@/llm/provider-factory';
+import { createWelcomeModal, type WelcomeModalHandle, ONBOARDED_KEY } from '@/ui/welcome-modal';
 import { simStateFromEntity } from '@/world/npc-helpers';
 import { OverlayDispatcher } from '@/ui/overlay-dispatcher';
 import { DivineActionsController } from '@/game/divine-actions-controller';
@@ -63,6 +64,8 @@ export class Game {
   private ui!: GameUi;
   private llmClient!: LLMClient;
   private llmBackfill!: LlmBackfillService;
+  private llmClientCapable: LLMClient | null = null;   // Tier-2 "key moments" — built, not yet called (Track 4 / Fate)
+  private welcomeModal: WelcomeModalHandle | null = null;
   private decorationImages = new DecorationImageCache();
   /** Resolved spritesheets keyed by NPC id */
   private sheets = new Map<string, HTMLCanvasElement>();
@@ -173,6 +176,7 @@ export class Game {
           this.ui.debugHud.style.display = this.state.debug ? 'block' : 'none';
         }
       },
+      onLLMConfigChange: (config) => this.applyLlmConfig(config),
     });
 
     this.llmBackfill = new LlmBackfillService({
@@ -181,6 +185,12 @@ export class Game {
       client: this.llmClient,
       onWriteback: () => this.renderer.forceInfoRefresh(),
     });
+
+    if (!localStorage.getItem(ONBOARDED_KEY)) {
+      this.welcomeModal = createWelcomeModal(this.container, {
+        onComplete: (config) => { this.applyLlmConfig(config); this.welcomeModal = null; },
+      });
+    }
 
     this.divine = new DivineActionsController({ state: this.state, divineEffects: this.ui.divineEffects });
     this.divine.register(this.dispatcher);
@@ -238,6 +248,18 @@ export class Game {
       onShowTutorial: () => this.ui.tutorial?.show('welcome'),
       onRedraw: () => {},
     });
+  }
+
+  private applyLlmConfig(config: ProviderConfig): void {
+    try {
+      this.llmClient = new LLMClient(createProvider(config));
+      this.llmBackfill.setClient(this.llmClient);
+      this.llmClientCapable = config.openrouterModelCapable
+        ? new LLMClient(createProvider({ ...config, openrouterModel: config.openrouterModelCapable }))
+        : null;
+    } catch (err) {
+      console.warn('[llm] config not applied:', err);
+    }
   }
 
   private attachRenderToggleKey(): () => void {
@@ -371,6 +393,7 @@ export class Game {
     this.cleanupTokens?.();
     this.cleanupRenderToggle?.();
     this.resizeObserver.disconnect();
+    this.welcomeModal?.destroy();
     this.ui.destroy();
     this.decorationImages.destroy();
     this.detachTimeKeys?.();
