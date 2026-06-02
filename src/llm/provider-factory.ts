@@ -19,6 +19,7 @@ export interface ProviderConfig {
   // OpenRouter
   openrouterApiKey?: string;
   openrouterModel?: string;
+  openrouterModelCapable?: string;
   openrouterSiteUrl?: string;
   openrouterSiteName?: string;
   // Shared
@@ -52,7 +53,7 @@ export function createProvider(config: ProviderConfig): LLMProvider {
       }
       const orConfig: OpenRouterConfig = {
         apiKey: config.openrouterApiKey,
-        model: config.openrouterModel ?? 'openai/gpt-4o-mini',
+        model: config.openrouterModel ?? 'google/gemini-2.5-flash-lite',
         siteUrl: config.openrouterSiteUrl,
         siteName: config.openrouterSiteName ?? 'Small Gods Game',
       };
@@ -84,7 +85,8 @@ export function loadProviderConfig(): ProviderConfig {
   return {
     type: envKey ? 'openrouter' : 'mock',
     openrouterApiKey: envKey,
-    openrouterModel: 'openai/gpt-4o-mini',
+    openrouterModel: 'google/gemini-2.5-flash-lite',
+    openrouterModelCapable: 'anthropic/claude-sonnet-4.6',
     maxTokens: 200,
     temperature: 0.7,
   };
