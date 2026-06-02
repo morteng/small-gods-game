@@ -42,3 +42,35 @@ describe('createLLMSettings', () => {
     handle.destroy();
   });
 });
+
+describe('createLLMSettings — custom model + advanced', () => {
+  it('reveals a custom-model input when "Custom model ID…" is chosen, and saves its value', () => {
+    const onSave = vi.fn();
+    const handle = createLLMSettings({ onSave });
+    document.body.appendChild(handle.element);
+    selectProvider(handle.element, 'openrouter');
+    (handle.element.querySelector('input[type="password"]') as HTMLInputElement).value = 'sk-or-2';
+
+    const modelSel = handle.element.querySelector('#sg-llm-model-select') as HTMLSelectElement;
+    modelSel.value = '__custom__';
+    modelSel.dispatchEvent(new Event('change'));
+
+    const custom = handle.element.querySelector('#sg-llm-model-custom') as HTMLInputElement;
+    expect(custom.style.display).not.toBe('none');
+    custom.value = 'meta-llama/llama-4-scout';
+
+    ([...handle.element.querySelectorAll('button')].find(b => b.textContent === 'Save') as HTMLButtonElement).click();
+    expect(onSave.mock.calls[0][0].openrouterModel).toBe('meta-llama/llama-4-scout');
+    handle.destroy();
+  });
+
+  it('renders max-tokens and temperature inside a closed Advanced disclosure', () => {
+    const handle = createLLMSettings();
+    document.body.appendChild(handle.element);
+    const adv = handle.element.querySelector('details.sg-advanced') as HTMLDetailsElement;
+    expect(adv).toBeTruthy();
+    expect(adv.open).toBe(false);
+    expect(adv.querySelector('input[type="number"]')).toBeTruthy();
+    handle.destroy();
+  });
+});

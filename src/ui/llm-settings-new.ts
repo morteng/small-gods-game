@@ -101,7 +101,31 @@ export function createLLMSettings(
     if (m.id === saved.openrouterModel) opt.selected = true;
     modelSelect.appendChild(opt);
   }
+
+  const customModelOpt = document.createElement('option');
+  customModelOpt.value = '__custom__';
+  customModelOpt.textContent = 'Custom model ID…';
+  modelSelect.appendChild(customModelOpt);
+
   modelRow.appendChild(modelSelect);
+
+  const modelCustom = document.createElement('input');
+  modelCustom.id = 'sg-llm-model-custom';
+  modelCustom.type = 'text';
+  modelCustom.placeholder = 'provider/model-id';
+  modelCustom.className = 'sg-input';
+  modelCustom.style.display = 'none';
+  // Pre-fill custom if the saved model isn't in the curated list.
+  if (saved.openrouterModel && !OPENROUTER_MODELS.some(m => m.id === saved.openrouterModel)) {
+    modelSelect.value = '__custom__';
+    modelCustom.value = saved.openrouterModel;
+    modelCustom.style.display = '';
+  }
+  modelSelect.addEventListener('change', () => {
+    modelCustom.style.display = modelSelect.value === '__custom__' ? '' : 'none';
+  });
+  modelRow.appendChild(modelCustom);
+
   container.appendChild(modelRow);
 
   // ─── Capable Model Select (for OpenRouter, key moments) ───
@@ -157,14 +181,11 @@ export function createLLMSettings(
 
   // ─── Max Tokens ──────────────────────────────────────
   const tokensRow = document.createElement('div');
-  tokensRow.style.display = 'flex';
-  tokensRow.style.flexDirection = 'column';
-  tokensRow.style.gap = '4px';
+  tokensRow.className = 'sg-field';
 
   const tokensLabel = document.createElement('div');
+  tokensLabel.className = 'sg-field__label';
   tokensLabel.textContent = 'Max Tokens';
-  tokensLabel.style.fontSize = '12px';
-  tokensLabel.style.color = 'var(--ink-2)';
   tokensRow.appendChild(tokensLabel);
 
   const tokensInput = document.createElement('input');
@@ -172,27 +193,16 @@ export function createLLMSettings(
   tokensInput.value = String(saved.maxTokens || 200);
   tokensInput.min = '50';
   tokensInput.max = '4000';
-  tokensInput.style.cssText = `
-    background: var(--paper-2);
-    border: 1px solid var(--line);
-    border-radius: var(--r-2);
-    padding: 6px 8px;
-    font: 13px var(--f-mono);
-    color: var(--ink);
-  `;
+  tokensInput.className = 'sg-input';
   tokensRow.appendChild(tokensInput);
-  container.appendChild(tokensRow);
 
   // ─── Temperature ──────────────────────────────────────
   const tempRow = document.createElement('div');
-  tempRow.style.display = 'flex';
-  tempRow.style.flexDirection = 'column';
-  tempRow.style.gap = '4px';
+  tempRow.className = 'sg-field';
 
   const tempLabel = document.createElement('div');
+  tempLabel.className = 'sg-field__label';
   tempLabel.textContent = 'Temperature (0-2)';
-  tempLabel.style.fontSize = '12px';
-  tempLabel.style.color = 'var(--ink-2)';
   tempRow.appendChild(tempLabel);
 
   const tempInput = document.createElement('input');
@@ -201,16 +211,18 @@ export function createLLMSettings(
   tempInput.min = '0';
   tempInput.max = '2';
   tempInput.step = '0.1';
-  tempInput.style.cssText = `
-    background: var(--paper-2);
-    border: 1px solid var(--line);
-    border-radius: var(--r-2);
-    padding: 6px 8px;
-    font: 13px var(--f-mono);
-    color: var(--ink);
-  `;
+  tempInput.className = 'sg-input';
   tempRow.appendChild(tempInput);
-  container.appendChild(tempRow);
+
+  // ─── Advanced disclosure ──────────────────────────────
+  const advanced = document.createElement('details');
+  advanced.className = 'sg-advanced';
+  const advSummary = document.createElement('summary');
+  advSummary.textContent = 'Advanced';
+  advanced.appendChild(advSummary);
+  advanced.appendChild(tokensRow);
+  advanced.appendChild(tempRow);
+  container.appendChild(advanced);
 
   // ─── Status ───────────────────────────────────────────
   const status = document.createElement('div');
@@ -271,7 +283,9 @@ export function createLLMSettings(
       config.openaiModel = modelSelect.value;
     } else if (type === 'openrouter') {
       config.openrouterApiKey = keyInput.value;
-      config.openrouterModel = modelSelect.value;
+      config.openrouterModel = modelSelect.value === '__custom__'
+        ? (modelCustom.value.trim() || OPENROUTER_MODELS[0].id)
+        : modelSelect.value;
       config.openrouterModelCapable = capableSelect.value;
     }
 
@@ -329,7 +343,11 @@ export function createLLMSettings(
           'Authorization': `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
-          model: type === 'openai' ? 'gpt-3.5-turbo' : modelSelect.value,
+          model: type === 'openai'
+            ? 'gpt-3.5-turbo'
+            : (modelSelect.value === '__custom__'
+                ? (modelCustom.value.trim() || OPENROUTER_MODELS[0].id)
+                : modelSelect.value),
           messages: [{ role: 'user', content: 'Say "test"' }],
           max_tokens: 10,
         }),
