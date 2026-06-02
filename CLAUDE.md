@@ -17,74 +17,104 @@ A god game inspired by Terry Pratchett's *Small Gods*. The player is a minor dei
 
 > Completed/superseded specs & plans are archived under `docs/archive/` (organized by epic). New design work goes in `docs/superpowers/{specs,plans}/`.
 
-**Current Status:** Spec A (spine), Spec B (Time), Spec C (minimal — clickable time history strip), **Phase 7 (NPC Simulation Layer) + Phase 8 (Divine Action System) shipped**, and **Phase 9 (LLM Integration) partially complete**. 
+**Current Status:** Spec A (spine), Spec B (Time), Spec C (minimal — clickable time history strip), **Phase 7 (NPC Simulation Layer) + Phase 8 (Divine Action System) shipped**, the **Dilemma MVP / Track 1 belief loops**, **D1 (Mortality, Birth & Lineage)**, and **D2 (Deterministic Time-Skip)** all merged to `main`. **Phase 9 (LLM Integration) is largely complete** (client/prompt/writeback live and wired into NPC focus; player-facing provider config, first-run welcome modal, live-apply, and DeepSeek token filter shipped — remaining: capable-tier invocation [Track 4] and a conversation UI). **`game.ts` has been decomposed** from a ~1444-line god object into a thin coordinator (~386 LOC) over `src/game/` modules. **880 tests passing** (as of D2).
 
 **Phase 9 Progress:**
 - ✅ NPC prompt builder (`src/llm/npc-prompt-builder.ts`)
-- ✅ LLM client abstraction (`src/llm/llm-client.ts`)
+- ✅ LLM client abstraction + providers (`src/llm/llm-client.ts`: Mock, OpenAI, OpenRouter)
+- ✅ Provider factory + localStorage config (`src/llm/provider-factory.ts`)
 - ✅ State writeback from LLM responses (`src/llm/state-writeback.ts`)
-- 🟡 Integration with NPC focus/inspector (in progress)
+- ✅ Backfill wired into NPC focus (`src/game/llm-backfill.ts` — `LlmBackfillService`, receives the configured client)
+- ✅ Player-facing provider config + first-run welcome modal + live-apply + DeepSeek delimiter-token filter (`src/ui/{llm-settings-new,settings-unified,welcome-modal}.ts`, `src/llm/filter-provider-tokens.ts`; spec/plan dated 2026-06-02)
+- ⬜ Two-tier "capable model at key moments" invocation — config + `llmClientCapable` seam exist; the caller is Track 4 / Fate
 - ⬜ Conversation UI
 
-Sim is fully deterministic with seedable RNG; snapshot/replay layer supports scrub + commit + re-roll; summoned Time bar UI with past-veil scrubbed treatment, clickable history strip of past commits/whispers above the transport row, and keyboard shortcuts T/Space/1/2/4/8/Esc. `state.paused` retired in favor of `scheduler.getRate()`. `NpcMovementSystem` now consumes the canonical per-tick interval (matches silent replay exactly). 733 tests passing.
+Sim is fully deterministic with seedable RNG; snapshot/replay layer supports scrub + commit + re-roll; summoned Time bar UI with past-veil scrubbed treatment, clickable history strip of past commits/whispers above the transport row, jump-forward presets (+10/+25/+50y), and keyboard shortcuts T/Space/1/2/4/8/Esc. `state.paused` retired in favor of `scheduler.getRate()`. The whole `src/sim/` is `Math.random`-free (guarded by `tests/unit/no-random-in-sim.test.ts`).
 
 **Phase 7 Complete:** NPC simulation layer with tick system, belief propagation, activity state machine, settlement events (8 event types), and event ring buffer.
 
 **Phase 8 Complete:** Divine action system with whisper, omen, dream, miracle, answer prayer. Power economy regenerates from belief × understanding × devotion.
 
+**D1 Complete:** NPCs age, die (convert `npc`→`remains`, never deleted), and reproduce (diluted-faith children). Lineage queries span living + remains. `MortalitySystem` + `BirthSystem` (0.25 Hz, seeded). Closed-form `projectTurnover` bridge for D2.
+
+**D2 Complete:** Deterministic time-skip — `applySkip` (closed-form "jump N years") + one-way commit boundary (`commitSkip`/`SnapshotStore.reset`). Survivors keep frozen belief, no power accrues; the LLM era-authoring half is deferred to Track 4 (Fate).
+
 ## Known gaps & gotchas (code reality)
 
 - **`World` has TWO index layers.** `EntityRegistry` has its own spatial/kind/tile indexes AND `World` (`world.ts`) keeps separate `spatial`/`kindIdx`/`tagIdx`; `query()` uses World's. When mutating `x/y/kind/tags`, call **`World.updateEntity()`** (it syncs both) — never mutate entity position directly.
-- **LLM backfill is stubbed.** `triggerLlmBackfill` hardcodes `MockLLMProvider(100)` (game.ts ~1270) instead of the configured provider. Real wiring is a [ROADMAP](docs/ROADMAP.md) item (= VISION §9 open loop #4).
-- **Time-Debug snapshot/inject are honest stubs** (disabled `makeStubButton()`s). Wiring Save/Load → `TimelineController`/`snapshot.ts` and Inject → settlement events (`world.activeEvents` + `settlement_begin` log) is a ROADMAP item.
+- **LLM backfill uses the configured provider** (`LlmBackfillService`, `src/game/llm-backfill.ts`); `game.ts` builds it via `createProvider(loadProviderConfig())` and passes the real client. The service only falls back to `MockLLMProvider` when constructed with no `client`. (The old "hardcodes MockLLMProvider at game.ts ~1270" gotcha is obsolete — that path is gone post-decomposition.) Saving in the LLM settings now **rebuilds the live client in place** via `Game.applyLlmConfig` → `LlmBackfillService.setClient` (no page reload). `Game.llmClientCapable` is built ready but **uncalled** — a Track-4 / Fate seam.
+- **Time-Debug snapshot/inject are honest stubs** (disabled `makeStubButton()`s in `src/dev/TimeDebugPanel.ts`). Wiring Save/Load → `TimelineController`/`snapshot.ts` and Inject → settlement events (`world.activeEvents` + `settlement_begin` log) is a ROADMAP item.
+- **All `src/sim/` randomness flows through `ctx.rng`/passed `rng` (seeded sfc32), never `Math.random`** — enforced by `tests/unit/no-random-in-sim.test.ts`. New sim code must follow this or the guard test fails.
 
 ## Tech Stack
 
 - **TypeScript** ES modules, bundled by **Vite**
 - **Canvas 2D** top-down colored-rectangle renderer (placeholder art)
 - **WFC** (Wave Function Collapse) procedural map generation
-- **Vitest** for testing (594 tests)
+- **Vitest** for testing (880 tests, 139 files)
 - Embeddable as iframe via `Game` class + postMessage API
+- `@/` path alias → `src/`
 
 ## Architecture
+
+`game.ts` is a thin coordinator (~386 LOC); the work lives in `src/game/` modules and the subsystem dirs.
 
 ```
 src/
   main.ts              — Entry point, mounts Game into #app
-  game.ts              — Game class (embeddable component)
+  game.ts              — Game class: wires subsystems, owns the frame loop (thin)
+
+  game/                — Game coordinator's collaborators (extracted from the old god object)
+    bootstrap-world.ts        — world/map/spirit/NPC bring-up
+    game-ui.ts                — builds & owns all UI panels (HUD, settings, minimap, …)
+    frame-renderer.ts         — per-frame draw orchestration
+    interaction-controller.ts — click/drag/right-click dispatch
+    interaction-state.ts      — transient hover/selection state
+    divine-actions-controller.ts — registers divine action handlers on the dispatcher
+    llm-backfill.ts           — LlmBackfillService (NPC focus → LLM → writeback)
+    dev-mode-controller.ts    — dev panels (incl. Time-Debug); dev-mode-history.ts
+    camera-follow.ts, viewport.ts, render-context.ts
 
   core/
     state.ts           — GameState interface + factory
     types.ts           — All type definitions
     constants.ts       — Tile sizes, colors, POI icons
-    noise.ts           — Seeded RNG + noise functions
+    rng.ts             — Seedable world RNG (sfc32)
+    noise.ts           — noise functions
     schema.ts          — World seed validation + defaults
+    clock.ts, scheduler.ts — sim tick clock + rate-scaled scheduler
+    events.ts          — EventLog (canonical narrative sequence) + SilentEventLog (replay)
+    snapshot.ts        — snapshot capture/restore + SnapshotStore
+    timeline.ts        — TimelineController (scrub/commit/re-roll/commitSkip)
+    calendar.ts        — tick → "Y1 spring · 30/96"; spirit.ts — Spirit type
 
-  map/
-    map-generator.ts   — Map generation (WFC + noise)
-    autotiler.ts       — Semantic-to-visual tile mapping
-    world-manager.ts   — Save/load worlds
+  sim/                 — deterministic simulation (Math.random-free)
+    npc-sim.ts, npc-movement.ts, social-graph.ts, believers.ts, whisper.ts
+    divine-actions.ts, spirit-system.ts, rival-spirit.ts, pathfinding.ts, spawner.ts
+    mortality.ts, turnover.ts, time-skip.ts   — D1 + D2 lifecycle/skip
+    systems/           — registered tick systems (npc-sim, belief-propagation,
+                         activity, movement, settlement-event, mortality, birth, abandonment)
 
-  wfc/
-    index.ts           — Re-exports
-    tile.ts            — Tile definitions + adjacency rules
-    cell.ts            — WFC cell state
-    grid.ts            — WFC grid
-    propagator.ts      — AC-3 constraint propagation
-    solver.ts          — WFC solver with backtracking
-    engine.ts          — 3-phase generation engine
+  world/               — entities-as-world model
+    world.ts, entity-registry.ts, indexes.ts, spatial-hash.ts, entity-kinds.ts
+    npc-helpers.ts, npc-lifecycle.ts (killNpc/birthNpc/materializeSynthChild)
+    seed-world.ts, biome-regions.ts, building-placer.ts, building-collision.ts
+    perception-system.ts, oracle.ts, brushes/
 
-  render/
-    renderer.ts        — Top-down colored-rectangle renderer
-    camera.ts          — Pan/zoom state and transforms
-    minimap.ts         — Minimap rendering
+  llm/                 — npc-prompt-builder.ts, llm-client.ts (Mock/OpenAI/OpenRouter),
+                         provider-factory.ts, state-writeback.ts
 
-  ui/
-    controls.ts        — Mouse/keyboard input handlers
-
-  embed/
-    api.ts             — PostMessage API for iframe host
-    mount.ts           — Mount game into arbitrary DOM container
+  map/                 — map-generator.ts, autotiler.ts, blob-autotiler.ts,
+                         building-templates.ts, poi-zones.ts, world-manager.ts
+  wfc/                 — tile/cell/grid/propagator/solver/engine (3-phase WFC)
+  render/              — renderer, camera, minimap, asset-manager; iso/ + lpc/ subrenderers
+  ui/                  — chrome.ts, tokens.css, controls.ts, overlay-dispatcher.ts,
+                         settings-unified.ts, llm-settings-new.ts, panels/ (time-chip,
+                         time-bar, time-history, …)
+  dev/                 — TimeDebugPanel.ts + dev panel chrome
+  services/            — pixellab.ts (asset gen)
+  terrain/             — terrain helpers
+  embed/               — api.ts (postMessage), mount.ts
 ```
 
 ## Rendering
@@ -118,7 +148,8 @@ await game.generateWorld();
 | Purpose | File |
 |---------|------|
 | Entry point | `src/main.ts` |
-| Game class | `src/game.ts` |
+| Game coordinator (thin) | `src/game.ts` |
+| Game subsystems | `src/game/` (`bootstrap-world`, `game-ui`, `frame-renderer`, `interaction-controller`, `llm-backfill`, `dev-mode-controller`, …) |
 | State management | `src/core/state.ts` |
 | Type definitions | `src/core/types.ts` |
 | Game constants | `src/core/constants.ts` |
@@ -141,9 +172,17 @@ await game.generateWorld();
 | Design tokens (scoped to container) | `src/ui/tokens.css` |
 | Time keyboard shortcuts | `src/ui/controls.ts` (`attachTimeKeys`) |
 | **NPC simulation** | `src/sim/npc-sim.ts`, `src/sim/systems/` |
-| **Divine actions** | `src/sim/divine-actions.ts` |
+| **Divine actions** | `src/sim/divine-actions.ts`, `src/game/divine-actions-controller.ts` |
 | **Spirit system** | `src/sim/spirit-system.ts`, `src/core/spirit.ts` |
 | **NPC helpers** | `src/world/npc-helpers.ts` |
+| **NPC lifecycle (D1/D2)** | `src/world/npc-lifecycle.ts` (`killNpc`/`birthNpc`/`materializeSynthChild`) |
+| **Mortality / turnover / time-skip** | `src/sim/mortality.ts`, `src/sim/turnover.ts`, `src/sim/time-skip.ts` |
+| **LLM client + providers** | `src/llm/llm-client.ts` (Mock/OpenAI/OpenRouter) |
+| **LLM provider config** | `src/llm/provider-factory.ts` (localStorage `small-gods-llm-provider`) |
+| **LLM backfill service** | `src/game/llm-backfill.ts` |
+| **LLM settings UI** | `src/ui/settings-unified.ts`, `src/ui/llm-settings-new.ts` |
+| **Jump-forward (skip) UI** | `src/ui/panels/time-bar.ts` + `commitSkip` in `src/core/timeline.ts` |
+| **Dev / Time-Debug panel** | `src/game/dev-mode-controller.ts`, `src/dev/TimeDebugPanel.ts` |
 
 ## Development
 
@@ -154,10 +193,12 @@ npm test           # Run all tests (vitest)
 npm run test:watch # Watch mode
 ```
 
-## Gameplay Architecture (Phases 7-10, not yet started)
+## Gameplay Architecture
 
-- NPC sim: personality traits, belief per spirit (faith/understanding/devotion), needs (safety/prosperity/community/meaning), social graph, event ring buffer
-- Divine actions: whisper, omen, answer prayer, dream, miracle — each costs belief-power
-- LLM backfill: ~500 token prompt → narrative + JSON state delta, target <200ms via high-speed inference
-- Rival spirits: personality-driven programmatic actions, LLM-narrated when intersecting with player
-- DM agent: background LLM (larger model, infrequent) that manages pacing, plot threads, rival coaching, escalation, and player modeling
+Phases 7–8 shipped; Phase 9 (LLM) is partway; rivals (Track 3) and the DM agent (Track 4 / "Fate") are still ahead — see [ROADMAP.md](docs/ROADMAP.md).
+
+- **NPC sim** (✅): personality traits, belief per spirit (faith/understanding/devotion), needs (safety/prosperity/community/meaning), social graph, event ring buffer, mortality + birth + lineage (D1)
+- **Divine actions** (✅): whisper, omen, answer prayer, dream, miracle — each costs belief-power; understanding gates sign-perception & prayer efficacy (Track 1)
+- **LLM backfill** (🟡): ~500-token prompt → narrative + JSON state delta, target <200 ms; client/providers/writeback live, provider config UI in progress
+- **Rival spirits** (⬜ Track 3): personality-driven programmatic actions, LLM-narrated when intersecting with the player
+- **Fate / DM agent** (⬜ Track 4): background LLM (larger model, infrequent) managing pacing, plot threads, rival coaching, escalation, player modeling — also the LLM era-authoring half of the D2 time-skip loop. The codebase calls this layer **"Fate."**

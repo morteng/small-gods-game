@@ -2,7 +2,7 @@
  * Simplified LLM Settings — supports Mock, OpenAI, and OpenRouter.
  */
 
-import type { ProviderType } from '@/llm/provider-factory';
+import type { ProviderType, ProviderConfig } from '@/llm/provider-factory';
 import { saveProviderConfig, loadProviderConfig, getProviderDisplayName } from '@/llm/provider-factory';
 
 export interface LLMSettingsHandle {
@@ -12,17 +12,20 @@ export interface LLMSettingsHandle {
 }
 
 const OPENROUTER_MODELS = [
-  { id: 'openai/gpt-4o-mini', name: 'GPT-4o Mini (Recommended)' },
-  { id: 'openai/gpt-4o', name: 'GPT-4o (Premium)' },
-  { id: 'anthropic/claude-3-haiku', name: 'Claude 3 Haiku (Fast)' },
-  { id: 'anthropic/claude-3-sonnet', name: 'Claude 3 Sonnet (Balanced)' },
-  { id: 'deepseek/deepseek-chat', name: 'DeepSeek V3 (Cheap)' },
-  { id: 'deepseek/deepseek-r1', name: 'DeepSeek R1 (Reasoning)' },
-  { id: 'google/gemini-flash-1.5', name: 'Gemini Flash 1.5 (Free)' },
-  { id: 'google/gemini-pro-1.5', name: 'Gemini Pro 1.5 (Large Context)' },
+  { id: 'google/gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash-Lite (Recommended)' },
+  { id: 'deepseek/deepseek-v4-flash', name: 'DeepSeek V4 Flash (cheapest)' },
+  { id: 'google/gemini-2.5-flash', name: 'Gemini 2.5 Flash' },
 ];
 
-export function createLLMSettings(): LLMSettingsHandle {
+const OPENROUTER_CAPABLE_MODELS = [
+  { id: 'anthropic/claude-sonnet-4.6', name: 'Claude Sonnet 4.6 (Recommended)' },
+  { id: 'deepseek/deepseek-v4-pro', name: 'DeepSeek V4 Pro (cheap)' },
+  { id: 'google/gemini-2.5-pro', name: 'Gemini 2.5 Pro (large context)' },
+];
+
+export function createLLMSettings(
+  opts: { onSave?: (config: ProviderConfig) => void } = {},
+): LLMSettingsHandle {
   const container = document.createElement('div');
   container.className = 'sg-llm-settings';
   container.style.display = 'flex';
@@ -34,26 +37,15 @@ export function createLLMSettings(): LLMSettingsHandle {
 
   // ─── Provider Select ───────────────────────────────────
   const providerRow = document.createElement('div');
-  providerRow.style.display = 'flex';
-  providerRow.style.flexDirection = 'column';
-  providerRow.style.gap = '4px';
+  providerRow.className = 'sg-field';
 
   const providerLabel = document.createElement('div');
+  providerLabel.className = 'sg-field__label';
   providerLabel.textContent = 'Provider';
-  providerLabel.style.fontSize = '12px';
-  providerLabel.style.color = 'var(--ink-2)';
   providerRow.appendChild(providerLabel);
 
   const providerSelect = document.createElement('select');
-  providerSelect.style.cssText = `
-    background: var(--paper-2);
-    border: 1px solid var(--line);
-    border-radius: var(--r-2);
-    padding: 6px 8px;
-    font: 13px var(--f-mono);
-    color: var(--ink);
-    cursor: pointer;
-  `;
+  providerSelect.className = 'sg-select';
 
   const providers: ProviderType[] = ['mock', 'openai', 'openrouter'];
   for (const p of providers) {
@@ -66,30 +58,37 @@ export function createLLMSettings(): LLMSettingsHandle {
   providerRow.appendChild(providerSelect);
   container.appendChild(providerRow);
 
+  // ─── API Key Input ────────────────────────────────────
+  const keyRow = document.createElement('div');
+  keyRow.id = 'sg-llm-key-row';
+  keyRow.className = 'sg-field';
+
+  const keyLabel = document.createElement('div');
+  keyLabel.className = 'sg-field__label';
+  keyLabel.textContent = 'API Key';
+  keyRow.appendChild(keyLabel);
+
+  const keyInput = document.createElement('input');
+  keyInput.type = 'password';
+  keyInput.className = 'sg-input';
+  keyInput.placeholder = provider === 'openai' ? 'sk-...' : 'sk-or-...';
+  keyInput.value = saved.openrouterApiKey || saved.openaiApiKey || '';
+  keyRow.appendChild(keyInput);
+  container.appendChild(keyRow);
+
   // ─── Model Select (for OpenRouter) ───────────────────
   const modelRow = document.createElement('div');
   modelRow.id = 'sg-llm-model-row';
-  modelRow.style.display = 'flex';
-  modelRow.style.flexDirection = 'column';
-  modelRow.style.gap = '4px';
+  modelRow.className = 'sg-field';
 
   const modelLabel = document.createElement('div');
+  modelLabel.className = 'sg-field__label';
   modelLabel.textContent = 'Model';
-  modelLabel.style.fontSize = '12px';
-  modelLabel.style.color = 'var(--ink-2)';
   modelRow.appendChild(modelLabel);
 
   const modelSelect = document.createElement('select');
   modelSelect.id = 'sg-llm-model-select';
-  modelSelect.style.cssText = `
-    background: var(--paper-2);
-    border: 1px solid var(--line);
-    border-radius: var(--r-2);
-    padding: 6px 8px;
-    font: 13px var(--f-mono);
-    color: var(--ink);
-    cursor: pointer;
-  `;
+  modelSelect.className = 'sg-select';
 
   for (const m of OPENROUTER_MODELS) {
     const opt = document.createElement('option');
@@ -98,47 +97,63 @@ export function createLLMSettings(): LLMSettingsHandle {
     if (m.id === saved.openrouterModel) opt.selected = true;
     modelSelect.appendChild(opt);
   }
+
+  const customModelOpt = document.createElement('option');
+  customModelOpt.value = '__custom__';
+  customModelOpt.textContent = 'Custom model ID…';
+  modelSelect.appendChild(customModelOpt);
+
   modelRow.appendChild(modelSelect);
+
+  const modelCustom = document.createElement('input');
+  modelCustom.id = 'sg-llm-model-custom';
+  modelCustom.type = 'text';
+  modelCustom.placeholder = 'provider/model-id';
+  modelCustom.className = 'sg-input';
+  modelCustom.style.display = 'none';
+  // Pre-fill custom if the saved model isn't in the curated list.
+  if (saved.openrouterModel && !OPENROUTER_MODELS.some(m => m.id === saved.openrouterModel)) {
+    modelSelect.value = '__custom__';
+    modelCustom.value = saved.openrouterModel;
+    modelCustom.style.display = '';
+  }
+  modelSelect.addEventListener('change', () => {
+    modelCustom.style.display = modelSelect.value === '__custom__' ? '' : 'none';
+  });
+  modelRow.appendChild(modelCustom);
+
   container.appendChild(modelRow);
 
-  // ─── API Key Input ────────────────────────────────────
-  const keyRow = document.createElement('div');
-  keyRow.id = 'sg-llm-key-row';
-  keyRow.style.display = 'flex';
-  keyRow.style.flexDirection = 'column';
-  keyRow.style.gap = '4px';
+  // ─── Capable Model Select (for OpenRouter, key moments) ───
+  const capableRow = document.createElement('div');
+  capableRow.id = 'sg-llm-capable-row';
+  capableRow.className = 'sg-field';
 
-  const keyLabel = document.createElement('div');
-  keyLabel.textContent = 'API Key';
-  keyLabel.style.fontSize = '12px';
-  keyLabel.style.color = 'var(--ink-2)';
-  keyRow.appendChild(keyLabel);
+  const capableLabel = document.createElement('div');
+  capableLabel.className = 'sg-field__label';
+  capableLabel.textContent = 'Capable model (key moments)';
+  capableRow.appendChild(capableLabel);
 
-  const keyInput = document.createElement('input');
-  keyInput.type = 'password';
-  keyInput.placeholder = provider === 'openai' ? 'sk-...' : 'sk-or-...';
-  keyInput.value = saved.openrouterApiKey || saved.openaiApiKey || '';
-  keyInput.style.cssText = `
-    background: var(--paper-2);
-    border: 1px solid var(--line);
-    border-radius: var(--r-2);
-    padding: 6px 8px;
-    font: 13px var(--f-mono);
-    color: var(--ink);
-  `;
-  keyRow.appendChild(keyInput);
-  container.appendChild(keyRow);
+  const capableSelect = document.createElement('select');
+  capableSelect.id = 'sg-llm-capable-select';
+  capableSelect.className = 'sg-select';
+  for (const m of OPENROUTER_CAPABLE_MODELS) {
+    const opt = document.createElement('option');
+    opt.value = m.id;
+    opt.textContent = m.name;
+    if (m.id === saved.openrouterModelCapable) opt.selected = true;
+    capableSelect.appendChild(opt);
+  }
+  capableRow.appendChild(capableSelect);
+  container.appendChild(capableRow);
 
   // ─── Max Tokens ──────────────────────────────────────
   const tokensRow = document.createElement('div');
-  tokensRow.style.display = 'flex';
-  tokensRow.style.flexDirection = 'column';
-  tokensRow.style.gap = '4px';
+  tokensRow.className = 'sg-field';
 
   const tokensLabel = document.createElement('div');
+  tokensLabel.className = 'sg-field__label';
   tokensLabel.textContent = 'Max Tokens';
-  tokensLabel.style.fontSize = '12px';
-  tokensLabel.style.color = 'var(--ink-2)';
   tokensRow.appendChild(tokensLabel);
 
   const tokensInput = document.createElement('input');
@@ -146,27 +161,16 @@ export function createLLMSettings(): LLMSettingsHandle {
   tokensInput.value = String(saved.maxTokens || 200);
   tokensInput.min = '50';
   tokensInput.max = '4000';
-  tokensInput.style.cssText = `
-    background: var(--paper-2);
-    border: 1px solid var(--line);
-    border-radius: var(--r-2);
-    padding: 6px 8px;
-    font: 13px var(--f-mono);
-    color: var(--ink);
-  `;
+  tokensInput.className = 'sg-input';
   tokensRow.appendChild(tokensInput);
-  container.appendChild(tokensRow);
 
   // ─── Temperature ──────────────────────────────────────
   const tempRow = document.createElement('div');
-  tempRow.style.display = 'flex';
-  tempRow.style.flexDirection = 'column';
-  tempRow.style.gap = '4px';
+  tempRow.className = 'sg-field';
 
   const tempLabel = document.createElement('div');
+  tempLabel.className = 'sg-field__label';
   tempLabel.textContent = 'Temperature (0-2)';
-  tempLabel.style.fontSize = '12px';
-  tempLabel.style.color = 'var(--ink-2)';
   tempRow.appendChild(tempLabel);
 
   const tempInput = document.createElement('input');
@@ -175,26 +179,23 @@ export function createLLMSettings(): LLMSettingsHandle {
   tempInput.min = '0';
   tempInput.max = '2';
   tempInput.step = '0.1';
-  tempInput.style.cssText = `
-    background: var(--paper-2);
-    border: 1px solid var(--line);
-    border-radius: var(--r-2);
-    padding: 6px 8px;
-    font: 13px var(--f-mono);
-    color: var(--ink);
-  `;
+  tempInput.className = 'sg-input';
   tempRow.appendChild(tempInput);
-  container.appendChild(tempRow);
+
+  // ─── Advanced disclosure ──────────────────────────────
+  const advanced = document.createElement('details');
+  advanced.className = 'sg-advanced';
+  const advSummary = document.createElement('summary');
+  advSummary.textContent = 'Advanced';
+  advanced.appendChild(advSummary);
+  advanced.appendChild(tokensRow);
+  advanced.appendChild(tempRow);
+  container.appendChild(advanced);
 
   // ─── Status ───────────────────────────────────────────
   const status = document.createElement('div');
-  status.style.cssText = `
-    font-size: 11px;
-    padding: 6px 8px;
-    border-radius: var(--r-2);
-    font-family: var(--f-mono);
-    display: none;
-  `;
+  status.className = 'sg-form-status';
+  status.style.display = 'none';
   container.appendChild(status);
 
   // ─── Toggle visibility based on provider ─────────────
@@ -205,14 +206,19 @@ export function createLLMSettings(): LLMSettingsHandle {
 
     (keyRow as HTMLElement).style.display = showKey ? '' : 'none';
     (modelRow as HTMLElement).style.display = showModel ? '' : 'none';
+    (capableRow as HTMLElement).style.display = showModel ? '' : 'none';
 
     keyInput.placeholder = p === 'openai' ? 'sk-...' : 'sk-or-...';
   }
 
-  providerSelect.addEventListener('change', updateVisibility);
+  providerSelect.addEventListener('change', () => {
+    // Reset any key error styling on provider change
+    keyInput.style.borderColor = '';
+    updateVisibility();
+  });
   updateVisibility();
 
-  // ─── Save Button ──────────────────────────────────────
+  // ─── Actions ──────────────────────────────────────────
   const actions = document.createElement('div');
   actions.style.display = 'flex';
   actions.style.gap = '8px';
@@ -221,18 +227,23 @@ export function createLLMSettings(): LLMSettingsHandle {
 
   const saveBtn = document.createElement('button');
   saveBtn.textContent = 'Save';
-  saveBtn.style.cssText = `
-    background: var(--you);
-    color: white;
-    border: none;
-    border-radius: var(--r-2);
-    padding: 6px 12px;
-    font-size: 13px;
-    font-weight: 500;
-    cursor: pointer;
-  `;
+  saveBtn.className = 'sg-btn sg-btn--primary';
   saveBtn.addEventListener('click', () => {
     const type = providerSelect.value as ProviderType;
+
+    // Blank-key guard: non-mock providers require an API key
+    if (type !== 'mock' && !keyInput.value.trim()) {
+      keyInput.style.borderColor = 'var(--danger)';
+      keyInput.focus();
+      status.className = 'sg-form-status sg-form-status--err';
+      status.textContent = 'An API key is required for this provider.';
+      status.style.display = 'block';
+      return;
+    }
+
+    // Reset any previous error styling on the key input
+    keyInput.style.borderColor = '';
+
     const config: Record<string, unknown> = {
       type,
       maxTokens: parseInt(tokensInput.value) || 200,
@@ -244,48 +255,35 @@ export function createLLMSettings(): LLMSettingsHandle {
       config.openaiModel = modelSelect.value;
     } else if (type === 'openrouter') {
       config.openrouterApiKey = keyInput.value;
-      config.openrouterModel = modelSelect.value;
+      config.openrouterModel = modelSelect.value === '__custom__'
+        ? (modelCustom.value.trim() || OPENROUTER_MODELS[0].id)
+        : modelSelect.value;
+      config.openrouterModelCapable = capableSelect.value;
     }
 
     saveProviderConfig(config as any);
+    opts.onSave?.(config as unknown as ProviderConfig);
+    status.className = 'sg-form-status sg-form-status--ok';
     status.textContent = 'Settings saved!';
-    status.style.cssText += `
-      display: block;
-      background: oklch(0.55 0.13 85 / 0.15);
-      color: var(--faith);
-    `;
+    status.style.display = 'block';
   });
   actions.appendChild(saveBtn);
 
   const testBtn = document.createElement('button');
   testBtn.textContent = 'Test';
-  testBtn.style.cssText = `
-    background: var(--paper-2);
-    border: 1px solid var(--line);
-    border-radius: var(--r-2);
-    padding: 6px 12px;
-    font-size: 13px;
-    color: var(--ink-2);
-    cursor: pointer;
-  `;
+  testBtn.className = 'sg-btn sg-btn--ghost';
   testBtn.addEventListener('click', async () => {
     const type = providerSelect.value as ProviderType;
     if (type === 'mock') {
+      status.className = 'sg-form-status sg-form-status--info';
       status.textContent = 'Mock provider active — no API key needed.';
-      status.style.cssText += `
-        display: block;
-        background: oklch(0.55 0.09 225 / 0.12);
-        color: var(--time);
-      `;
+      status.style.display = 'block';
       return;
     }
 
+    status.className = 'sg-form-status sg-form-status--info';
     status.textContent = 'Testing...';
-    status.style.cssText += `
-      display: block;
-      background: oklch(0.55 0.09 225 / 0.12);
-      color: var(--time);
-    `;
+    status.style.display = 'block';
 
     try {
       const apiKey = keyInput.value;
@@ -300,35 +298,30 @@ export function createLLMSettings(): LLMSettingsHandle {
           'Authorization': `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
-          model: type === 'openai' ? 'gpt-3.5-turbo' : modelSelect.value,
+          model: type === 'openai'
+            ? 'gpt-3.5-turbo'
+            : (modelSelect.value === '__custom__'
+                ? (modelCustom.value.trim() || OPENROUTER_MODELS[0].id)
+                : modelSelect.value),
           messages: [{ role: 'user', content: 'Say "test"' }],
           max_tokens: 10,
         }),
       });
 
       if (resp.ok) {
+        status.className = 'sg-form-status sg-form-status--ok';
         status.textContent = 'Connection successful!';
-        status.style.cssText += `
-          display: block;
-          background: oklch(0.55 0.13 85 / 0.15);
-          color: var(--faith);
-        `;
+        status.style.display = 'block';
       } else {
         const err = await resp.text();
+        status.className = 'sg-form-status sg-form-status--err';
         status.textContent = `Error: ${resp.status} ${err.substring(0, 100)}`;
-        status.style.cssText += `
-          display: block;
-          background: oklch(0.52 0.16 30 / 0.15);
-          color: var(--danger);
-        `;
+        status.style.display = 'block';
       }
     } catch (err) {
+      status.className = 'sg-form-status sg-form-status--err';
       status.textContent = `Error: ${(err as Error).message}`;
-      status.style.cssText += `
-        display: block;
-        background: oklch(0.52 0.16 30 / 0.15);
-        color: var(--danger);
-      `;
+      status.style.display = 'block';
     }
   });
   actions.appendChild(testBtn);

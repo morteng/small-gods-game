@@ -8,6 +8,8 @@
  * This interface allows swapping providers (local, cloud, mock for tests).
  */
 
+import { filterProviderTokens } from './filter-provider-tokens';
+
 export interface LLMMessage {
   role: 'system' | 'user' | 'assistant';
   content: string;
@@ -314,7 +316,7 @@ export class OpenRouterProvider implements LLMProvider {
         }
 
         const data = await resp.json();
-        const content = data.choices?.[0]?.message?.content ?? '';
+        const content = filterProviderTokens(data.choices?.[0]?.message?.content ?? '');
 
         let parsed: Record<string, unknown> | undefined;
         try {

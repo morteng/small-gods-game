@@ -3,13 +3,13 @@
  * Uses tabs to organize different setting categories.
  */
 
-import type { OpenAIConfig } from '@/llm/llm-client';
+import type { ProviderConfig } from '@/llm/provider-factory';
 import { clearApiKey, fetchBalance, saveApiKey, loadApiKey } from '@/services/pixellab';
 import { createLLMSettings, type LLMSettingsHandle } from './llm-settings-new';
 
 export interface SettingsOptions {
   onClose?: () => void;
-  onLLMConfigChange?: (config: OpenAIConfig) => void;
+  onLLMConfigChange?: (config: ProviderConfig) => void;
   onGameSettingChange?: (key: string, value: unknown) => void;
 }
 
@@ -18,7 +18,7 @@ export interface SettingsHandle {
   hide(): void;
   toggle(): void;
   isVisible(): boolean;
-  updateLLMConfig(config: OpenAIConfig): void;
+  updateLLMConfig(config: ProviderConfig): void;
   updateGameSetting(key: string, value: unknown): void;
   destroy(): void;
 }
@@ -142,11 +142,11 @@ export function createSettingsPanel(
   }
 
   const overlay = document.createElement('div');
-  overlay.className = 'sg-settings-overlay';
+  overlay.className = 'sg-settings-overlay sg-modal-overlay';
   overlay.style.display = 'none';
 
   const modal = document.createElement('div');
-  modal.className = 'sg-settings-modal';
+  modal.className = 'sg-settings-modal sg-modal';
 
   // Header
   const header = document.createElement('div');
@@ -217,7 +217,7 @@ export function createSettingsPanel(
   llmTab.style.display = 'none';
   llmTab.dataset.tab = 'llm';
 
-  const llmSettings = createLLMSettings();
+  const llmSettings = createLLMSettings({ onSave: (c) => opts.onLLMConfigChange?.(c) });
   llmTab.appendChild(llmSettings.element);
   content.appendChild(llmTab);
 
@@ -268,7 +268,7 @@ export function createSettingsPanel(
     hide,
     toggle,
     isVisible,
-    updateLLMConfig(_config: OpenAIConfig) {
+    updateLLMConfig(_config: ProviderConfig) {
       // Update LLM config fields
     },
     updateGameSetting(_key: string, _value: unknown): void {

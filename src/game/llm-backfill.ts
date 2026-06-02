@@ -39,6 +39,10 @@ export class LlmBackfillService {
     this.client = deps.client ?? new LLMClient(new MockLLMProvider(100));
   }
 
+  setClient(client: LLMClient): void {
+    this.client = client;
+  }
+
   async trigger(npcEntity: Entity): Promise<void> {
     const { state, llmDisplay } = this.deps;
     if (!state.world) return;

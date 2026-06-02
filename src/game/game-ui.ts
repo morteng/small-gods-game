@@ -10,6 +10,7 @@ import {
   createDecorationPlacementModal,
   type DecorationPlacementModalHandle,
 } from '@/ui/decoration-placement-modal';
+import type { ProviderConfig } from '@/llm/provider-factory';
 
 export interface GameUiCallbacks {
   onStart: () => void;
@@ -17,6 +18,7 @@ export interface GameUiCallbacks {
   onTargetNpc: (npcId: string) => void;
   onClickMinimapTile: (x: number, y: number) => void;
   onGameSettingChange: (key: string, value: unknown) => void;
+  onLLMConfigChange: (config: ProviderConfig) => void;
 }
 
 /**
@@ -92,10 +94,7 @@ export class GameUi {
     // ── Unified Settings (replaces old settings) ────────────
     this.unifiedSettings = createUnifiedSettings(container, {
       onClose: () => { /* handle close */ },
-      onLLMConfigChange: (config) => {
-        // Update LLM client config
-        console.log('[settings] LLM config changed:', config);
-      },
+      onLLMConfigChange: (config) => cb.onLLMConfigChange(config),
       onGameSettingChange: (key, value) => cb.onGameSettingChange(key, value),
     });
 
@@ -142,11 +141,8 @@ export class GameUi {
     // LLM settings button
     this.llmSettingsBtn = document.createElement('button');
     this.llmSettingsBtn.textContent = '⚙ LLM';
-    this.llmSettingsBtn.style.cssText = [
-      'position:absolute', 'bottom:8px', 'left:8px',
-      'background:rgba(10,10,20,0.75)', 'color:#9ea0aa', 'border:none',
-      'cursor:pointer', 'z-index:10',
-    ].join(';');
+    this.llmSettingsBtn.className = 'sg-btn sg-btn--ghost';
+    this.llmSettingsBtn.style.cssText = 'position:absolute;bottom:8px;left:8px;z-index:10;';
     this.llmSettingsBtn.addEventListener('click', () => {
       this.unifiedSettings.toggle();
     });
