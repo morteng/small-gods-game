@@ -16,6 +16,14 @@ import { buildRenderContext } from './render-context';
 import { applyUndo, applyRedo } from './dev-mode-history';
 import { TILE_SIZE } from '@/core/constants';
 
+/**
+ * Dedicated stacking band for dev-mode UI. Sits above all normal game chrome
+ * (HUD ~20, settings ~30, menu ~50, tutorial ~100) but below the intentional
+ * top-most modals (LLM display 900, entity-spawner 1000) so dev panels never
+ * render under the game UI they're meant to inspect.
+ */
+const DEV_UI_Z = 600;
+
 export interface DevModeControllerDeps {
   container: HTMLElement;
   state: GameState;
@@ -85,6 +93,19 @@ export class DevModeController {
       cam.x = x * TILE_SIZE - vp.width / 2;
       cam.y = y * TILE_SIZE - vp.height / 2;
     });
+
+    // Lift all dev UI into its dedicated band so it never renders under game UI.
+    // (The entity-spawner is a separate full-screen modal that owns z 1000.)
+    this.btn.style.zIndex = String(DEV_UI_Z);
+    for (const handle of [
+      this.inspector,
+      this.debugOverlay,
+      this.timeDebug,
+      this.mapEditor,
+      this.worldInspector,
+    ]) {
+      handle.element.style.zIndex = String(DEV_UI_Z);
+    }
 
     this.attachKeyboard();
   }

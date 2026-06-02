@@ -137,8 +137,23 @@ export function addPanelChrome(
 
   document.addEventListener('mousemove', (e) => {
     if (!dragging) return;
-    panel.style.left = `${e.clientX - dragOffsetX}px`;
-    panel.style.top = `${e.clientY - dragOffsetY}px`;
+    // The panel is absolutely positioned within its offsetParent (the game
+    // container), which is generally not at the viewport origin. Convert the
+    // desired viewport position into offsetParent-relative coordinates so the
+    // panel tracks the cursor instead of jumping by the container's offset.
+    const parent = panel.offsetParent as HTMLElement | null;
+    let originX = 0;
+    let originY = 0;
+    if (parent) {
+      const pr = parent.getBoundingClientRect();
+      originX = pr.left + parent.clientLeft;
+      originY = pr.top + parent.clientTop;
+    }
+    // Panels may be anchored via `right`/`bottom`; clear them so left/top win.
+    panel.style.right = 'auto';
+    panel.style.bottom = 'auto';
+    panel.style.left = `${e.clientX - dragOffsetX - originX}px`;
+    panel.style.top = `${e.clientY - dragOffsetY - originY}px`;
   });
 
   document.addEventListener('mouseup', () => {
