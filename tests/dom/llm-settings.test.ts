@@ -74,3 +74,17 @@ describe('createLLMSettings — custom model + advanced', () => {
     handle.destroy();
   });
 });
+
+describe('createLLMSettings — blank key guard', () => {
+  it('does not save or fire onSave when openrouter is chosen with a blank key', () => {
+    const onSave = vi.fn();
+    const handle = createLLMSettings({ onSave });
+    document.body.appendChild(handle.element);
+    selectProvider(handle.element, 'openrouter');
+    // leave key blank
+    ([...handle.element.querySelectorAll('button')].find(b => b.textContent === 'Save') as HTMLButtonElement).click();
+    expect(onSave).not.toHaveBeenCalled();
+    expect(localStorage.getItem('small-gods-llm-provider')).toBeNull();
+    handle.destroy();
+  });
+});

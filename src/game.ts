@@ -108,7 +108,13 @@ export class Game {
 
     // ── LLM Client (uses provider factory) ──────────
     const providerConfig = loadProviderConfig();
-    const provider = createProvider(providerConfig);
+    let provider;
+    try {
+      provider = createProvider(providerConfig);
+    } catch (err) {
+      console.warn('[llm] stored provider config invalid, falling back to mock:', err);
+      provider = createProvider({ type: 'mock' });
+    }
     this.llmClient = new LLMClient(provider);
     this.canvas = document.createElement('canvas');
     this.canvas.style.width = '100%';
