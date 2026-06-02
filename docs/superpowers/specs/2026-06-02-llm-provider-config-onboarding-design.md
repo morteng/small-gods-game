@@ -57,6 +57,17 @@ Out of scope (deferred): actually *calling* the capable model (Track 4 / Fate); 
 
 ## Design
 
+### 0. Dialog UX principles (both the welcome modal and the settings tab)
+
+The dialogs must read as **clean, simple, and straightforward**. Concrete rules:
+
+- **One column, one clear primary action.** Fields stack vertically with generous spacing; the primary button (Begin / Save) is visually dominant (filled, accent), everything else is quiet (text/ghost button or link).
+- **Show only what the common path needs.** The default-visible fields are: provider (settings only), API key, fast model, and — for OpenRouter — capable model. Everything advanced is hidden by default.
+- **`maxTokens` and `temperature` move behind an "Advanced" disclosure** (a collapsed `<details>`-style toggle, closed by default). The welcome modal never shows them at all.
+- **Quiet helper affordances:** a small "Get a key ↗" link beside the key field (→ `https://openrouter.ai/keys`); a one-line status area that only appears after Save/Test.
+- **No decoration, no icons beyond the existing `⚙`/`✕`.** Labels are short nouns ("API key", "Model", "Capable model"). Reuse `tokens.css` variables; no new color invented.
+- The welcome modal is the minimal case: title, one line of copy, key, model, two buttons. Nothing else.
+
 ### 1. Config shape (`provider-factory.ts`)
 
 Add one optional field to `ProviderConfig`:
@@ -73,6 +84,7 @@ openrouterModelCapable?: string;   // Tier-2 "key moments" model
 - Add a second dropdown, **Capable model (key moments)**, populated from the **capable-tier** list; bound to `openrouterModelCapable`; default `anthropic/claude-sonnet-4.6`. Visible only when provider is OpenRouter (same `updateVisibility` rule as the model row).
 - Each dropdown gets a trailing `Custom model ID…` option. Selecting it reveals a sibling text input; its value overrides the dropdown when non-empty. On load, if the saved model isn't in the list, the custom field is pre-filled and the dropdown set to custom.
 - The DeepSeek fast option's label notes it needs no extra setup (the filter is automatic): `DeepSeek V4 Flash (cheapest)`.
+- Per §0, move `maxTokens` and `temperature` into a collapsed **"Advanced"** disclosure (closed by default). The visible form is just: Provider → API key (+ "Get a key ↗" link) → Model → Capable model → Save / Test.
 
 ### 3. Live-apply via save callback
 
