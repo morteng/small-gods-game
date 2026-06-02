@@ -12,7 +12,7 @@ export interface TimeHistoryHandle {
 
 const MAX_CHIPS = 50;
 
-type ChipType = 'timeline_commit' | 'whisper' | 'answer_prayer' | 'dream' | 'believer_lost';
+type ChipType = 'timeline_commit' | 'whisper' | 'answer_prayer' | 'dream' | 'believer_lost' | 'era_skipped';
 
 interface ChipEntry {
   tick: number;
@@ -29,6 +29,7 @@ const CHIP_LABELS: Record<ChipType, { icon: string; label: string }> = {
   answer_prayer:   { icon: '🙏', label: 'answered' },
   dream:           { icon: '🌙', label: 'deepened' },
   believer_lost:   { icon: '✗', label: 'turned away' },
+  era_skipped:     { icon: '⏭', label: 'era skipped' },
 };
 
 export function mountTimeHistory(container: HTMLElement, deps: TimeHistoryDeps): TimeHistoryHandle {
@@ -50,8 +51,14 @@ export function mountTimeHistory(container: HTMLElement, deps: TimeHistoryDeps):
     el.setAttribute('role', 'listitem');
     el.dataset.tick = String(ev.t);
     el.dataset.kind = t;
-    el.textContent = icon + ' ' + label + ' ' + ev.t;
-    el.title = label + ' at tick ' + ev.t + ' — click to scrub';
+    if (t === 'era_skipped' && ev.event.type === 'era_skipped') {
+      const yrs = ev.event.years;
+      el.textContent = `${icon} +${yrs}y`;
+      el.title = `era skipped ${yrs} years — committed at tick ${ev.t}`;
+    } else {
+      el.textContent = icon + ' ' + label + ' ' + ev.t;
+      el.title = label + ' at tick ' + ev.t + ' — click to scrub';
+    }
     el.addEventListener('click', () => deps.timeline.jumpTo(ev.t));
     return { tick: ev.t, type: t as ChipType, el };
   }

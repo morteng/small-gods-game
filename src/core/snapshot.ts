@@ -105,6 +105,12 @@ export class SnapshotStore {
     this.buf = this.buf.filter(s => s.tick <= tick);
   }
 
+  /** Empty the ring buffer. Used when a time-skip rebaselines the timeline so the
+   *  pre-skip span (which has no recorded ticks) can never be scrubbed into. */
+  reset(): void {
+    this.buf = [];
+  }
+
   list(): readonly Snapshot[] { return this.buf; }
 
   size(): number { return this.buf.length; }

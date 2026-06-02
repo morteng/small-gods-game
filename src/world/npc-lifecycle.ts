@@ -2,7 +2,8 @@ import type { Entity, NpcRole, SpiritBelief } from '@/core/types';
 import type { World } from '@/world/world';
 import type { EventLog } from '@/core/events';
 import type { Rng } from '@/core/rng';
-import { initNpcProps, npcProps, REMAINS_KIND } from '@/world/npc-helpers';
+import type { SynthChild } from '@/sim/turnover';
+import { initNpcProps, npcProps, queryNpcs, NPC_KIND, REMAINS_KIND } from '@/world/npc-helpers';
 
 /** Child faith = this fraction of the parents' average faith (generational dilution). */
 export const INHERIT_FAITH_FRAC = 0.4;
@@ -90,6 +91,43 @@ export function birthNpc(
     id, kind: 'npc', x: parents[0].x, y: parents[0].y,
     properties: props as unknown as Record<string, unknown>,
   });
+  log.append({ type: 'npc_birth', npcId: id, parentIds: props.parentIds, lineageId: props.lineageId });
+  return world.registry.get(id)!;
+}
+
+/**
+ * Materialize a projected `SynthChild` (from `projectTurnover`) into a real living
+ * NPC. Belief, lineage, and parent ids come from the projection — NOT from
+ * re-reading parent entities, which may be remains or may never have existed as
+ * entities (a synth grandchild's parents were themselves projected). Personality
+ * and name are freshly seeded via `rng` (baseline: not blended). The child is
+ * placed on a co-located living resident's tile when one exists, else the origin.
+ * All randomness flows through `rng` so a time-skip reproduces under replay.
+ */
+export function materializeSynthChild(
+  world: World, child: SynthChild, birthTick: number, rng: Rng, log: EventLog,
+): Entity {
+  const props = initNpcProps(rng.pick(NEWBORN_NAMES), 'child', rng.nextInt(0x7fffffff));
+  props.beliefs = structuredClone(child.beliefs);
+  props.lineageId = child.lineageId;
+  props.parentIds = [...child.parentIds];
+  props.birthTick = birthTick;
+  props.homePoiId = child.homePoiId;
+
+  // Borrow a co-located living resident's tile for placement (baseline).
+  const sibling = child.homePoiId
+    ? queryNpcs(world).find(e => npcProps(e).homePoiId === child.homePoiId)
+    : undefined;
+  const x = sibling ? sibling.x : 0;
+  const y = sibling ? sibling.y : 0;
+  props.homeX = x;
+  props.homeY = y;
+
+  // Deterministic, collision-guarded id (mirrors birthNpc).
+  let id = '';
+  do { id = `npc-b${birthTick}-${rng.nextInt(0x7fffffff)}`; } while (world.registry.get(id));
+
+  world.addEntity({ id, kind: NPC_KIND, x, y, properties: props as unknown as Record<string, unknown> });
   log.append({ type: 'npc_birth', npcId: id, parentIds: props.parentIds, lineageId: props.lineageId });
   return world.registry.get(id)!;
 }

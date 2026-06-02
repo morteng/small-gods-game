@@ -19,6 +19,7 @@ export type SimEvent =
   | { type: 'npc_death';          npcId: EntityId; lineageId: EntityId; cause: string }
   | { type: 'npc_birth';          npcId: EntityId; parentIds: EntityId[]; lineageId: EntityId }
   | { type: 'timeline_commit';    parentTick: number; rerolled: boolean }
+  | { type: 'era_skipped';        fromTick: number; toTick: number; years: number; deaths: number; births: number; believersBefore: number; believersAfter: number }
   | { type: 'belief_cross';       npcId: EntityId; spiritId: SpiritId; kind: 'high' | 'low'; faith: number }
   | { type: 'mood_cross';         npcId: EntityId; kind: 'high' | 'low'; mood: number }
   | { type: 'power_depleted';     spiritId: SpiritId }

@@ -6,8 +6,10 @@ import { createRng } from '@/core/rng';
 import { initNpcProps, npcProps, queryNpcs, REMAINS_KIND } from '@/world/npc-helpers';
 import {
   killNpc, birthNpc, INHERIT_FAITH_FRAC, INHERIT_UNDERSTANDING_FRAC,
+  materializeSynthChild,
 } from '@/world/npc-lifecycle';
 import type { GameMap, Entity } from '@/core/types';
+import type { SynthChild } from '@/sim/turnover';
 
 function emptyMap(): GameMap {
   return { tiles: [], width: 32, height: 32, villages: [], seed: 1, success: true,
@@ -97,5 +99,49 @@ describe('birthNpc', () => {
     const ids = new Set<string>();
     for (let i = 0; i < 20; i++) ids.add(birthNpc(world, [a, b], 1000 + i, rng, log).id);
     expect(ids.size).toBe(20);
+  });
+});
+
+describe('materializeSynthChild', () => {
+  function world1Resident(): { world: World; log: EventLog } {
+    const world = new World(emptyMap());
+    const p = initNpcProps('resident', 'farmer', 11);
+    p.homePoiId = 'village';
+    world.addEntity({ id: 'resident', kind: 'npc', x: 7, y: 9, properties: p as unknown as Record<string, unknown> });
+    const log = new EventLog(new SimClock());
+    return { world, log };
+  }
+
+  it('materializes a child from projection data even when parents are absent', () => {
+    const { world, log } = world1Resident();
+    const births: string[] = [];
+    log.subscribe(a => { if (a.event.type === 'npc_birth') births.push(a.event.npcId); });
+    const child: SynthChild = {
+      id: 'synth-0-0', parentIds: ['ghost-a', 'ghost-b'], lineageId: 'lin-1',
+      birthYearOffset: 0, beliefs: { player: { faith: 0.2, understanding: 0.01, devotion: 0 } },
+      homePoiId: 'village',
+    };
+    const e = materializeSynthChild(world, child, 5000, createRng(3), log);
+    const p = npcProps(e);
+    expect(e.kind).toBe('npc');
+    expect(p.beliefs['player'].faith).toBeCloseTo(0.2);
+    expect(p.lineageId).toBe('lin-1');
+    expect(p.parentIds).toEqual(['ghost-a', 'ghost-b']);
+    expect(p.birthTick).toBe(5000);
+    expect(p.homePoiId).toBe('village');
+    expect(e.x).toBe(7); expect(e.y).toBe(9);   // placed at co-located resident's tile
+    expect(births).toContain(e.id);
+  });
+
+  it('is deterministic: same seed -> same id', () => {
+    const child: SynthChild = {
+      id: 's', parentIds: [], lineageId: 'L', birthYearOffset: 0,
+      beliefs: {}, homePoiId: 'village',
+    };
+    const run = () => {
+      const { world, log } = world1Resident();
+      return materializeSynthChild(world, child, 100, createRng(42), log).id;
+    };
+    expect(run()).toBe(run());
   });
 });
