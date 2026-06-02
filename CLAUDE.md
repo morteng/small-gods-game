@@ -17,7 +17,7 @@ A god game inspired by Terry Pratchett's *Small Gods*. The player is a minor dei
 
 > Completed/superseded specs & plans are archived under `docs/archive/` (organized by epic). New design work goes in `docs/superpowers/{specs,plans}/`.
 
-**Current Status:** Spec A (spine), Spec B (Time), Spec C (minimal — clickable time history strip), **Phase 7 (NPC Simulation Layer) + Phase 8 (Divine Action System) shipped**, the **Dilemma MVP / Track 1 belief loops**, **D1 (Mortality, Birth & Lineage)**, and **D2 (Deterministic Time-Skip)** all merged to `main`. **Phase 9 (LLM Integration) is partially complete** (client/prompt/writeback live and wired into NPC focus; provider config UI + onboarding in progress on `feat/llm-provider-config-onboarding`). **`game.ts` has been decomposed** from a ~1444-line god object into a thin coordinator (~386 LOC) over `src/game/` modules. **880 tests passing** (as of D2).
+**Current Status:** Spec A (spine), Spec B (Time), Spec C (minimal — clickable time history strip), **Phase 7 (NPC Simulation Layer) + Phase 8 (Divine Action System) shipped**, the **Dilemma MVP / Track 1 belief loops**, **D1 (Mortality, Birth & Lineage)**, and **D2 (Deterministic Time-Skip)** all merged to `main`. **Phase 9 (LLM Integration) is largely complete** (client/prompt/writeback live and wired into NPC focus; player-facing provider config, first-run welcome modal, live-apply, and DeepSeek token filter shipped — remaining: capable-tier invocation [Track 4] and a conversation UI). **`game.ts` has been decomposed** from a ~1444-line god object into a thin coordinator (~386 LOC) over `src/game/` modules. **880 tests passing** (as of D2).
 
 **Phase 9 Progress:**
 - ✅ NPC prompt builder (`src/llm/npc-prompt-builder.ts`)
@@ -25,8 +25,8 @@ A god game inspired by Terry Pratchett's *Small Gods*. The player is a minor dei
 - ✅ Provider factory + localStorage config (`src/llm/provider-factory.ts`)
 - ✅ State writeback from LLM responses (`src/llm/state-writeback.ts`)
 - ✅ Backfill wired into NPC focus (`src/game/llm-backfill.ts` — `LlmBackfillService`, receives the configured client)
-- 🟡 Player-facing provider config + first-run onboarding (spec written; see `docs/superpowers/specs/2026-06-02-llm-provider-config-onboarding-design.md`)
-- ⬜ Two-tier "capable model at key moments" invocation (Track 4 / Fate)
+- ✅ Player-facing provider config + first-run welcome modal + live-apply + DeepSeek delimiter-token filter (`src/ui/{llm-settings-new,settings-unified,welcome-modal}.ts`, `src/llm/filter-provider-tokens.ts`; spec/plan dated 2026-06-02)
+- ⬜ Two-tier "capable model at key moments" invocation — config + `llmClientCapable` seam exist; the caller is Track 4 / Fate
 - ⬜ Conversation UI
 
 Sim is fully deterministic with seedable RNG; snapshot/replay layer supports scrub + commit + re-roll; summoned Time bar UI with past-veil scrubbed treatment, clickable history strip of past commits/whispers above the transport row, jump-forward presets (+10/+25/+50y), and keyboard shortcuts T/Space/1/2/4/8/Esc. `state.paused` retired in favor of `scheduler.getRate()`. The whole `src/sim/` is `Math.random`-free (guarded by `tests/unit/no-random-in-sim.test.ts`).
@@ -42,7 +42,7 @@ Sim is fully deterministic with seedable RNG; snapshot/replay layer supports scr
 ## Known gaps & gotchas (code reality)
 
 - **`World` has TWO index layers.** `EntityRegistry` has its own spatial/kind/tile indexes AND `World` (`world.ts`) keeps separate `spatial`/`kindIdx`/`tagIdx`; `query()` uses World's. When mutating `x/y/kind/tags`, call **`World.updateEntity()`** (it syncs both) — never mutate entity position directly.
-- **LLM backfill uses the configured provider** (`LlmBackfillService`, `src/game/llm-backfill.ts`); `game.ts` builds it via `createProvider(loadProviderConfig())` and passes the real client. The service only falls back to `MockLLMProvider` when constructed with no `client`. (The old "hardcodes MockLLMProvider at game.ts ~1270" gotcha is obsolete — that path is gone post-decomposition.) **Gap that remains:** saving new settings does not yet rebuild the live client (needs a page reload) — being closed on `feat/llm-provider-config-onboarding`.
+- **LLM backfill uses the configured provider** (`LlmBackfillService`, `src/game/llm-backfill.ts`); `game.ts` builds it via `createProvider(loadProviderConfig())` and passes the real client. The service only falls back to `MockLLMProvider` when constructed with no `client`. (The old "hardcodes MockLLMProvider at game.ts ~1270" gotcha is obsolete — that path is gone post-decomposition.) Saving in the LLM settings now **rebuilds the live client in place** via `Game.applyLlmConfig` → `LlmBackfillService.setClient` (no page reload). `Game.llmClientCapable` is built ready but **uncalled** — a Track-4 / Fate seam.
 - **Time-Debug snapshot/inject are honest stubs** (disabled `makeStubButton()`s in `src/dev/TimeDebugPanel.ts`). Wiring Save/Load → `TimelineController`/`snapshot.ts` and Inject → settlement events (`world.activeEvents` + `settlement_begin` log) is a ROADMAP item.
 - **All `src/sim/` randomness flows through `ctx.rng`/passed `rng` (seeded sfc32), never `Math.random`** — enforced by `tests/unit/no-random-in-sim.test.ts`. New sim code must follow this or the guard test fails.
 
