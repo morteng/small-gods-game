@@ -2,7 +2,7 @@
  * Simplified LLM Settings — supports Mock, OpenAI, and OpenRouter.
  */
 
-import type { ProviderType } from '@/llm/provider-factory';
+import type { ProviderType, ProviderConfig } from '@/llm/provider-factory';
 import { saveProviderConfig, loadProviderConfig, getProviderDisplayName } from '@/llm/provider-factory';
 
 export interface LLMSettingsHandle {
@@ -12,17 +12,20 @@ export interface LLMSettingsHandle {
 }
 
 const OPENROUTER_MODELS = [
-  { id: 'openai/gpt-4o-mini', name: 'GPT-4o Mini (Recommended)' },
-  { id: 'openai/gpt-4o', name: 'GPT-4o (Premium)' },
-  { id: 'anthropic/claude-3-haiku', name: 'Claude 3 Haiku (Fast)' },
-  { id: 'anthropic/claude-3-sonnet', name: 'Claude 3 Sonnet (Balanced)' },
-  { id: 'deepseek/deepseek-chat', name: 'DeepSeek V3 (Cheap)' },
-  { id: 'deepseek/deepseek-r1', name: 'DeepSeek R1 (Reasoning)' },
-  { id: 'google/gemini-flash-1.5', name: 'Gemini Flash 1.5 (Free)' },
-  { id: 'google/gemini-pro-1.5', name: 'Gemini Pro 1.5 (Large Context)' },
+  { id: 'google/gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash-Lite (Recommended)' },
+  { id: 'deepseek/deepseek-v4-flash', name: 'DeepSeek V4 Flash (cheapest)' },
+  { id: 'google/gemini-2.5-flash', name: 'Gemini 2.5 Flash' },
 ];
 
-export function createLLMSettings(): LLMSettingsHandle {
+const OPENROUTER_CAPABLE_MODELS = [
+  { id: 'anthropic/claude-sonnet-4.6', name: 'Claude Sonnet 4.6 (Recommended)' },
+  { id: 'deepseek/deepseek-v4-pro', name: 'DeepSeek V4 Pro (cheap)' },
+  { id: 'google/gemini-2.5-pro', name: 'Gemini 2.5 Pro (large context)' },
+];
+
+export function createLLMSettings(
+  opts: { onSave?: (config: ProviderConfig) => void } = {},
+): LLMSettingsHandle {
   const container = document.createElement('div');
   container.className = 'sg-llm-settings';
   container.style.display = 'flex';
@@ -100,6 +103,29 @@ export function createLLMSettings(): LLMSettingsHandle {
   }
   modelRow.appendChild(modelSelect);
   container.appendChild(modelRow);
+
+  // ─── Capable Model Select (for OpenRouter, key moments) ───
+  const capableRow = document.createElement('div');
+  capableRow.id = 'sg-llm-capable-row';
+  capableRow.className = 'sg-field';
+
+  const capableLabel = document.createElement('div');
+  capableLabel.className = 'sg-field__label';
+  capableLabel.textContent = 'Capable model (key moments)';
+  capableRow.appendChild(capableLabel);
+
+  const capableSelect = document.createElement('select');
+  capableSelect.id = 'sg-llm-capable-select';
+  capableSelect.className = 'sg-select';
+  for (const m of OPENROUTER_CAPABLE_MODELS) {
+    const opt = document.createElement('option');
+    opt.value = m.id;
+    opt.textContent = m.name;
+    if (m.id === saved.openrouterModelCapable) opt.selected = true;
+    capableSelect.appendChild(opt);
+  }
+  capableRow.appendChild(capableSelect);
+  container.appendChild(capableRow);
 
   // ─── API Key Input ────────────────────────────────────
   const keyRow = document.createElement('div');
@@ -205,6 +231,7 @@ export function createLLMSettings(): LLMSettingsHandle {
 
     (keyRow as HTMLElement).style.display = showKey ? '' : 'none';
     (modelRow as HTMLElement).style.display = showModel ? '' : 'none';
+    (capableRow as HTMLElement).style.display = showModel ? '' : 'none';
 
     keyInput.placeholder = p === 'openai' ? 'sk-...' : 'sk-or-...';
   }
@@ -245,9 +272,11 @@ export function createLLMSettings(): LLMSettingsHandle {
     } else if (type === 'openrouter') {
       config.openrouterApiKey = keyInput.value;
       config.openrouterModel = modelSelect.value;
+      config.openrouterModelCapable = capableSelect.value;
     }
 
     saveProviderConfig(config as any);
+    opts.onSave?.(config as unknown as ProviderConfig);
     status.textContent = 'Settings saved!';
     status.style.cssText += `
       display: block;
