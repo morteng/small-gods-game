@@ -53,7 +53,7 @@ export class LlmBackfillService {
     const context: NpcPromptContext = {
       npc: npcEntity,
       world: state.world,
-      recentEvents: getRecentEventDescriptions(props),
+      recentEvents: getRecentEventDescriptions(props, state.eventLog),
       previousInteractions: [],
       nearbyNpcNames: getNearbyNpcNames(state.world, npcEntity, 3),
       activeEvents: getActiveEventsForPoi(state.world, props.homePoiId),

@@ -1,5 +1,6 @@
 import type { Entity, EntityId, NpcProperties, NpcRole, Direction, NpcInstance, NpcSimState, Region } from '@/core/types';
 import type { World } from '@/world/world';
+import type { EventLog, SimEvent } from '@/core/events';
 import { Random } from '@/core/noise';
 
 export const NPC_KIND = 'npc';
@@ -53,14 +54,40 @@ const ROLE_PIETY_BONUS: Record<NpcRole, number> = {
 };
 function clamp01(v: number): number { return Math.max(0, Math.min(1, v)); }
 
-/** Get recent event descriptions for an NPC (stub - returns empty for now) */
-// TODO: Implement proper event description retrieval from event log
-function getRecentEventDescriptions(props: NpcProperties): string[] {
-  // For now, return empty array - this will be implemented with proper event log integration
-  return [];
+/** Human label for a sim event as seen from an NPC's perspective. */
+function describeSimEvent(event: SimEvent): string {
+  switch (event.type) {
+    case 'whisper':       return '💬 Whisper received';
+    case 'dream':         return '🌙 Dream sent';
+    case 'omen':          return '⛈ Omen witnessed';
+    case 'miracle':       return '✨ Miracle witnessed';
+    case 'answer_prayer': return '🙏 Prayer answered';
+    case 'believer_lost': return '💔 Faith lapsed';
+    case 'npc_death':     return `💀 Died (${event.cause})`;
+    case 'npc_birth':     return '👶 Born';
+    case 'belief_cross':  return `📈 Belief ${event.kind} (${Math.round(event.faith * 100)}%)`;
+    case 'mood_cross':    return `🙂 Mood ${event.kind}`;
+    default:              return event.type;
+  }
 }
 
-export { getRecentEventDescriptions };
+/**
+ * Resolve an NPC's recentEventIds against the event log, newest first.
+ * Unknown ids are skipped. Cap defaults to the same 8 the writers retain.
+ */
+export function getRecentEventDescriptions(
+  props: NpcProperties,
+  eventLog: EventLog,
+  cap = 8,
+): string[] {
+  const out: string[] = [];
+  const ids = props.recentEventIds ?? [];
+  for (let i = ids.length - 1; i >= 0 && out.length < cap; i--) {
+    const found = eventLog.getById(ids[i]);
+    if (found) out.push(describeSimEvent(found.event));
+  }
+  return out;
+}
 
 // =============================================================================
 // Entity → legacy-shape adapter (keeps overlay/info-panel code working until
