@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
-  resolveOutlineRect, drawSelectionOutline, type OutlineWorld,
+  resolveOutlineRect, drawSelectionOutline, drawHoverOutline, drawOutlineRect, sameRect,
+  type OutlineWorld,
 } from '@/render/selection-outline';
 import { createCamera } from '@/render/camera';
 import type { Selection } from '@/dev/inspector/selection';
@@ -82,6 +83,15 @@ describe('resolveOutlineRect', () => {
   });
 });
 
+describe('sameRect', () => {
+  it('true for identical rects, false otherwise (and false with a null)', () => {
+    expect(sameRect({ x: 1, y: 2, w: 3, h: 4 }, { x: 1, y: 2, w: 3, h: 4 })).toBe(true);
+    expect(sameRect({ x: 1, y: 2, w: 3, h: 4 }, { x: 1, y: 2, w: 3, h: 5 })).toBe(false);
+    expect(sameRect({ x: 1, y: 2, w: 1, h: 1 }, null)).toBe(false);
+    expect(sameRect(null, null)).toBe(false);
+  });
+});
+
 // A stub 2D context that records the calls the outline drawer makes.
 function stubCtx() {
   const calls: string[] = [];
@@ -121,6 +131,25 @@ describe('drawSelectionOutline', () => {
     expect(calls).toContain('beginPath');
     expect(calls).toContain('closePath');
     expect(calls).toContain('stroke');
+  });
+
+  it('hover outline strokes with a faint white style (no glow)', () => {
+    const { ctx, calls, getStroke } = stubCtx();
+    drawHoverOutline(ctx, { x: 2, y: 3, w: 1, h: 1 }, createCamera(), 'topdown');
+    expect(calls).toContain('strokeRect');
+    expect(getStroke()).toBe('#ffffff');
+  });
+
+  it('drawOutlineRect respects the requested mode geometry', () => {
+    const top = stubCtx();
+    drawOutlineRect(top.ctx, { x: 0, y: 0, w: 1, h: 1 }, createCamera(), 'topdown',
+      { color: '#fff', alpha: 1, shadowBlur: 0, lineWidth: 1 });
+    expect(top.calls).toContain('strokeRect');
+
+    const iso = stubCtx();
+    drawOutlineRect(iso.ctx, { x: 0, y: 0, w: 1, h: 1 }, createCamera(), 'iso',
+      { color: '#fff', alpha: 1, shadowBlur: 0, lineWidth: 1 });
+    expect(iso.calls).toContain('closePath');
   });
 
   it('uses the area color for a multi-tile POI region, point color for a single tile', () => {

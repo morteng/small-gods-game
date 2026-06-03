@@ -23,6 +23,7 @@ export interface OutlineWorld {
 
 const POINT_COLOR = '#39d0ff'; // single tile / entity / npc / decoration / spirit
 const AREA_COLOR = '#ffd24a';  // a POI region (multi-tile area)
+const HOVER_COLOR = '#ffffff'; // faint hover preview
 
 /**
  * Resolve a unified Selection to the tile-rect it occupies on the map, or null
@@ -67,11 +68,43 @@ export function resolveOutlineRect(sel: Selection | null, w: OutlineWorld): Outl
   }
 }
 
+/** Stroke styling for one outline pass. */
+export interface OutlineStyle { color: string; alpha: number; shadowBlur: number; lineWidth: number; }
+
 /**
- * Draw a glowing, gently pulsing outline around the current selection. Works in
- * both render modes: an axis-aligned rect in topdown, the outer diamond of the
- * tile-rect in iso. Drawn in raw screen space (after the renderer's transform
- * is restored), so camera + zoom are applied manually.
+ * Stroke an outline around a tile-rect in raw screen space (camera + zoom
+ * applied manually, since overlays draw after the renderer restores its
+ * transform). Topdown → axis-aligned rect; iso → the rect's outer diamond.
+ * Shared by the selection glow and the hover outline (DRY).
+ */
+export function drawOutlineRect(
+  ctx: CanvasRenderingContext2D,
+  rect: OutlineRect,
+  camera: Camera,
+  mode: RenderMode,
+  style: OutlineStyle,
+): void {
+  ctx.save();
+  ctx.strokeStyle = style.color;
+  ctx.shadowColor = style.color;
+  ctx.shadowBlur = style.shadowBlur;
+  ctx.lineWidth = style.lineWidth;
+  ctx.globalAlpha = style.alpha;
+
+  if (mode === 'iso') {
+    drawIsoDiamond(ctx, rect, camera);
+  } else {
+    const tl = topdownWorldToScreen(camera, rect.x, rect.y, TILE_SIZE);
+    const br = topdownWorldToScreen(camera, rect.x + rect.w, rect.y + rect.h, TILE_SIZE);
+    ctx.strokeRect(tl.sx, tl.sy, br.sx - tl.sx, br.sy - tl.sy);
+  }
+
+  ctx.restore();
+}
+
+/**
+ * Draw a glowing, gently pulsing outline around the current selection. POI
+ * regions (multi-tile) glow gold; point selections cyan.
  */
 export function drawSelectionOutline(
   ctx: CanvasRenderingContext2D,
@@ -83,27 +116,32 @@ export function drawSelectionOutline(
 ): void {
   const rect = resolveOutlineRect(sel, w);
   if (!rect) return;
-
   const isArea = rect.w > 1 || rect.h > 1;
-  const color = isArea ? AREA_COLOR : POINT_COLOR;
   const pulse = 0.6 + 0.4 * Math.sin(nowMs / 300); // 0.2 .. 1.0
+  drawOutlineRect(ctx, rect, camera, mode, {
+    color: isArea ? AREA_COLOR : POINT_COLOR,
+    alpha: 0.85,
+    shadowBlur: 14 * pulse,
+    lineWidth: 2,
+  });
+}
 
-  ctx.save();
-  ctx.strokeStyle = color;
-  ctx.shadowColor = color;
-  ctx.shadowBlur = 14 * pulse;
-  ctx.lineWidth = 2;
-  ctx.globalAlpha = 0.85;
+/** Faint, non-pulsing outline for the hovered target (distinct from selection). */
+export function drawHoverOutline(
+  ctx: CanvasRenderingContext2D,
+  rect: OutlineRect,
+  camera: Camera,
+  mode: RenderMode,
+): void {
+  drawOutlineRect(ctx, rect, camera, mode, {
+    color: HOVER_COLOR, alpha: 0.5, shadowBlur: 0, lineWidth: 1.5,
+  });
+}
 
-  if (mode === 'iso') {
-    drawIsoDiamond(ctx, rect, camera);
-  } else {
-    const tl = topdownWorldToScreen(camera, rect.x, rect.y, TILE_SIZE);
-    const br = topdownWorldToScreen(camera, rect.x + rect.w, rect.y + rect.h, TILE_SIZE);
-    ctx.strokeRect(tl.sx, tl.sy, br.sx - tl.sx, br.sy - tl.sy);
-  }
-
-  ctx.restore();
+/** True when two rects cover the same tiles (used to suppress hover==selection). */
+export function sameRect(a: OutlineRect | null, b: OutlineRect | null): boolean {
+  if (!a || !b) return false;
+  return a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h;
 }
 
 /** Screen-space center of an iso tile, with camera + zoom applied. */
