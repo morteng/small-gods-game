@@ -9,6 +9,7 @@ import { advanceNpcFrames } from '@/render/npc-animator';
 // divine-actions functions now invoked via DivineActionsController
 import { LLMClient } from "@/llm/llm-client";
 import { createProvider, loadProviderConfig, type ProviderConfig } from '@/llm/provider-factory';
+import { NpcAttentionStore } from '@/llm/npc-attention-store';
 import { createWelcomeModal, type WelcomeModalHandle, ONBOARDED_KEY } from '@/ui/welcome-modal';
 import { simStateFromEntity } from '@/world/npc-helpers';
 import { OverlayDispatcher } from '@/ui/overlay-dispatcher';
@@ -60,6 +61,7 @@ export class Game {
   private state: GameState;
   private scheduler: Scheduler;
   private commandQueue = new CommandQueue();
+  private attentionStore = new NpcAttentionStore();
   private authorLog = new AuthorCommandLog();
   private timeline!: TimelineController;
   private cleanupControls: (() => void) | null = null;
@@ -126,7 +128,10 @@ export class Game {
       // The authorLog is history (NOT cleared on restore): the executor re-emits
       // recorded editor edits during silent replay. It is truncated on commit and
       // reset on a time-skip baseline.
-      onRestore: () => this.commandQueue.clear(),
+      onRestore: () => {
+        this.commandQueue.clear();
+        this.attentionStore.clearAll();
+      },
       authorLog: this.authorLog,
     });
 
