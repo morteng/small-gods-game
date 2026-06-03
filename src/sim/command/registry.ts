@@ -15,7 +15,11 @@ import {
   WHISPER_COST, OMEN_COST, DREAM_COST, MIRACLE_COST, ANSWER_PRAYER_COST,
 } from '@/sim/divine-actions';
 import type { Command, CommandCtx, ApplyCtx, CommandVerb, RejectionReason } from './types';
-import { removePrecondition, removeApply, spawnPrecondition, spawnApply } from './editor-verbs';
+import {
+  removePrecondition, removeApply,
+  spawnPrecondition, spawnApply,
+  modifyPrecondition, modifyApply,
+} from './editor-verbs';
 
 export interface CapabilityDef {
   verb: CommandVerb;
@@ -133,7 +137,9 @@ export const CAPABILITY_REGISTRY: Record<CommandVerb, CapabilityDef> = {
     describe: (cmd) => `remove ${cmd.payload?.entityId ?? `${cmd.payload?.filter ? 'matching entities' : 'entities'}`}`,
   },
   author_modify_npc: {
-    verb: 'author_modify_npc', tier: 'editor', cost: 0, targetKind: 'none', implemented: false,
+    verb: 'author_modify_npc', tier: 'editor', cost: 0, targetKind: 'none', implemented: true,
+    precondition: modifyPrecondition,
+    apply: modifyApply,
     describe: (cmd) => `modify ${cmd.payload?.entityId ?? 'an npc'}`,
   },
   author_place_object: {

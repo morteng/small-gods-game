@@ -7,7 +7,7 @@
  *
  * All randomness flows through ctx.rng (seeded) — never Math.random.
  */
-import type { Entity, NpcRole } from '@/core/types';
+import type { Entity, NpcRole, NpcProperties } from '@/core/types';
 import type { Command, ApplyCtx, CommandCtx, RejectionReason } from './types';
 import { npcProps, queryNpcs, initNpcProps } from '@/world/npc-helpers';
 
@@ -132,5 +132,54 @@ export function spawnApply(cmd: Command, ctx: ApplyCtx): boolean {
     ids.push(id);
   }
   ctx.log.append({ type: 'authored_spawn', entityIds: ids, role, count: ids.length });
+  return true;
+}
+
+// ── author_modify_npc ────────────────────────────────────────────────────────
+// payload: { entityId, set: { name?, role?, faith?, understanding?, devotion?,
+//            needs?, mood?, activity? } }   (targets the 'player' spirit's belief)
+
+interface ModifySet {
+  name?: string; role?: NpcRole;
+  faith?: number; understanding?: number; devotion?: number;
+  needs?: Partial<NpcProperties['needs']>; mood?: number;
+  activity?: NpcProperties['activity'];
+}
+
+export function modifyPrecondition(cmd: Command, ctx: CommandCtx): RejectionReason | null {
+  const p = P(cmd);
+  const entityId = p.entityId as string | undefined;
+  const set = p.set as ModifySet | undefined;
+  if (!set || Object.keys(set).length === 0) return 'invalid_payload';
+  if (!entityId) return 'invalid_payload';
+  const e = ctx.world.registry.get(entityId);
+  if (!e || e.kind !== 'npc') return 'invalid_target';
+  if (set.role && !VALID_ROLES.includes(set.role)) return 'invalid_payload';
+  return null;
+}
+
+export function modifyApply(cmd: Command, ctx: ApplyCtx): boolean {
+  const p = P(cmd);
+  const entityId = p.entityId as string;
+  const set = p.set as ModifySet;
+  const props = npcProps(ctx.world.registry.get(entityId)!);
+  const fields: string[] = [];
+
+  if (set.name !== undefined) { props.name = set.name; fields.push('name'); }
+  if (set.role !== undefined) { props.role = set.role; fields.push('role'); }
+  const belief = props.beliefs.player ?? (props.beliefs.player = { faith: 0, understanding: 0, devotion: 0 });
+  if (set.faith !== undefined) { belief.faith = clamp01(set.faith); fields.push('faith'); }
+  if (set.understanding !== undefined) { belief.understanding = clamp01(set.understanding); fields.push('understanding'); }
+  if (set.devotion !== undefined) { belief.devotion = clamp01(set.devotion); fields.push('devotion'); }
+  if (set.mood !== undefined) { props.mood = clamp01(set.mood); fields.push('mood'); }
+  if (set.activity !== undefined) { props.activity = set.activity; fields.push('activity'); }
+  if (set.needs) {
+    for (const [k, v] of Object.entries(set.needs)) {
+      (props.needs as unknown as Record<string, number>)[k] = clamp01(v as number);
+    }
+    fields.push('needs');
+  }
+
+  ctx.log.append({ type: 'authored_modify', entityId, fields });
   return true;
 }

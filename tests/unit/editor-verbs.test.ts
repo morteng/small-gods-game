@@ -125,3 +125,44 @@ describe('author_spawn_npc', () => {
     expect(ids(123)).toEqual(ids(123));
   });
 });
+
+describe('author_modify_npc', () => {
+  it('sets name, role, belief, mood, and activity on an existing npc', () => {
+    const world = new World(bigMap());
+    world.addEntity(npc('m1', 4, 4, p => { p.beliefs.player = { faith: 0.1, understanding: 0.1, devotion: 0.1 }; }));
+    const res = executeCommand(authorCmd('author_modify_npc', {
+      entityId: 'm1',
+      set: { name: 'Brother Aldous', role: 'priest', faith: 0.95, understanding: 0.6, devotion: 0.7, mood: 0.8, activity: 'worship' },
+    }), applyCtx(world));
+
+    expect(res.status).toBe('applied');
+    const p = npcProps(world.registry.get('m1')!);
+    expect(p.name).toBe('Brother Aldous');
+    expect(p.role).toBe('priest');
+    expect(p.beliefs.player.faith).toBeCloseTo(0.95);
+    expect(p.beliefs.player.understanding).toBeCloseTo(0.6);
+    expect(p.beliefs.player.devotion).toBeCloseTo(0.7);
+    expect(p.mood).toBeCloseTo(0.8);
+    expect(p.activity).toBe('worship');
+  });
+
+  it('rejects a missing entity with invalid_target', () => {
+    const world = new World(bigMap());
+    const res = executeCommand(authorCmd('author_modify_npc', { entityId: 'ghost', set: { faith: 0.5 } }), applyCtx(world));
+    expect(res).toMatchObject({ status: 'rejected', reason: 'invalid_target' });
+  });
+
+  it('rejects a non-npc target with invalid_target', () => {
+    const world = new World(bigMap());
+    world.addEntity({ id: 'rock', kind: 'boulder', x: 1, y: 1 });
+    const res = executeCommand(authorCmd('author_modify_npc', { entityId: 'rock', set: { faith: 0.5 } }), applyCtx(world));
+    expect(res).toMatchObject({ status: 'rejected', reason: 'invalid_target' });
+  });
+
+  it('rejects an empty/missing set with invalid_payload', () => {
+    const world = new World(bigMap());
+    world.addEntity(npc('m2', 4, 4));
+    const res = executeCommand(authorCmd('author_modify_npc', { entityId: 'm2' }), applyCtx(world));
+    expect(res).toMatchObject({ status: 'rejected', reason: 'invalid_payload' });
+  });
+});
