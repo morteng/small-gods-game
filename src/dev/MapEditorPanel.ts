@@ -1,5 +1,6 @@
-import type { GameMap, Tile } from '@/core/types';
-import { addPanelChrome } from '@/dev/PanelChrome';
+import type { GameMap } from '@/core/types';
+import { createFloatingPanel } from '@/dev/FloatingPanel';
+import type { DockManager } from '@/dev/dock-manager';
 
 /** Callback to paint a tile on the map */
 type PaintTileCallback = (x: number, y: number, tileType: string) => void;
@@ -7,11 +8,16 @@ type PaintTileCallback = (x: number, y: number, tileType: string) => void;
 /** Parameters for mountMapEditorPanel */
 interface MapEditorDeps {
   onPaintTile?: PaintTileCallback;
+  dock?: DockManager;
 }
 
 export interface MapEditorPanelHandle {
-  element: HTMLDivElement;
+  element: HTMLElement;
   update(map: GameMap | null, selectedTile: { x: number; y: number } | null): void;
+  show(): void;
+  hide(): void;
+  toggle(): void;
+  isVisible(): boolean;
   destroy(): void;
 }
 
@@ -22,21 +28,15 @@ export function mountMapEditorPanel(
   container: HTMLElement,
   deps: MapEditorDeps = {}
 ): MapEditorPanelHandle {
-  const panel = document.createElement('div');
-  panel.style.cssText = [
-    'position:absolute', 'top:60px', 'left:560px', 'width:280px',
-    'background:rgba(20,20,30,0.92)', 'color:#e0e0e0', 'border:1px solid #555',
-    'border-radius:6px', 'padding:12px', 'font:12px/1.5 monospace',
-    'z-index:100', 'display:none', 'box-sizing:border-box',
-  ].join(';');
-
-  // Add panel chrome (title bar, close, minimize, drag)
-  const chrome = addPanelChrome(panel, {
+  const fp = createFloatingPanel({
+    container,
+    id: 'map',
     title: '🗺️ Map Editor',
-    onClose: () => { panel.style.display = 'none'; },
-    onMinimize: (minimized) => { console.log('[dev] Map Editor minimized:', minimized); },
-    onDragEnd: (x, y) => { console.log('[dev] Map Editor dragged to', x, y); },
+    dock: deps.dock,
+    width: 280,
+    anchor: { top: '60px', left: '560px' },
   });
+  const body = fp.body;
 
   // ── Tile Painting Section ─────────────────────────────────────
   const paintSection = document.createElement('div');
@@ -95,7 +95,7 @@ export function mountMapEditorPanel(
   });
   paintSection.appendChild(applyBtn);
 
-  panel.appendChild(paintSection);
+  body.appendChild(paintSection);
 
   // ── Selected Tile Info ──────────────────────────────────────
   const infoSection = document.createElement('div');
@@ -111,42 +111,44 @@ export function mountMapEditorPanel(
   infoContent.textContent = 'Click a tile to inspect';
   infoSection.appendChild(infoContent);
 
-  panel.appendChild(infoSection);
-
-  container.appendChild(panel);
+  body.appendChild(infoSection);
 
   let currentMap: GameMap | null = null;
   let selectedTile: { x: number; y: number } | null = null;
 
-  return {
-    element: panel,
-    update(map: GameMap | null, tile: { x: number; y: number } | null): void {
-      currentMap = map;
-      selectedTile = tile;
+  function update(map: GameMap | null, tile: { x: number; y: number } | null): void {
+    currentMap = map;
+    selectedTile = tile;
 
-      if (!panel.style.display || panel.style.display === 'none') return;
+    if (!fp.isVisible()) return;
 
-      // Update selected tile info
-      if (infoContent && selectedTile && map) {
-        const tileData = map.tiles[selectedTile.y]?.[selectedTile.x];
-        if (tileData) {
-          infoContent.innerHTML = `
-            <div style="display:grid; grid-template-columns:auto 1fr; gap:2px 8px;">
-              <span style="color:#999;">pos</span><span>(${selectedTile.x}, ${selectedTile.y})</span>
-              <span style="color:#999;">type</span><span>${tileData.type}</span>
-              <span style="color:#999;">walk</span><span>${tileData.walkable ? '✓' : '✗'}</span>
-              <span style="color:#999;">state</span><span>${tileData.state}</span>
-            </div>
-          `;
-        } else {
-          infoContent.textContent = 'No tile data';
-        }
-      } else if (infoContent) {
-        infoContent.textContent = 'Click a tile to inspect';
+    // Update selected tile info
+    if (infoContent && selectedTile && map) {
+      const tileData = map.tiles[selectedTile.y]?.[selectedTile.x];
+      if (tileData) {
+        infoContent.innerHTML = `
+          <div style="display:grid; grid-template-columns:auto 1fr; gap:2px 8px;">
+            <span style="color:#999;">pos</span><span>(${selectedTile.x}, ${selectedTile.y})</span>
+            <span style="color:#999;">type</span><span>${tileData.type}</span>
+            <span style="color:#999;">walk</span><span>${tileData.walkable ? '✓' : '✗'}</span>
+            <span style="color:#999;">state</span><span>${tileData.state}</span>
+          </div>
+        `;
+      } else {
+        infoContent.textContent = 'No tile data';
       }
-    },
-    destroy() {
-      panel.remove();
-    },
+    } else if (infoContent) {
+      infoContent.textContent = 'Click a tile to inspect';
+    }
+  }
+
+  return {
+    element: fp.element,
+    update,
+    show: fp.show,
+    hide: fp.hide,
+    toggle: fp.toggle,
+    isVisible: fp.isVisible,
+    destroy: () => fp.destroy(),
   };
 }
