@@ -12,6 +12,7 @@ import {
   type DecorationPlacementModalHandle,
 } from '@/ui/decoration-placement-modal';
 import type { ProviderConfig } from '@/llm/provider-factory';
+import { mountNpcAttentionPanel, type NpcAttentionPanelHandle } from '@/ui/npc-attention-panel';
 
 export interface GameUiCallbacks {
   onStart: () => void;
@@ -35,6 +36,7 @@ export class GameUi {
   readonly pausedBanner: HTMLDivElement;
   readonly debugHud: HTMLDivElement;
   readonly npcInfoPanel: HTMLDivElement;
+  readonly npcAttentionPanel: NpcAttentionPanelHandle;
   readonly tooltip: HTMLDivElement;
   readonly llmDisplay: LlmDisplayHandle;
   readonly unifiedSettings: SettingsHandle;
@@ -78,6 +80,7 @@ export class GameUi {
       'box-sizing:border-box',
     ].join(';');
     container.appendChild(this.npcInfoPanel);
+    this.npcAttentionPanel = mountNpcAttentionPanel(this.npcInfoPanel, {});
 
     // LLM display (shows dialogue/narration from LLM backfill)
     this.llmDisplay = createLlmDisplay(container, {
@@ -166,6 +169,7 @@ export class GameUi {
   destroy(): void {
     this.pausedBanner.remove();
     this.debugHud.remove();
+    this.npcAttentionPanel.destroy();
     this.npcInfoPanel.remove();
     this.tooltip.remove();
     this.llmSettingsBtn.remove();

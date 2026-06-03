@@ -29,7 +29,7 @@ function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: numbe
 
 /**
  * Render the floating divine-action button anchored above the selected NPC.
- * Identity/needs/belief stats live in the DOM info panel (see `renderNpcInfoPanel`);
+ * Identity/needs/belief stats live in the DOM attention panel (see `mountNpcAttentionPanel`);
  * this overlay is only the action affordance plus its click hit area.
  */
 export function drawNpcOverlay(

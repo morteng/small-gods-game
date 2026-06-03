@@ -261,7 +261,8 @@ export class Game {
     this.renderer = new FrameRenderer({
       ctx: this.ctx, state: this.state,
       ui: { minimap: this.ui.minimap, spiritHud: this.ui.spiritHud, divineEffects: this.ui.divineEffects,
-            npcInfoPanel: this.ui.npcInfoPanel, tooltip: this.ui.tooltip, debugHud: this.ui.debugHud },
+            npcInfoPanel: this.ui.npcInfoPanel, npcAttentionPanel: this.ui.npcAttentionPanel,
+            tooltip: this.ui.tooltip, debugHud: this.ui.debugHud },
       divine: this.divine, dev: this.dev, llmBackfill: this.llmBackfill,
       interaction: this.interaction,
       getRenderDeps: () => this.renderDeps(), getViewport: () => this.viewport(),
