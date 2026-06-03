@@ -3,11 +3,11 @@ import { saveProviderConfig, type ProviderConfig } from '@/llm/provider-factory'
 export const ONBOARDED_KEY = 'small-gods-llm-onboarded';
 
 const FAST_MODELS = [
-  { id: 'google/gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash-Lite (recommended)' },
-  { id: 'deepseek/deepseek-v4-flash', name: 'DeepSeek V4 Flash (cheapest)' },
+  { id: 'deepseek/deepseek-v4-flash', name: 'DeepSeek V4 Flash (recommended)' },
+  { id: 'google/gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash-Lite' },
   { id: 'google/gemini-2.5-flash', name: 'Gemini 2.5 Flash' },
 ];
-const DEFAULT_CAPABLE = 'anthropic/claude-sonnet-4.6';
+const DEFAULT_CAPABLE = 'deepseek/deepseek-v4';
 
 export interface WelcomeModalDeps {
   onComplete: (config: ProviderConfig) => void;

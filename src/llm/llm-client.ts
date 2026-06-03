@@ -270,11 +270,13 @@ export class OpenRouterProvider implements LLMProvider {
       stop: opts?.stop,
     };
 
-    // Add reasoning support for models that support it (e.g., DeepSeek R1)
-    // OpenRouter-specific: pass via extra_body
-    if (opts && 'reasoning' in opts) {
-      body.extra_body = { reasoning: (opts as Record<string, unknown>).reasoning };
-    }
+    // Reasoning/thinking control (OpenRouter top-level `reasoning` param).
+    // Default to MINIMUM thinking — disabled — to keep latency and cost down for
+    // hybrid models like DeepSeek V4. Overridable per-call via opts.reasoning
+    // (e.g. the capable Fate tier may opt back in at key moments).
+    body.reasoning = (opts && 'reasoning' in opts)
+      ? (opts as Record<string, unknown>).reasoning
+      : { enabled: false };
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
