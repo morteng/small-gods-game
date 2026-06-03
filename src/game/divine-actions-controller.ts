@@ -1,32 +1,28 @@
 /**
- * DivineActionsController — single owner of all divine-action invocation.
+ * DivineActionsController — the player's emitter onto the command channel.
  *
- * Replaces two previously-duplicated call paths in game.ts:
- *  1. The five `dispatcher.register(...)` handlers (constructor)
- *  2. The NPC info-panel button callbacks in render()
- *
- * Unification deltas:
- *  - whisper: both paths now set lastCastTime AND trigger the 'whisper' particle effect.
- *    Previously: dispatcher path set lastCastTime but no effect; info-panel triggered effect.
- *  - dream: both paths now trigger the 'dream' particle effect.
- *    Previously: dispatcher path did NOT trigger effect; info-panel did.
- *  - answer_prayer: no effect in either path (unchanged).
- *  - omen via dispatcher (poiId payload): no particle (unchanged dispatcher behavior).
- *  - omen via info-panel (omenForNpc): resolves NPC homePoiId, casts, triggers 'omen' effect at POI (unchanged info-panel behavior).
- *  - miracle via dispatcher (poiId payload): no particle (unchanged dispatcher behavior).
- *  - miracle via info-panel (miracleForNpc): resolves NPC homePoiId, casts, triggers 'miracle' effect at POI (unchanged info-panel behavior).
+ * The player no longer mutates sim state directly. Each action builds a
+ * Command{source:'player'} and enqueues it; the CommandExecutorSystem applies it
+ * (delegating to divine-actions.ts) at the next tick — the SAME gate rivals and
+ * Fate use. The controller keeps its COSMETIC responsibilities (gold flash,
+ * particle effects), fired optimistically on emit. To match the old guard logic
+ * exactly, emit is gated by `previewCommand` (the registry's read-only check), so
+ * an unaffordable / cooled-down / non-worship action neither flashes nor enqueues
+ * — identical observable behavior to the old direct calls, only ≤1 tick later.
  */
 
 import type { Entity } from '@/core/types';
-import type { Spirit } from '@/core/spirit';
 import type { DivineEffects } from '@/render/divine-effects';
 import type { OverlayDispatcher } from '@/ui/overlay-dispatcher';
-import { whisper, omen, dream, miracle, answerPrayer } from '@/sim/divine-actions';
+import type { CommandQueue } from '@/sim/command/command-queue';
+import { previewCommand } from '@/sim/command/command-system';
+import type { Command, CommandTarget, CommandVerb, CommandCtx } from '@/sim/command/types';
 import { getNpc, npcProps } from '@/world/npc-helpers';
 import type { GameState } from '@/core/state';
 
 export interface DivineActionsDeps {
   state: GameState;
+  queue: CommandQueue;
   divineEffects: DivineEffects;
   /** Gold-flash clock; defaults to performance.now */
   now?: () => number;
@@ -43,22 +39,28 @@ export class DivineActionsController {
     this.now = deps.now ?? (() => performance.now());
   }
 
-  private player(): Spirit {
-    return this.deps.state.spirits.get('player')!;
-  }
-
-  private log() {
-    return this.deps.state.eventLog;
-  }
-
   private flash(): void {
     this.lastCastTime = this.now();
+  }
+
+  /**
+   * Optimistically emit a player command if it passes the registry's read-only
+   * preview. Returns true if enqueued (so callers can fire cosmetics).
+   */
+  private tryEmit(verb: CommandVerb, target: CommandTarget): boolean {
+    const world = this.deps.state.world;
+    if (!world) return false;
+    const cmd: Command = { verb, source: 'player', target, seq: 0 };
+    const ctx: CommandCtx = { world, spirits: this.deps.state.spirits, log: this.deps.state.eventLog };
+    if (previewCommand(cmd, ctx) !== null) return false;
+    this.deps.queue.emit({ verb, source: 'player', target });
+    return true;
   }
 
   // ─── Action methods ────────────────────────────────────────────────────────
 
   whisper(npc: Entity): boolean {
-    if (whisper(this.player(), npc, this.log())) {
+    if (this.tryEmit('whisper', { kind: 'npc', npcId: npc.id })) {
       this.flash();
       this.deps.divineEffects.trigger('whisper', npc.x, npc.y);
       return true;
@@ -67,27 +69,25 @@ export class DivineActionsController {
   }
 
   dream(npc: Entity): boolean {
-    const ok = dream(this.player(), npc, this.log());
-    if (ok) this.deps.divineEffects.trigger('dream', npc.x, npc.y);
-    return ok;
+    if (this.tryEmit('dream', { kind: 'npc', npcId: npc.id })) {
+      this.deps.divineEffects.trigger('dream', npc.x, npc.y);
+      return true;
+    }
+    return false;
   }
 
   answerPrayer(npc: Entity): boolean {
-    return answerPrayer(this.player(), npc, this.log());
+    return this.tryEmit('answer_prayer', { kind: 'npc', npcId: npc.id });
   }
 
   /** Cast omen at a specific POI id (dispatcher path — no particle effect). */
   omenAt(poiId: string): boolean {
-    const world = this.deps.state.world;
-    if (!world) return false;
-    return omen(this.player(), poiId, world, this.log());
+    return this.tryEmit('omen', { kind: 'settlement', poiId });
   }
 
   /** Cast miracle at a specific POI id (dispatcher path — no particle effect). */
   miracleAt(poiId: string): boolean {
-    const world = this.deps.state.world;
-    if (!world) return false;
-    return miracle(this.player(), poiId, world, this.log());
+    return this.tryEmit('miracle', { kind: 'settlement', poiId });
   }
 
   /** Cast omen for an NPC's home POI + trigger particle at POI position (info-panel path). */

@@ -18,6 +18,9 @@ import { DecorationImageCache } from '@/render/decoration-image-cache';
 import { AssetManager } from '@/render/asset-manager';
 import { Scheduler } from '@/core/scheduler';
 import { TimelineController } from '@/core/timeline';
+import { CommandQueue } from '@/sim/command/command-queue';
+import { CommandExecutorSystem } from '@/sim/command/command-system';
+import { RivalSystem } from '@/sim/systems/rival-system';
 import { NpcMovementSystem } from '@/sim/systems/npc-movement-system';
 import { NpcSimSystem } from '@/sim/systems/npc-sim-system';
 import { BeliefPropagationSystem } from '@/sim/systems/belief-propagation-system';
@@ -55,6 +58,7 @@ export class Game {
   private ctx: CanvasRenderingContext2D;
   private state: GameState;
   private scheduler: Scheduler;
+  private commandQueue = new CommandQueue();
   private timeline!: TimelineController;
   private cleanupControls: (() => void) | null = null;
   private cleanupTokens: (() => void) | null = null;
@@ -88,6 +92,16 @@ export class Game {
     this.state = createState();
 
     this.scheduler = new Scheduler();
+    // Command executor runs FIRST: queued player/rival/Fate commands apply at the
+    // top of the tick, before the sim systems compute this tick's state.
+    this.scheduler.register(new CommandExecutorSystem(this.commandQueue, (r) => {
+      if (r.status === 'rejected' && r.source === 'player') {
+        // Seam for a player-facing rejection toast (Fate/UI cycle). Common
+        // rejections (insufficient power / cooldown) are already pre-suppressed at
+        // emit by the controller's previewCommand gate, so this is rare.
+        console.debug('[command] player command rejected:', r.verb, r.reason);
+      }
+    }));
     this.scheduler.register(new NpcMovementSystem(() => this.state.map));
     // Order: settlement events affect needs → NpcSimSystem decays needs + recomputes mood
     // → activity system picks activities from needs → belief propagation → spirits
@@ -97,6 +111,7 @@ export class Game {
     this.scheduler.register(new NpcActivitySystem());
     this.scheduler.register(new BeliefPropagationSystem());
     this.scheduler.register(new SpiritSystem());
+    this.scheduler.register(new RivalSystem(this.commandQueue));
     this.scheduler.register(new MortalitySystem());
     this.scheduler.register(new BirthSystem());
     this.scheduler.register(new PerceptionSystem(identityOracle, () => this.state.map));
@@ -104,6 +119,9 @@ export class Game {
     this.timeline = new TimelineController({
       state: this.state,
       scheduler: this.scheduler,
+      // Pending commands are exogenous input, not sim state — drop them on any
+      // snapshot restore so scrubbing/committing never replays a stale click.
+      onRestore: () => this.commandQueue.clear(),
     });
 
 
@@ -210,7 +228,7 @@ export class Game {
       });
     }
 
-    this.divine = new DivineActionsController({ state: this.state, divineEffects: this.ui.divineEffects });
+    this.divine = new DivineActionsController({ state: this.state, queue: this.commandQueue, divineEffects: this.ui.divineEffects });
     this.divine.register(this.dispatcher);
 
     this.dev = new DevModeController({

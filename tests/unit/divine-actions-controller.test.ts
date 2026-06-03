@@ -4,6 +4,7 @@ import { createState } from '@/core/state';
 import { World } from '@/world/world';
 import { initNpcProps } from '@/world/npc-helpers';
 import { OverlayDispatcher } from '@/ui/overlay-dispatcher';
+import { CommandQueue } from '@/sim/command/command-queue';
 import type { DivineEffects } from '@/render/divine-effects';
 import type { GameMap, Tile } from '@/core/types';
 
@@ -33,7 +34,7 @@ describe('DivineActionsController', () => {
     player.power = 100; // ensure affordable
     let triggers = 0;
     const fx = { trigger: () => { triggers++; } } as unknown as DivineEffects;
-    const ctrl = new DivineActionsController({ state, divineEffects: fx, now: () => 12345 });
+    const ctrl = new DivineActionsController({ state, queue: new CommandQueue(), divineEffects: fx, now: () => 12345 });
     const npc = world.query({ kind: 'npc' })[0];
     expect(ctrl.whisper(npc)).toBe(true);
     expect(ctrl.lastCastTime).toBe(12345);
@@ -50,7 +51,7 @@ describe('DivineActionsController', () => {
     const player = state.spirits.get('player')!;
     player.power = 0; // not affordable
     const fx = { trigger: () => {} } as unknown as DivineEffects;
-    const ctrl = new DivineActionsController({ state, divineEffects: fx, now: () => 99999 });
+    const ctrl = new DivineActionsController({ state, queue: new CommandQueue(), divineEffects: fx, now: () => 99999 });
     const npc = world.query({ kind: 'npc' })[0];
     expect(ctrl.whisper(npc)).toBe(false);
     expect(ctrl.lastCastTime).toBe(-Infinity);
@@ -66,7 +67,7 @@ describe('DivineActionsController', () => {
     player.power = 100;
     let triggerType = '';
     const fx = { trigger: (type: string) => { triggerType = type; } } as unknown as DivineEffects;
-    const ctrl = new DivineActionsController({ state, divineEffects: fx, now: () => 0 });
+    const ctrl = new DivineActionsController({ state, queue: new CommandQueue(), divineEffects: fx, now: () => 0 });
     const npc = world.query({ kind: 'npc' })[0];
     expect(ctrl.dream(npc)).toBe(true);
     expect(triggerType).toBe('dream');
@@ -82,7 +83,7 @@ describe('DivineActionsController', () => {
     player.power = 0;
     let triggers = 0;
     const fx = { trigger: () => { triggers++; } } as unknown as DivineEffects;
-    const ctrl = new DivineActionsController({ state, divineEffects: fx, now: () => 0 });
+    const ctrl = new DivineActionsController({ state, queue: new CommandQueue(), divineEffects: fx, now: () => 0 });
     const npc = world.query({ kind: 'npc' })[0];
     expect(ctrl.dream(npc)).toBe(false);
     expect(triggers).toBe(0);
@@ -99,7 +100,7 @@ describe('DivineActionsController', () => {
     player.power = 100;
     let triggers = 0;
     const fx = { trigger: () => { triggers++; } } as unknown as DivineEffects;
-    const ctrl = new DivineActionsController({ state, divineEffects: fx, now: () => 0 });
+    const ctrl = new DivineActionsController({ state, queue: new CommandQueue(), divineEffects: fx, now: () => 0 });
     const dispatcher = new OverlayDispatcher();
     ctrl.register(dispatcher);
     const result = (dispatcher as any).handlers.get('whisper')({ npcId: 'n4' });

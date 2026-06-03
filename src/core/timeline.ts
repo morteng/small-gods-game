@@ -12,6 +12,9 @@ export interface TimelineOptions {
   snapshotEveryNEvents?: number;
   /** Ring-buffer capacity for snapshots. Default 40. */
   snapshotCapacity?: number;
+  /** Called after any snapshot restore / rebaseline. Used to drop transient state
+   *  (e.g. pending commands) that must not survive a scrub. */
+  onRestore?: () => void;
 }
 
 interface DiscardedTail {
@@ -28,6 +31,7 @@ export class TimelineController {
   private readonly store: SnapshotStore;
   private readonly snapEveryN: number;
   private readonly silentLog: SilentEventLog;
+  private readonly onRestore?: () => void;
 
   private liveSnapshot: Snapshot | null = null;
   private lastSnapshotEventCount = 0;
@@ -40,6 +44,7 @@ export class TimelineController {
     this.snapEveryN = opts.snapshotEveryNEvents ?? 50;
     this.store = new SnapshotStore({ capacity: opts.snapshotCapacity ?? 40 });
     this.silentLog = new SilentEventLog(this.state.clock);
+    this.onRestore = opts.onRestore;
   }
 
   get isScrubbed(): boolean { return this._isScrubbed; }
@@ -70,11 +75,13 @@ export class TimelineController {
       if (this.liveSnapshot && this.liveSnapshot.tick >= clamped) {
         restoreSnapshot(this.state, this.liveSnapshot);
         this.scheduler.resetAccumulators();
+        this.onRestore?.();
       }
       return;
     }
     restoreSnapshot(this.state, snap);
     this.scheduler.resetAccumulators();
+    this.onRestore?.();
     this.forwardSilent(clamped);
   }
 
@@ -82,6 +89,7 @@ export class TimelineController {
     if (!this._isScrubbed || !this.liveSnapshot) return;
     restoreSnapshot(this.state, this.liveSnapshot);
     this.scheduler.resetAccumulators();
+    this.onRestore?.();
     this.liveSnapshot = null;
     this._isScrubbed = false;
   }
@@ -113,6 +121,7 @@ export class TimelineController {
     this.liveSnapshot = null;
     this._isScrubbed = false;
     this.lastSnapshotEventCount = this.state.eventLog.size();
+    this.onRestore?.();
   }
 
   /**
@@ -129,6 +138,7 @@ export class TimelineController {
     this.lastSnapshotEventCount = this.state.eventLog.size();
     this.liveSnapshot = null;
     this._isScrubbed = false;
+    this.onRestore?.();
   }
 
   getDiscardedFutures(): readonly DiscardedTail[] { return this.discardedFutures; }
