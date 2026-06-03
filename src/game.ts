@@ -141,6 +141,15 @@ export class Game {
       provider = createProvider({ type: 'mock' });
     }
     this.llmClient = new LLMClient(provider);
+    // Build the capable (Tier-2) client at boot too — otherwise a returning,
+    // already-onboarded user whose stored config has a capable model boots with
+    // llmClientCapable === null and the Create panel stays dead until they
+    // re-save LLM settings. (applyLlmConfig rebuilds both on live config change.)
+    try {
+      this.llmClientCapable = this.buildCapableClient(providerConfig);
+    } catch (err) {
+      console.warn('[llm] capable client not built at boot:', err);
+    }
     this.canvas = document.createElement('canvas');
     this.canvas.style.width = '100%';
     this.canvas.style.height = '100%';
@@ -294,13 +303,18 @@ export class Game {
     });
   }
 
+  /** The Tier-2 "capable" client, or null when no capable model is configured. */
+  private buildCapableClient(config: ProviderConfig): LLMClient | null {
+    return config.openrouterModelCapable
+      ? new LLMClient(createProvider({ ...config, openrouterModel: config.openrouterModelCapable }))
+      : null;
+  }
+
   private applyLlmConfig(config: ProviderConfig): void {
     try {
       this.llmClient = new LLMClient(createProvider(config));
       this.llmBackfill.setClient(this.llmClient);
-      this.llmClientCapable = config.openrouterModelCapable
-        ? new LLMClient(createProvider({ ...config, openrouterModel: config.openrouterModelCapable }))
-        : null;
+      this.llmClientCapable = this.buildCapableClient(config);
     } catch (err) {
       console.warn('[llm] config not applied:', err);
     }
