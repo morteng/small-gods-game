@@ -24,8 +24,6 @@ export interface WhisperOrchestratorDeps {
   store: NpcAttentionStore;
   playerSpiritId: SpiritId;
   now(): number;
-  onTurnAppended(npcId: string): void;
-  onTurnUpdated(npcId: string): void;
 }
 
 const MOOD_DELTA_CLAMP = 0.2;
@@ -48,7 +46,6 @@ export async function sendWhisper(npc: Entity, text: string, deps: WhisperOrches
   // 2. Provisional turn (shown immediately). Capture prior turns for prompt continuity BEFORE appending.
   const recentBefore = deps.store.getTranscript(npcId).slice();
   deps.store.appendTurn(npcId, { whisper: text, dialogue: '', tick: deps.now() });
-  deps.onTurnAppended(npcId);
   const turns = deps.store.getTranscript(npcId);
   const turn = turns[turns.length - 1];
 
@@ -59,7 +56,6 @@ export async function sendWhisper(npc: Entity, text: string, deps: WhisperOrches
     const parsed = parseReaction(res);
     if (!parsed || typeof parsed.dialogue !== 'string' || parsed.dialogue.length === 0) {
       turn.degraded = true;
-      deps.onTurnUpdated(npcId);
       return;
     }
     turn.dialogue = parsed.dialogue;
@@ -70,10 +66,8 @@ export async function sendWhisper(npc: Entity, text: string, deps: WhisperOrches
       const props = npc.properties as unknown as { mood: number };
       props.mood = clamp(props.mood + clamp(parsed.mood_delta, -MOOD_DELTA_CLAMP, MOOD_DELTA_CLAMP), 0, 1);
     }
-    deps.onTurnUpdated(npcId);
   } catch {
     turn.degraded = true;
-    deps.onTurnUpdated(npcId);
   }
 }
 

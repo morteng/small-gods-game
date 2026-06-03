@@ -18,7 +18,6 @@ function npc(): Entity {
 function mkDeps(store: NpcAttentionStore, queue: CommandQueue, llm: LLMClient): WhisperOrchestratorDeps {
   return {
     queue, llm, store, playerSpiritId: 'player', now: () => 100,
-    onTurnAppended: () => {}, onTurnUpdated: () => {},
   };
 }
 
