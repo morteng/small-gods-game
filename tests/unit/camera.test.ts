@@ -28,7 +28,7 @@ describe('Camera', () => {
     zoomAt(cam, 100, 0, 0); // extreme zoom
     expect(cam.zoom).toBe(8); // max
     zoomAt(cam, 0.001, 0, 0);
-    expect(cam.zoom).toBe(0.25); // min
+    expect(cam.zoom).toBe(0.05); // min (loosened so large maps can fit)
   });
 
   it('centerOn positions camera', () => {

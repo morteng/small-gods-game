@@ -5,6 +5,7 @@ import { createTutorial, type TutorialHandle } from '@/ui/tutorial';
 import { createSpiritHud, type SpiritHudHandle } from '@/ui/spirit-hud';
 import { createRivalPanel, type RivalPanelHandle } from '@/ui/rival-panel';
 import { createMinimapPanel, type MinimapHandle } from '@/ui/minimap-panel';
+import { createCameraControls, type CameraControlsHandle } from '@/ui/camera-controls';
 import { DivineEffects } from '@/render/divine-effects';
 import {
   createDecorationPlacementModal,
@@ -19,6 +20,9 @@ export interface GameUiCallbacks {
   onClickMinimapTile: (x: number, y: number) => void;
   onGameSettingChange: (key: string, value: unknown) => void;
   onLLMConfigChange: (config: ProviderConfig) => void;
+  onZoomIn: () => void;
+  onZoomOut: () => void;
+  onFitView: () => void;
 }
 
 /**
@@ -42,6 +46,7 @@ export class GameUi {
   readonly divineEffects = new DivineEffects();
   readonly llmSettingsBtn: HTMLButtonElement;
   readonly placementModal: DecorationPlacementModalHandle;
+  readonly cameraControls: CameraControlsHandle;
 
   constructor(container: HTMLElement, cb: GameUiCallbacks) {
     this.pausedBanner = document.createElement('div');
@@ -149,6 +154,13 @@ export class GameUi {
     container.appendChild(this.llmSettingsBtn);
 
     this.placementModal = createDecorationPlacementModal(container);
+
+    // ── Camera controls (zoom in/out/fit) ─────────────────
+    this.cameraControls = createCameraControls(container, {
+      onZoomIn: () => cb.onZoomIn(),
+      onZoomOut: () => cb.onZoomOut(),
+      onFitView: () => cb.onFitView(),
+    });
   }
 
   destroy(): void {
@@ -161,6 +173,7 @@ export class GameUi {
     this.spiritHud.destroy();
     this.rivalPanel.destroy();
     this.minimap.destroy();
+    this.cameraControls.destroy();
     this.tutorial.destroy();
     this.unifiedSettings.destroy();
     this.placementModal.destroy();

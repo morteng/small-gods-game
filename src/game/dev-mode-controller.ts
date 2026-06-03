@@ -14,7 +14,9 @@ import { DEFAULT_DEBUG_OVERLAY_OPTIONS, drawDebugOverlays } from '@/render/debug
 import { buildRenderContext } from './render-context';
 import { applyUndo, applyRedo } from './dev-mode-history';
 import { focusCameraOnTile } from '@/render/focus-camera';
-import { drawSelectionOutline } from '@/render/selection-outline';
+import { drawSelectionOutline, drawHoverOutline, resolveOutlineRect, sameRect } from '@/render/selection-outline';
+import { selectionFromHit } from '@/dev/inspector/selection';
+import { drawBiomeLayer, drawPoiLayer } from '@/render/map-layers';
 import { createDockManager, type DockManager } from '@/dev/dock-manager';
 import { DEV_UI_Z } from '@/dev/FloatingPanel';
 import { mountDevToolbar, type DevToolbarHandle } from '@/dev/dev-toolbar';
@@ -380,7 +382,7 @@ export class DevModeController {
   }
 
   /** Called each frame (from render/FrameRenderer) when dev mode is on. */
-  drawOverlays(ctx: CanvasRenderingContext2D, rc: RenderContext): void {
+  drawOverlays(ctx: CanvasRenderingContext2D, rc: RenderContext, hoverHit?: HitResult | null): void {
     if (!this.devMode.enabled) return;
     const debugOpts = {
       showBeliefHeatmap: !!this.devMode.showBeliefHeatmap,
@@ -392,16 +394,32 @@ export class DevModeController {
     };
     drawDebugOverlays(ctx, this.deps.state.camera, this.deps.state.world!, rc.npcs, debugOpts);
 
-    // Glowing outline around the current selection (canvas- or tree-picked).
     const s = this.deps.state;
-    drawSelectionOutline(
-      ctx,
-      this.inspector.getSelection(),
-      s.camera,
-      readRenderMode(),
-      { world: s.world, decorations: s.generatedDecorations ?? [], spirits: s.spirits, seed: s.worldSeed },
-      performance.now(),
-    );
+    const mode = readRenderMode();
+
+    // Map info layers (rendering-only).
+    if (this.devMode.showBiomeLayer) {
+      drawBiomeLayer(ctx, s.biomeMap, s.camera, mode, rc.canvasWidth, rc.canvasHeight);
+    }
+    if (this.devMode.showPoiLayer) {
+      drawPoiLayer(ctx, s.worldSeed?.pois, s.camera, mode);
+    }
+    const owDeps = {
+      world: s.world, decorations: s.generatedDecorations ?? [], spirits: s.spirits, seed: s.worldSeed,
+    };
+    const selection = this.inspector.getSelection();
+    const selRect = resolveOutlineRect(selection, owDeps);
+
+    // Faint hover preview (skip when it would overlap the selection).
+    if (hoverHit && hoverHit.type) {
+      const hoverRect = resolveOutlineRect(selectionFromHit(hoverHit), owDeps);
+      if (hoverRect && !sameRect(hoverRect, selRect)) {
+        drawHoverOutline(ctx, hoverRect, s.camera, mode);
+      }
+    }
+
+    // Glowing outline around the current selection (canvas- or tree-picked).
+    drawSelectionOutline(ctx, selection, s.camera, mode, owDeps, performance.now());
 
     this.debugOverlay.update(this.devMode);
   }

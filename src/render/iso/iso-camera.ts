@@ -1,7 +1,8 @@
 import type { Camera } from '@/core/types';
 import { worldToScreen } from './iso-projection';
 
-export const ISO_ZOOM_MIN = 0.5;
+// Loosened floor (was 0.5) so a large map can be zoomed all the way out to fit.
+export const ISO_ZOOM_MIN = 0.05;
 export const ISO_ZOOM_MAX = 4;
 
 export function createIsoCamera(): Camera {

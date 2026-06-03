@@ -11,7 +11,7 @@
 
 import { WFCEngine } from '@/wfc';
 import { Random, fractalNoise } from '@/core/noise';
-import type { GameMap, WorldSeed, Tile, BuildingInstance, TerrainConfig, POI, TerrainField, Region } from '@/core/types';
+import type { GameMap, WorldSeed, Tile, BuildingInstance, TerrainConfig, POI, TerrainField, Region, BiomeMap } from '@/core/types';
 import { generateTerrainFields, classifyBiomes, sampleTiles } from '@/terrain/terrain-generator';
 import { applyPoiInfluences } from '@/terrain/poi-influence';
 import { generateHydrology } from '@/terrain/hydrology';
@@ -79,8 +79,9 @@ function tileWalkable(type: string): boolean {
 // ─── Result type for noise generation ────────────────────────────────────────
 
 export interface NoiseGenResult {
-  map:   GameMap;
-  world: World;
+  map:      GameMap;
+  world:    World;
+  biomeMap: BiomeMap;
 }
 
 // ─── Primary noise-based generator ───────────────────────────────────────────
@@ -262,7 +263,7 @@ export async function generateWithNoise(
   const cleared = clearObstructedVegetation(world, map);
   if (cleared > 0) report(`Cleared ${cleared} obstructed nature entities`);
 
-  return { map, world };
+  return { map, world, biomeMap };
 }
 
 /**

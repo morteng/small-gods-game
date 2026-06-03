@@ -110,8 +110,12 @@ export class FrameRenderer {
       );
     }
 
-    // Draw debug overlays if dev mode is enabled
-    this.deps.dev.drawOverlays(this.deps.ctx, rc);
+    // Draw debug overlays if dev mode is enabled (with the hovered target so the
+    // dev outline layer can show a faint hover preview).
+    const hoverHit = this.deps.dev.isEnabled() && this.deps.interaction.hoverScreen
+      ? this.deps.dev.hitTest(this.deps.interaction.hoverScreen.x, this.deps.interaction.hoverScreen.y)
+      : null;
+    this.deps.dev.drawOverlays(this.deps.ctx, rc, hoverHit);
 
     // Gold flash when a divine action was just cast
     const flashAge = performance.now() - this.deps.divine.lastCastTime;

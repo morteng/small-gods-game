@@ -1,6 +1,8 @@
 import { createState, type GameState } from '@/core/state';
-import { TILE_SIZE } from '@/core/constants';
-import { selectRenderer, type RenderFn } from '@/render/select-renderer';
+import { selectRenderer, readRenderMode, type RenderFn } from '@/render/select-renderer';
+import { zoomAt } from '@/render/camera';
+import { fitCameraToMap } from '@/render/fit-camera';
+import { focusCameraOnTile } from '@/render/focus-camera';
 import { attachControls, attachTimeKeys } from '@/ui/controls';
 import type { GameMap, WorldSeed, TerrainOptions } from '@/core/types';
 import { advanceNpcFrames } from '@/render/npc-animator';
@@ -165,10 +167,24 @@ export class Game {
         this.state.selectedNpcId = npcId;
       },
       onClickMinimapTile: (x, y) => {
-        // Move camera to tile
-        const cam = this.state.camera;
-        cam.x = x * TILE_SIZE - (this.canvas.width / devicePixelRatio) / 2;
-        cam.y = y * TILE_SIZE - (this.canvas.height / devicePixelRatio) / 2;
+        const vp = this.viewport();
+        focusCameraOnTile(this.state.camera, x, y, vp.width, vp.height, readRenderMode());
+      },
+      onZoomIn: () => {
+        const vp = this.viewport();
+        zoomAt(this.state.camera, 1.2, vp.width / 2, vp.height / 2);
+      },
+      onZoomOut: () => {
+        const vp = this.viewport();
+        zoomAt(this.state.camera, 1 / 1.2, vp.width / 2, vp.height / 2);
+      },
+      onFitView: () => {
+        if (!this.state.map) return;
+        const vp = this.viewport();
+        fitCameraToMap(
+          this.state.camera, this.state.map.width, this.state.map.height,
+          vp.width, vp.height, readRenderMode(),
+        );
       },
       onGameSettingChange: (key, value) => {
         if (key === 'showLabels') this.state.showLabels = value as boolean;

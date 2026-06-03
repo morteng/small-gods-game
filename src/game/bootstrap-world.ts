@@ -33,7 +33,7 @@ export async function bootstrapWorld(deps: BootstrapDeps): Promise<GameMap> {
   const ws = deps.worldSeed || await WorldManager.loadDefault();
   const seed = Date.now();
 
-  const { map, world } = await generateWithNoise(
+  const { map, world, biomeMap } = await generateWithNoise(
     ws.size.width, ws.size.height, seed, ws,
     { onProgress: (msg) => console.log('[terrain]', msg) },
   );
@@ -41,6 +41,7 @@ export async function bootstrapWorld(deps: BootstrapDeps): Promise<GameMap> {
   state.map = map;
   state.worldSeed = ws;
   state.world = world;
+  state.biomeMap = biomeMap;
   state.visualMap = Autotiler.computeVisualMap(map);
   state.blobMap = computeBlobMap(map.tiles, map.width, map.height);
   await assets.loadAll();
