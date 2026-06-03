@@ -275,13 +275,24 @@ export class Game {
         if (!world) return;
         const target = getNpc(world, entityId);
         if (target) {
-          // Selecting a new NPC: the frame-renderer's `switched` detection will
-          // call npcAttentionPanel.setNpc() next frame (resetting to whisper +
-          // fresh mind path). forceInfoRefresh makes that happen immediately.
+          // Gold person-link: select the NPC. frame-renderer's `switched` detection
+          // calls npcAttentionPanel.setNpc() (which opens their mind surface);
+          // forceInfoRefresh makes it happen immediately.
           this.state.selectedNpcId = entityId;
           this.renderer.forceInfoRefresh();
+          return;
         }
-        // else: a place id — best-effort; leave as no-op for v1 (panning is a follow-up).
+        // Gold place-link: pan the camera to the POI.
+        const poi = this.state.worldSeed?.pois.find((p) => p.id === entityId);
+        const pos =
+          poi?.position ??
+          (poi?.region
+            ? { x: (poi.region.x_min + poi.region.x_max) / 2, y: (poi.region.y_min + poi.region.y_max) / 2 }
+            : null);
+        if (pos) {
+          const vp = this.viewport();
+          focusCameraOnTile(this.state.camera, pos.x, pos.y, vp.width, vp.height, readRenderMode());
+        }
       },
     });
 

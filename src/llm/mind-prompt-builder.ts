@@ -29,7 +29,7 @@ export const MIND_PAGE_TOOL: LLMTool = {
       prose: {
         type: 'string',
         description:
-          "What occupies this node of the mortal's mind, in Pratchett-tinged prose. Keep it short — length is dictated per request by the brevity instruction. Respect known facts (name, role, real relationships, real recent events).",
+          "What occupies this node of the mortal's mind, in wry, dry-humored low-fantasy prose. Keep it short — length is dictated per request by the brevity instruction. Respect known facts (name, role, real relationships, real recent events).",
       },
       links: {
         type: 'array',
@@ -60,13 +60,21 @@ const MAX_PATH_SHOWN = 4;
  * only get richer prose by spending power to drill deep.
  */
 function brevityInstruction(depth: number): string {
-  if (depth === 0) return 'BREVITY: the surface is a glimpse — at most ONE short sentence (or a few fragmentary phrases). Do not elaborate.';
-  if (depth <= 2) return 'BREVITY: keep this to ONE short sentence. Terse, suggestive, not a paragraph.';
-  if (depth <= 4) return 'BREVITY: at most two sentences.';
-  return 'BREVITY: up to three or four sentences — deep enough to dwell here.';
+  if (depth === 0) return 'BREVITY (hard limit): the surface is a glimpse — a few fragmentary phrases, UNDER 20 words total. No full sentences, no elaboration.';
+  if (depth <= 2) return 'BREVITY (hard limit): ONE short sentence, under 25 words. Terse and suggestive, never a paragraph.';
+  if (depth <= 4) return 'BREVITY (hard limit): at most two sentences, under 45 words.';
+  return 'BREVITY: up to three or four sentences — deep enough to dwell here, but stay tight.';
 }
 
-export function buildMindPagePrompt(ctx: MindPromptContext): { messages: LLMMessage[]; tools: LLMTool[] } {
+/** Hard token ceiling for the page generation, scaled by depth — enforces brevity even if the model ignores the prose instruction. Generous enough to fit the link list. */
+function maxTokensForDepth(depth: number): number {
+  if (depth === 0) return 110;
+  if (depth <= 2) return 140;
+  if (depth <= 4) return 220;
+  return 320;
+}
+
+export function buildMindPagePrompt(ctx: MindPromptContext): { messages: LLMMessage[]; tools: LLMTool[]; maxTokens: number } {
   const p = ctx.npc.properties as unknown as NpcProperties;
   const b = p.beliefs['player'] ?? { faith: 0, understanding: 0, devotion: 0 };
 
@@ -76,8 +84,10 @@ export function buildMindPagePrompt(ctx: MindPromptContext): { messages: LLMMess
       : ctx.path;
 
   const system = [
-    "You generate one page of a mortal's mind as an infinite, hyperlinked wiki, for a god reading their thoughts.",
-    "World: Terry Pratchett's Small Gods. Dreamlike but grounded in the mortal's real state.",
+    'You are Fate, narrating one page of a mortal\'s mind as an infinite, hyperlinked wiki for a god reading their thoughts.',
+    "Setting: a low-fantasy world of small gods and mortal belief. Dreamlike but grounded in the mortal's real state.",
+    'BE TERSE. A mind is read in glimpses, not essays. The shallow levels are fragments and half-thoughts — NEVER write a paragraph near the surface. Prose grows only as the god drills deep. Obey the per-request brevity limit exactly; shorter is better.',
+    'Lead with the links the god can follow — prefer a few evocative link labels over long prose.',
     'Call emit_mind_page exactly once. Entity links MUST use an id from the candidate list; for purely psychological nodes (fears, feelings, memories) use concept links with no id.',
   ].join(' ');
 
@@ -105,5 +115,6 @@ export function buildMindPagePrompt(ctx: MindPromptContext): { messages: LLMMess
       { role: 'user', content: lines.join('\n') },
     ],
     tools: [MIND_PAGE_TOOL],
+    maxTokens: maxTokensForDepth(ctx.depth),
   };
 }

@@ -14,7 +14,7 @@ import type { BuiltPrompt } from '@/llm/npc-prompt-builder';
 const MAX_TURNS = 6;
 
 const SYSTEM = [
-  "You are narrating a mortal's reaction to a god's whisper in a world inspired by Terry Pratchett's Small Gods.",
+  "You are narrating a mortal's reaction to a god's whisper in a low-fantasy world of small gods and mortal belief.",
   'The god speaks directly into the mortal\'s mind; the mortal does not see the god.',
   'Reply ONLY with strict JSON: {"dialogue": string, "mood_delta": number, "belief_bonus": number}.',
   'dialogue: the mortal\'s spoken or inner reaction (1-2 sentences, in-character).',

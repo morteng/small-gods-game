@@ -29,21 +29,21 @@ describe('mountNpcAttentionPanel', () => {
     h.destroy();
   });
 
-  it('shows a Whisper/Mind mode switch, Whisper active by default', () => {
+  it('shows a Mind/Whisper mode switch, Mind active by default', () => {
     const h = mountNpcAttentionPanel(host, { store: new NpcAttentionStore(), onWhisperSend: () => {}, onMindOpen: () => {}, onMindCrossNav: () => {} });
     h.update(fakeSim(), { power: 5 });
     const tabs = host.querySelectorAll('[data-sg-mode]');
     expect(tabs.length).toBe(2);
-    expect(h.getActiveMode()).toBe('whisper');
+    expect(h.getActiveMode()).toBe('mind');
     h.destroy();
   });
 
   it('switches mode on tab click without re-mounting the panel', () => {
     const h = mountNpcAttentionPanel(host, { store: new NpcAttentionStore(), onWhisperSend: () => {}, onMindOpen: () => {}, onMindCrossNav: () => {} });
     h.update(fakeSim(), { power: 5 });
-    const mindTab = host.querySelector('[data-sg-mode="mind"]') as HTMLButtonElement;
-    mindTab.click();
-    expect(h.getActiveMode()).toBe('mind');
+    const whisperTab = host.querySelector('[data-sg-mode="whisper"]') as HTMLButtonElement;
+    whisperTab.click();
+    expect(h.getActiveMode()).toBe('whisper');
     h.destroy();
   });
 

@@ -62,8 +62,8 @@ export async function openMindPage(
 
   try {
     const candidates = buildCandidateIds(npc, deps.world);
-    const { messages, tools } = buildMindPagePrompt({ npc, path, candidates, depth });
-    const res = await deps.llm.generateWithTools(messages, tools);
+    const { messages, tools, maxTokens } = buildMindPagePrompt({ npc, path, candidates, depth });
+    const res = await deps.llm.generateWithTools(messages, tools, { maxTokens });
     const call = res.toolCalls?.find((c) => c.name === 'emit_mind_page');
     if (!call) return FALLBACK(depth); // no page → no command, no charge, retry stays possible
     const args = readArgs(call.arguments) as { prose?: string; links?: RawMindLink[] };

@@ -165,7 +165,7 @@ export function mountNpcAttentionPanel(
   panel: HTMLElement,
   deps: NpcAttentionPanelDeps,
 ): NpcAttentionPanelHandle {
-  let activeMode: AttentionMode = 'whisper';
+  let activeMode: AttentionMode = 'mind'; // reading a mind is the primary, default view
   let currentNpcId: string | null = null;
   let mindPath: string[] = ['surface'];
   // npcId|pathKey the mind view currently shows, so we lazy-open exactly once.
@@ -205,7 +205,7 @@ export function mountNpcAttentionPanel(
   const mindTab = document.createElement('button');
   mindTab.className = 'sg-mode'; mindTab.type = 'button'; mindTab.dataset.sgMode = 'mind';
   mindTab.textContent = '🧠 Mind';
-  modes.append(whisperTab, mindTab);
+  modes.append(mindTab, whisperTab); // Mind first — reading is the primary action
 
   const whisperBody = document.createElement('div');
   whisperBody.className = 'sg-body'; whisperBody.dataset.sgBody = 'whisper';
@@ -249,16 +249,19 @@ export function mountNpcAttentionPanel(
     mindBody.style.display = activeMode === 'mind' ? 'block' : 'none';
     actions.style.display = activeMode === 'whisper' ? 'flex' : 'none';
   }
+  // Open the current mind page exactly once per (npc, path) — used when Mind becomes visible.
+  function ensureMindLoaded(): void {
+    if (currentNpcId && mindLoadedFor !== mindKeyFor(currentNpcId, mindPath)) {
+      mindMode.showLoading(mindPath);
+      deps.onMindOpen(currentNpcId, mindPath, mindPath.length - 1);
+    }
+  }
   whisperTab.addEventListener('click', (e) => { e.stopPropagation(); activeMode = 'whisper'; applyMode(); });
   mindTab.addEventListener('click', (e) => {
     e.stopPropagation();
     activeMode = 'mind';
     applyMode();
-    // Lazy-open the current mind page exactly once per (npc, path).
-    if (currentNpcId && mindLoadedFor !== mindKeyFor(currentNpcId, mindPath)) {
-      mindMode.showLoading(mindPath);
-      deps.onMindOpen(currentNpcId, mindPath, mindPath.length - 1);
-    }
+    ensureMindLoaded();
   });
   applyMode();
 
@@ -329,11 +332,13 @@ export function mountNpcAttentionPanel(
     setNpc(npcId) {
       if (npcId === currentNpcId) return;
       currentNpcId = npcId;
-      activeMode = 'whisper';
+      // Mind is the default view; selecting an NPC (incl. gold-link cross-nav) opens their mind surface.
+      activeMode = 'mind';
       mindPath = ['surface'];
       mindLoadedFor = null;
       applyMode();
       whisperMode.setNpc(npcId);
+      ensureMindLoaded();
     },
 
     getActiveMode() { return activeMode; },
