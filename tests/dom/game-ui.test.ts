@@ -15,6 +15,7 @@ describe('GameUi', () => {
       onStart: () => {}, onSelectRival: () => {}, onTargetNpc: () => {},
       onClickMinimapTile: () => {}, onGameSettingChange: () => {},
       onLLMConfigChange: () => {},
+      onZoomIn: () => {}, onZoomOut: () => {}, onFitView: () => {},
     });
     expect(container.childElementCount).toBeGreaterThan(before);
     expect(ui.npcInfoPanel).toBeInstanceOf(HTMLDivElement);

@@ -1,5 +1,9 @@
 import type { Camera } from '@/core/types';
 
+// Loosened floor (was 0.25) so a large map can be zoomed all the way out to fit.
+export const TOPDOWN_ZOOM_MIN = 0.05;
+export const TOPDOWN_ZOOM_MAX = 8;
+
 export function createCamera(): Camera {
   return { x: 0, y: 0, zoom: 1, dragging: false, lastX: 0, lastY: 0 };
 }
@@ -24,7 +28,7 @@ export function pan(camera: Camera, dx: number, dy: number): void {
 export function zoomAt(camera: Camera, factor: number, cx: number, cy: number): void {
   const worldX = cx / camera.zoom + camera.x;
   const worldY = cy / camera.zoom + camera.y;
-  camera.zoom = Math.max(0.25, Math.min(8, camera.zoom * factor));
+  camera.zoom = Math.max(TOPDOWN_ZOOM_MIN, Math.min(TOPDOWN_ZOOM_MAX, camera.zoom * factor));
   camera.x = worldX - cx / camera.zoom;
   camera.y = worldY - cy / camera.zoom;
 }

@@ -12,7 +12,7 @@ describe('iso-camera', () => {
   });
 
   it('exposes iso zoom range constants', () => {
-    expect(ISO_ZOOM_MIN).toBe(0.5);
+    expect(ISO_ZOOM_MIN).toBe(0.05);
     expect(ISO_ZOOM_MAX).toBe(4);
   });
 
