@@ -15,16 +15,10 @@ import { buildRenderContext } from './render-context';
 import { applyUndo, applyRedo } from './dev-mode-history';
 import { TILE_SIZE } from '@/core/constants';
 import { createDockManager, type DockManager } from '@/dev/dock-manager';
+import { DEV_UI_Z } from '@/dev/FloatingPanel';
 import { mountDevToolbar, type DevToolbarHandle } from '@/dev/dev-toolbar';
 import { readRenderMode, toggleRenderMode } from '@/render/select-renderer';
 
-/**
- * Dedicated stacking band for dev-mode UI. Sits above all normal game chrome
- * (HUD ~20, settings ~30, menu ~50, tutorial ~100) but below the intentional
- * top-most modals (LLM display 900, entity-spawner 1000) so dev panels never
- * render under the game UI they're meant to inspect.
- */
-const DEV_UI_Z = 600;
 
 export interface DevModeControllerDeps {
   container: HTMLElement;
@@ -140,10 +134,13 @@ export class DevModeController {
       if (this.devMode.showBeliefHeatmap === undefined) {
         Object.assign(this.devMode, DEFAULT_DEBUG_OVERLAY_OPTIONS);
       }
-      // Surface the toolbar + Inspector on enable so the Dev button reveals them.
+      // Reopen panels that were open last time (default to inspector if none were).
       this.toolbar.show();
-      this.inspector.show();
-      this.inspector.update();
+      const anyOpen = ['inspector', 'time', 'map', 'overlay'].some(id => this.dock.isOpen(id));
+      if (this.dock.isOpen('inspector') || !anyOpen) { this.inspector.show(); this.inspector.update(); }
+      if (this.dock.isOpen('time')) this.timeDebug.show();
+      if (this.dock.isOpen('map')) this.mapEditor.show();
+      if (this.dock.isOpen('overlay')) this.debugOverlay.show();
       this.toolbar.refresh();
     } else {
       this.btn.style.background = 'rgba(10,10,20,0.75)';

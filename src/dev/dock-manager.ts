@@ -21,6 +21,7 @@ export interface DockManager {
   onDragEnd(id: string, rect: { left: number; top: number; width: number; height: number }): void;
   noteOpen(id: string, open: boolean): void;
   getState(id: string): DockState;
+  isOpen(id: string): boolean;
   restore(): void;
   relayout(): void;
   destroy(): void;
@@ -116,15 +117,17 @@ export function createDockManager(opts: DockManagerOptions): DockManager {
     return entries.get(id)?.dock ?? { kind: 'float', x: 0, y: 0 };
   }
 
+  function isOpen(id: string): boolean { return entries.get(id)?.open ?? false; }
+
   function restore(): void {
-    for (const [id, e] of entries) {
-      const prev = persisted[id];
-      if (prev) { e.dock = prev.dock; e.open = prev.open; e.panel.setOpen(prev.open); }
+    for (const e of entries.values()) {
+      const prev = persisted[e.panel.id];
+      if (prev) { e.dock = prev.dock; e.open = prev.open; }
     }
     relayout();
   }
 
   function destroy(): void { entries.clear(); }
 
-  return { register, onDragEnd, noteOpen, getState, restore, relayout, destroy };
+  return { register, onDragEnd, noteOpen, getState, isOpen, restore, relayout, destroy };
 }

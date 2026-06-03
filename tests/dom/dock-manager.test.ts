@@ -59,4 +59,13 @@ describe('dock-manager', () => {
     const dm = createDockManager({ container, storageKey: 'k' });
     expect(() => dm.restore()).not.toThrow();
   });
+
+  it('restore applies dock position but does not call setOpen (visibility stays owned by caller)', () => {
+    try { localStorage.setItem('k2', JSON.stringify({ a: { dock: { kind: 'left', order: 0 }, open: true } })); } catch { /* ignore */ }
+    const dm = createDockManager({ container, storageKey: 'k2' });
+    const a = fakePanel('a'); dm.register(a); dm.restore();
+    expect(dm.getState('a').kind).toBe('left'); // position restored
+    expect(dm.isOpen('a')).toBe(true);          // open flag tracked
+    expect(a.open).toBe(false);                 // but setOpen was NOT invoked → panel not shown
+  });
 });
