@@ -22,6 +22,8 @@ export interface InspectorHandle {
   element: HTMLElement;
   select(sel: Selection | null): void;
   selectHit(hit: HitResult | null): void;
+  /** The current selection (unified source of truth for canvas + tree picks). */
+  getSelection(): Selection | null;
   update(): void;
   show(): void;
   hide(): void;
@@ -144,6 +146,7 @@ export function mountInspector(deps: InspectorDeps): InspectorHandle {
       }
       select(sel);
     },
+    getSelection(): Selection | null { return selection; },
     update(): void { renderTree(); renderDetailPane(); },
     show(): void { panel.show(); },
     hide(): void { panel.hide(); },

@@ -13,7 +13,8 @@ import { mountMapEditorPanel, type MapEditorPanelHandle } from '@/dev/MapEditorP
 import { DEFAULT_DEBUG_OVERLAY_OPTIONS, drawDebugOverlays } from '@/render/debug-overlays';
 import { buildRenderContext } from './render-context';
 import { applyUndo, applyRedo } from './dev-mode-history';
-import { TILE_SIZE } from '@/core/constants';
+import { focusCameraOnTile } from '@/render/focus-camera';
+import { drawSelectionOutline } from '@/render/selection-outline';
 import { createDockManager, type DockManager } from '@/dev/dock-manager';
 import { DEV_UI_Z } from '@/dev/FloatingPanel';
 import { mountDevToolbar, type DevToolbarHandle } from '@/dev/dev-toolbar';
@@ -76,10 +77,8 @@ export class DevModeController {
       onUndo: () => this.undo(),
       onRedo: () => this.redo(),
       onFocusCamera: (x, y) => {
-        const cam = this.deps.state.camera;
         const vp = this.deps.getViewport();
-        cam.x = x * TILE_SIZE - vp.width / 2;
-        cam.y = y * TILE_SIZE - vp.height / 2;
+        focusCameraOnTile(this.deps.state.camera, x, y, vp.width, vp.height, readRenderMode());
       },
       dock: this.dock,
     });
@@ -392,6 +391,18 @@ export class DevModeController {
       selectedSpiritId: this.devMode.selectedSpiritId ?? null,
     };
     drawDebugOverlays(ctx, this.deps.state.camera, this.deps.state.world!, rc.npcs, debugOpts);
+
+    // Glowing outline around the current selection (canvas- or tree-picked).
+    const s = this.deps.state;
+    drawSelectionOutline(
+      ctx,
+      this.inspector.getSelection(),
+      s.camera,
+      readRenderMode(),
+      { world: s.world, decorations: s.generatedDecorations ?? [], spirits: s.spirits, seed: s.worldSeed },
+      performance.now(),
+    );
+
     this.debugOverlay.update(this.devMode);
   }
 
