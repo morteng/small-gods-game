@@ -16,6 +16,7 @@ import { applyUndo, applyRedo } from './dev-mode-history';
 import { focusCameraOnTile } from '@/render/focus-camera';
 import { drawSelectionOutline, drawHoverOutline, resolveOutlineRect, sameRect } from '@/render/selection-outline';
 import { selectionFromHit } from '@/dev/inspector/selection';
+import { drawBiomeLayer, drawPoiLayer } from '@/render/map-layers';
 import { createDockManager, type DockManager } from '@/dev/dock-manager';
 import { DEV_UI_Z } from '@/dev/FloatingPanel';
 import { mountDevToolbar, type DevToolbarHandle } from '@/dev/dev-toolbar';
@@ -395,6 +396,14 @@ export class DevModeController {
 
     const s = this.deps.state;
     const mode = readRenderMode();
+
+    // Map info layers (rendering-only).
+    if (this.devMode.showBiomeLayer) {
+      drawBiomeLayer(ctx, s.biomeMap, s.camera, mode, rc.canvasWidth, rc.canvasHeight);
+    }
+    if (this.devMode.showPoiLayer) {
+      drawPoiLayer(ctx, s.worldSeed?.pois, s.camera, mode);
+    }
     const owDeps = {
       world: s.world, decorations: s.generatedDecorations ?? [], spirits: s.spirits, seed: s.worldSeed,
     };

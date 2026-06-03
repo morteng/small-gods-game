@@ -145,7 +145,7 @@ export function sameRect(a: OutlineRect | null, b: OutlineRect | null): boolean 
 }
 
 /** Screen-space center of an iso tile, with camera + zoom applied. */
-function isoTileCenter(tx: number, ty: number, camera: Camera): { sx: number; sy: number } {
+export function isoTileCenter(tx: number, ty: number, camera: Camera): { sx: number; sy: number } {
   const { sx, sy } = isoWorldToScreen(tx, ty, 0, 0, 0);
   return { sx: (sx - camera.x) * camera.zoom, sy: (sy - camera.y) * camera.zoom };
 }

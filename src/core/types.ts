@@ -568,6 +568,9 @@ export interface DevModeState {
   showSocialConnections?: boolean;
   beliefThreshold?: number;
   selectedSpiritId?: string | null;
+  // Map info layers (rendering-only overlays)
+  showPoiLayer?: boolean;
+  showBiomeLayer?: boolean;
   // Time debug
   showEventLog?: boolean;
   showSimState?: boolean;

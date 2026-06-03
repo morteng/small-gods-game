@@ -1,4 +1,4 @@
-import type { DevModeState, DebugOverlayOptions } from '@/core/types';
+import type { DevModeState } from '@/core/types';
 import type { SpiritId } from '@/core/spirit';
 import { DEFAULT_DEBUG_OVERLAY_OPTIONS } from '@/render/debug-overlays';
 import { createFloatingPanel } from '@/dev/FloatingPanel';
@@ -41,7 +41,7 @@ export function mountDebugOverlayPanel(container: HTMLElement, deps: { dock?: Do
 
   function createToggle(
     label: string,
-    getVal: (opts: DebugOverlayOptions) => boolean,
+    getVal: (opts: DevModeState) => boolean | undefined,
     setVal: (devMode: DevModeState, value: boolean) => void,
   ): HTMLInputElement {
     const wrapper = document.createElement('div');
@@ -93,6 +93,18 @@ export function mountDebugOverlayPanel(container: HTMLElement, deps: { dock?: Do
     (dm, v) => { dm.showSocialConnections = v; },
   );
 
+  const biomeToggle = createToggle(
+    '🗺️ Biome Layer',
+    (o) => o.showBiomeLayer,
+    (dm, v) => { dm.showBiomeLayer = v; },
+  );
+
+  const poiToggle = createToggle(
+    '📍 POI Layer',
+    (o) => o.showPoiLayer,
+    (dm, v) => { dm.showPoiLayer = v; },
+  );
+
   // Belief threshold slider
   const thresholdLabel = document.createElement('div');
   thresholdLabel.style.cssText = 'font-size:11px; color:#8cf; margin-bottom:4px;';
@@ -140,6 +152,8 @@ export function mountDebugOverlayPanel(container: HTMLElement, deps: { dock?: Do
     needsToggle.checked = !!devMode.showNeeds;
     moodToggle.checked = !!devMode.showMood;
     socialToggle.checked = !!devMode.showSocialConnections;
+    biomeToggle.checked = !!devMode.showBiomeLayer;
+    poiToggle.checked = !!devMode.showPoiLayer;
 
     // Sync slider
     const threshold = devMode.beliefThreshold ?? 0.3;
