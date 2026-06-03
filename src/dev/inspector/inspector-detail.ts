@@ -189,6 +189,15 @@ function renderSpirit(host: HTMLElement, id: string, deps: DetailDeps): void {
     ['player', s.isPlayer ? 'yes' : 'no'],
     ['manifestation', s.manifestation ? s.manifestation.kind : 'none'],
   ]);
+  // Focus on the spirit's manifestation, if it's incarnated in the world.
+  const manifestId = s.manifestation
+    ? (s.manifestation.kind === 'avatar' ? s.manifestation.entityId : s.manifestation.npcEntityId)
+    : null;
+  const manifestEntity = manifestId ? deps.world?.registry.get(manifestId) : undefined;
+  if (manifestEntity) {
+    title(host, 'Actions');
+    host.appendChild(btn('🎯 Focus manifestation', () => deps.onFocusCamera(manifestEntity.x, manifestEntity.y)));
+  }
 }
 
 function renderWorld(host: HTMLElement, deps: DetailDeps): void {
@@ -221,12 +230,57 @@ function renderPoi(host: HTMLElement, id: string, deps: DetailDeps): void {
   const poi = deps.seed?.pois.find(p => p.id === id);
   title(host, 'POI');
   if (!poi) { muted(host, 'Selection no longer present.'); return; }
-  card(host, [
+
+  const ents = deps.world?.registry.getByPoi(poi.id) ?? [];
+  const rows: [string, string][] = [
     ['name', poi.name ?? poi.id],
     ['type', poi.type],
     ['id', poi.id],
-    ['description', poi.description ?? '—'],
-  ]);
+    ['size', poi.size ?? '—'],
+    ['importance', poi.importance ?? '—'],
+  ];
+  if (poi.position) rows.push(['position', `(${poi.position.x}, ${poi.position.y})`]);
+  if (poi.region) rows.push(['region', `x ${poi.region.x_min}–${poi.region.x_max} · y ${poi.region.y_min}–${poi.region.y_max}`]);
+  rows.push(['entities here', String(ents.length)]);
+  rows.push(['seed NPCs', String(poi.npcs?.length ?? 0)]);
+  card(host, rows);
+
+  if (poi.description) {
+    title(host, 'Description');
+    const d = document.createElement('div');
+    d.className = 'sg-dev-card';
+    d.textContent = poi.description;
+    host.appendChild(d);
+  }
+
+  // Co-located entities — navigable into the tree's detail.
+  if (ents.length) {
+    title(host, `Entities at this POI (${ents.length})`);
+    const c = document.createElement('div');
+    c.className = 'sg-dev-card';
+    for (const e of ents.slice(0, 30)) {
+      c.appendChild(linkRow(e.kind, e.id, () => deps.onNavigate({ type: 'entity', id: e.id })));
+    }
+    host.appendChild(c);
+  }
+
+  // Focus camera: prefer the POI's own position, else its region centre, else
+  // the first co-located entity.
+  const target = poiFocusTarget(poi, ents);
+  if (target) {
+    title(host, 'Actions');
+    host.appendChild(btn('🎯 Focus camera', () => deps.onFocusCamera(target.x, target.y)));
+  }
+}
+
+function poiFocusTarget(
+  poi: { position?: { x: number; y: number }; region?: { x_min: number; x_max: number; y_min: number; y_max: number } },
+  ents: Entity[],
+): { x: number; y: number } | null {
+  if (poi.position) return poi.position;
+  if (poi.region) return { x: (poi.region.x_min + poi.region.x_max) / 2, y: (poi.region.y_min + poi.region.y_max) / 2 };
+  if (ents.length) return { x: ents[0].x, y: ents[0].y };
+  return null;
 }
 
 function pct(v: number | undefined): string { return `${Math.round((v ?? 0) * 100)}%`; }
