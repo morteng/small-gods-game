@@ -151,11 +151,12 @@ export class DevModeController {
       }
       // Reopen panels that were open last time (default to inspector if none were).
       this.toolbar.show();
-      const anyOpen = ['inspector', 'time', 'map', 'overlay'].some(id => this.dock.isOpen(id));
+      const anyOpen = ['inspector', 'time', 'map', 'overlay', 'create'].some(id => this.dock.isOpen(id));
       if (this.dock.isOpen('inspector') || !anyOpen) { this.inspector.show(); this.inspector.update(); }
       if (this.dock.isOpen('time')) this.timeDebug.show();
       if (this.dock.isOpen('map')) this.mapEditor.show();
       if (this.dock.isOpen('overlay')) this.debugOverlay.show();
+      if (this.dock.isOpen('create')) this.createPanel.show();
       this.toolbar.refresh();
     } else {
       this.btn.style.background = 'rgba(10,10,20,0.75)';
@@ -167,6 +168,7 @@ export class DevModeController {
       this.timeDebug.hide();
       this.mapEditor.hide();
       this.debugOverlay.hide();
+      this.createPanel.hide();
       this.devMode.selected = null;
       this.debugOverlay.update(this.devMode);
     }
