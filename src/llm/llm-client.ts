@@ -15,6 +15,20 @@ export interface LLMMessage {
   content: string;
 }
 
+/** An OpenAI-style tool the model may call. `parameters` is a JSON Schema object. */
+export interface LLMTool {
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+}
+
+/** A single tool call the model emitted. `arguments` is already parsed from JSON. */
+export interface LLMToolCall {
+  id: string;
+  name: string;
+  arguments: Record<string, unknown>;
+}
+
 export interface LLMResponse {
   /** The generated text content */
   content: string;
@@ -31,6 +45,8 @@ export interface LLMResponse {
   latencyMs: number;
   /** Cost in USD (convenience, same as usage.cost) */
   cost?: number;
+  /** Tool calls the model requested, when tools were supplied. */
+  toolCalls?: LLMToolCall[];
 }
 
 export interface LLMOptions {
@@ -42,6 +58,10 @@ export interface LLMOptions {
   stop?: string[];
   /** Provider-specific model ID */
   model?: string;
+  /** Tools the model may call (OpenAI-style). */
+  tools?: LLMTool[];
+  /** How the model should choose tools. Defaults to 'auto' when tools are present. */
+  toolChoice?: 'auto' | 'required' | 'none';
 }
 
 export interface LLMProvider {
