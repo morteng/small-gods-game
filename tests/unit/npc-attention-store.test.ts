@@ -32,6 +32,19 @@ describe('NpcAttentionStore', () => {
     expect(s.getPage('npc1', 'surface ▸ fear')).toBeUndefined();
   });
 
+  it('invalidatePage removes a cached page so it regenerates', () => {
+    const s = new NpcAttentionStore();
+    s.putPage('npc1', 'surface', { prose: 'old', links: [], depth: 0 });
+    expect(s.getPage('npc1', 'surface')).toBeDefined();
+    s.invalidatePage('npc1', 'surface');
+    expect(s.getPage('npc1', 'surface')).toBeUndefined();
+  });
+
+  it('invalidatePage is a no-op for an unknown npc or key', () => {
+    const s = new NpcAttentionStore();
+    expect(() => s.invalidatePage('ghost', 'surface')).not.toThrow();
+  });
+
   it('clearAll() wipes every npc transcript and page', () => {
     const s = new NpcAttentionStore();
     s.appendTurn('a', { whisper: 'x', dialogue: 'y', tick: 1 });

@@ -56,6 +56,11 @@ export class NpcAttentionStore {
     byPath.set(path, page);
   }
 
+  /** Drop one cached page so the next read regenerates it (used to re-read the surface after a whisper). */
+  invalidatePage(npcId: string, path: string): void {
+    this.pages.get(npcId)?.delete(path);
+  }
+
   clearAll(): void {
     this.transcripts.clear();
     this.pages.clear();
