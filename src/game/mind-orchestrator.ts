@@ -62,13 +62,18 @@ export async function openMindPage(
 
   try {
     const candidates = buildCandidateIds(npc, deps.world);
-    const { messages, tools, maxTokens } = buildMindPagePrompt({ npc, path, candidates, depth });
-    const res = await deps.llm.generateWithTools(messages, tools, { maxTokens });
+    const { messages, tools } = buildMindPagePrompt({ npc, path, candidates, depth });
+    const res = await deps.llm.generateWithTools(messages, tools);
     const call = res.toolCalls?.find((c) => c.name === 'emit_mind_page');
     if (!call) return FALLBACK(depth); // no page → no command, no charge, retry stays possible
     const args = readArgs(call.arguments) as { prose?: string; links?: RawMindLink[] };
+    const prose = typeof args.prose === 'string' ? args.prose.trim() : '';
+    // Empty prose = a truncated/garbled tool call (e.g. JSON cut off). Treat it
+    // like a failed read: no charge, no cache, retry stays possible — never cache
+    // a blank "…" page that would stick to this NPC for the session.
+    if (!prose) return FALLBACK(depth);
     const page: MindPage = {
-      prose: typeof args.prose === 'string' && args.prose.length ? args.prose : '…',
+      prose,
       links: resolveLinks(args.links ?? [], candidates),
       depth,
     };

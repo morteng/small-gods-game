@@ -115,6 +115,28 @@ export function parseToolCalls(message: unknown): LLMToolCall[] | undefined {
 
 // ─── Mock Provider (for testing) ─────────────────────────────────────────
 
+/**
+ * A sensible default tool call for the mock, so no-key/dev mode renders readable
+ * content instead of empty args. emit_mind_page gets a short canned page; every
+ * other tool keeps the empty-args default (Create panel / Fate paths rely on it).
+ */
+function defaultMockToolCall(tool: LLMTool): LLMToolCall {
+  if (tool.name === 'emit_mind_page') {
+    return {
+      id: 'mock_call_0',
+      name: 'emit_mind_page',
+      arguments: {
+        prose: 'A chore left undone, the smell of rain coming, a half-remembered slight.',
+        links: [
+          { label: 'an old fear', kind: 'concept' },
+          { label: 'tomorrow', kind: 'concept' },
+        ],
+      },
+    };
+  }
+  return { id: 'mock_call_0', name: tool.name, arguments: {} };
+}
+
 export class MockLLMProvider implements LLMProvider {
   private delayMs: number;
   private cannedToolCalls?: LLMToolCall[];
@@ -132,7 +154,7 @@ export class MockLLMProvider implements LLMProvider {
     // downstream consumers (Create panel, Fate) can be tested without a network.
     if (opts?.tools && opts.tools.length > 0) {
       const toolCalls = this.cannedToolCalls
-        ?? [{ id: 'mock_call_0', name: opts.tools[0].name, arguments: {} }];
+        ?? [defaultMockToolCall(opts.tools[0])];
       return {
         content: '',
         toolCalls,

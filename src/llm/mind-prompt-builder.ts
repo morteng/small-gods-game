@@ -66,15 +66,13 @@ function brevityInstruction(depth: number): string {
   return 'BREVITY: up to three or four sentences — deep enough to dwell here, but stay tight.';
 }
 
-/** Hard token ceiling for the page generation, scaled by depth — enforces brevity even if the model ignores the prose instruction. Generous enough to fit the link list. */
-function maxTokensForDepth(depth: number): number {
-  if (depth === 0) return 110;
-  if (depth <= 2) return 140;
-  if (depth <= 4) return 220;
-  return 320;
-}
+// Brevity is enforced by the instruction above, NOT by a token cap. A hard
+// max_tokens on a tool-calling response truncates the {prose, links} JSON
+// mid-string, which parses to empty args and renders a blank "…" page — worse
+// than verbose. So we pass no cap and let generateWithTools' generous default
+// stand purely as a runaway-cost backstop the model never reaches for a glimpse.
 
-export function buildMindPagePrompt(ctx: MindPromptContext): { messages: LLMMessage[]; tools: LLMTool[]; maxTokens: number } {
+export function buildMindPagePrompt(ctx: MindPromptContext): { messages: LLMMessage[]; tools: LLMTool[] } {
   const p = ctx.npc.properties as unknown as NpcProperties;
   const b = p.beliefs['player'] ?? { faith: 0, understanding: 0, devotion: 0 };
 
@@ -115,6 +113,5 @@ export function buildMindPagePrompt(ctx: MindPromptContext): { messages: LLMMess
       { role: 'user', content: lines.join('\n') },
     ],
     tools: [MIND_PAGE_TOOL],
-    maxTokens: maxTokensForDepth(ctx.depth),
   };
 }

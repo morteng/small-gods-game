@@ -98,6 +98,16 @@ describe('openMindPage', () => {
     expect(d.queue.drain()).toHaveLength(0); // no page → no probe_mind command → no charge
   });
 
+  it('treats an empty-prose tool call as a failed read (fallback, no cache, no charge)', async () => {
+    // A truncated/garbled tool call parses to empty args; it must not cache a blank
+    // "…" page or charge the player — the read should stay retryable.
+    const { d, store } = mkDeps({ llm: pageStub('   ', [{ label: 'fear', kind: 'concept' }]) });
+    const page = await openMindPage(maeve(), ['surface'], 0, d);
+    expect(page?.prose.toLowerCase()).toMatch(/clouds over|nothing comes/);
+    expect(store.getPage('maeve', pathKey(['surface']))).toBeUndefined();
+    expect(d.queue.drain()).toHaveLength(0);
+  });
+
   it('does not emit a probe_mind command when the LLM throws (no charge on failure)', async () => {
     const throwing = new LLMClient({ async generate() { throw new Error('offline'); } } as any);
     const { d } = mkDeps({ llm: throwing });
