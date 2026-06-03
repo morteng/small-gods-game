@@ -92,3 +92,62 @@ describe('MockLLMProvider tool calls', () => {
     expect(resp.toolCalls).toEqual(canned);
   });
 });
+
+afterEach(() => vi.unstubAllGlobals());
+
+function stubFetchOnce(jsonBody: unknown) {
+  vi.stubGlobal('fetch', vi.fn(async () => ({
+    ok: true,
+    status: 200,
+    json: async () => jsonBody,
+    text: async () => JSON.stringify(jsonBody),
+  })) as never);
+}
+
+describe('OpenRouterProvider tool-calling', () => {
+  it('sends OpenAI-style tools + tool_choice and parses tool_calls', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true, status: 200,
+      json: async () => ({
+        model: 'deepseek/deepseek-v4',
+        choices: [{ message: { content: '', tool_calls: [
+          { id: 'tc1', type: 'function', function: { name: 'author_spawn_npc', arguments: '{"role":"farmer","count":2}' } },
+        ] } }],
+        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+      }),
+      text: async () => '',
+    }));
+    vi.stubGlobal('fetch', fetchMock as never);
+
+    const provider = new OpenRouterProvider({ apiKey: 'k', model: 'deepseek/deepseek-v4' });
+    const resp = await provider.generate(
+      [{ role: 'user', content: 'add 2 farmers' }],
+      { tools: [SPAWN_TOOL], toolChoice: 'auto' },
+    );
+
+    const sentBody = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+    expect(sentBody.tools).toEqual(toToolPayload([SPAWN_TOOL]));
+    expect(sentBody.tool_choice).toBe('auto');
+    expect(resp.toolCalls).toEqual([
+      { id: 'tc1', name: 'author_spawn_npc', arguments: { role: 'farmer', count: 2 } },
+    ]);
+  });
+
+  it('omits tools from the request body when none are supplied', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true, status: 200,
+      json: async () => ({ choices: [{ message: { content: '{"narration":"ok"}' } }] }),
+      text: async () => '',
+    }));
+    vi.stubGlobal('fetch', fetchMock as never);
+
+    const provider = new OpenRouterProvider({ apiKey: 'k' });
+    const resp = await provider.generate([{ role: 'user', content: 'hi' }]);
+
+    const sentBody = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+    expect('tools' in sentBody).toBe(false);
+    expect('tool_choice' in sentBody).toBe(false);
+    expect(resp.toolCalls).toBeUndefined();
+    expect(resp.parsed).toEqual({ narration: 'ok' });
+  });
+});

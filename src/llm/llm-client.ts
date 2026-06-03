@@ -348,6 +348,11 @@ export class OpenRouterProvider implements LLMProvider {
       ? (opts as Record<string, unknown>).reasoning
       : { enabled: false };
 
+    if (opts?.tools && opts.tools.length > 0) {
+      body.tools = toToolPayload(opts.tools);
+      body.tool_choice = opts.toolChoice ?? 'auto';
+    }
+
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${this.config.apiKey}`,
@@ -388,7 +393,9 @@ export class OpenRouterProvider implements LLMProvider {
         }
 
         const data = await resp.json();
-        const content = filterProviderTokens(data.choices?.[0]?.message?.content ?? '');
+        const message = data.choices?.[0]?.message;
+        const content = filterProviderTokens(message?.content ?? '');
+        const toolCalls = parseToolCalls(message);
 
         let parsed: Record<string, unknown> | undefined;
         try {
@@ -414,6 +421,7 @@ export class OpenRouterProvider implements LLMProvider {
         return {
           content,
           parsed,
+          toolCalls,
           usage: data.usage ? {
             promptTokens: data.usage.prompt_tokens,
             completionTokens: data.usage.completion_tokens,
