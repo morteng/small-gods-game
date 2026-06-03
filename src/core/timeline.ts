@@ -4,6 +4,7 @@ import type { Scheduler } from '@/core/scheduler';
 import { SnapshotStore, captureSnapshot, restoreSnapshot, type Snapshot } from '@/core/snapshot';
 import { SilentEventLog, type AppendedEvent } from '@/core/events';
 import { createRng } from '@/core/rng';
+import type { AuthorCommandLog } from '@/sim/command/author-command-log';
 
 export interface TimelineOptions {
   state: GameState;
@@ -15,6 +16,8 @@ export interface TimelineOptions {
   /** Called after any snapshot restore / rebaseline. Used to drop transient state
    *  (e.g. pending commands) that must not survive a scrub. */
   onRestore?: () => void;
+  /** Replayable editor-command log; truncated on commit, reset on skip. */
+  authorLog?: AuthorCommandLog;
 }
 
 interface DiscardedTail {
@@ -32,6 +35,7 @@ export class TimelineController {
   private readonly snapEveryN: number;
   private readonly silentLog: SilentEventLog;
   private readonly onRestore?: () => void;
+  private readonly authorLog?: AuthorCommandLog;
 
   private liveSnapshot: Snapshot | null = null;
   private lastSnapshotEventCount = 0;
@@ -45,6 +49,7 @@ export class TimelineController {
     this.store = new SnapshotStore({ capacity: opts.snapshotCapacity ?? 40 });
     this.silentLog = new SilentEventLog(this.state.clock);
     this.onRestore = opts.onRestore;
+    this.authorLog = opts.authorLog;
   }
 
   get isScrubbed(): boolean { return this._isScrubbed; }
@@ -105,6 +110,7 @@ export class TimelineController {
     });
     this.state.eventLog.truncateAfter(cutoff);
     this.store.truncateAfter(cutoff);
+    this.authorLog?.truncateAfter(cutoff);
     if (opts.reroll) {
       const newSeed = this.state.rng.nextInt(0x7fffffff);
       this.state.rng = createRng(newSeed);
@@ -134,6 +140,7 @@ export class TimelineController {
    */
   commitSkip(): void {
     this.store.reset();
+    this.authorLog?.reset();
     this.store.push(captureSnapshot(this.state));
     this.lastSnapshotEventCount = this.state.eventLog.size();
     this.liveSnapshot = null;

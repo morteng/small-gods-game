@@ -1,11 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import { executeCommand, CommandExecutorSystem } from '@/sim/command/command-system';
 import { CommandQueue } from '@/sim/command/command-queue';
+import { AuthorCommandLog } from '@/sim/command/author-command-log';
 import type { Command, CommandResult, ApplyCtx } from '@/sim/command/types';
 import { CAPABILITY_REGISTRY } from '@/sim/command/registry';
 import { World } from '@/world/world';
 import { SimClock } from '@/core/clock';
-import { EventLog } from '@/core/events';
+import { EventLog, SilentEventLog } from '@/core/events';
+import type { SystemContext } from '@/core/scheduler';
 import { initNpcProps } from '@/world/npc-helpers';
 import { whisper } from '@/sim/divine-actions';
 import type { Entity, GameMap, NpcProperties } from '@/core/types';
@@ -155,5 +157,52 @@ describe('CommandExecutorSystem', () => {
     expect(results.map(r => r.status)).toEqual(['applied', 'applied']);
     expect(queue.size()).toBe(0);
     expect(spirits.get('player')!.power).toBe(8); // two whispers @ cost 1
+  });
+});
+
+describe('CommandExecutorSystem — author recording & replay', () => {
+  function sysCtx(world: World, log: EventLog, now: number): SystemContext {
+    return { world, spirits: new Map(), log, clock: new SimClock(), rng: createRng(1), dt: 16, now };
+  }
+
+  it('records an applied editor command (live) with the apply tick', () => {
+    const world = new World(tinyMap());
+    world.addEntity(worldNpc('victim', () => {}));
+    const queue = new CommandQueue();
+    const authorLog = new AuthorCommandLog();
+    const sys = new CommandExecutorSystem(queue, undefined, authorLog);
+
+    queue.emit({ verb: 'author_remove_entity', source: 'author', target: { kind: 'none' }, payload: { entityId: 'victim' } });
+    sys.tick(sysCtx(world, new EventLog(new SimClock()), 42));
+
+    expect(world.registry.get('victim')).toBeUndefined();
+    expect(authorLog.at(42)).toHaveLength(1);
+    expect(authorLog.at(42)[0].verb).toBe('author_remove_entity');
+  });
+
+  it('does NOT record during silent replay, and re-emits recorded commands', () => {
+    const world = new World(tinyMap());
+    world.addEntity(worldNpc('victim', () => {}));
+    const queue = new CommandQueue();
+    const authorLog = new AuthorCommandLog();
+    // pre-seed the log as if recorded on a prior live run at tick 42
+    authorLog.record(42, { verb: 'author_remove_entity', source: 'author', target: { kind: 'none' }, payload: { entityId: 'victim' }, seq: 0 });
+
+    const sys = new CommandExecutorSystem(queue, undefined, authorLog);
+    // replay: log is a SilentEventLog; queue is empty (cleared on restore)
+    sys.tick(sysCtx(world, new SilentEventLog(new SimClock()), 42));
+
+    expect(world.registry.get('victim')).toBeUndefined(); // re-applied from the log
+    expect(authorLog.size()).toBe(1);                      // not double-recorded
+  });
+
+  it('does not record rejected or non-editor commands', () => {
+    const world = new World(tinyMap());
+    const queue = new CommandQueue();
+    const authorLog = new AuthorCommandLog();
+    const sys = new CommandExecutorSystem(queue, undefined, authorLog);
+    queue.emit({ verb: 'author_remove_entity', source: 'author', target: { kind: 'none' }, payload: { entityId: 'nope' } });
+    sys.tick(sysCtx(world, new EventLog(new SimClock()), 5));
+    expect(authorLog.size()).toBe(0);
   });
 });

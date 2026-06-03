@@ -10,8 +10,10 @@
 import type { System, SystemContext } from '@/core/scheduler';
 import { getCapability } from './registry';
 import { getNpc } from '@/world/npc-helpers';
+import { SilentEventLog } from '@/core/events';
 import type { Command, CommandCtx, ApplyCtx, CommandResult, RejectionReason } from './types';
 import type { CommandQueue } from './command-queue';
+import type { AuthorCommandLog } from './author-command-log';
 
 /**
  * Read-only validation: everything `executeCommand` checks *except* the mutating
@@ -66,6 +68,7 @@ export class CommandExecutorSystem implements System {
   constructor(
     private readonly queue: CommandQueue,
     private readonly onResult?: (r: CommandResult) => void,
+    private readonly authorLog?: AuthorCommandLog,
   ) {}
 
   tick(ctx: SystemContext): void {
@@ -73,8 +76,23 @@ export class CommandExecutorSystem implements System {
       world: ctx.world, spirits: ctx.spirits, log: ctx.log,
       rng: ctx.rng, now: ctx.now,
     };
+    const replaying = ctx.log instanceof SilentEventLog;
+
+    // Replay: re-emit recorded author commands due at this tick BEFORE draining,
+    // so they re-apply in the same drain order (and RNG position) as live.
+    if (replaying && this.authorLog) {
+      for (const c of this.authorLog.at(ctx.now)) {
+        this.queue.emit({ verb: c.verb, source: c.source, target: c.target, params: c.params, payload: c.payload });
+      }
+    }
+
     for (const cmd of this.queue.drain()) {
       const result = executeCommand(cmd, ctxFor);
+      // Live only: record applied editor commands as replayable history.
+      if (!replaying && this.authorLog && result.status === 'applied'
+          && getCapability(cmd.verb)?.tier === 'editor') {
+        this.authorLog.record(ctx.now, cmd);
+      }
       this.onResult?.(result);
     }
   }

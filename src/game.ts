@@ -20,6 +20,7 @@ import { Scheduler } from '@/core/scheduler';
 import { TimelineController } from '@/core/timeline';
 import { CommandQueue } from '@/sim/command/command-queue';
 import { CommandExecutorSystem } from '@/sim/command/command-system';
+import { AuthorCommandLog } from '@/sim/command/author-command-log';
 import { RivalSystem } from '@/sim/systems/rival-system';
 import { NpcMovementSystem } from '@/sim/systems/npc-movement-system';
 import { NpcSimSystem } from '@/sim/systems/npc-sim-system';
@@ -59,6 +60,7 @@ export class Game {
   private state: GameState;
   private scheduler: Scheduler;
   private commandQueue = new CommandQueue();
+  private authorLog = new AuthorCommandLog();
   private timeline!: TimelineController;
   private cleanupControls: (() => void) | null = null;
   private cleanupTokens: (() => void) | null = null;
@@ -101,7 +103,7 @@ export class Game {
         // emit by the controller's previewCommand gate, so this is rare.
         console.debug('[command] player command rejected:', r.verb, r.reason);
       }
-    }));
+    }, this.authorLog));
     this.scheduler.register(new NpcMovementSystem(() => this.state.map));
     // Order: settlement events affect needs → NpcSimSystem decays needs + recomputes mood
     // → activity system picks activities from needs → belief propagation → spirits
@@ -121,7 +123,11 @@ export class Game {
       scheduler: this.scheduler,
       // Pending commands are exogenous input, not sim state — drop them on any
       // snapshot restore so scrubbing/committing never replays a stale click.
+      // The authorLog is history (NOT cleared on restore): the executor re-emits
+      // recorded editor edits during silent replay. It is truncated on commit and
+      // reset on a time-skip baseline.
       onRestore: () => this.commandQueue.clear(),
+      authorLog: this.authorLog,
     });
 
 
