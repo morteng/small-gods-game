@@ -23,6 +23,12 @@ export function previewCommand(cmd: Command, ctx: CommandCtx): RejectionReason |
   if (!def) return 'invalid_target';                   // unknown verb (defensive)
   if (!def.implemented || !def.apply) return 'not_implemented';
 
+  // Editor tier is god-mode: no spirit, no power, payload-based targeting.
+  // Validation is entirely the verb's precondition (it inspects cmd.payload).
+  if (def.tier === 'editor') {
+    return def.precondition?.(cmd, ctx) ?? null;
+  }
+
   if (!ctx.spirits.has(cmd.source)) return 'unknown_source';
 
   // Target kind + existence.
