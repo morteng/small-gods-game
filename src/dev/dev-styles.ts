@@ -10,6 +10,11 @@ const STYLE = `
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  /* User-resizable: drag the bottom-right grip. CSS resize needs overflow
+     != visible, which the panel already has. */
+  resize: both;
+  min-width: 200px;
+  min-height: 140px;
 }
 .sg-dev-body { flex: 1; display: flex; min-height: 0; }
 .sg-dev-muted { color: #888; padding: 16px; text-align: center; }
