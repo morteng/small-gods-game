@@ -240,6 +240,8 @@ export class Game {
     this.dev = new DevModeController({
       container: this.container, state: this.state, scheduler: this.scheduler,
       getViewport: () => this.viewport(), getRenderDeps: () => this.renderDeps(),
+      commandQueue: this.commandQueue,
+      getLlmCapable: () => this.llmClientCapable,
     });
 
     this.renderer = new FrameRenderer({

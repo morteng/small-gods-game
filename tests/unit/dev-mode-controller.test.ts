@@ -4,6 +4,7 @@ import { DevModeController } from '@/game/dev-mode-controller';
 import { createState } from '@/core/state';
 import { Scheduler } from '@/core/scheduler';
 import { World } from '@/world/world';
+import { CommandQueue } from '@/sim/command/command-queue';
 import type { GameMap, Tile, HitResult } from '@/core/types';
 
 function makeMap(w = 5, h = 5): GameMap {
@@ -35,6 +36,8 @@ describe('DevModeController.applyInspectorEdit', () => {
       container, state, scheduler: new Scheduler(),
       getViewport: () => ({ width: 800, height: 600 }),
       getRenderDeps: () => ({ state, viewport: { width: 800, height: 600 }, sheets: new Map(), assets: {} as any, decorationImages: {} as any, devMode: ctrl.devMode }) as any,
+      commandQueue: new CommandQueue(),
+      getLlmCapable: () => null,
     });
     // The unified Inspector is mounted (single .sg-dev-panel for it).
     expect(container.querySelector('.sg-dev-panel')).not.toBeNull();
@@ -64,6 +67,8 @@ describe('DevModeController.applyInspectorEdit', () => {
       container, state, scheduler: new Scheduler(),
       getViewport: () => ({ width: 800, height: 600 }),
       getRenderDeps: () => ({ state, viewport: { width: 800, height: 600 }, sheets: new Map(), assets: {} as any, decorationImages: {} as any, devMode: ctrl.devMode }) as any,
+      commandQueue: new CommandQueue(),
+      getLlmCapable: () => null,
     });
     expect(typeof ctrl.updateInspector).toBe('function');
     // Selecting a hit through the inspector handle should not throw.
