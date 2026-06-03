@@ -180,6 +180,26 @@ function clampDelta(
   return value;
 }
 
+// ─── Whisper Bonus ───────────────────────────────────────────────────
+
+/** Maximum magnitude of the soft, LLM-judged whisper faith bonus (never snapshotted). */
+export const WHISPER_BONUS_CLAMP = 0.10;
+
+/**
+ * Apply the soft, clamped (±0.10) whisper belief bonus to an NPC's faith in a spirit.
+ * Narration-layer sugar on top of the deterministic whisper floor: it is overwritten
+ * on snapshot restore, so replay reproduces only the floor.
+ * @returns the actual faith delta applied (after ±0.10 clamp), for transcript display.
+ */
+export function applyWhisperBonus(npc: Entity, bonus: number, spiritId: SpiritId): number {
+  const props = npc.properties as unknown as { beliefs: Record<string, { faith: number; understanding: number; devotion: number }> };
+  let belief = props.beliefs[spiritId];
+  if (!belief) { belief = { faith: 0, understanding: 0, devotion: 0 }; props.beliefs[spiritId] = belief; }
+  const delta = Math.max(-WHISPER_BONUS_CLAMP, Math.min(WHISPER_BONUS_CLAMP, bonus));
+  belief.faith = clamp01(belief.faith + delta);
+  return delta;
+}
+
 /**
  * Validate that a parsed LLM response has at least some valid content.
  * Returns true if the response is usable.
