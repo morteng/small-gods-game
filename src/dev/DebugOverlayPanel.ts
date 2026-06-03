@@ -1,6 +1,7 @@
 import type { DevModeState } from '@/core/types';
 import { createFloatingPanel } from '@/dev/FloatingPanel';
 import type { DockManager } from '@/dev/dock-manager';
+import { RENDER_LAYERS, layerFlag, type RenderLayer } from '@/render/layer-visibility';
 
 export interface DebugOverlayPanelHandle {
   element: HTMLElement;
@@ -113,10 +114,26 @@ export function mountDebugOverlayPanel(container: HTMLElement, deps: { dock?: Do
   const biomeToggle = createToggle(mapSection, '🗺️ Biome Layer', (dm, v) => { dm.showBiomeLayer = v; });
   const poiToggle = createToggle(mapSection, '📍 POI Layer', (dm, v) => { dm.showPoiLayer = v; });
 
-  // ── Render ──────────────────────────────────────────────────────────────
-  const renderSection = section('Render');
-  // Vegetation is shown unless explicitly false; the checkbox reads "shown".
-  const vegetationToggle = createToggle(renderSection, '🌳 Vegetation', (dm, v) => { dm.showVegetation = v; });
+  // ── Render Layers ─────────────────────────────────────────────────────────
+  // One toggle per base scene category. Each is shown unless its flag is
+  // explicitly false, so a fresh (undefined) checkbox reads "shown" (checked).
+  const renderSection = section('Render Layers');
+  const LAYER_LABELS: Record<RenderLayer, string> = {
+    terrain: '🗺️ Terrain (tiles)',
+    npcs: '🧍 NPCs',
+    buildings: '🏠 Buildings',
+    vegetation: '🌳 Vegetation',
+    props: '📦 Props',
+    terrainFeatures: '🪨 Terrain Features',
+    decorations: '🎨 Decorations',
+    remains: '⚰️ Remains',
+  };
+  const layerToggles = new Map<RenderLayer, HTMLInputElement>();
+  for (const layer of RENDER_LAYERS) {
+    const flag = layerFlag(layer);
+    const toggle = createToggle(renderSection, LAYER_LABELS[layer], (dm, v) => { dm[flag] = v; });
+    layerToggles.set(layer, toggle);
+  }
 
   // Reset button — clears every overlay back to its default (off / shown).
   const resetBtn = document.createElement('button');
@@ -131,7 +148,8 @@ export function mountDebugOverlayPanel(container: HTMLElement, deps: { dock?: Do
     currentDevMode.showSocialConnections = false;
     currentDevMode.showBiomeLayer = false;
     currentDevMode.showPoiLayer = false;
-    currentDevMode.showVegetation = true;
+    // Render layers default to shown.
+    for (const layer of RENDER_LAYERS) currentDevMode[layerFlag(layer)] = true;
     currentDevMode.beliefThreshold = 0.3;
     currentDevMode.selectedSpiritId = null;
     update(currentDevMode);
@@ -149,8 +167,10 @@ export function mountDebugOverlayPanel(container: HTMLElement, deps: { dock?: Do
     socialToggle.checked = !!devMode.showSocialConnections;
     biomeToggle.checked = !!devMode.showBiomeLayer;
     poiToggle.checked = !!devMode.showPoiLayer;
-    // Vegetation defaults to shown (undefined → checked); only false unchecks it.
-    vegetationToggle.checked = devMode.showVegetation !== false;
+    // Render layers default to shown (undefined → checked); only false unchecks.
+    for (const [layer, toggle] of layerToggles) {
+      toggle.checked = devMode[layerFlag(layer)] !== false;
+    }
 
     const threshold = devMode.beliefThreshold ?? 0.3;
     thresholdSlider.value = String(Math.round(threshold * 100));

@@ -5,6 +5,7 @@ import { getTerrainSpriteCoords, LPC_TILE_SIZE } from '@/render/terrain-atlas';
 import type { BuildingTemplate } from '@/map/building-templates';
 import { tryGetEntityKindDef } from '@/world/entity-kinds';
 import { BUILDING_TEMPLATES } from '@/map/building-templates';
+import { isLayerHidden, isEntityHidden } from '@/render/layer-visibility';
 
 /** Render the map to a canvas context */
 export function renderMap(ctx: CanvasRenderingContext2D, rc: RenderContext): void {
@@ -158,6 +159,7 @@ function drawRoadProcedural(
 // =============================================================================
 
 function drawTerrain(ctx: CanvasRenderingContext2D, rc: RenderContext): void {
+  if (isLayerHidden('terrain', rc.devMode)) return;
   const { map, camera, canvasWidth, canvasHeight } = rc;
 
   const startX = Math.max(0, Math.floor(camera.x / TILE_SIZE) - 1);
@@ -497,22 +499,25 @@ function drawYSortedEntities(ctx: CanvasRenderingContext2D, rc: RenderContext): 
 
   items.sort((a, b) => a.sortY - b.sortY);
 
-  const hideVegetation = rc.devMode?.showVegetation === false;
+  const hideDecorations = isLayerHidden('decorations', rc.devMode);
+  const hideNpcs = isLayerHidden('npcs', rc.devMode);
   ctx.imageSmoothingEnabled = false;
   for (const item of items) {
     if (item.kind === 'entity') {
       const e = item.entity;
       const underTile = rc.map.tiles[Math.floor(e.y)]?.[Math.floor(e.x)];
       if (underTile?.state === 'void') continue;
-      if (hideVegetation && tryGetEntityKindDef(e.kind)?.category === 'vegetation') continue;
+      if (isEntityHidden(e, rc.devMode)) continue;
       drawEntity(ctx, rc, e);
     } else if (item.kind === 'decoration') {
+      if (hideDecorations) continue;
       const d = item.placement;
       const underTile = rc.map.tiles[Math.floor(d.tileY)]?.[Math.floor(d.tileX)];
       if (underTile?.state === 'void') continue;
       drawDecoration(ctx, rc, d);
     } else {
       // item.kind === 'npc'
+      if (hideNpcs) continue;
       drawNpc(ctx, rc, item.npc);
     }
   }

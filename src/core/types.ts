@@ -571,8 +571,16 @@ export interface DevModeState {
   // Map info layers (rendering-only overlays)
   showPoiLayer?: boolean;
   showBiomeLayer?: boolean;
-  // Render toggles — vegetation (trees/plants) shown unless explicitly false.
+  // Render layer toggles — each base scene category is shown unless its flag is
+  // explicitly false (default: shown). See src/render/layer-visibility.ts.
+  showTerrain?: boolean;
+  showNpcs?: boolean;
+  showBuildings?: boolean;
   showVegetation?: boolean;
+  showProps?: boolean;
+  showTerrainFeatures?: boolean;
+  showDecorations?: boolean;
+  showRemains?: boolean;
   // Time debug
   showEventLog?: boolean;
   showSimState?: boolean;
