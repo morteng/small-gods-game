@@ -42,7 +42,7 @@ export function createIsoRenderMap(): RenderMap {
     );
 
     if (!isLayerHidden('terrain', rc.devMode)) {
-      drawIsoTerrain(ctx, { map, bounds, originX, originY });
+      drawIsoTerrain(ctx, { map, bounds, originX, originY, devMode: rc.devMode });
     }
 
     const entries: YSortEntry[] = [];

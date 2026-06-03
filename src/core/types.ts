@@ -581,6 +581,9 @@ export interface DevModeState {
   showTerrainFeatures?: boolean;
   showDecorations?: boolean;
   showRemains?: boolean;
+  // Terrain sub-layers (tile-type based; gated inside the terrain pass).
+  showRoads?: boolean;
+  showRivers?: boolean;
   // Time debug
   showEventLog?: boolean;
   showSimState?: boolean;
