@@ -27,6 +27,8 @@ export interface GameUiCallbacks {
   onFitView: () => void;
   attentionStore: NpcAttentionStore;
   onWhisperSend: (npcId: string, text: string) => void;
+  onMindOpen: (npcId: string, path: string[], depth: number) => void;
+  onMindCrossNav: (entityId: string) => void;
 }
 
 /**
@@ -87,6 +89,8 @@ export class GameUi {
     this.npcAttentionPanel = mountNpcAttentionPanel(this.npcInfoPanel, {
       store: cb.attentionStore,
       onWhisperSend: cb.onWhisperSend,
+      onMindOpen: cb.onMindOpen,
+      onMindCrossNav: cb.onMindCrossNav,
     });
 
     // LLM display (shows dialogue/narration from LLM backfill)

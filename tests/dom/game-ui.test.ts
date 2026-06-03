@@ -18,6 +18,7 @@ describe('GameUi', () => {
       onLLMConfigChange: () => {},
       onZoomIn: () => {}, onZoomOut: () => {}, onFitView: () => {},
       attentionStore: new NpcAttentionStore(), onWhisperSend: () => {},
+      onMindOpen: () => {}, onMindCrossNav: () => {},
     });
     expect(container.childElementCount).toBeGreaterThan(before);
     expect(ui.npcInfoPanel).toBeInstanceOf(HTMLDivElement);

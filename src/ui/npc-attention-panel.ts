@@ -1,7 +1,9 @@
 import type { NpcSimState } from '@/core/types';
 import { npcStatusHint } from '@/sim/believers';
 import { mountWhisperMode, type WhisperModeHandle } from '@/ui/npc-whisper-mode';
-import type { NpcAttentionStore } from '@/llm/npc-attention-store';
+import { mountMindMode, type MindModeHandle } from '@/ui/npc-mind-mode';
+import { mindProbeCost } from '@/sim/mind-probe';
+import type { NpcAttentionStore, MindPage } from '@/llm/npc-attention-store';
 
 const WHISPER_COST = 1;
 const DREAM_COST = 4;
@@ -63,6 +65,8 @@ export interface NpcAttentionPanelOptions {
 export interface NpcAttentionPanelDeps {
   store: NpcAttentionStore;
   onWhisperSend(npcId: string, text: string): void;
+  onMindOpen(npcId: string, path: string[], depth: number): void;
+  onMindCrossNav(entityId: string): void;
 }
 
 export interface NpcAttentionPanelHandle {
@@ -71,6 +75,7 @@ export interface NpcAttentionPanelHandle {
   getActiveMode(): AttentionMode;
   refreshWhisper(): void;
   refreshWhisperLast(): void;
+  showMindPage(path: string[], page: MindPage): void;
   destroy(): void;
 }
 
@@ -109,6 +114,12 @@ export function mountNpcAttentionPanel(
 ): NpcAttentionPanelHandle {
   let activeMode: AttentionMode = 'whisper';
   let currentNpcId: string | null = null;
+  let mindPath: string[] = ['surface'];
+  // npcId|pathKey the mind view currently shows, so we lazy-open exactly once.
+  let mindLoadedFor: string | null = null;
+
+  function pathKeyLocal(p: string[]): string { return p.join(' ▸ '); }
+  function mindKeyFor(npcId: string, p: string[]): string { return npcId + '|' + pathKeyLocal(p); }
 
   while (panel.firstChild) panel.removeChild(panel.firstChild);
 
@@ -145,10 +156,20 @@ export function mountNpcAttentionPanel(
 
   const mindBody = document.createElement('div');
   mindBody.className = 'sg-body'; mindBody.dataset.sgBody = 'mind'; mindBody.style.display = 'none';
-  const mindPlaceholder = document.createElement('div');
-  mindPlaceholder.className = 'sg-body-placeholder';
-  mindPlaceholder.textContent = 'Mind wiki — coming in slice 3.';
-  mindBody.appendChild(mindPlaceholder);
+  const mindMode = mountMindMode(mindBody, {
+    onDrill: (label) => {
+      mindPath = [...mindPath, label];
+      mindMode.showLoading(mindPath);
+      if (currentNpcId) deps.onMindOpen(currentNpcId, mindPath, mindPath.length - 1);
+    },
+    onCrumb: (i) => {
+      mindPath = mindPath.slice(0, i + 1);
+      mindMode.showLoading(mindPath);
+      if (currentNpcId) deps.onMindOpen(currentNpcId, mindPath, mindPath.length - 1);
+    },
+    onCrossNav: (id) => { deps.onMindCrossNav(id); },
+    nextCost: () => mindProbeCost(mindPath.length), // next depth = current path length
+  });
 
   const actions = document.createElement('div'); actions.className = 'sg-actions';
   const backfillBtn = actionBtn('backfill', '💭 Backfill', 'LLM');
@@ -169,7 +190,16 @@ export function mountNpcAttentionPanel(
     actions.style.display = activeMode === 'whisper' ? 'flex' : 'none';
   }
   whisperTab.addEventListener('click', (e) => { e.stopPropagation(); activeMode = 'whisper'; applyMode(); });
-  mindTab.addEventListener('click', (e) => { e.stopPropagation(); activeMode = 'mind'; applyMode(); });
+  mindTab.addEventListener('click', (e) => {
+    e.stopPropagation();
+    activeMode = 'mind';
+    applyMode();
+    // Lazy-open the current mind page exactly once per (npc, path).
+    if (currentNpcId && mindLoadedFor !== mindKeyFor(currentNpcId, mindPath)) {
+      mindMode.showLoading(mindPath);
+      deps.onMindOpen(currentNpcId, mindPath, mindPath.length - 1);
+    }
+  });
   applyMode();
 
   let opts: NpcAttentionPanelOptions = {};
@@ -238,6 +268,8 @@ export function mountNpcAttentionPanel(
       if (npcId === currentNpcId) return;
       currentNpcId = npcId;
       activeMode = 'whisper';
+      mindPath = ['surface'];
+      mindLoadedFor = null;
       applyMode();
       whisperMode.setNpc(npcId);
     },
@@ -247,8 +279,15 @@ export function mountNpcAttentionPanel(
     refreshWhisper() { whisperMode.refresh(); },
     refreshWhisperLast() { whisperMode.refreshLast(); },
 
+    showMindPage(path, page) {
+      mindPath = path;
+      mindLoadedFor = currentNpcId ? mindKeyFor(currentNpcId, path) : pathKeyLocal(path);
+      mindMode.showPage(path, page);
+    },
+
     destroy() {
       whisperMode.destroy();
+      mindMode.destroy();
       while (panel.firstChild) panel.removeChild(panel.firstChild);
     },
   };

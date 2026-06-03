@@ -13,6 +13,7 @@ import { NpcAttentionStore } from '@/llm/npc-attention-store';
 import { createWelcomeModal, type WelcomeModalHandle, ONBOARDED_KEY } from '@/ui/welcome-modal';
 import { simStateFromEntity, getNpc } from '@/world/npc-helpers';
 import { sendWhisper } from '@/game/whisper-orchestrator';
+import { openMindPage } from '@/game/mind-orchestrator';
 import { OverlayDispatcher } from '@/ui/overlay-dispatcher';
 import { DivineActionsController } from '@/game/divine-actions-controller';
 import { GameUi } from '@/game/game-ui';
@@ -249,6 +250,38 @@ export class Game {
           onTurnAppended: () => this.ui.npcAttentionPanel.refreshWhisper(),
           onTurnUpdated: () => this.ui.npcAttentionPanel.refreshWhisperLast(),
         });
+      },
+      onMindOpen: (npcId: string, path: string[], depth: number) => {
+        const world = this.state.world;
+        if (!world) return;
+        const entity = getNpc(world, npcId);
+        if (!entity) return;
+        void openMindPage(entity, path, depth, {
+          world,
+          store: this.attentionStore,
+          queue: this.commandQueue,
+          llm: this.llmClientCapable ?? this.llmClient, // structured output prefers capable tier; fall back to NPC tier
+          playerSpirit: this.state.spirits.get('player')!,
+          playerSpiritId: 'player',
+        }).then((page) => {
+          this.ui.npcAttentionPanel.showMindPage(
+            path,
+            page ?? { prose: 'Not enough power to drill deeper.', links: [], depth },
+          );
+        });
+      },
+      onMindCrossNav: (entityId: string) => {
+        const world = this.state.world;
+        if (!world) return;
+        const target = getNpc(world, entityId);
+        if (target) {
+          // Selecting a new NPC: the frame-renderer's `switched` detection will
+          // call npcAttentionPanel.setNpc() next frame (resetting to whisper +
+          // fresh mind path). forceInfoRefresh makes that happen immediately.
+          this.state.selectedNpcId = entityId;
+          this.renderer.forceInfoRefresh();
+        }
+        // else: a place id — best-effort; leave as no-op for v1 (panning is a follow-up).
       },
     });
 
