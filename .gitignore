@@ -36,3 +36,6 @@ test-results/
 # The cache survives across script runs to avoid re-spending API credits;
 # it is intentionally not committed.
 var/
+
+# Visual brainstorm companion (superpowers)
+.superpowers/
