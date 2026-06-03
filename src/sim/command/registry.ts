@@ -61,10 +61,12 @@ export const CAPABILITY_REGISTRY: Record<CommandVerb, CapabilityDef> = {
     precondition(cmd, ctx) {
       const npc = npcOf(cmd, ctx);
       if (!npc) return 'invalid_target';
+      // Conversational sends are power-throttled only — bypass the 5-tick cooldown.
+      if (cmd.payload?.conversational === true) return null;
       return npcProps(npc).whisperCooldown > 0 ? 'precondition_failed' : null;
     },
     apply(cmd, ctx) {
-      return whisper(ctx.spirits.get(cmd.source)!, npcOf(cmd, ctx)!, ctx.log);
+      return whisper(ctx.spirits.get(cmd.source)!, npcOf(cmd, ctx)!, ctx.log, cmd.payload?.conversational === true);
     },
     describe: (cmd) => `whisper to ${targetLabel(cmd)}`,
   },
