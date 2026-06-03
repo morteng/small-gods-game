@@ -62,6 +62,7 @@ function describeSimEvent(event: SimEvent): string {
     case 'omen':          return '⛈ Omen witnessed';
     case 'miracle':       return '✨ Miracle witnessed';
     case 'answer_prayer': return '🙏 Prayer answered';
+    case 'mind_probed':   return '🧠 Mind probed';
     case 'believer_lost': return '💔 Faith lapsed';
     case 'npc_death':     return `💀 Died (${event.cause})`;
     case 'npc_birth':     return '👶 Born';

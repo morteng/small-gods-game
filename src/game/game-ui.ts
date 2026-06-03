@@ -12,6 +12,8 @@ import {
   type DecorationPlacementModalHandle,
 } from '@/ui/decoration-placement-modal';
 import type { ProviderConfig } from '@/llm/provider-factory';
+import { mountNpcAttentionPanel, type NpcAttentionPanelHandle } from '@/ui/npc-attention-panel';
+import type { NpcAttentionStore } from '@/llm/npc-attention-store';
 
 export interface GameUiCallbacks {
   onStart: () => void;
@@ -23,6 +25,10 @@ export interface GameUiCallbacks {
   onZoomIn: () => void;
   onZoomOut: () => void;
   onFitView: () => void;
+  attentionStore: NpcAttentionStore;
+  onWhisperSend: (npcId: string, text: string) => void;
+  onMindOpen: (npcId: string, path: string[], depth: number) => void;
+  onMindCrossNav: (entityId: string) => void;
 }
 
 /**
@@ -35,6 +41,7 @@ export class GameUi {
   readonly pausedBanner: HTMLDivElement;
   readonly debugHud: HTMLDivElement;
   readonly npcInfoPanel: HTMLDivElement;
+  readonly npcAttentionPanel: NpcAttentionPanelHandle;
   readonly tooltip: HTMLDivElement;
   readonly llmDisplay: LlmDisplayHandle;
   readonly unifiedSettings: SettingsHandle;
@@ -71,13 +78,19 @@ export class GameUi {
 
     this.npcInfoPanel = document.createElement('div');
     this.npcInfoPanel.style.cssText = [
-      'position:absolute', 'top:8px', 'left:8px', 'width:220px',
+      'position:absolute', 'top:8px', 'right:8px', 'width:320px',
+      'max-height:calc(100% - 16px)', 'overflow-y:auto',
       'padding:10px 12px', 'background:rgba(10,10,20,0.88)',
       'border:1px solid rgba(255,255,255,0.18)', 'border-radius:6px',
-      'color:#fff', 'pointer-events:none', 'display:none', 'z-index:10',
+      'color:#fff', 'pointer-events:auto', 'display:none', 'z-index:21',
       'box-sizing:border-box',
     ].join(';');
     container.appendChild(this.npcInfoPanel);
+    this.npcAttentionPanel = mountNpcAttentionPanel(this.npcInfoPanel, {
+      onWhisperSend: cb.onWhisperSend,
+      onMindOpen: cb.onMindOpen,
+      onMindCrossNav: cb.onMindCrossNav,
+    });
 
     // LLM display (shows dialogue/narration from LLM backfill)
     this.llmDisplay = createLlmDisplay(container, {
@@ -166,6 +179,7 @@ export class GameUi {
   destroy(): void {
     this.pausedBanner.remove();
     this.debugHud.remove();
+    this.npcAttentionPanel.destroy();
     this.npcInfoPanel.remove();
     this.tooltip.remove();
     this.llmSettingsBtn.remove();

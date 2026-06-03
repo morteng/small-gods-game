@@ -1,0 +1,125 @@
+/**
+ * mind-prompt-builder.ts — builds the structured (tool-calling) prompt for
+ * "Mind mode": generating one page of a mortal's mind as an infinite,
+ * hyperlinked wiki.
+ *
+ * The capable tier calls emit_mind_page exactly once per page. The tool returns
+ * { prose, links } where entity links must reference an id from the provided
+ * candidate list (validated/degraded by mind-link-resolver), and concept links
+ * are purely psychological nodes. The breadcrumb path is summarized to a bounded
+ * tail so deep traversals stay cheap.
+ */
+import type { Entity, NpcProperties } from '@/core/types';
+import type { LLMTool, LLMMessage } from '@/llm/llm-client';
+import type { MindCandidate } from '@/llm/mind-link-resolver';
+import type { WhisperTurn } from '@/llm/npc-attention-store';
+
+export interface MindPromptContext {
+  npc: Entity;
+  path: string[];
+  candidates: MindCandidate[];
+  depth: number;
+  /** Recent whisper turns; folded into the SURFACE (depth 0) prompt only, framed as unbidden notions. */
+  recentWhispers?: WhisperTurn[];
+}
+
+export const MIND_PAGE_TOOL: LLMTool = {
+  name: 'emit_mind_page',
+  description: "Emit one page of a mortal's mind: short prose plus typed hyperlinks to drill deeper.",
+  parameters: {
+    type: 'object',
+    properties: {
+      prose: {
+        type: 'string',
+        description:
+          "What occupies this node of the mortal's mind, in wry, dry-humored low-fantasy prose. Keep it short — length is dictated per request by the brevity instruction. Respect known facts (name, role, real relationships, real recent events).",
+      },
+      links: {
+        type: 'array',
+        description: 'Hyperlinks the player can drill into.',
+        items: {
+          type: 'object',
+          properties: {
+            label: { type: 'string' },
+            kind: { type: 'string', enum: ['entity', 'concept'] },
+            entityId: {
+              type: 'string',
+              description:
+                'For kind=entity ONLY, the exact id from the provided candidate list. Omit for concept links.',
+            },
+          },
+          required: ['label', 'kind'],
+        },
+      },
+    },
+    required: ['prose', 'links'],
+  },
+};
+
+const MAX_PATH_SHOWN = 4;
+
+/**
+ * Length budget for a page, by depth. Shallow reads are a terse glimpse; you
+ * only get richer prose by spending power to drill deep.
+ */
+function brevityInstruction(depth: number): string {
+  if (depth === 0) return 'BREVITY (hard limit): the surface is a glimpse — a few fragmentary phrases, UNDER 20 words total. No full sentences, no elaboration.';
+  if (depth <= 2) return 'BREVITY (hard limit): ONE short sentence, under 25 words. Terse and suggestive, never a paragraph.';
+  if (depth <= 4) return 'BREVITY (hard limit): at most two sentences, under 45 words.';
+  return 'BREVITY: up to three or four sentences — deep enough to dwell here, but stay tight.';
+}
+
+// Brevity is enforced by the instruction above, NOT by a token cap. A hard
+// max_tokens on a tool-calling response truncates the {prose, links} JSON
+// mid-string, which parses to empty args and renders a blank "…" page — worse
+// than verbose. So we pass no cap and let generateWithTools' generous default
+// stand purely as a runaway-cost backstop the model never reaches for a glimpse.
+
+export function buildMindPagePrompt(ctx: MindPromptContext): { messages: LLMMessage[]; tools: LLMTool[] } {
+  const p = ctx.npc.properties as unknown as NpcProperties;
+  const b = p.beliefs['player'] ?? { faith: 0, understanding: 0, devotion: 0 };
+
+  const path =
+    ctx.path.length > MAX_PATH_SHOWN
+      ? [ctx.path[0], '…', ...ctx.path.slice(-(MAX_PATH_SHOWN - 1))]
+      : ctx.path;
+
+  const system = [
+    'You are Fate, narrating one page of a mortal\'s mind as an infinite, hyperlinked wiki for a god reading their thoughts.',
+    "Setting: a low-fantasy world of small gods and mortal belief. Dreamlike but grounded in the mortal's real state.",
+    'BE TERSE. A mind is read in glimpses, not essays. The shallow levels are fragments and half-thoughts — NEVER write a paragraph near the surface. Prose grows only as the god drills deep. Obey the per-request brevity limit exactly; shorter is better.',
+    'Lead with the links the god can follow — prefer a few evocative link labels over long prose.',
+    'Call emit_mind_page exactly once. Entity links MUST use an id from the candidate list; for purely psychological nodes (fears, feelings, memories) use concept links with no id.',
+  ].join(' ');
+
+  const lines: string[] = [];
+  lines.push(`Mortal: ${p.name}, a ${p.role}. Mood ${p.mood.toFixed(2)}; currently ${p.activity}.`);
+  lines.push(`Faith in the reading god: ${b.faith.toFixed(2)} (understanding ${b.understanding.toFixed(2)}).`);
+  lines.push(
+    `Personality — assertiveness ${p.personality.assertiveness.toFixed(2)}, skepticism ${p.personality.skepticism.toFixed(2)}, piety ${p.personality.piety.toFixed(2)}, sociability ${p.personality.sociability.toFixed(2)}.`,
+  );
+  lines.push(`You are reading at this path through their mind: ${path.join(' ▸ ')}.`);
+  if (ctx.depth === 0) lines.push('This is the SURFACE — the immediate, top-of-mind thoughts.');
+  else lines.push(`This node is "${ctx.path[ctx.path.length - 1]}" — go deeper into exactly this facet.`);
+  if (ctx.candidates.length) {
+    lines.push('Real people/places you may link as entity links (use the exact id):');
+    for (const c of ctx.candidates) lines.push(`  - ${c.label} [${c.kind}] id=${c.id}`);
+  } else {
+    lines.push('No real entities available to link here; use concept links only.');
+  }
+  if (ctx.depth === 0 && ctx.recentWhispers && ctx.recentWhispers.length) {
+    const recent = ctx.recentWhispers.slice(-3);
+    lines.push('A god has been whispering into this mind. These notions arrive unbidden, as if from outside — let them colour the surface thoughts (the mortal never perceives the god directly):');
+    for (const w of recent) lines.push(`  - "${w.whisper}"`);
+  }
+  lines.push(brevityInstruction(ctx.depth));
+  lines.push('Emit the page now.');
+
+  return {
+    messages: [
+      { role: 'system', content: system },
+      { role: 'user', content: lines.join('\n') },
+    ],
+    tools: [MIND_PAGE_TOOL],
+  };
+}

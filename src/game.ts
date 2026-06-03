@@ -9,8 +9,11 @@ import { advanceNpcFrames } from '@/render/npc-animator';
 // divine-actions functions now invoked via DivineActionsController
 import { LLMClient } from "@/llm/llm-client";
 import { createProvider, loadProviderConfig, type ProviderConfig } from '@/llm/provider-factory';
+import { NpcAttentionStore } from '@/llm/npc-attention-store';
 import { createWelcomeModal, type WelcomeModalHandle, ONBOARDED_KEY } from '@/ui/welcome-modal';
-import { simStateFromEntity } from '@/world/npc-helpers';
+import { simStateFromEntity, getNpc } from '@/world/npc-helpers';
+import { sendWhisper } from '@/game/whisper-orchestrator';
+import { openMindPage, pathKey } from '@/game/mind-orchestrator';
 import { OverlayDispatcher } from '@/ui/overlay-dispatcher';
 import { DivineActionsController } from '@/game/divine-actions-controller';
 import { GameUi } from '@/game/game-ui';
@@ -60,6 +63,7 @@ export class Game {
   private state: GameState;
   private scheduler: Scheduler;
   private commandQueue = new CommandQueue();
+  private attentionStore = new NpcAttentionStore();
   private authorLog = new AuthorCommandLog();
   private timeline!: TimelineController;
   private cleanupControls: (() => void) | null = null;
@@ -126,7 +130,10 @@ export class Game {
       // The authorLog is history (NOT cleared on restore): the executor re-emits
       // recorded editor edits during silent replay. It is truncated on commit and
       // reset on a time-skip baseline.
-      onRestore: () => this.commandQueue.clear(),
+      onRestore: () => {
+        this.commandQueue.clear();
+        this.attentionStore.clearAll();
+      },
       authorLog: this.authorLog,
     });
 
@@ -228,6 +235,80 @@ export class Game {
         }
       },
       onLLMConfigChange: (config) => this.applyLlmConfig(config),
+      attentionStore: this.attentionStore,
+      onWhisperSend: (npcId: string, text: string) => {
+        const world = this.state.world;
+        if (!world) return;
+        const entity = getNpc(world, npcId);
+        if (!entity) return;
+        void sendWhisper(entity, text, {
+          queue: this.commandQueue,
+          llm: this.llmClient,
+          store: this.attentionStore,
+          playerSpiritId: 'player',
+          now: () => this.state.clock.now(),
+        }).then(() => {
+          // The whisper re-shapes their surface thoughts: drop the cached surface
+          // page and re-read it (free, depth 0) with the new whisper as context.
+          if (!this.state.world) return;
+          const npc = getNpc(this.state.world, npcId);
+          if (!npc) return;
+          this.attentionStore.invalidatePage(npcId, pathKey(['surface']));
+          return openMindPage(npc, ['surface'], 0, {
+            world: this.state.world,
+            store: this.attentionStore,
+            queue: this.commandQueue,
+            llm: this.llmClientCapable ?? this.llmClient,
+            playerSpirit: this.state.spirits.get('player')!,
+            playerSpiritId: 'player',
+          }).then((page) => {
+            if (page) this.ui.npcAttentionPanel.showMindPage(['surface'], page);
+          });
+        });
+      },
+      onMindOpen: (npcId: string, path: string[], depth: number) => {
+        const world = this.state.world;
+        if (!world) return;
+        const entity = getNpc(world, npcId);
+        if (!entity) return;
+        void openMindPage(entity, path, depth, {
+          world,
+          store: this.attentionStore,
+          queue: this.commandQueue,
+          llm: this.llmClientCapable ?? this.llmClient, // structured output prefers capable tier; fall back to NPC tier
+          playerSpirit: this.state.spirits.get('player')!,
+          playerSpiritId: 'player',
+        }).then((page) => {
+          this.ui.npcAttentionPanel.showMindPage(
+            path,
+            page ?? { prose: 'Not enough power to drill deeper.', links: [], depth },
+          );
+        });
+      },
+      onMindCrossNav: (entityId: string) => {
+        const world = this.state.world;
+        if (!world) return;
+        const target = getNpc(world, entityId);
+        if (target) {
+          // Gold person-link: select the NPC. frame-renderer's `switched` detection
+          // calls npcAttentionPanel.setNpc() (which opens their mind surface);
+          // forceInfoRefresh makes it happen immediately.
+          this.state.selectedNpcId = entityId;
+          this.renderer.forceInfoRefresh();
+          return;
+        }
+        // Gold place-link: pan the camera to the POI.
+        const poi = this.state.worldSeed?.pois.find((p) => p.id === entityId);
+        const pos =
+          poi?.position ??
+          (poi?.region
+            ? { x: (poi.region.x_min + poi.region.x_max) / 2, y: (poi.region.y_min + poi.region.y_max) / 2 }
+            : null);
+        if (pos) {
+          const vp = this.viewport();
+          focusCameraOnTile(this.state.camera, pos.x, pos.y, vp.width, vp.height, readRenderMode());
+        }
+      },
     });
 
     this.llmBackfill = new LlmBackfillService({
@@ -256,7 +337,8 @@ export class Game {
     this.renderer = new FrameRenderer({
       ctx: this.ctx, state: this.state,
       ui: { minimap: this.ui.minimap, spiritHud: this.ui.spiritHud, divineEffects: this.ui.divineEffects,
-            npcInfoPanel: this.ui.npcInfoPanel, tooltip: this.ui.tooltip, debugHud: this.ui.debugHud },
+            npcInfoPanel: this.ui.npcInfoPanel, npcAttentionPanel: this.ui.npcAttentionPanel,
+            tooltip: this.ui.tooltip, debugHud: this.ui.debugHud },
       divine: this.divine, dev: this.dev, llmBackfill: this.llmBackfill,
       interaction: this.interaction,
       getRenderDeps: () => this.renderDeps(), getViewport: () => this.viewport(),

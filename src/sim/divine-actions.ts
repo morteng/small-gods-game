@@ -37,10 +37,10 @@ const ANSWER_UNDERSTANDING_BOOST = 0.04; // a heard prayer teaches a little of y
 
 // ─── Whisper (already exists in whisper.ts, reproduced here for completeness) ──
 
-export function whisper(spirit: Spirit, npc: Entity, log: EventLog): boolean {
+export function whisper(spirit: Spirit, npc: Entity, log: EventLog, conversational = false): boolean {
   if (spirit.power < WHISPER_COST) return false;
   const p = npcProps(npc);
-  if (p.whisperCooldown > 0) return false;
+  if (!conversational && p.whisperCooldown > 0) return false;
 
   spirit.power -= WHISPER_COST;
 

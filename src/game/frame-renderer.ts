@@ -12,7 +12,7 @@ import type { DivineEffects } from '@/render/divine-effects';
 import { buildRenderContext } from './render-context';
 import { getNpc, toRenderNpc, simStateFromEntity } from '@/world/npc-helpers';
 import { drawNpcOverlay, drawPoiOverlay, drawPrayerMarkers } from '@/render/sim-overlay';
-import { renderNpcInfoPanel } from '@/ui/npc-info-panel';
+import type { NpcAttentionPanelHandle } from '@/ui/npc-attention-panel';
 import { formatNpcTooltip } from '@/ui/npc-tooltip';
 import { formatDevTooltip } from '@/dev/tooltip';
 import { drawPowerHud } from '@/render/hud';
@@ -27,6 +27,7 @@ export interface FrameRendererUi {
   spiritHud: SpiritHudHandle;
   divineEffects: DivineEffects;
   npcInfoPanel: HTMLDivElement;
+  npcAttentionPanel: NpcAttentionPanelHandle;
   tooltip: HTMLDivElement;
   debugHud: HTMLDivElement;
 }
@@ -151,22 +152,23 @@ export class FrameRenderer {
         const pinned = this.deps.state.pinnedNpcId === sim.npcId;
         const switched = this.renderedNpcId !== sim.npcId;
         const pinChanged = this.renderedPinned !== pinned;
+        if (switched) {
+          this.deps.ui.npcAttentionPanel.setNpc(sim.npcId);
+        }
         if (switched || pinChanged || now - this.lastInfoRefresh > 500) {
-          renderNpcInfoPanel(this.deps.ui.npcInfoPanel, sim, {
+          this.deps.ui.npcAttentionPanel.update(sim, {
             pinned,
             power: player.power,
             onTogglePin: () => {
               this.deps.state.pinnedNpcId = this.deps.state.pinnedNpcId === sim.npcId ? null : sim.npcId;
               this.lastInfoRefresh = 0;
             },
-            onWhisper: () => { this.deps.divine.whisper(entity); },
             onDream: () => { this.deps.divine.dream(entity); this.lastInfoRefresh = 0; },
             onAnswerPrayer: () => { this.deps.divine.answerPrayer(entity); this.lastInfoRefresh = 0; },
             onOmen: () => { this.deps.divine.omenForNpc(entity); },
             onMiracle: () => { this.deps.divine.miracleForNpc(entity); },
-            onLlmBackfill: async () => {
-              await this.deps.llmBackfill.trigger(entity);
-            },
+            onLlmBackfill: async () => { await this.deps.llmBackfill.trigger(entity); },
+            portraitSheet: rc.npcSheets.get(sim.npcId) ?? null,
           });
           this.renderedNpcId = sim.npcId;
           this.renderedPinned = pinned;
