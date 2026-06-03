@@ -74,19 +74,26 @@ function resolveCenter(near: unknown, ctx: CommandCtx): { x: number; y: number }
 }
 
 /**
+ * Is (x,y) an in-bounds, realized, walkable tile? The floor for placing or
+ * moving any entity — NPCs must stay on realized, walkable ground (CLAUDE.md:
+ * "NPCs confined to realized"). Does NOT check occupancy.
+ */
+export function isRealizedWalkable(world: CommandCtx['world'], x: number, y: number): boolean {
+  const map = world.tiles;
+  if (x < 0 || y < 0 || x >= map.width || y >= map.height) return false;
+  const t = map.tiles[y]?.[x];
+  return !!t && t.walkable && t.state === 'realized';
+}
+
+/**
  * Find the nearest in-bounds, realized, walkable, unoccupied tile to (cx,cy),
  * scanning outward in rings. Returns null if none within maxRadius.
  */
 export function findPlacement(
   world: CommandCtx['world'], cx: number, cy: number, maxRadius = 6,
 ): { x: number; y: number } | null {
-  const map = world.tiles;
-  const ok = (x: number, y: number): boolean => {
-    if (x < 0 || y < 0 || x >= map.width || y >= map.height) return false;
-    const t = map.tiles[y]?.[x];
-    if (!t || !t.walkable || t.state !== 'realized') return false;
-    return world.registry.canPlace(x, y, 1, 1, 0);
-  };
+  const ok = (x: number, y: number): boolean =>
+    isRealizedWalkable(world, x, y) && world.registry.canPlace(x, y, 1, 1, 0);
   for (let r = 0; r <= maxRadius; r++) {
     for (let dy = -r; dy <= r; dy++) {
       for (let dx = -r; dx <= r; dx++) {
@@ -227,8 +234,9 @@ export function movePrecondition(cmd: Command, ctx: CommandCtx): RejectionReason
   const entityId = p.entityId as string | undefined;
   const to = p.to as { x?: number; y?: number } | undefined;
   if (!to || typeof to.x !== 'number' || typeof to.y !== 'number') return 'invalid_payload';
-  const map = ctx.world.tiles;
-  if (to.x < 0 || to.y < 0 || to.x >= map.width || to.y >= map.height) return 'invalid_payload';
+  // Target must be realized + walkable: god-mode skips reachability, but an NPC
+  // dropped onto void/water breaks the "confined to realized" invariant.
+  if (!isRealizedWalkable(ctx.world, Math.round(to.x), Math.round(to.y))) return 'invalid_payload';
   if (!entityId || !ctx.world.registry.get(entityId)) return 'invalid_target';
   return null;
 }

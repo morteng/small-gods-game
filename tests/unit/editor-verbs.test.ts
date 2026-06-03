@@ -211,4 +211,14 @@ describe('author_move_entity', () => {
     const res = executeCommand(authorCmd('author_move_entity', { entityId: 'mv2', to: { x: 999, y: 0 } }), applyCtx(world));
     expect(res).toMatchObject({ status: 'rejected', reason: 'invalid_payload' });
   });
+
+  it('rejects moving onto a non-realized/void tile with invalid_payload', () => {
+    const map = bigMap();
+    map.tiles[3][3] = { type: 'void', x: 3, y: 3, walkable: false, state: 'void' } as never;
+    const world = new World(map);
+    world.addEntity(npc('mv3', 1, 1));
+    const res = executeCommand(authorCmd('author_move_entity', { entityId: 'mv3', to: { x: 3, y: 3 } }), applyCtx(world));
+    expect(res).toMatchObject({ status: 'rejected', reason: 'invalid_payload' });
+    expect(world.registry.get('mv3')).toMatchObject({ x: 1, y: 1 }); // unmoved
+  });
 });
