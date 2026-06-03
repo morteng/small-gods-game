@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach, vi } from 'vitest';
 import {
   MockLLMProvider, OpenAIProvider, OpenRouterProvider, LLMClient,
   toToolPayload, parseToolCalls,
-  type LLMTool, type LLMToolCall, type LLMOptions, type LLMResponse,
+  type LLMTool, type LLMToolCall, type LLMOptions, type LLMResponse, type LLMProvider,
 } from '@/llm/llm-client';
 
 const SPAWN_TOOL: LLMTool = {
@@ -125,7 +125,7 @@ describe('OpenRouterProvider tool-calling', () => {
       { tools: [SPAWN_TOOL], toolChoice: 'auto' },
     );
 
-    const sentBody = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+    const sentBody = JSON.parse(((fetchMock.mock.calls as unknown[][])[0][1] as RequestInit).body as string);
     expect(sentBody.tools).toEqual(toToolPayload([SPAWN_TOOL]));
     expect(sentBody.tool_choice).toBe('auto');
     expect(resp.toolCalls).toEqual([
@@ -144,10 +144,65 @@ describe('OpenRouterProvider tool-calling', () => {
     const provider = new OpenRouterProvider({ apiKey: 'k' });
     const resp = await provider.generate([{ role: 'user', content: 'hi' }]);
 
-    const sentBody = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+    const sentBody = JSON.parse(((fetchMock.mock.calls as unknown[][])[0][1] as RequestInit).body as string);
     expect('tools' in sentBody).toBe(false);
     expect('tool_choice' in sentBody).toBe(false);
     expect(resp.toolCalls).toBeUndefined();
     expect(resp.parsed).toEqual({ narration: 'ok' });
+  });
+});
+
+describe('OpenAIProvider tool-calling', () => {
+  it('sends tools + tool_choice and parses tool_calls', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true, status: 200,
+      json: async () => ({
+        choices: [{ message: { content: '', tool_calls: [
+          { id: 'oa1', type: 'function', function: { name: 'author_move_entity', arguments: '{"entityId":"npc-3","to":{"x":5,"y":6}}' } },
+        ] } }],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+      }),
+      text: async () => '',
+    }));
+    vi.stubGlobal('fetch', fetchMock as never);
+
+    const provider = new OpenAIProvider({ apiKey: 'k' });
+    const resp = await provider.generate(
+      [{ role: 'user', content: 'move npc-3' }],
+      { tools: [SPAWN_TOOL], toolChoice: 'required' },
+    );
+
+    const sentBody = JSON.parse(((fetchMock.mock.calls as unknown[][])[0][1] as RequestInit).body as string);
+    expect(sentBody.tools).toEqual(toToolPayload([SPAWN_TOOL]));
+    expect(sentBody.tool_choice).toBe('required');
+    expect(resp.toolCalls![0]).toEqual({
+      id: 'oa1', name: 'author_move_entity', arguments: { entityId: 'npc-3', to: { x: 5, y: 6 } },
+    });
+  });
+});
+
+describe('LLMClient.generateWithTools', () => {
+  it('forwards tools to the provider and returns its tool calls (single-shot)', async () => {
+    const mock = new MockLLMProvider(0);
+    const client = new LLMClient(mock);
+    const resp = await client.generateWithTools(
+      [{ role: 'user', content: 'spawn farmers' }],
+      [SPAWN_TOOL],
+    );
+    expect(resp.toolCalls).toHaveLength(1);
+    expect(resp.toolCalls![0].name).toBe('author_spawn_npc');
+  });
+
+  it('passes through toolChoice and other opts', async () => {
+    const captured: LLMOptions[] = [];
+    const spy: LLMProvider = {
+      name: () => 'spy', isAvailable: () => true,
+      async generate(_m, o) { captured.push(o ?? {}); return { content: '', latencyMs: 0 }; },
+    };
+    const client = new LLMClient(spy);
+    await client.generateWithTools([{ role: 'user', content: 'x' }], [SPAWN_TOOL], { toolChoice: 'required', maxTokens: 2048 });
+    expect(captured[0].tools).toEqual([SPAWN_TOOL]);
+    expect(captured[0].toolChoice).toBe('required');
+    expect(captured[0].maxTokens).toBe(2048);
   });
 });

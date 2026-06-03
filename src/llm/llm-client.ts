@@ -215,6 +215,24 @@ export class LLMClient {
   }
 
   /**
+   * Single-shot tool-calling for the capable tier (Create panel, Fate).
+   * Sends the tool list and returns the model's tool calls. No multi-turn
+   * read loop in v1 — one request, one set of tool calls.
+   */
+  async generateWithTools(
+    messages: LLMMessage[],
+    tools: LLMTool[],
+    opts?: LLMOptions,
+  ): Promise<LLMResponse> {
+    return this.provider.generate(messages, {
+      maxTokens: 1024,
+      toolChoice: 'auto',
+      ...opts,
+      tools,
+    });
+  }
+
+  /**
    * Check if the LLM service is available.
    */
   isAvailable(): boolean {
@@ -242,13 +260,17 @@ export class OpenAIProvider implements LLMProvider {
     const start = Date.now();
     const url = `${this.config.baseUrl ?? 'https://api.openai.com/v1'}/chat/completions`;
 
-    const body = {
+    const body: Record<string, unknown> = {
       model: opts?.model ?? this.config.model ?? 'gpt-3.5-turbo',
       messages: messages.map(m => ({ role: m.role, content: m.content })),
       max_tokens: opts?.maxTokens ?? 200,
       temperature: opts?.temperature ?? 0.7,
       stop: opts?.stop,
     };
+    if (opts?.tools && opts.tools.length > 0) {
+      body.tools = toToolPayload(opts.tools);
+      body.tool_choice = opts.toolChoice ?? 'auto';
+    }
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -270,7 +292,9 @@ export class OpenAIProvider implements LLMProvider {
     }
 
     const data = await resp.json();
-    const content = data.choices?.[0]?.message?.content ?? '';
+    const message = data.choices?.[0]?.message;
+    const content = message?.content ?? '';
+    const toolCalls = parseToolCalls(message);
 
     let parsed: Record<string, unknown> | undefined;
     try {
@@ -282,6 +306,7 @@ export class OpenAIProvider implements LLMProvider {
     return {
       content,
       parsed,
+      toolCalls,
       usage: data.usage ? {
         promptTokens: data.usage.prompt_tokens,
         completionTokens: data.usage.completion_tokens,
