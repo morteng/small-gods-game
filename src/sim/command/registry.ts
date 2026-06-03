@@ -14,6 +14,7 @@ import {
   whisper, omen, dream, miracle, answerPrayer,
   WHISPER_COST, OMEN_COST, DREAM_COST, MIRACLE_COST, ANSWER_PRAYER_COST,
 } from '@/sim/divine-actions';
+import { mindProbeCost, probeMind } from '@/sim/mind-probe';
 import type { Command, CommandCtx, ApplyCtx, CommandVerb, RejectionReason } from './types';
 import {
   removePrecondition, removeApply,
@@ -82,6 +83,23 @@ export const CAPABILITY_REGISTRY: Record<CommandVerb, CapabilityDef> = {
       return answerPrayer(ctx.spirits.get(cmd.source)!, npcOf(cmd, ctx)!, ctx.log);
     },
     describe: (cmd) => `answer the prayer of ${targetLabel(cmd)}`,
+  },
+
+  probe_mind: {
+    verb: 'probe_mind', tier: 'divine', cost: 0, targetKind: 'npc', implemented: true,
+    precondition(cmd, ctx) {
+      const npc = npcOf(cmd, ctx);
+      if (!npc) return 'invalid_target';
+      const depth = Number(cmd.payload?.depth ?? 0);
+      const spirit = ctx.spirits.get(cmd.source);
+      if (!spirit) return 'invalid_target';
+      return spirit.power < mindProbeCost(depth) ? 'insufficient_power' : null;
+    },
+    apply(cmd, ctx) {
+      const depth = Number(cmd.payload?.depth ?? 0);
+      return probeMind(ctx.spirits.get(cmd.source)!, depth, ctx.log, npcOf(cmd, ctx)!.id);
+    },
+    describe: (cmd) => `read the mind of ${targetLabel(cmd)} (depth ${Number(cmd.payload?.depth ?? 0)})`,
   },
 
   dream: {

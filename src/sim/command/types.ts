@@ -14,7 +14,7 @@ import type { Rng } from '@/core/rng';
 
 export type CommandVerb =
   // divine tier — implemented, belief-spending interventions
-  | 'whisper' | 'omen' | 'dream' | 'miracle' | 'answer_prayer'
+  | 'whisper' | 'omen' | 'dream' | 'miracle' | 'answer_prayer' | 'probe_mind'
   // authoring tier — DECLARED, executor pending (filled in by the Fate cycle)
   | 'bias_event' | 'inject_npc' | 'nudge_severity'
   // editor tier — god-mode world authoring (the Create panel; cost 0, no spirit)
