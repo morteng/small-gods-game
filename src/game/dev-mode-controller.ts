@@ -5,10 +5,9 @@ import type { Viewport } from './viewport';
 import type { RenderContextDeps } from './render-context';
 import { createDevMode, toggleDevMode } from '@/dev/DevMode';
 import { hitTest } from '@/dev/hit-tester';
-import { mountInspectorPanel, type InspectorPanelHandle } from '@/dev/InspectorPanel';
+import { mountInspector, type InspectorHandle } from '@/dev/inspector/Inspector';
 import { mountTimeDebugPanel, type TimeDebugPanelHandle } from '@/dev/TimeDebugPanel';
 import { mountDebugOverlayPanel, type DebugOverlayPanelHandle } from '@/dev/DebugOverlayPanel';
-import { mountWorldInspector, type WorldInspectorHandle } from '@/dev/WorldInspector';
 import { createEntitySpawner, type EntitySpawnerHandle } from '@/dev/EntitySpawner';
 import { mountMapEditorPanel, type MapEditorPanelHandle } from '@/dev/MapEditorPanel';
 import { DEFAULT_DEBUG_OVERLAY_OPTIONS, drawDebugOverlays } from '@/render/debug-overlays';
@@ -35,12 +34,11 @@ export interface DevModeControllerDeps {
 export class DevModeController {
   devMode: DevModeState = createDevMode();
   private btn!: HTMLButtonElement;
-  private inspector!: InspectorPanelHandle;
+  private inspector!: InspectorHandle;
   private debugOverlay!: DebugOverlayPanelHandle;
   private timeDebug!: TimeDebugPanelHandle;
   private spawner!: EntitySpawnerHandle;
   private mapEditor!: MapEditorPanelHandle;
-  private worldInspector!: WorldInspectorHandle;
   private detachKeys: (() => void) | null = null;
 
   constructor(private deps: DevModeControllerDeps) {
@@ -67,12 +65,20 @@ export class DevModeController {
     container.appendChild(this.btn);
 
     // ── Dev Mode Panels ───────────────────────────────────
-    this.inspector = mountInspectorPanel(container, {
+    this.inspector = mountInspector({
+      container,
+      getState: () => this.deps.state,
+      onEdit: (hit, key, value) => this.applyInspectorEdit(hit, key, value),
       onDelete: () => this.deleteSelected(),
       onUndo: () => this.undo(),
       onRedo: () => this.redo(),
+      onFocusCamera: (x, y) => {
+        const cam = this.deps.state.camera;
+        const vp = this.deps.getViewport();
+        cam.x = x * TILE_SIZE - vp.width / 2;
+        cam.y = y * TILE_SIZE - vp.height / 2;
+      },
     });
-    this.inspector.setOnChange((hit, key, value) => this.applyInspectorEdit(hit, key, value));
     this.debugOverlay = mountDebugOverlayPanel(container);
     this.timeDebug = mountTimeDebugPanel(container, {
       clock: this.deps.state.clock,
@@ -84,26 +90,11 @@ export class DevModeController {
       onPaintTile: (x, y, tileType) => this.paintTile(x, y, tileType),
     });
 
-    // ── Dev Mode: World Inspector ──────────────────────
-    this.worldInspector = mountWorldInspector(container);
-    // Wire camera focus callback
-    this.worldInspector.setCameraFocusCallback((x, y) => {
-      const cam = this.deps.state.camera;
-      const vp = this.deps.getViewport();
-      cam.x = x * TILE_SIZE - vp.width / 2;
-      cam.y = y * TILE_SIZE - vp.height / 2;
-    });
-
     // Lift all dev UI into its dedicated band so it never renders under game UI.
     // (The entity-spawner is a separate full-screen modal that owns z 1000.)
     this.btn.style.zIndex = String(DEV_UI_Z);
-    for (const handle of [
-      this.inspector,
-      this.debugOverlay,
-      this.timeDebug,
-      this.mapEditor,
-      this.worldInspector,
-    ]) {
+    this.inspector.element.style.zIndex = String(DEV_UI_Z);
+    for (const handle of [this.debugOverlay, this.timeDebug, this.mapEditor]) {
       handle.element.style.zIndex = String(DEV_UI_Z);
     }
 
@@ -130,7 +121,8 @@ export class DevModeController {
       this.btn.style.color = '#9fd8ff';
       this.btn.textContent = '🔧 Dev';
       this.devMode.selected = null;
-      this.inspector.update(null, this.devMode);
+      this.inspector.select(null);
+      this.inspector.hide();
       this.debugOverlay.update(this.devMode);
     }
   }
@@ -144,23 +136,11 @@ export class DevModeController {
         this.toggle();
         return;
       }
-      // Ctrl+Shift+I: Toggle World Inspector
+      // Ctrl+Shift+I: Toggle Inspector
       if (e.ctrlKey && e.shiftKey && e.code === "KeyI") {
         e.preventDefault();
-        if (this.worldInspector) {
-          if (this.worldInspector.isVisible()) {
-            this.worldInspector.hide();
-          } else {
-            this.worldInspector.show();
-            // Update with current state
-            this.worldInspector.update(
-              this.deps.state.world,
-              this.deps.state.map,
-              this.deps.state.spirits,
-              this.deps.state.generatedDecorations
-            );
-          }
-        }
+        if (this.inspector.isVisible()) this.inspector.hide();
+        else { this.inspector.show(); this.inspector.update(); }
         return;
       }
 
@@ -206,7 +186,7 @@ export class DevModeController {
     }
 
     this.devMode.selected = hit;
-    this.inspector.update(hit, this.devMode);
+    this.inspector.selectHit(hit);
   }
 
   /** Spawn a new entity from spawner options */
@@ -291,7 +271,7 @@ export class DevModeController {
     }
 
     // Refresh the panel so committed values are reflected.
-    this.inspector.update(this.devMode.selected, this.devMode);
+    this.inspector.update();
   }
 
   /** Push an undo action and clear the redo stack. */
@@ -329,7 +309,7 @@ export class DevModeController {
     this.devMode.undoStack.push(undoAction);
     this.devMode.redoStack = [];
     this.devMode.selected = null;
-    this.inspector.update(null, this.devMode);
+    this.inspector.select(null);
     console.log(`[dev] Deleted entity ${entityId}`);
   }
 
@@ -353,9 +333,7 @@ export class DevModeController {
 
   /** After undo/redo, keep the Inspector in sync if a selection is showing. */
   private refreshInspectorAfterHistory(): void {
-    if (this.devMode.selected) {
-      this.inspector.update(this.devMode.selected, this.devMode);
-    }
+    this.inspector.update();
   }
 
   /** Paint a tile on the map (dev mode) */
@@ -397,9 +375,8 @@ export class DevModeController {
     this.timeDebug.update(this.deps.state.clock, this.deps.scheduler, this.deps.state.eventLog);
   }
 
-  updateWorldInspector(): void {
-    const s = this.deps.state;
-    this.worldInspector.update(s.world, s.map, s.spirits, s.generatedDecorations);
+  updateInspector(): void {
+    if (this.inspector.isVisible()) this.inspector.update();
   }
 
   /** Hit-test passthrough so the tooltip code can stay in Game without importing hitTest. */
@@ -408,11 +385,10 @@ export class DevModeController {
   destroy(): void {
     this.detachKeys?.();
     this.btn.remove();
-    this.inspector.destroy?.();
+    this.inspector.destroy();
     this.debugOverlay.destroy?.();
     this.timeDebug.destroy?.();
     this.spawner.destroy?.();
     this.mapEditor.destroy?.();
-    this.worldInspector.destroy?.();
   }
 }

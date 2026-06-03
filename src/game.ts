@@ -349,7 +349,7 @@ export class Game {
         this.ui.mainMenu.hide();
         this.ui.spiritHud.show();
         if (!localStorage.getItem('small-gods-tutorial-seen')) setTimeout(() => this.ui.tutorial.show('welcome'), 500);
-        this.dev.updateWorldInspector();
+        this.dev.updateInspector();
       },
     });
     this.startLoop();
