@@ -68,6 +68,7 @@ export class DevModeController {
     this.inspector = mountInspector({
       container,
       getState: () => this.deps.state,
+      getDevMode: () => this.devMode,
       onEdit: (hit, key, value) => this.applyInspectorEdit(hit, key, value),
       onDelete: () => this.deleteSelected(),
       onUndo: () => this.undo(),

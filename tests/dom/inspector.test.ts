@@ -43,6 +43,21 @@ describe('mountInspector', () => {
     insp.destroy();
   });
 
+  it('resolves a right-clicked decoration to its array index', () => {
+    const world = new World(emptyMap());
+    const deco = { tileX: 5, tileY: 6, assetId: 'rock' } as any;
+    const st = state(world); (st as any).generatedDecorations = [deco];
+    const container = document.createElement('div');
+    const insp = mountInspector({
+      container, getState: () => st,
+      onEdit: vi.fn(), onDelete: vi.fn(), onUndo: vi.fn(), onRedo: vi.fn(), onFocusCamera: vi.fn(),
+    });
+    insp.selectHit({ type: 'decoration', tileX: 5, tileY: 6, decoration: deco } as any);
+    // Detail should NOT say "no longer present" — it resolved to index 0.
+    expect(insp.element.textContent).not.toContain('no longer present');
+    insp.destroy();
+  });
+
   it('clicking a tree leaf selects that entity', () => {
     const world = new World(emptyMap()); world.addEntity(npc('npc_1'));
     const container = document.createElement('div');

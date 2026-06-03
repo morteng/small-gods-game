@@ -1,5 +1,5 @@
 import type { GameState } from '@/core/state';
-import type { HitResult } from '@/core/types';
+import type { HitResult, DevModeState } from '@/core/types';
 import { createFloatingPanel, type FloatingPanelHandle } from '@/dev/FloatingPanel';
 import { buildInspectorTree, filterTree, type TreeNode } from './inspector-tree';
 import { renderDetail, type DetailDeps } from './inspector-detail';
@@ -8,6 +8,7 @@ import { selectionFromHit, type Selection } from './selection';
 export interface InspectorDeps {
   container: HTMLElement;
   getState: () => GameState;
+  getDevMode?: () => DevModeState | null;
   onEdit: (hit: HitResult, key: string, value: unknown) => void;
   onDelete: () => void;
   onUndo: () => void;
@@ -63,7 +64,7 @@ export function mountInspector(deps: InspectorDeps): InspectorHandle {
     const s = deps.getState();
     return {
       world: s.world, map: s.map, spirits: s.spirits, decorations: s.generatedDecorations,
-      eventLog: s.eventLog, seed: s.worldSeed, devMode: null,
+      eventLog: s.eventLog, seed: s.worldSeed, devMode: deps.getDevMode ? deps.getDevMode() : null,
       onEdit: deps.onEdit, onDelete: deps.onDelete, onUndo: deps.onUndo, onRedo: deps.onRedo,
       onFocusCamera: deps.onFocusCamera, onNavigate: (sel) => select(sel),
     };
@@ -129,7 +130,18 @@ export function mountInspector(deps: InspectorDeps): InspectorHandle {
   return {
     element: panel.element,
     select,
-    selectHit(hit: HitResult | null): void { select(selectionFromHit(hit)); },
+    selectHit(hit: HitResult | null): void {
+      let sel = selectionFromHit(hit);
+      if (sel && sel.type === 'decoration' && hit?.decoration) {
+        const decs = deps.getState().generatedDecorations ?? [];
+        const d = hit.decoration;
+        const index = decs.findIndex(
+          x => x.tileX === d.tileX && x.tileY === d.tileY && x.assetId === d.assetId,
+        );
+        sel = { type: 'decoration', index };
+      }
+      select(sel);
+    },
     update(): void { renderTree(); renderDetailPane(); },
     show(): void { panel.show(); },
     hide(): void { panel.hide(); },
