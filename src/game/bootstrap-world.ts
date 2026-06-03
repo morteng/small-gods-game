@@ -10,6 +10,8 @@ import { computeBlobMap } from '@/map/blob-autotiler';
 import { centerOn } from '@/render/camera';
 import { readRenderMode } from '@/render/select-renderer';
 import { seedWorld } from '@/world/seed-world';
+import { generateRivalSpirits } from '@/sim/rival-spirit';
+import { rivalToSpirit } from '@/sim/command/rival-adapter';
 import { identityOracle } from '@/world/oracle';
 import { buildCharacterSpec, getOrGenerateSheet } from '@/render/lpc';
 import { npcProps } from '@/world/npc-helpers';
@@ -77,6 +79,7 @@ export async function bootstrapWorld(deps: BootstrapDeps): Promise<GameMap> {
     map,
     oracle: identityOracle,
   });
+  instantiateRivals(state, ws);
   kickOffSheets(state, sheets);
   state.generatedDecorations = loadDecorations(ws.name);
   // Kick off image preloading; missing ids resolve to null and the renderer
@@ -86,6 +89,23 @@ export async function bootstrapWorld(deps: BootstrapDeps): Promise<GameMap> {
   deps.onReady?.();
 
   return map;
+}
+
+/**
+ * Instantiate rival spirits as non-player Spirits in state.spirits (the first time
+ * rivals are actually created). They claim inhabited POIs and act via the
+ * RivalSystem. Seeded from the deterministic state.rng so the cohort is reproducible.
+ */
+function instantiateRivals(state: GameState, ws: WorldSeed): void {
+  const settlementIds = (ws.pois ?? [])
+    .filter(p => Array.isArray((p as { npcs?: unknown[] }).npcs) && (p as { npcs?: unknown[] }).npcs!.length > 0)
+    .map(p => p.id);
+  if (settlementIds.length === 0) return;
+
+  const rivals = generateRivalSpirits(state.rng.nextInt(0x7fffffff), settlementIds, 2);
+  for (const r of rivals) {
+    state.spirits.set(r.id, rivalToSpirit(r));
+  }
 }
 
 function kickOffSheets(state: GameState, sheets: Map<string, HTMLCanvasElement>): void {
