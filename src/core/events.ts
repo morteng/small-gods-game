@@ -101,6 +101,16 @@ export class EventLog {
     const highest = this.events.reduce((m, e) => (e.id > m ? e.id : m), 0);
     this.nextId = highest + 1;
   }
+
+  /**
+   * Bulk-load a serialized event array (from a save file). Replaces the log
+   * contents and advances `nextId` past every restored id so future appends
+   * never reuse one. Silent: subscribers are not re-notified.
+   */
+  hydrate(events: AppendedEvent[]): void {
+    this.events = events.slice();
+    this.nextId = events.reduce((m, e) => (e.id > m ? e.id : m), 0) + 1;
+  }
 }
 
 /**
