@@ -1,5 +1,6 @@
 import { addPanelChrome } from '@/dev/PanelChrome';
 import { injectDevStyles } from '@/dev/dev-styles';
+import type { DockManager } from './dock-manager';
 
 /** Dedicated dev-UI stacking band (kept in sync with DevModeController). */
 export const DEV_UI_Z = 600;
@@ -10,6 +11,8 @@ export interface FloatingPanelOptions {
   width?: number;
   anchor?: { top?: string; right?: string; left?: string; bottom?: string };
   zIndex?: number;
+  id?: string;
+  dock?: DockManager;
 }
 
 export interface FloatingPanelHandle {
@@ -42,21 +45,30 @@ export function createFloatingPanel(opts: FloatingPanelOptions): FloatingPanelHa
   body.className = 'sg-dev-body';
   panel.appendChild(body);
 
+  function show(): void { panel.style.display = 'flex'; if (opts.dock && opts.id) opts.dock.noteOpen(opts.id, true); }
+  function hide(): void { panel.style.display = 'none'; if (opts.dock && opts.id) opts.dock.noteOpen(opts.id, false); }
+  function toggle(): void { if (panel.style.display === 'none') show(); else hide(); }
+
   // PanelChrome inserts its bar at panel.firstChild, so it lands above `body`.
   const chrome = addPanelChrome(panel, {
     title: opts.title,
-    onClose: () => { panel.style.display = 'none'; },
+    onClose: () => hide(),
+    onDragEnd: () => { if (opts.dock && opts.id) opts.dock.onDragEnd(opts.id, panel.getBoundingClientRect()); },
   });
 
   opts.container.appendChild(panel);
+
+  if (opts.dock && opts.id) {
+    opts.dock.register({ id: opts.id, element: panel, setOpen: (o) => { if (o) show(); else hide(); } });
+  }
 
   return {
     element: panel,
     body,
     setTitle(title: string): void { chrome.setTitle(title); },
-    show(): void { panel.style.display = 'flex'; },
-    hide(): void { panel.style.display = 'none'; },
-    toggle(): void { panel.style.display = panel.style.display === 'none' ? 'flex' : 'none'; },
+    show,
+    hide,
+    toggle,
     isVisible(): boolean { return panel.style.display !== 'none'; },
     destroy(): void { panel.remove(); },
   };

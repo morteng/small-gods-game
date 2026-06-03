@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { injectDevStyles } from '@/dev/dev-styles';
 import { createFloatingPanel } from '@/dev/FloatingPanel';
+import { createFloatingPanel as cfp2 } from '@/dev/FloatingPanel';
 
 describe('injectDevStyles', () => {
   beforeEach(() => { document.head.querySelectorAll('#sg-dev-styles').forEach(n => n.remove()); });
@@ -54,5 +55,23 @@ describe('createFloatingPanel', () => {
     const p = createFloatingPanel({ container, title: 'Test' });
     p.destroy();
     expect(container.contains(p.element)).toBe(false);
+  });
+});
+
+describe('FloatingPanel dock integration', () => {
+  it('registers with the dock manager and notes open/close', () => {
+    const container = document.createElement('div'); document.body.appendChild(container);
+    const calls: string[] = [];
+    const dock = {
+      register: (p: any) => calls.push(`register:${p.id}`),
+      onDragEnd: (id: string) => calls.push(`drag:${id}`),
+      noteOpen: (id: string, open: boolean) => calls.push(`open:${id}:${open}`),
+      getState: () => ({ kind: 'float', x: 0, y: 0 }), restore() {}, relayout() {}, destroy() {},
+    } as any;
+    const p = cfp2({ container, title: 'T', id: 'panel-x', dock });
+    expect(calls).toContain('register:panel-x');
+    p.show(); p.hide();
+    expect(calls).toContain('open:panel-x:true');
+    expect(calls).toContain('open:panel-x:false');
   });
 });
