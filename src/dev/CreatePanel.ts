@@ -85,11 +85,18 @@ export function mountCreatePanel(deps: CreatePanelDeps): CreatePanelHandle {
   col.appendChild(actions);
 
   let pending: PreviewItem[] = [];
+  let inFlight = false;
+
+  /** Sync the Send button to whether a capable client is configured + idle. */
+  function syncSendBtn(): void {
+    sendBtn.disabled = inFlight || deps.getLlmCapable() === null;
+  }
 
   function refreshAvailability(): void {
-    const ok = deps.getLlmCapable() !== null;
-    sendBtn.disabled = !ok;
-    if (!ok) status.textContent = 'Configure an OpenRouter capable model in LLM settings to use Create.';
+    syncSendBtn();
+    if (deps.getLlmCapable() === null) {
+      status.textContent = 'Configure an OpenRouter capable model in LLM settings to use Create.';
+    }
   }
 
   function clearPreview(): void {
@@ -121,13 +128,15 @@ export function mountCreatePanel(deps: CreatePanelDeps): CreatePanelHandle {
   }
 
   async function send(): Promise<void> {
+    if (inFlight) return;                       // public method — guard re-entry beyond the disabled button
     const client = deps.getLlmCapable();
     if (!client) { refreshAvailability(); return; }
     const text = prompt.value.trim();
     if (!text) { status.textContent = 'Type a request first.'; return; }
 
     clearPreview();
-    sendBtn.disabled = true;
+    inFlight = true;
+    syncSendBtn();
     status.textContent = 'Thinking…';
     try {
       const state = deps.getState();
@@ -146,7 +155,8 @@ export function mountCreatePanel(deps: CreatePanelDeps): CreatePanelHandle {
     } catch (err) {
       status.textContent = `Error: ${err instanceof Error ? err.message : String(err)}`;
     } finally {
-      refreshAvailability();
+      inFlight = false;
+      syncSendBtn();                            // restore button without clobbering the status text
     }
   }
 
