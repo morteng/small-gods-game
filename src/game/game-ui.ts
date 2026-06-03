@@ -78,7 +78,7 @@ export class GameUi {
 
     this.npcInfoPanel = document.createElement('div');
     this.npcInfoPanel.style.cssText = [
-      'position:absolute', 'top:8px', 'right:8px', 'width:240px',
+      'position:absolute', 'top:8px', 'right:8px', 'width:320px',
       'max-height:calc(100% - 16px)', 'overflow-y:auto',
       'padding:10px 12px', 'background:rgba(10,10,20,0.88)',
       'border:1px solid rgba(255,255,255,0.18)', 'border-radius:6px',

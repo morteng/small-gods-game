@@ -33,6 +33,11 @@ const STYLE = `
 .sg-track { flex: 1 1 auto; height: 6px; background: rgba(255,255,255,0.12); border-radius: 3px; overflow: hidden; margin: 0 6px; }
 .sg-fill { height: 100%; }
 .sg-status-hint { font: italic 10px sans-serif; color: rgba(255,213,79,0.85); margin-bottom: 4px; }
+.sg-top { display: flex; gap: 10px; align-items: flex-start; }
+.sg-portrait { flex: 0 0 56px; width: 56px; height: 56px; border-radius: 8px; box-sizing: border-box;
+  display: flex; align-items: center; justify-content: center; font: bold 26px sans-serif; color: #fff;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.55); border: 1px solid rgba(255,255,255,0.22); }
+.sg-top-col { flex: 1 1 auto; min-width: 0; }
 .sg-modes { display: flex; gap: 4px; margin: 6px 0; }
 .sg-mode { all: unset; cursor: pointer; pointer-events: auto; flex: 1 1 auto; text-align: center; padding: 4px 0; border-radius: 4px;
   font: bold 10px sans-serif; letter-spacing: 0.5px; background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.6); }
@@ -60,6 +65,8 @@ export interface NpcAttentionPanelOptions {
   onOmen?: () => void;
   onMiracle?: () => void;
   onLlmBackfill?: () => void;
+  /** The selected NPC's LPC sprite sheet; the portrait draws its down-idle frame. Null → avatar fallback. */
+  portraitSheet?: HTMLCanvasElement | null;
 }
 
 export interface NpcAttentionPanelDeps {
@@ -100,6 +107,52 @@ function section(title: string, ...children: HTMLElement[]): HTMLDivElement {
   return sec;
 }
 
+/** Deterministic avatar background from an npc id — stable per NPC, no asset needed. */
+function avatarColor(id: string): string {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  return `hsl(${h % 360}, 45%, 38%)`;
+}
+
+/** LPC sheet geometry: 64×64 frames; "down" walk row = 10, idle frame = 0. */
+const LPC_FRAME = 64;
+const LPC_DOWN_ROW = 10;
+const PORTRAIT_PX = 56;
+
+/**
+ * Fill the portrait box with the NPC's down-idle sprite frame when a sheet is
+ * available; otherwise fall back to a deterministic colored avatar with the
+ * NPC's initial. Idempotent — safe to call every panel update.
+ */
+function renderPortrait(box: HTMLDivElement, sim: NpcSimState, sheet: HTMLCanvasElement | null): void {
+  box.title = `${sim.name} · ${sim.role}`;
+  const sy = LPC_DOWN_ROW * LPC_FRAME;
+  const hasFrame = !!sheet && sheet.width >= LPC_FRAME && sheet.height >= sy + LPC_FRAME;
+  if (hasFrame) {
+    let canvas = box.querySelector('canvas') as HTMLCanvasElement | null;
+    if (!canvas) {
+      box.textContent = '';
+      canvas = document.createElement('canvas');
+      canvas.width = PORTRAIT_PX; canvas.height = PORTRAIT_PX;
+      canvas.style.cssText = 'width:100%;height:100%;image-rendering:pixelated;border-radius:7px;';
+      box.appendChild(canvas);
+    }
+    const c2d = canvas.getContext('2d');
+    if (c2d) {
+      c2d.clearRect(0, 0, PORTRAIT_PX, PORTRAIT_PX);
+      c2d.imageSmoothingEnabled = false;
+      c2d.drawImage(sheet!, 0, sy, LPC_FRAME, LPC_FRAME, 0, 0, PORTRAIT_PX, PORTRAIT_PX);
+    }
+    box.style.background = 'rgba(0,0,0,0.25)';
+    return;
+  }
+  // Avatar fallback.
+  const existing = box.querySelector('canvas');
+  if (existing) box.removeChild(existing);
+  box.textContent = (sim.name?.[0] ?? '?').toUpperCase();
+  box.style.background = avatarColor(sim.npcId);
+}
+
 function actionBtn(key: string, label: string, costLabel: string): HTMLButtonElement {
   const b = document.createElement('button');
   b.className = 'sg-action'; b.type = 'button';
@@ -137,6 +190,13 @@ export function mountNpcAttentionPanel(
 
   const needsHost = section('needs');
   const faithHost = section('faith in you');
+
+  // Portrait (left) beside the identity + stats column (right).
+  const portrait = document.createElement('div'); portrait.className = 'sg-portrait';
+  const topCol = document.createElement('div'); topCol.className = 'sg-top-col';
+  topCol.append(idSection, needsHost, faithHost);
+  const topRow = document.createElement('div'); topRow.className = 'sg-top';
+  topRow.append(portrait, topCol);
 
   const modes = document.createElement('div'); modes.className = 'sg-modes';
   const whisperTab = document.createElement('button');
@@ -180,7 +240,7 @@ export function mountNpcAttentionPanel(
   const miracleBtn = actionBtn('miracle', '✨ Miracle', `${MIRACLE_COST}p`);
   actions.append(backfillBtn, whisperBtn, dreamBtn, prayBtn, omenBtn, miracleBtn);
 
-  panel.append(header, idSection, needsHost, faithHost, modes, whisperBody, mindBody, actions);
+  panel.append(header, topRow, modes, whisperBody, mindBody, actions);
 
   function applyMode(): void {
     whisperTab.setAttribute('aria-selected', activeMode === 'whisper' ? 'true' : 'false');
@@ -227,6 +287,8 @@ export function mountNpcAttentionPanel(
       idName.textContent = sim.name;
       idMeta.textContent = `${sim.role} · home: ${sim.homePoiId ?? '—'}`;
 
+      renderPortrait(portrait, sim, nextOpts.portraitSheet ?? null);
+
       replaceChildren(needsHost, true,
         barRow('safety', sim.needs.safety, NEED_COLORS.safety),
         barRow('prosperity', sim.needs.prosperity, NEED_COLORS.prosperity),
@@ -249,7 +311,7 @@ export function mountNpcAttentionPanel(
       pin.title = pinned ? 'Unpin card' : 'Pin card open';
 
       backfillBtn.disabled = power < 1;
-      whisperBtn.disabled = power < WHISPER_COST || ((sim as unknown as { whisperCooldown?: number }).whisperCooldown ?? 0) > 0;
+      whisperBtn.disabled = power < WHISPER_COST || (sim.whisperCooldown ?? 0) > 0;
       dreamBtn.disabled = power < DREAM_COST;
       const isPraying = sim.activity === 'worship';
       prayBtn.disabled = power < ANSWER_PRAYER_COST || !isPraying;

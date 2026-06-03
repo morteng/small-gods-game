@@ -44,4 +44,15 @@ describe('buildMindPagePrompt', () => {
     expect(text).toContain('g');
     expect(text.length).toBeLessThan(4000);
   });
+
+  it('instructs terse prose at shallow depth and allows more at depth', () => {
+    const shallow = buildMindPagePrompt({ npc: npc(), path: ['surface'], candidates: [], depth: 0 });
+    const sText = shallow.messages.map(m => m.content).join('\n').toLowerCase();
+    expect(sText).toMatch(/brevity/);
+    expect(sText).toMatch(/one short sentence|glimpse|fragmentary/);
+
+    const deep = buildMindPagePrompt({ npc: npc(), path: ['surface', 'a', 'b', 'c', 'd', 'e'], candidates: [], depth: 5 });
+    const dText = deep.messages.map(m => m.content).join('\n').toLowerCase();
+    expect(dText).toMatch(/three or four sentences|dwell/);
+  });
 });

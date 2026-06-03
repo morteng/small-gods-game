@@ -169,6 +169,7 @@ export class FrameRenderer {
             onOmen: () => { this.deps.divine.omenForNpc(entity); },
             onMiracle: () => { this.deps.divine.miracleForNpc(entity); },
             onLlmBackfill: async () => { await this.deps.llmBackfill.trigger(entity); },
+            portraitSheet: rc.npcSheets.get(sim.npcId) ?? null,
           });
           this.renderedNpcId = sim.npcId;
           this.renderedPinned = pinned;

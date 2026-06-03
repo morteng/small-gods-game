@@ -9,13 +9,13 @@
  *   1. Cache-first: a hit returns the stored page with NO spend, NO command, NO LLM.
  *   2. Affordability: if the player can't afford the depth-scaled cost, abort
  *      cleanly (return null, emit nothing).
- *   3. Spend path: emit exactly one probe_mind command. The orchestrator never
- *      decrements power itself — the executor is the single spend path (no
- *      double-spend).
- *   4. Generate: call the capable tier, read the emit_mind_page tool call, resolve
- *      links against real candidate ids, cache, and return the page.
- *   5. Fallback: on LLM error or no tool call, return a muted, UNcached page so a
- *      later retry can still succeed.
+ *   3. Generate first: call the capable tier and read the emit_mind_page tool call.
+ *   4. Spend on success only: emit exactly one probe_mind command AFTER a page is in
+ *      hand, then cache + return it. The orchestrator never decrements power itself —
+ *      the executor is the single spend path (no double-spend). Emitting after the
+ *      page means a failed read costs nothing and retries naturally (no double-charge).
+ *   5. Fallback: on LLM error or no tool call, return a muted, UNcached page and emit
+ *      NO command, so the player isn't charged for a read that produced nothing.
  */
 import type { Entity } from '@/core/types';
 import type { Spirit, SpiritId } from '@/core/spirit';
@@ -60,31 +60,30 @@ export async function openMindPage(
   const cost = mindProbeCost(depth);
   if (deps.playerSpirit.power < cost) return null;
 
-  // The executor performs the authoritative spend on tick; the orchestrator only
-  // requests the probe (single spend path, no double-spend).
-  deps.queue.emit({
-    verb: 'probe_mind',
-    source: deps.playerSpiritId,
-    target: { kind: 'npc', npcId: npc.id },
-    payload: { depth },
-  });
-
   try {
     const candidates = buildCandidateIds(npc, deps.world);
     const { messages, tools } = buildMindPagePrompt({ npc, path, candidates, depth });
     const res = await deps.llm.generateWithTools(messages, tools);
     const call = res.toolCalls?.find((c) => c.name === 'emit_mind_page');
-    if (!call) return FALLBACK(depth);
+    if (!call) return FALLBACK(depth); // no page → no command, no charge, retry stays possible
     const args = readArgs(call.arguments) as { prose?: string; links?: RawMindLink[] };
     const page: MindPage = {
       prose: typeof args.prose === 'string' && args.prose.length ? args.prose : '…',
       links: resolveLinks(args.links ?? [], candidates),
       depth,
     };
+    // Spend only now that we have a page. The executor performs the authoritative
+    // spend on tick; the orchestrator never decrements power itself (single spend path).
+    deps.queue.emit({
+      verb: 'probe_mind',
+      source: deps.playerSpiritId,
+      target: { kind: 'npc', npcId: npc.id },
+      payload: { depth },
+    });
     deps.store.putPage(npc.id, key, page);
     return page;
   } catch {
-    return FALLBACK(depth);
+    return FALLBACK(depth); // error → no command, no charge
   }
 }
 

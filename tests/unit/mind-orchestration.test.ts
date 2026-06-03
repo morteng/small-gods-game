@@ -95,5 +95,14 @@ describe('openMindPage', () => {
     const page = await openMindPage(maeve(), ['surface'], 0, d);
     expect(page?.prose.toLowerCase()).toMatch(/clouds over|nothing comes/);
     expect(store.getPage('maeve', pathKey(['surface']))).toBeUndefined(); // not cached
+    expect(d.queue.drain()).toHaveLength(0); // no page → no probe_mind command → no charge
+  });
+
+  it('does not emit a probe_mind command when the LLM throws (no charge on failure)', async () => {
+    const throwing = new LLMClient({ async generate() { throw new Error('offline'); } } as any);
+    const { d } = mkDeps({ llm: throwing });
+    const page = await openMindPage(maeve(), ['surface', 'fear'], 1, d);
+    expect(page?.prose.toLowerCase()).toMatch(/clouds over|nothing comes/);
+    expect(d.queue.drain()).toHaveLength(0);
   });
 });

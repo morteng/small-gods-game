@@ -29,7 +29,7 @@ export const MIND_PAGE_TOOL: LLMTool = {
       prose: {
         type: 'string',
         description:
-          "2-4 sentences of what occupies this node of the mortal's mind, in Pratchett-tinged prose. Respect known facts (name, role, real relationships, real recent events).",
+          "What occupies this node of the mortal's mind, in Pratchett-tinged prose. Keep it short — length is dictated per request by the brevity instruction. Respect known facts (name, role, real relationships, real recent events).",
       },
       links: {
         type: 'array',
@@ -54,6 +54,17 @@ export const MIND_PAGE_TOOL: LLMTool = {
 };
 
 const MAX_PATH_SHOWN = 4;
+
+/**
+ * Length budget for a page, by depth. Shallow reads are a terse glimpse; you
+ * only get richer prose by spending power to drill deep.
+ */
+function brevityInstruction(depth: number): string {
+  if (depth === 0) return 'BREVITY: the surface is a glimpse — at most ONE short sentence (or a few fragmentary phrases). Do not elaborate.';
+  if (depth <= 2) return 'BREVITY: keep this to ONE short sentence. Terse, suggestive, not a paragraph.';
+  if (depth <= 4) return 'BREVITY: at most two sentences.';
+  return 'BREVITY: up to three or four sentences — deep enough to dwell here.';
+}
 
 export function buildMindPagePrompt(ctx: MindPromptContext): { messages: LLMMessage[]; tools: LLMTool[] } {
   const p = ctx.npc.properties as unknown as NpcProperties;
@@ -85,6 +96,7 @@ export function buildMindPagePrompt(ctx: MindPromptContext): { messages: LLMMess
   } else {
     lines.push('No real entities available to link here; use concept links only.');
   }
+  lines.push(brevityInstruction(ctx.depth));
   lines.push('Emit the page now.');
 
   return {
