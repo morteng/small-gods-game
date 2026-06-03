@@ -1,9 +1,9 @@
 import type { NpcSimState } from '@/core/types';
 import { npcStatusHint } from '@/sim/believers';
-import { mountWhisperMode, type WhisperModeHandle } from '@/ui/npc-whisper-mode';
+import { mountWhisperInput, type WhisperInputHandle } from '@/ui/npc-whisper-mode';
 import { mountMindMode, type MindModeHandle } from '@/ui/npc-mind-mode';
 import { mindProbeCost } from '@/sim/mind-probe';
-import type { NpcAttentionStore, MindPage } from '@/llm/npc-attention-store';
+import type { MindPage } from '@/llm/npc-attention-store';
 
 const WHISPER_COST = 1;
 const DREAM_COST = 4;
@@ -38,11 +38,7 @@ const STYLE = `
   display: flex; align-items: center; justify-content: center; font: bold 26px sans-serif; color: #fff;
   text-shadow: 0 1px 2px rgba(0,0,0,0.55); border: 1px solid rgba(255,255,255,0.22); }
 .sg-top-col { flex: 1 1 auto; min-width: 0; }
-.sg-modes { display: flex; gap: 4px; margin: 6px 0; }
-.sg-mode { all: unset; cursor: pointer; pointer-events: auto; flex: 1 1 auto; text-align: center; padding: 4px 0; border-radius: 4px;
-  font: bold 10px sans-serif; letter-spacing: 0.5px; background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.6); }
-.sg-mode[aria-selected="true"] { background: rgba(255,213,79,0.15); color: #FFD54F; }
-.sg-body { min-height: 40px; }
+.sg-body { min-height: 40px; margin-top: 6px; }
 .sg-body-placeholder { font: italic 10px sans-serif; color: rgba(255,255,255,0.4); padding: 8px 0; }
 .sg-actions { display: flex; gap: 4px; margin-top: 6px; flex-wrap: wrap; }
 .sg-action { all: unset; cursor: pointer; pointer-events: auto; padding: 3px 8px; border-radius: 3px;
@@ -53,13 +49,10 @@ const STYLE = `
 .sg-action-cost { color: #FFD54F; font-weight: normal; margin-left: 2px; }
 `;
 
-export type AttentionMode = 'whisper' | 'mind';
-
 export interface NpcAttentionPanelOptions {
   pinned?: boolean;
   power?: number;
   onTogglePin?: () => void;
-  onWhisper?: () => void;
   onDream?: () => void;
   onAnswerPrayer?: () => void;
   onOmen?: () => void;
@@ -70,7 +63,6 @@ export interface NpcAttentionPanelOptions {
 }
 
 export interface NpcAttentionPanelDeps {
-  store: NpcAttentionStore;
   onWhisperSend(npcId: string, text: string): void;
   onMindOpen(npcId: string, path: string[], depth: number): void;
   onMindCrossNav(entityId: string): void;
@@ -79,9 +71,6 @@ export interface NpcAttentionPanelDeps {
 export interface NpcAttentionPanelHandle {
   update(sim: NpcSimState, opts?: NpcAttentionPanelOptions): void;
   setNpc(npcId: string): void;
-  getActiveMode(): AttentionMode;
-  refreshWhisper(): void;
-  refreshWhisperLast(): void;
   showMindPage(path: string[], page: MindPage): void;
   destroy(): void;
 }
@@ -165,7 +154,6 @@ export function mountNpcAttentionPanel(
   panel: HTMLElement,
   deps: NpcAttentionPanelDeps,
 ): NpcAttentionPanelHandle {
-  let activeMode: AttentionMode = 'mind'; // reading a mind is the primary, default view
   let currentNpcId: string | null = null;
   let mindPath: string[] = ['surface'];
   // npcId|pathKey the mind view currently shows, so we lazy-open exactly once.
@@ -198,24 +186,8 @@ export function mountNpcAttentionPanel(
   const topRow = document.createElement('div'); topRow.className = 'sg-top';
   topRow.append(portrait, topCol);
 
-  const modes = document.createElement('div'); modes.className = 'sg-modes';
-  const whisperTab = document.createElement('button');
-  whisperTab.className = 'sg-mode'; whisperTab.type = 'button'; whisperTab.dataset.sgMode = 'whisper';
-  whisperTab.textContent = '🗣️ Whisper';
-  const mindTab = document.createElement('button');
-  mindTab.className = 'sg-mode'; mindTab.type = 'button'; mindTab.dataset.sgMode = 'mind';
-  mindTab.textContent = '🧠 Mind';
-  modes.append(mindTab, whisperTab); // Mind first — reading is the primary action
-
-  const whisperBody = document.createElement('div');
-  whisperBody.className = 'sg-body'; whisperBody.dataset.sgBody = 'whisper';
-  const whisperMode = mountWhisperMode(whisperBody, {
-    store: deps.store,
-    onSend: (text) => { if (currentNpcId) deps.onWhisperSend(currentNpcId, text); },
-  });
-
   const mindBody = document.createElement('div');
-  mindBody.className = 'sg-body'; mindBody.dataset.sgBody = 'mind'; mindBody.style.display = 'none';
+  mindBody.className = 'sg-body'; mindBody.dataset.sgBody = 'mind';
   const mindMode = mountMindMode(mindBody, {
     onDrill: (label) => {
       mindPath = [...mindPath, label];
@@ -231,45 +203,40 @@ export function mountNpcAttentionPanel(
     nextCost: () => mindProbeCost(mindPath.length), // next depth = current path length
   });
 
+  const whisperHost = document.createElement('div');
+  const whisperInput: WhisperInputHandle = mountWhisperInput(whisperHost, {
+    onSend: (text) => {
+      if (!currentNpcId) return;
+      // A whisper re-shapes the surface: snap back to it and show the "stir" state;
+      // game.ts re-reads the surface after the whisper resolves and pushes it via showMindPage.
+      mindPath = ['surface'];
+      mindLoadedFor = mindKeyFor(currentNpcId, mindPath);
+      mindMode.showLoading(mindPath);
+      deps.onWhisperSend(currentNpcId, text);
+    },
+  });
+
   const actions = document.createElement('div'); actions.className = 'sg-actions';
   const backfillBtn = actionBtn('backfill', '💭 Backfill', 'LLM');
-  const whisperBtn = actionBtn('whisper', '💬 Whisper', `${WHISPER_COST}p`);
   const dreamBtn = actionBtn('dream', '🌙 Dream', `${DREAM_COST}p`);
   const prayBtn = actionBtn('answer', '🙏 Answer', `${ANSWER_PRAYER_COST}p`);
   const omenBtn = actionBtn('omen', '⛈ Omen', `${OMEN_COST}p`);
   const miracleBtn = actionBtn('miracle', '✨ Miracle', `${MIRACLE_COST}p`);
-  actions.append(backfillBtn, whisperBtn, dreamBtn, prayBtn, omenBtn, miracleBtn);
+  actions.append(backfillBtn, dreamBtn, prayBtn, omenBtn, miracleBtn);
 
-  panel.append(header, topRow, modes, whisperBody, mindBody, actions);
+  panel.append(header, topRow, mindBody, whisperHost, actions);
 
-  function applyMode(): void {
-    whisperTab.setAttribute('aria-selected', activeMode === 'whisper' ? 'true' : 'false');
-    mindTab.setAttribute('aria-selected', activeMode === 'mind' ? 'true' : 'false');
-    whisperBody.style.display = activeMode === 'whisper' ? 'block' : 'none';
-    mindBody.style.display = activeMode === 'mind' ? 'block' : 'none';
-    // Divine actions stay reachable in both modes (observe + act side by side).
-    actions.style.display = 'flex';
-  }
-  // Open the current mind page exactly once per (npc, path) — used when Mind becomes visible.
+  // Open the current mind page exactly once per (npc, path).
   function ensureMindLoaded(): void {
     if (currentNpcId && mindLoadedFor !== mindKeyFor(currentNpcId, mindPath)) {
       mindMode.showLoading(mindPath);
       deps.onMindOpen(currentNpcId, mindPath, mindPath.length - 1);
     }
   }
-  whisperTab.addEventListener('click', (e) => { e.stopPropagation(); activeMode = 'whisper'; applyMode(); });
-  mindTab.addEventListener('click', (e) => {
-    e.stopPropagation();
-    activeMode = 'mind';
-    applyMode();
-    ensureMindLoaded();
-  });
-  applyMode();
 
   let opts: NpcAttentionPanelOptions = {};
   pin.addEventListener('click', (e) => { e.stopPropagation(); opts.onTogglePin?.(); });
   backfillBtn.addEventListener('click', (e) => { e.stopPropagation(); opts.onLlmBackfill?.(); });
-  whisperBtn.addEventListener('click', (e) => { e.stopPropagation(); opts.onWhisper?.(); });
   dreamBtn.addEventListener('click', (e) => { e.stopPropagation(); opts.onDream?.(); });
   prayBtn.addEventListener('click', (e) => { e.stopPropagation(); opts.onAnswerPrayer?.(); });
   omenBtn.addEventListener('click', (e) => { e.stopPropagation(); opts.onOmen?.(); });
@@ -315,7 +282,6 @@ export function mountNpcAttentionPanel(
       pin.title = pinned ? 'Unpin card' : 'Pin card open';
 
       backfillBtn.disabled = power < 1;
-      whisperBtn.disabled = power < WHISPER_COST || (sim.whisperCooldown ?? 0) > 0;
       dreamBtn.disabled = power < DREAM_COST;
       const isPraying = sim.activity === 'worship';
       prayBtn.disabled = power < ANSWER_PRAYER_COST || !isPraying;
@@ -326,26 +292,18 @@ export function mountNpcAttentionPanel(
       omenBtn.disabled = power < OMEN_COST;
       miracleBtn.disabled = power < MIRACLE_COST;
 
-      whisperMode.refresh();
-      whisperMode.setSendEnabled(power >= 1);
+      whisperInput.setSendEnabled(power >= WHISPER_COST);
     },
 
     setNpc(npcId) {
       if (npcId === currentNpcId) return;
       currentNpcId = npcId;
-      // Mind is the default view; selecting an NPC (incl. gold-link cross-nav) opens their mind surface.
-      activeMode = 'mind';
+      // Selecting an NPC (incl. gold-link cross-nav) opens their mind surface.
       mindPath = ['surface'];
       mindLoadedFor = null;
-      applyMode();
-      whisperMode.setNpc(npcId);
+      whisperInput.setNpc(npcId);
       ensureMindLoaded();
     },
-
-    getActiveMode() { return activeMode; },
-
-    refreshWhisper() { whisperMode.refresh(); },
-    refreshWhisperLast() { whisperMode.refreshLast(); },
 
     showMindPage(path, page) {
       mindPath = path;
@@ -354,7 +312,7 @@ export function mountNpcAttentionPanel(
     },
 
     destroy() {
-      whisperMode.destroy();
+      whisperInput.destroy();
       mindMode.destroy();
       while (panel.firstChild) panel.removeChild(panel.firstChild);
     },
