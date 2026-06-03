@@ -13,7 +13,7 @@ import { NpcAttentionStore } from '@/llm/npc-attention-store';
 import { createWelcomeModal, type WelcomeModalHandle, ONBOARDED_KEY } from '@/ui/welcome-modal';
 import { simStateFromEntity, getNpc } from '@/world/npc-helpers';
 import { sendWhisper } from '@/game/whisper-orchestrator';
-import { openMindPage } from '@/game/mind-orchestrator';
+import { openMindPage, pathKey } from '@/game/mind-orchestrator';
 import { OverlayDispatcher } from '@/ui/overlay-dispatcher';
 import { DivineActionsController } from '@/game/divine-actions-controller';
 import { GameUi } from '@/game/game-ui';
@@ -247,8 +247,23 @@ export class Game {
           store: this.attentionStore,
           playerSpiritId: 'player',
           now: () => this.state.clock.now(),
-          onTurnAppended: () => this.ui.npcAttentionPanel.refreshWhisper(),
-          onTurnUpdated: () => this.ui.npcAttentionPanel.refreshWhisperLast(),
+        }).then(() => {
+          // The whisper re-shapes their surface thoughts: drop the cached surface
+          // page and re-read it (free, depth 0) with the new whisper as context.
+          if (!this.state.world) return;
+          const npc = getNpc(this.state.world, npcId);
+          if (!npc) return;
+          this.attentionStore.invalidatePage(npcId, pathKey(['surface']));
+          return openMindPage(npc, ['surface'], 0, {
+            world: this.state.world,
+            store: this.attentionStore,
+            queue: this.commandQueue,
+            llm: this.llmClientCapable ?? this.llmClient,
+            playerSpirit: this.state.spirits.get('player')!,
+            playerSpiritId: 'player',
+          }).then((page) => {
+            if (page) this.ui.npcAttentionPanel.showMindPage(['surface'], page);
+          });
         });
       },
       onMindOpen: (npcId: string, path: string[], depth: number) => {

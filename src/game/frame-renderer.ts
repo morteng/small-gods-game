@@ -163,7 +163,6 @@ export class FrameRenderer {
               this.deps.state.pinnedNpcId = this.deps.state.pinnedNpcId === sim.npcId ? null : sim.npcId;
               this.lastInfoRefresh = 0;
             },
-            onWhisper: () => { this.deps.divine.whisper(entity); },
             onDream: () => { this.deps.divine.dream(entity); this.lastInfoRefresh = 0; },
             onAnswerPrayer: () => { this.deps.divine.answerPrayer(entity); this.lastInfoRefresh = 0; },
             onOmen: () => { this.deps.divine.omenForNpc(entity); },

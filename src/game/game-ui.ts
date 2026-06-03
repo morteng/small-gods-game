@@ -87,7 +87,6 @@ export class GameUi {
     ].join(';');
     container.appendChild(this.npcInfoPanel);
     this.npcAttentionPanel = mountNpcAttentionPanel(this.npcInfoPanel, {
-      store: cb.attentionStore,
       onWhisperSend: cb.onWhisperSend,
       onMindOpen: cb.onMindOpen,
       onMindCrossNav: cb.onMindCrossNav,
