@@ -20,6 +20,7 @@ import { Scheduler } from '@/core/scheduler';
 import { TimelineController } from '@/core/timeline';
 import { CommandQueue } from '@/sim/command/command-queue';
 import { CommandExecutorSystem } from '@/sim/command/command-system';
+import { AuthorCommandLog } from '@/sim/command/author-command-log';
 import { RivalSystem } from '@/sim/systems/rival-system';
 import { NpcMovementSystem } from '@/sim/systems/npc-movement-system';
 import { NpcSimSystem } from '@/sim/systems/npc-sim-system';
@@ -59,6 +60,7 @@ export class Game {
   private state: GameState;
   private scheduler: Scheduler;
   private commandQueue = new CommandQueue();
+  private authorLog = new AuthorCommandLog();
   private timeline!: TimelineController;
   private cleanupControls: (() => void) | null = null;
   private cleanupTokens: (() => void) | null = null;
@@ -101,7 +103,7 @@ export class Game {
         // emit by the controller's previewCommand gate, so this is rare.
         console.debug('[command] player command rejected:', r.verb, r.reason);
       }
-    }));
+    }, this.authorLog));
     this.scheduler.register(new NpcMovementSystem(() => this.state.map));
     // Order: settlement events affect needs → NpcSimSystem decays needs + recomputes mood
     // → activity system picks activities from needs → belief propagation → spirits
@@ -121,7 +123,11 @@ export class Game {
       scheduler: this.scheduler,
       // Pending commands are exogenous input, not sim state — drop them on any
       // snapshot restore so scrubbing/committing never replays a stale click.
+      // The authorLog is history (NOT cleared on restore): the executor re-emits
+      // recorded editor edits during silent replay. It is truncated on commit and
+      // reset on a time-skip baseline.
       onRestore: () => this.commandQueue.clear(),
+      authorLog: this.authorLog,
     });
 
 
@@ -135,6 +141,15 @@ export class Game {
       provider = createProvider({ type: 'mock' });
     }
     this.llmClient = new LLMClient(provider);
+    // Build the capable (Tier-2) client at boot too — otherwise a returning,
+    // already-onboarded user whose stored config has a capable model boots with
+    // llmClientCapable === null and the Create panel stays dead until they
+    // re-save LLM settings. (applyLlmConfig rebuilds both on live config change.)
+    try {
+      this.llmClientCapable = this.buildCapableClient(providerConfig);
+    } catch (err) {
+      console.warn('[llm] capable client not built at boot:', err);
+    }
     this.canvas = document.createElement('canvas');
     this.canvas.style.width = '100%';
     this.canvas.style.height = '100%';
@@ -234,6 +249,8 @@ export class Game {
     this.dev = new DevModeController({
       container: this.container, state: this.state, scheduler: this.scheduler,
       getViewport: () => this.viewport(), getRenderDeps: () => this.renderDeps(),
+      commandQueue: this.commandQueue,
+      getLlmCapable: () => this.llmClientCapable,
     });
 
     this.renderer = new FrameRenderer({
@@ -286,13 +303,18 @@ export class Game {
     });
   }
 
+  /** The Tier-2 "capable" client, or null when no capable model is configured. */
+  private buildCapableClient(config: ProviderConfig): LLMClient | null {
+    return config.openrouterModelCapable
+      ? new LLMClient(createProvider({ ...config, openrouterModel: config.openrouterModelCapable }))
+      : null;
+  }
+
   private applyLlmConfig(config: ProviderConfig): void {
     try {
       this.llmClient = new LLMClient(createProvider(config));
       this.llmBackfill.setClient(this.llmClient);
-      this.llmClientCapable = config.openrouterModelCapable
-        ? new LLMClient(createProvider({ ...config, openrouterModel: config.openrouterModelCapable }))
-        : null;
+      this.llmClientCapable = this.buildCapableClient(config);
     } catch (err) {
       console.warn('[llm] config not applied:', err);
     }

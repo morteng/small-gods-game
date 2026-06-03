@@ -14,11 +14,18 @@ import {
   whisper, omen, dream, miracle, answerPrayer,
   WHISPER_COST, OMEN_COST, DREAM_COST, MIRACLE_COST, ANSWER_PRAYER_COST,
 } from '@/sim/divine-actions';
-import type { Command, CommandCtx, CommandVerb, RejectionReason } from './types';
+import type { Command, CommandCtx, ApplyCtx, CommandVerb, RejectionReason } from './types';
+import {
+  removePrecondition, removeApply,
+  spawnPrecondition, spawnApply,
+  modifyPrecondition, modifyApply,
+  placePrecondition, placeApply,
+  movePrecondition, moveApply,
+} from './editor-verbs';
 
 export interface CapabilityDef {
   verb: CommandVerb;
-  tier: 'divine' | 'authoring';
+  tier: 'divine' | 'authoring' | 'editor';
   /** Power cost; reuses the divine-actions.ts constants. */
   cost: number;
   targetKind: 'npc' | 'settlement' | 'none';
@@ -31,7 +38,7 @@ export interface CapabilityDef {
    * cost and appends the SimEvent. Returns false if the underlying function
    * declined (lost a race after the pre-gate).
    */
-  apply?(cmd: Command, ctx: CommandCtx): boolean;
+  apply?(cmd: Command, ctx: ApplyCtx): boolean;
   /** Short human/agent-readable summary for logs, tooltips, Fate introspection. */
   describe(cmd: Command): string;
 }
@@ -115,6 +122,39 @@ export const CAPABILITY_REGISTRY: Record<CommandVerb, CapabilityDef> = {
   nudge_severity: {
     verb: 'nudge_severity', tier: 'authoring', cost: 0, targetKind: 'settlement', implemented: false,
     describe: (cmd) => `nudge the severity of the event at ${targetLabel(cmd)}`,
+  },
+
+  // ── Editor tier — god-mode authoring (Create panel). cost 0, no spirit. ──────
+  // precondition/apply wired in SP2 tasks 3-6; stubs reject not_implemented.
+  author_spawn_npc: {
+    verb: 'author_spawn_npc', tier: 'editor', cost: 0, targetKind: 'none', implemented: true,
+    precondition: spawnPrecondition,
+    apply: spawnApply,
+    describe: (cmd) => `spawn ${(cmd.payload?.count as number) ?? 1}× ${cmd.payload?.role ?? 'npc'}`,
+  },
+  author_remove_entity: {
+    verb: 'author_remove_entity', tier: 'editor', cost: 0, targetKind: 'none', implemented: true,
+    precondition: removePrecondition,
+    apply: removeApply,
+    describe: (cmd) => `remove ${cmd.payload?.entityId ?? `${cmd.payload?.filter ? 'matching entities' : 'entities'}`}`,
+  },
+  author_modify_npc: {
+    verb: 'author_modify_npc', tier: 'editor', cost: 0, targetKind: 'none', implemented: true,
+    precondition: modifyPrecondition,
+    apply: modifyApply,
+    describe: (cmd) => `modify ${cmd.payload?.entityId ?? 'an npc'}`,
+  },
+  author_place_object: {
+    verb: 'author_place_object', tier: 'editor', cost: 0, targetKind: 'none', implemented: true,
+    precondition: placePrecondition,
+    apply: placeApply,
+    describe: (cmd) => `place ${(cmd.payload?.count as number) ?? 1}× ${cmd.payload?.kind ?? 'object'}`,
+  },
+  author_move_entity: {
+    verb: 'author_move_entity', tier: 'editor', cost: 0, targetKind: 'none', implemented: true,
+    precondition: movePrecondition,
+    apply: moveApply,
+    describe: (cmd) => `move ${cmd.payload?.entityId ?? 'an entity'}`,
   },
 };
 

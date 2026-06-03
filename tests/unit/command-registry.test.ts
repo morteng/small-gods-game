@@ -5,17 +5,33 @@ import {
 } from '@/sim/divine-actions';
 import type { CommandVerb } from '@/sim/command/types';
 
+const EDITOR_VERBS: CommandVerb[] = [
+  'author_spawn_npc', 'author_remove_entity', 'author_modify_npc',
+  'author_place_object', 'author_move_entity',
+];
+
 const ALL_VERBS: CommandVerb[] = [
   'whisper', 'omen', 'dream', 'miracle', 'answer_prayer',
   'bias_event', 'inject_npc', 'nudge_severity',
+  ...EDITOR_VERBS,
 ];
 
 describe('capability registry', () => {
-  it('declares all 8 verbs', () => {
-    expect(listCapabilities()).toHaveLength(8);
+  it('declares all 13 verbs', () => {
+    expect(listCapabilities()).toHaveLength(13);
     for (const v of ALL_VERBS) {
       expect(getCapability(v)).toBeDefined();
       expect(CAPABILITY_REGISTRY[v].verb).toBe(v);
+    }
+  });
+
+  it('declares the 5 editor verbs as implemented, cost-0, editor-tier', () => {
+    for (const v of EDITOR_VERBS) {
+      const def = CAPABILITY_REGISTRY[v];
+      expect(def.tier).toBe('editor');
+      expect(def.cost).toBe(0);
+      expect(def.implemented).toBe(true);
+      expect(typeof def.apply).toBe('function');
     }
   });
 

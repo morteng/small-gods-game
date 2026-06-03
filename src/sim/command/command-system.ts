@@ -10,8 +10,10 @@
 import type { System, SystemContext } from '@/core/scheduler';
 import { getCapability } from './registry';
 import { getNpc } from '@/world/npc-helpers';
-import type { Command, CommandCtx, CommandResult, RejectionReason } from './types';
+import { SilentEventLog } from '@/core/events';
+import type { Command, CommandCtx, ApplyCtx, CommandResult, RejectionReason } from './types';
 import type { CommandQueue } from './command-queue';
+import type { AuthorCommandLog } from './author-command-log';
 
 /**
  * Read-only validation: everything `executeCommand` checks *except* the mutating
@@ -22,6 +24,12 @@ export function previewCommand(cmd: Command, ctx: CommandCtx): RejectionReason |
   const def = getCapability(cmd.verb);
   if (!def) return 'invalid_target';                   // unknown verb (defensive)
   if (!def.implemented || !def.apply) return 'not_implemented';
+
+  // Editor tier is god-mode: no spirit, no power, payload-based targeting.
+  // Validation is entirely the verb's precondition (it inspects cmd.payload).
+  if (def.tier === 'editor') {
+    return def.precondition?.(cmd, ctx) ?? null;
+  }
 
   if (!ctx.spirits.has(cmd.source)) return 'unknown_source';
 
@@ -39,8 +47,8 @@ export function previewCommand(cmd: Command, ctx: CommandCtx): RejectionReason |
   return def.precondition?.(cmd, ctx) ?? null;
 }
 
-/** Validate + apply a single command. Deterministic; no RNG. */
-export function executeCommand(cmd: Command, ctx: CommandCtx): CommandResult {
+/** Validate + apply a single command. Deterministic; no RNG of its own. */
+export function executeCommand(cmd: Command, ctx: ApplyCtx): CommandResult {
   const reject = (reason: RejectionReason): CommandResult =>
     ({ status: 'rejected', verb: cmd.verb, source: cmd.source, reason });
 
@@ -60,12 +68,31 @@ export class CommandExecutorSystem implements System {
   constructor(
     private readonly queue: CommandQueue,
     private readonly onResult?: (r: CommandResult) => void,
+    private readonly authorLog?: AuthorCommandLog,
   ) {}
 
   tick(ctx: SystemContext): void {
-    const ctxFor: CommandCtx = { world: ctx.world, spirits: ctx.spirits, log: ctx.log };
+    const ctxFor: ApplyCtx = {
+      world: ctx.world, spirits: ctx.spirits, log: ctx.log,
+      rng: ctx.rng, now: ctx.now,
+    };
+    const replaying = ctx.log instanceof SilentEventLog;
+
+    // Replay: re-emit recorded author commands due at this tick BEFORE draining,
+    // so they re-apply in the same drain order (and RNG position) as live.
+    if (replaying && this.authorLog) {
+      for (const c of this.authorLog.at(ctx.now)) {
+        this.queue.emit({ verb: c.verb, source: c.source, target: c.target, params: c.params, payload: c.payload });
+      }
+    }
+
     for (const cmd of this.queue.drain()) {
       const result = executeCommand(cmd, ctxFor);
+      // Live only: record applied editor commands as replayable history.
+      if (!replaying && this.authorLog && result.status === 'applied'
+          && getCapability(cmd.verb)?.tier === 'editor') {
+        this.authorLog.record(ctx.now, cmd);
+      }
       this.onResult?.(result);
     }
   }

@@ -15,6 +15,20 @@ export interface LLMMessage {
   content: string;
 }
 
+/** An OpenAI-style tool the model may call. `parameters` is a JSON Schema object. */
+export interface LLMTool {
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+}
+
+/** A single tool call the model emitted. `arguments` is already parsed from JSON. */
+export interface LLMToolCall {
+  id: string;
+  name: string;
+  arguments: Record<string, unknown>;
+}
+
 export interface LLMResponse {
   /** The generated text content */
   content: string;
@@ -31,6 +45,8 @@ export interface LLMResponse {
   latencyMs: number;
   /** Cost in USD (convenience, same as usage.cost) */
   cost?: number;
+  /** Tool calls the model requested, when tools were supplied. */
+  toolCalls?: LLMToolCall[];
 }
 
 export interface LLMOptions {
@@ -42,6 +58,10 @@ export interface LLMOptions {
   stop?: string[];
   /** Provider-specific model ID */
   model?: string;
+  /** Tools the model may call (OpenAI-style). */
+  tools?: LLMTool[];
+  /** How the model should choose tools. Defaults to 'auto' when tools are present. */
+  toolChoice?: 'auto' | 'required' | 'none';
 }
 
 export interface LLMProvider {
@@ -55,18 +75,71 @@ export interface LLMProvider {
   name(): string;
 }
 
+// ─── Tool-calling helpers (shared by OpenAI + OpenRouter) ────────────────
+
+/** Serialize LLMTool[] into the OpenAI-compatible `tools` request array. */
+export function toToolPayload(tools: LLMTool[]): Array<Record<string, unknown>> {
+  return tools.map(t => ({
+    type: 'function',
+    function: { name: t.name, description: t.description, parameters: t.parameters },
+  }));
+}
+
+/**
+ * Map a provider `message` object's `tool_calls` into typed LLMToolCall[].
+ * `arguments` arrives as a JSON string; parse it and guard against malformed
+ * JSON by falling back to an empty object. Returns undefined when there are
+ * no calls (so callers can treat "no tools requested" uniformly).
+ */
+export function parseToolCalls(message: unknown): LLMToolCall[] | undefined {
+  const raw = (message as { tool_calls?: unknown })?.tool_calls;
+  if (!Array.isArray(raw) || raw.length === 0) return undefined;
+
+  return raw.map((tc, i) => {
+    const fn = (tc as { function?: { name?: string; arguments?: string } }).function ?? {};
+    const id = (tc as { id?: string }).id ?? `call_${i}`;
+    const name = fn.name ?? '';
+    let args: Record<string, unknown> = {};
+    try {
+      const parsed = JSON.parse(fn.arguments ?? '{}');
+      if (parsed && typeof parsed === 'object') args = parsed as Record<string, unknown>;
+    } catch {
+      // Malformed arguments → empty object; the executor will reject on
+      // validation. Warn so the real cause (garbled model JSON) is diagnosable
+      // rather than surfacing later as a confusing missing-field rejection.
+      console.warn('[llm] tool-call arguments were not valid JSON', { name, raw: fn.arguments });
+    }
+    return { id, name, arguments: args };
+  });
+}
+
 // ─── Mock Provider (for testing) ─────────────────────────────────────────
 
 export class MockLLMProvider implements LLMProvider {
   private delayMs: number;
+  private cannedToolCalls?: LLMToolCall[];
 
-  constructor(delayMs = 50) {
+  constructor(delayMs = 50, opts?: { cannedToolCalls?: LLMToolCall[] }) {
     this.delayMs = delayMs;
+    this.cannedToolCalls = opts?.cannedToolCalls;
   }
 
-  async generate(messages: LLMMessage[], _opts?: LLMOptions): Promise<LLMResponse> {
+  async generate(messages: LLMMessage[], opts?: LLMOptions): Promise<LLMResponse> {
     const start = Date.now();
     await new Promise(resolve => setTimeout(resolve, this.delayMs));
+
+    // Tool-calling path: when tools are supplied, return canned tool calls so
+    // downstream consumers (Create panel, Fate) can be tested without a network.
+    if (opts?.tools && opts.tools.length > 0) {
+      const toolCalls = this.cannedToolCalls
+        ?? [{ id: 'mock_call_0', name: opts.tools[0].name, arguments: {} }];
+      return {
+        content: '',
+        toolCalls,
+        usage: { promptTokens: 100, completionTokens: 20, totalTokens: 120 },
+        latencyMs: Date.now() - start,
+      };
+    }
 
     // Simple mock: return a generic response
     const lastUser = messages.filter(m => m.role === 'user').pop();
@@ -145,6 +218,24 @@ export class LLMClient {
   }
 
   /**
+   * Single-shot tool-calling for the capable tier (Create panel, Fate).
+   * Sends the tool list and returns the model's tool calls. No multi-turn
+   * read loop in v1 — one request, one set of tool calls.
+   */
+  async generateWithTools(
+    messages: LLMMessage[],
+    tools: LLMTool[],
+    opts?: LLMOptions,
+  ): Promise<LLMResponse> {
+    return this.provider.generate(messages, {
+      maxTokens: 1024,
+      toolChoice: 'auto',
+      ...opts,
+      tools,
+    });
+  }
+
+  /**
    * Check if the LLM service is available.
    */
   isAvailable(): boolean {
@@ -172,13 +263,17 @@ export class OpenAIProvider implements LLMProvider {
     const start = Date.now();
     const url = `${this.config.baseUrl ?? 'https://api.openai.com/v1'}/chat/completions`;
 
-    const body = {
+    const body: Record<string, unknown> = {
       model: opts?.model ?? this.config.model ?? 'gpt-3.5-turbo',
       messages: messages.map(m => ({ role: m.role, content: m.content })),
       max_tokens: opts?.maxTokens ?? 200,
       temperature: opts?.temperature ?? 0.7,
       stop: opts?.stop,
     };
+    if (opts?.tools && opts.tools.length > 0) {
+      body.tools = toToolPayload(opts.tools);
+      body.tool_choice = opts.toolChoice ?? 'auto';
+    }
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -200,7 +295,9 @@ export class OpenAIProvider implements LLMProvider {
     }
 
     const data = await resp.json();
-    const content = data.choices?.[0]?.message?.content ?? '';
+    const message = data.choices?.[0]?.message;
+    const content = message?.content ?? '';
+    const toolCalls = parseToolCalls(message);
 
     let parsed: Record<string, unknown> | undefined;
     try {
@@ -212,6 +309,7 @@ export class OpenAIProvider implements LLMProvider {
     return {
       content,
       parsed,
+      toolCalls,
       usage: data.usage ? {
         promptTokens: data.usage.prompt_tokens,
         completionTokens: data.usage.completion_tokens,
@@ -270,10 +368,17 @@ export class OpenRouterProvider implements LLMProvider {
       stop: opts?.stop,
     };
 
-    // Add reasoning support for models that support it (e.g., DeepSeek R1)
-    // OpenRouter-specific: pass via extra_body
-    if (opts && 'reasoning' in opts) {
-      body.extra_body = { reasoning: (opts as Record<string, unknown>).reasoning };
+    // Reasoning/thinking control (OpenRouter top-level `reasoning` param).
+    // Default to MINIMUM thinking — disabled — to keep latency and cost down for
+    // hybrid models like DeepSeek V4. Overridable per-call via opts.reasoning
+    // (e.g. the capable Fate tier may opt back in at key moments).
+    body.reasoning = (opts && 'reasoning' in opts)
+      ? (opts as Record<string, unknown>).reasoning
+      : { enabled: false };
+
+    if (opts?.tools && opts.tools.length > 0) {
+      body.tools = toToolPayload(opts.tools);
+      body.tool_choice = opts.toolChoice ?? 'auto';
     }
 
     const headers: Record<string, string> = {
@@ -316,7 +421,9 @@ export class OpenRouterProvider implements LLMProvider {
         }
 
         const data = await resp.json();
-        const content = filterProviderTokens(data.choices?.[0]?.message?.content ?? '');
+        const message = data.choices?.[0]?.message;
+        const content = filterProviderTokens(message?.content ?? '');
+        const toolCalls = parseToolCalls(message);
 
         let parsed: Record<string, unknown> | undefined;
         try {
@@ -342,6 +449,7 @@ export class OpenRouterProvider implements LLMProvider {
         return {
           content,
           parsed,
+          toolCalls,
           usage: data.usage ? {
             promptTokens: data.usage.prompt_tokens,
             completionTokens: data.usage.completion_tokens,

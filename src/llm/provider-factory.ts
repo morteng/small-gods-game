@@ -53,7 +53,7 @@ export function createProvider(config: ProviderConfig): LLMProvider {
       }
       const orConfig: OpenRouterConfig = {
         apiKey: config.openrouterApiKey,
-        model: config.openrouterModel ?? 'google/gemini-2.5-flash-lite',
+        model: config.openrouterModel ?? 'deepseek/deepseek-v4-flash',
         siteUrl: config.openrouterSiteUrl,
         siteName: config.openrouterSiteName ?? 'Small Gods Game',
       };
@@ -85,8 +85,8 @@ export function loadProviderConfig(): ProviderConfig {
   return {
     type: envKey ? 'openrouter' : 'mock',
     openrouterApiKey: envKey,
-    openrouterModel: 'google/gemini-2.5-flash-lite',
-    openrouterModelCapable: 'anthropic/claude-sonnet-4.6',
+    openrouterModel: 'deepseek/deepseek-v4-flash',
+    openrouterModelCapable: 'deepseek/deepseek-v4',
     maxTokens: 200,
     temperature: 0.7,
   };

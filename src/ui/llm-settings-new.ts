@@ -12,14 +12,15 @@ export interface LLMSettingsHandle {
 }
 
 const OPENROUTER_MODELS = [
-  { id: 'google/gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash-Lite (Recommended)' },
-  { id: 'deepseek/deepseek-v4-flash', name: 'DeepSeek V4 Flash (cheapest)' },
+  { id: 'deepseek/deepseek-v4-flash', name: 'DeepSeek V4 Flash (Recommended)' },
+  { id: 'google/gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash-Lite' },
   { id: 'google/gemini-2.5-flash', name: 'Gemini 2.5 Flash' },
 ];
 
 const OPENROUTER_CAPABLE_MODELS = [
-  { id: 'anthropic/claude-sonnet-4.6', name: 'Claude Sonnet 4.6 (Recommended)' },
-  { id: 'deepseek/deepseek-v4-pro', name: 'DeepSeek V4 Pro (cheap)' },
+  { id: 'deepseek/deepseek-v4', name: 'DeepSeek V4 (Recommended)' },
+  { id: 'anthropic/claude-sonnet-4.6', name: 'Claude Sonnet 4.6' },
+  { id: 'deepseek/deepseek-v4-pro', name: 'DeepSeek V4 Pro' },
   { id: 'google/gemini-2.5-pro', name: 'Gemini 2.5 Pro (large context)' },
 ];
 
