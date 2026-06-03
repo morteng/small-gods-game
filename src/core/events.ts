@@ -15,6 +15,7 @@ export type SimEvent =
   | { type: 'dream';              spiritId: SpiritId; npcId: EntityId }
   | { type: 'miracle';            spiritId: SpiritId; poiId: string; needType: string; amount: number }
   | { type: 'answer_prayer';      spiritId: SpiritId; npcId: EntityId }
+  | { type: 'mind_probed';        spiritId: SpiritId; npcId: EntityId; depth: number }
   | { type: 'believer_lost';      npcId: EntityId }
   | { type: 'npc_death';          npcId: EntityId; lineageId: EntityId; cause: string }
   | { type: 'npc_birth';          npcId: EntityId; parentIds: EntityId[]; lineageId: EntityId }
