@@ -1,11 +1,16 @@
 import type { DevModeState, DebugOverlayOptions } from '@/core/types';
 import type { SpiritId } from '@/core/spirit';
 import { DEFAULT_DEBUG_OVERLAY_OPTIONS } from '@/render/debug-overlays';
-import { addPanelChrome } from '@/dev/PanelChrome';
+import { createFloatingPanel } from '@/dev/FloatingPanel';
+import type { DockManager } from '@/dev/dock-manager';
 
 export interface DebugOverlayPanelHandle {
-  element: HTMLDivElement;
+  element: HTMLElement;
   update(devMode: DevModeState): void;
+  show(): void;
+  hide(): void;
+  toggle(): void;
+  isVisible(): boolean;
   destroy(): void;
 }
 
@@ -13,48 +18,24 @@ export interface DebugOverlayPanelHandle {
  * Mount the debug overlay control panel.
  * Provides toggles for belief heatmap, needs, mood, social connections, etc.
  */
-export function mountDebugOverlayPanel(container: HTMLElement): DebugOverlayPanelHandle {
-  const panel = document.createElement('div');
-  panel.style.cssText = [
-    'position:absolute',
-    'top:60px',
-    'left:10px',
-    'width:260px',
-    'background:rgba(20,20,30,0.92)',
-    'color:#e0e0e0',
-    'border:1px solid #555',
-    'border-radius:6px',
-    'padding:12px',
-    'font:12px/1.5 monospace',
-    'z-index:100',
-    'display:none',
-    'box-sizing:border-box',
-  ].join(';');
-
-  // Add panel chrome (title bar, close, minimize, drag)
-  const chrome = addPanelChrome(panel, {
-    title: '🎨 Debug Overlays',
-    onClose: () => { panel.style.display = 'none'; },
-    onMinimize: (minimized) => { console.log('[dev] Debug overlays minimized:', minimized); },
-    onDragEnd: (x, y) => { console.log('[dev] Debug overlays dragged to', x, y); },
-  });
+export function mountDebugOverlayPanel(container: HTMLElement, deps: { dock?: DockManager } = {}): DebugOverlayPanelHandle {
+  const fp = createFloatingPanel({ container, id: 'overlay', title: '🎨 Debug Overlays', dock: deps.dock, width: 260, anchor: { top: '60px', left: '10px' } });
+  const body = fp.body;
 
   // Checkbox section
   const checkboxArea = document.createElement('div');
   checkboxArea.style.cssText = 'display:flex; flex-direction:column; gap:6px; margin-bottom:10px;';
-  panel.appendChild(checkboxArea);
+  body.appendChild(checkboxArea);
 
   // Slider section
   const sliderArea = document.createElement('div');
   sliderArea.style.cssText = 'margin-top:8px; padding-top:8px; border-top:1px solid #444;';
-  panel.appendChild(sliderArea);
+  body.appendChild(sliderArea);
 
   // Spirit selector
   const spiritArea = document.createElement('div');
   spiritArea.style.cssText = 'margin-top:8px; padding-top:8px; border-top:1px solid #444;';
-  panel.appendChild(spiritArea);
-
-  container.appendChild(panel);
+  body.appendChild(spiritArea);
 
   let currentDevMode: DevModeState | null = null;
 
@@ -149,34 +130,35 @@ export function mountDebugOverlayPanel(container: HTMLElement): DebugOverlayPane
   });
   spiritArea.appendChild(spiritSelect);
 
+  function update(devMode: DevModeState): void {
+    currentDevMode = devMode;
+    // NOTE: visibility is owned solely by the toolbar/dock — update() only syncs
+    // control state. Do NOT call fp.show()/fp.hide() here or it fights the toggle.
+
+    // Sync checkbox states
+    beliefToggle.checked = !!devMode.showBeliefHeatmap;
+    needsToggle.checked = !!devMode.showNeeds;
+    moodToggle.checked = !!devMode.showMood;
+    socialToggle.checked = !!devMode.showSocialConnections;
+
+    // Sync slider
+    const threshold = devMode.beliefThreshold ?? 0.3;
+    thresholdSlider.value = String(Math.round(threshold * 100));
+    thresholdLabel.textContent = `Belief Threshold: ${threshold.toFixed(2)}`;
+
+    // Sync spirit selector (rebuild options if needed)
+    // In a real implementation, you'd pass the list of spirits here
+    // For now, just sync the selection
+    spiritSelect.value = devMode.selectedSpiritId ?? '';
+  }
+
   return {
-    element: panel,
-    update(devMode: DevModeState): void {
-      currentDevMode = devMode;
-      if (!devMode.enabled) {
-        panel.style.display = 'none';
-        return;
-      }
-      panel.style.display = 'block';
-
-      // Sync checkbox states
-      beliefToggle.checked = !!devMode.showBeliefHeatmap;
-      needsToggle.checked = !!devMode.showNeeds;
-      moodToggle.checked = !!devMode.showMood;
-      socialToggle.checked = !!devMode.showSocialConnections;
-
-      // Sync slider
-      const threshold = devMode.beliefThreshold ?? 0.3;
-      thresholdSlider.value = String(Math.round(threshold * 100));
-      thresholdLabel.textContent = `Belief Threshold: ${threshold.toFixed(2)}`;
-
-      // Sync spirit selector (rebuild options if needed)
-      // In a real implementation, you'd pass the list of spirits here
-      // For now, just sync the selection
-      spiritSelect.value = devMode.selectedSpiritId ?? '';
-    },
-    destroy() {
-      panel.remove();
-    },
+    element: fp.element,
+    update,
+    show: fp.show,
+    hide: fp.hide,
+    toggle: fp.toggle,
+    isVisible: fp.isVisible,
+    destroy: () => fp.destroy(),
   };
 }

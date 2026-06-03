@@ -1,12 +1,16 @@
-import type { Scheduler, SystemContext, System } from '@/core/scheduler';
+import type { Scheduler } from '@/core/scheduler';
 import { SimClock } from '@/core/clock';
 import { EventLog } from '@/core/events';
-import type { World } from '@/world/world';
-import { addPanelChrome } from '@/dev/PanelChrome';
+import { createFloatingPanel } from '@/dev/FloatingPanel';
+import type { DockManager } from '@/dev/dock-manager';
 
 export interface TimeDebugPanelHandle {
-  element: HTMLDivElement;
+  element: HTMLElement;
   update(clock: SimClock, scheduler: Scheduler, eventLog: EventLog): void;
+  show(): void;
+  hide(): void;
+  toggle(): void;
+  isVisible(): boolean;
   destroy(): void;
 }
 
@@ -35,34 +39,11 @@ export function mountTimeDebugPanel(
     clock: SimClock;
     scheduler: Scheduler;
     eventLog: EventLog;
+    dock?: DockManager;
   }
 ): TimeDebugPanelHandle {
-  const panel = document.createElement('div');
-  panel.style.cssText = [
-    'position:absolute',
-    'top:60px',
-    'left:280px',
-    'width:280px',
-    'background:rgba(20,20,30,0.92)',
-    'color:#e0e0e0',
-    'border:1px solid #555',
-    'border-radius:6px',
-    'padding:12px',
-    'font:12px/1.5 monospace',
-    'z-index:100',
-    'display:none',
-    'box-sizing:border-box',
-    'max-height:80vh',
-    'overflow-y:auto',
-  ].join(';');
-
-  // Add panel chrome (title bar, close, minimize, drag)
-  const chrome = addPanelChrome(panel, {
-    title: '⏱ Time Debug',
-    onClose: () => { panel.style.display = 'none'; },
-    onMinimize: (minimized) => { console.log('[dev] Time Debug minimized:', minimized); },
-    onDragEnd: (x, y) => { console.log('[dev] Time Debug dragged to', x, y); },
-  });
+  const fp = createFloatingPanel({ container, id: 'time', title: '⏱ Time Debug', dock: deps.dock, width: 280, anchor: { top: '60px', left: '280px' } });
+  const body = fp.body;
 
   // Speed controls
   const speedSection = document.createElement('div');
@@ -122,7 +103,7 @@ export function mountTimeDebugPanel(
     speedBtns.appendChild(btn);
   }
   speedSection.appendChild(speedBtns);
-  panel.appendChild(speedSection);
+  body.appendChild(speedSection);
 
   // Tick stepping
   const stepSection = document.createElement('div');
@@ -163,7 +144,7 @@ export function mountTimeDebugPanel(
   });
   stepBtns.appendChild(stepBtn);
   stepSection.appendChild(stepBtns);
-  panel.appendChild(stepSection);
+  body.appendChild(stepSection);
 
   // Snapshots
   const snapSection = document.createElement('div');
@@ -183,7 +164,7 @@ export function mountTimeDebugPanel(
   const loadBtn = makeStubButton('📂 Load', 'Snapshot load not yet implemented');
   snapBtns.appendChild(loadBtn);
   snapSection.appendChild(snapBtns);
-  panel.appendChild(snapSection);
+  body.appendChild(snapSection);
 
   // Event injection
   const eventSection = document.createElement('div');
@@ -210,42 +191,44 @@ export function mountTimeDebugPanel(
   eventSelect.disabled = true;
   eventSelect.style.opacity = '0.4';
   eventSection.appendChild(injectBtn);
-  panel.appendChild(eventSection);
+  body.appendChild(eventSection);
 
   // Time display
   const timeDisplay = document.createElement('div');
   timeDisplay.style.cssText = 'margin-top:8px; padding-top:8px; border-top:1px solid #444; font-size:11px; color:#8cf;';
   timeDisplay.textContent = 'Tick: 0 | Time: 0s';
-  panel.appendChild(timeDisplay);
+  body.appendChild(timeDisplay);
 
-  container.appendChild(panel);
+  function update(clock: SimClock, scheduler: Scheduler, _eventLog: EventLog): void {
+    if (!fp.isVisible()) return;
+
+    const tick = clock.now();
+    const rate = scheduler.getRate();
+    const paused = rate === 0;
+
+    timeDisplay.textContent = `Tick: ${tick} | Rate: ${rate}x ${paused ? '(PAUSED)' : ''}`;
+
+    // Update speed button highlights
+    const buttons = speedBtns.querySelectorAll('button');
+    buttons.forEach((btn, idx) => {
+      const speed = speeds[idx].value;
+      if (speed === rate) {
+        btn.style.background = 'rgba(74,158,255,0.4)';
+        btn.style.borderColor = '#4a9eff';
+      } else {
+        btn.style.background = 'rgba(255,255,255,0.1)';
+        btn.style.borderColor = '#555';
+      }
+    });
+  }
 
   return {
-    element: panel,
-    update(clock: SimClock, scheduler: Scheduler, _eventLog: EventLog): void {
-      if (!panel.style.display || panel.style.display === 'none') return;
-
-      const tick = clock.now();
-      const rate = scheduler.getRate();
-      const paused = rate === 0;
-
-      timeDisplay.textContent = `Tick: ${tick} | Rate: ${rate}x ${paused ? '(PAUSED)' : ''}`;
-
-      // Update speed button highlights
-      const buttons = speedBtns.querySelectorAll('button');
-      buttons.forEach((btn, idx) => {
-        const speed = speeds[idx].value;
-        if (speed === rate) {
-          btn.style.background = 'rgba(74,158,255,0.4)';
-          btn.style.borderColor = '#4a9eff';
-        } else {
-          btn.style.background = 'rgba(255,255,255,0.1)';
-          btn.style.borderColor = '#555';
-        }
-      });
-    },
-    destroy() {
-      panel.remove();
-    },
+    element: fp.element,
+    update,
+    show: fp.show,
+    hide: fp.hide,
+    toggle: fp.toggle,
+    isVisible: fp.isVisible,
+    destroy: () => fp.destroy(),
   };
 }

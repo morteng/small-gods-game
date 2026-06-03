@@ -14,14 +14,11 @@ import { DEFAULT_DEBUG_OVERLAY_OPTIONS, drawDebugOverlays } from '@/render/debug
 import { buildRenderContext } from './render-context';
 import { applyUndo, applyRedo } from './dev-mode-history';
 import { TILE_SIZE } from '@/core/constants';
+import { createDockManager, type DockManager } from '@/dev/dock-manager';
+import { DEV_UI_Z } from '@/dev/FloatingPanel';
+import { mountDevToolbar, type DevToolbarHandle } from '@/dev/dev-toolbar';
+import { readRenderMode, toggleRenderMode } from '@/render/select-renderer';
 
-/**
- * Dedicated stacking band for dev-mode UI. Sits above all normal game chrome
- * (HUD ~20, settings ~30, menu ~50, tutorial ~100) but below the intentional
- * top-most modals (LLM display 900, entity-spawner 1000) so dev panels never
- * render under the game UI they're meant to inspect.
- */
-const DEV_UI_Z = 600;
 
 export interface DevModeControllerDeps {
   container: HTMLElement;
@@ -39,6 +36,8 @@ export class DevModeController {
   private timeDebug!: TimeDebugPanelHandle;
   private spawner!: EntitySpawnerHandle;
   private mapEditor!: MapEditorPanelHandle;
+  private dock!: DockManager;
+  private toolbar!: DevToolbarHandle;
   private detachKeys: (() => void) | null = null;
 
   constructor(private deps: DevModeControllerDeps) {
@@ -64,6 +63,9 @@ export class DevModeController {
     this.btn.addEventListener('click', () => this.toggle());
     container.appendChild(this.btn);
 
+    // ── Dock Manager (must exist before panels mount) ─────
+    this.dock = createDockManager({ container });
+
     // ── Dev Mode Panels ───────────────────────────────────
     this.inspector = mountInspector({
       container,
@@ -79,25 +81,40 @@ export class DevModeController {
         cam.x = x * TILE_SIZE - vp.width / 2;
         cam.y = y * TILE_SIZE - vp.height / 2;
       },
+      dock: this.dock,
     });
-    this.debugOverlay = mountDebugOverlayPanel(container);
+    this.debugOverlay = mountDebugOverlayPanel(container, { dock: this.dock });
     this.timeDebug = mountTimeDebugPanel(container, {
       clock: this.deps.state.clock,
       scheduler: this.deps.scheduler,
       eventLog: this.deps.state.eventLog,
+      dock: this.dock,
     });
     this.spawner = createEntitySpawner(container);
     this.mapEditor = mountMapEditorPanel(container, {
       onPaintTile: (x, y, tileType) => this.paintTile(x, y, tileType),
+      dock: this.dock,
     });
 
-    // Lift all dev UI into its dedicated band so it never renders under game UI.
-    // (The entity-spawner is a separate full-screen modal that owns z 1000.)
+    // Restore any persisted dock layout now that all panels are registered.
+    this.dock.restore();
+
+    // Lift the dev toggle button into its dedicated band so it never renders
+    // under game UI. (FloatingPanel applies the band to each panel itself; the
+    // toolbar applies its own. The entity-spawner is a separate full-screen
+    // modal that owns z 1000.)
     this.btn.style.zIndex = String(DEV_UI_Z);
-    this.inspector.element.style.zIndex = String(DEV_UI_Z);
-    for (const handle of [this.debugOverlay, this.timeDebug, this.mapEditor]) {
-      handle.element.style.zIndex = String(DEV_UI_Z);
-    }
+
+    // ── Dev Toolbar (after panels + restore) ──────────────
+    this.toolbar = mountDevToolbar(container, [
+      { id: 'inspector', label: '🔍 Inspector', isActive: () => this.inspector.isVisible(), onClick: () => this.inspector.toggle() },
+      { id: 'time', label: '⏱ Time', isActive: () => this.timeDebug.isVisible(), onClick: () => this.timeDebug.toggle() },
+      { id: 'map', label: '🗺️ Map', isActive: () => this.mapEditor.isVisible(), onClick: () => this.mapEditor.toggle() },
+      { id: 'overlay', label: '🎨 Overlay', isActive: () => this.debugOverlay.isVisible(), onClick: () => this.debugOverlay.toggle() },
+      { id: 'render', label: readRenderMode() === 'iso' ? '◈ Iso' : '⬛ Topdown', onClick: () => toggleRenderMode() },
+      { id: 'undo', label: '↩ Undo', onClick: () => this.undo() },
+      { id: 'redo', label: '↪ Redo', onClick: () => this.redo() },
+    ]);
 
     this.attachKeyboard();
   }
@@ -117,17 +134,25 @@ export class DevModeController {
       if (this.devMode.showBeliefHeatmap === undefined) {
         Object.assign(this.devMode, DEFAULT_DEBUG_OVERLAY_OPTIONS);
       }
-      // Surface the Inspector on enable so the Dev button reveals it
-      // (Ctrl+Shift+I still toggles it independently).
-      this.inspector.show();
-      this.inspector.update();
+      // Reopen panels that were open last time (default to inspector if none were).
+      this.toolbar.show();
+      const anyOpen = ['inspector', 'time', 'map', 'overlay'].some(id => this.dock.isOpen(id));
+      if (this.dock.isOpen('inspector') || !anyOpen) { this.inspector.show(); this.inspector.update(); }
+      if (this.dock.isOpen('time')) this.timeDebug.show();
+      if (this.dock.isOpen('map')) this.mapEditor.show();
+      if (this.dock.isOpen('overlay')) this.debugOverlay.show();
+      this.toolbar.refresh();
     } else {
       this.btn.style.background = 'rgba(10,10,20,0.75)';
       this.btn.style.color = '#9fd8ff';
       this.btn.textContent = '🔧 Dev';
-      this.devMode.selected = null;
+      this.toolbar.hide();
       this.inspector.select(null);
       this.inspector.hide();
+      this.timeDebug.hide();
+      this.mapEditor.hide();
+      this.debugOverlay.hide();
+      this.devMode.selected = null;
       this.debugOverlay.update(this.devMode);
     }
   }
@@ -141,8 +166,8 @@ export class DevModeController {
         this.toggle();
         return;
       }
-      // (Inspector is opened by enabling dev mode — no shortcut; Ctrl+Shift+I
-      //  belongs to the render-mode toggle in game.ts.)
+      // (Inspector is opened by enabling dev mode / the toolbar button — no
+      //  keyboard shortcut. Render-mode toggle is now the '◈ Iso' toolbar button.)
 
       // Ctrl+Z: Undo
       if (e.ctrlKey && !e.shiftKey && e.code === "KeyZ") {
@@ -385,6 +410,8 @@ export class DevModeController {
   destroy(): void {
     this.detachKeys?.();
     this.btn.remove();
+    this.toolbar.destroy();
+    this.dock.destroy();
     this.inspector.destroy();
     this.debugOverlay.destroy?.();
     this.timeDebug.destroy?.();

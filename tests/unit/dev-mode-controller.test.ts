@@ -38,6 +38,13 @@ describe('DevModeController.applyInspectorEdit', () => {
     });
     // The unified Inspector is mounted (single .sg-dev-panel for it).
     expect(container.querySelector('.sg-dev-panel')).not.toBeNull();
+    // The dev toolbar is mounted but hidden until dev mode is enabled.
+    const toolbar = container.querySelector<HTMLElement>('.sg-dev-toolbar');
+    expect(toolbar).not.toBeNull();
+    expect(toolbar!.style.display).toBe('none');
+    // Enabling dev mode shows the toolbar.
+    ctrl.toggle();
+    expect(container.querySelector<HTMLElement>('.sg-dev-toolbar')!.style.display).not.toBe('none');
     const entity = world.query({}).find(e => e.id === 'e1')!;
     const hit: HitResult = { type: 'entity', tileX: 1, tileY: 1, entity };
     ctrl.devMode.selected = hit;

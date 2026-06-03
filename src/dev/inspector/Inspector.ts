@@ -1,6 +1,7 @@
 import type { GameState } from '@/core/state';
 import type { HitResult, DevModeState } from '@/core/types';
 import { createFloatingPanel, type FloatingPanelHandle } from '@/dev/FloatingPanel';
+import type { DockManager } from '@/dev/dock-manager';
 import { buildInspectorTree, filterTree, type TreeNode } from './inspector-tree';
 import { renderDetail, type DetailDeps } from './inspector-detail';
 import { selectionFromHit, type Selection } from './selection';
@@ -14,6 +15,7 @@ export interface InspectorDeps {
   onUndo: () => void;
   onRedo: () => void;
   onFocusCamera: (x: number, y: number) => void;
+  dock?: DockManager;
 }
 
 export interface InspectorHandle {
@@ -31,7 +33,7 @@ export interface InspectorHandle {
 export function mountInspector(deps: InspectorDeps): InspectorHandle {
   const panel: FloatingPanelHandle = createFloatingPanel({
     container: deps.container, title: '🔍 Inspector', width: 560,
-    anchor: { top: '60px', right: '10px' },
+    anchor: { top: '60px', right: '10px' }, id: 'inspector', dock: deps.dock,
   });
 
   // Search row (above the split)
