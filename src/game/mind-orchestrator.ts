@@ -62,7 +62,8 @@ export async function openMindPage(
 
   try {
     const candidates = buildCandidateIds(npc, deps.world);
-    const { messages, tools } = buildMindPagePrompt({ npc, path, candidates, depth });
+    const recentWhispers = depth === 0 ? deps.store.getTranscript(npc.id) : undefined;
+    const { messages, tools } = buildMindPagePrompt({ npc, path, candidates, depth, recentWhispers });
     const res = await deps.llm.generateWithTools(messages, tools);
     const call = res.toolCalls?.find((c) => c.name === 'emit_mind_page');
     if (!call) return FALLBACK(depth); // no page → no command, no charge, retry stays possible
@@ -77,14 +78,18 @@ export async function openMindPage(
       links: resolveLinks(args.links ?? [], candidates),
       depth,
     };
-    // Spend only now that we have a page. The executor performs the authoritative
-    // spend on tick; the orchestrator never decrements power itself (single spend path).
-    deps.queue.emit({
-      verb: 'probe_mind',
-      source: deps.playerSpiritId,
-      target: { kind: 'npc', npcId: npc.id },
-      payload: { depth },
-    });
+    // Spend only now that we have a page, and only when the read costs something:
+    // a free depth-0 read (surface / whisper re-read) records no command, avoiding
+    // replay-log noise. The executor is the single authoritative spend path; the
+    // orchestrator never decrements power itself.
+    if (cost > 0) {
+      deps.queue.emit({
+        verb: 'probe_mind',
+        source: deps.playerSpiritId,
+        target: { kind: 'npc', npcId: npc.id },
+        payload: { depth },
+      });
+    }
     deps.store.putPage(npc.id, key, page);
     return page;
   } catch {

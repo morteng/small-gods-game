@@ -56,6 +56,26 @@ describe('openMindPage', () => {
     expect(store.getPage('maeve', pathKey(['surface']))).toBeDefined();
   });
 
+  it('emits NO probe_mind command for a free depth-0 read', async () => {
+    const { d } = mkDeps();
+    await openMindPage(maeve(), ['surface'], 0, d);
+    expect(d.queue.drain()).toHaveLength(0); // depth 0 is free → no spend record
+  });
+
+  it('passes recent whispers into the depth-0 surface prompt', async () => {
+    const seen: string[] = [];
+    const spyClient = new LLMClient({
+      async generate(messages: any[]) {
+        for (const m of messages) if (m.role === 'user') seen.push(m.content);
+        return { content: '', toolCalls: [{ id: 'c0', name: 'emit_mind_page', arguments: { prose: 'p', links: [] } }], latencyMs: 0 };
+      },
+    } as any);
+    const { d, store } = mkDeps({ llm: spyClient });
+    store.appendTurn('maeve', { whisper: 'heed the river', dialogue: 'a voice?', tick: 1 });
+    await openMindPage(maeve(), ['surface'], 0, d);
+    expect(seen.join('\n')).toContain('heed the river');
+  });
+
   it('a cache hit does not emit a command or re-generate', async () => {
     const { d, store, playerSpirit } = mkDeps();
     store.putPage('maeve', pathKey(['surface', 'fear']), { prose: 'cached', links: [], depth: 1 });
