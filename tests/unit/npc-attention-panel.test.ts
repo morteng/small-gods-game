@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { mountNpcAttentionPanel } from '@/ui/npc-attention-panel';
+import { NpcAttentionStore } from '@/llm/npc-attention-store';
 import type { NpcSimState } from '@/core/types';
 
 function fakeSim(over: Partial<NpcSimState> = {}): NpcSimState {
@@ -20,7 +21,7 @@ describe('mountNpcAttentionPanel', () => {
   beforeEach(() => { host = document.createElement('div'); });
 
   it('renders identity, needs and faith bars on first update', () => {
-    const h = mountNpcAttentionPanel(host, {});
+    const h = mountNpcAttentionPanel(host, { store: new NpcAttentionStore(), onWhisperSend: () => {} });
     h.update(fakeSim(), { power: 5 });
     expect(host.textContent).toContain('Maeve');
     expect(host.textContent).toContain('farmer');
@@ -29,7 +30,7 @@ describe('mountNpcAttentionPanel', () => {
   });
 
   it('shows a Whisper/Mind mode switch, Whisper active by default', () => {
-    const h = mountNpcAttentionPanel(host, {});
+    const h = mountNpcAttentionPanel(host, { store: new NpcAttentionStore(), onWhisperSend: () => {} });
     h.update(fakeSim(), { power: 5 });
     const tabs = host.querySelectorAll('[data-sg-mode]');
     expect(tabs.length).toBe(2);
@@ -38,7 +39,7 @@ describe('mountNpcAttentionPanel', () => {
   });
 
   it('switches mode on tab click without re-mounting the panel', () => {
-    const h = mountNpcAttentionPanel(host, {});
+    const h = mountNpcAttentionPanel(host, { store: new NpcAttentionStore(), onWhisperSend: () => {} });
     h.update(fakeSim(), { power: 5 });
     const mindTab = host.querySelector('[data-sg-mode="mind"]') as HTMLButtonElement;
     mindTab.click();
@@ -47,7 +48,7 @@ describe('mountNpcAttentionPanel', () => {
   });
 
   it('update() does not wipe a focused element in the active body', () => {
-    const h = mountNpcAttentionPanel(host, {});
+    const h = mountNpcAttentionPanel(host, { store: new NpcAttentionStore(), onWhisperSend: () => {} });
     h.update(fakeSim(), { power: 5 });
     const body = host.querySelector('[data-sg-body="whisper"]') as HTMLElement;
     const sentinel = document.createElement('span');
@@ -60,7 +61,7 @@ describe('mountNpcAttentionPanel', () => {
 
   it('fires onWhisper from the action footer', () => {
     let whispered = 0;
-    const h = mountNpcAttentionPanel(host, {});
+    const h = mountNpcAttentionPanel(host, { store: new NpcAttentionStore(), onWhisperSend: () => {} });
     h.update(fakeSim(), { power: 5, onWhisper: () => { whispered++; } });
     const btn = host.querySelector('[data-sg-action="whisper"]') as HTMLButtonElement;
     btn.click();
@@ -69,7 +70,7 @@ describe('mountNpcAttentionPanel', () => {
   });
 
   it('gates the whisper action when power is below cost', () => {
-    const h = mountNpcAttentionPanel(host, {});
+    const h = mountNpcAttentionPanel(host, { store: new NpcAttentionStore(), onWhisperSend: () => {} });
     h.update(fakeSim(), { power: 0 });
     const btn = host.querySelector('[data-sg-action="whisper"]') as HTMLButtonElement;
     expect(btn.disabled).toBe(true);

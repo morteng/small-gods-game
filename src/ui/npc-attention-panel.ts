@@ -1,5 +1,7 @@
 import type { NpcSimState } from '@/core/types';
 import { npcStatusHint } from '@/sim/believers';
+import { mountWhisperMode, type WhisperModeHandle } from '@/ui/npc-whisper-mode';
+import type { NpcAttentionStore } from '@/llm/npc-attention-store';
 
 const WHISPER_COST = 1;
 const DREAM_COST = 4;
@@ -59,13 +61,16 @@ export interface NpcAttentionPanelOptions {
 }
 
 export interface NpcAttentionPanelDeps {
-  // Slice 2/3 add store + emit hooks here.
+  store: NpcAttentionStore;
+  onWhisperSend(npcId: string, text: string): void;
 }
 
 export interface NpcAttentionPanelHandle {
   update(sim: NpcSimState, opts?: NpcAttentionPanelOptions): void;
   setNpc(npcId: string): void;
   getActiveMode(): AttentionMode;
+  refreshWhisper(): void;
+  refreshWhisperLast(): void;
   destroy(): void;
 }
 
@@ -100,7 +105,7 @@ function actionBtn(key: string, label: string, costLabel: string): HTMLButtonEle
 
 export function mountNpcAttentionPanel(
   panel: HTMLElement,
-  _deps: NpcAttentionPanelDeps,
+  deps: NpcAttentionPanelDeps,
 ): NpcAttentionPanelHandle {
   let activeMode: AttentionMode = 'whisper';
   let currentNpcId: string | null = null;
@@ -133,10 +138,10 @@ export function mountNpcAttentionPanel(
 
   const whisperBody = document.createElement('div');
   whisperBody.className = 'sg-body'; whisperBody.dataset.sgBody = 'whisper';
-  const whisperPlaceholder = document.createElement('div');
-  whisperPlaceholder.className = 'sg-body-placeholder';
-  whisperPlaceholder.textContent = 'Whisper thread — coming in slice 2.';
-  whisperBody.appendChild(whisperPlaceholder);
+  const whisperMode = mountWhisperMode(whisperBody, {
+    store: deps.store,
+    onSend: (text) => { if (currentNpcId) deps.onWhisperSend(currentNpcId, text); },
+  });
 
   const mindBody = document.createElement('div');
   mindBody.className = 'sg-body'; mindBody.dataset.sgBody = 'mind'; mindBody.style.display = 'none';
@@ -224,6 +229,9 @@ export function mountNpcAttentionPanel(
       miracleBtn.style.display = hasHome ? '' : 'none';
       omenBtn.disabled = power < OMEN_COST;
       miracleBtn.disabled = power < MIRACLE_COST;
+
+      whisperMode.refresh();
+      whisperMode.setSendEnabled(power >= 1);
     },
 
     setNpc(npcId) {
@@ -231,11 +239,16 @@ export function mountNpcAttentionPanel(
       currentNpcId = npcId;
       activeMode = 'whisper';
       applyMode();
+      whisperMode.setNpc(npcId);
     },
 
     getActiveMode() { return activeMode; },
 
+    refreshWhisper() { whisperMode.refresh(); },
+    refreshWhisperLast() { whisperMode.refreshLast(); },
+
     destroy() {
+      whisperMode.destroy();
       while (panel.firstChild) panel.removeChild(panel.firstChild);
     },
   };

@@ -11,7 +11,8 @@ import { LLMClient } from "@/llm/llm-client";
 import { createProvider, loadProviderConfig, type ProviderConfig } from '@/llm/provider-factory';
 import { NpcAttentionStore } from '@/llm/npc-attention-store';
 import { createWelcomeModal, type WelcomeModalHandle, ONBOARDED_KEY } from '@/ui/welcome-modal';
-import { simStateFromEntity } from '@/world/npc-helpers';
+import { simStateFromEntity, getNpc } from '@/world/npc-helpers';
+import { sendWhisper } from '@/game/whisper-orchestrator';
 import { OverlayDispatcher } from '@/ui/overlay-dispatcher';
 import { DivineActionsController } from '@/game/divine-actions-controller';
 import { GameUi } from '@/game/game-ui';
@@ -233,6 +234,22 @@ export class Game {
         }
       },
       onLLMConfigChange: (config) => this.applyLlmConfig(config),
+      attentionStore: this.attentionStore,
+      onWhisperSend: (npcId: string, text: string) => {
+        const world = this.state.world;
+        if (!world) return;
+        const entity = getNpc(world, npcId);
+        if (!entity) return;
+        void sendWhisper(entity, text, {
+          queue: this.commandQueue,
+          llm: this.llmClient,
+          store: this.attentionStore,
+          playerSpiritId: 'player',
+          now: () => this.state.clock.now(),
+          onTurnAppended: () => this.ui.npcAttentionPanel.refreshWhisper(),
+          onTurnUpdated: () => this.ui.npcAttentionPanel.refreshWhisperLast(),
+        });
+      },
     });
 
     this.llmBackfill = new LlmBackfillService({

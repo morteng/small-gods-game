@@ -1,6 +1,7 @@
 /** @vitest-environment jsdom */
 import { describe, it, expect, afterEach } from 'vitest';
 import { GameUi } from '@/game/game-ui';
+import { NpcAttentionStore } from '@/llm/npc-attention-store';
 
 describe('GameUi', () => {
   let ui: GameUi | null = null;
@@ -16,6 +17,7 @@ describe('GameUi', () => {
       onClickMinimapTile: () => {}, onGameSettingChange: () => {},
       onLLMConfigChange: () => {},
       onZoomIn: () => {}, onZoomOut: () => {}, onFitView: () => {},
+      attentionStore: new NpcAttentionStore(), onWhisperSend: () => {},
     });
     expect(container.childElementCount).toBeGreaterThan(before);
     expect(ui.npcInfoPanel).toBeInstanceOf(HTMLDivElement);

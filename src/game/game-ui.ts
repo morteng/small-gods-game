@@ -13,6 +13,7 @@ import {
 } from '@/ui/decoration-placement-modal';
 import type { ProviderConfig } from '@/llm/provider-factory';
 import { mountNpcAttentionPanel, type NpcAttentionPanelHandle } from '@/ui/npc-attention-panel';
+import type { NpcAttentionStore } from '@/llm/npc-attention-store';
 
 export interface GameUiCallbacks {
   onStart: () => void;
@@ -24,6 +25,8 @@ export interface GameUiCallbacks {
   onZoomIn: () => void;
   onZoomOut: () => void;
   onFitView: () => void;
+  attentionStore: NpcAttentionStore;
+  onWhisperSend: (npcId: string, text: string) => void;
 }
 
 /**
@@ -81,7 +84,10 @@ export class GameUi {
       'box-sizing:border-box',
     ].join(';');
     container.appendChild(this.npcInfoPanel);
-    this.npcAttentionPanel = mountNpcAttentionPanel(this.npcInfoPanel, {});
+    this.npcAttentionPanel = mountNpcAttentionPanel(this.npcInfoPanel, {
+      store: cb.attentionStore,
+      onWhisperSend: cb.onWhisperSend,
+    });
 
     // LLM display (shows dialogue/narration from LLM backfill)
     this.llmDisplay = createLlmDisplay(container, {
