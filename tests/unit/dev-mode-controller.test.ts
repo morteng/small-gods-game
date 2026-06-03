@@ -36,12 +36,34 @@ describe('DevModeController.applyInspectorEdit', () => {
       getViewport: () => ({ width: 800, height: 600 }),
       getRenderDeps: () => ({ state, viewport: { width: 800, height: 600 }, sheets: new Map(), assets: {} as any, decorationImages: {} as any, devMode: ctrl.devMode }) as any,
     });
+    // The unified Inspector is mounted (single .sg-dev-panel for it).
+    expect(container.querySelector('.sg-dev-panel')).not.toBeNull();
     const entity = world.query({}).find(e => e.id === 'e1')!;
     const hit: HitResult = { type: 'entity', tileX: 1, tileY: 1, entity };
     ctrl.devMode.selected = hit;
     ctrl.applyInspectorEdit(hit, 'x', 7);
     expect(world.query({}).find(e => e.id === 'e1')!.x).toBe(7);
     expect(ctrl.devMode.undoStack.length).toBe(1);
+    ctrl.destroy();
+  });
+
+  it('exposes updateInspector() and selects via right-click hit', () => {
+    const state = createState();
+    const world = makeWorld();
+    world.addEntity({ id: 'e1', kind: 'rock', x: 1, y: 1, properties: {}, tags: [] } as any);
+    state.world = world;
+    let ctrl!: DevModeController;
+    ctrl = new DevModeController({
+      container, state, scheduler: new Scheduler(),
+      getViewport: () => ({ width: 800, height: 600 }),
+      getRenderDeps: () => ({ state, viewport: { width: 800, height: 600 }, sheets: new Map(), assets: {} as any, decorationImages: {} as any, devMode: ctrl.devMode }) as any,
+    });
+    expect(typeof ctrl.updateInspector).toBe('function');
+    // Selecting a hit through the inspector handle should not throw.
+    const entity = world.query({}).find(e => e.id === 'e1')!;
+    const hit: HitResult = { type: 'entity', tileX: 1, tileY: 1, entity };
+    ctrl.devMode.selected = hit;
+    expect(() => ctrl.updateInspector()).not.toThrow();
     ctrl.destroy();
   });
 });

@@ -1,5 +1,6 @@
 import type { Tile, Entity, NpcInstance, GeneratedDecoration } from '@/core/types';
 import type { HitResult } from '@/core/types';
+import { injectDevStyles } from '@/dev/dev-styles';
 
 /**
  * Property field descriptor for the generic property grid.
@@ -12,6 +13,26 @@ export interface PropertyField {
   min?: number;
   max?: number;
   readonly?: boolean;
+}
+
+/** Render label+input rows for a list of fields into `container`. */
+export function renderFields(
+  container: HTMLElement,
+  fields: PropertyField[],
+  getValue: (key: string) => unknown,
+  onChange: (key: string, value: unknown) => void,
+): void {
+  injectDevStyles();
+  for (const field of fields) {
+    const row = document.createElement('div');
+    row.className = 'sg-dev-row';
+    const label = document.createElement('span');
+    label.className = 'sg-dev-label';
+    label.textContent = field.label;
+    row.appendChild(label);
+    row.appendChild(createInputForField(field, getValue(field.key), v => onChange(field.key, v)));
+    container.appendChild(row);
+  }
 }
 
 /**
@@ -66,22 +87,8 @@ function renderTileProperties(
     fields.push({ key: 'bridgeDirection', label: 'Bridge', type: 'enum', options: ['north', 'south', 'east', 'west', 'none'] });
   }
 
-  for (const field of fields) {
-    const row = document.createElement('div');
-    row.style.cssText = 'display:grid; grid-template-columns:auto 1fr; gap:2px 8px; margin-bottom:4px;';
-
-    const label = document.createElement('span');
-    label.style.cssText = 'color:#999; font-size:11px;';
-    label.textContent = field.label;
-    row.appendChild(label);
-
-    const input = createInputForField(field, (tile as unknown as Record<string, unknown>)[field.key], (value) => {
-      onChange(field.key, value);
-    });
-    row.appendChild(input);
-
-    container.appendChild(row);
-  }
+  const tileRecord = tile as unknown as Record<string, unknown>;
+  renderFields(container, fields, key => tileRecord[key], onChange);
 }
 
 function renderEntityProperties(
@@ -101,23 +108,12 @@ function renderEntityProperties(
     { key: 'y', label: 'Y', type: 'number' },
   ];
 
-  for (const field of fields) {
-    const row = document.createElement('div');
-    row.style.cssText = 'display:grid; grid-template-columns:auto 1fr; gap:2px 8px; margin-bottom:4px;';
-
-    const label = document.createElement('span');
-    label.style.cssText = 'color:#999; font-size:11px;';
-    label.textContent = field.label;
-    row.appendChild(label);
-
-    const value = field.key === 'kind' ? entity.kind : (entity as unknown as Record<string, unknown>)[field.key];
-    const input = createInputForField(field, value, (value) => {
-      onChange(field.key, value);
-    });
-    row.appendChild(input);
-
-    container.appendChild(row);
-  }
+  renderFields(
+    container,
+    fields,
+    key => key === 'kind' ? entity.kind : (entity as unknown as Record<string, unknown>)[key],
+    onChange,
+  );
 
   // Properties object (JSON editor)
   if (entity.properties && Object.keys(entity.properties).length > 0) {
@@ -128,16 +124,17 @@ function renderEntityProperties(
 
     const textarea = document.createElement('textarea');
     textarea.value = JSON.stringify(entity.properties, null, 2);
-    textarea.style.cssText = 'width:100%; height:80px; background:rgba(0,0,0,0.3); color:#e0e0e0; border:1px solid #555; border-radius:3px; padding:4px; font:10px monospace; resize:vertical; box-sizing:border-box;';
+    textarea.className = 'sg-dev-textarea';
     textarea.addEventListener('change', () => {
       try {
         const parsed = JSON.parse(textarea.value);
+        textarea.classList.remove('sg-dev-textarea--bad');
         onChange('properties', parsed);
       } catch {
-        textarea.style.borderColor = '#f44';
+        textarea.classList.add('sg-dev-textarea--bad');
       }
     });
-    textarea.addEventListener('focus', () => { textarea.style.borderColor = '#555'; });
+    textarea.addEventListener('focus', () => { textarea.classList.remove('sg-dev-textarea--bad'); });
     container.appendChild(textarea);
   }
 }
@@ -161,23 +158,8 @@ function renderNpcProperties(
     { key: 'frame', label: 'Frame', type: 'number', min: 0, max: 8 },
   ];
 
-  for (const field of fields) {
-    const row = document.createElement('div');
-    row.style.cssText = 'display:grid; grid-template-columns:auto 1fr; gap:2px 8px; margin-bottom:4px;';
-
-    const label = document.createElement('span');
-    label.style.cssText = 'color:#999; font-size:11px;';
-    label.textContent = field.label;
-    row.appendChild(label);
-
-    const npcRecord = npc as unknown as Record<string, unknown>;
-    const input = createInputForField(field, npcRecord[field.key], (value) => {
-      onChange(field.key, value);
-    });
-    row.appendChild(input);
-
-    container.appendChild(row);
-  }
+  const npcRecord = npc as unknown as Record<string, unknown>;
+  renderFields(container, fields, key => npcRecord[key], onChange);
 }
 
 function renderDecorationProperties(
@@ -196,23 +178,8 @@ function renderDecorationProperties(
     { key: 'assetId', label: 'Asset ID', type: 'string', readonly: true },
   ];
 
-  for (const field of fields) {
-    const row = document.createElement('div');
-    row.style.cssText = 'display:grid; grid-template-columns:auto 1fr; gap:2px 8px; margin-bottom:4px;';
-
-    const label = document.createElement('span');
-    label.style.cssText = 'color:#999; font-size:11px;';
-    label.textContent = field.label;
-    row.appendChild(label);
-
-    const decRecord = decoration as unknown as Record<string, unknown>;
-    const input = createInputForField(field, decRecord[field.key], (value) => {
-      onChange(field.key, value);
-    });
-    row.appendChild(input);
-
-    container.appendChild(row);
-  }
+  const decRecord = decoration as unknown as Record<string, unknown>;
+  renderFields(container, fields, key => decRecord[key], onChange);
 }
 
 /**
@@ -230,7 +197,7 @@ function createInputForField(
     checkbox.type = 'checkbox';
     checkbox.checked = !!currentValue;
     checkbox.disabled = !!isReadonly;
-    checkbox.style.cssText = 'justify-self:start; margin-top:2px;';
+    checkbox.style.justifySelf = 'start';
     if (!isReadonly) {
       checkbox.addEventListener('change', () => onChange(checkbox.checked));
     }
@@ -239,7 +206,7 @@ function createInputForField(
 
   if (field.type === 'enum' && field.options) {
     const select = document.createElement('select');
-    select.style.cssText = 'background:rgba(0,0,0,0.3); color:#e0e0e0; border:1px solid #555; border-radius:3px; padding:2px 4px; font-size:11px;';
+    select.className = 'sg-dev-select';
     select.disabled = !!isReadonly;
 
     for (const opt of field.options) {
@@ -264,7 +231,8 @@ function createInputForField(
     input.type = 'number';
     input.value = String(currentValue ?? 0);
     input.readOnly = !!isReadonly;
-    input.style.cssText = 'background:rgba(0,0,0,0.3); color:#e0e0e0; border:1px solid #555; border-radius:3px; padding:2px 4px; font-size:11px; width:80px;';;
+    input.className = 'sg-dev-input';
+    input.style.maxWidth = '90px';
     if (field.min !== undefined) input.min = String(field.min);
     if (field.max !== undefined) input.max = String(field.max);
 
@@ -282,7 +250,7 @@ function createInputForField(
   input.type = 'text';
   input.value = String(currentValue ?? '');
   input.readOnly = !!isReadonly;
-  input.style.cssText = 'background:rgba(0,0,0,0.3); color:#e0e0e0; border:1px solid #555; border-radius:3px; padding:2px 4px; font-size:11px; width:100%; box-sizing:border-box;';
+  input.className = 'sg-dev-input';
 
   if (!isReadonly) {
     input.addEventListener('change', () => onChange(input.value));

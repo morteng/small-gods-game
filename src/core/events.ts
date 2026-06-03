@@ -76,6 +76,11 @@ export class EventLog {
     return this.events.filter(e => e.t >= tStart && e.t < tEnd);
   }
 
+  /** O(n) lookup of a previously appended event by its numeric id. */
+  getById(id: number): AppendedEvent | undefined {
+    return this.events.find(e => e.id === id);
+  }
+
   size(): number {
     return this.events.length;
   }
