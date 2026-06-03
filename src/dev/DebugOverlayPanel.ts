@@ -120,6 +120,8 @@ export function mountDebugOverlayPanel(container: HTMLElement, deps: { dock?: Do
   const renderSection = section('Render Layers');
   const LAYER_LABELS: Record<RenderLayer, string> = {
     terrain: '🗺️ Terrain (tiles)',
+    roads: '🛣️ Roads',
+    rivers: '🌊 Rivers',
     npcs: '🧍 NPCs',
     buildings: '🏠 Buildings',
     vegetation: '🌳 Vegetation',

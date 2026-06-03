@@ -28,7 +28,7 @@ describe('DebugOverlayPanel — render layer toggles', () => {
 
   it('renders a checkbox for every render layer', () => {
     const panel = mountDebugOverlayPanel(container);
-    const labels = ['Terrain', 'NPCs', 'Buildings', 'Vegetation', 'Props', 'Terrain Features', 'Decorations', 'Remains'];
+    const labels = ['Terrain', 'Roads', 'Rivers', 'NPCs', 'Buildings', 'Vegetation', 'Props', 'Terrain Features', 'Decorations', 'Remains'];
     for (const label of labels) {
       expect(() => checkboxFor(panel.element, label)).not.toThrow();
     }

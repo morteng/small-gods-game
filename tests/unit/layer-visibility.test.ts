@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   isLayerHidden, isEntityHidden, entityLayer, layerFlag, RENDER_LAYERS,
+  tileRenderLayer, effectiveTileType, HIDDEN_TILE_FALLBACK,
 } from '@/render/layer-visibility';
 import type { DevModeState, Entity } from '@/core/types';
 
@@ -63,5 +64,43 @@ describe('layerFlag', () => {
     const flags = RENDER_LAYERS.map(layerFlag);
     expect(new Set(flags).size).toBe(RENDER_LAYERS.length);
     for (const f of flags) expect(f.startsWith('show')).toBe(true);
+  });
+});
+
+describe('tileRenderLayer', () => {
+  it('classifies road family tiles as roads', () => {
+    for (const t of ['road', 'road_ns', 'dirt_road', 'dirt_road_ew', 'stone_road', 'bridge', 'bridge_ne']) {
+      expect(tileRenderLayer(t)).toBe('roads');
+    }
+  });
+
+  it('classifies river tiles as rivers', () => {
+    expect(tileRenderLayer('river')).toBe('rivers');
+    expect(tileRenderLayer('river_ns')).toBe('rivers');
+  });
+
+  it('treats lakes/ocean and plain ground as not-a-sublayer', () => {
+    for (const t of ['water', 'shallow_water', 'deep_water', 'grass', 'sand', 'forest']) {
+      expect(tileRenderLayer(t)).toBeNull();
+    }
+  });
+});
+
+describe('effectiveTileType', () => {
+  it('returns the original type when nothing is hidden', () => {
+    expect(effectiveTileType('road', undefined)).toBe('road');
+    expect(effectiveTileType('river', {} as DevModeState)).toBe('river');
+    expect(effectiveTileType('grass', { showRoads: false } as DevModeState)).toBe('grass');
+  });
+
+  it('falls back to ground when the tile sub-layer is hidden', () => {
+    expect(effectiveTileType('road', { showRoads: false } as DevModeState)).toBe(HIDDEN_TILE_FALLBACK);
+    expect(effectiveTileType('bridge', { showRoads: false } as DevModeState)).toBe(HIDDEN_TILE_FALLBACK);
+    expect(effectiveTileType('river', { showRivers: false } as DevModeState)).toBe(HIDDEN_TILE_FALLBACK);
+  });
+
+  it('does not cross-hide: hiding roads leaves rivers, and vice-versa', () => {
+    expect(effectiveTileType('river', { showRoads: false } as DevModeState)).toBe('river');
+    expect(effectiveTileType('road', { showRivers: false } as DevModeState)).toBe('road');
   });
 });

@@ -9,6 +9,8 @@ import { tryGetEntityKindDef } from '@/world/entity-kinds';
  */
 export type RenderLayer =
   | 'terrain'
+  | 'roads'
+  | 'rivers'
   | 'npcs'
   | 'buildings'
   | 'vegetation'
@@ -19,17 +21,20 @@ export type RenderLayer =
 
 /** All layers, in display order. The panel and the reset path iterate this. */
 export const RENDER_LAYERS: RenderLayer[] = [
-  'terrain', 'npcs', 'buildings', 'vegetation',
+  'terrain', 'roads', 'rivers', 'npcs', 'buildings', 'vegetation',
   'props', 'terrainFeatures', 'decorations', 'remains',
 ];
 
 /** The boolean DevModeState keys that gate render layers. */
 export type RenderLayerFlag =
-  | 'showTerrain' | 'showNpcs' | 'showBuildings' | 'showVegetation'
-  | 'showProps' | 'showTerrainFeatures' | 'showDecorations' | 'showRemains';
+  | 'showTerrain' | 'showRoads' | 'showRivers' | 'showNpcs' | 'showBuildings'
+  | 'showVegetation' | 'showProps' | 'showTerrainFeatures' | 'showDecorations'
+  | 'showRemains';
 
 const LAYER_FLAG: Record<RenderLayer, RenderLayerFlag> = {
   terrain: 'showTerrain',
+  roads: 'showRoads',
+  rivers: 'showRivers',
   npcs: 'showNpcs',
   buildings: 'showBuildings',
   vegetation: 'showVegetation',
@@ -66,4 +71,38 @@ export function entityLayer(e: Entity): RenderLayer {
 /** Whether a world entity should be skipped given the current layer toggles. */
 export function isEntityHidden(e: Entity, devMode?: DevModeState): boolean {
   return isLayerHidden(entityLayer(e), devMode);
+}
+
+/**
+ * Classify a terrain tile.type into a toggleable terrain sub-layer, or null if it
+ * is plain ground. Roads (incl. dirt/stone roads + bridges) and rivers are real
+ * tile types painted with their own colors; these let the panel hide them while
+ * leaving the rest of the terrain intact. Lakes/ocean ('water', 'shallow_water',
+ * 'deep_water') are NOT rivers — they ride the base terrain layer.
+ */
+export function tileRenderLayer(tileType: string): 'roads' | 'rivers' | null {
+  if (
+    tileType === 'road' || tileType === 'bridge' ||
+    tileType.startsWith('road_') || tileType.startsWith('dirt_road') ||
+    tileType.startsWith('stone_road') || tileType.startsWith('bridge_')
+  ) {
+    return 'roads';
+  }
+  if (tileType === 'river' || tileType.startsWith('river_')) return 'rivers';
+  return null;
+}
+
+/** The tile.type to paint instead when a terrain sub-layer (road/river) is hidden. */
+export const HIDDEN_TILE_FALLBACK = 'grass';
+
+/**
+ * Resolve which tile.type a terrain pass should actually paint, honoring the
+ * road/river sub-layer toggles. Returns the original type, or the ground fallback
+ * when that tile's sub-layer is hidden (so hiding roads/rivers reveals ground
+ * rather than leaving a hole).
+ */
+export function effectiveTileType(tileType: string, devMode?: DevModeState): string {
+  const layer = tileRenderLayer(tileType);
+  if (layer && isLayerHidden(layer, devMode)) return HIDDEN_TILE_FALLBACK;
+  return tileType;
 }
