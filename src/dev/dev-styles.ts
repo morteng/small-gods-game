@@ -55,6 +55,22 @@ const STYLE = `
 .sg-dev-tree-node--selected { background: rgba(100,150,255,0.25); color: #cfe6ff; }
 .sg-dev-tree-toggle { display: inline-block; width: 12px; color: #888; }
 .sg-dev-link { color: #8cf; cursor: pointer; text-decoration: underline; }
+.sg-dev-toolbar {
+  position: absolute; top: 8px; left: 50%; transform: translateX(-50%);
+  display: flex; gap: 4px; align-items: center;
+  padding: 4px 6px; background: rgba(20,20,30,0.95);
+  border: 1px solid #555; border-radius: 6px; font: 11px sans-serif;
+}
+.sg-dev-toolbar__btn {
+  all: unset; cursor: pointer; padding: 4px 8px; border-radius: 3px;
+  color: #cfe0f0; background: rgba(255,255,255,0.06); border: 1px solid #555;
+}
+.sg-dev-toolbar__btn:hover { background: rgba(255,255,255,0.14); }
+.sg-dev-toolbar__btn--active { background: rgba(100,150,255,0.30); color: #eaf3ff; border-color: #88a; }
+.sg-dev-rail-hint {
+  position: absolute; top: 0; bottom: 0; width: 4px;
+  background: rgba(100,150,255,0.5); pointer-events: none; display: none;
+}
 `;
 
 export function injectDevStyles(): void {

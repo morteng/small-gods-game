@@ -13,6 +13,14 @@ describe('injectDevStyles', () => {
     expect(styles[0].textContent).toContain('.sg-dev-panel');
     expect(styles[0].textContent).toContain('.sg-dev-tree-node');
   });
+
+  it('includes toolbar + dock classes', () => {
+    injectDevStyles();
+    const css = document.getElementById('sg-dev-styles')?.textContent ?? '';
+    expect(css).toContain('.sg-dev-toolbar');
+    expect(css).toContain('.sg-dev-toolbar__btn');
+    expect(css).toContain('.sg-dev-rail-hint');
+  });
 });
 
 describe('createFloatingPanel', () => {
