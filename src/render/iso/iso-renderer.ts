@@ -67,19 +67,22 @@ export function createIsoRenderMap(): RenderMap {
     }
 
     const vegById = new Map<string, Entity>();
-    const region = {
-      x: bounds.minTx, y: bounds.minTy,
-      w: bounds.maxTx - bounds.minTx + 1,
-      h: bounds.maxTy - bounds.minTy + 1,
-    };
-    for (const e of rc.world.query({ region })) {
-      if (tryGetEntityKindDef(e.kind)?.category !== 'vegetation') continue;
-      vegById.set(e.id, e);
-      entries.push({
-        id: e.id, kind: 'vegetation',
-        tx: e.x, ty: e.y, z: 0,
-        kindPriority: KIND_PRIORITY.vegetation,
-      });
+    const hideVegetation = rc.devMode?.showVegetation === false;
+    if (!hideVegetation) {
+      const region = {
+        x: bounds.minTx, y: bounds.minTy,
+        w: bounds.maxTx - bounds.minTx + 1,
+        h: bounds.maxTy - bounds.minTy + 1,
+      };
+      for (const e of rc.world.query({ region })) {
+        if (tryGetEntityKindDef(e.kind)?.category !== 'vegetation') continue;
+        vegById.set(e.id, e);
+        entries.push({
+          id: e.id, kind: 'vegetation',
+          tx: e.x, ty: e.y, z: 0,
+          kindPriority: KIND_PRIORITY.vegetation,
+        });
+      }
     }
 
     const drawCtx = { ctx, atlas: effectiveAtlas, originX, originY, npcSheets: rc.npcSheets };

@@ -497,12 +497,14 @@ function drawYSortedEntities(ctx: CanvasRenderingContext2D, rc: RenderContext): 
 
   items.sort((a, b) => a.sortY - b.sortY);
 
+  const hideVegetation = rc.devMode?.showVegetation === false;
   ctx.imageSmoothingEnabled = false;
   for (const item of items) {
     if (item.kind === 'entity') {
       const e = item.entity;
       const underTile = rc.map.tiles[Math.floor(e.y)]?.[Math.floor(e.x)];
       if (underTile?.state === 'void') continue;
+      if (hideVegetation && tryGetEntityKindDef(e.kind)?.category === 'vegetation') continue;
       drawEntity(ctx, rc, e);
     } else if (item.kind === 'decoration') {
       const d = item.placement;

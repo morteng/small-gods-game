@@ -571,6 +571,8 @@ export interface DevModeState {
   // Map info layers (rendering-only overlays)
   showPoiLayer?: boolean;
   showBiomeLayer?: boolean;
+  // Render toggles — vegetation (trees/plants) shown unless explicitly false.
+  showVegetation?: boolean;
   // Time debug
   showEventLog?: boolean;
   showSimState?: boolean;

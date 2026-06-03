@@ -75,6 +75,21 @@ describe('iso-renderer: vegetation', () => {
     const ctx = makeMockCtx();
     expect(() => renderMap(ctx, rc)).not.toThrow();
   });
+
+  it('skips vegetation entirely when devMode.showVegetation === false', () => {
+    const veg = [
+      { id: 'oak1', kind: 'oak_tree', x: 2, y: 2 },
+      { id: 'fern1', kind: 'fern', x: 3, y: 3 },
+    ];
+    const queried: object[] = [];
+    const rc = makeRc();
+    rc.world = { entities: new Map(), query: () => { queried.push({}); return veg; } } as any;
+    rc.devMode = { showVegetation: false } as any;
+    const ctx = makeMockCtx();
+    renderMap(ctx, rc);
+    // Gated off: the world is never even queried for vegetation.
+    expect(queried.length).toBe(0);
+  });
 });
 
 describe('iso-renderer: factory', () => {

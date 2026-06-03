@@ -1,6 +1,4 @@
 import type { DevModeState } from '@/core/types';
-import type { SpiritId } from '@/core/spirit';
-import { DEFAULT_DEBUG_OVERLAY_OPTIONS } from '@/render/debug-overlays';
 import { createFloatingPanel } from '@/dev/FloatingPanel';
 import type { DockManager } from '@/dev/dock-manager';
 
@@ -16,153 +14,148 @@ export interface DebugOverlayPanelHandle {
 
 /**
  * Mount the debug overlay control panel.
- * Provides toggles for belief heatmap, needs, mood, social connections, etc.
+ * Provides toggles for belief heatmap, needs, mood, social connections,
+ * map info layers, and vegetation rendering, grouped into labelled sections.
  */
 export function mountDebugOverlayPanel(container: HTMLElement, deps: { dock?: DockManager } = {}): DebugOverlayPanelHandle {
-  const fp = createFloatingPanel({ container, id: 'overlay', title: '🎨 Debug Overlays', dock: deps.dock, width: 260, anchor: { top: '60px', left: '10px' } });
-  const body = fp.body;
+  const fp = createFloatingPanel({ container, id: 'overlay', title: '🎨 Debug Overlays', dock: deps.dock, width: 300, anchor: { top: '60px', left: '10px' } });
 
-  // Checkbox section
-  const checkboxArea = document.createElement('div');
-  checkboxArea.style.cssText = 'display:flex; flex-direction:column; gap:6px; margin-bottom:10px;';
-  body.appendChild(checkboxArea);
-
-  // Slider section
-  const sliderArea = document.createElement('div');
-  sliderArea.style.cssText = 'margin-top:8px; padding-top:8px; border-top:1px solid #444;';
-  body.appendChild(sliderArea);
-
-  // Spirit selector
-  const spiritArea = document.createElement('div');
-  spiritArea.style.cssText = 'margin-top:8px; padding-top:8px; border-top:1px solid #444;';
-  body.appendChild(spiritArea);
+  // The shared `.sg-dev-body` is a flex ROW (for master-detail panels). This
+  // panel stacks vertically, so wrap everything in a padded column to give the
+  // controls room to breathe instead of being squeezed side-by-side.
+  const col = document.createElement('div');
+  col.style.cssText = 'display:flex; flex-direction:column; width:100%; padding:12px; gap:12px; box-sizing:border-box; overflow:auto;';
+  fp.body.appendChild(col);
 
   let currentDevMode: DevModeState | null = null;
 
+  /** A titled group of controls. */
+  function section(title: string): HTMLDivElement {
+    const heading = document.createElement('div');
+    heading.className = 'sg-dev-section-title';
+    heading.style.cssText = 'color:#8cf; font-size:11px; font-weight:bold; text-transform:uppercase; letter-spacing:0.5px; margin:0;';
+    heading.textContent = title;
+    col.appendChild(heading);
+
+    const group = document.createElement('div');
+    group.style.cssText = 'display:flex; flex-direction:column; gap:8px;';
+    col.appendChild(group);
+    return group;
+  }
+
   function createToggle(
+    parent: HTMLElement,
     label: string,
-    getVal: (opts: DevModeState) => boolean | undefined,
     setVal: (devMode: DevModeState, value: boolean) => void,
   ): HTMLInputElement {
-    const wrapper = document.createElement('div');
-    wrapper.style.cssText = 'display:flex; align-items:center; gap:6px;';
+    const lbl = document.createElement('label');
+    lbl.style.cssText = 'display:flex; align-items:center; gap:8px; cursor:pointer; font-size:12px; padding:2px 0;';
 
     const checkbox = document.createElement('input');
     checkbox.type = 'checkbox';
-    checkbox.style.cssText = 'margin:0; cursor:pointer;';
+    checkbox.style.cssText = 'margin:0; cursor:pointer; width:14px; height:14px;';
 
-    const lbl = document.createElement('label');
-    lbl.style.cssText = 'cursor:pointer; font-size:11px;';
-    lbl.textContent = label;
+    const text = document.createElement('span');
+    text.textContent = label;
 
     checkbox.addEventListener('change', () => {
-      if (currentDevMode) {
-        setVal(currentDevMode, checkbox.checked);
-      }
+      if (currentDevMode) setVal(currentDevMode, checkbox.checked);
     });
 
-    wrapper.appendChild(checkbox);
-    wrapper.appendChild(lbl);
-    checkboxArea.appendChild(wrapper);
-
+    lbl.appendChild(checkbox);
+    lbl.appendChild(text);
+    parent.appendChild(lbl);
     return checkbox;
   }
 
-  // Create toggles
-  const beliefToggle = createToggle(
-    '📊 Belief Heatmap',
-    (o) => o.showBeliefHeatmap,
-    (dm, v) => { dm.showBeliefHeatmap = v; },
-  );
-
-  const needsToggle = createToggle(
-    '📈 Needs Indicators',
-    (o) => o.showNeeds,
-    (dm, v) => { dm.showNeeds = v; },
-  );
-
-  const moodToggle = createToggle(
-    '😊 Mood Aura',
-    (o) => o.showMood,
-    (dm, v) => { dm.showMood = v; },
-  );
-
-  const socialToggle = createToggle(
-    '🔗 Social Connections',
-    (o) => o.showSocialConnections,
-    (dm, v) => { dm.showSocialConnections = v; },
-  );
-
-  const biomeToggle = createToggle(
-    '🗺️ Biome Layer',
-    (o) => o.showBiomeLayer,
-    (dm, v) => { dm.showBiomeLayer = v; },
-  );
-
-  const poiToggle = createToggle(
-    '📍 POI Layer',
-    (o) => o.showPoiLayer,
-    (dm, v) => { dm.showPoiLayer = v; },
-  );
+  // ── Belief & NPCs ──────────────────────────────────────────────────────────
+  const beliefSection = section('Belief & NPCs');
+  const beliefToggle = createToggle(beliefSection, '📊 Belief Heatmap', (dm, v) => { dm.showBeliefHeatmap = v; });
+  const needsToggle = createToggle(beliefSection, '📈 Needs Indicators', (dm, v) => { dm.showNeeds = v; });
+  const moodToggle = createToggle(beliefSection, '😊 Mood Aura', (dm, v) => { dm.showMood = v; });
+  const socialToggle = createToggle(beliefSection, '🔗 Social Connections', (dm, v) => { dm.showSocialConnections = v; });
 
   // Belief threshold slider
   const thresholdLabel = document.createElement('div');
-  thresholdLabel.style.cssText = 'font-size:11px; color:#8cf; margin-bottom:4px;';
-  thresholdLabel.textContent = 'Belief Threshold: 0.3';
-  sliderArea.appendChild(thresholdLabel);
+  thresholdLabel.style.cssText = 'font-size:11px; color:#8cf; margin:6px 0 4px;';
+  thresholdLabel.textContent = 'Belief Threshold: 0.30';
+  beliefSection.appendChild(thresholdLabel);
 
   const thresholdSlider = document.createElement('input');
   thresholdSlider.type = 'range';
   thresholdSlider.min = '0';
   thresholdSlider.max = '100';
   thresholdSlider.value = '30';
-  thresholdSlider.style.cssText = 'width:100%; cursor:pointer;';
+  thresholdSlider.style.cssText = 'width:100%; cursor:pointer; margin:0;';
   thresholdSlider.addEventListener('input', () => {
     const val = parseInt(thresholdSlider.value) / 100;
     thresholdLabel.textContent = `Belief Threshold: ${val.toFixed(2)}`;
-    if (currentDevMode) {
-      currentDevMode.beliefThreshold = val;
-    }
+    if (currentDevMode) currentDevMode.beliefThreshold = val;
   });
-  sliderArea.appendChild(thresholdSlider);
+  beliefSection.appendChild(thresholdSlider);
 
   // Spirit selector
   const spiritLabel = document.createElement('div');
-  spiritLabel.style.cssText = 'font-size:11px; color:#8cf; margin-bottom:4px;';
+  spiritLabel.style.cssText = 'font-size:11px; color:#8cf; margin:6px 0 4px;';
   spiritLabel.textContent = 'Filter Spirit:';
-  spiritArea.appendChild(spiritLabel);
+  beliefSection.appendChild(spiritLabel);
 
   const spiritSelect = document.createElement('select');
-  spiritSelect.style.cssText = 'width:100%; padding:3px; background:#1a1a2e; color:#e0e0e0; border:1px solid #555; border-radius:3px; font-size:11px; cursor:pointer;';
+  spiritSelect.style.cssText = 'width:100%; padding:4px; background:#1a1a2e; color:#e0e0e0; border:1px solid #555; border-radius:3px; font-size:11px; cursor:pointer;';
   spiritSelect.innerHTML = '<option value="">All (max belief)</option>';
   spiritSelect.addEventListener('change', () => {
-    if (currentDevMode) {
-      currentDevMode.selectedSpiritId = spiritSelect.value || null;
-    }
+    if (currentDevMode) currentDevMode.selectedSpiritId = spiritSelect.value || null;
   });
-  spiritArea.appendChild(spiritSelect);
+  beliefSection.appendChild(spiritSelect);
+
+  // ── Map Layers ───────────────────────────────────────────────────────────
+  const mapSection = section('Map Layers');
+  const biomeToggle = createToggle(mapSection, '🗺️ Biome Layer', (dm, v) => { dm.showBiomeLayer = v; });
+  const poiToggle = createToggle(mapSection, '📍 POI Layer', (dm, v) => { dm.showPoiLayer = v; });
+
+  // ── Render ──────────────────────────────────────────────────────────────
+  const renderSection = section('Render');
+  // Vegetation is shown unless explicitly false; the checkbox reads "shown".
+  const vegetationToggle = createToggle(renderSection, '🌳 Vegetation', (dm, v) => { dm.showVegetation = v; });
+
+  // Reset button — clears every overlay back to its default (off / shown).
+  const resetBtn = document.createElement('button');
+  resetBtn.className = 'sg-dev-btn';
+  resetBtn.textContent = '↺ Reset overlays';
+  resetBtn.style.cssText = 'margin-top:4px;';
+  resetBtn.addEventListener('click', () => {
+    if (!currentDevMode) return;
+    currentDevMode.showBeliefHeatmap = false;
+    currentDevMode.showNeeds = false;
+    currentDevMode.showMood = false;
+    currentDevMode.showSocialConnections = false;
+    currentDevMode.showBiomeLayer = false;
+    currentDevMode.showPoiLayer = false;
+    currentDevMode.showVegetation = true;
+    currentDevMode.beliefThreshold = 0.3;
+    currentDevMode.selectedSpiritId = null;
+    update(currentDevMode);
+  });
+  col.appendChild(resetBtn);
 
   function update(devMode: DevModeState): void {
     currentDevMode = devMode;
     // NOTE: visibility is owned solely by the toolbar/dock — update() only syncs
     // control state. Do NOT call fp.show()/fp.hide() here or it fights the toggle.
 
-    // Sync checkbox states
     beliefToggle.checked = !!devMode.showBeliefHeatmap;
     needsToggle.checked = !!devMode.showNeeds;
     moodToggle.checked = !!devMode.showMood;
     socialToggle.checked = !!devMode.showSocialConnections;
     biomeToggle.checked = !!devMode.showBiomeLayer;
     poiToggle.checked = !!devMode.showPoiLayer;
+    // Vegetation defaults to shown (undefined → checked); only false unchecks it.
+    vegetationToggle.checked = devMode.showVegetation !== false;
 
-    // Sync slider
     const threshold = devMode.beliefThreshold ?? 0.3;
     thresholdSlider.value = String(Math.round(threshold * 100));
     thresholdLabel.textContent = `Belief Threshold: ${threshold.toFixed(2)}`;
 
-    // Sync spirit selector (rebuild options if needed)
-    // In a real implementation, you'd pass the list of spirits here
-    // For now, just sync the selection
     spiritSelect.value = devMode.selectedSpiritId ?? '';
   }
 
