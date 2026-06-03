@@ -166,3 +166,49 @@ describe('author_modify_npc', () => {
     expect(res).toMatchObject({ status: 'rejected', reason: 'invalid_payload' });
   });
 });
+
+describe('author_place_object', () => {
+  it('places `count` objects of a valid kind near (x,y) on distinct tiles', () => {
+    const world = new World(bigMap());
+    // 'well' is a real prop kind in entity-kinds.ts
+    const res = executeCommand(authorCmd('author_place_object', { kind: 'well', x: 5, y: 5, count: 2 }), applyCtx(world));
+    expect(res.status).toBe('applied');
+    const placed = world.query({ kind: 'well' });
+    expect(placed.length).toBe(2);
+    const coords = new Set(placed.map(e => `${e.x},${e.y}`));
+    expect(coords.size).toBe(2);
+  });
+
+  it('rejects an unknown kind with invalid_payload', () => {
+    const world = new World(bigMap());
+    const res = executeCommand(authorCmd('author_place_object', { kind: 'not_a_kind', x: 2, y: 2 }), applyCtx(world));
+    expect(res).toMatchObject({ status: 'rejected', reason: 'invalid_payload' });
+  });
+});
+
+describe('author_move_entity', () => {
+  it('moves an entity to new coords and keeps the spatial index in sync', () => {
+    const world = new World(bigMap());
+    world.addEntity(npc('mv', 1, 1));
+    const res = executeCommand(authorCmd('author_move_entity', { entityId: 'mv', to: { x: 7, y: 8 } }), applyCtx(world));
+    expect(res.status).toBe('applied');
+    const e = world.registry.get('mv')!;
+    expect([e.x, e.y]).toEqual([7, 8]);
+    // spatial index reflects the move (query the new region finds it, old does not)
+    expect(world.query({ region: { x: 7, y: 8, w: 1, h: 1 } }).map(x => x.id)).toContain('mv');
+    expect(world.query({ region: { x: 1, y: 1, w: 1, h: 1 } }).map(x => x.id)).not.toContain('mv');
+  });
+
+  it('rejects a missing entity with invalid_target', () => {
+    const world = new World(bigMap());
+    const res = executeCommand(authorCmd('author_move_entity', { entityId: 'ghost', to: { x: 2, y: 2 } }), applyCtx(world));
+    expect(res).toMatchObject({ status: 'rejected', reason: 'invalid_target' });
+  });
+
+  it('rejects out-of-bounds coords with invalid_payload', () => {
+    const world = new World(bigMap());
+    world.addEntity(npc('mv2', 1, 1));
+    const res = executeCommand(authorCmd('author_move_entity', { entityId: 'mv2', to: { x: 999, y: 0 } }), applyCtx(world));
+    expect(res).toMatchObject({ status: 'rejected', reason: 'invalid_payload' });
+  });
+});

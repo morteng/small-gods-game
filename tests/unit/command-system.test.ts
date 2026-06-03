@@ -125,13 +125,13 @@ describe('editor tier (foundation)', () => {
     }
   });
 
-  it('rejects an unimplemented editor verb with not_implemented', () => {
+  it('rejects an unimplemented (authoring-tier) verb with not_implemented before any tier branch', () => {
     const world = new World(tinyMap());
     const res = executeCommand(
-      command({ verb: 'author_place_object', source: 'author', target: { kind: 'none' }, payload: { kind: 'well' } }),
+      command({ verb: 'bias_event', source: 'author', target: { kind: 'none' } }),
       ctx(world, new Map()),
     );
-    expect(res).toEqual({ status: 'rejected', verb: 'author_place_object', source: 'author', reason: 'not_implemented' });
+    expect(res).toEqual({ status: 'rejected', verb: 'bias_event', source: 'author', reason: 'not_implemented' });
   });
 });
 

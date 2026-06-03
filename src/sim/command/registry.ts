@@ -19,6 +19,8 @@ import {
   removePrecondition, removeApply,
   spawnPrecondition, spawnApply,
   modifyPrecondition, modifyApply,
+  placePrecondition, placeApply,
+  movePrecondition, moveApply,
 } from './editor-verbs';
 
 export interface CapabilityDef {
@@ -143,11 +145,15 @@ export const CAPABILITY_REGISTRY: Record<CommandVerb, CapabilityDef> = {
     describe: (cmd) => `modify ${cmd.payload?.entityId ?? 'an npc'}`,
   },
   author_place_object: {
-    verb: 'author_place_object', tier: 'editor', cost: 0, targetKind: 'none', implemented: false,
+    verb: 'author_place_object', tier: 'editor', cost: 0, targetKind: 'none', implemented: true,
+    precondition: placePrecondition,
+    apply: placeApply,
     describe: (cmd) => `place ${(cmd.payload?.count as number) ?? 1}× ${cmd.payload?.kind ?? 'object'}`,
   },
   author_move_entity: {
-    verb: 'author_move_entity', tier: 'editor', cost: 0, targetKind: 'none', implemented: false,
+    verb: 'author_move_entity', tier: 'editor', cost: 0, targetKind: 'none', implemented: true,
+    precondition: movePrecondition,
+    apply: moveApply,
     describe: (cmd) => `move ${cmd.payload?.entityId ?? 'an entity'}`,
   },
 };

@@ -10,6 +10,7 @@
 import type { Entity, NpcRole, NpcProperties } from '@/core/types';
 import type { Command, ApplyCtx, CommandCtx, RejectionReason } from './types';
 import { npcProps, queryNpcs, initNpcProps } from '@/world/npc-helpers';
+import { tryGetEntityKindDef } from '@/world/entity-kinds';
 
 const P = (cmd: Command): Record<string, unknown> => cmd.payload ?? {};
 
@@ -181,5 +182,62 @@ export function modifyApply(cmd: Command, ctx: ApplyCtx): boolean {
   }
 
   ctx.log.append({ type: 'authored_modify', entityId, fields });
+  return true;
+}
+
+// ── author_place_object ──────────────────────────────────────────────────────
+// payload: { kind, x, y, count?, scatterRadius? }
+
+export function placePrecondition(cmd: Command, ctx: CommandCtx): RejectionReason | null {
+  const p = P(cmd);
+  const kind = p.kind as string | undefined;
+  if (!kind || !tryGetEntityKindDef(kind)) return 'invalid_payload';
+  if (typeof p.x !== 'number' || typeof p.y !== 'number') return 'invalid_payload';
+  const map = ctx.world.tiles;
+  if (p.x < 0 || p.y < 0 || p.x >= map.width || p.y >= map.height) return 'invalid_payload';
+  return null;
+}
+
+export function placeApply(cmd: Command, ctx: ApplyCtx): boolean {
+  const p = P(cmd);
+  const kind = p.kind as string;
+  const count = Math.max(1, Math.min(50, Math.floor((p.count as number) ?? 1)));
+  const radius = Math.max(1, Math.min(12, Math.floor((p.scatterRadius as number) ?? Math.ceil(Math.sqrt(count)))));
+  const cx = Math.round(p.x as number), cy = Math.round(p.y as number);
+
+  const ids: string[] = [];
+  for (let i = 0; i < count; i++) {
+    const spot = findPlacement(ctx.world, cx, cy, radius);
+    if (!spot) break;
+    let id = '';
+    do { id = `${kind}-a${ctx.now}-${ctx.rng.nextInt(0x7fffffff)}`; } while (ctx.world.registry.get(id));
+    const def = tryGetEntityKindDef(kind)!;
+    ctx.world.addEntity({ id, kind, x: spot.x, y: spot.y, tags: def.defaultTags as string[] });
+    ids.push(id);
+  }
+  ctx.log.append({ type: 'authored_place', entityIds: ids, kind, count: ids.length });
+  return true;
+}
+
+// ── author_move_entity ───────────────────────────────────────────────────────
+// payload: { entityId, to: { x, y } }
+
+export function movePrecondition(cmd: Command, ctx: CommandCtx): RejectionReason | null {
+  const p = P(cmd);
+  const entityId = p.entityId as string | undefined;
+  const to = p.to as { x?: number; y?: number } | undefined;
+  if (!to || typeof to.x !== 'number' || typeof to.y !== 'number') return 'invalid_payload';
+  const map = ctx.world.tiles;
+  if (to.x < 0 || to.y < 0 || to.x >= map.width || to.y >= map.height) return 'invalid_payload';
+  if (!entityId || !ctx.world.registry.get(entityId)) return 'invalid_target';
+  return null;
+}
+
+export function moveApply(cmd: Command, ctx: ApplyCtx): boolean {
+  const p = P(cmd);
+  const entityId = p.entityId as string;
+  const to = p.to as { x: number; y: number };
+  ctx.world.updateEntity(entityId, { x: Math.round(to.x), y: Math.round(to.y) });
+  ctx.log.append({ type: 'authored_move', entityId, to: { x: Math.round(to.x), y: Math.round(to.y) } });
   return true;
 }
