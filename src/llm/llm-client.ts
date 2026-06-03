@@ -75,6 +75,41 @@ export interface LLMProvider {
   name(): string;
 }
 
+// ─── Tool-calling helpers (shared by OpenAI + OpenRouter) ────────────────
+
+/** Serialize LLMTool[] into the OpenAI-compatible `tools` request array. */
+export function toToolPayload(tools: LLMTool[]): Array<Record<string, unknown>> {
+  return tools.map(t => ({
+    type: 'function',
+    function: { name: t.name, description: t.description, parameters: t.parameters },
+  }));
+}
+
+/**
+ * Map a provider `message` object's `tool_calls` into typed LLMToolCall[].
+ * `arguments` arrives as a JSON string; parse it and guard against malformed
+ * JSON by falling back to an empty object. Returns undefined when there are
+ * no calls (so callers can treat "no tools requested" uniformly).
+ */
+export function parseToolCalls(message: unknown): LLMToolCall[] | undefined {
+  const raw = (message as { tool_calls?: unknown })?.tool_calls;
+  if (!Array.isArray(raw) || raw.length === 0) return undefined;
+
+  return raw.map((tc, i) => {
+    const fn = (tc as { function?: { name?: string; arguments?: string } }).function ?? {};
+    const id = (tc as { id?: string }).id ?? `call_${i}`;
+    const name = fn.name ?? '';
+    let args: Record<string, unknown> = {};
+    try {
+      const parsed = JSON.parse(fn.arguments ?? '{}');
+      if (parsed && typeof parsed === 'object') args = parsed as Record<string, unknown>;
+    } catch {
+      // Malformed arguments → empty object; the executor will reject on validation.
+    }
+    return { id, name, arguments: args };
+  });
+}
+
 // ─── Mock Provider (for testing) ─────────────────────────────────────────
 
 export class MockLLMProvider implements LLMProvider {
