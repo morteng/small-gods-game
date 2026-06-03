@@ -132,11 +132,8 @@ export function mountDebugOverlayPanel(container: HTMLElement, deps: { dock?: Do
 
   function update(devMode: DevModeState): void {
     currentDevMode = devMode;
-    if (!devMode.enabled) {
-      fp.hide();
-      return;
-    }
-    fp.show();
+    // NOTE: visibility is owned solely by the toolbar/dock — update() only syncs
+    // control state. Do NOT call fp.show()/fp.hide() here or it fights the toggle.
 
     // Sync checkbox states
     beliefToggle.checked = !!devMode.showBeliefHeatmap;
