@@ -55,7 +55,6 @@ export function mountInspector(deps: InspectorDeps): InspectorHandle {
 
   let selection: Selection | null = null;
   const openIds = new Set<string>(['root', 'kinds']);
-  let kindGroupsSeeded = false;
   let searchTerm = '';
 
   search.addEventListener('input', () => { searchTerm = search.value; renderTree(); });
@@ -79,7 +78,7 @@ export function mountInspector(deps: InspectorDeps): InspectorHandle {
       case 'spirit': return `spirit:${sel.id}`;
       case 'poi': return `poi:${sel.id}`;
       case 'decoration': return `deco:${sel.index}`;
-      case 'world': return 'seed';
+      case 'world': return 'root';
       case 'lore': return 'lore';
       case 'tile': return `tile:${sel.x},${sel.y}`;
     }
@@ -90,12 +89,6 @@ export function mountInspector(deps: InspectorDeps): InspectorHandle {
     const s = deps.getState();
     const full = buildInspectorTree(s.world, s.map, s.spirits, s.generatedDecorations, s.worldSeed);
     const model = searchTerm.trim() ? filterTree(full, searchTerm) : full;
-    // First render: open the entity kind-groups so their leaves are reachable.
-    if (!kindGroupsSeeded) {
-      kindGroupsSeeded = true;
-      const kinds = full.children?.find(c => c.id === 'kinds');
-      for (const g of kinds?.children ?? []) openIds.add(g.id);
-    }
     if (!model) { const d = document.createElement('div'); d.className = 'sg-dev-muted'; d.textContent = 'No matches.'; treeEl.appendChild(d); return; }
     const selId = selectionId(selection);
     const autoOpen = searchTerm.trim().length > 0;

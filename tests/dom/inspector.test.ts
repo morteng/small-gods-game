@@ -51,6 +51,11 @@ describe('mountInspector', () => {
       onEdit: vi.fn(), onDelete: vi.fn(), onUndo: vi.fn(), onRedo: vi.fn(), onFocusCamera: vi.fn(),
     });
     insp.show(); insp.update();
+    // Expand the npc kind group so its entity leaves render.
+    const npcGroup = Array.from(insp.element.querySelectorAll('.sg-dev-tree-node'))
+      .find(n => (n.textContent ?? '').includes('npc (')) as HTMLElement;
+    expect(npcGroup).toBeDefined();
+    npcGroup.click();
     const leaf = Array.from(insp.element.querySelectorAll('.sg-dev-tree-node'))
       .find(n => (n.textContent ?? '').includes('npc_1')) as HTMLElement;
     expect(leaf).toBeDefined();

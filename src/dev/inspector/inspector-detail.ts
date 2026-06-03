@@ -212,8 +212,8 @@ function renderLore(host: HTMLElement, deps: DetailDeps): void {
   if (!lore) { muted(host, 'No lore recorded.'); return; }
   card(host, [
     ['history', lore.history ?? '—'],
-    ['factions', Array.isArray(lore.factions) ? lore.factions.join(', ') : (lore.factions ?? '—')],
-    ['quests', Array.isArray(lore.quests) ? lore.quests.join(', ') : (lore.quests ?? '—')],
+    ['factions', (lore.factions ?? []).join(', ') || '—'],
+    ['quests', (lore.quests ?? []).join(', ') || '—'],
   ]);
 }
 
