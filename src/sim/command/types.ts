@@ -10,12 +10,16 @@
 import type { Spirit, SpiritId } from '@/core/spirit';
 import type { World } from '@/world/world';
 import type { EventLog } from '@/core/events';
+import type { Rng } from '@/core/rng';
 
 export type CommandVerb =
   // divine tier — implemented, belief-spending interventions
   | 'whisper' | 'omen' | 'dream' | 'miracle' | 'answer_prayer'
   // authoring tier — DECLARED, executor pending (filled in by the Fate cycle)
-  | 'bias_event' | 'inject_npc' | 'nudge_severity';
+  | 'bias_event' | 'inject_npc' | 'nudge_severity'
+  // editor tier — god-mode world authoring (the Create panel; cost 0, no spirit)
+  | 'author_spawn_npc' | 'author_remove_entity' | 'author_modify_npc'
+  | 'author_place_object' | 'author_move_entity';
 
 export type CommandTarget =
   | { kind: 'npc'; npcId: string }
@@ -24,11 +28,13 @@ export type CommandTarget =
 
 export interface Command {
   verb: CommandVerb;
-  /** Who is acting: 'player', a rival id, or 'fate' (unused this slice). */
+  /** Who is acting: 'player', a rival id, 'fate', or 'author' (editor tier). */
   source: SpiritId;
   target: CommandTarget;
   /** Verb-specific params (reserved; the v1 divine verbs ignore it). */
   params?: Record<string, number | string>;
+  /** Structured args for editor-tier verbs (entityId, role, coords, …). */
+  payload?: Record<string, unknown>;
   /** Monotonic emission order, stamped by the queue on emit. */
   seq: number;
 }
@@ -38,6 +44,7 @@ export type RejectionReason =
   | 'precondition_failed'
   | 'not_implemented'
   | 'invalid_target'
+  | 'invalid_payload'
   | 'unknown_source';
 
 export type CommandResult =
@@ -49,4 +56,15 @@ export interface CommandCtx {
   world: World;
   spirits: Map<SpiritId, Spirit>;
   log: EventLog;
+}
+
+/**
+ * The context an `apply` receives — `CommandCtx` plus the seeded RNG and current
+ * tick. Editor verbs need these to place/seed deterministically; divine verbs
+ * ignore them. Kept separate from `CommandCtx` so read-only callers
+ * (previewCommand, the player UI's optimistic gate) need not supply them.
+ */
+export interface ApplyCtx extends CommandCtx {
+  rng: Rng;
+  now: number;
 }

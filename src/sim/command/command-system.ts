@@ -10,7 +10,7 @@
 import type { System, SystemContext } from '@/core/scheduler';
 import { getCapability } from './registry';
 import { getNpc } from '@/world/npc-helpers';
-import type { Command, CommandCtx, CommandResult, RejectionReason } from './types';
+import type { Command, CommandCtx, ApplyCtx, CommandResult, RejectionReason } from './types';
 import type { CommandQueue } from './command-queue';
 
 /**
@@ -39,8 +39,8 @@ export function previewCommand(cmd: Command, ctx: CommandCtx): RejectionReason |
   return def.precondition?.(cmd, ctx) ?? null;
 }
 
-/** Validate + apply a single command. Deterministic; no RNG. */
-export function executeCommand(cmd: Command, ctx: CommandCtx): CommandResult {
+/** Validate + apply a single command. Deterministic; no RNG of its own. */
+export function executeCommand(cmd: Command, ctx: ApplyCtx): CommandResult {
   const reject = (reason: RejectionReason): CommandResult =>
     ({ status: 'rejected', verb: cmd.verb, source: cmd.source, reason });
 
@@ -63,7 +63,10 @@ export class CommandExecutorSystem implements System {
   ) {}
 
   tick(ctx: SystemContext): void {
-    const ctxFor: CommandCtx = { world: ctx.world, spirits: ctx.spirits, log: ctx.log };
+    const ctxFor: ApplyCtx = {
+      world: ctx.world, spirits: ctx.spirits, log: ctx.log,
+      rng: ctx.rng, now: ctx.now,
+    };
     for (const cmd of this.queue.drain()) {
       const result = executeCommand(cmd, ctxFor);
       this.onResult?.(result);

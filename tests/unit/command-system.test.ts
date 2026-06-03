@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { executeCommand, CommandExecutorSystem } from '@/sim/command/command-system';
 import { CommandQueue } from '@/sim/command/command-queue';
-import type { Command, CommandCtx, CommandResult } from '@/sim/command/types';
+import type { Command, CommandResult, ApplyCtx } from '@/sim/command/types';
+import { CAPABILITY_REGISTRY } from '@/sim/command/registry';
 import { World } from '@/world/world';
 import { SimClock } from '@/core/clock';
 import { EventLog } from '@/core/events';
@@ -34,8 +35,8 @@ function worldNpc(id: string, setup: (p: NpcProperties) => void): Entity {
 
 function P(e: Entity): NpcProperties { return e.properties as unknown as NpcProperties; }
 
-function ctx(world: World, spirits: Map<SpiritId, Spirit>): CommandCtx {
-  return { world, spirits, log: new EventLog(new SimClock()) };
+function ctx(world: World, spirits: Map<SpiritId, Spirit>): ApplyCtx {
+  return { world, spirits, log: new EventLog(new SimClock()), rng: createRng(1), now: 0 };
 }
 
 function command(over: Partial<Command>): Command {
@@ -110,6 +111,27 @@ describe('executeCommand', () => {
     world.addEntity(worldNpc('a', (p) => { p.whisperCooldown = 0; }));
     const res = executeCommand(command({ source: 'nobody' }), ctx(world, new Map([['player', spirit(10)]])));
     expect((res as Extract<CommandResult, { status: 'rejected' }>).reason).toBe('unknown_source');
+  });
+});
+
+describe('editor tier (foundation)', () => {
+  it('declares the five editor verbs as cost-0 editor-tier capabilities', () => {
+    const editorVerbs = ['author_spawn_npc', 'author_remove_entity', 'author_modify_npc', 'author_place_object', 'author_move_entity'] as const;
+    for (const v of editorVerbs) {
+      const def = CAPABILITY_REGISTRY[v];
+      expect(def).toBeDefined();
+      expect(def.tier).toBe('editor');
+      expect(def.cost).toBe(0);
+    }
+  });
+
+  it('rejects an unimplemented editor verb with not_implemented', () => {
+    const world = new World(tinyMap());
+    const res = executeCommand(
+      command({ verb: 'author_modify_npc', source: 'author', target: { kind: 'none' }, payload: { entityId: 'x' } }),
+      ctx(world, new Map()),
+    );
+    expect(res).toEqual({ status: 'rejected', verb: 'author_modify_npc', source: 'author', reason: 'not_implemented' });
   });
 });
 

@@ -20,6 +20,11 @@ export type SimEvent =
   | { type: 'npc_birth';          npcId: EntityId; parentIds: EntityId[]; lineageId: EntityId }
   | { type: 'timeline_commit';    parentTick: number; rerolled: boolean }
   | { type: 'era_skipped';        fromTick: number; toTick: number; years: number; deaths: number; births: number; believersBefore: number; believersAfter: number }
+  | { type: 'authored_spawn';     entityIds: EntityId[]; role: string; count: number }
+  | { type: 'authored_remove';    entityIds: EntityId[]; count: number }
+  | { type: 'authored_modify';    entityId: EntityId; fields: string[] }
+  | { type: 'authored_place';     entityIds: EntityId[]; kind: string; count: number }
+  | { type: 'authored_move';      entityId: EntityId; to: { x: number; y: number } }
   | { type: 'belief_cross';       npcId: EntityId; spiritId: SpiritId; kind: 'high' | 'low'; faith: number }
   | { type: 'mood_cross';         npcId: EntityId; kind: 'high' | 'low'; mood: number }
   | { type: 'power_depleted';     spiritId: SpiritId }
