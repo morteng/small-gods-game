@@ -117,6 +117,10 @@ export class DevModeController {
       if (this.devMode.showBeliefHeatmap === undefined) {
         Object.assign(this.devMode, DEFAULT_DEBUG_OVERLAY_OPTIONS);
       }
+      // Surface the Inspector on enable so the Dev button reveals it
+      // (Ctrl+Shift+I still toggles it independently).
+      this.inspector.show();
+      this.inspector.update();
     } else {
       this.btn.style.background = 'rgba(10,10,20,0.75)';
       this.btn.style.color = '#9fd8ff';
@@ -137,13 +141,8 @@ export class DevModeController {
         this.toggle();
         return;
       }
-      // Ctrl+Shift+I: Toggle Inspector
-      if (e.ctrlKey && e.shiftKey && e.code === "KeyI") {
-        e.preventDefault();
-        if (this.inspector.isVisible()) this.inspector.hide();
-        else { this.inspector.show(); this.inspector.update(); }
-        return;
-      }
+      // (Inspector is opened by enabling dev mode — no shortcut; Ctrl+Shift+I
+      //  belongs to the render-mode toggle in game.ts.)
 
       // Ctrl+Z: Undo
       if (e.ctrlKey && !e.shiftKey && e.code === "KeyZ") {
