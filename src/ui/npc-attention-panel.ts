@@ -247,7 +247,8 @@ export function mountNpcAttentionPanel(
     mindTab.setAttribute('aria-selected', activeMode === 'mind' ? 'true' : 'false');
     whisperBody.style.display = activeMode === 'whisper' ? 'block' : 'none';
     mindBody.style.display = activeMode === 'mind' ? 'block' : 'none';
-    actions.style.display = activeMode === 'whisper' ? 'flex' : 'none';
+    // Divine actions stay reachable in both modes (observe + act side by side).
+    actions.style.display = 'flex';
   }
   // Open the current mind page exactly once per (npc, path) — used when Mind becomes visible.
   function ensureMindLoaded(): void {
