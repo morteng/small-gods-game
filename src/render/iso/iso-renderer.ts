@@ -7,6 +7,7 @@ import { visibleTileBounds } from './iso-projection';
 import { buildYSortBucket, buildingSortKey, type YSortEntry } from './iso-ysort';
 import { tryGetEntityKindDef } from '@/world/entity-kinds';
 import { getBuildingTemplate } from '@/map/building-templates';
+import { isLayerHidden } from '@/render/layer-visibility';
 
 const BG_COLOR = '#1a1a24';
 const KIND_PRIORITY: Record<string, number> = {
@@ -40,10 +41,13 @@ export function createIsoRenderMap(): RenderMap {
       { mapW: map.width, mapH: map.height },
     );
 
-    drawIsoTerrain(ctx, { map, bounds, originX, originY });
+    if (!isLayerHidden('terrain', rc.devMode)) {
+      drawIsoTerrain(ctx, { map, bounds, originX, originY });
+    }
 
     const entries: YSortEntry[] = [];
-    for (const b of (map as any).buildings ?? []) {
+    const hideBuildings = isLayerHidden('buildings', rc.devMode);
+    for (const b of (hideBuildings ? [] : (map as any).buildings ?? [])) {
       const tpl = getBuildingTemplate(b.templateId);
       const footprintW = tpl?.footprint.w ?? 1;
       const footprintH = tpl?.footprint.h ?? 1;
@@ -58,16 +62,18 @@ export function createIsoRenderMap(): RenderMap {
         kindPriority: KIND_PRIORITY.building,
       });
     }
-    for (const n of rc.npcs) {
-      entries.push({
-        id: n.id, kind: 'npc',
-        tx: n.tileX, ty: n.tileY, z: 0,
-        kindPriority: KIND_PRIORITY.npc,
-      });
+    if (!isLayerHidden('npcs', rc.devMode)) {
+      for (const n of rc.npcs) {
+        entries.push({
+          id: n.id, kind: 'npc',
+          tx: n.tileX, ty: n.tileY, z: 0,
+          kindPriority: KIND_PRIORITY.npc,
+        });
+      }
     }
 
     const vegById = new Map<string, Entity>();
-    const hideVegetation = rc.devMode?.showVegetation === false;
+    const hideVegetation = isLayerHidden('vegetation', rc.devMode);
     if (!hideVegetation) {
       const region = {
         x: bounds.minTx, y: bounds.minTy,
