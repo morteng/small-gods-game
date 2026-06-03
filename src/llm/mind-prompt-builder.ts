@@ -12,12 +12,15 @@
 import type { Entity, NpcProperties } from '@/core/types';
 import type { LLMTool, LLMMessage } from '@/llm/llm-client';
 import type { MindCandidate } from '@/llm/mind-link-resolver';
+import type { WhisperTurn } from '@/llm/npc-attention-store';
 
 export interface MindPromptContext {
   npc: Entity;
   path: string[];
   candidates: MindCandidate[];
   depth: number;
+  /** Recent whisper turns; folded into the SURFACE (depth 0) prompt only, framed as unbidden notions. */
+  recentWhispers?: WhisperTurn[];
 }
 
 export const MIND_PAGE_TOOL: LLMTool = {
@@ -103,6 +106,11 @@ export function buildMindPagePrompt(ctx: MindPromptContext): { messages: LLMMess
     for (const c of ctx.candidates) lines.push(`  - ${c.label} [${c.kind}] id=${c.id}`);
   } else {
     lines.push('No real entities available to link here; use concept links only.');
+  }
+  if (ctx.depth === 0 && ctx.recentWhispers && ctx.recentWhispers.length) {
+    const recent = ctx.recentWhispers.slice(-3);
+    lines.push('A god has been whispering into this mind. These notions arrive unbidden, as if from outside — let them colour the surface thoughts (the mortal never perceives the god directly):');
+    for (const w of recent) lines.push(`  - "${w.whisper}"`);
   }
   lines.push(brevityInstruction(ctx.depth));
   lines.push('Emit the page now.');

@@ -45,6 +45,18 @@ describe('buildMindPagePrompt', () => {
     expect(text.length).toBeLessThan(4000);
   });
 
+  it('includes recent whispers as unbidden notions at depth 0 only', () => {
+    const whispers = [{ whisper: 'heed the river', dialogue: 'a voice?', tick: 1 }];
+    const surface = buildMindPagePrompt({ npc: npc(), path: ['surface'], candidates: [], depth: 0, recentWhispers: whispers });
+    const surfaceUser = surface.messages.find((m) => m.role === 'user')!.content;
+    expect(surfaceUser).toContain('heed the river');
+    expect(surfaceUser.toLowerCase()).toMatch(/unbidden|from outside|intrud/);
+
+    const deep = buildMindPagePrompt({ npc: npc(), path: ['surface', 'fear'], candidates: [], depth: 1, recentWhispers: whispers });
+    const deepUser = deep.messages.find((m) => m.role === 'user')!.content;
+    expect(deepUser).not.toContain('heed the river');
+  });
+
   it('instructs terse prose at shallow depth and allows more at depth', () => {
     const shallow = buildMindPagePrompt({ npc: npc(), path: ['surface'], candidates: [], depth: 0 });
     const sText = shallow.messages.map(m => m.content).join('\n').toLowerCase();
