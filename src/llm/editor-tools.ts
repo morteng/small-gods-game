@@ -11,7 +11,14 @@
 import type { LLMTool } from './llm-client';
 
 const ROLES = ['priest', 'elder', 'farmer', 'merchant', 'soldier', 'noble', 'child', 'beggar'];
+const ACTIVITIES = ['sleep', 'work', 'socialize', 'worship', 'idle', 'wander'];
 const BELIEF = { type: 'number', minimum: 0, maximum: 1 } as const;
+// The four NpcNeeds (each 0–1, higher = more satisfied); modifyApply applies any subset.
+const NEEDS = {
+  type: 'object',
+  description: 'Partial needs override; any subset of the four needs.',
+  properties: { safety: BELIEF, prosperity: BELIEF, community: BELIEF, meaning: BELIEF },
+} as const;
 const NEAR = {
   description: 'A settlement poiId (string) OR explicit {x,y} tile coordinates.',
   type: ['string', 'object'],
@@ -62,7 +69,8 @@ export const EDITOR_TOOLS: LLMTool[] = [
             role: { type: 'string', enum: ROLES },
             faith: BELIEF, understanding: BELIEF, devotion: BELIEF,
             mood: { type: 'number', minimum: 0, maximum: 1 },
-            activity: { type: 'string' },
+            activity: { type: 'string', enum: ACTIVITIES },
+            needs: NEEDS,
           },
         },
       },
