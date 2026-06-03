@@ -95,15 +95,6 @@ describe('MockLLMProvider tool calls', () => {
 
 afterEach(() => vi.unstubAllGlobals());
 
-function stubFetchOnce(jsonBody: unknown) {
-  vi.stubGlobal('fetch', vi.fn(async () => ({
-    ok: true,
-    status: 200,
-    json: async () => jsonBody,
-    text: async () => JSON.stringify(jsonBody),
-  })) as never);
-}
-
 describe('OpenRouterProvider tool-calling', () => {
   it('sends OpenAI-style tools + tool_choice and parses tool_calls', async () => {
     const fetchMock = vi.fn(async () => ({

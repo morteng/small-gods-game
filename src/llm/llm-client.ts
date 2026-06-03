@@ -104,7 +104,10 @@ export function parseToolCalls(message: unknown): LLMToolCall[] | undefined {
       const parsed = JSON.parse(fn.arguments ?? '{}');
       if (parsed && typeof parsed === 'object') args = parsed as Record<string, unknown>;
     } catch {
-      // Malformed arguments → empty object; the executor will reject on validation.
+      // Malformed arguments → empty object; the executor will reject on
+      // validation. Warn so the real cause (garbled model JSON) is diagnosable
+      // rather than surfacing later as a confusing missing-field rejection.
+      console.warn('[llm] tool-call arguments were not valid JSON', { name, raw: fn.arguments });
     }
     return { id, name, arguments: args };
   });
