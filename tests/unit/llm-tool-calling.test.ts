@@ -69,3 +69,26 @@ describe('parseToolCalls', () => {
     expect(calls[0].name).toBe('f');
   });
 });
+
+describe('MockLLMProvider tool calls', () => {
+  it('returns a default tool call on the first tool when tools are supplied', async () => {
+    const mock = new MockLLMProvider(0);
+    const resp = await mock.generate([{ role: 'user', content: 'spawn farmers' }], { tools: [SPAWN_TOOL] });
+    expect(resp.toolCalls).toHaveLength(1);
+    expect(resp.toolCalls![0].name).toBe('author_spawn_npc');
+    expect(resp.toolCalls![0].arguments).toEqual({});
+  });
+
+  it('returns no tool calls when no tools are supplied (back-compat)', async () => {
+    const mock = new MockLLMProvider(0);
+    const resp = await mock.generate([{ role: 'user', content: 'hi' }]);
+    expect(resp.toolCalls).toBeUndefined();
+  });
+
+  it('returns explicit canned tool calls when configured', async () => {
+    const canned: LLMToolCall[] = [{ id: 'c1', name: 'author_remove_entity', arguments: { entityId: 'npc-7' } }];
+    const mock = new MockLLMProvider(0, { cannedToolCalls: canned });
+    const resp = await mock.generate([{ role: 'user', content: 'remove npc' }], { tools: [SPAWN_TOOL] });
+    expect(resp.toolCalls).toEqual(canned);
+  });
+});

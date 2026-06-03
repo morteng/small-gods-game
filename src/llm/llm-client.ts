@@ -114,14 +114,29 @@ export function parseToolCalls(message: unknown): LLMToolCall[] | undefined {
 
 export class MockLLMProvider implements LLMProvider {
   private delayMs: number;
+  private cannedToolCalls?: LLMToolCall[];
 
-  constructor(delayMs = 50) {
+  constructor(delayMs = 50, opts?: { cannedToolCalls?: LLMToolCall[] }) {
     this.delayMs = delayMs;
+    this.cannedToolCalls = opts?.cannedToolCalls;
   }
 
-  async generate(messages: LLMMessage[], _opts?: LLMOptions): Promise<LLMResponse> {
+  async generate(messages: LLMMessage[], opts?: LLMOptions): Promise<LLMResponse> {
     const start = Date.now();
     await new Promise(resolve => setTimeout(resolve, this.delayMs));
+
+    // Tool-calling path: when tools are supplied, return canned tool calls so
+    // downstream consumers (Create panel, Fate) can be tested without a network.
+    if (opts?.tools && opts.tools.length > 0) {
+      const toolCalls = this.cannedToolCalls
+        ?? [{ id: 'mock_call_0', name: opts.tools[0].name, arguments: {} }];
+      return {
+        content: '',
+        toolCalls,
+        usage: { promptTokens: 100, completionTokens: 20, totalTokens: 120 },
+        latencyMs: Date.now() - start,
+      };
+    }
 
     // Simple mock: return a generic response
     const lastUser = messages.filter(m => m.role === 'user').pop();
