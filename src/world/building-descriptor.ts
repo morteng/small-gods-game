@@ -7,7 +7,7 @@
  * Every taxonomy axis is open/extensible: unions extend by adding a member,
  * colour lookups fall back to a neutral grey for unknown materials (never throw).
  */
-import type { Entity, Era } from '@/core/types';
+import type { Entity, Era, ReligiousSignificance } from '@/core/types';
 
 export type BuildingCategory =
   | 'residential' | 'religious' | 'commercial' | 'military' | 'farm' | 'special';
@@ -76,7 +76,7 @@ export function buildingPalette(d: BuildingDescriptor): BuildingPalette {
   return {
     walls: d.palette?.walls ?? walls,
     roof: d.palette?.roof ?? roof,
-    trim: d.palette?.trim ?? '#000000',
+    trim: d.palette?.trim ?? NEUTRAL,
   };
 }
 
@@ -88,7 +88,7 @@ export function buildingPalette(d: BuildingDescriptor): BuildingPalette {
  */
 export function buildingEntity(
   id: string, d: BuildingDescriptor, x: number, y: number,
-  extra: { poiId?: string; religiousSignificance?: string; state?: string } = {},
+  extra: { poiId?: string; religiousSignificance?: ReligiousSignificance; state?: string } = {},
 ): Entity {
   return {
     id,
