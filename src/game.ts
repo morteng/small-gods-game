@@ -38,6 +38,8 @@ import { BirthSystem } from '@/sim/systems/birth-system';
 import { applySkip } from '@/sim/time-skip';
 import { identityOracle } from '@/world/oracle';
 import { bootstrapWorld } from '@/game/bootstrap-world';
+import { PersistenceController } from '@/game/persistence-controller';
+import { clearSave } from '@/services/save-store';
 import { injectTokens } from '@/ui/inject-tokens';
 import { mountChrome, mountPastVeil, type ChromeHandle } from '@/ui/chrome';
 import { mountTimeChip, type TimeChipHandle } from '@/ui/panels/time-chip';
@@ -66,6 +68,7 @@ export class Game {
   private attentionStore = new NpcAttentionStore();
   private authorLog = new AuthorCommandLog();
   private timeline!: TimelineController;
+  private persistence!: PersistenceController;
   private cleanupControls: (() => void) | null = null;
   private cleanupTokens: (() => void) | null = null;
   private resizeObserver: ResizeObserver;
@@ -135,6 +138,14 @@ export class Game {
         this.attentionStore.clearAll();
       },
       authorLog: this.authorLog,
+    });
+
+    // Autosave: persist the live world to IndexedDB, throttled-on-change and
+    // gated on !timeline.isScrubbed. Started once the world is ready (generateWorld).
+    this.persistence = new PersistenceController({
+      state: this.state,
+      timeline: this.timeline,
+      now: () => Date.now(),
     });
 
 
@@ -226,6 +237,7 @@ export class Game {
           vp.width, vp.height, readRenderMode(),
         );
       },
+      onNewWorld: () => { void this.newWorld(); },
       onGameSettingChange: (key, value) => {
         if (key === 'showLabels') this.state.showLabels = value as boolean;
         if (key === 'showPoiMarkers') this.state.showPoiMarkers = value as boolean;
@@ -473,10 +485,20 @@ export class Game {
         this.ui.spiritHud.show();
         if (!localStorage.getItem('small-gods-tutorial-seen')) setTimeout(() => this.ui.tutorial.show('welcome'), 500);
         this.dev.updateInspector();
+        this.persistence.start();
       },
     });
     this.startLoop();
     return map;
+  }
+
+  /** Abandon the current world: stop autosaving, clear the slot, reload fresh.
+   *  Reload is the simplest correct reset — boot then finds no save and seeds. */
+  async newWorld(): Promise<void> {
+    this.persistence?.destroy();
+    await clearSave();
+    this.stopLoop();
+    location.reload();
   }
 
   private startLoop(): void {
@@ -518,6 +540,7 @@ export class Game {
 
   destroy(): void {
     this.stopLoop();
+    this.persistence?.destroy();
     this.cleanupControls?.();
     this.cleanupTokens?.();
     this.resizeObserver.disconnect();

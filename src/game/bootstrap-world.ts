@@ -16,6 +16,8 @@ import { identityOracle } from '@/world/oracle';
 import { buildCharacterSpec, getOrGenerateSheet } from '@/render/lpc';
 import { npcProps } from '@/world/npc-helpers';
 import { loadDecorations } from '@/services/decoration-store';
+import { readSave as readSaveDefault } from '@/services/save-store';
+import { applySaveFile, type SaveFile } from '@/core/save-file';
 import { TILE_SIZE } from '@/core/constants';
 
 export interface BootstrapDeps {
@@ -27,10 +29,29 @@ export interface BootstrapDeps {
   worldSeed?: WorldSeed;
   /** Fired after the world is ready, before the caller starts the loop. */
   onReady?: () => void;
+  /** Injectable for tests; defaults to the IndexedDB save-store reader. */
+  readSave?: () => Promise<SaveFile | null>;
+  /** Injectable for tests; defaults to applySaveFile. Returns false on version mismatch. */
+  applySave?: (state: GameState, save: SaveFile) => boolean;
 }
 
 export async function bootstrapWorld(deps: BootstrapDeps): Promise<GameMap> {
   const { state, assets, sheets, decorationImages, getViewport } = deps;
+
+  // Resume branch: if a valid autosave exists, rehydrate it and skip the whole
+  // generate/seed path. The saved world already has its entities, spirits,
+  // rivals, clock, event history, and camera.
+  const readSaveFn = deps.readSave ?? readSaveDefault;
+  const applySaveFn = deps.applySave ?? applySaveFile;
+  const saved = await readSaveFn();
+  if (saved && applySaveFn(state, saved)) {
+    await assets.loadAll();
+    state.generatedDecorations = loadDecorations(state.worldSeed?.name ?? '');
+    void decorationImages.preload(state.generatedDecorations.map(d => d.assetId));
+    kickOffSheets(state, sheets);
+    deps.onReady?.();
+    return state.map!;
+  }
 
   const ws = deps.worldSeed || await WorldManager.loadDefault();
   const seed = Date.now();

@@ -78,4 +78,24 @@ describe('EventLog', () => {
     expect(() => log.append({ type: 'power_depleted', spiritId: 'p' })).not.toThrow();
     expect(ok).toHaveBeenCalledTimes(1);
   });
+
+  it('hydrate restores events and keeps nextId ahead of the highest id', () => {
+    const { log, clock } = makeLog();
+    log.hydrate([
+      { id: 1, t: 0, event: { type: 'spirit_birth', spiritId: 'player', name: 'Fooob', isPlayer: true } },
+      { id: 2, t: 5, event: { type: 'whisper', spiritId: 'player', npcId: 'n1' } },
+    ]);
+    expect(log.size()).toBe(2);
+    expect(log.since(0).map(e => e.id)).toEqual([1, 2]);
+    clock.setNow(9);
+    expect(log.append({ type: 'dream', spiritId: 'player', npcId: 'n1' }).id).toBe(3);
+  });
+
+  it('hydrate of an empty array resets to empty with nextId 1', () => {
+    const { log } = makeLog();
+    log.append({ type: 'power_depleted', spiritId: 'p' });
+    log.hydrate([]);
+    expect(log.size()).toBe(0);
+    expect(log.append({ type: 'power_depleted', spiritId: 'p' }).id).toBe(1);
+  });
 });
