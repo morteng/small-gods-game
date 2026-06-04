@@ -25,6 +25,7 @@ export interface GameUiCallbacks {
   onZoomIn: () => void;
   onZoomOut: () => void;
   onFitView: () => void;
+  onNewWorld: () => void;
   attentionStore: NpcAttentionStore;
   onWhisperSend: (npcId: string, text: string) => void;
   onMindOpen: (npcId: string, path: string[], depth: number) => void;
@@ -52,6 +53,7 @@ export class GameUi {
   readonly minimap: MinimapHandle;
   readonly divineEffects = new DivineEffects();
   readonly llmSettingsBtn: HTMLButtonElement;
+  readonly newWorldBtn: HTMLButtonElement;
   readonly placementModal: DecorationPlacementModalHandle;
   readonly cameraControls: CameraControlsHandle;
 
@@ -166,6 +168,16 @@ export class GameUi {
     });
     container.appendChild(this.llmSettingsBtn);
 
+    // New World button — abandons the autosaved game and starts fresh.
+    this.newWorldBtn = document.createElement('button');
+    this.newWorldBtn.textContent = '✦ New World';
+    this.newWorldBtn.className = 'sg-btn sg-btn--ghost';
+    this.newWorldBtn.style.cssText = 'position:absolute;bottom:8px;left:64px;z-index:10;';
+    this.newWorldBtn.addEventListener('click', () => {
+      if (window.confirm('Start a new world? This abandons your current game.')) cb.onNewWorld();
+    });
+    container.appendChild(this.newWorldBtn);
+
     this.placementModal = createDecorationPlacementModal(container);
 
     // ── Camera controls (zoom in/out/fit) ─────────────────
@@ -183,6 +195,7 @@ export class GameUi {
     this.npcInfoPanel.remove();
     this.tooltip.remove();
     this.llmSettingsBtn.remove();
+    this.newWorldBtn.remove();
     this.mainMenu.destroy();
     this.spiritHud.destroy();
     this.rivalPanel.destroy();

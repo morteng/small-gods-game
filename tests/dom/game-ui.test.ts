@@ -16,7 +16,7 @@ describe('GameUi', () => {
       onStart: () => {}, onSelectRival: () => {}, onTargetNpc: () => {},
       onClickMinimapTile: () => {}, onGameSettingChange: () => {},
       onLLMConfigChange: () => {},
-      onZoomIn: () => {}, onZoomOut: () => {}, onFitView: () => {},
+      onZoomIn: () => {}, onZoomOut: () => {}, onFitView: () => {}, onNewWorld: () => {},
       attentionStore: new NpcAttentionStore(), onWhisperSend: () => {},
       onMindOpen: () => {}, onMindCrossNav: () => {},
     });
