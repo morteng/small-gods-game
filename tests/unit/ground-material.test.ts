@@ -21,12 +21,24 @@ describe('computeGroundMaterialField', () => {
     expect(field.get('20,20')).toBeUndefined();      // far away
   });
 
-  it('footprint material wins over a neighbour apron', () => {
+  it('footprint material wins over own apron', () => {
     const world = new World(emptyMap());
-    const temple = synthesizeFromPreset('temple_small')!; // flagstone footprint + apron r2
-    world.addEntity(buildingEntity('t', temple, 10, 10)); // 4x4
+    const keep = synthesizeFromPreset('castle_keep')!; // flagstone footprint, gravel apron r2
+    world.addEntity(buildingEntity('k', keep, 10, 10)); // 4x4
     const field = computeGroundMaterialField(world);
-    expect(field.get('11,11')).toBe('flagstone');    // footprint, not apron
+    expect(field.get('11,11')).toBe('flagstone'); // footprint, not apron gravel
+    expect(field.get('9,10')).toBe('gravel');     // apron actually visible
+  });
+
+  it('footprint of one building beats apron of a neighbour', () => {
+    const world = new World(emptyMap());
+    // castle_keep at (10,10): flagstone footprint 4x4 covers x=10..13, y=10..13
+    world.addEntity(buildingEntity('a', synthesizeFromPreset('castle_keep')!, 10, 10));
+    // cottage at (7,10): packed_dirt footprint 3x3 covers x=7..9; apron r1 reaches x=10 at y=10
+    world.addEntity(buildingEntity('b', synthesizeFromPreset('cottage')!, 7, 10));
+    const field = computeGroundMaterialField(world);
+    // (10,10) is cottage's apron but castle_keep's footprint — flagstone wins
+    expect(field.get('10,10')).toBe('flagstone');
   });
 
   it('reverts (no entries) when the building is removed', () => {
