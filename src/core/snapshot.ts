@@ -2,6 +2,7 @@ import type { GameState } from '@/core/state';
 import type { Entity, ActiveEvent } from '@/core/types';
 import type { RngState } from '@/core/rng';
 import type { Spirit } from '@/core/spirit';
+import type { PlotThread } from '@/sim/threads/thread-types';
 import { fromState } from '@/core/rng';
 import { World } from '@/world/world';
 
@@ -18,6 +19,9 @@ export interface Snapshot {
   activeEvents: [string, ActiveEvent[]][];
   /** Complete deep-cloned copies of every spirit. Snapshot is authoritative. */
   spirits: Spirit[];
+  /** Narrative substrate: recognized plot threads. Optional so pre-substrate
+   *  saves and hand-built test snapshots deserialize without it (restore `?? []`). */
+  threads?: PlotThread[];
 }
 
 export function captureSnapshot(state: GameState): Snapshot {
@@ -42,6 +46,7 @@ export function captureSnapshot(state: GameState): Snapshot {
     entities,
     activeEvents,
     spirits,
+    threads: state.plotThreads.serialize(),
   };
 }
 
@@ -68,6 +73,9 @@ export function restoreSnapshot(state: GameState, snap: Snapshot): void {
     fresh.activeEvents.set(poiId, structuredClone(events));
   }
   state.world = fresh;
+
+  // `?? []` tolerates pre-substrate snapshots (older saves) with no threads field.
+  state.plotThreads.hydrate(snap.threads ?? []);
 }
 
 export interface SnapshotStoreOptions {

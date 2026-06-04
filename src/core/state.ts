@@ -6,6 +6,7 @@ import { EventLog } from '@/core/events';
 import { SimClock } from '@/core/clock';
 import { createCamera } from '@/render/camera';
 import { createRng, type Rng } from '@/core/rng';
+import { PlotThreadStore } from '@/sim/threads/thread-store';
 
 export interface GameState {
   map: GameMap | null;
@@ -28,6 +29,8 @@ export interface GameState {
   terrainFields: TerrainField | null;
   biomeMap: BiomeMap | null;
   generatedDecorations: GeneratedDecoration[];
+  /** Narrative substrate: recognized/tracked plot threads (serialized in snapshots). */
+  plotThreads: PlotThreadStore;
 }
 
 export function createState(): GameState {
@@ -68,5 +71,6 @@ export function createState(): GameState {
     terrainFields: null,
     biomeMap: null,
     generatedDecorations: [],
+    plotThreads: new PlotThreadStore(),
   };
 }
