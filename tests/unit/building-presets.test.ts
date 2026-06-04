@@ -16,9 +16,9 @@ describe('building-presets', () => {
     }
   });
 
-  it('re-expresses the nine legacy buildings', () => {
+  it('includes the eight legacy buildings plus shrine and guard_post', () => {
     for (const name of ['cottage', 'tavern', 'market_stall', 'temple_small',
-                         'farm_barn', 'tower', 'castle_keep', 'dock']) {
+                         'farm_barn', 'tower', 'castle_keep', 'dock', 'shrine', 'guard_post']) {
       expect(getPreset(name), name).toBeDefined();
     }
   });

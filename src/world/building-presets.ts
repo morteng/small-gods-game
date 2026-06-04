@@ -1,7 +1,7 @@
 /**
  * Named descriptor presets — the open catalogue Fate, worldgen, and the editor
  * draw from. Add a building by adding one entry (and, if it needs its own
- * `kind`, an entity-kind def). The nine legacy templates are re-expressed here.
+ * `kind`, an entity-kind def). The eight legacy templates are re-expressed here, plus shrine, guard_post, and the new yurt/longhouse archetypes.
  */
 import type { BuildingDescriptor } from './building-descriptor';
 
@@ -101,7 +101,7 @@ export function synthesizeFromPreset(
 const POI_PRESET: Record<string, string> = {
   village: 'cottage', city: 'tavern', temple: 'temple_small', farm: 'farm_barn',
   castle: 'castle_keep', tower: 'tower', port: 'dock', tavern: 'tavern',
-  market: 'market_stall', mine: 'tower', ruins: 'cottage',
+  market: 'market_stall', mine: 'guard_post', ruins: 'cottage',
 };
 
 export function presetForPoiType(poiType: string): string {
