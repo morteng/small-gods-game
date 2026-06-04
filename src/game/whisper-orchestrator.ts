@@ -10,13 +10,14 @@
  * mood delta; on LLM error or unusable response it marks the turn `degraded`
  * (the floor already moved belief, so the interaction still counts).
  */
-import type { Entity } from '@/core/types';
+import type { Entity, NpcProperties } from '@/core/types';
 import type { SpiritId } from '@/core/spirit';
 import type { CommandQueue } from '@/sim/command/command-queue';
 import type { LLMClient, LLMResponse } from '@/llm/llm-client';
 import type { NpcAttentionStore } from '@/llm/npc-attention-store';
 import { buildWhisperPrompt } from '@/llm/whisper-prompt-builder';
 import { applyWhisperBonus } from '@/llm/state-writeback';
+import { recordMemory, distillInteraction, computeSalience, selectMemoriesForPrompt } from '@/llm/interaction-memory';
 
 export interface WhisperOrchestratorDeps {
   queue: CommandQueue;
@@ -50,8 +51,12 @@ export async function sendWhisper(npc: Entity, text: string, deps: WhisperOrches
   const turn = turns[turns.length - 1];
 
   // 3. Soft narration.
+  const props = npc.properties as unknown as NpcProperties;
   try {
-    const prompt = buildWhisperPrompt({ npc, whisperText: text, recentTurns: recentBefore, playerSpiritId: deps.playerSpiritId });
+    const prompt = buildWhisperPrompt({
+      npc, whisperText: text, recentTurns: recentBefore, playerSpiritId: deps.playerSpiritId,
+      pastMemories: selectMemoriesForPrompt(props.memories ?? [], 4),
+    });
     const res = await deps.llm.generateNpcBackfill(prompt.system, prompt.user);
     const parsed = parseReaction(res);
     if (!parsed || typeof parsed.dialogue !== 'string' || parsed.dialogue.length === 0) {
@@ -63,9 +68,14 @@ export async function sendWhisper(npc: Entity, text: string, deps: WhisperOrches
       turn.faithBonus = applyWhisperBonus(npc, parsed.belief_bonus, deps.playerSpiritId);
     }
     if (typeof parsed.mood_delta === 'number') {
-      const props = npc.properties as unknown as { mood: number };
       props.mood = clamp(props.mood + clamp(parsed.mood_delta, -MOOD_DELTA_CLAMP, MOOD_DELTA_CLAMP), 0, 1);
     }
+    recordMemory(props, {
+      tick: deps.now(),
+      kind: 'whisper',
+      summary: distillInteraction(props.name, { dialogue: parsed.dialogue, belief_delta: { faith: parsed.belief_bonus }, mood_delta: parsed.mood_delta }, String(deps.playerSpiritId)),
+      salience: computeSalience('whisper', { faith: parsed.belief_bonus }, parsed.mood_delta),
+    });
   } catch {
     turn.degraded = true;
   }
