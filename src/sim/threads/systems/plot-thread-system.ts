@@ -25,14 +25,20 @@ export class PlotThreadSystem implements System {
   private cursor = 0;
 
   /**
-   * @param getStore   lazy thread-store getter (restore-safe).
-   * @param getStaging lazy staging-buffer getter; when supplied, the stub
-   *                   producers run each tick to arm prospective beats. Omit it
-   *                   (e.g. recognition-only tests) to skip production.
+   * @param getStore         lazy thread-store getter (restore-safe).
+   * @param getStaging       lazy staging-buffer getter; when supplied, the stub
+   *                         producers run each tick to arm prospective beats.
+   *                         Omit it (e.g. recognition-only tests) to skip
+   *                         production.
+   * @param isProducerActive optional gate (default ⇒ true). game.ts passes
+   *                         `() => llmClientCapable === null` so the deterministic
+   *                         stub producers run ONLY as the offline fallback — when
+   *                         the Fate brain is active it owns staging (no double-arm).
    */
   constructor(
     private readonly getStore: () => PlotThreadStore,
     private readonly getStaging?: () => StagingBuffer,
+    private readonly isProducerActive: () => boolean = () => true,
   ) {}
 
   tick(ctx: SystemContext): void {
@@ -54,7 +60,7 @@ export class PlotThreadSystem implements System {
     // a staging buffer. Silent under replay is irrelevant — it only mutates the
     // staging store, which rides the snapshot.
     const staging = this.getStaging?.();
-    if (staging) {
+    if (staging && this.isProducerActive()) {
       const pctx = { world: ctx.world, threads: store, staging, now: ctx.now };
       for (const produce of STUB_PRODUCERS) produce(pctx);
     }
