@@ -32,6 +32,7 @@ import { NpcActivitySystem } from '@/sim/systems/npc-activity-system';
 import { SettlementEventSystem } from '@/sim/systems/settlement-event-system';
 import { SpiritSystem } from '@/sim/spirit-system';
 import { PerceptionSystem } from '@/world/perception-system';
+import { PlotThreadSystem } from '@/sim/threads/systems/plot-thread-system';
 import { AbandonmentSystem } from '@/sim/systems/abandonment-system';
 import { MortalitySystem } from '@/sim/systems/mortality-system';
 import { BirthSystem } from '@/sim/systems/birth-system';
@@ -124,6 +125,8 @@ export class Game {
     this.scheduler.register(new MortalitySystem());
     this.scheduler.register(new BirthSystem());
     this.scheduler.register(new PerceptionSystem(identityOracle, () => this.state.map));
+    // Narrative substrate: runs LAST so recognizers see this frame's events.
+    this.scheduler.register(new PlotThreadSystem(() => this.state.plotThreads));
 
     this.timeline = new TimelineController({
       state: this.state,
