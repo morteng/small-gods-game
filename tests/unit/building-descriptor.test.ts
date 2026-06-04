@@ -3,6 +3,7 @@ import {
   buildingPalette, buildingEntity, WALL_COLORS, ROOF_COLORS, GROUND_COLORS,
   type BuildingDescriptor,
 } from '@/world/building-descriptor';
+import { tryGetEntityKindDef } from '@/world/entity-kinds';
 
 const cottage: BuildingDescriptor = {
   category: 'residential', era: 'medieval',
@@ -49,6 +50,12 @@ describe('building-descriptor', () => {
   it('has colour entries for every declared ground material', () => {
     for (const m of ['flagstone', 'dirt', 'packed_dirt', 'wood', 'tile', 'gravel'] as const) {
       expect(GROUND_COLORS[m]).toMatch(/^#/);
+    }
+  });
+
+  it('generic and new preset kinds are registered as buildings', () => {
+    for (const k of ['building', 'yurt', 'longhouse']) {
+      expect(tryGetEntityKindDef(k)?.category, k).toBe('building');
     }
   });
 });
