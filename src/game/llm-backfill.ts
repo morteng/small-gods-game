@@ -6,6 +6,7 @@ import { buildNpcPrompt, type NpcPromptContext } from '@/llm/npc-prompt-builder'
 import { applyLLMWriteback, type LLMResponse } from '@/llm/state-writeback';
 import { LLMClient, MockLLMProvider } from '@/llm/llm-client';
 import type { LlmDisplayHandle } from '@/ui/llm-display';
+import { selectMemoriesForPrompt, recordMemory, distillInteraction, computeSalience } from '@/llm/interaction-memory';
 
 export function parseLLMJson(content: string): LLMResponse {
   try { return JSON.parse(content); } catch { return { narration: content }; }
@@ -54,7 +55,7 @@ export class LlmBackfillService {
       npc: npcEntity,
       world: state.world,
       recentEvents: getRecentEventDescriptions(props, state.eventLog),
-      previousInteractions: [],
+      previousInteractions: selectMemoriesForPrompt(props.memories ?? [], 6),
       nearbyNpcNames: getNearbyNpcNames(state.world, npcEntity, 3),
       activeEvents: getActiveEventsForPoi(state.world, props.homePoiId),
       playerSpiritId: 'player',
@@ -63,7 +64,14 @@ export class LlmBackfillService {
     const prompt = buildNpcPrompt(context);
     try {
       const response = await this.client.generateNpcBackfill(prompt.system, prompt.user, { maxTokens: 200, temperature: 0.7 });
-      const writeback = applyLLMWriteback(npcEntity, parseLLMJson(response.content), 'player', state.eventLog);
+      const parsed = parseLLMJson(response.content);
+      const writeback = applyLLMWriteback(npcEntity, parsed, 'player', state.eventLog);
+      recordMemory(props, {
+        tick: state.clock.now(),
+        kind: 'backfill',
+        summary: distillInteraction(props.name, parsed, player.name),
+        salience: computeSalience('backfill', parsed.belief_delta, parsed.mood_delta),
+      });
       if (writeback.narration && writeback.dialogue) llmDisplay.showBoth(props.name, writeback.dialogue, writeback.narration);
       else if (writeback.dialogue) llmDisplay.showDialogue(props.name, writeback.dialogue);
       else if (writeback.narration) llmDisplay.showNarration(writeback.narration);
