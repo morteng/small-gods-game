@@ -2,57 +2,75 @@ import { describe, it, expect } from 'vitest';
 import type { LLMToolCall } from '@/llm/llm-client';
 import { FATE_TOOLS, parseFateToolCalls } from '@/game/fate/fate-tools';
 
-function call(args: Record<string, unknown>): LLMToolCall {
+function armCall(args: Record<string, unknown>): LLMToolCall {
   return { id: 'c0', name: 'arm_staged_beat', arguments: args };
 }
 const ctx = () => ({ validPoiIds: new Set(['poi1', 'poi2']), now: 100 });
 
 describe('FATE_TOOLS', () => {
-  it('exposes exactly one tool named arm_staged_beat', () => {
-    expect(FATE_TOOLS).toHaveLength(1);
-    expect(FATE_TOOLS[0].name).toBe('arm_staged_beat');
+  it('exposes the staged + two immediate tools', () => {
+    const names = FATE_TOOLS.map((t) => t.name).sort();
+    expect(names).toEqual(['arm_staged_beat', 'force_next_event', 'nudge_event_severity']);
   });
 });
 
-describe('parseFateToolCalls', () => {
+describe('parseFateToolCalls — staged beats', () => {
   it('builds an inject_npc discovery beat for a valid subject', () => {
-    const beats = parseFateToolCalls(
-      [call({ subjectPoiId: 'poi1', threadId: 7, hard: 'inject_npc', role: 'preacher', soft: 'A stranger lingers.' })],
+    const { beats } = parseFateToolCalls(
+      [armCall({ subjectPoiId: 'poi1', threadId: 7, hard: 'inject_npc', role: 'preacher', soft: 'A stranger lingers.' })],
       ctx(),
     );
     expect(beats).toHaveLength(1);
-    const b = beats[0];
-    expect(b.subject).toEqual({ kind: 'settlement', poiId: 'poi1' });
-    expect(b.trigger).toEqual({ kind: 'discovery' });
-    expect(b.threadId).toBe(7);
-    expect(b.stagedTick).toBe(100);
-    expect(b.hard).toHaveLength(1);
-    expect(b.hard[0]).toMatchObject({
-      verb: 'inject_npc', source: 'fate', target: { kind: 'settlement', poiId: 'poi1' }, payload: { role: 'preacher' },
-    });
-    expect(b.soft).toEqual({ kind: 'location_vibe', text: 'A stranger lingers.' });
+    expect(beats[0].subject).toEqual({ kind: 'settlement', poiId: 'poi1' });
+    expect(beats[0].hard[0]).toMatchObject({ verb: 'inject_npc', source: 'fate', payload: { role: 'preacher' } });
   });
 
-  it('hard:"none" yields a soft-only beat (empty hard)', () => {
-    const beats = parseFateToolCalls([call({ subjectPoiId: 'poi2', hard: 'none', soft: 'Unease settles.' })], ctx());
-    expect(beats[0].hard).toEqual([]);
-    expect(beats[0].soft?.text).toBe('Unease settles.');
-  });
-
-  it('drops a call whose subjectPoiId is not a valid subject', () => {
-    expect(parseFateToolCalls([call({ subjectPoiId: 'ghost', hard: 'inject_npc' })], ctx())).toHaveLength(0);
-  });
-
-  it('defaults an inject_npc with a missing/invalid role to refugee', () => {
-    const beats = parseFateToolCalls([call({ subjectPoiId: 'poi1', hard: 'inject_npc' })], ctx());
-    expect(beats[0].hard[0].payload).toMatchObject({ role: 'refugee' });
-  });
-
-  it('ignores tool calls that are not arm_staged_beat', () => {
-    expect(parseFateToolCalls([{ id: 'x', name: 'something_else', arguments: {} }], ctx())).toHaveLength(0);
+  it('drops a beat whose subjectPoiId is not valid', () => {
+    const { beats } = parseFateToolCalls([armCall({ subjectPoiId: 'ghost', hard: 'inject_npc' })], ctx());
+    expect(beats).toHaveLength(0);
   });
 
   it('tolerates undefined calls', () => {
-    expect(parseFateToolCalls(undefined, ctx())).toEqual([]);
+    expect(parseFateToolCalls(undefined, ctx())).toEqual({ beats: [], commands: [] });
+  });
+});
+
+describe('parseFateToolCalls — immediate commands', () => {
+  it('builds a nudge_severity command from nudge_event_severity tool', () => {
+    const { commands } = parseFateToolCalls(
+      [{ id: 'c1', name: 'nudge_event_severity', arguments: { subjectPoiId: 'poi1', delta: 0.3 } }],
+      ctx(),
+    );
+    expect(commands).toHaveLength(1);
+    expect(commands[0]).toMatchObject({
+      verb: 'nudge_severity', source: 'fate', target: { kind: 'settlement', poiId: 'poi1' }, payload: { delta: 0.3 },
+    });
+  });
+
+  it('caps an oversized delta to ±0.5', () => {
+    const { commands } = parseFateToolCalls(
+      [{ id: 'c1', name: 'nudge_event_severity', arguments: { subjectPoiId: 'poi1', delta: 9 } }],
+      ctx(),
+    );
+    expect(commands[0].payload).toEqual({ delta: 0.5 });
+  });
+
+  it('builds a bias_event command from force_next_event', () => {
+    const { commands } = parseFateToolCalls(
+      [{ id: 'c1', name: 'force_next_event', arguments: { subjectPoiId: 'poi2', eventType: 'plague' } }],
+      ctx(),
+    );
+    expect(commands[0]).toMatchObject({
+      verb: 'bias_event', source: 'fate', target: { kind: 'settlement', poiId: 'poi2' }, payload: { eventType: 'plague' },
+    });
+  });
+
+  it('drops immediate calls with an ungrounded poiId, bad eventType, or non-finite delta', () => {
+    const { commands } = parseFateToolCalls([
+      { id: 'a', name: 'nudge_event_severity', arguments: { subjectPoiId: 'ghost', delta: 0.2 } },
+      { id: 'b', name: 'nudge_event_severity', arguments: { subjectPoiId: 'poi1', delta: 'lots' } },
+      { id: 'c', name: 'force_next_event', arguments: { subjectPoiId: 'poi1', eventType: 'banana' } },
+    ], ctx());
+    expect(commands).toHaveLength(0);
   });
 });

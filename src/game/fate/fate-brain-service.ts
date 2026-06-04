@@ -42,7 +42,7 @@ export class FateBrainService {
         [{ role: 'system', content: system }, { role: 'user', content: user }],
         FATE_TOOLS,
       );
-      const beats = parseFateToolCalls(res.toolCalls, { validPoiIds, now: state.clock.now() });
+      const { beats } = parseFateToolCalls(res.toolCalls, { validPoiIds, now: state.clock.now() });
       for (const b of beats) {
         const armed = state.staging.arm(b);
         if (b.threadId !== undefined) {
