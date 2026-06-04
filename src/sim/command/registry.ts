@@ -23,7 +23,7 @@ import {
   placePrecondition, placeApply,
   movePrecondition, moveApply,
 } from './editor-verbs';
-import { injectNpcPrecondition, injectNpcApply } from './authoring-verbs';
+import { injectNpcPrecondition, injectNpcApply, biasEventPrecondition, biasEventApply, nudgeSeverityPrecondition, nudgeSeverityApply } from './authoring-verbs';
 
 export interface CapabilityDef {
   verb: CommandVerb;
@@ -133,8 +133,10 @@ export const CAPABILITY_REGISTRY: Record<CommandVerb, CapabilityDef> = {
   // Fate-reactive verbs: they will amplify/escalate what the sim already produces
   // (VISION §2.1), never inject arbitrary plot. No `apply` yet → 'not_implemented'.
   bias_event: {
-    verb: 'bias_event', tier: 'authoring', cost: 0, targetKind: 'settlement', implemented: false,
-    describe: (cmd) => `bias the next event at ${targetLabel(cmd)}`,
+    verb: 'bias_event', tier: 'authoring', cost: 0, targetKind: 'settlement', implemented: true,
+    precondition: biasEventPrecondition,
+    apply: biasEventApply,
+    describe: (cmd) => `force next event at ${targetLabel(cmd)} to be ${cmd.payload?.eventType ?? 'an event'}`,
   },
   inject_npc: {
     verb: 'inject_npc', tier: 'authoring', cost: 0, targetKind: 'settlement', implemented: true,
@@ -143,8 +145,10 @@ export const CAPABILITY_REGISTRY: Record<CommandVerb, CapabilityDef> = {
     describe: (cmd) => `bring a ${cmd.payload?.role ?? 'stranger'} to ${targetLabel(cmd)}`,
   },
   nudge_severity: {
-    verb: 'nudge_severity', tier: 'authoring', cost: 0, targetKind: 'settlement', implemented: false,
-    describe: (cmd) => `nudge the severity of the event at ${targetLabel(cmd)}`,
+    verb: 'nudge_severity', tier: 'authoring', cost: 0, targetKind: 'settlement', implemented: true,
+    precondition: nudgeSeverityPrecondition,
+    apply: nudgeSeverityApply,
+    describe: (cmd) => `nudge severity of ${targetLabel(cmd)} event by ${cmd.payload?.delta ?? 0}`,
   },
 
   // ── Editor tier — god-mode authoring (Create panel). cost 0, no spirit. ──────

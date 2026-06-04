@@ -9,6 +9,7 @@ import type { GameMap, Tile, Entity } from '@/core/types';
 import type { GameState } from '@/core/state';
 import { FateBrainService } from '@/game/fate/fate-brain-service';
 import type { FateFocus } from '@/game/fate/fate-context';
+import type { Command } from '@/sim/command/types';
 
 function map(): GameMap {
   const tiles: Tile[][] = [];
@@ -48,7 +49,7 @@ describe('FateBrainService', () => {
     const armed: unknown[] = [];
     const brain = new FateBrainService({
       getState: () => state, getCapableClient: () => clientArming(), isScrubbed: () => false,
-      onArmed: (b) => armed.push(b),
+      onArmed: (b) => armed.push(b), emitCommand: () => {},
     });
     await brain.deliberate(focus());
     expect(state.staging.armedByTrigger('discovery')).toHaveLength(1);
@@ -58,14 +59,14 @@ describe('FateBrainService', () => {
 
   it('no-ops when no capable client is configured', async () => {
     const state = makeState();
-    const brain = new FateBrainService({ getState: () => state, getCapableClient: () => null, isScrubbed: () => false });
+    const brain = new FateBrainService({ getState: () => state, getCapableClient: () => null, isScrubbed: () => false, emitCommand: () => {} });
     await brain.deliberate(focus());
     expect(state.staging.armedByTrigger('discovery')).toHaveLength(0);
   });
 
   it('no-ops while scrubbing', async () => {
     const state = makeState();
-    const brain = new FateBrainService({ getState: () => state, getCapableClient: () => clientArming(), isScrubbed: () => true });
+    const brain = new FateBrainService({ getState: () => state, getCapableClient: () => clientArming(), isScrubbed: () => true, emitCommand: () => {} });
     await brain.deliberate(focus());
     expect(state.staging.armedByTrigger('discovery')).toHaveLength(0);
   });
@@ -73,17 +74,35 @@ describe('FateBrainService', () => {
   it('arms nothing when the model returns no tool call', async () => {
     const state = makeState();
     const empty = new LLMClient(new MockLLMProvider(0, { cannedToolCalls: [] }));
-    const brain = new FateBrainService({ getState: () => state, getCapableClient: () => empty, isScrubbed: () => false });
+    const brain = new FateBrainService({ getState: () => state, getCapableClient: () => empty, isScrubbed: () => false, emitCommand: () => {} });
     await brain.deliberate(focus());
     expect(state.staging.armedByTrigger('discovery')).toHaveLength(0);
   });
 
   it('is single-flight: a concurrent deliberate while one is in flight no-ops', async () => {
     const state = makeState();
-    const brain = new FateBrainService({ getState: () => state, getCapableClient: () => clientArming(), isScrubbed: () => false });
+    const brain = new FateBrainService({ getState: () => state, getCapableClient: () => clientArming(), isScrubbed: () => false, emitCommand: () => {} });
     const a = brain.deliberate(focus());
     const b = brain.deliberate(focus());   // second call sees inFlight === true → no-op
     await Promise.all([a, b]);
     expect(state.staging.armedByTrigger('discovery')).toHaveLength(1);
   });
+
+  it('emits immediate commands via emitCommand', async () => {
+    const state = makeState();
+    const emitted: Array<Omit<Command, 'seq'>> = [];
+    const brain = new FateBrainService({
+      getState: () => state, getCapableClient: () => clientNudging(), isScrubbed: () => false,
+      emitCommand: (c) => emitted.push(c),
+    });
+    await brain.deliberate(focus());
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0]).toMatchObject({ verb: 'nudge_severity', source: 'fate', payload: { delta: 0.3 } });
+  });
 });
+
+function clientNudging(): LLMClient {
+  return new LLMClient(new MockLLMProvider(0, {
+    cannedToolCalls: [{ id: 'c0', name: 'nudge_event_severity', arguments: { subjectPoiId: 'poi1', delta: 0.3 } }],
+  }));
+}

@@ -160,6 +160,26 @@ export class SettlementEventSystem implements System {
       // Skip POIs that already have an active event (max 1 at a time)
       if (ctx.world.activeEvents.has(poiId)) continue;
 
+      // Fate override: if a forced next-event is pending for this POI, materialize
+      // it now (bypassing probability + cooldown) and clear the one-shot bias.
+      const forced = ctx.world.forcedEvents.get(poiId);
+      if (forced) {
+        const cfg = EVENT_CONFIGS[forced];
+        const severity = 0.3 + this.rng.next() * 0.4; // 0.3–0.7, same band as natural
+        const duration = cfg.minDuration +
+          Math.floor(this.rng.next() * (cfg.maxDuration - cfg.minDuration + 1));
+        ctx.world.activeEvents.set(poiId, [{
+          type: forced,
+          poiId,
+          severity: Math.round(severity * 100) / 100,
+          durationTicks: duration,
+          ticksElapsed: 0,
+        }]);
+        ctx.log.append({ type: 'settlement_begin', poiId, eventType: forced, severity, durationTicks: duration });
+        ctx.world.forcedEvents.delete(poiId);
+        continue; // forced event occupies the POI; skip the probability roll
+      }
+
       // Try each event type (ordered so higher-chance events are checked first)
       for (const eventType of ALL_EVENT_TYPES) {
         const cooldownKey = `${poiId}:${eventType}`;

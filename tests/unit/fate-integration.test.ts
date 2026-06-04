@@ -59,6 +59,7 @@ describe('Fate brain integration (prep → discover → materialize)', () => {
       getState: () => state,
       getCapableClient: () => new LLMClient(new MockLLMProvider(0, { cannedToolCalls: canned() })),
       isScrubbed: () => false,
+      emitCommand: () => {},
     });
     const focus: FateFocus = { event: { type: 'thread_advanced', threadId: 1, phase: 'turning', weight: 'climax' }, threadId: 1 };
     await brain.deliberate(focus);

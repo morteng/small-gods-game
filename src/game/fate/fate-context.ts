@@ -17,10 +17,11 @@ export interface FateFocus {
 }
 
 const SYSTEM_CHARTER =
-  'You are Fate — impersonal and reactive. You amplify and escalate what the mortals\' story already ' +
-  'produces; you never invent arbitrary plot. You may PREPARE content to be discovered later, grounded ' +
-  'in what is already happening. Use the arm_staged_beat tool at most once, and only with a subjectPoiId ' +
-  'listed in the active threads. If nothing warrants escalation, call no tool.';
+  'You are Fate — impersonal and reactive. You amplify, escalate, or let fade what the mortals\' story ' +
+  'already produces; you never invent arbitrary plot. You may PREPARE content to be discovered later ' +
+  '(arm_staged_beat) OR act on a settlement\'s ongoing troubles now: nudge_event_severity changes the ' +
+  'intensity of its current event, force_next_event steers what befalls it next. Only ever use a ' +
+  'subjectPoiId listed in the active threads. Act sparingly — often the right choice is to call no tool.';
 
 /** A compact, deterministic digest of active settlement threads + their poiIds. */
 export function describeThreadsForFate(state: GameState): { text: string; poiIds: Set<string> } {
@@ -34,7 +35,11 @@ export function describeThreadsForFate(state: GameState): { text: string; poiIds
     const poiId = t.subject.poiId;
     poiIds.add(poiId);
     const name = poiName.get(poiId) ?? poiId;
-    lines.push(`- thread ${t.id}: ${t.shapeId} at "${name}" (${poiId}), phase ${t.phase}`);
+    const events = state.world?.activeEvents.get(poiId);
+    const evText = events && events.length
+      ? `active event: ${events[0].type} (severity ${events[0].severity})`
+      : 'no active event';
+    lines.push(`- thread ${t.id}: ${t.shapeId} at "${name}" (${poiId}), phase ${t.phase}; ${evText}`);
   }
   const text = lines.length ? `Active threads:\n${lines.join('\n')}` : 'Active threads: none.';
   return { text, poiIds };

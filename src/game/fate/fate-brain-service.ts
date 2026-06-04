@@ -10,6 +10,7 @@
  */
 import type { GameState } from '@/core/state';
 import type { LLMClient } from '@/llm/llm-client';
+import type { Command } from '@/sim/command/types';
 import type { StagedBeat } from '@/sim/threads/staging-types';
 import { buildFateContext, type FateFocus } from './fate-context';
 import { FATE_TOOLS, parseFateToolCalls } from './fate-tools';
@@ -18,6 +19,8 @@ export interface FateBrainDeps {
   getState: () => GameState;
   getCapableClient: () => LLMClient | null;
   isScrubbed: () => boolean;
+  /** Emit an immediate command (nudge_severity / bias_event) onto the queue. */
+  emitCommand: (cmd: Omit<Command, 'seq'>) => void;
   /** Observability/test seam — fires for each armed beat. Intentionally unwired in game.ts. */
   onArmed?: (beat: StagedBeat) => void;
 }
@@ -42,7 +45,7 @@ export class FateBrainService {
         [{ role: 'system', content: system }, { role: 'user', content: user }],
         FATE_TOOLS,
       );
-      const beats = parseFateToolCalls(res.toolCalls, { validPoiIds, now: state.clock.now() });
+      const { beats, commands } = parseFateToolCalls(res.toolCalls, { validPoiIds, now: state.clock.now() });
       for (const b of beats) {
         const armed = state.staging.arm(b);
         if (b.threadId !== undefined) {
@@ -51,6 +54,7 @@ export class FateBrainService {
         }
         this.deps.onArmed?.(armed);
       }
+      for (const c of commands) this.deps.emitCommand(c);
     } catch (err) {
       console.warn('[fate] deliberation failed:', err);   // never swallow — log, arm nothing
     } finally {

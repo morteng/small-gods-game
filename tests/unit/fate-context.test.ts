@@ -4,7 +4,7 @@ import { SimClock } from '@/core/clock';
 import { PlotThreadStore } from '@/sim/threads/thread-store';
 import { StagingBuffer } from '@/sim/threads/staging-buffer';
 import { initNpcProps } from '@/world/npc-helpers';
-import type { GameMap, Tile, Entity } from '@/core/types';
+import type { GameMap, Tile, Entity, ActiveEvent } from '@/core/types';
 import type { GameState } from '@/core/state';
 import { buildFateContext, describeThreadsForFate, type FateFocus } from '@/game/fate/fate-context';
 
@@ -42,6 +42,22 @@ describe('describeThreadsForFate', () => {
     expect(text).toContain('poi1');
     expect(text).toContain('Northvale');
     expect([...poiIds]).toEqual(['poi1']);
+  });
+});
+
+describe('describeThreadsForFate active events', () => {
+  it("annotates a thread settlement's active event with type and severity", () => {
+    const s = state();
+    const ev: ActiveEvent = { type: 'drought', poiId: 'poi1', severity: 0.45, durationTicks: 100, ticksElapsed: 0 };
+    s.world!.activeEvents.set('poi1', [ev]);
+    const { text } = describeThreadsForFate(s);
+    expect(text).toContain('drought');
+    expect(text).toContain('0.45');
+  });
+
+  it('marks a thread settlement with no active event', () => {
+    const { text } = describeThreadsForFate(state());
+    expect(text.toLowerCase()).toContain('no active event');
   });
 });
 
