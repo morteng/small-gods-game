@@ -91,10 +91,12 @@ describe('executeCommand', () => {
     expect((res as Extract<CommandResult, { status: 'rejected' }>).reason).toBe('precondition_failed');
   });
 
-  it('rejects not_implemented for each authoring verb without mutating state', () => {
+  it('rejects not_implemented for each still-unimplemented authoring verb without mutating state', () => {
     const world = new World(tinyMap());
     const spirits = new Map([['player', spirit(100)]]);
-    for (const verb of ['bias_event', 'inject_npc', 'nudge_severity'] as Command['verb'][]) {
+    // inject_npc is now implemented (Fate escalation verb); only bias_event and
+    // nudge_severity remain stubs that reject before any tier branch.
+    for (const verb of ['bias_event', 'nudge_severity'] as Command['verb'][]) {
       const res = executeCommand(command({ verb, target: { kind: 'settlement', poiId: 'poi1' } }), ctx(world, spirits));
       expect((res as Extract<CommandResult, { status: 'rejected' }>).reason).toBe('not_implemented');
     }

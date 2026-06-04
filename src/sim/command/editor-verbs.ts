@@ -61,7 +61,7 @@ const ADULT_NAMES = ['Aldous', 'Bryn', 'Corin', 'Dara', 'Edda', 'Faro', 'Gwen', 
 function clamp01(v: number): number { return Math.max(0, Math.min(1, v)); }
 
 /** Resolve the spawn center from a `near` payload (poiId via a resident, or {x,y}). */
-function resolveCenter(near: unknown, ctx: CommandCtx): { x: number; y: number } | null {
+export function resolveCenter(near: unknown, ctx: CommandCtx): { x: number; y: number } | null {
   if (near && typeof near === 'object' && 'x' in (near as object) && 'y' in (near as object)) {
     const n = near as { x: number; y: number };
     return { x: Math.round(n.x), y: Math.round(n.y) };

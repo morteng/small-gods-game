@@ -25,9 +25,10 @@ export function previewCommand(cmd: Command, ctx: CommandCtx): RejectionReason |
   if (!def) return 'invalid_target';                   // unknown verb (defensive)
   if (!def.implemented || !def.apply) return 'not_implemented';
 
-  // Editor tier is god-mode: no spirit, no power, payload-based targeting.
-  // Validation is entirely the verb's precondition (it inspects cmd.payload).
-  if (def.tier === 'editor') {
+  // Editor (god-mode) and authoring (Fate) tiers are spiritless: no power, no
+  // spirit registration (Fate acts as source 'fate', never a Spirit). Targeting +
+  // validation is entirely the verb's precondition (it inspects cmd.target/payload).
+  if (def.tier === 'editor' || def.tier === 'authoring') {
     return def.precondition?.(cmd, ctx) ?? null;
   }
 
@@ -89,6 +90,8 @@ export class CommandExecutorSystem implements System {
     for (const cmd of this.queue.drain()) {
       const result = executeCommand(cmd, ctxFor);
       // Live only: record applied editor commands as replayable history.
+      // Only editor-tier authoring is replayed via AuthorCommandLog; authoring-tier
+      // (Fate) commands persist via the full-state world snapshot, not replay.
       if (!replaying && this.authorLog && result.status === 'applied'
           && getCapability(cmd.verb)?.tier === 'editor') {
         this.authorLog.record(ctx.now, cmd);
