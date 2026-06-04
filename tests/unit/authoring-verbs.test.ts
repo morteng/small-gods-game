@@ -124,6 +124,12 @@ describe('nudge_severity', () => {
     expect(world.activeEvents.get('poi1')![0].severity).toBe(0.05);
   });
 
+  it('caps the per-call magnitude at ±0.5 (isolated from the result clamp)', () => {
+    const world = new World(biasMap()); withEvent(world, 0.3);
+    executeCommand(nudgeCmd(5.0), biasCtx(world));   // capped to +0.5 → 0.3 + 0.5 = 0.8 (not 1.0)
+    expect(world.activeEvents.get('poi1')![0].severity).toBe(0.8);
+  });
+
   it('rejects precondition_failed when the POI has no active event', () => {
     const world = new World(biasMap());
     const res = executeCommand(nudgeCmd(0.2), biasCtx(world));
