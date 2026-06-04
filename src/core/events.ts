@@ -1,6 +1,8 @@
 import type { SimClock } from '@/core/clock';
 import type { EntityId, NpcRole, Region, WorldSeed, SettlementEventType } from '@/core/types';
 import type { SpiritId } from '@/core/spirit';
+import type { ThreadId, ShapeId, ThreadSubject, NarrativeWeight } from '@/sim/threads/thread-types';
+import type { BeatId } from '@/sim/threads/staging-types';
 
 export type SimEvent =
   | { type: 'world_seeded';       worldSeed: WorldSeed; substrateSeed: number }
@@ -34,6 +36,10 @@ export type SimEvent =
   | { type: 'entity_emerged';     entityId: EntityId; kind: string; x: number; y: number }
   | { type: 'settlement_begin';   poiId: string; eventType: SettlementEventType; severity: number; durationTicks: number }
   | { type: 'settlement_end';     poiId: string; eventType: SettlementEventType }
+  | { type: 'thread_opened';      threadId: ThreadId; shapeId: ShapeId; subject: ThreadSubject }
+  | { type: 'thread_advanced';    threadId: ThreadId; phase: string; weight: NarrativeWeight }
+  | { type: 'thread_resolved';    threadId: ThreadId; status: 'resolved' | 'abandoned' }
+  | { type: 'beat_fired';         beatId: BeatId; subject: ThreadSubject; threadId?: ThreadId }
   | { type: 'system_error';       system: string; message: string };
 
 export interface AppendedEvent {

@@ -2,6 +2,8 @@ import type { GameState } from '@/core/state';
 import type { Entity, ActiveEvent } from '@/core/types';
 import type { RngState } from '@/core/rng';
 import type { Spirit } from '@/core/spirit';
+import type { PlotThread } from '@/sim/threads/thread-types';
+import type { StagedBeat } from '@/sim/threads/staging-types';
 import { fromState } from '@/core/rng';
 import { World } from '@/world/world';
 
@@ -18,6 +20,11 @@ export interface Snapshot {
   activeEvents: [string, ActiveEvent[]][];
   /** Complete deep-cloned copies of every spirit. Snapshot is authoritative. */
   spirits: Spirit[];
+  /** Narrative substrate: recognized plot threads. Optional so pre-substrate
+   *  saves and hand-built test snapshots deserialize without it (restore `?? []`). */
+  threads?: PlotThread[];
+  /** Narrative substrate: armed staged beats. Optional for the same reason. */
+  staging?: StagedBeat[];
 }
 
 export function captureSnapshot(state: GameState): Snapshot {
@@ -42,6 +49,10 @@ export function captureSnapshot(state: GameState): Snapshot {
     entities,
     activeEvents,
     spirits,
+    // Optional access: production states (createState) always have these; some
+    // test harnesses cast a partial GameState that omits the substrate stores.
+    threads: state.plotThreads?.serialize() ?? [],
+    staging: state.staging?.serialize() ?? [],
   };
 }
 
@@ -68,6 +79,11 @@ export function restoreSnapshot(state: GameState, snap: Snapshot): void {
     fresh.activeEvents.set(poiId, structuredClone(events));
   }
   state.world = fresh;
+
+  // `?? []` tolerates pre-substrate snapshots (older saves) with no threads field;
+  // optional chaining tolerates partial test states that omit the substrate stores.
+  state.plotThreads?.hydrate(snap.threads ?? []);
+  state.staging?.hydrate(snap.staging ?? []);
 }
 
 export interface SnapshotStoreOptions {
