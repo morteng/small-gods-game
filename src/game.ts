@@ -22,6 +22,8 @@ import { AssetManager } from '@/render/asset-manager';
 import { Scheduler } from '@/core/scheduler';
 import { TimelineController } from '@/core/timeline';
 import { CommandQueue } from '@/sim/command/command-queue';
+import { DiscoveryQueue } from '@/sim/threads/discovery-queue';
+import { StagingActivationSystem } from '@/sim/threads/systems/staging-activation-system';
 import { CommandExecutorSystem } from '@/sim/command/command-system';
 import { AuthorCommandLog } from '@/sim/command/author-command-log';
 import { RivalSystem } from '@/sim/systems/rival-system';
@@ -66,6 +68,9 @@ export class Game {
   private state: GameState;
   private scheduler: Scheduler;
   private commandQueue = new CommandQueue();
+  private discoveryQueue = new DiscoveryQueue();
+  /** Last NPC fed to the discovery queue, so we push a signal only on a switch. */
+  private lastDiscoveredNpcId: string | null = null;
   private attentionStore = new NpcAttentionStore();
   private authorLog = new AuthorCommandLog();
   private timeline!: TimelineController;
@@ -125,8 +130,19 @@ export class Game {
     this.scheduler.register(new MortalitySystem());
     this.scheduler.register(new BirthSystem());
     this.scheduler.register(new PerceptionSystem(identityOracle, () => this.state.map));
-    // Narrative substrate: runs LAST so recognizers see this frame's events.
-    this.scheduler.register(new PlotThreadSystem(() => this.state.plotThreads));
+    // Narrative substrate: recognizers + stub producers run LAST so they see this
+    // frame's events; activation fires armed beats (its commands apply next tick).
+    this.scheduler.register(new PlotThreadSystem(() => this.state.plotThreads, () => this.state.staging));
+    this.scheduler.register(new StagingActivationSystem(
+      this.discoveryQueue, this.commandQueue,
+      () => this.state.staging, () => this.state.plotThreads,
+      (subject, soft) => {
+        // Prime soft narration where the player will find it: an NPC's mind page.
+        if (subject.kind === 'npc') {
+          this.attentionStore.putPage(subject.npcId, pathKey(['staged']), { prose: soft.text, links: [], depth: 0 });
+        }
+      },
+    ));
 
     this.timeline = new TimelineController({
       state: this.state,
@@ -138,6 +154,8 @@ export class Game {
       // reset on a time-skip baseline.
       onRestore: () => {
         this.commandQueue.clear();
+        this.discoveryQueue.clear();
+        this.lastDiscoveredNpcId = null;
         this.attentionStore.clearAll();
       },
       authorLog: this.authorLog,
@@ -513,6 +531,12 @@ export class Game {
       this.lastTime = now;
       if (this.scheduler.getRate() > 0 && this.state.world && !this.timeline.isScrubbed) {
         advanceNpcFrames(this.state.world, deltaMs);  // presentation animation - not a scheduled system
+        // Focusing a new NPC = the player's attention reaching it → a discovery
+        // signal that can fire staged beats armed on that NPC.
+        if (this.state.selectedNpcId && this.state.selectedNpcId !== this.lastDiscoveredNpcId) {
+          this.lastDiscoveredNpcId = this.state.selectedNpcId;
+          this.discoveryQueue.push({ subject: { kind: 'npc', npcId: this.state.selectedNpcId } });
+        }
         this.scheduler.tick(deltaMs, {
           world: this.state.world,
           spirits: this.state.spirits,

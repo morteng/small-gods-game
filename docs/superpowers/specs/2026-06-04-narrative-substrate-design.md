@@ -69,10 +69,14 @@ Everything this layer needs already exists; we are wiring, not inventing:
   `captureSnapshot`). Threads + the staging buffer serialize *inside* `Snapshot`,
   so both paths handle them for free, with no `SaveFile` version bump and no
   migration.
-- **Scheduler** — two new `System`s registered like the others. They read their
-  stores from `SystemContext` (added there, like `world`/`spirits`), **not** by
-  held reference, so a snapshot restore that rehydrates the stores is picked up
-  on the next tick (the world/spirits pattern; *not* the held-queue pattern).
+- **Scheduler** — two new `System`s registered like the others. They reach their
+  stores through a **lazy getter** passed at construction (`() => state.plotThreads`
+  — the existing `new NpcMovementSystem(() => state.map)` pattern), **not** a held
+  reference and **not** `SystemContext`. Because `hydrate()` mutates the same store
+  instance in place, a snapshot restore is picked up automatically on the next
+  tick, and no `SystemContext`/ctx-builder churn is needed across the codebase.
+  *(Implementation note: an earlier draft added `threads` to `SystemContext`; the
+  getter is strictly better — it touches zero existing ctx builders.)*
 - **Determinism** — both systems live in `src/sim/threads/`, covered by
   `tests/unit/no-random-in-sim.test.ts`. IDs come from a serialized integer
   counter in each store (no `Math.random`, no `Date`). All recognizer/producer
@@ -308,9 +312,8 @@ canonical Slice-2 integration test. The brain replaces this producer later.
 
 1. **`src/core/state.ts`** — add `plotThreads: PlotThreadStore` and
    `staging: StagingBuffer` to `GameState`; construct both in `createState()`.
-2. **`src/core/scheduler.ts`** — add `threads: PlotThreadStore` and
-   `staging: StagingBuffer` to `SystemContext` (additive; existing systems ignore
-   them).
+2. **`src/core/scheduler.ts`** — *no change.* Systems reach the stores via lazy
+   getters passed at construction (see §2), not `SystemContext`.
 3. **`src/core/events.ts`** — add the four event variants
    (`thread_opened/advanced/resolved`, `beat_fired`) to the `SimEvent` union.
 4. **`src/core/snapshot.ts`** — `Snapshot` gains `threads: PlotThread[]` and

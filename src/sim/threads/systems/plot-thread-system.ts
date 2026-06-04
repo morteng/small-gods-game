@@ -15,27 +15,48 @@
  */
 import type { System, SystemContext } from '@/core/scheduler';
 import type { PlotThreadStore } from '../thread-store';
+import type { StagingBuffer } from '../staging-buffer';
 import { RECOGNIZERS, type RecognizerCtx } from '../recognizers';
+import { STUB_PRODUCERS } from '../stub-producer';
 
 export class PlotThreadSystem implements System {
   readonly name = 'plot-thread';
   readonly tickHz = 0.5;
   private cursor = 0;
 
-  constructor(private readonly getStore: () => PlotThreadStore) {}
+  /**
+   * @param getStore   lazy thread-store getter (restore-safe).
+   * @param getStaging lazy staging-buffer getter; when supplied, the stub
+   *                   producers run each tick to arm prospective beats. Omit it
+   *                   (e.g. recognition-only tests) to skip production.
+   */
+  constructor(
+    private readonly getStore: () => PlotThreadStore,
+    private readonly getStaging?: () => StagingBuffer,
+  ) {}
 
   tick(ctx: SystemContext): void {
     const evs = ctx.log.since(this.cursor);
     if (evs.length) this.cursor = evs[evs.length - 1].id;
 
+    const store = this.getStore();
     const rctx: RecognizerCtx = {
       world: ctx.world,
       spirits: ctx.spirits,
-      store: this.getStore(),
+      store,
       log: ctx.log,
       rng: ctx.rng,
       now: ctx.now,
     };
     for (const recognize of RECOGNIZERS) recognize(evs, rctx);
+
+    // Prospective authoring (stub for the Fate brain): runs only when wired with
+    // a staging buffer. Silent under replay is irrelevant — it only mutates the
+    // staging store, which rides the snapshot.
+    const staging = this.getStaging?.();
+    if (staging) {
+      const pctx = { world: ctx.world, threads: store, staging, now: ctx.now };
+      for (const produce of STUB_PRODUCERS) produce(pctx);
+    }
   }
 }

@@ -49,8 +49,10 @@ export function captureSnapshot(state: GameState): Snapshot {
     entities,
     activeEvents,
     spirits,
-    threads: state.plotThreads.serialize(),
-    staging: state.staging.serialize(),
+    // Optional access: production states (createState) always have these; some
+    // test harnesses cast a partial GameState that omits the substrate stores.
+    threads: state.plotThreads?.serialize() ?? [],
+    staging: state.staging?.serialize() ?? [],
   };
 }
 
@@ -78,9 +80,10 @@ export function restoreSnapshot(state: GameState, snap: Snapshot): void {
   }
   state.world = fresh;
 
-  // `?? []` tolerates pre-substrate snapshots (older saves) with no threads field.
-  state.plotThreads.hydrate(snap.threads ?? []);
-  state.staging.hydrate(snap.staging ?? []);
+  // `?? []` tolerates pre-substrate snapshots (older saves) with no threads field;
+  // optional chaining tolerates partial test states that omit the substrate stores.
+  state.plotThreads?.hydrate(snap.threads ?? []);
+  state.staging?.hydrate(snap.staging ?? []);
 }
 
 export interface SnapshotStoreOptions {
