@@ -37,3 +37,54 @@ describe('computeSalience', () => {
     expect(computeSalience('backfill')).toBeGreaterThanOrEqual(0);
   });
 });
+
+import { recordMemory, selectMemoriesForPrompt, MEMORY_MAX } from '@/llm/interaction-memory';
+import type { NpcProperties, MemoryEntry } from '@/core/types';
+
+function props(): NpcProperties { return { memories: [] } as unknown as NpcProperties; }
+function entry(tick: number, salience: number, summary = `m${tick}`): MemoryEntry {
+  return { tick, salience, summary, kind: 'whisper' };
+}
+
+describe('recordMemory', () => {
+  it('appends and lazily creates the array', () => {
+    const p = { } as unknown as NpcProperties;
+    recordMemory(p, entry(1, 0.2));
+    expect(p.memories).toHaveLength(1);
+  });
+
+  it('bounds at MEMORY_MAX, evicting the lowest-salience (oldest tiebreak)', () => {
+    const p = props();
+    for (let i = 0; i < MEMORY_MAX + 1; i++) recordMemory(p, entry(i, 0.1));
+    expect(p.memories).toHaveLength(MEMORY_MAX);
+    expect(p.memories!.some(m => m.tick === 0)).toBe(false);
+    expect(p.memories!.some(m => m.tick === MEMORY_MAX)).toBe(true);
+  });
+
+  it('keeps a high-salience landmark through many low-salience inserts', () => {
+    const p = props();
+    recordMemory(p, entry(0, 0.95, 'LANDMARK'));
+    for (let i = 1; i < MEMORY_MAX + 10; i++) recordMemory(p, entry(i, 0.1));
+    expect(p.memories!.some(m => m.summary === 'LANDMARK')).toBe(true);
+    expect(p.memories).toHaveLength(MEMORY_MAX);
+  });
+});
+
+describe('selectMemoriesForPrompt', () => {
+  it('returns all (chronological) when under the cap', () => {
+    expect(selectMemoriesForPrompt([entry(2, 0.1, 'b'), entry(1, 0.1, 'a')], 6)).toEqual(['b', 'a']);
+  });
+
+  it('always includes the top-salience landmark, fills with most recent, chronological', () => {
+    const mems = [entry(1, 0.95, 'LANDMARK'), entry(2, 0.1, 'x'), entry(3, 0.1, 'y'), entry(4, 0.1, 'z')];
+    const out = selectMemoriesForPrompt(mems, 3);
+    expect(out).toHaveLength(3);
+    expect(out).toContain('LANDMARK');
+    expect(out).toContain('z');
+    expect(out[0]).toBe('LANDMARK');
+  });
+
+  it('returns [] for non-positive maxCount', () => {
+    expect(selectMemoriesForPrompt([entry(1, 0.5)], 0)).toEqual([]);
+  });
+});

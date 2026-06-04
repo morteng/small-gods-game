@@ -65,3 +65,29 @@ export function computeSalience(kind: MemoryKind, beliefDelta?: BeliefDelta, moo
   const moodMag = Math.abs(moodDelta ?? 0);
   return clamp01(KIND_WEIGHT[kind] + 2 * beliefMag + moodMag);
 }
+
+/** Push an entry; if over MEMORY_MAX, evict the entry minimizing (salience, tick)
+ *  — lowest salience first, oldest as tiebreak. Mutates props.memories in place. */
+export function recordMemory(props: NpcProperties, entry: MemoryEntry): void {
+  const mems = props.memories ?? (props.memories = []);
+  mems.push(entry);
+  if (mems.length <= MEMORY_MAX) return;
+  let worst = 0;
+  for (let i = 1; i < mems.length; i++) {
+    const m = mems[i], w = mems[worst];
+    if (m.salience < w.salience || (m.salience === w.salience && m.tick < w.tick)) worst = i;
+  }
+  mems.splice(worst, 1);
+}
+
+/** Select up to maxCount summaries for a prompt: always include the highest-salience
+ *  landmark, fill the rest with the most recent, output chronological (tick-ascending). */
+export function selectMemoriesForPrompt(memories: MemoryEntry[], maxCount: number): string[] {
+  if (maxCount <= 0) return [];
+  if (memories.length <= maxCount) return memories.map(m => m.summary);
+  const landmark = memories.reduce((best, m) =>
+    m.salience > best.salience || (m.salience === best.salience && m.tick < best.tick) ? m : best);
+  const recent = memories.slice(-(maxCount - 1));
+  const chosen = recent.includes(landmark) ? memories.slice(-maxCount) : [landmark, ...recent];
+  return [...chosen].sort((a, b) => a.tick - b.tick).map(m => m.summary);
+}
