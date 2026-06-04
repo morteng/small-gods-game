@@ -44,6 +44,15 @@ export class PlotThreadStore {
     this.eventIndex.set(eventId, id);
   }
 
+  /** Promote a staged (dormant) thread to active. No-op if not currently staged. */
+  activate(id: ThreadId, tick: number): void {
+    const t = this.threads.get(id);
+    if (t && t.status === 'staged') {
+      t.status = 'active';
+      t.updatedTick = tick;
+    }
+  }
+
   resolve(id: ThreadId, status: 'resolved' | 'abandoned', tick: number): void {
     const t = this.threads.get(id);
     if (!t) return;
