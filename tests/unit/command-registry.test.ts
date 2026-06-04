@@ -49,14 +49,23 @@ describe('capability registry', () => {
     }
   });
 
-  it('declares authoring verbs but leaves them unwired (executor pending)', () => {
-    for (const v of ['bias_event', 'inject_npc', 'nudge_severity'] as CommandVerb[]) {
+  it('declares the still-unwired authoring verbs (executor pending)', () => {
+    for (const v of ['bias_event', 'nudge_severity'] as CommandVerb[]) {
       const def = CAPABILITY_REGISTRY[v];
       expect(def.tier).toBe('authoring');
       expect(def.implemented).toBe(false);
       expect(def.apply).toBeUndefined();
       expect(def.cost).toBe(0);
     }
+  });
+
+  it('wires inject_npc as the first implemented authoring (Fate escalation) verb', () => {
+    const def = CAPABILITY_REGISTRY.inject_npc;
+    expect(def.tier).toBe('authoring');
+    expect(def.implemented).toBe(true);
+    expect(typeof def.apply).toBe('function');
+    expect(typeof def.precondition).toBe('function');
+    expect(def.cost).toBe(0);
   });
 
   it('every verb has the expected target kind', () => {

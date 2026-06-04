@@ -305,6 +305,8 @@ export interface NpcProperties {
   deathTick?: number;
   /** Set only on a converted `remains` entity. e.g. 'old_age'. */
   deathCause?: string;
+  /** Fate-narrative archetype this stranger was injected as (Track 4 inject_npc). */
+  fateRole?: string;
   // movement / animation
   direction: Direction;
   frame: number;

@@ -50,6 +50,8 @@ import { mountTimeBar, type TimeBarHandle } from '@/ui/panels/time-bar';
 import type { RenderContextDeps } from '@/game/render-context';
 import { applyFollowCamera } from '@/game/camera-follow';
 import { LlmBackfillService } from '@/game/llm-backfill';
+import { FateBrainService } from '@/game/fate/fate-brain-service';
+import { FateTrigger } from '@/game/fate/fate-trigger';
 import { DevModeController } from '@/game/dev-mode-controller';
 import { FrameRenderer } from '@/game/frame-renderer';
 import { createInteractionState } from '@/game/interaction-state';
@@ -84,6 +86,7 @@ export class Game {
   private ui!: GameUi;
   private llmClient!: LLMClient;
   private llmBackfill!: LlmBackfillService;
+  private fateBrain!: FateBrainService;
   private llmClientCapable: LLMClient | null = null;   // Tier-2 "key moments" — built, not yet called (Track 4 / Fate)
   private welcomeModal: WelcomeModalHandle | null = null;
   private decorationImages = new DecorationImageCache();
@@ -132,7 +135,11 @@ export class Game {
     this.scheduler.register(new PerceptionSystem(identityOracle, () => this.state.map));
     // Narrative substrate: recognizers + stub producers run LAST so they see this
     // frame's events; activation fires armed beats (its commands apply next tick).
-    this.scheduler.register(new PlotThreadSystem(() => this.state.plotThreads, () => this.state.staging));
+    this.scheduler.register(new PlotThreadSystem(
+      () => this.state.plotThreads,
+      () => this.state.staging,
+      () => this.llmClientCapable === null,   // stub runs only as the offline fallback
+    ));
     this.scheduler.register(new StagingActivationSystem(
       this.discoveryQueue, this.commandQueue,
       () => this.state.staging, () => this.state.plotThreads,
@@ -350,6 +357,20 @@ export class Game {
       client: this.llmClient,
       onWriteback: () => this.renderer.forceInfoRefresh(),
     });
+
+    // ── Fate brain (Track 4) — autonomous reactive producer ──────────────────
+    this.fateBrain = new FateBrainService({
+      getState: () => this.state,
+      getCapableClient: () => this.llmClientCapable,
+      isScrubbed: () => this.timeline.isScrubbed,
+    });
+    const fateTrigger = new FateTrigger({
+      clock: this.state.clock,
+      cooldownTicks: 480,                       // ~5 game-days between deliberations
+      isReady: () => this.fateBrain.isReady(),
+      onTrigger: (focus) => { void this.fateBrain.deliberate(focus); },
+    });
+    fateTrigger.attach((fn) => this.state.eventLog.subscribe(fn));
 
     if (!localStorage.getItem(ONBOARDED_KEY)) {
       this.welcomeModal = createWelcomeModal(this.container, {

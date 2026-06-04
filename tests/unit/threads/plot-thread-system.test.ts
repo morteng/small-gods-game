@@ -5,6 +5,7 @@ import { EventLog, type AppendedEvent } from '@/core/events';
 import { SimClock } from '@/core/clock';
 import { createRng } from '@/core/rng';
 import { PlotThreadStore } from '@/sim/threads/thread-store';
+import { StagingBuffer } from '@/sim/threads/staging-buffer';
 import { PlotThreadSystem } from '@/sim/threads/systems/plot-thread-system';
 import type { SystemContext } from '@/core/scheduler';
 import type { GameMap, Tile, NpcProperties } from '@/core/types';
@@ -61,5 +62,36 @@ describe('PlotThreadSystem', () => {
     expect(store.active()).toHaveLength(1);
     sys.tick(ctx); // second tick, no new events
     expect(store.active()).toHaveLength(1); // not duplicated
+  });
+});
+
+function gateCtx(log: EventLog, clock: SimClock): SystemContext {
+  return { world: new World(makeMap()), spirits: new Map(), log, clock, rng: createRng(1), dt: 2000, now: 10 };
+}
+
+describe('PlotThreadSystem producer gate', () => {
+  it('does NOT run stub producers when isProducerActive returns false', () => {
+    const clock = new SimClock();
+    const log = new EventLog(clock);
+    const threads = new PlotThreadStore();
+    const staging = new StagingBuffer();
+    // A trial thread parked at `hardship` is exactly what the stub producer arms on.
+    const t = threads.open('trial', { kind: 'settlement', poiId: 'p1' }, 0);
+    threads.advance(t.id, 'hardship', 1, 0);
+    const sys = new PlotThreadSystem(() => threads, () => staging, () => false);
+    sys.tick(gateCtx(log, clock));
+    expect(staging.armedByTrigger('discovery')).toHaveLength(0);
+  });
+
+  it('DOES run stub producers when the gate is absent (default) or true', () => {
+    const clock = new SimClock();
+    const log = new EventLog(clock);
+    const threads = new PlotThreadStore();
+    const staging = new StagingBuffer();
+    const t = threads.open('trial', { kind: 'settlement', poiId: 'p1' }, 0);
+    threads.advance(t.id, 'hardship', 1, 0);
+    const sys = new PlotThreadSystem(() => threads, () => staging); // no gate ⇒ default on
+    sys.tick(gateCtx(log, clock));
+    expect(staging.armedByTrigger('discovery').length).toBeGreaterThan(0);
   });
 });

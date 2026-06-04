@@ -23,6 +23,7 @@ import {
   placePrecondition, placeApply,
   movePrecondition, moveApply,
 } from './editor-verbs';
+import { injectNpcPrecondition, injectNpcApply } from './authoring-verbs';
 
 export interface CapabilityDef {
   verb: CommandVerb;
@@ -136,8 +137,10 @@ export const CAPABILITY_REGISTRY: Record<CommandVerb, CapabilityDef> = {
     describe: (cmd) => `bias the next event at ${targetLabel(cmd)}`,
   },
   inject_npc: {
-    verb: 'inject_npc', tier: 'authoring', cost: 0, targetKind: 'settlement', implemented: false,
-    describe: (cmd) => `bring a stranger to ${targetLabel(cmd)}`,
+    verb: 'inject_npc', tier: 'authoring', cost: 0, targetKind: 'settlement', implemented: true,
+    precondition: injectNpcPrecondition,
+    apply: injectNpcApply,
+    describe: (cmd) => `bring a ${cmd.payload?.role ?? 'stranger'} to ${targetLabel(cmd)}`,
   },
   nudge_severity: {
     verb: 'nudge_severity', tier: 'authoring', cost: 0, targetKind: 'settlement', implemented: false,
