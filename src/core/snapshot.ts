@@ -62,8 +62,12 @@ export function captureSnapshot(state: GameState): Snapshot {
 }
 
 export function restoreSnapshot(state: GameState, snap: Snapshot): void {
-  if (!state.world || !state.map) {
-    throw new Error('restoreSnapshot: world/map not initialized');
+  // Only `map` is required: a fresh World is built from it below, and the old
+  // state.world is never read. The resume-from-save path (applySaveFile) calls
+  // this with state.world still null, so requiring a pre-existing world here
+  // would wrongly throw and silently break autosave resume.
+  if (!state.map) {
+    throw new Error('restoreSnapshot: map not initialized');
   }
   state.clock.setNow(snap.tick);
   state.rng = fromState(snap.rng);

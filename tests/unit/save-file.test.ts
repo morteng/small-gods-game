@@ -66,6 +66,19 @@ describe('save-file', () => {
     expect(fresh.blobMap).not.toBeNull();
   });
 
+  it('restores into a fresh state whose world is still null (the real resume path)', () => {
+    // bootstrapWorld's resume branch calls applySaveFile on the freshly-created
+    // GameState, where createState() leaves world AND map null. restoreSnapshot
+    // builds the world from the save's map, so it must not require a pre-existing one.
+    const save = toSaveFile(seededState(), 1);
+    const fresh = createState();
+    expect(fresh.world).toBeNull();
+    expect(applySaveFile(fresh, save)).toBe(true);
+    expect(fresh.world).not.toBeNull();
+    expect(fresh.world!.query({ kind: 'npc' })).toHaveLength(1);
+    expect(fresh.clock.now()).toBe(123);
+  });
+
   it('applySaveFile returns false on version mismatch and leaves state untouched', () => {
     const save = toSaveFile(seededState(), 1);
     save.version = 999;
