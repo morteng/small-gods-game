@@ -18,6 +18,7 @@ export interface FateBrainDeps {
   getState: () => GameState;
   getCapableClient: () => LLMClient | null;
   isScrubbed: () => boolean;
+  /** Observability/test seam — fires for each armed beat. Intentionally unwired in game.ts. */
   onArmed?: (beat: StagedBeat) => void;
 }
 

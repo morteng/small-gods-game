@@ -30,7 +30,7 @@ export const FATE_TOOLS: LLMTool[] = [
           description: "'inject_npc' = a stranger arrives; 'none' = atmosphere only.",
         },
         role: {
-          type: 'string', enum: ['preacher', 'skeptic', 'refugee'],
+          type: 'string', enum: [...FATE_ROLES],   // single source of truth for the archetype vocabulary
           description: 'If hard=inject_npc, who arrives.',
         },
         soft: { type: 'string', description: 'One line of atmosphere/narration primed on discovery.' },
