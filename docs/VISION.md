@@ -64,6 +64,8 @@ malevolent and uncaring from inside, while actually being the author.
 > devices, and it is never addressed or bargained with from in-world. Player
 > "modelling" belongs to **rival spirits** (who learn your strategy), not to Fate.
 
+**Fate may prepare the stage.** Fate is still reactive: any content it stages must (a) **amplify or escalate an existing sim condition** (a recognized plot thread), never an arbitrary plot device, and (b) be **latent until discovered** — it materializes only when the player's attention reaches its subject. Fate sets out grounded possibilities; the sim and the player's attention decide which become real. (This is the attention/realization cosmology of §2.3 applied to narrative.)
+
 ### 2.2 Gods — the intervenors
 
 Gods — the player (a small god), rival small gods, and distant major gods — are
