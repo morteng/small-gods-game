@@ -30,12 +30,24 @@ describe('snapshot persists threads', () => {
     expect(state.plotThreads.get(t.id)!.status).toBe('active');
   });
 
-  it('tolerates an old snapshot with no threads field', () => {
+  it('round-trips armed staged beats', () => {
+    const state = createState();
+    attachWorld(state);
+    state.staging.arm({ subject: { kind: 'settlement', poiId: 'p1' }, trigger: { kind: 'discovery' }, hard: [], stagedTick: 0 });
+    const snap = captureSnapshot(state);
+    state.staging.hydrate([]); // wipe after capture
+    restoreSnapshot(state, snap);
+    expect(state.staging.armedFor({ kind: 'settlement', poiId: 'p1' })).toHaveLength(1);
+  });
+
+  it('tolerates an old snapshot with no threads/staging fields', () => {
     const state = createState();
     attachWorld(state);
     const snap = captureSnapshot(state);
     delete (snap as { threads?: unknown }).threads;
+    delete (snap as { staging?: unknown }).staging;
     expect(() => restoreSnapshot(state, snap)).not.toThrow();
     expect(state.plotThreads.active()).toHaveLength(0);
+    expect(state.staging.armedFor({ kind: 'settlement', poiId: 'p1' })).toHaveLength(0);
   });
 });

@@ -7,6 +7,7 @@ import { SimClock } from '@/core/clock';
 import { createCamera } from '@/render/camera';
 import { createRng, type Rng } from '@/core/rng';
 import { PlotThreadStore } from '@/sim/threads/thread-store';
+import { StagingBuffer } from '@/sim/threads/staging-buffer';
 
 export interface GameState {
   map: GameMap | null;
@@ -31,6 +32,8 @@ export interface GameState {
   generatedDecorations: GeneratedDecoration[];
   /** Narrative substrate: recognized/tracked plot threads (serialized in snapshots). */
   plotThreads: PlotThreadStore;
+  /** Narrative substrate: armed, dormant staged beats (serialized in snapshots). */
+  staging: StagingBuffer;
 }
 
 export function createState(): GameState {
@@ -72,5 +75,6 @@ export function createState(): GameState {
     biomeMap: null,
     generatedDecorations: [],
     plotThreads: new PlotThreadStore(),
+    staging: new StagingBuffer(),
   };
 }
