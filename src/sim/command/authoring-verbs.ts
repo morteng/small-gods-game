@@ -6,7 +6,7 @@
  * stranger (preacher / skeptic / refugee) arrives at a settlement under an active
  * thread. All randomness flows through ctx.rng (seeded) — never Math.random.
  */
-import type { NpcRole } from '@/core/types';
+import type { NpcRole, SettlementEventType } from '@/core/types';
 import type { Command, ApplyCtx, CommandCtx, RejectionReason } from './types';
 import { initNpcProps } from '@/world/npc-helpers';
 import { resolveCenter, findPlacement } from './editor-verbs';
@@ -53,5 +53,25 @@ export function injectNpcApply(cmd: Command, ctx: ApplyCtx): boolean {
   props.lineageId = id;                                   // founder of its own lineage
   ctx.world.addEntity({ id, kind: 'npc', x: spot.x, y: spot.y, properties: props as unknown as Record<string, unknown> });
   ctx.log.append({ type: 'authored_spawn', entityIds: [id], role, count: 1 });
+  return true;
+}
+
+// ── bias_event ───────────────────────────────────────────────────────────────
+// Force the next settlement event at a poi to be a specific type. A one-shot
+// write onto world.forcedEvents; the settlement-event system consumes it later.
+const EVENT_TYPES: ReadonlySet<string> = new Set<SettlementEventType>([
+  'drought', 'festival', 'dispute', 'plague', 'raiders', 'trading_caravan', 'stranger_arrives', 'harvest_blessing',
+]);
+
+export function biasEventPrecondition(cmd: Command, _ctx: CommandCtx): RejectionReason | null {
+  const poiId = poiOf(cmd);
+  if (!poiId) return 'invalid_target';
+  const type = P(cmd).eventType;
+  if (typeof type !== 'string' || !EVENT_TYPES.has(type)) return 'invalid_payload';
+  return null;
+}
+
+export function biasEventApply(cmd: Command, ctx: ApplyCtx): boolean {
+  ctx.world.forcedEvents.set(poiOf(cmd)!, P(cmd).eventType as SettlementEventType);
   return true;
 }

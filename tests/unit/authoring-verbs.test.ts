@@ -6,7 +6,7 @@ import { SimClock } from '@/core/clock';
 import { EventLog } from '@/core/events';
 import { createRng } from '@/core/rng';
 import { initNpcProps, npcProps, queryNpcs } from '@/world/npc-helpers';
-import type { Entity, GameMap, NpcProperties } from '@/core/types';
+import type { Entity, GameMap, NpcProperties, Tile } from '@/core/types';
 import type { Spirit, SpiritId } from '@/core/spirit';
 import { FATE_ROLE_MAP } from '@/sim/command/authoring-verbs';
 
@@ -59,6 +59,46 @@ describe('inject_npc', () => {
     const world = new World(bigMap());
     world.addEntity(resident('r1', 5, 5, 'poi1'));
     const res = executeCommand(injectCmd('poiX', 'refugee'), applyCtx(world));
+    expect(res).toMatchObject({ status: 'rejected', reason: 'invalid_target' });
+  });
+});
+
+function biasMap(): GameMap {
+  const tiles: Tile[][] = [];
+  for (let y = 0; y < 2; y++) {
+    const row: Tile[] = [];
+    for (let x = 0; x < 2; x++) row.push({ type: 'grass', x, y, walkable: true, state: 'realized' });
+    tiles.push(row);
+  }
+  return { tiles, width: 2, height: 2, villages: [], seed: 1, success: true,
+           worldSeed: null, stats: { iterations: 0, backtracks: 0 }, buildings: [] };
+}
+function biasCtx(world: World): ApplyCtx {
+  return { world, spirits: new Map(), log: new EventLog(new SimClock()), rng: createRng(1), now: 0 };
+}
+function biasCmd(payload: Record<string, unknown>, poiId = 'poi1'): Command {
+  return { verb: 'bias_event', source: 'fate', target: { kind: 'settlement', poiId }, payload, seq: 0 };
+}
+
+describe('bias_event', () => {
+  it('sets world.forcedEvents for a valid eventType', () => {
+    const world = new World(biasMap());
+    const res = executeCommand(biasCmd({ eventType: 'plague' }), biasCtx(world));
+    expect(res.status).toBe('applied');
+    expect(world.forcedEvents.get('poi1')).toBe('plague');
+  });
+
+  it('rejects an unknown eventType as invalid_payload', () => {
+    const world = new World(biasMap());
+    const res = executeCommand(biasCmd({ eventType: 'banana' }), biasCtx(world));
+    expect(res).toMatchObject({ status: 'rejected', reason: 'invalid_payload' });
+    expect(world.forcedEvents.size).toBe(0);
+  });
+
+  it('rejects a non-settlement target as invalid_target', () => {
+    const world = new World(biasMap());
+    const cmd: Command = { verb: 'bias_event', source: 'fate', target: { kind: 'none' }, payload: { eventType: 'drought' }, seq: 0 };
+    const res = executeCommand(cmd, biasCtx(world));
     expect(res).toMatchObject({ status: 'rejected', reason: 'invalid_target' });
   });
 });
