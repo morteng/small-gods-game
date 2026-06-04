@@ -23,7 +23,7 @@ function makeState(): GameState {
   const m = map();
   return {
     world: new World(m), map: m, clock: new SimClock(), rng: createRng(1),
-    eventLog: new EventLog(), spirits: new Map(),
+    eventLog: new EventLog(new SimClock()), spirits: new Map(),
     plotThreads: new PlotThreadStore(), staging: new StagingBuffer(),
   } as unknown as GameState;
 }
@@ -31,19 +31,19 @@ function makeState(): GameState {
 describe('snapshot forcedEvents', () => {
   it('round-trips world.forcedEvents through capture/restore', () => {
     const state = makeState();
-    state.world.forcedEvents.set('poi1', 'plague');
+    state.world!.forcedEvents.set('poi1', 'plague');
     const snap = captureSnapshot(state);
-    state.world.forcedEvents.clear();          // mutate away after capture
+    state.world!.forcedEvents.clear();          // mutate away after capture
     restoreSnapshot(state, snap);
-    expect([...state.world.forcedEvents]).toEqual([['poi1', 'plague']]);
+    expect([...state.world!.forcedEvents]).toEqual([['poi1', 'plague']]);
   });
 
   it('tolerates a snapshot with no forcedEvents field (older save)', () => {
     const state = makeState();
-    state.world.forcedEvents.set('poi1', 'drought');
+    state.world!.forcedEvents.set('poi1', 'drought');
     const snap = captureSnapshot(state);
     delete (snap as Partial<Snapshot>).forcedEvents;   // simulate a pre-feature save
     restoreSnapshot(state, snap);
-    expect(state.world.forcedEvents.size).toBe(0);
+    expect(state.world!.forcedEvents.size).toBe(0);
   });
 });

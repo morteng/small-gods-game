@@ -67,7 +67,7 @@ function makeState(): GameState {
   const m = map();
   return {
     world: new World(m), map: m, clock: new SimClock(), rng: createRng(1),
-    eventLog: new EventLog(), spirits: new Map(),
+    eventLog: new EventLog(new SimClock()), spirits: new Map(),
     plotThreads: new PlotThreadStore(), staging: new StagingBuffer(),
   } as unknown as GameState;
 }
@@ -181,7 +181,7 @@ function biasMap(): GameMap {
            worldSeed: null, stats: { iterations: 0, backtracks: 0 }, buildings: [] };
 }
 function biasCtx(world: World): ApplyCtx {
-  return { world, spirits: new Map(), log: new EventLog(), rng: createRng(1), now: 0 };
+  return { world, spirits: new Map(), log: new EventLog(new SimClock()), rng: createRng(1), now: 0 };
 }
 function biasCmd(payload: Record<string, unknown>, poiId = 'poi1'): Command {
   return { verb: 'bias_event', source: 'fate', target: { kind: 'settlement', poiId }, payload, seq: 0 };
@@ -321,7 +321,7 @@ function resident(world: World, poiId: string) {
 
 describe('SettlementEventSystem forced events', () => {
   it('materializes the forced event type on the next eligible tick and clears the bias', () => {
-    const world = new World(map()); const log = new EventLog(); const clock = new SimClock();
+    const world = new World(map()); const log = new EventLog(new SimClock()); const clock = new SimClock();
     resident(world, 'poi1');
     world.forcedEvents.set('poi1', 'plague');
     const sys = new SettlementEventSystem();
@@ -335,7 +335,7 @@ describe('SettlementEventSystem forced events', () => {
   });
 
   it('leaves the bias intact while the POI already has an active event', () => {
-    const world = new World(map()); const log = new EventLog(); const clock = new SimClock();
+    const world = new World(map()); const log = new EventLog(new SimClock()); const clock = new SimClock();
     resident(world, 'poi1');
     world.activeEvents.set('poi1', [{ type: 'festival', poiId: 'poi1', severity: 0.5, durationTicks: 100, ticksElapsed: 0 }]);
     world.forcedEvents.set('poi1', 'plague');
@@ -1007,7 +1007,7 @@ describe('Fate amplify levers — integration', () => {
   it('brain force_next_event → roller materializes that event', () => {
     return (async () => {
       const world = new World(map()); const state = makeState(world);
-      const queue = new CommandQueue(); const log = new EventLog();
+      const queue = new CommandQueue(); const log = new EventLog(new SimClock());
       const brain = new FateBrainService({
         getState: () => state, isScrubbed: () => false,
         getCapableClient: () => clientWith([{ id: 'c0', name: 'force_next_event', arguments: { subjectPoiId: 'poi1', eventType: 'plague' } }]),
@@ -1030,7 +1030,7 @@ describe('Fate amplify levers — integration', () => {
     return (async () => {
       const world = new World(map()); const state = makeState(world);
       world.activeEvents.set('poi1', [{ type: 'drought', poiId: 'poi1', severity: 0.4, durationTicks: 100, ticksElapsed: 0 }]);
-      const queue = new CommandQueue(); const log = new EventLog();
+      const queue = new CommandQueue(); const log = new EventLog(new SimClock());
       const brain = new FateBrainService({
         getState: () => state, isScrubbed: () => false,
         getCapableClient: () => clientWith([{ id: 'c0', name: 'nudge_event_severity', arguments: { subjectPoiId: 'poi1', delta: 0.3 } }]),
