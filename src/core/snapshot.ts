@@ -1,5 +1,5 @@
 import type { GameState } from '@/core/state';
-import type { Entity, ActiveEvent } from '@/core/types';
+import type { Entity, ActiveEvent, SettlementEventType } from '@/core/types';
 import type { RngState } from '@/core/rng';
 import type { Spirit } from '@/core/spirit';
 import type { PlotThread } from '@/sim/threads/thread-types';
@@ -18,6 +18,8 @@ export interface Snapshot {
   entities: Entity[];
   /** Active settlement events keyed by POI id. */
   activeEvents: [string, ActiveEvent[]][];
+  /** Fate's forced next-event per POI. Optional so older saves restore via `?? []`. */
+  forcedEvents?: [string, SettlementEventType][];
   /** Complete deep-cloned copies of every spirit. Snapshot is authoritative. */
   spirits: Spirit[];
   /** Narrative substrate: recognized plot threads. Optional so pre-substrate
@@ -42,12 +44,15 @@ export function captureSnapshot(state: GameState): Snapshot {
       activeEvents.push([poiId, structuredClone(events)]);
     }
   }
+  const forcedEvents: [string, SettlementEventType][] = [];
+  for (const [poiId, type] of state.world.forcedEvents) forcedEvents.push([poiId, type]);
   return {
     tick: state.clock.now(),
     eventId: state.eventLog.size(),
     rng: state.rng.getState(),
     entities,
     activeEvents,
+    forcedEvents,
     spirits,
     // Optional access: production states (createState) always have these; some
     // test harnesses cast a partial GameState that omits the substrate stores.
@@ -78,6 +83,7 @@ export function restoreSnapshot(state: GameState, snap: Snapshot): void {
   for (const [poiId, events] of snap.activeEvents) {
     fresh.activeEvents.set(poiId, structuredClone(events));
   }
+  for (const [poiId, type] of snap.forcedEvents ?? []) fresh.forcedEvents.set(poiId, type);
   state.world = fresh;
 
   // `?? []` tolerates pre-substrate snapshots (older saves) with no threads field;

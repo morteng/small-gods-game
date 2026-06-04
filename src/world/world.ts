@@ -19,6 +19,9 @@ export class World {
   /** Active settlement events keyed by POI id. */
   readonly activeEvents = new Map<string, ActiveEvent[]>();
 
+  /** Fate's one-shot forced next-event per POI (authoring verb bias_event). */
+  readonly forcedEvents = new Map<string, import('@/core/types').SettlementEventType>();
+
   constructor(public readonly tiles: GameMap) {}
 
   addEntity(e: Entity): void {
