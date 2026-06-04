@@ -273,6 +273,21 @@ export interface NpcSimState {
   activity:        NpcActivity;
 }
 
+/** What kind of interaction produced a memory. */
+export type MemoryKind = 'whisper' | 'backfill' | 'dream' | 'miracle' | 'answer';
+
+/** A distilled, salience-tagged episodic memory of one interaction with a god.
+ *  Stored on NpcProperties; rides the snapshot (structuredClone) + SaveFile. */
+export interface MemoryEntry {
+  /** Sim tick when it happened. */
+  tick: number;
+  kind: MemoryKind;
+  /** One-line distilled summary (from interaction-memory.distillInteraction / summarizeDivineAct). */
+  summary: string;
+  /** 0..1, deterministic — high-salience landmarks survive eviction. */
+  salience: number;
+}
+
 /** Properties stored on an Entity with kind: 'npc'. Replaces NpcInstance + NpcSimState. */
 export interface NpcProperties {
   // identity
@@ -327,6 +342,9 @@ export interface NpcProperties {
   possessedBy?: SpiritId;
   // narrative breadcrumbs
   recentEventIds: number[];
+  /** Distilled, salience-tagged episodic memory of interactions with gods (Track 2).
+   *  Optional → old saves/snapshots without it read as []. */
+  memories?: MemoryEntry[];
 }
 
 /** NPC activity state */

@@ -175,37 +175,5 @@ function buildContextSection(
 
 // ─── Interaction Summary ──────────────────────────────────────
 
-/**
- * Create a short text summary of an LLM interaction for future context.
- */
-export function createInteractionSummary(
-  npcName: string,
-  response: { belief_delta?: { faith?: number; understanding?: number; devotion?: number }; mood_delta?: number; dialogue?: string },
-  playerName: string,
-): string {
-  const parts: string[] = [];
-
-  parts.push(`${npcName} interacted with ${playerName}.`);
-
-  if (response.dialogue) {
-    const preview = response.dialogue.length > 50 ? response.dialogue.slice(0, 47) + '...' : response.dialogue;
-    parts.push(`${npcName} said: "${preview}"`);
-  }
-
-  if (response.belief_delta) {
-    const deltaParts: string[] = [];
-    if (response.belief_delta.faith) deltaParts.push(`faith${response.belief_delta.faith > 0 ? '+' : ''}${response.belief_delta.faith.toFixed(2)}`);
-    if (response.belief_delta.understanding) deltaParts.push(`understanding${response.belief_delta.understanding > 0 ? '+' : ''}${response.belief_delta.understanding.toFixed(2)}`);
-    if (response.belief_delta.devotion) deltaParts.push(`devotion${response.belief_delta.devotion > 0 ? '+' : ''}${response.belief_delta.devotion.toFixed(2)}`);
-    if (deltaParts.length > 0) {
-      parts.push(`Belief changed: ${deltaParts.join(', ')}`);
-    }
-  }
-
-  if (response.mood_delta) {
-    const direction = response.mood_delta > 0 ? 'improved' : 'worsened';
-    parts.push(`Mood ${direction} by ${Math.abs(response.mood_delta).toFixed(2)}`);
-  }
-
-  return parts.join(' ');
-}
+// Consolidated into interaction-memory (DRY). Re-exported under the old name for back-compat.
+export { distillInteraction as createInteractionSummary } from '@/llm/interaction-memory';

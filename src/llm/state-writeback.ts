@@ -223,33 +223,5 @@ export function validateLLMResponse(response: unknown): response is LLMResponse 
   return hasContent;
 }
 
-/**
- * Create a summary of an LLM interaction for storage in NPC's memory.
- * This is used to build context for future LLM calls.
- */
-export function createInteractionSummary(
-  npcName: string,
-  response: LLMResponse,
-  spiritName: string,
-): string {
-  const parts: string[] = [];
-
-  if (response.dialogue) {
-    parts.push(`${npcName} said: "${response.dialogue.slice(0, 50)}${response.dialogue.length > 50 ? '...' : ''}"`);
-  }
-
-  if (response.belief_delta) {
-    const changes: string[] = [];
-    if (response.belief_delta.faith) changes.push(`faith${response.belief_delta.faith > 0 ? '+' : ''}${response.belief_delta.faith?.toFixed(2)}`);
-    if (response.belief_delta.understanding) changes.push(`understanding${response.belief_delta.understanding > 0 ? '+' : ''}${response.belief_delta.understanding?.toFixed(2)}`);
-    if (changes.length > 0) {
-      parts.push(`Belief changed: ${changes.join(', ')}`);
-    }
-  }
-
-  if (response.mood_delta) {
-    parts.push(`Mood ${response.mood_delta > 0 ? 'improved' : 'worsened'} by ${Math.abs(response.mood_delta).toFixed(2)}`);
-  }
-
-  return parts.join('; ') || `${npcName} interacted with ${spiritName}`;
-}
+// Consolidated into interaction-memory (DRY). Re-exported under the old name for back-compat.
+export { distillInteraction as createInteractionSummary } from '@/llm/interaction-memory';
