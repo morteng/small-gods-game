@@ -75,3 +75,31 @@ export function biasEventApply(cmd: Command, ctx: ApplyCtx): boolean {
   ctx.world.forcedEvents.set(poiOf(cmd)!, P(cmd).eventType as SettlementEventType);
   return true;
 }
+
+// ── nudge_severity ───────────────────────────────────────────────────────────
+// Adjust the severity of every active event at a settlement by a signed delta.
+// Pure mutation — no RNG. Clamped to [0.05, 1.0]; per-call magnitude capped ±0.5.
+const SEVERITY_MIN = 0.05;
+const SEVERITY_MAX = 1.0;
+const MAX_NUDGE = 0.5;       // per-call magnitude cap
+
+export function nudgeSeverityPrecondition(cmd: Command, ctx: CommandCtx): RejectionReason | null {
+  const poiId = poiOf(cmd);
+  if (!poiId) return 'invalid_target';
+  const delta = P(cmd).delta;
+  if (typeof delta !== 'number' || !Number.isFinite(delta)) return 'invalid_payload';
+  const events = ctx.world.activeEvents.get(poiId);
+  if (!events || events.length === 0) return 'precondition_failed';
+  return null;
+}
+
+export function nudgeSeverityApply(cmd: Command, ctx: ApplyCtx): boolean {
+  const events = ctx.world.activeEvents.get(poiOf(cmd)!);
+  if (!events || events.length === 0) return false;          // lost a race after the pre-gate
+  const raw = P(cmd).delta as number;
+  const delta = Math.max(-MAX_NUDGE, Math.min(MAX_NUDGE, raw));
+  for (const e of events) {
+    e.severity = Math.round(Math.max(SEVERITY_MIN, Math.min(SEVERITY_MAX, e.severity + delta)) * 100) / 100;
+  }
+  return true;
+}

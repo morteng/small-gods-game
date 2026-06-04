@@ -102,3 +102,37 @@ describe('bias_event', () => {
     expect(res).toMatchObject({ status: 'rejected', reason: 'invalid_target' });
   });
 });
+
+function nudgeCmd(delta: unknown, poiId = 'poi1'): Command {
+  return { verb: 'nudge_severity', source: 'fate', target: { kind: 'settlement', poiId }, payload: { delta }, seq: 0 };
+}
+function withEvent(world: World, severity: number) {
+  world.activeEvents.set('poi1', [{ type: 'drought', poiId: 'poi1', severity, durationTicks: 100, ticksElapsed: 0 }]);
+}
+
+describe('nudge_severity', () => {
+  it('raises severity and clamps at 1.0', () => {
+    const world = new World(biasMap()); withEvent(world, 0.8);
+    const res = executeCommand(nudgeCmd(0.5), biasCtx(world));
+    expect(res.status).toBe('applied');
+    expect(world.activeEvents.get('poi1')![0].severity).toBe(1.0);
+  });
+
+  it('lowers severity and clamps at the 0.05 floor', () => {
+    const world = new World(biasMap()); withEvent(world, 0.2);
+    executeCommand(nudgeCmd(-0.5), biasCtx(world));
+    expect(world.activeEvents.get('poi1')![0].severity).toBe(0.05);
+  });
+
+  it('rejects precondition_failed when the POI has no active event', () => {
+    const world = new World(biasMap());
+    const res = executeCommand(nudgeCmd(0.2), biasCtx(world));
+    expect(res).toMatchObject({ status: 'rejected', reason: 'precondition_failed' });
+  });
+
+  it('rejects a non-finite delta as invalid_payload', () => {
+    const world = new World(biasMap()); withEvent(world, 0.5);
+    const res = executeCommand(nudgeCmd('lots'), biasCtx(world));
+    expect(res).toMatchObject({ status: 'rejected', reason: 'invalid_payload' });
+  });
+});

@@ -49,12 +49,13 @@ describe('capability registry', () => {
     }
   });
 
-  it('declares the still-unwired authoring verbs (executor pending)', () => {
-    for (const v of ['nudge_severity'] as CommandVerb[]) {
+  it('wires every authoring verb as implemented (executor in place)', () => {
+    for (const v of ['bias_event', 'inject_npc', 'nudge_severity'] as CommandVerb[]) {
       const def = CAPABILITY_REGISTRY[v];
       expect(def.tier).toBe('authoring');
-      expect(def.implemented).toBe(false);
-      expect(def.apply).toBeUndefined();
+      expect(def.implemented).toBe(true);
+      expect(typeof def.apply).toBe('function');
+      expect(typeof def.precondition).toBe('function');
       expect(def.cost).toBe(0);
     }
   });
