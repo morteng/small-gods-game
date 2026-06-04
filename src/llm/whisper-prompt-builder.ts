@@ -7,6 +7,8 @@ export interface WhisperPromptContext {
   whisperText: string;
   recentTurns: WhisperTurn[];
   playerSpiritId: SpiritId;
+  /** Distilled long-term memories of this god, for cross-session recall (Track 2). */
+  pastMemories?: string[];
 }
 
 import type { BuiltPrompt } from '@/llm/npc-prompt-builder';
@@ -47,6 +49,10 @@ export function buildWhisperPrompt(ctx: WhisperPromptContext): BuiltPrompt {
   if (recent.length) {
     lines.push('Recent whisper exchanges (oldest first):');
     for (const t of recent) lines.push(`  you whispered: "${t.whisper}" → they reacted: "${t.dialogue}"`);
+  }
+  if (ctx.pastMemories && ctx.pastMemories.length) {
+    lines.push('They remember of you:');
+    for (const m of ctx.pastMemories) lines.push(`  - ${m}`);
   }
   lines.push(`You now whisper: "${ctx.whisperText}"`);
   lines.push('Return the mortal\'s reaction as JSON.');

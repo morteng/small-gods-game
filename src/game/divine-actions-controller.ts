@@ -11,7 +11,7 @@
  * — identical observable behavior to the old direct calls, only ≤1 tick later.
  */
 
-import type { Entity } from '@/core/types';
+import type { Entity, MemoryKind } from '@/core/types';
 import type { DivineEffects } from '@/render/divine-effects';
 import type { OverlayDispatcher } from '@/ui/overlay-dispatcher';
 import type { CommandQueue } from '@/sim/command/command-queue';
@@ -19,6 +19,7 @@ import { previewCommand } from '@/sim/command/command-system';
 import type { Command, CommandTarget, CommandVerb, CommandCtx } from '@/sim/command/types';
 import { getNpc, npcProps } from '@/world/npc-helpers';
 import type { GameState } from '@/core/state';
+import { recordMemory, summarizeDivineAct, computeSalience } from '@/llm/interaction-memory';
 
 export interface DivineActionsDeps {
   state: GameState;
@@ -57,6 +58,19 @@ export class DivineActionsController {
     return true;
   }
 
+  /** Record a salience-tagged memory of an NPC-targeted divine act. Called only
+   *  after the command actually emitted (passed the registry preview). */
+  private recordAct(npc: Entity, kind: MemoryKind): void {
+    const props = npcProps(npc);
+    const spiritName = this.deps.state.spirits.get('player')?.name ?? 'your god';
+    recordMemory(props, {
+      tick: this.deps.state.clock.now(),
+      kind,
+      summary: summarizeDivineAct(kind, props.name, spiritName),
+      salience: computeSalience(kind),
+    });
+  }
+
   // ─── Action methods ────────────────────────────────────────────────────────
 
   whisper(npc: Entity): boolean {
@@ -71,13 +85,18 @@ export class DivineActionsController {
   dream(npc: Entity): boolean {
     if (this.tryEmit('dream', { kind: 'npc', npcId: npc.id })) {
       this.deps.divineEffects.trigger('dream', npc.x, npc.y);
+      this.recordAct(npc, 'dream');
       return true;
     }
     return false;
   }
 
   answerPrayer(npc: Entity): boolean {
-    return this.tryEmit('answer_prayer', { kind: 'npc', npcId: npc.id });
+    if (this.tryEmit('answer_prayer', { kind: 'npc', npcId: npc.id })) {
+      this.recordAct(npc, 'answer');
+      return true;
+    }
+    return false;
   }
 
   /** Cast omen at a specific POI id (dispatcher path — no particle effect). */

@@ -3,7 +3,8 @@ import { sendWhisper, type WhisperOrchestratorDeps } from '@/game/whisper-orches
 import { CommandQueue } from '@/sim/command/command-queue';
 import { NpcAttentionStore } from '@/llm/npc-attention-store';
 import { LLMClient } from '@/llm/llm-client';
-import type { Entity } from '@/core/types';
+import type { Entity, NpcProperties } from '@/core/types';
+import { recordMemory } from '@/llm/interaction-memory';
 
 function npc(): Entity {
   return { id: 'npc1', kind: 'npc', x: 0, y: 0, properties: {
@@ -67,5 +68,29 @@ describe('sendWhisper orchestration', () => {
     const after = (e.properties as any).beliefs.player.faith;
     expect(after - before).toBeCloseTo(0.10, 5);
     expect(store.getTranscript('npc1')[0].faithBonus).toBeCloseTo(0.10, 5);
+  });
+});
+
+describe('whisper interaction memory', () => {
+  it('records a memory after a successful whisper', async () => {
+    const store = new NpcAttentionStore(); const queue = new CommandQueue();
+    const e = npc();
+    await sendWhisper(e, 'be brave', mkDeps(store, queue, stubClient({ dialogue: 'I will try', belief_bonus: 0.05, mood_delta: 0.1 })));
+    const mems = (e.properties as unknown as NpcProperties).memories ?? [];
+    expect(mems).toHaveLength(1);
+    expect(mems[0].kind).toBe('whisper');
+  });
+
+  it('passes prior memories into the whisper prompt', async () => {
+    const store = new NpcAttentionStore(); const queue = new CommandQueue();
+    const e = npc();
+    recordMemory(e.properties as unknown as NpcProperties, { tick: 1, kind: 'answer', summary: 'Fooob answered Maeve\'s prayer', salience: 0.7 });
+    const captured: string[] = [];
+    const client = new LLMClient({ async generate(messages: { content: string }[]) {
+      captured.push(messages[messages.length - 1].content);
+      return { content: JSON.stringify({ dialogue: 'ok', belief_bonus: 0, mood_delta: 0 }), latencyMs: 0 };
+    } } as any);
+    await sendWhisper(e, 'again', mkDeps(store, queue, client));
+    expect(captured[0]).toContain('answered Maeve');
   });
 });
