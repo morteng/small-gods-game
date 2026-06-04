@@ -91,15 +91,24 @@ describe('executeCommand', () => {
     expect((res as Extract<CommandResult, { status: 'rejected' }>).reason).toBe('precondition_failed');
   });
 
-  it('rejects not_implemented for each still-unimplemented authoring verb without mutating state', () => {
+  it('applies the authoring amplify verbs without consuming any spirit power', () => {
     const world = new World(tinyMap());
     const spirits = new Map([['player', spirit(100)]]);
-    // inject_npc is now implemented (Fate escalation verb); only bias_event and
-    // nudge_severity remain stubs that reject before any tier branch.
-    for (const verb of ['bias_event', 'nudge_severity'] as Command['verb'][]) {
-      const res = executeCommand(command({ verb, target: { kind: 'settlement', poiId: 'poi1' } }), ctx(world, spirits));
-      expect((res as Extract<CommandResult, { status: 'rejected' }>).reason).toBe('not_implemented');
-    }
+    // bias_event / nudge_severity are now implemented Fate-tier levers (cost 0,
+    // spiritless). bias_event writes a forced next-event; nudge_severity needs an
+    // active event so it precondition-fails on a quiet poi — neither touches power.
+    const biasRes = executeCommand(
+      command({ verb: 'bias_event', source: 'fate', target: { kind: 'settlement', poiId: 'poi1' }, payload: { eventType: 'plague' } }),
+      ctx(world, spirits),
+    );
+    expect(biasRes.status).toBe('applied');
+    expect(world.forcedEvents.get('poi1')).toBe('plague');
+
+    const nudgeRes = executeCommand(
+      command({ verb: 'nudge_severity', source: 'fate', target: { kind: 'settlement', poiId: 'poi1' }, payload: { delta: 0.2 } }),
+      ctx(world, spirits),
+    );
+    expect((nudgeRes as Extract<CommandResult, { status: 'rejected' }>).reason).toBe('precondition_failed'); // no active event
     expect(spirits.get('player')!.power).toBe(100);
   });
 
@@ -129,13 +138,16 @@ describe('editor tier (foundation)', () => {
     }
   });
 
-  it('rejects an unimplemented (authoring-tier) verb with not_implemented before any tier branch', () => {
+  it('routes an authoring-tier verb through its precondition (spiritless), not the spirit/power branch', () => {
+    // Authoring tier is spiritless: even with an empty spirit map it never trips
+    // unknown_source/insufficient_power — bias_event on a none-target fails its own
+    // precondition (no poiId → invalid_target) instead.
     const world = new World(tinyMap());
     const res = executeCommand(
       command({ verb: 'bias_event', source: 'author', target: { kind: 'none' } }),
       ctx(world, new Map()),
     );
-    expect(res).toEqual({ status: 'rejected', verb: 'bias_event', source: 'author', reason: 'not_implemented' });
+    expect(res).toEqual({ status: 'rejected', verb: 'bias_event', source: 'author', reason: 'invalid_target' });
   });
 });
 
