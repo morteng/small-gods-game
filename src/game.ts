@@ -363,6 +363,7 @@ export class Game {
       getState: () => this.state,
       getCapableClient: () => this.llmClientCapable,
       isScrubbed: () => this.timeline.isScrubbed,
+      emitCommand: (cmd) => this.commandQueue.emit(cmd),
     });
     const fateTrigger = new FateTrigger({
       clock: this.state.clock,
