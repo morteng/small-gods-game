@@ -80,7 +80,8 @@ function drawStepped(
     const o = i * insetPx;
     const lw = w - o * 2, lh = h - o * 2;
     if (lw <= 0 || lh <= 0) break;
-    ctx.fillStyle = shade(wallColor, 1 - i * 0.12);
+    const f = Math.max(0, 1 - i * 0.12);
+    ctx.fillStyle = shade(wallColor, f);
     ctx.fillRect(x + o, y + o, lw, lh);
   }
 }

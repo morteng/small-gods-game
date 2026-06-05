@@ -25,12 +25,13 @@ function spyCtx() {
 }
 
 describe('drawBuildingPlaceholder', () => {
-  it('draws something for every preset without throwing', () => {
+  it('draws a body and a door for every preset without throwing', () => {
     for (const name of Object.keys(BUILDING_PRESETS)) {
       const ctx = spyCtx();
       const d = synthesizeFromPreset(name)!;
       expect(() => drawBuildingPlaceholder(ctx, d, 4, 4), name).not.toThrow();
-      expect(ctx.__calls.some(c => c === 'fill' || c === 'fillRect'), name).toBe(true);
+      const fills = ctx.__calls.filter(c => c === 'fill' || c === 'fillRect').length;
+      expect(fills, name).toBeGreaterThanOrEqual(2); // body shape + door notch
     }
   });
 
