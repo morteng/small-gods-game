@@ -2,6 +2,7 @@ import type { RenderContext, Entity } from '@/core/types';
 import { drawIsoTerrain } from './iso-terrain';
 import { drawIsoNpc, drawIsoVegetation } from './iso-sprites';
 import { drawIsoBuildingMassing } from './iso-building';
+import { drawIsoGroundField } from './iso-ground';
 import { drawIsoOverlays } from './iso-overlay';
 import { createNullAtlas } from './iso-atlas';
 import { visibleTileBounds } from './iso-projection';
@@ -49,6 +50,12 @@ export function createIsoRenderMap(): RenderMap {
 
     const entries: YSortEntry[] = [];
     const hideBuildings = isLayerHidden('buildings', rc.devMode);
+
+    // Building foundation + apron on top of terrain, beneath the massing — the
+    // iso counterpart to the top-down ground overlay. Tied to the buildings layer.
+    if (!hideBuildings && rc.world) {
+      drawIsoGroundField(ctx, rc.world, originX, originY, bounds);
+    }
     const hideVegetation = isLayerHidden('vegetation', rc.devMode);
 
     // Buildings and vegetation are both world entities — one region query, then
