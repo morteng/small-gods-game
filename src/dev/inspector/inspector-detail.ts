@@ -5,6 +5,7 @@ import type {
 import type { EventLog } from '@/core/events';
 import type { Spirit, SpiritId } from '@/core/spirit';
 import { npcProps, getRecentEventDescriptions } from '@/world/npc-helpers';
+import { resolveSettlementEra } from '@/core/era';
 import { renderPropertyGrid } from '@/dev/PropertyGrid';
 import { injectDevStyles } from '@/dev/dev-styles';
 import type { Selection } from './selection';
@@ -208,11 +209,57 @@ function renderWorld(host: HTMLElement, deps: DetailDeps): void {
     ['name', seed?.name ?? 'unknown'],
     ['size', seed ? `${seed.size.width} × ${seed.size.height}` : '—'],
     ['biome', seed?.biome ?? '—'],
+    ['era', seed?.era ?? 'medieval (default)'],
     ['visualTheme', seed?.visualTheme ?? '—'],
     ['constraints', (seed?.constraints ?? []).join(', ') || 'none'],
     ['POIs', String(seed?.pois.length ?? 0)],
     ['entities', String(all.length)],
   ]);
+  if (!seed) return;
+
+  // The world is generated from this JSON recipe — surface it so the inspector
+  // can answer "what does the recipe say?" without opening the file.
+  title(host, `Recipe — POIs (${seed.pois.length})`);
+  if (seed.pois.length === 0) {
+    muted(host, 'No POIs in recipe.');
+  } else {
+    for (const poi of seed.pois) {
+      const era = resolveSettlementEra(poi, seed);
+      const pos = poi.position ? `(${poi.position.x},${poi.position.y})` : poi.region ? 'region' : '—';
+      const n = poi.npcs?.length ?? 0;
+      const label = `📍 ${poi.name ?? poi.id} · ${poi.type} · ${era} · ${pos}${n ? ` · ${n} NPC${n > 1 ? 's' : ''}` : ''}`;
+      host.appendChild(btn(label, () => deps.onNavigate({ type: 'poi', id: poi.id })));
+    }
+  }
+
+  if (seed.connections.length) {
+    title(host, `Connections (${seed.connections.length})`);
+    card(host, seed.connections.map(
+      (c) => [`${c.from} → ${c.to}`, `${c.type}${c.style ? ` · ${c.style}` : ''}`] as [string, string],
+    ));
+  }
+
+  title(host, 'Raw recipe');
+  jsonBlock(host, seed);
+}
+
+/** Collapsible, scrollable JSON dump. */
+function jsonBlock(host: HTMLElement, value: unknown): void {
+  const det = document.createElement('details');
+  det.className = 'sg-dev-card';
+  const sum = document.createElement('summary');
+  sum.textContent = 'Show JSON';
+  sum.style.cursor = 'pointer';
+  const pre = document.createElement('pre');
+  pre.textContent = JSON.stringify(value, null, 2);
+  pre.style.whiteSpace = 'pre-wrap';
+  pre.style.wordBreak = 'break-word';
+  pre.style.maxHeight = '320px';
+  pre.style.overflow = 'auto';
+  pre.style.fontSize = '11px';
+  pre.style.margin = '6px 0 0';
+  det.append(sum, pre);
+  host.appendChild(det);
 }
 
 function renderLore(host: HTMLElement, deps: DetailDeps): void {
