@@ -41,7 +41,11 @@ export const POI_ZONE_RULES: Record<string, ZoneRule> = {
   village: {
     radius: { min: 5, max: 8 },
     terrainFill: undefined,
-    buildings: ['cottage', 'cottage', 'market_stall', 'tavern'],
+    buildings: ['cottage', 'cottage', 'longhouse', 'market_stall', 'tavern'],
+    buildingsByEra: {
+      primordial: ['yurt', 'yurt', 'yurt', 'longhouse'],
+      ancient: ['longhouse', 'longhouse', 'cottage', 'shrine'],
+    },
     buildingCount: { min: 3, max: 8 },
     decorations: ['well', 'sign_post', 'bench', 'lamp'],
     internalRoads: true,
@@ -74,8 +78,12 @@ export const POI_ZONE_RULES: Record<string, ZoneRule> = {
   temple: {
     radius: { min: 4, max: 6 },
     terrainFill: 'sacred_grove',
-    buildings: ['temple_small'],
-    buildingCount: { min: 1, max: 1 },
+    buildings: ['temple_small', 'shrine'],
+    buildingsByEra: {
+      primordial: ['shrine'],
+      ancient: ['shrine', 'temple_small'],
+    },
+    buildingCount: { min: 1, max: 2 },
     decorations: ['flower_patch', 'statue'],
     internalRoads: false,
     internalRoadType: 'stone_road',
@@ -85,7 +93,7 @@ export const POI_ZONE_RULES: Record<string, ZoneRule> = {
   castle: {
     radius: { min: 6, max: 10 },
     terrainFill: undefined,
-    buildings: ['castle_keep', 'tower'],
+    buildings: ['castle_keep', 'tower', 'guard_post'],
     buildingCount: { min: 1, max: 2 },
     decorations: ['banner', 'guard_post'],
     internalRoads: true,
@@ -96,7 +104,7 @@ export const POI_ZONE_RULES: Record<string, ZoneRule> = {
   mine: {
     radius: { min: 3, max: 5 },
     terrainFill: 'quarry',
-    buildings: ['tower'],
+    buildings: ['guard_post'],
     buildingCount: { min: 1, max: 1 },
     decorations: ['rock_pile', 'cart'],
     internalRoads: false,
@@ -108,6 +116,7 @@ export const POI_ZONE_RULES: Record<string, ZoneRule> = {
     radius: { min: 4, max: 6 },
     terrainFill: undefined,
     buildings: ['dock', 'market_stall'],
+    buildingsByEra: { primordial: ['dock'] },
     buildingCount: { min: 1, max: 2 },
     decorations: ['crates', 'nets'],
     internalRoads: true,
@@ -141,7 +150,8 @@ export const POI_ZONE_RULES: Record<string, ZoneRule> = {
   ruins: {
     radius: { min: 3, max: 5 },
     terrainFill: undefined,
-    buildings: ['cottage'],
+    buildings: ['shrine'],
+    buildingsByEra: { ancient: ['shrine', 'temple_small'] },
     buildingCount: { min: 1, max: 3 },
     decorations: ['rubble', 'vine'],
     internalRoads: false,
@@ -155,11 +165,12 @@ export const POI_ZONE_RULES: Record<string, ZoneRule> = {
 export function getZoneRule(poiType: string): ZoneRule {
   return POI_ZONE_RULES[poiType] ?? {
     radius: { min: 1, max: 2 },
-    buildings: ['cottage'],
-    buildingCount: { min: 1, max: 1 },
+    buildings: [],
+    buildingCount: { min: 0, max: 0 },
     decorations: [],
     internalRoads: false,
     internalRoadType: 'dirt_road',
+    roadLayout: 'none',
   };
 }
 
