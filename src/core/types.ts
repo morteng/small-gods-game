@@ -1,6 +1,9 @@
 import type { BlobTile } from '@/map/blob-autotiler';
 import type { World } from '@/world/world';
 import type { SpiritId } from '@/core/spirit';
+import type { Era } from '@/core/era';
+
+export type { Era } from '@/core/era';
 
 export type TileState = 'void' | 'realizing' | 'realized';
 
@@ -258,7 +261,6 @@ export interface HydrologyResult {
 // Entity; the old fields (category, type, tileX, tileY, etc.) are gone — they
 // live in Entity.properties and Entity.x/y respectively.
 
-export type Era = 'primordial' | 'ancient' | 'classical' | 'medieval' | 'current';
 export type ReligiousSignificance = 'sacred' | 'profane' | 'neutral' | 'contested';
 
 /** Legacy shape consumed by render-overlay/info-panel helpers; built via simStateFromEntity. Not stored. */
