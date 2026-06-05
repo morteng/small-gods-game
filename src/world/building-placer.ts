@@ -266,6 +266,11 @@ export function placeSettlement(
     registry.add(entity);
     entities.push(entity);
 
+    // Door tile stays walkable so mortals can reach the entrance (collision
+    // already treats the door cell as passable; keep the tile flag in sync).
+    const doorTile = tiles[result.tileY + descriptor.door.y]?.[result.tileX + descriptor.door.x];
+    if (doorTile) doorTile.walkable = true;
+
     if (zoneRule.internalRoads) {
       const doorX = result.tileX + descriptor.door.x;
       const doorY = result.tileY + descriptor.door.y;

@@ -49,7 +49,7 @@ export interface BuildingDescriptor {
   door: { x: number; y: number };
 }
 
-const NEUTRAL = '#8a8a8a';
+export const NEUTRAL = '#8a8a8a';
 
 /** Open registry — add a material by adding a line. */
 export const WALL_COLORS: Record<WallMat, string> = {

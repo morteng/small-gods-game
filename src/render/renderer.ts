@@ -8,7 +8,7 @@ import { BUILDING_TEMPLATES } from '@/map/building-templates';
 import { isLayerHidden, isEntityHidden } from '@/render/layer-visibility';
 import { drawBuildingPlaceholder } from './building-massing';
 import { computeGroundMaterialField } from './ground-material';
-import { GROUND_COLORS, type BuildingDescriptor } from '@/world/building-descriptor';
+import { GROUND_COLORS, NEUTRAL, type BuildingDescriptor } from '@/world/building-descriptor';
 
 /** Render the map to a canvas context */
 export function renderMap(ctx: CanvasRenderingContext2D, rc: RenderContext): void {
@@ -255,7 +255,7 @@ function drawGroundMaterialOverlay(ctx: CanvasRenderingContext2D, rc: RenderCont
       if (!tile || tile.state === 'void') continue;
       const mat = field.get(`${x},${y}`);
       if (!mat) continue;
-      ctx.fillStyle = GROUND_COLORS[mat] ?? '#8a8a8a';
+      ctx.fillStyle = GROUND_COLORS[mat] ?? NEUTRAL;
       ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
     }
   }

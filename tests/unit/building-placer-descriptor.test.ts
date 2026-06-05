@@ -57,6 +57,32 @@ describe('placeSettlement produces descriptor entities', () => {
     }
   });
 
+  it('leaves each building door tile walkable but the rest of the footprint solid', () => {
+    const world = new World(emptyMap());
+    const tiles = gridTiles(40, 40);
+    const poi = { id: 'poi-v', type: 'village', position: { x: 20, y: 20 } } as never;
+    const { entities } = placeSettlement(
+      poi, getZoneRule('village'), tiles, world.registry, [], new Random(7), 'medieval', world,
+    );
+    expect(entities.length).toBeGreaterThan(0);
+    for (const e of entities) {
+      const d = e.properties!.descriptor as BuildingDescriptor;
+      const fp = d.footprint;
+      const doorTile = tiles[e.y + d.door.y][e.x + d.door.x];
+      expect(doorTile.walkable, `${e.id} door`).toBe(true);
+      // find a non-door footprint cell and confirm it is solid
+      let checkedSolid = false;
+      for (let dy = 0; dy < fp.h && !checkedSolid; dy++) {
+        for (let dx = 0; dx < fp.w && !checkedSolid; dx++) {
+          if (dx === d.door.x && dy === d.door.y) continue;
+          expect(tiles[e.y + dy][e.x + dx].walkable, `${e.id} solid cell`).toBe(false);
+          checkedSolid = true;
+        }
+      }
+      expect(checkedSolid, `${e.id} had a non-door cell`).toBe(true);
+    }
+  });
+
   it('is deterministic for a fixed seed (replay parity)', () => {
     const run = () => {
       const world = new World(emptyMap());
