@@ -10,12 +10,17 @@
  * `drawRoof()` (matching the `Roof` union) or `drawBody()` (matching `Plan`).
  */
 import { worldToScreen } from './iso-projection';
+import { ISO_TILE_H } from './iso-constants';
 import type { IsoDrawCtx } from './iso-sprites';
 import type { Massing } from '@/render/building-massing-model';
 import type { Roof } from '@/world/building-descriptor';
 
-/** Screen pixels per tile-height unit (one `heightPerLevel`). */
-const H_UNIT_PX = 30;
+/**
+ * Screen pixels per tile-height unit (one `heightPerLevel`). Pinned to the iso
+ * tile height so one storey reads as roughly one tile tall — at the old 30px a
+ * full-tile-wide building was a pancake; one storey should stand a tile high.
+ */
+const H_UNIT_PX = ISO_TILE_H;
 
 interface P { sx: number; sy: number }
 
