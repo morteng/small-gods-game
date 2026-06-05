@@ -17,11 +17,11 @@
 import type { Entity, Tile, Era } from '@/core/types';
 import type { World } from '@/world/world';
 import type { EntityRegistry } from './entity-registry';
-import type { BuildingTemplate } from '@/map/building-templates';
-import { getBuildingTemplate } from '@/map/building-templates';
 import type { ZoneRule } from '@/map/poi-zones';
 import type { POI } from '@/core/types';
 import { Random } from '@/core/noise';
+import { synthesizeFromPreset } from '@/world/building-presets';
+import { buildingEntity } from '@/world/building-descriptor';
 
 /** Water tile types — road tiles must not be placed on these */
 const WATER_TYPES = new Set(['deep_water', 'shallow_water', 'river', 'ocean', 'water']);
@@ -110,13 +110,13 @@ import { tryGetEntityKindDef } from './entity-kinds';
  */
 export function findPlacement(
   center:     { x: number; y: number },
-  template:   BuildingTemplate,
+  footprint:  { w: number; h: number },
   constraint: PlacementConstraint,
   tiles:      Tile[][],
   registry:   EntityRegistry,
   maxRadius = 20,
 ): PlacementResult | null {
-  const { w, h } = template.footprint;
+  const { w, h } = footprint;
   const { allowedTerrain, margin, nearWater } = constraint;
   const height = tiles.length;
   const width  = tiles[0]?.length ?? 0;
@@ -239,69 +239,38 @@ export function placeSettlement(
   };
 
   for (let attempt = 0; attempt < buildingCount * 4 && placed < buildingCount; attempt++) {
-    const templateId = zoneRule.buildings[placed % zoneRule.buildings.length];
-    const template   = getBuildingTemplate(templateId);
-    if (!template) continue;
+    const presetName = zoneRule.buildings[placed % zoneRule.buildings.length];
+    const descriptor = synthesizeFromPreset(presetName);
+    if (!descriptor) continue;
 
-    // Candidate center: offset along/across road with jitter
     const along = (rng.next() * 2 - 1) * radius * 0.8;
     const perp  = (rng.next() * 2 - 1) * 3;
     const perpDir = { dx: -mainDir.dy, dy: mainDir.dx };
-
     const targetX = Math.round(cx + mainDir.dx * along + perpDir.dx * perp);
     const targetY = Math.round(cy + mainDir.dy * along + perpDir.dy * perp);
 
     const result = findPlacement(
-      { x: targetX, y: targetY },
-      template,
-      constraint,
-      tiles,
-      registry,
-      radius,
+      { x: targetX, y: targetY }, descriptor.footprint, constraint, tiles, registry, radius,
     );
     if (!result) continue;
 
-    const entityId = `${poi.id}_bld_${placed}`;
-    const religious =
-      template.category === 'religious' ? 'sacred'
-      : 'neutral';
+    const entity = buildingEntity(
+      `${poi.id}_bld_${placed}`, descriptor, result.tileX, result.tileY, { poiId: poi.id },
+    );
 
-    const entity: Entity = {
-      id:   entityId,
-      kind: templateId,
-      x:    result.tileX,
-      y:    result.tileY,
-      tags: ['building', template.category],
-      properties: {
-        category:              'building',
-        templateId,
-        poiId:                 poi.id,
-        footprint:             { ...template.footprint },
-        era:                   template.era ?? era,
-        religiousSignificance: template.religiousSignificance ?? religious,
-        state:                 'intact',
-        sortYOffset:           template.sortYOffset,
-      },
-    };
-
-    // Clear nature entities and update ground tiles under the building
     clearFootprint(
-      result.tileX, result.tileY,
-      template.footprint.w, template.footprint.h,
-      registry,
-      world,
-      tiles,
+      result.tileX, result.tileY, descriptor.footprint.w, descriptor.footprint.h,
+      registry, world, tiles,
     );
 
     registry.add(entity);
     entities.push(entity);
 
-    // 4. Carve path from door toward main road — stop at water, road, or 6 tiles
     if (zoneRule.internalRoads) {
-      const doorX = result.tileX + template.doorCell.x;
-      const doorY = result.tileY + template.doorCell.y;
+      const doorX = result.tileX + descriptor.door.x;
+      const doorY = result.tileY + descriptor.door.y;
       const roadPositions = new Set(roadTiles.map(rt => `${rt.x},${rt.y}`));
-      const path  = bresenhamLine(doorX, doorY, cx, cy);
+      const path = bresenhamLine(doorX, doorY, cx, cy);
       for (let pi = 0; pi < Math.min(6, path.length); pi++) {
         const pt = path[pi];
         const tileType = tiles[pt.y]?.[pt.x]?.type;

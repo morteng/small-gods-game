@@ -2,11 +2,27 @@ import { describe, it, expect } from 'vitest';
 import { World } from '@/world/world';
 import { buildingEntity } from '@/world/building-descriptor';
 import { synthesizeFromPreset } from '@/world/building-presets';
+import { placeSettlement } from '@/world/building-placer';
+import { getZoneRule } from '@/map/poi-zones';
+import { Random } from '@/core/noise';
 import type { GameMap } from '@/core/types';
+import type { BuildingDescriptor } from '@/world/building-descriptor';
 
 function emptyMap(): GameMap {
   return { tiles: [], width: 32, height: 32, villages: [], seed: 1, success: true,
     worldSeed: null, stats: { iterations: 0, backtracks: 0 }, buildings: [] } as unknown as GameMap;
+}
+
+function gridTiles(w: number, h: number) {
+  const tiles = [];
+  for (let y = 0; y < h; y++) {
+    const row = [];
+    for (let x = 0; x < w; x++) {
+      row.push({ type: 'grass', x, y, walkable: true, state: 'realized' as const });
+    }
+    tiles.push(row);
+  }
+  return tiles;
 }
 
 describe('descriptor building indexing', () => {
@@ -21,5 +37,34 @@ describe('descriptor building indexing', () => {
       }
     }
     expect(world.registry.getAtTile(8, 8).map(e => e.id)).not.toContain('b1');
+  });
+});
+
+describe('placeSettlement produces descriptor entities', () => {
+  it('every placed building carries a descriptor and is tagged building', () => {
+    const world = new World(emptyMap());
+    const tiles = gridTiles(40, 40);
+    const poi = { id: 'poi-v', type: 'village', position: { x: 20, y: 20 } } as never;
+    const { entities } = placeSettlement(
+      poi, getZoneRule('village'), tiles, world.registry, [], new Random(1234), 'medieval', world,
+    );
+    expect(entities.length).toBeGreaterThan(0);
+    for (const e of entities) {
+      expect(e.tags).toContain('building');
+      const d = e.properties?.descriptor as BuildingDescriptor | undefined;
+      expect(d, e.id).toBeDefined();
+      expect(d!.footprint.w).toBeGreaterThan(0);
+    }
+  });
+
+  it('is deterministic for a fixed seed (replay parity)', () => {
+    const run = () => {
+      const world = new World(emptyMap());
+      const tiles = gridTiles(40, 40);
+      const poi = { id: 'poi-v', type: 'village', position: { x: 20, y: 20 } } as never;
+      return placeSettlement(poi, getZoneRule('village'), tiles, world.registry, [],
+        new Random(99), 'medieval', world).entities.map(e => `${e.kind}@${e.x},${e.y}`);
+    };
+    expect(run()).toEqual(run());
   });
 });
