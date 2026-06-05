@@ -9,6 +9,8 @@
  * provides configuration for those methods.
  */
 
+import type { Era } from '@/core/types';
+
 export interface ZoneRule {
   /** Radius of terrain influence in tiles */
   radius: { min: number; max: number };
@@ -16,6 +18,8 @@ export interface ZoneRule {
   terrainFill?: string;
   /** Building templates to place in this zone (in priority order) */
   buildings: string[];
+  /** Per-era roster overlay; absent eras fall back to `buildings`. */
+  buildingsByEra?: Partial<Record<Era, string[]>>;
   /** Maximum number of buildings to place (random within range) */
   buildingCount: { min: number; max: number };
   /** Ground-level decorations (e.g. flower patches, fences) — future use */
@@ -177,4 +181,9 @@ export function planSettlementRoads(
 ): RoadSegment[] {
   if (buildingDoors.length === 0) return [];
   return buildingDoors.map(door => ({ from: door, to: center }));
+}
+
+/** Building roster for a zone rule at a given era; falls back to `buildings`. */
+export function presetsForEra(rule: ZoneRule, era: Era): string[] {
+  return rule.buildingsByEra?.[era] ?? rule.buildings;
 }
