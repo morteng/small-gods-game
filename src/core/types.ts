@@ -60,6 +60,8 @@ export interface POI {
   size?: 'small' | 'medium' | 'large';
   importance?: 'low' | 'medium' | 'high' | 'critical';
   npcs?: NPC[];
+  /** Overrides the world era for this settlement's buildings. */
+  era?: Era;
 }
 
 /** NPC definition */
@@ -89,6 +91,8 @@ export interface WorldSeed {
   size: { width: number; height: number };
   biome: string;
   visualTheme?: string;
+  /** Default era for every settlement; per-POI `era` overrides it. Defaults to 'medieval'. */
+  era?: Era;
   pois: POI[];
   connections: Connection[];
   constraints: string[];
