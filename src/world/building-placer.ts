@@ -18,6 +18,7 @@ import type { Entity, Tile, Era } from '@/core/types';
 import type { World } from '@/world/world';
 import type { EntityRegistry } from './entity-registry';
 import type { ZoneRule } from '@/map/poi-zones';
+import { presetsForEra } from '@/map/poi-zones';
 import type { POI } from '@/core/types';
 import { Random } from '@/core/noise';
 import { synthesizeFromPreset } from '@/world/building-presets';
@@ -237,9 +238,10 @@ export function placeSettlement(
     margin: 1,
     requiresRoadAccess: zoneRule.internalRoads,
   };
+  const roster = presetsForEra(zoneRule, era);
 
-  for (let attempt = 0; attempt < buildingCount * 4 && placed < buildingCount; attempt++) {
-    const presetName = zoneRule.buildings[placed % zoneRule.buildings.length];
+  for (let attempt = 0; attempt < buildingCount * 4 && placed < buildingCount && roster.length > 0; attempt++) {
+    const presetName = roster[placed % roster.length];
     const descriptor = synthesizeFromPreset(presetName);
     if (!descriptor) continue;
 

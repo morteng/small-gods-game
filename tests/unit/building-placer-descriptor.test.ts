@@ -94,3 +94,28 @@ describe('placeSettlement produces descriptor entities', () => {
     expect(run()).toEqual(run());
   });
 });
+
+describe('placeSettlement selects presets by era', () => {
+  it('places yurts for a primordial village', () => {
+    const world = new World(emptyMap());
+    const tiles = gridTiles(40, 40);
+    const poi = { id: 'poi-camp', type: 'village', position: { x: 20, y: 20 } } as never;
+    const { entities } = placeSettlement(
+      poi, getZoneRule('village'), tiles, world.registry, [], new Random(2024), 'primordial', world,
+    );
+    expect(entities.length).toBeGreaterThan(0);
+    const presets = entities.map(e => (e.properties?.descriptor as BuildingDescriptor).preset);
+    expect(presets).toContain('yurt');
+    expect(presets).not.toContain('cottage');
+  });
+
+  it('places nothing for a zero-count fallback rule', () => {
+    const world = new World(emptyMap());
+    const tiles = gridTiles(40, 40);
+    const poi = { id: 'poi-lake', type: 'lake', position: { x: 20, y: 20 } } as never;
+    const { entities } = placeSettlement(
+      poi, getZoneRule('lake'), tiles, world.registry, [], new Random(3), 'medieval', world,
+    );
+    expect(entities).toEqual([]);
+  });
+});

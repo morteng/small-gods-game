@@ -1,4 +1,5 @@
 import type { WorldSeed, POI } from '@/core/types';
+import { ERAS, isEra } from '@/core/era';
 
 export const CONNECTION_TYPES = ['road', 'river', 'wall'] as const;
 export const CONNECTION_STYLES = ['dirt', 'stone', 'bridge'] as const;
@@ -94,6 +95,9 @@ export function validateWorldSeed(seed: Partial<WorldSeed>): { valid: boolean; e
   if (!seed.biome || !(BIOMES as readonly string[]).includes(seed.biome)) {
     errors.push(`Invalid biome. Use: ${BIOMES.join(', ')}`);
   }
+  if (seed.era !== undefined && !isEra(seed.era)) {
+    errors.push(`Invalid era "${seed.era}". Use: ${ERAS.join(', ')}`);
+  }
 
   if (seed.pois) {
     for (const poi of seed.pois) {
@@ -103,6 +107,9 @@ export function validateWorldSeed(seed: Partial<WorldSeed>): { valid: boolean; e
       }
       if (!poi.position && !poi.region) {
         errors.push(`POI "${poi.id}" needs position or region`);
+      }
+      if (poi.era !== undefined && !isEra(poi.era)) {
+        errors.push(`Invalid POI era "${poi.era}". Use: ${ERAS.join(', ')}`);
       }
     }
   }

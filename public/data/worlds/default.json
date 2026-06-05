@@ -3,6 +3,7 @@
   "description": "A realm of misty forests, crystal lakes, treacherous swamps, and rolling meadows. Ancient ruins dot the landscape.",
   "size": { "width": 128, "height": 96 },
   "biome": "temperate",
+  "era": "medieval",
   "visualTheme": "fantasy medieval world, vibrant colors",
   "pois": [
     {
@@ -109,6 +110,7 @@
       "name": "Temple of the Moon",
       "position": { "x": 21, "y": 21 },
       "size": "medium",
+      "era": "ancient",
       "description": "Overgrown ruins in the forest depths."
     },
     {
@@ -117,6 +119,7 @@
       "name": "The Sunken Shrine",
       "position": { "x": 14, "y": 75 },
       "size": "small",
+      "era": "ancient",
       "description": "Ancient stones rising from the mire."
     },
     {
@@ -141,6 +144,30 @@
       "npcs": [
         { "name": "Lord Garrick", "role": "noble" },
         { "name": "Sergeant Vell", "role": "soldier" }
+      ]
+    },
+    {
+      "id": "hollow_camp",
+      "type": "village",
+      "name": "The Hollow Camp",
+      "position": { "x": 40, "y": 30 },
+      "size": "small",
+      "era": "primordial",
+      "description": "A cluster of hide tents in a meadow clearing — folk who kept the old ways while the valley turned to stone and timber.",
+      "npcs": [
+        { "name": "Old Mother Ash", "role": "elder" },
+        { "name": "Bran the Forager", "role": "farmer" }
+      ]
+    },
+    {
+      "id": "ironvein_mine",
+      "type": "mine",
+      "name": "Ironvein",
+      "position": { "x": 103, "y": 34 },
+      "size": "small",
+      "description": "A mineshaft at the foot of the Eastern Peaks, worked for iron and watched by a lone guard post.",
+      "npcs": [
+        { "name": "Durik Stonehand", "role": "soldier" }
       ]
     }
   ],
@@ -176,6 +203,14 @@
     {
       "from": "oakshire", "to": "ironkeep_castle", "type": "road", "style": "stone",
       "waypoints": [{"x": 64, "y": 48}, {"x": 54, "y": 57}, {"x": 43, "y": 65}]
+    },
+    {
+      "from": "hollow_camp", "to": "oakshire", "type": "road", "style": "dirt",
+      "waypoints": [{"x": 40, "y": 30}, {"x": 52, "y": 39}, {"x": 64, "y": 48}]
+    },
+    {
+      "from": "ironvein_mine", "to": "old_watchtower", "type": "road", "style": "dirt",
+      "waypoints": [{"x": 103, "y": 34}, {"x": 105, "y": 30}, {"x": 107, "y": 27}]
     }
   ],
   "lore": {

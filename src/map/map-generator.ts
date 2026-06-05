@@ -20,6 +20,7 @@ import { erodeElevation } from '@/terrain/erosion';
 import { placeSettlement } from '@/world/building-placer';
 import { clearObstructedVegetation } from '@/world/vegetation-clear';
 import { getZoneRule } from '@/map/poi-zones';
+import { resolveSettlementEra } from '@/core/era';
 import { World } from '@/world/world';
 import { biomeRegions } from '@/world/biome-regions';
 import { brushForBiome, brushForPoiType } from '@/world/brushes/index';
@@ -188,7 +189,8 @@ export async function generateWithNoise(
         ? computeConnectedDirections(poi.id, worldSeed.connections, worldSeed.pois)
         : [];
 
-      const result = placeSettlement(poi, zoneRule, tiles, world.registry, connectedDirs, rng, 'medieval', world);
+      const era = resolveSettlementEra(poi, worldSeed);
+      const result = placeSettlement(poi, zoneRule, tiles, world.registry, connectedDirs, rng, era, world);
 
       // Keep World's secondary indexes in sync with entities added directly via registry
       for (const e of result.entities) {
