@@ -71,6 +71,17 @@ describe('iso-renderer: vegetation', () => {
     expect((ctx.ellipse as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThanOrEqual(2);
   });
 
+  it('billboards the real tree sprite when its sheet is loaded (not the placeholder)', () => {
+    const rc = makeRc();
+    rc.npcs = []; // isolate: NPCs also draw billboards
+    rc.world = { entities: new Map(), query: () => [{ id: 'oak1', kind: 'oak_tree', x: 2, y: 2 }] } as any;
+    rc.treeSheets = new Map([['green', {} as HTMLImageElement]]);
+    const ctx = makeMockCtx();
+    renderMap(ctx, rc);
+    // the loaded sheet is drawn via drawImage; placeholder path would not call it
+    expect((ctx.drawImage as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(0);
+  });
+
   it('ignores non-vegetation entities from world.query', () => {
     const rc = makeRc();
     rc.world = { entities: new Map(), query: () => [{ id: 'c1', kind: 'cottage', x: 1, y: 1 }] } as any;

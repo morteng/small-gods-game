@@ -7,6 +7,7 @@ import { tryGetEntityKindDef } from '@/world/entity-kinds';
 import { BUILDING_TEMPLATES } from '@/map/building-templates';
 import { isLayerHidden, isEntityHidden } from '@/render/layer-visibility';
 import { drawBuildingPlaceholder } from './building-massing';
+import { treeSheetForKind, treeSpriteColumn, TREE_SPRITE_SRC } from './tree-sheets';
 import { computeGroundMaterialField } from './ground-material';
 import { GROUND_COLORS, NEUTRAL, type BuildingDescriptor } from '@/world/building-descriptor';
 
@@ -305,21 +306,8 @@ function getBuildingTemplate(id: string): BuildingTemplate | null {
   return tpl;
 }
 
-function treeSheetForKind(kind: string): string | null {
-  switch (kind) {
-    case 'oak_tree':    return 'green';
-    case 'orange_tree': return 'orange';
-    case 'pale_tree':   return 'pale';
-    case 'brown_tree':  return 'brown';
-    case 'dead_tree':   return 'dead';
-    case 'pine_tree':   return 'pale';
-    case 'birch_tree':  return 'pale';
-    default: return null;
-  }
-}
-
 function drawTreeSprite(ctx: CanvasRenderingContext2D, sheet: HTMLImageElement, e: Entity): void {
-  const SPRITE_SRC = 64;
+  const SPRITE_SRC = TREE_SPRITE_SRC;
   const BASE_W = TILE_SIZE * 2;
   const BASE_H = TILE_SIZE * 3;
   const offsetX = (e.properties?.offsetX as number) ?? 0;
@@ -340,7 +328,7 @@ function drawTreeSprite(ctx: CanvasRenderingContext2D, sheet: HTMLImageElement, 
   const centerY = worldY + TREE_H;
   
   // Deterministic sprite column from tile coords
-  const spriteCol = Math.abs(((tileX * 13) ^ (tileY * 7))) % 8;
+  const spriteCol = treeSpriteColumn(tileX, tileY);
   
   ctx.save();
   ctx.translate(centerX, centerY);

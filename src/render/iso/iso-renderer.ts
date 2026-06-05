@@ -100,7 +100,7 @@ export function createIsoRenderMap(): RenderMap {
       }
     }
 
-    const drawCtx = { ctx, atlas: effectiveAtlas, originX, originY, npcSheets: rc.npcSheets };
+    const drawCtx = { ctx, atlas: effectiveAtlas, originX, originY, npcSheets: rc.npcSheets, treeSheets: rc.treeSheets };
     const sorted = buildYSortBucket(entries);
     for (const e of sorted) {
       if (e.kind === 'building') {

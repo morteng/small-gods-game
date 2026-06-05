@@ -4,6 +4,7 @@ import type { IsoAtlas } from './iso-atlas';
 import type { NpcInstance, Entity } from '@/core/types';
 import { tryGetEntityKindDef } from '@/world/entity-kinds';
 import { getSpriteCoords } from '@/render/npc-animator';
+import { treeSheetForKind, treeSpriteColumn, TREE_SPRITE_SRC } from '@/render/tree-sheets';
 
 export interface IsoDrawCtx {
   ctx: CanvasRenderingContext2D;
@@ -12,6 +13,8 @@ export interface IsoDrawCtx {
   originY: number;
   /** LPC spritesheets keyed by NPC id (shared with top-down renderer). */
   npcSheets?: Map<string, HTMLCanvasElement>;
+  /** Tree sheets keyed by variant (green/orange/…), shared with top-down. */
+  treeSheets?: Map<string, HTMLImageElement>;
 }
 
 const NPC_COLOR_BY_ROLE: Record<string, string> = {
@@ -83,11 +86,34 @@ export function drawIsoVegetation(dc: IsoDrawCtx, e: Entity): void {
 
   const ctx = dc.ctx;
   const { sx, sy } = worldToScreen(e.x, e.y, 0, dc.originX, dc.originY);
-  
+
   // Get scale from entity properties (set by brush), fallback to yOffsetForSort.
   // Vegetation is never rotated (tilted trees read as wrong) — variety comes
   // from scale and clumped placement instead.
   const scale = (e.properties?.scale as number) ?? Math.max(def.yOffsetForSort ?? 0.5, 0.5);
+
+  // Prefer the real tree sprite (same sheets as the top-down renderer),
+  // billboarded upright like NPCs. Falls back to the drawn placeholder below
+  // when no sheet is loaded (headless/tests) or for sheet-less ground cover.
+  const sheetName = treeSheetForKind(e.kind);
+  const sheet = sheetName ? dc.treeSheets?.get(sheetName) : undefined;
+  if (sheet) {
+    const treeW = ISO_TILE_W * 0.8 * scale;
+    const treeH = treeW * 1.5; // tree art is ~2 wide : 3 tall
+    const col = treeSpriteColumn(Math.floor(e.x), Math.floor(e.y));
+    // soft contact shadow
+    ctx.save();
+    ctx.translate(sx, sy);
+    ctx.fillStyle = 'rgba(0,0,0,0.28)';
+    ctx.beginPath();
+    ctx.ellipse(0, 0, treeW * 0.3, treeW * 0.14, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(sheet, col * TREE_SPRITE_SRC, 0, TREE_SPRITE_SRC, TREE_SPRITE_SRC,
+                  -treeW / 2, -treeH, treeW, treeH);
+    ctx.restore();
+    return;
+  }
 
   // Trees have 'tree' in their defaultTags; ground cover (fern, shrub) does not
   const isTree = def.defaultTags.includes('tree');
