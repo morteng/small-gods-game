@@ -167,7 +167,7 @@
       "size": "small",
       "description": "A mineshaft at the foot of the Eastern Peaks, worked for iron and watched by a lone guard post.",
       "npcs": [
-        { "name": "Durik Stonehand", "role": "farmer" }
+        { "name": "Durik Stonehand", "role": "soldier" }
       ]
     }
   ],
