@@ -3,6 +3,101 @@
 exports[`scrubland brush > produces a stable snapshot 1`] = `
 [
   {
+    "id": "scrubland-grass_tuft-5--1",
+    "kind": "grass_tuft",
+    "properties": {
+      "offsetX": 0.2803668144300426,
+      "offsetY": -0.05992819057308518,
+      "rotation": -2.3153209603928593,
+      "scale": 1.0713010789692874,
+    },
+    "tags": [
+      "vegetation",
+      "ground-cover",
+    ],
+    "x": 5.280366814430042,
+    "y": -0.05992819057308518,
+  },
+  {
+    "id": "scrubland-grass_tuft-6--1",
+    "kind": "grass_tuft",
+    "properties": {
+      "offsetX": 0.24909415272953647,
+      "offsetY": -0.09120085227359126,
+      "rotation": -4.102334968793362,
+      "scale": 1.0534309388852823,
+    },
+    "tags": [
+      "vegetation",
+      "ground-cover",
+    ],
+    "x": 6.249094152729536,
+    "y": -0.09120085227359126,
+  },
+  {
+    "id": "scrubland-grass_tuft-7--1",
+    "kind": "grass_tuft",
+    "properties": {
+      "offsetX": 0.21782140758252766,
+      "offsetY": -0.12247359742060004,
+      "rotation": -5.8893489771938645,
+      "scale": 1.0355607988012774,
+    },
+    "tags": [
+      "vegetation",
+      "ground-cover",
+    ],
+    "x": 7.2178214075825275,
+    "y": -0.12247359742060004,
+  },
+  {
+    "id": "scrubland-boulder-7--1",
+    "kind": "boulder",
+    "properties": {
+      "offsetX": 0.007030034103444793,
+      "offsetY": -0.06589028834872426,
+      "scale": 0.8298382760164507,
+    },
+    "tags": [
+      "rock",
+      "obstacle",
+    ],
+    "x": 7.007030034103445,
+    "y": -0.06589028834872426,
+  },
+  {
+    "id": "scrubland-grass_tuft-0-1",
+    "kind": "grass_tuft",
+    "properties": {
+      "offsetX": 0.20338808323880106,
+      "offsetY": -0.13690683831782396,
+      "rotation": -6.714105599892375,
+      "scale": 1.0273132325742922,
+    },
+    "tags": [
+      "vegetation",
+      "ground-cover",
+    ],
+    "x": 0.20338808323880106,
+    "y": 1.863093161682176,
+  },
+  {
+    "id": "scrubland-cactus-1-1",
+    "kind": "cactus",
+    "properties": {
+      "offsetX": 0.17211542153829495,
+      "offsetY": -0.16817958346483278,
+      "rotation": -8.501114839921293,
+      "scale": 1.009443092490287,
+    },
+    "tags": [
+      "vegetation",
+      "arid",
+    ],
+    "x": 1.172115421538295,
+    "y": 1.8318204165351673,
+  },
+  {
     "id": "scrubland-cactus-2-1",
     "kind": "cactus",
     "properties": {
@@ -65,22 +160,6 @@ exports[`scrubland brush > produces a stable snapshot 1`] = `
     ],
     "x": 5.04702444095026,
     "y": 1.7067296028401375,
-  },
-  {
-    "id": "scrubland-cactus-2-4",
-    "kind": "cactus",
-    "properties": {
-      "offsetX": 0.1408291580578448,
-      "offsetY": -0.19946568005227747,
-      "rotation": -10.28889655614686,
-      "scale": 0.9915653230117474,
-    },
-    "tags": [
-      "vegetation",
-      "arid",
-    ],
-    "x": 2.1408291580578447,
-    "y": 4.800534319947722,
   },
   {
     "id": "scrubland-cactus-3-4",

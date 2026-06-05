@@ -83,10 +83,11 @@ export function drawIsoVegetation(dc: IsoDrawCtx, e: Entity): void {
   const ctx = dc.ctx;
   const { sx, sy } = worldToScreen(e.x, e.y, 0, dc.originX, dc.originY);
   
-  // Get scale from entity properties (set by brush), fallback to yOffsetForSort
+  // Get scale from entity properties (set by brush), fallback to yOffsetForSort.
+  // Vegetation is never rotated (tilted trees read as wrong) — variety comes
+  // from scale and clumped placement instead.
   const scale = (e.properties?.scale as number) ?? Math.max(def.yOffsetForSort ?? 0.5, 0.5);
-  const rotation = (e.properties?.rotation as number) ?? 0;
-  
+
   // Trees have 'tree' in their defaultTags; ground cover (fern, shrub) does not
   const isTree = def.defaultTags.includes('tree');
   const canopyR = 10 + scale * 22;
@@ -94,7 +95,6 @@ export function drawIsoVegetation(dc: IsoDrawCtx, e: Entity): void {
 
   ctx.save();
   ctx.translate(sx, sy);
-  if (rotation) ctx.rotate((rotation * Math.PI) / 180);
 
   ctx.fillStyle = 'rgba(0,0,0,0.3)';
   ctx.beginPath();

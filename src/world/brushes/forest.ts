@@ -15,9 +15,12 @@ const FOREST_PARAMS: import('./vegetation-placer').VegetationParams = {
     ['pale_tree', 0.25],
   ],
   density: 0.35,
-  scaleRange: [0.8, 1.25],
-  rotationRange: 10,
+  // Wide scale range is the main source of visual variety (we don't rotate
+  // vegetation — tilted trees read as wrong).
+  scaleRange: [0.6, 1.5],
+  rotationRange: 0,
   offsetRange: [0.3, 0.3],
+  clumpScale: 5,
   undergrowth: [
     ['shrub', 0.6, 0.05],
     ['fern', 0.4, 0.05],
