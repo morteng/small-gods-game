@@ -7,8 +7,10 @@ import type {
   PixelLabKeyStatus,
 } from '@/core/types';
 
+import { assetUrl } from '@/core/asset-url';
+
 const API_BASE = 'https://api.pixellab.ai/v2';
-const PALETTE_URL = '/sprites/palette/lpc-anchor.png';
+const PALETTE_URL = assetUrl('sprites/palette/lpc-anchor.png');
 const LS_KEY = 'smallgods.pixellab.apiKey';
 
 const DB_NAME = 'smallgods.pixellab';

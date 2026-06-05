@@ -9,6 +9,7 @@
  */
 
 import type { WorldSeed } from '@/core/types';
+import { assetUrl } from '@/core/asset-url';
 
 /** Saved world metadata from localStorage */
 export interface SavedWorldEntry {
@@ -32,8 +33,8 @@ interface SaveData {
 }
 
 export const WorldManager = {
-  // Default world file path
-  DEFAULT_WORLD: '/data/worlds/default.json' as string,
+  // Default world file path (resolved against Vite base for GitHub Pages subpaths)
+  DEFAULT_WORLD: assetUrl('data/worlds/default.json') as string,
 
   // LocalStorage key prefix
   STORAGE_PREFIX: 'smallgods_world_' as string,

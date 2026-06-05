@@ -1,8 +1,12 @@
 import { defineConfig } from 'vite';
 import { resolve } from 'path';
 
-export default defineConfig({
+export default defineConfig(({ command }) => ({
   root: '.',
+  // GitHub Pages serves this project site from /small-gods-game/, but the dev
+  // server and tests run at '/'. Only the production build gets the subpath.
+  // Override with VITE_BASE (e.g. a custom domain or renamed repo).
+  base: command === 'build' ? (process.env.VITE_BASE ?? '/small-gods-game/') : '/',
   server: { port: 3000 },
   build: {
     outDir: 'dist',
@@ -12,4 +16,4 @@ export default defineConfig({
   resolve: {
     alias: { '@': resolve(__dirname, 'src') },
   },
-});
+}));

@@ -1,4 +1,5 @@
 import { BUILDING_TEMPLATES } from '@/map/building-templates';
+import { assetUrl } from '@/core/asset-url';
 
 function loadImage(src: string): Promise<HTMLImageElement | null> {
   return new Promise(resolve => {
@@ -16,7 +17,7 @@ export class AssetManager {
   private trees = new Map<string, HTMLImageElement>();
 
   async loadAll(): Promise<void> {
-    if (!this.tileAtlas) this.tileAtlas = await loadImage('/sprites/tiles/kenney-town.png');
+    if (!this.tileAtlas) this.tileAtlas = await loadImage(assetUrl('sprites/tiles/kenney-town.png'));
     await this.loadTerrain();
     await this.loadBuildings();
     if (this.trees.size === 0) await this.loadTrees();
@@ -31,7 +32,7 @@ export class AssetManager {
     const groups = ['grass', 'water', 'dirt', 'sand', 'stone', 'rocky'];
     await Promise.all(groups.map(async (g) => {
       if (!this.terrain.has(g)) {
-        const img = await loadImage(`/sprites/terrain/${g}.png`);
+        const img = await loadImage(assetUrl(`sprites/terrain/${g}.png`));
         if (img) this.terrain.set(g, img);
       }
     }));
@@ -40,7 +41,7 @@ export class AssetManager {
   private async loadBuildings(): Promise<void> {
     await Promise.all(BUILDING_TEMPLATES.map(async (tpl) => {
       if (!this.buildings.has(tpl.id)) {
-        const img = await loadImage(`/sprites/buildings/${tpl.id}.png`);
+        const img = await loadImage(assetUrl(`sprites/buildings/${tpl.id}.png`));
         if (img) this.buildings.set(tpl.id, img);
       }
     }));
@@ -49,7 +50,7 @@ export class AssetManager {
   private async loadTrees(): Promise<void> {
     const variants = ['green', 'orange', 'dead', 'pale', 'brown'];
     await Promise.all(variants.map(async (v) => {
-      const img = await loadImage(`/sprites/trees/trees-${v}.png`);
+      const img = await loadImage(assetUrl(`sprites/trees/trees-${v}.png`));
       if (img) this.trees.set(v, img);
     }));
   }

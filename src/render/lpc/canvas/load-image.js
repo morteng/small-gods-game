@@ -1,7 +1,7 @@
 // Sprites are vendored under public/sprites/lpc/ — see scripts/vendor-lpc-sprites.sh.
-// Keeping this relative means the iframe-embedded game also resolves correctly
-// against the host's origin.
-const LPC_BASE_URL = '/sprites/lpc/';
+// Resolve against Vite's `base` so the path works at the dev root ('/') and under
+// a GitHub Pages project subpath ('/small-gods-game/'). BASE_URL always ends in '/'.
+const LPC_BASE_URL = (import.meta.env.BASE_URL ?? '/') + 'sprites/lpc/';
 
 let loadedImages = {};
 let knownMissing = new Set();
