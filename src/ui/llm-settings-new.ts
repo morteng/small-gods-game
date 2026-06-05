@@ -1,9 +1,21 @@
 /**
  * Simplified LLM Settings — supports Mock, OpenAI, and OpenRouter.
+ *
+ * Model selection uses the OpenRouter-style {@link openModelPicker} browser:
+ * a Verified allowlist for players, the full live catalog for anyone who flips
+ * to "All". The two model fields are buttons that open the picker.
  */
 
 import type { ProviderType, ProviderConfig } from '@/llm/provider-factory';
 import { saveProviderConfig, loadProviderConfig, getProviderDisplayName } from '@/llm/provider-factory';
+import {
+  VERIFIED_CHAT_MODELS,
+  VERIFIED_CAPABLE_MODELS,
+  DEFAULT_CHAT_MODEL,
+  DEFAULT_CAPABLE_MODEL,
+  type CuratedModel,
+} from '@/llm/openrouter-catalog';
+import { openModelPicker } from './model-picker';
 
 export interface LLMSettingsHandle {
   element: HTMLElement;
@@ -11,18 +23,10 @@ export interface LLMSettingsHandle {
   destroy(): void;
 }
 
-const OPENROUTER_MODELS = [
-  { id: 'deepseek/deepseek-v4-flash', name: 'DeepSeek V4 Flash (Recommended)' },
-  { id: 'google/gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash-Lite' },
-  { id: 'google/gemini-2.5-flash', name: 'Gemini 2.5 Flash' },
-];
-
-const OPENROUTER_CAPABLE_MODELS = [
-  { id: 'deepseek/deepseek-v4', name: 'DeepSeek V4 (Recommended)' },
-  { id: 'anthropic/claude-sonnet-4.6', name: 'Claude Sonnet 4.6' },
-  { id: 'deepseek/deepseek-v4-pro', name: 'DeepSeek V4 Pro' },
-  { id: 'google/gemini-2.5-pro', name: 'Gemini 2.5 Pro (large context)' },
-];
+/** Human label for a model id: its curated name if known, else the raw id. */
+function modelLabel(id: string, verified: readonly CuratedModel[]): string {
+  return verified.find(m => m.id === id)?.name ?? id;
+}
 
 export function createLLMSettings(
   opts: { onSave?: (config: ProviderConfig) => void } = {},
@@ -35,6 +39,10 @@ export function createLLMSettings(
 
   const saved = loadProviderConfig();
   const provider: ProviderType = saved.type || 'mock';
+
+  // Mutable selection state, edited via the picker, read on Save.
+  let chatModelId = saved.openrouterModel || DEFAULT_CHAT_MODEL;
+  let capableModelId = saved.openrouterModelCapable || DEFAULT_CAPABLE_MODEL;
 
   // ─── Provider Select ───────────────────────────────────
   const providerRow = document.createElement('div');
@@ -77,76 +85,68 @@ export function createLLMSettings(
   keyRow.appendChild(keyInput);
   container.appendChild(keyRow);
 
-  // ─── Model Select (for OpenRouter) ───────────────────
-  const modelRow = document.createElement('div');
-  modelRow.id = 'sg-llm-model-row';
-  modelRow.className = 'sg-field';
+  // ─── Model field (button → picker) ────────────────────
+  function createModelField(
+    id: string,
+    labelText: string,
+    verified: readonly CuratedModel[],
+    getCurrent: () => string,
+    onPick: (id: string) => void,
+  ): { row: HTMLElement; refresh: () => void } {
+    const row = document.createElement('div');
+    row.id = id;
+    row.className = 'sg-field';
 
-  const modelLabel = document.createElement('div');
-  modelLabel.className = 'sg-field__label';
-  modelLabel.textContent = 'Model';
-  modelRow.appendChild(modelLabel);
+    const label = document.createElement('div');
+    label.className = 'sg-field__label';
+    label.textContent = labelText;
+    row.appendChild(label);
 
-  const modelSelect = document.createElement('select');
-  modelSelect.id = 'sg-llm-model-select';
-  modelSelect.className = 'sg-select';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'sg-btn sg-model-field';
+    btn.style.justifyContent = 'space-between';
+    btn.style.width = '100%';
 
-  for (const m of OPENROUTER_MODELS) {
-    const opt = document.createElement('option');
-    opt.value = m.id;
-    opt.textContent = m.name;
-    if (m.id === saved.openrouterModel) opt.selected = true;
-    modelSelect.appendChild(opt);
+    const nameSpan = document.createElement('span');
+    const caret = document.createElement('span');
+    caret.textContent = '⌄';
+    caret.style.opacity = '0.6';
+    btn.append(nameSpan, caret);
+
+    const refresh = (): void => {
+      nameSpan.textContent = modelLabel(getCurrent(), verified);
+    };
+    refresh();
+
+    btn.addEventListener('click', () => {
+      const mount = (container.closest('.sg-settings-overlay') as HTMLElement)
+        ?? (container.closest('.sg-modal-overlay') as HTMLElement)
+        ?? container;
+      openModelPicker({
+        mount,
+        verified,
+        current: getCurrent(),
+        apiKey: keyInput.value.trim() || undefined,
+        title: labelText,
+        onPick: (picked) => { onPick(picked); refresh(); },
+      });
+    });
+    row.appendChild(btn);
+    return { row, refresh };
   }
 
-  const customModelOpt = document.createElement('option');
-  customModelOpt.value = '__custom__';
-  customModelOpt.textContent = 'Custom model ID…';
-  modelSelect.appendChild(customModelOpt);
+  const chatField = createModelField(
+    'sg-llm-model-row', 'Model', VERIFIED_CHAT_MODELS,
+    () => chatModelId, (id) => { chatModelId = id; },
+  );
+  container.appendChild(chatField.row);
 
-  modelRow.appendChild(modelSelect);
-
-  const modelCustom = document.createElement('input');
-  modelCustom.id = 'sg-llm-model-custom';
-  modelCustom.type = 'text';
-  modelCustom.placeholder = 'provider/model-id';
-  modelCustom.className = 'sg-input';
-  modelCustom.style.display = 'none';
-  // Pre-fill custom if the saved model isn't in the curated list.
-  if (saved.openrouterModel && !OPENROUTER_MODELS.some(m => m.id === saved.openrouterModel)) {
-    modelSelect.value = '__custom__';
-    modelCustom.value = saved.openrouterModel;
-    modelCustom.style.display = '';
-  }
-  modelSelect.addEventListener('change', () => {
-    modelCustom.style.display = modelSelect.value === '__custom__' ? '' : 'none';
-  });
-  modelRow.appendChild(modelCustom);
-
-  container.appendChild(modelRow);
-
-  // ─── Capable Model Select (for OpenRouter, key moments) ───
-  const capableRow = document.createElement('div');
-  capableRow.id = 'sg-llm-capable-row';
-  capableRow.className = 'sg-field';
-
-  const capableLabel = document.createElement('div');
-  capableLabel.className = 'sg-field__label';
-  capableLabel.textContent = 'Capable model (key moments)';
-  capableRow.appendChild(capableLabel);
-
-  const capableSelect = document.createElement('select');
-  capableSelect.id = 'sg-llm-capable-select';
-  capableSelect.className = 'sg-select';
-  for (const m of OPENROUTER_CAPABLE_MODELS) {
-    const opt = document.createElement('option');
-    opt.value = m.id;
-    opt.textContent = m.name;
-    if (m.id === saved.openrouterModelCapable) opt.selected = true;
-    capableSelect.appendChild(opt);
-  }
-  capableRow.appendChild(capableSelect);
-  container.appendChild(capableRow);
+  const capableField = createModelField(
+    'sg-llm-capable-row', 'Capable model (key moments)', VERIFIED_CAPABLE_MODELS,
+    () => capableModelId, (id) => { capableModelId = id; },
+  );
+  container.appendChild(capableField.row);
 
   // ─── Max Tokens ──────────────────────────────────────
   const tokensRow = document.createElement('div');
@@ -206,14 +206,13 @@ export function createLLMSettings(
     const showModel = p === 'openrouter';
 
     (keyRow as HTMLElement).style.display = showKey ? '' : 'none';
-    (modelRow as HTMLElement).style.display = showModel ? '' : 'none';
-    (capableRow as HTMLElement).style.display = showModel ? '' : 'none';
+    chatField.row.style.display = showModel ? '' : 'none';
+    capableField.row.style.display = showModel ? '' : 'none';
 
     keyInput.placeholder = p === 'openai' ? 'sk-...' : 'sk-or-...';
   }
 
   providerSelect.addEventListener('change', () => {
-    // Reset any key error styling on provider change
     keyInput.style.borderColor = '';
     updateVisibility();
   });
@@ -232,7 +231,6 @@ export function createLLMSettings(
   saveBtn.addEventListener('click', () => {
     const type = providerSelect.value as ProviderType;
 
-    // Blank-key guard: non-mock providers require an API key
     if (type !== 'mock' && !keyInput.value.trim()) {
       keyInput.style.borderColor = 'var(--danger)';
       keyInput.focus();
@@ -242,7 +240,6 @@ export function createLLMSettings(
       return;
     }
 
-    // Reset any previous error styling on the key input
     keyInput.style.borderColor = '';
 
     const config: Record<string, unknown> = {
@@ -253,16 +250,14 @@ export function createLLMSettings(
 
     if (type === 'openai') {
       config.openaiApiKey = keyInput.value;
-      config.openaiModel = modelSelect.value;
+      config.openaiModel = chatModelId;
     } else if (type === 'openrouter') {
       config.openrouterApiKey = keyInput.value;
-      config.openrouterModel = modelSelect.value === '__custom__'
-        ? (modelCustom.value.trim() || OPENROUTER_MODELS[0].id)
-        : modelSelect.value;
-      config.openrouterModelCapable = capableSelect.value;
+      config.openrouterModel = chatModelId;
+      config.openrouterModelCapable = capableModelId;
     }
 
-    saveProviderConfig(config as any);
+    saveProviderConfig(config as unknown as ProviderConfig);
     opts.onSave?.(config as unknown as ProviderConfig);
     status.className = 'sg-form-status sg-form-status--ok';
     status.textContent = 'Settings saved!';
@@ -299,11 +294,7 @@ export function createLLMSettings(
           'Authorization': `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
-          model: type === 'openai'
-            ? 'gpt-3.5-turbo'
-            : (modelSelect.value === '__custom__'
-                ? (modelCustom.value.trim() || OPENROUTER_MODELS[0].id)
-                : modelSelect.value),
+          model: type === 'openai' ? 'gpt-3.5-turbo' : chatModelId,
           messages: [{ role: 'user', content: 'Say "test"' }],
           max_tokens: 10,
         }),
@@ -331,7 +322,7 @@ export function createLLMSettings(
   return {
     element: container,
     getConfig(): Record<string, unknown> {
-      return loadProviderConfig() as any;
+      return loadProviderConfig() as unknown as Record<string, unknown>;
     },
     destroy() {
       container.remove();

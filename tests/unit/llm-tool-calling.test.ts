@@ -100,7 +100,7 @@ describe('OpenRouterProvider tool-calling', () => {
     const fetchMock = vi.fn(async () => ({
       ok: true, status: 200,
       json: async () => ({
-        model: 'deepseek/deepseek-v4',
+        model: 'deepseek/deepseek-v4-pro',
         choices: [{ message: { content: '', tool_calls: [
           { id: 'tc1', type: 'function', function: { name: 'author_spawn_npc', arguments: '{"role":"farmer","count":2}' } },
         ] } }],
@@ -110,7 +110,7 @@ describe('OpenRouterProvider tool-calling', () => {
     }));
     vi.stubGlobal('fetch', fetchMock as never);
 
-    const provider = new OpenRouterProvider({ apiKey: 'k', model: 'deepseek/deepseek-v4' });
+    const provider = new OpenRouterProvider({ apiKey: 'k', model: 'deepseek/deepseek-v4-pro' });
     const resp = await provider.generate(
       [{ role: 'user', content: 'add 2 farmers' }],
       { tools: [SPAWN_TOOL], toolChoice: 'auto' },

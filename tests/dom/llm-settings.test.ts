@@ -1,7 +1,15 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createLLMSettings } from '@/ui/llm-settings-new';
+import { VERIFIED_CHAT_MODELS, clearCatalogCache } from '@/llm/openrouter-catalog';
 
-beforeEach(() => localStorage.clear());
+beforeEach(() => {
+  localStorage.clear();
+  clearCatalogCache();
+  // The picker fetches the live catalog; keep tests offline so it falls back to
+  // the verified list (and never hits the network).
+  vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')));
+});
+afterEach(() => { vi.unstubAllGlobals(); clearCatalogCache(); });
 
 function selectProvider(el: HTMLElement, value: string) {
   const sel = el.querySelector('select') as HTMLSelectElement;
@@ -43,24 +51,27 @@ describe('createLLMSettings', () => {
   });
 });
 
-describe('createLLMSettings — custom model + advanced', () => {
-  it('reveals a custom-model input when "Custom model ID…" is chosen, and saves its value', () => {
+describe('createLLMSettings — model picker + advanced', () => {
+  it('opens the model picker and saves the chosen model', () => {
     const onSave = vi.fn();
     const handle = createLLMSettings({ onSave });
     document.body.appendChild(handle.element);
     selectProvider(handle.element, 'openrouter');
     (handle.element.querySelector('input[type="password"]') as HTMLInputElement).value = 'sk-or-2';
 
-    const modelSel = handle.element.querySelector('#sg-llm-model-select') as HTMLSelectElement;
-    modelSel.value = '__custom__';
-    modelSel.dispatchEvent(new Event('change'));
+    // Open the picker via the Model field button.
+    const modelBtn = handle.element.querySelector('#sg-llm-model-row .sg-model-field') as HTMLButtonElement;
+    modelBtn.click();
 
-    const custom = handle.element.querySelector('#sg-llm-model-custom') as HTMLInputElement;
-    expect(custom.style.display).not.toBe('none');
-    custom.value = 'meta-llama/llama-4-scout';
+    // Offline → verified fallback rows render in verified order.
+    const rows = handle.element.querySelectorAll('.sg-mp__row');
+    expect(rows.length).toBe(VERIFIED_CHAT_MODELS.length);
+
+    (rows[1] as HTMLElement).click(); // select the 2nd verified model
+    (handle.element.querySelector('.sg-mp__select') as HTMLButtonElement).click(); // "Use this model"
 
     ([...handle.element.querySelectorAll('button')].find(b => b.textContent === 'Save') as HTMLButtonElement).click();
-    expect(onSave.mock.calls[0][0].openrouterModel).toBe('meta-llama/llama-4-scout');
+    expect(onSave.mock.calls[0][0].openrouterModel).toBe(VERIFIED_CHAT_MODELS[1].id);
     handle.destroy();
   });
 

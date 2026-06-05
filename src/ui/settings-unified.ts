@@ -146,7 +146,7 @@ export function createSettingsPanel(
   overlay.style.display = 'none';
 
   const modal = document.createElement('div');
-  modal.className = 'sg-settings-modal sg-modal';
+  modal.className = 'sg-settings-modal sg-modal sg-theme-dark';
 
   // Header
   const header = document.createElement('div');
@@ -305,15 +305,15 @@ function createPixelLabSettings(opts: SettingsOptions): HTMLElement {
 
   // API Key
   const keyRow = document.createElement('div');
-  keyRow.className = 'sg-settings-row';
+  keyRow.className = 'sg-field';
 
   const keyLabel = document.createElement('div');
-  keyLabel.className = 'sg-settings-label';
+  keyLabel.className = 'sg-field__label';
   keyLabel.textContent = 'PixelLab API Key';
   keyRow.appendChild(keyLabel);
 
   const keyInput = document.createElement('input');
-  keyInput.className = 'sg-settings-input';
+  keyInput.className = 'sg-input';
   keyInput.type = 'password';
   keyInput.placeholder = 'e.g. 684533a5-f005-…';
   keyRow.appendChild(keyInput);
@@ -324,47 +324,48 @@ function createPixelLabSettings(opts: SettingsOptions): HTMLElement {
 
   section.appendChild(keyRow);
 
-  // Status
+  // Status (reuses the shared form-status component; hidden until it has text)
   const status = document.createElement('div');
-  status.className = 'sg-settings-status';
+  status.className = 'sg-form-status';
+  status.style.display = 'none';
+  const setStatus = (text: string, kind: 'ok' | 'info' | 'err'): void => {
+    status.textContent = text;
+    status.className = `sg-form-status sg-form-status--${kind}`;
+    status.style.display = 'block';
+  };
   section.appendChild(status);
 
   // Actions
   const actions = document.createElement('div');
-  actions.className = 'sg-settings-actions';
+  actions.className = 'sg-actions';
 
   const saveBtn = document.createElement('button');
-  saveBtn.className = 'sg-settings-btn sg-settings-btn--primary';
+  saveBtn.className = 'sg-btn sg-btn--primary';
   saveBtn.textContent = 'Save & Verify';
   saveBtn.addEventListener('click', async () => {
     const key = keyInput.value.trim();
     if (!key) {
-      status.textContent = 'Please enter a key.';
-      status.className = 'sg-settings-status sg-settings-status--visible sg-settings-status--bad';
+      setStatus('Please enter a key.', 'err');
       return;
     }
-    status.textContent = 'Verifying...';
-    status.className = 'sg-settings-status sg-settings-status--visible sg-settings-status--info';
+    setStatus('Verifying...', 'info');
     try {
       const bal = await fetchBalance(key);
       saveApiKey(key);
-      status.textContent = `Valid! ${bal.generationsRemaining}/${bal.generationsTotal} free gens remaining.`;
-      status.className = 'sg-settings-status sg-settings-status--visible sg-settings-status--ok';
+      setStatus(`Valid! ${bal.generationsRemaining}/${bal.generationsTotal} free gens remaining.`, 'ok');
     } catch (err) {
-      status.textContent = `Invalid: ${(err as Error).message}`;
-      status.className = 'sg-settings-status sg-settings-status--visible sg-settings-status--bad';
+      setStatus(`Invalid: ${(err as Error).message}`, 'err');
     }
   });
   actions.appendChild(saveBtn);
 
   const clearBtn = document.createElement('button');
-  clearBtn.className = 'sg-settings-btn sg-settings-btn--ghost';
+  clearBtn.className = 'sg-btn sg-btn--ghost';
   clearBtn.textContent = 'Clear';
   clearBtn.addEventListener('click', () => {
     keyInput.value = '';
     clearApiKey();
-    status.textContent = 'Key cleared.';
-    status.className = 'sg-settings-status sg-settings-status--visible sg-settings-status--info';
+    setStatus('Key cleared.', 'info');
   });
   actions.appendChild(clearBtn);
 
@@ -379,24 +380,21 @@ function createToggleRow(
   defaultValue: boolean,
   opts: SettingsOptions,
 ): HTMLElement {
-  const row = document.createElement('div');
-  row.className = 'sg-settings-toggle';
+  // A <label> wrapper makes the whole row a native click target, so the label
+  // toggles the checkbox without any manual click plumbing.
+  const row = document.createElement('label');
+  row.className = 'sg-toggle';
 
   const checkbox = document.createElement('input');
-  checkbox.className = 'sg-settings-checkbox';
   checkbox.type = 'checkbox';
   checkbox.checked = defaultValue;
   checkbox.addEventListener('change', () => {
     opts.onGameSettingChange?.(key, checkbox.checked);
   });
 
-  const labelEl = document.createElement('div');
-  labelEl.className = 'sg-settings-toggle-label';
+  const labelEl = document.createElement('span');
+  labelEl.className = 'sg-toggle__label';
   labelEl.textContent = label;
-  labelEl.addEventListener('click', () => {
-    checkbox.checked = !checkbox.checked;
-    checkbox.dispatchEvent(new Event('change'));
-  });
 
   row.appendChild(checkbox);
   row.appendChild(labelEl);

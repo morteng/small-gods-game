@@ -93,6 +93,32 @@
   --t-display: 28px;
 }
 
+/* ── Dark theme ───────────────────────────────────────────────
+   Scoped, not global: apply `.sg-theme-dark` to a dialog/panel subtree
+   and every token-driven component inside it flips to dark. The in-world
+   HUD chrome stays light (it sits beside daylight world art); dialogs the
+   player reads up-close go dark. Warm-neutral to match the light palette's
+   hue, just inverted in lightness. */
+.sg-theme-dark {
+  --bg:       oklch(0.20 0.012 70);
+  --paper:    oklch(0.245 0.012 70);
+  --paper-2:  oklch(0.295 0.014 70);
+  --line:     oklch(0.34 0.012 70);
+  --line-2:   oklch(0.44 0.014 70);
+  --shade:    oklch(0.245 0.012 70 / 0.9);
+
+  --ink:      oklch(0.95 0.010 80);
+  --ink-2:    oklch(0.82 0.012 80);
+  --ink-3:    oklch(0.66 0.012 80);
+  --ink-4:    oklch(0.52 0.012 80);
+
+  --lift-1: 0 1px 0 oklch(0 0 0 / 0.18), 0 1px 2px oklch(0 0 0 / 0.30);
+  --lift-2: 0 4px 12px oklch(0 0 0 / 0.35), 0 12px 40px oklch(0 0 0 / 0.45);
+
+  color: var(--ink);
+}
+.sg-theme-dark .sg-btn--primary { color: oklch(0.98 0.005 80); }
+
 /* ── Base ────────────────────────────────────────────────────── */
 * { box-sizing: border-box; }
 
@@ -425,6 +451,32 @@ button { font-family: inherit; color: inherit; }
 .sg-form-status--ok   { background: var(--faith-soft); color: oklch(0.55 0.13 80); }
 .sg-form-status--info { background: var(--time-soft);  color: var(--time); }
 .sg-form-status--err  { background: var(--danger-soft); color: var(--danger); }
+
+/* Toggle row: a checkbox vertically centred with its label. One shared
+   component so every dialog's checkboxes align identically. */
+.sg-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  cursor: pointer;
+  user-select: none;
+}
+.sg-toggle > input[type="checkbox"] {
+  flex: 0 0 auto;
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--you);
+  cursor: pointer;
+}
+.sg-toggle__label {
+  font-size: var(--t-base);
+  color: var(--ink-2);
+  line-height: 1.2;
+}
+
+/* Right-aligned action row, shared by dialog footers. */
+.sg-actions { display: flex; gap: var(--s-2); align-items: center; }
 
 .sg-advanced { border-top: 1px solid var(--line); padding-top: var(--s-2); }
 .sg-advanced > summary {

@@ -7,6 +7,7 @@
 
 import type { LLMProvider } from './llm-client';
 import { MockLLMProvider, OpenAIProvider, OpenRouterProvider, type OpenAIConfig, type OpenRouterConfig } from './llm-client';
+import { DEFAULT_CHAT_MODEL, DEFAULT_CAPABLE_MODEL, DEAD_MODEL_IDS } from './openrouter-catalog';
 
 export type ProviderType = 'mock' | 'openai' | 'openrouter';
 
@@ -53,7 +54,7 @@ export function createProvider(config: ProviderConfig): LLMProvider {
       }
       const orConfig: OpenRouterConfig = {
         apiKey: config.openrouterApiKey,
-        model: config.openrouterModel ?? 'deepseek/deepseek-v4-flash',
+        model: config.openrouterModel ?? DEFAULT_CHAT_MODEL,
         siteUrl: config.openrouterSiteUrl,
         siteName: config.openrouterSiteName ?? 'Small Gods Game',
       };
@@ -72,7 +73,7 @@ export function loadProviderConfig(): ProviderConfig {
   const saved = localStorage.getItem('small-gods-llm-provider');
   if (saved) {
     try {
-      return JSON.parse(saved) as ProviderConfig;
+      return migrateDeadModels(JSON.parse(saved) as ProviderConfig);
     } catch {
       // fall through
     }
@@ -85,11 +86,28 @@ export function loadProviderConfig(): ProviderConfig {
   return {
     type: envKey ? 'openrouter' : 'mock',
     openrouterApiKey: envKey,
-    openrouterModel: 'deepseek/deepseek-v4-flash',
-    openrouterModelCapable: 'deepseek/deepseek-v4',
+    openrouterModel: DEFAULT_CHAT_MODEL,
+    openrouterModelCapable: DEFAULT_CAPABLE_MODEL,
     maxTokens: 200,
     temperature: 0.7,
   };
+}
+
+/**
+ * Rewrite any persisted model ID that is no longer a valid OpenRouter ID
+ * (see {@link DEAD_MODEL_IDS}) to the current default. A stale localStorage
+ * entry pointing at a dead ID would otherwise keep 400-ing on every backfill
+ * ("Their mind clouds over") with no way for the player to recover but to
+ * clear storage. The rewrite is silent and idempotent.
+ */
+export function migrateDeadModels(config: ProviderConfig): ProviderConfig {
+  if (config.openrouterModel && DEAD_MODEL_IDS.has(config.openrouterModel)) {
+    config.openrouterModel = DEFAULT_CHAT_MODEL;
+  }
+  if (config.openrouterModelCapable && DEAD_MODEL_IDS.has(config.openrouterModelCapable)) {
+    config.openrouterModelCapable = DEFAULT_CAPABLE_MODEL;
+  }
+  return config;
 }
 
 /**

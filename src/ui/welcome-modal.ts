@@ -1,13 +1,10 @@
 import { saveProviderConfig, type ProviderConfig } from '@/llm/provider-factory';
+import { VERIFIED_CHAT_MODELS, DEFAULT_CAPABLE_MODEL } from '@/llm/openrouter-catalog';
 
 export const ONBOARDED_KEY = 'small-gods-llm-onboarded';
 
-const FAST_MODELS = [
-  { id: 'deepseek/deepseek-v4-flash', name: 'DeepSeek V4 Flash (recommended)' },
-  { id: 'google/gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash-Lite' },
-  { id: 'google/gemini-2.5-flash', name: 'Gemini 2.5 Flash' },
-];
-const DEFAULT_CAPABLE = 'deepseek/deepseek-v4';
+const FAST_MODELS = VERIFIED_CHAT_MODELS;
+const DEFAULT_CAPABLE = DEFAULT_CAPABLE_MODEL;
 
 export interface WelcomeModalDeps {
   onComplete: (config: ProviderConfig) => void;
@@ -22,7 +19,7 @@ export function createWelcomeModal(container: HTMLElement, deps: WelcomeModalDep
   overlay.className = 'sg-modal-overlay';
 
   const modal = document.createElement('div');
-  modal.className = 'sg-modal';
+  modal.className = 'sg-modal sg-theme-dark';
   overlay.appendChild(modal);
 
   const title = document.createElement('h2');
