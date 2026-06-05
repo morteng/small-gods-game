@@ -98,12 +98,3 @@ export function synthesizeFromPreset(
   return { ...structuredClone(base), ...structuredClone(overrides), preset: name };
 }
 
-const POI_PRESET: Record<string, string> = {
-  village: 'cottage', city: 'tavern', temple: 'temple_small', farm: 'farm_barn',
-  castle: 'castle_keep', tower: 'tower', port: 'dock', tavern: 'tavern',
-  market: 'market_stall', mine: 'guard_post', ruins: 'cottage',
-};
-
-export function presetForPoiType(poiType: string): string {
-  return POI_PRESET[poiType] ?? 'cottage';
-}

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  BUILDING_PRESETS, getPreset, synthesizeFromPreset, presetForPoiType,
+  BUILDING_PRESETS, getPreset, synthesizeFromPreset,
 } from '@/world/building-presets';
 
 describe('building-presets', () => {
@@ -39,8 +39,4 @@ describe('building-presets', () => {
     expect(b.preset).toBe('cottage');
   });
 
-  it('maps poi types to preset names', () => {
-    expect(presetForPoiType('temple')).toBe('temple_small');
-    expect(presetForPoiType('unknown_type')).toBe('cottage');
-  });
 });
