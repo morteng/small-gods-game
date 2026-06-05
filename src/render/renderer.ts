@@ -239,6 +239,7 @@ function drawTerrain(ctx: CanvasRenderingContext2D, rc: RenderContext): void {
 
 // Pass 0b: Building-ordered ground material (derived; translucent overlay).
 function drawGroundMaterialOverlay(ctx: CanvasRenderingContext2D, rc: RenderContext): void {
+  if (isLayerHidden('buildings', rc.devMode)) return;
   const field = computeGroundMaterialField(rc.world);
   if (field.size === 0) return;
   const { camera, canvasWidth, canvasHeight, map } = rc;
@@ -421,7 +422,7 @@ function drawEntity(ctx: CanvasRenderingContext2D, rc: RenderContext, e: Entity)
     }
   }
 
-  // 2. Tree sprite path
+  // 3. Tree sprite path
   const treeSheetName = treeSheetForKind(e.kind);
   if (treeSheetName) {
     const sheet = rc.treeSheets.get(treeSheetName);
@@ -431,7 +432,7 @@ function drawEntity(ctx: CanvasRenderingContext2D, rc: RenderContext, e: Entity)
     }
   }
 
-  // 3. Fallback shape
+  // 4. Fallback shape
   drawEntityFallback(ctx, rc, e);
 }
 
