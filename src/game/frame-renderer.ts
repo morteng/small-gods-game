@@ -2,6 +2,7 @@ import type { GameState } from '@/core/state';
 import type { Viewport } from './viewport';
 import type { RenderContextDeps } from './render-context';
 import type { RenderFn } from '@/render/select-renderer';
+import { readRenderMode } from '@/render/select-renderer';
 import type { InteractionState } from './interaction-state';
 import type { DivineActionsController } from './divine-actions-controller';
 import type { DevModeController } from './dev-mode-controller';
@@ -51,6 +52,8 @@ export class FrameRenderer {
   private renderedPinned = false;
   private lastInfoRefresh = 0;
   private fpsEma = 60;
+  /** Fixed per session — toggling render mode reloads the page. */
+  private readonly renderMode = readRenderMode();
 
   constructor(private deps: FrameRendererDeps) {}
 
@@ -87,7 +90,7 @@ export class FrameRenderer {
 
     // Draw prayer markers (independent of selection)
     if (this.deps.state.world) {
-      drawPrayerMarkers(this.deps.ctx, this.deps.state.world, this.deps.state.camera);
+      drawPrayerMarkers(this.deps.ctx, this.deps.state.world, this.deps.state.camera, this.renderMode);
     }
 
     // Update Spirit HUD

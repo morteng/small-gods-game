@@ -1,5 +1,8 @@
 import type { Camera, NpcInstance, NpcSimState } from '@/core/types';
 import { worldToScreen } from '@/render/camera';
+import { worldToScreen as isoWorldToScreen } from '@/render/iso/iso-projection';
+import { BILLBOARD_H_PX } from '@/render/iso/iso-sprites';
+import type { RenderMode } from '@/render/select-renderer';
 import { TILE_SIZE } from '@/core/constants';
 import { CANVAS, CANVAS_FONT } from '@/render/canvas-palette';
 import type { OverlayHitArea } from '@/ui/overlay-dispatcher';
@@ -154,11 +157,19 @@ export function drawPoiOverlay(
 }
 
 /** Draw a 🙏 over every NPC currently in `worship`, so the player can see who
- *  needs them at a glance. Independent of selection. */
+ *  needs them at a glance. Independent of selection.
+ *
+ *  `drawPrayerMarkers` runs *after* the renderer has restored its canvas
+ *  transform, so the glyph is positioned directly in screen space. The active
+ *  render mode decides the projection: topdown places the glyph above the tile
+ *  centre; iso replicates the iso renderer's `scale(zoom)·translate(-camera)`
+ *  mapping and lifts the glyph to the top of the NPC billboard (`BILLBOARD_H_PX`)
+ *  so it tracks the head instead of floating off. */
 export function drawPrayerMarkers(
   ctx: CanvasRenderingContext2D,
   world: World,
   camera: Camera,
+  mode: RenderMode = 'topdown',
 ): void {
   ctx.save();
   ctx.font = '16px serif';
@@ -167,8 +178,19 @@ export function drawPrayerMarkers(
   const tileScreenSize = TILE_SIZE * camera.zoom;
   for (const e of queryNpcs(world)) {
     if (npcProps(e).activity !== 'worship') continue;
-    const { sx, sy } = worldToScreen(camera, e.x, e.y, TILE_SIZE);
-    ctx.fillText('🙏', sx + tileScreenSize / 2, sy - 2);
+    let mx: number, my: number;
+    if (mode === 'iso') {
+      // Top of the billboard (z = BILLBOARD_H_PX) in the iso renderer's
+      // pre-transform space, then apply its scale·translate to reach screen px.
+      const head = isoWorldToScreen(e.x, e.y, BILLBOARD_H_PX, 0, 0);
+      mx = (head.sx - camera.x) * camera.zoom;
+      my = (head.sy - camera.y) * camera.zoom - 2;
+    } else {
+      const { sx, sy } = worldToScreen(camera, e.x, e.y, TILE_SIZE);
+      mx = sx + tileScreenSize / 2;
+      my = sy - 2;
+    }
+    ctx.fillText('🙏', mx, my);
   }
   ctx.restore();
 }

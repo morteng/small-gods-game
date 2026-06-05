@@ -23,8 +23,9 @@ const NPC_COLOR_BY_ROLE: Record<string, string> = {
 /**
  * Pixel height of the LPC sprite billboard above the ground.
  * Must match the z-offset in worldToScreen (z is in raw screen pixels).
+ * Exported so overlay markers (e.g. the prayer 🙏) can sit just above the head.
  */
-const BILLBOARD_H_PX = 64;
+export const BILLBOARD_H_PX = 64;
 
 export function drawIsoNpc(dc: IsoDrawCtx, npc: NpcInstance): void {
   const { sx, sy } = worldToScreen(npc.tileX, npc.tileY, 0, dc.originX, dc.originY);
