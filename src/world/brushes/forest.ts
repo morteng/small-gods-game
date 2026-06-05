@@ -16,10 +16,12 @@ const FOREST_PARAMS: import('./vegetation-placer').VegetationParams = {
   ],
   density: 0.35,
   // Wide scale range is the main source of visual variety (we don't rotate
-  // vegetation — tilted trees read as wrong).
+  // vegetation — tilted trees read as wrong). Full-cell scatter + up to two
+  // trees per cell break the one-per-tile grid into an organic stand.
   scaleRange: [0.6, 1.5],
   rotationRange: 0,
-  offsetRange: [0.3, 0.3],
+  offsetRange: [0.5, 0.5],
+  maxPerTile: 2,
   clumpScale: 5,
   undergrowth: [
     ['shrub', 0.6, 0.05],

@@ -14,8 +14,9 @@ const PINE_FOREST_PARAMS: import('./vegetation-placer').VegetationParams = {
   ],
   density: 0.50,
   scaleRange: [0.85, 1.35],
-  rotationRange: 12,
-  offsetRange: [0.3, 0.3],
+  rotationRange: 0,
+  offsetRange: [0.5, 0.5],
+  maxPerTile: 2,
   undergrowth: [
     ['mushroom', 1.0, 0.05],
   ],

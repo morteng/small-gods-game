@@ -14,8 +14,9 @@ const DENSE_FOREST_PARAMS: import('./vegetation-placer').VegetationParams = {
   ],
   density: 0.70,
   scaleRange: [0.9, 1.3],
-  rotationRange: 15,
-  offsetRange: [0.35, 0.35],
+  rotationRange: 0,
+  offsetRange: [0.5, 0.5],
+  maxPerTile: 3,
   undergrowth: [
     ['shrub', 0.5, 0.10],
     ['fern', 0.5, 0.10],

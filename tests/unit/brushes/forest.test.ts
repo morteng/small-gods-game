@@ -103,3 +103,55 @@ describe('forest brush', () => {
     expect(placeVegetation(r, 5, c, p)).toEqual(placeVegetation(r, 5, c, p));
   });
 });
+
+describe('vegetation scatter (anti-grid)', () => {
+  const base: VegetationParams = {
+    brush: 'forest', tileType: 'forest', kinds: [['oak_tree', 1]],
+    density: 0.6, scaleRange: [1, 1], rotationRange: 0, offsetRange: [0.5, 0.5], clumpScale: 0,
+  };
+
+  it('maxPerTile > 1 puts more than one tree in some cells', () => {
+    const c = allForest(30, 30);
+    const r = { x: 0, y: 0, w: 30, h: 30 };
+    const out = placeVegetation(r, 9, c, { ...base, maxPerTile: 3 });
+    const perCell = new Map<string, number>();
+    for (const e of out) {
+      const k = `${Math.floor(e.x)},${Math.floor(e.y)}`;
+      perCell.set(k, (perCell.get(k) ?? 0) + 1);
+    }
+    expect(Math.max(...perCell.values())).toBeGreaterThan(1);
+  });
+
+  it('maxPerTile=1 caps at one tree per cell', () => {
+    const c = allForest(30, 30);
+    const r = { x: 0, y: 0, w: 30, h: 30 };
+    const out = placeVegetation(r, 9, c, { ...base, maxPerTile: 1 });
+    const perCell = new Map<string, number>();
+    for (const e of out) {
+      const k = `${Math.floor(e.x)},${Math.floor(e.y)}`;
+      perCell.set(k, (perCell.get(k) ?? 0) + 1);
+    }
+    expect(Math.max(...perCell.values())).toBe(1);
+  });
+
+  it('positions fill the whole cell, not just the centre (frac spans [0,1))', () => {
+    const c = allForest(30, 30);
+    const r = { x: 0, y: 0, w: 30, h: 30 };
+    const out = placeVegetation(r, 4, c, { ...base, maxPerTile: 2 });
+    const fracs = out.map((e) => e.x - Math.floor(e.x));
+    expect(Math.min(...fracs)).toBeLessThan(0.15);   // some near the low edge
+    expect(Math.max(...fracs)).toBeGreaterThan(0.85); // some near the high edge
+    // And every fraction is genuinely in-cell, so floor() never escapes.
+    expect(fracs.every((f) => f >= 0 && f < 1)).toBe(true);
+  });
+
+  it('stored offsetX/offsetY equal the in-cell fraction (topdown reconstruction is exact)', () => {
+    const c = allForest(12, 12);
+    const r = { x: 0, y: 0, w: 12, h: 12 };
+    for (const e of placeVegetation(r, 2, c, { ...base, maxPerTile: 2 })) {
+      const tileX = Math.floor(e.x);
+      // renderer.ts reconstructs worldX from (floor(e.x) + offsetX); it must equal e.x.
+      expect(tileX + (e.properties!.offsetX as number)).toBeCloseTo(e.x);
+    }
+  });
+});

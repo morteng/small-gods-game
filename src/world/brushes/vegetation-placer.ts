@@ -15,7 +15,12 @@ export interface VegetationParams {
   scaleRange: [number, number];
   /** Rotation variation in degrees [-max, +max] (e.g., 15 for ±15°) */
   rotationRange: number;
-  /** Offset from tile center in tile units [maxX, maxY] (e.g., [0.3, 0.3]) */
+  /**
+   * Scatter window within a cell, per axis (0–0.5). 0.5 = scatter across the
+   * whole cell (kills the tile grid); smaller values pull entities toward the
+   * cell centre. Values above 0.5 are clamped so an entity never floors out of
+   * its own tile.
+   */
   offsetRange: [number, number];
   /**
    * Tile span of the low-frequency clump field that carves groves and
@@ -23,8 +28,41 @@ export interface VegetationParams {
    * clumps. Set 0 to disable clumping (uniform scatter).
    */
   clumpScale?: number;
+  /**
+   * Maximum entities placed per cell (default 1). With >1, each cell rolls that
+   * many independent sub-slots, so a cell can hold 0..N entities scattered
+   * across it instead of the rigid at-most-one-per-tile lattice. Per-slot
+   * probability is `density·clump / maxPerTile`, so the expected count per cell
+   * stays `density·clump` — only its spatial distribution loosens.
+   */
+  maxPerTile?: number;
   /** Secondary undergrowth kinds (placed at lower density) */
   undergrowth?: [string, number, number][]; // [kind, weight, density]
+}
+
+/**
+ * In-cell position as a fraction in [0, 1): the cell centre (0.5) jittered by a
+ * noise sample, with the scatter window `range` clamped to 0.5 so the result
+ * never leaves the cell. Stored verbatim as `offsetX/offsetY` so the topdown
+ * renderer's `floor(e.x) + offsetX` reconstruction equals `e.x` exactly.
+ */
+function cellFrac(rng: number, range: number): number {
+  const r = Math.min(0.5, Math.max(0, range));
+  return 0.5 + (rng - 0.5) * 2 * r;
+}
+
+/**
+ * Decorrelated [0, 1) hash for the per-slot placement rolls. The shared
+ * `noise()` is a single LCG step, so values for nearby seeds (the gate seed `s`
+ * vs the offset seed `s + 3`) come out strongly correlated — which biased every
+ * tree's offset to the same side and reinforced the grid. This Math.imul mix
+ * decorrelates the rolls so offsets actually scatter across the cell.
+ */
+function hash01(x: number, y: number, key: number): number {
+  let h = Math.imul(x | 0, 374761393) ^ Math.imul(y | 0, 668265263) ^ Math.imul(key | 0, 2246822519);
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  h ^= h >>> 16;
+  return (h >>> 0) / 4294967296;
 }
 
 /**
@@ -41,59 +79,55 @@ export function placeVegetation(
   const yEnd = region.y + region.h;
   const xEnd = region.x + region.w;
   
+  const maxPerTile = Math.max(1, params.maxPerTile ?? 1);
+
   for (let y = region.y; y < yEnd; y++) {
     for (let x = region.x; x < xEnd; x++) {
       const tile = ctx.tiles.tiles[y]?.[x];
       if (!tile || tile.type !== params.tileType) continue;
 
-      // Density check: a white-noise per-tile sample, gated by a smooth
-      // low-frequency clump field so trees gather into groves and leave
-      // clearings instead of an even one-per-few-tiles lattice. The clump
-      // multiplier is mean-preserving (≈1 on average), so total density is
-      // unchanged — only its spatial distribution clusters.
+      // Smooth low-frequency clump field so trees gather into groves and leave
+      // clearings instead of an even lattice. Mean-preserving (≈1 on average),
+      // so total density is unchanged — only its spatial distribution clusters.
       const clumpScale = params.clumpScale ?? 5;
       const clump = clumpScale > 0 ? smoothNoise(x, y, seed + 30, clumpScale) * 2 : 1;
-      const densityRng = noise(x, y, seed);
-      if (densityRng >= params.density * clump) continue;
+      const perSlot = (params.density * clump) / maxPerTile;
 
-      // Pick primary vegetation kind based on weighted random
-      const kindRng = noise(x, y, seed + 1);
-      const kind = pickWeighted(kindRng, params.kinds);
+      // Each cell rolls maxPerTile independent sub-slots, each scattered across
+      // the whole cell — so placement is decorrelated from the tile lattice
+      // (no more one-near-each-corner grid) and a cell may hold 0..N entities.
+      let placedPrimary = false;
+      for (let i = 0; i < maxPerTile; i++) {
+        const s = seed + i * 101;
+        if (hash01(x, y, s) >= perSlot) continue;
+        placedPrimary = true;
 
-      // Calculate offset from tile center using noise
-      const offRngX = noise(x, y, seed + 3);
-      const offRngY = noise(x, y, seed + 4);
-      const offsetX = (offRngX - 0.5) * 2 * params.offsetRange[0];
-      const offsetY = (offRngY - 0.5) * 2 * params.offsetRange[1];
+        const kind = pickWeighted(hash01(x, y, s + 1), params.kinds);
+        const fx = cellFrac(hash01(x, y, s + 3), params.offsetRange[0]);
+        const fy = cellFrac(hash01(x, y, s + 4), params.offsetRange[1]);
+        const scale = params.scaleRange[0] + hash01(x, y, s + 5) * (params.scaleRange[1] - params.scaleRange[0]);
+        const rotation = (hash01(x, y, s + 6) - 0.5) * 2 * params.rotationRange;
 
-      // Calculate scale variation
-      const scaleRng = noise(x, y, seed + 5);
-      const scale = params.scaleRange[0] + scaleRng * (params.scaleRange[1] - params.scaleRange[0]);
+        out.push(defaultEntity(params.brush, kind, x + fx, y + fy, {
+          offsetX: fx,
+          offsetY: fy,
+          scale,
+          rotation,
+        }));
+      }
 
-      // Calculate rotation variation
-      const rotRng = noise(x, y, seed + 6);
-      const rotation = (rotRng - 0.5) * 2 * params.rotationRange;
-
-      out.push(defaultEntity(params.brush, kind, x + offsetX, y + offsetY, {
-        offsetX,
-        offsetY,
-        scale,
-        rotation,
-      }));
-
-      // Place undergrowth at lower density
-      if (params.undergrowth) {
+      // Undergrowth: at most one per cell, only where primary vegetation grew.
+      if (placedPrimary && params.undergrowth) {
         for (const [ugKind, ugWeight, ugDensity] of params.undergrowth) {
-          const ugRng = noise(x, y, seed + 10 + ugKind.length);
+          const ugRng = hash01(x, y, seed + 10 + ugKind.length);
           if (ugRng < ugDensity) {
             const ugKindPicked = pickWeighted(ugRng, [[ugKind, ugWeight]]);
-            // Undergrowth has smaller offsets
-            const ugOffX = (noise(x, y, seed + 20) - 0.5) * 0.15;
-            const ugOffY = (noise(x, y, seed + 21) - 0.5) * 0.15;
-            out.push(defaultEntity(params.brush, ugKindPicked, x + ugOffX, y + ugOffY, {
-              offsetX: ugOffX,
-              offsetY: ugOffY,
-              scale: 0.6 + noise(x, y, seed + 22) * 0.4, // Smaller scale: 0.6-1.0
+            const ugFx = cellFrac(hash01(x, y, seed + 20), 0.35);
+            const ugFy = cellFrac(hash01(x, y, seed + 21), 0.35);
+            out.push(defaultEntity(params.brush, ugKindPicked, x + ugFx, y + ugFy, {
+              offsetX: ugFx,
+              offsetY: ugFy,
+              scale: 0.6 + hash01(x, y, seed + 22) * 0.4, // Smaller scale: 0.6-1.0
             }));
           }
         }
