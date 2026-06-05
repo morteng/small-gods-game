@@ -55,5 +55,6 @@ describe('non-settlement POI fallback', () => {
     const r = getZoneRule('lake');
     expect(r.buildingCount.max).toBe(0);
     expect(r.buildings).toEqual([]);
+    expect(r.roadLayout).toBe('none');
   });
 });
