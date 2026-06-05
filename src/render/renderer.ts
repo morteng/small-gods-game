@@ -6,6 +6,9 @@ import type { BuildingTemplate } from '@/map/building-templates';
 import { tryGetEntityKindDef } from '@/world/entity-kinds';
 import { BUILDING_TEMPLATES } from '@/map/building-templates';
 import { isLayerHidden, isEntityHidden } from '@/render/layer-visibility';
+import { drawBuildingPlaceholder } from './building-massing';
+import { computeGroundMaterialField } from './ground-material';
+import { GROUND_COLORS, NEUTRAL, type BuildingDescriptor } from '@/world/building-descriptor';
 
 /** Render the map to a canvas context */
 export function renderMap(ctx: CanvasRenderingContext2D, rc: RenderContext): void {
@@ -20,6 +23,7 @@ export function renderMap(ctx: CanvasRenderingContext2D, rc: RenderContext): voi
   ctx.translate(-camera.x, -camera.y);
 
   drawTerrain(ctx, rc);
+  drawGroundMaterialOverlay(ctx, rc);
   drawYSortedEntities(ctx, rc);
   drawOverlays(ctx, rc);
 
@@ -233,6 +237,31 @@ function drawTerrain(ctx: CanvasRenderingContext2D, rc: RenderContext): void {
   }
 }
 
+// Pass 0b: Building-ordered ground material (derived; translucent overlay).
+function drawGroundMaterialOverlay(ctx: CanvasRenderingContext2D, rc: RenderContext): void {
+  if (isLayerHidden('buildings', rc.devMode)) return;
+  const field = computeGroundMaterialField(rc.world);
+  if (field.size === 0) return;
+  const { camera, canvasWidth, canvasHeight, map } = rc;
+  const startX = Math.max(0, Math.floor(camera.x / TILE_SIZE) - 1);
+  const startY = Math.max(0, Math.floor(camera.y / TILE_SIZE) - 1);
+  const endX = Math.min(map.width, Math.ceil((camera.x + canvasWidth / camera.zoom) / TILE_SIZE) + 1);
+  const endY = Math.min(map.height, Math.ceil((camera.y + canvasHeight / camera.zoom) / TILE_SIZE) + 1);
+
+  ctx.globalAlpha = 0.55;
+  for (let y = startY; y < endY; y++) {
+    for (let x = startX; x < endX; x++) {
+      const tile = map.tiles[y]?.[x];
+      if (!tile || tile.state === 'void') continue;
+      const mat = field.get(`${x},${y}`);
+      if (!mat) continue;
+      ctx.fillStyle = GROUND_COLORS[mat] ?? NEUTRAL;
+      ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+    }
+  }
+  ctx.globalAlpha = 1;
+}
+
 /**
  * Draw road/river sprite overlay on top of LPC terrain tile.
  * When the LPC terrain atlas is in use, roads and rivers are drawn as overlays.
@@ -372,7 +401,15 @@ function drawEntity(ctx: CanvasRenderingContext2D, rc: RenderContext, e: Entity)
     return;
   }
 
-  // 1. Building sprite path
+  // 1. Parametric building — topdown silhouette from the descriptor.
+  const descriptor = e.properties?.descriptor as BuildingDescriptor | undefined;
+  if (descriptor) {
+    drawBuildingPlaceholder(ctx, descriptor, Math.floor(e.x), Math.floor(e.y));
+    return;
+  }
+
+  // TODO(building-descriptor-cleanup): remove this legacy template/sprite branch once all buildings carry descriptors.
+  // 2. Building sprite path (legacy fallback)
   const templateId = (e.properties?.templateId as string | undefined) ?? e.kind;
   const buildingSprite = rc.buildingSprites.get(templateId);
   if (buildingSprite) {
@@ -386,7 +423,7 @@ function drawEntity(ctx: CanvasRenderingContext2D, rc: RenderContext, e: Entity)
     }
   }
 
-  // 2. Tree sprite path
+  // 3. Tree sprite path
   const treeSheetName = treeSheetForKind(e.kind);
   if (treeSheetName) {
     const sheet = rc.treeSheets.get(treeSheetName);
@@ -396,7 +433,7 @@ function drawEntity(ctx: CanvasRenderingContext2D, rc: RenderContext, e: Entity)
     }
   }
 
-  // 3. Fallback shape
+  // 4. Fallback shape
   drawEntityFallback(ctx, rc, e);
 }
 

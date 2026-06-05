@@ -38,6 +38,9 @@ export const entityKinds: ReadonlyMap<string, EntityKindDef> = new Map<string, E
   ['farm_barn',     def('farm_barn',     'building',         '#AED581', 'square', ['building', 'farm', 'shelter'], 1)],
   ['dock',          def('dock',          'building',         '#80DEEA', 'square', ['building', 'commercial', 'water-adjacent'], 1)],
   ['guard_post',    def('guard_post',    'building',         '#78909C', 'square', ['building', 'military'], 1)],
+  ['building',      def('building',      'building',         '#C4956A', 'square', ['building'], 1)],
+  ['yurt',          def('yurt',          'building',         '#b9a07a', 'square', ['building', 'residential', 'shelter'], 1)],
+  ['longhouse',     def('longhouse',     'building',         '#7a5230', 'square', ['building', 'residential', 'shelter'], 1)],
 
   // ─── Vegetation (trees — match decoration-placer variants) ────────────────
   ['oak_tree',      def('oak_tree',      'vegetation',       '#3a6e3a', 'circle', ['vegetation', 'tree', 'forest'], 0.5)],

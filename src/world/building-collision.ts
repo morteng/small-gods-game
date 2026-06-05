@@ -11,11 +11,12 @@
  *
  * ## Designed to grow
  *
- * Today every footprint cell is solid. This module is the seam where richer
- * collision will live as buildings gain interiors and features:
- *   - per-cell passability from the ground floor plan
- *     (`BuildingTemplate.floors[0].walkable[localY][localX]`),
- *   - walkable entrances (`BuildingTemplate.doorCell`),
+ * Today the descriptor's `door` cell is passable; every other footprint cell is
+ * solid. This module is the seam where richer collision will live as buildings
+ * gain interiors and features:
+ *   - per-cell passability declared on `BuildingDescriptor` (in
+ *     `@/world/building-descriptor`) — the natural home for a future walkability
+ *     map alongside the existing `door` field,
  *   - stairs linking stories, roof overhangs that occlude but don't block,
  *   - material/era variations.
  * Keep that logic here so pathfinding, perception, and placement share one
@@ -27,25 +28,32 @@ import { tryGetEntityKindDef } from '@/world/entity-kinds';
 
 /** True when this entity is a building (its footprint forms a collider). */
 export function isBuilding(e: Entity): boolean {
-  return tryGetEntityKindDef(e.kind)?.category === 'building';
+  if (tryGetEntityKindDef(e.kind)?.category === 'building') return true;
+  // Extensibility fallback: a descriptor-tagged building with an unregistered
+  // kind still collides.
+  return Array.isArray(e.tags) && e.tags.includes('building');
 }
 
 /**
  * Whether a single footprint cell of `building` can be walked through.
  *
- * v1: the whole footprint is solid (returns false for every covered cell).
- *
- * Extension point: derive local coordinates with
- * `localX = tileX - Math.floor(building.x)`, `localY = tileY - Math.floor(building.y)`,
- * then return true where the ground floor plan marks the cell walkable
- * (`floors[0].walkable[localY]?.[localX]`) or the cell is the `doorCell`.
+ * The descriptor's `door` cell (relative to the footprint top-left) is the one
+ * passable cell; every other covered cell is solid. Buildings without a door
+ * property (legacy / old-style entities) remain fully solid.
  */
 export function isFootprintCellPassable(
-  _building: Entity,
-  _tileX: number,
-  _tileY: number,
+  building: Entity,
+  tileX: number,
+  tileY: number,
 ): boolean {
-  return false;
+  const props = building.properties;
+  const door =
+    (props?.door as { x: number; y: number } | undefined) ??
+    (props?.descriptor as { door?: { x: number; y: number } } | undefined)?.door;
+  if (!door) return false;
+  const localX = tileX - Math.floor(building.x);
+  const localY = tileY - Math.floor(building.y);
+  return localX === door.x && localY === door.y;
 }
 
 /**

@@ -46,14 +46,14 @@ describe('findPlacement', () => {
   };
 
   it('finds a placement on open terrain', () => {
-    const result = findPlacement({ x: 20, y: 20 }, template, constraint, tiles, registry);
+    const result = findPlacement({ x: 20, y: 20 }, template.footprint, constraint, tiles, registry);
     expect(result).not.toBeNull();
     expect(result!.tileX).toBeGreaterThanOrEqual(0);
     expect(result!.tileY).toBeGreaterThanOrEqual(0);
   });
 
   it('stays within bounds', () => {
-    const result = findPlacement({ x: 20, y: 20 }, template, constraint, tiles, registry);
+    const result = findPlacement({ x: 20, y: 20 }, template.footprint, constraint, tiles, registry);
     expect(result).not.toBeNull();
     expect(result!.tileX + template.footprint.w).toBeLessThanOrEqual(40);
     expect(result!.tileY + template.footprint.h).toBeLessThanOrEqual(40);
@@ -61,14 +61,14 @@ describe('findPlacement', () => {
 
   it('returns null when terrain is wrong type', () => {
     const waterTiles = makeTiles(10, 10, 'deep_water');
-    const result = findPlacement({ x: 5, y: 5 }, template, constraint, waterTiles, registry);
+    const result = findPlacement({ x: 5, y: 5 }, template.footprint, constraint, waterTiles, registry);
     expect(result).toBeNull();
   });
 
   it('respects margin — placed building blocks nearby placements', () => {
     const reg2 = new EntityRegistry();
     // Place a building at center
-    const r1 = findPlacement({ x: 20, y: 20 }, template, constraint, tiles, reg2);
+    const r1 = findPlacement({ x: 20, y: 20 }, template.footprint, constraint, tiles, reg2);
     expect(r1).not.toBeNull();
     reg2.add({
       id: 'first',
@@ -87,7 +87,7 @@ describe('findPlacement', () => {
     });
 
     // Try to place another building at exactly the same spot
-    const r2 = findPlacement({ x: r1!.tileX, y: r1!.tileY }, template, { ...constraint, margin: 0 }, tiles, reg2);
+    const r2 = findPlacement({ x: r1!.tileX, y: r1!.tileY }, template.footprint, { ...constraint, margin: 0 }, tiles, reg2);
     // With margin=0, it should be pushed aside (not at exact same position)
     if (r2) {
       expect(

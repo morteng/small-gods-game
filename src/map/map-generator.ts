@@ -204,12 +204,17 @@ export async function generateWithNoise(
       // Convert Entity buildings → BuildingInstance for backwards compat
       for (const e of result.entities) {
         const props = e.properties ?? {};
-        if (props.category === 'building' && props.templateId) {
-          buildings.push({
-            id: e.id, templateId: props.templateId as string,
-            tileX: e.x, tileY: e.y,
-            poiId: props.poiId as string | undefined, state: 'intact',
-          });
+        if (props.category === 'building') {
+          // Descriptor path (new): use descriptor.preset; legacy path: use templateId
+          const descriptor = props.descriptor as { preset?: string } | undefined;
+          const templateId = (descriptor?.preset ?? props.templateId) as string | undefined;
+          if (templateId) {
+            buildings.push({
+              id: e.id, templateId,
+              tileX: e.x, tileY: e.y,
+              poiId: props.poiId as string | undefined, state: 'intact',
+            });
+          }
         }
       }
     }

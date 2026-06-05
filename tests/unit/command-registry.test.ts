@@ -12,13 +12,13 @@ const EDITOR_VERBS: CommandVerb[] = [
 
 const ALL_VERBS: CommandVerb[] = [
   'whisper', 'omen', 'dream', 'miracle', 'answer_prayer', 'probe_mind',
-  'bias_event', 'inject_npc', 'nudge_severity',
+  'bias_event', 'inject_npc', 'nudge_severity', 'place_building',
   ...EDITOR_VERBS,
 ];
 
 describe('capability registry', () => {
-  it('declares all 14 verbs', () => {
-    expect(listCapabilities()).toHaveLength(14);
+  it('declares all 15 verbs', () => {
+    expect(listCapabilities()).toHaveLength(15);
     for (const v of ALL_VERBS) {
       expect(getCapability(v)).toBeDefined();
       expect(CAPABILITY_REGISTRY[v].verb).toBe(v);
@@ -50,7 +50,7 @@ describe('capability registry', () => {
   });
 
   it('wires every authoring verb as implemented (executor in place)', () => {
-    for (const v of ['bias_event', 'inject_npc', 'nudge_severity'] as CommandVerb[]) {
+    for (const v of ['bias_event', 'inject_npc', 'nudge_severity', 'place_building'] as CommandVerb[]) {
       const def = CAPABILITY_REGISTRY[v];
       expect(def.tier).toBe('authoring');
       expect(def.implemented).toBe(true);

@@ -24,6 +24,7 @@ import {
   movePrecondition, moveApply,
 } from './editor-verbs';
 import { injectNpcPrecondition, injectNpcApply, biasEventPrecondition, biasEventApply, nudgeSeverityPrecondition, nudgeSeverityApply } from './authoring-verbs';
+import { placeBuildingPrecondition, placeBuildingApply } from './building-verbs';
 
 export interface CapabilityDef {
   verb: CommandVerb;
@@ -149,6 +150,12 @@ export const CAPABILITY_REGISTRY: Record<CommandVerb, CapabilityDef> = {
     precondition: nudgeSeverityPrecondition,
     apply: nudgeSeverityApply,
     describe: (cmd) => `nudge severity of ${targetLabel(cmd)} event by ${cmd.payload?.delta ?? 0}`,
+  },
+  place_building: {
+    verb: 'place_building', tier: 'authoring', cost: 0, targetKind: 'settlement', implemented: true,
+    precondition: placeBuildingPrecondition,
+    apply: placeBuildingApply,
+    describe: (cmd) => `raise a ${cmd.payload?.preset ?? 'building'} at ${targetLabel(cmd)}`,
   },
 
   // ── Editor tier — god-mode authoring (Create panel). cost 0, no spirit. ──────
