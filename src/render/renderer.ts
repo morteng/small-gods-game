@@ -408,6 +408,7 @@ function drawEntity(ctx: CanvasRenderingContext2D, rc: RenderContext, e: Entity)
     return;
   }
 
+  // TODO(building-descriptor-cleanup): remove this legacy template/sprite branch once all buildings carry descriptors.
   // 2. Building sprite path (legacy fallback)
   const templateId = (e.properties?.templateId as string | undefined) ?? e.kind;
   const buildingSprite = rc.buildingSprites.get(templateId);
