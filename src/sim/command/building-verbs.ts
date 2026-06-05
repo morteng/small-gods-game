@@ -39,7 +39,7 @@ export function findBuildingPlacement(
     for (let dy = 0; dy < footprint.h; dy++) {
       for (let dx = 0; dx < footprint.w; dx++) {
         const t = map.tiles[y0 + dy]?.[x0 + dx];
-        if (!t || t.state !== 'realized') return false;
+        if (!t || t.state !== 'realized' || !t.walkable) return false;
       }
     }
     return world.registry.canPlace(x0, y0, footprint.w, footprint.h, 0);
