@@ -59,6 +59,36 @@ describe('renderDetail', () => {
     renderDetail(host, { type: 'world' }, detailDeps(new World(emptyMap())));
     expect(host.textContent).toContain('Generation');
   });
+
+  it('surfaces the JSON recipe: POIs, connections, raw JSON, clickable POIs', () => {
+    const host = document.createElement('div');
+    const deps = detailDeps(new World(emptyMap()));
+    deps.seed = {
+      name: 'Test World', size: { width: 64, height: 64 }, biome: 'temperate', era: 'medieval',
+      pois: [
+        { id: 'camp', name: 'Hollow Camp', type: 'village', era: 'primordial', position: { x: 40, y: 30 },
+          npcs: [{ name: 'Ash', role: 'elder' }] },
+        { id: 'mine', name: 'Ironvein', type: 'mine', position: { x: 103, y: 34 } },
+      ],
+      connections: [{ from: 'camp', to: 'mine', type: 'road', style: 'dirt' }],
+      constraints: [],
+    } as any;
+    renderDetail(host, { type: 'world' }, deps);
+    const text = host.textContent ?? '';
+    expect(text).toContain('Recipe — POIs (2)');
+    expect(text).toContain('Hollow Camp');
+    expect(text).toContain('primordial');     // per-POI era override surfaced
+    expect(text).toContain('camp → mine');     // connection
+    expect(text).toContain('Raw recipe');
+
+    // Clicking a POI navigates to it.
+    const poiBtn = Array.from(host.querySelectorAll('button')).find(b => b.textContent?.includes('Hollow Camp'))!;
+    poiBtn.click();
+    expect(deps.onNavigate).toHaveBeenCalledWith({ type: 'poi', id: 'camp' });
+
+    // Raw JSON is present in the collapsible block.
+    expect(host.querySelector('details pre')?.textContent).toContain('"Test World"');
+  });
 });
 
 describe('renderFields', () => {

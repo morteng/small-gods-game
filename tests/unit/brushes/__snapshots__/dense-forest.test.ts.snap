@@ -169,6 +169,121 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     "y": -0.12247359742060004,
   },
   {
+    "id": "dense_forest-oak_tree--1-1",
+    "kind": "oak_tree",
+    "properties": {
+      "offsetX": -0.029940771907540395,
+      "offsetY": 0.32976426513854606,
+      "rotation": 14.964614524489555,
+      "scale": 1.0939824582049542,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+      "forest",
+    ],
+    "x": -0.029940771907540395,
+    "y": 1.3297642651385462,
+  },
+  {
+    "id": "dense_forest-oak_tree-0-1",
+    "kind": "oak_tree",
+    "properties": {
+      "offsetX": -0.061213475331297805,
+      "offsetY": 0.2984915617147887,
+      "rotation": 13.624355806328522,
+      "scale": 1.0761123419628071,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+      "forest",
+    ],
+    "x": 0.9387865246687022,
+    "y": 1.2984915617147887,
+  },
+  {
+    "id": "dense_forest-fern-0-1",
+    "kind": "fern",
+    "properties": {
+      "offsetX": -0.052763128270284794,
+      "offsetY": 0.02431651358460845,
+      "scale": 0.6703897714942646,
+    },
+    "tags": [
+      "vegetation",
+      "undergrowth",
+    ],
+    "x": 0.9472368717297152,
+    "y": 1.0243165135846084,
+  },
+  {
+    "id": "dense_forest-oak_tree-1-1",
+    "kind": "oak_tree",
+    "properties": {
+      "offsetX": -0.09248617875505526,
+      "offsetY": 0.2672188165677799,
+      "rotation": 12.284095300028145,
+      "scale": 1.0582422257206598,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+      "forest",
+    ],
+    "x": 1.9075138212449447,
+    "y": 1.2672188165677798,
+  },
+  {
+    "id": "dense_forest-fern-1-1",
+    "kind": "fern",
+    "properties": {
+      "offsetX": -0.05946443080178668,
+      "offsetY": 0.017615228934500016,
+      "scale": 0.6525196552521175,
+    },
+    "tags": [
+      "vegetation",
+      "undergrowth",
+    ],
+    "x": 1.9405355691982134,
+    "y": 1.0176152289345,
+  },
+  {
+    "id": "dense_forest-oak_tree-2-1",
+    "kind": "oak_tree",
+    "properties": {
+      "offsetX": -0.12375892390206406,
+      "offsetY": 0.2359461548672738,
+      "rotation": 10.943838370006457,
+      "scale": 1.040372085636655,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+      "forest",
+    ],
+    "x": 2.876241076097936,
+    "y": 1.2359461548672739,
+  },
+  {
+    "id": "dense_forest-oak_tree-3-1",
+    "kind": "oak_tree",
+    "properties": {
+      "offsetX": -0.15503158560257013,
+      "offsetY": 0.20467340972026501,
+      "rotation": 9.60357428742739,
+      "scale": 1.0225019455526498,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+      "forest",
+    ],
+    "x": 3.84496841439743,
+    "y": 1.204673409720265,
+  },
+  {
     "id": "dense_forest-oak_tree-4-1",
     "kind": "oak_tree",
     "properties": {
@@ -320,6 +435,23 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     ],
     "x": 5.04702444095026,
     "y": 1.7067296028401375,
+  },
+  {
+    "id": "dense_forest-oak_tree-6-2",
+    "kind": "oak_tree",
+    "properties": {
+      "offsetX": -0.015520882450752371,
+      "offsetY": 0.3441841128720828,
+      "rotation": -14.417388438907167,
+      "scale": 1.1022223473536887,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+      "forest",
+    ],
+    "x": 6.984479117549248,
+    "y": 2.3441841128720826,
   },
   {
     "id": "dense_forest-oak_tree--1-3",
@@ -488,57 +620,6 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     "y": 2.8775128842459585,
   },
   {
-    "id": "dense_forest-oak_tree-4-4",
-    "kind": "oak_tree",
-    "properties": {
-      "offsetX": -0.18631768219001482,
-      "offsetY": 0.17338714623981488,
-      "rotation": 8.26274872909428,
-      "scale": 1.0046241760741101,
-    },
-    "tags": [
-      "vegetation",
-      "tree",
-      "forest",
-    ],
-    "x": 4.8136823178099855,
-    "y": 4.173387146239815,
-  },
-  {
-    "id": "dense_forest-oak_tree-5-4",
-    "kind": "oak_tree",
-    "properties": {
-      "offsetX": -0.2175904273370236,
-      "offsetY": 0.14211440109280607,
-      "rotation": 6.922488222793904,
-      "scale": 0.986754035990105,
-    },
-    "tags": [
-      "vegetation",
-      "tree",
-      "forest",
-    ],
-    "x": 5.782409572662976,
-    "y": 4.142114401092806,
-  },
-  {
-    "id": "dense_forest-oak_tree-6-4",
-    "kind": "oak_tree",
-    "properties": {
-      "offsetX": -0.24886317248403242,
-      "offsetY": 0.11084198973180819,
-      "rotation": 5.582227716493526,
-      "scale": 0.9688838959061,
-    },
-    "tags": [
-      "vegetation",
-      "tree",
-      "forest",
-    ],
-    "x": 6.7511368275159676,
-    "y": 4.110841989731808,
-  },
-  {
     "id": "dense_forest-brown_tree-0-4",
     "kind": "brown_tree",
     "properties": {
@@ -639,23 +720,6 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     ],
     "x": 5.047011089509824,
     "y": 4.706716251399701,
-  },
-  {
-    "id": "dense_forest-oak_tree--1-6",
-    "kind": "oak_tree",
-    "properties": {
-      "offsetX": -0.2632964133812563,
-      "offsetY": 0.09640858194157881,
-      "rotation": 4.963653096912267,
-      "scale": 0.9606363296791149,
-    },
-    "tags": [
-      "vegetation",
-      "tree",
-      "forest",
-    ],
-    "x": -0.2632964133812563,
-    "y": 6.096408581941579,
   },
   {
     "id": "dense_forest-oak_tree-0-6",
@@ -805,57 +869,6 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     ],
     "x": 7.217794370915645,
     "y": 5.877499532805523,
-  },
-  {
-    "id": "dense_forest-oak_tree-4-7",
-    "kind": "oak_tree",
-    "properties": {
-      "offsetX": -0.18633103363045073,
-      "offsetY": 0.17337379479937898,
-      "rotation": 8.262162219389417,
-      "scale": 1.0046165466795753,
-    },
-    "tags": [
-      "vegetation",
-      "tree",
-      "forest",
-    ],
-    "x": 4.8136689663695496,
-    "y": 7.173373794799379,
-  },
-  {
-    "id": "dense_forest-oak_tree-5-7",
-    "kind": "oak_tree",
-    "properties": {
-      "offsetX": -0.2176037787774595,
-      "offsetY": 0.14210104965237016,
-      "rotation": 6.92190171308904,
-      "scale": 0.9867464065955702,
-    },
-    "tags": [
-      "vegetation",
-      "tree",
-      "forest",
-    ],
-    "x": 5.78239622122254,
-    "y": 7.1421010496523705,
-  },
-  {
-    "id": "dense_forest-oak_tree-6-7",
-    "kind": "oak_tree",
-    "properties": {
-      "offsetX": -0.24887652392446832,
-      "offsetY": 0.11082830450536138,
-      "rotation": 5.581655511903416,
-      "scale": 0.9688762665115652,
-    },
-    "tags": [
-      "vegetation",
-      "tree",
-      "forest",
-    ],
-    "x": 6.751123476075532,
-    "y": 7.110828304505361,
   },
 ]
 `;

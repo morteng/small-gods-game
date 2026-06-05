@@ -2,6 +2,8 @@ import { describe, it, expect, vi } from 'vitest';
 import { renderMap, createIsoRenderMap } from '@/render/iso/iso-renderer';
 import type { RenderContext, GameMap, NpcInstance } from '@/core/types';
 import { createIsoCamera } from '@/render/iso/iso-camera';
+import { buildingEntity } from '@/world/building-descriptor';
+import { synthesizeFromPreset } from '@/world/building-presets';
 
 function makeMap(w: number, h: number, fill = 'grass'): GameMap {
   const tiles = [];
@@ -76,19 +78,59 @@ describe('iso-renderer: vegetation', () => {
     expect(() => renderMap(ctx, rc)).not.toThrow();
   });
 
-  it('skips vegetation entirely when devMode.showVegetation === false', () => {
+  it('does not draw vegetation when devMode.showVegetation === false', () => {
     const veg = [
       { id: 'oak1', kind: 'oak_tree', x: 2, y: 2 },
       { id: 'fern1', kind: 'fern', x: 3, y: 3 },
     ];
-    const queried: object[] = [];
     const rc = makeRc();
-    rc.world = { entities: new Map(), query: () => { queried.push({}); return veg; } } as any;
+    rc.npcs = []; // isolate: NPCs also draw shadow ellipses
+    rc.world = { entities: new Map(), query: () => veg } as any;
     rc.devMode = { showVegetation: false } as any;
     const ctx = makeMockCtx();
     renderMap(ctx, rc);
-    // Gated off: the world is never even queried for vegetation.
+    // No buildings/NPCs and vegetation hidden ⇒ nothing draws a canopy/shadow ellipse.
+    expect((ctx.ellipse as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+  });
+
+  it('skips the world query entirely when both buildings and vegetation are hidden', () => {
+    const queried: object[] = [];
+    const rc = makeRc();
+    rc.world = { entities: new Map(), query: () => { queried.push({}); return []; } } as any;
+    rc.devMode = { showVegetation: false, showBuildings: false } as any;
+    const ctx = makeMockCtx();
+    renderMap(ctx, rc);
     expect(queried.length).toBe(0);
+  });
+});
+
+describe('iso-renderer: buildings from descriptor entities', () => {
+  it('draws building entities returned by world.query (not map.buildings)', () => {
+    const rc = makeRc();
+    const cottage = buildingEntity('b1', synthesizeFromPreset('cottage')!, 2, 2);
+    rc.world = { entities: new Map(), query: () => [cottage] } as any;
+    const ctx = makeMockCtx();
+    expect(() => renderMap(ctx, rc)).not.toThrow();
+    // building body fills (walls + roof) land on top of terrain fills
+    expect((ctx.fill as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(0);
+  });
+
+  it('draws a round building (yurt) with a drum/dome ellipse', () => {
+    const rc = makeRc();
+    const yurt = buildingEntity('y1', synthesizeFromPreset('yurt')!, 3, 3);
+    rc.world = { entities: new Map(), query: () => [yurt] } as any;
+    const ctx = makeMockCtx();
+    renderMap(ctx, rc);
+    expect((ctx.ellipse as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('skips buildings when the buildings layer is hidden', () => {
+    const rc = makeRc();
+    const cottage = buildingEntity('b1', synthesizeFromPreset('cottage')!, 2, 2);
+    rc.world = { entities: new Map(), query: () => [cottage] } as any;
+    rc.devMode = { showBuildings: false } as any;
+    const ctx = makeMockCtx();
+    expect(() => renderMap(ctx, rc)).not.toThrow();
   });
 });
 

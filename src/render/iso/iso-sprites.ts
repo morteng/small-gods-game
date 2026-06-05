@@ -1,7 +1,7 @@
 import { ISO_TILE_W, ISO_TILE_H } from './iso-constants';
 import { worldToScreen } from './iso-projection';
 import type { IsoAtlas } from './iso-atlas';
-import type { NpcInstance, BuildingInstance, Entity } from '@/core/types';
+import type { NpcInstance, Entity } from '@/core/types';
 import { tryGetEntityKindDef } from '@/world/entity-kinds';
 import { getSpriteCoords } from '@/render/npc-animator';
 
@@ -68,62 +68,6 @@ export function drawIsoNpc(dc: IsoDrawCtx, npc: NpcInstance): void {
   ctx.fill();
 }
 
-export function drawIsoBuilding(
-  dc: IsoDrawCtx,
-  b: BuildingInstance,
-  footprintW: number,
-  footprintH: number,
-): void {
-  const sprite = dc.atlas.getBuilding(b.templateId);
-  if (sprite) return;
-  const ctx = dc.ctx;
-  const baseHeight = 40;
-  const frontX = b.tileX + footprintW - 1;
-  const frontY = b.tileY + footprintH - 1;
-  const backX  = b.tileX;
-  const backY  = b.tileY;
-  const front = worldToScreen(frontX, frontY, 0, dc.originX, dc.originY);
-  const back  = worldToScreen(backX,  backY,  0, dc.originX, dc.originY);
-  const east  = worldToScreen(frontX, backY,  0, dc.originX, dc.originY);
-  const west  = worldToScreen(backX,  frontY, 0, dc.originX, dc.originY);
-  // flat top (roof)
-  ctx.fillStyle = '#7a5a3f';
-  ctx.beginPath();
-  ctx.moveTo(back.sx, back.sy);
-  ctx.lineTo(east.sx, east.sy);
-  ctx.lineTo(front.sx, front.sy);
-  ctx.lineTo(west.sx, west.sy);
-  ctx.closePath();
-  ctx.fill();
-  // top face (raised)
-  ctx.fillStyle = '#a07a55';
-  ctx.beginPath();
-  ctx.moveTo(back.sx, back.sy - baseHeight);
-  ctx.lineTo(east.sx, east.sy - baseHeight);
-  ctx.lineTo(front.sx, front.sy - baseHeight);
-  ctx.lineTo(west.sx, west.sy - baseHeight);
-  ctx.closePath();
-  ctx.fill();
-  // east side face
-  ctx.fillStyle = '#5d4530';
-  ctx.beginPath();
-  ctx.moveTo(east.sx, east.sy);
-  ctx.lineTo(front.sx, front.sy);
-  ctx.lineTo(front.sx, front.sy - baseHeight);
-  ctx.lineTo(east.sx, east.sy - baseHeight);
-  ctx.closePath();
-  ctx.fill();
-  // west side face
-  ctx.fillStyle = '#4a3624';
-  ctx.beginPath();
-  ctx.moveTo(west.sx, west.sy);
-  ctx.lineTo(front.sx, front.sy);
-  ctx.lineTo(front.sx, front.sy - baseHeight);
-  ctx.lineTo(west.sx, west.sy - baseHeight);
-  ctx.closePath();
-  ctx.fill();
-}
-
 const TRUNK_COLOR = '#5a4030';
 
 /**
@@ -139,10 +83,11 @@ export function drawIsoVegetation(dc: IsoDrawCtx, e: Entity): void {
   const ctx = dc.ctx;
   const { sx, sy } = worldToScreen(e.x, e.y, 0, dc.originX, dc.originY);
   
-  // Get scale from entity properties (set by brush), fallback to yOffsetForSort
+  // Get scale from entity properties (set by brush), fallback to yOffsetForSort.
+  // Vegetation is never rotated (tilted trees read as wrong) — variety comes
+  // from scale and clumped placement instead.
   const scale = (e.properties?.scale as number) ?? Math.max(def.yOffsetForSort ?? 0.5, 0.5);
-  const rotation = (e.properties?.rotation as number) ?? 0;
-  
+
   // Trees have 'tree' in their defaultTags; ground cover (fern, shrub) does not
   const isTree = def.defaultTags.includes('tree');
   const canopyR = 10 + scale * 22;
@@ -150,7 +95,6 @@ export function drawIsoVegetation(dc: IsoDrawCtx, e: Entity): void {
 
   ctx.save();
   ctx.translate(sx, sy);
-  if (rotation) ctx.rotate((rotation * Math.PI) / 180);
 
   ctx.fillStyle = 'rgba(0,0,0,0.3)';
   ctx.beginPath();

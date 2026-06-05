@@ -1,4 +1,4 @@
-import { noise } from '@/core/noise';
+import { noise, smoothNoise } from '@/core/noise';
 import { defaultEntity } from '@/world/brush-helpers';
 import type { Entity, Region, BrushContext } from '@/core/types';
 
@@ -17,6 +17,12 @@ export interface VegetationParams {
   rotationRange: number;
   /** Offset from tile center in tile units [maxX, maxY] (e.g., [0.3, 0.3]) */
   offsetRange: [number, number];
+  /**
+   * Tile span of the low-frequency clump field that carves groves and
+   * clearings out of the flat base density (default 5). Larger = broader
+   * clumps. Set 0 to disable clumping (uniform scatter).
+   */
+  clumpScale?: number;
   /** Secondary undergrowth kinds (placed at lower density) */
   undergrowth?: [string, number, number][]; // [kind, weight, density]
 }
@@ -40,9 +46,15 @@ export function placeVegetation(
       const tile = ctx.tiles.tiles[y]?.[x];
       if (!tile || tile.type !== params.tileType) continue;
 
-      // Use noise for density check
+      // Density check: a white-noise per-tile sample, gated by a smooth
+      // low-frequency clump field so trees gather into groves and leave
+      // clearings instead of an even one-per-few-tiles lattice. The clump
+      // multiplier is mean-preserving (≈1 on average), so total density is
+      // unchanged — only its spatial distribution clusters.
+      const clumpScale = params.clumpScale ?? 5;
+      const clump = clumpScale > 0 ? smoothNoise(x, y, seed + 30, clumpScale) * 2 : 1;
       const densityRng = noise(x, y, seed);
-      if (densityRng >= params.density) continue;
+      if (densityRng >= params.density * clump) continue;
 
       // Pick primary vegetation kind based on weighted random
       const kindRng = noise(x, y, seed + 1);

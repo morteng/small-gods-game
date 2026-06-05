@@ -327,10 +327,10 @@ function drawTreeSprite(ctx: CanvasRenderingContext2D, sheet: HTMLImageElement, 
   const tileX = Math.floor(e.x);
   const tileY = Math.floor(e.y);
   
-  // Get scale from entity properties (set by brush), fallback to deterministic variation
+  // Get scale from entity properties (set by brush), fallback to deterministic
+  // variation. Vegetation is never rotated — variety comes from scale instead.
   const scale = (e.properties?.scale as number) ?? (0.8 + ((tileX * 7 + tileY * 13) % 40) / 100);
-  const rotation = (e.properties?.rotation as number) ?? ((tileX * 3 + tileY * 5) % 11) - 5;
-  
+
   const TREE_W = BASE_W * scale;
   const TREE_H = BASE_H * scale;
   
@@ -344,7 +344,6 @@ function drawTreeSprite(ctx: CanvasRenderingContext2D, sheet: HTMLImageElement, 
   
   ctx.save();
   ctx.translate(centerX, centerY);
-  ctx.rotate((rotation * Math.PI) / 180);
   ctx.drawImage(sheet, spriteCol * SPRITE_SRC, 0, SPRITE_SRC, SPRITE_SRC,
                 -TREE_W / 2, -TREE_H, TREE_W, TREE_H);
   ctx.restore();

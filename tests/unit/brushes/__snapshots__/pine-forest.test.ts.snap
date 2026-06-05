@@ -3,6 +3,40 @@
 exports[`pine_forest brush > produces a stable snapshot 1`] = `
 [
   {
+    "id": "pine_forest-pine_tree--1-0",
+    "kind": "pine_tree",
+    "properties": {
+      "offsetX": -0.22565965295101498,
+      "offsetY": 0.0826589449228062,
+      "rotation": 3.9718456156420725,
+      "scale": 0.9258146187643589,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+      "forest",
+    ],
+    "x": -0.22565965295101498,
+    "y": 0.0826589449228062,
+  },
+  {
+    "id": "pine_forest-pine_tree-0-0",
+    "kind": "pine_tree",
+    "properties": {
+      "offsetX": -0.2524648368137259,
+      "offsetY": 0.05585376636863395,
+      "rotation": 2.8996381829025415,
+      "scale": 0.9034769743929976,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+      "forest",
+    ],
+    "x": 0.7475351631862741,
+    "y": 0.05585376636863395,
+  },
+  {
     "id": "pine_forest-pine_tree-1-0",
     "kind": "pine_tree",
     "properties": {
@@ -105,6 +139,123 @@ exports[`pine_forest brush > produces a stable snapshot 1`] = `
     "y": -0.10497736921765718,
   },
   {
+    "id": "pine_forest-pine_tree-1-1",
+    "kind": "pine_tree",
+    "properties": {
+      "offsetX": -0.07927386750433309,
+      "offsetY": 0.22904469991523993,
+      "rotation": 9.827276240022517,
+      "scale": 1.047802782150825,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+      "forest",
+    ],
+    "x": 1.9207261324956668,
+    "y": 1.22904469991524,
+  },
+  {
+    "id": "pine_forest-pine_tree-2-1",
+    "kind": "pine_tree",
+    "properties": {
+      "offsetX": -0.10607907763034062,
+      "offsetY": 0.20223956131480614,
+      "rotation": 8.755070696005166,
+      "scale": 1.0254651070458187,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+      "forest",
+    ],
+    "x": 2.8939209223696594,
+    "y": 1.2022395613148062,
+  },
+  {
+    "id": "pine_forest-mushroom-2-1",
+    "kind": "mushroom",
+    "properties": {
+      "offsetX": -0.06616573333328857,
+      "offsetY": 0.01091392640299813,
+      "scale": 0.6346495151681124,
+    },
+    "tags": [
+      "vegetation",
+      "small",
+    ],
+    "x": 2.9338342666667114,
+    "y": 1.010913926402998,
+  },
+  {
+    "id": "pine_forest-pine_tree-3-1",
+    "kind": "pine_tree",
+    "properties": {
+      "offsetX": -0.1328842162307744,
+      "offsetY": 0.1754343511887986,
+      "rotation": 7.682859429941913,
+      "scale": 1.0031274319408123,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+      "forest",
+    ],
+    "x": 3.8671157837692256,
+    "y": 1.1754343511887986,
+  },
+  {
+    "id": "pine_forest-pine_tree-4-1",
+    "kind": "pine_tree",
+    "properties": {
+      "offsetX": -0.15968942635678193,
+      "offsetY": 0.14862914106279104,
+      "rotation": 6.610656746947512,
+      "scale": 0.980789756835806,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+      "forest",
+    ],
+    "x": 4.840310573643218,
+    "y": 1.1486291410627911,
+  },
+  {
+    "id": "pine_forest-pine_tree-5-1",
+    "kind": "pine_tree",
+    "properties": {
+      "offsetX": -0.18649463648278947,
+      "offsetY": 0.12182393093678351,
+      "rotation": 5.538448341907211,
+      "scale": 0.9584522009400894,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+      "forest",
+    ],
+    "x": 5.81350536351721,
+    "y": 1.1218239309367835,
+  },
+  {
+    "id": "pine_forest-pine_tree-6-1",
+    "kind": "pine_tree",
+    "properties": {
+      "offsetX": -0.213299846608797,
+      "offsetY": 0.0950188638619235,
+      "rotation": 4.466239936866909,
+      "scale": 0.9361145258350831,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+      "forest",
+    ],
+    "x": 6.786700153391203,
+    "y": 1.0950188638619236,
+  },
+  {
     "id": "pine_forest-pale_tree-0-1",
     "kind": "pale_tree",
     "properties": {
@@ -205,6 +356,40 @@ exports[`pine_forest brush > produces a stable snapshot 1`] = `
     ],
     "x": 5.040306663671651,
     "y": 1.748625373862975,
+  },
+  {
+    "id": "pine_forest-pine_tree--1-3",
+    "kind": "pine_tree",
+    "properties": {
+      "offsetX": -0.22567119594927465,
+      "offsetY": 0.08264744299587212,
+      "rotation": 3.971383102224854,
+      "scale": 0.9258050084467069,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+      "forest",
+    ],
+    "x": -0.22567119594927465,
+    "y": 3.082647442995872,
+  },
+  {
+    "id": "pine_forest-pine_tree-0-3",
+    "kind": "pine_tree",
+    "properties": {
+      "offsetX": -0.2524764060752822,
+      "offsetY": 0.055842161344290785,
+      "rotation": 2.8991775582075014,
+      "scale": 0.9034673929463455,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+      "forest",
+    ],
+    "x": 0.7475235939247178,
+    "y": 3.055842161344291,
   },
   {
     "id": "pine_forest-pine_tree-1-3",
@@ -409,74 +594,6 @@ exports[`pine_forest brush > produces a stable snapshot 1`] = `
     ],
     "x": 5.040295219579849,
     "y": 4.748613929771173,
-  },
-  {
-    "id": "pine_forest-pine_tree-1-6",
-    "kind": "pine_tree",
-    "properties": {
-      "offsetX": -0.2792930602930919,
-      "offsetY": 0.029025650177628568,
-      "rotation": 1.8265113894951117,
-      "scale": 0.881120061888881,
-    },
-    "tags": [
-      "vegetation",
-      "tree",
-      "forest",
-    ],
-    "x": 1.7207069397069081,
-    "y": 6.029025650177629,
-  },
-  {
-    "id": "pine_forest-pale_tree-3-6",
-    "kind": "pale_tree",
-    "properties": {
-      "offsetX": 0.2939017298602973,
-      "offsetY": 0.002220440051621031,
-      "rotation": 0.7543029844548101,
-      "scale": 0.8587823867838748,
-    },
-    "tags": [
-      "vegetation",
-      "tree",
-      "forest",
-    ],
-    "x": 3.2939017298602975,
-    "y": 6.002220440051621,
-  },
-  {
-    "id": "pine_forest-pale_tree-4-5",
-    "kind": "pale_tree",
-    "properties": {
-      "offsetX": 0.2670965197342897,
-      "offsetY": -0.024584770074386506,
-      "rotation": -0.3179054205854914,
-      "scale": 1.3364447119116991,
-    },
-    "tags": [
-      "vegetation",
-      "tree",
-      "forest",
-    ],
-    "x": 4.26709651973429,
-    "y": 5.975415229925614,
-  },
-  {
-    "id": "pine_forest-pale_tree-5-5",
-    "kind": "pale_tree",
-    "properties": {
-      "offsetX": 0.24029130960828218,
-      "offsetY": -0.05138998020039404,
-      "rotation": -1.390113825625793,
-      "scale": 1.314107036806693,
-    },
-    "tags": [
-      "vegetation",
-      "tree",
-      "forest",
-    ],
-    "x": 5.240291309608282,
-    "y": 5.948610019799606,
   },
   {
     "id": "pine_forest-pale_tree-6-5",
