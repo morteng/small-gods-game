@@ -8,7 +8,8 @@
  * unknown shape rendering (as a rectangle) instead of throwing.
  */
 import { TILE_SIZE } from '@/core/constants';
-import { buildingPalette, type BuildingDescriptor } from '@/world/building-descriptor';
+import type { BuildingDescriptor } from '@/world/building-descriptor';
+import { buildingMassing, type Massing } from './building-massing-model';
 
 function shade(hex: string, factor: number): string {
   const m = /^#([0-9a-f]{6})$/i.exec(hex);
@@ -26,20 +27,20 @@ export function drawBuildingPlaceholder(
   originTileX: number,
   originTileY: number,
 ): void {
-  const pal = buildingPalette(d);
+  const m = buildingMassing(d);
   const x = originTileX * TILE_SIZE;
   const y = originTileY * TILE_SIZE;
-  const w = d.footprint.w * TILE_SIZE;
-  const h = d.footprint.h * TILE_SIZE;
+  const w = m.footprint.w * TILE_SIZE;
+  const h = m.footprint.h * TILE_SIZE;
 
-  if (d.plan === 'stepped') {
-    drawStepped(ctx, d, x, y, w, h, pal.walls);
+  if (m.plan === 'stepped') {
+    drawStepped(ctx, m, x, y, w, h);
   } else {
-    ctx.fillStyle = pal.walls;
-    drawPlan(ctx, d.plan, x, y, w, h);
-    drawRoof(ctx, d.roof, x, y, w, h, pal.roof);
+    ctx.fillStyle = m.walls;
+    drawPlan(ctx, m.plan, x, y, w, h);
+    drawRoof(ctx, m.roof, x, y, w, h, m.roofColor);
   }
-  drawDoor(ctx, d, x, y);
+  drawDoor(ctx, m, x, y);
 }
 
 function drawPlan(
@@ -71,11 +72,12 @@ function drawPlan(
 }
 
 function drawStepped(
-  ctx: CanvasRenderingContext2D, d: BuildingDescriptor,
-  x: number, y: number, w: number, h: number, wallColor: string,
+  ctx: CanvasRenderingContext2D, m: Massing,
+  x: number, y: number, w: number, h: number,
 ): void {
-  const levels = Math.max(1, d.levels);
-  const insetPx = Math.max(1, d.levelInset) * TILE_SIZE * 0.5;
+  const wallColor = m.walls;
+  const levels = Math.max(1, m.levels);
+  const insetPx = Math.max(1, m.levelInset) * TILE_SIZE * 0.5;
   for (let i = 0; i < levels; i++) {
     const o = i * insetPx;
     const lw = w - o * 2, lh = h - o * 2;
@@ -126,10 +128,10 @@ function drawRoof(
 }
 
 function drawDoor(
-  ctx: CanvasRenderingContext2D, d: BuildingDescriptor, x: number, y: number,
+  ctx: CanvasRenderingContext2D, m: Massing, x: number, y: number,
 ): void {
   ctx.fillStyle = '#3a2a1a';
-  const dx = x + d.door.x * TILE_SIZE + TILE_SIZE * 0.3;
-  const dy = y + d.door.y * TILE_SIZE + TILE_SIZE * 0.3;
+  const dx = x + m.door.x * TILE_SIZE + TILE_SIZE * 0.3;
+  const dy = y + m.door.y * TILE_SIZE + TILE_SIZE * 0.3;
   ctx.fillRect(dx, dy, TILE_SIZE * 0.4, TILE_SIZE * 0.4);
 }

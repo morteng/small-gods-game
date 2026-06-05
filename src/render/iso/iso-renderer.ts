@@ -1,12 +1,14 @@
 import type { RenderContext, Entity } from '@/core/types';
 import { drawIsoTerrain } from './iso-terrain';
-import { drawIsoNpc, drawIsoBuilding, drawIsoVegetation } from './iso-sprites';
+import { drawIsoNpc, drawIsoVegetation } from './iso-sprites';
+import { drawIsoBuildingMassing } from './iso-building';
 import { drawIsoOverlays } from './iso-overlay';
 import { createNullAtlas } from './iso-atlas';
 import { visibleTileBounds } from './iso-projection';
 import { buildYSortBucket, buildingSortKey, type YSortEntry } from './iso-ysort';
 import { tryGetEntityKindDef } from '@/world/entity-kinds';
-import { getBuildingTemplate } from '@/map/building-templates';
+import { buildingMassing, type Massing } from '@/render/building-massing-model';
+import type { BuildingDescriptor } from '@/world/building-descriptor';
 import { isLayerHidden } from '@/render/layer-visibility';
 
 const BG_COLOR = '#1a1a24';
@@ -47,21 +49,47 @@ export function createIsoRenderMap(): RenderMap {
 
     const entries: YSortEntry[] = [];
     const hideBuildings = isLayerHidden('buildings', rc.devMode);
-    for (const b of (hideBuildings ? [] : (map as any).buildings ?? [])) {
-      const tpl = getBuildingTemplate(b.templateId);
-      const footprintW = tpl?.footprint.w ?? 1;
-      const footprintH = tpl?.footprint.h ?? 1;
-      const key = buildingSortKey({
-        tx: b.tileX, ty: b.tileY,
-        footprintW, footprintH,
-      });
-      entries.push({
-        id: b.id, kind: 'building',
-        tx: b.tileX, ty: b.tileY, z: 0,
-        sortTx: key.sortTx, sortTy: key.sortTy,
-        kindPriority: KIND_PRIORITY.building,
-      });
+    const hideVegetation = isLayerHidden('vegetation', rc.devMode);
+
+    // Buildings and vegetation are both world entities — one region query, then
+    // partition. Buildings are drawn parametrically from their descriptor's
+    // Massing (the legacy map.buildings/template path is gone).
+    const buildingById = new Map<string, { e: Entity; massing: Massing }>();
+    const vegById = new Map<string, Entity>();
+    if (!hideBuildings || !hideVegetation) {
+      const region = {
+        x: bounds.minTx, y: bounds.minTy,
+        w: bounds.maxTx - bounds.minTx + 1,
+        h: bounds.maxTy - bounds.minTy + 1,
+      };
+      for (const e of rc.world.query({ region })) {
+        const descriptor = e.properties?.descriptor as BuildingDescriptor | undefined;
+        if (descriptor) {
+          if (hideBuildings) continue;
+          const tx = Math.floor(e.x), ty = Math.floor(e.y);
+          const key = buildingSortKey({
+            tx, ty, footprintW: descriptor.footprint.w, footprintH: descriptor.footprint.h,
+          });
+          buildingById.set(e.id, { e, massing: buildingMassing(descriptor) });
+          entries.push({
+            id: e.id, kind: 'building',
+            tx, ty, z: 0,
+            sortTx: key.sortTx, sortTy: key.sortTy,
+            kindPriority: KIND_PRIORITY.building,
+          });
+          continue;
+        }
+        if (!hideVegetation && tryGetEntityKindDef(e.kind)?.category === 'vegetation') {
+          vegById.set(e.id, e);
+          entries.push({
+            id: e.id, kind: 'vegetation',
+            tx: e.x, ty: e.y, z: 0,
+            kindPriority: KIND_PRIORITY.vegetation,
+          });
+        }
+      }
     }
+
     if (!isLayerHidden('npcs', rc.devMode)) {
       for (const n of rc.npcs) {
         entries.push({
@@ -72,34 +100,12 @@ export function createIsoRenderMap(): RenderMap {
       }
     }
 
-    const vegById = new Map<string, Entity>();
-    const hideVegetation = isLayerHidden('vegetation', rc.devMode);
-    if (!hideVegetation) {
-      const region = {
-        x: bounds.minTx, y: bounds.minTy,
-        w: bounds.maxTx - bounds.minTx + 1,
-        h: bounds.maxTy - bounds.minTy + 1,
-      };
-      for (const e of rc.world.query({ region })) {
-        if (tryGetEntityKindDef(e.kind)?.category !== 'vegetation') continue;
-        vegById.set(e.id, e);
-        entries.push({
-          id: e.id, kind: 'vegetation',
-          tx: e.x, ty: e.y, z: 0,
-          kindPriority: KIND_PRIORITY.vegetation,
-        });
-      }
-    }
-
     const drawCtx = { ctx, atlas: effectiveAtlas, originX, originY, npcSheets: rc.npcSheets };
     const sorted = buildYSortBucket(entries);
     for (const e of sorted) {
       if (e.kind === 'building') {
-        const b = (map as any).buildings.find((x: any) => x.id === e.id);
-        if (b) {
-          const btpl = getBuildingTemplate(b.templateId);
-          drawIsoBuilding(drawCtx, b, btpl?.footprint.w ?? 1, btpl?.footprint.h ?? 1);
-        }
+        const b = buildingById.get(e.id);
+        if (b) drawIsoBuildingMassing(drawCtx, b.massing, Math.floor(b.e.x), Math.floor(b.e.y));
       } else if (e.kind === 'npc') {
         const n = rc.npcs.find((x) => x.id === e.id);
         if (n) drawIsoNpc(drawCtx, n);
