@@ -10,7 +10,7 @@
  * `drawRoof()` (matching the `Roof` union) or `drawBody()` (matching `Plan`).
  */
 import { worldToScreen } from './iso-projection';
-import { ISO_TILE_H, ISO_TILE_W } from './iso-constants';
+import { ISO_TILE_H } from './iso-constants';
 import type { IsoDrawCtx } from './iso-sprites';
 import type { Massing } from '@/render/building-massing-model';
 import type { Roof } from '@/world/building-descriptor';
@@ -173,17 +173,21 @@ function drawDomeCap(
 }
 
 /**
- * The proof's tunable: fraction of the footprint's iso diamond width the building
- * sprite spans. Tune by eye against the parametric massing's apparent size.
- */
-const SPRITE_FOOTPRINT_FACTOR = 0.55;
-
-/**
- * Draw a generated pixel-art building sprite as an upright billboard, anchored
- * bottom-center over the footprint center and scaled to the footprint's iso
- * width. Square (128²) source art. Used in place of the parametric massing when
- * the ArtResolver finds a sprite for the building's preset; otherwise we fall
- * back to `drawIsoBuildingMassing`.
+ * Draw a generated pixel-art building sprite anchored to its footprint.
+ *
+ * The sprite spans exactly the footprint's iso diamond width (west→east corner)
+ * and is anchored with its bottom edge at the diamond's front (south) tip and
+ * its horizontal centre on the footprint centre — so the rendered building sits
+ * on its tiles and the door (authored on the correct face) lines up with the
+ * walkable door cell.
+ *
+ * Sprites are authored at the view registry's native size = the footprint
+ * diamond width × (diamond height + rise). When that holds, the dest width
+ * equals the source's native pixel width → a crisp 1:1 blit at base zoom (zoom
+ * is applied by an outer ctx.scale, so world-screen pixels == source pixels at
+ * zoom 1). The image's own aspect ratio is preserved, so a building taller than
+ * its footprint rises correctly. Used when the ArtResolver finds a sprite for
+ * the building's preset; otherwise we fall back to `drawIsoBuildingMassing`.
  */
 export function drawIsoBuildingSprite(
   dc: IsoDrawCtx, img: HTMLImageElement,
@@ -191,14 +195,25 @@ export function drawIsoBuildingSprite(
 ): void {
   const { ctx, originX, originY } = dc;
   const { w, h } = footprint;
-  const center = worldToScreen(tileX + w / 2, tileY + h / 2, 0, originX, originY);
-  const displayW = (w + h) * (ISO_TILE_W / 2) * SPRITE_FOOTPRINT_FACTOR;
-  const displayH = displayW; // square 128² source
-  ctx.save();
-  ctx.translate(center.sx, center.sy);
+  const west = worldToScreen(tileX, tileY + h, 0, originX, originY);
+  const east = worldToScreen(tileX + w, tileY, 0, originX, originY);
+  const south = worldToScreen(tileX + w, tileY + h, 0, originX, originY);
+
+  const diamondW = east.sx - west.sx; // = (w + h) · ISO_TILE_W/2
+  const natW = img.naturalWidth || img.width || diamondW;
+  const natH = img.naturalHeight || img.height || diamondW;
+  const drawW = diamondW;
+  const drawH = drawW * (natH / natW); // preserve the sprite's authored proportions
+  const cx = (west.sx + east.sx) / 2;
+
   ctx.imageSmoothingEnabled = false;
-  ctx.drawImage(img, -displayW / 2, -displayH, displayW, displayH);
-  ctx.restore();
+  ctx.drawImage(
+    img,
+    Math.round(cx - drawW / 2),
+    Math.round(south.sy - drawH),
+    Math.round(drawW),
+    Math.round(drawH),
+  );
 }
 
 /** Draw a building from its Massing at tile (tileX, tileY). */
