@@ -47,13 +47,13 @@ const SEED = [
   // Buildings (128×128). Tags are the building preset names (= entity.kind, see
   // src/world/building-descriptor.ts) so the building ArtResolver binds each
   // preset to its sprite; presets with no row here fall back to parametric massing.
-  { file: 'cottage-128.png', prompt: 'a small medieval cottage house with thatched roof and wooden walls, front view',
+  { file: 'cottage-128.png', prompt: 'isometric medieval cottage house with thatched roof, 3/4 top-down view',
     width: 128, height: 128, kind: 'building', tags: ['cottage'],
     affinity: { era: ['medieval'] } },
-  { file: 'temple_small-128.png', prompt: 'a small ancient stone temple with columns and a pediment roof, front view',
+  { file: 'temple_small-128.png', prompt: 'isometric small ancient stone temple with columns and pediment roof, 3/4 top-down view',
     width: 128, height: 128, kind: 'building', tags: ['temple_small'],
     affinity: { era: ['ancient', 'medieval'] } },
-  { file: 'castle_keep-128.png', prompt: 'a tall stone castle keep tower with battlements and a wooden door, front view',
+  { file: 'castle_keep-128.png', prompt: 'isometric stone castle keep tower with battlements, 3/4 top-down view',
     width: 128, height: 128, kind: 'building', tags: ['castle_keep'],
     affinity: { era: ['medieval'] } },
 ];

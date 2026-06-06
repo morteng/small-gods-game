@@ -98,7 +98,9 @@ and scales its width to the footprint's iso width:
 ## Provenance
 
 Generated prompts (recipe = `single color black outline` / `basic shading` /
-`medium detail`, 128², seed 0):
-- cottage: "a small medieval cottage house with thatched roof and wooden walls, front view"
-- temple_small: "a small ancient stone temple with columns and a pediment roof, front view"
-- castle_keep: "a tall stone castle keep tower with battlements and a wooden door, front view"
+`medium detail`, 128², seed 0). The first pass used front-elevation prompts; on
+playtest they read as flat stickers in the iso scene, so they were regenerated
+with isometric ¾ top-down prompts (the seeded set):
+- cottage: "isometric medieval cottage house with thatched roof, 3/4 top-down view"
+- temple_small: "isometric small ancient stone temple with columns and pediment roof, 3/4 top-down view"
+- castle_keep: "isometric stone castle keep tower with battlements, 3/4 top-down view"
