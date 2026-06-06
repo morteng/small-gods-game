@@ -15,7 +15,10 @@ export type BuildingCategory =
 /** Ground-outline shape. Extend by adding a member + a case in building-massing. */
 export type Plan = 'rect' | 'round' | 'L' | 'cross' | 'stepped';
 /** Roof silhouette. Extend by adding a member + a case in building-massing. */
-export type Roof = 'flat' | 'gable' | 'hip' | 'conical' | 'domed' | 'stepped' | 'lean_to';
+export type Roof =
+  | 'flat' | 'gable' | 'hip' | 'conical' | 'domed' | 'stepped' | 'lean_to'
+  | 'gambrel' | 'mansard' | 'pyramidal' | 'saltbox' | 'onion' | 'spire'
+  | 'tented' | 'jerkinhead' | 'cross_gable';
 export type WallMat = 'mud' | 'wattle' | 'timber' | 'log' | 'brick' | 'stone' | 'marble' | 'hide';
 export type RoofMat = 'thatch' | 'wood' | 'tile' | 'slate' | 'hide' | 'none';
 export type GroundMat = 'flagstone' | 'dirt' | 'packed_dirt' | 'wood' | 'tile' | 'gravel';
