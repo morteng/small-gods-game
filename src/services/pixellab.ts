@@ -9,6 +9,7 @@ import type {
 } from '@/core/types';
 
 import { assetUrl } from '@/core/asset-url';
+import { matchesAsset } from './asset-match';
 
 const API_BASE = 'https://api.pixellab.ai/v2';
 const PALETTE_URL = assetUrl('sprites/palette/lpc-anchor.png');
@@ -425,7 +426,13 @@ export async function listKeptSummaries(kind: AssetKind): Promise<AssetSummary[]
 
 function passesFilters(a: LibraryAsset, q: AssetQuery): boolean {
   if (a.curated !== 'kept') return false;
-  if (q.size && (a.width !== q.size.w || a.height !== q.size.h)) return false;
+  if (!matchesAsset(
+    { kind: a.kind, style: a.style ?? 'pixel-art', model: a.model ?? 'pixflux',
+      provider: a.provider ?? 'pixellab', tags: a.tags, affinity: a.affinity,
+      width: a.width, height: a.height },
+    { kind: q.kind, style: q.style ?? (a.style ?? 'pixel-art'),
+      model: q.model, provider: q.provider, size: q.size },
+  )) return false;
   if (q.tagsAll && !q.tagsAll.every(t => a.tags.includes(t))) return false;
   if (q.tagsAny && !q.tagsAny.some(t => a.tags.includes(t))) return false;
   return true;
