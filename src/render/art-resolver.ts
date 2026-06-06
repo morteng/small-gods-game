@@ -1,4 +1,4 @@
-import type { AssetStyle, Entity } from '@/core/types';
+import type { AssetKind, AssetStyle, Entity } from '@/core/types';
 import type { AssetLibrary } from '@/services/asset-library';
 
 /** FNV-1a hash → non-negative int. Mirrors AssetLibrary's tie-break hash. */
@@ -16,14 +16,18 @@ function hashStr(s: string): number {
 export class ArtResolver {
   private readonly cache = new Map<string, string | null>();
 
-  constructor(private readonly lib: AssetLibrary, private readonly style: AssetStyle) {}
+  constructor(
+    private readonly lib: AssetLibrary,
+    private readonly style: AssetStyle,
+    private readonly assetKind: AssetKind = 'decoration',
+  ) {}
 
   /** Returns an assetId for the entity, or null if the library has no match. */
   async resolve(e: Entity): Promise<string | null> {
     const cached = this.cache.get(e.id);
     if (cached !== undefined) return cached;
     const picked = await this.lib.pick({
-      kind: 'decoration',
+      kind: this.assetKind,
       style: this.style,
       tagsAny: [e.kind],
       seed: hashStr(e.id),

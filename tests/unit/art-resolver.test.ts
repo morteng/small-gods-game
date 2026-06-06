@@ -51,6 +51,22 @@ describe('ArtResolver', () => {
     expect((lib.pick as any)).toHaveBeenCalledTimes(1);
   });
 
+  it('requests the configured assetKind (building)', async () => {
+    const lib = fakeLib(null);
+    const r = new ArtResolver(lib, 'pixel-art', 'building');
+    await r.resolve(ent('cottage#1', 'cottage'));
+    const req = (lib.pick as any).mock.calls[0][0];
+    expect(req.kind).toBe('building');
+    expect(req.tagsAny).toContain('cottage');
+  });
+
+  it('defaults assetKind to decoration', async () => {
+    const lib = fakeLib(null);
+    const r = new ArtResolver(lib, 'pixel-art');
+    await r.resolve(ent('rock#1', 'rock'));
+    expect((lib.pick as any).mock.calls[0][0].kind).toBe('decoration');
+  });
+
   it('does not mutate the entity', async () => {
     const lib = fakeLib({ id: 'a', sourceTier: 'base', width: 64, height: 64, score: 0 });
     const r = new ArtResolver(lib, 'pixel-art');
