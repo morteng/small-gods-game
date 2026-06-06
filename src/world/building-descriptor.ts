@@ -25,6 +25,17 @@ export type GroundMat = 'flagstone' | 'dirt' | 'packed_dirt' | 'wood' | 'tile' |
 
 export interface BuildingPalette { walls: string; roof: string; trim: string }
 
+/** A smoke/steam emission point. Drawn as a stack in the guide render; reserved as
+ *  the anchor for future particle smoke. Position is tile-relative like `door`. */
+export interface Vent {
+  x: number;
+  y: number;
+  /** mouth/emitter height in tile-height units above the roof base */
+  height: number;
+  kind: 'chimney' | 'smokehole' | 'pipe';
+  emit?: 'smoke' | 'steam';
+}
+
 export interface BuildingDescriptor {
   /** Name of the seed preset, if any. Becomes the entity `kind`. */
   preset?: string;
@@ -50,6 +61,8 @@ export interface BuildingDescriptor {
 
   /** The one passable footprint cell, relative to the footprint top-left. */
   door: { x: number; y: number };
+  /** Optional smoke vents (chimneys/smokeholes/pipes), for buildings that have them. */
+  vents?: Vent[];
 }
 
 export const NEUTRAL = '#8a8a8a';
@@ -103,6 +116,7 @@ export function buildingEntity(
       descriptor: d,
       footprint: { ...d.footprint },
       door: { ...d.door },
+      vents: d.vents ? d.vents.map(v => ({ ...v })) : [],
       sortYOffset: d.footprint.h,
       era: d.era,
       poiId: extra.poiId,

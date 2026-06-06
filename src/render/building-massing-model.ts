@@ -10,7 +10,7 @@
  * seam (that remains its own future project).
  */
 import {
-  buildingPalette, type BuildingDescriptor, type Plan, type Roof,
+  buildingPalette, type BuildingDescriptor, type Plan, type Roof, type Vent,
 } from '@/world/building-descriptor';
 
 export interface Massing {
@@ -29,6 +29,8 @@ export interface Massing {
   roofColor: string;
   trim: string;
   door: { x: number; y: number };
+  /** Smoke vents to draw as stacks; empty when the building has none. */
+  vents: Vent[];
 }
 
 export type RoofMode = 'pitch' | 'target';
@@ -95,5 +97,6 @@ export function buildingMassing(d: BuildingDescriptor): Massing {
     roofColor: pal.roof,
     trim: pal.trim,
     door: { x: d.door.x, y: d.door.y },
+    vents: d.vents ? d.vents.map(v => ({ ...v })) : [],
   };
 }

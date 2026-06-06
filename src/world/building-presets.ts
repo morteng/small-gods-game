@@ -12,6 +12,7 @@ export const BUILDING_PRESETS: Record<string, BuildingDescriptor> = {
     roof: 'gable', walls: 'wattle', roofMat: 'thatch',
     groundMaterial: 'packed_dirt', apron: { radius: 1, material: 'packed_dirt' },
     door: { x: 1, y: 2 },
+    vents: [{ x: 2, y: 0, height: 0.8, kind: 'chimney', emit: 'smoke' }],
   },
   tavern: {
     category: 'commercial', era: 'medieval', footprint: { w: 3, h: 3 },
@@ -19,6 +20,7 @@ export const BUILDING_PRESETS: Record<string, BuildingDescriptor> = {
     roof: 'hip', walls: 'timber', roofMat: 'tile',
     groundMaterial: 'packed_dirt', apron: { radius: 1, material: 'packed_dirt' },
     door: { x: 1, y: 2 },
+    vents: [{ x: 2, y: 0, height: 0.9, kind: 'chimney', emit: 'smoke' }],
   },
   market_stall: {
     category: 'commercial', era: 'medieval', footprint: { w: 2, h: 2 },
@@ -32,6 +34,7 @@ export const BUILDING_PRESETS: Record<string, BuildingDescriptor> = {
     roof: 'hip', walls: 'stone', roofMat: 'tile',
     groundMaterial: 'flagstone', apron: { radius: 2, material: 'flagstone' },
     door: { x: 1, y: 3 },
+    vents: [{ x: 2, y: 2, height: 0.5, kind: 'smokehole', emit: 'smoke' }],
   },
   farm_barn: {
     category: 'farm', era: 'medieval', footprint: { w: 3, h: 2 },
@@ -76,12 +79,14 @@ export const BUILDING_PRESETS: Record<string, BuildingDescriptor> = {
     plan: 'round', levels: 1, levelInset: 0, heightPerLevel: 0.9,
     roof: 'domed', walls: 'hide', roofMat: 'hide',
     groundMaterial: 'dirt', door: { x: 0, y: 1 },
+    vents: [{ x: 1, y: 1, height: 0.4, kind: 'smokehole', emit: 'smoke' }],
   },
   longhouse: {
     category: 'residential', era: 'medieval', footprint: { w: 5, h: 2 },
     plan: 'rect', levels: 1, levelInset: 0, heightPerLevel: 1.2,
     roof: 'gable', walls: 'log', roofMat: 'thatch',
     groundMaterial: 'packed_dirt', door: { x: 2, y: 1 },
+    vents: [{ x: 2, y: 0, height: 0.6, kind: 'smokehole', emit: 'smoke' }],
   },
 };
 
