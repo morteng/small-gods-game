@@ -67,6 +67,24 @@ describe('buildCacheKeyInput', () => {
     expect(k).toContain('basic shading');
     expect(k).toContain('medium detail');
   });
+
+  it('differs guided (init_image) vs unguided', () => {
+    expect(buildCacheKeyInput(base)).not.toEqual(
+      buildCacheKeyInput({ ...base, initImage: 'AAAA', initImageStrength: 500 }),
+    );
+  });
+
+  it('differs when palette anchors differ', () => {
+    expect(buildCacheKeyInput({ ...base, paletteAnchors: ['#aaa'] })).not.toEqual(
+      buildCacheKeyInput({ ...base, paletteAnchors: ['#bbb'] }),
+    );
+  });
+
+  it('respects a per-call recipeVersion override', () => {
+    expect(buildCacheKeyInput(base)).not.toEqual(
+      buildCacheKeyInput({ ...base, recipeVersion: 'v2' }),
+    );
+  });
 });
 
 describe('buildRequestBody', () => {
@@ -80,6 +98,22 @@ describe('buildRequestBody', () => {
     expect(body.shading).toBe('basic shading');
     expect(body.detail).toBe('medium detail');
     expect(body.image_size).toEqual({ width: 64, height: 64 });
+  });
+
+  it('attaches init_image + init_image_strength and drops color_image when guided', async () => {
+    const body = await buildRequestBody({
+      prompt: 'cottage', width: 128, height: 128, initImage: 'BASE64DATA', initImageStrength: 480,
+    });
+    expect(body.init_image).toMatchObject({ type: 'base64', base64: 'BASE64DATA', format: 'png' });
+    expect(body.init_image_strength).toBe(480);
+    expect(body.color_image).toBeUndefined();
+  });
+
+  it('defaults init_image_strength to 500 when omitted', async () => {
+    const body = await buildRequestBody({
+      prompt: 'cottage', width: 128, height: 128, initImage: 'BASE64DATA',
+    });
+    expect(body.init_image_strength).toBe(500);
   });
 });
 

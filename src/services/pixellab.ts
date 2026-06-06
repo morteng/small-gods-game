@@ -232,14 +232,21 @@ export function buildCacheKeyInput(opts: PixelLabGenerateOpts): string {
     shading: opts.shading ?? STYLE_RECIPE.shading,
     detail:  opts.detail  ?? STYLE_RECIPE.detail,
   };
-  return JSON.stringify({
-    v: RECIPE_V,
+  // Base fields (and their order) match the legacy key exactly so existing
+  // vendored/cached assets keep resolving. New fields are appended only when
+  // set — an unguided, default-recipe call hashes byte-identically to before.
+  const base: Record<string, unknown> = {
+    v: opts.recipeVersion ?? RECIPE_V,
     prompt: opts.prompt,
     w: opts.width,
     h: opts.height,
     seed: opts.seed ?? 0,
     ...recipe,
-  });
+  };
+  if (opts.initImage) base.init = 1;
+  if (opts.initImageStrength !== undefined) base.initStrength = opts.initImageStrength;
+  if (opts.paletteAnchors?.length) base.palette = opts.paletteAnchors.join(',');
+  return JSON.stringify(base);
 }
 
 // ─── API calls ────────────────────────────────────────────────────────────────
@@ -272,17 +279,26 @@ export async function verifyKey(apiKey: string): Promise<PixelLabKeyStatus> {
  * Exposed for tests.
  */
 export async function buildRequestBody(opts: PixelLabGenerateOpts) {
-  const paletteB64 = await loadPaletteB64();
-  return {
+  const body: Record<string, unknown> = {
     description:   opts.prompt,
     image_size:    { width: opts.width, height: opts.height },
     no_background: true,
     outline: opts.outline ?? STYLE_RECIPE.outline,
     shading: opts.shading ?? STYLE_RECIPE.shading,
     detail:  opts.detail  ?? STYLE_RECIPE.detail,
-    color_image: { type: 'base64', base64: paletteB64, format: 'png' },
     seed: opts.seed ?? 0,
   };
+  if (opts.initImage) {
+    // img2img: the guidance image (rendered massing) carries projection,
+    // footprint, door placement AND the material colours — so it doubles as
+    // the palette anchor and we skip the generic LPC color_image.
+    body.init_image = { type: 'base64', base64: opts.initImage, format: 'png' };
+    body.init_image_strength = opts.initImageStrength ?? 500;
+  } else {
+    const paletteB64 = await loadPaletteB64();
+    body.color_image = { type: 'base64', base64: paletteB64, format: 'png' };
+  }
+  return body;
 }
 
 /**
