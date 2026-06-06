@@ -4,6 +4,15 @@ import { createState } from '@/core/state';
 import { AssetManager } from '@/render/asset-manager';
 import { DecorationImageCache } from '@/render/decoration-image-cache';
 import { createDevMode } from '@/dev/DevMode';
+import type { ArtResolver } from '@/render/art-resolver';
+
+/** Minimal ArtResolver stub for tests — peek always misses, warm is a no-op. */
+const stubArtResolver: ArtResolver = {
+  resolve: async () => null,
+  peek: () => null,
+  warm: () => {},
+  clear: () => {},
+} as unknown as ArtResolver;
 
 describe('buildRenderContext', () => {
   it('maps state fields and uses viewport for canvas size; empty npcs when no world', () => {
@@ -15,6 +24,7 @@ describe('buildRenderContext', () => {
       sheets: new Map(),
       assets: new AssetManager(),
       decorationImages: new DecorationImageCache(),
+      artResolver: stubArtResolver,
       devMode: createDevMode(),
     });
     expect(rc.canvasWidth).toBe(800);
@@ -35,6 +45,7 @@ describe('buildRenderContext', () => {
       sheets: new Map(),
       assets: new AssetManager(),
       decorationImages: new DecorationImageCache(),
+      artResolver: stubArtResolver,
       devMode: createDevMode(),
     });
     expect(rc.npcs).toEqual([]);

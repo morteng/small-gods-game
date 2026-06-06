@@ -19,7 +19,10 @@ import { openMindPage, pathKey } from '@/game/mind-orchestrator';
 import { OverlayDispatcher } from '@/ui/overlay-dispatcher';
 import { DivineActionsController } from '@/game/divine-actions-controller';
 import { GameUi } from '@/game/game-ui';
-import { DecorationImageCache } from '@/render/decoration-image-cache';
+import { ArtImageCache } from '@/render/decoration-image-cache';
+import { loadBaseLibrary } from '@/services/base-library-loader';
+import { AssetLibrary } from '@/services/asset-library';
+import { ArtResolver } from '@/render/art-resolver';
 import { AssetManager } from '@/render/asset-manager';
 import { Scheduler } from '@/core/scheduler';
 import { TimelineController } from '@/core/timeline';
@@ -93,7 +96,9 @@ export class Game {
   private costTracker = new CostTracker();
   private spendChip: SpendChipHandle | null = null;
   private welcomeModal: WelcomeModalHandle | null = null;
-  private decorationImages = new DecorationImageCache();
+  private assetLibrary!: AssetLibrary;
+  private artResolver!: ArtResolver;
+  private decorationImages = new ArtImageCache((id) => this.assetLibrary.resolveBlob(id));
   /** Resolved spritesheets keyed by NPC id */
   private sheets = new Map<string, HTMLCanvasElement>();
   private assets = new AssetManager();
@@ -518,6 +523,7 @@ export class Game {
       sheets: this.sheets,
       assets: this.assets,
       decorationImages: this.decorationImages,
+      artResolver: this.artResolver,
       devMode: this.dev.devMode,
     };
   }
@@ -531,6 +537,9 @@ export class Game {
 
   async generateWorld(worldSeed?: WorldSeed, _terrainOptions?: Partial<TerrainOptions>): Promise<GameMap> {
     this.renderMap = await selectRenderer();
+    const baseLibrary = await loadBaseLibrary();
+    this.assetLibrary = new AssetLibrary(baseLibrary);
+    this.artResolver = new ArtResolver(this.assetLibrary, 'pixel-art');
     const map = await bootstrapWorld({
       state: this.state, assets: this.assets, sheets: this.sheets,
       decorationImages: this.decorationImages, getViewport: () => this.viewport(),

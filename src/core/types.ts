@@ -161,6 +161,9 @@ export interface RenderContext {
   /** Resolves an asset id to its cached `<img>`; null until the image
    *  finishes loading (renderer falls back to a placeholder square). */
   resolveDecorationImage?: (assetId: string) => HTMLImageElement | null;
+  /** Resolves an entity to its cached art `<img>` (base library or live), or
+   *  null while loading / on no match (renderer keeps its procedural fallback). */
+  resolveEntityArt?: (entity: Entity) => HTMLImageElement | null;
   /** Dev mode state — when present and enabled, renderer draws highlights. */
   devMode?: DevModeState;
   /** Debug overlay options (extracted from devMode for convenience). */
