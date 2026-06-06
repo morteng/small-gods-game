@@ -88,4 +88,11 @@ describe('OpenRouterProvider response caching', () => {
     const res = await p.generate([{ role: 'user', content: 'hi' }], { cache: true });
     expect(res.cacheStatus).toBeUndefined();
   });
+
+  it('produces byte-identical request bodies for identical calls (cache-key stability)', async () => {
+    const p = new OpenRouterProvider({ apiKey: 'k', model: 'deepseek/deepseek-v4-flash' });
+    await p.generate([{ role: 'user', content: 'hi' }], { cache: true });
+    await p.generate([{ role: 'user', content: 'hi' }], { cache: true });
+    expect(calls[0].init.body).toBe(calls[1].init.body);
+  });
 });
