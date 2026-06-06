@@ -443,7 +443,11 @@ export class Game {
   /** The Tier-2 "capable" client, or null when no capable model is configured. */
   private buildCapableClient(config: ProviderConfig): LLMClient | null {
     return config.openrouterModelCapable
-      ? new LLMClient(createProvider({ ...config, openrouterModel: config.openrouterModelCapable }))
+      ? new LLMClient(createProvider({
+          ...config,
+          openrouterModel: config.openrouterModelCapable,
+          openrouterCostQualityTradeoff: config.openrouterCostQualityTradeoffCapable,
+        }))
       : null;
   }
 
