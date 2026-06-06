@@ -63,7 +63,7 @@ describe('buildingBrief', () => {
     expect({ ...a, traits: null, seed: 0 }).toEqual({ ...c, traits: null, seed: 0 });
     // The seeded detail (last trait) differs; the structural traits match.
     expect(a.traits.slice(0, -1)).toEqual(c.traits.slice(0, -1));
-    expect(a.traits.at(-1)).not.toBe(c.traits.at(-1));
+    expect(a.traits[a.traits.length - 1]).not.toBe(c.traits[c.traits.length - 1]);
   });
 
   it('omits a "none" roof from materials', () => {

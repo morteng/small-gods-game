@@ -93,7 +93,7 @@ describe('buildRequestBody', () => {
     const body = await buildRequestBody({ prompt: 'priest', width: 64, height: 64 });
     expect(body.no_background).toBe(true);
     expect(body.color_image).toMatchObject({ type: 'base64', format: 'png' });
-    expect(body.color_image.base64.length).toBeGreaterThan(0);
+    expect((body.color_image as { base64: string }).base64.length).toBeGreaterThan(0);
     expect(body.outline).toBe('single color black outline');
     expect(body.shading).toBe('basic shading');
     expect(body.detail).toBe('medium detail');
