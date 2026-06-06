@@ -9,6 +9,8 @@ import { advanceNpcFrames } from '@/render/npc-animator';
 // divine-actions functions now invoked via DivineActionsController
 import { LLMClient } from "@/llm/llm-client";
 import { createProvider, loadProviderConfig, type ProviderConfig } from '@/llm/provider-factory';
+import { CostTracker } from '@/llm/cost-tracker';
+import { mountSpendChip, type SpendChipHandle } from '@/ui/spend-chip';
 import { NpcAttentionStore } from '@/llm/npc-attention-store';
 import { createWelcomeModal, type WelcomeModalHandle, ONBOARDED_KEY } from '@/ui/welcome-modal';
 import { simStateFromEntity, getNpc } from '@/world/npc-helpers';
@@ -88,6 +90,8 @@ export class Game {
   private llmBackfill!: LlmBackfillService;
   private fateBrain!: FateBrainService;
   private llmClientCapable: LLMClient | null = null;   // Tier-2 "key moments" — built, not yet called (Track 4 / Fate)
+  private costTracker = new CostTracker();
+  private spendChip: SpendChipHandle | null = null;
   private welcomeModal: WelcomeModalHandle | null = null;
   private decorationImages = new DecorationImageCache();
   /** Resolved spritesheets keyed by NPC id */
@@ -186,7 +190,7 @@ export class Game {
       console.warn('[llm] stored provider config invalid, falling back to mock:', err);
       provider = createProvider({ type: 'mock' });
     }
-    this.llmClient = new LLMClient(provider);
+    this.llmClient = new LLMClient(provider, (r) => this.costTracker.record(r));
     // Build the capable (Tier-2) client at boot too — otherwise a returning,
     // already-onboarded user whose stored config has a capable model boots with
     // llmClientCapable === null and the Create panel stays dead until they
@@ -351,6 +355,9 @@ export class Game {
       },
     });
 
+    this.spendChip = mountSpendChip(this.container, this.costTracker);
+    this.spendChip.setVisible(providerConfig.type === 'openrouter');
+
     this.llmBackfill = new LlmBackfillService({
       state: this.state,
       llmDisplay: this.ui.llmDisplay,
@@ -447,15 +454,16 @@ export class Game {
           ...config,
           openrouterModel: config.openrouterModelCapable,
           openrouterCostQualityTradeoff: config.openrouterCostQualityTradeoffCapable,
-        }))
+        }), (r) => this.costTracker.record(r))
       : null;
   }
 
   private applyLlmConfig(config: ProviderConfig): void {
     try {
-      this.llmClient = new LLMClient(createProvider(config));
+      this.llmClient = new LLMClient(createProvider(config), (r) => this.costTracker.record(r));
       this.llmBackfill.setClient(this.llmClient);
       this.llmClientCapable = this.buildCapableClient(config);
+      this.spendChip?.setVisible(config.type === 'openrouter');
     } catch (err) {
       console.warn('[llm] config not applied:', err);
     }
@@ -599,6 +607,7 @@ export class Game {
     this.resizeObserver.disconnect();
     this.welcomeModal?.destroy();
     this.ui.destroy();
+    this.spendChip?.destroy();
     this.decorationImages.destroy();
     this.detachTimeKeys?.();
     this.timeBar?.dispose();
