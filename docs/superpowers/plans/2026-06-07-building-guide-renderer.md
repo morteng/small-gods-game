@@ -22,9 +22,11 @@ The spec mentions baking the guide PNG **into `public/asset-library/`** so the b
 
 ---
 
-## Task 1: Headless GL spike (de-risk the render context)
+## Task 1: ✅ DONE — render-context spike (backend resolved)
 
-Prove a three.js scene can render to a PNG in Node on this machine **before** building the renderer. This task's only deliverable is a throwaway script + a recorded decision.
+**Status: complete (commit `a364534`).** headless-gl **failed to build** on this machine (macOS 12.7.6, no `python`, ANGLE-from-source) — exactly the flagged risk. Resolved backend: **puppeteer-core driving the installed Google Chrome**. A spike (a lit three.js cone → transparent PNG via headless Chrome) confirmed it works offline with no native build. devDeps installed: `three`, `@types/three`, `puppeteer-core`, `pngjs`, `@types/pngjs` (esbuild already present via Vite). **Tasks 6–7 below have been rewritten for the puppeteer+Chrome backend; the original headless-gl steps in this Task 1 are obsolete — skip them.**
+
+<details><summary>Obsolete original Task 1 (headless-gl — did not build)</summary>
 
 **Files:**
 - Create: `scripts/spike-headless-gl.ts` (throwaway; deleted at end of task)
@@ -113,6 +115,8 @@ rm scripts/spike-headless-gl.ts
 git add package.json package-lock.json
 git commit -m "build: add three/gl/pngjs devDeps for offline building guide renderer"
 ```
+
+</details>
 
 ---
 
@@ -863,131 +867,215 @@ git commit -m "feat(render): map new roof kinds to nearest in-game silhouette"
 
 ---
 
-## Task 6: Massing renderer (scene → color + depth PNG)
+## Task 6: Massing renderer (puppeteer + Chrome → color + depth PNG)
 
-Rasterize a `MassingScene` to a color PNG (transparent bg) and a grayscale depth PNG at the view-registry native size. This is the only GL-touching module besides the script. Uses the backend chosen in Task 1.
+Render a `MassingScene` to a color PNG (transparent bg) and a grayscale depth PNG at the view-registry native size, by driving the **installed Chrome** headlessly via `puppeteer-core`. Two files: a browser-side render entry (bundled by esbuild) and the Node-side driver. Both live under `src/assetgen/headless/` and never ship in the game bundle.
+
+**Backend note:** headless-gl was the original plan but won't build on macOS 12 (Task 1). We render with real WebGL three.js inside Chrome instead: `canvas.toDataURL` gives the PNG; no native build, no Chromium download.
 
 **Files:**
-- Create: `src/assetgen/headless/massing-renderer.ts`
-- Test: `tests/unit/massing-renderer.test.ts` (spike-gated — skips if no GL)
+- Create: `src/assetgen/headless/render-page-entry.ts` (browser-side; bundled, never imported by Node directly)
+- Create: `src/assetgen/headless/massing-renderer.ts` (Node-side puppeteer driver)
+- Test: `tests/unit/massing-renderer.test.ts` (Chrome-gated — skips if Chrome absent)
 
-- [ ] **Step 1: Write the test (skips cleanly without GL)**
+- [ ] **Step 1: Write the browser-side render entry**
+
+```ts
+// src/assetgen/headless/render-page-entry.ts
+/**
+ * Browser-side render harness, bundled by esbuild and injected into a headless
+ * Chrome page by massing-renderer.ts. Exposes window.renderMassing(descriptor,w,h)
+ * → { color, depth } PNG data URLs. Runs real three.js WebGL — NEVER imported by
+ * Node or game code (it touches window/document).
+ */
+import * as THREE from 'three';
+import { buildMassingScene } from './massing-scene';
+import type { BuildingDescriptor } from '@/world/building-descriptor';
+
+/** Tighten the ortho frustum around the scene for the given canvas aspect (w/h). */
+function frameCamera(camera: THREE.OrthographicCamera, scene: THREE.Scene, aspect: number): void {
+  camera.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(scene);
+  const corners = [
+    new THREE.Vector3(box.min.x, box.min.y, box.min.z),
+    new THREE.Vector3(box.min.x, box.min.y, box.max.z),
+    new THREE.Vector3(box.min.x, box.max.y, box.min.z),
+    new THREE.Vector3(box.min.x, box.max.y, box.max.z),
+    new THREE.Vector3(box.max.x, box.min.y, box.min.z),
+    new THREE.Vector3(box.max.x, box.min.y, box.max.z),
+    new THREE.Vector3(box.max.x, box.max.y, box.min.z),
+    new THREE.Vector3(box.max.x, box.max.y, box.max.z),
+  ];
+  let maxX = 0, maxY = 0;
+  for (const c of corners) {
+    c.applyMatrix4(camera.matrixWorldInverse); // into camera space
+    maxX = Math.max(maxX, Math.abs(c.x));
+    maxY = Math.max(maxY, Math.abs(c.y));
+  }
+  let halfW = maxX * 1.08, halfH = maxY * 1.08; // 8% margin
+  if (halfW / halfH < aspect) halfW = halfH * aspect; else halfH = halfW / aspect;
+  camera.left = -halfW; camera.right = halfW; camera.top = halfH; camera.bottom = -halfH;
+  camera.near = 0.01; camera.far = 5000;
+  camera.updateProjectionMatrix();
+}
+
+declare global {
+  interface Window {
+    renderMassing: (d: BuildingDescriptor, w: number, h: number) => { color: string; depth: string };
+  }
+}
+
+window.renderMassing = (d, w, h) => {
+  const canvas = document.getElementById('c') as HTMLCanvasElement;
+  canvas.width = w; canvas.height = h;
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, preserveDrawingBuffer: true });
+  renderer.setSize(w, h, false);
+
+  const { scene, camera } = buildMassingScene(d);
+  frameCamera(camera as THREE.OrthographicCamera, scene, w / h);
+
+  // Color pass — transparent background.
+  renderer.setClearColor(0x000000, 0);
+  renderer.render(scene, camera);
+  const color = canvas.toDataURL('image/png');
+
+  // Depth pass — MeshDepthMaterial, lights/lines dropped, opaque background.
+  scene.traverse(o => { const me = o as THREE.Mesh; if (me.isMesh) me.material = new THREE.MeshDepthMaterial(); });
+  scene.children = scene.children.filter(c => !(c as THREE.Light).isLight);
+  renderer.setClearColor(0xffffff, 1);
+  renderer.render(scene, camera);
+  const depth = canvas.toDataURL('image/png');
+
+  renderer.dispose();
+  return { color, depth };
+};
+```
+
+- [ ] **Step 2: Write the Chrome-gated test**
 
 ```ts
 // tests/unit/massing-renderer.test.ts
 import { describe, it, expect } from 'vitest';
+import { existsSync } from 'node:fs';
 import { PNG } from 'pngjs';
 import { synthesizeFromPreset } from '@/world/building-presets';
+import { resolveChromePath } from '@/assetgen/headless/massing-renderer';
 
-let renderGuide: typeof import('@/assetgen/headless/massing-renderer')['renderGuide'] | null = null;
-let glOk = true;
-try {
-  renderGuide = (await import('@/assetgen/headless/massing-renderer')).renderGuide;
-  const createGL = (await import('gl')).default;
-  const probe = createGL(8, 8);
-  if (!probe) glOk = false;
-} catch { glOk = false; }
+const chromeOk = existsSync(resolveChromePath());
 
-describe.skipIf(!glOk)('renderGuide', () => {
+describe.skipIf(!chromeOk)('renderGuide (via headless Chrome)', () => {
   it('renders a color + depth PNG of the expected size for a preset', async () => {
-    const { color, depth, width, height } = renderGuide!(synthesizeFromPreset('cottage')!);
+    const { renderGuide } = await import('@/assetgen/headless/massing-renderer');
+    const { color, depth, width, height } = await renderGuide(synthesizeFromPreset('cottage')!);
     expect(width).toBeGreaterThan(0);
     const cp = PNG.sync.read(color);
     expect(cp.width).toBe(width);
     expect(cp.height).toBe(height);
-    // color pass has some non-transparent pixels (the building)
     let opaque = 0;
     for (let i = 3; i < cp.data.length; i += 4) if (cp.data[i] > 10) opaque++;
-    expect(opaque).toBeGreaterThan(0);
-    // depth pass decodes as a PNG too
+    expect(opaque).toBeGreaterThan(0); // the building actually drew
     expect(() => PNG.sync.read(depth)).not.toThrow();
-  });
+  }, 60_000); // browser launch is slow — generous timeout
 });
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [ ] **Step 3: Run it to verify it fails**
 
 Run: `npx vitest run tests/unit/massing-renderer.test.ts`
-Expected: FAIL — module not found (or SKIPPED if `gl` is absent; if skipped, implement Step 3 then re-run — it must PASS, not skip, on a machine where Task 1's spike worked).
+Expected: FAIL — module `massing-renderer` / `resolveChromePath` not found.
 
-- [ ] **Step 3: Implement the renderer (headless-gl backend)**
+- [ ] **Step 4: Implement the Node-side puppeteer driver**
 
 ```ts
 // src/assetgen/headless/massing-renderer.ts
 /**
- * Rasterize a MassingScene to color + depth PNG buffers via headless-gl.
- * Offline-only — imported solely by scripts/render-guides.ts (and its test),
- * NEVER by game code. Sized by the iso-3q view recipe so the result drops onto
- * its target 1:1. If Task 1 selected the Playwright backend instead, replace the
- * body of renderToPixels with a Playwright screenshot of the same scene.
+ * Render building guide images by driving the installed Chrome headlessly via
+ * puppeteer-core. esbuild bundles render-page-entry.ts (browser side); we inject
+ * it into a page, then call window.renderMassing per descriptor. Offline-only —
+ * imported solely by scripts/render-guides.ts and this module's test, NEVER by
+ * game code. No native build, no Chromium download.
  */
-import createGL from 'gl';
-import * as THREE from 'three';
-import { PNG } from 'pngjs';
+import { build } from 'esbuild';
+import puppeteer from 'puppeteer-core';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 import type { BuildingDescriptor } from '@/world/building-descriptor';
-import { buildMassingScene } from './massing-scene';
 import { buildingBrief } from '@/assetgen/producers/building-producer';
 import { VIEW_RECIPES } from '@/assetgen/view-registry';
 
-export interface GuideOutput {
-  color: Buffer;
-  depth: Buffer;
-  width: number;
-  height: number;
+const HERE = dirname(fileURLToPath(import.meta.url));
+const SRC = join(HERE, '..', '..'); // src/
+
+export interface GuideOutput { color: Buffer; depth: Buffer; width: number; height: number; }
+
+/** Installed-Chrome path: env override, else the macOS default. */
+export function resolveChromePath(): string {
+  return process.env.PUPPETEER_EXECUTABLE_PATH
+    || process.env.CHROME_PATH
+    || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 }
 
-function flipToPng(pixels: Uint8Array, w: number, h: number): Buffer {
-  const png = new PNG({ width: w, height: h });
-  for (let y = 0; y < h; y++) {
-    const src = (h - 1 - y) * w * 4;
-    png.data.set(pixels.subarray(src, src + w * 4), y * w * 4);
-  }
-  return PNG.sync.write(png);
-}
-
-function renderToPixels(scene: THREE.Scene, camera: THREE.Camera, w: number, h: number): Uint8Array {
-  const gl = createGL(w, h, { preserveDrawingBuffer: true });
-  const renderer = new THREE.WebGLRenderer({ context: gl as unknown as WebGLRenderingContext, antialias: false, alpha: true });
-  renderer.setSize(w, h, false);
-  renderer.setClearColor(0x000000, 0);
-  renderer.render(scene, camera);
-  const pixels = new Uint8Array(w * h * 4);
-  gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
-  renderer.dispose();
-  return pixels;
-}
-
-export function renderGuide(d: BuildingDescriptor): GuideOutput {
-  const brief = buildingBrief(d, 0);
-  const { width, height } = VIEW_RECIPES['iso-3q'].nativeSize(brief);
-
-  const { scene, camera } = buildMassingScene(d);
-  const color = flipToPng(renderToPixels(scene, camera, width, height), width, height);
-
-  // Depth pass: swap every material to MeshDepthMaterial, re-render.
-  const { scene: dScene, camera: dCamera } = buildMassingScene(d);
-  dScene.traverse(o => {
-    const mesh = o as THREE.Mesh;
-    if (mesh.isMesh) mesh.material = new THREE.MeshDepthMaterial();
+async function bundlePage(): Promise<string> {
+  const res = await build({
+    entryPoints: [join(HERE, 'render-page-entry.ts')],
+    bundle: true, format: 'iife', write: false, platform: 'browser',
+    alias: { '@': SRC }, // mirror Vite's @/ → src
   });
-  // drop lights/lines for a clean depth field
-  dScene.children = dScene.children.filter(c => !(c as THREE.Light).isLight);
-  const depth = flipToPng(renderToPixels(dScene, dCamera, width, height), width, height);
+  return res.outputFiles[0].text;
+}
 
-  return { color, depth, width, height };
+function dataUrlToBuffer(u: string): Buffer {
+  return Buffer.from(u.replace(/^data:image\/png;base64,/, ''), 'base64');
+}
+
+export interface GuideRenderer {
+  render(d: BuildingDescriptor): Promise<GuideOutput>;
+  close(): Promise<void>;
+}
+
+/** Launch Chrome once and reuse the page across many renders (batch-friendly). */
+export async function createGuideRenderer(): Promise<GuideRenderer> {
+  const bundle = await bundlePage();
+  const browser = await puppeteer.launch({ executablePath: resolveChromePath(), headless: true });
+  const page = await browser.newPage();
+  await page.setContent('<canvas id="c"></canvas>');
+  await page.addScriptTag({ content: bundle });
+  return {
+    async render(d) {
+      const brief = buildingBrief(d, 0);
+      const { width, height } = VIEW_RECIPES['iso-3q'].nativeSize(brief);
+      const out = await page.evaluate(
+        (dd, w, h) => window.renderMassing(dd as BuildingDescriptor, w as number, h as number),
+        d, width, height,
+      ) as { color: string; depth: string };
+      return { color: dataUrlToBuffer(out.color), depth: dataUrlToBuffer(out.depth), width, height };
+    },
+    async close() { await browser.close(); },
+  };
+}
+
+/** One-shot convenience: launch, render one descriptor, close. */
+export async function renderGuide(d: BuildingDescriptor): Promise<GuideOutput> {
+  const r = await createGuideRenderer();
+  try { return await r.render(d); } finally { await r.close(); }
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [ ] **Step 5: Run tests to verify they pass**
 
 Run: `npx vitest run tests/unit/massing-renderer.test.ts`
-Expected: PASS (not skipped) on a machine where Task 1's spike worked.
+Expected: PASS (not skipped) — Chrome is installed on this machine.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Typecheck**
+
+Run: `npx tsc --noEmit`
+Expected: clean.
+
+- [ ] **Step 7: Commit**
 
 ```bash
-git add src/assetgen/headless/massing-renderer.ts tests/unit/massing-renderer.test.ts
-git commit -m "feat(assetgen): headless massing renderer — color + depth PNG passes"
+git add src/assetgen/headless/render-page-entry.ts src/assetgen/headless/massing-renderer.ts tests/unit/massing-renderer.test.ts
+git commit -m "feat(assetgen): puppeteer+Chrome massing renderer — color + depth PNG passes"
 ```
 
 ---
@@ -1009,6 +1097,7 @@ A script that renders every preset's guide PNGs into `tmp/guidance/` (the seam `
  * Render 3D guide images (color + depth) for every building preset into
  * tmp/guidance/, which scripts/gen-buildings.ts then sends to PixelLab as
  * init_image. Color → tmp/guidance/<preset>.png ; depth → tmp/guidance/<preset>-depth.png
+ * Launches the installed Chrome once and reuses it across all presets.
  *
  *   npx tsx scripts/render-guides.ts [preset…]
  */
@@ -1016,7 +1105,7 @@ import { writeFile, mkdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { BUILDING_PRESETS, synthesizeFromPreset } from '@/world/building-presets';
-import { renderGuide } from '@/assetgen/headless/massing-renderer';
+import { createGuideRenderer } from '@/assetgen/headless/massing-renderer';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const GUIDANCE = join(ROOT, 'tmp/guidance');
@@ -1026,19 +1115,24 @@ const presets = requested.length ? requested : Object.keys(BUILDING_PRESETS);
 
 await mkdir(GUIDANCE, { recursive: true });
 
+const renderer = await createGuideRenderer();
 let ok = 0;
-for (const name of presets) {
-  const d = synthesizeFromPreset(name);
-  if (!d) { console.error(`✗ ${name}: unknown preset`); continue; }
-  try {
-    const { color, depth, width, height } = renderGuide(d);
-    await writeFile(join(GUIDANCE, `${name}.png`), color);
-    await writeFile(join(GUIDANCE, `${name}-depth.png`), depth);
-    console.log(`✓ ${name.padEnd(14)} ${width}x${height}  (color + depth)`);
-    ok++;
-  } catch (err) {
-    console.error(`✗ ${name}: ${(err as Error).message}`);
+try {
+  for (const name of presets) {
+    const d = synthesizeFromPreset(name);
+    if (!d) { console.error(`✗ ${name}: unknown preset`); continue; }
+    try {
+      const { color, depth, width, height } = await renderer.render(d);
+      await writeFile(join(GUIDANCE, `${name}.png`), color);
+      await writeFile(join(GUIDANCE, `${name}-depth.png`), depth);
+      console.log(`✓ ${name.padEnd(14)} ${width}x${height}  (color + depth)`);
+      ok++;
+    } catch (err) {
+      console.error(`✗ ${name}: ${(err as Error).message}`);
+    }
   }
+} finally {
+  await renderer.close();
 }
 console.log(`\nRendered ${ok}/${presets.length} guides → tmp/guidance/`);
 ```
@@ -1122,7 +1216,7 @@ Expected: PASS (massing-scene.ts and massing-renderer.ts are under `assetgen/hea
 Under "## Known gaps & gotchas (code reality)", add:
 
 ```md
-- **Building guide images are 3D-rendered offline.** `scripts/render-guides.ts` (headless three.js under `src/assetgen/headless/`) renders each preset's `BuildingDescriptor` to `tmp/guidance/<preset>.png` (color) + `-depth.png`, which `scripts/gen-buildings.ts` sends to PixelLab as `init_image`. `three`/`gl` are devDependencies and MUST stay out of the game bundle (guarded by `tests/unit/no-three-in-bundle.test.ts`). Roof vocabulary + height model live in `building-massing-model.ts` (`ROOF_PROFILES`/`roofRise`); depth PNG is produced for a future ControlNet provider and is unused by PixelLab today.
+- **Building guide images are 3D-rendered offline via puppeteer + the installed Chrome.** `scripts/render-guides.ts` drives headless Chrome (`src/assetgen/headless/`: `massing-scene.ts` builds the three.js scene, `render-page-entry.ts` renders it with WebGL, `massing-renderer.ts` is the puppeteer-core driver) to write each preset's `BuildingDescriptor` to `tmp/guidance/<preset>.png` (color) + `-depth.png`, which `scripts/gen-buildings.ts` sends to PixelLab as `init_image`. headless-gl was abandoned (won't build on macOS 12). `three`/`puppeteer-core` are devDependencies and MUST stay out of the game bundle (guarded by `tests/unit/no-three-in-bundle.test.ts`). Roof vocabulary + height model live in `building-massing-model.ts` (`ROOF_PROFILES`/`roofRise`); depth PNG is produced for a future ControlNet provider and is unused by PixelLab today.
 ```
 
 - [ ] **Step 4: Run the full suite + typecheck**

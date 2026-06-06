@@ -32,7 +32,7 @@ depth pass nearly for free.
 | Roof set | **Full vocabulary** (16 types) |
 | Vents | **Smoke-vent attachment points** on the descriptor (chimney/smokehole/pipe), drawn in the render + reserved as future particle emitters |
 | Ground | **Faint w×h tile-diamond ground plane in the 3D scene** (embeds tile scale/alignment) |
-| Headless GL | **headless-gl (`gl`) first**, Playwright headless-browser fallback; de-risked by a Task-1 spike |
+| Headless render | **puppeteer-core driving the installed Chrome** (real WebGL three.js → PNG, no native build, no Chromium download, fully offline). *headless-gl was the original plan but won't build on macOS 12 — no `python`, ANGLE-from-source fails; spike confirmed the puppeteer+Chrome path instead.* |
 
 ## Architecture
 
@@ -200,14 +200,20 @@ tile-diamond ground plane is rendered at the same projection to lock scale.
 
 ## Headless runtime & risk
 
-three.js needs a GL context in Node. **Plan: headless-gl (`gl`).** Main risk:
-native build on Darwin 21.6.
+three.js needs a GL context. Node's headless-gl (`gl`) was the original plan but
+**fails to build on this machine** (macOS 12.7.6, no `python`, ANGLE-from-source) —
+confirmed by the Task-1 spike. **Resolved backend: puppeteer-core driving the
+installed Google Chrome.**
 
-- **Task 1 is a spike**: render one lit triangle to a PNG via headless-gl, confirm
-  the context builds and `readPixels` works on this machine, *before* building the
-  renderer.
-- **Fallback** if headless-gl won't build: render via a Playwright headless
-  Chromium page (real WebGL), screenshot the canvas. Heavier dependency but robust.
+- The render page (`render-page-entry.ts`, bundled by esbuild) builds the scene with
+  `buildMassingScene` and renders it with three.js `WebGLRenderer` to a transparent
+  canvas; `canvas.toDataURL` yields the PNG. Real WebGL, full lighting + depth.
+- The Node side (`massing-renderer.ts`) launches Chrome via `puppeteer-core`
+  (`executablePath` from `CHROME_PATH`/`PUPPETEER_EXECUTABLE_PATH` or the macOS
+  default), injects the bundle, and calls a per-descriptor render via `page.evaluate`.
+- **No native build, no Chromium download** — `puppeteer-core`/`three`/`pngjs` are
+  pure-JS/prebuilt; esbuild ships prebuilt. Fully offline (drives local Chrome).
+- The spike (a lit cone → transparent PNG) is confirmed working; no remaining risk.
 
 ## Testing
 
