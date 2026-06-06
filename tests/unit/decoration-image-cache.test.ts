@@ -11,7 +11,7 @@ import { DecorationImageCache } from '@/render/decoration-image-cache';
 async function seed(key: string): Promise<void> {
   const full: LibraryAsset = {
     key,
-    schemaVersion: 2,
+    schemaVersion: 3,
     blob: new Blob([new Uint8Array([0])]),
     prompt: 'p',
     width: 32,
@@ -21,6 +21,10 @@ async function seed(key: string): Promise<void> {
     origin: 'official',
     kind: 'decoration',
     tags: [],
+    provider: 'pixellab',
+    model: 'pixflux',
+    style: 'pixel-art',
+    recipeVersion: 'v1',
   };
   await cachePut(full);
 }

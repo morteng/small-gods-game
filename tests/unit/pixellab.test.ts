@@ -214,10 +214,10 @@ describe('schema migration v1 → v2', () => {
     });
     db.close();
 
-    // Now read via the module — this opens at v2 and runs the migration
+    // Now read via the module — this opens at v3 and runs the full migration chain
     const migrated = (await cacheGet('legacy-key-1')) as LibraryAsset | null;
     expect(migrated).not.toBeNull();
-    expect(migrated!.schemaVersion).toBe(2);
+    expect(migrated!.schemaVersion).toBe(3);
     expect(migrated!.curated).toBe('pending');
     expect(migrated!.origin).toBe('sandbox');
     expect(migrated!.kind).toBe('unknown');
@@ -226,15 +226,16 @@ describe('schema migration v1 → v2', () => {
   });
 
   it('creates the new indexes on upgrade', async () => {
-    // Trigger an upgrade by reading once
+    // Trigger an upgrade by reading once (opens at v3)
     await cacheGet('does-not-exist');
-    // Now inspect the schema
-    const db = await openRawDb(2);
+    // Now inspect the schema — must open at same version (3)
+    const db = await openRawDb(3);
     const store = db.transaction('assets', 'readonly').objectStore('assets');
     const names = Array.from(store.indexNames);
     expect(names).toContain('kind');
     expect(names).toContain('curated');
     expect(names).toContain('tags');
+    expect(names).toContain('style');
     db.close();
   });
 });
@@ -275,7 +276,7 @@ describe('generate — library metadata', () => {
     expect(stored!.kind).toBe('decoration');
     expect(stored!.tags).toEqual(['shrine', 'spooky']);   // normalized
     expect(stored!.description).toBe('a moss-covered shrine');
-    expect(stored!.schemaVersion).toBe(2);
+    expect(stored!.schemaVersion).toBe(3);
   });
 
   it('promotes sandbox entry to kept on later official cache hit', async () => {
@@ -333,7 +334,7 @@ async function seed(asset: Partial<LibraryAsset> & {
 }): Promise<void> {
   const full: LibraryAsset = {
     key: asset.key,
-    schemaVersion: 2,
+    schemaVersion: 3,
     blob: asset.blob ?? new Blob([new Uint8Array([0])]),
     prompt: asset.prompt ?? 'p',
     width: asset.width ?? 32,
@@ -344,6 +345,10 @@ async function seed(asset: Partial<LibraryAsset> & {
     kind: asset.kind,
     tags: asset.tags ?? [],
     description: asset.description,
+    provider: 'pixellab',
+    model: 'pixflux',
+    style: 'pixel-art',
+    recipeVersion: 'v1',
   };
   await cachePut(full);
 }
@@ -441,6 +446,10 @@ describe('findAssets', () => {
       width: 48,
       height: 48,
       addedAt: 12345,
+      style: 'pixel-art',
+      model: 'pixflux',
+      provider: 'pixellab',
+      affinity: undefined,
     });
     expect('blob' in r[0]).toBe(false);
   });

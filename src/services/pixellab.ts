@@ -1,4 +1,5 @@
 import type {
+  AssetKind,
   AssetQuery,
   AssetSummary,
   LibraryAsset,
@@ -15,7 +16,7 @@ const LS_KEY = 'smallgods.pixellab.apiKey';
 
 const DB_NAME = 'smallgods.pixellab';
 const DB_STORE = 'assets';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 /**
  * Project-wide style recipe baked into every call. The palette swatch
@@ -134,6 +135,34 @@ function openDb(): Promise<IDBDatabase> {
         if (!store.indexNames.contains('tags')) {
           store.createIndex('tags', 'tags', { multiEntry: true });
         }
+      }
+
+      // v2 → v3: backfill generation metadata
+      if (oldVersion < 3) {
+        const cur3 = store.openCursor();
+        cur3.onsuccess = () => {
+          const cursor = cur3.result;
+          if (!cursor) return;
+          const v = cursor.value as Record<string, unknown>;
+          if (v.schemaVersion !== 3) {
+            cursor.update({
+              ...v,
+              // v1 → v2 defaults (safe no-ops for records already at v2)
+              curated: v.curated ?? 'pending',
+              origin: v.origin ?? 'sandbox',
+              kind: v.kind ?? 'unknown',
+              tags: v.tags ?? [],
+              // v2 → v3 fields
+              schemaVersion: 3,
+              provider: v.provider ?? 'pixellab',
+              model: v.model ?? 'pixflux',
+              style: v.style ?? 'pixel-art',
+              recipeVersion: v.recipeVersion ?? RECIPE_V,
+            });
+          }
+          cursor.continue();
+        };
+        if (!store.indexNames.contains('style')) store.createIndex('style', 'style');
       }
     };
     req.onsuccess = () => { _db = req.result; resolve(_db); };
@@ -287,6 +316,8 @@ export async function generate(
         kind: opts.kind ?? hit.kind,
         tags: opts.tags ? normalizeTags(opts.tags) : hit.tags,
         description: opts.description ?? hit.description,
+        style: opts.style ?? hit.style ?? 'pixel-art',
+        affinity: opts.affinity ?? hit.affinity,
       };
       await cachePut(promoted);
     }
@@ -313,7 +344,7 @@ export async function generate(
   const blob = base64ToBlob(b64);
   const asset: LibraryAsset = {
     key,
-    schemaVersion: 2,
+    schemaVersion: 3,
     blob,
     prompt: opts.prompt,
     width: opts.width,
@@ -324,6 +355,11 @@ export async function generate(
     kind: opts.kind ?? 'unknown',
     tags: normalizeTags(opts.tags),
     description: opts.description,
+    provider: 'pixellab',
+    model: 'pixflux',
+    style: opts.style ?? 'pixel-art',
+    recipeVersion: RECIPE_V,
+    affinity: opts.affinity,
   };
   await cachePut(asset);
   return { blob, cached: false, key };
@@ -361,6 +397,31 @@ export async function findAssets(q: AssetQuery): Promise<AssetSummary[]> {
   });
 }
 
+/** All kept assets of a kind, newest-first, with full v3 metadata. Unlike
+ *  findAssets() this applies no tag/size filtering — callers (AssetLibrary)
+ *  filter via asset-match. */
+export async function listKeptSummaries(kind: AssetKind): Promise<AssetSummary[]> {
+  const db = await openDb();
+  const tx = db.transaction(DB_STORE, 'readonly');
+  const index = tx.objectStore(DB_STORE).index('kind');
+  return new Promise<AssetSummary[]>((resolve, reject) => {
+    const matches: LibraryAsset[] = [];
+    const req = index.openCursor(IDBKeyRange.only(kind));
+    req.onsuccess = () => {
+      const cursor = req.result;
+      if (!cursor) {
+        matches.sort((a, b) => b.generatedAt - a.generatedAt);
+        resolve(matches.map(toSummary));
+        return;
+      }
+      const a = cursor.value as LibraryAsset;
+      if (a.curated === 'kept') matches.push(a);
+      cursor.continue();
+    };
+    req.onerror = () => reject(req.error);
+  });
+}
+
 function passesFilters(a: LibraryAsset, q: AssetQuery): boolean {
   if (a.curated !== 'kept') return false;
   if (q.size && (a.width !== q.size.w || a.height !== q.size.h)) return false;
@@ -379,6 +440,10 @@ function toSummary(a: LibraryAsset): AssetSummary {
     width: a.width,
     height: a.height,
     addedAt: a.generatedAt,
+    style: a.style ?? 'pixel-art',
+    model: a.model ?? 'pixflux',
+    provider: a.provider ?? 'pixellab',
+    affinity: a.affinity,
   };
 }
 
