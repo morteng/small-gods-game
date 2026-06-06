@@ -10,7 +10,7 @@
  * `drawRoof()` (matching the `Roof` union) or `drawBody()` (matching `Plan`).
  */
 import { worldToScreen } from './iso-projection';
-import { ISO_TILE_H } from './iso-constants';
+import { ISO_TILE_H, ISO_TILE_W } from './iso-constants';
 import type { IsoDrawCtx } from './iso-sprites';
 import type { Massing } from '@/render/building-massing-model';
 import type { Roof } from '@/world/building-descriptor';
@@ -170,6 +170,39 @@ function drawDomeCap(
   ctx.beginPath();
   ctx.ellipse(e.cx, e.cy, e.rx, e.ry + rise, 0, Math.PI, 0);
   ctx.fill();
+}
+
+/**
+ * The proof's tunable: fraction of the footprint's iso diamond width the building
+ * sprite spans. Tune by eye against the parametric massing's apparent size.
+ */
+const SPRITE_FOOTPRINT_FACTOR = 0.55;
+
+/**
+ * Draw a generated pixel-art building sprite as an upright billboard, anchored
+ * bottom-center over the footprint center and scaled to the footprint's iso
+ * width. Square (128²) source art. Used in place of the parametric massing when
+ * the ArtResolver finds a sprite for the building's preset; otherwise we fall
+ * back to `drawIsoBuildingMassing`.
+ */
+export function drawIsoBuildingSprite(
+  dc: IsoDrawCtx, img: HTMLImageElement,
+  tileX: number, tileY: number, footprint: { w: number; h: number },
+): void {
+  const { ctx, originX, originY } = dc;
+  const { w, h } = footprint;
+  const center = worldToScreen(tileX + w / 2, tileY + h / 2, 0, originX, originY);
+  const displayW = (w + h) * (ISO_TILE_W / 2) * SPRITE_FOOTPRINT_FACTOR;
+  const displayH = displayW; // square 128² source
+  ctx.save();
+  ctx.translate(center.sx, center.sy);
+  ctx.fillStyle = 'rgba(0,0,0,0.28)';
+  ctx.beginPath();
+  ctx.ellipse(0, 0, displayW * 0.34, displayW * 0.16, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(img, -displayW / 2, -displayH, displayW, displayH);
+  ctx.restore();
 }
 
 /** Draw a building from its Massing at tile (tileX, tileY). */
