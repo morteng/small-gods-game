@@ -355,7 +355,7 @@ export class Game {
       },
     });
 
-    this.spendChip = mountSpendChip(this.container, this.costTracker);
+    this.spendChip = mountSpendChip(this.ui.bottomLeftBar, this.costTracker);
     this.spendChip.setVisible(providerConfig.type === 'openrouter');
 
     this.llmBackfill = new LlmBackfillService({

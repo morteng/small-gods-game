@@ -54,6 +54,7 @@ export class GameUi {
   readonly divineEffects = new DivineEffects();
   readonly llmSettingsBtn: HTMLButtonElement;
   readonly newWorldBtn: HTMLButtonElement;
+  readonly bottomLeftBar: HTMLElement;
   readonly placementModal: DecorationPlacementModalHandle;
   readonly cameraControls: CameraControlsHandle;
 
@@ -61,30 +62,39 @@ export class GameUi {
     this.pausedBanner = document.createElement('div');
     this.pausedBanner.textContent = 'PAUSED';
     this.pausedBanner.style.cssText = [
-      'position:absolute', 'top:12px', 'left:50%', 'transform:translateX(-50%)',
-      'padding:6px 14px', 'background:rgba(0,0,0,0.65)', 'color:#fff',
-      'font:bold 14px sans-serif', 'letter-spacing:2px', 'border-radius:4px',
+      'position:absolute', 'top:64px', 'left:50%', 'transform:translateX(-50%)',
+      'padding:8px 18px', 'background:var(--shade)',
+      'backdrop-filter:blur(8px)', '-webkit-backdrop-filter:blur(8px)',
+      'border:1px solid var(--line)', 'box-shadow:var(--lift-1)',
+      'color:var(--ink)', 'font-family:var(--f-sans)',
+      'font-weight:700', 'font-size:var(--t-md)', 'letter-spacing:2px',
+      'border-radius:var(--r-pill)',
       'pointer-events:none', 'display:none', 'z-index:10',
     ].join(';');
     container.appendChild(this.pausedBanner);
 
     this.debugHud = document.createElement('div');
     this.debugHud.style.cssText = [
-      'position:absolute', 'top:8px', 'right:8px',
-      'padding:4px 8px', 'background:rgba(0,0,0,0.6)', 'color:#9fd8ff',
-      'font:11px ui-monospace,monospace', 'border-radius:3px',
+      'position:absolute', 'top:8px', 'left:8px',
+      'padding:5px 9px', 'background:var(--shade)',
+      'border:1px solid var(--line)', 'color:var(--time)',
+      'font-family:var(--f-mono)', 'font-size:var(--t-tiny)',
+      'border-radius:var(--r-2)',
       'pointer-events:none', 'display:none', 'z-index:10',
       'white-space:nowrap',
     ].join(';');
     container.appendChild(this.debugHud);
 
     this.npcInfoPanel = document.createElement('div');
+    this.npcInfoPanel.className = 'sg-scroll';
     this.npcInfoPanel.style.cssText = [
-      'position:absolute', 'top:8px', 'right:8px', 'width:320px',
-      'max-height:calc(100% - 16px)', 'overflow-y:auto',
-      'padding:10px 12px', 'background:rgba(10,10,20,0.88)',
-      'border:1px solid rgba(255,255,255,0.18)', 'border-radius:6px',
-      'color:#fff', 'pointer-events:auto', 'display:none', 'z-index:21',
+      'position:absolute', 'top:14px', 'right:14px', 'width:400px',
+      'max-height:calc(100% - 28px)', 'overflow-y:auto',
+      'padding:16px 18px', 'background:var(--shade)',
+      'backdrop-filter:blur(10px)', '-webkit-backdrop-filter:blur(10px)',
+      'border:1px solid var(--line)', 'border-radius:var(--r-4)',
+      'box-shadow:var(--lift-2)',
+      'color:var(--ink)', 'pointer-events:auto', 'display:none', 'z-index:21',
       'box-sizing:border-box',
     ].join(';');
     container.appendChild(this.npcInfoPanel);
@@ -103,9 +113,12 @@ export class GameUi {
 
     this.tooltip = document.createElement('div');
     this.tooltip.style.cssText = [
-      'position:absolute', 'padding:3px 8px',
-      'background:rgba(10,10,20,0.85)', 'color:#fff',
-      'font:11px sans-serif', 'border-radius:3px',
+      'position:absolute', 'padding:5px 10px',
+      'background:var(--shade)', 'backdrop-filter:blur(8px)',
+      '-webkit-backdrop-filter:blur(8px)',
+      'border:1px solid var(--line)', 'box-shadow:var(--lift-1)',
+      'color:var(--ink)', 'font-family:var(--f-sans)', 'font-size:var(--t-small)',
+      'border-radius:var(--r-2)',
       'pointer-events:none', 'display:none', 'z-index:11',
       'white-space:nowrap', 'transform:translate(12px, 12px)',
     ].join(';');
@@ -158,25 +171,30 @@ export class GameUi {
       onClickTile: (x, y) => cb.onClickMinimapTile(x, y),
     });
 
+    // Bottom-left toolbar — contains LLM settings button, New World button, and spend chip.
+    this.bottomLeftBar = document.createElement('div');
+    this.bottomLeftBar.style.cssText = 'position:absolute;bottom:8px;left:8px;z-index:10;display:flex;gap:8px;align-items:center;';
+    container.appendChild(this.bottomLeftBar);
+
     // LLM settings button
     this.llmSettingsBtn = document.createElement('button');
     this.llmSettingsBtn.textContent = '⚙ LLM';
     this.llmSettingsBtn.className = 'sg-btn sg-btn--ghost';
-    this.llmSettingsBtn.style.cssText = 'position:absolute;bottom:8px;left:8px;z-index:10;';
+    this.llmSettingsBtn.title = 'Settings — choose your LLM provider and model for narrating mortal minds.';
     this.llmSettingsBtn.addEventListener('click', () => {
       this.unifiedSettings.toggle();
     });
-    container.appendChild(this.llmSettingsBtn);
+    this.bottomLeftBar.appendChild(this.llmSettingsBtn);
 
     // New World button — abandons the autosaved game and starts fresh.
     this.newWorldBtn = document.createElement('button');
     this.newWorldBtn.textContent = '✦ New World';
     this.newWorldBtn.className = 'sg-btn sg-btn--ghost';
-    this.newWorldBtn.style.cssText = 'position:absolute;bottom:8px;left:64px;z-index:10;';
+    this.newWorldBtn.title = 'New World — abandon the current game and regenerate a fresh world.';
     this.newWorldBtn.addEventListener('click', () => {
       if (window.confirm('Start a new world? This abandons your current game.')) cb.onNewWorld();
     });
-    container.appendChild(this.newWorldBtn);
+    this.bottomLeftBar.appendChild(this.newWorldBtn);
 
     this.placementModal = createDecorationPlacementModal(container);
 
@@ -194,8 +212,7 @@ export class GameUi {
     this.npcAttentionPanel.destroy();
     this.npcInfoPanel.remove();
     this.tooltip.remove();
-    this.llmSettingsBtn.remove();
-    this.newWorldBtn.remove();
+    this.bottomLeftBar.remove();
     this.mainMenu.destroy();
     this.spiritHud.destroy();
     this.rivalPanel.destroy();

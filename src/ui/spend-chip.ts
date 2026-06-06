@@ -14,7 +14,7 @@ export interface SpendChipHandle {
 
 const STYLE = `
 .sg-spend {
-  position: absolute; left: 12px; bottom: 12px; z-index: 40;
+  position: relative; z-index: 40;
   font-family: var(--f-sans, system-ui, sans-serif); font-size: var(--t-tiny, 11px);
   color: var(--ink-3); background: var(--paper, #fff); border: 1px solid var(--line);
   border-radius: var(--r-pill, 999px); padding: 5px 10px; cursor: pointer;
