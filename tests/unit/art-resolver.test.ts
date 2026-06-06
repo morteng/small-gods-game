@@ -12,12 +12,23 @@ function ent(id: string, kind: string): Entity {
 
 describe('ArtResolver', () => {
   it('returns the picked id and memoizes per entity id (one pick call)', async () => {
-    const lib = fakeLib({ id: 'asset-x', sourceTier: 'base', width: 64, height: 64, score: 0 });
+    const lib = fakeLib({ id: 'asset-x', sourceTier: 'base', width: 64, height: 64, score: 3 });
     const r = new ArtResolver(lib, 'pixel-art');
     const e = ent('boulder#1', 'boulder');
     expect(await r.resolve(e)).toBe('asset-x');
     expect(await r.resolve(e)).toBe('asset-x');
     expect((lib.pick as any)).toHaveBeenCalledTimes(1); // memoized
+  });
+
+  it('returns null (and keeps the fallback) when the best pick has score 0', async () => {
+    // matchesAsset only hard-filters kind+style, so pick() can return an
+    // unrelated top candidate at score 0 — the resolver must reject it.
+    const lib = fakeLib({ id: 'unrelated', sourceTier: 'base', width: 64, height: 64, score: 0 });
+    const r = new ArtResolver(lib, 'pixel-art');
+    const e = ent('oak_tree#3', 'oak_tree');
+    expect(await r.resolve(e)).toBeNull();
+    expect(await r.resolve(e)).toBeNull();
+    expect((lib.pick as any)).toHaveBeenCalledTimes(1); // still memoized
   });
 
   it('passes entity kind as a tag + decoration AssetKind, seeded by entity id', async () => {

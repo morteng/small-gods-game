@@ -28,7 +28,11 @@ export class ArtResolver {
       tagsAny: [e.kind],
       seed: hashStr(e.id),
     });
-    const id = picked?.id ?? null;
+    // Only bind on a genuine match. matchesAsset hard-filters on kind+style
+    // only, so pick() returns the top candidate even when nothing relates to
+    // this entity kind (score 0). Binding a score-0 asset would skin e.g. an
+    // oak_tree as wildflowers — keep the procedural/vendored fallback instead.
+    const id = picked && picked.score > 0 ? picked.id : null;
     this.cache.set(e.id, id);
     return id;
   }
