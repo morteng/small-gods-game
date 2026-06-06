@@ -48,12 +48,6 @@ export function drawIsoNpc(dc: IsoDrawCtx, npc: NpcInstance): void {
     const billboardH = sy - top.sy;
     const billboardW = billboardH; // square sprite
 
-    // Shadow on ground
-    ctx.fillStyle = 'rgba(0,0,0,0.3)';
-    ctx.beginPath();
-    ctx.ellipse(sx, sy, billboardW * 0.35, ISO_TILE_H * 0.22, 0, 0, Math.PI * 2);
-    ctx.fill();
-
     // Sprite billboard
     ctx.imageSmoothingEnabled = false;
     ctx.drawImage(sheet, sheetSx, sheetSy, 64, 64,

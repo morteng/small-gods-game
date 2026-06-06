@@ -196,10 +196,6 @@ export function drawIsoBuildingSprite(
   const displayH = displayW; // square 128² source
   ctx.save();
   ctx.translate(center.sx, center.sy);
-  ctx.fillStyle = 'rgba(0,0,0,0.28)';
-  ctx.beginPath();
-  ctx.ellipse(0, 0, displayW * 0.34, displayW * 0.16, 0, 0, Math.PI * 2);
-  ctx.fill();
   ctx.imageSmoothingEnabled = false;
   ctx.drawImage(img, -displayW / 2, -displayH, displayW, displayH);
   ctx.restore();
