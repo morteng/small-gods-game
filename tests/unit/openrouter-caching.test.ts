@@ -80,4 +80,12 @@ describe('OpenRouterProvider response caching', () => {
     const res = await p.generate([{ role: 'user', content: 'hi' }]);
     expect(res.cacheStatus).toBeUndefined();
   });
+
+  it('does not infer HIT when usage is entirely absent', async () => {
+    calls = [];
+    stubFetch(calls, { choices: [{ message: { content: '{}' } }] }); // no usage object
+    const p = new OpenRouterProvider({ apiKey: 'k' });
+    const res = await p.generate([{ role: 'user', content: 'hi' }], { cache: true });
+    expect(res.cacheStatus).toBeUndefined();
+  });
 });

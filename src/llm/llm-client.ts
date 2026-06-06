@@ -497,8 +497,8 @@ export class OpenRouterProvider implements LLMProvider {
         const headerStatus = resp.headers.get('x-openrouter-cache-status');
         if (headerStatus === 'HIT' || headerStatus === 'MISS') {
           cacheStatus = headerStatus;
-        } else if (cacheEnabled) {
-          cacheStatus = (data.usage?.total_tokens ?? 0) === 0 ? 'HIT' : 'MISS';
+        } else if (cacheEnabled && data.usage) {
+          cacheStatus = (data.usage.total_tokens ?? 0) === 0 ? 'HIT' : 'MISS';
         }
 
         return {
