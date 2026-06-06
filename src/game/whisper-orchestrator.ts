@@ -57,7 +57,7 @@ export async function sendWhisper(npc: Entity, text: string, deps: WhisperOrches
       npc, whisperText: text, recentTurns: recentBefore, playerSpiritId: deps.playerSpiritId,
       pastMemories: selectMemoriesForPrompt(props.memories ?? [], 4),
     });
-    const res = await deps.llm.generateNpcBackfill(prompt.system, prompt.user);
+    const res = await deps.llm.generateNpcBackfill(prompt.system, prompt.user, { cache: { ttlSeconds: 300 } });
     const parsed = parseReaction(res);
     if (!parsed || typeof parsed.dialogue !== 'string' || parsed.dialogue.length === 0) {
       turn.degraded = true;

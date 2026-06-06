@@ -63,7 +63,7 @@ export class LlmBackfillService {
 
     const prompt = buildNpcPrompt(context);
     try {
-      const response = await this.client.generateNpcBackfill(prompt.system, prompt.user, { maxTokens: 200, temperature: 0.7 });
+      const response = await this.client.generateNpcBackfill(prompt.system, prompt.user, { maxTokens: 200, temperature: 0.7, cache: { ttlSeconds: 300 } });
       const parsed = parseLLMJson(response.content);
       const writeback = applyLLMWriteback(npcEntity, parsed, 'player', state.eventLog);
       recordMemory(props, {
