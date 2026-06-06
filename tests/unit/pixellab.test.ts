@@ -225,6 +225,34 @@ describe('schema migration v1 → v2', () => {
     expect(migrated!.prompt).toBe('legacy prompt');
   });
 
+  it('backfills v2 records with provider/model/style/recipeVersion on upgrade to v3', async () => {
+    const db = await openRawDb(2);
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction('assets', 'readwrite');
+      tx.objectStore('assets').put({
+        key: 'v2-record',
+        schemaVersion: 2,
+        blob: new Blob([new Uint8Array([1])]),
+        prompt: 'old prompt',
+        width: 32, height: 32,
+        generatedAt: 1000,
+        curated: 'kept',
+        origin: 'official',
+        kind: 'decoration',
+        tags: ['tree'],
+      });
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+    const migrated = await cacheGet('v2-record');
+    expect(migrated?.schemaVersion).toBe(3);
+    expect(migrated?.provider).toBe('pixellab');
+    expect(migrated?.model).toBe('pixflux');
+    expect(migrated?.style).toBe('pixel-art');
+    expect(migrated?.recipeVersion).toBeTruthy();
+  });
+
   it('creates the new indexes on upgrade', async () => {
     // Trigger an upgrade by reading once (opens at v3)
     await cacheGet('does-not-exist');

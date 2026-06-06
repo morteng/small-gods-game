@@ -41,6 +41,11 @@ describe('schema v3 write path', () => {
       prompt: 'a stump', width: 64, height: 64,
       kind: 'decoration', origin: 'official', style: 'pixel-art',
     });
+    // a sandbox (pending) asset of the same kind must be excluded
+    await generate('pending-k', {
+      prompt: 'a pending stump', width: 64, height: 64,
+      kind: 'decoration', origin: 'sandbox', style: 'pixel-art',
+    });
     const out = await listKeptSummaries('decoration');
     expect(out).toHaveLength(1);
     expect(out[0].style).toBe('pixel-art');

@@ -419,6 +419,7 @@ export async function listKeptSummaries(kind: AssetKind): Promise<AssetSummary[]
       cursor.continue();
     };
     req.onerror = () => reject(req.error);
+    tx.onerror = () => reject(tx.error);
   });
 }
 
