@@ -467,6 +467,15 @@ export type CurationStatus = 'pending' | 'kept' | 'rejected';
 
 export type AssetOrigin = 'sandbox' | 'official' | 'imported';
 
+export type AssetStyle = 'pixel-art' | 'painterly' | 'unknown';
+export type AssetProvider = 'pixellab' | 'replicate' | 'fal' | 'mock';
+
+/** Soft selection hints — overlap raises an asset's match score, never required. */
+export interface AssetAffinity {
+  biome?: string[];
+  era?: string[];
+}
+
 /** Options for a single PixelLab generation call. The client bakes in the
  *  project style recipe (color_image, outline, shading, detail) on top. */
 export interface PixelLabGenerateOpts {
@@ -486,6 +495,10 @@ export interface PixelLabGenerateOpts {
   tags?: string[];
   description?: string;
   origin?: AssetOrigin;
+  /** Style tag for the generated asset (defaults to 'pixel-art'). */
+  style?: AssetStyle;
+  /** Soft selection hints stored with the asset. */
+  affinity?: AssetAffinity;
 }
 
 export interface PixelLabBalance {
@@ -500,7 +513,7 @@ export interface PixelLabBalance {
 export interface LibraryAsset {
   /** SHA-256 hex of the canonical call shape. Primary key. */
   key: string;
-  schemaVersion: 2;
+  schemaVersion: 3;
 
   blob: Blob;
   prompt: string;
@@ -514,6 +527,13 @@ export interface LibraryAsset {
   kind: AssetKind;
   tags: string[];
   description?: string;
+
+  // v3 metadata
+  provider: AssetProvider;
+  model: string;
+  style: AssetStyle;
+  recipeVersion: string;
+  affinity?: AssetAffinity;
 }
 
 /** Structured library query — designed for the future LLM agent's tool call. */
@@ -525,6 +545,16 @@ export interface AssetQuery {
   tagsAll?: string[];
   /** Exact-match dimensions. */
   size?: { w: number; h: number };
+  /** Exact style match (e.g. only 'pixel-art'). */
+  style?: AssetStyle;
+  /** Exact model match — "only assets from this model". */
+  model?: string;
+  /** Exact provider match. */
+  provider?: AssetProvider;
+  /** OR-match biome affinity. */
+  biomeAny?: string[];
+  /** OR-match era affinity. */
+  eraAny?: string[];
   /** Default 16. */
   limit?: number;
 }
@@ -542,6 +572,10 @@ export interface AssetSummary {
   /** When this asset entered the library (epoch ms). Equals `LibraryAsset.generatedAt`
    *  for entries created via `generate()`; will differ for future imported entries. */
   addedAt: number;
+  style: AssetStyle;
+  model: string;
+  provider: AssetProvider;
+  affinity?: AssetAffinity;
 }
 
 export type PixelLabKeyStatus = 'missing' | 'unverified' | 'valid' | 'invalid';
