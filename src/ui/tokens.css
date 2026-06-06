@@ -59,6 +59,8 @@
   --danger:     var(--w-clay);                  /* rivals, loss */
   --danger-soft: oklch(0.52 0.16 30 / 0.14);
 
+  --concept:    oklch(0.62 0.14 300);           /* abstractions in a mind: ideas, beliefs */
+
   /* ── Geometry ────────────────────────────────────────────── */
   --r-1: 4px;
   --r-2: 6px;
@@ -83,14 +85,18 @@
   --f-sans:  'Manrope', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --f-mono:  'IBM Plex Mono', ui-monospace, monospace;
 
-  --t-micro: 10px;
-  --t-tiny:  11px;
-  --t-small: 12px;
-  --t-base:  13px;
-  --t-md:    14px;
-  --t-lg:    16px;
-  --t-xl:    20px;
-  --t-display: 28px;
+  /* Type ramp — sized for a game read at arm's length, not a dense desktop
+     dashboard. Bumped ~15-20% over the original desktop scale; every
+     token-driven component (time bar, chips, buttons, settings, HUD) grows
+     with it. */
+  --t-micro: 11px;
+  --t-tiny:  12px;
+  --t-small: 13px;
+  --t-base:  15px;
+  --t-md:    16px;
+  --t-lg:    19px;
+  --t-xl:    24px;
+  --t-display: 34px;
 }
 
 /* ── Dark theme ───────────────────────────────────────────────
@@ -111,6 +117,8 @@
   --ink-2:    oklch(0.82 0.012 80);
   --ink-3:    oklch(0.66 0.012 80);
   --ink-4:    oklch(0.52 0.012 80);
+
+  --concept:  oklch(0.74 0.13 300);    /* brighter on dark so it reads */
 
   --lift-1: 0 1px 0 oklch(0 0 0 / 0.18), 0 1px 2px oklch(0 0 0 / 0.30);
   --lift-2: 0 4px 12px oklch(0 0 0 / 0.35), 0 12px 40px oklch(0 0 0 / 0.45);
@@ -186,7 +194,7 @@ button { font-family: inherit; color: inherit; }
   display: inline-flex;
   align-items: center;
   gap: var(--s-2);
-  padding: 6px 12px;
+  padding: 8px 14px;
   background: var(--paper);
   color: var(--ink);
   border: 1px solid var(--line-2);
@@ -433,6 +441,7 @@ button { font-family: inherit; color: inherit; }
   background: var(--paper);
 }
 .sg-select { cursor: pointer; }
+input[type="range"].sg-input { border: none; padding: 0; background: transparent; }
 
 .sg-link {
   color: var(--time);
@@ -597,8 +606,8 @@ button { font-family: inherit; color: inherit; }
 }
 .sg-commit__sub { color: var(--ink-3); }
 .sg-commit__actions { margin-left:auto; display:flex; gap: 6px; }
-.sg-btn { padding: 6px 12px; border-radius: var(--r-2); border: 1px solid var(--line);
-          background: var(--paper); color: var(--ink); cursor: pointer; font: var(--t-small)/1 var(--f-sans); }
+.sg-btn { padding: 8px 14px; border-radius: var(--r-2); border: 1px solid var(--line);
+          background: var(--paper); color: var(--ink); cursor: pointer; font: var(--t-base)/1 var(--f-sans); }
 .sg-btn--default { background: var(--w-dusk); color: var(--paper); border-color: transparent; }
 .sg-btn--danger  { background: var(--paper); color: var(--danger); border-color: var(--danger); }
 

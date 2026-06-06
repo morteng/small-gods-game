@@ -45,6 +45,7 @@ export function createLLMSettings(
   // Mutable selection state, edited via the picker, read on Save.
   let chatModelId = saved.openrouterModel || DEFAULT_CHAT_MODEL;
   let capableModelId = saved.openrouterModelCapable || DEFAULT_CAPABLE_MODEL;
+  // Auto-router cost↔quality (0 = most capable, 10 = cheapest); 7 = OpenRouter's default lean-cheap.
   let chatTradeoff = saved.openrouterCostQualityTradeoff ?? 7;
   let capableTradeoff = saved.openrouterCostQualityTradeoffCapable ?? 7;
   let cacheEnabled = saved.cacheEnabled !== false; // default on
@@ -182,6 +183,8 @@ export function createLLMSettings(
   const capableTradeoffRow = createTradeoffRow('Cost ↔ quality (Capable)', () => capableTradeoff, (v) => { capableTradeoff = v; });
   container.appendChild(chatTradeoffRow.row);
   container.appendChild(capableTradeoffRow.row);
+  chatTradeoffRow.row.style.display = 'none';
+  capableTradeoffRow.row.style.display = 'none';
 
   function updateAutoRows(): void {
     const showModels = providerSelect.value === 'openrouter';
