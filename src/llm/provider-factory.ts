@@ -23,6 +23,9 @@ export interface ProviderConfig {
   openrouterModelCapable?: string;
   openrouterSiteUrl?: string;
   openrouterSiteName?: string;
+  openrouterCostQualityTradeoff?: number;
+  openrouterCostQualityTradeoffCapable?: number;
+  cacheEnabled?: boolean;
   // Shared
   maxTokens?: number;
   temperature?: number;
@@ -57,6 +60,8 @@ export function createProvider(config: ProviderConfig): LLMProvider {
         model: config.openrouterModel ?? DEFAULT_CHAT_MODEL,
         siteUrl: config.openrouterSiteUrl,
         siteName: config.openrouterSiteName ?? 'Small Gods Game',
+        costQualityTradeoff: config.openrouterCostQualityTradeoff,
+        cacheEnabled: config.cacheEnabled,
       };
       return new OpenRouterProvider(orConfig);
     }
