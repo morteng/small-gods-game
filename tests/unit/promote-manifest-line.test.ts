@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildManifestLine, blobFileName } from '../../vite-plugins/promote-asset';
+import { buildManifestLine, blobFileName, isSafeId } from '../../vite-plugins/promote-asset';
 
 describe('promote helpers', () => {
   it('builds a stable blob filename from kind + key', () => {
@@ -15,5 +15,25 @@ describe('promote helpers', () => {
     expect(parsed.blob).toBe('blobs/decoration-a1b2.png');
     expect(parsed.key).toBe('a1b2');
     expect(line.endsWith('\n')).toBe(true);
+  });
+});
+
+describe('isSafeId (path-traversal guard)', () => {
+  it('accepts alphanumerics, dash, underscore within the length bound', () => {
+    expect(isSafeId('decoration', 32)).toBe(true);
+    expect(isSafeId('a1b2-c3_d4', 64)).toBe(true);
+    expect(isSafeId('fb6586ba210c6c2cc853e4b308f600141e51e7c0', 64)).toBe(true);
+  });
+  it('rejects traversal sequences, separators, and filesystem-meaningful chars', () => {
+    expect(isSafeId('../../etc/passwd', 64)).toBe(false);
+    expect(isSafeId('a/b', 64)).toBe(false);
+    expect(isSafeId('a.png', 64)).toBe(false);
+    expect(isSafeId('a b', 64)).toBe(false);
+  });
+  it('rejects empty, over-length, and non-string input', () => {
+    expect(isSafeId('', 32)).toBe(false);
+    expect(isSafeId('x'.repeat(33), 32)).toBe(false);
+    expect(isSafeId(undefined, 32)).toBe(false);
+    expect(isSafeId(42, 32)).toBe(false);
   });
 });
