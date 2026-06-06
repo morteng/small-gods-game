@@ -28,6 +28,13 @@ describe('AssetLibrary.query', () => {
     expect(res.find(r => r.id === 'live1')!.sourceTier).toBe('live');
   });
 
+  it('degrades to base-only when the live source throws (storage degraded)', async () => {
+    const live = vi.fn(async () => { throw new Error('IndexedDB unavailable'); });
+    const lib = new AssetLibrary([baseRec], { listKeptSummaries: live });
+    const res = await lib.query({ kind: 'decoration', style: 'pixel-art' });
+    expect(res.map(r => r.id)).toEqual(['base1']); // no throw; base record still served
+  });
+
   it('filters out the wrong kind/style', async () => {
     const live = vi.fn(async () => [summary({ id: 'live1', style: 'painterly' })]);
     const lib = new AssetLibrary([baseRec], { listKeptSummaries: live });

@@ -64,7 +64,12 @@ export class AssetLibrary {
       }
     }
 
-    const live = await this.listKept(req.kind);
+    // The live (IndexedDB) source can fail in storage-degraded browsers
+    // (private mode, quota). Degrade to base-only rather than rejecting — a
+    // throw here would leave ArtResolver unable to memoize and re-fire every
+    // frame. Mirrors loadBaseLibrary's []-on-error contract.
+    let live: AssetSummary[] = [];
+    try { live = await this.listKept(req.kind); } catch { /* IndexedDB unavailable */ }
     for (const s of live) {
       if (this.baseByKey.has(s.id)) continue; // base wins duplicate key
       const meta = summaryToMeta(s);
