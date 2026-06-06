@@ -9,15 +9,22 @@ set -euo pipefail
 BASE="https://liberatedpixelcup.github.io/Universal-LPC-Spritesheet-Character-Generator"
 OUT="$(cd "$(dirname "$0")/.." && pwd)/public/sprites/lpc/spritesheets"
 
-# Variantless walk.png — each is one fetch
+# Variantless walk.png — each is one fetch.
+# NB: upstream serves body/head/face/hair as a single variantless walk.png (the
+# per-skin-tone / per-hair-colour files 404), so skin tone and hair colour do
+# NOT vary — diversity comes from body type, hair STYLE, and clothing colour.
 VARIANTLESS=(
   body/bodies/male/walk.png
+  body/bodies/female/walk.png
   body/bodies/child/walk.png
+  body/bodies/teen/walk.png
   head/heads/human/male/walk.png
+  head/heads/human/female/walk.png
   head/heads/human/male_elderly/walk.png
   head/heads/human/male_gaunt/walk.png
   head/heads/human/child/walk.png
   head/faces/male/neutral/walk.png
+  head/faces/female/neutral/walk.png
   head/faces/elderly/neutral/walk.png
   hair/buzzcut/adult/walk.png
   hair/plain/adult/walk.png
@@ -29,6 +36,13 @@ VARIANTLESS=(
   hair/messy2/adult/walk.png
   hair/unkempt/adult/walk.png
   hair/pigtails/adult/walk.png
+  hair/afro/adult/walk.png
+  hair/bob/adult/walk.png
+  hair/bob_side_part/adult/walk.png
+  hair/long/adult/walk.png
+  hair/long_straight/adult/walk.png
+  hair/bangs/adult/walk.png
+  hair/pixie/adult/walk.png
   torso/clothes/longsleeve/longsleeve2_polo/male/walk.png
   torso/clothes/longsleeve/longsleeve2_buttoned/male/walk.png
   torso/armour/plate/male/walk.png
@@ -36,17 +50,26 @@ VARIANTLESS=(
   legs/armour/plate/male/walk.png
 )
 
-# Per-variant walk/<variant>.png — base path + variant list
+# Per-variant walk/<variant>.png — base path + variant list.
+# Female clothing lives under a `female`/`thin` body folder (male-clothing
+# itemIds 404 on female paths), so female NPCs use female-specific garments.
 PER_VARIANT=(
-  "legs/hose/male/walk leather black"
+  "legs/hose/male/walk leather black brown gray"
   "legs/leggings/male/walk black"
   "legs/leggings2/male/walk black"
   "legs/pants/child/walk black blue brown"
   "torso/clothes/shirt/child/walk black blue brown"
   "feet/sandals/male/walk brown"
-  "feet/boots/basic/male/walk black"
+  "feet/boots/basic/male/walk black brown"
   "feet/boots/revised/male/walk black"
   "feet/armour/plate/male/walk steel iron brass"
+  # ── Female wardrobe ──
+  "torso/clothes/blouse/female/walk black blue green red walnut white"
+  "torso/clothes/blouse_longsleeve/female/walk black blue green walnut"
+  "legs/hose/thin/walk black leather brown gray"
+  "legs/leggings/thin/walk black brown gray"
+  "feet/boots/basic/thin/walk black brown"
+  "feet/sandals/thin/walk brown black"
 )
 
 fetch_one() {

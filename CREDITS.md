@@ -69,7 +69,8 @@ CC0: https://creativecommons.org/publicdomain/zero/1.0/
 - Source: https://opengameart.org/content/liberated-pixel-cup-lpc-base-assets-sprites-map-tiles
 - Used for: NPC character spritesheets (procedurally composited via LPC generator)
 - File: `public/sprites/lpc/spritesheets/` (vendored walk-cycle sprites only —
-  body, head, face, hair, clothes, legs, feet, armour). Pulled from the
+  body, head, face, hair, clothes, legs, feet, armour; male/female/child body
+  types). Pulled from the
   upstream Universal-LPC-Spritesheet-Character-Generator repo via
   `scripts/vendor-lpc-sprites.sh`. See that repo's CREDITS for the full
   per-file contributor chain (bluecarrot16, JaidynReiman, makrohn, wulax,

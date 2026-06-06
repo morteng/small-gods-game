@@ -4,8 +4,8 @@ import { buildCharacterSpec, specFromItems } from '@/render/lpc/character-builde
 describe('buildCharacterSpec', () => {
   it('returns a valid spec for farmer', () => {
     const spec = buildCharacterSpec('farmer', 0);
-    expect(spec.sex).toBe('male');
-    expect(spec.bodyType).toBe('male');
+    // farmer is mixed-sex now — the seed decides man or woman
+    expect(['male', 'female']).toContain(spec.sex);
     expect(spec.items['body']).toBeDefined();
     expect(spec.items['head']).toBeDefined();
   });
@@ -16,13 +16,13 @@ describe('buildCharacterSpec', () => {
     expect(spec.bodyType).toBe('child');
   });
 
-  it('different seeds produce different hair variants for same role', () => {
-    const s1 = buildCharacterSpec('farmer', 1);
-    const s2 = buildCharacterSpec('farmer', 999);
-    expect(s1.items['hair']).toBeDefined();
-    expect(s2.items['hair']).toBeDefined();
-    // Seeds should produce distinct hair colours
-    expect(s1.items['hair']!.variant).not.toBe(s2.items['hair']!.variant);
+  it('different seeds vary the look (hair style varies; colour is variantless upstream)', () => {
+    // Hair colour is a single variantless sheet upstream, so variety comes from
+    // STYLE, not colour. Across a seed sweep the farmer pool yields >1 style.
+    const styles = new Set(
+      [1, 2, 3, 17, 999, 12345].map((s) => buildCharacterSpec('farmer', s).items['hair']!.itemId),
+    );
+    expect(styles.size).toBeGreaterThan(1);
   });
 
   it('all 8 roles return a spec without throwing', () => {
