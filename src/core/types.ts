@@ -494,6 +494,15 @@ export interface PixelLabGenerateOpts {
   /** Deterministic seed for reproducibility. */
   seed?: number;
 
+  /** Base64 PNG guidance image for img2img (e.g. rendered massing). */
+  initImage?: string;
+  /** img2img strength (~0–1000); only applied when initImage is present. */
+  initImageStrength?: number;
+  /** Hex colours that MUST appear; synthesized into a per-call color_image. */
+  paletteAnchors?: string[];
+  /** View-recipe version; folded into the cache key (defaults to RECIPE_V). */
+  recipeVersion?: string;
+
   // Library metadata. Required logically for 'official' origin (callers should
   // supply them); for 'sandbox' (default) they may be omitted and will default.
   kind?: AssetKind;
