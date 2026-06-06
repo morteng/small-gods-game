@@ -1,8 +1,19 @@
 import { describe, it, expect } from 'vitest';
 import * as THREE from 'three';
-import { buildMassingScene } from '@/assetgen/headless/massing-scene';
+import { buildMassingScene, buildRoof } from '@/assetgen/headless/massing-scene';
 import { synthesizeFromPreset, BUILDING_PRESETS } from '@/world/building-presets';
 import type { Roof } from '@/world/building-descriptor';
+
+function size(o: THREE.Object3D): THREE.Vector3 {
+  o.updateMatrixWorld(true);
+  const s = new THREE.Vector3();
+  new THREE.Box3().setFromObject(o).getSize(s);
+  return s;
+}
+function bounds(o: THREE.Object3D): THREE.Box3 {
+  o.updateMatrixWorld(true);
+  return new THREE.Box3().setFromObject(o);
+}
 
 const ALL_ROOFS: Roof[] = [
   'flat','gable','hip','conical','domed','stepped','lean_to',
@@ -65,5 +76,35 @@ describe('buildMassingScene', () => {
       if (g && g.type === 'CylinderGeometry') cylinders++;
     });
     expect(cylinders).toBeGreaterThan(0);
+  });
+
+  it('pyramid-family roofs cover the full footprint (not a quarter or double)', () => {
+    // hip on a 6×2 footprint: base must span ~6 in x and ~2 in z, centered.
+    const s = size(buildRoof('hip', 6, 2, 1, 0, 0x888888));
+    expect(s.x).toBeGreaterThan(5.5);
+    expect(s.x).toBeLessThan(6.5);
+    expect(s.z).toBeGreaterThan(1.6);
+    expect(s.z).toBeLessThan(2.4);
+  });
+
+  it('lean_to caps the footprint instead of sitting off behind it', () => {
+    // 4×4 footprint is centered on x,z ∈ [−2,2]; the wedge must stay within it.
+    const b = bounds(buildRoof('lean_to', 4, 4, 1, 0, 0x888888));
+    expect(b.min.z).toBeGreaterThanOrEqual(-2.05);
+    expect(b.max.z).toBeLessThanOrEqual(2.05);
+    expect(b.min.x).toBeGreaterThanOrEqual(-2.05);
+    expect(b.max.x).toBeLessThanOrEqual(2.05);
+  });
+
+  it('places the door marker on the actual door edge (x-edge door)', () => {
+    // market_stall door is {x:0,y:1} on a 2×2 footprint → left (−x) edge, marker x ≈ −1.
+    const { scene } = buildMassingScene(synthesizeFromPreset('market_stall')!);
+    let doorX: number | undefined;
+    scene.traverse(o => {
+      const me = o as THREE.Mesh;
+      const c = (me.material as THREE.MeshStandardMaterial)?.color;
+      if (me.isMesh && c && c.getHex() === 0xff00ff) doorX = me.position.x;
+    });
+    expect(doorX).toBeCloseTo(-1);
   });
 });

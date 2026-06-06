@@ -22,7 +22,12 @@ export interface MassingScene {
 const DOOR_COLOR = 0xff00ff; // magenta marker, matches the 2D guidance door dot
 const GRID_COLOR = 0x5a6478;
 
-/** Build a square (4-sided) pyramid as a scaled cone; rotate so a flat face front. */
+/**
+ * Build a square (4-sided) pyramid as a scaled cone spanning the FULL footprint
+ * (rx = full width w, rz = full depth h). After rotateY(45°) the radius-0.5 cone's
+ * bbox half-extent is 0.5·SQRT1_2 ≈ 0.354; scaling x by (w/0.5)·SQRT1_2 = w·SQRT1_2·2
+ * makes its base bbox span exactly ±w/2 (verified: pyramid(6,4) → 6×4 base).
+ */
 function pyramid(rx: number, rz: number, rise: number, color: number): THREE.Mesh {
   const geo = new THREE.ConeGeometry(0.5, rise, 4);
   geo.rotateY(Math.PI / 4);
@@ -43,11 +48,18 @@ function mat(color: number): THREE.MeshStandardMaterial {
 }
 
 function hexToInt(hex: string): number {
-  return parseInt(hex.replace('#', '').slice(0, 6), 16) || 0x888888;
+  const m = /^#?([0-9a-fA-F]{6})/.exec(hex);
+  return m ? parseInt(m[1], 16) : 0x888888; // parse-check, not truthiness (preserves #000000)
 }
 
-/** Roof group sitting on a body of plan w×h (XZ), starting at y = bodyTop. */
-function buildRoof(roof: Roof, w: number, h: number, rise: number, bodyTop: number, color: number): THREE.Object3D {
+/** True for the transparent 'none' roof sentinel (#00000000) — that roof draws nothing. */
+function isTransparent(hex: string): boolean {
+  const m = /^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})$/.exec(hex);
+  return !!m && m[1] === '00';
+}
+
+/** Roof group sitting on a body of plan w×h (XZ), starting at y = bodyTop. Exported for geometry tests. */
+export function buildRoof(roof: Roof, w: number, h: number, rise: number, bodyTop: number, color: number): THREE.Object3D {
   const g = new THREE.Group();
   const hw = w / 2, hh = h / 2;
   const place = (m: THREE.Object3D, y: number) => { m.position.y = y; g.add(m); };
@@ -123,9 +135,15 @@ function buildRoof(roof: Roof, w: number, h: number, rise: number, bodyTop: numb
       break;
     }
     case 'lean_to': {
-      // single slope: a thin wedge rising toward +z
-      const prof = [new THREE.Vector2(0, 0), new THREE.Vector2(h, 0), new THREE.Vector2(h, rise)];
-      const m = prism(prof, w, color); m.rotation.y = Math.PI / 2; m.position.z = -hh;
+      // single slope capping the full footprint: high at the back (−z), low at the
+      // front (+z). Profile spans the depth (−hh..hh) in local x; extruded along the
+      // width and rotated so local x → world z. (verified: 2×2 → x,z ∈ [−1,1].)
+      const prof = [
+        new THREE.Vector2(-hh, 0),    // back, bottom
+        new THREE.Vector2(hh, 0),     // front, bottom
+        new THREE.Vector2(-hh, rise), // back, top
+      ];
+      const m = prism(prof, w, color); m.rotation.y = Math.PI / 2;
       place(m, bodyTop);
       break;
     }
@@ -200,13 +218,22 @@ export function buildMassingScene(d: BuildingDescriptor): MassingScene {
     bodyTop = m.bodyHeight;
   }
 
-  group.add(buildRoof(m.roof, w, h, m.roofHeight, bodyTop, roofColor));
+  // A 'none' roof (roofMat 'none' → #00000000) draws no roof mesh.
+  if (!isTransparent(m.roofColor)) group.add(buildRoof(m.roof, w, h, m.roofHeight, bodyTop, roofColor));
   group.add(buildVents(m, bodyTop));
 
-  // Door marker on the door cell's outer face.
-  const dx = m.door.x + 0.5 - w / 2, dz = m.door.y + 0.5 - h / 2;
-  const door = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.6, 0.1), mat(DOOR_COLOR));
-  door.position.set(dx, 0.3, dz + (m.door.y >= h - 1 ? 0.5 : -0.5));
+  // Door marker, snapped to whichever footprint edge the door cell sits on (any of
+  // the 4 sides — not just the z-facing wall).
+  const door = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.6, 0.4), mat(DOOR_COLOR));
+  const dxc = m.door.x + 0.5 - w / 2, dzc = m.door.y + 0.5 - h / 2;
+  const dLeft = m.door.x, dRight = (w - 1) - m.door.x, dTop = m.door.y, dBottom = (h - 1) - m.door.y;
+  const minEdge = Math.min(dLeft, dRight, dTop, dBottom);
+  let px = dxc, pz = dzc;
+  if (minEdge === dLeft) px = -w / 2;
+  else if (minEdge === dRight) px = w / 2;
+  else if (minEdge === dTop) pz = -h / 2;
+  else pz = h / 2;
+  door.position.set(px, 0.3, pz);
   group.add(door);
 
   scene.add(group);
