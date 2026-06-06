@@ -394,8 +394,10 @@ export class OpenRouterProvider implements LLMProvider {
     const start = Date.now();
     const url = 'https://openrouter.ai/api/v1/chat/completions';
 
+    const effectiveModel = opts?.model ?? this.config.model ?? 'openai/gpt-3.5-turbo';
+
     const body: Record<string, unknown> = {
-      model: opts?.model ?? this.config.model ?? 'openai/gpt-3.5-turbo',
+      model: effectiveModel,
       messages: messages.map(m => ({ role: m.role, content: m.content })),
       max_tokens: opts?.maxTokens ?? 200,
       temperature: opts?.temperature ?? 0.7,
@@ -413,6 +415,18 @@ export class OpenRouterProvider implements LLMProvider {
     if (opts?.tools && opts.tools.length > 0) {
       body.tools = toToolPayload(opts.tools);
       body.tool_choice = opts.toolChoice ?? 'auto';
+    }
+
+    // Auto-router: when targeting 'openrouter/auto', attach the cost/quality plugin.
+    // Emitted ONLY for the auto model so non-auto callers' bodies (and thus their
+    // cache keys) stay byte-stable.
+    if (effectiveModel === 'openrouter/auto') {
+      const tradeoff = opts?.costQualityTradeoff ?? this.config.costQualityTradeoff;
+      const allowed = opts?.allowedModels;
+      const plugin: Record<string, unknown> = { id: 'auto-router' };
+      if (tradeoff != null) plugin.cost_quality_tradeoff = tradeoff;
+      if (allowed && allowed.length) plugin.allowed_models = allowed;
+      body.plugins = [plugin];
     }
 
     const headers: Record<string, string> = {
