@@ -47,6 +47,8 @@ export interface LLMResponse {
   cost?: number;
   /** Tool calls the model requested, when tools were supplied. */
   toolCalls?: LLMToolCall[];
+  /** Cache outcome for OpenRouter response caching, when known. */
+  cacheStatus?: 'HIT' | 'MISS';
 }
 
 export interface LLMOptions {
@@ -62,6 +64,12 @@ export interface LLMOptions {
   tools?: LLMTool[];
   /** How the model should choose tools. Defaults to 'auto' when tools are present. */
   toolChoice?: 'auto' | 'required' | 'none';
+  /** Mark this call cache-eligible (OpenRouter response caching). Object form sets TTL/clear. */
+  cache?: boolean | { ttlSeconds?: number; clear?: boolean };
+  /** Auto-router cost/quality knob (0–10) — only used when model is 'openrouter/auto'. */
+  costQualityTradeoff?: number;
+  /** Auto-router allowed model ids/globs — only used when model is 'openrouter/auto'. */
+  allowedModels?: string[];
 }
 
 export interface LLMProvider {
@@ -364,6 +372,10 @@ export interface OpenRouterConfig {
   siteUrl?: string; // Optional: your site URL for OpenRouter rankings
   siteName?: string; // Optional: your site name for OpenRouter rankings
   defaultHeaders?: Record<string, string>; // Optional: additional headers
+  /** Default auto-router cost/quality tradeoff (0–10) for 'openrouter/auto'. */
+  costQualityTradeoff?: number;
+  /** Master switch for response caching; when false, cache headers are never sent. Default treated as true. */
+  cacheEnabled?: boolean;
 }
 
 export interface OpenRouterResponse extends LLMResponse {
@@ -410,6 +422,17 @@ export class OpenRouterProvider implements LLMProvider {
       'X-Title': this.config.siteName ?? 'Small Gods Game',
       ...this.config.defaultHeaders,
     };
+
+    // Response caching (opt-in per call; cacheEnabled is a provider master switch).
+    const cacheOpt = opts?.cache;
+    const cacheEnabled = !!cacheOpt && this.config.cacheEnabled !== false;
+    if (cacheEnabled) {
+      headers['X-OpenRouter-Cache'] = 'true';
+      if (typeof cacheOpt === 'object') {
+        if (cacheOpt.ttlSeconds != null) headers['X-OpenRouter-Cache-TTL'] = String(cacheOpt.ttlSeconds);
+        if (cacheOpt.clear) headers['X-OpenRouter-Cache-Clear'] = 'true';
+      }
+    }
 
     let lastError: Error | null = null;
     const maxRetries = 3;
@@ -468,6 +491,16 @@ export class OpenRouterProvider implements LLMProvider {
           }
         }
 
+        // Cache status: trust the header if CORS-exposed, else infer a HIT from
+        // zero usage on a call we marked cache-eligible (a hit reports 0 tokens).
+        let cacheStatus: 'HIT' | 'MISS' | undefined;
+        const headerStatus = resp.headers.get('x-openrouter-cache-status');
+        if (headerStatus === 'HIT' || headerStatus === 'MISS') {
+          cacheStatus = headerStatus;
+        } else if (cacheEnabled) {
+          cacheStatus = (data.usage?.total_tokens ?? 0) === 0 ? 'HIT' : 'MISS';
+        }
+
         return {
           content,
           parsed,
@@ -479,6 +512,7 @@ export class OpenRouterProvider implements LLMProvider {
           } : undefined,
           latencyMs: Date.now() - start,
           cost,
+          cacheStatus,
           model: data.model, // Actual model used (OpenRouter may route)
         };
       } catch (err) {
