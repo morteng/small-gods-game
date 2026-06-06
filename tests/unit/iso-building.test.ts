@@ -36,8 +36,26 @@ describe('drawIsoBuildingMassing', () => {
     const keep = synthesizeFromPreset('castle_keep')!; // levels 4, levelInset 1
     drawIsoBuildingMassing(dc(ctx), buildingMassing(keep), 0, 0);
     // each level = 3 quads (2 walls + top); 4 levels ⇒ many fills, no ellipse
-    expect((ctx.fill as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(6);
+    // (no ground-shadow fill any more — programmatic shadows removed).
+    expect((ctx.fill as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThanOrEqual(6);
     expect((ctx.ellipse as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+  });
+
+  it('draws gable-family and hip-family roofs as ridged/pitched silhouettes (not flat caps)', () => {
+    const lineToCount = (roof: string): number => {
+      const ctx = makeMockCtx();
+      const d = synthesizeFromPreset('cottage')!; d.roof = roof as any;
+      drawIsoBuildingMassing(dc(ctx), buildingMassing(d), 5, 5);
+      return (ctx.lineTo as ReturnType<typeof vi.fn>).mock.calls.length;
+    };
+    // Baseline: a 'flat' roof hits the flat-cap path. A correctly-mapped pitched roof
+    // adds ridge/apex geometry → strictly MORE lineTo calls than the flat cap. (An
+    // unmapped roof would fall through to the same flat cap and tie this baseline.)
+    const flatCalls = lineToCount('flat');
+    const pitched = ['gambrel', 'saltbox', 'cross_gable', 'pyramidal', 'mansard', 'jerkinhead', 'tented', 'spire'];
+    for (const roof of pitched) {
+      expect(lineToCount(roof), roof).toBeGreaterThan(flatCalls);
+    }
   });
 
   it('taller buildings reach higher on screen than flat ones (height honoured)', () => {

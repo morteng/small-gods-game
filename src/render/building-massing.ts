@@ -97,18 +97,27 @@ function drawRoof(
   const cx = x + w / 2, cy = y + h / 2;
   switch (roof) {
     case 'conical':
-    case 'domed': {
+    case 'domed':
+    case 'onion': {
       ctx.beginPath();
       ctx.ellipse(cx, cy, w * 0.18, h * 0.18, 0, 0, Math.PI * 2);
       ctx.fill();
       break;
     }
-    case 'gable': {
+    case 'gable':
+    case 'gambrel':
+    case 'saltbox':
+    case 'cross_gable': {
       const r = Math.max(1, TILE_SIZE * 0.12);
       ctx.fillRect(cx - r / 2, y + h * 0.15, r, h * 0.7);
       break;
     }
-    case 'hip': {
+    case 'hip':
+    case 'pyramidal':
+    case 'mansard':
+    case 'jerkinhead':
+    case 'tented':
+    case 'spire': {
       ctx.fillRect(x + w * 0.2, y + h * 0.2, w * 0.6, h * 0.6);
       break;
     }

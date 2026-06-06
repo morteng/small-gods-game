@@ -120,7 +120,10 @@ function drawRoof(
   const c = center(top);
   const apex = raise(c, riseHeight);
   switch (roof) {
-    case 'gable': {
+    case 'gable':
+    case 'gambrel':
+    case 'saltbox':
+    case 'cross_gable': {
       // ridge along the longer axis (n–s if footprint deeper, e–w otherwise),
       // approximated as a ridge between the midpoints of the two short edges.
       const midNE = { sx: (top.n.sx + top.e.sx) / 2, sy: (top.n.sy + top.e.sy) / 2 };
@@ -131,14 +134,20 @@ function drawRoof(
       quad(ctx, top.s, top.e, ridgeA, ridgeB, shade(color, 0.82));
       break;
     }
-    case 'hip': {
+    case 'hip':
+    case 'pyramidal':
+    case 'mansard':
+    case 'jerkinhead':
+    case 'tented':
+    case 'spire': {
       tri(ctx, top.n, top.e, apex, shade(color, 0.9));
       tri(ctx, top.e, top.s, apex, shade(color, 0.78));
       tri(ctx, top.s, top.w, apex, shade(color, 0.7));
       tri(ctx, top.w, top.n, apex, color);
       break;
     }
-    case 'conical': {
+    case 'conical':
+    case 'onion': {
       tri(ctx, top.w, top.n, apex, color);
       tri(ctx, top.n, top.e, apex, shade(color, 0.9));
       tri(ctx, top.e, top.s, apex, shade(color, 0.78));
@@ -224,16 +233,7 @@ export function drawIsoBuildingMassing(
   const { w, h } = m.footprint;
   const roofPx = m.roofHeight * H_UNIT_PX;
 
-  // ground shadow
   const g0 = groundCorners(tileX, tileY, w, h, dc);
-  ctx.fillStyle = 'rgba(0,0,0,0.22)';
-  ctx.beginPath();
-  ctx.moveTo(g0.n.sx, g0.n.sy);
-  ctx.lineTo(g0.e.sx, g0.e.sy);
-  ctx.lineTo(g0.s.sx, g0.s.sy);
-  ctx.lineTo(g0.w.sx, g0.w.sy);
-  ctx.closePath();
-  ctx.fill();
 
   if (m.plan === 'round') {
     const ellipse = drawDrum(ctx, g0, m.bodyHeight * H_UNIT_PX, m.walls);
