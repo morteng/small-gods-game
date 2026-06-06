@@ -1,17 +1,20 @@
 import { getAssetBlob } from '@/services/pixellab';
 
+export type BlobResolver = (id: string) => Promise<Blob | null>;
+
 /**
- * Holds `HTMLImageElement`s for placed decorations, loaded lazily from
- * IndexedDB blobs. One instance per `Game`; lives as long as the game does.
+ * Holds `HTMLImageElement`s for asset ids, loaded lazily via an injected blob
+ * resolver (base-library file OR IndexedDB). One instance per Game.
  *
- * `get(id)` returns null until the image is fully loaded, so the renderer can
- * fall back to a placeholder during the first frame after a new placement (or
- * the first frames after a fresh page load, before preload finishes).
+ * `get(id)` returns null until the image is fully loaded so the renderer can
+ * fall back to a placeholder during the first frame.
  */
-export class DecorationImageCache {
+export class ArtImageCache {
   private images = new Map<string, HTMLImageElement>();
   private urls = new Map<string, string>();
   private inFlight = new Set<string>();
+
+  constructor(private readonly resolveBlob: BlobResolver = getAssetBlob) {}
 
   /** Synchronous accessor for the render loop. Returns null while loading. */
   get(id: string): HTMLImageElement | null {
@@ -22,14 +25,14 @@ export class DecorationImageCache {
   }
 
   /** Kick off (or await an existing) load. Resolves to the image, or null
-   *  if the asset id is unknown to IndexedDB. */
+   *  if the asset id is unknown to the resolver. */
   async load(id: string): Promise<HTMLImageElement | null> {
     const existing = this.images.get(id);
     if (existing) return existing;
     if (this.inFlight.has(id)) return null;
     this.inFlight.add(id);
     try {
-      const blob = await getAssetBlob(id);
+      const blob = await this.resolveBlob(id);
       if (!blob) return null;
       const url = URL.createObjectURL(blob);
       const img = new Image();
@@ -55,3 +58,6 @@ export class DecorationImageCache {
     this.inFlight.clear();
   }
 }
+
+/** Back-compat alias — existing imports keep working until callers migrate. */
+export { ArtImageCache as DecorationImageCache };
