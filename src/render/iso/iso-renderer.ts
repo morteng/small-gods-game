@@ -1,6 +1,6 @@
 import type { RenderContext, Entity } from '@/core/types';
 import { drawIsoTerrain } from './iso-terrain';
-import { drawIsoNpc, drawIsoVegetation } from './iso-sprites';
+import { drawIsoNpc, drawIsoVegetation, drawIsoArtBillboard } from './iso-sprites';
 import { drawIsoBuildingMassing } from './iso-building';
 import { drawIsoGroundField } from './iso-ground';
 import { drawIsoOverlays } from './iso-overlay';
@@ -107,6 +107,17 @@ export function createIsoRenderMap(): RenderMap {
       }
     }
 
+    const decoById = new Map<string, { tx: number; ty: number; assetId: string }>();
+    for (const d of rc.generatedDecorations ?? []) {
+      const id = `deco:${d.tileX},${d.tileY}`;
+      decoById.set(id, { tx: d.tileX, ty: d.tileY, assetId: d.assetId });
+      entries.push({
+        id, kind: 'deco',
+        tx: d.tileX, ty: d.tileY, z: 0,
+        kindPriority: KIND_PRIORITY.deco,
+      });
+    }
+
     const drawCtx = { ctx, atlas: effectiveAtlas, originX, originY, npcSheets: rc.npcSheets, treeSheets: rc.treeSheets };
     const sorted = buildYSortBucket(entries);
     for (const e of sorted) {
@@ -118,7 +129,15 @@ export function createIsoRenderMap(): RenderMap {
         if (n) drawIsoNpc(drawCtx, n);
       } else if (e.kind === 'vegetation') {
         const v = vegById.get(e.id);
-        if (v) drawIsoVegetation(drawCtx, v);
+        if (v) {
+          const art = rc.resolveEntityArt?.(v) ?? null;
+          if (art) drawIsoArtBillboard(drawCtx, art, v.x, v.y);
+          else drawIsoVegetation(drawCtx, v);
+        }
+      } else if (e.kind === 'deco') {
+        const d = decoById.get(e.id);
+        const img = d ? rc.resolveDecorationImage?.(d.assetId) ?? null : null;
+        if (d && img) drawIsoArtBillboard(drawCtx, img, d.tx, d.ty);
       }
     }
 

@@ -72,6 +72,26 @@ export function drawIsoNpc(dc: IsoDrawCtx, npc: NpcInstance): void {
   ctx.fill();
 }
 
+/** Draw a square art sprite (decoration or prop) as an upright billboard,
+ *  base anchored at the tile center, with a soft contact shadow. */
+export function drawIsoArtBillboard(
+  dc: IsoDrawCtx, img: HTMLImageElement, tx: number, ty: number,
+): void {
+  const { ctx, originX, originY } = dc;
+  const { sx, sy } = worldToScreen(tx, ty, 0, originX, originY);
+  const w = ISO_TILE_W * 0.7;
+  const h = w; // square source art
+  ctx.save();
+  ctx.translate(sx, sy);
+  ctx.fillStyle = 'rgba(0,0,0,0.25)';
+  ctx.beginPath();
+  ctx.ellipse(0, 0, w * 0.32, w * 0.15, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(img, -w / 2, -h, w, h);
+  ctx.restore();
+}
+
 const TRUNK_COLOR = '#5a4030';
 
 /**
