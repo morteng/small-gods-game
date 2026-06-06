@@ -27,13 +27,21 @@ const RECIPE = {
 };
 
 // One row per seeded asset. `file` is relative to tmp/pixellab-probe/.
+// Tags include the world's `entity.kind` values (see src/world/entity-kinds.ts)
+// so the ArtResolver — which requests `tagsAny:[entity.kind]` — binds each
+// kind to a sensible asset. Kinds with no tag here fall back to the procedural
+// / vendored renderer.
 const SEED = [
   { file: 'bush-64.png', prompt: 'a small round green bush', width: 64, height: 64,
-    kind: 'decoration', tags: ['bush', 'green', 'shrub'], affinity: { biome: ['grassland', 'forest'] } },
+    kind: 'decoration', tags: ['bush', 'green', 'shrub', 'fern'],
+    affinity: { biome: ['grassland', 'forest'] } },
   { file: 'tree-64.png', prompt: 'a leafy oak tree', width: 64, height: 64,
-    kind: 'decoration', tags: ['tree', 'oak'], affinity: { biome: ['forest', 'grassland'] } },
+    kind: 'decoration',
+    tags: ['tree', 'oak', 'oak_tree', 'pine_tree', 'birch_tree', 'orange_tree', 'pale_tree', 'brown_tree'],
+    affinity: { biome: ['forest', 'grassland'] } },
   { file: 'rock-64.png', prompt: 'a mossy grey boulder', width: 64, height: 64,
-    kind: 'decoration', tags: ['rock', 'boulder', 'stone'], affinity: { biome: ['grassland', 'quarry', 'mountain'] } },
+    kind: 'decoration', tags: ['rock', 'boulder', 'stone', 'rock_pile', 'pebbles'],
+    affinity: { biome: ['grassland', 'quarry', 'mountain'] } },
   { file: 'flowers-64.png', prompt: 'a cluster of wildflowers', width: 64, height: 64,
     kind: 'decoration', tags: ['flower', 'wildflower'], affinity: { biome: ['grassland', 'meadow'] } },
 ];
