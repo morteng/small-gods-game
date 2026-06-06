@@ -63,11 +63,11 @@ describe('createLLMSettings — model picker + advanced', () => {
     const modelBtn = handle.element.querySelector('#sg-llm-model-row .sg-model-field') as HTMLButtonElement;
     modelBtn.click();
 
-    // Offline → verified fallback rows render in verified order.
+    // Offline → verified fallback rows render: AUTO_MODEL first, then verified models.
     const rows = handle.element.querySelectorAll('.sg-mp__row');
-    expect(rows.length).toBe(VERIFIED_CHAT_MODELS.length);
+    expect(rows.length).toBe(VERIFIED_CHAT_MODELS.length + 1); // +1 for AUTO_MODEL
 
-    (rows[1] as HTMLElement).click(); // select the 2nd verified model
+    (rows[2] as HTMLElement).click(); // select the 2nd verified model (index 0 = AUTO, 1 = first verified, 2 = second verified)
     (handle.element.querySelector('.sg-mp__select') as HTMLButtonElement).click(); // "Use this model"
 
     ([...handle.element.querySelectorAll('button')].find(b => b.textContent === 'Save') as HTMLButtonElement).click();

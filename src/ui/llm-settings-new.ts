@@ -17,6 +17,8 @@ import {
 } from '@/llm/openrouter-catalog';
 import { openModelPicker } from './model-picker';
 
+const AUTO_MODEL: CuratedModel = { id: 'openrouter/auto', name: 'Auto (cost/quality router)' };
+
 export interface LLMSettingsHandle {
   element: HTMLElement;
   getConfig(): Record<string, unknown>;
@@ -43,6 +45,9 @@ export function createLLMSettings(
   // Mutable selection state, edited via the picker, read on Save.
   let chatModelId = saved.openrouterModel || DEFAULT_CHAT_MODEL;
   let capableModelId = saved.openrouterModelCapable || DEFAULT_CAPABLE_MODEL;
+  let chatTradeoff = saved.openrouterCostQualityTradeoff ?? 7;
+  let capableTradeoff = saved.openrouterCostQualityTradeoffCapable ?? 7;
+  let cacheEnabled = saved.cacheEnabled !== false; // default on
 
   // ─── Provider Select ───────────────────────────────────
   const providerRow = document.createElement('div');
@@ -137,16 +142,52 @@ export function createLLMSettings(
   }
 
   const chatField = createModelField(
-    'sg-llm-model-row', 'Model', VERIFIED_CHAT_MODELS,
-    () => chatModelId, (id) => { chatModelId = id; },
+    'sg-llm-model-row', 'Model', [AUTO_MODEL, ...VERIFIED_CHAT_MODELS],
+    () => chatModelId, (id) => { chatModelId = id; updateAutoRows(); },
   );
   container.appendChild(chatField.row);
 
   const capableField = createModelField(
-    'sg-llm-capable-row', 'Capable model (key moments)', VERIFIED_CAPABLE_MODELS,
-    () => capableModelId, (id) => { capableModelId = id; },
+    'sg-llm-capable-row', 'Capable model (key moments)', [AUTO_MODEL, ...VERIFIED_CAPABLE_MODELS],
+    () => capableModelId, (id) => { capableModelId = id; updateAutoRows(); },
   );
   container.appendChild(capableField.row);
+
+  // ─── Auto-router tradeoff sliders (shown only when a tier uses openrouter/auto) ──
+  function createTradeoffRow(
+    labelText: string, get: () => number, set: (v: number) => void,
+  ): { row: HTMLElement } {
+    const row = document.createElement('div');
+    row.className = 'sg-field';
+    const label = document.createElement('div');
+    label.className = 'sg-field__label';
+    const valueText = document.createElement('span');
+    const setLabel = (v: number) => { valueText.textContent = ` — ${v === 0 ? 'most capable' : v >= 10 ? 'cheapest' : String(v)}`; };
+    label.textContent = labelText;
+    label.appendChild(valueText);
+    row.appendChild(label);
+
+    const slider = document.createElement('input');
+    slider.type = 'range';
+    slider.min = '0'; slider.max = '10'; slider.step = '1';
+    slider.value = String(get());
+    slider.className = 'sg-input';
+    setLabel(get());
+    slider.addEventListener('input', () => { const v = parseInt(slider.value, 10); set(v); setLabel(v); });
+    row.appendChild(slider);
+    return { row };
+  }
+
+  const chatTradeoffRow = createTradeoffRow('Cost ↔ quality (Model)', () => chatTradeoff, (v) => { chatTradeoff = v; });
+  const capableTradeoffRow = createTradeoffRow('Cost ↔ quality (Capable)', () => capableTradeoff, (v) => { capableTradeoff = v; });
+  container.appendChild(chatTradeoffRow.row);
+  container.appendChild(capableTradeoffRow.row);
+
+  function updateAutoRows(): void {
+    const showModels = providerSelect.value === 'openrouter';
+    chatTradeoffRow.row.style.display = (showModels && chatModelId === AUTO_MODEL.id) ? '' : 'none';
+    capableTradeoffRow.row.style.display = (showModels && capableModelId === AUTO_MODEL.id) ? '' : 'none';
+  }
 
   // ─── Max Tokens ──────────────────────────────────────
   const tokensRow = document.createElement('div');
@@ -191,6 +232,22 @@ export function createLLMSettings(
   advanced.appendChild(advSummary);
   advanced.appendChild(tokensRow);
   advanced.appendChild(tempRow);
+
+  const cacheRow = document.createElement('label');
+  cacheRow.className = 'sg-field';
+  cacheRow.style.flexDirection = 'row';
+  cacheRow.style.alignItems = 'center';
+  cacheRow.style.gap = '8px';
+  const cacheCheckbox = document.createElement('input');
+  cacheCheckbox.type = 'checkbox';
+  cacheCheckbox.checked = cacheEnabled;
+  cacheCheckbox.addEventListener('change', () => { cacheEnabled = cacheCheckbox.checked; });
+  const cacheLabel = document.createElement('span');
+  cacheLabel.className = 'sg-field__label';
+  cacheLabel.textContent = 'Response caching (free repeats of identical requests)';
+  cacheRow.append(cacheCheckbox, cacheLabel);
+  advanced.appendChild(cacheRow);
+
   container.appendChild(advanced);
 
   // ─── Status ───────────────────────────────────────────
@@ -210,6 +267,7 @@ export function createLLMSettings(
     capableField.row.style.display = showModel ? '' : 'none';
 
     keyInput.placeholder = p === 'openai' ? 'sk-...' : 'sk-or-...';
+    updateAutoRows();
   }
 
   providerSelect.addEventListener('change', () => {
@@ -255,6 +313,9 @@ export function createLLMSettings(
       config.openrouterApiKey = keyInput.value;
       config.openrouterModel = chatModelId;
       config.openrouterModelCapable = capableModelId;
+      config.openrouterCostQualityTradeoff = chatTradeoff;
+      config.openrouterCostQualityTradeoffCapable = capableTradeoff;
+      config.cacheEnabled = cacheEnabled;
     }
 
     saveProviderConfig(config as unknown as ProviderConfig);
