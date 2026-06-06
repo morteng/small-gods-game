@@ -494,7 +494,7 @@ export class OpenRouterProvider implements LLMProvider {
         // Cache status: trust the header if CORS-exposed, else infer a HIT from
         // zero usage on a call we marked cache-eligible (a hit reports 0 tokens).
         let cacheStatus: 'HIT' | 'MISS' | undefined;
-        const headerStatus = resp.headers.get('x-openrouter-cache-status');
+        const headerStatus = resp.headers?.get('x-openrouter-cache-status');
         if (headerStatus === 'HIT' || headerStatus === 'MISS') {
           cacheStatus = headerStatus;
         } else if (cacheEnabled && data.usage) {
