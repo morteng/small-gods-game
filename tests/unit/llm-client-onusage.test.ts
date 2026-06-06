@@ -18,4 +18,21 @@ describe('LLMClient option forwarding', () => {
     await client.generateNpcBackfill('sys', 'user', { cache: { ttlSeconds: 300 } });
     expect(rec.lastOpts?.cache).toEqual({ ttlSeconds: 300 });
   });
+
+  it('invokes onUsage with the response from generateNpcBackfill', async () => {
+    const rec = new RecordingProvider();
+    const seen: LLMResponse[] = [];
+    const client = new LLMClient(rec, (r) => seen.push(r));
+    await client.generateNpcBackfill('s', 'u');
+    expect(seen).toHaveLength(1);
+    expect(seen[0].content).toContain('hi');
+  });
+
+  it('invokes onUsage from generateWithTools', async () => {
+    const rec = new RecordingProvider();
+    const seen: LLMResponse[] = [];
+    const client = new LLMClient(rec, (r) => seen.push(r));
+    await client.generateWithTools([{ role: 'user', content: 'u' }], [{ name: 't', description: 'd', parameters: {} }]);
+    expect(seen).toHaveLength(1);
+  });
 });

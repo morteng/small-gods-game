@@ -221,9 +221,11 @@ export class MockLLMProvider implements LLMProvider {
 
 export class LLMClient {
   private provider: LLMProvider;
+  private onUsage?: (r: LLMResponse) => void;
 
-  constructor(provider: LLMProvider) {
+  constructor(provider: LLMProvider, onUsage?: (r: LLMResponse) => void) {
     this.provider = provider;
+    this.onUsage = onUsage;
   }
 
   /**
@@ -240,11 +242,13 @@ export class LLMClient {
       { role: 'user', content: userPrompt },
     ];
 
-    return this.provider.generate(messages, {
+    const res = await this.provider.generate(messages, {
       maxTokens: 200,
       temperature: 0.7,
       ...opts,
     });
+    this.onUsage?.(res);
+    return res;
   }
 
   /**
@@ -257,12 +261,14 @@ export class LLMClient {
     tools: LLMTool[],
     opts?: LLMOptions,
   ): Promise<LLMResponse> {
-    return this.provider.generate(messages, {
+    const res = await this.provider.generate(messages, {
       maxTokens: 1024,
       toolChoice: 'auto',
       ...opts,
       tools,
     });
+    this.onUsage?.(res);
+    return res;
   }
 
   /**
