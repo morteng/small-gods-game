@@ -58,6 +58,18 @@ function isTransparent(hex: string): boolean {
   return !!m && m[1] === '00';
 }
 
+/**
+ * Footprint the roof should cap: the top stacked level for inset/stepped bodies
+ * (so a ziggurat's cap matches its narrow top), the full footprint otherwise.
+ */
+export function roofFootprint(m: Massing): { w: number; h: number } {
+  const topInset = m.plan === 'round' ? 0 : m.levelInset * (m.levels - 1);
+  return {
+    w: Math.max(0.4, m.footprint.w - topInset * 2),
+    h: Math.max(0.4, m.footprint.h - topInset * 2),
+  };
+}
+
 /** Roof group sitting on a body of plan w×h (XZ), starting at y = bodyTop. Exported for geometry tests. */
 export function buildRoof(roof: Roof, w: number, h: number, rise: number, bodyTop: number, color: number): THREE.Object3D {
   const g = new THREE.Group();
@@ -218,8 +230,11 @@ export function buildMassingScene(d: BuildingDescriptor): MassingScene {
     bodyTop = m.bodyHeight;
   }
 
+  // The roof caps the TOP level's footprint (see roofFootprint) so a stepped
+  // ziggurat's cap sits on its narrow top rather than floating at full width.
+  const rf = roofFootprint(m);
   // A 'none' roof (roofMat 'none' → #00000000) draws no roof mesh.
-  if (!isTransparent(m.roofColor)) group.add(buildRoof(m.roof, w, h, m.roofHeight, bodyTop, roofColor));
+  if (!isTransparent(m.roofColor)) group.add(buildRoof(m.roof, rf.w, rf.h, m.roofHeight, bodyTop, roofColor));
   group.add(buildVents(m, bodyTop));
 
   // Door marker, snapped to whichever footprint edge the door cell sits on (any of

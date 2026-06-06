@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import * as THREE from 'three';
-import { buildMassingScene, buildRoof } from '@/assetgen/headless/massing-scene';
+import { buildMassingScene, buildRoof, roofFootprint } from '@/assetgen/headless/massing-scene';
+import { buildingMassing } from '@/render/building-massing-model';
 import { synthesizeFromPreset, BUILDING_PRESETS } from '@/world/building-presets';
 import type { Roof } from '@/world/building-descriptor';
 
@@ -94,6 +95,15 @@ describe('buildMassingScene', () => {
     expect(b.max.z).toBeLessThanOrEqual(2.05);
     expect(b.min.x).toBeGreaterThanOrEqual(-2.05);
     expect(b.max.x).toBeLessThanOrEqual(2.05);
+  });
+
+  it('stepped/inset bodies cap the roof on the narrow top level, not the full base', () => {
+    // castle_keep: w4, levels4, inset1 → top level collapses → roof must be < base.
+    const keep = buildingMassing(synthesizeFromPreset('castle_keep')!);
+    expect(roofFootprint(keep).w).toBeLessThan(keep.footprint.w);
+    // cottage: no inset → roof spans the full footprint.
+    const cottage = buildingMassing(synthesizeFromPreset('cottage')!);
+    expect(roofFootprint(cottage).w).toBe(cottage.footprint.w);
   });
 
   it('places the door marker on the actual door edge (x-edge door)', () => {
