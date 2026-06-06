@@ -13,6 +13,7 @@ export interface RenderContextDeps {
   assets: AssetManager;
   decorationImages: DecorationImageCache;
   artResolver: ArtResolver;
+  buildingArtResolver: ArtResolver;
   devMode: DevModeState;
 }
 
@@ -20,7 +21,7 @@ export interface RenderContextDeps {
  *  `map` and `world` are asserted non-null — every caller guards both before calling.
  *  `npcs` is [] when no world exists yet (pre-generation). */
 export function buildRenderContext(deps: RenderContextDeps): RenderContext {
-  const { state, viewport, sheets, assets, decorationImages, artResolver, devMode } = deps;
+  const { state, viewport, sheets, assets, decorationImages, artResolver, buildingArtResolver, devMode } = deps;
   return {
     map: state.map!,
     camera: state.camera,
@@ -43,6 +44,12 @@ export function buildRenderContext(deps: RenderContextDeps): RenderContext {
       const id = artResolver.peek(entity);
       if (id) return decorationImages.get(id);
       artResolver.warm(entity); // fire-and-forget; never blocks the frame
+      return null;
+    },
+    resolveBuildingArt: (entity: Entity) => {
+      const id = buildingArtResolver.peek(entity);
+      if (id) return decorationImages.get(id); // shared kind-agnostic image cache
+      buildingArtResolver.warm(entity); // fire-and-forget; never blocks the frame
       return null;
     },
     devMode,

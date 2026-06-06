@@ -1,7 +1,7 @@
 import type { RenderContext, Entity } from '@/core/types';
 import { drawIsoTerrain } from './iso-terrain';
 import { drawIsoNpc, drawIsoVegetation, drawIsoArtBillboard } from './iso-sprites';
-import { drawIsoBuildingMassing } from './iso-building';
+import { drawIsoBuildingMassing, drawIsoBuildingSprite } from './iso-building';
 import { drawIsoGroundField } from './iso-ground';
 import { drawIsoOverlays } from './iso-overlay';
 import { createNullAtlas } from './iso-atlas';
@@ -123,7 +123,14 @@ export function createIsoRenderMap(): RenderMap {
     for (const e of sorted) {
       if (e.kind === 'building') {
         const b = buildingById.get(e.id);
-        if (b) drawIsoBuildingMassing(drawCtx, b.massing, Math.floor(b.e.x), Math.floor(b.e.y));
+        if (b) {
+          const art = rc.resolveBuildingArt?.(b.e) ?? null;
+          if (art) {
+            drawIsoBuildingSprite(drawCtx, art, Math.floor(b.e.x), Math.floor(b.e.y), b.massing.footprint);
+          } else {
+            drawIsoBuildingMassing(drawCtx, b.massing, Math.floor(b.e.x), Math.floor(b.e.y));
+          }
+        }
       } else if (e.kind === 'npc') {
         const n = rc.npcs.find((x) => x.id === e.id);
         if (n) drawIsoNpc(drawCtx, n);

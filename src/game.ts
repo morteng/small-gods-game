@@ -98,6 +98,7 @@ export class Game {
   private welcomeModal: WelcomeModalHandle | null = null;
   private assetLibrary!: AssetLibrary;
   private artResolver!: ArtResolver;
+  private buildingArtResolver!: ArtResolver;
   private decorationImages = new ArtImageCache((id) => this.assetLibrary.resolveBlob(id));
   /** Resolved spritesheets keyed by NPC id */
   private sheets = new Map<string, HTMLCanvasElement>();
@@ -524,6 +525,7 @@ export class Game {
       assets: this.assets,
       decorationImages: this.decorationImages,
       artResolver: this.artResolver,
+      buildingArtResolver: this.buildingArtResolver,
       devMode: this.dev.devMode,
     };
   }
@@ -540,6 +542,7 @@ export class Game {
     const baseLibrary = await loadBaseLibrary();
     this.assetLibrary = new AssetLibrary(baseLibrary);
     this.artResolver = new ArtResolver(this.assetLibrary, 'pixel-art');
+    this.buildingArtResolver = new ArtResolver(this.assetLibrary, 'pixel-art', 'building');
     const map = await bootstrapWorld({
       state: this.state, assets: this.assets, sheets: this.sheets,
       decorationImages: this.decorationImages, getViewport: () => this.viewport(),

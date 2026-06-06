@@ -164,6 +164,8 @@ export interface RenderContext {
   /** Resolves an entity to its cached art `<img>` (base library or live), or
    *  null while loading / on no match (renderer keeps its procedural fallback). */
   resolveEntityArt?: (entity: Entity) => HTMLImageElement | null;
+  /** Render-only: building entity → generated sprite image, or null to fall back to parametric massing. */
+  resolveBuildingArt?: (entity: Entity) => HTMLImageElement | null;
   /** Dev mode state — when present and enabled, renderer draws highlights. */
   devMode?: DevModeState;
   /** Debug overlay options (extracted from devMode for convenience). */
