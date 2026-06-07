@@ -31,4 +31,13 @@ describe('rasterize', () => {
     const d = rasterize(f, 8, 'albedo');
     expect(d[(4*8+4)*4]).toBe(9); // near wins
   });
+
+  it('z-buffers per pixel — a tilted facet wins only where it is actually nearer', () => {
+    // flat facet at constant depth 0 over the whole frame; tilted facet rising -2→+2 across x.
+    const flat: ScreenFacet = { pts: quad(0,0,8,8), normal: [0,0,1], albedo: [1,1,1], depth: 0, depths: [0,0,0,0] };
+    const tilt: ScreenFacet = { pts: quad(0,0,8,8), normal: [0,0,1], albedo: [9,9,9], depth: 0, depths: [-2,2,2,-2] };
+    const d = rasterize([flat, tilt], 8, 'albedo');
+    expect(d[(4*8+1)*4]).toBe(1); // left: tilt depth ~-1.5 < 0 → flat wins
+    expect(d[(4*8+6)*4]).toBe(9); // right: tilt depth ~+1 > 0 → tilt wins
+  });
 });

@@ -25,4 +25,4 @@ export const MATERIAL_RGB: Record<Mat, RGB> = {
 export interface WorldFacet { pts: Vec3[]; normal: Vec3; albedo: RGB }
 
 /** A projected, depth-keyed polygon ready to rasterise. */
-export interface ScreenFacet { pts: Pt[]; normal: Vec3; albedo: RGB; depth: number }
+export interface ScreenFacet { pts: Pt[]; normal: Vec3; albedo: RGB; depth: number; depths?: number[] }

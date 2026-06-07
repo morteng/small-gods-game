@@ -40,8 +40,9 @@ export function projectFacets(facets: WorldFacet[], s: ProjScale): ScreenFacet[]
   for (const f of facets) {
     if (!frontFacing(f.normal)) continue;
     const pts = f.pts.map(p => project(p, s));
-    const depth = f.pts.reduce((a, p) => a + viewDepth(p), 0) / f.pts.length;
-    out.push({ pts, normal: f.normal, albedo: f.albedo, depth });
+    const depths = f.pts.map(viewDepth);
+    const depth = depths.reduce((a, d) => a + d, 0) / depths.length;
+    out.push({ pts, normal: f.normal, albedo: f.albedo, depth, depths });
   }
   return out;
 }
