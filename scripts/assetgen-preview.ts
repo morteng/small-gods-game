@@ -6,6 +6,7 @@ import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { PNG } from 'pngjs';
 import { composeStructure, type StructureSpec } from '../src/assetgen/compose';
+import type { Wing } from '../src/assetgen/geometry/building';
 
 const OUT = 'tmp/assetgen-preview';
 mkdirSync(OUT, { recursive: true });
@@ -25,6 +26,11 @@ const SAMPLES: Record<string, StructureSpec> = {
   boulder: { size: 512, parts: [
     { prim: 'ellipsoid', center: [1,1], baseZ: 0, radii: [1.2,0.9,0.8], material: 'stone' },
   ]},
+  cottage:      { size: 512, parts: [{ prim: 'building', wings: [{ x:0,y:0,w:3,h:3, roof:'gable' }] as Wing[] }] },
+  tavern:       { size: 512, parts: [{ prim: 'building', wings: [{ x:0,y:0,w:3,h:3, storeys:2, roof:'hip' }] as Wing[] }] },
+  longhouse:    { size: 512, parts: [{ prim: 'building', wings: [{ x:0,y:0,w:4,h:2, roof:'gable' }] as Wing[] }] },
+  l_house:      { size: 512, parts: [{ prim: 'building', wings: [{ x:0,y:0,w:4,h:2, roof:'gable' }, { x:0,y:0,w:2,h:4, roof:'gable' }] as Wing[] }] },
+  cross_chapel: { size: 512, parts: [{ prim: 'building', wings: [{ x:0,y:1,w:4,h:2, roof:'gable' }, { x:1,y:0,w:2,h:4, roof:'gable' }] as Wing[] }] },
 };
 
 function toPng(buf: Uint8ClampedArray, size: number): Buffer {
