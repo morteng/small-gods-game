@@ -100,10 +100,10 @@ describe('buildingFacets + building part', () => {
     expect(f.length).toBeGreaterThan(5); // walls (9 cells worth) + 4 roof facets
   });
 
-  it('every reference building composes to aligned grey + normal with a real bbox', () => {
+  it('every reference building composes to aligned grey + normal with a real bbox', async () => {
     for (const [name, wings] of Object.entries(BUILDINGS)) {
       const spec: StructureSpec = { size: 256, parts: [{ prim: 'building', wings }] };
-      const r = composeStructure(spec);
+      const r = await composeStructure(spec);
       let mismatches = 0;
       for (let i = 3; i < r.grey.length; i += 4) if ((r.grey[i] > 0) !== (r.normal[i] > 0)) mismatches++;
       expect(mismatches, `${name} grey/normal mask aligned`).toBe(0);
