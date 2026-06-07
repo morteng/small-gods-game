@@ -3,6 +3,7 @@ import { describe, it, expect } from 'vitest';
 import { occupancy, cellRect, wingRect, type Wing } from '@/assetgen/geometry/building';
 import { wallFacets } from '@/assetgen/geometry/building';
 import { frontFacing } from '@/assetgen/render/projection';
+import { roofFacets } from '@/assetgen/geometry/building';
 
 describe('building footprint helpers', () => {
   it('occupancy collects every cell of every wing', () => {
@@ -51,5 +52,34 @@ describe('wall facets', () => {
     const wings: Wing[] = [{ x: 0, y: 0, w: 1, h: 1 }];
     const f = wallFacets(wings, occupancy(wings), 'plaster');
     expect(f.filter(x => frontFacing(x.normal)).length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe('roof facets', () => {
+  const occ1 = occupancy([{ x: 0, y: 0, w: 3, h: 2 }]);
+
+  it('gable roof = 2 slopes + 2 closed ends, with a ridge', () => {
+    const { facets, meta } = roofFacets(occ1, { x: 0, y: 0, w: 3, h: 2, roof: 'gable' }, 'tile');
+    expect(facets).toHaveLength(4);             // 2 slopes + 2 gable ends (no open notch)
+    expect(meta.ridge).toBeDefined();
+    expect(meta.apex).toBeUndefined();
+  });
+
+  it('gable ridge runs along the longer axis', () => {
+    const { meta } = roofFacets(occ1, { x: 0, y: 0, w: 3, h: 2, roof: 'gable' }, 'tile');
+    const [a, b] = meta.ridge!;
+    expect(Math.abs(a[0] - b[0])).toBeGreaterThan(Math.abs(a[1] - b[1])); // spans x (the long axis)
+  });
+
+  it('hip roof = 4 triangles meeting an apex', () => {
+    const { facets, meta } = roofFacets(occ1, { x: 0, y: 0, w: 3, h: 2, roof: 'hip' }, 'tile');
+    expect(facets).toHaveLength(4);
+    for (const f of facets) expect(f.pts).toHaveLength(3);
+    expect(meta.apex).toBeDefined();
+  });
+
+  it('flat roof emits no roof facets (cell tops cover it)', () => {
+    const { facets } = roofFacets(occ1, { x: 0, y: 0, w: 3, h: 2, roof: 'flat' }, 'tile');
+    expect(facets).toHaveLength(0);
   });
 });

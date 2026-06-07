@@ -66,3 +66,47 @@ export function wallFacets(wings: Wing[], occ: Set<string>, wallMat: Mat): World
   }
   return out;
 }
+
+export interface RoofMeta { ridge?: [Vec3, Vec3]; apex?: Vec3 }
+
+/** One wing's roof in world space. Gable ends are closed (no open silhouette notch). */
+export function roofFacets(occ: Set<string>, w: Wing, roofMat: Mat): { facets: WorldFacet[]; meta: RoofMeta } {
+  const kind = w.roof ?? 'gable';
+  const c = MATERIAL_RGB[roofMat];
+  const r = wingRect(occ, w);
+  const b = (w.storeys ?? 1) * STOREY;
+  const shortSpan = Math.max(0.5, Math.min(w.w, w.h) - 2 * INSET);
+  const rise = PITCH[kind] * (shortSpan / 2);
+  const top = b + rise;
+  const facets: WorldFacet[] = [];
+  const meta: RoofMeta = {};
+  if (kind === 'flat') return { facets, meta };
+
+  if (kind === 'gable') {
+    if (w.w >= w.h) {                                   // ridge along x (long axis)
+      const ym = (r.y0 + r.y1) / 2;
+      const ra: Vec3 = [r.x0, ym, top], rb: Vec3 = [r.x1, ym, top];
+      facets.push({ pts: [[r.x0,r.y1,b],[r.x1,r.y1,b], rb, ra], normal: [0, PITCH.gable, 1],  albedo: shade(c, 0.84) }); // south slope
+      facets.push({ pts: [[r.x0,r.y0,b],[r.x1,r.y0,b], rb, ra], normal: [0, -PITCH.gable, 1], albedo: shade(c, 1.0) });  // north slope
+      facets.push({ pts: [[r.x1,r.y0,b],[r.x1,r.y1,b], rb],     normal: [1, 0, 0],            albedo: shade(c, 0.8) });  // east gable end
+      facets.push({ pts: [[r.x0,r.y0,b],[r.x0,r.y1,b], ra],     normal: [-1, 0, 0],           albedo: shade(c, 0.6) });  // west gable end
+      meta.ridge = [ra, rb];
+    } else {                                            // ridge along y
+      const xm = (r.x0 + r.x1) / 2;
+      const ra: Vec3 = [xm, r.y0, top], rb: Vec3 = [xm, r.y1, top];
+      facets.push({ pts: [[r.x1,r.y0,b],[r.x1,r.y1,b], rb, ra], normal: [PITCH.gable, 0, 1],  albedo: shade(c, 0.84) }); // east slope
+      facets.push({ pts: [[r.x0,r.y0,b],[r.x0,r.y1,b], rb, ra], normal: [-PITCH.gable, 0, 1], albedo: shade(c, 1.0) });  // west slope
+      facets.push({ pts: [[r.x0,r.y1,b],[r.x1,r.y1,b], rb],     normal: [0, 1, 0],            albedo: shade(c, 0.62) }); // south gable end
+      facets.push({ pts: [[r.x0,r.y0,b],[r.x1,r.y0,b], ra],     normal: [0, -1, 0],           albedo: shade(c, 0.5) });  // north gable end
+      meta.ridge = [ra, rb];
+    }
+  } else {                                              // hip | pyramidal — apex
+    const ap: Vec3 = [(r.x0 + r.x1) / 2, (r.y0 + r.y1) / 2, top];
+    facets.push({ pts: [[r.x0,r.y0,b],[r.x1,r.y0,b], ap], normal: [0, -1, 1], albedo: shade(c, 1.0) });  // north
+    facets.push({ pts: [[r.x1,r.y0,b],[r.x1,r.y1,b], ap], normal: [1, 0, 1],  albedo: shade(c, 0.82) }); // east
+    facets.push({ pts: [[r.x0,r.y1,b],[r.x1,r.y1,b], ap], normal: [0, 1, 1],  albedo: shade(c, 0.7) });  // south
+    facets.push({ pts: [[r.x0,r.y0,b],[r.x0,r.y1,b], ap], normal: [-1, 0, 1], albedo: shade(c, 0.6) });  // west
+    meta.apex = ap;
+  }
+  return { facets, meta };
+}
