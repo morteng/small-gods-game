@@ -1,6 +1,7 @@
 // src/assetgen/geometry/primitives.ts
 import type { Vec2, Vec3, RGB, Mat, WorldFacet } from '@/assetgen/types';
 import { MATERIAL_RGB } from '@/assetgen/types';
+import { normalize } from '@/assetgen/render/projection';
 
 const shade = (c: RGB, f: number): RGB => [Math.round(c[0]*f), Math.round(c[1]*f), Math.round(c[2]*f)];
 // Per-face shading so the grey reference reads as 3-D form (carried from the spike).
@@ -49,3 +50,32 @@ export const prism = (center: Vec2, baseZ: number, radius: number, height: numbe
   extrudeNgon(center, baseZ, radius, radius, height, sides, material, rot);
 export const cone = (center: Vec2, baseZ: number, radius: number, height: number, material: Mat = 'foliage', sides = 18): WorldFacet[] =>
   extrudeNgon(center, baseZ, radius, 0, height, sides, material);
+
+/** Ellipsoid centred at (cx, cy, baseZ+rz), radii [rx,ry,rz]; lat/long tessellation. */
+export function ellipsoid(center: Vec2, baseZ: number, radii: Vec3, material: Mat = 'foliage', segU = 12, segV = 8): WorldFacet[] {
+  const c = MATERIAL_RGB[material];
+  const [cx, cy] = center, [rx, ry, rz] = radii, cz = baseZ + rz;
+  const P = (u: number, v: number): Vec3 => {
+    const th = u * Math.PI * 2, ph = v * Math.PI - Math.PI / 2;
+    return [cx + Math.cos(ph)*Math.cos(th)*rx, cy + Math.cos(ph)*Math.sin(th)*ry, cz + Math.sin(ph)*rz];
+  };
+  const norm = (p: Vec3): Vec3 => [(p[0]-cx)/(rx*rx), (p[1]-cy)/(ry*ry), (p[2]-cz)/(rz*rz)];
+  const out: WorldFacet[] = [];
+  for (let i = 0; i < segU; i++) for (let j = 0; j < segV; j++) {
+    const a = P(i/segU, j/segV), b = P((i+1)/segU, j/segV), e = P((i+1)/segU, (j+1)/segV), d = P(i/segU, (j+1)/segV);
+    const nrm = norm([(a[0]+e[0])/2, (a[1]+e[1])/2, (a[2]+e[2])/2]);
+    const up = (normalize(nrm)[2] + 1) / 2;
+    out.push({ pts: [a, b, e, d], normal: nrm, albedo: shade(c, 0.7 + 0.3*up) });
+  }
+  return out;
+}
+
+/** Post-and-lintel arch (gate / trilithon): two uprights + a top beam spanning +x. */
+export function arch(at: Vec3, span: number, height: number, thickness: number, material: Mat = 'stone'): WorldFacet[] {
+  const [x, y, z] = at, t = thickness;
+  return [
+    ...box([x, y, z], [t, t, height], material),               // left post
+    ...box([x + span - t, y, z], [t, t, height], material),    // right post
+    ...box([x, y, z + height], [span, t, t], material),        // lintel
+  ];
+}

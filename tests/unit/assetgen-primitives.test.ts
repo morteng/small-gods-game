@@ -1,7 +1,7 @@
 // tests/unit/assetgen-primitives.test.ts
 import { describe, it, expect } from 'vitest';
-import { box, extrudeNgon, cylinder, prism, cone } from '@/assetgen/geometry/primitives';
-import { frontFacing } from '@/assetgen/render/projection';
+import { box, extrudeNgon, cylinder, prism, cone, ellipsoid, arch } from '@/assetgen/geometry/primitives';
+import { frontFacing, normalize } from '@/assetgen/render/projection';
 
 describe('box primitive', () => {
   it('emits exactly the 3 camera-facing faces (top, +x, +y)', () => {
@@ -49,5 +49,23 @@ describe('extruded solids', () => {
   it('every side has at least one camera-facing facet (front + back split)', () => {
     const f = extrudeNgon([0,0], 0, 1, 1, 2, 16, 'stone');
     expect(f.some(x => frontFacing(x.normal))).toBe(true);
+  });
+});
+
+describe('ellipsoid + arch', () => {
+  it('ellipsoid tessellates into segU*segV quads with finite normals', () => {
+    const f = ellipsoid([0,0], 0, [1,1,1], 'foliage', 12, 8);
+    expect(f).toHaveLength(12 * 8);
+    for (const face of f) {
+      const n = normalize(face.normal);
+      expect(Number.isFinite(n[0] + n[1] + n[2])).toBe(true);
+    }
+  });
+
+  it('arch is two uprights + a lintel (3 boxes => 9 facets)', () => {
+    const f = arch([0,0,0], 3, 4, 0.5, 'stone');
+    expect(f).toHaveLength(9); // each box = 3 visible facets
+    const maxZ = Math.max(...f.flatMap(x => x.pts.map(p => p[2])));
+    expect(maxZ).toBeCloseTo(4 + 0.5); // lintel sits atop the posts
   });
 });
