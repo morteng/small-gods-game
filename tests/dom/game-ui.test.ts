@@ -16,9 +16,9 @@ describe('GameUi', () => {
       onStart: () => {}, onSelectRival: () => {}, onTargetNpc: () => {},
       onClickMinimapTile: () => {}, onGameSettingChange: () => {},
       onLLMConfigChange: () => {},
-      onZoomIn: () => {}, onZoomOut: () => {}, onFitView: () => {}, onNewWorld: () => {},
+      onZoomIn: () => {}, onZoomOut: () => {}, onFitView: () => {}, onZoomActual: () => {}, onNewWorld: () => {},
       attentionStore: new NpcAttentionStore(), onWhisperSend: () => {},
-      onMindOpen: () => {}, onMindCrossNav: () => {},
+      onMindOpen: () => {}, onMindCrossNav: () => {}, onCloseBuilding: () => {},
     });
     expect(container.childElementCount).toBeGreaterThan(before);
     expect(ui.npcInfoPanel).toBeInstanceOf(HTMLDivElement);

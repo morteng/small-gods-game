@@ -23,12 +23,12 @@ function entity(kind: string): Entity {
 }
 
 describe('drawIsoVegetation', () => {
-  it('draws a shadow and a canopy for a tree', () => {
+  it('draws a canopy for a tree (no programmatic ground shadow)', () => {
     const ctx = makeMockCtx();
     drawIsoVegetation(dc(ctx), entity('oak_tree'));
-    // ground shadow ellipse + canopy fill
-    expect((ctx.fill as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThanOrEqual(2);
-    expect((ctx.ellipse as ReturnType<typeof vi.fn>)).toHaveBeenCalled();
+    // Canopy fill is drawn; the ground-shadow ellipse was removed.
+    expect((ctx.fill as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThanOrEqual(1);
+    expect((ctx.ellipse as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
   });
 
   it('paints the canopy in the entity kind fallback color', () => {

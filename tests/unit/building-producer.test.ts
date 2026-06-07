@@ -44,11 +44,11 @@ describe('buildingBrief', () => {
     expect(b.paletteAnchors).toContain('#c9a227');
   });
 
-  it('computes the door face and carries footprint + massing guidance', () => {
+  it('computes the door face and footprint; buildings generate text-only (no init)', () => {
     const b = buildingBrief(cottage(), 1);
     expect(b.door).toEqual({ x: 1, y: 2, face: 's' });
     expect(b.footprint).toEqual({ w: 3, h: 3 });
-    expect(b.guidance).toEqual({ source: 'massing', strength: 500 });
+    expect(b.guidance).toEqual({ source: 'none', strength: 0 });
     expect(b.heightUnits).toBeGreaterThan(1); // 1 storey body + gable rise
   });
 

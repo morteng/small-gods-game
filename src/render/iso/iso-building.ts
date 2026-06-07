@@ -11,6 +11,7 @@
  */
 import { worldToScreen } from './iso-projection';
 import { ISO_TILE_H } from './iso-constants';
+import { opaqueAnchor } from './iso-sprite-bbox';
 import type { IsoDrawCtx } from './iso-sprites';
 import type { Massing } from '@/render/building-massing-model';
 import type { Roof } from '@/world/building-descriptor';
@@ -60,11 +61,20 @@ const raise = (p: P, dz: number): P => ({ sx: p.sx, sy: p.sy - dz });
 interface Corners { n: P; e: P; s: P; w: P }
 
 function groundCorners(tx: number, ty: number, w: number, h: number, o: IsoDrawCtx): Corners {
+  // worldToScreen gives a tile CENTRE; the footprint block's outer-diamond
+  // corners sit half a tile (ISO_TILE_H/2) higher than these lattice points.
+  // Lift by that so the massing seats on its footprint tiles — matching the
+  // terrain + the sprite path (same half-tile fix).
+  const lift = ISO_TILE_H / 2;
+  const at = (x: number, y: number): P => {
+    const s = worldToScreen(x, y, 0, o.originX, o.originY);
+    return { sx: s.sx, sy: s.sy - lift };
+  };
   return {
-    n: worldToScreen(tx, ty, 0, o.originX, o.originY),
-    e: worldToScreen(tx + w, ty, 0, o.originX, o.originY),
-    s: worldToScreen(tx + w, ty + h, 0, o.originX, o.originY),
-    w: worldToScreen(tx, ty + h, 0, o.originX, o.originY),
+    n: at(tx, ty),
+    e: at(tx + w, ty),
+    s: at(tx + w, ty + h),
+    w: at(tx, ty + h),
   };
 }
 
@@ -182,21 +192,21 @@ function drawDomeCap(
 }
 
 /**
- * Draw a generated pixel-art building sprite anchored to its footprint.
+ * Draw a generated pixel-art building sprite anchored to its footprint, **1:1**.
  *
- * The sprite spans exactly the footprint's iso diamond width (west→east corner)
- * and is anchored with its bottom edge at the diamond's front (south) tip and
- * its horizontal centre on the footprint centre — so the rendered building sits
- * on its tiles and the door (authored on the correct face) lines up with the
- * walkable door cell.
+ * WYSIWYG: the sprite is blitted at its NATIVE pixel size (never rescaled to the
+ * footprint diamond), anchored with its bottom edge at the diamond's front
+ * (south) tip and its horizontal centre on the footprint centre. The art is
+ * authored at the view registry's native size = the footprint diamond width ×
+ * (diamond height + rise), so native width == diamond width and the sprite fills
+ * its footprint exactly — one source pixel == one screen pixel at zoom 1 (the
+ * outer ctx.scale supplies integer/1-over-integer zoom).
  *
- * Sprites are authored at the view registry's native size = the footprint
- * diamond width × (diamond height + rise). When that holds, the dest width
- * equals the source's native pixel width → a crisp 1:1 blit at base zoom (zoom
- * is applied by an outer ctx.scale, so world-screen pixels == source pixels at
- * zoom 1). The image's own aspect ratio is preserved, so a building taller than
- * its footprint rises correctly. Used when the ArtResolver finds a sprite for
- * the building's preset; otherwise we fall back to `drawIsoBuildingMassing`.
+ * The whole image is blitted at native size, but the ANCHOR uses the sprite's
+ * opaque-content bounding box (`opaqueAnchor`), not the frame edges — PixelLab
+ * leaves arbitrary transparent margins, so we land the building's real base
+ * centre on the footprint's front tip for pixel-exact placement. Used when the
+ * ArtResolver finds a sprite; otherwise we fall back to `drawIsoBuildingMassing`.
  */
 export function drawIsoBuildingSprite(
   dc: IsoDrawCtx, img: HTMLImageElement,
@@ -206,22 +216,28 @@ export function drawIsoBuildingSprite(
   const { w, h } = footprint;
   const west = worldToScreen(tileX, tileY + h, 0, originX, originY);
   const east = worldToScreen(tileX + w, tileY, 0, originX, originY);
-  const south = worldToScreen(tileX + w, tileY + h, 0, originX, originY);
+  // The footprint occupies tiles [tileX..tileX+w-1] × [tileY..tileY+h-1], and
+  // worldToScreen returns a tile's CENTRE (matching the terrain). The sprite's
+  // base sits on the footprint's front (south) tip = the south vertex of the
+  // frontmost tile = its centre + half a tile down. Anchoring instead to
+  // worldToScreen(tileX+w, tileY+h) — the centre of the tile one PAST the block —
+  // drew every building a half-tile (ISO_TILE_H/2 = 32px) too low, off its grid.
+  const front = worldToScreen(tileX + w - 1, tileY + h - 1, 0, originX, originY);
+  const bottomY = front.sy + ISO_TILE_H / 2;
 
-  const diamondW = east.sx - west.sx; // = (w + h) · ISO_TILE_W/2
-  const natW = img.naturalWidth || img.width || diamondW;
-  const natH = img.naturalHeight || img.height || diamondW;
-  const drawW = diamondW;
-  const drawH = drawW * (natH / natW); // preserve the sprite's authored proportions
-  const cx = (west.sx + east.sx) / 2;
+  const natW = img.naturalWidth || img.width || (east.sx - west.sx);
+  const natH = img.naturalHeight || img.height || natW;
+  const cx = (west.sx + east.sx) / 2; // footprint centre x
+  // Anchor by the building's real pixels, not the (margin-padded) frame.
+  const { centerX, bottom } = opaqueAnchor(img);
 
   ctx.imageSmoothingEnabled = false;
   ctx.drawImage(
     img,
-    Math.round(cx - drawW / 2),
-    Math.round(south.sy - drawH),
-    Math.round(drawW),
-    Math.round(drawH),
+    Math.round(cx - centerX),
+    Math.round(bottomY - bottom),
+    natW,
+    natH,
   );
 }
 

@@ -8,6 +8,8 @@ export interface CameraControlsCallbacks {
   onZoomIn: () => void;
   onZoomOut: () => void;
   onFitView: () => void;
+  /** Snap to exactly 1:1 (native pixel scale) — the crisp pixel-art tier. */
+  onZoomActual: () => void;
 }
 
 export interface CameraControlsHandle {
@@ -30,14 +32,11 @@ export function createCameraControls(
     const b = document.createElement('button');
     b.textContent = label;
     b.title = title;
+    b.className = 'sg-btn sg-btn--icon';
     b.style.cssText = [
-      'width:34px', 'height:34px', 'cursor:pointer',
-      'background:rgba(10,10,20,0.75)', 'color:#9fd8ff',
-      'border:1px solid rgba(255,255,255,0.2)', 'border-radius:5px',
-      'font:16px ui-monospace,monospace', 'line-height:1',
+      'width:38px', 'height:38px',
+      'font-size:var(--t-lg)', 'line-height:1', 'pointer-events:auto',
     ].join(';');
-    b.addEventListener('mouseenter', () => { b.style.background = 'rgba(40,40,70,0.9)'; });
-    b.addEventListener('mouseleave', () => { b.style.background = 'rgba(10,10,20,0.75)'; });
     b.addEventListener('click', onClick);
     return b;
   };
@@ -45,7 +44,9 @@ export function createCameraControls(
   const zoomIn = mk('＋', 'Zoom in', cb.onZoomIn);
   const zoomOut = mk('－', 'Zoom out', cb.onZoomOut);
   const fit = mk('⊡', 'Fit map to view', cb.onFitView);
-  wrap.append(zoomIn, zoomOut, fit);
+  const actual = mk('1:1', 'Zoom to 1:1 (native pixel scale)', cb.onZoomActual);
+  actual.style.fontSize = 'var(--t-small)'; // "1:1" is wider than a glyph
+  wrap.append(zoomIn, zoomOut, fit, actual);
   container.appendChild(wrap);
 
   return {

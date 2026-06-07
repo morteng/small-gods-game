@@ -94,8 +94,24 @@ export function buildingBrief(d: BuildingDescriptor, instanceSeed: number): Asse
     heightUnits: massing.bodyHeight + massing.roofHeight,
     door: { x: d.door.x, y: d.door.y, face },
     paletteAnchors,
-    guidance: { source: 'massing', strength: 500 },
-    negatives: ['blurry', 'flat front view', 'text', 'watermark'],
+    // Text-only: pixflux is img2img, so any init_image (3D massing OR scaffold)
+    // gets reproduced flat. With the corrected request fields (isometric/view/
+    // guidance scale/negatives + palette) the model draws a far better building
+    // from the description alone. No init.
+    guidance: { source: 'none', strength: 0 },
+    // Baseless: the sprite is the STRUCTURE ONLY. The engine owns the ground —
+    // it draws the iso terrain tile beneath the building (iso-terrain.ts), so any
+    // baked plinth/foundation reads as a misaligned double-base. We suppress all
+    // ground/base vocabulary here AND crop stray bottom pixels in the regen pass.
+    // Door discipline (one door, on the camera-facing wall, never a flat
+    // elevation) pairs with the view-relative door phrase in the compiler.
+    negatives: [
+      'blurry', 'text', 'watermark',
+      'ground', 'terrain', 'grass', 'dirt patch', 'base tile', 'floor slab',
+      'foundation', 'plinth', 'pedestal', 'platform', 'shadow', 'background',
+      'multiple doors', 'door on side wall', 'door on rear wall', 'doorway facing away',
+      'flat front view', 'straight-on elevation', 'blank front wall',
+    ],
     seed: instanceSeed,
   };
 }

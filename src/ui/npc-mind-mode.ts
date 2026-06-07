@@ -1,17 +1,17 @@
 import type { MindPage } from '@/llm/npc-attention-store';
 
 const STYLE = `
-.sg-mind { font: 12px/1.6 'IBM Plex Mono', monospace; color: #d7dce8; }
-.sg-crumbs { font: 10px sans-serif; color: rgba(255,255,255,0.45); margin-bottom: 6px; display: flex; flex-wrap: wrap; gap: 4px; }
-.sg-crumb { cursor: pointer; pointer-events: auto; color: rgba(154,170,255,0.85); }
+.sg-mind { font-family: var(--f-sans); font-size: var(--t-base); line-height: 1.7; color: var(--ink); }
+.sg-crumbs { font-family: var(--f-mono); font-size: var(--t-tiny); color: var(--ink-3); margin-bottom: 10px; display: flex; flex-wrap: wrap; gap: 6px; }
+.sg-crumb { cursor: pointer; pointer-events: auto; color: var(--time); }
 .sg-crumb:hover { text-decoration: underline; }
-.sg-crumb-sep { color: rgba(255,255,255,0.3); }
-.sg-mind-prose { margin-bottom: 8px; }
+.sg-crumb-sep { color: var(--ink-4); }
+.sg-mind-prose { font-size: var(--t-md); line-height: 1.75; color: var(--ink); margin-bottom: 12px; }
 .sg-link { cursor: pointer; pointer-events: auto; }
-.sg-link[data-sg-link="entity"] { color: #ffd76b; text-decoration: underline; font-weight: 600; }
-.sg-link[data-sg-link="concept"] { color: #c9a3ff; border-bottom: 1px dashed #c9a3ff; }
-.sg-mind-foot { font: 10px sans-serif; color: rgba(255,255,255,0.45); margin-top: 6px; display: flex; justify-content: space-between; }
-.sg-mind-loading { font: italic 11px sans-serif; color: rgba(255,255,255,0.4); padding: 10px 0; }
+.sg-link[data-sg-link="entity"] { color: var(--faith); text-decoration: underline; font-weight: 600; }
+.sg-link[data-sg-link="concept"] { color: var(--concept); border-bottom: 1px dashed var(--concept); }
+.sg-mind-foot { font-family: var(--f-mono); font-size: var(--t-tiny); color: var(--ink-3); margin-top: 10px; display: flex; justify-content: space-between; }
+.sg-mind-loading { font-style: italic; font-size: var(--t-small); color: var(--ink-4); padding: 12px 0; }
 `;
 
 export interface MindModeDeps {

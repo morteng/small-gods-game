@@ -7,20 +7,21 @@ describe('createCameraControls', () => {
   let container: HTMLElement;
   afterEach(() => { handle?.destroy(); container?.remove(); handle = null; });
 
-  it('renders three buttons and fires the matching callbacks; destroy() removes it', () => {
+  it('renders four buttons and fires the matching callbacks; destroy() removes it', () => {
     container = document.createElement('div');
     document.body.appendChild(container);
-    let zin = 0, zout = 0, fit = 0;
+    let zin = 0, zout = 0, fit = 0, actual = 0;
     handle = createCameraControls(container, {
-      onZoomIn: () => zin++, onZoomOut: () => zout++, onFitView: () => fit++,
+      onZoomIn: () => zin++, onZoomOut: () => zout++, onFitView: () => fit++, onZoomActual: () => actual++,
     });
 
     const btns = handle.element.querySelectorAll('button');
-    expect(btns.length).toBe(3);
+    expect(btns.length).toBe(4);
     (btns[0] as HTMLButtonElement).click();
     (btns[1] as HTMLButtonElement).click();
     (btns[2] as HTMLButtonElement).click();
-    expect([zin, zout, fit]).toEqual([1, 1, 1]);
+    (btns[3] as HTMLButtonElement).click();
+    expect([zin, zout, fit, actual]).toEqual([1, 1, 1, 1]);
 
     handle.destroy();
     handle = null;

@@ -56,10 +56,6 @@ export function drawIsoNpc(dc: IsoDrawCtx, npc: NpcInstance): void {
   }
 
   // 3. Fallback colored circle (no art available)
-  ctx.fillStyle = 'rgba(0,0,0,0.35)';
-  ctx.beginPath();
-  ctx.ellipse(sx, sy, ISO_TILE_W / 4, ISO_TILE_H / 4, 0, 0, Math.PI * 2);
-  ctx.fill();
   ctx.fillStyle = NPC_COLOR_BY_ROLE[npc.role] ?? NPC_COLOR_BY_ROLE.default;
   ctx.beginPath();
   ctx.arc(sx, sy - 16, 12, 0, Math.PI * 2);
@@ -67,29 +63,27 @@ export function drawIsoNpc(dc: IsoDrawCtx, npc: NpcInstance): void {
 }
 
 /** Draw a square art sprite (decoration or prop) as an upright billboard,
- *  base anchored at the tile center, with a soft contact shadow. */
+ *  base anchored at the tile center. */
 export function drawIsoArtBillboard(
   dc: IsoDrawCtx, img: HTMLImageElement, tx: number, ty: number,
 ): void {
   const { ctx, originX, originY } = dc;
   const { sx, sy } = worldToScreen(tx, ty, 0, originX, originY);
-  const w = ISO_TILE_W * 0.7;
-  const h = w; // square source art
+  // WYSIWYG: blit at the art's NATIVE pixel size (never tile-fraction scaled) so
+  // one source pixel == one screen pixel at zoom 1. Base anchored at tile centre.
+  const w = img.naturalWidth || img.width;
+  const h = img.naturalHeight || img.height;
   ctx.save();
-  ctx.translate(sx, sy);
-  ctx.fillStyle = 'rgba(0,0,0,0.25)';
-  ctx.beginPath();
-  ctx.ellipse(0, 0, w * 0.32, w * 0.15, 0, 0, Math.PI * 2);
-  ctx.fill();
+  ctx.translate(Math.round(sx), Math.round(sy));
   ctx.imageSmoothingEnabled = false;
-  ctx.drawImage(img, -w / 2, -h, w, h);
+  ctx.drawImage(img, -Math.round(w / 2), -h, w, h);
   ctx.restore();
 }
 
 const TRUNK_COLOR = '#5a4030';
 
 /**
- * Draw a vegetation entity as an iso primitive: ground shadow, an optional
+ * Draw a vegetation entity as an iso primitive: an optional
  * trunk for tall trees, and a canopy whose shape/color come from the entity
  * kind catalog. `yOffsetForSort` doubles as a size class (0.1 ground cover →
  * 1.5 mature tree). No-op for non-vegetation kinds.
@@ -112,16 +106,17 @@ export function drawIsoVegetation(dc: IsoDrawCtx, e: Entity): void {
   const sheetName = treeSheetForKind(e.kind);
   const sheet = sheetName ? dc.treeSheets?.get(sheetName) : undefined;
   if (sheet) {
-    const treeW = ISO_TILE_W * 0.8 * scale;
-    const treeH = treeW * 1.5; // tree art is ~2 wide : 3 tall
+    // WYSIWYG native-blit at an INTEGER pixel-scale class (1× small, 2× mature) —
+    // never a fractional scale, so the tree stays pixel-perfect. The 1.5-aspect
+    // stretch is gone (it distorted the square source); clump variety now comes
+    // from the size class + placement. (Tree art will be re-authored at true sizes
+    // in a later pass; until then a square 64/128px billboard is the 1:1 form.)
+    const px = scale >= 1 ? 2 : 1;
+    const treeW = TREE_SPRITE_SRC * px;
+    const treeH = TREE_SPRITE_SRC * px;
     const col = treeSpriteColumn(Math.floor(e.x), Math.floor(e.y));
-    // soft contact shadow
     ctx.save();
-    ctx.translate(sx, sy);
-    ctx.fillStyle = 'rgba(0,0,0,0.28)';
-    ctx.beginPath();
-    ctx.ellipse(0, 0, treeW * 0.3, treeW * 0.14, 0, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.translate(Math.round(sx), Math.round(sy)); // integer position → crisp blit
     ctx.imageSmoothingEnabled = false;
     ctx.drawImage(sheet, col * TREE_SPRITE_SRC, 0, TREE_SPRITE_SRC, TREE_SPRITE_SRC,
                   -treeW / 2, -treeH, treeW, treeH);
@@ -136,11 +131,6 @@ export function drawIsoVegetation(dc: IsoDrawCtx, e: Entity): void {
 
   ctx.save();
   ctx.translate(sx, sy);
-
-  ctx.fillStyle = 'rgba(0,0,0,0.3)';
-  ctx.beginPath();
-  ctx.ellipse(0, 0, canopyR * 0.8, canopyR * 0.4, 0, 0, Math.PI * 2);
-  ctx.fill();
 
   if (isTree) {
     ctx.fillStyle = TRUNK_COLOR;

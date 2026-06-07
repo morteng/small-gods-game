@@ -32,8 +32,9 @@ const STYLE = `
   display: flex;
   align-items: center;
   justify-content: center;
-  font: 13px -apple-system, system-ui, sans-serif;
-  color: #e6e6ea;
+  font-family: var(--f-sans);
+  font-size: var(--t-base);
+  color: var(--ink);
   pointer-events: auto;
   animation: sg-fade-in 200ms ease-out;
 }

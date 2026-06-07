@@ -37,8 +37,9 @@ export interface BriefDoor {
 }
 
 export interface BriefGuidance {
-  source: 'massing' | 'lpc-base' | 'none';
-  /** PixelLab init_image_strength band (~0–1000). */
+  source: 'massing' | 'scaffold' | 'lpc-base' | 'none';
+  /** PixelLab init_image_strength band (1–999). Low (~200) = loose placement
+   *  guidance from a sparse scaffold; high (~500) = copy a detailed init. */
   strength: number;
 }
 

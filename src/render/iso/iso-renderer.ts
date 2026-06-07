@@ -2,7 +2,6 @@ import type { RenderContext, Entity } from '@/core/types';
 import { drawIsoTerrain } from './iso-terrain';
 import { drawIsoNpc, drawIsoVegetation, drawIsoArtBillboard } from './iso-sprites';
 import { drawIsoBuildingMassing, drawIsoBuildingSprite } from './iso-building';
-import { drawIsoGroundField } from './iso-ground';
 import { drawIsoOverlays } from './iso-overlay';
 import { createNullAtlas } from './iso-atlas';
 import { visibleTileBounds } from './iso-projection';
@@ -31,8 +30,14 @@ export function createIsoRenderMap(): RenderMap {
     ctx.fillStyle = BG_COLOR;
     ctx.fillRect(0, 0, canvasWidth, canvasHeight);
     ctx.save();
-    ctx.scale(camera.zoom, camera.zoom);
-    ctx.translate(-camera.x, -camera.y);
+    // Pixel-perfect transform: zoom is a ladder rung (integer or 1/integer) and
+    // the world origin is snapped to a whole CSS pixel — so a sprite drawn at an
+    // integer world position lands on an integer device pixel (no sub-pixel
+    // seams or shimmer). Snap is composed via translate (not setTransform) to
+    // preserve the outer devicePixelRatio scale already on the context.
+    const z = camera.zoom;
+    ctx.scale(z, z);
+    ctx.translate(Math.round(-camera.x * z) / z, Math.round(-camera.y * z) / z);
 
     const originX = 0;
     const originY = 0;
@@ -51,11 +56,9 @@ export function createIsoRenderMap(): RenderMap {
     const entries: YSortEntry[] = [];
     const hideBuildings = isLayerHidden('buildings', rc.devMode);
 
-    // Building foundation + apron on top of terrain, beneath the massing — the
-    // iso counterpart to the top-down ground overlay. Tied to the buildings layer.
-    if (!hideBuildings && rc.world) {
-      drawIsoGroundField(ctx, rc.world, originX, originY, bounds);
-    }
+    // (Building foundation + apron ground field removed — the blended packed-dirt
+    // patch around buildings read as a misaligned colour smear. Buildings now sit
+    // directly on the terrain; the sprite carries its own base.)
     const hideVegetation = isLayerHidden('vegetation', rc.devMode);
 
     // Buildings and vegetation are both world entities — one region query, then

@@ -14,6 +14,8 @@ export interface GameState {
   camera: Camera;
   worldSeed: WorldSeed | null;
   selectedNpcId: string | null;
+  /** Building entity whose info panel is open, or null. Mirrors selectedNpcId. */
+  selectedBuildingId: string | null;
   visualMap: string[][] | null;
   blobMap: BlobTile[][] | null;
   debug: boolean;
@@ -58,6 +60,7 @@ export function createState(): GameState {
     camera: createCamera(),
     worldSeed: null,
     selectedNpcId: null,
+    selectedBuildingId: null,
     visualMap: null,
     blobMap: null,
     debug: false,

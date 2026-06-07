@@ -1,5 +1,5 @@
 import type { Camera } from '@/core/types';
-import { pan, zoomAt } from '@/render/camera';
+import { pan, zoomAt, type ZoomQuantizer } from '@/render/camera';
 import { pickTile } from '@/ui/pick-tile';
 
 export interface ControlsCallbacks {
@@ -18,6 +18,9 @@ export interface ControlsCallbacks {
   onToggleDevMode?: () => void;
   onUserCameraInput?: () => void;
   onHoverTile?: (tileX: number, tileY: number, screenX: number, screenY: number) => void;
+  /** Optional pixel-perfect zoom snapper (iso mode); evaluated per wheel tick so
+   *  it can track the live render mode. Returns undefined → continuous zoom. */
+  getZoomQuantize?: () => ZoomQuantizer | undefined;
   onRedraw: () => void;
 }
 
@@ -109,7 +112,7 @@ export function attachControls(canvas: HTMLCanvasElement, camera: Camera, callba
     e.preventDefault();
     const rect = canvas.getBoundingClientRect();
     const factor = e.deltaY > 0 ? 0.9 : 1.1;
-    zoomAt(camera, factor, e.clientX - rect.left, e.clientY - rect.top);
+    zoomAt(camera, factor, e.clientX - rect.left, e.clientY - rect.top, callbacks.getZoomQuantize?.());
     callbacks.onUserCameraInput?.();
     callbacks.onRedraw();
   }

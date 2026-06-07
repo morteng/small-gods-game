@@ -37,12 +37,40 @@ export function guidanceOrigin(
   };
 }
 
-/** Draw the massing plus a door marker on the functional door cell. */
+/**
+ * Footprint tile grid on the ground plane — the proportion/scale reference. The
+ * model reads it as "this building occupies a w×h iso footprint", so a 5×2
+ * longhouse renders wide and a 3×3 cottage square. Drawn first, under the mass.
+ */
+export function drawFootprintGrid(
+  ctx: CanvasRenderingContext2D, d: BuildingDescriptor, originX: number, originY: number,
+): void {
+  const { w, h } = d.footprint;
+  for (let tx = 0; tx < w; tx++) {
+    for (let ty = 0; ty < h; ty++) {
+      const n = worldToScreen(tx, ty, 0, originX, originY);
+      const e = worldToScreen(tx + 1, ty, 0, originX, originY);
+      const s = worldToScreen(tx + 1, ty + 1, 0, originX, originY);
+      const wc = worldToScreen(tx, ty + 1, 0, originX, originY);
+      ctx.beginPath();
+      ctx.moveTo(n.sx, n.sy); ctx.lineTo(e.sx, e.sy);
+      ctx.lineTo(s.sx, s.sy); ctx.lineTo(wc.sx, wc.sy); ctx.closePath();
+      ctx.fillStyle = 'rgba(150,160,180,0.18)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(90,100,120,0.9)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+  }
+}
+
+/** Draw the footprint grid + massing + a door marker on the functional cell. */
 export function drawMassingGuidance(
   ctx: CanvasRenderingContext2D, d: BuildingDescriptor, size: GuidanceSize,
 ): void {
   const { originX, originY } = guidanceOrigin(d, size);
   const dc = { ctx, originX, originY } as unknown as IsoDrawCtx;
+  drawFootprintGrid(ctx, d, originX, originY);
   drawIsoBuildingMassing(dc, buildingMassing(d), 0, 0);
 
   // Door marker on the functional cell (already on the correct face).

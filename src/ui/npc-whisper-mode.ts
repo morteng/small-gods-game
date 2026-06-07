@@ -1,10 +1,12 @@
 const STYLE = `
-.sg-compose { display: flex; gap: 4px; margin-top: 6px; }
-.sg-whisper-input { flex: 1 1 auto; resize: none; height: 34px; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.15);
-  border-radius: 4px; color: #fff; font: 11px sans-serif; padding: 5px 7px; pointer-events: auto; }
-.sg-whisper-input::placeholder { color: rgba(255,255,255,0.35); }
-.sg-whisper-send { all: unset; cursor: pointer; pointer-events: auto; padding: 0 12px; border-radius: 4px;
-  background: rgba(255,213,79,0.15); color: #FFD54F; font: bold 11px sans-serif; display: flex; align-items: center; }
+.sg-compose { display: flex; gap: 6px; margin-top: 10px; }
+.sg-whisper-input { flex: 1 1 auto; resize: none; height: 40px; background: var(--paper-2); border: 1px solid var(--line);
+  border-radius: var(--r-2); color: var(--ink); font-family: var(--f-sans); font-size: var(--t-small); padding: 8px 10px; pointer-events: auto; }
+.sg-whisper-input:focus { outline: none; border-color: var(--you-line); background: var(--paper); }
+.sg-whisper-input::placeholder { color: var(--ink-4); }
+.sg-whisper-send { all: unset; cursor: pointer; pointer-events: auto; padding: 0 16px; border-radius: var(--r-2);
+  background: var(--faith-soft); border: 1px solid oklch(0.78 0.13 85 / 0.5); color: var(--faith); font-family: var(--f-sans); font-weight: 700; font-size: var(--t-small); display: flex; align-items: center; }
+.sg-whisper-send:hover:not(:disabled) { filter: brightness(1.1); }
 .sg-whisper-send:disabled { opacity: 0.35; cursor: default; }
 `;
 
@@ -32,9 +34,11 @@ export function mountWhisperInput(host: HTMLElement, deps: WhisperInputDeps): Wh
   const input = document.createElement('textarea');
   input.className = 'sg-whisper-input'; input.dataset.sg = 'whisper-input';
   input.placeholder = 'whisper into their mind…';
+  input.title = 'Whisper — plant a thought (costs 1 power). Enter to send, Shift+Enter for a newline.';
   const send = document.createElement('button');
   send.className = 'sg-whisper-send'; send.type = 'button'; send.dataset.sg = 'whisper-send';
   send.textContent = '↵';
+  send.title = 'Send whisper (1 power)';
   compose.append(input, send);
   host.appendChild(compose);
 

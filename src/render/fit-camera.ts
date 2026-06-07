@@ -1,7 +1,7 @@
 import type { Camera } from '@/core/types';
 import { TILE_SIZE } from '@/core/constants';
 import { centerOn, TOPDOWN_ZOOM_MIN, TOPDOWN_ZOOM_MAX } from './camera';
-import { centerOnTile, ISO_ZOOM_MIN, ISO_ZOOM_MAX } from './iso/iso-camera';
+import { centerOnTile, floorIsoZoom, ISO_ZOOM_MIN, ISO_ZOOM_MAX } from './iso/iso-camera';
 import { ISO_TILE_W, ISO_TILE_H } from './iso/iso-constants';
 import type { RenderMode } from './select-renderer';
 
@@ -29,7 +29,8 @@ export function fitCameraToMap(
     const spanW = (mapTilesW + mapTilesH) * (ISO_TILE_W / 2);
     const spanH = (mapTilesW + mapTilesH) * (ISO_TILE_H / 2);
     const fit = Math.min(viewWidth / spanW, viewHeight / spanH) * marginFrac;
-    camera.zoom = clamp(fit, ISO_ZOOM_MIN, ISO_ZOOM_MAX);
+    // Snap DOWN to a pixel-perfect rung so the whole map still fits.
+    camera.zoom = floorIsoZoom(clamp(fit, ISO_ZOOM_MIN, ISO_ZOOM_MAX));
     centerOnTile(camera, mapTilesW / 2, mapTilesH / 2, viewWidth, viewHeight);
   } else {
     const spanW = mapTilesW * TILE_SIZE;

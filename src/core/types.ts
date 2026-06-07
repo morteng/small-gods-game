@@ -457,6 +457,14 @@ export type PixelLabShading =
 
 export type PixelLabDetail = 'low detail' | 'medium detail' | 'highly detailed';
 
+/** Camera view enum (create-image-pixflux `view`). */
+export type PixelLabView = 'side' | 'low top-down' | 'high top-down';
+
+/** Object facing (create-image-pixflux `direction`). */
+export type PixelLabDirection =
+  | 'north' | 'north-east' | 'east' | 'south-east'
+  | 'south' | 'south-west' | 'west' | 'north-west';
+
 // ─── Asset library metadata ───────────────────────────────────────────────────
 
 export type AssetKind =
@@ -487,16 +495,26 @@ export interface PixelLabGenerateOpts {
   prompt: string;
   width: number;
   height: number;
+  /** Negative prompt — what to avoid (create-image-pixflux `negative_description`). */
+  negativeDescription?: string;
   /** Overrides for the baked-in style recipe (rarely used). */
   outline?: PixelLabOutline;
   shading?: PixelLabShading;
   detail?: PixelLabDetail;
+  /** True → isometric projection flag (not just a text hint). */
+  isometric?: boolean;
+  /** Camera view enum. */
+  view?: PixelLabView;
+  /** Object facing enum. */
+  direction?: PixelLabDirection;
+  /** Prompt-adherence weight (1–20, default 8). Higher = follow description more. */
+  textGuidanceScale?: number;
   /** Deterministic seed for reproducibility. */
   seed?: number;
 
-  /** Base64 PNG guidance image for img2img (e.g. rendered massing). */
+  /** Base64 PNG guidance image for img2img (rendered massing or placement scaffold). */
   initImage?: string;
-  /** img2img strength (~0–1000); only applied when initImage is present. */
+  /** img2img strength (1–999); only applied when initImage is present. */
   initImageStrength?: number;
   /** Hex colours that MUST appear; synthesized into a per-call color_image. */
   paletteAnchors?: string[];

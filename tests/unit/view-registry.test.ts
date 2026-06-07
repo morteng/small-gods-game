@@ -19,23 +19,28 @@ function buildingBrief(footprint: { w: number; h: number }, heightUnits: number)
 }
 
 describe('VIEW_RECIPES iso-3q', () => {
-  it('uses the frozen v1 recipe', () => {
-    expect(VIEW_RECIPES['iso-3q'].recipeVersion).toBe('v1');
+  it('uses the v2 recipe (baseless + view-relative door)', () => {
+    expect(VIEW_RECIPES['iso-3q'].recipeVersion).toBe('v2');
     expect(VIEW_RECIPES['iso-3q'].lightDirection).toBe('top-left');
   });
 
-  it('nativeSize for a 2x2 single-storey gable building (256 x 240)', () => {
-    // width  = (2+2)*64 = 256
-    // height = (2+2)*32 + 1.7*64 = 128 + 108.8 = 236.8 -> snap16 -> 240
+  it('returns the TRUE footprint-diamond width (no 128 cap) so sprites blit 1:1', () => {
+    // 2x2 → rawW = (2+2)*64 = 256 (exact, snap16 no-op);
+    // rawH = (2+2)*32 + 1.7*64 = 236.8 -> snap16 -> 240.
     expect(VIEW_RECIPES['iso-3q'].nativeSize(buildingBrief({ w: 2, h: 2 }, 1.7)))
       .toEqual({ width: 256, height: 240 });
   });
 
-  it('clamps a 5x2 longhouse to the 256 ceiling on both axes', () => {
-    // width  = (5+2)*64 = 448 -> clamp 256
-    // height = (5+2)*32 + 1.5*64 = 224 + 96 = 320 -> clamp 256
-    expect(VIEW_RECIPES['iso-3q'].nativeSize(buildingBrief({ w: 5, h: 2 }, 1.5)))
-      .toEqual({ width: 256, height: 256 });
+  it('keeps a capped 3x3 building at its full 384px width, elongation preserved', () => {
+    // 3x3 → rawW = (3+3)*64 = 384; rawH = (3+3)*32 + 1.5*64 = 288.
+    expect(VIEW_RECIPES['iso-3q'].nativeSize(buildingBrief({ w: 3, h: 3 }, 1.5)))
+      .toEqual({ width: 384, height: 288 });
+  });
+
+  it('caps an oversized footprint at the 400px PixelLab gen limit (safety net)', () => {
+    // 5x2 → rawW = (5+2)*64 = 448 > 400 -> clamped+snap16 -> 400.
+    expect(VIEW_RECIPES['iso-3q'].nativeSize(buildingBrief({ w: 5, h: 2 }, 1.5)).width)
+      .toBe(400);
   });
 
   it('defaults footprint/heightUnits when absent', () => {
@@ -43,7 +48,7 @@ describe('VIEW_RECIPES iso-3q', () => {
       kind: 'building', subject: 'x', traits: [], materials: [],
       view: 'iso-3q', era: 'medieval', paletteAnchors: [], negatives: [], seed: 0,
     };
-    // width = (1+1)*64 = 128; height = (1+1)*32 + 1*64 = 128
+    // rawW = (1+1)*64 = 128; rawH = (1+1)*32 + 1*64 = 128 -> 128x128
     expect(VIEW_RECIPES['iso-3q'].nativeSize(brief)).toEqual({ width: 128, height: 128 });
   });
 });

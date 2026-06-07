@@ -16,13 +16,27 @@ const cottage: BuildingDescriptor = {
 const compiler = new PixfluxCompiler();
 
 describe('PixfluxCompiler', () => {
-  it('emits iso phrasing, subject, door face and a material word', () => {
+  it('drives iso via request fields, not a text hint, and keeps subject/door/material', () => {
     const opts = compiler.compile(buildingBrief(cottage, 1));
-    expect(opts.prompt).toContain('isometric, 3/4 top-down view');
+    expect(opts.isometric).toBe(true);
+    expect(opts.view).toBe('high top-down');
+    expect(opts.textGuidanceScale).toBe(13);
+    expect(opts.prompt).not.toContain('isometric, 3/4 top-down view');
     expect(opts.prompt).toContain('cottage');
-    expect(opts.prompt).toContain('door on the south side');
+    // door {x:1,y:2} on a 3x3 → 's' face → front-left wall, view-relative phrasing.
+    expect(opts.prompt).toContain('front-left wall facing the viewer');
     expect(opts.prompt).toContain('wattle');
     expect(opts.prompt).toContain('thatch');
+  });
+
+  it('puts negatives in negative_description, not jammed into the prompt', () => {
+    const opts = compiler.compile(buildingBrief(cottage, 1));
+    expect(opts.prompt).not.toContain('avoid:');
+    expect(opts.negativeDescription ?? '').toContain('blurry');
+  });
+
+  it('bakes the canonical upper-left sun direction into every prompt', () => {
+    expect(compiler.compile(buildingBrief(cottage, 1)).prompt).toContain('upper-left');
   });
 
   it('takes size + recipeVersion from the view registry', () => {
@@ -31,14 +45,15 @@ describe('PixfluxCompiler', () => {
     const opts = compiler.compile(brief);
     expect(opts.width).toBe(expected.width);
     expect(opts.height).toBe(expected.height);
-    expect(opts.recipeVersion).toBe('v1');
+    expect(opts.recipeVersion).toBe('v2');
   });
 
-  it('sets initImageStrength when guidance is massing, absent otherwise', () => {
-    expect(compiler.compile(buildingBrief(cottage, 1)).initImageStrength).toBe(500);
+  it('omits initImageStrength for text-only buildings, sets it when guidance is given', () => {
+    // Buildings are generated text-only (guidance 'none') → no init strength.
+    expect(compiler.compile(buildingBrief(cottage, 1)).initImageStrength).toBeUndefined();
 
-    const noGuide: AssetBrief = { ...buildingBrief(cottage, 1), guidance: { source: 'none', strength: 0 } };
-    expect(compiler.compile(noGuide).initImageStrength).toBeUndefined();
+    const guided: AssetBrief = { ...buildingBrief(cottage, 1), guidance: { source: 'massing', strength: 300 } };
+    expect(compiler.compile(guided).initImageStrength).toBe(300);
   });
 
   it('passes palette anchors through', () => {
@@ -51,7 +66,7 @@ describe('PixfluxCompiler', () => {
     const brief = buildingBrief(cottage, 1);
     const human = describeForHuman(brief).toLowerCase();
     const prompt = compiler.compile(brief).prompt.toLowerCase();
-    for (const token of ['cottage', 'wattle', 'thatch', 'south']) {
+    for (const token of ['cottage', 'wattle', 'thatch', 'front-left']) {
       expect(human).toContain(token);
       expect(prompt).toContain(token);
     }

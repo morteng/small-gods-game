@@ -1,6 +1,11 @@
 /**
- * Spirit HUD — Persistent overlay showing player spirit stats and rival summary.
- * Stays visible during gameplay in the top-left area.
+ * Spirit status strip — a compact horizontal bar pinned to the top-centre that
+ * carries the player's own readout (power, souls, believers) and, when they
+ * exist, clickable rival chips. Replaces the old 260px left-hand "you" card.
+ *
+ * The handle API is unchanged (update / setBelieverStats / show / hide /
+ * isVisible / destroy) so the frame loop and game coordinator need no edits.
+ * Everything is token-driven, so it re-skins with the active `.sg-theme-*`.
  */
 
 import type { SpiritId, Spirit } from '@/core/spirit';
@@ -20,207 +25,104 @@ export interface SpiritHudHandle {
 }
 
 const STYLE = `
-.sg-spirit-hud {
+.sg-statbar {
   position: absolute;
-  top: 60px;
-  left: 18px;
-  width: 260px;
+  top: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: stretch;
+  gap: var(--s-3);
+  padding: 8px 12px;
   background: var(--shade);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   border: 1px solid var(--line);
-  border-radius: var(--r-3);
-  padding: var(--s-3);
+  border-radius: var(--r-pill);
+  box-shadow: var(--lift-2);
   font-family: var(--f-sans);
-  font-size: var(--t-small);
   color: var(--ink);
   z-index: 20;
   pointer-events: auto;
-  box-shadow: var(--lift-1);
+  max-width: calc(100% - 36px);
 }
 
-.sg-spirit-hud__header {
-  display: flex;
-  align-items: center;
-  gap: var(--s-2);
-  margin-bottom: var(--s-3);
-}
-
-.sg-spirit-hud__sigil {
-  width: 32px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+.sg-statbar__sigil {
+  display: flex; align-items: center; justify-content: center;
+  width: 34px; height: 34px;
   background: var(--you-soft);
   border: 1px solid var(--you-line);
-  border-radius: var(--r-2);
-  font-size: 16px;
-  font-weight: 700;
+  border-radius: var(--r-pill);
   color: var(--you);
+  font-size: 18px; font-weight: 700;
+  cursor: default;
 }
 
-.sg-spirit-hud__title {
-  flex: 1;
+.sg-statbar__stat {
+  display: flex; align-items: center; gap: var(--s-2);
+  padding: 0 var(--s-2);
+  cursor: default;
 }
+.sg-statbar__stat + .sg-statbar__stat,
+.sg-statbar__rivals { border-left: 1px solid var(--line); }
 
-.sg-spirit-hud__name {
-  font-weight: 600;
-  font-size: var(--t-base);
-  color: var(--ink);
-}
-
-.sg-spirit-hud__role {
-  font-size: var(--t-micro);
-  color: var(--ink-3);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-}
-
-.sg-spirit-hud__stat-row {
-  display: flex;
-  align-items: center;
-  gap: var(--s-2);
-  margin-bottom: var(--s-2);
-}
-
-.sg-spirit-hud__stat-label {
-  flex: 0 0 60px;
-  font-size: var(--t-micro);
-  color: var(--ink-3);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-}
-
-.sg-spirit-hud__stat-value {
-  flex: 0 0 50px;
+.sg-statbar__icon { font-size: var(--t-md); line-height: 1; opacity: 0.9; }
+.sg-statbar__val {
   font-family: var(--f-mono);
-  font-size: var(--t-small);
-  color: var(--ink-2);
-  text-align: right;
+  font-size: var(--t-md);
+  font-weight: 600;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  min-width: 1.5em; text-align: right;
+}
+.sg-statbar__sub {
+  font-family: var(--f-mono);
+  font-size: var(--t-tiny);
+  color: var(--ink-3);
   font-variant-numeric: tabular-nums;
 }
-
-.sg-spirit-hud__meter {
-  flex: 1;
-  height: 6px;
-  background: var(--paper-2);
-  border-radius: var(--r-pill);
-  overflow: hidden;
-}
-
-.sg-spirit-hud__meter-fill {
-  height: 100%;
-  border-radius: var(--r-pill);
-  transition: width 200ms ease;
-}
-
-.sg-spirit-hud__meter-fill--power {
-  background: linear-gradient(90deg, var(--you), oklch(0.68 0.14 45));
-}
-
-.sg-spirit-hud__regen {
-  font-size: var(--t-micro);
-  color: var(--ink-4);
-  margin-left: auto;
-  font-family: var(--f-mono);
-}
-
-.sg-spirit-hud__divider {
-  height: 1px;
-  background: var(--line);
-  margin: var(--s-3) 0;
-}
-
-.sg-spirit-hud__section-title {
-  font-size: var(--t-micro);
-  color: var(--ink-3);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  margin-bottom: var(--s-2);
-}
-
-.sg-spirit-hud__rival-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--s-2);
-}
-
-.sg-spirit-hud__rival {
-  display: flex;
-  align-items: center;
-  gap: var(--s-2);
-  padding: var(--s-1) var(--s-2);
+.sg-statbar__meter {
+  width: 56px; height: 6px;
   background: var(--paper-2);
   border: 1px solid var(--line);
-  border-radius: var(--r-2);
-  cursor: pointer;
-  transition: background 120ms ease, border-color 120ms ease;
+  border-radius: var(--r-pill);
+  overflow: hidden;
 }
-
-.sg-spirit-hud__rival:hover {
-  background: var(--paper);
-  border-color: var(--line-2);
+.sg-statbar__meter-fill {
+  height: 100%; border-radius: var(--r-pill);
+  background: linear-gradient(90deg, var(--you), oklch(0.72 0.14 70));
+  transition: width 200ms ease;
 }
+.sg-statbar__meter-fill--life { background: linear-gradient(90deg, var(--w-leaf), var(--w-grass)); }
 
-.sg-spirit-hud__rival--competing {
-  border-color: var(--danger-soft);
+.sg-statbar__rivals { display: flex; align-items: center; gap: var(--s-2); padding-left: var(--s-3); }
+.sg-statbar__rivals-label {
+  font-size: var(--t-micro); text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--ink-3);
 }
-
-.sg-spirit-hud__rival-sigil {
-  width: 24px;
-  height: 24px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+.sg-statbar__rival {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 10px;
   background: var(--danger-soft);
   border: 1px solid oklch(0.52 0.16 30 / 0.4);
-  border-radius: var(--r-1);
-  font-size: 12px;
+  border-radius: var(--r-pill);
   color: var(--danger);
+  font-size: var(--t-small); font-weight: 500;
+  cursor: pointer;
+  transition: background 120ms ease, transform 80ms ease;
 }
-
-.sg-spirit-hud__rival-info {
-  flex: 1;
-  min-width: 0;
-}
-
-.sg-spirit-hud__rival-name {
-  font-size: var(--t-small);
-  font-weight: 500;
-  color: var(--ink);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.sg-spirit-hud__rival-meta {
-  font-size: var(--t-micro);
-  color: var(--ink-4);
-  font-family: var(--f-mono);
-}
-
-.sg-spirit-hud__rival-power {
-  font-family: var(--f-mono);
-  font-size: var(--t-small);
-  color: var(--ink-2);
-  font-variant-numeric: tabular-nums;
-}
-
-.sg-spirit-hud__empty {
-  font-size: var(--t-small);
-  color: var(--ink-4);
-  font-style: italic;
-  padding: var(--s-2) 0;
-  text-align: center;
-}
+.sg-statbar__rival:hover { background: var(--danger-soft); filter: brightness(1.15); }
+.sg-statbar__rival:active { transform: translateY(1px); }
+.sg-statbar__rival-power { font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
 `;
+
+const POWER_SCALE = 100; // display fullness reference
+const SOULS_SCALE = 50;
 
 export function createSpiritHud(
   container: HTMLElement,
   opts: SpiritHudOptions = {},
 ): SpiritHudHandle {
-  // Inject styles
   if (!document.querySelector('#sg-spirit-hud-styles')) {
     const style = document.createElement('style');
     style.id = 'sg-spirit-hud-styles';
@@ -228,221 +130,119 @@ export function createSpiritHud(
     document.head.appendChild(style);
   }
 
-  const hud = document.createElement('div');
-  hud.className = 'sg-spirit-hud';
+  const bar = document.createElement('div');
+  bar.className = 'sg-statbar';
 
-  // Header with player sigil
-  const header = document.createElement('div');
-  header.className = 'sg-spirit-hud__header';
-
+  // ── Sigil ──
   const sigil = document.createElement('div');
-  sigil.className = 'sg-spirit-hud__sigil';
+  sigil.className = 'sg-statbar__sigil';
   sigil.textContent = '✦';
-  header.appendChild(sigil);
+  sigil.title = 'You — a small god cultivating belief among mortals.';
+  bar.appendChild(sigil);
 
-  const title = document.createElement('div');
-  title.className = 'sg-spirit-hud__title';
+  // ── Stat cell factory ──
+  function makeStat(
+    icon: string,
+    tip: string,
+    withMeter: 'power' | 'life' | null,
+  ): { cell: HTMLDivElement; val: HTMLSpanElement; sub: HTMLSpanElement; fill: HTMLDivElement | null } {
+    const cell = document.createElement('div');
+    cell.className = 'sg-statbar__stat';
+    cell.title = tip;
 
-  const name = document.createElement('div');
-  name.className = 'sg-spirit-hud__name';
-  name.textContent = 'You';
-  title.appendChild(name);
+    const ic = document.createElement('span');
+    ic.className = 'sg-statbar__icon';
+    ic.textContent = icon;
 
-  const role = document.createElement('div');
-  role.className = 'sg-spirit-hud__role';
-  role.textContent = 'Player Spirit';
-  title.appendChild(role);
+    const val = document.createElement('span');
+    val.className = 'sg-statbar__val';
 
-  header.appendChild(title);
-  hud.appendChild(header);
+    cell.append(ic, val);
 
-  // Power stat
-  const powerRow = document.createElement('div');
-  powerRow.className = 'sg-spirit-hud__stat-row';
-
-  const powerLabel = document.createElement('div');
-  powerLabel.className = 'sg-spirit-hud__stat-label';
-  powerLabel.textContent = 'Power';
-  powerRow.appendChild(powerLabel);
-
-  const powerMeter = document.createElement('div');
-  powerMeter.className = 'sg-spirit-hud__meter';
-
-  const powerFill = document.createElement('div');
-  powerFill.className = 'sg-spirit-hud__meter-fill sg-spirit-hud__meter-fill--power';
-  powerMeter.appendChild(powerFill);
-  powerRow.appendChild(powerMeter);
-
-  const powerValue = document.createElement('div');
-  powerValue.className = 'sg-spirit-hud__stat-value';
-  powerRow.appendChild(powerValue);
-
-  const regenBadge = document.createElement('div');
-  regenBadge.className = 'sg-spirit-hud__regen';
-  powerRow.appendChild(regenBadge);
-
-  hud.appendChild(powerRow);
-
-  // Followers stat
-  const followerRow = document.createElement('div');
-  followerRow.className = 'sg-spirit-hud__stat-row';
-
-  const followerLabel = document.createElement('div');
-  followerLabel.className = 'sg-spirit-hud__stat-label';
-  followerLabel.textContent = 'Souls';
-  followerRow.appendChild(followerLabel);
-
-  const followerMeter = document.createElement('div');
-  followerMeter.className = 'sg-spirit-hud__meter';
-
-  const followerFill = document.createElement('div');
-  followerFill.className = 'sg-spirit-hud__meter-fill sg-spirit-hud__meter-fill--power';
-  followerMeter.appendChild(followerFill);
-  followerRow.appendChild(followerMeter);
-
-  const followerValue = document.createElement('div');
-  followerValue.className = 'sg-spirit-hud__stat-value';
-  followerRow.appendChild(followerValue);
-
-  hud.appendChild(followerRow);
-
-  // Believer/durable stat row
-  const believerRow = document.createElement('div');
-  believerRow.className = 'sg-spirit-hud__stat-row';
-
-  const believerLabel = document.createElement('div');
-  believerLabel.className = 'sg-spirit-hud__stat-label';
-  believerLabel.textContent = 'Believers';
-  believerRow.appendChild(believerLabel);
-
-  const believerValue = document.createElement('div');
-  believerValue.className = 'sg-spirit-hud__stat-value';
-  believerRow.appendChild(believerValue);
-
-  const durableValue = document.createElement('div');
-  durableValue.className = 'sg-spirit-hud__regen';
-  believerRow.appendChild(durableValue);
-
-  hud.appendChild(believerRow);
-
-  // Divider
-  const divider = document.createElement('div');
-  divider.className = 'sg-spirit-hud__divider';
-  hud.appendChild(divider);
-
-  // Rivals section
-  const rivalSection = document.createElement('div');
-
-  const rivalTitle = document.createElement('div');
-  rivalTitle.className = 'sg-spirit-hud__section-title';
-  rivalTitle.textContent = 'Rival Spirits';
-  rivalSection.appendChild(rivalTitle);
-
-  const rivalList = document.createElement('div');
-  rivalList.className = 'sg-spirit-hud__rival-list';
-  rivalSection.appendChild(rivalList);
-
-  hud.appendChild(rivalSection);
-
-  container.appendChild(hud);
-
-  function formatPower(power: number): string {
-    return power.toFixed(0);
-  }
-
-  function update(
-    player: Spirit,
-    rivals: Spirit[],
-    totalFollowers: number,
-  ): void {
-    // Update power
-    const maxPower = 100; // Arbitrary scale for display
-    const powerPct = Math.min(100, (player.power / maxPower) * 100);
-    powerFill.style.width = `${powerPct}%`;
-    powerValue.textContent = formatPower(player.power);
-    regenBadge.textContent = `+${POWER_REGEN_RATE}/s`;
-
-    // Update followers
-    const maxFollowers = 50; // Arbitrary scale
-    const followerPct = Math.min(100, (totalFollowers / maxFollowers) * 100);
-    followerFill.style.width = `${followerPct}%`;
-    followerValue.textContent = String(totalFollowers);
-
-    // Update rivals
-    rivalList.innerHTML = '';
-    if (rivals.length === 0) {
-      const empty = document.createElement('div');
-      empty.className = 'sg-spirit-hud__empty';
-      empty.textContent = 'No rivals yet';
-      rivalList.appendChild(empty);
-      return;
+    let fill: HTMLDivElement | null = null;
+    if (withMeter) {
+      const meter = document.createElement('div');
+      meter.className = 'sg-statbar__meter';
+      fill = document.createElement('div');
+      fill.className = `sg-statbar__meter-fill${withMeter === 'life' ? ' sg-statbar__meter-fill--life' : ''}`;
+      meter.appendChild(fill);
+      cell.appendChild(meter);
     }
 
-    for (const rival of rivals) {
-      const rivalEl = document.createElement('div');
-      rivalEl.className = 'sg-spirit-hud__rival';
-      // TODO: Add competing detection
-      // if (isCompetingWithPlayer(rival)) rivalEl.classList.add('sg-spirit-hud__rival--competing');
+    const sub = document.createElement('span');
+    sub.className = 'sg-statbar__sub';
+    cell.appendChild(sub);
 
-      const rivalSigil = document.createElement('div');
-      rivalSigil.className = 'sg-spirit-hud__rival-sigil';
-      rivalSigil.textContent = '⚔';
-      rivalEl.appendChild(rivalSigil);
+    return { cell, val, sub, fill };
+  }
 
-      const rivalInfo = document.createElement('div');
-      rivalInfo.className = 'sg-spirit-hud__rival-info';
+  const power = makeStat('⚡', 'Divine power — spent on whispers, omens, dreams and miracles. Regenerates from your followers’ belief.', 'power');
+  const souls = makeStat('☉', 'Souls aware of you — mortals whose faith in you has risen above a flicker.', 'life');
+  const believers = makeStat('✝', 'Believers — total who hold faith in you, and how many are durable toward your goal.', null);
+  bar.append(power.cell, souls.cell, believers.cell);
 
-      const rivalName = document.createElement('div');
-      rivalName.className = 'sg-spirit-hud__rival-name';
-      rivalName.textContent = rival.name || 'Unknown Spirit';
-      rivalInfo.appendChild(rivalName);
+  // ── Rivals cluster (only shown when rivals exist) ──
+  const rivals = document.createElement('div');
+  rivals.className = 'sg-statbar__rivals';
+  rivals.style.display = 'none';
+  const rivalsLabel = document.createElement('span');
+  rivalsLabel.className = 'sg-statbar__rivals-label';
+  rivalsLabel.textContent = 'Rivals';
+  const rivalsList = document.createElement('div');
+  rivalsList.style.display = 'flex';
+  rivalsList.style.gap = 'var(--s-2)';
+  rivals.append(rivalsLabel, rivalsList);
+  bar.appendChild(rivals);
 
-      const rivalMeta = document.createElement('div');
-      rivalMeta.className = 'sg-spirit-hud__rival-meta';
-      const strategy = (rival as any).strategy || 'unknown';
-      rivalMeta.textContent = strategy;
-      rivalInfo.appendChild(rivalMeta);
+  container.appendChild(bar);
 
-      rivalEl.appendChild(rivalInfo);
+  function formatPower(p: number): string { return p.toFixed(0); }
 
-      const rivalPower = document.createElement('div');
-      rivalPower.className = 'sg-spirit-hud__rival-power';
-      rivalPower.textContent = formatPower(rival.power);
-      rivalEl.appendChild(rivalPower);
+  function update(player: Spirit, rivalSpirits: Spirit[], totalFollowers: number): void {
+    power.val.textContent = formatPower(player.power);
+    if (power.fill) power.fill.style.width = `${Math.min(100, (player.power / POWER_SCALE) * 100)}%`;
+    power.sub.textContent = `+${POWER_REGEN_RATE}/s`;
 
-      rivalEl.addEventListener('click', () => {
-        opts.onSelectRival?.(rival.id);
-      });
+    souls.val.textContent = String(totalFollowers);
+    if (souls.fill) souls.fill.style.width = `${Math.min(100, (totalFollowers / SOULS_SCALE) * 100)}%`;
 
-      rivalList.appendChild(rivalEl);
+    if (rivalSpirits.length === 0) {
+      rivals.style.display = 'none';
+      rivalsList.innerHTML = '';
+      return;
+    }
+    rivals.style.display = 'flex';
+    rivalsList.innerHTML = '';
+    for (const rival of rivalSpirits) {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'sg-statbar__rival';
+      const strategy = (rival as unknown as { strategy?: string }).strategy ?? 'unknown';
+      const rname = rival.name || 'Unknown Spirit';
+      chip.title = `${rname} — rival spirit (${strategy}), power ${formatPower(rival.power)}. Click to inspect.`;
+      const nm = document.createElement('span');
+      nm.textContent = `⚔ ${rname}`;
+      const pw = document.createElement('span');
+      pw.className = 'sg-statbar__rival-power';
+      pw.textContent = formatPower(rival.power);
+      chip.append(nm, pw);
+      chip.addEventListener('click', () => opts.onSelectRival?.(rival.id));
+      rivalsList.appendChild(chip);
     }
   }
 
   function setBelieverStats(total: number, durable: number, goal: number): void {
-    believerValue.textContent = String(total);
-    durableValue.textContent = `Durable ${durable}/${goal}`;
-  }
-
-  function show() {
-    hud.style.display = 'block';
-  }
-
-  function hide() {
-    hud.style.display = 'none';
-  }
-
-  function isVisible(): boolean {
-    return hud.style.display !== 'none';
+    believers.val.textContent = String(total);
+    believers.sub.textContent = `${durable}/${goal} durable`;
+    believers.cell.title = `Believers — ${total} hold faith in you; ${durable} of ${goal} are durable toward your goal.`;
   }
 
   return {
     update,
     setBelieverStats,
-    show,
-    hide,
-    isVisible,
-    destroy() {
-      hud.remove();
-    },
+    show() { bar.style.display = 'flex'; },
+    hide() { bar.style.display = 'none'; },
+    isVisible() { return bar.style.display !== 'none'; },
+    destroy() { bar.remove(); },
   };
 }

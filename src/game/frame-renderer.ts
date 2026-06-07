@@ -14,6 +14,12 @@ import { buildRenderContext } from './render-context';
 import { getNpc, toRenderNpc, simStateFromEntity } from '@/world/npc-helpers';
 import { drawNpcOverlay, drawPoiOverlay, drawPrayerMarkers } from '@/render/sim-overlay';
 import type { NpcAttentionPanelHandle } from '@/ui/npc-attention-panel';
+import type { BuildingInfoPanelHandle } from '@/ui/building-info-panel';
+import { findBuildingAtTile, buildingInfoOf } from '@/world/building-helpers';
+import { renderMassingToImage } from '@/assetgen/massing-guidance';
+import { buildingBrief } from '@/assetgen/producers/building-producer';
+import { VIEW_RECIPES } from '@/assetgen/view-registry';
+import type { BuildingDescriptor } from '@/world/building-descriptor';
 import { formatNpcTooltip } from '@/ui/npc-tooltip';
 import { formatDevTooltip } from '@/dev/tooltip';
 import { drawPowerHud } from '@/render/hud';
@@ -29,6 +35,7 @@ export interface FrameRendererUi {
   divineEffects: DivineEffects;
   npcInfoPanel: HTMLDivElement;
   npcAttentionPanel: NpcAttentionPanelHandle;
+  buildingInfoPanel: BuildingInfoPanelHandle;
   tooltip: HTMLDivElement;
   debugHud: HTMLDivElement;
 }
@@ -50,6 +57,7 @@ export interface FrameRendererDeps {
 export class FrameRenderer {
   private renderedNpcId: string | null = null;
   private renderedPinned = false;
+  private renderedBuildingId: string | null = null;
   private lastInfoRefresh = 0;
   private fpsEma = 60;
   /** Fixed per session — toggling render mode reloads the page. */
@@ -88,10 +96,10 @@ export class FrameRenderer {
       );
     }
 
-    // Draw prayer markers (independent of selection)
-    if (this.deps.state.world) {
-      drawPrayerMarkers(this.deps.ctx, this.deps.state.world, this.deps.state.camera, this.renderMode);
-    }
+    // Prayer 🙏 markers hidden for now (2026-06-06) — re-enable by uncommenting.
+    // if (this.deps.state.world) {
+    //   drawPrayerMarkers(this.deps.ctx, this.deps.state.world, this.deps.state.camera, this.renderMode);
+    // }
 
     // Update Spirit HUD
     if (this.deps.ui.spiritHud && this.deps.ui.spiritHud.isVisible() && this.deps.state.world) {
@@ -185,6 +193,8 @@ export class FrameRenderer {
       this.renderedNpcId = null;
     }
 
+    this.updateBuildingPanel(rc.resolveBuildingArt);
+
     const player = this.deps.state.spirits.get('player')!;
     // Per-second regen estimate for HUD — mirrors SpiritSystem formula exactly
     let totalContribution = 0;
@@ -217,6 +227,46 @@ export class FrameRenderer {
     }
   }
 
+  // Cached so the expensive guidance render only runs on selection change, while
+  // the sprite-loaded transition (null → src) still re-renders the panel.
+  private cachedBuildingInfo: ReturnType<typeof buildingInfoOf> = null;
+  private cachedGuidanceUrl: string | null = null;
+  private renderedSpriteUrl: string | null | undefined = undefined; // undefined = unset (force first render)
+
+  private updateBuildingPanel(resolveArt?: (e: import('@/core/types').Entity) => HTMLImageElement | null): void {
+    const { state } = this.deps;
+    const id = state.selectedBuildingId;
+    const entity = id && state.world ? state.world.query({ tag: 'building' }).find((e) => e.id === id) ?? null : null;
+    if (!entity) {
+      this.deps.ui.buildingInfoPanel.hide();
+      this.renderedBuildingId = null;
+      return;
+    }
+
+    if (id !== this.renderedBuildingId) {
+      this.cachedBuildingInfo = buildingInfoOf(entity);
+      this.cachedGuidanceUrl = null;
+      this.renderedSpriteUrl = undefined; // force a render this frame
+      const descriptor = (entity.properties as { descriptor?: BuildingDescriptor }).descriptor;
+      if (descriptor) {
+        try {
+          const size = VIEW_RECIPES['iso-3q'].nativeSize(buildingBrief(descriptor, 0));
+          this.cachedGuidanceUrl = `data:image/png;base64,${renderMassingToImage(descriptor, size)}`;
+        } catch { this.cachedGuidanceUrl = null; }
+      }
+      this.renderedBuildingId = id;
+    }
+
+    const info = this.cachedBuildingInfo;
+    if (!info) { this.deps.ui.buildingInfoPanel.hide(); return; }
+    const spriteUrl = resolveArt?.(entity)?.src ?? null;
+    if (spriteUrl !== this.renderedSpriteUrl) {
+      this.deps.ui.buildingInfoPanel.render({ info, guidanceUrl: this.cachedGuidanceUrl, spriteUrl });
+      this.renderedSpriteUrl = spriteUrl;
+    }
+    this.deps.ui.buildingInfoPanel.show();
+  }
+
   private updateTooltip(): void {
     if (!this.deps.interaction.hoverTile || !this.deps.interaction.hoverScreen || !this.deps.state.world) {
       this.deps.ui.tooltip.style.display = 'none';
@@ -237,18 +287,34 @@ export class FrameRenderer {
       return;
     }
 
-    // Normal mode: only show NPC tooltips
+    // Normal mode: NPC tooltips take priority, then buildings.
     const { x, y } = this.deps.interaction.hoverTile;
     const hovered = this.deps.state.world.query({ kind: 'npc' })
       .find(e => Math.floor(e.x) === x && Math.floor(e.y) === y);
-    if (!hovered || hovered.id === this.deps.state.selectedNpcId) {
-      this.deps.ui.tooltip.style.display = 'none';
+    if (hovered && hovered.id !== this.deps.state.selectedNpcId) {
+      const p = hovered.properties as unknown as NpcProperties;
+      this.showTooltip(formatNpcTooltip({ name: p.name, role: p.role, mood: p.mood }));
       return;
     }
-    const p = hovered.properties as unknown as NpcProperties;
-    this.deps.ui.tooltip.textContent = formatNpcTooltip({ name: p.name, role: p.role, mood: p.mood });
-    this.deps.ui.tooltip.style.left = `${this.deps.interaction.hoverScreen.x}px`;
-    this.deps.ui.tooltip.style.top  = `${this.deps.interaction.hoverScreen.y}px`;
+
+    // No NPC — a building under the cursor (skip the one whose panel is open).
+    const building = findBuildingAtTile(this.deps.state.world, x, y);
+    if (building && building.id !== this.deps.state.selectedBuildingId) {
+      const info = buildingInfoOf(building);
+      if (info) {
+        const door = info.facts.find((f) => f.label === 'Door')?.value ?? '';
+        this.showTooltip(`${info.title} · ${info.footprint.w}×${info.footprint.h}${door ? ` · door ${door}` : ''}`);
+        return;
+      }
+    }
+
+    this.deps.ui.tooltip.style.display = 'none';
+  }
+
+  private showTooltip(text: string): void {
+    this.deps.ui.tooltip.textContent = text;
+    this.deps.ui.tooltip.style.left = `${this.deps.interaction.hoverScreen!.x}px`;
+    this.deps.ui.tooltip.style.top = `${this.deps.interaction.hoverScreen!.y}px`;
     this.deps.ui.tooltip.style.display = 'block';
   }
 }

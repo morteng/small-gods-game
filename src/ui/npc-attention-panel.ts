@@ -19,34 +19,34 @@ const FAITH_COLORS = {
 } as const;
 
 const STYLE = `
-.sg-header { display: flex; justify-content: flex-end; margin: -4px -4px 4px 0; }
-.sg-pin { all: unset; cursor: pointer; pointer-events: auto; padding: 2px 6px; border-radius: 3px; color: rgba(255,255,255,0.5); font: 12px sans-serif; }
-.sg-pin:hover { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.85); }
-.sg-pin[aria-pressed="true"] { color: #FFD54F; background: rgba(255,213,79,0.12); }
-.sg-section { margin-bottom: 8px; }
-.sg-section-title { font-size: 9px; letter-spacing: 1px; color: rgba(255,255,255,0.45); margin-bottom: 4px; text-transform: uppercase; }
-.sg-id-name { font: bold 13px sans-serif; color: #fff; }
-.sg-id-meta { font-size: 10px; color: rgba(255,255,255,0.55); margin-top: 2px; }
-.sg-row { display: flex; align-items: center; font: 10px sans-serif; color: rgba(255,255,255,0.85); margin-bottom: 2px; }
-.sg-row-label { flex: 0 0 78px; color: rgba(255,255,255,0.7); }
-.sg-row-num { flex: 0 0 32px; text-align: right; color: rgba(255,255,255,0.55); font-variant-numeric: tabular-nums; }
-.sg-track { flex: 1 1 auto; height: 6px; background: rgba(255,255,255,0.12); border-radius: 3px; overflow: hidden; margin: 0 6px; }
-.sg-fill { height: 100%; }
-.sg-status-hint { font: italic 10px sans-serif; color: rgba(255,213,79,0.85); margin-bottom: 4px; }
-.sg-top { display: flex; gap: 10px; align-items: flex-start; }
-.sg-portrait { flex: 0 0 56px; width: 56px; height: 56px; border-radius: 8px; box-sizing: border-box;
-  display: flex; align-items: center; justify-content: center; font: bold 26px sans-serif; color: #fff;
-  text-shadow: 0 1px 2px rgba(0,0,0,0.55); border: 1px solid rgba(255,255,255,0.22); }
+.sg-header { display: flex; justify-content: flex-end; margin: -6px -6px 6px 0; }
+.sg-pin { all: unset; cursor: pointer; pointer-events: auto; padding: 3px 8px; border-radius: var(--r-2); color: var(--ink-3); font-size: var(--t-md); }
+.sg-pin:hover { background: var(--paper-2); color: var(--ink); }
+.sg-pin[aria-pressed="true"] { color: var(--faith); background: var(--faith-soft); }
+.sg-section { margin-bottom: 12px; }
+.sg-section-title { font-size: var(--t-micro); letter-spacing: 0.1em; color: var(--ink-3); margin-bottom: 6px; text-transform: uppercase; font-weight: 600; }
+.sg-id-name { font-family: var(--f-sans); font-weight: 700; font-size: var(--t-xl); color: var(--ink); line-height: 1.1; }
+.sg-id-meta { font-size: var(--t-small); color: var(--ink-3); margin-top: 4px; }
+.sg-row { display: flex; align-items: center; font-size: var(--t-small); color: var(--ink); margin-bottom: 5px; }
+.sg-row-label { flex: 0 0 92px; color: var(--ink-2); }
+.sg-row-num { flex: 0 0 38px; text-align: right; color: var(--ink-3); font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
+.sg-track { flex: 1 1 auto; height: 8px; background: var(--paper-2); border: 1px solid var(--line); border-radius: var(--r-pill); overflow: hidden; margin: 0 8px; }
+.sg-fill { height: 100%; border-radius: var(--r-pill); }
+.sg-status-hint { font-style: italic; font-size: var(--t-small); color: var(--faith); margin-bottom: 6px; }
+.sg-top { display: flex; gap: 14px; align-items: flex-start; }
+.sg-portrait { flex: 0 0 104px; width: 104px; height: 104px; border-radius: var(--r-4); box-sizing: border-box;
+  display: flex; align-items: center; justify-content: center; font-family: var(--f-sans); font-weight: 700; font-size: 48px; color: var(--ink);
+  text-shadow: 0 1px 3px oklch(0 0 0 / 0.5); border: 1px solid var(--line-2); image-rendering: pixelated; }
 .sg-top-col { flex: 1 1 auto; min-width: 0; }
-.sg-body { min-height: 40px; margin-top: 6px; }
-.sg-body-placeholder { font: italic 10px sans-serif; color: rgba(255,255,255,0.4); padding: 8px 0; }
-.sg-actions { display: flex; gap: 4px; margin-top: 6px; flex-wrap: wrap; }
-.sg-action { all: unset; cursor: pointer; pointer-events: auto; padding: 3px 8px; border-radius: 3px;
-  font: bold 10px sans-serif; letter-spacing: 0.5px; text-transform: uppercase;
-  background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.7); }
-.sg-action:hover { background: rgba(255,255,255,0.18); color: #fff; }
-.sg-action:disabled { opacity: 0.3; cursor: default; }
-.sg-action-cost { color: #FFD54F; font-weight: normal; margin-left: 2px; }
+.sg-body { min-height: 56px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+.sg-body-placeholder { font-style: italic; font-size: var(--t-small); color: var(--ink-4); padding: 10px 0; }
+.sg-actions { display: flex; gap: 6px; margin-top: 12px; flex-wrap: wrap; }
+.sg-action { all: unset; cursor: pointer; pointer-events: auto; padding: 6px 12px; border-radius: var(--r-2);
+  font-family: var(--f-sans); font-weight: 600; font-size: var(--t-small); letter-spacing: 0.3px;
+  background: var(--paper-2); border: 1px solid var(--line); color: var(--ink-2); }
+.sg-action:hover { background: var(--paper); border-color: var(--line-2); color: var(--ink); }
+.sg-action:disabled { opacity: 0.35; cursor: default; }
+.sg-action-cost { color: var(--faith); font-weight: 500; margin-left: 4px; }
 `;
 
 export interface NpcAttentionPanelOptions {
@@ -106,7 +106,7 @@ function avatarColor(id: string): string {
 /** LPC sheet geometry: 64×64 frames; "down" walk row = 10, idle frame = 0. */
 const LPC_FRAME = 64;
 const LPC_DOWN_ROW = 10;
-const PORTRAIT_PX = 56;
+const PORTRAIT_PX = 104;
 
 /**
  * Fill the portrait box with the NPC's down-idle sprite frame when a sheet is
@@ -218,10 +218,15 @@ export function mountNpcAttentionPanel(
 
   const actions = document.createElement('div'); actions.className = 'sg-actions';
   const backfillBtn = actionBtn('backfill', '💭 Backfill', 'LLM');
+  backfillBtn.title = 'Backfill — have the LLM narrate this mortal’s inner life from their current state. Needs at least 1 power.';
   const dreamBtn = actionBtn('dream', '🌙 Dream', `${DREAM_COST}p`);
+  dreamBtn.title = `Send a dream — plant an idea while they sleep. Costs ${DREAM_COST} power.`;
   const prayBtn = actionBtn('answer', '🙏 Answer', `${ANSWER_PRAYER_COST}p`);
+  prayBtn.title = `Answer their prayer — reward devotion when they worship. Costs ${ANSWER_PRAYER_COST} power.`;
   const omenBtn = actionBtn('omen', '⛈ Omen', `${OMEN_COST}p`);
+  omenBtn.title = `Send an omen — a sign over their home that the faithful will read. Costs ${OMEN_COST} power.`;
   const miracleBtn = actionBtn('miracle', '✨ Miracle', `${MIRACLE_COST}p`);
+  miracleBtn.title = `Work a miracle — an unmistakable act of divine power. Costs ${MIRACLE_COST} power.`;
   actions.append(backfillBtn, dreamBtn, prayBtn, omenBtn, miracleBtn);
 
   panel.append(header, topRow, mindBody, whisperHost, actions);

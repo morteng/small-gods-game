@@ -25,10 +25,22 @@ export function pan(camera: Camera, dx: number, dy: number): void {
   camera.y -= dy / camera.zoom;
 }
 
-export function zoomAt(camera: Camera, factor: number, cx: number, cy: number): void {
+/**
+ * Maps the current zoom to a snapped value. `dir` reflects the gesture
+ * direction (+1 zooming in, -1 out, 0 neutral) so a quantizer can step exactly
+ * one rung per call rather than multiplying. See `quantizeIsoZoom`.
+ */
+export type ZoomQuantizer = (current: number, dir: -1 | 0 | 1) => number;
+
+export function zoomAt(
+  camera: Camera, factor: number, cx: number, cy: number, quantize?: ZoomQuantizer,
+): void {
   const worldX = cx / camera.zoom + camera.x;
   const worldY = cy / camera.zoom + camera.y;
-  camera.zoom = Math.max(TOPDOWN_ZOOM_MIN, Math.min(TOPDOWN_ZOOM_MAX, camera.zoom * factor));
+  const z = quantize
+    ? quantize(camera.zoom, factor > 1 ? 1 : factor < 1 ? -1 : 0)
+    : camera.zoom * factor;
+  camera.zoom = Math.max(TOPDOWN_ZOOM_MIN, Math.min(TOPDOWN_ZOOM_MAX, z));
   camera.x = worldX - cx / camera.zoom;
   camera.y = worldY - cy / camera.zoom;
 }

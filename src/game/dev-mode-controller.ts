@@ -14,7 +14,10 @@ import { DEFAULT_DEBUG_OVERLAY_OPTIONS, drawDebugOverlays } from '@/render/debug
 import { buildRenderContext } from './render-context';
 import { applyUndo, applyRedo } from './dev-mode-history';
 import { focusCameraOnTile } from '@/render/focus-camera';
-import { drawSelectionOutline, drawHoverOutline, resolveOutlineRect, sameRect } from '@/render/selection-outline';
+import {
+  drawSelectionOutline, drawHoverOutline, resolveOutlineRect, sameRect,
+  fillTileRect, buildingFootprintAt,
+} from '@/render/selection-outline';
 import { selectionFromHit } from '@/dev/inspector/selection';
 import { drawBiomeLayer, drawPoiLayer } from '@/render/map-layers';
 import { createDockManager, type DockManager } from '@/dev/dock-manager';
@@ -426,11 +429,22 @@ export class DevModeController {
     const selection = this.inspector.getSelection();
     const selRect = resolveOutlineRect(selection, owDeps);
 
-    // Faint hover preview (skip when it would overlap the selection).
-    if (hoverHit && hoverHit.type) {
-      const hoverRect = resolveOutlineRect(selectionFromHit(hoverHit), owDeps);
-      if (hoverRect && !sameRect(hoverRect, selRect)) {
-        drawHoverOutline(ctx, hoverRect, s.camera, mode);
+    // Hover preview. A building (resolved from ANY tile of its footprint, not
+    // just the indexed origin) gets its occupied tiles washed + outlined so you
+    // can see exactly which tiles it sits on; anything else gets the faint
+    // single-target outline. Skipped when it would duplicate the selection.
+    if (hoverHit) {
+      const bldgRect = buildingFootprintAt(owDeps.world, hoverHit.tileX, hoverHit.tileY);
+      if (bldgRect) {
+        if (!sameRect(bldgRect, selRect)) {
+          fillTileRect(ctx, bldgRect, s.camera, mode);
+          drawHoverOutline(ctx, bldgRect, s.camera, mode);
+        }
+      } else if (hoverHit.type) {
+        const hoverRect = resolveOutlineRect(selectionFromHit(hoverHit), owDeps);
+        if (hoverRect && !sameRect(hoverRect, selRect)) {
+          drawHoverOutline(ctx, hoverRect, s.camera, mode);
+        }
       }
     }
 

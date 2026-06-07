@@ -29,12 +29,14 @@ export const BUILDING_PRESETS: Record<string, BuildingDescriptor> = {
     door: { x: 0, y: 1 },
   },
   temple_small: {
-    category: 'religious', era: 'classical', footprint: { w: 4, h: 4 },
+    // Capped 4×4 → 3×3 so the true-size iso sprite (384px) fits PixelLab's gen
+    // limit and renders 1:1. Door/vent moved inside the smaller footprint.
+    category: 'religious', era: 'classical', footprint: { w: 3, h: 3 },
     plan: 'cross', levels: 1, levelInset: 0, heightPerLevel: 1.5,
     roof: 'hip', walls: 'stone', roofMat: 'tile',
     groundMaterial: 'flagstone', apron: { radius: 2, material: 'flagstone' },
-    door: { x: 1, y: 3 },
-    vents: [{ x: 2, y: 2, height: 0.5, kind: 'smokehole', emit: 'smoke' }],
+    door: { x: 1, y: 2 },
+    vents: [{ x: 1, y: 1, height: 0.5, kind: 'smokehole', emit: 'smoke' }],
   },
   farm_barn: {
     category: 'farm', era: 'medieval', footprint: { w: 3, h: 2 },
@@ -43,17 +45,21 @@ export const BUILDING_PRESETS: Record<string, BuildingDescriptor> = {
     groundMaterial: 'dirt', door: { x: 1, y: 1 },
   },
   tower: {
+    // heightPerLevel 1.5→1.0: a 3-storey tower at 1.5 is 456px tall (over
+    // PixelLab's 400 limit); 1.0 keeps the full silhouette ≤384px for a 1:1 gen.
     category: 'military', era: 'medieval', footprint: { w: 2, h: 3 },
-    plan: 'rect', levels: 3, levelInset: 0, heightPerLevel: 1.5,
+    plan: 'rect', levels: 3, levelInset: 0, heightPerLevel: 1.0,
     roof: 'flat', walls: 'stone', roofMat: 'slate',
     groundMaterial: 'flagstone', door: { x: 0, y: 2 },
   },
   castle_keep: {
-    category: 'military', era: 'medieval', footprint: { w: 4, h: 4 },
-    plan: 'stepped', levels: 4, levelInset: 1, heightPerLevel: 1.5,
+    // Capped 4×4 → 3×3 and heightPerLevel 1.5→0.7 so the tall stepped silhouette
+    // fits the 384px gen box (was 4×4 × 6 height-units → far over the limit).
+    category: 'military', era: 'medieval', footprint: { w: 3, h: 3 },
+    plan: 'stepped', levels: 4, levelInset: 1, heightPerLevel: 0.7,
     roof: 'stepped', walls: 'stone', roofMat: 'slate',
     groundMaterial: 'flagstone', apron: { radius: 2, material: 'gravel' },
-    door: { x: 1, y: 3 },
+    door: { x: 1, y: 2 },
   },
   dock: {
     category: 'special', era: 'medieval', footprint: { w: 2, h: 3 },
@@ -82,7 +88,9 @@ export const BUILDING_PRESETS: Record<string, BuildingDescriptor> = {
     vents: [{ x: 1, y: 1, height: 0.4, kind: 'smokehole', emit: 'smoke' }],
   },
   longhouse: {
-    category: 'residential', era: 'medieval', footprint: { w: 5, h: 2 },
+    // Capped 5×2 → 4×2 (448px → 384px) to fit the 1:1 gen box while staying
+    // elongated. Door/vent already inside the 4-wide footprint.
+    category: 'residential', era: 'medieval', footprint: { w: 4, h: 2 },
     plan: 'rect', levels: 1, levelInset: 0, heightPerLevel: 1.2,
     roof: 'gable', walls: 'log', roofMat: 'thatch',
     groundMaterial: 'packed_dirt', door: { x: 2, y: 1 },

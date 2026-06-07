@@ -67,8 +67,8 @@ describe('iso-renderer: vegetation', () => {
     rc.world = { entities: new Map(), query: () => veg } as any;
     const ctx = makeMockCtx();
     renderMap(ctx, rc);
-    // each vegetation entity draws a ground-shadow ellipse
-    expect((ctx.ellipse as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThanOrEqual(2);
+    // each vegetation entity draws a canopy fill (shadows removed)
+    expect((ctx.fill as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThanOrEqual(2);
   });
 
   it('billboards the real tree sprite when its sheet is loaded (not the placeholder)', () => {

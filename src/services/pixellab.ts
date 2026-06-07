@@ -288,16 +288,20 @@ export async function buildRequestBody(opts: PixelLabGenerateOpts) {
     detail:  opts.detail  ?? STYLE_RECIPE.detail,
     seed: opts.seed ?? 0,
   };
+  if (opts.negativeDescription) body.negative_description = opts.negativeDescription;
+  if (opts.isometric) body.isometric = true;
+  if (opts.view) body.view = opts.view;
+  if (opts.direction) body.direction = opts.direction;
+  if (opts.textGuidanceScale !== undefined) body.text_guidance_scale = opts.textGuidanceScale;
   if (opts.initImage) {
-    // img2img: the guidance image (rendered massing) carries projection,
-    // footprint, door placement AND the material colours — so it doubles as
-    // the palette anchor and we skip the generic LPC color_image.
+    // img2img: a sparse placement scaffold (footprint diamond + size rectangle) at
+    // LOW strength guides composition/scale without being copied. Colours still come
+    // from the palette color_image below, so we keep BOTH.
     body.init_image = { type: 'base64', base64: opts.initImage, format: 'png' };
-    body.init_image_strength = opts.initImageStrength ?? 500;
-  } else {
-    const paletteB64 = await loadPaletteB64();
-    body.color_image = { type: 'base64', base64: paletteB64, format: 'png' };
+    body.init_image_strength = opts.initImageStrength ?? 300;
   }
+  const paletteB64 = await loadPaletteB64();
+  body.color_image = { type: 'base64', base64: paletteB64, format: 'png' };
   return body;
 }
 

@@ -16,9 +16,10 @@ function fakeCtx() {
     save: vi.fn(), restore: vi.fn(), translate: vi.fn(),
     beginPath: vi.fn(), moveTo: vi.fn(), lineTo: vi.fn(), closePath: vi.fn(),
     ellipse: vi.fn(),
+    stroke: vi.fn(() => calls.push('stroke')),
     fill: vi.fn(() => calls.push('fill')),
     fillRect: vi.fn(() => calls.push('fillRect')),
-    fillStyle: '',
+    fillStyle: '', strokeStyle: '', lineWidth: 0,
   } as any;
 }
 

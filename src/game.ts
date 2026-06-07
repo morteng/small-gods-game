@@ -1,6 +1,7 @@
 import { createState, type GameState } from '@/core/state';
 import { selectRenderer, readRenderMode, type RenderFn } from '@/render/select-renderer';
 import { zoomAt } from '@/render/camera';
+import { quantizeIsoZoom } from '@/render/iso/iso-camera';
 import { fitCameraToMap } from '@/render/fit-camera';
 import { focusCameraOnTile } from '@/render/focus-camera';
 import { attachControls, attachTimeKeys } from '@/ui/controls';
@@ -261,11 +262,13 @@ export class Game {
       },
       onZoomIn: () => {
         const vp = this.viewport();
-        zoomAt(this.state.camera, 1.2, vp.width / 2, vp.height / 2);
+        const q = readRenderMode() === 'iso' ? quantizeIsoZoom : undefined;
+        zoomAt(this.state.camera, 1.2, vp.width / 2, vp.height / 2, q);
       },
       onZoomOut: () => {
         const vp = this.viewport();
-        zoomAt(this.state.camera, 1 / 1.2, vp.width / 2, vp.height / 2);
+        const q = readRenderMode() === 'iso' ? quantizeIsoZoom : undefined;
+        zoomAt(this.state.camera, 1 / 1.2, vp.width / 2, vp.height / 2, q);
       },
       onFitView: () => {
         if (!this.state.map) return;
@@ -274,6 +277,13 @@ export class Game {
           this.state.camera, this.state.map.width, this.state.map.height,
           vp.width, vp.height, readRenderMode(),
         );
+      },
+      onZoomActual: () => {
+        // Snap to exactly 1:1 about the viewport centre — keeps the centred world
+        // point fixed while setting zoom to 1 (native pixel scale, crisp art).
+        const vp = this.viewport();
+        const z = this.state.camera.zoom || 1;
+        zoomAt(this.state.camera, 1 / z, vp.width / 2, vp.height / 2);
       },
       onNewWorld: () => { void this.newWorld(); },
       onGameSettingChange: (key, value) => {
@@ -359,6 +369,7 @@ export class Game {
           focusCameraOnTile(this.state.camera, pos.x, pos.y, vp.width, vp.height, readRenderMode());
         }
       },
+      onCloseBuilding: () => { this.state.selectedBuildingId = null; },
     });
 
     this.spendChip = mountSpendChip(this.ui.bottomLeftBar, this.costTracker);
@@ -406,6 +417,7 @@ export class Game {
       ctx: this.ctx, state: this.state,
       ui: { minimap: this.ui.minimap, spiritHud: this.ui.spiritHud, divineEffects: this.ui.divineEffects,
             npcInfoPanel: this.ui.npcInfoPanel, npcAttentionPanel: this.ui.npcAttentionPanel,
+            buildingInfoPanel: this.ui.buildingInfoPanel,
             tooltip: this.ui.tooltip, debugHud: this.ui.debugHud },
       divine: this.divine, dev: this.dev, llmBackfill: this.llmBackfill,
       interaction: this.interaction,
@@ -446,6 +458,7 @@ export class Game {
         this.state.followNpc = !this.state.followNpc;
       },
       onUserCameraInput: () => { this.state.followNpc = false; },
+      getZoomQuantize: () => (readRenderMode() === 'iso' ? quantizeIsoZoom : undefined),
       onToggleSettings: () => this.ui.unifiedSettings.toggle(),
       onToggleMinimap: () => this.ui.minimap?.toggle(),
       onShowTutorial: () => this.ui.tutorial?.show('welcome'),

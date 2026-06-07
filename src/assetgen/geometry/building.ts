@@ -1,6 +1,7 @@
 // src/assetgen/geometry/building.ts
 import type { Vec3, Mat, RGB, WorldFacet } from '@/assetgen/types';
 import { MATERIAL_RGB } from '@/assetgen/types';
+import { unifiedRoofFacets, type RoofStyle } from '@/assetgen/geometry/roof-unified';
 
 export type RoofKind = 'gable' | 'hip' | 'pyramidal' | 'flat';
 export interface Wing { x: number; y: number; w: number; h: number; storeys?: number; roof?: RoofKind }
@@ -112,9 +113,12 @@ export function roofFacets(occ: Set<string>, w: Wing, roofMat: Mat): { facets: W
 }
 
 /** Full building massing: exterior walls + a roof per wing. World-space facets. */
-export function buildingFacets(wings: Wing[], wallMat: Mat = 'plaster', roofMat: Mat = 'tile'): WorldFacet[] {
+export function buildingFacets(
+  wings: Wing[], wallMat: Mat = 'plaster', roofMat: Mat = 'tile', roofStyle: RoofStyle = 'gable',
+): WorldFacet[] {
   const occ = occupancy(wings);
   const out = wallFacets(wings, occ, wallMat);
-  for (const w of wings) out.push(...roofFacets(occ, w, roofMat).facets);
+  const baseZ = Math.max(...wings.map(w => w.storeys ?? 1)) * STOREY;
+  out.push(...unifiedRoofFacets(occ, wings, { baseZ, roofMat, roofStyle }));
   return out;
 }

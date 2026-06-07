@@ -100,20 +100,34 @@ describe('buildRequestBody', () => {
     expect(body.image_size).toEqual({ width: 64, height: 64 });
   });
 
-  it('attaches init_image + init_image_strength and drops color_image when guided', async () => {
+  it('attaches init_image + strength AND keeps color_image (scaffold guides shape, palette guides colour)', async () => {
+    mockFetch(async () => new Response(new Uint8Array([0, 1, 2, 3]).buffer));
     const body = await buildRequestBody({
       prompt: 'cottage', width: 128, height: 128, initImage: 'BASE64DATA', initImageStrength: 480,
     });
     expect(body.init_image).toMatchObject({ type: 'base64', base64: 'BASE64DATA', format: 'png' });
     expect(body.init_image_strength).toBe(480);
-    expect(body.color_image).toBeUndefined();
+    expect(body.color_image).toMatchObject({ type: 'base64', format: 'png' });
   });
 
-  it('defaults init_image_strength to 500 when omitted', async () => {
+  it('defaults init_image_strength to 300 when omitted', async () => {
+    mockFetch(async () => new Response(new Uint8Array([0, 1, 2, 3]).buffer));
     const body = await buildRequestBody({
       prompt: 'cottage', width: 128, height: 128, initImage: 'BASE64DATA',
     });
-    expect(body.init_image_strength).toBe(500);
+    expect(body.init_image_strength).toBe(300);
+  });
+
+  it('maps the corrected pixflux fields (negative_description, isometric, view, text_guidance_scale)', async () => {
+    mockFetch(async () => new Response(new Uint8Array([0, 1, 2, 3]).buffer));
+    const body = await buildRequestBody({
+      prompt: 'cottage', width: 128, height: 128,
+      negativeDescription: 'blurry, text', isometric: true, view: 'high top-down', textGuidanceScale: 10,
+    });
+    expect(body.negative_description).toBe('blurry, text');
+    expect(body.isometric).toBe(true);
+    expect(body.view).toBe('high top-down');
+    expect(body.text_guidance_scale).toBe(10);
   });
 });
 

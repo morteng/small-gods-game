@@ -5,6 +5,7 @@ import type { DevModeController } from './dev-mode-controller';
 import type { DecorationPlacementModalHandle } from '@/ui/decoration-placement-modal';
 import type { DecorationImageCache } from '@/render/decoration-image-cache';
 import { saveDecorations } from '@/services/decoration-store';
+import { findBuildingAtTile } from '@/world/building-helpers';
 
 export interface InteractionControllerDeps {
   state: GameState;
@@ -32,12 +33,25 @@ export class InteractionController {
       .find(e => Math.floor(e.x) === x && Math.floor(e.y) === y);
     if (clicked) {
       this.deps.state.selectedNpcId = this.deps.state.selectedNpcId === clicked.id ? null : clicked.id;
+      this.deps.state.selectedBuildingId = null; // NPC + building selection are mutually exclusive
       if (this.deps.state.pinnedNpcId && this.deps.state.pinnedNpcId !== this.deps.state.selectedNpcId) {
         this.deps.state.pinnedNpcId = null;
       }
-    } else if (!this.deps.state.pinnedNpcId) {
-      this.deps.state.selectedNpcId = null;
+      return;
     }
+
+    // No NPC here — try a building (its footprint covers this tile).
+    const building = findBuildingAtTile(this.deps.state.world, x, y);
+    if (building) {
+      this.deps.state.selectedBuildingId =
+        this.deps.state.selectedBuildingId === building.id ? null : building.id;
+      if (this.deps.state.selectedBuildingId) this.deps.state.selectedNpcId = null;
+      return;
+    }
+
+    // Empty tile — clear both (unless an NPC is pinned).
+    this.deps.state.selectedBuildingId = null;
+    if (!this.deps.state.pinnedNpcId) this.deps.state.selectedNpcId = null;
   }
 
   async onTileRightClick(tileX: number, tileY: number): Promise<void> {

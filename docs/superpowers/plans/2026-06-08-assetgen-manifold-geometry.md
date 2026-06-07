@@ -8,6 +8,8 @@
 
 **Tech Stack:** TypeScript ESM, `manifold-3d@3.5.1` (WASM CSG), Vitest, Node-only asset-gen (browser/Vite wasm plumbing deferred).
 
+> ⚠️ **WORKING-TREE HYGIENE — read first.** The working tree carries a large amount of **unrelated uncommitted WIP** (pixel-perfect rendering, `src/render/iso/*`, many other `src/assetgen/*` files like `asset-brief.ts`/`describe.ts`/`massing-guidance.ts`/`producers/`/`compilers/`/`view-registry.ts`/`floor-guide.ts`, `src/ui/*`, `public/asset-library/blobs/*`). **NEVER run `git add -A`, `git add .`, or `git add -A <dir>`.** Stage only the exact file paths each task lists. `git rm`/delete only the files named here. If a command would touch anything outside this plan's file list, stop and re-scope it.
+
 ---
 
 ## Background the implementer needs
@@ -620,10 +622,17 @@ npx vitest run tests/unit/no-three-in-bundle.test.ts
 ```
 Expected: tsc clean; all assetgen tests pass; no-three guard still green (manifold is not three).
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Commit (EXPLICIT paths only — never `git add -A`)**
 
 ```bash
-git add -A src/assetgen scripts/assetgen-preview.ts tests
+# deletions (primitives.ts is tracked → git rm; roof-unified.ts is UNTRACKED → plain rm, already gone)
+git add src/assetgen/geometry/primitives.ts            # stages the deletion
+git add src/assetgen/geometry/building.ts
+git add scripts/assetgen-preview.ts
+# stage ONLY the assetgen test files you actually changed/deleted, e.g.:
+git add tests/unit/assetgen-compose.test.ts tests/unit/assetgen-solids.test.ts
+# ...and any other tests/unit/assetgen-*.test.ts you rewrote or removed — list each path explicitly.
+git status --short        # VERIFY: only assetgen geometry + its tests are staged; no stray src/ui, src/render, other src/assetgen, or public/ files
 git commit -m "refactor(assetgen): delete hand-rolled geometry; manifold is the construction path"
 ```
 

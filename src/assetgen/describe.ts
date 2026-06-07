@@ -7,7 +7,12 @@
  */
 import type { AssetBrief, DoorFace } from './asset-brief';
 
-const FACE_WORD: Record<DoorFace, string> = { n: 'north', e: 'east', s: 'south', w: 'west' };
+// Screen-relative, matching the compiler's door phrasing (there's no world
+// compass — a face is just a footprint edge, and in iso `s` is the front-left
+// wall, `e` the front-right). Keeps description ↔ prompt aligned on the door.
+const FACE_WORD: Record<DoorFace, string> = {
+  n: 'rear-right', e: 'front-right', s: 'front-left', w: 'rear-left',
+};
 
 /** "a, b and c" */
 function joinList(items: string[]): string {
@@ -28,6 +33,6 @@ export function describeForHuman(brief: AssetBrief): string {
   if (ground) mats.push(`${ground.material} ground`);
   if (mats.length) s += ` with ${joinList(mats)}`;
 
-  if (brief.door) s += `; its door faces ${FACE_WORD[brief.door.face]}`;
+  if (brief.door) s += `; its door is on the ${FACE_WORD[brief.door.face]} wall`;
   return `${s}.`;
 }

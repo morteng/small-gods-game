@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import { drawIsoTerrain } from '@/render/iso/iso-terrain';
-import { TILE_COLORS } from '@/core/constants';
 import type { GameMap, DevModeState } from '@/core/types';
 
 /** A canvas ctx stub that records the fillStyle in effect at each fill() call. */
@@ -12,6 +11,7 @@ function recordingCtx() {
     get fillStyle() { return this._fs; },
     beginPath() {}, moveTo() {}, lineTo() {}, closePath() {},
     fill() { fills.push(this._fs); },
+    imageSmoothingEnabled: true,
   };
   return { ctx: ctx as unknown as CanvasRenderingContext2D, fills };
 }
@@ -27,27 +27,36 @@ function oneTileMap(type: string): GameMap {
 
 const BOUNDS = { minTx: 0, minTy: 0, maxTx: 0, maxTy: 0 };
 
-function paint(type: string, devMode?: DevModeState): string {
+/**
+ * Returns the TOP-diamond fill colour for a single tile (the last of the three
+ * fills: left skirt, right skirt, then top). Per-tile value noise shades the
+ * colour, but tile (0,0) gets the SAME noise factor across every call here, so
+ * two types that resolve to the same base land on the same final colour — we
+ * assert the layer-visibility MAPPING relationally rather than by raw palette.
+ */
+function topFill(type: string, devMode?: DevModeState): string {
   const { ctx, fills } = recordingCtx();
   drawIsoTerrain(ctx, { map: oneTileMap(type), bounds: BOUNDS, originX: 0, originY: 0, devMode });
-  return fills[0];
+  return fills[fills.length - 1];
 }
 
 describe('drawIsoTerrain — road/river sub-layer toggles', () => {
-  it('paints a river tile with the river color by default', () => {
-    expect(paint('river')).toBe(TILE_COLORS.river);
+  it('a river tile differs from ground by default', () => {
+    expect(topFill('river')).not.toBe(topFill('grass'));
   });
 
-  it('paints a river tile with the ground color when rivers are hidden', () => {
-    expect(paint('river', { showRivers: false } as DevModeState)).toBe(TILE_COLORS.grass);
+  it('hiding rivers resolves a river tile to the ground colour', () => {
+    // Same tile coord → same noise factor → identical final colour when both
+    // resolve to grass.
+    expect(topFill('river', { showRivers: false } as DevModeState)).toBe(topFill('grass'));
   });
 
-  it('paints a road tile with the road color by default, ground when hidden', () => {
-    expect(paint('road')).toBe(TILE_COLORS.road);
-    expect(paint('road', { showRoads: false } as DevModeState)).toBe(TILE_COLORS.grass);
+  it('a road tile differs from ground by default, resolves to ground when hidden', () => {
+    expect(topFill('road')).not.toBe(topFill('grass'));
+    expect(topFill('road', { showRoads: false } as DevModeState)).toBe(topFill('grass'));
   });
 
-  it('does not cross-hide: hiding roads leaves rivers painted', () => {
-    expect(paint('river', { showRoads: false } as DevModeState)).toBe(TILE_COLORS.river);
+  it('does not cross-hide: hiding roads leaves a river tile painted as river', () => {
+    expect(topFill('river', { showRoads: false } as DevModeState)).toBe(topFill('river'));
   });
 });

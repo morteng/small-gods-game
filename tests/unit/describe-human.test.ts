@@ -16,6 +16,7 @@ describe('describeForHuman', () => {
     expect(s).toContain('cottage');
     expect(s).toContain('wattle');
     expect(s).toContain('thatch');
-    expect(s).toContain('south');
+    // door {x:1,y:2} on 3x3 → 's' face → screen-relative 'front-left' wall.
+    expect(s).toContain('front-left');
   });
 });

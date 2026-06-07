@@ -32,33 +32,35 @@ const STYLE = `
   pointer-events: auto;
 }
 .sg-llm-card {
-  background: #1a1a2e;
-  border: 1px solid rgba(255,255,255,0.15);
-  border-radius: 12px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--r-4);
   padding: 20px 24px;
   max-width: 480px;
   min-width: 320px;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.4);
-  color: #e0e0e0;
-  font: 14px/1.6 -apple-system, sans-serif;
+  box-shadow: var(--lift-2);
+  color: var(--ink);
+  font-family: var(--f-sans);
+  font-size: var(--t-md);
+  line-height: 1.6;
 }
 .sg-llm-card.narration {
   font-style: italic;
-  color: #b0b0d0;
+  color: var(--ink-2);
   margin-bottom: 12px;
   padding-bottom: 12px;
-  border-bottom: 1px solid rgba(255,255,255,0.1);
+  border-bottom: 1px solid var(--line);
 }
 .sg-llm-card.dialogue {
   position: relative;
   padding-left: 16px;
-  border-left: 3px solid #FFD54F;
+  border-left: 3px solid var(--faith);
 }
 .sg-llm-card.dialogue .speaker {
   font-weight: bold;
-  color: #FFD54F;
+  color: var(--faith);
   margin-bottom: 4px;
-  font-size: 13px;
+  font-size: var(--t-small);
 }
 .sg-llm-close {
   all: unset;
@@ -66,12 +68,12 @@ const STYLE = `
   position: absolute;
   top: 8px;
   right: 12px;
-  color: rgba(255,255,255,0.4);
-  font-size: 18px;
+  color: var(--ink-4);
+  font-size: var(--t-lg);
   transition: color 0.1s;
 }
 .sg-llm-close:hover {
-  color: rgba(255,255,255,0.8);
+  color: var(--ink);
 }
 `;
 

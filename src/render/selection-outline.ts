@@ -4,6 +4,7 @@ import type {
 import type { World } from '@/world/world';
 import type { Spirit, SpiritId } from '@/core/spirit';
 import type { Selection } from '@/dev/inspector/selection';
+import type { BuildingDescriptor } from '@/world/building-descriptor';
 import type { RenderMode } from './select-renderer';
 import { worldToScreen as topdownWorldToScreen } from './camera';
 import { worldToScreen as isoWorldToScreen } from './iso/iso-projection';
@@ -24,6 +25,41 @@ export interface OutlineWorld {
 const POINT_COLOR = '#39d0ff'; // single tile / entity / npc / decoration / spirit
 const AREA_COLOR = '#ffd24a';  // a POI region (multi-tile area)
 const HOVER_COLOR = '#ffffff'; // faint hover preview
+const FOOTPRINT_COLOR = '#39d0ff'; // hovered building footprint tile wash
+
+/** The footprint of a building entity (one with a descriptor), else null. */
+function descriptorFootprint(e: { properties?: unknown } | null | undefined): { w: number; h: number } | null {
+  const fp = (e?.properties as { descriptor?: BuildingDescriptor } | undefined)?.descriptor?.footprint;
+  return fp ? { w: Math.max(1, fp.w), h: Math.max(1, fp.h) } : null;
+}
+
+/** The footprint rect of a building entity by id, or null if it isn't a building. */
+export function buildingFootprintRect(world: World | null, id: string): OutlineRect | null {
+  const e = world?.registry.get(id);
+  const fp = descriptorFootprint(e);
+  return e && fp ? { x: Math.floor(e.x), y: Math.floor(e.y), w: fp.w, h: fp.h } : null;
+}
+
+/**
+ * The footprint rect of the building whose footprint CONTAINS tile (tx,ty), or
+ * null. Resolves a building from any of its occupied tiles (not just the origin
+ * the entity is indexed on), so hovering anywhere on it works. Footprints are
+ * capped at 3×3, so an origin covering (tx,ty) lies within 2 tiles — a small
+ * region query bounds the scan.
+ */
+export function buildingFootprintAt(world: World | null, tx: number, ty: number): OutlineRect | null {
+  if (!world) return null;
+  for (const e of world.query({ region: { x: tx - 2, y: ty - 2, w: 5, h: 5 } })) {
+    const fp = descriptorFootprint(e);
+    if (!fp) continue;
+    const ox = Math.floor(e.x);
+    const oy = Math.floor(e.y);
+    if (tx >= ox && tx < ox + fp.w && ty >= oy && ty < oy + fp.h) {
+      return { x: ox, y: oy, w: fp.w, h: fp.h };
+    }
+  }
+  return null;
+}
 
 /**
  * Resolve a unified Selection to the tile-rect it occupies on the map, or null
@@ -36,6 +72,9 @@ export function resolveOutlineRect(sel: Selection | null, w: OutlineWorld): Outl
     case 'tile':
       return { x: sel.x, y: sel.y, w: 1, h: 1 };
     case 'entity': {
+      // A building outlines its whole footprint; everything else is a single tile.
+      const fp = buildingFootprintRect(w.world, sel.id);
+      if (fp) return fp;
       const e = w.world?.registry.get(sel.id);
       return e ? { x: Math.floor(e.x), y: Math.floor(e.y), w: 1, h: 1 } : null;
     }
@@ -124,6 +163,50 @@ export function drawSelectionOutline(
     shadowBlur: 14 * pulse,
     lineWidth: 2,
   });
+}
+
+/**
+ * Fill every tile in a rect with a translucent wash (iso diamonds / topdown
+ * squares) — used to highlight a hovered building's occupied footprint tiles.
+ * Draws in raw screen space (camera + zoom applied manually), matching the
+ * terrain tile geometry so the wash sits exactly on the tiles.
+ */
+export function fillTileRect(
+  ctx: CanvasRenderingContext2D,
+  rect: OutlineRect,
+  camera: Camera,
+  mode: RenderMode,
+  color: string = FOOTPRINT_COLOR,
+  alpha = 0.28,
+): void {
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = color;
+  if (mode === 'iso') {
+    const halfW = (ISO_TILE_W / 2) * camera.zoom;
+    const halfH = (ISO_TILE_H / 2) * camera.zoom;
+    for (let dy = 0; dy < rect.h; dy++) {
+      for (let dx = 0; dx < rect.w; dx++) {
+        const c = isoTileCenter(rect.x + dx, rect.y + dy, camera);
+        ctx.beginPath();
+        ctx.moveTo(c.sx, c.sy - halfH);
+        ctx.lineTo(c.sx + halfW, c.sy);
+        ctx.lineTo(c.sx, c.sy + halfH);
+        ctx.lineTo(c.sx - halfW, c.sy);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+  } else {
+    const sizePx = TILE_SIZE * camera.zoom;
+    for (let dy = 0; dy < rect.h; dy++) {
+      for (let dx = 0; dx < rect.w; dx++) {
+        const tl = topdownWorldToScreen(camera, rect.x + dx, rect.y + dy, TILE_SIZE);
+        ctx.fillRect(tl.sx, tl.sy, sizePx, sizePx);
+      }
+    }
+  }
+  ctx.restore();
 }
 
 /** Faint, non-pulsing outline for the hovered target (distinct from selection). */

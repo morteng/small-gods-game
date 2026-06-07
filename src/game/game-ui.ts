@@ -13,6 +13,7 @@ import {
 } from '@/ui/decoration-placement-modal';
 import type { ProviderConfig } from '@/llm/provider-factory';
 import { mountNpcAttentionPanel, type NpcAttentionPanelHandle } from '@/ui/npc-attention-panel';
+import { mountBuildingInfoPanel, type BuildingInfoPanelHandle } from '@/ui/building-info-panel';
 import type { NpcAttentionStore } from '@/llm/npc-attention-store';
 
 export interface GameUiCallbacks {
@@ -25,11 +26,13 @@ export interface GameUiCallbacks {
   onZoomIn: () => void;
   onZoomOut: () => void;
   onFitView: () => void;
+  onZoomActual: () => void;
   onNewWorld: () => void;
   attentionStore: NpcAttentionStore;
   onWhisperSend: (npcId: string, text: string) => void;
   onMindOpen: (npcId: string, path: string[], depth: number) => void;
   onMindCrossNav: (entityId: string) => void;
+  onCloseBuilding: () => void;
 }
 
 /**
@@ -43,6 +46,7 @@ export class GameUi {
   readonly debugHud: HTMLDivElement;
   readonly npcInfoPanel: HTMLDivElement;
   readonly npcAttentionPanel: NpcAttentionPanelHandle;
+  readonly buildingInfoPanel: BuildingInfoPanelHandle;
   readonly tooltip: HTMLDivElement;
   readonly llmDisplay: LlmDisplayHandle;
   readonly unifiedSettings: SettingsHandle;
@@ -103,6 +107,7 @@ export class GameUi {
       onMindOpen: cb.onMindOpen,
       onMindCrossNav: cb.onMindCrossNav,
     });
+    this.buildingInfoPanel = mountBuildingInfoPanel(container, { onClose: cb.onCloseBuilding });
 
     // LLM display (shows dialogue/narration from LLM backfill)
     this.llmDisplay = createLlmDisplay(container, {
@@ -203,6 +208,7 @@ export class GameUi {
       onZoomIn: () => cb.onZoomIn(),
       onZoomOut: () => cb.onZoomOut(),
       onFitView: () => cb.onFitView(),
+      onZoomActual: () => cb.onZoomActual(),
     });
   }
 
@@ -210,6 +216,7 @@ export class GameUi {
     this.pausedBanner.remove();
     this.debugHud.remove();
     this.npcAttentionPanel.destroy();
+    this.buildingInfoPanel.destroy();
     this.npcInfoPanel.remove();
     this.tooltip.remove();
     this.bottomLeftBar.remove();

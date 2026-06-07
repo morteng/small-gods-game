@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   resolveOutlineRect, drawSelectionOutline, drawHoverOutline, drawOutlineRect, sameRect,
+  fillTileRect, buildingFootprintRect, buildingFootprintAt,
   type OutlineWorld,
 } from '@/render/selection-outline';
 import { createCamera } from '@/render/camera';
@@ -161,5 +162,91 @@ describe('drawSelectionOutline', () => {
     const point = stubCtx();
     drawSelectionOutline(point.ctx, { type: 'tile', x: 0, y: 0 }, createCamera(), 'topdown', world({}), 0);
     expect(point.getStroke()).toBe('#39d0ff');
+  });
+});
+
+// ─── Building footprint highlighting ──────────────────────────────────────
+
+/**
+ * Duck-typed world for building tests: entities carry a descriptor footprint,
+ * `registry.get` looks up by id, and `query({region})` returns entities whose
+ * ORIGIN falls in the region (mirroring the real spatial index, which indexes a
+ * building at its origin tile).
+ */
+function buildingWorld(
+  buildings: Array<{ id: string; x: number; y: number; w: number; h: number }>,
+): OutlineWorld['world'] {
+  const ents = buildings.map((b) => ({
+    id: b.id, x: b.x, y: b.y,
+    properties: { descriptor: { footprint: { w: b.w, h: b.h } } },
+  }));
+  return {
+    registry: { get: (id: string) => ents.find((e) => e.id === id), getByPoi: () => [] },
+    query: ({ region }: { region: { x: number; y: number; w: number; h: number } }) =>
+      ents.filter((e) =>
+        e.x >= region.x && e.x < region.x + region.w &&
+        e.y >= region.y && e.y < region.y + region.h),
+  } as unknown as OutlineWorld['world'];
+}
+
+function fillCtx() {
+  const calls: string[] = [];
+  const ctx = {
+    save: () => calls.push('save'), restore: () => calls.push('restore'),
+    beginPath: () => calls.push('beginPath'), moveTo() {}, lineTo() {},
+    closePath: () => calls.push('closePath'),
+    fill: () => calls.push('fill'), fillRect: () => calls.push('fillRect'),
+    fillStyle: '', globalAlpha: 1,
+  };
+  return { ctx: ctx as unknown as CanvasRenderingContext2D, calls };
+}
+
+describe('buildingFootprintRect', () => {
+  it('returns the full footprint of a building entity', () => {
+    const w = buildingWorld([{ id: 'b1', x: 4, y: 4, w: 3, h: 2 }]);
+    expect(buildingFootprintRect(w, 'b1')).toEqual({ x: 4, y: 4, w: 3, h: 2 });
+  });
+
+  it('returns null for a non-building (no descriptor)', () => {
+    const w = fakeWorld({ entities: { npc1: { x: 1, y: 1 } } });
+    expect(buildingFootprintRect(w, 'npc1')).toBeNull();
+  });
+});
+
+describe('resolveOutlineRect — buildings', () => {
+  it('an entity selection on a building resolves to its whole footprint', () => {
+    const w = world({ world: buildingWorld([{ id: 'b1', x: 2, y: 5, w: 3, h: 3 }]) });
+    expect(resolveOutlineRect({ type: 'entity', id: 'b1' }, w)).toEqual({ x: 2, y: 5, w: 3, h: 3 });
+  });
+});
+
+describe('buildingFootprintAt', () => {
+  const w = buildingWorld([{ id: 'b1', x: 4, y: 4, w: 3, h: 2 }]); // covers x4..6, y4..5
+
+  it('resolves the building from its ORIGIN tile', () => {
+    expect(buildingFootprintAt(w, 4, 4)).toEqual({ x: 4, y: 4, w: 3, h: 2 });
+  });
+
+  it('resolves the building from a NON-origin footprint tile', () => {
+    expect(buildingFootprintAt(w, 6, 5)).toEqual({ x: 4, y: 4, w: 3, h: 2 });
+  });
+
+  it('returns null just outside the footprint', () => {
+    expect(buildingFootprintAt(w, 7, 5)).toBeNull(); // x=7 is past x4..6
+    expect(buildingFootprintAt(w, 5, 6)).toBeNull(); // y=6 is past y4..5
+  });
+});
+
+describe('fillTileRect', () => {
+  it('fills one diamond per tile in iso (w*h fills)', () => {
+    const { ctx, calls } = fillCtx();
+    fillTileRect(ctx, { x: 0, y: 0, w: 3, h: 2 }, createCamera(), 'iso');
+    expect(calls.filter((c) => c === 'fill')).toHaveLength(6);
+  });
+
+  it('fills one rect per tile in topdown (w*h fillRects)', () => {
+    const { ctx, calls } = fillCtx();
+    fillTileRect(ctx, { x: 0, y: 0, w: 3, h: 2 }, createCamera(), 'topdown');
+    expect(calls.filter((c) => c === 'fillRect')).toHaveLength(6);
   });
 });
