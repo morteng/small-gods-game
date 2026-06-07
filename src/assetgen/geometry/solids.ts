@@ -4,6 +4,7 @@ import { MATERIAL_RGB } from '@/assetgen/types';
 import type { Mesh, Manifold } from 'manifold-3d';
 import type { Vec2 } from '@/assetgen/types';
 import { getManifold } from '@/assetgen/geometry/manifold-runtime';
+import { STOREY, type Wing, type RoofStyle } from '@/assetgen/geometry/building';
 
 const sub = (a: Vec3, b: Vec3): Vec3 => [a[0]-b[0], a[1]-b[1], a[2]-b[2]];
 const cross = (u: Vec3, v: Vec3): Vec3 =>
@@ -76,4 +77,68 @@ export async function solidArch(at: Vec3, span: number, height: number, thicknes
   const right = Manifold.cube([t, t, height]).translate([at[0] + span - t, at[1], at[2]]);
   const beam  = Manifold.cube([span, t, t]).translate([at[0], at[1], at[2] + height]);
   return Manifold.union([left, right, beam]);
+}
+
+// ---------------------------------------------------------------------------
+// Building massing — walls + roof as two unioned solids
+// ---------------------------------------------------------------------------
+
+const GABLE_PITCH = 1.5, HIP_PITCH = 1.35;
+
+/**
+ * A gable-roof prism over one wing rect, ridge along the given world axis, sitting on
+ * the wall top. The 2D profile (span across, rise up) is extruded +Z by the ridge length,
+ * then rotated/translated so its footprint lands exactly on the wing rect. Euler angles +
+ * translates were tuned empirically from the prism bbox (see assetgen-solids tests).
+ */
+async function wingGablePrism(w: Wing, ridgeAxis: 'x' | 'y', pitch: number): Promise<Manifold> {
+  const { Manifold } = await getManifold();
+  const b = (w.storeys ?? 1) * STOREY;
+  if (ridgeAxis === 'x') {
+    // span = w.h, ridge length = w.w. extrude→rotate[90,0,90] lands footprint at origin
+    // sized [w.w,w.h] with rise in +Z; translate onto the wing at the wall top.
+    const rise = pitch * (w.h / 2);
+    const profile = [[0, 0], [w.h, 0], [w.h / 2, rise]] as [number, number][];
+    return Manifold.extrude(profile, w.w)
+      .rotate([90, 0, 90])
+      .translate([w.x, w.y, b]);
+  } else {
+    // span = w.w, ridge length = w.h. rotate[90,0,0] puts ridge along −Y; translate by
+    // +w.h brings it to [w.y, w.y+w.h]; span sits in +X, rise in +Z.
+    const rise = pitch * (w.w / 2);
+    const profile = [[0, 0], [w.w, 0], [w.w / 2, rise]] as [number, number][];
+    return Manifold.extrude(profile, w.h)
+      .rotate([90, 0, 0])
+      .translate([w.x, w.y + w.h, b]);
+  }
+}
+
+/** One wing's roof solid: gable (single prism) or hip (two perpendicular prisms intersected). */
+async function wingRoof(w: Wing, style: RoofStyle): Promise<Manifold> {
+  const longAxis: 'x' | 'y' = w.w >= w.h ? 'x' : 'y';
+  if (style === 'gable') return wingGablePrism(w, longAxis, GABLE_PITCH);
+  const px = await wingGablePrism(w, 'x', HIP_PITCH);
+  const py = await wingGablePrism(w, 'y', HIP_PITCH);
+  return px.intersect(py);
+}
+
+/**
+ * Full building massing as flat-normal facets. Walls + roof are two separate unioned solids
+ * (disjoint in z), each its own material. Crossed roof prisms union into correct hips/valleys
+ * by construction — replaces the hand-rolled height field (kills the roof-valley stripe).
+ */
+export async function buildingFacets(
+  wings: Wing[], wallMat: Mat = 'plaster', roofMat: Mat = 'tile', roofStyle: RoofStyle = 'gable',
+): Promise<WorldFacet[]> {
+  const { Manifold } = await getManifold();
+  const wallSolids = await Promise.all(
+    wings.map(w => solidBox([w.x, w.y, 0], [w.w, w.h, (w.storeys ?? 1) * STOREY])),
+  );
+  const roofSolids = await Promise.all(wings.map(w => wingRoof(w, roofStyle)));
+  const walls = Manifold.union(wallSolids);
+  const roof = Manifold.union(roofSolids);
+  return [
+    ...manifoldToFacets(walls.getMesh(), wallMat),
+    ...manifoldToFacets(roof.getMesh(), roofMat),
+  ];
 }

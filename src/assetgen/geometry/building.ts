@@ -1,9 +1,10 @@
 // src/assetgen/geometry/building.ts
 import type { Vec3, Mat, RGB, WorldFacet } from '@/assetgen/types';
 import { MATERIAL_RGB } from '@/assetgen/types';
-import { unifiedRoofFacets, type RoofStyle } from '@/assetgen/geometry/roof-unified';
+import { unifiedRoofFacets } from '@/assetgen/geometry/roof-unified';
 
 export type RoofKind = 'gable' | 'hip' | 'pyramidal' | 'flat';
+export type RoofStyle = 'gable' | 'hip';
 export interface Wing { x: number; y: number; w: number; h: number; storeys?: number; roof?: RoofKind }
 
 export const STOREY = 2.1;                           // cube-units of height per storey

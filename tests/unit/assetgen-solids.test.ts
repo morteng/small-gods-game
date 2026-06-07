@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { getManifold } from '@/assetgen/geometry/manifold-runtime';
-import { manifoldToFacets, solidBox, solidCylinder, solidCone, solidArch } from '@/assetgen/geometry/solids';
+import { manifoldToFacets, solidBox, solidCylinder, solidCone, solidArch, buildingFacets } from '@/assetgen/geometry/solids';
+import type { Wing } from '@/assetgen/geometry/building';
 
 describe('manifoldToFacets', () => {
   it('emits one flat-shaded facet per mesh triangle of a closed cube', async () => {
@@ -55,5 +56,34 @@ describe('primitive solids', () => {
     const bb = m.boundingBox();
     expect(bb.max[0]).toBeCloseTo(2, 2);        // spans the full span in +x
     expect(bb.max[2]).toBeCloseTo(2.4, 2);      // height + lintel thickness
+  });
+});
+
+describe('buildingFacets (manifold)', () => {
+  const cross: Wing[] = [
+    { x: 0, y: 1, w: 4, h: 2 },   // nave (long axis x)
+    { x: 1, y: 0, w: 2, h: 4 },   // transept (long axis y)
+  ];
+
+  it('emits facets for a multi-wing footprint without throwing', async () => {
+    const facets = await buildingFacets(cross, 'plaster', 'tile', 'gable');
+    expect(facets.length).toBeGreaterThan(0);
+  });
+
+  it('roof reaches above the wall top (a ridge exists)', async () => {
+    const facets = await buildingFacets(cross, 'plaster', 'tile', 'gable');
+    const maxZ = Math.max(...facets.flatMap(f => f.pts.map(p => p[2])));
+    expect(maxZ).toBeGreaterThan(2.1);   // STOREY = 2.1 wall top
+  });
+
+  it('hip roof of a single square wing peaks at one apex', async () => {
+    const square: Wing[] = [{ x: 0, y: 0, w: 2, h: 2 }];
+    const facets = await buildingFacets(square, 'plaster', 'tile', 'hip');
+    const top = Math.max(...facets.flatMap(f => f.pts.map(p => p[2])));
+    const apexPts = facets.flatMap(f => f.pts).filter(p => Math.abs(p[2] - top) < 1e-6);
+    const xs = new Set(apexPts.map(p => p[0].toFixed(3)));
+    const ys = new Set(apexPts.map(p => p[1].toFixed(3)));
+    expect(xs.size).toBe(1);
+    expect(ys.size).toBe(1);
   });
 });
