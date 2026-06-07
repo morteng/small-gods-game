@@ -110,3 +110,11 @@ export function roofFacets(occ: Set<string>, w: Wing, roofMat: Mat): { facets: W
   }
   return { facets, meta };
 }
+
+/** Full building massing: exterior walls + a roof per wing. World-space facets. */
+export function buildingFacets(wings: Wing[], wallMat: Mat = 'plaster', roofMat: Mat = 'tile'): WorldFacet[] {
+  const occ = occupancy(wings);
+  const out = wallFacets(wings, occ, wallMat);
+  for (const w of wings) out.push(...roofFacets(occ, w, roofMat).facets);
+  return out;
+}

@@ -4,6 +4,8 @@ import { occupancy, cellRect, wingRect, type Wing } from '@/assetgen/geometry/bu
 import { wallFacets } from '@/assetgen/geometry/building';
 import { frontFacing } from '@/assetgen/render/projection';
 import { roofFacets } from '@/assetgen/geometry/building';
+import { buildingFacets } from '@/assetgen/geometry/building';
+import { composeStructure, type StructureSpec } from '@/assetgen/compose';
 
 describe('building footprint helpers', () => {
   it('occupancy collects every cell of every wing', () => {
@@ -81,5 +83,32 @@ describe('roof facets', () => {
   it('flat roof emits no roof facets (cell tops cover it)', () => {
     const { facets } = roofFacets(occ1, { x: 0, y: 0, w: 3, h: 2, roof: 'flat' }, 'tile');
     expect(facets).toHaveLength(0);
+  });
+});
+
+const BUILDINGS: Record<string, Wing[]> = {
+  cottage:      [{ x: 0, y: 0, w: 3, h: 3, roof: 'gable' }],
+  tavern:       [{ x: 0, y: 0, w: 3, h: 3, storeys: 2, roof: 'hip' }],
+  longhouse:    [{ x: 0, y: 0, w: 4, h: 2, roof: 'gable' }],
+  l_house:      [{ x: 0, y: 0, w: 4, h: 2, roof: 'gable' }, { x: 0, y: 0, w: 2, h: 4, roof: 'gable' }],
+  cross_chapel: [{ x: 0, y: 1, w: 4, h: 2, roof: 'gable' }, { x: 1, y: 0, w: 2, h: 4, roof: 'gable' }],
+};
+
+describe('buildingFacets + building part', () => {
+  it('buildingFacets combines walls + a roof per wing', () => {
+    const f = buildingFacets(BUILDINGS.cottage);
+    expect(f.length).toBeGreaterThan(5); // walls (9 cells worth) + 4 roof facets
+  });
+
+  it('every reference building composes to aligned grey + normal with a real bbox', () => {
+    for (const [name, wings] of Object.entries(BUILDINGS)) {
+      const spec: StructureSpec = { size: 256, parts: [{ prim: 'building', wings }] };
+      const r = composeStructure(spec);
+      let mismatches = 0;
+      for (let i = 3; i < r.grey.length; i += 4) if ((r.grey[i] > 0) !== (r.normal[i] > 0)) mismatches++;
+      expect(mismatches, `${name} grey/normal mask aligned`).toBe(0);
+      expect(r.bbox.w, `${name} has width`).toBeGreaterThan(0);
+      expect(r.bbox.h, `${name} has height`).toBeGreaterThan(0);
+    }
   });
 });
