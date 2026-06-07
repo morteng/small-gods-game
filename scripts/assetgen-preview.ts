@@ -39,10 +39,14 @@ function toPng(buf: Uint8ClampedArray, size: number): Buffer {
   return PNG.sync.write(png);
 }
 
-for (const [name, spec] of Object.entries(SAMPLES)) {
-  const r = composeStructure(spec);
-  await writeFile(join(OUT, `${name}-grey.png`), toPng(r.grey, r.size));
-  await writeFile(join(OUT, `${name}-normal.png`), toPng(r.normal, r.size));
-  console.log(`${name}: bbox ${JSON.stringify(r.bbox)}`);
+async function main() {
+  for (const [name, spec] of Object.entries(SAMPLES)) {
+    const r = await composeStructure(spec);
+    await writeFile(join(OUT, `${name}-grey.png`), toPng(r.grey, r.size));
+    await writeFile(join(OUT, `${name}-normal.png`), toPng(r.normal, r.size));
+    console.log(`${name}: bbox ${JSON.stringify(r.bbox)}`);
+  }
+  console.log(`Wrote grey+normal PNGs for ${Object.keys(SAMPLES).length} samples to ${OUT}/`);
 }
-console.log(`Wrote grey+normal PNGs for ${Object.keys(SAMPLES).length} samples to ${OUT}/`);
+
+main().catch(err => { console.error(err); process.exit(1); });

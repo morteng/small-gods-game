@@ -1,7 +1,7 @@
 // tests/unit/assetgen-fit.test.ts
 import { describe, it, expect } from 'vitest';
 import { opaqueBounds, computeFit } from '@/assetgen/render/fit';
-import { box } from '@/assetgen/geometry/primitives';
+import { solidBox, manifoldToFacets } from '@/assetgen/geometry/solids';
 import { projectFacets } from '@/assetgen/render/projection';
 import { rasterize } from '@/assetgen/render/rasterize';
 
@@ -13,9 +13,9 @@ describe('fit', () => {
     expect(opaqueBounds(d, 8)).toEqual({ x:2, y:3, w:4, h:4 });
   });
 
-  it('fits a box to ~fillFrac of the frame, centred', () => {
+  it('fits a box to ~fillFrac of the frame, centred', async () => {
     const SIZE = 256, FILL = 0.88;
-    const facets = box([0,0,0], [2,2,3], 'stone');
+    const facets = manifoldToFacets((await solidBox([0,0,0], [2,2,3])).getMesh(), 'stone');
     const fit = computeFit(facets, SIZE, FILL);
     const grey = rasterize(projectFacets(facets, fit), SIZE, 'albedo');
     const b = opaqueBounds(grey, SIZE);
