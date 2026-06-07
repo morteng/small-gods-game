@@ -5,18 +5,18 @@ import { MATERIAL_RGB } from '@/assetgen/types';
 export type RoofKind = 'gable' | 'hip' | 'pyramidal' | 'flat';
 export interface Wing { x: number; y: number; w: number; h: number; storeys?: number; roof?: RoofKind }
 
-const STOREY = 2.1;                                  // cube-units of height per storey
-const INSET = 0.32;                                  // exterior-side footprint inset (tiles)
-const PITCH: Record<RoofKind, number> = { gable: 1.5, hip: 1.35, pyramidal: 1.7, flat: 0 };
+export const STOREY = 2.1;                           // cube-units of height per storey
+export const INSET = 0.32;                            // exterior-side footprint inset (tiles)
+export const PITCH: Record<RoofKind, number> = { gable: 1.5, hip: 1.35, pyramidal: 1.7, flat: 0 };
 
-const shade = (c: RGB, f: number): RGB => [Math.round(c[0]*f), Math.round(c[1]*f), Math.round(c[2]*f)];
+export const shade = (c: RGB, f: number): RGB => [Math.round(c[0]*f), Math.round(c[1]*f), Math.round(c[2]*f)];
 
 export function occupancy(wings: Wing[]): Set<string> {
   const s = new Set<string>();
   for (const w of wings) for (let i = w.x; i < w.x+w.w; i++) for (let j = w.y; j < w.y+w.h; j++) s.add(i+','+j);
   return s;
 }
-const has = (occ: Set<string>, i: number, j: number): boolean => occ.has(i+','+j);
+export const has = (occ: Set<string>, i: number, j: number): boolean => occ.has(i+','+j);
 
 export function cellStoreys(wings: Wing[], i: number, j: number): number {
   let m = 1;
@@ -49,4 +49,20 @@ export function wingRect(occ: Set<string>, w: Wing): Rect {
 }
 
 // (wallFacets / roofFacets / buildingFacets land in the following tasks.)
-export { STOREY, INSET, PITCH, shade, has };
+
+/** Per-cell exterior walls (all four sides; shared sides culled) + a top cap. World space. */
+export function wallFacets(wings: Wing[], occ: Set<string>, wallMat: Mat): WorldFacet[] {
+  const c = MATERIAL_RGB[wallMat];
+  const out: WorldFacet[] = [];
+  for (const k of occ) {
+    const [i, j] = k.split(',').map(Number);
+    const r = cellRect(occ, i, j);
+    const b = cellStoreys(wings, i, j) * STOREY;
+    if (!has(occ, i, j-1)) out.push({ pts: [[r.x0,r.y0,0],[r.x1,r.y0,0],[r.x1,r.y0,b],[r.x0,r.y0,b]], normal: [0,-1,0], albedo: shade(c, 0.5) });  // north (culled at view)
+    if (!has(occ, i, j+1)) out.push({ pts: [[r.x0,r.y1,0],[r.x1,r.y1,0],[r.x1,r.y1,b],[r.x0,r.y1,b]], normal: [0,1,0],  albedo: shade(c, 0.62) }); // south
+    if (!has(occ, i-1, j)) out.push({ pts: [[r.x0,r.y0,0],[r.x0,r.y1,0],[r.x0,r.y1,b],[r.x0,r.y0,b]], normal: [-1,0,0], albedo: shade(c, 0.5) });  // west (culled)
+    if (!has(occ, i+1, j)) out.push({ pts: [[r.x1,r.y0,0],[r.x1,r.y1,0],[r.x1,r.y1,b],[r.x1,r.y0,b]], normal: [1,0,0],  albedo: shade(c, 0.82) }); // east
+    out.push({ pts: [[r.x0,r.y0,b],[r.x1,r.y0,b],[r.x1,r.y1,b],[r.x0,r.y1,b]], normal: [0,0,1], albedo: shade(c, 0.95) }); // top cap
+  }
+  return out;
+}
