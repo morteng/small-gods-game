@@ -48,9 +48,16 @@ export interface GuideRenderer {
 export async function createGuideRenderer(): Promise<GuideRenderer> {
   const bundle = await bundlePage();
   const browser = await puppeteer.launch({ executablePath: resolveChromePath(), headless: true });
-  const page = await browser.newPage();
-  await page.setContent('<canvas id="c"></canvas>');
-  await page.addScriptTag({ content: bundle });
+  // If page setup throws after launch, close the browser so we never leak a Chrome process.
+  let page: Awaited<ReturnType<typeof browser.newPage>>;
+  try {
+    page = await browser.newPage();
+    await page.setContent('<canvas id="c"></canvas>');
+    await page.addScriptTag({ content: bundle });
+  } catch (err) {
+    await browser.close();
+    throw err;
+  }
   return {
     async render(d) {
       const brief = buildingBrief(d, 0);

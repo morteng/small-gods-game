@@ -56,8 +56,15 @@ window.renderMassing = (d, w, h) => {
   renderer.render(scene, camera);
   const color = canvas.toDataURL('image/png');
 
-  // Depth pass — MeshDepthMaterial, lights/lines dropped, opaque background.
-  scene.traverse(o => { const me = o as THREE.Mesh; if (me.isMesh) me.material = new THREE.MeshDepthMaterial(); });
+  // Depth pass — grayscale depth of the solid massing, for a future ControlNet
+  // provider (PixelLab does not consume it today). Swap meshes to depth material,
+  // drop lights, and hide the tile grid (its LineSegments would streak the field).
+  // NOTE: this mutates `scene` in place; fine because it is freshly built per call.
+  scene.traverse(o => {
+    const me = o as THREE.Mesh;
+    if (me.isMesh) me.material = new THREE.MeshDepthMaterial();
+    else if ((o as THREE.LineSegments).isLineSegments) o.visible = false;
+  });
   scene.children = scene.children.filter(c => !(c as THREE.Light).isLight);
   renderer.setClearColor(0xffffff, 1);
   renderer.render(scene, camera);
