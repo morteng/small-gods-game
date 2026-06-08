@@ -32,6 +32,33 @@ describe('body part — toPrims', () => {
     const prims = bodyPartType.toPrims(part({ plan: 'round', levels: 1, roof: 'domed' }, { w: 2, h: 2 }), ctx);
     expect(prims.map(p => p.prim)).toEqual(['cylinder', 'ellipsoid']);
   });
+  it('domed cap embeds: dome centre snaps to the cylinder top (lower hemisphere inside the wall)', () => {
+    const prims = bodyPartType.toPrims(part({ plan: 'round', levels: 1, roof: 'domed' }, { w: 2, h: 2 }), ctx);
+    const cyl = prims.find(p => p.prim === 'cylinder');
+    const dome = prims.find(p => p.prim === 'ellipsoid');
+    if (cyl?.prim !== 'cylinder' || dome?.prim !== 'ellipsoid') throw new Error('expected cylinder + ellipsoid');
+    const wallTop = cyl.baseZ + cyl.height;           // top of the wall
+    const domeCentreZ = dome.baseZ + dome.radii[2];   // solidEllipsoid centres at baseZ + radii[2]
+    expect(domeCentreZ).toBeCloseTo(wallTop);         // centre snapped to the wall top, not floating above
+  });
+  it('round body with a smoke vent bores an open skylight (toono) through the dome apex', () => {
+    const p = { id: 'body', type: 'body', at: { x: 0, y: 0 }, size: { w: 2, h: 2 },
+      params: { plan: 'round', levels: 1, roof: 'domed' },
+      features: [{ id: 'v', type: 'vent', params: { kind: 'smokehole' } }] } as unknown as ResolvedPart;
+    const prims = bodyPartType.toPrims(p, ctx);
+    // No extra prim — the hole is carved into the dome, not added on top.
+    expect(prims.map(pr => pr.prim)).toEqual(['cylinder', 'ellipsoid']);
+    const dome = prims[1];
+    if (dome.prim !== 'ellipsoid') throw new Error('expected dome ellipsoid');
+    expect(dome.bore).toBeDefined();
+    expect(dome.bore!.radius).toBeGreaterThan(0);
+    expect(dome.bore!.depth).toBeGreaterThan(0);
+  });
+  it('round body without a vent has no bored skylight', () => {
+    const prims = bodyPartType.toPrims(part({ plan: 'round', levels: 1, roof: 'domed' }, { w: 2, h: 2 }), ctx);
+    const dome = prims[1];
+    expect(dome.prim === 'ellipsoid' && dome.bore).toBeUndefined();
+  });
   it('stepped → stacked boxes', () => {
     const prims = bodyPartType.toPrims(part({ plan: 'stepped', levels: 3, levelInset: 1, roof: 'stepped' }), ctx);
     expect(prims.every(p => p.prim === 'box')).toBe(true);

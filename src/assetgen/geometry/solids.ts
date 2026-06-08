@@ -94,6 +94,14 @@ export async function carveApertures(solid: Manifold, apertures: ApertureBox[] =
   return solid.subtract(Manifold.union(holes));
 }
 
+/** Bore a round vertical well of `depth` straight down from `topZ` at `center`, radius `radius`.
+ *  Used for round roof oculi (the yurt's open toono). Pokes slightly past `topZ` for a clean lip. */
+export async function boreCylinder(solid: Manifold, center: Vec2, topZ: number, radius: number, depth: number): Promise<Manifold> {
+  const eps = 0.1;
+  const cutter = await solidCylinder(center, topZ - depth, radius, depth + eps);
+  return solid.subtract(cutter);
+}
+
 // ---------------------------------------------------------------------------
 // Building massing — walls + roof as two unioned solids
 // ---------------------------------------------------------------------------

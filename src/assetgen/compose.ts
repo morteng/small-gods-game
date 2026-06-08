@@ -2,7 +2,7 @@
 import type { Vec3, Mat, WorldFacet } from '@/assetgen/types';
 import {
   solidBox, solidCylinder, solidCone, solidPrism, solidEllipsoid, solidArch,
-  manifoldToFacets, buildingFacets, carveApertures,
+  manifoldToFacets, buildingFacets, carveApertures, boreCylinder,
 } from '@/assetgen/geometry/solids';
 import type { ApertureBox } from '@/assetgen/geometry/solids';
 import type { Wing, RoofStyle, BuildingFeatures, BuildingAnchors } from '@/assetgen/geometry/building';
@@ -17,7 +17,7 @@ export type Part =
   | { prim: 'cylinder'; center: [number, number]; baseZ: number; radius: number; height: number; material?: Mat; apertures?: ApertureBox[] }
   | { prim: 'cone'; center: [number, number]; baseZ: number; radius: number; height: number; material?: Mat }
   | { prim: 'prism'; center: [number, number]; baseZ: number; radius: number; height: number; sides: number; material?: Mat }
-  | { prim: 'ellipsoid'; center: [number, number]; baseZ: number; radii: Vec3; material?: Mat }
+  | { prim: 'ellipsoid'; center: [number, number]; baseZ: number; radii: Vec3; material?: Mat; bore?: { radius: number; depth: number } }
   | { prim: 'arch'; at: Vec3; span: number; height: number; thickness: number; material?: Mat }
   | { prim: 'building'; wings: Wing[]; wallMat?: Mat; roofMat?: Mat; roofStyle?: RoofStyle; features?: BuildingFeatures; seed?: number; apertures?: ApertureBox[] }
   | { prim: 'linear'; run: BarrierRun };
@@ -51,7 +51,11 @@ async function partFacets(p: Part): Promise<{ facets: WorldFacet[]; anchors?: Bu
     }
     case 'cone':      return { facets: manifoldToFacets((await solidCone(p.center, p.baseZ, 0, p.radius, p.height)).getMesh(), p.material ?? 'foliage') };
     case 'prism':     return { facets: manifoldToFacets((await solidPrism(p.center, p.baseZ, p.radius, p.height, p.sides)).getMesh(), p.material ?? 'stone') };
-    case 'ellipsoid': return { facets: manifoldToFacets((await solidEllipsoid(p.center, p.baseZ, p.radii)).getMesh(), p.material ?? 'foliage') };
+    case 'ellipsoid': {
+      let s = await solidEllipsoid(p.center, p.baseZ, p.radii);
+      if (p.bore) s = await boreCylinder(s, p.center, p.baseZ + 2 * p.radii[2], p.bore.radius, p.bore.depth);
+      return { facets: manifoldToFacets(s.getMesh(), p.material ?? 'foliage') };
+    }
     case 'arch':      return { facets: manifoldToFacets((await solidArch(p.at, p.span, p.height, p.thickness)).getMesh(), p.material ?? 'stone') };
     case 'building':  return buildingFacets(p.wings, p.wallMat, p.roofMat, p.roofStyle, p.features, p.seed, p.apertures);
     case 'linear':    { const r = await linearFacets(p.run); return { facets: r.facets, linearAnchors: r.anchors }; }

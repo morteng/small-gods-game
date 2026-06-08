@@ -67,9 +67,9 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
     parts: { body: { type: 'body', size: { w: 2, h: 2 }, params: { plan: 'rect', levels: 1, heightPerLevel: 1.2, roof: 'hip' }, features: { door: { type: 'door', face: 'west' } } } },
   }),
   yurt: bp('yurt', {
-    category: 'residential', era: 'primordial', footprint: { w: 2, h: 2 },
+    category: 'residential', era: 'primordial', footprint: { w: 3, h: 3 },
     materials: { walls: 'hide', roof: 'hide', ground: 'dirt' },
-    parts: { body: { type: 'body', size: { w: 2, h: 2 }, params: { plan: 'round', levels: 1, heightPerLevel: 0.9, roof: 'domed' }, features: { door: { type: 'door', face: 'west' }, smoke: { type: 'vent', params: { kind: 'smokehole' } } } } },
+    parts: { body: { type: 'body', size: { w: 3, h: 3 }, params: { plan: 'round', levels: 1, heightPerLevel: 0.9, roof: 'domed' }, features: { door: { type: 'door', face: 'west' }, smoke: { type: 'vent', params: { kind: 'smokehole' } } } } },
   }),
   longhouse: bp('longhouse', {
     category: 'residential', era: 'medieval', footprint: { w: 4, h: 2 },

@@ -6,6 +6,7 @@ import type { PartType, CompileCtx, ResolveCtx } from '../registry';
 import type { Mat } from '@/assetgen/types';
 import type { Wing, RoofKind } from '@/assetgen/geometry/building';
 import { STOREY } from '@/assetgen/geometry/building';
+import { DOOR_HEIGHT_UNITS } from '@/render/scale-contract';
 import type { Part as Prim } from '@/assetgen/compose';
 import type { Anchor } from '@/world/anchors';
 
@@ -55,13 +56,27 @@ export function bodyWings(p: ResolvedPart): Array<{ x: number; y: number; w: num
 function roundPrims(p: ResolvedPart, ctx: CompileCtx): Prim[] {
   const { w, h } = p.size;
   const r = Math.min(w, h) / 2, cx = w / 2 + p.at.x, cy = h / 2 + p.at.y;
-  const wallH = Math.max(1, p.params.levels as number) * STOREY;
+  // Yurts are squat: the felt wall (khana) stands only a touch above the door, and the
+  // dome is shallow. Anchor both to the door opening (not the fixed multi-storey STOREY, which
+  // would render a 2.5×-door-tall wall), and decouple the dome rise from radius so WIDE yurts
+  // stay shallow instead of ballooning into a tall hemisphere.
+  const wallH = Math.max(1, p.params.levels as number) * DOOR_HEIGHT_UNITS * 1.15;
   const out: Prim[] = [{ prim: 'cylinder', center: [cx, cy], baseZ: 0, radius: r, height: wallH, material: wallMatOf(ctx) }];
   const roof = p.params.roof as string;
-  if (roof === 'flat') return out;
+  // A round body emits no `building` prim, so a smoke-vent feature can't ride a roof ridge.
+  // Render it instead as the yurt's toono: a round hole bored straight through the dome apex.
+  const hasVent = p.features.some(f => f.type === 'vent');
   if (roof === 'domed' || roof === 'onion') {
-    out.push({ prim: 'ellipsoid', center: [cx, cy], baseZ: wallH, radii: [r, r, r * 0.8], material: roofMatOf(ctx) });
-  } else {
+    // Snap the dome's centre to the cylinder's top centre: the lower hemisphere embeds
+    // inside the wall (occluded), so the dome caps the cylinder instead of floating above it.
+    // solidEllipsoid centres at baseZ + radii[2], so baseZ = wallH - radii[2] puts the centre at wallH.
+    // Rise = 1.5× the door opening (shallow), capped at the radius so narrow yurts never go pointy.
+    const domeRz = Math.min(r, DOOR_HEIGHT_UNITS * 1.5);
+    out.push({
+      prim: 'ellipsoid', center: [cx, cy], baseZ: wallH - domeRz, radii: [r, r, domeRz], material: roofMatOf(ctx),
+      ...(hasVent ? { bore: { radius: r * 0.28, depth: domeRz * 0.9 } } : {}),
+    });
+  } else if (roof !== 'flat') {
     out.push({ prim: 'cone', center: [cx, cy], baseZ: wallH, radius: r, height: r * 1.2, material: roofMatOf(ctx) });
   }
   return out;
