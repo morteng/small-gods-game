@@ -19,18 +19,19 @@ const cottage: Blueprint = {
 };
 
 describe('toGeometry', () => {
-  it('rect body → one building prim with the wing, door, and vent folded in', () => {
+  it('rect body → one building prim; door becomes a carved aperture + filler leaf', () => {
     const spec = toGeometry(resolveBlueprint([cottage], 0));
-    expect(spec.parts).toHaveLength(1);
-    const p = spec.parts[0];
-    expect(p.prim).toBe('building');
-    if (p.prim === 'building') {
-      expect(p.wings).toEqual([{ x: 0, y: 0, w: 2, h: 2, storeys: 1, roof: 'gable' }]);
-      expect(p.wallMat).toBe('plaster');   // wattle → plaster
-      expect(p.roofMat).toBe('thatch');
-      expect(p.features?.doors?.[0]).toMatchObject({ face: 'south', main: true });
-      expect(p.features?.vents?.[0]).toMatchObject({ wing: 0, kind: 'chimney' });
+    const building = spec.parts.find(p => p.prim === 'building')!;
+    expect(building.prim).toBe('building');
+    if (building.prim === 'building') {
+      expect(building.wings).toEqual([{ x: 0, y: 0, w: 2, h: 2, storeys: 1, roof: 'gable' }]);
+      expect(building.wallMat).toBe('plaster');
+      expect(building.roofMat).toBe('thatch');
+      expect(building.apertures?.length).toBe(1);                 // door carved the wall
+      expect(building.features?.vents?.[0]).toMatchObject({ wing: 0, kind: 'chimney' });
     }
+    const leaf = spec.parts.find(p => p.prim === 'box' && p.material === 'door');
+    expect(leaf).toBeDefined();
   });
 
   it('round body → cylinder + cap, no building prim', () => {
@@ -41,6 +42,19 @@ describe('toGeometry', () => {
     };
     const spec = toGeometry(resolveBlueprint([yurt], 0));
     expect(spec.parts.map(p => p.prim)).toEqual(['cylinder', 'ellipsoid']);
+  });
+
+  it('round body with a door → cylinder carries the aperture + a filler leaf prim', () => {
+    const yurt: Blueprint = {
+      version: BLUEPRINT_VERSION, class: 'building', footprint: { w: 2, h: 2 },
+      materials: { walls: 'hide', roof: 'hide' },
+      parts: { body: { type: 'body', size: { w: 2, h: 2 }, params: { plan: 'round', levels: 1, roof: 'domed' },
+        features: { door: { type: 'door', face: 'south' } } } },
+    };
+    const spec = toGeometry(resolveBlueprint([yurt], 0));
+    const cyl = spec.parts.find(p => p.prim === 'cylinder')!;
+    expect(cyl.prim === 'cylinder' && cyl.apertures?.length).toBe(1);
+    expect(spec.parts.some(p => p.prim === 'box' && p.material === 'door')).toBe(true);
   });
 
   it('body + wing → wings merged into one building prim', () => {

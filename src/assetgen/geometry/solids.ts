@@ -224,15 +224,6 @@ async function ventSolid(
   return { solid, anchor: [cx, cy, topZ], mat };
 }
 
-/**
- * Full building massing as flat-normal facets + world-space anchors. Per wing, the walls are
- * a union of per-storey boxes (upper storeys may jetty outward); the roof is its own solid
- * honouring the wing's roof kind + ridge axis. Each door/vent is a separate solid carrying its
- * own material and standing proud (the per-pixel z-buffer shows the nearest) — no booleans.
- * Crossed roof prisms union into correct hips/valleys by construction (kills the stripe).
- *
- * Every feature is resolved from `features` (explicit) or derived deterministically from `seed`.
- */
 export async function buildingFacets(
   wings: Wing[],
   wallMat: Mat = 'plaster',
@@ -240,9 +231,11 @@ export async function buildingFacets(
   roofStyle: RoofStyle = 'gable',
   features: BuildingFeatures = {},
   seed = 0,
+  apertures: ApertureBox[] = [],
 ): Promise<{ facets: WorldFacet[]; anchors: BuildingAnchors }> {
   const { Manifold } = await getManifold();
-  // Walls: union every storey box of every wing (upper storeys grown by jetty).
+  // Walls: union every storey box of every wing (upper storeys grown by jetty), then
+  // carve any openings (doors/windows) so they read as recesses, not proud boxes.
   const wallBoxes: Manifold[] = [];
   for (const w of wings) {
     const n = w.storeys ?? 1;
@@ -252,21 +245,16 @@ export async function buildingFacets(
     }
   }
   const roofSolids = await Promise.all(wings.map(w => wingRoof(w, roofStyle)));
-  const walls = Manifold.union(wallBoxes);
+  const walls = await carveApertures(Manifold.union(wallBoxes), apertures);
   const roof = Manifold.union(roofSolids);
 
-  const { doors, vents } = resolveFeatures(wings, features, seed);
+  const { vents } = resolveFeatures(wings, features, seed);
   const facets: WorldFacet[] = [
     ...manifoldToFacets(walls.getMesh(), wallMat),
     ...manifoldToFacets(roof.getMesh(), roofMat),
   ];
-  const anchors: BuildingAnchors = { doors: [], vents: [] };
+  const anchors: BuildingAnchors = { vents: [] };
 
-  for (const d of doors) {
-    const ds = await doorSolid(d);
-    facets.push(...manifoldToFacets(ds.solid.getMesh(), 'door'));
-    anchors.doors.push({ pos: ds.anchor, main: d.main });
-  }
   for (const v of vents) {
     const w = wings[v.wing] ?? wings[0];
     const c = await ventSolid(w, v, roofStyle);

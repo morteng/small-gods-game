@@ -78,16 +78,16 @@ export interface VentFeature {
   width?: number;
   height?: number;
 }
-/** Optional explicit features; omit any list to derive seeded defaults. */
-export interface BuildingFeatures { doors?: DoorFeature[]; vents?: VentFeature[] }
+/** Optional explicit features; omit the vents list to derive a seeded default. */
+export interface BuildingFeatures { vents?: VentFeature[] }
 
 /** A resolved door — every field concrete, ready for geometry. */
 export interface ResolvedDoor { cell: [number, number]; face: WallFace; halfW: number; height: number; main: boolean }
-export interface ResolvedFeatures { doors: ResolvedDoor[]; vents: VentFeature[] }
+export interface ResolvedFeatures { vents: VentFeature[] }
 
 /** World-space anchor points (tile x,y; z up) for runtime overlays. */
 export interface DoorAnchor { pos: [number, number, number]; main: boolean }
-export interface BuildingAnchors { doors: DoorAnchor[]; vents: [number, number, number][] }
+export interface BuildingAnchors { vents: [number, number, number][] }
 
 const occHas = (occ: Set<string>, i: number, j: number): boolean => occ.has(i + ',' + j);
 
@@ -211,24 +211,11 @@ function placeDoors(occ: Set<string>, specs: DoorFeature[]): ResolvedDoor[] {
 }
 
 /**
- * Resolve a building's features: use explicit ones where given, else derive a
- * deterministic default — a single MAIN door centred on the most prominent
- * camera-facing wall run, one chimney partway along the main wing's ridge. `seed`
- * varies the default placement. Door placement obeys {@link placeDoors}' ruleset.
+ * Resolve a building's vents: explicit list if given, else one seeded chimney partway
+ * along the main wing's ridge. (Doors are now resolved in the Blueprint layer as openings.)
  */
 export function resolveFeatures(wings: Wing[], features: BuildingFeatures = {}, seed = 0): ResolvedFeatures {
   const rng = mulberry32(seed >>> 0);
-  const occ = occupancy(wings);
-
-  let doorSpecs = features.doors;
-  if (!doorSpecs) {
-    const runs = frontRuns(occ).sort((a, b) => b.score - a.score);
-    const top = runs.slice(0, Math.max(1, Math.min(3, runs.length)));
-    const chosen = top.length ? top[Math.floor(rng() * top.length)] : undefined;
-    doorSpecs = chosen ? [{ face: chosen.face, main: true }] : [];
-  }
-  const doors = placeDoors(occ, doorSpecs);
-
   const vents = features.vents ?? [{ wing: mainWing(wings), t: 0.28 + rng() * 0.2 }];
-  return { doors, vents };
+  return { vents };
 }

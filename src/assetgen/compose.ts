@@ -50,7 +50,7 @@ async function partFacets(p: Part): Promise<{ facets: WorldFacet[]; anchors?: Bu
     case 'prism':     return { facets: manifoldToFacets((await solidPrism(p.center, p.baseZ, p.radius, p.height, p.sides)).getMesh(), p.material ?? 'stone') };
     case 'ellipsoid': return { facets: manifoldToFacets((await solidEllipsoid(p.center, p.baseZ, p.radii)).getMesh(), p.material ?? 'foliage') };
     case 'arch':      return { facets: manifoldToFacets((await solidArch(p.at, p.span, p.height, p.thickness)).getMesh(), p.material ?? 'stone') };
-    case 'building':  return buildingFacets(p.wings, p.wallMat, p.roofMat, p.roofStyle, p.features, p.seed);
+    case 'building':  return buildingFacets(p.wings, p.wallMat, p.roofMat, p.roofStyle, p.features, p.seed, p.apertures);
     case 'linear':    { const r = await linearFacets(p.run); return { facets: r.facets, linearAnchors: r.anchors }; }
   }
 }
@@ -74,7 +74,6 @@ export async function composeStructure(spec: StructureSpec): Promise<StructureRe
   const anchors: StructureAnchors = { doors: [], vents: [] };
   for (const part of parts) {
     if (part.anchors) {
-      for (const d of part.anchors.doors) anchors.doors.push({ ...norm(d.pos), main: d.main });
       for (const v of part.anchors.vents) anchors.vents.push(norm(v));
     }
     if (part.linearAnchors) {

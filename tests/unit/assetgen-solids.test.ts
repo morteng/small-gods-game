@@ -65,7 +65,7 @@ describe('buildingFacets (manifold)', () => {
     { x: 0, y: 1, w: 4, h: 2 },   // nave (long axis x)
     { x: 1, y: 0, w: 2, h: 4 },   // transept (long axis y)
   ];
-  const noFeatures = { doors: [], vents: [] };  // isolate the bare massing
+  const noVents = { vents: [] };  // isolate the bare massing
   // manifoldToFacets shades each facet's albedo by a per-face brightness factor, so we
   // identify a material by its preserved channel RATIO rather than exact values.
   const isMat = (albedo: readonly number[], base: readonly number[]): boolean => {
@@ -76,19 +76,19 @@ describe('buildingFacets (manifold)', () => {
   };
 
   it('emits facets for a multi-wing footprint without throwing', async () => {
-    const { facets } = await buildingFacets(cross, 'plaster', 'tile', 'gable', noFeatures);
+    const { facets } = await buildingFacets(cross, 'plaster', 'tile', 'gable', noVents);
     expect(facets.length).toBeGreaterThan(0);
   });
 
   it('roof reaches above the wall top (a ridge exists)', async () => {
-    const { facets } = await buildingFacets(cross, 'plaster', 'tile', 'gable', noFeatures);
+    const { facets } = await buildingFacets(cross, 'plaster', 'tile', 'gable', noVents);
     const maxZ = Math.max(...facets.flatMap(f => f.pts.map(p => p[2])));
     expect(maxZ).toBeGreaterThan(2.1);   // STOREY = 2.1 wall top
   });
 
   it('hip roof of a single square wing peaks at one apex', async () => {
     const square: Wing[] = [{ x: 0, y: 0, w: 2, h: 2 }];
-    const { facets } = await buildingFacets(square, 'plaster', 'tile', 'hip', noFeatures);
+    const { facets } = await buildingFacets(square, 'plaster', 'tile', 'hip', noVents);
     const top = Math.max(...facets.flatMap(f => f.pts.map(p => p[2])));
     const apexPts = facets.flatMap(f => f.pts).filter(p => Math.abs(p[2] - top) < 1e-6);
     const xs = new Set(apexPts.map(p => p[0].toFixed(3)));
@@ -97,34 +97,10 @@ describe('buildingFacets (manifold)', () => {
     expect(ys.size).toBe(1);
   });
 
-  it('emits a door solid (door material) against a perimeter wall', async () => {
-    const { facets, anchors } = await buildingFacets(
-      cross, 'plaster', 'tile', 'gable',
-      { doors: [{ cell: [1, 2], face: 'south' }], vents: [] },
-    );
-    const door = facets.filter(f => isMat(f.albedo, MATERIAL_RGB.door));
-    expect(door.length).toBeGreaterThan(0);
-    // door sits on the ground (z=0) and below a normal door height
-    const zs = door.flatMap(f => f.pts.map(p => p[2]));
-    expect(Math.min(...zs)).toBeCloseTo(0, 5);
-    expect(Math.max(...zs)).toBeLessThan(2.1);
-    expect(anchors.doors).toHaveLength(1);
-    expect(anchors.doors[0].pos[2]).toBe(0);   // threshold is on the ground
-  });
-
-  it('places a door with no cell at the centre of its face run; main door is wider', async () => {
-    const { anchors } = await buildingFacets(
-      cross, 'plaster', 'tile', 'gable',
-      { doors: [{ face: 'south', main: true }, { face: 'east' }], vents: [] },
-    );
-    expect(anchors.doors).toHaveLength(2);
-    expect(anchors.doors.filter(d => d.main)).toHaveLength(1);
-  });
-
   it('emits a chimney (brick) whose top clears the roof ridge', async () => {
     const { facets, anchors } = await buildingFacets(
       cross, 'plaster', 'tile', 'gable',
-      { doors: [], vents: [{ wing: 0, t: 0.3 }] },
+      { vents: [{ wing: 0, t: 0.3 }] },
     );
     const brick = facets.filter(f => isMat(f.albedo, MATERIAL_RGB.brick));
     expect(brick.length).toBeGreaterThan(0);
@@ -136,16 +112,23 @@ describe('buildingFacets (manifold)', () => {
   it('jetty makes the upper storey oversail the ground floor', async () => {
     const plain: Wing[] = [{ x: 0, y: 0, w: 3, h: 3, storeys: 2 }];
     const jettied: Wing[] = [{ x: 0, y: 0, w: 3, h: 3, storeys: 2, jetty: 0.4 }];
-    const a = await buildingFacets(plain, 'plaster', 'tile', 'gable', noFeatures);
-    const b = await buildingFacets(jettied, 'plaster', 'tile', 'gable', noFeatures);
+    const a = await buildingFacets(plain, 'plaster', 'tile', 'gable', noVents);
+    const b = await buildingFacets(jettied, 'plaster', 'tile', 'gable', noVents);
     const maxX = (r: { facets: { pts: number[][] }[] }) => Math.max(...r.facets.flatMap(f => f.pts.map(p => p[0])));
     expect(maxX(b)).toBeGreaterThan(maxX(a));   // top storey reaches further in +x
   });
 
-  it('derives a default main door + one chimney when no features are given', async () => {
+  it('derives one chimney when no features are given', async () => {
     const { anchors } = await buildingFacets(cross, 'plaster', 'tile', 'gable');
-    expect(anchors.doors).toHaveLength(1);
-    expect(anchors.doors[0].main).toBe(true);
     expect(anchors.vents).toHaveLength(1);
+  });
+
+  it('carves an aperture recess into the wall (facet set changes vs no aperture)', async () => {
+    const square: Wing[] = [{ x: 0, y: 0, w: 2, h: 2, storeys: 1 }];
+    const plain = await buildingFacets(square, 'plaster', 'tile', 'gable', { vents: [] });
+    const carved = await buildingFacets(square, 'plaster', 'tile', 'gable', { vents: [] }, 0,
+      [{ at: [0.8, 1.7, 0], size: [0.4, 0.4, 0.85] }]);
+    const facetCount = (r: { facets: unknown[] }) => r.facets.length;
+    expect(facetCount(carved)).not.toBe(facetCount(plain));
   });
 });

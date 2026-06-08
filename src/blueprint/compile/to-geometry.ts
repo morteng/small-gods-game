@@ -1,22 +1,17 @@
 // src/blueprint/compile/to-geometry.ts
 // Fold a ResolvedBlueprint to an assetgen StructureSpec. Wing-bearing parts (body/wing)
-// merge into ONE prim:'building' (so manifold computes correct hip/valley unions);
-// other parts (round/stepped bodies, tower/porch/chimney/prim) append as standalone prims.
+// merge into ONE prim:'building'; round/stepped bodies and tower/porch/chimney append as
+// standalone prims. Openings (door/window) carve their host part's wall-bearing prim and
+// append a flush filler leaf/pane prim — uniform across rect/round/stepped.
 import type { ResolvedBlueprint, ResolvedPart } from '../types';
-import { getPartType, type CompileCtx } from '../registry';
+import { getPartType, getFeatureType, type CompileCtx } from '../registry';
 import type { Part as Prim, StructureSpec } from '@/assetgen/compose';
-import type { BuildingFeatures, DoorFeature, VentFeature, WallFace } from '@/assetgen/geometry/building';
+import type { ApertureBox } from '@/assetgen/geometry/solids';
+import type { BuildingFeatures, VentFeature } from '@/assetgen/geometry/building';
 import { ISO_TILE_W } from '@/render/iso/iso-constants';
+import { isOpening } from '../features/opening';
+import { apertureToBox } from '../wall-geometry';
 
-/** A door feature on a part → an assetgen DoorFeature (sizes already resolved from contract). */
-function doorOf(f: ResolvedPart['features'][number]): DoorFeature {
-  return {
-    face: (f.face ?? 'south') as WallFace,
-    main: f.params.main === true,
-    width: f.params.halfW as number,
-    height: f.params.height as number,
-  };
-}
 /** A vent feature on a wing-part → an assetgen VentFeature on wing `wingIdx`. */
 function ventOf(f: ResolvedPart['features'][number], wingIdx: number): VentFeature {
   return {
@@ -25,6 +20,21 @@ function ventOf(f: ResolvedPart['features'][number], wingIdx: number): VentFeatu
     placement: f.params.placement as VentFeature['placement'],
   };
 }
+
+/** Compile a part's openings → carve boxes (for its wall prim) + filler prims (added back). */
+function compileOpenings(part: ResolvedPart, ctx: CompileCtx): { apertures: ApertureBox[]; fillers: Prim[] } {
+  const apertures: ApertureBox[] = [];
+  const fillers: Prim[] = [];
+  for (const f of part.features) {
+    const ft = getFeatureType(f.type);
+    if (!isOpening(ft)) continue;
+    apertures.push(apertureToBox(ft.aperture(f, part, ctx), part));
+    if (ft.filler) fillers.push(...ft.filler(f, part, ctx));
+  }
+  return { apertures, fillers };
+}
+
+const WALL_BEARING = new Set(['building', 'cylinder', 'box']);
 
 export function toGeometry(rb: ResolvedBlueprint): StructureSpec {
   const ctx: CompileCtx = { materials: rb.materials, footprint: rb.footprint };
@@ -36,25 +46,29 @@ export function toGeometry(rb: ResolvedBlueprint): StructureSpec {
 
   let building: Extract<Prim, { prim: 'building' }> | null = null;
   const others: Prim[] = [];
-  const doors: DoorFeature[] = [];
+  const fillers: Prim[] = [];
+  const buildingApertures: ApertureBox[] = [];
   const vents: VentFeature[] = [];
 
   for (const part of rb.parts) {
     const pt = getPartType(part.type);
     const prims = pt.toPrims(part, ctx);
+    const { apertures, fillers: partFillers } = compileOpenings(part, ctx);
+    fillers.push(...partFillers);
+
+    let attached = false;   // openings attach to this part's FIRST wall-bearing prim
     for (const prim of prims) {
       if (prim.prim === 'building') {
-        if (!building) {
-          building = { ...prim, wings: [...prim.wings], features: {}, seed: 0 };
-        } else {
-          building.wings.push(...prim.wings);
-        }
-        const wingIdx = building.wings.length - prim.wings.length;   // index of this part's first wing
-        for (const f of part.features) {
-          if (f.type === 'door') doors.push(doorOf(f));
-          else if (f.type === 'vent') vents.push(ventOf(f, wingIdx));
-        }
+        if (!building) building = { ...prim, wings: [...prim.wings], features: {}, apertures: [], seed: 0 };
+        else building.wings.push(...prim.wings);
+        const wingIdx = building.wings.length - prim.wings.length;
+        for (const f of part.features) if (f.type === 'vent') vents.push(ventOf(f, wingIdx));
+        if (!attached) { buildingApertures.push(...apertures); attached = true; }
       } else {
+        if (!attached && WALL_BEARING.has(prim.prim) && apertures.length) {
+          (prim as Extract<Prim, { prim: 'box' | 'cylinder' }>).apertures = apertures;
+          attached = true;
+        }
         others.push(prim);
       }
     }
@@ -63,15 +77,12 @@ export function toGeometry(rb: ResolvedBlueprint): StructureSpec {
   const parts: Prim[] = [];
   if (building) {
     const features: BuildingFeatures = {};
-    if (doors.length) features.doors = doors;
     if (vents.length) features.vents = vents;
     building.features = features;
+    if (buildingApertures.length) building.apertures = buildingApertures;
     parts.push(building);
-  } else {
-    // Round/stepped bodies carry no building prim; their door/vent are not rendered as
-    // wall openings (the silhouette is a solid mass) — matches today's behaviour.
   }
-  parts.push(...others);
+  parts.push(...others, ...fillers);
 
   return { size, parts };
 }
