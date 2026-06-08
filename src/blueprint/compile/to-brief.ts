@@ -7,7 +7,7 @@ import {
   WALL_COLORS, ROOF_COLORS, GROUND_COLORS, NEUTRAL,
 } from '@/world/building-descriptor';
 import type { AssetBrief, BriefMaterial, DoorFace } from '@/assetgen/asset-brief';
-import { STOREY } from '@/assetgen/geometry/building';
+import { roofRise } from '@/render/building-massing-model';
 
 const DETAILS = ['weathered', 'moss-streaked', 'sun-bleached', 'newly-built', 'soot-stained', 'ivy-clad'];
 
@@ -40,7 +40,9 @@ export function toBrief(rb: ResolvedBlueprint, instanceSeed: number): AssetBrief
   const traits = [`${wallsMat}-walled`, ...partTraits.filter(Boolean), detail];
 
   const levels = Math.max(1, (body?.params.levels as number) ?? 1);
-  const heightUnits = levels * STOREY;
+  const heightPerLevel = Math.max(0.1, (body?.params.heightPerLevel as number) ?? 1);
+  const roofKind = (body?.params.roof as string) ?? 'gable';
+  const heightUnits = levels * heightPerLevel + roofRise(roofKind as never, rb.footprint);
 
   const doorFeat = body?.features.find(f => f.type === 'door');
   const face = doorFaceLetter((doorFeat?.face ?? 'south') as WallFace);
@@ -50,7 +52,7 @@ export function toBrief(rb: ResolvedBlueprint, instanceSeed: number): AssetBrief
   const subject = (rb.preset ?? rb.category ?? 'building').replace(/_(small|large|tiny|big)$/, '').replace(/_/g, ' ');
 
   return {
-    kind: 'building', subject, traits, materials, view: 'iso-3q', era: rb.era!,
+    kind: 'building', subject, traits, materials, view: 'iso-3q', era: rb.era ?? 'medieval',
     footprint: { w: maxX, h: maxY },
     heightUnits,
     door: { x: dc[0], y: dc[1], face },
