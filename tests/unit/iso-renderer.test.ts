@@ -126,13 +126,17 @@ describe('iso-renderer: buildings from descriptor entities', () => {
     expect((ctx.fill as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(0);
   });
 
-  it('draws a round building (yurt) with a drum/dome ellipse', () => {
+  it('draws a round building (yurt) without throwing', () => {
+    // Round geometry now flows through the parametric pipeline (cylinder + cone/
+    // ellipsoid parts — see building-spec.test.ts), not Canvas2D ellipses. With no
+    // resolvers wired in this mock, the yurt falls back to the flat block; the
+    // renderer must still draw it cleanly.
     const rc = makeRc();
     const yurt = buildingEntity('y1', synthesizeFromPreset('yurt')!, 3, 3);
     rc.world = { entities: new Map(), query: () => [yurt] } as any;
     const ctx = makeMockCtx();
-    renderMap(ctx, rc);
-    expect((ctx.ellipse as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThanOrEqual(3);
+    expect(() => renderMap(ctx, rc)).not.toThrow();
+    expect((ctx.fill as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(0);
   });
 
   it('skips buildings when the buildings layer is hidden', () => {
