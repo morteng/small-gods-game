@@ -9,6 +9,7 @@ import { PerceptionSystem } from '@/world/perception-system';
 import { initNpcProps, forEachNpc } from '@/world/npc-helpers';
 import { seedSocialGraph } from '@/sim/social-graph';
 import { TICKS_PER_YEAR } from '@/sim/mortality';
+import { placeWallConnections } from '@/world/wall-connections';
 
 /** Founders start as young adults so the cradle never opens with elders. */
 const FOUNDER_MIN_AGE = 20;
@@ -92,6 +93,9 @@ export function seedWorld(args: SeedWorldArgs): void {
     world, spirits, log, clock, rng,
     dt: 500, now: clock.now(),
   });
+
+  // 5b. Interpret Connection{type:'wall'} as linear wall-run barriers between POIs.
+  if (worldSeed.connections) placeWallConnections(world, worldSeed);
 
   // 6. Append world_seeded as the final cradle event (chapter zero marker)
   log.append({
