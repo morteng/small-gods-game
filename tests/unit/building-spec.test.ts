@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { descriptorToSpec } from '@/render/iso/building-spec';
 import type { BuildingDescriptor } from '@/world/building-descriptor';
+import { synthesizeFromPreset } from '@/world/building-presets';
 
 const base: BuildingDescriptor = {
   category: 'residential', era: 'medieval',
@@ -53,9 +54,9 @@ describe('descriptorToSpec', () => {
     expect(p.wings.length).toBe(2);
   });
 
-  it('returns null for round and stepped plans (fall back to massing)', () => {
-    expect(descriptorToSpec({ ...base, plan: 'round' })).toBeNull();
-    expect(descriptorToSpec({ ...base, plan: 'stepped' })).toBeNull();
+  it('no longer returns null for round and stepped plans (solid builders)', () => {
+    expect(descriptorToSpec({ ...base, plan: 'round' })).not.toBeNull();
+    expect(descriptorToSpec({ ...base, plan: 'stepped' })).not.toBeNull();
   });
 
   it('derives a main door whose face matches the door cell edge', () => {
@@ -74,5 +75,40 @@ describe('descriptorToSpec', () => {
     const spec = descriptorToSpec(base)!;
     expect(spec.size).toBeGreaterThan(127);
     expect(spec.size).toBeLessThanOrEqual(640);
+  });
+});
+
+describe('descriptorToSpec — structure + round/stepped', () => {
+  it('sizes rect wings to the structure rect, not the plot', () => {
+    const d = { ...synthesizeFromPreset('cottage')!, footprint: { w: 3, h: 3 },
+                structure: { w: 2, h: 2, dx: 0, dy: 0 } };
+    const spec = descriptorToSpec(d)!;
+    const part = spec.parts[0] as Extract<typeof spec.parts[number], { prim: 'building' }>;
+    expect(part.prim).toBe('building');
+    expect(part.wings[0]).toMatchObject({ x: 0, y: 0, w: 2, h: 2 });
+  });
+
+  it('emits a cylinder wall + a roof cap for a round plan (no longer null)', () => {
+    const d = synthesizeFromPreset('yurt')!;            // plan: 'round'
+    const spec = descriptorToSpec(d)!;
+    expect(spec).not.toBeNull();
+    expect(spec.parts.some(p => p.prim === 'cylinder')).toBe(true);
+    expect(spec.parts.some(p => p.prim === 'cone' || p.prim === 'ellipsoid')).toBe(true);
+  });
+
+  it('emits inset stacked boxes for a stepped plan (no longer null)', () => {
+    const d = synthesizeFromPreset('castle_keep')!;     // plan: 'stepped', levels 4, levelInset 1
+    const spec = descriptorToSpec(d)!;
+    expect(spec).not.toBeNull();
+    const boxes = spec.parts.filter(p => p.prim === 'box');
+    // castle_keep: 3×3 footprint with inset=1 → only 2 levels fit (3×3 then 1×1; -1×-1 breaks)
+    expect(boxes.length).toBeGreaterThanOrEqual(1);
+    expect(boxes.length).toBeLessThanOrEqual(d.levels);
+  });
+
+  it('still maps rect/L/cross', () => {
+    for (const preset of ['cottage', 'tavern']) {
+      expect(descriptorToSpec(synthesizeFromPreset(preset)!)).not.toBeNull();
+    }
   });
 });
