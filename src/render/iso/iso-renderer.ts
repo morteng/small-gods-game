@@ -8,7 +8,6 @@ import { createNullAtlas } from './iso-atlas';
 import { visibleTileBounds } from './iso-projection';
 import { buildYSortBucket, buildingSortKey, type YSortEntry } from './iso-ysort';
 import { tryGetEntityKindDef } from '@/world/entity-kinds';
-import { buildingMassing, type Massing } from '@/render/building-massing-model';
 import { structureRect, type BuildingDescriptor, type StructureRect } from '@/world/building-descriptor';
 import { isLayerHidden } from '@/render/layer-visibility';
 
@@ -65,7 +64,7 @@ export function createIsoRenderMap(): RenderMap {
     // Buildings and vegetation are both world entities — one region query, then
     // partition. Buildings are drawn parametrically from their descriptor's
     // Massing (the legacy map.buildings/template path is gone).
-    const buildingById = new Map<string, { e: Entity; massing: Massing; s: StructureRect }>();
+    const buildingById = new Map<string, { e: Entity; s: StructureRect }>();
     const vegById = new Map<string, Entity>();
     const barrierById = new Map<string, Entity>();
     const hideBarriers = isLayerHidden('buildings', rc.devMode);
@@ -93,7 +92,7 @@ export function createIsoRenderMap(): RenderMap {
           const s = structureRect(descriptor);
           const tx = Math.floor(e.x) + s.dx, ty = Math.floor(e.y) + s.dy;
           const key = buildingSortKey({ tx, ty, footprintW: s.w, footprintH: s.h });
-          buildingById.set(e.id, { e, massing: buildingMassing(descriptor), s });
+          buildingById.set(e.id, { e, s });
           entries.push({
             id: e.id, kind: 'building',
             tx, ty, z: 0,
@@ -145,8 +144,8 @@ export function createIsoRenderMap(): RenderMap {
           const asset = () => rc.resolveBuildingArt?.(b.e) ?? null;
           const parametric = () => rc.resolveParametricBuildingArt?.(b.e) ?? null;
           switch (pickBuildingSource(mode, asset, parametric)) {
-            case 'asset':      drawIsoBuildingSprite(drawCtx, asset() as HTMLImageElement, bx, by, b.massing.footprint); break;
-            case 'parametric': drawIsoBuildingSpriteGenerated(drawCtx, parametric() as HTMLCanvasElement, bx, by, b.massing.footprint); break;
+            case 'asset':      drawIsoBuildingSprite(drawCtx, asset() as HTMLImageElement, bx, by, { w: b.s.w, h: b.s.h }); break;
+            case 'parametric': drawIsoBuildingSpriteGenerated(drawCtx, parametric() as HTMLCanvasElement, bx, by, { w: b.s.w, h: b.s.h }); break;
             case 'flat':       drawIsoFlatBlock(drawCtx, { w: b.s.w, h: b.s.h }, bx, by); break;
           }
         }
