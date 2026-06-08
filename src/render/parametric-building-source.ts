@@ -1,27 +1,28 @@
 // src/render/parametric-building-source.ts
 // Runtime, memoized source of manifold-generated building sprites. Mirrors
 // ArtResolver's peek/warm contract: peek() is the sync frame-path read; warm() kicks
-// async generation off the frame path. Cache key = descriptor identity, so identical
+// async generation off the frame path. Cache key = blueprint identity, so identical
 // buildings share one sprite. Any failure / unsupported plan caches null → caller
 // falls back to the legacy massing. Never throws on the frame path.
 import type { Entity } from '@/core/types';
-import type { BuildingDescriptor } from '@/world/building-descriptor';
-import { descriptorToSpec } from '@/render/iso/building-spec';
+import { blueprintOf } from '@/blueprint/entity';
+import type { ResolvedBlueprint } from '@/blueprint/types';
+import { toGeometry } from '@/blueprint/compile/to-geometry';
 import { greyToSpriteCanvas, type SpriteCanvas } from '@/render/iso/sprite-canvas';
 import { composeStructure, type StructureSpec, type StructureResult } from '@/assetgen/compose';
 
 export interface ParametricSourceDeps {
-  toSpec?: (d: BuildingDescriptor) => StructureSpec | null;
+  toSpec?: (rb: ResolvedBlueprint) => StructureSpec | null;
   compose?: (s: StructureSpec) => Promise<StructureResult>;
   toSprite?: (r: StructureResult) => SpriteCanvas | null;
 }
 
-function descriptorOf(e: Entity): BuildingDescriptor | undefined {
-  return e.properties?.descriptor as BuildingDescriptor | undefined;
+function blueprintRbOf(e: Entity): ResolvedBlueprint | undefined {
+  return blueprintOf(e)?.rb;
 }
 
-/** Stable key from the descriptor (identical descriptors → one cached sprite). */
-function keyOf(d: BuildingDescriptor): string { return JSON.stringify(d); }
+/** Stable key from the resolved blueprint (identical blueprints → one cached sprite). */
+function keyOf(rb: ResolvedBlueprint): string { return JSON.stringify(rb); }
 
 export class ParametricBuildingSource {
   private readonly cache = new Map<string, SpriteCanvas | null>();
@@ -32,24 +33,24 @@ export class ParametricBuildingSource {
   private readonly toSprite: NonNullable<ParametricSourceDeps['toSprite']>;
 
   constructor(deps: ParametricSourceDeps = {}) {
-    this.toSpec = deps.toSpec ?? descriptorToSpec;
+    this.toSpec = deps.toSpec ?? ((rb) => toGeometry(rb));
     this.compose = deps.compose ?? composeStructure;
     this.toSprite = deps.toSprite ?? ((r) => greyToSpriteCanvas(r.grey, r.size, r.bbox));
   }
 
   /** Sync read of an already-generated sprite (null if absent / unsupported / failed). */
   peek(e: Entity): SpriteCanvas | null {
-    const d = descriptorOf(e);
-    return d ? (this.cache.get(keyOf(d)) ?? null) : null;
+    const rb = blueprintRbOf(e);
+    return rb ? (this.cache.get(keyOf(rb)) ?? null) : null;
   }
 
   /** Fire-and-forget generation. Safe to call every frame; runs at most once per key. */
   warm(e: Entity): void {
-    const d = descriptorOf(e);
-    if (!d) return;
-    const k = keyOf(d);
+    const rb = blueprintRbOf(e);
+    if (!rb) return;
+    const k = keyOf(rb);
     if (this.cache.has(k) || this.inflight.has(k)) return;
-    const spec = this.toSpec(d);
+    const spec = this.toSpec(rb);
     if (!spec) { this.cache.set(k, null); return; }
     this.inflight.add(k);
     this.compose(spec)

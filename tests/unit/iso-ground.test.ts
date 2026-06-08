@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { drawIsoGroundField } from '@/render/iso/iso-ground';
-import { buildingEntity } from '@/world/building-descriptor';
-import { synthesizeFromPreset } from '@/world/building-presets';
+import { blueprintEntity } from '@/blueprint/entity';
+import { synthesizeBlueprint } from '@/blueprint/presets';
 
 function makeMockCtx() {
   return {
@@ -18,13 +18,14 @@ function worldOf(entities: object[]) {
 }
 
 describe('drawIsoGroundField', () => {
-  it('fills a foundation+apron diamond per ground cell for a building', () => {
-    // cottage preset: 3×3 footprint, packed_dirt ground + radius-1 apron
-    const cottage = buildingEntity('b1', synthesizeFromPreset('cottage')!, 5, 5);
+  it('fills a foundation diamond per footprint ground cell for a building', () => {
+    // cottage preset: 3×3 footprint, packed_dirt ground (apron dropped with the
+    // descriptor model — the building sprite carries its own base).
+    const cottage = blueprintEntity('b1', synthesizeBlueprint('cottage')!, 5, 5);
     const ctx = makeMockCtx();
     drawIsoGroundField(ctx, worldOf([cottage]), 0, 0, bounds);
-    // footprint (9) + apron ring (25-9=16) = 25 cells, each one filled diamond
-    expect((ctx.fill as ReturnType<typeof vi.fn>).mock.calls.length).toBe(25);
+    // footprint (3×3 = 9) cells, each one filled diamond
+    expect((ctx.fill as ReturnType<typeof vi.fn>).mock.calls.length).toBe(9);
   });
 
   it('draws nothing when there are no buildings', () => {
@@ -34,7 +35,7 @@ describe('drawIsoGroundField', () => {
   });
 
   it('culls cells outside the visible bounds', () => {
-    const cottage = buildingEntity('b1', synthesizeFromPreset('cottage')!, 5, 5);
+    const cottage = blueprintEntity('b1', synthesizeBlueprint('cottage')!, 5, 5);
     const ctx = makeMockCtx();
     // bounds that exclude the building entirely
     drawIsoGroundField(ctx, worldOf([cottage]), 0, 0, { minTx: 100, maxTx: 200, minTy: 100, maxTy: 200 });

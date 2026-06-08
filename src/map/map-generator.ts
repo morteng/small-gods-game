@@ -18,6 +18,7 @@ import { generateHydrology } from '@/terrain/hydrology';
 import { walkRoad } from '@/terrain/road-walker';
 import { erodeElevation } from '@/terrain/erosion';
 import { placeSettlement } from '@/world/building-placer';
+import { blueprintOf } from '@/blueprint/entity';
 import { clearObstructedVegetation } from '@/world/vegetation-clear';
 import { getZoneRule } from '@/map/poi-zones';
 import { resolveSettlementEra } from '@/core/era';
@@ -207,9 +208,8 @@ export async function generateWithNoise(
       for (const e of result.entities) {
         const props = e.properties ?? {};
         if (props.category === 'building') {
-          // Descriptor path (new): use descriptor.preset; legacy path: use templateId
-          const descriptor = props.descriptor as { preset?: string } | undefined;
-          const templateId = (descriptor?.preset ?? props.templateId) as string | undefined;
+          // Blueprint path (new): use the blueprint preset; legacy path: templateId.
+          const templateId = (blueprintOf(e)?.rb.preset ?? props.templateId) as string | undefined;
           if (templateId) {
             buildings.push({
               id: e.id, templateId,

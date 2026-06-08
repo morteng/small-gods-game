@@ -1,22 +1,27 @@
 /**
  * building-verbs.ts — the `place_building` authoring verb. Fate (or the editor)
- * names a preset (with optional overrides) or supplies a full descriptor and a
+ * names a preset (with optional overrides) or supplies a full blueprint and a
  * location; the verb finds a clear footprint, stamps the building, and marks
  * non-door tiles non-walkable. All randomness flows through ctx.rng (seeded) —
  * never Math.random.
  */
 import type { Command, ApplyCtx, CommandCtx, RejectionReason } from './types';
-import { synthesizeFromPreset } from '@/world/building-presets';
-import { buildingEntity, type BuildingDescriptor } from '@/world/building-descriptor';
+import { synthesizeBlueprint } from '@/blueprint/presets';
+import { resolveBlueprint } from '@/blueprint/resolve';
+import { blueprintEntity, blueprintOf } from '@/blueprint/entity';
+import type { Blueprint, BlueprintPatch, ResolvedBlueprint } from '@/blueprint/types';
 import { resolveCenter } from './editor-verbs';
 
 const P = (cmd: Command): Record<string, unknown> => cmd.payload ?? {};
 
-/** Resolve a descriptor from `{ preset, overrides }` or a raw `{ descriptor }`. */
-function resolveDescriptor(p: Record<string, unknown>): BuildingDescriptor | undefined {
-  if (p.descriptor && typeof p.descriptor === 'object') return p.descriptor as BuildingDescriptor;
+/** Resolve a blueprint from `{ preset, overrides }` or a raw `{ blueprint }`. */
+function resolveBp(p: Record<string, unknown>): ResolvedBlueprint | undefined {
+  if (p.blueprint && typeof p.blueprint === 'object') {
+    return resolveBlueprint([p.blueprint as Blueprint], 0);
+  }
   if (typeof p.preset === 'string') {
-    return synthesizeFromPreset(p.preset, (p.overrides as Partial<BuildingDescriptor>) ?? {});
+    const overrides = (p.overrides as BlueprintPatch | undefined) ?? {};
+    return synthesizeBlueprint(p.preset, [overrides]);
   }
   return undefined;
 }
@@ -57,29 +62,31 @@ export function findBuildingPlacement(
 }
 
 export function placeBuildingPrecondition(cmd: Command, ctx: CommandCtx): RejectionReason | null {
-  if (!resolveDescriptor(P(cmd))) return 'invalid_payload';
+  if (!resolveBp(P(cmd))) return 'invalid_payload';
   if (resolveTarget(cmd, ctx) === null) return 'invalid_target';
   return null;
 }
 
 export function placeBuildingApply(cmd: Command, ctx: ApplyCtx): boolean {
-  const d = resolveDescriptor(P(cmd))!;            // validated in precondition
+  const rb = resolveBp(P(cmd))!;                    // validated in precondition
   const center = resolveTarget(cmd, ctx)!;
-  const spot = findBuildingPlacement(ctx.world, center.x, center.y, d.footprint);
+  const spot = findBuildingPlacement(ctx.world, center.x, center.y, rb.footprint);
   if (!spot) return false;                          // no room → decline cleanly
 
   let id = '';
   do { id = `bld-f${ctx.now}-${ctx.rng.nextInt(0x7fffffff)}`; } while (ctx.world.registry.get(id));
-  ctx.world.addEntity(buildingEntity(id, d, spot.x, spot.y));
+  const entity = blueprintEntity(id, rb, spot.x, spot.y);
+  ctx.world.addEntity(entity);
 
-  // Footprint is solid except the door tile.
-  for (let dy = 0; dy < d.footprint.h; dy++) {
-    for (let dx = 0; dx < d.footprint.w; dx++) {
+  // Footprint is solid except the door cell(s).
+  const doorCells = new Set(blueprintOf(entity)!.collision.doorCells);
+  for (let dy = 0; dy < rb.footprint.h; dy++) {
+    for (let dx = 0; dx < rb.footprint.w; dx++) {
       const t = ctx.world.tiles.tiles[spot.y + dy]?.[spot.x + dx];
-      if (t && !(dx === d.door.x && dy === d.door.y)) t.walkable = false;
+      if (t && !doorCells.has(`${dx},${dy}`)) t.walkable = false;
     }
   }
 
-  ctx.log.append({ type: 'authored_place', entityIds: [id], kind: d.preset ?? 'building', count: 1 });
+  ctx.log.append({ type: 'authored_place', entityIds: [id], kind: rb.preset ?? 'building', count: 1 });
   return true;
 }

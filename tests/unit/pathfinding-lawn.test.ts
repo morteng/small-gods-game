@@ -1,8 +1,8 @@
 // tests/unit/pathfinding-lawn.test.ts
 import { describe, it, expect } from 'vitest';
 import { World } from '@/world/world';
-import { buildingEntity } from '@/world/building-descriptor';
-import { synthesizeFromPreset } from '@/world/building-presets';
+import { blueprintEntity } from '@/blueprint/entity';
+import { synthesizeBlueprint } from '@/blueprint/presets';
 import { findPath } from '@/sim/pathfinding';
 import type { GameMap, Tile } from '@/core/types';
 
@@ -28,14 +28,9 @@ describe('pathfinding across a cottage yard', () => {
 
     // Cottage: 3×3 plot with a 2×2 structure (body) at plot-local (0,0).
     // Lawn occupies plot-local column 2 (x=10) and row 2 (y=10) — fully walkable.
-    const d = {
-      ...synthesizeFromPreset('cottage')!,
-      footprint: { w: 3, h: 3 },
-      structure: { w: 2, h: 2, dx: 0, dy: 0 },
-      door: { x: 1, y: 1 },
-    };
+    const rb = synthesizeBlueprint('cottage')!;
     // Building placed at world tile (8,8), so it occupies (8..10, 8..10).
-    world.addEntity(buildingEntity('c1', d, 8, 8));
+    world.addEntity(blueprintEntity('c1', rb, 8, 8));
 
     // Start: north of the plot (8,6). Goal: SE lawn corner (10,10) == plot-local (2,2).
     // (10,10) is outside the 2×2 structure, so it should be walkable lawn.

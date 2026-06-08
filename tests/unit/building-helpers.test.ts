@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { World } from '@/world/world';
-import { buildingEntity } from '@/world/building-descriptor';
-import { synthesizeFromPreset } from '@/world/building-presets';
+import { blueprintEntity } from '@/blueprint/entity';
+import { synthesizeBlueprint } from '@/blueprint/presets';
 import { findBuildingAtTile, buildingInfoOf } from '@/world/building-helpers';
-import type { BuildingDescriptor } from '@/world/building-descriptor';
+import type { ResolvedBlueprint } from '@/blueprint/types';
 import type { GameMap } from '@/core/types';
 
 function emptyMap(): GameMap {
@@ -11,15 +11,15 @@ function emptyMap(): GameMap {
     worldSeed: null, stats: { iterations: 0, backtracks: 0 }, buildings: [] } as unknown as GameMap;
 }
 
-function cottageDesc(): BuildingDescriptor {
-  return synthesizeFromPreset('cottage')!;
+function cottageBp(): ResolvedBlueprint {
+  return synthesizeBlueprint('cottage')!;
 }
 
 describe('findBuildingAtTile', () => {
   it('finds a building covering any cell of its footprint, null elsewhere', () => {
     const world = new World(emptyMap());
-    const d = cottageDesc(); // 3x3 footprint
-    world.addEntity(buildingEntity('b1', d, 5, 5));
+    const d = cottageBp(); // 3x3 footprint
+    world.addEntity(blueprintEntity('b1', d, 5, 5));
 
     // Every covered cell resolves to the building.
     expect(findBuildingAtTile(world, 5, 5)?.id).toBe('b1'); // top-left
@@ -36,8 +36,8 @@ describe('findBuildingAtTile', () => {
 describe('buildingInfoOf', () => {
   it('derives a title, description and facts from a building entity', () => {
     const world = new World(emptyMap());
-    const d = cottageDesc();
-    world.addEntity(buildingEntity('b1', d, 5, 5));
+    const d = cottageBp();
+    world.addEntity(blueprintEntity('b1', d, 5, 5));
     const info = buildingInfoOf(findBuildingAtTile(world, 5, 5)!)!;
 
     expect(info.title.toLowerCase()).toContain('cottage');
@@ -50,8 +50,8 @@ describe('buildingInfoOf', () => {
 
   it('is stable for a fixed entity id (seeded detail trait does not flap)', () => {
     const world = new World(emptyMap());
-    const d = cottageDesc();
-    world.addEntity(buildingEntity('b1', d, 5, 5));
+    const d = cottageBp();
+    world.addEntity(blueprintEntity('b1', d, 5, 5));
     const e = findBuildingAtTile(world, 5, 5)!;
     expect(buildingInfoOf(e)).toEqual(buildingInfoOf(e));
   });

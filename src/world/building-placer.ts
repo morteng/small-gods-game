@@ -21,8 +21,8 @@ import type { ZoneRule } from '@/map/poi-zones';
 import { presetsForEra } from '@/map/poi-zones';
 import type { POI } from '@/core/types';
 import { Random } from '@/core/noise';
-import { synthesizeFromPreset } from '@/world/building-presets';
-import { buildingEntity } from '@/world/building-descriptor';
+import { synthesizeBlueprint } from '@/blueprint/presets';
+import { blueprintEntity, blueprintOf } from '@/blueprint/entity';
 
 /** Water tile types — road tiles must not be placed on these */
 const WATER_TYPES = new Set(['deep_water', 'shallow_water', 'river', 'ocean', 'water']);
@@ -242,8 +242,8 @@ export function placeSettlement(
 
   for (let attempt = 0; attempt < buildingCount * 4 && placed < buildingCount && roster.length > 0; attempt++) {
     const presetName = roster[placed % roster.length];
-    const descriptor = synthesizeFromPreset(presetName);
-    if (!descriptor) continue;
+    const rb = synthesizeBlueprint(presetName);
+    if (!rb) continue;
 
     const along = (rng.next() * 2 - 1) * radius * 0.8;
     const perp  = (rng.next() * 2 - 1) * 3;
@@ -252,30 +252,33 @@ export function placeSettlement(
     const targetY = Math.round(cy + mainDir.dy * along + perpDir.dy * perp);
 
     const result = findPlacement(
-      { x: targetX, y: targetY }, descriptor.footprint, constraint, tiles, registry, radius,
+      { x: targetX, y: targetY }, rb.footprint, constraint, tiles, registry, radius,
     );
     if (!result) continue;
 
-    const entity = buildingEntity(
-      `${poi.id}_bld_${placed}`, descriptor, result.tileX, result.tileY, { poiId: poi.id },
+    const entity = blueprintEntity(
+      `${poi.id}_bld_${placed}`, rb, result.tileX, result.tileY, { poiId: poi.id },
     );
 
     clearFootprint(
-      result.tileX, result.tileY, descriptor.footprint.w, descriptor.footprint.h,
+      result.tileX, result.tileY, rb.footprint.w, rb.footprint.h,
       registry, world, tiles,
     );
 
     registry.add(entity);
     entities.push(entity);
 
+    // Footprint-local door cell, from the precomputed collision mask.
+    const [doorLx, doorLy] = (blueprintOf(entity)?.collision.doorCells[0] ?? '0,0').split(',').map(Number);
+
     // Door tile stays walkable so mortals can reach the entrance (collision
     // already treats the door cell as passable; keep the tile flag in sync).
-    const doorTile = tiles[result.tileY + descriptor.door.y]?.[result.tileX + descriptor.door.x];
+    const doorTile = tiles[result.tileY + doorLy]?.[result.tileX + doorLx];
     if (doorTile) doorTile.walkable = true;
 
     if (zoneRule.internalRoads) {
-      const doorX = result.tileX + descriptor.door.x;
-      const doorY = result.tileY + descriptor.door.y;
+      const doorX = result.tileX + doorLx;
+      const doorY = result.tileY + doorLy;
       const roadPositions = new Set(roadTiles.map(rt => `${rt.x},${rt.y}`));
       const path = bresenhamLine(doorX, doorY, cx, cy);
       for (let pi = 0; pi < Math.min(6, path.length); pi++) {

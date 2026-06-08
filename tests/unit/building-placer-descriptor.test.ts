@@ -1,12 +1,18 @@
 import { describe, it, expect } from 'vitest';
 import { World } from '@/world/world';
-import { buildingEntity } from '@/world/building-descriptor';
-import { synthesizeFromPreset } from '@/world/building-presets';
+import { blueprintEntity, blueprintOf } from '@/blueprint/entity';
+import { synthesizeBlueprint } from '@/blueprint/presets';
 import { placeSettlement } from '@/world/building-placer';
 import { getZoneRule } from '@/map/poi-zones';
 import { Random } from '@/core/noise';
 import type { GameMap } from '@/core/types';
-import type { BuildingDescriptor } from '@/world/building-descriptor';
+
+/** Footprint-local door cell of a placed building (first door, or origin). */
+function doorOf(e: { properties?: Record<string, unknown> }): { x: number; y: number } {
+  const cell = blueprintOf(e as never)?.collision.doorCells[0] ?? '0,0';
+  const [x, y] = cell.split(',').map(Number);
+  return { x, y };
+}
 
 function emptyMap(): GameMap {
   return { tiles: [], width: 32, height: 32, villages: [], seed: 1, success: true,
@@ -25,11 +31,11 @@ function gridTiles(w: number, h: number) {
   return tiles;
 }
 
-describe('descriptor building indexing', () => {
+describe('blueprint building indexing', () => {
   it('registers every footprint cell in the registry tile index', () => {
     const world = new World(emptyMap());
-    const d = synthesizeFromPreset('cottage')!;       // 3x3
-    world.addEntity(buildingEntity('b1', d, 5, 5));
+    const rb = synthesizeBlueprint('cottage')!;       // 3x3
+    world.addEntity(blueprintEntity('b1', rb, 5, 5));
     for (let dy = 0; dy < 3; dy++) {
       for (let dx = 0; dx < 3; dx++) {
         const at = world.registry.getAtTile(5 + dx, 5 + dy).map(e => e.id);
@@ -40,8 +46,8 @@ describe('descriptor building indexing', () => {
   });
 });
 
-describe('placeSettlement produces descriptor entities', () => {
-  it('every placed building carries a descriptor and is tagged building', () => {
+describe('placeSettlement produces blueprint entities', () => {
+  it('every placed building carries a blueprint and is tagged building', () => {
     const world = new World(emptyMap());
     const tiles = gridTiles(40, 40);
     const poi = { id: 'poi-v', type: 'village', position: { x: 20, y: 20 } } as never;
@@ -51,9 +57,9 @@ describe('placeSettlement produces descriptor entities', () => {
     expect(entities.length).toBeGreaterThan(0);
     for (const e of entities) {
       expect(e.tags).toContain('building');
-      const d = e.properties?.descriptor as BuildingDescriptor | undefined;
-      expect(d, e.id).toBeDefined();
-      expect(d!.footprint.w).toBeGreaterThan(0);
+      const stored = blueprintOf(e);
+      expect(stored, e.id).toBeDefined();
+      expect(stored!.rb.footprint.w).toBeGreaterThan(0);
     }
   });
 
@@ -66,20 +72,22 @@ describe('placeSettlement produces descriptor entities', () => {
     );
     expect(entities.length).toBeGreaterThan(0);
     for (const e of entities) {
-      const d = e.properties!.descriptor as BuildingDescriptor;
-      const fp = d.footprint;
-      const doorTile = tiles[e.y + d.door.y][e.x + d.door.x];
+      const fp = blueprintOf(e)!.rb.footprint;
+      const door = doorOf(e);
+      const doorTile = tiles[e.y + door.y][e.x + door.x];
       expect(doorTile.walkable, `${e.id} door`).toBe(true);
-      // find a non-door footprint cell and confirm it is solid
+      // find a non-door, structure footprint cell and confirm it is solid
+      const blocked = new Set(blueprintOf(e)!.collision.blocked);
       let checkedSolid = false;
       for (let dy = 0; dy < fp.h && !checkedSolid; dy++) {
         for (let dx = 0; dx < fp.w && !checkedSolid; dx++) {
-          if (dx === d.door.x && dy === d.door.y) continue;
+          if (dx === door.x && dy === door.y) continue;
+          if (!blocked.has(`${dx},${dy}`)) continue;   // skip lawn cells (kept walkable)
           expect(tiles[e.y + dy][e.x + dx].walkable, `${e.id} solid cell`).toBe(false);
           checkedSolid = true;
         }
       }
-      expect(checkedSolid, `${e.id} had a non-door cell`).toBe(true);
+      expect(checkedSolid, `${e.id} had a non-door structure cell`).toBe(true);
     }
   });
 
@@ -104,7 +112,7 @@ describe('placeSettlement selects presets by era', () => {
       poi, getZoneRule('village'), tiles, world.registry, [], new Random(2024), 'primordial', world,
     );
     expect(entities.length).toBeGreaterThan(0);
-    const presets = entities.map(e => (e.properties?.descriptor as BuildingDescriptor).preset);
+    const presets = entities.map(e => blueprintOf(e)?.rb.preset);
     expect(presets).toContain('yurt');
     expect(presets).not.toContain('cottage');
   });

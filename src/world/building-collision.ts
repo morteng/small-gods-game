@@ -25,6 +25,7 @@
 import type { Entity, EntityId } from '@/core/types';
 import type { World } from '@/world/world';
 import { tryGetEntityKindDef } from '@/world/entity-kinds';
+import { blueprintOf } from '@/blueprint/entity';
 
 /** True when this entity is a building (its footprint forms a collider). */
 export function isBuilding(e: Entity): boolean {
@@ -37,33 +38,24 @@ export function isBuilding(e: Entity): boolean {
 /**
  * Whether a single footprint cell of `building` can be walked through.
  *
- * The descriptor's `door` cell (relative to the footprint top-left) is the one
- * passable cell; every other covered cell is solid. Buildings without a door
- * property (legacy / old-style entities) remain fully solid.
+ * Reads the blueprint's precomputed collision mask (`@/blueprint/entity`): a
+ * door cell (relative to the footprint top-left) is passable; a `blocked`
+ * structure cell is solid; any footprint cell outside `blocked` is walkable
+ * lawn (the building's yard). Buildings without a stored blueprint remain
+ * fully solid.
  */
 export function isFootprintCellPassable(
   building: Entity,
   tileX: number,
   tileY: number,
 ): boolean {
-  const props = building.properties;
-  const desc = props?.descriptor as
-    | { door?: { x: number; y: number }; structure?: { w: number; h: number; dx: number; dy: number } }
-    | undefined;
-  const door = (props?.door as { x: number; y: number } | undefined) ?? desc?.door;
+  const stored = blueprintOf(building);
+  if (!stored) return false;   // unknown building → solid
   const localX = tileX - Math.floor(building.x);
   const localY = tileY - Math.floor(building.y);
-
-  // Cells outside the structure rect are walkable lawn (the building's yard).
-  const s = desc?.structure;
-  if (s) {
-    const inStructure =
-      localX >= s.dx && localX < s.dx + s.w && localY >= s.dy && localY < s.dy + s.h;
-    if (!inStructure) return true;
-  }
-
-  if (!door) return false;
-  return localX === door.x && localY === door.y;
+  const k = `${localX},${localY}`;
+  if (stored.collision.doorCells.includes(k)) return true;   // door → passable
+  return !stored.collision.blocked.includes(k);              // lawn → passable; structure → solid
 }
 
 /**

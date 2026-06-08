@@ -4,7 +4,8 @@ import type {
 import type { World } from '@/world/world';
 import type { Spirit, SpiritId } from '@/core/spirit';
 import type { Selection } from '@/dev/inspector/selection';
-import type { BuildingDescriptor } from '@/world/building-descriptor';
+import { blueprintOf } from '@/blueprint/entity';
+import type { Entity } from '@/core/types';
 import type { RenderMode } from './select-renderer';
 import { worldToScreen as topdownWorldToScreen } from './camera';
 import { worldToScreen as isoWorldToScreen } from './iso/iso-projection';
@@ -27,16 +28,16 @@ const AREA_COLOR = '#ffd24a';  // a POI region (multi-tile area)
 const HOVER_COLOR = '#ffffff'; // faint hover preview
 const FOOTPRINT_COLOR = '#39d0ff'; // hovered building footprint tile wash
 
-/** The footprint of a building entity (one with a descriptor), else null. */
-function descriptorFootprint(e: { properties?: unknown } | null | undefined): { w: number; h: number } | null {
-  const fp = (e?.properties as { descriptor?: BuildingDescriptor } | undefined)?.descriptor?.footprint;
+/** The footprint of a building entity (one with a blueprint), else null. */
+function buildingFootprint(e: Entity | null | undefined): { w: number; h: number } | null {
+  const fp = e ? blueprintOf(e)?.rb.footprint : undefined;
   return fp ? { w: Math.max(1, fp.w), h: Math.max(1, fp.h) } : null;
 }
 
 /** The footprint rect of a building entity by id, or null if it isn't a building. */
 export function buildingFootprintRect(world: World | null, id: string): OutlineRect | null {
   const e = world?.registry.get(id);
-  const fp = descriptorFootprint(e);
+  const fp = buildingFootprint(e);
   return e && fp ? { x: Math.floor(e.x), y: Math.floor(e.y), w: fp.w, h: fp.h } : null;
 }
 
@@ -50,7 +51,7 @@ export function buildingFootprintRect(world: World | null, id: string): OutlineR
 export function buildingFootprintAt(world: World | null, tx: number, ty: number): OutlineRect | null {
   if (!world) return null;
   for (const e of world.query({ region: { x: tx - 2, y: ty - 2, w: 5, h: 5 } })) {
-    const fp = descriptorFootprint(e);
+    const fp = buildingFootprint(e);
     if (!fp) continue;
     const ox = Math.floor(e.x);
     const oy = Math.floor(e.y);

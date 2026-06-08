@@ -5,7 +5,7 @@ import { SimClock } from '@/core/clock';
 import { createRng } from '@/core/rng';
 import { CAPABILITY_REGISTRY } from '@/sim/command/registry';
 import type { Command, ApplyCtx } from '@/sim/command/types';
-import type { BuildingDescriptor } from '@/world/building-descriptor';
+import { blueprintOf } from '@/blueprint/entity';
 import type { GameMap } from '@/core/types';
 import { initNpcProps } from '@/world/npc-helpers';
 
@@ -43,19 +43,19 @@ describe('place_building', () => {
     expect(cap.precondition!(cmd({ preset: 'cottage' }), ctx)).toBe('invalid_target');
   });
 
-  it('places a descriptor-carrying building near the target', () => {
+  it('places a blueprint-carrying building near the target', () => {
     const ctx = applyCtx(new World(realizedMap()));
     expect(cap.precondition!(cmd({ preset: 'cottage', at: { x: 10, y: 10 } }), ctx)).toBeNull();
     expect(cap.apply!(cmd({ preset: 'cottage', at: { x: 10, y: 10 } }), ctx)).toBe(true);
     const placed = ctx.world.query({}).filter(e => e.tags?.includes('building'));
     expect(placed.length).toBe(1);
     const b = placed[0];
-    const d = b.properties?.descriptor as BuildingDescriptor;
-    expect(d.preset).toBe('cottage');
+    const stored = blueprintOf(b)!;
+    expect(stored.rb.preset).toBe('cottage');
     // door cell stays walkable; a non-door footprint cell becomes solid
-    const door = d.door; // {x:1, y:2} for cottage
+    const [dx, dy] = stored.collision.doorCells[0].split(',').map(Number); // {1,1} for cottage body
     const ox = b.x, oy = b.y;
-    expect(ctx.world.tiles.tiles[oy + door.y][ox + door.x].walkable).toBe(true);
+    expect(ctx.world.tiles.tiles[oy + dy][ox + dx].walkable).toBe(true);
     expect(ctx.world.tiles.tiles[oy][ox].walkable).toBe(false); // top-left corner {0,0} — not the door
   });
 

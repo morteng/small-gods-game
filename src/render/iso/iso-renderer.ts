@@ -8,8 +8,11 @@ import { createNullAtlas } from './iso-atlas';
 import { visibleTileBounds } from './iso-projection';
 import { buildYSortBucket, buildingSortKey, type YSortEntry } from './iso-ysort';
 import { tryGetEntityKindDef } from '@/world/entity-kinds';
-import { structureRect, type BuildingDescriptor, type StructureRect } from '@/world/building-descriptor';
+import { blueprintOf } from '@/blueprint/entity';
 import { isLayerHidden } from '@/render/layer-visibility';
+
+/** Structure bounding box (footprint-local), as the iso renderer consumes it. */
+interface StructureBox { dx: number; dy: number; w: number; h: number; }
 
 const BG_COLOR = '#1a1a24';
 const KIND_PRIORITY: Record<string, number> = {
@@ -64,7 +67,7 @@ export function createIsoRenderMap(): RenderMap {
     // Buildings and vegetation are both world entities — one region query, then
     // partition. Buildings are drawn parametrically from their descriptor's
     // Massing (the legacy map.buildings/template path is gone).
-    const buildingById = new Map<string, { e: Entity; s: StructureRect }>();
+    const buildingById = new Map<string, { e: Entity; s: StructureBox }>();
     const vegById = new Map<string, Entity>();
     const barrierById = new Map<string, Entity>();
     const hideBarriers = isLayerHidden('buildings', rc.devMode);
@@ -86,10 +89,17 @@ export function createIsoRenderMap(): RenderMap {
           });
           continue;
         }
-        const descriptor = e.properties?.descriptor as BuildingDescriptor | undefined;
-        if (descriptor) {
+        const stored = blueprintOf(e);
+        if (stored) {
           if (hideBuildings) continue;
-          const s = structureRect(descriptor);
+          // Structure bounding box from the resolved parts' footprint claims.
+          let minX = Infinity, minY = Infinity, maxX = 0, maxY = 0;
+          for (const p of stored.rb.parts) {
+            minX = Math.min(minX, p.at.x); minY = Math.min(minY, p.at.y);
+            maxX = Math.max(maxX, p.at.x + p.size.w); maxY = Math.max(maxY, p.at.y + p.size.h);
+          }
+          if (!Number.isFinite(minX)) { minX = 0; minY = 0; maxX = stored.rb.footprint.w; maxY = stored.rb.footprint.h; }
+          const s: StructureBox = { dx: minX, dy: minY, w: maxX - minX, h: maxY - minY };
           const tx = Math.floor(e.x) + s.dx, ty = Math.floor(e.y) + s.dy;
           const key = buildingSortKey({ tx, ty, footprintW: s.w, footprintH: s.h });
           buildingById.set(e.id, { e, s });

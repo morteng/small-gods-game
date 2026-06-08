@@ -9,9 +9,10 @@
  */
 import type { Entity, Era } from '@/core/types';
 import type { World } from './world';
-import type { BuildingDescriptor } from './building-descriptor';
+import { blueprintOf } from '@/blueprint/entity';
+import type { ResolvedBlueprint } from '@/blueprint/types';
+import { toBrief } from '@/blueprint/compile/to-brief';
 import type { DoorFace } from '@/assetgen/asset-brief';
-import { buildingBrief } from '@/assetgen/producers/building-producer';
 import { describeForHuman } from '@/assetgen/describe';
 
 /** FNV-1a → non-negative int, so the seeded detail trait is stable per entity. */
@@ -21,9 +22,9 @@ function hashStr(s: string): number {
   return h >>> 0;
 }
 
-function descriptorOf(e: Entity): BuildingDescriptor | null {
-  const d = (e.properties as { descriptor?: BuildingDescriptor } | undefined)?.descriptor;
-  return d && d.footprint ? d : null;
+function blueprintRbOf(e: Entity): ResolvedBlueprint | null {
+  const rb = blueprintOf(e)?.rb;
+  return rb && rb.footprint ? rb : null;
 }
 
 /** The building whose footprint covers (x, y), or null. Entity x/y is top-left. */
@@ -57,19 +58,20 @@ function titleCase(s: string): string {
   return s.replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-/** Display info for a building entity, or null if it carries no descriptor. */
+/** Display info for a building entity, or null if it carries no blueprint. */
 export function buildingInfoOf(e: Entity): BuildingInfo | null {
-  const d = descriptorOf(e);
-  if (!d) return null;
-  const brief = buildingBrief(d, hashStr(e.id));
+  const rb = blueprintRbOf(e);
+  if (!rb) return null;
+  const brief = toBrief(rb, hashStr(e.id));
 
   const wall = brief.materials.find((m) => m.part === 'walls')?.material;
   const roof = brief.materials.find((m) => m.part === 'roof')?.material;
   const ground = brief.materials.find((m) => m.part === 'ground')?.material;
 
+  const era = rb.era ?? 'medieval';
   const facts: BuildingFact[] = [
-    { label: 'Size', value: `${d.footprint.w}×${d.footprint.h} tiles` },
-    { label: 'Era', value: titleCase(d.era) },
+    { label: 'Size', value: `${rb.footprint.w}×${rb.footprint.h} tiles` },
+    { label: 'Era', value: titleCase(era) },
   ];
   if (wall) facts.push({ label: 'Walls', value: titleCase(wall) });
   if (roof) facts.push({ label: 'Roof', value: titleCase(roof) });
@@ -80,8 +82,8 @@ export function buildingInfoOf(e: Entity): BuildingInfo | null {
     id: e.id,
     title: titleCase(brief.subject),
     description: describeForHuman(brief),
-    era: d.era,
-    footprint: { ...d.footprint },
+    era,
+    footprint: { ...rb.footprint },
     doorFace: brief.door!.face,
     facts,
   };

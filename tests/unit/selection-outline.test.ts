@@ -168,7 +168,7 @@ describe('drawSelectionOutline', () => {
 // ─── Building footprint highlighting ──────────────────────────────────────
 
 /**
- * Duck-typed world for building tests: entities carry a descriptor footprint,
+ * Duck-typed world for building tests: entities carry a blueprint footprint,
  * `registry.get` looks up by id, and `query({region})` returns entities whose
  * ORIGIN falls in the region (mirroring the real spatial index, which indexes a
  * building at its origin tile).
@@ -178,7 +178,7 @@ function buildingWorld(
 ): OutlineWorld['world'] {
   const ents = buildings.map((b) => ({
     id: b.id, x: b.x, y: b.y,
-    properties: { descriptor: { footprint: { w: b.w, h: b.h } } },
+    properties: { blueprint: { rb: { footprint: { w: b.w, h: b.h } } } },
   }));
   return {
     registry: { get: (id: string) => ents.find((e) => e.id === id), getByPoi: () => [] },
@@ -207,7 +207,7 @@ describe('buildingFootprintRect', () => {
     expect(buildingFootprintRect(w, 'b1')).toEqual({ x: 4, y: 4, w: 3, h: 2 });
   });
 
-  it('returns null for a non-building (no descriptor)', () => {
+  it('returns null for a non-building (no blueprint)', () => {
     const w = fakeWorld({ entities: { npc1: { x: 1, y: 1 } } });
     expect(buildingFootprintRect(w, 'npc1')).toBeNull();
   });

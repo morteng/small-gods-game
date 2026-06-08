@@ -2,8 +2,8 @@ import { describe, it, expect, vi } from 'vitest';
 import { renderMap, createIsoRenderMap } from '@/render/iso/iso-renderer';
 import type { RenderContext, GameMap, NpcInstance } from '@/core/types';
 import { createIsoCamera } from '@/render/iso/iso-camera';
-import { buildingEntity } from '@/world/building-descriptor';
-import { synthesizeFromPreset } from '@/world/building-presets';
+import { blueprintEntity } from '@/blueprint/entity';
+import { synthesizeBlueprint } from '@/blueprint/presets';
 
 function makeMap(w: number, h: number, fill = 'grass'): GameMap {
   const tiles = [];
@@ -118,7 +118,7 @@ describe('iso-renderer: vegetation', () => {
 describe('iso-renderer: buildings from descriptor entities', () => {
   it('draws building entities returned by world.query (not map.buildings)', () => {
     const rc = makeRc();
-    const cottage = buildingEntity('b1', synthesizeFromPreset('cottage')!, 2, 2);
+    const cottage = blueprintEntity('b1', synthesizeBlueprint('cottage')!, 2, 2);
     rc.world = { entities: new Map(), query: () => [cottage] } as any;
     const ctx = makeMockCtx();
     expect(() => renderMap(ctx, rc)).not.toThrow();
@@ -132,7 +132,7 @@ describe('iso-renderer: buildings from descriptor entities', () => {
     // resolvers wired in this mock, the yurt falls back to the flat block; the
     // renderer must still draw it cleanly.
     const rc = makeRc();
-    const yurt = buildingEntity('y1', synthesizeFromPreset('yurt')!, 3, 3);
+    const yurt = blueprintEntity('y1', synthesizeBlueprint('yurt')!, 3, 3);
     rc.world = { entities: new Map(), query: () => [yurt] } as any;
     const ctx = makeMockCtx();
     expect(() => renderMap(ctx, rc)).not.toThrow();
@@ -141,7 +141,7 @@ describe('iso-renderer: buildings from descriptor entities', () => {
 
   it('skips buildings when the buildings layer is hidden', () => {
     const rc = makeRc();
-    const cottage = buildingEntity('b1', synthesizeFromPreset('cottage')!, 2, 2);
+    const cottage = blueprintEntity('b1', synthesizeBlueprint('cottage')!, 2, 2);
     rc.world = { entities: new Map(), query: () => [cottage] } as any;
     rc.devMode = { showBuildings: false } as any;
     const ctx = makeMockCtx();

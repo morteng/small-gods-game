@@ -12,7 +12,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { generateWithNoise } from '@/map/map-generator';
 import type { WorldSeed } from '@/core/types';
-import type { BuildingDescriptor } from '@/world/building-descriptor';
+import { blueprintOf } from '@/blueprint/entity';
 
 const seed = JSON.parse(
   readFileSync('public/data/worlds/default.json', 'utf-8'),
@@ -32,7 +32,7 @@ describe('default world generation — end-to-end placement', () => {
     const buildings = world.query({ tag: 'building' });
     const placedPresets = new Set(
       buildings
-        .map(e => (e.properties?.descriptor as BuildingDescriptor | undefined)?.preset)
+        .map(e => blueprintOf(e)?.rb.preset)
         .filter((p): p is string => p !== undefined),
     );
 
