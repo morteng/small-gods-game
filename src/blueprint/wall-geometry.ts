@@ -2,7 +2,7 @@
 // One home for wall-face geometry, shared by the opening kinds and the four compilers.
 // Converts a part-local ApertureSpec (face/t/sill/halfW/height/depth) into absolute
 // structure-space boxes: the carved aperture (a recess) and the flush filler leaf.
-import type { Vec3 } from '@/assetgen/types';
+import type { ApertureBox } from '@/assetgen/geometry/solids';
 import type { ResolvedPart, WallFace } from './types';
 import type { ApertureSpec } from './features/opening';
 
@@ -17,7 +17,10 @@ export const FACE_FACING: Record<WallFace, [number, number]> = {
   south: [0, 1], north: [0, -1], east: [1, 0], west: [-1, 0],
 };
 
-export interface FaceBox { at: Vec3; size: Vec3 }
+// An absolute structure-space box. Aliased to the assetgen carve type so the aperture
+// boxes this module produces are the SAME type the geometry layer subtracts (no silent
+// structural-identity coupling that could diverge if either gains a field).
+export type FaceBox = ApertureBox;
 
 /** Structure-local perimeter cell an opening at fraction `t` along `face` occupies. */
 export function faceCell(part: ResolvedPart, face: WallFace, t = 0.5): [number, number] {

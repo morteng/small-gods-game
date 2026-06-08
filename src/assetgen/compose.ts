@@ -29,6 +29,9 @@ export interface StructureSpec { id?: string; size?: number; parts: Part[] }
 /** Feature anchors normalised (0..1) against the sprite's opaque bbox, so they survive a repaint + crop. */
 export interface NormAnchor { x: number; y: number }
 export interface DoorAnchorN extends NormAnchor { main: boolean }
+/** `doors` is retained for shape-compat but is always empty now: doors became carved
+ *  openings (Blueprint layer) and their pathing anchors live in the world-space `toAnchors`
+ *  compiler, not in the sprite-space structure anchors. */
 export interface StructureAnchors { doors: DoorAnchorN[]; vents: NormAnchor[]; wallEnds?: NormAnchor[]; gates?: NormAnchor[] }
 export interface StructureMeta { bbox: BBox; anchors: StructureAnchors }
 export interface StructureResult { grey: Uint8ClampedArray; normal: Uint8ClampedArray; size: number; meta: StructureMeta; bbox: BBox; anchors: StructureAnchors }

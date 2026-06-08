@@ -56,21 +56,27 @@ export function toGeometry(rb: ResolvedBlueprint): StructureSpec {
     const { apertures, fillers: partFillers } = compileOpenings(part, ctx);
     fillers.push(...partFillers);
 
-    let attached = false;   // openings attach to this part's FIRST wall-bearing prim
+    // A part's openings carve its FIRST wall-bearing prim (building/cylinder/box).
+    let openingsAttached = false;
     for (const prim of prims) {
       if (prim.prim === 'building') {
         if (!building) building = { ...prim, wings: [...prim.wings], features: {}, apertures: [], seed: 0 };
         else building.wings.push(...prim.wings);
         const wingIdx = building.wings.length - prim.wings.length;
         for (const f of part.features) if (f.type === 'vent') vents.push(ventOf(f, wingIdx));
-        if (!attached) { buildingApertures.push(...apertures); attached = true; }
+        if (!openingsAttached) { buildingApertures.push(...apertures); openingsAttached = true; }
       } else {
-        if (!attached && WALL_BEARING.has(prim.prim) && apertures.length) {
+        if (!openingsAttached && WALL_BEARING.has(prim.prim) && apertures.length) {
           (prim as Extract<Prim, { prim: 'box' | 'cylinder' }>).apertures = apertures;
-          attached = true;
+          openingsAttached = true;
         }
         others.push(prim);
       }
+    }
+    if (!openingsAttached && apertures.length) {
+      // The part declared openings but emitted no wall-bearing prim to carve them into —
+      // surface it so a future part type doesn't silently drop its doors/windows.
+      console.warn(`[toGeometry] part "${part.type}" has ${apertures.length} opening(s) but no wall-bearing prim; apertures dropped`);
     }
   }
 
