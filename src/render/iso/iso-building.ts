@@ -10,18 +10,11 @@
  * `drawRoof()` (matching the `Roof` union) or `drawBody()` (matching `Plan`).
  */
 import { worldToScreen } from './iso-projection';
-import { ISO_TILE_H } from './iso-constants';
 import { opaqueAnchor, type SpriteAnchor } from './iso-sprite-bbox';
 import type { IsoDrawCtx } from './iso-sprites';
 import type { Massing } from '@/render/building-massing-model';
 import type { Roof } from '@/world/building-descriptor';
-
-/**
- * Screen pixels per tile-height unit (one `heightPerLevel`). Pinned to the iso
- * tile height so one storey reads as roughly one tile tall — at the old 30px a
- * full-tile-wide building was a pancake; one storey should stand a tile high.
- */
-const H_UNIT_PX = ISO_TILE_H;
+import { HEIGHT_UNIT_PX, ISO_TILE_H } from '@/render/scale-contract';
 
 interface P { sx: number; sy: number }
 
@@ -269,19 +262,19 @@ export function drawIsoBuildingMassing(
 ): void {
   const ctx = dc.ctx;
   const { w, h } = m.footprint;
-  const roofPx = m.roofHeight * H_UNIT_PX;
+  const roofPx = m.roofHeight * HEIGHT_UNIT_PX;
 
   const g0 = groundCorners(tileX, tileY, w, h, dc);
 
   if (m.plan === 'round') {
-    const ellipse = drawDrum(ctx, g0, m.bodyHeight * H_UNIT_PX, m.walls);
+    const ellipse = drawDrum(ctx, g0, m.bodyHeight * HEIGHT_UNIT_PX, m.walls);
     drawDomeCap(ctx, ellipse, roofPx, m.roofColor);
     return;
   }
 
   if (m.plan === 'stepped') {
     const levels = Math.max(1, m.levels);
-    const perLevel = (m.bodyHeight * H_UNIT_PX) / levels;
+    const perLevel = (m.bodyHeight * HEIGHT_UNIT_PX) / levels;
     let z = 0;
     for (let i = 0; i < levels; i++) {
       const inset = i * m.levelInset;
@@ -298,6 +291,6 @@ export function drawIsoBuildingMassing(
   }
 
   // rect / L / cross → extruded box body + roof silhouette
-  const top = drawBox(ctx, g0, m.bodyHeight * H_UNIT_PX, m.walls);
+  const top = drawBox(ctx, g0, m.bodyHeight * HEIGHT_UNIT_PX, m.walls);
   drawRoof(ctx, m.roof, top, roofPx, m.roofColor);
 }

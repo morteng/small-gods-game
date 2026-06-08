@@ -12,12 +12,9 @@
 import type { Entity } from '@/core/types';
 import type { BarrierRun } from '@/world/barrier';
 import { worldToScreen } from './iso-projection';
-import { ISO_TILE_H } from './iso-constants';
+import { HEIGHT_UNIT_PX, ISO_TILE_H } from '@/render/scale-contract';
 
 interface P { sx: number; sy: number }
-
-/** Screen pixels per height unit — one unit reads as roughly one tile tall. */
-const H_UNIT_PX = ISO_TILE_H;
 
 const MATERIAL_COLORS: Record<string, string> = {
   stone: '#8a8a8a',
@@ -86,7 +83,7 @@ export function drawIsoBarrier(
   if (!run || run.path.length < 2) return;
 
   const base = MATERIAL_COLORS[run.material] ?? FALLBACK_COLOR;
-  const riseZ = Math.max(0.1, run.height) * H_UNIT_PX;
+  const riseZ = Math.max(0.1, run.height) * HEIGHT_UNIT_PX;
   const total = pathLength(run.path);
   const step = 1; // one unit-tile per slab
 
