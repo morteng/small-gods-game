@@ -2,6 +2,7 @@ import type { RenderContext, Entity } from '@/core/types';
 import { drawIsoTerrain } from './iso-terrain';
 import { drawIsoNpc, drawIsoVegetation, drawIsoArtBillboard } from './iso-sprites';
 import { drawIsoBuildingMassing, drawIsoBuildingSprite } from './iso-building';
+import { drawIsoBarrier } from './iso-barrier';
 import { drawIsoOverlays } from './iso-overlay';
 import { createNullAtlas } from './iso-atlas';
 import { visibleTileBounds } from './iso-projection';
@@ -13,7 +14,7 @@ import { isLayerHidden } from '@/render/layer-visibility';
 
 const BG_COLOR = '#1a1a24';
 const KIND_PRIORITY: Record<string, number> = {
-  river: 0, road: 1, deco: 2, vegetation: 3, building: 4, npc: 5,
+  river: 0, road: 1, deco: 2, vegetation: 3, barrier: 4, building: 4, npc: 5,
 };
 
 export type RenderMap = (ctx: CanvasRenderingContext2D, rc: RenderContext) => void;
@@ -66,13 +67,26 @@ export function createIsoRenderMap(): RenderMap {
     // Massing (the legacy map.buildings/template path is gone).
     const buildingById = new Map<string, { e: Entity; massing: Massing }>();
     const vegById = new Map<string, Entity>();
-    if (!hideBuildings || !hideVegetation) {
+    const barrierById = new Map<string, Entity>();
+    const hideBarriers = isLayerHidden('buildings', rc.devMode);
+    if (!hideBuildings || !hideVegetation || !hideBarriers) {
       const region = {
         x: bounds.minTx, y: bounds.minTy,
         w: bounds.maxTx - bounds.minTx + 1,
         h: bounds.maxTy - bounds.minTy + 1,
       };
       for (const e of rc.world.query({ region })) {
+        // Linear barrier runs (walls/palisades/fences) — drawn near buildings.
+        if (e.kind.endsWith('_run') || e.tags?.includes('barrier')) {
+          if (hideBarriers) continue;
+          barrierById.set(e.id, e);
+          entries.push({
+            id: e.id, kind: 'barrier',
+            tx: Math.floor(e.x), ty: Math.floor(e.y), z: 0,
+            kindPriority: KIND_PRIORITY.barrier,
+          });
+          continue;
+        }
         const descriptor = e.properties?.descriptor as BuildingDescriptor | undefined;
         if (descriptor) {
           if (hideBuildings) continue;
@@ -134,6 +148,9 @@ export function createIsoRenderMap(): RenderMap {
             drawIsoBuildingMassing(drawCtx, b.massing, Math.floor(b.e.x), Math.floor(b.e.y));
           }
         }
+      } else if (e.kind === 'barrier') {
+        const b = barrierById.get(e.id);
+        if (b) drawIsoBarrier(ctx, b, { originX, originY });
       } else if (e.kind === 'npc') {
         const n = rc.npcs.find((x) => x.id === e.id);
         if (n) drawIsoNpc(drawCtx, n);
