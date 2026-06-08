@@ -6,7 +6,7 @@ export interface Pt { x: number; y: number }
 
 export type Mat =
   | 'stone' | 'timber' | 'plaster' | 'thatch' | 'tile'
-  | 'foliage' | 'bark' | 'earth' | 'metal';
+  | 'foliage' | 'bark' | 'earth' | 'metal' | 'door' | 'brick';
 
 /** Base grey-reference albedo per material (the generative palette overrides later). */
 export const MATERIAL_RGB: Record<Mat, RGB> = {
@@ -19,6 +19,8 @@ export const MATERIAL_RGB: Record<Mat, RGB> = {
   bark:    [92, 72, 52],
   earth:   [120, 100, 78],
   metal:   [140, 144, 150],
+  door:    [92, 62, 40],   // dark door wood — distinct albedo so the model paints a door
+  brick:   [150, 78, 58],  // chimney brick — distinct from wall + roof
 };
 
 /** A flat-shaded polygon in WORLD space (tile-local x,y; z up), pre-projection. */

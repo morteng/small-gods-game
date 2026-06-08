@@ -4,8 +4,8 @@ import {
   solidBox, solidCylinder, solidCone, solidPrism, solidEllipsoid, solidArch,
   manifoldToFacets, buildingFacets,
 } from '@/assetgen/geometry/solids';
-import type { Wing, RoofStyle } from '@/assetgen/geometry/building';
-import { projectFacets } from '@/assetgen/render/projection';
+import type { Wing, RoofStyle, BuildingFeatures, BuildingAnchors } from '@/assetgen/geometry/building';
+import { projectFacets, project } from '@/assetgen/render/projection';
 import { rasterize } from '@/assetgen/render/rasterize';
 import { computeFit, opaqueBounds, type BBox } from '@/assetgen/render/fit';
 
@@ -16,34 +16,51 @@ export type Part =
   | { prim: 'prism'; center: [number, number]; baseZ: number; radius: number; height: number; sides: number; material?: Mat }
   | { prim: 'ellipsoid'; center: [number, number]; baseZ: number; radii: Vec3; material?: Mat }
   | { prim: 'arch'; at: Vec3; span: number; height: number; thickness: number; material?: Mat }
-  | { prim: 'building'; wings: Wing[]; wallMat?: Mat; roofMat?: Mat; roofStyle?: RoofStyle };
+  | { prim: 'building'; wings: Wing[]; wallMat?: Mat; roofMat?: Mat; roofStyle?: RoofStyle; features?: BuildingFeatures; seed?: number };
 
 export interface StructureSpec { id?: string; size?: number; parts: Part[] }
-export interface StructureMeta { bbox: BBox }
-export interface StructureResult { grey: Uint8ClampedArray; normal: Uint8ClampedArray; size: number; meta: StructureMeta; bbox: BBox }
+/** Feature anchors normalised (0..1) against the sprite's opaque bbox, so they survive a repaint + crop. */
+export interface NormAnchor { x: number; y: number }
+export interface DoorAnchorN extends NormAnchor { main: boolean }
+export interface StructureAnchors { doors: DoorAnchorN[]; vents: NormAnchor[] }
+export interface StructureMeta { bbox: BBox; anchors: StructureAnchors }
+export interface StructureResult { grey: Uint8ClampedArray; normal: Uint8ClampedArray; size: number; meta: StructureMeta; bbox: BBox; anchors: StructureAnchors }
 
-/** Build one part's solid and return its facets. */
-async function partFacets(p: Part): Promise<WorldFacet[]> {
+/** Build one part's solid(s) → facets, plus any world-space anchors (buildings only). */
+async function partFacets(p: Part): Promise<{ facets: WorldFacet[]; anchors?: BuildingAnchors }> {
   switch (p.prim) {
-    case 'box':       return manifoldToFacets((await solidBox(p.at, p.size)).getMesh(), p.material ?? 'stone');
-    case 'cylinder':  return manifoldToFacets((await solidCylinder(p.center, p.baseZ, p.radius, p.height)).getMesh(), p.material ?? 'stone');
-    case 'cone':      return manifoldToFacets((await solidCone(p.center, p.baseZ, 0, p.radius, p.height)).getMesh(), p.material ?? 'foliage');
-    case 'prism':     return manifoldToFacets((await solidPrism(p.center, p.baseZ, p.radius, p.height, p.sides)).getMesh(), p.material ?? 'stone');
-    case 'ellipsoid': return manifoldToFacets((await solidEllipsoid(p.center, p.baseZ, p.radii)).getMesh(), p.material ?? 'foliage');
-    case 'arch':      return manifoldToFacets((await solidArch(p.at, p.span, p.height, p.thickness)).getMesh(), p.material ?? 'stone');
-    case 'building':  return buildingFacets(p.wings, p.wallMat, p.roofMat, p.roofStyle);
+    case 'box':       return { facets: manifoldToFacets((await solidBox(p.at, p.size)).getMesh(), p.material ?? 'stone') };
+    case 'cylinder':  return { facets: manifoldToFacets((await solidCylinder(p.center, p.baseZ, p.radius, p.height)).getMesh(), p.material ?? 'stone') };
+    case 'cone':      return { facets: manifoldToFacets((await solidCone(p.center, p.baseZ, 0, p.radius, p.height)).getMesh(), p.material ?? 'foliage') };
+    case 'prism':     return { facets: manifoldToFacets((await solidPrism(p.center, p.baseZ, p.radius, p.height, p.sides)).getMesh(), p.material ?? 'stone') };
+    case 'ellipsoid': return { facets: manifoldToFacets((await solidEllipsoid(p.center, p.baseZ, p.radii)).getMesh(), p.material ?? 'foliage') };
+    case 'arch':      return { facets: manifoldToFacets((await solidArch(p.at, p.span, p.height, p.thickness)).getMesh(), p.material ?? 'stone') };
+    case 'building':  return buildingFacets(p.wings, p.wallMat, p.roofMat, p.roofStyle, p.features, p.seed);
   }
 }
 
-/** Compose a structure spec into aligned grey + normal RGBA buffers (+ bbox/meta). Deterministic. */
+/** Compose a structure spec into aligned grey + normal RGBA buffers (+ bbox/anchors). Deterministic. */
 export async function composeStructure(spec: StructureSpec): Promise<StructureResult> {
   const size = spec.size ?? 1024;
-  const facetGroups = await Promise.all(spec.parts.map(partFacets));
-  const facets = facetGroups.flat();
+  const parts = await Promise.all(spec.parts.map(partFacets));
+  const facets = parts.flatMap(p => p.facets);
   const fit = computeFit(facets, size);
   const screen = projectFacets(facets, fit);
   const grey = rasterize(screen, size, 'albedo');
   const normal = rasterize(screen, size, 'normal');
   const bbox = opaqueBounds(grey, size);
-  return { grey, normal, size, meta: { bbox }, bbox };
+
+  // Project world-space anchors through the same fit, then normalise to the opaque bbox.
+  const norm = (p: Vec3): NormAnchor => {
+    const s = project(p, fit);
+    return { x: (s.x - bbox.x) / (bbox.w || 1), y: (s.y - bbox.y) / (bbox.h || 1) };
+  };
+  const anchors: StructureAnchors = { doors: [], vents: [] };
+  for (const part of parts) {
+    if (!part.anchors) continue;
+    for (const d of part.anchors.doors) anchors.doors.push({ ...norm(d.pos), main: d.main });
+    for (const v of part.anchors.vents) anchors.vents.push(norm(v));
+  }
+
+  return { grey, normal, size, meta: { bbox, anchors }, bbox, anchors };
 }
