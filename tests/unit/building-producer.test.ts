@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { buildingBrief, doorFace } from '@/assetgen/producers/building-producer';
 import type { BuildingDescriptor } from '@/world/building-descriptor';
+import { synthesizeFromPreset } from '@/world/building-presets';
+import { structureRect } from '@/world/building-descriptor';
 
 function cottage(door = { x: 1, y: 2 }): BuildingDescriptor {
   return {
@@ -71,5 +73,19 @@ describe('buildingBrief', () => {
     d.roofMat = 'none';
     const b = buildingBrief(d, 1);
     expect(b.materials.find((m) => m.part === 'roof')).toBeUndefined();
+  });
+});
+
+describe('buildingBrief — structure + human-scale door', () => {
+  it('sizes the brief footprint to the structure rect', () => {
+    const d = { ...synthesizeFromPreset('cottage')!, footprint: { w: 3, h: 3 },
+                structure: { w: 2, h: 2, dx: 0, dy: 0 } };
+    const brief = buildingBrief(d, 0);
+    expect(brief.footprint).toEqual({ w: 2, h: 2 });
+  });
+
+  it('phrases a human-height door so the model draws it to scale', () => {
+    const brief = buildingBrief(synthesizeFromPreset('cottage')!, 0);
+    expect(brief.traits.some(t => /human-height door/i.test(t))).toBe(true);
   });
 });

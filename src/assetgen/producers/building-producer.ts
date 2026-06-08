@@ -9,6 +9,7 @@
 import {
   WALL_COLORS, ROOF_COLORS, GROUND_COLORS, NEUTRAL,
   type BuildingDescriptor,
+  structureRect,
 } from '@/world/building-descriptor';
 import { buildingMassing } from '@/render/building-massing-model';
 import type { AssetBrief, BriefMaterial, DoorFace } from '../asset-brief';
@@ -55,6 +56,7 @@ function planTrait(plan: BuildingDescriptor['plan']): string | null {
 
 export function buildingBrief(d: BuildingDescriptor, instanceSeed: number): AssetBrief {
   const massing = buildingMassing(d);
+  const s = structureRect(d);
 
   const materials: BriefMaterial[] = [
     { part: 'walls', material: d.walls, color: WALL_COLORS[d.walls] ?? NEUTRAL },
@@ -78,6 +80,7 @@ export function buildingBrief(d: BuildingDescriptor, instanceSeed: number): Asse
     `${d.walls}-walled`,
     `${d.roof.replace('_', '-')} roof`,
     ...(planTrait(d.plan) ? [planTrait(d.plan) as string] : []),
+    'human-height door',
     detail,
   ];
 
@@ -90,7 +93,7 @@ export function buildingBrief(d: BuildingDescriptor, instanceSeed: number): Asse
     materials,
     view: 'iso-3q',
     era: d.era,
-    footprint: { ...d.footprint },
+    footprint: { w: s.w, h: s.h },
     heightUnits: massing.bodyHeight + massing.roofHeight,
     door: { x: d.door.x, y: d.door.y, face },
     paletteAnchors,
