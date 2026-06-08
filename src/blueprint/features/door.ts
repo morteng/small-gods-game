@@ -1,10 +1,16 @@
 // src/blueprint/features/door.ts
-// The door feature. Its size derives from the scale contract so it reads at villager
-// height by construction — the fix for the long-standing "doors too big" issue.
+// The door opening. Size derives from the scale contract so it reads at villager height
+// by construction. Rich semantics (hinge/swing/lock/open/hardware) are MODELLED as data
+// now — they drive Fate narration, sim, and interaction; the rendered geometry is a thin
+// flush leaf set into a carved recess (no protrusion).
 import type { FeatureType } from '../registry';
+import type { ApertureSpec } from './opening';
+import type { Part as Prim } from '@/assetgen/compose';
 import { DOOR_HEIGHT_UNITS, DOOR_WIDTH_TILES } from '@/render/scale-contract';
+import { leafBox } from '../wall-geometry';
 
 const MAIN_SCALE = 1.18;   // a main entrance: modestly grander, still human-relative
+const DOOR_RECESS = 0.3;   // recess (niche) depth — a door, not a see-through portal
 
 export const doorFeatureType: FeatureType = {
   type: 'door',
@@ -14,6 +20,16 @@ export const doorFeatureType: FeatureType = {
     // Defaulted from the scale contract in resolve() when left unset (-1 sentinel).
     width: { kind: 'number', min: -1, max: 2, default: -1 },
     height: { kind: 'number', min: -1, max: 4, default: -1 },
+    t: { kind: 'number', min: 0, max: 1, default: 0.5 },          // centre along the wall run
+    hinge: { kind: 'enum', values: ['left', 'right'], default: 'left' },
+    swing: { kind: 'enum', values: ['in', 'out', 'slide'], default: 'in' },
+    locked: { kind: 'bool', default: false },
+    open: { kind: 'number', min: 0, max: 1, default: 0 },         // 0 shut … 1 wide open (state)
+    // Hardware — modelled as data now, rendered when zoom/scale justifies it.
+    handle: { kind: 'bool', default: true },
+    lock: { kind: 'bool', default: false },
+    bell: { kind: 'bool', default: false },
+    knocker: { kind: 'bool', default: false },
   },
   resolve: (f) => {
     const p = f.params ?? {};
@@ -21,7 +37,39 @@ export const doorFeatureType: FeatureType = {
     const grand = main ? MAIN_SCALE : 1;
     const halfW = (p.width as number) >= 0 ? (p.width as number) : (DOOR_WIDTH_TILES / 2) * grand;
     const height = (p.height as number) >= 0 ? (p.height as number) : DOOR_HEIGHT_UNITS * grand;
-    return { params: { main, halfW, height } };
+    return {
+      params: {
+        main, halfW, height,
+        t: (p.t as number) ?? 0.5,
+        hinge: (p.hinge as string) ?? 'left',
+        swing: (p.swing as string) ?? 'in',
+        locked: p.locked === true,
+        open: (p.open as number) ?? 0,
+        handle: p.handle !== false,
+        lock: p.lock === true,
+        bell: p.bell === true,
+        knocker: p.knocker === true,
+      },
+    };
   },
   toBrief: () => 'human-height door',
+
+  // ── opening hooks ──
+  threshold: true,
+  aperture: (f): ApertureSpec => ({
+    face: f.face ?? 'south',
+    t: f.params.t as number,
+    sill: 0,
+    halfW: f.params.halfW as number,
+    height: f.params.height as number,
+    depth: DOOR_RECESS,
+  }),
+  filler: (f, host): Prim[] => {
+    const spec: ApertureSpec = {
+      face: f.face ?? 'south', t: f.params.t as number, sill: 0,
+      halfW: f.params.halfW as number, height: f.params.height as number, depth: DOOR_RECESS,
+    };
+    const leaf = leafBox(spec, host);
+    return [{ prim: 'box', at: leaf.at, size: leaf.size, material: 'door' }];
+  },
 };
