@@ -2,18 +2,14 @@
  * Building info panel — the building-side analogue of the NPC attention panel.
  *
  * Click a building → this panel shows its title, the tri-aligned human
- * description, and structured facts (size, era, materials, door). In dev mode it
- * also exposes a "guidance ⇄ result" toggle: the init_image we send to the art
- * model (footprint grid + massing + door marker) vs the sprite we got back —
- * so generated art can be eyeballed against the geometry it was guided by.
+ * description, and structured facts (size, era, materials, door), plus the
+ * resolved sprite (or a placeholder when none is available yet).
  */
 import type { BuildingInfo } from '@/world/building-helpers';
 
 export interface BuildingPanelView {
   info: BuildingInfo;
-  /** base64/data-URL of the guidance image we send (grid + massing), or null. */
-  guidanceUrl: string | null;
-  /** Current sprite src we got back from the library, or null (massing only). */
+  /** Current sprite src from the library, or null (placeholder shown when none). */
   spriteUrl: string | null;
 }
 
@@ -45,13 +41,8 @@ export function mountBuildingInfoPanel(
   ].join(';');
   container.appendChild(panel);
 
-  // Which image the dev toggle shows. Persists across re-renders of the same id.
-  let mode: 'guidance' | 'result' = 'result';
-  let lastId: string | null = null;
-
   function render(view: BuildingPanelView): void {
-    const { info, guidanceUrl, spriteUrl } = view;
-    if (info.id !== lastId) { mode = spriteUrl ? 'result' : 'guidance'; lastId = info.id; }
+    const { info, spriteUrl } = view;
 
     const facts = info.facts
       .map((f) => `<div style="display:flex;justify-content:space-between;gap:12px;padding:3px 0;border-bottom:1px solid var(--line)">
@@ -59,20 +50,12 @@ export function mountBuildingInfoPanel(
           <span style="font-weight:600">${esc(f.value)}</span></div>`)
       .join('');
 
-    const shown = mode === 'guidance' ? guidanceUrl : spriteUrl;
-    const caption = mode === 'guidance'
-      ? 'Sent → footprint grid + massing + door marker'
-      : (spriteUrl ? 'Got back → generated sprite' : 'No sprite yet — placeholder massing renders');
-    const imgHtml = shown
-      ? `<img src="${esc(shown)}" alt="${esc(mode)}" style="max-width:100%;image-rendering:pixelated;background:repeating-conic-gradient(#0000 0% 25%, #ffffff14 0% 50%) 50%/16px 16px;border:1px solid var(--line);border-radius:var(--r-2)">`
+    const caption = spriteUrl ? 'Generated sprite' : 'No sprite yet';
+    const imgHtml = spriteUrl
+      ? `<img src="${esc(spriteUrl)}" alt="building sprite" style="max-width:100%;image-rendering:pixelated;background:repeating-conic-gradient(#0000 0% 25%, #ffffff14 0% 50%) 50%/16px 16px;border:1px solid var(--line);border-radius:var(--r-2)">`
       : `<div style="padding:20px;text-align:center;color:var(--ink-3)">(none)</div>`;
-    const devBlock = `
+    const spriteBlock = `
       <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line)">
-        <div style="font-size:var(--t-micro);color:var(--ink-3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Sent ⇄ Received</div>
-        <div style="display:flex;gap:6px;margin-bottom:8px">
-          <button data-mode="guidance" class="sg-btn ${mode === 'guidance' ? '' : 'sg-btn--ghost'}" style="flex:1;font-size:var(--t-micro)">Guidance</button>
-          <button data-mode="result" class="sg-btn ${mode === 'result' ? '' : 'sg-btn--ghost'}" style="flex:1;font-size:var(--t-micro)">Result</button>
-        </div>
         ${imgHtml}
         <div style="margin-top:6px;font-size:var(--t-micro);color:var(--ink-3)">${esc(caption)}</div>
       </div>`;
@@ -84,18 +67,15 @@ export function mountBuildingInfoPanel(
       </div>
       <div style="font-size:var(--t-small);line-height:1.5;color:var(--ink-2);margin-bottom:12px">${esc(info.description)}</div>
       <div style="font-size:var(--t-small)">${facts}</div>
-      ${devBlock}`;
+      ${spriteBlock}`;
 
     panel.querySelector<HTMLButtonElement>('[data-close]')?.addEventListener('click', () => deps.onClose());
-    panel.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach((b) => {
-      b.addEventListener('click', () => { mode = b.dataset.mode as 'guidance' | 'result'; render(view); });
-    });
   }
 
   return {
     render,
     show() { panel.style.display = 'block'; },
-    hide() { panel.style.display = 'none'; lastId = null; },
+    hide() { panel.style.display = 'none'; },
     destroy() { panel.remove(); },
   };
 }

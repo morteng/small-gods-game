@@ -16,10 +16,6 @@ import { drawNpcOverlay, drawPoiOverlay, drawPrayerMarkers } from '@/render/sim-
 import type { NpcAttentionPanelHandle } from '@/ui/npc-attention-panel';
 import type { BuildingInfoPanelHandle } from '@/ui/building-info-panel';
 import { findBuildingAtTile, buildingInfoOf } from '@/world/building-helpers';
-import { renderMassingToImage } from '@/assetgen/massing-guidance';
-import { buildingBrief } from '@/assetgen/producers/building-producer';
-import { VIEW_RECIPES } from '@/assetgen/view-registry';
-import type { BuildingDescriptor } from '@/world/building-descriptor';
 import { formatNpcTooltip } from '@/ui/npc-tooltip';
 import { formatDevTooltip } from '@/dev/tooltip';
 import { drawPowerHud } from '@/render/hud';
@@ -227,10 +223,8 @@ export class FrameRenderer {
     }
   }
 
-  // Cached so the expensive guidance render only runs on selection change, while
-  // the sprite-loaded transition (null → src) still re-renders the panel.
+  // Cached so the panel only re-renders when the selection or loaded sprite changes.
   private cachedBuildingInfo: ReturnType<typeof buildingInfoOf> = null;
-  private cachedGuidanceUrl: string | null = null;
   private renderedSpriteUrl: string | null | undefined = undefined; // undefined = unset (force first render)
 
   private updateBuildingPanel(resolveArt?: (e: import('@/core/types').Entity) => HTMLImageElement | null): void {
@@ -245,15 +239,7 @@ export class FrameRenderer {
 
     if (id !== this.renderedBuildingId) {
       this.cachedBuildingInfo = buildingInfoOf(entity);
-      this.cachedGuidanceUrl = null;
       this.renderedSpriteUrl = undefined; // force a render this frame
-      const descriptor = (entity.properties as { descriptor?: BuildingDescriptor }).descriptor;
-      if (descriptor) {
-        try {
-          const size = VIEW_RECIPES['iso-3q'].nativeSize(buildingBrief(descriptor, 0));
-          this.cachedGuidanceUrl = `data:image/png;base64,${renderMassingToImage(descriptor, size)}`;
-        } catch { this.cachedGuidanceUrl = null; }
-      }
       this.renderedBuildingId = id;
     }
 
@@ -261,7 +247,7 @@ export class FrameRenderer {
     if (!info) { this.deps.ui.buildingInfoPanel.hide(); return; }
     const spriteUrl = resolveArt?.(entity)?.src ?? null;
     if (spriteUrl !== this.renderedSpriteUrl) {
-      this.deps.ui.buildingInfoPanel.render({ info, guidanceUrl: this.cachedGuidanceUrl, spriteUrl });
+      this.deps.ui.buildingInfoPanel.render({ info, spriteUrl });
       this.renderedSpriteUrl = spriteUrl;
     }
     this.deps.ui.buildingInfoPanel.show();
