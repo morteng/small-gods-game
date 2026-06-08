@@ -4,6 +4,7 @@
 // now — they drive Fate narration, sim, and interaction; the rendered geometry is a thin
 // flush leaf set into a carved recess (no protrusion).
 import type { FeatureType } from '../registry';
+import type { ResolvedFeature } from '../types';
 import type { ApertureSpec } from './opening';
 import type { Part as Prim } from '@/assetgen/compose';
 import { DOOR_HEIGHT_UNITS, DOOR_WIDTH_TILES } from '@/render/scale-contract';
@@ -11,6 +12,14 @@ import { leafBox } from '../wall-geometry';
 
 const MAIN_SCALE = 1.18;   // a main entrance: modestly grander, still human-relative
 const DOOR_RECESS = 0.3;   // recess (niche) depth — a door, not a see-through portal
+
+/** The carved-recess spec for a resolved door (shared by the aperture + filler hooks). */
+function doorSpec(f: ResolvedFeature): ApertureSpec {
+  return {
+    face: f.face ?? 'south', t: f.params.t as number, sill: 0,
+    halfW: f.params.halfW as number, height: f.params.height as number, depth: DOOR_RECESS,
+  };
+}
 
 export const doorFeatureType: FeatureType = {
   type: 'door',
@@ -56,20 +65,9 @@ export const doorFeatureType: FeatureType = {
 
   // ── opening hooks ──
   threshold: true,
-  aperture: (f): ApertureSpec => ({
-    face: f.face ?? 'south',
-    t: f.params.t as number,
-    sill: 0,
-    halfW: f.params.halfW as number,
-    height: f.params.height as number,
-    depth: DOOR_RECESS,
-  }),
+  aperture: (f): ApertureSpec => doorSpec(f),
   filler: (f, host): Prim[] => {
-    const spec: ApertureSpec = {
-      face: f.face ?? 'south', t: f.params.t as number, sill: 0,
-      halfW: f.params.halfW as number, height: f.params.height as number, depth: DOOR_RECESS,
-    };
-    const leaf = leafBox(spec, host);
+    const leaf = leafBox(doorSpec(f), host);
     return [{ prim: 'box', at: leaf.at, size: leaf.size, material: 'door' }];
   },
 };
