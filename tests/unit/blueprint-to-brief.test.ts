@@ -21,7 +21,7 @@ describe('toBrief', () => {
     expect(brief.traits).toContain('human-height door');
     expect(brief.traits.some(t => /single-storey/.test(t))).toBe(true);
     expect(brief.materials.find(m => m.part === 'walls')?.material).toBe('wattle');
-    expect(brief.door.face).toBe('s');
+    expect(brief.door!.face).toBe('s');
     expect(brief.footprint).toEqual({ w: 2, h: 2 });   // structure bbox
   });
 });
