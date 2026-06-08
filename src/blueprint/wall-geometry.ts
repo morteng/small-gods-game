@@ -10,9 +10,8 @@ export const APERTURE_EPS = 0.02;   // pokes the cut past the wall plane (boolea
 export const LEAF_INSET = 0.04;     // leaf outer face sits this far INSIDE the wall plane
 export const LEAF_THICKNESS = 0.08; // leaf panel depth
 
-// The blueprint-layer counterpart of `faceOutward` in assetgen/geometry/building.ts (same
-// concept, value-table form). Kept separate: importing across the blueprint→assetgen seam
-// the other way would invert the dependency direction.
+// Outward unit normal per wall face (blueprint layer). Value-table form so the compilers
+// can read it directly without a closure.
 export const FACE_FACING: Record<WallFace, [number, number]> = {
   south: [0, 1], north: [0, -1], east: [1, 0], west: [-1, 0],
 };
