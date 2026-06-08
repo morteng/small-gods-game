@@ -83,6 +83,17 @@ export async function solidArch(at: Vec3, span: number, height: number, thicknes
   return Manifold.union([left, right, beam]);
 }
 
+/** Absolute box to subtract from a wall solid (an opening's aperture). */
+export interface ApertureBox { at: Vec3; size: Vec3 }
+
+/** Subtract a set of aperture boxes from a wall solid (carving openings). No-op if empty. */
+export async function carveApertures(solid: Manifold, apertures: ApertureBox[] = []): Promise<Manifold> {
+  if (!apertures.length) return solid;
+  const { Manifold } = await getManifold();
+  const holes = await Promise.all(apertures.map(a => solidBox(a.at, a.size)));
+  return solid.subtract(Manifold.union(holes));
+}
+
 // ---------------------------------------------------------------------------
 // Building massing — walls + roof as two unioned solids
 // ---------------------------------------------------------------------------

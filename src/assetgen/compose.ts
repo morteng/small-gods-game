@@ -2,8 +2,9 @@
 import type { Vec3, Mat, WorldFacet } from '@/assetgen/types';
 import {
   solidBox, solidCylinder, solidCone, solidPrism, solidEllipsoid, solidArch,
-  manifoldToFacets, buildingFacets,
+  manifoldToFacets, buildingFacets, carveApertures,
 } from '@/assetgen/geometry/solids';
+import type { ApertureBox } from '@/assetgen/geometry/solids';
 import type { Wing, RoofStyle, BuildingFeatures, BuildingAnchors } from '@/assetgen/geometry/building';
 import { linearFacets } from '@/assetgen/geometry/linear';
 import type { BarrierRun } from '@/world/barrier';
@@ -12,13 +13,13 @@ import { rasterize } from '@/assetgen/render/rasterize';
 import { computeFit, opaqueBounds, type BBox } from '@/assetgen/render/fit';
 
 export type Part =
-  | { prim: 'box'; at: Vec3; size: Vec3; material?: Mat }
-  | { prim: 'cylinder'; center: [number, number]; baseZ: number; radius: number; height: number; material?: Mat }
+  | { prim: 'box'; at: Vec3; size: Vec3; material?: Mat; apertures?: ApertureBox[] }
+  | { prim: 'cylinder'; center: [number, number]; baseZ: number; radius: number; height: number; material?: Mat; apertures?: ApertureBox[] }
   | { prim: 'cone'; center: [number, number]; baseZ: number; radius: number; height: number; material?: Mat }
   | { prim: 'prism'; center: [number, number]; baseZ: number; radius: number; height: number; sides: number; material?: Mat }
   | { prim: 'ellipsoid'; center: [number, number]; baseZ: number; radii: Vec3; material?: Mat }
   | { prim: 'arch'; at: Vec3; span: number; height: number; thickness: number; material?: Mat }
-  | { prim: 'building'; wings: Wing[]; wallMat?: Mat; roofMat?: Mat; roofStyle?: RoofStyle; features?: BuildingFeatures; seed?: number }
+  | { prim: 'building'; wings: Wing[]; wallMat?: Mat; roofMat?: Mat; roofStyle?: RoofStyle; features?: BuildingFeatures; seed?: number; apertures?: ApertureBox[] }
   | { prim: 'linear'; run: BarrierRun };
 
 /** World-space linear-structure anchors (wall ends + gate openings), pre-normalisation. */
@@ -35,8 +36,16 @@ export interface StructureResult { grey: Uint8ClampedArray; normal: Uint8Clamped
 /** Build one part's solid(s) → facets, plus any world-space anchors (buildings only). */
 async function partFacets(p: Part): Promise<{ facets: WorldFacet[]; anchors?: BuildingAnchors; linearAnchors?: LinearWorldAnchors }> {
   switch (p.prim) {
-    case 'box':       return { facets: manifoldToFacets((await solidBox(p.at, p.size)).getMesh(), p.material ?? 'stone') };
-    case 'cylinder':  return { facets: manifoldToFacets((await solidCylinder(p.center, p.baseZ, p.radius, p.height)).getMesh(), p.material ?? 'stone') };
+    case 'box': {
+      let s = await solidBox(p.at, p.size);
+      s = await carveApertures(s, p.apertures);
+      return { facets: manifoldToFacets(s.getMesh(), p.material ?? 'stone') };
+    }
+    case 'cylinder': {
+      let s = await solidCylinder(p.center, p.baseZ, p.radius, p.height);
+      s = await carveApertures(s, p.apertures);
+      return { facets: manifoldToFacets(s.getMesh(), p.material ?? 'stone') };
+    }
     case 'cone':      return { facets: manifoldToFacets((await solidCone(p.center, p.baseZ, 0, p.radius, p.height)).getMesh(), p.material ?? 'foliage') };
     case 'prism':     return { facets: manifoldToFacets((await solidPrism(p.center, p.baseZ, p.radius, p.height, p.sides)).getMesh(), p.material ?? 'stone') };
     case 'ellipsoid': return { facets: manifoldToFacets((await solidEllipsoid(p.center, p.baseZ, p.radii)).getMesh(), p.material ?? 'foliage') };
