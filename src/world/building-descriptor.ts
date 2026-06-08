@@ -8,6 +8,7 @@
  * colour lookups fall back to a neutral grey for unknown materials (never throw).
  */
 import type { Entity, Era, ReligiousSignificance } from '@/core/types';
+import { buildingAnchors } from '@/world/anchors';
 
 export type BuildingCategory =
   | 'residential' | 'religious' | 'commercial' | 'military' | 'farm' | 'special';
@@ -117,6 +118,7 @@ export function buildingEntity(
       footprint: { ...d.footprint },
       door: { ...d.door },
       vents: d.vents ? d.vents.map(v => ({ ...v })) : [],
+      anchors: buildingAnchors(d, x, y),
       sortYOffset: d.footprint.h,
       era: d.era,
       poiId: extra.poiId,
