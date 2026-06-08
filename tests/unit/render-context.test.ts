@@ -5,6 +5,7 @@ import { AssetManager } from '@/render/asset-manager';
 import { DecorationImageCache } from '@/render/decoration-image-cache';
 import { createDevMode } from '@/dev/DevMode';
 import type { ArtResolver } from '@/render/art-resolver';
+import type { ParametricBuildingSource } from '@/render/parametric-building-source';
 
 /** Minimal ArtResolver stub for tests — peek always misses, warm is a no-op. */
 const stubArtResolver: ArtResolver = {
@@ -13,6 +14,12 @@ const stubArtResolver: ArtResolver = {
   warm: () => {},
   clear: () => {},
 } as unknown as ArtResolver;
+
+/** Minimal ParametricBuildingSource stub — peek always misses, warm is a no-op. */
+const stubParametricSource: ParametricBuildingSource = {
+  peek: () => null,
+  warm: () => {},
+} as unknown as ParametricBuildingSource;
 
 describe('buildRenderContext', () => {
   it('maps state fields and uses viewport for canvas size; empty npcs when no world', () => {
@@ -26,6 +33,7 @@ describe('buildRenderContext', () => {
       decorationImages: new DecorationImageCache(),
       artResolver: stubArtResolver,
       buildingArtResolver: stubArtResolver,
+      parametricBuildingSource: stubParametricSource,
       devMode: createDevMode(),
     });
     expect(rc.canvasWidth).toBe(800);
@@ -48,6 +56,7 @@ describe('buildRenderContext', () => {
       decorationImages: new DecorationImageCache(),
       artResolver: stubArtResolver,
       buildingArtResolver: stubArtResolver,
+      parametricBuildingSource: stubParametricSource,
       devMode: createDevMode(),
     });
     expect(rc.npcs).toEqual([]);
@@ -65,7 +74,8 @@ describe('buildRenderContext', () => {
     const rcHit = buildRenderContext({
       state, viewport: { width: 1, height: 1 }, sheets: new Map(),
       assets: new AssetManager(), decorationImages: images,
-      artResolver: stubArtResolver, buildingArtResolver: hit, devMode: createDevMode(),
+      artResolver: stubArtResolver, buildingArtResolver: hit,
+      parametricBuildingSource: stubParametricSource, devMode: createDevMode(),
     });
     expect(rcHit.resolveBuildingArt!({ kind: 'cottage' } as any)).toBe(img);
     expect(warmed).toBe(false); // a hit does not warm
@@ -75,7 +85,8 @@ describe('buildRenderContext', () => {
     const rcMiss = buildRenderContext({
       state, viewport: { width: 1, height: 1 }, sheets: new Map(),
       assets: new AssetManager(), decorationImages: images,
-      artResolver: stubArtResolver, buildingArtResolver: miss, devMode: createDevMode(),
+      artResolver: stubArtResolver, buildingArtResolver: miss,
+      parametricBuildingSource: stubParametricSource, devMode: createDevMode(),
     });
     expect(rcMiss.resolveBuildingArt!({ kind: 'cottage' } as any)).toBeNull();
     expect(warmedMiss).toBe(true); // a miss kicks a fire-and-forget warm

@@ -24,6 +24,8 @@ import { ArtImageCache } from '@/render/decoration-image-cache';
 import { loadBaseLibrary } from '@/services/base-library-loader';
 import { AssetLibrary } from '@/services/asset-library';
 import { ArtResolver } from '@/render/art-resolver';
+import { ParametricBuildingSource } from '@/render/parametric-building-source';
+import { initManifoldWasm } from '@/assetgen/geometry/manifold-wasm-browser';
 import { AssetManager } from '@/render/asset-manager';
 import { Scheduler } from '@/core/scheduler';
 import { TimelineController } from '@/core/timeline';
@@ -100,6 +102,7 @@ export class Game {
   private assetLibrary!: AssetLibrary;
   private artResolver!: ArtResolver;
   private buildingArtResolver!: ArtResolver;
+  private readonly parametricBuildingSource = new ParametricBuildingSource();
   private decorationImages = new ArtImageCache((id) => this.assetLibrary.resolveBlob(id));
   /** Resolved spritesheets keyed by NPC id */
   private sheets = new Map<string, HTMLCanvasElement>();
@@ -539,6 +542,7 @@ export class Game {
       decorationImages: this.decorationImages,
       artResolver: this.artResolver,
       buildingArtResolver: this.buildingArtResolver,
+      parametricBuildingSource: this.parametricBuildingSource,
       devMode: this.dev.devMode,
     };
   }
@@ -551,6 +555,7 @@ export class Game {
   }
 
   async generateWorld(worldSeed?: WorldSeed, _terrainOptions?: Partial<TerrainOptions>): Promise<GameMap> {
+    initManifoldWasm();
     this.renderMap = await selectRenderer();
     const baseLibrary = await loadBaseLibrary();
     this.assetLibrary = new AssetLibrary(baseLibrary);

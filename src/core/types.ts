@@ -166,6 +166,8 @@ export interface RenderContext {
   resolveEntityArt?: (entity: Entity) => HTMLImageElement | null;
   /** Render-only: building entity → generated sprite image, or null to fall back to parametric massing. */
   resolveBuildingArt?: (entity: Entity) => HTMLImageElement | null;
+  /** A runtime-generated parametric building sprite (manifold), or null. */
+  resolveParametricBuildingArt?: (entity: Entity) => CanvasImageSource | null;
   /** Dev mode state — when present and enabled, renderer draws highlights. */
   devMode?: DevModeState;
   /** Debug overlay options (extracted from devMode for convenience). */
