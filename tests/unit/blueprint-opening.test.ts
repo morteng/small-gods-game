@@ -58,3 +58,22 @@ describe('door opening hooks', () => {
     expect(door.params).toMatchObject({ hinge: 'left', swing: 'in', locked: false, open: 0, handle: true });
   });
 });
+
+describe('window opening hooks', () => {
+  const bp: Blueprint = {
+    version: BLUEPRINT_VERSION, class: 'building', footprint: { w: 3, h: 2 },
+    materials: { walls: 'stone', roof: 'tile' },
+    parts: { body: { type: 'body', size: { w: 3, h: 2 }, params: { plan: 'rect', roof: 'gable' },
+      features: { win: { type: 'window', face: 'south', params: { style: 'arched' } } } } },
+  };
+
+  it('window aperture is raised (sill > 0) and not a threshold', () => {
+    const rb = resolveBlueprint([bp], 0);
+    const part = rb.parts[0];
+    const win = part.features.find(f => f.type === 'window')!;
+    const ft = getFeatureType('window')!;
+    const ap = ft.aperture!(win, part, { materials: rb.materials, footprint: rb.footprint });
+    expect(ap.sill).toBeGreaterThan(0);
+    expect(ft.threshold).toBe(false);
+  });
+});
