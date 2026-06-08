@@ -63,15 +63,21 @@ export async function linearFacets(run: BarrierRun): Promise<LinearResult> {
     Manifold.cube([s.len, th, h]).translate([0, -th / 2, 0]).rotate([0, 0, s.angleDeg]).translate([s.ax, s.ay, 0]);
   let solid = Manifold.union(segs.map(segBox));
 
-  // ── Crenellation: a row of merlon boxes along the top edge of each segment ──
+  // ── Crenellation: battlement teeth (merlons) along the wall-top EDGE(S), not the
+  // whole top — so a thick rampart reads as a parapet walk with crenels, a thin wall
+  // as a single toothed coping. md = parapet strip depth; teeth alternate with gaps. ──
   if (run.crenellated) {
     const merlons: Manifold[] = [];
-    const mw = 0.5, mh = 0.5, step = 1.0;
+    const mw = 0.5, mh = 0.85, step = 1.0;        // tooth width · height · pitch (≈half tooth, half crenel)
+    const md = Math.min(0.45, th);                // parapet strip depth at each edge
+    const edges = th >= 1.2 ? [th / 2 - md / 2, -(th / 2 - md / 2)] : [0];  // both long edges if wide
     for (const s of segs) {
       for (let d = 0.25; d + mw <= s.len; d += step) {
-        merlons.push(
-          Manifold.cube([mw, th, mh]).translate([d, -th / 2, h]).rotate([0, 0, s.angleDeg]).translate([s.ax, s.ay, 0]),
-        );
+        for (const ey of edges) {
+          merlons.push(
+            Manifold.cube([mw, md, mh]).translate([d, ey - md / 2, h]).rotate([0, 0, s.angleDeg]).translate([s.ax, s.ay, 0]),
+          );
+        }
       }
     }
     if (merlons.length) solid = Manifold.union([solid, ...merlons]);
