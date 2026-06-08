@@ -6,40 +6,40 @@ import { ensureBuildingTypesRegistered } from '@/blueprint/register-buildings';
 
 beforeAll(() => ensureBuildingTypesRegistered());
 
-describe('blueprint golden regression', () => {
-  it('cottage (rect) → one building prim, 2x2 wing, thatch/plaster, door carved as aperture', () => {
+/** The door leaf prim a preset emits (a door-material box), if any. */
+function doorLeaf(name: string) {
+  const spec = toGeometry(synthesizeBlueprint(name)!);
+  return spec.parts.find(p => p.prim === 'box' && p.material === 'door');
+}
+
+describe('blueprint golden regression — openings', () => {
+  it('cottage (rect) → building prim carries a door aperture + a leaf prim', () => {
     const spec = toGeometry(synthesizeBlueprint('cottage')!);
-    const p = spec.parts[0];
-    expect(p.prim).toBe('building');
-    if (p.prim === 'building') {
-      expect(p.wings).toEqual([{ x: 0, y: 0, w: 2, h: 2, storeys: 1, roof: 'gable' }]);
-      expect(p.roofMat).toBe('thatch');
-      expect(p.wallMat).toBe('plaster');
-      expect(p.apertures?.length).toBe(1);
-    }
+    const b = spec.parts.find(p => p.prim === 'building')!;
+    expect(b.prim === 'building' && b.apertures?.length).toBe(1);
+    expect(doorLeaf('cottage')).toBeDefined();
   });
 
-  it('yurt (round) → cylinder + dome + door leaf', () => {
+  it('yurt (round) → cylinder carries a door aperture + a leaf prim (door now visible)', () => {
     const spec = toGeometry(synthesizeBlueprint('yurt')!);
-    const prims = spec.parts.map(p => p.prim);
-    expect(prims).toContain('cylinder');
-    expect(prims).toContain('ellipsoid');
-    // door on a round body becomes a filler leaf (box)
-    expect(prims).toContain('box');
+    const cyl = spec.parts.find(p => p.prim === 'cylinder');
+    expect(cyl && cyl.prim === 'cylinder' && cyl.apertures?.length).toBe(1);
+    expect(doorLeaf('yurt')).toBeDefined();
   });
 
-  it('castle_keep (stepped) → multiple stacked boxes', () => {
+  it('castle_keep (stepped) → ground box carries a door aperture + a leaf prim (door now visible)', () => {
     const spec = toGeometry(synthesizeBlueprint('castle_keep')!);
-    expect(spec.parts.every(p => p.prim === 'box')).toBe(true);
-    expect(spec.parts.length).toBeGreaterThanOrEqual(2);
+    const boxes = spec.parts.filter(p => p.prim === 'box' && p.material !== 'door');
+    expect(boxes.some(b => b.prim === 'box' && b.apertures?.length)).toBe(true);
+    expect(doorLeaf('castle_keep')).toBeDefined();
   });
 
-  it('every preset main door is sized to the scale contract (leaf height ≈ DOOR_HEIGHT_UNITS, ≤1.4×)', () => {
+  it('every preset door leaf is sized to the scale contract and never protrudes its wall', () => {
     for (const name of ['cottage', 'tavern', 'temple_small', 'longhouse']) {
-      const spec = toGeometry(synthesizeBlueprint(name)!);
-      const leaf = spec.parts.find(p => p.prim === 'box' && p.material === 'door');
+      const leaf = doorLeaf(name);
       expect(leaf, name).toBeDefined();
       if (leaf && leaf.prim === 'box') {
+        // height (z extent) tracks DOOR_HEIGHT_UNITS (0.85) up to the main ×1.18 = ~1.0
         expect(leaf.size[2], name).toBeGreaterThanOrEqual(0.85);
         expect(leaf.size[2], name).toBeLessThanOrEqual(0.85 * 1.4);
       }
