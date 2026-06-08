@@ -138,8 +138,8 @@ export function mountDebugOverlayPanel(container: HTMLElement, deps: { dock?: Do
   }
 
   // ── Building Render ──────────────────────────────────────────────────────
-  // auto: asset sprite → else massing (default). generator: runtime manifold
-  // parametric sprite → else massing. massing: always legacy massing.
+  // auto: generated asset → parametric fallback → flat block (default).
+  // fallback: always the parametric fallback (skip assets).
   const buildingSection = section('Building Render');
   const modeRow = document.createElement('label');
   modeRow.style.cssText = 'display:flex; align-items:center; gap:8px; font-size:12px; padding:2px 0;';
@@ -147,13 +147,13 @@ export function mountDebugOverlayPanel(container: HTMLElement, deps: { dock?: Do
   modeText.textContent = '🏗️ Mode';
   const modeSelect = document.createElement('select');
   modeSelect.style.cssText = 'flex:1; padding:4px; background:#1a1a2e; color:#e0e0e0; border:1px solid #555; border-radius:3px; font-size:11px; cursor:pointer;';
-  for (const [value, label] of [['auto', 'Auto (assets → massing)'], ['generator', 'Parametric generator'], ['massing', 'Legacy massing']] as const) {
+  for (const [value, label] of [['auto', 'Auto (asset → parametric)'], ['fallback', 'Force parametric fallback']] as const) {
     const opt = document.createElement('option');
     opt.value = value; opt.textContent = label;
     modeSelect.appendChild(opt);
   }
   modeSelect.addEventListener('change', () => {
-    if (currentDevMode) currentDevMode.buildingRenderMode = modeSelect.value as 'auto' | 'generator' | 'massing';
+    if (currentDevMode) currentDevMode.buildingRenderMode = modeSelect.value as 'auto' | 'fallback';
   });
   modeRow.appendChild(modeText);
   modeRow.appendChild(modeSelect);

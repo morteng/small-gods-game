@@ -1,7 +1,7 @@
 import type { RenderContext, Entity } from '@/core/types';
 import { drawIsoTerrain } from './iso-terrain';
 import { drawIsoNpc, drawIsoVegetation, drawIsoArtBillboard } from './iso-sprites';
-import { drawIsoBuildingMassing, drawIsoBuildingSprite, drawIsoBuildingSpriteGenerated } from './iso-building';
+import { drawIsoBuildingSprite, drawIsoBuildingSpriteGenerated, drawIsoFlatBlock, pickBuildingSource } from './iso-building';
 import { drawIsoBarrier } from './iso-barrier';
 import { drawIsoOverlays } from './iso-overlay';
 import { createNullAtlas } from './iso-atlas';
@@ -9,7 +9,7 @@ import { visibleTileBounds } from './iso-projection';
 import { buildYSortBucket, buildingSortKey, type YSortEntry } from './iso-ysort';
 import { tryGetEntityKindDef } from '@/world/entity-kinds';
 import { buildingMassing, type Massing } from '@/render/building-massing-model';
-import type { BuildingDescriptor } from '@/world/building-descriptor';
+import { structureRect, type BuildingDescriptor, type StructureRect } from '@/world/building-descriptor';
 import { isLayerHidden } from '@/render/layer-visibility';
 
 const BG_COLOR = '#1a1a24';
@@ -65,7 +65,7 @@ export function createIsoRenderMap(): RenderMap {
     // Buildings and vegetation are both world entities — one region query, then
     // partition. Buildings are drawn parametrically from their descriptor's
     // Massing (the legacy map.buildings/template path is gone).
-    const buildingById = new Map<string, { e: Entity; massing: Massing }>();
+    const buildingById = new Map<string, { e: Entity; massing: Massing; s: StructureRect }>();
     const vegById = new Map<string, Entity>();
     const barrierById = new Map<string, Entity>();
     const hideBarriers = isLayerHidden('buildings', rc.devMode);
@@ -90,11 +90,10 @@ export function createIsoRenderMap(): RenderMap {
         const descriptor = e.properties?.descriptor as BuildingDescriptor | undefined;
         if (descriptor) {
           if (hideBuildings) continue;
-          const tx = Math.floor(e.x), ty = Math.floor(e.y);
-          const key = buildingSortKey({
-            tx, ty, footprintW: descriptor.footprint.w, footprintH: descriptor.footprint.h,
-          });
-          buildingById.set(e.id, { e, massing: buildingMassing(descriptor) });
+          const s = structureRect(descriptor);
+          const tx = Math.floor(e.x) + s.dx, ty = Math.floor(e.y) + s.dy;
+          const key = buildingSortKey({ tx, ty, footprintW: s.w, footprintH: s.h });
+          buildingById.set(e.id, { e, massing: buildingMassing(descriptor), s });
           entries.push({
             id: e.id, kind: 'building',
             tx, ty, z: 0,
@@ -141,17 +140,15 @@ export function createIsoRenderMap(): RenderMap {
       if (e.kind === 'building') {
         const b = buildingById.get(e.id);
         if (b) {
-          const fx = Math.floor(b.e.x), fy = Math.floor(b.e.y);
+          const bx = Math.floor(b.e.x) + b.s.dx, by = Math.floor(b.e.y) + b.s.dy;
           const mode = rc.devMode?.buildingRenderMode ?? 'auto';
-          let drew = false;
-          if (mode === 'generator') {
-            const psrc = rc.resolveParametricBuildingArt?.(b.e) ?? null;
-            if (psrc) { drawIsoBuildingSpriteGenerated(drawCtx, psrc as HTMLCanvasElement, fx, fy, b.massing.footprint); drew = true; }
-          } else if (mode === 'auto') {
-            const art = rc.resolveBuildingArt?.(b.e) ?? null;
-            if (art) { drawIsoBuildingSprite(drawCtx, art, fx, fy, b.massing.footprint); drew = true; }
+          const asset = () => rc.resolveBuildingArt?.(b.e) ?? null;
+          const parametric = () => rc.resolveParametricBuildingArt?.(b.e) ?? null;
+          switch (pickBuildingSource(mode, asset, parametric)) {
+            case 'asset':      drawIsoBuildingSprite(drawCtx, asset() as HTMLImageElement, bx, by, b.massing.footprint); break;
+            case 'parametric': drawIsoBuildingSpriteGenerated(drawCtx, parametric() as HTMLCanvasElement, bx, by, b.massing.footprint); break;
+            case 'flat':       drawIsoFlatBlock(drawCtx, { w: b.s.w, h: b.s.h }, bx, by); break;
           }
-          if (!drew) drawIsoBuildingMassing(drawCtx, b.massing, fx, fy);
         }
       } else if (e.kind === 'barrier') {
         const b = barrierById.get(e.id);
