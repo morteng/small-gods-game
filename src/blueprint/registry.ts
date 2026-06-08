@@ -41,6 +41,8 @@ export interface FeatureType {
   resolve(f: Feature, ctx: ResolveCtx): { params: Record<string, unknown> };
   toBrief(f: ResolvedFeature, ctx: CompileCtx): string;
   /** Opening hooks (optional). Present ⇒ this feature is a wall opening. */
+  /** True if a passable threshold (door/gate) → the opening contributes a walkable cell
+   *  in `toCollision` and a pathing anchor in `toAnchors`; window/portal = false. */
   threshold?: boolean;
   aperture?(f: ResolvedFeature, host: ResolvedPart, ctx: CompileCtx): import('./features/opening').ApertureSpec;
   filler?(f: ResolvedFeature, host: ResolvedPart, ctx: CompileCtx): Prim[];
