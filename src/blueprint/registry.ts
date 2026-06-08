@@ -32,12 +32,18 @@ export interface PartType {
   toBrief(p: ResolvedPart, ctx: CompileCtx): string;
 }
 
-/** A feature type resolves (door-size fix lives here) and contributes a brief phrase. */
+/** A feature type resolves (door-size fix lives here) and contributes a brief phrase.
+ *  An *opening* feature additionally implements the opening hooks (threshold/aperture/filler);
+ *  the geometry compiler treats any feature whose kind declares `aperture` as a wall opening. */
 export interface FeatureType {
   type: string;
   paramSchema: ParamSchema;
   resolve(f: Feature, ctx: ResolveCtx): { params: Record<string, unknown> };
   toBrief(f: ResolvedFeature, ctx: CompileCtx): string;
+  /** Opening hooks (optional). Present ⇒ this feature is a wall opening. */
+  threshold?: boolean;
+  aperture?(f: ResolvedFeature, host: ResolvedPart, ctx: CompileCtx): import('./features/opening').ApertureSpec;
+  filler?(f: ResolvedFeature, host: ResolvedPart, ctx: CompileCtx): Prim[];
 }
 
 let parts = new Map<string, PartType>();
