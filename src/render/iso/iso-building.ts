@@ -11,7 +11,7 @@
  */
 import { worldToScreen } from './iso-projection';
 import { ISO_TILE_H } from './iso-constants';
-import { opaqueAnchor } from './iso-sprite-bbox';
+import { opaqueAnchor, type SpriteAnchor } from './iso-sprite-bbox';
 import type { IsoDrawCtx } from './iso-sprites';
 import type { Massing } from '@/render/building-massing-model';
 import type { Roof } from '@/world/building-descriptor';
@@ -191,6 +191,35 @@ function drawDomeCap(
   ctx.fill();
 }
 
+/** Shared placement: land `anchor` (in sprite px) on the footprint's front tip. */
+function drawIsoBuildingSpriteCore(
+  dc: IsoDrawCtx, src: CanvasImageSource, natW: number, natH: number,
+  anchor: SpriteAnchor, tileX: number, tileY: number, footprint: { w: number; h: number },
+): void {
+  const { ctx, originX, originY } = dc;
+  const { w, h } = footprint;
+  const west = worldToScreen(tileX, tileY + h, 0, originX, originY);
+  const east = worldToScreen(tileX + w, tileY, 0, originX, originY);
+  // The footprint occupies tiles [tileX..tileX+w-1] × [tileY..tileY+h-1], and
+  // worldToScreen returns a tile's CENTRE (matching the terrain). The sprite's
+  // base sits on the footprint's front (south) tip = the south vertex of the
+  // frontmost tile = its centre + half a tile down. Anchoring instead to
+  // worldToScreen(tileX+w, tileY+h) — the centre of the tile one PAST the block —
+  // drew every building a half-tile (ISO_TILE_H/2 = 32px) too low, off its grid.
+  const front = worldToScreen(tileX + w - 1, tileY + h - 1, 0, originX, originY);
+  const bottomY = front.sy + ISO_TILE_H / 2;
+  const cx = (west.sx + east.sx) / 2; // footprint centre x
+
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(
+    src,
+    Math.round(cx - anchor.centerX),
+    Math.round(bottomY - anchor.bottom),
+    natW,
+    natH,
+  );
+}
+
 /**
  * Draw a generated pixel-art building sprite anchored to its footprint, **1:1**.
  *
@@ -212,33 +241,26 @@ export function drawIsoBuildingSprite(
   dc: IsoDrawCtx, img: HTMLImageElement,
   tileX: number, tileY: number, footprint: { w: number; h: number },
 ): void {
-  const { ctx, originX, originY } = dc;
+  const { originX, originY } = dc;
   const { w, h } = footprint;
   const west = worldToScreen(tileX, tileY + h, 0, originX, originY);
   const east = worldToScreen(tileX + w, tileY, 0, originX, originY);
-  // The footprint occupies tiles [tileX..tileX+w-1] × [tileY..tileY+h-1], and
-  // worldToScreen returns a tile's CENTRE (matching the terrain). The sprite's
-  // base sits on the footprint's front (south) tip = the south vertex of the
-  // frontmost tile = its centre + half a tile down. Anchoring instead to
-  // worldToScreen(tileX+w, tileY+h) — the centre of the tile one PAST the block —
-  // drew every building a half-tile (ISO_TILE_H/2 = 32px) too low, off its grid.
-  const front = worldToScreen(tileX + w - 1, tileY + h - 1, 0, originX, originY);
-  const bottomY = front.sy + ISO_TILE_H / 2;
-
   const natW = img.naturalWidth || img.width || (east.sx - west.sx);
   const natH = img.naturalHeight || img.height || natW;
-  const cx = (west.sx + east.sx) / 2; // footprint centre x
   // Anchor by the building's real pixels, not the (margin-padded) frame.
-  const { centerX, bottom } = opaqueAnchor(img);
+  drawIsoBuildingSpriteCore(dc, img, natW, natH, opaqueAnchor(img), tileX, tileY, footprint);
+}
 
-  ctx.imageSmoothingEnabled = false;
-  ctx.drawImage(
-    img,
-    Math.round(cx - centerX),
-    Math.round(bottomY - bottom),
-    natW,
-    natH,
-  );
+/**
+ * Draw a runtime parametric building sprite (manifold generate-to-sprite). The
+ * canvas is cropped to opaque content, so its base anchor is trivially centre/bottom.
+ */
+export function drawIsoBuildingSpriteGenerated(
+  dc: IsoDrawCtx, src: HTMLCanvasElement | OffscreenCanvas,
+  tileX: number, tileY: number, footprint: { w: number; h: number },
+): void {
+  const natW = src.width, natH = src.height;
+  drawIsoBuildingSpriteCore(dc, src, natW, natH, { centerX: natW / 2, bottom: natH }, tileX, tileY, footprint);
 }
 
 /** Draw a building from its Massing at tile (tileX, tileY). */
