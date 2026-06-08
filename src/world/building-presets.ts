@@ -11,8 +11,9 @@ export const BUILDING_PRESETS: Record<string, BuildingDescriptor> = {
     plan: 'rect', levels: 1, levelInset: 0, heightPerLevel: 1,
     roof: 'gable', walls: 'wattle', roofMat: 'thatch',
     groundMaterial: 'packed_dirt', apron: { radius: 1, material: 'packed_dirt' },
-    door: { x: 1, y: 2 },
-    vents: [{ x: 2, y: 0, height: 0.8, kind: 'chimney', emit: 'smoke' }],
+    structure: { w: 2, h: 2, dx: 0, dy: 0 },
+    door: { x: 1, y: 1 },
+    vents: [{ x: 1, y: 0, height: 0.8, kind: 'chimney', emit: 'smoke' }],
   },
   tavern: {
     category: 'commercial', era: 'medieval', footprint: { w: 3, h: 3 },

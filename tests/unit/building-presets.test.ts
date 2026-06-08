@@ -40,3 +40,16 @@ describe('building-presets', () => {
   });
 
 });
+
+describe('cottage yard', () => {
+  it('has a 2×2 structure inside its 3×3 plot with the door on the structure', () => {
+    const c = BUILDING_PRESETS.cottage;
+    expect(c.footprint).toEqual({ w: 3, h: 3 });
+    expect(c.structure).toEqual({ w: 2, h: 2, dx: 0, dy: 0 });
+    const s = c.structure!;
+    expect(c.door.x).toBeGreaterThanOrEqual(s.dx);
+    expect(c.door.x).toBeLessThan(s.dx + s.w);
+    expect(c.door.y).toBeGreaterThanOrEqual(s.dy);
+    expect(c.door.y).toBeLessThan(s.dy + s.h);
+  });
+});
