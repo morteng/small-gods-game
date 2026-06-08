@@ -62,6 +62,14 @@ const SAMPLES: Record<string, StructureSpec> = {
   cross_chapel:   { size: 512, parts: [{ prim: 'building', wings: [{ x:0,y:1,w:4,h:2 }, { x:1,y:0,w:2,h:4 }] as Wing[],
                       wallMat: 'stone', roofMat: 'tile',
                       features: { doors: [{ cell:[1,3], face:'south', main:true }], vents: [] } }] },
+
+  // ── linear structures (walls / fences / ramparts / palisades) ──
+  // Timber palisade with corner posts and a gap-gate in the middle.
+  palisade_gate:  { size: 512, parts: [{ prim: 'linear',
+                      run: { kind: 'palisade', path: [[0,0],[5,0]], height: 2.6, thickness: 1, material: 'timber', posts: true, gates: [{ t: 2.5, width: 1.2 }] } }] },
+  // Crenellated stone rampart turning a corner (L) — battlemented merlons + clean mitred join.
+  rampart_corner: { size: 512, parts: [{ prim: 'linear',
+                      run: { kind: 'rampart', path: [[0,0],[4,0],[4,4]], height: 3.5, thickness: 2, material: 'stone', crenellated: true, gates: [] } }] },
 };
 
 function toPng(buf: Uint8ClampedArray, size: number): Buffer {
