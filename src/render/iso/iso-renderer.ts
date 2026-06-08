@@ -141,7 +141,8 @@ export function createIsoRenderMap(): RenderMap {
       if (e.kind === 'building') {
         const b = buildingById.get(e.id);
         if (b) {
-          const art = rc.resolveBuildingArt?.(b.e) ?? null;
+          const forceParametric = rc.devMode?.forceParametricBuildings === true;
+          const art = forceParametric ? null : (rc.resolveBuildingArt?.(b.e) ?? null);
           if (art) {
             drawIsoBuildingSprite(drawCtx, art, Math.floor(b.e.x), Math.floor(b.e.y), b.massing.footprint);
           } else {

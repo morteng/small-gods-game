@@ -664,6 +664,10 @@ export interface DevModeState {
   // Map info layers (rendering-only overlays)
   showPoiLayer?: boolean;
   showBiomeLayer?: boolean;
+  // Building render mode — when true, always draw the parametric massing and
+  // ignore any resolved/generated asset sprite (default: false → sprite where
+  // one exists, else parametric).
+  forceParametricBuildings?: boolean;
   // Render layer toggles — each base scene category is shown unless its flag is
   // explicitly false (default: shown). See src/render/layer-visibility.ts.
   showTerrain?: boolean;

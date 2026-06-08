@@ -137,6 +137,15 @@ export function mountDebugOverlayPanel(container: HTMLElement, deps: { dock?: Do
     layerToggles.set(layer, toggle);
   }
 
+  // ── Building Render ──────────────────────────────────────────────────────
+  // Off (default): draw the generated asset sprite where one exists, else the
+  // parametric massing. On: always draw the parametric massing.
+  const buildingSection = section('Building Render');
+  const parametricToggle = createToggle(
+    buildingSection, '🏗️ Force parametric (ignore assets)',
+    (dm, v) => { dm.forceParametricBuildings = v; },
+  );
+
   // Reset button — clears every overlay back to its default (off / shown).
   const resetBtn = document.createElement('button');
   resetBtn.className = 'sg-dev-btn';
@@ -152,6 +161,7 @@ export function mountDebugOverlayPanel(container: HTMLElement, deps: { dock?: Do
     currentDevMode.showPoiLayer = false;
     // Render layers default to shown.
     for (const layer of RENDER_LAYERS) currentDevMode[layerFlag(layer)] = true;
+    currentDevMode.forceParametricBuildings = false;
     currentDevMode.beliefThreshold = 0.3;
     currentDevMode.selectedSpiritId = null;
     update(currentDevMode);
@@ -173,6 +183,7 @@ export function mountDebugOverlayPanel(container: HTMLElement, deps: { dock?: Do
     for (const [layer, toggle] of layerToggles) {
       toggle.checked = devMode[layerFlag(layer)] !== false;
     }
+    parametricToggle.checked = !!devMode.forceParametricBuildings;
 
     const threshold = devMode.beliefThreshold ?? 0.3;
     thresholdSlider.value = String(Math.round(threshold * 100));
