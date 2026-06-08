@@ -1,7 +1,7 @@
 import type { RenderContext, Entity } from '@/core/types';
 import { drawIsoTerrain } from './iso-terrain';
 import { drawIsoNpc, drawIsoVegetation, drawIsoArtBillboard } from './iso-sprites';
-import { drawIsoBuildingMassing, drawIsoBuildingSprite } from './iso-building';
+import { drawIsoBuildingMassing, drawIsoBuildingSprite, drawIsoBuildingSpriteGenerated } from './iso-building';
 import { drawIsoBarrier } from './iso-barrier';
 import { drawIsoOverlays } from './iso-overlay';
 import { createNullAtlas } from './iso-atlas';
@@ -141,13 +141,17 @@ export function createIsoRenderMap(): RenderMap {
       if (e.kind === 'building') {
         const b = buildingById.get(e.id);
         if (b) {
-          const forceParametric = rc.devMode?.forceParametricBuildings === true;
-          const art = forceParametric ? null : (rc.resolveBuildingArt?.(b.e) ?? null);
-          if (art) {
-            drawIsoBuildingSprite(drawCtx, art, Math.floor(b.e.x), Math.floor(b.e.y), b.massing.footprint);
-          } else {
-            drawIsoBuildingMassing(drawCtx, b.massing, Math.floor(b.e.x), Math.floor(b.e.y));
+          const fx = Math.floor(b.e.x), fy = Math.floor(b.e.y);
+          const mode = rc.devMode?.buildingRenderMode ?? 'auto';
+          let drew = false;
+          if (mode === 'generator') {
+            const psrc = rc.resolveParametricBuildingArt?.(b.e) ?? null;
+            if (psrc) { drawIsoBuildingSpriteGenerated(drawCtx, psrc as HTMLCanvasElement, fx, fy, b.massing.footprint); drew = true; }
+          } else if (mode === 'auto') {
+            const art = rc.resolveBuildingArt?.(b.e) ?? null;
+            if (art) { drawIsoBuildingSprite(drawCtx, art, fx, fy, b.massing.footprint); drew = true; }
           }
+          if (!drew) drawIsoBuildingMassing(drawCtx, b.massing, fx, fy);
         }
       } else if (e.kind === 'barrier') {
         const b = barrierById.get(e.id);

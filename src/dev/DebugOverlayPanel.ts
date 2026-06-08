@@ -138,13 +138,26 @@ export function mountDebugOverlayPanel(container: HTMLElement, deps: { dock?: Do
   }
 
   // ── Building Render ──────────────────────────────────────────────────────
-  // Off (default): draw the generated asset sprite where one exists, else the
-  // parametric massing. On: always draw the parametric massing.
+  // auto: asset sprite → else massing (default). generator: runtime manifold
+  // parametric sprite → else massing. massing: always legacy massing.
   const buildingSection = section('Building Render');
-  const parametricToggle = createToggle(
-    buildingSection, '🏗️ Force parametric (ignore assets)',
-    (dm, v) => { dm.forceParametricBuildings = v; },
-  );
+  const modeRow = document.createElement('label');
+  modeRow.style.cssText = 'display:flex; align-items:center; gap:8px; font-size:12px; padding:2px 0;';
+  const modeText = document.createElement('span');
+  modeText.textContent = '🏗️ Mode';
+  const modeSelect = document.createElement('select');
+  modeSelect.style.cssText = 'flex:1; padding:4px; background:#1a1a2e; color:#e0e0e0; border:1px solid #555; border-radius:3px; font-size:11px; cursor:pointer;';
+  for (const [value, label] of [['auto', 'Auto (assets → massing)'], ['generator', 'Parametric generator'], ['massing', 'Legacy massing']] as const) {
+    const opt = document.createElement('option');
+    opt.value = value; opt.textContent = label;
+    modeSelect.appendChild(opt);
+  }
+  modeSelect.addEventListener('change', () => {
+    if (currentDevMode) currentDevMode.buildingRenderMode = modeSelect.value as 'auto' | 'generator' | 'massing';
+  });
+  modeRow.appendChild(modeText);
+  modeRow.appendChild(modeSelect);
+  buildingSection.appendChild(modeRow);
 
   // Reset button — clears every overlay back to its default (off / shown).
   const resetBtn = document.createElement('button');
@@ -161,7 +174,7 @@ export function mountDebugOverlayPanel(container: HTMLElement, deps: { dock?: Do
     currentDevMode.showPoiLayer = false;
     // Render layers default to shown.
     for (const layer of RENDER_LAYERS) currentDevMode[layerFlag(layer)] = true;
-    currentDevMode.forceParametricBuildings = false;
+    currentDevMode.buildingRenderMode = 'auto';
     currentDevMode.beliefThreshold = 0.3;
     currentDevMode.selectedSpiritId = null;
     update(currentDevMode);
@@ -183,7 +196,7 @@ export function mountDebugOverlayPanel(container: HTMLElement, deps: { dock?: Do
     for (const [layer, toggle] of layerToggles) {
       toggle.checked = devMode[layerFlag(layer)] !== false;
     }
-    parametricToggle.checked = !!devMode.forceParametricBuildings;
+    modeSelect.value = devMode.buildingRenderMode ?? 'auto';
 
     const threshold = devMode.beliefThreshold ?? 0.3;
     thresholdSlider.value = String(Math.round(threshold * 100));

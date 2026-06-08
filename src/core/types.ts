@@ -645,6 +645,8 @@ export interface UndoAction {
   after: unknown;
 }
 
+export type BuildingRenderMode = 'auto' | 'generator' | 'massing';
+
 /** Developer mode state exposed on GameState. */
 export interface DevModeState {
   enabled: boolean;
@@ -666,10 +668,10 @@ export interface DevModeState {
   // Map info layers (rendering-only overlays)
   showPoiLayer?: boolean;
   showBiomeLayer?: boolean;
-  // Building render mode — when true, always draw the parametric massing and
-  // ignore any resolved/generated asset sprite (default: false → sprite where
-  // one exists, else parametric).
-  forceParametricBuildings?: boolean;
+  // Building render mode (dev). 'auto' = asset sprite where one exists, else massing
+  // (today's behavior); 'generator' = runtime manifold parametric sprite, else massing;
+  // 'massing' = always the legacy Canvas2D massing. Default 'auto'.
+  buildingRenderMode?: BuildingRenderMode;
   // Render layer toggles — each base scene category is shown unless its flag is
   // explicitly false (default: shown). See src/render/layer-visibility.ts.
   showTerrain?: boolean;
