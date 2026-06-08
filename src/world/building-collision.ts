@@ -47,12 +47,22 @@ export function isFootprintCellPassable(
   tileY: number,
 ): boolean {
   const props = building.properties;
-  const door =
-    (props?.door as { x: number; y: number } | undefined) ??
-    (props?.descriptor as { door?: { x: number; y: number } } | undefined)?.door;
-  if (!door) return false;
+  const desc = props?.descriptor as
+    | { door?: { x: number; y: number }; structure?: { w: number; h: number; dx: number; dy: number } }
+    | undefined;
+  const door = (props?.door as { x: number; y: number } | undefined) ?? desc?.door;
   const localX = tileX - Math.floor(building.x);
   const localY = tileY - Math.floor(building.y);
+
+  // Cells outside the structure rect are walkable lawn (the building's yard).
+  const s = desc?.structure;
+  if (s) {
+    const inStructure =
+      localX >= s.dx && localX < s.dx + s.w && localY >= s.dy && localY < s.dy + s.h;
+    if (!inStructure) return true;
+  }
+
+  if (!door) return false;
   return localX === door.x && localY === door.y;
 }
 
