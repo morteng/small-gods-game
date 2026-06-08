@@ -62,6 +62,9 @@ export interface BuildingDescriptor {
 
   /** The one passable footprint cell, relative to the footprint top-left. */
   door: { x: number; y: number };
+  /** Solid + drawn building body within the plot footprint, in plot-local tiles.
+   *  Footprint cells OUTSIDE this rect are walkable lawn. Default: whole footprint. */
+  structure?: { w: number; h: number; dx: number; dy: number };
   /** Optional smoke vents (chimneys/smokeholes/pipes), for buildings that have them. */
   vents?: Vent[];
 }
@@ -95,6 +98,13 @@ export function buildingPalette(d: BuildingDescriptor): BuildingPalette {
     roof: d.palette?.roof ?? roof,
     trim: d.palette?.trim ?? NEUTRAL,
   };
+}
+
+export interface StructureRect { w: number; h: number; dx: number; dy: number }
+
+/** The building body within its plot. Defaults to the whole footprint. */
+export function structureRect(d: BuildingDescriptor): StructureRect {
+  return d.structure ?? { w: d.footprint.w, h: d.footprint.h, dx: 0, dy: 0 };
 }
 
 /**
