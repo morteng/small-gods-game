@@ -62,10 +62,9 @@ export interface GenHints {
 }
 
 /**
- * @deprecated Superseded by BuildingDescriptor (src/world/building-descriptor.ts).
- * TODO(building-descriptor-cleanup): delete this file + BUILDING_TEMPLATES once
- * nothing imports BuildingTemplate. See
- * docs/superpowers/plans/2026-06-05-parametric-building-CLEANUP.md.
+ * @deprecated Superseded by the Blueprint model (src/blueprint/).
+ * TODO(building-cleanup): delete this file + BUILDING_TEMPLATES once nothing
+ * imports BuildingTemplate.
  */
 export interface BuildingTemplate {
   id: string;

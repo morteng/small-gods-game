@@ -37,8 +37,8 @@ function clampSnap16(v: number, lo: number, hi: number): number {
  * PixelLab caps generation at 400px per axis. `no_background` only cuts cleanly
  * ≤128px, but the building pipeline generates OPAQUE then runs a separate
  * remove-background pass — so the real ceiling here is the 400px gen limit, not
- * the 128px cutout limit. Building footprints are capped (≤3×3, see
- * building-presets) so the true-size silhouette stays within this box.
+ * the 128px cutout limit. Building footprints are capped (≤3×3, see the
+ * blueprint presets) so the true-size silhouette stays within this box.
  */
 const ISO_MAX_GEN_PX = 400;
 const ISO_MIN_PX = 64;

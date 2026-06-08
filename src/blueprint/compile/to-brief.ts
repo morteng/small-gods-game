@@ -5,7 +5,7 @@ import type { ResolvedBlueprint, ResolvedPart, WallFace } from '../types';
 import { getPartType, getFeatureType, type CompileCtx } from '../registry';
 import {
   WALL_COLORS, ROOF_COLORS, GROUND_COLORS, NEUTRAL,
-} from '@/world/building-descriptor';
+} from '@/blueprint/materials';
 import type { AssetBrief, BriefMaterial, DoorFace } from '@/assetgen/asset-brief';
 import { roofRise } from '@/render/building-massing-model';
 

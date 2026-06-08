@@ -1,6 +1,6 @@
 // src/blueprint/presets/index.ts
-// The 11 building presets, re-expressed as Blueprints. Mechanical port of the old
-// BUILDING_PRESETS descriptors (src/world/building-presets.ts).
+// The 11 building presets, re-expressed as Blueprints. Mechanical port of the
+// old BUILDING_PRESETS descriptors (the retired flat descriptor model).
 import { BLUEPRINT_VERSION, type Blueprint, type BlueprintPatch, type ResolvedBlueprint } from '../types';
 import { resolveBlueprint } from '../resolve';
 import { ensureBuildingTypesRegistered } from '../register-buildings';

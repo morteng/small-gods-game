@@ -1,37 +1,15 @@
 /**
- * Renderer-agnostic massing model derived from a BuildingDescriptor.
- *
- * One source of massing truth consumed by BOTH the topdown silhouette renderer
- * (`building-massing.ts`) and the isometric projector (`iso/iso-building.ts`),
- * so plan shape, roof kind, colours, door, stepped insets, and heights never
- * drift between the two views. Pure — no canvas, fully unit-testable.
- *
- * This is building-specific; it is deliberately NOT the general RenderViewModel
- * seam (that remains its own future project).
+ * Roof rise model — the surviving slice of the old renderer-agnostic massing
+ * model. `roofRise` is the single source of roof-height truth, now consumed by
+ * the Blueprint brief compiler (`@/blueprint/compile/to-brief`). Pure — no
+ * canvas, fully unit-testable.
  */
-import {
-  buildingPalette, type BuildingDescriptor, type Plan, type Roof, type Vent,
-} from '@/world/building-descriptor';
 
-export interface Massing {
-  footprint: { w: number; h: number };
-  plan: Plan;
-  /** Number of stacked levels (≥1). */
-  levels: number;
-  /** Tiles each successive level insets per side (for `stepped` ziggurats). */
-  levelInset: number;
-  /** Total wall/body height, in tile-height units (`levels × heightPerLevel`). */
-  bodyHeight: number;
-  roof: Roof;
-  /** Roof rise above the body, in tile-height units (0 for flat). */
-  roofHeight: number;
-  walls: string;
-  roofColor: string;
-  trim: string;
-  door: { x: number; y: number };
-  /** Smoke vents to draw as stacks; empty when the building has none. */
-  vents: Vent[];
-}
+/** Roof silhouette. Extend by adding a member + a profile in ROOF_PROFILES. */
+export type Roof =
+  | 'flat' | 'gable' | 'hip' | 'conical' | 'domed' | 'stepped' | 'lean_to'
+  | 'gambrel' | 'mansard' | 'pyramidal' | 'saltbox' | 'onion' | 'spire'
+  | 'tented' | 'jerkinhead' | 'cross_gable';
 
 export type RoofMode = 'pitch' | 'target';
 export interface RoofProfile {
@@ -80,23 +58,4 @@ export function roofRise(roof: Roof, footprint: { w: number; h: number }): numbe
   }
   const diameter = Math.max(footprint.w, footprint.h);
   return clamp((p.targetAspect ?? 0.5) * diameter, p.minRise ?? 0.3, p.maxRise ?? 4);
-}
-
-export function buildingMassing(d: BuildingDescriptor): Massing {
-  const pal = buildingPalette(d);
-  const levels = Math.max(1, d.levels);
-  return {
-    footprint: { w: d.footprint.w, h: d.footprint.h },
-    plan: d.plan,
-    levels,
-    levelInset: Math.max(0, d.levelInset),
-    bodyHeight: levels * Math.max(0.1, d.heightPerLevel),
-    roof: d.roof,
-    roofHeight: roofRise(d.roof, d.footprint),
-    walls: pal.walls,
-    roofColor: pal.roof,
-    trim: pal.trim,
-    door: { x: d.door.x, y: d.door.y },
-    vents: d.vents ? d.vents.map(v => ({ ...v })) : [],
-  };
 }

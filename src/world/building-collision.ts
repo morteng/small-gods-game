@@ -11,12 +11,11 @@
  *
  * ## Designed to grow
  *
- * Today the descriptor's `door` cell is passable; every other footprint cell is
- * solid. This module is the seam where richer collision will live as buildings
- * gain interiors and features:
- *   - per-cell passability declared on `BuildingDescriptor` (in
- *     `@/world/building-descriptor`) — the natural home for a future walkability
- *     map alongside the existing `door` field,
+ * Today the blueprint's door cells are passable; every other blocked footprint
+ * cell is solid. This module is the seam where richer collision will live as
+ * buildings gain interiors and features:
+ *   - per-cell passability declared on the blueprint (the compiled `blocked` /
+ *     `doorCells` sets) — the natural home for a future walkability map,
  *   - stairs linking stories, roof overhangs that occlude but don't block,
  *   - material/era variations.
  * Keep that logic here so pathfinding, perception, and placement share one

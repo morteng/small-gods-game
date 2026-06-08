@@ -20,7 +20,7 @@ export interface Tile {
   bridgeDirection?: string;
 }
 
-// TODO(building-descriptor-cleanup): remove BuildingInstance + GameMap.buildings legacy mirror once nothing reads it.
+// TODO(building-cleanup): remove BuildingInstance + GameMap.buildings legacy mirror once nothing reads it.
 /** A placed building on the map */
 export interface BuildingInstance {
   id: string;

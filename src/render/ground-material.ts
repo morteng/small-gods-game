@@ -10,7 +10,7 @@
 import type { World } from '@/world/world';
 import { isBuilding } from '@/world/building-collision';
 import { blueprintOf } from '@/blueprint/entity';
-import type { GroundMat } from '@/world/building-descriptor';
+import type { GroundMat } from '@/blueprint/materials';
 
 const key = (x: number, y: number): string => `${x},${y}`;
 

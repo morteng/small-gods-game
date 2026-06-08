@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { roofRise, ROOF_PROFILES } from '@/render/building-massing-model';
-import type { Roof } from '@/world/building-descriptor';
+import { roofRise, ROOF_PROFILES, type Roof } from '@/render/building-massing-model';
 
 const ALL: Roof[] = [
   'flat','gable','hip','conical','domed','stepped','lean_to',

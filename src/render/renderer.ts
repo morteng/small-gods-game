@@ -6,10 +6,9 @@ import type { BuildingTemplate } from '@/map/building-templates';
 import { tryGetEntityKindDef } from '@/world/entity-kinds';
 import { BUILDING_TEMPLATES } from '@/map/building-templates';
 import { isLayerHidden, isEntityHidden } from '@/render/layer-visibility';
-import { drawBuildingPlaceholder } from './building-massing';
 import { treeSheetForKind, treeSpriteColumn, TREE_SPRITE_SRC } from './tree-sheets';
 import { computeGroundMaterialField } from './ground-material';
-import { GROUND_COLORS, NEUTRAL, type BuildingDescriptor } from '@/world/building-descriptor';
+import { GROUND_COLORS, NEUTRAL } from '@/blueprint/materials';
 
 /** Render the map to a canvas context */
 export function renderMap(ctx: CanvasRenderingContext2D, rc: RenderContext): void {
@@ -388,15 +387,9 @@ function drawEntity(ctx: CanvasRenderingContext2D, rc: RenderContext, e: Entity)
     return;
   }
 
-  // 1. Parametric building — topdown silhouette from the descriptor.
-  const descriptor = e.properties?.descriptor as BuildingDescriptor | undefined;
-  if (descriptor) {
-    drawBuildingPlaceholder(ctx, descriptor, Math.floor(e.x), Math.floor(e.y));
-    return;
-  }
-
-  // TODO(building-descriptor-cleanup): remove this legacy template/sprite branch once all buildings carry descriptors.
-  // 2. Building sprite path (legacy fallback)
+  // 1. Building sprite path (legacy topdown fallback). The parametric building
+  //    silhouette now lives in the iso renderer (blueprint geometry); the topdown
+  //    placeholder renderer falls through to template sprites / fallback shapes.
   const templateId = (e.properties?.templateId as string | undefined) ?? e.kind;
   const buildingSprite = rc.buildingSprites.get(templateId);
   if (buildingSprite) {

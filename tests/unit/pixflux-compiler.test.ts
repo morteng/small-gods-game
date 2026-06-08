@@ -1,17 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import { PixfluxCompiler } from '@/assetgen/compilers/pixflux-compiler';
 import { describeForHuman } from '@/assetgen/describe';
-import { buildingBrief } from '@/assetgen/producers/building-producer';
+import { toBrief } from '@/blueprint/compile/to-brief';
+import { synthesizeBlueprint } from '@/blueprint/presets';
 import { VIEW_RECIPES } from '@/assetgen/view-registry';
 import type { AssetBrief } from '@/assetgen/asset-brief';
-import type { BuildingDescriptor } from '@/world/building-descriptor';
 
-const cottage: BuildingDescriptor = {
-  preset: 'cottage', category: 'residential', era: 'medieval',
-  footprint: { w: 3, h: 3 }, plan: 'rect', levels: 1, levelInset: 0,
-  heightPerLevel: 1, roof: 'gable', walls: 'wattle', roofMat: 'thatch',
-  groundMaterial: 'dirt', door: { x: 1, y: 2 },
-};
+const buildingBrief = (_unused: unknown, seed: number): AssetBrief =>
+  toBrief(synthesizeBlueprint('cottage')!, seed);
+const cottage = null;
 
 const compiler = new PixfluxCompiler();
 

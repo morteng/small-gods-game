@@ -8,7 +8,7 @@
 import { worldToScreen } from './iso-projection';
 import type { TileBounds } from './iso-projection';
 import { computeGroundMaterialField } from '@/render/ground-material';
-import { GROUND_COLORS, NEUTRAL } from '@/world/building-descriptor';
+import { GROUND_COLORS, NEUTRAL } from '@/blueprint/materials';
 import type { World } from '@/world/world';
 
 /** Translucent so the underlying terrain tint still reads through, matching the
