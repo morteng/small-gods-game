@@ -60,7 +60,7 @@ export const chimneyPartType: PartType = {
   paramSchema: { height: { kind: 'number', min: 0.2, max: 3, default: 1 } },
   resolve: (part) => ({ params: { ...(part.params ?? {}) } }),
   toPrims(p): Prim[] {
-    const top = Math.max(1, 1) * STOREY + (p.params.height as number);
+    const top = STOREY + (p.params.height as number);
     return [{ prim: 'box', at: [p.at.x + 0.3, p.at.y + 0.3, 0], size: [0.4, 0.4, top], material: 'brick' }];
   },
   toCollision: () => [],         // a chimney rides the roof; it blocks no ground cell

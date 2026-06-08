@@ -37,6 +37,12 @@ describe('body part — toPrims', () => {
     expect(prims.every(p => p.prim === 'box')).toBe(true);
     expect(prims.length).toBeGreaterThanOrEqual(1);
   });
+  it('round body honours its at offset (cylinder centered at offset)', () => {
+    const p = { id: 'body', type: 'body', at: { x: 2, y: 1 }, size: { w: 2, h: 2 }, params: { plan: 'round', levels: 1, roof: 'domed' }, features: [] } as const;
+    const prims = bodyPartType.toPrims(p as any, ctx);
+    const cyl = prims.find(pr => pr.prim === 'cylinder');
+    expect(cyl && cyl.prim === 'cylinder' ? cyl.center : null).toEqual([3, 2]);
+  });
 });
 
 describe('body part — material maps', () => {

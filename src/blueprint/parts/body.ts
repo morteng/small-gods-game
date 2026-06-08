@@ -54,7 +54,7 @@ export function bodyWings(p: ResolvedPart): Array<{ x: number; y: number; w: num
 
 function roundPrims(p: ResolvedPart, ctx: CompileCtx): Prim[] {
   const { w, h } = p.size;
-  const r = Math.min(w, h) / 2, cx = w / 2, cy = h / 2;
+  const r = Math.min(w, h) / 2, cx = w / 2 + p.at.x, cy = h / 2 + p.at.y;
   const wallH = Math.max(1, p.params.levels as number) * STOREY;
   const out: Prim[] = [{ prim: 'cylinder', center: [cx, cy], baseZ: 0, radius: r, height: wallH, material: wallMatOf(ctx) }];
   const roof = p.params.roof as string;
