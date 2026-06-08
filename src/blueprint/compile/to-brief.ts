@@ -1,8 +1,9 @@
 // src/blueprint/compile/to-brief.ts
 // Port of buildingBrief onto the Blueprint. Subject/traits/materials/door come from
 // the resolved parts+features; the guidance/negatives block is unchanged.
-import type { ResolvedBlueprint, ResolvedPart, WallFace } from '../types';
+import type { ResolvedBlueprint, WallFace } from '../types';
 import { getPartType, getFeatureType, type CompileCtx } from '../registry';
+import { faceCell } from '../wall-geometry';
 import {
   WALL_COLORS, ROOF_COLORS, GROUND_COLORS, NEUTRAL,
 } from '@/blueprint/materials';
@@ -47,7 +48,7 @@ export function toBrief(rb: ResolvedBlueprint, instanceSeed: number): AssetBrief
   const doorFeat = body?.features.find(f => f.type === 'door');
   const face = doorFaceLetter((doorFeat?.face ?? 'south') as WallFace);
   // door cell (structure-local) for the brief's door coords
-  const dc = doorFeat ? doorCellFor(body, (doorFeat.face ?? 'south') as WallFace) : [0, 0];
+  const dc = doorFeat ? faceCell(body, (doorFeat.face ?? 'south') as WallFace, (doorFeat.params.t as number) ?? 0.5) : [0, 0];
 
   const subject = (rb.preset ?? rb.category ?? 'building').replace(/_(small|large|tiny|big)$/, '').replace(/_/g, ' ');
 
@@ -69,13 +70,3 @@ export function toBrief(rb: ResolvedBlueprint, instanceSeed: number): AssetBrief
   };
 }
 
-function doorCellFor(part: ResolvedPart, face: WallFace): [number, number] {
-  const { x, y } = part.at, { w, h } = part.size;
-  const midX = x + Math.floor(w / 2), midY = y + Math.floor(h / 2);
-  switch (face) {
-    case 'south': return [midX, y + h - 1];
-    case 'north': return [midX, y];
-    case 'east':  return [x + w - 1, midY];
-    case 'west':  return [x, midY];
-  }
-}

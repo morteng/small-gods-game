@@ -6,7 +6,7 @@ import type { Vec2 } from '@/assetgen/types';
 import { getManifold } from '@/assetgen/geometry/manifold-runtime';
 import {
   STOREY, type Wing, type RoofKind, type RoofStyle, type RidgeAxis,
-  type BuildingFeatures, type BuildingAnchors, type ResolvedDoor, type VentFeature, type VentKind, type WallFace,
+  type BuildingFeatures, type BuildingAnchors, type VentFeature, type VentKind, type WallFace,
   ridgeAxisOf, resolveFeatures,
 } from '@/assetgen/geometry/building';
 
@@ -164,19 +164,6 @@ function roofRise(w: Wing, style: RoofStyle): number {
 }
 
 // ── attachable feature solids (own material, sit proud so the z-buffer shows them) ──
-
-/** Door box on a perimeter cell's wall, standing proud of it (so the z-buffer shows it).
- *  Works on any of the 4 walls; returns the solid + ground-threshold anchor. */
-async function doorSolid(d: ResolvedDoor): Promise<{ solid: Manifold; anchor: [number, number, number] }> {
-  const [ci, cj] = d.cell;
-  const hw = d.halfW, h = d.height, depth = 0.14;
-  switch (d.face) {
-    case 'south': return { solid: await solidBox([ci + 0.5 - hw, cj + 1, 0], [2 * hw, depth, h]),     anchor: [ci + 0.5, cj + 1, 0] };
-    case 'north': return { solid: await solidBox([ci + 0.5 - hw, cj - depth, 0], [2 * hw, depth, h]), anchor: [ci + 0.5, cj, 0] };
-    case 'east':  return { solid: await solidBox([ci + 1, cj + 0.5 - hw, 0], [depth, 2 * hw, h]),     anchor: [ci + 1, cj + 0.5, 0] };
-    case 'west':  return { solid: await solidBox([ci - depth, cj + 0.5 - hw, 0], [depth, 2 * hw, h]), anchor: [ci, cj + 0.5, 0] };
-  }
-}
 
 /** The width-units thickness + above-ridge protrusion + material for each vent kind. */
 function ventProfile(kind: VentKind, v: VentFeature): { cw: number; protrude: number; mat: Mat } {
