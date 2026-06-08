@@ -30,4 +30,11 @@ describe('validateParams', () => {
   it('throws on an unknown param key', () => {
     expect(() => validateParams(schema, { nope: 1 })).toThrow(/nope/);
   });
+
+  it('kind:any accepts an object and falls back to its default when absent', () => {
+    const anySchema = { data: { kind: 'any' as const, default: null } };
+    const obj = { foo: 42 };
+    expect(validateParams(anySchema, { data: obj }).data).toBe(obj);
+    expect(validateParams(anySchema, {}).data).toBeNull();
+  });
 });

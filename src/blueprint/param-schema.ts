@@ -5,7 +5,8 @@ export type ParamSpec =
   | { kind: 'number'; min?: number; max?: number; default: number; doc?: string }
   | { kind: 'enum'; values: readonly string[]; default: string; doc?: string }
   | { kind: 'bool'; default: boolean; doc?: string }
-  | { kind: 'string'; default?: string; doc?: string };
+  | { kind: 'string'; default?: string; doc?: string }
+  | { kind: 'any'; default?: unknown; doc?: string };
 
 export type ParamSchema = Record<string, ParamSpec>;
 
@@ -42,6 +43,9 @@ export function validateParams(
       }
       case 'string': {
         if (typeof raw !== 'string') throw new Error(`param "${key}" must be a string`);
+        out[key] = raw; break;
+      }
+      case 'any': {
         out[key] = raw; break;
       }
     }
