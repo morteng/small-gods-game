@@ -202,7 +202,20 @@ export class EntityRegistry {
       cs.add(entity.id);
     }
 
-    // Tile index — register every footprint cell
+    // Tile index — explicit absolute cell list (opt-in) takes precedence over
+    // the rectangle. Used for arbitrary footprints (e.g. barrier blocking cells).
+    const cells = props.footprintCells as [number, number][] | undefined;
+    if (cells) {
+      for (const [cx, cy] of cells) {
+        const key = `${cx},${cy}`;
+        let ts = this.byTile.get(key);
+        if (!ts) { ts = new Set(); this.byTile.set(key, ts); }
+        ts.add(entity.id);
+      }
+      return; // do NOT also run the rect loop
+    }
+
+    // Tile index — register every footprint cell (rectangle from {w,h})
     for (let dy = 0; dy < fh; dy++) {
       for (let dx = 0; dx < fw; dx++) {
         const key = `${tx + dx},${ty + dy}`;
@@ -225,6 +238,16 @@ export class EntityRegistry {
 
     if (poiId) this.byPoi.get(poiId)?.delete(entity.id);
     if (category) this.byCategory.get(category)?.delete(entity.id);
+
+    // Mirror indexEntity: explicit absolute cell list takes precedence.
+    const cells = props.footprintCells as [number, number][] | undefined;
+    if (cells) {
+      for (const [cx, cy] of cells) {
+        this.byTile.get(`${cx},${cy}`)?.delete(entity.id);
+      }
+      return; // do NOT also run the rect loop
+    }
+
     for (let dy = 0; dy < fh; dy++) {
       for (let dx = 0; dx < fw; dx++) {
         this.byTile.get(`${tx + dx},${ty + dy}`)?.delete(entity.id);
