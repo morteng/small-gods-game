@@ -25,6 +25,15 @@ describe('apertureToBox', () => {
     expect(b.size[0]).toBeCloseTo(0.4, 5);   // 2*halfW
     expect(b.size[2]).toBeCloseTo(0.85, 5);  // height
   });
+
+  it('east aperture cuts the east wall plane along x (different axis than south)', () => {
+    const b = apertureToBox({ face: 'east', t: 0.5, sill: 0, halfW: 0.2, height: 0.85, depth: 0.3 }, part(0, 0, 2, 2));
+    // wall plane x = 2; box spans x∈[2-0.3, 2+0.02], width 2*halfW along y
+    expect(b.at[0]).toBeCloseTo(1.7, 5);
+    expect(b.at[0] + b.size[0]).toBeCloseTo(2.02, 5);
+    expect(b.size[1]).toBeCloseTo(0.4, 5);   // 2*halfW along the y run
+    expect(b.size[2]).toBeCloseTo(0.85, 5);  // height
+  });
 });
 
 describe('leafBox', () => {
@@ -32,6 +41,16 @@ describe('leafBox', () => {
     const l = leafBox({ face: 'south', t: 0.5, sill: 0, halfW: 0.2, height: 0.85, depth: 0.3 }, part(0, 0, 2, 2));
     const maxY = l.at[1] + l.size[1];
     expect(maxY).toBeLessThanOrEqual(2);   // ≤ wall plane (no protrusion)
+  });
+
+  it('east leaf never protrudes past the east wall plane (max-x ≤ plane)', () => {
+    const l = leafBox({ face: 'east', t: 0.5, sill: 0, halfW: 0.2, height: 0.85, depth: 0.3 }, part(0, 0, 2, 2));
+    expect(l.at[0] + l.size[0]).toBeLessThanOrEqual(2);   // east plane x = 2
+  });
+
+  it('west leaf never protrudes past the west wall plane (min-x ≥ plane)', () => {
+    const l = leafBox({ face: 'west', t: 0.5, sill: 0, halfW: 0.2, height: 0.85, depth: 0.3 }, part(0, 0, 2, 2));
+    expect(l.at[0]).toBeGreaterThanOrEqual(0);   // west plane x = 0
   });
 });
 

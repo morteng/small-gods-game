@@ -10,6 +10,9 @@ export const APERTURE_EPS = 0.02;   // pokes the cut past the wall plane (boolea
 export const LEAF_INSET = 0.04;     // leaf outer face sits this far INSIDE the wall plane
 export const LEAF_THICKNESS = 0.08; // leaf panel depth
 
+// The blueprint-layer counterpart of `faceOutward` in assetgen/geometry/building.ts (same
+// concept, value-table form). Kept separate: importing across the blueprint→assetgen seam
+// the other way would invert the dependency direction.
 export const FACE_FACING: Record<WallFace, [number, number]> = {
   south: [0, 1], north: [0, -1], east: [1, 0], west: [-1, 0],
 };
@@ -28,7 +31,8 @@ export function faceCell(part: ResolvedPart, face: WallFace, t = 0.5): [number, 
   }
 }
 
-/** Continuous coordinate along the wall run for the opening centre. */
+/** Continuous coordinate along the wall run for the opening centre: interpolates along x
+ *  for south/north walls, along y for east/west walls, by the opening's fraction `s.t`. */
 function alongCentre(part: ResolvedPart, s: ApertureSpec): number {
   const { x, y } = part.at, { w, h } = part.size;
   return (s.face === 'south' || s.face === 'north') ? x + s.t * w : y + s.t * h;
@@ -53,11 +57,11 @@ export function apertureToBox(s: ApertureSpec, part: ResolvedPart): FaceBox {
 export function leafBox(s: ApertureSpec, part: ResolvedPart): FaceBox {
   const { x, y } = part.at, { w, h } = part.size;
   const c = alongCentre(part, s);
-  const i = LEAF_INSET, t = LEAF_THICKNESS, two = 2 * s.halfW;
+  const i = LEAF_INSET, th = LEAF_THICKNESS, two = 2 * s.halfW;
   switch (s.face) {
-    case 'south': { const yp = y + h; return { at: [c - s.halfW, yp - i - t, s.sill], size: [two, t, s.height] }; }
-    case 'north': { const yp = y;     return { at: [c - s.halfW, yp + i,     s.sill], size: [two, t, s.height] }; }
-    case 'east':  { const xp = x + w; return { at: [xp - i - t, c - s.halfW, s.sill], size: [t, two, s.height] }; }
-    case 'west':  { const xp = x;     return { at: [xp + i,     c - s.halfW, s.sill], size: [t, two, s.height] }; }
+    case 'south': { const yp = y + h; return { at: [c - s.halfW, yp - i - th, s.sill], size: [two, th, s.height] }; }
+    case 'north': { const yp = y;     return { at: [c - s.halfW, yp + i,      s.sill], size: [two, th, s.height] }; }
+    case 'east':  { const xp = x + w; return { at: [xp - i - th, c - s.halfW, s.sill], size: [th, two, s.height] }; }
+    case 'west':  { const xp = x;     return { at: [xp + i,      c - s.halfW, s.sill], size: [th, two, s.height] }; }
   }
 }
