@@ -29,4 +29,15 @@ describe('toCollision', () => {
     // south edge of a 2-tall body at y∈{0,1} → door cell at y=1
     expect(c.doorCells.some(k => k.endsWith(',1'))).toBe(true);
   });
+
+  it('a window does NOT add a door cell (not a threshold)', () => {
+    const withWindow: Blueprint = {
+      version: BLUEPRINT_VERSION, class: 'building', footprint: { w: 3, h: 3 },
+      materials: { walls: 'stone', roof: 'tile' },
+      parts: { body: { type: 'body', size: { w: 2, h: 2 }, params: { plan: 'rect', roof: 'gable' },
+        features: { win: { type: 'window', face: 'south' } } } },
+    };
+    const c = toCollision(resolveBlueprint([withWindow], 0));
+    expect(c.doorCells).toHaveLength(0);
+  });
 });

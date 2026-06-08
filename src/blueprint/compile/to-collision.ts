@@ -1,22 +1,12 @@
 // src/blueprint/compile/to-collision.ts
-// Precompute passability: blocked structure cells (union of part claims) + door cells
-// (passable). Footprint cells not in `blocked` are walkable lawn.
-import type { ResolvedBlueprint, ResolvedPart, ResolvedFeature, WallFace } from '../types';
-import { getPartType, type CompileCtx } from '../registry';
+// Precompute passability: blocked structure cells (union of part claims) + threshold cells
+// (passable) for openings whose kind is a threshold (doors/gates, NOT windows). Footprint
+// cells not in `blocked` are walkable lawn.
+import type { ResolvedBlueprint, ResolvedFeature, WallFace } from '../types';
+import { getPartType, getFeatureType, type CompileCtx } from '../registry';
+import { faceCell } from '../wall-geometry';
 
 const key = (x: number, y: number) => `${x},${y}`;
-
-/** The structure-local cell a door on `face` occupies — midpoint of that edge of the part. */
-function doorCellFor(part: ResolvedPart, face: WallFace): [number, number] {
-  const { x, y } = part.at, { w, h } = part.size;
-  const midX = x + Math.floor(w / 2), midY = y + Math.floor(h / 2);
-  switch (face) {
-    case 'south': return [midX, y + h - 1];
-    case 'north': return [midX, y];
-    case 'east':  return [x + w - 1, midY];
-    case 'west':  return [x, midY];
-  }
-}
 
 export function toCollision(rb: ResolvedBlueprint): { footprint: { w: number; h: number }; blocked: string[]; doorCells: string[] } {
   const ctx: CompileCtx = { materials: rb.materials, footprint: rb.footprint };
@@ -26,8 +16,10 @@ export function toCollision(rb: ResolvedBlueprint): { footprint: { w: number; h:
     const pt = getPartType(part.type);
     for (const [x, y] of pt.toCollision(part, ctx)) blocked.add(key(x, y));
     for (const f of part.features as ResolvedFeature[]) {
-      if (f.type !== 'door') continue;
-      const [dx, dy] = doorCellFor(part, (f.face ?? 'south') as WallFace);
+      const ft = getFeatureType(f.type);
+      if (!ft?.threshold) continue;   // only threshold openings (doors/gates) carve a walkable cell
+      const t = (f.params.t as number) ?? 0.5;
+      const [dx, dy] = faceCell(part, (f.face ?? 'south') as WallFace, t);
       doorCells.add(key(dx, dy));
     }
   }
