@@ -76,4 +76,14 @@ describe('window opening hooks', () => {
     expect(ap.sill).toBeGreaterThan(0);
     expect(ft.threshold).toBe(false);
   });
+
+  it('filler is a recessed pane prim raised to the sill', () => {
+    const rb = resolveBlueprint([bp], 0);
+    const part = rb.parts[0];
+    const win = part.features.find(f => f.type === 'window')!;
+    const prims = getFeatureType('window')!.filler!(win, part, { materials: rb.materials, footprint: rb.footprint });
+    expect(prims).toHaveLength(1);
+    expect(prims[0]).toMatchObject({ prim: 'box' });
+    if (prims[0].prim === 'box') expect(prims[0].at[2]).toBeGreaterThan(0);   // raised off the ground
+  });
 });
