@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { createState } from '@/core/state';
 import { World } from '@/world/world';
 import { SAVE_VERSION, toSaveFile, applySaveFile } from '@/core/save-file';
+import { WORLD_CONTENT_VERSION } from '@/core/content-version';
 import type { GameMap, Tile, BiomeMap } from '@/core/types';
 
 function tile(x: number, y: number): Tile {
@@ -88,5 +89,23 @@ describe('save-file', () => {
     const before = fresh.clock.now();
     expect(applySaveFile(fresh, save)).toBe(false);
     expect(fresh.clock.now()).toBe(before);
+  });
+});
+
+describe('save-file — world content version gate', () => {
+  it('stamps the current WORLD_CONTENT_VERSION when saving', () => {
+    const save = toSaveFile(seededState(), 123);
+    expect(save.contentVersion).toBe(WORLD_CONTENT_VERSION);
+  });
+
+  it('applySaveFile rejects a save whose contentVersion mismatches', () => {
+    const save = toSaveFile(seededState(), 123);
+    const stale = { ...save, contentVersion: WORLD_CONTENT_VERSION + 1 };
+    expect(applySaveFile(seededState(), stale)).toBe(false);
+  });
+
+  it('applySaveFile accepts a save whose version + contentVersion both match', () => {
+    const save = toSaveFile(seededState(), 123);
+    expect(applySaveFile(seededState(), save)).toBe(true);
   });
 });

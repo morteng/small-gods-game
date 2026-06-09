@@ -4,6 +4,7 @@ import type { AppendedEvent } from '@/core/events';
 import { captureSnapshot, restoreSnapshot, type Snapshot } from '@/core/snapshot';
 import { Autotiler } from '@/map/autotiler';
 import { computeBlobMap } from '@/map/blob-autotiler';
+import { WORLD_CONTENT_VERSION } from '@/core/content-version';
 
 /** Bump when the SaveFile shape changes incompatibly. `applySaveFile` discards
  *  any save whose version differs (caller boots fresh). No migration in v1. */
@@ -22,6 +23,9 @@ export interface SaveView {
 
 export interface SaveFile {
   version: number;
+  /** World-content version (worldgen/preset output). Mismatch on load → discard
+   *  and boot fresh. Distinct from `version`, which guards the save schema. */
+  contentVersion: number;
   /** Wall-clock ms at save time. Passed in by the caller; the sim stays Date.now-free. */
   savedAt: number;
   worldSeed: WorldSeed | null;
@@ -42,6 +46,7 @@ export function toSaveFile(state: GameState, savedAt: number): SaveFile {
   }
   return {
     version: SAVE_VERSION,
+    contentVersion: WORLD_CONTENT_VERSION,
     savedAt,
     worldSeed: state.worldSeed ? structuredClone(state.worldSeed) : null,
     map: structuredClone(state.map),
@@ -67,6 +72,7 @@ export function toSaveFile(state: GameState, savedAt: number): SaveFile {
  */
 export function applySaveFile(state: GameState, save: SaveFile): boolean {
   if (save.version !== SAVE_VERSION) return false;
+  if (save.contentVersion !== WORLD_CONTENT_VERSION) return false;
 
   // Map must be set BEFORE restoreSnapshot — it does `new World(state.map)`.
   state.map = structuredClone(save.map);
