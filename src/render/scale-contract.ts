@@ -1,17 +1,54 @@
-// Single source of truth for world scale. Every entity class derives its native
-// sprite size from world units through these constants — no hardcoded pixel
-// sizes. See docs/superpowers/specs/2026-06-08-unified-art-scale-pipeline-vision.md.
+// Single source of truth for world scale. Every entity class derives its size from
+// REAL METRES through one PX_PER_METRE. Author in metres; pixels & geometry cube-units
+// are derived. Snap to integer pixels at the end (1:1 pixel-perfect rule).
+// Master anchor: one ground tile = METRES_PER_TILE metres.
 import { ISO_TILE_W, ISO_TILE_H } from './iso/iso-constants';
 
-/** Vertical pixels per one building height-unit (one storey). */
-export const HEIGHT_UNIT_PX = ISO_TILE_H;             // 64
+/** Vertical pixels per one tile-depth of world height (one cube-unit). */
+export const HEIGHT_UNIT_PX = ISO_TILE_H;                  // 64
 
-/** Reference human, in height-units and pixels (matches the LPC visible body). */
-export const HUMAN_HEIGHT_UNITS = 0.72;
-export const HUMAN_PX = Math.round(HUMAN_HEIGHT_UNITS * HEIGHT_UNIT_PX);   // 46
+// ── Master anchors ──
+export const METRES_PER_TILE = 2;                          // one ground tile = 2 m
+export const PX_PER_METRE    = HEIGHT_UNIT_PX / METRES_PER_TILE;  // 64 / 2 = 32
 
-/** A human-scaled door: human + headroom, ~0.4 tile wide. */
-export const DOOR_HEIGHT_UNITS = 0.85;
-export const DOOR_WIDTH_TILES = 0.4;
+// ── Conversions ──
+export const mToPx    = (m: number): number => m * PX_PER_METRE;
+export const mToTiles = (m: number): number => m / METRES_PER_TILE;
+/** 1:1 rule: blit/derive only at whole pixels. */
+export const snapPx   = (px: number): number => Math.round(px);
+
+// ── Authored real-world dimensions (metres) ──
+export const HUMAN_HEIGHT_M = 1.7;     // visible LPC body
+export const DOOR_HEIGHT_M  = 2.0;
+export const DOOR_WIDTH_M   = 0.9;
+export const STOREY_M       = 2.7;     // interior storey height
+
+/**
+ * Real-world heights (metres) of natural entities, keyed by entity kind id.
+ * The one place a human or LLM agent reads "how big is an oak". Every
+ * `category: 'vegetation'` and `category: 'terrain-feature'` kind must appear
+ * here (enforced by tests/unit/nature-height-coverage.test.ts in a later task).
+ */
+export const NATURE_HEIGHT_M: Record<string, number> = {
+  // trees
+  oak_tree: 15, pine_tree: 18, birch_tree: 12, dead_tree: 8,
+  orange_tree: 6, pale_tree: 10, brown_tree: 11,
+  // rocks / geology
+  boulder: 1.2, rock_pile: 0.7, pebbles: 0.2, ore_vein: 0.8,
+};
+/** Fallback for any nature kind missing from the table (logged once at use). */
+export const DEFAULT_NATURE_HEIGHT_M = 1.0;
+
+// ── Derived pixels / cube-units (kept for back-compat call sites) ──
+export const HUMAN_PX          = snapPx(mToPx(HUMAN_HEIGHT_M));   // 54
+export const DOOR_HEIGHT_TILES = mToTiles(DOOR_HEIGHT_M);         // 1.0
+export const DOOR_WIDTH_TILES  = mToTiles(DOOR_WIDTH_M);          // 0.45
+export const STOREY_TILES      = mToTiles(STOREY_M);              // 1.35
+
+// ── Transition aliases (deleted in a later task once all callers move off them) ──
+/** @deprecated use DOOR_HEIGHT_TILES */
+export const DOOR_HEIGHT_UNITS = DOOR_HEIGHT_TILES;
+/** @deprecated use mToTiles(HUMAN_HEIGHT_M) */
+export const HUMAN_HEIGHT_UNITS = mToTiles(HUMAN_HEIGHT_M);
 
 export { ISO_TILE_W, ISO_TILE_H };

@@ -11,10 +11,10 @@ describe('scale-contract', () => {
     expect(HEIGHT_UNIT_PX).toBe(ISO_TILE_H);
   });
 
-  it('derives a human ~46px tall, with a door taller than a human', () => {
+  it('derives a human ~54px tall, with a door taller than a human', () => {
     expect(HUMAN_PX).toBe(Math.round(HUMAN_HEIGHT_UNITS * HEIGHT_UNIT_PX));
-    expect(HUMAN_PX).toBeGreaterThanOrEqual(40);
-    expect(HUMAN_PX).toBeLessThanOrEqual(52);
+    expect(HUMAN_PX).toBeGreaterThanOrEqual(48);
+    expect(HUMAN_PX).toBeLessThanOrEqual(60);
     // a door clears a human's head
     expect(DOOR_HEIGHT_UNITS).toBeGreaterThan(HUMAN_HEIGHT_UNITS);
     expect(DOOR_WIDTH_TILES).toBeGreaterThan(0);
