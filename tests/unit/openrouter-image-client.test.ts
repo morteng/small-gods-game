@@ -5,10 +5,10 @@ const PNG_URI = 'data:image/png;base64,AAAA';
 const OUT_URI = 'data:image/png;base64,BBBB';
 
 function mockFetchOnce(status: number, json: unknown) {
-  return vi.spyOn(globalThis, 'fetch' as never).mockResolvedValue({
+  return vi.spyOn(globalThis, 'fetch').mockResolvedValue({
     ok: status >= 200 && status < 300, status,
     json: async () => json, text: async () => JSON.stringify(json),
-  } as never);
+  } as unknown as Response);
 }
 afterEach(() => vi.restoreAllMocks());
 
