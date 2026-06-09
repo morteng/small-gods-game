@@ -28,3 +28,12 @@ export function greyToSpriteCanvas(grey: Uint8ClampedArray, size: number, bbox: 
   cctx.drawImage(full as CanvasImageSource, Math.round(bbox.x), Math.round(bbox.y), w, h, 0, 0, w, h);
   return crop;
 }
+
+/** Encode a full grey RGBA buffer as a PNG data-URI (img2img init image). Null in jsdom (no document). */
+export function greyToDataUri(grey: Uint8ClampedArray, size: number): string | null {
+  if (typeof document === 'undefined') return null;
+  const c = document.createElement('canvas'); c.width = size; c.height = size;
+  const ctx = c.getContext('2d'); if (!ctx) return null;
+  ctx.putImageData(new ImageData(grey as unknown as Uint8ClampedArray<ArrayBuffer>, size, size), 0, 0);
+  return c.toDataURL('image/png');
+}
