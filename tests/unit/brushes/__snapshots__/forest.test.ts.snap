@@ -9,7 +9,7 @@ exports[`forest brush > produces a stable snapshot 1`] = `
       "offsetX": 0.04400716372765601,
       "offsetY": 0.48964877566322684,
       "rotation": -0,
-      "scale": 1.4709542764350771,
+      "scale": 1.1403180921450256,
     },
     "tags": [
       "vegetation",
@@ -26,7 +26,7 @@ exports[`forest brush > produces a stable snapshot 1`] = `
       "offsetX": 0.21510060434229672,
       "offsetY": 0.829653670778498,
       "rotation": 0,
-      "scale": 0.7007537957746536,
+      "scale": 0.8835845985915511,
     },
     "tags": [
       "vegetation",
@@ -43,7 +43,7 @@ exports[`forest brush > produces a stable snapshot 1`] = `
       "offsetX": 0.22547213942743838,
       "offsetY": 0.6010450881440192,
       "rotation": -0,
-      "scale": 1.4861280602635816,
+      "scale": 1.1453760200878604,
     },
     "tags": [
       "vegetation",
@@ -60,7 +60,7 @@ exports[`forest brush > produces a stable snapshot 1`] = `
       "offsetX": 0.81328304996714,
       "offsetY": 0.11834466084837914,
       "rotation": 0,
-      "scale": 0.8107297197449952,
+      "scale": 0.9202432399149983,
     },
     "tags": [
       "vegetation",
@@ -77,7 +77,7 @@ exports[`forest brush > produces a stable snapshot 1`] = `
       "offsetX": 0.12359766359440982,
       "offsetY": 0.8837197874672711,
       "rotation": -0,
-      "scale": 1.4697555664228275,
+      "scale": 1.1399185221409425,
     },
     "tags": [
       "vegetation",
@@ -94,7 +94,7 @@ exports[`forest brush > produces a stable snapshot 1`] = `
       "offsetX": 0.6842999095097184,
       "offsetY": 0.8000500919297338,
       "rotation": 0,
-      "scale": 0.8233973176684231,
+      "scale": 0.9244657725561409,
     },
     "tags": [
       "vegetation",
@@ -111,7 +111,7 @@ exports[`forest brush > produces a stable snapshot 1`] = `
       "offsetX": 0.5686395890079439,
       "offsetY": 0.5436648509930819,
       "rotation": 0,
-      "scale": 1.3861859298544004,
+      "scale": 1.1120619766181334,
     },
     "tags": [
       "vegetation",
@@ -128,7 +128,7 @@ exports[`forest brush > produces a stable snapshot 1`] = `
       "offsetX": 0.385648594237864,
       "offsetY": 0.12332087894901633,
       "rotation": 0,
-      "scale": 1.032829104945995,
+      "scale": 0.9942763683153316,
     },
     "tags": [
       "vegetation",
@@ -145,7 +145,7 @@ exports[`forest brush > produces a stable snapshot 1`] = `
       "offsetX": 0.0028102651704102755,
       "offsetY": 0.35369161888957024,
       "rotation": 0,
-      "scale": 1.4149907151935621,
+      "scale": 1.1216635717311874,
     },
     "tags": [
       "vegetation",
@@ -162,7 +162,7 @@ exports[`forest brush > produces a stable snapshot 1`] = `
       "offsetX": 0.3657634623814374,
       "offsetY": 0.878306868718937,
       "rotation": -0,
-      "scale": 0.8605221075005829,
+      "scale": 0.9368407025001942,
     },
     "tags": [
       "vegetation",
@@ -179,7 +179,7 @@ exports[`forest brush > produces a stable snapshot 1`] = `
       "offsetX": 0.19090947438962758,
       "offsetY": 0.07806321769021451,
       "rotation": 0,
-      "scale": 0.8812454423401505,
+      "scale": 0.9437484807800501,
     },
     "tags": [
       "vegetation",
@@ -196,7 +196,7 @@ exports[`forest brush > produces a stable snapshot 1`] = `
       "offsetX": 0.8580866537522525,
       "offsetY": 0.5919338562525809,
       "rotation": -0,
-      "scale": 1.4921741721918806,
+      "scale": 1.1473913907306268,
     },
     "tags": [
       "vegetation",
@@ -213,7 +213,7 @@ exports[`forest brush > produces a stable snapshot 1`] = `
       "offsetX": 0.9843170016538352,
       "offsetY": 0.7516073901206255,
       "rotation": -0,
-      "scale": 0.6680672102607786,
+      "scale": 0.8726890700869262,
     },
     "tags": [
       "vegetation",
@@ -230,7 +230,7 @@ exports[`forest brush > produces a stable snapshot 1`] = `
       "offsetX": 0.16009601089172065,
       "offsetY": 0.8533678788226098,
       "rotation": -0,
-      "scale": 1.181619638716802,
+      "scale": 1.0438732129056005,
     },
     "tags": [
       "vegetation",
@@ -247,7 +247,7 @@ exports[`forest brush > produces a stable snapshot 1`] = `
       "offsetX": 0.747854171320796,
       "offsetY": 0.12334352498874068,
       "rotation": -0,
-      "scale": 0.9591268243733793,
+      "scale": 0.9697089414577931,
     },
     "tags": [
       "vegetation",
@@ -264,7 +264,7 @@ exports[`forest brush > produces a stable snapshot 1`] = `
       "offsetX": 0.05138488905504346,
       "offsetY": 0.9678558963350952,
       "rotation": 0,
-      "scale": 1.4832746791653335,
+      "scale": 1.144424893055111,
     },
     "tags": [
       "vegetation",
@@ -281,7 +281,7 @@ exports[`forest brush > produces a stable snapshot 1`] = `
       "offsetX": 0.3882316229864955,
       "offsetY": 0.38140630116686225,
       "rotation": -0,
-      "scale": 1.0653763400623575,
+      "scale": 1.0051254466874524,
     },
     "tags": [
       "vegetation",
@@ -298,7 +298,7 @@ exports[`forest brush > produces a stable snapshot 1`] = `
       "offsetX": 0.4027511030435562,
       "offsetY": 0.3154732114635408,
       "rotation": -0,
-      "scale": 1.2641403601504861,
+      "scale": 1.071380120050162,
     },
     "tags": [
       "vegetation",
@@ -315,7 +315,7 @@ exports[`forest brush > produces a stable snapshot 1`] = `
       "offsetX": 0.24904925771988928,
       "offsetY": 0.6203536738175899,
       "rotation": 0,
-      "scale": 1.4623417468741535,
+      "scale": 1.1374472489580512,
     },
     "tags": [
       "vegetation",
@@ -332,7 +332,7 @@ exports[`forest brush > produces a stable snapshot 1`] = `
       "offsetX": 0.8998442469164729,
       "offsetY": 0.9696960458531976,
       "rotation": 0,
-      "scale": 0.926794248749502,
+      "scale": 0.9589314162498339,
     },
     "tags": [
       "vegetation",
@@ -349,7 +349,7 @@ exports[`forest brush > produces a stable snapshot 1`] = `
       "offsetX": 0.7691060681827366,
       "offsetY": 0.21334919100627303,
       "rotation": -0,
-      "scale": 1.4379606150789186,
+      "scale": 1.129320205026306,
     },
     "tags": [
       "vegetation",
@@ -366,7 +366,7 @@ exports[`forest brush > produces a stable snapshot 1`] = `
       "offsetX": 0.5467641400173306,
       "offsetY": 0.9122345331124961,
       "rotation": 0,
-      "scale": 1.0625875283265487,
+      "scale": 1.0041958427755162,
     },
     "tags": [
       "vegetation",
@@ -383,7 +383,7 @@ exports[`forest brush > produces a stable snapshot 1`] = `
       "offsetX": 0.2837991660926491,
       "offsetY": 0.03754255082458258,
       "rotation": -0,
-      "scale": 1.4295739180874079,
+      "scale": 1.1265246393624693,
     },
     "tags": [
       "vegetation",
@@ -400,7 +400,7 @@ exports[`forest brush > produces a stable snapshot 1`] = `
       "offsetX": 0.3757879042532295,
       "offsetY": 0.37887929007411003,
       "rotation": -0,
-      "scale": 0.9522112848702817,
+      "scale": 0.9674037616234272,
     },
     "tags": [
       "vegetation",
@@ -432,7 +432,7 @@ exports[`forest brush > produces a stable snapshot 1`] = `
       "offsetX": 0.049971539760008454,
       "offsetY": 0.038875788915902376,
       "rotation": -0,
-      "scale": 1.3269087460124864,
+      "scale": 1.0923029153374955,
     },
     "tags": [
       "vegetation",
@@ -449,7 +449,7 @@ exports[`forest brush > produces a stable snapshot 1`] = `
       "offsetX": 0.15350955538451672,
       "offsetY": 0.5393947686534375,
       "rotation": 0,
-      "scale": 0.6038190538762137,
+      "scale": 0.8512730179587379,
     },
     "tags": [
       "vegetation",
@@ -466,7 +466,7 @@ exports[`forest brush > produces a stable snapshot 1`] = `
       "offsetX": 0.009173821425065398,
       "offsetY": 0.3945559181738645,
       "rotation": -0,
-      "scale": 1.2194965763250365,
+      "scale": 1.0564988587750122,
     },
     "tags": [
       "vegetation",
@@ -483,7 +483,7 @@ exports[`forest brush > produces a stable snapshot 1`] = `
       "offsetX": 0.5082228407263756,
       "offsetY": 0.9997865040786564,
       "rotation": -0,
-      "scale": 1.4308257408672944,
+      "scale": 1.1269419136224315,
     },
     "tags": [
       "vegetation",
@@ -500,7 +500,7 @@ exports[`forest brush > produces a stable snapshot 1`] = `
       "offsetX": 0.3362624200526625,
       "offsetY": 0.9269304091576487,
       "rotation": 0,
-      "scale": 1.1008225615834817,
+      "scale": 1.0169408538611604,
     },
     "tags": [
       "vegetation",
@@ -517,7 +517,7 @@ exports[`forest brush > produces a stable snapshot 1`] = `
       "offsetX": 0.2653405014425516,
       "offsetY": 0.308999594533816,
       "rotation": 0,
-      "scale": 1.3961849881801753,
+      "scale": 1.1153949960600584,
     },
     "tags": [
       "vegetation",
@@ -534,7 +534,7 @@ exports[`forest brush > produces a stable snapshot 1`] = `
       "offsetX": 0.47520807781256735,
       "offsetY": 0.6599075167905539,
       "rotation": -0,
-      "scale": 1.3982648463919758,
+      "scale": 1.1160882821306586,
     },
     "tags": [
       "vegetation",
@@ -566,7 +566,7 @@ exports[`forest brush > produces a stable snapshot 1`] = `
       "offsetX": 0.5275878091342747,
       "offsetY": 0.917833250015974,
       "rotation": -0,
-      "scale": 1.3838400136912241,
+      "scale": 1.1112800045637412,
     },
     "tags": [
       "vegetation",
@@ -583,7 +583,7 @@ exports[`forest brush > produces a stable snapshot 1`] = `
       "offsetX": 0.3809686382301152,
       "offsetY": 0.4088412462733686,
       "rotation": -0,
-      "scale": 0.7997609374579042,
+      "scale": 0.9165869791526347,
     },
     "tags": [
       "vegetation",
@@ -600,7 +600,7 @@ exports[`forest brush > produces a stable snapshot 1`] = `
       "offsetX": 0.4133908248040825,
       "offsetY": 0.0522831198759377,
       "rotation": 0,
-      "scale": 1.44355288320221,
+      "scale": 1.1311842944007366,
     },
     "tags": [
       "vegetation",

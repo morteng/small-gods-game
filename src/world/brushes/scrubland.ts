@@ -14,7 +14,7 @@ const SCRUBLAND_PARAMS: import('./vegetation-placer').VegetationParams = {
     ['grass_tuft', 0.25],
   ],
   density: 0.20,
-  scaleRange: [0.7, 1.1],
+  scaleRange: [0.8, 1.2],   // per-instance variety multiplier on metric height (±20%, scrub varies more)
   rotationRange: 20,
   offsetRange: [0.35, 0.35],
   undergrowth: [

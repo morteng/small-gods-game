@@ -9,7 +9,7 @@ exports[`scrubland brush > produces a stable snapshot 1`] = `
       "offsetX": 0.3005704230396077,
       "offsetY": 0.7307575695449486,
       "rotation": 3.2944149523973465,
-      "scale": 0.7447794647887349,
+      "scale": 0.844779464788735,
     },
     "tags": [
       "vegetation",
@@ -25,7 +25,7 @@ exports[`scrubland brush > produces a stable snapshot 1`] = `
       "offsetX": 0.719298134976998,
       "offsetY": 0.2328412625938654,
       "rotation": 16.219692481681705,
-      "scale": 0.7936576532199979,
+      "scale": 0.8936576532199979,
     },
     "tags": [
       "vegetation",
@@ -41,7 +41,7 @@ exports[`scrubland brush > produces a stable snapshot 1`] = `
       "offsetX": 0.23651836451608688,
       "offsetY": 0.7686038512270897,
       "rotation": -14.450049232691526,
-      "scale": 1.0865580295212567,
+      "scale": 1.1865580295212568,
     },
     "tags": [
       "vegetation",
@@ -57,7 +57,7 @@ exports[`scrubland brush > produces a stable snapshot 1`] = `
       "offsetX": 0.6290099366568029,
       "offsetY": 0.7100350643508136,
       "rotation": 16.00815706886351,
-      "scale": 0.7992876967415213,
+      "scale": 0.8992876967415214,
     },
     "tags": [
       "vegetation",
@@ -73,7 +73,7 @@ exports[`scrubland brush > produces a stable snapshot 1`] = `
       "offsetX": 0.5040932317031548,
       "offsetY": 0.6096782067790627,
       "rotation": 16.429287334904075,
-      "scale": 1.0107415111735465,
+      "scale": 1.1107415111735464,
     },
     "tags": [
       "vegetation",
@@ -89,7 +89,7 @@ exports[`scrubland brush > produces a stable snapshot 1`] = `
       "offsetX": 0.515624031610787,
       "offsetY": 0.38863462961744516,
       "rotation": 6.977416658774018,
-      "scale": 0.9379303782247007,
+      "scale": 1.0379303782247007,
     },
     "tags": [
       "vegetation",
@@ -105,7 +105,7 @@ exports[`scrubland brush > produces a stable snapshot 1`] = `
       "offsetX": 0.15196718561928724,
       "offsetY": 0.39758413322269914,
       "rotation": 11.04814738035202,
-      "scale": 1.0622180956415832,
+      "scale": 1.1622180956415833,
     },
     "tags": [
       "vegetation",
@@ -121,7 +121,7 @@ exports[`scrubland brush > produces a stable snapshot 1`] = `
       "offsetX": 0.2836366320727393,
       "offsetY": 0.2046442523831502,
       "rotation": 5.039518792182207,
-      "scale": 0.8249979743734002,
+      "scale": 0.9249979743734003,
     },
     "tags": [
       "vegetation",
@@ -152,7 +152,7 @@ exports[`scrubland brush > produces a stable snapshot 1`] = `
       "offsetX": 0.4159652519505471,
       "offsetY": 0.8262851498322561,
       "rotation": 13.48739585839212,
-      "scale": 0.7323610342107713,
+      "scale": 0.8323610342107713,
     },
     "tags": [
       "vegetation",
@@ -168,7 +168,7 @@ exports[`scrubland brush > produces a stable snapshot 1`] = `
       "offsetX": 0.8390219011576846,
       "offsetY": 0.6761251730844379,
       "rotation": -13.673591744154692,
-      "scale": 0.7302520934492349,
+      "scale": 0.830252093449235,
     },
     "tags": [
       "vegetation",
@@ -184,7 +184,7 @@ exports[`scrubland brush > produces a stable snapshot 1`] = `
       "offsetX": 0.6734979199245572,
       "offsetY": 0.2363404674921185,
       "rotation": -5.964970951899886,
-      "scale": 0.8596119219437242,
+      "scale": 0.9596119219437241,
     },
     "tags": [
       "vegetation",
@@ -200,7 +200,7 @@ exports[`scrubland brush > produces a stable snapshot 1`] = `
       "offsetX": 0.18596942233853042,
       "offsetY": 0.8274991274345667,
       "rotation": 9.204097110778093,
-      "scale": 1.0925665240734816,
+      "scale": 1.1925665240734815,
     },
     "tags": [
       "vegetation",
@@ -216,7 +216,7 @@ exports[`scrubland brush > produces a stable snapshot 1`] = `
       "offsetX": 0.4319257721304893,
       "offsetY": 0.37083124802447853,
       "rotation": -8.518143584951758,
-      "scale": 0.9951734934002161,
+      "scale": 1.0951734934002162,
     },
     "tags": [
       "vegetation",
@@ -232,7 +232,7 @@ exports[`scrubland brush > produces a stable snapshot 1`] = `
       "offsetX": 0.6883742477279157,
       "offsetY": 0.2993444337043911,
       "rotation": -1.6569098550826311,
-      "scale": 1.072426940035075,
+      "scale": 1.1724269400350749,
     },
     "tags": [
       "vegetation",
@@ -248,7 +248,7 @@ exports[`scrubland brush > produces a stable snapshot 1`] = `
       "offsetX": 0.3486594162648544,
       "offsetY": 0.1762797855772078,
       "rotation": -19.097642824053764,
-      "scale": 1.068699519149959,
+      "scale": 1.1686995191499592,
     },
     "tags": [
       "vegetation",
@@ -264,7 +264,7 @@ exports[`scrubland brush > produces a stable snapshot 1`] = `
       "offsetX": 0.38538369403686373,
       "offsetY": 0.7988512864103541,
       "rotation": 10.01144116744399,
-      "scale": 0.9225878051482141,
+      "scale": 1.022587805148214,
     },
     "tags": [
       "vegetation",
@@ -280,7 +280,7 @@ exports[`scrubland brush > produces a stable snapshot 1`] = `
       "offsetX": 0.3357383510097861,
       "offsetY": 0.3662997161736712,
       "rotation": 13.93303556367755,
-      "scale": 1.0538599947467446,
+      "scale": 1.1538599947467447,
     },
     "tags": [
       "vegetation",
@@ -296,7 +296,7 @@ exports[`scrubland brush > produces a stable snapshot 1`] = `
       "offsetX": 0.5857350580627099,
       "offsetY": 0.4940048976568505,
       "rotation": -14.499139254912734,
-      "scale": 0.9537803516723216,
+      "scale": 1.0537803516723216,
     },
     "tags": [
       "vegetation",

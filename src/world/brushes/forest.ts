@@ -15,10 +15,11 @@ const FOREST_PARAMS: import('./vegetation-placer').VegetationParams = {
     ['pale_tree', 0.25],
   ],
   density: 0.35,
-  // Wide scale range is the main source of visual variety (we don't rotate
-  // vegetation — tilted trees read as wrong). Full-cell scatter + up to two
-  // trees per cell break the one-per-tile grid into an organic stand.
-  scaleRange: [0.6, 1.5],
+  // `scale` is a per-instance VARIETY multiplier on the kind's metric height
+  // (not an absolute size) — a tight ±15% band. We don't rotate vegetation
+  // (tilted trees read as wrong); variety comes from this band + full-cell
+  // scatter + up to two trees per cell breaking the one-per-tile grid.
+  scaleRange: [0.85, 1.15],
   rotationRange: 0,
   offsetRange: [0.5, 0.5],
   maxPerTile: 2,

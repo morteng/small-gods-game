@@ -13,7 +13,7 @@ const PINE_FOREST_PARAMS: import('./vegetation-placer').VegetationParams = {
     ['pale_tree', 0.4],
   ],
   density: 0.50,
-  scaleRange: [0.85, 1.35],
+  scaleRange: [0.85, 1.15],   // per-instance variety multiplier on metric height (±15%)
   rotationRange: 0,
   offsetRange: [0.5, 0.5],
   maxPerTile: 2,
