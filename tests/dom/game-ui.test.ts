@@ -13,7 +13,7 @@ describe('GameUi', () => {
     document.body.appendChild(container);
     const before = container.childElementCount;
     ui = new GameUi(container, {
-      onStart: () => {}, onSelectRival: () => {}, onTargetNpc: () => {},
+      onSelectRival: () => {}, onTargetNpc: () => {},
       onClickMinimapTile: () => {}, onGameSettingChange: () => {},
       onLLMConfigChange: () => {},
       onZoomIn: () => {}, onZoomOut: () => {}, onFitView: () => {}, onZoomActual: () => {}, onNewWorld: () => {},

@@ -7,6 +7,7 @@ import { focusCameraOnTile } from '@/render/focus-camera';
 import { attachControls, attachTimeKeys } from '@/ui/controls';
 import type { GameMap, WorldSeed, TerrainOptions } from '@/core/types';
 import { ART_RECIPE_VERSION } from '@/core/content-version';
+import { createDebugApi, type DebugApi } from '@/dev/debug-api';
 import { advanceNpcFrames } from '@/render/npc-animator';
 // divine-actions functions now invoked via DivineActionsController
 import { LLMClient } from "@/llm/llm-client";
@@ -14,7 +15,6 @@ import { createProvider, loadProviderConfig, type ProviderConfig } from '@/llm/p
 import { CostTracker } from '@/llm/cost-tracker';
 import { mountSpendChip, type SpendChipHandle } from '@/ui/spend-chip';
 import { NpcAttentionStore } from '@/llm/npc-attention-store';
-import { createWelcomeModal, type WelcomeModalHandle, ONBOARDED_KEY } from '@/ui/welcome-modal';
 import { simStateFromEntity, getNpc } from '@/world/npc-helpers';
 import { sendWhisper } from '@/game/whisper-orchestrator';
 import { openMindPage, pathKey } from '@/game/mind-orchestrator';
@@ -99,7 +99,6 @@ export class Game {
   private llmClientCapable: LLMClient | null = null;   // Tier-2 "key moments" — built, not yet called (Track 4 / Fate)
   private costTracker = new CostTracker();
   private spendChip: SpendChipHandle | null = null;
-  private welcomeModal: WelcomeModalHandle | null = null;
   private assetLibrary!: AssetLibrary;
   private artResolver!: ArtResolver;
   private buildingArtResolver!: ArtResolver;
@@ -242,11 +241,6 @@ export class Game {
     });
 
     this.ui = new GameUi(this.container, {
-      onStart: () => {
-        if (!this.state.map) {
-          void this.generateWorld();
-        }
-      },
       onSelectRival: (rivalId) => {
         const rival = this.state.spirits.get(rivalId);
         if (rival && this.state.world) {
@@ -401,12 +395,6 @@ export class Game {
     });
     fateTrigger.attach((fn) => this.state.eventLog.subscribe(fn));
 
-    if (!localStorage.getItem(ONBOARDED_KEY)) {
-      this.welcomeModal = createWelcomeModal(this.container, {
-        onComplete: (config) => { this.applyLlmConfig(config); this.welcomeModal = null; },
-      });
-    }
-
     this.divine = new DivineActionsController({ state: this.state, queue: this.commandQueue, divineEffects: this.ui.divineEffects });
     this.divine.register(this.dispatcher);
 
@@ -534,6 +522,11 @@ export class Game {
     };
   }
 
+  /** Stable debug surface for console/Playwright/MCP (see src/dev/debug-api.ts). */
+  debug(): DebugApi {
+    return createDebugApi({ state: this.state, canvas: this.canvas, viewport: () => this.viewport() });
+  }
+
   private renderDeps(): RenderContextDeps {
     return {
       state: this.state,
@@ -556,20 +549,26 @@ export class Game {
   }
 
   async generateWorld(worldSeed?: WorldSeed, _terrainOptions?: Partial<TerrainOptions>): Promise<GameMap> {
+    const loading = this.ui.loadingScreen;
+    loading.show();
+    loading.setProgress(0.08, 'Summoning the engine…');
     initManifoldWasm();
+    loading.setProgress(0.22, 'Preparing the canvas…');
     this.renderMap = await selectRenderer();
+    loading.setProgress(0.38, 'Loading the art library…');
     const baseLibrary = await loadBaseLibrary();
     this.assetLibrary = new AssetLibrary(baseLibrary);
     this.artResolver = new ArtResolver(this.assetLibrary, 'pixel-art');
     this.buildingArtResolver = new ArtResolver(this.assetLibrary, 'pixel-art', 'building', ART_RECIPE_VERSION);
+    loading.setProgress(0.55, 'Generating the world…');
     const map = await bootstrapWorld({
       state: this.state, assets: this.assets, sheets: this.sheets,
       decorationImages: this.decorationImages, getViewport: () => this.viewport(),
       worldSeed,
       onReady: () => {
-        this.ui.mainMenu.hide();
+        this.ui.loadingScreen.setProgress(1, 'Entering the world…');
+        this.ui.loadingScreen.hide();
         this.ui.spiritHud.show();
-        if (!localStorage.getItem('small-gods-tutorial-seen')) setTimeout(() => this.ui.tutorial.show('welcome'), 500);
         this.dev.updateInspector();
         this.persistence.start();
       },
@@ -636,7 +635,6 @@ export class Game {
     this.cleanupControls?.();
     this.cleanupTokens?.();
     this.resizeObserver.disconnect();
-    this.welcomeModal?.destroy();
     this.ui.destroy();
     this.spendChip?.destroy();
     this.decorationImages.destroy();

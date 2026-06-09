@@ -1,6 +1,6 @@
 import { createLlmDisplay, type LlmDisplayHandle } from '@/ui/llm-display';
 import { createSettingsPanel as createUnifiedSettings, type SettingsHandle } from '@/ui/settings-unified';
-import { createMainMenu, type MainMenuHandle } from '@/ui/main-menu';
+import { createLoadingScreen, type LoadingScreenHandle } from '@/ui/loading-screen';
 import { createTutorial, type TutorialHandle } from '@/ui/tutorial';
 import { createSpiritHud, type SpiritHudHandle } from '@/ui/spirit-hud';
 import { createRivalPanel, type RivalPanelHandle } from '@/ui/rival-panel';
@@ -17,7 +17,6 @@ import { mountBuildingInfoPanel, type BuildingInfoPanelHandle } from '@/ui/build
 import type { NpcAttentionStore } from '@/llm/npc-attention-store';
 
 export interface GameUiCallbacks {
-  onStart: () => void;
   onSelectRival: (rivalId: string) => void;
   onTargetNpc: (npcId: string) => void;
   onClickMinimapTile: (x: number, y: number) => void;
@@ -50,7 +49,7 @@ export class GameUi {
   readonly tooltip: HTMLDivElement;
   readonly llmDisplay: LlmDisplayHandle;
   readonly unifiedSettings: SettingsHandle;
-  readonly mainMenu: MainMenuHandle;
+  readonly loadingScreen: LoadingScreenHandle;
   readonly tutorial: TutorialHandle;
   readonly spiritHud: SpiritHudHandle;
   readonly rivalPanel: RivalPanelHandle;
@@ -136,12 +135,8 @@ export class GameUi {
       onGameSettingChange: (key, value) => cb.onGameSettingChange(key, value),
     });
 
-    // ── NEW: Main Menu ────────────────────────────────────
-    this.mainMenu = createMainMenu(container, {
-      onStart: () => cb.onStart(),
-      onSettings: () => this.unifiedSettings.toggle(),
-      version: '1.0.0',
-    });
+    // ── Loading screen (dark, progress bar) — shown until world is ready ──
+    this.loadingScreen = createLoadingScreen(container);
 
     // ── NEW: Tutorial System ──────────────────────────────
     this.tutorial = createTutorial(container, {
@@ -220,7 +215,7 @@ export class GameUi {
     this.npcInfoPanel.remove();
     this.tooltip.remove();
     this.bottomLeftBar.remove();
-    this.mainMenu.destroy();
+    this.loadingScreen.destroy();
     this.spiritHud.destroy();
     this.rivalPanel.destroy();
     this.minimap.destroy();

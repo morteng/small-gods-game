@@ -24,6 +24,7 @@ import { createDockManager, type DockManager } from '@/dev/dock-manager';
 import { DEV_UI_Z } from '@/dev/FloatingPanel';
 import { mountDevToolbar, type DevToolbarHandle } from '@/dev/dev-toolbar';
 import { mountCreatePanel, type CreatePanelHandle } from '@/dev/CreatePanel';
+import { createRenderBenchPanel, type RenderBenchHandle } from '@/dev/RenderBenchPanel';
 import type { CommandQueue } from '@/sim/command/command-queue';
 import type { LLMClient } from '@/llm/llm-client';
 import { readRenderMode, toggleRenderMode } from '@/render/select-renderer';
@@ -48,6 +49,7 @@ export class DevModeController {
   private spawner!: EntitySpawnerHandle;
   private mapEditor!: MapEditorPanelHandle;
   private createPanel!: CreatePanelHandle;
+  private renderBench!: RenderBenchHandle;
   private dock!: DockManager;
   private toolbar!: DevToolbarHandle;
   private detachKeys: (() => void) | null = null;
@@ -113,6 +115,19 @@ export class DevModeController {
       dock: this.dock,
     });
 
+    this.renderBench = createRenderBenchPanel({
+      container,
+      onFocusKind: (kind, zoom) => {
+        const e = this.deps.state.world?.query({ kind })[0];
+        if (!e) return false;
+        const vp = this.deps.getViewport();
+        this.deps.state.camera.zoom = zoom;
+        focusCameraOnTile(this.deps.state.camera, e.x, e.y, vp.width, vp.height, readRenderMode());
+        return true;
+      },
+      dock: this.dock,
+    });
+
     // Restore any persisted dock layout now that all panels are registered.
     this.dock.restore();
 
@@ -129,6 +144,7 @@ export class DevModeController {
       { id: 'map', label: '🗺️ Map', isActive: () => this.mapEditor.isVisible(), onClick: () => this.mapEditor.toggle() },
       { id: 'overlay', label: '🎨 Overlay', isActive: () => this.debugOverlay.isVisible(), onClick: () => this.debugOverlay.toggle() },
       { id: 'create', label: '✨ Create', isActive: () => this.createPanel.isVisible(), onClick: () => this.createPanel.toggle() },
+      { id: 'bench', label: '🏚 Bench', isActive: () => this.renderBench.isVisible(), onClick: () => this.renderBench.toggle() },
       { id: 'render', label: readRenderMode() === 'iso' ? '◈ Iso' : '⬛ Topdown', onClick: () => toggleRenderMode() },
       { id: 'undo', label: '↩ Undo', onClick: () => this.undo() },
       { id: 'redo', label: '↪ Redo', onClick: () => this.redo() },
@@ -172,6 +188,7 @@ export class DevModeController {
       this.mapEditor.hide();
       this.debugOverlay.hide();
       this.createPanel.hide();
+      this.renderBench.hide();
       this.devMode.selected = null;
       this.debugOverlay.update(this.devMode);
     }
@@ -477,5 +494,6 @@ export class DevModeController {
     this.spawner.destroy?.();
     this.mapEditor.destroy?.();
     this.createPanel.destroy();
+    this.renderBench.destroy();
   }
 }

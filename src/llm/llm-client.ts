@@ -374,6 +374,9 @@ export class OpenAIProvider implements LLMProvider {
 
 export interface OpenRouterConfig {
   apiKey: string;
+  /** API base, default 'https://openrouter.ai/api/v1'. In dev, point this at the
+   *  same-origin Vite proxy ('/api/llm/openrouter/api/v1') to dodge browser CORS. */
+  baseUrl?: string;
   model?: string; // e.g. 'anthropic/claude-3-haiku', 'openai/gpt-3.5-turbo', 'google/gemini-flash-1.5'
   siteUrl?: string; // Optional: your site URL for OpenRouter rankings
   siteName?: string; // Optional: your site name for OpenRouter rankings
@@ -398,7 +401,7 @@ export class OpenRouterProvider implements LLMProvider {
 
   async generate(messages: LLMMessage[], opts?: LLMOptions): Promise<OpenRouterResponse> {
     const start = Date.now();
-    const url = 'https://openrouter.ai/api/v1/chat/completions';
+    const url = `${this.config.baseUrl ?? 'https://openrouter.ai/api/v1'}/chat/completions`;
 
     const effectiveModel = opts?.model ?? this.config.model ?? 'openai/gpt-3.5-turbo';
 

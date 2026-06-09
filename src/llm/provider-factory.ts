@@ -31,6 +31,20 @@ export interface ProviderConfig {
   temperature?: number;
 }
 
+/** True only in the real dev browser on localhost (NOT under vitest/Node),
+ *  i.e. when the same-origin LLM proxy at /api/llm/openrouter is available. */
+function useDevLlmProxy(): boolean {
+  try {
+    const env = (import.meta as unknown as { env?: { DEV?: boolean; MODE?: string } }).env;
+    if (!env?.DEV || env.MODE === 'test') return false;
+    if (typeof window === 'undefined') return false;
+    const h = window.location?.hostname;
+    return h === 'localhost' || h === '127.0.0.1';
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Create an LLM provider from config.
  */
@@ -52,11 +66,16 @@ export function createProvider(config: ProviderConfig): LLMProvider {
     }
 
     case 'openrouter': {
-      if (!config.openrouterApiKey) {
+      // In the dev browser, route through the same-origin Vite proxy
+      // (/api/llm/openrouter) to dodge CORS — and let the proxy supply the key
+      // from .env, so narration works locally without a browser-configured key.
+      const devProxy = useDevLlmProxy();
+      if (!config.openrouterApiKey && !devProxy) {
         throw new Error('OpenRouter API key required. Get one at https://openrouter.ai/keys');
       }
       const orConfig: OpenRouterConfig = {
-        apiKey: config.openrouterApiKey,
+        apiKey: config.openrouterApiKey ?? '',
+        baseUrl: devProxy ? '/api/llm/openrouter/api/v1' : undefined,
         model: config.openrouterModel ?? DEFAULT_CHAT_MODEL,
         siteUrl: config.openrouterSiteUrl,
         siteName: config.openrouterSiteName ?? 'Small Gods Game',

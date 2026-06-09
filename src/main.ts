@@ -7,6 +7,8 @@ if (container) {
     console.log('World generated');
   });
 
-  // Expose for debugging
+  // Expose for debugging: __game is the raw instance; __debug is the stable
+  // console/Playwright/MCP surface (see src/dev/debug-api.ts).
   (window as any).__game = game;
+  (window as any).__debug = game.debug();
 }
