@@ -24,7 +24,7 @@ export const MATERIAL_RGB: Record<Mat, RGB> = {
 };
 
 /** A flat-shaded polygon in WORLD space (tile-local x,y; z up), pre-projection. */
-export interface WorldFacet { pts: Vec3[]; normal: Vec3; albedo: RGB }
+export interface WorldFacet { pts: Vec3[]; normal: Vec3; albedo: RGB; mat: Mat }
 
 /** A projected, depth-keyed polygon ready to rasterise. */
-export interface ScreenFacet { pts: Pt[]; normal: Vec3; albedo: RGB; depth: number; depths?: number[] }
+export interface ScreenFacet { pts: Pt[]; normal: Vec3; albedo: RGB; depth: number; depths?: number[]; mat: Mat }

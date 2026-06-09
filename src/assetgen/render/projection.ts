@@ -42,7 +42,7 @@ export function projectFacets(facets: WorldFacet[], s: ProjScale): ScreenFacet[]
     const pts = f.pts.map(p => project(p, s));
     const depths = f.pts.map(viewDepth);
     const depth = depths.reduce((a, d) => a + d, 0) / depths.length;
-    out.push({ pts, normal: f.normal, albedo: f.albedo, depth, depths });
+    out.push({ pts, normal: f.normal, albedo: f.albedo, depth, depths, mat: f.mat });
   }
   return out;
 }

@@ -25,8 +25,8 @@ describe('projection', () => {
     expect(frontFacing([1,0,0])).toBe(true);
     expect(frontFacing([-1,0,0])).toBe(false);
     const facets: WorldFacet[] = [
-      { pts: [[0,0,0],[1,0,0],[1,0,1]], normal: [0,-1,0], albedo: [1,1,1] }, // back face
-      { pts: [[0,0,0],[1,0,0],[1,0,1]], normal: [0,1,0],  albedo: [1,1,1] }, // front face
+      { pts: [[0,0,0],[1,0,0],[1,0,1]], normal: [0,-1,0], albedo: [1,1,1], mat: 'stone' }, // back face
+      { pts: [[0,0,0],[1,0,0],[1,0,1]], normal: [0,1,0],  albedo: [1,1,1], mat: 'stone' }, // front face
     ];
     expect(projectFacets(facets, { scale: 1, ox: 0, oy: 0 })).toHaveLength(1);
   });

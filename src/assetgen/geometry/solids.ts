@@ -34,7 +34,7 @@ export function manifoldToFacets(mesh: Mesh, material: Mat): WorldFacet[] {
     const a = pos(tv[t]), b = pos(tv[t+1]), d = pos(tv[t+2]);
     const n = cross(sub(b, a), sub(d, a));         // outward (manifold winding is CCW-outward)
     if (n[0] === 0 && n[1] === 0 && n[2] === 0) continue; // skip degenerate
-    out.push({ pts: [a, b, d], normal: n, albedo: shadeRGB(c, brightness(n)) });
+    out.push({ pts: [a, b, d], normal: n, albedo: shadeRGB(c, brightness(n)), mat: material });
   }
   return out;
 }
