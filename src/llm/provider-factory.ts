@@ -45,6 +45,11 @@ function useDevLlmProxy(): boolean {
   }
 }
 
+/** Base URL for image generation: dev proxy when available, else direct OpenRouter (BYOK). */
+export function openrouterImageBaseUrl(): string | undefined {
+  return useDevLlmProxy() ? '/api/llm/openrouter/api/v1' : undefined;
+}
+
 /**
  * Create an LLM provider from config.
  */

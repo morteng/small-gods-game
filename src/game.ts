@@ -11,7 +11,7 @@ import { createDebugApi, type DebugApi } from '@/dev/debug-api';
 import { advanceNpcFrames } from '@/render/npc-animator';
 // divine-actions functions now invoked via DivineActionsController
 import { LLMClient } from "@/llm/llm-client";
-import { createProvider, loadProviderConfig, type ProviderConfig } from '@/llm/provider-factory';
+import { createProvider, loadProviderConfig, openrouterImageBaseUrl, type ProviderConfig } from '@/llm/provider-factory';
 import { CostTracker } from '@/llm/cost-tracker';
 import { mountSpendChip, type SpendChipHandle } from '@/ui/spend-chip';
 import { NpcAttentionStore } from '@/llm/npc-attention-store';
@@ -26,6 +26,8 @@ import { loadBaseLibrary } from '@/services/base-library-loader';
 import { AssetLibrary } from '@/services/asset-library';
 import { ArtResolver } from '@/render/art-resolver';
 import { ParametricBuildingSource } from '@/render/parametric-building-source';
+import { GeneratedBuildingArtSource } from '@/render/generated-building-art-source';
+import { generateBuildingImage, BUILDING_IMAGE_MODEL } from '@/llm/openrouter-image-client';
 import { initManifoldWasm } from '@/assetgen/geometry/manifold-wasm-browser';
 import { AssetManager } from '@/render/asset-manager';
 import { Scheduler } from '@/core/scheduler';
@@ -66,6 +68,8 @@ import { FrameRenderer } from '@/game/frame-renderer';
 import { createInteractionState } from '@/game/interaction-state';
 import { InteractionController } from '@/game/interaction-controller';
 
+const SESSION_CAP_USD = 2; // per-session live building-art spend cap
+
 export interface GameOptions {
   width?: number;
   height?: number;
@@ -103,6 +107,22 @@ export class Game {
   private artResolver!: ArtResolver;
   private buildingArtResolver!: ArtResolver;
   private readonly parametricBuildingSource = new ParametricBuildingSource();
+  private liveBuildingArtEnabled = true; // setting `liveBuildingArt`, default ON
+  private readonly generatedBuildingArtSource = new GeneratedBuildingArtSource({
+    enabled: () => this.liveBuildingArtEnabled,
+    canSpend: () => this.costTracker.snapshot().sessionUsd < SESSION_CAP_USD,
+    model: () => BUILDING_IMAGE_MODEL,
+    generate: async (initImageDataUri, prompt) => {
+      const cfg = loadProviderConfig();
+      const res = await generateBuildingImage(
+        { apiKey: cfg.openrouterApiKey ?? '', baseUrl: openrouterImageBaseUrl(),
+          siteName: cfg.openrouterSiteName },
+        { initImageDataUri, prompt, model: BUILDING_IMAGE_MODEL },
+      );
+      this.costTracker.record({ cost: res.costUsd, cacheStatus: 'MISS' });
+      return res.blob;
+    },
+  });
   private decorationImages = new ArtImageCache((id) => this.assetLibrary.resolveBlob(id));
   /** Resolved spritesheets keyed by NPC id */
   private sheets = new Map<string, HTMLCanvasElement>();
@@ -285,6 +305,7 @@ export class Game {
       },
       onNewWorld: () => { void this.newWorld(); },
       onGameSettingChange: (key, value) => {
+        if (key === 'liveBuildingArt') this.liveBuildingArtEnabled = value !== false;
         if (key === 'showLabels') this.state.showLabels = value as boolean;
         if (key === 'showPoiMarkers') this.state.showPoiMarkers = value as boolean;
         if (key === 'debug') {
@@ -537,6 +558,7 @@ export class Game {
       artResolver: this.artResolver,
       buildingArtResolver: this.buildingArtResolver,
       parametricBuildingSource: this.parametricBuildingSource,
+      generatedBuildingArtSource: this.generatedBuildingArtSource,
       devMode: this.dev.devMode,
     };
   }
