@@ -7,6 +7,7 @@
 // Output is a pure function of (rb, model) → safe to fold into the cache key.
 import type { ResolvedBlueprint } from '@/blueprint/types';
 import { toBrief } from '@/blueprint/compile/to-brief';
+import { CHROMA_RGB } from '@/render/chroma-key';
 
 export type ImageModelFamily = 'gemini' | 'openai' | 'generic';
 
@@ -18,9 +19,13 @@ export function imageModelFamily(model: string): ImageModelFamily {
   return 'generic';
 }
 
+// We key the background out ourselves (see chroma-key.ts), so we DEMAND a solid
+// chroma fill rather than trusting the model to emit alpha (which it bakes opaque
+// half the time). The colour must match CHROMA_RGB exactly.
 const STYLE_TAIL =
-  'Clean readable pixel shading, cohesive limited palette, fully transparent ' +
-  'background, no ground, no shadow, centered.';
+  'Clean readable pixel shading, cohesive limited palette, no ground, no shadow, centered. ' +
+  `Fill the ENTIRE background with solid uniform pure magenta, RGB (${CHROMA_RGB.join(',')}). ` +
+  'Do NOT use magenta, pink or purple anywhere on the building itself.';
 
 /** Brief-derived core, identical across families (pure function of the blueprint). */
 function describeBuilding(rb: ResolvedBlueprint): string {

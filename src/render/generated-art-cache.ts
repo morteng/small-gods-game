@@ -9,7 +9,15 @@ const DB_STORE = 'building-sprites';
 
 export interface GeneratedArtRecord {
   key: string; blob: Blob; recipeVersion: string; model: string; prompt: string; targetWidth: number; createdAt: number;
+  // Companion sprite data co-registered with the albedo `blob`, captured from the
+  // parametric model at generation time. Not consumed by the current Canvas2D
+  // renderer — stored for the future normal-lit renderer (Track R) and door/vent
+  // pathing. Optional so pre-v3 / albedo-only records still validate.
+  normal?: Blob; anchors?: string;
 }
+
+/** A generated building sprite + its co-registered companion data. */
+export interface GeneratedArt { blob: Blob; targetWidth: number; normal?: Blob; anchors?: string }
 
 let _db: IDBDatabase | null = null;
 export function _resetGeneratedArtDbForTesting(): void { if (_db) { _db.close(); _db = null; } }
@@ -38,7 +46,7 @@ function djb2(s: string): string {
   return (h >>> 0).toString(36);
 }
 
-export async function readGeneratedArt(key: string): Promise<{ blob: Blob; targetWidth: number } | null> {
+export async function readGeneratedArt(key: string): Promise<GeneratedArt | null> {
   if (!hasIdb()) return null;
   try {
     const db = await openDb();
@@ -47,21 +55,27 @@ export async function readGeneratedArt(key: string): Promise<{ blob: Blob; targe
       const req = tx.objectStore(DB_STORE).get(key);
       req.onsuccess = () => {
         const r = req.result as GeneratedArtRecord | undefined;
-        resolve(r && r.recipeVersion === ART_RECIPE_VERSION ? { blob: r.blob, targetWidth: r.targetWidth } : null);
+        resolve(r && r.recipeVersion === ART_RECIPE_VERSION
+          ? { blob: r.blob, targetWidth: r.targetWidth, normal: r.normal, anchors: r.anchors }
+          : null);
       };
       req.onerror = () => reject(req.error);
     });
   } catch (err) { console.warn('[generated-art-cache] read failed:', err); return null; }
 }
 
-export async function writeGeneratedArt(key: string, blob: Blob, meta: { model: string; prompt: string; targetWidth: number }): Promise<void> {
+export async function writeGeneratedArt(
+  key: string, blob: Blob,
+  meta: { model: string; prompt: string; targetWidth: number; normal?: Blob; anchors?: string },
+): Promise<void> {
   if (!hasIdb()) return;
   try {
     const db = await openDb();
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction(DB_STORE, 'readwrite');
       tx.objectStore(DB_STORE).put({
-        key, blob, recipeVersion: ART_RECIPE_VERSION, model: meta.model, prompt: meta.prompt, targetWidth: meta.targetWidth, createdAt: 0,
+        key, blob, recipeVersion: ART_RECIPE_VERSION, model: meta.model, prompt: meta.prompt,
+        targetWidth: meta.targetWidth, createdAt: 0, normal: meta.normal, anchors: meta.anchors,
       } satisfies GeneratedArtRecord);
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);

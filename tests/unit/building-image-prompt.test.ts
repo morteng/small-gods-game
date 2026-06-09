@@ -34,4 +34,12 @@ describe('buildingImagePrompt', () => {
     expect(p).toContain('castle keep');
     expect(p.toLowerCase()).toMatch(/stone|walls/);
   });
+
+  it('demands a solid magenta chroma background for keying (no "transparent")', () => {
+    const rb = synthesizeBlueprint('cottage')!;
+    const p = buildingImagePrompt(rb, GEMINI);
+    expect(p).toContain('255,0,255');
+    expect(p.toLowerCase()).toContain('magenta');
+    expect(p.toLowerCase()).not.toContain('transparent background');
+  });
 });

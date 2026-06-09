@@ -4,6 +4,7 @@
 // canvas/createImageBitmap is available (jsdom) → caller falls back to grey.
 import { ISO_TILE_W } from '@/render/iso/iso-constants';
 import type { SpriteCanvas } from '@/render/iso/sprite-canvas';
+import { chromaKeyMagenta } from '@/render/chroma-key';
 
 export function buildingSpriteTargetWidth(footprint: { w: number; h: number }): number {
   return Math.round((footprint.w + footprint.h) * (ISO_TILE_W / 2));
@@ -25,8 +26,14 @@ export async function blobToBuildingSprite(blob: Blob, targetWidth: number): Pro
   if (!scratch || !sctx) return null;
   sctx.drawImage(bmp, 0, 0);
 
+  // Key the solid magenta background out to alpha (the prompt forces that fill),
+  // then write it back so both the bbox scan and the crop see the keyed pixels.
+  const img = sctx.getImageData(0, 0, w, h);
+  chromaKeyMagenta(img.data);
+  sctx.putImageData(img, 0, 0);
+
   // Opaque bbox scan.
-  const data = sctx.getImageData(0, 0, w, h).data;
+  const data = img.data;
   let minX = w, minY = h, maxX = -1, maxY = -1;
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
     if (data[(y * w + x) * 4 + 3] > 8) {
