@@ -1,6 +1,7 @@
 // src/assetgen/render/rasterize.ts
 import type { ScreenFacet, RGB, Pt } from '@/assetgen/types';
 import { normalRGB } from '@/assetgen/render/projection';
+import { materialPbr } from '@/assetgen/material-pbr';
 
 /**
  * Fit an affine depth plane d(x,y) = A·x + B·y + C from 3 non-collinear (pt, depth)
@@ -48,6 +49,72 @@ function fillPolyZ(
         const o = zi * 4; data[o] = rgb[0]; data[o + 1] = rgb[1]; data[o + 2] = rgb[2]; data[o + 3] = 255;
       }
     }
+  }
+}
+
+export interface RasterMaps {
+  albedo: Uint8ClampedArray;   // RGBA
+  normal: Uint8ClampedArray;   // RGB(A)
+  material: Uint8ClampedArray; // R=depth(normalised later), G=AO(255 here), B=roughness, A=metallic
+  emissive: Uint8ClampedArray; // RGB(A)
+  depthRaw: Float32Array;      // view-depth per pixel (−Inf where empty)
+  size: number;
+}
+
+export function rasterizeMaps(facets: ScreenFacet[], size: number): RasterMaps {
+  const n = size * size;
+  const albedo = new Uint8ClampedArray(n * 4);
+  const normal = new Uint8ClampedArray(n * 4);
+  const material = new Uint8ClampedArray(n * 4);
+  const emissive = new Uint8ClampedArray(n * 4);
+  const zbuf = new Float32Array(n); zbuf.fill(-Infinity);
+
+  for (const f of facets) {
+    const nrm = normalRGB(f.normal);
+    const pbr = materialPbr(f.mat);
+    const plane = f.depths ? depthPlane(f.pts, f.depths) : null;
+    const [A, B, C] = plane ?? [0, 0, f.depth];
+    let minY = Infinity, maxY = -Infinity;
+    for (const p of f.pts) { if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y; }
+    const y0 = Math.max(0, Math.ceil(minY)), y1 = Math.min(size - 1, Math.floor(maxY));
+    for (let y = y0; y <= y1; y++) {
+      const xs: number[] = [];
+      for (let i = 0, j = f.pts.length - 1; i < f.pts.length; j = i++) {
+        const a = f.pts[i], b = f.pts[j];
+        if ((a.y <= y && b.y > y) || (b.y <= y && a.y > y)) xs.push(a.x + (y - a.y) / (b.y - a.y) * (b.x - a.x));
+      }
+      xs.sort((m, q) => m - q);
+      for (let k = 0; k + 1 < xs.length; k += 2) {
+        const xa = Math.max(0, Math.ceil(xs[k])), xb = Math.min(size - 1, Math.floor(xs[k + 1]));
+        for (let x = xa; x <= xb; x++) {
+          const d = A * x + B * y + C;
+          const zi = y * size + x;
+          if (d < zbuf[zi]) continue;
+          zbuf[zi] = d;
+          const o = zi * 4;
+          albedo[o] = f.albedo[0]; albedo[o + 1] = f.albedo[1]; albedo[o + 2] = f.albedo[2]; albedo[o + 3] = 255;
+          normal[o] = nrm[0]; normal[o + 1] = nrm[1]; normal[o + 2] = nrm[2]; normal[o + 3] = 255;
+          material[o] = 0;
+          material[o + 1] = 255;
+          material[o + 2] = Math.round(pbr.roughness * 255);
+          material[o + 3] = Math.round(pbr.metallic * 255);
+          emissive[o] = pbr.emissive[0]; emissive[o + 1] = pbr.emissive[1]; emissive[o + 2] = pbr.emissive[2]; emissive[o + 3] = 255;
+        }
+      }
+    }
+  }
+  return { albedo, normal, material, emissive, depthRaw: zbuf, size };
+}
+
+/** Normalise raw view-depth into material.R (0=far, 255=near) across the opaque range. */
+export function writeNormalisedDepth(maps: RasterMaps): void {
+  let lo = Infinity, hi = -Infinity;
+  const z = maps.depthRaw;
+  for (let i = 0; i < z.length; i++) { if (z[i] === -Infinity) continue; if (z[i] < lo) lo = z[i]; if (z[i] > hi) hi = z[i]; }
+  const span = (hi - lo) || 1;
+  for (let i = 0; i < z.length; i++) {
+    if (z[i] === -Infinity) continue;
+    maps.material[i * 4] = Math.round(((z[i] - lo) / span) * 255);
   }
 }
 
