@@ -60,7 +60,9 @@ function apertureCount(spec: StructureSpec): number {
 }
 
 async function render(name: string, spec: StructureSpec, bundle: Record<string, { grey: string; normal: string }>) {
-  spec.size ??= 512;
+  // No size override: presets (size unset) render at their TRUE fixed-metric size, so the
+  // gallery shows honest relative scale (a 4-storey keep dwarfs a 1-storey cottage).
+  // Hand-authored PRIMS still carry their own explicit size.
   const r = await composeStructure(spec);
   const grey = toPng(r.grey, r.size);
   const normal = toPng(r.normal, r.size);
