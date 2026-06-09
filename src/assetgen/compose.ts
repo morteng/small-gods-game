@@ -9,7 +9,8 @@ import type { Wing, RoofStyle, BuildingFeatures, BuildingAnchors } from '@/asset
 import { linearFacets } from '@/assetgen/geometry/linear';
 import type { BarrierRun } from '@/world/barrier';
 import { projectFacets, project } from '@/assetgen/render/projection';
-import { rasterize } from '@/assetgen/render/rasterize';
+import { rasterize, rasterizeMaps, writeNormalisedDepth } from '@/assetgen/render/rasterize';
+import { computeAO } from '@/assetgen/render/ao';
 import { computeFit, fixedFit, opaqueBounds, type BBox } from '@/assetgen/render/fit';
 
 export type Part =
@@ -34,7 +35,11 @@ export interface DoorAnchorN extends NormAnchor { main: boolean }
  *  compiler, not in the sprite-space structure anchors. */
 export interface StructureAnchors { doors: DoorAnchorN[]; vents: NormAnchor[]; wallEnds?: NormAnchor[]; gates?: NormAnchor[] }
 export interface StructureMeta { bbox: BBox; anchors: StructureAnchors }
-export interface StructureResult { grey: Uint8ClampedArray; normal: Uint8ClampedArray; size: number; meta: StructureMeta; bbox: BBox; anchors: StructureAnchors }
+export interface StructureResult {
+  grey: Uint8ClampedArray; normal: Uint8ClampedArray;
+  material: Uint8ClampedArray; emissive: Uint8ClampedArray;
+  size: number; meta: StructureMeta; bbox: BBox; anchors: StructureAnchors;
+}
 
 /** Build one part's solid(s) → facets, plus any world-space anchors (buildings only). */
 async function partFacets(p: Part): Promise<{ facets: WorldFacet[]; anchors?: BuildingAnchors; linearAnchors?: LinearWorldAnchors }> {
@@ -72,8 +77,14 @@ export async function composeStructure(spec: StructureSpec): Promise<StructureRe
   if (spec.size != null) { size = spec.size; fit = computeFit(facets, size); }
   else { const f = fixedFit(facets); fit = f.fit; size = f.size; }
   const screen = projectFacets(facets, fit);
-  const grey = rasterize(screen, size, 'albedo');
-  const normal = rasterize(screen, size, 'normal');
+  const maps = rasterizeMaps(screen, size);
+  writeNormalisedDepth(maps);
+  const opaque = new Float32Array(size * size);
+  for (let i = 0; i < opaque.length; i++) opaque[i] = maps.albedo[i * 4 + 3] === 255 ? 1 : 0;
+  const ao = computeAO(maps.depthRaw, opaque, size);
+  for (let i = 0; i < ao.length; i++) if (opaque[i]) maps.material[i * 4 + 1] = ao[i];
+  const grey = maps.albedo;
+  const normal = maps.normal;
   const bbox = opaqueBounds(grey, size);
 
   // Project world-space anchors through the same fit, then normalise to the opaque bbox.
@@ -92,5 +103,5 @@ export async function composeStructure(spec: StructureSpec): Promise<StructureRe
     }
   }
 
-  return { grey, normal, size, meta: { bbox, anchors }, bbox, anchors };
+  return { grey, normal, material: maps.material, emissive: maps.emissive, size, meta: { bbox, anchors }, bbox, anchors };
 }
