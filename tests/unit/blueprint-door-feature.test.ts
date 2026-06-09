@@ -27,7 +27,7 @@ describe('door feature — scale-contract sizing', () => {
 
 describe('door feature — metric size', () => {
   it('default door is 1.0 cube-unit tall and 0.225 half-width', () => {
-    const r = doorFeatureType.resolve!({ type: 'door', face: 'south', params: {} } as never);
+    const r = doorFeatureType.resolve!({ type: 'door', face: 'south', params: {} } as never, ctx);
     expect((r.params!.height as number)).toBeCloseTo(1.0);
     expect((r.params!.halfW as number)).toBeCloseTo(0.225);
   });
