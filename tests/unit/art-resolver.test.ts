@@ -76,3 +76,19 @@ describe('ArtResolver', () => {
     expect(JSON.stringify(e)).toBe(snapshot);
   });
 });
+
+describe('ArtResolver — recipeVersion opt-in', () => {
+  it('passes recipeVersion in the pick request when constructed with one', async () => {
+    const lib = { pick: vi.fn(async () => null) } as unknown as AssetLibrary;
+    const r = new ArtResolver(lib, 'pixel-art', 'building', 'v2');
+    await r.resolve(ent('cottage#1', 'cottage'));
+    expect((lib.pick as any).mock.calls[0][0]).toMatchObject({ recipeVersion: 'v2' });
+  });
+
+  it('omits recipeVersion from the request when constructed without one', async () => {
+    const lib = { pick: vi.fn(async () => null) } as unknown as AssetLibrary;
+    const r = new ArtResolver(lib, 'pixel-art', 'decoration');
+    await r.resolve(ent('flower#1', 'flower'));
+    expect((lib.pick as any).mock.calls[0][0].recipeVersion).toBeUndefined();
+  });
+});

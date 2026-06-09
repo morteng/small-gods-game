@@ -6,6 +6,7 @@ import { fitCameraToMap } from '@/render/fit-camera';
 import { focusCameraOnTile } from '@/render/focus-camera';
 import { attachControls, attachTimeKeys } from '@/ui/controls';
 import type { GameMap, WorldSeed, TerrainOptions } from '@/core/types';
+import { ART_RECIPE_VERSION } from '@/core/content-version';
 import { advanceNpcFrames } from '@/render/npc-animator';
 // divine-actions functions now invoked via DivineActionsController
 import { LLMClient } from "@/llm/llm-client";
@@ -560,7 +561,7 @@ export class Game {
     const baseLibrary = await loadBaseLibrary();
     this.assetLibrary = new AssetLibrary(baseLibrary);
     this.artResolver = new ArtResolver(this.assetLibrary, 'pixel-art');
-    this.buildingArtResolver = new ArtResolver(this.assetLibrary, 'pixel-art', 'building');
+    this.buildingArtResolver = new ArtResolver(this.assetLibrary, 'pixel-art', 'building', ART_RECIPE_VERSION);
     const map = await bootstrapWorld({
       state: this.state, assets: this.assets, sheets: this.sheets,
       decorationImages: this.decorationImages, getViewport: () => this.viewport(),

@@ -20,6 +20,7 @@ export class ArtResolver {
     private readonly lib: AssetLibrary,
     private readonly style: AssetStyle,
     private readonly assetKind: AssetKind = 'decoration',
+    private readonly recipeVersion?: string,
   ) {}
 
   /** Returns an assetId for the entity, or null if the library has no match. */
@@ -31,6 +32,7 @@ export class ArtResolver {
       style: this.style,
       tagsAny: [e.kind],
       seed: hashStr(e.id),
+      ...(this.recipeVersion ? { recipeVersion: this.recipeVersion } : {}),
     });
     // Only bind on a genuine match. matchesAsset hard-filters on kind+style
     // only, so pick() returns the top candidate even when nothing relates to
