@@ -9,6 +9,7 @@ import {
 } from '@/blueprint/materials';
 import type { AssetBrief, BriefMaterial, DoorFace } from '@/assetgen/asset-brief';
 import { roofRise } from '@/render/building-massing-model';
+import { STOREY_TILES, mToTiles } from '@/render/scale-contract';
 
 const DETAILS = ['weathered', 'moss-streaked', 'sun-bleached', 'newly-built', 'soot-stained', 'ivy-clad'];
 
@@ -41,9 +42,10 @@ export function toBrief(rb: ResolvedBlueprint, instanceSeed: number): AssetBrief
   const traits = [`${wallsMat}-walled`, ...partTraits.filter(Boolean), detail];
 
   const levels = Math.max(1, (body?.params.levels as number) ?? 1);
-  const heightPerLevel = Math.max(0.1, (body?.params.heightPerLevel as number) ?? 1);
+  const storeyM = (body?.params.storeyM as number) ?? -1;
+  const storeyTiles = storeyM > 0 ? mToTiles(storeyM) : STOREY_TILES;
   const roofKind = (body?.params.roof as string) ?? 'gable';
-  const heightUnits = levels * heightPerLevel + roofRise(roofKind as never, rb.footprint);
+  const heightUnits = levels * storeyTiles + roofRise(roofKind as never, rb.footprint);
 
   const doorFeat = body?.features.find(f => f.type === 'door');
   const face = doorFaceLetter((doorFeat?.face ?? 'south') as WallFace);

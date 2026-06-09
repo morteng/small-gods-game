@@ -76,6 +76,15 @@ describe('body part — toPrims', () => {
   });
 });
 
+describe('body part — param schema (metric)', () => {
+  it('body param schema no longer carries heightPerLevel (dead param removed)', () => {
+    expect(bodyPartType.paramSchema.heightPerLevel).toBeUndefined();
+  });
+  it('body param schema gains an optional metric storeyM override', () => {
+    expect(bodyPartType.paramSchema.storeyM).toBeDefined();
+  });
+});
+
 describe('body part — material maps', () => {
   it('maps wall + roof + roof-kind tables', () => {
     expect(WALL_MAT.timber).toBe('timber');

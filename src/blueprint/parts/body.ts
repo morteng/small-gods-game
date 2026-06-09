@@ -102,7 +102,7 @@ export const bodyPartType: PartType = {
     plan: { kind: 'enum', values: ['rect', 'round', 'L', 'cross', 'stepped'], default: 'rect' },
     levels: { kind: 'number', min: 1, max: 8, default: 1 },
     levelInset: { kind: 'number', min: 0, max: 3, default: 0 },
-    heightPerLevel: { kind: 'number', min: 0.1, max: 4, default: 1 },
+    storeyM: { kind: 'number', min: 0.5, max: 12, default: -1 },  // -1 = use the standard metric storey
     roof: {
       kind: 'enum',
       values: [
