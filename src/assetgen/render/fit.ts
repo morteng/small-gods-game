@@ -1,6 +1,7 @@
 // src/assetgen/render/fit.ts
 import type { WorldFacet } from '@/assetgen/types';
 import { project, type ProjScale } from '@/assetgen/render/projection';
+import { ISO_TILE_W } from '@/render/scale-contract';
 
 export interface BBox { x: number; y: number; w: number; h: number }
 
@@ -27,4 +28,28 @@ export function computeFit(facets: WorldFacet[], size: number, fillFrac = 0.88):
   const ox = size/2 - ((minX + maxX) / 2) * scale;
   const oy = size/2 - ((minY + maxY) / 2) * scale;
   return { scale, ox, oy };
+}
+
+/**
+ * Fixed metric scale: project at exactly `ISO_TILE_W/2` screen-px per world cube-unit
+ * (so the sprite's footprint overlays the in-world iso tiles 1:1, and one cube-unit of
+ * height = HEIGHT_UNIT_PX px). The canvas is sized to the projected content + padding,
+ * so tall buildings yield taller sprites — building heights stay mutually metric, never
+ * squashed to fill a fixed box (unlike `computeFit`).
+ */
+export function fixedFit(facets: WorldFacet[], pad = 4): { fit: ProjScale; size: number } {
+  const scale = ISO_TILE_W / 2;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const f of facets) for (const p of f.pts) {
+    const x = (p[0] - p[1]) * scale;
+    const y = (p[0] + p[1]) * (scale * 0.5) - p[2] * scale;
+    if (x < minX) minX = x; if (x > maxX) maxX = x;
+    if (y < minY) minY = y; if (y > maxY) maxY = y;
+  }
+  if (!isFinite(minX)) return { fit: { scale, ox: pad, oy: pad }, size: 2 * pad };
+  const w = Math.ceil(maxX - minX), h = Math.ceil(maxY - minY);
+  const size = Math.max(w, h) + 2 * pad;
+  const ox = pad + (size - 2 * pad - w) / 2 - minX;
+  const oy = pad + (size - 2 * pad - h) / 2 - minY;
+  return { fit: { scale, ox, oy }, size };
 }
