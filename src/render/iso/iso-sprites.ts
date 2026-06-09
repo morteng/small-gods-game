@@ -5,6 +5,7 @@ import type { NpcInstance, Entity } from '@/core/types';
 import { tryGetEntityKindDef } from '@/world/entity-kinds';
 import { getSpriteCoords } from '@/render/npc-animator';
 import { treeSheetForKind, treeSpriteColumn, TREE_SPRITE_SRC } from '@/render/tree-sheets';
+import { HUMAN_PX } from '@/render/scale-contract';
 
 export interface IsoDrawCtx {
   ctx: CanvasRenderingContext2D;
@@ -28,7 +29,8 @@ const NPC_COLOR_BY_ROLE: Record<string, string> = {
  * Must match the z-offset in worldToScreen (z is in raw screen pixels).
  * Exported so overlay markers (e.g. the prayer 🙏) can sit just above the head.
  */
-export const BILLBOARD_H_PX = 64;
+/** Billboard z-height for an NPC = the metric human visible height (snapped px). */
+export const BILLBOARD_H_PX = HUMAN_PX;     // 54
 
 export function drawIsoNpc(dc: IsoDrawCtx, npc: NpcInstance): void {
   const { sx, sy } = worldToScreen(npc.tileX, npc.tileY, 0, dc.originX, dc.originY);
