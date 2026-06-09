@@ -46,6 +46,15 @@ describe('GeneratedBuildingArtSource', () => {
     expect(a.generate).not.toHaveBeenCalled(); expect(b.generate).not.toHaveBeenCalled();
   });
 
+  it('over budget caches null → does not re-enter run() / re-read cache each frame', async () => {
+    const cacheGet = vi.fn(async () => null);
+    const { src } = makeSource({ canSpend: () => false, cacheGet });
+    const e = entity('cottage');
+    src.warm(e); await vi.waitFor(() => expect(cacheGet).toHaveBeenCalledTimes(1));
+    src.warm(e); src.warm(e); await Promise.resolve(); await Promise.resolve();
+    expect(cacheGet).toHaveBeenCalledTimes(1); // cached null after the first miss; no thrash
+  });
+
   it('caches null on failure (falls back) and never throws', async () => {
     const { src } = makeSource({ generate: vi.fn(async () => { throw new Error('boom'); }) });
     const e = entity('cottage'); src.warm(e);

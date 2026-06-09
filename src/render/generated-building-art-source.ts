@@ -76,7 +76,11 @@ export class GeneratedBuildingArtSource {
     try {
       const hit = await this.d.cacheGet(key);
       if (hit) { this.cache.set(key, await this.d.decode(hit.blob, hit.targetWidth)); return; }
-      if (!this.d.canSpend()) { return; } // over budget: leave uncached so a later world (under cap) can retry
+      // Over budget: cache null so we DON'T re-enter run() (and re-read IDB) every
+      // frame for this building. Session spend only ever rises, so retrying within
+      // the session is pointless; a reload clears this in-mem cache and resets the
+      // session counter, so genuinely-uncached buildings regenerate then.
+      if (!this.d.canSpend()) { this.cache.set(key, null); return; }
       const prompt = this.d.prompt(rb);    // computed lazily — only when actually generating
       const initDataUri = await this.d.initDataUri(rb);
       const blob = await this.d.generate(initDataUri, prompt);
