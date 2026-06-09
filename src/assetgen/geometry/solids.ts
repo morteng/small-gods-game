@@ -153,7 +153,7 @@ async function gablePrism(rect: WingRect, ridge: RidgeAxis, pitch: number, b: nu
  *  ridge axis; hip = two perpendicular prisms intersected; flat = a thin slab. */
 async function wingRoof(w: Wing, style: RoofStyle): Promise<Manifold> {
   const top = storeyRect(w, (w.storeys ?? 1) - 1);
-  const b = (w.storeys ?? 1) * STOREY;
+  const b = (w.storeys ?? 1) * (w.storeyHeight ?? STOREY);
   if (w.roof === 'flat') return solidBox([top.x, top.y, b], [top.w, top.h, 0.25]);
   const s = wingRoofStyle(w, style);
   if (s === 'gable') return gablePrism(top, ridgeAxisOf(w), GABLE_PITCH, b);
@@ -190,7 +190,7 @@ function ventProfile(kind: VentKind, v: VentFeature): { cw: number; protrude: nu
 async function ventSolid(
   w: Wing, v: VentFeature, style: RoofStyle,
 ): Promise<{ solid: Manifold; anchor: [number, number, number]; mat: Mat }> {
-  const wallTop = (w.storeys ?? 1) * STOREY;
+  const wallTop = (w.storeys ?? 1) * (w.storeyHeight ?? STOREY);
   const rise = roofRise(w, style);
   const top = storeyRect(w, (w.storeys ?? 1) - 1);
   const kind: VentKind = v.kind ?? 'chimney';
@@ -234,9 +234,10 @@ export async function buildingFacets(
   const wallBoxes: Manifold[] = [];
   for (const w of wings) {
     const n = w.storeys ?? 1;
+    const sh = w.storeyHeight ?? STOREY;
     for (let s = 0; s < n; s++) {
       const r = storeyRect(w, s);
-      wallBoxes.push(await solidBox([r.x, r.y, s * STOREY], [r.w, r.h, STOREY]));
+      wallBoxes.push(await solidBox([r.x, r.y, s * sh], [r.w, r.h, sh]));
     }
   }
   const roofSolids = await Promise.all(wings.map(w => wingRoof(w, roofStyle)));

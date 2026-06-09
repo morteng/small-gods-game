@@ -29,7 +29,7 @@ describe('toGeometry', () => {
     const building = spec.parts.find(p => p.prim === 'building')!;
     expect(building.prim).toBe('building');
     if (building.prim === 'building') {
-      expect(building.wings).toEqual([{ x: 0, y: 0, w: 2, h: 2, storeys: 1, roof: 'gable' }]);
+      expect(building.wings).toEqual([{ x: 0, y: 0, w: 2, h: 2, storeys: 1, storeyHeight: 1.35, roof: 'gable' }]);
       expect(building.wallMat).toBe('plaster');
       expect(building.roofMat).toBe('thatch');
       expect(building.apertures?.length).toBe(1);                 // door carved the wall

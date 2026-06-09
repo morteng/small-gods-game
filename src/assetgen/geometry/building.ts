@@ -13,6 +13,8 @@ export type RidgeAxis = 'x' | 'y';
 export interface Wing {
   x: number; y: number; w: number; h: number;
   storeys?: number;
+  /** Cube-units of height per storey for THIS wing; falls back to the global STOREY. */
+  storeyHeight?: number;
   /** Per-wing roof override; falls back to the building-wide `roofStyle`. */
   roof?: RoofKind;
   /** Force the ridge orientation (a 4×2 longhouse can run its ridge N–S or E–W);

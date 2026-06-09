@@ -69,7 +69,7 @@ export async function composeStructure(spec: StructureSpec): Promise<StructureRe
   // Buildings render at a fixed metric scale (content-sized canvas) so heights stay
   // mutually proportional. An explicit spec.size opts back into legacy fit-to-box.
   let fit, size: number;
-  if (spec.size) { size = spec.size; fit = computeFit(facets, size); }
+  if (spec.size != null) { size = spec.size; fit = computeFit(facets, size); }
   else { const f = fixedFit(facets); fit = f.fit; size = f.size; }
   const screen = projectFacets(facets, fit);
   const grey = rasterize(screen, size, 'albedo');

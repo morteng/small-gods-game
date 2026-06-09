@@ -74,6 +74,21 @@ describe('body part — toPrims', () => {
     const { STOREY } = await import('@/assetgen/geometry/building');
     expect(STOREY).toBeCloseTo(1.35);
   });
+  it('storeyM scales rendered wall height (taller storeyM -> taller building prim)', () => {
+    const tall = bodyPartType.toPrims(part({ plan: 'rect', levels: 1, roof: 'flat', storeyM: 4 }), ctx);
+    const base = bodyPartType.toPrims(part({ plan: 'rect', levels: 1, roof: 'flat', storeyM: 2 }), ctx);
+    const tw = tall[0]; const bw = base[0];
+    if (tw.prim !== 'building' || bw.prim !== 'building') throw new Error('expected building prims');
+    expect(tw.wings[0].storeyHeight!).toBeGreaterThan(bw.wings[0].storeyHeight! * 1.5);  // 2.0 vs 1.0 cube-units
+    expect(tw.wings[0].storeyHeight!).toBeCloseTo(2.0);   // mToTiles(4)
+    expect(bw.wings[0].storeyHeight!).toBeCloseTo(1.0);   // mToTiles(2)
+  });
+  it('storeyM unset -> wing uses the standard metric storey', () => {
+    const prims = bodyPartType.toPrims(part({ plan: 'rect', levels: 1, roof: 'gable' }), ctx);
+    const b = prims[0];
+    if (b.prim !== 'building') throw new Error('expected building');
+    expect(b.wings[0].storeyHeight).toBeCloseTo(1.35);  // STOREY
+  });
 });
 
 describe('body part — param schema (metric)', () => {

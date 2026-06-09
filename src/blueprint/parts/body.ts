@@ -6,7 +6,7 @@ import type { PartType, CompileCtx, ResolveCtx } from '../registry';
 import type { Mat } from '@/assetgen/types';
 import type { Wing, RoofKind } from '@/assetgen/geometry/building';
 import { STOREY } from '@/assetgen/geometry/building';
-import { DOOR_HEIGHT_TILES } from '@/render/scale-contract';
+import { DOOR_HEIGHT_TILES, mToTiles } from '@/render/scale-contract';
 import type { Part as Prim } from '@/assetgen/compose';
 import type { Anchor } from '@/world/anchors';
 
@@ -85,13 +85,15 @@ function roundPrims(p: ResolvedPart, ctx: CompileCtx): Prim[] {
 function steppedPrims(p: ResolvedPart, ctx: CompileCtx): Prim[] {
   const levels = Math.max(1, p.params.levels as number);
   const inset = Math.max(0, p.params.levelInset as number);
+  const storeyM = p.params.storeyM as number;
+  const storeyTiles = storeyM > 0 ? mToTiles(storeyM) : STOREY;
   const mat = wallMatOf(ctx);
   const out: Prim[] = [];
   for (let lvl = 0; lvl < levels; lvl++) {
     const off = inset * lvl;
     const w = p.size.w - 2 * off, h = p.size.h - 2 * off;
     if (w <= 0 || h <= 0) break;
-    out.push({ prim: 'box', at: [off + p.at.x, off + p.at.y, lvl * STOREY], size: [w, h, STOREY], material: mat });
+    out.push({ prim: 'box', at: [off + p.at.x, off + p.at.y, lvl * storeyTiles], size: [w, h, storeyTiles], material: mat });
   }
   return out;
 }
@@ -119,8 +121,11 @@ export const bodyPartType: PartType = {
     if (plan === 'round') return roundPrims(p, ctx);
     if (plan === 'stepped') return steppedPrims(p, ctx);
     const storeys = Math.max(1, p.params.levels as number);
+    const storeyM = p.params.storeyM as number;
+    const storeyTiles = storeyM > 0 ? mToTiles(storeyM) : STOREY;
     const wings: Wing[] = bodyWings(p).map(r => ({
       x: r.x + p.at.x, y: r.y + p.at.y, w: r.w, h: r.h, storeys,
+      storeyHeight: storeyTiles,
       roof: ROOF_KIND[p.params.roof as string] ?? 'gable',
     }));
     return [{
