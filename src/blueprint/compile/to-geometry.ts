@@ -8,7 +8,6 @@ import { getPartType, getFeatureType, type CompileCtx } from '../registry';
 import type { Part as Prim, StructureSpec } from '@/assetgen/compose';
 import type { ApertureBox } from '@/assetgen/geometry/solids';
 import type { BuildingFeatures, VentFeature } from '@/assetgen/geometry/building';
-import { ISO_TILE_W } from '@/render/iso/iso-constants';
 import { isOpening } from '../features/opening';
 import { apertureToBox } from '../wall-geometry';
 
@@ -39,10 +38,10 @@ const WALL_BEARING = new Set(['building', 'cylinder', 'box']);
 export function toGeometry(rb: ResolvedBlueprint): StructureSpec {
   const ctx: CompileCtx = { materials: rb.materials, footprint: rb.footprint };
 
-  // structure bounding box (for sprite size), from every part's footprint claim
-  let maxX = 0, maxY = 0;
-  for (const p of rb.parts) { maxX = Math.max(maxX, p.at.x + p.size.w); maxY = Math.max(maxY, p.at.y + p.size.h); }
-  const size = Math.min(640, Math.max(128, Math.round((maxX + maxY) * ISO_TILE_W * 0.65)));
+  // No `size` is set: buildings render at a FIXED metric scale (composeStructure →
+  // fixedFit), with the sprite canvas sized to the projected content. Pinning a `size`
+  // here would re-engage the legacy fit-to-box path and squash heights — see
+  // docs/superpowers/specs/2026-06-09-metric-scale-standardization-design.md §3.
 
   let building: Extract<Prim, { prim: 'building' }> | null = null;
   const others: Prim[] = [];
@@ -90,5 +89,5 @@ export function toGeometry(rb: ResolvedBlueprint): StructureSpec {
   }
   parts.push(...others, ...fillers);
 
-  return { size, parts };
+  return { parts };
 }

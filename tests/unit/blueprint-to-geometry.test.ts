@@ -19,6 +19,11 @@ const cottage: Blueprint = {
 };
 
 describe('toGeometry', () => {
+  it('leaves spec.size unset so buildings render at the fixed metric scale (not fit-to-box)', () => {
+    const spec = toGeometry(resolveBlueprint([cottage], 0));
+    expect(spec.size).toBeUndefined();
+  });
+
   it('rect body → one building prim; door becomes a carved aperture + filler leaf', () => {
     const spec = toGeometry(resolveBlueprint([cottage], 0));
     const building = spec.parts.find(p => p.prim === 'building')!;
