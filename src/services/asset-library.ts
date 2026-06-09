@@ -27,6 +27,7 @@ function baseToMeta(r: BaseLibraryRecord): AssetMeta {
   return {
     kind: r.kind, style: r.style, model: r.model, provider: r.provider,
     tags: r.tags, affinity: r.affinity, width: r.width, height: r.height,
+    recipeVersion: r.recipeVersion,
   };
 }
 

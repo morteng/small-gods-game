@@ -10,6 +10,9 @@ export interface AssetMeta {
   affinity?: AssetAffinity;
   width: number;
   height: number;
+  /** Generation recipe version. Present on base-library records; absent on live
+   *  runtime art (which is current by construction). */
+  recipeVersion?: string;
 }
 
 export interface AssetRequest {
@@ -21,6 +24,8 @@ export interface AssetRequest {
   biomeAny?: string[];
   eraAny?: string[];
   size?: { w: number; h: number };
+  /** When set, gate out candidates that DECLARE a different recipeVersion. */
+  recipeVersion?: string;
 }
 
 /** Hard filters — all must pass for an asset to be a candidate. */
@@ -30,6 +35,7 @@ export function matchesAsset(a: AssetMeta, req: AssetRequest): boolean {
   if (req.model && a.model !== req.model) return false;
   if (req.provider && a.provider !== req.provider) return false;
   if (req.size && (a.width !== req.size.w || a.height !== req.size.h)) return false;
+  if (req.recipeVersion && a.recipeVersion && a.recipeVersion !== req.recipeVersion) return false;
   return true;
 }
 

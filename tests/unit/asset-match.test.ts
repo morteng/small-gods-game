@@ -33,3 +33,27 @@ describe('scoreAsset (soft)', () => {
     expect(scoreAsset(base, req)).toBeGreaterThan(scoreAsset(base, lean));
   });
 });
+
+describe('matchesAsset — recipeVersion gate', () => {
+  const base: AssetMeta = {
+    kind: 'building', style: 'pixel-art', model: 'pixflux', provider: 'pixellab',
+    tags: ['yurt'], width: 64, height: 64,
+  };
+  const req: AssetRequest = { kind: 'building', style: 'pixel-art' };
+
+  it('rejects an asset whose declared recipeVersion mismatches the request', () => {
+    expect(matchesAsset({ ...base, recipeVersion: 'v1' }, { ...req, recipeVersion: 'v2' })).toBe(false);
+  });
+
+  it('accepts an asset whose declared recipeVersion matches the request', () => {
+    expect(matchesAsset({ ...base, recipeVersion: 'v2' }, { ...req, recipeVersion: 'v2' })).toBe(true);
+  });
+
+  it('does not gate an asset that declares no recipeVersion (live runtime art)', () => {
+    expect(matchesAsset({ ...base }, { ...req, recipeVersion: 'v2' })).toBe(true);
+  });
+
+  it('ignores recipeVersion entirely when the request omits it', () => {
+    expect(matchesAsset({ ...base, recipeVersion: 'v1' }, req)).toBe(true);
+  });
+});
