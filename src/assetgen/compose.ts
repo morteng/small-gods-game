@@ -10,7 +10,7 @@ import { linearFacets } from '@/assetgen/geometry/linear';
 import type { BarrierRun } from '@/world/barrier';
 import { projectFacets, project } from '@/assetgen/render/projection';
 import { rasterize } from '@/assetgen/render/rasterize';
-import { computeFit, opaqueBounds, type BBox } from '@/assetgen/render/fit';
+import { computeFit, fixedFit, opaqueBounds, type BBox } from '@/assetgen/render/fit';
 
 export type Part =
   | { prim: 'box'; at: Vec3; size: Vec3; material?: Mat; apertures?: ApertureBox[] }
@@ -64,10 +64,13 @@ async function partFacets(p: Part): Promise<{ facets: WorldFacet[]; anchors?: Bu
 
 /** Compose a structure spec into aligned grey + normal RGBA buffers (+ bbox/anchors). Deterministic. */
 export async function composeStructure(spec: StructureSpec): Promise<StructureResult> {
-  const size = spec.size ?? 1024;
   const parts = await Promise.all(spec.parts.map(partFacets));
   const facets = parts.flatMap(p => p.facets);
-  const fit = computeFit(facets, size);
+  // Buildings render at a fixed metric scale (content-sized canvas) so heights stay
+  // mutually proportional. An explicit spec.size opts back into legacy fit-to-box.
+  let fit, size: number;
+  if (spec.size) { size = spec.size; fit = computeFit(facets, size); }
+  else { const f = fixedFit(facets); fit = f.fit; size = f.size; }
   const screen = projectFacets(facets, fit);
   const grey = rasterize(screen, size, 'albedo');
   const normal = rasterize(screen, size, 'normal');
