@@ -5,7 +5,7 @@ import type { NpcInstance, Entity } from '@/core/types';
 import { tryGetEntityKindDef } from '@/world/entity-kinds';
 import { getSpriteCoords } from '@/render/npc-animator';
 import { treeSheetForKind, treeSpriteColumn, TREE_SPRITE_SRC } from '@/render/tree-sheets';
-import { HUMAN_PX } from '@/render/scale-contract';
+import { HUMAN_PX, NATURE_HEIGHT_M, DEFAULT_NATURE_HEIGHT_M, mToPx } from '@/render/scale-contract';
 
 export interface IsoDrawCtx {
   ctx: CanvasRenderingContext2D;
@@ -16,6 +16,20 @@ export interface IsoDrawCtx {
   npcSheets?: Map<string, HTMLCanvasElement>;
   /** Tree sheets keyed by variant (green/orange/…), shared with top-down. */
   treeSheets?: Map<string, HTMLImageElement>;
+}
+
+/**
+ * Billboard target height (px) and the nearest INTEGER source-scale class for a nature
+ * kind, given a per-instance variety multiplier (~0.85..1.15; defaults to 1). Integer
+ * scale keeps the blit pixel-crisp (1:1 rule).
+ * NOTE: source art is TREE_SPRITE_SRC px; a truthful tall tree is a large integer upscale
+ * (blocky) until art is re-authored at native sizes (period/style track).
+ */
+export function natureBillboard(kind: string, variety = 1): { targetPx: number; srcScale: number } {
+  const m = (NATURE_HEIGHT_M[kind] ?? DEFAULT_NATURE_HEIGHT_M) * variety;
+  const targetPx = mToPx(m);
+  const srcScale = Math.max(1, Math.round(targetPx / TREE_SPRITE_SRC));
+  return { targetPx, srcScale };
 }
 
 const NPC_COLOR_BY_ROLE: Record<string, string> = {
@@ -97,10 +111,11 @@ export function drawIsoVegetation(dc: IsoDrawCtx, e: Entity): void {
   const ctx = dc.ctx;
   const { sx, sy } = worldToScreen(e.x, e.y, 0, dc.originX, dc.originY);
 
-  // Get scale from entity properties (set by brush), fallback to yOffsetForSort.
+  // `scale` is now a per-instance VARIETY multiplier (~0.85..1.15), not an absolute size.
   // Vegetation is never rotated (tilted trees read as wrong) — variety comes
-  // from scale and clumped placement instead.
-  const scale = (e.properties?.scale as number) ?? Math.max(def.yOffsetForSort ?? 0.5, 0.5);
+  // from the multiplier and clumped placement instead.
+  const variety = (e.properties?.scale as number) ?? 1;
+  const { targetPx, srcScale } = natureBillboard(e.kind, variety);
 
   // Prefer the real tree sprite (same sheets as the top-down renderer),
   // billboarded upright like NPCs. Falls back to the drawn placeholder below
@@ -113,9 +128,8 @@ export function drawIsoVegetation(dc: IsoDrawCtx, e: Entity): void {
     // stretch is gone (it distorted the square source); clump variety now comes
     // from the size class + placement. (Tree art will be re-authored at true sizes
     // in a later pass; until then a square 64/128px billboard is the 1:1 form.)
-    const px = scale >= 1 ? 2 : 1;
-    const treeW = TREE_SPRITE_SRC * px;
-    const treeH = TREE_SPRITE_SRC * px;
+    const treeW = TREE_SPRITE_SRC * srcScale;
+    const treeH = TREE_SPRITE_SRC * srcScale;
     const col = treeSpriteColumn(Math.floor(e.x), Math.floor(e.y));
     ctx.save();
     ctx.translate(Math.round(sx), Math.round(sy)); // integer position → crisp blit
@@ -128,8 +142,8 @@ export function drawIsoVegetation(dc: IsoDrawCtx, e: Entity): void {
 
   // Trees have 'tree' in their defaultTags; ground cover (fern, shrub) does not
   const isTree = def.defaultTags.includes('tree');
-  const canopyR = 10 + scale * 22;
-  const trunkH = isTree ? 16 + scale * 24 : 0;
+  const canopyR = isTree ? targetPx * 0.35 : targetPx * 0.5;
+  const trunkH = isTree ? targetPx * 0.55 : 0;
 
   ctx.save();
   ctx.translate(sx, sy);
