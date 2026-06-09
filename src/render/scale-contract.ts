@@ -33,8 +33,17 @@ export const NATURE_HEIGHT_M: Record<string, number> = {
   // trees
   oak_tree: 15, pine_tree: 18, birch_tree: 12, dead_tree: 8,
   orange_tree: 6, pale_tree: 10, brown_tree: 11,
+  sapling: 2.5, cactus: 2.5,
+  // shrubs / undergrowth
+  shrub: 1.5, fern: 0.5, reeds: 1.8, vine: 1.5,
+  // ground cover / misc
+  flower_patch: 0.3, mushroom: 0.2, grass_tuft: 0.3, tundra_moss: 0.1,
+  // coastal / forest debris
+  driftwood: 0.4, shell: 0.15, stump: 0.6, log: 0.6,
   // rocks / geology
   boulder: 1.2, rock_pile: 0.7, pebbles: 0.2, ore_vein: 0.8,
+  // monuments
+  standing_stone: 3.0, shrine_stone: 1.2,
 };
 /** Fallback for any nature kind missing from the table (logged once at use). */
 export const DEFAULT_NATURE_HEIGHT_M = 1.0;
