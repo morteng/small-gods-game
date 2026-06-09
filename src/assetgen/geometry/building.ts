@@ -3,6 +3,8 @@
 // The parametric building contract. Every knob here is overrideable by an authoring
 // agent (LLM producer / Fate); anything left unset falls back to a deterministic,
 // seed-varied default so a bare `{ wings }` still renders a complete building.
+import { STOREY_TILES } from '@/render/scale-contract';
+
 export type RoofKind = 'gable' | 'hip' | 'pyramidal' | 'flat';
 export type RoofStyle = 'gable' | 'hip';
 /** Which world axis a wing's roof ridge runs along. */
@@ -21,7 +23,8 @@ export interface Wing {
   jetty?: number;
 }
 
-export const STOREY = 2.1;                           // cube-units of height per storey
+/** Cube-units of height per storey. One cube-unit = one tile = METRES_PER_TILE m. */
+export const STOREY = STOREY_TILES;                  // 1.35  (= 2.7 m / 2 m-per-tile)
 
 export function occupancy(wings: Wing[]): Set<string> {
   const s = new Set<string>();

@@ -83,7 +83,7 @@ describe('buildingFacets (manifold)', () => {
   it('roof reaches above the wall top (a ridge exists)', async () => {
     const { facets } = await buildingFacets(cross, 'plaster', 'tile', 'gable', noVents);
     const maxZ = Math.max(...facets.flatMap(f => f.pts.map(p => p[2])));
-    expect(maxZ).toBeGreaterThan(2.1);   // STOREY = 2.1 wall top
+    expect(maxZ).toBeGreaterThan(1.35);   // STOREY = 1.35 wall top
   });
 
   it('hip roof of a single square wing peaks at one apex', async () => {
@@ -106,7 +106,7 @@ describe('buildingFacets (manifold)', () => {
     expect(brick.length).toBeGreaterThan(0);
     expect(anchors.vents).toHaveLength(1);
     // the recorded smoke anchor is above the wing's wall top + roof rise
-    expect(anchors.vents[0][2]).toBeGreaterThan(2.1 + 1.5 * (2 / 2));   // wallTop + gable rise of the h=2 nave
+    expect(anchors.vents[0][2]).toBeGreaterThan(1.35 + 1.5 * (2 / 2));   // wallTop (STOREY=1.35) + gable rise of the h=2 nave
   });
 
   it('jetty makes the upper storey oversail the ground floor', async () => {

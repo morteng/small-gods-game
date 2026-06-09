@@ -70,6 +70,10 @@ describe('body part — toPrims', () => {
     const cyl = prims.find(pr => pr.prim === 'cylinder');
     expect(cyl && cyl.prim === 'cylinder' ? cyl.center : null).toEqual([3, 2]);
   });
+  it('STOREY equals the metric storey (1.35 cube-units)', async () => {
+    const { STOREY } = await import('@/assetgen/geometry/building');
+    expect(STOREY).toBeCloseTo(1.35);
+  });
 });
 
 describe('body part — material maps', () => {
