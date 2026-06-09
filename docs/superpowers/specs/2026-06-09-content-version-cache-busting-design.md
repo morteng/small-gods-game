@@ -65,21 +65,28 @@ discards old autosaves.
 **Surface `recipeVersion` on the shared metadata + add an optional request filter.**
 
 `src/services/asset-match.ts`:
-- Add `recipeVersion: string` to `interface AssetMeta`.
+- Add `recipeVersion?: string` to `interface AssetMeta` (optional — live assets
+  don't carry one).
 - Add `recipeVersion?: string` to `interface AssetRequest`.
 - In `matchesAsset`, add one hard filter (mirroring the existing kind/style ones):
   ```ts
-  if (req.recipeVersion && a.recipeVersion !== req.recipeVersion) return false;
+  if (req.recipeVersion && a.recipeVersion && a.recipeVersion !== req.recipeVersion) return false;
   ```
-  When the request omits `recipeVersion`, behaviour is unchanged.
+  The `a.recipeVersion &&` guard is deliberate: an asset is filtered out **only
+  when it declares a recipe version that mismatches**. An asset with no declared
+  version (live runtime art) is never gated. When the request omits
+  `recipeVersion`, behaviour is unchanged.
 
-**Thread `recipeVersion` into the metas the library builds for matching.**
+**Thread `recipeVersion` into the base metas only.**
 
-`src/services/asset-library.ts` constructs an `AssetMeta` for each base record and
-live summary before calling `matchesAsset`/`scoreAsset` (around lines 62 and 76).
-Base records already carry `recipeVersion` (`base-library-loader.ts:13`); live
-summaries carry it too (`pixellab.ts`). Include it on the `meta` passed to the
-matcher so the new filter has a value to compare.
+`src/services/asset-library.ts` builds an `AssetMeta` via `baseToMeta` (base
+records) and `summaryToMeta` (live summaries) before matching.
+- `baseToMeta`: add `recipeVersion: r.recipeVersion` — base records always carry it
+  (`base-library-loader.ts:13`).
+- `summaryToMeta`: **leave unchanged** — `AssetSummary` has no `recipeVersion`
+  field, so its meta's `recipeVersion` stays `undefined`. Live runtime art is
+  generated at the current recipe by construction, so it must never be gated out.
+  No change to `AssetSummary` / `core/types.ts`.
 
 **Only the building resolver opts in.**
 
