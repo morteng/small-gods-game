@@ -7,7 +7,7 @@ import type { FeatureType } from '../registry';
 import type { ResolvedFeature } from '../types';
 import type { ApertureSpec } from './opening';
 import type { Part as Prim } from '@/assetgen/compose';
-import { DOOR_HEIGHT_UNITS, DOOR_WIDTH_TILES } from '@/render/scale-contract';
+import { DOOR_HEIGHT_TILES, DOOR_WIDTH_TILES } from '@/render/scale-contract';
 import { leafBox } from '../wall-geometry';
 
 const MAIN_SCALE = 1.18;   // a main entrance: modestly grander, still human-relative
@@ -45,7 +45,7 @@ export const doorFeatureType: FeatureType = {
     const main = p.main === true;
     const grand = main ? MAIN_SCALE : 1;
     const halfW = (p.width as number) >= 0 ? (p.width as number) : (DOOR_WIDTH_TILES / 2) * grand;
-    const height = (p.height as number) >= 0 ? (p.height as number) : DOOR_HEIGHT_UNITS * grand;
+    const height = (p.height as number) >= 0 ? (p.height as number) : DOOR_HEIGHT_TILES * grand;
     return {
       params: {
         main, halfW, height,
