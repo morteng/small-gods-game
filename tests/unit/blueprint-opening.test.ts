@@ -40,7 +40,7 @@ describe('door opening hooks', () => {
     const door = part.features.find(f => f.type === 'door')!;
     const ap = getFeatureType('door')!.aperture!(door, part, { materials: rb.materials, footprint: rb.footprint });
     expect(ap.face).toBe('south');
-    expect(ap.height).toBeGreaterThanOrEqual(0.85);   // DOOR_HEIGHT_UNITS
+    expect(ap.height).toBeGreaterThanOrEqual(0.85);   // DOOR_HEIGHT_TILES = 1.0
   });
 
   it('filler is a door-material leaf prim', () => {

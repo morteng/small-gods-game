@@ -54,10 +54,4 @@ export const DOOR_HEIGHT_TILES = mToTiles(DOOR_HEIGHT_M);         // 1.0
 export const DOOR_WIDTH_TILES  = mToTiles(DOOR_WIDTH_M);          // 0.45
 export const STOREY_TILES      = mToTiles(STOREY_M);              // 1.35
 
-// ── Transition aliases (deleted in a later task once all callers move off them) ──
-/** @deprecated use DOOR_HEIGHT_TILES */
-export const DOOR_HEIGHT_UNITS = DOOR_HEIGHT_TILES;
-/** @deprecated use mToTiles(HUMAN_HEIGHT_M) */
-export const HUMAN_HEIGHT_UNITS = mToTiles(HUMAN_HEIGHT_M);
-
 export { ISO_TILE_W, ISO_TILE_H };

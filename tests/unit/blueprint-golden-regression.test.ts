@@ -39,7 +39,7 @@ describe('blueprint golden regression — openings', () => {
       const leaf = doorLeaf(name);
       expect(leaf, name).toBeDefined();
       if (leaf && leaf.prim === 'box') {
-        // height (z extent) tracks DOOR_HEIGHT_UNITS (0.85) up to the main ×1.18 = ~1.0
+        // height (z extent) tracks DOOR_HEIGHT_TILES = 1.0 up to the main ×1.18
         expect(leaf.size[2], name).toBeGreaterThanOrEqual(0.85);
         expect(leaf.size[2], name).toBeLessThanOrEqual(0.85 * 1.4);
       }
