@@ -14,7 +14,7 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
     materials: { walls: 'wattle', roof: 'thatch', ground: 'packed_dirt' },
     parts: { body: {
       type: 'body', at: { x: 0, y: 0 }, size: { w: 2, h: 2 },
-      params: { plan: 'rect', levels: 1, levelInset: 0, heightPerLevel: 1, roof: 'gable' },
+      params: { plan: 'rect', levels: 1, levelInset: 0, roof: 'gable' },
       features: { door: { type: 'door', face: 'south', params: { main: true } }, smoke: { type: 'vent', face: 'north', params: { kind: 'chimney' } } },
     } },
   }),
@@ -34,27 +34,27 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
   temple_small: bp('temple_small', {
     category: 'religious', era: 'classical', footprint: { w: 3, h: 3 },
     materials: { walls: 'stone', roof: 'tile', ground: 'flagstone' },
-    parts: { body: { type: 'body', size: { w: 3, h: 3 }, params: { plan: 'cross', levels: 1, heightPerLevel: 1.5, roof: 'hip' }, features: { door: { type: 'door', face: 'south', params: { main: true } }, smoke: { type: 'vent', params: { kind: 'smokehole' } } } } },
+    parts: { body: { type: 'body', size: { w: 3, h: 3 }, params: { plan: 'cross', levels: 1, storeyM: 4, roof: 'hip' }, features: { door: { type: 'door', face: 'south', params: { main: true } }, smoke: { type: 'vent', params: { kind: 'smokehole' } } } } },
   }),
   farm_barn: bp('farm_barn', {
     category: 'farm', era: 'medieval', footprint: { w: 3, h: 2 },
     materials: { walls: 'timber', roof: 'wood', ground: 'dirt' },
-    parts: { body: { type: 'body', size: { w: 3, h: 2 }, params: { plan: 'rect', levels: 1, heightPerLevel: 1.2, roof: 'gable' }, features: { door: { type: 'door', face: 'south', params: { main: true } } } } },
+    parts: { body: { type: 'body', size: { w: 3, h: 2 }, params: { plan: 'rect', levels: 1, storeyM: 3.2, roof: 'gable' }, features: { door: { type: 'door', face: 'south', params: { main: true } } } } },
   }),
   tower: bp('tower', {
     category: 'military', era: 'medieval', footprint: { w: 2, h: 3 },
     materials: { walls: 'stone', roof: 'slate', ground: 'flagstone' },
-    parts: { body: { type: 'body', size: { w: 2, h: 3 }, params: { plan: 'rect', levels: 3, heightPerLevel: 1, roof: 'flat' }, features: { door: { type: 'door', face: 'west' } } } },
+    parts: { body: { type: 'body', size: { w: 2, h: 3 }, params: { plan: 'rect', levels: 3, roof: 'flat' }, features: { door: { type: 'door', face: 'west' } } } },
   }),
   castle_keep: bp('castle_keep', {
     category: 'military', era: 'medieval', footprint: { w: 3, h: 3 },
     materials: { walls: 'stone', roof: 'slate', ground: 'gravel' },
-    parts: { body: { type: 'body', size: { w: 3, h: 3 }, params: { plan: 'stepped', levels: 4, levelInset: 1, heightPerLevel: 0.7, roof: 'stepped' }, features: { door: { type: 'door', face: 'south', params: { main: true } } } } },
+    parts: { body: { type: 'body', size: { w: 3, h: 3 }, params: { plan: 'stepped', levels: 4, levelInset: 1, storeyM: 1.9, roof: 'stepped' }, features: { door: { type: 'door', face: 'south', params: { main: true } } } } },
   }),
   dock: bp('dock', {
     category: 'special', era: 'medieval', footprint: { w: 2, h: 3 },
     materials: { walls: 'timber', roof: 'wood', ground: 'wood' },
-    parts: { body: { type: 'body', size: { w: 2, h: 3 }, params: { plan: 'rect', levels: 1, heightPerLevel: 0.2, roof: 'flat' }, features: { door: { type: 'door', face: 'north' } } } },
+    parts: { body: { type: 'body', size: { w: 2, h: 3 }, params: { plan: 'rect', levels: 1, storeyM: 0.5, roof: 'flat' }, features: { door: { type: 'door', face: 'north' } } } },
   }),
   shrine: bp('shrine', {
     category: 'religious', era: 'classical', footprint: { w: 2, h: 2 },
@@ -64,17 +64,17 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
   guard_post: bp('guard_post', {
     category: 'military', era: 'medieval', footprint: { w: 2, h: 2 },
     materials: { walls: 'timber', roof: 'wood' },
-    parts: { body: { type: 'body', size: { w: 2, h: 2 }, params: { plan: 'rect', levels: 1, heightPerLevel: 1.2, roof: 'hip' }, features: { door: { type: 'door', face: 'west' } } } },
+    parts: { body: { type: 'body', size: { w: 2, h: 2 }, params: { plan: 'rect', levels: 1, storeyM: 3.2, roof: 'hip' }, features: { door: { type: 'door', face: 'west' } } } },
   }),
   yurt: bp('yurt', {
     category: 'residential', era: 'primordial', footprint: { w: 3, h: 3 },
     materials: { walls: 'hide', roof: 'hide', ground: 'dirt' },
-    parts: { body: { type: 'body', size: { w: 3, h: 3 }, params: { plan: 'round', levels: 1, heightPerLevel: 0.9, roof: 'domed' }, features: { door: { type: 'door', face: 'west' }, smoke: { type: 'vent', params: { kind: 'smokehole' } } } } },
+    parts: { body: { type: 'body', size: { w: 3, h: 3 }, params: { plan: 'round', levels: 1, roof: 'domed' }, features: { door: { type: 'door', face: 'west' }, smoke: { type: 'vent', params: { kind: 'smokehole' } } } } },
   }),
   longhouse: bp('longhouse', {
     category: 'residential', era: 'medieval', footprint: { w: 4, h: 2 },
     materials: { walls: 'log', roof: 'thatch', ground: 'packed_dirt' },
-    parts: { body: { type: 'body', size: { w: 4, h: 2 }, params: { plan: 'rect', levels: 1, heightPerLevel: 1.2, roof: 'gable' }, features: { door: { type: 'door', face: 'south', params: { main: true } }, smoke: { type: 'vent', params: { kind: 'smokehole' } } } } },
+    parts: { body: { type: 'body', size: { w: 4, h: 2 }, params: { plan: 'rect', levels: 1, storeyM: 3.2, roof: 'gable' }, features: { door: { type: 'door', face: 'south', params: { main: true } }, smoke: { type: 'vent', params: { kind: 'smokehole' } } } } },
   }),
 };
 
