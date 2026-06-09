@@ -152,9 +152,11 @@ export function createIsoRenderMap(): RenderMap {
           const bx = Math.floor(b.e.x) + b.s.dx, by = Math.floor(b.e.y) + b.s.dy;
           const mode = rc.devMode?.buildingRenderMode ?? 'auto';
           const asset = () => rc.resolveBuildingArt?.(b.e) ?? null;
+          const generated = () => rc.resolveGeneratedBuildingArt?.(b.e) ?? null;
           const parametric = () => rc.resolveParametricBuildingArt?.(b.e) ?? null;
-          switch (pickBuildingSource(mode, asset, parametric)) {
+          switch (pickBuildingSource(mode, asset, generated, parametric)) {
             case 'asset':      drawIsoBuildingSprite(drawCtx, asset() as HTMLImageElement, bx, by, { w: b.s.w, h: b.s.h }); break;
+            case 'generated':  drawIsoBuildingSpriteGenerated(drawCtx, generated() as HTMLCanvasElement, bx, by, { w: b.s.w, h: b.s.h }); break;
             case 'parametric': drawIsoBuildingSpriteGenerated(drawCtx, parametric() as HTMLCanvasElement, bx, by, { w: b.s.w, h: b.s.h }); break;
             case 'flat':       drawIsoFlatBlock(drawCtx, { w: b.s.w, h: b.s.h }, bx, by); break;
           }

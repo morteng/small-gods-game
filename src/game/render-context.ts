@@ -4,6 +4,7 @@ import type { AssetManager } from '@/render/asset-manager';
 import type { DecorationImageCache } from '@/render/decoration-image-cache';
 import type { ArtResolver } from '@/render/art-resolver';
 import type { ParametricBuildingSource } from '@/render/parametric-building-source';
+import type { GeneratedBuildingArtSource } from '@/render/generated-building-art-source';
 import type { Viewport } from './viewport';
 import { toRenderNpc } from '@/world/npc-helpers';
 
@@ -16,6 +17,7 @@ export interface RenderContextDeps {
   artResolver: ArtResolver;
   buildingArtResolver: ArtResolver;
   parametricBuildingSource: ParametricBuildingSource;
+  generatedBuildingArtSource?: GeneratedBuildingArtSource;
   devMode: DevModeState;
 }
 
@@ -23,7 +25,7 @@ export interface RenderContextDeps {
  *  `map` and `world` are asserted non-null — every caller guards both before calling.
  *  `npcs` is [] when no world exists yet (pre-generation). */
 export function buildRenderContext(deps: RenderContextDeps): RenderContext {
-  const { state, viewport, sheets, assets, decorationImages, artResolver, buildingArtResolver, parametricBuildingSource, devMode } = deps;
+  const { state, viewport, sheets, assets, decorationImages, artResolver, buildingArtResolver, parametricBuildingSource, generatedBuildingArtSource, devMode } = deps;
   return {
     map: state.map!,
     camera: state.camera,
@@ -58,6 +60,14 @@ export function buildRenderContext(deps: RenderContextDeps): RenderContext {
       const s = parametricBuildingSource.peek(entity);
       if (s) return s;
       parametricBuildingSource.warm(entity); // fire-and-forget; never blocks the frame
+      return null;
+    },
+    resolveGeneratedBuildingArt: (entity: Entity) => {
+      const src = generatedBuildingArtSource;
+      if (!src) return null;
+      const s = src.peek(entity);
+      if (s) return s;
+      src.warm(entity); // fire-and-forget; never blocks the frame
       return null;
     },
     devMode,

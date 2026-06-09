@@ -168,6 +168,8 @@ export interface RenderContext {
   resolveBuildingArt?: (entity: Entity) => HTMLImageElement | null;
   /** A runtime-generated parametric building sprite (manifold), or null. */
   resolveParametricBuildingArt?: (entity: Entity) => CanvasImageSource | null;
+  /** An img2img-generated building sprite, or null (falls back to parametric). */
+  resolveGeneratedBuildingArt?: (entity: Entity) => CanvasImageSource | null;
   /** Dev mode state — when present and enabled, renderer draws highlights. */
   devMode?: DevModeState;
   /** Debug overlay options (extracted from devMode for convenience). */

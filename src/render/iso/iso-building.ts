@@ -142,6 +142,7 @@ export function drawIsoBuildingSpriteGenerated(
 /**
  * Pure dispatch decision: which source should the renderer draw a building from?
  *  - `'asset'`      — a generated PixelLab sprite (skipped in `'fallback'` mode)
+ *  - `'generated'`  — an img2img generated sprite (preferred over parametric)
  *  - `'parametric'` — a runtime manifold parametric sprite
  *  - `'flat'`       — the last-resort Canvas2D flat block
  * Extracted from the renderer so it's unit-testable without a canvas.
@@ -149,9 +150,11 @@ export function drawIsoBuildingSpriteGenerated(
 export function pickBuildingSource(
   mode: BuildingRenderMode,
   asset: () => CanvasImageSource | null,
+  generated: () => CanvasImageSource | null,
   parametric: () => CanvasImageSource | null,
-): 'asset' | 'parametric' | 'flat' {
+): 'asset' | 'generated' | 'parametric' | 'flat' {
   if (mode !== 'fallback' && asset()) return 'asset';
+  if (generated()) return 'generated';
   if (parametric()) return 'parametric';
   return 'flat';
 }
