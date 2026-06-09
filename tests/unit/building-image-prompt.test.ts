@@ -1,21 +1,36 @@
+// tests/unit/building-image-prompt.test.ts
 import { describe, it, expect } from 'vitest';
-import { buildingImagePrompt, BUILDING_STYLE_PREAMBLE } from '@/assetgen/building-image-prompt';
-import { synthesizeBlueprint } from '@/blueprint/presets/index';
+import { buildingImagePrompt, imageModelFamily } from '@/assetgen/building-image-prompt';
+import { synthesizeBlueprint } from '@/blueprint/presets';
+
+const GEMINI = 'google/gemini-2.5-flash-image';
+const OPENAI = 'openai/gpt-5-image';
+
+describe('imageModelFamily', () => {
+  it('classifies by family', () => {
+    expect(imageModelFamily(GEMINI)).toBe('gemini');
+    expect(imageModelFamily(OPENAI)).toBe('openai');
+    expect(imageModelFamily('something/else')).toBe('generic');
+  });
+});
 
 describe('buildingImagePrompt', () => {
-  it('is deterministic and includes style preamble + subject + era', () => {
+  it('is deterministic in (rb, model) and includes subject + era', () => {
     const rb = synthesizeBlueprint('cottage')!;
-    const a = buildingImagePrompt(rb);
-    const b = buildingImagePrompt(rb);
-    expect(a).toBe(b);                       // stable → cache-key safe
-    expect(a.startsWith(BUILDING_STYLE_PREAMBLE)).toBe(true);
-    expect(a).toContain('cottage');
-    expect(a.toLowerCase()).toContain('medieval');
+    expect(buildingImagePrompt(rb, GEMINI)).toBe(buildingImagePrompt(rb, GEMINI));
+    const p = buildingImagePrompt(rb, GEMINI);
+    expect(p).toContain('cottage');
+    expect(p.toLowerCase()).toContain('medieval');
+  });
+
+  it('adapts the prompt to the model family', () => {
+    const rb = synthesizeBlueprint('cottage')!;
+    expect(buildingImagePrompt(rb, GEMINI)).not.toBe(buildingImagePrompt(rb, OPENAI));
   });
 
   it('reflects materials in the text', () => {
     const rb = synthesizeBlueprint('castle_keep')!;
-    const p = buildingImagePrompt(rb);
+    const p = buildingImagePrompt(rb, GEMINI);
     expect(p).toContain('castle keep');
     expect(p.toLowerCase()).toMatch(/stone|walls/);
   });
