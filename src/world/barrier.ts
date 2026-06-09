@@ -1,4 +1,6 @@
 // src/world/barrier.ts
+import { mToTiles } from '@/render/scale-contract';
+
 export type BarrierKind = 'wall' | 'fence' | 'palisade' | 'rampart' | 'barricade';
 export interface BarrierGate { t: number; width: number }   // t = tiles along the path
 export interface BarrierRun {
@@ -10,11 +12,11 @@ export interface BarrierRun {
 }
 
 export const BARRIER_DEFAULTS: Record<BarrierKind, Omit<BarrierRun, 'kind' | 'path' | 'gates'>> = {
-  wall:      { height: 3.0, thickness: 1, material: 'stone',  crenellated: false },
-  rampart:   { height: 3.5, thickness: 2, material: 'stone',  crenellated: true },
-  palisade:  { height: 2.6, thickness: 1, material: 'timber', posts: true },
-  fence:     { height: 1.1, thickness: 1, material: 'timber', posts: true },
-  barricade: { height: 1.4, thickness: 1, material: 'timber' },
+  wall:      { height: mToTiles(3.0), thickness: 1, material: 'stone',  crenellated: false }, // 3.0 m
+  rampart:   { height: mToTiles(3.5), thickness: 2, material: 'stone',  crenellated: true },  // 3.5 m
+  palisade:  { height: mToTiles(2.6), thickness: 1, material: 'timber', posts: true },        // 2.6 m
+  fence:     { height: mToTiles(1.1), thickness: 1, material: 'timber', posts: true },        // 1.1 m
+  barricade: { height: mToTiles(1.4), thickness: 1, material: 'timber' },                     // 1.4 m
 };
 
 /** Map a path distance `t` (tiles) to a world point along the polyline. */
