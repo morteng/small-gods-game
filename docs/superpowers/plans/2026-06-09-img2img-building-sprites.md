@@ -19,7 +19,7 @@
 | `src/llm/cost-tracker.ts` | Session/month/all-time USD spend (ported) | New (port) |
 | `src/ui/spend-chip.ts` | Spend readout chip (ported) | New (port) |
 | `src/llm/openrouter-image-client.ts` | img2img call → `{ blob, costUsd }` | New |
-| `src/assetgen/building-image-prompt.ts` | `ResolvedBlueprint → prompt string` | New |
+| `src/assetgen/building-image-prompt.ts` | `(ResolvedBlueprint, model) → prompt string` | New |
 | `src/render/generated-art-cache.ts` | IndexedDB blob cache | New |
 | `src/render/blob-to-building-sprite.ts` | decode → opaque-crop → downscale | New |
 | `src/render/generated-building-art-source.ts` | peek/warm source | New |
@@ -235,23 +235,37 @@ The prompt is derived from the existing `toBrief(rb, 0)` (subject, traits, mater
 ```ts
 // tests/unit/building-image-prompt.test.ts
 import { describe, it, expect } from 'vitest';
-import { buildingImagePrompt, BUILDING_STYLE_PREAMBLE } from '@/assetgen/building-image-prompt';
+import { buildingImagePrompt, imageModelFamily } from '@/assetgen/building-image-prompt';
 import { synthesizeBlueprint } from '@/blueprint/presets';
 
+const GEMINI = 'google/gemini-2.5-flash-image';
+const OPENAI = 'openai/gpt-5-image';
+
+describe('imageModelFamily', () => {
+  it('classifies by family', () => {
+    expect(imageModelFamily(GEMINI)).toBe('gemini');
+    expect(imageModelFamily(OPENAI)).toBe('openai');
+    expect(imageModelFamily('something/else')).toBe('generic');
+  });
+});
+
 describe('buildingImagePrompt', () => {
-  it('is deterministic and includes style preamble + subject + era', () => {
+  it('is deterministic in (rb, model) and includes subject + era', () => {
     const rb = synthesizeBlueprint('cottage')!;
-    const a = buildingImagePrompt(rb);
-    const b = buildingImagePrompt(rb);
-    expect(a).toBe(b);                       // stable → cache-key safe
-    expect(a.startsWith(BUILDING_STYLE_PREAMBLE)).toBe(true);
-    expect(a).toContain('cottage');
-    expect(a.toLowerCase()).toContain('medieval');
+    expect(buildingImagePrompt(rb, GEMINI)).toBe(buildingImagePrompt(rb, GEMINI));
+    const p = buildingImagePrompt(rb, GEMINI);
+    expect(p).toContain('cottage');
+    expect(p.toLowerCase()).toContain('medieval');
+  });
+
+  it('adapts the prompt to the model family', () => {
+    const rb = synthesizeBlueprint('cottage')!;
+    expect(buildingImagePrompt(rb, GEMINI)).not.toBe(buildingImagePrompt(rb, OPENAI));
   });
 
   it('reflects materials in the text', () => {
     const rb = synthesizeBlueprint('castle_keep')!;
-    const p = buildingImagePrompt(rb);
+    const p = buildingImagePrompt(rb, GEMINI);
     expect(p).toContain('castle keep');
     expect(p.toLowerCase()).toMatch(/stone|walls/);
   });
@@ -267,27 +281,55 @@ Expected: FAIL — module not found.
 
 ```ts
 // src/assetgen/building-image-prompt.ts
-// Deterministic text prompt for img2img building generation. The grey init image
-// carries the silhouette + rough materials; this adds a fixed pixel-art house
-// style + a brief-derived description (subject, era, materials, door) so the
-// model renders the right kind/era. Output is part of the generation cache key,
-// so it MUST be a pure function of the resolved blueprint.
+// Deterministic, MODEL-AWARE text prompt for img2img building generation. The
+// grey init image carries silhouette + rough materials; this adds a brief-derived
+// description (subject, era, materials, door, traits) wrapped by a per-model-family
+// preamble — Gemini-image wants natural-language "redraw the reference" editing
+// instructions; OpenAI gpt-image wants a concise descriptive generation prompt.
+// Output is a pure function of (rb, model) → safe to fold into the cache key.
 import type { ResolvedBlueprint } from '@/blueprint/types';
 import { toBrief } from '@/blueprint/compile/to-brief';
 
-export const BUILDING_STYLE_PREAMBLE =
-  'A crisp 2D isometric pixel-art video-game building sprite. ' +
-  'Redraw the provided shape exactly: keep its silhouette, proportions, roof ' +
-  'pitch, chimney and door placement. Clean readable pixel shading, cohesive ' +
-  'limited palette, transparent background, no ground, no shadow, centered. ';
+export type ImageModelFamily = 'gemini' | 'openai' | 'generic';
 
-export function buildingImagePrompt(rb: ResolvedBlueprint): string {
+/** Map an OpenRouter image model id to its prompt family. */
+export function imageModelFamily(model: string): ImageModelFamily {
+  const m = model.toLowerCase();
+  if (m.includes('gemini')) return 'gemini';            // check first: gemini ids also contain "-image"
+  if (m.includes('gpt') || m.startsWith('openai/')) return 'openai';
+  return 'generic';
+}
+
+const STYLE_TAIL =
+  'Clean readable pixel shading, cohesive limited palette, fully transparent ' +
+  'background, no ground, no shadow, centered.';
+
+/** Brief-derived core, identical across families (pure function of the blueprint). */
+function describeBuilding(rb: ResolvedBlueprint): string {
   const brief = toBrief(rb, 0);
   const mats = brief.materials.map(m => `${m.material} ${m.part}`).join(', ');
   const doorPhrase = brief.door ? ' with a visible wooden door' : '';
   const traits = brief.traits.slice(0, 4).join(', ');
-  return `${BUILDING_STYLE_PREAMBLE}Subject: a ${brief.era} ${brief.subject}${doorPhrase}. ` +
-         `Materials: ${mats}. Details: ${traits}.`;
+  return `a ${brief.era} ${brief.subject}${doorPhrase}, ${mats}, ${traits}`;
+}
+
+export function buildingImagePrompt(rb: ResolvedBlueprint, model: string): string {
+  const subject = describeBuilding(rb);
+  switch (imageModelFamily(model)) {
+    case 'gemini':
+      return `Using the attached 3D massing render as a strict reference, redraw it ` +
+        `as a crisp 2D isometric pixel-art video-game building sprite. Preserve the ` +
+        `exact silhouette, proportions, roof pitch, chimney and door placement. ` +
+        `Subject: ${subject}. ${STYLE_TAIL}`;
+    case 'openai':
+      return `Isometric pixel-art video-game building sprite matching the reference ` +
+        `shape exactly (same silhouette, roof pitch, chimney and door placement). ` +
+        `Subject: ${subject}. ${STYLE_TAIL}`;
+    default:
+      return `A crisp 2D isometric pixel-art video-game building sprite, redrawn from ` +
+        `the reference shape (same silhouette, roof pitch, chimney, door). ` +
+        `Subject: ${subject}. ${STYLE_TAIL}`;
+  }
 }
 ```
 
@@ -326,7 +368,7 @@ beforeEach(async () => { _resetGeneratedArtDbForTesting(); await clearGeneratedA
 describe('generated-art-cache', () => {
   it('round-trips a blob + targetWidth', async () => {
     const blob = new Blob([new Uint8Array([1, 2, 3])], { type: 'image/png' });
-    await writeGeneratedArt('k1', blob, { prompt: 'p', targetWidth: 256 });
+    await writeGeneratedArt('k1', blob, { model: 'm', prompt: 'p', targetWidth: 256 });
     const got = await readGeneratedArt('k1');
     expect(got?.targetWidth).toBe(256);
     expect(await got!.blob.arrayBuffer()).toEqual(await blob.arrayBuffer());
@@ -357,7 +399,7 @@ const DB_VERSION = 1;
 const DB_STORE = 'building-sprites';
 
 export interface GeneratedArtRecord {
-  key: string; blob: Blob; recipeVersion: string; prompt: string; targetWidth: number; createdAt: number;
+  key: string; blob: Blob; recipeVersion: string; model: string; prompt: string; targetWidth: number; createdAt: number;
 }
 
 let _db: IDBDatabase | null = null;
@@ -377,12 +419,12 @@ function openDb(): Promise<IDBDatabase> {
   });
 }
 
-/** Stable string key: recipe version + djb2 hash of blueprint identity. The
- *  prompt is a pure function of the blueprint, so blueprint identity already
- *  covers it; a prompt-logic change is handled by bumping ART_RECIPE_VERSION.
- *  Keeping the prompt out of the key avoids recomputing it on the frame path. */
-export function generatedArtKey(rbJson: string): string {
-  return `${ART_RECIPE_VERSION}:${djb2(rbJson)}`;
+/** Stable string key: recipe version + model id + djb2 hash of blueprint
+ *  identity. The prompt is a pure function of (blueprint, model), so those two
+ *  cover it; a prompt-logic change is handled by bumping ART_RECIPE_VERSION.
+ *  The model is in the key so switching image models never serves stale art. */
+export function generatedArtKey(rbJson: string, model: string): string {
+  return `${ART_RECIPE_VERSION}:${model}:${djb2(rbJson)}`;
 }
 function djb2(s: string): string {
   let h = 5381;
@@ -406,14 +448,14 @@ export async function readGeneratedArt(key: string): Promise<{ blob: Blob; targe
   } catch (err) { console.warn('[generated-art-cache] read failed:', err); return null; }
 }
 
-export async function writeGeneratedArt(key: string, blob: Blob, meta: { prompt: string; targetWidth: number }): Promise<void> {
+export async function writeGeneratedArt(key: string, blob: Blob, meta: { model: string; prompt: string; targetWidth: number }): Promise<void> {
   if (!hasIdb()) return;
   try {
     const db = await openDb();
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction(DB_STORE, 'readwrite');
       tx.objectStore(DB_STORE).put({
-        key, blob, recipeVersion: ART_RECIPE_VERSION, prompt: meta.prompt, targetWidth: meta.targetWidth, createdAt: 0,
+        key, blob, recipeVersion: ART_RECIPE_VERSION, model: meta.model, prompt: meta.prompt, targetWidth: meta.targetWidth, createdAt: 0,
       } satisfies GeneratedArtRecord);
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
@@ -581,7 +623,7 @@ function entity(seed: string): Entity {
 function makeSource(over = {}) {
   const generate = vi.fn(async () => new Blob([new Uint8Array([1])], { type: 'image/png' }));
   const src = new GeneratedBuildingArtSource({
-    enabled: () => true, canSpend: () => true,
+    enabled: () => true, canSpend: () => true, model: () => 'm',
     prompt: () => 'P', initDataUri: async () => 'data:image/png;base64,AA',
     targetWidth: () => 256, generate,
     cacheGet: async () => null, cachePut: async () => {},
@@ -659,6 +701,8 @@ import { generatedArtKey, readGeneratedArt, writeGeneratedArt } from '@/render/g
 export interface GeneratedSourceDeps {
   enabled: () => boolean;
   canSpend: () => boolean;
+  /** Currently-selected image model id (drives prompt family + cache key). */
+  model: () => string;
   /** Generate a PNG blob from an init data-URI + prompt (wraps the client + cost tracking). */
   generate: (initDataUri: string, prompt: string, signal?: AbortSignal) => Promise<Blob>;
   // Seams below default to the real pipeline; overridden in tests.
@@ -666,7 +710,7 @@ export interface GeneratedSourceDeps {
   initDataUri?: (rb: ResolvedBlueprint) => Promise<string>;
   targetWidth?: (rb: ResolvedBlueprint) => number;
   cacheGet?: (key: string) => Promise<{ blob: Blob; targetWidth: number } | null>;
-  cachePut?: (key: string, blob: Blob, meta: { prompt: string; targetWidth: number }) => Promise<void>;
+  cachePut?: (key: string, blob: Blob, meta: { model: string; prompt: string; targetWidth: number }) => Promise<void>;
   decode?: (blob: Blob, targetWidth: number) => Promise<SpriteCanvas | null>;
 }
 
@@ -678,7 +722,7 @@ export class GeneratedBuildingArtSource {
 
   constructor(deps: GeneratedSourceDeps) {
     this.d = {
-      prompt: (rb) => buildingImagePrompt(rb),
+      prompt: (rb) => buildingImagePrompt(rb, deps.model()),
       initDataUri: async (rb) => { const r = await composeStructure(toGeometry(rb)); return greyToDataUri(r.grey, r.size); },
       targetWidth: (rb) => buildingSpriteTargetWidth(rb.footprint),
       cacheGet: (k) => readGeneratedArt(k),
@@ -689,7 +733,7 @@ export class GeneratedBuildingArtSource {
   }
 
   private rbOf(e: Entity): ResolvedBlueprint | undefined { return blueprintOf(e)?.rb; }
-  private keyOf(rb: ResolvedBlueprint): string { return generatedArtKey(JSON.stringify(rb)); }
+  private keyOf(rb: ResolvedBlueprint): string { return generatedArtKey(JSON.stringify(rb), this.d.model()); }
 
   peek(e: Entity): SpriteCanvas | null {
     const rb = this.rbOf(e); if (!rb) return null;
@@ -714,7 +758,7 @@ export class GeneratedBuildingArtSource {
       const prompt = this.d.prompt(rb);    // computed lazily — only when actually generating
       const initDataUri = await this.d.initDataUri(rb);
       const blob = await this.d.generate(initDataUri, prompt);
-      await this.d.cachePut(key, blob, { prompt, targetWidth });
+      await this.d.cachePut(key, blob, { model: this.d.model(), prompt, targetWidth });
       this.cache.set(key, await this.d.decode(blob, targetWidth));
     } catch (err) {
       if (!this.warned.has(key)) { console.warn('[generated-building] generation failed', err); this.warned.add(key); }
@@ -876,39 +920,40 @@ git commit -m "feat(render): dispatch generated building sprites (generated → 
 - Modify: `src/game.ts`
 - (Read) `src/llm/provider-factory.ts`, `src/llm/cost-tracker.ts`
 
-- [ ] **Step 1: Construct the CostTracker, source, and image client config**
+- [ ] **IMPORTANT — reuse the existing wiring.** `game.ts` ALREADY has `private costTracker = new CostTracker();` (line ~100), already fed by the LLM text client via `(r) => this.costTracker.record(r)`, and the spend chip is ALREADY mounted (line ~373). Do NOT declare a second CostTracker or mount a second chip. The CostTracker API is: `record({ cost?: number; cacheStatus?: 'HIT'|'MISS' })` and `snapshot(): { sessionUsd, ... }`. `BUILDING_IMAGE_MODEL` is the selected model for now (a settings model-picker is a later, separate feature).
+
+**Step 1: Construct the generated source, reusing the existing `costTracker`**
 
 In `src/game.ts`, near the existing `parametricBuildingSource` field (line ~105), add:
 
 ```ts
-  private readonly costTracker = new CostTracker();
   private liveBuildingArtEnabled = true; // setting `liveBuildingArt`, default ON
   private readonly generatedBuildingArtSource = new GeneratedBuildingArtSource({
     enabled: () => this.liveBuildingArtEnabled,
     canSpend: () => this.costTracker.snapshot().sessionUsd < SESSION_CAP_USD,
+    model: () => BUILDING_IMAGE_MODEL,
     generate: async (initDataUri, prompt) => {
       const cfg = loadProviderConfig();
       const res = await generateBuildingImage(
         { apiKey: cfg.openrouterApiKey ?? '', baseUrl: openrouterImageBaseUrl(),
           siteName: cfg.openrouterSiteName },
-        { initImageDataUri, prompt },
+        { initImageDataUri, prompt, model: BUILDING_IMAGE_MODEL },
       );
-      this.costTracker.recordSpend(res.costUsd); // method name per ported CostTracker API
+      this.costTracker.record({ cost: res.costUsd, cacheStatus: 'MISS' });
       return res.blob;
     },
   });
 ```
 
-Imports at top:
+Imports at top (CostTracker is already imported; add the rest):
 
 ```ts
 import { GeneratedBuildingArtSource } from '@/render/generated-building-art-source';
-import { generateBuildingImage } from '@/llm/openrouter-image-client';
-import { CostTracker } from '@/llm/cost-tracker';
-import { loadProviderConfig } from '@/llm/provider-factory';
+import { generateBuildingImage, BUILDING_IMAGE_MODEL } from '@/llm/openrouter-image-client';
+import { loadProviderConfig, openrouterImageBaseUrl } from '@/llm/provider-factory';
 ```
 
-Add `const SESSION_CAP_USD = 2;` near the top of the file. Confirm the exact CostTracker mutator/getter names from the ported file (`grep -n "recordSpend\|addSpend\|snapshot\|sessionUsd" src/llm/cost-tracker.ts`) and use them; the `canSpend`/`recordSpend` above are placeholders for whatever the ported API exposes.
+Add `const SESSION_CAP_USD = 2;` near the top of the file. (`loadProviderConfig` may already be imported — don't duplicate.)
 
 - [ ] **Step 2: Add the `openrouterImageBaseUrl()` helper to `provider-factory.ts`**
 
@@ -1001,9 +1046,9 @@ Expected: FAIL — no such row.
 Run: `TMPDIR=$PWD/.tmp npx vitest run tests/dom/settings-live-building-art.test.ts`
 Expected: PASS.
 
-- [ ] **Step 5: Mount the spend chip** (best-effort, follow the spend-chip's own API)
+- [ ] **Step 5: Spend chip — already mounted, nothing to do**
 
-Where the bottom-left toolbar / HUD is built (`grep -rn "spend-chip\|createSpendChip\|spendChip" src/game src/ui`), mount `createSpendChip` bound to `game`'s `costTracker` if a natural host exists. If the chip's mount point isn't obvious, place it inside the settings LLM tab. Keep this minimal — the chip's full home is the deferred "proper settings screen".
+The spend chip is already mounted in the bottom-left bar (`game.ts:373` `mountSpendChip(this.ui.bottomLeftBar, this.costTracker)`, visible when provider is openrouter) and the image client records spend into that same `costTracker` (Task 8). So image-generation spend already shows up. Just confirm this during manual verification — no code needed here.
 
 - [ ] **Step 6: Typecheck**
 
@@ -1068,7 +1113,8 @@ git commit -m "docs: img2img building sprites — verification notes" || true
 
 ## Self-Review notes (for the executor)
 
-- **CostTracker API names** (`recordSpend`/`snapshot`/`sessionUsd`) are placeholders — confirm against the ported `src/llm/cost-tracker.ts` in Task 1 and use the real ones in Task 8.
+- **CostTracker is already in main** (not a stale branch): `game.ts` already owns `this.costTracker` + a mounted spend chip, fed by the text LLM client. Task 8 REUSES it (no second instance). API: `record({ cost, cacheStatus:'HIT'|'MISS' })`, `snapshot().sessionUsd`.
+- **Prompts are model-aware** (Task 3): `buildingImagePrompt(rb, model)` branches by `imageModelFamily(model)`; the model id is in the cache key (Task 4) and sent to the client (Task 8). Selected model = `BUILDING_IMAGE_MODEL` for now (settings model-picker is a later feature).
 - **`ISO_TILE_W` export** — verify it's exported from `iso-projection.ts` (Task 5); add the export if missing.
 - **`fake-indexeddb`** — confirm it's a dependency (Task 4); install if not.
 - **Production path** is out of scope: in prod `openrouterImageBaseUrl()` returns `undefined` → direct OpenRouter call, which may hit CORS. The toggle defaults ON but generation simply fails → grey fallback. A prod-safe path is a separate follow-up.

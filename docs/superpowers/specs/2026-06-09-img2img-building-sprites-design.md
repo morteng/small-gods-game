@@ -48,7 +48,7 @@ the whole runtime path end to end:
 | Run location | Runtime, live in-browser, cached to IndexedDB |
 | Trigger | Auto on world load, behind spend cap + toggle |
 | Variety | **Identical per blueprint** (cache by blueprint identity) |
-| Prompt | Auto from `buildingBrief`/`to-brief.ts` + one shared style preamble |
+| Prompt | Auto from `buildingBrief`/`to-brief.ts`, **per-model-family** preamble |
 | Spend cap | **$2 / session**; on cap, stop generating, keep grey fallback |
 | Toggle | Setting `liveBuildingArt`, **default ON** |
 | Fallback | Grey parametric sprite while generating / on any failure |
@@ -60,7 +60,7 @@ blueprint (entity.properties.blueprint.rb)
   → toGeometry(rb)                      [existing]
   → composeStructure(spec) → grey       [existing; the init image]
   → greyToPng(grey, size, bbox)         [PNG bytes for the API]
-  → buildingImagePrompt(rb, era)        [text prompt]
+  → buildingImagePrompt(rb, model)      [model-aware text prompt]
   ── img2img via OpenRouter ──►  pixel-art PNG
   → crop to opaque bbox + downscale to footprint native width  [sprite canvas]
   → drawIsoBuildingSpriteGenerated      [existing blit]
@@ -84,17 +84,24 @@ Each unit is small, single-purpose, and independently testable.
   CostTracker.
 - **Model id** lives in one exported constant (`BUILDING_IMAGE_MODEL`).
 
-### 2. `buildingImagePrompt(rb, era)` (in `src/assetgen/` next to `to-brief.ts`)
-- Pure function: `ResolvedBlueprint + Era → string`. Composes a shared
-  **style preamble** constant (`"a crisp 2D isometric pixel-art game sprite,
-  transparent background, no ground, no shadow, centered, …"`) with the
-  brief-derived description (kind, materials, door, era) from the existing
-  `buildingBrief`. Deterministic — its output is part of the cache key.
+### 2. `buildingImagePrompt(rb, model)` — **model-aware** (in `src/assetgen/`)
+- Pure function: `ResolvedBlueprint + modelId → string`. A shared brief-derived
+  **core description** (subject, era, materials, door, traits from `toBrief`) is
+  wrapped by a **per-model-family preamble** chosen via `imageModelFamily(model)`
+  (`gemini` | `openai` | `generic`): Gemini-image models want natural-language
+  "redraw the reference as…" editing instructions; OpenAI gpt-image models want
+  concise descriptive generation prompts. Adapt per *family*, not per exact id.
+- Deterministic in `(rb, model)`. The **model id is part of the cache key** (§3/§4)
+  so switching models never serves stale cross-model art. The selected model
+  comes from one source — `BUILDING_IMAGE_MODEL` today, a settings model-picker
+  later — and threads into both this builder and the image client.
 
 ### 3. `src/render/generated-building-art-source.ts`
 - `GeneratedBuildingArtSource` mirroring `ParametricBuildingSource`'s
   `peek(e)/warm(e)/clear()` contract, so it slots into render-context the same way.
-- `keyOf(rb) = hash(JSON.stringify(rb) + ART_RECIPE_VERSION + prompt)`.
+- `keyOf(rb) = ART_RECIPE_VERSION + model + hash(JSON.stringify(rb))` — model in
+  the key so switching models doesn't serve stale art; prompt is derived from
+  `(rb, model)` so it needn't be hashed separately.
 - `warm(e)`:
   1. If `!enabled` → cache `null`, return.
   2. In-memory cache hit → return.
@@ -110,7 +117,7 @@ Each unit is small, single-purpose, and independently testable.
   blits it 1:1. `imageSmoothingEnabled=false` to preserve crisp pixels.
 
 ### 4. IndexedDB cache (`src/render/generated-art-cache.ts`)
-- Dedicated object store: `key → { blob: Blob; recipeVersion: string; prompt: string; createdAt: number }`.
+- Dedicated object store: `key → { blob: Blob; recipeVersion: string; model: string; prompt: string; targetWidth: number; createdAt: number }`.
 - Persistent across reloads; shared across worlds (dedup by blueprint identity).
 - `get(key) / put(key, blob, meta) / clear()`. A version mismatch on
   `ART_RECIPE_VERSION` is treated as a miss (and may be pruned).

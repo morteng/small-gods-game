@@ -15,6 +15,9 @@ export interface BuildingImageClientConfig {
 export interface GenerateBuildingImageOpts {
   initImageDataUri: string; // 'data:image/png;base64,...'
   prompt: string;
+  /** Image model id; defaults to BUILDING_IMAGE_MODEL. The prompt must already be
+   *  adapted for this model (see buildingImagePrompt). */
+  model?: string;
   signal?: AbortSignal;
 }
 
@@ -35,7 +38,7 @@ export async function generateBuildingImage(
 ): Promise<BuildingImageResult> {
   const url = `${cfg.baseUrl ?? 'https://openrouter.ai/api/v1'}/chat/completions`;
   const body = {
-    model: BUILDING_IMAGE_MODEL,
+    model: opts.model ?? BUILDING_IMAGE_MODEL,
     modalities: ['image', 'text'],
     messages: [{
       role: 'user',
