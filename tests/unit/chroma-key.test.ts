@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { chromaKeyMagenta, CHROMA_RGB } from '@/render/chroma-key';
+import { chromaKeyMagenta, compositeOverChroma, CHROMA_RGB } from '@/render/chroma-key';
 
 function px(...rgba: number[]): Uint8ClampedArray { return new Uint8ClampedArray(rgba); }
 
@@ -24,5 +24,30 @@ describe('chromaKeyMagenta', () => {
     expect(d[3]).toBeLessThan(255);
     expect(d[0]).toBeLessThanOrEqual(110 + 30); // despilled toward green
     expect(d[2]).toBeLessThanOrEqual(110 + 30);
+  });
+});
+
+describe('compositeOverChroma', () => {
+  it('fills fully transparent pixels with opaque chroma magenta', () => {
+    const out = compositeOverChroma(px(0, 0, 0, 0));
+    expect([...out]).toEqual([...CHROMA_RGB, 255]);
+  });
+
+  it('leaves opaque pixels untouched', () => {
+    const out = compositeOverChroma(px(150, 100, 80, 255));
+    expect([...out]).toEqual([150, 100, 80, 255]);
+  });
+
+  it('alpha-blends semi-transparent pixels over magenta and makes them opaque', () => {
+    const out = compositeOverChroma(px(0, 255, 0, 128)); // half-green over magenta
+    expect(out[3]).toBe(255);
+    expect(out[0]).toBeGreaterThan(100); // picked up red from the magenta beneath
+    expect(out[1]).toBeGreaterThan(100); // kept green from the source
+  });
+
+  it('does not mutate its input', () => {
+    const src = px(0, 0, 0, 0);
+    compositeOverChroma(src);
+    expect(src[3]).toBe(0);
   });
 });

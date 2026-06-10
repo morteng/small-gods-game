@@ -21,10 +21,13 @@ export function imageModelFamily(model: string): ImageModelFamily {
 
 // We key the background out ourselves (see chroma-key.ts), so we DEMAND a solid
 // chroma fill rather than trusting the model to emit alpha (which it bakes opaque
-// half the time). The colour must match CHROMA_RGB exactly.
+// half the time). The init image's background is already this exact magenta
+// (compositeOverChroma), so "same as the reference" reinforces the text demand.
+// The colour must match CHROMA_RGB exactly.
 const STYLE_TAIL =
   'Clean readable pixel shading, cohesive limited palette, no ground, no shadow, centered. ' +
-  `Fill the ENTIRE background with solid uniform pure magenta, RGB (${CHROMA_RGB.join(',')}). ` +
+  `Keep the ENTIRE background solid uniform pure magenta, RGB (${CHROMA_RGB.join(',')}), ` +
+  'exactly as in the reference image. ' +
   'Do NOT use magenta, pink or purple anywhere on the building itself.';
 
 /** Brief-derived core, identical across families (pure function of the blueprint). */

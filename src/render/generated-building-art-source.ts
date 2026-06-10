@@ -12,6 +12,7 @@ import { composeStructure } from '@/assetgen/compose';
 import { toGeometry } from '@/blueprint/compile/to-geometry';
 import { greyToDataUri } from '@/render/iso/sprite-canvas';
 import { buildingImagePrompt } from '@/assetgen/building-image-prompt';
+import { compositeOverChroma } from '@/render/chroma-key';
 import { buildingSpriteTargetWidth, blobToBuildingSprite } from '@/render/blob-to-building-sprite';
 import { canonicalJson, generatedArtKey, readGeneratedArt, writeGeneratedArt } from '@/render/generated-art-cache';
 
@@ -42,7 +43,9 @@ export class GeneratedBuildingArtSource {
       prompt: (rb) => buildingImagePrompt(rb, deps.model()),
       initDataUri: async (rb) => {
         const r = await composeStructure(toGeometry(rb));
-        const uri = greyToDataUri(r.grey, r.size);
+        // Magenta init background: the model mirrors the reference image's
+        // background far more reliably than the text prompt's demand for it.
+        const uri = greyToDataUri(compositeOverChroma(r.grey), r.size);
         if (!uri) throw new Error('no canvas for init image');
         return uri;
       },

@@ -15,6 +15,25 @@ export const CHROMA_RGB = [255, 0, 255] as const;
 const T_FULL = 110;
 const T_EDGE = 30;
 
+/**
+ * Composite an RGBA buffer over a solid chroma-magenta field (returns a copy; the
+ * input is untouched). Used on the img2img INIT image: the model follows the
+ * reference image far more reliably than the text prompt, so showing it the exact
+ * magenta background we later key out beats asking for it in words.
+ */
+export function compositeOverChroma(d: Uint8ClampedArray): Uint8ClampedArray {
+  const out = new Uint8ClampedArray(d.length);
+  const [cr, cg, cb] = CHROMA_RGB;
+  for (let i = 0; i < d.length; i += 4) {
+    const a = d[i + 3] / 255;
+    out[i] = Math.round(d[i] * a + cr * (1 - a));
+    out[i + 1] = Math.round(d[i + 1] * a + cg * (1 - a));
+    out[i + 2] = Math.round(d[i + 2] * a + cb * (1 - a));
+    out[i + 3] = 255;
+  }
+  return out;
+}
+
 /** Key magenta → alpha (with edge despill), mutating the RGBA buffer in place. */
 export function chromaKeyMagenta(d: Uint8ClampedArray): void {
   for (let i = 0; i < d.length; i += 4) {
