@@ -46,6 +46,9 @@ interface ManifestEntry {
 }
 interface Manifest { recipeVersion?: string; model: string; entries: Record<string, ManifestEntry> }
 
+/** Cache keys embed the model id (contains `/` and `:`) — not filesystem/URL safe. */
+const safeName = (key: string) => key.replace(/[^a-zA-Z0-9._-]/g, '_');
+
 const plan = process.argv.includes('--plan');
 const apiKey = process.env.OPENROUTER_API_KEY;
 if (!apiKey && !plan) { console.error('OPENROUTER_API_KEY not set. Aborting.'); process.exit(1); }
@@ -102,9 +105,10 @@ async function seed(preset: string, manifest: Manifest): Promise<number> {
     if (reg.iou < MIN_SILHOUETTE_IOU) { console.warn(`${preset}: attempt ${attempt} — silhouette IoU ${reg.iou.toFixed(2)} < ${MIN_SILHOUETTE_IOU}`); continue; }
     const sprite = quantizePalette(reg.sprite, QUANT_COLORS);
 
+    const base = safeName(key);
     const entry: ManifestEntry = {
-      file: `${key}.png`, targetWidth: sprite.w, preset, anchors: JSON.stringify(r.anchors),
-      normal: `${key}.normal.png`, material: `${key}.material.png`, emissive: `${key}.emissive.png`,
+      file: `${base}.png`, targetWidth: sprite.w, preset, anchors: JSON.stringify(r.anchors),
+      normal: `${base}.normal.png`, material: `${base}.material.png`, emissive: `${base}.emissive.png`,
     };
     await writeFile(join(OUT, entry.file), toPng(sprite.data, sprite.w, sprite.h));
     const writeMap = async (name: string, buf: Uint8ClampedArray) => {
