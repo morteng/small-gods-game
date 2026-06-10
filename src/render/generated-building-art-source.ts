@@ -13,7 +13,7 @@ import { toGeometry } from '@/blueprint/compile/to-geometry';
 import { greyToDataUri } from '@/render/iso/sprite-canvas';
 import { buildingImagePrompt } from '@/assetgen/building-image-prompt';
 import { buildingSpriteTargetWidth, blobToBuildingSprite } from '@/render/blob-to-building-sprite';
-import { generatedArtKey, readGeneratedArt, writeGeneratedArt } from '@/render/generated-art-cache';
+import { canonicalJson, generatedArtKey, readGeneratedArt, writeGeneratedArt } from '@/render/generated-art-cache';
 
 export interface GeneratedSourceDeps {
   enabled: () => boolean;
@@ -54,8 +54,19 @@ export class GeneratedBuildingArtSource {
     } as Required<GeneratedSourceDeps>;
   }
 
+  // Key derivation memoized per ResolvedBlueprint object — peek() runs every frame
+  // per building, and canonicalJson over the whole blueprint is too hot for that.
+  private readonly keyMemo = new WeakMap<ResolvedBlueprint, { model: string; key: string }>();
+
   private rbOf(e: Entity): ResolvedBlueprint | undefined { return blueprintOf(e)?.rb; }
-  private keyOf(rb: ResolvedBlueprint): string { return generatedArtKey(JSON.stringify(rb), this.d.model()); }
+  private keyOf(rb: ResolvedBlueprint): string {
+    const model = this.d.model();
+    const hit = this.keyMemo.get(rb);
+    if (hit && hit.model === model) return hit.key;
+    const key = generatedArtKey(canonicalJson(rb), model, rb.footprint);
+    this.keyMemo.set(rb, { model, key });
+    return key;
+  }
 
   peek(e: Entity): SpriteCanvas | null {
     const rb = this.rbOf(e); if (!rb) return null;

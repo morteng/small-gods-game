@@ -66,4 +66,16 @@ describe('GeneratedBuildingArtSource', () => {
     src.warm(entity('cottage')); src.warm(entity('cottage'));
     await vi.waitFor(() => expect(generate).toHaveBeenCalledTimes(1));
   });
+
+  it('blueprints with identical content but different key order share one generation', async () => {
+    const { src, generate } = makeSource();
+    const a = { id: 'b1', kind: 'cottage', x: 0, y: 0,
+      properties: { blueprint: { rb: { preset: 'cottage', footprint: { w: 2, h: 2 } } } } } as unknown as Entity;
+    const b = { id: 'b2', kind: 'cottage', x: 1, y: 1,
+      properties: { blueprint: { rb: { footprint: { h: 2, w: 2 }, preset: 'cottage' } } } } as unknown as Entity;
+    src.warm(a); src.warm(b);
+    await vi.waitFor(() => expect(src.peek(a)).not.toBeNull());
+    await vi.waitFor(() => expect(src.peek(b)).not.toBeNull());
+    expect(generate).toHaveBeenCalledTimes(1);
+  });
 });

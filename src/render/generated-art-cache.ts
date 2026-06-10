@@ -36,9 +36,27 @@ function openDb(): Promise<IDBDatabase> {
   });
 }
 
-/** Stable string key: recipe version + model id + djb2 hash of blueprint identity. */
-export function generatedArtKey(rbJson: string, model: string): string {
-  return `${ART_RECIPE_VERSION}:${model}:${djb2(rbJson)}`;
+/**
+ * Deterministic JSON with recursively sorted object keys, so key identity never
+ * depends on property insertion order (a refactor reordering blueprint fields must
+ * not invalidate — or re-bill — the entire art library).
+ */
+export function canonicalJson(v: unknown): string {
+  if (v === null || typeof v !== 'object') return JSON.stringify(v);
+  if (Array.isArray(v)) return `[${v.map(canonicalJson).join(',')}]`;
+  const keys = Object.keys(v as Record<string, unknown>).sort();
+  return `{${keys.map(k => `${JSON.stringify(k)}:${canonicalJson((v as Record<string, unknown>)[k])}`).join(',')}}`;
+}
+
+/**
+ * Stable string key: recipe version + model id + footprint dims + djb2 hash of the
+ * blueprint identity (pass `canonicalJson(rb)`). The footprint rides along in clear
+ * text as a collision discriminator — djb2 is 32-bit, and a silent collision would
+ * show the wrong building's art.
+ */
+export function generatedArtKey(rbJson: string, model: string, footprint?: { w: number; h: number }): string {
+  const fp = footprint ? `${footprint.w}x${footprint.h}:` : '';
+  return `${ART_RECIPE_VERSION}:${model}:${fp}${djb2(rbJson)}`;
 }
 function djb2(s: string): string {
   let h = 5381;
