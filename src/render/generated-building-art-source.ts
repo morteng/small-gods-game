@@ -1,9 +1,14 @@
 // Runtime source of img2img-generated building sprites. Mirrors
 // ParametricBuildingSource's peek/warm contract: peek() is the sync frame read,
 // warm() kicks generation off the frame path (≤ once per cache key). Pipeline:
-// blueprint → grey init → OpenRouter img2img → IndexedDB cache → sprite canvas.
-// Any failure / disabled / over-budget caches null so the renderer falls back to
-// the grey parametric sprite. Never throws on the frame path.
+// blueprint → magenta-backed init → OpenRouter img2img → chroma-key → VALIDATE
+// (border keyed + silhouette IoU vs the geometry mask) → register onto the
+// geometry grid (geometry alpha is authoritative; the LLM contributes colour
+// only) → palette quantize → persist the PROCESSED sprite + companion PBR maps.
+// Validation runs BEFORE cachePut so a bad generation can never poison the
+// generate-once IndexedDB cache: it gets one retry, then a session-only null
+// (renderer falls back to the grey parametric sprite). Never throws on the
+// frame path.
 import type { Entity } from '@/core/types';
 import { blueprintOf } from '@/blueprint/entity';
 import type { ResolvedBlueprint } from '@/blueprint/types';
@@ -12,9 +17,31 @@ import { composeStructure } from '@/assetgen/compose';
 import { toGeometry } from '@/blueprint/compile/to-geometry';
 import { greyToDataUri } from '@/render/iso/sprite-canvas';
 import { buildingImagePrompt } from '@/assetgen/building-image-prompt';
-import { compositeOverChroma } from '@/render/chroma-key';
-import { buildingSpriteTargetWidth, blobToBuildingSprite } from '@/render/blob-to-building-sprite';
+import { chromaKeyMagenta, compositeOverChroma } from '@/render/chroma-key';
 import { canonicalJson, generatedArtKey, readGeneratedArt, writeGeneratedArt } from '@/render/generated-art-cache';
+import {
+  type Raster, cropRaster, borderKeyedFraction, registerAlbedo, quantizePalette,
+} from '@/render/sprite-postprocess';
+import { decodePngToRaster, rasterToSpriteCanvas, rasterToPngBlob } from '@/render/sprite-codec';
+
+/** Minimum fraction of the LLM image's border ring that must key out (did the model obey the chroma background?). */
+export const MIN_BORDER_KEYED = 0.6;
+/** Minimum silhouette agreement (alpha IoU after crop+scale normalisation) vs the geometry mask. */
+export const MIN_SILHOUETTE_IOU = 0.8;
+/** Palette size for the final quantize pass (look cohesion + clean banding later). */
+export const QUANT_COLORS = 64;
+/** Paid generation attempts per building before giving up for the session. */
+const MAX_ATTEMPTS = 2;
+
+/** Everything the geometry side contributes to one generation. */
+export interface ProducedPack {
+  initDataUri: string;
+  /** Geometry alpha cropped to its opaque bbox — the authoritative sprite grid. */
+  mask: Raster;
+  /** Companion PBR maps, same crop, PNG-encoded. Absent where canvas is unavailable. */
+  normal?: Blob; material?: Blob; emissive?: Blob;
+  anchors?: string;
+}
 
 export interface GeneratedSourceDeps {
   enabled: () => boolean;
@@ -25,11 +52,15 @@ export interface GeneratedSourceDeps {
   generate: (initDataUri: string, prompt: string, signal?: AbortSignal) => Promise<Blob>;
   // Seams below default to the real pipeline; overridden in tests.
   prompt?: (rb: ResolvedBlueprint) => string;
-  initDataUri?: (rb: ResolvedBlueprint) => Promise<string>;
-  targetWidth?: (rb: ResolvedBlueprint) => number;
+  produce?: (rb: ResolvedBlueprint) => Promise<ProducedPack>;
+  decodeImage?: (blob: Blob) => Promise<Raster | null>;
+  encodeRaster?: (r: Raster) => Promise<Blob | null>;
+  rasterToSprite?: (r: Raster) => SpriteCanvas | null;
   cacheGet?: (key: string) => Promise<{ blob: Blob; targetWidth: number } | null>;
-  cachePut?: (key: string, blob: Blob, meta: { model: string; prompt: string; targetWidth: number }) => Promise<void>;
-  decode?: (blob: Blob, targetWidth: number) => Promise<SpriteCanvas | null>;
+  cachePut?: (key: string, blob: Blob, meta: {
+    model: string; prompt: string; targetWidth: number;
+    normal?: Blob; material?: Blob; emissive?: Blob; anchors?: string;
+  }) => Promise<void>;
 }
 
 export class GeneratedBuildingArtSource {
@@ -41,18 +72,32 @@ export class GeneratedBuildingArtSource {
   constructor(deps: GeneratedSourceDeps) {
     this.d = {
       prompt: (rb) => buildingImagePrompt(rb, deps.model()),
-      initDataUri: async (rb) => {
+      produce: async (rb) => {
         const r = await composeStructure(toGeometry(rb));
         // Magenta init background: the model mirrors the reference image's
         // background far more reliably than the text prompt's demand for it.
         const uri = greyToDataUri(compositeOverChroma(r.grey), r.size);
         if (!uri) throw new Error('no canvas for init image');
-        return uri;
+        const bb = {
+          x: Math.round(r.bbox.x), y: Math.round(r.bbox.y),
+          w: Math.max(1, Math.round(r.bbox.w)), h: Math.max(1, Math.round(r.bbox.h)),
+        };
+        const full = (buf: Uint8ClampedArray): Raster => ({ data: buf, w: r.size, h: r.size });
+        const enc = (buf: Uint8ClampedArray) => rasterToPngBlob(cropRaster(full(buf), bb));
+        return {
+          initDataUri: uri,
+          mask: cropRaster(full(r.grey), bb),
+          normal: await enc(r.normal) ?? undefined,
+          material: await enc(r.material) ?? undefined,
+          emissive: await enc(r.emissive) ?? undefined,
+          anchors: JSON.stringify(r.anchors),
+        };
       },
-      targetWidth: (rb) => buildingSpriteTargetWidth(rb.footprint),
+      decodeImage: (b) => decodePngToRaster(b),
+      encodeRaster: (r) => rasterToPngBlob(r),
+      rasterToSprite: (r) => rasterToSpriteCanvas(r),
       cacheGet: (k) => readGeneratedArt(k),
       cachePut: (k, b, m) => writeGeneratedArt(k, b, m),
-      decode: (b, w) => blobToBuildingSprite(b, w),
       ...deps,
     } as Required<GeneratedSourceDeps>;
   }
@@ -78,28 +123,72 @@ export class GeneratedBuildingArtSource {
 
   warm(e: Entity): void {
     const rb = this.rbOf(e); if (!rb) return;
-    const key = this.keyOf(rb);            // cheap; no prompt/toBrief on the frame path
+    const key = this.keyOf(rb);            // memoized; no stringify on the frame path
     if (this.cache.has(key) || this.inflight.has(key)) return;
     if (!this.d.enabled()) { return; } // not cached: re-evaluate if toggled on later
     this.inflight.add(key);
     void this.run(rb, key).finally(() => this.inflight.delete(key));
   }
 
+  /** Warn once per key — generation problems repeat per attempt and per session. */
+  private note(key: string, msg: string): void {
+    if (this.warned.has(key)) return;
+    this.warned.add(key);
+    console.warn(`[generated-building] ${msg}`);
+  }
+
+  /**
+   * One paid attempt: generate → decode → key → gate. Returns the registered,
+   * quantized sprite, or null when the result fails a quality gate (caller may
+   * retry — the model is nondeterministic). Throws when the image cannot be
+   * decoded at all: that is environmental, so retrying would only burn spend.
+   */
+  private async attempt(pack: ProducedPack, prompt: string, key: string, n: number): Promise<Raster | null> {
+    const blob = await this.d.generate(pack.initDataUri, prompt);
+    const raw = await this.d.decodeImage(blob);
+    if (!raw) throw new Error('generated image could not be decoded');
+    chromaKeyMagenta(raw.data);
+    const border = borderKeyedFraction(raw);
+    if (border < MIN_BORDER_KEYED) {
+      this.note(key, `attempt ${n}: background did not key out (ring ${border.toFixed(2)} < ${MIN_BORDER_KEYED})`);
+      return null;
+    }
+    const reg = registerAlbedo(raw, pack.mask);
+    if (!reg) { this.note(key, `attempt ${n}: nothing survived chroma keying`); return null; }
+    if (reg.iou < MIN_SILHOUETTE_IOU) {
+      this.note(key, `attempt ${n}: silhouette IoU ${reg.iou.toFixed(2)} < ${MIN_SILHOUETTE_IOU}`);
+      return null;
+    }
+    return quantizePalette(reg.sprite, QUANT_COLORS);
+  }
+
   private async run(rb: ResolvedBlueprint, key: string): Promise<void> {
-    const targetWidth = this.d.targetWidth(rb);
     try {
       const hit = await this.d.cacheGet(key);
-      if (hit) { this.cache.set(key, await this.d.decode(hit.blob, hit.targetWidth)); return; }
+      if (hit) {
+        // The cached blob is the already-processed sprite at final resolution.
+        const r = await this.d.decodeImage(hit.blob);
+        this.cache.set(key, r ? this.d.rasterToSprite(r) : null);
+        return;
+      }
       // Over budget: cache null so we DON'T re-enter run() (and re-read IDB) every
       // frame for this building. Session spend only ever rises, so retrying within
       // the session is pointless; a reload clears this in-mem cache and resets the
       // session counter, so genuinely-uncached buildings regenerate then.
       if (!this.d.canSpend()) { this.cache.set(key, null); return; }
       const prompt = this.d.prompt(rb);    // computed lazily — only when actually generating
-      const initDataUri = await this.d.initDataUri(rb);
-      const blob = await this.d.generate(initDataUri, prompt);
-      await this.d.cachePut(key, blob, { model: this.d.model(), prompt, targetWidth });
-      this.cache.set(key, await this.d.decode(blob, targetWidth));
+      const pack = await this.d.produce(rb);
+      let sprite: Raster | null = null;
+      for (let n = 1; n <= MAX_ATTEMPTS && !sprite; n++) sprite = await this.attempt(pack, prompt, key, n);
+      if (!sprite) { this.cache.set(key, null); return; } // session-only null; the IDB cache stays clean
+      const png = await this.d.encodeRaster(sprite);
+      if (png) {
+        await this.d.cachePut(key, png, {
+          model: this.d.model(), prompt, targetWidth: sprite.w,
+          normal: pack.normal, material: pack.material, emissive: pack.emissive, anchors: pack.anchors,
+        });
+      }
+      this.cache.set(key, this.d.rasterToSprite(sprite));
     } catch (err) {
       if (!this.warned.has(key)) { console.warn('[generated-building] generation failed', err); this.warned.add(key); }
       this.cache.set(key, null);

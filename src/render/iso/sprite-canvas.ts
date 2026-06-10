@@ -5,7 +5,7 @@ import type { BBox } from '@/assetgen/render/fit';
 
 export type SpriteCanvas = HTMLCanvasElement | OffscreenCanvas;
 
-function makeCanvas(w: number, h: number): SpriteCanvas | null {
+export function makeCanvas(w: number, h: number): SpriteCanvas | null {
   if (typeof OffscreenCanvas !== 'undefined') return new OffscreenCanvas(w, h);
   if (typeof document !== 'undefined') {
     const c = document.createElement('canvas'); c.width = w; c.height = h; return c;

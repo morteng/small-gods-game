@@ -1,5 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { GeneratedBuildingArtSource } from '@/render/generated-building-art-source';
+import type { Raster } from '@/render/sprite-postprocess';
+import { CHROMA_RGB } from '@/render/chroma-key';
 import type { Entity } from '@/core/types';
 
 const SPRITE = {} as unknown as HTMLCanvasElement; // opaque stand-in
@@ -8,17 +10,48 @@ function entity(seed: string): Entity {
     properties: { blueprint: { rb: { preset: seed, footprint: { w: 2, h: 2 } } } } } as unknown as Entity;
 }
 
+function raster(w: number, h: number, fill: [number, number, number, number]): Raster {
+  const r: Raster = { data: new Uint8ClampedArray(w * h * 4), w, h };
+  for (let i = 0; i < w * h; i++) r.data.set(fill, i * 4);
+  return r;
+}
+const MAGENTA: [number, number, number, number] = [...CHROMA_RGB, 255] as [number, number, number, number];
+
+/** A well-behaved LLM result: magenta ring (keys out), solid red building inside. */
+function goodLlm(): Raster {
+  const r = raster(8, 8, MAGENTA);
+  for (let y = 1; y < 7; y++) for (let x = 1; x < 7; x++) r.data.set([200, 40, 30, 255], (y * 8 + x) * 4);
+  return r;
+}
+/** Model ignored the chroma demand: opaque scenery to every edge. */
+function opaqueBgLlm(): Raster { return raster(8, 8, [200, 40, 30, 255]); }
+/** Model returned pure background: nothing survives keying. */
+function emptyLlm(): Raster { return raster(8, 8, MAGENTA); }
+/** Building drawn with a quadrant missing → silhouette IoU 0.75 vs the square mask. */
+function lShapeLlm(): Raster {
+  const r = goodLlm();
+  for (let y = 1; y < 4; y++) for (let x = 4; x < 7; x++) r.data.set(MAGENTA, (y * 8 + x) * 4);
+  return r;
+}
+
+const mask4 = (): Raster => raster(4, 4, [0, 0, 0, 255]);
+
 function makeSource(over = {}) {
   const generate = vi.fn(async () => new Blob([new Uint8Array([1])], { type: 'image/png' }));
+  const cachePut = vi.fn(async () => {});
+  const encoded = new Blob([new Uint8Array([7])], { type: 'image/png' });
   const src = new GeneratedBuildingArtSource({
     enabled: () => true, canSpend: () => true, model: () => 'm',
-    prompt: () => 'P', initDataUri: async () => 'data:image/png;base64,AA',
-    targetWidth: () => 256, generate,
-    cacheGet: async () => null, cachePut: async () => {},
-    decode: async () => SPRITE,
+    prompt: () => 'P',
+    produce: async () => ({ initDataUri: 'data:image/png;base64,AA', mask: mask4(), anchors: '{"vents":[]}' }),
+    decodeImage: async () => goodLlm(),
+    encodeRaster: async () => encoded,
+    rasterToSprite: () => SPRITE,
+    generate,
+    cacheGet: async () => null, cachePut,
     ...over,
   });
-  return { src, generate };
+  return { src, generate, cachePut, encoded };
 }
 
 describe('GeneratedBuildingArtSource', () => {
@@ -77,5 +110,70 @@ describe('GeneratedBuildingArtSource', () => {
     await vi.waitFor(() => expect(src.peek(a)).not.toBeNull());
     await vi.waitFor(() => expect(src.peek(b)).not.toBeNull());
     expect(generate).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('GeneratedBuildingArtSource validation gate', () => {
+  it('persists the PROCESSED sprite (not the raw LLM blob) with the companion pack', async () => {
+    const normal = new Blob([new Uint8Array([2])]);
+    const { src, cachePut, encoded } = makeSource({
+      produce: async () => ({ initDataUri: 'data:image/png;base64,AA', mask: mask4(), normal, anchors: '{"vents":[]}' }),
+    });
+    const e = entity('cottage'); src.warm(e);
+    await vi.waitFor(() => expect(src.peek(e)).toBe(SPRITE));
+    expect(cachePut).toHaveBeenCalledTimes(1);
+    const [, blob, meta] = cachePut.mock.calls[0] as unknown as [string, Blob, { targetWidth: number; normal?: Blob; anchors?: string }];
+    expect(blob).toBe(encoded);          // the registered/quantized PNG, not generate()'s output
+    expect(meta.targetWidth).toBe(4);    // sprite is on the geometry mask grid
+    expect(meta.normal).toBe(normal);
+    expect(meta.anchors).toBe('{"vents":[]}');
+  });
+
+  it('rejects an opaque background (border did not key): retries once, never persists', async () => {
+    const { src, generate, cachePut } = makeSource({ decodeImage: async () => opaqueBgLlm() });
+    const e = entity('cottage'); src.warm(e);
+    await vi.waitFor(() => expect(generate).toHaveBeenCalledTimes(2));
+    expect(src.peek(e)).toBeNull();
+    expect(cachePut).not.toHaveBeenCalled();
+  });
+
+  it('rejects an all-background result (nothing survives keying): retries once, never persists', async () => {
+    const { src, generate, cachePut } = makeSource({ decodeImage: async () => emptyLlm() });
+    const e = entity('cottage'); src.warm(e);
+    await vi.waitFor(() => expect(generate).toHaveBeenCalledTimes(2));
+    expect(src.peek(e)).toBeNull();
+    expect(cachePut).not.toHaveBeenCalled();
+  });
+
+  it('rejects a silhouette mismatch below the IoU gate', async () => {
+    const { src, generate, cachePut } = makeSource({ decodeImage: async () => lShapeLlm() });
+    const e = entity('cottage'); src.warm(e);
+    await vi.waitFor(() => expect(generate).toHaveBeenCalledTimes(2));
+    expect(src.peek(e)).toBeNull();
+    expect(cachePut).not.toHaveBeenCalled();
+  });
+
+  it('a failed first attempt that succeeds on retry is persisted', async () => {
+    let call = 0;
+    const { src, generate, cachePut } = makeSource({
+      decodeImage: async () => (++call === 1 ? opaqueBgLlm() : goodLlm()),
+    });
+    const e = entity('cottage'); src.warm(e);
+    await vi.waitFor(() => expect(src.peek(e)).toBe(SPRITE));
+    expect(generate).toHaveBeenCalledTimes(2);
+    expect(cachePut).toHaveBeenCalledTimes(1);
+  });
+
+  it('an undecodable image fails immediately (no paid retry), never persists', async () => {
+    const { src, generate, cachePut } = makeSource({ decodeImage: async () => null });
+    const e = entity('cottage'); src.warm(e);
+    await vi.waitFor(() => expect(generate).toHaveBeenCalledTimes(1));
+    // Let run() settle, then confirm the failure was cached: a re-warm is a no-op.
+    await vi.waitFor(async () => {
+      src.warm(e); await Promise.resolve();
+      expect(generate).toHaveBeenCalledTimes(1);
+    });
+    expect(src.peek(e)).toBeNull();
+    expect(cachePut).not.toHaveBeenCalled();
   });
 });

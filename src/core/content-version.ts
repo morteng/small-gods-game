@@ -7,13 +7,15 @@
  * Bump when building/asset GENERATION changes (geometry, metric scale, blueprint
  * output). A baked sprite whose `recipeVersion` differs from this is treated as
  * STALE and skipped, so the live parametric generator renders instead.
- * Regenerate the PixelLab base library at the new version to let baked art win
- * again. Started at 'v2' to retire the 'v1' baked art left metrically wrong by
- * the metric-scale standardization. Bumped to 'v3' for the chroma-key sprite
- * pipeline (magenta-background img2img + keyed alpha + stored normal/anchors),
- * which invalidates every v2 runtime-generated sprite so they regenerate cleanly.
+ * Regenerate the base library at the new version to let baked art win again.
+ * History: 'v2' retired the 'v1' baked art left metrically wrong by the
+ * metric-scale standardization; 'v3' was the chroma-key sprite pipeline
+ * (magenta-background img2img + keyed alpha); 'v4' changes the CACHED FORMAT —
+ * the stored blob is now the processed sprite (keyed + registered to the
+ * geometry mask + quantized, at final resolution) rather than the raw LLM PNG,
+ * with validation gating what gets persisted at all.
  */
-export const ART_RECIPE_VERSION = 'v3';
+export const ART_RECIPE_VERSION = 'v4';
 
 /**
  * Bump when WORLDGEN / preset output changes (footprints, placement, heights).
