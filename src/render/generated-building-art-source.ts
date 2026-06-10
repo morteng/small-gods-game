@@ -59,6 +59,8 @@ export interface GeneratedSourceDeps {
   encodeRaster?: (r: Raster) => Promise<Blob | null>;
   rasterToSprite?: (r: Raster) => SpriteCanvas | null;
   cacheGet?: (key: string) => Promise<{ blob: Blob; targetWidth: number } | null>;
+  /** Vendored no-key base library (public/asset-library/building-sprites/) — consulted after IDB, before paying. */
+  baseGet?: (key: string) => Promise<{ blob: Blob; targetWidth: number } | null>;
   cachePut?: (key: string, blob: Blob, meta: {
     model: string; prompt: string; targetWidth: number;
     normal?: Blob; material?: Blob; emissive?: Blob; anchors?: string;
@@ -99,6 +101,7 @@ export class GeneratedBuildingArtSource {
       encodeRaster: (r) => rasterToPngBlob(r),
       rasterToSprite: (r) => rasterToSpriteCanvas(r),
       cacheGet: (k) => readGeneratedArt(k),
+      baseGet: (k) => this.fetchFromBaseLibrary(k),
       cachePut: (k, b, m) => writeGeneratedArt(k, b, m),
       ...deps,
     } as Required<GeneratedSourceDeps>;
@@ -130,6 +133,31 @@ export class GeneratedBuildingArtSource {
     if (!this.d.enabled()) { return; } // not cached: re-evaluate if toggled on later
     this.inflight.add(key);
     void this.run(rb, key).finally(() => this.inflight.delete(key));
+  }
+
+  // Vendored base library: a manifest of pre-generated sprites shipped with the
+  // site (seeded by scripts/seed-building-art.ts through the SAME pipeline + key
+  // derivation), so keyless players get real art without paying. Fetched lazily,
+  // once; any failure degrades to "no base library".
+  private baseManifest: Promise<Record<string, { file: string; targetWidth: number }> | null> | null = null;
+  private async fetchFromBaseLibrary(key: string): Promise<{ blob: Blob; targetWidth: number } | null> {
+    if (typeof fetch === 'undefined') return null;
+    try {
+      this.baseManifest ??= (async () => {
+        const { assetUrl } = await import('@/core/asset-url');
+        const resp = await fetch(assetUrl('asset-library/building-sprites/manifest.json'));
+        if (!resp.ok) return null;
+        const json = await resp.json() as { entries?: Record<string, { file: string; targetWidth: number }> };
+        return json.entries ?? null;
+      })().catch(() => null);
+      const entries = await this.baseManifest;
+      const entry = entries?.[key];
+      if (!entry) return null;
+      const { assetUrl } = await import('@/core/asset-url');
+      const resp = await fetch(assetUrl(`asset-library/building-sprites/${entry.file}`));
+      if (!resp.ok) return null;
+      return { blob: await resp.blob(), targetWidth: entry.targetWidth };
+    } catch { return null; }
   }
 
   // Tiny semaphore around the NETWORK step only (IDB reads + local raster work
@@ -185,9 +213,10 @@ export class GeneratedBuildingArtSource {
 
   private async run(rb: ResolvedBlueprint, key: string): Promise<void> {
     try {
-      const hit = await this.d.cacheGet(key);
+      // IDB first (paid results), then the vendored base library — both hold the
+      // already-processed sprite at final resolution.
+      const hit = await this.d.cacheGet(key) ?? await this.d.baseGet(key);
       if (hit) {
-        // The cached blob is the already-processed sprite at final resolution.
         const r = await this.d.decodeImage(hit.blob);
         this.cache.set(key, r ? this.d.rasterToSprite(r) : null);
         return;

@@ -8,15 +8,12 @@
 //
 // Re-runnable: it rewrites manifest.ndjson + blobs from the row tables.
 //
-// Decorations are inline. Buildings come from tmp/building-seed.json (written by
-// scripts/gen-buildings.ts) when present — those carry the prompt-generation
-// system's compiled prompt + native size + recipe/guidance/palette so keys match
-// the in-app request shape. If the sidecar is ABSENT, NO buildings are seeded:
-// the iso renderer then falls back to the parametric placeholder massing
-// (drawIsoBuildingMassing), which is the intended pre-generation state. The old
-// 128² building art was deprecated (2026-06-06) — regenerate via gen-buildings.ts.
+// DECORATIONS ONLY. Building sprites moved to their own unified pipeline:
+// scripts/seed-building-art.ts seeds public/asset-library/building-sprites/
+// through the SAME geometry→img2img→validate→register pipeline the game runs
+// (the PixelLab building path was retired with the Blueprint epic).
 
-import { readFile, writeFile, mkdir, access } from 'node:fs/promises';
+import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -25,7 +22,6 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SRC = join(ROOT, 'tmp/pixellab-probe');
 const LIB = join(ROOT, 'public/asset-library');
 const BLOBS = join(LIB, 'blobs');
-const BUILDING_SIDECAR = join(ROOT, 'tmp/building-seed.json');
 
 // Frozen recipe — must match STYLE_RECIPE + RECIPE_V in src/services/pixellab.ts.
 const RECIPE_V = 'v1';
@@ -50,18 +46,6 @@ const DECORATIONS = [
     kind: 'decoration', tags: ['flower', 'wildflower'], affinity: { biome: ['grassland', 'meadow'] } },
 ];
 
-async function loadBuildings() {
-  try {
-    await access(BUILDING_SIDECAR);
-    const rows = JSON.parse(await readFile(BUILDING_SIDECAR, 'utf8'));
-    console.log(`using ${rows.length} building rows from tmp/building-seed.json`);
-    return rows;
-  } catch {
-    console.log('tmp/building-seed.json absent — seeding NO buildings (placeholder massing renders in-game). Run scripts/gen-buildings.ts to regenerate.');
-    return [];
-  }
-}
-
 /** Reproduce buildCacheKeyInput() from pixellab.ts exactly (field order matters). */
 function keyFor(m) {
   const base = {
@@ -82,7 +66,7 @@ function keyFor(m) {
 
 await mkdir(BLOBS, { recursive: true });
 
-const SEED = [...DECORATIONS, ...(await loadBuildings())];
+const SEED = DECORATIONS;
 
 let manifest = '';
 for (const m of SEED) {

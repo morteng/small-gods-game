@@ -70,6 +70,16 @@ describe('GeneratedBuildingArtSource', () => {
     expect(generate).not.toHaveBeenCalled();
   });
 
+  it('serves a vendored base-library hit without paying (IDB miss, base hit)', async () => {
+    const baseGet = vi.fn(async () => ({ blob: new Blob(), targetWidth: 256 }));
+    const { src, generate, cachePut } = makeSource({ cacheGet: async () => null, baseGet });
+    const e = entity('cottage'); src.warm(e);
+    await vi.waitFor(() => expect(src.peek(e)).toBe(SPRITE));
+    expect(baseGet).toHaveBeenCalledTimes(1);
+    expect(generate).not.toHaveBeenCalled();
+    expect(cachePut).not.toHaveBeenCalled(); // static library stays the source of truth
+  });
+
   it('does not generate when disabled or over budget → peek stays null', async () => {
     const a = makeSource({ enabled: () => false });
     const b = makeSource({ canSpend: () => false });
