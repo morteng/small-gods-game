@@ -32,6 +32,8 @@ export const MIN_SILHOUETTE_IOU = 0.8;
 export const QUANT_COLORS = 64;
 /** Paid generation attempts per building before giving up for the session. */
 const MAX_ATTEMPTS = 2;
+/** Concurrent paid generations — first sight of a settlement must not fire one request per building (429s, spend spikes). */
+const MAX_CONCURRENT_GENERATIONS = 2;
 
 /** Everything the geometry side contributes to one generation. */
 export interface ProducedPack {
@@ -130,6 +132,25 @@ export class GeneratedBuildingArtSource {
     void this.run(rb, key).finally(() => this.inflight.delete(key));
   }
 
+  // Tiny semaphore around the NETWORK step only (IDB reads + local raster work
+  // stay unbounded): excess generations queue and run as slots free up.
+  private genActive = 0;
+  private readonly genQueue: Array<() => void> = [];
+  private async withGenSlot<T>(fn: () => Promise<T>): Promise<T> {
+    if (this.genActive >= MAX_CONCURRENT_GENERATIONS) {
+      // Wait to INHERIT a slot — the releaser hands it over without decrementing,
+      // so a fresh caller can never jump the queue and overshoot the cap.
+      await new Promise<void>(res => this.genQueue.push(res));
+    } else {
+      this.genActive++;
+    }
+    try { return await fn(); }
+    finally {
+      const next = this.genQueue.shift();
+      if (next) next(); else this.genActive--;
+    }
+  }
+
   /** Warn once per key — generation problems repeat per attempt and per session. */
   private note(key: string, msg: string): void {
     if (this.warned.has(key)) return;
@@ -144,7 +165,7 @@ export class GeneratedBuildingArtSource {
    * decoded at all: that is environmental, so retrying would only burn spend.
    */
   private async attempt(pack: ProducedPack, prompt: string, key: string, n: number): Promise<Raster | null> {
-    const blob = await this.d.generate(pack.initDataUri, prompt);
+    const blob = await this.withGenSlot(() => this.d.generate(pack.initDataUri, prompt));
     const raw = await this.d.decodeImage(blob);
     if (!raw) throw new Error('generated image could not be decoded');
     chromaKeyMagenta(raw.data);

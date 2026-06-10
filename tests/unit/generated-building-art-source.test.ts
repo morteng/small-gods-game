@@ -164,6 +164,24 @@ describe('GeneratedBuildingArtSource validation gate', () => {
     expect(cachePut).toHaveBeenCalledTimes(1);
   });
 
+  it('limits concurrent paid generations (a settlement does not fire one request per building)', async () => {
+    let active = 0, maxActive = 0;
+    const releases: Array<() => void> = [];
+    const generate = vi.fn((_init: string, _prompt: string) => new Promise<Blob>(res => {
+      active++; maxActive = Math.max(maxActive, active);
+      releases.push(() => { active--; res(new Blob([new Uint8Array([1])], { type: 'image/png' })); });
+    }));
+    const { src } = makeSource({ generate });
+    for (const preset of ['cottage', 'tavern', 'tower', 'shrine']) src.warm(entity(preset));
+    await vi.waitFor(() => expect(generate).toHaveBeenCalledTimes(2));
+    await Promise.resolve(); // give any extra (unwanted) generations a chance to start
+    expect(maxActive).toBe(2);
+    while (releases.length) releases.shift()!();
+    await vi.waitFor(() => expect(generate).toHaveBeenCalledTimes(4));
+    expect(maxActive).toBe(2);
+    while (releases.length) releases.shift()!();
+  });
+
   it('an undecodable image fails immediately (no paid retry), never persists', async () => {
     const { src, generate, cachePut } = makeSource({ decodeImage: async () => null });
     const e = entity('cottage'); src.warm(e);
