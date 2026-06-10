@@ -17,6 +17,18 @@ describe('generated-art-cache', () => {
   it('returns null on miss', async () => {
     expect(await readGeneratedArt('absent')).toBeNull();
   });
+
+  it('round-trips the full PBR pack', async () => {
+    const mk = (b: number) => new Blob([new Uint8Array([b])], { type: 'image/png' });
+    await writeGeneratedArt('k2', mk(1), {
+      model: 'm', prompt: 'p', targetWidth: 256,
+      normal: mk(2), material: mk(3), emissive: mk(4), anchors: '{"doors":[]}',
+    });
+    const got = await readGeneratedArt('k2');
+    expect(await got!.material!.arrayBuffer()).toEqual(await mk(3).arrayBuffer());
+    expect(await got!.emissive!.arrayBuffer()).toEqual(await mk(4).arrayBuffer());
+    expect(got!.anchors).toBe('{"doors":[]}');
+  });
 });
 
 describe('canonicalJson', () => {
