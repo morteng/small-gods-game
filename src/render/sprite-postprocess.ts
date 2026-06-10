@@ -3,10 +3,12 @@
 //
 // The pipeline these compose into (see registerAlbedo): the LLM repaints the
 // geometry init at ~4x resolution and only APPROXIMATELY preserves the
-// silhouette. The geometry alpha is authoritative — we scale the keyed LLM
-// output onto the geometry bbox grid, bleed its colours a few pixels outward,
-// then clip to the geometry mask. Alpha/normal/depth/albedo are co-registered
-// by construction; the LLM contributes colour only.
+// silhouette. Registration negotiates between the two: deep inside the
+// geometry silhouette the geometry is authoritative (disagreements are
+// flood-filled with neighbouring colour, never black), within a narrow band
+// around the silhouette edge the LLM's alpha wins (small embellishments and
+// notches it drew survive), and far outside the silhouette everything is
+// clipped. Normal/depth/AO stay co-registered because the band is narrow.
 
 export interface Raster { data: Uint8ClampedArray; w: number; h: number }
 
@@ -113,6 +115,41 @@ export function dilateColor(r: Raster, passes: number): Raster {
   return out;
 }
 
+/**
+ * Unbounded dilateColor: bleed colour outward from coloured pixels until every
+ * reachable uncoloured pixel has one, leaving alpha untouched. Replaces the old
+ * fixed-radius bleed — large geometry-vs-LLM disagreement regions previously
+ * ran out of dilation and shipped as opaque black.
+ */
+export function floodFillColor(r: Raster): Raster {
+  const out: Raster = { data: new Uint8ClampedArray(r.data), w: r.w, h: r.h };
+  const colored = new Uint8Array(r.w * r.h);
+  for (let i = 0; i < r.w * r.h; i++) colored[i] = out.data[i * 4 + 3] >= ALPHA_MIN ? 1 : 0;
+  for (let changed = true; changed; ) {
+    changed = false;
+    const next = new Uint8Array(colored);
+    for (let y = 0; y < r.h; y++) for (let x = 0; x < r.w; x++) {
+      const i = y * r.w + x;
+      if (colored[i]) continue;
+      let rs = 0, gs = 0, bs = 0, n = 0;
+      for (const [nx, ny] of [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]]) {
+        if (nx < 0 || ny < 0 || nx >= r.w || ny >= r.h) continue;
+        const j = ny * r.w + nx;
+        if (!colored[j]) continue;
+        rs += out.data[j * 4]; gs += out.data[j * 4 + 1]; bs += out.data[j * 4 + 2]; n++;
+      }
+      if (n > 0) {
+        out.data[i * 4] = Math.round(rs / n);
+        out.data[i * 4 + 1] = Math.round(gs / n);
+        out.data[i * 4 + 2] = Math.round(bs / n);
+        next[i] = 1; changed = true;
+      }
+    }
+    colored.set(next);
+  }
+  return out;
+}
+
 /** Colour from `albedo`, alpha from `mask` (must be same dimensions). */
 export function clipToMask(albedo: Raster, mask: Raster): Raster {
   if (albedo.w !== mask.w || albedo.h !== mask.h) throw new Error('clipToMask: dimension mismatch');
@@ -187,22 +224,77 @@ export function quantizePalette(r: Raster, maxColors: number, alphaMin = ALPHA_M
 
 export interface RegisterResult { sprite: Raster; iou: number }
 
+export interface RegisterOpts {
+  /**
+   * Half-width (px, on the mask grid) of the negotiation band around the
+   * geometry silhouette edge where the LLM's alpha wins. Default scales with
+   * sprite size (~4% of the short side). 0 = strictly geometry-authoritative.
+   */
+  band?: number;
+}
+
+/** Magenta-leaning colour = chroma-key bleed that survived keying, never building paint. */
+function isChromaTinted(r: number, g: number, b: number): boolean {
+  return r - g > 50 && b - g > 50;
+}
+
+/** Mask alpha as bits, optionally eroded/dilated by `n` (4-neighbour, Manhattan). */
+function maskBits(mask: Raster, n: number): Uint8Array {
+  let bits = new Uint8Array(mask.w * mask.h);
+  for (let i = 0; i < bits.length; i++) bits[i] = mask.data[i * 4 + 3] >= ALPHA_MIN ? 1 : 0;
+  for (let pass = 0; pass < Math.abs(n); pass++) {
+    const next = new Uint8Array(bits);
+    for (let y = 0; y < mask.h; y++) for (let x = 0; x < mask.w; x++) {
+      const i = y * mask.w + x;
+      let edge = false;
+      for (const [nx, ny] of [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]]) {
+        const out = nx < 0 || ny < 0 || nx >= mask.w || ny >= mask.h;
+        if ((out ? 0 : bits[ny * mask.w + nx]) !== bits[i]) { edge = true; break; }
+        if (out && bits[i]) { edge = true; break; }
+      }
+      if (edge) next[i] = n < 0 ? 0 : 1;
+    }
+    bits = next;
+  }
+  return bits;
+}
+
 /**
- * Register a keyed LLM repaint onto the geometry mask grid. The mask (the
- * geometry render's alpha, already cropped to its opaque bbox) is authoritative:
- * crop the LLM to its content, box-filter it (non-uniformly) onto the mask's
- * dimensions, bleed colours outward, clip to the mask. `iou` is the silhouette
- * agreement measured BEFORE dilation/clipping — the caller's quality gate.
- * Returns null when the LLM raster has no opaque content at all.
+ * Register a keyed LLM repaint onto the geometry mask grid: crop the LLM to its
+ * content, box-filter it (non-uniformly) onto the mask's dimensions, scrub
+ * chroma residue, then negotiate alpha — geometry wins deep inside (eroded
+ * core, holes flood-filled with neighbouring colour), the LLM wins within
+ * ±band of the silhouette edge, everything beyond the dilated mask is clipped.
+ * `iou` is the silhouette agreement measured BEFORE negotiation — the caller's
+ * quality gate. Returns null when the LLM raster has no opaque content at all.
  */
 export function registerAlbedo(
-  llmKeyed: Raster, mask: Raster,
-  opts: { dilatePasses?: number } = {},
+  llmKeyed: Raster, mask: Raster, opts: RegisterOpts = {},
 ): RegisterResult | null {
   const bb = opaqueBBox(llmKeyed);
   if (!bb) return null;
   const scaled = boxDownscale(cropRaster(llmKeyed, bb), mask.w, mask.h);
+  for (let i = 0; i < scaled.w * scaled.h; i++) {
+    const o = i * 4;
+    if (scaled.data[o + 3] >= ALPHA_MIN
+        && isChromaTinted(scaled.data[o], scaled.data[o + 1], scaled.data[o + 2])) {
+      scaled.data[o] = scaled.data[o + 1] = scaled.data[o + 2] = scaled.data[o + 3] = 0;
+    }
+  }
   const iou = alphaIoU(scaled, mask);
-  const dilated = dilateColor(scaled, opts.dilatePasses ?? 4);
-  return { sprite: clipToMask(dilated, mask), iou };
+  const band = opts.band ?? Math.round(Math.min(mask.w, mask.h) * 0.04);
+  const core = maskBits(mask, -band);
+  const outer = maskBits(mask, band);
+  const filled = floodFillColor(scaled);
+  const sprite: Raster = { data: new Uint8ClampedArray(mask.w * mask.h * 4), w: mask.w, h: mask.h };
+  for (let i = 0; i < mask.w * mask.h; i++) {
+    const o = i * 4;
+    const a = core[i] ? 255 : outer[i] ? scaled.data[o + 3] : 0;
+    if (a === 0) continue;
+    sprite.data[o] = filled.data[o];
+    sprite.data[o + 1] = filled.data[o + 1];
+    sprite.data[o + 2] = filled.data[o + 2];
+    sprite.data[o + 3] = a;
+  }
+  return { sprite, iou };
 }

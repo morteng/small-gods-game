@@ -2,7 +2,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   type Raster, opaqueBBox, cropRaster, boxDownscale, nearestScale,
-  dilateColor, clipToMask, alphaIoU, borderKeyedFraction, quantizePalette,
+  dilateColor, floodFillColor, clipToMask, alphaIoU, borderKeyedFraction, quantizePalette,
   registerAlbedo,
 } from '@/render/sprite-postprocess';
 
@@ -159,7 +159,7 @@ describe('registerAlbedo', () => {
     expect(getPx(res.sprite, 2, 2)).toEqual([200, 40, 30, 255]);
   });
 
-  it('fills mask pixels the LLM missed via dilation (no transparent holes)', () => {
+  it('fills mask pixels the LLM missed (no transparent holes, no black)', () => {
     // Mask is a full 4x4 square; the LLM drew an L (top-right quadrant missing).
     // Crop-to-content can't normalize that away — it's a real shape disagreement.
     const mask = raster(4, 4, [0, 0, 0, 255]);
@@ -168,14 +168,65 @@ describe('registerAlbedo', () => {
       if (y < 4 && x >= 4) continue; // missing corner
       setPx(llm, x, y, [10, 200, 10, 255]);
     }
-    const res = registerAlbedo(llm, mask, { dilatePasses: 8 })!;
+    const res = registerAlbedo(llm, mask, { band: 0 })!;
     expect(res.iou).toBeLessThan(1);
     const corner = getPx(res.sprite, 3, 0);  // in the mask, missing from the LLM
     expect(corner[3]).toBe(255);             // mask alpha wins
-    expect(corner.slice(0, 3)).toEqual([10, 200, 10]); // colour bled across
+    expect(corner.slice(0, 3)).toEqual([10, 200, 10]); // colour flood-filled across
   });
 
   it('returns null when the LLM raster is fully transparent', () => {
     expect(registerAlbedo(raster(4, 4), raster(2, 2, [0, 0, 0, 255]))).toBeNull();
+  });
+});
+
+describe('floodFillColor', () => {
+  it('fills arbitrarily distant uncoloured pixels from the nearest colour, alpha untouched', () => {
+    const r = raster(12, 1);
+    setPx(r, 0, 0, [200, 50, 25, 255]);
+    const out = floodFillColor(r);
+    expect(getPx(out, 11, 0)).toEqual([200, 50, 25, 0]); // 11px away — beyond any fixed dilate radius
+    expect(getPx(out, 0, 0)).toEqual([200, 50, 25, 255]);
+  });
+});
+
+describe('registerAlbedo — negotiation band (adapt to the artwork)', () => {
+  // 1:1-scale LLM rasters so boxDownscale is the identity and the band logic is isolated.
+
+  it('LLM transparency within the band wins: an edge notch survives clipping', () => {
+    const mask = raster(12, 12, [0, 0, 0, 255]);
+    const llm = raster(12, 12, [200, 40, 30, 255]);
+    // 2px-deep notch carved into the top edge (e.g. crenellation gap the LLM drew)
+    for (let y = 0; y < 2; y++) for (let x = 5; x < 7; x++) setPx(llm, x, y, [0, 0, 0, 0]);
+    const res = registerAlbedo(llm, mask, { band: 2 })!;
+    expect(getPx(res.sprite, 5, 0)[3]).toBe(0);   // notch kept
+    expect(getPx(res.sprite, 5, 5)[3]).toBe(255); // interior untouched
+  });
+
+  it('LLM additions just outside the silhouette survive within the band', () => {
+    const mask = raster(12, 12);
+    for (let y = 2; y < 10; y++) for (let x = 2; x < 10; x++) setPx(mask, x, y, [0, 0, 0, 255]);
+    const llm = raster(12, 12, [200, 40, 30, 255]); // overflows the 8x8 mask by 2px all round
+    const res = registerAlbedo(llm, mask, { band: 2 })!;
+    expect(getPx(res.sprite, 2, 0)[3]).toBe(255); // 2px above the mask edge — kept
+    expect(getPx(res.sprite, 0, 0)[3]).toBe(0);   // beyond the band — clipped
+  });
+
+  it('deep interior disagreement stays opaque and is flood-filled (never black)', () => {
+    const mask = raster(16, 16, [0, 0, 0, 255]);
+    const llm = raster(16, 16, [200, 40, 30, 255]);
+    for (let y = 5; y < 11; y++) for (let x = 5; x < 11; x++) setPx(llm, x, y, [0, 0, 0, 0]);
+    const res = registerAlbedo(llm, mask, { band: 2 })!;
+    const centre = getPx(res.sprite, 8, 8);
+    expect(centre[3]).toBe(255);
+    expect(centre.slice(0, 3)).toEqual([200, 40, 30]); // filled from surroundings, not black
+  });
+
+  it('chroma-tinted residue is scrubbed and refilled, never shipped', () => {
+    const mask = raster(8, 8, [0, 0, 0, 255]);
+    const llm = raster(8, 8, [200, 40, 30, 255]);
+    setPx(llm, 4, 4, [240, 60, 230, 255]); // magenta blend that survived keying
+    const res = registerAlbedo(llm, mask, { band: 0 })!;
+    expect(getPx(res.sprite, 4, 4)).toEqual([200, 40, 30, 255]);
   });
 });
