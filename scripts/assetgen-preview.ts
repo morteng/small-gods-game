@@ -59,30 +59,73 @@ function apertureCount(spec: StructureSpec): number {
   return spec.parts.reduce((n, p) => n + (('apertures' in p && p.apertures) ? p.apertures.length : 0), 0);
 }
 
-async function render(name: string, spec: StructureSpec, bundle: Record<string, { grey: string; normal: string }>) {
+const MAP_KEYS = ['grey', 'normal', 'material', 'emissive'] as const;
+type MapKey = typeof MAP_KEYS[number];
+interface Sample { name: string; size: number; maps: Record<MapKey, Uint8ClampedArray> }
+
+async function render(
+  name: string, spec: StructureSpec,
+  bundle: Record<string, Record<MapKey, string>>, samples: Sample[],
+) {
   // No size override: presets (size unset) render at their TRUE fixed-metric size, so the
   // gallery shows honest relative scale (a 4-storey keep dwarfs a 1-storey cottage).
   // Hand-authored PRIMS still carry their own explicit size.
   const r = await composeStructure(spec);
-  const grey = toPng(r.grey, r.size);
-  const normal = toPng(r.normal, r.size);
-  await writeFile(join(OUT, `${name}-grey.png`), grey);
-  await writeFile(join(OUT, `${name}-normal.png`), normal);
-  bundle[name] = { grey: dataUri(grey), normal: dataUri(normal) };
+  const maps: Record<MapKey, Uint8ClampedArray> = { grey: r.grey, normal: r.normal, material: r.material, emissive: r.emissive };
+  const uris = {} as Record<MapKey, string>;
+  for (const k of MAP_KEYS) {
+    const png = toPng(maps[k], r.size);
+    await writeFile(join(OUT, `${name}-${k}.png`), png);
+    uris[k] = dataUri(png);
+  }
+  bundle[name] = uris;
+  samples.push({ name, size: r.size, maps });
   console.log(`${name}: bbox ${JSON.stringify(r.bbox)} · apertures ${apertureCount(spec)} · door-leaves ${doorLeaves(spec)} · vents ${r.anchors.vents.length}`);
 }
 
+/** One row per sample, one column per map — a single eyeball-everything PNG. */
+function contactSheet(samples: Sample[]): Buffer {
+  const PAD = 8;
+  const cell = Math.max(...samples.map(s => s.size));
+  const W = PAD + MAP_KEYS.length * (cell + PAD);
+  const H = PAD + samples.length * (cell + PAD);
+  const sheet = new Uint8ClampedArray(W * H * 4);
+  // dark backdrop so transparent + emissive-black regions read
+  for (let i = 0; i < W * H; i++) sheet.set([24, 24, 28, 255], i * 4);
+  samples.forEach((s, row) => {
+    MAP_KEYS.forEach((k, col) => {
+      const ox = PAD + col * (cell + PAD) + ((cell - s.size) >> 1);
+      const oy = PAD + row * (cell + PAD) + ((cell - s.size) >> 1);
+      // material packs data in alpha (metallic) — show it wherever the SPRITE
+      // is opaque (grey's alpha), forced opaque, or the column reads as blank.
+      const src = s.maps[k];
+      const cover = k === 'grey' || k === 'normal' ? src : s.maps.grey;
+      for (let y = 0; y < s.size; y++) for (let x = 0; x < s.size; x++) {
+        const si = (y * s.size + x) * 4;
+        if (cover[si + 3] === 0) continue;
+        const di = ((oy + y) * W + ox + x) * 4;
+        sheet[di] = src[si]; sheet[di + 1] = src[si + 1]; sheet[di + 2] = src[si + 2]; sheet[di + 3] = 255;
+      }
+    });
+  });
+  const png = new PNG({ width: W, height: H });
+  png.data = Buffer.from(sheet.buffer, sheet.byteOffset, sheet.byteLength);
+  return PNG.sync.write(png);
+}
+
 async function main() {
-  const bundle: Record<string, { grey: string; normal: string }> = {};
+  const bundle: Record<string, Record<MapKey, string>> = {};
+  const samples: Sample[] = [];
   for (const name of PRESETS) {
     const rb = synthesizeBlueprint(name);
     if (!rb) { console.warn(`(skip ${name}: no preset)`); continue; }
-    await render(name, toGeometry(rb), bundle);
+    await render(name, toGeometry(rb), bundle, samples);
   }
-  for (const [name, spec] of Object.entries(PRIMS)) await render(name, spec, bundle);
+  for (const [name, spec] of Object.entries(PRIMS)) await render(name, spec, bundle, samples);
   // Embedded bundle so gallery.html relights via WebGL textures without a server (file:// CORS).
   await writeFile(join(OUT, 'assets-gallery.js'), `window.GALLERY = ${JSON.stringify(bundle)};\n`);
-  console.log(`Wrote grey+normal PNGs + assets-gallery.js for ${PRESETS.length + Object.keys(PRIMS).length} samples to ${OUT}/`);
+  await writeFile(join(OUT, 'contact-sheet.png'), contactSheet(samples));
+  console.log(`Wrote ${MAP_KEYS.join('/')} PNGs + contact-sheet.png + assets-gallery.js for ${samples.length} samples to ${OUT}/`);
 }
 
 main().catch(err => { console.error(err); process.exit(1); });
