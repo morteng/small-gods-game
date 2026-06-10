@@ -14,4 +14,10 @@ describe('composeStructure PBR maps', () => {
     const opaque = [...Array(r.size * r.size).keys()].find(i => r.grey[i * 4 + 3] === 255)!;
     expect(r.material[opaque * 4 + 3]).toBe(0); // stone metallic = 0
   });
+
+  it('records the raw view-depth range the per-sprite depth was normalised over', async () => {
+    const r = await composeStructure({ parts: [{ prim: 'box', at: [0, 0, 0], size: [2, 2, 2], material: 'stone' }] });
+    expect(r.meta.depthRange).toBeDefined();
+    expect(r.meta.depthRange!.hi).toBeGreaterThan(r.meta.depthRange!.lo); // a 3D box spans depth
+  });
 });

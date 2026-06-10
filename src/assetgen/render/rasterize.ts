@@ -106,16 +106,23 @@ export function rasterizeMaps(facets: ScreenFacet[], size: number): RasterMaps {
   return { albedo, normal, material, emissive, depthRaw: zbuf, size };
 }
 
-/** Normalise raw view-depth into material.R (0=far, 255=near) across the opaque range. */
-export function writeNormalisedDepth(maps: RasterMaps): void {
+/**
+ * Normalise raw view-depth into material.R (0=far, 255=near) across the opaque
+ * range. Returns the raw {lo,hi} span so callers can keep the metric scale —
+ * per-sprite normalisation is lossy, and inter-sprite lighting will want it back.
+ * Returns null for an all-empty buffer.
+ */
+export function writeNormalisedDepth(maps: RasterMaps): { lo: number; hi: number } | null {
   let lo = Infinity, hi = -Infinity;
   const z = maps.depthRaw;
   for (let i = 0; i < z.length; i++) { if (z[i] === -Infinity) continue; if (z[i] < lo) lo = z[i]; if (z[i] > hi) hi = z[i]; }
+  if (!isFinite(lo)) return null;
   const span = (hi - lo) || 1;
   for (let i = 0; i < z.length; i++) {
     if (z[i] === -Infinity) continue;
     maps.material[i * 4] = Math.round(((z[i] - lo) / span) * 255);
   }
+  return { lo, hi };
 }
 
 /**

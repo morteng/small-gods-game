@@ -9,7 +9,7 @@ import type { Wing, RoofStyle, BuildingFeatures, BuildingAnchors } from '@/asset
 import { linearFacets } from '@/assetgen/geometry/linear';
 import type { BarrierRun } from '@/world/barrier';
 import { projectFacets, project } from '@/assetgen/render/projection';
-import { rasterize, rasterizeMaps, writeNormalisedDepth } from '@/assetgen/render/rasterize';
+import { rasterizeMaps, writeNormalisedDepth } from '@/assetgen/render/rasterize';
 import { computeAO } from '@/assetgen/render/ao';
 import { computeFit, fixedFit, opaqueBounds, type BBox } from '@/assetgen/render/fit';
 
@@ -34,7 +34,11 @@ export interface DoorAnchorN extends NormAnchor { main: boolean }
  *  openings (Blueprint layer) and their pathing anchors live in the world-space `toAnchors`
  *  compiler, not in the sprite-space structure anchors. */
 export interface StructureAnchors { doors: DoorAnchorN[]; vents: NormAnchor[]; wallEnds?: NormAnchor[]; gates?: NormAnchor[] }
-export interface StructureMeta { bbox: BBox; anchors: StructureAnchors }
+export interface StructureMeta {
+  bbox: BBox; anchors: StructureAnchors;
+  /** Raw view-depth span the per-sprite depth channel was normalised over (absent if the render is empty). */
+  depthRange?: { lo: number; hi: number };
+}
 export interface StructureResult {
   grey: Uint8ClampedArray; normal: Uint8ClampedArray;
   material: Uint8ClampedArray; emissive: Uint8ClampedArray;
@@ -78,7 +82,7 @@ export async function composeStructure(spec: StructureSpec): Promise<StructureRe
   else { const f = fixedFit(facets); fit = f.fit; size = f.size; }
   const screen = projectFacets(facets, fit);
   const maps = rasterizeMaps(screen, size);
-  writeNormalisedDepth(maps);
+  const depthRange = writeNormalisedDepth(maps) ?? undefined;
   const opaque = new Float32Array(size * size);
   for (let i = 0; i < opaque.length; i++) opaque[i] = maps.albedo[i * 4 + 3] === 255 ? 1 : 0;
   const ao = computeAO(maps.depthRaw, opaque, size);
@@ -103,5 +107,5 @@ export async function composeStructure(spec: StructureSpec): Promise<StructureRe
     }
   }
 
-  return { grey, normal, material: maps.material, emissive: maps.emissive, size, meta: { bbox, anchors }, bbox, anchors };
+  return { grey, normal, material: maps.material, emissive: maps.emissive, size, meta: { bbox, anchors, depthRange }, bbox, anchors };
 }
