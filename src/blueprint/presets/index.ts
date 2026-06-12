@@ -23,7 +23,12 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
     materials: { walls: 'timber', roof: 'tile', ground: 'packed_dirt' },
     parts: { body: {
       type: 'body', size: { w: 3, h: 3 }, params: { plan: 'rect', levels: 2, roof: 'hip' },
-      features: { door: { type: 'door', face: 'south', params: { main: true } }, smoke: { type: 'vent', params: { kind: 'chimney' } } },
+      features: {
+        door: { type: 'door', face: 'south', params: { main: true } },
+        smoke: { type: 'vent', params: { kind: 'chimney' } },
+        win_s: { type: 'window', face: 'south', params: { style: 'shuttered', t: 0.25 } },
+        win_s2: { type: 'window', face: 'south', params: { style: 'shuttered', t: 0.75, sill: 2.2 } },
+      },
     } },
   }),
   market_stall: bp('market_stall', {
@@ -44,12 +49,33 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
   tower: bp('tower', {
     category: 'military', era: 'medieval', footprint: { w: 2, h: 3 },
     materials: { walls: 'stone', roof: 'slate', ground: 'flagstone' },
-    parts: { body: { type: 'body', size: { w: 2, h: 3 }, params: { plan: 'rect', levels: 3, roof: 'flat' }, features: { door: { type: 'door', face: 'west' } } } },
+    parts: { body: { type: 'body', size: { w: 2, h: 3 }, params: { plan: 'rect', levels: 3, roof: 'flat' }, features: {
+      door: { type: 'door', face: 'west' },
+      win_s: { type: 'window', face: 'south', params: { style: 'arched', sill: 1.8 } },
+      win_e: { type: 'window', face: 'east', params: { style: 'arched', sill: 2.8 } },
+    } } },
   }),
   castle_keep: bp('castle_keep', {
+    // Bailey + tower, two rect bodies. The old single `stepped` body (levels 4 × inset 1
+    // on 3×3) degenerated to a pancake slab + cube — too featureless for the img2img
+    // model to read as a keep. The tower sits NW so it rises behind the bailey in iso.
     category: 'military', era: 'medieval', footprint: { w: 3, h: 3 },
     materials: { walls: 'stone', roof: 'slate', ground: 'gravel' },
-    parts: { body: { type: 'body', size: { w: 3, h: 3 }, params: { plan: 'stepped', levels: 4, levelInset: 1, storeyM: 1.9, roof: 'stepped' }, features: { door: { type: 'door', face: 'south', params: { main: true } } } } },
+    parts: {
+      bailey: {
+        type: 'body', at: { x: 0, y: 0 }, size: { w: 3, h: 3 },
+        params: { plan: 'rect', levels: 1, storeyM: 3.0, roof: 'flat' },
+        features: { door: { type: 'door', face: 'south', params: { main: true } } },
+      },
+      tower: {
+        type: 'body', at: { x: 0, y: 0 }, size: { w: 2, h: 2 },
+        params: { plan: 'rect', levels: 3, roof: 'flat' },
+        features: {
+          win_s: { type: 'window', face: 'south', params: { style: 'arched', sill: 1.8 } },
+          win_e: { type: 'window', face: 'east', params: { style: 'arched', sill: 1.8 } },
+        },
+      },
+    },
   }),
   dock: bp('dock', {
     category: 'special', era: 'medieval', footprint: { w: 2, h: 3 },

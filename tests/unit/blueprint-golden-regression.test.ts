@@ -27,10 +27,11 @@ describe('blueprint golden regression — openings', () => {
     expect(doorLeaf('yurt')).toBeDefined();
   });
 
-  it('castle_keep (stepped) → ground box carries a door aperture + a leaf prim (door now visible)', () => {
+  it('castle_keep (bailey + tower) → building prim carries door + window apertures, leaf visible', () => {
     const spec = toGeometry(synthesizeBlueprint('castle_keep')!);
-    const boxes = spec.parts.filter(p => p.prim === 'box' && p.material !== 'door');
-    expect(boxes.some(b => b.prim === 'box' && b.apertures?.length)).toBe(true);
+    const b = spec.parts.find(p => p.prim === 'building')!;
+    // 1 bailey door + 2 tower windows, all carved into the merged building prim
+    expect(b.prim === 'building' ? b.apertures?.length : 0).toBe(3);
     expect(doorLeaf('castle_keep')).toBeDefined();
   });
 
