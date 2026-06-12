@@ -1,11 +1,11 @@
-import { ISO_TILE_W, ISO_TILE_H } from './iso-constants';
 import { worldToScreen } from './iso-projection';
 import type { IsoAtlas } from './iso-atlas';
 import type { NpcInstance, Entity } from '@/core/types';
 import { tryGetEntityKindDef } from '@/world/entity-kinds';
 import { getSpriteCoords } from '@/render/npc-animator';
 import { treeSheetForKind, treeSpriteColumn, TREE_SPRITE_SRC } from '@/render/tree-sheets';
-import { HUMAN_PX, NATURE_HEIGHT_M, DEFAULT_NATURE_HEIGHT_M, mToPx } from '@/render/scale-contract';
+import { NATURE_HEIGHT_M, DEFAULT_NATURE_HEIGHT_M, mToPx } from '@/render/scale-contract';
+import { npcBillboard } from './npc-billboard';
 
 export interface IsoDrawCtx {
   ctx: CanvasRenderingContext2D;
@@ -39,12 +39,15 @@ const NPC_COLOR_BY_ROLE: Record<string, string> = {
 };
 
 /**
- * Pixel height of the LPC sprite billboard above the ground.
- * Must match the z-offset in worldToScreen (z is in raw screen pixels).
- * Exported so overlay markers (e.g. the prayer 🙏) can sit just above the head.
+ * Default pixel height of an NPC's visible body above the ground (head z for
+ * overlay markers, e.g. the prayer 🙏). The OPAQUE BODY (not the 64px LPC
+ * frame — the body only fills ~30px of it) anchors to HUMAN_PX via a nearest-
+ * integer scale (1:1 rule), so this is body-height × scale, not HUMAN_PX itself.
  */
-/** Billboard z-height for an NPC = the metric human visible height (snapped px). */
-export const BILLBOARD_H_PX = HUMAN_PX;     // 54
+const DEFAULT_BB = npcBillboard(undefined);
+export const BILLBOARD_H_PX = (DEFAULT_BB.bottom - DEFAULT_BB.top) * DEFAULT_BB.scale; // 60
+
+const LPC_FRAME = 64;
 
 export function drawIsoNpc(dc: IsoDrawCtx, npc: NpcInstance): void {
   const { sx, sy } = worldToScreen(npc.tileX, npc.tileY, 0, dc.originX, dc.originY);
@@ -60,14 +63,14 @@ export function drawIsoNpc(dc: IsoDrawCtx, npc: NpcInstance): void {
   const sheet = dc.npcSheets?.get(npc.id);
   if (sheet) {
     const { sx: sheetSx, sy: sheetSy } = getSpriteCoords(npc);
-    const top = worldToScreen(npc.tileX, npc.tileY, BILLBOARD_H_PX, dc.originX, dc.originY);
-    const billboardH = sy - top.sy;
-    const billboardW = billboardH; // square sprite
+    const bb = npcBillboard(sheet);
+    const s = bb.scale;
+    const drawW = LPC_FRAME * s, drawH = LPC_FRAME * s;
 
-    // Sprite billboard
+    // Feet (opaque bbox bottom) land on the tile point; whole frame at integer scale.
     ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(sheet, sheetSx, sheetSy, 64, 64,
-                  sx - billboardW / 2, sy - billboardH, billboardW, billboardH);
+    ctx.drawImage(sheet, sheetSx, sheetSy, LPC_FRAME, LPC_FRAME,
+                  Math.round(sx - drawW / 2), Math.round(sy - bb.bottom * s), drawW, drawH);
     return;
   }
 
