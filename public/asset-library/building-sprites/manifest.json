@@ -1,0 +1,114 @@
+{
+  "model": "google/gemini-2.5-flash-image",
+  "entries": {
+    "v5:google/gemini-2.5-flash-image:3x3:1118id8": {
+      "file": "v5_google_gemini-2.5-flash-image_3x3_1118id8.png",
+      "targetWidth": 385,
+      "preset": "castle_keep",
+      "anchors": "{\"doors\":[],\"vents\":[{\"x\":0.4155607314636181,\"y\":0.42392190814909775}]}",
+      "normal": "v5_google_gemini-2.5-flash-image_3x3_1118id8.normal.png",
+      "material": "v5_google_gemini-2.5-flash-image_3x3_1118id8.material.png",
+      "emissive": "v5_google_gemini-2.5-flash-image_3x3_1118id8.emissive.png"
+    },
+    "v5:google/gemini-2.5-flash-image:3x3:f3irkw": {
+      "file": "v5_google_gemini-2.5-flash-image_3x3_f3irkw.png",
+      "targetWidth": 256,
+      "preset": "cottage",
+      "anchors": "{\"doors\":[],\"vents\":[{\"x\":0.498046875,\"y\":0.04092103807549732}]}",
+      "normal": "v5_google_gemini-2.5-flash-image_3x3_f3irkw.normal.png",
+      "material": "v5_google_gemini-2.5-flash-image_3x3_f3irkw.material.png",
+      "emissive": "v5_google_gemini-2.5-flash-image_3x3_f3irkw.emissive.png"
+    },
+    "v5:google/gemini-2.5-flash-image:3x3:t1hvec": {
+      "file": "v5_google_gemini-2.5-flash-image_3x3_t1hvec.png",
+      "targetWidth": 384,
+      "preset": "tavern",
+      "anchors": "{\"doors\":[],\"vents\":[{\"x\":0.4986979166666667,\"y\":0.027280733878152313}]}",
+      "normal": "v5_google_gemini-2.5-flash-image_3x3_t1hvec.normal.png",
+      "material": "v5_google_gemini-2.5-flash-image_3x3_t1hvec.material.png",
+      "emissive": "v5_google_gemini-2.5-flash-image_3x3_t1hvec.emissive.png"
+    },
+    "v5:google/gemini-2.5-flash-image:2x2:18x66qy": {
+      "file": "v5_google_gemini-2.5-flash-image_2x2_18x66qy.png",
+      "targetWidth": 257,
+      "preset": "market_stall",
+      "anchors": "{\"doors\":[],\"vents\":[{\"x\":0.41502174218804916,\"y\":0.03949205012926981}]}",
+      "normal": "v5_google_gemini-2.5-flash-image_2x2_18x66qy.normal.png",
+      "material": "v5_google_gemini-2.5-flash-image_2x2_18x66qy.material.png",
+      "emissive": "v5_google_gemini-2.5-flash-image_2x2_18x66qy.emissive.png"
+    },
+    "v5:google/gemini-2.5-flash-image:3x3:1xy7dnt": {
+      "file": "v5_google_gemini-2.5-flash-image_3x3_1xy7dnt.png",
+      "targetWidth": 385,
+      "preset": "temple_small",
+      "anchors": "{\"doors\":[],\"vents\":[{\"x\":0.5818181818181818,\"y\":0.03057324354815635}]}",
+      "normal": "v5_google_gemini-2.5-flash-image_3x3_1xy7dnt.normal.png",
+      "material": "v5_google_gemini-2.5-flash-image_3x3_1xy7dnt.material.png",
+      "emissive": "v5_google_gemini-2.5-flash-image_3x3_1xy7dnt.emissive.png"
+    },
+    "v5:google/gemini-2.5-flash-image:3x2:1qdobv": {
+      "file": "v5_google_gemini-2.5-flash-image_3x2_1qdobv.png",
+      "targetWidth": 320,
+      "preset": "farm_barn",
+      "anchors": "{\"doors\":[],\"vents\":[{\"x\":0.39840900504216553,\"y\":0.03534090014851914}]}",
+      "normal": "v5_google_gemini-2.5-flash-image_3x2_1qdobv.normal.png",
+      "material": "v5_google_gemini-2.5-flash-image_3x2_1qdobv.material.png",
+      "emissive": "v5_google_gemini-2.5-flash-image_3x2_1qdobv.emissive.png"
+    },
+    "v5:google/gemini-2.5-flash-image:2x3:1lrgvcw": {
+      "file": "v5_google_gemini-2.5-flash-image_2x3_1lrgvcw.png",
+      "targetWidth": 321,
+      "preset": "tower",
+      "anchors": "{\"doors\":[],\"vents\":[{\"x\":0.5981592473099907,\"y\":0.04402626838022407}]}",
+      "normal": "v5_google_gemini-2.5-flash-image_2x3_1lrgvcw.normal.png",
+      "material": "v5_google_gemini-2.5-flash-image_2x3_1lrgvcw.material.png",
+      "emissive": "v5_google_gemini-2.5-flash-image_2x3_1lrgvcw.emissive.png"
+    },
+    "v5:google/gemini-2.5-flash-image:2x3:1i0kyv8": {
+      "file": "v5_google_gemini-2.5-flash-image_2x3_1i0kyv8.png",
+      "targetWidth": 321,
+      "preset": "dock",
+      "anchors": "{\"doors\":[],\"vents\":[{\"x\":0.5981592473099907,\"y\":0.12241340912840697}]}",
+      "normal": "v5_google_gemini-2.5-flash-image_2x3_1i0kyv8.normal.png",
+      "material": "v5_google_gemini-2.5-flash-image_2x3_1i0kyv8.material.png",
+      "emissive": "v5_google_gemini-2.5-flash-image_2x3_1i0kyv8.emissive.png"
+    },
+    "v5:google/gemini-2.5-flash-image:2x2:1c0jtgg": {
+      "file": "v5_google_gemini-2.5-flash-image_2x2_1c0jtgg.png",
+      "targetWidth": 257,
+      "preset": "shrine",
+      "anchors": "{\"doors\":[],\"vents\":[{\"x\":0.41502174218804916,\"y\":0.03949205012926981}]}",
+      "normal": "v5_google_gemini-2.5-flash-image_2x2_1c0jtgg.normal.png",
+      "material": "v5_google_gemini-2.5-flash-image_2x2_1c0jtgg.material.png",
+      "emissive": "v5_google_gemini-2.5-flash-image_2x2_1c0jtgg.emissive.png"
+    },
+    "v5:google/gemini-2.5-flash-image:2x2:1z0gnen": {
+      "file": "v5_google_gemini-2.5-flash-image_2x2_1z0gnen.png",
+      "targetWidth": 257,
+      "preset": "guard_post",
+      "anchors": "{\"doors\":[],\"vents\":[{\"x\":0.41502174218804916,\"y\":0.03875390948907599}]}",
+      "normal": "v5_google_gemini-2.5-flash-image_2x2_1z0gnen.normal.png",
+      "material": "v5_google_gemini-2.5-flash-image_2x2_1z0gnen.material.png",
+      "emissive": "v5_google_gemini-2.5-flash-image_2x2_1z0gnen.emissive.png"
+    },
+    "v5:google/gemini-2.5-flash-image:3x3:zr188b": {
+      "file": "v5_google_gemini-2.5-flash-image_3x3_zr188b.png",
+      "targetWidth": 272,
+      "preset": "yurt",
+      "anchors": "{\"doors\":[],\"vents\":[]}",
+      "normal": "v5_google_gemini-2.5-flash-image_3x3_zr188b.normal.png",
+      "material": "v5_google_gemini-2.5-flash-image_3x3_zr188b.material.png",
+      "emissive": "v5_google_gemini-2.5-flash-image_3x3_zr188b.emissive.png"
+    },
+    "v5:google/gemini-2.5-flash-image:4x2:1i26emq": {
+      "file": "v5_google_gemini-2.5-flash-image_4x2_1i26emq.png",
+      "targetWidth": 385,
+      "preset": "longhouse",
+      "anchors": "{\"doors\":[],\"vents\":[{\"x\":0.4987012987012987,\"y\":0.15055864216895076}]}",
+      "normal": "v5_google_gemini-2.5-flash-image_4x2_1i26emq.normal.png",
+      "material": "v5_google_gemini-2.5-flash-image_4x2_1i26emq.material.png",
+      "emissive": "v5_google_gemini-2.5-flash-image_4x2_1i26emq.emissive.png"
+    }
+  },
+  "recipeVersion": "v5"
+}
