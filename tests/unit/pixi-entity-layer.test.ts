@@ -51,6 +51,7 @@ class FakeRectangle {
 }
 class FakeContainer {
   children: unknown[] = [];
+  alpha = 1;
   scale = { set: vi.fn() };
   position = { set: vi.fn() };
   addChild(c: unknown): void { this.children.push(c); }
@@ -60,6 +61,10 @@ class FakeSprite {
   texture: FakeTexture | null = null;
   width = 0; height = 0;
   x = 0; y = 0;
+  tint = 0xffffff;
+  anchor = { ax: 0, ay: 0, set(x: number, y: number) { this.ax = x; this.ay = y; } };
+  scale = { x: 1, y: 1 };
+  skew = { x: 0, y: 0 };
   position = { set: (x: number, y: number) => { this.x = x; this.y = y; } };
 }
 class FakeGraphics {
@@ -239,7 +244,8 @@ describe('PixiEntityLayer — lit path (PBR Slice 3)', () => {
   it('an image with a normal map becomes a quad Mesh with the lit shader', async () => {
     const layer = await readyLayer();
     layer.render([litItem()], view({ lighting: DEFAULT_LIGHTING }));
-    const mesh = stageOf(layer).children[0] as FakeMesh;
+    // children[0] is the shadow layer when lighting is on; entities follow.
+    const mesh = stageOf(layer).children[1] as FakeMesh;
     expect(mesh).toBeInstanceOf(FakeMesh);
     // Unit quad scaled to the item's destination rect, positioned at dx/dy.
     expect([mesh.x, mesh.y, mesh.scaleX, mesh.scaleY]).toEqual([10, 20, 128, 96]);
@@ -259,7 +265,7 @@ describe('PixiEntityLayer — lit path (PBR Slice 3)', () => {
       enabled: true, ambient: [0.2, 0.2, 0.2], sunDir: [0, 1, 0], sunColor: [0.9, 0.8, 0.7], bands: 3,
     };
     layer.render([litItem()], view({ lighting }));
-    const mesh = stageOf(layer).children[0] as FakeMesh;
+    const mesh = stageOf(layer).children[1] as FakeMesh;
     const u = (mesh.shader.resources.litUniforms as { uniforms: Record<string, unknown> }).uniforms;
     expect(u.uAmbient).toEqual([0.2, 0.2, 0.2]);
     expect(u.uSunDir).toEqual([0, 1, 0]);
@@ -270,7 +276,7 @@ describe('PixiEntityLayer — lit path (PBR Slice 3)', () => {
   it('a missing material map binds the white texture (AO 1)', async () => {
     const layer = await readyLayer();
     layer.render([litItem({ maps: { normal } })], view({ lighting: DEFAULT_LIGHTING }));
-    const mesh = stageOf(layer).children[0] as FakeMesh;
+    const mesh = stageOf(layer).children[1] as FakeMesh;
     expect(mesh.shader.resources.uMaterialMap).toBe(FakeTexture.WHITE.source);
   });
 
@@ -282,9 +288,9 @@ describe('PixiEntityLayer — lit path (PBR Slice 3)', () => {
     // lighting disabled
     layer.render([litItem()], view({ lighting: { ...DEFAULT_LIGHTING, enabled: false } }));
     expect(stageOf(layer).children[0]).toBeInstanceOf(FakeSprite);
-    // no maps
+    // no maps → unlit sprite (but still after the shadow layer)
     layer.render([{ t: 'image', src: img, dx: 0, dy: 0, dw: 64, dh: 64 }], view({ lighting: DEFAULT_LIGHTING }));
-    expect(stageOf(layer).children[0]).toBeInstanceOf(FakeSprite);
+    expect(stageOf(layer).children[1]).toBeInstanceOf(FakeSprite);
   });
 
   it('preserves y-sort interleaving across shapes, lit meshes and plain sprites', async () => {
@@ -295,19 +301,59 @@ describe('PixiEntityLayer — lit path (PBR Slice 3)', () => {
       { t: 'image', src: img, dx: 0, dy: 0, dw: 64, dh: 64 },
     ], view({ lighting: DEFAULT_LIGHTING }));
     const kids = stageOf(layer).children;
-    expect(kids[0]).toBeInstanceOf(FakeGraphics);
-    expect(kids[1]).toBeInstanceOf(FakeMesh);
-    expect(kids[2]).toBeInstanceOf(FakeSprite);
+    expect(kids[0]).toBeInstanceOf(FakeContainer);   // the shadow layer
+    expect(kids[1]).toBeInstanceOf(FakeGraphics);
+    expect(kids[2]).toBeInstanceOf(FakeMesh);
+    expect(kids[3]).toBeInstanceOf(FakeSprite);
   });
 
   it('reuses pooled lit meshes (and their shaders) across frames', async () => {
     const layer = await readyLayer();
     layer.render([litItem()], view({ lighting: DEFAULT_LIGHTING }));
-    const first = stageOf(layer).children[0] as FakeMesh;
+    const first = stageOf(layer).children[1] as FakeMesh;
     layer.render([litItem({ dx: 99 })], view({ lighting: DEFAULT_LIGHTING }));
-    const second = stageOf(layer).children[0] as FakeMesh;
+    const second = stageOf(layer).children[1] as FakeMesh;
     expect(second).toBe(first);
     expect(second.shader).toBe(first.shader);
     expect(second.x).toBe(99);
+  });
+});
+
+describe('PixiEntityLayer — projected cast shadows', () => {
+  const stageOf = (layer: PixiEntityLayer) => (layer as never as { stage: FakeContainer }).stage;
+
+  it('every image item drops a black flipped/skewed silhouette into one bottom layer', async () => {
+    const layer = await readyLayer();
+    layer.render([
+      { t: 'image', src: img, dx: 10, dy: 20, dw: 64, dh: 80 },
+      { t: 'image', src: img, dx: 50, dy: 60, dw: 32, dh: 40 },
+    ], view({ lighting: DEFAULT_LIGHTING }));
+    const shadows = stageOf(layer).children[0] as FakeContainer;
+    expect(shadows).toBeInstanceOf(FakeContainer);
+    expect(shadows.alpha).toBeCloseTo(0.32);
+    expect(shadows.children).toHaveLength(2);
+    const s = shadows.children[0] as FakeSprite;
+    expect(s.tint).toBe(0x000000);
+    expect([s.anchor.ax, s.anchor.ay]).toEqual([0, 1]);   // pivot on the foot line
+    expect([s.x, s.y]).toEqual([10, 100]);                 // dy + dh
+    expect(s.scale.y).toBeLessThan(0);                     // flipped past the foot
+    expect(s.skew.x).not.toBe(0);                          // leaning along the sun azimuth
+  });
+
+  it('draws no shadows when lighting is off or absent', async () => {
+    const layer = await readyLayer();
+    layer.render([{ t: 'image', src: img, dx: 0, dy: 0, dw: 64, dh: 64 }], view());
+    expect(stageOf(layer).children[0]).toBeInstanceOf(FakeSprite);
+    layer.render([{ t: 'image', src: img, dx: 0, dy: 0, dw: 64, dh: 64 }],
+      view({ lighting: { ...DEFAULT_LIGHTING, enabled: false } }));
+    expect(stageOf(layer).children[0]).toBeInstanceOf(FakeSprite);
+  });
+
+  it('reuses pooled shadow sprites across frames', async () => {
+    const layer = await readyLayer();
+    layer.render([{ t: 'image', src: img, dx: 0, dy: 0, dw: 64, dh: 64 }], view({ lighting: DEFAULT_LIGHTING }));
+    const first = (stageOf(layer).children[0] as FakeContainer).children[0];
+    layer.render([{ t: 'image', src: img, dx: 5, dy: 5, dw: 64, dh: 64 }], view({ lighting: DEFAULT_LIGHTING }));
+    expect((stageOf(layer).children[0] as FakeContainer).children[0]).toBe(first);
   });
 });

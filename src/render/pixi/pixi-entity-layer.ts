@@ -48,6 +48,8 @@ export class PixiEntityLayer {
   private spritePool: import('pixi.js').Sprite[] = [];
   private gfxPool: import('pixi.js').Graphics[] = [];
   private litPool: LitEntry[] = [];
+  private shadowPool: import('pixi.js').Sprite[] = [];
+  private shadowLayer: import('pixi.js').Container | null = null;
   private quadGeometry: import('pixi.js').MeshGeometry | null = null;
   private textures = new WeakMap<object, { base: import('pixi.js').Texture; frames: Map<string, import('pixi.js').Texture> }>();
   private destroyed = false;
@@ -82,6 +84,8 @@ export class PixiEntityLayer {
     this.spritePool = [];
     this.gfxPool = [];
     this.litPool = [];
+    this.shadowPool = [];
+    this.shadowLayer = null;
     this.quadGeometry = null;
     this.state = 'failed'; // render() stays null forever after destroy
   }
@@ -172,12 +176,53 @@ export class PixiEntityLayer {
     return entry;
   }
 
+  /**
+   * Projected cast shadows: every image item (building/NPC/tree) drops a
+   * black-tinted copy of its silhouette, flipped past its foot line and
+   * skewed along the screen-space sun azimuth — the classic 2D projected
+   * shadow. All shadows live in ONE container at the bottom of the stage
+   * (alpha applied at the container, so overlapping shadows don't
+   * double-darken into pure black) — they fall across terrain and the bases
+   * of whatever stands behind.
+   */
+  private populateShadows(items: readonly DrawItem[], lighting: LightingState): void {
+    const pixi = this.pixi!;
+    const layer = (this.shadowLayer ??= new pixi.Container());
+    layer.removeChildren();
+    layer.alpha = 0.32;
+    this.stage!.addChild(layer);
+    // Screen-space shadow vector per unit of sprite height (sun → away from sun),
+    // damped so shadows stay readable rather than photometrically long.
+    const [sx, sy, sz] = lighting.sunDir;
+    const z = Math.max(0.3, sz);
+    const len = 0.5;
+    const stretch = Math.min(1.2, (sy / z) * len);     // vertical squash of the flipped copy
+    const lean = Math.min(1.2, (-sx / z) * len);       // horizontal shear per unit height
+    if (stretch <= 0.05) return;
+    let pi = 0;
+    for (const it of items) {
+      if (it.t !== 'image') continue;
+      const s = (this.shadowPool[pi] ??= new pixi.Sprite());
+      pi++;
+      s.texture = this.texture(it.src, it.frame);
+      s.tint = 0x000000;
+      s.anchor.set(0, 1);
+      s.position.set(it.dx, it.dy + it.dh);
+      s.width = it.dw;
+      s.height = it.dh * stretch;
+      s.scale.y = -Math.abs(s.scale.y);                // flip past the foot line
+      s.skew.x = Math.atan2(lean, 1);                  // lean along the sun azimuth
+      layer.addChild(s);
+    }
+  }
+
   /** Rebuild the stage children from the draw list (pooled, order-preserving). */
   private populate(items: readonly DrawItem[], lighting?: LightingState): void {
     const pixi = this.pixi!;
     const stage = this.stage!;
     stage.removeChildren();
     const lit = lighting?.enabled === true;
+    if (lit) this.populateShadows(items, lighting!);
     let si = 0, gi = 0, li = 0, i = 0;
     while (i < items.length) {
       const it = items[i];
