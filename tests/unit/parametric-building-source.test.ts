@@ -58,6 +58,34 @@ describe('ParametricBuildingSource', () => {
     warn.mockRestore();
   });
 
+  it('a toSpec that THROWS caches null and warns once — never escapes to the frame loop', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const compose = vi.fn(async () => fakeResult);
+    const src = new ParametricBuildingSource({
+      toSpec: () => { throw new Error('unknown part type "body"'); }, compose, toSprite: () => fakeSprite,
+    });
+    expect(() => src.warm(withBlueprint())).not.toThrow();
+    expect(() => src.warm(withBlueprint())).not.toThrow(); // cached null → no rethrow
+    expect(src.peek(withBlueprint())).toBeNull();
+    expect(compose).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+  });
+
+  it('default toSpec works without callers pre-registering part types (autosave path)', async () => {
+    // Entities restored from an autosave carry an already-RESOLVED blueprint, so no
+    // code path ever calls ensureBuildingTypesRegistered before toGeometry. Simulate
+    // by detaching the rb and rebuilding the module graph with a fresh (empty) registry.
+    const e: Entity = JSON.parse(JSON.stringify(withBlueprint())); // deserialized save entity
+    vi.resetModules();
+    const { ParametricBuildingSource: FreshSource } = await import('@/render/parametric-building-source');
+    const compose = vi.fn(async () => fakeResult);
+    const src = new FreshSource({ compose, toSprite: () => fakeSprite });
+    expect(() => src.warm(e)).not.toThrow();
+    await flush();
+    expect(src.peek(e)).toBe(fakeSprite);
+  });
+
   it('warming twice composes only once (in-flight + cache guard)', async () => {
     const compose = vi.fn(async () => fakeResult);
     const src = new ParametricBuildingSource({ compose, toSprite: () => fakeSprite });

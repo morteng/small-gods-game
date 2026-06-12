@@ -10,6 +10,7 @@ import type { ResolvedBlueprint } from '@/blueprint/types';
 import { toGeometry } from '@/blueprint/compile/to-geometry';
 import { greyToSpriteCanvas, type SpriteCanvas } from '@/render/iso/sprite-canvas';
 import { composeStructure, type StructureSpec, type StructureResult } from '@/assetgen/compose';
+import { ensureBuildingTypesRegistered } from '@/blueprint/register-buildings';
 
 export interface ParametricSourceDeps {
   toSpec?: (rb: ResolvedBlueprint) => StructureSpec | null;
@@ -33,6 +34,10 @@ export class ParametricBuildingSource {
   private readonly toSprite: NonNullable<ParametricSourceDeps['toSprite']>;
 
   constructor(deps: ParametricSourceDeps = {}) {
+    // Entities restored from an autosave carry an already-RESOLVED blueprint, so this
+    // may be the first code path to compile one — register the part/feature types here
+    // rather than relying on a preset-synthesis call having happened earlier.
+    ensureBuildingTypesRegistered();
     this.toSpec = deps.toSpec ?? ((rb) => toGeometry(rb));
     this.compose = deps.compose ?? composeStructure;
     this.toSprite = deps.toSprite ?? ((r) => greyToSpriteCanvas(r.grey, r.size, r.bbox));
@@ -50,7 +55,15 @@ export class ParametricBuildingSource {
     if (!rb) return;
     const k = keyOf(rb);
     if (this.cache.has(k) || this.inflight.has(k)) return;
-    const spec = this.toSpec(rb);
+    let spec: StructureSpec | null;
+    try {
+      spec = this.toSpec(rb);
+    } catch (err) {
+      // Uphold the never-throws contract: a bad blueprint must not kill the frame loop.
+      if (!this.warned.has(k)) { console.warn('[parametric-building] spec failed', err); this.warned.add(k); }
+      this.cache.set(k, null);
+      return;
+    }
     if (!spec) { this.cache.set(k, null); return; }
     this.inflight.add(k);
     this.compose(spec)
