@@ -117,11 +117,21 @@ const GABLE_PITCH = 1.5, HIP_PITCH = 1.35;
  */
 interface RoofOverhang { eave: number; verge: number }
 const ROOF_OVERHANG: Partial<Record<Mat, RoofOverhang>> = {
-  thatch: { eave: 0.22, verge: 0.10 },   // 44 cm / 20 cm
-  timber: { eave: 0.16, verge: 0.08 },   // wood shingle
-  tile:   { eave: 0.12, verge: 0.06 },
-  stone:  { eave: 0.08, verge: 0 },      // slate over a masonry gable: flush verge
+  thatch: { eave: 0.30, verge: 0.15 },   // 60 cm / 30 cm — thatch wants deep skirts
+  timber: { eave: 0.24, verge: 0.12 },   // wood shingle
+  tile:   { eave: 0.20, verge: 0.10 },
+  stone:  { eave: 0.10, verge: 0 },      // slate over a masonry gable: flush verge
 };
+
+/**
+ * Cap on how far the eave underside drops below the wall top (units). Deep
+ * overhangs at full pitch would sweep below door heads (1-storey wall top
+ * 1.35, door 1.0); medieval roofs solved this with SPROCKETED eaves — the
+ * pitch flattens over the overhang. We approximate by re-pitching the whole
+ * prism so the ridge stays at the flush-roof height while the eave edge
+ * lands at `wallTop − min(pitch·eave, MAX_EAVE_DROP)`.
+ */
+const MAX_EAVE_DROP = 0.3;
 function overhangOf(roofMat: Mat): RoofOverhang {
   return ROOF_OVERHANG[roofMat] ?? { eave: 0.12, verge: 0.06 };
 }
@@ -208,34 +218,47 @@ async function wingRoof(w: Wing, style: RoofStyle, roofMat: Mat = 'tile'): Promi
   const ridge = ridgeAxisOf(w);
   const { eave, verge } = overhangOf(roofMat);
 
+  // Sprocketed-eave drop + the re-pitch that keeps the ridge at the
+  // flush-roof height: rise over the grown half-span = flush rise + drop.
+  const sprocket = (pitch: number, halfSpan: number): { drop: number; rePitch: number } => {
+    const drop = Math.min(pitch * eave, MAX_EAVE_DROP);
+    return { drop, rePitch: (pitch * halfSpan + drop) / (halfSpan + eave) };
+  };
+
   if (s === 'gable') {
+    const { drop, rePitch } = sprocket(GABLE_PITCH, crossSpan(top, ridge) / 2);
     const g = grownRect(top, ridge, eave, verge);
-    const roof = await gablePrism(g, ridge, GABLE_PITCH, b - GABLE_PITCH * eave);
-    return clipEaveInterior(roof, top, b, GABLE_PITCH * eave);
+    const roof = await gablePrism(g, ridge, rePitch, b - drop);
+    return clipEaveInterior(roof, top, b, drop);
   }
 
   if (s === 'half_hip') {
+    const { drop, rePitch } = sprocket(GABLE_PITCH, crossSpan(top, ridge) / 2);
     const g = grownRect(top, ridge, eave, verge);
-    const base = b - GABLE_PITCH * eave;
-    const gable = await gablePrism(g, ridge, GABLE_PITCH, base);
+    const base = b - drop;
+    const gable = await gablePrism(g, ridge, rePitch, base);
     // The end slopes: a perpendicular prism over the rect grown further along the
     // ridge, so its slope only clips the TOP of the gable triangle — the gablet
     // starts at ~55% of the rise.
-    const rise = GABLE_PITCH * (crossSpan(g, ridge) / 2);
+    const rise = rePitch * (crossSpan(g, ridge) / 2);
     const ext = (0.55 * rise) / HIP_PITCH;
     const endRect = ridge === 'x'
       ? { x: g.x - ext, y: g.y, w: g.w + 2 * ext, h: g.h }
       : { x: g.x, y: g.y - ext, w: g.w, h: g.h + 2 * ext };
     const ends = await gablePrism(endRect, ridge === 'x' ? 'y' : 'x', HIP_PITCH, base);
-    return clipEaveInterior(gable.intersect(ends), top, b, GABLE_PITCH * eave);
+    return clipEaveInterior(gable.intersect(ends), top, b, drop);
   }
 
-  // hip: eaves all round (no gable wall to verge against)
+  // hip: eaves all round (no gable wall to verge against); each axis prism
+  // gets its own re-pitch so both planes still meet the unchanged ridge.
   const g: WingRect = { x: top.x - eave, y: top.y - eave, w: top.w + 2 * eave, h: top.h + 2 * eave };
-  const base = b - HIP_PITCH * eave;
-  const px = await gablePrism(g, 'x', HIP_PITCH, base);
-  const py = await gablePrism(g, 'y', HIP_PITCH, base);
-  return clipEaveInterior(px.intersect(py), top, b, HIP_PITCH * eave);
+  const dropH = Math.min(HIP_PITCH * eave, MAX_EAVE_DROP);
+  const base = b - dropH;
+  const pitchX = (HIP_PITCH * (top.h / 2) + dropH) / (g.h / 2);
+  const pitchY = (HIP_PITCH * (top.w / 2) + dropH) / (g.w / 2);
+  const px = await gablePrism(g, 'x', pitchX, base);
+  const py = await gablePrism(g, 'y', pitchY, base);
+  return clipEaveInterior(px.intersect(py), top, b, dropH);
 }
 
 /** Height the roof ridge reaches above a wing's wall top. (Overhang construction

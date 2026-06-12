@@ -322,7 +322,7 @@ describe('PixiEntityLayer — lit path (PBR Slice 3)', () => {
 describe('PixiEntityLayer — projected cast shadows', () => {
   const stageOf = (layer: PixiEntityLayer) => (layer as never as { stage: FakeContainer }).stage;
 
-  it('every image item drops a black flipped/skewed silhouette into one bottom layer', async () => {
+  it('every image item drops a black ground-projected silhouette into one bottom layer', async () => {
     const layer = await readyLayer();
     layer.render([
       { t: 'image', src: img, dx: 10, dy: 20, dw: 64, dh: 80 },
@@ -335,9 +335,22 @@ describe('PixiEntityLayer — projected cast shadows', () => {
     const s = shadows.children[0] as FakeSprite;
     expect(s.tint).toBe(0x000000);
     expect([s.anchor.ax, s.anchor.ay]).toEqual([0, 1]);   // pivot on the foot line
-    expect([s.x, s.y]).toEqual([10, 100]);                 // dy + dh
-    expect(s.scale.y).toBeLessThan(0);                     // flipped past the foot
-    expect(s.skew.x).not.toBe(0);                          // leaning along the sun azimuth
+    expect([s.x, s.y]).toEqual([10, 100]);                 // dy + dh (no footprint lift without maps)
+    // Squashed to the ground-projection magnitude and sheared up-right past
+    // the caster (front-left-above sun ⇒ shadow falls behind, leaning east).
+    expect(s.height).toBeGreaterThan(0);
+    expect(s.height).toBeLessThan(80 * 0.9);
+    expect(s.skew.x).toBeLessThan(0);
+  });
+
+  it('anchors building (pack) shadows at the footprint-diamond centre, not the south tip', async () => {
+    const layer = await readyLayer();
+    layer.render([
+      { t: 'image', src: img, dx: 10, dy: 20, dw: 64, dh: 80, maps: { normal: img } },
+    ], view({ lighting: DEFAULT_LIGHTING }));
+    const shadows = stageOf(layer).children[0] as FakeContainer;
+    const s = shadows.children[0] as FakeSprite;
+    expect([s.x, s.y]).toEqual([10, 100 - 64 / 4]);        // dy + dh − dw/4
   });
 
   it('draws no shadows when lighting is off or absent', async () => {

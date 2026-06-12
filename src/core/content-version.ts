@@ -19,9 +19,11 @@
  * 'v6' is the medieval detail pass — material-driven eaves/verges, half-hip
  * (gablet) roofs, dormers, ridge louvres, slimmer multi-chimneys, per-type
  * window programmes, rectangular plans (see
- * docs/reference/medieval-building-reference.md).
+ * docs/reference/medieval-building-reference.md); 'v7' deepens the eaves —
+ * material overhangs grown to real medieval depths (thatch 60 cm … slate
+ * 20 cm) with sprocketed-eave drop capping so door heads stay clear.
  */
-export const ART_RECIPE_VERSION = 'v6';
+export const ART_RECIPE_VERSION = 'v7';
 
 /**
  * Bump when WORLDGEN / preset output changes (footprints, placement, heights).

@@ -178,12 +178,16 @@ export class PixiEntityLayer {
 
   /**
    * Projected cast shadows: every image item (building/NPC/tree) drops a
-   * black-tinted copy of its silhouette, flipped past its foot line and
-   * skewed along the screen-space sun azimuth — the classic 2D projected
-   * shadow. All shadows live in ONE container at the bottom of the stage
-   * (alpha applied at the container, so overlapping shadows don't
-   * double-darken into pure black) — they fall across terrain and the bases
-   * of whatever stands behind.
+   * black-tinted copy of its silhouette projected onto the iso ground plane
+   * along the TRUE sun ray — a pixel `h` above the foot line lands at
+   * `foot + h·(leanX, dropY)`. With the canonical front-left-above sun
+   * (sz > 0) shadows fall up-right BEHIND the caster, mostly occluded by it
+   * (grounding contact), peeking out on the sun-away side. Building shadows
+   * anchor at the footprint-diamond CENTRE (foot − dw/4), not the southern
+   * tip — mirroring off the tip detaches the shadow a footprint away and
+   * reads as the building floating. All shadows live in ONE container at the
+   * bottom of the stage (alpha applied at the container, so overlaps don't
+   * double-darken).
    */
   private populateShadows(items: readonly DrawItem[], lighting: LightingState): void {
     const pixi = this.pixi!;
@@ -191,14 +195,22 @@ export class PixiEntityLayer {
     layer.removeChildren();
     layer.alpha = 0.32;
     this.stage!.addChild(layer);
-    // Screen-space shadow vector per unit of sprite height (sun → away from sun),
-    // damped so shadows stay readable rather than photometrically long.
+    // Ground displacement per screen px of height, from the sun ray
+    // (sunDir points TOWARD the sun; +y screen-up, +z toward camera).
+    // The 0.5 on dropY is the 2:1 iso ground foreshortening; damp keeps
+    // shadows readable rather than photometrically long.
     const [sx, sy, sz] = lighting.sunDir;
-    const z = Math.max(0.3, sz);
-    const len = 0.5;
-    const stretch = Math.min(1.2, (sy / z) * len);     // vertical squash of the flipped copy
-    const lean = Math.min(1.2, (-sx / z) * len);       // horizontal shear per unit height
-    if (stretch <= 0.05) return;
+    const up = Math.max(0.2, sy);
+    const damp = 0.8;
+    const leanX = (-sx / up) * damp;          // screen-x per height px (east of the sun)
+    const dropY = (-sz / up) * 0.5 * damp;    // screen-y per height px (− = up-screen, behind)
+    const mag = Math.hypot(leanX, dropY);
+    if (mag <= 0.05) return;
+    // Shear + squash in one transform: rendered-y per local px d = −dropY·k and
+    // rendered-x per local px c = −leanX·k (k = dh/texH) ⇒ pixi's
+    // d = cos(skew.x)·scale.y, c = sin(skew.x)·scale.y solve to the pair below
+    // (a down-screen dropY flips the copy via the obtuse skew angle, no special case).
+    const skewX = Math.atan2(-leanX, -dropY);
     let pi = 0;
     for (const it of items) {
       if (it.t !== 'image') continue;
@@ -207,13 +219,14 @@ export class PixiEntityLayer {
       s.texture = this.texture(it.src, it.frame);
       s.tint = 0x000000;
       s.anchor.set(0, 1);
-      s.position.set(it.dx, it.dy + it.dh);
+      // Building sprites (pack items carry maps) stand on an iso base diamond
+      // ~dw wide ⇒ ~dw/2 tall; anchor the shadow at its centre so the caster
+      // covers the projected base instead of leaving a gap.
+      const lift = it.maps ? it.dw / 4 : 0;
+      s.position.set(it.dx, it.dy + it.dh - lift);
       s.width = it.dw;
-      s.height = it.dh * stretch;
-      s.scale.y = -Math.abs(s.scale.y);                // flip past the foot line
-      // Lean along the sun azimuth. The y-flip mirrors the shear, so negate to
-      // keep the shadow falling AWAY from the sun (verified in-browser).
-      s.skew.x = -Math.atan2(lean, 1);
+      s.height = it.dh * mag;
+      s.skew.x = skewX;
       layer.addChild(s);
     }
   }

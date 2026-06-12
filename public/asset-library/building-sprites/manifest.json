@@ -1,114 +1,114 @@
 {
   "model": "google/gemini-2.5-flash-image",
   "entries": {
-    "v6:google/gemini-2.5-flash-image:3x3:2l0p8x": {
-      "file": "v6_google_gemini-2.5-flash-image_3x3_2l0p8x.png",
-      "targetWidth": 360,
+    "v7:google/gemini-2.5-flash-image:3x3:2l0p8x": {
+      "file": "v7_google_gemini-2.5-flash-image_3x3_2l0p8x.png",
+      "targetWidth": 377,
       "preset": "cottage",
-      "anchors": "{\"doors\":[],\"vents\":[{\"x\":0.4452222275733948,\"y\":0.06525714087107823}]}",
-      "normal": "v6_google_gemini-2.5-flash-image_3x3_2l0p8x.normal.png",
-      "material": "v6_google_gemini-2.5-flash-image_3x3_2l0p8x.material.png",
-      "emissive": "v6_google_gemini-2.5-flash-image_3x3_2l0p8x.emissive.png"
+      "anchors": "{\"doors\":[],\"vents\":[{\"x\":0.4472148470284136,\"y\":0.06366983928377665}]}",
+      "normal": "v7_google_gemini-2.5-flash-image_3x3_2l0p8x.normal.png",
+      "material": "v7_google_gemini-2.5-flash-image_3x3_2l0p8x.material.png",
+      "emissive": "v7_google_gemini-2.5-flash-image_3x3_2l0p8x.emissive.png"
     },
-    "v6:google/gemini-2.5-flash-image:3x3:4oyv5b": {
-      "file": "v6_google_gemini-2.5-flash-image_3x3_4oyv5b.png",
-      "targetWidth": 358,
+    "v7:google/gemini-2.5-flash-image:3x3:4oyv5b": {
+      "file": "v7_google_gemini-2.5-flash-image_3x3_4oyv5b.png",
+      "targetWidth": 373,
       "preset": "tavern",
-      "anchors": "{\"doors\":[],\"vents\":[{\"x\":0.28721117464949963,\"y\":0.019861452575754102},{\"x\":0.7111128506271532,\"y\":0.19510025165196657}]}",
-      "normal": "v6_google_gemini-2.5-flash-image_3x3_4oyv5b.normal.png",
-      "material": "v6_google_gemini-2.5-flash-image_3x3_4oyv5b.material.png",
-      "emissive": "v6_google_gemini-2.5-flash-image_3x3_4oyv5b.emissive.png"
+      "anchors": "{\"doors\":[],\"vents\":[{\"x\":0.29491044456543297,\"y\":0.019861452575754102},{\"x\":0.701765136254441,\"y\":0.19510025165196657}]}",
+      "normal": "v7_google_gemini-2.5-flash-image_3x3_4oyv5b.normal.png",
+      "material": "v7_google_gemini-2.5-flash-image_3x3_4oyv5b.material.png",
+      "emissive": "v7_google_gemini-2.5-flash-image_3x3_4oyv5b.emissive.png"
     },
-    "v6:google/gemini-2.5-flash-image:2x2:bul8yc": {
-      "file": "v6_google_gemini-2.5-flash-image_2x2_bul8yc.png",
-      "targetWidth": 296,
+    "v7:google/gemini-2.5-flash-image:2x2:bul8yc": {
+      "file": "v7_google_gemini-2.5-flash-image_2x2_bul8yc.png",
+      "targetWidth": 313,
       "preset": "market_stall",
       "anchors": "{\"doors\":[],\"vents\":[]}",
-      "normal": "v6_google_gemini-2.5-flash-image_2x2_bul8yc.normal.png",
-      "material": "v6_google_gemini-2.5-flash-image_2x2_bul8yc.material.png",
-      "emissive": "v6_google_gemini-2.5-flash-image_2x2_bul8yc.emissive.png"
+      "normal": "v7_google_gemini-2.5-flash-image_2x2_bul8yc.normal.png",
+      "material": "v7_google_gemini-2.5-flash-image_2x2_bul8yc.material.png",
+      "emissive": "v7_google_gemini-2.5-flash-image_2x2_bul8yc.emissive.png"
     },
-    "v6:google/gemini-2.5-flash-image:3x3:f449p8": {
-      "file": "v6_google_gemini-2.5-flash-image_3x3_f449p8.png",
-      "targetWidth": 414,
+    "v7:google/gemini-2.5-flash-image:3x3:f449p8": {
+      "file": "v7_google_gemini-2.5-flash-image_3x3_f449p8.png",
+      "targetWidth": 434,
       "preset": "temple_small",
       "anchors": "{\"doors\":[],\"vents\":[]}",
-      "normal": "v6_google_gemini-2.5-flash-image_3x3_f449p8.normal.png",
-      "material": "v6_google_gemini-2.5-flash-image_3x3_f449p8.material.png",
-      "emissive": "v6_google_gemini-2.5-flash-image_3x3_f449p8.emissive.png"
+      "normal": "v7_google_gemini-2.5-flash-image_3x3_f449p8.normal.png",
+      "material": "v7_google_gemini-2.5-flash-image_3x3_f449p8.material.png",
+      "emissive": "v7_google_gemini-2.5-flash-image_3x3_f449p8.emissive.png"
     },
-    "v6:google/gemini-2.5-flash-image:4x2:x0dpbm": {
-      "file": "v6_google_gemini-2.5-flash-image_4x2_x0dpbm.png",
-      "targetWidth": 414,
+    "v7:google/gemini-2.5-flash-image:4x2:x0dpbm": {
+      "file": "v7_google_gemini-2.5-flash-image_4x2_x0dpbm.png",
+      "targetWidth": 429,
       "preset": "farm_barn",
       "anchors": "{\"doors\":[],\"vents\":[]}",
-      "normal": "v6_google_gemini-2.5-flash-image_4x2_x0dpbm.normal.png",
-      "material": "v6_google_gemini-2.5-flash-image_4x2_x0dpbm.material.png",
-      "emissive": "v6_google_gemini-2.5-flash-image_4x2_x0dpbm.emissive.png"
+      "normal": "v7_google_gemini-2.5-flash-image_4x2_x0dpbm.normal.png",
+      "material": "v7_google_gemini-2.5-flash-image_4x2_x0dpbm.material.png",
+      "emissive": "v7_google_gemini-2.5-flash-image_4x2_x0dpbm.emissive.png"
     },
-    "v6:google/gemini-2.5-flash-image:2x3:r5sjbu": {
-      "file": "v6_google_gemini-2.5-flash-image_2x3_r5sjbu.png",
+    "v7:google/gemini-2.5-flash-image:2x3:r5sjbu": {
+      "file": "v7_google_gemini-2.5-flash-image_2x3_r5sjbu.png",
       "targetWidth": 321,
       "preset": "tower",
       "anchors": "{\"doors\":[],\"vents\":[]}",
-      "normal": "v6_google_gemini-2.5-flash-image_2x3_r5sjbu.normal.png",
-      "material": "v6_google_gemini-2.5-flash-image_2x3_r5sjbu.material.png",
-      "emissive": "v6_google_gemini-2.5-flash-image_2x3_r5sjbu.emissive.png"
+      "normal": "v7_google_gemini-2.5-flash-image_2x3_r5sjbu.normal.png",
+      "material": "v7_google_gemini-2.5-flash-image_2x3_r5sjbu.material.png",
+      "emissive": "v7_google_gemini-2.5-flash-image_2x3_r5sjbu.emissive.png"
     },
-    "v6:google/gemini-2.5-flash-image:3x3:7bvnzk": {
-      "file": "v6_google_gemini-2.5-flash-image_3x3_7bvnzk.png",
+    "v7:google/gemini-2.5-flash-image:3x3:7bvnzk": {
+      "file": "v7_google_gemini-2.5-flash-image_3x3_7bvnzk.png",
       "targetWidth": 385,
       "preset": "castle_keep",
       "anchors": "{\"doors\":[],\"vents\":[{\"x\":0.4322077922077922,\"y\":0.06837609445946839}]}",
-      "normal": "v6_google_gemini-2.5-flash-image_3x3_7bvnzk.normal.png",
-      "material": "v6_google_gemini-2.5-flash-image_3x3_7bvnzk.material.png",
-      "emissive": "v6_google_gemini-2.5-flash-image_3x3_7bvnzk.emissive.png"
+      "normal": "v7_google_gemini-2.5-flash-image_3x3_7bvnzk.normal.png",
+      "material": "v7_google_gemini-2.5-flash-image_3x3_7bvnzk.material.png",
+      "emissive": "v7_google_gemini-2.5-flash-image_3x3_7bvnzk.emissive.png"
     },
-    "v6:google/gemini-2.5-flash-image:2x3:1hvpb8u": {
-      "file": "v6_google_gemini-2.5-flash-image_2x3_1hvpb8u.png",
+    "v7:google/gemini-2.5-flash-image:2x3:1hvpb8u": {
+      "file": "v7_google_gemini-2.5-flash-image_2x3_1hvpb8u.png",
       "targetWidth": 321,
       "preset": "dock",
       "anchors": "{\"doors\":[],\"vents\":[]}",
-      "normal": "v6_google_gemini-2.5-flash-image_2x3_1hvpb8u.normal.png",
-      "material": "v6_google_gemini-2.5-flash-image_2x3_1hvpb8u.material.png",
-      "emissive": "v6_google_gemini-2.5-flash-image_2x3_1hvpb8u.emissive.png"
+      "normal": "v7_google_gemini-2.5-flash-image_2x3_1hvpb8u.normal.png",
+      "material": "v7_google_gemini-2.5-flash-image_2x3_1hvpb8u.material.png",
+      "emissive": "v7_google_gemini-2.5-flash-image_2x3_1hvpb8u.emissive.png"
     },
-    "v6:google/gemini-2.5-flash-image:2x2:13db39v": {
-      "file": "v6_google_gemini-2.5-flash-image_2x2_13db39v.png",
-      "targetWidth": 279,
+    "v7:google/gemini-2.5-flash-image:2x2:13db39v": {
+      "file": "v7_google_gemini-2.5-flash-image_2x2_13db39v.png",
+      "targetWidth": 293,
       "preset": "shrine",
       "anchors": "{\"doors\":[],\"vents\":[]}",
-      "normal": "v6_google_gemini-2.5-flash-image_2x2_13db39v.normal.png",
-      "material": "v6_google_gemini-2.5-flash-image_2x2_13db39v.material.png",
-      "emissive": "v6_google_gemini-2.5-flash-image_2x2_13db39v.emissive.png"
+      "normal": "v7_google_gemini-2.5-flash-image_2x2_13db39v.normal.png",
+      "material": "v7_google_gemini-2.5-flash-image_2x2_13db39v.material.png",
+      "emissive": "v7_google_gemini-2.5-flash-image_2x2_13db39v.emissive.png"
     },
-    "v6:google/gemini-2.5-flash-image:2x2:1sphv33": {
-      "file": "v6_google_gemini-2.5-flash-image_2x2_1sphv33.png",
-      "targetWidth": 296,
+    "v7:google/gemini-2.5-flash-image:2x2:1sphv33": {
+      "file": "v7_google_gemini-2.5-flash-image_2x2_1sphv33.png",
+      "targetWidth": 317,
       "preset": "guard_post",
       "anchors": "{\"doors\":[],\"vents\":[]}",
-      "normal": "v6_google_gemini-2.5-flash-image_2x2_1sphv33.normal.png",
-      "material": "v6_google_gemini-2.5-flash-image_2x2_1sphv33.material.png",
-      "emissive": "v6_google_gemini-2.5-flash-image_2x2_1sphv33.emissive.png"
+      "normal": "v7_google_gemini-2.5-flash-image_2x2_1sphv33.normal.png",
+      "material": "v7_google_gemini-2.5-flash-image_2x2_1sphv33.material.png",
+      "emissive": "v7_google_gemini-2.5-flash-image_2x2_1sphv33.emissive.png"
     },
-    "v6:google/gemini-2.5-flash-image:3x3:1jrzjlq": {
-      "file": "v6_google_gemini-2.5-flash-image_3x3_1jrzjlq.png",
+    "v7:google/gemini-2.5-flash-image:3x3:1jrzjlq": {
+      "file": "v7_google_gemini-2.5-flash-image_3x3_1jrzjlq.png",
       "targetWidth": 272,
       "preset": "yurt",
       "anchors": "{\"doors\":[],\"vents\":[]}",
-      "normal": "v6_google_gemini-2.5-flash-image_3x3_1jrzjlq.normal.png",
-      "material": "v6_google_gemini-2.5-flash-image_3x3_1jrzjlq.material.png",
-      "emissive": "v6_google_gemini-2.5-flash-image_3x3_1jrzjlq.emissive.png"
+      "normal": "v7_google_gemini-2.5-flash-image_3x3_1jrzjlq.normal.png",
+      "material": "v7_google_gemini-2.5-flash-image_3x3_1jrzjlq.material.png",
+      "emissive": "v7_google_gemini-2.5-flash-image_3x3_1jrzjlq.emissive.png"
     },
-    "v6:google/gemini-2.5-flash-image:4x2:1qz4r25": {
-      "file": "v6_google_gemini-2.5-flash-image_4x2_1qz4r25.png",
-      "targetWidth": 424,
+    "v7:google/gemini-2.5-flash-image:4x2:1qz4r25": {
+      "file": "v7_google_gemini-2.5-flash-image_4x2_1qz4r25.png",
+      "targetWidth": 440,
       "preset": "longhouse",
-      "anchors": "{\"doors\":[],\"vents\":[{\"x\":0.39613208001514655,\"y\":0.057259045444159114}]}",
-      "normal": "v6_google_gemini-2.5-flash-image_4x2_1qz4r25.normal.png",
-      "material": "v6_google_gemini-2.5-flash-image_4x2_1qz4r25.material.png",
-      "emissive": "v6_google_gemini-2.5-flash-image_4x2_1qz4r25.emissive.png"
+      "anchors": "{\"doors\":[],\"vents\":[{\"x\":0.40063635756752713,\"y\":0.05586628778399198}]}",
+      "normal": "v7_google_gemini-2.5-flash-image_4x2_1qz4r25.normal.png",
+      "material": "v7_google_gemini-2.5-flash-image_4x2_1qz4r25.material.png",
+      "emissive": "v7_google_gemini-2.5-flash-image_4x2_1qz4r25.emissive.png"
     }
   },
-  "recipeVersion": "v6"
+  "recipeVersion": "v7"
 }
