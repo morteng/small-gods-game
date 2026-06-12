@@ -8,14 +8,25 @@ import type { Entity } from '@/core/types';
 import { blueprintOf } from '@/blueprint/entity';
 import type { ResolvedBlueprint } from '@/blueprint/types';
 import { toGeometry } from '@/blueprint/compile/to-geometry';
-import { greyToSpriteCanvas, type SpriteCanvas } from '@/render/iso/sprite-canvas';
+import { greyToSpriteCanvas, type SpritePack } from '@/render/iso/sprite-canvas';
 import { composeStructure, type StructureSpec, type StructureResult } from '@/assetgen/compose';
 import { ensureBuildingTypesRegistered } from '@/blueprint/register-buildings';
 
 export interface ParametricSourceDeps {
   toSpec?: (rb: ResolvedBlueprint) => StructureSpec | null;
   compose?: (s: StructureSpec) => Promise<StructureResult>;
-  toSprite?: (r: StructureResult) => SpriteCanvas | null;
+  toSprite?: (r: StructureResult) => SpritePack | null;
+}
+
+/** Crop the grey render + its co-registered normal/material maps to one pack. */
+export function structureResultToPack(r: StructureResult): SpritePack | null {
+  const albedo = greyToSpriteCanvas(r.grey, r.size, r.bbox);
+  if (!albedo) return null;
+  return {
+    albedo,
+    normal: greyToSpriteCanvas(r.normal, r.size, r.bbox) ?? undefined,
+    material: greyToSpriteCanvas(r.material, r.size, r.bbox) ?? undefined,
+  };
 }
 
 function blueprintRbOf(e: Entity): ResolvedBlueprint | undefined {
@@ -26,7 +37,7 @@ function blueprintRbOf(e: Entity): ResolvedBlueprint | undefined {
 function keyOf(rb: ResolvedBlueprint): string { return JSON.stringify(rb); }
 
 export class ParametricBuildingSource {
-  private readonly cache = new Map<string, SpriteCanvas | null>();
+  private readonly cache = new Map<string, SpritePack | null>();
   private readonly inflight = new Set<string>();
   private readonly warned = new Set<string>();
   private readonly toSpec: NonNullable<ParametricSourceDeps['toSpec']>;
@@ -40,11 +51,11 @@ export class ParametricBuildingSource {
     ensureBuildingTypesRegistered();
     this.toSpec = deps.toSpec ?? ((rb) => toGeometry(rb));
     this.compose = deps.compose ?? composeStructure;
-    this.toSprite = deps.toSprite ?? ((r) => greyToSpriteCanvas(r.grey, r.size, r.bbox));
+    this.toSprite = deps.toSprite ?? structureResultToPack;
   }
 
-  /** Sync read of an already-generated sprite (null if absent / unsupported / failed). */
-  peek(e: Entity): SpriteCanvas | null {
+  /** Sync read of an already-generated sprite pack (null if absent / unsupported / failed). */
+  peek(e: Entity): SpritePack | null {
     const rb = blueprintRbOf(e);
     return rb ? (this.cache.get(keyOf(rb)) ?? null) : null;
   }

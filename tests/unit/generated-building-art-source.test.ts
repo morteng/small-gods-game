@@ -68,14 +68,14 @@ describe('GeneratedBuildingArtSource', () => {
     const { src, generate } = makeSource();
     const e = entity('cottage');
     expect(src.peek(e)).toBeNull();
-    src.warm(e); await vi.waitFor(() => expect(src.peek(e)).toBe(SPRITE));
+    src.warm(e); await vi.waitFor(() => expect(src.peek(e)?.albedo).toBe(SPRITE));
     expect(generate).toHaveBeenCalledTimes(1);
   });
 
   it('serves a cache hit without calling generate', async () => {
     const { src, generate } = makeSource({ cacheGet: async () => ({ blob: new Blob(), targetWidth: 256 }) });
     const e = entity('cottage'); src.warm(e);
-    await vi.waitFor(() => expect(src.peek(e)).toBe(SPRITE));
+    await vi.waitFor(() => expect(src.peek(e)?.albedo).toBe(SPRITE));
     expect(generate).not.toHaveBeenCalled();
   });
 
@@ -83,10 +83,42 @@ describe('GeneratedBuildingArtSource', () => {
     const baseGet = vi.fn(async () => ({ blob: new Blob(), targetWidth: 256 }));
     const { src, generate, cachePut } = makeSource({ cacheGet: async () => null, baseGet });
     const e = entity('cottage'); src.warm(e);
-    await vi.waitFor(() => expect(src.peek(e)).toBe(SPRITE));
+    await vi.waitFor(() => expect(src.peek(e)?.albedo).toBe(SPRITE));
     expect(baseGet).toHaveBeenCalledTimes(1);
     expect(generate).not.toHaveBeenCalled();
     expect(cachePut).not.toHaveBeenCalled(); // static library stays the source of truth
+  });
+
+  it('decodes companion normal/material blobs from a cache hit into the pack', async () => {
+    const NORMAL = {} as unknown as HTMLCanvasElement;
+    const MATERIAL = {} as unknown as HTMLCanvasElement;
+    const normalBlob = new Blob([new Uint8Array([2])]);
+    const materialBlob = new Blob([new Uint8Array([3])]);
+    // decodeImage notes which blob it saw so the next rasterToSprite call can
+    // hand back the matching canvas stand-in (decode→sprite runs sequentially).
+    let last: HTMLCanvasElement = SPRITE;
+    const { src } = makeSource({
+      cacheGet: async () => ({ blob: new Blob(), targetWidth: 256, normal: normalBlob, material: materialBlob }),
+      decodeImage: async (b: Blob) => {
+        last = b === normalBlob ? NORMAL : b === materialBlob ? MATERIAL : SPRITE;
+        return goodLlm();
+      },
+      rasterToSprite: () => last,
+    });
+    const e = entity('cottage'); src.warm(e);
+    await vi.waitFor(() => expect(src.peek(e)).not.toBeNull());
+    const pack = src.peek(e)!;
+    expect(pack.albedo).toBe(SPRITE);
+    expect(pack.normal).toBe(NORMAL);
+    expect(pack.material).toBe(MATERIAL);
+  });
+
+  it('a hit without companion maps yields an unlit pack (albedo only)', async () => {
+    const { src } = makeSource({ cacheGet: async () => ({ blob: new Blob(), targetWidth: 256 }) });
+    const e = entity('cottage'); src.warm(e);
+    await vi.waitFor(() => expect(src.peek(e)).not.toBeNull());
+    expect(src.peek(e)!.normal).toBeUndefined();
+    expect(src.peek(e)!.material).toBeUndefined();
   });
 
   it('does not generate when disabled or over budget → peek stays null', async () => {
@@ -139,7 +171,7 @@ describe('GeneratedBuildingArtSource validation gate', () => {
       produce: async () => ({ initDataUri: 'data:image/png;base64,AA', mask: mask4(), normal, anchors: '{"vents":[]}' }),
     });
     const e = entity('cottage'); src.warm(e);
-    await vi.waitFor(() => expect(src.peek(e)).toBe(SPRITE));
+    await vi.waitFor(() => expect(src.peek(e)?.albedo).toBe(SPRITE));
     expect(cachePut).toHaveBeenCalledTimes(1);
     const [, blob, meta] = cachePut.mock.calls[0] as unknown as [string, Blob, { targetWidth: number; normal?: Blob; anchors?: string }];
     expect(blob).toBe(encoded);          // the registered/quantized PNG, not generate()'s output
@@ -175,7 +207,7 @@ describe('GeneratedBuildingArtSource validation gate', () => {
   it('tolerates moderate silhouette deviation (IoU 0.75 passes the relaxed gate)', async () => {
     const { src, cachePut } = makeSource({ decodeImage: async () => lShapeLlm() });
     const e = entity('cottage'); src.warm(e);
-    await vi.waitFor(() => expect(src.peek(e)).toBe(SPRITE));
+    await vi.waitFor(() => expect(src.peek(e)?.albedo).toBe(SPRITE));
     expect(cachePut).toHaveBeenCalledTimes(1);
   });
 
@@ -185,7 +217,7 @@ describe('GeneratedBuildingArtSource validation gate', () => {
       decodeImage: async () => (++call === 1 ? opaqueBgLlm() : goodLlm()),
     });
     const e = entity('cottage'); src.warm(e);
-    await vi.waitFor(() => expect(src.peek(e)).toBe(SPRITE));
+    await vi.waitFor(() => expect(src.peek(e)?.albedo).toBe(SPRITE));
     expect(generate).toHaveBeenCalledTimes(2);
     expect(cachePut).toHaveBeenCalledTimes(1);
   });

@@ -5,6 +5,18 @@ import type { BBox } from '@/assetgen/render/fit';
 
 export type SpriteCanvas = HTMLCanvasElement | OffscreenCanvas;
 
+/**
+ * A building sprite + its co-registered companion PBR maps (same crop as the
+ * albedo, so UVs align by construction). `normal`/`material` feed the WebGL
+ * layer's lit path (PBR Slice 3); absent maps degrade to unlit rendering.
+ * Emissive stays persisted in the caches but isn't decoded until Slice 5.
+ */
+export interface SpritePack {
+  albedo: SpriteCanvas;
+  normal?: SpriteCanvas;
+  material?: SpriteCanvas;
+}
+
 export function makeCanvas(w: number, h: number): SpriteCanvas | null {
   if (typeof OffscreenCanvas !== 'undefined') return new OffscreenCanvas(w, h);
   if (typeof document !== 'undefined') {

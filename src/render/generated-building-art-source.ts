@@ -12,7 +12,7 @@
 import type { Entity } from '@/core/types';
 import { blueprintOf } from '@/blueprint/entity';
 import type { ResolvedBlueprint } from '@/blueprint/types';
-import type { SpriteCanvas } from '@/render/iso/sprite-canvas';
+import type { SpriteCanvas, SpritePack } from '@/render/iso/sprite-canvas';
 import { composeStructure } from '@/assetgen/compose';
 import { toGeometry } from '@/blueprint/compile/to-geometry';
 import { greyToDataUri } from '@/render/iso/sprite-canvas';
@@ -47,6 +47,18 @@ export interface ProducedPack {
   anchors?: string;
 }
 
+/** One vendored-library manifest row (see scripts/seed-building-art.ts). */
+interface BaseManifestEntry {
+  file: string; targetWidth: number;
+  normal?: string; material?: string; emissive?: string;
+}
+
+/** A cache/base-library hit: the processed albedo + optional companion PBR maps. */
+export interface CachedArt {
+  blob: Blob; targetWidth: number;
+  normal?: Blob; material?: Blob;
+}
+
 export interface GeneratedSourceDeps {
   enabled: () => boolean;
   canSpend: () => boolean;
@@ -60,9 +72,9 @@ export interface GeneratedSourceDeps {
   decodeImage?: (blob: Blob) => Promise<Raster | null>;
   encodeRaster?: (r: Raster) => Promise<Blob | null>;
   rasterToSprite?: (r: Raster) => SpriteCanvas | null;
-  cacheGet?: (key: string) => Promise<{ blob: Blob; targetWidth: number } | null>;
+  cacheGet?: (key: string) => Promise<CachedArt | null>;
   /** Vendored no-key base library (public/asset-library/building-sprites/) — consulted after IDB, before paying. */
-  baseGet?: (key: string) => Promise<{ blob: Blob; targetWidth: number } | null>;
+  baseGet?: (key: string) => Promise<CachedArt | null>;
   cachePut?: (key: string, blob: Blob, meta: {
     model: string; prompt: string; targetWidth: number;
     normal?: Blob; material?: Blob; emissive?: Blob; anchors?: string;
@@ -70,7 +82,7 @@ export interface GeneratedSourceDeps {
 }
 
 export class GeneratedBuildingArtSource {
-  private readonly cache = new Map<string, SpriteCanvas | null>();
+  private readonly cache = new Map<string, SpritePack | null>();
   private readonly inflight = new Set<string>();
   private readonly warned = new Set<string>();
   private readonly d: Required<GeneratedSourceDeps>;
@@ -123,7 +135,7 @@ export class GeneratedBuildingArtSource {
     return key;
   }
 
-  peek(e: Entity): SpriteCanvas | null {
+  peek(e: Entity): SpritePack | null {
     const rb = this.rbOf(e); if (!rb) return null;
     return this.cache.get(this.keyOf(rb)) ?? null;
   }
@@ -141,24 +153,36 @@ export class GeneratedBuildingArtSource {
   // site (seeded by scripts/seed-building-art.ts through the SAME pipeline + key
   // derivation), so keyless players get real art without paying. Fetched lazily,
   // once; any failure degrades to "no base library".
-  private baseManifest: Promise<Record<string, { file: string; targetWidth: number }> | null> | null = null;
-  private async fetchFromBaseLibrary(key: string): Promise<{ blob: Blob; targetWidth: number } | null> {
+  private baseManifest: Promise<Record<string, BaseManifestEntry> | null> | null = null;
+  private async fetchFromBaseLibrary(key: string): Promise<CachedArt | null> {
     if (typeof fetch === 'undefined') return null;
     try {
       this.baseManifest ??= (async () => {
         const { assetUrl } = await import('@/core/asset-url');
         const resp = await fetch(assetUrl('asset-library/building-sprites/manifest.json'));
         if (!resp.ok) return null;
-        const json = await resp.json() as { entries?: Record<string, { file: string; targetWidth: number }> };
+        const json = await resp.json() as { entries?: Record<string, BaseManifestEntry> };
         return json.entries ?? null;
       })().catch(() => null);
       const entries = await this.baseManifest;
       const entry = entries?.[key];
       if (!entry) return null;
       const { assetUrl } = await import('@/core/asset-url');
-      const resp = await fetch(assetUrl(`asset-library/building-sprites/${entry.file}`));
-      if (!resp.ok) return null;
-      return { blob: await resp.blob(), targetWidth: entry.targetWidth };
+      const file = async (name: string | undefined): Promise<Blob | undefined> => {
+        if (!name) return undefined;
+        try {
+          const resp = await fetch(assetUrl(`asset-library/building-sprites/${name}`));
+          return resp.ok ? await resp.blob() : undefined;
+        } catch { return undefined; }
+      };
+      const blob = await file(entry.file);
+      if (!blob) return null;
+      // Companion maps (seeded alongside the albedo) feed the lit WebGL path;
+      // a missing map just degrades that building to unlit rendering.
+      return {
+        blob, targetWidth: entry.targetWidth,
+        normal: await file(entry.normal), material: await file(entry.material),
+      };
     } catch { return null; }
   }
 
@@ -213,14 +237,32 @@ export class GeneratedBuildingArtSource {
     return quantizePalette(reg.sprite, QUANT_COLORS);
   }
 
+  /** Decode an optional companion-map PNG into a canvas; failures degrade to "no map". */
+  private async decodeMap(blob: Blob | undefined): Promise<SpriteCanvas | undefined> {
+    if (!blob) return undefined;
+    const r = await this.d.decodeImage(blob).catch(() => null);
+    return (r && this.d.rasterToSprite(r)) ?? undefined;
+  }
+
+  /** Assemble a SpritePack from the albedo raster + optional companion blobs. */
+  private async toPack(albedo: Raster, normal?: Blob, material?: Blob): Promise<SpritePack | null> {
+    const sprite = this.d.rasterToSprite(albedo);
+    if (!sprite) return null;
+    return {
+      albedo: sprite,
+      normal: await this.decodeMap(normal),
+      material: await this.decodeMap(material),
+    };
+  }
+
   private async run(rb: ResolvedBlueprint, key: string): Promise<void> {
     try {
       // IDB first (paid results), then the vendored base library — both hold the
-      // already-processed sprite at final resolution.
+      // already-processed sprite at final resolution plus its companion maps.
       const hit = await this.d.cacheGet(key) ?? await this.d.baseGet(key);
       if (hit) {
         const r = await this.d.decodeImage(hit.blob);
-        this.cache.set(key, r ? this.d.rasterToSprite(r) : null);
+        this.cache.set(key, r ? await this.toPack(r, hit.normal, hit.material) : null);
         return;
       }
       // Over budget: cache null so we DON'T re-enter run() (and re-read IDB) every
@@ -240,7 +282,7 @@ export class GeneratedBuildingArtSource {
           normal: pack.normal, material: pack.material, emissive: pack.emissive, anchors: pack.anchors,
         });
       }
-      this.cache.set(key, this.d.rasterToSprite(sprite));
+      this.cache.set(key, await this.toPack(sprite, pack.normal, pack.material));
     } catch (err) {
       if (!this.warned.has(key)) { console.warn('[generated-building] generation failed', err); this.warned.add(key); }
       this.cache.set(key, null);

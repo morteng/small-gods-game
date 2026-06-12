@@ -3,6 +3,8 @@ import type { World } from '@/world/world';
 import type { SpiritId } from '@/core/spirit';
 import type { Era } from '@/core/era';
 import type { DrawItem } from '@/render/iso/draw-list';
+import type { SpritePack } from '@/render/iso/sprite-canvas';
+import type { LightingState } from '@/render/lighting-state';
 
 export type { Era } from '@/core/era';
 
@@ -167,10 +169,12 @@ export interface RenderContext {
   resolveEntityArt?: (entity: Entity) => HTMLImageElement | null;
   /** Render-only: building entity → generated sprite image, or null to fall back to parametric massing. */
   resolveBuildingArt?: (entity: Entity) => HTMLImageElement | null;
-  /** A runtime-generated parametric building sprite (manifold), or null. */
-  resolveParametricBuildingArt?: (entity: Entity) => CanvasImageSource | null;
-  /** An img2img-generated building sprite, or null (falls back to parametric). */
-  resolveGeneratedBuildingArt?: (entity: Entity) => CanvasImageSource | null;
+  /** A runtime-generated parametric building sprite pack (manifold), or null. */
+  resolveParametricBuildingArt?: (entity: Entity) => SpritePack | null;
+  /** An img2img-generated building sprite pack, or null (falls back to parametric). */
+  resolveGeneratedBuildingArt?: (entity: Entity) => SpritePack | null;
+  /** Global lighting for the WebGL entity layer (PBR Slice 3); absent = unlit. */
+  lighting?: LightingState;
   /** Dev mode state — when present and enabled, renderer draws highlights. */
   devMode?: DevModeState;
   /** Debug overlay options (extracted from devMode for convenience). */
@@ -185,7 +189,11 @@ export interface RenderContext {
 export interface EntityLayerHandle {
   render(
     items: readonly DrawItem[],
-    view: { cssWidth: number; cssHeight: number; dpr: number; camera: { x: number; y: number; zoom: number } },
+    view: {
+      cssWidth: number; cssHeight: number; dpr: number;
+      camera: { x: number; y: number; zoom: number };
+      lighting?: LightingState;
+    },
   ): HTMLCanvasElement | null;
 }
 
@@ -689,6 +697,10 @@ export interface DevModeState {
   // Entity render backend (dev). 'auto' = PixiJS WebGL layer when ready (falls
   // back to Canvas2D until init / on failure); 'canvas' = force Canvas2D. Default 'auto'.
   entityRenderBackend?: 'auto' | 'canvas';
+  // Entity lighting (dev, WebGL backend only). 'banded' = ambient + banded
+  // directional sun over the sprite packs' normal/AO maps; 'off' = unlit
+  // (Slice 2 parity). Default 'banded'.
+  lighting?: 'banded' | 'off';
   // Render layer toggles — each base scene category is shown unless its flag is
   // explicitly false (default: shown). See src/render/layer-visibility.ts.
   showTerrain?: boolean;

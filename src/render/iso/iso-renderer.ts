@@ -62,6 +62,7 @@ export function createIsoRenderMap(): RenderMap {
           cssWidth: canvasWidth, cssHeight: canvasHeight,
           dpr: (typeof devicePixelRatio === 'number' ? devicePixelRatio : 1),
           camera,
+          lighting: rc.lighting,
         })
       : null;
     if (layerCanvas) {

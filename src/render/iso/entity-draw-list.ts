@@ -11,7 +11,7 @@ import type { DrawItem } from './draw-list';
 import type { IsoItemCtx } from './iso-sprites';
 import { npcItems, vegetationItems, artBillboardItem } from './iso-sprites';
 import {
-  buildingSpriteItemFromImage, buildingSpriteItemFromCanvas, flatBlockItems, pickBuildingSource,
+  buildingSpriteItemFromImage, buildingSpriteItemFromPack, flatBlockItems, pickBuildingSource,
 } from './iso-building';
 import { barrierItems } from './iso-barrier';
 import { buildYSortBucket, buildingSortKey, type YSortEntry } from './iso-ysort';
@@ -144,8 +144,8 @@ export function buildEntityDrawList(rc: RenderContext, bounds: TileBounds, ic: I
         const fp = { w: b.s.w, h: b.s.h };
         switch (pickBuildingSource(mode, asset, generated, parametric)) {
           case 'asset':      items.push(buildingSpriteItemFromImage(ic, asset() as HTMLImageElement, bx, by, fp)); break;
-          case 'generated':  items.push(buildingSpriteItemFromCanvas(ic, generated() as HTMLCanvasElement, bx, by, fp)); break;
-          case 'parametric': items.push(buildingSpriteItemFromCanvas(ic, parametric() as HTMLCanvasElement, bx, by, fp)); break;
+          case 'generated':  items.push(buildingSpriteItemFromPack(ic, generated()!, bx, by, fp)); break;
+          case 'parametric': items.push(buildingSpriteItemFromPack(ic, parametric()!, bx, by, fp)); break;
           case 'flat':       items.push(...flatBlockItems(ic, fp, bx, by)); break;
         }
       }

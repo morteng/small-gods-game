@@ -7,6 +7,7 @@ import type { ParametricBuildingSource } from '@/render/parametric-building-sour
 import type { GeneratedBuildingArtSource } from '@/render/generated-building-art-source';
 import type { Viewport } from './viewport';
 import { toRenderNpc } from '@/world/npc-helpers';
+import { DEFAULT_LIGHTING, LIGHTING_OFF } from '@/render/lighting-state';
 
 export interface RenderContextDeps {
   state: GameState;
@@ -73,6 +74,7 @@ export function buildRenderContext(deps: RenderContextDeps): RenderContext {
       src.warm(entity); // fire-and-forget; never blocks the frame
       return null;
     },
+    lighting: devMode.lighting === 'off' ? LIGHTING_OFF : DEFAULT_LIGHTING,
     devMode,
   };
 }

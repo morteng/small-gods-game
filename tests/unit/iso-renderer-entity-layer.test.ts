@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { createIsoRenderMap } from '@/render/iso/iso-renderer';
 import type { RenderContext, GameMap, NpcInstance } from '@/core/types';
 import { createIsoCamera } from '@/render/iso/iso-camera';
+import { DEFAULT_LIGHTING } from '@/render/lighting-state';
 
 function makeMap(w: number, h: number): GameMap {
   const tiles = [];
@@ -50,6 +51,7 @@ describe('iso-renderer: WebGL entity layer composite', () => {
     const layer = { render: vi.fn(() => layerCanvas) };
     const rc = makeRc();
     rc.entityLayer = layer;
+    rc.lighting = DEFAULT_LIGHTING;
     const ctx = makeMockCtx();
     createIsoRenderMap()(ctx, rc);
 
@@ -59,6 +61,7 @@ describe('iso-renderer: WebGL entity layer composite', () => {
     expect(items).toHaveLength(1);
     expect(view.cssWidth).toBe(800);
     expect(view.camera).toBe(rc.camera);
+    expect((view as { lighting?: unknown }).lighting).toBe(rc.lighting);
 
     // Composite: identity transform, then drawImage of the layer's canvas at 0,0.
     expect(ctx.setTransform).toHaveBeenCalledWith(1, 0, 0, 1, 0, 0);

@@ -11,6 +11,7 @@
  */
 import { worldToScreen } from './iso-projection';
 import { opaqueAnchor, type SpriteAnchor } from './iso-sprite-bbox';
+import type { SpritePack } from './sprite-canvas';
 import type { IsoDrawCtx } from './iso-sprites';
 import type { BuildingRenderMode } from '@/core/types';
 import { HEIGHT_UNIT_PX, ISO_TILE_H } from '@/render/scale-contract';
@@ -143,6 +144,25 @@ export function buildingSpriteItemFromCanvas(
   return buildingSpriteItem(o, src, natW, natH, { centerX: natW / 2, bottom: natH }, tileX, tileY, footprint);
 }
 
+/**
+ * A building sprite PACK (albedo + co-registered normal/material maps): the
+ * albedo places exactly like `buildingSpriteItemFromCanvas`; the maps ride
+ * along on the item so the WebGL backend can light it (Canvas2D ignores them).
+ */
+export function buildingSpriteItemFromPack(
+  o: { originX: number; originY: number }, pack: SpritePack,
+  tileX: number, tileY: number, footprint: { w: number; h: number },
+): DrawItem {
+  const item = buildingSpriteItemFromCanvas(o, pack.albedo, tileX, tileY, footprint);
+  if (item.t === 'image' && (pack.normal || pack.material)) {
+    item.maps = {
+      normal: pack.normal as CanvasImageSource | undefined,
+      material: pack.material as CanvasImageSource | undefined,
+    };
+  }
+  return item;
+}
+
 export function drawIsoBuildingSpriteGenerated(
   dc: IsoDrawCtx, src: HTMLCanvasElement | OffscreenCanvas,
   tileX: number, tileY: number, footprint: { w: number; h: number },
@@ -163,9 +183,9 @@ export function drawIsoBuildingSpriteGenerated(
  */
 export function pickBuildingSource(
   mode: BuildingRenderMode,
-  asset: () => CanvasImageSource | null,
-  generated: () => CanvasImageSource | null,
-  parametric: () => CanvasImageSource | null,
+  asset: () => unknown,
+  generated: () => unknown,
+  parametric: () => unknown,
 ): 'asset' | 'generated' | 'parametric' | 'flat' {
   if (mode !== 'fallback') {
     if (asset()) return 'asset';

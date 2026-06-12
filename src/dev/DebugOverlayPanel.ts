@@ -178,6 +178,25 @@ export function mountDebugOverlayPanel(container: HTMLElement, deps: { dock?: Do
   backendRow.appendChild(backendSelect);
   buildingSection.appendChild(backendRow);
 
+  // Entity lighting (WebGL backend only) — banded ambient+sun vs unlit.
+  const lightingRow = document.createElement('label');
+  lightingRow.style.cssText = backendRow.style.cssText;
+  const lightingText = document.createElement('span');
+  lightingText.textContent = '☀️ Lighting';
+  const lightingSelect = document.createElement('select');
+  lightingSelect.style.cssText = modeSelect.style.cssText;
+  for (const [value, label] of [['banded', 'Banded sun (WebGL)'], ['off', 'Off (unlit)']] as const) {
+    const opt = document.createElement('option');
+    opt.value = value; opt.textContent = label;
+    lightingSelect.appendChild(opt);
+  }
+  lightingSelect.addEventListener('change', () => {
+    if (currentDevMode) currentDevMode.lighting = lightingSelect.value as 'banded' | 'off';
+  });
+  lightingRow.appendChild(lightingText);
+  lightingRow.appendChild(lightingSelect);
+  buildingSection.appendChild(lightingRow);
+
   // Reset button — clears every overlay back to its default (off / shown).
   const resetBtn = document.createElement('button');
   resetBtn.className = 'sg-dev-btn';
@@ -195,6 +214,7 @@ export function mountDebugOverlayPanel(container: HTMLElement, deps: { dock?: Do
     for (const layer of RENDER_LAYERS) currentDevMode[layerFlag(layer)] = true;
     currentDevMode.buildingRenderMode = 'auto';
     currentDevMode.entityRenderBackend = 'auto';
+    currentDevMode.lighting = 'banded';
     currentDevMode.beliefThreshold = 0.3;
     currentDevMode.selectedSpiritId = null;
     update(currentDevMode);
@@ -218,6 +238,7 @@ export function mountDebugOverlayPanel(container: HTMLElement, deps: { dock?: Do
     }
     modeSelect.value = devMode.buildingRenderMode ?? 'auto';
     backendSelect.value = devMode.entityRenderBackend ?? 'auto';
+    lightingSelect.value = devMode.lighting ?? 'banded';
 
     const threshold = devMode.beliefThreshold ?? 0.3;
     thresholdSlider.value = String(Math.round(threshold * 100));

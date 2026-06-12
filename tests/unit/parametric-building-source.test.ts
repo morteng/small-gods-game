@@ -11,7 +11,7 @@ const noBlueprint = (): Entity => ({
 });
 
 const fakeResult = { grey: new Uint8ClampedArray(4), size: 1, bbox: { x: 0, y: 0, w: 1, h: 1 } } as unknown as StructureResult;
-const fakeSprite = { width: 10, height: 8 } as unknown as HTMLCanvasElement;
+const fakeSprite = { albedo: { width: 10, height: 8 } as unknown as HTMLCanvasElement };
 
 function flush() { return new Promise(r => setTimeout(r, 0)); }
 

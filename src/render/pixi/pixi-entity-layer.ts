@@ -18,6 +18,8 @@
  */
 import type { DrawItem } from '@/render/iso/draw-list';
 import { isoStageTransform } from '@/render/iso/entity-draw-list';
+import type { LightingState } from '@/render/lighting-state';
+import { LIT_VERTEX, LIT_FRAGMENT, litUniformGroup, litUniformValues } from './lit-shader';
 
 export interface PixiLayerView {
   /** Main-canvas CSS pixel size (viewport units, pre-DPR). */
@@ -25,11 +27,18 @@ export interface PixiLayerView {
   cssHeight: number;
   dpr: number;
   camera: { x: number; y: number; zoom: number };
+  /** Global lighting (PBR Slice 3); absent or disabled = every item unlit. */
+  lighting?: LightingState;
 }
 
 export type PixiBackendState = 'idle' | 'loading' | 'ready' | 'failed';
 
 type PixiModule = typeof import('pixi.js');
+/** A pooled lit-mesh entry — the quad mesh + its (per-entry) custom shader. */
+interface LitEntry {
+  mesh: import('pixi.js').Mesh<import('pixi.js').MeshGeometry, import('pixi.js').Shader>;
+  shader: import('pixi.js').Shader;
+}
 
 export class PixiEntityLayer {
   private state: PixiBackendState = 'idle';
@@ -38,6 +47,8 @@ export class PixiEntityLayer {
   private stage: import('pixi.js').Container | null = null;
   private spritePool: import('pixi.js').Sprite[] = [];
   private gfxPool: import('pixi.js').Graphics[] = [];
+  private litPool: LitEntry[] = [];
+  private quadGeometry: import('pixi.js').MeshGeometry | null = null;
   private textures = new WeakMap<object, { base: import('pixi.js').Texture; frames: Map<string, import('pixi.js').Texture> }>();
   private destroyed = false;
 
@@ -58,7 +69,7 @@ export class PixiEntityLayer {
     this.stage.scale.set(t.scale);
     this.stage.position.set(t.x, t.y);
 
-    this.populate(items);
+    this.populate(items, view.lighting);
     this.renderer.render(this.stage);
     return this.renderer.canvas as HTMLCanvasElement;
   }
@@ -70,6 +81,8 @@ export class PixiEntityLayer {
     this.stage = null;
     this.spritePool = [];
     this.gfxPool = [];
+    this.litPool = [];
+    this.quadGeometry = null;
     this.state = 'failed'; // render() stays null forever after destroy
   }
 
@@ -130,15 +143,62 @@ export class PixiEntityLayer {
     return tex;
   }
 
+  /**
+   * One pooled lit mesh: a unit quad (honest 0..1 UVs — unlike a Filter, never
+   * clipped by the viewport) with the banded-lighting shader. Each pool entry
+   * owns its Shader so per-building textures can differ; the light uniforms are
+   * rewritten every frame (the group is non-static, so pixi re-uploads it).
+   */
+  private litMesh(li: number, lighting: LightingState): LitEntry {
+    const pixi = this.pixi!;
+    let entry = this.litPool[li];
+    if (!entry) {
+      this.quadGeometry ??= new pixi.MeshGeometry({
+        positions: new Float32Array([0, 0, 1, 0, 1, 1, 0, 1]),
+        uvs: new Float32Array([0, 0, 1, 0, 1, 1, 0, 1]),
+        indices: new Uint32Array([0, 1, 2, 0, 2, 3]),
+      });
+      const white = pixi.Texture.WHITE.source;
+      const shader = pixi.Shader.from({
+        gl: { vertex: LIT_VERTEX, fragment: LIT_FRAGMENT },
+        resources: {
+          uAlbedo: white, uNormalMap: white, uMaterialMap: white,
+          litUniforms: litUniformGroup(lighting),
+        },
+      });
+      entry = { mesh: new pixi.Mesh({ geometry: this.quadGeometry, shader }), shader };
+      this.litPool[li] = entry;
+    }
+    return entry;
+  }
+
   /** Rebuild the stage children from the draw list (pooled, order-preserving). */
-  private populate(items: readonly DrawItem[]): void {
+  private populate(items: readonly DrawItem[], lighting?: LightingState): void {
     const pixi = this.pixi!;
     const stage = this.stage!;
     stage.removeChildren();
-    let si = 0, gi = 0, i = 0;
+    const lit = lighting?.enabled === true;
+    let si = 0, gi = 0, li = 0, i = 0;
     while (i < items.length) {
       const it = items[i];
-      if (it.t === 'image') {
+      if (it.t === 'image' && lit && it.maps?.normal) {
+        // Lit building sprite: albedo + co-registered normal/AO under the
+        // banded sun. A missing material map degrades to AO 1 (white texture).
+        const { mesh, shader } = this.litMesh(li, lighting!);
+        li++;
+        shader.resources.uAlbedo = this.texture(it.src).source;
+        shader.resources.uNormalMap = this.texture(it.maps.normal).source;
+        shader.resources.uMaterialMap = it.maps.material
+          ? this.texture(it.maps.material).source
+          : pixi.Texture.WHITE.source;
+        const u = (shader.resources.litUniforms as { uniforms: Record<string, unknown> }).uniforms;
+        const v = litUniformValues(lighting!);
+        u.uAmbient = v.uAmbient; u.uSunDir = v.uSunDir; u.uSunColor = v.uSunColor; u.uBands = v.uBands;
+        mesh.position.set(it.dx, it.dy);
+        mesh.scale.set(it.dw, it.dh);
+        stage.addChild(mesh);
+        i++;
+      } else if (it.t === 'image') {
         const sprite = (this.spritePool[si] ??= new pixi.Sprite());
         si++;
         sprite.texture = this.texture(it.src, it.frame);

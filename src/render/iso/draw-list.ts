@@ -19,6 +19,13 @@ export type DrawItem =
       /** Sheet frame; omitted = the whole source. */
       frame?: SrcFrame;
       dx: number; dy: number; dw: number; dh: number;
+      /**
+       * Co-registered PBR companion maps (same dimensions as `src`, never
+       * framed). Present only on building-pack sprites; the WebGL backend
+       * lights items that carry a normal map, the Canvas2D executor ignores
+       * them (lighting is a WebGL-only enhancement).
+       */
+      maps?: { normal?: CanvasImageSource; material?: CanvasImageSource };
     }
   | { t: 'poly'; points: Array<{ x: number; y: number }>; color: string }
   | { t: 'circle'; cx: number; cy: number; r: number; color: string };
