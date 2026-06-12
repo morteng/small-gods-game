@@ -98,20 +98,88 @@ Growth proposes **slots** scored against constraints, not raw tiles:
 - **Determinism & saves:** the plan state (road graph, slot queue, planner
   RNG) must serialize into the snapshot like everything else.
 
-## Suggested slices
+## Research findings (2026-06-13, web survey)
 
-1. **S1 — Settlement plan model:** `SettlementPlan` (road graph + typed nodes
-   + frontage slots + constraint scorer), worldgen builds it, placer consumes
-   it. Pure refactor of today's layout into the plan/execute split; same
-   visual output class, but doors face roads. (Foundation, no new behavior.)
-2. **S2 — Iterative growth at worldgen:** generate by running K planner steps
-   (founding → ribbon → infill); settlement age becomes visible.
+Full survey ran against Watabou's TownGeneratorOS, Parish & Müller/Citygen
+road growth, lot-subdivision literature, real burgage-plot morphology, and
+shipped games (Manor Lords, DF, Songs of Syx). What we're stealing:
+
+- **Wards via golden-spiral Voronoi on tiles** (Watabou): seed points in a
+  golden-angle spiral (dense centre → small central patches, the strongest
+  "medieval" visual cue), per-tile nearest-seed assignment, ward TYPE from a
+  location-rating table (centre/market-adjacency/water/defensibility).
+  ~100 LOC on a grid, fully seeded.
+- **Roads as discounted A\***: grow the network anchor↔anchor (gate, market,
+  church, neighbour settlement) with existing road tiles cheaper to traverse —
+  reuse emerges, tree-with-shortcuts topology for free. Replaces tensor
+  fields/L-systems, which don't fit a tile grid.
+- **Burgage plots as the persistent unit** (validated by Manor Lords): long
+  thin lots (2–3 tiles frontage × 4–6 deep) perpendicular to the street,
+  house flush at the frontage, yard behind. A plot exists BEFORE and outlives
+  its building; upgrades happen in place. Lot subdivision keyed on
+  `(worldSeed, roadTileCoord)` so lazily-reached lots are deterministic
+  regardless of growth order — replay/time-skip safe.
+- **Market = widened main street** at the church/manor crossroads or inside
+  the gate — not a detached plaza; the street-widening IS what distinguishes
+  planned medieval towns.
+- **Frontage-value gradient**: market/crossroads frontage is prime → shops
+  and merchant houses; cottages further out. Building-type pick weighted by
+  road-distance-to-market.
+- **Growth = consuming pre-generated lots**, never inventing geometry at
+  growth time: infill (lot adjacent to occupied lots) → ribbon-extend (next
+  lot outward) → upgrade-in-place → only when frontage saturates, run the
+  road grower once for one new back lane.
+
+## Districts & sub-nodes (user ask, 2026-06-13)
+
+Yes — and the research gives them a natural shape: **wards as entities**:
+`{ id, name, type, anchorId, tiles, lotIds }`. The plan graph gains typed
+sub-nodes (market, temple precinct, harbour, gate row); each ward is named at
+creation from centroid-bearing + function — "North Market", "Fisher Quarter",
+"Gate Row", "Temple Hill". That object is exactly the compact promptable
+shape `npc-prompt-builder` wants: NPC prompts reference home/work ward by
+name; Fate's era-authoring can mutate ward type/name across a time-skip
+("the Fisher Quarter burned; now the Ashfield"). District naming lands with
+the ward slice (S2 below); S1's `RoadNode.kind` is the forward hook.
+
+## Open systems: Fate directs the whole generative chain (user ask, 2026-06-13)
+
+Design rule for every slice: **each layer is data in, data out, with a patch
+seam** — the same shape that already lets agents patch blueprints
+(`BlueprintPatch` → `synthesizeBlueprint(name, patches)`). Fate (or the
+Create panel, or an era content pack) must be able to direct ANY level:
+
+| Layer | Artifact | Agent seam |
+|---|---|---|
+| Building | `Blueprint` | `BlueprintPatch` (exists) |
+| Siting | `SiteRule` | `registerSiteRule()` (S1) |
+| Settlement | `SettlementPlan` | plan verbs: `grow_settlement`, `add_road`, `claim_lot`, `found_settlement` (S3/S5, via the command-channel capability registry) |
+| District | ward entity `{name,type,…}` | `rename_ward` / `retype_ward` (S2+) |
+| World | zone rules / era tables | data-driven already (`POI_ZONE_RULES`, `buildingsByEra`); expose as patchable recipe with the period/style world-recipe track |
+
+Two invariants keep this safe and deterministic:
+1. Agents emit **typed intents through the command channel** (never direct
+   mutation), so everything is validated, previewable, and logged like
+   `place_building` today.
+2. Agent influence = **inputs to the seeded planner** (patches, weights,
+   vetoes), not raw tile edits — the sim stays replayable; a skip can re-run
+   the same growth with the same patches and get the same town.
+
+## Suggested slices (updated post-research)
+
+1. **S1 — Settlement plan model** ✅ (2026-06-13): `SettlementPlan` (road
+   graph + typed nodes + frontage slots + SITE_RULES), `placeSettlement`
+   executes it — doors face roads, docks require water, footprints stay off
+   roads. Spec: `2026-06-13-settlement-plan-s1-spec.md`.
+2. **S2 — Lots, wards & districts:** burgage-plot subdivision along frontage
+   (lots persist, keyed on road-tile coords), golden-spiral ward assignment +
+   ward entities with generated names ("North Market") for LLM prompts;
+   market = widened main street at the founding node.
 3. **S3 — Live growth:** sim system (slow cadence like mortality 0.25 Hz)
-   fires growth steps from population pressure; new buildings animate in
-   (construction state = scaffold material on the blueprint).
-4. **S4 — Constraint catalogue:** docks/mills/bridges/wells + water-aware
-   road walker upgrades.
+   consumes empty lots from population pressure (infill → ribbon-extend →
+   upgrade-in-place); discounted-A\* road grower opens back lanes when
+   frontage saturates; plan state serialized into the snapshot.
+4. **S4 — Constraint catalogue:** mills/bridges/wells/graveyard + water-aware
+   road walker; frontage-value gradient for type picks.
 5. **S5 — Skip integration + Fate lever:** D2 turnover → growth steps;
-   `grow_settlement` capability.
-
-S1 should get a full spec/plan next; it's the keystone the rest stack on.
+   `grow_settlement` capability; ward mutation in era-authoring.

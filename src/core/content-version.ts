@@ -30,4 +30,4 @@ export const ART_RECIPE_VERSION = 'v7';
  * An autosave stamped with a different value is discarded on load → a fresh
  * world is generated. Distinct from SAVE_VERSION (which guards the save *schema*).
  */
-export const WORLD_CONTENT_VERSION = 2;   // v6 building pass: barn 4×2, cottage/tavern bodies 3×2
+export const WORLD_CONTENT_VERSION = 3;   // settlement plan S1: frontage placement, doors face roads

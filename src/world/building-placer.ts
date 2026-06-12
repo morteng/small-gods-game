@@ -1,17 +1,16 @@
 /**
  * Building Placer
  *
- * Generic constraint-based building placement + organic road-first settlement
- * layout. Replaces the 10 hardcoded `place*` methods in WFCEngine.
- *
- * Settlement layout algorithm (road-first, organic):
- *   1. Determine main road direction from connected POIs
- *   2. Carve main road through settlement center
- *   3. Add 1-2 branching side paths for larger settlements
- *   4. Place primary building (temple/keep/tavern) at center/crossroads
- *   5. Scatter remaining buildings along road edges with random perpendicular
- *      offset (1-2 tiles), staggered spacing
- *   6. Carve short dirt paths connecting doors to nearest road tile
+ * Generic constraint-based building placement + plan/execute settlement
+ * layout (growth slice S1). `planSettlement` (settlement-plan.ts) builds the
+ * road graph + frontage slots; this module executes it:
+ *   1. Carve the planned road edges into roadTiles
+ *   2. For each roster building, claim the best frontage slot whose side
+ *      opposes the door facing — the door cell lands adjacent to the road,
+ *      looking at it. Site rules order candidates (centre/edge affinity)
+ *      and enforce hard constraints (dock needs water within 2 tiles).
+ *   3. No slot fits → spiral-search fallback near the centre (with the
+ *      site rule's water constraint) + a short carved door path.
  */
 
 import type { Entity, Tile, Era } from '@/core/types';
@@ -22,10 +21,13 @@ import { presetsForEra } from '@/map/poi-zones';
 import type { POI } from '@/core/types';
 import { Random } from '@/core/noise';
 import { synthesizeBlueprint } from '@/blueprint/presets';
-import { blueprintEntity, blueprintOf } from '@/blueprint/entity';
-
-/** Water tile types — road tiles must not be placed on these */
-const WATER_TYPES = new Set(['deep_water', 'shallow_water', 'river', 'ocean', 'water']);
+import { blueprintEntity } from '@/blueprint/entity';
+import { toCollision } from '@/blueprint/compile/to-collision';
+import { toAnchors } from '@/blueprint/compile/to-anchors';
+import {
+  planSettlement, orderedSlotsFor, WATER_TYPES, SITE_RULES,
+  type SettlementPlan,
+} from './settlement-plan';
 
 /** Road tile types — door paths stop when they reach an existing road */
 const ROAD_TYPES = new Set(['dirt_road', 'stone_road', 'bridge']);
@@ -54,6 +56,8 @@ export interface RoadTile {
 export interface SettlementResult {
   entities:  Entity[];
   roadTiles: RoadTile[];
+  /** The road graph + slots the layout was executed from (S1; growth slices extend it). */
+  plan: SettlementPlan;
 }
 
 /** Vegetation/ nature entity categories that should be removed when building. */
@@ -173,9 +177,9 @@ function canPlaceIgnoringNature(
 // ─── Settlement layout ────────────────────────────────────────────────────────
 
 /**
- * Place buildings for a POI settlement using road-first organic layout.
+ * Place buildings for a POI settlement: build the plan, then execute it.
  *
- * Returns all WorldEntity objects created (buildings + road markers).
+ * Returns all WorldEntity objects created plus the plan itself.
  * The caller is responsible for applying roadTiles to the tile grid.
  */
 export function placeSettlement(
@@ -191,109 +195,142 @@ export function placeSettlement(
   const cx = poi.position?.x ?? 0;
   const cy = poi.position?.y ?? 0;
   const entities:  Entity[] = [];
-  const roadTiles: RoadTile[]    = [];
   const roadType  = zoneRule.internalRoadType ?? 'dirt_road';
   const buildingCount = rng.int(zoneRule.buildingCount.min, zoneRule.buildingCount.max);
-
-  // 1. Choose main road axis from connected POIs (or default to horizontal)
-  const mainDir = connectedDirections.length > 0
-    ? connectedDirections[0]
-    : { dx: 1, dy: 0 };
-
   const radius = rng.int(zoneRule.radius.min, zoneRule.radius.max);
 
-  // 2. Carve main road through center
-  if (zoneRule.internalRoads && zoneRule.roadLayout !== 'none') {
-    const roadLength = radius * 2 + 1;
-    const perpDir = { dx: -mainDir.dy, dy: mainDir.dx };
-    const startX = cx - mainDir.dx * radius;
-    const startY = cy - mainDir.dy * radius;
-    for (let i = 0; i <= roadLength; i++) {
-      const rx = Math.round(startX + mainDir.dx * i);
-      const ry = Math.round(startY + mainDir.dy * i);
-      if (!WATER_TYPES.has(tiles[ry]?.[rx]?.type)) {
-        roadTiles.push({ x: rx, y: ry, type: roadType });
-      }
-      if (zoneRule.roadLayout === 'branching' && i === Math.floor(roadLength / 2)) {
-        // Add one short perpendicular branch
-        for (let b = 1; b <= Math.min(3, radius); b++) {
-          const brx1 = rx + perpDir.dx * b, bry1 = ry + perpDir.dy * b;
-          const brx2 = rx - perpDir.dx * b, bry2 = ry - perpDir.dy * b;
-          if (!WATER_TYPES.has(tiles[bry1]?.[brx1]?.type)) {
-            roadTiles.push({ x: brx1, y: bry1, type: roadType });
-          }
-          if (!WATER_TYPES.has(tiles[bry2]?.[brx2]?.type)) {
-            roadTiles.push({ x: brx2, y: bry2, type: roadType });
-          }
-        }
-      }
-    }
-  }
+  // 1. Plan: road graph + frontage slots.
+  const plan = planSettlement({ x: cx, y: cy }, zoneRule, tiles, connectedDirections, rng);
+  const roadTiles: RoadTile[] = plan.edges.flatMap(e =>
+    e.tiles.map(t => ({ x: t.x, y: t.y, type: roadType })));
+  const roadSet = new Set(roadTiles.map(rt => `${rt.x},${rt.y}`));
 
-  // 3. Place buildings along road
-  let placed = 0;
   const constraint: PlacementConstraint = {
     allowedTerrain: ['grass', 'dirt', 'sand', 'scrubland', 'farm_field', 'sacred_grove',
                       'hills', 'glen', 'dirt_road', 'stone_road'],
     margin: 1,
     requiresRoadAccess: zoneRule.internalRoads,
   };
+  const terrainSet = constraint.allowedTerrain;
+
+  /** Footprint fits at origin: terrain + occupancy + off-road + site water rule. */
+  const fitsAt = (x: number, y: number, w: number, h: number, nearWater?: number): boolean => {
+    if (x < 0 || y < 0 || y + h > tiles.length || x + w > (tiles[0]?.length ?? 0)) return false;
+    if (!footprintOnTerrain(x, y, w, h, tiles, terrainSet)) return false;
+    if (!canPlaceIgnoringNature(x, y, w, h, constraint.margin, registry)) return false;
+    for (let dy = 0; dy < h; dy++) {
+      for (let dx = 0; dx < w; dx++) {
+        if (roadSet.has(`${x + dx},${y + dy}`)) return false;
+        if (ROAD_TYPES.has(tiles[y + dy]?.[x + dx]?.type)) return false;
+      }
+    }
+    if (nearWater !== undefined && !nearWaterTile(x, y, w, h, tiles, nearWater)) return false;
+    return true;
+  };
+
+  // 2. Execute: claim frontage slots (door faces its road tile), spiral fallback.
+  let placed = 0;
   const roster = presetsForEra(zoneRule, era);
 
   for (let attempt = 0; attempt < buildingCount * 4 && placed < buildingCount && roster.length > 0; attempt++) {
     const presetName = roster[placed % roster.length];
     const rb = synthesizeBlueprint(presetName);
     if (!rb) continue;
+    const site = SITE_RULES[presetName];
 
-    const along = (rng.next() * 2 - 1) * radius * 0.8;
-    const perp  = (rng.next() * 2 - 1) * 3;
-    const perpDir = { dx: -mainDir.dy, dy: mainDir.dx };
-    const targetX = Math.round(cx + mainDir.dx * along + perpDir.dx * perp);
-    const targetY = Math.round(cy + mainDir.dy * along + perpDir.dy * perp);
+    // Main door: outward facing + local cell, from the blueprint anchor
+    // (inverting toAnchors' half-tile outward offset — doorCells order is
+    // unrelated to which door is main).
+    const anchors = toAnchors(rb, 0, 0);
+    const door = anchors.find(a => a.main) ?? anchors[0];
+    const facing: [number, number] = door?.facing ?? [0, 1];
+    const doorCell = door
+      ? [door.x - (facing[0] > 0 ? 1 : facing[0] < 0 ? 0 : 0.5),
+         door.y - (facing[1] > 0 ? 1 : facing[1] < 0 ? 0 : 0.5)]
+      : (toCollision(rb).doorCells[0] ?? '0,0').split(',').map(Number);
+    let origin: PlacementResult | null = null;
 
-    const result = findPlacement(
-      { x: targetX, y: targetY }, rb.footprint, constraint, tiles, registry, radius,
-    );
-    if (!result) continue;
+    for (const slot of orderedSlotsFor(plan, facing, site, rng)) {
+      // Align the footprint edge on the DOOR side flush against the road —
+      // the door fronts the road across at most its own yard strip (some
+      // presets keep a lawn row between the body and the footprint edge).
+      const { w, h } = rb.footprint;
+      const ox = facing[0] > 0 ? slot.roadX - w
+        : facing[0] < 0 ? slot.roadX + 1
+        : slot.roadX - doorCell[0];
+      const oy = facing[1] > 0 ? slot.roadY - h
+        : facing[1] < 0 ? slot.roadY + 1
+        : slot.roadY - doorCell[1];
+      if (fitsAt(ox, oy, w, h, site?.nearWater)) {
+        origin = { tileX: ox, tileY: oy };
+        break;
+      }
+    }
+
+    // Fallback: spiral search near a jittered target (with the water rule).
+    let viaSlot = origin !== null;
+    if (!origin) {
+      const targetX = Math.round(cx + (rng.next() * 2 - 1) * radius * 0.8);
+      const targetY = Math.round(cy + (rng.next() * 2 - 1) * radius * 0.8);
+      origin = findPlacement(
+        { x: targetX, y: targetY }, rb.footprint,
+        { ...constraint, nearWater: site?.nearWater }, tiles, registry, radius,
+      );
+      // Planned roads aren't on the tile grid yet — keep footprints off them.
+      if (origin) {
+        const { tileX, tileY } = origin;
+        outer: for (let dy = 0; dy < rb.footprint.h; dy++) {
+          for (let dx = 0; dx < rb.footprint.w; dx++) {
+            if (roadSet.has(`${tileX + dx},${tileY + dy}`)) { origin = null; break outer; }
+          }
+        }
+      }
+      viaSlot = false;
+    }
+    if (!origin) continue;
 
     const entity = blueprintEntity(
-      `${poi.id}_bld_${placed}`, rb, result.tileX, result.tileY, { poiId: poi.id },
+      `${poi.id}_bld_${placed}`, rb, origin.tileX, origin.tileY, { poiId: poi.id },
     );
 
     clearFootprint(
-      result.tileX, result.tileY, rb.footprint.w, rb.footprint.h,
+      origin.tileX, origin.tileY, rb.footprint.w, rb.footprint.h,
       registry, world, tiles,
     );
 
     registry.add(entity);
     entities.push(entity);
 
-    // Footprint-local door cell, from the precomputed collision mask.
-    const [doorLx, doorLy] = (blueprintOf(entity)?.collision.doorCells[0] ?? '0,0').split(',').map(Number);
-
     // Door tile stays walkable so mortals can reach the entrance (collision
     // already treats the door cell as passable; keep the tile flag in sync).
-    const doorTile = tiles[result.tileY + doorLy]?.[result.tileX + doorLx];
+    const [doorLx, doorLy] = [doorCell[0], doorCell[1]];
+    const doorTile = tiles[origin.tileY + doorLy]?.[origin.tileX + doorLx];
     if (doorTile) doorTile.walkable = true;
 
-    if (zoneRule.internalRoads) {
-      const doorX = result.tileX + doorLx;
-      const doorY = result.tileY + doorLy;
-      const roadPositions = new Set(roadTiles.map(rt => `${rt.x},${rt.y}`));
+    // Slot placements sit door-on-road by construction; fallback placements
+    // get a short carved connector from the door's OUTWARD neighbour (the
+    // door cell itself belongs to the footprint) toward the centre.
+    if (zoneRule.internalRoads && !viaSlot) {
+      const doorX = origin.tileX + doorLx + facing[0];
+      const doorY = origin.tileY + doorLy + facing[1];
       const path = bresenhamLine(doorX, doorY, cx, cy);
       for (let pi = 0; pi < Math.min(6, path.length); pi++) {
         const pt = path[pi];
-        const tileType = tiles[pt.y]?.[pt.x]?.type;
-        if (WATER_TYPES.has(tileType)) break;
+        const t = tiles[pt.y]?.[pt.x];
+        if (!t || WATER_TYPES.has(t.type)) break;
+        // Never carve through a building footprint (the door tile itself is walkable).
+        if (t.walkable === false) break;
+        const hitRoad = roadSet.has(`${pt.x},${pt.y}`) || ROAD_TYPES.has(t.type);
         roadTiles.push({ x: pt.x, y: pt.y, type: roadType });
-        if (roadPositions.has(`${pt.x},${pt.y}`) || ROAD_TYPES.has(tileType)) break;
+        roadSet.add(`${pt.x},${pt.y}`);
+        if (hitRoad) break;
       }
     }
 
     placed++;
   }
 
-  return { entities, roadTiles };
+  return { entities, roadTiles, plan };
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
