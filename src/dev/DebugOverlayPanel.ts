@@ -147,7 +147,7 @@ export function mountDebugOverlayPanel(container: HTMLElement, deps: { dock?: Do
   modeText.textContent = '🏗️ Mode';
   const modeSelect = document.createElement('select');
   modeSelect.style.cssText = 'flex:1; padding:4px; background:#1a1a2e; color:#e0e0e0; border:1px solid #555; border-radius:3px; font-size:11px; cursor:pointer;';
-  for (const [value, label] of [['auto', 'Auto (asset → parametric)'], ['fallback', 'Force parametric fallback']] as const) {
+  for (const [value, label] of [['auto', 'Auto (sprite art → parametric)'], ['fallback', 'Force 3D model primitives']] as const) {
     const opt = document.createElement('option');
     opt.value = value; opt.textContent = label;
     modeSelect.appendChild(opt);

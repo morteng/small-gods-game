@@ -141,10 +141,13 @@ export function drawIsoBuildingSpriteGenerated(
 
 /**
  * Pure dispatch decision: which source should the renderer draw a building from?
- *  - `'asset'`      — a generated PixelLab sprite (skipped in `'fallback'` mode)
+ *  - `'asset'`      — a generated PixelLab sprite
  *  - `'generated'`  — an img2img generated sprite (preferred over parametric)
- *  - `'parametric'` — a runtime manifold parametric sprite
+ *  - `'parametric'` — a runtime manifold parametric sprite (the 3D model render)
  *  - `'flat'`       — the last-resort Canvas2D flat block
+ * `'fallback'` mode forces the parametric 3D-model render: BOTH art sources
+ * (PixelLab asset and img2img generated) are skipped, so the toggle actually
+ * switches every building to its model primitives.
  * Extracted from the renderer so it's unit-testable without a canvas.
  */
 export function pickBuildingSource(
@@ -153,8 +156,10 @@ export function pickBuildingSource(
   generated: () => CanvasImageSource | null,
   parametric: () => CanvasImageSource | null,
 ): 'asset' | 'generated' | 'parametric' | 'flat' {
-  if (mode !== 'fallback' && asset()) return 'asset';
-  if (generated()) return 'generated';
+  if (mode !== 'fallback') {
+    if (asset()) return 'asset';
+    if (generated()) return 'generated';
+  }
   if (parametric()) return 'parametric';
   return 'flat';
 }
