@@ -46,6 +46,7 @@ Sim is fully deterministic with seedable RNG; snapshot/replay layer supports scr
 - **Time-Debug snapshot/inject are honest stubs** (disabled `makeStubButton()`s in `src/dev/TimeDebugPanel.ts`). Wiring Save/Load → `TimelineController`/`snapshot.ts` and Inject → settlement events (`world.activeEvents` + `settlement_begin` log) is a ROADMAP item.
 - **All `src/sim/` randomness flows through `ctx.rng`/passed `rng` (seeded sfc32), never `Math.random`** — enforced by `tests/unit/no-random-in-sim.test.ts`. New sim code must follow this or the guard test fails.
 - **Building sprites flow through ONE pipeline (runtime + author-time):** blueprint → manifold geometry → magenta-backed grey init (`compositeOverChroma`) → OpenRouter img2img (`google/gemini-2.5-flash-image`) → chroma-key (`src/render/chroma-key.ts`) → **quality gates** (border-keyed fraction ≥0.6 + silhouette IoU ≥0.7 vs the geometry mask) → **register onto the geometry grid with a negotiation band** (geometry alpha rules the eroded core, the LLM's alpha wins within ±~4% of the silhouette edge, beyond is clipped; missing core pixels flood-fill from neighbours, chroma residue scrubbed — `registerAlbedo` in `src/render/sprite-postprocess.ts`, pure buffers, Node+browser) → palette-quantize → persist. `GeneratedBuildingArtSource` (`src/render/generated-building-art-source.ts`) runs it at runtime (validate-BEFORE-persist; bad gens get one retry then a session-only null, never poisoning IndexedDB; ≤2 concurrent paid calls), checking IDB → vendored base library → paid generation. **Author-time seeding is the same pipeline:** `OPENROUTER_API_KEY=… npx tsx scripts/seed-building-art.ts` (or `--plan` to dry-run) writes `public/asset-library/building-sprites/` so keyless players get art; keys match worldgen exactly (placer synthesizes presets unpatched with name-derived seeds). The old PixelLab pixflux building path (`gen-buildings.ts`) is **deleted** (its imports died with the Blueprint epic); `pixflux-compiler.ts` survives only for floor-tile scripts. `no-three-in-bundle.test.ts` still keeps three/gl out of the bundle. Geometry G-buffer hashes are pinned in `tests/unit/assetgen-golden.test.ts` — intentional geometry changes update the pins AND bump `ART_RECIPE_VERSION`.
+- **Every IndexedDB open/transaction must race `withIdbTimeout`** (`src/services/idb-guard.ts`). A wedged backing store (browser killed mid-write) leaves `indexedDB.open()` pending FOREVER — no success/error/blocked — which froze boot on the loading screen and starved building art (2026-06-12). The three stores (`save-store`, `generated-art-cache`, `pixellab`) are guarded and degrade (fresh world / vendored art / dropped autosave); new IDB code must follow the same pattern.
 
 ## Tech Stack
 
@@ -130,7 +131,14 @@ Iso renderer (default; `?render=topdown` for the legacy grid):
   Canvas2D executor (`draw-list.ts`) — same list, placement parity by construction.
   WebGL-init failure or the dev "Backend: Force Canvas2D" toggle falls back per-frame.
   `pixi.js` must never be statically imported (guard: `no-static-pixi-import.test.ts`).
-  Next slices: banded lighting shader over the cached PBR map packs.
+- **Banded lighting v1** (PBR Slice 3): building sprites travel as `SpritePack`s
+  (albedo + co-registered normal/material canvases, decoded from the IDB cache /
+  vendored library / composeStructure); map-carrying draw items render on the WebGL
+  backend as unit-quad meshes with a custom GL shader (`src/render/pixi/lit-shader.ts`)
+  — ambient + one directional sun (`src/render/lighting-state.ts`, screen-space normals,
+  canonical upper-left), diffuse quantized into bands, AO from material.G. Canvas2D
+  stays the UNLIT parity fallback; dev toggle "☀️ Lighting". Next slices: day/night
+  from `state.clock` (4), point lights + emissive windows (5), material truth (6).
 - Camera: pan (drag) + zoom ladder (integer / 1-over-integer rungs, pixel-snapped origin)
 
 ## Iframe Embedding
