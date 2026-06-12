@@ -123,6 +123,71 @@ describe('buildingFacets (manifold)', () => {
     expect(anchors.vents).toHaveLength(1);
   });
 
+  it('eaves: the roof overhangs the wall planes and the ridge height is unchanged (v6)', async () => {
+    const wing: Wing[] = [{ x: 0, y: 0, w: 3, h: 2 }];
+    // thatch (Mat 'thatch') has the deepest eaves; stone keeps a flush verge.
+    const { facets } = await buildingFacets(wing, 'plaster', 'thatch', 'gable', noVents);
+    const roof = facets.filter(f => isMat(f.albedo, MATERIAL_RGB.thatch));
+    const wallTop = 1.35;
+    const maxY = Math.max(...roof.flatMap(f => f.pts.map(p => p[1])));
+    const minY = Math.min(...roof.flatMap(f => f.pts.map(p => p[1])));
+    expect(maxY).toBeGreaterThan(2 + 0.15);          // eave hangs past the +y wall
+    expect(minY).toBeLessThan(-0.15);                // and the -y wall
+    const maxX = Math.max(...roof.flatMap(f => f.pts.map(p => p[0])));
+    expect(maxX).toBeGreaterThan(3 + 0.05);          // verge past the gable end (thatch ≈ 0.10)
+    // ridge height identical to the flush formula: wallTop + pitch·(h/2)
+    const maxZ = Math.max(...roof.flatMap(f => f.pts.map(p => p[2])));
+    expect(maxZ).toBeCloseTo(wallTop + 1.5 * 1, 3);
+    // the eave underside dips below the wall top (real eaves hang)
+    const minRoofZ = Math.min(...roof.flatMap(f => f.pts.map(p => p[2])));
+    expect(minRoofZ).toBeLessThan(wallTop);
+  });
+
+  it('stone roofs keep a flush masonry verge (no overhang past the gable ends)', async () => {
+    const wing: Wing[] = [{ x: 0, y: 0, w: 3, h: 2 }];
+    const { facets } = await buildingFacets(wing, 'plaster', 'stone', 'gable', noVents);
+    const top = 1.35;
+    const roofPts = facets.flatMap(f => f.pts).filter(p => p[2] > top - 0.2);
+    const maxX = Math.max(...roofPts.map(p => p[0]));
+    expect(maxX).toBeLessThanOrEqual(3 + 1e-6);      // verge = 0 on slate/stone
+  });
+
+  it('half_hip clips the gable peak (apex lower at the ends than mid-ridge)', async () => {
+    const wing: Wing[] = [{ x: 0, y: 0, w: 4, h: 2, roof: 'half_hip' }];
+    const gable: Wing[] = [{ x: 0, y: 0, w: 4, h: 2, roof: 'gable' }];
+    const hh = await buildingFacets(wing, 'plaster', 'thatch', 'gable', noVents);
+    const g = await buildingFacets(gable, 'plaster', 'thatch', 'gable', noVents);
+    const ridgeAtX = (r: { facets: { pts: number[][] }[] }, x: number) =>
+      Math.max(...r.facets.flatMap(f => f.pts).filter(p => Math.abs(p[0] - x) < 0.3).map(p => p[2]));
+    // mid-ridge identical; the gable-end peak is clipped by the gablet
+    expect(ridgeAtX(hh, 2)).toBeCloseTo(ridgeAtX(g, 2), 2);
+    expect(ridgeAtX(hh, -0.05)).toBeLessThan(ridgeAtX(g, -0.05) - 0.2);
+  });
+
+  it('a dormer adds wall-material massing on the roof slope', async () => {
+    const wing: Wing[] = [{ x: 0, y: 0, w: 3, h: 2 }];
+    const plain = await buildingFacets(wing, 'plaster', 'tile', 'gable', noVents);
+    const dormered = await buildingFacets(wing, 'plaster', 'tile', 'gable',
+      { vents: [], dormers: [{ wing: 0, t: 0.5 }] });
+    const wallTop = 1.35;
+    const highWall = (r: { facets: { pts: number[][]; albedo: readonly number[] }[] }) =>
+      r.facets.filter(f => isMat(f.albedo, MATERIAL_RGB.plaster)
+        && f.pts.every(p => p[2] > wallTop + 0.05)).length;
+    expect(highWall(plain)).toBe(0);
+    expect(highWall(dormered)).toBeGreaterThan(0);   // dormer face rides above the wall top
+  });
+
+  it('smokehole renders as a timber ridge louvre with a cap above the ridge', async () => {
+    const wing: Wing[] = [{ x: 0, y: 0, w: 3, h: 2 }];
+    const { facets, anchors } = await buildingFacets(wing, 'plaster', 'thatch', 'gable',
+      { vents: [{ wing: 0, t: 0.4, kind: 'smokehole' }] });
+    const timber = facets.filter(f => isMat(f.albedo, MATERIAL_RGB.timber));
+    expect(timber.length).toBeGreaterThan(0);
+    const ridgeZ = 1.35 + 1.5 * 1;
+    expect(Math.max(...timber.flatMap(f => f.pts.map(p => p[2])))).toBeGreaterThan(ridgeZ);
+    expect(anchors.vents).toHaveLength(1);
+  });
+
   it('carves an aperture recess into the wall (facet set changes vs no aperture)', async () => {
     const square: Wing[] = [{ x: 0, y: 0, w: 2, h: 2, storeys: 1 }];
     const plain = await buildingFacets(square, 'plaster', 'tile', 'gable', { vents: [] });

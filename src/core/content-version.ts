@@ -15,13 +15,17 @@
  * geometry mask + quantized, at final resolution) rather than the raw LLM PNG,
  * with validation gating what gets persisted at all; 'v5' is the adaptive
  * pipeline — negotiation-band registration, detail-inviting prompts, relaxed
- * IoU gate, and the rebuilt castle_keep + window features on tall presets.
+ * IoU gate, and the rebuilt castle_keep + window features on tall presets;
+ * 'v6' is the medieval detail pass — material-driven eaves/verges, half-hip
+ * (gablet) roofs, dormers, ridge louvres, slimmer multi-chimneys, per-type
+ * window programmes, rectangular plans (see
+ * docs/reference/medieval-building-reference.md).
  */
-export const ART_RECIPE_VERSION = 'v5';
+export const ART_RECIPE_VERSION = 'v6';
 
 /**
  * Bump when WORLDGEN / preset output changes (footprints, placement, heights).
  * An autosave stamped with a different value is discarded on load → a fresh
  * world is generated. Distinct from SAVE_VERSION (which guards the save *schema*).
  */
-export const WORLD_CONTENT_VERSION = 1;
+export const WORLD_CONTENT_VERSION = 2;   // v6 building pass: barn 4×2, cottage/tavern bodies 3×2

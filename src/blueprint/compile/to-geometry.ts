@@ -7,16 +7,30 @@ import type { ResolvedBlueprint, ResolvedPart } from '../types';
 import { getPartType, getFeatureType, type CompileCtx } from '../registry';
 import type { Part as Prim, StructureSpec } from '@/assetgen/compose';
 import type { ApertureBox } from '@/assetgen/geometry/solids';
-import type { BuildingFeatures, VentFeature } from '@/assetgen/geometry/building';
+import type { BuildingFeatures, VentFeature, DormerFeature } from '@/assetgen/geometry/building';
 import { isOpening } from '../features/opening';
 import { apertureToBox } from '../wall-geometry';
 
 /** A vent feature on a wing-part → an assetgen VentFeature on wing `wingIdx`. */
 function ventOf(f: ResolvedPart['features'][number], wingIdx: number): VentFeature {
+  const width = f.params.width as number | undefined;
+  const height = f.params.height as number | undefined;
   return {
     wing: wingIdx, t: f.params.t as number,
     kind: f.params.kind as VentFeature['kind'],
     placement: f.params.placement as VentFeature['placement'],
+    ...(f.face ? { face: f.face } : {}),
+    ...(width !== undefined && width >= 0 ? { width } : {}),
+    ...(height !== undefined && height >= 0 ? { height } : {}),
+  };
+}
+
+/** A dormer feature on a wing-part → an assetgen DormerFeature on wing `wingIdx`. */
+function dormerOf(f: ResolvedPart['features'][number], wingIdx: number): DormerFeature {
+  return {
+    wing: wingIdx, t: f.params.t as number,
+    width: f.params.width as number,
+    ...(f.face ? { face: f.face } : {}),
   };
 }
 
@@ -48,6 +62,7 @@ export function toGeometry(rb: ResolvedBlueprint): StructureSpec {
   const fillers: Prim[] = [];
   const buildingApertures: ApertureBox[] = [];
   const vents: VentFeature[] = [];
+  const dormers: DormerFeature[] = [];
 
   for (const part of rb.parts) {
     const pt = getPartType(part.type);
@@ -62,7 +77,10 @@ export function toGeometry(rb: ResolvedBlueprint): StructureSpec {
         if (!building) building = { ...prim, wings: [...prim.wings], features: {}, apertures: [], seed: 0 };
         else building.wings.push(...prim.wings);
         const wingIdx = building.wings.length - prim.wings.length;
-        for (const f of part.features) if (f.type === 'vent') vents.push(ventOf(f, wingIdx));
+        for (const f of part.features) {
+          if (f.type === 'vent') vents.push(ventOf(f, wingIdx));
+          if (f.type === 'dormer') dormers.push(dormerOf(f, wingIdx));
+        }
         if (!openingsAttached) { buildingApertures.push(...apertures); openingsAttached = true; }
       } else {
         if (!openingsAttached && WALL_BEARING.has(prim.prim) && apertures.length) {
@@ -81,8 +99,11 @@ export function toGeometry(rb: ResolvedBlueprint): StructureSpec {
 
   const parts: Prim[] = [];
   if (building) {
-    const features: BuildingFeatures = {};
-    if (vents.length) features.vents = vents;
+    // Always set vents (even empty): a blueprint with no vent features means NO smoke
+    // — period-correct for barns/temples/towers. (resolveFeatures only synthesizes a
+    // seeded default chimney when the list is absent entirely, i.e. raw assetgen specs.)
+    const features: BuildingFeatures = { vents };
+    if (dormers.length) features.dormers = dormers;
     building.features = features;
     if (buildingApertures.length) building.apertures = buildingApertures;
     parts.push(building);

@@ -21,7 +21,8 @@ export const ROOF_MAT: Record<string, Mat> = {
 };
 export const ROOF_KIND: Record<string, RoofKind> = {
   gable: 'gable', gambrel: 'gable', mansard: 'gable', saltbox: 'gable',
-  jerkinhead: 'gable', cross_gable: 'gable', lean_to: 'gable',
+  cross_gable: 'gable', lean_to: 'gable',
+  jerkinhead: 'half_hip', half_hip: 'half_hip',
   hip: 'hip',
   pyramidal: 'pyramidal', conical: 'pyramidal', spire: 'pyramidal',
   tented: 'pyramidal', onion: 'pyramidal', domed: 'pyramidal',
@@ -105,10 +106,13 @@ export const bodyPartType: PartType = {
     levels: { kind: 'number', min: 1, max: 8, default: 1 },
     levelInset: { kind: 'number', min: 0, max: 3, default: 0 },
     storeyM: { kind: 'number', min: 0.5, max: 12, default: -1 },  // -1 = use the standard metric storey
+    /** Tiles each upper storey oversails the one below toward the street (+x/+y) —
+     *  the jettied townhouse cue. 0.12 ≈ a 24 cm jetty per storey. */
+    jetty: { kind: 'number', min: 0, max: 0.3, default: 0 },
     roof: {
       kind: 'enum',
       values: [
-        'flat', 'gable', 'hip', 'conical', 'domed', 'stepped', 'lean_to',
+        'flat', 'gable', 'hip', 'half_hip', 'conical', 'domed', 'stepped', 'lean_to',
         'gambrel', 'mansard', 'pyramidal', 'saltbox', 'onion', 'spire',
         'tented', 'jerkinhead', 'cross_gable',
       ],
@@ -123,10 +127,12 @@ export const bodyPartType: PartType = {
     const storeys = Math.max(1, p.params.levels as number);
     const storeyM = p.params.storeyM as number;
     const storeyTiles = storeyM > 0 ? mToTiles(storeyM) : STOREY;
+    const jetty = (p.params.jetty as number) || 0;
     const wings: Wing[] = bodyWings(p).map(r => ({
       x: r.x + p.at.x, y: r.y + p.at.y, w: r.w, h: r.h, storeys,
       storeyHeight: storeyTiles,
       roof: ROOF_KIND[p.params.roof as string] ?? 'gable',
+      ...(jetty > 0 ? { jetty } : {}),
     }));
     return [{
       prim: 'building', wings,

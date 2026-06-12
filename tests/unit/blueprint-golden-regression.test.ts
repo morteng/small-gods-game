@@ -13,10 +13,11 @@ function doorLeaf(name: string) {
 }
 
 describe('blueprint golden regression — openings', () => {
-  it('cottage (rect) → building prim carries a door aperture + a leaf prim', () => {
+  it('cottage (rect) → building prim carries door + window apertures + a leaf prim', () => {
     const spec = toGeometry(synthesizeBlueprint('cottage')!);
     const b = spec.parts.find(p => p.prim === 'building')!;
-    expect(b.prim === 'building' && b.apertures?.length).toBe(1);
+    // v6 window programme: 1 door + 2 shuttered windows
+    expect(b.prim === 'building' && b.apertures?.length).toBe(3);
     expect(doorLeaf('cottage')).toBeDefined();
   });
 
@@ -30,8 +31,9 @@ describe('blueprint golden regression — openings', () => {
   it('castle_keep (bailey + tower) → building prim carries door + window apertures, leaf visible', () => {
     const spec = toGeometry(synthesizeBlueprint('castle_keep')!);
     const b = spec.parts.find(p => p.prim === 'building')!;
-    // 1 bailey door + 2 tower windows, all carved into the merged building prim
-    expect(b.prim === 'building' ? b.apertures?.length : 0).toBe(3);
+    // v6: bailey door + 2 bailey slits + 5 tower openings (slit low, arched pairs
+    // growing with height), all carved into the merged building prim
+    expect(b.prim === 'building' ? b.apertures?.length : 0).toBe(8);
     expect(doorLeaf('castle_keep')).toBeDefined();
   });
 

@@ -5,8 +5,8 @@
 // seed-varied default so a bare `{ wings }` still renders a complete building.
 import { STOREY_TILES } from '@/render/scale-contract';
 
-export type RoofKind = 'gable' | 'hip' | 'pyramidal' | 'flat';
-export type RoofStyle = 'gable' | 'hip';
+export type RoofKind = 'gable' | 'hip' | 'half_hip' | 'pyramidal' | 'flat';
+export type RoofStyle = 'gable' | 'hip' | 'half_hip';
 /** Which world axis a wing's roof ridge runs along. */
 export type RidgeAxis = 'x' | 'y';
 
@@ -65,10 +65,23 @@ export interface VentFeature {
   width?: number;
   height?: number;
 }
-/** Optional explicit features; omit the vents list to derive a seeded default. */
-export interface BuildingFeatures { vents?: VentFeature[] }
+/**
+ * A gabled dormer on a wing's camera-facing roof slope at fraction `t` along the
+ * ridge. Massing only (wall-material face box + mini roof prism); the img2img pass
+ * paints its window. `face` picks the slope ('south' default = the +y slope).
+ */
+export interface DormerFeature {
+  wing: number;
+  t: number;
+  /** Which roof slope the dormer faces; only camera-facing 'south'/'east' read in iso. */
+  face?: WallFace;
+  width?: number;
+}
 
-export interface ResolvedFeatures { vents: VentFeature[] }
+/** Optional explicit features; omit the vents list to derive a seeded default. */
+export interface BuildingFeatures { vents?: VentFeature[]; dormers?: DormerFeature[] }
+
+export interface ResolvedFeatures { vents: VentFeature[]; dormers: DormerFeature[] }
 
 /** World-space anchor points (tile x,y; z up) for runtime overlays. */
 export interface BuildingAnchors { vents: [number, number, number][] }
@@ -100,5 +113,5 @@ export function mainWing(wings: Wing[]): number {
 export function resolveFeatures(wings: Wing[], features: BuildingFeatures = {}, seed = 0): ResolvedFeatures {
   const rng = mulberry32(seed >>> 0);
   const vents = features.vents ?? [{ wing: mainWing(wings), t: 0.28 + rng() * 0.2 }];
-  return { vents };
+  return { vents, dormers: features.dormers ?? [] };
 }

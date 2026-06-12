@@ -19,10 +19,10 @@ describe('blueprint presets', () => {
       expect(spec.parts.length, n).toBeGreaterThan(0);
     }
   });
-  it('cottage has a 2x2 body on a 3x3 plot and a south door', () => {
+  it('cottage has a rectangular 3x2 body on a 3x3 plot (yard strip) and a south door', () => {
     const rb = synthesizeBlueprint('cottage')!;
     const body = rb.parts.find(p => p.type === 'body')!;
-    expect(body.size).toEqual({ w: 2, h: 2 });
+    expect(body.size).toEqual({ w: 3, h: 2 });
     expect(rb.footprint).toEqual({ w: 3, h: 3 });
     expect(body.features.find(f => f.type === 'door')?.face).toBe('south');
   });
