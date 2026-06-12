@@ -13,9 +13,11 @@
  * (magenta-background img2img + keyed alpha); 'v4' changes the CACHED FORMAT —
  * the stored blob is now the processed sprite (keyed + registered to the
  * geometry mask + quantized, at final resolution) rather than the raw LLM PNG,
- * with validation gating what gets persisted at all.
+ * with validation gating what gets persisted at all; 'v5' is the adaptive
+ * pipeline — negotiation-band registration, detail-inviting prompts, relaxed
+ * IoU gate, and the rebuilt castle_keep + window features on tall presets.
  */
-export const ART_RECIPE_VERSION = 'v4';
+export const ART_RECIPE_VERSION = 'v5';
 
 /**
  * Bump when WORLDGEN / preset output changes (footprints, placement, heights).
