@@ -211,7 +211,9 @@ export class PixiEntityLayer {
       s.width = it.dw;
       s.height = it.dh * stretch;
       s.scale.y = -Math.abs(s.scale.y);                // flip past the foot line
-      s.skew.x = Math.atan2(lean, 1);                  // lean along the sun azimuth
+      // Lean along the sun azimuth. The y-flip mirrors the shear, so negate to
+      // keep the shadow falling AWAY from the sun (verified in-browser).
+      s.skew.x = -Math.atan2(lean, 1);
       layer.addChild(s);
     }
   }
