@@ -2,15 +2,19 @@
  * Isometric building rendering. The canonical path blits a generated/parametric
  * pixel-art sprite onto the footprint (`drawIsoBuildingSprite` /
  * `drawIsoBuildingSpriteGenerated`). `drawIsoFlatBlock` is the last-resort
- * Canvas2D primitive (an extruded box, no roof) used only when neither a
- * generated nor a parametric sprite is available — e.g. manifold wasm failed to
- * load. `pickBuildingSource` is the pure dispatch decision the renderer uses.
+ * primitive (an extruded box, no roof) used only when neither a generated nor a
+ * parametric sprite is available — e.g. manifold wasm failed to load.
+ * `pickBuildingSource` is the pure dispatch decision the renderer uses.
+ *
+ * All placement math lives in the `*Items` emitters (neutral draw-list items);
+ * the draw* functions are thin Canvas2D wrappers kept for direct callers/tests.
  */
 import { worldToScreen } from './iso-projection';
 import { opaqueAnchor, type SpriteAnchor } from './iso-sprite-bbox';
 import type { IsoDrawCtx } from './iso-sprites';
 import type { BuildingRenderMode } from '@/core/types';
 import { HEIGHT_UNIT_PX, ISO_TILE_H } from '@/render/scale-contract';
+import { executeDrawListCanvas, type DrawItem } from './draw-list';
 
 interface P { sx: number; sy: number }
 
@@ -24,22 +28,17 @@ function shade(hex: string, factor: number): string {
   return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, '0')}`;
 }
 
-function quad(ctx: CanvasRenderingContext2D, a: P, b: P, c: P, d: P, color: string): void {
-  ctx.fillStyle = color;
-  ctx.beginPath();
-  ctx.moveTo(a.sx, a.sy);
-  ctx.lineTo(b.sx, b.sy);
-  ctx.lineTo(c.sx, c.sy);
-  ctx.lineTo(d.sx, d.sy);
-  ctx.closePath();
-  ctx.fill();
-}
+const quadItem = (a: P, b: P, c: P, d: P, color: string): DrawItem => ({
+  t: 'poly',
+  points: [{ x: a.sx, y: a.sy }, { x: b.sx, y: b.sy }, { x: c.sx, y: c.sy }, { x: d.sx, y: d.sy }],
+  color,
+});
 
 const raise = (p: P, dz: number): P => ({ sx: p.sx, sy: p.sy - dz });
 
 interface Corners { n: P; e: P; s: P; w: P }
 
-function groundCorners(tx: number, ty: number, w: number, h: number, o: IsoDrawCtx): Corners {
+function groundCorners(tx: number, ty: number, w: number, h: number, o: { originX: number; originY: number }): Corners {
   // worldToScreen gives a tile CENTRE; the footprint block's outer-diamond
   // corners sit half a tile (ISO_TILE_H/2) higher than these lattice points.
   // Lift by that so the massing seats on its footprint tiles — matching the
@@ -57,22 +56,23 @@ function groundCorners(tx: number, ty: number, w: number, h: number, o: IsoDrawC
   };
 }
 
-/** Draw the two visible vertical walls + the flat top of a box; returns the raised top corners. */
-function drawBox(ctx: CanvasRenderingContext2D, g: Corners, height: number, wall: string): Corners {
+/** The two visible vertical walls + the flat top of a box, as draw items. */
+function boxItems(g: Corners, height: number, wall: string): DrawItem[] {
   const top: Corners = { n: raise(g.n, height), e: raise(g.e, height), s: raise(g.s, height), w: raise(g.w, height) };
-  // left (south-west) wall, right (south-east) wall, then top face
-  quad(ctx, g.w, g.s, top.s, top.w, shade(wall, 0.6));
-  quad(ctx, g.s, g.e, top.e, top.s, shade(wall, 0.78));
-  quad(ctx, top.n, top.e, top.s, top.w, wall);
-  return top;
+  return [
+    // left (south-west) wall, right (south-east) wall, then top face
+    quadItem(g.w, g.s, top.s, top.w, shade(wall, 0.6)),
+    quadItem(g.s, g.e, top.e, top.s, shade(wall, 0.78)),
+    quadItem(top.n, top.e, top.s, top.w, wall),
+  ];
 }
 
 /** Shared placement: land `anchor` (in sprite px) on the footprint's front tip. */
-function drawIsoBuildingSpriteCore(
-  dc: IsoDrawCtx, src: CanvasImageSource, natW: number, natH: number,
+export function buildingSpriteItem(
+  o: { originX: number; originY: number }, src: CanvasImageSource, natW: number, natH: number,
   anchor: SpriteAnchor, tileX: number, tileY: number, footprint: { w: number; h: number },
-): void {
-  const { ctx, originX, originY } = dc;
+): DrawItem {
+  const { originX, originY } = o;
   const { w, h } = footprint;
   const west = worldToScreen(tileX, tileY + h, 0, originX, originY);
   const east = worldToScreen(tileX + w, tileY, 0, originX, originY);
@@ -86,14 +86,12 @@ function drawIsoBuildingSpriteCore(
   const bottomY = front.sy + ISO_TILE_H / 2;
   const cx = (west.sx + east.sx) / 2; // footprint centre x
 
-  ctx.imageSmoothingEnabled = false;
-  ctx.drawImage(
-    src,
-    Math.round(cx - anchor.centerX),
-    Math.round(bottomY - anchor.bottom),
-    natW,
-    natH,
-  );
+  return {
+    t: 'image', src,
+    dx: Math.round(cx - anchor.centerX),
+    dy: Math.round(bottomY - anchor.bottom),
+    dw: natW, dh: natH,
+  };
 }
 
 /**
@@ -113,30 +111,43 @@ function drawIsoBuildingSpriteCore(
  * centre on the footprint's front tip for pixel-exact placement. Used when the
  * ArtResolver finds a sprite; otherwise we fall back to `drawIsoFlatBlock`.
  */
+export function buildingSpriteItemFromImage(
+  o: { originX: number; originY: number }, img: HTMLImageElement,
+  tileX: number, tileY: number, footprint: { w: number; h: number },
+): DrawItem {
+  const { w, h } = footprint;
+  const west = worldToScreen(tileX, tileY + h, 0, o.originX, o.originY);
+  const east = worldToScreen(tileX + w, tileY, 0, o.originX, o.originY);
+  const natW = img.naturalWidth || img.width || (east.sx - west.sx);
+  const natH = img.naturalHeight || img.height || natW;
+  // Anchor by the building's real pixels, not the (margin-padded) frame.
+  return buildingSpriteItem(o, img, natW, natH, opaqueAnchor(img), tileX, tileY, footprint);
+}
+
 export function drawIsoBuildingSprite(
   dc: IsoDrawCtx, img: HTMLImageElement,
   tileX: number, tileY: number, footprint: { w: number; h: number },
 ): void {
-  const { originX, originY } = dc;
-  const { w, h } = footprint;
-  const west = worldToScreen(tileX, tileY + h, 0, originX, originY);
-  const east = worldToScreen(tileX + w, tileY, 0, originX, originY);
-  const natW = img.naturalWidth || img.width || (east.sx - west.sx);
-  const natH = img.naturalHeight || img.height || natW;
-  // Anchor by the building's real pixels, not the (margin-padded) frame.
-  drawIsoBuildingSpriteCore(dc, img, natW, natH, opaqueAnchor(img), tileX, tileY, footprint);
+  executeDrawListCanvas(dc.ctx, [buildingSpriteItemFromImage(dc, img, tileX, tileY, footprint)]);
 }
 
 /**
- * Draw a runtime parametric building sprite (manifold generate-to-sprite). The
+ * A runtime parametric building sprite (manifold generate-to-sprite). The
  * canvas is cropped to opaque content, so its base anchor is trivially centre/bottom.
  */
+export function buildingSpriteItemFromCanvas(
+  o: { originX: number; originY: number }, src: HTMLCanvasElement | OffscreenCanvas,
+  tileX: number, tileY: number, footprint: { w: number; h: number },
+): DrawItem {
+  const natW = src.width, natH = src.height;
+  return buildingSpriteItem(o, src, natW, natH, { centerX: natW / 2, bottom: natH }, tileX, tileY, footprint);
+}
+
 export function drawIsoBuildingSpriteGenerated(
   dc: IsoDrawCtx, src: HTMLCanvasElement | OffscreenCanvas,
   tileX: number, tileY: number, footprint: { w: number; h: number },
 ): void {
-  const natW = src.width, natH = src.height;
-  drawIsoBuildingSpriteCore(dc, src, natW, natH, { centerX: natW / 2, bottom: natH }, tileX, tileY, footprint);
+  executeDrawListCanvas(dc.ctx, [buildingSpriteItemFromCanvas(dc, src, tileX, tileY, footprint)]);
 }
 
 /**
@@ -169,10 +180,17 @@ export function pickBuildingSource(
  * parametric sprite is available — e.g. manifold wasm failed to load. Drawn from
  * the structure rect at tile (tileX, tileY), one HEIGHT_UNIT_PX tall.
  */
+export function flatBlockItems(
+  o: { originX: number; originY: number }, struct: { w: number; h: number },
+  tileX: number, tileY: number, color = '#6b6b78',
+): DrawItem[] {
+  const g = groundCorners(tileX, tileY, struct.w, struct.h, o);
+  return boxItems(g, HEIGHT_UNIT_PX, color);
+}
+
 export function drawIsoFlatBlock(
   dc: IsoDrawCtx, struct: { w: number; h: number },
   tileX: number, tileY: number, color = '#6b6b78',
 ): void {
-  const g = groundCorners(tileX, tileY, struct.w, struct.h, dc);
-  drawBox(dc.ctx, g, HEIGHT_UNIT_PX, color);
+  executeDrawListCanvas(dc.ctx, flatBlockItems(dc, struct, tileX, tileY, color));
 }

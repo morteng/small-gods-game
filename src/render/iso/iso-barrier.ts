@@ -3,16 +3,20 @@
  *
  * A barrier entity carries `properties.barrier: BarrierRun` — a polyline with a
  * height, a material, optional crenellation/posts and zero-or-more gate gaps.
- * We walk each path segment in unit steps and draw an iso "wall slab" per step:
+ * We walk each path segment in unit steps and emit an iso "wall slab" per step:
  * the near (south-facing) vertical face plus the flat top. Steps whose midpoint
  * falls inside a gate span are skipped, so a gated run paints fewer quads than an
  * identical ungated run. Geometry is approximate-but-readable, mirroring the
- * parametric building draw (worldToScreen + plain ctx fills, no new deps).
+ * parametric building draw (worldToScreen + plain quads, no new deps).
+ *
+ * `barrierItems` emits neutral draw-list items; `drawIsoBarrier` is the
+ * Canvas2D wrapper kept for direct callers/tests.
  */
 import type { Entity } from '@/core/types';
 import type { BarrierRun } from '@/world/barrier';
 import { worldToScreen } from './iso-projection';
 import { HEIGHT_UNIT_PX, ISO_TILE_H } from '@/render/scale-contract';
+import { executeDrawListCanvas, type DrawItem } from './draw-list';
 
 interface P { sx: number; sy: number }
 
@@ -35,16 +39,11 @@ function shade(hex: string, factor: number): string {
   return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, '0')}`;
 }
 
-function quad(ctx: CanvasRenderingContext2D, a: P, b: P, c: P, d: P, color: string): void {
-  ctx.fillStyle = color;
-  ctx.beginPath();
-  ctx.moveTo(a.sx, a.sy);
-  ctx.lineTo(b.sx, b.sy);
-  ctx.lineTo(c.sx, c.sy);
-  ctx.lineTo(d.sx, d.sy);
-  ctx.closePath();
-  ctx.fill();
-}
+const quadItem = (a: P, b: P, c: P, d: P, color: string): DrawItem => ({
+  t: 'poly',
+  points: [{ x: a.sx, y: a.sy }, { x: b.sx, y: b.sy }, { x: c.sx, y: c.sy }, { x: d.sx, y: d.sy }],
+  color,
+});
 
 const raise = (p: P, dz: number): P => ({ sx: p.sx, sy: p.sy - dz });
 
@@ -74,14 +73,14 @@ function inGate(run: BarrierRun, t: number): boolean {
   return false;
 }
 
-export function drawIsoBarrier(
-  ctx: CanvasRenderingContext2D,
+export function barrierItems(
   entity: Entity,
   o: { originX: number; originY: number },
-): void {
+): DrawItem[] {
   const run = entity.properties?.barrier as BarrierRun | undefined;
-  if (!run || run.path.length < 2) return;
+  if (!run || run.path.length < 2) return [];
 
+  const items: DrawItem[] = [];
   const base = MATERIAL_COLORS[run.material] ?? FALLBACK_COLOR;
   const riseZ = Math.max(0.1, run.height) * HEIGHT_UNIT_PX;
   const total = pathLength(run.path);
@@ -101,10 +100,10 @@ export function drawIsoBarrier(
     const bTop = raise(b0, riseZ);
 
     // near (front-facing) wall face
-    quad(ctx, a0, b0, bTop, aTop, shade(base, 0.7));
+    items.push(quadItem(a0, b0, bTop, aTop, shade(base, 0.7)));
     // top edge of the slab (thin cap)
     const capLift = Math.max(2, run.thickness * (ISO_TILE_H / 8));
-    quad(ctx, aTop, bTop, raise(bTop, capLift), raise(aTop, capLift), base);
+    items.push(quadItem(aTop, bTop, raise(bTop, capLift), raise(aTop, capLift), base));
 
     // crenellation: small merlon notches along the top
     if (run.crenellated) {
@@ -112,12 +111,12 @@ export function drawIsoBarrier(
       const my = (aTop.sy + bTop.sy) / 2;
       const merlonH = riseZ * 0.18;
       const mw = 6;
-      quad(ctx,
+      items.push(quadItem(
         { sx: mx - mw, sy: my },
         { sx: mx + mw, sy: my },
         { sx: mx + mw, sy: my - merlonH },
         { sx: mx - mw, sy: my - merlonH },
-        shade(base, 0.85));
+        shade(base, 0.85)));
     }
   }
 
@@ -128,12 +127,22 @@ export function drawIsoBarrier(
     for (const [vx, vy] of run.path) {
       const g = worldToScreen(vx, vy, 0, o.originX, o.originY);
       const tp = raise(g, postZ);
-      quad(ctx,
+      items.push(quadItem(
         { sx: g.sx - pw, sy: g.sy },
         { sx: g.sx + pw, sy: g.sy },
         { sx: tp.sx + pw, sy: tp.sy },
         { sx: tp.sx - pw, sy: tp.sy },
-        shade(base, 0.6));
+        shade(base, 0.6)));
     }
   }
+
+  return items;
+}
+
+export function drawIsoBarrier(
+  ctx: CanvasRenderingContext2D,
+  entity: Entity,
+  o: { originX: number; originY: number },
+): void {
+  executeDrawListCanvas(ctx, barrierItems(entity, o));
 }

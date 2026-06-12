@@ -6,6 +6,7 @@ import { getSpriteCoords } from '@/render/npc-animator';
 import { treeSheetForKind, treeSpriteColumn, TREE_SPRITE_SRC } from '@/render/tree-sheets';
 import { NATURE_HEIGHT_M, DEFAULT_NATURE_HEIGHT_M, mToPx } from '@/render/scale-contract';
 import { npcBillboard } from './npc-billboard';
+import { executeDrawListCanvas, type DrawItem } from './draw-list';
 
 export interface IsoDrawCtx {
   ctx: CanvasRenderingContext2D;
@@ -17,6 +18,9 @@ export interface IsoDrawCtx {
   /** Tree sheets keyed by variant (green/orange/…), shared with top-down. */
   treeSheets?: Map<string, HTMLImageElement>;
 }
+
+/** The emitters need everything the draw ctx carries except the 2D context. */
+export type IsoItemCtx = Omit<IsoDrawCtx, 'ctx'>;
 
 /**
  * Billboard target height (px) and the nearest INTEGER source-scale class for a nature
@@ -49,18 +53,17 @@ export const BILLBOARD_H_PX = (DEFAULT_BB.bottom - DEFAULT_BB.top) * DEFAULT_BB.
 
 const LPC_FRAME = 64;
 
-export function drawIsoNpc(dc: IsoDrawCtx, npc: NpcInstance): void {
-  const { sx, sy } = worldToScreen(npc.tileX, npc.tileY, 0, dc.originX, dc.originY);
-  const ctx = dc.ctx;
+export function npcItems(ic: IsoItemCtx, npc: NpcInstance): DrawItem[] {
+  const { sx, sy } = worldToScreen(npc.tileX, npc.tileY, 0, ic.originX, ic.originY);
 
   // 1. Iso character atlas (future PR 4) — not available yet
-  const isoSprite = dc.atlas.getCharacter(npc.role);
+  const isoSprite = ic.atlas.getCharacter(npc.role);
   if (isoSprite) {
-    return;
+    return [];
   }
 
   // 2. Billboard from LPC spritesheet (reuse top-down art)
-  const sheet = dc.npcSheets?.get(npc.id);
+  const sheet = ic.npcSheets?.get(npc.id);
   if (sheet) {
     const { sx: sheetSx, sy: sheetSy } = getSpriteCoords(npc);
     const bb = npcBillboard(sheet);
@@ -68,51 +71,61 @@ export function drawIsoNpc(dc: IsoDrawCtx, npc: NpcInstance): void {
     const drawW = LPC_FRAME * s, drawH = LPC_FRAME * s;
 
     // Feet (opaque bbox bottom) land on the tile point; whole frame at integer scale.
-    ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(sheet, sheetSx, sheetSy, LPC_FRAME, LPC_FRAME,
-                  Math.round(sx - drawW / 2), Math.round(sy - bb.bottom * s), drawW, drawH);
-    return;
+    return [{
+      t: 'image', src: sheet,
+      frame: { sx: sheetSx, sy: sheetSy, sw: LPC_FRAME, sh: LPC_FRAME },
+      dx: Math.round(sx - drawW / 2), dy: Math.round(sy - bb.bottom * s),
+      dw: drawW, dh: drawH,
+    }];
   }
 
   // 3. Fallback colored circle (no art available)
-  ctx.fillStyle = NPC_COLOR_BY_ROLE[npc.role] ?? NPC_COLOR_BY_ROLE.default;
-  ctx.beginPath();
-  ctx.arc(sx, sy - 16, 12, 0, Math.PI * 2);
-  ctx.fill();
+  return [{
+    t: 'circle', cx: sx, cy: sy - 16, r: 12,
+    color: NPC_COLOR_BY_ROLE[npc.role] ?? NPC_COLOR_BY_ROLE.default,
+  }];
 }
 
-/** Draw a square art sprite (decoration or prop) as an upright billboard,
+export function drawIsoNpc(dc: IsoDrawCtx, npc: NpcInstance): void {
+  executeDrawListCanvas(dc.ctx, npcItems(dc, npc));
+}
+
+/** A square art sprite (decoration or prop) as an upright billboard,
  *  base anchored at the tile center. */
-export function drawIsoArtBillboard(
-  dc: IsoDrawCtx, img: HTMLImageElement, tx: number, ty: number,
-): void {
-  const { ctx, originX, originY } = dc;
-  const { sx, sy } = worldToScreen(tx, ty, 0, originX, originY);
+export function artBillboardItem(
+  o: { originX: number; originY: number }, img: HTMLImageElement, tx: number, ty: number,
+): DrawItem {
+  const { sx, sy } = worldToScreen(tx, ty, 0, o.originX, o.originY);
   // WYSIWYG: blit at the art's NATIVE pixel size (never tile-fraction scaled) so
   // one source pixel == one screen pixel at zoom 1. Base anchored at tile centre.
   const w = img.naturalWidth || img.width;
   const h = img.naturalHeight || img.height;
-  ctx.save();
-  ctx.translate(Math.round(sx), Math.round(sy));
-  ctx.imageSmoothingEnabled = false;
-  ctx.drawImage(img, -Math.round(w / 2), -h, w, h);
-  ctx.restore();
+  return {
+    t: 'image', src: img,
+    dx: Math.round(sx) - Math.round(w / 2), dy: Math.round(sy) - h,
+    dw: w, dh: h,
+  };
+}
+
+export function drawIsoArtBillboard(
+  dc: IsoDrawCtx, img: HTMLImageElement, tx: number, ty: number,
+): void {
+  executeDrawListCanvas(dc.ctx, [artBillboardItem(dc, img, tx, ty)]);
 }
 
 const TRUNK_COLOR = '#5a4030';
 
 /**
- * Draw a vegetation entity as an iso primitive: an optional
- * trunk for tall trees, and a canopy whose shape/color come from the entity
- * kind catalog. `yOffsetForSort` doubles as a size class (0.1 ground cover →
- * 1.5 mature tree). No-op for non-vegetation kinds.
+ * A vegetation entity as iso items: an optional trunk for tall trees, and a
+ * canopy whose shape/color come from the entity kind catalog. `yOffsetForSort`
+ * doubles as a size class (0.1 ground cover → 1.5 mature tree). Empty for
+ * non-vegetation kinds.
  */
-export function drawIsoVegetation(dc: IsoDrawCtx, e: Entity): void {
+export function vegetationItems(ic: IsoItemCtx, e: Entity): DrawItem[] {
   const def = tryGetEntityKindDef(e.kind);
-  if (!def || def.category !== 'vegetation') return;
+  if (!def || def.category !== 'vegetation') return [];
 
-  const ctx = dc.ctx;
-  const { sx, sy } = worldToScreen(e.x, e.y, 0, dc.originX, dc.originY);
+  const { sx, sy } = worldToScreen(e.x, e.y, 0, ic.originX, ic.originY);
 
   // `scale` is now a per-instance VARIETY multiplier (~0.85..1.15), not an absolute size.
   // Vegetation is never rotated (tilted trees read as wrong) — variety comes
@@ -124,7 +137,7 @@ export function drawIsoVegetation(dc: IsoDrawCtx, e: Entity): void {
   // billboarded upright like NPCs. Falls back to the drawn placeholder below
   // when no sheet is loaded (headless/tests) or for sheet-less ground cover.
   const sheetName = treeSheetForKind(e.kind);
-  const sheet = sheetName ? dc.treeSheets?.get(sheetName) : undefined;
+  const sheet = sheetName ? ic.treeSheets?.get(sheetName) : undefined;
   if (sheet) {
     // WYSIWYG native-blit at an INTEGER pixel-scale class (1× small, 2× mature) —
     // never a fractional scale, so the tree stays pixel-perfect. The 1.5-aspect
@@ -134,41 +147,56 @@ export function drawIsoVegetation(dc: IsoDrawCtx, e: Entity): void {
     const treeW = TREE_SPRITE_SRC * srcScale;
     const treeH = TREE_SPRITE_SRC * srcScale;
     const col = treeSpriteColumn(Math.floor(e.x), Math.floor(e.y));
-    ctx.save();
-    ctx.translate(Math.round(sx), Math.round(sy)); // integer position → crisp blit
-    ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(sheet, col * TREE_SPRITE_SRC, 0, TREE_SPRITE_SRC, TREE_SPRITE_SRC,
-                  -treeW / 2, -treeH, treeW, treeH);
-    ctx.restore();
-    return;
+    return [{
+      t: 'image', src: sheet,
+      frame: { sx: col * TREE_SPRITE_SRC, sy: 0, sw: TREE_SPRITE_SRC, sh: TREE_SPRITE_SRC },
+      // integer position → crisp blit
+      dx: Math.round(sx) - treeW / 2, dy: Math.round(sy) - treeH,
+      dw: treeW, dh: treeH,
+    }];
   }
 
+  const items: DrawItem[] = [];
   // Trees have 'tree' in their defaultTags; ground cover (fern, shrub) does not
   const isTree = def.defaultTags.includes('tree');
   const canopyR = isTree ? targetPx * 0.35 : targetPx * 0.5;
   const trunkH = isTree ? targetPx * 0.55 : 0;
 
-  ctx.save();
-  ctx.translate(sx, sy);
-
   if (isTree) {
-    ctx.fillStyle = TRUNK_COLOR;
-    ctx.fillRect(-2, -trunkH, 4, trunkH);
+    items.push({
+      t: 'poly', color: TRUNK_COLOR,
+      points: [
+        { x: sx - 2, y: sy - trunkH }, { x: sx + 2, y: sy - trunkH },
+        { x: sx + 2, y: sy }, { x: sx - 2, y: sy },
+      ],
+    });
   }
 
-  const cy = -trunkH - (isTree ? 0 : canopyR * 0.3);
-  ctx.fillStyle = def.sprite.fallbackColor ?? '#3a7a3a';
-  ctx.beginPath();
+  const cy = sy - trunkH - (isTree ? 0 : canopyR * 0.3);
+  const color = def.sprite.fallbackColor ?? '#3a7a3a';
   if (def.sprite.fallbackShape === 'triangle') {
-    ctx.moveTo(0, cy - canopyR * 1.6);
-    ctx.lineTo(canopyR, cy + canopyR * 0.4);
-    ctx.lineTo(-canopyR, cy + canopyR * 0.4);
-    ctx.closePath();
+    items.push({
+      t: 'poly', color,
+      points: [
+        { x: sx, y: cy - canopyR * 1.6 },
+        { x: sx + canopyR, y: cy + canopyR * 0.4 },
+        { x: sx - canopyR, y: cy + canopyR * 0.4 },
+      ],
+    });
   } else if (def.sprite.fallbackShape === 'square') {
-    ctx.rect(-canopyR, cy - canopyR, canopyR * 2, canopyR * 2);
+    items.push({
+      t: 'poly', color,
+      points: [
+        { x: sx - canopyR, y: cy - canopyR }, { x: sx + canopyR, y: cy - canopyR },
+        { x: sx + canopyR, y: cy + canopyR }, { x: sx - canopyR, y: cy + canopyR },
+      ],
+    });
   } else {
-    ctx.arc(0, cy, canopyR, 0, Math.PI * 2);
+    items.push({ t: 'circle', cx: sx, cy, r: canopyR, color });
   }
-  ctx.fill();
-  ctx.restore();
+  return items;
+}
+
+export function drawIsoVegetation(dc: IsoDrawCtx, e: Entity): void {
+  executeDrawListCanvas(dc.ctx, vegetationItems(dc, e));
 }

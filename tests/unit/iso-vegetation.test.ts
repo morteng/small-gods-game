@@ -51,13 +51,25 @@ describe('drawIsoVegetation', () => {
   });
 
   it('draws a trunk for tall trees but not for ground cover', () => {
+    // Trunk is a filled quad in the trunk colour (draw-list poly, not fillRect).
+    const trunkFills = (ctx: CanvasRenderingContext2D): string[] => {
+      const seen: string[] = [];
+      Object.defineProperty(ctx, 'fillStyle', {
+        get: () => seen[seen.length - 1] ?? '',
+        set: (v: string) => { seen.push(v); },
+      });
+      return seen;
+    };
+
     const treeCtx = makeMockCtx();
+    const treeSeen = trunkFills(treeCtx);
     drawIsoVegetation(dc(treeCtx), entity('oak_tree'));
-    expect((treeCtx.fillRect as ReturnType<typeof vi.fn>)).toHaveBeenCalled();
+    expect(treeSeen).toContain('#5a4030');
 
     const fernCtx = makeMockCtx();
+    const fernSeen = trunkFills(fernCtx);
     drawIsoVegetation(dc(fernCtx), entity('fern'));
-    expect((fernCtx.fillRect as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+    expect(fernSeen).not.toContain('#5a4030');
   });
 
   it('ignores non-vegetation entities', () => {
