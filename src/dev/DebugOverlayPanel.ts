@@ -159,6 +159,25 @@ export function mountDebugOverlayPanel(container: HTMLElement, deps: { dock?: Do
   modeRow.appendChild(modeSelect);
   buildingSection.appendChild(modeRow);
 
+  // Entity render backend — PixiJS WebGL layer (auto) vs forced Canvas2D.
+  const backendRow = document.createElement('label');
+  backendRow.style.cssText = 'display:flex; align-items:center; gap:8px; font-size:12px; padding:2px 0;';
+  const backendText = document.createElement('span');
+  backendText.textContent = '🖥️ Backend';
+  const backendSelect = document.createElement('select');
+  backendSelect.style.cssText = modeSelect.style.cssText;
+  for (const [value, label] of [['auto', 'WebGL (PixiJS) when ready'], ['canvas', 'Force Canvas2D']] as const) {
+    const opt = document.createElement('option');
+    opt.value = value; opt.textContent = label;
+    backendSelect.appendChild(opt);
+  }
+  backendSelect.addEventListener('change', () => {
+    if (currentDevMode) currentDevMode.entityRenderBackend = backendSelect.value as 'auto' | 'canvas';
+  });
+  backendRow.appendChild(backendText);
+  backendRow.appendChild(backendSelect);
+  buildingSection.appendChild(backendRow);
+
   // Reset button — clears every overlay back to its default (off / shown).
   const resetBtn = document.createElement('button');
   resetBtn.className = 'sg-dev-btn';
@@ -175,6 +194,7 @@ export function mountDebugOverlayPanel(container: HTMLElement, deps: { dock?: Do
     // Render layers default to shown.
     for (const layer of RENDER_LAYERS) currentDevMode[layerFlag(layer)] = true;
     currentDevMode.buildingRenderMode = 'auto';
+    currentDevMode.entityRenderBackend = 'auto';
     currentDevMode.beliefThreshold = 0.3;
     currentDevMode.selectedSpiritId = null;
     update(currentDevMode);
@@ -197,6 +217,7 @@ export function mountDebugOverlayPanel(container: HTMLElement, deps: { dock?: Do
       toggle.checked = devMode[layerFlag(layer)] !== false;
     }
     modeSelect.value = devMode.buildingRenderMode ?? 'auto';
+    backendSelect.value = devMode.entityRenderBackend ?? 'auto';
 
     const threshold = devMode.beliefThreshold ?? 0.3;
     thresholdSlider.value = String(Math.round(threshold * 100));

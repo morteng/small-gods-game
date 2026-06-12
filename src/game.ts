@@ -26,6 +26,7 @@ import { loadBaseLibrary } from '@/services/base-library-loader';
 import { AssetLibrary } from '@/services/asset-library';
 import { ArtResolver } from '@/render/art-resolver';
 import { ParametricBuildingSource } from '@/render/parametric-building-source';
+import { PixiEntityLayer } from '@/render/pixi/pixi-entity-layer';
 import { GeneratedBuildingArtSource } from '@/render/generated-building-art-source';
 import { generateBuildingImage, BUILDING_IMAGE_MODEL } from '@/llm/openrouter-image-client';
 import { initManifoldWasm } from '@/assetgen/geometry/manifold-wasm-browser';
@@ -107,6 +108,8 @@ export class Game {
   private artResolver!: ArtResolver;
   private buildingArtResolver!: ArtResolver;
   private readonly parametricBuildingSource = new ParametricBuildingSource();
+  /** WebGL entity layer (PBR epic) — lazy pixi.js init on first iso frame. */
+  private readonly pixiEntityLayer = new PixiEntityLayer();
   private liveBuildingArtEnabled = true; // setting `liveBuildingArt`, default ON
   private readonly generatedBuildingArtSource = new GeneratedBuildingArtSource({
     enabled: () => this.liveBuildingArtEnabled,
@@ -560,6 +563,7 @@ export class Game {
       parametricBuildingSource: this.parametricBuildingSource,
       generatedBuildingArtSource: this.generatedBuildingArtSource,
       devMode: this.dev.devMode,
+      entityLayer: this.pixiEntityLayer,
     };
   }
 
@@ -666,6 +670,7 @@ export class Game {
     this.veil.dispose();
     this.chrome.dispose();
     this.dev.destroy();
+    this.pixiEntityLayer.destroy();
     this.canvas.remove();
   }
 }

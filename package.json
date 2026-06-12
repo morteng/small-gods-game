@@ -32,6 +32,7 @@
     "vitest": "^4.0.18"
   },
   "dependencies": {
-    "manifold-3d": "^3.5.1"
+    "manifold-3d": "^3.5.1",
+    "pixi.js": "^8.19.0"
   }
 }
