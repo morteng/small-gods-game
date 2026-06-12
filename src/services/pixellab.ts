@@ -10,6 +10,7 @@ import type {
 
 import { assetUrl } from '@/core/asset-url';
 import { matchesAsset } from './asset-match';
+import { withIdbTimeout } from './idb-guard';
 
 const API_BASE = 'https://api.pixellab.ai/v2';
 const PALETTE_URL = assetUrl('sprites/palette/lpc-anchor.png');
@@ -94,7 +95,10 @@ export function _resetDbForTesting(): void {
 
 function openDb(): Promise<IDBDatabase> {
   if (_db) return Promise.resolve(_db);
-  return new Promise((resolve, reject) => {
+  // Guarded: a wedged backing store leaves open() pending forever, and boot
+  // awaits the asset library (see idb-guard.ts). Transactions on a healthy,
+  // already-open connection are left unguarded.
+  return withIdbTimeout(new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
     req.onupgradeneeded = (event) => {
       const db = req.result;
@@ -168,7 +172,7 @@ function openDb(): Promise<IDBDatabase> {
     };
     req.onsuccess = () => { _db = req.result; resolve(_db); };
     req.onerror = () => reject(req.error);
-  });
+  }), 'open');
 }
 
 async function cacheGet(key: string): Promise<LibraryAsset | null> {

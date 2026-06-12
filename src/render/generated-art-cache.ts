@@ -2,6 +2,10 @@
 // blueprint identity + recipe version + model. Shared across worlds so each
 // unique building is generated once, ever. Mirrors src/services/save-store.ts.
 import { ART_RECIPE_VERSION } from '@/core/content-version';
+// A wedged IDB store must not stall the art pipeline: a hung read here would
+// otherwise block the fall-through to the vendored base library forever.
+// Guarded ops reject after 4s; callers already degrade on error.
+import { withIdbTimeout } from '@/services/idb-guard';
 
 const DB_NAME = 'small-gods-generated-art';
 const DB_VERSION = 1;
@@ -28,7 +32,7 @@ function hasIdb(): boolean { return typeof indexedDB !== 'undefined' && indexedD
 
 function openDb(): Promise<IDBDatabase> {
   if (_db) return Promise.resolve(_db);
-  return new Promise((resolve, reject) => {
+  return withIdbTimeout(new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
     req.onupgradeneeded = () => {
       const db = req.result;
@@ -36,7 +40,7 @@ function openDb(): Promise<IDBDatabase> {
     };
     req.onsuccess = () => { _db = req.result; resolve(_db); };
     req.onerror = () => reject(req.error);
-  });
+  }), 'open');
 }
 
 /**
@@ -71,7 +75,7 @@ export async function readGeneratedArt(key: string): Promise<GeneratedArt | null
   if (!hasIdb()) return null;
   try {
     const db = await openDb();
-    return await new Promise((resolve, reject) => {
+    return await withIdbTimeout(new Promise((resolve, reject) => {
       const tx = db.transaction(DB_STORE, 'readonly');
       const req = tx.objectStore(DB_STORE).get(key);
       req.onsuccess = () => {
@@ -82,7 +86,7 @@ export async function readGeneratedArt(key: string): Promise<GeneratedArt | null
           : null);
       };
       req.onerror = () => reject(req.error);
-    });
+    }), 'read');
   } catch (err) { console.warn('[generated-art-cache] read failed:', err); return null; }
 }
 
@@ -94,7 +98,7 @@ export async function writeGeneratedArt(
   if (!hasIdb()) return;
   try {
     const db = await openDb();
-    await new Promise<void>((resolve, reject) => {
+    await withIdbTimeout(new Promise<void>((resolve, reject) => {
       const tx = db.transaction(DB_STORE, 'readwrite');
       tx.objectStore(DB_STORE).put({
         key, blob, recipeVersion: ART_RECIPE_VERSION, model: meta.model, prompt: meta.prompt,
@@ -103,7 +107,7 @@ export async function writeGeneratedArt(
       } satisfies GeneratedArtRecord);
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
-    });
+    }), 'write');
   } catch (err) { console.warn('[generated-art-cache] write failed:', err); }
 }
 
@@ -111,11 +115,11 @@ export async function clearGeneratedArt(): Promise<void> {
   if (!hasIdb()) return;
   try {
     const db = await openDb();
-    await new Promise<void>((resolve, reject) => {
+    await withIdbTimeout(new Promise<void>((resolve, reject) => {
       const tx = db.transaction(DB_STORE, 'readwrite');
       tx.objectStore(DB_STORE).clear();
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
-    });
+    }), 'clear');
   } catch (err) { console.warn('[generated-art-cache] clear failed:', err); }
 }

@@ -1,4 +1,8 @@
 import type { SaveFile } from '@/core/save-file';
+// Boot awaits readSave(), so an un-guarded open against a wedged IDB store
+// would hang the whole game on the loading screen — every operation here
+// races the guard and degrades (fresh world / dropped autosave) instead.
+import { withIdbTimeout } from '@/services/idb-guard';
 
 /** Per-browser game autosave store. Single object store keyed by slot name;
  *  v1 uses one slot ('autosave'). Mirrors the IndexedDB pattern in pixellab.ts. */
@@ -23,7 +27,7 @@ function hasIdb(): boolean {
 
 function openDb(): Promise<IDBDatabase> {
   if (_db) return Promise.resolve(_db);
-  return new Promise((resolve, reject) => {
+  return withIdbTimeout(new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
     req.onupgradeneeded = () => {
       const db = req.result;
@@ -33,19 +37,19 @@ function openDb(): Promise<IDBDatabase> {
     };
     req.onsuccess = () => { _db = req.result; resolve(_db); };
     req.onerror = () => reject(req.error);
-  });
+  }), 'open');
 }
 
 export async function writeSave(save: SaveFile, slot: string = DEFAULT_SLOT): Promise<void> {
   if (!hasIdb()) return;
   try {
     const db = await openDb();
-    await new Promise<void>((resolve, reject) => {
+    await withIdbTimeout(new Promise<void>((resolve, reject) => {
       const tx = db.transaction(DB_STORE, 'readwrite');
       tx.objectStore(DB_STORE).put({ key: slot, save } satisfies StoredSave);
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
-    });
+    }), 'write');
   } catch (err) {
     console.warn('[save-store] writeSave failed:', err);
   }
@@ -55,12 +59,12 @@ export async function readSave(slot: string = DEFAULT_SLOT): Promise<SaveFile | 
   if (!hasIdb()) return null;
   try {
     const db = await openDb();
-    return await new Promise<SaveFile | null>((resolve, reject) => {
+    return await withIdbTimeout(new Promise<SaveFile | null>((resolve, reject) => {
       const tx = db.transaction(DB_STORE, 'readonly');
       const req = tx.objectStore(DB_STORE).get(slot);
       req.onsuccess = () => resolve((req.result as StoredSave | undefined)?.save ?? null);
       req.onerror = () => reject(req.error);
-    });
+    }), 'read');
   } catch (err) {
     console.warn('[save-store] readSave failed:', err);
     return null;
@@ -71,12 +75,12 @@ export async function clearSave(slot: string = DEFAULT_SLOT): Promise<void> {
   if (!hasIdb()) return;
   try {
     const db = await openDb();
-    await new Promise<void>((resolve, reject) => {
+    await withIdbTimeout(new Promise<void>((resolve, reject) => {
       const tx = db.transaction(DB_STORE, 'readwrite');
       tx.objectStore(DB_STORE).delete(slot);
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
-    });
+    }), 'clear');
   } catch (err) {
     console.warn('[save-store] clearSave failed:', err);
   }
