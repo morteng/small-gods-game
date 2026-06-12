@@ -45,7 +45,7 @@ const NPC_COLOR_BY_ROLE: Record<string, string> = {
  * integer scale (1:1 rule), so this is body-height × scale, not HUMAN_PX itself.
  */
 const DEFAULT_BB = npcBillboard(undefined);
-export const BILLBOARD_H_PX = (DEFAULT_BB.bottom - DEFAULT_BB.top) * DEFAULT_BB.scale; // 60
+export const BILLBOARD_H_PX = (DEFAULT_BB.bottom - DEFAULT_BB.top) * DEFAULT_BB.scale; // 30 at the interim 1× scale
 
 const LPC_FRAME = 64;
 

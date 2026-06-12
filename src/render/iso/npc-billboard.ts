@@ -4,7 +4,6 @@
 // rendered villagers at ~0.79m apparent height — half the building scale.
 // Instead the OPAQUE BODY anchors to HUMAN_PX via a nearest-INTEGER scale
 // (1:1 pixel-perfect rule), and the feet (opaque bbox bottom) land on the tile.
-import { HUMAN_PX } from '@/render/scale-contract';
 
 /** Opaque row span of a frame: top inclusive, bottom exclusive. */
 export interface BodyRows { top: number; bottom: number }
@@ -33,9 +32,18 @@ export function measureFrameOpaqueRows(
   return top < 0 ? null : { top, bottom };
 }
 
-/** Nearest integer source-scale putting the body at HUMAN_PX (min 1). */
-export function npcBillboardScale(bodyHpx: number): number {
-  return Math.max(1, Math.round(HUMAN_PX / bodyHpx));
+/**
+ * INTERIM (user decision 2026-06-12): NPCs render at 1× native. The metric-true
+ * scale would be HUMAN_PX/bodyH ≈ 1.8× — fractional (breaks the 1:1 rule) — and
+ * the 2× integer snap made villagers door-sized. The real fix is the planned
+ * generative NPC system (3D-geometry-guided sprites authored at native metric
+ * size, like buildings); until then villagers read small (~0.94m apparent).
+ */
+export const NPC_SPRITE_SCALE = 1;
+
+/** Integer source-scale for the body (currently pinned to NPC_SPRITE_SCALE). */
+export function npcBillboardScale(_bodyHpx: number): number {
+  return NPC_SPRITE_SCALE;
 }
 
 export interface NpcBillboard extends BodyRows { scale: number }

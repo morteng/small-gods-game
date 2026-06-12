@@ -4,12 +4,12 @@
 // Source bodies are ~30px in a 64px frame, so frame-scaled-to-54px rendered
 // villagers at ~25px ≈ 0.79m apparent — half size vs the building scale contract.
 import { describe, it, expect } from 'vitest';
-import { HUMAN_PX } from '@/render/scale-contract';
 import {
   measureFrameOpaqueRows,
   npcBillboardScale,
   npcBillboard,
   LPC_DEFAULT_BODY,
+  NPC_SPRITE_SCALE,
 } from '@/render/iso/npc-billboard';
 
 function frameWithOpaqueRows(w: number, h: number, top: number, bottom: number): Uint8ClampedArray {
@@ -37,14 +37,14 @@ describe('measureFrameOpaqueRows', () => {
 });
 
 describe('npcBillboardScale', () => {
-  it('snaps to the nearest integer scale so the body lands near HUMAN_PX', () => {
-    expect(npcBillboardScale(30)).toBe(2); // adult LPC body → 60px ≈ 1.88m
-    expect(npcBillboardScale(24)).toBe(2); // child body → 48px ≈ 1.5m
-    expect(npcBillboardScale(54)).toBe(1); // body already at HUMAN_PX
-  });
-
-  it('never returns below 1 even for oversized source bodies', () => {
-    expect(npcBillboardScale(200)).toBe(1);
+  // INTERIM (user decision 2026-06-12): 1× native until the generative NPC
+  // system authors sprites at metric size. 2× made villagers door-sized; the
+  // metric-true 1.8× is fractional and breaks the 1:1 pixel rule.
+  it('is pinned to NPC_SPRITE_SCALE = 1 for every body size', () => {
+    expect(NPC_SPRITE_SCALE).toBe(1);
+    expect(npcBillboardScale(30)).toBe(NPC_SPRITE_SCALE);
+    expect(npcBillboardScale(24)).toBe(NPC_SPRITE_SCALE);
+    expect(npcBillboardScale(200)).toBe(NPC_SPRITE_SCALE);
   });
 });
 
@@ -56,9 +56,8 @@ describe('npcBillboard (no measurable sheet → LPC defaults)', () => {
     expect(bb.bottom).toBe(LPC_DEFAULT_BODY.bottom);
   });
 
-  it('default body height scaled is within one source pixel of HUMAN_PX', () => {
+  it('default body renders at native size (interim 1× decision)', () => {
     const bb = npcBillboard(undefined);
-    const bodyPx = (bb.bottom - bb.top) * bb.scale;
-    expect(Math.abs(bodyPx - HUMAN_PX)).toBeLessThanOrEqual(bb.scale * 4);
+    expect((bb.bottom - bb.top) * bb.scale).toBe(30);
   });
 });
