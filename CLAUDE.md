@@ -50,7 +50,7 @@ Sim is fully deterministic with seedable RNG; snapshot/replay layer supports scr
 ## Tech Stack
 
 - **TypeScript** ES modules, bundled by **Vite**
-- **Canvas 2D** top-down colored-rectangle renderer (placeholder art)
+- **Canvas 2D** terrain/UI + **PixiJS WebGL entity layer** (lazy-loaded chunk; Canvas2D fallback)
 - **WFC** (Wave Function Collapse) procedural map generation
 - **Vitest** for testing (880 tests, 139 files)
 - Embeddable as iframe via `Game` class + postMessage API
@@ -120,12 +120,18 @@ src/
 
 ## Rendering
 
-Simple top-down 2D grid (placeholder for future art):
-- Each tile = colored rectangle (green=grass, blue=water, brown=road, etc.)
-- POIs = geometric shapes (circle=village, triangle=mountain, etc.)
-- Camera: pan (drag) + zoom (scroll wheel) on canvas
-- Grid lines shown at zoom >= 2x
-- Minimap with viewport indicator
+Iso renderer (default; `?render=topdown` for the legacy grid):
+- Terrain = Canvas2D colored diamonds; minimap with viewport indicator
+- **Entity pass = neutral draw list, two backends** (PBR epic Slice 2): the y-sorted
+  buildings/barriers/NPCs/vegetation/decorations pass builds screen-space `DrawItem`s
+  (`src/render/iso/entity-draw-list.ts`) executed by EITHER the **PixiJS WebGL layer**
+  (`src/render/pixi/pixi-entity-layer.ts` — lazy `import('pixi.js')` own chunk, offscreen
+  canvas composited between terrain and overlays, identity-transform `drawImage`) or the
+  Canvas2D executor (`draw-list.ts`) — same list, placement parity by construction.
+  WebGL-init failure or the dev "Backend: Force Canvas2D" toggle falls back per-frame.
+  `pixi.js` must never be statically imported (guard: `no-static-pixi-import.test.ts`).
+  Next slices: banded lighting shader over the cached PBR map packs.
+- Camera: pan (drag) + zoom ladder (integer / 1-over-integer rungs, pixel-snapped origin)
 
 ## Iframe Embedding
 
