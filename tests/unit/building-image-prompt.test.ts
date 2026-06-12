@@ -35,6 +35,16 @@ describe('buildingImagePrompt', () => {
     expect(p.toLowerCase()).toMatch(/stone|walls/);
   });
 
+  it('invites architectural detail instead of demanding an exact silhouette', () => {
+    const rb = synthesizeBlueprint('cottage')!;
+    for (const model of [GEMINI, OPENAI, 'something/else']) {
+      const p = buildingImagePrompt(rb, model).toLowerCase();
+      expect(p).not.toContain('exact silhouette');
+      expect(p).not.toContain('shape exactly');
+      expect(p).toMatch(/detail/);
+    }
+  });
+
   it('demands a solid magenta chroma background for keying (no "transparent")', () => {
     const rb = synthesizeBlueprint('cottage')!;
     const p = buildingImagePrompt(rb, GEMINI);

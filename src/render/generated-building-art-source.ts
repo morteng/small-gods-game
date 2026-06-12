@@ -26,8 +26,10 @@ import { decodePngToRaster, rasterToSpriteCanvas, rasterToPngBlob } from '@/rend
 
 /** Minimum fraction of the LLM image's border ring that must key out (did the model obey the chroma background?). */
 export const MIN_BORDER_KEYED = 0.6;
-/** Minimum silhouette agreement (alpha IoU after crop+scale normalisation) vs the geometry mask. */
-export const MIN_SILHOUETTE_IOU = 0.8;
+/** Minimum silhouette agreement (alpha IoU after crop+scale normalisation) vs the geometry mask.
+ *  Relaxed from 0.8: registration now degrades gracefully (negotiation band keeps the result
+ *  on-grid), so moderate artistic deviation is welcome rather than wasted as a paid retry. */
+export const MIN_SILHOUETTE_IOU = 0.7;
 /** Palette size for the final quantize pass (look cohesion + clean banding later). */
 export const QUANT_COLORS = 64;
 /** Paid generation attempts per building before giving up for the session. */

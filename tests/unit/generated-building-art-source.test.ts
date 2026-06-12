@@ -33,6 +33,15 @@ function lShapeLlm(): Raster {
   for (let y = 1; y < 4; y++) for (let x = 4; x < 7; x++) r.data.set(MAGENTA, (y * 8 + x) * 4);
   return r;
 }
+/** Only two opposite quadrants drawn → silhouette IoU ~0.5: a gross mismatch
+ *  that crop-to-bbox can't normalize away (unlike a plain offset/scale error). */
+function checkerLlm(): Raster {
+  const r = goodLlm();
+  for (let y = 1; y < 7; y++) for (let x = 1; x < 7; x++) {
+    if ((x < 4) !== (y < 4)) r.data.set(MAGENTA, (y * 8 + x) * 4);
+  }
+  return r;
+}
 
 const mask4 = (): Raster => raster(4, 4, [0, 0, 0, 255]);
 
@@ -155,12 +164,19 @@ describe('GeneratedBuildingArtSource validation gate', () => {
     expect(cachePut).not.toHaveBeenCalled();
   });
 
-  it('rejects a silhouette mismatch below the IoU gate', async () => {
-    const { src, generate, cachePut } = makeSource({ decodeImage: async () => lShapeLlm() });
+  it('rejects a gross silhouette mismatch below the IoU gate', async () => {
+    const { src, generate, cachePut } = makeSource({ decodeImage: async () => checkerLlm() });
     const e = entity('cottage'); src.warm(e);
     await vi.waitFor(() => expect(generate).toHaveBeenCalledTimes(2));
     expect(src.peek(e)).toBeNull();
     expect(cachePut).not.toHaveBeenCalled();
+  });
+
+  it('tolerates moderate silhouette deviation (IoU 0.75 passes the relaxed gate)', async () => {
+    const { src, cachePut } = makeSource({ decodeImage: async () => lShapeLlm() });
+    const e = entity('cottage'); src.warm(e);
+    await vi.waitFor(() => expect(src.peek(e)).toBe(SPRITE));
+    expect(cachePut).toHaveBeenCalledTimes(1);
   });
 
   it('a failed first attempt that succeeds on retry is persisted', async () => {

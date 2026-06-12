@@ -39,21 +39,31 @@ function describeBuilding(rb: ResolvedBlueprint): string {
   return `a ${brief.era} ${brief.subject}${doorPhrase}, ${mats}, ${traits}`;
 }
 
+// Registration tolerates small silhouette deviation (see sprite-postprocess
+// negotiation band), so the prompt asks for CLOSE adherence and invites the
+// richness a bare massing render can't carry — texture, weathering, small
+// architectural details. Demanding the "exact" silhouette produced flat,
+// primitive repaints of the flat-shaded init.
+const DETAIL_INVITE =
+  'Bring it to life with richly textured materials, weathering, and small ' +
+  'architectural details (window frames, beams, stonework variation) while ' +
+  'keeping the overall outline close to the reference.';
+
 export function buildingImagePrompt(rb: ResolvedBlueprint, model: string): string {
   const subject = describeBuilding(rb);
   switch (imageModelFamily(model)) {
     case 'gemini':
-      return `Using the attached 3D massing render as a strict reference, redraw it ` +
-        `as a crisp 2D isometric pixel-art video-game building sprite. Preserve the ` +
-        `exact silhouette, proportions, roof pitch, chimney and door placement. ` +
-        `Subject: ${subject}. ${STYLE_TAIL}`;
+      return `Using the attached 3D massing render as a reference, redraw it ` +
+        `as a crisp 2D isometric pixel-art video-game building sprite. Match the ` +
+        `silhouette, proportions, roof pitch, chimney and door placement closely. ` +
+        `${DETAIL_INVITE} Subject: ${subject}. ${STYLE_TAIL}`;
     case 'openai':
-      return `Isometric pixel-art video-game building sprite matching the reference ` +
-        `shape exactly (same silhouette, roof pitch, chimney and door placement). ` +
-        `Subject: ${subject}. ${STYLE_TAIL}`;
+      return `Isometric pixel-art video-game building sprite closely matching the ` +
+        `reference shape (silhouette, roof pitch, chimney and door placement). ` +
+        `${DETAIL_INVITE} Subject: ${subject}. ${STYLE_TAIL}`;
     default:
       return `A crisp 2D isometric pixel-art video-game building sprite, redrawn from ` +
-        `the reference shape (same silhouette, roof pitch, chimney, door). ` +
-        `Subject: ${subject}. ${STYLE_TAIL}`;
+        `the reference shape (silhouette, roof pitch, chimney, door). ` +
+        `${DETAIL_INVITE} Subject: ${subject}. ${STYLE_TAIL}`;
   }
 }
