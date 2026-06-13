@@ -95,6 +95,46 @@ or shutter, or hang a swinging sign, the part must be its OWN draw item.
   knows), shutters close at night (clock), tavern sign exists because the
   blueprint has a `sign` feature with `toBrief()` feeding the LLM prompt.
 
+## Interiors / "voxelized buildings" (user ask, 2026-06-13)
+
+The ask: derive fully voxelized buildings from the 3D geometry + generated
+textures — rooms, internal stairs/floors/walls/doors, see-through windows,
+buildings fully integrated into the world.
+
+**Honest cost assessment.** Voxelizing the manifold solids is trivial (they're
+watertight; occupancy-sample them on a grid). The expensive part is what
+true voxels imply: a volumetric RENDERER (cutaways, per-voxel occlusion,
+interior lighting) — that's the full 3D-engine rewrite we deliberately banned
+(`no-three-in-bundle`), and the generated textures only cover the ONE painted
+view; back faces and interiors have no texture source. Real voxels also fight
+the crisp pixel-art identity.
+
+**What gets ~90% of the payoff inside the current architecture:**
+
+1. **Interior MODEL first (data, no renderer change):** extend the Blueprint
+   compilers with `toInterior` — rooms (body partition), floor plates per
+   storey, a stair feature, internal door features → a walkable room graph
+   per building. The SIM uses this immediately: NPCs path inside buildings,
+   activities happen in named rooms ("the tavern's back room"), Fate can
+   stage scenes indoors. This is also exactly the D&D-map shape LLM prompts
+   want, and it's renderer-independent.
+2. **Dollhouse cutaway through the SAME pipeline:** for a focused building,
+   bake a SECOND sprite from the same CSG with the roof + camera-facing
+   walls clipped (one extra `composeStructure` pass + img2img paint) —
+   interior floors, partitions, stairs and furniture blocks all render and
+   get LLM-textured exactly like exteriors. Swap to the cutaway sprite when
+   the player focuses/enters; classic iso-game grammar, zero new renderer.
+3. **See-through windows:** emissive panes already exist in the G-buffer;
+   warm window glow at night (PBR Slice 5) + the cutaway view cover the
+   fantasy without per-pixel transparency into a modeled interior.
+4. **Tile-voxel hybrid as the far point (DF-style z-levels):** if we ever
+   want true walk-inside-with-camera, the grid-native form is storey LAYERS
+   (each storey = a tile floorplan rendered when the camera's z-level slices
+   it), not free voxels. Defer until the interior model proves the gameplay.
+
+Order: interior model (1) can ride with the separable-parts slice; the
+dollhouse bake (2) is its visual payoff one slice later.
+
 ## Suggested order
 
 1. **Slice 1** (baked shadow mask) — small, pure-geometry, immediately visible.

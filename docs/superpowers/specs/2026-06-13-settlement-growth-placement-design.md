@@ -142,6 +142,35 @@ name; Fate's era-authoring can mutate ward type/name across a time-skip
 ("the Fisher Quarter burned; now the Ashfield"). District naming lands with
 the ward slice (S2 below); S1's `RoadNode.kind` is the forward hook.
 
+## Settlement ground: masks over the natural biome, not biome replacement (user ask, 2026-06-13)
+
+Question raised: should settlements define their own "city biomes", or
+generate masks so the regional biome pops through between roads/buildings?
+
+**Recommendation: masks/modifiers, not replacement.** The settlement is a
+LAYER composited over the natural biome, so a village in pine forest reads
+differently from the same village in scrubland — regional character is the
+thing `terrainFill` flood-fills destroy today (hard-edged uniform discs).
+
+Compositing order, all derived from the plan:
+1. **Base:** the natural biome's terrain + vegetation (already runs first).
+2. **Wear mask** (new, from the plan graph): a scalar field = falloff from
+   roads, door paths, market node, and building aprons. High wear → trampled
+   dirt tile variant + vegetation culled; mid wear → sparse grass, no trees;
+   low wear → untouched biome pokes through between the back lots. Dither the
+   thresholds with the world seed so edges are organic, never disc-shaped.
+3. **Explicit surfaces:** roads, plaza paving, building grounds — the only
+   places tile TYPE is replaced outright.
+4. **Ward modifiers** (S2): a ward tints rather than replaces — temple
+   precinct biases wildflowers/sacred grove decorations, market biases
+   crates/stalls, fisher quarter biases nets — each a decoration-weight
+   patch over the same wear field, and per-ward data Fate can patch.
+
+`terrainFill`/`clearForest` in the zone rules collapse into wear-mask
+parameters (farm stays a near-full-wear special case: fields ARE replaced
+ground). Slots into **S2** alongside lots/wards since both consume the plan
+graph's distance fields.
+
 ## Open systems: Fate directs the whole generative chain (user ask, 2026-06-13)
 
 Design rule for every slice: **each layer is data in, data out, with a patch
