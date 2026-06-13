@@ -15,6 +15,18 @@ export interface SpritePack {
   albedo: SpriteCanvas;
   normal?: SpriteCanvas;
   material?: SpriteCanvas;
+  /** Geometry-baked ground cast shadow + its offset (px) from the albedo crop's
+   *  top-left, so the runtime blits it on the ground under the sprite. */
+  shadow?: { canvas: SpriteCanvas; dx: number; dy: number };
+}
+
+/** Build a tight canvas from a w×h RGBA buffer (e.g. the baked ground shadow). */
+export function rgbaToCanvas(data: Uint8ClampedArray, w: number, h: number): SpriteCanvas | null {
+  const c = makeCanvas(w, h);
+  const ctx = c?.getContext('2d') as CanvasRenderingContext2D | null;
+  if (!c || !ctx) return null;
+  ctx.putImageData(new ImageData(data as unknown as Uint8ClampedArray<ArrayBuffer>, w, h), 0, 0);
+  return c;
 }
 
 export function makeCanvas(w: number, h: number): SpriteCanvas | null {

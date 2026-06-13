@@ -4,6 +4,7 @@ import type { AssetManager } from '@/render/asset-manager';
 import type { DecorationImageCache } from '@/render/decoration-image-cache';
 import type { ArtResolver } from '@/render/art-resolver';
 import type { ParametricBuildingSource } from '@/render/parametric-building-source';
+import type { ParametricPlantSource } from '@/render/parametric-plant-source';
 import type { GeneratedBuildingArtSource } from '@/render/generated-building-art-source';
 import type { Viewport } from './viewport';
 import { toRenderNpc } from '@/world/npc-helpers';
@@ -18,6 +19,7 @@ export interface RenderContextDeps {
   artResolver: ArtResolver;
   buildingArtResolver: ArtResolver;
   parametricBuildingSource: ParametricBuildingSource;
+  parametricPlantSource: ParametricPlantSource;
   generatedBuildingArtSource?: GeneratedBuildingArtSource;
   devMode: DevModeState;
   /** WebGL entity layer (PBR epic) — optional; absent = Canvas2D entity pass. */
@@ -28,7 +30,7 @@ export interface RenderContextDeps {
  *  `map` and `world` are asserted non-null — every caller guards both before calling.
  *  `npcs` is [] when no world exists yet (pre-generation). */
 export function buildRenderContext(deps: RenderContextDeps): RenderContext {
-  const { state, viewport, sheets, assets, decorationImages, artResolver, buildingArtResolver, parametricBuildingSource, generatedBuildingArtSource, devMode, entityLayer } = deps;
+  const { state, viewport, sheets, assets, decorationImages, artResolver, buildingArtResolver, parametricBuildingSource, parametricPlantSource, generatedBuildingArtSource, devMode, entityLayer } = deps;
   return {
     entityLayer,
     map: state.map!,
@@ -64,6 +66,12 @@ export function buildRenderContext(deps: RenderContextDeps): RenderContext {
       const s = parametricBuildingSource.peek(entity);
       if (s) return s;
       parametricBuildingSource.warm(entity); // fire-and-forget; never blocks the frame
+      return null;
+    },
+    resolveParametricPlantArt: (kind: string) => {
+      const s = parametricPlantSource.peek(kind);
+      if (s) return s;
+      parametricPlantSource.warm(kind); // fire-and-forget; never blocks the frame
       return null;
     },
     resolveGeneratedBuildingArt: (entity: Entity) => {

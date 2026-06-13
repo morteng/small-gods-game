@@ -26,6 +26,21 @@ export type DrawItem =
        * them (lighting is a WebGL-only enhancement).
        */
       maps?: { normal?: CanvasImageSource; material?: CanvasImageSource };
+      /**
+       * Cast-shadow hint (WebGL backend only). `footLift` = screen px the
+       * ground-contact point sits ABOVE the sprite's bottom edge (buildings
+       * anchor at their footprint-diamond centre ≈ dw/4 up; a foot-anchored
+       * billboard like a tree sits AT its bottom edge ⇒ 0). `groundR` =
+       * ground-contact half-width (px) for the blob shadow. Absent ⇒ derived
+       * defaults (maps ⇒ dw/4 lift, blob radius ⇒ 0.45·dw).
+       */
+      shadow?: { footLift?: number; groundR?: number };
+      /**
+       * Geometry-baked ground cast shadow (from `composeStructure`): a pre-rendered
+       * dark mask + its offset (px) from this item's (dx,dy). The WebGL backend
+       * blits it on the ground under the sprite when shadowMode is 'geometry'.
+       */
+      shadowSprite?: { src: CanvasImageSource; dx: number; dy: number };
     }
   | { t: 'poly'; points: Array<{ x: number; y: number }>; color: string }
   | { t: 'circle'; cx: number; cy: number; r: number; color: string };

@@ -12,6 +12,7 @@ import { projectFacets, project } from '@/assetgen/render/projection';
 import { rasterizeMaps, writeNormalisedDepth } from '@/assetgen/render/rasterize';
 import { computeAO } from '@/assetgen/render/ao';
 import { computeFit, fixedFit, opaqueBounds, type BBox } from '@/assetgen/render/fit';
+import { composeGroundShadow, type GroundShadow } from '@/assetgen/render/ground-shadow';
 
 export type Part =
   | { prim: 'box'; at: Vec3; size: Vec3; material?: Mat; apertures?: ApertureBox[] }
@@ -43,6 +44,8 @@ export interface StructureResult {
   grey: Uint8ClampedArray; normal: Uint8ClampedArray;
   material: Uint8ClampedArray; emissive: Uint8ClampedArray;
   size: number; meta: StructureMeta; bbox: BBox; anchors: StructureAnchors;
+  /** Geometry-projected ground cast shadow (baked from the same facets), or null. */
+  shadow?: GroundShadow | null;
 }
 
 /** Build one part's solid(s) → facets, plus any world-space anchors (buildings only). */
@@ -71,8 +74,10 @@ async function partFacets(p: Part): Promise<{ facets: WorldFacet[]; anchors?: Bu
   }
 }
 
-/** Compose a structure spec into aligned grey + normal RGBA buffers (+ bbox/anchors). Deterministic. */
-export async function composeStructure(spec: StructureSpec): Promise<StructureResult> {
+/** Compose a structure spec into aligned grey + normal RGBA buffers (+ bbox/anchors).
+ *  Deterministic. `shadowSun` (screen-space, default canonical upper-left) bakes the
+ *  geometry cast shadow — vary it to preview different sun directions. */
+export async function composeStructure(spec: StructureSpec, shadowSun?: [number, number, number]): Promise<StructureResult> {
   const parts = await Promise.all(spec.parts.map(partFacets));
   const facets = parts.flatMap(p => p.facets);
   // Buildings render at a fixed metric scale (content-sized canvas) so heights stay
@@ -90,6 +95,8 @@ export async function composeStructure(spec: StructureSpec): Promise<StructureRe
   const grey = maps.albedo;
   const normal = maps.normal;
   const bbox = opaqueBounds(grey, size);
+  // Geometry-correct ground shadow, baked from the SAME facets.
+  const shadow = composeGroundShadow(facets, fit, shadowSun);
 
   // Project world-space anchors through the same fit, then normalise to the opaque bbox.
   const norm = (p: Vec3): NormAnchor => {
@@ -107,5 +114,5 @@ export async function composeStructure(spec: StructureSpec): Promise<StructureRe
     }
   }
 
-  return { grey, normal, material: maps.material, emissive: maps.emissive, size, meta: { bbox, anchors, depthRange }, bbox, anchors };
+  return { grey, normal, material: maps.material, emissive: maps.emissive, size, meta: { bbox, anchors, depthRange }, bbox, anchors, shadow };
 }

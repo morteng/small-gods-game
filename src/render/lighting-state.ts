@@ -15,9 +15,18 @@
 
 export type Vec3 = [number, number, number];
 
+/** Cast-shadow style. `geometry` = the shadow baked from the real 3D geometry
+ *  (projected to the ground at gen time) — correct shape, cheap blit; falls back
+ *  to silhouette for items with no baked shadow. `silhouette` = projected/skewed
+ *  sprite copy; `blob` = a flat ground ellipse under the foot (fast, organic);
+ *  `off` = no cast shadows. */
+export type ShadowMode = 'geometry' | 'silhouette' | 'blob' | 'off';
+
 export interface LightingState {
   /** Master switch — false renders the plain unlit sprites (Slice 2 behavior). */
   enabled: boolean;
+  /** Cast-shadow style (default 'silhouette'). */
+  shadowMode?: ShadowMode;
   /** Ambient light colour, 0..1 per channel. */
   ambient: Vec3;
   /** Direction TOWARD the sun in normal-map screen space, normalized. */
@@ -38,6 +47,10 @@ export const DEFAULT_SUN_DIR: Vec3 = normalizeVec3([-0.5, 0.65, 0.58]);
 
 export const DEFAULT_LIGHTING: LightingState = {
   enabled: true,
+  // Geometry-baked ground shadows where available (trees/props/parametric
+  // buildings); items without a baked shadow (cached img2img buildings, NPCs)
+  // fall back to the projected silhouette.
+  shadowMode: 'geometry',
   // Slightly cool ambient, slightly warm sun; flat camera-facing pixels land
   // near 1.0 so the overall brightness stays close to the unlit sprite.
   ambient: [0.7, 0.7, 0.74],

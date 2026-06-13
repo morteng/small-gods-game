@@ -14,6 +14,18 @@ const bp = (preset: string, b: Omit<Blueprint, 'version' | 'class' | 'preset'>):
 const prop = (preset: string, b: Omit<Blueprint, 'version' | 'class' | 'preset'>): Blueprint =>
   ({ version: BLUEPRINT_VERSION, class: 'prop', preset, ...b });
 
+/** Trees — class:'plant' so they map to category 'vegetation' (entity.ts) and render
+ *  through the SAME generate→sprite pipeline as buildings (PBR-lit, cast shadows).
+ *  Keyed by the existing entity kinds so `kind` is preserved; heights match
+ *  NATURE_HEIGHT_M (scale-contract). Render keys ONE sprite per species (see
+ *  ParametricPlantSource) — trees never carry a per-entity blueprint. */
+const tree = (preset: string, form: string, heightM: number, crownM: number, trunkR = 0.16): Blueprint => ({
+  version: BLUEPRINT_VERSION, class: 'plant', preset,
+  category: 'flora', footprint: { w: 1, h: 1 },
+  materials: { walls: 'timber', roof: 'thatch', ground: 'grass' },
+  parts: { trunk: { type: 'tree', size: { w: 1, h: 1 }, params: { form, heightM, crownM, trunkR } } },
+});
+
 export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
   // Peasant cottage: rectangular plan (1:1.5), door + one shuttered window on the
   // entry face, one on the gable, ridge smoke LOUVRE (no chimney — period default
@@ -77,7 +89,7 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
   market_stall: bp('market_stall', {
     category: 'commercial', era: 'medieval', footprint: { w: 2, h: 2 },
     materials: { walls: 'timber', roof: 'thatch' },
-    parts: { body: { type: 'body', size: { w: 2, h: 2 }, params: { plan: 'rect', levels: 1, roof: 'lean_to' }, features: { door: { type: 'door', face: 'west' } } } },
+    parts: { body: { type: 'body', size: { w: 2, h: 2 }, params: { plan: 'rect', levels: 1, roof: 'lean_to' }, features: { door: { type: 'door', face: 'south' } } } },
   }),
   // Temple: tall arched windows along the nave, NO smoke (churches have none).
   temple_small: bp('temple_small', {
@@ -113,7 +125,7 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
     category: 'military', era: 'medieval', footprint: { w: 2, h: 3 },
     materials: { walls: 'stone', roof: 'slate', ground: 'flagstone' },
     parts: { body: { type: 'body', size: { w: 2, h: 3 }, params: { plan: 'rect', levels: 3, roof: 'flat' }, features: {
-      door: { type: 'door', face: 'west' },
+      door: { type: 'door', face: 'south', params: { t: 0.5 } },
       slit_s: { type: 'window', face: 'south', params: { t: 0.5, width: 0.05, height: 0.3, sill: 0.8, glazed: false } },
       win_s: { type: 'window', face: 'south', params: { style: 'arched', sill: 1.8 } },
       win_e: { type: 'window', face: 'east', params: { style: 'arched', sill: 2.8 } },
@@ -161,7 +173,7 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
     category: 'religious', era: 'classical', footprint: { w: 2, h: 2 },
     materials: { walls: 'stone', roof: 'tile', ground: 'flagstone' },
     parts: { body: { type: 'body', size: { w: 2, h: 2 }, params: { plan: 'rect', levels: 1, roof: 'gable' }, features: {
-      door: { type: 'door', face: 'west' },
+      door: { type: 'door', face: 'south' },
       win_e: { type: 'window', face: 'east', params: { style: 'arched', t: 0.5, sill: 0.6 } },
     } } },
   }),
@@ -169,7 +181,7 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
     category: 'military', era: 'medieval', footprint: { w: 2, h: 2 },
     materials: { walls: 'timber', roof: 'wood' },
     parts: { body: { type: 'body', size: { w: 2, h: 2 }, params: { plan: 'rect', levels: 1, storeyM: 3.2, roof: 'hip' }, features: {
-      door: { type: 'door', face: 'west' },
+      door: { type: 'door', face: 'south', params: { t: 0.65 } },
       win_s: { type: 'window', face: 'south', params: { style: 'shuttered', t: 0.4, glazed: false } },
     } } },
   }),
@@ -201,10 +213,18 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
     materials: { walls: 'stone', roof: 'tile', ground: 'dirt' },
     parts: { yard: { type: 'graveyard', size: { w: 2, h: 2 }, params: { stones: 5 } } },
   }),
+  // Trees (class:'plant'). Heights match NATURE_HEIGHT_M; render keys one sprite/species.
+  oak_tree: tree('oak_tree', 'broad', 15, 8, 0.20),
+  pine_tree: tree('pine_tree', 'conifer', 18, 5, 0.16),
+  birch_tree: tree('birch_tree', 'slender', 12, 3.5, 0.11),
+  dead_tree: tree('dead_tree', 'bare', 8, 4, 0.13),
+  orange_tree: tree('orange_tree', 'broad', 6, 4, 0.13),
+  pale_tree: tree('pale_tree', 'broad', 10, 5.5, 0.15),
+  brown_tree: tree('brown_tree', 'broad', 11, 6, 0.16),
   yurt: bp('yurt', {
     category: 'residential', era: 'primordial', footprint: { w: 3, h: 3 },
     materials: { walls: 'hide', roof: 'hide', ground: 'dirt' },
-    parts: { body: { type: 'body', size: { w: 3, h: 3 }, params: { plan: 'round', levels: 1, roof: 'domed' }, features: { door: { type: 'door', face: 'west' }, smoke: { type: 'vent', params: { kind: 'smokehole' } } } } },
+    parts: { body: { type: 'body', size: { w: 3, h: 3 }, params: { plan: 'round', levels: 1, roof: 'domed' }, features: { door: { type: 'door', face: 'south' }, smoke: { type: 'vent', params: { kind: 'smokehole' } } } } },
   }),
   // Longhouse: half-hip (gablet) thatch — THE longhouse roof; opposed cross-passage
   // doors at ⅓ length; windows only on the humans' end, byre end blind; louvre over
@@ -226,6 +246,10 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
 };
 
 export function getBlueprintPreset(name: string): Blueprint | undefined { return BUILDING_BLUEPRINTS[name]; }
+
+/** True if `name` is a tree/plant preset (class:'plant') — the render layer uses this
+ *  to route a vegetation entity to the generative species-keyed sprite vs the billboard. */
+export function isPlantPreset(name: string): boolean { return BUILDING_BLUEPRINTS[name]?.class === 'plant'; }
 
 /** Resolve `name` (+ optional override patches) into a ResolvedBlueprint. Seed from name. */
 export function synthesizeBlueprint(name: string, patches: BlueprintPatch[] = [], seed?: number): ResolvedBlueprint | undefined {

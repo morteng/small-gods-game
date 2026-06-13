@@ -178,6 +178,10 @@ export interface RenderContext {
   resolveParametricBuildingArt?: (entity: Entity) => SpritePack | null;
   /** An img2img-generated building sprite pack, or null (falls back to parametric). */
   resolveGeneratedBuildingArt?: (entity: Entity) => SpritePack | null;
+  /** A runtime-generated parametric TREE sprite pack, keyed by species kind (not
+   *  entity — trees are many and carry no blueprint), or null to fall back to the
+   *  flat billboard. */
+  resolveParametricPlantArt?: (kind: string) => SpritePack | null;
   /** Global lighting for the WebGL entity layer (PBR Slice 3); absent = unlit. */
   lighting?: LightingState;
   /** Dev mode state — when present and enabled, renderer draws highlights. */

@@ -1,7 +1,11 @@
 import { Game } from './game';
 
 const container = document.getElementById('app');
-if (container) {
+if (container && new URLSearchParams(location.search).has('studio')) {
+  // Render Studio: uncluttered single-object scene reusing the real render path
+  // (terrain + lit entity layer + shadows) for debugging lighting/anchoring.
+  import('./studio/studio').then(({ mountStudio }) => mountStudio(container));
+} else if (container) {
   const game = new Game(container);
   game.generateWorld().then(() => {
     console.log('World generated');

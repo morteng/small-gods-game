@@ -1,6 +1,6 @@
 // tests/unit/building-image-prompt.test.ts
 import { describe, it, expect } from 'vitest';
-import { buildingImagePrompt, imageModelFamily } from '@/assetgen/building-image-prompt';
+import { buildingImagePrompt, imageModelFamily, geometryDescription } from '@/assetgen/building-image-prompt';
 import { synthesizeBlueprint } from '@/blueprint/presets';
 
 const GEMINI = 'google/gemini-2.5-flash-image';
@@ -51,5 +51,40 @@ describe('buildingImagePrompt', () => {
     expect(p).toContain('255,0,255');
     expect(p.toLowerCase()).toContain('magenta');
     expect(p.toLowerCase()).not.toContain('transparent background');
+  });
+
+  it('embeds a geometry-true element count + door facing in the prompt', () => {
+    const rb = synthesizeBlueprint('tavern')!;
+    const p = buildingImagePrompt(rb, GEMINI).toLowerCase();
+    // The prompt must carry the explicit geometry description (counts + door),
+    // scoped to what is visible from the render angle.
+    expect(p).toContain('match exactly');
+    expect(p).toContain('visible');
+    expect(p).toMatch(/\bdoor\b/);
+    expect(p).toContain('colour-coded by material');
+  });
+});
+
+describe('geometryDescription', () => {
+  it('counts the ACTUAL chimneys/windows/dormers on the blueprint', () => {
+    const rb = synthesizeBlueprint('tavern')!;
+    const ventCount = rb.parts.flatMap(p => p.features).filter(f => f.type === 'vent').length;
+    const g = geometryDescription(rb);
+    if (ventCount > 0) expect(g).toMatch(new RegExp(`exactly ${ventCount} chimney`));
+    expect(g).toContain('storey');
+    expect(g.toLowerCase()).toMatch(/door on the (front|rear)/);
+  });
+
+  it('describes the door face with its iso screen direction', () => {
+    const rb = synthesizeBlueprint('tavern')!;
+    const doorFace = rb.parts.flatMap(p => p.features).find(f => f.type === 'door')?.face ?? 'south';
+    const g = geometryDescription(rb).toLowerCase();
+    const expected = { south: 'lower-left', east: 'lower-right', north: 'upper-right', west: 'upper-left' }[doorFace];
+    expect(g).toContain(expected);
+  });
+
+  it('returns empty for non-building classes', () => {
+    const tree = synthesizeBlueprint('oak_tree');
+    if (tree) expect(geometryDescription(tree)).toBe('');
   });
 });

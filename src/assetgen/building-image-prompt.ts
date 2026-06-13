@@ -5,11 +5,80 @@
 // preamble — Gemini-image wants natural-language "redraw the reference" editing
 // instructions; OpenAI gpt-image wants a concise descriptive generation prompt.
 // Output is a pure function of (rb, model) → safe to fold into the cache key.
-import type { ResolvedBlueprint } from '@/blueprint/types';
+import type { ResolvedBlueprint, ResolvedPart, WallFace } from '@/blueprint/types';
 import { toBrief } from '@/blueprint/compile/to-brief';
 import { CHROMA_RGB } from '@/render/chroma-key';
 
 export type ImageModelFamily = 'gemini' | 'openai' | 'generic';
+
+// Iso-3q screen direction each wall face presents (2:1 projection: +y→lower-left,
+// +x→lower-right). South is the canonical front, lower-left — what the player sees.
+const FACE_ISO: Record<WallFace, string> = {
+  south: 'the front-left wall, facing lower-left',
+  east: 'the front-right wall, facing lower-right',
+  north: 'the rear wall, facing upper-right',
+  west: 'the rear-left wall, facing upper-left',
+};
+
+const PLAN_WORD: Record<string, string> = { rect: 'rectangular', round: 'round', stepped: 'stepped', L: 'L-shaped', cross: 'cross-shaped' };
+
+function plural(n: number, one: string, many = `${one}s`): string { return `${n} ${n === 1 ? one : many}`; }
+
+// The iso-3q camera sees the TOP + the south (front-left) and east (front-right)
+// walls. North/west walls are hidden, so wall features on them must NOT be
+// described — telling the model to paint windows it cannot see makes it invent
+// extra ones on the visible faces. Roof features (chimneys, dormers) read as
+// visible (face undefined ⇒ on the roof / front slope).
+const VISIBLE_FACES = new Set<WallFace>(['south', 'east']);
+function isVisibleFace(face: WallFace | undefined): boolean {
+  return face === undefined || VISIBLE_FACES.has(face);
+}
+
+/** Count features of `type` that the camera can actually SEE (visible wall faces
+ *  + roof). `kind` optionally narrows by a param kind (e.g. vent → chimney). */
+function countVisible(rb: ResolvedBlueprint, type: string, kind?: string): number {
+  let n = 0;
+  for (const p of rb.parts) for (const f of p.features) {
+    if (f.type !== type) continue;
+    if (kind && f.params.kind !== kind) continue;
+    if (!isVisibleFace(f.face)) continue;
+    n++;
+  }
+  return n;
+}
+
+/** Deterministic, geometry-TRUE description of ONLY what the render angle shows:
+ *  visible element counts + the (visible) door facing, read straight off the
+ *  resolved blueprint so the prompt can't drift from — or over-state — what the
+ *  model actually sees (it says "two chimneys" only when two are visible). */
+export function geometryDescription(rb: ResolvedBlueprint): string {
+  if (rb.class !== 'building') return '';
+  const body: ResolvedPart | undefined = rb.parts.find(p => p.type === 'body') ?? rb.parts[0];
+  const levels = Math.max(1, (body?.params.levels as number) ?? 1);
+  const roof = (body?.params.roof as string) ?? 'gable';
+  const plan = PLAN_WORD[(body?.params.plan as string) ?? 'rect'] ?? 'rectangular';
+
+  const chimneys = countVisible(rb, 'vent', 'chimney') || countVisible(rb, 'vent');
+  const windows = countVisible(rb, 'window');
+  const dormers = countVisible(rb, 'dormer');
+
+  // Only describe a door the camera can see; a door on a hidden wall is silently
+  // omitted (the longhouse's rear cross-passage door, say).
+  const doorFeat = rb.parts.flatMap(p => p.features).find(f => f.type === 'door' && isVisibleFace(f.face));
+  const doorFace = doorFeat ? (doorFeat.face ?? 'south') as WallFace : null;
+
+  const clauses: string[] = [
+    `a ${plan} ${levels}-storey building with a ${roof} roof`,
+  ];
+  if (chimneys) clauses.push(`exactly ${plural(chimneys, 'chimney')} on the roof`);
+  if (windows) clauses.push(`exactly ${plural(windows, 'visible window')}`);
+  if (dormers) clauses.push(`${plural(dormers, 'roof dormer')}`);
+  if (doorFace) clauses.push(`a single wooden door on ${FACE_ISO[doorFace]}`);
+
+  return `Geometry (only what is visible from this angle — match exactly): ${clauses.join('; ')}. ` +
+    `Show ONLY these visible elements; do not add windows, doors or chimneys on the ` +
+    `near walls, and draw nothing on the hidden rear walls.`;
+}
 
 /** Map an OpenRouter image model id to its prompt family. */
 export function imageModelFamily(model: string): ImageModelFamily {
@@ -49,21 +118,31 @@ const DETAIL_INVITE =
   'architectural details (window frames, beams, stonework variation) while ' +
   'keeping the overall outline close to the reference.';
 
+// The init render is colour-coded by MATERIAL (timber=brown, thatch/straw=tan,
+// stone=grey, brick chimney=red-brown, door=dark wood). Telling the model the
+// colours are a material/part key — not the final palette — lets it read the
+// structure (which region is roof vs wall vs door vs chimney) and restyle freely.
+const REFERENCE_KEY =
+  'The reference is colour-coded by material: grey = stone walls, brown = timber, ' +
+  'tan = thatch/straw roof, red-brown = brick chimneys, dark = the wooden door. ' +
+  'Use those regions to place materials correctly, then paint a richer final palette.';
+
 export function buildingImagePrompt(rb: ResolvedBlueprint, model: string): string {
   const subject = describeBuilding(rb);
+  const geom = geometryDescription(rb);
   switch (imageModelFamily(model)) {
     case 'gemini':
-      return `Using the attached 3D massing render as a reference, redraw it ` +
-        `as a crisp 2D isometric pixel-art video-game building sprite. Match the ` +
-        `silhouette, proportions, roof pitch, chimney and door placement closely. ` +
-        `${DETAIL_INVITE} Subject: ${subject}. ${STYLE_TAIL}`;
+      return `Using the attached colour-coded 3D massing render as a structural ` +
+        `reference, redraw it as a crisp 2D isometric pixel-art video-game building ` +
+        `sprite. Match the silhouette, proportions and roof pitch closely. ` +
+        `${REFERENCE_KEY} ${geom} ${DETAIL_INVITE} Subject: ${subject}. ${STYLE_TAIL}`;
     case 'openai':
       return `Isometric pixel-art video-game building sprite closely matching the ` +
-        `reference shape (silhouette, roof pitch, chimney and door placement). ` +
-        `${DETAIL_INVITE} Subject: ${subject}. ${STYLE_TAIL}`;
+        `reference shape (silhouette, roof pitch, element placement). ` +
+        `${REFERENCE_KEY} ${geom} ${DETAIL_INVITE} Subject: ${subject}. ${STYLE_TAIL}`;
     default:
       return `A crisp 2D isometric pixel-art video-game building sprite, redrawn from ` +
-        `the reference shape (silhouette, roof pitch, chimney, door). ` +
-        `${DETAIL_INVITE} Subject: ${subject}. ${STYLE_TAIL}`;
+        `the colour-coded reference shape. ` +
+        `${REFERENCE_KEY} ${geom} ${DETAIL_INVITE} Subject: ${subject}. ${STYLE_TAIL}`;
   }
 }

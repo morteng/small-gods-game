@@ -49,6 +49,7 @@ export class PixiEntityLayer {
   private gfxPool: import('pixi.js').Graphics[] = [];
   private litPool: LitEntry[] = [];
   private shadowPool: import('pixi.js').Sprite[] = [];
+  private shadowBlob: import('pixi.js').Graphics | null = null;
   private shadowLayer: import('pixi.js').Container | null = null;
   private quadGeometry: import('pixi.js').MeshGeometry | null = null;
   private textures = new WeakMap<object, { base: import('pixi.js').Texture; frames: Map<string, import('pixi.js').Texture> }>();
@@ -85,6 +86,7 @@ export class PixiEntityLayer {
     this.gfxPool = [];
     this.litPool = [];
     this.shadowPool = [];
+    this.shadowBlob = null;
     this.shadowLayer = null;
     this.quadGeometry = null;
     this.state = 'failed'; // render() stays null forever after destroy
@@ -190,6 +192,8 @@ export class PixiEntityLayer {
    * double-darken).
    */
   private populateShadows(items: readonly DrawItem[], lighting: LightingState): void {
+    const mode = lighting.shadowMode ?? 'silhouette';
+    if (mode === 'off') return;
     const pixi = this.pixi!;
     const layer = (this.shadowLayer ??= new pixi.Container());
     layer.removeChildren();
@@ -206,29 +210,86 @@ export class PixiEntityLayer {
     const dropY = (-sz / up) * 0.5 * damp;    // screen-y per height px (− = up-screen, behind)
     const mag = Math.hypot(leanX, dropY);
     if (mag <= 0.05) return;
-    // Shear + squash in one transform: rendered-y per local px d = −dropY·k and
-    // rendered-x per local px c = −leanX·k (k = dh/texH) ⇒ pixi's
-    // d = cos(skew.x)·scale.y, c = sin(skew.x)·scale.y solve to the pair below
-    // (a down-screen dropY flips the copy via the obtuse skew angle, no special case).
-    const skewX = Math.atan2(-leanX, -dropY);
+
+    // Ground-contact point of an image item: its bottom-edge centre, lifted by
+    // `footLift` (explicit hint, else the building default). For a foot-anchored
+    // billboard (tree/NPC) footLift is 0 — the sprite bottom IS the contact.
+    const footOf = (it: DrawItem & { t: 'image' }): { fx: number; fy: number; r: number } => {
+      const lift = it.shadow?.footLift ?? (it.maps ? it.dw / 4 : 0);
+      return { fx: it.dx + it.dw / 2, fy: it.dy + it.dh - lift, r: it.shadow?.groundR ?? it.dw * 0.45 };
+    };
+
+    if (mode === 'geometry') {
+      // Prefer the geometry-baked ground shadow; fall back to a silhouette for
+      // items without one (cached buildings, NPCs).
+      let bi = 0;
+      for (const it of items) {
+        if (it.t !== 'image') continue;
+        if (it.shadowSprite) {
+          const s = (this.shadowPool[bi++] ??= new pixi.Sprite());
+          s.texture = this.texture(it.shadowSprite.src);
+          s.tint = 0x000000; s.anchor.set(0, 0); s.skew.x = 0;
+          s.width = (it.shadowSprite.src as { width: number }).width;
+          s.height = (it.shadowSprite.src as { height: number }).height;
+          // Offset is relative to the sprite's bottom-centre (foot), so the baked
+          // shadow lands correctly even under a differently-cropped albedo.
+          s.position.set(it.dx + it.dw / 2 + it.shadowSprite.dx, it.dy + it.dh + it.shadowSprite.dy);
+          layer.addChild(s);
+        } else {
+          bi = this.pushSilhouette(it, bi, leanX, dropY, mag, layer);
+        }
+      }
+      return;
+    }
+
+    if (mode === 'blob') {
+      // One batched Graphics: a flat iso ellipse (2:1) pooled at the foot, nudged
+      // a touch DOWN-sun so it reads as grounded contact, not a halo.
+      const g = (this.shadowBlob ??= new pixi.Graphics());
+      g.clear();
+      const nudge = 0.12; // fraction of r along the (−lean,−drop) ground direction
+      for (const it of items) {
+        if (it.t !== 'image') continue;
+        const { fx, fy, r } = footOf(it);
+        const cx = fx + (-leanX / mag) * r * nudge;
+        const cy = fy + (-dropY / mag) * r * nudge;
+        g.ellipse(cx, cy, r, r * 0.5).fill({ color: 0x000000 });
+      }
+      layer.addChild(g);
+      return;
+    }
+
+    // silhouette: project + skew a black copy of each sprite up the sun ray.
     let pi = 0;
     for (const it of items) {
       if (it.t !== 'image') continue;
-      const s = (this.shadowPool[pi] ??= new pixi.Sprite());
-      pi++;
-      s.texture = this.texture(it.src, it.frame);
-      s.tint = 0x000000;
-      s.anchor.set(0, 1);
-      // Building sprites (pack items carry maps) stand on an iso base diamond
-      // ~dw wide ⇒ ~dw/2 tall; anchor the shadow at its centre so the caster
-      // covers the projected base instead of leaving a gap.
-      const lift = it.maps ? it.dw / 4 : 0;
-      s.position.set(it.dx, it.dy + it.dh - lift);
-      s.width = it.dw;
-      s.height = it.dh * mag;
-      s.skew.x = skewX;
-      layer.addChild(s);
+      pi = this.pushSilhouette(it, pi, leanX, dropY, mag, layer);
     }
+  }
+
+  /**
+   * Push one projected/skewed silhouette shadow into the layer; returns the next
+   * pool index. Shear + squash in one transform: rendered-y per local px d =
+   * −dropY·k and rendered-x per local px c = −leanX·k (k = dh/texH) ⇒ pixi's
+   * d = cos(skew.x)·scale.y, c = sin(skew.x)·scale.y (a down-screen dropY flips
+   * the copy via the obtuse skew angle, no special case).
+   */
+  private pushSilhouette(
+    it: DrawItem & { t: 'image' }, pi: number, leanX: number, dropY: number, mag: number,
+    layer: import('pixi.js').Container,
+  ): number {
+    const pixi = this.pixi!;
+    const s = (this.shadowPool[pi] ??= new pixi.Sprite());
+    s.texture = this.texture(it.src, it.frame);
+    s.tint = 0x000000;
+    s.anchor.set(0, 1);
+    const lift = it.shadow?.footLift ?? (it.maps ? it.dw / 4 : 0);
+    s.position.set(it.dx, it.dy + it.dh - lift);
+    s.width = it.dw;
+    s.height = it.dh * mag;
+    s.skew.x = Math.atan2(-leanX, -dropY);
+    layer.addChild(s);
+    return pi + 1;
   }
 
   /** Rebuild the stage children from the draw list (pooled, order-preserving). */

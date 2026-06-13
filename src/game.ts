@@ -26,6 +26,7 @@ import { loadBaseLibrary } from '@/services/base-library-loader';
 import { AssetLibrary } from '@/services/asset-library';
 import { ArtResolver } from '@/render/art-resolver';
 import { ParametricBuildingSource } from '@/render/parametric-building-source';
+import { ParametricPlantSource } from '@/render/parametric-plant-source';
 import { PixiEntityLayer } from '@/render/pixi/pixi-entity-layer';
 import { GeneratedBuildingArtSource } from '@/render/generated-building-art-source';
 import { generateBuildingImage, BUILDING_IMAGE_MODEL } from '@/llm/openrouter-image-client';
@@ -109,6 +110,7 @@ export class Game {
   private artResolver!: ArtResolver;
   private buildingArtResolver!: ArtResolver;
   private readonly parametricBuildingSource = new ParametricBuildingSource();
+  private readonly parametricPlantSource = new ParametricPlantSource();
   /** WebGL entity layer (PBR epic) — lazy pixi.js init on first iso frame. */
   private readonly pixiEntityLayer = new PixiEntityLayer();
   private liveBuildingArtEnabled = true; // setting `liveBuildingArt`, default ON
@@ -563,6 +565,7 @@ export class Game {
       artResolver: this.artResolver,
       buildingArtResolver: this.buildingArtResolver,
       parametricBuildingSource: this.parametricBuildingSource,
+      parametricPlantSource: this.parametricPlantSource,
       generatedBuildingArtSource: this.generatedBuildingArtSource,
       devMode: this.dev.devMode,
       entityLayer: this.pixiEntityLayer,

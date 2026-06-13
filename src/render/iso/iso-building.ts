@@ -160,6 +160,9 @@ export function buildingSpriteItemFromPack(
       material: pack.material as CanvasImageSource | undefined,
     };
   }
+  if (item.t === 'image' && pack.shadow) {
+    item.shadowSprite = { src: pack.shadow.canvas, dx: pack.shadow.dx, dy: pack.shadow.dy };
+  }
   return item;
 }
 

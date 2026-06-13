@@ -193,7 +193,15 @@ interface (ROADMAP determinism rule).
    tiled cap; graveyard: headstone scatter w/ shadows). Spec:
    `2026-06-13-render-props-slice1-spec.md`. Fixed the live invisibility bug;
    proved class-generic blueprints (the foundation bridges later reuse).
-2. **Slice 2 — parametric trees** (the explicit ask; unifies the visual look).
+2. **Slice 2 — parametric trees** ✅ SHIPPED (branch `feat/render-props-slice1`)
+   — 7 tree species are now `class:'plant'` blueprints (`parts/flora.ts`: bark
+   trunk + foliage ellipsoid/cone crown) that render foot-anchored + PBR-lit +
+   cast-shadowed through the same pipeline as buildings. Trees stay LEAN (no
+   per-entity blueprint — they'd bloat every snapshot ×thousands); the render keys
+   ONE `SpritePack` per species via `ParametricPlantSource` (kind-keyed). Billboard
+   stays the keyless fallback. In-browser verified (conical pines + rounded
+   broadleaf, lit foliage banding, 0 errors). Spec:
+   `2026-06-13-render-trees-slice2-spec.md`.
 3. **Slice 3 — generated ground tiles** (texture the flat *area* surfaces).
 4. **Track V — vector linear features** (roads/paths/rivers as splines; sim grid
    becomes a derived mask). *Spike:* one river as a spline ribbon first.

@@ -113,6 +113,43 @@ export function drawIsoArtBillboard(
   executeDrawListCanvas(dc.ctx, [artBillboardItem(dc, img, tx, ty)]);
 }
 
+/**
+ * A generated TREE sprite PACK (albedo + co-registered normal/material maps) as a
+ * foot-anchored upright billboard: bottom-centre lands on the tile point, exactly
+ * like `vegetationItems`' billboard, so a generative tree sits where its billboard
+ * fallback would. The maps ride along for the WebGL lit shader (Canvas2D ignores
+ * them); the Pixi layer also drops a cast shadow per image item. The pack canvas is
+ * already cropped to opaque content (trunk base = bottom row), so no extra anchor
+ * math. Blitted at native size (one source px == one screen px at zoom 1) — per-
+ * instance variety is intentionally NOT scaled here (uniform per species keeps the
+ * blit pixel-crisp; variety comes from the species mix + clumped placement).
+ */
+export function plantSpriteItemFromPack(
+  o: { originX: number; originY: number }, pack: import('./sprite-canvas').SpritePack, x: number, y: number,
+): DrawItem {
+  const { sx, sy } = worldToScreen(x, y, 0, o.originX, o.originY);
+  const src = pack.albedo;
+  const w = src.width, h = src.height;
+  const item: DrawItem = {
+    t: 'image', src,
+    dx: Math.round(sx) - Math.round(w / 2), dy: Math.round(sy) - h,
+    dw: w, dh: h,
+    // Foot-anchored billboard: the sprite bottom IS the ground contact, so the
+    // cast shadow anchors there (footLift 0), NOT lifted dw/4 like a building.
+    shadow: { footLift: 0 },
+  };
+  if (pack.shadow) {
+    item.shadowSprite = { src: pack.shadow.canvas, dx: pack.shadow.dx, dy: pack.shadow.dy };
+  }
+  if (pack.normal || pack.material) {
+    item.maps = {
+      normal: pack.normal as CanvasImageSource | undefined,
+      material: pack.material as CanvasImageSource | undefined,
+    };
+  }
+  return item;
+}
+
 const TRUNK_COLOR = '#5a4030';
 
 /**

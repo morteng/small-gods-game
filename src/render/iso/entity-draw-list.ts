@@ -9,7 +9,8 @@ import type { RenderContext, Entity } from '@/core/types';
 import type { TileBounds } from './iso-projection';
 import type { DrawItem } from './draw-list';
 import type { IsoItemCtx } from './iso-sprites';
-import { npcItems, vegetationItems, artBillboardItem } from './iso-sprites';
+import { npcItems, vegetationItems, artBillboardItem, plantSpriteItemFromPack } from './iso-sprites';
+import { isPlantPreset } from '@/blueprint/presets';
 import {
   buildingSpriteItemFromImage, buildingSpriteItemFromPack, flatBlockItems, pickBuildingSource,
 } from './iso-building';
@@ -142,11 +143,22 @@ export function buildEntityDrawList(rc: RenderContext, bounds: TileBounds, ic: I
         const generated = () => rc.resolveGeneratedBuildingArt?.(b.e) ?? null;
         const parametric = () => rc.resolveParametricBuildingArt?.(b.e) ?? null;
         const fp = { w: b.s.w, h: b.s.h };
-        switch (pickBuildingSource(mode, asset, generated, parametric)) {
+        const picked = pickBuildingSource(mode, asset, generated, parametric);
+        switch (picked) {
           case 'asset':      items.push(buildingSpriteItemFromImage(ic, asset() as HTMLImageElement, bx, by, fp)); break;
           case 'generated':  items.push(buildingSpriteItemFromPack(ic, generated()!, bx, by, fp)); break;
           case 'parametric': items.push(buildingSpriteItemFromPack(ic, parametric()!, bx, by, fp)); break;
           case 'flat':       items.push(...flatBlockItems(ic, fp, bx, by)); break;
+        }
+        // The geometry cast shadow depends only on the blueprint, not the LLM
+        // albedo — so a cached img2img/asset building borrows the geometry shadow
+        // from the parametric source (it shares the footprint foot anchor).
+        if (picked === 'asset' || picked === 'generated') {
+          const last = items[items.length - 1];
+          const ps = (parametric() as { shadow?: { canvas: CanvasImageSource; dx: number; dy: number } } | null)?.shadow;
+          if (last?.t === 'image' && !last.shadowSprite && ps) {
+            last.shadowSprite = { src: ps.canvas, dx: ps.dx, dy: ps.dy };
+          }
         }
       }
     } else if (e.kind === 'barrier') {
@@ -158,9 +170,17 @@ export function buildEntityDrawList(rc: RenderContext, bounds: TileBounds, ic: I
     } else if (e.kind === 'vegetation') {
       const v = vegById.get(e.id);
       if (v) {
-        const art = rc.resolveEntityArt?.(v) ?? null;
-        if (art) items.push(artBillboardItem(ic, art, v.x, v.y));
-        else items.push(...vegetationItems(ic, v));
+        // Generative species-keyed tree sprite (PBR-lit, cast shadow) when the
+        // kind has a plant blueprint preset and its sprite is warm; the flat
+        // billboard is the keyless fallback (and stays for ground cover).
+        const pack = isPlantPreset(v.kind) ? rc.resolveParametricPlantArt?.(v.kind) ?? null : null;
+        if (pack) {
+          items.push(plantSpriteItemFromPack(ic, pack, v.x, v.y));
+        } else {
+          const art = rc.resolveEntityArt?.(v) ?? null;
+          if (art) items.push(artBillboardItem(ic, art, v.x, v.y));
+          else items.push(...vegetationItems(ic, v));
+        }
       }
     } else if (e.kind === 'deco') {
       const d = decoById.get(e.id);
