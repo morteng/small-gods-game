@@ -33,6 +33,10 @@ import {
 /** Road tile types — door paths stop when they reach an existing road */
 const ROAD_TYPES = new Set(['dirt_road', 'stone_road', 'bridge']);
 
+/** Civic precinct type → entity kind to emit (S5). Civic types without an entry
+ *  (mill, agent-registered ones) reserve ground but emit no prop yet. */
+const CIVIC_ENTITY_KINDS: Record<string, string> = { well: 'well', graveyard: 'graveyard' };
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface PlacementConstraint {
@@ -208,6 +212,34 @@ export function placeSettlement(
   subdivideLots(plan, tiles, worldSeed);
   assignWards(plan, radius, tiles, worldSeed);
   planCivics(plan, tiles, worldSeed);
+
+  // Civic precincts (S5): reserve every civic tile against building placement —
+  // props don't block via canPlaceIgnoringNature, so the fallback spiral would
+  // otherwise drop a cottage on the well — and emit the well + graveyard as
+  // standing props. The mill stays a reservation only (a working watermill is a
+  // building, deferred to a later slice); any agent-registered civic without a
+  // known entity kind likewise reserves ground without yet emitting a prop.
+  // Only real settlements (with burgage lots) get civics — a lake / zero-count
+  // POI stays empty.
+  const civicSet = new Set<string>();
+  if (plan.lots.length > 0) {
+    for (const c of plan.civics) {
+      for (let dy = 0; dy < c.h; dy++) {
+        for (let dx = 0; dx < c.w; dx++) civicSet.add(`${c.x + dx},${c.y + dy}`);
+      }
+      const kind = CIVIC_ENTITY_KINDS[c.type];
+      if (!kind) continue;
+      const civic: Entity = {
+        id: `${poi.id}_civic_${c.type}`,
+        kind, x: c.x, y: c.y,
+        properties: { poiId: poi.id, civic: c.type, w: c.w, h: c.h },
+        tags: ['settlement', 'civic'],
+      };
+      registry.add(civic);
+      entities.push(civic);
+    }
+  }
+
   const roadTiles: RoadTile[] = [
     ...plan.edges.flatMap(e => e.tiles.map(t => ({ x: t.x, y: t.y, type: roadType }))),
     ...plan.market.map(m => ({ x: m.x, y: m.y, type: roadType })),
@@ -248,6 +280,7 @@ export function placeSettlement(
     for (let dy = 0; dy < h; dy++) {
       for (let dx = 0; dx < w; dx++) {
         if (roadSet.has(`${x + dx},${y + dy}`)) return false;
+        if (civicSet.has(`${x + dx},${y + dy}`)) return false;
         if (ROAD_TYPES.has(tiles[y + dy]?.[x + dx]?.type)) return false;
       }
     }
@@ -313,12 +346,14 @@ export function placeSettlement(
         { x: targetX, y: targetY }, rb.footprint,
         { ...constraint, nearWater: site?.nearWater }, tiles, registry, radius,
       );
-      // Planned roads aren't on the tile grid yet — keep footprints off them.
+      // Planned roads + civic precincts aren't on the tile grid yet — keep
+      // footprints off them.
       if (origin) {
         const { tileX, tileY } = origin;
         outer: for (let dy = 0; dy < rb.footprint.h; dy++) {
           for (let dx = 0; dx < rb.footprint.w; dx++) {
-            if (roadSet.has(`${tileX + dx},${tileY + dy}`)) { origin = null; break outer; }
+            const k = `${tileX + dx},${tileY + dy}`;
+            if (roadSet.has(k) || civicSet.has(k)) { origin = null; break outer; }
           }
         }
       }

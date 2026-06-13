@@ -7,6 +7,7 @@ import { killNpc, materializeSynthChild } from '@/world/npc-lifecycle';
 import { projectTurnover } from '@/sim/turnover';
 import { TICKS_PER_YEAR } from '@/sim/mortality';
 import { countPlayerBelievers } from '@/sim/believers';
+import { growSettlementsOnSkip } from '@/sim/systems/settlement-growth-system';
 
 export interface SkipSummary {
   fromTick: number;
@@ -49,6 +50,11 @@ export function applySkip(
   for (const c of births) {
     materializeSynthChild(world, c, fromTick + c.birthYearOffset * TICKS_PER_YEAR, rng, log);
   }
+
+  // Catch settlement housing up to the post-skip population — the live growth
+  // system can't tick during a closed-form jump, so grow deterministically to
+  // the end-state it would have converged to (S5).
+  growSettlementsOnSkip(world, rng, fromTick, log);
 
   const toTick = fromTick + years * TICKS_PER_YEAR;
   clock.setNow(toTick);

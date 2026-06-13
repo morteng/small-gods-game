@@ -30,4 +30,4 @@ export const ART_RECIPE_VERSION = 'v7';
  * An autosave stamped with a different value is discarded on load → a fresh
  * world is generated. Distinct from SAVE_VERSION (which guards the save *schema*).
  */
-export const WORLD_CONTENT_VERSION = 5;   // settlement growth S4: civic precincts on the plan, frontage gradient, upgrade/back-lane growth
+export const WORLD_CONTENT_VERSION = 6;   // settlement growth S5: civic entities emitted (well + graveyard props), civic tiles reserved against building placement

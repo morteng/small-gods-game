@@ -25,6 +25,7 @@ import {
 } from './editor-verbs';
 import { injectNpcPrecondition, injectNpcApply, biasEventPrecondition, biasEventApply, nudgeSeverityPrecondition, nudgeSeverityApply } from './authoring-verbs';
 import { placeBuildingPrecondition, placeBuildingApply } from './building-verbs';
+import { growSettlementPrecondition, growSettlementApply } from './settlement-verbs';
 
 export interface CapabilityDef {
   verb: CommandVerb;
@@ -156,6 +157,12 @@ export const CAPABILITY_REGISTRY: Record<CommandVerb, CapabilityDef> = {
     precondition: placeBuildingPrecondition,
     apply: placeBuildingApply,
     describe: (cmd) => `raise a ${cmd.payload?.preset ?? 'building'} at ${targetLabel(cmd)}`,
+  },
+  grow_settlement: {
+    verb: 'grow_settlement', tier: 'authoring', cost: 0, targetKind: 'settlement', implemented: true,
+    precondition: growSettlementPrecondition,
+    apply: growSettlementApply,
+    describe: (cmd) => `grow ${targetLabel(cmd)} by ${cmd.payload?.steps ?? cmd.params?.steps ?? 1} step(s)`,
   },
 
   // ── Editor tier — god-mode authoring (Create panel). cost 0, no spirit. ──────

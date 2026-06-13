@@ -17,6 +17,8 @@
 import type { System, SystemContext } from '@/core/scheduler';
 import type { Entity, Tile } from '@/core/types';
 import type { World } from '@/world/world';
+import type { Rng } from '@/core/rng';
+import type { EventLog } from '@/core/events';
 import { queryNpcs, npcProps } from '@/world/npc-helpers';
 import { getZoneRule, presetsForEra } from '@/map/poi-zones';
 import { resolveSettlementEra } from '@/core/era';
@@ -62,6 +64,40 @@ export const UPGRADE_CHAINS: Record<string, string> = {
 
 export function registerUpgrade(from: string, to: string): void {
   UPGRADE_CHAINS[from] = to;
+}
+
+/**
+ * The minimal slice of a tick context the growth functions need. The live
+ * SystemContext is a superset, and so are the command-channel ApplyCtx and the
+ * hand-built skip context — so all three drive the SAME growth code (S5).
+ */
+export interface GrowthCtx {
+  world: World;
+  rng: Rng;
+  now: number;
+  log: EventLog;
+}
+
+/** Living residents per POI (NPCs that claim a `homePoiId`). */
+export function residentsByPoi(world: World): Map<string, number> {
+  const residents = new Map<string, number>();
+  for (const e of queryNpcs(world)) {
+    const poi = npcProps(e).homePoiId;
+    if (poi) residents.set(poi, (residents.get(poi) ?? 0) + 1);
+  }
+  return residents;
+}
+
+/** Housing capacity per POI summed over standing dwelling entities. */
+export function housingCapacityByPoi(world: World): Map<string, number> {
+  const capacity = new Map<string, number>();
+  for (const e of world.query({})) {
+    const preset = blueprintOf(e)?.rb.preset;
+    const poi = e.properties?.poiId as string | undefined;
+    if (!preset || !poi) continue;
+    capacity.set(poi, (capacity.get(poi) ?? 0) + (DWELLING_CAPACITY[preset] ?? 0));
+  }
+  return capacity;
 }
 
 const NATURE_CATEGORIES = new Set(['vegetation', 'terrain-feature']);
@@ -126,25 +162,11 @@ export class SettlementGrowthSystem implements System {
   readonly tickHz = GROWTH_TICK_HZ;
 
   tick(ctx: SystemContext): void {
-    const map = ctx.world.tiles;
-    const plans = map.settlementPlans;
+    const plans = ctx.world.tiles.settlementPlans;
     if (!plans?.length) return;
 
-    // Residents per POI (living NPCs with a home).
-    const residents = new Map<string, number>();
-    for (const e of queryNpcs(ctx.world)) {
-      const poi = npcProps(e).homePoiId;
-      if (poi) residents.set(poi, (residents.get(poi) ?? 0) + 1);
-    }
-
-    // Housing capacity per POI from standing buildings.
-    const capacity = new Map<string, number>();
-    for (const e of ctx.world.query({})) {
-      const preset = blueprintOf(e)?.rb.preset;
-      const poi = e.properties?.poiId as string | undefined;
-      if (!preset || !poi) continue;
-      capacity.set(poi, (capacity.get(poi) ?? 0) + (DWELLING_CAPACITY[preset] ?? 0));
-    }
+    const residents = residentsByPoi(ctx.world);
+    const capacity = housingCapacityByPoi(ctx.world);
 
     const sorted = [...plans]
       .filter(p => p.poiId && p.lots.length > 0)
@@ -154,120 +176,175 @@ export class SettlementGrowthSystem implements System {
       const pop = residents.get(plan.poiId!) ?? 0;
       if (pop === 0 || pop <= (capacity.get(plan.poiId!) ?? 0)) continue;
       if (ctx.rng.next() >= GROWTH_CHANCE) continue;
-      this.growOne(ctx, plan);
+      growSettlement(ctx, plan);
     }
   }
+}
 
-  /**
-   * Grow one step, in the medieval growth sequence:
-   *   1. INFILL  — place a dwelling on an existing free lot.
-   *   2. RIBBON  — frontage saturated → extend the through street, retry.
-   *   3. UPGRADE — ribbon capped → densify in place (cottage → townhouse).
-   *   4. BACK-LANE — still pressed → branch a perpendicular lane, retry.
-   * Silently stops once every avenue is exhausted (lots full, graph at the
-   * node cap, nothing left to upgrade).
-   */
-  private growOne(ctx: SystemContext, plan: SettlementPlan): void {
-    const map = ctx.world.tiles;
-    const poi = map.worldSeed?.pois?.find(p => p.id === plan.poiId);
-    if (!poi) return;
-    const era = resolveSettlementEra(poi, map.worldSeed);
-    const roster = presetsForEra(getZoneRule(poi.type), era)
-      .filter(p => (DWELLING_CAPACITY[p] ?? 0) > 0);
-    if (roster.length === 0) return;
-    const presetName = roster[Math.floor(ctx.rng.next() * roster.length)];
-    const rb = synthesizeBlueprint(presetName);
-    if (!rb) return;
+/** Backstop on total grow steps in a single skip (across all settlements). */
+const SKIP_GROWTH_CAP = 4000;
 
-    const anchors = toAnchors(rb, 0, 0);
-    const door = anchors.find(a => a.main) ?? anchors[0];
-    const facing: [number, number] = door?.facing ?? [0, 1];
-    const want: [number, number] = [-facing[0], -facing[1]];
+/**
+ * Catch settlement housing up to population after a closed-form time-skip (S5).
+ * The live 0.25 Hz system can't tick during a jump, so for each settlement we
+ * grow until housing capacity meets the (already-materialized) resident count
+ * or growth saturates — the deterministic end-state the live sim would have
+ * converged to. Fully deterministic given `rng`. Returns the total grow steps.
+ */
+export function growSettlementsOnSkip(
+  world: World, rng: Rng, now: number, log: EventLog,
+): number {
+  const plans = world.tiles.settlementPlans;
+  if (!plans?.length) return 0;
 
-    // 1. Infill existing free lots.
-    if (this.tryPlace(ctx, plan, rb, presetName, facing, want)) return;
+  const residents = residentsByPoi(world);
+  const sorted = [...plans]
+    .filter(p => p.poiId && p.lots.length > 0)
+    .sort((a, b) => (a.poiId! < b.poiId! ? -1 : a.poiId! > b.poiId! ? 1 : 0));
 
-    const roadType = getZoneRule(poi.type).internalRoadType ?? 'dirt_road';
-    const seed = map.seed ?? 0;
-    const carve = (tiles: { x: number; y: number }[] | null): boolean => {
-      if (!tiles) return false;
-      for (const t of tiles) {
-        const tile = map.tiles[t.y]?.[t.x];
-        if (tile) { tile.type = roadType; tile.walkable = true; }
+  const ctx: GrowthCtx = { world, rng, now, log };
+  let steps = 0;
+  for (const plan of sorted) {
+    const pop = residents.get(plan.poiId!) ?? 0;
+    if (pop === 0) continue;
+    // growSettlement returns false at saturation, so the loop self-terminates;
+    // SKIP_GROWTH_CAP is only a runaway backstop. The tag is keyed on the
+    // global step so ids never collide across settlements within one skip.
+    while ((housingCapacityByPoi(world).get(plan.poiId!) ?? 0) < pop) {
+      if (!growSettlement(ctx, plan, `skip${now}_${steps}`)) break;
+      if (++steps >= SKIP_GROWTH_CAP) return steps;
+    }
+  }
+  return steps;
+}
+
+/**
+ * Grow one step, in the medieval growth sequence:
+ *   1. INFILL  — place a dwelling on an existing free lot.
+ *   2. RIBBON  — frontage saturated → extend the through street, retry.
+ *   3. UPGRADE — ribbon capped → densify in place (cottage → townhouse).
+ *   4. BACK-LANE — still pressed → branch a perpendicular lane, retry.
+ * Returns true if anything structural changed (a build, an upgrade, or a road
+ * carve), false once every avenue is exhausted (lots full, graph at the node
+ * cap, nothing left to upgrade) — callers loop on the return value.
+ *
+ * Free function (not a method) so the live tick, the time-skip catch-up, and
+ * the `grow_settlement` command all drive identical logic (S5). `tag` keys the
+ * new entity ids; it defaults to the tick so live ids are byte-unchanged, but
+ * skip/command callers pass a per-step tag so several grows land within one
+ * logical tick without id collisions.
+ */
+export function growSettlement(
+  ctx: GrowthCtx, plan: SettlementPlan, tag: string = String(ctx.now),
+): boolean {
+  const map = ctx.world.tiles;
+  const poi = map.worldSeed?.pois?.find(p => p.id === plan.poiId);
+  if (!poi) return false;
+  const era = resolveSettlementEra(poi, map.worldSeed);
+  const roster = presetsForEra(getZoneRule(poi.type), era)
+    .filter(p => (DWELLING_CAPACITY[p] ?? 0) > 0);
+  if (roster.length === 0) return false;
+  const presetName = roster[Math.floor(ctx.rng.next() * roster.length)];
+  const rb = synthesizeBlueprint(presetName);
+  if (!rb) return false;
+
+  const anchors = toAnchors(rb, 0, 0);
+  const door = anchors.find(a => a.main) ?? anchors[0];
+  const facing: [number, number] = door?.facing ?? [0, 1];
+  const want: [number, number] = [-facing[0], -facing[1]];
+
+  // 1. Infill existing free lots.
+  if (tryPlace(ctx, plan, rb, presetName, facing, want, tag)) return true;
+
+  const roadType = getZoneRule(poi.type).internalRoadType ?? 'dirt_road';
+  const seed = map.seed ?? 0;
+  const carve = (tiles: { x: number; y: number }[] | null): boolean => {
+    if (!tiles) return false;
+    for (const t of tiles) {
+      const tile = map.tiles[t.y]?.[t.x];
+      if (tile) { tile.type = roadType; tile.walkable = true; }
+    }
+    return true;
+  };
+
+  let changed = false;
+
+  // 2. Ribbon-extend the through street, retry.
+  if (carve(extendThroughStreet(plan, map.tiles, seed))) {
+    changed = true;
+    if (tryPlace(ctx, plan, rb, presetName, facing, want, tag)) return true;
+  }
+
+  // 3. Densify in place — upgrade a standing dwelling to a bigger one.
+  if (tryUpgrade(ctx, plan, tag)) return true;
+
+  // 4. Branch a back lane, retry on its fresh lots.
+  if (carve(extendBackLane(plan, map.tiles, seed))) {
+    changed = true;
+    tryPlace(ctx, plan, rb, presetName, facing, want, tag);
+    return true;
+  }
+
+  return changed;
+}
+
+/**
+ * Upgrade-in-place (S4): replace a standing dwelling with its UPGRADE_CHAINS
+ * target on the SAME lot, raising capacity without consuming new ground.
+ * Prime-frontage lots densify first (frontageValue order). Returns true when
+ * an upgrade fired.
+ */
+function tryUpgrade(ctx: GrowthCtx, plan: SettlementPlan, tag: string): boolean {
+  const candidates = plan.lots
+    .filter(l => l.buildingId)
+    .map(l => {
+      const e = ctx.world.registry.get(l.buildingId!);
+      const from = e ? blueprintOf(e)?.rb.preset : undefined;
+      const to = from ? UPGRADE_CHAINS[from] : undefined;
+      return { l, e, from, to };
+    })
+    .filter(c => c.e && c.from && c.to
+      && (DWELLING_CAPACITY[c.to!] ?? 0) > (DWELLING_CAPACITY[c.from!] ?? 0))
+    .sort((a, b) => frontageValue(plan, b.l) - frontageValue(plan, a.l)
+      || (a.l.id < b.l.id ? -1 : 1));
+
+  for (const { l, e, from, to } of candidates) {
+    const rb = synthesizeBlueprint(to!);
+    if (!rb) continue;
+    const { w, h } = rb.footprint;
+    const lotSet = new Set(l.tiles.map(t => `${t.x},${t.y}`));
+    // Reuse the standing building's origin — the upgrade keeps the same
+    // frontage. Verify the (possibly larger) footprint stays within the lot.
+    const ox = e!.x, oy = e!.y;
+    let inLot = true;
+    for (let dy = 0; dy < h && inLot; dy++) {
+      for (let dx = 0; dx < w; dx++) {
+        if (!lotSet.has(`${ox + dx},${oy + dy}`)) { inLot = false; break; }
       }
-      return true;
-    };
-
-    // 2. Ribbon-extend the through street, retry.
-    if (carve(extendThroughStreet(plan, map.tiles, seed))
-      && this.tryPlace(ctx, plan, rb, presetName, facing, want)) return;
-
-    // 3. Densify in place — upgrade a standing dwelling to a bigger one.
-    if (this.tryUpgrade(ctx, plan)) return;
-
-    // 4. Branch a back lane, retry on its fresh lots.
-    if (carve(extendBackLane(plan, map.tiles, seed))) {
-      this.tryPlace(ctx, plan, rb, presetName, facing, want);
     }
+    if (!inLot) continue;
+
+    const id = `${plan.poiId}_bld_u${tag}`;
+    if (ctx.world.registry.get(id)) return true;     // already acted this tag
+    ctx.world.removeEntity(e!.id);
+    const entity = blueprintEntity(id, rb, ox, oy, { poiId: plan.poiId });
+    ctx.world.addEntity(entity);
+    stampFootprint(ctx.world, entity);
+    l.buildingId = id;
+    ctx.log.append({
+      type: 'settlement_upgraded',
+      poiId: plan.poiId!, entityId: id, from: from!, to: to!, lotId: l.id,
+    });
+    return true;
   }
+  return false;
+}
 
-  /**
-   * Upgrade-in-place (S4): replace a standing dwelling with its UPGRADE_CHAINS
-   * target on the SAME lot, raising capacity without consuming new ground.
-   * Prime-frontage lots densify first (frontageValue order). Returns true when
-   * an upgrade fired.
-   */
-  private tryUpgrade(ctx: SystemContext, plan: SettlementPlan): boolean {
-    const candidates = plan.lots
-      .filter(l => l.buildingId)
-      .map(l => {
-        const e = ctx.world.registry.get(l.buildingId!);
-        const from = e ? blueprintOf(e)?.rb.preset : undefined;
-        const to = from ? UPGRADE_CHAINS[from] : undefined;
-        return { l, e, from, to };
-      })
-      .filter(c => c.e && c.from && c.to
-        && (DWELLING_CAPACITY[c.to!] ?? 0) > (DWELLING_CAPACITY[c.from!] ?? 0))
-      .sort((a, b) => frontageValue(plan, b.l) - frontageValue(plan, a.l)
-        || (a.l.id < b.l.id ? -1 : 1));
-
-    for (const { l, e, from, to } of candidates) {
-      const rb = synthesizeBlueprint(to!);
-      if (!rb) continue;
-      const { w, h } = rb.footprint;
-      const lotSet = new Set(l.tiles.map(t => `${t.x},${t.y}`));
-      // Reuse the standing building's origin — the upgrade keeps the same
-      // frontage. Verify the (possibly larger) footprint stays within the lot.
-      const ox = e!.x, oy = e!.y;
-      let inLot = true;
-      for (let dy = 0; dy < h && inLot; dy++) {
-        for (let dx = 0; dx < w; dx++) {
-          if (!lotSet.has(`${ox + dx},${oy + dy}`)) { inLot = false; break; }
-        }
-      }
-      if (!inLot) continue;
-
-      const id = `${plan.poiId}_bld_u${ctx.now}`;
-      if (ctx.world.registry.get(id)) return true;     // already acted this tick
-      ctx.world.removeEntity(e!.id);
-      const entity = blueprintEntity(id, rb, ox, oy, { poiId: plan.poiId });
-      ctx.world.addEntity(entity);
-      stampFootprint(ctx.world, entity);
-      l.buildingId = id;
-      ctx.log.append({
-        type: 'settlement_upgraded',
-        poiId: plan.poiId!, entityId: id, from: from!, to: to!, lotId: l.id,
-      });
-      return true;
-    }
-    return false;
-  }
-
-  /** Place the dwelling on the best fitting free lot. Returns true on success. */
-  private tryPlace(
-    ctx: SystemContext, plan: SettlementPlan, rb: ReturnType<typeof synthesizeBlueprint> & {},
-    presetName: string, facing: [number, number], want: [number, number],
-  ): boolean {
+/** Place the dwelling on the best fitting free lot. Returns true on success. */
+function tryPlace(
+  ctx: GrowthCtx, plan: SettlementPlan, rb: ReturnType<typeof synthesizeBlueprint> & {},
+  presetName: string, facing: [number, number], want: [number, number], tag: string,
+): boolean {
     // Free lots on the door-opposing side, infill-first (claimed neighbour
     // within 2 tiles of the frontage), then centre-out.
     const claimed = plan.lots.filter(l => l.buildingId);
@@ -301,8 +378,8 @@ export class SettlementGrowthSystem implements System {
         const oy = facing[1] > 0 ? fy - h : facing[1] < 0 ? fy + 1 : fy;
         if (!fitsInLot(ctx.world, lotSet, ox, oy, w, h)) continue;
 
-        const id = `${plan.poiId}_bld_g${ctx.now}`;
-        if (ctx.world.registry.get(id)) return true;   // already grew this tick
+        const id = `${plan.poiId}_bld_g${tag}`;
+        if (ctx.world.registry.get(id)) return true;   // already grew this tag
         const entity = blueprintEntity(id, rb, ox, oy, { poiId: plan.poiId });
         ctx.world.addEntity(entity);
         stampFootprint(ctx.world, entity);
@@ -315,5 +392,4 @@ export class SettlementGrowthSystem implements System {
       }
     }
     return false;
-  }
 }

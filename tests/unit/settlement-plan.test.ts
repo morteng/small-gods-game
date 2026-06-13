@@ -107,10 +107,12 @@ describe('placeSettlement — plan execution', () => {
 
   it('slot-placed buildings front a road: walking out of the door reaches one within 2 tiles', () => {
     const { result } = run();
-    expect(result.entities.length).toBeGreaterThan(0);
+    // result.entities now carries civic props too (S5) — restrict to buildings.
+    const buildings = result.entities.filter(e => blueprintOf(e));
+    expect(buildings.length).toBeGreaterThan(0);
     const roadSet = new Set(result.roadTiles.map(rt => `${rt.x},${rt.y}`));
     let fronting = 0;
-    for (const e of result.entities) {
+    for (const e of buildings) {
       const bp = blueprintOf(e)!;
       const [dlx, dly] = bp.collision.doorCells[0].split(',').map(Number);
       const doorX = e.x + dlx, doorY = e.y + dly;
@@ -125,14 +127,14 @@ describe('placeSettlement — plan execution', () => {
       if (near) fronting++;
     }
     // most buildings front a road (fallback placements may not)
-    expect(fronting / result.entities.length).toBeGreaterThanOrEqual(0.5);
+    expect(fronting / buildings.length).toBeGreaterThanOrEqual(0.5);
   });
 
   it('building footprints never cover road tiles and never overlap each other', () => {
     const { result } = run();
     const roadSet = new Set(result.roadTiles.map(rt => `${rt.x},${rt.y}`));
     const seen = new Set<string>();
-    for (const e of result.entities) {
+    for (const e of result.entities.filter(e => blueprintOf(e))) {
       const bp = blueprintOf(e)!;
       for (let dy = 0; dy < bp.collision.footprint.h; dy++) {
         for (let dx = 0; dx < bp.collision.footprint.w; dx++) {

@@ -16,7 +16,7 @@ export type CommandVerb =
   // divine tier — implemented, belief-spending interventions
   | 'whisper' | 'omen' | 'dream' | 'miracle' | 'answer_prayer' | 'probe_mind'
   // authoring tier — DECLARED, executor pending (filled in by the Fate cycle)
-  | 'bias_event' | 'inject_npc' | 'nudge_severity' | 'place_building'
+  | 'bias_event' | 'inject_npc' | 'nudge_severity' | 'place_building' | 'grow_settlement'
   // editor tier — god-mode world authoring (the Create panel; cost 0, no spirit)
   | 'author_spawn_npc' | 'author_remove_entity' | 'author_modify_npc'
   | 'author_place_object' | 'author_move_entity';

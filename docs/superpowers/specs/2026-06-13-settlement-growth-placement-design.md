@@ -230,7 +230,14 @@ Two invariants keep this safe and deterministic:
    `bridgeCells` at the inter-POI connection layer in `map-generator.ts`), so
    S4 only added the in-settlement catalogue. Spec:
    `2026-06-13-settlement-growth-s4-spec.md`.
-5. **S5 — Skip integration + Fate lever:** D2 turnover → growth steps;
-   `grow_settlement` capability; ward mutation in era-authoring; emit civic
-   ENTITIES from the reserved precincts (well prop, graveyard filling with
-   `remains` over deep time).
+5. **S5 — Skip integration + Fate lever** ✅ (2026-06-13): growth lifted to a
+   shared `growSettlement(ctx, plan, tag?)` free function (boolean return,
+   tag-keyed ids) driven by THREE callers — the live tick, the time-skip
+   catch-up, and a new `grow_settlement` authoring command (Fate lever).
+   `applySkip` now grows each settlement to its post-skip population
+   (deterministic); civic precincts emit standing `well` + `graveyard` entities
+   and hard-reserve their tiles against building placement (resolves the S4
+   gotcha). `WORLD_CONTENT_VERSION` → 6. Spec:
+   `2026-06-13-settlement-growth-s5-spec.md`. **Deferred:** graveyard "filling"
+   with `remains` over deep time (the scalable model is a `buried` count); mill
+   as a working building; ward-mutation verbs.

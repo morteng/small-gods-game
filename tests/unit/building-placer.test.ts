@@ -121,7 +121,9 @@ describe('placeSettlement', () => {
     const zoneRule = getZoneRule('village');
     const rng = new Random(99);
     const { entities } = placeSettlement(poi, zoneRule, tiles, registry, [], rng);
-    expect(entities.length).toBeLessThanOrEqual(zoneRule.buildingCount.max);
+    // result.entities now includes civic props (S5) — count only buildings.
+    const buildings = entities.filter(e => !e.properties?.civic);
+    expect(buildings.length).toBeLessThanOrEqual(zoneRule.buildingCount.max);
   });
 
   it('buildings do not overlap each other', () => {
