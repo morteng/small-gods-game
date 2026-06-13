@@ -21,9 +21,14 @@
  * window programmes, rectangular plans (see
  * docs/reference/medieval-building-reference.md); 'v7' deepens the eaves —
  * material overhangs grown to real medieval depths (thatch 60 cm … slate
- * 20 cm) with sprocketed-eave drop capping so door heads stay clear.
+ * 20 cm) with sprocketed-eave drop capping so door heads stay clear;
+ * 'v8' is the roof-slab remodel — roofs are individual sloped boards with real
+ * thickness (projecting eaves AND verges read as boards, not a solid wedge) plus
+ * recessed gable-end tympana, and masonry/metal ridge stacks are offset BESIDE
+ * the ridge beam (timber smoke-louvres still straddle it) so chimneys no longer
+ * pierce the structural ridge.
  */
-export const ART_RECIPE_VERSION = 'v7';
+export const ART_RECIPE_VERSION = 'v8';
 
 /**
  * Bump when WORLDGEN / preset output changes (footprints, placement, heights).

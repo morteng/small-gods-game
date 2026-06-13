@@ -28,7 +28,7 @@ describe('assetgen golden hashes', () => {
     const rb = synthesizeBlueprint('cottage')!;
     const r = await composeStructure(toGeometry(rb));
     expect(fingerprint(r)).toEqual({
-      size: 386, grey: '3c3ef29f', normal: 'cb257ee8', material: '57ebf8a3', emissive: 'f1fdcf3c',
+      size: 386, grey: '87504cb1', normal: '9130480b', material: '133b010', emissive: 'e953937',
     });
   });
 

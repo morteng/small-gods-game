@@ -162,20 +162,79 @@ function storeyRect(w: Wing, s: number): WingRect {
 }
 
 /**
- * A gable-roof prism over a wing rect, ridge along the given world axis, sitting at base z `b`.
- * The 2D profile (span across, rise up) is extruded by the ridge length, then rotated/translated
- * so its footprint lands on the rect. Euler angles were tuned empirically (see solids tests).
+ * Extrude a 2D cross-section profile (in the plane perpendicular to the ridge:
+ * u = across-ridge, z = height) along the ridge, landing it on `rect` at base z `b`.
+ * The rotate/translate Euler angles were tuned empirically (see solids tests); every
+ * roof solid (full triangle prism OR a single thick slope slab) shares this transform,
+ * so a profile authored in (u, z) lands correctly regardless of ridge axis.
  */
-async function gablePrism(rect: WingRect, ridge: RidgeAxis, pitch: number, b: number): Promise<Manifold> {
+async function extrudeAlongRidge(profile: [number, number][], rect: WingRect, ridge: RidgeAxis, b: number): Promise<Manifold> {
   const { Manifold } = await getManifold();
-  if (ridge === 'x') {
-    const rise = pitch * (rect.h / 2);
-    const profile = [[0, 0], [rect.h, 0], [rect.h / 2, rise]] as [number, number][];
-    return Manifold.extrude(profile, rect.w).rotate([90, 0, 90]).translate([rect.x, rect.y, b]);
+  return ridge === 'x'
+    ? Manifold.extrude(profile, rect.w).rotate([90, 0, 90]).translate([rect.x, rect.y, b])
+    : Manifold.extrude(profile, rect.h).rotate([90, 0, 0]).translate([rect.x, rect.y + rect.h, b]);
+}
+
+/** A full gable triangle prism over a wing rect (used by hip/half-hip intersections,
+ *  dormer + louvre caps). `rise = pitch · half-span`. */
+async function gablePrism(rect: WingRect, ridge: RidgeAxis, pitch: number, b: number): Promise<Manifold> {
+  const span = ridge === 'x' ? rect.h : rect.w;
+  const profile: [number, number][] = [[0, 0], [span, 0], [span / 2, pitch * (span / 2)]];
+  return extrudeAlongRidge(profile, rect, ridge, b);
+}
+
+/** Roof board thickness (cube-units; 1 = 2 m) — the visible depth at every eave +
+ *  verge edge once roofs are modelled as individual slope slabs rather than solid
+ *  wedges. ~28 cm: a rafter + batten + covering sandwich. */
+const ROOF_SLAB_T = 0.14;
+
+/**
+ * One sloped roof board as a thick parallelogram: the top surface runs from the eave
+ * (uEave, 0) up to the ridge (uRidge, rise); the underside is that line offset by `t`
+ * along the inward (downward) slope normal. Points are wound CCW (positive area) so
+ * `Manifold.extrude` keeps it solid. Returned in (u, z) profile space.
+ */
+function slabProfile(uEave: number, uRidge: number, rise: number, t: number): [number, number][] {
+  const du = uRidge - uEave, len = Math.hypot(du, rise) || 1;
+  // inward normal (pointing down): perpendicular to the slope with negative z.
+  let nu = rise / len, nz = -du / len;
+  if (nz > 0) { nu = -nu; nz = -nz; }
+  const ou = nu * t, oz = nz * t;
+  const poly: [number, number][] = [[uEave, 0], [uEave + ou, oz], [uRidge + ou, rise + oz], [uRidge, rise]];
+  // Manifold.extrude needs CCW (positive-area) polygons or it inverts the solid; a
+  // slope falling the other way (uRidge < uEave — the right-hand board) comes out CW,
+  // so reverse it. This was the bug that silently dropped one whole roof slope.
+  let a = 0;
+  for (let i = 0; i < poly.length; i++) {
+    const [x0, y0] = poly[i], [x1, y1] = poly[(i + 1) % poly.length];
+    a += x0 * y1 - x1 * y0;
   }
-  const rise = pitch * (rect.w / 2);
-  const profile = [[0, 0], [rect.w, 0], [rect.w / 2, rise]] as [number, number][];
-  return Manifold.extrude(profile, rect.h).rotate([90, 0, 0]).translate([rect.x, rect.y + rect.h, b]);
+  return a < 0 ? poly.reverse() : poly;
+}
+
+/** A gable roof as TWO thick slope slabs over the (eave+verge-grown) rect, meeting at
+ *  the ridge. Replaces the solid wedge so eaves AND verges read as projecting boards. */
+async function gableSlabs(grown: WingRect, ridge: RidgeAxis, rise: number, b: number): Promise<Manifold> {
+  const span = ridge === 'x' ? grown.h : grown.w;
+  const left = await extrudeAlongRidge(slabProfile(0, span / 2, rise, ROOF_SLAB_T), grown, ridge, b);
+  const right = await extrudeAlongRidge(slabProfile(span, span / 2, rise, ROOF_SLAB_T), grown, ridge, b);
+  return left.add(right);
+}
+
+/** The triangular gable wall (tympanum) closing each ridge END, at the UNGROWN wall
+ *  plane so the slope slabs overhang it as a true verge. Thin (`gw`) prisms in
+ *  wall material, one per end. */
+async function gableEndWalls(top: WingRect, ridge: RidgeAxis, rise: number, wallTop: number, gw: number): Promise<Manifold> {
+  const { Manifold } = await getManifold();
+  const span = ridge === 'x' ? top.h : top.w;
+  const tri: [number, number][] = [[0, 0], [span, 0], [span / 2, rise]];
+  const len = ridge === 'x' ? top.w : top.h;
+  const endRectAt = (off: number): WingRect => ridge === 'x'
+    ? { x: top.x + off, y: top.y, w: gw, h: top.h }
+    : { x: top.x, y: top.y + off, w: top.w, h: gw };
+  const a = await extrudeAlongRidge(tri, endRectAt(0), ridge, wallTop);
+  const b = await extrudeAlongRidge(tri, endRectAt(len - gw), ridge, wallTop);
+  return Manifold.union([a, b]);
 }
 
 /** `rect` grown by `eave` across the ridge and `verge` along it. */
@@ -204,53 +263,72 @@ async function clipEaveInterior(roof: Manifold, wallRect: WingRect, wallTop: num
   return roof.subtract(cutter);
 }
 
+/** A wing's roof, split into the roof-material solid + (gable styles only) the
+ *  wall-material tympanum that closes each ridge end behind the projecting verge. */
+interface WingRoof { roof: Manifold; gableWalls?: Manifold }
+
 /**
- * One wing's roof solid over its (possibly jettied) top rect, with material-driven
- * eave/verge overhangs. gable = one prism along the ridge axis; hip = two perpendicular
- * prisms intersected; half_hip = a gable clipped by an outward-shifted hip pair (the
- * thatch gablet, by construction); flat = a thin slab (no overhang — parapet roof).
+ * One wing's roof, modelled as individual sloped boards (real thickness, projecting
+ * eaves + verges) rather than a solid wedge:
+ *  - gable     = two thick slope slabs + recessed triangular gable walls (so the
+ *                verge is the slabs overhanging the wall, not a flush solid end).
+ *  - half_hip  = the gable slabs with the upper triangle clipped to a gablet, plus
+ *                the end hip slabs; the short gable wall sits under the gablet.
+ *  - hip       = four slope planes, shelled to a board thickness (eaves all round).
+ *  - flat      = a thin slab (parapet roof).
  */
-async function wingRoof(w: Wing, style: RoofStyle, roofMat: Mat = 'tile'): Promise<Manifold> {
+async function wingRoof(w: Wing, style: RoofStyle, roofMat: Mat = 'tile'): Promise<WingRoof> {
   const top = storeyRect(w, (w.storeys ?? 1) - 1);
   const b = (w.storeys ?? 1) * (w.storeyHeight ?? STOREY);
-  if (w.roof === 'flat') return solidBox([top.x, top.y, b], [top.w, top.h, 0.25]);
+  if (w.roof === 'flat') return { roof: await solidBox([top.x, top.y, b], [top.w, top.h, 0.25]) };
   const s = wingRoofStyle(w, style);
   const ridge = ridgeAxisOf(w);
   const { eave, verge } = overhangOf(roofMat);
 
-  // Sprocketed-eave drop + the re-pitch that keeps the ridge at the
-  // flush-roof height: rise over the grown half-span = flush rise + drop.
+  // Sprocketed-eave drop + the re-pitch that keeps the ridge at the flush-roof
+  // height: rise over the grown half-span = flush rise + drop.
   const sprocket = (pitch: number, halfSpan: number): { drop: number; rePitch: number } => {
     const drop = Math.min(pitch * eave, MAX_EAVE_DROP);
     return { drop, rePitch: (pitch * halfSpan + drop) / (halfSpan + eave) };
   };
+  const wallRise = GABLE_PITCH * (crossSpan(top, ridge) / 2);   // ridge height above wall top
 
   if (s === 'gable') {
     const { drop, rePitch } = sprocket(GABLE_PITCH, crossSpan(top, ridge) / 2);
     const g = grownRect(top, ridge, eave, verge);
-    const roof = await gablePrism(g, ridge, rePitch, b - drop);
-    return clipEaveInterior(roof, top, b, drop);
+    const rise = rePitch * (crossSpan(g, ridge) / 2);
+    const roof = await gableSlabs(g, ridge, rise, b - drop);
+    const gableWalls = await gableEndWalls(top, ridge, wallRise, b, 0.1);
+    return { roof, gableWalls };
   }
 
   if (s === 'half_hip') {
     const { drop, rePitch } = sprocket(GABLE_PITCH, crossSpan(top, ridge) / 2);
     const g = grownRect(top, ridge, eave, verge);
     const base = b - drop;
-    const gable = await gablePrism(g, ridge, rePitch, base);
-    // The end slopes: a perpendicular prism over the rect grown further along the
-    // ridge, so its slope only clips the TOP of the gable triangle — the gablet
-    // starts at ~55% of the rise.
     const rise = rePitch * (crossSpan(g, ridge) / 2);
+    // Two main slope slabs, their upper triangle clipped to the gablet by the end
+    // hip pair; the end hip slabs fill the gablet faces.
     const ext = (0.55 * rise) / HIP_PITCH;
+    const endRidge: RidgeAxis = ridge === 'x' ? 'y' : 'x';
     const endRect = ridge === 'x'
       ? { x: g.x - ext, y: g.y, w: g.w + 2 * ext, h: g.h }
       : { x: g.x, y: g.y - ext, w: g.w, h: g.h + 2 * ext };
-    const ends = await gablePrism(endRect, ridge === 'x' ? 'y' : 'x', HIP_PITCH, base);
-    return clipEaveInterior(gable.intersect(ends), top, b, drop);
+    const endClip = await gablePrism(endRect, endRidge, HIP_PITCH, base);
+    const mainSlabs = (await gableSlabs(g, ridge, rise, base)).intersect(endClip);
+    const endSpan = ridge === 'x' ? endRect.w : endRect.h;
+    const endRise = HIP_PITCH * (endSpan / 2);
+    const endSlabs = (await gableSlabs(endRect, endRidge, endRise, base))
+      .intersect(await gablePrism(g, ridge, rePitch, base));
+    // Short gable wall: only up to where the gablet starts (~45% of the wall rise).
+    const gabletBase = wallRise * 0.45;
+    const gableWalls = (await gableEndWalls(top, ridge, wallRise, b, 0.1))
+      .intersect(await solidBox([top.x - 1, top.y - 1, b], [top.w + 2, top.h + 2, gabletBase]));
+    return { roof: mainSlabs.add(endSlabs), gableWalls };
   }
 
-  // hip: eaves all round (no gable wall to verge against); each axis prism
-  // gets its own re-pitch so both planes still meet the unchanged ridge.
+  // hip: four slope planes, eaves all round, no gable. Build the solid hip then shell
+  // it to a board thickness (subtract an inset copy) so edges read with depth.
   const g: WingRect = { x: top.x - eave, y: top.y - eave, w: top.w + 2 * eave, h: top.h + 2 * eave };
   const dropH = Math.min(HIP_PITCH * eave, MAX_EAVE_DROP);
   const base = b - dropH;
@@ -258,7 +336,14 @@ async function wingRoof(w: Wing, style: RoofStyle, roofMat: Mat = 'tile'): Promi
   const pitchY = (HIP_PITCH * (top.w / 2) + dropH) / (g.w / 2);
   const px = await gablePrism(g, 'x', pitchX, base);
   const py = await gablePrism(g, 'y', pitchY, base);
-  return clipEaveInterior(px.intersect(py), top, b, dropH);
+  const solid = await clipEaveInterior(px.intersect(py), top, b, dropH);
+  // Shell: subtract the same hip scaled down so a ROOF_SLAB_T-ish board remains.
+  const innerInset = ROOF_SLAB_T;
+  const gi: WingRect = { x: g.x + innerInset, y: g.y + innerInset, w: g.w - 2 * innerInset, h: g.h - 2 * innerInset };
+  const ipx = await gablePrism(gi, 'x', pitchX, base - ROOF_SLAB_T * 2);
+  const ipy = await gablePrism(gi, 'y', pitchY, base - ROOF_SLAB_T * 2);
+  const inner = ipx.intersect(ipy);
+  return { roof: solid.subtract(inner) };
 }
 
 /** Height the roof ridge reaches above a wing's wall top. (Overhang construction
@@ -312,11 +397,23 @@ async function ventSolid(
     return { solid: await solidBox([x0, y0, 0], [sx, sy, topZ]), anchor: [ax, ay, topZ], mat };
   }
 
-  // Ridge stack: centred on the ridge line, emerging from the roof slope.
+  // Ridge stack, emerging from a roof slope. A masonry/metal stack (chimney/pipe) is
+  // OFFSET to one side of the ridge so it passes BESIDE the ridge beam/purlin rather
+  // than through it (piercing the ridge timber would weaken the roof — real stacks
+  // clear it, or climb a gable-end wall). A timber smoke-louvre legitimately straddles
+  // the ridge, so it stays centred. The stack still rises past the ridge height.
   const ridge = ridgeAxisOf(w);
-  const cx = ridge === 'x' ? top.x + v.t * top.w : top.x + top.w / 2;
-  const cy = ridge === 'x' ? top.y + top.h / 2 : top.y + v.t * top.h;
-  const baseZ = wallTop + rise * 0.4;
+  const halfSpan = crossSpan(top, ridge) / 2;
+  // Across-ridge offset: clear the ridge line by the stack half-width + a gap, but stay
+  // on the slope (cap to ~55% of the half-span). 0 for the centred louvre.
+  const off = kind === 'smokehole' ? 0 : Math.min(cw / 2 + 0.08, halfSpan * 0.55);
+  // Offset toward +cross (the camera-facing front slope: +y=south for an x-ridge,
+  // +x=east for a y-ridge) so the visible side carries the stack.
+  const cx = ridge === 'x' ? top.x + v.t * top.w : top.x + top.w / 2 + off;
+  const cy = ridge === 'x' ? top.y + top.h / 2 + off : top.y + v.t * top.h;
+  // Base from the wall top so the stack reads as masonry rising from inside and
+  // visibly pierces the slope at the offset (the slope there is below the ridge).
+  const baseZ = wallTop;
   let solid = await solidBox([cx - cw / 2, cy - cw / 2, baseZ], [cw, cw, topZ - baseZ]);
   if (kind === 'smokehole') {
     // Ridge louvre: the timber box gets its own little gable cap so it reads as a
@@ -390,9 +487,13 @@ export async function buildingFacets(
       wallBoxes.push(await solidBox([r.x, r.y, s * sh], [r.w, r.h, sh]));
     }
   }
-  const roofSolids = await Promise.all(wings.map(w => wingRoof(w, roofStyle, roofMat)));
-  const walls = await carveApertures(Manifold.union(wallBoxes), apertures);
-  let roof = Manifold.union(roofSolids);
+  const wingRoofs = await Promise.all(wings.map(w => wingRoof(w, roofStyle, roofMat)));
+  let walls = await carveApertures(Manifold.union(wallBoxes), apertures);
+  // Gable tympanums are WALL material — fold them into the wall solid (above the
+  // openings, so no aperture interaction) so the recessed gable reads as masonry/timber.
+  const gableWalls = wingRoofs.map(r => r.gableWalls).filter((m): m is Manifold => !!m);
+  if (gableWalls.length) walls = walls.add(Manifold.union(gableWalls));
+  let roof = Manifold.union(wingRoofs.map(r => r.roof));
 
   const { vents, dormers } = resolveFeatures(wings, features, seed);
   const dormerBoxes: Manifold[] = [];

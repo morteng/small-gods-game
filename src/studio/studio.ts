@@ -415,6 +415,51 @@ export function mountStudio(container: HTMLElement): void {
   });
   frame();
 
+  // ── debug surface (window.__studio) ──────────────────────────────────────
+  // A scripting handle so the geometry/prompt can be inspected and captured
+  // headlessly (Playwright, dev console) without poking private state. Every
+  // method that depends on async geometry resolves only once the sprite pack is
+  // warm + a frame has been drawn, so `await __studio.render('cottage')` yields a
+  // PNG of the finished geometry — no manual setTimeout/canvas hunting.
+  const nextFrame = (): Promise<void> => new Promise(r => requestAnimationFrame(() => r()));
+  async function settleGeometry(timeoutMs = 8000): Promise<boolean> {
+    warmSubject();
+    const start = performance.now();
+    while (!peekSubject() && performance.now() - start < timeoutMs) await nextFrame();
+    await nextFrame(); await nextFrame();   // let the pack draw into the pane
+    return !!peekSubject();
+  }
+  const studioDebug = {
+    /** All available subject presets (buildings + plants). */
+    kinds: (): string[] => Object.keys(BUILDING_BLUEPRINTS).sort(),
+    /** The current subject kind. */
+    get kind(): string { return state.kind; },
+    /** Switch subject; resolves once its geometry is warm + drawn. */
+    async setKind(kind: string): Promise<boolean> {
+      if (!BUILDING_BLUEPRINTS[kind]) throw new Error(`unknown kind "${kind}"`);
+      setSubject(kind);
+      return settleGeometry();
+    },
+    /** Force geometry to (re)warm; resolves when a sprite pack exists. */
+    warm: (): Promise<boolean> => settleGeometry(),
+    /** PNG data-URI of whatever the view pane currently shows. */
+    grab: (): string => canvas.toDataURL('image/png'),
+    /** setKind + grab in one await — the headless render loop's workhorse. */
+    async render(kind?: string): Promise<string> {
+      if (kind && kind !== state.kind) await studioDebug.setKind(kind);
+      else await settleGeometry();
+      return canvas.toDataURL('image/png');
+    },
+    /** The live ResolvedBlueprint (deep clone — safe to log, won't mutate state). */
+    rb: (): unknown => liveRb ? JSON.parse(JSON.stringify(liveRb)) : null,
+    /** The exact img2img prompt that would be sent for the current subject. */
+    prompt: (): string => (liveRb ? buildingImagePrompt(liveRb, BUILDING_IMAGE_MODEL) : ''),
+    /** Re-roll all seeded params, then resolve once redrawn. */
+    async randomize(): Promise<boolean> { randomizeSubject(); return settleGeometry(); },
+    /** Pin a named pipeline stage (e.g. 'grey', 'albedo') into the view pane. */
+    stages: (): string[] => genStages.map(s => s.label),
+  };
+
   // ── OpenRouter render flow (review metadata → send → step-by-step) ───────
   async function openRenderFlow(): Promise<void> {
     const rb = liveRb;
@@ -479,13 +524,13 @@ export function mountStudio(container: HTMLElement): void {
     });
   }
 
-  (window as unknown as { __studio?: unknown }).__studio = {
-    state, setSubject, invalidate,
+  Object.assign(studioDebug, {
+    state, invalidate,
     setSun: (az: number, el: number) => { state.az = az; state.el = el; invalidate(); },
-    stages: () => shownStruct,
-    grab: () => canvas.toDataURL('image/png'),
+    structResult: () => shownStruct,
     stop: () => cancelAnimationFrame(raf),
-  };
+  });
+  (window as unknown as { __studio?: unknown }).__studio = studioDebug;
   // eslint-disable-next-line no-console
   console.log('[studio] mounted —', state.kind);
 }
