@@ -397,16 +397,17 @@ async function ventSolid(
     return { solid: await solidBox([x0, y0, 0], [sx, sy, topZ]), anchor: [ax, ay, topZ], mat };
   }
 
-  // Ridge stack, emerging from a roof slope. A masonry/metal stack (chimney/pipe) is
-  // OFFSET to one side of the ridge so it passes BESIDE the ridge beam/purlin rather
-  // than through it (piercing the ridge timber would weaken the roof — real stacks
-  // clear it, or climb a gable-end wall). A timber smoke-louvre legitimately straddles
-  // the ridge, so it stays centred. The stack still rises past the ridge height.
+  // Ridge vent, emerging from a roof slope. EVERY ridge vent — masonry chimney, metal
+  // pipe, OR timber smoke-louvre — is OFFSET to one side of the ridge so it passes
+  // BESIDE the ridge beam/purlin rather than through it. Piercing the ridge timber
+  // would weaken the roof; real stacks clear it (or climb a gable-end wall) and even a
+  // smoke-louvre is framed beside/over the ridge, never stabbed straight down through
+  // the structural beam. The vent still rises past the ridge height.
   const ridge = ridgeAxisOf(w);
   const halfSpan = crossSpan(top, ridge) / 2;
-  // Across-ridge offset: clear the ridge line by the stack half-width + a gap, but stay
-  // on the slope (cap to ~55% of the half-span). 0 for the centred louvre.
-  const off = kind === 'smokehole' ? 0 : Math.min(cw / 2 + 0.08, halfSpan * 0.55);
+  // Across-ridge offset: clear the ridge line by the vent half-width + a gap, but stay
+  // on the slope (cap to ~55% of the half-span).
+  const off = Math.min(cw / 2 + 0.08, halfSpan * 0.55);
   // Offset toward +cross (the camera-facing front slope: +y=south for an x-ridge,
   // +x=east for a y-ridge) so the visible side carries the stack.
   const cx = ridge === 'x' ? top.x + v.t * top.w : top.x + top.w / 2 + off;

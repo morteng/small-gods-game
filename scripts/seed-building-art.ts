@@ -14,7 +14,7 @@
  * normal/material/emissive PNGs}. Re-runnable: presets already in the manifest
  * at the current recipe version are skipped (pass --force to regenerate).
  */
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, existsSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -32,13 +32,13 @@ import {
 import {
   MIN_BORDER_KEYED, MIN_SILHOUETTE_IOU, QUANT_COLORS,
 } from '../src/render/generated-building-art-source';
-import { generateBuildingImage, BUILDING_IMAGE_MODEL } from '../src/llm/openrouter-image-client';
+import { generateBuildingImage, BuildingImageError, BUILDING_IMAGE_MODEL } from '../src/llm/openrouter-image-client';
 import { ART_RECIPE_VERSION } from '../src/core/content-version';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = join(ROOT, 'public/asset-library/building-sprites');
 const MANIFEST = join(OUT, 'manifest.json');
-const MAX_ATTEMPTS = 2;
+const MAX_ATTEMPTS = 3;
 
 interface ManifestEntry {
   file: string; targetWidth: number; preset: string; anchors?: string;
@@ -51,9 +51,13 @@ const safeName = (key: string) => key.replace(/[^a-zA-Z0-9._-]/g, '_');
 
 const plan = process.argv.includes('--plan');
 const apiKey = process.env.OPENROUTER_API_KEY;
-if (!apiKey && !plan) { console.error('OPENROUTER_API_KEY not set. Aborting.'); process.exit(1); }
+if (!apiKey && !plan && !process.argv.includes('--relink')) { console.error('OPENROUTER_API_KEY not set. Aborting.'); process.exit(1); }
 
 const force = process.argv.includes('--force');
+// Rebuild manifest rows from PNGs already on disk — NO API calls. Salvages sprites
+// whose generation succeeded but whose run crashed before the manifest was written
+// (the old end-of-run write orphaned every PNG when one gen threw). Free.
+const relink = process.argv.includes('--relink');
 const wanted = process.argv.slice(2).filter(a => !a.startsWith('--'));
 const presets = wanted.length ? wanted : Object.keys(BUILDING_BLUEPRINTS);
 
@@ -94,7 +98,19 @@ async function seed(preset: string, manifest: Manifest): Promise<number> {
 
   let cost = 0;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    const res = await generateBuildingImage({ apiKey: apiKey! }, { initImageDataUri: initDataUri, prompt });
+    // The model intermittently returns a text-only response (no image), which
+    // throws; treat it as a failed attempt and retry rather than aborting the
+    // whole batch (the same goes for transient network errors).
+    let res: Awaited<ReturnType<typeof generateBuildingImage>>;
+    try {
+      res = await generateBuildingImage({ apiKey: apiKey! }, { initImageDataUri: initDataUri, prompt });
+    } catch (err) {
+      // A spend-limit / bad-key failure will hit every subsequent call too — abort
+      // the whole batch (caught in main) rather than burning attempts and quota.
+      if (err instanceof BuildingImageError && err.fatal) throw err;
+      console.warn(`${preset}: attempt ${attempt} — generation error: ${(err as Error).message}`);
+      continue;
+    }
     cost += res.costUsd;
     const raw = fromPng(Buffer.from(await res.blob.arrayBuffer()));
     chromaKeyMagenta(raw.data);
@@ -126,6 +142,28 @@ async function seed(preset: string, manifest: Manifest): Promise<number> {
   return cost;
 }
 
+/** Rebuild a preset's manifest row from a PNG already on disk (NO API). The
+ *  anchors come from geometry (free); targetWidth from the PNG itself. Returns
+ *  true if a sprite existed and was (re)linked. */
+async function relinkOne(preset: string, manifest: Manifest): Promise<boolean> {
+  const rb = synthesizeBlueprint(preset);
+  if (!rb) return false;
+  const key = generatedArtKey(canonicalJson(rb), BUILDING_IMAGE_MODEL, rb.footprint);
+  const base = safeName(key);
+  const spritePath = join(OUT, `${base}.png`);
+  if (!existsSync(spritePath)) return false;
+  const sprite = fromPng(await readFile(spritePath));
+  const r = await composeStructure(toGeometry(rb));
+  const companion = (suffix: string): string | undefined =>
+    existsSync(join(OUT, `${base}.${suffix}.png`)) ? `${base}.${suffix}.png` : undefined;
+  manifest.entries[key] = {
+    file: `${base}.png`, targetWidth: sprite.w, preset, anchors: JSON.stringify(r.anchors),
+    normal: companion('normal'), material: companion('material'), emissive: companion('emissive'),
+  };
+  console.log(`${preset}: relinked ${base}.png (${sprite.w}px)`);
+  return true;
+}
+
 async function main() {
   mkdirSync(OUT, { recursive: true });
   const manifest = await loadManifest();
@@ -137,11 +175,52 @@ async function main() {
   for (const k of Object.keys(manifest.entries)) {
     if (!k.startsWith(`${ART_RECIPE_VERSION}:`)) delete manifest.entries[k];
   }
+
+  // Relink mode: salvage on-disk PNGs into the manifest, no API. Used to recover
+  // sprites from a run that crashed before persisting (and to re-index after a
+  // recipe bump where the pixels are still valid).
+  if (relink) {
+    let n = 0;
+    for (const preset of presets) if (await relinkOne(preset, manifest)) n++;
+    await writeFile(MANIFEST, JSON.stringify(manifest, null, 2) + '\n');
+    console.log(`Relinked ${n} sprite(s) from disk. ${Object.keys(manifest.entries).length} in the library now. $0 spent.`);
+    return;
+  }
+
   let total = 0;
-  for (const preset of presets) total += await seed(preset, manifest);
+  const failed: string[] = [];
+  const before = Object.keys(manifest.entries).length;
+  let aborted: BuildingImageError | null = null;
+  let stoppedAt: string | null = null;
+  for (const preset of presets) {
+    const had = Object.keys(manifest.entries).length;
+    try {
+      total += await seed(preset, manifest);
+    } catch (err) {
+      // Fatal (spend limit / bad key): stop now — every later preset would fail
+      // too. Work done so far is already persisted (incremental write below).
+      if (err instanceof BuildingImageError && err.fatal) { aborted = err; stoppedAt = preset; break; }
+      throw err;
+    }
+    if (plan) continue;
+    // Persist after every preset so a crash mid-batch keeps all prior work (the
+    // old end-of-run write orphaned every PNG when one gen threw).
+    if (Object.keys(manifest.entries).length > had) await writeFile(MANIFEST, JSON.stringify(manifest, null, 2) + '\n');
+    else failed.push(preset);
+  }
   if (plan) { console.log('(plan mode — nothing written, nothing spent)'); return; }
   await writeFile(MANIFEST, JSON.stringify(manifest, null, 2) + '\n');
-  console.log(`Done. ${Object.keys(manifest.entries).length} sprites in the library, $${total.toFixed(4)} spent this run.`);
+  const added = Object.keys(manifest.entries).length - before;
+  console.log(`Done. ${Object.keys(manifest.entries).length} sprites in the library (+${added} this run), $${total.toFixed(4)} spent.`);
+  if (failed.length) console.error(`Skipped (gen failed, retryable): ${failed.join(', ')}`);
+  if (aborted) {
+    const remaining = presets.slice(presets.indexOf(stoppedAt!));
+    console.error(`\n⛔ ABORTED at "${stoppedAt}" — ${aborted.hint}.`);
+    console.error(`   ${aborted.message}`);
+    console.error(`   Fix it here: ${aborted.helpUrl}`);
+    console.error(`   Then resume (already-seeded presets are skipped): npx tsx scripts/seed-building-art.ts ${remaining.join(' ')}`);
+    process.exitCode = 1;
+  }
 }
 
 main().catch(err => { console.error(err); process.exit(1); });

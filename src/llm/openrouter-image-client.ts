@@ -23,6 +23,67 @@ export interface GenerateBuildingImageOpts {
 
 export interface BuildingImageResult { blob: Blob; costUsd: number }
 
+/** Why a generation failed. `limit`/`auth` are FATAL — the same key will keep
+ *  failing, so a batch should stop rather than burn attempts/quota. The rest are
+ *  worth a retry (transient model/network hiccups). */
+export type ImageErrorKind = 'limit' | 'auth' | 'rate' | 'no-image' | 'http' | 'network';
+
+/** Deep links to the exact OpenRouter settings page a user needs to fix each
+ *  failure — so an error message can point them straight at "add credits" /
+ *  "raise this key's limit" rather than leaving them to hunt. */
+export const OPENROUTER_HELP_URL: Record<ImageErrorKind, string> = {
+  limit: 'https://openrouter.ai/settings/credits',   // add credits / raise the account balance
+  auth: 'https://openrouter.ai/settings/keys',       // check / recreate the API key
+  rate: 'https://openrouter.ai/settings/keys',       // a per-key rate or spend limit lives here
+  'no-image': 'https://openrouter.ai/activity',      // inspect the actual response/usage
+  http: 'https://openrouter.ai/activity',
+  network: 'https://status.openrouter.ai',           // is OpenRouter up?
+};
+
+/** One-line, user-facing remedy per failure kind (pairs with OPENROUTER_HELP_URL). */
+export const OPENROUTER_HELP_HINT: Record<ImageErrorKind, string> = {
+  limit: 'Add credits or raise your account spend limit',
+  auth: 'Check or recreate your OpenRouter API key',
+  rate: 'Rate or spend limit hit — wait, or raise the key limit',
+  'no-image': 'The model returned no image — inspect the request on OpenRouter',
+  http: 'OpenRouter request failed — see your activity log',
+  network: 'Network error reaching OpenRouter — check your connection / OpenRouter status',
+};
+
+export class BuildingImageError extends Error {
+  constructor(public readonly kind: ImageErrorKind, message: string, public readonly status?: number) {
+    super(message);
+    this.name = 'BuildingImageError';
+  }
+  /** Retrying with the same key/credentials cannot succeed — abort the batch. */
+  get fatal(): boolean { return this.kind === 'limit' || this.kind === 'auth'; }
+  /** Short remedy for this failure (e.g. "Add credits or raise your spend limit"). */
+  get hint(): string { return OPENROUTER_HELP_HINT[this.kind]; }
+  /** OpenRouter settings/help page that fixes this failure. */
+  get helpUrl(): string { return OPENROUTER_HELP_URL[this.kind]; }
+}
+
+const LIMIT_RE = /\b(credit|insufficient|spend|quota|exceed|billing|payment|balance|limit reached|out of)\b/i;
+
+/** Classify an OpenRouter image response (HTTP status + parsed body text) into a
+ *  typed error kind. OpenRouter signals over-spend / no-credit as HTTP 402 (and
+ *  sometimes a 200 whose body carries an `error` object), rate limits as 429, and
+ *  bad keys as 401/403. We surface those distinctly so callers stop hammering a
+ *  capped key instead of seeing a vague "no image". */
+export function classifyImageError(status: number, bodyText: string): BuildingImageError {
+  const snippet = bodyText.slice(0, 300);
+  if (status === 402 || (status >= 400 && LIMIT_RE.test(bodyText))) {
+    return new BuildingImageError('limit', `over spend limit / insufficient credits (HTTP ${status}): ${snippet}`, status);
+  }
+  if (status === 401 || status === 403) {
+    return new BuildingImageError('auth', `invalid or unauthorised API key (HTTP ${status}): ${snippet}`, status);
+  }
+  if (status === 429) {
+    return new BuildingImageError('rate', `rate limited (HTTP 429): ${snippet}`, status);
+  }
+  return new BuildingImageError('http', `HTTP ${status}: ${snippet}`, status);
+}
+
 function dataUriToBlob(uri: string): Blob {
   const m = /^data:(image\/\w+);base64,(.+)$/.exec(uri);
   if (!m) throw new Error('building image: malformed data-URI in response');
@@ -55,16 +116,30 @@ export async function generateBuildingImage(
     'X-Title': cfg.siteName ?? 'Small Gods Game',
   };
 
-  const resp = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body), signal: opts.signal });
+  let resp: Response;
+  try {
+    resp = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body), signal: opts.signal });
+  } catch (err) {
+    throw new BuildingImageError('network', `network error: ${(err as Error).message}`);
+  }
   if (!resp.ok) {
     const txt = await resp.text().catch(() => '');
-    throw new Error(`building image: HTTP ${resp.status} ${txt.slice(0, 200)}`);
+    throw classifyImageError(resp.status, txt);
   }
+  // OpenRouter sometimes returns HTTP 200 with an `error` object instead of a
+  // result (provider-side billing/quota failures leak through this way) — detect
+  // it so an over-spend key isn't misreported as a generic "no image".
   const json = await resp.json() as {
     choices?: { message?: { images?: { image_url?: { url?: string } }[] } }[];
     usage?: { cost?: number };
+    error?: { message?: string; code?: number | string };
   };
+  if (json.error) {
+    const msg = json.error.message ?? JSON.stringify(json.error);
+    const code = typeof json.error.code === 'number' ? json.error.code : 200;
+    throw classifyImageError(code, msg);
+  }
   const imgUri = json.choices?.[0]?.message?.images?.[0]?.image_url?.url;
-  if (!imgUri) throw new Error('building image: response contained no image');
+  if (!imgUri) throw new BuildingImageError('no-image', 'response contained no image (model returned text only)');
   return { blob: dataUriToBlob(imgUri), costUsd: json.usage?.cost ?? 0 };
 }

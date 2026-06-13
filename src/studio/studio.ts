@@ -34,9 +34,11 @@ import { initManifoldWasm } from '@/assetgen/geometry/manifold-wasm-browser';
 // img2img generation pipeline (the real paid path, surfaced step-by-step).
 import { buildingImagePrompt } from '@/assetgen/building-image-prompt';
 import { compositeOverChroma, chromaKeyMagenta } from '@/render/chroma-key';
-import { generateBuildingImage, BUILDING_IMAGE_MODEL } from '@/llm/openrouter-image-client';
+import { generateBuildingImage, BuildingImageError, BUILDING_IMAGE_MODEL } from '@/llm/openrouter-image-client';
 import { loadProviderConfig, openrouterImageBaseUrl } from '@/llm/provider-factory';
 import { decodePngToRaster, rasterToSpriteCanvas } from '@/render/sprite-codec';
+import { canonicalJson, generatedArtKey } from '@/render/generated-art-cache';
+import { assetUrl } from '@/core/asset-url';
 import {
   type Raster, cropRaster, borderKeyedFraction, registerAlbedo, quantizePalette,
 } from '@/render/sprite-postprocess';
@@ -152,7 +154,39 @@ export function mountStudio(container: HTMLElement): void {
   }
   const peekSubject = (): SpritePack | null => (liveRb ? (subjPacks.get(rbKey(liveRb)) ?? null) : null);
   const stagesSubject = (): StructureResult | null => (liveRb ? (subjStages.get(rbKey(liveRb)) ?? null) : null);
-  const invalidate = (): void => { subjPacks.clear(); subjStages.clear(); subjInflight.clear(); };
+
+  // The FINISHED img2img sprite from the seeded library (if one exists for this
+  // exact blueprint), loaded with NO API call so the pipeline strip can show the
+  // real painted art alongside the geometry channels. `undefined` = not looked up
+  // yet, `null` = looked up, none in the library.
+  const subjFinished = new Map<string, SpriteCanvas | null>();
+  let baseManifest: Promise<Record<string, { file: string }> | null> | null = null;
+  function warmFinished(): void {
+    if (!liveRb) return;
+    const rb = liveRb, k = rbKey(rb);
+    if (subjFinished.has(k)) return;
+    subjFinished.set(k, null);   // mark in-flight; replaced on success
+    (async () => {
+      baseManifest ??= (async () => {
+        try {
+          const resp = await fetch(assetUrl('asset-library/building-sprites/manifest.json'));
+          if (!resp.ok) return null;
+          const json = await resp.json() as { entries?: Record<string, { file: string }> };
+          return json.entries ?? null;
+        } catch { return null; }
+      })();
+      const entries = await baseManifest;
+      const artKey = generatedArtKey(canonicalJson(rb), BUILDING_IMAGE_MODEL, rb.footprint);
+      const entry = entries?.[artKey];
+      if (!entry) return;
+      const resp = await fetch(assetUrl(`asset-library/building-sprites/${entry.file}`));
+      if (!resp.ok) return;
+      const raster = await decodePngToRaster(await resp.blob());
+      if (raster) subjFinished.set(k, rasterToSpriteCanvas(raster));
+    })().catch(() => {});
+  }
+  const finishedSubject = (): SpriteCanvas | null => (liveRb ? (subjFinished.get(rbKey(liveRb)) ?? null) : null);
+  const invalidate = (): void => { subjPacks.clear(); subjStages.clear(); subjInflight.clear(); subjFinished.clear(); };
   const entityLayer = new PixiEntityLayer();
   const renderMap = createIsoRenderMap();
 
@@ -336,12 +370,20 @@ export function mountStudio(container: HTMLElement): void {
   }
   let shownStruct: StructureResult | null = null;
   let shownGenLen = -1;
+  let shownFinished: SpriteCanvas | null = null;
   function syncStages(): void {
+    warmFinished();
     const r = stagesSubject();
-    if (r === shownStruct && genStages.length === shownGenLen) return;
-    shownStruct = r; shownGenLen = genStages.length;
+    const finished = finishedSubject();
+    if (r === shownStruct && genStages.length === shownGenLen && finished === shownFinished) return;
+    shownStruct = r; shownGenLen = genStages.length; shownFinished = finished;
     if (!r) { dockUi.message('generating…'); return; }
-    const tiles = [...composeStages(r), ...genStages];
+    // The seeded library's finished sprite (free, no API) when one exists for this
+    // blueprint — shown as the '★' stage so finished art is visible without paying.
+    const libStage: Stage[] = finished
+      ? [{ label: '★ seeded sprite (finished)', canvas: finished, sub: 'from library' }]
+      : [];
+    const tiles = [...composeStages(r), ...libStage, ...genStages];
     dockUi.render(
       `${state.kind}  ·  canvas ${r.size}²  ·  crop ${Math.round(r.bbox.w)}×${Math.round(r.bbox.h)}`,
       tiles,
@@ -518,7 +560,11 @@ export function mountStudio(container: HTMLElement): void {
             : `OK — IoU ${reg.iou.toFixed(2)}, border ${border.toFixed(2)}`;
           finishOk(`done · ${(res.costUsd ?? 0).toFixed(4)} USD · ${verdict}`);
         } catch (err) {
-          status(`error: ${(err as Error).message}`);
+          if (err instanceof BuildingImageError) {
+            status(`⛔ ${err.hint} → ${err.helpUrl}\n(${err.message})`);
+          } else {
+            status(`error: ${(err as Error).message}`);
+          }
         }
       },
     });
