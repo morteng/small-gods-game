@@ -26,6 +26,9 @@ import {
 import { injectNpcPrecondition, injectNpcApply, biasEventPrecondition, biasEventApply, nudgeSeverityPrecondition, nudgeSeverityApply } from './authoring-verbs';
 import { placeBuildingPrecondition, placeBuildingApply } from './building-verbs';
 import { growSettlementPrecondition, growSettlementApply } from './settlement-verbs';
+import {
+  renameWardPrecondition, renameWardApply, retypeWardPrecondition, retypeWardApply,
+} from './ward-verbs';
 
 export interface CapabilityDef {
   verb: CommandVerb;
@@ -163,6 +166,18 @@ export const CAPABILITY_REGISTRY: Record<CommandVerb, CapabilityDef> = {
     precondition: growSettlementPrecondition,
     apply: growSettlementApply,
     describe: (cmd) => `grow ${targetLabel(cmd)} by ${cmd.payload?.steps ?? cmd.params?.steps ?? 1} step(s)`,
+  },
+  rename_ward: {
+    verb: 'rename_ward', tier: 'authoring', cost: 0, targetKind: 'settlement', implemented: true,
+    precondition: renameWardPrecondition,
+    apply: renameWardApply,
+    describe: (cmd) => `rename ward ${cmd.payload?.wardId ?? cmd.params?.wardId ?? '?'} to "${cmd.payload?.name ?? cmd.params?.name ?? '?'}"`,
+  },
+  retype_ward: {
+    verb: 'retype_ward', tier: 'authoring', cost: 0, targetKind: 'settlement', implemented: true,
+    precondition: retypeWardPrecondition,
+    apply: retypeWardApply,
+    describe: (cmd) => `set ward ${cmd.payload?.wardId ?? cmd.params?.wardId ?? '?'} type to ${cmd.payload?.type ?? cmd.params?.type ?? '?'}`,
   },
 
   // ── Editor tier — god-mode authoring (Create panel). cost 0, no spirit. ──────

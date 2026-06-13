@@ -212,7 +212,8 @@ describe('SettlementGrowthSystem', () => {
     const laneEdgesBefore = plan.edges.filter(e => e.kind === 'lane').length;
     const { ctx } = ctxFor(world, 6);
     const sys = new SettlementGrowthSystem();
-    for (let t = 0; t < 8000; t++) sys.tick({ ...ctx, now: t });
+    const laneCount = () => plan.edges.filter(e => e.kind === 'lane').length;
+    for (let t = 0; t < 8000 && laneCount() <= laneEdgesBefore; t++) sys.tick({ ...ctx, now: t });
     // a perpendicular lane was branched off the saturated street graph
     expect(plan.edges.filter(e => e.kind === 'lane').length).toBeGreaterThan(laneEdgesBefore);
   });

@@ -167,6 +167,22 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
       win_s: { type: 'window', face: 'south', params: { style: 'shuttered', t: 0.4, glazed: false } },
     } } },
   }),
+  // Watermill: a working civic building beside the stream (S6). 2×2 to match the
+  // CIVIC_RULES.mill reservation; timber over a stone base, a tall cart door, a
+  // wall vent reading as the wheel-housing gap. No upper storey — the wheel, not
+  // height, is the silhouette (the wheel itself awaits the separable-parts slice).
+  watermill: bp('watermill', {
+    category: 'craft', era: 'medieval', footprint: { w: 2, h: 2 },
+    materials: { walls: 'timber', roof: 'wood', ground: 'flagstone' },
+    parts: { body: {
+      type: 'body', size: { w: 2, h: 2 }, params: { plan: 'rect', levels: 1, storeyM: 3.2, roof: 'gable' },
+      features: {
+        door: { type: 'door', face: 'south', params: { main: true, t: 0.5, height: 1.3 } },
+        win_e: { type: 'window', face: 'east', params: { style: 'shuttered', t: 0.5, glazed: false } },
+        vent_w: { type: 'window', face: 'west', params: { t: 0.5, width: 0.1, height: 0.5, sill: 0.4, glazed: false } },
+      },
+    } },
+  }),
   yurt: bp('yurt', {
     category: 'residential', era: 'primordial', footprint: { w: 3, h: 3 },
     materials: { walls: 'hide', roof: 'hide', ground: 'dirt' },

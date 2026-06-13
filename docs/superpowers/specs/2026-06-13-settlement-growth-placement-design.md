@@ -238,6 +238,18 @@ Two invariants keep this safe and deterministic:
    (deterministic); civic precincts emit standing `well` + `graveyard` entities
    and hard-reserve their tiles against building placement (resolves the S4
    gotcha). `WORLD_CONTENT_VERSION` → 6. Spec:
-   `2026-06-13-settlement-growth-s5-spec.md`. **Deferred:** graveyard "filling"
-   with `remains` over deep time (the scalable model is a `buried` count); mill
-   as a working building; ward-mutation verbs.
+   `2026-06-13-settlement-growth-s5-spec.md`. **Deferred to S6:** graveyard
+   "filling" with `remains` over deep time (the scalable model is a `buried`
+   count); mill as a working building; ward-mutation verbs.
+
+6. **S6 — Civic life** ✅ (2026-06-13): the three S5 tails. (A) Graveyard-filling
+   — `recordBurial(world, poiId)` increments the home settlement's graveyard
+   `buried` COUNT (not relocation; the dead still persist as `remains`); hooked
+   into `killNpc` so both live mortality and the closed-form `applySkip` accrue
+   it. (B) Working mill — a new `watermill` Blueprint preset (2×2); the placer
+   emits the mill as a real building (tagged `building`/`workplace`) on its
+   reserved waterside ground instead of leaving it a bare reserve. (C) Ward
+   verbs — `rename_ward` / `retype_ward` authoring commands mutate `plan.wards`
+   in place (verb count 16 → 18). `WORLD_CONTENT_VERSION` → 7. Spec:
+   `2026-06-13-settlement-growth-s6-spec.md`. The settlement-growth epic
+   (S1–S6) is now complete.

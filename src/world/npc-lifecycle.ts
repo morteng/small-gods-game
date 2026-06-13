@@ -4,6 +4,7 @@ import type { EventLog } from '@/core/events';
 import type { Rng } from '@/core/rng';
 import type { SynthChild } from '@/sim/turnover';
 import { initNpcProps, npcProps, queryNpcs, NPC_KIND, REMAINS_KIND } from '@/world/npc-helpers';
+import { recordBurial } from '@/world/civic';
 
 /** Child faith = this fraction of the parents' average faith (generational dilution). */
 export const INHERIT_FAITH_FRAC = 0.4;
@@ -30,6 +31,9 @@ export function killNpc(
   p.deathTick = deathTick;
   p.deathCause = cause;
   world.updateEntity(entity.id, { kind: REMAINS_KIND });
+  // Tally the burial against the home settlement's graveyard (no-op if none) —
+  // works identically for live mortality and the closed-form time-skip.
+  recordBurial(world, p.homePoiId);
   log.append({ type: 'npc_death', npcId: entity.id, lineageId: p.lineageId, cause });
 }
 

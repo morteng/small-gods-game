@@ -33,9 +33,13 @@ import {
 /** Road tile types — door paths stop when they reach an existing road */
 const ROAD_TYPES = new Set(['dirt_road', 'stone_road', 'bridge']);
 
-/** Civic precinct type → entity kind to emit (S5). Civic types without an entry
- *  (mill, agent-registered ones) reserve ground but emit no prop yet. */
+/** Civic precinct type → PROP entity kind to emit (S5). Civic types without an
+ *  entry reserve ground but emit no prop: the `mill` takes the building branch
+ *  (S6); an agent-registered civic without a kind reserves ground only. */
 const CIVIC_ENTITY_KINDS: Record<string, string> = { well: 'well', graveyard: 'graveyard' };
+
+/** Civic precinct type → Blueprint preset to emit as a working building (S6). */
+const CIVIC_BUILDING_PRESETS: Record<string, string> = { mill: 'watermill' };
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -226,6 +230,21 @@ export function placeSettlement(
     for (const c of plan.civics) {
       for (let dy = 0; dy < c.h; dy++) {
         for (let dx = 0; dx < c.w; dx++) civicSet.add(`${c.x + dx},${c.y + dy}`);
+      }
+      // Mill → a working building (S6): synthesize its blueprint, carve the
+      // footprint solid, emit a blueprint entity like any structure. Name-derived
+      // seed keeps it deterministic (no rng).
+      const presetName = CIVIC_BUILDING_PRESETS[c.type];
+      if (presetName) {
+        const rb = synthesizeBlueprint(presetName);
+        if (!rb) continue;
+        const mill = blueprintEntity(`${poi.id}_civic_${c.type}`, rb, c.x, c.y, { poiId: poi.id });
+        mill.properties!.civic = c.type;
+        mill.tags = [...(mill.tags ?? []), 'settlement', 'civic', 'workplace'];
+        clearFootprint(c.x, c.y, rb.footprint.w, rb.footprint.h, registry, world, tiles);
+        registry.add(mill);
+        entities.push(mill);
+        continue;
       }
       const kind = CIVIC_ENTITY_KINDS[c.type];
       if (!kind) continue;
