@@ -215,8 +215,22 @@ Two invariants keep this safe and deterministic:
    scrub/re-roll leaves no ghost footprints. Spec:
    `2026-06-13-settlement-growth-s3-spec.md`. Deferred to S4: BACK-LANE
    (perpendicular) road growth + upgrade-in-place.
-4. **S4 — Constraint catalogue:** mills/bridges/wells/graveyard + water-aware
-   road walker; back-lane (discounted-A\*) grower; upgrade-in-place
-   (cottage → townhouse); frontage-value gradient for type picks.
+4. **S4 — Constraint catalogue** ✅ (2026-06-13): civic catalogue
+   (`CIVIC_RULES`/`registerCivicRule` open registry + `planCivics` →
+   `plan.civics`: a well on the green, a graveyard on the rim, a mill only
+   where water is in range — reserved precincts kept clear of burgage lots);
+   **back-lane growth** (`extendBackLane` — branches a perpendicular lane off a
+   junction/founding node once ribbon caps, re-subdivides coordinate-keyed);
+   **upgrade-in-place** (`UPGRADE_CHAINS`/`registerUpgrade` + `townhouse`
+   preset — a saturated settlement densifies cottage→townhouse on the same lot,
+   raising capacity without sprawl); **frontage-value gradient**
+   (`frontageValue` — prime/central lots fill and densify first). The growth
+   sequence is now infill → ribbon → upgrade → back-lane. Bridges + the
+   water-aware road walker were ALREADY shipped (`walkRoad`/`autoBridge` +
+   `bridgeCells` at the inter-POI connection layer in `map-generator.ts`), so
+   S4 only added the in-settlement catalogue. Spec:
+   `2026-06-13-settlement-growth-s4-spec.md`.
 5. **S5 — Skip integration + Fate lever:** D2 turnover → growth steps;
-   `grow_settlement` capability; ward mutation in era-authoring.
+   `grow_settlement` capability; ward mutation in era-authoring; emit civic
+   ENTITIES from the reserved precincts (well prop, graveyard filling with
+   `remains` over deep time).

@@ -25,7 +25,7 @@ import { blueprintEntity } from '@/blueprint/entity';
 import { toCollision } from '@/blueprint/compile/to-collision';
 import { toAnchors } from '@/blueprint/compile/to-anchors';
 import {
-  planSettlement, orderedSlotsFor, subdivideLots, widenMarket, assignWards,
+  planSettlement, orderedSlotsFor, subdivideLots, widenMarket, assignWards, planCivics,
   WATER_TYPES, BUILDABLE_TERRAIN, SITE_RULES,
   type SettlementPlan, type Lot, type FrontageSlot,
 } from './settlement-plan';
@@ -207,6 +207,7 @@ export function placeSettlement(
   widenMarket(plan, tiles);
   subdivideLots(plan, tiles, worldSeed);
   assignWards(plan, radius, tiles, worldSeed);
+  planCivics(plan, tiles, worldSeed);
   const roadTiles: RoadTile[] = [
     ...plan.edges.flatMap(e => e.tiles.map(t => ({ x: t.x, y: t.y, type: roadType }))),
     ...plan.market.map(m => ({ x: m.x, y: m.y, type: roadType })),

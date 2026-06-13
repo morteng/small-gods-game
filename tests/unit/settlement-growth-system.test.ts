@@ -5,7 +5,7 @@ import { SimClock } from '@/core/clock';
 import { EventLog, type SimEvent } from '@/core/events';
 import { createRng } from '@/core/rng';
 import { initNpcProps } from '@/world/npc-helpers';
-import { SettlementGrowthSystem, DWELLING_CAPACITY } from '@/sim/systems/settlement-growth-system';
+import { SettlementGrowthSystem, DWELLING_CAPACITY, UPGRADE_CHAINS } from '@/sim/systems/settlement-growth-system';
 import { placeSettlement } from '@/world/building-placer';
 import { reconcileSettlementTiles } from '@/world/settlement-reconcile';
 import { captureSnapshot, restoreSnapshot } from '@/core/snapshot';
@@ -173,6 +173,48 @@ describe('SettlementGrowthSystem', () => {
     // grown dwellings include ones on lots that did not exist before extending
     const grownBuildings = plan.lots.filter(l => l.buildingId?.includes('_bld_g'));
     expect(grownBuildings.length).toBeGreaterThan(0);
+  });
+
+  it('upgrades a dwelling in place once lots and ribbon are exhausted', () => {
+    // cottage → townhouse is the canonical upgrade chain
+    expect(UPGRADE_CHAINS.cottage).toBe('townhouse');
+    const { world, plan } = villageWorld();
+    const cap = capacityOf(world);
+    // sustained, heavy pressure so growth saturates lots + ribbon, then densifies
+    for (let i = 0; i < cap + 80; i++) addNpc(world, `npc${i}`);
+    const clock = new SimClock();
+    const log = new EventLog(clock);
+    const upgrades: SimEvent[] = [];
+    log.subscribe((a: { event: SimEvent }) => {
+      if (a.event.type === 'settlement_upgraded') upgrades.push(a.event);
+    });
+    const ctx = { world, spirits: new Map(), log, clock, rng: createRng(5), dt: 1000, now: 0 };
+    const sys = new SettlementGrowthSystem();
+    const capBefore = capacityOf(world);
+    for (let t = 0; t < 6000 && upgrades.length === 0; t++) sys.tick({ ...ctx, now: t });
+
+    expect(upgrades.length).toBeGreaterThan(0);
+    const ev = upgrades[0] as Extract<SimEvent, { type: 'settlement_upgraded' }>;
+    expect(ev.to).toBe(UPGRADE_CHAINS[ev.from]);
+    // the upgraded entity replaced the old one on the same lot, raising capacity
+    const lot = plan.lots.find(l => l.id === ev.lotId)!;
+    expect(lot.buildingId).toBe(ev.entityId);
+    expect(world.registry.get(ev.entityId)).toBeDefined();
+    expect(blueprintOf(world.registry.get(ev.entityId)!)!.rb.preset).toBe(ev.to);
+    expect(DWELLING_CAPACITY[ev.to]).toBeGreaterThan(DWELLING_CAPACITY[ev.from]);
+    expect(capacityOf(world)).toBeGreaterThan(capBefore);
+  });
+
+  it('branches a back lane after the through street caps out', () => {
+    const { world, plan } = villageWorld();
+    const cap = capacityOf(world);
+    for (let i = 0; i < cap + 120; i++) addNpc(world, `npc${i}`);
+    const laneEdgesBefore = plan.edges.filter(e => e.kind === 'lane').length;
+    const { ctx } = ctxFor(world, 6);
+    const sys = new SettlementGrowthSystem();
+    for (let t = 0; t < 8000; t++) sys.tick({ ...ctx, now: t });
+    // a perpendicular lane was branched off the saturated street graph
+    expect(plan.edges.filter(e => e.kind === 'lane').length).toBeGreaterThan(laneEdgesBefore);
   });
 
   it('is deterministic for identical worlds and seeds', () => {

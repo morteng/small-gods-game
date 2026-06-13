@@ -49,6 +49,25 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
       },
     } },
   }),
+  // Townhouse: the cottage's urban upgrade (S4 upgrade-in-place). Same 3×3
+  // burgage footprint, but TWO jettied storeys — densification without sprawl.
+  // Timber over a stone ground floor, a proper chimney, glazed upper windows.
+  townhouse: bp('townhouse', {
+    category: 'residential', era: 'medieval', footprint: { w: 3, h: 3 },
+    materials: { walls: 'timber', roof: 'tile', ground: 'flagstone' },
+    parts: { body: {
+      type: 'body', size: { w: 3, h: 2 },
+      params: { plan: 'rect', levels: 2, roof: 'gable', jetty: 0.12 },
+      features: {
+        door: { type: 'door', face: 'south', params: { main: true, t: 0.3 } },
+        win_s: { type: 'window', face: 'south', params: { style: 'shuttered', t: 0.7 } },
+        win_u1: { type: 'window', face: 'south', params: { style: 'shuttered', t: 0.3, sill: 1.8 } },
+        win_u2: { type: 'window', face: 'south', params: { style: 'shuttered', t: 0.7, sill: 1.8 } },
+        win_e: { type: 'window', face: 'east', params: { style: 'shuttered', t: 0.5, sill: 1.8 } },
+        smoke: { type: 'vent', params: { kind: 'chimney', t: 0.85 } },
+      },
+    } },
+  }),
   market_stall: bp('market_stall', {
     category: 'commercial', era: 'medieval', footprint: { w: 2, h: 2 },
     materials: { walls: 'timber', roof: 'thatch' },

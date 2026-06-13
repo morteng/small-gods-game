@@ -23,7 +23,7 @@ import { resolveSettlementEra } from '@/core/era';
 import { synthesizeBlueprint } from '@/blueprint/presets';
 import { blueprintEntity, blueprintOf } from '@/blueprint/entity';
 import { toAnchors } from '@/blueprint/compile/to-anchors';
-import { BUILDABLE_TERRAIN, extendThroughStreet, type Lot, type SettlementPlan } from '@/world/settlement-plan';
+import { BUILDABLE_TERRAIN, extendThroughStreet, extendBackLane, frontageValue, type Lot, type SettlementPlan } from '@/world/settlement-plan';
 import { tryGetEntityKindDef } from '@/world/entity-kinds';
 
 /** One fire per in-game day, matching births/mortality cadence. */
@@ -41,10 +41,27 @@ export const DWELLING_CAPACITY: Record<string, number> = {
   yurt: 4,
   cottage: 5,
   longhouse: 8,
+  townhouse: 8,
 };
 
 export function registerDwellingCapacity(preset: string, capacity: number): void {
   DWELLING_CAPACITY[preset] = capacity;
+}
+
+/**
+ * Upgrade-in-place chain (S4): a saturated settlement densifies by replacing a
+ * dwelling with a higher-capacity one ON THE SAME LOT, rather than sprawling.
+ * Open registry — the agent seam (Fate / era packs) extends it via
+ * `registerUpgrade`. An upgrade only fires when the target's capacity exceeds
+ * the source's AND its footprint still fits the lot.
+ */
+export const UPGRADE_CHAINS: Record<string, string> = {
+  yurt: 'cottage',
+  cottage: 'townhouse',
+};
+
+export function registerUpgrade(from: string, to: string): void {
+  UPGRADE_CHAINS[from] = to;
 }
 
 const NATURE_CATEGORIES = new Set(['vegetation', 'terrain-feature']);
@@ -142,10 +159,13 @@ export class SettlementGrowthSystem implements System {
   }
 
   /**
-   * Place one dwelling: try the existing free lots first (infill → ribbon
-   * order); if none fit, extend the through street once (ribbon growth) and
-   * retry on the newly-subdivided lots. Silently skips if nothing fits even
-   * after extending (frontage + extension both saturated — S4 grows lanes).
+   * Grow one step, in the medieval growth sequence:
+   *   1. INFILL  — place a dwelling on an existing free lot.
+   *   2. RIBBON  — frontage saturated → extend the through street, retry.
+   *   3. UPGRADE — ribbon capped → densify in place (cottage → townhouse).
+   *   4. BACK-LANE — still pressed → branch a perpendicular lane, retry.
+   * Silently stops once every avenue is exhausted (lots full, graph at the
+   * node cap, nothing left to upgrade).
    */
   private growOne(ctx: SystemContext, plan: SettlementPlan): void {
     const map = ctx.world.tiles;
@@ -164,21 +184,83 @@ export class SettlementGrowthSystem implements System {
     const facing: [number, number] = door?.facing ?? [0, 1];
     const want: [number, number] = [-facing[0], -facing[1]];
 
+    // 1. Infill existing free lots.
     if (this.tryPlace(ctx, plan, rb, presetName, facing, want)) return;
 
-    // Frontage saturated → grow one ribbon extension of the main street and
-    // retry. extendThroughStreet re-subdivides (coordinate-keyed, so existing
-    // lots reproduce exactly and keep their claims); carve the new tiles into
-    // the live grid so the road is walkable + buildings keep off it.
     const roadType = getZoneRule(poi.type).internalRoadType ?? 'dirt_road';
     const seed = map.seed ?? 0;
-    const newTiles = extendThroughStreet(plan, map.tiles, seed);
-    if (!newTiles) return;
-    for (const t of newTiles) {
-      const tile = map.tiles[t.y]?.[t.x];
-      if (tile) { tile.type = roadType; tile.walkable = true; }
+    const carve = (tiles: { x: number; y: number }[] | null): boolean => {
+      if (!tiles) return false;
+      for (const t of tiles) {
+        const tile = map.tiles[t.y]?.[t.x];
+        if (tile) { tile.type = roadType; tile.walkable = true; }
+      }
+      return true;
+    };
+
+    // 2. Ribbon-extend the through street, retry.
+    if (carve(extendThroughStreet(plan, map.tiles, seed))
+      && this.tryPlace(ctx, plan, rb, presetName, facing, want)) return;
+
+    // 3. Densify in place — upgrade a standing dwelling to a bigger one.
+    if (this.tryUpgrade(ctx, plan)) return;
+
+    // 4. Branch a back lane, retry on its fresh lots.
+    if (carve(extendBackLane(plan, map.tiles, seed))) {
+      this.tryPlace(ctx, plan, rb, presetName, facing, want);
     }
-    this.tryPlace(ctx, plan, rb, presetName, facing, want);
+  }
+
+  /**
+   * Upgrade-in-place (S4): replace a standing dwelling with its UPGRADE_CHAINS
+   * target on the SAME lot, raising capacity without consuming new ground.
+   * Prime-frontage lots densify first (frontageValue order). Returns true when
+   * an upgrade fired.
+   */
+  private tryUpgrade(ctx: SystemContext, plan: SettlementPlan): boolean {
+    const candidates = plan.lots
+      .filter(l => l.buildingId)
+      .map(l => {
+        const e = ctx.world.registry.get(l.buildingId!);
+        const from = e ? blueprintOf(e)?.rb.preset : undefined;
+        const to = from ? UPGRADE_CHAINS[from] : undefined;
+        return { l, e, from, to };
+      })
+      .filter(c => c.e && c.from && c.to
+        && (DWELLING_CAPACITY[c.to!] ?? 0) > (DWELLING_CAPACITY[c.from!] ?? 0))
+      .sort((a, b) => frontageValue(plan, b.l) - frontageValue(plan, a.l)
+        || (a.l.id < b.l.id ? -1 : 1));
+
+    for (const { l, e, from, to } of candidates) {
+      const rb = synthesizeBlueprint(to!);
+      if (!rb) continue;
+      const { w, h } = rb.footprint;
+      const lotSet = new Set(l.tiles.map(t => `${t.x},${t.y}`));
+      // Reuse the standing building's origin — the upgrade keeps the same
+      // frontage. Verify the (possibly larger) footprint stays within the lot.
+      const ox = e!.x, oy = e!.y;
+      let inLot = true;
+      for (let dy = 0; dy < h && inLot; dy++) {
+        for (let dx = 0; dx < w; dx++) {
+          if (!lotSet.has(`${ox + dx},${oy + dy}`)) { inLot = false; break; }
+        }
+      }
+      if (!inLot) continue;
+
+      const id = `${plan.poiId}_bld_u${ctx.now}`;
+      if (ctx.world.registry.get(id)) return true;     // already acted this tick
+      ctx.world.removeEntity(e!.id);
+      const entity = blueprintEntity(id, rb, ox, oy, { poiId: plan.poiId });
+      ctx.world.addEntity(entity);
+      stampFootprint(ctx.world, entity);
+      l.buildingId = id;
+      ctx.log.append({
+        type: 'settlement_upgraded',
+        poiId: plan.poiId!, entityId: id, from: from!, to: to!, lotId: l.id,
+      });
+      return true;
+    }
+    return false;
   }
 
   /** Place the dwelling on the best fitting free lot. Returns true on success. */
@@ -192,13 +274,11 @@ export class SettlementGrowthSystem implements System {
     const nearClaimed = (l: Lot): boolean =>
       claimed.some(c => c.frontage.some(cf => l.frontage.some(lf =>
         Math.max(Math.abs(cf.x - lf.x), Math.abs(cf.y - lf.y)) <= 2)));
+    // Infill-first (claimed neighbour ≤2 tiles), then by frontage value
+    // (prime/central lots before the rim — the medieval value gradient).
     const free = plan.lots
       .filter(l => !l.buildingId && l.side[0] === want[0] && l.side[1] === want[1])
-      .map(l => ({
-        l,
-        k: (nearClaimed(l) ? 0 : 100)
-          + Math.abs(l.frontage[0].x - plan.center.x) + Math.abs(l.frontage[0].y - plan.center.y),
-      }))
+      .map(l => ({ l, k: (nearClaimed(l) ? 0 : 100) + (1 - frontageValue(plan, l)) }))
       .sort((a, b) => a.k - b.k)
       .map(({ l }) => l);
 

@@ -73,6 +73,19 @@ export interface Ward {
   tiles: { x: number; y: number }[];
 }
 
+/**
+ * A reserved civic precinct (S4): well / graveyard / mill — placed by the
+ * constraint catalogue, kept clear of burgage lots so future slices (and
+ * Fate) can build the actual structure or fill the ground over deep time
+ * (the churchyard gathering `remains`). Plan data only in this slice — no
+ * entity is emitted at worldgen; the reserve is the open hook.
+ */
+export interface CivicSite {
+  type: string;                    // 'well' | 'graveyard' | 'mill' | agent-added
+  x: number; y: number;            // footprint origin
+  w: number; h: number;
+}
+
 export interface SettlementPlan {
   /** Owning POI — set by `placeSettlement`, ties the plan to its settlement
    *  for live growth (S3). */
@@ -83,6 +96,8 @@ export interface SettlementPlan {
   slots: FrontageSlot[];
   lots: Lot[];
   wards: Ward[];
+  /** Reserved civic precincts (well/graveyard/mill — S4 constraint catalogue). */
+  civics: CivicSite[];
   /** Widened-main-street market tiles around the founding node. */
   market: { x: number; y: number }[];
 }
@@ -147,7 +162,7 @@ export function planSettlement(
 ): SettlementPlan {
   const nodes: RoadNode[] = [{ id: 'n0', x: center.x, y: center.y, kind: 'founding' }];
   const edges: RoadEdge[] = [];
-  const plan: SettlementPlan = { center, nodes, edges, slots: [], lots: [], wards: [], market: [] };
+  const plan: SettlementPlan = { center, nodes, edges, slots: [], lots: [], wards: [], civics: [], market: [] };
   if (!rule.internalRoads || rule.roadLayout === 'none' || rule.roadLayout === undefined) {
     return plan;
   }
@@ -248,6 +263,11 @@ function lotTileOk(x: number, y: number, tiles: Tile[][], roadSet: Set<string>):
 export function subdivideLots(plan: SettlementPlan, tiles: Tile[][], seed: number): Lot[] {
   const roadSet = new Set(plan.edges.flatMap(e => e.tiles.map(t => `${t.x},${t.y}`)));
   for (const m of plan.market) roadSet.add(`${m.x},${m.y}`);
+  // Reserved civic precincts are not buildable lot ground — exclude them so
+  // re-subdivision (ribbon/back-lane growth) never lots over a well or graveyard.
+  for (const c of plan.civics) {
+    for (let dy = 0; dy < c.h; dy++) for (let dx = 0; dx < c.w; dx++) roadSet.add(`${c.x + dx},${c.y + dy}`);
+  }
   const claimed = new Set<string>();
   const lots: Lot[] = [];
 
@@ -361,6 +381,207 @@ export function extendThroughStreet(
     }
   }
   return null;
+}
+
+/**
+ * Back-lane growth (S4): once ribbon extension is exhausted, branch a NEW lane
+ * perpendicular to the main street from an existing founding/junction node and
+ * re-subdivide. This is the medieval back-lane stage — the town deepens away
+ * from the high street rather than stretching it further. Lot dimensions are
+ * coordinate-keyed, so existing lots reproduce identically and keep their
+ * claims. Returns the new road tiles (caller carves them live), or null when
+ * nothing can branch (node cap, every side blocked by water/road/map edge).
+ */
+export function extendBackLane(
+  plan: SettlementPlan,
+  tiles: Tile[][],
+  seed: number,
+): { x: number; y: number }[] | null {
+  if (plan.nodes.length >= MAX_PLAN_NODES) return null;
+  const through = plan.edges.find(e => e.kind === 'through' && e.tiles.length > 1);
+  if (!through) return null;
+  const axis = {
+    dx: Math.sign(through.tiles[1].x - through.tiles[0].x),
+    dy: Math.sign(through.tiles[1].y - through.tiles[0].y),
+  };
+  const perp = { dx: -axis.dy, dy: axis.dx };
+  const roadSet = new Set(plan.edges.flatMap(e => e.tiles.map(t => `${t.x},${t.y}`)));
+  for (const m of plan.market) roadSet.add(`${m.x},${m.y}`);
+  const { x: cx, y: cy } = plan.center;
+
+  // Branch off founding/junction nodes (deterministic node order), each
+  // perpendicular side. Skip a side already carrying a lane or blocked.
+  for (const node of plan.nodes) {
+    if (node.kind === 'end') continue;
+    for (const s of [1, -1]) {
+      const dir = { dx: perp.dx * s, dy: perp.dy * s };
+      const first = { x: node.x + dir.dx, y: node.y + dir.dy };
+      if (roadSet.has(`${first.x},${first.y}`)) continue;
+      const run = walkTiles(first.x, first.y, dir, EXTEND_LEN - 1, tiles);
+      if (run.length < 2 || run.some(t => roadSet.has(`${t.x},${t.y}`))) continue;
+
+      const newId = `n${plan.nodes.length}b`;
+      const last = run[run.length - 1];
+      plan.nodes.push({ id: newId, x: last.x, y: last.y, kind: 'end' });
+      plan.edges.push({ a: node.id, b: newId, tiles: run, kind: 'lane' });
+
+      // Re-derive slots + lots for the grown graph; carry claims by id
+      // (coordinate-keyed subdivision reproduces existing lots exactly).
+      const claims = new Map(plan.lots.filter(l => l.buildingId).map(l => [l.id, l.buildingId!]));
+      plan.slots = [];
+      plan.edges.forEach((e, ei) => {
+        const d = e.tiles.length > 1
+          ? { dx: Math.sign(e.tiles[1].x - e.tiles[0].x), dy: Math.sign(e.tiles[1].y - e.tiles[0].y) }
+          : { dx: 1, dy: 0 };
+        const sides: [number, number][] = [[-d.dy, d.dx], [d.dy, -d.dx]];
+        for (const t of e.tiles) {
+          for (const side of sides) {
+            plan.slots.push({ roadX: t.x, roadY: t.y, side, edge: ei,
+              dist: Math.abs(t.x - cx) + Math.abs(t.y - cy) });
+          }
+        }
+      });
+      subdivideLots(plan, tiles, seed);
+      for (const lot of plan.lots) {
+        const claim = claims.get(lot.id);
+        if (claim) lot.buildingId = claim;
+      }
+      return run;
+    }
+  }
+  return null;
+}
+
+// ─── Frontage value ─────────────────────────────────────────────────────────
+
+/**
+ * Prime-ness of a lot's frontage in (0, 1] — 1 at the founding node / market,
+ * decaying with distance (the medieval frontage-value gradient: market and
+ * crossroads frontage is prime, cottages further out). Drives growth order:
+ * prime lots fill and densify first. Agents can read it to weight commercial
+ * placement; it stays a pure function of plan geometry so it's replay-stable.
+ */
+export function frontageValue(plan: SettlementPlan, lot: Lot): number {
+  const f = lot.frontage[0] ?? lot.tiles[0];
+  if (!f) return 0;
+  const d = Math.abs(f.x - plan.center.x) + Math.abs(f.y - plan.center.y);
+  return 1 / (1 + d);
+}
+
+// ─── Civic catalogue ──────────────────────────────────────────────────────────
+
+/** Where a civic precinct sites itself. */
+export interface CivicRule {
+  size: { w: number; h: number };
+  /** 'green' = beside the founding node; 'edge' = settlement rim;
+   *  'water' = nearest buildable ground to water (skipped if none in range). */
+  site: 'green' | 'edge' | 'water';
+  /** Hard requirement for `water` sites: a water tile within this many tiles. */
+  nearWater?: number;
+}
+
+/**
+ * Open civic registry — the same agent seam as SITE_RULES / DWELLING_CAPACITY.
+ * Fate / era content packs register new civic precincts (smithy, gallows,
+ * shrine-stone) via `registerCivicRule` without touching this table.
+ */
+export const CIVIC_RULES: Record<string, CivicRule> = {
+  well:      { size: { w: 1, h: 1 }, site: 'green' },
+  graveyard: { size: { w: 2, h: 2 }, site: 'edge' },
+  mill:      { size: { w: 2, h: 2 }, site: 'water', nearWater: 3 },
+};
+
+export function registerCivicRule(type: string, rule: CivicRule): void {
+  CIVIC_RULES[type] = rule;
+}
+
+function waterWithin(x: number, y: number, w: number, h: number, tiles: Tile[][], range: number): boolean {
+  for (let dy = -range; dy < h + range; dy++) {
+    for (let dx = -range; dx < w + range; dx++) {
+      const t = tiles[y + dy]?.[x + dx];
+      if (t && WATER_TYPES.has(t.type)) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Reserve civic precincts over the planned settlement (S4 constraint
+ * catalogue). Pure, deterministic (coordinate scans, no rng): a well on the
+ * green beside the founding node, a graveyard on the settlement rim, a mill
+ * only where water is in range. Each footprint must sit on buildable ground,
+ * off existing roads/market/lots/other civics. Writes `plan.civics`.
+ */
+export function planCivics(plan: SettlementPlan, tiles: Tile[][], seed: number): CivicSite[] {
+  void seed; // reserved for future dithered siting
+  const { x: cx, y: cy } = plan.center;
+  const reserved = new Set<string>();
+  for (const e of plan.edges) for (const t of e.tiles) reserved.add(`${t.x},${t.y}`);
+  for (const m of plan.market) reserved.add(`${m.x},${m.y}`);
+  for (const l of plan.lots) for (const t of l.tiles) reserved.add(`${t.x},${t.y}`);
+
+  const extent = plan.nodes.reduce(
+    (m, n) => Math.max(m, Math.abs(n.x - cx) + Math.abs(n.y - cy)), 1) + 2;
+
+  const fits = (x: number, y: number, w: number, h: number): boolean => {
+    for (let dy = 0; dy < h; dy++) {
+      for (let dx = 0; dx < w; dx++) {
+        const t = tiles[y + dy]?.[x + dx];
+        if (!t || !BUILDABLE_TERRAIN.has(t.type)) return false;
+        if (reserved.has(`${x + dx},${y + dy}`)) return false;
+      }
+    }
+    return true;
+  };
+  const reserve = (s: CivicSite): void => {
+    for (let dy = 0; dy < s.h; dy++) for (let dx = 0; dx < s.w; dx++) reserved.add(`${s.x + dx},${s.y + dy}`);
+  };
+
+  const civics: CivicSite[] = [];
+  // Stable iteration over the catalogue (insertion order).
+  for (const [type, rule] of Object.entries(CIVIC_RULES)) {
+    const { w, h } = rule.size;
+    let best: CivicSite | null = null;
+    if (rule.site === 'green') {
+      // Nearest buildable footprint to the founding node, ring by ring out.
+      for (let r = 1; r <= extent && !best; r++) {
+        for (let dy = -r; dy <= r && !best; dy++) {
+          for (let dx = -r; dx <= r && !best; dx++) {
+            if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+            const x = cx + dx, y = cy + dy;
+            if (fits(x, y, w, h)) best = { type, x, y, w, h };
+          }
+        }
+      }
+    } else if (rule.site === 'edge') {
+      // Farthest buildable footprint within the settlement extent (the rim).
+      for (let r = extent; r >= 1 && !best; r--) {
+        for (let dy = -r; dy <= r && !best; dy++) {
+          for (let dx = -r; dx <= r && !best; dx++) {
+            if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+            const x = cx + dx, y = cy + dy;
+            if (fits(x, y, w, h)) best = { type, x, y, w, h };
+          }
+        }
+      }
+    } else {
+      // 'water': closest buildable footprint to the centre that still touches
+      // water within range — no water in range ⇒ no mill (mills need a stream).
+      let bestD = Infinity;
+      for (let y = cy - extent; y <= cy + extent; y++) {
+        for (let x = cx - extent; x <= cx + extent; x++) {
+          if (!fits(x, y, w, h)) continue;
+          if (!waterWithin(x, y, w, h, tiles, rule.nearWater ?? 2)) continue;
+          const d = Math.abs(x - cx) + Math.abs(y - cy);
+          if (d < bestD) { bestD = d; best = { type, x, y, w, h }; }
+        }
+      }
+    }
+    if (best) { civics.push(best); reserve(best); }
+  }
+
+  plan.civics = civics;
+  return civics;
 }
 
 // ─── Market ───────────────────────────────────────────────────────────────────
