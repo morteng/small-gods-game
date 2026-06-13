@@ -258,7 +258,7 @@ describe('civic entity emission', () => {
     }
     for (const e of entities) {
       const bp = blueprintOf(e);
-      if (!bp) continue; // skip the civic props themselves
+      if (bp?.rb.class !== 'building') continue; // skip the civic props themselves (now blueprint-backed)
       for (let dy = 0; dy < bp.collision.footprint.h; dy++) {
         for (let dx = 0; dx < bp.collision.footprint.w; dx++) {
           expect(civicSet.has(`${e.x + dx},${e.y + dy}`),

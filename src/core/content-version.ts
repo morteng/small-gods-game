@@ -30,4 +30,4 @@ export const ART_RECIPE_VERSION = 'v7';
  * An autosave stamped with a different value is discarded on load → a fresh
  * world is generated. Distinct from SAVE_VERSION (which guards the save *schema*).
  */
-export const WORLD_CONTENT_VERSION = 7;   // settlement growth S6: mill emitted as a working building (watermill blueprint), not just reserved ground
+export const WORLD_CONTENT_VERSION = 8;   // render Slice 1: wells/graveyards emitted as geometry-backed blueprint props (class:'prop'), not invisible bare props

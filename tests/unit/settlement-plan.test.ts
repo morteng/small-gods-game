@@ -108,7 +108,7 @@ describe('placeSettlement — plan execution', () => {
   it('slot-placed buildings front a road: walking out of the door reaches one within 2 tiles', () => {
     const { result } = run();
     // result.entities now carries civic props too (S5) — restrict to buildings.
-    const buildings = result.entities.filter(e => blueprintOf(e));
+    const buildings = result.entities.filter(e => blueprintOf(e)?.rb.class === 'building');
     expect(buildings.length).toBeGreaterThan(0);
     const roadSet = new Set(result.roadTiles.map(rt => `${rt.x},${rt.y}`));
     let fronting = 0;
@@ -134,7 +134,7 @@ describe('placeSettlement — plan execution', () => {
     const { result } = run();
     const roadSet = new Set(result.roadTiles.map(rt => `${rt.x},${rt.y}`));
     const seen = new Set<string>();
-    for (const e of result.entities.filter(e => blueprintOf(e))) {
+    for (const e of result.entities.filter(e => blueprintOf(e)?.rb.class === 'building')) {
       const bp = blueprintOf(e)!;
       for (let dy = 0; dy < bp.collision.footprint.h; dy++) {
         for (let dx = 0; dx < bp.collision.footprint.w; dx++) {

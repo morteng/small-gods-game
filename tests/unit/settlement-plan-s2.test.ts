@@ -159,7 +159,7 @@ describe('placeSettlement — lot claiming', () => {
     // and the converse: no unclaimed lot contains any footprint tile
     for (const lot of result.plan.lots.filter(l => !l.buildingId)) {
       const set = new Set(lot.tiles.map(t => `${t.x},${t.y}`));
-      for (const e of result.entities.filter(e => blueprintOf(e))) {
+      for (const e of result.entities.filter(e => blueprintOf(e)?.rb.class === 'building')) {
         const bp = blueprintOf(e)!;
         for (let dy = 0; dy < bp.collision.footprint.h; dy++) {
           for (let dx = 0; dx < bp.collision.footprint.w; dx++) {
@@ -176,7 +176,7 @@ describe('placeSettlement — lot claiming', () => {
     expect(result.plan.market.length).toBeGreaterThan(0);
     const roadSet = new Set(result.roadTiles.map(rt => `${rt.x},${rt.y}`));
     for (const m of result.plan.market) expect(roadSet.has(`${m.x},${m.y}`)).toBe(true);
-    for (const e of result.entities.filter(e => blueprintOf(e))) {
+    for (const e of result.entities.filter(e => blueprintOf(e)?.rb.class === 'building')) {
       const bp = blueprintOf(e)!;
       for (let dy = 0; dy < bp.collision.footprint.h; dy++) {
         for (let dx = 0; dx < bp.collision.footprint.w; dx++) {

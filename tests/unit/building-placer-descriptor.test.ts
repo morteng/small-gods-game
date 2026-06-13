@@ -56,7 +56,7 @@ describe('placeSettlement produces blueprint entities', () => {
     );
     expect(entities.length).toBeGreaterThan(0);
     // result.entities now carries civic props too (S5) — restrict to buildings.
-    for (const e of entities.filter(e => blueprintOf(e))) {
+    for (const e of entities.filter(e => blueprintOf(e)?.rb.class === 'building')) {
       expect(e.tags).toContain('building');
       const stored = blueprintOf(e);
       expect(stored, e.id).toBeDefined();
@@ -72,7 +72,7 @@ describe('placeSettlement produces blueprint entities', () => {
       poi, getZoneRule('village'), tiles, world.registry, [], new Random(7), 'medieval', world,
     );
     expect(entities.length).toBeGreaterThan(0);
-    for (const e of entities.filter(e => blueprintOf(e))) {
+    for (const e of entities.filter(e => blueprintOf(e)?.rb.class === 'building')) {
       const fp = blueprintOf(e)!.rb.footprint;
       const door = doorOf(e);
       const doorTile = tiles[e.y + door.y][e.x + door.x];

@@ -6,7 +6,7 @@ import type { WallFace } from '@/assetgen/geometry/building';
 
 export const BLUEPRINT_VERSION = 1;
 
-export type EntityClass = 'building' | 'barrier' | 'plant' | 'terrain_feature';
+export type EntityClass = 'building' | 'prop' | 'barrier' | 'plant' | 'terrain_feature';
 export interface Palette { walls?: string; roof?: string; trim?: string }
 
 /** An attached opening/fixture on a part: door / vent / window. Class-neutral. */

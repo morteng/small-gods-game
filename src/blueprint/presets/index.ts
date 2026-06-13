@@ -8,6 +8,12 @@ import { ensureBuildingTypesRegistered } from '../register-buildings';
 const bp = (preset: string, b: Omit<Blueprint, 'version' | 'class' | 'preset'>): Blueprint =>
   ({ version: BLUEPRINT_VERSION, class: 'building', preset, ...b });
 
+/** Civic props — small free-standing structures that are NOT buildings (well/graveyard).
+ *  Same generate→sprite pipeline; `class:'prop'` keeps them out of building counts and
+ *  off the `canPlaceIgnoringNature` blocker (see entity.ts class→category mapping). */
+const prop = (preset: string, b: Omit<Blueprint, 'version' | 'class' | 'preset'>): Blueprint =>
+  ({ version: BLUEPRINT_VERSION, class: 'prop', preset, ...b });
+
 export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
   // Peasant cottage: rectangular plan (1:1.5), door + one shuttered window on the
   // entry face, one on the gable, ridge smoke LOUVRE (no chimney — period default
@@ -182,6 +188,18 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
         vent_w: { type: 'window', face: 'west', params: { t: 0.5, width: 0.1, height: 0.5, sill: 0.4, glazed: false } },
       },
     } },
+  }),
+  // Civic props (NOT buildings — class:'prop'). The same generate→sprite pipeline:
+  // a stone well on the green, a graveyard on the settlement rim (sacred).
+  well: prop('well', {
+    category: 'civic', era: 'medieval', footprint: { w: 1, h: 1 },
+    materials: { walls: 'stone', roof: 'tile', ground: 'flagstone' },
+    parts: { well: { type: 'well', size: { w: 1, h: 1 }, params: {} } },
+  }),
+  graveyard: prop('graveyard', {
+    category: 'religious', era: 'medieval', footprint: { w: 2, h: 2 },
+    materials: { walls: 'stone', roof: 'tile', ground: 'dirt' },
+    parts: { yard: { type: 'graveyard', size: { w: 2, h: 2 }, params: { stones: 5 } } },
   }),
   yurt: bp('yurt', {
     category: 'residential', era: 'primordial', footprint: { w: 3, h: 3 },
