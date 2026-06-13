@@ -269,10 +269,6 @@ describe('placeSettlement water filtering', () => {
 // ─── ZoneRule extension ───────────────────────────────────────────────────────
 
 describe('ZoneRule fields', () => {
-  it('village has clearForest=true', () => {
-    expect(getZoneRule('village').clearForest).toBe(true);
-  });
-
   it('village has roadLayout=branching', () => {
     expect(getZoneRule('village').roadLayout).toBe('branching');
   });

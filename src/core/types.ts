@@ -53,6 +53,8 @@ export interface Village {
   y: number;
   name?: string;
   type: string;
+  /** Named districts from the settlement plan (S2) — promptable by name. */
+  wards?: { name: string; type: string }[];
 }
 
 /** Point of Interest */

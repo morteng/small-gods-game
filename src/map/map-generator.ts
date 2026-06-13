@@ -18,6 +18,8 @@ import { generateHydrology } from '@/terrain/hydrology';
 import { walkRoad } from '@/terrain/road-walker';
 import { erodeElevation } from '@/terrain/erosion';
 import { placeSettlement } from '@/world/building-placer';
+import type { SettlementPlan } from '@/world/settlement-plan';
+import { applyAllSettlementWear } from '@/world/settlement-wear';
 import { blueprintOf } from '@/blueprint/entity';
 import { clearObstructedVegetation } from '@/world/vegetation-clear';
 import { getZoneRule } from '@/map/poi-zones';
@@ -178,11 +180,9 @@ export async function generateWithNoise(
   const villages: GameMap['villages'] = [];
   const rng = new Random((seed * 6271 + 9999) | 0);
 
+  const settlementPlans: SettlementPlan[] = [];
   if (worldSeed?.pois) {
     for (const poi of worldSeed.pois) {
-      if (poi.position) {
-        villages.push({ x: poi.position.x, y: poi.position.y, name: poi.name, type: poi.type });
-      }
       const zoneRule = getZoneRule(poi.type);
       if (!poi.position) continue;
 
@@ -191,7 +191,14 @@ export async function generateWithNoise(
         : [];
 
       const era = resolveSettlementEra(poi, worldSeed);
-      const result = placeSettlement(poi, zoneRule, tiles, world.registry, connectedDirs, rng, era, world);
+      const result = placeSettlement(
+        poi, zoneRule, tiles, world.registry, connectedDirs, rng, era, world, seed,
+      );
+      settlementPlans.push(result.plan);
+      villages.push({
+        x: poi.position.x, y: poi.position.y, name: poi.name, type: poi.type,
+        wards: result.plan.wards.map(w => ({ name: w.name, type: w.type })),
+      });
 
       // Keep World's secondary indexes in sync with entities added directly via registry
       for (const e of result.entities) {
@@ -262,6 +269,13 @@ export async function generateWithNoise(
     stats: { iterations: 0, backtracks: 0 },
     buildings,
   };
+
+  // Settlement wear: trample high-traffic ground to dirt + cull vegetation
+  // near roads, with seeded dither — the biome pokes through between lots.
+  // Runs after the POI brushes so flavour flora near streets gets culled too.
+  report('Applying settlement wear...');
+  const worn = applyAllSettlementWear(settlementPlans, map, world, seed);
+  if (worn > 0) report(`Trampled ${worn} tiles`);
 
   // Reconcile vegetation against terrain/structures: roads and rivers clear
   // trees, and nothing vegetates on a building footprint. Runs last so it

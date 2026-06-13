@@ -25,8 +25,9 @@ import { blueprintEntity } from '@/blueprint/entity';
 import { toCollision } from '@/blueprint/compile/to-collision';
 import { toAnchors } from '@/blueprint/compile/to-anchors';
 import {
-  planSettlement, orderedSlotsFor, WATER_TYPES, SITE_RULES,
-  type SettlementPlan,
+  planSettlement, orderedSlotsFor, subdivideLots, widenMarket, assignWards,
+  WATER_TYPES, SITE_RULES,
+  type SettlementPlan, type Lot, type FrontageSlot,
 } from './settlement-plan';
 
 /** Road tile types — door paths stop when they reach an existing road */
@@ -191,6 +192,7 @@ export function placeSettlement(
   rng:                 Random,
   era:                 Era = 'medieval',
   world?:              World,  // Optional World reference for entity sync
+  worldSeed = 0,                // Stable seed for coordinate-keyed lots/wards
 ): SettlementResult {
   const cx = poi.position?.x ?? 0;
   const cy = poi.position?.y ?? 0;
@@ -199,11 +201,35 @@ export function placeSettlement(
   const buildingCount = rng.int(zoneRule.buildingCount.min, zoneRule.buildingCount.max);
   const radius = rng.int(zoneRule.radius.min, zoneRule.radius.max);
 
-  // 1. Plan: road graph + frontage slots.
+  // 1. Plan: road graph + market widening + burgage lots + wards.
   const plan = planSettlement({ x: cx, y: cy }, zoneRule, tiles, connectedDirections, rng);
-  const roadTiles: RoadTile[] = plan.edges.flatMap(e =>
-    e.tiles.map(t => ({ x: t.x, y: t.y, type: roadType })));
+  widenMarket(plan, tiles);
+  subdivideLots(plan, tiles, worldSeed);
+  assignWards(plan, radius, tiles, worldSeed);
+  const roadTiles: RoadTile[] = [
+    ...plan.edges.flatMap(e => e.tiles.map(t => ({ x: t.x, y: t.y, type: roadType }))),
+    ...plan.market.map(m => ({ x: m.x, y: m.y, type: roadType })),
+  ];
   const roadSet = new Set(roadTiles.map(rt => `${rt.x},${rt.y}`));
+
+  // Lot lookup: unclaimed lot owning a given frontage slot, with a tile set
+  // for footprint-containment checks.
+  const lotTileSets = new Map<Lot, Set<string>>(
+    plan.lots.map(l => [l, new Set(l.tiles.map(t => `${t.x},${t.y}`))]));
+  const lotForSlot = (slot: FrontageSlot): Lot | undefined =>
+    plan.lots.find(l => !l.buildingId
+      && l.side[0] === slot.side[0] && l.side[1] === slot.side[1]
+      && l.frontage.some(f => f.x === slot.roadX && f.y === slot.roadY));
+  const footprintInLot = (lot: Lot, x: number, y: number, w: number, h: number): boolean => {
+    const set = lotTileSets.get(lot);
+    if (!set) return false;
+    for (let dy = 0; dy < h; dy++) {
+      for (let dx = 0; dx < w; dx++) {
+        if (!set.has(`${x + dx},${y + dy}`)) return false;
+      }
+    }
+    return true;
+  };
 
   const constraint: PlacementConstraint = {
     allowedTerrain: ['grass', 'dirt', 'sand', 'scrubland', 'farm_field', 'sacred_grove',
@@ -249,22 +275,34 @@ export function placeSettlement(
          door.y - (facing[1] > 0 ? 1 : facing[1] < 0 ? 0 : 0.5)]
       : (toCollision(rb).doorCells[0] ?? '0,0').split(',').map(Number);
     let origin: PlacementResult | null = null;
+    let claimedLot: Lot | undefined;
 
-    for (const slot of orderedSlotsFor(plan, facing, site, rng)) {
-      // Align the footprint edge on the DOOR side flush against the road —
-      // the door fronts the road across at most its own yard strip (some
-      // presets keep a lawn row between the body and the footprint edge).
-      const { w, h } = rb.footprint;
-      const ox = facing[0] > 0 ? slot.roadX - w
-        : facing[0] < 0 ? slot.roadX + 1
-        : slot.roadX - doorCell[0];
-      const oy = facing[1] > 0 ? slot.roadY - h
-        : facing[1] < 0 ? slot.roadY + 1
-        : slot.roadY - doorCell[1];
-      if (fitsAt(ox, oy, w, h, site?.nearWater)) {
+    // Pass 1: claim a burgage lot (footprint fully inside the lot — regular
+    // spacing + back yard). Pass 2: any fitting slot (S1 behaviour) for
+    // footprints no lot can hold (keep, wide barns).
+    const orderedSlots = orderedSlotsFor(plan, facing, site, rng);
+    for (const strictLots of [true, false]) {
+      for (const slot of orderedSlots) {
+        // Align the footprint edge on the DOOR side flush against the road —
+        // the door fronts the road across at most its own yard strip (some
+        // presets keep a lawn row between the body and the footprint edge).
+        const { w, h } = rb.footprint;
+        const ox = facing[0] > 0 ? slot.roadX - w
+          : facing[0] < 0 ? slot.roadX + 1
+          : slot.roadX - doorCell[0];
+        const oy = facing[1] > 0 ? slot.roadY - h
+          : facing[1] < 0 ? slot.roadY + 1
+          : slot.roadY - doorCell[1];
+        if (!fitsAt(ox, oy, w, h, site?.nearWater)) continue;
+        if (strictLots) {
+          const lot = lotForSlot(slot);
+          if (!lot || !footprintInLot(lot, ox, oy, w, h)) continue;
+          claimedLot = lot;
+        }
         origin = { tileX: ox, tileY: oy };
         break;
       }
+      if (origin || plan.lots.length === 0) break;
     }
 
     // Fallback: spiral search near a jittered target (with the water rule).
@@ -300,6 +338,7 @@ export function placeSettlement(
 
     registry.add(entity);
     entities.push(entity);
+    if (claimedLot) claimedLot.buildingId = entity.id;
 
     // Door tile stays walkable so mortals can reach the entrance (collision
     // already treats the door cell as passable; keep the tile flag in sync).

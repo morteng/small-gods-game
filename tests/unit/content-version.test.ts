@@ -7,6 +7,6 @@ describe('content-version constants', () => {
   });
 
   it('declares the current world content version', () => {
-    expect(WORLD_CONTENT_VERSION).toBe(3);
+    expect(WORLD_CONTENT_VERSION).toBe(4);
   });
 });

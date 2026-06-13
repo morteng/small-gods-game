@@ -14,8 +14,6 @@ import type { Era } from '@/core/types';
 export interface ZoneRule {
   /** Radius of terrain influence in tiles */
   radius: { min: number; max: number };
-  /** Tile types to flood-fill into the zone (cleared terrain base) */
-  terrainFill?: string;
   /** Building templates to place in this zone (in priority order) */
   buildings: string[];
   /** Per-era roster overlay; absent eras fall back to `buildings`. */
@@ -28,8 +26,6 @@ export interface ZoneRule {
   internalRoads: boolean;
   /** Tile type for internal roads */
   internalRoadType: string;
-  /** Clear trees/forest tiles inside zone before placing buildings */
-  clearForest?: boolean;
   /** Tile types that buildings must be adjacent to (e.g. 'shallow_water' for docks) */
   adjacencyRequirement?: string;
   /** Road layout algorithm: 'linear' (single spine), 'branching' (main + side paths), 'grid' */
@@ -40,7 +36,6 @@ export interface ZoneRule {
 export const POI_ZONE_RULES: Record<string, ZoneRule> = {
   village: {
     radius: { min: 5, max: 8 },
-    terrainFill: undefined,
     buildings: ['cottage', 'cottage', 'longhouse', 'market_stall', 'tavern'],
     buildingsByEra: {
       primordial: ['yurt', 'yurt', 'yurt', 'longhouse'],
@@ -50,34 +45,28 @@ export const POI_ZONE_RULES: Record<string, ZoneRule> = {
     decorations: ['well', 'sign_post', 'bench', 'lamp'],
     internalRoads: true,
     internalRoadType: 'dirt_road',
-    clearForest: true,
     roadLayout: 'branching',
   },
   city: {
     radius: { min: 6, max: 10 },
-    terrainFill: undefined,
     buildings: ['tavern', 'market_stall', 'cottage'],
     buildingCount: { min: 5, max: 12 },
     decorations: ['lamp', 'bench'],
     internalRoads: true,
     internalRoadType: 'stone_road',
-    clearForest: true,
     roadLayout: 'grid',
   },
   farm: {
     radius: { min: 3, max: 5 },
-    terrainFill: 'farm_field',
     buildings: ['farm_barn'],
     buildingCount: { min: 1, max: 1 },
     decorations: ['fence', 'crop_row'],
     internalRoads: true,
     internalRoadType: 'dirt_road',
-    clearForest: true,
     roadLayout: 'linear',
   },
   temple: {
     radius: { min: 4, max: 6 },
-    terrainFill: 'sacred_grove',
     buildings: ['temple_small', 'shrine'],
     buildingsByEra: {
       primordial: ['shrine'],
@@ -87,76 +76,63 @@ export const POI_ZONE_RULES: Record<string, ZoneRule> = {
     decorations: ['flower_patch', 'statue'],
     internalRoads: false,
     internalRoadType: 'stone_road',
-    clearForest: false,
     roadLayout: 'none',
   },
   castle: {
     radius: { min: 6, max: 10 },
-    terrainFill: undefined,
     buildings: ['castle_keep', 'tower', 'guard_post'],
     buildingCount: { min: 1, max: 2 },
     decorations: ['banner', 'guard_post'],
     internalRoads: true,
     internalRoadType: 'stone_road',
-    clearForest: true,
     roadLayout: 'linear',
   },
   mine: {
     radius: { min: 3, max: 5 },
-    terrainFill: 'quarry',
     buildings: ['guard_post'],
     buildingCount: { min: 1, max: 1 },
     decorations: ['rock_pile', 'cart'],
     internalRoads: false,
     internalRoadType: 'dirt_road',
-    clearForest: false,
     roadLayout: 'none',
   },
   port: {
     radius: { min: 4, max: 6 },
-    terrainFill: undefined,
     buildings: ['dock', 'market_stall'],
     buildingsByEra: { primordial: ['dock'] },
     buildingCount: { min: 1, max: 2 },
     decorations: ['crates', 'nets'],
     internalRoads: true,
     internalRoadType: 'dirt_road',
-    clearForest: false,
     adjacencyRequirement: 'shallow_water',
     roadLayout: 'linear',
   },
   tavern: {
     radius: { min: 2, max: 3 },
-    terrainFill: undefined,
     buildings: ['tavern'],
     buildingCount: { min: 1, max: 1 },
     decorations: ['sign_post', 'bench'],
     internalRoads: false,
     internalRoadType: 'dirt_road',
-    clearForest: false,
     roadLayout: 'none',
   },
   tower: {
     radius: { min: 2, max: 3 },
-    terrainFill: undefined,
     buildings: ['tower'],
     buildingCount: { min: 1, max: 1 },
     decorations: [],
     internalRoads: false,
     internalRoadType: 'stone_road',
-    clearForest: false,
     roadLayout: 'none',
   },
   ruins: {
     radius: { min: 3, max: 5 },
-    terrainFill: undefined,
     buildings: ['shrine'],
     buildingsByEra: { ancient: ['shrine', 'temple_small'] },
     buildingCount: { min: 1, max: 3 },
     decorations: ['rubble', 'vine'],
     internalRoads: false,
     internalRoadType: 'dirt_road',
-    clearForest: false,
     roadLayout: 'none',
   },
 };

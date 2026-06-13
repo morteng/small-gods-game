@@ -12,7 +12,7 @@
 
 import type { Tile } from '@/core/types';
 import type { ZoneRule } from '@/map/poi-zones';
-import { Random } from '@/core/noise';
+import { Random, noise } from '@/core/noise';
 
 /** Water tile types — roads and footprints must avoid these. */
 export const WATER_TYPES = new Set(['deep_water', 'shallow_water', 'river', 'ocean', 'water']);
@@ -41,11 +41,42 @@ export interface FrontageSlot {
   dist: number;                    // Manhattan distance from the founding node
 }
 
+/**
+ * A burgage lot: 2–3 tiles of street frontage × 3–5 tiles deep, perpendicular
+ * to its road edge. The lot is the persistent unit — it exists before and
+ * outlives its building; one building per lot gives regular street spacing
+ * and back yards by construction. Dimensions are keyed on the FIRST frontage
+ * road tile's coordinates (not iteration order), so lots reached lazily by
+ * future growth slices subdivide identically.
+ */
+export interface Lot {
+  id: string;                      // `lot:${x},${y}:${sx},${sy}` — first frontage tile + side
+  edge: number;                    // index into plan.edges
+  side: [number, number];
+  frontage: { x: number; y: number }[];
+  depth: number;
+  tiles: { x: number; y: number }[];
+  buildingId?: string;
+}
+
+/** A named district — the compact promptable shape LLM prompts want. */
+export interface Ward {
+  id: string;
+  name: string;                    // "North Market", "Fisher Quarter"
+  type: 'market' | 'harbour' | 'temple' | 'gate' | 'residential' | 'craft';
+  seed: { x: number; y: number };
+  tiles: { x: number; y: number }[];
+}
+
 export interface SettlementPlan {
   center: { x: number; y: number };
   nodes: RoadNode[];
   edges: RoadEdge[];
   slots: FrontageSlot[];
+  lots: Lot[];
+  wards: Ward[];
+  /** Widened-main-street market tiles around the founding node. */
+  market: { x: number; y: number }[];
 }
 
 /** Per-preset siting preferences (grows into the S4 constraint catalogue). */
@@ -108,7 +139,7 @@ export function planSettlement(
 ): SettlementPlan {
   const nodes: RoadNode[] = [{ id: 'n0', x: center.x, y: center.y, kind: 'founding' }];
   const edges: RoadEdge[] = [];
-  const plan: SettlementPlan = { center, nodes, edges, slots: [] };
+  const plan: SettlementPlan = { center, nodes, edges, slots: [], lots: [], wards: [], market: [] };
   if (!rule.internalRoads || rule.roadLayout === 'none' || rule.roadLayout === undefined) {
     return plan;
   }
@@ -188,6 +219,217 @@ export function planSettlement(
   });
 
   return plan;
+}
+
+// ─── Lots ─────────────────────────────────────────────────────────────────────
+
+/** Buildable lot ground: in-bounds, non-water, not a planned road tile. */
+function lotTileOk(x: number, y: number, tiles: Tile[][], roadSet: Set<string>): boolean {
+  const t = tiles[y]?.[x];
+  return !!t && !WATER_TYPES.has(t.type) && !roadSet.has(`${x},${y}`);
+}
+
+/**
+ * Subdivide every road edge's frontage into burgage lots. Width (2–3) and
+ * depth (3–5) come from `noise()` keyed on the lot's FIRST road tile — pure
+ * coordinate hash, so subdivision is independent of walk order and stable
+ * under future incremental growth. Tiles already claimed by an earlier lot
+ * (junction overlap) are dropped from the later one.
+ */
+export function subdivideLots(plan: SettlementPlan, tiles: Tile[][], seed: number): Lot[] {
+  const roadSet = new Set(plan.edges.flatMap(e => e.tiles.map(t => `${t.x},${t.y}`)));
+  for (const m of plan.market) roadSet.add(`${m.x},${m.y}`);
+  const claimed = new Set<string>();
+  const lots: Lot[] = [];
+
+  plan.edges.forEach((edge, ei) => {
+    const dir = edge.tiles.length > 1
+      ? {
+          dx: Math.sign(edge.tiles[1].x - edge.tiles[0].x),
+          dy: Math.sign(edge.tiles[1].y - edge.tiles[0].y),
+        }
+      : { dx: 1, dy: 0 };
+    const sides: [number, number][] = [[-dir.dy, dir.dx], [dir.dy, -dir.dx]];
+
+    for (const side of sides) {
+      let i = 0;
+      while (i < edge.tiles.length) {
+        const first = edge.tiles[i];
+        const width = 2 + Math.floor(noise(first.x, first.y, seed + 101) * 2);       // 2–3
+        const depth = 3 + Math.floor(noise(first.x, first.y, seed + 211) * 3);       // 3–5
+        const frontage = edge.tiles.slice(i, i + width);
+        const lotTiles: { x: number; y: number }[] = [];
+        for (const f of frontage) {
+          for (let d = 1; d <= depth; d++) {
+            const x = f.x + side[0] * d, y = f.y + side[1] * d;
+            const key = `${x},${y}`;
+            if (!lotTileOk(x, y, tiles, roadSet) || claimed.has(key)) continue;
+            lotTiles.push({ x, y });
+          }
+        }
+        if (lotTiles.length >= 2) {
+          for (const t of lotTiles) claimed.add(`${t.x},${t.y}`);
+          lots.push({
+            id: `lot:${first.x},${first.y}:${side[0]},${side[1]}`,
+            edge: ei, side, frontage, depth, tiles: lotTiles,
+          });
+        }
+        i += width;
+      }
+    }
+  });
+
+  plan.lots = lots;
+  return lots;
+}
+
+// ─── Market ───────────────────────────────────────────────────────────────────
+
+/**
+ * Widen the main street around the founding node — the medieval market is a
+ * WIDENED through street, not a detached plaza. The ±1-perpendicular
+ * neighbours of through-road tiles within `extent` of the founding node
+ * become market ground (carved as road by the executor).
+ */
+export function widenMarket(plan: SettlementPlan, tiles: Tile[][], extent = 2): { x: number; y: number }[] {
+  const market: { x: number; y: number }[] = [];
+  const roadSet = new Set(plan.edges.flatMap(e => e.tiles.map(t => `${t.x},${t.y}`)));
+  const { x: cx, y: cy } = plan.center;
+
+  for (const edge of plan.edges) {
+    if (edge.kind !== 'through') continue;
+    const dir = edge.tiles.length > 1
+      ? {
+          dx: Math.sign(edge.tiles[1].x - edge.tiles[0].x),
+          dy: Math.sign(edge.tiles[1].y - edge.tiles[0].y),
+        }
+      : { dx: 1, dy: 0 };
+    const perp = { dx: -dir.dy, dy: dir.dx };
+    for (const t of edge.tiles) {
+      if (Math.abs(t.x - cx) + Math.abs(t.y - cy) > extent) continue;
+      for (const s of [1, -1]) {
+        const x = t.x + perp.dx * s, y = t.y + perp.dy * s;
+        const key = `${x},${y}`;
+        if (roadSet.has(key)) continue;
+        const tile = tiles[y]?.[x];
+        if (!tile || WATER_TYPES.has(tile.type)) continue;
+        roadSet.add(key);
+        market.push({ x, y });
+      }
+    }
+  }
+
+  plan.market = market;
+  return market;
+}
+
+// ─── Wards ────────────────────────────────────────────────────────────────────
+
+const GOLDEN_ANGLE = 2.39996;
+
+function bearingName(dx: number, dy: number): string {
+  // Screen-space tile coords: +y is south.
+  const ns = dy < 0 ? 'North' : 'South';
+  const ew = dx < 0 ? 'West' : 'East';
+  if (Math.abs(dx) > Math.abs(dy) * 2) return ew;
+  if (Math.abs(dy) > Math.abs(dx) * 2) return ns;
+  return `${ns}${ew.toLowerCase()}`;
+}
+
+const WARD_NOUNS: Record<Ward['type'], string> = {
+  market: 'Market',
+  harbour: 'Fisher Quarter',
+  temple: 'Temple Hill',
+  gate: 'Gate Row',
+  residential: 'Rows',
+  craft: 'Crafts',
+};
+
+/**
+ * Assign wards over the settlement disc: golden-spiral seed points (dense
+ * centre → small central wards, the classic medieval read), per-tile
+ * nearest-seed assignment, type from a location rating, name from compass
+ * bearing + type noun.
+ */
+export function assignWards(
+  plan: SettlementPlan,
+  radius: number,
+  tiles: Tile[][],
+  seed: number,
+): Ward[] {
+  // No streets, no wards — a road-less POI (ruin, mine, lone tavern) has no
+  // districts to name. Growth (S3) assigns wards when the first street forms.
+  if (plan.edges.length === 0) {
+    plan.wards = [];
+    return plan.wards;
+  }
+  const { x: cx, y: cy } = plan.center;
+  const n = Math.max(3, Math.floor(radius * 0.8));
+  const rot = noise(cx, cy, seed + 307) * Math.PI * 2;
+  const seeds: { x: number; y: number }[] = [];
+  for (let i = 0; i < n; i++) {
+    const r = radius * Math.sqrt((i + 0.5) / n);
+    const a = rot + i * GOLDEN_ANGLE;
+    seeds.push({ x: cx + Math.round(Math.cos(a) * r), y: cy + Math.round(Math.sin(a) * r) });
+  }
+
+  const wardTiles: { x: number; y: number }[][] = seeds.map(() => []);
+  for (let y = cy - radius; y <= cy + radius; y++) {
+    for (let x = cx - radius; x <= cx + radius; x++) {
+      if ((x - cx) ** 2 + (y - cy) ** 2 > radius * radius) continue;
+      const t = tiles[y]?.[x];
+      if (!t || WATER_TYPES.has(t.type)) continue;
+      let best = 0, bestD = Infinity;
+      for (let i = 0; i < seeds.length; i++) {
+        const d = (x - seeds[i].x) ** 2 + (y - seeds[i].y) ** 2;
+        if (d < bestD) { bestD = d; best = i; }
+      }
+      wardTiles[best].push({ x, y });
+    }
+  }
+
+  // Location rating → type.
+  const endNodes = plan.nodes.filter(nd => nd.kind === 'end');
+  const hasWaterNear = (txy: { x: number; y: number }[]): boolean =>
+    txy.some(({ x, y }) => {
+      for (let dy = -2; dy <= 2; dy++) {
+        for (let dx = -2; dx <= 2; dx++) {
+          const t = tiles[y + dy]?.[x + dx];
+          if (t && WATER_TYPES.has(t.type)) return true;
+        }
+      }
+      return false;
+    });
+
+  // The ward whose seed is nearest the founding node is the market.
+  let marketIdx = 0, marketD = Infinity;
+  seeds.forEach((s, i) => {
+    const d = (s.x - cx) ** 2 + (s.y - cy) ** 2;
+    if (d < marketD) { marketD = d; marketIdx = i; }
+  });
+
+  const wards: Ward[] = [];
+  const usedNames = new Set<string>();
+  seeds.forEach((s, i) => {
+    const tset = wardTiles[i];
+    if (tset.length === 0) return;
+    let type: Ward['type'];
+    if (i === marketIdx) type = 'market';
+    else if (hasWaterNear(tset)) type = 'harbour';
+    else if (endNodes.some(nd => tset.some(t => t.x === nd.x && t.y === nd.y))) type = 'gate';
+    else type = noise(s.x, s.y, seed + 401) < 0.5 ? 'residential' : 'craft';
+
+    const noun = WARD_NOUNS[type];
+    let name = i === marketIdx ? `The ${noun}` : `${bearingName(s.x - cx, s.y - cy)} ${noun}`;
+    let ordinal = 2;
+    while (usedNames.has(name)) name = `${name.replace(/ \d+$/, '')} ${ordinal++}`;
+    usedNames.add(name);
+
+    wards.push({ id: `ward:${s.x},${s.y}`, name, type, seed: s, tiles: tset });
+  });
+
+  plan.wards = wards;
+  return wards;
 }
 
 /**
