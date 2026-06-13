@@ -26,7 +26,7 @@ import { toCollision } from '@/blueprint/compile/to-collision';
 import { toAnchors } from '@/blueprint/compile/to-anchors';
 import {
   planSettlement, orderedSlotsFor, subdivideLots, widenMarket, assignWards,
-  WATER_TYPES, SITE_RULES,
+  WATER_TYPES, BUILDABLE_TERRAIN, SITE_RULES,
   type SettlementPlan, type Lot, type FrontageSlot,
 } from './settlement-plan';
 
@@ -203,6 +203,7 @@ export function placeSettlement(
 
   // 1. Plan: road graph + market widening + burgage lots + wards.
   const plan = planSettlement({ x: cx, y: cy }, zoneRule, tiles, connectedDirections, rng);
+  plan.poiId = poi.id;
   widenMarket(plan, tiles);
   subdivideLots(plan, tiles, worldSeed);
   assignWards(plan, radius, tiles, worldSeed);
@@ -232,8 +233,7 @@ export function placeSettlement(
   };
 
   const constraint: PlacementConstraint = {
-    allowedTerrain: ['grass', 'dirt', 'sand', 'scrubland', 'farm_field', 'sacred_grove',
-                      'hills', 'glen', 'dirt_road', 'stone_road'],
+    allowedTerrain: [...BUILDABLE_TERRAIN],
     margin: 1,
     requiresRoadAccess: zoneRule.internalRoads,
   };
@@ -275,7 +275,6 @@ export function placeSettlement(
          door.y - (facing[1] > 0 ? 1 : facing[1] < 0 ? 0 : 0.5)]
       : (toCollision(rb).doorCells[0] ?? '0,0').split(',').map(Number);
     let origin: PlacementResult | null = null;
-    let claimedLot: Lot | undefined;
 
     // Pass 1: claim a burgage lot (footprint fully inside the lot — regular
     // spacing + back yard). Pass 2: any fitting slot (S1 behaviour) for
@@ -297,7 +296,6 @@ export function placeSettlement(
         if (strictLots) {
           const lot = lotForSlot(slot);
           if (!lot || !footprintInLot(lot, ox, oy, w, h)) continue;
-          claimedLot = lot;
         }
         origin = { tileX: ox, tileY: oy };
         break;
@@ -338,7 +336,16 @@ export function placeSettlement(
 
     registry.add(entity);
     entities.push(entity);
-    if (claimedLot) claimedLot.buildingId = entity.id;
+    // Claim every lot the footprint INTERSECTS (not just pass-1 containment):
+    // a pass-2/fallback building sitting on lot ground must mark it used, or
+    // live growth (S3) would see a "free" lot with blocked tiles.
+    for (const lot of plan.lots) {
+      if (lot.buildingId) continue;
+      const hit = lot.tiles.some(t =>
+        t.x >= origin.tileX && t.x < origin.tileX + rb.footprint.w &&
+        t.y >= origin.tileY && t.y < origin.tileY + rb.footprint.h);
+      if (hit) lot.buildingId = entity.id;
+    }
 
     // Door tile stays walkable so mortals can reach the entrance (collision
     // already treats the door cell as passable; keep the tile flag in sync).

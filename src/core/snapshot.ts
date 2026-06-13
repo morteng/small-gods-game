@@ -6,6 +6,7 @@ import type { PlotThread } from '@/sim/threads/thread-types';
 import type { StagedBeat } from '@/sim/threads/staging-types';
 import { fromState } from '@/core/rng';
 import { World } from '@/world/world';
+import { reconcileSettlementTiles } from '@/world/settlement-reconcile';
 
 export interface Snapshot {
   /** Sim tick count at capture time. */
@@ -89,6 +90,11 @@ export function restoreSnapshot(state: GameState, snap: Snapshot): void {
   }
   for (const [poiId, type] of snap.forcedEvents ?? []) fresh.forcedEvents.set(poiId, type);
   state.world = fresh;
+
+  // Runtime growth mutates tiles + lot claims AFTER snapshots are taken;
+  // re-derive both from the restored entities so scrub-back leaves no ghost
+  // footprints and re-rolled growth can claim freed lots (S3).
+  reconcileSettlementTiles(state.map, fresh);
 
   // `?? []` tolerates pre-substrate snapshots (older saves) with no threads field;
   // optional chaining tolerates partial test states that omit the substrate stores.

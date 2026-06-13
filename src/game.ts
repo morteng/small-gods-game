@@ -49,6 +49,7 @@ import { PerceptionSystem } from '@/world/perception-system';
 import { PlotThreadSystem } from '@/sim/threads/systems/plot-thread-system';
 import { AbandonmentSystem } from '@/sim/systems/abandonment-system';
 import { MortalitySystem } from '@/sim/systems/mortality-system';
+import { SettlementGrowthSystem } from '@/sim/systems/settlement-growth-system';
 import { BirthSystem } from '@/sim/systems/birth-system';
 import { applySkip } from '@/sim/time-skip';
 import { identityOracle } from '@/world/oracle';
@@ -169,6 +170,7 @@ export class Game {
     this.scheduler.register(new RivalSystem(this.commandQueue));
     this.scheduler.register(new MortalitySystem());
     this.scheduler.register(new BirthSystem());
+    this.scheduler.register(new SettlementGrowthSystem());
     this.scheduler.register(new PerceptionSystem(identityOracle, () => this.state.map));
     // Narrative substrate: recognizers + stub producers run LAST so they see this
     // frame's events; activation fires armed beats (its commands apply next tick).

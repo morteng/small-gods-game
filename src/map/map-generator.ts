@@ -268,6 +268,7 @@ export async function generateWithNoise(
     worldSeed: worldSeed ?? null,
     stats: { iterations: 0, backtracks: 0 },
     buildings,
+    settlementPlans,
   };
 
   // Settlement wear: trample high-traffic ground to dirt + cull vegetation

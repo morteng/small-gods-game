@@ -45,6 +45,9 @@ export interface GameMap {
   worldSeed: WorldSeed | null;
   stats: { iterations: number; backtracks: number };
   buildings: BuildingInstance[];
+  /** Settlement plans from worldgen (S2/S3): road graph, lots, wards. Live
+   *  growth consumes free lots; persisted verbatim via SaveFile.map. */
+  settlementPlans?: import('@/world/settlement-plan').SettlementPlan[];
 }
 
 /** Village/settlement on the map */

@@ -200,15 +200,23 @@ Two invariants keep this safe and deterministic:
    graph + typed nodes + frontage slots + SITE_RULES), `placeSettlement`
    executes it — doors face roads, docks require water, footprints stay off
    roads. Spec: `2026-06-13-settlement-plan-s1-spec.md`.
-2. **S2 — Lots, wards & districts:** burgage-plot subdivision along frontage
-   (lots persist, keyed on road-tile coords), golden-spiral ward assignment +
-   ward entities with generated names ("North Market") for LLM prompts;
-   market = widened main street at the founding node.
-3. **S3 — Live growth:** sim system (slow cadence like mortality 0.25 Hz)
-   consumes empty lots from population pressure (infill → ribbon-extend →
-   upgrade-in-place); discounted-A\* road grower opens back lanes when
-   frontage saturates; plan state serialized into the snapshot.
+2. **S2 — Lots, wards & districts** ✅ (2026-06-13): burgage lots (coordinate-
+   keyed subdivision, one building per lot), golden-spiral wards with
+   generated names on `Village.wards`, widened-main-street market, AND the
+   wear-mask ground (trample/cull/untouched bands over the natural biome).
+   Spec: `2026-06-13-settlement-growth-s2-spec.md`.
+3. **S3 — Live growth** ✅ (2026-06-13): `SettlementGrowthSystem` (0.25 Hz,
+   like mortality/birth) consumes empty lots under population pressure
+   (capacity = Σ `DWELLING_CAPACITY`, an open registry; infill-first → centre
+   ordering), and RIBBON-EXTENDS the through street (`extendThroughStreet`,
+   coordinate-keyed re-subdivision keeps claims) when frontage saturates.
+   Plans persist verbatim via `SaveFile.map`; `reconcileSettlementTiles`
+   re-derives tile walkability + lot claims after a snapshot restore so
+   scrub/re-roll leaves no ghost footprints. Spec:
+   `2026-06-13-settlement-growth-s3-spec.md`. Deferred to S4: BACK-LANE
+   (perpendicular) road growth + upgrade-in-place.
 4. **S4 — Constraint catalogue:** mills/bridges/wells/graveyard + water-aware
-   road walker; frontage-value gradient for type picks.
+   road walker; back-lane (discounted-A\*) grower; upgrade-in-place
+   (cottage → townhouse); frontage-value gradient for type picks.
 5. **S5 — Skip integration + Fate lever:** D2 turnover → growth steps;
    `grow_settlement` capability; ward mutation in era-authoring.

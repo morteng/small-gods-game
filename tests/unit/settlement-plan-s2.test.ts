@@ -43,8 +43,8 @@ describe('subdivideLots', () => {
     const roadSet = new Set(plan.edges.flatMap(e => e.tiles.map(t => `${t.x},${t.y}`)));
     const seen = new Set<string>();
     for (const lot of lots) {
-      expect(lot.frontage.length).toBeGreaterThanOrEqual(1);
-      expect(lot.frontage.length).toBeLessThanOrEqual(3);
+      expect(lot.frontage.length).toBeGreaterThanOrEqual(1);   // end-of-edge remainder lots can be short
+      expect(lot.frontage.length).toBeLessThanOrEqual(4);
       expect(lot.depth).toBeGreaterThanOrEqual(3);
       expect(lot.depth).toBeLessThanOrEqual(5);
       for (const t of lot.tiles) {
@@ -138,21 +138,34 @@ describe('placeSettlement — lot claiming', () => {
     return { world, result, tiles };
   }
 
-  it('claims at most one building per lot, and the footprint sits inside it', () => {
+  it('claims every lot a placed footprint intersects (no "free" lots with blocked tiles)', () => {
     const { result } = run();
     const claimed = result.plan.lots.filter(l => l.buildingId);
     expect(claimed.length).toBeGreaterThan(0);
-    const ids = claimed.map(l => l.buildingId);
-    expect(new Set(ids).size).toBe(ids.length);
+    // every claimed lot's building exists and INTERSECTS the lot
     for (const lot of claimed) {
       const e = result.entities.find(en => en.id === lot.buildingId)!;
       expect(e).toBeDefined();
       const bp = blueprintOf(e)!;
       const set = new Set(lot.tiles.map(t => `${t.x},${t.y}`));
-      for (let dy = 0; dy < bp.collision.footprint.h; dy++) {
-        for (let dx = 0; dx < bp.collision.footprint.w; dx++) {
-          expect(set.has(`${e.x + dx},${e.y + dy}`),
-            `footprint cell outside lot ${lot.id}`).toBe(true);
+      let hit = false;
+      for (let dy = 0; dy < bp.collision.footprint.h && !hit; dy++) {
+        for (let dx = 0; dx < bp.collision.footprint.w && !hit; dx++) {
+          if (set.has(`${e.x + dx},${e.y + dy}`)) hit = true;
+        }
+      }
+      expect(hit, `claimed lot ${lot.id} not touched by its building`).toBe(true);
+    }
+    // and the converse: no unclaimed lot contains any footprint tile
+    for (const lot of result.plan.lots.filter(l => !l.buildingId)) {
+      const set = new Set(lot.tiles.map(t => `${t.x},${t.y}`));
+      for (const e of result.entities) {
+        const bp = blueprintOf(e)!;
+        for (let dy = 0; dy < bp.collision.footprint.h; dy++) {
+          for (let dx = 0; dx < bp.collision.footprint.w; dx++) {
+            expect(set.has(`${e.x + dx},${e.y + dy}`),
+              `unclaimed lot ${lot.id} holds footprint of ${e.id}`).toBe(false);
+          }
         }
       }
     }

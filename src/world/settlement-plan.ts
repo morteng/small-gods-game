@@ -17,6 +17,10 @@ import { Random, noise } from '@/core/noise';
 /** Water tile types — roads and footprints must avoid these. */
 export const WATER_TYPES = new Set(['deep_water', 'shallow_water', 'river', 'ocean', 'water']);
 
+/** Ground a building footprint may occupy (shared: worldgen executor + live growth). */
+export const BUILDABLE_TERRAIN = new Set(['grass', 'dirt', 'sand', 'scrubland', 'farm_field',
+  'sacred_grove', 'hills', 'glen', 'dirt_road', 'stone_road']);
+
 export interface RoadNode {
   id: string;
   x: number;
@@ -42,8 +46,9 @@ export interface FrontageSlot {
 }
 
 /**
- * A burgage lot: 2–3 tiles of street frontage × 3–5 tiles deep, perpendicular
- * to its road edge. The lot is the persistent unit — it exists before and
+ * A burgage lot: 3–4 tiles of street frontage × 3–5 tiles deep, perpendicular
+ * to its road edge (3 wide is the minimum that holds a cottage/yurt; 4 holds
+ * a longhouse). The lot is the persistent unit — it exists before and
  * outlives its building; one building per lot gives regular street spacing
  * and back yards by construction. Dimensions are keyed on the FIRST frontage
  * road tile's coordinates (not iteration order), so lots reached lazily by
@@ -69,6 +74,9 @@ export interface Ward {
 }
 
 export interface SettlementPlan {
+  /** Owning POI — set by `placeSettlement`, ties the plan to its settlement
+   *  for live growth (S3). */
+  poiId?: string;
   center: { x: number; y: number };
   nodes: RoadNode[];
   edges: RoadEdge[];
@@ -230,7 +238,8 @@ function lotTileOk(x: number, y: number, tiles: Tile[][], roadSet: Set<string>):
 }
 
 /**
- * Subdivide every road edge's frontage into burgage lots. Width (2–3) and
+ * Subdivide every road edge's frontage into burgage lots. Width (3–4: wide
+ * enough for every dwelling footprint — cottage/yurt 3, longhouse 4) and
  * depth (3–5) come from `noise()` keyed on the lot's FIRST road tile — pure
  * coordinate hash, so subdivision is independent of walk order and stable
  * under future incremental growth. Tiles already claimed by an earlier lot
@@ -255,7 +264,7 @@ export function subdivideLots(plan: SettlementPlan, tiles: Tile[][], seed: numbe
       let i = 0;
       while (i < edge.tiles.length) {
         const first = edge.tiles[i];
-        const width = 2 + Math.floor(noise(first.x, first.y, seed + 101) * 2);       // 2–3
+        const width = 3 + Math.floor(noise(first.x, first.y, seed + 101) * 2);       // 3–4
         const depth = 3 + Math.floor(noise(first.x, first.y, seed + 211) * 3);       // 3–5
         const frontage = edge.tiles.slice(i, i + width);
         const lotTiles: { x: number; y: number }[] = [];
@@ -281,6 +290,77 @@ export function subdivideLots(plan: SettlementPlan, tiles: Tile[][], seed: numbe
 
   plan.lots = lots;
   return lots;
+}
+
+/** Soft cap on ribbon extensions: stop adding street once the graph is this big. */
+const MAX_PLAN_NODES = 24;
+/** Tiles added per ribbon extension. */
+const EXTEND_LEN = 4;
+
+/**
+ * Ribbon growth (S3): when the frontage saturates, extend a through street
+ * past one of its end nodes and re-subdivide lots. Lot dimensions are
+ * coordinate-keyed, so re-subdivision reproduces every existing lot
+ * identically — claims are carried over by id. Returns the NEW road tiles
+ * (the caller carves them into the live grid), or null when nothing can
+ * extend (map edge, water, node cap).
+ */
+export function extendThroughStreet(
+  plan: SettlementPlan,
+  tiles: Tile[][],
+  seed: number,
+): { x: number; y: number }[] | null {
+  if (plan.nodes.length >= MAX_PLAN_NODES) return null;
+  const { x: cx, y: cy } = plan.center;
+
+  for (const edge of plan.edges) {
+    if (edge.kind !== 'through') continue;
+    for (const endId of [edge.a, edge.b]) {
+      const node = plan.nodes.find(n => n.id === endId);
+      if (!node || node.kind !== 'end') continue;
+      const axis = {
+        dx: Math.sign(node.x - cx),
+        dy: Math.sign(node.y - cy),
+      };
+      if (axis.dx === 0 && axis.dy === 0) continue;
+      const run = walkTiles(node.x + axis.dx, node.y + axis.dy, axis, EXTEND_LEN - 1, tiles);
+      if (run.length < 2) continue;
+
+      const newId = `n${plan.nodes.length}x`;
+      node.kind = 'junction';
+      const last = run[run.length - 1];
+      plan.nodes.push({ id: newId, x: last.x, y: last.y, kind: 'end' });
+      plan.edges.push({ a: node.id, b: newId, tiles: run, kind: 'through' });
+
+      // Re-derive slots + lots for the grown graph; carry claims over by id
+      // (coordinate-keyed subdivision reproduces existing lots exactly).
+      const claims = new Map(plan.lots.filter(l => l.buildingId).map(l => [l.id, l.buildingId!]));
+      plan.slots = [];
+      const axisMain = { dx: Math.abs(axis.dx), dy: Math.abs(axis.dy) };
+      plan.edges.forEach((e, ei) => {
+        const dir = e.tiles.length > 1
+          ? {
+              dx: Math.sign(e.tiles[1].x - e.tiles[0].x),
+              dy: Math.sign(e.tiles[1].y - e.tiles[0].y),
+            }
+          : axisMain;
+        const sides: [number, number][] = [[-dir.dy, dir.dx], [dir.dy, -dir.dx]];
+        for (const t of e.tiles) {
+          for (const side of sides) {
+            plan.slots.push({ roadX: t.x, roadY: t.y, side, edge: ei,
+              dist: Math.abs(t.x - cx) + Math.abs(t.y - cy) });
+          }
+        }
+      });
+      subdivideLots(plan, tiles, seed);
+      for (const lot of plan.lots) {
+        const claim = claims.get(lot.id);
+        if (claim) lot.buildingId = claim;
+      }
+      return run;
+    }
+  }
+  return null;
 }
 
 // ─── Market ───────────────────────────────────────────────────────────────────

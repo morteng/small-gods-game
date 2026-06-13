@@ -34,6 +34,7 @@ export type SimEvent =
   | { type: 'region_realized';    region: Region; cause: 'belief_spread' | 'miracle' | 'cradle_start' }
   | { type: 'tile_collapsed';     x: number; y: number; becameType: string; by: 'wfc' | 'oracle' }
   | { type: 'entity_emerged';     entityId: EntityId; kind: string; x: number; y: number }
+  | { type: 'settlement_grown';   poiId: string; entityId: EntityId; preset: string; lotId: string }
   | { type: 'settlement_begin';   poiId: string; eventType: SettlementEventType; severity: number; durationTicks: number }
   | { type: 'settlement_end';     poiId: string; eventType: SettlementEventType }
   | { type: 'thread_opened';      threadId: ThreadId; shapeId: ShapeId; subject: ThreadSubject }
