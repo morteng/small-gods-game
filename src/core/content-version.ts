@@ -26,9 +26,13 @@
  * thickness (projecting eaves AND verges read as boards, not a solid wedge) plus
  * recessed gable-end tympana, and masonry/metal ridge stacks are offset BESIDE
  * the ridge beam (timber smoke-louvres still straddle it) so chimneys no longer
- * pierce the structural ridge.
+ * pierce the structural ridge;
+ * 'v9' — connectome Slice 1: a building's smoke vent is now DERIVED from its hearth
+ * (early-medieval commoner dwellings — cottage/longhouse/yurt — get a period-correct
+ * ridge louver, NOT a chimney; vents stripped from their presets and re-derived), so
+ * cottage/longhouse/yurt geometry shifts.
  */
-export const ART_RECIPE_VERSION = 'v8';
+export const ART_RECIPE_VERSION = 'v9';
 
 /**
  * Bump when WORLDGEN / preset output changes (footprints, placement, heights).
