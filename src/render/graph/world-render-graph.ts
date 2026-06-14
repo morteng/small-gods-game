@@ -18,7 +18,7 @@ import { blueprintOf } from '@/blueprint/entity';
 import { tryGetEntityKindDef } from '@/world/entity-kinds';
 import { DEFAULT_LIGHTING } from '@/render/lighting-state';
 import type {
-  RenderGraph, RenderNode, RenderEdge, TerrainView, LightView,
+  RenderGraph, RenderNode, RenderEdge, TerrainView, LightView, NodeQuery, RenderCategory,
 } from './render-graph';
 
 /** The handle the renderer's resolvers consume off a node. */
@@ -56,32 +56,39 @@ export class WorldRenderGraph implements RenderGraph<WorldRef> {
     };
   }
 
-  *nodes(region: Region): Iterable<RenderNode<WorldRef>> {
+  *nodes(region: Region, opts?: NodeQuery): Iterable<RenderNode<WorldRef>> {
+    const want = opts?.categories;
+    const wants = (c: RenderCategory): boolean => !want || want.has(c);
+
     // World entities — region-filtered, exactly the draw list's single query.
-    for (const e of this.rc.world.query({ region })) {
-      if (isBarrier(e)) {
-        yield this.entityNode(e, 'barrier', { w: 1, h: 1 });
-        continue;
+    // Skipped entirely when no world-backed category is wanted (the renderer
+    // hid all of buildings/vegetation/barriers), preserving that optimisation.
+    if (wants('building') || wants('vegetation') || wants('barrier')) {
+      for (const e of this.rc.world.query({ region })) {
+        if (isBarrier(e)) {
+          if (wants('barrier')) yield this.entityNode(e, 'barrier', { w: 1, h: 1 });
+          continue;
+        }
+        const bp = blueprintOf(e);
+        if (bp) {
+          if (wants('building')) yield this.entityNode(e, 'building', { ...bp.rb.footprint });
+          continue;
+        }
+        if (tryGetEntityKindDef(e.kind)?.category === 'vegetation') {
+          if (wants('vegetation')) yield this.entityNode(e, 'vegetation', { w: 1, h: 1 });
+        }
+        // anything else is not drawn by the entity pass — skipped (parity).
       }
-      const bp = blueprintOf(e);
-      if (bp) {
-        yield this.entityNode(e, 'building', { ...bp.rb.footprint });
-        continue;
-      }
-      if (tryGetEntityKindDef(e.kind)?.category === 'vegetation') {
-        yield this.entityNode(e, 'vegetation', { w: 1, h: 1 });
-      }
-      // anything else is not drawn by the entity pass — skipped (parity).
     }
 
     // NPCs + decorations are not region-culled today; iterate them whole.
-    for (const n of this.rc.npcs) {
+    if (wants('npc')) for (const n of this.rc.npcs) {
       yield {
         id: n.id, x: n.tileX, y: n.tileY, z: 0,
         footprint: { w: 1, h: 1 }, kind: 'npc', category: 'npc', ref: n,
       };
     }
-    for (const d of this.rc.generatedDecorations ?? []) {
+    if (wants('decoration')) for (const d of this.rc.generatedDecorations ?? []) {
       yield {
         id: `deco:${d.tileX},${d.tileY}`, x: d.tileX, y: d.tileY, z: 0,
         footprint: { w: 1, h: 1 }, kind: 'deco', category: 'decoration', ref: d,

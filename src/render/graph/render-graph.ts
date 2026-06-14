@@ -73,14 +73,23 @@ export interface LightView {
   body: 'sun' | 'moon';
 }
 
+/** Read filter for `nodes()`. Lets the renderer ask only for the categories its
+ *  visible layers will actually draw, so the adapter can skip unneeded source
+ *  work (e.g. the world query when no world-backed category is wanted). This is
+ *  the renderer translating its layer-visibility POLICY into a read request —
+ *  the graph itself stays policy-free. */
+export interface NodeQuery {
+  categories?: ReadonlySet<RenderCategory>;
+}
+
 /** The renderer's whole world view. `TRef` is the adapter's node handle type. */
 export interface RenderGraph<TRef = unknown> {
   readonly bounds: { w: number; h: number };
   readonly terrain: TerrainView;
   readonly light: LightView;
-  /** Drawable nodes intersecting the region. The caller may pre-cull; the
-   *  renderer is free to re-cull. */
-  nodes(region: Region): Iterable<RenderNode<TRef>>;
+  /** Drawable nodes intersecting the region (optionally filtered to certain
+   *  categories). The caller may pre-cull; the renderer is free to re-cull. */
+  nodes(region: Region, opts?: NodeQuery): Iterable<RenderNode<TRef>>;
   /** Linear features intersecting the region (empty until Track V). */
   edges(region: Region): Iterable<RenderEdge>;
 }
