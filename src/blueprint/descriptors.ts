@@ -6,6 +6,7 @@
 // art-cache key). See docs/superpowers/specs/2026-06-14-asset-catalogue-variant-
 // lifecycle-design.md §3a.
 import type { Blueprint, BlueprintPatch, Descriptors, Part, Feature, Wealth, Quality, Condition } from './types';
+import { catalogue, loadDefaultPacks, roleLadders } from '@/catalogue';
 
 // Closed vocabularies (ordered low→high) — also what the catalogue/UI enumerate.
 export const WEALTH_LEVELS: Wealth[] = ['destitute', 'poor', 'modest', 'comfortable', 'rich', 'opulent'];
@@ -14,11 +15,17 @@ export const CONDITION_LEVELS: Condition[] = ['pristine', 'lived_in', 'worn', 'd
 
 // Material tiers per role, poorest→richest. Wealth shifts the base material along
 // its ladder; a material not on a ladder (hide, log specialty) is left untouched.
-const LADDERS: Record<string, string[]> = {
-  walls: ['mud', 'wattle', 'timber', 'brick', 'stone'],
-  roof: ['thatch', 'wood', 'shingle', 'tile', 'slate'],
-  ground: ['dirt', 'packed_dirt', 'gravel', 'cobble', 'flagstone'],
-};
+// Single source of truth: the ranked `material` facts in the loaded catalogue
+// (see src/catalogue/derive.ts). Memoised after first build — the default packs
+// are static, and loadDefaultPacks() is idempotent.
+let _ladders: Record<string, string[]> | null = null;
+function ladders(): Record<string, string[]> {
+  if (!_ladders) {
+    loadDefaultPacks();
+    _ladders = roleLadders(catalogue);
+  }
+  return _ladders;
+}
 
 // Wealth → signed ladder offset from the preset's baseline material.
 const WEALTH_OFFSET: Record<Wealth, number> = {
@@ -34,7 +41,7 @@ export function descriptorPatch(base: Blueprint, d: Descriptors): BlueprintPatch
   if (d.wealth && WEALTH_OFFSET[d.wealth] !== 0) {
     const off = WEALTH_OFFSET[d.wealth];
     const materials: Record<string, string> = {};
-    for (const [role, ladder] of Object.entries(LADDERS)) {
+    for (const [role, ladder] of Object.entries(ladders())) {
       const cur = base.materials?.[role];
       if (!cur) continue;
       const i = ladder.indexOf(cur);

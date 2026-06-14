@@ -110,6 +110,13 @@ export interface ResolvedBlueprint {
   stage?: string;                        // present ONLY when non-default (keeps cache key stable)
   footprint: { w: number; h: number };
   notes?: string;
+  /**
+   * The latent room-graph this asset resolved from (Slice 1). Attached
+   * NON-ENUMERABLY by `resolveAsset` so it is available for interior/agent use
+   * later WITHOUT entering `canonicalJson(rb)` (the art-cache key) — the exterior
+   * effect already rides in `parts`. May be absent (e.g. `synthesizeBlueprint`).
+   */
+  connectome?: import('./connectome/types').Connectome;
 }
 
 export type { WallFace, Era };

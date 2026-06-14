@@ -7,6 +7,12 @@ import { descriptorPatch } from '../descriptors';
 import { eraPatch } from '../eras';
 import { stagePatch, defaultStageFor } from '../lifecycle';
 import { ensureBuildingTypesRegistered } from '../register-buildings';
+import { catalogue } from '@/catalogue/pack';
+import { loadDefaultPacks } from '@/catalogue/default-packs';
+import { expand } from '../connectome/grammar';
+import { deriveSmokeEgress } from '../connectome/smoke';
+import { connectomeToBlueprint } from '../connectome/to-blueprint';
+import type { Connectome, ExpandCtx } from '../connectome/types';
 
 const bp = (preset: string, b: Omit<Blueprint, 'version' | 'class' | 'preset'>): Blueprint =>
   ({ version: BLUEPRINT_VERSION, class: 'building', preset, ...b });
@@ -43,7 +49,8 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
         door: { type: 'door', face: 'south', params: { main: true, t: 0.35 } },
         win_s: { type: 'window', face: 'south', params: { style: 'shuttered', t: 0.72, glazed: false } },
         win_e: { type: 'window', face: 'east', params: { style: 'shuttered', t: 0.5, glazed: false } },
-        smoke: { type: 'vent', params: { kind: 'smokehole', t: 0.4 } },
+        // smoke vent DERIVED from the hearth (resolveAsset connectome) — early-medieval
+        // commoner = ridge louver, NEVER a chimney; see connectome/smoke.ts.
       },
     } },
   }),
@@ -227,7 +234,7 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
   yurt: bp('yurt', {
     category: 'residential', era: 'primordial', footprint: { w: 3, h: 3 },
     materials: { walls: 'hide', roof: 'hide', ground: 'dirt' },
-    parts: { body: { type: 'body', size: { w: 3, h: 3 }, params: { plan: 'round', levels: 1, roof: 'domed' }, features: { door: { type: 'door', face: 'south' }, smoke: { type: 'vent', params: { kind: 'smokehole' } } } } },
+    parts: { body: { type: 'body', size: { w: 3, h: 3 }, params: { plan: 'round', levels: 1, roof: 'domed' }, features: { door: { type: 'door', face: 'south' } /* smoke vent DERIVED from hearth (resolveAsset connectome) */ } } },
   }),
   // Longhouse: half-hip (gablet) thatch — THE longhouse roof; opposed cross-passage
   // doors at ⅓ length; windows only on the humans' end, byre end blind; louvre over
@@ -254,13 +261,25 @@ export function getBlueprintPreset(name: string): Blueprint | undefined { return
  *  to route a vegetation entity to the generative species-keyed sprite vs the billboard. */
 export function isPlantPreset(name: string): boolean { return BUILDING_BLUEPRINTS[name]?.class === 'plant'; }
 
-/** Resolve `name` (+ optional override patches) into a ResolvedBlueprint. Seed from name. */
+/** Resolve `name` (+ optional override patches) into a ResolvedBlueprint. Seed from name.
+ *  Buildings derive their hearth→smoke vent from the latent connectome (so the runtime
+ *  placement path — building-placer → synthesizeBlueprint — gets the same period-correct
+ *  louver/chimney as resolveAsset; the derived vent patch is applied LAST). */
 export function synthesizeBlueprint(name: string, patches: BlueprintPatch[] = [], seed?: number): ResolvedBlueprint | undefined {
   ensureBuildingTypesRegistered();
   const base = BUILDING_BLUEPRINTS[name];
   if (!base) return undefined;
   const s = seed ?? [...name].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7);
-  return resolveBlueprint([base, ...patches], s);
+  const all = [base, ...patches];
+  let connectome: Connectome | undefined;
+  if (base.class === 'building') {
+    const d = deriveConnectome(base, name, base.era, undefined, s);
+    connectome = d.connectome;
+    if (d.ventPatch) all.push(d.ventPatch);
+  }
+  const rb = resolveBlueprint(all, s);
+  if (connectome) attachConnectome(rb, connectome);
+  return rb;
 }
 
 /** A typed request for a concrete asset variant — the agent/worldgen-facing entry.
@@ -276,9 +295,48 @@ export interface AssetRequest {
 
 const strHash = (s: string): number => [...s].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7);
 
+/** True if any part of `base` already declares a hand-authored vent feature. */
+function hasAuthoredVent(base: Blueprint): boolean {
+  return Object.values(base.parts).some((p) =>
+    Object.values(p.features ?? {}).some((f) => f.type === 'vent'),
+  );
+}
+
+/**
+ * Expand the building's latent connectome and derive its smoke vent from the hearth.
+ * Returns the graph plus the vent patch to fold into the resolve stack. The vent is
+ * only emitted when the preset DOESN'T author its own vent — so the early-medieval
+ * commoner dwellings (cottage/longhouse/yurt, vents stripped) derive a period-correct
+ * louver/chimney, while tavern/keep/townhouse keep their artistic stacks untouched.
+ */
+function deriveConnectome(
+  base: Blueprint,
+  type: string,
+  era: Era | undefined,
+  wealth: string | undefined,
+  seed: number,
+): { connectome: Connectome; ventPatch: BlueprintPatch | null } {
+  loadDefaultPacks();
+  const ctx: ExpandCtx = { era: era ?? base.era ?? 'medieval', wealth, seed, registry: catalogue };
+  const connectome = deriveSmokeEgress(expand(type, ctx), ctx);
+  const ventPatch = hasAuthoredVent(base) ? null : (() => {
+    const p = connectomeToBlueprint(connectome, base);
+    return Object.keys(p).length ? p : null;
+  })();
+  return { connectome, ventPatch };
+}
+
+/** Attach the latent room-graph WITHOUT entering the art-cache key. canonicalJson(rb)
+ *  walks enumerable keys only, so a non-enumerable field is invisible to it (the vent's
+ *  exterior effect already rides in rb.parts). */
+function attachConnectome(rb: ResolvedBlueprint, connectome: Connectome): void {
+  Object.defineProperty(rb, 'connectome', { value: connectome, enumerable: false, writable: true, configurable: true });
+}
+
 /** Resolve an AssetRequest into a concrete ResolvedBlueprint. The descriptor layer
  *  biases materials/glazing/storeys; the resolved blueprint records the descriptors
- *  so its art-cache key distinguishes this variant. */
+ *  so its art-cache key distinguishes this variant. The building's latent connectome
+ *  is expanded and its smoke vent derived from the hearth (attached non-enumerably). */
 export function resolveAsset(req: AssetRequest): ResolvedBlueprint | undefined {
   ensureBuildingTypesRegistered();
   const base = BUILDING_BLUEPRINTS[req.type];
@@ -298,5 +356,17 @@ export function resolveAsset(req: AssetRequest): ResolvedBlueprint | undefined {
   const seed = req.seed ?? ((eraVariant || descVariant || stageVariant)
     ? strHash(`${req.type}|${req.era ?? ''}|${JSON.stringify(req.descriptors ?? {})}|${req.stage ?? ''}`)
     : strHash(req.type));
-  return resolveBlueprint(patches, seed);
+
+  // Connectome (Slice 1): derive the hearth→smoke vent, applied LAST so the derived
+  // egress is authoritative (it already accounts for era + wealth). Buildings only.
+  let connectome: Connectome | undefined;
+  if (base.class === 'building') {
+    const d = deriveConnectome(base, req.type, req.era, req.descriptors?.wealth, seed);
+    connectome = d.connectome;
+    if (d.ventPatch) patches.push(d.ventPatch);
+  }
+
+  const rb = resolveBlueprint(patches, seed);
+  if (connectome) attachConnectome(rb, connectome);
+  return rb;
 }
