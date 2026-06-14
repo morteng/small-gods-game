@@ -11,11 +11,12 @@
 
 import { WFCEngine } from '@/wfc';
 import { Random, fractalNoise } from '@/core/noise';
-import type { GameMap, WorldSeed, Tile, BuildingInstance, TerrainConfig, POI, TerrainField, Region, BiomeMap } from '@/core/types';
+import type { GameMap, WorldSeed, Tile, BuildingInstance, TerrainConfig, POI, Region, BiomeMap } from '@/core/types';
 import { generateTerrainFields, classifyBiomes, sampleTiles } from '@/terrain/terrain-generator';
 import { applyPoiInfluences } from '@/terrain/poi-influence';
 import { generateHydrology } from '@/terrain/hydrology';
-import { walkRoad } from '@/terrain/road-walker';
+import { buildRoadGraph } from '@/world/road-graph';
+import type { RoadGraph } from '@/world/road-graph';
 import { erodeElevation } from '@/terrain/erosion';
 import { placeSettlement } from '@/world/building-placer';
 import type { SettlementPlan } from '@/world/settlement-plan';
@@ -229,10 +230,13 @@ export async function generateWithNoise(
     }
   }
 
-  // Apply inter-POI connection roads AFTER settlements so they take priority
+  // Apply inter-POI connection roads AFTER settlements so they take priority.
+  // The road GRAPH is the source of truth (polylines + bridges); the tile carve
+  // is derived from it. `buildRoadGraph` carves the tiles as it walks (parity).
+  let roadGraph: RoadGraph | undefined;
   if (worldSeed?.connections) {
     report('Carving road connections...');
-    carveConnections(tiles, worldSeed.connections, worldSeed.pois ?? [], fields);
+    roadGraph = buildRoadGraph(worldSeed.connections, worldSeed.pois ?? [], tiles, fields);
   }
 
   // Run POI-zone brush passes for additional flavour entities around each POI
@@ -269,6 +273,7 @@ export async function generateWithNoise(
     stats: { iterations: 0, backtracks: 0 },
     buildings,
     settlementPlans,
+    roadGraph,
   };
 
   // Settlement wear: trample high-traffic ground to dirt + cull vegetation
@@ -286,62 +291,6 @@ export async function generateWithNoise(
   if (cleared > 0) report(`Cleared ${cleared} obstructed nature entities`);
 
   return { map, world, biomeMap };
-}
-
-/**
- * Carve road/river tiles along connection waypoints using the agent walker.
- * Falls back to a straight POI-to-POI walk when no waypoints are defined.
- * Bridges are placed only where the walker chose to traverse water with
- * autoBridge enabled.
- */
-function carveConnections(
-  tiles: Tile[][],
-  connections: WorldSeed['connections'],
-  pois: POI[],
-  fields: TerrainField,
-): void {
-  const poiPositions = new Map(
-    pois.filter(p => p.position).map(p => [p.id, p.position!]),
-  );
-
-  for (const conn of connections) {
-    const roadType = conn.type === 'river' ? 'river'
-      : conn.style === 'stone' ? 'stone_road' : 'dirt_road';
-    const autoBridge = conn.autoBridge ?? (conn.type !== 'river');
-
-    let points: { x: number; y: number }[];
-    if (conn.waypoints?.length) {
-      points = conn.waypoints;
-    } else {
-      const fromPos = poiPositions.get(conn.from);
-      const toPos   = poiPositions.get(conn.to);
-      if (!fromPos || !toPos) continue;
-      points = [fromPos, toPos];
-    }
-
-    for (let i = 0; i < points.length - 1; i++) {
-      const a = points[i], b = points[i + 1];
-      const result = walkRoad(a, b, tiles, fields, { autoBridge });
-      if (result.cells.length === 0) continue;
-
-      const width = tiles[0]?.length ?? 0;
-      for (const cell of result.cells) {
-        const t = tiles[cell.y]?.[cell.x];
-        if (!t) continue;
-        const idx = cell.y * width + cell.x;
-        if (result.bridgeCells.has(idx)) {
-          t.type = 'bridge';
-          t.walkable = true;
-        } else if (WATER_TYPES.has(t.type)) {
-          // Walker chose to stop at water (autoBridge=false); leave it untouched.
-          continue;
-        } else {
-          t.type = roadType;
-          t.walkable = (roadType !== 'river');
-        }
-      }
-    }
-  }
 }
 
 /**

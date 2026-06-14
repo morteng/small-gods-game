@@ -48,6 +48,9 @@ export interface GameMap {
   /** Settlement plans from worldgen (S2/S3): road graph, lots, wards. Live
    *  growth consumes free lots; persisted verbatim via SaveFile.map. */
   settlementPlans?: import('@/world/settlement-plan').SettlementPlan[];
+  /** Inter-POI road graph (Roads Slice 0): polylines + bridges are the source of
+   *  truth, tile carving is derived. Persisted verbatim via SaveFile.map. */
+  roadGraph?: import('@/world/road-graph').RoadGraph;
 }
 
 /** Village/settlement on the map */

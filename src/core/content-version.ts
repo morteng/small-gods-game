@@ -39,4 +39,4 @@ export const ART_RECIPE_VERSION = 'v9';
  * An autosave stamped with a different value is discarded on load → a fresh
  * world is generated. Distinct from SAVE_VERSION (which guards the save *schema*).
  */
-export const WORLD_CONTENT_VERSION = 8;   // render Slice 1: wells/graveyards emitted as geometry-backed blueprint props (class:'prop'), not invisible bare props
+export const WORLD_CONTENT_VERSION = 9;   // roads Slice 0: GameMap.roadGraph persisted (inter-POI polylines + bridges; tile carve derived from it)

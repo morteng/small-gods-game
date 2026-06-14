@@ -6,7 +6,7 @@ describe('content-version constants', () => {
     expect(ART_RECIPE_VERSION).toBe('v9');
   });
 
-  it('declares the current world content version', () => {
-    expect(WORLD_CONTENT_VERSION).toBe(8);
+  it('declares the current world content version (9: roads Slice 0 roadGraph)', () => {
+    expect(WORLD_CONTENT_VERSION).toBe(9);
   });
 });
