@@ -1,0 +1,672 @@
+/**
+ * Medieval-Europe content pack — ROOM TYPE catalogue.
+ *
+ * Pure data. No logic. Each entry is one fact about one kind of room in a
+ * medieval building, at graduated levels of detail (LOD) plus structured fields.
+ * Other pack files (building types, hearth rules, topologies) cross-reference
+ * these ids, so the ids here are load-bearing — keep them stable.
+ *
+ * Convention notes:
+ *   - `fn` is the function tag used by the room programme + hearth rules.
+ *   - Most rooms are `visibility: 'data-only'` (interiors are latent and never
+ *     reach the exterior image prompt). Rooms that genuinely shape the silhouette
+ *     (porch, aisle) are `'geometry'`.
+ *   - `needsLight` true → the room wants exterior windows.
+ *   - `heatable` true → the room may host the building's hearth.
+ *   - `bays` is the typical size along the structural run (1–3).
+ */
+import type { FactEntry, RoomTypeFields } from '@/catalogue/types';
+
+const PACK = 'medieval-europe';
+
+export const MEDIEVAL_ROOM_TYPES: FactEntry<RoomTypeFields>[] = [
+  // ── Domestic living / reception ───────────────────────────────────────────
+  {
+    id: 'hall',
+    kind: 'roomType',
+    pack: PACK,
+    lod: {
+      l0: 'The principal communal room — eating, receiving, living.',
+      l1: ['tall ceiling', 'large windows on the long sides', 'central or end hearth', 'a raised dais at the upper end'],
+      l2: 'The hall is the heart of a medieval house: a rectangular room one-and-a-half to three times longer than wide and taller than wide. The household dines here together, guests are received, and at night some sleep on its floor. Entered at the lower end via the screens passage; the dais and high table sit at the upper end.',
+    },
+    fields: { fn: 'living', needsLight: true, heatable: true, bays: 2 },
+    visibility: 'data-only',
+    provenance: ['https://en.wikipedia.org/wiki/Great_hall'],
+    tags: ['domestic', 'reception', 'core'],
+  },
+  {
+    id: 'open-hall',
+    kind: 'roomType',
+    pack: PACK,
+    applicability: { eras: ['medieval'] },
+    lod: {
+      l0: 'A hall open to the roof timbers, warmed by a central open hearth.',
+      l1: ['full-height to the rafters', 'central open hearth on the floor', 'smoke-blackened roof', 'louver or smoke-hole above'],
+      l2: 'The earlier, single-storey form of the hall: no upper floor over the main space, so smoke from the central hearth rises freely to a roof louver. Walls and rafters are blackened by soot. Superseded later by floored halls with wall fireplaces once chimneys arrived.',
+    },
+    fields: { fn: 'living', needsLight: true, heatable: true, bays: 2 },
+    visibility: 'data-only',
+    provenance: ['https://en.wikipedia.org/wiki/Open_hall', 'https://en.wikipedia.org/wiki/Great_hall'],
+    tags: ['domestic', 'reception', 'core', 'smoke'],
+  },
+  {
+    id: 'solar',
+    kind: 'roomType',
+    pack: PACK,
+    lod: {
+      l0: 'The family’s private upper living and sleeping room above the hall.',
+      l1: ['upper storey', 'glazed or shuttered windows', 'a fireplace in better houses', 'set above the dais end'],
+      l2: 'The solar is the lord’s and lady’s withdrawing room — a private chamber on an upper floor, usually over the service end or beyond the dais, away from the noise of the hall. In castles it is the "Great Chamber" or "Lords’ and Ladies’ Chamber".',
+    },
+    fields: { fn: 'living', needsLight: true, heatable: true, bays: 1 },
+    visibility: 'data-only',
+    provenance: ['https://en.wikipedia.org/wiki/Solar_(room)'],
+    tags: ['domestic', 'private', 'upper'],
+  },
+  {
+    id: 'parlour',
+    kind: 'roomType',
+    pack: PACK,
+    lod: {
+      l0: 'A small private room for conversation and informal sitting.',
+      l1: ['ground-floor', 'a window to the street or yard', 'modest fireplace', 'panelled or plastered'],
+      l2: 'A more intimate sitting room than the hall, used for private talk and quiet business. From the French parler, "to speak". In monasteries the parlour was the one place speech was permitted.',
+    },
+    fields: { fn: 'living', needsLight: true, heatable: true, bays: 1 },
+    visibility: 'data-only',
+    provenance: ['https://en.wikipedia.org/wiki/Parlour'],
+    tags: ['domestic', 'private'],
+  },
+  {
+    id: 'chamber',
+    kind: 'roomType',
+    pack: PACK,
+    lod: {
+      l0: 'A bedchamber — a private sleeping room.',
+      l1: ['a bed and chest', 'small shuttered window', 'often unheated', 'reached off a hall or passage'],
+      l2: 'The generic private room for sleeping. Lesser chambers are unheated and dimly lit; the principal chamber of a wealthy house may have its own fireplace and adjoin a garderobe.',
+    },
+    fields: { fn: 'sleeping', needsLight: true, heatable: false, bays: 1 },
+    visibility: 'data-only',
+    tags: ['domestic', 'private', 'sleeping'],
+  },
+
+  // ── Domestic service ──────────────────────────────────────────────────────
+  {
+    id: 'pantry',
+    kind: 'roomType',
+    pack: PACK,
+    lod: {
+      l0: 'Dry-store for bread and provisions, off the screens passage.',
+      l1: ['shelving and bins', 'small high window or none', 'a serving hatch to the passage', 'at the lower end of the hall'],
+      l2: 'From the French paneterie, the room of the panter who keeps the bread. Paired with the buttery across the screens passage at the service end of the hall; both flank the route to the kitchen.',
+    },
+    fields: { fn: 'service', needsLight: false, heatable: false, bays: 1 },
+    visibility: 'data-only',
+    provenance: ['https://en.wikipedia.org/wiki/Pantry'],
+    tags: ['service', 'storage', 'food'],
+  },
+  {
+    id: 'buttery',
+    kind: 'roomType',
+    pack: PACK,
+    lod: {
+      l0: 'Store for drink — ale, wine, and the casks they came in.',
+      l1: ['cool and shaded', 'barrels and a tap', 'a hatch to the passage', 'paired with the pantry'],
+      l2: 'From bouteillerie, the place of bottles and casks, kept by the butler. In a great house it issues the household’s ale and wine; in a monastery it dispensed bread and weak ale to travellers via a serving hatch in its outer door. Distinct from the larder (fats) and pantry (bread).',
+    },
+    fields: { fn: 'service', needsLight: false, heatable: false, bays: 1 },
+    visibility: 'data-only',
+    provenance: ['https://en.wikipedia.org/wiki/Buttery_(room)'],
+    tags: ['service', 'storage', 'drink'],
+  },
+  {
+    id: 'kitchen',
+    kind: 'roomType',
+    pack: PACK,
+    lod: {
+      l0: 'Where food is cooked over a great hearth.',
+      l1: ['a large cooking hearth', 'soot-stained walls', 'high vents or louver for smoke', 'often a detached or end block'],
+      l2: 'The kitchen carries the cooking fire and so was often built apart from or at the far end of the house to keep fire risk and heat away from the hall. Large kitchens have multiple hearths, a louvered roof or tall vents, and direct access to pantry, buttery and larder.',
+    },
+    fields: { fn: 'service', needsLight: true, heatable: true, bays: 2 },
+    visibility: 'data-only',
+    provenance: ['https://en.wikipedia.org/wiki/Kitchen'],
+    tags: ['service', 'food', 'fire', 'smoke'],
+  },
+  {
+    id: 'scullery',
+    kind: 'roomType',
+    pack: PACK,
+    lod: {
+      l0: 'A wash-up room for dishes, pots and rough kitchen work.',
+      l1: ['a stone sink or trough', 'a drain to the outside', 'damp floor', 'adjoins the kitchen'],
+      l2: 'The dirty-work annex of the kitchen where vessels are scoured and vegetables prepared. Plain, water-served and well-drained; the scullion’s domain.',
+    },
+    fields: { fn: 'service', needsLight: true, heatable: false, bays: 1 },
+    visibility: 'data-only',
+    provenance: ['https://en.wikipedia.org/wiki/Scullery'],
+    tags: ['service', 'water'],
+  },
+  {
+    id: 'larder',
+    kind: 'roomType',
+    pack: PACK,
+    lod: {
+      l0: 'A cool store for meat, fat and perishable food.',
+      l1: ['north-facing and cool', 'hooks and salting troughs', 'a small high window for air', 'flagged floor'],
+      l2: 'Named for lard, the larder keeps preserved and fresh meat, bacon, and fats. Kept deliberately cold and dim, often on the shaded side of the house, with a flagstone floor and ventilation rather than direct sun.',
+    },
+    fields: { fn: 'service', needsLight: false, heatable: false, bays: 1 },
+    visibility: 'data-only',
+    provenance: ['https://en.wikipedia.org/wiki/Larder'],
+    tags: ['service', 'storage', 'food'],
+  },
+  {
+    id: 'dairy',
+    kind: 'roomType',
+    pack: PACK,
+    lod: {
+      l0: 'A cool room for milk, butter and cheese-making.',
+      l1: ['stone slabs and shallow pans', 'tiled or slate surfaces', 'shaded and well-ventilated', 'a churn'],
+      l2: 'The dairy is kept cool and scrupulously clean for setting milk, skimming cream, churning butter and pressing cheese. Stone or slate slabs hold the temperature; small louvered openings give air without heat.',
+    },
+    fields: { fn: 'service', needsLight: false, heatable: false, bays: 1 },
+    visibility: 'data-only',
+    provenance: ['https://en.wikipedia.org/wiki/Dairy'],
+    tags: ['service', 'food', 'farm'],
+  },
+
+  // ── Storage / sub-floor ───────────────────────────────────────────────────
+  {
+    id: 'undercroft',
+    kind: 'roomType',
+    pack: PACK,
+    lod: {
+      l0: 'A vaulted ground- or sub-floor storage room beneath the main rooms.',
+      l1: ['stone vaulting', 'thick walls', 'few or no windows', 'beneath the principal floor'],
+      l2: 'A brick- or stone-lined vaulted space carrying the building above and storing goods, wine or merchandise. Often half-sunk, fire-resistant, and let or used for trade beneath a hall raised on the floor over it.',
+    },
+    fields: { fn: 'storage', needsLight: false, heatable: false, bays: 2 },
+    visibility: 'data-only',
+    provenance: ['https://en.wikipedia.org/wiki/Undercroft'],
+    tags: ['storage', 'vault', 'sub-floor'],
+  },
+  {
+    id: 'cellar',
+    kind: 'roomType',
+    pack: PACK,
+    lod: {
+      l0: 'A sunken store, cool and dark, for drink and provisions.',
+      l1: ['below ground', 'cool and damp', 'barrels and bins', 'reached by a stair or trap'],
+      l2: 'A room dug below floor level whose earth-banked walls hold a steady cool temperature ideal for ale, wine and root vegetables. Lit only by a candle or a small light-well.',
+    },
+    fields: { fn: 'storage', needsLight: false, heatable: false, bays: 1 },
+    visibility: 'data-only',
+    provenance: ['https://en.wikipedia.org/wiki/Cellar'],
+    tags: ['storage', 'sub-floor'],
+  },
+  {
+    id: 'loft',
+    kind: 'roomType',
+    pack: PACK,
+    lod: {
+      l0: 'The space under the roof, used for storage or sleeping.',
+      l1: ['in the roof slope', 'low at the eaves', 'reached by a ladder', 'a gable opening or dormer'],
+      l2: 'The attic volume within the roof timbers. Used to store fodder, grain or lumber, or floored over as cramped sleeping quarters for servants or children. Light comes from a gable window or, in better houses, a dormer.',
+    },
+    fields: { fn: 'storage', needsLight: false, heatable: false, bays: 1 },
+    visibility: 'data-only',
+    provenance: ['https://en.wikipedia.org/wiki/Loft'],
+    tags: ['storage', 'upper', 'roof'],
+  },
+
+  // ── Animal housing ────────────────────────────────────────────────────────
+  {
+    id: 'byre',
+    kind: 'roomType',
+    pack: PACK,
+    lod: {
+      l0: 'A cattle shed, often sharing a roof with the dwelling.',
+      l1: ['stalls and a feeding trough', 'a drainage channel down the floor', 'low and unlit', 'a wide cart door'],
+      l2: 'In a byre-dwelling the cattle live under the same roof as the family, the byre occupying the lower or downhill end. Beasts give off warmth; a central drain runs the muck downslope to a door at the lower gable. Earth or cobbled floor, no glazing.',
+    },
+    fields: { fn: 'animal', needsLight: false, heatable: false, bays: 2 },
+    visibility: 'data-only',
+    provenance: ['https://en.wikipedia.org/wiki/Byre-dwelling'],
+    tags: ['animal', 'farm', 'cattle'],
+  },
+  {
+    id: 'shippon',
+    kind: 'roomType',
+    pack: PACK,
+    lod: {
+      l0: 'A cow-house — the West-Country name for a cattle byre.',
+      l1: ['tie-stalls', 'a dung passage', 'low ceiling', 'shared gable with the house'],
+      l2: 'Regional (chiefly south-west English) term for the cattle housing of a longhouse, functionally identical to a byre: tie-stalls, a central drainage and dung channel, and a cross-passage separating it from the human end.',
+    },
+    fields: { fn: 'animal', needsLight: false, heatable: false, bays: 2 },
+    visibility: 'data-only',
+    provenance: ['https://en.wikipedia.org/wiki/Longhouse#Dartmoor_longhouse'],
+    tags: ['animal', 'farm', 'cattle', 'regional'],
+  },
+  {
+    id: 'stable',
+    kind: 'roomType',
+    pack: PACK,
+    lod: {
+      l0: 'Housing for horses, with stalls and a hayloft over.',
+      l1: ['partitioned stalls', 'a manger and hayrack', 'a wide doorway', 'a loft for fodder above'],
+      l2: 'Horse housing, generally a separate block or wing with floored stalls, a manger along the wall, and a loft above for hay dropped down to the racks. Kept dry and aired; the better-built and cleaner cousin of the byre.',
+    },
+    fields: { fn: 'animal', needsLight: false, heatable: false, bays: 2 },
+    visibility: 'data-only',
+    provenance: ['https://en.wikipedia.org/wiki/Stable'],
+    tags: ['animal', 'farm', 'horse'],
+  },
+
+  // ── Circulation ───────────────────────────────────────────────────────────
+  {
+    id: 'screens-passage',
+    kind: 'roomType',
+    pack: PACK,
+    lod: {
+      l0: 'A cross-corridor at the lower end of the hall behind a timber screen.',
+      l1: ['a carved timber screen with two doorways', 'doors to pantry, buttery and kitchen', 'a minstrels’ gallery above', 'the main entrance'],
+      l2: 'The screens passage runs across the lower end of the hall, divided from it by a timber screen pierced by two doorways. The external doors open into it, and from it open the service rooms — pantry and buttery — and the way to the kitchen. A gallery often sits over it.',
+    },
+    fields: { fn: 'circulation', needsLight: false, heatable: false, bays: 1 },
+    visibility: 'data-only',
+    provenance: ['https://en.wikipedia.org/wiki/Screens_passage'],
+    tags: ['circulation', 'hall'],
+  },
+  {
+    id: 'cross-passage',
+    kind: 'roomType',
+    pack: PACK,
+    lod: {
+      l0: 'A through-passage dividing dwelling from service or byre.',
+      l1: ['opposing front and back doors', 'a draughty corridor', 'separates living from working ends', 'unheated'],
+      l2: 'In a longhouse the cross-passage runs from the front door straight through to a back door, dividing the heated living end from the byre or service end. It gives access to both and lets carts and animals through.',
+    },
+    fields: { fn: 'circulation', needsLight: false, heatable: false, bays: 1 },
+    visibility: 'data-only',
+    provenance: ['https://en.wikipedia.org/wiki/Longhouse'],
+    tags: ['circulation', 'farm', 'longhouse'],
+  },
+  {
+    id: 'porch',
+    kind: 'roomType',
+    pack: PACK,
+    lod: {
+      l0: 'A covered entrance projecting from the front wall.',
+      l1: ['a small gabled projection', 'an outer and inner door', 'side benches in some', 'shelters the main entrance'],
+      l2: 'A roofed structure standing proud of the wall around the principal door, sheltering it from weather and marking the entry. On churches and grander houses it may be two-storeyed with a room (parvise) over.',
+    },
+    fields: { fn: 'circulation', needsLight: false, heatable: false, bays: 1 },
+    visibility: 'geometry',
+    provenance: ['https://en.wikipedia.org/wiki/Porch'],
+    tags: ['circulation', 'entrance', 'exterior'],
+  },
+
+  // ── Worship (church) ──────────────────────────────────────────────────────
+  {
+    id: 'nave',
+    kind: 'roomType',
+    pack: PACK,
+    lod: {
+      l0: 'The long body of a church where the congregation stands.',
+      l1: ['tall and aisled', 'a clerestory of high windows', 'an arcade of piers', 'open to the chancel at the east'],
+      l2: 'The main public vessel of a church, running west to east from the entrance to the chancel arch. Lined by arcades separating it from the aisles and lit above by a clerestory. The laity gather here; it is the largest interior space.',
+    },
+    fields: { fn: 'worship', needsLight: true, heatable: false, bays: 3 },
+    visibility: 'geometry',
+    provenance: ['https://en.wikipedia.org/wiki/Nave'],
+    tags: ['worship', 'church', 'public'],
+  },
+  {
+    id: 'chancel',
+    kind: 'roomType',
+    pack: PACK,
+    lod: {
+      l0: 'The east end of a church around the altar, for clergy.',
+      l1: ['raised a step or two', 'the high altar', 'a large east window', 'often screened from the nave'],
+      l2: 'The liturgical heart at the east of the church, holding the high altar and choir, reserved for the clergy. Separated from the nave by the chancel arch and frequently a rood screen; lit by a great east window.',
+    },
+    fields: { fn: 'worship', needsLight: true, heatable: false, bays: 2 },
+    visibility: 'geometry',
+    provenance: ['https://en.wikipedia.org/wiki/Chancel'],
+    tags: ['worship', 'church', 'clergy'],
+  },
+  {
+    id: 'aisle',
+    kind: 'roomType',
+    pack: PACK,
+    lod: {
+      l0: 'A lower side passage flanking the nave behind an arcade.',
+      l1: ['lower than the nave', 'a lean-to roof', 'an arcade open to the nave', 'side windows'],
+      l2: 'A longitudinal space alongside the nave (and sometimes the chancel), separated by an arcade and roofed lower, usually under a lean-to or its own pitch. Aisles widen the church, carry processions, and house side altars and chapels.',
+    },
+    fields: { fn: 'worship', needsLight: true, heatable: false, bays: 3 },
+    visibility: 'geometry',
+    provenance: ['https://en.wikipedia.org/wiki/Aisle'],
+    tags: ['worship', 'church', 'circulation'],
+  },
+
+  // ── Monastic ──────────────────────────────────────────────────────────────
+  {
+    id: 'refectory',
+    kind: 'roomType',
+    pack: PACK,
+    lod: {
+      l0: 'The communal dining hall of a monastery.',
+      l1: ['long tables along the walls', 'a reader’s pulpit', 'tall windows', 'set off the cloister'],
+      l2: 'Also called the frater, the refectory is where the religious community eats together in silence while one of their number reads from a wall pulpit. A large, well-lit hall opening off one range of the cloister, usually opposite the church.',
+    },
+    fields: { fn: 'living', needsLight: true, heatable: false, bays: 3 },
+    visibility: 'data-only',
+    provenance: ['https://en.wikipedia.org/wiki/Refectory'],
+    tags: ['monastic', 'communal', 'dining'],
+  },
+  {
+    id: 'dorter',
+    kind: 'roomType',
+    pack: PACK,
+    lod: {
+      l0: 'The monks’ communal sleeping dormitory.',
+      l1: ['a long row of beds or cells', 'an upper floor', 'a night-stair down to the church', 'plain and unheated'],
+      l2: 'The dorter (dormitory) is the great communal sleeping range of a monastery, on an upper floor of the east cloister range, with a night-stair leading directly down into the church transept for the night offices. The reredorter (latrine) adjoins one end.',
+    },
+    fields: { fn: 'sleeping', needsLight: true, heatable: false, bays: 3 },
+    visibility: 'data-only',
+    provenance: ['https://en.wikipedia.org/wiki/Dormitory'],
+    tags: ['monastic', 'sleeping', 'communal'],
+  },
+  {
+    id: 'chapter-house',
+    kind: 'roomType',
+    pack: PACK,
+    lod: {
+      l0: 'The monastic assembly room for daily meetings.',
+      l1: ['seating around the walls', 'a vaulted ceiling', 'often polygonal', 'opens off the east cloister'],
+      l2: 'Where the community gathers daily to hear a chapter of the Rule read, conduct business and receive correction. Frequently a fine vaulted, sometimes polygonal, room off the east range of the cloister, second in dignity only to the church.',
+    },
+    fields: { fn: 'living', needsLight: true, heatable: false, bays: 2 },
+    visibility: 'data-only',
+    provenance: ['https://en.wikipedia.org/wiki/Chapter_house'],
+    tags: ['monastic', 'assembly'],
+  },
+
+  // ── Inn / tavern ──────────────────────────────────────────────────────────
+  {
+    id: 'taproom',
+    kind: 'roomType',
+    pack: PACK,
+    lod: {
+      l0: 'The public drinking room of an inn or tavern.',
+      l1: ['a serving counter or hatch', 'benches and trestle tables', 'a big hearth', 'a street-facing window'],
+      l2: 'The main public room of an alehouse or inn where ale is drawn from the cask and drinkers gather. Warmed by a generous fire, furnished with rough tables and settles, and open to all comers off the street.',
+    },
+    fields: { fn: 'living', needsLight: true, heatable: true, bays: 2 },
+    visibility: 'data-only',
+    provenance: ['https://en.wikipedia.org/wiki/Tap_room'],
+    tags: ['inn', 'tavern', 'public', 'drink'],
+  },
+  {
+    id: 'snug',
+    kind: 'roomType',
+    pack: PACK,
+    lod: {
+      l0: 'A small private drinking room partitioned off the taproom.',
+      l1: ['enclosed and intimate', 'high partitions', 'a serving hatch', 'a small fire'],
+      l2: 'A cosy, screened-off compartment of an inn for private or quieter drinking, set apart from the common taproom by panelled partitions and served through a small hatch.',
+    },
+    fields: { fn: 'living', needsLight: false, heatable: true, bays: 1 },
+    visibility: 'data-only',
+    provenance: ['https://en.wikipedia.org/wiki/Snug_(public_house)'],
+    tags: ['inn', 'tavern', 'private', 'drink'],
+  },
+  {
+    id: 'guest-chamber',
+    kind: 'roomType',
+    pack: PACK,
+    lod: {
+      l0: 'A sleeping room let to travellers at an inn.',
+      l1: ['one or more beds', 'a shuttered window', 'a chest for baggage', 'reached off a gallery or stair'],
+      l2: 'A room rented for the night to lodgers and travellers, ranging from a shared chamber of several beds to a private room in a good inn. Often reached from a galleried courtyard.',
+    },
+    fields: { fn: 'sleeping', needsLight: true, heatable: false, bays: 1 },
+    visibility: 'data-only',
+    tags: ['inn', 'sleeping', 'lodging'],
+  },
+
+  // ── Sanitary ──────────────────────────────────────────────────────────────
+  {
+    id: 'garderobe',
+    kind: 'roomType',
+    pack: PACK,
+    lod: {
+      l0: 'A medieval privy built into the thickness of a wall.',
+      l1: ['a seat over a shaft', 'set in the wall thickness', 'a narrow vent slit', 'a chute discharging outside'],
+      l2: 'A castle or great-house latrine: a small closet corbelled out or sunk in the wall, with a seat over a vertical shaft that voids down the outer face or into a cesspit or moat. The name (garde de robes) also covered a store for clothing, kept here because the ammonia deterred moths.',
+    },
+    fields: { fn: 'sanitary', needsLight: false, heatable: false, bays: 1 },
+    visibility: 'data-only',
+    provenance: ['https://en.wikipedia.org/wiki/Garderobe'],
+    tags: ['sanitary', 'castle'],
+  },
+
+  // ── Working buildings (mill / granary / bakehouse / forge / brewhouse) ─────
+  {
+    id: 'mill-room',
+    kind: 'roomType',
+    pack: PACK,
+    lod: {
+      l0: 'The working floor of a mill, housing the millstones.',
+      l1: ['paired millstones', 'gearing and a hopper', 'a meal bin below', 'flour-dusted timbers'],
+      l2: 'Where grain is ground: the great gear from the water-wheel or sails drives the runner stone over the bed stone, grain feeds from a hopper, and meal falls to a bin below. Floors and beams are pale with flour dust; the room is loud with timber gearing.',
+    },
+    fields: { fn: 'work', needsLight: true, heatable: false, bays: 2 },
+    visibility: 'data-only',
+    provenance: ['https://en.wikipedia.org/wiki/Mill_(grinding)', 'https://en.wikipedia.org/wiki/Watermill'],
+    tags: ['work', 'mill', 'grain'],
+  },
+  {
+    id: 'granary-loft',
+    kind: 'roomType',
+    pack: PACK,
+    lod: {
+      l0: 'A dry upper store for threshed grain.',
+      l1: ['plank-floored', 'small louvered vents', 'kept dry and aired', 'raised above damp'],
+      l2: 'The grain store, set high and dry — often a loft or a building raised on staddle stones — with louvered vents for air but proof against rain, rats and rising damp. Grain is kept in bulk on the boarded floor or in bins.',
+    },
+    fields: { fn: 'storage', needsLight: false, heatable: false, bays: 2 },
+    visibility: 'data-only',
+    provenance: ['https://en.wikipedia.org/wiki/Granary'],
+    tags: ['storage', 'grain', 'upper', 'farm'],
+  },
+  {
+    id: 'bakehouse-room',
+    kind: 'roomType',
+    pack: PACK,
+    lod: {
+      l0: 'A room built around a domed bread oven.',
+      l1: ['a masonry domed oven', 'a kneading trough', 'a flue or smoke-hole', 'warm and floury'],
+      l2: 'The bakehouse holds the great masonry oven: a fire is lit inside the dome, raked out when hot, and loaves baked on the retained heat. Often communal or manorial, kept apart from dwellings for fire safety, with a trough for kneading and proving.',
+    },
+    fields: { fn: 'work', needsLight: true, heatable: true, bays: 1 },
+    visibility: 'data-only',
+    provenance: ['https://en.wikipedia.org/wiki/Bakery', 'https://en.wikipedia.org/wiki/Masonry_oven'],
+    tags: ['work', 'food', 'fire', 'bread'],
+  },
+  {
+    id: 'forge-room',
+    kind: 'roomType',
+    pack: PACK,
+    lod: {
+      l0: 'The smithy floor, built around the forge hearth and anvil.',
+      l1: ['a brick forge hearth with bellows', 'an anvil on a block', 'a quenching trough', 'sooty walls and a hood'],
+      l2: 'Where the smith works iron hot: a charcoal hearth blown by bellows under a smoke hood, an anvil set on a stump, racks of tools, and a slack-tub for quenching. Open or wide-doored for ventilation and to let heat escape; floor of beaten earth.',
+    },
+    fields: { fn: 'work', needsLight: true, heatable: true, bays: 1 },
+    visibility: 'data-only',
+    provenance: ['https://en.wikipedia.org/wiki/Forge', 'https://en.wikipedia.org/wiki/Blacksmith'],
+    tags: ['work', 'metal', 'fire', 'smoke'],
+  },
+  {
+    id: 'brewhouse-room',
+    kind: 'roomType',
+    pack: PACK,
+    lod: {
+      l0: 'A room for brewing ale, built around a heated copper.',
+      l1: ['a fired copper or cauldron', 'mash and cooling tuns', 'a smoke vent', 'damp, steamy floor'],
+      l2: 'Where malt is mashed and ale brewed: a copper over its own fire heats the liquor, the mash tun steeps the grain, and broad cooling vessels stand by. Steamy and warm, with a vent for steam and smoke; often attached to a great house, monastery or inn.',
+    },
+    fields: { fn: 'work', needsLight: true, heatable: true, bays: 1 },
+    visibility: 'data-only',
+    provenance: ['https://en.wikipedia.org/wiki/Brewhouse', 'https://en.wikipedia.org/wiki/Brewing'],
+    tags: ['work', 'drink', 'fire'],
+  },
+  {
+    id: 'dovecote-loft',
+    kind: 'roomType',
+    pack: PACK,
+    lod: {
+      l0: 'A nesting loft for pigeons, walled with nest-holes.',
+      l1: ['tiers of nesting holes', 'a flight opening near the top', 'a potence ladder', 'droppings underfoot'],
+      l2: 'The interior of a dovecote: walls lined floor to roof with pigeon-holes for nesting, entered by the birds through a louvered glover or cupola at the apex. A revolving ladder (potence) reaches every hole to collect squabs and eggs; the dung was a prized fertiliser. A seigneurial privilege.',
+    },
+    fields: { fn: 'animal', needsLight: false, heatable: false, bays: 1 },
+    visibility: 'data-only',
+    provenance: ['https://en.wikipedia.org/wiki/Dovecote'],
+    tags: ['animal', 'farm', 'birds', 'upper'],
+  },
+
+  // ── Extra real rooms (rounding out the programme) ─────────────────────────
+  {
+    id: 'pentice',
+    kind: 'roomType',
+    pack: PACK,
+    lod: {
+      l0: 'A lean-to covered walk or passage against an outer wall.',
+      l1: ['a single-pitch roof', 'open or arcaded along one side', 'against a main wall', 'shelters a path'],
+      l2: 'A pentice (penthouse) is a sloping lean-to roof on posts or brackets running along a wall, sheltering a walkway, well or workbench. The cloister walk is the grandest form; humbler ones shelter a yard path or shop front.',
+    },
+    fields: { fn: 'circulation', needsLight: false, heatable: false, bays: 1 },
+    visibility: 'geometry',
+    provenance: ['https://en.wikipedia.org/wiki/Pentice'],
+    tags: ['circulation', 'exterior', 'lean-to'],
+  },
+  {
+    id: 'reredorter',
+    kind: 'roomType',
+    pack: PACK,
+    lod: {
+      l0: 'The monastic latrine block adjoining the dormitory.',
+      l1: ['a long row of seats over a drain', 'a flushing watercourse below', 'set at one end of the dorter', 'narrow ventilation slits'],
+      l2: 'The communal latrine of a monastery (literally "behind the dormitory"), a long range of seats over a culvert deliberately sited above a stream or drain that flushed the waste away. Reached directly from the dorter.',
+    },
+    fields: { fn: 'sanitary', needsLight: false, heatable: false, bays: 2 },
+    visibility: 'data-only',
+    provenance: ['https://en.wikipedia.org/wiki/Reredorter'],
+    tags: ['sanitary', 'monastic'],
+  },
+  {
+    id: 'workshop',
+    kind: 'roomType',
+    pack: PACK,
+    lod: {
+      l0: 'A craftsman’s working room, often open to the street.',
+      l1: ['a workbench by the window', 'tools on the walls', 'a wide shuttered shop-front', 'wares displayed'],
+      l2: 'The ground-floor working and selling room of an urban craftsman — weaver, cobbler, joiner — with the broad window or hinged shutter that doubled as a counter onto the street. Living quarters lay behind or above.',
+    },
+    fields: { fn: 'work', needsLight: true, heatable: false, bays: 1 },
+    visibility: 'data-only',
+    provenance: ['https://en.wikipedia.org/wiki/Workshop'],
+    tags: ['work', 'urban', 'craft'],
+  },
+  {
+    id: 'shopfront-stall',
+    kind: 'roomType',
+    pack: PACK,
+    lod: {
+      l0: 'A street-facing selling space with a let-down display board.',
+      l1: ['a hinged shutter forming a counter', 'goods on display', 'open to the street by day', 'shuttered at night'],
+      l2: 'The selling face of a town house or workshop: a large unglazed opening closed by a two-part shutter, the lower leaf dropping to make a display counter and the upper raised as an awning. The merchant’s store and workroom lie behind.',
+    },
+    fields: { fn: 'work', needsLight: true, heatable: false, bays: 1 },
+    visibility: 'geometry',
+    provenance: ['https://en.wikipedia.org/wiki/Shop'],
+    tags: ['work', 'urban', 'trade', 'exterior'],
+  },
+  {
+    id: 'gatehouse-passage',
+    kind: 'roomType',
+    pack: PACK,
+    lod: {
+      l0: 'A defended through-passage beneath a gatehouse.',
+      l1: ['a vaulted tunnel', 'gates and a portcullis groove', 'murder-holes overhead', 'guard recesses in the side walls'],
+      l2: 'The fortified entry passage running through the base of a gatehouse, closed by gates and a portcullis, watched from chambers above through murder-holes, with a wicket for foot traffic. The controlled threshold of a castle or walled precinct.',
+    },
+    fields: { fn: 'circulation', needsLight: false, heatable: false, bays: 1 },
+    visibility: 'geometry',
+    provenance: ['https://en.wikipedia.org/wiki/Gatehouse'],
+    tags: ['circulation', 'castle', 'defence', 'entrance'],
+  },
+  {
+    id: 'wardrobe-store',
+    kind: 'roomType',
+    pack: PACK,
+    lod: {
+      l0: 'A secure store for cloth, plate and valuables.',
+      l1: ['chests and presses', 'a stout door and lock', 'few or no windows', 'near the chamber'],
+      l2: 'A strong-room for the household’s clothing, hangings, plate and treasure, kept locked and close to the lord’s chamber. In great households the "Wardrobe" grew into a whole department of supply and account.',
+    },
+    fields: { fn: 'storage', needsLight: false, heatable: false, bays: 1 },
+    visibility: 'data-only',
+    provenance: ['https://en.wikipedia.org/wiki/Wardrobe_(government)'],
+    tags: ['storage', 'valuables', 'secure'],
+  },
+  {
+    id: 'oratory',
+    kind: 'roomType',
+    pack: PACK,
+    lod: {
+      l0: 'A small private room set aside for prayer.',
+      l1: ['a small altar or prie-dieu', 'an east window', 'quiet and plain', 'off a chamber'],
+      l2: 'A private chapel-room for the devotions of a household or individual, often a closet opening off the great chamber or solar, with a small altar and a window oriented east. Distinct from the public church.',
+    },
+    fields: { fn: 'worship', needsLight: true, heatable: false, bays: 1 },
+    visibility: 'data-only',
+    provenance: ['https://en.wikipedia.org/wiki/Oratory_(worship)'],
+    tags: ['worship', 'private', 'domestic'],
+  },
+  {
+    id: 'sacristy',
+    kind: 'roomType',
+    pack: PACK,
+    lod: {
+      l0: 'A vestry where vestments and sacred vessels are kept.',
+      l1: ['cupboards and a vesting bench', 'a stout lockable door', 'near the chancel', 'a small window'],
+      l2: 'A secure room adjoining the chancel of a church where the priest vests and the vestments, plate, registers and relics are stored. Often vaulted and well-locked against theft.',
+    },
+    fields: { fn: 'storage', needsLight: false, heatable: false, bays: 1 },
+    visibility: 'data-only',
+    provenance: ['https://en.wikipedia.org/wiki/Sacristy'],
+    tags: ['worship', 'church', 'storage', 'secure'],
+  },
+  {
+    id: 'workroom-loft',
+    kind: 'roomType',
+    pack: PACK,
+    lod: {
+      l0: 'An upper working room lit for fine handwork.',
+      l1: ['ample windows for light', 'work-frames or looms', 'an open floor', 'over a shop or store'],
+      l2: 'An upper-floor working space — a weaver’s loom-loft, a tailor’s sewing room — placed high and given generous windows for the daylight that close work demands. Sits over a workshop, store or undercroft.',
+    },
+    fields: { fn: 'work', needsLight: true, heatable: false, bays: 2 },
+    visibility: 'data-only',
+    tags: ['work', 'upper', 'craft'],
+  },
+];

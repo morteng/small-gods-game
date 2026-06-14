@@ -48,15 +48,3 @@ export function registerPack(pack: FactPack): void {
   loadPack(pack, catalogue);
 }
 
-let defaultsLoaded = false;
-
-/**
- * Load the built-in content packs into the default singleton. Idempotent. The
- * medieval-europe pack is wired here in Task 11; until then this is a no-op so the
- * engine stays decoupled from content.
- */
-export function loadDefaultPacks(): void {
-  if (defaultsLoaded) return;
-  defaultsLoaded = true;
-  // TODO(Task 11): registerPack(medievalEuropePack);
-}

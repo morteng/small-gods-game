@@ -124,7 +124,11 @@ export interface PortalTypeFields {
 }
 
 export interface MaterialFields {
-  wealthLadder?: string[]; // poorest → richest (single source for descriptor ladders)
+  /** Which blueprint material role this sits on ('walls'|'roof'|'ground'). String = open. */
+  role?: string;
+  /** Position on its role's wealth ladder, poorest = 0. Derives the descriptor ladders. */
+  rank?: number;
+  wealthLadder?: string[]; // optional explicit full ladder (cross-cut convenience)
   regionAffinity?: string[];
   rgb?: string;
 }

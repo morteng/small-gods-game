@@ -33,10 +33,10 @@ export {
   loadPack,
   registerFact,
   registerPack,
-  loadDefaultPacks,
   catalogue,
   registeredConstraints,
   registeredGrammarRules,
   type FactPack,
   type GrammarRule,
 } from '@/catalogue/pack';
+export { loadDefaultPacks } from '@/catalogue/default-packs';
