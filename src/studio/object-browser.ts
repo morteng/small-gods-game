@@ -1,13 +1,13 @@
 // src/studio/object-browser.ts
 // Object browser: search + faceted filter over the asset catalogue, plus a VARIANT
-// row (wealth/quality/condition descriptor pickers) that rebuilds the current
-// subject through resolveAsset.
+// row (era + wealth/quality/condition descriptors + a lifecycle scrubber) that
+// rebuilds the current subject through resolveAsset.
 import { assetCatalogue, queryCatalogue, type CatalogueEntry } from '@/blueprint/catalogue';
 import type { Descriptors, Era } from '@/blueprint/types';
 import { ERA_LEVELS } from '@/blueprint/eras';
 import { stagesFor, defaultStageFor } from '@/blueprint/lifecycle';
+import { h } from './theme';
 
-// ── object browser (search + faceted filter over the asset catalogue) ────────
 interface BrowserDeps {
   getCurrent: () => string;
   onSelect: (kind: string) => void;
@@ -19,7 +19,7 @@ interface BrowserDeps {
   onStage: (stage: string | undefined) => void;
 }
 export function buildObjectBrowser(host: HTMLElement, deps: BrowserDeps): { refresh: () => void } {
-  host.style.cssText += ';padding:6px 8px;font:11px monospace;color:#cfe';
+  host.style.cssText += ';padding:8px 9px;font:400 11px/1.4 var(--font-mono);color:var(--ink-0)';
   const entries = assetCatalogue();
   // Facet values present in the catalogue (only show filters that exist).
   const classes = [...new Set(entries.map(e => e.class))].sort();
@@ -27,37 +27,31 @@ export function buildObjectBrowser(host: HTMLElement, deps: BrowserDeps): { refr
   const eras = [...new Set(entries.map(e => e.era).filter(Boolean) as string[])].sort();
   const filter = { text: '', class: '', category: '', era: '' };
 
-  const search = document.createElement('input');
-  search.type = 'search'; search.placeholder = 'search name / category / tag…';
-  search.style.cssText = 'width:100%;box-sizing:border-box;background:#11111a;color:#9fe;border:1px solid #3a3a52;padding:3px 5px;margin-bottom:4px;font:11px monospace';
+  const search = h('input', { class: 'sg-search', style: 'margin-bottom:6px', attrs: { type: 'search', placeholder: 'search name / category / tag…' } }) as HTMLInputElement;
   search.oninput = () => { filter.text = search.value.trim().toLowerCase(); renderList(); };
 
   // A chip-row facet: clicking a chip toggles it (single-select per facet).
   function chipRow(label: string, values: string[], key: 'class' | 'category' | 'era'): HTMLElement {
-    const wrap = document.createElement('div'); wrap.style.cssText = 'display:flex;flex-wrap:wrap;gap:3px;margin:2px 0 4px';
-    const lbl = document.createElement('span'); lbl.textContent = label; lbl.style.cssText = 'opacity:0.55;margin-right:3px'; wrap.appendChild(lbl);
+    const wrap = h('div', { style: 'display:flex;flex-wrap:wrap;gap:4px;margin:3px 0 5px;align-items:center' },
+      h('span', { class: 'sg-muted', style: 'margin-right:2px', text: label }));
     const chips: { v: string; el: HTMLElement }[] = [];
-    const paint = () => { for (const c of chips) c.el.style.background = filter[key] === c.v ? '#3a5a8a' : '#21213a'; };
+    const paint = () => { for (const c of chips) c.el.classList.toggle('is-on', filter[key] === c.v); };
     for (const v of values) {
-      const c = document.createElement('span'); c.textContent = v;
-      c.style.cssText = 'cursor:pointer;border:1px solid #3a3a52;border-radius:8px;padding:0 6px;color:#cfe';
-      c.onclick = () => { filter[key] = filter[key] === v ? '' : v; paint(); renderList(); };
+      const c = h('span', { class: 'sg-chip', text: v, on: { click: () => { filter[key] = filter[key] === v ? '' : v; paint(); renderList(); } } });
       chips.push({ v, el: c }); wrap.appendChild(c);
     }
     paint();
     return wrap;
   }
 
-  const facets = document.createElement('div');
-  facets.append(chipRow('class', classes, 'class'), chipRow('cat', categories, 'category'));
+  const facets = h('div', {}, chipRow('class', classes, 'class'), chipRow('cat', categories, 'category'));
   if (eras.length > 1) facets.appendChild(chipRow('era', eras, 'era'));
 
-  const count = document.createElement('div'); count.style.cssText = 'opacity:0.55;margin:2px 0';
-  const list = document.createElement('div'); list.style.cssText = 'display:flex;flex-direction:column;gap:1px';
+  const count = h('div', { class: 'sg-muted', style: 'margin:2px 0' });
+  const list = h('div', { style: 'display:flex;flex-direction:column;gap:1px' });
 
   // ── variant pickers: descriptor axes for the CURRENT subject ──
-  const variant = document.createElement('div');
-  variant.style.cssText = 'border-top:1px solid #2a2a3a;margin-top:6px;padding-top:5px';
+  const variant = h('div', { style: 'border-top:1px solid var(--line);margin-top:8px;padding-top:7px' });
   const byType = new Map(entries.map(e => [e.type, e]));
   function renderVariant(): void {
     variant.innerHTML = '';
@@ -67,25 +61,22 @@ export function buildObjectBrowser(host: HTMLElement, deps: BrowserDeps): { refr
     const stages = e ? stagesFor(e.class) : [];
     if (!keys.length && !stages.length) { variant.style.display = 'none'; return; }
     variant.style.display = 'block';
-    const hdr = document.createElement('div'); hdr.textContent = 'variant'; hdr.style.cssText = 'opacity:0.55;margin-bottom:3px';
-    variant.appendChild(hdr);
+    variant.appendChild(h('div', { class: 'sg-eyebrow', style: 'margin-bottom:5px', text: 'Variant' }));
 
     // Era picker + descriptor axes apply to built structures (buildings/props).
     if (keys.length) {
-      const eraSel = document.createElement('select');
-      eraSel.style.cssText = 'width:100%;box-sizing:border-box;background:#11111a;color:#cfe;border:1px solid #3a3a52;padding:2px;margin-bottom:3px;font:10px monospace';
-      const eraDef = document.createElement('option'); eraDef.value = ''; eraDef.textContent = `era: ${e?.era ?? 'base'} (default)`; eraSel.appendChild(eraDef);
-      for (const era of ERA_LEVELS) { const o = document.createElement('option'); o.value = era; o.textContent = era; o.selected = deps.getEra() === era; eraSel.appendChild(o); }
+      const eraSel = h('select', { class: 'sg-select', style: 'width:100%;margin-bottom:4px' }) as HTMLSelectElement;
+      eraSel.append(h('option', { text: `era: ${e?.era ?? 'base'} (default)`, attrs: { value: '' } }));
+      for (const era of ERA_LEVELS) { const o = h('option', { text: era, attrs: { value: era } }) as HTMLOptionElement; o.selected = deps.getEra() === era; eraSel.appendChild(o); }
       eraSel.onchange = () => deps.onEra(eraSel.value ? (eraSel.value as Era) : undefined);
       variant.appendChild(eraSel);
 
       const cur = deps.getDescriptors();
-      const row = document.createElement('div'); row.style.cssText = 'display:flex;gap:4px;flex-wrap:wrap';
+      const row = h('div', { style: 'display:flex;gap:4px;flex-wrap:wrap' });
       for (const key of keys) {
-        const sel = document.createElement('select');
-        sel.style.cssText = 'flex:1 1 80px;background:#11111a;color:#cfe;border:1px solid #3a3a52;padding:2px;font:10px monospace';
-        const def = document.createElement('option'); def.value = ''; def.textContent = key; sel.appendChild(def);
-        for (const v of axes[key] ?? []) { const o = document.createElement('option'); o.value = v; o.textContent = v; o.selected = cur[key] === v; sel.appendChild(o); }
+        const sel = h('select', { class: 'sg-select', style: 'flex:1 1 80px' }) as HTMLSelectElement;
+        sel.append(h('option', { text: key, attrs: { value: '' } }));
+        for (const v of axes[key] ?? []) { const o = h('option', { text: v, attrs: { value: v } }) as HTMLOptionElement; o.selected = cur[key] === v; sel.appendChild(o); }
         sel.onchange = () => {
           const next: Descriptors = { ...deps.getDescriptors() };
           if (sel.value) next[key] = sel.value as never; else delete next[key];
@@ -97,15 +88,13 @@ export function buildObjectBrowser(host: HTMLElement, deps: BrowserDeps): { refr
     }
 
     // Lifecycle scrubber: a slider over the asset's stage timeline (sapling→stub,
-    // or cleared→ruin for buildings once Slice E lands). The default stage is the mid
-    // "prime" and resolves byte-identically to the stageless asset.
+    // or cleared→ruin for buildings). The default stage resolves byte-identically
+    // to the stageless asset.
     if (stages.length) {
       const def = e ? defaultStageFor(e.class) : undefined;
-      const wrap = document.createElement('div'); wrap.style.cssText = 'display:flex;align-items:center;gap:6px;margin-top:4px';
-      const lbl = document.createElement('span'); lbl.style.cssText = 'opacity:0.55;min-width:54px';
+      const lbl = h('span', { class: 'sg-accent', style: 'min-width:74px;font-size:11px' });
       const idxOf = (s: string | undefined): number => { const i = s ? stages.indexOf(s) : -1; return i >= 0 ? i : (def ? stages.indexOf(def) : 0); };
-      const slider = document.createElement('input'); slider.type = 'range'; slider.min = '0'; slider.max = String(stages.length - 1); slider.step = '1';
-      slider.style.cssText = 'flex:1';
+      const slider = h('input', { class: 'sg-range', style: 'flex:1', attrs: { type: 'range', min: '0', max: String(stages.length - 1), step: '1' } }) as HTMLInputElement;
       slider.value = String(idxOf(deps.getStage()));
       lbl.textContent = `🌱 ${stages[+slider.value]}`;
       slider.oninput = () => {
@@ -113,8 +102,7 @@ export function buildObjectBrowser(host: HTMLElement, deps: BrowserDeps): { refr
         lbl.textContent = `🌱 ${stage}`;
         deps.onStage(stage === def ? undefined : stage);
       };
-      wrap.append(lbl, slider);
-      variant.appendChild(wrap);
+      variant.appendChild(h('div', { style: 'display:flex;align-items:center;gap:8px;margin-top:7px' }, lbl, slider));
     }
   }
 
@@ -125,15 +113,18 @@ export function buildObjectBrowser(host: HTMLElement, deps: BrowserDeps): { refr
     list.innerHTML = '';
     const cur = deps.getCurrent();
     for (const e of matches) {
-      const item = document.createElement('div');
       const on = e.type === cur;
-      item.style.cssText = `cursor:pointer;padding:2px 5px;border-radius:3px;display:flex;justify-content:space-between;gap:6px;background:${on ? '#2a3a5a' : 'transparent'}`;
-      const name = document.createElement('span'); name.textContent = `${ICON[e.class] ?? '•'} ${e.type}`;
-      const meta = document.createElement('span'); meta.textContent = e.category + (e.era ? ` · ${e.era}` : ''); meta.style.cssText = 'opacity:0.5';
-      item.append(name, meta);
-      item.onmouseenter = () => { if (!on) item.style.background = '#1c1c28'; };
-      item.onmouseleave = () => { if (!on) item.style.background = 'transparent'; };
-      item.onclick = () => deps.onSelect(e.type);
+      const item = h('div', {
+        style: `cursor:pointer;padding:3px 6px;border-radius:var(--r-sm);display:flex;justify-content:space-between;gap:6px;${on ? 'background:rgba(255,194,75,.13);color:var(--accent)' : 'color:var(--ink-0)'}`,
+        on: {
+          click: () => deps.onSelect(e.type),
+          mouseenter: () => { if (!on) item.style.background = 'var(--bg-2)'; },
+          mouseleave: () => { if (!on) item.style.background = 'transparent'; },
+        },
+      },
+        h('span', { text: `${ICON[e.class] ?? '•'} ${e.type}` }),
+        h('span', { class: 'sg-muted', text: e.category + (e.era ? ` · ${e.era}` : '') }),
+      );
       list.appendChild(item);
     }
   }

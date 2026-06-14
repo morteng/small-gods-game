@@ -1,46 +1,42 @@
 // src/studio/blueprint-tree.ts
-// Node-tree inspector (browseable + editable live blueprint). Moved out of
-// studio.ts (pure refactor).
+// Node-tree inspector (browseable + editable live blueprint). The section title
+// + Randomize button live on the accordion header now (no duplicate heading); this
+// renders only the summary line and the editable tree.
 import type { ResolvedBlueprint, ResolvedPart, ResolvedFeature } from '@/blueprint/types';
 
-// ── node-tree inspector (browseable + editable live blueprint) ───────────────
 interface TreeDeps {
   getRb: () => ResolvedBlueprint | null;
   onEdit: () => void;       // a value was mutated in place on the live blueprint
-  randomize: () => void;    // re-roll all seeded params
 }
 export function buildTree(host: HTMLElement, deps: TreeDeps): { render: () => void } {
   const css = {
-    head: 'position:sticky;top:0;z-index:1;background:rgba(16,16,26,0.98);padding:8px 10px 6px;border-bottom:1px solid #2a2a3a',
-    title: 'color:#ffd35a;font:bold 12px monospace',
-    summary: 'margin-top:4px;font:10px monospace;color:#9fd;white-space:normal;word-break:break-word',
-    body: 'padding:6px 8px 16px;font:11px monospace;color:#cfe',
-    node: 'margin:2px 0;border-left:1px solid #2a2a3a;padding-left:8px',
-    nodeHead: 'cursor:pointer;user-select:none;padding:2px 0;color:#cde',
+    head: 'position:sticky;top:0;z-index:1;background:var(--bg-1);padding:7px 10px;border-bottom:1px solid var(--line)',
+    summary: 'font:400 10px/1.5 var(--font-mono);color:var(--info);white-space:normal;word-break:break-word',
+    body: 'padding:6px 9px 16px;font:400 11px/1.4 var(--font-mono);color:var(--ink-0)',
+    node: 'margin:2px 0;border-left:1px solid var(--line);padding-left:8px',
+    nodeHead: 'cursor:pointer;user-select:none;padding:2px 0;color:var(--ink-0)',
     kv: 'display:flex;align-items:center;gap:6px;margin:2px 0',
-    key: 'opacity:0.7;flex:0 0 auto',
-    inputN: 'width:64px;background:#11111a;color:#9fe;border:1px solid #3a3a52;padding:1px 3px;font:11px monospace',
-    inputT: 'flex:1 1 auto;min-width:0;background:#11111a;color:#9fe;border:1px solid #3a3a52;padding:1px 3px;font:11px monospace',
-    btn: 'background:#21213a;color:#ffd35a;border:1px solid #3a3a52;border-radius:4px;padding:2px 8px;cursor:pointer;font:11px monospace',
-    sect: 'color:#ffd35a;opacity:0.85;margin:8px 0 2px;font-weight:bold',
+    key: 'color:var(--ink-2);flex:0 0 auto',
+    meta: 'font:400 10px/1.4 var(--font-mono);color:var(--ink-2);margin:2px 0',
   };
+  const sect = (t: string): HTMLElement => { const d = document.createElement('div'); d.className = 'sg-eyebrow'; d.textContent = t; d.style.margin = '9px 0 3px'; return d; };
 
   // One editable control for obj[key]; recurses for nested objects, JSON for arrays.
   function valueEditor(obj: Record<string, unknown>, key: string): HTMLElement {
     const v = obj[key];
     if (typeof v === 'boolean') {
-      const c = document.createElement('input'); c.type = 'checkbox'; c.checked = v;
+      const c = document.createElement('input'); c.type = 'checkbox'; c.className = 'sg-check'; c.checked = v;
       c.onchange = () => { obj[key] = c.checked; deps.onEdit(); };
       return c;
     }
     if (typeof v === 'number') {
-      const i = document.createElement('input'); i.type = 'number'; i.value = String(v);
-      i.step = Number.isInteger(v) ? '1' : '0.05'; i.style.cssText = css.inputN;
+      const i = document.createElement('input'); i.type = 'number'; i.className = 'sg-input sg-num'; i.value = String(v);
+      i.step = Number.isInteger(v) ? '1' : '0.05';
       i.onchange = () => { const n = Number(i.value); if (Number.isFinite(n)) { obj[key] = n; deps.onEdit(); } };
       return i;
     }
     if (typeof v === 'string') {
-      const i = document.createElement('input'); i.type = 'text'; i.value = v; i.style.cssText = css.inputT;
+      const i = document.createElement('input'); i.type = 'text'; i.className = 'sg-input'; i.style.flex = '1 1 auto'; i.style.minWidth = '0'; i.value = v;
       i.onchange = () => { obj[key] = i.value; deps.onEdit(); };
       return i;
     }
@@ -48,7 +44,7 @@ export function buildTree(host: HTMLElement, deps: TreeDeps): { render: () => vo
       return paramBlock(v as Record<string, unknown>);
     }
     // arrays + anything else: editable JSON, reverts on parse failure.
-    const i = document.createElement('input'); i.type = 'text'; i.value = JSON.stringify(v); i.style.cssText = css.inputT;
+    const i = document.createElement('input'); i.type = 'text'; i.className = 'sg-input'; i.style.flex = '1 1 auto'; i.style.minWidth = '0'; i.value = JSON.stringify(v);
     i.onchange = () => { try { obj[key] = JSON.parse(i.value); deps.onEdit(); } catch { i.value = JSON.stringify(obj[key]); } };
     return i;
   }
@@ -63,7 +59,7 @@ export function buildTree(host: HTMLElement, deps: TreeDeps): { render: () => vo
   function paramBlock(params: Record<string, unknown>): HTMLElement {
     const box = document.createElement('div'); box.style.cssText = css.node;
     const keys = Object.keys(params);
-    if (!keys.length) { const e = document.createElement('div'); e.textContent = '(none)'; e.style.opacity = '0.4'; return e; }
+    if (!keys.length) { const e = document.createElement('div'); e.textContent = '(none)'; e.style.cssText = 'color:var(--ink-2);opacity:.6'; return e; }
     for (const key of keys) box.appendChild(kvRow(params, key));
     return box;
   }
@@ -91,13 +87,13 @@ export function buildTree(host: HTMLElement, deps: TreeDeps): { render: () => vo
   function partNode(p: ResolvedPart): HTMLElement {
     const mat = p.material ? ` · ${p.material}` : '';
     const { el, body } = collapsible(`▪ ${p.id} [${p.type}]${mat}`, false);
-    const meta = document.createElement('div'); meta.style.cssText = 'font:10px monospace;opacity:0.6;margin:2px 0';
+    const meta = document.createElement('div'); meta.style.cssText = css.meta;
     meta.textContent = `at (${p.at.x},${p.at.y})  size ${p.size.w}×${p.size.h}`;
     body.appendChild(meta);
-    const ps = document.createElement('div'); ps.style.cssText = css.sect; ps.textContent = 'params'; body.appendChild(ps);
+    body.appendChild(sect('params'));
     body.appendChild(paramBlock(p.params));
     if (p.features.length) {
-      const fs = document.createElement('div'); fs.style.cssText = css.sect; fs.textContent = `features (${p.features.length})`; body.appendChild(fs);
+      body.appendChild(sect(`features (${p.features.length})`));
       for (const f of p.features) body.appendChild(featureNode(f));
     }
     return el;
@@ -107,11 +103,6 @@ export function buildTree(host: HTMLElement, deps: TreeDeps): { render: () => vo
     host.innerHTML = '';
     const rb = deps.getRb();
     const head = document.createElement('div'); head.style.cssText = css.head;
-    const titleRow = document.createElement('div'); titleRow.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px';
-    const title = document.createElement('div'); title.style.cssText = css.title; title.textContent = '🌳 Geometry · Blueprint';
-    const rnd = document.createElement('button'); rnd.textContent = '🎲 Randomize'; rnd.style.cssText = css.btn; rnd.onclick = deps.randomize;
-    titleRow.append(title, rnd);
-    head.appendChild(titleRow);
 
     if (!rb) { head.appendChild(Object.assign(document.createElement('div'), { textContent: 'no blueprint for this kind', style: css.summary })); host.appendChild(head); return; }
 
@@ -131,19 +122,19 @@ export function buildTree(host: HTMLElement, deps: TreeDeps): { render: () => vo
 
     // ── meta: footprint + materials + palette (all editable) ──
     const metaBlock = collapsible('⚙ meta (footprint · materials · palette)', true);
-    const fp = document.createElement('div'); fp.style.cssText = css.sect; fp.textContent = 'footprint'; metaBlock.body.appendChild(fp);
+    metaBlock.body.appendChild(sect('footprint'));
     metaBlock.body.appendChild(kvRow(rb.footprint as unknown as Record<string, unknown>, 'w'));
     metaBlock.body.appendChild(kvRow(rb.footprint as unknown as Record<string, unknown>, 'h'));
-    const mts = document.createElement('div'); mts.style.cssText = css.sect; mts.textContent = 'materials'; metaBlock.body.appendChild(mts);
+    metaBlock.body.appendChild(sect('materials'));
     metaBlock.body.appendChild(paramBlock(rb.materials as Record<string, unknown>));
     if (rb.palette && Object.keys(rb.palette).length) {
-      const pl = document.createElement('div'); pl.style.cssText = css.sect; pl.textContent = 'palette'; metaBlock.body.appendChild(pl);
+      metaBlock.body.appendChild(sect('palette'));
       metaBlock.body.appendChild(paramBlock(rb.palette as unknown as Record<string, unknown>));
     }
     body.appendChild(metaBlock.el);
 
     // ── parts ──
-    const partsHdr = document.createElement('div'); partsHdr.style.cssText = css.sect; partsHdr.textContent = `parts (${rb.parts.length})`; body.appendChild(partsHdr);
+    body.appendChild(sect(`parts (${rb.parts.length})`));
     for (const p of rb.parts) body.appendChild(partNode(p));
 
     host.appendChild(body);

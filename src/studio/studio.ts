@@ -46,14 +46,16 @@ import { buildAccordion } from './accordion';
 import { buildObjectBrowser } from './object-browser';
 import { buildAbSection } from './ab-section';
 import { buildTree } from './blueprint-tree';
-import { buildPanel } from './control-panel';
+import { buildToolbar } from './toolbar';
+import { buildBottomPanel } from './bottom-panel';
 import { buildDock } from './stage-dock';
 import { openMetadataPanel, makeLiveButton } from './render-request-panel';
+import { injectStudioTheme, COLORS, h } from './theme';
 import { type StudioState, type Stage, type AbResult, AB_MODELS, AB_MIN_BORDER, AB_MIN_IOU } from './types';
 
 const MAP_W = 24, MAP_H = 24;
 const CENTER = { x: 12, y: 12 };
-const MIN_DOCK = 90, MAX_DOCK_FRAC = 0.6, DEFAULT_DOCK = 150;
+const MIN_DOCK = 90, MAX_DOCK_FRAC = 0.6, DEFAULT_DOCK = 170;
 const MIN_TREE_W = 200, MAX_TREE_W = 560, DEFAULT_TREE_W = 320;
 
 function flatMap(): GameMap {
@@ -89,25 +91,20 @@ export function mountStudio(container: HTMLElement): void {
   initManifoldWasm();
 
   container.style.position = 'relative';
-  container.style.background = '#1a1a24';
+  container.style.background = COLORS.bg0;
+  injectStudioTheme(container);
 
-  // ── paned scaffold: [tree | vSplit | (view / hSplit / dock)] ──────────────
-  const root = document.createElement('div');
-  root.style.cssText = 'position:absolute;inset:0;display:flex;flex-direction:row;overflow:hidden';
-  // Left: the node-tree inspector (the geometry "first thing"). Resizable.
-  const tree = document.createElement('div');
-  tree.style.cssText = `flex:0 0 auto;width:${DEFAULT_TREE_W}px;background:rgba(16,16,26,0.98);border-right:1px solid #3a3a52;overflow:auto`;
-  const vSplitter = document.createElement('div');
-  vSplitter.style.cssText = 'flex:0 0 6px;background:#3a3a52;cursor:col-resize';
-  const mainCol = document.createElement('div');
-  mainCol.style.cssText = 'flex:1 1 auto;min-width:0;display:flex;flex-direction:column;overflow:hidden';
-  const viewPane = document.createElement('div');
-  viewPane.style.cssText = 'position:relative;flex:1 1 auto;min-height:0;overflow:hidden';
-  const splitter = document.createElement('div');
-  splitter.style.cssText = 'flex:0 0 6px;background:#3a3a52;cursor:row-resize';
-  const dock = document.createElement('div');
-  dock.style.cssText = 'flex:0 0 auto;height:150px;background:rgba(16,16,26,0.96);border-top:1px solid #3a3a52;overflow:hidden';
-  mainCol.append(viewPane, splitter, dock);
+  // ── paned scaffold: [tree | vSplit | (toolbar / view / hSplit / dock)] ────
+  const root = h('div', { style: 'position:absolute;inset:0;display:flex;flex-direction:row;overflow:hidden' });
+  // Left: the object browser + geometry inspector. Resizable.
+  const tree = h('div', { class: 'sg-panel', style: `flex:0 0 auto;width:${DEFAULT_TREE_W}px;border-right:1px solid var(--line);overflow:auto` });
+  const vSplitter = h('div', { class: 'sg-splitter sg-splitter-col', style: 'flex:0 0 6px' });
+  const mainCol = h('div', { style: 'flex:1 1 auto;min-width:0;display:flex;flex-direction:column;overflow:hidden' });
+  const toolbarHost = h('div', { style: 'flex:0 0 auto' });
+  const viewPane = h('div', { style: 'position:relative;flex:1 1 auto;min-height:0;overflow:hidden' });
+  const splitter = h('div', { class: 'sg-splitter sg-splitter-row', style: 'flex:0 0 6px' });
+  const dock = h('div', { class: 'sg-panel', style: 'flex:0 0 auto;height:170px;border-top:1px solid var(--line);overflow:hidden' });
+  mainCol.append(toolbarHost, viewPane, splitter, dock);
   root.append(tree, vSplitter, mainCol);
   container.appendChild(root);
 
@@ -312,7 +309,7 @@ export function mountStudio(container: HTMLElement): void {
   // ── view pane: live render OR a stage buffer ─────────────────────────────
   function paintChecker(w: number, h: number): void {
     for (let y = 0; y < h; y += 16) for (let x = 0; x < w; x += 16) {
-      ctx.fillStyle = ((x + y) / 16) % 2 ? '#23232f' : '#1a1a24';
+      ctx.fillStyle = ((x + y) / 16) % 2 ? COLORS.checkerA : COLORS.checkerB;
       ctx.fillRect(x, y, 16, 16);
     }
   }
@@ -370,18 +367,20 @@ export function mountStudio(container: HTMLElement): void {
     ctx.beginPath(); ctx.arc(c.sx, c.sy, 2.2 / z + 1, 0, Math.PI * 2); ctx.fill();
     ctx.restore();
   }
+  // A compact sun-direction gizmo, tucked top-left (the toolbar carries the text
+  // status now). Drawn only in the live 3D view.
   function drawHud(): void {
+    if (!state.overlays) return;
     const d = sunDir(state.az, state.el);
+    const gx = 44, gy = 44, R = 26;
     ctx.save();
-    ctx.font = '12px monospace';
-    ctx.fillStyle = '#cfe';
-    ctx.fillText(`${state.kind}   sun az ${state.az}° el ${state.el}°   shadow ${state.lighting.shadowMode}   light ${state.lighting.enabled ? 'on' : 'off'}`, 12, 20);
-    const gx = 60, gy = 70, R = 34;
-    ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+    ctx.fillStyle = 'rgba(12,13,17,0.55)';
+    ctx.beginPath(); ctx.arc(gx, gy, R + 6, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.22)'; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.arc(gx, gy, R, 0, Math.PI * 2); ctx.stroke();
-    ctx.strokeStyle = '#ffd35a'; ctx.lineWidth = 2;
+    ctx.strokeStyle = COLORS.accent; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.moveTo(gx, gy); ctx.lineTo(gx + d[0] * R, gy - d[1] * R); ctx.stroke();
-    ctx.fillStyle = '#ffd35a'; ctx.beginPath(); ctx.arc(gx + d[0] * R, gy - d[1] * R, 3, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = COLORS.accent; ctx.beginPath(); ctx.arc(gx + d[0] * R, gy - d[1] * R, 3, 0, Math.PI * 2); ctx.fill();
     ctx.restore();
   }
 
@@ -416,8 +415,20 @@ export function mountStudio(container: HTMLElement): void {
   });
   stageOverlay.addEventListener('dblclick', () => { if (state.view) { stageNav.zoom = 0; stageNav.panX = 0; stageNav.panY = 0; } });
 
-  // ── pipeline stages (compose buffers + any generation stages) ────────────
-  const dockUi = buildDock(dock);
+  // ── bottom dock: Pipeline (compose/gen stages) + A/B Compare tabs ────────
+  const bottom = buildBottomPanel(dock);
+  const dockUi = buildDock(bottom.pipelineBody);
+  buildAbSection(bottom.abBody, {
+    models: AB_MODELS,
+    defaultA: BUILDING_IMAGE_MODEL, defaultB: 'google/gemini-2.5-flash-image',
+    keyStatus: () => {
+      const cfg = loadProviderConfig();
+      return cfg.openrouterApiKey ? 'configured key' : (openrouterImageBaseUrl() ? 'dev proxy key (env)' : 'NO KEY — will fail');
+    },
+    getKind: () => state.kind,
+    run: runAbPair,
+    onView: (c, label) => { state.view = { canvas: c, label }; },
+  });
   const liveBtn = makeLiveButton(viewPane, () => { state.view = null; });
   function composeStages(r: StructureResult): Stage[] {
     return [
@@ -469,7 +480,7 @@ export function mountStudio(container: HTMLElement): void {
       liveBtn.hide();
     }
     syncStages();
-    panel.refresh();
+    toolbar.refresh();
     raf = requestAnimationFrame(frame);
   }
 
@@ -513,7 +524,7 @@ export function mountStudio(container: HTMLElement): void {
   // folding just hides it. The node-tree is the bottom section.
   const accordion = buildAccordion(tree, [
     {
-      id: 'browser', title: '📚 Object Browser', open: true, height: 240,
+      id: 'browser', title: 'Object Browser', open: true, height: 280,
       build: (body) => {
         const b = buildObjectBrowser(body, {
           getCurrent: () => state.kind,
@@ -529,23 +540,15 @@ export function mountStudio(container: HTMLElement): void {
       },
     },
     {
-      id: 'ab', title: '⚖ A/B Model Compare', open: false, height: 280,
-      build: (body) => buildAbSection(body, {
-        models: AB_MODELS,
-        defaultA: BUILDING_IMAGE_MODEL, defaultB: 'google/gemini-2.5-flash-image',
-        keyStatus: () => {
-          const cfg = loadProviderConfig();
-          return cfg.openrouterApiKey ? 'configured key' : (openrouterImageBaseUrl() ? 'dev proxy key (env)' : 'NO KEY — will fail');
-        },
-        getKind: () => state.kind,
-        run: runAbPair,
-        onView: (c, label) => { state.view = { canvas: c, label }; },
-      }),
-    },
-    {
-      id: 'geometry', title: '🌳 Geometry · Blueprint', open: true, height: 360,
+      id: 'geometry', title: 'Geometry · Blueprint', open: true, height: 360,
+      actions: (host) => {
+        host.append(h('button', {
+          class: 'sg-btn', style: 'padding:3px 8px', title: 'Re-roll seeded params  (G)',
+          html: '🎲 <span style="opacity:.7">Randomize</span>', on: { click: randomizeSubject },
+        }));
+      },
       build: (body) => {
-        const treeUi = buildTree(body, { getRb: () => liveRb, onEdit: onBlueprintEdited, randomize: randomizeSubject });
+        const treeUi = buildTree(body, { getRb: () => liveRb, onEdit: onBlueprintEdited });
         rebuildTree = treeUi.render;
         rebuildTree();
       },
@@ -553,12 +556,18 @@ export function mountStudio(container: HTMLElement): void {
   ]);
   void accordion;
 
-  const panel = buildPanel(viewPane, state, {
-    setSubject, invalidate, zoomLabel,
+  const toolbar = buildToolbar(toolbarHost, state, {
+    invalidate, zoomLabel,
     getZoom: () => cam.zoom,
     zoomIn: () => stepZoom(1),
     zoomOut: () => stepZoom(-1),
     openRender: () => openRenderFlow(),
+    getPrompt: () => (liveRb ? buildingImagePrompt(liveRb, BUILDING_IMAGE_MODEL) : ''),
+    randomize: randomizeSubject,
+    subjectInfo: () => {
+      const fp = liveRb?.footprint;
+      return `<b>${state.kind}</b>${fp ? ` · ${fp.w}×${fp.h}` : ''}`;
+    },
   });
   frame();
 

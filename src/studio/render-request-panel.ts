@@ -1,18 +1,13 @@
 // src/studio/render-request-panel.ts
 // Outgoing-request review panel (shown BEFORE the paid call) + the view-pane
-// "live" badge. Moved out of studio.ts (pure refactor).
+// "live" badge.
+import { h } from './theme';
 
 // ── view-pane "live" badge ───────────────────────────────────────────────────
 export function makeLiveButton(viewPane: HTMLElement, onLive: () => void): { show: (l: string) => void; hide: () => void } {
-  const bar = document.createElement('div');
-  bar.style.cssText = 'position:absolute;top:10px;left:10px;display:none;align-items:center;gap:8px;z-index:11;font:12px monospace;color:#cfe';
-  const label = document.createElement('span');
-  label.style.cssText = 'background:rgba(20,20,32,0.9);border:1px solid #3a3a52;border-radius:4px;padding:3px 8px';
-  const btn = document.createElement('button');
-  btn.textContent = '▶ Live';
-  btn.style.cssText = 'background:#21213a;color:#ffd35a;border:1px solid #3a3a52;border-radius:4px;padding:3px 10px;cursor:pointer;font:12px monospace';
-  btn.onclick = onLive;
-  bar.append(label, btn);
+  const label = h('span');
+  const btn = h('button', { class: 'sg-btn', style: 'padding:3px 10px', text: '▶ Live', on: { click: onLive } });
+  const bar = h('div', { class: 'sg-float', style: 'top:12px;left:12px;display:none' }, label, btn);
   viewPane.appendChild(bar);
   return {
     show: (l) => { label.textContent = `viewing: ${l}`; bar.style.display = 'flex'; },
@@ -29,53 +24,38 @@ interface MetadataOpts {
 }
 export function openMetadataPanel(host: HTMLElement, o: MetadataOpts): void {
   host.querySelector('#studio-meta')?.remove();
-  const wrap = document.createElement('div');
+  const wrap = h('div', {
+    class: 'sg-panel',
+    style: [
+      'position:absolute', 'top:12px', 'left:12px', 'width:420px', 'max-height:calc(100% - 24px)',
+      'overflow:auto', 'padding:13px 15px', 'border:1px solid var(--line-2)', 'border-radius:var(--r-lg)',
+      'box-shadow:var(--shadow)', 'font:400 12px/1.4 var(--font-mono)', 'color:var(--ink-0)', 'z-index:20',
+    ].join(';'),
+  });
   wrap.id = 'studio-meta';
-  wrap.style.cssText = [
-    'position:absolute', 'top:12px', 'left:12px', 'width:420px', 'max-height:calc(100% - 24px)',
-    'overflow:auto', 'padding:12px 14px', 'background:rgba(14,14,22,0.97)', 'border:1px solid #4a4a6a',
-    'border-radius:8px', 'font:12px monospace', 'color:#cfe', 'z-index:20',
-  ].join(';');
 
-  const h = (t: string) => { const d = document.createElement('div'); d.textContent = t; d.style.cssText = 'color:#ffd35a;margin:8px 0 3px;font-weight:bold'; return d; };
-  const pre = (t: string) => { const p = document.createElement('pre'); p.textContent = t; p.style.cssText = 'white-space:pre-wrap;word-break:break-word;background:#11111a;border:1px solid #2a2a3a;border-radius:4px;padding:6px;margin:0;max-height:180px;overflow:auto'; return p; };
-  const line = (t: string) => { const d = document.createElement('div'); d.textContent = t; d.style.margin = '2px 0'; return d; };
+  const heading = (t: string) => h('div', { class: 'sg-eyebrow', style: 'margin:11px 0 4px', text: t });
+  const pre = (t: string) => h('pre', { class: 'sg-pre', style: 'max-height:180px;overflow:auto', text: t });
+  const line = (t: string) => h('div', { class: 'sg-dim', style: 'margin:2px 0', text: t });
 
-  const title = document.createElement('div');
-  title.textContent = '🎨 Outgoing OpenRouter request — review before sending';
-  title.style.cssText = 'font-weight:bold;color:#ffd35a;margin-bottom:6px';
-
-  const img = document.createElement('img');
-  img.src = o.initDataUri;
-  img.style.cssText = 'max-width:160px;image-rendering:pixelated;border:1px solid #3a3a52;background:#11111a';
-
-  const status = document.createElement('div');
-  status.style.cssText = 'margin-top:8px;color:#9fd;min-height:16px';
+  const status = h('div', { class: 'sg-info', style: 'margin-top:9px;min-height:16px' });
   const setStatus = (m: string) => { status.textContent = m; };
 
-  const sendBtn = document.createElement('button');
-  sendBtn.textContent = '⬆ Send (paid)';
-  sendBtn.style.cssText = 'background:#2a4a2a;color:#cfe;border:1px solid #4a6a4a;border-radius:4px;padding:5px 12px;cursor:pointer;font:12px monospace;margin-right:8px';
-  const closeBtn = document.createElement('button');
-  closeBtn.textContent = 'Close';
-  closeBtn.style.cssText = 'background:#21213a;color:#cfe;border:1px solid #3a3a52;border-radius:4px;padding:5px 12px;cursor:pointer;font:12px monospace';
-  closeBtn.onclick = () => wrap.remove();
-  sendBtn.onclick = async () => {
-    sendBtn.disabled = true; sendBtn.style.opacity = '0.5';
-    await o.onSend(setStatus, (m) => { setStatus(m); });
-  };
-  const btns = document.createElement('div'); btns.style.marginTop = '8px'; btns.append(sendBtn, closeBtn);
+  const sendBtn = h('button', { class: 'sg-btn sg-btn-go', style: 'margin-right:8px', text: '⬆ Send (paid)' });
+  const closeBtn = h('button', { class: 'sg-btn', text: 'Close', on: { click: () => wrap.remove() } });
+  sendBtn.onclick = async () => { sendBtn.classList.add('is-busy'); await o.onSend(setStatus, setStatus); };
 
   wrap.append(
-    title,
+    h('div', { class: 'sg-title', style: 'font-size:13px;color:var(--accent);margin-bottom:6px', text: '🎨 Outgoing OpenRouter request' }),
     line(`subject:  ${o.kind}`),
     line(`model:    ${o.model}`),
     line(`init:     ${o.size}² PNG · crop ${o.bbox.w}×${o.bbox.h} · key: ${o.keyStatus}`),
-    h('prompt'), pre(o.prompt),
-    h('init image (magenta-backed)'), img,
-    h('request body'), pre(JSON.stringify(o.body, null, 2)),
-    h('anchors'), pre(JSON.stringify(o.anchors)),
-    btns, status,
+    heading('prompt'), pre(o.prompt),
+    heading('init image (magenta-backed)'),
+    h('img', { style: 'max-width:160px;image-rendering:pixelated;border:1px solid var(--line-2);border-radius:4px;background:var(--bg-0)', attrs: { src: o.initDataUri } }),
+    heading('request body'), pre(JSON.stringify(o.body, null, 2)),
+    heading('anchors'), pre(JSON.stringify(o.anchors)),
+    h('div', { style: 'margin-top:10px' }, sendBtn, closeBtn), status,
   );
   host.appendChild(wrap);
 }

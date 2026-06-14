@@ -1,19 +1,22 @@
 // src/studio/accordion.ts
-// Collapsible / vertically-resizable accordion (left-pane stack). Moved out of
-// studio.ts (pure refactor).
+// Collapsible / vertically-resizable accordion (left-pane stack). Each section
+// header can carry right-aligned action buttons (e.g. Randomize on the geometry
+// section) via the optional `actions` slot — clicks there don't toggle the fold.
+import { h } from './theme';
 
-// ── collapsible / vertically-resizable accordion (left-pane stack) ───────────
 interface AccordionSection {
   id: string;
   title: string;
   open?: boolean;       // initial fold state
   height?: number;      // initial px height when open (the last open section is elastic)
-  build: (body: HTMLElement) => void;   // populate the body ONCE
+  build: (body: HTMLElement) => void;        // populate the body ONCE
+  actions?: (host: HTMLElement) => void;     // optional right-aligned header controls
 }
 interface AccordionHandle { setOpen: (id: string, open: boolean) => void }
+
 export function buildAccordion(host: HTMLElement, sections: AccordionSection[]): AccordionHandle {
   host.style.cssText += ';display:flex;flex-direction:column;overflow:hidden';
-  interface Row { def: AccordionSection; wrap: HTMLElement; header: HTMLElement; body: HTMLElement; splitter: HTMLElement; open: boolean; height: number }
+  interface Row { def: AccordionSection; wrap: HTMLElement; caret: HTMLElement; body: HTMLElement; splitter: HTMLElement; open: boolean; height: number }
   const rows: Row[] = [];
 
   // Layout: open sections take their px height; the LAST open section is elastic
@@ -29,23 +32,26 @@ export function buildAccordion(host: HTMLElement, sections: AccordionSection[]):
   }
 
   for (const def of sections) {
-    const wrap = document.createElement('div');
-    wrap.style.cssText = 'display:flex;flex-direction:column;min-height:0;overflow:hidden;border-bottom:1px solid #2a2a3a';
-    const header = document.createElement('div');
-    header.style.cssText = 'flex:0 0 auto;cursor:pointer;user-select:none;padding:6px 10px;background:rgba(20,20,32,0.9);color:#ffd35a;font:bold 11px monospace;display:flex;align-items:center;gap:6px';
-    const body = document.createElement('div');
-    body.style.cssText = 'flex:1 1 auto;min-height:0;overflow:auto';
-    const splitter = document.createElement('div');
-    splitter.style.cssText = 'flex:0 0 5px;background:#2a2a3a;cursor:row-resize';
+    const wrap = h('div', { style: 'display:flex;flex-direction:column;min-height:0;overflow:hidden' });
+    const caret = h('span', { class: 'sg-caret' });
+    const header = h('div', { class: 'sg-acc-head' }, caret, h('span', { text: def.title }));
+    const body = h('div', { style: 'flex:1 1 auto;min-height:0;overflow:auto' });
+    const splitter = h('div', { class: 'sg-splitter sg-splitter-row', style: 'flex:0 0 5px' });
+
+    if (def.actions) {
+      const actions = h('div', { class: 'sg-acc-actions', on: { click: (e) => e.stopPropagation() } });
+      def.actions(actions);
+      header.append(actions);
+    }
+
     wrap.append(header, body, splitter);
     host.appendChild(wrap);
-    const row: Row = { def, wrap, header, body, splitter, open: def.open ?? true, height: def.height ?? 200 };
+    const row: Row = { def, wrap, caret, body, splitter, open: def.open ?? true, height: def.height ?? 200 };
     rows.push(row);
 
-    const caret = () => (row.open ? '▾' : '▸');
-    const setLabel = () => { header.textContent = `${caret()} ${def.title}`; };
-    setLabel();
-    header.addEventListener('click', () => { row.open = !row.open; setLabel(); relayout(); });
+    const setCaret = () => { caret.textContent = row.open ? '▾' : '▸'; };
+    setCaret();
+    header.addEventListener('click', () => { row.open = !row.open; setCaret(); relayout(); });
 
     splitter.addEventListener('mousedown', (e) => {
       e.preventDefault();
@@ -59,6 +65,6 @@ export function buildAccordion(host: HTMLElement, sections: AccordionSection[]):
   }
   relayout();
   return {
-    setOpen: (id, open) => { const r = rows.find(x => x.def.id === id); if (r && r.open !== open) { r.open = open; r.header.dispatchEvent(new Event('click')); } },
+    setOpen: (id, open) => { const r = rows.find(x => x.def.id === id); if (r && r.open !== open) { r.open = open; r.caret.textContent = open ? '▾' : '▸'; relayout(); } },
   };
 }
