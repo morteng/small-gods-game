@@ -110,6 +110,36 @@ butcher is simultaneously:
 So the world is a **layered multigraph**: containment, circulation, economy,
 social, belief — same nodes, different edges. This is the unifying vision.
 
+### Roads & the WFC terrain substrate (third follow-up, 2026-06-14)
+
+Two questions from the user pin down how the *world* layer relates to the existing
+systems. Both resolve to the **same pattern as `connectome → Blueprint → geometry`,
+one scale up** — and the Slice-1 primitives were generalized to carry them without a
+later engine rewrite (scale-free `Zone`/`Portal`/`Fixture`, an open `attrs` bag on
+each, a `scale` field, and a `TerrainProbe` seam on `ExpandCtx`).
+
+- **Roads are Portals at world/settlement scale** — exactly as a doorway is a Portal
+  at building scale. A road's spline path / width / gradient ride in `portal.attrs`;
+  a street between buildings, a road between settlements, a bridge over a river are
+  all Portals whose `from`/`to` are Zones at the appropriate scale. Adding the
+  settlement layer (Slice 5) means registering a topology + one interpreter
+  (`registerInterpreter`) — the building grammar is untouched.
+
+- **WFC terrain is the *substrate*; the connectome is the structured layer above it**,
+  related **bidirectionally through one thin interface** (deliberately NOT fused — WFC
+  is a continuous constraint-solved grid, the connectome is a sparse graph; keeping
+  them as two layers lets either evolve, e.g. swap WFC for heightmap terrain later):
+  - **Terrain → connectome (affordances up):** when the grammar places settlement /
+    district / building Zones it *queries* the terrain — buildable? water-adjacent?
+    flat? biome? A dock needs a water edge, a mill a stream, fields fertile flats.
+    Planted as `TerrainProbe.affordanceAt(x,y)` on `ExpandCtx` (undefined at building
+    scale; supplied at settlement scale in Slice 5).
+  - **Connectome → terrain (projection down):** road Portals + settlement/field Zones
+    *resolve down onto the WFC grid as derived masks* — a road spline becomes a tile
+    mask, a settlement clears/retextures ground. This is `connectomeToBlueprint` one
+    scale up, and matches the existing Track-V plan ("vector roads/rivers, sim =
+    derived grid mask").
+
 ### Most of these graphs already exist — this is unification, not greenfield
 
 Critically, the engine already runs several of these connectomes independently:
