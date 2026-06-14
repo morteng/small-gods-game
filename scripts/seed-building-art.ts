@@ -22,7 +22,9 @@ import { PNG } from 'pngjs';
 
 import { composeStructure } from '../src/assetgen/compose';
 import { toGeometry } from '../src/blueprint/compile/to-geometry';
-import { synthesizeBlueprint, BUILDING_BLUEPRINTS } from '../src/blueprint/presets';
+import { synthesizeBlueprint, resolveAsset, BUILDING_BLUEPRINTS } from '../src/blueprint/presets';
+import { planVariants, defaultVariantMatrix, type PlannedVariant } from '../src/blueprint/variant-plan';
+import type { ResolvedBlueprint, Descriptors } from '../src/blueprint/types';
 import { buildingImagePrompt } from '../src/assetgen/building-image-prompt';
 import { compositeOverChroma, chromaKeyMagenta } from '../src/render/chroma-key';
 import { canonicalJson, generatedArtKey } from '../src/render/generated-art-cache';
@@ -43,6 +45,9 @@ const MAX_ATTEMPTS = 3;
 interface ManifestEntry {
   file: string; targetWidth: number; preset: string; anchors?: string;
   normal?: string; material?: string; emissive?: string;
+  // Variant DB axes (Slice F) — present only on non-base variants so base rows
+  // stay byte-stable. Let an agent/Fate query the manifest ("ruined tavern").
+  label?: string; era?: string; stage?: string; descriptors?: Descriptors; tags?: string[];
 }
 interface Manifest { recipeVersion?: string; model: string; entries: Record<string, ManifestEntry> }
 
@@ -58,6 +63,10 @@ const force = process.argv.includes('--force');
 // whose generation succeeded but whose run crashed before the manifest was written
 // (the old end-of-run write orphaned every PNG when one gen threw). Free.
 const relink = process.argv.includes('--relink');
+// Matrix mode (Slice F): seed the default variant DB (each type's poor/rich/ruined
+// cuts + every plant stage) instead of just the bare presets. Combine with --plan
+// to dry-run the whole matrix (count + per-variant key/prompt, no API, no spend).
+const matrix = process.argv.includes('--matrix');
 const wanted = process.argv.slice(2).filter(a => !a.startsWith('--'));
 const presets = wanted.length ? wanted : Object.keys(BUILDING_BLUEPRINTS);
 
@@ -79,8 +88,22 @@ async function loadManifest(): Promise<Manifest> {
 async function seed(preset: string, manifest: Manifest): Promise<number> {
   const rb = synthesizeBlueprint(preset);
   if (!rb) { console.warn(`(skip ${preset}: no preset)`); return 0; }
+  return seedResolved(preset, rb, manifest);
+}
+
+/** Seed ONE planned variant (era/descriptor/stage cut) — same pipeline, records
+ *  the variant axes on the manifest row so the library is queryable. The base /
+ *  default cut collapses onto the bare preset key (no duplicate sprite). */
+async function seedVariant(v: PlannedVariant, manifest: Manifest): Promise<number> {
+  const rb = resolveAsset(v.request);
+  if (!rb) { console.warn(`(skip ${v.label}: unknown type)`); return 0; }
+  return seedResolved(v.type, rb, manifest, v);
+}
+
+async function seedResolved(preset: string, rb: ResolvedBlueprint, manifest: Manifest, variant?: PlannedVariant): Promise<number> {
   const key = generatedArtKey(canonicalJson(rb), BUILDING_IMAGE_MODEL, rb.footprint);
-  if (!force && manifest.entries[key]) { console.log(`${preset}: already seeded (${key})`); return 0; }
+  const label = variant?.label ?? preset;
+  if (!force && manifest.entries[key]) { console.log(`${label}: already seeded (${key})`); return 0; }
 
   const r = await composeStructure(toGeometry(rb));
   const bb = {
@@ -92,7 +115,7 @@ async function seed(preset: string, manifest: Manifest): Promise<number> {
   const initDataUri = `data:image/png;base64,${toPng(compositeOverChroma(r.grey), r.size, r.size).toString('base64')}`;
   const prompt = buildingImagePrompt(rb, BUILDING_IMAGE_MODEL);
   if (plan) {
-    console.log(`${preset}: key ${key} · mask ${mask.w}×${mask.h} · init ${Math.round(initDataUri.length / 1024)}kB\n  prompt: ${prompt}`);
+    console.log(`${label}: key ${key} · mask ${mask.w}×${mask.h} · init ${Math.round(initDataUri.length / 1024)}kB\n  prompt: ${prompt}`);
     return 0;
   }
 
@@ -125,6 +148,15 @@ async function seed(preset: string, manifest: Manifest): Promise<number> {
     const entry: ManifestEntry = {
       file: `${base}.png`, targetWidth: sprite.w, preset, anchors: JSON.stringify(r.anchors),
       normal: `${base}.normal.png`, material: `${base}.material.png`, emissive: `${base}.emissive.png`,
+      // Variant axes (Slice F) — recorded only when this is a non-base cut so base
+      // rows stay byte-identical to a pre-variant manifest.
+      ...(variant && variant.label !== preset ? {
+        label: variant.label,
+        ...(rb.era ? { era: rb.era } : {}),
+        ...(rb.stage ? { stage: rb.stage } : {}),
+        ...(rb.descriptors ? { descriptors: rb.descriptors } : {}),
+        ...(variant.tags.length ? { tags: variant.tags } : {}),
+      } : {}),
     };
     await writeFile(join(OUT, entry.file), toPng(sprite.data, sprite.w, sprite.h));
     const writeMap = async (name: string, buf: Uint8ClampedArray) => {
@@ -187,26 +219,41 @@ async function main() {
     return;
   }
 
+  // Build the job list: bare presets, or — in matrix mode — the default variant DB
+  // (poor/rich/ruined cuts per building + every plant stage), restricted to any
+  // types named on the CLI. Each job carries a label + a thunk that seeds it.
+  type Job = { label: string; run: () => Promise<number> };
+  let jobs: Job[];
+  if (matrix) {
+    const want = new Set(wanted);
+    const specs = defaultVariantMatrix().filter(s => !want.size || want.has(s.type));
+    const variants = planVariants(specs, BUILDING_IMAGE_MODEL);
+    console.log(`Matrix: ${variants.length} variants across ${specs.length} types.`);
+    jobs = variants.map(v => ({ label: v.label, run: () => seedVariant(v, manifest) }));
+  } else {
+    jobs = presets.map(p => ({ label: p, run: () => seed(p, manifest) }));
+  }
+
   let total = 0;
   const failed: string[] = [];
   const before = Object.keys(manifest.entries).length;
   let aborted: BuildingImageError | null = null;
   let stoppedAt: string | null = null;
-  for (const preset of presets) {
+  for (const job of jobs) {
     const had = Object.keys(manifest.entries).length;
     try {
-      total += await seed(preset, manifest);
+      total += await job.run();
     } catch (err) {
-      // Fatal (spend limit / bad key): stop now — every later preset would fail
+      // Fatal (spend limit / bad key): stop now — every later job would fail
       // too. Work done so far is already persisted (incremental write below).
-      if (err instanceof BuildingImageError && err.fatal) { aborted = err; stoppedAt = preset; break; }
+      if (err instanceof BuildingImageError && err.fatal) { aborted = err; stoppedAt = job.label; break; }
       throw err;
     }
     if (plan) continue;
-    // Persist after every preset so a crash mid-batch keeps all prior work (the
+    // Persist after every job so a crash mid-batch keeps all prior work (the
     // old end-of-run write orphaned every PNG when one gen threw).
     if (Object.keys(manifest.entries).length > had) await writeFile(MANIFEST, JSON.stringify(manifest, null, 2) + '\n');
-    else failed.push(preset);
+    else failed.push(job.label);
   }
   if (plan) { console.log('(plan mode — nothing written, nothing spent)'); return; }
   await writeFile(MANIFEST, JSON.stringify(manifest, null, 2) + '\n');
@@ -214,11 +261,10 @@ async function main() {
   console.log(`Done. ${Object.keys(manifest.entries).length} sprites in the library (+${added} this run), $${total.toFixed(4)} spent.`);
   if (failed.length) console.error(`Skipped (gen failed, retryable): ${failed.join(', ')}`);
   if (aborted) {
-    const remaining = presets.slice(presets.indexOf(stoppedAt!));
     console.error(`\n⛔ ABORTED at "${stoppedAt}" — ${aborted.hint}.`);
     console.error(`   ${aborted.message}`);
     console.error(`   Fix it here: ${aborted.helpUrl}`);
-    console.error(`   Then resume (already-seeded presets are skipped): npx tsx scripts/seed-building-art.ts ${remaining.join(' ')}`);
+    console.error(`   Then resume (already-seeded variants are skipped): npx tsx scripts/seed-building-art.ts${matrix ? ' --matrix' : ''}`);
     process.exitCode = 1;
   }
 }
