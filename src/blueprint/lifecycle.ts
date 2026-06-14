@@ -1,0 +1,83 @@
+// src/blueprint/lifecycle.ts
+// Every asset has a TIMELINE: a tree runs sapling → young → mature → dying →
+// fallen/stub; a building runs cleared-plot → construction → complete → ruin →
+// burnt → old-ruin (Slice E). A lifecycle STAGE is a per-instance patch layer on
+// the base Blueprint — like era and descriptors — so each stage gets its own
+// art-cache key automatically. The CANONICAL stage (a tree "in its prime", a
+// building "complete") is the no-op: requesting it is byte-identical to the
+// stageless asset, so the seeded library stays valid. See the asset-catalogue
+// design doc §4 (lifecycle).
+import type { Blueprint, BlueprintPatch, EntityClass, Part } from './types';
+
+// ── plant lifecycle ─────────────────────────────────────────────────────────
+export type PlantStage = 'sapling' | 'young' | 'mature' | 'dying' | 'fallen' | 'stub';
+export const PLANT_STAGES: readonly PlantStage[] = ['sapling', 'young', 'mature', 'dying', 'fallen', 'stub'];
+/** The stage a bare (stageless) request resolves to — the tree in its prime. A
+ *  request for THIS stage is a no-op (same art-cache key as the stageless tree). */
+export const PLANT_DEFAULT_STAGE: PlantStage = 'mature';
+
+interface PlantProfile {
+  scale: number;          // overall size multiplier (height/crown/trunk)
+  crownScale?: number;    // extra crown multiplier (1 = track size; <1 = thinning)
+  form?: string;          // override crown silhouette ('bare' = leaf-drop)
+}
+// A growth curve over the tree's metric params: a sapling is a quarter-height
+// wisp, maturity is full size, dying thins + drops leaves, fallen/stub collapse.
+// (A true horizontal "laid log" pose for `fallen` needs flora geometry support —
+// deferred; for now it reads as a bare, low, broken trunk.)
+const PLANT_PROFILES: Record<PlantStage, PlantProfile> = {
+  sapling: { scale: 0.25, crownScale: 0.6 },
+  young:   { scale: 0.55, crownScale: 0.85 },
+  mature:  { scale: 1.0 },
+  dying:   { scale: 0.95, crownScale: 0.5, form: 'bare' },
+  fallen:  { scale: 0.85, crownScale: 0.0, form: 'bare' },
+  stub:    { scale: 0.12, crownScale: 0.0 },
+};
+
+const round = (n: number, dp = 2): number => { const f = 10 ** dp; return Math.round(n * f) / f; };
+
+/** Build the patch a plant stage implies for `base` — scales the tree part's metric
+ *  params along the growth curve. Pure; deterministic. Returns an empty patch for the
+ *  default stage (no-op). */
+export function plantStagePatch(base: Blueprint, stage: PlantStage): BlueprintPatch {
+  if (stage === PLANT_DEFAULT_STAGE) return {};
+  const prof = PLANT_PROFILES[stage];
+  const patch: BlueprintPatch = { stage };
+  const parts: Record<string, Part> = {};
+  for (const [pid, part] of Object.entries(base.parts)) {
+    if (part.type !== 'tree') continue;
+    const p = part.params ?? {};
+    const h = (p.heightM as number) ?? 10;
+    const c = (p.crownM as number) ?? 6;
+    const r = (p.trunkR as number) ?? 0.16;
+    const crownMul = prof.scale * (prof.crownScale ?? 1);
+    const params: Record<string, unknown> = {
+      heightM: round(h * prof.scale),
+      crownM: round(c * crownMul),
+      trunkR: round(r * prof.scale, 3),
+    };
+    if (prof.form) params.form = prof.form;
+    parts[pid] = { type: part.type, params };
+  }
+  if (Object.keys(parts).length) patch.parts = parts;
+  return patch;
+}
+
+// ── stage registry (class-dispatched) ───────────────────────────────────────
+/** The ordered stage list for an asset class (UI scrubber, seeding matrix). */
+export function stagesFor(cls: EntityClass): readonly string[] {
+  return cls === 'plant' ? PLANT_STAGES : [];
+}
+/** The canonical (no-op) stage for an asset class, or undefined if the class has
+ *  no lifecycle yet (buildings land in Slice E). */
+export function defaultStageFor(cls: EntityClass): string | undefined {
+  return cls === 'plant' ? PLANT_DEFAULT_STAGE : undefined;
+}
+/** Build the stage patch for `base` (dispatched by class). Empty patch when the
+ *  class has no lifecycle or the stage is the canonical one. */
+export function stagePatch(base: Blueprint, stage: string): BlueprintPatch {
+  if (base.class === 'plant' && (PLANT_STAGES as readonly string[]).includes(stage)) {
+    return plantStagePatch(base, stage as PlantStage);
+  }
+  return {};
+}

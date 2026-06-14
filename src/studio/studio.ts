@@ -208,11 +208,13 @@ export function mountStudio(container: HTMLElement): void {
   // the subject changes. Non-empty ⇒ rebuild liveRb via resolveAsset.
   let liveEra: Era | undefined;
   let liveDescriptors: Descriptors = {};
+  let liveStage: string | undefined;       // lifecycle stage (sapling/ruin/…)
   function setSubject(kind: string): void {
     state.kind = kind;
     world.removeEntity('subject');
     liveEra = undefined;
     liveDescriptors = {};
+    liveStage = undefined;
     liveRb = synthesizeBlueprint(kind) ?? null;
     invalidate();
     genStages = [];
@@ -226,15 +228,16 @@ export function mountStudio(container: HTMLElement): void {
   // layers the era patch (period materials/features) + descriptor patch and records
   // both on the blueprint. A bare variant falls back to synthesizeBlueprint.
   function rebuildVariant(): void {
-    const hasVariant = !!liveEra || Object.keys(liveDescriptors).length > 0;
+    const hasVariant = !!liveEra || !!liveStage || Object.keys(liveDescriptors).length > 0;
     liveRb = (hasVariant
-      ? resolveAsset({ type: state.kind, era: liveEra, descriptors: liveDescriptors })
+      ? resolveAsset({ type: state.kind, era: liveEra, descriptors: liveDescriptors, stage: liveStage })
       : synthesizeBlueprint(state.kind)) ?? liveRb;
     onBlueprintEdited();
     browserRefresh();
   }
   const applyVariant = (d: Descriptors): void => { liveDescriptors = d; rebuildVariant(); };
   const applyEra = (era: Era | undefined): void => { liveEra = era; rebuildVariant(); };
+  const applyStage = (stage: string | undefined): void => { liveStage = stage; rebuildVariant(); };
   // A node-tree edit mutated liveRb in place: bust geometry caches, drop stale
   // generation stages + any pinned stage view, and redraw the tree.
   function onBlueprintEdited(): void {
@@ -519,6 +522,8 @@ export function mountStudio(container: HTMLElement): void {
           onVariant: (d) => applyVariant(d),
           getEra: () => liveEra,
           onEra: (era) => applyEra(era),
+          getStage: () => liveStage,
+          onStage: (s) => applyStage(s),
         });
         browserRefresh = b.refresh;
       },

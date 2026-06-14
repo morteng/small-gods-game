@@ -5,6 +5,7 @@ import { BLUEPRINT_VERSION, type Blueprint, type BlueprintPatch, type ResolvedBl
 import { resolveBlueprint } from '../resolve';
 import { descriptorPatch } from '../descriptors';
 import { eraPatch } from '../eras';
+import { stagePatch, defaultStageFor } from '../lifecycle';
 import { ensureBuildingTypesRegistered } from '../register-buildings';
 
 const bp = (preset: string, b: Omit<Blueprint, 'version' | 'class' | 'preset'>): Blueprint =>
@@ -288,8 +289,10 @@ export function resolveAsset(req: AssetRequest): ResolvedBlueprint | undefined {
   if (eraVariant) patches.push(eraPatch(base, req.era!));
   const descVariant = !!(req.descriptors && Object.keys(req.descriptors).length);
   if (descVariant) patches.push(descriptorPatch(base, req.descriptors!));
-  // Lifecycle stage patch — Slice D/E.
-  const stageVariant = !!req.stage;
+  // Lifecycle stage restyles the asset for its point on its own timeline (a sapling,
+  // a ruin). The canonical stage (mature/complete) is a no-op — same key as stageless.
+  const stageVariant = !!(req.stage && req.stage !== defaultStageFor(base.class));
+  if (stageVariant) patches.push(stagePatch(base, req.stage!));
   // A bare request (no variant axes) MUST seed identically to synthesizeBlueprint(type)
   // so its art-cache key matches the seeded library; only a real variant re-seeds.
   const seed = req.seed ?? ((eraVariant || descVariant || stageVariant)

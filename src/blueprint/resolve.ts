@@ -16,6 +16,7 @@ export function mergePatches(patches: BlueprintPatch[]): Blueprint {
     if (p.class !== undefined) out.class = p.class;
     if (p.preset !== undefined) out.preset = p.preset;
     if (p.era !== undefined) out.era = p.era;
+    if (p.stage !== undefined) out.stage = p.stage;
     if (p.category !== undefined) out.category = p.category;
     if (p.footprint !== undefined) out.footprint = { ...p.footprint };
     if (p.notes !== undefined) out.notes = p.notes;
@@ -75,9 +76,10 @@ export function resolveBlueprint(patches: BlueprintPatch[], seed: number): Resol
   return {
     version: bp.version, class: bp.class, preset: bp.preset, era: bp.era,
     category: bp.category, parts, materials, palette: bp.palette ?? {},
-    // Include `descriptors` ONLY when set so a descriptor-less blueprint serialises
+    // Include `descriptors`/`stage` ONLY when set so a plain blueprint serialises
     // byte-identically to before (its art-cache key — canonicalJson(rb) — is stable).
     ...(bp.descriptors ? { descriptors: bp.descriptors } : {}),
+    ...(bp.stage ? { stage: bp.stage } : {}),
     footprint: bp.footprint, notes: bp.notes,
   };
 }

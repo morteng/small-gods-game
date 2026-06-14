@@ -53,6 +53,7 @@ export interface Blueprint {
   materials?: Record<string, string>;    // e.g. { walls:'timber', roof:'thatch' }
   palette?: Palette;
   descriptors?: Descriptors;             // qualitative kind (wealth/quality/style/…)
+  stage?: string;                        // lifecycle stage (sapling/ruin/…) — see lifecycle.ts
   footprint: { w: number; h: number };
   notes?: string;
 }
@@ -69,6 +70,7 @@ export interface BlueprintPatch {
   materials?: Record<string, string>;
   palette?: Palette;
   descriptors?: Descriptors;
+  stage?: string;
   footprint?: { w: number; h: number };
   notes?: string;
 }
@@ -99,6 +101,7 @@ export interface ResolvedBlueprint {
   materials: Record<string, string>;
   palette: Palette;
   descriptors?: Descriptors;             // present ONLY when set (keeps cache key stable)
+  stage?: string;                        // present ONLY when non-default (keeps cache key stable)
   footprint: { w: number; h: number };
   notes?: string;
 }

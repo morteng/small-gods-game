@@ -5,6 +5,7 @@
 import { assetCatalogue, queryCatalogue, type CatalogueEntry } from '@/blueprint/catalogue';
 import type { Descriptors, Era } from '@/blueprint/types';
 import { ERA_LEVELS } from '@/blueprint/eras';
+import { stagesFor, defaultStageFor } from '@/blueprint/lifecycle';
 
 // ── object browser (search + faceted filter over the asset catalogue) ────────
 interface BrowserDeps {
@@ -14,6 +15,8 @@ interface BrowserDeps {
   onVariant: (d: Descriptors) => void;
   getEra: () => Era | undefined;
   onEra: (era: Era | undefined) => void;
+  getStage: () => string | undefined;
+  onStage: (stage: string | undefined) => void;
 }
 export function buildObjectBrowser(host: HTMLElement, deps: BrowserDeps): { refresh: () => void } {
   host.style.cssText += ';padding:6px 8px;font:11px monospace;color:#cfe';
@@ -61,34 +64,58 @@ export function buildObjectBrowser(host: HTMLElement, deps: BrowserDeps): { refr
     const e: CatalogueEntry | undefined = byType.get(deps.getCurrent());
     const axes = e?.descriptorAxes ?? {};
     const keys = Object.keys(axes) as ('wealth' | 'quality' | 'condition')[];
-    if (!keys.length) { variant.style.display = 'none'; return; }
+    const stages = e ? stagesFor(e.class) : [];
+    if (!keys.length && !stages.length) { variant.style.display = 'none'; return; }
     variant.style.display = 'block';
     const hdr = document.createElement('div'); hdr.textContent = 'variant'; hdr.style.cssText = 'opacity:0.55;margin-bottom:3px';
     variant.appendChild(hdr);
 
-    // Era picker (period restyle) — base era is the default option.
-    const eraSel = document.createElement('select');
-    eraSel.style.cssText = 'width:100%;box-sizing:border-box;background:#11111a;color:#cfe;border:1px solid #3a3a52;padding:2px;margin-bottom:3px;font:10px monospace';
-    const eraDef = document.createElement('option'); eraDef.value = ''; eraDef.textContent = `era: ${e?.era ?? 'base'} (default)`; eraSel.appendChild(eraDef);
-    for (const era of ERA_LEVELS) { const o = document.createElement('option'); o.value = era; o.textContent = era; o.selected = deps.getEra() === era; eraSel.appendChild(o); }
-    eraSel.onchange = () => deps.onEra(eraSel.value ? (eraSel.value as Era) : undefined);
-    variant.appendChild(eraSel);
+    // Era picker + descriptor axes apply to built structures (buildings/props).
+    if (keys.length) {
+      const eraSel = document.createElement('select');
+      eraSel.style.cssText = 'width:100%;box-sizing:border-box;background:#11111a;color:#cfe;border:1px solid #3a3a52;padding:2px;margin-bottom:3px;font:10px monospace';
+      const eraDef = document.createElement('option'); eraDef.value = ''; eraDef.textContent = `era: ${e?.era ?? 'base'} (default)`; eraSel.appendChild(eraDef);
+      for (const era of ERA_LEVELS) { const o = document.createElement('option'); o.value = era; o.textContent = era; o.selected = deps.getEra() === era; eraSel.appendChild(o); }
+      eraSel.onchange = () => deps.onEra(eraSel.value ? (eraSel.value as Era) : undefined);
+      variant.appendChild(eraSel);
 
-    const cur = deps.getDescriptors();
-    const row = document.createElement('div'); row.style.cssText = 'display:flex;gap:4px;flex-wrap:wrap';
-    for (const key of keys) {
-      const sel = document.createElement('select');
-      sel.style.cssText = 'flex:1 1 80px;background:#11111a;color:#cfe;border:1px solid #3a3a52;padding:2px;font:10px monospace';
-      const def = document.createElement('option'); def.value = ''; def.textContent = key; sel.appendChild(def);
-      for (const v of axes[key] ?? []) { const o = document.createElement('option'); o.value = v; o.textContent = v; o.selected = cur[key] === v; sel.appendChild(o); }
-      sel.onchange = () => {
-        const next: Descriptors = { ...deps.getDescriptors() };
-        if (sel.value) next[key] = sel.value as never; else delete next[key];
-        deps.onVariant(next);
-      };
-      row.appendChild(sel);
+      const cur = deps.getDescriptors();
+      const row = document.createElement('div'); row.style.cssText = 'display:flex;gap:4px;flex-wrap:wrap';
+      for (const key of keys) {
+        const sel = document.createElement('select');
+        sel.style.cssText = 'flex:1 1 80px;background:#11111a;color:#cfe;border:1px solid #3a3a52;padding:2px;font:10px monospace';
+        const def = document.createElement('option'); def.value = ''; def.textContent = key; sel.appendChild(def);
+        for (const v of axes[key] ?? []) { const o = document.createElement('option'); o.value = v; o.textContent = v; o.selected = cur[key] === v; sel.appendChild(o); }
+        sel.onchange = () => {
+          const next: Descriptors = { ...deps.getDescriptors() };
+          if (sel.value) next[key] = sel.value as never; else delete next[key];
+          deps.onVariant(next);
+        };
+        row.appendChild(sel);
+      }
+      variant.appendChild(row);
     }
-    variant.appendChild(row);
+
+    // Lifecycle scrubber: a slider over the asset's stage timeline (sapling→stub,
+    // or cleared→ruin for buildings once Slice E lands). The default stage is the mid
+    // "prime" and resolves byte-identically to the stageless asset.
+    if (stages.length) {
+      const def = e ? defaultStageFor(e.class) : undefined;
+      const wrap = document.createElement('div'); wrap.style.cssText = 'display:flex;align-items:center;gap:6px;margin-top:4px';
+      const lbl = document.createElement('span'); lbl.style.cssText = 'opacity:0.55;min-width:54px';
+      const idxOf = (s: string | undefined): number => { const i = s ? stages.indexOf(s) : -1; return i >= 0 ? i : (def ? stages.indexOf(def) : 0); };
+      const slider = document.createElement('input'); slider.type = 'range'; slider.min = '0'; slider.max = String(stages.length - 1); slider.step = '1';
+      slider.style.cssText = 'flex:1';
+      slider.value = String(idxOf(deps.getStage()));
+      lbl.textContent = `🌱 ${stages[+slider.value]}`;
+      slider.oninput = () => {
+        const stage = stages[+slider.value];
+        lbl.textContent = `🌱 ${stage}`;
+        deps.onStage(stage === def ? undefined : stage);
+      };
+      wrap.append(lbl, slider);
+      variant.appendChild(wrap);
+    }
   }
 
   const ICON: Record<string, string> = { building: '🏠', prop: '🪧', plant: '🌳', barrier: '🧱', terrain_feature: '⛰' };
