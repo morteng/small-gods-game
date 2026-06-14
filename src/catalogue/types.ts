@@ -87,6 +87,8 @@ export interface RoomSlot {
 export interface EntranceRule {
   face?: string; // wall face id ('n'|'e'|'s'|'w' in the medieval pack)
   sizeClass: SizeClass;
+  portal?: string; // optional explicit portalType id; else the grammar queries by sizeClass
+  through?: boolean; // true ⇒ opposed doors (a through-passage: cross-passage, barn threshing floor)
 }
 
 export interface HearthRule {

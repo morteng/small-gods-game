@@ -37,7 +37,7 @@ export const MEDIEVAL_BUILDING_TYPES: B[] = [
   // ── the 14 existing presets (ids must match presets/index.ts) ──────────────
   b('cottage', 'tripartite-linear',
     [room('hall', 1, 1)],
-    { face: 's', sizeClass: 'human' },
+    { face: 's', sizeClass: 'human', portal: 'doorway' },
     { room: 'hall', fixture: 'open-hearth' },
     [1, 2], { walls: 'wattle', roof: 'thatch', ground: 'packed_dirt' },
     { l0: 'a one-room peasant cottage', l1: ['mud or wattle walls', 'thatched roof', 'central open hearth'],
@@ -46,7 +46,7 @@ export const MEDIEVAL_BUILDING_TYPES: B[] = [
 
   b('tavern', 'tripartite-linear',
     [room('taproom', 1, 1), room('kitchen', 1, 1), room('guest-chamber', 2, 1)],
-    { face: 's', sizeClass: 'human' },
+    { face: 's', sizeClass: 'human', portal: 'doorway' },
     { room: 'kitchen', fixture: 'wall-fireplace' },
     [2, 3], { walls: 'timber', roof: 'tile', ground: 'packed_dirt' },
     { l0: 'a timber-framed tavern or inn', l1: ['jettied upper storey', 'twin chimney stacks', 'many windows'],
@@ -55,7 +55,7 @@ export const MEDIEVAL_BUILDING_TYPES: B[] = [
 
   b('townhouse', 'tripartite-linear',
     [room('parlour', 1, 1), room('chamber', 1, 1)],
-    { face: 's', sizeClass: 'human' },
+    { face: 's', sizeClass: 'human', portal: 'doorway' },
     { room: 'parlour', fixture: 'wall-fireplace' },
     [1, 2], { walls: 'timber', roof: 'tile', ground: 'flagstone' },
     { l0: 'an urban burgage townhouse', l1: ['two jettied storeys', 'stone ground floor', 'gable to the street'],
@@ -64,7 +64,7 @@ export const MEDIEVAL_BUILDING_TYPES: B[] = [
 
   b('market_stall', 'tripartite-linear',
     [room('shopfront-stall', 1, 1)],
-    { face: 's', sizeClass: 'human' },
+    { face: 's', sizeClass: 'human', portal: 'doorway' },
     { room: 'none' },
     [1, 1], { walls: 'timber', roof: 'thatch' },
     { l0: 'an open market stall', l1: ['lean-to roof', 'open shopfront', 'fold-down counter'] }),
@@ -79,7 +79,7 @@ export const MEDIEVAL_BUILDING_TYPES: B[] = [
 
   b('farm_barn', 'church-axial',
     [room('nave', 1, 3), room('aisle', 2, 3)],
-    { face: 's', sizeClass: 'cart' },
+    { face: 's', sizeClass: 'cart', portal: 'cart-door', through: true },
     { room: 'none' },
     [3, 4], { walls: 'timber', roof: 'wood', ground: 'dirt' },
     { l0: 'a timber threshing barn', l1: ['one huge roof', 'twin cart doors', 'no windows'],
@@ -144,7 +144,7 @@ export const MEDIEVAL_BUILDING_TYPES: B[] = [
 
   b('longhouse', 'tripartite-linear',
     [room('hall', 1, 2), room('byre', 1, 2)],
-    { face: 's', sizeClass: 'human' },
+    { face: 's', sizeClass: 'human', portal: 'doorway', through: true },
     { room: 'hall', fixture: 'open-hearth' },
     [3, 4], { walls: 'log', roof: 'thatch', ground: 'packed_dirt' },
     { l0: 'a longhouse shared with stock', l1: ['half-hip thatch', 'opposed cross-passage doors', 'blind byre end'],
@@ -154,7 +154,7 @@ export const MEDIEVAL_BUILDING_TYPES: B[] = [
   // ── primed (facts now, geometry in Slice 4) ────────────────────────────────
   b('manor', 'tripartite-linear',
     [room('hall', 1, 2), room('solar', 1, 1), room('parlour', 1, 1), room('pantry', 1, 1), room('buttery', 1, 1), room('kitchen', 1, 1)],
-    { face: 's', sizeClass: 'grand' },
+    { face: 's', sizeClass: 'grand', portal: 'doorway', through: true },
     { room: 'hall', fixture: 'wall-fireplace' },
     [3, 5], { walls: 'stone', roof: 'tile', ground: 'flagstone' },
     { l0: 'a manor hall house', l1: ['great hall', 'service and solar wings', 'cross-passage'] },
@@ -162,7 +162,7 @@ export const MEDIEVAL_BUILDING_TYPES: B[] = [
 
   b('inn', 'courtyard-hub',
     [room('taproom', 1, 1), room('kitchen', 1, 1), room('guest-chamber', 4, 1), room('stable', 1, 2)],
-    { face: 's', sizeClass: 'cart' },
+    { face: 's', sizeClass: 'cart', portal: 'cart-door', through: true },
     { room: 'kitchen', fixture: 'wall-fireplace' },
     [4, 6], { walls: 'timber', roof: 'tile', ground: 'cobble' },
     { l0: 'a courtyard coaching inn', l1: ['galleried court', 'arched carriage entry', 'stable range'] },
@@ -178,7 +178,7 @@ export const MEDIEVAL_BUILDING_TYPES: B[] = [
 
   b('tithe-barn', 'church-axial',
     [room('nave', 1, 4), room('aisle', 2, 4)],
-    { face: 's', sizeClass: 'cart' },
+    { face: 's', sizeClass: 'cart', portal: 'cart-door', through: true },
     { room: 'none' },
     [4, 6], { walls: 'stone', roof: 'tile', ground: 'dirt' },
     { l0: 'a great tithe barn', l1: ['cathedral-like roof', 'buttressed stone walls', 'cart porches'] },
