@@ -51,6 +51,7 @@ import { buildBottomPanel } from './bottom-panel';
 import { buildDock } from './stage-dock';
 import { openMetadataPanel, makeLiveButton } from './render-request-panel';
 import { injectStudioTheme, COLORS, h } from './theme';
+import { celestial, solarLight } from './solar';
 import { type StudioState, type Stage, type AbResult, AB_MODELS, AB_MIN_BORDER, AB_MIN_IOU } from './types';
 
 const MAP_W = 24, MAP_H = 24;
@@ -187,11 +188,22 @@ export function mountStudio(container: HTMLElement): void {
     kind: BUILDING_BLUEPRINTS[initial] ? initial : 'oak_tree',
     lighting: { ...DEFAULT_LIGHTING, shadowMode: 'geometry' },
     az: 41, el: 40,
+    sunMode: 'solar',
+    hour: 15, yearFrac: 0.3, lat: 45, moonPhase: 1,
     overlays: true,
     fit: true,
     dockH: DEFAULT_DOCK,
     view: null,
   };
+  // In solar mode, derive az/el (sun by day, moon by night) from time/season/moon.
+  // `commit` re-bakes the geometry cast shadow (skip it for cheap live drags).
+  function recomputeSun(commit = true): void {
+    if (state.sunMode !== 'solar') return;
+    const c = celestial(state.hour, state.yearFrac, state.lat, state.moonPhase);
+    state.az = Math.round(c.az); state.el = Math.round(c.el);
+    if (commit) invalidate();   // direction moved → re-bake the geometry cast shadow
+  }
+  recomputeSun();
 
   let subject: Entity = makeEntity(state.kind);
   liveRb = synthesizeBlueprint(state.kind) ?? null;
@@ -296,6 +308,18 @@ export function mountStudio(container: HTMLElement): void {
   function renderContext(): RenderContext {
     const { w, h } = viewport();
     state.lighting.sunDir = sunDir(state.az, state.el);
+    // Light colour tracks the sky: in solar mode the full day/night ramp
+    // (golden-hour → noon → moonlit night); in manual mode just the elevation
+    // ramp (no moon — manual is for inspecting a fixed sun angle).
+    if (state.sunMode === 'solar') {
+      const c = celestial(state.hour, state.yearFrac, state.lat, state.moonPhase);
+      state.lighting.ambient = c.ambient;
+      state.lighting.sunColor = c.sunColor;
+    } else {
+      const l = solarLight(state.el);
+      state.lighting.ambient = l.ambient;
+      state.lighting.sunColor = l.sunColor;
+    }
     if (state.fit) fitCamera();
     return {
       map, camera: cam, canvasWidth: w, canvasHeight: h,
@@ -558,6 +582,7 @@ export function mountStudio(container: HTMLElement): void {
 
   const toolbar = buildToolbar(toolbarHost, state, {
     invalidate, zoomLabel,
+    onSolarChange: recomputeSun,
     getZoom: () => cam.zoom,
     zoomIn: () => stepZoom(1),
     zoomOut: () => stepZoom(-1),
@@ -566,7 +591,13 @@ export function mountStudio(container: HTMLElement): void {
     randomize: randomizeSubject,
     subjectInfo: () => {
       const fp = liveRb?.footprint;
-      return `<b>${state.kind}</b>${fp ? ` · ${fp.w}×${fp.h}` : ''}`;
+      const axes = [liveEra, liveDescriptors.wealth, liveDescriptors.quality, liveDescriptors.condition, liveStage].filter(Boolean);
+      const variant = axes.length ? ` · <span style="color:var(--info)">${axes.join(' · ')}</span>` : '';
+      return `<b>${state.kind}</b>${fp ? ` · ${fp.w}×${fp.h}` : ''}${variant}`;
+    },
+    keyStatus: () => {
+      const cfg = loadProviderConfig();
+      return cfg.openrouterApiKey ? 'configured key' : (openrouterImageBaseUrl() ? 'dev proxy key' : 'NO KEY');
     },
   });
   frame();

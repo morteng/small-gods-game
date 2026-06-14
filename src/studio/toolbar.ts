@@ -8,9 +8,11 @@
 import type { ShadowMode } from '@/render/lighting-state';
 import type { StudioState } from './types';
 import { h, popover } from './theme';
+import { celestial, clockLabel, seasonLabel } from './solar';
 
 interface ToolbarDeps {
   invalidate: () => void;            // bust geometry/shadow caches (sun moved)
+  onSolarChange: (commit: boolean) => void;  // recompute az/el from time/season/moon (commit ⇒ re-bake shadow)
   zoomLabel: (z: number) => string;
   getZoom: () => number;
   zoomIn: () => void;
@@ -18,8 +20,12 @@ interface ToolbarDeps {
   openRender: () => void;
   getPrompt: () => string;           // current img2img prompt (for "copy")
   randomize: () => void;             // re-roll seeded params
-  subjectInfo: () => string;         // "cottage · 3×2" readout
+  subjectInfo: () => string;         // "cottage · 3×2 · medieval · ruin" readout (HTML)
+  keyStatus: () => string;           // OpenRouter key state (Render is paid)
 }
+
+const moonLabel = (p: number): string =>
+  p <= 0.03 ? 'new (dark)' : p >= 0.97 ? 'full' : `${Math.round(p * 100)}% ${p < 0.5 ? 'waxing' : 'gibbous'}`;
 interface ToolbarHandle { el: HTMLElement; refresh: () => void }
 
 const SHADOW_MODES: ShadowMode[] = ['geometry', 'silhouette', 'blob', 'off'];
@@ -30,34 +36,66 @@ export function buildToolbar(host: HTMLElement, state: StudioState, deps: Toolba
     style: 'flex:0 0 auto;display:flex;align-items:center;gap:9px;padding:7px 10px;position:relative;z-index:12',
   });
 
-  // ── brand + live subject readout ──
-  const brand = h('div', { style: 'display:flex;align-items:center;gap:8px' },
-    h('span', { class: 'sg-accent', style: 'font-size:15px', text: '⬡' }),
-    h('span', { class: 'sg-title', style: 'font-size:13px', text: 'RENDER STUDIO' }),
-  );
-  const subjTag = h('span', { class: 'sg-tag' });
-  bar.append(brand, h('span', { class: 'sg-vsep' }), subjTag, h('span', { style: 'flex:1 1 auto' }));
+  // ── live status cluster (no brand — internal tool; the prime space carries
+  // live state: the resolved subject + variant, and the paid-render key status) ──
+  const subjTag = h('span', { class: 'sg-tag', style: 'font-size:12px' });
+  const keyTag = h('span', { class: 'sg-tag', title: 'OpenRouter key for the paid Render call' });
+  bar.append(subjTag, keyTag, h('span', { style: 'flex:1 1 auto' }));
 
-  // ── sun popover (azimuth + elevation) ──
-  const sunBtn = h('button', { class: 'sg-btn', title: 'Sun direction', html: '☀ <span style="opacity:.7">Sun</span>' });
-  const sunReadout = h('span', { class: 'sg-read', style: 'min-width:0;padding-left:8px' });
-  const sliderRow = (label: string, min: number, max: number, get: () => number, set: (v: number) => void) => {
-    const val = h('span', { class: 'sg-accent', style: 'min-width:38px;text-align:right' });
-    const range = h('input', { class: 'sg-range', style: 'flex:1', attrs: { type: 'range', min: String(min), max: String(max), value: String(get()) } }) as HTMLInputElement;
-    const paint = () => { val.textContent = `${get()}°`; };
-    range.addEventListener('input', () => { set(Number(range.value)); paint(); });
-    range.addEventListener('change', deps.invalidate);
+  // ── sky popover: solar (time/season/latitude/moon → sun by day, moon by
+  // night) or a manual az/el override for inspecting a fixed angle ──
+  const sunIcon = h('span', { text: '☀' });
+  const sunBtn = h('button', { class: 'sg-btn', title: 'Sky / sun & moon position' }, sunIcon, h('span', { style: 'opacity:.7', text: ' Sky' }));
+  const sunReadout = h('span', { class: 'sg-read', style: 'min-width:0;padding-left:8px;white-space:nowrap' });
+
+  // A labelled slider whose value span is formatted by `fmt`. `onInput` fires
+  // live during a drag (cheap follow), `onCommit` on release (e.g. shadow re-bake).
+  const labelledSlider = (
+    label: string, min: number, max: number, step: number,
+    get: () => number, set: (v: number) => void, fmt: (v: number) => string,
+    onInput: () => void, onCommit: () => void,
+  ) => {
+    const val = h('span', { class: 'sg-accent', style: 'min-width:78px;text-align:right' });
+    const range = h('input', { class: 'sg-range', style: 'flex:1', attrs: { type: 'range', min: String(min), max: String(max), step: String(step), value: String(get()) } }) as HTMLInputElement;
+    const paint = () => { val.textContent = fmt(get()); };
+    range.addEventListener('input', () => { set(Number(range.value)); paint(); onInput(); });
+    range.addEventListener('change', onCommit);
     paint();
-    return { row: h('div', { class: 'sg-field', style: 'margin-bottom:10px' }, h('label', { text: label }), h('div', { style: 'display:flex;align-items:center;gap:8px' }, range, val)), sync: () => { range.value = String(get()); paint(); } };
+    return { row: h('div', { class: 'sg-field', style: 'margin-bottom:9px' }, h('label', { text: label }), h('div', { style: 'display:flex;align-items:center;gap:8px' }, range, val)), sync: () => { range.value = String(get()); paint(); } };
   };
+
   let syncSun = () => {};
   popover(sunBtn, (body) => {
-    body.append(h('div', { class: 'sg-pop-title', text: 'Sun' }));
-    const az = sliderRow('Azimuth', 0, 360, () => state.az, (v) => { state.az = v; });
-    const el = sliderRow('Elevation', 0, 90, () => state.el, (v) => { state.el = v; });
-    body.append(az.row, el.row);
-    syncSun = () => { az.sync(); el.sync(); };
-  }, { width: 240 });
+    body.append(h('div', { class: 'sg-pop-title', text: 'Sky' }));
+
+    // mode toggle
+    const mkMode = (m: 'solar' | 'manual', label: string) =>
+      h('button', { class: 'sg-btn', style: 'flex:1', text: label, on: { click: () => { state.sunMode = m; if (m === 'solar') deps.onSolarChange(true); syncSun(); } } });
+    const solarBtn = mkMode('solar', 'Solar'), manualBtn = mkMode('manual', 'Manual');
+    body.append(h('div', { class: 'sg-group', style: 'display:flex;margin-bottom:11px' }, solarBtn, manualBtn));
+
+    const onIn = () => deps.onSolarChange(false), onCommit = () => deps.onSolarChange(true);
+    const time = labelledSlider('Time of day', 0, 24, 0.25, () => state.hour, v => { state.hour = v; }, clockLabel, onIn, onCommit);
+    const season = labelledSlider('Day of year', 0, 1, 0.01, () => state.yearFrac, v => { state.yearFrac = v; }, seasonLabel, onIn, onCommit);
+    const lat = labelledSlider('Latitude', 0, 66, 1, () => state.lat, v => { state.lat = v; }, v => `${v}°N`, onIn, onCommit);
+    const moon = labelledSlider('Moon phase', 0, 1, 0.05, () => state.moonPhase, v => { state.moonPhase = v; }, moonLabel, onIn, onCommit);
+    const solarBox = h('div', {}, time.row, season.row, lat.row, moon.row);
+
+    const az = labelledSlider('Azimuth', 0, 360, 1, () => state.az, v => { state.az = v; }, v => `${v}°`, () => {}, deps.invalidate);
+    const el = labelledSlider('Elevation', 0, 90, 1, () => state.el, v => { state.el = v; }, v => `${v}°`, () => {}, deps.invalidate);
+    const manualBox = h('div', {}, az.row, el.row);
+
+    body.append(solarBox, manualBox);
+    syncSun = () => {
+      const solar = state.sunMode === 'solar';
+      solarBox.style.display = solar ? 'block' : 'none';
+      manualBox.style.display = solar ? 'none' : 'block';
+      solarBtn.classList.toggle('is-on', solar);
+      manualBtn.classList.toggle('is-on', !solar);
+      time.sync(); season.sync(); lat.sync(); moon.sync(); az.sync(); el.sync();
+    };
+    syncSun();
+  }, { width: 268 });
 
   // ── display popover (shadow mode + lighting/overlays toggles) ──
   const dispBtn = h('button', { class: 'sg-btn', title: 'Display options', html: '◐ <span style="opacity:.7">Display</span>' });
@@ -128,8 +166,18 @@ export function buildToolbar(host: HTMLElement, state: StudioState, deps: Toolba
     el: bar,
     refresh: () => {
       subjTag.innerHTML = deps.subjectInfo();
+      const ks = deps.keyStatus();
+      const noKey = /no key/i.test(ks);
+      keyTag.innerHTML = `<span style="color:${noKey ? 'var(--bad)' : 'var(--ok)'}">●</span> ${ks}`;
       zoomRead.textContent = deps.zoomLabel(deps.getZoom());
-      sunReadout.textContent = `${state.az}° / ${state.el}°`;
+      if (state.sunMode === 'solar') {
+        const sky = celestial(state.hour, state.yearFrac, state.lat, state.moonPhase);
+        sunIcon.textContent = sky.body === 'moon' ? '🌙' : '☀';
+        sunReadout.textContent = `${clockLabel(state.hour)} · ${seasonLabel(state.yearFrac)} · ${state.el}°`;
+      } else {
+        sunIcon.textContent = '☀';
+        sunReadout.textContent = `az ${state.az}° · el ${state.el}°`;
+      }
       fitBtn.classList.toggle('is-on', state.fit);
       syncSun();
     },

@@ -28,8 +28,15 @@ export interface Stage { label: string; canvas: SpriteCanvas | null; sub?: strin
 export interface StudioState {
   kind: string;
   lighting: LightingState;
-  az: number;   // sun azimuth, degrees
-  el: number;   // sun elevation, degrees
+  az: number;   // sky-light azimuth, degrees (sun by day, moon by night)
+  el: number;   // sky-light elevation, degrees
+  // Sun/sky driver. 'solar' derives az/el + light colour from time/season/moon;
+  // 'manual' lets az/el be dragged directly (colour still tracks elevation).
+  sunMode: 'solar' | 'manual';
+  hour: number;       // time of day, 0..24
+  yearFrac: number;   // day of year, 0..1 (0 = spring equinox, 0.25 = summer solstice)
+  lat: number;        // latitude, degrees N
+  moonPhase: number;  // 0 = new (dark) … 1 = full (bright, anti-solar)
   overlays: boolean;
   fit: boolean; // auto zoom-to-fit the subject (yields to any manual pan/zoom)
   dockH: number;
