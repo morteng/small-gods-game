@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>boot…</title>
+<style>
+  body { margin: 0; background: #0c0d11; color: #d7dae1; font: 13px/1.5 'JetBrains Mono', ui-monospace, monospace; padding: 16px; }
+  #stage { display: block; width: 256px; height: 256px; image-rendering: pixelated; border: 1px solid #2a2d36; margin: 12px 0; background: #181a21; }
+  pre { white-space: pre-wrap; }
+  .ok { color: #84dd96; } .bad { color: #f2868d; } .warn { color: #ffc24b; }
+</style>
+</head>
+<body>
+<h3>WebGPU capability + instancing spike</h3>
+<canvas id="stage" width="256" height="256"></canvas>
+<pre id="result">running…</pre>
+<script type="module">
+// Self-contained spike: probe navigator.gpu, request an adapter (+ its info /
+// features / limits), create a device, and render an INSTANCED quad batch with a
+// WGSL shader to the canvas. Each stage reports independently so a null adapter
+// (common in headless GPUs) is distinguished from an API-absent or shader failure.
+const out = document.getElementById('result');
+const log = [];
+const diag = { stage: 'start' };
+const say = (msg, cls) => { log.push(cls ? `[${cls.toUpperCase()}] ${msg}` : msg); out.innerHTML = log.join('\n'); };
+const finish = (verdict) => {
+  document.title = verdict;                       // Playwright reads the title for a one-glance verdict
+  window.__spike = { verdict, diag, log };        // and the structured blob for detail
+  say(`\n>>> VERDICT: ${verdict}`, verdict === 'PASS' ? 'ok' : verdict.startsWith('NO') ? 'warn' : 'bad');
+};
+
+try {
+  diag.apiPresent = !!navigator.gpu;
+  say(`navigator.gpu present: ${diag.apiPresent}`, diag.apiPresent ? 'ok' : 'bad');
+  if (!navigator.gpu) { finish('NO_API'); throw 0; }
+
+  diag.stage = 'adapter';
+  const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
+  diag.adapter = !!adapter;
+  say(`requestAdapter: ${adapter ? 'got adapter' : 'NULL (no usable GPU here)'}`, adapter ? 'ok' : 'warn');
+  if (!adapter) { finish('NO_ADAPTER'); throw 0; }
+
+  // adapter info (vendor/architecture/device) — best-effort across versions
+  try {
+    const info = adapter.info ?? (adapter.requestAdapterInfo ? await adapter.requestAdapterInfo() : null);
+    if (info) { diag.info = { vendor: info.vendor, architecture: info.architecture, device: info.device, description: info.description }; say(`adapter: ${JSON.stringify(diag.info)}`); }
+  } catch (e) { say(`adapter.info unavailable: ${e}`, 'warn'); }
+  diag.featuresSample = [...adapter.features].slice(0, 8);
+  diag.maxBuffer = adapter.limits?.maxBufferSize;
+  diag.maxTexDim = adapter.limits?.maxTextureDimension2D;
+  say(`features (sample): ${diag.featuresSample.join(', ') || '(none listed)'}`);
+  say(`limits: maxBufferSize=${diag.maxBuffer}, maxTextureDimension2D=${diag.maxTexDim}`);
+
+  diag.stage = 'device';
+  const device = await adapter.requestDevice();
+  diag.device = true;
+  say('requestDevice: ok', 'ok');
+
+  diag.stage = 'context';
+  const canvas = document.getElementById('stage');
+  const ctx = canvas.getContext('webgpu');
+  const format = navigator.gpu.getPreferredCanvasFormat();
+  ctx.configure({ device, format, alphaMode: 'opaque' });
+  diag.format = format;
+  say(`canvas webgpu context: ok (format ${format})`, 'ok');
+
+  diag.stage = 'pipeline';
+  // Unit quad (two triangles) shared across instances; per-instance offset + tint
+  // supplied via an instance-step vertex buffer — the exact shape our sprite
+  // instancing would use (one shader, N instances, one draw call).
+  const shader = device.createShaderModule({ code: /* wgsl */`
+    struct VOut { @builtin(position) pos: vec4f, @location(0) tint: vec3f };
+    @vertex fn vs(@location(0) corner: vec2f, @location(1) offset: vec2f, @location(2) tint: vec3f) -> VOut {
+      var o: VOut;
+      o.pos = vec4f(corner * 0.18 + offset, 0.0, 1.0);
+      o.tint = tint;
+      return o;
+    }
+    @fragment fn fs(in: VOut) -> @location(0) vec4f { return vec4f(in.tint, 1.0); }
+  `});
+
+  const quad = new Float32Array([ -1,-1,  1,-1,  -1,1,   -1,1,  1,-1,  1,1 ]);
+  const quadBuf = device.createBuffer({ size: quad.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+  device.queue.writeBuffer(quadBuf, 0, quad);
+
+  // 9 instances in a grid, rainbow tints — proves per-instance attributes
+  const N = 9, inst = new Float32Array(N * 5);
+  for (let i = 0; i < N; i++) {
+    const gx = (i % 3) - 1, gy = Math.floor(i / 3) - 1;
+    inst.set([ gx * 0.5, gy * 0.5, (i*40%255)/255, (i*90%255)/255, (i*150%255)/255 ], i * 5);
+  }
+  const instBuf = device.createBuffer({ size: inst.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+  device.queue.writeBuffer(instBuf, 0, inst);
+
+  const pipeline = device.createRenderPipeline({
+    layout: 'auto',
+    vertex: { module: shader, entryPoint: 'vs', buffers: [
+      { arrayStride: 8,  stepMode: 'vertex',   attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x2' }] },
+      { arrayStride: 20, stepMode: 'instance', attributes: [
+        { shaderLocation: 1, offset: 0, format: 'float32x2' },
+        { shaderLocation: 2, offset: 8, format: 'float32x3' } ] },
+    ]},
+    fragment: { module: shader, entryPoint: 'fs', targets: [{ format }] },
+    primitive: { topology: 'triangle-list' },
+  });
+  diag.pipeline = true;
+  say('instanced render pipeline: built', 'ok');
+
+  diag.stage = 'draw';
+  const enc = device.createCommandEncoder();
+  const pass = enc.beginRenderPass({ colorAttachments: [{ view: ctx.getCurrentTexture().createView(), clearValue: { r:0.06, g:0.07, b:0.08, a:1 }, loadOp: 'clear', storeOp: 'store' }] });
+  pass.setPipeline(pipeline);
+  pass.setVertexBuffer(0, quadBuf);
+  pass.setVertexBuffer(1, instBuf);
+  pass.draw(6, N);                 // 6 verts × 9 instances, ONE draw call
+  pass.end();
+  device.queue.submit([enc.finish()]);
+  await device.queue.onSubmittedWorkDone();
+  diag.drawn = N;
+  say(`instanced draw: submitted (${N} instances, 1 draw call)`, 'ok');
+
+  finish('PASS');
+} catch (e) {
+  if (e !== 0) { diag.error = String(e?.stack || e); say(`EXCEPTION @ ${diag.stage}: ${e}`, 'bad'); finish('ERROR'); }
+}
+</script>
+</body>
+</html>

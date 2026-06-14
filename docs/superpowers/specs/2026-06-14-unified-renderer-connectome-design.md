@@ -162,12 +162,34 @@ the host language; both are TypeScript-hosted.
 | Maturity 2026 | universal | broadly shipped; some older devices fall back |
 | Forward-looking | plateaued | the modern target |
 
-**Lean:** stay on **WebGL2 now** (we already have a working shader there; terrain
-mesh + day/night don't need compute), but **keep the renderer behind the seam and
-avoid GLSL-only assumptions** so a WebGPU swap is a backend change, not a rewrite.
-Revisit WebGPU when a feature genuinely needs compute (GPU hydrology/erosion,
-thousands of dynamic point lights). Pixi v8 abstracting both is what makes this a
-low-stakes, deferrable decision. **Confirm in the spec.**
+**Spike result (2026-06-14) — WebGPU PASSED.** A self-contained capability +
+instancing spike (`public/webgpu-spike.html`) ran clean in-browser: `navigator.gpu`
+present → real hardware adapter (**Intel gen-8 integrated**, not a software
+fallback) → device + canvas context (`bgra8unorm`) → **an instanced WGSL pipeline
+drew 9 per-instance-attributed quads in one draw call.** Limits generous (2 GB max
+buffer, 16384 max texture dim, BC compression + depth32float-stencil8). The
+"does WebGPU even work here / can we instance in WGSL" risk is **retired** — even
+the low-end integrated GPU handles it.
+
+**Revised lean: WebGPU-first, greenfield.** Because the GPU scene is new, there are
+no GLSL shaders to port — writing them once in WGSL is cheaper than GLSL-now-then-
+port, and it puts us directly on the path for the heavy shader + compute future
+(GPU erosion/hydrology, GPU-driven indirect culling for massive vegetation). The
+one remaining tradeoff is **player reach**, resolved by the fallback chain:
+- **Via Pixi v8's WebGPU backend** (`preference:'webgpu'`) we get WebGPU-when-
+  available with **automatic WebGL2 fallback** — *but only for Pixi's own
+  rendering*; a fully-portable **custom** shader must be authored in BOTH WGSL and
+  GLSL for Pixi to target both backends.
+- **Or WGSL-only custom shaders** + **Canvas2D as the sole fallback** (already our
+  parity path): simplest to build (one shader language), and a no-WebGPU player
+  still renders — just the existing unlit Canvas2D look. Defensible for an
+  experimental GitHub-Pages god-game; the long tail without WebGPU is small + shrinking in 2026.
+
+**DECIDED (2026-06-14, user):** **WGSL-only custom shaders on WebGPU, with the
+existing Canvas2D parity path as the sole fallback.** One shader language; a
+no-WebGPU player renders via the unlit Canvas2D path (degraded, never a black
+screen). Seam-protected — a GLSL/WebGL2 twin can be added later *only if* telemetry
+shows real players bouncing on no-WebGPU. This is the spec's backend architecture.
 
 ## 6b. GPU acceleration: instancing, indirect, atlases
 
