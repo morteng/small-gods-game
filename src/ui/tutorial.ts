@@ -3,8 +3,6 @@
  * Shows contextual hints for key controls without being intrusive.
  */
 
-import type { RenderContext } from '@/core/types';
-
 export interface TutorialOptions {
   onComplete?: () => void;
   onSkip?: () => void;
@@ -365,11 +363,9 @@ export function createTutorial(
   };
   document.addEventListener('keydown', keyHandler);
 
-  // Auto-show first step (check localStorage)
-  const tutorialSeen = localStorage.getItem('small-gods-tutorial-seen');
-  if (!tutorialSeen) {
-    setTimeout(() => show('welcome'), 500);
-  }
+  // No auto-show: the tutorial never pops up unbidden on startup (per user —
+  // no onboarding modal / welcome tutorial). It remains available on demand via
+  // the manual `show()` trigger (e.g. the help button → `onShowTutorial`).
 
   return {
     show,

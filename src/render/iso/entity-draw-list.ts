@@ -5,8 +5,10 @@
  * executed by either backend (Canvas2D `executeDrawListCanvas` or the PixiJS
  * entity layer) — placement parity by construction.
  */
-import type { RenderContext, Entity } from '@/core/types';
+import type { RenderContext, Entity, NpcInstance, GeneratedDecoration } from '@/core/types';
 import type { TileBounds } from './iso-projection';
+import { WorldRenderGraph } from '@/render/graph/world-render-graph';
+import type { RenderCategory } from '@/render/graph/render-graph';
 import type { DrawItem } from './draw-list';
 import type { IsoItemCtx } from './iso-sprites';
 import { npcItems, vegetationItems, artBillboardItem, plantSpriteItemFromPack } from './iso-sprites';
@@ -16,7 +18,6 @@ import {
 } from './iso-building';
 import { barrierItems } from './iso-barrier';
 import { buildYSortBucket, buildingSortKey, type YSortEntry } from './iso-ysort';
-import { tryGetEntityKindDef } from '@/world/entity-kinds';
 import { blueprintOf } from '@/blueprint/entity';
 import { isLayerHidden } from '@/render/layer-visibility';
 
@@ -52,34 +53,51 @@ export function buildEntityDrawList(rc: RenderContext, bounds: TileBounds, ic: I
   const hideBuildings = isLayerHidden('buildings', rc.devMode);
   const hideVegetation = isLayerHidden('vegetation', rc.devMode);
   const hideBarriers = isLayerHidden('buildings', rc.devMode);
+  const hideNpcs = isLayerHidden('npcs', rc.devMode);
 
-  // Buildings and vegetation are both world entities — one region query, then
-  // partition. Buildings are drawn parametrically from their descriptor's
-  // Massing (the legacy map.buildings/template path is gone).
+  // Source the drawable stream from the RenderGraph seam (Slice R0b): a
+  // WorldRenderGraph projects today's World into category-tagged nodes — the
+  // SAME partition (barrier `*_run`/tag, building-by-blueprint, vegetation-by-
+  // entity-kind, then NPCs, then decorations, in that order) that used to live
+  // inline here. The renderer keeps the per-kind placement work (structure box,
+  // sort keys) keyed off each node's opaque `ref`, and the by-id maps feed the
+  // emission pass below — byte-identical draw list, now flowing through the seam.
   const buildingById = new Map<string, { e: Entity; s: StructureBox }>();
   const vegById = new Map<string, Entity>();
   const barrierById = new Map<string, Entity>();
-  if (!hideBuildings || !hideVegetation || !hideBarriers) {
-    const region = {
-      x: bounds.minTx, y: bounds.minTy,
-      w: bounds.maxTx - bounds.minTx + 1,
-      h: bounds.maxTy - bounds.minTy + 1,
-    };
-    for (const e of rc.world.query({ region })) {
-      // Linear barrier runs (walls/palisades/fences) — drawn near buildings.
-      if (e.kind.endsWith('_run') || e.tags?.includes('barrier')) {
-        if (hideBarriers) continue;
+  const decoById = new Map<string, { tx: number; ty: number; assetId: string }>();
+
+  // Translate layer-visibility policy into a category read-filter, so the graph
+  // can skip the world query when no world layer is shown (a preserved
+  // optimisation) — the filter is authoritative, so the cases below need no
+  // further hide checks.
+  const want = new Set<RenderCategory>();
+  if (!hideBuildings) want.add('building');
+  if (!hideVegetation) want.add('vegetation');
+  if (!hideBarriers) want.add('barrier');
+  if (!hideNpcs) want.add('npc');
+  want.add('decoration'); // decorations have no hide toggle today
+
+  const region = {
+    x: bounds.minTx, y: bounds.minTy,
+    w: bounds.maxTx - bounds.minTx + 1,
+    h: bounds.maxTy - bounds.minTy + 1,
+  };
+  for (const node of new WorldRenderGraph(rc).nodes(region, { categories: want })) {
+    switch (node.category) {
+      case 'barrier': {
+        const e = node.ref as Entity;
         barrierById.set(e.id, e);
         entries.push({
           id: e.id, kind: 'barrier',
           tx: Math.floor(e.x), ty: Math.floor(e.y), z: 0,
           kindPriority: KIND_PRIORITY.barrier,
         });
-        continue;
+        break;
       }
-      const stored = blueprintOf(e);
-      if (stored) {
-        if (hideBuildings) continue;
+      case 'building': {
+        const e = node.ref as Entity;
+        const stored = blueprintOf(e)!; // the graph only tags buildings that have one
         // Structure bounding box from the resolved parts' footprint claims.
         let minX = Infinity, minY = Infinity, maxX = 0, maxY = 0;
         for (const p of stored.rb.parts) {
@@ -97,38 +115,38 @@ export function buildEntityDrawList(rc: RenderContext, bounds: TileBounds, ic: I
           sortTx: key.sortTx, sortTy: key.sortTy,
           kindPriority: KIND_PRIORITY.building,
         });
-        continue;
+        break;
       }
-      if (!hideVegetation && tryGetEntityKindDef(e.kind)?.category === 'vegetation') {
+      case 'vegetation': {
+        const e = node.ref as Entity;
         vegById.set(e.id, e);
         entries.push({
           id: e.id, kind: 'vegetation',
           tx: e.x, ty: e.y, z: 0,
           kindPriority: KIND_PRIORITY.vegetation,
         });
+        break;
+      }
+      case 'npc': {
+        const n = node.ref as NpcInstance;
+        entries.push({
+          id: n.id, kind: 'npc',
+          tx: n.tileX, ty: n.tileY, z: 0,
+          kindPriority: KIND_PRIORITY.npc,
+        });
+        break;
+      }
+      case 'decoration': {
+        const d = node.ref as GeneratedDecoration;
+        decoById.set(node.id, { tx: d.tileX, ty: d.tileY, assetId: d.assetId });
+        entries.push({
+          id: node.id, kind: 'deco',
+          tx: d.tileX, ty: d.tileY, z: 0,
+          kindPriority: KIND_PRIORITY.deco,
+        });
+        break;
       }
     }
-  }
-
-  if (!isLayerHidden('npcs', rc.devMode)) {
-    for (const n of rc.npcs) {
-      entries.push({
-        id: n.id, kind: 'npc',
-        tx: n.tileX, ty: n.tileY, z: 0,
-        kindPriority: KIND_PRIORITY.npc,
-      });
-    }
-  }
-
-  const decoById = new Map<string, { tx: number; ty: number; assetId: string }>();
-  for (const d of rc.generatedDecorations ?? []) {
-    const id = `deco:${d.tileX},${d.tileY}`;
-    decoById.set(id, { tx: d.tileX, ty: d.tileY, assetId: d.assetId });
-    entries.push({
-      id, kind: 'deco',
-      tx: d.tileX, ty: d.tileY, z: 0,
-      kindPriority: KIND_PRIORITY.deco,
-    });
   }
 
   const items: DrawItem[] = [];

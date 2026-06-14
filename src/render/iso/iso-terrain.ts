@@ -4,6 +4,7 @@ import { worldToScreen } from './iso-projection';
 import { ISO_TILE_W, ISO_TILE_H } from './iso-constants';
 import type { TileBounds } from './iso-projection';
 import { effectiveTileType } from '@/render/layer-visibility';
+import { getHeightfield, ELEVATION_SEA_LEVEL } from '@/world/heightfield';
 
 /**
  * Engine-drawn iso terrain tiles (our own tile renderer — a full terrain shader
@@ -23,8 +24,12 @@ import { effectiveTileType } from '@/render/layer-visibility';
  *   - **Seam-proofing** — vertices snap to whole pixels and the diamond is
  *     inflated 1px so neighbours overlap (no 1px anti-alias gaps between tiles).
  *
- * Elevation (per-tile z / taller skirts at shorelines) is intentionally out of
- * scope here; `worldToScreen` already takes a z param for that later step.
+ * Elevation (R1) — each diamond is SHADED by the world heightfield: ground above
+ * the waterline lightens, ground below darkens, so relief reads at a glance.
+ * Geometric per-tile z (lifting the diamond + entities together) is still out of
+ * scope here — that arrives with the unified GPU scene (R2); `worldToScreen`
+ * already takes a z param for it, and terrain stays at z=0 so it can't desync
+ * from entities that still sit at z=0.
  */
 export interface IsoTerrainArgs {
   map: GameMap;
@@ -41,6 +46,14 @@ const NOISE_AMP = 0.06;
 /** Skirt darkening: left (SW) wall vs right (SE) wall — fakes directional light. */
 const SKIRT_LEFT = 0.7;
 const SKIRT_RIGHT = 0.55;
+/**
+ * Height-shading gain: brightness multiplier per unit of normalised elevation
+ * away from the waterline. At elevation 1 (≈0.65 above sea) a peak reads ~1.5×;
+ * at elevation 0 a trench reads ~0.7×. Clamped to keep colours in gamut.
+ */
+const HEIGHT_SHADE_GAIN = 0.8;
+const HEIGHT_SHADE_MIN = 0.5;
+const HEIGHT_SHADE_MAX = 1.6;
 
 /**
  * Deterministic [0,1) hash of an integer tile coord. Mixes both axes through
@@ -72,6 +85,11 @@ export function drawIsoTerrain(ctx: CanvasRenderingContext2D, args: IsoTerrainAr
   const halfW = ISO_TILE_W / 2;
   const halfH = ISO_TILE_H / 2;
 
+  // R1: the seed-deterministic world heightfield (memoised — recomputed once
+  // per world, then O(1)). Indexed inline below so we touch the Float32Array
+  // directly per tile rather than rebuilding a lookup key each cell.
+  const heightfield = getHeightfield(map.seed, map.width, map.height);
+
   const iMin = bounds.minTx + bounds.minTy;
   const iMax = bounds.maxTx + bounds.maxTy;
   for (let i = iMin; i <= iMax; i++) {
@@ -93,7 +111,12 @@ export function drawIsoTerrain(ctx: CanvasRenderingContext2D, args: IsoTerrainAr
 
       const baseType = effectiveTileType(tile.type, devMode);
       const base = TILE_COLORS[baseType] ?? '#444';
-      const lit = shade(base, 1 + (tileHash01(tx, ty) - 0.5) * 2 * NOISE_AMP);
+      // Height factor: lighten ground above the waterline, darken below.
+      const elev = heightfield[ty * map.width + tx];
+      const heightF = Math.max(HEIGHT_SHADE_MIN, Math.min(HEIGHT_SHADE_MAX,
+        1 + (elev - ELEVATION_SEA_LEVEL) * HEIGHT_SHADE_GAIN));
+      const noiseF = 1 + (tileHash01(tx, ty) - 0.5) * 2 * NOISE_AMP;
+      const lit = shade(base, heightF * noiseF);
 
       // Front skirts first (the top diamond is drawn after and meets them at the
       // front edges). Cull each where the tile in front of it exists — that tile
