@@ -8,6 +8,7 @@
 import type { ResolvedBlueprint, ResolvedPart, WallFace } from '@/blueprint/types';
 import { toBrief } from '@/blueprint/compile/to-brief';
 import { descriptorPhrase } from '@/blueprint/descriptors';
+import { stagePhrase } from '@/blueprint/lifecycle';
 import { CHROMA_RGB } from '@/render/chroma-key';
 
 export type ImageModelFamily = 'gemini' | 'openai' | 'flux' | 'generic';
@@ -110,6 +111,10 @@ function describeBuilding(rb: ResolvedBlueprint): string {
   // Qualitative descriptors (rich/poor, ornate/crude, weathered…) lead the subject
   // so the painted art matches the geometry/material bias the descriptors applied.
   const desc = descriptorPhrase(rb.descriptors);
+  // A lifecycle stage (ruin/burnt/under-construction) leads the whole phrase and
+  // REPLACES the default "a/an" article (e.g. "a burnt-out ruin of a medieval cottage").
+  const stage = stagePhrase(rb.class, rb.stage);
+  if (stage) return `${stage} a ${desc ? `${desc} ` : ''}${brief.era} ${brief.subject}${doorPhrase}, ${mats}, ${traits}`;
   return `a ${desc ? `${desc} ` : ''}${brief.era} ${brief.subject}${doorPhrase}, ${mats}, ${traits}`;
 }
 

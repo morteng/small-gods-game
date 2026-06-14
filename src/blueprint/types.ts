@@ -26,11 +26,14 @@ export interface Descriptors {
   tags?: string[];       // free-form, e.g. ['riverside','guild','painted']
 }
 
-/** An attached opening/fixture on a part: door / vent / window. Class-neutral. */
+/** An attached opening/fixture on a part: door / vent / window. Class-neutral.
+ *  `tags` are open semantic anchors (e.g. 'entrance', 'chimney') an agent / a
+ *  lifecycle transform / the future separable-parts pass can target by role. */
 export interface Feature {
   type: string;                          // registry key
   face?: WallFace;
   params?: Record<string, unknown>;
+  tags?: string[];                       // semantic anchors (role labels)
 }
 
 /** A semantic component. `type` keys a PartType in the registry. */
@@ -41,6 +44,7 @@ export interface Part {
   material?: string;                     // overrides blueprint material for this part
   params?: Record<string, unknown>;
   features?: Record<string, Feature>;
+  tags?: string[];                       // semantic anchors (role labels)
 }
 
 export interface Blueprint {
@@ -81,6 +85,7 @@ export interface ResolvedFeature {
   type: string;
   face?: WallFace;
   params: Record<string, unknown>;       // every param filled
+  tags?: string[];                       // present ONLY when set (keeps cache key stable)
 }
 export interface ResolvedPart {
   id: string;
@@ -90,6 +95,7 @@ export interface ResolvedPart {
   material?: string;
   params: Record<string, unknown>;
   features: ResolvedFeature[];
+  tags?: string[];                       // present ONLY when set (keeps cache key stable)
 }
 export interface ResolvedBlueprint {
   version: number;

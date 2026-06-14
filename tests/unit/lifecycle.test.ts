@@ -1,11 +1,12 @@
 // tests/unit/lifecycle.test.ts
 import { describe, it, expect } from 'vitest';
 import { resolveAsset, synthesizeBlueprint } from '@/blueprint/presets';
-import { plantStagePatch, stagePatch, stagesFor, defaultStageFor, PLANT_STAGES, PLANT_DEFAULT_STAGE } from '@/blueprint/lifecycle';
+import { plantStagePatch, buildingStagePatch, stagePhrase, stagePatch, stagesFor, defaultStageFor, PLANT_STAGES, PLANT_DEFAULT_STAGE, BUILDING_STAGES } from '@/blueprint/lifecycle';
 import { BUILDING_BLUEPRINTS } from '@/blueprint/presets';
 import { canonicalJson } from '@/render/generated-art-cache';
 
 const trunk = (rb: NonNullable<ReturnType<typeof resolveAsset>>) => rb.parts.find(p => p.type === 'tree')!;
+const body = (rb: NonNullable<ReturnType<typeof resolveAsset>>) => rb.parts.find(p => p.type === 'body')!;
 
 describe('plantStagePatch', () => {
   it('scales the tree metric params down for a sapling', () => {
@@ -59,15 +60,63 @@ describe('resolveAsset lifecycle stage', () => {
   });
 });
 
-describe('stage registry', () => {
-  it('plants have the six-stage timeline; buildings have none yet', () => {
-    expect(stagesFor('plant')).toEqual(PLANT_STAGES);
-    expect(defaultStageFor('plant')).toBe('mature');
-    expect(stagesFor('building')).toEqual([]);
-    expect(defaultStageFor('building')).toBeUndefined();
+describe('buildingStagePatch', () => {
+  it('a ruin loses its roof + a storey and reads as dilapidated', () => {
+    const patch = buildingStagePatch(BUILDING_BLUEPRINTS.tavern, 'ruin');   // tavern is 2 storeys
+    const bp = patch.parts!.body as { params: Record<string, unknown> };
+    expect(bp.params.roof).toBe('flat');
+    expect(bp.params.levels).toBe(1);          // 2 → 1
+    expect(patch.descriptors?.condition).toBe('dilapidated');
+    expect(patch.descriptors?.tags).toContain('ruined');
+    expect(patch.stage).toBe('ruin');
   });
 
-  it('stagePatch is empty for a class with no lifecycle', () => {
-    expect(stagePatch(BUILDING_BLUEPRINTS.cottage, 'ruin')).toEqual({});
+  it('the default stage (complete) is a no-op patch', () => {
+    expect(buildingStagePatch(BUILDING_BLUEPRINTS.cottage, 'complete')).toEqual({});
+  });
+
+  it('stagePhrase leads the img2img prompt for a building stage', () => {
+    expect(stagePhrase('building', 'burnt')).toMatch(/burnt-out/);
+    expect(stagePhrase('building', 'complete')).toBe('');   // the default stage has no phrase
+    expect(stagePhrase('building', undefined)).toBe('');
+    expect(stagePhrase('plant', 'sapling')).toBe('');       // plants drive geometry, not a phrase
+  });
+});
+
+describe('resolveAsset building lifecycle', () => {
+  it('a ruined cottage resolves roofless + records the stage', () => {
+    const ruin = resolveAsset({ type: 'cottage', stage: 'ruin' })!;
+    expect(body(ruin).params.roof).toBe('flat');
+    expect(ruin.stage).toBe('ruin');
+    expect(ruin.descriptors?.condition).toBe('dilapidated');
+  });
+
+  it('requesting complete is library-safe (identical key to stageless)', () => {
+    const bare = canonicalJson(resolveAsset({ type: 'cottage' })!);
+    const complete = canonicalJson(resolveAsset({ type: 'cottage', stage: 'complete' })!);
+    expect(complete).toBe(bare);
+    expect('stage' in resolveAsset({ type: 'cottage' })!).toBe(false);
+  });
+
+  it('every building stage yields a distinct canonical key', () => {
+    const keys = BUILDING_STAGES.map(s => canonicalJson(resolveAsset({ type: 'tavern', stage: s })!));
+    expect(new Set(keys).size).toBe(BUILDING_STAGES.length);
+  });
+});
+
+describe('stage registry', () => {
+  it('plants and buildings each have their own timeline', () => {
+    expect(stagesFor('plant')).toEqual(PLANT_STAGES);
+    expect(defaultStageFor('plant')).toBe('mature');
+    expect(stagesFor('building')).toEqual(BUILDING_STAGES);
+    expect(defaultStageFor('building')).toBe('complete');
+    expect(stagesFor('barrier')).toEqual([]);
+    expect(defaultStageFor('barrier')).toBeUndefined();
+  });
+
+  it('stagePatch dispatches by class', () => {
+    expect(stagePatch(BUILDING_BLUEPRINTS.cottage, 'ruin').stage).toBe('ruin');
+    expect(stagePatch(BUILDING_BLUEPRINTS.oak_tree, 'sapling').stage).toBe('sapling');
+    expect(stagePatch(BUILDING_BLUEPRINTS.cottage, 'nonsense')).toEqual({});
   });
 });

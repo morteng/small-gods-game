@@ -38,12 +38,14 @@ export function mergePatches(patches: BlueprintPatch[]): Blueprint {
 }
 
 function mergePart(prev: Part, patch: Part): Part {
+  const tags = [...(prev.tags ?? []), ...(patch.tags ?? [])];
   return {
     ...prev, ...patch,
     at: patch.at ?? prev.at,
     size: patch.size ?? prev.size,
     params: { ...prev.params, ...patch.params },
     features: { ...prev.features, ...patch.features },
+    ...(tags.length ? { tags: [...new Set(tags)] } : {}),
   };
 }
 
@@ -62,7 +64,8 @@ export function resolveBlueprint(patches: BlueprintPatch[], seed: number): Resol
       if (!ft) throw new Error(`unknown feature type "${f.type}"`);
       const fv = validateParams(ft.paramSchema, f.params ?? {});
       const { params: fp } = ft.resolve({ ...f, params: fv }, ctx);
-      return { id: fid, type: f.type, face: f.face, params: fp };
+      // Include `tags` ONLY when set so a tag-less feature serialises byte-identically.
+      return { id: fid, type: f.type, face: f.face, params: fp, ...(f.tags?.length ? { tags: f.tags } : {}) };
     });
     return {
       id, type: part.type,
@@ -70,6 +73,7 @@ export function resolveBlueprint(patches: BlueprintPatch[], seed: number): Resol
       size: part.size ?? { w: bp.footprint.w, h: bp.footprint.h },
       material: part.material,
       params, features,
+      ...(part.tags?.length ? { tags: part.tags } : {}),
     };
   });
 
