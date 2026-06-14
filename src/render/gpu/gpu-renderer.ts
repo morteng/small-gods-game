@@ -46,29 +46,44 @@ async function defaultFallback(): Promise<RenderFn> {
 }
 
 /**
+ * Default GPU scene factory (R2c): create an overlay canvas, bring up WebGPU,
+ * and build the real frame closure. Throws on any unavailability so
+ * `createGpuRenderMap` routes to the Canvas2D parity path (never a black
+ * screen). In Node/jsdom there's no real WebGPU, so this throws → fallback.
+ */
+async function defaultGpuScene(): Promise<RenderFn> {
+  if (typeof document === 'undefined') throw new Error('no document for GPU canvas');
+  const canvas = document.createElement('canvas');
+  const { initWebGpu } = await import('@/render/gpu/webgpu-context');
+  const gpu = await initWebGpu(canvas);
+  if (!gpu) throw new Error('WebGPU init returned null');
+  const { GpuScene } = await import('@/render/gpu/gpu-scene');
+  const { buildGpuRenderFrame } = await import('@/render/gpu/gpu-render-frame');
+  return buildGpuRenderFrame(new GpuScene(gpu), canvas);
+}
+
+/**
  * Resolve the RenderFn for `?render=gpu` and report which backend won.
  *
- * Routes to the Canvas2D fallback when WebGPU is absent, when no GPU scene has
- * been wired yet, or if GPU scene construction throws — guaranteeing a drawn
- * frame in every case. The `backend` tag feeds the dev HUD / telemetry / tests.
+ * Routes to the Canvas2D fallback when WebGPU is absent or if GPU scene
+ * construction throws (no adapter/device/document) — guaranteeing a drawn frame
+ * in every case. The `backend` tag feeds the dev HUD / telemetry / tests.
  */
 export async function createGpuRenderMap(
   deps: GpuRenderDeps = {},
 ): Promise<{ render: RenderFn; backend: GpuBackend }> {
   const probe = deps.probe ?? hasWebGpu;
   const makeFallback = deps.makeFallback ?? defaultFallback;
+  const makeGpuScene = deps.makeGpuScene ?? defaultGpuScene;
 
   if (!probe()) {
     return { render: await makeFallback(), backend: 'canvas2d' };
   }
-  if (!deps.makeGpuScene) {
-    // WebGPU is present but the GPU scene lands in R2c — route to parity for now.
-    return { render: await makeFallback(), backend: 'canvas2d' };
-  }
   try {
-    return { render: await deps.makeGpuScene(), backend: 'webgpu' };
+    return { render: await makeGpuScene(), backend: 'webgpu' };
   } catch {
-    // Any GPU init failure (adapter/device/shader) must never blank the screen.
+    // Any GPU init failure (adapter/device/shader/no-document) must never blank
+    // the screen — route to the Canvas2D parity path during migration.
     return { render: await makeFallback(), backend: 'canvas2d' };
   }
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildInstanceBatches, instancedDrawCalls, srcSize } from '@/render/gpu/instance-batch';
+import { buildInstanceBatches, instancedDrawCalls, srcSize, applyViewTransform } from '@/render/gpu/instance-batch';
 import type { DrawItem } from '@/render/iso/draw-list';
 
 // Stand-in image sources: plain objects carrying width/height (CanvasImageSource
@@ -108,5 +108,25 @@ describe('R2c — instance batching', () => {
   it('srcSize reads natural/intrinsic dimensions', () => {
     expect(srcSize(tex(128, 96))).toEqual({ w: 128, h: 96 });
     expect(srcSize({ naturalWidth: 40, naturalHeight: 20 } as unknown as CanvasImageSource)).toEqual({ w: 40, h: 20 });
+  });
+
+  it('applyViewTransform maps world rects to device space (screen = world·s + o)', () => {
+    const { batches } = buildInstanceBatches([img(tex(), 10, { dy: 20, dw: 32, dh: 48 })]);
+    // zoom 2 at dpr 2 ⇒ scale 4; camera offset (5,7) device px.
+    applyViewTransform(batches[0], { sx: 4, sy: 4, ox: 5, oy: 7 });
+    const inst = batches[0].instances[0];
+    expect(inst.dx).toBe(10 * 4 + 5);
+    expect(inst.dy).toBe(20 * 4 + 7);
+    expect(inst.dw).toBe(32 * 4);
+    expect(inst.dh).toBe(48 * 4);
+  });
+
+  it('applyViewTransform leaves UV and depth untouched', () => {
+    const { batches } = buildInstanceBatches([img(tex(128, 64), 0, { frame: { sx: 64, sy: 0, sw: 32, sh: 64 } })]);
+    const before = { ...batches[0].instances[0] };
+    applyViewTransform(batches[0], { sx: 3, sy: 3, ox: 1, oy: 2 });
+    const inst = batches[0].instances[0];
+    expect([inst.u0, inst.v0, inst.u1, inst.v1]).toEqual([before.u0, before.v0, before.u1, before.v1]);
+    expect(inst.depth).toBe(before.depth);
   });
 });

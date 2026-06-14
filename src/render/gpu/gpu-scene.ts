@@ -15,7 +15,10 @@
 
 import type { DrawItem } from '@/render/iso/draw-list';
 import type { LightingState } from '@/render/lighting-state';
-import { buildInstanceBatches, srcSize, type InstanceBatch } from '@/render/gpu/instance-batch';
+import {
+  buildInstanceBatches, srcSize, applyViewTransform,
+  type InstanceBatch, type ViewTransform,
+} from '@/render/gpu/instance-batch';
 import {
   packInstances, packGlobals, QUAD_STRIP, QUAD_VERTEX_COUNT, INSTANCE_STRIDE,
 } from '@/render/gpu/instance-buffer';
@@ -153,10 +156,19 @@ export class GpuScene {
     return this.depthTex.createView();
   }
 
-  /** Render the draw list for one frame. `w`,`h` = target px (the dx/dy space). */
-  render(items: readonly DrawItem[], lighting: LightingState, w: number, h: number): void {
+  /**
+   * Render the draw list for one frame. `w`,`h` = target px (the device-pixel
+   * dx/dy space). `xform` (optional) bakes the world→device camera transform
+   * into the instance rects; omit it when the items are already in device space
+   * (the isolated-unit tests do).
+   */
+  render(
+    items: readonly DrawItem[], lighting: LightingState, w: number, h: number,
+    xform?: ViewTransform,
+  ): void {
     const { device } = this;
     const { batches } = buildInstanceBatches(items);
+    if (xform) for (const b of batches) applyViewTransform(b, xform);
 
     device.queue.writeBuffer(this.globalsBuf, 0, packGlobals({
       viewport: [w, h],

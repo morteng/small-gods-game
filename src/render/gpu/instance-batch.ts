@@ -109,3 +109,27 @@ export function buildInstanceBatches(items: readonly DrawItem[]): {
 export function instancedDrawCalls(batches: readonly InstanceBatch[]): number {
   return batches.length;
 }
+
+/**
+ * World→device affine for the entity pass: `screen = world * s + o`. The draw
+ * list is authored in WORLD coordinates (the Canvas2D/Pixi paths apply the same
+ * camera transform on the context/stage); the GPU shader wants device pixels, so
+ * the scene bakes this transform into the instance rects before packing. Mirrors
+ * `isoStageTransform` (scale = zoom, offset = round(-cam·zoom)) times the DPR.
+ */
+export interface ViewTransform {
+  sx: number;
+  sy: number;
+  ox: number;
+  oy: number;
+}
+
+/** Apply a world→device transform to a batch's instance rects, in place. */
+export function applyViewTransform(batch: InstanceBatch, xf: ViewTransform): void {
+  for (const it of batch.instances) {
+    it.dx = it.dx * xf.sx + xf.ox;
+    it.dy = it.dy * xf.sy + xf.oy;
+    it.dw *= xf.sx;
+    it.dh *= xf.sy;
+  }
+}
