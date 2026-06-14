@@ -76,8 +76,9 @@ describe('R2b — WGSL/GLSL parity with the reference', () => {
     expect(LIT_WGSL).toContain('nrm.a > 0.5');                  // mask fallback
     expect(LIT_WGSL).toContain('normalize(nrm.rgb * 2.0 - 1.0)'); // normal decode
     expect(LIT_WGSL).toContain('mix(1.0, mat.g, mat.a)');         // AO
-    expect(LIT_WGSL).toContain('floor(ndl * light.uBands + 0.5) / light.uBands'); // banding
+    expect(LIT_WGSL).toContain('floor(ndl * G.uBands + 0.5) / G.uBands'); // banding
     expect(LIT_WGSL).toContain('albedo.rgb * lit');              // premultiplied output
+    expect(LIT_WGSL).toContain('if (albedo.a < 0.5) { discard; }'); // hard cutout
   });
 
   it('WGSL mirrors the GLSL fragment’s banding + AO expressions', () => {

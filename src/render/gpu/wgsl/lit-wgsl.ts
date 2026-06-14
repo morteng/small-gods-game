@@ -1,88 +1,84 @@
 // src/render/gpu/wgsl/lit-wgsl.ts
 //
-// R2b — WGSL port of the banded-PBR lit-sprite shader (`pixi/lit-shader.ts`).
-// Held as an exported TS string (like `lit-shader.ts` holds its GLSL) so it is
-// importable, structurally testable, and bundles without a raw-loader.
+// R2c — WGSL for the raw-WebGPU instanced lit-sprite pipeline.
 //
-// The fragment math mirrors `banded-pbr.ts` (the executable reference) exactly:
-// flat-normal fallback on mask ≤ 0.5, AO = mix(1, mat.G, mat.A), diffuse banded
-// by floor(ndl·bands + 0.5)/bands, premultiplied output.
+// The spike (`public/webgpu-spike.html`) proved RAW WebGPU instancing on this
+// hardware (stepMode:'instance', one draw call), so the scene is hand-rolled
+// WebGPU — not Pixi's custom-shader path. This shader is therefore structured
+// for raw vertex-buffer instancing + explicit bind groups, NOT Pixi's uniform
+// groups.
 //
-// Binding groups follow Pixi v8's WebGPU GpuProgram convention (group 0 global,
-// group 1 local/mesh, group 2 custom resources). Pixi extracts the exact layout
-// from this source via WGSL reflection; the precise binding indices are validated
-// in-browser when the GpuProgram is constructed in R2c. Until then this is the
-// canonical shader text, math-verified against `banded-pbr.ts`.
+// Geometry: a unit quad (stepMode 'vertex') instanced once per sprite. Per-
+// instance attributes (stepMode 'instance') give the destination rect, the UV
+// sub-rect, and a painter-order depth (see instance-buffer.ts for the byte
+// layout these @location indices must match).
+//
+// The fragment MATH mirrors `banded-pbr.ts` (the executable reference) exactly:
+// hard alpha-cutout, flat-normal fallback on mask ≤ 0.5, AO = mix(1, mat.G,
+// mat.A), diffuse banded by floor(ndl·bands + 0.5)/bands, premultiplied output.
 
 export const LIT_WGSL = /* wgsl */ `
-struct GlobalUniforms {
-  uProjectionMatrix: mat3x3<f32>,
-  uWorldTransformMatrix: mat3x3<f32>,
-  uWorldColorAlpha: vec4<f32>,
-  uResolution: vec2<f32>,
+struct Globals {
+  uViewport : vec2<f32>,   // target size in px (matches the draw list's dx/dy space)
+  uBands    : f32,
+  _pad0     : f32,
+  uAmbient  : vec3<f32>,
+  _pad1     : f32,
+  uSunDir   : vec3<f32>,   // toward the light, screen space, normalized
+  _pad2     : f32,
+  uSunColor : vec3<f32>,
+  _pad3     : f32,
 };
 
-struct LocalUniforms {
-  uTransformMatrix: mat3x3<f32>,
-  uColor: vec4<f32>,
-  uRound: f32,
-};
+@group(0) @binding(0) var<uniform> G : Globals;
 
-struct LightUniforms {
-  uAmbient: vec3<f32>,
-  uSunDir: vec3<f32>,
-  uSunColor: vec3<f32>,
-  uBands: f32,
-};
-
-@group(0) @binding(0) var<uniform> globalUniforms : GlobalUniforms;
-@group(1) @binding(0) var<uniform> localUniforms : LocalUniforms;
-
-@group(2) @binding(0) var<uniform> light : LightUniforms;
-@group(2) @binding(1) var uAlbedo : texture_2d<f32>;
-@group(2) @binding(2) var uAlbedoSampler : sampler;
-@group(2) @binding(3) var uNormalMap : texture_2d<f32>;
-@group(2) @binding(4) var uNormalSampler : sampler;
-@group(2) @binding(5) var uMaterialMap : texture_2d<f32>;
-@group(2) @binding(6) var uMaterialSampler : sampler;
+@group(1) @binding(0) var uSampler     : sampler;
+@group(1) @binding(1) var uAlbedo      : texture_2d<f32>;
+@group(1) @binding(2) var uNormalMap   : texture_2d<f32>;
+@group(1) @binding(3) var uMaterialMap : texture_2d<f32>;
 
 struct VSOut {
-  @builtin(position) position: vec4<f32>,
-  @location(0) vUV: vec2<f32>,
+  @builtin(position) pos : vec4<f32>,
+  @location(0) vUV : vec2<f32>,
 };
 
 @vertex
 fn vsMain(
-  @location(0) aPosition: vec2<f32>,
-  @location(1) aUV: vec2<f32>,
+  @location(0) corner : vec2<f32>,   // unit quad 0..1
+  @location(1) iRect  : vec4<f32>,   // dx, dy, dw, dh  (screen px)
+  @location(2) iUV    : vec4<f32>,   // u0, v0, u1, v1
+  @location(3) iDepth : f32,         // painter-order depth, 0..1
 ) -> VSOut {
-  let mvp = globalUniforms.uProjectionMatrix
-          * globalUniforms.uWorldTransformMatrix
-          * localUniforms.uTransformMatrix;
-  let pos = mvp * vec3<f32>(aPosition, 1.0);
-  var out: VSOut;
-  out.position = vec4<f32>(pos.xy, 0.0, 1.0);
-  out.vUV = aUV;
+  let px = iRect.xy + corner * iRect.zw;
+  // screen px (y down, origin top-left) → clip NDC (y up)
+  let ndc = vec2<f32>(
+    px.x / (G.uViewport.x * 0.5) - 1.0,
+    1.0 - px.y / (G.uViewport.y * 0.5),
+  );
+  var out : VSOut;
+  out.pos = vec4<f32>(ndc, iDepth, 1.0);
+  out.vUV = mix(iUV.xy, iUV.zw, corner);
   return out;
 }
 
 @fragment
-fn fsMain(@location(0) vUV: vec2<f32>) -> @location(0) vec4<f32> {
-  let albedo = textureSample(uAlbedo, uAlbedoSampler, vUV);
+fn fsMain(@location(0) vUV : vec2<f32>) -> @location(0) vec4<f32> {
+  let albedo = textureSample(uAlbedo, uSampler, vUV);
+  if (albedo.a < 0.5) { discard; }   // hard pixel-art cutout, not soft AA
 
-  let nrm = textureSample(uNormalMap, uNormalSampler, vUV);
+  let nrm = textureSample(uNormalMap, uSampler, vUV);
   var n = vec3<f32>(0.0, 0.0, 1.0);
   if (nrm.a > 0.5) {
     n = normalize(nrm.rgb * 2.0 - 1.0);
   }
 
-  let mat = textureSample(uMaterialMap, uMaterialSampler, vUV);
+  let mat = textureSample(uMaterialMap, uSampler, vUV);
   let ao = mix(1.0, mat.g, mat.a);
 
-  let ndl = max(dot(n, light.uSunDir), 0.0);
-  let banded = floor(ndl * light.uBands + 0.5) / light.uBands;
+  let ndl = max(dot(n, G.uSunDir), 0.0);
+  let banded = floor(ndl * G.uBands + 0.5) / G.uBands;
 
-  let lit = (light.uAmbient + light.uSunColor * banded) * ao;
+  let lit = (G.uAmbient + G.uSunColor * banded) * ao;
   return vec4<f32>(albedo.rgb * lit, albedo.a);
 }
 `;
