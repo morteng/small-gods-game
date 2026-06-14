@@ -231,7 +231,10 @@ export interface PopoverHandle {
  *  panel is fixed-positioned under the anchor, flips to right-align if it would
  *  overflow, and closes on outside-click / Esc. */
 export function popover(anchor: HTMLElement, build: (body: HTMLElement) => void, opts: { align?: 'left' | 'right'; width?: number } = {}): PopoverHandle {
-  const el = h('div', { class: 'sg-pop' });
+  // `sg-studio` carries the design-token custom properties; the popover is
+  // appended to document.body (outside the studio root) so it must redeclare the
+  // class to resolve var(--bg-1)/etc — otherwise it renders with no background.
+  const el = h('div', { class: 'sg-studio sg-pop' });
   if (opts.width) el.style.width = `${opts.width}px`;
   el.style.display = 'none';
   build(el);
