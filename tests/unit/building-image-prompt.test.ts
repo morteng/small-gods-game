@@ -6,11 +6,33 @@ import { synthesizeBlueprint } from '@/blueprint/presets';
 const GEMINI = 'google/gemini-2.5-flash-image';
 const OPENAI = 'openai/gpt-5-image';
 
+const FLUX = 'black-forest-labs/flux.2-klein-4b';
+
 describe('imageModelFamily', () => {
   it('classifies by family', () => {
     expect(imageModelFamily(GEMINI)).toBe('gemini');
     expect(imageModelFamily(OPENAI)).toBe('openai');
+    expect(imageModelFamily(FLUX)).toBe('flux');
+    expect(imageModelFamily('black-forest-labs/flux.2-pro')).toBe('flux');
     expect(imageModelFamily('something/else')).toBe('generic');
+  });
+});
+
+describe('FLUX prompt family', () => {
+  it('uses positive-only background language (FLUX ignores negative prompts) and the "image 1" editing convention', () => {
+    const rb = synthesizeBlueprint('cottage')!;
+    const p = buildingImagePrompt(rb, FLUX);
+    const lower = p.toLowerCase();
+    // Still demands the magenta chroma background for keying…
+    expect(p).toContain('255,0,255');
+    expect(lower).toContain('magenta');
+    // …but as a positive instruction, NOT the gemini "no ground, no shadow" denial.
+    expect(lower).not.toContain('no ground');
+    expect(lower).not.toContain('no shadow');
+    // FLUX editing: address the init as "image 1".
+    expect(lower).toContain('image 1');
+    expect(lower).toMatch(/isometric|2:1/);
+    expect(p).not.toBe(buildingImagePrompt(rb, GEMINI));
   });
 });
 

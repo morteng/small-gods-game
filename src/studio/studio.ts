@@ -20,12 +20,12 @@ import { floorIsoZoom, quantizeIsoZoom, ISO_ZOOM_MIN, ISO_ZOOM_MAX } from '@/ren
 import { createCamera, zoomAt } from '@/render/camera';
 import { attachControls } from '@/ui/controls';
 import { PixiEntityLayer } from '@/render/pixi/pixi-entity-layer';
-import { DEFAULT_LIGHTING, normalizeVec3, type LightingState, type ShadowMode, type Vec3 } from '@/render/lighting-state';
+import { DEFAULT_LIGHTING, normalizeVec3, type Vec3 } from '@/render/lighting-state';
 import { structureResultToPack } from '@/render/parametric-building-source';
 import { composeStructure, type StructureResult } from '@/assetgen/compose';
 import { ensureBuildingTypesRegistered } from '@/blueprint/register-buildings';
 import { BUILDING_BLUEPRINTS, synthesizeBlueprint, isPlantPreset } from '@/blueprint/presets';
-import type { ResolvedBlueprint, ResolvedPart, ResolvedFeature } from '@/blueprint/types';
+import type { ResolvedBlueprint } from '@/blueprint/types';
 import { blueprintEntity } from '@/blueprint/entity';
 import { toGeometry } from '@/blueprint/compile/to-geometry';
 import type { SpritePack } from '@/render/iso/sprite-canvas';
@@ -34,7 +34,7 @@ import { initManifoldWasm } from '@/assetgen/geometry/manifold-wasm-browser';
 // img2img generation pipeline (the real paid path, surfaced step-by-step).
 import { buildingImagePrompt } from '@/assetgen/building-image-prompt';
 import { compositeOverChroma, chromaKeyMagenta } from '@/render/chroma-key';
-import { generateBuildingImage, BuildingImageError, BUILDING_IMAGE_MODEL } from '@/llm/openrouter-image-client';
+import { generateBuildingImage, BuildingImageError, BUILDING_IMAGE_MODEL, defaultModalitiesFor } from '@/llm/openrouter-image-client';
 import { loadProviderConfig, openrouterImageBaseUrl } from '@/llm/provider-factory';
 import { decodePngToRaster, rasterToSpriteCanvas } from '@/render/sprite-codec';
 import { canonicalJson, generatedArtKey } from '@/render/generated-art-cache';
@@ -42,6 +42,14 @@ import { assetUrl } from '@/core/asset-url';
 import {
   type Raster, cropRaster, borderKeyedFraction, registerAlbedo, quantizePalette,
 } from '@/render/sprite-postprocess';
+import { buildAccordion } from './accordion';
+import { buildObjectBrowser } from './object-browser';
+import { buildAbSection } from './ab-section';
+import { buildTree } from './blueprint-tree';
+import { buildPanel } from './control-panel';
+import { buildDock } from './stage-dock';
+import { openMetadataPanel, makeLiveButton } from './render-request-panel';
+import { type StudioState, type Stage, type AbResult, AB_MODELS, AB_MIN_BORDER, AB_MIN_IOU } from './types';
 
 const MAP_W = 24, MAP_H = 24;
 const CENTER = { x: 12, y: 12 };
@@ -69,21 +77,6 @@ function makeEntity(kind: string): Entity {
   const rb = synthesizeBlueprint(kind);
   if (rb) return blueprintEntity('subject', rb, CENTER.x, CENTER.y);
   return { id: 'subject', kind, x: CENTER.x, y: CENTER.y, properties: {} } as Entity;
-}
-
-/** A single inspectable buffer in the stage strip / view pane. */
-interface Stage { label: string; canvas: SpriteCanvas | null; sub?: string }
-
-interface StudioState {
-  kind: string;
-  lighting: LightingState;
-  az: number;   // sun azimuth, degrees
-  el: number;   // sun elevation, degrees
-  overlays: boolean;
-  fit: boolean; // auto zoom-to-fit the subject (yields to any manual pan/zoom)
-  dockH: number;
-  // null → live 3D render; else show this buffer in the view pane.
-  view: { canvas: SpriteCanvas; label: string } | null;
 }
 
 function sunDir(az: number, el: number): Vec3 {
@@ -209,6 +202,8 @@ export function mountStudio(container: HTMLElement): void {
   let genStages: Stage[] = [];
   // Assigned once the node-tree panel is built; called on subject/param change.
   let rebuildTree: () => void = () => {};
+  // Assigned once the object browser is built; re-highlights the current kind.
+  let browserRefresh: () => void = () => {};
   function setSubject(kind: string): void {
     state.kind = kind;
     world.removeEntity('subject');
@@ -219,6 +214,7 @@ export function mountStudio(container: HTMLElement): void {
     subject = makeEntity(kind);
     world.addEntity(subject);
     rebuildTree();
+    browserRefresh();
   }
   // A node-tree edit mutated liveRb in place: bust geometry caches, drop stale
   // generation stages + any pinned stage view, and redraw the tree.
@@ -298,15 +294,27 @@ export function mountStudio(container: HTMLElement): void {
       ctx.fillRect(x, y, 16, 16);
     }
   }
+  // Stage-view pan/zoom (independent of the 3D camera). `zoom===0` means "fit";
+  // a wheel/drag promotes it to an explicit scale. Reset whenever the shown
+  // buffer changes (selecting a different stage re-fits).
+  const stageNav = { canvas: null as SpriteCanvas | null, zoom: 0, panX: 0, panY: 0 };
+  function stageFitScale(c: SpriteCanvas): number {
+    const { w, h } = viewport(); const pad = 24;
+    return Math.max(0.05, Math.min((w - pad * 2) / c.width, (h - pad * 2) / c.height));
+  }
   function drawStageInPane(c: SpriteCanvas): void {
     const { w, h } = viewport();
+    if (c !== stageNav.canvas) { stageNav.canvas = c; stageNav.zoom = 0; stageNav.panX = 0; stageNav.panY = 0; }
     ctx.clearRect(0, 0, w, h);
     paintChecker(w, h);
-    const pad = 24;
-    const s = Math.max(1, Math.floor(Math.min((w - pad * 2) / c.width, (h - pad * 2) / c.height)));
+    // Below ~1px/texel, integer snapping collapses detail; keep an integer scale
+    // when fitting/zoomed-in for crisp pixels, but allow fractional when fit < 1.
+    const fit = stageFitScale(c);
+    const raw = stageNav.zoom > 0 ? stageNav.zoom : fit;
+    const s = raw >= 1 ? Math.round(raw) : raw;
     const dw = c.width * s, dh = c.height * s;
     ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(c as CanvasImageSource, Math.round((w - dw) / 2), Math.round((h - dh) / 2), dw, dh);
+    ctx.drawImage(c as CanvasImageSource, Math.round((w - dw) / 2) + stageNav.panX, Math.round((h - dh) / 2) + stageNav.panY, dw, dh);
   }
 
   // ── debug overlays + HUD ─────────────────────────────────────────────────
@@ -355,6 +363,37 @@ export function mountStudio(container: HTMLElement): void {
     ctx.restore();
   }
 
+  // ── stage-view interaction overlay (wheel-zoom + drag-pan a stage buffer) ──
+  // A transparent layer that only captures pointer events while a stage is shown,
+  // so the 3D camera's attachControls keeps the canvas to itself in Live mode.
+  const stageOverlay = document.createElement('div');
+  stageOverlay.style.cssText = 'position:absolute;inset:0;z-index:9;display:none;cursor:grab';
+  viewPane.appendChild(stageOverlay);
+  stageOverlay.addEventListener('wheel', (e) => {
+    if (!state.view) return;
+    e.preventDefault();
+    const c = state.view.canvas;
+    const base = stageNav.zoom > 0 ? stageNav.zoom : stageFitScale(c);
+    const next = Math.max(0.1, Math.min(64, base * (e.deltaY < 0 ? 1.15 : 1 / 1.15)));
+    // Zoom about the cursor: keep the texel under the pointer fixed.
+    const r = viewPane.getBoundingClientRect();
+    const px = e.clientX - r.left - r.width / 2 - stageNav.panX;
+    const py = e.clientY - r.top - r.height / 2 - stageNav.panY;
+    const k = next / base - 1;
+    stageNav.panX -= px * k; stageNav.panY -= py * k;
+    stageNav.zoom = next;
+  }, { passive: false });
+  stageOverlay.addEventListener('mousedown', (e) => {
+    if (!state.view) return;
+    e.preventDefault();
+    stageOverlay.style.cursor = 'grabbing';
+    const sx = e.clientX, sy = e.clientY, p0x = stageNav.panX, p0y = stageNav.panY;
+    const move = (ev: MouseEvent) => { stageNav.panX = p0x + (ev.clientX - sx); stageNav.panY = p0y + (ev.clientY - sy); };
+    const up = () => { stageOverlay.style.cursor = 'grab'; window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); };
+    window.addEventListener('mousemove', move); window.addEventListener('mouseup', up);
+  });
+  stageOverlay.addEventListener('dblclick', () => { if (state.view) { stageNav.zoom = 0; stageNav.panX = 0; stageNav.panY = 0; } });
+
   // ── pipeline stages (compose buffers + any generation stages) ────────────
   const dockUi = buildDock(dock);
   const liveBtn = makeLiveButton(viewPane, () => { state.view = null; });
@@ -395,8 +434,12 @@ export function mountStudio(container: HTMLElement): void {
   function frame(): void {
     if (state.view) {
       drawStageInPane(state.view.canvas);
-      liveBtn.show(state.view.label);
+      const c = state.view.canvas;
+      const s = stageNav.zoom > 0 ? stageNav.zoom : stageFitScale(c);
+      liveBtn.show(`${state.view.label}  ·  ${s >= 1 ? `${Math.round(s)}×` : `${(s * 100) | 0}%`} (scroll=zoom, drag=pan, dbl=reset)`);
+      stageOverlay.style.display = 'block';
     } else {
+      stageOverlay.style.display = 'none';
       const rc = renderContext();
       renderMap(ctx, rc);
       drawOverlays(rc.camera);
@@ -443,10 +486,44 @@ export function mountStudio(container: HTMLElement): void {
     onBlueprintEdited();
   }
 
-  // ── node-tree inspector (the live blueprint, browseable + editable) ──────
-  const treeUi = buildTree(tree, { getRb: () => liveRb, onEdit: onBlueprintEdited, randomize: randomizeSubject });
-  rebuildTree = treeUi.render;
-  rebuildTree();
+  // ── left-pane accordion: Object Browser · A/B Compare · Geometry ─────────
+  // Three collapsible, vertically-resizable sections. Each body is built once;
+  // folding just hides it. The node-tree is the bottom section.
+  const accordion = buildAccordion(tree, [
+    {
+      id: 'browser', title: '📚 Object Browser', open: true, height: 240,
+      build: (body) => {
+        const b = buildObjectBrowser(body, {
+          getCurrent: () => state.kind,
+          onSelect: (kind) => setSubject(kind),
+        });
+        browserRefresh = b.refresh;
+      },
+    },
+    {
+      id: 'ab', title: '⚖ A/B Model Compare', open: false, height: 280,
+      build: (body) => buildAbSection(body, {
+        models: AB_MODELS,
+        defaultA: BUILDING_IMAGE_MODEL, defaultB: 'google/gemini-2.5-flash-image',
+        keyStatus: () => {
+          const cfg = loadProviderConfig();
+          return cfg.openrouterApiKey ? 'configured key' : (openrouterImageBaseUrl() ? 'dev proxy key (env)' : 'NO KEY — will fail');
+        },
+        getKind: () => state.kind,
+        run: runAbPair,
+        onView: (c, label) => { state.view = { canvas: c, label }; },
+      }),
+    },
+    {
+      id: 'geometry', title: '🌳 Geometry · Blueprint', open: true, height: 360,
+      build: (body) => {
+        const treeUi = buildTree(body, { getRb: () => liveRb, onEdit: onBlueprintEdited, randomize: randomizeSubject });
+        rebuildTree = treeUi.render;
+        rebuildTree();
+      },
+    },
+  ]);
+  void accordion;
 
   const panel = buildPanel(viewPane, state, {
     setSubject, invalidate, zoomLabel,
@@ -518,7 +595,7 @@ export function mountStudio(container: HTMLElement): void {
     const mask: Raster = cropRaster({ data: struct.grey, w: struct.size, h: struct.size }, bb);
     const cfg = loadProviderConfig();
     const body = {
-      model, modalities: ['image', 'text'],
+      model, modalities: defaultModalitiesFor(model),
       messages: [{ role: 'user', content: [
         { type: 'text', text: prompt },
         { type: 'image_url', image_url: { url: `‹init PNG ${struct.size}², ${Math.round(initDataUri.length / 1024)} KB data-uri›` } },
@@ -570,10 +647,74 @@ export function mountStudio(container: HTMLElement): void {
     });
   }
 
+  // ── A/B model eval (same subject + init image, two models, gate metrics) ──
+  // Generate the CURRENT subject through `model`, run the exact runtime gates
+  // (chroma-key → border-keyed fraction → silhouette IoU), and return the raw +
+  // finished sprites with cost/verdict. The init image is model-independent
+  // (geometry only); only the prompt + modalities adapt per model.
+  async function runAbModel(
+    model: string, initDataUri: string, mask: Raster, cfg: ReturnType<typeof loadProviderConfig>,
+  ): Promise<AbResult> {
+    const rb = liveRb!;
+    const prompt = buildingImagePrompt(rb, model);
+    const base: AbResult = { model, ok: false, costUsd: 0, ms: 0, border: 0, iou: 0, raw: null, final: null, verdict: '' };
+    const t0 = performance.now();
+    try {
+      const res = await generateBuildingImage(
+        { apiKey: cfg.openrouterApiKey ?? '', baseUrl: openrouterImageBaseUrl(), siteName: cfg.openrouterSiteName },
+        { initImageDataUri: initDataUri, prompt, model },
+      );
+      base.ms = performance.now() - t0;
+      base.costUsd = res.costUsd ?? 0;
+      const raw = await decodePngToRaster(res.blob);
+      if (!raw) { base.error = 'decode failed'; base.verdict = 'decode failed'; return base; }
+      base.raw = rasterToSpriteCanvas(cloneRaster(raw));
+      chromaKeyMagenta(raw.data);
+      base.border = borderKeyedFraction(raw);
+      const reg = registerAlbedo(raw, mask);
+      base.iou = reg ? reg.iou : 0;
+      base.final = reg ? rasterToSpriteCanvas(quantizePalette(reg.sprite, 64)) : null;
+      base.ok = !!reg && base.border >= AB_MIN_BORDER && base.iou >= AB_MIN_IOU;
+      base.verdict = !reg ? 'registration failed'
+        : base.iou < AB_MIN_IOU ? `IoU ${base.iou.toFixed(2)} < ${AB_MIN_IOU} (rejected in-game)`
+        : base.border < AB_MIN_BORDER ? `border ${base.border.toFixed(2)} < ${AB_MIN_BORDER} (rejected in-game)`
+        : `PASS — IoU ${base.iou.toFixed(2)}, border ${base.border.toFixed(2)}`;
+    } catch (err) {
+      base.ms = performance.now() - t0;
+      base.error = err instanceof BuildingImageError ? `${err.hint} → ${err.helpUrl}` : (err as Error).message;
+      base.verdict = err instanceof BuildingImageError ? `⛔ ${err.kind}` : 'error';
+    }
+    return base;
+  }
+
+  // Compose the CURRENT subject's init image once, then run both models against it
+  // (geometry is model-independent; only prompt + modalities differ per model).
+  async function runAbPair(modelA: string, modelB: string): Promise<[AbResult, AbResult]> {
+    const rb = liveRb;
+    if (!rb) throw new Error(`No blueprint for "${state.kind}"`);
+    const struct = await composeStructure(toGeometry(rb), liveSun());
+    const initDataUri = greyToDataUri(compositeOverChroma(struct.grey), struct.size);
+    if (!initDataUri) throw new Error('No canvas for init image');
+    const bb = {
+      x: Math.round(struct.bbox.x), y: Math.round(struct.bbox.y),
+      w: Math.max(1, Math.round(struct.bbox.w)), h: Math.max(1, Math.round(struct.bbox.h)),
+    };
+    const mask: Raster = cropRaster({ data: struct.grey, w: struct.size, h: struct.size }, bb);
+    const cfg = loadProviderConfig();
+    return Promise.all([runAbModel(modelA, initDataUri, mask, cfg), runAbModel(modelB, initDataUri, mask, cfg)]);
+  }
+
   Object.assign(studioDebug, {
     state, invalidate,
     setSun: (az: number, el: number) => { state.az = az; state.el = el; invalidate(); },
     structResult: () => shownStruct,
+    /** Headless A/B: generate the current subject with two models and return the
+     *  gate metrics (cost/ms/border/IoU/verdict) — sprites omitted (not serialisable). */
+    async ab(modelA = BUILDING_IMAGE_MODEL, modelB = 'google/gemini-2.5-flash-image'): Promise<unknown> {
+      const [a, b] = await runAbPair(modelA, modelB);
+      const strip = (r: AbResult) => ({ model: r.model, ok: r.ok, costUsd: r.costUsd, ms: r.ms, border: r.border, iou: r.iou, verdict: r.verdict, error: r.error });
+      return { a: strip(a), b: strip(b) };
+    },
     stop: () => cancelAnimationFrame(raf),
   });
   (window as unknown as { __studio?: unknown }).__studio = studioDebug;
@@ -583,405 +724,4 @@ export function mountStudio(container: HTMLElement): void {
 
 function cloneRaster(r: Raster): Raster {
   return { data: new Uint8ClampedArray(r.data), w: r.w, h: r.h };
-}
-
-// ── view-pane "live" badge ───────────────────────────────────────────────────
-function makeLiveButton(viewPane: HTMLElement, onLive: () => void): { show: (l: string) => void; hide: () => void } {
-  const bar = document.createElement('div');
-  bar.style.cssText = 'position:absolute;top:10px;left:10px;display:none;align-items:center;gap:8px;z-index:11;font:12px monospace;color:#cfe';
-  const label = document.createElement('span');
-  label.style.cssText = 'background:rgba(20,20,32,0.9);border:1px solid #3a3a52;border-radius:4px;padding:3px 8px';
-  const btn = document.createElement('button');
-  btn.textContent = '▶ Live';
-  btn.style.cssText = 'background:#21213a;color:#ffd35a;border:1px solid #3a3a52;border-radius:4px;padding:3px 10px;cursor:pointer;font:12px monospace';
-  btn.onclick = onLive;
-  bar.append(label, btn);
-  viewPane.appendChild(bar);
-  return {
-    show: (l) => { label.textContent = `viewing: ${l}`; bar.style.display = 'flex'; },
-    hide: () => { bar.style.display = 'none'; },
-  };
-}
-
-// ── control panel ────────────────────────────────────────────────────────────
-interface PanelDeps {
-  setSubject: (k: string) => void;
-  invalidate: () => void;
-  zoomLabel: (z: number) => string;
-  getZoom: () => number;
-  zoomIn: () => void;
-  zoomOut: () => void;
-  openRender: () => void;
-}
-interface PanelHandle { refresh: () => void; }
-
-function buildPanel(host: HTMLElement, state: StudioState, deps: PanelDeps): PanelHandle {
-  const { setSubject, invalidate, zoomLabel, getZoom, zoomIn, zoomOut, openRender } = deps;
-  const panel = document.createElement('div');
-  panel.style.cssText = [
-    'position:absolute', 'top:12px', 'right:12px', 'width:230px', 'padding:10px 12px',
-    'background:rgba(20,20,32,0.92)', 'border:1px solid #3a3a52', 'border-radius:8px',
-    'font:12px monospace', 'color:#cfe', 'z-index:10', 'user-select:none',
-  ].join(';');
-
-  const kinds = Object.keys(BUILDING_BLUEPRINTS).sort((a, b) => {
-    const ca = isPlantPreset(a) ? 0 : 1, cb = isPlantPreset(b) ? 0 : 1;
-    return ca - cb || a.localeCompare(b);
-  });
-
-  const row = (label: string, el: HTMLElement): HTMLElement => {
-    const d = document.createElement('div');
-    d.style.cssText = 'margin:6px 0;display:flex;flex-direction:column;gap:3px';
-    const l = document.createElement('label'); l.textContent = label; l.style.opacity = '0.75';
-    d.append(l, el); return d;
-  };
-
-  const sel = document.createElement('select');
-  sel.style.cssText = 'width:100%;background:#11111a;color:#cfe;border:1px solid #3a3a52;padding:3px';
-  for (const k of kinds) {
-    const o = document.createElement('option'); o.value = k;
-    o.textContent = (isPlantPreset(k) ? '🌳 ' : '🏠 ') + k; o.selected = k === state.kind;
-    sel.appendChild(o);
-  }
-  sel.onchange = () => { setSubject(sel.value); };
-
-  const slider = (min: number, max: number, val: number, set: (v: number) => void): HTMLInputElement => {
-    const s = document.createElement('input');
-    s.type = 'range'; s.min = String(min); s.max = String(max); s.value = String(val); s.style.width = '100%';
-    s.oninput = () => set(Number(s.value));
-    return s;
-  };
-
-  const azLabel = document.createElement('span');
-  const elLabel = document.createElement('span');
-  const setAz = (v: number) => { state.az = v; azLabel.textContent = ` ${v}°`; };
-  const setEl = (v: number) => { state.el = v; elLabel.textContent = ` ${v}°`; };
-  setAz(state.az); setEl(state.el);
-
-  const shadowSel = document.createElement('select');
-  shadowSel.style.cssText = sel.style.cssText;
-  for (const m of ['geometry', 'silhouette', 'blob', 'off'] as ShadowMode[]) {
-    const o = document.createElement('option'); o.value = m; o.textContent = m;
-    o.selected = (state.lighting.shadowMode ?? 'geometry') === m; shadowSel.appendChild(o);
-  }
-  shadowSel.onchange = () => { state.lighting.shadowMode = shadowSel.value as ShadowMode; };
-
-  const lightChk = document.createElement('input'); lightChk.type = 'checkbox'; lightChk.checked = state.lighting.enabled;
-  lightChk.onchange = () => { state.lighting.enabled = lightChk.checked; };
-  const ovChk = document.createElement('input'); ovChk.type = 'checkbox'; ovChk.checked = state.overlays;
-  ovChk.onchange = () => { state.overlays = ovChk.checked; };
-  const fitChk = document.createElement('input'); fitChk.type = 'checkbox'; fitChk.checked = state.fit;
-  fitChk.onchange = () => { state.fit = fitChk.checked; };
-
-  const btn = (t: string, on: () => void): HTMLButtonElement => {
-    const b = document.createElement('button'); b.textContent = t;
-    b.style.cssText = 'background:#21213a;color:#cfe;border:1px solid #3a3a52;border-radius:4px;padding:2px 9px;cursor:pointer;font:12px monospace';
-    b.onclick = on; return b;
-  };
-  const zoomRead = document.createElement('span');
-  zoomRead.style.cssText = 'flex:1 1 auto;text-align:center';
-  const zoomCtl = document.createElement('div');
-  zoomCtl.style.cssText = 'display:flex;gap:6px;align-items:center';
-  zoomCtl.append(
-    btn('−', () => { zoomOut(); fitChk.checked = false; }),
-    zoomRead,
-    btn('+', () => { zoomIn(); fitChk.checked = false; }),
-  );
-
-  const azS = slider(0, 360, state.az, setAz); azS.addEventListener('change', invalidate);
-  const elS = slider(0, 90, state.el, setEl); elS.addEventListener('change', invalidate);
-  const azWrap = document.createElement('div'); azWrap.append(azS, azLabel);
-  const elWrap = document.createElement('div'); elWrap.append(elS, elLabel);
-  const toggles = document.createElement('div');
-  toggles.style.cssText = 'display:flex;gap:14px;margin-top:4px';
-  const mk = (c: HTMLInputElement, t: string) => { const w = document.createElement('label'); w.style.cssText = 'display:flex;gap:5px;align-items:center'; w.append(c, document.createTextNode(t)); return w; };
-  toggles.append(mk(lightChk, 'lighting'), mk(ovChk, 'overlays'), mk(fitChk, 'fit'));
-
-  const renderBtn = btn('🎨 Render via OpenRouter', openRender);
-  renderBtn.style.cssText += ';width:100%;margin-top:8px;padding:6px;color:#ffd35a';
-
-  const title = document.createElement('div');
-  title.textContent = '🎬 Render Studio';
-  title.style.cssText = 'font-weight:bold;margin-bottom:6px;color:#ffd35a';
-
-  panel.append(title, row('object', sel), row('sun azimuth', azWrap), row('sun elevation', elWrap),
-    row('shadow mode', shadowSel), row('zoom', zoomCtl), toggles, renderBtn);
-  host.appendChild(panel);
-
-  return {
-    refresh: () => {
-      zoomRead.textContent = `${zoomLabel(getZoom())}${state.fit ? '  (fit)' : ''}`;
-      if (fitChk.checked !== state.fit) fitChk.checked = state.fit;
-    },
-  };
-}
-
-// ── docked pipeline-stage strip ──────────────────────────────────────────────
-function buildDock(dock: HTMLElement): {
-  render: (header: string, tiles: Stage[], onClick: (s: Stage) => void) => void;
-  message: (m: string) => void;
-} {
-  dock.style.display = 'flex';
-  dock.style.flexDirection = 'column';
-  const head = document.createElement('div');
-  head.textContent = '🔬 Pipeline stages';
-  head.style.cssText = 'color:#ffd35a;font:11px monospace;padding:6px 10px 4px';
-  const strip = document.createElement('div');
-  strip.style.cssText = 'flex:1 1 auto;display:flex;gap:8px;overflow-x:auto;align-items:center;padding:0 10px 8px';
-  dock.append(head, strip);
-
-  const checker = (c: CanvasRenderingContext2D, w: number, h: number) => {
-    for (let y = 0; y < h; y += 8) for (let x = 0; x < w; x += 8) {
-      c.fillStyle = ((x + y) / 8) % 2 ? '#2a2a3a' : '#1c1c28';
-      c.fillRect(x, y, 8, 8);
-    }
-  };
-  // Smaller thumbnails (cap by both axes, the dock height drives the visual size).
-  const tileFor = (src: SpriteCanvas, max: number): HTMLCanvasElement => {
-    const s = Math.max(0.05, Math.min(max / src.width, max / src.height));
-    const tw = Math.max(1, Math.round(src.width * s)), th = Math.max(1, Math.round(src.height * s));
-    const cv = document.createElement('canvas'); cv.width = tw; cv.height = th;
-    const cx = cv.getContext('2d')!;
-    checker(cx, tw, th);
-    cx.imageSmoothingEnabled = false;
-    cx.drawImage(src as CanvasImageSource, 0, 0, tw, th);
-    return cv;
-  };
-
-  function message(m: string): void { head.textContent = `🔬 Pipeline stages — ${m}`; strip.innerHTML = ''; }
-
-  function render(header: string, tiles: Stage[], onClick: (s: Stage) => void): void {
-    head.textContent = `🔬 Pipeline stages — ${header}  ·  click a stage to inspect`;
-    strip.innerHTML = '';
-    for (const t of tiles) {
-      const cell = document.createElement('div');
-      cell.style.cssText = 'flex:0 0 auto;text-align:center;cursor:pointer';
-      const cap = document.createElement('div');
-      cap.textContent = t.sub ? `${t.label}  ·  ${t.sub}` : t.label;
-      cap.style.cssText = 'margin-top:3px;opacity:0.8;white-space:nowrap;font:10px monospace;color:#cfe';
-      if (t.canvas) {
-        const thumb = tileFor(t.canvas, 64);
-        thumb.style.cssText = 'border:1px solid #3a3a52;image-rendering:pixelated;background:#11111a;vertical-align:middle';
-        cell.append(thumb, cap);
-        cell.onclick = () => onClick(t);
-      } else {
-        const ph = document.createElement('div');
-        ph.style.cssText = 'width:64px;height:48px;border:1px dashed #3a3a52;display:flex;align-items:center;justify-content:center;opacity:0.5;color:#cfe';
-        ph.textContent = '—';
-        cell.append(ph, cap);
-      }
-      strip.appendChild(cell);
-    }
-  }
-
-  return { render, message };
-}
-
-// ── node-tree inspector (browseable + editable live blueprint) ───────────────
-interface TreeDeps {
-  getRb: () => ResolvedBlueprint | null;
-  onEdit: () => void;       // a value was mutated in place on the live blueprint
-  randomize: () => void;    // re-roll all seeded params
-}
-function buildTree(host: HTMLElement, deps: TreeDeps): { render: () => void } {
-  const css = {
-    head: 'position:sticky;top:0;z-index:1;background:rgba(16,16,26,0.98);padding:8px 10px 6px;border-bottom:1px solid #2a2a3a',
-    title: 'color:#ffd35a;font:bold 12px monospace',
-    summary: 'margin-top:4px;font:10px monospace;color:#9fd;white-space:normal;word-break:break-word',
-    body: 'padding:6px 8px 16px;font:11px monospace;color:#cfe',
-    node: 'margin:2px 0;border-left:1px solid #2a2a3a;padding-left:8px',
-    nodeHead: 'cursor:pointer;user-select:none;padding:2px 0;color:#cde',
-    kv: 'display:flex;align-items:center;gap:6px;margin:2px 0',
-    key: 'opacity:0.7;flex:0 0 auto',
-    inputN: 'width:64px;background:#11111a;color:#9fe;border:1px solid #3a3a52;padding:1px 3px;font:11px monospace',
-    inputT: 'flex:1 1 auto;min-width:0;background:#11111a;color:#9fe;border:1px solid #3a3a52;padding:1px 3px;font:11px monospace',
-    btn: 'background:#21213a;color:#ffd35a;border:1px solid #3a3a52;border-radius:4px;padding:2px 8px;cursor:pointer;font:11px monospace',
-    sect: 'color:#ffd35a;opacity:0.85;margin:8px 0 2px;font-weight:bold',
-  };
-
-  // One editable control for obj[key]; recurses for nested objects, JSON for arrays.
-  function valueEditor(obj: Record<string, unknown>, key: string): HTMLElement {
-    const v = obj[key];
-    if (typeof v === 'boolean') {
-      const c = document.createElement('input'); c.type = 'checkbox'; c.checked = v;
-      c.onchange = () => { obj[key] = c.checked; deps.onEdit(); };
-      return c;
-    }
-    if (typeof v === 'number') {
-      const i = document.createElement('input'); i.type = 'number'; i.value = String(v);
-      i.step = Number.isInteger(v) ? '1' : '0.05'; i.style.cssText = css.inputN;
-      i.onchange = () => { const n = Number(i.value); if (Number.isFinite(n)) { obj[key] = n; deps.onEdit(); } };
-      return i;
-    }
-    if (typeof v === 'string') {
-      const i = document.createElement('input'); i.type = 'text'; i.value = v; i.style.cssText = css.inputT;
-      i.onchange = () => { obj[key] = i.value; deps.onEdit(); };
-      return i;
-    }
-    if (v && typeof v === 'object' && !Array.isArray(v)) {
-      return paramBlock(v as Record<string, unknown>);
-    }
-    // arrays + anything else: editable JSON, reverts on parse failure.
-    const i = document.createElement('input'); i.type = 'text'; i.value = JSON.stringify(v); i.style.cssText = css.inputT;
-    i.onchange = () => { try { obj[key] = JSON.parse(i.value); deps.onEdit(); } catch { i.value = JSON.stringify(obj[key]); } };
-    return i;
-  }
-
-  function kvRow(obj: Record<string, unknown>, key: string): HTMLElement {
-    const row = document.createElement('div'); row.style.cssText = css.kv;
-    const k = document.createElement('span'); k.textContent = key; k.style.cssText = css.key;
-    row.append(k, valueEditor(obj, key));
-    return row;
-  }
-
-  function paramBlock(params: Record<string, unknown>): HTMLElement {
-    const box = document.createElement('div'); box.style.cssText = css.node;
-    const keys = Object.keys(params);
-    if (!keys.length) { const e = document.createElement('div'); e.textContent = '(none)'; e.style.opacity = '0.4'; return e; }
-    for (const key of keys) box.appendChild(kvRow(params, key));
-    return box;
-  }
-
-  function collapsible(label: string, openByDefault: boolean): { el: HTMLElement; body: HTMLElement } {
-    const el = document.createElement('div'); el.style.cssText = css.node;
-    const head = document.createElement('div'); head.style.cssText = css.nodeHead;
-    const body = document.createElement('div'); body.style.display = openByDefault ? 'block' : 'none';
-    const caret = () => (body.style.display === 'none' ? '▸' : '▾');
-    const setLabel = () => { head.textContent = `${caret()} ${label}`; };
-    head.onclick = () => { body.style.display = body.style.display === 'none' ? 'block' : 'none'; setLabel(); };
-    setLabel();
-    el.append(head, body);
-    return { el, body };
-  }
-
-  function featureNode(f: ResolvedFeature): HTMLElement {
-    const face = f.face ? ` · ${f.face}` : '';
-    const kind = typeof f.params.kind === 'string' ? ` (${f.params.kind})` : '';
-    const { el, body } = collapsible(`◦ ${f.type}${kind}${face}`, false);
-    body.appendChild(paramBlock(f.params));
-    return el;
-  }
-
-  function partNode(p: ResolvedPart): HTMLElement {
-    const mat = p.material ? ` · ${p.material}` : '';
-    const { el, body } = collapsible(`▪ ${p.id} [${p.type}]${mat}`, false);
-    const meta = document.createElement('div'); meta.style.cssText = 'font:10px monospace;opacity:0.6;margin:2px 0';
-    meta.textContent = `at (${p.at.x},${p.at.y})  size ${p.size.w}×${p.size.h}`;
-    body.appendChild(meta);
-    const ps = document.createElement('div'); ps.style.cssText = css.sect; ps.textContent = 'params'; body.appendChild(ps);
-    body.appendChild(paramBlock(p.params));
-    if (p.features.length) {
-      const fs = document.createElement('div'); fs.style.cssText = css.sect; fs.textContent = `features (${p.features.length})`; body.appendChild(fs);
-      for (const f of p.features) body.appendChild(featureNode(f));
-    }
-    return el;
-  }
-
-  function render(): void {
-    host.innerHTML = '';
-    const rb = deps.getRb();
-    const head = document.createElement('div'); head.style.cssText = css.head;
-    const titleRow = document.createElement('div'); titleRow.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px';
-    const title = document.createElement('div'); title.style.cssText = css.title; title.textContent = '🌳 Geometry · Blueprint';
-    const rnd = document.createElement('button'); rnd.textContent = '🎲 Randomize'; rnd.style.cssText = css.btn; rnd.onclick = deps.randomize;
-    titleRow.append(title, rnd);
-    head.appendChild(titleRow);
-
-    if (!rb) { head.appendChild(Object.assign(document.createElement('div'), { textContent: 'no blueprint for this kind', style: css.summary })); host.appendChild(head); return; }
-
-    // Feature-type tally — the geometry truth (e.g. how many chimneys/vents the
-    // model ACTUALLY has, vs whatever the img2img prompt claims).
-    const counts: Record<string, number> = {};
-    for (const p of rb.parts) for (const f of p.features) counts[f.type] = (counts[f.type] ?? 0) + 1;
-    const vents = rb.parts.flatMap(p => p.features).filter(f => f.type === 'vent');
-    const ventKinds = vents.map(v => (typeof v.params.kind === 'string' ? v.params.kind : 'vent'));
-    const tally = Object.entries(counts).map(([t, n]) => `${t}×${n}`).join(' · ') || 'no features';
-    const summary = document.createElement('div'); summary.style.cssText = css.summary;
-    summary.textContent = `${rb.class}${rb.preset ? ` · ${rb.preset}` : ''}${rb.era ? ` · ${rb.era}` : ''} · ${rb.parts.length} part(s) · ${tally}${ventKinds.length ? `  [${ventKinds.join(', ')}]` : ''}`;
-    head.appendChild(summary);
-    host.appendChild(head);
-
-    const body = document.createElement('div'); body.style.cssText = css.body;
-
-    // ── meta: footprint + materials + palette (all editable) ──
-    const metaBlock = collapsible('⚙ meta (footprint · materials · palette)', true);
-    const fp = document.createElement('div'); fp.style.cssText = css.sect; fp.textContent = 'footprint'; metaBlock.body.appendChild(fp);
-    metaBlock.body.appendChild(kvRow(rb.footprint as unknown as Record<string, unknown>, 'w'));
-    metaBlock.body.appendChild(kvRow(rb.footprint as unknown as Record<string, unknown>, 'h'));
-    const mts = document.createElement('div'); mts.style.cssText = css.sect; mts.textContent = 'materials'; metaBlock.body.appendChild(mts);
-    metaBlock.body.appendChild(paramBlock(rb.materials as Record<string, unknown>));
-    if (rb.palette && Object.keys(rb.palette).length) {
-      const pl = document.createElement('div'); pl.style.cssText = css.sect; pl.textContent = 'palette'; metaBlock.body.appendChild(pl);
-      metaBlock.body.appendChild(paramBlock(rb.palette as unknown as Record<string, unknown>));
-    }
-    body.appendChild(metaBlock.el);
-
-    // ── parts ──
-    const partsHdr = document.createElement('div'); partsHdr.style.cssText = css.sect; partsHdr.textContent = `parts (${rb.parts.length})`; body.appendChild(partsHdr);
-    for (const p of rb.parts) body.appendChild(partNode(p));
-
-    host.appendChild(body);
-  }
-
-  return { render };
-}
-
-// ── outgoing-request review panel (shown BEFORE the paid call) ───────────────
-interface MetadataOpts {
-  kind: string; model: string; prompt: string; initDataUri: string;
-  size: number; bbox: { x: number; y: number; w: number; h: number };
-  anchors: unknown; body: unknown; keyStatus: string;
-  onSend: (status: (m: string) => void, finishOk: (m: string) => void) => Promise<void> | void;
-}
-function openMetadataPanel(host: HTMLElement, o: MetadataOpts): void {
-  host.querySelector('#studio-meta')?.remove();
-  const wrap = document.createElement('div');
-  wrap.id = 'studio-meta';
-  wrap.style.cssText = [
-    'position:absolute', 'top:12px', 'left:12px', 'width:420px', 'max-height:calc(100% - 24px)',
-    'overflow:auto', 'padding:12px 14px', 'background:rgba(14,14,22,0.97)', 'border:1px solid #4a4a6a',
-    'border-radius:8px', 'font:12px monospace', 'color:#cfe', 'z-index:20',
-  ].join(';');
-
-  const h = (t: string) => { const d = document.createElement('div'); d.textContent = t; d.style.cssText = 'color:#ffd35a;margin:8px 0 3px;font-weight:bold'; return d; };
-  const pre = (t: string) => { const p = document.createElement('pre'); p.textContent = t; p.style.cssText = 'white-space:pre-wrap;word-break:break-word;background:#11111a;border:1px solid #2a2a3a;border-radius:4px;padding:6px;margin:0;max-height:180px;overflow:auto'; return p; };
-  const line = (t: string) => { const d = document.createElement('div'); d.textContent = t; d.style.margin = '2px 0'; return d; };
-
-  const title = document.createElement('div');
-  title.textContent = '🎨 Outgoing OpenRouter request — review before sending';
-  title.style.cssText = 'font-weight:bold;color:#ffd35a;margin-bottom:6px';
-
-  const img = document.createElement('img');
-  img.src = o.initDataUri;
-  img.style.cssText = 'max-width:160px;image-rendering:pixelated;border:1px solid #3a3a52;background:#11111a';
-
-  const status = document.createElement('div');
-  status.style.cssText = 'margin-top:8px;color:#9fd;min-height:16px';
-  const setStatus = (m: string) => { status.textContent = m; };
-
-  const sendBtn = document.createElement('button');
-  sendBtn.textContent = '⬆ Send (paid)';
-  sendBtn.style.cssText = 'background:#2a4a2a;color:#cfe;border:1px solid #4a6a4a;border-radius:4px;padding:5px 12px;cursor:pointer;font:12px monospace;margin-right:8px';
-  const closeBtn = document.createElement('button');
-  closeBtn.textContent = 'Close';
-  closeBtn.style.cssText = 'background:#21213a;color:#cfe;border:1px solid #3a3a52;border-radius:4px;padding:5px 12px;cursor:pointer;font:12px monospace';
-  closeBtn.onclick = () => wrap.remove();
-  sendBtn.onclick = async () => {
-    sendBtn.disabled = true; sendBtn.style.opacity = '0.5';
-    await o.onSend(setStatus, (m) => { setStatus(m); });
-  };
-  const btns = document.createElement('div'); btns.style.marginTop = '8px'; btns.append(sendBtn, closeBtn);
-
-  wrap.append(
-    title,
-    line(`subject:  ${o.kind}`),
-    line(`model:    ${o.model}`),
-    line(`init:     ${o.size}² PNG · crop ${o.bbox.w}×${o.bbox.h} · key: ${o.keyStatus}`),
-    h('prompt'), pre(o.prompt),
-    h('init image (magenta-backed)'), img,
-    h('request body'), pre(JSON.stringify(o.body, null, 2)),
-    h('anchors'), pre(JSON.stringify(o.anchors)),
-    btns, status,
-  );
-  host.appendChild(wrap);
 }

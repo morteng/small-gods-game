@@ -9,7 +9,7 @@ import type { ResolvedBlueprint, ResolvedPart, WallFace } from '@/blueprint/type
 import { toBrief } from '@/blueprint/compile/to-brief';
 import { CHROMA_RGB } from '@/render/chroma-key';
 
-export type ImageModelFamily = 'gemini' | 'openai' | 'generic';
+export type ImageModelFamily = 'gemini' | 'openai' | 'flux' | 'generic';
 
 // Iso-3q screen direction each wall face presents (2:1 projection: +y→lower-left,
 // +x→lower-right). South is the canonical front, lower-left — what the player sees.
@@ -85,6 +85,7 @@ export function imageModelFamily(model: string): ImageModelFamily {
   const m = model.toLowerCase();
   if (m.includes('gemini')) return 'gemini';            // check first: gemini ids also contain "-image"
   if (m.includes('gpt') || m.startsWith('openai/')) return 'openai';
+  if (m.includes('flux') || m.includes('black-forest')) return 'flux';
   return 'generic';
 }
 
@@ -127,10 +128,29 @@ const REFERENCE_KEY =
   'tan = thatch/straw roof, red-brown = brick chimneys, dark = the wooden door. ' +
   'Use those regions to place materials correctly, then paint a richer final palette.';
 
+// FLUX.2 has NO negative prompts (per BFL's prompting guide) and wants natural-
+// language prose that names the edit and binds the hex colour to a named object.
+// So every "do NOT" of STYLE_TAIL is restated POSITIVELY: the background is a
+// thing that "fills the whole frame" rather than a "no ground/no shadow" denial,
+// and the chroma hex is attached to "a solid background" so it lands reliably.
+const FLUX_TAIL =
+  'Place the building alone on a completely flat, solid, uniform background of pure ' +
+  `magenta, hex #FF00FF, RGB (${CHROMA_RGB.join(',')}), that fills the entire frame ` +
+  'edge to edge — the sprite floats on flat magenta with the ground and any shadow ' +
+  'replaced by that same magenta. Keep every colour on the building itself away from ' +
+  'magenta, pink and purple. Clean readable pixel shading, cohesive limited palette, centered.';
+
 export function buildingImagePrompt(rb: ResolvedBlueprint, model: string): string {
   const subject = describeBuilding(rb);
   const geom = geometryDescription(rb);
   switch (imageModelFamily(model)) {
+    case 'flux':
+      // FLUX.2 editing convention: address the init as "image 1", lead with the
+      // subject+action (word order is weighted), describe only what's wanted.
+      return `Repaint image 1 as a crisp 2D isometric pixel-art video-game building ` +
+        `sprite in a 2:1 isometric perspective, keeping the silhouette, footprint and ` +
+        `roof pitch of the colour-coded massing render. ${REFERENCE_KEY} ${geom} ` +
+        `${DETAIL_INVITE} Subject: ${subject}. ${FLUX_TAIL}`;
     case 'gemini':
       return `Using the attached colour-coded 3D massing render as a structural ` +
         `reference, redraw it as a crisp 2D isometric pixel-art video-game building ` +

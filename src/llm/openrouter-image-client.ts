@@ -3,7 +3,11 @@
 // an image_url init part + modalities:['image','text'] and parses the image out
 // of choices[0].message.images. Never used in tests against the real API.
 
-export const BUILDING_IMAGE_MODEL = 'google/gemini-2.5-flash-image';
+// Default img2img model. FLUX.2 Klein 4B: ~$0.014/img vs gemini-2.5-flash-image's
+// ~$0.039 (≈64% cheaper) at our ≤1 MP sprite size, with equal-or-better silhouette
+// IoU + clean magenta keying in A/B eval (2026-06-13). Image-only output, so
+// defaultModalitiesFor() routes it to ['image'] (the 'text' modality 404s on FLUX).
+export const BUILDING_IMAGE_MODEL = 'black-forest-labs/flux.2-klein-4b';
 
 export interface BuildingImageClientConfig {
   apiKey: string;
@@ -18,6 +22,11 @@ export interface GenerateBuildingImageOpts {
   /** Image model id; defaults to BUILDING_IMAGE_MODEL. The prompt must already be
    *  adapted for this model (see buildingImagePrompt). */
   model?: string;
+  /** Output modalities. Gemini-image wants ['image','text']; some image-only
+   *  providers (e.g. Black Forest FLUX) reject 'text' with a 404 ("no endpoints
+   *  support the requested output modalities") and need just ['image']. Defaults
+   *  to the modalities BUILDING_IMAGE_MODEL expects. */
+  modalities?: string[];
   signal?: AbortSignal;
 }
 
@@ -49,6 +58,16 @@ export const OPENROUTER_HELP_HINT: Record<ImageErrorKind, string> = {
   http: 'OpenRouter request failed — see your activity log',
   network: 'Network error reaching OpenRouter — check your connection / OpenRouter status',
 };
+
+/** Output modalities an image model expects on OpenRouter. Gemini-image emits
+ *  text + image, so it needs ['image','text']; image-only providers (Black Forest
+ *  FLUX, …) 404 with "No endpoints found that support the requested output
+ *  modalities: image, text" if 'text' is requested, so they get ['image']. */
+export function defaultModalitiesFor(model: string): string[] {
+  const m = model.toLowerCase();
+  if (m.includes('flux') || m.includes('black-forest')) return ['image'];
+  return ['image', 'text'];
+}
 
 export class BuildingImageError extends Error {
   constructor(public readonly kind: ImageErrorKind, message: string, public readonly status?: number) {
@@ -98,9 +117,10 @@ export async function generateBuildingImage(
   opts: GenerateBuildingImageOpts,
 ): Promise<BuildingImageResult> {
   const url = `${cfg.baseUrl ?? 'https://openrouter.ai/api/v1'}/chat/completions`;
+  const model = opts.model ?? BUILDING_IMAGE_MODEL;
   const body = {
-    model: opts.model ?? BUILDING_IMAGE_MODEL,
-    modalities: ['image', 'text'],
+    model,
+    modalities: opts.modalities ?? defaultModalitiesFor(model),
     messages: [{
       role: 'user',
       content: [

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
   generateBuildingImage, BUILDING_IMAGE_MODEL,
-  BuildingImageError, classifyImageError,
+  BuildingImageError, classifyImageError, defaultModalitiesFor,
 } from '@/llm/openrouter-image-client';
 
 const PNG_URI = 'data:image/png;base64,AAAA';
@@ -32,7 +32,8 @@ describe('generateBuildingImage', () => {
     expect(url).toBe('/api/llm/openrouter/api/v1/chat/completions');
     const body = JSON.parse(init.body as string);
     expect(body.model).toBe(BUILDING_IMAGE_MODEL);
-    expect(body.modalities).toEqual(['image', 'text']);
+    // Modalities auto-selected from the default model (FLUX → image-only).
+    expect(body.modalities).toEqual(defaultModalitiesFor(BUILDING_IMAGE_MODEL));
     const parts = body.messages[0].content;
     expect(parts[0]).toEqual({ type: 'text', text: 'draw a cottage' });
     expect(parts[1]).toEqual({ type: 'image_url', image_url: { url: PNG_URI } });
@@ -83,5 +84,22 @@ describe('generateBuildingImage', () => {
     expect(new BuildingImageError('no-image', 'x').fatal).toBe(false);
     expect(classifyImageError(429, 'slow down').fatal).toBe(false);
     expect(classifyImageError(500, 'server error').kind).toBe('http');
+  });
+
+  it('sends image-only modalities for FLUX (which 404s on the text modality)', async () => {
+    const fetchSpy = mockFetchOnce(200, { choices: [{ message: { images: [{ image_url: { url: OUT_URI } }] } }], usage: {} });
+    await generateBuildingImage({ apiKey: 'k' },
+      { initImageDataUri: PNG_URI, prompt: 'x', model: 'black-forest-labs/flux.2-klein-4b' });
+    const body = JSON.parse((fetchSpy.mock.calls[0][1] as RequestInit).body as string);
+    expect(body.modalities).toEqual(['image']);
+  });
+
+  it('defaultModalitiesFor picks image-only for FLUX, image+text for gemini', () => {
+    expect(defaultModalitiesFor('black-forest-labs/flux.2-klein-4b')).toEqual(['image']);
+    expect(defaultModalitiesFor('black-forest-labs/flux.2-pro')).toEqual(['image']);
+    expect(defaultModalitiesFor('google/gemini-2.5-flash-image')).toEqual(['image', 'text']);
+    expect(defaultModalitiesFor('openai/gpt-5-image')).toEqual(['image', 'text']);
+    // The default model is FLUX → image-only.
+    expect(defaultModalitiesFor(BUILDING_IMAGE_MODEL)).toEqual(['image']);
   });
 });
