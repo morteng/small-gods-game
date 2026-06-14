@@ -3,7 +3,8 @@
 // row (wealth/quality/condition descriptor pickers) that rebuilds the current
 // subject through resolveAsset.
 import { assetCatalogue, queryCatalogue, type CatalogueEntry } from '@/blueprint/catalogue';
-import type { Descriptors } from '@/blueprint/types';
+import type { Descriptors, Era } from '@/blueprint/types';
+import { ERA_LEVELS } from '@/blueprint/eras';
 
 // ── object browser (search + faceted filter over the asset catalogue) ────────
 interface BrowserDeps {
@@ -11,6 +12,8 @@ interface BrowserDeps {
   onSelect: (kind: string) => void;
   getDescriptors: () => Descriptors;
   onVariant: (d: Descriptors) => void;
+  getEra: () => Era | undefined;
+  onEra: (era: Era | undefined) => void;
 }
 export function buildObjectBrowser(host: HTMLElement, deps: BrowserDeps): { refresh: () => void } {
   host.style.cssText += ';padding:6px 8px;font:11px monospace;color:#cfe';
@@ -62,6 +65,15 @@ export function buildObjectBrowser(host: HTMLElement, deps: BrowserDeps): { refr
     variant.style.display = 'block';
     const hdr = document.createElement('div'); hdr.textContent = 'variant'; hdr.style.cssText = 'opacity:0.55;margin-bottom:3px';
     variant.appendChild(hdr);
+
+    // Era picker (period restyle) — base era is the default option.
+    const eraSel = document.createElement('select');
+    eraSel.style.cssText = 'width:100%;box-sizing:border-box;background:#11111a;color:#cfe;border:1px solid #3a3a52;padding:2px;margin-bottom:3px;font:10px monospace';
+    const eraDef = document.createElement('option'); eraDef.value = ''; eraDef.textContent = `era: ${e?.era ?? 'base'} (default)`; eraSel.appendChild(eraDef);
+    for (const era of ERA_LEVELS) { const o = document.createElement('option'); o.value = era; o.textContent = era; o.selected = deps.getEra() === era; eraSel.appendChild(o); }
+    eraSel.onchange = () => deps.onEra(eraSel.value ? (eraSel.value as Era) : undefined);
+    variant.appendChild(eraSel);
+
     const cur = deps.getDescriptors();
     const row = document.createElement('div'); row.style.cssText = 'display:flex;gap:4px;flex-wrap:wrap';
     for (const key of keys) {

@@ -4,6 +4,7 @@
 import { BLUEPRINT_VERSION, type Blueprint, type BlueprintPatch, type ResolvedBlueprint, type Descriptors, type Era } from '../types';
 import { resolveBlueprint } from '../resolve';
 import { descriptorPatch } from '../descriptors';
+import { eraPatch } from '../eras';
 import { ensureBuildingTypesRegistered } from '../register-buildings';
 
 const bp = (preset: string, b: Omit<Blueprint, 'version' | 'class' | 'preset'>): Blueprint =>
@@ -282,9 +283,9 @@ export function resolveAsset(req: AssetRequest): ResolvedBlueprint | undefined {
   const base = BUILDING_BLUEPRINTS[req.type];
   if (!base) return undefined;
   const patches: BlueprintPatch[] = [base];
-  // Era variants are Slice C; for now an era override just stamps the field.
+  // Era restyles the type for the period (materials + window/vent palette).
   const eraVariant = !!(req.era && req.era !== base.era);
-  if (eraVariant) patches.push({ era: req.era! });
+  if (eraVariant) patches.push(eraPatch(base, req.era!));
   const descVariant = !!(req.descriptors && Object.keys(req.descriptors).length);
   if (descVariant) patches.push(descriptorPatch(base, req.descriptors!));
   // Lifecycle stage patch — Slice D/E.

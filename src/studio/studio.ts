@@ -25,7 +25,7 @@ import { structureResultToPack } from '@/render/parametric-building-source';
 import { composeStructure, type StructureResult } from '@/assetgen/compose';
 import { ensureBuildingTypesRegistered } from '@/blueprint/register-buildings';
 import { BUILDING_BLUEPRINTS, synthesizeBlueprint, resolveAsset, isPlantPreset } from '@/blueprint/presets';
-import type { ResolvedBlueprint, Descriptors } from '@/blueprint/types';
+import type { ResolvedBlueprint, Descriptors, Era } from '@/blueprint/types';
 import { blueprintEntity } from '@/blueprint/entity';
 import { toGeometry } from '@/blueprint/compile/to-geometry';
 import type { SpritePack } from '@/render/iso/sprite-canvas';
@@ -204,12 +204,14 @@ export function mountStudio(container: HTMLElement): void {
   let rebuildTree: () => void = () => {};
   // Assigned once the object browser is built; re-highlights the current kind.
   let browserRefresh: () => void = () => {};
-  // Descriptor variant currently applied to the subject (wealth/quality/…); reset
-  // when the subject changes. A non-empty set rebuilds liveRb via resolveAsset.
+  // The variant currently applied to the subject (era + descriptors); reset when
+  // the subject changes. Non-empty ⇒ rebuild liveRb via resolveAsset.
+  let liveEra: Era | undefined;
   let liveDescriptors: Descriptors = {};
   function setSubject(kind: string): void {
     state.kind = kind;
     world.removeEntity('subject');
+    liveEra = undefined;
     liveDescriptors = {};
     liveRb = synthesizeBlueprint(kind) ?? null;
     invalidate();
@@ -220,14 +222,19 @@ export function mountStudio(container: HTMLElement): void {
     rebuildTree();
     browserRefresh();
   }
-  // Apply a descriptor variant to the current subject — resolveAsset layers the
-  // descriptor patch (materials/glazing/storeys) and records it on the blueprint.
-  function applyVariant(d: Descriptors): void {
-    liveDescriptors = d;
-    liveRb = (Object.keys(d).length ? resolveAsset({ type: state.kind, descriptors: d }) : synthesizeBlueprint(state.kind)) ?? liveRb;
+  // Rebuild the subject from the current era + descriptor variant — resolveAsset
+  // layers the era patch (period materials/features) + descriptor patch and records
+  // both on the blueprint. A bare variant falls back to synthesizeBlueprint.
+  function rebuildVariant(): void {
+    const hasVariant = !!liveEra || Object.keys(liveDescriptors).length > 0;
+    liveRb = (hasVariant
+      ? resolveAsset({ type: state.kind, era: liveEra, descriptors: liveDescriptors })
+      : synthesizeBlueprint(state.kind)) ?? liveRb;
     onBlueprintEdited();
     browserRefresh();
   }
+  const applyVariant = (d: Descriptors): void => { liveDescriptors = d; rebuildVariant(); };
+  const applyEra = (era: Era | undefined): void => { liveEra = era; rebuildVariant(); };
   // A node-tree edit mutated liveRb in place: bust geometry caches, drop stale
   // generation stages + any pinned stage view, and redraw the tree.
   function onBlueprintEdited(): void {
@@ -510,6 +517,8 @@ export function mountStudio(container: HTMLElement): void {
           onSelect: (kind) => setSubject(kind),
           getDescriptors: () => liveDescriptors,
           onVariant: (d) => applyVariant(d),
+          getEra: () => liveEra,
+          onEra: (era) => applyEra(era),
         });
         browserRefresh = b.refresh;
       },
