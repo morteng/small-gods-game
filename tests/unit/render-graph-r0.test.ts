@@ -66,10 +66,11 @@ describe('R0 — WorldRenderGraph projection', () => {
     expect([n.x, n.y, n.z]).toEqual([7, 7, 0]);
   });
 
-  it('exposes bounds, flat terrain (pre-R1), and a light view', () => {
+  it('exposes bounds, seed-deterministic terrain height (R1), and a light view', () => {
     const g = new WorldRenderGraph(rcOf(new World(emptyMap())));
     expect(g.bounds).toEqual({ w: 32, h: 32 });
-    expect(g.terrain.heightAt(0, 0)).toBe(0);
+    // R1: heightAt is now the world heightfield in metres (finite, varies by tile).
+    expect(Number.isFinite(g.terrain.heightAt(0, 0))).toBe(true);
     expect(g.light.bands).toBeGreaterThanOrEqual(1);
     expect(g.light.sunDir).toHaveLength(3);
     expect(g.light.body).toBe('sun');

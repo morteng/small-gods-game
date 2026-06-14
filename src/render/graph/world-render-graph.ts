@@ -16,6 +16,7 @@ import type {
 } from '@/core/types';
 import { blueprintOf } from '@/blueprint/entity';
 import { tryGetEntityKindDef } from '@/world/entity-kinds';
+import { heightMetresAt } from '@/world/heightfield';
 import { DEFAULT_LIGHTING } from '@/render/lighting-state';
 import type {
   RenderGraph, RenderNode, RenderEdge, TerrainView, LightView, NodeQuery, RenderCategory,
@@ -39,7 +40,9 @@ export class WorldRenderGraph implements RenderGraph<WorldRef> {
   get terrain(): TerrainView {
     const rc = this.rc;
     return {
-      heightAt: () => 0, // R1 resurfaces the worldgen heightfield
+      // R1: seed-deterministic world heightfield, sea level = 0 m. The renderer
+      // reads metres read-only; POI/connectome deformations compose on top later.
+      heightAt: (tx, ty) => heightMetresAt(rc.map, tx, ty),
       materialAt: (tx, ty) => rc.visualMap?.[ty]?.[tx] ?? '',
       waterLevelM: 0,
     };
