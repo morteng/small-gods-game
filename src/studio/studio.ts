@@ -24,8 +24,8 @@ import { DEFAULT_LIGHTING, normalizeVec3, type Vec3 } from '@/render/lighting-st
 import { structureResultToPack } from '@/render/parametric-building-source';
 import { composeStructure, type StructureResult } from '@/assetgen/compose';
 import { ensureBuildingTypesRegistered } from '@/blueprint/register-buildings';
-import { BUILDING_BLUEPRINTS, synthesizeBlueprint, isPlantPreset } from '@/blueprint/presets';
-import type { ResolvedBlueprint } from '@/blueprint/types';
+import { BUILDING_BLUEPRINTS, synthesizeBlueprint, resolveAsset, isPlantPreset } from '@/blueprint/presets';
+import type { ResolvedBlueprint, Descriptors } from '@/blueprint/types';
 import { blueprintEntity } from '@/blueprint/entity';
 import { toGeometry } from '@/blueprint/compile/to-geometry';
 import type { SpritePack } from '@/render/iso/sprite-canvas';
@@ -204,9 +204,13 @@ export function mountStudio(container: HTMLElement): void {
   let rebuildTree: () => void = () => {};
   // Assigned once the object browser is built; re-highlights the current kind.
   let browserRefresh: () => void = () => {};
+  // Descriptor variant currently applied to the subject (wealth/quality/…); reset
+  // when the subject changes. A non-empty set rebuilds liveRb via resolveAsset.
+  let liveDescriptors: Descriptors = {};
   function setSubject(kind: string): void {
     state.kind = kind;
     world.removeEntity('subject');
+    liveDescriptors = {};
     liveRb = synthesizeBlueprint(kind) ?? null;
     invalidate();
     genStages = [];
@@ -214,6 +218,14 @@ export function mountStudio(container: HTMLElement): void {
     subject = makeEntity(kind);
     world.addEntity(subject);
     rebuildTree();
+    browserRefresh();
+  }
+  // Apply a descriptor variant to the current subject — resolveAsset layers the
+  // descriptor patch (materials/glazing/storeys) and records it on the blueprint.
+  function applyVariant(d: Descriptors): void {
+    liveDescriptors = d;
+    liveRb = (Object.keys(d).length ? resolveAsset({ type: state.kind, descriptors: d }) : synthesizeBlueprint(state.kind)) ?? liveRb;
+    onBlueprintEdited();
     browserRefresh();
   }
   // A node-tree edit mutated liveRb in place: bust geometry caches, drop stale
@@ -496,6 +508,8 @@ export function mountStudio(container: HTMLElement): void {
         const b = buildObjectBrowser(body, {
           getCurrent: () => state.kind,
           onSelect: (kind) => setSubject(kind),
+          getDescriptors: () => liveDescriptors,
+          onVariant: (d) => applyVariant(d),
         });
         browserRefresh = b.refresh;
       },

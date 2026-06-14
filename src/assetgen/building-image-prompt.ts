@@ -7,6 +7,7 @@
 // Output is a pure function of (rb, model) → safe to fold into the cache key.
 import type { ResolvedBlueprint, ResolvedPart, WallFace } from '@/blueprint/types';
 import { toBrief } from '@/blueprint/compile/to-brief';
+import { descriptorPhrase } from '@/blueprint/descriptors';
 import { CHROMA_RGB } from '@/render/chroma-key';
 
 export type ImageModelFamily = 'gemini' | 'openai' | 'flux' | 'generic';
@@ -106,7 +107,10 @@ function describeBuilding(rb: ResolvedBlueprint): string {
   const mats = brief.materials.map(m => `${m.material} ${m.part}`).join(', ');
   const doorPhrase = brief.door ? ' with a visible wooden door' : '';
   const traits = brief.traits.slice(0, 4).join(', ');
-  return `a ${brief.era} ${brief.subject}${doorPhrase}, ${mats}, ${traits}`;
+  // Qualitative descriptors (rich/poor, ornate/crude, weathered…) lead the subject
+  // so the painted art matches the geometry/material bias the descriptors applied.
+  const desc = descriptorPhrase(rb.descriptors);
+  return `a ${desc ? `${desc} ` : ''}${brief.era} ${brief.subject}${doorPhrase}, ${mats}, ${traits}`;
 }
 
 // Registration tolerates small silhouette deviation (see sprite-postprocess

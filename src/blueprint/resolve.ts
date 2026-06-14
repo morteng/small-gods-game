@@ -21,6 +21,10 @@ export function mergePatches(patches: BlueprintPatch[]): Blueprint {
     if (p.notes !== undefined) out.notes = p.notes;
     if (p.materials) out.materials = { ...out.materials, ...p.materials };
     if (p.palette) out.palette = { ...out.palette, ...p.palette };
+    if (p.descriptors) {
+      const tags = [...(out.descriptors?.tags ?? []), ...(p.descriptors.tags ?? [])];
+      out.descriptors = { ...out.descriptors, ...p.descriptors, ...(tags.length ? { tags: [...new Set(tags)] } : {}) };
+    }
     if (p.parts) {
       for (const [id, patch] of Object.entries(p.parts)) {
         if (patch === null) { delete out.parts[id]; continue; }
@@ -71,6 +75,9 @@ export function resolveBlueprint(patches: BlueprintPatch[], seed: number): Resol
   return {
     version: bp.version, class: bp.class, preset: bp.preset, era: bp.era,
     category: bp.category, parts, materials, palette: bp.palette ?? {},
+    // Include `descriptors` ONLY when set so a descriptor-less blueprint serialises
+    // byte-identically to before (its art-cache key — canonicalJson(rb) — is stable).
+    ...(bp.descriptors ? { descriptors: bp.descriptors } : {}),
     footprint: bp.footprint, notes: bp.notes,
   };
 }

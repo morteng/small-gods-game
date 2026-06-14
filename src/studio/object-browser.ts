@@ -1,10 +1,17 @@
 // src/studio/object-browser.ts
-// Object browser (search + faceted filter over the asset catalogue). Moved out of
-// studio.ts (pure refactor).
-import { assetCatalogue, queryCatalogue } from '@/blueprint/catalogue';
+// Object browser: search + faceted filter over the asset catalogue, plus a VARIANT
+// row (wealth/quality/condition descriptor pickers) that rebuilds the current
+// subject through resolveAsset.
+import { assetCatalogue, queryCatalogue, type CatalogueEntry } from '@/blueprint/catalogue';
+import type { Descriptors } from '@/blueprint/types';
 
 // ── object browser (search + faceted filter over the asset catalogue) ────────
-interface BrowserDeps { getCurrent: () => string; onSelect: (kind: string) => void }
+interface BrowserDeps {
+  getCurrent: () => string;
+  onSelect: (kind: string) => void;
+  getDescriptors: () => Descriptors;
+  onVariant: (d: Descriptors) => void;
+}
 export function buildObjectBrowser(host: HTMLElement, deps: BrowserDeps): { refresh: () => void } {
   host.style.cssText += ';padding:6px 8px;font:11px monospace;color:#cfe';
   const entries = assetCatalogue();
@@ -42,6 +49,36 @@ export function buildObjectBrowser(host: HTMLElement, deps: BrowserDeps): { refr
   const count = document.createElement('div'); count.style.cssText = 'opacity:0.55;margin:2px 0';
   const list = document.createElement('div'); list.style.cssText = 'display:flex;flex-direction:column;gap:1px';
 
+  // ── variant pickers: descriptor axes for the CURRENT subject ──
+  const variant = document.createElement('div');
+  variant.style.cssText = 'border-top:1px solid #2a2a3a;margin-top:6px;padding-top:5px';
+  const byType = new Map(entries.map(e => [e.type, e]));
+  function renderVariant(): void {
+    variant.innerHTML = '';
+    const e: CatalogueEntry | undefined = byType.get(deps.getCurrent());
+    const axes = e?.descriptorAxes ?? {};
+    const keys = Object.keys(axes) as ('wealth' | 'quality' | 'condition')[];
+    if (!keys.length) { variant.style.display = 'none'; return; }
+    variant.style.display = 'block';
+    const hdr = document.createElement('div'); hdr.textContent = 'variant'; hdr.style.cssText = 'opacity:0.55;margin-bottom:3px';
+    variant.appendChild(hdr);
+    const cur = deps.getDescriptors();
+    const row = document.createElement('div'); row.style.cssText = 'display:flex;gap:4px;flex-wrap:wrap';
+    for (const key of keys) {
+      const sel = document.createElement('select');
+      sel.style.cssText = 'flex:1 1 80px;background:#11111a;color:#cfe;border:1px solid #3a3a52;padding:2px;font:10px monospace';
+      const def = document.createElement('option'); def.value = ''; def.textContent = key; sel.appendChild(def);
+      for (const v of axes[key] ?? []) { const o = document.createElement('option'); o.value = v; o.textContent = v; o.selected = cur[key] === v; sel.appendChild(o); }
+      sel.onchange = () => {
+        const next: Descriptors = { ...deps.getDescriptors() };
+        if (sel.value) next[key] = sel.value as never; else delete next[key];
+        deps.onVariant(next);
+      };
+      row.appendChild(sel);
+    }
+    variant.appendChild(row);
+  }
+
   const ICON: Record<string, string> = { building: '🏠', prop: '🪧', plant: '🌳', barrier: '🧱', terrain_feature: '⛰' };
   function renderList(): void {
     const matches = queryCatalogue(entries, filter);
@@ -61,7 +98,8 @@ export function buildObjectBrowser(host: HTMLElement, deps: BrowserDeps): { refr
       list.appendChild(item);
     }
   }
-  host.append(search, facets, count, list);
-  renderList();
-  return { refresh: renderList };
+  host.append(search, facets, count, list, variant);
+  const refresh = () => { renderList(); renderVariant(); };
+  refresh();
+  return { refresh };
 }

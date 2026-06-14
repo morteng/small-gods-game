@@ -1,8 +1,9 @@
 // src/blueprint/presets/index.ts
 // The 11 building presets, re-expressed as Blueprints. Mechanical port of the
 // old BUILDING_PRESETS descriptors (the retired flat descriptor model).
-import { BLUEPRINT_VERSION, type Blueprint, type BlueprintPatch, type ResolvedBlueprint } from '../types';
+import { BLUEPRINT_VERSION, type Blueprint, type BlueprintPatch, type ResolvedBlueprint, type Descriptors, type Era } from '../types';
 import { resolveBlueprint } from '../resolve';
+import { descriptorPatch } from '../descriptors';
 import { ensureBuildingTypesRegistered } from '../register-buildings';
 
 const bp = (preset: string, b: Omit<Blueprint, 'version' | 'class' | 'preset'>): Blueprint =>
@@ -258,4 +259,40 @@ export function synthesizeBlueprint(name: string, patches: BlueprintPatch[] = []
   if (!base) return undefined;
   const s = seed ?? [...name].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7);
   return resolveBlueprint([base, ...patches], s);
+}
+
+/** A typed request for a concrete asset variant — the agent/worldgen-facing entry.
+ *  Layers base preset → era → descriptors → lifecycle stage (era/stage land in
+ *  later slices) → seeded resolve. See the asset-catalogue design doc. */
+export interface AssetRequest {
+  type: string;
+  era?: Era;
+  descriptors?: Descriptors;
+  stage?: string;            // lifecycle stage (Slice D/E); ignored for now
+  seed?: number;
+}
+
+const strHash = (s: string): number => [...s].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7);
+
+/** Resolve an AssetRequest into a concrete ResolvedBlueprint. The descriptor layer
+ *  biases materials/glazing/storeys; the resolved blueprint records the descriptors
+ *  so its art-cache key distinguishes this variant. */
+export function resolveAsset(req: AssetRequest): ResolvedBlueprint | undefined {
+  ensureBuildingTypesRegistered();
+  const base = BUILDING_BLUEPRINTS[req.type];
+  if (!base) return undefined;
+  const patches: BlueprintPatch[] = [base];
+  // Era variants are Slice C; for now an era override just stamps the field.
+  const eraVariant = !!(req.era && req.era !== base.era);
+  if (eraVariant) patches.push({ era: req.era! });
+  const descVariant = !!(req.descriptors && Object.keys(req.descriptors).length);
+  if (descVariant) patches.push(descriptorPatch(base, req.descriptors!));
+  // Lifecycle stage patch — Slice D/E.
+  const stageVariant = !!req.stage;
+  // A bare request (no variant axes) MUST seed identically to synthesizeBlueprint(type)
+  // so its art-cache key matches the seeded library; only a real variant re-seeds.
+  const seed = req.seed ?? ((eraVariant || descVariant || stageVariant)
+    ? strHash(`${req.type}|${req.era ?? ''}|${JSON.stringify(req.descriptors ?? {})}|${req.stage ?? ''}`)
+    : strHash(req.type));
+  return resolveBlueprint(patches, seed);
 }

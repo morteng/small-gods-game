@@ -5,8 +5,9 @@
 // category, era, tags. Later slices extend CatalogueEntry with descriptors[],
 // eras[] and lifecycle stages[] (see
 // docs/superpowers/specs/2026-06-14-asset-catalogue-variant-lifecycle-design.md).
-import type { EntityClass, Era } from './types';
+import type { EntityClass, Era, Descriptors } from './types';
 import { BUILDING_BLUEPRINTS } from './presets';
+import { WEALTH_LEVELS, QUALITY_LEVELS, CONDITION_LEVELS } from './descriptors';
 
 export interface CatalogueEntry {
   type: string;                       // preset key (becomes entity.kind)
@@ -15,6 +16,10 @@ export interface CatalogueEntry {
   era?: Era;
   footprint: { w: number; h: number };
   tags: string[];                     // searchable: materials + category + era + class
+  /** Descriptor axes this type meaningfully supports (empty for plants/props that
+   *  don't vary by wealth). Drives the studio variant pickers + agent queries. */
+  descriptorAxes: { wealth?: readonly string[]; quality?: readonly string[]; condition?: readonly string[] };
+  defaults?: Descriptors;             // the preset's baseline descriptors, if any
 }
 
 export interface CatalogueQuery {
@@ -31,9 +36,15 @@ export function assetCatalogue(): CatalogueEntry[] {
   for (const [type, bp] of Object.entries(BUILDING_BLUEPRINTS)) {
     const mats = bp.materials ? Object.values(bp.materials) : [];
     const tags = [...new Set([bp.category, bp.era, bp.class, ...mats].filter(Boolean) as string[])];
+    // Buildings + props vary by wealth/quality/condition; plants (trees) do not.
+    const supportsDescriptors = bp.class === 'building' || bp.class === 'prop';
     out.push({
       type, class: bp.class, category: bp.category ?? 'misc', era: bp.era,
       footprint: bp.footprint, tags,
+      descriptorAxes: supportsDescriptors
+        ? { wealth: WEALTH_LEVELS, quality: QUALITY_LEVELS, condition: CONDITION_LEVELS }
+        : {},
+      defaults: bp.descriptors,
     });
   }
   return out.sort((a, b) =>
