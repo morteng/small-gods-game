@@ -35,6 +35,24 @@ const tree = (preset: string, form: string, heightM: number, crownM: number, tru
   parts: { trunk: { type: 'tree', size: { w: 1, h: 1 }, params: { form, heightM, crownM, trunkR } } },
 });
 
+/** Branching L-system plant (class:'plant') — real limbs/foliage vs the blob `tree`.
+ *  `recipe` selects the L-system; the blueprint seed fixes the (stochastic) shape so
+ *  every instance of a species shares one cached sprite. See flora-branch.ts. */
+const branched = (preset: string, recipe: string, heightM: number, trunkR = 0.16): Blueprint => ({
+  version: BLUEPRINT_VERSION, class: 'plant', preset,
+  category: 'flora', footprint: { w: 1, h: 1 },
+  materials: { walls: 'timber', roof: 'thatch', ground: 'grass' },
+  parts: { trunk: { type: 'branch_plant', size: { w: 1, h: 1 }, params: { recipe, heightM, trunkR } } },
+});
+
+/** A boulder/rock (class:'terrain_feature'); `sizeM` = diameter in metres. */
+const rock = (preset: string, sizeM: number): Blueprint => ({
+  version: BLUEPRINT_VERSION, class: 'terrain_feature', preset,
+  category: 'flora', footprint: { w: 1, h: 1 },
+  materials: { walls: 'stone', roof: 'stone', ground: 'dirt' },
+  parts: { mass: { type: 'rock', size: { w: 1, h: 1 }, params: { sizeM } } },
+});
+
 export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
   // Peasant cottage: rectangular plan (1:1.5), door + one shuttered window on the
   // entry face, one on the gable, ridge smoke LOUVRE (no chimney — period default
@@ -231,6 +249,16 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
   orange_tree: tree('orange_tree', 'broad', 6, 4, 0.13),
   pale_tree: tree('pale_tree', 'broad', 10, 5.5, 0.15),
   brown_tree: tree('brown_tree', 'broad', 11, 6, 0.16),
+  // Branching L-system flora (richer than the blob trees; opt-in presets for the
+  // flora-generation epic — existing kinds above keep the blob `tree` for now).
+  oak_branched: branched('oak_branched', 'oak', 15, 0.20),
+  pine_branched: branched('pine_branched', 'pine', 18, 0.16),
+  willow_tree: branched('willow_tree', 'willow', 13, 0.18),
+  shrub_bush: branched('shrub_bush', 'shrub', 2.2, 0.06),
+  bracken_fern: branched('bracken_fern', 'fern', 1.1, 0.03),
+  wildflower: branched('wildflower', 'flower', 0.6, 0.02),
+  boulder: rock('boulder', 2.5),
+  rock_small: rock('rock_small', 1.0),
   yurt: bp('yurt', {
     category: 'residential', era: 'primordial', footprint: { w: 3, h: 3 },
     materials: { walls: 'hide', roof: 'hide', ground: 'dirt' },
