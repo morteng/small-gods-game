@@ -245,12 +245,24 @@ primitive cover the field:
   `complexToPlan` resolve-down to a structured plan. Medieval content: `motte_and_bailey`,
   `ringwork`, `town_wall`. **World placement stays latent** (like the room-graph was) —
   no `src/world` edits this slice.
-- **DC-2:** real `TerrainProbe` adapter over the merged `heightAt` field; wire
-  `complexToPlan` → building-placer + heightfield deformation; in-world motte/ditch.
-- **DC-3:** `buildCost`-gated fortification rung ladder + the `unfinished` variant;
+- **DC-2 (read side — BUILT):** real `TerrainProbe` over the merged read-only
+  `heightMetresAt` field (`src/world/terrain-affordance.ts`, derives prominence /
+  commanding / steep-flanks / water / approach-control from a neighbourhood sample) +
+  `siteComplex` (composes `siteSelect` + `deriveEarthworks` → a `PlacedComplex`: chosen
+  tile + world-coord earthworks, spoil conserved). Pure data; **stops before any world
+  mutation**.
+- **DC-3 (write side — the SHARED deformation channel):** committing earthworks to the
+  world heightfield (`heightAt = baseSeedHeight ⊕ deformations`, currently the
+  unbuilt `⊕` half) + building-placer integration + entity spawn. **This must be ONE
+  shared deformation mechanism feeding BOTH the roads/rivers epic (road-cut / river
+  incision) AND castle earthworks (motte / ditch / rampart)** — not a castle-specific
+  write. A coordinated step with [[project-roads-linear-features]], gated on a full
+  suite (the multi-checkout convergence hazard). Building radial/ward layout (reuse the
+  burgage-frontage slotting) lands here too.
+- **DC-4:** `buildCost`-gated fortification rung ladder + the `unfinished` variant;
   garrison-as-driver capacity sizing.
-- **DC-4:** slighting decay mode; ruins/spolia as a site affordance (lifecycle hook).
-- **DC-5 (above single complex):** world-scale defensive networks — chains,
+- **DC-5:** slighting decay mode; ruins/spolia as a site affordance (lifecycle hook).
+- **DC-6 (above single complex):** world-scale defensive networks — chains,
   intervisible beacons, castle-emits-approach-road + bastide; the road=Portal consumer.
 - **Reserved (no slice yet):** sightlines / fields-of-fire visibility + a siege model
   that consumes `defensibility`. Attrs are emitted from DC-1 so this can be added

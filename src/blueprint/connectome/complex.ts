@@ -26,6 +26,16 @@ import type {
 } from '@/catalogue/types';
 import type { CatalogueRegistry } from '@/catalogue/registry';
 import type { Barrier, Connectome, ExpandCtx, Fixture, Portal, WallFace, Zone } from './types';
+import {
+  siteSelect,
+  deriveEarthworks,
+  type Earthwork,
+  type EarthworkSpec,
+  type SiteCandidate,
+  type SiteIntent,
+  type SiteScore,
+  type SiteWeights,
+} from './earthworks';
 
 /** Pick a gate portalType: explicit id, else the largest passable portal the pack has. */
 function pickGate(reg: CatalogueRegistry, sizeClass: string, explicit?: string): string {
@@ -219,6 +229,74 @@ export function complexToPlan(con: Connectome): ComplexPlan {
       ...(f.satisfies ? { satisfies: f.satisfies } : {}),
     })),
   };
+}
+
+// ── Siting: place a complex on real terrain (DC-2 read side) ──────────────────────
+
+export interface PlacedComplex {
+  complexType: string;
+  site: SiteScore; // chosen tile + its affordance/score breakdown
+  earthworks: Earthwork[]; // motte/ditch/rampart in WORLD coords, centred on the site
+  netVolume: number; // ≈ 0 — spoil conserved
+  spec: EarthworkSpec;
+}
+
+const DEFAULT_SPEC: EarthworkSpec = {
+  motteHeight: 0,
+  motteTopRadius: 4,
+  slope: 1.5,
+  baileyRadius: 16,
+  rampartHeight: 2,
+  rampartWidth: 4,
+  ditchWidth: 5,
+};
+
+/** Fill an EarthworkSpec from a complexType's (partial) earthwork programme + its rings. */
+export function specFromComplexType(fields: ComplexTypeFields): EarthworkSpec {
+  const outerRadius = fields.rings.length
+    ? Math.max(...fields.rings.map((r) => r.radius))
+    : DEFAULT_SPEC.baileyRadius;
+  const e = fields.earthworks ?? {};
+  return {
+    ...DEFAULT_SPEC,
+    baileyRadius: outerRadius,
+    motteHeight: e.motteHeight ?? fields.desiredHeight ?? DEFAULT_SPEC.motteHeight,
+    ...(e.motteTopRadius != null ? { motteTopRadius: e.motteTopRadius } : {}),
+    ...(e.slope != null ? { slope: e.slope } : {}),
+    ...(e.rampartHeight != null ? { rampartHeight: e.rampartHeight } : {}),
+    ...(e.rampartWidth != null ? { rampartWidth: e.rampartWidth } : {}),
+    ...(e.ditchWidth != null ? { ditchWidth: e.ditchWidth } : {}),
+  };
+}
+
+/**
+ * Pick where a complex sits on real terrain and derive its earthworks there. Composes
+ * the siting argmax (over `candidates`, read through `ctx.terrain`) with the spoil-
+ * conserving earthwork derivation: a prominent knoll wins on cost and builds little or
+ * no motte; flat ground by a target wins on strategy and pays the full mound.
+ *
+ * Pure + deterministic given the probe + seed. Returns null with no terrain probe, no
+ * candidates, or an unknown complexType. Stops at DATA — committing the earthworks to
+ * the world heightfield is the SHARED deformation-channel step (DC-3), not done here.
+ */
+export function siteComplex(
+  complexTypeId: string,
+  ctx: ExpandCtx,
+  intent: Omit<SiteIntent, 'desiredHeight'> & { desiredHeight?: number },
+  candidates: SiteCandidate[],
+  weights: SiteWeights,
+): PlacedComplex | null {
+  const ct = ctx.registry.get<ComplexTypeFields>('complexType', complexTypeId);
+  if (!ct || !ctx.terrain) return null;
+  const spec = specFromComplexType(ct.fields);
+  const fullIntent: SiteIntent = {
+    ...intent,
+    desiredHeight: intent.desiredHeight ?? ct.fields.desiredHeight ?? spec.motteHeight,
+  };
+  const site = siteSelect(candidates, fullIntent, weights, ctx.terrain, ctx.seed);
+  if (!site) return null;
+  const { earthworks, netVolume } = deriveEarthworks(site.site, spec, ctx.terrain);
+  return { complexType: complexTypeId, site, earthworks, netVolume, spec };
 }
 
 /**

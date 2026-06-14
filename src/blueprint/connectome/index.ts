@@ -17,8 +17,15 @@ export type {
 } from './types';
 export { expand, registerInterpreter } from './grammar';
 export { deriveSmokeEgress } from './smoke';
-export { expandComplex, encloseExisting, complexToPlan, registerComplexInterpreter } from './complex';
-export type { ComplexPlan } from './complex';
+export {
+  expandComplex,
+  encloseExisting,
+  complexToPlan,
+  siteComplex,
+  specFromComplexType,
+  registerComplexInterpreter,
+} from './complex';
+export type { ComplexPlan, PlacedComplex } from './complex';
 export {
   siteSelect,
   scoreSite,
