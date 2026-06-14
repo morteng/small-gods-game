@@ -19,6 +19,17 @@ interface EraProfile {
 
 // Period construction signatures (kept deliberately broad — a type's own structure
 // + descriptors still dominate; this shifts the material/feature palette by age).
+//
+// Smoke `vent` ownership (post-connectome Slice 1): the building connectome is the
+// single source for DERIVED vents — for commoner dwellings (cottage/longhouse/yurt,
+// vents stripped from their presets) it expands the hearth→smoke-egress chain from
+// the catalogue's smoke-systems timeline and applies the vent patch LAST in
+// resolveAsset, so the `vent` below is overridden (dead) for them. The `vent` here
+// stays meaningful ONLY for presets that author their own vent (tavern/keep/
+// townhouse), which the connectome leaves untouched — for those it era-restyles the
+// existing stack (chimney in medieval/current, smokehole in earlier ages). The two
+// are complementary, not duplicative; do not remove `vent` expecting the connectome
+// to cover authored-vent buildings (it deliberately doesn't).
 const ERA_PROFILES: Record<Era, EraProfile> = {
   primordial: { materials: { walls: 'hide', roof: 'thatch', ground: 'dirt' }, window: 'plain', glazed: false, vent: 'smokehole' },
   ancient: { materials: { walls: 'wattle', roof: 'thatch', ground: 'packed_dirt' }, window: 'shuttered', glazed: false, vent: 'smokehole' },
