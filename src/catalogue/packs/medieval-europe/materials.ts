@@ -9,6 +9,7 @@
  * the old descriptor code did (`indexOf < 0 ⇒ leave as-is`).
  */
 import type { FactEntry, MaterialFields } from '@/catalogue/types';
+import { roleLaddersFromEntries } from '@/catalogue/derive';
 
 const m = (
   id: string,
@@ -64,15 +65,5 @@ export const MEDIEVAL_MATERIALS: FactEntry<MaterialFields>[] = [
  * are excluded, matching the old behaviour.
  */
 export function buildRoleLadders(materials: FactEntry<MaterialFields>[]): Record<string, string[]> {
-  const byRole: Record<string, { id: string; rank: number }[]> = {};
-  for (const e of materials) {
-    const { role, rank } = e.fields;
-    if (!role || rank == null) continue;
-    (byRole[role] ??= []).push({ id: e.id, rank });
-  }
-  const out: Record<string, string[]> = {};
-  for (const [role, list] of Object.entries(byRole)) {
-    out[role] = list.sort((a, b) => a.rank - b.rank).map((x) => x.id);
-  }
-  return out;
+  return roleLaddersFromEntries(materials);
 }

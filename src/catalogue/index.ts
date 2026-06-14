@@ -40,3 +40,4 @@ export {
   type GrammarRule,
 } from '@/catalogue/pack';
 export { loadDefaultPacks } from '@/catalogue/default-packs';
+export { roleLadders, roleLaddersFromEntries } from '@/catalogue/derive';
