@@ -18,6 +18,8 @@ import { MEDIEVAL_FRAME_TYPES } from './frame-types';
 import { MEDIEVAL_TOPOLOGIES } from './topologies';
 import { MEDIEVAL_DISTRICT_TYPES } from './districts';
 import { MEDIEVAL_TRADE_TYPES } from './trades';
+import { MEDIEVAL_BARRIER_TYPES } from './barrier-types';
+import { MEDIEVAL_COMPLEX_TYPES } from './complex-types';
 import { MEDIEVAL_CONSTRAINTS } from './constraints';
 import { MEDIEVAL_GRAMMAR_RULES } from './grammar';
 
@@ -33,6 +35,8 @@ const ENTRIES = [
   ...MEDIEVAL_TOPOLOGIES,
   ...MEDIEVAL_DISTRICT_TYPES,
   ...MEDIEVAL_TRADE_TYPES,
+  ...MEDIEVAL_BARRIER_TYPES,
+  ...MEDIEVAL_COMPLEX_TYPES,
 ] as unknown as FactEntry[];
 
 export const medievalEuropePack: FactPack = {

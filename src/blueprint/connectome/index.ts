@@ -8,6 +8,7 @@ export type {
   Zone,
   Portal,
   Fixture,
+  Barrier,
   Connectome,
   ConnectomeScale,
   ExpandCtx,
@@ -16,3 +17,23 @@ export type {
 } from './types';
 export { expand, registerInterpreter } from './grammar';
 export { deriveSmokeEgress } from './smoke';
+export { expandComplex, encloseExisting, complexToPlan, registerComplexInterpreter } from './complex';
+export type { ComplexPlan } from './complex';
+export {
+  siteSelect,
+  scoreSite,
+  deriveEarthworks,
+  frustumVolume,
+  ringVolume,
+} from './earthworks';
+export type {
+  Earthwork,
+  EarthworkKind,
+  EarthworkSpec,
+  EarthworksResult,
+  SiteCandidate,
+  SiteIntent,
+  SiteWeights,
+  SiteScore,
+  Affordance,
+} from './earthworks';

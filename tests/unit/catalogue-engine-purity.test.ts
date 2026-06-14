@@ -25,6 +25,8 @@ const ENGINE_FILES = [
   'src/blueprint/connectome/types.ts',
   'src/blueprint/connectome/grammar.ts',
   'src/blueprint/connectome/smoke.ts',
+  'src/blueprint/connectome/earthworks.ts',
+  'src/blueprint/connectome/complex.ts',
   'src/blueprint/connectome/index.ts',
 ];
 

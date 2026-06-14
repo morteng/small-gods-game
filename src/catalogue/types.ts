@@ -33,6 +33,8 @@ export const CORE_KINDS = [
   'topology',
   'districtType', // seeded for the settlement connectome (Slice 5); inert until then
   'tradeType',
+  'complexType', // a multi-building defended/planned complex (motte-and-bailey, town wall, …)
+  'barrierType', // a linear structure: palisade/curtain/rampart/ditch/dyke
 ] as const;
 
 export type CoreCatalogueKind = (typeof CORE_KINDS)[number];
@@ -153,4 +155,48 @@ export interface FrameTypeFields {
 /** A topology names the interpreter that wires its zones into portals. */
 export interface TopologyFields {
   interpreter: string; // grammar interpreter id ('tripartite-linear'|…)
+}
+
+// ── Complex scale: a defended/planned multi-building work (Slice DC-1) ───────────
+
+/** A linear structure. `kind` tells the world how to realise it (wall vs earthwork). */
+export interface BarrierTypeFields {
+  kind: 'wall' | 'bank' | 'ditch' | (string & {}); // palisade/curtain = wall, rampart = bank
+  defensibility?: number; // 0..1 — how hard it is to cross
+  material?: string; // material id (timber, stone…)
+  heightHint?: number; // metres
+}
+
+/** One ring of a defended complex: a barrier + how many gates pierce it. */
+export interface RingSlot {
+  barrier: string; // barrierType id
+  radius: number; // relative ring radius (innermost smallest)
+  gates: number; // controlled gate portals through this ring
+  gatePortal?: string; // explicit portalType id for the gate; else queried by sizeClass
+}
+
+/** One ward of a defended complex: a district zone inside a ring, holding buildings. */
+export interface WardSlot {
+  type: string; // districtType id (the ward's function — bailey, motte-top, …)
+  ring: number; // index into the complex's `rings` this ward sits inside
+  buildings?: string[]; // buildingType ids placed in this ward
+  fixtures?: string[]; // fixtureType ids placed in this ward (e.g. the well — siege water)
+  core?: boolean; // the high-point refuge ward (its building sits on the motte)
+}
+
+export interface ComplexTypeFields {
+  topology: string; // topology id — 'enclosure' for defended perimeters
+  wards: WardSlot[];
+  rings: RingSlot[];
+  /** Optional earthwork programme (motte/ditch/rampart sizing); omitted ⇒ no earthworks. */
+  earthworks?: {
+    motteHeight?: number;
+    motteTopRadius?: number;
+    slope?: number;
+    rampartHeight?: number;
+    rampartWidth?: number;
+    ditchWidth?: number;
+  };
+  /** Siting hint: the motte height the design wants (feeds siteSelect/deriveEarthworks). */
+  desiredHeight?: number;
 }
