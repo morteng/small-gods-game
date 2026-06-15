@@ -17,7 +17,7 @@
 
 import type { GameMap, DevModeState } from '@/core/types';
 import { TILE_COLORS } from '@/core/constants';
-import { effectiveTileType } from '@/render/layer-visibility';
+import { effectiveTileType, RENDER_LAYERS, layerFlag } from '@/render/layer-visibility';
 import { getHeightfield, ELEVATION_SEA_LEVEL, TERRAIN_RELIEF_M } from '@/world/heightfield';
 import { ISO_TILE_W, ISO_TILE_H } from '@/render/iso/iso-constants';
 import type { LightingState } from '@/render/lighting-state';
@@ -63,6 +63,24 @@ export function packColorField(map: GameMap, devMode?: DevModeState): Uint32Arra
     }
   }
   return out;
+}
+
+/**
+ * Memoised {@link packColorField}: returns the SAME array reference across frames
+ * while the map identity, size and the layer-visibility key are unchanged, so the
+ * GPU upload (and the 12k-cell rebuild) is skipped on a static world. The layer
+ * key folds in the only `devMode` fields that change the colour (tile-type
+ * overrides), so a dev toggle still rebuilds. Invalidated when the map object
+ * changes (new world) — the per-tile `type` is otherwise immutable at runtime.
+ */
+let colorMemo: { map: GameMap; key: string; colors: Uint32Array } | null = null;
+export function packColorFieldMemo(map: GameMap, devMode?: DevModeState): Uint32Array {
+  const key = `${map.width}x${map.height}|` +
+    RENDER_LAYERS.map((l) => (devMode?.[layerFlag(l)] === false ? '0' : '1')).join('');
+  if (colorMemo && colorMemo.map === map && colorMemo.key === key) return colorMemo.colors;
+  const colors = packColorField(map, devMode);
+  colorMemo = { map, key, colors };
+  return colors;
 }
 
 /** #rrggbb → 0xFFBBGGRR (alpha opaque). Unpacked in-shader by `unpackColor`. */
@@ -151,7 +169,7 @@ export function buildTerrainField(map: GameMap, opts: BuildTerrainFieldOpts): Te
   };
   return {
     heights: heightField(map),
-    colors: packColorField(map, opts.devMode),
+    colors: packColorFieldMemo(map, opts.devMode),
     vertexCount: grid.vertexCount,
     globals,
   };

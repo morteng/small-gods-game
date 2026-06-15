@@ -57,6 +57,9 @@ export class GpuScene {
   private terrainColorsBuf: GPUBuffer | null = null;
   private terrainBind: GPUBindGroup | null = null;
   private terrainCellCap = 0;
+  // Last-uploaded field arrays — skip the re-upload when unchanged by reference.
+  private lastHeights: Float32Array | null = null;
+  private lastColors: Uint32Array | null = null;
   private depthTex: GPUTexture | null = null;
   private depthW = 0;
   private depthH = 0;
@@ -81,6 +84,9 @@ export class GpuScene {
   /** Per-batch bind group cache, keyed by the albedo source (batch identity). */
   private bindCache = new WeakMap<CanvasImageSource, GPUBindGroup>();
   private texCache = new WeakMap<CanvasImageSource, GPUTexture>();
+  /** Persistent, grow-on-demand vertex/instance buffers (one per stream), reused
+   *  every frame instead of allocating + destroying dozens of buffers per frame. */
+  private dynBufs = new Map<string, { buf: GPUBuffer; cap: number }>();
 
   constructor(gpu: GpuContext) {
     this.device = gpu.device;
@@ -341,6 +347,20 @@ export class GpuScene {
     return this.shadowTex.createView();
   }
 
+  /** A persistent VERTEX|COPY_DST buffer for `key`, grown geometrically to fit
+   *  `bytes`. Reused across frames — no per-frame create/destroy churn. */
+  private dynBuf(key: string, bytes: number): GPUBuffer {
+    let e = this.dynBufs.get(key);
+    if (!e || e.cap < bytes) {
+      e?.buf.destroy();
+      const cap = Math.max(bytes, (e?.cap ?? 1024) * 2);
+      const buf = this.device.createBuffer({ size: cap, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+      e = { buf, cap };
+      this.dynBufs.set(key, e);
+    }
+    return e.buf;
+  }
+
   private ensureDepth(w: number, h: number): GPUTextureView {
     if (!this.depthTex || this.depthW !== w || this.depthH !== h) {
       this.depthTex?.destroy();
@@ -354,10 +374,13 @@ export class GpuScene {
   }
 
   /** (Re)upload the terrain field buffers, growing + rebinding on cell-count
-   *  growth. Cheap when the field is unchanged size (just two writeBuffers). */
+   *  growth. Skips the writeBuffer when the field ARRAYS are unchanged by
+   *  reference (the common case: `getHeightfield` is memoised and the colour
+   *  field is now memoised too), so a static world re-uploads nothing per frame. */
   private uploadFields(heights: Float32Array, colors: Uint32Array): void {
     const { device } = this;
     const cells = heights.length;
+    let realloc = false;
     if (!this.terrainHeightsBuf || cells > this.terrainCellCap) {
       this.terrainHeightsBuf?.destroy();
       this.terrainColorsBuf?.destroy();
@@ -372,9 +395,16 @@ export class GpuScene {
           { binding: 2, resource: { buffer: this.terrainColorsBuf } },
         ],
       });
+      realloc = true;
     }
-    device.queue.writeBuffer(this.terrainHeightsBuf, 0, heights as GPUAllowSharedBufferSource);
-    device.queue.writeBuffer(this.terrainColorsBuf!, 0, colors as GPUAllowSharedBufferSource);
+    if (realloc || heights !== this.lastHeights) {
+      device.queue.writeBuffer(this.terrainHeightsBuf, 0, heights as GPUAllowSharedBufferSource);
+      this.lastHeights = heights;
+    }
+    if (realloc || colors !== this.lastColors) {
+      device.queue.writeBuffer(this.terrainColorsBuf!, 0, colors as GPUAllowSharedBufferSource);
+      this.lastColors = colors;
+    }
   }
 
   /**
@@ -437,7 +467,6 @@ export class GpuScene {
     // `colorCleared` tracks whether any prior pass has written the colour
     // target, so the FIRST colour pass clears and the rest load.
     let colorCleared = hasTerrain;
-    const scratch: GPUBuffer[] = [];
 
     // Pass 1.5 — cast shadows: accumulate parallelogram silhouettes into the
     // offscreen shadow texture (union via src-over), then composite the union
@@ -452,14 +481,16 @@ export class GpuScene {
       apass.setPipeline(this.shadowPipeline);
       apass.setVertexBuffer(0, this.quadBuf);
       apass.setBindGroup(0, this.shadowGlobalsBind);
+      const shadowInst = shadowBatches.reduce((s, b) => s + b.instances.length, 0);
+      const shadowBuf = this.dynBuf('shadow', shadowInst * SHADOW_INSTANCE_STRIDE);
+      let soff = 0;
       for (const b of shadowBatches) {
         const data = packShadowInstances(b.instances);
-        const instBuf = device.createBuffer({ size: data.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
-        device.queue.writeBuffer(instBuf, 0, data as GPUAllowSharedBufferSource);
-        scratch.push(instBuf);
+        device.queue.writeBuffer(shadowBuf, soff, data as GPUAllowSharedBufferSource);
         apass.setBindGroup(1, this.shadowBind(b.texture));
-        apass.setVertexBuffer(1, instBuf);
+        apass.setVertexBuffer(1, shadowBuf, soff);
         apass.draw(QUAD_VERTEX_COUNT, b.instances.length);
+        soff += data.byteLength;
       }
       apass.end();
 
@@ -489,15 +520,19 @@ export class GpuScene {
     epass.setPipeline(this.pipeline);
     epass.setVertexBuffer(0, this.quadBuf);
     epass.setBindGroup(0, this.globalsBind);
-    for (const b of batches) {
-      if (b.instances.length === 0) continue;
-      const data = packInstances(b.instances);
-      const instBuf = device.createBuffer({ size: data.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
-      device.queue.writeBuffer(instBuf, 0, data as GPUAllowSharedBufferSource);
-      scratch.push(instBuf);
-      epass.setBindGroup(1, this.batchBind(b));
-      epass.setVertexBuffer(1, instBuf);
-      epass.draw(QUAD_VERTEX_COUNT, b.instances.length);
+    const entInst = batches.reduce((s, b) => s + b.instances.length, 0);
+    if (entInst > 0) {
+      const entBuf = this.dynBuf('entity', entInst * INSTANCE_STRIDE);
+      let eoff = 0;
+      for (const b of batches) {
+        if (b.instances.length === 0) continue;
+        const data = packInstances(b.instances);
+        device.queue.writeBuffer(entBuf, eoff, data as GPUAllowSharedBufferSource);
+        epass.setBindGroup(1, this.batchBind(b));
+        epass.setVertexBuffer(1, entBuf, eoff);
+        epass.draw(QUAD_VERTEX_COUNT, b.instances.length);
+        eoff += data.byteLength;
+      }
     }
 
     // Solid-colour shapes (poly/circle) — same pass + depth buffer, so they
@@ -505,9 +540,8 @@ export class GpuScene {
     const shapes = buildShapeVertices(items, xform);
     if (shapes.vertexCount > 0) {
       device.queue.writeBuffer(this.shapeGlobalsBuf, 0, new Float32Array([w, h, 0, 0]));
-      const sBuf = device.createBuffer({ size: shapes.vertices.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+      const sBuf = this.dynBuf('shape', shapes.vertices.byteLength);
       device.queue.writeBuffer(sBuf, 0, shapes.vertices as GPUAllowSharedBufferSource);
-      scratch.push(sBuf);
       epass.setPipeline(this.shapePipeline);
       epass.setBindGroup(0, this.shapeGlobalsBind);
       epass.setVertexBuffer(0, sBuf);
@@ -516,7 +550,6 @@ export class GpuScene {
     epass.end();
 
     device.queue.submit([enc.finish()]);
-    void device.queue.onSubmittedWorkDone().then(() => { for (const s of scratch) s.destroy(); });
   }
 
   /**
