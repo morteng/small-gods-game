@@ -2,7 +2,10 @@ import type { Camera } from '@/core/types';
 
 // Loosened floor (was 0.25) so a large map can be zoomed all the way out to fit.
 export const TOPDOWN_ZOOM_MIN = 0.05;
-export const TOPDOWN_ZOOM_MAX = 8;
+// Zoom-in stops at 1:1 — one art pixel per screen pixel. Magnifying past native
+// resolution only blows up the pixel art, so 1 is the universal hard cap (every
+// mode clamps through `zoomAt`). Was 8.
+export const TOPDOWN_ZOOM_MAX = 1;
 
 export function createCamera(): Camera {
   return { x: 0, y: 0, zoom: 1, dragging: false, lastX: 0, lastY: 0 };

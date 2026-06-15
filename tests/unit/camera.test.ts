@@ -26,7 +26,7 @@ describe('Camera', () => {
   it('zoomAt clamps to range', () => {
     const cam = createCamera();
     zoomAt(cam, 100, 0, 0); // extreme zoom
-    expect(cam.zoom).toBe(8); // max
+    expect(cam.zoom).toBe(1); // max — 1:1, no magnification past native
     zoomAt(cam, 0.001, 0, 0);
     expect(cam.zoom).toBe(0.05); // min (loosened so large maps can fit)
   });

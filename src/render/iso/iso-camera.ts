@@ -3,20 +3,21 @@ import { worldToScreen } from './iso-projection';
 
 // Loosened floor (was 0.5) so a large map can be zoomed all the way out to fit.
 export const ISO_ZOOM_MIN = 0.05;
-export const ISO_ZOOM_MAX = 4;
+// Zoom-in stops at 1:1 (one art pixel per screen pixel). Was 4. See TOPDOWN_ZOOM_MAX.
+export const ISO_ZOOM_MAX = 1;
 
 /**
- * Pixel-perfect zoom ladder. Zooming IN snaps to integer scales (1,2,3,4) so
- * each art pixel maps to an integer block of screen pixels; zooming OUT snaps to
- * unit fractions 1/n (down to 1/20 = ISO_ZOOM_MIN) so the downscale is a uniform
- * nearest-neighbour decimation — both stay crisp. Continuous zoom is retired:
- * every sprite now blits at an exact integer (or 1/integer) scale, killing the
- * fractional-upscale shimmer. Ascending order.
+ * Pixel-perfect zoom ladder. 1:1 is the maximum — zooming past native resolution
+ * only magnifies the pixel art, so there are no integer rungs above 1. Zooming
+ * OUT snaps to unit fractions 1/n (down to 1/20 = ISO_ZOOM_MIN) so the downscale
+ * is a uniform nearest-neighbour decimation — crisp. Continuous zoom is retired:
+ * every sprite blits at an exact 1/integer scale, killing the fractional-upscale
+ * shimmer. Ascending order.
  */
 export const ISO_ZOOM_RUNGS: number[] = (() => {
   const rungs: number[] = [];
   for (let n = 20; n >= 2; n--) rungs.push(1 / n); // 0.05 … 0.5
-  rungs.push(1, 2, 3, 4);
+  rungs.push(1);
   return rungs;
 })();
 

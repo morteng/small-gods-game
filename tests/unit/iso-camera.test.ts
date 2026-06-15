@@ -16,7 +16,7 @@ describe('iso-camera', () => {
 
   it('exposes iso zoom range constants', () => {
     expect(ISO_ZOOM_MIN).toBe(0.05);
-    expect(ISO_ZOOM_MAX).toBe(4);
+    expect(ISO_ZOOM_MAX).toBe(1); // 1:1 cap — no magnification past native
   });
 
   it('centerOnTile sets camera so the tile renders at viewport center', () => {
@@ -28,11 +28,11 @@ describe('iso-camera', () => {
   });
 
   describe('pixel-perfect zoom ladder', () => {
-    it('rungs are integers zooming in and 1/n zooming out, ascending, spanning the range', () => {
+    it('rungs are 1/n zooming out and top out at 1:1, ascending, spanning the range', () => {
       expect(ISO_ZOOM_RUNGS[0]).toBeCloseTo(ISO_ZOOM_MIN); // 1/20 = 0.05
-      expect(ISO_ZOOM_RUNGS[ISO_ZOOM_RUNGS.length - 1]).toBe(ISO_ZOOM_MAX); // 4
+      expect(ISO_ZOOM_RUNGS[ISO_ZOOM_RUNGS.length - 1]).toBe(ISO_ZOOM_MAX); // 1
       expect(ISO_ZOOM_RUNGS).toContain(1);
-      expect(ISO_ZOOM_RUNGS).toContain(2);
+      expect(ISO_ZOOM_RUNGS).not.toContain(2); // no magnification rungs above 1:1
       // strictly ascending
       for (let i = 1; i < ISO_ZOOM_RUNGS.length; i++) {
         expect(ISO_ZOOM_RUNGS[i]).toBeGreaterThan(ISO_ZOOM_RUNGS[i - 1]);
@@ -45,16 +45,16 @@ describe('iso-camera', () => {
     });
 
     it('quantizeIsoZoom snaps to the nearest rung (dir 0)', () => {
-      expect(quantizeIsoZoom(1.1)).toBe(1);
-      expect(quantizeIsoZoom(1.6)).toBe(2);
-      expect(quantizeIsoZoom(3.9)).toBe(4);
+      expect(quantizeIsoZoom(1.1)).toBe(1);  // above 1:1 → clamps to 1
+      expect(quantizeIsoZoom(5)).toBe(1);
+      expect(quantizeIsoZoom(0.9)).toBe(1);
       expect(quantizeIsoZoom(0.49)).toBeCloseTo(0.5);
     });
 
     it('quantizeIsoZoom steps exactly one rung up/down regardless of magnitude', () => {
       // a tiny wheel factor must still advance one full rung, not stall
-      expect(quantizeIsoZoom(1, 1)).toBe(2);
-      expect(quantizeIsoZoom(2, 1)).toBe(3);
+      expect(quantizeIsoZoom(0.5, 1)).toBe(1);
+      expect(quantizeIsoZoom(1, 1)).toBe(1);   // already at the 1:1 cap
       expect(quantizeIsoZoom(1, -1)).toBeCloseTo(0.5);
       expect(quantizeIsoZoom(0.5, -1)).toBeCloseTo(1 / 3);
     });
@@ -65,7 +65,7 @@ describe('iso-camera', () => {
     });
 
     it('floorIsoZoom returns the largest rung not exceeding z (so fit still fits)', () => {
-      expect(floorIsoZoom(1.9)).toBe(1);
+      expect(floorIsoZoom(0.9)).toBeCloseTo(0.5);
       expect(floorIsoZoom(0.13)).toBeCloseTo(1 / 8); // 0.125 ≤ 0.13 < 1/7
       expect(floorIsoZoom(0.04)).toBeCloseTo(ISO_ZOOM_MIN); // below floor → min rung
       expect(floorIsoZoom(10)).toBe(ISO_ZOOM_MAX);
