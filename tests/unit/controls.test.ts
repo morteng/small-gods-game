@@ -109,18 +109,20 @@ describe('attachControls keyboard', () => {
   });
 
   it('continuous zoom scales with wheel delta magnitude (not a fixed step)', () => {
+    // Zoom OUT — the camera starts at the 1:1 cap (TOPDOWN_ZOOM_MAX=1), so
+    // zoom-IN is pinned and only zoom-out exercises the magnitude mapping.
     const big = createCamera();
     const small = createCamera();
     const cb = { onRedraw: () => {} };
     const cleanBig = attachControls(canvas, big, cb);
-    canvas.dispatchEvent(new WheelEvent('wheel', { deltaY: -100, bubbles: true, cancelable: true }));
+    canvas.dispatchEvent(new WheelEvent('wheel', { deltaY: 100, bubbles: true, cancelable: true }));
     cleanBig();
     const cleanSmall = attachControls(canvas, small, cb);
-    canvas.dispatchEvent(new WheelEvent('wheel', { deltaY: -10, bubbles: true, cancelable: true }));
+    canvas.dispatchEvent(new WheelEvent('wheel', { deltaY: 10, bubbles: true, cancelable: true }));
     cleanSmall();
-    // A bigger scroll zooms in more; both zoom in (factor > 1).
-    expect(big.zoom).toBeGreaterThan(small.zoom);
-    expect(small.zoom).toBeGreaterThan(1);
+    // A bigger scroll zooms out more; both zoom out (factor < 1).
+    expect(big.zoom).toBeLessThan(small.zoom);
+    expect(small.zoom).toBeLessThan(1);
   });
 
   it('continuous zoom is proportional: many small events ≈ one big event', () => {
@@ -128,10 +130,10 @@ describe('attachControls keyboard', () => {
     const one = createCamera();
     const cb = { onRedraw: () => {} };
     let clean = attachControls(canvas, many, cb);
-    for (let i = 0; i < 10; i++) canvas.dispatchEvent(new WheelEvent('wheel', { deltaY: -10, bubbles: true, cancelable: true }));
+    for (let i = 0; i < 10; i++) canvas.dispatchEvent(new WheelEvent('wheel', { deltaY: 10, bubbles: true, cancelable: true }));
     clean();
     clean = attachControls(canvas, one, cb);
-    canvas.dispatchEvent(new WheelEvent('wheel', { deltaY: -100, bubbles: true, cancelable: true }));
+    canvas.dispatchEvent(new WheelEvent('wheel', { deltaY: 100, bubbles: true, cancelable: true }));
     clean();
     expect(many.zoom).toBeCloseTo(one.zoom, 4);
   });
@@ -139,8 +141,10 @@ describe('attachControls keyboard', () => {
   it('clamps a single huge wheel event so zoom cannot jump wildly', () => {
     const cam = createCamera();
     cleanup = attachControls(canvas, cam, { onRedraw: () => {} });
-    canvas.dispatchEvent(new WheelEvent('wheel', { deltaY: -100000, bubbles: true, cancelable: true }));
-    expect(cam.zoom).toBeLessThanOrEqual(1.6 + 1e-9); // ZOOM_FACTOR_CLAMP
+    // Huge zoom-out — the per-event factor is clamped to 1/ZOOM_FACTOR_CLAMP, so
+    // one event can't collapse zoom (it lands at 1 × 1/1.6, not near 0).
+    canvas.dispatchEvent(new WheelEvent('wheel', { deltaY: 100000, bubbles: true, cancelable: true }));
+    expect(cam.zoom).toBeGreaterThanOrEqual(1 / 1.6 - 1e-9); // ZOOM_FACTOR_CLAMP
   });
 
   it('quantized (iso) zoom accumulates: sub-threshold scroll does not step', () => {
