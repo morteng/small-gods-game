@@ -1,0 +1,158 @@
+// src/render/gpu/terrain-field.ts
+//
+// T1 (buffer-driven GPU terrain) — the pure CPU half: pack the per-cell FIELDS
+// the terrain shader (`wgsl/terrain-wgsl.ts`) samples as storage buffers, and
+// size the GPU-generated grid. Supersedes the R2d CPU vertex mesh
+// (`terrain-mesh.ts`): the GPU now generates + lifts the grid from these
+// buffers, so the only per-frame CPU cost is re-uploading CHANGED fields.
+//
+// Fields are row-major `width*height`:
+//  - height : Float32 normalised elevation [0,1] — this IS `heightAt = base ⊕
+//    deformations` (the deformation channel writes it). The base seed field
+//    (`getHeightfield`) is already row-major, so it doubles as the buffer.
+//  - colour : Uint32 0xAABBGGRR biome base colour per cell (lighting is applied
+//    in-shader from the surface normal — colour is unlit biome only).
+//
+// No GPU/DOM here; everything is unit-testable.
+
+import type { GameMap, DevModeState } from '@/core/types';
+import { TILE_COLORS } from '@/core/constants';
+import { effectiveTileType } from '@/render/layer-visibility';
+import { getHeightfield, ELEVATION_SEA_LEVEL, TERRAIN_RELIEF_M } from '@/world/heightfield';
+import { ISO_TILE_W, ISO_TILE_H } from '@/render/iso/iso-constants';
+import type { LightingState } from '@/render/lighting-state';
+import type { TerrainGlobalsInput } from '@/render/gpu/instance-buffer';
+
+/**
+ * Canonical tile-space sun direction (x=east, y=up, z=south) — TOWARD the light,
+ * from the upper north-west, so slopes shade legibly. The shader normalises it.
+ * Unlike the entity sprites' screen-space `lighting.sunDir`, terrain normals are
+ * tile-space, so terrain needs its own direction; a real day/night sweep (T3)
+ * will rotate this. Intensity (ambient + sun strength + bands) still tracks the
+ * live lighting so dusk/dawn dim the ground with the sprites.
+ */
+export const TERRAIN_SUN_DIR: [number, number, number] = [-1, 1.6, -1];
+
+/**
+ * Vertical z-scale: screen px per metre of relief. DELIBERATELY far below the XY
+ * scale (PX_PER_METRE=32) — full relief (~48 m) at 32 px/m would tower 1500 px;
+ * terrain z is compressed for readability like most iso games. Tunable.
+ */
+export const TERRAIN_Z_PX_PER_M = 1.5;
+
+/** Cap on generated quads — picks the subsample LOD so big maps stay cheap. */
+export const MAX_TERRAIN_QUADS = 50000;
+
+/** The row-major normalised-elevation field (the height storage buffer). For T1
+ *  this is the base seed heightfield; the deformation channel composes onto it
+ *  in a later slice (same buffer, written by the channel). */
+export function heightField(map: GameMap): Float32Array {
+  return getHeightfield(map.seed, map.width, map.height);
+}
+
+/** Pack the per-cell biome base colour as 0xAABBGGRR (LE-friendly for upload). */
+export function packColorField(map: GameMap, devMode?: DevModeState): Uint32Array {
+  const { width, height, tiles } = map;
+  const out = new Uint32Array(width * height);
+  for (let ty = 0; ty < height; ty++) {
+    const row = tiles[ty];
+    for (let tx = 0; tx < width; tx++) {
+      const tile = row?.[tx];
+      const hex = tile ? (TILE_COLORS[effectiveTileType(tile.type, devMode)] ?? '#444') : '#1a1a24';
+      out[ty * width + tx] = hexToAbgr(hex);
+    }
+  }
+  return out;
+}
+
+/** #rrggbb → 0xFFBBGGRR (alpha opaque). Unpacked in-shader by `unpackColor`. */
+export function hexToAbgr(hex: string): number {
+  const m = /^#([0-9a-f]{6})$/i.exec(hex);
+  if (!m) return 0xff444444;
+  const n = parseInt(m[1], 16);
+  const r = (n >> 16) & 0xff, g = (n >> 8) & 0xff, b = n & 0xff;
+  return ((0xff << 24) | (b << 16) | (g << 8) | r) >>> 0;
+}
+
+export interface TerrainGrid {
+  /** Subsample stride (1 = full res); higher on big maps to honour the cap. */
+  subsample: number;
+  /** Quads along each axis (grid-gen draws subsample-strided quads). */
+  quadsX: number;
+  quadsY: number;
+  /** Vertices to draw: quadsX*quadsY*6 (2 tris/quad). */
+  vertexCount: number;
+}
+
+/** Choose the subsample LOD + vertex count for a map, honouring the quad cap. */
+export function terrainGrid(width: number, height: number, maxQuads = MAX_TERRAIN_QUADS): TerrainGrid {
+  let subsample = 1;
+  for (let s = 1; s <= 16; s++) {
+    const qx = Math.max(1, Math.floor(width / s));
+    const qy = Math.max(1, Math.floor(height / s));
+    if (qx * qy <= maxQuads) { subsample = s; break; }
+    subsample = s;
+  }
+  const quadsX = Math.max(1, Math.floor(width / subsample));
+  const quadsY = Math.max(1, Math.floor(height / subsample));
+  return { subsample, quadsX, quadsY, vertexCount: quadsX * quadsY * 6 };
+}
+
+/** The buffer-driven terrain handed to `GpuScene.renderFrame`: the per-cell
+ *  storage fields, the GPU-generated vertex count, and the packed-ready uniform. */
+export interface TerrainField {
+  /** Row-major normalised elevation `[0,1]`, `width*height` (the height buffer). */
+  heights: Float32Array;
+  /** Row-major biome base colour `0xAABBGGRR`, `width*height` (the colour buffer). */
+  colors: Uint32Array;
+  /** Vertices the grid-gen vertex shader draws (`quadsX*quadsY*6`). */
+  vertexCount: number;
+  /** Terrain uniform input (camera + iso + z + lighting); `packTerrainGlobals`-ready. */
+  globals: TerrainGlobalsInput;
+}
+
+export interface BuildTerrainFieldOpts {
+  /** Device-pixel render target size `[w,h]`. */
+  viewport: [number, number];
+  /** World→device camera transform (same one baked into entity instances). */
+  xform: { sx: number; sy: number; ox: number; oy: number };
+  /** Live sky lighting — ambient + bands + sun strength track day/night. */
+  lighting: LightingState;
+  devMode?: DevModeState;
+  maxQuads?: number;
+}
+
+/** Relative luminance of an RGB triple in `[0,1]` — terrain sun strength scalar. */
+function luminance(c: readonly [number, number, number]): number {
+  return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+}
+
+/**
+ * Assemble the full `TerrainField` for a world + camera frame: the (memoised)
+ * height buffer, the biome colour buffer, the LOD vertex count, and the packed
+ * uniform inputs. Cheap per-frame — `getHeightfield` is cached, so the height
+ * array is reused; only the colour field and globals are recomputed.
+ */
+export function buildTerrainField(map: GameMap, opts: BuildTerrainFieldOpts): TerrainField {
+  const grid = terrainGrid(map.width, map.height, opts.maxQuads);
+  const globals: TerrainGlobalsInput = {
+    viewport: opts.viewport,
+    xform: opts.xform,
+    grid: [map.width, map.height],
+    half: [ISO_TILE_W / 2, ISO_TILE_H / 2],
+    zPxPerM: TERRAIN_Z_PX_PER_M,
+    seaLevel: ELEVATION_SEA_LEVEL,
+    reliefM: TERRAIN_RELIEF_M,
+    subsample: grid.subsample,
+    sunDir: TERRAIN_SUN_DIR,
+    bands: opts.lighting.bands,
+    ambient: opts.lighting.ambient,
+    sunStrength: luminance(opts.lighting.sunColor),
+  };
+  return {
+    heights: heightField(map),
+    colors: packColorField(map, opts.devMode),
+    vertexCount: grid.vertexCount,
+    globals,
+  };
+}

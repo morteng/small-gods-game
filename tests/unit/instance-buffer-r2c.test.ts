@@ -51,12 +51,24 @@ describe('R2c — instance/globals buffer packing', () => {
     expect([g[12], g[13], g[14]]).toEqual([0.25, 0.5, 0.75]);
   });
 
-  it('packTerrainGlobals lays out [viewport, pad, xform] (R2d)', () => {
-    const t = packTerrainGlobals([800, 600], { sx: 2, sy: 2, ox: 5, oy: 7 });
+  it('packTerrainGlobals lays out viewport/xform/grid/half/z/sun/ambient (T1)', () => {
+    const t = packTerrainGlobals({
+      viewport: [800, 600],
+      xform: { sx: 2, sy: 2, ox: 5, oy: 7 },
+      grid: [64, 48], half: [64, 32],
+      zPxPerM: 1.5, seaLevel: 0.35, reliefM: 48, subsample: 0, // subsample clamped ≥1
+      sunDir: [-1, 1.6, -1], bands: 0,                         // bands clamped ≥1
+      ambient: [0.7, 0.7, 0.74], sunStrength: 0.5,
+    });
     expect(t).toHaveLength(TERRAIN_GLOBALS_FLOATS);
-    expect(TERRAIN_GLOBALS_FLOATS).toBe(8);
-    expect([t[0], t[1]]).toEqual([800, 600]);
-    expect([t[2], t[3]]).toEqual([0, 0]);             // pad
-    expect([t[4], t[5], t[6], t[7]]).toEqual([2, 2, 5, 7]); // sx,sy,ox,oy
+    expect(TERRAIN_GLOBALS_FLOATS).toBe(24);
+    // Float32 storage, so fractional values are compared with tolerance.
+    const near = (i: number, v: number) => expect(t[i]).toBeCloseTo(v, 5);
+    expect([t[0], t[1], t[2], t[3]]).toEqual([800, 600, 0, 0]);   // viewport, pad
+    expect([t[4], t[5], t[6], t[7]]).toEqual([2, 2, 5, 7]);       // xform
+    expect([t[8], t[9], t[10], t[11]]).toEqual([64, 48, 64, 32]); // grid, half
+    near(12, 1.5); near(13, 0.35); near(14, 48); near(15, 1);     // zParams (subsample ≥1)
+    near(16, -1); near(17, 1.6); near(18, -1); near(19, 1);       // sun dir, bands ≥1
+    near(20, 0.7); near(21, 0.7); near(22, 0.74); near(23, 0.5);  // ambient, strength
   });
 });

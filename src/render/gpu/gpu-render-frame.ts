@@ -23,7 +23,7 @@ import { visibleTileBounds } from '@/render/iso/iso-projection';
 import { isLayerHidden } from '@/render/layer-visibility';
 import { buildEntityDrawList } from '@/render/iso/entity-draw-list';
 import { DEFAULT_LIGHTING } from '@/render/lighting-state';
-import { buildTerrainMesh, type TerrainMesh } from '@/render/gpu/terrain-mesh';
+import { buildTerrainField, type TerrainField } from '@/render/gpu/terrain-field';
 import type { GpuScene } from '@/render/gpu/gpu-scene';
 
 const BG_COLOR = '#1a1a24';
@@ -57,9 +57,6 @@ export function buildGpuRenderFrame(scene: GpuScene, gpuCanvas: HTMLCanvasElemen
     const items = buildEntityDrawList(rc, bounds, {
       atlas, originX: 0, originY: 0, npcSheets: rc.npcSheets, treeSheets: rc.treeSheets,
     });
-    const terrain: TerrainMesh | null = isLayerHidden('terrain', rc.devMode)
-      ? null
-      : buildTerrainMesh(map, bounds, 0, 0, { devMode: rc.devMode });
 
     // GPU terrain + entity passes → overlay canvas, composited identity (device→device).
     if (gpuCanvas.width !== target.width || gpuCanvas.height !== target.height) {
@@ -69,11 +66,18 @@ export function buildGpuRenderFrame(scene: GpuScene, gpuCanvas: HTMLCanvasElemen
     const lighting = rc.lighting ?? DEFAULT_LIGHTING;
     const offX = Math.round(-camera.x * z);
     const offY = Math.round(-camera.y * z);
-    scene.renderFrame({
-      items, lighting, terrain,
-      w: target.width, h: target.height,
-      xform: { sx: z * dpr, sy: z * dpr, ox: offX * dpr, oy: offY * dpr },
-    });
+    const xform = { sx: z * dpr, sy: z * dpr, ox: offX * dpr, oy: offY * dpr };
+
+    // Buffer-driven terrain field (T1): the GPU generates + lifts the grid from
+    // the height/colour storage buffers. Whole-map for now — chunk culling is T5.
+    const terrain: TerrainField | null = isLayerHidden('terrain', rc.devMode)
+      ? null
+      : buildTerrainField(map, {
+          viewport: [target.width, target.height],
+          xform, lighting, devMode: rc.devMode,
+        });
+
+    scene.renderFrame({ items, lighting, terrain, w: target.width, h: target.height, xform });
 
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);

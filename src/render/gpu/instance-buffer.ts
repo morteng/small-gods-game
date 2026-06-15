@@ -62,15 +62,28 @@ export function packGlobals(g: GlobalsInput): Float32Array {
   return b;
 }
 
-/** Terrain pass uniform (R2d): viewport + the world→device view transform. */
-export const TERRAIN_GLOBALS_FLOATS = 8; // [vp.xy, pad.xy], [sx,sy,ox,oy]
+/** Terrain pass uniform (T1) — matches `TGlobals` in terrain-wgsl (24 floats /
+ *  96 bytes): viewport+pad, xform, grid+half, zParams, sun, ambient. */
+export const TERRAIN_GLOBALS_FLOATS = 24;
 
-/** Pack the terrain Globals uniform (matches `TerrainGlobals` in terrain-wgsl). */
-export function packTerrainGlobals(
-  viewport: [number, number], xform: { sx: number; sy: number; ox: number; oy: number },
-): Float32Array {
+export interface TerrainGlobalsInput {
+  viewport: [number, number];
+  xform: { sx: number; sy: number; ox: number; oy: number };
+  grid: [number, number];          // cells: width, height
+  half: [number, number];          // iso half-tile px: halfW, halfH
+  zPxPerM: number; seaLevel: number; reliefM: number; subsample: number;
+  sunDir: [number, number, number]; bands: number;
+  ambient: [number, number, number]; sunStrength: number;
+}
+
+/** Pack the terrain Globals uniform (std140-ish; vec2 pairs share 16-byte slots). */
+export function packTerrainGlobals(g: TerrainGlobalsInput): Float32Array {
   const b = new Float32Array(TERRAIN_GLOBALS_FLOATS);
-  b[0] = viewport[0]; b[1] = viewport[1]; b[2] = 0; b[3] = 0;
-  b[4] = xform.sx; b[5] = xform.sy; b[6] = xform.ox; b[7] = xform.oy;
+  b[0] = g.viewport[0]; b[1] = g.viewport[1]; b[2] = 0; b[3] = 0;            // uViewport, uPad0
+  b[4] = g.xform.sx; b[5] = g.xform.sy; b[6] = g.xform.ox; b[7] = g.xform.oy; // uXform
+  b[8] = g.grid[0]; b[9] = g.grid[1]; b[10] = g.half[0]; b[11] = g.half[1];   // uGrid, uHalf
+  b[12] = g.zPxPerM; b[13] = g.seaLevel; b[14] = g.reliefM; b[15] = Math.max(1, g.subsample); // uZParams
+  b[16] = g.sunDir[0]; b[17] = g.sunDir[1]; b[18] = g.sunDir[2]; b[19] = Math.max(1, g.bands); // uSun
+  b[20] = g.ambient[0]; b[21] = g.ambient[1]; b[22] = g.ambient[2]; b[23] = g.sunStrength;     // uAmbient
   return b;
 }

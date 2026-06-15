@@ -26,7 +26,7 @@ import {
 import { LIT_WGSL } from '@/render/gpu/wgsl/lit-wgsl';
 import { TERRAIN_WGSL } from '@/render/gpu/wgsl/terrain-wgsl';
 import type { GpuContext } from '@/render/gpu/webgpu-context';
-import type { TerrainMesh } from '@/render/gpu/terrain-mesh';
+import type { TerrainField } from '@/render/gpu/terrain-field';
 
 const DEPTH_FORMAT: GPUTextureFormat = 'depth24plus';
 
@@ -43,11 +43,12 @@ export class GpuScene {
   // Terrain pass (R2d): flat per-vertex-colour heightfield mesh, drawn first.
   private terrainPipeline: GPURenderPipeline;
   private terrainGlobalsBuf: GPUBuffer;
-  private terrainGlobalsBind: GPUBindGroup;
-  private terrainPosBuf: GPUBuffer | null = null;
-  private terrainColBuf: GPUBuffer | null = null;
-  private terrainIdxBuf: GPUBuffer | null = null;
-  private terrainCap = 0; // index capacity of the current terrain buffers
+  // Buffer-driven terrain (T1): height + colour storage buffers; the bind group
+  // is rebuilt whenever they reallocate (grow-on-demand by cell count).
+  private terrainHeightsBuf: GPUBuffer | null = null;
+  private terrainColorsBuf: GPUBuffer | null = null;
+  private terrainBind: GPUBindGroup | null = null;
+  private terrainCellCap = 0;
   private depthTex: GPUTexture | null = null;
   private depthW = 0;
   private depthH = 0;
@@ -108,20 +109,14 @@ export class GpuScene {
     this.flatNormal = this.make1x1([128, 128, 255, 0]);      // a=0 ⇒ flat normal
     this.neutralMaterial = this.make1x1([0, 255, 0, 0]);     // a=0 ⇒ AO 1
 
-    // Terrain pipeline: two non-instanced vertex buffers (position xy, colour
-    // rgb), indexed. Depth 'always' + no write ⇒ painter order via the iso
-    // back-to-front index buffer; the entity pass (greater, > 0) draws over it.
+    // Terrain pipeline (T1): NO vertex buffers — the grid is generated in the
+    // vertex shader from @builtin(vertex_index) + the height/colour storage
+    // buffers. Terrain owns its OWN depth pass (spatial iso depth, greater,
+    // write), so it self-occludes; entities then draw over it in pass 2.
     const terrainModule = device.createShaderModule({ code: TERRAIN_WGSL });
     this.terrainPipeline = device.createRenderPipeline({
       layout: 'auto',
-      vertex: {
-        module: terrainModule,
-        entryPoint: 'vsMain',
-        buffers: [
-          { arrayStride: 8, stepMode: 'vertex', attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x2' }] },
-          { arrayStride: 12, stepMode: 'vertex', attributes: [{ shaderLocation: 1, offset: 0, format: 'float32x3' }] },
-        ],
-      },
+      vertex: { module: terrainModule, entryPoint: 'vsMain' },
       fragment: {
         module: terrainModule,
         entryPoint: 'fsMain',
@@ -134,13 +129,9 @@ export class GpuScene {
         }],
       },
       primitive: { topology: 'triangle-list' },
-      depthStencil: { format: DEPTH_FORMAT, depthWriteEnabled: false, depthCompare: 'always' },
+      depthStencil: { format: DEPTH_FORMAT, depthWriteEnabled: true, depthCompare: 'greater' },
     });
-    this.terrainGlobalsBuf = device.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-    this.terrainGlobalsBind = device.createBindGroup({
-      layout: this.terrainPipeline.getBindGroupLayout(0),
-      entries: [{ binding: 0, resource: { buffer: this.terrainGlobalsBuf } }],
-    });
+    this.terrainGlobalsBuf = device.createBuffer({ size: 96, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
   }
 
   private make1x1(rgba: [number, number, number, number]): GPUTexture {
@@ -201,38 +192,41 @@ export class GpuScene {
     return this.depthTex.createView();
   }
 
-  /** (Re)upload the terrain mesh into persistent GPU buffers, growing on demand. */
-  private uploadTerrain(mesh: TerrainMesh): void {
+  /** (Re)upload the terrain field buffers, growing + rebinding on cell-count
+   *  growth. Cheap when the field is unchanged size (just two writeBuffers). */
+  private uploadFields(heights: Float32Array, colors: Uint32Array): void {
     const { device } = this;
-    const posBytes = mesh.positions.byteLength;
-    const colBytes = mesh.colors.byteLength;
-    const idxBytes = mesh.indices.byteLength;
-    if (!this.terrainPosBuf || mesh.indices.length > this.terrainCap) {
-      this.terrainPosBuf?.destroy();
-      this.terrainColBuf?.destroy();
-      this.terrainIdxBuf?.destroy();
-      this.terrainPosBuf = device.createBuffer({ size: posBytes, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
-      this.terrainColBuf = device.createBuffer({ size: colBytes, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
-      this.terrainIdxBuf = device.createBuffer({ size: idxBytes, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
-      this.terrainCap = mesh.indices.length;
+    const cells = heights.length;
+    if (!this.terrainHeightsBuf || cells > this.terrainCellCap) {
+      this.terrainHeightsBuf?.destroy();
+      this.terrainColorsBuf?.destroy();
+      this.terrainHeightsBuf = device.createBuffer({ size: cells * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+      this.terrainColorsBuf = device.createBuffer({ size: cells * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+      this.terrainCellCap = cells;
+      this.terrainBind = device.createBindGroup({
+        layout: this.terrainPipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: this.terrainGlobalsBuf } },
+          { binding: 1, resource: { buffer: this.terrainHeightsBuf } },
+          { binding: 2, resource: { buffer: this.terrainColorsBuf } },
+        ],
+      });
     }
-    device.queue.writeBuffer(this.terrainPosBuf, 0, mesh.positions as GPUAllowSharedBufferSource);
-    device.queue.writeBuffer(this.terrainColBuf!, 0, mesh.colors as GPUAllowSharedBufferSource);
-    device.queue.writeBuffer(this.terrainIdxBuf!, 0, mesh.indices as GPUAllowSharedBufferSource);
+    device.queue.writeBuffer(this.terrainHeightsBuf, 0, heights as GPUAllowSharedBufferSource);
+    device.queue.writeBuffer(this.terrainColorsBuf!, 0, colors as GPUAllowSharedBufferSource);
   }
 
   /**
-   * Render one frame: the terrain heightfield mesh (if present) FIRST at back
-   * depth, then the entity draw list over it — one render pass, one clear.
-   * `w`,`h` = device-pixel target size. `xform` bakes the world→device camera
-   * transform (into entity instances on the CPU; into the terrain uniform).
+   * Render one frame: terrain (buffer-driven heightfield, T1) in its OWN depth
+   * pass, then the entity draw list over it in a second pass (depth reset so the
+   * two depth schemes never mix; colour preserved). `w`,`h` = device-pixel size.
    */
   renderFrame(opts: {
     items: readonly DrawItem[];
     lighting: LightingState;
     w: number; h: number;
     xform?: ViewTransform;
-    terrain?: TerrainMesh | null;
+    terrain?: TerrainField | null;
   }): void {
     const { device } = this;
     const { items, lighting, w, h, xform, terrain } = opts;
@@ -244,41 +238,42 @@ export class GpuScene {
       sunDir: lighting.sunDir, sunColor: lighting.sunColor,
     }) as GPUAllowSharedBufferSource);
 
-    const hasTerrain = !!(terrain && terrain.indices.length > 0);
+    const hasTerrain = !!(terrain && terrain.vertexCount > 0 && terrain.heights.length > 0);
     if (hasTerrain) {
-      this.uploadTerrain(terrain!);
-      device.queue.writeBuffer(this.terrainGlobalsBuf, 0, packTerrainGlobals(
-        [w, h], xform ?? { sx: 1, sy: 1, ox: 0, oy: 0 },
-      ) as GPUAllowSharedBufferSource);
+      this.uploadFields(terrain!.heights, terrain!.colors);
+      device.queue.writeBuffer(this.terrainGlobalsBuf, 0,
+        packTerrainGlobals(terrain!.globals) as GPUAllowSharedBufferSource);
     }
 
     const enc = device.createCommandEncoder();
-    const pass = enc.beginRenderPass({
-      colorAttachments: [{
-        view: this.ctx.getCurrentTexture().createView(),
-        clearValue: { r: 0, g: 0, b: 0, a: 0 }, // transparent where no ground
-        loadOp: 'clear', storeOp: 'store',
-      }],
-      depthStencilAttachment: {
-        view: this.ensureDepth(w, h),
-        depthClearValue: 0.0, depthLoadOp: 'clear', depthStoreOp: 'store',
-      },
-    });
+    const colorView = this.ctx.getCurrentTexture().createView();
+    const depthView = this.ensureDepth(w, h);
 
-    // Terrain pass: flat ground, painter order via the back-to-front index buffer.
+    // Pass 1 — terrain (own depth: spatial iso depth, greater, write).
     if (hasTerrain) {
-      pass.setPipeline(this.terrainPipeline);
-      pass.setBindGroup(0, this.terrainGlobalsBind);
-      pass.setVertexBuffer(0, this.terrainPosBuf!);
-      pass.setVertexBuffer(1, this.terrainColBuf!);
-      pass.setIndexBuffer(this.terrainIdxBuf!, 'uint32');
-      pass.drawIndexed(terrain!.indices.length);
+      const tpass = enc.beginRenderPass({
+        colorAttachments: [{ view: colorView, clearValue: { r: 0, g: 0, b: 0, a: 0 }, loadOp: 'clear', storeOp: 'store' }],
+        depthStencilAttachment: { view: depthView, depthClearValue: 0.0, depthLoadOp: 'clear', depthStoreOp: 'store' },
+      });
+      tpass.setPipeline(this.terrainPipeline);
+      tpass.setBindGroup(0, this.terrainBind!);
+      tpass.draw(terrain!.vertexCount);
+      tpass.end();
     }
 
-    // Entity pass: instanced lit sprites over the ground.
-    pass.setPipeline(this.pipeline);
-    pass.setVertexBuffer(0, this.quadBuf);
-    pass.setBindGroup(0, this.globalsBind);
+    // Pass 2 — entities (colour preserved if terrain drew; depth RESET so the
+    // entity index-depth scheme is self-contained and always wins over terrain).
+    const epass = enc.beginRenderPass({
+      colorAttachments: [{
+        view: colorView,
+        clearValue: { r: 0, g: 0, b: 0, a: 0 },
+        loadOp: hasTerrain ? 'load' : 'clear', storeOp: 'store',
+      }],
+      depthStencilAttachment: { view: depthView, depthClearValue: 0.0, depthLoadOp: 'clear', depthStoreOp: 'store' },
+    });
+    epass.setPipeline(this.pipeline);
+    epass.setVertexBuffer(0, this.quadBuf);
+    epass.setBindGroup(0, this.globalsBind);
     const scratch: GPUBuffer[] = [];
     for (const b of batches) {
       if (b.instances.length === 0) continue;
@@ -286,12 +281,12 @@ export class GpuScene {
       const instBuf = device.createBuffer({ size: data.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
       device.queue.writeBuffer(instBuf, 0, data as GPUAllowSharedBufferSource);
       scratch.push(instBuf);
-      pass.setBindGroup(1, this.batchBind(b));
-      pass.setVertexBuffer(1, instBuf);
-      pass.draw(QUAD_VERTEX_COUNT, b.instances.length);
+      epass.setBindGroup(1, this.batchBind(b));
+      epass.setVertexBuffer(1, instBuf);
+      epass.draw(QUAD_VERTEX_COUNT, b.instances.length);
     }
+    epass.end();
 
-    pass.end();
     device.queue.submit([enc.finish()]);
     void device.queue.onSubmittedWorkDone().then(() => { for (const s of scratch) s.destroy(); });
   }

@@ -109,18 +109,20 @@ creeps down the mountains, mud dries — all from cheap field updates.
 | **T6 — shadow LOD** | shadow-map cascades / resolution-by-zoom. |
 | **T7 — integration** | roads/rivers on the surface (`RenderEdge`), entity foot-z (sprites sit on terrain, shadows land on it). |
 
-## Open decisions (for the user)
+## Decisions (locked 2026-06-15)
 
-1. **Climate authority** — should temperature/moisture be authored per-biome
-   constants (simple) or a full sim field updated by a weather system (richer,
-   more work)? Proposal: per-biome base + a coarse weather field on top.
-2. **Material set v1** — snow / ice / water / mud is the proposed starter set.
-   Anything else essential early (sand drifts, ash, blood/scorch from divine
-   events)?
-3. **Detail-texture art** — procedural (value-noise in-shader, zero assets) vs
-   authored tiling textures. Proposal: procedural first (keyless), authored later.
-4. **Sequencing vs the deformation/road merges** — T1 lands independent of the
-   sibling branches; T3+ benefits once the deformation channel is on main.
+1. **Climate authority → per-biome base + coarse weather field.** Each biome
+   carries baseline temperature/moisture; a low-res, sim-ticked weather field
+   (fronts, seasons, day/night) modulates it; height adds a lapse rate (colder
+   uphill). Blended everywhere. `climate = blend(biome.temp, biome.moist) +
+   weatherField − heightLapse(h)`. (Not static-only; not a full weather sim.)
+2. **Material set v1 → snow + water/puddles + ice + mud (all four).** snow =
+   cold & (high | precip); water/puddles = low spots/drainage + rain (detail
+   texture for small ones); ice = cold & standing water; mud = wet & disturbed.
+3. **Detail-texture art** (open) — procedural value-noise in-shader first
+   (keyless), authored tiling textures later. Decide at T4.
+4. **Sequencing vs merges** — T1 lands independent of the sibling branches;
+   T3+ climate/materials benefit once the deformation channel is on main.
 
 ## What this supersedes
 
