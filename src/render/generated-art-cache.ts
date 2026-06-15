@@ -18,6 +18,11 @@ export interface GeneratedArtRecord {
   // renderer — stored for the lit renderer (later PBR slices) and door/vent
   // pathing. Optional so albedo-only records still validate.
   normal?: Blob; material?: Blob; emissive?: Blob; anchors?: string;
+  // NEGATIVE marker: this blueprint generated but failed the quality gate at this
+  // recipe+model, so future loads skip it instead of re-paying (the prior
+  // regenerate-every-load leak). No usable art rides along (empty `blob`). Keyed
+  // by recipe+model, so a recipe bump or model switch retries automatically.
+  failed?: boolean;
 }
 
 /** A generated building sprite + its co-registered companion map pack. */
@@ -80,7 +85,7 @@ export async function readGeneratedArt(key: string): Promise<GeneratedArt | null
       const req = tx.objectStore(DB_STORE).get(key);
       req.onsuccess = () => {
         const r = req.result as GeneratedArtRecord | undefined;
-        resolve(r && r.recipeVersion === ART_RECIPE_VERSION
+        resolve(r && r.recipeVersion === ART_RECIPE_VERSION && !r.failed
           ? { blob: r.blob, targetWidth: r.targetWidth,
               normal: r.normal, material: r.material, emissive: r.emissive, anchors: r.anchors }
           : null);
@@ -88,6 +93,49 @@ export async function readGeneratedArt(key: string): Promise<GeneratedArt | null
       req.onerror = () => reject(req.error);
     }), 'read');
   } catch (err) { console.warn('[generated-art-cache] read failed:', err); return null; }
+}
+
+/**
+ * True when `key` carries a NEGATIVE marker at the current recipe version: a prior
+ * session generated this blueprint but it failed the quality gate, so the caller
+ * should skip it rather than re-pay. Self-invalidates on a recipe/model bump (the
+ * key embeds both, so a different recipe/model simply misses this record).
+ */
+export async function isGeneratedArtFailed(key: string): Promise<boolean> {
+  if (!hasIdb()) return false;
+  try {
+    const db = await openDb();
+    return await withIdbTimeout(new Promise((resolve, reject) => {
+      const tx = db.transaction(DB_STORE, 'readonly');
+      const req = tx.objectStore(DB_STORE).get(key);
+      req.onsuccess = () => {
+        const r = req.result as GeneratedArtRecord | undefined;
+        resolve(!!(r && r.failed && r.recipeVersion === ART_RECIPE_VERSION));
+      };
+      req.onerror = () => reject(req.error);
+    }), 'read');
+  } catch (err) { console.warn('[generated-art-cache] failed-check failed:', err); return false; }
+}
+
+/**
+ * Persist a NEGATIVE marker so a generation that failed its quality gate is not
+ * re-paid on every reload. Stamped with the current recipe version + model, so a
+ * recipe bump or model switch retries it automatically.
+ */
+export async function writeGeneratedArtFailure(key: string, model: string): Promise<void> {
+  if (!hasIdb()) return;
+  try {
+    const db = await openDb();
+    await withIdbTimeout(new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(DB_STORE, 'readwrite');
+      tx.objectStore(DB_STORE).put({
+        key, blob: new Blob(), recipeVersion: ART_RECIPE_VERSION, model,
+        prompt: '', targetWidth: 0, createdAt: 0, failed: true,
+      } satisfies GeneratedArtRecord);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    }), 'write');
+  } catch (err) { console.warn('[generated-art-cache] failure-write failed:', err); }
 }
 
 export async function writeGeneratedArt(

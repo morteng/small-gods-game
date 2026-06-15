@@ -18,7 +18,10 @@ import { toGeometry } from '@/blueprint/compile/to-geometry';
 import { greyToDataUri } from '@/render/iso/sprite-canvas';
 import { buildingImagePrompt } from '@/assetgen/building-image-prompt';
 import { chromaKeyMagenta, compositeOverChroma } from '@/render/chroma-key';
-import { canonicalJson, generatedArtKey, readGeneratedArt, writeGeneratedArt } from '@/render/generated-art-cache';
+import {
+  canonicalJson, generatedArtKey, readGeneratedArt, writeGeneratedArt,
+  isGeneratedArtFailed, writeGeneratedArtFailure,
+} from '@/render/generated-art-cache';
 import {
   type Raster, cropRaster, borderKeyedFraction, registerAlbedo, quantizePalette,
 } from '@/render/sprite-postprocess';
@@ -79,6 +82,12 @@ export interface GeneratedSourceDeps {
     model: string; prompt: string; targetWidth: number;
     normal?: Blob; material?: Blob; emissive?: Blob; anchors?: string;
   }) => Promise<void>;
+  /** True if this key was previously recorded as a FAILED generation at the current
+   *  recipe+model — skip it instead of re-paying every load. */
+  cacheFailed?: (key: string) => Promise<boolean>;
+  /** Persist a negative marker after a generation fails its quality gate, so the
+   *  next reload skips it rather than re-paying. */
+  recordFailure?: (key: string) => Promise<void>;
 }
 
 export class GeneratedBuildingArtSource {
@@ -117,6 +126,8 @@ export class GeneratedBuildingArtSource {
       cacheGet: (k) => readGeneratedArt(k),
       baseGet: (k) => this.fetchFromBaseLibrary(k),
       cachePut: (k, b, m) => writeGeneratedArt(k, b, m),
+      cacheFailed: (k) => isGeneratedArtFailed(k),
+      recordFailure: (k) => writeGeneratedArtFailure(k, deps.model()),
       ...deps,
     } as Required<GeneratedSourceDeps>;
   }
@@ -265,6 +276,11 @@ export class GeneratedBuildingArtSource {
         this.cache.set(key, r ? await this.toPack(r, hit.normal, hit.material) : null);
         return;
       }
+      // Known-bad at this recipe+model: a prior session generated this blueprint
+      // but it failed the quality gate. Skip rather than re-pay to regenerate it
+      // every load (the old regenerate-every-load leak). Self-heals on a recipe
+      // bump or model switch — the key changes, so this marker no longer matches.
+      if (await this.d.cacheFailed(key)) { this.cache.set(key, null); return; }
       // Over budget: cache null so we DON'T re-enter run() (and re-read IDB) every
       // frame for this building. Session spend only ever rises, so retrying within
       // the session is pointless; a reload clears this in-mem cache and resets the
@@ -274,7 +290,14 @@ export class GeneratedBuildingArtSource {
       const pack = await this.d.produce(rb);
       let sprite: Raster | null = null;
       for (let n = 1; n <= MAX_ATTEMPTS && !sprite; n++) sprite = await this.attempt(pack, prompt, key, n);
-      if (!sprite) { this.cache.set(key, null); return; } // session-only null; the IDB cache stays clean
+      if (!sprite) {
+        // Generated but failed every quality gate: persist a negative marker so the
+        // next reload skips it instead of re-paying. (A decode/network failure
+        // throws instead and lands in catch — those stay session-only/retryable.)
+        await this.d.recordFailure(key);
+        this.cache.set(key, null);
+        return;
+      }
       const png = await this.d.encodeRaster(sprite);
       if (png) {
         await this.d.cachePut(key, png, {

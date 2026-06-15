@@ -113,7 +113,13 @@ export class Game {
   private readonly parametricPlantSource = new ParametricPlantSource();
   /** WebGL entity layer (PBR epic) — lazy pixi.js init on first iso frame. */
   private readonly pixiEntityLayer = new PixiEntityLayer();
-  private liveBuildingArtEnabled = true; // setting `liveBuildingArt`, default ON
+  // Paid building-art generation is OFF by default while the renderer + connectome
+  // (roads, etc.) stabilise and the FLUX img2img settings are retuned — re-enable
+  // via the `liveBuildingArt` setting once generation is worth paying for again.
+  // Cached/vendored sprites still render; uncached buildings fall back to the grey
+  // parametric model. The negative-cache (generated-art-cache.ts) means even when
+  // re-enabled a gate-failing building is paid for once, not every load.
+  private liveBuildingArtEnabled = false; // setting `liveBuildingArt`, default OFF
   private readonly generatedBuildingArtSource = new GeneratedBuildingArtSource({
     enabled: () => this.liveBuildingArtEnabled,
     canSpend: () => this.costTracker.snapshot().sessionUsd < SESSION_CAP_USD,

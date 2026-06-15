@@ -145,6 +145,34 @@ describe('GeneratedBuildingArtSource', () => {
     await vi.waitFor(() => expect(src.peek(e)).toBeNull());
   });
 
+  it('a quality-gate failure persists a negative marker (no re-pay next load)', async () => {
+    const recordFailure = vi.fn(async () => {});
+    // opaque background → border gate fails both attempts → genuine bad generation.
+    const { src, generate } = makeSource({ decodeImage: async () => opaqueBgLlm(), recordFailure });
+    const e = entity('cottage'); src.warm(e);
+    await vi.waitFor(() => expect(generate).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(recordFailure).toHaveBeenCalledTimes(1));
+    expect(src.peek(e)).toBeNull();
+  });
+
+  it('a decode/network throw is session-only (NOT marked failed — stays retryable)', async () => {
+    const recordFailure = vi.fn(async () => {});
+    const { src } = makeSource({ generate: vi.fn(async () => { throw new Error('net'); }), recordFailure });
+    const e = entity('cottage'); src.warm(e);
+    await vi.waitFor(() => expect(src.peek(e)).toBeNull());
+    expect(recordFailure).not.toHaveBeenCalled();
+  });
+
+  it('skips a previously-failed key without paying (cacheFailed → true)', async () => {
+    const cacheFailed = vi.fn(async () => true);
+    const { src, generate } = makeSource({ cacheGet: async () => null, cacheFailed });
+    const e = entity('cottage'); src.warm(e);
+    await vi.waitFor(() => expect(cacheFailed).toHaveBeenCalledTimes(1));
+    await Promise.resolve(); await Promise.resolve();
+    expect(generate).not.toHaveBeenCalled();
+    expect(src.peek(e)).toBeNull();
+  });
+
   it('identical blueprints share one generation', async () => {
     const { src, generate } = makeSource();
     src.warm(entity('cottage')); src.warm(entity('cottage'));

@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect, beforeEach } from 'vitest';
 import 'fake-indexeddb/auto';
-import { readGeneratedArt, writeGeneratedArt, clearGeneratedArt, _resetGeneratedArtDbForTesting, generatedArtKey, canonicalJson } from '@/render/generated-art-cache';
+import { readGeneratedArt, writeGeneratedArt, clearGeneratedArt, _resetGeneratedArtDbForTesting, generatedArtKey, canonicalJson, isGeneratedArtFailed, writeGeneratedArtFailure } from '@/render/generated-art-cache';
 
 beforeEach(async () => { _resetGeneratedArtDbForTesting(); await clearGeneratedArt(); });
 
@@ -28,6 +28,20 @@ describe('generated-art-cache', () => {
     expect(await got!.material!.arrayBuffer()).toEqual(await mk(3).arrayBuffer());
     expect(await got!.emissive!.arrayBuffer()).toEqual(await mk(4).arrayBuffer());
     expect(got!.anchors).toBe('{"doors":[]}');
+  });
+
+  it('persists a negative marker; isGeneratedArtFailed reports it, read returns null', async () => {
+    expect(await isGeneratedArtFailed('bad')).toBe(false);   // miss
+    await writeGeneratedArtFailure('bad', 'm');
+    expect(await isGeneratedArtFailed('bad')).toBe(true);     // recorded
+    expect(await readGeneratedArt('bad')).toBeNull();         // never served as art
+  });
+
+  it('a real art record is not reported as failed', async () => {
+    const blob = new Blob([new Uint8Array([9])], { type: 'image/png' });
+    await writeGeneratedArt('ok', blob, { model: 'm', prompt: 'p', targetWidth: 64 });
+    expect(await isGeneratedArtFailed('ok')).toBe(false);
+    expect((await readGeneratedArt('ok'))?.targetWidth).toBe(64);
   });
 });
 

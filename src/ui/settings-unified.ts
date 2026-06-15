@@ -291,11 +291,12 @@ function createGameSettings(opts: SettingsOptions): HTMLElement {
   // POI markers toggle
   section.appendChild(createToggleRow('Show POI Markers', 'showPoiMarkers', true, opts));
 
-  // Live building art toggle
-  section.appendChild(createToggleRow('Generate building art (uses your OpenRouter key)', 'liveBuildingArt', true, opts));
+  // Live building art toggle — OFF by default (paused while the renderer/connectome
+  // stabilise and the img2img settings are retuned; see game.ts liveBuildingArtEnabled).
+  section.appendChild(createToggleRow('Generate building art (uses your OpenRouter key)', 'liveBuildingArt', false, opts));
   const liveArtNote = document.createElement('div');
   liveArtNote.style.cssText = 'font-size:11px;color:var(--ink-3,#888);margin:2px 0 8px;';
-  liveArtNote.textContent = 'Renders buildings as AI pixel-art from their 3D shape. ~$0.04 each, cached. Capped at $2/session.';
+  liveArtNote.textContent = 'Paused for now. When on, renders buildings as AI pixel-art from their 3D shape. ~$0.04 each, cached. Capped at $2/session.';
   section.appendChild(liveArtNote);
 
   // Debug mode toggle
