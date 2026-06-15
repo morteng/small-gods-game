@@ -26,10 +26,13 @@ import {
 import { LIT_WGSL } from '@/render/gpu/wgsl/lit-wgsl';
 import { TERRAIN_WGSL } from '@/render/gpu/wgsl/terrain-wgsl';
 import { SHADOW_WGSL, SHADOW_COMPOSITE_WGSL } from '@/render/gpu/wgsl/shadow-wgsl';
+import { SHAPE_WGSL } from '@/render/gpu/wgsl/shape-wgsl';
 import {
   buildShadowBatches, packShadowInstances, SHADOW_ALPHA,
   SHADOW_INSTANCE_STRIDE,
 } from '@/render/gpu/shadow-instance';
+import { buildShapeVertices, SHAPE_VERTEX_STRIDE } from '@/render/gpu/shape-geometry';
+import { liftDrawList } from '@/render/gpu/terrain-lift';
 import type { GpuContext } from '@/render/gpu/webgpu-context';
 import type { TerrainField } from '@/render/gpu/terrain-field';
 
@@ -65,6 +68,11 @@ export class GpuScene {
   private shadowGlobalsBind: GPUBindGroup;
   private compositePipeline: GPURenderPipeline;
   private compositeGlobalsBuf: GPUBuffer;
+  // Solid-colour shape pass (poly/circle parity): drawn in the entity pass,
+  // sharing its depth buffer so shapes interleave with sprites by depth.
+  private shapePipeline: GPURenderPipeline;
+  private shapeGlobalsBuf: GPUBuffer;
+  private shapeGlobalsBind: GPUBindGroup;
   private shadowTex: GPUTexture | null = null;
   private shadowW = 0;
   private shadowH = 0;
@@ -210,6 +218,42 @@ export class GpuScene {
     });
     this.compositeGlobalsBuf = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     device.queue.writeBuffer(this.compositeGlobalsBuf, 0, new Float32Array([SHADOW_ALPHA, 0, 0, 0]));
+
+    // Solid-colour shape pipeline: per-vertex (pos+depth, colour) triangles.
+    // SAME colour target + blend + depth scheme as the entity pipeline so it can
+    // run in the entity pass and depth-interleave with sprites.
+    const shapeModule = device.createShaderModule({ code: SHAPE_WGSL });
+    this.shapePipeline = device.createRenderPipeline({
+      layout: 'auto',
+      vertex: {
+        module: shapeModule,
+        entryPoint: 'vsMain',
+        buffers: [{
+          arrayStride: SHAPE_VERTEX_STRIDE, stepMode: 'vertex', attributes: [
+            { shaderLocation: 0, offset: 0, format: 'float32x3' },  // x, y, depth
+            { shaderLocation: 1, offset: 12, format: 'float32x4' }, // rgba
+          ],
+        }],
+      },
+      fragment: {
+        module: shapeModule,
+        entryPoint: 'fsMain',
+        targets: [{
+          format: gpu.format,
+          blend: {
+            color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' },
+            alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' },
+          },
+        }],
+      },
+      primitive: { topology: 'triangle-list' },
+      depthStencil: { format: DEPTH_FORMAT, depthWriteEnabled: true, depthCompare: 'greater' },
+    });
+    this.shapeGlobalsBuf = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    this.shapeGlobalsBind = device.createBindGroup({
+      layout: this.shapePipeline.getBindGroupLayout(0),
+      entries: [{ binding: 0, resource: { buffer: this.shapeGlobalsBuf } }],
+    });
   }
 
   private make1x1(rgba: [number, number, number, number]): GPUTexture {
@@ -346,7 +390,11 @@ export class GpuScene {
     terrain?: TerrainField | null;
   }): void {
     const { device } = this;
-    const { items, lighting, w, h, xform, terrain } = opts;
+    const { items: rawItems, lighting, w, h, xform, terrain } = opts;
+    // Lift entities onto the GPU terrain surface (foot-z parity) before any
+    // batching/shadow/shape work, so sprites, fallback shapes and cast shadows
+    // all ride the heightfield together. No-op when there's no terrain.
+    const items = terrain ? liftDrawList(rawItems, terrain) : rawItems;
     const { batches } = buildInstanceBatches(items);
     if (xform) for (const b of batches) applyViewTransform(b, xform);
 
@@ -450,6 +498,20 @@ export class GpuScene {
       epass.setBindGroup(1, this.batchBind(b));
       epass.setVertexBuffer(1, instBuf);
       epass.draw(QUAD_VERTEX_COUNT, b.instances.length);
+    }
+
+    // Solid-colour shapes (poly/circle) — same pass + depth buffer, so they
+    // interleave with sprites by their list-order depth.
+    const shapes = buildShapeVertices(items, xform);
+    if (shapes.vertexCount > 0) {
+      device.queue.writeBuffer(this.shapeGlobalsBuf, 0, new Float32Array([w, h, 0, 0]));
+      const sBuf = device.createBuffer({ size: shapes.vertices.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+      device.queue.writeBuffer(sBuf, 0, shapes.vertices as GPUAllowSharedBufferSource);
+      scratch.push(sBuf);
+      epass.setPipeline(this.shapePipeline);
+      epass.setBindGroup(0, this.shapeGlobalsBind);
+      epass.setVertexBuffer(0, sBuf);
+      epass.draw(shapes.vertexCount);
     }
     epass.end();
 

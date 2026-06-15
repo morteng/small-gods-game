@@ -11,9 +11,9 @@
 // the camera's world→device transform (zoom + snapped offset × DPR) into the
 // entity instances (CPU) and the terrain uniform (GPU).
 //
-// Known gaps: `poly`/`circle` passthrough items (barrier fills, NPC fallback
-// diamonds) not yet GPU-drawn (R2e); entities still sit at z=0 so they don't yet
-// follow terrain height (foot-z from `heightAt` is a later step).
+// Parity: `poly`/`circle` fallback fills now draw on the GPU (`shape-geometry.ts`)
+// and entities ride the terrain surface (foot-z lift, `terrain-lift.ts`), so the
+// GPU path matches the Canvas2D/Pixi entity passes.
 
 import type { RenderContext } from '@/core/types';
 import type { RenderFn } from '@/render/select-renderer';
