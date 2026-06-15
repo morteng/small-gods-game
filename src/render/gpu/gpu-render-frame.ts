@@ -24,9 +24,16 @@ import { isLayerHidden } from '@/render/layer-visibility';
 import { buildEntityDrawList } from '@/render/iso/entity-draw-list';
 import { DEFAULT_LIGHTING } from '@/render/lighting-state';
 import { buildTerrainField, type TerrainField } from '@/render/gpu/terrain-field';
+import { drawWorldConnectome } from '@/render/connectome-overlay';
 import type { GpuScene } from '@/render/gpu/gpu-scene';
 
 const BG_COLOR = '#1a1a24';
+
+/** `?connectome` shows the whole-world graph overlay (POIs, roads, settlements). */
+function connectomeRequested(): boolean {
+  try { return new URLSearchParams(window.location.search).has('connectome'); }
+  catch { return false; }
+}
 
 /**
  * Build the `?render=gpu` frame closure over a ready GpuScene and its overlay
@@ -35,6 +42,7 @@ const BG_COLOR = '#1a1a24';
  */
 export function buildGpuRenderFrame(scene: GpuScene, gpuCanvas: HTMLCanvasElement): RenderFn {
   const atlas = createNullAtlas();
+  const showConnectome = connectomeRequested();
   return function renderMap(ctx: CanvasRenderingContext2D, rc: RenderContext): void {
     const { camera, canvasWidth, canvasHeight, map } = rc;
     const target = ctx.canvas;
@@ -86,5 +94,6 @@ export function buildGpuRenderFrame(scene: GpuScene, gpuCanvas: HTMLCanvasElemen
     ctx.restore();
 
     drawIsoOverlays(ctx, rc);
+    if (showConnectome) drawWorldConnectome(ctx, rc);
   };
 }

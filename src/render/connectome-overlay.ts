@@ -1,0 +1,120 @@
+// src/render/connectome-overlay.ts
+//
+// Draws the ENTIRE world connectome as a graph over the rendered world: POIs as
+// labelled nodes, the inter-POI road/river network as edges (from `map.roadGraph`,
+// the Slice-0 source of truth), junction/waypoint nodes, and each settlement's
+// local street graph (`map.settlementPlans`). A debug/inspection view — toggled
+// with `?connectome` — that makes the world's graph structure legible.
+//
+// Projection matches the T1 GPU terrain EXACTLY (iso + height lift), so nodes and
+// edges sit on the lifted surface rather than floating on a flat plane.
+
+import type { RenderContext, Camera, GameMap, POI } from '@/core/types';
+import { ISO_TILE_W, ISO_TILE_H } from '@/render/iso/iso-constants';
+import { elevationAt, ELEVATION_SEA_LEVEL, TERRAIN_RELIEF_M } from '@/world/heightfield';
+import { TERRAIN_Z_PX_PER_M } from '@/render/gpu/terrain-field';
+
+const HALF_W = ISO_TILE_W / 2;
+const HALF_H = ISO_TILE_H / 2;
+
+const EDGE_STYLE: Record<string, { color: string; width: number }> = {
+  road: { color: 'rgba(225, 178, 92, 0.9)', width: 2 },
+  river: { color: 'rgba(96, 170, 230, 0.85)', width: 3 },
+  wall: { color: 'rgba(170, 170, 180, 0.9)', width: 2 },
+};
+
+/** Project a tile coord to CSS-pixel screen space, lifted onto the terrain. */
+function project(map: GameMap, tx: number, ty: number, cam: Camera): { x: number; y: number } {
+  const elev = elevationAt(map, tx, ty);
+  const lift = (elev - ELEVATION_SEA_LEVEL) * TERRAIN_RELIEF_M * TERRAIN_Z_PX_PER_M;
+  const sx = ((tx - ty) * HALF_W - cam.x) * cam.zoom;
+  const sy = ((tx + ty) * HALF_H - lift - cam.y) * cam.zoom;
+  return { x: sx, y: sy };
+}
+
+function strokePolyline(
+  ctx: CanvasRenderingContext2D, map: GameMap, cam: Camera,
+  pts: ReadonlyArray<{ x: number; y: number }>,
+): void {
+  if (pts.length < 2) return;
+  ctx.beginPath();
+  for (let i = 0; i < pts.length; i++) {
+    const p = project(map, pts[i].x, pts[i].y, cam);
+    if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y);
+  }
+  ctx.stroke();
+}
+
+function dot(
+  ctx: CanvasRenderingContext2D, x: number, y: number, r: number, fill: string, stroke?: string,
+): void {
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.fillStyle = fill;
+  ctx.fill();
+  if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = 1.5; ctx.stroke(); }
+}
+
+/**
+ * Draw the whole-world connectome overlay onto the Canvas2D overlay context.
+ * No-op when there's no world graph (returns early).
+ */
+export function drawWorldConnectome(ctx: CanvasRenderingContext2D, rc: RenderContext): void {
+  const { map, camera } = rc;
+  if (!map) return;
+
+  ctx.save();
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+
+  // 1) Settlement street graphs (local lanes) — drawn first, faint, underneath.
+  for (const plan of map.settlementPlans ?? []) {
+    ctx.strokeStyle = 'rgba(210, 200, 180, 0.35)';
+    ctx.lineWidth = 1;
+    for (const e of plan.edges) {
+      // SettlementPlan edges carry a tile path; project it as a polyline.
+      strokePolyline(ctx, map, camera, e.tiles);
+    }
+  }
+
+  // 2) Inter-POI road / river / wall edges (the world connectome backbone).
+  const graph = map.roadGraph;
+  if (graph) {
+    for (const e of graph.edges) {
+      const s = EDGE_STYLE[e.feature] ?? EDGE_STYLE.road;
+      ctx.strokeStyle = s.color;
+      ctx.lineWidth = s.width * Math.max(0.5, Math.min(camera.zoom, 2));
+      strokePolyline(ctx, map, camera, e.polyline);
+    }
+    // 3) Junction + waypoint nodes.
+    for (const n of graph.nodes) {
+      if (n.kind === 'poi') continue; // POIs drawn richer below
+      const p = project(map, n.x, n.y, camera);
+      if (n.kind === 'junction') dot(ctx, p.x, p.y, 3, 'rgba(255, 160, 70, 0.95)');
+      else dot(ctx, p.x, p.y, 2, 'rgba(200, 200, 210, 0.7)'); // waypoint / end
+    }
+  }
+
+  // 4) POI nodes (the whole set, including unconnected ones) with labels.
+  const pois: POI[] = map.worldSeed?.pois ?? [];
+  ctx.font = '600 11px ui-sans-serif, system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'bottom';
+  for (const poi of pois) {
+    if (!poi.position) continue;
+    const p = project(map, poi.position.x, poi.position.y, camera);
+    const r = poi.importance === 'critical' ? 7 : poi.importance === 'high' ? 6 : 5;
+    dot(ctx, p.x, p.y, r, 'rgba(255, 214, 102, 0.95)', 'rgba(40, 30, 10, 0.9)');
+    if (poi.name) {
+      const label = poi.name;
+      const ly = p.y - r - 3;
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = 'rgba(10, 12, 18, 0.85)';
+      ctx.strokeText(label, p.x, ly);
+      ctx.fillStyle = '#fff3d6';
+      ctx.fillText(label, p.x, ly);
+    }
+  }
+
+  ctx.restore();
+}
