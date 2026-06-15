@@ -158,7 +158,11 @@ export function createMinimapPanel(
   container.appendChild(panel);
 
   const ctx = canvas.getContext('2d')!;
-  let visible = true;
+  // Ditched for now: the "World Map" panel starts hidden (UI declutter + skips its
+  // per-frame canvas redraw — frame-renderer only updates it while visible). The
+  // keyboard toggle (M) still summons it, so this is reversible, not removed.
+  let visible = false;
+  panel.style.display = 'none';
 
   function renderMinimap(
     map: GameMap,
