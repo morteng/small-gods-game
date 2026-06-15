@@ -90,6 +90,12 @@ export class DivineEffects {
     this.particles = this.particles.filter(p => p.life > 0);
   }
 
+  /** True while any effect or particle is still animating — lets a render-on-demand
+   *  loop keep drawing frames during a paused world until the effect finishes. */
+  isActive(): boolean {
+    return this.effects.length > 0 || this.particles.length > 0;
+  }
+
   /**
    * Render all active effects to the canvas.
    * @param ctx - Canvas 2D context

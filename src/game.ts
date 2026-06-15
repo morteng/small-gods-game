@@ -98,6 +98,13 @@ export class Game {
   private resizeObserver: ResizeObserver;
   private rafId: number | null = null;
   private lastTime: number = 0;
+  // Render-on-demand flag for the "real pause" path: a LIVE world redraws every
+  // frame, but a PAUSED world only redraws when something visual changed (camera,
+  // hover, selection, a UI toggle, resize). Starts true so the first frame draws.
+  // Set via requestRender(); consumed in the frame loop.
+  private needsRender = true;
+  /** Mark the scene dirty so the next frame redraws even while paused. */
+  private requestRender = (): void => { this.needsRender = true; };
   private divine!: DivineActionsController;
   private ui!: GameUi;
   private llmClient!: LLMClient;
@@ -267,8 +274,8 @@ export class Game {
 
     this.detachTimeKeys = attachTimeKeys(window, {
       onToggleTimeBar: () => this.toggleTimeBar(),
-      onTogglePause:   () => this.scheduler.setRate(this.scheduler.getRate() === 0 ? 1 : 0),
-      onSetRate:       (n) => this.scheduler.setRate(n),
+      onTogglePause:   () => { this.scheduler.setRate(this.scheduler.getRate() === 0 ? 1 : 0); this.requestRender(); },
+      onSetRate:       (n) => { this.scheduler.setRate(n); this.requestRender(); },
       timeBarOpen:     () => this.timeBar !== null,
       onEscape:        () => { if (this.timeBar) this.toggleTimeBar(); },
     });
@@ -286,20 +293,24 @@ export class Game {
       },
       onTargetNpc: (npcId) => {
         this.state.selectedNpcId = npcId;
+        this.requestRender();
       },
       onClickMinimapTile: (x, y) => {
         const vp = this.viewport();
         focusCameraOnTile(this.state.camera, x, y, vp.width, vp.height, readRenderMode());
+        this.requestRender();
       },
       onZoomIn: () => {
         const vp = this.viewport();
         const q = readRenderMode() === 'iso' ? quantizeIsoZoom : undefined;
         zoomAt(this.state.camera, 1.2, vp.width / 2, vp.height / 2, q);
+        this.requestRender();
       },
       onZoomOut: () => {
         const vp = this.viewport();
         const q = readRenderMode() === 'iso' ? quantizeIsoZoom : undefined;
         zoomAt(this.state.camera, 1 / 1.2, vp.width / 2, vp.height / 2, q);
+        this.requestRender();
       },
       onFitView: () => {
         if (!this.state.map) return;
@@ -308,6 +319,7 @@ export class Game {
           this.state.camera, this.state.map.width, this.state.map.height,
           vp.width, vp.height, readRenderMode(),
         );
+        this.requestRender();
       },
       onZoomActual: () => {
         // Snap to exactly 1:1 about the viewport centre — keeps the centred world
@@ -315,6 +327,7 @@ export class Game {
         const vp = this.viewport();
         const z = this.state.camera.zoom || 1;
         zoomAt(this.state.camera, 1 / z, vp.width / 2, vp.height / 2);
+        this.requestRender();
       },
       onNewWorld: () => { void this.newWorld(); },
       onGameSettingChange: (key, value) => {
@@ -325,6 +338,7 @@ export class Game {
           this.state.debug = value as boolean;
           this.ui.debugHud.style.display = this.state.debug ? 'block' : 'none';
         }
+        this.requestRender();
       },
       onLLMConfigChange: (config) => this.applyLlmConfig(config),
       attentionStore: this.attentionStore,
@@ -387,6 +401,7 @@ export class Game {
           // forceInfoRefresh makes it happen immediately.
           this.state.selectedNpcId = entityId;
           this.renderer.forceInfoRefresh();
+          this.requestRender();
           return;
         }
         // Gold place-link: pan the camera to the POI.
@@ -399,9 +414,10 @@ export class Game {
         if (pos) {
           const vp = this.viewport();
           focusCameraOnTile(this.state.camera, pos.x, pos.y, vp.width, vp.height, readRenderMode());
+          this.requestRender();
         }
       },
-      onCloseBuilding: () => { this.state.selectedBuildingId = null; },
+      onCloseBuilding: () => { this.state.selectedBuildingId = null; this.requestRender(); },
     });
 
     this.spendChip = mountSpendChip(this.ui.bottomLeftBar, this.costTracker);
@@ -411,7 +427,7 @@ export class Game {
       state: this.state,
       llmDisplay: this.ui.llmDisplay,
       client: this.llmClient,
-      onWriteback: () => this.renderer.forceInfoRefresh(),
+      onWriteback: () => { this.renderer.forceInfoRefresh(); this.requestRender(); },
     });
 
     // ── Fate brain (Track 4) — autonomous reactive producer ──────────────────
@@ -462,33 +478,38 @@ export class Game {
     this.resize();
 
     this.cleanupControls = attachControls(this.canvas, this.state.camera, {
-      onTileClick: (x, y) => this.input.onTileClick(x, y),
-      onCanvasClick: (sx, sy) => this.input.onCanvasClick(sx, sy),
-      onTileRightClick: (x, y) => void this.input.onTileRightClick(x, y),
-      onRightClick: (sx, sy) => void this.input.onRightClick(sx, sy),
+      // Canvas interactions mutate selection / cast divine actions → redraw even
+      // while paused (divine effects keep animating via DivineEffects.isActive()).
+      onTileClick: (x, y) => { this.input.onTileClick(x, y); this.requestRender(); },
+      onCanvasClick: (sx, sy) => { const r = this.input.onCanvasClick(sx, sy); this.requestRender(); return r; },
+      onTileRightClick: (x, y) => { void this.input.onTileRightClick(x, y); this.requestRender(); },
+      onRightClick: (sx, sy) => { void this.input.onRightClick(sx, sy); this.requestRender(); },
       onTogglePause: () => this.togglePause(),
-      onToggleLabels: () => { this.state.showLabels = !this.state.showLabels; },
-      onTogglePoiMarkers: () => { this.state.showPoiMarkers = !this.state.showPoiMarkers; },
+      onToggleLabels: () => { this.state.showLabels = !this.state.showLabels; this.requestRender(); },
+      onTogglePoiMarkers: () => { this.state.showPoiMarkers = !this.state.showPoiMarkers; this.requestRender(); },
       onToggleDebug: () => {
         this.state.debug = !this.state.debug;
         this.ui.debugHud.style.display = this.state.debug ? 'block' : 'none';
         // Sync with unified settings
         this.ui.unifiedSettings.updateGameSetting('debug', this.state.debug);
+        this.requestRender();
       },
       onHoverTile: (x, y, sx, sy) => {
         this.interaction.hoverTile = { x, y };
         this.interaction.hoverScreen = { x: sx, y: sy };
+        this.requestRender();  // hover highlight must redraw even while paused
       },
       onToggleFollow: () => {
         if (!this.state.selectedNpcId) return;
         this.state.followNpc = !this.state.followNpc;
+        this.requestRender();
       },
-      onUserCameraInput: () => { this.state.followNpc = false; },
+      onUserCameraInput: () => { this.state.followNpc = false; this.requestRender(); },
       getZoomQuantize: () => (readRenderMode() === 'iso' ? quantizeIsoZoom : undefined),
       onToggleSettings: () => this.ui.unifiedSettings.toggle(),
-      onToggleMinimap: () => this.ui.minimap?.toggle(),
+      onToggleMinimap: () => { this.ui.minimap?.toggle(); this.requestRender(); },
       onShowTutorial: () => this.ui.tutorial?.show('welcome'),
-      onRedraw: () => {},
+      onRedraw: this.requestRender,  // controls fire this on drag-pan + wheel-zoom
     });
   }
 
@@ -518,6 +539,7 @@ export class Game {
     const paused = this.scheduler.getRate() === 0;
     this.scheduler.setRate(paused ? 1 : 0);
     this.refreshPauseBanner();
+    this.requestRender();
   }
 
   private refreshPauseBanner(): void {
@@ -545,6 +567,7 @@ export class Game {
         // Immediate chrome refresh (the era_skipped chip self-appends via the event log).
         this.timeChip.refresh();
         this.timeBar?.refresh();
+        this.requestRender();  // the world jumped — redraw even if paused
       },
     });
   }
@@ -583,6 +606,7 @@ export class Game {
     this.canvas.width = rect.width * devicePixelRatio;
     this.canvas.height = rect.height * devicePixelRatio;
     this.ctx.scale(devicePixelRatio, devicePixelRatio);
+    this.requestRender();  // a resized canvas is blank until the next draw
   }
 
   async generateWorld(worldSeed?: WorldSeed, _terrainOptions?: Partial<TerrainOptions>): Promise<GameMap> {
@@ -630,8 +654,9 @@ export class Game {
     const loop = (now: number) => {
       const deltaMs = Math.min(now - this.lastTime, 100);
       this.lastTime = now;
-      if (this.scheduler.getRate() > 0 && this.state.world && !this.timeline.isScrubbed) {
-        advanceNpcFrames(this.state.world, deltaMs);  // presentation animation - not a scheduled system
+      const live = this.scheduler.getRate() > 0 && this.state.world && !this.timeline.isScrubbed;
+      if (live) {
+        advanceNpcFrames(this.state.world!, deltaMs);  // presentation animation - not a scheduled system
         // Focusing a new NPC = the player's attention reaching it → a discovery
         // signal that can fire staged beats armed on that NPC.
         if (this.state.selectedNpcId && this.state.selectedNpcId !== this.lastDiscoveredNpcId) {
@@ -639,7 +664,7 @@ export class Game {
           this.discoveryQueue.push({ subject: { kind: 'npc', npcId: this.state.selectedNpcId } });
         }
         this.scheduler.tick(deltaMs, {
-          world: this.state.world,
+          world: this.state.world!,
           spirits: this.state.spirits,
           log: this.state.eventLog,
           clock: this.state.clock,
@@ -647,13 +672,19 @@ export class Game {
         });
         this.timeline.onAfterLiveTick();
       }
-      applyFollowCamera(this.state, this.viewport());
-      this.renderer.render(deltaMs);
-      this.timeChip.refresh();
-      this.refreshPauseBanner();
-      this.timeBar?.refresh();
-      this.dev.updateTimeDebug();
-      this.veil.setActive(this.timeline.isScrubbed);
+      // REAL PAUSE: when not live, do the expensive scene render + UI refresh only
+      // if something changed (requestRender), an effect is still animating, or the
+      // past is being scrubbed. Otherwise the rAF body is ~free and the GPU idles.
+      if (live || this.needsRender || this.timeline.isScrubbed || this.ui.divineEffects.isActive()) {
+        this.needsRender = false;
+        applyFollowCamera(this.state, this.viewport());
+        this.renderer.render(deltaMs);
+        this.timeChip.refresh();
+        this.refreshPauseBanner();
+        this.timeBar?.refresh();
+        this.dev.updateTimeDebug();
+        this.veil.setActive(this.timeline.isScrubbed);
+      }
       this.rafId = requestAnimationFrame(loop);
     };
     this.rafId = requestAnimationFrame(loop);
