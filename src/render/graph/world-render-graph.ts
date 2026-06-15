@@ -18,6 +18,7 @@ import { blueprintOf } from '@/blueprint/entity';
 import { tryGetEntityKindDef } from '@/world/entity-kinds';
 import { heightMetresAt } from '@/world/heightfield';
 import { DEFAULT_LIGHTING } from '@/render/lighting-state';
+import type { RoadGraph, RoadEdge, RoadClass } from '@/world/road-graph';
 import type {
   RenderGraph, RenderNode, RenderEdge, TerrainView, LightView, NodeQuery, RenderCategory,
 } from './render-graph';
@@ -99,9 +100,11 @@ export class WorldRenderGraph implements RenderGraph<WorldRef> {
     }
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  *edges(_region: Region): Iterable<RenderEdge> {
-    // Linear features are still entities/terrain today; Track V promotes them.
+  *edges(region: Region): Iterable<RenderEdge> {
+    // Roads Slice 1: the inter-POI road graph (Slice 0) is the durable source of
+    // linear-feature geometry; project it into RenderEdges for the renderer.
+    // Settlement-internal roads + hydrology rivers are later slices.
+    yield* projectRoadEdges(this.rc.map.roadGraph, region);
   }
 
   private entityNode(
@@ -109,4 +112,47 @@ export class WorldRenderGraph implements RenderGraph<WorldRef> {
   ): RenderNode<WorldRef> {
     return { id: e.id, x: e.x, y: e.y, z: 0, footprint, kind: e.kind, category, ref: e };
   }
+}
+
+/** Ribbon width (in tiles) per road hierarchy class. Slice 0 stamps every road
+ *  `class:'road'`; Slice 4's tiering makes the rest meaningful. */
+const CLASS_WIDTH: Record<RoadClass, number> = {
+  highway: 2, road: 1, track: 0.6, path: 0.4,
+};
+
+function renderWidth(e: RoadEdge): number {
+  if (e.feature === 'river') return 1.2; // Slice 2 (hydrology) sets real Strahler width
+  if (e.feature === 'wall') return 0.5;
+  return CLASS_WIDTH[e.class] ?? 1;
+}
+
+/**
+ * Pure projection: road graph → RenderEdges intersecting `region`. This is the
+ * durable Slice 1 output the unified renderer consumes; the WebGPU ribbon pass
+ * (R2e) reads these. Region-culled by polyline bounding box.
+ */
+export function projectRoadEdges(graph: RoadGraph | undefined, region: Region): RenderEdge[] {
+  if (!graph?.edges.length) return [];
+  const rx2 = region.x + region.w;
+  const ry2 = region.y + region.h;
+  const out: RenderEdge[] = [];
+  for (const e of graph.edges) {
+    if (e.polyline.length === 0) continue;
+    let minx = Infinity, miny = Infinity, maxx = -Infinity, maxy = -Infinity;
+    for (const p of e.polyline) {
+      if (p.x < minx) minx = p.x;
+      if (p.x > maxx) maxx = p.x;
+      if (p.y < miny) miny = p.y;
+      if (p.y > maxy) maxy = p.y;
+    }
+    // Skip edges whose bbox does not overlap the requested region.
+    if (maxx < region.x || minx > rx2 || maxy < region.y || miny > ry2) continue;
+    out.push({
+      kind: e.feature,
+      polyline: e.polyline.map(p => [p.x, p.y] as [number, number]),
+      width: renderWidth(e),
+      material: e.surface, // 'dirt' | 'stone' | 'water'
+    });
+  }
+  return out;
 }
