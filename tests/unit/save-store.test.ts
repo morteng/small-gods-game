@@ -1,7 +1,8 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import 'fake-indexeddb/auto';
 import { IDBFactory } from 'fake-indexeddb';
 import { writeSave, readSave, clearSave, _resetSaveDbForTesting } from '@/services/save-store';
+import { IDB_TIMEOUT_MS } from '@/services/idb-guard';
 import type { SaveFile } from '@/core/save-file';
 
 function fakeSave(tick: number): SaveFile {
@@ -36,5 +37,39 @@ describe('save-store', () => {
     await writeSave(fakeSave(1));
     await writeSave(fakeSave(2));
     expect((await readSave())?.snapshot.tick).toBe(2);
+  });
+});
+
+describe('save-store circuit breaker (wedged store)', () => {
+  beforeEach(() => { _resetSaveDbForTesting(); });
+  afterEach(() => { vi.restoreAllMocks(); _resetSaveDbForTesting(); (globalThis as any).indexedDB = new IDBFactory(); });
+
+  it('trips after consecutive failures and stops hammering the store', async () => {
+    vi.useFakeTimers();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    // open() that never fires any callback → every op times out via the guard.
+    let opens = 0;
+    vi.stubGlobal('indexedDB', { open: () => { opens++; return {}; } });
+
+    // Failure 1 (below threshold): plain warn, store still attempted.
+    const p1 = readSave();
+    await vi.advanceTimersByTimeAsync(IDB_TIMEOUT_MS + 1);
+    await expect(p1).resolves.toBeNull();
+
+    // Failure 2 (hits threshold): breaker trips.
+    const p2 = readSave();
+    await vi.advanceTimersByTimeAsync(IDB_TIMEOUT_MS + 1);
+    await expect(p2).resolves.toBeNull();
+
+    const opensAfterTrip = opens;
+    // Subsequent ops short-circuit: no new open(), instant resolve.
+    await expect(readSave()).resolves.toBeNull();
+    await writeSave(fakeSave(9));
+    expect(opens).toBe(opensAfterTrip);  // never touched the wedged store again
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('appears wedged'), expect.anything(),
+    );
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
   });
 });

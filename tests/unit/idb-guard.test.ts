@@ -33,7 +33,7 @@ describe('save-store under a wedged IndexedDB', () => {
     const p = readSave();
     await vi.advanceTimersByTimeAsync(IDB_TIMEOUT_MS + 1);
     await expect(p).resolves.toBeNull();
-    expect(warn).toHaveBeenCalledWith('[save-store] readSave failed:', expect.objectContaining({
+    expect(warn).toHaveBeenCalledWith('[save-store] read failed:', expect.objectContaining({
       message: expect.stringContaining('timed out'),
     }));
     vi.unstubAllGlobals();

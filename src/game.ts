@@ -8,6 +8,8 @@ import { attachControls, attachTimeKeys } from '@/ui/controls';
 import type { GameMap, WorldSeed, TerrainOptions } from '@/core/types';
 import { ART_RECIPE_VERSION } from '@/core/content-version';
 import { createDebugApi, type DebugApi } from '@/dev/debug-api';
+import { bootMark, FpsMeter, type FpsStats } from '@/dev/profile';
+import { createFpsHud, type FpsHudHandle } from '@/dev/fps-hud';
 import { advanceNpcFrames } from '@/render/npc-animator';
 // divine-actions functions now invoked via DivineActionsController
 import { LLMClient } from "@/llm/llm-client";
@@ -98,6 +100,10 @@ export class Game {
   private resizeObserver: ResizeObserver;
   private rafId: number | null = null;
   private lastTime: number = 0;
+  /** Rendered-frame FPS meter (always sampling; cheap). Read via the HUD / __perf. */
+  private readonly fps = new FpsMeter();
+  private fpsHud: FpsHudHandle | null = null;
+  private detachProfileKeys: (() => void) | null = null;
   // Render-on-demand flag for the "real pause" path: a LIVE world redraws every
   // frame, but a PAUSED world only redraws when something visual changed (camera,
   // hover, selection, a UI toggle, resize). Starts true so the first frame draws.
@@ -584,6 +590,32 @@ export class Game {
     return createDebugApi({ state: this.state, canvas: this.canvas, viewport: () => this.viewport() });
   }
 
+  /** Latest rendered-frame stats (see src/dev/profile.ts). For `window.__perf`. */
+  fpsStats(): FpsStats { return this.fps.stats(); }
+
+  /** Show/hide the in-page FPS HUD; created lazily on first show. */
+  setFpsHud(visible: boolean): void {
+    if (visible && !this.fpsHud) this.fpsHud = createFpsHud(this.container);
+    this.fpsHud?.setVisible(visible);
+    if (visible) this.requestRender();  // wake a frame so the HUD populates
+  }
+
+  toggleFpsHud(): boolean {
+    this.setFpsHud(!(this.fpsHud?.isVisible() ?? false));
+    return this.fpsHud?.isVisible() ?? false;
+  }
+
+  /** Wire profiling controls: `?profile`/`?fps` shows the HUD; backtick toggles it. */
+  private installProfiling(): void {
+    const params = new URLSearchParams(location.search);
+    if (params.has('profile') || params.has('fps')) this.setFpsHud(true);
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === '`' && !e.metaKey && !e.ctrlKey && !e.altKey) this.toggleFpsHud();
+    };
+    window.addEventListener('keydown', onKey);
+    this.detachProfileKeys = () => window.removeEventListener('keydown', onKey);
+  }
+
   private renderDeps(): RenderContextDeps {
     return {
       state: this.state,
@@ -612,21 +644,26 @@ export class Game {
   async generateWorld(worldSeed?: WorldSeed, _terrainOptions?: Partial<TerrainOptions>): Promise<GameMap> {
     const loading = this.ui.loadingScreen;
     loading.show();
+    bootMark('start');
     loading.setProgress(0.08, 'Summoning the engine…');
     initManifoldWasm();
+    bootMark('engine');
     loading.setProgress(0.22, 'Preparing the canvas…');
     this.renderMap = await selectRenderer();
+    bootMark('renderer');
     loading.setProgress(0.38, 'Loading the art library…');
     const baseLibrary = await loadBaseLibrary();
     this.assetLibrary = new AssetLibrary(baseLibrary);
     this.artResolver = new ArtResolver(this.assetLibrary, 'pixel-art');
     this.buildingArtResolver = new ArtResolver(this.assetLibrary, 'pixel-art', 'building', ART_RECIPE_VERSION);
+    bootMark('art-library');
     loading.setProgress(0.55, 'Generating the world…');
     const map = await bootstrapWorld({
       state: this.state, assets: this.assets, sheets: this.sheets,
       decorationImages: this.decorationImages, getViewport: () => this.viewport(),
       worldSeed,
       onReady: () => {
+        bootMark('worldgen');
         this.ui.loadingScreen.setProgress(1, 'Entering the world…');
         this.ui.loadingScreen.hide();
         this.ui.spiritHud.show();
@@ -635,6 +672,7 @@ export class Game {
       },
     });
     this.startLoop();
+    this.installProfiling();
     return map;
   }
 
@@ -678,7 +716,10 @@ export class Game {
       if (live || this.needsRender || this.timeline.isScrubbed || this.ui.divineEffects.isActive()) {
         this.needsRender = false;
         applyFollowCamera(this.state, this.viewport());
+        const r0 = performance.now();
         this.renderer.render(deltaMs);
+        this.fps.frame(performance.now() - r0);
+        if (this.fpsHud?.isVisible()) this.fpsHud.update(this.fps.stats());
         this.timeChip.refresh();
         this.refreshPauseBanner();
         this.timeBar?.refresh();
@@ -700,6 +741,8 @@ export class Game {
   destroy(): void {
     this.stopLoop();
     this.persistence?.destroy();
+    this.detachProfileKeys?.();
+    this.fpsHud?.destroy();
     this.cleanupControls?.();
     this.cleanupTokens?.();
     this.resizeObserver.disconnect();

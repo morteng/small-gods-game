@@ -16,9 +16,48 @@ interface StoredSave { key: string; save: SaveFile; }
 
 let _db: IDBDatabase | null = null;
 
+// ── Wedged-store circuit breaker ─────────────────────────────────────────────
+// A genuinely wedged backing store (corrupt LevelDB lock, browser killed
+// mid-write) makes EVERY op time out at IDB_TIMEOUT_MS. Left alone, autosave
+// then hammers it every few seconds — each attempt a 4s pending promise plus a
+// duplicate console warning — which both spams the log and was corrupting perf
+// measurements. After a couple of consecutive timeouts we trip the breaker:
+// further ops short-circuit (autosave silently no-ops, reads return null) and
+// the game runs from memory for the rest of the session. One successful op
+// resets it. Non-destructive — we never auto-delete the store (clearSave /
+// newWorld remain the explicit recovery path).
+const WEDGE_THRESHOLD = 2;
+let consecutiveFailures = 0;
+let wedged = false;
+
+function noteFailure(op: string, err: unknown): void {
+  consecutiveFailures++;
+  // Drop the cached connection so the next attempt re-opens (recovers a merely
+  // stale connection; a truly wedged store will just trip the breaker below).
+  if (_db) { try { _db.close(); } catch { /* ignore */ } _db = null; }
+  if (!wedged && consecutiveFailures >= WEDGE_THRESHOLD) {
+    wedged = true;
+    console.warn(
+      `[save-store] backing store appears wedged after ${consecutiveFailures} failed ${op} ops — ` +
+      `autosave disabled for this session (state kept in memory). Reload to retry.`,
+      err,
+    );
+  } else if (!wedged) {
+    console.warn(`[save-store] ${op} failed:`, err);
+  }
+}
+
+function noteSuccess(): void {
+  if (wedged) console.info('[save-store] backing store recovered — autosave re-enabled.');
+  consecutiveFailures = 0;
+  wedged = false;
+}
+
 /** Test-only: drop the cached connection so a fresh IDBFactory is picked up. */
 export function _resetSaveDbForTesting(): void {
   if (_db) { _db.close(); _db = null; }
+  consecutiveFailures = 0;
+  wedged = false;
 }
 
 function hasIdb(): boolean {
@@ -41,7 +80,7 @@ function openDb(): Promise<IDBDatabase> {
 }
 
 export async function writeSave(save: SaveFile, slot: string = DEFAULT_SLOT): Promise<void> {
-  if (!hasIdb()) return;
+  if (!hasIdb() || wedged) return;
   try {
     const db = await openDb();
     await withIdbTimeout(new Promise<void>((resolve, reject) => {
@@ -50,29 +89,32 @@ export async function writeSave(save: SaveFile, slot: string = DEFAULT_SLOT): Pr
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     }), 'write');
+    noteSuccess();
   } catch (err) {
-    console.warn('[save-store] writeSave failed:', err);
+    noteFailure('write', err);
   }
 }
 
 export async function readSave(slot: string = DEFAULT_SLOT): Promise<SaveFile | null> {
-  if (!hasIdb()) return null;
+  if (!hasIdb() || wedged) return null;
   try {
     const db = await openDb();
-    return await withIdbTimeout(new Promise<SaveFile | null>((resolve, reject) => {
+    const result = await withIdbTimeout(new Promise<SaveFile | null>((resolve, reject) => {
       const tx = db.transaction(DB_STORE, 'readonly');
       const req = tx.objectStore(DB_STORE).get(slot);
       req.onsuccess = () => resolve((req.result as StoredSave | undefined)?.save ?? null);
       req.onerror = () => reject(req.error);
     }), 'read');
+    noteSuccess();
+    return result;
   } catch (err) {
-    console.warn('[save-store] readSave failed:', err);
+    noteFailure('read', err);
     return null;
   }
 }
 
 export async function clearSave(slot: string = DEFAULT_SLOT): Promise<void> {
-  if (!hasIdb()) return;
+  if (!hasIdb() || wedged) return;
   try {
     const db = await openDb();
     await withIdbTimeout(new Promise<void>((resolve, reject) => {
@@ -81,7 +123,8 @@ export async function clearSave(slot: string = DEFAULT_SLOT): Promise<void> {
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     }), 'clear');
+    noteSuccess();
   } catch (err) {
-    console.warn('[save-store] clearSave failed:', err);
+    noteFailure('clear', err);
   }
 }
