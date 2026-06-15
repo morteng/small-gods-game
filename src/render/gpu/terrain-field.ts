@@ -18,7 +18,8 @@
 import type { GameMap, DevModeState } from '@/core/types';
 import { TILE_COLORS } from '@/core/constants';
 import { effectiveTileType, RENDER_LAYERS, layerFlag } from '@/render/layer-visibility';
-import { getHeightfield, ELEVATION_SEA_LEVEL, TERRAIN_RELIEF_M } from '@/world/heightfield';
+import { ELEVATION_SEA_LEVEL, TERRAIN_RELIEF_M } from '@/world/heightfield';
+import { getComposedHeightfield } from '@/world/road-deformation';
 import { ISO_TILE_W, ISO_TILE_H } from '@/render/iso/iso-constants';
 import type { LightingState } from '@/render/lighting-state';
 import type { TerrainGlobalsInput } from '@/render/gpu/instance-buffer';
@@ -43,11 +44,12 @@ export const TERRAIN_Z_PX_PER_M = 1.5;
 /** Cap on generated quads — picks the subsample LOD so big maps stay cheap. */
 export const MAX_TERRAIN_QUADS = 50000;
 
-/** The row-major normalised-elevation field (the height storage buffer). For T1
- *  this is the base seed heightfield; the deformation channel composes onto it
- *  in a later slice (same buffer, written by the channel). */
+/** The row-major normalised-elevation field (the height storage buffer): the
+ *  base seed heightfield with the deformation channel composed on top (road
+ *  grade-cuts today; rivers/earthworks as those producers land). Identical to
+ *  the bare base field — same instance — for worlds with no deformations. */
 export function heightField(map: GameMap): Float32Array {
-  return getHeightfield(map.seed, map.width, map.height);
+  return getComposedHeightfield(map);
 }
 
 /** Pack the per-cell biome base colour as 0xAABBGGRR (LE-friendly for upload). */
