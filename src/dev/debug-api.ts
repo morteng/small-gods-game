@@ -17,7 +17,6 @@ import type { GameState } from '@/core/state';
 import type { QueryOpts } from '@/world/world';
 import { focusCameraOnTile } from '@/render/focus-camera';
 import { fitCameraToMap } from '@/render/fit-camera';
-import { readRenderMode } from '@/render/select-renderer';
 import type { GameQuery } from '@/game/game-query';
 
 export interface DebugInventory {
@@ -89,13 +88,13 @@ export function createDebugApi(deps: DebugApiDeps): DebugApi {
       const vp = viewport();
       // Set zoom first: focusCameraOnTile centers using the current zoom.
       camera().zoom = zoom;
-      focusCameraOnTile(camera(), x, y, vp.width, vp.height, readRenderMode());
+      focusCameraOnTile(camera(), x, y, vp.width, vp.height);
     },
 
     fitMap(): void {
       if (!state.map) return;
       const vp = viewport();
-      fitCameraToMap(camera(), state.map.width, state.map.height, vp.width, vp.height, readRenderMode());
+      fitCameraToMap(camera(), state.map.width, state.map.height, vp.width, vp.height);
     },
 
     grab(): string {

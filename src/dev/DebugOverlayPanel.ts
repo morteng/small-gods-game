@@ -159,30 +159,9 @@ export function mountDebugOverlayPanel(container: HTMLElement, deps: { dock?: Do
   modeRow.appendChild(modeSelect);
   buildingSection.appendChild(modeRow);
 
-  // Entity render backend — PixiJS WebGL layer (auto). The 'Force Canvas2D'
-  // option is hidden: the Canvas2D entity executor is deprecated and remains as
-  // an automatic unlit fallback only (see executeDrawListCanvas @deprecated).
-  const backendRow = document.createElement('label');
-  backendRow.style.cssText = 'display:flex; align-items:center; gap:8px; font-size:12px; padding:2px 0;';
-  const backendText = document.createElement('span');
-  backendText.textContent = '🖥️ Backend';
-  const backendSelect = document.createElement('select');
-  backendSelect.style.cssText = modeSelect.style.cssText;
-  for (const [value, label] of [['auto', 'WebGL (PixiJS) when ready']] as const) {
-    const opt = document.createElement('option');
-    opt.value = value; opt.textContent = label;
-    backendSelect.appendChild(opt);
-  }
-  backendSelect.addEventListener('change', () => {
-    if (currentDevMode) currentDevMode.entityRenderBackend = backendSelect.value as 'auto' | 'canvas';
-  });
-  backendRow.appendChild(backendText);
-  backendRow.appendChild(backendSelect);
-  buildingSection.appendChild(backendRow);
-
-  // Entity lighting (WebGL backend only) — banded ambient+sun vs unlit.
+  // Entity lighting — banded ambient+sun vs unlit.
   const lightingRow = document.createElement('label');
-  lightingRow.style.cssText = backendRow.style.cssText;
+  lightingRow.style.cssText = 'display:flex; align-items:center; gap:8px; font-size:12px; padding:2px 0;';
   const lightingText = document.createElement('span');
   lightingText.textContent = '☀️ Lighting';
   const lightingSelect = document.createElement('select');
@@ -215,7 +194,6 @@ export function mountDebugOverlayPanel(container: HTMLElement, deps: { dock?: Do
     // Render layers default to shown.
     for (const layer of RENDER_LAYERS) currentDevMode[layerFlag(layer)] = true;
     currentDevMode.buildingRenderMode = 'auto';
-    currentDevMode.entityRenderBackend = 'auto';
     currentDevMode.lighting = 'banded';
     currentDevMode.beliefThreshold = 0.3;
     currentDevMode.selectedSpiritId = null;
@@ -239,7 +217,6 @@ export function mountDebugOverlayPanel(container: HTMLElement, deps: { dock?: Do
       toggle.checked = devMode[layerFlag(layer)] !== false;
     }
     modeSelect.value = devMode.buildingRenderMode ?? 'auto';
-    backendSelect.value = devMode.entityRenderBackend ?? 'auto';
     lightingSelect.value = devMode.lighting ?? 'banded';
 
     const threshold = devMode.beliefThreshold ?? 0.3;

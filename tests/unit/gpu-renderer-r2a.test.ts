@@ -1,52 +1,40 @@
 import { describe, it, expect, vi } from 'vitest';
 import { createGpuRenderMap, hasWebGpu } from '@/render/gpu/gpu-renderer';
 import type { RenderFn } from '@/render/select-renderer';
-
-const noop: RenderFn = () => {};
+import type { RenderContext } from '@/core/types';
 
 describe('R2a — GPU renderer capability routing', () => {
-  it('routes to the Canvas2D fallback when WebGPU is absent', async () => {
-    const makeFallback = vi.fn(async () => noop);
-    const makeGpuScene = vi.fn(async () => noop);
+  it('reports an unavailable backend when WebGPU is absent (no GPU scene built)', async () => {
+    const makeGpuScene = vi.fn(async () => (() => {}) as RenderFn);
     const { render, backend } = await createGpuRenderMap({
       probe: () => false,
-      makeFallback,
       makeGpuScene,
     });
-    expect(backend).toBe('canvas2d');
-    expect(render).toBe(noop);
-    expect(makeFallback).toHaveBeenCalledOnce();
+    expect(backend).toBe('unavailable');
     expect(makeGpuScene).not.toHaveBeenCalled(); // never build a GPU scene with no GPU
+    // The unavailable render fn paints an honest message — it must not throw.
+    expect(() => render(mockCtx(), mockRc())).not.toThrow();
   });
 
-  it('routes to Canvas2D when WebGPU is present but no GPU scene is wired yet (R2a)', async () => {
-    const makeFallback = vi.fn(async () => noop);
-    const { backend } = await createGpuRenderMap({ probe: () => true, makeFallback });
-    expect(backend).toBe('canvas2d');
-    expect(makeFallback).toHaveBeenCalledOnce();
-  });
-
-  it('uses the WebGPU scene when present and wired (R2c onward)', async () => {
+  it('uses the WebGPU scene when present and wired', async () => {
     const gpuRender: RenderFn = () => {};
     const { render, backend } = await createGpuRenderMap({
       probe: () => true,
-      makeFallback: async () => noop,
       makeGpuScene: async () => gpuRender,
     });
     expect(backend).toBe('webgpu');
     expect(render).toBe(gpuRender);
   });
 
-  it('falls back to Canvas2D (never throws, never blanks) if GPU scene init fails', async () => {
+  it('reports unavailable (never throws, never blanks) if GPU scene init fails', async () => {
     const { render, backend } = await createGpuRenderMap({
       probe: () => true,
-      makeFallback: async () => noop,
       makeGpuScene: async () => {
         throw new Error('no adapter');
       },
     });
-    expect(backend).toBe('canvas2d');
-    expect(render).toBe(noop);
+    expect(backend).toBe('unavailable');
+    expect(() => render(mockCtx(), mockRc())).not.toThrow();
   });
 
   it('hasWebGpu detects presence/absence on a navigator-like object', () => {
@@ -58,3 +46,14 @@ describe('R2a — GPU renderer capability routing', () => {
     expect(hasWebGpu()).toBe(false);
   });
 });
+
+function mockCtx(): CanvasRenderingContext2D {
+  return {
+    save: vi.fn(), restore: vi.fn(), fillRect: vi.fn(), fillText: vi.fn(),
+    fillStyle: '', textAlign: '', textBaseline: '', font: '',
+  } as unknown as CanvasRenderingContext2D;
+}
+
+function mockRc(): RenderContext {
+  return { canvasWidth: 800, canvasHeight: 600 } as unknown as RenderContext;
+}

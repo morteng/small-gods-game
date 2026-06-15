@@ -27,10 +27,12 @@ function makeRc(): RenderContext {
   } as unknown as RenderContext;
 }
 
-describe('hitTest: render-mode-aware tile resolution', () => {
+describe('hitTest: iso tile resolution', () => {
   beforeEach(() => localStorage.clear());
 
-  it('iso mode (default): resolves the screen point via the iso inverse', () => {
+  // The renderer is WebGPU-only and iso-projected, so hit-testing resolves the
+  // screen point through the iso inverse (via pickTile).
+  it('resolves the screen point via the iso inverse', () => {
     // Same screen point pickTile maps to iso tile (2, 1).
     const hit = hitTest(makeRc(), 64, 96);
     expect(hit.type).toBe('tile');
@@ -38,12 +40,11 @@ describe('hitTest: render-mode-aware tile resolution', () => {
     expect(hit.tileY).toBe(1);
   });
 
-  it('topdown mode: resolves the same screen point via topdown math', () => {
+  it('ignores any stale render-mode flag and still resolves via iso', () => {
     localStorage.setItem('smallgods.render.mode', 'topdown');
-    // TILE_SIZE 32 → (64/32, 96/32) = (2, 3) — different tile than iso.
     const hit = hitTest(makeRc(), 64, 96);
     expect(hit.tileX).toBe(2);
-    expect(hit.tileY).toBe(3);
+    expect(hit.tileY).toBe(1);
     localStorage.removeItem('smallgods.render.mode');
   });
 });

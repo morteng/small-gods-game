@@ -16,7 +16,7 @@ import type { Entity } from '@/core/types';
 import type { BarrierRun } from '@/world/barrier';
 import { worldToScreen } from './iso-projection';
 import { HEIGHT_UNIT_PX, ISO_TILE_H } from '@/render/scale-contract';
-import { executeDrawListCanvas, type DrawItem } from './draw-list';
+import { type DrawItem } from './draw-list';
 
 interface P { sx: number; sy: number }
 
@@ -137,12 +137,4 @@ export function barrierItems(
   }
 
   return items;
-}
-
-export function drawIsoBarrier(
-  ctx: CanvasRenderingContext2D,
-  entity: Entity,
-  o: { originX: number; originY: number },
-): void {
-  executeDrawListCanvas(ctx, barrierItems(entity, o));
 }

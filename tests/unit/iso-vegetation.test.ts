@@ -1,82 +1,60 @@
-import { describe, it, expect, vi } from 'vitest';
-import { drawIsoVegetation } from '@/render/iso/iso-sprites';
+import { describe, it, expect } from 'vitest';
+import { vegetationItems } from '@/render/iso/iso-sprites';
 import { createNullAtlas } from '@/render/iso/iso-atlas';
 import { tryGetEntityKindDef } from '@/world/entity-kinds';
 import type { Entity } from '@/core/types';
+import type { DrawItem } from '@/render/iso/draw-list';
 
-function makeMockCtx() {
-  return {
-    beginPath: vi.fn(), moveTo: vi.fn(), lineTo: vi.fn(), closePath: vi.fn(),
-    fill: vi.fn(), fillRect: vi.fn(), ellipse: vi.fn(), arc: vi.fn(),
-    fillStyle: '',
-    save: vi.fn(), restore: vi.fn(),
-    translate: vi.fn(), rotate: vi.fn(),
-  } as unknown as CanvasRenderingContext2D;
-}
-
-function dc(ctx: CanvasRenderingContext2D) {
-  return { ctx, atlas: createNullAtlas(), originX: 0, originY: 0 };
+// No tree/npc sheets supplied → the emitter takes the drawn-fallback path,
+// emitting poly/circle items (the data form of the old Canvas2D canopy/trunk).
+function ic() {
+  return { atlas: createNullAtlas(), originX: 0, originY: 0 };
 }
 
 function entity(kind: string): Entity {
   return { id: `${kind}-1`, kind, x: 2, y: 3 };
 }
 
-describe('drawIsoVegetation', () => {
-  it('draws a canopy for a tree (no programmatic ground shadow)', () => {
-    const ctx = makeMockCtx();
-    drawIsoVegetation(dc(ctx), entity('oak_tree'));
-    // Canopy fill is drawn; the ground-shadow ellipse was removed.
-    expect((ctx.fill as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThanOrEqual(1);
-    expect((ctx.ellipse as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+/** Colors of all filled shapes (poly/circle) in the item list. */
+function fillColors(items: DrawItem[]): string[] {
+  return items
+    .filter((i): i is Extract<DrawItem, { t: 'poly' | 'circle' }> => i.t === 'poly' || i.t === 'circle')
+    .map((i) => i.color);
+}
+
+describe('vegetationItems', () => {
+  it('emits a canopy for a tree (no programmatic ground shadow)', () => {
+    const items = vegetationItems(ic(), entity('oak_tree'));
+    // At least one filled shape (canopy); no ellipse/ground-shadow concept exists.
+    expect(items.filter((i) => i.t === 'poly' || i.t === 'circle').length).toBeGreaterThanOrEqual(1);
   });
 
   it('paints the canopy in the entity kind fallback color', () => {
-    const ctx = makeMockCtx();
-    const seen: string[] = [];
-    Object.defineProperty(ctx, 'fillStyle', {
-      get: () => seen[seen.length - 1] ?? '',
-      set: (v: string) => { seen.push(v); },
-    });
-    drawIsoVegetation(dc(ctx), entity('orange_tree'));
+    const items = vegetationItems(ic(), entity('orange_tree'));
     const expected = tryGetEntityKindDef('orange_tree')!.sprite.fallbackColor;
-    expect(seen).toContain(expected);
+    expect(fillColors(items)).toContain(expected);
   });
 
-  it('draws a triangle canopy for triangle-shaped kinds', () => {
-    const ctx = makeMockCtx();
-    drawIsoVegetation(dc(ctx), entity('pine_tree'));
-    expect((ctx.moveTo as ReturnType<typeof vi.fn>)).toHaveBeenCalled();
-    expect((ctx.lineTo as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThanOrEqual(2);
+  it('emits a triangle canopy for triangle-shaped kinds', () => {
+    const items = vegetationItems(ic(), entity('pine_tree'));
+    // A triangle canopy is a 3-point poly.
+    const triangles = items.filter(
+      (i): i is Extract<DrawItem, { t: 'poly' }> => i.t === 'poly' && i.points.length === 3,
+    );
+    expect(triangles.length).toBeGreaterThanOrEqual(1);
   });
 
-  it('draws a trunk for tall trees but not for ground cover', () => {
-    // Trunk is a filled quad in the trunk colour (draw-list poly, not fillRect).
-    const trunkFills = (ctx: CanvasRenderingContext2D): string[] => {
-      const seen: string[] = [];
-      Object.defineProperty(ctx, 'fillStyle', {
-        get: () => seen[seen.length - 1] ?? '',
-        set: (v: string) => { seen.push(v); },
-      });
-      return seen;
-    };
+  it('emits a trunk for tall trees but not for ground cover', () => {
+    const treeItems = vegetationItems(ic(), entity('oak_tree'));
+    expect(fillColors(treeItems)).toContain('#5a4030'); // TRUNK_COLOR
 
-    const treeCtx = makeMockCtx();
-    const treeSeen = trunkFills(treeCtx);
-    drawIsoVegetation(dc(treeCtx), entity('oak_tree'));
-    expect(treeSeen).toContain('#5a4030');
-
-    const fernCtx = makeMockCtx();
-    const fernSeen = trunkFills(fernCtx);
-    drawIsoVegetation(dc(fernCtx), entity('fern'));
-    expect(fernSeen).not.toContain('#5a4030');
+    const fernItems = vegetationItems(ic(), entity('fern'));
+    expect(fillColors(fernItems)).not.toContain('#5a4030');
   });
 
-  it('ignores non-vegetation entities', () => {
-    const ctx = makeMockCtx();
-    drawIsoVegetation(dc(ctx), entity('cottage'));
-    drawIsoVegetation(dc(ctx), entity('boulder'));
-    drawIsoVegetation(dc(ctx), entity('unknown_kind'));
-    expect((ctx.fill as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+  it('ignores non-vegetation entities (empty list)', () => {
+    expect(vegetationItems(ic(), entity('cottage'))).toEqual([]);
+    expect(vegetationItems(ic(), entity('boulder'))).toEqual([]);
+    expect(vegetationItems(ic(), entity('unknown_kind'))).toEqual([]);
   });
 });

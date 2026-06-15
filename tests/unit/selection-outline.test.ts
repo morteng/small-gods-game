@@ -116,51 +116,42 @@ function stubCtx() {
 describe('drawSelectionOutline', () => {
   it('draws nothing for a non-spatial selection', () => {
     const { ctx, calls } = stubCtx();
-    drawSelectionOutline(ctx, { type: 'world' }, createCamera(), 'topdown', world({}), 0);
+    drawSelectionOutline(ctx, { type: 'world' }, createCamera(), world({}), 0);
     expect(calls).toEqual([]);
-  });
-
-  it('topdown: strokes a rect for a tile', () => {
-    const { ctx, calls } = stubCtx();
-    drawSelectionOutline(ctx, { type: 'tile', x: 1, y: 1 }, createCamera(), 'topdown', world({}), 0);
-    expect(calls).toContain('strokeRect');
   });
 
   it('iso: traces a diamond path for a tile', () => {
     const { ctx, calls } = stubCtx();
-    drawSelectionOutline(ctx, { type: 'tile', x: 1, y: 1 }, createCamera(), 'iso', world({}), 0);
+    drawSelectionOutline(ctx, { type: 'tile', x: 1, y: 1 }, createCamera(), world({}), 0);
     expect(calls).toContain('beginPath');
     expect(calls).toContain('closePath');
     expect(calls).toContain('stroke');
   });
 
-  it('hover outline strokes with a faint white style (no glow)', () => {
+  it('hover outline strokes a diamond with a faint white style (no glow)', () => {
     const { ctx, calls, getStroke } = stubCtx();
-    drawHoverOutline(ctx, { x: 2, y: 3, w: 1, h: 1 }, createCamera(), 'topdown');
-    expect(calls).toContain('strokeRect');
+    drawHoverOutline(ctx, { x: 2, y: 3, w: 1, h: 1 }, createCamera());
+    expect(calls).toContain('closePath');
+    expect(calls).toContain('stroke');
     expect(getStroke()).toBe('#ffffff');
   });
 
-  it('drawOutlineRect respects the requested mode geometry', () => {
-    const top = stubCtx();
-    drawOutlineRect(top.ctx, { x: 0, y: 0, w: 1, h: 1 }, createCamera(), 'topdown',
-      { color: '#fff', alpha: 1, shadowBlur: 0, lineWidth: 1 });
-    expect(top.calls).toContain('strokeRect');
-
+  it('drawOutlineRect traces iso diamond geometry', () => {
     const iso = stubCtx();
-    drawOutlineRect(iso.ctx, { x: 0, y: 0, w: 1, h: 1 }, createCamera(), 'iso',
+    drawOutlineRect(iso.ctx, { x: 0, y: 0, w: 1, h: 1 }, createCamera(),
       { color: '#fff', alpha: 1, shadowBlur: 0, lineWidth: 1 });
     expect(iso.calls).toContain('closePath');
+    expect(iso.calls).toContain('stroke');
   });
 
   it('uses the area color for a multi-tile POI region, point color for a single tile', () => {
     const seed = { pois: [{ id: 'p1', region: { x_min: 0, x_max: 3, y_min: 0, y_max: 3 } }] } as never;
     const area = stubCtx();
-    drawSelectionOutline(area.ctx, { type: 'poi', id: 'p1' }, createCamera(), 'topdown', world({ seed }), 0);
+    drawSelectionOutline(area.ctx, { type: 'poi', id: 'p1' }, createCamera(), world({ seed }), 0);
     expect(area.getStroke()).toBe('#ffd24a');
 
     const point = stubCtx();
-    drawSelectionOutline(point.ctx, { type: 'tile', x: 0, y: 0 }, createCamera(), 'topdown', world({}), 0);
+    drawSelectionOutline(point.ctx, { type: 'tile', x: 0, y: 0 }, createCamera(), world({}), 0);
     expect(point.getStroke()).toBe('#39d0ff');
   });
 });
@@ -240,13 +231,8 @@ describe('buildingFootprintAt', () => {
 describe('fillTileRect', () => {
   it('fills one diamond per tile in iso (w*h fills)', () => {
     const { ctx, calls } = fillCtx();
-    fillTileRect(ctx, { x: 0, y: 0, w: 3, h: 2 }, createCamera(), 'iso');
+    fillTileRect(ctx, { x: 0, y: 0, w: 3, h: 2 }, createCamera());
     expect(calls.filter((c) => c === 'fill')).toHaveLength(6);
-  });
-
-  it('fills one rect per tile in topdown (w*h fillRects)', () => {
-    const { ctx, calls } = fillCtx();
-    fillTileRect(ctx, { x: 0, y: 0, w: 3, h: 2 }, createCamera(), 'topdown');
-    expect(calls.filter((c) => c === 'fillRect')).toHaveLength(6);
+    expect(calls.filter((c) => c === 'fillRect')).toHaveLength(0);
   });
 });

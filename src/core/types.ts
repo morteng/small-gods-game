@@ -2,7 +2,6 @@ import type { BlobTile } from '@/map/blob-autotiler';
 import type { World } from '@/world/world';
 import type { SpiritId } from '@/core/spirit';
 import type { Era } from '@/core/era';
-import type { DrawItem } from '@/render/iso/draw-list';
 import type { SpritePack } from '@/render/iso/sprite-canvas';
 import type { LightingState } from '@/render/lighting-state';
 
@@ -191,22 +190,6 @@ export interface RenderContext {
   devMode?: DevModeState;
   /** Debug overlay options (extracted from devMode for convenience). */
   debugOverlays?: DebugOverlayOptions;
-  /** Optional WebGL entity layer (PBR epic). When present (and ready) the iso
-   *  renderer executes the entity draw list on it and composites the returned
-   *  canvas; a null return falls back to the Canvas2D executor — same list. */
-  entityLayer?: EntityLayerHandle;
-}
-
-/** Backend-neutral handle to the WebGL entity layer (see `PixiEntityLayer`). */
-export interface EntityLayerHandle {
-  render(
-    items: readonly DrawItem[],
-    view: {
-      cssWidth: number; cssHeight: number; dpr: number;
-      camera: { x: number; y: number; zoom: number };
-      lighting?: LightingState;
-    },
-  ): HTMLCanvasElement | null;
 }
 
 /** Options for debug visualization overlays */
@@ -706,12 +689,8 @@ export interface DevModeState {
   // Building render mode (dev). 'auto' = generated asset → parametric fallback →
   // flat block; 'fallback' = always the parametric fallback (skip assets). Default 'auto'.
   buildingRenderMode?: BuildingRenderMode;
-  // Entity render backend (dev). 'auto' = PixiJS WebGL layer when ready (falls
-  // back to Canvas2D until init / on failure); 'canvas' = force Canvas2D. Default 'auto'.
-  entityRenderBackend?: 'auto' | 'canvas';
-  // Entity lighting (dev, WebGL backend only). 'banded' = ambient + banded
-  // directional sun over the sprite packs' normal/AO maps; 'off' = unlit
-  // (Slice 2 parity). Default 'banded'.
+  // Entity lighting (dev). 'banded' = ambient + banded directional sun over the
+  // sprite packs' normal/AO maps; 'off' = unlit. Default 'banded'.
   lighting?: 'banded' | 'off';
   // Render layer toggles — each base scene category is shown unless its flag is
   // explicitly false (default: shown). See src/render/layer-visibility.ts.

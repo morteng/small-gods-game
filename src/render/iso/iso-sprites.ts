@@ -6,7 +6,7 @@ import { getSpriteCoords } from '@/render/npc-animator';
 import { treeSheetForKind, treeSpriteColumn, TREE_SPRITE_SRC } from '@/render/tree-sheets';
 import { NATURE_HEIGHT_M, DEFAULT_NATURE_HEIGHT_M, mToPx } from '@/render/scale-contract';
 import { npcBillboard } from './npc-billboard';
-import { executeDrawListCanvas, type DrawItem } from './draw-list';
+import { type DrawItem } from './draw-list';
 
 export interface IsoDrawCtx {
   ctx: CanvasRenderingContext2D;
@@ -86,10 +86,6 @@ export function npcItems(ic: IsoItemCtx, npc: NpcInstance): DrawItem[] {
   }];
 }
 
-export function drawIsoNpc(dc: IsoDrawCtx, npc: NpcInstance): void {
-  executeDrawListCanvas(dc.ctx, npcItems(dc, npc));
-}
-
 /** A square art sprite (decoration or prop) as an upright billboard,
  *  base anchored at the tile center. */
 export function artBillboardItem(
@@ -105,12 +101,6 @@ export function artBillboardItem(
     dx: Math.round(sx) - Math.round(w / 2), dy: Math.round(sy) - h,
     dw: w, dh: h,
   };
-}
-
-export function drawIsoArtBillboard(
-  dc: IsoDrawCtx, img: HTMLImageElement, tx: number, ty: number,
-): void {
-  executeDrawListCanvas(dc.ctx, [artBillboardItem(dc, img, tx, ty)]);
 }
 
 /**
@@ -232,8 +222,4 @@ export function vegetationItems(ic: IsoItemCtx, e: Entity): DrawItem[] {
     items.push({ t: 'circle', cx: sx, cy, r: canopyR, color });
   }
   return items;
-}
-
-export function drawIsoVegetation(dc: IsoDrawCtx, e: Entity): void {
-  executeDrawListCanvas(dc.ctx, vegetationItems(dc, e));
 }

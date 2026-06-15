@@ -1,16 +1,13 @@
 import type {
-  Camera, GameMap, GeneratedDecoration, WorldSeed,
+  Camera, GeneratedDecoration, WorldSeed,
 } from '@/core/types';
 import type { World } from '@/world/world';
 import type { Spirit, SpiritId } from '@/core/spirit';
 import type { Selection } from '@/dev/inspector/selection';
 import { blueprintOf } from '@/blueprint/entity';
 import type { Entity } from '@/core/types';
-import type { RenderMode } from './select-renderer';
-import { worldToScreen as topdownWorldToScreen } from './camera';
 import { worldToScreen as isoWorldToScreen } from './iso/iso-projection';
 import { ISO_TILE_W, ISO_TILE_H } from './iso/iso-constants';
-import { TILE_SIZE } from '@/core/constants';
 
 /** A tile-space rectangle to highlight (w, h >= 1). A single tile is w=h=1. */
 export interface OutlineRect { x: number; y: number; w: number; h: number; }
@@ -114,14 +111,13 @@ export interface OutlineStyle { color: string; alpha: number; shadowBlur: number
 /**
  * Stroke an outline around a tile-rect in raw screen space (camera + zoom
  * applied manually, since overlays draw after the renderer restores its
- * transform). Topdown → axis-aligned rect; iso → the rect's outer diamond.
- * Shared by the selection glow and the hover outline (DRY).
+ * transform) — the rect's outer iso diamond. Shared by the selection glow and
+ * the hover outline (DRY).
  */
 export function drawOutlineRect(
   ctx: CanvasRenderingContext2D,
   rect: OutlineRect,
   camera: Camera,
-  mode: RenderMode,
   style: OutlineStyle,
 ): void {
   ctx.save();
@@ -130,15 +126,7 @@ export function drawOutlineRect(
   ctx.shadowBlur = style.shadowBlur;
   ctx.lineWidth = style.lineWidth;
   ctx.globalAlpha = style.alpha;
-
-  if (mode === 'iso') {
-    drawIsoDiamond(ctx, rect, camera);
-  } else {
-    const tl = topdownWorldToScreen(camera, rect.x, rect.y, TILE_SIZE);
-    const br = topdownWorldToScreen(camera, rect.x + rect.w, rect.y + rect.h, TILE_SIZE);
-    ctx.strokeRect(tl.sx, tl.sy, br.sx - tl.sx, br.sy - tl.sy);
-  }
-
+  drawIsoDiamond(ctx, rect, camera);
   ctx.restore();
 }
 
@@ -150,7 +138,6 @@ export function drawSelectionOutline(
   ctx: CanvasRenderingContext2D,
   sel: Selection | null,
   camera: Camera,
-  mode: RenderMode,
   w: OutlineWorld,
   nowMs: number,
 ): void {
@@ -158,7 +145,7 @@ export function drawSelectionOutline(
   if (!rect) return;
   const isArea = rect.w > 1 || rect.h > 1;
   const pulse = 0.6 + 0.4 * Math.sin(nowMs / 300); // 0.2 .. 1.0
-  drawOutlineRect(ctx, rect, camera, mode, {
+  drawOutlineRect(ctx, rect, camera, {
     color: isArea ? AREA_COLOR : POINT_COLOR,
     alpha: 0.85,
     shadowBlur: 14 * pulse,
@@ -167,44 +154,33 @@ export function drawSelectionOutline(
 }
 
 /**
- * Fill every tile in a rect with a translucent wash (iso diamonds / topdown
- * squares) — used to highlight a hovered building's occupied footprint tiles.
- * Draws in raw screen space (camera + zoom applied manually), matching the
- * terrain tile geometry so the wash sits exactly on the tiles.
+ * Fill every tile in a rect with a translucent wash (iso diamonds) — used to
+ * highlight a hovered building's occupied footprint tiles. Draws in raw screen
+ * space (camera + zoom applied manually), matching the terrain tile geometry so
+ * the wash sits exactly on the tiles.
  */
 export function fillTileRect(
   ctx: CanvasRenderingContext2D,
   rect: OutlineRect,
   camera: Camera,
-  mode: RenderMode,
   color: string = FOOTPRINT_COLOR,
   alpha = 0.28,
 ): void {
   ctx.save();
   ctx.globalAlpha = alpha;
   ctx.fillStyle = color;
-  if (mode === 'iso') {
-    const halfW = (ISO_TILE_W / 2) * camera.zoom;
-    const halfH = (ISO_TILE_H / 2) * camera.zoom;
-    for (let dy = 0; dy < rect.h; dy++) {
-      for (let dx = 0; dx < rect.w; dx++) {
-        const c = isoTileCenter(rect.x + dx, rect.y + dy, camera);
-        ctx.beginPath();
-        ctx.moveTo(c.sx, c.sy - halfH);
-        ctx.lineTo(c.sx + halfW, c.sy);
-        ctx.lineTo(c.sx, c.sy + halfH);
-        ctx.lineTo(c.sx - halfW, c.sy);
-        ctx.closePath();
-        ctx.fill();
-      }
-    }
-  } else {
-    const sizePx = TILE_SIZE * camera.zoom;
-    for (let dy = 0; dy < rect.h; dy++) {
-      for (let dx = 0; dx < rect.w; dx++) {
-        const tl = topdownWorldToScreen(camera, rect.x + dx, rect.y + dy, TILE_SIZE);
-        ctx.fillRect(tl.sx, tl.sy, sizePx, sizePx);
-      }
+  const halfW = (ISO_TILE_W / 2) * camera.zoom;
+  const halfH = (ISO_TILE_H / 2) * camera.zoom;
+  for (let dy = 0; dy < rect.h; dy++) {
+    for (let dx = 0; dx < rect.w; dx++) {
+      const c = isoTileCenter(rect.x + dx, rect.y + dy, camera);
+      ctx.beginPath();
+      ctx.moveTo(c.sx, c.sy - halfH);
+      ctx.lineTo(c.sx + halfW, c.sy);
+      ctx.lineTo(c.sx, c.sy + halfH);
+      ctx.lineTo(c.sx - halfW, c.sy);
+      ctx.closePath();
+      ctx.fill();
     }
   }
   ctx.restore();
@@ -215,9 +191,8 @@ export function drawHoverOutline(
   ctx: CanvasRenderingContext2D,
   rect: OutlineRect,
   camera: Camera,
-  mode: RenderMode,
 ): void {
-  drawOutlineRect(ctx, rect, camera, mode, {
+  drawOutlineRect(ctx, rect, camera, {
     color: HOVER_COLOR, alpha: 0.5, shadowBlur: 0, lineWidth: 1.5,
   });
 }

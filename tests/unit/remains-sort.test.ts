@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getEntitySortY } from '@/render/renderer';
+import { getEntitySortY } from '@/render/entity-sort';
 import type { Entity } from '@/core/types';
 
 describe('remains rendering sort key', () => {

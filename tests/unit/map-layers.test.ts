@@ -36,30 +36,21 @@ describe('BIOME_COLORS', () => {
 describe('drawBiomeLayer', () => {
   it('does nothing when the biome map is null', () => {
     const { ctx, calls } = stubCtx();
-    drawBiomeLayer(ctx, null, createCamera(), 'topdown', 800, 600);
+    drawBiomeLayer(ctx, null, createCamera());
     expect(Object.keys(calls)).toHaveLength(0);
-  });
-
-  it('topdown: fills every visible land cell and strokes the border between two biomes', () => {
-    const { ctx, calls } = stubCtx();
-    // 2×1 map: desert | forest — one shared vertical border.
-    const bm = biomeMap(['desert', 'temperate_forest'], 2, 1);
-    drawBiomeLayer(ctx, bm, createCamera(), 'topdown', 800, 600);
-    expect(calls.fillRect).toBeGreaterThanOrEqual(2); // ≥ one base fill per cell
-    expect(calls.stroke).toBeGreaterThanOrEqual(1);   // ≥ the shared border edge
   });
 
   it('skips ocean cells (no fill for them)', () => {
     const { ctx, calls } = stubCtx();
     const bm = biomeMap(['ocean', 'ocean'], 2, 1);
-    drawBiomeLayer(ctx, bm, createCamera(), 'topdown', 800, 600);
-    expect(calls.fillRect ?? 0).toBe(0);
+    drawBiomeLayer(ctx, bm, createCamera());
+    expect(calls.fill ?? 0).toBe(0);
   });
 
   it('iso: fills cells as diamonds (fill, not fillRect)', () => {
     const { ctx, calls } = stubCtx();
     const bm = biomeMap(['desert', 'temperate_forest'], 2, 1);
-    drawBiomeLayer(ctx, bm, createCamera(), 'iso', 800, 600);
+    drawBiomeLayer(ctx, bm, createCamera());
     expect(calls.fill).toBeGreaterThanOrEqual(2);
     expect(calls.fillRect ?? 0).toBe(0);
   });
@@ -68,23 +59,24 @@ describe('drawBiomeLayer', () => {
 describe('drawPoiLayer', () => {
   it('does nothing for an empty list', () => {
     const { ctx, calls } = stubCtx();
-    drawPoiLayer(ctx, [], createCamera(), 'topdown');
+    drawPoiLayer(ctx, [], createCamera());
     expect(Object.keys(calls)).toHaveLength(0);
   });
 
-  it('outlines a region POI and labels it', () => {
+  it('outlines a region POI (iso diamond) and labels it', () => {
     const { ctx, calls } = stubCtx();
     const pois = [{ id: 'p1', name: 'Town', type: 'village', region: { x_min: 1, x_max: 4, y_min: 1, y_max: 3 } }] as unknown as POI[];
-    drawPoiLayer(ctx, pois, createCamera(), 'topdown');
-    expect(calls.strokeRect).toBeGreaterThanOrEqual(1); // region outline (drawOutlineRect)
+    drawPoiLayer(ctx, pois, createCamera());
+    expect(calls.closePath).toBeGreaterThanOrEqual(1); // region outline diamond (drawOutlineRect)
+    expect(calls.stroke).toBeGreaterThanOrEqual(1);
     expect(calls.fillText).toBeGreaterThanOrEqual(1);    // label
   });
 
   it('draws a radius ring for a position-only POI', () => {
     const { ctx, calls } = stubCtx();
     const pois = [{ id: 'p2', name: 'Shrine', type: 'shrine', position: { x: 5, y: 5 } }] as unknown as POI[];
-    drawPoiLayer(ctx, pois, createCamera(), 'topdown');
-    expect(calls.arc).toBeGreaterThanOrEqual(1);
+    drawPoiLayer(ctx, pois, createCamera());
+    expect(calls.ellipse).toBeGreaterThanOrEqual(1);
     expect(calls.fillText).toBeGreaterThanOrEqual(1);
   });
 });

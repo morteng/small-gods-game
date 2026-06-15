@@ -7,8 +7,6 @@ import { WorldManager } from '@/map/world-manager';
 import { generateWithNoise } from '@/map/map-generator';
 import { Autotiler } from '@/map/autotiler';
 import { computeBlobMap } from '@/map/blob-autotiler';
-import { centerOn } from '@/render/camera';
-import { readRenderMode } from '@/render/select-renderer';
 import { seedWorld } from '@/world/seed-world';
 import { generateRivalSpirits } from '@/sim/rival-spirit';
 import { rivalToSpirit } from '@/sim/command/rival-adapter';
@@ -18,7 +16,6 @@ import { npcProps } from '@/world/npc-helpers';
 import { loadDecorations } from '@/services/decoration-store';
 import { readSave as readSaveDefault } from '@/services/save-store';
 import { applySaveFile, type SaveFile } from '@/core/save-file';
-import { TILE_SIZE } from '@/core/constants';
 
 export interface BootstrapDeps {
   state: GameState;
@@ -70,25 +67,16 @@ export async function bootstrapWorld(deps: BootstrapDeps): Promise<GameMap> {
   await assets.loadAll();
 
   const vp = getViewport();
-  centerOn(
+  // The renderer is iso-projected: centre the camera on the map's middle tile in
+  // iso screen space.
+  const { centerOnTile } = await import('@/render/iso/iso-camera');
+  centerOnTile(
     state.camera,
-    (map.width  * TILE_SIZE) / 2,
-    (map.height * TILE_SIZE) / 2,
+    Math.floor(map.width / 2),
+    Math.floor(map.height / 2),
     vp.width,
     vp.height,
   );
-
-  // In iso mode the camera coordinate space is different - recentre
-  if (readRenderMode() === 'iso') {
-    const { centerOnTile } = await import('@/render/iso/iso-camera');
-    centerOnTile(
-      state.camera,
-      Math.floor(map.width / 2),
-      Math.floor(map.height / 2),
-      vp.width,
-      vp.height,
-    );
-  }
 
   seedWorld({
     world: state.world!,

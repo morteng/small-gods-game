@@ -1,5 +1,5 @@
 import { createState, type GameState } from '@/core/state';
-import { selectRenderer, readRenderMode, type RenderFn } from '@/render/select-renderer';
+import { selectRenderer, type RenderFn } from '@/render/select-renderer';
 import { zoomAt } from '@/render/camera';
 import { quantizeIsoZoom } from '@/render/iso/iso-camera';
 import { fitCameraToMap } from '@/render/fit-camera';
@@ -31,7 +31,6 @@ import { AssetLibrary } from '@/services/asset-library';
 import { ArtResolver } from '@/render/art-resolver';
 import { ParametricBuildingSource } from '@/render/parametric-building-source';
 import { ParametricPlantSource } from '@/render/parametric-plant-source';
-import { PixiEntityLayer } from '@/render/pixi/pixi-entity-layer';
 import { GeneratedBuildingArtSource } from '@/render/generated-building-art-source';
 import { generateBuildingImage, BUILDING_IMAGE_MODEL } from '@/llm/openrouter-image-client';
 import { initManifoldWasm } from '@/assetgen/geometry/manifold-wasm-browser';
@@ -130,8 +129,6 @@ export class Game {
   private buildingArtResolver!: ArtResolver;
   private readonly parametricBuildingSource = new ParametricBuildingSource();
   private readonly parametricPlantSource = new ParametricPlantSource();
-  /** WebGL entity layer (PBR epic) — lazy pixi.js init on first iso frame. */
-  private readonly pixiEntityLayer = new PixiEntityLayer();
   // Paid building-art generation is OFF by default while the renderer + connectome
   // (roads, etc.) stabilise and the FLUX img2img settings are retuned — re-enable
   // via the `liveBuildingArt` setting once generation is worth paying for again.
@@ -319,19 +316,17 @@ export class Game {
       },
       onClickMinimapTile: (x, y) => {
         const vp = this.viewport();
-        focusCameraOnTile(this.state.camera, x, y, vp.width, vp.height, readRenderMode());
+        focusCameraOnTile(this.state.camera, x, y, vp.width, vp.height);
         this.requestRender();
       },
       onZoomIn: () => {
         const vp = this.viewport();
-        const q = readRenderMode() === 'iso' ? quantizeIsoZoom : undefined;
-        zoomAt(this.state.camera, 1.2, vp.width / 2, vp.height / 2, q);
+        zoomAt(this.state.camera, 1.2, vp.width / 2, vp.height / 2, quantizeIsoZoom);
         this.requestRender();
       },
       onZoomOut: () => {
         const vp = this.viewport();
-        const q = readRenderMode() === 'iso' ? quantizeIsoZoom : undefined;
-        zoomAt(this.state.camera, 1 / 1.2, vp.width / 2, vp.height / 2, q);
+        zoomAt(this.state.camera, 1 / 1.2, vp.width / 2, vp.height / 2, quantizeIsoZoom);
         this.requestRender();
       },
       onFitView: () => {
@@ -339,7 +334,7 @@ export class Game {
         const vp = this.viewport();
         fitCameraToMap(
           this.state.camera, this.state.map.width, this.state.map.height,
-          vp.width, vp.height, readRenderMode(),
+          vp.width, vp.height,
         );
         this.requestRender();
       },
@@ -435,7 +430,7 @@ export class Game {
             : null);
         if (pos) {
           const vp = this.viewport();
-          focusCameraOnTile(this.state.camera, pos.x, pos.y, vp.width, vp.height, readRenderMode());
+          focusCameraOnTile(this.state.camera, pos.x, pos.y, vp.width, vp.height);
           this.requestRender();
         }
       },
@@ -527,7 +522,7 @@ export class Game {
         this.requestRender();
       },
       onUserCameraInput: () => { this.state.followNpc = false; this.requestRender(); },
-      getZoomQuantize: () => (readRenderMode() === 'iso' ? quantizeIsoZoom : undefined),
+      getZoomQuantize: () => quantizeIsoZoom,
       onToggleSettings: () => this.ui.unifiedSettings.toggle(),
       onToggleMinimap: () => { this.ui.minimap?.toggle(); this.requestRender(); },
       onShowTutorial: () => this.ui.tutorial?.show('welcome'),
@@ -645,7 +640,6 @@ export class Game {
       parametricPlantSource: this.parametricPlantSource,
       generatedBuildingArtSource: this.generatedBuildingArtSource,
       devMode: this.dev.devMode,
-      entityLayer: this.pixiEntityLayer,
     };
   }
 
@@ -771,7 +765,6 @@ export class Game {
     this.veil.dispose();
     this.chrome.dispose();
     this.dev.destroy();
-    this.pixiEntityLayer.destroy();
     this.canvas.remove();
   }
 }

@@ -1,5 +1,5 @@
 import type { RenderContext, HitResult, Tile, Entity, NpcInstance, GeneratedDecoration } from '@/core/types';
-import { getEntitySortY } from '@/render/renderer';
+import { getEntitySortY } from '@/render/entity-sort';
 import { pickTile } from '@/ui/pick-tile';
 
 /**

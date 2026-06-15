@@ -27,7 +27,6 @@ import { mountCreatePanel, type CreatePanelHandle } from '@/dev/CreatePanel';
 import { createRenderBenchPanel, type RenderBenchHandle } from '@/dev/RenderBenchPanel';
 import type { CommandQueue } from '@/sim/command/command-queue';
 import type { LLMClient } from '@/llm/llm-client';
-import { readRenderMode, toggleRenderMode } from '@/render/select-renderer';
 
 
 export interface DevModeControllerDeps {
@@ -91,7 +90,7 @@ export class DevModeController {
       onRedo: () => this.redo(),
       onFocusCamera: (x, y) => {
         const vp = this.deps.getViewport();
-        focusCameraOnTile(this.deps.state.camera, x, y, vp.width, vp.height, readRenderMode());
+        focusCameraOnTile(this.deps.state.camera, x, y, vp.width, vp.height);
       },
       dock: this.dock,
     });
@@ -122,7 +121,7 @@ export class DevModeController {
         if (!e) return false;
         const vp = this.deps.getViewport();
         this.deps.state.camera.zoom = zoom;
-        focusCameraOnTile(this.deps.state.camera, e.x, e.y, vp.width, vp.height, readRenderMode());
+        focusCameraOnTile(this.deps.state.camera, e.x, e.y, vp.width, vp.height);
         return true;
       },
       dock: this.dock,
@@ -145,7 +144,6 @@ export class DevModeController {
       { id: 'overlay', label: '🎨 Overlay', isActive: () => this.debugOverlay.isVisible(), onClick: () => this.debugOverlay.toggle() },
       { id: 'create', label: '✨ Create', isActive: () => this.createPanel.isVisible(), onClick: () => this.createPanel.toggle() },
       { id: 'bench', label: '🏚 Bench', isActive: () => this.renderBench.isVisible(), onClick: () => this.renderBench.toggle() },
-      { id: 'render', label: readRenderMode() === 'gpu' ? '⚡ GPU' : '◈ Iso', onClick: () => toggleRenderMode() },
       { id: 'undo', label: '↩ Undo', onClick: () => this.undo() },
       { id: 'redo', label: '↪ Redo', onClick: () => this.redo() },
     ]);
@@ -431,14 +429,13 @@ export class DevModeController {
     drawDebugOverlays(ctx, this.deps.state.camera, this.deps.state.world!, rc.npcs, debugOpts);
 
     const s = this.deps.state;
-    const mode = readRenderMode();
 
     // Map info layers (rendering-only).
     if (this.devMode.showBiomeLayer) {
-      drawBiomeLayer(ctx, s.biomeMap, s.camera, mode, rc.canvasWidth, rc.canvasHeight);
+      drawBiomeLayer(ctx, s.biomeMap, s.camera);
     }
     if (this.devMode.showPoiLayer) {
-      drawPoiLayer(ctx, s.worldSeed?.pois, s.camera, mode);
+      drawPoiLayer(ctx, s.worldSeed?.pois, s.camera);
     }
     const owDeps = {
       world: s.world, decorations: s.generatedDecorations ?? [], spirits: s.spirits, seed: s.worldSeed,
@@ -454,19 +451,19 @@ export class DevModeController {
       const bldgRect = buildingFootprintAt(owDeps.world, hoverHit.tileX, hoverHit.tileY);
       if (bldgRect) {
         if (!sameRect(bldgRect, selRect)) {
-          fillTileRect(ctx, bldgRect, s.camera, mode);
-          drawHoverOutline(ctx, bldgRect, s.camera, mode);
+          fillTileRect(ctx, bldgRect, s.camera);
+          drawHoverOutline(ctx, bldgRect, s.camera);
         }
       } else if (hoverHit.type) {
         const hoverRect = resolveOutlineRect(selectionFromHit(hoverHit), owDeps);
         if (hoverRect && !sameRect(hoverRect, selRect)) {
-          drawHoverOutline(ctx, hoverRect, s.camera, mode);
+          drawHoverOutline(ctx, hoverRect, s.camera);
         }
       }
     }
 
     // Glowing outline around the current selection (canvas- or tree-picked).
-    drawSelectionOutline(ctx, selection, s.camera, mode, owDeps, performance.now());
+    drawSelectionOutline(ctx, selection, s.camera, owDeps, performance.now());
 
     this.debugOverlay.update(this.devMode);
   }

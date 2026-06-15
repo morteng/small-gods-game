@@ -14,12 +14,12 @@
 // each step as a further stage.
 import type { Entity, GameMap, Tile, RenderContext } from '@/core/types';
 import { World } from '@/world/world';
-import { createIsoRenderMap } from '@/render/iso/iso-renderer';
+import { createGpuRenderMap } from '@/render/gpu/gpu-renderer';
+import type { RenderFn } from '@/render/select-renderer';
 import { worldToScreen } from '@/render/iso/iso-projection';
 import { floorIsoZoom, quantizeIsoZoom, ISO_ZOOM_MIN, ISO_ZOOM_MAX } from '@/render/iso/iso-camera';
 import { createCamera, zoomAt } from '@/render/camera';
 import { attachControls } from '@/ui/controls';
-import { PixiEntityLayer } from '@/render/pixi/pixi-entity-layer';
 import { DEFAULT_LIGHTING, normalizeVec3, type Vec3 } from '@/render/lighting-state';
 import { structureResultToPack } from '@/render/parametric-building-source';
 import { composeStructure, type StructureResult } from '@/assetgen/compose';
@@ -186,8 +186,10 @@ export function mountStudio(container: HTMLElement): void {
   }
   const finishedSubject = (): SpriteCanvas | null => (liveRb ? (subjFinished.get(rbKey(liveRb)) ?? null) : null);
   const invalidate = (): void => { subjPacks.clear(); subjStages.clear(); subjInflight.clear(); subjFinished.clear(); };
-  const entityLayer = new PixiEntityLayer();
-  const renderMap = createIsoRenderMap();
+  // WebGPU scene renderer (async bring-up). Until it resolves, the frame loop
+  // paints only the background; the GPU canvas composites once ready.
+  let renderMap: RenderFn | null = null;
+  void createGpuRenderMap().then((r) => { renderMap = r.render; });
 
   const params = new URLSearchParams(location.search);
   const initial = (params.get('studio') && params.get('studio') !== '1') ? params.get('studio')! : 'oak_tree';
@@ -332,7 +334,7 @@ export function mountStudio(container: HTMLElement): void {
     return {
       map, camera: cam, canvasWidth: w, canvasHeight: h,
       npcs: [], npcSheets: new Map(), treeSheets: new Map(),
-      world, lighting: state.lighting, entityLayer,
+      world, lighting: state.lighting,
       resolveParametricBuildingArt: () => { const s = peekSubject(); if (s) return s; warmSubject(); return null; },
       resolveParametricPlantArt: () => { const s = peekSubject(); if (s) return s; warmSubject(); return null; },
     } as unknown as RenderContext;
@@ -506,7 +508,7 @@ export function mountStudio(container: HTMLElement): void {
     } else {
       stageOverlay.style.display = 'none';
       const rc = renderContext();
-      renderMap(ctx, rc);
+      if (renderMap) renderMap(ctx, rc);
       drawOverlays(rc.camera);
       drawHud();
       liveBtn.hide();

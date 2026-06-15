@@ -2,7 +2,6 @@ import type { GameState } from '@/core/state';
 import type { Viewport } from './viewport';
 import type { RenderContextDeps } from './render-context';
 import type { RenderFn } from '@/render/select-renderer';
-import { readRenderMode } from '@/render/select-renderer';
 import type { InteractionState } from './interaction-state';
 import type { DivineActionsController } from './divine-actions-controller';
 import type { DevModeController } from './dev-mode-controller';
@@ -12,7 +11,7 @@ import type { SpiritHudHandle } from '@/ui/spirit-hud';
 import type { DivineEffects } from '@/render/divine-effects';
 import { buildRenderContext } from './render-context';
 import { getNpc, toRenderNpc, simStateFromEntity } from '@/world/npc-helpers';
-import { drawNpcOverlay, drawPoiOverlay, drawPrayerMarkers } from '@/render/sim-overlay';
+import { drawNpcOverlay, drawPoiOverlay } from '@/render/sim-overlay';
 import type { NpcAttentionPanelHandle } from '@/ui/npc-attention-panel';
 import type { BuildingInfoPanelHandle } from '@/ui/building-info-panel';
 import { findBuildingAtTile, buildingInfoOf } from '@/world/building-helpers';
@@ -56,8 +55,6 @@ export class FrameRenderer {
   private renderedBuildingId: string | null = null;
   private lastInfoRefresh = 0;
   private fpsEma = 60;
-  /** Fixed per session — toggling render mode reloads the page. */
-  private readonly renderMode = readRenderMode();
 
   constructor(private deps: FrameRendererDeps) {}
 

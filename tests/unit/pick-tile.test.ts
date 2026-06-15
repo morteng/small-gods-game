@@ -2,12 +2,14 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { pickTile } from '@/ui/pick-tile';
 import { createCamera } from '@/render/camera';
 
-describe('pickTile: mode dispatch', () => {
+describe('pickTile (iso-only)', () => {
   beforeEach(() => {
     localStorage.clear();
   });
 
-  it('uses iso math by default', () => {
+  // The renderer is WebGPU-only and iso-projected; picking is the inverse iso
+  // transform regardless of any legacy `?render=` flag (those modes were removed).
+  it('uses iso math', () => {
     const cam = createCamera();
     cam.zoom = 1;
     // (64, 96) in screen coords → (2, 1) in iso tile coords
@@ -16,12 +18,11 @@ describe('pickTile: mode dispatch', () => {
     expect(ty).toBe(1);
   });
 
-  it('uses topdown math when flag is "topdown"', () => {
+  it('ignores any stale render-mode flag and still picks via iso', () => {
     localStorage.setItem('smallgods.render.mode', 'topdown');
     const cam = createCamera();
     cam.zoom = 1;
-    // TILE_SIZE = 32 → (64/32, 96/32) = (2, 3)
-    expect(pickTile(cam, 64, 96)).toEqual({ tx: 2, ty: 3 });
+    expect(pickTile(cam, 64, 96)).toEqual({ tx: 2, ty: 1 });
     localStorage.removeItem('smallgods.render.mode');
   });
 });

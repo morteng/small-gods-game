@@ -12,10 +12,9 @@
 import { worldToScreen } from './iso-projection';
 import { opaqueAnchor, type SpriteAnchor } from './iso-sprite-bbox';
 import type { SpritePack } from './sprite-canvas';
-import type { IsoDrawCtx } from './iso-sprites';
 import type { BuildingRenderMode } from '@/core/types';
 import { HEIGHT_UNIT_PX, ISO_TILE_H } from '@/render/scale-contract';
-import { executeDrawListCanvas, type DrawItem } from './draw-list';
+import { type DrawItem } from './draw-list';
 
 interface P { sx: number; sy: number }
 
@@ -125,13 +124,6 @@ export function buildingSpriteItemFromImage(
   return buildingSpriteItem(o, img, natW, natH, opaqueAnchor(img), tileX, tileY, footprint);
 }
 
-export function drawIsoBuildingSprite(
-  dc: IsoDrawCtx, img: HTMLImageElement,
-  tileX: number, tileY: number, footprint: { w: number; h: number },
-): void {
-  executeDrawListCanvas(dc.ctx, [buildingSpriteItemFromImage(dc, img, tileX, tileY, footprint)]);
-}
-
 /**
  * A runtime parametric building sprite (manifold generate-to-sprite). The
  * canvas is cropped to opaque content, so its base anchor is trivially centre/bottom.
@@ -164,13 +156,6 @@ export function buildingSpriteItemFromPack(
     item.shadowSprite = { src: pack.shadow.canvas, dx: pack.shadow.dx, dy: pack.shadow.dy };
   }
   return item;
-}
-
-export function drawIsoBuildingSpriteGenerated(
-  dc: IsoDrawCtx, src: HTMLCanvasElement | OffscreenCanvas,
-  tileX: number, tileY: number, footprint: { w: number; h: number },
-): void {
-  executeDrawListCanvas(dc.ctx, [buildingSpriteItemFromCanvas(dc, src, tileX, tileY, footprint)]);
 }
 
 /**
@@ -209,11 +194,4 @@ export function flatBlockItems(
 ): DrawItem[] {
   const g = groundCorners(tileX, tileY, struct.w, struct.h, o);
   return boxItems(g, HEIGHT_UNIT_PX, color);
-}
-
-export function drawIsoFlatBlock(
-  dc: IsoDrawCtx, struct: { w: number; h: number },
-  tileX: number, tileY: number, color = '#6b6b78',
-): void {
-  executeDrawListCanvas(dc.ctx, flatBlockItems(dc, struct, tileX, tileY, color));
 }

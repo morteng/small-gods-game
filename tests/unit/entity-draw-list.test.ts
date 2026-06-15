@@ -1,6 +1,5 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { isoStageTransform } from '@/render/iso/entity-draw-list';
-import { executeDrawListCanvas, type DrawItem } from '@/render/iso/draw-list';
 import { buildingSpriteItemFromPack } from '@/render/iso/iso-building';
 import type { SpritePack } from '@/render/iso/sprite-canvas';
 
@@ -36,42 +35,5 @@ describe('isoStageTransform', () => {
       expect(t.x).toBe(Math.round(-x * z));
       expect(t.y).toBe(Math.round(-y * z));
     }
-  });
-});
-
-describe('executeDrawListCanvas', () => {
-  function mockCtx() {
-    return {
-      drawImage: vi.fn(), beginPath: vi.fn(), moveTo: vi.fn(), lineTo: vi.fn(),
-      closePath: vi.fn(), fill: vi.fn(), arc: vi.fn(),
-      imageSmoothingEnabled: true, fillStyle: '',
-    } as unknown as CanvasRenderingContext2D;
-  }
-
-  const img = {} as CanvasImageSource;
-
-  it('draws framed images with the 9-arg form and whole images with the 5-arg form', () => {
-    const ctx = mockCtx();
-    const items: DrawItem[] = [
-      { t: 'image', src: img, frame: { sx: 64, sy: 128, sw: 64, sh: 64 }, dx: 1, dy: 2, dw: 64, dh: 64 },
-      { t: 'image', src: img, dx: 3, dy: 4, dw: 32, dh: 32 },
-    ];
-    executeDrawListCanvas(ctx, items);
-    expect(ctx.drawImage).toHaveBeenNthCalledWith(1, img, 64, 128, 64, 64, 1, 2, 64, 64);
-    expect(ctx.drawImage).toHaveBeenNthCalledWith(2, img, 3, 4, 32, 32);
-    expect(ctx.imageSmoothingEnabled).toBe(false); // pixel-art 1:1 rule
-  });
-
-  it('fills polys as closed paths and circles as full arcs', () => {
-    const ctx = mockCtx();
-    executeDrawListCanvas(ctx, [
-      { t: 'poly', points: [{ x: 0, y: 0 }, { x: 4, y: 0 }, { x: 4, y: 4 }], color: '#abcdef' },
-      { t: 'circle', cx: 7, cy: 8, r: 3, color: '#123456' },
-    ]);
-    expect(ctx.moveTo).toHaveBeenCalledWith(0, 0);
-    expect(ctx.lineTo).toHaveBeenCalledTimes(2);
-    expect(ctx.closePath).toHaveBeenCalled();
-    expect(ctx.arc).toHaveBeenCalledWith(7, 8, 3, 0, Math.PI * 2);
-    expect(ctx.fill).toHaveBeenCalledTimes(2);
   });
 });

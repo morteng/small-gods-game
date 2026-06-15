@@ -1,5 +1,5 @@
 import type { GameState } from '@/core/state';
-import type { RenderContext, DevModeState, Entity, EntityLayerHandle } from '@/core/types';
+import type { RenderContext, DevModeState, Entity } from '@/core/types';
 import type { AssetManager } from '@/render/asset-manager';
 import type { DecorationImageCache } from '@/render/decoration-image-cache';
 import type { ArtResolver } from '@/render/art-resolver';
@@ -22,17 +22,14 @@ export interface RenderContextDeps {
   parametricPlantSource: ParametricPlantSource;
   generatedBuildingArtSource?: GeneratedBuildingArtSource;
   devMode: DevModeState;
-  /** WebGL entity layer (PBR epic) — optional; absent = Canvas2D entity pass. */
-  entityLayer?: EntityLayerHandle;
 }
 
 /** Single source of truth for the per-frame RenderContext.
  *  `map` and `world` are asserted non-null — every caller guards both before calling.
  *  `npcs` is [] when no world exists yet (pre-generation). */
 export function buildRenderContext(deps: RenderContextDeps): RenderContext {
-  const { state, viewport, sheets, assets, decorationImages, artResolver, buildingArtResolver, parametricBuildingSource, parametricPlantSource, generatedBuildingArtSource, devMode, entityLayer } = deps;
+  const { state, viewport, sheets, assets, decorationImages, artResolver, buildingArtResolver, parametricBuildingSource, parametricPlantSource, generatedBuildingArtSource, devMode } = deps;
   return {
-    entityLayer,
     map: state.map!,
     camera: state.camera,
     canvasWidth: viewport.width,
