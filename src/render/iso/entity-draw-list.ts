@@ -17,6 +17,7 @@ import {
   buildingSpriteItemFromImage, buildingSpriteItemFromPack, flatBlockItems, pickBuildingSource,
 } from './iso-building';
 import { barrierItems } from './iso-barrier';
+import { buildRoadRibbonItems } from './iso-road-ribbon';
 import { buildYSortBucket, buildingSortKey, type YSortEntry } from './iso-ysort';
 import { blueprintOf } from '@/blueprint/entity';
 import { isLayerHidden } from '@/render/layer-visibility';
@@ -207,5 +208,11 @@ export function buildEntityDrawList(rc: RenderContext, bounds: TileBounds, ic: I
     }
   }
 
-  return items;
+  // Road ribbons ride the ground UNDER every entity: prepended → lowest list
+  // depth, and emitted as polys so the terrain lift raises each quad onto the
+  // heightfield (the grade-cut corridor it sits in). Hidden with the terrain.
+  const roadItems = isLayerHidden('terrain', rc.devMode)
+    ? []
+    : buildRoadRibbonItems(rc.map.roadGraph, ic);
+  return roadItems.length ? [...roadItems, ...items] : items;
 }
