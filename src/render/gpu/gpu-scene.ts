@@ -25,7 +25,7 @@ import {
 } from '@/render/gpu/instance-buffer';
 import { LIT_WGSL } from '@/render/gpu/wgsl/lit-wgsl';
 import { TERRAIN_WGSL } from '@/render/gpu/wgsl/terrain-wgsl';
-import { SHADOW_WGSL, SHADOW_COMPOSITE_WGSL } from '@/render/gpu/wgsl/shadow-wgsl';
+import { SHADOW_WGSL } from '@/render/gpu/wgsl/shadow-wgsl';
 import { SHAPE_WGSL } from '@/render/gpu/wgsl/shape-wgsl';
 import {
   buildShadowBatches, packShadowInstances, SHADOW_ALPHA,
@@ -63,23 +63,24 @@ export class GpuScene {
   private depthTex: GPUTexture | null = null;
   private depthW = 0;
   private depthH = 0;
-  // Cast-shadow pass: accumulate parallelogram silhouettes into an offscreen
-  // texture (union via src-over), then composite once at SHADOW_ALPHA so
-  // overlaps don't double-darken (the GPU port of the Pixi shadow container).
+  // Cast-shadow pass (stencil-union): each parallelogram silhouette draws
+  // premultiplied black at SHADOW_ALPHA straight onto the scene colour target,
+  // with a stencil buffer ensuring each pixel darkens at most once (overlaps
+  // union, never double-darken). Replaced the old offscreen-accumulate +
+  // fullscreen-composite pair, which shaded the WHOLE canvas every frame — a
+  // measured fill-rate bottleneck on the gen-8 iGPU.
   private shadowPipeline: GPURenderPipeline;
   private shadowGlobalsBuf: GPUBuffer;
   private shadowGlobalsBind: GPUBindGroup;
-  private compositePipeline: GPURenderPipeline;
-  private compositeGlobalsBuf: GPUBuffer;
   // Solid-colour shape pass (poly/circle parity): drawn in the entity pass,
   // sharing its depth buffer so shapes interleave with sprites by depth.
   private shapePipeline: GPURenderPipeline;
   private shapeGlobalsBuf: GPUBuffer;
   private shapeGlobalsBind: GPUBindGroup;
-  private shadowTex: GPUTexture | null = null;
-  private shadowW = 0;
-  private shadowH = 0;
-  private compositeBind: GPUBindGroup | null = null;
+  // Dedicated stencil target for the shadow union pass (one mark per pixel).
+  private stencilTex: GPUTexture | null = null;
+  private stencilW = 0;
+  private stencilH = 0;
   private shadowBindCache = new WeakMap<CanvasImageSource, GPUBindGroup>();
   /** Per-batch bind group cache, keyed by the albedo source (batch identity). */
   private bindCache = new WeakMap<CanvasImageSource, GPUBindGroup>();
@@ -152,22 +153,25 @@ export class GpuScene {
       fragment: {
         module: terrainModule,
         entryPoint: 'fsMain',
-        targets: [{
-          format: gpu.format,
-          blend: {
-            color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' },
-            alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' },
-          },
-        }],
+        // No blend: terrain is OPAQUE (alpha 1) and draws first on a cleared
+        // target, so src-over would just read dst for nothing — a wasted RMW per
+        // pixel on a fill-bound iGPU. Plain overwrite.
+        targets: [{ format: gpu.format }],
       },
       primitive: { topology: 'triangle-list' },
       depthStencil: { format: DEPTH_FORMAT, depthWriteEnabled: true, depthCompare: 'greater' },
     });
     this.terrainGlobalsBuf = device.createBuffer({ size: 96, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 
-    // Shadow accumulation pipeline: parallelogram quads (4 corners) → premult
-    // black into the offscreen shadow texture, unioned via src-over. No depth.
+    // Shadow union pipeline: parallelogram quads (4 corners) → premult black at
+    // SHADOW_ALPHA straight onto the scene colour target, stencil-gated so each
+    // pixel darkens at most once. Stencil-only attachment (`stencil8`): test
+    // `equal 0` (ref 0) → first fragment passes; passOp `increment-clamp` bumps
+    // it to 1 so any later overlapping shadow fails the test and is skipped.
     const shadowModule = device.createShaderModule({ code: SHADOW_WGSL });
+    const shadowStencil: GPUStencilFaceState = {
+      compare: 'equal', failOp: 'keep', depthFailOp: 'keep', passOp: 'increment-clamp',
+    };
     this.shadowPipeline = device.createRenderPipeline({
       layout: 'auto',
       vertex: {
@@ -188,31 +192,6 @@ export class GpuScene {
         module: shadowModule,
         entryPoint: 'fsMain',
         targets: [{
-          format: 'rgba8unorm',
-          blend: {
-            color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' },
-            alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' },
-          },
-        }],
-      },
-      primitive: { topology: 'triangle-strip' },
-    });
-    this.shadowGlobalsBuf = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-    this.shadowGlobalsBind = device.createBindGroup({
-      layout: this.shadowPipeline.getBindGroupLayout(0),
-      entries: [{ binding: 0, resource: { buffer: this.shadowGlobalsBuf } }],
-    });
-
-    // Composite pipeline: fullscreen triangle samples the shadow texture and
-    // lays the union over the scene at the capped container alpha (no depth).
-    const compositeModule = device.createShaderModule({ code: SHADOW_COMPOSITE_WGSL });
-    this.compositePipeline = device.createRenderPipeline({
-      layout: 'auto',
-      vertex: { module: compositeModule, entryPoint: 'vsMain' },
-      fragment: {
-        module: compositeModule,
-        entryPoint: 'fsMain',
-        targets: [{
           format: gpu.format,
           blend: {
             color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' },
@@ -220,10 +199,19 @@ export class GpuScene {
           },
         }],
       },
-      primitive: { topology: 'triangle-list' },
+      primitive: { topology: 'triangle-strip' },
+      // stencil8 carries no depth aspect → depthCompare must be 'always' + no write.
+      depthStencil: {
+        format: 'stencil8', depthWriteEnabled: false, depthCompare: 'always',
+        stencilFront: shadowStencil, stencilBack: shadowStencil,
+        stencilReadMask: 0xff, stencilWriteMask: 0xff,
+      },
     });
-    this.compositeGlobalsBuf = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-    device.queue.writeBuffer(this.compositeGlobalsBuf, 0, new Float32Array([SHADOW_ALPHA, 0, 0, 0]));
+    this.shadowGlobalsBuf = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    this.shadowGlobalsBind = device.createBindGroup({
+      layout: this.shadowPipeline.getBindGroupLayout(0),
+      entries: [{ binding: 0, resource: { buffer: this.shadowGlobalsBuf } }],
+    });
 
     // Solid-colour shape pipeline: per-vertex (pos+depth, colour) triangles.
     // SAME colour target + blend + depth scheme as the entity pipeline so it can
@@ -325,26 +313,17 @@ export class GpuScene {
     return bind;
   }
 
-  /** (Re)create the offscreen shadow texture + its composite bind group. */
-  private ensureShadow(w: number, h: number): GPUTextureView {
-    if (!this.shadowTex || this.shadowW !== w || this.shadowH !== h) {
-      this.shadowTex?.destroy();
-      this.shadowTex = this.device.createTexture({
-        size: [w, h, 1], format: 'rgba8unorm',
-        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+  /** (Re)create the dedicated stencil target for the shadow union pass. */
+  private ensureStencil(w: number, h: number): GPUTextureView {
+    if (!this.stencilTex || this.stencilW !== w || this.stencilH !== h) {
+      this.stencilTex?.destroy();
+      this.stencilTex = this.device.createTexture({
+        size: [w, h, 1], format: 'stencil8', usage: GPUTextureUsage.RENDER_ATTACHMENT,
       });
-      this.shadowW = w;
-      this.shadowH = h;
-      this.compositeBind = this.device.createBindGroup({
-        layout: this.compositePipeline.getBindGroupLayout(0),
-        entries: [
-          { binding: 0, resource: { buffer: this.compositeGlobalsBuf } },
-          { binding: 1, resource: this.sampler },
-          { binding: 2, resource: this.shadowTex.createView() },
-        ],
-      });
+      this.stencilW = w;
+      this.stencilH = h;
     }
-    return this.shadowTex.createView();
+    return this.stencilTex.createView();
   }
 
   /** A persistent VERTEX|COPY_DST buffer for `key`, grown geometrically to fit
@@ -439,7 +418,7 @@ export class GpuScene {
       sunDir: lighting.sunDir, sunColor: lighting.sunColor,
     }) as GPUAllowSharedBufferSource);
     if (hasShadows) {
-      device.queue.writeBuffer(this.shadowGlobalsBuf, 0, new Float32Array([w, h, 0, 0]));
+      device.queue.writeBuffer(this.shadowGlobalsBuf, 0, new Float32Array([w, h, SHADOW_ALPHA, 0]));
     }
 
     const hasTerrain = !!(terrain && terrain.vertexCount > 0 && terrain.heights.length > 0);
@@ -468,17 +447,26 @@ export class GpuScene {
     // target, so the FIRST colour pass clears and the rest load.
     let colorCleared = hasTerrain;
 
-    // Pass 1.5 — cast shadows: accumulate parallelogram silhouettes into the
-    // offscreen shadow texture (union via src-over), then composite the union
-    // once over the scene at the capped alpha (so overlaps don't double-darken).
+    // Pass 1.5 — cast shadows (stencil-union): each silhouette draws premult
+    // black at SHADOW_ALPHA straight onto the scene colour target; the stencil
+    // (cleared to 0 here, test `equal 0` + increment) makes each pixel darken at
+    // most once so overlaps union instead of double-darkening — touching only
+    // shadow pixels, never the full screen (the old fullscreen composite is gone).
     // Drawn between terrain and entities → shadows sit on the ground, under the
     // sprites that cast them.
     if (hasShadows) {
-      const shadowView = this.ensureShadow(w, h);
+      const stencilView = this.ensureStencil(w, h);
       const apass = enc.beginRenderPass({
-        colorAttachments: [{ view: shadowView, clearValue: { r: 0, g: 0, b: 0, a: 0 }, loadOp: 'clear', storeOp: 'store' }],
+        colorAttachments: [{
+          view: colorView, clearValue: { r: 0, g: 0, b: 0, a: 0 },
+          loadOp: colorCleared ? 'load' : 'clear', storeOp: 'store',
+        }],
+        depthStencilAttachment: {
+          view: stencilView, stencilClearValue: 0, stencilLoadOp: 'clear', stencilStoreOp: 'discard',
+        },
       });
       apass.setPipeline(this.shadowPipeline);
+      apass.setStencilReference(0);
       apass.setVertexBuffer(0, this.quadBuf);
       apass.setBindGroup(0, this.shadowGlobalsBind);
       const shadowInst = shadowBatches.reduce((s, b) => s + b.instances.length, 0);
@@ -493,17 +481,6 @@ export class GpuScene {
         soff += data.byteLength;
       }
       apass.end();
-
-      const cpass = enc.beginRenderPass({
-        colorAttachments: [{
-          view: colorView, clearValue: { r: 0, g: 0, b: 0, a: 0 },
-          loadOp: colorCleared ? 'load' : 'clear', storeOp: 'store',
-        }],
-      });
-      cpass.setPipeline(this.compositePipeline);
-      cpass.setBindGroup(0, this.compositeBind!);
-      cpass.draw(3);
-      cpass.end();
       colorCleared = true;
     }
 
