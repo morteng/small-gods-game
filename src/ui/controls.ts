@@ -24,6 +24,23 @@ export interface ControlsCallbacks {
   onRedraw: () => void;
 }
 
+// --- Wheel / trackpad zoom tuning -------------------------------------------
+// Continuous-zoom sensitivity per (deltaMode-normalized) pixel of scroll. The
+// effective per-gesture zoom is exp(-Σdy·k), so total zoom tracks total scroll.
+const ZOOM_SENS_WHEEL = 0.0015;  // mouse wheel / two-finger scroll
+const ZOOM_SENS_PINCH = 0.005;   // Mac trackpad pinch (ctrlKey wheel, small deltas) — tune on real hardware
+// No single wheel event may zoom more than this factor (guards giant deltas).
+const ZOOM_FACTOR_CLAMP = 1.6;
+// Snapped (iso) zoom: scroll distance accumulated before stepping one rung.
+const QUANTIZED_STEP_PX = 40;
+
+/** Wheel `deltaY` normalized to approximate pixels (deltaMode 1=line, 2=page). */
+function normalizeWheelDeltaY(e: WheelEvent, canvas: HTMLCanvasElement): number {
+  if (e.deltaMode === 1) return e.deltaY * 16;                       // lines → px
+  if (e.deltaMode === 2) return e.deltaY * (canvas.clientHeight || 800); // pages → px
+  return e.deltaY;
+}
+
 const TEXT_INPUT_TAGS = new Set(['INPUT', 'TEXTAREA', 'SELECT']);
 
 function isTextInputFocused(): boolean {
@@ -44,6 +61,7 @@ export function attachControls(canvas: HTMLCanvasElement, camera: Camera, callba
   let lastY = 0;
   let downX = 0;
   let downY = 0;
+  let wheelAccum = 0; // accumulated scroll distance for snapped (iso) zoom
 
   function onMouseDown(e: MouseEvent) {
     // Only the primary button starts a drag/click. Right-click is handled by
@@ -111,8 +129,34 @@ export function attachControls(canvas: HTMLCanvasElement, camera: Camera, callba
   function onWheel(e: WheelEvent) {
     e.preventDefault();
     const rect = canvas.getBoundingClientRect();
-    const factor = e.deltaY > 0 ? 0.9 : 1.1;
-    zoomAt(camera, factor, e.clientX - rect.left, e.clientY - rect.top, callbacks.getZoomQuantize?.());
+    const cx = e.clientX - rect.left;
+    const cy = e.clientY - rect.top;
+    const dy = normalizeWheelDeltaY(e, canvas);
+    const quantize = callbacks.getZoomQuantize?.();
+
+    if (quantize) {
+      // Snapped (iso) zoom steps one rung per call. A Mac trackpad fires a
+      // TORRENT of wheel events per gesture, so stepping per-event is wildly
+      // over-sensitive — accumulate and step at most one rung per chunk of
+      // scroll distance instead.
+      wheelAccum += dy;
+      while (Math.abs(wheelAccum) >= QUANTIZED_STEP_PX) {
+        // factor is read only for its sign by zoomAt's quantize branch.
+        zoomAt(camera, wheelAccum > 0 ? 0.9 : 1.1, cx, cy, quantize);
+        wheelAccum -= Math.sign(wheelAccum) * QUANTIZED_STEP_PX;
+      }
+    } else {
+      // Continuous (GPU/topdown) zoom: factor proportional to the scroll
+      // MAGNITUDE (the old fixed 0.9/1.1-per-event ignored it, so a trackpad's
+      // many tiny events compounded into runaway zoom). Exponential mapping
+      // keeps zoom perceptually uniform; the product across a gesture's events
+      // is exp(-Σdy·k), i.e. proportional to total scroll. Pinch (ctrlKey on a
+      // Mac trackpad) sends small deltas, so it gets a higher sensitivity.
+      const k = e.ctrlKey ? ZOOM_SENS_PINCH : ZOOM_SENS_WHEEL;
+      let factor = Math.exp(-dy * k);
+      factor = Math.max(1 / ZOOM_FACTOR_CLAMP, Math.min(ZOOM_FACTOR_CLAMP, factor));
+      zoomAt(camera, factor, cx, cy);
+    }
     callbacks.onUserCameraInput?.();
     callbacks.onRedraw();
   }
