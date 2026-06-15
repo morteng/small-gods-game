@@ -23,6 +23,7 @@ export type {
   SmokeSystemFields,
   FrameTypeFields,
   TopologyFields,
+  BarrierTypeFields,
   Era,
 } from '@/catalogue/types';
 export { CORE_KINDS } from '@/catalogue/types';

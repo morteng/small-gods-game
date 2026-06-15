@@ -33,6 +33,7 @@ export const CORE_KINDS = [
   'topology',
   'districtType', // seeded for the settlement connectome (Slice 5); inert until then
   'tradeType',
+  'barrierType', // linear enclosure structures (hedge/fence/palisade/wall) — DC-3
 ] as const;
 
 export type CoreCatalogueKind = (typeof CORE_KINDS)[number];
@@ -153,4 +154,26 @@ export interface FrameTypeFields {
 /** A topology names the interpreter that wires its zones into portals. */
 export interface TopologyFields {
   interpreter: string; // grammar interpreter id ('tripartite-linear'|…)
+}
+
+/**
+ * A linear enclosure structure (the connectome `Barrier` primitive's content
+ * facts): hedge, paling fence, drystone field wall, timber palisade, stone town
+ * wall. Grounds the realistic dimensions worldgen uses to place enclosure rings
+ * around crofts and settlements (DC-3). `barrierKind` is an open string keying the
+ * runtime barrier primitive (`BARRIER_DEFAULTS`); content stays content-free here.
+ */
+export interface BarrierTypeFields {
+  barrierKind: string; // runtime BarrierKind ('hedge'|'fence'|'palisade'|'wall'|…)
+  heightM: number; // crest height in metres
+  thicknessTiles: number; // footprint thickness in tiles (1 = single-cell)
+  material: string; // render material key ('hedge'|'timber'|'stone'|'earth')
+  crenellated?: boolean;
+  posts?: boolean;
+  /** Which enclosure scale this suits: a single croft/lot yard or a whole settlement. */
+  scale: 'croft' | 'settlement';
+  /** Settlement-scale selection: smallest settlement (building count) this ring suits. */
+  minBuildings?: number;
+  /** Gate opening width in tiles where a road (or water) crosses the run. */
+  gateWidthTiles: number;
 }

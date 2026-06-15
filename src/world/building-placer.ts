@@ -24,6 +24,8 @@ import { synthesizeBlueprint } from '@/blueprint/presets';
 import { blueprintEntity } from '@/blueprint/entity';
 import { toCollision } from '@/blueprint/compile/to-collision';
 import { toAnchors } from '@/blueprint/compile/to-anchors';
+import { placeBarrier } from '@/world/place-barrier';
+import { deriveCroftEnclosures, deriveSettlementRing, type EnclosureCtx } from '@/world/enclosure';
 import {
   planSettlement, orderedSlotsFor, subdivideLots, widenMarket, assignWards, planCivics,
   WATER_TYPES, BUILDABLE_TERRAIN, SITE_RULES,
@@ -418,6 +420,43 @@ export function placeSettlement(
     }
 
     placed++;
+  }
+
+  // 3. Enclose (DC-3, barriers half): ring built crofts with hedges/fences and,
+  // for villages and towns, the whole settlement with a palisade or town wall.
+  // Gates open where roads (and water) cross the line. Barriers are committed
+  // straight to the World (registry + indexes), so they are NOT added to
+  // `result.entities` (which the map-generator re-indexes) — avoiding a double
+  // index. Skipped for non-settlements (no lots) or when no world is bound.
+  if (world && plan.lots.length > 0 && placed > 0) {
+    const ctx: EnclosureCtx = { era };
+
+    // Per-croft enclosures (hedge/fence/wall) around each built lot.
+    for (const { id, run } of deriveCroftEnclosures(plan.lots, poi.id, rng, ctx)) {
+      placeBarrier(world, run, id);
+    }
+
+    // Settlement ring — bbox over the built area (lots + roads + market + civics).
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    const bump = (x: number, y: number) => {
+      if (x < minX) minX = x; if (x > maxX) maxX = x;
+      if (y < minY) minY = y; if (y > maxY) maxY = y;
+    };
+    for (const lot of plan.lots) for (const t of lot.tiles) bump(t.x, t.y);
+    for (const rt of roadTiles) bump(rt.x, rt.y);
+    for (const c of plan.civics) { bump(c.x, c.y); bump(c.x + c.w - 1, c.y + c.h - 1); }
+
+    if (Number.isFinite(minX)) {
+      const ring = deriveSettlementRing({
+        bbox: { minX, minY, maxX, maxY },
+        mapW: tiles[0]?.length ?? 0, mapH: tiles.length,
+        buildingCount: placed, poiId: poi.id,
+        isWater: (x, y) => WATER_TYPES.has(tiles[y]?.[x]?.type ?? ''),
+        isRoad: (x, y) => roadSet.has(`${x},${y}`) || ROAD_TYPES.has(tiles[y]?.[x]?.type ?? ''),
+        ctx,
+      });
+      if (ring) placeBarrier(world, ring.run, ring.id);
+    }
   }
 
   return { entities, roadTiles, plan };

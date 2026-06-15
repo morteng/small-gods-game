@@ -26,6 +26,7 @@ const MATERIAL_COLORS: Record<string, string> = {
   wood: '#8B5A2B',
   brick: '#9c5a4a',
   earth: '#9b7b53',
+  hedge: '#4a7c3a',
 };
 const FALLBACK_COLOR = '#8a8a8a';
 

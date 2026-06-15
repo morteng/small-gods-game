@@ -39,4 +39,4 @@ export const ART_RECIPE_VERSION = 'v9';
  * An autosave stamped with a different value is discarded on load → a fresh
  * world is generated. Distinct from SAVE_VERSION (which guards the save *schema*).
  */
-export const WORLD_CONTENT_VERSION = 9;   // roads Slice 0: GameMap.roadGraph persisted (inter-POI polylines + bridges; tile carve derived from it)
+export const WORLD_CONTENT_VERSION = 10;  // DC-3 barriers: settlements/crofts now ringed by enclosure barriers (hedge/fence/palisade/town-wall)
