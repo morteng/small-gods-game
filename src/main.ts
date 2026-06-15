@@ -16,6 +16,9 @@ if (container && new URLSearchParams(location.search).has('studio')) {
   // console/Playwright/MCP surface (see src/dev/debug-api.ts).
   (window as any).__game = game;
   (window as any).__debug = game.debug();
+  // __bus is the S0 command/query seam (emit/preview/capabilities/query/subscribe)
+  // a WebGPU UI or MCP bridge consumes. See src/game/game-bus.ts.
+  (window as any).__bus = game.bus;
 
   // __perf: boot-phase timings + live FPS, read in a REAL browser (Playwright/CDP
   // throttles the rAF loop, so its absolute numbers can't be trusted). See profile.ts.

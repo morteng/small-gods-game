@@ -8,6 +8,8 @@ import { attachControls, attachTimeKeys } from '@/ui/controls';
 import type { GameMap, WorldSeed, TerrainOptions } from '@/core/types';
 import { ART_RECIPE_VERSION } from '@/core/content-version';
 import { createDebugApi, type DebugApi } from '@/dev/debug-api';
+import { createGameQuery, type GameQuery } from '@/game/game-query';
+import { createGameBus, type GameBus } from '@/game/game-bus';
 import { bootMark, FpsMeter, type FpsStats } from '@/dev/profile';
 import { createFpsHud, type FpsHudHandle } from '@/dev/fps-hud';
 import { advanceNpcFrames } from '@/render/npc-animator';
@@ -94,6 +96,10 @@ export class Game {
   private attentionStore = new NpcAttentionStore();
   private authorLog = new AuthorCommandLog();
   private timeline!: TimelineController;
+  /** Read-only facade over GameState (S0). The bus + __debug both read through it. */
+  private query!: GameQuery;
+  /** The unified command/query seam a UI or MCP bridge consumes (S0). */
+  bus!: GameBus;
   private persistence!: PersistenceController;
   private cleanupControls: (() => void) | null = null;
   private cleanupTokens: (() => void) | null = null;
@@ -262,6 +268,16 @@ export class Game {
     this.canvas.style.display = 'block';
     container.appendChild(this.canvas);
     this.ctx = this.canvas.getContext('2d')!;
+
+    // S0 command/query bus: the read facade + the unified seam a UI/MCP bridge
+    // consumes. Built over the already-owned state/queue; __debug shims onto it.
+    this.query = createGameQuery({
+      state: this.state,
+      canvas: this.canvas,
+      rate: () => this.scheduler.getRate(),
+      timeline: this.timeline,
+    });
+    this.bus = createGameBus({ queue: this.commandQueue, state: this.state, query: this.query });
 
     if (getComputedStyle(container).position === 'static') {
       container.style.position = 'relative';
@@ -587,7 +603,7 @@ export class Game {
 
   /** Stable debug surface for console/Playwright/MCP (see src/dev/debug-api.ts). */
   debug(): DebugApi {
-    return createDebugApi({ state: this.state, canvas: this.canvas, viewport: () => this.viewport() });
+    return createDebugApi({ query: this.query, state: this.state, viewport: () => this.viewport() });
   }
 
   /** Latest rendered-frame stats (see src/dev/profile.ts). For `window.__perf`. */

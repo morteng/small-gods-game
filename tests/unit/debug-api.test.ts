@@ -1,6 +1,7 @@
 /** @vitest-environment jsdom */
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createDebugApi } from '@/dev/debug-api';
+import { createGameQuery } from '@/game/game-query';
 import { createState } from '@/core/state';
 import { World } from '@/world/world';
 import type { GameMap, Tile } from '@/core/types';
@@ -26,7 +27,8 @@ function setup() {
   state.world.addEntity({ id: 'n1', kind: 'npc', x: 1, y: 1, tags: [], properties: { name: 'Ada' } } as any);
   state.world.addEntity({ id: 'v1', kind: 'tree', x: 6, y: 6, tags: ['vegetation'], properties: {} } as any);
   const canvas = document.createElement('canvas');
-  const api = createDebugApi({ state, canvas, viewport: () => ({ width: 800, height: 600 }) });
+  const query = createGameQuery({ state, canvas });
+  const api = createDebugApi({ query, state, viewport: () => ({ width: 800, height: 600 }) });
   return { state, api };
 }
 

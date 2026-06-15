@@ -4,6 +4,11 @@
  * `window.__debug`. Prefer these verbs over reaching into `__game`'s private
  * internals: this surface is intentional and survives refactors.
  *
+ * Post-S0 it is a THIN SHIM over `GameQuery` (the canonical read facade) for its
+ * read verbs (inventory/query/grab) plus the camera-mutating convenience verbs
+ * (focusKind/focusXY/fitMap) that don't belong on a read-only facade. The public
+ * shape is unchanged — existing console/Playwright callers keep working.
+ *
  * Capture lesson (see memory feedback-playwright-in-dev-loop): use `grab()`
  * (canvas → dataURL), NOT Playwright `page.screenshot()` which stalls headed.
  */
@@ -13,6 +18,7 @@ import type { QueryOpts } from '@/world/world';
 import { focusCameraOnTile } from '@/render/focus-camera';
 import { fitCameraToMap } from '@/render/fit-camera';
 import { readRenderMode } from '@/render/select-renderer';
+import type { GameQuery } from '@/game/game-query';
 
 export interface DebugInventory {
   world: string | undefined;
@@ -39,37 +45,41 @@ export interface DebugApi {
 }
 
 export interface DebugApiDeps {
+  /** The canonical read facade — all read verbs delegate here (S0). */
+  query: GameQuery;
+  /** For the camera-mutating verbs (focus/fit), which GameQuery deliberately omits. */
   state: GameState;
-  canvas: HTMLCanvasElement;
   viewport: () => { width: number; height: number };
 }
 
 export function createDebugApi(deps: DebugApiDeps): DebugApi {
-  const { state, canvas, viewport } = deps;
+  const { query, state, viewport } = deps;
   const camera = (): Camera => state.camera;
 
   return {
     inventory(): DebugInventory {
-      const w = state.world;
-      const buildings = w ? w.query({ tag: 'building' }) : [];
+      // Building-only byKind, matching the historical shape (worldSummary.byKind
+      // counts ALL kinds — kept distinct for back-compat).
+      const buildings = query.entities({ tag: 'building' });
       const byKind: Record<string, number> = {};
       for (const b of buildings) byKind[b.kind] = (byKind[b.kind] ?? 0) + 1;
+      const summary = query.worldSummary();
       return {
-        world: state.worldSeed?.name,
-        map: state.map ? { w: state.map.width, h: state.map.height } : null,
+        world: summary.name,
+        map: summary.map,
         buildings: buildings.length,
         byKind,
-        npcs: w ? w.query({ kind: 'npc' }).length : 0,
-        vegetation: w ? w.query({ tag: 'vegetation' }).length : 0,
+        npcs: summary.npcs,
+        vegetation: summary.vegetation,
       };
     },
 
     query(opts: QueryOpts = {}): Entity[] {
-      return state.world ? state.world.query(opts) : [];
+      return query.entities(opts);
     },
 
     focusKind(kind: string, zoom = 4): boolean {
-      const hit = state.world?.query({ kind })[0];
+      const hit = query.entities({ kind })[0];
       if (!hit) return false;
       this.focusXY(hit.x, hit.y, zoom);
       return true;
@@ -89,7 +99,7 @@ export function createDebugApi(deps: DebugApiDeps): DebugApi {
     },
 
     grab(): string {
-      return canvas.toDataURL('image/png');
+      return query.screenshot();
     },
   };
 }
