@@ -1,28 +1,29 @@
 // src/render/gpu/gpu-render-frame.ts
 //
-// R2c-integrate — the first REAL game frame through the WebGPU scene. Mirrors
-// `createIsoRenderMap` exactly, swapping ONLY the entity executor: terrain and
-// overlays stay on Canvas2D (terrain becomes GPU geometry in R2d), while the
-// y-sorted entity draw list is rendered by `GpuScene` onto an overlay WebGPU
-// canvas and composited device-pixel to device-pixel — the same blit the Pixi
-// layer used (`iso-renderer.ts`), so placement parity holds by construction.
+// R2d-integrate — the game frame through the WebGPU scene. The GPU now draws
+// BOTH the terrain heightfield mesh (lifted geometry, R2d) AND the y-sorted
+// entity draw list, composited onto an overlay WebGPU canvas that's blitted over
+// the Canvas2D background device-pixel to device-pixel (the same blit the Pixi
+// layer used). Only overlays remain on Canvas2D. (R2c-integrate first put the
+// entities here over a Canvas2D terrain; R2d moved terrain onto the GPU too.)
 //
-// The draw list is authored in WORLD coordinates; the scene bakes the camera's
-// world→device transform (zoom + snapped offset, times DPR) into the instances.
+// Draw list + terrain mesh are authored in WORLD coordinates; the scene bakes
+// the camera's world→device transform (zoom + snapped offset × DPR) into the
+// entity instances (CPU) and the terrain uniform (GPU).
 //
-// Known gap (R2e): `poly`/`circle` passthrough items (barrier fills, NPC
-// fallback diamonds) aren't drawn by the GPU scene yet — image entities
-// (buildings, NPCs, trees, decorations) are the bulk and render here.
+// Known gaps: `poly`/`circle` passthrough items (barrier fills, NPC fallback
+// diamonds) not yet GPU-drawn (R2e); entities still sit at z=0 so they don't yet
+// follow terrain height (foot-z from `heightAt` is a later step).
 
 import type { RenderContext } from '@/core/types';
 import type { RenderFn } from '@/render/select-renderer';
-import { drawIsoTerrain } from '@/render/iso/iso-terrain';
 import { drawIsoOverlays } from '@/render/iso/iso-overlay';
 import { createNullAtlas } from '@/render/iso/iso-atlas';
 import { visibleTileBounds } from '@/render/iso/iso-projection';
 import { isLayerHidden } from '@/render/layer-visibility';
 import { buildEntityDrawList } from '@/render/iso/entity-draw-list';
 import { DEFAULT_LIGHTING } from '@/render/lighting-state';
+import { buildTerrainMesh, type TerrainMesh } from '@/render/gpu/terrain-mesh';
 import type { GpuScene } from '@/render/gpu/gpu-scene';
 
 const BG_COLOR = '#1a1a24';
@@ -41,31 +42,26 @@ export function buildGpuRenderFrame(scene: GpuScene, gpuCanvas: HTMLCanvasElemen
     // backing-store size so the overlay and transform land on device pixels.
     const dpr = canvasWidth > 0 ? target.width / canvasWidth : 1;
 
+    // Background only — terrain + entities both render on the GPU now (R2d).
     ctx.fillStyle = BG_COLOR;
     ctx.fillRect(0, 0, canvasWidth, canvasHeight);
 
-    // Terrain on Canvas2D under the same pixel-snapped world transform as iso.
-    ctx.save();
     const z = camera.zoom;
-    ctx.scale(z, z);
-    ctx.translate(Math.round(-camera.x * z) / z, Math.round(-camera.y * z) / z);
-
     const bounds = visibleTileBounds(
       { originX: -camera.x, originY: -camera.y },
       canvasWidth / camera.zoom,
       canvasHeight / camera.zoom,
       { mapW: map.width, mapH: map.height },
     );
-    if (!isLayerHidden('terrain', rc.devMode)) {
-      drawIsoTerrain(ctx, { map, bounds, originX: 0, originY: 0, devMode: rc.devMode });
-    }
 
     const items = buildEntityDrawList(rc, bounds, {
       atlas, originX: 0, originY: 0, npcSheets: rc.npcSheets, treeSheets: rc.treeSheets,
     });
-    ctx.restore();
+    const terrain: TerrainMesh | null = isLayerHidden('terrain', rc.devMode)
+      ? null
+      : buildTerrainMesh(map, bounds, 0, 0, { devMode: rc.devMode });
 
-    // GPU entity pass → overlay canvas, then composite identity (device→device).
+    // GPU terrain + entity passes → overlay canvas, composited identity (device→device).
     if (gpuCanvas.width !== target.width || gpuCanvas.height !== target.height) {
       gpuCanvas.width = target.width;
       gpuCanvas.height = target.height;
@@ -73,8 +69,10 @@ export function buildGpuRenderFrame(scene: GpuScene, gpuCanvas: HTMLCanvasElemen
     const lighting = rc.lighting ?? DEFAULT_LIGHTING;
     const offX = Math.round(-camera.x * z);
     const offY = Math.round(-camera.y * z);
-    scene.render(items, lighting, target.width, target.height, {
-      sx: z * dpr, sy: z * dpr, ox: offX * dpr, oy: offY * dpr,
+    scene.renderFrame({
+      items, lighting, terrain,
+      w: target.width, h: target.height,
+      xform: { sx: z * dpr, sy: z * dpr, ox: offX * dpr, oy: offY * dpr },
     });
 
     ctx.save();

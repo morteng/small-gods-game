@@ -61,3 +61,16 @@ export function packGlobals(g: GlobalsInput): Float32Array {
   b[12] = g.sunColor[0]; b[13] = g.sunColor[1]; b[14] = g.sunColor[2]; b[15] = 0;
   return b;
 }
+
+/** Terrain pass uniform (R2d): viewport + the world→device view transform. */
+export const TERRAIN_GLOBALS_FLOATS = 8; // [vp.xy, pad.xy], [sx,sy,ox,oy]
+
+/** Pack the terrain Globals uniform (matches `TerrainGlobals` in terrain-wgsl). */
+export function packTerrainGlobals(
+  viewport: [number, number], xform: { sx: number; sy: number; ox: number; oy: number },
+): Float32Array {
+  const b = new Float32Array(TERRAIN_GLOBALS_FLOATS);
+  b[0] = viewport[0]; b[1] = viewport[1]; b[2] = 0; b[3] = 0;
+  b[4] = xform.sx; b[5] = xform.sy; b[6] = xform.ox; b[7] = xform.oy;
+  return b;
+}

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
-  packInstances, packGlobals, QUAD_STRIP, QUAD_VERTEX_COUNT,
-  INSTANCE_FLOATS, INSTANCE_STRIDE, GLOBALS_FLOATS,
+  packInstances, packGlobals, packTerrainGlobals, QUAD_STRIP, QUAD_VERTEX_COUNT,
+  INSTANCE_FLOATS, INSTANCE_STRIDE, GLOBALS_FLOATS, TERRAIN_GLOBALS_FLOATS,
 } from '@/render/gpu/instance-buffer';
 import type { InstanceAttrs } from '@/render/gpu/instance-batch';
 
@@ -49,5 +49,14 @@ describe('R2c — instance/globals buffer packing', () => {
     expect(g[7]).toBe(0); // pad
     expect([g[8], g[9], g[10]]).toEqual([-0.5, 0.5, 0.25]);
     expect([g[12], g[13], g[14]]).toEqual([0.25, 0.5, 0.75]);
+  });
+
+  it('packTerrainGlobals lays out [viewport, pad, xform] (R2d)', () => {
+    const t = packTerrainGlobals([800, 600], { sx: 2, sy: 2, ox: 5, oy: 7 });
+    expect(t).toHaveLength(TERRAIN_GLOBALS_FLOATS);
+    expect(TERRAIN_GLOBALS_FLOATS).toBe(8);
+    expect([t[0], t[1]]).toEqual([800, 600]);
+    expect([t[2], t[3]]).toEqual([0, 0]);             // pad
+    expect([t[4], t[5], t[6], t[7]]).toEqual([2, 2, 5, 7]); // sx,sy,ox,oy
   });
 });
