@@ -88,6 +88,14 @@ function sunDir(az: number, el: number): Vec3 {
 }
 
 export function mountStudio(container: HTMLElement): void {
+  // World-overview mode (?studio=world): the real default world on the GPU
+  // renderer with the whole-world connectome overlay, separate from the
+  // single-object editor below.
+  if (new URLSearchParams(location.search).get('studio') === 'world') {
+    void import('@/studio/world-studio').then(({ mountWorldStudio }) => mountWorldStudio(container));
+    return;
+  }
+
   ensureBuildingTypesRegistered();
   initManifoldWasm();
 
