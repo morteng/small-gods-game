@@ -4,7 +4,11 @@ import { worldToScreen } from './iso-projection';
 import { ISO_TILE_W, ISO_TILE_H } from './iso-constants';
 import type { TileBounds } from './iso-projection';
 import { effectiveTileType } from '@/render/layer-visibility';
-import { getHeightfield, ELEVATION_SEA_LEVEL } from '@/world/heightfield';
+import { getHeightfield } from '@/world/heightfield';
+import { shadeHex, litTileColorHex, tileHash01 } from './terrain-shading';
+
+// Re-exported for backwards compatibility (tests + callers import it here).
+export { tileHash01 };
 
 /**
  * Engine-drawn iso terrain tiles (our own tile renderer — a full terrain shader
@@ -41,43 +45,9 @@ export interface IsoTerrainArgs {
 
 /** Vertical depth of the front skirt (px on a 64px-tall tile). */
 export const ISO_SKIRT_H = 12;
-/** Per-tile lightness jitter amplitude (fraction of the base colour). */
-const NOISE_AMP = 0.06;
 /** Skirt darkening: left (SW) wall vs right (SE) wall — fakes directional light. */
 const SKIRT_LEFT = 0.7;
 const SKIRT_RIGHT = 0.55;
-/**
- * Height-shading gain: brightness multiplier per unit of normalised elevation
- * away from the waterline. At elevation 1 (≈0.65 above sea) a peak reads ~1.5×;
- * at elevation 0 a trench reads ~0.7×. Clamped to keep colours in gamut.
- */
-const HEIGHT_SHADE_GAIN = 0.8;
-const HEIGHT_SHADE_MIN = 0.5;
-const HEIGHT_SHADE_MAX = 1.6;
-
-/**
- * Deterministic [0,1) hash of an integer tile coord. Mixes both axes through
- * `Math.imul` so neighbouring tiles decorrelate (the shared-LCG-step correlation
- * the tree scatter hit). No `Math.random` — stable per tile across frames.
- */
-export function tileHash01(tx: number, ty: number): number {
-  let h = Math.imul(tx | 0, 0x27d4eb2d) ^ Math.imul(ty | 0, 0x165667b1);
-  h = Math.imul(h ^ (h >>> 15), 0x2c1b3c6d);
-  h ^= h >>> 12;
-  h = Math.imul(h ^ (h >>> 13), 0x297a2d39);
-  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
-}
-
-/** Scale a #rrggbb colour by `f` (clamped to 0..255 per channel). */
-function shade(hex: string, f: number): string {
-  const m = /^#([0-9a-f]{6})$/i.exec(hex);
-  if (!m) return hex;
-  const n = parseInt(m[1], 16);
-  const r = Math.min(255, Math.round(((n >> 16) & 255) * f));
-  const g = Math.min(255, Math.round(((n >> 8) & 255) * f));
-  const b = Math.min(255, Math.round((n & 255) * f));
-  return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, '0')}`;
-}
 
 export function drawIsoTerrain(ctx: CanvasRenderingContext2D, args: IsoTerrainArgs): void {
   const { map, bounds, originX, originY, devMode } = args;
@@ -111,19 +81,16 @@ export function drawIsoTerrain(ctx: CanvasRenderingContext2D, args: IsoTerrainAr
 
       const baseType = effectiveTileType(tile.type, devMode);
       const base = TILE_COLORS[baseType] ?? '#444';
-      // Height factor: lighten ground above the waterline, darken below.
+      // Height + noise shading (shared with the GPU heightfield mesh — R2d).
       const elev = heightfield[ty * map.width + tx];
-      const heightF = Math.max(HEIGHT_SHADE_MIN, Math.min(HEIGHT_SHADE_MAX,
-        1 + (elev - ELEVATION_SEA_LEVEL) * HEIGHT_SHADE_GAIN));
-      const noiseF = 1 + (tileHash01(tx, ty) - 0.5) * 2 * NOISE_AMP;
-      const lit = shade(base, heightF * noiseF);
+      const lit = litTileColorHex(base, elev, tx, ty);
 
       // Front skirts first (the top diamond is drawn after and meets them at the
       // front edges). Cull each where the tile in front of it exists — that tile
       // occludes the skirt, so we'd only be painting hidden pixels.
       if (!map.tiles[ty + 1]?.[tx]) {
         // left / south-west wall, under the W→S edge
-        ctx.fillStyle = shade(lit, SKIRT_LEFT);
+        ctx.fillStyle = shadeHex(lit, SKIRT_LEFT);
         ctx.beginPath();
         ctx.moveTo(left.x, left.y);
         ctx.lineTo(bottom.x, bottom.y);
@@ -134,7 +101,7 @@ export function drawIsoTerrain(ctx: CanvasRenderingContext2D, args: IsoTerrainAr
       }
       if (!map.tiles[ty]?.[tx + 1]) {
         // right / south-east wall, under the S→E edge
-        ctx.fillStyle = shade(lit, SKIRT_RIGHT);
+        ctx.fillStyle = shadeHex(lit, SKIRT_RIGHT);
         ctx.beginPath();
         ctx.moveTo(bottom.x, bottom.y);
         ctx.lineTo(right.x, right.y);
