@@ -20,12 +20,16 @@ export function readRenderMode(): RenderMode {
   } catch {
     // localStorage may be unavailable (iframe with storage disabled etc.)
   }
-  return 'iso';
+  return 'gpu';
 }
 
-/** Flip the render mode in localStorage and reload the page. */
+/**
+ * Flip between the GPU default and the iso fallback, then reload.
+ * (The legacy 'topdown' Canvas2D mode is deprecated and no longer offered here;
+ * reach it explicitly with `?render=topdown` if needed.)
+ */
 export function toggleRenderMode(): void {
-  const next = readRenderMode() === 'iso' ? 'topdown' : 'iso';
+  const next = readRenderMode() === 'gpu' ? 'iso' : 'gpu';
   localStorage.setItem(LS_KEY, next);
   window.location.reload();
 }

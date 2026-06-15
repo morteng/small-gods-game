@@ -145,7 +145,7 @@ export class DevModeController {
       { id: 'overlay', label: '🎨 Overlay', isActive: () => this.debugOverlay.isVisible(), onClick: () => this.debugOverlay.toggle() },
       { id: 'create', label: '✨ Create', isActive: () => this.createPanel.isVisible(), onClick: () => this.createPanel.toggle() },
       { id: 'bench', label: '🏚 Bench', isActive: () => this.renderBench.isVisible(), onClick: () => this.renderBench.toggle() },
-      { id: 'render', label: readRenderMode() === 'iso' ? '◈ Iso' : '⬛ Topdown', onClick: () => toggleRenderMode() },
+      { id: 'render', label: readRenderMode() === 'gpu' ? '⚡ GPU' : '◈ Iso', onClick: () => toggleRenderMode() },
       { id: 'undo', label: '↩ Undo', onClick: () => this.undo() },
       { id: 'redo', label: '↪ Redo', onClick: () => this.redo() },
     ]);

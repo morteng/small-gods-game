@@ -159,14 +159,16 @@ export function mountDebugOverlayPanel(container: HTMLElement, deps: { dock?: Do
   modeRow.appendChild(modeSelect);
   buildingSection.appendChild(modeRow);
 
-  // Entity render backend — PixiJS WebGL layer (auto) vs forced Canvas2D.
+  // Entity render backend — PixiJS WebGL layer (auto). The 'Force Canvas2D'
+  // option is hidden: the Canvas2D entity executor is deprecated and remains as
+  // an automatic unlit fallback only (see executeDrawListCanvas @deprecated).
   const backendRow = document.createElement('label');
   backendRow.style.cssText = 'display:flex; align-items:center; gap:8px; font-size:12px; padding:2px 0;';
   const backendText = document.createElement('span');
   backendText.textContent = '🖥️ Backend';
   const backendSelect = document.createElement('select');
   backendSelect.style.cssText = modeSelect.style.cssText;
-  for (const [value, label] of [['auto', 'WebGL (PixiJS) when ready'], ['canvas', 'Force Canvas2D']] as const) {
+  for (const [value, label] of [['auto', 'WebGL (PixiJS) when ready']] as const) {
     const opt = document.createElement('option');
     opt.value = value; opt.textContent = label;
     backendSelect.appendChild(opt);

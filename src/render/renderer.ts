@@ -10,8 +10,24 @@ import { treeSheetForKind, treeSpriteColumn, TREE_SPRITE_SRC } from './tree-shee
 import { computeGroundMaterialField } from './ground-material';
 import { GROUND_COLORS, NEUTRAL } from '@/blueprint/materials';
 
-/** Render the map to a canvas context */
+let warnedTopdownDeprecated = false;
+
+/**
+ * Render the map to a canvas context (legacy top-down Canvas2D renderer).
+ *
+ * @deprecated Canvas2D scene rendering is being retired in favour of the WebGPU
+ * renderer (`src/render/gpu/`, the default) with the PixiJS WebGL layer as the
+ * lit fallback. This top-down path remains only until the GPU renderer reaches
+ * full parity (cast shadows, poly/circle draw items, entity foot-z), then it
+ * will be deleted. Do not build new features on it.
+ */
 export function renderMap(ctx: CanvasRenderingContext2D, rc: RenderContext): void {
+  if (!warnedTopdownDeprecated) {
+    warnedTopdownDeprecated = true;
+    console.warn(
+      '[deprecated] Canvas2D top-down renderer (renderMap) is deprecated and will be removed once the WebGPU renderer reaches parity. Use ?render=gpu (default) or ?render=iso.',
+    );
+  }
   const { camera, canvasWidth, canvasHeight } = rc;
 
   // Clear

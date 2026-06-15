@@ -6,7 +6,10 @@ import { screenToTile as isoScreenToTile } from '@/render/iso/iso-projection';
 import { readRenderMode } from '@/render/select-renderer';
 
 export function pickTile(camera: Camera, sx: number, sy: number): { tx: number; ty: number } {
-  if (readRenderMode() === 'iso') {
+  // Only the legacy top-down renderer uses the flat grid mapping. The GPU
+  // renderer is iso-projected (same draw list as the iso path), so it shares the
+  // iso picking math — anything that isn't 'topdown' picks via iso.
+  if (readRenderMode() !== 'topdown') {
     const worldSx = sx / camera.zoom + camera.x;
     const worldSy = sy / camera.zoom + camera.y;
     const { tx, ty } = isoScreenToTile(worldSx, worldSy, 0, 0);

@@ -45,11 +45,25 @@ export type DrawItem =
   | { t: 'poly'; points: Array<{ x: number; y: number }>; color: string }
   | { t: 'circle'; cx: number; cy: number; r: number; color: string };
 
+let warnedCanvasExecutorDeprecated = false;
+
 /**
  * Execute a draw list on a Canvas2D context — the original entity-pass
  * behavior, relocated. Image smoothing stays off (pixel-art 1:1 rule).
+ *
+ * @deprecated The Canvas2D entity executor is the unlit fallback and is being
+ * retired. The lit paths are the PixiJS WebGL layer (`pixi-entity-layer.ts`,
+ * with cast shadows) and the WebGPU renderer (`src/render/gpu/`, the default).
+ * This stays only until the GPU renderer reaches full parity, then it will be
+ * deleted. Do not build new features on it.
  */
 export function executeDrawListCanvas(ctx: CanvasRenderingContext2D, items: readonly DrawItem[]): void {
+  if (!warnedCanvasExecutorDeprecated) {
+    warnedCanvasExecutorDeprecated = true;
+    console.warn(
+      '[deprecated] Canvas2D entity executor (executeDrawListCanvas) is deprecated and will be removed once the WebGPU renderer reaches parity. It remains as the unlit fallback only.',
+    );
+  }
   for (const it of items) {
     if (it.t === 'image') {
       ctx.imageSmoothingEnabled = false;

@@ -25,6 +25,11 @@ import {
 } from '@/render/gpu/instance-buffer';
 import { LIT_WGSL } from '@/render/gpu/wgsl/lit-wgsl';
 import { TERRAIN_WGSL } from '@/render/gpu/wgsl/terrain-wgsl';
+import { SHADOW_WGSL, SHADOW_COMPOSITE_WGSL } from '@/render/gpu/wgsl/shadow-wgsl';
+import {
+  buildShadowBatches, packShadowInstances, SHADOW_ALPHA,
+  SHADOW_INSTANCE_STRIDE,
+} from '@/render/gpu/shadow-instance';
 import type { GpuContext } from '@/render/gpu/webgpu-context';
 import type { TerrainField } from '@/render/gpu/terrain-field';
 
@@ -52,6 +57,19 @@ export class GpuScene {
   private depthTex: GPUTexture | null = null;
   private depthW = 0;
   private depthH = 0;
+  // Cast-shadow pass: accumulate parallelogram silhouettes into an offscreen
+  // texture (union via src-over), then composite once at SHADOW_ALPHA so
+  // overlaps don't double-darken (the GPU port of the Pixi shadow container).
+  private shadowPipeline: GPURenderPipeline;
+  private shadowGlobalsBuf: GPUBuffer;
+  private shadowGlobalsBind: GPUBindGroup;
+  private compositePipeline: GPURenderPipeline;
+  private compositeGlobalsBuf: GPUBuffer;
+  private shadowTex: GPUTexture | null = null;
+  private shadowW = 0;
+  private shadowH = 0;
+  private compositeBind: GPUBindGroup | null = null;
+  private shadowBindCache = new WeakMap<CanvasImageSource, GPUBindGroup>();
   /** Per-batch bind group cache, keyed by the albedo source (batch identity). */
   private bindCache = new WeakMap<CanvasImageSource, GPUBindGroup>();
   private texCache = new WeakMap<CanvasImageSource, GPUTexture>();
@@ -132,6 +150,66 @@ export class GpuScene {
       depthStencil: { format: DEPTH_FORMAT, depthWriteEnabled: true, depthCompare: 'greater' },
     });
     this.terrainGlobalsBuf = device.createBuffer({ size: 96, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+
+    // Shadow accumulation pipeline: parallelogram quads (4 corners) → premult
+    // black into the offscreen shadow texture, unioned via src-over. No depth.
+    const shadowModule = device.createShaderModule({ code: SHADOW_WGSL });
+    this.shadowPipeline = device.createRenderPipeline({
+      layout: 'auto',
+      vertex: {
+        module: shadowModule,
+        entryPoint: 'vsMain',
+        buffers: [
+          { arrayStride: 8, stepMode: 'vertex', attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x2' }] },
+          {
+            arrayStride: SHADOW_INSTANCE_STRIDE, stepMode: 'instance', attributes: [
+              { shaderLocation: 1, offset: 0, format: 'float32x4' },  // cTop
+              { shaderLocation: 2, offset: 16, format: 'float32x4' }, // cBot
+              { shaderLocation: 3, offset: 32, format: 'float32x4' }, // iUV
+            ],
+          },
+        ],
+      },
+      fragment: {
+        module: shadowModule,
+        entryPoint: 'fsMain',
+        targets: [{
+          format: 'rgba8unorm',
+          blend: {
+            color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' },
+            alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' },
+          },
+        }],
+      },
+      primitive: { topology: 'triangle-strip' },
+    });
+    this.shadowGlobalsBuf = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    this.shadowGlobalsBind = device.createBindGroup({
+      layout: this.shadowPipeline.getBindGroupLayout(0),
+      entries: [{ binding: 0, resource: { buffer: this.shadowGlobalsBuf } }],
+    });
+
+    // Composite pipeline: fullscreen triangle samples the shadow texture and
+    // lays the union over the scene at the capped container alpha (no depth).
+    const compositeModule = device.createShaderModule({ code: SHADOW_COMPOSITE_WGSL });
+    this.compositePipeline = device.createRenderPipeline({
+      layout: 'auto',
+      vertex: { module: compositeModule, entryPoint: 'vsMain' },
+      fragment: {
+        module: compositeModule,
+        entryPoint: 'fsMain',
+        targets: [{
+          format: gpu.format,
+          blend: {
+            color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' },
+            alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' },
+          },
+        }],
+      },
+      primitive: { topology: 'triangle-list' },
+    });
+    this.compositeGlobalsBuf = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    device.queue.writeBuffer(this.compositeGlobalsBuf, 0, new Float32Array([SHADOW_ALPHA, 0, 0, 0]));
   }
 
   private make1x1(rgba: [number, number, number, number]): GPUTexture {
@@ -178,6 +256,45 @@ export class GpuScene {
     });
     this.bindCache.set(b.texture, bind);
     return bind;
+  }
+
+  /** Per-source bind group for the shadow pass (sampler + alpha-sampled tex). */
+  private shadowBind(texture: CanvasImageSource): GPUBindGroup {
+    const cached = this.shadowBindCache.get(texture);
+    if (cached) return cached;
+    // Reuse the entity albedo upload (same src) — only the alpha is read.
+    const tex = this.uploadTexture(texture, true);
+    const bind = this.device.createBindGroup({
+      layout: this.shadowPipeline.getBindGroupLayout(1),
+      entries: [
+        { binding: 0, resource: this.sampler },
+        { binding: 1, resource: tex.createView() },
+      ],
+    });
+    this.shadowBindCache.set(texture, bind);
+    return bind;
+  }
+
+  /** (Re)create the offscreen shadow texture + its composite bind group. */
+  private ensureShadow(w: number, h: number): GPUTextureView {
+    if (!this.shadowTex || this.shadowW !== w || this.shadowH !== h) {
+      this.shadowTex?.destroy();
+      this.shadowTex = this.device.createTexture({
+        size: [w, h, 1], format: 'rgba8unorm',
+        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+      });
+      this.shadowW = w;
+      this.shadowH = h;
+      this.compositeBind = this.device.createBindGroup({
+        layout: this.compositePipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: this.compositeGlobalsBuf } },
+          { binding: 1, resource: this.sampler },
+          { binding: 2, resource: this.shadowTex.createView() },
+        ],
+      });
+    }
+    return this.shadowTex.createView();
   }
 
   private ensureDepth(w: number, h: number): GPUTextureView {
@@ -233,10 +350,19 @@ export class GpuScene {
     const { batches } = buildInstanceBatches(items);
     if (xform) for (const b of batches) applyViewTransform(b, xform);
 
+    // Cast-shadow parallelograms (world coords → device via the same xform).
+    const shadowBatches = lighting.enabled
+      ? buildShadowBatches(items, lighting, xform).filter(b => b.instances.length > 0)
+      : [];
+    const hasShadows = shadowBatches.length > 0;
+
     device.queue.writeBuffer(this.globalsBuf, 0, packGlobals({
       viewport: [w, h], bands: lighting.bands, ambient: lighting.ambient,
       sunDir: lighting.sunDir, sunColor: lighting.sunColor,
     }) as GPUAllowSharedBufferSource);
+    if (hasShadows) {
+      device.queue.writeBuffer(this.shadowGlobalsBuf, 0, new Float32Array([w, h, 0, 0]));
+    }
 
     const hasTerrain = !!(terrain && terrain.vertexCount > 0 && terrain.heights.length > 0);
     if (hasTerrain) {
@@ -260,21 +386,61 @@ export class GpuScene {
       tpass.draw(terrain!.vertexCount);
       tpass.end();
     }
+    // `colorCleared` tracks whether any prior pass has written the colour
+    // target, so the FIRST colour pass clears and the rest load.
+    let colorCleared = hasTerrain;
+    const scratch: GPUBuffer[] = [];
 
-    // Pass 2 — entities (colour preserved if terrain drew; depth RESET so the
-    // entity index-depth scheme is self-contained and always wins over terrain).
+    // Pass 1.5 — cast shadows: accumulate parallelogram silhouettes into the
+    // offscreen shadow texture (union via src-over), then composite the union
+    // once over the scene at the capped alpha (so overlaps don't double-darken).
+    // Drawn between terrain and entities → shadows sit on the ground, under the
+    // sprites that cast them.
+    if (hasShadows) {
+      const shadowView = this.ensureShadow(w, h);
+      const apass = enc.beginRenderPass({
+        colorAttachments: [{ view: shadowView, clearValue: { r: 0, g: 0, b: 0, a: 0 }, loadOp: 'clear', storeOp: 'store' }],
+      });
+      apass.setPipeline(this.shadowPipeline);
+      apass.setVertexBuffer(0, this.quadBuf);
+      apass.setBindGroup(0, this.shadowGlobalsBind);
+      for (const b of shadowBatches) {
+        const data = packShadowInstances(b.instances);
+        const instBuf = device.createBuffer({ size: data.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+        device.queue.writeBuffer(instBuf, 0, data as GPUAllowSharedBufferSource);
+        scratch.push(instBuf);
+        apass.setBindGroup(1, this.shadowBind(b.texture));
+        apass.setVertexBuffer(1, instBuf);
+        apass.draw(QUAD_VERTEX_COUNT, b.instances.length);
+      }
+      apass.end();
+
+      const cpass = enc.beginRenderPass({
+        colorAttachments: [{
+          view: colorView, clearValue: { r: 0, g: 0, b: 0, a: 0 },
+          loadOp: colorCleared ? 'load' : 'clear', storeOp: 'store',
+        }],
+      });
+      cpass.setPipeline(this.compositePipeline);
+      cpass.setBindGroup(0, this.compositeBind!);
+      cpass.draw(3);
+      cpass.end();
+      colorCleared = true;
+    }
+
+    // Pass 2 — entities (colour preserved if terrain/shadows drew; depth RESET so
+    // the entity index-depth scheme is self-contained and always wins over terrain).
     const epass = enc.beginRenderPass({
       colorAttachments: [{
         view: colorView,
         clearValue: { r: 0, g: 0, b: 0, a: 0 },
-        loadOp: hasTerrain ? 'load' : 'clear', storeOp: 'store',
+        loadOp: colorCleared ? 'load' : 'clear', storeOp: 'store',
       }],
       depthStencilAttachment: { view: depthView, depthClearValue: 0.0, depthLoadOp: 'clear', depthStoreOp: 'store' },
     });
     epass.setPipeline(this.pipeline);
     epass.setVertexBuffer(0, this.quadBuf);
     epass.setBindGroup(0, this.globalsBind);
-    const scratch: GPUBuffer[] = [];
     for (const b of batches) {
       if (b.instances.length === 0) continue;
       const data = packInstances(b.instances);
