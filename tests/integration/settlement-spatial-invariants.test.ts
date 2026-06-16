@@ -12,9 +12,12 @@
  * deconfliction work: it should be RED until barriers and roads consult building
  * footprints, then stay green.
  *
- * "Structure cell" = a solid building cell (blueprint.collision.blocked), NOT the
- * walkable lawn/yard or the door — a hedge crossing the yard is tolerable, a hedge
- * inside the walls is the bug.
+ * "Structure cell" = a SOLID building cell: `blueprint.collision.blocked` minus
+ * `doorCells`. The door/lawn cells are the building's passable interface with the
+ * world — a road reaching the door and the croft gate sitting at the door are
+ * CORRECT, so they are excluded. A barrier or road on a solid (wall) cell is the bug.
+ * This matches `tileBlockedByBuilding` (movement collision), so the invariant and
+ * the deconfliction fixes share one notion of "inside the walls".
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -37,8 +40,10 @@ function buildingStructureCells(world: World): Map<string, Set<string>> {
     const bp = blueprintOf(e);
     if (!bp) continue;
     const ox = Math.floor(e.x), oy = Math.floor(e.y);
+    const doors = new Set(bp.collision.doorCells);
     const cells = new Set<string>();
     for (const local of bp.collision.blocked) {
+      if (doors.has(local)) continue;          // passable doorway — not a solid wall cell
       const [lx, ly] = local.split(',').map(Number);
       cells.add(key(ox + lx, oy + ly));
     }

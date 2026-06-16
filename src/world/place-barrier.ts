@@ -2,6 +2,7 @@
 import type { World } from '@/world/world';
 import type { Entity, EntityId } from '@/core/types';
 import { barrierFootprintTiles, type BarrierRun } from '@/world/barrier';
+import { tileBlockedByBuilding } from '@/world/building-collision';
 import type { Anchor } from '@/world/anchors';
 
 /** Map a path distance `t` (tiles) to a world point along the polyline. */
@@ -43,7 +44,13 @@ function segmentAt(path: [number, number][], t: number): [[number, number], [num
  * Deterministic: no Math.random. The default id encodes centroid + path length.
  */
 export function placeBarrier(world: World, run: BarrierRun, id?: string): EntityId {
-  const { blocking } = barrierFootprintTiles(run);
+  const { blocking: rawBlocking } = barrierFootprintTiles(run);
+  // Never index a barrier cell that sits inside a building's walls — the building
+  // owns that tile (a hedge/wall through a wall is the bug). Ring gates already
+  // open the line at most building crossings; this is the GUARANTEE for the
+  // remainder (a thick wall whose footprint spills a cell past the gated
+  // centreline, or a road endpoint POI the building covers).
+  const blocking = rawBlocking.filter(([x, y]) => !tileBlockedByBuilding(world, x, y));
 
   // Centroid of the path → entity x,y.
   let sx = 0, sy = 0;
@@ -85,4 +92,21 @@ export function placeBarrier(world: World, run: BarrierRun, id?: string): Entity
   };
   world.addEntity(entity);
   return finalId;
+}
+
+/**
+ * Re-filter every placed barrier's blocking cells against the FINAL set of
+ * buildings. `placeBarrier` already drops cells under buildings present at its
+ * time, but a building placed LATER (a neighbouring settlement) can still land on
+ * an earlier ring. Run once after all settlements are placed: a building is
+ * authoritative over its footprint, so a barrier never blocks a building wall.
+ */
+export function reconcileBarriersWithBuildings(world: World): void {
+  for (const e of world.query({ tag: 'barrier' })) {
+    const props = e.properties as { footprintCells?: [number, number][] } | undefined;
+    const cells = props?.footprintCells;
+    if (!Array.isArray(cells)) continue;
+    const kept = cells.filter(([x, y]) => !tileBlockedByBuilding(world, x, y));
+    if (kept.length !== cells.length) props!.footprintCells = kept;
+  }
 }

@@ -20,6 +20,8 @@ import { buildRoadGraph } from '@/world/road-graph';
 import type { RoadGraph } from '@/world/road-graph';
 import { erodeElevation } from '@/terrain/erosion';
 import { placeSettlement } from '@/world/building-placer';
+import { tileBlockedByBuilding } from '@/world/building-collision';
+import { reconcileBarriersWithBuildings } from '@/world/place-barrier';
 import type { SettlementPlan } from '@/world/settlement-plan';
 import { applyAllSettlementWear } from '@/world/settlement-wear';
 import { blueprintOf } from '@/blueprint/entity';
@@ -204,10 +206,13 @@ export async function generateWithNoise(
         world.indexExisting(e);
       }
 
-      // Apply road tiles to the grid
+      // Apply road tiles to the grid — but never onto a building's structure
+      // cell. A neighbouring settlement placed earlier may already own this tile
+      // (its building avoided ITS OWN roads, but not this settlement's), and a
+      // building is authoritative over its footprint.
       for (const rt of result.roadTiles) {
         const t = tiles[rt.y]?.[rt.x];
-        if (t) { t.type = rt.type; t.walkable = true; }
+        if (t && !tileBlockedByBuilding(world, rt.x, rt.y)) { t.type = rt.type; t.walkable = true; }
       }
 
       // Convert Entity buildings → BuildingInstance for backwards compat
@@ -234,8 +239,17 @@ export async function generateWithNoise(
   let roadGraph: RoadGraph | undefined;
   if (worldSeed?.connections) {
     report('Carving road connections...');
-    roadGraph = buildRoadGraph(worldSeed.connections, worldSeed.pois ?? [], tiles, fields);
+    // Buildings are already placed: roads route AROUND their structure cells
+    // (thread the streets) rather than carving through them.
+    roadGraph = buildRoadGraph(worldSeed.connections, worldSeed.pois ?? [], tiles, fields, {
+      isObstacle: (x, y) => tileBlockedByBuilding(world, x, y),
+    });
   }
+
+  // All buildings are placed: a building is authoritative over its footprint, so
+  // re-filter every barrier ring against the final building set (closes the
+  // cross-settlement case where a building landed on an earlier settlement's ring).
+  reconcileBarriersWithBuildings(world);
 
   // Run POI-zone brush passes for additional flavour entities around each POI
   // These run after buildings so they don't place trees on top of structures.

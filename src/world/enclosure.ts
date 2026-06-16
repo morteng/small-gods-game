@@ -113,6 +113,7 @@ function rectRing(minX: number, minY: number, maxX: number, maxY: number): Pt[] 
  */
 export function deriveCroftEnclosures(
   lots: Lot[], poiId: string, rng: MinRng, ctx: EnclosureCtx,
+  isBuilding?: (x: number, y: number) => boolean,
 ): EnclosureRun[] {
   const out: EnclosureRun[] = [];
   for (const lot of lots) {
@@ -140,11 +141,46 @@ export function deriveCroftEnclosures(
     else if (sx > 0) gateT = dx + dy + dx + dy / 2;   // road west  → left edge
     else gateT = dx + dy / 2;                          // road east  → right edge
 
-    const run = barrierRunFromType(typeId, rectRing(minX, minY, maxX, maxY), [{ t: gateT, width: gateW }]);
+    // A tight lot can put the croft ring directly over its own building's walls
+    // (the footprint reaches the lot edge). Open the ring (gate) wherever it
+    // crosses a building structure cell, so no hedge/fence runs through a wall.
+    const path = rectRing(minX, minY, maxX, maxY);
+    const gates: BarrierGate[] = [{ t: gateT, width: gateW }];
+    if (isBuilding) gates.push(...gatesWhereOpen(path, 2 * dx + 2 * dy, isBuilding, gateW));
+
+    const run = barrierRunFromType(typeId, path, gates);
     if (!run) continue;
     out.push({ id: `${poiId}_croft_${minX}_${minY}`, run });
   }
   return out;
+}
+
+/**
+ * Walk a closed ring `path` tile-by-tile and merge the spans where `isOpen(x,y)`
+ * holds into gate spans (centre distance + padded width). Shared by the croft and
+ * settlement rings so "incorporate the feature into the line" is one rule.
+ */
+function gatesWhereOpen(
+  path: Pt[], total: number, isOpen: (x: number, y: number) => boolean, gateW: number,
+): BarrierGate[] {
+  const openAt: boolean[] = [];
+  for (let t = 0; t <= total; t += 1) {
+    const [px, py] = pointOnPath(path, t);
+    openAt.push(isOpen(Math.round(px), Math.round(py)));
+  }
+  const gates: BarrierGate[] = [];
+  let runStart = -1;
+  for (let i = 0; i <= openAt.length; i++) {
+    const open = openAt[i] ?? false;
+    if (open && runStart < 0) runStart = i;
+    else if (!open && runStart >= 0) {
+      const centre = (runStart + (i - 1)) / 2;
+      const width = Math.max(gateW, (i - 1 - runStart) + gateW * 0.5);
+      gates.push({ t: centre, width });
+      runStart = -1;
+    }
+  }
+  return gates;
 }
 
 /**
@@ -161,6 +197,8 @@ export function deriveSettlementRing(args: {
   poiId: string;
   isWater: (x: number, y: number) => boolean;
   isRoad: (x: number, y: number) => boolean;
+  /** A building structure cell — the ring opens (gates) rather than running through it. */
+  isBuilding?: (x: number, y: number) => boolean;
   ctx: EnclosureCtx;
 }): EnclosureRun | null {
   const typeId = selectSettlementEnclosure(args.buildingCount, args.ctx);
@@ -185,7 +223,7 @@ export function deriveSettlementRing(args: {
     const [px, py] = pointOnPath(path, t);
     const x = Math.round(px), y = Math.round(py);
     pts.push([x, y]);
-    openAt.push(args.isRoad(x, y) || args.isWater(x, y));
+    openAt.push(args.isRoad(x, y) || args.isWater(x, y) || (args.isBuilding?.(x, y) ?? false));
   }
   // Merge consecutive open steps into gate spans (centre t + padded width).
   const gates: BarrierGate[] = [];

@@ -22,6 +22,7 @@ const DEFAULT_BASE_COST = 1.0;
 const DEFAULT_SLOPE_FACTOR = 50.0; // 1 unit of elevation diff = 50 base steps
 const DEFAULT_WATER_COST = 1000.0;
 const DEFAULT_BRIDGE_COST = 5.0;
+const DEFAULT_OBSTACLE_COST = 200.0;
 
 export interface RoadWalkerOptions {
   /** Base cost per step in flat terrain. Default 1.0. */
@@ -34,6 +35,15 @@ export interface RoadWalkerOptions {
   bridgeCost?: number;
   /** Whether the walker may cross water by placing bridges. Default true. */
   autoBridge?: boolean;
+  /**
+   * Cells the road should route AROUND (e.g. building structure cells). Returning
+   * true adds `obstacleCost` to the step, so A* threads the gaps/streets instead of
+   * bulldozing a building, while keeping the goal reachable if it is unavoidably
+   * adjacent to one. Default: nothing is an obstacle (byte-identical to before).
+   */
+  isObstacle?: (x: number, y: number) => boolean;
+  /** Penalty added to a step that lands on an `isObstacle` cell. Default 200. */
+  obstacleCost?: number;
 }
 
 export interface RoadWalkerPath {
@@ -61,6 +71,8 @@ export function walkRoad(
   const waterCost   = options.waterCost   ?? DEFAULT_WATER_COST;
   const bridgeCost  = options.bridgeCost  ?? DEFAULT_BRIDGE_COST;
   const autoBridge  = options.autoBridge  ?? true;
+  const obstacleCost = options.obstacleCost ?? DEFAULT_OBSTACLE_COST;
+  const isObstacle  = options.isObstacle;
 
   const height = tiles.length;
   const width  = tiles[0]?.length ?? 0;
@@ -112,6 +124,7 @@ export function walkRoad(
       } else {
         const slope = Math.abs(fields.elevation[ni] - cElev);
         stepCost = baseCost + slopeFactor * slope;
+        if (isObstacle?.(nx, ny)) stepCost += obstacleCost;
       }
       const tentativeG = gScore[current] + stepCost;
       if (tentativeG < gScore[ni]) {

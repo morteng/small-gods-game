@@ -25,6 +25,7 @@ import { blueprintEntity } from '@/blueprint/entity';
 import { toCollision } from '@/blueprint/compile/to-collision';
 import { toAnchors } from '@/blueprint/compile/to-anchors';
 import { placeBarrier } from '@/world/place-barrier';
+import { tileBlockedByBuilding } from '@/world/building-collision';
 import { deriveCroftEnclosures, deriveSettlementRing, type EnclosureCtx } from '@/world/enclosure';
 import {
   planSettlement, orderedSlotsFor, subdivideLots, widenMarket, assignWards, planCivics,
@@ -431,8 +432,12 @@ export function placeSettlement(
   if (world && plan.lots.length > 0 && placed > 0) {
     const ctx: EnclosureCtx = { era };
 
+    // A building structure cell — barrier rings gate (open) rather than run
+    // through it. Buildings are already in the registry at this point.
+    const isBuilding = (x: number, y: number) => tileBlockedByBuilding(world, x, y);
+
     // Per-croft enclosures (hedge/fence/wall) around each built lot.
-    for (const { id, run } of deriveCroftEnclosures(plan.lots, poi.id, rng, ctx)) {
+    for (const { id, run } of deriveCroftEnclosures(plan.lots, poi.id, rng, ctx, isBuilding)) {
       placeBarrier(world, run, id);
     }
 
@@ -453,6 +458,7 @@ export function placeSettlement(
         buildingCount: placed, poiId: poi.id,
         isWater: (x, y) => WATER_TYPES.has(tiles[y]?.[x]?.type ?? ''),
         isRoad: (x, y) => roadSet.has(`${x},${y}`) || ROAD_TYPES.has(tiles[y]?.[x]?.type ?? ''),
+        isBuilding,
         ctx,
       });
       if (ring) placeBarrier(world, ring.run, ring.id);

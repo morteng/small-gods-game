@@ -113,6 +113,7 @@ export function buildRoadGraph(
   pois: POI[],
   tiles: Tile[][],
   fields: TerrainField,
+  opts: { isObstacle?: (x: number, y: number) => boolean } = {},
 ): RoadGraph {
   const graph: RoadGraph = { nodes: [], edges: [] };
   if (!connections?.length) return graph;
@@ -171,15 +172,26 @@ export function buildRoadGraph(
     for (let i = 0; i < points.length - 1; i++) {
       const a = points[i];
       const b = points[i + 1];
-      const result = walkRoad(a, b, tiles, fields, { autoBridge });
+      // Roads route AROUND buildings (placed before this carve) instead of
+      // bulldozing them — they thread the settlement's streets to reach a
+      // waypoint. Rivers/walls ignore the obstacle (only roads obey it).
+      const isObstacle = feature === 'road' ? opts.isObstacle : undefined;
+      const result = walkRoad(a, b, tiles, fields, { autoBridge, isObstacle });
       if (result.cells.length === 0) continue;
+
+      // The cost model steers AROUND buildings; this drops the residual cells it
+      // was forced onto (a forced crossing, or the POI-centre endpoint the
+      // building covers) so no road tile is ever carved under a building. The
+      // polyline IS the source of truth, so carve and replay stay byte-identical.
+      const cells = isObstacle ? result.cells.filter(c => !isObstacle(c.x, c.y)) : result.cells;
+      if (cells.length === 0) continue;
 
       const bridgeCells = [...result.bridgeCells].sort((m, n) => m - n);
       const edge: RoadEdge = {
         id: `re${edgeSeq++}`,
         a: nodeFor(a.x, a.y, i === 0).id,
         b: nodeFor(b.x, b.y, i === points.length - 2).id,
-        polyline: result.cells.map(c => ({ x: c.x, y: c.y })),
+        polyline: cells.map(c => ({ x: c.x, y: c.y })),
         feature,
         class: 'road', // Slice 0: single class; Slice 4 introduces tiering.
         surface,
