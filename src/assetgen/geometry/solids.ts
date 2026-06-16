@@ -120,6 +120,10 @@ export async function boreCylinder(solid: Manifold, center: Vec2, topZ: number, 
 // ---------------------------------------------------------------------------
 
 const GABLE_PITCH = 1.5, HIP_PITCH = 1.35;
+// Mono-pitch (shed / lean-to) slope: rise per unit of across-ridge RUN. A shallower
+// single plane than a gable's per-side slope — reads clearly as one-way without
+// towering. The high side stands `SHED_SLOPE · span` above the low eave.
+const SHED_SLOPE = 0.5;
 
 /**
  * Eave (across the ridge) + verge (along it) overhang per roof material, in
@@ -280,6 +284,44 @@ async function clipEaveInterior(roof: Manifold, wallRect: WingRect, wallTop: num
 interface WingRoof { roof: Manifold; gableWalls?: Manifold }
 
 /**
+ * A mono-pitch (shed / lean-to) roof: ONE sloped board over the whole footprint,
+ * low at the across-ridge start, high at the far edge. Unlike a gable (two slopes
+ * meeting at a central ridge) the plane runs the FULL span. Wall-material infill
+ * closes the two raking ends (right triangles) and the tall back wall (a strip from
+ * wall top up to the high eave); both fold into the wall solid like a gable tympanum.
+ */
+async function shedRoof(w: Wing, roofMat: Mat): Promise<WingRoof> {
+  const { Manifold } = await getManifold();
+  const top = storeyRect(w, (w.storeys ?? 1) - 1);
+  const b = (w.storeys ?? 1) * (w.storeyHeight ?? STOREY);
+  const ridge = ridgeAxisOf(w);
+  const { eave, verge } = overhangOf(roofMat);
+  const span = crossSpan(top, ridge);              // across-ridge run (low → high)
+  const rise = SHED_SLOPE * span;
+
+  // The single slope slab, over the eave/verge-grown rect so it overhangs all round.
+  const g = grownRect(top, ridge, eave, verge);
+  const gspan = crossSpan(g, ridge);
+  const riseG = SHED_SLOPE * gspan;
+  const roof = await extrudeAlongRidge(slabProfile(0, gspan, riseG, ROOF_SLAB_T), g, ridge, b);
+
+  // Infill walls (wall material), at the UNGROWN plane so the slab overhangs them.
+  const gw = 0.1;
+  const tri: [number, number][] = [[0, 0], [span, 0], [span, rise]];   // raking end: 0 → rise
+  const len = ridge === 'x' ? top.w : top.h;
+  const endRectAt = (off: number): WingRect => ridge === 'x'
+    ? { x: top.x + off, y: top.y, w: gw, h: top.h }
+    : { x: top.x, y: top.y + off, w: top.w, h: gw };
+  const e1 = await extrudeAlongRidge(tri, endRectAt(0), ridge, b);
+  const e2 = await extrudeAlongRidge(tri, endRectAt(len - gw), ridge, b);
+  // The tall back wall on the HIGH across-edge: a strip from wall top up to the eave.
+  const highWall = ridge === 'x'
+    ? await solidBox([top.x, top.y + top.h - gw, b], [top.w, gw, rise])
+    : await solidBox([top.x + top.w - gw, top.y, b], [gw, top.h, rise]);
+  return { roof, gableWalls: Manifold.union([e1, e2, highWall]) };
+}
+
+/**
  * One wing's roof, modelled as individual sloped boards (real thickness, projecting
  * eaves + verges) rather than a solid wedge:
  *  - gable     = two thick slope slabs + recessed triangular gable walls (so the
@@ -293,6 +335,7 @@ async function wingRoof(w: Wing, style: RoofStyle, roofMat: Mat = 'tile'): Promi
   const top = storeyRect(w, (w.storeys ?? 1) - 1);
   const b = (w.storeys ?? 1) * (w.storeyHeight ?? STOREY);
   if (w.roof === 'flat') return { roof: await solidBox([top.x, top.y, b], [top.w, top.h, 0.25]) };
+  if (w.roof === 'shed') return shedRoof(w, roofMat);
   const s = wingRoofStyle(w, style);
   const ridge = ridgeAxisOf(w);
   const { eave, verge } = overhangOf(roofMat);
@@ -363,6 +406,7 @@ async function wingRoof(w: Wing, style: RoofStyle, roofMat: Mat = 'tile'): Promi
 function roofRise(w: Wing, style: RoofStyle): number {
   if (w.roof === 'flat') return 0.25;
   const top = storeyRect(w, (w.storeys ?? 1) - 1);
+  if (w.roof === 'shed') return SHED_SLOPE * crossSpan(top, ridgeAxisOf(w));
   const s = wingRoofStyle(w, style);
   const pitch = s === 'hip' ? HIP_PITCH : GABLE_PITCH;
   return pitch * (crossSpan(top, ridgeAxisOf(w)) / 2);

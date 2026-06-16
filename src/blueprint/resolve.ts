@@ -5,6 +5,7 @@ import type {
 import { BLUEPRINT_VERSION } from './types';
 import { getPartType, getFeatureType, type ResolveCtx } from './registry';
 import { validateParams } from './param-schema';
+import { applyPartValidity } from './validity';
 
 /** Deep-merge an ordered list of patches: scalars last-wins, parts by id (null deletes). */
 export function mergePatches(patches: BlueprintPatch[]): Blueprint {
@@ -58,7 +59,13 @@ export function resolveBlueprint(patches: BlueprintPatch[], seed: number): Resol
   const parts: ResolvedPart[] = Object.entries(bp.parts).map(([id, part]) => {
     const pt = getPartType(part.type);
     const validated = validateParams(pt.paramSchema, part.params ?? {});
-    const { params } = pt.resolve({ ...part, params: validated }, ctx);
+    const { params: resolved } = pt.resolve({ ...part, params: validated }, ctx);
+    // Intrinsic-validity coercion (body/wing): thatch⇒pitched roof, levels capped by
+    // era tech × type. Applied here so EVERY resolve path (studio/placer/era variants)
+    // yields a valid building by construction.
+    const params = (part.type === 'body' || part.type === 'wing')
+      ? applyPartValidity(resolved, { roofMat: materials.roof, type: bp.preset ?? bp.category, era: bp.era, stage: bp.stage })
+      : resolved;
     const features: ResolvedFeature[] = Object.entries(part.features ?? {}).map(([fid, f]) => {
       const ft = getFeatureType(f.type);
       if (!ft) throw new Error(`unknown feature type "${f.type}"`);

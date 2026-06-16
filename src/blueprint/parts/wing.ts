@@ -10,7 +10,7 @@ export const wingPartType: PartType = {
   type: 'wing',
   paramSchema: {
     levels: { kind: 'number', min: 1, max: 8, default: 1 },
-    roof: { kind: 'enum', values: ['flat', 'gable', 'hip', 'pyramidal', 'lean_to', 'conical', 'domed'], default: 'gable' },
+    roof: { kind: 'enum', values: ['flat', 'gable', 'hip', 'pyramidal', 'lean_to', 'shed', 'mono_pitch', 'conical', 'domed'], default: 'gable' },
   },
   resolve: (part) => ({ params: { ...(part.params ?? {}) } }),
   toPrims(p, ctx: CompileCtx): Prim[] {

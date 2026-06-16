@@ -109,6 +109,25 @@ describe('buildingFacets (manifold)', () => {
     expect(anchors.vents[0][2]).toBeGreaterThan(1.35 + 1.5 * (2 / 2));   // wallTop (STOREY=1.35) + gable rise of the h=2 nave
   });
 
+  it('shed (mono-pitch) roof is a single slope: high ridge line at ONE edge, low at the other', async () => {
+    // ridgeAxisOf({w:2,h:2}) → 'x' (slope across y); rise = SHED_SLOPE(0.5)·span(2) = 1.0,
+    // high edge at y≈2 (far across-edge), low eave near the wall top at y≈0.
+    const wing: Wing[] = [{ x: 0, y: 0, w: 2, h: 2, roof: 'shed' }];
+    const { facets } = await buildingFacets(wing, 'plaster', 'tile', 'gable', noVents);
+    const tilePts = facets.filter(f => isMat(f.albedo, MATERIAL_RGB.tile)).flatMap(f => f.pts);
+    const top = Math.max(...tilePts.map(p => p[2]));
+    const highLine = tilePts.filter(p => Math.abs(p[2] - top) < 1e-6);
+    // The apex is a LINE (many x) at a SINGLE y — and that y is the far edge, not the
+    // centre (which is what a gable ridge would be).
+    const ys = new Set(highLine.map(p => p[1].toFixed(3)));
+    const xs = new Set(highLine.map(p => p[0].toFixed(3)));
+    expect(ys.size).toBe(1);                 // one ridge line
+    expect(xs.size).toBeGreaterThan(1);      // ...running along x (not a point)
+    expect(Number([...ys][0])).toBeGreaterThan(1.5);   // at the FAR edge (y≈2), not centre y=1
+    // and it genuinely slopes: the high edge clears the 1.35 wall top by ~the rise.
+    expect(top).toBeGreaterThan(1.35 + 0.7);
+  });
+
   it('jetty makes the upper storey oversail the ground floor', async () => {
     const plain: Wing[] = [{ x: 0, y: 0, w: 3, h: 3, storeys: 2 }];
     const jettied: Wing[] = [{ x: 0, y: 0, w: 3, h: 3, storeys: 2, jetty: 0.4 }];

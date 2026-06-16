@@ -5,7 +5,7 @@
 // seed-varied default so a bare `{ wings }` still renders a complete building.
 import { STOREY_TILES } from '@/render/scale-contract';
 
-export type RoofKind = 'gable' | 'hip' | 'half_hip' | 'pyramidal' | 'flat';
+export type RoofKind = 'gable' | 'hip' | 'half_hip' | 'pyramidal' | 'flat' | 'shed';
 export type RoofStyle = 'gable' | 'hip' | 'half_hip';
 /** Which world axis a wing's roof ridge runs along. */
 export type RidgeAxis = 'x' | 'y';

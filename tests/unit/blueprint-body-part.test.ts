@@ -17,6 +17,21 @@ describe('body part — wings', () => {
   });
 });
 
+describe('ROOF_KIND mapping', () => {
+  it('mono-pitch authoring names all collapse to the shed runtime kind', () => {
+    // Regression: lean_to USED to map to 'gable' (rendered symmetric) — there was no
+    // true single-slope roof. It + its synonyms must now be the dedicated 'shed' kind.
+    expect(ROOF_KIND.lean_to).toBe('shed');
+    expect(ROOF_KIND.shed).toBe('shed');
+    expect(ROOF_KIND.mono_pitch).toBe('shed');
+    expect(ROOF_KIND.penthouse).toBe('shed');
+  });
+  it('a lean_to body emits a wing with roof:shed', () => {
+    const prims = bodyPartType.toPrims(part({ plan: 'rect', levels: 1, roof: 'lean_to' }), ctx);
+    if (prims[0].prim === 'building') expect(prims[0].wings[0].roof).toBe('shed');
+  });
+});
+
 describe('body part — toPrims', () => {
   it('rect → a single building prim', () => {
     const prims = bodyPartType.toPrims(part({ plan: 'rect', levels: 2, roof: 'gable' }), ctx);

@@ -21,7 +21,9 @@ export const ROOF_MAT: Record<string, Mat> = {
 };
 export const ROOF_KIND: Record<string, RoofKind> = {
   gable: 'gable', gambrel: 'gable', mansard: 'gable', saltbox: 'gable',
-  cross_gable: 'gable', lean_to: 'gable',
+  cross_gable: 'gable',
+  // Mono-pitch single-slope roofs (lean-to / shed / penthouse) — one plane, not a gable.
+  lean_to: 'shed', shed: 'shed', mono_pitch: 'shed', penthouse: 'shed',
   jerkinhead: 'half_hip', half_hip: 'half_hip',
   hip: 'hip',
   pyramidal: 'pyramidal', conical: 'pyramidal', spire: 'pyramidal',
@@ -113,6 +115,7 @@ export const bodyPartType: PartType = {
       kind: 'enum',
       values: [
         'flat', 'gable', 'hip', 'half_hip', 'conical', 'domed', 'stepped', 'lean_to',
+        'shed', 'mono_pitch', 'penthouse',
         'gambrel', 'mansard', 'pyramidal', 'saltbox', 'onion', 'spire',
         'tented', 'jerkinhead', 'cross_gable',
       ],

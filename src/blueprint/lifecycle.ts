@@ -120,6 +120,13 @@ export function buildingStagePatch(base: Blueprint, stage: BuildingStage): Bluep
   return patch;
 }
 
+/** Building stages whose roof is GONE (collapsed / not-yet-built), encoded as the
+ *  body's `roof: 'flat'`. A flat roof here means "no roof", NOT a flat covering — so
+ *  the thatch-must-shed-water validity rule must NOT re-pitch it. */
+export const ROOFLESS_BUILDING_STAGES: ReadonlySet<string> = new Set(
+  BUILDING_STAGES.filter(s => BUILDING_PROFILES[s].roofless),
+);
+
 /** A prompt-ready phrase for a lifecycle stage (e.g. 'a burnt-out ruin of'), or ''
  *  for the default/unknown stage. Fed to the img2img prompt so the painted art reads
  *  as that point on the asset's timeline. */
