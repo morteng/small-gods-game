@@ -302,13 +302,22 @@ export function buildingImagePrompt(rb: ResolvedBlueprint, model: string): strin
   const legend = referenceKey(presentMaterials(spec));
   const custom = customization(rb);
 
+  // The silhouette-adherence clause is subject-appropriate: a walled building must
+  // keep its eaves in the outline and match its roof pitch; a tree, rock or open
+  // frame has no walls/eaves/roof, so it just stays within its outline.
+  const walled = (rb.class === 'building' || rb.class === 'prop') && isWalledBuilding(spec);
+  const within = walled
+    ? `Keep the whole building — walls and roof eaves alike — within the reference's ` +
+      `coloured outline, matching its silhouette, footprint and roof pitch.`
+    : `Keep the whole subject within the reference's coloured outline, matching its ` +
+      `silhouette and footprint.`;
+
   // Subject leads (word order is weighted); then the edit verb + output style with the
   // single preservation clause; the real geometry; the colour map; customisation; one
   // short richness cue; the background contract. No generic filler.
   return [
     `${subject} — ${EDIT_VERB[family]} a crisp 2D isometric pixel-art game sprite ` +
-      `(2:1 perspective). Keep the whole building — walls and roof eaves alike — within ` +
-      `the reference's coloured outline, matching its silhouette, footprint and roof pitch.`,
+      `(2:1 perspective). ${within}`,
     geom,
     legend,
     `Place each material in its reference region, then render rich textures and period weathering.`,
