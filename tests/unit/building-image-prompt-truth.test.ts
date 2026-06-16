@@ -23,7 +23,7 @@ const STRUCTURES = Object.entries(BUILDING_BLUEPRINTS)
 
 /** Extract the material-legend clause from a prompt. */
 function legendOf(prompt: string): string {
-  const m = prompt.match(/only these are present: (.*?)\. Use those regions/);
+  const m = prompt.match(/only these are present: (.*?)\. /);
   return m ? m[1] : '';
 }
 
@@ -59,7 +59,11 @@ describe('img2img prompt is geometry-true across the connectome', () => {
       const rb = synthesizeBlueprint(id)!;
       const p = buildingImagePrompt(rb, FLUX).toLowerCase();
       if (!hasVisibleFeature(rb, 'door')) expect(p, `${id}: no wooden door`).not.toContain('wooden door');
-      if (!hasVisibleFeature(rb, 'vent')) expect(p, `${id}: no chimney count`).not.toMatch(/exactly \d+ chimney/);
+      // A building with no smoke vent must not mention a chimney OR a smoke-louver at all.
+      if (!hasVisibleFeature(rb, 'vent')) {
+        expect(p, `${id}: no chimney`).not.toContain('chimney');
+        expect(p, `${id}: no smoke-louver`).not.toContain('smoke-louver');
+      }
       if (!hasVisibleFeature(rb, 'window')) expect(p, `${id}: no visible window`).not.toContain('visible window');
     }
   });

@@ -19,20 +19,28 @@ describe('imageModelFamily', () => {
 });
 
 describe('FLUX prompt family', () => {
-  it('uses positive-only background language (FLUX ignores negative prompts) and the "image 1" editing convention', () => {
+  it('uses positive-only background language (FLUX ignores negative prompts) and an i2i repaint instruction', () => {
     const rb = synthesizeBlueprint('cottage')!;
     const p = buildingImagePrompt(rb, FLUX);
     const lower = p.toLowerCase();
-    // Still demands the magenta chroma background for keying…
+    // Demands the magenta chroma background for keying, stated POSITIVELY (no denials).
     expect(p).toContain('255,0,255');
     expect(lower).toContain('magenta');
-    // …but as a positive instruction, NOT the gemini "no ground, no shadow" denial.
     expect(lower).not.toContain('no ground');
     expect(lower).not.toContain('no shadow');
-    // FLUX editing: address the init as "image 1".
-    expect(lower).toContain('image 1');
+    // FLUX i2i: an edit instruction over the attached reference, not a from-scratch gen.
+    expect(lower).toMatch(/repaint the attached|massing render/);
     expect(lower).toMatch(/isometric|2:1/);
     expect(p).not.toBe(buildingImagePrompt(rb, GEMINI));
+  });
+
+  it('is tight — no generic filler, subject leads the prompt', () => {
+    const rb = synthesizeBlueprint('cottage')!;
+    const p = buildingImagePrompt(rb, FLUX);
+    // Subject-first ordering: the building noun appears before the edit verb.
+    expect(p.indexOf('cottage')).toBeLessThan(p.toLowerCase().indexOf('repaint'));
+    // No boilerplate padding words that assert nothing about THIS asset.
+    expect(p.toLowerCase()).not.toMatch(/masterpiece|highly detailed|4k|trending|best quality/);
   });
 });
 
@@ -57,13 +65,13 @@ describe('buildingImagePrompt', () => {
     expect(p.toLowerCase()).toMatch(/stone|walls/);
   });
 
-  it('invites architectural detail instead of demanding an exact silhouette', () => {
+  it('invites rich texture/weathering instead of demanding an exact silhouette', () => {
     const rb = synthesizeBlueprint('cottage')!;
     for (const model of [GEMINI, OPENAI, 'something/else']) {
       const p = buildingImagePrompt(rb, model).toLowerCase();
       expect(p).not.toContain('exact silhouette');
       expect(p).not.toContain('shape exactly');
-      expect(p).toMatch(/detail/);
+      expect(p).toMatch(/texture|weathering/);
     }
   });
 
@@ -75,24 +83,48 @@ describe('buildingImagePrompt', () => {
     expect(p.toLowerCase()).not.toContain('transparent background');
   });
 
-  it('embeds a geometry-true element count + door facing in the prompt', () => {
+  it('embeds a geometry-true element description + door facing in the prompt', () => {
     const rb = synthesizeBlueprint('tavern')!;
     const p = buildingImagePrompt(rb, GEMINI).toLowerCase();
     // The prompt must carry the explicit geometry description (counts + door),
     // scoped to what is visible from the render angle.
-    expect(p).toContain('match exactly');
     expect(p).toContain('visible');
     expect(p).toMatch(/\bdoor\b/);
     expect(p).toContain('colour-coded by material');
   });
 });
 
+describe('vent truth — a smoke-louver is never mislabelled a chimney', () => {
+  it('the cottage smoke-hole is described as a timber louver, NOT a chimney', () => {
+    const rb = synthesizeBlueprint('cottage')!;
+    const p = buildingImagePrompt(rb, FLUX).toLowerCase();
+    expect(p).toContain('smoke-louver');
+    expect(p).not.toContain('chimney rising');     // no chimney for the commoner cottage
+    // and never the brick-chimney FLUX used to paint
+    expect(p).not.toMatch(/\d+ (brick|stone) chimney/);
+  });
+
+  it('a real chimney is period-material — stone for medieval, brick only for current', () => {
+    const tavern = synthesizeBlueprint('tavern')!;                 // medieval, real chimney vents
+    expect(buildingImagePrompt(tavern, FLUX).toLowerCase()).toContain('stone chimney');
+    expect(buildingImagePrompt(tavern, FLUX).toLowerCase()).not.toContain('brick chimney');
+  });
+
+  it('the shed roof states its slope direction (asymmetric, not symmetric)', () => {
+    const rb = synthesizeBlueprint('cottage')!;
+    (rb.parts[0].params as Record<string, unknown>).roof = 'lean_to';   // → runtime 'shed'
+    const p = buildingImagePrompt(rb, FLUX).toLowerCase();
+    expect(p).toContain('single-slope shed roof');
+    expect(p).toMatch(/high at the rear|low front eave/);
+  });
+});
+
 describe('geometryDescription', () => {
   it('counts the ACTUAL chimneys/windows/dormers on the blueprint', () => {
     const rb = synthesizeBlueprint('tavern')!;
-    const ventCount = rb.parts.flatMap(p => p.features).filter(f => f.type === 'vent').length;
+    const ventCount = rb.parts.flatMap(p => p.features).filter(f => f.type === 'vent' && f.params.kind === 'chimney').length;
     const g = geometryDescription(rb);
-    if (ventCount > 0) expect(g).toMatch(new RegExp(`exactly ${ventCount} chimney`));
+    if (ventCount > 0) expect(g).toMatch(new RegExp(`${ventCount} stone chimneys`));
     expect(g).toContain('storey');
     expect(g.toLowerCase()).toMatch(/door on the (front|rear)/);
   });
