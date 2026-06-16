@@ -14,6 +14,7 @@ import type { RenderContext, Camera } from '@/core/types';
 import { World } from '@/world/world';
 import { WorldManager } from '@/map/world-manager';
 import { generateWithNoise } from '@/map/map-generator';
+import { deriveMapSize } from '@/world/map-size-derivation';
 import { Autotiler } from '@/map/autotiler';
 import { ensureBuildingTypesRegistered } from '@/blueprint/register-buildings';
 import { initManifoldWasm } from '@/assetgen/geometry/manifold-wasm-browser';
@@ -59,6 +60,7 @@ export async function mountWorldStudio(container: HTMLElement): Promise<void> {
 
   // ── bootstrap the real default world (map only; empty world for the view) ──
   const ws = await WorldManager.loadDefault();
+  ws.size = deriveMapSize(ws); // W0: size derived from connectome content (no-op when authored fits)
   const seed = 0x5109; // fixed → reproducible world for inspection
   const { map } = await generateWithNoise(ws.size.width, ws.size.height, seed, ws);
   const world = new World(map);
