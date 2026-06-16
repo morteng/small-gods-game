@@ -1,6 +1,6 @@
 // tests/unit/blueprint-wall-geometry.test.ts
 import { describe, it, expect } from 'vitest';
-import { faceCell, apertureToBox, leafBox, FACE_FACING } from '@/blueprint/wall-geometry';
+import { faceCell, apertureToBox, leafBox, FACE_FACING, APERTURE_EPS } from '@/blueprint/wall-geometry';
 import type { ResolvedPart } from '@/blueprint/types';
 
 const part = (x: number, y: number, w: number, h: number): ResolvedPart => ({
@@ -79,6 +79,51 @@ describe('multi-wing (L-plan) opening placement', () => {
     const s = { face: 'south' as const, t: 0.75, sill: 0, halfW: 0.18, height: 0.9, depth: 0.18 };
     const b = apertureToBox(s, part(0, 0, 3, 3));   // params {} → no plan → bbox y=3
     expect(b.at[1] + b.size[1]).toBeCloseTo(3.02, 5);
+  });
+});
+
+describe('round-plan openings ride the cylinder wall', () => {
+  // A round body of size 4×4 at the origin → a cylinder of radius 2 centred at (2,2).
+  // The bug this guards: openings used to be placed on the rectangular BBOX edge, so they
+  // only met the curved wall at the cardinal midpoint (t=0.5) and floated everywhere else.
+  const roundPart = (): ResolvedPart => ({
+    id: 'body', type: 'body', at: { x: 0, y: 0 }, size: { w: 4, h: 4 },
+    params: { plan: 'round' }, features: [],
+  });
+  const CX = 2, CY = 2, R = 2;
+
+  /** World-space midpoint of an aperture/leaf box's OUTER face, honouring its yaw. */
+  function outerMid(b: { at: number[]; size: number[]; yaw?: number }): [number, number] {
+    const cx = b.at[0] + b.size[0] / 2, cy = b.at[1] + b.size[1] / 2;
+    const th = ((b.yaw ?? 0) * Math.PI) / 180;
+    // local +y (the outward depth axis) at +size[1]/2, rotated about the box centre.
+    return [cx - Math.sin(th) * (b.size[1] / 2), cy + Math.cos(th) * (b.size[1] / 2)];
+  }
+  const dist = (p: [number, number]) => Math.hypot(p[0] - CX, p[1] - CY);
+
+  it('a cardinal (t=0.5) south opening sits on the south pole of the circle, unrotated', () => {
+    const b = apertureToBox({ face: 'south', t: 0.5, sill: 0, halfW: 0.18, height: 0.9, depth: 0.3 }, roundPart());
+    expect(b.yaw).toBeCloseTo(0, 5);
+    expect(dist(outerMid(b))).toBeCloseTo(R + APERTURE_EPS, 5);   // on the curve (+EPS poke-out)
+  });
+
+  it('an OFF-cardinal opening is yawed to face radially out AND its outer face lands ON the curve', () => {
+    const b = apertureToBox({ face: 'south', t: 0.2, sill: 0, halfW: 0.18, height: 0.9, depth: 0.3 }, roundPart());
+    // along-x = 0.8 → point (0.8, 3.6) on the circle → normal 36.87° off south.
+    expect(Math.abs(b.yaw!)).toBeGreaterThan(10);                 // genuinely rotated, not axis-aligned
+    expect(dist(outerMid(b))).toBeCloseTo(R + APERTURE_EPS, 5);   // hugs the curve, NOT the bbox edge
+  });
+
+  it('east-face openings ride the circle too (different along axis)', () => {
+    const b = apertureToBox({ face: 'east', t: 0.2, sill: 0, halfW: 0.18, height: 0.9, depth: 0.3 }, roundPart());
+    expect(Math.abs(b.yaw!)).toBeGreaterThan(10);
+    expect(dist(outerMid(b))).toBeCloseTo(R + APERTURE_EPS, 5);
+  });
+
+  it('the filler leaf is also yawed and sits flush INSIDE the curve (never protrudes)', () => {
+    const l = leafBox({ face: 'south', t: 0.2, sill: 0, halfW: 0.18, height: 0.9, depth: 0.3 }, roundPart());
+    expect(Math.abs(l.yaw!)).toBeGreaterThan(10);
+    expect(dist(outerMid(l))).toBeLessThanOrEqual(R);             // pane recessed within the wall
   });
 });
 

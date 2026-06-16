@@ -84,16 +84,28 @@ export async function solidArch(at: Vec3, span: number, height: number, thicknes
   return Manifold.union([left, right, beam]);
 }
 
-/** Absolute box to subtract from a wall solid (an opening's aperture). */
-export interface ApertureBox { at: Vec3; size: Vec3 }
+/** Absolute box to subtract from a wall solid (an opening's aperture). `yaw`, if set,
+ *  rotates the box about its own centre by that many degrees around Z — so an opening on
+ *  a round wall can sit radially flush to the curve instead of axis-aligned to the bbox. */
+export interface ApertureBox { at: Vec3; size: Vec3; yaw?: number }
+
+/** A solid box, optionally yawed about its own centre (degrees, around Z). */
+async function solidBoxYawed(at: Vec3, size: Vec3, yaw?: number): Promise<Manifold> {
+  const box = await solidBox(at, size);
+  if (!yaw) return box;
+  const cx = at[0] + size[0] / 2, cy = at[1] + size[1] / 2;
+  return box.translate([-cx, -cy, 0]).rotate([0, 0, yaw]).translate([cx, cy, 0]);
+}
 
 /** Subtract a set of aperture boxes from a wall solid (carving openings). No-op if empty. */
 export async function carveApertures(solid: Manifold, apertures: ApertureBox[] = []): Promise<Manifold> {
   if (!apertures.length) return solid;
   const { Manifold } = await getManifold();
-  const holes = await Promise.all(apertures.map(a => solidBox(a.at, a.size)));
+  const holes = await Promise.all(apertures.map(a => solidBoxYawed(a.at, a.size, a.yaw)));
   return solid.subtract(Manifold.union(holes));
 }
+
+export { solidBoxYawed };
 
 /** Bore a round vertical well of `depth` straight down from `topZ` at `center`, radius `radius`.
  *  Used for round roof oculi (the yurt's open toono). Pokes slightly past `topZ` for a clean lip. */

@@ -1,7 +1,7 @@
 // src/assetgen/compose.ts
 import type { Vec3, Mat, WorldFacet } from '@/assetgen/types';
 import {
-  solidBox, solidCylinder, solidCone, solidPrism, solidEllipsoid, solidArch,
+  solidBox, solidBoxYawed, solidCylinder, solidCone, solidPrism, solidEllipsoid, solidArch,
   manifoldToFacets, buildingFacets, carveApertures, boreCylinder,
 } from '@/assetgen/geometry/solids';
 import type { ApertureBox } from '@/assetgen/geometry/solids';
@@ -17,7 +17,7 @@ import { computeFit, fixedFit, opaqueBounds, type BBox } from '@/assetgen/render
 import { composeGroundShadow, type GroundShadow } from '@/assetgen/render/ground-shadow';
 
 export type Part =
-  | { prim: 'box'; at: Vec3; size: Vec3; material?: Mat; apertures?: ApertureBox[] }
+  | { prim: 'box'; at: Vec3; size: Vec3; material?: Mat; apertures?: ApertureBox[]; yaw?: number }
   | { prim: 'cylinder'; center: [number, number]; baseZ: number; radius: number; height: number; material?: Mat; apertures?: ApertureBox[] }
   | { prim: 'cone'; center: [number, number]; baseZ: number; radius: number; height: number; material?: Mat }
   | { prim: 'prism'; center: [number, number]; baseZ: number; radius: number; height: number; sides: number; material?: Mat }
@@ -61,7 +61,7 @@ export interface StructureResult {
 async function partFacets(p: Part): Promise<{ facets: WorldFacet[]; anchors?: BuildingAnchors; linearAnchors?: LinearWorldAnchors }> {
   switch (p.prim) {
     case 'box': {
-      let s = await solidBox(p.at, p.size);
+      let s = await solidBoxYawed(p.at, p.size, p.yaw);
       s = await carveApertures(s, p.apertures);
       return { facets: manifoldToFacets(s.getMesh(), p.material ?? 'stone') };
     }

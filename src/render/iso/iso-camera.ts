@@ -22,13 +22,11 @@ export const ISO_ZOOM_RUNGS: number[] = (() => {
 })();
 
 /**
- * Snap `z` to the zoom ladder. `dir` 0 → nearest rung; +1 → next rung strictly
- * above `z`; -1 → next rung strictly below. The directional modes let one wheel
- * tick / zoom-button press move exactly one rung (the signature matches the
- * `ZoomQuantizer` consumed by `zoomAt`).
+ * Snap `z` to an arbitrary ascending `rungs` ladder. `dir` 0 → nearest rung;
+ * +1 → next rung strictly above `z`; -1 → next rung strictly below. Shared by the
+ * game's iso ladder and any tool (e.g. the studio) that wants its own rung set.
  */
-export function quantizeIsoZoom(z: number, dir: -1 | 0 | 1 = 0): number {
-  const rungs = ISO_ZOOM_RUNGS;
+export function quantizeToRungs(rungs: number[], z: number, dir: -1 | 0 | 1 = 0): number {
   const eps = 1e-9;
   if (dir > 0) {
     for (const r of rungs) if (r > z + eps) return r;
@@ -45,6 +43,15 @@ export function quantizeIsoZoom(z: number, dir: -1 | 0 | 1 = 0): number {
     if (d < bestD) { best = r; bestD = d; }
   }
   return best;
+}
+
+/**
+ * Snap `z` to the iso zoom ladder. The directional modes let one wheel tick /
+ * zoom-button press move exactly one rung (the signature matches the
+ * `ZoomQuantizer` consumed by `zoomAt`).
+ */
+export function quantizeIsoZoom(z: number, dir: -1 | 0 | 1 = 0): number {
+  return quantizeToRungs(ISO_ZOOM_RUNGS, z, dir);
 }
 
 /** Largest ladder rung ≤ z — used for fit-to-view so the whole map still fits. */

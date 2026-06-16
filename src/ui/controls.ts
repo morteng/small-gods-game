@@ -21,6 +21,9 @@ export interface ControlsCallbacks {
   /** Optional pixel-perfect zoom snapper (iso mode); evaluated per wheel tick so
    *  it can track the live render mode. Returns undefined → continuous zoom. */
   getZoomQuantize?: () => ZoomQuantizer | undefined;
+  /** Optional zoom-in cap override (default = the game's 1:1 pixel-perfect max).
+   *  The studio raises this to inspect detail past native resolution. */
+  getMaxZoom?: () => number;
   onRedraw: () => void;
 }
 
@@ -140,9 +143,10 @@ export function attachControls(canvas: HTMLCanvasElement, camera: Camera, callba
       // over-sensitive — accumulate and step at most one rung per chunk of
       // scroll distance instead.
       wheelAccum += dy;
+      const maxZoom = callbacks.getMaxZoom?.();
       while (Math.abs(wheelAccum) >= QUANTIZED_STEP_PX) {
         // factor is read only for its sign by zoomAt's quantize branch.
-        zoomAt(camera, wheelAccum > 0 ? 0.9 : 1.1, cx, cy, quantize);
+        zoomAt(camera, wheelAccum > 0 ? 0.9 : 1.1, cx, cy, quantize, maxZoom);
         wheelAccum -= Math.sign(wheelAccum) * QUANTIZED_STEP_PX;
       }
     } else {

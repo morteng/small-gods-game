@@ -37,13 +37,14 @@ export type ZoomQuantizer = (current: number, dir: -1 | 0 | 1) => number;
 
 export function zoomAt(
   camera: Camera, factor: number, cx: number, cy: number, quantize?: ZoomQuantizer,
+  maxZoom: number = TOPDOWN_ZOOM_MAX,
 ): void {
   const worldX = cx / camera.zoom + camera.x;
   const worldY = cy / camera.zoom + camera.y;
   const z = quantize
     ? quantize(camera.zoom, factor > 1 ? 1 : factor < 1 ? -1 : 0)
     : camera.zoom * factor;
-  camera.zoom = Math.max(TOPDOWN_ZOOM_MIN, Math.min(TOPDOWN_ZOOM_MAX, z));
+  camera.zoom = Math.max(TOPDOWN_ZOOM_MIN, Math.min(maxZoom, z));
   camera.x = worldX - cx / camera.zoom;
   camera.y = worldY - cy / camera.zoom;
 }

@@ -68,6 +68,6 @@ export const doorFeatureType: FeatureType = {
   aperture: (f): ApertureSpec => doorSpec(f),
   filler: (f, host): Prim[] => {
     const leaf = leafBox(doorSpec(f), host);
-    return [{ prim: 'box', at: leaf.at, size: leaf.size, material: 'door' }];
+    return [{ prim: 'box', at: leaf.at, size: leaf.size, material: 'door', ...(leaf.yaw !== undefined ? { yaw: leaf.yaw } : {}) }];
   },
 };

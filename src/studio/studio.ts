@@ -17,7 +17,7 @@ import { World } from '@/world/world';
 import { createGpuRenderMap } from '@/render/gpu/gpu-renderer';
 import type { RenderFn } from '@/render/select-renderer';
 import { worldToScreen } from '@/render/iso/iso-projection';
-import { floorIsoZoom, quantizeIsoZoom, ISO_ZOOM_MIN, ISO_ZOOM_MAX } from '@/render/iso/iso-camera';
+import { floorIsoZoom, quantizeToRungs, ISO_ZOOM_RUNGS, ISO_ZOOM_MIN, ISO_ZOOM_MAX } from '@/render/iso/iso-camera';
 import { createCamera, zoomAt } from '@/render/camera';
 import { attachControls } from '@/ui/controls';
 import { DEFAULT_LIGHTING, normalizeVec3, type Vec3 } from '@/render/lighting-state';
@@ -58,6 +58,12 @@ import { type StudioState, type Stage, type AbResult, AB_MODELS, AB_MIN_BORDER, 
 
 const MAP_W = 24, MAP_H = 24;
 const CENTER = { x: 12, y: 12 };
+// The studio is an inspection tool, so it zooms one rung PAST the game's 1:1 cap
+// (to 2× native) to scrutinise detail. Fit still snaps to ≤1:1 (pixel-perfect).
+const STUDIO_ZOOM_MAX = 2;
+const STUDIO_ZOOM_RUNGS = [...ISO_ZOOM_RUNGS, STUDIO_ZOOM_MAX];
+const quantizeStudioZoom = (z: number, dir: -1 | 0 | 1 = 0): number =>
+  quantizeToRungs(STUDIO_ZOOM_RUNGS, z, dir);
 const MIN_DOCK = 90, MAX_DOCK_FRAC = 0.6, DEFAULT_DOCK = 170;
 const MIN_TREE_W = 200, MAX_TREE_W = 560, DEFAULT_TREE_W = 320;
 
@@ -324,10 +330,11 @@ export function mountStudio(container: HTMLElement): void {
   function stepZoom(dir: -1 | 1): void {
     const { w, h } = viewport();
     state.fit = false;
-    zoomAt(cam, dir > 0 ? 1.1 : 0.9, w / 2, h / 2, quantizeIsoZoom);
+    zoomAt(cam, dir > 0 ? 1.1 : 0.9, w / 2, h / 2, quantizeStudioZoom, STUDIO_ZOOM_MAX);
   }
   attachControls(canvas, cam, {
-    getZoomQuantize: () => quantizeIsoZoom,
+    getZoomQuantize: () => quantizeStudioZoom,
+    getMaxZoom: () => STUDIO_ZOOM_MAX,
     onUserCameraInput: () => { state.fit = false; },
     onRedraw: () => {},
   });
