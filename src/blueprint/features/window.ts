@@ -29,6 +29,11 @@ export const windowFeatureType: FeatureType = {
     width: { kind: 'number', min: -1, max: 2, default: -1 },
     height: { kind: 'number', min: -1, max: 4, default: -1 },
     sill: { kind: 'number', min: 0, max: 3, default: WINDOW_SILL },
+    // Opt-in vertical RANK: when true, this ground-storey window repeats at every upper
+    // storey's sill, so adding a floor automatically adds its windows. Default false so
+    // hand-tuned per-level fenestration (towers, keeps) is left exactly as authored. See
+    // to-geometry's expandStoreyOpenings.
+    perStorey: { kind: 'bool', default: false },
   },
   resolve: (f) => {
     const p = f.params ?? {};
@@ -41,6 +46,7 @@ export const windowFeatureType: FeatureType = {
         t: (p.t as number) ?? 0.5,
         halfW, height,
         sill: (p.sill as number) ?? WINDOW_SILL,
+        perStorey: p.perStorey === true,
       },
     };
   },

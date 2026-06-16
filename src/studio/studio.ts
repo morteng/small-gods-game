@@ -28,6 +28,8 @@ import { BUILDING_BLUEPRINTS, synthesizeBlueprint, resolveAsset, isPlantPreset }
 import type { ResolvedBlueprint, Descriptors, Era } from '@/blueprint/types';
 import { blueprintEntity } from '@/blueprint/entity';
 import { toGeometry } from '@/blueprint/compile/to-geometry';
+import { getPartType } from '@/blueprint/registry';
+import type { ParamSchema } from '@/blueprint/param-schema';
 import type { SpritePack } from '@/render/iso/sprite-canvas';
 import { greyToSpriteCanvas, greyToDataUri, rgbaToCanvas, type SpriteCanvas } from '@/render/iso/sprite-canvas';
 import { initManifoldWasm } from '@/assetgen/geometry/manifold-wasm-browser';
@@ -140,13 +142,19 @@ export function mountStudio(container: HTMLElement): void {
   const subjPacks = new Map<string, SpritePack | null>();
   const subjStages = new Map<string, StructureResult>();
   const subjInflight = new Set<string>();
-  const rbKey = (rb: ResolvedBlueprint): string => JSON.stringify(rb);
+  // The skirt is a geometry option, so it belongs in the cache key (toggling it must
+  // re-compose). Keyed alongside the blueprint JSON.
+  const rbKey = (rb: ResolvedBlueprint): string => JSON.stringify(rb) + (state.skirt ? `|skirt:${state.skirt.margin}:${state.skirt.fade}` : '');
   function warmSubject(): void {
     if (!liveRb) return;
     const rb = liveRb, k = rbKey(rb);
     if (subjPacks.has(k) || subjInflight.has(k)) return;
     subjInflight.add(k);
-    composeStructure(toGeometry(rb), liveSun())
+    composeStructure(
+      toGeometry(rb, state.skirt ? { skirt: { margin: state.skirt.margin } } : undefined),
+      liveSun(),
+      state.skirt ? { skirtFade: state.skirt.fade } : undefined,
+    )
       .then((r) => { subjStages.set(k, r); subjPacks.set(k, structureResultToPack(r)); })
       .catch((err) => { console.warn('[studio] compose failed', err); subjPacks.set(k, null); })
       .finally(() => { subjInflight.delete(k); });
@@ -202,6 +210,7 @@ export function mountStudio(container: HTMLElement): void {
     hour: 15, yearFrac: 0.3, lat: 45, moonPhase: 1,
     overlays: true,
     fit: true,
+    skirt: null,
     dockH: DEFAULT_DOCK,
     view: null,
   };
@@ -251,18 +260,26 @@ export function mountStudio(container: HTMLElement): void {
     liveRb = (hasVariant
       ? resolveAsset({ type: state.kind, era: liveEra, descriptors: liveDescriptors, stage: liveStage })
       : synthesizeBlueprint(state.kind)) ?? liveRb;
-    onBlueprintEdited();
+    onBlueprintReplaced();
     browserRefresh();
   }
   const applyVariant = (d: Descriptors): void => { liveDescriptors = d; rebuildVariant(); };
   const applyEra = (era: Era | undefined): void => { liveEra = era; rebuildVariant(); };
   const applyStage = (stage: string | undefined): void => { liveStage = stage; rebuildVariant(); };
-  // A node-tree edit mutated liveRb in place: bust geometry caches, drop stale
-  // generation stages + any pinned stage view, and redraw the tree.
-  function onBlueprintEdited(): void {
+  // A live VALUE edit on the tree mutated liveRb in place: bust geometry caches + drop
+  // stale generation stages / pinned stage view, then RE-WARM. Crucially it does NOT
+  // rebuild the tree DOM — doing so on every edit collapses every node and drops focus
+  // mid-edit (the input already shows the new value). The summary tally goes briefly
+  // stale until the next structural rebuild; that's the right trade for a usable editor.
+  function onValueEdited(): void {
     invalidate();
     genStages = [];
     state.view = null;
+  }
+  // The blueprint was REPLACED wholesale (new kind / variant / randomize): re-warm AND
+  // rebuild the tree DOM so it reflects the new structure.
+  function onBlueprintReplaced(): void {
+    onValueEdited();
     rebuildTree();
   }
   world.addEntity(subject);
@@ -545,12 +562,30 @@ export function mountStudio(container: HTMLElement): void {
     window.addEventListener('mousemove', move); window.addEventListener('mouseup', up);
   });
 
-  // Re-synthesise the live blueprint with a fresh seed (re-rolls every seeded
-  // param — vent placement, jitter, …) and re-warm geometry.
+  // Randomize the subject for visual exploration. Re-rolling the synthesis seed alone
+  // is a no-op for presets with no stochastic params (most buildings), so we ALSO
+  // randomize each part's schema-defined params (roof/plan/levels/jetty/…) within range
+  // — a real, visible variation. Studio-only dev tooling, so Math.random is fine.
   function randomizeSubject(): void {
-    const seed = Math.floor(Math.random() * 0x7fffffff);
-    liveRb = synthesizeBlueprint(state.kind, [], seed) ?? liveRb;
-    onBlueprintEdited();
+    if (!liveRb) return;
+    for (const part of liveRb.parts) {
+      let schema: ParamSchema;
+      try { schema = getPartType(part.type).paramSchema; } catch { continue; }
+      for (const [key, spec] of Object.entries(schema)) {
+        if (spec.kind === 'enum') {
+          part.params[key] = spec.values[Math.floor(Math.random() * spec.values.length)];
+        } else if (spec.kind === 'number') {
+          // Skip sentinel-default knobs (e.g. storeyM = -1 "use the standard storey").
+          if (spec.default === -1) continue;
+          const lo = spec.min ?? 0, hi = spec.max ?? 1;
+          const v = lo + Math.random() * (hi - lo);
+          part.params[key] = Number.isInteger(spec.default) ? Math.round(v) : Math.round(v * 100) / 100;
+        } else if (spec.kind === 'bool') {
+          part.params[key] = Math.random() < 0.5;
+        }
+      }
+    }
+    onBlueprintReplaced();
   }
 
   // ── left-pane accordion: Object Browser · A/B Compare · Geometry ─────────
@@ -582,7 +617,7 @@ export function mountStudio(container: HTMLElement): void {
         }));
       },
       build: (body) => {
-        const treeUi = buildTree(body, { getRb: () => liveRb, onEdit: onBlueprintEdited });
+        const treeUi = buildTree(body, { getRb: () => liveRb, onEdit: onValueEdited });
         rebuildTree = treeUi.render;
         rebuildTree();
       },

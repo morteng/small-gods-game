@@ -54,6 +54,34 @@ describe('leafBox', () => {
   });
 });
 
+describe('multi-wing (L-plan) opening placement', () => {
+  // L-plan body: wings [{0,0,3,2},{0,0,2,3}] — its bbox south edge is y=3, but for x>2
+  // the actual south wall is the set-back step at y=2 (the re-entrant notch). An opening
+  // there must snap to the real wall, not float on the bbox edge.
+  const lPart = (): ResolvedPart => ({
+    id: 'body', type: 'body', at: { x: 0, y: 0 }, size: { w: 3, h: 3 },
+    params: { plan: 'L' }, features: [],
+  });
+
+  it('a south opening past the frontage step lands on the set-back wall (y=2), not the bbox edge (y=3)', () => {
+    const s = { face: 'south' as const, t: 0.75, sill: 0, halfW: 0.18, height: 0.9, depth: 0.18 };
+    const b = apertureToBox(s, lPart());          // along-pos x = 0.75*3 = 2.25 (only wing0 spans it)
+    expect(b.at[1] + b.size[1]).toBeCloseTo(2.02, 5);   // wall plane y=2 (+EPS), NOT 3
+  });
+
+  it('a south opening on the frontage (x<2) still uses the front wall (y=3)', () => {
+    const s = { face: 'south' as const, t: 0.25, sill: 0, halfW: 0.18, height: 0.9, depth: 0.18 };
+    const b = apertureToBox(s, lPart());          // along-pos x = 0.75 (wing1 spans it, edge y=3)
+    expect(b.at[1] + b.size[1]).toBeCloseTo(3.02, 5);
+  });
+
+  it('a rect (single-wing) body is unaffected — uses the bbox edge', () => {
+    const s = { face: 'south' as const, t: 0.75, sill: 0, halfW: 0.18, height: 0.9, depth: 0.18 };
+    const b = apertureToBox(s, part(0, 0, 3, 3));   // params {} → no plan → bbox y=3
+    expect(b.at[1] + b.size[1]).toBeCloseTo(3.02, 5);
+  });
+});
+
 describe('FACE_FACING', () => {
   it('maps faces to outward unit vectors', () => {
     expect(FACE_FACING.south).toEqual([0, 1]);

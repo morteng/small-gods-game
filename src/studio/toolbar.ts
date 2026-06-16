@@ -117,7 +117,33 @@ export function buildToolbar(host: HTMLElement, state: StudioState, deps: Toolba
       toggle('Lighting (sun + AO)', () => state.lighting.enabled, (v) => { state.lighting.enabled = v; }),
       toggle('Debug overlays (grid + axis)', () => state.overlays, (v) => { state.overlays = v; }),
     );
-  }, { width: 240 });
+
+    // ── ground skirt (apron) sub-section: on/off + margin + edge-fade ──
+    // Each control re-composes the geometry, so they all call deps.invalidate().
+    body.append(h('div', { class: 'sg-menu-sep', style: 'margin:8px 0' }));
+    const skirtRow = h('div');
+    const slider = (label: string, min: number, max: number, step: number, get: () => number, set: (v: number) => void) => {
+      const val = h('span', { class: 'sg-read', style: 'min-width:34px;text-align:right' });
+      const rng = h('input', { class: 'sg-range', attrs: { type: 'range', min: String(min), max: String(max), step: String(step) } }) as HTMLInputElement;
+      const sync = () => { rng.value = String(get()); val.textContent = get().toFixed(2); };
+      rng.addEventListener('input', () => { set(parseFloat(rng.value)); val.textContent = get().toFixed(2); deps.invalidate(); });
+      sync();
+      return h('div', { class: 'sg-field', style: 'margin:6px 0' }, h('label', { text: label }), h('div', { style: 'display:flex;gap:6px;align-items:center' }, rng, val));
+    };
+    const renderSkirtControls = () => {
+      skirtRow.replaceChildren();
+      if (!state.skirt) return;
+      skirtRow.append(
+        slider('Skirt margin (tiles)', 0, 1, 0.05, () => state.skirt!.margin, (v) => { state.skirt!.margin = v; }),
+        slider('Edge fade → terrain', 0, 1, 0.05, () => state.skirt!.fade, (v) => { state.skirt!.fade = v; }),
+      );
+    };
+    body.append(
+      toggle('Ground skirt (wall lip)', () => !!state.skirt, (v) => { state.skirt = v ? { margin: 0.15, fade: 0 } : null; deps.invalidate(); renderSkirtControls(); }),
+      skirtRow,
+    );
+    renderSkirtControls();
+  }, { width: 248 });
 
   // ── zoom group + fit toggle ──
   const zoomRead = h('span', { class: 'sg-read' });

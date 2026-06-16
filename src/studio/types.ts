@@ -39,6 +39,10 @@ export interface StudioState {
   moonPhase: number;  // 0 = new (dark) … 1 = full (bright, anti-solar)
   overlays: boolean;
   fit: boolean; // auto zoom-to-fit the subject (yields to any manual pan/zoom)
+  // Opt-in ground apron under the building (the "skirt"): null = off; else the apron
+  // overhang past the footprint (tiles) + an edge fade (0 = hard edge, 1 = soft blend
+  // into the terrain beneath). Re-composes geometry when changed.
+  skirt: { margin: number; fade: number } | null;
   dockH: number;
   // null → live 3D render; else show this buffer in the view pane.
   view: { canvas: SpriteCanvas; label: string } | null;

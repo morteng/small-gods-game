@@ -26,7 +26,12 @@ export type Part =
   | { prim: 'building'; wings: Wing[]; wallMat?: Mat; roofMat?: Mat; roofStyle?: RoofStyle; features?: BuildingFeatures; seed?: number; apertures?: ApertureBox[] }
   | { prim: 'flora'; limbs: Limb[]; leaves: Leaf[]; barkMat?: Mat; foliageMat?: Mat }
   | { prim: 'rock'; center: [number, number]; baseZ: number; radius: number; seed: number; jitter?: number; mat?: Mat; subdiv?: number }
-  | { prim: 'linear'; run: BarrierRun };
+  | { prim: 'linear'; run: BarrierRun }
+  // A flat ground apron under (and around) a building footprint: a thin slab whose top
+  // face sits flush with the ground plane (z=0, where walls start) and drops `thickness`
+  // below as a foundation lip. Optional, opt-in: gives buildings a yard/forecourt the
+  // world graph can later erode against real terrain. See `toGeometry` skirt emission.
+  | { prim: 'skirt'; rect: { x: number; y: number; w: number; h: number }; thickness?: number; material?: Mat };
 
 /** World-space linear-structure anchors (wall ends + gate openings), pre-normalisation. */
 export interface LinearWorldAnchors { wallEnds: Vec3[]; gates: Vec3[] }
@@ -77,13 +82,70 @@ async function partFacets(p: Part): Promise<{ facets: WorldFacet[]; anchors?: Bu
     case 'flora':     return { facets: [...tubeFacets(p.limbs, p.barkMat ?? 'bark'), ...blobFacets(p.leaves, p.foliageMat ?? 'foliage')] };
     case 'rock':      return { facets: rockFacets({ center: p.center, baseZ: p.baseZ, radius: p.radius, seed: p.seed, jitter: p.jitter, mat: p.mat, subdiv: p.subdiv }) };
     case 'linear':    { const r = await linearFacets(p.run); return { facets: r.facets, linearAnchors: r.anchors }; }
+    case 'skirt': {
+      // Thickness ALWAYS goes DOWN: the slab spans z ∈ [−t, 0] so its top face is flush
+      // with the ground plane (z=0, the wall base) and the lip drops below. It must never
+      // rise into the building (which occupies z ≥ 0). guard with Math.max(0, …).
+      const t = Math.max(0, p.thickness ?? 0.08);  // ~16 cm foundation lip, downward
+      const s = await solidBox([p.rect.x, p.rect.y, -t], [p.rect.w, p.rect.h, t]);
+      return { facets: manifoldToFacets(s.getMesh(), p.material ?? 'earth') };
+    }
+  }
+}
+
+export interface ComposeOpts {
+  /** 0 = hard-edged apron; >0 fades the visible skirt's OUTER edge to transparent over
+   *  ~`skirtFade × 22 px`, so it reads as blending into the ground (erosion preview). */
+  skirtFade?: number;
+}
+
+/**
+ * Fade the visible skirt's outer edge to transparent in `albedo`'s alpha channel.
+ * "Visible skirt" = pixels the skirt drew that the body does NOT cover (a same-fit
+ * skirt-only vs body-only re-raster), so the building's own footprint stays solid.
+ * A two-pass chamfer distance from the apron boundary drives the alpha ramp.
+ */
+function applySkirtFade(
+  albedo: Uint8ClampedArray, size: number, fit: Parameters<typeof projectFacets>[1],
+  skirtFacets: WorldFacet[], bodyFacets: WorldFacet[], fade: number,
+): void {
+  if (fade <= 0 || skirtFacets.length === 0) return;
+  const sM = rasterizeMaps(projectFacets(skirtFacets, fit), size);
+  const bM = rasterizeMaps(projectFacets(bodyFacets, fit), size);
+  const n = size * size;
+  const vis = new Uint8Array(n);
+  for (let i = 0; i < n; i++) vis[i] = (sM.albedo[i * 4 + 3] === 255 && bM.albedo[i * 4 + 3] !== 255) ? 1 : 0;
+  const D = 1e9, dist = new Float32Array(n);
+  for (let i = 0; i < n; i++) dist[i] = vis[i] ? D : 0;
+  const SQ = Math.SQRT2;
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+    const i = y * size + x; if (!vis[i]) continue; let d = dist[i];
+    if (x > 0) d = Math.min(d, dist[i - 1] + 1);
+    if (y > 0) d = Math.min(d, dist[i - size] + 1);
+    if (x > 0 && y > 0) d = Math.min(d, dist[i - size - 1] + SQ);
+    if (x < size - 1 && y > 0) d = Math.min(d, dist[i - size + 1] + SQ);
+    dist[i] = d;
+  }
+  for (let y = size - 1; y >= 0; y--) for (let x = size - 1; x >= 0; x--) {
+    const i = y * size + x; if (!vis[i]) continue; let d = dist[i];
+    if (x < size - 1) d = Math.min(d, dist[i + 1] + 1);
+    if (y < size - 1) d = Math.min(d, dist[i + size] + 1);
+    if (x < size - 1 && y < size - 1) d = Math.min(d, dist[i + size + 1] + SQ);
+    if (x > 0 && y < size - 1) d = Math.min(d, dist[i + size - 1] + SQ);
+    dist[i] = d;
+  }
+  const fadePx = Math.max(1, fade * 22);
+  for (let i = 0; i < n; i++) {
+    if (!vis[i]) continue;
+    albedo[i * 4 + 3] = Math.round(255 * Math.max(0, Math.min(1, dist[i] / fadePx)));
   }
 }
 
 /** Compose a structure spec into aligned grey + normal RGBA buffers (+ bbox/anchors).
  *  Deterministic. `shadowSun` (screen-space, default canonical upper-left) bakes the
- *  geometry cast shadow — vary it to preview different sun directions. */
-export async function composeStructure(spec: StructureSpec, shadowSun?: [number, number, number]): Promise<StructureResult> {
+ *  geometry cast shadow — vary it to preview different sun directions. `opts.skirtFade`
+ *  softens a ground-apron's outer edge. */
+export async function composeStructure(spec: StructureSpec, shadowSun?: [number, number, number], opts?: ComposeOpts): Promise<StructureResult> {
   const parts = await Promise.all(spec.parts.map(partFacets));
   const facets = parts.flatMap(p => p.facets);
   // Buildings render at a fixed metric scale (content-sized canvas) so heights stay
@@ -103,6 +165,15 @@ export async function composeStructure(spec: StructureSpec, shadowSun?: [number,
   const bbox = opaqueBounds(grey, size);
   // Geometry-correct ground shadow, baked from the SAME facets.
   const shadow = composeGroundShadow(facets, fit, shadowSun);
+
+  // Optional ground-apron edge fade: soften the visible skirt's outer edge so it blends
+  // into the terrain beneath. Done AFTER bbox so the crop stays stable. The split is by
+  // part kind: 'skirt' facets fade against everything else (the body).
+  if (opts?.skirtFade) {
+    const skirtFacets: WorldFacet[] = [], bodyFacets: WorldFacet[] = [];
+    spec.parts.forEach((p, i) => (p.prim === 'skirt' ? skirtFacets : bodyFacets).push(...parts[i].facets));
+    applySkirtFade(grey, size, fit, skirtFacets, bodyFacets, opts.skirtFade);
+  }
 
   // Project world-space anchors through the same fit, then normalise to the opaque bbox.
   const norm = (p: Vec3): NormAnchor => {

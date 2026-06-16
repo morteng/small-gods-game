@@ -83,13 +83,11 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
         door: { type: 'door', face: 'south', params: { main: true, t: 0.5 } },
         smoke: { type: 'vent', params: { kind: 'chimney', t: 0.12 } },
         smoke2: { type: 'vent', params: { kind: 'chimney', t: 0.88 } },
-        win_s: { type: 'window', face: 'south', params: { style: 'shuttered', t: 0.16 } },
-        win_s2: { type: 'window', face: 'south', params: { style: 'shuttered', t: 0.84 } },
-        win_u1: { type: 'window', face: 'south', params: { style: 'shuttered', t: 0.25, sill: 1.8 } },
-        win_u2: { type: 'window', face: 'south', params: { style: 'shuttered', t: 0.5, sill: 1.8 } },
-        win_u3: { type: 'window', face: 'south', params: { style: 'shuttered', t: 0.75, sill: 1.8 } },
-        win_e: { type: 'window', face: 'east', params: { style: 'shuttered', t: 0.4 } },
-        win_e2: { type: 'window', face: 'east', params: { style: 'shuttered', t: 0.6, sill: 1.8 } },
+        // Ground-floor fenestration RANKED up the storeys (perStorey) — the upper floor is
+        // generated from these, not hand-listed. Add a storey ⇒ another row of windows.
+        win_s: { type: 'window', face: 'south', params: { style: 'shuttered', t: 0.16, perStorey: true } },
+        win_s2: { type: 'window', face: 'south', params: { style: 'shuttered', t: 0.84, perStorey: true } },
+        win_e: { type: 'window', face: 'east', params: { style: 'shuttered', t: 0.4, perStorey: true } },
         dormer1: { type: 'dormer', params: { t: 0.3 } },
         dormer2: { type: 'dormer', params: { t: 0.7 } },
       },
@@ -106,10 +104,10 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
       params: { plan: 'rect', levels: 2, roof: 'gable', jetty: 0.12 },
       features: {
         door: { type: 'door', face: 'south', params: { main: true, t: 0.3 } },
-        win_s: { type: 'window', face: 'south', params: { style: 'shuttered', t: 0.7 } },
-        win_u1: { type: 'window', face: 'south', params: { style: 'shuttered', t: 0.3, sill: 1.8 } },
-        win_u2: { type: 'window', face: 'south', params: { style: 'shuttered', t: 0.7, sill: 1.8 } },
-        win_e: { type: 'window', face: 'east', params: { style: 'shuttered', t: 0.5, sill: 1.8 } },
+        // Ranked ground-floor windows: the upper storey is generated, not hand-listed.
+        win_s1: { type: 'window', face: 'south', params: { style: 'shuttered', t: 0.3, perStorey: true } },
+        win_s2: { type: 'window', face: 'south', params: { style: 'shuttered', t: 0.7, perStorey: true } },
+        win_e: { type: 'window', face: 'east', params: { style: 'shuttered', t: 0.5, perStorey: true } },
         smoke: { type: 'vent', params: { kind: 'chimney', t: 0.85 } },
       },
     } },
@@ -119,17 +117,24 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
     materials: { walls: 'timber', roof: 'thatch' },
     parts: { body: { type: 'body', size: { w: 2, h: 2 }, params: { plan: 'rect', levels: 1, roof: 'lean_to' }, features: { door: { type: 'door', face: 'south' } } } },
   }),
-  // Temple: tall arched windows along the nave, NO smoke (churches have none).
+  // Temple: a classical rectangular cella (naos) — axial and bilaterally symmetric, NOT
+  // cruciform (cross/L plans are vernacular, not sacred; a small temple is a single tall
+  // hall). Deeper than wide so the gable roof throws a PEDIMENT over the entrance front;
+  // tall arched windows ranked symmetrically down the long flanks. NO smoke (no hearth).
   temple_small: bp('temple_small', {
-    category: 'religious', era: 'classical', footprint: { w: 3, h: 3 },
+    category: 'religious', era: 'classical', footprint: { w: 3, h: 4 },
     materials: { walls: 'stone', roof: 'tile', ground: 'flagstone' },
     parts: { body: {
-      type: 'body', size: { w: 3, h: 3 }, params: { plan: 'cross', levels: 1, storeyM: 4, roof: 'hip' },
+      type: 'body', size: { w: 3, h: 4 }, params: { plan: 'rect', levels: 1, storeyM: 4.5, roof: 'gable' },
       features: {
-        door: { type: 'door', face: 'south', params: { main: true } },
-        win_s: { type: 'window', face: 'south', params: { style: 'arched', t: 0.25, sill: 0.6, height: 0.9 } },
-        win_s2: { type: 'window', face: 'south', params: { style: 'arched', t: 0.75, sill: 0.6, height: 0.9 } },
-        win_e: { type: 'window', face: 'east', params: { style: 'arched', t: 0.5, sill: 0.6, height: 0.9 } },
+        // Grand central entrance under the pediment (wide; height tracks the main-door scale).
+        door: { type: 'door', face: 'south', params: { main: true, t: 0.5, width: 0.32 } },
+        // Long east flank: a symmetric rank of tall arched windows (sized to clear the eave).
+        win_e1: { type: 'window', face: 'east', params: { style: 'arched', t: 0.28, sill: 0.7, height: 1.2 } },
+        win_e2: { type: 'window', face: 'east', params: { style: 'arched', t: 0.72, sill: 0.7, height: 1.2 } },
+        // Mirrored on the west flank — bilateral symmetry.
+        win_w1: { type: 'window', face: 'west', params: { style: 'arched', t: 0.28, sill: 0.7, height: 1.2 } },
+        win_w2: { type: 'window', face: 'west', params: { style: 'arched', t: 0.72, sill: 0.7, height: 1.2 } },
       },
     } },
   }),

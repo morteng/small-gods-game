@@ -62,6 +62,42 @@ describe('toGeometry', () => {
     expect(spec.parts.some(p => p.prim === 'box' && p.material === 'door')).toBe(true);
   });
 
+  it('perStorey windows RANK up the storeys; doors stay on the ground floor', () => {
+    const make = (levels: number, perStorey: boolean): Blueprint => ({
+      version: BLUEPRINT_VERSION, class: 'building', footprint: { w: 3, h: 3 },
+      materials: { walls: 'stone', roof: 'tile' },
+      parts: { body: {
+        type: 'body', size: { w: 3, h: 2 }, params: { plan: 'rect', levels, storeyM: 3, roof: 'gable' },
+        features: {
+          door: { type: 'door', face: 'south', params: {} },
+          win: { type: 'window', face: 'south', params: { t: 0.5, sill: 0.4, height: 0.6, perStorey } },
+        },
+      } },
+    });
+    const apertures = (bp: Blueprint) => {
+      const b = toGeometry(resolveBlueprint([bp], 0)).parts.find(p => p.prim === 'building')!;
+      return b.prim === 'building' ? b.apertures!.length : -1;
+    };
+    expect(apertures(make(1, true))).toBe(2);   // door + 1 window (single storey)
+    expect(apertures(make(3, true))).toBe(4);   // door + 1 window × 3 storeys
+    expect(apertures(make(3, false))).toBe(2);  // not ranked → door + 1 ground window only
+  });
+
+  it('a window taller than the wall is clamped under the eave (geometry self-check)', () => {
+    const tall: Blueprint = {
+      version: BLUEPRINT_VERSION, class: 'building', footprint: { w: 3, h: 3 },
+      materials: { walls: 'stone', roof: 'gable' as never },
+      parts: { body: {
+        type: 'body', size: { w: 3, h: 2 }, params: { plan: 'rect', levels: 1, storeyM: 3, roof: 'gable' },
+        // wall eave ≈ 1.5 tiles; sill 0.3 + height 3 would shoot through the roof.
+        features: { win: { type: 'window', face: 'south', params: { t: 0.5, sill: 0.3, height: 3 } } },
+      } },
+    };
+    const leaf = toGeometry(resolveBlueprint([tall], 0)).parts.find(p => p.prim === 'box' && p.material === 'door');
+    // pane height (z extent) was clamped to fit beneath the eave (well under the authored 3).
+    expect(leaf && leaf.prim === 'box' ? leaf.size[2] : 99).toBeLessThan(1.5);
+  });
+
   it('body + wing → wings merged into one building prim', () => {
     const ell: Blueprint = {
       version: BLUEPRINT_VERSION, class: 'building', footprint: { w: 4, h: 4 },
