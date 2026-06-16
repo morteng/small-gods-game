@@ -58,7 +58,7 @@ export function drawIsoTerrain(ctx: CanvasRenderingContext2D, args: IsoTerrainAr
   // R1: the seed-deterministic world heightfield (memoised — recomputed once
   // per world, then O(1)). Indexed inline below so we touch the Float32Array
   // directly per tile rather than rebuilding a lookup key each cell.
-  const heightfield = getHeightfield(map.seed, map.width, map.height);
+  const heightfield = getHeightfield(map.seed, map.width, map.height, !!map.worldSeed?.island);
 
   const iMin = bounds.minTx + bounds.minTy;
   const iMax = bounds.maxTx + bounds.maxTy;

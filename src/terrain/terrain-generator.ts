@@ -19,6 +19,7 @@
 import { fbm, warpedNoise, ridgeNoise } from '@/core/noise';
 import type { TerrainConfig, TerrainField, BiomeMap } from '@/core/types';
 import { classifyBiome, sampleBiomeTile, Biome } from './biomes';
+import { islandFalloff } from './island-mask';
 
 export type { TerrainConfig, TerrainField, BiomeMap };
 export { Biome };
@@ -43,6 +44,7 @@ export function generateTerrainFields(config: TerrainConfig): TerrainField {
     seaLevel       = 0.35,
     poleFalloff    = true,
     continentWarp  = 2.0,
+    island,
   } = config;
 
   const size = width * height;
@@ -59,7 +61,11 @@ export function generateTerrainFields(config: TerrainConfig): TerrainField {
         ? warpedNoise(x * elevationScale, y * elevationScale, seed, continentWarp)
         : fbm(x * elevationScale, y * elevationScale, { seed, octaves: 6 });
       const ridges = ridgeNoise(x * elevationScale * 1.5, y * elevationScale * 1.5, seed + 999, 4);
-      elevation[idx] = Math.max(0, Math.min(1, baseElev * 0.7 + ridges * 0.3));
+      let elev = baseElev * 0.7 + ridges * 0.3;
+      // W1 island mask: sink the map edges toward ocean before any downstream
+      // step reads elevation (water-proximity, biome classification, erosion).
+      if (island) elev *= 1 - islandFalloff(x, y, width, height, island);
+      elevation[idx] = Math.max(0, Math.min(1, elev));
 
       // Moisture: base fBm (water proximity applied below)
       moisture[idx] = fbm(x * moistureScale, y * moistureScale, { seed: seed + 500, octaves: 5 });

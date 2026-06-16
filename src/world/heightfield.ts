@@ -23,6 +23,7 @@
 import type { GameMap, TerrainConfig } from '@/core/types';
 import { generateTerrainFields } from '@/terrain/terrain-generator';
 import { erodeElevation } from '@/terrain/erosion';
+import { DEFAULT_ISLAND } from '@/terrain/island-mask';
 
 /**
  * Total vertical relief from elevation `0` → `1`, in metres. Tunable; chosen so
@@ -47,7 +48,7 @@ export const ELEVATION_SEA_LEVEL = 0.35;
  * pins the field. If those worldgen constants change, update them here too (a
  * heightfield-parity test guards the shape).
  */
-function configFor(seed: number, width: number, height: number): TerrainConfig {
+function configFor(seed: number, width: number, height: number, island = false): TerrainConfig {
   const maxDim = Math.max(width, height);
   return {
     seed,
@@ -58,6 +59,7 @@ function configFor(seed: number, width: number, height: number): TerrainConfig {
     seaLevel: ELEVATION_SEA_LEVEL,
     poleFalloff: true,
     continentWarp: 2.0,
+    island: island ? DEFAULT_ISLAND : undefined,
   };
 }
 
@@ -67,8 +69,13 @@ function configFor(seed: number, width: number, height: number): TerrainConfig {
  * Deterministic: same inputs → identical array. Excludes POI/connectome
  * deformations (see file header).
  */
-export function computeHeightfield(seed: number, width: number, height: number): Float32Array {
-  const cfg = configFor(seed, width, height);
+export function computeHeightfield(
+  seed: number,
+  width: number,
+  height: number,
+  island = false,
+): Float32Array {
+  const cfg = configFor(seed, width, height, island);
   const fields = generateTerrainFields(cfg);
   return erodeElevation(fields.elevation, width, height, { seed });
 }
@@ -84,8 +91,13 @@ const cache = new Map<string, Float32Array>();
  * repeated calls with the same `(seed, width, height)` — callers must treat it
  * as read-only.
  */
-export function getHeightfield(seed: number, width: number, height: number): Float32Array {
-  const key = `${seed}:${width}x${height}`;
+export function getHeightfield(
+  seed: number,
+  width: number,
+  height: number,
+  island = false,
+): Float32Array {
+  const key = `${seed}:${width}x${height}:${island ? 'i' : 'c'}`;
   let hf = cache.get(key);
   if (hf) {
     // Refresh recency (Map preserves insertion order → re-insert = most recent).
@@ -93,7 +105,7 @@ export function getHeightfield(seed: number, width: number, height: number): Flo
     cache.set(key, hf);
     return hf;
   }
-  hf = computeHeightfield(seed, width, height);
+  hf = computeHeightfield(seed, width, height, island);
   cache.set(key, hf);
   if (cache.size > CACHE_CAP) {
     const oldest = cache.keys().next().value;
@@ -110,7 +122,7 @@ export function clearHeightfieldCache(): void {
 /** Normalised elevation `[0,1]` at a tile (edge-clamped to the map). */
 export function elevationAt(map: GameMap, tx: number, ty: number): number {
   const { seed, width, height } = map;
-  const hf = getHeightfield(seed, width, height);
+  const hf = getHeightfield(seed, width, height, !!map.worldSeed?.island);
   const cx = Math.max(0, Math.min(width - 1, tx | 0));
   const cy = Math.max(0, Math.min(height - 1, ty | 0));
   return hf[cy * width + cx];

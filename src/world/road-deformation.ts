@@ -119,7 +119,7 @@ export function getRoadDeformationStore(map: GameMap): DeformationStore {
  * (seed, dims, store version); callers must treat it read-only.
  */
 export function getComposedHeightfield(map: GameMap): Float32Array {
-  const base = getHeightfield(map.seed, map.width, map.height);
+  const base = getHeightfield(map.seed, map.width, map.height, !!map.worldSeed?.island);
   const store = getRoadDeformationStore(map);
   if (store.size === 0) return base; // parity by construction
 
