@@ -194,6 +194,42 @@ Two invariants keep this safe and deterministic:
    vetoes), not raw tile edits — the sim stays replayable; a skip can re-run
    the same growth with the same patches and get the same town.
 
+## Historical grounding — Historic England HEAG210 *Medieval Settlements* (added 2026-06-16)
+
+Read 2026-06-16; it strongly validates this epic's "settlements have history" thesis
+and adds concrete drivers:
+
+- **Settlements are *fluid* — the modern orthodoxy.** Places are "created and
+  disappearing, expanding and contracting, and sometimes gradually **shifting**."
+  Our grow/abandon model is right; the missing piece is **shift** (a settlement
+  *relocating* over time — the founding core decays to earthworks while growth
+  reseeds nearby). Worth a future driver: under sustained pressure on a poor founding
+  site (flood, exhausted well, better land adjacent), retire old lots to ruins and
+  re-root the plan a short distance away — visible deep-time storytelling for D2.
+- **Desertion drivers (enrich the existing abandonment system):**
+  1. **Sheep-grazing conversion** (15th–16th c.) — graziers depopulate a village and
+     put arable down to pasture ("there is nowe neyther tofte… it keepes neer 1,500
+     sheepe", Gainsthorpe). A *wealth/economic* desertion: high-value pasture +
+     low population → whole-settlement abandonment, fields → grassland.
+  2. **Climatic downturn** (12th–13th c., upland — Hound Tor) — marginal high/cold
+     sites abandoned first. Couples to the dispersion/elevation affordance.
+  3. **Plague / famine / war** — partial, punctuated population shocks (the old
+     theory; real but not the sole cause).
+- **Cottager infill rule (concrete placement).** The poorest dwellings sit **on the
+  corner of an occupied toft, on the village periphery, or on the wayside** — a cheap
+  1-bay slot that our infill step should emit under population pressure *before*
+  consuming a fresh burgage lot.
+- **Back-lane double-row is historically exact.** The Yarwell planned village (HEAG210
+  Fig 4) is precisely our S4 `extendBackLane`: same-size tofts+crofts off one
+  through-road, a back lane behind the crofts, church+manor at the end. Validated.
+- **Courtyard consolidation = an upgrade chain.** Post-mid-14th-c. farms grow into
+  **courtyard groupings** (house + barns around a yard) — a natural `UPGRADE_CHAINS`
+  entry (farmstead → courtyard farm) gated on era + acreage/wealth.
+- **Watermill siting refinement.** Mills lay "on a stream **some way away**, connected
+  to the houses by roads and tracks" — so the mill `CIVIC_RULE` should site it
+  *offset* from the core on the nearest stream **and emit a connecting track**, not
+  adjacent. (Windmills are rarer and later — gate behind era.)
+
 ## Suggested slices (updated post-research)
 
 1. **S1 — Settlement plan model** ✅ (2026-06-13): `SettlementPlan` (road

@@ -129,6 +129,102 @@ writing. This replaces the current post-hoc filtering (place-then-reconcile) wit
 deconfliction *by construction*, and is the same "affordance graph" the notes have
 gestured at. The spatial-invariant net guards the transition.
 
+## Historical grounding — Historic England HEAG210 *Medieval Settlements*
+
+Read 2026-06-16 (the IHA by Paul Stamper; figures cited, © Historic England, not
+vendored). It is authoritative archaeology and it **upgrades this epic from "one
+nucleated-village grammar" to "a region-driven family of settlement forms."** The
+concrete learnings:
+
+### 1. Settlement form is *regionally determined* — the dispersion axis (new lever)
+
+The single biggest finding. England splits into a **Central Province** where large
+**nucleated** villages predominate, flanked by **Northern & Western** and
+**South-eastern (Wealden)** provinces where **dispersed** hamlets + single farms are
+the norm (Fig 1, the nucleations map). The driver is **soil + terrain**: light,
+easily-worked arable soils + lowland → nucleation; heavy clay, woodland, and upland →
+dispersal. The transition can be a **hard line on the map** (the Warwickshire
+Felden/arable=villages vs Arden/woodland=hamlets divide).
+
+→ **Design delta:** add a scalar **`dispersion`** affordance derived from terrain
+(soil workability ⇐ slope + biome + woodland density) to `TerrainProbe`. The
+settlement grammar **selects archetype + density from `dispersion`**, not uniformly.
+This generalises "grammar by era+size+site" (§B) to add the **soil/province axis** —
+the same world should yield compact villages on its lowland arable and scattered
+farmsteads in its uplands/woods, with a crisp biome-boundary transition.
+
+### 2. Roberts' village-form taxonomy (Fig 5) → the plan-form grammar
+
+Fig 5 ("Village forms — principles of classification") is a clean morphological
+taxonomy we can encode directly as **orthogonal grammar parameters**:
+
+- **rows vs agglomerations** — linear (strung along a road/contour) vs clustered.
+- **regular vs irregular** — *planned* (same-size plots, shared boundaries) vs
+  *organic*. This maps onto chronology/lordship (§5 below): regular = seigneurial;
+  irregular = older/community-grown.
+- **sub-form** — row / grid / radial (each in regular and irregular variants).
+- **green present/absent** — and note the **East-Anglian large-green** variant:
+  extensive rough grazing with cottages around the *edge*, ≠ the small classic green.
+- **single-focus vs polyfocal/composite** — clusters strung together (the "Duck End",
+  Parva/Magna naming; Wollaston the type site). Multiple foci, each its own little
+  row/cluster.
+
+→ **Design delta:** the nucleated grammar (§B) becomes a parameterised family keyed
+on these axes. S3 picks `(rows|agglom, regular|irregular, sub-form, green?, foci=N)`
+from era + dispersion + site + seed.
+
+### 3. Concrete templates from the plates
+
+- **Planned double-row village (Yarwell, Fig 4):** same-size **tofts + crofts**
+  fronting **one through-road** (often E–W), long croft strips running back to a
+  **back lane**, **church + manor in larger compartments at the *end*** of the row,
+  **open-field strips** filling the land beyond. This is the **post-1066 seigneurial**
+  form and is the concrete spec for S3's regular branch + S4 toft/croft + S5 fields.
+  (Our shipped S4 `extendBackLane` is exactly this back lane — historically validated.)
+- **Organic terrain-following village (Wharram Percy, Fig 6/7):** **rows on the
+  contour crests**, **church in the valley bottom**, plots following terrain rather
+  than a grid — the older/irregular form. S3's irregular branch + terrain coupling.
+- **Dispersed upland farmstead (Old Scale, Fig 10):** a single farmstead with
+  **lynchets** (cultivation terraces) climbing the slope — grounds the dispersed
+  archetype + slope-following strip fields (S5).
+
+### 4. The settlement-type spectrum → world-scale connectome archetypes
+
+Beyond "village," add these as selectable **world-scale Zone archetypes** (§A/§C):
+**single farmstead → hamlet** (irregular farmstead cluster, esp. south-west) **→
+village → polyfocal village → green-settlement**, plus specialist outliers:
+**moated farmstead** (isolated farm in a water-filled moat; heavy soils, 13th–early
+14th c., security in a lawless era — ties to the defensive-constructions epic as a
+*moat* enclosure type), **monastic grange** (the largest outlying centre: workforce
+chambers + barns + beast houses), **shieling** (seasonal upland grazing hut), and
+**sheepcote/vaccary** (specialist stock production). The connectome chooses an
+archetype per site from dispersion + era + resource affordance.
+
+### 5. Chronology → era + lordship coupling (confirms Open-question 2)
+
+- **9th–10th c. = peak village formation** in midland England → our early-medieval
+  baseline *is* the nucleation era. Confirms: model early-med as **`medieval` +
+  commoner wealth**, no new era bucket.
+- **Planned/regular layouts are post-1066 *seigneurial*** (re-established under lordly
+  control after the Harrying of the North). → add a **`planned`/lordship flag** that
+  flips the grammar from irregular→regular; not a new era, an authority parameter.
+- **Settlements are *fluid*** — created, deserted, expanding, contracting, and
+  sometimes **shifting** (gradual relocation). Desertion drivers: 15th–16th c.
+  **sheep-grazing conversion** (graziers depopulate, arable→pasture), **climatic
+  downturn** (upland abandonment, e.g. Hound Tor 12th–13th c.), plague/famine/war.
+  → feeds the settlement-growth/abandonment + D2 time-skip era-authoring loop (folded
+  into that epic's grounding too).
+
+### 6. Field & landscape facts (S5 + manor)
+
+Open fields = **ridge-and-furrow** earthworks, **curvilinear strip→furlong→field**
+boundaries, **lynchets** on slopes; with **common pasture, woodland, orchard**.
+**Watermill** on a stream **some way away from the houses, road-connected** (windmills
+rarer/later). Manorial specialist landscape: **fishponds, rabbit warrens, deer
+parks** — manor-associated Zones for the lord. Toft = dwelling + barns/sheds in a
+hedged/walled plot; croft = the long garden/paddock behind (exactly S4's two-part
+plot).
+
 ## Slices (proposed)
 
 - **W0 — World-layout seam.** Make `mapSize` derivable: `deriveMapSize(connectome)`
@@ -150,6 +246,16 @@ gestured at. The spatial-invariant net guards the transition.
 S2 is decoupled (just new types) and is the recommended early win. W0/W1 are the
 world layer; S1 is the architectural keystone the rest of the settlement slices ride.
 
+- **W2 — Dispersion axis (HEAG210 §1).** `TerrainProbe.dispersion` derived from soil
+  workability (slope + biome + woodland). The world solver scatters **single
+  farmsteads / hamlets** on high-dispersion (upland/clay/wood) ground and **nucleated
+  villages** on low-dispersion (lowland arable) ground, with a crisp biome-boundary
+  transition. *This is what makes the world read as period-correct at the macro scale.*
+- **S3 is now a plan-form *family* (HEAG210 §2–3),** not one grammar: parameterised by
+  `(rows|agglomeration, regular|irregular, sub-form, green?, foci=N, planned-flag)`,
+  selected from era + dispersion + lordship + site. Regular double-row = the seigneurial
+  template; irregular contour-row = the organic one.
+
 ## Open questions
 
 1. **POI layout solver vs. pinned positions** — do we want full auto-layout, or
@@ -164,3 +270,10 @@ world layer; S1 is the architectural keystone the rest of the settlement slices 
 4. **Manor vs. castle** — is `manor_house` a new humble lord's hall (early-med) and
    `castle_keep` the fortified later form, with the grammar choosing by era?
 5. **Occupancy layer scope** — settlement-local grid vs. world-wide claim authority.
+6. **Dispersion → archetype mapping** (HEAG210 §1) — a continuous `dispersion` scalar
+   thresholded into farm/hamlet/village, or a discrete soil-province classification?
+   (Recommend: continuous scalar from terrain, thresholds in the content pack.)
+7. **Plan-form selection** (HEAG210 §2) — fully procedural from the taxonomy axes, or
+   a small library of named templates (Yarwell-double-row, Wharram-contour-row,
+   green-edge, polyfocal) the grammar instantiates and perturbs? (Recommend: named
+   templates first, procedural perturbation later.)

@@ -214,6 +214,36 @@ a terrain affordance layer at siting-time (sun, view, defence, foundation).
   defensibility queries → weighted siting; wire opulence + defence + shrine
   alignment as consumers.
 
+## Historical grounding — Historic England HEAG210 *Medieval Settlements*
+
+Read 2026-06-16. Excavation evidence sharpens several of the rules above:
+
+- **Foundation is terrain-driven (validates Tier-2 rule 12 + adds a Tier-1 rule).**
+  Clayland excavations (Barton Blount, Goltho) show a real transition from
+  **earth-fast posts** (timber sunk directly in holes) to a **sill beam or dwarf
+  stone wall** *specifically where the ground was wet and rotting*. So the footing
+  type is **a function of terrain wetness**, not just era: dry ground → earth-fast
+  posts allowed; wet/clay/low ground → sill-beam or dwarf-wall footing required.
+  Model as a Tier-2 siting consequence (terrain wetness → footing choice → a small
+  plinth in geometry) with a Tier-1 sanity bound (earth-fast posts invalid on
+  marked-wet ground).
+- **House-type vocabulary (feeds the validity *type* catalogue + the fact DB):**
+  **longhouse** (people one end, animals/byre the other — geographically widespread,
+  cruck-built, substantial and long-lived); **cruck vs box-frame** is the major
+  silhouette axis (already noted in the fact DB); **abutting / linear-terrace houses**
+  (Thrislington, West Whelpington, Burton Dassett) — a row layout, not just detached;
+  **courtyard farmstead** (house + farm buildings around a yard) becomes commonplace
+  **only after the mid-14th century** as holdings grew → an era×wealth×acreage-gated
+  *grouping*, i.e. a settlement-grammar consequence, not a single building.
+- **The validity *floor* — cottager dwellings.** Documents place the poorest (widows,
+  cottagers) in **small dwellings on the corner of a toft, on the village periphery,
+  or on the wayside**. This is the minimum-valid building (1 bay, cheapest material,
+  no upgrades) and an infill placement rule (folded into the settlement-growth epic).
+- **Levels × era confirmed.** 9th–10th-c. nucleation + open central hearth + *no upper
+  floor* for ordinary dwellings → the per-era storey cap (rule 3) is historically
+  right: early-medieval vernacular is single-storey; height is the elite/stone/tower
+  exception.
+
 ## Decisions taken
 
 1. **Two-tier enforcement.** Intrinsic validity = auto-fixing constraints at

@@ -440,6 +440,36 @@ foundation for free.
   (settlements as nodes, roads/rivers/trade as edges); unify social + belief
   graphs as explicit layers of the multigraph over shared nodes.
 
+## Historical grounding for the *settlement-scale* facts — HEAG210 (added 2026-06-16)
+
+The fact DB so far is building-scale; Slice 5 (settlement connectome) needs
+settlement-scale fact entries, and Historic England's **HEAG210 *Medieval
+Settlements*** (Stamper, 2018; read 2026-06-16) is the authoritative provenance for
+them. Entries to seed (L3, `sources: ['HEAG210']`):
+
+- **Settlement archetypes** — `single_farmstead`, `hamlet`, `village`,
+  `polyfocal_village`, `green_settlement`, `moated_farmstead`, `monastic_grange`,
+  `shieling`, `sheepcote`/`vaccary`. Each with the period, the typical size
+  (farm → hamlet of a few households → village of 30–500), and its terrain niche.
+- **Plan-form taxonomy** (Roberts, HEAG210 Fig 5) as cross-cutting tags:
+  `rows|agglomeration`, `regular|irregular`, `grid|radial|row`, `green?`,
+  `single|polyfocal` — the vocabulary the settlement grammar reads.
+- **Toft + croft** as first-class plot facts: toft = dwelling + barns/sheds in a
+  hedged/walled enclosure; croft = the long garden/paddock behind. In *planned*
+  villages they are same-size with shared front+rear boundaries; in *organic* ones
+  they vary. (Mirrors the building-scale hall/longhouse graph facts, one scale up.)
+- **Field-system vocabulary** — open-field strips → furlongs → great fields,
+  ridge-and-furrow, lynchets (slope terraces), common pasture/woodland/orchard;
+  manorial `fishpond`/`rabbit_warren`/`deer_park`.
+- **Chronology fact** — 9th–10th-c. peak nucleation; planned/regular = post-1066
+  seigneurial; settlements fluid (created/deserted/shifting). Grounds the era +
+  lordship axes used by [connectome world-layout](2026-06-16-connectome-world-layout-design.md)
+  and the desertion drivers in [settlement growth](2026-06-13-settlement-growth-placement-design.md).
+
+These settlement-scale facts feed the same three consumers (patch content, brief/
+prompt text, LLM grounding) as the building-scale ones — Slice 5's grammar is their
+first reader.
+
 ## Concrete "one cottage, four ways" (the variety target)
 
 1. *Midland cottar's cottage, c. 900* — cruck-framed, two bays, wattle-and-daub,
