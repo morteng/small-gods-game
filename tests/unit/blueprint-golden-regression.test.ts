@@ -16,8 +16,8 @@ describe('blueprint golden regression — openings', () => {
   it('cottage (rect) → building prim carries door + window apertures + a leaf prim', () => {
     const spec = toGeometry(synthesizeBlueprint('cottage')!);
     const b = spec.parts.find(p => p.prim === 'building')!;
-    // v6 window programme: 1 door + 2 shuttered windows
-    expect(b.prim === 'building' && b.apertures?.length).toBe(3);
+    // v10 generative openings: 1 south door + 2 flanking south windows + 1 east window
+    expect(b.prim === 'building' && b.apertures?.length).toBe(4);
     expect(doorLeaf('cottage')).toBeDefined();
   });
 

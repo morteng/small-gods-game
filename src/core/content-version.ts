@@ -30,9 +30,13 @@
  * 'v9' — connectome Slice 1: a building's smoke vent is now DERIVED from its hearth
  * (early-medieval commoner dwellings — cottage/longhouse/yurt — get a period-correct
  * ridge louver, NOT a chimney; vents stripped from their presets and re-derived), so
- * cottage/longhouse/yurt geometry shifts.
+ * cottage/longhouse/yurt geometry shifts;
+ * 'v10' — generative openings: doors + windows are now DERIVED from the room graph
+ * (exterior portals ⇒ doors, needs-light zones ⇒ windows, distributed by wall length +
+ * era glazing) for presets tagged 'gen-openings' (cottage/shrine/guard_post/watermill/
+ * temple_small migrated to fact-seeds), so their fenestration shifts.
  */
-export const ART_RECIPE_VERSION = 'v9';
+export const ART_RECIPE_VERSION = 'v10';
 
 /**
  * Bump when WORLDGEN / preset output changes (footprints, placement, heights).

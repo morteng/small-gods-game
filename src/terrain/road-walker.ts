@@ -16,6 +16,7 @@
  */
 
 import type { Tile, TerrainField } from '@/core/types';
+import { WATER_TYPES } from '@/core/constants';
 
 const DEFAULT_BASE_COST = 1.0;
 const DEFAULT_SLOPE_FACTOR = 50.0; // 1 unit of elevation diff = 50 base steps
@@ -43,8 +44,6 @@ export interface RoadWalkerPath {
   /** Which cells are bridges (water tiles the walker stepped into). */
   bridgeCells: Set<number>; // indices into the grid (y * width + x)
 }
-
-const WATER_TYPES = new Set(['deep_water', 'shallow_water', 'river', 'ocean', 'water']);
 
 /**
  * A* pathfinder. Returns the lowest-cost 4-connected path from start to goal,

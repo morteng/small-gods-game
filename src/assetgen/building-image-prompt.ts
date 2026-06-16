@@ -1,14 +1,24 @@
 // src/assetgen/building-image-prompt.ts
-// Deterministic, MODEL-AWARE text prompt for img2img building generation. The
-// grey init image carries silhouette + rough materials; this adds a brief-derived
-// description (subject, era, materials, door, traits) wrapped by a per-model-family
-// preamble — Gemini-image wants natural-language "redraw the reference" editing
-// instructions; OpenAI gpt-image wants a concise descriptive generation prompt.
+// Deterministic, MODEL-AWARE text prompt for img2img building generation. EVERY
+// clause is derived from the ACTUAL resolved geometry of THIS asset — we compile the
+// blueprint to its StructureSpec and describe only the primitives, materials and
+// visible features that are really in the render. Nothing generic is asserted: an
+// open market stall is never told it has "walls, a gable roof and a door", and the
+// colour legend lists only the materials actually present. The init image carries
+// silhouette + material-coded colour; this prompt names the edit per model family
+// (FLUX wants positive "repaint image 1" prose, Gemini wants "redraw the reference",
+// OpenAI a concise descriptive prompt). Agents can "colour" a variant via the
+// blueprint's `notes` (art direction) + `palette` (preferred final colours); both
+// ride on the resolved blueprint — its cache identity — so a customised variant
+// gets its own cached/seeded sprite and becomes part of the default library.
 // Output is a pure function of (rb, model) → safe to fold into the cache key.
 import type { ResolvedBlueprint, ResolvedPart, WallFace } from '@/blueprint/types';
-import { toBrief } from '@/blueprint/compile/to-brief';
+import { getPartType } from '@/blueprint/registry';
 import { descriptorPhrase } from '@/blueprint/descriptors';
 import { stagePhrase } from '@/blueprint/lifecycle';
+import { toGeometry } from '@/blueprint/compile/to-geometry';
+import type { StructureSpec } from '@/assetgen/compose';
+import { MATERIAL_RGB, type Mat } from '@/assetgen/types';
 import { CHROMA_RGB } from '@/render/chroma-key';
 
 export type ImageModelFamily = 'gemini' | 'openai' | 'flux' | 'generic';
@@ -49,12 +59,86 @@ function countVisible(rb: ResolvedBlueprint, type: string, kind?: string): numbe
   return n;
 }
 
-/** Deterministic, geometry-TRUE description of ONLY what the render angle shows:
- *  visible element counts + the (visible) door facing, read straight off the
- *  resolved blueprint so the prompt can't drift from — or over-state — what the
- *  model actually sees (it says "two chimneys" only when two are visible). */
+// ── Material truth, read off the COMPILED geometry ──────────────────────────
+// The init render colours each material with MATERIAL_RGB; the legend names the
+// init colour + what the region IS so the model can locate it. Only materials
+// actually present in this StructureSpec are listed.
+const MAT_DESC: Record<Mat, { init: string; noun: string }> = {
+  stone:   { init: 'grey', noun: 'stone' },
+  timber:  { init: 'brown', noun: 'timber/wood' },
+  plaster: { init: 'pale cream', noun: 'plaster, daub or canvas cloth' },
+  thatch:  { init: 'tan', noun: 'thatch/straw' },
+  tile:    { init: 'muted brown-grey', noun: 'roof tiles' },
+  foliage: { init: 'green', noun: 'foliage' },
+  bark:    { init: 'dark brown', noun: 'bark' },
+  earth:   { init: 'earth brown', noun: 'bare earth' },
+  metal:   { init: 'steel grey', noun: 'metal' },
+  door:    { init: 'dark wood', noun: 'a door or recessed opening' },
+  brick:   { init: 'red-brown', noun: 'brick' },
+};
+
+export { MAT_DESC };
+
+/** The set of materials actually present in the compiled geometry, in MATERIAL_RGB order. */
+export function presentMaterials(spec: StructureSpec): Mat[] {
+  const seen = new Set<Mat>();
+  for (const p of spec.parts) {
+    if (p.prim === 'building') { if (p.wallMat) seen.add(p.wallMat); if (p.roofMat) seen.add(p.roofMat); continue; }
+    if (p.prim === 'skirt') continue;                              // ground apron, not the body
+    const mat = (p as { material?: Mat; mat?: Mat }).material ?? (p as { mat?: Mat }).mat;
+    if (mat) seen.add(mat);
+  }
+  return (Object.keys(MATERIAL_RGB) as Mat[]).filter(m => seen.has(m));
+}
+
+/** Colour legend for ONLY the materials this asset actually uses. */
+function referenceKey(mats: Mat[]): string {
+  if (!mats.length) return '';
+  const items = mats.map(m => `${MAT_DESC[m].init} = ${MAT_DESC[m].noun}`).join(', ');
+  return `The reference is colour-coded by material — only these are present: ${items}. ` +
+    `Use those regions to place materials correctly, then paint a richer final palette.`;
+}
+
+/** True if this StructureSpec is a walled building (vs an open frame / prop). */
+function isWalledBuilding(spec: StructureSpec): boolean {
+  return spec.parts.some(p => p.prim === 'building' || p.prim === 'cylinder');
+}
+
+/** Geometry-true phrases for each part, straight from its registered toBrief. */
+function partPhrases(rb: ResolvedBlueprint): string[] {
+  const ctx = { materials: rb.materials, footprint: rb.footprint };
+  return rb.parts.map(p => { try { return getPartType(p.type).toBrief(p, ctx); } catch { return ''; } }).filter(Boolean);
+}
+
+/** The cleaned subject noun (preset/category), e.g. 'market stall'. */
+function subjectNoun(rb: ResolvedBlueprint): string {
+  return (rb.preset ?? rb.category ?? 'structure').replace(/_(small|large|tiny|big)$/, '').replace(/_/g, ' ');
+}
+
+/** Walled-building material clause ("plaster walls, thatch roof") — empty for open frames. */
+function walledMaterialClause(spec: StructureSpec): string {
+  const b = spec.parts.find(p => p.prim === 'building');
+  if (!b || b.prim !== 'building') return '';
+  const parts: string[] = [];
+  if (b.wallMat) parts.push(`${b.wallMat} walls`);
+  if (b.roofMat) parts.push(`${b.roofMat} roof`);
+  return parts.join(', ');
+}
+
+/** Deterministic, geometry-TRUE description of ONLY what the render angle shows. A
+ *  walled building lists storeys/roof/plan + visible chimneys/windows/dormers/door;
+ *  an open frame (stall/tent/prop) states it has NO walls and lists its real parts. */
 export function geometryDescription(rb: ResolvedBlueprint): string {
-  if (rb.class !== 'building') return '';
+  if (rb.class !== 'building' && rb.class !== 'prop') return '';
+  const spec = toGeometry(rb);
+
+  if (!isWalledBuilding(spec)) {
+    const comp = partPhrases(rb).join('; ');
+    return `Geometry (match the reference exactly): an OPEN structure with no enclosing ` +
+      `walls — ${comp}. Paint only the frame, canopy/roof and counter visible in the ` +
+      `reference; keep it fully open and add nothing that the reference does not show.`;
+  }
+
   const body: ResolvedPart | undefined = rb.parts.find(p => p.type === 'body') ?? rb.parts[0];
   const levels = Math.max(1, (body?.params.levels as number) ?? 1);
   const roof = (body?.params.roof as string) ?? 'gable';
@@ -69,9 +153,7 @@ export function geometryDescription(rb: ResolvedBlueprint): string {
   const doorFeat = rb.parts.flatMap(p => p.features).find(f => f.type === 'door' && isVisibleFace(f.face));
   const doorFace = doorFeat ? (doorFeat.face ?? 'south') as WallFace : null;
 
-  const clauses: string[] = [
-    `a ${plan} ${levels}-storey building with a ${roof} roof`,
-  ];
+  const clauses: string[] = [`a ${plan} ${levels}-storey building with a ${roof} roof`];
   if (chimneys) clauses.push(`exactly ${plural(chimneys, 'chimney')} on the roof`);
   if (windows) clauses.push(`exactly ${plural(windows, 'visible window')}`);
   if (dormers) clauses.push(`${plural(dormers, 'roof dormer')}`);
@@ -95,83 +177,109 @@ export function imageModelFamily(model: string): ImageModelFamily {
 // chroma fill rather than trusting the model to emit alpha (which it bakes opaque
 // half the time). The init image's background is already this exact magenta
 // (compositeOverChroma), so "same as the reference" reinforces the text demand.
-// The colour must match CHROMA_RGB exactly.
 const STYLE_TAIL =
   'Clean readable pixel shading, cohesive limited palette, no ground, no shadow, centered. ' +
   `Keep the ENTIRE background solid uniform pure magenta, RGB (${CHROMA_RGB.join(',')}), ` +
   'exactly as in the reference image. ' +
   'Do NOT use magenta, pink or purple anywhere on the building itself.';
 
-/** Brief-derived core, identical across families (pure function of the blueprint). */
+/** Subject line — geometry-true: descriptor + era + the real parts, no invented door/walls.
+ *  When a part phrase already names the subject (an open stall/tent), it leads as the richer
+ *  description; otherwise the cleaned noun leads and the part phrases follow. */
 function describeBuilding(rb: ResolvedBlueprint): string {
-  const brief = toBrief(rb, 0);
-  const mats = brief.materials.map(m => `${m.material} ${m.part}`).join(', ');
-  const doorPhrase = brief.door ? ' with a visible wooden door' : '';
-  const traits = brief.traits.slice(0, 4).join(', ');
-  // Qualitative descriptors (rich/poor, ornate/crude, weathered…) lead the subject
-  // so the painted art matches the geometry/material bias the descriptors applied.
+  const spec = toGeometry(rb);
   const desc = descriptorPhrase(rb.descriptors);
-  // A lifecycle stage (ruin/burnt/under-construction) leads the whole phrase and
-  // REPLACES the default "a/an" article (e.g. "a burnt-out ruin of a medieval cottage").
-  const stage = stagePhrase(rb.class, rb.stage);
-  if (stage) return `${stage} a ${desc ? `${desc} ` : ''}${brief.era} ${brief.subject}${doorPhrase}, ${mats}, ${traits}`;
-  return `a ${desc ? `${desc} ` : ''}${brief.era} ${brief.subject}${doorPhrase}, ${mats}, ${traits}`;
+  const descPrefix = desc ? `${desc} ` : '';
+  const era = rb.era ?? 'medieval';
+  const stage = stagePhrase(rb.class, rb.stage);     // 'a burnt-out ruin of' etc. (replaces the article)
+  const noun = subjectNoun(rb);
+  const phrases = partPhrases(rb);
+
+  // Walled building: noun leads, with its wall/roof materials + a visible door if real.
+  if (isWalledBuilding(spec)) {
+    const mat = walledMaterialClause(spec);
+    const hasDoor = !!rb.parts.flatMap(p => p.features).find(f => f.type === 'door' && isVisibleFace(f.face));
+    const door = hasDoor ? ' with a visible wooden door' : '';
+    const tail = [mat, phrases.join(', ')].filter(Boolean).join(', ');
+    const head = `${stage ?? 'a'} ${descPrefix}${era} ${noun}${door}`;
+    return [head, tail].filter(Boolean).join(', ');
+  }
+
+  // Open frame / prop: prefer a part phrase that already names the subject.
+  const richer = phrases.find(p => p.toLowerCase().includes(noun.toLowerCase()));
+  if (richer) {
+    const rest = phrases.filter(p => p !== richer);
+    const core = `${stage ? `${stage} ` : 'a '}${descPrefix}${era} ${richer.replace(/^an?\s+/i, '')}`;
+    return [core, rest.join(', ')].filter(Boolean).join(', ');
+  }
+  const head = `${stage ?? 'a'} ${descPrefix}${era} ${noun}`;
+  return [head, phrases.join(', ')].filter(Boolean).join(', ');
+}
+
+/** Agent customisation woven into the prompt: free-text art direction (`notes`) +
+ *  preferred final colours (`palette`). Both persist on the resolved blueprint, so a
+ *  customised variant has its own cache identity and seeds into the default library. */
+function customization(rb: ResolvedBlueprint): string {
+  const bits: string[] = [];
+  const pal = rb.palette;
+  if (pal && (pal.walls || pal.roof || pal.trim)) {
+    const cols = [
+      pal.walls ? `walls ${pal.walls}` : '',
+      pal.roof ? `roof ${pal.roof}` : '',
+      pal.trim ? `trim ${pal.trim}` : '',
+    ].filter(Boolean).join(', ');
+    bits.push(`Preferred final colours — ${cols} (keep these off magenta, pink and purple).`);
+  }
+  if (rb.notes) bits.push(`Art direction: ${rb.notes}`);
+  return bits.join(' ');
 }
 
 // Registration tolerates small silhouette deviation (see sprite-postprocess
 // negotiation band), so the prompt asks for CLOSE adherence and invites the
-// richness a bare massing render can't carry — texture, weathering, small
-// architectural details. Demanding the "exact" silhouette produced flat,
-// primitive repaints of the flat-shaded init.
+// richness a bare massing render can't carry — texture, weathering, small details
+// appropriate to whatever the structure actually is.
 const DETAIL_INVITE =
-  'Bring it to life with richly textured materials, weathering, and small ' +
-  'architectural details (window frames, beams, stonework variation) while ' +
-  'keeping the overall outline close to the reference.';
-
-// The init render is colour-coded by MATERIAL (timber=brown, thatch/straw=tan,
-// stone=grey, brick chimney=red-brown, door=dark wood). Telling the model the
-// colours are a material/part key — not the final palette — lets it read the
-// structure (which region is roof vs wall vs door vs chimney) and restyle freely.
-const REFERENCE_KEY =
-  'The reference is colour-coded by material: grey = stone walls, brown = timber, ' +
-  'tan = thatch/straw roof, red-brown = brick chimneys, dark = the wooden door. ' +
-  'Use those regions to place materials correctly, then paint a richer final palette.';
+  'Bring it to life with richly textured materials, weathering and small ' +
+  'architectural details appropriate to the structure, while keeping the overall ' +
+  'outline close to the reference.';
 
 // FLUX.2 has NO negative prompts (per BFL's prompting guide) and wants natural-
 // language prose that names the edit and binds the hex colour to a named object.
-// So every "do NOT" of STYLE_TAIL is restated POSITIVELY: the background is a
-// thing that "fills the whole frame" rather than a "no ground/no shadow" denial,
-// and the chroma hex is attached to "a solid background" so it lands reliably.
+// So every "do NOT" of STYLE_TAIL is restated POSITIVELY.
 const FLUX_TAIL =
-  'Place the building alone on a completely flat, solid, uniform background of pure ' +
+  'Place the structure alone on a completely flat, solid, uniform background of pure ' +
   `magenta, hex #FF00FF, RGB (${CHROMA_RGB.join(',')}), that fills the entire frame ` +
   'edge to edge — the sprite floats on flat magenta with the ground and any shadow ' +
-  'replaced by that same magenta. Keep every colour on the building itself away from ' +
+  'replaced by that same magenta. Keep every colour on the structure itself away from ' +
   'magenta, pink and purple. Clean readable pixel shading, cohesive limited palette, centered.';
 
 export function buildingImagePrompt(rb: ResolvedBlueprint, model: string): string {
+  const spec = toGeometry(rb);
   const subject = describeBuilding(rb);
   const geom = geometryDescription(rb);
+  const legend = referenceKey(presentMaterials(spec));
+  const custom = customization(rb);
+  const customTail = custom ? ` ${custom}` : '';
   switch (imageModelFamily(model)) {
     case 'flux':
       // FLUX.2 editing convention: address the init as "image 1", lead with the
       // subject+action (word order is weighted), describe only what's wanted.
-      return `Repaint image 1 as a crisp 2D isometric pixel-art video-game building ` +
-        `sprite in a 2:1 isometric perspective, keeping the silhouette, footprint and ` +
-        `roof pitch of the colour-coded massing render. ${REFERENCE_KEY} ${geom} ` +
-        `${DETAIL_INVITE} Subject: ${subject}. ${FLUX_TAIL}`;
+      return `Repaint image 1 as a crisp 2D isometric pixel-art video-game sprite ` +
+        `in a 2:1 isometric perspective, keeping the silhouette, footprint and ` +
+        `roof pitch of the colour-coded massing render. ${legend} ${geom} ` +
+        `${DETAIL_INVITE} Subject: ${subject}.${customTail} ${FLUX_TAIL}`;
     case 'gemini':
       return `Using the attached colour-coded 3D massing render as a structural ` +
-        `reference, redraw it as a crisp 2D isometric pixel-art video-game building ` +
-        `sprite. Match the silhouette, proportions and roof pitch closely. ` +
-        `${REFERENCE_KEY} ${geom} ${DETAIL_INVITE} Subject: ${subject}. ${STYLE_TAIL}`;
+        `reference, redraw it as a crisp 2D isometric pixel-art video-game sprite. ` +
+        `Match the silhouette, proportions and roof pitch closely. ` +
+        `${legend} ${geom} ${DETAIL_INVITE} Subject: ${subject}.${customTail} ${STYLE_TAIL}`;
     case 'openai':
-      return `Isometric pixel-art video-game building sprite closely matching the ` +
+      return `Isometric pixel-art video-game sprite closely matching the ` +
         `reference shape (silhouette, roof pitch, element placement). ` +
-        `${REFERENCE_KEY} ${geom} ${DETAIL_INVITE} Subject: ${subject}. ${STYLE_TAIL}`;
+        `${legend} ${geom} ${DETAIL_INVITE} Subject: ${subject}.${customTail} ${STYLE_TAIL}`;
     default:
-      return `A crisp 2D isometric pixel-art video-game building sprite, redrawn from ` +
+      return `A crisp 2D isometric pixel-art video-game sprite, redrawn from ` +
         `the colour-coded reference shape. ` +
-        `${REFERENCE_KEY} ${geom} ${DETAIL_INVITE} Subject: ${subject}. ${STYLE_TAIL}`;
+        `${legend} ${geom} ${DETAIL_INVITE} Subject: ${subject}.${customTail} ${STYLE_TAIL}`;
   }
 }

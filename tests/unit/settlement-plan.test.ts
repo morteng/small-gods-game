@@ -108,7 +108,11 @@ describe('placeSettlement — plan execution', () => {
   it('slot-placed buildings front a road: walking out of the door reaches one within 2 tiles', () => {
     const { result } = run();
     // result.entities now carries civic props too (S5) — restrict to buildings.
-    const buildings = result.entities.filter(e => blueprintOf(e)?.rb.class === 'building');
+    // Open-frame buildings (the market stall has no walls/door) carry no doorCells;
+    // the "door fronts a road" invariant only applies to buildings WITH a door.
+    const buildings = result.entities
+      .filter(e => blueprintOf(e)?.rb.class === 'building')
+      .filter(e => (blueprintOf(e)!.collision.doorCells.length ?? 0) > 0);
     expect(buildings.length).toBeGreaterThan(0);
     const roadSet = new Set(result.roadTiles.map(rt => `${rt.x},${rt.y}`));
     let fronting = 0;

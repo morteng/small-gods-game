@@ -1,7 +1,7 @@
 // src/blueprint/presets/index.ts
 // The 11 building presets, re-expressed as Blueprints. Mechanical port of the
 // old BUILDING_PRESETS descriptors (the retired flat descriptor model).
-import { BLUEPRINT_VERSION, type Blueprint, type BlueprintPatch, type ResolvedBlueprint, type Descriptors, type Era } from '../types';
+import { BLUEPRINT_VERSION, type Blueprint, type BlueprintPatch, type ResolvedBlueprint, type Descriptors, type Era, type Palette } from '../types';
 import { resolveBlueprint } from '../resolve';
 import { descriptorPatch } from '../descriptors';
 import { eraPatch } from '../eras';
@@ -12,6 +12,7 @@ import { loadDefaultPacks } from '@/catalogue/default-packs';
 import { expand } from '../connectome/grammar';
 import { deriveSmokeEgress } from '../connectome/smoke';
 import { connectomeToBlueprint } from '../connectome/to-blueprint';
+import { connectomeOpenings, GEN_OPENINGS_TAG } from '../connectome/openings';
 import type { Connectome, ExpandCtx } from '../connectome/types';
 
 const bp = (preset: string, b: Omit<Blueprint, 'version' | 'class' | 'preset'>): Blueprint =>
@@ -63,13 +64,10 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
     parts: { body: {
       type: 'body', at: { x: 0, y: 0 }, size: { w: 3, h: 2 },
       params: { plan: 'rect', levels: 1, levelInset: 0, roof: 'gable' },
-      features: {
-        door: { type: 'door', face: 'south', params: { main: true, t: 0.35 } },
-        win_s: { type: 'window', face: 'south', params: { style: 'shuttered', t: 0.72, glazed: false } },
-        win_e: { type: 'window', face: 'east', params: { style: 'shuttered', t: 0.5, glazed: false } },
-        // smoke vent DERIVED from the hearth (resolveAsset connectome) — early-medieval
-        // commoner = ridge louver, NEVER a chimney; see connectome/smoke.ts.
-      },
+      // Openings + smoke vent are DERIVED from the room graph (gen-openings + the
+      // hearth) — a south door and shuttered, unglazed windows for an early-medieval
+      // commoner, smoke through a ridge louver. See connectome/openings.ts + smoke.ts.
+      tags: [GEN_OPENINGS_TAG],
     } },
   }),
   // Inn: a cooking building — TWO ridge stacks, jettied upper storey, two dormers,
@@ -112,10 +110,12 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
       },
     } },
   }),
+  // Open market stall: timber posts + a front counter under a peaked canopy — NOT a
+  // walled shack. Uses the open-frame `stall` part (no body/walls). See parts/lightweight.ts.
   market_stall: bp('market_stall', {
     category: 'commercial', era: 'medieval', footprint: { w: 2, h: 2 },
-    materials: { walls: 'timber', roof: 'thatch' },
-    parts: { body: { type: 'body', size: { w: 2, h: 2 }, params: { plan: 'rect', levels: 1, roof: 'lean_to' }, features: { door: { type: 'door', face: 'south' } } } },
+    materials: { walls: 'timber', roof: 'thatch', ground: 'packed_dirt' },
+    parts: { frame: { type: 'stall', size: { w: 2, h: 2 }, params: { counter: true } } },
   }),
   // Temple: a classical rectangular cella (naos) — axial and bilaterally symmetric, NOT
   // cruciform (cross/L plans are vernacular, not sacred; a small temple is a single tall
@@ -125,17 +125,12 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
     category: 'religious', era: 'classical', footprint: { w: 3, h: 4 },
     materials: { walls: 'stone', roof: 'tile', ground: 'flagstone' },
     parts: { body: {
+      // A classical rectangular cella (naos): deep gable throws a pediment over the
+      // entrance front, tall arched windows rank symmetrically down the long flanks —
+      // all DERIVED from the church-axial room graph (worship zones ⇒ bilateral flank
+      // glazing, the front kept clear for the pediment). See connectome/openings.ts.
       type: 'body', size: { w: 3, h: 4 }, params: { plan: 'rect', levels: 1, storeyM: 4.5, roof: 'gable' },
-      features: {
-        // Grand central entrance under the pediment (wide; height tracks the main-door scale).
-        door: { type: 'door', face: 'south', params: { main: true, t: 0.5, width: 0.32 } },
-        // Long east flank: a symmetric rank of tall arched windows (sized to clear the eave).
-        win_e1: { type: 'window', face: 'east', params: { style: 'arched', t: 0.28, sill: 0.7, height: 1.2 } },
-        win_e2: { type: 'window', face: 'east', params: { style: 'arched', t: 0.72, sill: 0.7, height: 1.2 } },
-        // Mirrored on the west flank — bilateral symmetry.
-        win_w1: { type: 'window', face: 'west', params: { style: 'arched', t: 0.28, sill: 0.7, height: 1.2 } },
-        win_w2: { type: 'window', face: 'west', params: { style: 'arched', t: 0.72, sill: 0.7, height: 1.2 } },
-      },
+      tags: [GEN_OPENINGS_TAG],
     } },
   }),
   // Barn: one huge roof (1:2 plan), full-height cart door, NO windows — just thin
@@ -202,21 +197,17 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
     materials: { walls: 'timber', roof: 'wood', ground: 'wood' },
     parts: { body: { type: 'body', size: { w: 2, h: 3 }, params: { plan: 'rect', levels: 1, storeyM: 0.5, roof: 'flat' }, features: { door: { type: 'door', face: 'north' } } } },
   }),
+  // Wayside shrine: a gabled stone cell with a derived arched window on each flank.
   shrine: bp('shrine', {
     category: 'religious', era: 'classical', footprint: { w: 2, h: 2 },
     materials: { walls: 'stone', roof: 'tile', ground: 'flagstone' },
-    parts: { body: { type: 'body', size: { w: 2, h: 2 }, params: { plan: 'rect', levels: 1, roof: 'gable' }, features: {
-      door: { type: 'door', face: 'south' },
-      win_e: { type: 'window', face: 'east', params: { style: 'arched', t: 0.5, sill: 0.6 } },
-    } } },
+    parts: { body: { type: 'body', size: { w: 2, h: 2 }, params: { plan: 'rect', levels: 1, roof: 'gable' }, tags: [GEN_OPENINGS_TAG] } },
   }),
+  // Guard post: a small hip-roofed timber cell; door + shuttered window derived.
   guard_post: bp('guard_post', {
     category: 'military', era: 'medieval', footprint: { w: 2, h: 2 },
     materials: { walls: 'timber', roof: 'wood' },
-    parts: { body: { type: 'body', size: { w: 2, h: 2 }, params: { plan: 'rect', levels: 1, storeyM: 3.2, roof: 'hip' }, features: {
-      door: { type: 'door', face: 'south', params: { t: 0.65 } },
-      win_s: { type: 'window', face: 'south', params: { style: 'shuttered', t: 0.4, glazed: false } },
-    } } },
+    parts: { body: { type: 'body', size: { w: 2, h: 2 }, params: { plan: 'rect', levels: 1, storeyM: 3.2, roof: 'hip' }, tags: [GEN_OPENINGS_TAG] } },
   }),
   // Watermill: a working civic building beside the stream (S6). 2×2 to match the
   // CIVIC_RULES.mill reservation; timber over a stone base, a tall cart door, a
@@ -226,10 +217,11 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
     category: 'craft', era: 'medieval', footprint: { w: 2, h: 2 },
     materials: { walls: 'timber', roof: 'wood', ground: 'flagstone' },
     parts: { body: {
+      // Door + windows DERIVED (gen-openings); the wheel-housing gap on the stream side
+      // stays a hand-authored override — the hybrid: generative base + a custom detail.
       type: 'body', size: { w: 2, h: 2 }, params: { plan: 'rect', levels: 1, storeyM: 3.2, roof: 'gable' },
+      tags: [GEN_OPENINGS_TAG],
       features: {
-        door: { type: 'door', face: 'south', params: { main: true, t: 0.5, height: 1.3 } },
-        win_e: { type: 'window', face: 'east', params: { style: 'shuttered', t: 0.5, glazed: false } },
         vent_w: { type: 'window', face: 'west', params: { t: 0.5, width: 0.1, height: 0.5, sill: 0.4, glazed: false } },
       },
     } },
@@ -245,6 +237,13 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
     category: 'religious', era: 'medieval', footprint: { w: 2, h: 2 },
     materials: { walls: 'stone', roof: 'tile', ground: 'dirt' },
     parts: { yard: { type: 'graveyard', size: { w: 2, h: 2 }, params: { stones: 5 } } },
+  }),
+  // A canvas bell tent (prop) — the seed of the tent family; pairs with market stalls
+  // for fairs/encampments. Open-frame `tent` part, no catalogue buildingType needed.
+  bell_tent: prop('bell_tent', {
+    category: 'commercial', era: 'medieval', footprint: { w: 2, h: 2 },
+    materials: { walls: 'hide', roof: 'hide', ground: 'dirt' },
+    parts: { canvas: { type: 'tent', size: { w: 2, h: 2 }, params: { heightM: 2.8 } } },
   }),
   // Trees (class:'plant'). Heights match NATURE_HEIGHT_M; render keys one sprite/species.
   oak_tree: tree('oak_tree', 'broad', 15, 8, 0.20),
@@ -308,6 +307,7 @@ export function synthesizeBlueprint(name: string, patches: BlueprintPatch[] = []
   if (base.class === 'building') {
     const d = deriveConnectome(base, name, base.era, undefined, s);
     connectome = d.connectome;
+    if (d.openingsPatch) all.push(d.openingsPatch);
     if (d.ventPatch) all.push(d.ventPatch);
   }
   const rb = resolveBlueprint(all, s);
@@ -316,13 +316,22 @@ export function synthesizeBlueprint(name: string, patches: BlueprintPatch[] = []
 }
 
 /** A typed request for a concrete asset variant — the agent/worldgen-facing entry.
- *  Layers base preset → era → descriptors → lifecycle stage (era/stage land in
- *  later slices) → seeded resolve. See the asset-catalogue design doc. */
+ *  Layers base preset → era → descriptors → lifecycle stage → AGENT customisation
+ *  (notes/palette/material overrides) → seeded resolve. Any customisation rides on the
+ *  resolved blueprint (its cache identity), so a custom variant gets its own cached/
+ *  seeded sprite and becomes part of the default library. See the asset-catalogue doc. */
 export interface AssetRequest {
   type: string;
   era?: Era;
   descriptors?: Descriptors;
   stage?: string;            // lifecycle stage (Slice D/E); ignored for now
+  /** Free-text art direction folded into the image prompt (e.g. "a fisherman's cottage,
+   *  salt-bleached blue door"). Persists on the blueprint → part of the asset identity. */
+  notes?: string;
+  /** Preferred final colours (walls/roof/trim hex) the painter should aim for. */
+  palette?: Palette;
+  /** Per-role material overrides (e.g. { roof: 'slate' }) — restyle without a new preset. */
+  materials?: Record<string, string>;
   seed?: number;
 }
 
@@ -348,7 +357,7 @@ function deriveConnectome(
   era: Era | undefined,
   wealth: string | undefined,
   seed: number,
-): { connectome: Connectome; ventPatch: BlueprintPatch | null } {
+): { connectome: Connectome; ventPatch: BlueprintPatch | null; openingsPatch: BlueprintPatch | null } {
   loadDefaultPacks();
   const ctx: ExpandCtx = { era: era ?? base.era ?? 'medieval', wealth, seed, registry: catalogue };
   const connectome = deriveSmokeEgress(expand(type, ctx), ctx);
@@ -356,7 +365,13 @@ function deriveConnectome(
     const p = connectomeToBlueprint(connectome, base);
     return Object.keys(p).length ? p : null;
   })();
-  return { connectome, ventPatch };
+  // Doors + windows derived from the graph — only for a body that opted in (tag
+  // 'gen-openings'); a hand-authored preset returns {} here and keeps its features.
+  const openingsPatch = (() => {
+    const p = connectomeOpenings(connectome, base, ctx.era);
+    return Object.keys(p).length ? p : null;
+  })();
+  return { connectome, ventPatch, openingsPatch };
 }
 
 /** Attach the latent room-graph WITHOUT entering the art-cache key. canonicalJson(rb)
@@ -384,10 +399,23 @@ export function resolveAsset(req: AssetRequest): ResolvedBlueprint | undefined {
   // a ruin). The canonical stage (mature/complete) is a no-op — same key as stageless.
   const stageVariant = !!(req.stage && req.stage !== defaultStageFor(base.class));
   if (stageVariant) patches.push(stagePatch(base, req.stage!));
+  // Agent customisation: free-text art direction, preferred colours, material overrides.
+  // Folded as a patch so it lands on the resolved blueprint (→ the image prompt + the
+  // art-cache identity); a customised variant is therefore a distinct library asset.
+  const customVariant = !!(req.notes || (req.palette && Object.keys(req.palette).length) ||
+    (req.materials && Object.keys(req.materials).length));
+  if (customVariant) {
+    patches.push({
+      ...(req.notes ? { notes: req.notes } : {}),
+      ...(req.palette ? { palette: req.palette } : {}),
+      ...(req.materials ? { materials: req.materials } : {}),
+    });
+  }
   // A bare request (no variant axes) MUST seed identically to synthesizeBlueprint(type)
   // so its art-cache key matches the seeded library; only a real variant re-seeds.
-  const seed = req.seed ?? ((eraVariant || descVariant || stageVariant)
-    ? strHash(`${req.type}|${req.era ?? ''}|${JSON.stringify(req.descriptors ?? {})}|${req.stage ?? ''}`)
+  const seed = req.seed ?? ((eraVariant || descVariant || stageVariant || customVariant)
+    ? strHash(`${req.type}|${req.era ?? ''}|${JSON.stringify(req.descriptors ?? {})}|${req.stage ?? ''}` +
+      `|${req.notes ?? ''}|${JSON.stringify(req.palette ?? {})}|${JSON.stringify(req.materials ?? {})}`)
     : strHash(req.type));
 
   // Connectome (Slice 1): derive the hearth→smoke vent, applied LAST so the derived
@@ -396,6 +424,7 @@ export function resolveAsset(req: AssetRequest): ResolvedBlueprint | undefined {
   if (base.class === 'building') {
     const d = deriveConnectome(base, req.type, req.era, req.descriptors?.wealth, seed);
     connectome = d.connectome;
+    if (d.openingsPatch) patches.push(d.openingsPatch);
     if (d.ventPatch) patches.push(d.ventPatch);
   }
 

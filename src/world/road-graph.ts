@@ -26,6 +26,7 @@
 // generated rivers, routing, rendering, and Portal unification are later slices.
 
 import type { Connection, POI, Tile, TerrainField } from '@/core/types';
+import { WATER_TYPES } from '@/core/constants';
 import { walkRoad } from '@/terrain/road-walker';
 
 /** Road hierarchy — a type label on the edge (Slice 4 fills the tiers). */
@@ -82,9 +83,6 @@ export interface RoadMask {
   writes: RoadWrite[];
 }
 
-// Must stay identical to map-generator's WATER_TYPES — the road carve skips
-// water cells it didn't bridge.
-const WATER_TYPES = new Set(['deep_water', 'shallow_water', 'river', 'ocean', 'water']);
 
 function featureOf(type: Connection['type']): LinearFeature {
   return type; // 'road' | 'river' | 'wall' — identical vocabulary

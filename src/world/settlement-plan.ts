@@ -13,9 +13,11 @@
 import type { Tile } from '@/core/types';
 import type { ZoneRule } from '@/map/poi-zones';
 import { Random, noise } from '@/core/noise';
+import { WATER_TYPES } from '@/core/constants';
 
-/** Water tile types — roads and footprints must avoid these. */
-export const WATER_TYPES = new Set(['deep_water', 'shallow_water', 'river', 'ocean', 'water']);
+/** Water tile types — roads and footprints must avoid these. Single source in
+ *  core/constants; re-exported here for the settlement modules that already import it. */
+export { WATER_TYPES };
 
 /** Ground a building footprint may occupy (shared: worldgen executor + live growth). */
 export const BUILDABLE_TERRAIN = new Set(['grass', 'dirt', 'sand', 'scrubland', 'farm_field',

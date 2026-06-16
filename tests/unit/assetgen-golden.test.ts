@@ -27,11 +27,11 @@ describe('assetgen golden hashes', () => {
   it('cottage (full Blueprint pipeline) is bit-stable', async () => {
     const rb = synthesizeBlueprint('cottage')!;
     const r = await composeStructure(toGeometry(rb));
-    // Updated for connectome Slice 1: the cottage's smoke vent is now DERIVED from the
-    // hearth (a ridge louver, t=0.5) instead of the old hand-authored smokehole (t=0.4).
-    // Geometry shifted intentionally ⇒ ART_RECIPE_VERSION bumped.
+    // Updated for v10 generative openings: the cottage's door + windows are now DERIVED
+    // from the room graph (south door + 2 flanking south windows + 1 east window) instead
+    // of the old hand-authored feature list. Geometry shifted intentionally ⇒ ART_RECIPE_VERSION bumped.
     expect(fingerprint(r)).toEqual({
-      size: 386, grey: '750f1d99', normal: '74b2f4c', material: 'f11d4eb7', emissive: '56818c1d',
+      size: 386, grey: '92cde73b', normal: 'ae385f81', material: 'c4d5237b', emissive: '687d769e',
     });
   });
 

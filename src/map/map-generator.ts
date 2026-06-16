@@ -12,6 +12,7 @@
 import { WFCEngine } from '@/wfc';
 import { Random, fractalNoise } from '@/core/noise';
 import type { GameMap, WorldSeed, Tile, BuildingInstance, TerrainConfig, POI, Region, BiomeMap } from '@/core/types';
+import { WATER_TYPES } from '@/core/constants';
 import { generateTerrainFields, classifyBiomes, sampleTiles } from '@/terrain/terrain-generator';
 import { applyPoiInfluences } from '@/terrain/poi-influence';
 import { generateHydrology } from '@/terrain/hydrology';
@@ -72,9 +73,6 @@ const BLOCKING_TYPES = new Set([
   'deep_water', 'shallow_water', 'river', 'ocean',
   'mountain', 'peak', 'rocky',
 ]);
-
-/** Water tile types — roads bridge over these instead of overwriting */
-const WATER_TYPES = new Set(['deep_water', 'shallow_water', 'river', 'ocean', 'water']);
 
 function tileWalkable(type: string): boolean {
   if (BLOCKING_TYPES.has(type)) return false;

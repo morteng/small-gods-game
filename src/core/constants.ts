@@ -49,6 +49,17 @@ export const TILE_COLORS: Record<string, string> = {
   quarry: '#8B7B6B',
 };
 
+/**
+ * The water tile types — the SINGLE source of truth. Roads bridge over these, buildings
+ * never site on them, settlement wear skips them. Previously redeclared (identically) in
+ * map-generator, road-graph, road-walker and settlement-plan with a "must stay in sync"
+ * comment; now they all import this. Keep in step with the `*_water`/`river`/`ocean`
+ * entries in TILE_COLORS above.
+ */
+export const WATER_TYPES: ReadonlySet<string> = new Set([
+  'deep_water', 'shallow_water', 'river', 'ocean', 'water',
+]);
+
 /** Native size of each tile in the Kenney spritesheet */
 export const KENNEY_TILE_SIZE = 16;
 

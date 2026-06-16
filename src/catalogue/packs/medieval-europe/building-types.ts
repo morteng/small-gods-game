@@ -74,7 +74,7 @@ export const MEDIEVAL_BUILDING_TYPES: B[] = [
     { face: 's', sizeClass: 'grand' },
     { room: 'none' },
     [2, 3], { walls: 'stone', roof: 'tile', ground: 'flagstone' },
-    { l0: 'a small stone temple', l1: ['tall arched windows', 'cross plan', 'stone walls'] },
+    { l0: 'a small stone temple', l1: ['tall arched windows', 'rectangular cella', 'pedimented gable front'] },
     { applicability: { eras: ['classical', 'medieval'] } }),
 
   b('farm_barn', 'church-axial',

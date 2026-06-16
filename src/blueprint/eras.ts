@@ -38,6 +38,14 @@ const ERA_PROFILES: Record<Era, EraProfile> = {
   current: { materials: { walls: 'brick', roof: 'slate', ground: 'cobble' }, window: 'arched', glazed: true, vent: 'chimney' },
 };
 
+/** The period's window style + glazing — the single source of truth shared by the
+ *  era patch (which restyles AUTHORED windows) and the connectome openings derivation
+ *  (which GENERATES windows for gen-openings presets), so both agree per era. */
+export function eraWindowStyle(era: Era | undefined): { style: string; glazed: boolean } {
+  const prof = ERA_PROFILES[era ?? 'medieval'] ?? ERA_PROFILES.medieval;
+  return { style: prof.window ?? 'shuttered', glazed: prof.glazed ?? false };
+}
+
 /** Build the patch an era implies for `base`. Pure; deterministic. Overrides only
  *  the roles/features the base actually has (a type with no windows gains none). */
 export function eraPatch(base: Blueprint, era: Era): BlueprintPatch {
