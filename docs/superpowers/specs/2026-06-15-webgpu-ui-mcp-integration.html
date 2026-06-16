@@ -1,0 +1,390 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Small Gods · WebGPU UI + MCP Integration</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --bg:#0c0d12; --bg2:#12131b; --panel:#171924; --panel2:#1d2030;
+    --ink:#e7e3d6; --ink-dim:#a39e8d; --line:#2a2d3d;
+    --gold:#e7b85c; --gold-dim:#9c7e3a; --jade:#6fcaa6; --violet:#9b87d6;
+    --rose:#d98a8a; --sky:#74a8d6;
+    --maxw:1080px;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0; background:
+      radial-gradient(1200px 600px at 80% -10%, #1a1c2b 0%, transparent 60%),
+      radial-gradient(900px 500px at -10% 10%, #16131f 0%, transparent 55%),
+      var(--bg);
+    color:var(--ink); font-family:Inter,system-ui,sans-serif; line-height:1.6;
+    font-size:16px; -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:var(--maxw); margin:0 auto; padding:0 24px}
+  a{color:var(--gold)}
+  code{font-family:"JetBrains Mono",monospace; font-size:.86em; background:var(--panel2);
+    padding:.1em .4em; border-radius:4px; color:var(--jade); border:1px solid var(--line)}
+
+  /* HEADER */
+  header{padding:72px 0 44px; border-bottom:1px solid var(--line); position:relative; overflow:hidden}
+  .eyebrow{font-family:"Silkscreen",monospace; font-size:11px; letter-spacing:.28em;
+    text-transform:uppercase; color:var(--gold); margin:0 0 18px}
+  h1{font-family:"Silkscreen",monospace; font-weight:700; font-size:clamp(28px,4.4vw,46px);
+    line-height:1.15; margin:0 0 18px; color:var(--ink); text-shadow:0 2px 0 #000}
+  h1 .accent{color:var(--gold)}
+  .lede{font-size:19px; color:var(--ink-dim); max-width:62ch; margin:0}
+  .orb{position:absolute; right:6%; top:50%; transform:translateY(-50%);
+    width:120px; height:120px; border-radius:50%;
+    background:radial-gradient(circle at 35% 30%, #ffe6a8, var(--gold) 42%, #7a5c1f 78%, #3a2c10);
+    box-shadow:0 0 60px 8px rgba(231,184,92,.35), inset -8px -10px 24px rgba(0,0,0,.5);
+    animation:pulse 3.4s ease-in-out infinite}
+  @keyframes pulse{0%,100%{box-shadow:0 0 50px 4px rgba(231,184,92,.28), inset -8px -10px 24px rgba(0,0,0,.5)}
+    50%{box-shadow:0 0 78px 14px rgba(231,184,92,.5), inset -8px -10px 24px rgba(0,0,0,.5)}}
+  @media(max-width:760px){.orb{display:none}}
+  .meta{margin-top:26px; display:flex; flex-wrap:wrap; gap:8px}
+  .tag{font-family:"JetBrains Mono",monospace; font-size:12px; padding:5px 10px;
+    border:1px solid var(--line); border-radius:999px; color:var(--ink-dim); background:var(--panel)}
+  .tag.b{color:var(--gold); border-color:var(--gold-dim)}
+
+  /* SECTIONS */
+  section{padding:48px 0; border-bottom:1px solid var(--line)}
+  h2{font-family:"Silkscreen",monospace; font-size:18px; letter-spacing:.04em; margin:0 0 6px;
+    color:var(--ink)}
+  h2 .num{color:var(--gold); margin-right:12px}
+  .sub{color:var(--ink-dim); margin:0 0 26px; font-size:15px}
+  h3{font-size:16px; margin:26px 0 8px; color:var(--gold)}
+  p{margin:0 0 14px}
+  .muted{color:var(--ink-dim)}
+
+  .pull{border-left:3px solid var(--gold); padding:4px 0 4px 18px; margin:20px 0;
+    color:var(--ink); font-size:17px}
+
+  /* BUS DIAGRAM */
+  .bus{background:linear-gradient(180deg,var(--panel),var(--bg2));
+    border:1px solid var(--line); border-radius:14px; padding:26px; margin:8px 0 6px}
+  .row{display:flex; gap:18px; justify-content:center; flex-wrap:wrap}
+  .node{flex:1; min-width:200px; background:var(--panel2); border:1px solid var(--line);
+    border-radius:10px; padding:14px 16px; text-align:center}
+  .node .who{font-family:"Silkscreen",monospace; font-size:12px; color:var(--gold)}
+  .node small{color:var(--ink-dim); display:block; margin-top:4px; font-size:13px}
+  .arrow{text-align:center; color:var(--gold-dim); font-size:22px; padding:8px 0}
+  .central{background:linear-gradient(180deg,#211d12,#191722); border:1px solid var(--gold-dim);
+    border-radius:12px; padding:18px; text-align:center; margin:0 auto; max-width:560px}
+  .central b{font-family:"Silkscreen",monospace; color:var(--gold); font-size:13px; letter-spacing:.04em}
+  .central .lines{display:flex; gap:14px; justify-content:center; flex-wrap:wrap; margin-top:10px; font-size:13px; color:var(--ink-dim)}
+  .truth{text-align:center; margin-top:14px; color:var(--jade); font-family:"JetBrains Mono",monospace; font-size:13px}
+
+  /* CARD GRID */
+  .grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:16px; margin-top:8px}
+  .card{background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:18px 20px;
+    transition:border-color .2s, transform .2s}
+  .card:hover{border-color:var(--gold-dim); transform:translateY(-2px)}
+  .card .k{font-family:"Silkscreen",monospace; font-size:11px; letter-spacing:.06em; color:var(--gold);
+    display:flex; align-items:center; gap:8px; margin-bottom:8px}
+  .card p{font-size:14px; margin:0; color:var(--ink-dim)}
+  .card p strong{color:var(--ink)}
+  .dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+  .d-gold{background:var(--gold)} .d-jade{background:var(--jade)} .d-violet{background:var(--violet)}
+  .d-rose{background:var(--rose)} .d-sky{background:var(--sky)}
+
+  /* HUD MOCK */
+  .mock{background:
+      linear-gradient(135deg,#1b2a22 0%,#243a2d 40%,#3a3320 100%);
+    border:1px solid var(--line); border-radius:14px; height:240px; position:relative;
+    overflow:hidden; margin-top:10px;
+    background-image:repeating-linear-gradient(45deg, rgba(0,0,0,.06) 0 8px, transparent 8px 16px)}
+  .mock .world-label{position:absolute; left:42%; top:38%; font-family:"Silkscreen",monospace;
+    font-size:11px; color:#fff; text-shadow:0 1px 2px #000; opacity:.9}
+  .mock .ring{position:absolute; left:39%; top:46%; width:70px; height:36px; border:2px solid var(--gold);
+    border-radius:50%; transform:rotateX(60deg); opacity:.8; box-shadow:0 0 16px rgba(231,184,92,.5)}
+  .mock .miniorb{position:absolute; left:18px; bottom:16px; width:38px; height:38px; border-radius:50%;
+    background:radial-gradient(circle at 35% 30%, #ffe6a8, var(--gold) 45%, #5e4717);
+    box-shadow:0 0 18px rgba(231,184,92,.5)}
+  .mock .chip{position:absolute; right:16px; top:14px; font-family:"JetBrains Mono",monospace; font-size:12px;
+    background:rgba(12,13,18,.7); border:1px solid var(--line); border-radius:8px; padding:5px 10px; color:var(--ink)}
+  .mock .radial{position:absolute; left:46%; top:50%; width:96px; height:96px}
+  .mock .radial span{position:absolute; width:26px; height:26px; border-radius:50%; background:var(--panel2);
+    border:1px solid var(--gold-dim); display:grid; place-items:center; font-size:13px}
+  .mock .radial span:nth-child(1){left:35px; top:-6px}
+  .mock .radial span:nth-child(2){left:70px; top:35px}
+  .mock .radial span:nth-child(3){left:35px; top:74px}
+  .mock .radial span:nth-child(4){left:0; top:35px}
+  .caption{font-size:13px; color:var(--ink-dim); margin-top:10px; text-align:center; font-style:italic}
+
+  /* TABLE */
+  table{width:100%; border-collapse:collapse; margin-top:10px; font-size:14px}
+  th,td{text-align:left; padding:11px 12px; border-bottom:1px solid var(--line); vertical-align:top}
+  th{font-family:"Silkscreen",monospace; font-size:10px; letter-spacing:.08em; color:var(--gold-dim); text-transform:uppercase}
+  td.s{font-family:"Silkscreen",monospace; color:var(--gold); white-space:nowrap; font-size:12px}
+  tr:hover td{background:rgba(255,255,255,.015)}
+
+  /* DECISIONS */
+  .dec{background:var(--panel); border:1px solid var(--line); border-left:3px solid var(--jade);
+    border-radius:10px; padding:16px 20px; margin-bottom:14px}
+  .dec h4{margin:0 0 6px; font-size:15px; color:var(--ink)}
+  .dec h4 .q{font-family:"Silkscreen",monospace; font-size:11px; color:var(--jade); margin-right:10px}
+  .dec p{margin:0; font-size:14px; color:var(--ink-dim)}
+  .dec .why{color:var(--ink-dim); font-style:italic; margin-top:6px; font-size:13px}
+  .dec .why b{color:var(--jade); font-style:normal}
+
+  .hats{display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:14px; margin-top:8px}
+  .hat{background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px}
+  .hat .h{font-family:"Silkscreen",monospace; font-size:12px; margin-bottom:6px}
+  .hat ul{margin:8px 0 0; padding-left:18px; font-size:13px; color:var(--ink-dim)}
+  .hat code{font-size:.8em}
+
+  .nongoals li{color:var(--ink-dim); margin-bottom:6px}
+  footer{padding:40px 0 80px; color:var(--ink-dim); font-size:13px}
+  footer code{color:var(--ink-dim)}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <div class="orb" aria-hidden="true"></div>
+    <p class="eyebrow">Small Gods · Brainstorm · 2026-06-15</p>
+    <h1>WebGPU-native UI<br>+ <span class="accent">MCP into the running game</span></h1>
+    <p class="lede">Two pivots, one spine. Replace the DOM game/dev UI with a WebGPU-native,
+    immediate-mode pixel-art interface — and drop iframe embedding for an MCP server that
+    lets Claude co-inhabit the live world. Both are thin front-ends onto a single command/query bus.</p>
+    <div class="meta">
+      <span class="tag b">Status: Brainstorm — decisions resolved</span>
+      <span class="tag">WebGPU required · no fallback</span>
+      <span class="tag">Touch + pointer parity</span>
+      <span class="tag">Drops src/embed postMessage</span>
+    </div>
+  </div>
+</header>
+
+<section id="northstar">
+  <div class="wrap">
+    <h2><span class="num">★</span>North star</h2>
+    <p class="sub">The world is the interface.</p>
+    <p>A god watches; it does not read dashboards. The screen is almost all world — terrain,
+    settlements, mortals living — with chrome that <strong>appears on demand and dissolves when done</strong>
+    (the summoned Time bar is the template; extend that everywhere). Information surfaces
+    <strong>when you focus</strong>, never permanently. Pixel-art aesthetic, world palette, modern and
+    restrained, for a mature audience that doesn't need hand-holding.</p>
+    <p class="pull">And the same world is co-inhabited by Claude — as Fate, divine co-pilot, dev surface,
+    and world author. The human's clicks and Claude's tool-calls are the <em>same kind of event</em>:
+    intents on one bus, recorded to the canonical log, deterministic and replayable.</p>
+    <p class="muted"><strong>Design lineage:</strong> RimWorld &amp; Dwarf Fortress (inspect-on-demand, no permanent stat bars) ·
+    Hyper Light Drifter / Hades (diegetic minimalism) · Songs of Conquest / Norland (mature pixel art) ·
+    Caves of Qud (deep info, surfaced contextually). The shared thesis: <strong>information on demand, not on display.</strong></p>
+  </div>
+</section>
+
+<section id="spine">
+  <div class="wrap">
+    <h2><span class="num">◆</span>The spine — one command/query bus</h2>
+    <p class="sub">Build this first. Everything else is an adapter over it.</p>
+    <div class="bus">
+      <div class="row">
+        <div class="node"><span class="who">Human</span><small>WebGPU UI · intents</small></div>
+        <div class="node"><span class="who">Claude</span><small>MCP server via WebSocket · tool calls</small></div>
+      </div>
+      <div class="arrow">▼ &nbsp;&nbsp;&nbsp;&nbsp; ▼</div>
+      <div class="central">
+        <b>COMMAND BUS &nbsp;·&nbsp; QUERY FACADE</b>
+        <div class="lines">
+          <span>↦ Command = typed intent, power-gated, applied at tick boundary, <em>recorded to EventLog</em></span>
+          <span>↦ Query = pure snapshot read, never mutates</span>
+        </div>
+      </div>
+      <div class="arrow">▼</div>
+      <div class="central" style="border-color:var(--line)">
+        <b style="color:var(--jade)">WORLD · SIM · SCHEDULER (truth)</b>
+        <div class="lines"><span>→ WebGPU renderer → pixels &nbsp;(+ canvas.toDataURL → MCP screenshots)</span></div>
+      </div>
+      <p class="truth">"Sim is truth; the LLM animates it, never contradicts its numbers" — enforced structurally.</p>
+    </div>
+    <p class="muted" style="margin-top:18px">Because every MCP-driven mutation is recorded as an authored event exactly like a
+    player action, snapshot/replay reconstructs <em>Claude's</em> hand too. The UI's action surface and the MCP tool
+    surface are thin adapters — "who asked" is decoupled from "what happens." Wins: determinism, Node-testable replay,
+    one place to enforce power/cost/permission.</p>
+  </div>
+</section>
+
+<section id="ui">
+  <div class="wrap">
+    <h2><span class="num">A</span>WebGPU-native UI</h2>
+    <p class="sub">Immediate-mode pixel-art, all in the one WebGPU pass — plus a deliberately tiny DOM island.</p>
+
+    <h3>Layered render model</h3>
+    <div class="grid">
+      <div class="card"><div class="k"><span class="dot d-jade"></span>1 · World</div><p>Terrain heightfield + y-sorted entities (existing GPU scene).</p></div>
+      <div class="card"><div class="k"><span class="dot d-gold"></span>2 · World-anchored UI</div><p>Selection rings, floating labels, divine-action radial. Lives <strong>in world space</strong> so zoom is one matrix multiply — not a DOM reflow.</p></div>
+      <div class="card"><div class="k"><span class="dot d-sky"></span>3 · Screen-space HUD</div><p>Presence orb, summoned time chip, contextual inspector, toasts. Immediate-mode, integer-scaled.</p></div>
+      <div class="card"><div class="k"><span class="dot d-violet"></span>4 · DOM island</div><p>The <strong>only</strong> DOM: text input + accessibility. Styled to vanish. Owns IME so canvas doesn't have to.</p></div>
+    </div>
+
+    <h3>Minimal HUD — radical reduction</h3>
+    <div class="mock" aria-hidden="true">
+      <div class="chip">Y3 · summer · 12/96</div>
+      <div class="world-label">▲ Oakhollow</div>
+      <div class="ring"></div>
+      <div class="radial"><span>≈</span><span>☼</span><span>☾</span><span>✦</span></div>
+      <div class="miniorb"></div>
+    </div>
+    <p class="caption">At rest: a presence orb (power, no number) + a summoned time chip. Focus blooms an inspector + action radial. Everything else is gone.</p>
+    <table>
+      <tr><th>Element</th><th>Treatment</th></tr>
+      <tr><td class="s">Power</td><td><strong>Presence orb</strong>, diegetic — fills/pulses with power, no number; hold/hover peeks the exact value + regen rate.</td></tr>
+      <tr><td class="s">Time</td><td>Summoned time chip; full transport only when summoned (port the existing time-bar UX).</td></tr>
+      <tr><td class="s">Focus</td><td>Contextual inspector — belief / needs / relationships shown only <em>then</em>, nowhere else.</td></tr>
+      <tr><td class="s">Actions</td><td>A radial that blooms at the focused target (whisper / omen / dream / miracle / answer-prayer), greyed by power.</td></tr>
+      <tr><td class="s">Else</td><td>Gone from the persistent HUD. Summoned or contextual only.</td></tr>
+    </table>
+
+    <h3>Engine bits</h3>
+    <div class="grid">
+      <div class="card"><div class="k">Immediate mode</div><p>Rebuild the widget list each frame from state — no retained-tree sync bugs. <code>ui-batcher</code> + <code>ui-context</code> + <code>ui-palette</code> (tokens in TS, derived from the world palette).</p></div>
+      <div class="card"><div class="k">Text</div><p>One typeface, two atlases: <strong>bitmap blit</strong> for crisp integer-scaled HUD, <strong>MSDF</strong> for world labels that scale on zoom.</p></div>
+      <div class="card"><div class="k">Input</div><p>One <code>PointerEvent</code> pipeline; UI-then-world hit-test; tap/long-press/drag + <strong>pinch-zoom to centroid</strong>; inertia + eased zoom at rAF. Snappiness lives here, not in DOM-vs-canvas.</p></div>
+      <div class="card"><div class="k">Zoom perf</div><p>Entity LOD + mipmaps + batched draws so full-world zoom stays buttery (don't draw every sprite at full res when zoomed out).</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="mcp">
+  <div class="wrap">
+    <h2><span class="num">B</span>MCP integration — WebSocket bridge</h2>
+    <p class="sub">Node MCP server (stdio to Claude) embeds a WebSocket server; the browser game connects as a client on boot.</p>
+    <div class="bus">
+      <div class="row">
+        <div class="node"><span class="who">Claude / MCP client</span><small>stdio</small></div>
+        <div class="arrow" style="align-self:center">→</div>
+        <div class="node"><span class="who">MCP server · mcp/</span><small>tsx · embeds WS server :7777</small></div>
+        <div class="arrow" style="align-self:center">⇄ ws</div>
+        <div class="node"><span class="who">Browser game</span><small>WebGPU, live · WS client on boot</small></div>
+      </div>
+    </div>
+    <p class="muted" style="margin-top:16px"><strong>Wire protocol:</strong> <code>{ id, type:'req'|'res'|'event', method, params, result, error }</code>.
+    req/res are correlated commands &amp; queries; the <strong>event</strong> push channel streams the world's pulse
+    (belief/mood crossings, deaths, prayers) — that's what lets Claude <em>be Fate</em>. Queries read the current
+    snapshot; commands enqueue and apply at the next tick boundary, then return deltas.</p>
+
+    <h3>Claude wears all four hats</h3>
+    <div class="hats">
+      <div class="hat"><div class="h" style="color:var(--gold)">Fate / DM</div><ul><li><code>author_event</code></li><li><code>set_pacing</code></li><li><code>coach_rival</code></li><li><code>narrate</code> · <code>nudge_need</code></li></ul></div>
+      <div class="hat"><div class="h" style="color:var(--jade)">Divine co-pilot</div><ul><li>whisper · omen · dream</li><li>miracle · answer_prayer</li><li><em>same dispatcher the human uses, same power gate</em></li></ul></div>
+      <div class="hat"><div class="h" style="color:var(--sky)">Dev / debug</div><ul><li>spawn · kill · force_event</li><li>set_time / skip · set_rate</li><li>snapshot / restore · set_camera</li><li><em>dev-mode gated</em></li></ul></div>
+      <div class="hat"><div class="h" style="color:var(--violet)">World / era author</div><ul><li>generate_world</li><li>author_settlement · author_lineage</li><li><code>author_era</code> — the deferred D2 half, finally authored</li></ul></div>
+    </div>
+    <p class="muted" style="margin-top:16px"><strong>Read tools</strong> hit the Query facade: <code>get_world_summary</code>, <code>query_npcs</code>, <code>get_npc</code>,
+    <code>get_belief_state</code>, <code>get_events(since)</code>, <code>get_timeline</code>, and <code>get_screenshot</code> (canvas → image) —
+    the single highest-leverage tool, since it serves every hat. Builds on the existing <code>__debug</code> surface.</p>
+  </div>
+</section>
+
+<section id="skin">
+  <div class="wrap">
+    <h2><span class="num">D</span>Generated UI skin — research-grounded</h2>
+    <p class="sub">The chrome is painted by the image-gen pipeline, re-skinnable by era. Claude + engine own structure; the model owns only the cosmetic skin. <span style="color:var(--gold-dim)">Deep research: <code>wf_19624f8e-9b7</code> · 18 sources · 73 claims · 23/25 verified.</span></p>
+
+    <p class="pull">The one verified principle: <strong>never trust raw diffusion output.</strong> Latent VAEs compress to ~⅛ resolution and discard high-frequency detail — so output has off-grid "pixels", palette drift, distorted text, and unreliable alpha. Four properties are enforced <em>in code</em>, never trusted from the model: <strong>pixel grid, palette, alpha, text.</strong></p>
+
+    <h3>Technique stack (verified)</h3>
+    <table>
+      <tr><th>Concern</th><th>Verified approach</th><th>Maps to</th></tr>
+      <tr><td class="s">Pixel fidelity</td><td>Snap-to-grid + <strong>seeded k-means palette quantize</strong> (<code>k_seed=42</code> → byte-deterministic). Scenario Pixel Snapper · Retro Diffusion · SD-πXL.</td><td>Extend the existing quantize stage to a fixed seed → reproducible, feeds <code>ART_RECIPE_VERSION</code>.</td></tr>
+      <tr><td class="s">Keyable alpha</td><td>Native-RGBA via <strong>LayerDiffuse</strong> (latent transparency, 1 pass; beats matting on soft edges, &gt;97% preference).</td><td><strong>Self-hosted only.</strong> Hard-edged frames → existing chroma-key suffices.</td></tr>
+      <tr><td class="s">9-slice</td><td>Generate <strong>seamlessly tileable</strong> center/edge regions — <strong>Tiled Diffusion</strong> (CVPR '25) — then quantize, assemble in-engine.</td><td>Engine owns the stretch; model supplies corner/edge/center skins.</td></tr>
+      <tr><td class="s">Set coherence</td><td><strong>IP-Adapter</strong> (scale ~0.5) + <strong>InstantStyle</strong> (style-only blocks).</td><td><strong>Self-hosted only.</strong> API fallback: style-anchor multi-ref + single-seed + locked palette.</td></tr>
+      <tr><td class="s">States</td><td>Derive hover/pressed/disabled/focused from <strong>ONE base</strong> via tint/glow in the WebGPU layer — zero silhouette drift. <em>(medium conf.)</em></td><td>Never generate states independently.</td></tr>
+      <tr><td class="s">Era restyle</td><td>Hold geometry fixed; patch <strong>style only</strong> — era token + style-anchor + palette swap + re-quantize.</td><td>Exactly the era/descriptor patch axis already in the variant DB.</td></tr>
+      <tr><td class="s">Hybrid text</td><td><strong>Never</strong> generate dynamic text (FLUX.2 ~60% accuracy, card warns of distortion). Frame + engine font-atlas text on a backing plate.</td><td>Confirms the bitmap+MSDF decision; defines where gen art must NOT go.</td></tr>
+    </table>
+
+    <h3>The strategic fork</h3>
+    <div class="grid">
+      <div class="card" style="border-color:var(--jade)"><div class="k"><span class="dot d-jade"></span>Lane A · closed-API (start here)</div><p>Existing pipeline: <strong>FLUX.2 Klein 4B</strong> multi-reference img2img + single-seed + chroma-key + gate + deterministic quantize. Great for <strong>hard-edged frames, buttons, icons</strong>. Lowest new infra; approximates coherence via style-anchor + locked palette.</p></div>
+      <div class="card"><div class="k"><span class="dot d-violet"></span>Lane B · self-hosted (defer)</div><p>Stand up an SDXL/FLUX-Dev lane to unlock <strong>LayerDiffuse</strong> (true soft-edged alpha) + <strong>IP-Adapter/InstantStyle</strong> (tightest kit coherence). Worth it <strong>only if Lane A hits a wall</strong> on soft glow/ornament alpha or coherence — decide empirically.</p></div>
+    </div>
+    <p class="muted" style="margin-top:14px"><strong>Model:</strong> FLUX.2 Klein 4B (Apache-2.0, ~13GB VRAM, sub-second, unified t2i + multi-ref) is the verified default — but its card makes <strong>no alpha and no pixel-grid guarantees</strong> (matching the in-house gemini-3 opaque-checkerboard finding), so both are gated empirically, never assumed. The architecture is durable; the specific model is not.</p>
+
+    <h3>Open questions → S3.5 spec</h3>
+    <div class="dec" style="border-left-color:var(--rose)"><p style="color:var(--ink)"><strong>Spike first (decides the fork):</strong> does gemini-2.5-flash / FLUX.2 Klein via OpenRouter yield usable keyable alpha for UI ornament — or does the opaque-checkerboard mode recur, forcing Lane B? Plus: per-asset cost/latency for a full early-medieval kit; make quantize byte-deterministic (<code>k_seed</code>); do tileable 9-slice tiles survive quantization without seams (seam-aware quantize)?</p></div>
+  </div>
+</section>
+
+<section id="slices">
+  <div class="wrap">
+    <h2><span class="num">▦</span>Sequencing — 9 slices</h2>
+    <p class="sub">Each gets its own spec → plan → build.</p>
+    <table>
+      <tr><th>Slice</th><th>Scope</th><th>Why here</th></tr>
+      <tr><td class="s">S0 · Bus</td><td>Typed <code>GameCommand</code> + <code>GameQuery</code> facade over existing controllers; record commands to <code>EventLog</code>. Pure refactor, Node-testable by replay.</td><td>The spine. Unblocks both UI &amp; MCP; de-risks everything.</td></tr>
+      <tr><td class="s">S1 · GPU-UI base</td><td><code>ui-batcher</code> + bitmap-font atlas + programmatic 9-slice + immediate-mode <code>ui-context</code> + <code>ui-palette</code>. <strong>Gray-box placeholder skins</strong> — fully playable unskinned.</td><td>The canvas you draw all UI on; decouples "does it work" from "is it pretty".</td></tr>
+      <tr><td class="s">S2 · Input</td><td>Unified pointer/keyboard/gesture router; UI-then-world hit-test; inertia + eased pinch/wheel zoom.</td><td>Makes it feel snappy; parity is cheap now, a rewrite later.</td></tr>
+      <tr><td class="s">S3 · Minimal HUD</td><td>Presence orb, summoned time chip (port), contextual inspector, action radial. Begin retiring DOM chrome.</td><td>First playable new UX; proves the minimal-stat thesis.</td></tr>
+      <tr><td class="s">S3.5 · Gen UI skin</td><td>Claude authors the <strong>asset manifest</strong> + prompts; pipeline seeds author-time → gate → deterministic quantize → vendor; skins drop into S1 slots. <strong>Spike first</strong> to settle the Lane A/B fork (early-medieval theme).</td><td>Skins the gray-box; proves the gen-UI + era-restyle thesis. See §D.</td></tr>
+      <tr><td class="s">S4 · MCP skeleton</td><td>Node MCP + WS server, browser WS client + handshake, relay, <code>get_world_summary</code> + <code>get_screenshot</code> + one divine action end-to-end.</td><td>Smallest vertical slice of Claude-in-the-world.</td></tr>
+      <tr><td class="s">S5 · Full tools</td><td>All four hat families onto the bus; commands recorded as authored events; the <code>event</code> push channel for Fate.</td><td>Claude wears all four hats.</td></tr>
+      <tr><td class="s">S6 · DOM island</td><td>Thin retained DOM: text input (keys/names/conversation) + a11y. Migrate LLM/settings config here.</td><td>Closes IME/a11y without chasing zero-DOM.</td></tr>
+      <tr><td class="s">S7 · Polish</td><td>Entity LOD/mipmaps for full-world zoom, batched UI draws, profiling, delete legacy DOM UI + iframe <code>embed/</code> path.</td><td>Hits the performance north star; removes dead embedding code.</td></tr>
+    </table>
+  </div>
+</section>
+
+<section id="decisions">
+  <div class="wrap">
+    <h2><span class="num">✓</span>Resolved decisions</h2>
+    <p class="sub">All seven open questions resolved — these are constraints for the spec, not options.</p>
+
+    <div class="dec"><h4><span class="q">Q1 · Fonts</span>One family, two atlases</h4>
+      <p>A single high-legibility pixel typeface drives both — crisp <strong>bitmap blit</strong> for integer-scaled HUD, <strong>MSDF from the same TTF</strong> for zoom-scaling world labels. Primary: <strong>Pixel Operator</strong> (OFL, proportional, bold). Alt for a terminal/tech register: <strong>Departure Mono</strong>. Swappable — it's just an atlas.</p>
+      <p class="why"><b>Why:</b> HUD and world labels share one identity; bitmap stays pixel-crisp, MSDF stays sharp under zoom.</p></div>
+
+    <div class="dec"><h4><span class="q">Q2 · Packaging</span><code>mcp/</code> dir · stdio to Claude · embedded WS</h4>
+      <p>New top-level <code>mcp/</code> run via <code>tsx</code>. Transport to Claude = <strong>stdio</strong>, registered in <code>.mcp.json</code> (Claude Code spawns it, like Playwright). That same process runs the WebSocket server the browser connects to (env port, default <code>7777</code>). Vite does <em>not</em> own it. Standalone <code>npm run mcp</code> for other clients.</p>
+      <p class="why"><b>Why:</b> stdio is the standard, lowest-friction MCP transport and lets Claude Code manage lifecycle; the WS server rides along in-process.</p></div>
+
+    <div class="dec"><h4><span class="q">Q3 · Power</span>Diegetic orb, no resident number</h4>
+      <p>The orb encodes power by fill + pulse (pulse = can afford the selected action). <strong>Hold/hover peeks</strong> the exact value + regen rate; never permanently on screen. Validated in S3.</p>
+      <p class="why"><b>Why:</b> matches stat-minimalism while keeping the number one gesture away.</p></div>
+
+    <div class="dec"><h4><span class="q">Q4 · Human ↔ Claude</span>Free-for-all + visible attribution, no locks</h4>
+      <p>Commands serialise through the one bus (order = tick queue) — no data race, so locks are premature. Every command carries <code>author: 'player' | 'fate' | 'claude'</code>, surfaced in the event log <em>and</em> as a transient in-world marker ("Fate stirs…" + the entity flashes).</p>
+      <p class="why"><b>Why:</b> serialisation already removes the race; the real risk is legibility — solved by attribution, not concurrency control.</p></div>
+
+    <div class="dec"><h4><span class="q">Q5 · Legacy UI</span>Studio + dev panels stay on the DOM island — not ported</h4>
+      <p>Canvas UI is <strong>game-facing only</strong>. Studio &amp; heavy dev panels are tools, not player UX; porting is low-value churn. The MCP dev/debug surface (S5) <em>absorbs</em> most dev-panel need — Claude spawns/inspects/time-travels/screenshots via tools — so panels retire by replacement, not rewrite.</p>
+      <p class="why"><b>Why:</b> spend the canvas budget on player UX; let MCP tools eat the dev panels.</p></div>
+
+    <div class="dec"><h4><span class="q">Q6 · WS auth</span>127.0.0.1 + auto-generated shared token, no pairing</h4>
+      <p>MCP server mints a token at boot; the dev server hands it to the browser (file or <code>/mcp-token</code> dev endpoint); the browser sends it in the WS handshake. Origin-checked. No interactive pairing on localhost. Revisit only if exposed beyond localhost.</p>
+      <p class="why"><b>Why:</b> localhost + shared secret is sufficient for a same-machine dev/play setup.</p></div>
+
+    <div class="dec"><h4><span class="q">Q7 · Mobile WebGPU</span>Named minimum targets, hard gate otherwise</h4>
+      <p>Test targets: desktop Chrome/Edge/Firefox + Safari 18+; mobile <strong>iOS Safari 18+</strong> and <strong>Chrome Android 121+</strong>. S2 gestures tested on those. No WebGPU → a clear "WebGPU required" screen, no fallback.</p>
+      <p class="why"><b>Why:</b> per the WebGPU-hard-requirement directive; naming real devices means touch parity is tested where it ships.</p></div>
+  </div>
+</section>
+
+<section id="nongoals">
+  <div class="wrap">
+    <h2><span class="num">✕</span>Non-goals (for now)</h2>
+    <ul class="nongoals">
+      <li>Canvas2D / WebGL UI fallback — WebGPU is required.</li>
+      <li>Re-implementing IME / text-shaping on canvas — the DOM island owns text.</li>
+      <li>Iframe embedding / postMessage host API — replaced by MCP; removed in S7.</li>
+      <li>Resurfacing the full stat panel — minimalism first; add back only what play proves.</li>
+    </ul>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    Source of truth: <code>docs/superpowers/specs/2026-06-15-webgpu-ui-mcp-integration-design.md</code> ·
+    This page is a generated WYSIWYG view of that brainstorm. ·
+    Next: take Slice 0 (the command/query bus) into a spec.
+  </div>
+</footer>
+</body>
+</html>
