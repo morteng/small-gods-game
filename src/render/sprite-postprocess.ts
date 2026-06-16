@@ -226,11 +226,20 @@ export interface RegisterResult { sprite: Raster; iou: number }
 
 export interface RegisterOpts {
   /**
-   * Half-width (px, on the mask grid) of the negotiation band around the
-   * geometry silhouette edge where the LLM's alpha wins. Default scales with
+   * Depth (px, on the mask grid) of the INWARD negotiation band: within this
+   * distance inside the geometry silhouette edge the LLM's alpha wins, so notches
+   * and gaps it drew (a crenellation, an archway) survive. Default scales with
    * sprite size (~4% of the short side). 0 = strictly geometry-authoritative.
    */
   band?: number;
+  /**
+   * How far (px) the LLM silhouette may grow OUTWARD past the geometry edge.
+   * Default 0 — the albedo NEVER extends beyond the geometry mask. Pixels outside
+   * the mask have no co-registered normal/material data, so an outward overhang
+   * lights flat/wrong (the "texture misaligned to the 3D model" artifact). Raise
+   * this only when there is no companion-map lighting to keep in register.
+   */
+  outward?: number;
 }
 
 /** Magenta-leaning colour = chroma-key bleed that survived keying, never building paint. */
@@ -263,8 +272,10 @@ function maskBits(mask: Raster, n: number): Uint8Array {
  * Register a keyed LLM repaint onto the geometry mask grid: crop the LLM to its
  * content, box-filter it (non-uniformly) onto the mask's dimensions, scrub
  * chroma residue, then negotiate alpha — geometry wins deep inside (eroded
- * core, holes flood-filled with neighbouring colour), the LLM wins within
- * ±band of the silhouette edge, everything beyond the dilated mask is clipped.
+ * core, holes flood-filled with neighbouring colour), the LLM wins within the
+ * inward `band` of the silhouette edge (notches survive), and the silhouette is
+ * clipped to the geometry mask (no outward overhang by default, so the albedo
+ * stays co-registered with the normal/material maps — see RegisterOpts.outward).
  * `iou` is the silhouette agreement measured BEFORE negotiation — the caller's
  * quality gate. Returns null when the LLM raster has no opaque content at all.
  */
@@ -283,8 +294,9 @@ export function registerAlbedo(
   }
   const iou = alphaIoU(scaled, mask);
   const band = opts.band ?? Math.round(Math.min(mask.w, mask.h) * 0.04);
+  const outward = opts.outward ?? 0;
   const core = maskBits(mask, -band);
-  const outer = maskBits(mask, band);
+  const outer = maskBits(mask, outward);
   const filled = floodFillColor(scaled);
   const sprite: Raster = { data: new Uint8ClampedArray(mask.w * mask.h * 4), w: mask.w, h: mask.h };
   for (let i = 0; i < mask.w * mask.h; i++) {

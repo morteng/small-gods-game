@@ -203,13 +203,23 @@ describe('registerAlbedo — negotiation band (adapt to the artwork)', () => {
     expect(getPx(res.sprite, 5, 5)[3]).toBe(255); // interior untouched
   });
 
-  it('LLM additions just outside the silhouette survive within the band', () => {
+  it('by default the silhouette never grows OUTWARD past the geometry (stays co-registered)', () => {
     const mask = raster(12, 12);
     for (let y = 2; y < 10; y++) for (let x = 2; x < 10; x++) setPx(mask, x, y, [0, 0, 0, 255]);
     const llm = raster(12, 12, [200, 40, 30, 255]); // overflows the 8x8 mask by 2px all round
     const res = registerAlbedo(llm, mask, { band: 2 })!;
+    expect(getPx(res.sprite, 4, 4)[3]).toBe(255); // inside the mask — kept
+    expect(getPx(res.sprite, 1, 1)[3]).toBe(0);   // 1px outside the mask — clipped (no normals out there)
+    expect(getPx(res.sprite, 0, 0)[3]).toBe(0);   // far outside — clipped
+  });
+
+  it('outward growth is opt-in via opts.outward (for maps-less use)', () => {
+    const mask = raster(12, 12);
+    for (let y = 2; y < 10; y++) for (let x = 2; x < 10; x++) setPx(mask, x, y, [0, 0, 0, 255]);
+    const llm = raster(12, 12, [200, 40, 30, 255]); // overflows the 8x8 mask by 2px all round
+    const res = registerAlbedo(llm, mask, { band: 2, outward: 2 })!;
     expect(getPx(res.sprite, 2, 0)[3]).toBe(255); // 2px above the mask edge — kept
-    expect(getPx(res.sprite, 0, 0)[3]).toBe(0);   // beyond the band — clipped
+    expect(getPx(res.sprite, 0, 0)[3]).toBe(0);   // beyond the outward band — clipped
   });
 
   it('deep interior disagreement stays opaque and is flood-filled (never black)', () => {

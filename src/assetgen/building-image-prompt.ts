@@ -307,7 +307,8 @@ export function buildingImagePrompt(rb: ResolvedBlueprint, model: string): strin
   // short richness cue; the background contract. No generic filler.
   return [
     `${subject} — ${EDIT_VERB[family]} a crisp 2D isometric pixel-art game sprite ` +
-      `(2:1 perspective), preserving the reference's silhouette, footprint and roof pitch.`,
+      `(2:1 perspective). Keep the whole building — walls and roof eaves alike — within ` +
+      `the reference's coloured outline, matching its silhouette, footprint and roof pitch.`,
     geom,
     legend,
     `Place each material in its reference region, then render rich textures and period weathering.`,
