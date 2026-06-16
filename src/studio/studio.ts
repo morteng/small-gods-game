@@ -95,6 +95,17 @@ function sunDir(az: number, el: number): Vec3 {
   return normalizeVec3([-Math.sin(a) * Math.cos(e), Math.sin(e), Math.cos(a) * Math.cos(e)]);
 }
 
+/** One paid render's metrics + harvested images (PNG data-URIs). Returned by the
+ *  programmatic harvest interface (window.__studio.render) so a dev loop can run a
+ *  render and pull the raw / registered / finished sprite + the gate metrics. */
+export interface RenderResult {
+  kind: string; model: string; ok: boolean;
+  costUsd: number; border: number; iou: number; verdict: string;
+  rawDataUri: string | null;        // FLUX output, chroma background
+  registeredDataUri: string | null; // registered onto the geometry silhouette
+  finalDataUri: string | null;      // palette-quantized, game-ready albedo
+}
+
 export function mountStudio(container: HTMLElement): void {
   // World-overview mode (?studio=world): the real default world on the GPU
   // renderer with the whole-world connectome overlay, separate from the
@@ -199,6 +210,24 @@ export function mountStudio(container: HTMLElement): void {
     })().catch(() => {});
   }
   const finishedSubject = (): SpriteCanvas | null => (liveRb ? (subjFinished.get(rbKey(liveRb)) ?? null) : null);
+
+  // The pack the LIVE 3D view renders. Geometry massing by default; when a finished
+  // img2img sprite exists for this blueprint (session render or seeded library) and the
+  // 'Textured' display option is on, swap its painted albedo onto the massing pack's
+  // co-registered normal/material/shadow maps — so the game-ready textured object is
+  // lit on grass with the real geometry normals. The painted sprite is registered onto
+  // the same bbox crop as the massing albedo, so the maps stay aligned.
+  function litSubjectPack(): SpritePack | null {
+    const massing = peekSubject();
+    if (!massing) { warmSubject(); return null; }
+    warmFinished();
+    if (!state.textured) return massing;
+    const fin = finishedSubject();
+    if (fin && fin.width === massing.albedo.width && fin.height === massing.albedo.height) {
+      return { ...massing, albedo: fin };
+    }
+    return massing;
+  }
   const invalidate = (): void => { subjPacks.clear(); subjStages.clear(); subjInflight.clear(); subjFinished.clear(); };
   // WebGPU scene renderer (async bring-up). Until it resolves, the frame loop
   // paints only the background; the GPU canvas composites once ready.
@@ -215,6 +244,7 @@ export function mountStudio(container: HTMLElement): void {
     sunMode: 'solar',
     hour: 15, yearFrac: 0.3, lat: 45, moonPhase: 1,
     overlays: true,
+    textured: true,
     fit: true,
     skirt: null,
     dockH: DEFAULT_DOCK,
@@ -234,6 +264,9 @@ export function mountStudio(container: HTMLElement): void {
   liveRb = synthesizeBlueprint(state.kind) ?? null;
   // Per-subject extra stages produced by the OpenRouter render flow.
   let genStages: Stage[] = [];
+  // The metrics + harvested images from the most recent paid render (for the
+  // programmatic harvest interface, window.__studio.render/last).
+  let lastRender: RenderResult | null = null;
   // Assigned once the node-tree panel is built; called on subject/param change.
   let rebuildTree: () => void = () => {};
   // Assigned once the object browser is built; re-highlights the current kind.
@@ -359,8 +392,8 @@ export function mountStudio(container: HTMLElement): void {
       map, camera: cam, canvasWidth: w, canvasHeight: h,
       npcs: [], npcSheets: new Map(), treeSheets: new Map(),
       world, lighting: state.lighting,
-      resolveParametricBuildingArt: () => { const s = peekSubject(); if (s) return s; warmSubject(); return null; },
-      resolveParametricPlantArt: () => { const s = peekSubject(); if (s) return s; warmSubject(); return null; },
+      resolveParametricBuildingArt: litSubjectPack,
+      resolveParametricPlantArt: litSubjectPack,
     } as unknown as RenderContext;
   }
 
@@ -697,71 +730,142 @@ export function mountStudio(container: HTMLElement): void {
     async randomize(): Promise<boolean> { randomizeSubject(); return settleGeometry(); },
     /** Pin a named pipeline stage (e.g. 'grey', 'albedo') into the view pane. */
     stages: (): string[] => genStages.map(s => s.label),
+
+    // ── render-harvest interface (for the dev loop / optimal-render iteration) ──
+    /** Show the finished textured sprite in the lit view (vs the grey massing). */
+    setTextured(on: boolean): void { state.textured = on; },
+    /** Toggle scene lighting (sun + AO) in the lit view. */
+    setLighting(on: boolean): void { state.lighting.enabled = on; },
+    /** Run ONE paid img2img render of the current (or named) subject; returns its
+     *  gate metrics + harvested sprites (raw / registered / final PNG data-URIs).
+     *  COSTS MONEY. A passing render also becomes the lit view's textured albedo. */
+    async renderPaid(kind?: string): Promise<RenderResult> {
+      if (kind && kind !== state.kind) await studioDebug.setKind(kind);
+      const rb = liveRb;
+      if (!rb) throw new Error(`no blueprint for "${state.kind}"`);
+      const init = await buildInit(rb);
+      if (!init) throw new Error('no canvas for init image');
+      return executeRender(rb, BUILDING_IMAGE_MODEL, init.initDataUri, init.mask);
+    },
+    /** The most recent paid render's metrics + harvested images, or null. */
+    last: (): RenderResult | null => lastRender,
+    /** The init image (magenta-backed geometry silhouette) FLUX is asked to match —
+     *  the geometry reference, for diffing alignment against last().registeredDataUri. */
+    async initImage(): Promise<string | null> {
+      if (!liveRb) return null;
+      const init = await buildInit(liveRb);
+      return init ? init.initDataUri : null;
+    },
   };
 
   // ── OpenRouter render flow (review metadata → send → step-by-step) ───────
-  async function openRenderFlow(): Promise<void> {
-    const rb = liveRb;
-    if (!rb) { alert(`No blueprint for "${state.kind}" — cannot generate.`); return; }
-    const model = BUILDING_IMAGE_MODEL;
-    const prompt = buildingImagePrompt(rb, model);
-    const struct = await composeStructure(toGeometry(rb), liveSun());
+  // PNG data-URI of any SpriteCanvas (OffscreenCanvas has no toDataURL → copy to DOM).
+  function spriteToDataUri(c: SpriteCanvas | null): string | null {
+    if (!c) return null;
+    if (typeof HTMLCanvasElement !== 'undefined' && c instanceof HTMLCanvasElement) return c.toDataURL('image/png');
+    const tmp = document.createElement('canvas'); tmp.width = c.width; tmp.height = c.height;
+    const tctx = tmp.getContext('2d'); if (!tctx) return null;
+    tctx.drawImage(c as unknown as CanvasImageSource, 0, 0);
+    return tmp.toDataURL('image/png');
+  }
+
+  // Compose THIS subject's init image + registration mask — identical geometry to the
+  // massing pack (warmSubject), so the registered sprite aligns with the normal/material
+  // maps the lit view uses. Returns null when no canvas is available (jsdom).
+  async function buildInit(rb: ResolvedBlueprint): Promise<
+    { initDataUri: string; mask: Raster; struct: StructureResult; bb: { x: number; y: number; w: number; h: number } } | null
+  > {
+    const struct = await composeStructure(
+      toGeometry(rb, state.skirt ? { skirt: { margin: state.skirt.margin } } : undefined),
+      liveSun(),
+      state.skirt ? { skirtFade: state.skirt.fade } : undefined,
+    );
     const initDataUri = greyToDataUri(compositeOverChroma(struct.grey), struct.size);
-    if (!initDataUri) { alert('No canvas for init image.'); return; }
+    if (!initDataUri) return null;
     const bb = {
       x: Math.round(struct.bbox.x), y: Math.round(struct.bbox.y),
       w: Math.max(1, Math.round(struct.bbox.w)), h: Math.max(1, Math.round(struct.bbox.h)),
     };
     const mask: Raster = cropRaster({ data: struct.grey, w: struct.size, h: struct.size }, bb);
+    return { initDataUri, mask, struct, bb };
+  }
+
+  // Run ONE paid img2img render + the full runtime post-process (chroma-key → border
+  // gate → silhouette registration → palette quantize), update the pipeline strip, and
+  // — when it passes the gates — register the finished sprite as this blueprint's
+  // textured albedo (so the lit view shows it on grass). Pure of any UI; the metadata
+  // panel and the programmatic harvest interface both call it. `status` is optional.
+  async function executeRender(
+    rb: ResolvedBlueprint, model: string, initDataUri: string, mask: Raster,
+    status?: (s: string) => void,
+  ): Promise<RenderResult> {
+    const prompt = buildingImagePrompt(rb, model);
     const cfg = loadProviderConfig();
+    status?.('sending to OpenRouter…');
+    const res = await generateBuildingImage(
+      { apiKey: cfg.openrouterApiKey ?? '', baseUrl: openrouterImageBaseUrl(), siteName: cfg.openrouterSiteName },
+      { initImageDataUri: initDataUri, prompt, model },
+    );
+    status?.(`returned (${(res.costUsd ?? 0).toFixed(4)} USD) — post-processing…`);
+    const raw = await decodePngToRaster(res.blob);
+    if (!raw) throw new Error('could not decode returned image');
+    const rawC = rasterToSpriteCanvas(cloneRaster(raw));
+    chromaKeyMagenta(raw.data);
+    const keyedC = rasterToSpriteCanvas(cloneRaster(raw));
+    const border = borderKeyedFraction(raw);
+    const reg = registerAlbedo(raw, mask);
+    const regC = reg ? rasterToSpriteCanvas(reg.sprite) : null;
+    const finalC = reg ? rasterToSpriteCanvas(quantizePalette(reg.sprite, 64)) : null;
+    const iou = reg ? reg.iou : 0;
+    const ok = !!reg && iou >= 0.7 && border >= 0.6;
+    genStages = [
+      { label: '7 · img2img raw', canvas: rawC, sub: `${(res.costUsd ?? 0).toFixed(4)} USD` },
+      { label: '8 · chroma-keyed', canvas: keyedC, sub: `border ${border.toFixed(2)}` },
+      { label: '9 · registered', canvas: regC, sub: reg ? `IoU ${iou.toFixed(2)}` : 'FAILED' },
+      { label: '10 · quantized final', canvas: finalC, sub: '64 colours' },
+    ];
+    if (finalC && ok) subjFinished.set(rbKey(rb), finalC);
+    state.view = null;   // drop to live 3D so the textured result is lit on grass
+    const verdict = !reg ? 'registration failed'
+      : iou < 0.7 ? `IoU ${iou.toFixed(2)} < 0.70 (would be rejected in-game)`
+      : border < 0.6 ? `border ${border.toFixed(2)} < 0.60 (would be rejected in-game)`
+      : `OK — IoU ${iou.toFixed(2)}, border ${border.toFixed(2)}`;
+    const result: RenderResult = {
+      kind: state.kind, model, ok, costUsd: res.costUsd ?? 0, border, iou, verdict,
+      rawDataUri: spriteToDataUri(rawC),
+      registeredDataUri: spriteToDataUri(regC),
+      finalDataUri: spriteToDataUri(finalC),
+    };
+    lastRender = result;
+    return result;
+  }
+
+  async function openRenderFlow(): Promise<void> {
+    const rb = liveRb;
+    if (!rb) { alert(`No blueprint for "${state.kind}" — cannot generate.`); return; }
+    const model = BUILDING_IMAGE_MODEL;
+    const init = await buildInit(rb);
+    if (!init) { alert('No canvas for init image.'); return; }
+    const cfg = loadProviderConfig();
+    const prompt = buildingImagePrompt(rb, model);
     const body = {
       model, modalities: defaultModalitiesFor(model),
       messages: [{ role: 'user', content: [
         { type: 'text', text: prompt },
-        { type: 'image_url', image_url: { url: `‹init PNG ${struct.size}², ${Math.round(initDataUri.length / 1024)} KB data-uri›` } },
+        { type: 'image_url', image_url: { url: `‹init PNG ${init.struct.size}², ${Math.round(init.initDataUri.length / 1024)} KB data-uri›` } },
       ] }],
     };
     openMetadataPanel(viewPane, {
-      kind: state.kind, model, prompt, initDataUri, size: struct.size, bbox: bb,
-      anchors: struct.anchors, body,
+      kind: state.kind, model, prompt, initDataUri: init.initDataUri, size: init.struct.size, bbox: init.bb,
+      anchors: init.struct.anchors, body,
       keyStatus: cfg.openrouterApiKey ? 'configured key' : (openrouterImageBaseUrl() ? 'dev proxy key (env)' : 'NO KEY — will fail'),
       onSend: async (status, finishOk) => {
         try {
-          status('sending to OpenRouter…');
-          const res = await generateBuildingImage(
-            { apiKey: cfg.openrouterApiKey ?? '', baseUrl: openrouterImageBaseUrl(), siteName: cfg.openrouterSiteName },
-            { initImageDataUri: initDataUri, prompt, model },
-          );
-          status(`returned (${(res.costUsd ?? 0).toFixed(4)} USD) — post-processing…`);
-          const raw = await decodePngToRaster(res.blob);
-          if (!raw) throw new Error('could not decode returned image');
-          const rawC = rasterToSpriteCanvas(cloneRaster(raw));
-          chromaKeyMagenta(raw.data);
-          const keyedC = rasterToSpriteCanvas(cloneRaster(raw));
-          const border = borderKeyedFraction(raw);
-          const reg = registerAlbedo(raw, mask);
-          const regC = reg ? rasterToSpriteCanvas(reg.sprite) : null;
-          const finalC = reg ? rasterToSpriteCanvas(quantizePalette(reg.sprite, 64)) : null;
-          // Append generation stages; the strip + view pane pick them up next frame.
-          genStages = [
-            { label: '7 · img2img raw', canvas: rawC, sub: `${(res.costUsd ?? 0).toFixed(4)} USD` },
-            { label: '8 · chroma-keyed', canvas: keyedC, sub: `border ${border.toFixed(2)}` },
-            { label: '9 · registered', canvas: regC, sub: reg ? `IoU ${reg.iou.toFixed(2)}` : 'FAILED' },
-            { label: '10 · quantized final', canvas: finalC, sub: '64 colours' },
-          ];
-          if (finalC) state.view = { canvas: finalC, label: '10 · quantized final' };
-          else if (rawC) state.view = { canvas: rawC, label: '7 · img2img raw' };
-          const verdict = !reg ? 'registration failed'
-            : reg.iou < 0.7 ? `IoU ${reg.iou.toFixed(2)} < 0.70 (would be rejected in-game)`
-            : border < 0.6 ? `border ${border.toFixed(2)} < 0.60 (would be rejected in-game)`
-            : `OK — IoU ${reg.iou.toFixed(2)}, border ${border.toFixed(2)}`;
-          finishOk(`done · ${(res.costUsd ?? 0).toFixed(4)} USD · ${verdict}`);
+          const r = await executeRender(rb, model, init.initDataUri, init.mask, status);
+          finishOk(`done · ${r.costUsd.toFixed(4)} USD · ${r.verdict}`);
         } catch (err) {
-          if (err instanceof BuildingImageError) {
-            status(`⛔ ${err.hint} → ${err.helpUrl}\n(${err.message})`);
-          } else {
-            status(`error: ${(err as Error).message}`);
-          }
+          if (err instanceof BuildingImageError) status(`⛔ ${err.hint} → ${err.helpUrl}\n(${err.message})`);
+          else status(`error: ${(err as Error).message}`);
         }
       },
     });

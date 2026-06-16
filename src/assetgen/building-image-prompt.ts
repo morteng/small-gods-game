@@ -272,6 +272,14 @@ const BACKGROUND =
   `Set the entire background to solid magenta #FF00FF (RGB ${CHROMA_RGB.join(',')}), ` +
   `exactly as in the reference, and keep magenta off the structure.`;
 
+// The sprite is a PBR ALBEDO: the engine re-lights it with the geometry's normals + a
+// directional sun, so the painting itself must be FLAT — bake no light. A sprite painted
+// with its own hard sun gets shaded twice (a harsh dark band on the shadowed faces). Ask
+// for even, ambient, shadeless colour; the engine supplies all the form and shadow.
+const FLAT_ALBEDO =
+  `Use flat, even, ambient lighting only — paint local material colour with no baked cast ` +
+  `shadows, no strong directional sun and no darkened sides; the game engine adds the lighting.`;
+
 // The edit verb per family. FLUX/OpenAI take an i2i "repaint the reference" instruction;
 // gemini phrases it as "redraw the attached reference".
 const EDIT_VERB: Record<ImageModelFamily, string> = {
@@ -304,6 +312,7 @@ export function buildingImagePrompt(rb: ResolvedBlueprint, model: string): strin
     legend,
     `Place each material in its reference region, then render rich textures and period weathering.`,
     custom,
+    FLAT_ALBEDO,
     BACKGROUND,
   ].filter(Boolean).join(' ');
 }

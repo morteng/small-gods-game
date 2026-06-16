@@ -115,6 +115,7 @@ export function buildToolbar(host: HTMLElement, state: StudioState, deps: Toolba
     };
     body.append(
       toggle('Lighting (sun + AO)', () => state.lighting.enabled, (v) => { state.lighting.enabled = v; }),
+      toggle('Textured sprite (when generated)', () => state.textured, (v) => { state.textured = v; }),
       toggle('Debug overlays (grid + axis)', () => state.overlays, (v) => { state.overlays = v; }),
     );
 

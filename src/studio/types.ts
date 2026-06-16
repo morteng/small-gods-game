@@ -38,6 +38,10 @@ export interface StudioState {
   lat: number;        // latitude, degrees N
   moonPhase: number;  // 0 = new (dark) … 1 = full (bright, anti-solar)
   overlays: boolean;
+  // Show the finished img2img-textured sprite (when one exists for this blueprint —
+  // from a session render or the seeded library) lit on grass, instead of the grey
+  // massing render. Default ON: a fully-generated asset shows its game-ready art.
+  textured: boolean;
   fit: boolean; // auto zoom-to-fit the subject (yields to any manual pan/zoom)
   // Opt-in ground apron under the building (the "skirt"): null = off; else the apron
   // overhang past the footprint (tiles) + an edge fade (0 = hard edge, 1 = soft blend
