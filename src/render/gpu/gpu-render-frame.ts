@@ -24,6 +24,9 @@ import { isLayerHidden } from '@/render/layer-visibility';
 import { buildEntityDrawList } from '@/render/iso/entity-draw-list';
 import { DEFAULT_LIGHTING } from '@/render/lighting-state';
 import { buildTerrainField, type TerrainField } from '@/render/gpu/terrain-field';
+import { buildWaterField, type WaterField } from '@/render/gpu/water-field';
+import { getHydrologyResult } from '@/world/hydrology-store';
+import { FlotsamSystem } from '@/water/water-flotsam';
 import { drawWorldConnectome } from '@/render/connectome-overlay';
 import type { GpuScene } from '@/render/gpu/gpu-scene';
 import { getUiRuntime } from '@/render/ui/ui-runtime';
@@ -45,6 +48,10 @@ export function buildGpuRenderFrame(scene: GpuScene, gpuCanvas: HTMLCanvasElemen
   const atlas = createNullAtlas();
   const showConnectome = connectomeRequested();
   const ui = getUiRuntime();
+  // Cosmetic flow-advected particles (S6) — created on first frame from the map
+  // seed, stepped by wall-clock delta (pure render, never the sim clock).
+  let flotsam: FlotsamSystem | null = null;
+  let lastFlotsamTime = 0;
   return function renderMap(ctx: CanvasRenderingContext2D, rc: RenderContext): void {
     const { camera, canvasWidth, canvasHeight, map } = rc;
     const target = ctx.canvas;
@@ -87,9 +94,30 @@ export function buildGpuRenderFrame(scene: GpuScene, gpuCanvas: HTMLCanvasElemen
           xform, lighting, devMode: rc.devMode,
         });
 
+    // Water surface (S2): null when the layer is hidden, there's no terrain to
+    // read depth from, or the world is dry. Ripple time is pure render (never the
+    // sim clock), so a wall-clock seconds value is fine here.
+    const timeSec = (typeof performance !== 'undefined' ? performance.now() : 0) * 0.001;
+    const water: WaterField | null = (terrain && !isLayerHidden('rivers', rc.devMode))
+      ? buildWaterField(map, { viewport: [target.width, target.height], xform, lighting, timeSec })
+      : null;
+
+    // Flotsam/fauna (S6): step + emit cosmetic circles on the water surface.
+    // Appended after the entity list so they composite over the water; the
+    // renderer doesn't terrain-lift `circle` items, so they keep their surface z.
+    let frameItems = items;
+    if (water) {
+      const hydro = getHydrologyResult(map);
+      if (!flotsam) flotsam = new FlotsamSystem(map.seed);
+      const dt = lastFlotsamTime > 0 ? timeSec - lastFlotsamTime : 0;
+      lastFlotsamTime = timeSec;
+      flotsam.step(map, hydro, dt);
+      frameItems = [...items, ...flotsam.drawItems(map, hydro)];
+    }
+
     const uiGroups = ui.frame(target.width, target.height, dpr);
 
-    scene.renderFrame({ items, lighting, terrain, w: target.width, h: target.height, xform, uiGroups });
+    scene.renderFrame({ items: frameItems, lighting, terrain, water, w: target.width, h: target.height, xform, uiGroups });
 
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);

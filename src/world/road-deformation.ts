@@ -33,6 +33,8 @@ import {
 import { getHeightfield, ELEVATION_SEA_LEVEL } from '@/world/heightfield';
 import { styledIslandSpec } from '@/terrain/island-mask';
 import { worldStyleOf } from '@/core/world-style';
+import { buildRiverDeformations } from '@/world/river-deformation';
+import { getHydrologyResult } from '@/world/hydrology-store';
 
 /** Corridor half-width in TILES by road class (a tile is 2 m). Highways cut a
  *  wider shelf than footpaths. */
@@ -114,15 +116,36 @@ export function getRoadDeformationStore(map: GameMap): DeformationStore {
   return store;
 }
 
+// ── Merged WORLD store: road grade-cuts ⊕ river incision (memoised) ──
+const worldStoreCache = new Map<string, DeformationStore>();
+
 /**
- * The world's NORMALISED `[0,1]` elevation field with road grade-cuts composed
- * in — what the GPU terrain mesh lifts. Returns the SAME base array instance
- * (zero cost, byte-parity) when there are no road deformations. Memoised by
- * (seed, dims, store version); callers must treat it read-only.
+ * The full terrain-deformation store for a world — road grade-cuts AND river
+ * incision, composed into one store (priority/id order handles overlaps where a
+ * road bridges a river). This is what the renderer and composed heightfield read;
+ * `getRoadDeformationStore` stays road-only for callers that want just roads.
+ */
+export function getWorldDeformationStore(map: GameMap): DeformationStore {
+  const k = key(map);
+  let store = worldStoreCache.get(k);
+  if (store) return store;
+  store = new DeformationStore();
+  if (map.roadGraph) store.add(...buildRoadDeformations(map, map.roadGraph));
+  store.add(...buildRiverDeformations(map, getHydrologyResult(map)));
+  worldStoreCache.set(k, store);
+  evict(worldStoreCache);
+  return store;
+}
+
+/**
+ * The world's NORMALISED `[0,1]` elevation field with road grade-cuts AND river
+ * incision composed in — what the GPU terrain mesh lifts. Returns the SAME base
+ * array instance (zero cost, byte-parity) when there are no deformations at all.
+ * Memoised by (seed, dims, store version); callers must treat it read-only.
  */
 export function getComposedHeightfield(map: GameMap): Float32Array {
   const base = getHeightfield(map.seed, map.width, map.height, styledIslandSpec(map.worldSeed), map.worldSeed?.pois ?? null);
-  const store = getRoadDeformationStore(map);
+  const store = getWorldDeformationStore(map);
   if (store.size === 0) return base; // parity by construction
 
   const k = `${key(map)}:v${store.version}`;
@@ -151,5 +174,6 @@ export function getComposedHeightfield(map: GameMap): Float32Array {
 /** Drop memoised stores + composed fields (tests; harmless in prod). */
 export function clearRoadDeformationCache(): void {
   storeCache.clear();
+  worldStoreCache.clear();
   fieldCache.clear();
 }
