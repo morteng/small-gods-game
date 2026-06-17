@@ -10,6 +10,7 @@ import { ART_RECIPE_VERSION } from '@/core/content-version';
 import { createDebugApi, type DebugApi } from '@/dev/debug-api';
 import { createGameQuery, type GameQuery } from '@/game/game-query';
 import { createGameBus, type GameBus } from '@/game/game-bus';
+import { getUiRuntime } from '@/render/ui/ui-runtime';
 import { bootMark, FpsMeter, type FpsStats } from '@/dev/profile';
 import { createFpsHud, type FpsHudHandle } from '@/dev/fps-hud';
 import { advanceNpcFrames } from '@/render/npc-animator';
@@ -82,6 +83,12 @@ export interface GameOptions {
   seed?: number;
 }
 
+/** `?flag` present in the URL (used to opt back into the dev UI, etc.). */
+function hasQueryFlag(flag: string): boolean {
+  try { return new URLSearchParams(window.location.search).has(flag); }
+  catch { return false; }
+}
+
 export class Game {
   private container: HTMLElement;
   private canvas: HTMLCanvasElement;
@@ -101,6 +108,9 @@ export class Game {
   bus!: GameBus;
   private persistence!: PersistenceController;
   private cleanupControls: (() => void) | null = null;
+  private cleanupUi: (() => void) | null = null;
+  /** Sim rate captured when the pause menu opened, restored on close. */
+  private menuPrevRate = 1;
   private cleanupTokens: (() => void) | null = null;
   private resizeObserver: ResizeObserver;
   private rafId: number | null = null;
@@ -118,6 +128,9 @@ export class Game {
   private requestRender = (): void => { this.needsRender = true; };
   private divine!: DivineActionsController;
   private ui!: GameUi;
+  /** The barebones game (WebGPU UI only). `?legacyui` flips back to the old
+   *  DOM/Canvas2D chrome. Single source of truth for chrome suppression. */
+  private readonly barebones = !hasQueryFlag('legacyui');
   private llmClient!: LLMClient;
   private llmBackfill!: LlmBackfillService;
   private fateBrain!: FateBrainService;
@@ -470,6 +483,9 @@ export class Game {
       getViewport: () => this.viewport(), getRenderDeps: () => this.renderDeps(),
       commandQueue: this.commandQueue,
       getLlmCapable: () => this.llmClientCapable,
+      // Dev tooling moved to the Studio harness; the game ships without the
+      // in-game dev UI. `?dev` opts it back in for local debugging.
+      headless: !hasQueryFlag('dev'),
     });
 
     this.renderer = new FrameRenderer({
@@ -483,6 +499,7 @@ export class Game {
       getRenderDeps: () => this.renderDeps(), getViewport: () => this.viewport(),
       renderMap: () => this.renderMap,
       isPaused: () => this.scheduler.getRate() === 0,
+      legacyChrome: !this.barebones,
     });
 
     this.input = new InteractionController({
@@ -523,11 +540,55 @@ export class Game {
       },
       onUserCameraInput: () => { this.state.followNpc = false; this.requestRender(); },
       getZoomQuantize: () => quantizeIsoZoom,
-      onToggleSettings: () => this.ui.unifiedSettings.toggle(),
+      // Barebones: the settings shortcut opens the WebGPU pause menu (which hosts
+      // settings); only legacy mode toggles the old DOM settings panel.
+      onToggleSettings: () => { if (this.barebones) getUiRuntime().toggleMenu(); else this.ui.unifiedSettings.toggle(); },
       onToggleMinimap: () => { this.ui.minimap?.toggle(); this.requestRender(); },
       onShowTutorial: () => this.ui.tutorial?.show('welcome'),
       onRedraw: this.requestRender,  // controls fire this on drag-pan + wheel-zoom
     });
+
+    // ── WebGPU UI runtime (barebones HUD + Esc pause menu) ────────────────
+    // Capture-phase listeners on the canvas, so menu/HUD taps consume before the
+    // world handlers above. Power drives the presence orb; menu opening pauses sim.
+    const ui = getUiRuntime();
+    ui.configure({
+      requestRender: this.requestRender,
+      getPower: () => Math.min(1, this.query.beliefState().power / 20),
+      onNewWorld: () => { void this.newWorld(); },
+      onMenuToggle: (open) => {
+        // pause while the menu is up; restore the PRIOR rate on close (don't
+        // clobber a pre-existing pause or a 2×/4×/8× speed)
+        if (open) {
+          this.menuPrevRate = this.scheduler.getRate();
+          this.scheduler.setRate(0);
+        } else {
+          this.scheduler.setRate(this.menuPrevRate);
+        }
+        this.refreshPauseBanner();
+        this.requestRender();
+      },
+      getLighting: () => this.dev.devMode.lighting !== 'off',
+      onToggleLighting: () => {
+        this.dev.devMode.lighting = this.dev.devMode.lighting === 'off' ? 'banded' : 'off';
+        this.requestRender();
+        return this.dev.devMode.lighting !== 'off';
+      },
+      onSaveLlmConfig: (cfg) => this.applyLlmConfig(cfg),
+    });
+    this.cleanupUi = ui.attach(this.canvas);
+
+    // ── Barebones: the WebGPU HUD + pause menu ARE the chrome ──
+    // (presence orb ⇒ power/spirit HUD, orb-click/Esc ⇒ menu + settings). One
+    // call tears down the always-mounted legacy DOM (DRY); on-demand panels are
+    // gated by `legacyChrome` at their render sites.
+    if (this.barebones) {
+      this.ui.suppressLegacyChrome();
+      // The top-right anchor holds only the legacy time chip (time stays reachable
+      // via the T key / time bar). The top-left anchor is empty but hide it too.
+      this.chrome.anchorTopRight.style.display = 'none';
+      this.chrome.anchorTopLeft.style.display = 'none';
+    }
   }
 
   /** The Tier-2 "capable" client, or null when no capable model is configured. */
@@ -560,6 +621,9 @@ export class Game {
   }
 
   private refreshPauseBanner(): void {
+    // Barebones shows pause via the WebGPU menu's "behind glass" dim — the DOM
+    // banner is legacy chrome and stays hidden.
+    if (this.barebones) return;
     this.ui.pausedBanner.style.display = this.scheduler.getRate() === 0 ? 'block' : 'none';
   }
 
@@ -616,10 +680,13 @@ export class Game {
     return this.fpsHud?.isVisible() ?? false;
   }
 
-  /** Wire profiling controls: `?profile`/`?fps` shows the HUD; backtick toggles it. */
+  /** Wire profiling controls. The FPS HUD is dev tooling that lives in the dev /
+   *  studio surface, never the barebones game — so it ONLY appears under `?dev`.
+   *  The old `?fps`/`?profile` aliases are retired so a stale one can't leak the
+   *  HUD into normal play; backtick toggles it only on the dev surface. */
   private installProfiling(): void {
-    const params = new URLSearchParams(location.search);
-    if (params.has('profile') || params.has('fps')) this.setFpsHud(true);
+    if (!hasQueryFlag('dev')) return;
+    this.setFpsHud(true);
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === '`' && !e.metaKey && !e.ctrlKey && !e.altKey) this.toggleFpsHud();
     };
@@ -676,7 +743,7 @@ export class Game {
         bootMark('worldgen');
         this.ui.loadingScreen.setProgress(1, 'Entering the world…');
         this.ui.loadingScreen.hide();
-        this.ui.spiritHud.show();
+        if (!this.barebones) this.ui.spiritHud.show(); // barebones: orb replaces it
         this.dev.updateInspector();
         this.persistence.start();
       },
@@ -754,6 +821,7 @@ export class Game {
     this.detachProfileKeys?.();
     this.fpsHud?.destroy();
     this.cleanupControls?.();
+    this.cleanupUi?.();
     this.cleanupTokens?.();
     this.resizeObserver.disconnect();
     this.ui.destroy();

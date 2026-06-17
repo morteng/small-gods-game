@@ -207,6 +207,26 @@ export class GameUi {
     });
   }
 
+  /**
+   * Barebones cleanup: the WebGPU HUD + pause menu are the only chrome, so tear
+   * down every persistent legacy DOM panel here (one place — DRY). The on-demand
+   * panels (NPC/building info, tooltip, power pill) are suppressed at their render
+   * sites via `legacyChrome`; this handles the always-mounted ones. The narration
+   * card (`llmDisplay`), summonable minimap, and decoration modal stay — they're
+   * still the only surface for their content until a WebGPU equivalent exists.
+   */
+  suppressLegacyChrome(): void {
+    this.pausedBanner.style.display = 'none';
+    this.debugHud.style.display = 'none';
+    this.spiritHud.hide();
+    this.npcInfoPanel.style.display = 'none';
+    this.tooltip.style.display = 'none';
+    this.buildingInfoPanel.hide();
+    this.rivalPanel.hide();
+    this.bottomLeftBar.style.display = 'none';
+    this.cameraControls.destroy();
+  }
+
   destroy(): void {
     this.pausedBanner.remove();
     this.debugHud.remove();

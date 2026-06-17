@@ -37,6 +37,9 @@ export interface DevModeControllerDeps {
   getRenderDeps: () => RenderContextDeps;
   commandQueue: CommandQueue;
   getLlmCapable: () => LLMClient | null;
+  /** When true, hold `devMode` state but mount NO dev UI (button/dock/panels).
+   *  Dev tooling now lives in the Studio harness; the game ships without it. */
+  headless?: boolean;
 }
 
 export class DevModeController {
@@ -55,6 +58,10 @@ export class DevModeController {
 
   constructor(private deps: DevModeControllerDeps) {
     const container = this.deps.container;
+
+    // Headless: hold `devMode` state (read by render-context for lighting etc.)
+    // but mount NO dev UI. Dev tooling lives in the Studio harness now.
+    if (this.deps.headless) return;
 
     // ── Dev Mode Toggle Button ────────────────────────────
     this.btn = document.createElement('button');
@@ -474,6 +481,7 @@ export class DevModeController {
   }
 
   updateInspector(): void {
+    if (this.deps.headless) return;
     if (this.inspector.isVisible()) this.inspector.update();
   }
 
@@ -481,6 +489,7 @@ export class DevModeController {
   hitTest(sx: number, sy: number) { return hitTest(buildRenderContext(this.deps.getRenderDeps()), sx, sy); }
 
   destroy(): void {
+    if (this.deps.headless) return;
     this.detachKeys?.();
     this.btn.remove();
     this.toolbar.destroy();

@@ -115,9 +115,26 @@ export class UiContext {
     return hot && !disabled && this.input.released;
   }
 
+  /**
+   * A chrome-less clickable region — the caller draws its own visuals (e.g. the
+   * presence orb) and uses this purely for hover/click + hit-registration.
+   * Returns true on the frame the click completes; sets `hot()` while hovered.
+   */
+  hotspot(id: string, x: number, y: number, w: number, h: number): boolean {
+    const hot = pointIn(this.input.px, this.input.py, x, y, w, h);
+    if (hot) this.hotId = id;
+    this.hits.push({ id, x, y, w, h });
+    return hot && this.input.released;
+  }
+
   /** The id of the widget currently under the pointer (null if none). */
   hot(): string | null {
     return this.hotId;
+  }
+
+  /** Line height for a given text scale (for callers laying out their own text). */
+  lineHeight(scale: number): number {
+    return this.font.lineHeight(scale);
   }
 
   /** End the frame; returns the hit regions claimed (for the input router). */

@@ -47,6 +47,10 @@ export interface FrameRendererDeps {
   getViewport: () => Viewport;
   renderMap: () => RenderFn | null;
   isPaused: () => boolean;
+  /** When false (the default barebones game), the legacy DOM/Canvas2D chrome —
+   *  the power pill, hover tooltip, and NPC/building info panels — is suppressed;
+   *  the WebGPU UI is the only surface. `?legacyui` flips it back on. */
+  legacyChrome?: boolean;
 }
 
 export class FrameRenderer {
@@ -152,33 +156,37 @@ export class FrameRenderer {
           this.deps.interaction.overlayHitAreas = [...this.deps.interaction.overlayHitAreas, ...poiAreas];
         }
 
-        const now = performance.now();
-        const pinned = this.deps.state.pinnedNpcId === sim.npcId;
-        const switched = this.renderedNpcId !== sim.npcId;
-        const pinChanged = this.renderedPinned !== pinned;
-        if (switched) {
-          this.deps.ui.npcAttentionPanel.setNpc(sim.npcId);
+        // The DOM attention/whisper panel is legacy chrome (a WebGPU inspector
+        // replaces it); the on-canvas selection overlay above always renders.
+        if (this.deps.legacyChrome) {
+          const now = performance.now();
+          const pinned = this.deps.state.pinnedNpcId === sim.npcId;
+          const switched = this.renderedNpcId !== sim.npcId;
+          const pinChanged = this.renderedPinned !== pinned;
+          if (switched) {
+            this.deps.ui.npcAttentionPanel.setNpc(sim.npcId);
+          }
+          if (switched || pinChanged || now - this.lastInfoRefresh > 500) {
+            this.deps.ui.npcAttentionPanel.update(sim, {
+              pinned,
+              power: player.power,
+              onTogglePin: () => {
+                this.deps.state.pinnedNpcId = this.deps.state.pinnedNpcId === sim.npcId ? null : sim.npcId;
+                this.lastInfoRefresh = 0;
+              },
+              onDream: () => { this.deps.divine.dream(entity); this.lastInfoRefresh = 0; },
+              onAnswerPrayer: () => { this.deps.divine.answerPrayer(entity); this.lastInfoRefresh = 0; },
+              onOmen: () => { this.deps.divine.omenForNpc(entity); },
+              onMiracle: () => { this.deps.divine.miracleForNpc(entity); },
+              onLlmBackfill: async () => { await this.deps.llmBackfill.trigger(entity); },
+              portraitSheet: rc.npcSheets.get(sim.npcId) ?? null,
+            });
+            this.renderedNpcId = sim.npcId;
+            this.renderedPinned = pinned;
+            this.lastInfoRefresh = now;
+          }
+          this.deps.ui.npcInfoPanel.style.display = 'block';
         }
-        if (switched || pinChanged || now - this.lastInfoRefresh > 500) {
-          this.deps.ui.npcAttentionPanel.update(sim, {
-            pinned,
-            power: player.power,
-            onTogglePin: () => {
-              this.deps.state.pinnedNpcId = this.deps.state.pinnedNpcId === sim.npcId ? null : sim.npcId;
-              this.lastInfoRefresh = 0;
-            },
-            onDream: () => { this.deps.divine.dream(entity); this.lastInfoRefresh = 0; },
-            onAnswerPrayer: () => { this.deps.divine.answerPrayer(entity); this.lastInfoRefresh = 0; },
-            onOmen: () => { this.deps.divine.omenForNpc(entity); },
-            onMiracle: () => { this.deps.divine.miracleForNpc(entity); },
-            onLlmBackfill: async () => { await this.deps.llmBackfill.trigger(entity); },
-            portraitSheet: rc.npcSheets.get(sim.npcId) ?? null,
-          });
-          this.renderedNpcId = sim.npcId;
-          this.renderedPinned = pinned;
-          this.lastInfoRefresh = now;
-        }
-        this.deps.ui.npcInfoPanel.style.display = 'block';
       }
     } else {
       this.deps.interaction.overlayHitAreas = [];
@@ -204,7 +212,9 @@ export class FrameRenderer {
       }
     }
     const regenPerSec = totalContribution * POWER_REGEN_RATE;
-    drawPowerHud(this.deps.ctx, player.power, regenPerSec);
+    // The WebGPU presence orb is the barebones power readout; the Canvas2D pill is
+    // legacy chrome (only under ?legacyui).
+    if (this.deps.legacyChrome) drawPowerHud(this.deps.ctx, player.power, regenPerSec);
 
     this.updateTooltip();
 
@@ -225,6 +235,7 @@ export class FrameRenderer {
   private renderedSpriteUrl: string | null | undefined = undefined; // undefined = unset (force first render)
 
   private updateBuildingPanel(resolveArt?: (e: import('@/core/types').Entity) => HTMLImageElement | null): void {
+    if (!this.deps.legacyChrome) { this.deps.ui.buildingInfoPanel.hide(); this.renderedBuildingId = null; return; }
     const { state } = this.deps;
     const id = state.selectedBuildingId;
     const entity = id && state.world ? state.world.query({ tag: 'building' }).find((e) => e.id === id) ?? null : null;
@@ -251,6 +262,12 @@ export class FrameRenderer {
   }
 
   private updateTooltip(): void {
+    // The DOM hover tooltip is legacy chrome — suppressed in the barebones game
+    // (dev mode keeps it for inspection).
+    if (!this.deps.legacyChrome && !this.deps.dev.isEnabled()) {
+      this.deps.ui.tooltip.style.display = 'none';
+      return;
+    }
     if (!this.deps.interaction.hoverTile || !this.deps.interaction.hoverScreen || !this.deps.state.world) {
       this.deps.ui.tooltip.style.display = 'none';
       return;

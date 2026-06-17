@@ -16,6 +16,9 @@ describe('pause banner', () => {
   let game: Game;
 
   beforeEach(() => {
+    // The DOM pause banner is legacy chrome — the barebones default replaces it
+    // with the WebGPU pause menu. Opt into legacy UI so the banner exists to test.
+    window.history.replaceState(null, '', '?legacyui');
     container = document.createElement('div');
     container.style.width = '800px';
     container.style.height = '600px';
@@ -26,6 +29,7 @@ describe('pause banner', () => {
   afterEach(() => {
     game.destroy();
     container.remove();
+    window.history.replaceState(null, '', '/');
   });
 
   function findBanner(): HTMLElement | undefined {

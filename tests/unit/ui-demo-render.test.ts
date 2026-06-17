@@ -1,12 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { writeFileSync, mkdirSync } from 'node:fs';
-import { PNG } from 'pngjs';
 import { UiLayer } from '@/render/ui/ui-layer';
 import { UiPage, UI_VERTEX_FLOATS, type UiDrawGroup } from '@/render/ui/ui-batcher';
 
 // CPU rasteriser for the UI draw groups — independent of WebGPU, so it gives a
-// real pixel-level check of the batcher output (and dumps a PNG preview with
-// PREVIEW=1). Every UI quad is an axis-aligned rect (2 tris), so we read 6 verts
+// real pixel-level check of the batcher output. Every UI quad is an axis-aligned rect (2 tris), so we read 6 verts
 // at a time, take the bbox + the vertex colour, and alpha-blend it over the
 // background. Faithful to what the GPU pass draws for Solid-page geometry.
 function rasterize(groups: UiDrawGroup[], W: number, H: number): Uint8ClampedArray {
@@ -87,13 +84,5 @@ describe('UI demo renders correctly (CPU raster, GPU-independent)', () => {
       }
     }
     expect(lit).toBeGreaterThan(40); // plenty of lit glyph pixels
-  });
-
-  it('dumps a PNG preview with PREVIEW=1', () => {
-    if (!process.env.PREVIEW) return;
-    mkdirSync('tmp/ui-s1', { recursive: true });
-    const png = new PNG({ width: W, height: H });
-    png.data = Buffer.from(buf.buffer);
-    writeFileSync('tmp/ui-s1/demo-cpu.png', PNG.sync.write(png));
   });
 });
