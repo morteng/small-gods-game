@@ -35,6 +35,8 @@ import { buildShapeVertices, SHAPE_VERTEX_STRIDE } from '@/render/gpu/shape-geom
 import { liftDrawList } from '@/render/gpu/terrain-lift';
 import type { GpuContext } from '@/render/gpu/webgpu-context';
 import type { TerrainField } from '@/render/gpu/terrain-field';
+import { UiPass } from '@/render/ui/ui-pass';
+import type { UiDrawGroup } from '@/render/ui/ui-batcher';
 
 const DEPTH_FORMAT: GPUTextureFormat = 'depth24plus';
 
@@ -88,11 +90,14 @@ export class GpuScene {
   /** Persistent, grow-on-demand vertex/instance buffers (one per stream), reused
    *  every frame instead of allocating + destroying dozens of buffers per frame. */
   private dynBufs = new Map<string, { buf: GPUBuffer; cap: number }>();
+  /** Screen-space UI pass (S1) — drawn last, over the entity pass, no depth. */
+  private uiPass: UiPass;
 
   constructor(gpu: GpuContext) {
     this.device = gpu.device;
     this.ctx = gpu.ctx;
     const { device } = this;
+    this.uiPass = new UiPass(device, gpu.format);
 
     const module = device.createShaderModule({ code: LIT_WGSL });
 
@@ -397,9 +402,11 @@ export class GpuScene {
     w: number; h: number;
     xform?: ViewTransform;
     terrain?: TerrainField | null;
+    /** Screen-space UI geometry (S1) — drawn in its own pass over the entities. */
+    uiGroups?: readonly UiDrawGroup[];
   }): void {
     const { device } = this;
-    const { items: rawItems, lighting, w, h, xform, terrain } = opts;
+    const { items: rawItems, lighting, w, h, xform, terrain, uiGroups } = opts;
     // Lift entities onto the GPU terrain surface (foot-z parity) before any
     // batching/shadow/shape work, so sprites, fallback shapes and cast shadows
     // all ride the heightfield together. No-op when there's no terrain.
@@ -525,6 +532,20 @@ export class GpuScene {
       epass.draw(shapes.vertexCount);
     }
     epass.end();
+
+    // Pass 3 — UI (screen-space HUD): painter-order over the scene colour, no
+    // depth. Its own pass so it never participates in the entity depth test.
+    if (uiGroups && uiGroups.length > 0) {
+      const upass = enc.beginRenderPass({
+        colorAttachments: [{
+          view: colorView,
+          clearValue: { r: 0, g: 0, b: 0, a: 0 },
+          loadOp: colorCleared ? 'load' : 'clear', storeOp: 'store',
+        }],
+      });
+      this.uiPass.record(upass, uiGroups, w, h);
+      upass.end();
+    }
 
     device.queue.submit([enc.finish()]);
   }

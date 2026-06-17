@@ -26,12 +26,19 @@ import { DEFAULT_LIGHTING } from '@/render/lighting-state';
 import { buildTerrainField, type TerrainField } from '@/render/gpu/terrain-field';
 import { drawWorldConnectome } from '@/render/connectome-overlay';
 import type { GpuScene } from '@/render/gpu/gpu-scene';
+import { UiLayer } from '@/render/ui/ui-layer';
 
 const BG_COLOR = '#1a1a24';
 
 /** `?connectome` shows the whole-world graph overlay (POIs, roads, settlements). */
 function connectomeRequested(): boolean {
   try { return new URLSearchParams(window.location.search).has('connectome'); }
+  catch { return false; }
+}
+
+/** `?uidemo` draws the disposable S1 WebGPU-UI gray-box panel (foundation proof). */
+function uiDemoRequested(): boolean {
+  try { return new URLSearchParams(window.location.search).has('uidemo'); }
   catch { return false; }
 }
 
@@ -43,6 +50,8 @@ function connectomeRequested(): boolean {
 export function buildGpuRenderFrame(scene: GpuScene, gpuCanvas: HTMLCanvasElement): RenderFn {
   const atlas = createNullAtlas();
   const showConnectome = connectomeRequested();
+  const showUiDemo = uiDemoRequested();
+  const uiLayer = showUiDemo ? new UiLayer() : null;
   return function renderMap(ctx: CanvasRenderingContext2D, rc: RenderContext): void {
     const { camera, canvasWidth, canvasHeight, map } = rc;
     const target = ctx.canvas;
@@ -85,7 +94,9 @@ export function buildGpuRenderFrame(scene: GpuScene, gpuCanvas: HTMLCanvasElemen
           xform, lighting, devMode: rc.devMode,
         });
 
-    scene.renderFrame({ items, lighting, terrain, w: target.width, h: target.height, xform });
+    const uiGroups = uiLayer ? uiLayer.buildDemo(target.width, target.height, dpr) : undefined;
+
+    scene.renderFrame({ items, lighting, terrain, w: target.width, h: target.height, xform, uiGroups });
 
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
