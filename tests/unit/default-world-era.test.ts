@@ -19,11 +19,11 @@ describe('default world recipe', () => {
     expect(seed.era).toBe('medieval');
   });
 
-  it('has a primordial yurt camp that renders yurts', () => {
-    const camp = poi('hollow_camp');
+  it('has a primordial steppe-nomad camp (Khar Ordu) that renders yurts', () => {
+    const camp = poi('khar_ordu');
     expect(camp.type).toBe('village');
     expect(resolveSettlementEra(camp, seed)).toBe('primordial');
-    expect(rosterFor('hollow_camp')).toContain('yurt');
+    expect(rosterFor('khar_ordu')).toContain('yurt');
   });
 
   it('has a mine that renders a guard post', () => {

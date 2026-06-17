@@ -34,8 +34,10 @@ export interface AffectedRegion {
 export const POI_INFLUENCES: Record<string, InfluenceSpec> = {
   // Lake: strongly suppress elevation (to reliably go below sea level) + moisture boost
   lake:     { elevation: { delta: -0.55, radius: 10 }, moisture: { delta: +0.45, radius: 18 } },
-  // Mountain: strongly boost elevation to reach mountain/peak thresholds
-  mountain: { elevation: { delta: +0.55, radius: 12 }, temperature: { delta: -0.20, radius: 14 } },
+  // Mountain: strongly boost elevation to reach mountain/peak thresholds over a
+  // broad radius, so a range reads as a solid massif of peaks rather than a thin
+  // rocky core fading to grass.
+  mountain: { elevation: { delta: +0.62, radius: 16 }, temperature: { delta: -0.20, radius: 16 } },
   // Forest: moisture boost pushes toward forest biomes
   forest:   { moisture:  { delta: +0.35, radius: 12 } },
   // Swamp: lower elevation slightly, very high moisture, warm
@@ -51,7 +53,10 @@ export const POI_INFLUENCES: Record<string, InfluenceSpec> = {
   farm:     { moisture: { delta: +0.08, radius: 5 } },
   temple:   {},
   port:     { moisture: { delta: +0.20, radius: 8 } },
-  plains:   { moisture: { delta: -0.10, radius: 8 } },
+  // Plains/steppe: dry the ground enough to clear forest into open grassland over a
+  // broad radius, slightly warmer (a wind-scoured steppe, not woodland). Only POIs
+  // with a `position` exert influence, so a region-only meadow stays base noise.
+  plains:   { moisture: { delta: -0.30, radius: 15 }, temperature: { delta: +0.06, radius: 15 } },
   ruins:    {},
   tower:    {},
   mine:     {},

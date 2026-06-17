@@ -26,7 +26,7 @@ import { blueprintEntity } from '@/blueprint/entity';
 import { toCollision } from '@/blueprint/compile/to-collision';
 import { toAnchors } from '@/blueprint/compile/to-anchors';
 import { placeBarrier } from '@/world/place-barrier';
-import { isBuilding as isBuildingEntity } from '@/world/building-collision';
+import { isBuilding as isBuildingEntity, tileBlockedByBuilding } from '@/world/building-collision';
 import { OccupancyGrid, buildingSolidCells } from '@/world/occupancy-grid';
 import { deriveCroftEnclosures, deriveSettlementRing, type EnclosureCtx } from '@/world/enclosure';
 import {
@@ -257,6 +257,19 @@ export function placeSettlement(
 
   if (plan.lots.length > 0) {
     for (const c of plan.civics) {
+      // Occupancy is settlement-local, but two settlements can sit close enough
+      // that one's civic precinct (a water-seeking mill especially) lands on a
+      // NEIGHBOUR's already-placed building. The world registry is the only
+      // cross-settlement authority — skip a civic that would overlap one.
+      if (world) {
+        let blocked = false;
+        for (let dy = 0; dy < c.h && !blocked; dy++) {
+          for (let dx = 0; dx < c.w; dx++) {
+            if (tileBlockedByBuilding(world, c.x + dx, c.y + dy)) { blocked = true; break; }
+          }
+        }
+        if (blocked) continue;
+      }
       occ.claimRect(c.x, c.y, c.w, c.h, 'civic');
       // Every civic with a preset (mill building + well/graveyard props) goes
       // through the SAME pipeline: synthesize its blueprint, carve the footprint
