@@ -27,8 +27,9 @@ import { TILE_COLORS } from '@/core/constants';
 import { worldToScreen } from '@/render/iso/iso-projection';
 import { ISO_TILE_W, ISO_TILE_H } from '@/render/iso/iso-constants';
 import { effectiveTileType } from '@/render/layer-visibility';
-import { getHeightfield, ELEVATION_SEA_LEVEL, TERRAIN_RELIEF_M } from '@/world/heightfield';
-import { resolveIslandSpec } from '@/terrain/island-mask';
+import { getHeightfield, ELEVATION_SEA_LEVEL } from '@/world/heightfield';
+import { styledIslandSpec } from '@/terrain/island-mask';
+import { worldStyleOf } from '@/core/world-style';
 import { litTileColorRGB } from '@/render/iso/terrain-shading';
 
 /**
@@ -78,9 +79,10 @@ export function buildTerrainMesh(
   map: GameMap, bounds: TileBounds, originX: number, originY: number, opts: TerrainMeshOpts = {},
 ): TerrainMesh {
   const zPxPerM = opts.zPxPerM ?? TERRAIN_Z_PX_PER_M;
+  const relief = worldStyleOf(map.worldSeed).mountainRelief; // S1; defaults to TERRAIN_RELIEF_M
   const halfW = ISO_TILE_W / 2;
   const halfH = ISO_TILE_H / 2;
-  const heightfield = getHeightfield(map.seed, map.width, map.height, resolveIslandSpec(map.worldSeed?.island), map.worldSeed?.pois ?? null);
+  const heightfield = getHeightfield(map.seed, map.width, map.height, styledIslandSpec(map.worldSeed), map.worldSeed?.pois ?? null);
 
   const n = tileCount(map, bounds);
   const positions = new Float32Array(n * 4 * 2);
@@ -101,7 +103,7 @@ export function buildTerrainMesh(
       if (!tile) continue;
 
       const elev = heightfield[ty * map.width + tx];
-      const zPx = (elev - ELEVATION_SEA_LEVEL) * TERRAIN_RELIEF_M * zPxPerM;
+      const zPx = (elev - ELEVATION_SEA_LEVEL) * relief * zPxPerM;
       const { sx, sy } = worldToScreen(tx, ty, zPx, originX, originY);
 
       const base = TILE_COLORS[effectiveTileType(tile.type, opts.devMode)] ?? '#444';

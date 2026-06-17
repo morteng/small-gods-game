@@ -1,7 +1,19 @@
-# World Style — "Tone & Scale" meta-configuration (brainstorm)
+# World Style — "Tone & Scale" meta-configuration
 
-**Status:** brainstorm (no code beyond the terrain-height default bump)
+**Status:** S0 + S1 SHIPPED (resolution core + scale-constant wiring). S2–S4 ahead.
 **Date:** 2026-06-17
+
+> **Implemented (S0 + S1):** `src/core/world-style.ts` — `WorldStyle` flat record,
+> `STYLE_DEFAULTS` (== today's constants), `SCALE_PROFILES` (`simulator`/`natural`/
+> `storybook`) + `RATING_PROFILES` (`kid`/`family`/`teen`/`mature`), `resolveWorldStyle`
+> + `worldStyleOf`, stored on `worldSeed.style` (`WorldStyleConfig`). S1 wires the
+> three vertical/coast scale knobs: `terrainVerticalExaggeration` + `mountainRelief`
+> read from the resolved style in `terrain-field`/`heightfield`/`road-deformation`/
+> `terrain-mesh`/`connectome-overlay`; `coastDrama` threads through the single
+> `styledIslandSpec` resolver (`island-mask.ts`) used by worldgen AND the render
+> heightfield so they can't drift. Behaviour-neutral at defaults (15 unit tests in
+> `tests/unit/world-style.test.ts`). `floraScale` is defined in the record but NOT
+> wired — `floraGenParams` has no render consumer yet (flora Slice 2 unbuilt).
 **Origin:** user — "let's consider some overall 'emergent' parameters for the entire
 game that should be controllable by the user. one is ESRB rating (Kid-friendly, PG,
 etc), another is 'game factor' going from something like simulator to 'children's book'…
@@ -104,13 +116,15 @@ The panel marks the latter "applies on regenerate."
 
 ## 5. Slicing
 
-- **S0 — resolution core (behavior-neutral):** `WorldStyle` type + `STYLE_DEFAULTS` +
-  `resolveWorldStyle` + the two profile tables, stored on `worldSeed.style`, plumbed but
-  every consumer still resolves to today's constant. Pure, fully unit-tested. The seam.
-- **S1 — wire existing scale constants:** `terrainVerticalExaggeration`,
-  `mountainRelief`, `coastDrama`, `floraScale` read from the resolved style. Immediate
-  payoff: the terrain height the user just flagged becomes a profile + slider. (Today's
-  `TERRAIN_Z_PX_PER_M=14` bump is this knob's seed default.)
+- **S0 — resolution core (behavior-neutral):** ✅ SHIPPED. `WorldStyle` type +
+  `STYLE_DEFAULTS` + `resolveWorldStyle` + the two profile tables, stored on
+  `worldSeed.style`, plumbed but every consumer still resolves to today's constant.
+  Pure, fully unit-tested. The seam.
+- **S1 — wire existing scale constants:** ✅ SHIPPED for `terrainVerticalExaggeration`,
+  `mountainRelief`, `coastDrama` (read from the resolved style; the terrain height the
+  user flagged is now a profile + override). `floraScale` is DEFERRED to flora Slice 2
+  — `floraGenParams` has no render consumer to wire yet. (Today's `TERRAIN_Z_PX_PER_M=14`
+  bump is this knob's seed default.)
 - **S2 — spacing/size knobs into worldgen:** `buildingSpacing`, `poiSpacing`,
   `fieldSize`, `settlementDensity`.
 - **S3 — rating axis:** event gating + LLM prompt tone (parallelizable with S1/S2).

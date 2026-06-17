@@ -14,6 +14,8 @@
  * in agreement; both import {@link DEFAULT_ISLAND} so they cannot drift.
  */
 
+import { worldStyleOf, type WorldStyleConfig } from '@/core/world-style';
+
 export interface IslandSpec {
   /**
    * Distance metric over the normalised [-1,1]² grid:
@@ -56,6 +58,30 @@ export function resolveIslandSpec(island: boolean | IslandSpec | undefined): Isl
 /** Stable, compact signature of a spec (for cache keys). `null` → "c" (continent). */
 export function islandSignature(spec: IslandSpec | null): string {
   return spec ? `i${spec.shape[0]}${spec.start}-${spec.end}-${spec.dome ?? 0}` : 'c';
+}
+
+/**
+ * Apply the world-style `coastDrama` knob (S1) to a resolved spec: scale the
+ * central-dome swell so the land rises more (storybook) or less (simulator)
+ * dramatically from coast to interior. `coastDrama === 1` (default) returns the
+ * SAME spec instance unchanged — so the cache signature and every downstream
+ * field stay byte-identical when the knob is at its neutral value.
+ */
+export function applyCoastDrama(spec: IslandSpec | null, coastDrama: number): IslandSpec | null {
+  if (!spec || coastDrama === 1) return spec;
+  return { ...spec, dome: (spec.dome ?? 0) * coastDrama };
+}
+
+/**
+ * The island spec a world actually uses: {@link resolveIslandSpec} of its
+ * `island` field, with the style's `coastDrama` applied. The SINGLE resolver both
+ * worldgen and the render heightfield call, so they cannot drift. `null` when the
+ * world is not an island.
+ */
+export function styledIslandSpec(
+  seed?: { island?: boolean | IslandSpec; style?: WorldStyleConfig } | null,
+): IslandSpec | null {
+  return applyCoastDrama(resolveIslandSpec(seed?.island), worldStyleOf(seed).coastDrama);
 }
 
 /** Hermite smoothstep, clamped to [0,1]. */

@@ -18,11 +18,12 @@
 import type { GameMap, DevModeState } from '@/core/types';
 import { TILE_COLORS } from '@/core/constants';
 import { effectiveTileType, RENDER_LAYERS, layerFlag } from '@/render/layer-visibility';
-import { ELEVATION_SEA_LEVEL, TERRAIN_RELIEF_M } from '@/world/heightfield';
+import { ELEVATION_SEA_LEVEL } from '@/world/heightfield';
 import { getComposedHeightfield } from '@/world/road-deformation';
 import { ISO_TILE_W, ISO_TILE_H } from '@/render/iso/iso-constants';
 import type { LightingState } from '@/render/lighting-state';
 import type { TerrainGlobalsInput } from '@/render/gpu/instance-buffer';
+import { worldStyleOf } from '@/core/world-style';
 
 /**
  * Canonical tile-space sun direction (x=east, y=up, z=south) — TOWARD the light,
@@ -161,14 +162,17 @@ function luminance(c: readonly [number, number, number]): number {
  */
 export function buildTerrainField(map: GameMap, opts: BuildTerrainFieldOpts): TerrainField {
   const grid = terrainGrid(map.width, map.height, opts.maxQuads);
+  // S1 style knobs: vertical exaggeration + relief metres. Default to
+  // TERRAIN_Z_PX_PER_M / TERRAIN_RELIEF_M, so unstyled worlds are unchanged.
+  const style = worldStyleOf(map.worldSeed);
   const globals: TerrainGlobalsInput = {
     viewport: opts.viewport,
     xform: opts.xform,
     grid: [map.width, map.height],
     half: [ISO_TILE_W / 2, ISO_TILE_H / 2],
-    zPxPerM: TERRAIN_Z_PX_PER_M,
+    zPxPerM: style.terrainVerticalExaggeration,
     seaLevel: ELEVATION_SEA_LEVEL,
-    reliefM: TERRAIN_RELIEF_M,
+    reliefM: style.mountainRelief,
     subsample: grid.subsample,
     sunDir: TERRAIN_SUN_DIR,
     bands: opts.lighting.bands,

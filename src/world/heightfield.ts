@@ -28,7 +28,8 @@ import type { GameMap, TerrainConfig, POI } from '@/core/types';
 import { generateTerrainFields } from '@/terrain/terrain-generator';
 import { erodeElevation } from '@/terrain/erosion';
 import { applyPoiInfluences, POI_INFLUENCES } from '@/terrain/poi-influence';
-import { resolveIslandSpec, islandSignature, type IslandSpec } from '@/terrain/island-mask';
+import { islandSignature, styledIslandSpec, type IslandSpec } from '@/terrain/island-mask';
+import { worldStyleOf } from '@/core/world-style';
 
 /** Memo-key fragment for the POIs that move elevation (mountains/lakes/…). Two
  *  worlds with the same seed/dims but different terrain POIs must not share a
@@ -153,7 +154,7 @@ export function clearHeightfieldCache(): void {
 /** Normalised elevation `[0,1]` at a tile (edge-clamped to the map). */
 export function elevationAt(map: GameMap, tx: number, ty: number): number {
   const { seed, width, height } = map;
-  const hf = getHeightfield(seed, width, height, resolveIslandSpec(map.worldSeed?.island), map.worldSeed?.pois ?? null);
+  const hf = getHeightfield(seed, width, height, styledIslandSpec(map.worldSeed), map.worldSeed?.pois ?? null);
   const cx = Math.max(0, Math.min(width - 1, tx | 0));
   const cy = Math.max(0, Math.min(height - 1, ty | 0));
   return hf[cy * width + cx];
@@ -165,5 +166,8 @@ export function elevationAt(map: GameMap, tx: number, ty: number): number {
  * `TerrainView.heightAt` and the connectome's placement affordance.
  */
 export function heightMetresAt(map: GameMap, tx: number, ty: number): number {
-  return (elevationAt(map, tx, ty) - ELEVATION_SEA_LEVEL) * TERRAIN_RELIEF_M;
+  // `mountainRelief` (S1 style knob) sets the metre span of the 0→1 field;
+  // defaults to TERRAIN_RELIEF_M, so unstyled worlds are unchanged.
+  const relief = worldStyleOf(map.worldSeed).mountainRelief;
+  return (elevationAt(map, tx, ty) - ELEVATION_SEA_LEVEL) * relief;
 }

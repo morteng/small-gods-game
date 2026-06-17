@@ -14,7 +14,7 @@ import { Random, fractalNoise } from '@/core/noise';
 import type { GameMap, WorldSeed, Tile, BuildingInstance, TerrainConfig, POI, Region, BiomeMap } from '@/core/types';
 import { WATER_TYPES } from '@/core/constants';
 import { generateTerrainFields, classifyBiomes, sampleTiles } from '@/terrain/terrain-generator';
-import { resolveIslandSpec } from '@/terrain/island-mask';
+import { styledIslandSpec } from '@/terrain/island-mask';
 import { applyPoiInfluences } from '@/terrain/poi-influence';
 import { generateHydrology } from '@/terrain/hydrology';
 import { buildRoadGraph } from '@/world/road-graph';
@@ -117,7 +117,7 @@ export async function generateWithNoise(
     seaLevel: 0.35,
     poleFalloff: true,
     continentWarp: 2.0,
-    island: resolveIslandSpec(worldSeed?.island) ?? undefined,
+    island: styledIslandSpec(worldSeed) ?? undefined,
   };
 
   const fields = generateTerrainFields(config);
