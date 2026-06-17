@@ -28,6 +28,7 @@ import { worldToScreen } from '@/render/iso/iso-projection';
 import { ISO_TILE_W, ISO_TILE_H } from '@/render/iso/iso-constants';
 import { effectiveTileType } from '@/render/layer-visibility';
 import { getHeightfield, ELEVATION_SEA_LEVEL, TERRAIN_RELIEF_M } from '@/world/heightfield';
+import { resolveIslandSpec } from '@/terrain/island-mask';
 import { litTileColorRGB } from '@/render/iso/terrain-shading';
 
 /**
@@ -79,7 +80,7 @@ export function buildTerrainMesh(
   const zPxPerM = opts.zPxPerM ?? TERRAIN_Z_PX_PER_M;
   const halfW = ISO_TILE_W / 2;
   const halfH = ISO_TILE_H / 2;
-  const heightfield = getHeightfield(map.seed, map.width, map.height, !!map.worldSeed?.island);
+  const heightfield = getHeightfield(map.seed, map.width, map.height, resolveIslandSpec(map.worldSeed?.island));
 
   const n = tileCount(map, bounds);
   const positions = new Float32Array(n * 4 * 2);

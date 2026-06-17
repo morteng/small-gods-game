@@ -8,7 +8,7 @@ import { generateWithNoise } from '@/map/map-generator';
 import { Autotiler } from '@/map/autotiler';
 import { computeBlobMap } from '@/map/blob-autotiler';
 import { seedWorld } from '@/world/seed-world';
-import { deriveMapSize } from '@/world/map-size-derivation';
+import { planWorldLayout } from '@/world/poi-layout';
 import { generateRivalSpirits } from '@/sim/rival-spirit';
 import { rivalToSpirit } from '@/sim/command/rival-adapter';
 import { identityOracle } from '@/world/oracle';
@@ -54,10 +54,14 @@ export async function bootstrapWorld(deps: BootstrapDeps): Promise<GameMap> {
   const ws = deps.worldSeed || await WorldManager.loadDefault();
   const seed = Date.now();
 
-  // W0 (connectome-driven world layout): size is derived from the content so the
-  // grid is always large enough to hold every POI/region/waypoint. No-op for a
-  // well-authored world (e.g. default.json); grows only when content would clip.
-  ws.size = deriveMapSize(ws);
+  // W0/W3 (connectome-driven world layout): derive the map size from the content
+  // (always big enough for every POI/region/waypoint) and, for island worlds,
+  // recentre the layout inside an ocean margin. No-op for a non-island,
+  // well-authored world (e.g. default.json) — generation stays byte-identical.
+  const layout = planWorldLayout(ws);
+  ws.size = layout.size;
+  ws.pois = layout.pois;
+  ws.connections = layout.connections;
 
   const { map, world, biomeMap } = await generateWithNoise(
     ws.size.width, ws.size.height, seed, ws,

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { generateWithNoise } from '@/map/map-generator';
 import { getHeightfield, clearHeightfieldCache, ELEVATION_SEA_LEVEL } from '@/world/heightfield';
+import { DEFAULT_ISLAND } from '@/terrain/island-mask';
 import { WATER_TYPES } from '@/core/constants';
 import type { WorldSeed } from '@/core/types';
 
@@ -41,7 +42,7 @@ describe('island worldgen ↔ heightfield consistency', () => {
 
   it('the render heightfield agrees: border elevation is below the waterline', () => {
     clearHeightfieldCache();
-    const hf = getHeightfield(7, 64, 64, /* island */ true);
+    const hf = getHeightfield(7, 64, 64, DEFAULT_ISLAND);
     for (let x = 0; x < 64; x++) {
       expect(hf[x]).toBeLessThan(ELEVATION_SEA_LEVEL);
       expect(hf[63 * 64 + x]).toBeLessThan(ELEVATION_SEA_LEVEL);
@@ -50,7 +51,7 @@ describe('island worldgen ↔ heightfield consistency', () => {
 
   it('a non-island world keeps land at the border in the heightfield (mask is opt-in)', () => {
     clearHeightfieldCache();
-    const hfPlain = getHeightfield(7, 64, 64, /* island */ false);
+    const hfPlain = getHeightfield(7, 64, 64, /* island */ null);
     let landEdge = 0;
     for (let x = 0; x < 64; x++) if (hfPlain[x] >= ELEVATION_SEA_LEVEL) landEdge++;
     expect(landEdge).toBeGreaterThan(0);
@@ -58,8 +59,8 @@ describe('island worldgen ↔ heightfield consistency', () => {
 
   it('island and non-island heightfields are cached independently (no key collision)', () => {
     clearHeightfieldCache();
-    const island = getHeightfield(7, 64, 64, true);
-    const plain = getHeightfield(7, 64, 64, false);
+    const island = getHeightfield(7, 64, 64, DEFAULT_ISLAND);
+    const plain = getHeightfield(7, 64, 64, null);
     expect(island).not.toBe(plain);
     // Corner is fully sunk on the island, but plain noise leaves it (almost surely) different.
     expect(island[0]).toBeLessThan(plain[0] + 1e-6);

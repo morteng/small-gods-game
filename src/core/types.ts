@@ -113,8 +113,11 @@ export interface WorldSeed {
   tileWeights?: Record<string, number>;
   lore?: { history?: string; factions?: string[]; quests?: string[] };
   roadEndpoints?: { direction: string; style?: string }[];
-  /** W1: when true, worldgen sinks the map edges to ocean (the world is an island). */
-  island?: boolean;
+  /**
+   * W1: sink the map edges to ocean (the world is an island). `true` uses the
+   * default island shape; pass an {@link IslandSpec} to customise the coastline.
+   */
+  island?: boolean | IslandSpec;
 }
 
 /** Camera state for pan/zoom */

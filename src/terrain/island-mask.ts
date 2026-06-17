@@ -34,6 +34,20 @@ export interface IslandSpec {
  */
 export const DEFAULT_ISLAND: IslandSpec = { shape: 'euclidean', start: 0.62, end: 1.0 };
 
+/**
+ * Normalise a {@link WorldSeed.island} value to a spec (or null when off):
+ * `false`/`undefined` → null, `true` → {@link DEFAULT_ISLAND}, a spec → itself.
+ */
+export function resolveIslandSpec(island: boolean | IslandSpec | undefined): IslandSpec | null {
+  if (!island) return null;
+  return island === true ? DEFAULT_ISLAND : island;
+}
+
+/** Stable, compact signature of a spec (for cache keys). `null` → "c" (continent). */
+export function islandSignature(spec: IslandSpec | null): string {
+  return spec ? `i${spec.shape[0]}${spec.start}-${spec.end}` : 'c';
+}
+
 /** Hermite smoothstep, clamped to [0,1]. */
 function smoothstep(edge0: number, edge1: number, x: number): number {
   if (edge1 <= edge0) return x < edge0 ? 0 : 1;

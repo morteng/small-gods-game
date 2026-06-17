@@ -31,6 +31,7 @@ import {
   type Deformation,
 } from '@/world/terrain-deformation';
 import { getHeightfield, ELEVATION_SEA_LEVEL, TERRAIN_RELIEF_M } from '@/world/heightfield';
+import { resolveIslandSpec } from '@/terrain/island-mask';
 
 /** Corridor half-width in TILES by road class (a tile is 2 m). Highways cut a
  *  wider shelf than footpaths. */
@@ -119,7 +120,7 @@ export function getRoadDeformationStore(map: GameMap): DeformationStore {
  * (seed, dims, store version); callers must treat it read-only.
  */
 export function getComposedHeightfield(map: GameMap): Float32Array {
-  const base = getHeightfield(map.seed, map.width, map.height, !!map.worldSeed?.island);
+  const base = getHeightfield(map.seed, map.width, map.height, resolveIslandSpec(map.worldSeed?.island));
   const store = getRoadDeformationStore(map);
   if (store.size === 0) return base; // parity by construction
 
