@@ -25,7 +25,8 @@ import { blueprintEntity } from '@/blueprint/entity';
 import { toCollision } from '@/blueprint/compile/to-collision';
 import { toAnchors } from '@/blueprint/compile/to-anchors';
 import { placeBarrier } from '@/world/place-barrier';
-import { tileBlockedByBuilding } from '@/world/building-collision';
+import { isBuilding as isBuildingEntity } from '@/world/building-collision';
+import { OccupancyGrid, buildingSolidCells } from '@/world/occupancy-grid';
 import { deriveCroftEnclosures, deriveSettlementRing, type EnclosureCtx } from '@/world/enclosure';
 import {
   planSettlement, orderedSlotsFor, subdivideLots, widenMarket, assignWards, planCivics,
@@ -227,12 +228,15 @@ export function placeSettlement(
   // known entity kind likewise reserves ground without yet emitting a prop.
   // Only real settlements (with burgage lots) get civics — a lake / zero-count
   // POI stays empty.
-  const civicSet = new Set<string>();
+  // S1: ONE settlement-local occupancy authority. Every producer (roads, civics,
+  // buildings) claims the cells it writes here and consults it before writing —
+  // deconfliction by construction, replacing the old roadSet/civicSet/registry
+  // post-hoc filtering. Barriers later gate over 'building' claims.
+  const occ = new OccupancyGrid();
+
   if (plan.lots.length > 0) {
     for (const c of plan.civics) {
-      for (let dy = 0; dy < c.h; dy++) {
-        for (let dx = 0; dx < c.w; dx++) civicSet.add(`${c.x + dx},${c.y + dy}`);
-      }
+      occ.claimRect(c.x, c.y, c.w, c.h, 'civic');
       // Every civic with a preset (mill building + well/graveyard props) goes
       // through the SAME pipeline: synthesize its blueprint, carve the footprint
       // solid, emit a blueprint entity. Name-derived seed keeps it deterministic
@@ -248,6 +252,9 @@ export function placeSettlement(
       clearFootprint(c.x, c.y, rb.footprint.w, rb.footprint.h, registry, world, tiles);
       registry.add(civic);
       entities.push(civic);
+      // A building-class civic (the mill) is solid for barrier gating, exactly as
+      // the old registry-read `tileBlockedByBuilding` treated it; props are not.
+      if (isBuildingEntity(civic)) occ.claimCells(buildingSolidCells(toCollision(rb), c.x, c.y), 'building');
     }
   }
 
@@ -255,7 +262,7 @@ export function placeSettlement(
     ...plan.edges.flatMap(e => e.tiles.map(t => ({ x: t.x, y: t.y, type: roadType }))),
     ...plan.market.map(m => ({ x: m.x, y: m.y, type: roadType })),
   ];
-  const roadSet = new Set(roadTiles.map(rt => `${rt.x},${rt.y}`));
+  for (const rt of roadTiles) occ.claim(rt.x, rt.y, 'road');
 
   // Lot lookup: unclaimed lot owning a given frontage slot, with a tile set
   // for footprint-containment checks.
@@ -290,8 +297,7 @@ export function placeSettlement(
     if (!canPlaceIgnoringNature(x, y, w, h, constraint.margin, registry)) return false;
     for (let dy = 0; dy < h; dy++) {
       for (let dx = 0; dx < w; dx++) {
-        if (roadSet.has(`${x + dx},${y + dy}`)) return false;
-        if (civicSet.has(`${x + dx},${y + dy}`)) return false;
+        if (occ.has(x + dx, y + dy)) return false;   // road/civic/building claim
         if (ROAD_TYPES.has(tiles[y + dy]?.[x + dx]?.type)) return false;
       }
     }
@@ -363,8 +369,7 @@ export function placeSettlement(
         const { tileX, tileY } = origin;
         outer: for (let dy = 0; dy < rb.footprint.h; dy++) {
           for (let dx = 0; dx < rb.footprint.w; dx++) {
-            const k = `${tileX + dx},${tileY + dy}`;
-            if (roadSet.has(k) || civicSet.has(k)) { origin = null; break outer; }
+            if (occ.has(tileX + dx, tileY + dy)) { origin = null; break outer; }
           }
         }
       }
@@ -383,6 +388,10 @@ export function placeSettlement(
 
     registry.add(entity);
     entities.push(entity);
+    // Claim the building's SOLID cells (blocked − doors) in the occupancy grid so
+    // later producers (more buildings, civic, the barrier rings) deconflict against
+    // it by construction. The door cell stays free — it is the passable interface.
+    occ.claimCells(buildingSolidCells(toCollision(rb), origin.tileX, origin.tileY), 'building');
     // Claim every lot the footprint INTERSECTS (not just pass-1 containment):
     // a pass-2/fallback building sitting on lot ground must mark it used, or
     // live growth (S3) would see a "free" lot with blocked tiles.
@@ -413,9 +422,9 @@ export function placeSettlement(
         if (!t || WATER_TYPES.has(t.type)) break;
         // Never carve through a building footprint (the door tile itself is walkable).
         if (t.walkable === false) break;
-        const hitRoad = roadSet.has(`${pt.x},${pt.y}`) || ROAD_TYPES.has(t.type);
+        const hitRoad = occ.is(pt.x, pt.y, 'road') || ROAD_TYPES.has(t.type);
         roadTiles.push({ x: pt.x, y: pt.y, type: roadType });
-        roadSet.add(`${pt.x},${pt.y}`);
+        occ.claim(pt.x, pt.y, 'road');
         if (hitRoad) break;
       }
     }
@@ -433,8 +442,10 @@ export function placeSettlement(
     const ctx: EnclosureCtx = { era };
 
     // A building structure cell — barrier rings gate (open) rather than run
-    // through it. Buildings are already in the registry at this point.
-    const isBuilding = (x: number, y: number) => tileBlockedByBuilding(world, x, y);
+    // through it. The occupancy grid holds every solid building cell (roster +
+    // the mill) claimed during placement, so this is the same notion of "inside
+    // the walls" the old registry read (`tileBlockedByBuilding`) gave.
+    const isBuilding = (x: number, y: number) => occ.is(x, y, 'building');
 
     // Per-croft enclosures (hedge/fence/wall) around each built lot.
     for (const { id, run } of deriveCroftEnclosures(plan.lots, poi.id, rng, ctx, isBuilding)) {
@@ -457,7 +468,7 @@ export function placeSettlement(
         mapW: tiles[0]?.length ?? 0, mapH: tiles.length,
         buildingCount: placed, poiId: poi.id,
         isWater: (x, y) => WATER_TYPES.has(tiles[y]?.[x]?.type ?? ''),
-        isRoad: (x, y) => roadSet.has(`${x},${y}`) || ROAD_TYPES.has(tiles[y]?.[x]?.type ?? ''),
+        isRoad: (x, y) => occ.is(x, y, 'road') || ROAD_TYPES.has(tiles[y]?.[x]?.type ?? ''),
         isBuilding,
         ctx,
       });

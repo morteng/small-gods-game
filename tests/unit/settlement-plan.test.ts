@@ -134,16 +134,20 @@ describe('placeSettlement — plan execution', () => {
     expect(fronting / buildings.length).toBeGreaterThanOrEqual(0.5);
   });
 
-  it('building footprints never cover road tiles and never overlap each other', () => {
+  it('building structure cells never cover road tiles and footprints never overlap', () => {
     const { result } = run();
     const roadSet = new Set(result.roadTiles.map(rt => `${rt.x},${rt.y}`));
     const seen = new Set<string>();
     for (const e of result.entities.filter(e => blueprintOf(e)?.rb.class === 'building')) {
       const bp = blueprintOf(e)!;
+      // A SOLID structure cell on a road is the bug. A DOOR cell ON a road is
+      // correct — the door fronts the road (same semantics as the spatial-invariant
+      // integration net's INV3 and `tileBlockedByBuilding`).
+      const doors = new Set(bp.collision.doorCells);
       for (let dy = 0; dy < bp.collision.footprint.h; dy++) {
         for (let dx = 0; dx < bp.collision.footprint.w; dx++) {
           const k = `${e.x + dx},${e.y + dy}`;
-          expect(roadSet.has(k), `building on road at ${k}`).toBe(false);
+          if (!doors.has(`${dx},${dy}`)) expect(roadSet.has(k), `structure on road at ${k}`).toBe(false);
           expect(seen.has(k), `overlap at ${k}`).toBe(false);
           seen.add(k);
         }
