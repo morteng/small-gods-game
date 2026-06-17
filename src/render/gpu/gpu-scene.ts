@@ -25,6 +25,7 @@ import {
 } from '@/render/gpu/instance-buffer';
 import { LIT_WGSL } from '@/render/gpu/wgsl/lit-wgsl';
 import { TERRAIN_WGSL } from '@/render/gpu/wgsl/terrain-wgsl';
+import { WATER_WGSL } from '@/render/gpu/wgsl/water-wgsl';
 import { SHADOW_WGSL } from '@/render/gpu/wgsl/shadow-wgsl';
 import { SHAPE_WGSL } from '@/render/gpu/wgsl/shape-wgsl';
 import {
@@ -35,6 +36,7 @@ import { buildShapeVertices, SHAPE_VERTEX_STRIDE } from '@/render/gpu/shape-geom
 import { liftDrawList } from '@/render/gpu/terrain-lift';
 import type { GpuContext } from '@/render/gpu/webgpu-context';
 import type { TerrainField } from '@/render/gpu/terrain-field';
+import type { WaterField } from '@/render/gpu/water-field';
 import { UiPass } from '@/render/ui/ui-pass';
 import type { UiDrawGroup } from '@/render/ui/ui-batcher';
 
@@ -62,6 +64,21 @@ export class GpuScene {
   // Last-uploaded field arrays — skip the re-upload when unchanged by reference.
   private lastHeights: Float32Array | null = null;
   private lastColors: Uint32Array | null = null;
+  // Water pass (S2): one blended pass, all body types. Reads the SAME composed
+  // terrain height buffer (depth = surface − terrain) + its own surface/type/flow
+  // storage buffers; the bind group rebuilds whenever any of them (incl. the
+  // terrain heights it borrows) reallocate.
+  private waterPipeline: GPURenderPipeline;
+  private waterGlobalsBuf: GPUBuffer;
+  private waterSurfaceBuf: GPUBuffer | null = null;
+  private waterTypeBuf: GPUBuffer | null = null;
+  private waterFlowBuf: GPUBuffer | null = null;
+  private waterBind: GPUBindGroup | null = null;
+  private waterCellCap = 0;
+  private waterBoundHeights: GPUBuffer | null = null;
+  private lastWaterSurface: Float32Array | null = null;
+  private lastWaterType: Uint32Array | null = null;
+  private lastWaterFlow: Float32Array | null = null;
   private depthTex: GPUTexture | null = null;
   private depthW = 0;
   private depthH = 0;
@@ -167,6 +184,31 @@ export class GpuScene {
       depthStencil: { format: DEPTH_FORMAT, depthWriteEnabled: true, depthCompare: 'greater' },
     });
     this.terrainGlobalsBuf = device.createBuffer({ size: 96, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+
+    // Water pipeline (S2): GPU-generated per-cell quads (no vertex buffers),
+    // lifted to the water surface + blended over the terrain. Shares the terrain
+    // depth buffer (greater-equal, NO depth write) so nearer terrain occludes
+    // water but water never writes into the entity depth scheme. Premultiplied
+    // alpha out (one / one-minus-src-alpha), like the sprite pass.
+    const waterModule = device.createShaderModule({ code: WATER_WGSL });
+    this.waterPipeline = device.createRenderPipeline({
+      layout: 'auto',
+      vertex: { module: waterModule, entryPoint: 'vsMain' },
+      fragment: {
+        module: waterModule,
+        entryPoint: 'fsMain',
+        targets: [{
+          format: gpu.format,
+          blend: {
+            color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' },
+            alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' },
+          },
+        }],
+      },
+      primitive: { topology: 'triangle-list' },
+      depthStencil: { format: DEPTH_FORMAT, depthWriteEnabled: false, depthCompare: 'greater-equal' },
+    });
+    this.waterGlobalsBuf = device.createBuffer({ size: 112, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 
     // Shadow union pipeline: parallelogram quads (4 corners) → premult black at
     // SHADOW_ALPHA straight onto the scene colour target, stencil-gated so each
@@ -391,10 +433,58 @@ export class GpuScene {
     }
   }
 
+  /** (Re)upload the water field buffers. The bind group borrows the terrain
+   *  height buffer (binding 1) for depth, so it rebuilds when EITHER the water
+   *  buffers grow OR the terrain heights buffer identity changes. Skips the
+   *  writeBuffer per array when unchanged by reference. Returns false if there is
+   *  no terrain height buffer to read (water needs it). */
+  private uploadWaterFields(water: WaterField): boolean {
+    const { device } = this;
+    if (!this.terrainHeightsBuf) return false;
+    const cells = water.surfaceW.length;
+    let realloc = false;
+    if (!this.waterSurfaceBuf || cells > this.waterCellCap) {
+      this.waterSurfaceBuf?.destroy();
+      this.waterTypeBuf?.destroy();
+      this.waterFlowBuf?.destroy();
+      this.waterSurfaceBuf = device.createBuffer({ size: cells * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+      this.waterTypeBuf = device.createBuffer({ size: cells * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+      this.waterFlowBuf = device.createBuffer({ size: cells * 8, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+      this.waterCellCap = cells;
+      realloc = true;
+    }
+    if (realloc || this.waterBoundHeights !== this.terrainHeightsBuf) {
+      this.waterBind = device.createBindGroup({
+        layout: this.waterPipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: this.waterGlobalsBuf } },
+          { binding: 1, resource: { buffer: this.terrainHeightsBuf } },
+          { binding: 2, resource: { buffer: this.waterSurfaceBuf } },
+          { binding: 3, resource: { buffer: this.waterTypeBuf! } },
+          { binding: 4, resource: { buffer: this.waterFlowBuf! } },
+        ],
+      });
+      this.waterBoundHeights = this.terrainHeightsBuf;
+    }
+    if (realloc || water.surfaceW !== this.lastWaterSurface) {
+      device.queue.writeBuffer(this.waterSurfaceBuf, 0, water.surfaceW as GPUAllowSharedBufferSource);
+      this.lastWaterSurface = water.surfaceW;
+    }
+    if (realloc || water.waterType !== this.lastWaterType) {
+      device.queue.writeBuffer(this.waterTypeBuf!, 0, water.waterType as GPUAllowSharedBufferSource);
+      this.lastWaterType = water.waterType;
+    }
+    if (realloc || water.flow !== this.lastWaterFlow) {
+      device.queue.writeBuffer(this.waterFlowBuf!, 0, water.flow as GPUAllowSharedBufferSource);
+      this.lastWaterFlow = water.flow;
+    }
+    return true;
+  }
+
   /**
    * Render one frame: terrain (buffer-driven heightfield, T1) in its OWN depth
-   * pass, then the entity draw list over it in a second pass (depth reset so the
-   * two depth schemes never mix; colour preserved). `w`,`h` = device-pixel size.
+   * pass, then the blended water pass over it, then the entity draw list (depth
+   * reset so the two depth schemes never mix; colour preserved). `w`,`h` = device px.
    */
   renderFrame(opts: {
     items: readonly DrawItem[];
@@ -402,11 +492,13 @@ export class GpuScene {
     w: number; h: number;
     xform?: ViewTransform;
     terrain?: TerrainField | null;
+    /** Blended water surface (S2) — drawn over terrain, under entities. */
+    water?: WaterField | null;
     /** Screen-space UI geometry (S1) — drawn in its own pass over the entities. */
     uiGroups?: readonly UiDrawGroup[];
   }): void {
     const { device } = this;
-    const { items: rawItems, lighting, w, h, xform, terrain, uiGroups } = opts;
+    const { items: rawItems, lighting, w, h, xform, terrain, water, uiGroups } = opts;
     // Lift entities onto the GPU terrain surface (foot-z parity) before any
     // batching/shadow/shape work, so sprites, fallback shapes and cast shadows
     // all ride the heightfield together. No-op when there's no terrain.
@@ -433,6 +525,16 @@ export class GpuScene {
       this.uploadFields(terrain!.heights, terrain!.colors);
       device.queue.writeBuffer(this.terrainGlobalsBuf, 0,
         packTerrainGlobals(terrain!.globals) as GPUAllowSharedBufferSource);
+    }
+
+    // Water needs the terrain height buffer (for depth), so it only runs when
+    // terrain did. uploadWaterFields returns false if that buffer isn't ready.
+    let hasWater = !!(hasTerrain && water && water.wetCount > 0 && water.vertexCount > 0);
+    if (hasWater) {
+      hasWater = this.uploadWaterFields(water!);
+      if (hasWater) {
+        device.queue.writeBuffer(this.waterGlobalsBuf, 0, water!.globals as GPUAllowSharedBufferSource);
+      }
     }
 
     const enc = device.createCommandEncoder();
@@ -488,6 +590,25 @@ export class GpuScene {
         soff += data.byteLength;
       }
       apass.end();
+      colorCleared = true;
+    }
+
+    // Pass 1.75 — water (blended over terrain, BEFORE entities so boats/NPCs at
+    // the shore draw on top). Loads the terrain depth (greater-equal, no write):
+    // nearer terrain occludes water, but water never disturbs the depth the entity
+    // pass resets. One draw for the whole grid; the fragment discards dry cells.
+    if (hasWater) {
+      const wpass = enc.beginRenderPass({
+        colorAttachments: [{
+          view: colorView, clearValue: { r: 0, g: 0, b: 0, a: 0 },
+          loadOp: colorCleared ? 'load' : 'clear', storeOp: 'store',
+        }],
+        depthStencilAttachment: { view: depthView, depthLoadOp: 'load', depthStoreOp: 'store' },
+      });
+      wpass.setPipeline(this.waterPipeline);
+      wpass.setBindGroup(0, this.waterBind!);
+      wpass.draw(water!.vertexCount);
+      wpass.end();
       colorCleared = true;
     }
 

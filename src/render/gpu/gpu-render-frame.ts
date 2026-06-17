@@ -24,6 +24,7 @@ import { isLayerHidden } from '@/render/layer-visibility';
 import { buildEntityDrawList } from '@/render/iso/entity-draw-list';
 import { DEFAULT_LIGHTING } from '@/render/lighting-state';
 import { buildTerrainField, type TerrainField } from '@/render/gpu/terrain-field';
+import { buildWaterField, type WaterField } from '@/render/gpu/water-field';
 import { drawWorldConnectome } from '@/render/connectome-overlay';
 import type { GpuScene } from '@/render/gpu/gpu-scene';
 import { getUiRuntime } from '@/render/ui/ui-runtime';
@@ -87,9 +88,17 @@ export function buildGpuRenderFrame(scene: GpuScene, gpuCanvas: HTMLCanvasElemen
           xform, lighting, devMode: rc.devMode,
         });
 
+    // Water surface (S2): null when the layer is hidden, there's no terrain to
+    // read depth from, or the world is dry. Ripple time is pure render (never the
+    // sim clock), so a wall-clock seconds value is fine here.
+    const timeSec = (typeof performance !== 'undefined' ? performance.now() : 0) * 0.001;
+    const water: WaterField | null = (terrain && !isLayerHidden('rivers', rc.devMode))
+      ? buildWaterField(map, { viewport: [target.width, target.height], xform, lighting, timeSec })
+      : null;
+
     const uiGroups = ui.frame(target.width, target.height, dpr);
 
-    scene.renderFrame({ items, lighting, terrain, w: target.width, h: target.height, xform, uiGroups });
+    scene.renderFrame({ items, lighting, terrain, water, w: target.width, h: target.height, xform, uiGroups });
 
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
