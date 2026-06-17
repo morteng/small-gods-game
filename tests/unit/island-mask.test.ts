@@ -50,13 +50,25 @@ describe('islandFalloff', () => {
 });
 
 describe('applyIslandMask', () => {
-  it('sinks border cells toward 0 and leaves the centre intact', () => {
+  it('sinks border cells toward 0 and swells the interior with the dome', () => {
     const W = 32, H = 32;
-    const elev = new Float32Array(W * H).fill(0.8);
+    const elev = new Float32Array(W * H).fill(0.6);
     applyIslandMask(elev, W, H);
     expect(elev[0]).toBeCloseTo(0, 5); // corner fully sunk
+    // The dome RAISES the centre above the input (land rises coast→interior),
+    // by ~the full dome height near the middle.
+    const dome = DEFAULT_ISLAND.dome ?? 0;
     const centre = elev[Math.floor(H / 2) * W + Math.floor(W / 2)];
-    expect(centre).toBeCloseTo(0.8, 5); // interior unchanged
+    expect(centre).toBeGreaterThan(0.6 + dome * 0.8);
+    expect(centre).toBeLessThanOrEqual(0.6 + dome + 1e-6);
+  });
+
+  it('with no dome the interior is left intact', () => {
+    const W = 32, H = 32;
+    const elev = new Float32Array(W * H).fill(0.8);
+    applyIslandMask(elev, W, H, { ...DEFAULT_ISLAND, dome: 0 });
+    const centre = elev[Math.floor(H / 2) * W + Math.floor(W / 2)];
+    expect(centre).toBeCloseTo(0.8, 5);
   });
 
   it('returns the same array instance (mutates in place)', () => {

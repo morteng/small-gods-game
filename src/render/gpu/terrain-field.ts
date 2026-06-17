@@ -35,11 +35,17 @@ import type { TerrainGlobalsInput } from '@/render/gpu/instance-buffer';
 export const TERRAIN_SUN_DIR: [number, number, number] = [-1, 1.6, -1];
 
 /**
- * Vertical z-scale: screen px per metre of relief. DELIBERATELY far below the XY
- * scale (PX_PER_METRE=32) — full relief (~48 m) at 32 px/m would tower 1500 px;
- * terrain z is compressed for readability like most iso games. Tunable.
+ * Vertical z-scale: screen px per metre of relief — the "game factor" / vertical
+ * exaggeration that maps the world's real-metre heightfield to screen pixels.
+ * DELIBERATELY far below the XY scale (PX_PER_METRE=32): terrain z is compressed
+ * for readability like most iso games (real GIS exaggeration is 2–3×, but iso
+ * already halves apparent height, and our modest TERRAIN_RELIEF_M wants a larger
+ * multiplier to read). At reliefM=48 a sea-to-peak swing (~0.65) lifts ~437 px.
+ * This is the seed default for the future `terrainVerticalExaggeration` style
+ * knob (see the world-style / "game factor" epic) — raise toward a storybook
+ * look, lower toward a flatter simulator look.
  */
-export const TERRAIN_Z_PX_PER_M = 1.5;
+export const TERRAIN_Z_PX_PER_M = 14.0;
 
 /** Cap on generated quads — picks the subsample LOD so big maps stay cheap. */
 export const MAX_TERRAIN_QUADS = 50000;
