@@ -1,10 +1,11 @@
 {
   "name": "Verdant Vale",
-  "description": "A realm of misty forests, crystal lakes, treacherous swamps, and rolling meadows. Ancient ruins dot the landscape.",
+  "description": "An island realm of misty forests, crystal lakes, and treacherous swamps, ringed by pale beaches. Rolling meadows give way to a wind-bitten northern steppe where a horse-nomad horde keeps its gers, while jagged peaks wall off the eastern shore. Ancient ruins dot the land.",
   "size": { "width": 128, "height": 96 },
   "biome": "temperate",
   "era": "medieval",
-  "visualTheme": "fantasy medieval world, vibrant colors",
+  "island": true,
+  "visualTheme": "early medieval island world, vibrant colors",
   "pois": [
     {
       "id": "whispering_woods",
@@ -35,16 +36,25 @@
       "id": "eastern_peaks",
       "type": "mountain",
       "name": "Eastern Peaks",
-      "position": { "x": 116, "y": 20 },
-      "region": { "x_min": 107, "x_max": 127, "y_min": 0, "y_max": 41 },
-      "density": 0.5,
-      "description": "Rocky highlands with occasional peaks."
+      "position": { "x": 117, "y": 50 },
+      "region": { "x_min": 106, "x_max": 127, "y_min": 36, "y_max": 66 },
+      "density": 0.6,
+      "description": "A jagged range walling off the eastern shore, its grey peaks catching the dawn."
+    },
+    {
+      "id": "northern_steppe",
+      "type": "plains",
+      "name": "The Windward Steppe",
+      "position": { "x": 112, "y": 13 },
+      "region": { "x_min": 75, "x_max": 127, "y_min": 0, "y_max": 28 },
+      "density": 0.4,
+      "description": "Open, wind-scoured grassland along the northern shore — summer pasture for the horse-nomads' herds."
     },
     {
       "id": "golden_meadows",
       "type": "plains",
       "name": "Golden Meadows",
-      "region": { "x_min": 36, "x_max": 100, "y_min": 21, "y_max": 69 },
+      "region": { "x_min": 36, "x_max": 100, "y_min": 25, "y_max": 69 },
       "density": 0.7,
       "description": "Rolling meadows perfect for farming."
     },
@@ -54,7 +64,7 @@
       "name": "Oakshire",
       "position": { "x": 64, "y": 48 },
       "size": "medium",
-      "description": "A prosperous farming village.",
+      "description": "A prosperous farming village clustered around its parish church and the lord's manor hall.",
       "npcs": [
         { "name": "Elder Bramwell", "role": "elder" },
         { "name": "Rosa the Baker", "role": "merchant" },
@@ -65,9 +75,9 @@
       "id": "old_watchtower",
       "type": "tower",
       "name": "The Old Watchtower",
-      "position": { "x": 107, "y": 27 },
+      "position": { "x": 104, "y": 40 },
       "size": "small",
-      "description": "An ancient tower on the mountain slopes.",
+      "description": "An ancient tower on the mountain slopes, set to watch the steppe and the eastern sea.",
       "npcs": [
         { "name": "Captain Hale", "role": "soldier" }
       ]
@@ -128,7 +138,7 @@
       "name": "Temple of the Dawn",
       "position": { "x": 90, "y": 14 },
       "size": "medium",
-      "description": "A serene stone temple on the northern meadows, said to catch the first light of every sunrise.",
+      "description": "A serene stone temple on the northern grassland, said to catch the first light of every sunrise.",
       "npcs": [
         { "name": "High Priestess Lyra", "role": "priest" },
         { "name": "Novice Caelum", "role": "priest" }
@@ -147,23 +157,24 @@
       ]
     },
     {
-      "id": "hollow_camp",
+      "id": "khar_ordu",
       "type": "village",
-      "name": "The Hollow Camp",
-      "position": { "x": 40, "y": 30 },
-      "size": "small",
+      "name": "Khar Ordu",
+      "position": { "x": 112, "y": 14 },
+      "size": "medium",
       "era": "primordial",
-      "description": "A cluster of hide tents in a meadow clearing — folk who kept the old ways while the valley turned to stone and timber.",
+      "description": "The Black Horde — a ring of felt gers on the far north-eastern steppe, home to horse-nomads who follow their herds and bow to no lord of the valley.",
       "npcs": [
-        { "name": "Old Mother Ash", "role": "elder" },
-        { "name": "Bran the Forager", "role": "farmer" }
+        { "name": "Bayan Khan", "role": "noble" },
+        { "name": "Old Tengis the Sky-Reader", "role": "priest" },
+        { "name": "Subetai the Outrider", "role": "soldier" }
       ]
     },
     {
       "id": "ironvein_mine",
       "type": "mine",
       "name": "Ironvein",
-      "position": { "x": 103, "y": 34 },
+      "position": { "x": 102, "y": 53 },
       "size": "small",
       "description": "A mineshaft at the foot of the Eastern Peaks, worked for iron and watched by a lone guard post.",
       "npcs": [
@@ -182,7 +193,7 @@
     },
     {
       "from": "crossroads_inn", "to": "old_watchtower", "type": "road", "style": "dirt",
-      "waypoints": [{"x": 78, "y": 41}, {"x": 93, "y": 34}, {"x": 107, "y": 27}]
+      "waypoints": [{"x": 78, "y": 41}, {"x": 91, "y": 40}, {"x": 104, "y": 40}]
     },
     {
       "from": "crossroads_inn", "to": "lakeside_dock", "type": "road", "style": "dirt",
@@ -205,23 +216,24 @@
       "waypoints": [{"x": 64, "y": 48}, {"x": 54, "y": 57}, {"x": 43, "y": 65}]
     },
     {
-      "from": "hollow_camp", "to": "oakshire", "type": "road", "style": "dirt",
-      "waypoints": [{"x": 40, "y": 30}, {"x": 52, "y": 39}, {"x": 64, "y": 48}]
+      "from": "khar_ordu", "to": "oakshire", "type": "road", "style": "dirt",
+      "waypoints": [{"x": 112, "y": 14}, {"x": 88, "y": 32}, {"x": 64, "y": 48}]
     },
     {
       "from": "ironvein_mine", "to": "old_watchtower", "type": "road", "style": "dirt",
-      "waypoints": [{"x": 103, "y": 34}, {"x": 105, "y": 30}, {"x": 107, "y": 27}]
+      "waypoints": [{"x": 102, "y": 53}, {"x": 103, "y": 46}, {"x": 104, "y": 40}]
     }
   ],
   "lore": {
-    "history": "Verdant Vale was settled three centuries ago by refugees fleeing the Great Collapse.",
+    "history": "Verdant Vale was settled three centuries ago by refugees fleeing the Great Collapse; the horse-nomads of Khar Ordu came later, across the winter ice, and never left the northern steppe.",
     "quests": [
       { "name": "The Missing Shepherd", "difficulty": "easy" },
       { "name": "Secrets of the Sunken Shrine", "difficulty": "hard" }
     ],
     "rumors": [
       "Strange lights dance in the Murkmire Swamp at night",
-      "The ruins hold secrets of the old gods"
+      "The ruins hold secrets of the old gods",
+      "The Black Horde's outriders have been seen watering their horses south of the peaks"
     ]
   }
 }

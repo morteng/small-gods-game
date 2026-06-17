@@ -14,6 +14,7 @@ import { Random, fractalNoise } from '@/core/noise';
 import type { GameMap, WorldSeed, Tile, BuildingInstance, TerrainConfig, POI, Region, BiomeMap } from '@/core/types';
 import { WATER_TYPES } from '@/core/constants';
 import { generateTerrainFields, classifyBiomes, sampleTiles } from '@/terrain/terrain-generator';
+import { styledIslandSpec } from '@/terrain/island-mask';
 import { applyPoiInfluences } from '@/terrain/poi-influence';
 import { generateHydrology } from '@/terrain/hydrology';
 import { buildRoadGraph } from '@/world/road-graph';
@@ -24,6 +25,7 @@ import { tileBlockedByBuilding } from '@/world/building-collision';
 import { reconcileBarriersWithBuildings } from '@/world/place-barrier';
 import type { SettlementPlan } from '@/world/settlement-plan';
 import { applyAllSettlementWear } from '@/world/settlement-wear';
+import { applyPoiGroundPatches } from '@/world/poi-ground-patches';
 import { blueprintOf } from '@/blueprint/entity';
 import { clearObstructedVegetation } from '@/world/vegetation-clear';
 import { getZoneRule } from '@/map/poi-zones';
@@ -115,6 +117,7 @@ export async function generateWithNoise(
     seaLevel: 0.35,
     poleFalloff: true,
     continentWarp: 2.0,
+    island: styledIslandSpec(worldSeed) ?? undefined,
   };
 
   const fields = generateTerrainFields(config);
@@ -173,6 +176,11 @@ export async function generateWithNoise(
     if (!brushName) continue;
     world.applyBrush(brushName, region, seed);
   }
+
+  // Connectome-placed mini-biomes: stamp distinctive ground (e.g. a temple's
+  // sacred grove) keyed on POI type, BEFORE settlements and zone brushes so
+  // buildings sit on the patched ground and brushes dress it.
+  if (worldSeed?.pois) applyPoiGroundPatches(worldSeed.pois, tiles, seed);
 
   // Place settlements for each POI (AFTER biome brushes so buildings
   // can clear nature entities that overlap with their footprints)
@@ -239,10 +247,20 @@ export async function generateWithNoise(
   let roadGraph: RoadGraph | undefined;
   if (worldSeed?.connections) {
     report('Carving road connections...');
+    // Village greens are protected open commons — inter-POI roads thread AROUND
+    // them (just like building footprints), else a road hub like the parish
+    // village carves straight across its own green.
+    const greenTiles = new Set<string>();
+    for (const plan of settlementPlans) {
+      for (const c of plan.civics) {
+        if (c.type !== 'green') continue;
+        for (let dy = 0; dy < c.h; dy++) for (let dx = 0; dx < c.w; dx++) greenTiles.add(`${c.x + dx},${c.y + dy}`);
+      }
+    }
     // Buildings are already placed: roads route AROUND their structure cells
     // (thread the streets) rather than carving through them.
     roadGraph = buildRoadGraph(worldSeed.connections, worldSeed.pois ?? [], tiles, fields, {
-      isObstacle: (x, y) => tileBlockedByBuilding(world, x, y),
+      isObstacle: (x, y) => tileBlockedByBuilding(world, x, y) || greenTiles.has(`${x},${y}`),
     });
   }
 

@@ -12,17 +12,38 @@
 //
 // Per the cross-session contract (coordination-board, connectome confirmed) the
 // final `heightAt(tx,ty)` is `baseSeedHeight ⊕ deformations`. This module is the
-// `baseSeedHeight` half only: it reproduces the base eroded field, EXCLUDING the
-// POI / settlement / road deformations that worldgen and the connectome apply on
-// top (those compose in a later slice — callers keep reading one read-only
-// height and never see the layering).
+// `baseSeedHeight` half: it reproduces worldgen's eroded elevation field,
+// INCLUDING the POI terrain influences (a mountain POI raises real elevation, a
+// lake sinks it) so the RENDERED height agrees with the biomes worldgen
+// classified from that same influenced field — else mountains read as mountains
+// but stand on flat ground. It still EXCLUDES the settlement/road deformations
+// that compose on top via the deformation channel (callers read one height).
+// POIs are part of the world seed (available on load), so the field stays purely
+// recomputable from `(seed, width, height, island, pois)` — never persisted.
 //
 // Lives in `src/world` (neither renderer nor connectome owns it); both lanes
 // import it read-only. It returns metres — a pure world unit — so it never
 // depends on render-layer pixel scales.
-import type { GameMap, TerrainConfig } from '@/core/types';
+import type { GameMap, TerrainConfig, POI } from '@/core/types';
 import { generateTerrainFields } from '@/terrain/terrain-generator';
 import { erodeElevation } from '@/terrain/erosion';
+import { applyPoiInfluences, POI_INFLUENCES } from '@/terrain/poi-influence';
+import { islandSignature, styledIslandSpec, type IslandSpec } from '@/terrain/island-mask';
+import { worldStyleOf } from '@/core/world-style';
+
+/** Memo-key fragment for the POIs that move elevation (mountains/lakes/…). Two
+ *  worlds with the same seed/dims but different terrain POIs must not share a
+ *  cached field. POIs without an elevation influence don't affect height. */
+function poiHeightSignature(pois: POI[] | null | undefined): string {
+  if (!pois?.length) return '';
+  let s = '';
+  for (const p of pois) {
+    if (!p.position) continue;
+    if (!POI_INFLUENCES[p.type]?.elevation) continue;
+    s += `${p.type}@${p.position.x},${p.position.y};`;
+  }
+  return s;
+}
 
 /**
  * Total vertical relief from elevation `0` → `1`, in metres. Tunable; chosen so
@@ -47,7 +68,12 @@ export const ELEVATION_SEA_LEVEL = 0.35;
  * pins the field. If those worldgen constants change, update them here too (a
  * heightfield-parity test guards the shape).
  */
-function configFor(seed: number, width: number, height: number): TerrainConfig {
+function configFor(
+  seed: number,
+  width: number,
+  height: number,
+  island: IslandSpec | null = null,
+): TerrainConfig {
   const maxDim = Math.max(width, height);
   return {
     seed,
@@ -58,6 +84,7 @@ function configFor(seed: number, width: number, height: number): TerrainConfig {
     seaLevel: ELEVATION_SEA_LEVEL,
     poleFalloff: true,
     continentWarp: 2.0,
+    island: island ?? undefined,
   };
 }
 
@@ -67,10 +94,21 @@ function configFor(seed: number, width: number, height: number): TerrainConfig {
  * Deterministic: same inputs → identical array. Excludes POI/connectome
  * deformations (see file header).
  */
-export function computeHeightfield(seed: number, width: number, height: number): Float32Array {
-  const cfg = configFor(seed, width, height);
+export function computeHeightfield(
+  seed: number,
+  width: number,
+  height: number,
+  island: IslandSpec | null = null,
+  pois: POI[] | null = null,
+): Float32Array {
+  const cfg = configFor(seed, width, height, island);
   const fields = generateTerrainFields(cfg);
-  return erodeElevation(fields.elevation, width, height, { seed });
+  // Mirror map-generator EXACTLY: generate → erode → apply POI influences, so
+  // this field equals the one biomes were classified from (mountains have real
+  // height, lakes a real basin). Influence runs AFTER erosion (peaks stay sharp).
+  fields.elevation = erodeElevation(fields.elevation, width, height, { seed });
+  if (pois?.length) applyPoiInfluences(fields, pois, cfg);
+  return fields.elevation;
 }
 
 // Small LRU-ish memo: a heightfield is ~256 KB for a 256² map and recomputing
@@ -84,8 +122,14 @@ const cache = new Map<string, Float32Array>();
  * repeated calls with the same `(seed, width, height)` — callers must treat it
  * as read-only.
  */
-export function getHeightfield(seed: number, width: number, height: number): Float32Array {
-  const key = `${seed}:${width}x${height}`;
+export function getHeightfield(
+  seed: number,
+  width: number,
+  height: number,
+  island: IslandSpec | null = null,
+  pois: POI[] | null = null,
+): Float32Array {
+  const key = `${seed}:${width}x${height}:${islandSignature(island)}:${poiHeightSignature(pois)}`;
   let hf = cache.get(key);
   if (hf) {
     // Refresh recency (Map preserves insertion order → re-insert = most recent).
@@ -93,7 +137,7 @@ export function getHeightfield(seed: number, width: number, height: number): Flo
     cache.set(key, hf);
     return hf;
   }
-  hf = computeHeightfield(seed, width, height);
+  hf = computeHeightfield(seed, width, height, island, pois);
   cache.set(key, hf);
   if (cache.size > CACHE_CAP) {
     const oldest = cache.keys().next().value;
@@ -110,7 +154,7 @@ export function clearHeightfieldCache(): void {
 /** Normalised elevation `[0,1]` at a tile (edge-clamped to the map). */
 export function elevationAt(map: GameMap, tx: number, ty: number): number {
   const { seed, width, height } = map;
-  const hf = getHeightfield(seed, width, height);
+  const hf = getHeightfield(seed, width, height, styledIslandSpec(map.worldSeed), map.worldSeed?.pois ?? null);
   const cx = Math.max(0, Math.min(width - 1, tx | 0));
   const cy = Math.max(0, Math.min(height - 1, ty | 0));
   return hf[cy * width + cx];
@@ -122,5 +166,8 @@ export function elevationAt(map: GameMap, tx: number, ty: number): number {
  * `TerrainView.heightAt` and the connectome's placement affordance.
  */
 export function heightMetresAt(map: GameMap, tx: number, ty: number): number {
-  return (elevationAt(map, tx, ty) - ELEVATION_SEA_LEVEL) * TERRAIN_RELIEF_M;
+  // `mountainRelief` (S1 style knob) sets the metre span of the 0→1 field;
+  // defaults to TERRAIN_RELIEF_M, so unstyled worlds are unchanged.
+  const relief = worldStyleOf(map.worldSeed).mountainRelief;
+  return (elevationAt(map, tx, ty) - ELEVATION_SEA_LEVEL) * relief;
 }

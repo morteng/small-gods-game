@@ -4,6 +4,8 @@ import type { SpiritId } from '@/core/spirit';
 import type { Era } from '@/core/era';
 import type { SpritePack } from '@/render/iso/sprite-canvas';
 import type { LightingState } from '@/render/lighting-state';
+import type { IslandSpec } from '@/terrain/island-mask';
+import type { WorldStyleConfig } from '@/core/world-style';
 
 export type { Era } from '@/core/era';
 
@@ -112,6 +114,17 @@ export interface WorldSeed {
   tileWeights?: Record<string, number>;
   lore?: { history?: string; factions?: string[]; quests?: string[] };
   roadEndpoints?: { direction: string; style?: string }[];
+  /**
+   * W1: sink the map edges to ocean (the world is an island). `true` uses the
+   * default island shape; pass an {@link IslandSpec} to customise the coastline.
+   */
+  island?: boolean | IslandSpec;
+  /**
+   * "Tone & Scale" meta-config: high-level Scale (game factor) + Rating presets
+   * plus per-knob overrides, resolved to a flat {@link WorldStyle} by
+   * `worldStyleOf` (see `src/core/world-style.ts`). Absent → neutral defaults.
+   */
+  style?: WorldStyleConfig;
 }
 
 /** Camera state for pan/zoom */
@@ -257,6 +270,8 @@ export interface TerrainConfig {
   seaLevel?: number;         // default 0.35
   poleFalloff?: boolean;     // temperature drops at poles
   continentWarp?: number;    // domain warp strength (0 = off)
+  /** W1 island mask: sinks the map edges to ocean. Off when undefined. */
+  island?: IslandSpec;
 }
 
 export interface TerrainField {

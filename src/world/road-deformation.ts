@@ -30,7 +30,9 @@ import {
   heightAt,
   type Deformation,
 } from '@/world/terrain-deformation';
-import { getHeightfield, ELEVATION_SEA_LEVEL, TERRAIN_RELIEF_M } from '@/world/heightfield';
+import { getHeightfield, ELEVATION_SEA_LEVEL } from '@/world/heightfield';
+import { styledIslandSpec } from '@/terrain/island-mask';
+import { worldStyleOf } from '@/core/world-style';
 
 /** Corridor half-width in TILES by road class (a tile is 2 m). Highways cut a
  *  wider shelf than footpaths. */
@@ -119,7 +121,7 @@ export function getRoadDeformationStore(map: GameMap): DeformationStore {
  * (seed, dims, store version); callers must treat it read-only.
  */
 export function getComposedHeightfield(map: GameMap): Float32Array {
-  const base = getHeightfield(map.seed, map.width, map.height);
+  const base = getHeightfield(map.seed, map.width, map.height, styledIslandSpec(map.worldSeed), map.worldSeed?.pois ?? null);
   const store = getRoadDeformationStore(map);
   if (store.size === 0) return base; // parity by construction
 
@@ -128,13 +130,17 @@ export function getComposedHeightfield(map: GameMap): Float32Array {
   if (cached) return cached;
 
   const { width, height } = map;
+  // Use the SAME styled relief the renderer reads (inverse of heightMetresAt), so
+  // a metre-deformation embeds into normalised space at the world's actual scale.
+  // Defaults to TERRAIN_RELIEF_M, so unstyled worlds are byte-identical.
+  const relief = worldStyleOf(map.worldSeed).mountainRelief;
   const out = new Float32Array(width * height);
   for (let ty = 0; ty < height; ty++) {
     for (let tx = 0; tx < width; tx++) {
       // heightAt composes deformations in metres; convert back to the normalised
       // [0,1] range the height buffer carries (inverse of heightMetresAt).
       const m = heightAt(map, store, tx, ty);
-      out[ty * width + tx] = m / TERRAIN_RELIEF_M + ELEVATION_SEA_LEVEL;
+      out[ty * width + tx] = m / relief + ELEVATION_SEA_LEVEL;
     }
   }
   fieldCache.set(k, out);

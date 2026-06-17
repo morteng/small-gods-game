@@ -268,6 +268,56 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
     materials: { walls: 'hide', roof: 'hide', ground: 'dirt' },
     parts: { body: { type: 'body', size: { w: 3, h: 3 }, params: { plan: 'round', levels: 1, roof: 'domed' }, features: { door: { type: 'door', face: 'south' } /* smoke vent DERIVED from hearth (resolveAsset connectome) */ } } },
   }),
+  // Manor hall house (S2): the lord's seat and the village's secular focus — a long,
+  // tall stone GREAT HALL range (open to the roof) with a two-storey jettied CROSS-WING
+  // at the upper end (the solar/private chambers). The hall's openings are DERIVED
+  // (gen-openings: a door + ranked hall windows down the flanks); the wing carries its
+  // own chamber windows. A rich stone hall takes a real wall-fireplace CHIMNEY (authored,
+  // not the commoner ridge-louvre the connectome would derive for an un-waged build).
+  // The grander cousin of cottage/longhouse; matches the primed `manor` buildingType.
+  manor: bp('manor', {
+    category: 'residential', era: 'medieval', footprint: { w: 5, h: 3 },
+    materials: { walls: 'stone', roof: 'tile', ground: 'flagstone' },
+    parts: {
+      hall: {
+        type: 'body', at: { x: 0, y: 0 }, size: { w: 5, h: 3 },
+        params: { plan: 'rect', levels: 1, storeyM: 5.5, roof: 'gable' },
+        tags: [GEN_OPENINGS_TAG],
+        features: { smoke: { type: 'vent', params: { kind: 'chimney', t: 0.45 } } },
+      },
+      // Two-storey jettied cross-wing at the upper (east) end — overlaps the hall's end
+      // bays and rises above its ridge (the castle_keep bailey+tower trick).
+      crosswing: {
+        type: 'body', at: { x: 3, y: 0 }, size: { w: 2, h: 3 },
+        params: { plan: 'rect', levels: 2, roof: 'gable', jetty: 0.12 },
+        features: {
+          win_s: { type: 'window', face: 'south', params: { style: 'shuttered', t: 0.5, perStorey: true } },
+          win_e: { type: 'window', face: 'east', params: { style: 'shuttered', t: 0.5, perStorey: true } },
+        },
+      },
+    },
+  }),
+  // Parish church (S2): the village's SACRED focus. A tall gabled stone NAVE lit by
+  // arched windows ranked down its flanks (church-axial gen-openings keeps the entrance
+  // front clear), with a square WEST TOWER carrying a broach spire that rises clear above
+  // the ridge. No hearth, no smoke. Distinct from temple_small (a single classical cella)
+  // and shrine (a single cell); matches the primed `parish-church` buildingType.
+  'parish-church': bp('parish-church', {
+    category: 'religious', era: 'medieval', footprint: { w: 3, h: 6 },
+    materials: { walls: 'stone', roof: 'slate', ground: 'flagstone' },
+    parts: {
+      nave: {
+        type: 'body', at: { x: 0, y: 2 }, size: { w: 3, h: 4 },
+        params: { plan: 'rect', levels: 1, storeyM: 6.0, roof: 'gable' },
+        tags: [GEN_OPENINGS_TAG],
+      },
+      // West tower + tall broach spire (the `tower` structural part's first real consumer).
+      tower: {
+        type: 'tower', at: { x: 0, y: 0 }, size: { w: 2, h: 2 },
+        params: { levels: 5, shape: 'square', roof: 'pyramidal', spire: 4 },
+      },
+    },
+  }),
   // Longhouse: half-hip (gablet) thatch — THE longhouse roof; opposed cross-passage
   // doors at ⅓ length; windows only on the humans' end, byre end blind; louvre over
   // the hearth bay.

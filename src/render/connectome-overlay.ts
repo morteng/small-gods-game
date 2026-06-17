@@ -11,8 +11,8 @@
 
 import type { RenderContext, Camera, GameMap, POI } from '@/core/types';
 import { ISO_TILE_W, ISO_TILE_H } from '@/render/iso/iso-constants';
-import { elevationAt, ELEVATION_SEA_LEVEL, TERRAIN_RELIEF_M } from '@/world/heightfield';
-import { TERRAIN_Z_PX_PER_M } from '@/render/gpu/terrain-field';
+import { elevationAt, ELEVATION_SEA_LEVEL } from '@/world/heightfield';
+import { worldStyleOf } from '@/core/world-style';
 
 const HALF_W = ISO_TILE_W / 2;
 const HALF_H = ISO_TILE_H / 2;
@@ -26,7 +26,10 @@ const EDGE_STYLE: Record<string, { color: string; width: number }> = {
 /** Project a tile coord to CSS-pixel screen space, lifted onto the terrain. */
 function project(map: GameMap, tx: number, ty: number, cam: Camera): { x: number; y: number } {
   const elev = elevationAt(map, tx, ty);
-  const lift = (elev - ELEVATION_SEA_LEVEL) * TERRAIN_RELIEF_M * TERRAIN_Z_PX_PER_M;
+  // S1 style knobs (default to TERRAIN_RELIEF_M × TERRAIN_Z_PX_PER_M) — must match
+  // the GPU terrain lift exactly so overlay nodes sit on the lifted surface.
+  const style = worldStyleOf(map.worldSeed);
+  const lift = (elev - ELEVATION_SEA_LEVEL) * style.mountainRelief * style.terrainVerticalExaggeration;
   const sx = ((tx - ty) * HALF_W - cam.x) * cam.zoom;
   const sy = ((tx + ty) * HALF_H - lift - cam.y) * cam.zoom;
   return { x: sx, y: sy };

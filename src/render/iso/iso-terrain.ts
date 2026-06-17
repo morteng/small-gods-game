@@ -5,6 +5,7 @@ import { ISO_TILE_W, ISO_TILE_H } from './iso-constants';
 import type { TileBounds } from './iso-projection';
 import { effectiveTileType } from '@/render/layer-visibility';
 import { getHeightfield } from '@/world/heightfield';
+import { styledIslandSpec } from '@/terrain/island-mask';
 import { shadeHex, litTileColorHex, tileHash01 } from './terrain-shading';
 
 // Re-exported for backwards compatibility (tests + callers import it here).
@@ -58,7 +59,7 @@ export function drawIsoTerrain(ctx: CanvasRenderingContext2D, args: IsoTerrainAr
   // R1: the seed-deterministic world heightfield (memoised — recomputed once
   // per world, then O(1)). Indexed inline below so we touch the Float32Array
   // directly per tile rather than rebuilding a lookup key each cell.
-  const heightfield = getHeightfield(map.seed, map.width, map.height);
+  const heightfield = getHeightfield(map.seed, map.width, map.height, styledIslandSpec(map.worldSeed), map.worldSeed?.pois ?? null);
 
   const iMin = bounds.minTx + bounds.minTy;
   const iMax = bounds.maxTx + bounds.maxTy;

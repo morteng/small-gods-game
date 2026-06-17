@@ -78,8 +78,8 @@ describe('carveConnections (walker-based)', () => {
   });
 
   it('places bridges over water with autoBridge=true (default for non-river)', async () => {
-    // Seed 19 with POI B at x=42 puts shallow water on the path → bridges expected.
-    const { map } = await generateWithNoise(48, 32, 19, makeSeed({
+    // Seed 3 with POI B at x=42 puts shallow water on the path → bridges expected.
+    const { map } = await generateWithNoise(48, 32, 3, makeSeed({
       size: { width: 48, height: 32 },
       pois: [
         { id: 'a', type: 'village', name: 'A', position: { x: 5,  y: 16 } },
@@ -96,7 +96,7 @@ describe('carveConnections (walker-based)', () => {
   });
 
   it('does not place bridges when autoBridge=false', async () => {
-    const { map } = await generateWithNoise(48, 32, 19, makeSeed({
+    const { map } = await generateWithNoise(48, 32, 3, makeSeed({
       size: { width: 48, height: 32 },
       pois: [
         { id: 'a', type: 'village', name: 'A', position: { x: 5,  y: 16 } },

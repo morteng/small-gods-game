@@ -21,11 +21,13 @@ import { presetsForEra } from '@/map/poi-zones';
 import type { POI } from '@/core/types';
 import { Random } from '@/core/noise';
 import { synthesizeBlueprint } from '@/blueprint/presets';
+import type { ResolvedBlueprint } from '@/blueprint/types';
 import { blueprintEntity } from '@/blueprint/entity';
 import { toCollision } from '@/blueprint/compile/to-collision';
 import { toAnchors } from '@/blueprint/compile/to-anchors';
 import { placeBarrier } from '@/world/place-barrier';
-import { tileBlockedByBuilding } from '@/world/building-collision';
+import { isBuilding as isBuildingEntity, tileBlockedByBuilding } from '@/world/building-collision';
+import { OccupancyGrid, buildingSolidCells } from '@/world/occupancy-grid';
 import { deriveCroftEnclosures, deriveSettlementRing, type EnclosureCtx } from '@/world/enclosure';
 import {
   planSettlement, orderedSlotsFor, subdivideLots, widenMarket, assignWards, planCivics,
@@ -163,6 +165,26 @@ export function findPlacement(
   return null;
 }
 
+/**
+ * Spiral outward from the settlement centre for the nearest position where the
+ * footprint fits (`fits`), centring the footprint on (cx,cy). Used for CENTER-FIRST
+ * focus placement (S3): the church/manor anchors a central precinct rather than a
+ * frontage lot, because a deep focus footprint won't fit a burgage lot and fronting
+ * a lane would push it to the rim.
+ */
+export function findCentralPlacement(
+  cx: number, cy: number, fp: { w: number; h: number },
+  fits: (x: number, y: number, w: number, h: number) => boolean, maxRadius: number,
+): PlacementResult | null {
+  const ax = cx - Math.floor(fp.w / 2), ay = cy - Math.floor(fp.h / 2);
+  for (let r = 0; r <= maxRadius; r++) {
+    for (const { x, y } of spiralRing(ax, ay, r)) {
+      if (fits(x, y, fp.w, fp.h)) return { tileX: x, tileY: y };
+    }
+  }
+  return null;
+}
+
 /** Check placement ignoring vegetation/terrain entities (which get cleared). */
 function canPlaceIgnoringNature(
   x: number, y: number, w: number, h: number,
@@ -217,7 +239,11 @@ export function placeSettlement(
   widenMarket(plan, tiles);
   subdivideLots(plan, tiles, worldSeed);
   assignWards(plan, radius, tiles, worldSeed);
-  planCivics(plan, tiles, worldSeed);
+  // S3b — a nucleated village (large enough to carry foci, the church rung) keeps
+  // a central open green; a hamlet stays dense. Bigger settlements get a bigger
+  // common. The green is a connectome-placed "mini biome" of tended meadow.
+  const greenSize = buildingCount >= 4 ? (buildingCount >= 12 ? 4 : 3) : 0;
+  planCivics(plan, tiles, worldSeed, greenSize);
 
   // Civic precincts (S5): reserve every civic tile against building placement —
   // props don't block via canPlaceIgnoringNature, so the fallback spiral would
@@ -227,11 +253,38 @@ export function placeSettlement(
   // known entity kind likewise reserves ground without yet emitting a prop.
   // Only real settlements (with burgage lots) get civics — a lake / zero-count
   // POI stays empty.
-  const civicSet = new Set<string>();
+  // S1: ONE settlement-local occupancy authority. Every producer (roads, civics,
+  // buildings) claims the cells it writes here and consults it before writing —
+  // deconfliction by construction, replacing the old roadSet/civicSet/registry
+  // post-hoc filtering. Barriers later gate over 'building' claims.
+  const occ = new OccupancyGrid();
+
   if (plan.lots.length > 0) {
     for (const c of plan.civics) {
-      for (let dy = 0; dy < c.h; dy++) {
-        for (let dx = 0; dx < c.w; dx++) civicSet.add(`${c.x + dx},${c.y + dy}`);
+      // Occupancy is settlement-local, but two settlements can sit close enough
+      // that one's civic precinct (a water-seeking mill especially) lands on a
+      // NEIGHBOUR's already-placed building. The world registry is the only
+      // cross-settlement authority — skip a civic that would overlap one.
+      if (world) {
+        let blocked = false;
+        for (let dy = 0; dy < c.h && !blocked; dy++) {
+          for (let dx = 0; dx < c.w; dx++) {
+            if (tileBlockedByBuilding(world, c.x + dx, c.y + dy)) { blocked = true; break; }
+          }
+        }
+        if (blocked) continue;
+      }
+      occ.claimRect(c.x, c.y, c.w, c.h, 'civic');
+      // S3b — the green is a ground-only precinct: paint it as tended meadow (a
+      // lusher green than plain grass) so the open common reads against the
+      // trampled dirt of the lanes/market around it. Wear leaves it alone.
+      if (c.type === 'green') {
+        for (let dy = 0; dy < c.h; dy++) {
+          for (let dx = 0; dx < c.w; dx++) {
+            const t = tiles[c.y + dy]?.[c.x + dx];
+            if (t) { t.type = 'meadow'; t.walkable = true; }
+          }
+        }
       }
       // Every civic with a preset (mill building + well/graveyard props) goes
       // through the SAME pipeline: synthesize its blueprint, carve the footprint
@@ -248,6 +301,9 @@ export function placeSettlement(
       clearFootprint(c.x, c.y, rb.footprint.w, rb.footprint.h, registry, world, tiles);
       registry.add(civic);
       entities.push(civic);
+      // A building-class civic (the mill) is solid for barrier gating, exactly as
+      // the old registry-read `tileBlockedByBuilding` treated it; props are not.
+      if (isBuildingEntity(civic)) occ.claimCells(buildingSolidCells(toCollision(rb), c.x, c.y), 'building');
     }
   }
 
@@ -255,7 +311,7 @@ export function placeSettlement(
     ...plan.edges.flatMap(e => e.tiles.map(t => ({ x: t.x, y: t.y, type: roadType }))),
     ...plan.market.map(m => ({ x: m.x, y: m.y, type: roadType })),
   ];
-  const roadSet = new Set(roadTiles.map(rt => `${rt.x},${rt.y}`));
+  for (const rt of roadTiles) occ.claim(rt.x, rt.y, 'road');
 
   // Lot lookup: unclaimed lot owning a given frontage slot, with a tile set
   // for footprint-containment checks.
@@ -290,8 +346,7 @@ export function placeSettlement(
     if (!canPlaceIgnoringNature(x, y, w, h, constraint.margin, registry)) return false;
     for (let dy = 0; dy < h; dy++) {
       for (let dx = 0; dx < w; dx++) {
-        if (roadSet.has(`${x + dx},${y + dy}`)) return false;
-        if (civicSet.has(`${x + dx},${y + dy}`)) return false;
+        if (occ.has(x + dx, y + dy)) return false;   // road/civic/building claim
         if (ROAD_TYPES.has(tiles[y + dy]?.[x + dx]?.type)) return false;
       }
     }
@@ -299,19 +354,23 @@ export function placeSettlement(
     return true;
   };
 
-  // 2. Execute: claim frontage slots (door faces its road tile), spiral fallback.
+  // 2. Execute placement. S3 — CENTER-FIRST: the settlement nucleates around its
+  // FOCI (parish church / manor hall). Those anchor a central precinct first
+  // (2a); dwellings then fill frontage lots around them (2b).
   let placed = 0;
   const roster = presetsForEra(zoneRule, era);
+  // A focus appears only once the settlement is large enough (focusMin rung);
+  // below that it's omitted so a tiny hamlet stays dwellings-only.
+  const focusPresets = [...new Set(
+    roster.filter(p => SITE_RULES[p]?.focus && buildingCount >= (SITE_RULES[p]?.focusMin ?? 0)),
+  )];
+  const fillRoster = roster.filter(p => !SITE_RULES[p]?.focus);
+  const fillPool = fillRoster.length > 0 ? fillRoster : focusPresets;
 
-  for (let attempt = 0; attempt < buildingCount * 4 && placed < buildingCount && roster.length > 0; attempt++) {
-    const presetName = roster[placed % roster.length];
-    const rb = synthesizeBlueprint(presetName);
-    if (!rb) continue;
-    const site = SITE_RULES[presetName];
-
-    // Main door: outward facing + local cell, from the blueprint anchor
-    // (inverting toAnchors' half-tile outward offset — doorCells order is
-    // unrelated to which door is main).
+  // Main door (outward facing + local door cell) from the blueprint anchor —
+  // inverting toAnchors' half-tile outward offset (doorCells order is unrelated
+  // to which door is main).
+  const doorOf = (rb: ResolvedBlueprint): { facing: [number, number]; doorCell: number[] } => {
     const anchors = toAnchors(rb, 0, 0);
     const door = anchors.find(a => a.main) ?? anchors[0];
     const facing: [number, number] = door?.facing ?? [0, 1];
@@ -319,17 +378,88 @@ export function placeSettlement(
       ? [door.x - (facing[0] > 0 ? 1 : facing[0] < 0 ? 0 : 0.5),
          door.y - (facing[1] > 0 ? 1 : facing[1] < 0 ? 0 : 0.5)]
       : (toCollision(rb).doorCells[0] ?? '0,0').split(',').map(Number);
+    return { facing, doorCell };
+  };
+
+  // Commit a placed building: create the entity, clear + claim its footprint
+  // (occupancy grid 'building' claim — S1), claim intersecting lots, keep the
+  // door tile walkable, and (for non-frontage placements) carve a short
+  // connector lane from the door toward the centre. Bumps `placed`.
+  const commit = (
+    rb: ResolvedBlueprint, origin: PlacementResult,
+    facing: [number, number], doorCell: number[], viaSlot: boolean,
+  ): Entity => {
+    const entity = blueprintEntity(`${poi.id}_bld_${placed}`, rb, origin.tileX, origin.tileY, { poiId: poi.id });
+    clearFootprint(origin.tileX, origin.tileY, rb.footprint.w, rb.footprint.h, registry, world, tiles);
+    registry.add(entity);
+    entities.push(entity);
+    occ.claimCells(buildingSolidCells(toCollision(rb), origin.tileX, origin.tileY), 'building');
+    // Claim every lot the footprint INTERSECTS, so live growth (S3) never sees a
+    // "free" lot with blocked tiles.
+    for (const lot of plan.lots) {
+      if (lot.buildingId) continue;
+      const hit = lot.tiles.some(t =>
+        t.x >= origin.tileX && t.x < origin.tileX + rb.footprint.w &&
+        t.y >= origin.tileY && t.y < origin.tileY + rb.footprint.h);
+      if (hit) lot.buildingId = entity.id;
+    }
+    const [doorLx, doorLy] = [doorCell[0], doorCell[1]];
+    const doorTile = tiles[origin.tileY + doorLy]?.[origin.tileX + doorLx];
+    if (doorTile) doorTile.walkable = true;
+    // Frontage slots sit door-on-road by construction; central/fallback
+    // placements carve a connector from the door's OUTWARD neighbour to the
+    // centre (links the churchyard/manor green to the street).
+    if (zoneRule.internalRoads && !viaSlot) {
+      const path = bresenhamLine(origin.tileX + doorLx + facing[0], origin.tileY + doorLy + facing[1], cx, cy);
+      for (let pi = 0; pi < Math.min(8, path.length); pi++) {
+        const pt = path[pi];
+        const t = tiles[pt.y]?.[pt.x];
+        if (!t || WATER_TYPES.has(t.type)) break;
+        if (t.walkable === false) break;   // never carve through a footprint
+        if (occ.is(pt.x, pt.y, 'civic')) break;   // S3b: front the green, don't pave across it
+        const hitRoad = occ.is(pt.x, pt.y, 'road') || ROAD_TYPES.has(t.type);
+        roadTiles.push({ x: pt.x, y: pt.y, type: roadType });
+        occ.claim(pt.x, pt.y, 'road');
+        if (hitRoad) break;
+      }
+    }
+    placed++;
+    return entity;
+  };
+
+  // 2a. Center-first foci: anchor each in a central precinct near the founding
+  // node (a free-standing churchyard / manor green). A deep church footprint
+  // won't fit a burgage lot and fronting a lane would push it to the rim, so it
+  // claims the nearest clear, buildable ground to the centre instead.
+  for (const presetName of focusPresets) {
+    if (placed >= buildingCount) break;
+    const rb = synthesizeBlueprint(presetName);
+    if (!rb) continue;
+    const site = SITE_RULES[presetName];
+    const origin = findCentralPlacement(
+      cx, cy, rb.footprint, (x, y, w, h) => fitsAt(x, y, w, h, site?.nearWater), radius,
+    );
+    if (!origin) continue;   // no central room (rare) → focus omitted this gen
+    const { facing, doorCell } = doorOf(rb);
+    commit(rb, origin, facing, doorCell, false);
+  }
+
+  // 2b. Fill dwellings on frontage lots, round-robin the non-focus roster.
+  const focusPlaced = placed;
+  for (let attempt = 0; attempt < buildingCount * 4 && placed < buildingCount && fillPool.length > 0; attempt++) {
+    const presetName = fillPool[(placed - focusPlaced) % fillPool.length];
+    const rb = synthesizeBlueprint(presetName);
+    if (!rb) continue;
+    const site = SITE_RULES[presetName];
+    const { facing, doorCell } = doorOf(rb);
     let origin: PlacementResult | null = null;
 
     // Pass 1: claim a burgage lot (footprint fully inside the lot — regular
-    // spacing + back yard). Pass 2: any fitting slot (S1 behaviour) for
-    // footprints no lot can hold (keep, wide barns).
+    // spacing + back yard). Pass 2: any fitting slot for footprints no lot can hold.
     const orderedSlots = orderedSlotsFor(plan, facing, site, rng);
     for (const strictLots of [true, false]) {
       for (const slot of orderedSlots) {
-        // Align the footprint edge on the DOOR side flush against the road —
-        // the door fronts the road across at most its own yard strip (some
-        // presets keep a lawn row between the body and the footprint edge).
+        // Align the footprint edge on the DOOR side flush against the road.
         const { w, h } = rb.footprint;
         const ox = facing[0] > 0 ? slot.roadX - w
           : facing[0] < 0 ? slot.roadX + 1
@@ -357,14 +487,12 @@ export function placeSettlement(
         { x: targetX, y: targetY }, rb.footprint,
         { ...constraint, nearWater: site?.nearWater }, tiles, registry, radius,
       );
-      // Planned roads + civic precincts aren't on the tile grid yet — keep
-      // footprints off them.
+      // Planned roads + civic precincts aren't on the tile grid yet — keep off them.
       if (origin) {
         const { tileX, tileY } = origin;
         outer: for (let dy = 0; dy < rb.footprint.h; dy++) {
           for (let dx = 0; dx < rb.footprint.w; dx++) {
-            const k = `${tileX + dx},${tileY + dy}`;
-            if (roadSet.has(k) || civicSet.has(k)) { origin = null; break outer; }
+            if (occ.has(tileX + dx, tileY + dy)) { origin = null; break outer; }
           }
         }
       }
@@ -372,55 +500,7 @@ export function placeSettlement(
     }
     if (!origin) continue;
 
-    const entity = blueprintEntity(
-      `${poi.id}_bld_${placed}`, rb, origin.tileX, origin.tileY, { poiId: poi.id },
-    );
-
-    clearFootprint(
-      origin.tileX, origin.tileY, rb.footprint.w, rb.footprint.h,
-      registry, world, tiles,
-    );
-
-    registry.add(entity);
-    entities.push(entity);
-    // Claim every lot the footprint INTERSECTS (not just pass-1 containment):
-    // a pass-2/fallback building sitting on lot ground must mark it used, or
-    // live growth (S3) would see a "free" lot with blocked tiles.
-    for (const lot of plan.lots) {
-      if (lot.buildingId) continue;
-      const hit = lot.tiles.some(t =>
-        t.x >= origin.tileX && t.x < origin.tileX + rb.footprint.w &&
-        t.y >= origin.tileY && t.y < origin.tileY + rb.footprint.h);
-      if (hit) lot.buildingId = entity.id;
-    }
-
-    // Door tile stays walkable so mortals can reach the entrance (collision
-    // already treats the door cell as passable; keep the tile flag in sync).
-    const [doorLx, doorLy] = [doorCell[0], doorCell[1]];
-    const doorTile = tiles[origin.tileY + doorLy]?.[origin.tileX + doorLx];
-    if (doorTile) doorTile.walkable = true;
-
-    // Slot placements sit door-on-road by construction; fallback placements
-    // get a short carved connector from the door's OUTWARD neighbour (the
-    // door cell itself belongs to the footprint) toward the centre.
-    if (zoneRule.internalRoads && !viaSlot) {
-      const doorX = origin.tileX + doorLx + facing[0];
-      const doorY = origin.tileY + doorLy + facing[1];
-      const path = bresenhamLine(doorX, doorY, cx, cy);
-      for (let pi = 0; pi < Math.min(6, path.length); pi++) {
-        const pt = path[pi];
-        const t = tiles[pt.y]?.[pt.x];
-        if (!t || WATER_TYPES.has(t.type)) break;
-        // Never carve through a building footprint (the door tile itself is walkable).
-        if (t.walkable === false) break;
-        const hitRoad = roadSet.has(`${pt.x},${pt.y}`) || ROAD_TYPES.has(t.type);
-        roadTiles.push({ x: pt.x, y: pt.y, type: roadType });
-        roadSet.add(`${pt.x},${pt.y}`);
-        if (hitRoad) break;
-      }
-    }
-
-    placed++;
+    commit(rb, origin, facing, doorCell, viaSlot);
   }
 
   // 3. Enclose (DC-3, barriers half): ring built crofts with hedges/fences and,
@@ -433,8 +513,10 @@ export function placeSettlement(
     const ctx: EnclosureCtx = { era };
 
     // A building structure cell — barrier rings gate (open) rather than run
-    // through it. Buildings are already in the registry at this point.
-    const isBuilding = (x: number, y: number) => tileBlockedByBuilding(world, x, y);
+    // through it. The occupancy grid holds every solid building cell (roster +
+    // the mill) claimed during placement, so this is the same notion of "inside
+    // the walls" the old registry read (`tileBlockedByBuilding`) gave.
+    const isBuilding = (x: number, y: number) => occ.is(x, y, 'building');
 
     // Per-croft enclosures (hedge/fence/wall) around each built lot.
     for (const { id, run } of deriveCroftEnclosures(plan.lots, poi.id, rng, ctx, isBuilding)) {
@@ -457,7 +539,7 @@ export function placeSettlement(
         mapW: tiles[0]?.length ?? 0, mapH: tiles.length,
         buildingCount: placed, poiId: poi.id,
         isWater: (x, y) => WATER_TYPES.has(tiles[y]?.[x]?.type ?? ''),
-        isRoad: (x, y) => roadSet.has(`${x},${y}`) || ROAD_TYPES.has(tiles[y]?.[x]?.type ?? ''),
+        isRoad: (x, y) => occ.is(x, y, 'road') || ROAD_TYPES.has(tiles[y]?.[x]?.type ?? ''),
         isBuilding,
         ctx,
       });

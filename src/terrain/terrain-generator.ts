@@ -19,6 +19,24 @@
 import { fbm, warpedNoise, ridgeNoise } from '@/core/noise';
 import type { TerrainConfig, TerrainField, BiomeMap } from '@/core/types';
 import { classifyBiome, sampleBiomeTile, Biome } from './biomes';
+import { islandFalloff, islandDome } from './island-mask';
+
+// ── Elevation shaping tunables (see generateTerrainFields) ──────────────────────
+/** Weight of the warped continental base (raised from 0.7 to absorb the removed
+ *  flat ridge term, so lowland area/coastlines are unchanged). */
+const BASE_WEIGHT = 0.9;
+/** Peak height ridges ADD inside a fully-masked mountain zone. */
+const RIDGE_WEIGHT = 0.55;
+/** Low-freq zone-noise band over which mountains fade in (below LO: none). */
+const MOUNTAIN_ZONE_LO = 0.52;
+const MOUNTAIN_ZONE_HI = 0.80;
+
+/** Hermite smoothstep, clamped to [0,1]. */
+function smoothstep01(edge0: number, edge1: number, x: number): number {
+  if (edge1 <= edge0) return x < edge0 ? 0 : 1;
+  const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
+  return t * t * (3 - 2 * t);
+}
 
 export type { TerrainConfig, TerrainField, BiomeMap };
 export { Biome };
@@ -43,6 +61,7 @@ export function generateTerrainFields(config: TerrainConfig): TerrainField {
     seaLevel       = 0.35,
     poleFalloff    = true,
     continentWarp  = 2.0,
+    island,
   } = config;
 
   const size = width * height;
@@ -54,12 +73,28 @@ export function generateTerrainFields(config: TerrainConfig): TerrainField {
     for (let x = 0; x < width; x++) {
       const idx = y * width + x;
 
-      // Elevation: warped noise + ridge ridges blended
+      // Elevation: warped continental base, with sharp ridges GATED behind a
+      // low-frequency "mountain zone" mask so peaks form RANGES in a few places
+      // instead of blobbing isotropically everywhere (research: libnoise ridged
+      // multifractal + Red Blob ridge gating). The base weight is raised to 0.9
+      // to compensate for the removed flat ridge term, so lowland area/coastlines
+      // stay put; ridges only ADD inside mountain zones.
       const baseElev = continentWarp > 0
         ? warpedNoise(x * elevationScale, y * elevationScale, seed, continentWarp)
         : fbm(x * elevationScale, y * elevationScale, { seed, octaves: 6 });
-      const ridges = ridgeNoise(x * elevationScale * 1.5, y * elevationScale * 1.5, seed + 999, 4);
-      elevation[idx] = Math.max(0, Math.min(1, baseElev * 0.7 + ridges * 0.3));
+      const ridges = ridgeNoise(x * elevationScale * 1.5, y * elevationScale * 1.5, seed + 999, 5);
+      const zone   = fbm(x * elevationScale * 0.6, y * elevationScale * 0.6, { seed: seed + 777, octaves: 2 });
+      const mountainMask = smoothstep01(MOUNTAIN_ZONE_LO, MOUNTAIN_ZONE_HI, zone);
+      let elev = baseElev * BASE_WEIGHT + ridges * RIDGE_WEIGHT * mountainMask;
+      // Island shaping: SWELL the interior with a central dome (land rising from
+      // coast to highlands — natural for an island, fixes the flat-disc look),
+      // then SINK the map edges toward ocean. Both before any downstream step
+      // reads elevation (water-proximity, biome classification, erosion).
+      if (island) {
+        elev += islandDome(x, y, width, height, island);
+        elev *= 1 - islandFalloff(x, y, width, height, island);
+      }
+      elevation[idx] = Math.max(0, Math.min(1, elev));
 
       // Moisture: base fBm (water proximity applied below)
       moisture[idx] = fbm(x * moistureScale, y * moistureScale, { seed: seed + 500, octaves: 5 });

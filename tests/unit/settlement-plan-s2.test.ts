@@ -260,7 +260,7 @@ describe('applySettlementWear', () => {
     const spot = { x: road.x, y: road.y - 1 };
     if (tiles[spot.y][spot.x].walkable !== false) {
       world.addEntity({
-        id: 'tree1', kind: 'tree_oak', x: spot.x, y: spot.y, tags: [], properties: {},
+        id: 'tree1', kind: 'oak_tree', x: spot.x, y: spot.y, tags: [], properties: {},
       } as never);
       applySettlementWear(plan, tiles, world, 42);
       expect(world.registry.get('tree1')).toBeUndefined();

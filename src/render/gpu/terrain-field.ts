@@ -18,11 +18,12 @@
 import type { GameMap, DevModeState } from '@/core/types';
 import { TILE_COLORS } from '@/core/constants';
 import { effectiveTileType, RENDER_LAYERS, layerFlag } from '@/render/layer-visibility';
-import { ELEVATION_SEA_LEVEL, TERRAIN_RELIEF_M } from '@/world/heightfield';
+import { ELEVATION_SEA_LEVEL } from '@/world/heightfield';
 import { getComposedHeightfield } from '@/world/road-deformation';
 import { ISO_TILE_W, ISO_TILE_H } from '@/render/iso/iso-constants';
 import type { LightingState } from '@/render/lighting-state';
 import type { TerrainGlobalsInput } from '@/render/gpu/instance-buffer';
+import { worldStyleOf } from '@/core/world-style';
 
 /**
  * Canonical tile-space sun direction (x=east, y=up, z=south) — TOWARD the light,
@@ -35,11 +36,17 @@ import type { TerrainGlobalsInput } from '@/render/gpu/instance-buffer';
 export const TERRAIN_SUN_DIR: [number, number, number] = [-1, 1.6, -1];
 
 /**
- * Vertical z-scale: screen px per metre of relief. DELIBERATELY far below the XY
- * scale (PX_PER_METRE=32) — full relief (~48 m) at 32 px/m would tower 1500 px;
- * terrain z is compressed for readability like most iso games. Tunable.
+ * Vertical z-scale: screen px per metre of relief — the "game factor" / vertical
+ * exaggeration that maps the world's real-metre heightfield to screen pixels.
+ * DELIBERATELY far below the XY scale (PX_PER_METRE=32): terrain z is compressed
+ * for readability like most iso games (real GIS exaggeration is 2–3×, but iso
+ * already halves apparent height, and our modest TERRAIN_RELIEF_M wants a larger
+ * multiplier to read). At reliefM=48 a sea-to-peak swing (~0.65) lifts ~437 px.
+ * This is the seed default for the future `terrainVerticalExaggeration` style
+ * knob (see the world-style / "game factor" epic) — raise toward a storybook
+ * look, lower toward a flatter simulator look.
  */
-export const TERRAIN_Z_PX_PER_M = 1.5;
+export const TERRAIN_Z_PX_PER_M = 14.0;
 
 /** Cap on generated quads — picks the subsample LOD so big maps stay cheap. */
 export const MAX_TERRAIN_QUADS = 50000;
@@ -155,14 +162,17 @@ function luminance(c: readonly [number, number, number]): number {
  */
 export function buildTerrainField(map: GameMap, opts: BuildTerrainFieldOpts): TerrainField {
   const grid = terrainGrid(map.width, map.height, opts.maxQuads);
+  // S1 style knobs: vertical exaggeration + relief metres. Default to
+  // TERRAIN_Z_PX_PER_M / TERRAIN_RELIEF_M, so unstyled worlds are unchanged.
+  const style = worldStyleOf(map.worldSeed);
   const globals: TerrainGlobalsInput = {
     viewport: opts.viewport,
     xform: opts.xform,
     grid: [map.width, map.height],
     half: [ISO_TILE_W / 2, ISO_TILE_H / 2],
-    zPxPerM: TERRAIN_Z_PX_PER_M,
+    zPxPerM: style.terrainVerticalExaggeration,
     seaLevel: ELEVATION_SEA_LEVEL,
-    reliefM: TERRAIN_RELIEF_M,
+    reliefM: style.mountainRelief,
     subsample: grid.subsample,
     sunDir: TERRAIN_SUN_DIR,
     bands: opts.lighting.bands,
