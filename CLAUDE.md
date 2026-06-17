@@ -17,17 +17,7 @@ A god game inspired by Terry Pratchett's *Small Gods*. The player is a minor dei
 
 > Completed/superseded specs & plans are archived under `docs/archive/` (organized by epic). New design work goes in `docs/superpowers/{specs,plans}/`.
 
-**Current Status:** Spec A (spine), Spec B (Time), Spec C (minimal — clickable time history strip), **Phase 7 (NPC Simulation Layer) + Phase 8 (Divine Action System) shipped**, the **Dilemma MVP / Track 1 belief loops**, **D1 (Mortality, Birth & Lineage)**, and **D2 (Deterministic Time-Skip)** all merged to `main`. **Phase 9 (LLM Integration) is largely complete** (client/prompt/writeback live and wired into NPC focus; player-facing provider config, first-run welcome modal, live-apply, and DeepSeek token filter shipped — remaining: capable-tier invocation [Track 4] and a conversation UI). **`game.ts` has been decomposed** from a ~1444-line god object into a thin coordinator (~386 LOC) over `src/game/` modules. **880 tests passing** (as of D2).
-
-**Phase 9 Progress:**
-- ✅ NPC prompt builder (`src/llm/npc-prompt-builder.ts`)
-- ✅ LLM client abstraction + providers (`src/llm/llm-client.ts`: Mock, OpenAI, OpenRouter)
-- ✅ Provider factory + localStorage config (`src/llm/provider-factory.ts`)
-- ✅ State writeback from LLM responses (`src/llm/state-writeback.ts`)
-- ✅ Backfill wired into NPC focus (`src/game/llm-backfill.ts` — `LlmBackfillService`, receives the configured client)
-- ✅ Player-facing provider config + first-run welcome modal + live-apply + DeepSeek delimiter-token filter (`src/ui/{llm-settings-new,settings-unified,welcome-modal}.ts`, `src/llm/filter-provider-tokens.ts`; spec/plan dated 2026-06-02)
-- ⬜ Two-tier "capable model at key moments" invocation — config + `llmClientCapable` seam exist; the caller is Track 4 / Fate
-- ⬜ Conversation UI
+**Current Status:** The core arc is shipped to `main` — Spec A (spine), Time (Spec B/C), Phase 7 (NPC sim), Phase 8 (divine actions), the Dilemma MVP / Track 1 belief loops, D1 (mortality/birth/lineage), D2 (deterministic time-skip), and Phase 9 (LLM backfill: client/prompt/writeback + player provider config + live-apply). Built on top since: the parametric building pipeline (blueprint→manifold→img2img→SpritePack), metric scale standardization, settlement growth (S1–S6), a **WebGPU-only renderer** (the Canvas2D/PixiJS scene path was retired), GPU terrain + a world connectome, and a **WebGPU-native immediate-mode UI** (`src/render/ui/`, now the default chrome). `game.ts` is a thin coordinator (~386 LOC) over `src/game/` modules. **~2300 tests passing (~400 files).** The single forward plan is `docs/ROADMAP.md`; remaining LLM work = capable-tier invocation (Track 4 / Fate, `llmClientCapable` seam exists but uncalled) + a conversation UI. For live session state / active epics, see the session memory (`MEMORY.md`), not this file.
 
 Sim is fully deterministic with seedable RNG; snapshot/replay layer supports scrub + commit + re-roll; summoned Time bar UI with past-veil scrubbed treatment, clickable history strip of past commits/whispers above the transport row, jump-forward presets (+10/+25/+50y), and keyboard shortcuts T/Space/1/2/4/8/Esc. `state.paused` retired in favor of `scheduler.getRate()`. The whole `src/sim/` is `Math.random`-free (guarded by `tests/unit/no-random-in-sim.test.ts`).
 
@@ -45,16 +35,16 @@ Sim is fully deterministic with seedable RNG; snapshot/replay layer supports scr
 - **LLM backfill uses the configured provider** (`LlmBackfillService`, `src/game/llm-backfill.ts`); `game.ts` builds it via `createProvider(loadProviderConfig())` and passes the real client. The service only falls back to `MockLLMProvider` when constructed with no `client`. (The old "hardcodes MockLLMProvider at game.ts ~1270" gotcha is obsolete — that path is gone post-decomposition.) Saving in the LLM settings now **rebuilds the live client in place** via `Game.applyLlmConfig` → `LlmBackfillService.setClient` (no page reload). `Game.llmClientCapable` is built ready but **uncalled** — a Track-4 / Fate seam.
 - **Time-Debug snapshot/inject are honest stubs** (disabled `makeStubButton()`s in `src/dev/TimeDebugPanel.ts`). Wiring Save/Load → `TimelineController`/`snapshot.ts` and Inject → settlement events (`world.activeEvents` + `settlement_begin` log) is a ROADMAP item.
 - **All `src/sim/` randomness flows through `ctx.rng`/passed `rng` (seeded sfc32), never `Math.random`** — enforced by `tests/unit/no-random-in-sim.test.ts`. New sim code must follow this or the guard test fails.
-- **Building sprites flow through ONE pipeline (runtime + author-time):** blueprint → manifold geometry → magenta-backed grey init (`compositeOverChroma`) → OpenRouter img2img (`google/gemini-2.5-flash-image`) → chroma-key (`src/render/chroma-key.ts`) → **quality gates** (border-keyed fraction ≥0.6 + silhouette IoU ≥0.7 vs the geometry mask) → **register onto the geometry grid with a negotiation band** (geometry alpha rules the eroded core, the LLM's alpha wins within ±~4% of the silhouette edge, beyond is clipped; missing core pixels flood-fill from neighbours, chroma residue scrubbed — `registerAlbedo` in `src/render/sprite-postprocess.ts`, pure buffers, Node+browser) → palette-quantize → persist. `GeneratedBuildingArtSource` (`src/render/generated-building-art-source.ts`) runs it at runtime (validate-BEFORE-persist; bad gens get one retry then a session-only null, never poisoning IndexedDB; ≤2 concurrent paid calls), checking IDB → vendored base library → paid generation. **Author-time seeding is the same pipeline:** `OPENROUTER_API_KEY=… npx tsx scripts/seed-building-art.ts` (or `--plan` to dry-run) writes `public/asset-library/building-sprites/` so keyless players get art; keys match worldgen exactly (placer synthesizes presets unpatched with name-derived seeds). The old PixelLab pixflux building path (`gen-buildings.ts`) is **deleted** (its imports died with the Blueprint epic); `pixflux-compiler.ts` survives only for floor-tile scripts. `no-three-in-bundle.test.ts` still keeps three/gl out of the bundle. Geometry G-buffer hashes are pinned in `tests/unit/assetgen-golden.test.ts` — intentional geometry changes update the pins AND bump `ART_RECIPE_VERSION`. **Geometry is at v6 (medieval detail pass)**: material-driven eaves/verges, `half_hip` (gablet) roofs, gabled `dormer` features, ridge louvres + slimmed multi-chimneys (a blueprint with NO vent features gets NO seeded default chimney), `jetty` body param, per-type window programmes, rectangular plans — design values in `docs/reference/medieval-building-reference.md`.
+- **Building sprites flow through ONE pipeline (runtime + author-time):** blueprint → manifold geometry → magenta-backed grey init (`compositeOverChroma`) → OpenRouter img2img (default model `black-forest-labs/flux.2-klein-4b`, `BUILDING_IMAGE_MODEL`; the vendored library was generated with the older gemini-2.5-flash-image and is orphaned until a funded reseed) → chroma-key (`src/render/chroma-key.ts`) → **quality gates** (border-keyed fraction ≥0.6 + silhouette IoU ≥0.7 vs the geometry mask) → **register onto the geometry grid with a negotiation band** (geometry alpha rules the eroded core, the LLM's alpha wins within ±~4% of the silhouette edge, beyond is clipped; missing core pixels flood-fill from neighbours, chroma residue scrubbed — `registerAlbedo` in `src/render/sprite-postprocess.ts`, pure buffers, Node+browser) → palette-quantize → persist. `GeneratedBuildingArtSource` (`src/render/generated-building-art-source.ts`) runs it at runtime (validate-BEFORE-persist; bad gens get one retry then a session-only null, never poisoning IndexedDB; ≤2 concurrent paid calls), checking IDB → vendored base library → paid generation. **Author-time seeding is the same pipeline:** `OPENROUTER_API_KEY=… npx tsx scripts/seed-building-art.ts` (or `--plan` to dry-run) writes `public/asset-library/building-sprites/` so keyless players get art; keys match worldgen exactly (placer synthesizes presets unpatched with name-derived seeds). The old PixelLab pixflux building path (`gen-buildings.ts`) is **deleted** (its imports died with the Blueprint epic); `pixflux-compiler.ts` survives only for floor-tile scripts. `no-three-in-bundle.test.ts` still keeps three/gl out of the bundle. Geometry G-buffer hashes are pinned in `tests/unit/assetgen-golden.test.ts` — intentional geometry changes update the pins AND bump `ART_RECIPE_VERSION`. **Geometry is at v10** (medieval detail + generative openings): material-driven eaves/verges, `half_hip` (gablet) roofs, gabled `dormer` features, ridge louvres + slimmed multi-chimneys (a blueprint with NO vent features gets NO seeded default chimney), `jetty` body param, generative per-type window programmes, round-wall openings, rectangular plans — design values in `docs/reference/medieval-building-reference.md`. **Note:** runtime paid generation defaults OFF and a reseed is currently frozen (user: "don't spend money yet"), so in-game buildings render as GREY massing until a funded reseed.
 - **Every IndexedDB open/transaction must race `withIdbTimeout`** (`src/services/idb-guard.ts`). A wedged backing store (browser killed mid-write) leaves `indexedDB.open()` pending FOREVER — no success/error/blocked — which froze boot on the loading screen and starved building art (2026-06-12). The three stores (`save-store`, `generated-art-cache`, `pixellab`) are guarded and degrade (fresh world / vendored art / dropped autosave); new IDB code must follow the same pattern.
 
 ## Tech Stack
 
 - **TypeScript** ES modules, bundled by **Vite**
-- **Canvas 2D** terrain/UI + **PixiJS WebGL entity layer** (lazy-loaded chunk; Canvas2D fallback)
-- **WFC** (Wave Function Collapse) procedural map generation
-- **Vitest** for testing (880 tests, 139 files)
-- Embeddable as iframe via `Game` class + postMessage API
+- **WebGPU** is the only scene renderer (terrain + entities + UI); Canvas2D 2D-ctx is kept for overlays/compositing. WebGPU-native immediate-mode UI lives in `src/render/ui/`.
+- The live overworld is **noise-based** (`terrain/terrain-generator.ts`: fractal noise → biomes → tiles) + connectome/settlement-driven — this superseded WFC in the 2026-05 world-gen-overhaul. **WFC** (Wave Function Collapse) primitives are **retained but dormant**: `generateWithWFC` is bypassed (never called at runtime), `autotiler` still uses WFC `TILES` metadata, and the Cell/Grid/Solver primitives are reserved for a planned zone-WFC meta-layer / future dungeons.
+- **Vitest** for testing (~2300 tests, ~400 files)
+- Embeddable via `Game` class + postMessage API (iframe path being superseded by the WebGPU-UI / MCP epic)
 - `@/` path alias → `src/`
 
 ## Architecture
@@ -121,28 +111,24 @@ src/
 
 ## Rendering
 
-Iso renderer (default; `?render=topdown` for the legacy grid):
-- Terrain = Canvas2D colored diamonds; minimap with viewport indicator
-- **Entity pass = neutral draw list, two backends** (PBR epic Slice 2): the y-sorted
-  buildings/barriers/NPCs/vegetation/decorations pass builds screen-space `DrawItem`s
-  (`src/render/iso/entity-draw-list.ts`) executed by EITHER the **PixiJS WebGL layer**
-  (`src/render/pixi/pixi-entity-layer.ts` — lazy `import('pixi.js')` own chunk, offscreen
-  canvas composited between terrain and overlays, identity-transform `drawImage`) or the
-  Canvas2D executor (`draw-list.ts`) — same list, placement parity by construction.
-  WebGL-init failure or the dev "Backend: Force Canvas2D" toggle falls back per-frame.
-  `pixi.js` must never be statically imported (guard: `no-static-pixi-import.test.ts`).
-- **Banded lighting v1** (PBR Slice 3): building sprites travel as `SpritePack`s
-  (albedo + co-registered normal/material canvases, decoded from the IDB cache /
-  vendored library / composeStructure); map-carrying draw items render on the WebGL
-  backend as unit-quad meshes with a custom GL shader (`src/render/pixi/lit-shader.ts`)
-  — ambient + one directional sun (`src/render/lighting-state.ts`, screen-space normals,
-  canonical upper-left), diffuse quantized into bands, AO from material.G. Canvas2D
-  stays the UNLIT parity fallback; dev toggle "☀️ Lighting". **Projected cast
-  shadows**: every image draw item drops a black flipped/skewed silhouette along
-  the sun azimuth into one bottom-of-stage container (alpha at the container so
-  overlaps don't double-darken); off when lighting is off. Next slices: day/night
-  from `state.clock` (4), point lights + emissive windows (5), material truth (6).
-- Camera: pan (drag) + zoom ladder (integer / 1-over-integer rungs, pixel-snapped origin)
+**WebGPU-only iso renderer.** The Canvas2D/PixiJS scene backends and the `RenderMode`
+abstraction were deleted in the WebGPU-only cleanup (`pixi.js` dropped, `iso-renderer`/
+`renderer`/`pixi-entity-layer` removed); a device with no WebGPU gets an honest "WebGPU
+required" overlay. Canvas2D 2D-ctx survives only for overlays/UI compositing.
+- **Terrain** = buffer-driven GPU heightfield (`src/render/gpu/terrain-field.ts` packs the
+  per-cell height/colour storage buffers; the shader generates + lifts the grid). Height =
+  `baseSeedHeight ⊕ deformations` (road grade-cuts today; rivers/earthworks as producers land).
+- **Entity pass** = y-sorted neutral draw list (`src/render/iso/entity-draw-list.ts`) executed
+  by the WebGPU scene (`src/render/gpu/gpu-scene.ts`), instanced; `poly`/`circle` shape pass +
+  foot-z terrain lift for placement parity.
+- **Banded lighting**: building sprites are `SpritePack`s (albedo + co-registered normal/material,
+  from the IDB cache / vendored library / `composeStructure`); lit by ambient + one directional
+  sun (`src/render/lighting-state.ts`), diffuse quantized into crisp bands, AO from material.G.
+  **Projected cast shadows** via a stencil-union pass. Dev toggle "☀️ Lighting".
+- **UI**: WebGPU-native immediate-mode (`src/render/ui/`) is the default chrome (`Game.barebones`,
+  `?legacyui` flips back to the legacy DOM/Canvas2D chrome that's still suppressed behind flags —
+  see the legacy-chrome retirement epic). `pixi.js` must never be imported (guard tests enforce it).
+- Camera: pan (drag) + zoom ladder (integer / 1-over-integer rungs, pixel-snapped origin).
 
 ## Iframe Embedding
 
