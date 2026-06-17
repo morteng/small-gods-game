@@ -14,6 +14,8 @@ import { terrainGrid, TERRAIN_SUN_DIR } from '@/render/gpu/terrain-field';
 import { packTerrainGlobals, TERRAIN_GLOBALS_FLOATS, type TerrainGlobalsInput } from '@/render/gpu/instance-buffer';
 import type { LightingState } from '@/render/lighting-state';
 import { getHydrologyResult } from '@/world/hydrology-store';
+import { WaterType } from '@/core/types';
+import { classifyWaterCell, climateOf, type AquaticBiome, type Rgb } from '@/water/water-biome';
 
 /** Depth (m) below which water blends toward opaque — past it, water is opaque. */
 export const SHALLOW_BAND_M = 1.5;
@@ -25,6 +27,14 @@ export const WATER_GLOBALS_FLOATS = TERRAIN_GLOBALS_FLOATS + 4;
 /** Relative luminance of an RGB triple — the water sun-strength scalar. */
 function luminance(c: readonly [number, number, number]): number {
   return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+}
+
+/** Linear-RGB 0..1 → 0xAABBGGRR (LE-friendly upload; shader unpacks to 0..1). */
+function rgbToAbgr(c: Rgb): number {
+  const r = Math.round(Math.min(1, Math.max(0, c[0])) * 255);
+  const g = Math.round(Math.min(1, Math.max(0, c[1])) * 255);
+  const b = Math.round(Math.min(1, Math.max(0, c[2])) * 255);
+  return ((0xff << 24) | (b << 16) | (g << 8) | r) >>> 0;
 }
 
 /** Pack the water uniform: the terrain globals followed by `uWater`. */
@@ -46,6 +56,12 @@ export interface WaterField {
   waterType: Uint32Array;
   /** Row-major unit flow vectors interleaved (x,y), `2*width*height`. */
   flow: Float32Array;
+  /** Per-cell aquatic-biome shallow colour `0xAABBGGRR` (S4); 0 on dry cells. */
+  shallow: Uint32Array;
+  /** Per-cell aquatic-biome deep colour `0xAABBGGRR` (S4). */
+  deep: Uint32Array;
+  /** Per-cell water clarity 0..1 (S4) — blend depth + caustic reach. */
+  clarity: Float32Array;
   /** Wet cells in the field — the pass is skipped when 0. */
   wetCount: number;
   /** Vertices the grid-gen vertex shader draws (same LOD grid as terrain). */
@@ -76,9 +92,28 @@ export function buildWaterField(map: GameMap, opts: BuildWaterFieldOpts): WaterF
 
   const cells = map.width * map.height;
   const flow = new Float32Array(cells * 2);
+  const shallow = new Uint32Array(cells);
+  const deep = new Uint32Array(cells);
+  const clarity = new Float32Array(cells);
+
+  // Aquatic biome is constant per (climate × body kind), so resolve the three
+  // body kinds once and reuse — climate is world-level for this slice.
+  const climate = climateOf(map.worldSeed?.biome);
+  const biomeByType = new Map<WaterType, AquaticBiome | null>();
+  const biomeFor = (wt: WaterType): AquaticBiome | null => {
+    if (!biomeByType.has(wt)) biomeByType.set(wt, classifyWaterCell(wt, climate));
+    return biomeByType.get(wt)!;
+  };
+
   for (let i = 0; i < cells; i++) {
     flow[i * 2] = hydro.flowDirX[i];
     flow[i * 2 + 1] = hydro.flowDirY[i];
+    const b = biomeFor(hydro.waterType[i] as WaterType);
+    if (b) {
+      shallow[i] = rgbToAbgr(b.shallowColor);
+      deep[i] = rgbToAbgr(b.deepColor);
+      clarity[i] = b.clarity;
+    }
   }
 
   const grid = terrainGrid(map.width, map.height, opts.maxQuads);
@@ -102,6 +137,9 @@ export function buildWaterField(map: GameMap, opts: BuildWaterFieldOpts): WaterF
     surfaceW: hydro.surfaceW,
     waterType: Uint32Array.from(hydro.waterType),
     flow,
+    shallow,
+    deep,
+    clarity,
     wetCount: wet,
     vertexCount: grid.vertexCount,
     globals: packWaterGlobals(tg, [opts.timeSec ?? 0, SHALLOW_BAND_M, FOAM_BAND_M, 0]),

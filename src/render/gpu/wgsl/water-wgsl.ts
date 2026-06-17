@@ -29,8 +29,14 @@ struct WGlobals {
 @group(0) @binding(2) var<storage, read> surfaceW : array<f32>; // water surface, −1 dry
 @group(0) @binding(3) var<storage, read> wtype    : array<u32>; // 0 dry,1 ocean,2 lake,3 river
 @group(0) @binding(4) var<storage, read> flow     : array<f32>; // 2 per cell (x,y)
+@group(0) @binding(5) var<storage, read> shallowC : array<u32>; // S4 biome shallow 0xAABBGGRR
+@group(0) @binding(6) var<storage, read> deepC    : array<u32>; // S4 biome deep colour
+@group(0) @binding(7) var<storage, read> clarity  : array<f32>; // S4 water clarity 0..1
 
 fn cellIdx(cx : u32, cy : u32) -> u32 { return cy * u32(G.uGrid.x) + cx; }
+fn unpackRgb(rgba : u32) -> vec3<f32> {
+  return vec3<f32>(f32(rgba & 0xFFu), f32((rgba >> 8u) & 0xFFu), f32((rgba >> 16u) & 0xFFu)) / 255.0;
+}
 fn liftPx(e : f32) -> f32 { return (e - G.uZParams.y) * G.uZParams.z * G.uZParams.x; }
 
 struct VSOut {
@@ -83,18 +89,8 @@ fn vsMain(@builtin(vertex_index) vid : u32) -> VSOut {
   return out;
 }
 
-// Per-type shallow→deep palette (linear rgb).
-fn waterPalette(wt : u32, tDeep : f32) -> vec3<f32> {
-  var shallow = vec3<f32>(0.30, 0.62, 0.74);
-  var deep    = vec3<f32>(0.06, 0.27, 0.42);
-  if (wt == 2u) { shallow = vec3<f32>(0.27, 0.58, 0.70); deep = vec3<f32>(0.10, 0.34, 0.47); } // lake
-  if (wt == 3u) { shallow = vec3<f32>(0.36, 0.66, 0.78); deep = vec3<f32>(0.16, 0.42, 0.55); } // river
-  return mix(shallow, deep, tDeep);
-}
-
 @fragment
 fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
-  let wt = in.vCell;            // cell index reused below
   let ci = in.vCell;
   let typ = wtype[ci];
   if (typ == 0u) { discard; }
@@ -104,8 +100,12 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   let depthN = max(surf - th, 0.0);
   let depthM = depthN * G.uZParams.z;   // ≈ metres of water column
 
-  let tDeep = clamp(depthM / 3.0, 0.0, 1.0);
-  var color = waterPalette(typ, tDeep);
+  // S4 aquatic-biome palette + clarity. Clearer water reveals the bed deeper, so
+  // the shallow→deep transition (and the opacity ramp below) stretches with it.
+  let clar = clarity[ci];
+  let depthScale = mix(1.5, 6.0, clar);            // m to reach "deep"
+  let tDeep = clamp(depthM / depthScale, 0.0, 1.0);
+  var color = mix(unpackRgb(shallowC[ci]), unpackRgb(deepC[ci]), tDeep);
 
   // Flow-advected ripple → perturbed normal. Still water (ocean/lake) gets a
   // gentle wind ripple; rivers streak along the flow vector.
@@ -132,8 +132,10 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
     color = mix(color, vec3<f32>(0.90, 0.95, 0.97), f * f * 0.8);
   }
 
-  // Deep = opaque (no see-through), shallow = translucent over the bed.
-  var alpha = mix(0.5, 0.96, clamp(depthM / G.uWater.y, 0.0, 1.0));
+  // Deep = opaque (no see-through), shallow = translucent over the bed. Clear
+  // water (high clarity ⇒ larger depthScale ⇒ smaller tDeep) stays see-through
+  // deeper, so you read the bed/caustics through it.
+  var alpha = mix(0.5, 0.97, tDeep);
   if (depthM < foamBand) { alpha = max(alpha, 0.85); }
   return vec4<f32>(color * alpha, alpha); // premultiplied
 }

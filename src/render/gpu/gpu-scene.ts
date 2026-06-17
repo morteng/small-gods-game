@@ -73,12 +73,18 @@ export class GpuScene {
   private waterSurfaceBuf: GPUBuffer | null = null;
   private waterTypeBuf: GPUBuffer | null = null;
   private waterFlowBuf: GPUBuffer | null = null;
+  private waterShallowBuf: GPUBuffer | null = null;
+  private waterDeepBuf: GPUBuffer | null = null;
+  private waterClarityBuf: GPUBuffer | null = null;
   private waterBind: GPUBindGroup | null = null;
   private waterCellCap = 0;
   private waterBoundHeights: GPUBuffer | null = null;
   private lastWaterSurface: Float32Array | null = null;
   private lastWaterType: Uint32Array | null = null;
   private lastWaterFlow: Float32Array | null = null;
+  private lastWaterShallow: Uint32Array | null = null;
+  private lastWaterDeep: Uint32Array | null = null;
+  private lastWaterClarity: Float32Array | null = null;
   private depthTex: GPUTexture | null = null;
   private depthW = 0;
   private depthH = 0;
@@ -444,12 +450,15 @@ export class GpuScene {
     const cells = water.surfaceW.length;
     let realloc = false;
     if (!this.waterSurfaceBuf || cells > this.waterCellCap) {
-      this.waterSurfaceBuf?.destroy();
-      this.waterTypeBuf?.destroy();
-      this.waterFlowBuf?.destroy();
-      this.waterSurfaceBuf = device.createBuffer({ size: cells * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
-      this.waterTypeBuf = device.createBuffer({ size: cells * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
-      this.waterFlowBuf = device.createBuffer({ size: cells * 8, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+      for (const b of [this.waterSurfaceBuf, this.waterTypeBuf, this.waterFlowBuf,
+        this.waterShallowBuf, this.waterDeepBuf, this.waterClarityBuf]) b?.destroy();
+      const storage = (n: number) => device.createBuffer({ size: n, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+      this.waterSurfaceBuf = storage(cells * 4);
+      this.waterTypeBuf = storage(cells * 4);
+      this.waterFlowBuf = storage(cells * 8);
+      this.waterShallowBuf = storage(cells * 4);
+      this.waterDeepBuf = storage(cells * 4);
+      this.waterClarityBuf = storage(cells * 4);
       this.waterCellCap = cells;
       realloc = true;
     }
@@ -462,6 +471,9 @@ export class GpuScene {
           { binding: 2, resource: { buffer: this.waterSurfaceBuf } },
           { binding: 3, resource: { buffer: this.waterTypeBuf! } },
           { binding: 4, resource: { buffer: this.waterFlowBuf! } },
+          { binding: 5, resource: { buffer: this.waterShallowBuf! } },
+          { binding: 6, resource: { buffer: this.waterDeepBuf! } },
+          { binding: 7, resource: { buffer: this.waterClarityBuf! } },
         ],
       });
       this.waterBoundHeights = this.terrainHeightsBuf;
@@ -477,6 +489,18 @@ export class GpuScene {
     if (realloc || water.flow !== this.lastWaterFlow) {
       device.queue.writeBuffer(this.waterFlowBuf!, 0, water.flow as GPUAllowSharedBufferSource);
       this.lastWaterFlow = water.flow;
+    }
+    if (realloc || water.shallow !== this.lastWaterShallow) {
+      device.queue.writeBuffer(this.waterShallowBuf!, 0, water.shallow as GPUAllowSharedBufferSource);
+      this.lastWaterShallow = water.shallow;
+    }
+    if (realloc || water.deep !== this.lastWaterDeep) {
+      device.queue.writeBuffer(this.waterDeepBuf!, 0, water.deep as GPUAllowSharedBufferSource);
+      this.lastWaterDeep = water.deep;
+    }
+    if (realloc || water.clarity !== this.lastWaterClarity) {
+      device.queue.writeBuffer(this.waterClarityBuf!, 0, water.clarity as GPUAllowSharedBufferSource);
+      this.lastWaterClarity = water.clarity;
     }
     return true;
   }
