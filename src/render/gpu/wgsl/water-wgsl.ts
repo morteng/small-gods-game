@@ -37,6 +37,19 @@ fn cellIdx(cx : u32, cy : u32) -> u32 { return cy * u32(G.uGrid.x) + cx; }
 fn unpackRgb(rgba : u32) -> vec3<f32> {
   return vec3<f32>(f32(rgba & 0xFFu), f32((rgba >> 8u) & 0xFFu), f32((rgba >> 16u) & 0xFFu)) / 255.0;
 }
+
+// Terrain (bed) slope magnitude at a cell, normalised-height units — S3 drives
+// waterfall/rapids whitewater where the bed is steep under fast flow.
+fn bedSlope(cx : u32, cy : u32) -> f32 {
+  let W = u32(G.uGrid.x);
+  let H = u32(G.uGrid.y);
+  if (cx == 0u || cy == 0u || cx >= W - 1u || cy >= H - 1u) { return 0.0; }
+  let hl = terrainH[cellIdx(cx - 1u, cy)];
+  let hr = terrainH[cellIdx(cx + 1u, cy)];
+  let hu = terrainH[cellIdx(cx, cy - 1u)];
+  let hd = terrainH[cellIdx(cx, cy + 1u)];
+  return length(vec2<f32>((hr - hl) * 0.5, (hd - hu) * 0.5));
+}
 fn liftPx(e : f32) -> f32 { return (e - G.uZParams.y) * G.uZParams.z * G.uZParams.x; }
 
 struct VSOut {
@@ -92,6 +105,9 @@ fn vsMain(@builtin(vertex_index) vid : u32) -> VSOut {
 @fragment
 fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   let ci = in.vCell;
+  let W = u32(G.uGrid.x);
+  let cx = ci % W;
+  let cy = ci / W;
   let typ = wtype[ci];
   if (typ == 0u) { discard; }
 
@@ -132,11 +148,37 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
     color = mix(color, vec3<f32>(0.90, 0.95, 0.97), f * f * 0.8);
   }
 
+  // S5 caustics — an animated light-net on the bed, only where it's visible
+  // (shallow + clear) and sunlit. Faded by depth (out past the clarity reach),
+  // by clarity, and by sun strength (G.uAmbient.w → 0 at night). Warped by the
+  // flow vector so river caustics drift downstream. A cheap summed-sine net, not
+  // a light-transport sim.
+  let causticReach = depthScale * 0.6;
+  let cfade = clamp(1.0 - depthM / max(causticReach, 0.001), 0.0, 1.0);
+  let sun = G.uAmbient.w;
+  if (cfade > 0.0 && sun > 0.0) {
+    let cw = in.vGrid * 1.5 + fv * t * 0.6;
+    let cnet = sin(cw.x * 2.0 + t * 1.3) + sin(cw.y * 2.3 - t * 1.1) + sin((cw.x + cw.y) * 1.7 + t * 1.7);
+    let caustic = pow(max(cnet * 0.33, 0.0), 2.0);
+    color += vec3<f32>(caustic * cfade * clar * sun * 0.5);
+  }
+
   // Deep = opaque (no see-through), shallow = translucent over the bed. Clear
   // water (high clarity ⇒ larger depthScale ⇒ smaller tDeep) stays see-through
   // deeper, so you read the bed/caustics through it.
   var alpha = mix(0.5, 0.97, tDeep);
   if (depthM < foamBand) { alpha = max(alpha, 0.85); }
+
+  // S3 dynamics — whitewater where fast flow meets a steep bed (waterfalls,
+  // rapids, the churn at obstructions/merges). Faster, higher-frequency churn
+  // than the ambient ripple; lifts both colour and opacity.
+  let rapids = clamp(flowMag * bedSlope(cx, cy) * 36.0, 0.0, 1.0);
+  if (rapids > 0.0) {
+    let churn = 0.5 + 0.5 * sin(in.vGrid.x * 4.3 + in.vGrid.y * 3.7 - t * 6.0);
+    color = mix(color, vec3<f32>(0.93, 0.96, 0.98), rapids * (0.55 + 0.45 * churn));
+    alpha = max(alpha, 0.72 + 0.24 * rapids);
+  }
+
   return vec4<f32>(color * alpha, alpha); // premultiplied
 }
 `;
