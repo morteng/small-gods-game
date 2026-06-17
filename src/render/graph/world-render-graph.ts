@@ -17,7 +17,7 @@ import type {
 import { blueprintOf } from '@/blueprint/entity';
 import { tryGetEntityKindDef } from '@/world/entity-kinds';
 import { heightAt as composedHeightAt } from '@/world/terrain-deformation';
-import { getRoadDeformationStore } from '@/world/road-deformation';
+import { getWorldDeformationStore } from '@/world/road-deformation';
 import { DEFAULT_LIGHTING } from '@/render/lighting-state';
 import type { RoadGraph, RoadEdge, RoadClass } from '@/world/road-graph';
 import type {
@@ -43,8 +43,8 @@ export class WorldRenderGraph implements RenderGraph<WorldRef> {
     const rc = this.rc;
     return {
       // R1: seed-deterministic world heightfield, sea level = 0 m, with road
-      // grade-cuts (+ later earthworks/rivers) composed on top. Metres, read-only.
-      heightAt: (tx, ty) => composedHeightAt(rc.map, getRoadDeformationStore(rc.map), tx, ty),
+      // grade-cuts AND river incision composed on top. Metres, read-only.
+      heightAt: (tx, ty) => composedHeightAt(rc.map, getWorldDeformationStore(rc.map), tx, ty),
       materialAt: (tx, ty) => rc.visualMap?.[ty]?.[tx] ?? '',
       waterLevelM: 0,
     };
