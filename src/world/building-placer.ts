@@ -239,7 +239,11 @@ export function placeSettlement(
   widenMarket(plan, tiles);
   subdivideLots(plan, tiles, worldSeed);
   assignWards(plan, radius, tiles, worldSeed);
-  planCivics(plan, tiles, worldSeed);
+  // S3b — a nucleated village (large enough to carry foci, the church rung) keeps
+  // a central open green; a hamlet stays dense. Bigger settlements get a bigger
+  // common. The green is a connectome-placed "mini biome" of tended meadow.
+  const greenSize = buildingCount >= 4 ? (buildingCount >= 12 ? 4 : 3) : 0;
+  planCivics(plan, tiles, worldSeed, greenSize);
 
   // Civic precincts (S5): reserve every civic tile against building placement —
   // props don't block via canPlaceIgnoringNature, so the fallback spiral would
@@ -271,6 +275,17 @@ export function placeSettlement(
         if (blocked) continue;
       }
       occ.claimRect(c.x, c.y, c.w, c.h, 'civic');
+      // S3b — the green is a ground-only precinct: paint it as tended meadow (a
+      // lusher green than plain grass) so the open common reads against the
+      // trampled dirt of the lanes/market around it. Wear leaves it alone.
+      if (c.type === 'green') {
+        for (let dy = 0; dy < c.h; dy++) {
+          for (let dx = 0; dx < c.w; dx++) {
+            const t = tiles[c.y + dy]?.[c.x + dx];
+            if (t) { t.type = 'meadow'; t.walkable = true; }
+          }
+        }
+      }
       // Every civic with a preset (mill building + well/graveyard props) goes
       // through the SAME pipeline: synthesize its blueprint, carve the footprint
       // solid, emit a blueprint entity. Name-derived seed keeps it deterministic
@@ -401,6 +416,7 @@ export function placeSettlement(
         const t = tiles[pt.y]?.[pt.x];
         if (!t || WATER_TYPES.has(t.type)) break;
         if (t.walkable === false) break;   // never carve through a footprint
+        if (occ.is(pt.x, pt.y, 'civic')) break;   // S3b: front the green, don't pave across it
         const hitRoad = occ.is(pt.x, pt.y, 'road') || ROAD_TYPES.has(t.type);
         roadTiles.push({ x: pt.x, y: pt.y, type: roadType });
         occ.claim(pt.x, pt.y, 'road');

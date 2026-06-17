@@ -225,4 +225,69 @@ describe('placeSettlement — plan execution', () => {
     expect(presets).not.toContain('parish-church');
     expect(presets).not.toContain('manor');
   });
+
+  // ── S3b: village green (central open common) ─────────────────────────────────
+  it('S3b — a large village reserves a central green, with the well at its heart', () => {
+    const { result, tiles } = run(11, bigVillage);
+    const greens = result.plan.civics.filter(c => c.type === 'green');
+    expect(greens.length).toBe(1);
+    const green = greens[0];
+    expect(green.w).toBeGreaterThanOrEqual(3);
+
+    // The green is a CENTRAL common: its centre sits closer to the founding node
+    // than the mean building does (the dwellings ring it, they don't beat it to
+    // the middle).
+    const c = result.plan.center;
+    const gcx = green.x + (green.w >> 1), gcy = green.y + (green.h >> 1);
+    const greenDist = Math.hypot(gcx - c.x, gcy - c.y);
+    const buildings = result.entities.filter(e => blueprintOf(e)?.rb.class === 'building');
+    const bDist = buildings.map(e => {
+      const fp = blueprintOf(e)!.collision.footprint;
+      return Math.hypot(e.x + fp.w / 2 - c.x, e.y + fp.h / 2 - c.y);
+    });
+    const meanBuilding = bDist.reduce((s, v) => s + v, 0) / bDist.length;
+    expect(greenDist).toBeLessThan(meanBuilding);
+
+    // The green is painted as tended meadow (reads against the worn lanes). The
+    // single tile under the well prop is cleared to grass (hidden by the well).
+    let meadow = 0;
+    for (let dy = 0; dy < green.h; dy++) {
+      for (let dx = 0; dx < green.w; dx++) {
+        if (tiles[green.y + dy][green.x + dx].type === 'meadow') meadow++;
+      }
+    }
+    expect(meadow).toBeGreaterThanOrEqual(green.w * green.h - 1);
+
+    // The well stands inside the green.
+    const well = result.plan.civics.find(c2 => c2.type === 'well');
+    expect(well).toBeDefined();
+    expect(well!.x).toBeGreaterThanOrEqual(green.x);
+    expect(well!.x).toBeLessThan(green.x + green.w);
+    expect(well!.y).toBeGreaterThanOrEqual(green.y);
+    expect(well!.y).toBeLessThan(green.y + green.h);
+  });
+
+  it('S3b — no building footprint covers the green', () => {
+    const { result } = run(11, bigVillage);
+    const green = result.plan.civics.find(c => c.type === 'green');
+    expect(green).toBeDefined();
+    const greenSet = new Set<string>();
+    for (let dy = 0; dy < green!.h; dy++) {
+      for (let dx = 0; dx < green!.w; dx++) greenSet.add(`${green!.x + dx},${green!.y + dy}`);
+    }
+    for (const e of result.entities.filter(e => blueprintOf(e)?.rb.class === 'building')) {
+      const bp = blueprintOf(e)!;
+      for (let dy = 0; dy < bp.collision.footprint.h; dy++) {
+        for (let dx = 0; dx < bp.collision.footprint.w; dx++) {
+          expect(greenSet.has(`${e.x + dx},${e.y + dy}`), `building on green at ${e.x + dx},${e.y + dy}`).toBe(false);
+        }
+      }
+    }
+  });
+
+  it('S3b — a hamlet below the focus threshold has no green', () => {
+    const hamlet = { ...villageRule, buildingCount: { min: 3, max: 3 } };
+    const { result } = run(11, hamlet);
+    expect(result.plan.civics.some(c => c.type === 'green')).toBe(false);
+  });
 });

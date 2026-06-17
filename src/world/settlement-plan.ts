@@ -527,37 +527,80 @@ function waterWithin(x: number, y: number, w: number, h: number, tiles: Tile[][]
  * only where water is in range. Each footprint must sit on buildable ground,
  * off existing roads/market/lots/other civics. Writes `plan.civics`.
  */
-export function planCivics(plan: SettlementPlan, tiles: Tile[][], seed: number): CivicSite[] {
+export function planCivics(plan: SettlementPlan, tiles: Tile[][], seed: number, greenSize = 0): CivicSite[] {
   void seed; // reserved for future dithered siting
   const { x: cx, y: cy } = plan.center;
-  const reserved = new Set<string>();
-  for (const e of plan.edges) for (const t of e.tiles) reserved.add(`${t.x},${t.y}`);
-  for (const m of plan.market) reserved.add(`${m.x},${m.y}`);
-  for (const l of plan.lots) for (const t of l.tiles) reserved.add(`${t.x},${t.y}`);
 
   const extent = plan.nodes.reduce(
     (m, n) => Math.max(m, Math.abs(n.x - cx) + Math.abs(n.y - cy)), 1) + 2;
 
-  const fits = (x: number, y: number, w: number, h: number): boolean => {
+  const buildable = (x: number, y: number, w: number, h: number, blocked: Set<string>): boolean => {
     for (let dy = 0; dy < h; dy++) {
       for (let dx = 0; dx < w; dx++) {
         const t = tiles[y + dy]?.[x + dx];
         if (!t || !BUILDABLE_TERRAIN.has(t.type)) return false;
-        if (reserved.has(`${x + dx},${y + dy}`)) return false;
+        if (blocked.has(`${x + dx},${y + dy}`)) return false;
       }
     }
     return true;
   };
+
+  const civics: CivicSite[] = [];
+
+  // S3b — Village green: the central open common. A nucleated village (gated by
+  // greenSize > 0, set when the settlement is large enough to carry foci) keeps
+  // a square of tended ground beside the founding node open — the well stands at
+  // its heart and the church/manor/dwellings front it. It's the HEART of the
+  // village, so it claims central ground with priority over burgage lots: the
+  // search only avoids roads/market/water (not lots), then any lot it overlaps
+  // is dropped so dwellings ring the green instead of building on it. greenSize
+  // 0 ⇒ no green (a hamlet stays dense).
+  let green: CivicSite | null = null;
+  if (greenSize > 0) {
+    const roadMarket = new Set<string>();
+    for (const e of plan.edges) for (const t of e.tiles) roadMarket.add(`${t.x},${t.y}`);
+    for (const m of plan.market) roadMarket.add(`${m.x},${m.y}`);
+    const g = greenSize;
+    const off = g >> 1; // centre the square on the candidate tile
+    for (let r = 0; r <= extent && !green; r++) {
+      for (let dy = -r; dy <= r && !green; dy++) {
+        for (let dx = -r; dx <= r && !green; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+          const x = cx + dx - off, y = cy + dy - off;
+          if (buildable(x, y, g, g, roadMarket)) green = { type: 'green', x, y, w: g, h: g };
+        }
+      }
+    }
+    if (green) {
+      civics.push(green);
+      // Lots ring the green, never sit on it — drop any the green overlaps.
+      const gx1 = green.x + green.w, gy1 = green.y + green.h;
+      plan.lots = plan.lots.filter(l =>
+        !l.tiles.some(t => t.x >= green!.x && t.x < gx1 && t.y >= green!.y && t.y < gy1));
+    }
+  }
+
+  // Everything else (well/graveyard/mill) deconflicts against roads, market,
+  // the remaining lots, and the green.
+  const reserved = new Set<string>();
+  for (const e of plan.edges) for (const t of e.tiles) reserved.add(`${t.x},${t.y}`);
+  for (const m of plan.market) reserved.add(`${m.x},${m.y}`);
+  for (const l of plan.lots) for (const t of l.tiles) reserved.add(`${t.x},${t.y}`);
+  if (green) for (let dy = 0; dy < green.h; dy++) for (let dx = 0; dx < green.w; dx++) reserved.add(`${green.x + dx},${green.y + dy}`);
+
+  const fits = (x: number, y: number, w: number, h: number): boolean => buildable(x, y, w, h, reserved);
   const reserve = (s: CivicSite): void => {
     for (let dy = 0; dy < s.h; dy++) for (let dx = 0; dx < s.w; dx++) reserved.add(`${s.x + dx},${s.y + dy}`);
   };
 
-  const civics: CivicSite[] = [];
   // Stable iteration over the catalogue (insertion order).
   for (const [type, rule] of Object.entries(CIVIC_RULES)) {
     const { w, h } = rule.size;
     let best: CivicSite | null = null;
-    if (rule.site === 'green') {
+    if (type === 'well' && green) {
+      // The well stands at the heart of the green (civic-on-civic, intentional).
+      best = { type, x: green.x + (green.w >> 1), y: green.y + (green.h >> 1), w, h };
+    } else if (rule.site === 'green') {
       // Nearest buildable footprint to the founding node, ring by ring out.
       for (let r = 1; r <= extent && !best; r++) {
         for (let dy = -r; dy <= r && !best; dy++) {

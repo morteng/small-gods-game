@@ -48,6 +48,15 @@ export function applySettlementWear(
   ];
   if (sources.length === 0) return 0;
 
+  // S3b — the village green is tended open ground: never trample it to dirt or
+  // cull its (already cleared) vegetation, so the lush common reads against the
+  // worn lanes around it.
+  const greenTiles = new Set<string>();
+  for (const c of plan.civics) {
+    if (c.type !== 'green') continue;
+    for (let dy = 0; dy < c.h; dy++) for (let dx = 0; dx < c.w; dx++) greenTiles.add(`${c.x + dx},${c.y + dy}`);
+  }
+
   // Multi-source BFS distance to the nearest road/market tile.
   const dist = new Map<string, number>();
   let frontier = sources.filter(s => tiles[s.y]?.[s.x]);
@@ -70,6 +79,7 @@ export function applySettlementWear(
   let changed = 0;
   for (const [key, d] of dist) {
     if (d === 0) continue;                       // the road itself
+    if (greenTiles.has(key)) continue;           // S3b: the green stays tended
     const [x, y] = key.split(',').map(Number);
     const t = tiles[y]?.[x];
     if (!t || t.walkable === false) continue;    // footprints, water
