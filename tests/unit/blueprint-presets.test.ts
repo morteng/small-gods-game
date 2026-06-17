@@ -6,7 +6,7 @@ import { toGeometry } from '@/blueprint/compile/to-geometry';
 
 beforeAll(() => ensureBuildingTypesRegistered());
 
-const NAMES = ['cottage','tavern','market_stall','temple_small','farm_barn','tower','castle_keep','dock','shrine','guard_post','yurt','longhouse'];
+const NAMES = ['cottage','tavern','market_stall','temple_small','farm_barn','tower','castle_keep','dock','shrine','guard_post','yurt','longhouse','manor','parish-church'];
 
 describe('blueprint presets', () => {
   it('defines all 11+ named presets', () => {

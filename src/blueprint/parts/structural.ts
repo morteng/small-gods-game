@@ -18,22 +18,26 @@ export const towerPartType: PartType = {
     levels: { kind: 'number', min: 1, max: 12, default: 3 },
     shape: { kind: 'enum', values: ['square', 'round'], default: 'square' },
     roof: { kind: 'enum', values: ['flat', 'pyramidal', 'conical', 'domed'], default: 'pyramidal' },
+    /** Spire/cap height as a multiple of the tower radius. The default (1.2) is the squat
+     *  watchtower cap; a church west tower passes a far taller broach spire (~4). */
+    spire: { kind: 'number', min: 0.5, max: 8, default: 1.2 },
   },
   resolve: (part) => ({ params: { ...(part.params ?? {}) } }),
   toPrims(p, ctx: CompileCtx): Prim[] {
     const wallMat = WALL_MAT[ctx.materials.walls] ?? 'stone';
     const roofMat = ROOF_MAT[ctx.materials.roof] ?? 'stone';
     const h = Math.max(1, p.params.levels as number) * STOREY;
+    const spireMul = (p.params.spire as number) || 1.2;
     if (p.params.shape === 'round') {
       const r = Math.min(p.size.w, p.size.h) / 2, cx = p.at.x + p.size.w / 2, cy = p.at.y + p.size.h / 2;
       const out: Prim[] = [{ prim: 'cylinder', center: [cx, cy], baseZ: 0, radius: r, height: h, material: wallMat }];
-      if (p.params.roof !== 'flat') out.push({ prim: 'cone', center: [cx, cy], baseZ: h, radius: r, height: r * 1.2, material: roofMat });
+      if (p.params.roof !== 'flat') out.push({ prim: 'cone', center: [cx, cy], baseZ: h, radius: r, height: r * spireMul, material: roofMat });
       return out;
     }
     const out: Prim[] = [{ prim: 'box', at: [p.at.x, p.at.y, 0], size: [p.size.w, p.size.h, h], material: wallMat }];
     if (p.params.roof !== 'flat') {
       const cx = p.at.x + p.size.w / 2, cy = p.at.y + p.size.h / 2, r = Math.min(p.size.w, p.size.h) / 2;
-      out.push({ prim: 'cone', center: [cx, cy], baseZ: h, radius: r, height: r, material: roofMat });
+      out.push({ prim: 'cone', center: [cx, cy], baseZ: h, radius: r, height: r * spireMul, material: roofMat });
     }
     return out;
   },

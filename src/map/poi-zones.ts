@@ -36,7 +36,10 @@ export interface ZoneRule {
 export const POI_ZONE_RULES: Record<string, ZoneRule> = {
   village: {
     radius: { min: 5, max: 8 },
-    buildings: ['cottage', 'cottage', 'longhouse', 'market_stall', 'tavern'],
+    // S2: a parish church (sacred focus) appears early; a manor hall once the village
+    // is large enough. The roster is consumed round-robin, so order = appearance order;
+    // guaranteed center-first anchoring of these foci is S3 (nucleated grammar).
+    buildings: ['cottage', 'parish-church', 'cottage', 'longhouse', 'manor', 'market_stall', 'tavern'],
     buildingsByEra: {
       primordial: ['yurt', 'yurt', 'yurt', 'longhouse'],
       ancient: ['longhouse', 'longhouse', 'cottage', 'shrine'],
@@ -80,7 +83,7 @@ export const POI_ZONE_RULES: Record<string, ZoneRule> = {
   },
   castle: {
     radius: { min: 6, max: 10 },
-    buildings: ['castle_keep', 'tower', 'guard_post'],
+    buildings: ['castle_keep', 'manor', 'tower', 'guard_post'],
     buildingCount: { min: 1, max: 2 },
     decorations: ['banner', 'guard_post'],
     internalRoads: true,
