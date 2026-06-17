@@ -291,9 +291,26 @@ export interface BiomeMap {
  * `riverMask[i] === 1` means cell i should become a river tile.
  * `flowField[i]` is the accumulated flow count (number of paths that visited cell i).
  */
+/** Water classification per cell (see `WaterType`). */
+export enum WaterType {
+  Dry = 0,
+  Ocean = 1, // below sea level and connected to the map border
+  Lake = 2,  // standing fill (closed basin) or enclosed below-sea depression
+  River = 3, // drainage accumulation ≥ threshold (stream = River with strahler 1)
+}
+
 export interface HydrologyResult {
   riverMask: Uint8Array;   // [width * height], 0 or 1
-  flowField: Float32Array; // [width * height], ≥ 0
+  flowField: Float32Array; // [width * height], ≥ 0 (accumulation)
+  // ── Water S0 additions (derived; see water-s0 spec). All length width*height. ──
+  drainTo: Int32Array;     // downstream neighbour index, −1 at outlets/ocean/sentinel
+  surfaceW: Float32Array;  // water-surface height (normalized elev units); −1 on dry land
+  waterMask: Uint8Array;   // 0=dry, 1=wet — unified ocean ∪ lake ∪ river
+  waterType: Uint8Array;   // WaterType enum per cell
+  flowDirX: Float32Array;  // unit flow vector x at river cells; 0 in still/dry water
+  flowDirY: Float32Array;  // unit flow vector y at river cells; 0 in still/dry water
+  strahler: Uint8Array;    // Strahler order along the drainage tree; 0 off-channel
+  width: Float32Array;     // channel width in cells (from strahler); 0 off-channel
 }
 
 // ─── Entity system (Phase II) — legacy type aliases ──────────────────────────

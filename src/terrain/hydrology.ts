@@ -15,8 +15,15 @@
  */
 
 import type { TerrainField, TerrainConfig, HydrologyResult } from '@/core/types';
+import { WaterType } from '@/core/types';
 
 const DEFAULT_RIVER_FLOW_THRESHOLD = 500;
+// Minimum filled depth (normalized elevation) for a cell to count as a lake.
+// Pit-fill raises flat runs by PIT_FILL_EPSILON per cell, so a long flat valley
+// accumulates a small W−elevation gap that is NOT a lake. A genuine basin is
+// filled far deeper; 0.01 (≈0.5 m at TERRAIN_RELIEF_M) sits well above the
+// longest plausible ε run (~map-diagonal × 1e-5).
+const LAKE_MIN_FILL = 0.01;
 // Pit-fill increment per cell of flat-region travel. 1e-5 in normalized [0,1]
 // elevation is well above Float32 rounding noise across the longest possible
 // flat run (~map diagonal), and is far too small to be visible in terrain.
@@ -211,5 +218,85 @@ export function generateHydrology(
     if (flowField[i] >= riverFlowThreshold) riverMask[i] = 1;
   }
 
-  return { riverMask, flowField };
+  // ── Water S0: derive the render-facing water data model from W / drainTo. ──
+
+  // 5. Ocean = below sea level AND connected to the map border. Flood 4-neighbour
+  //    through sub-sea cells from border seeds; enclosed sub-sea basins stay lakes.
+  const oceanMask = new Uint8Array(total);
+  const floodStack: number[] = [];
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      if (y !== 0 && y !== height - 1 && x !== 0 && x !== width - 1) continue;
+      const i = y * width + x;
+      if (elevation[i] < seaLevel && !oceanMask[i]) { oceanMask[i] = 1; floodStack.push(i); }
+    }
+  }
+  while (floodStack.length > 0) {
+    const c = floodStack.pop()!;
+    const cx = c % width;
+    const cy = (c / width) | 0;
+    const tryN = (n: number): void => {
+      if (!oceanMask[n] && elevation[n] < seaLevel) { oceanMask[n] = 1; floodStack.push(n); }
+    };
+    if (cy > 0) tryN(c - width);
+    if (cy < height - 1) tryN(c + width);
+    if (cx > 0) tryN(c - 1);
+    if (cx < width - 1) tryN(c + 1);
+  }
+
+  // 6. Strahler order over the drainage forest (each land cell → one parent via
+  //    drainTo; roots = outlets). Process headwaters→outlet (W descending, the
+  //    existing landOrder): finalize a cell's order from accumulated donor orders,
+  //    then contribute it to its target. Two equal-order donors increment.
+  const strahler = new Uint8Array(total);
+  const maxIn = new Uint8Array(total);
+  const cntMax = new Uint8Array(total);
+  for (const i of landOrder) { // descending W = headwaters first
+    const o = maxIn[i] === 0 ? 1 : (cntMax[i] >= 2 ? maxIn[i] + 1 : maxIn[i]);
+    strahler[i] = o > 255 ? 255 : o;
+    const t = drainTo[i];
+    if (t >= 0) {
+      if (strahler[i] > maxIn[t]) { maxIn[t] = strahler[i]; cntMax[t] = 1; }
+      else if (strahler[i] === maxIn[t] && cntMax[t] < 255) { cntMax[t]++; }
+    }
+  }
+
+  // 7. Per-cell classification + surface height + flow vectors + width.
+  //    Precedence ocean > lake > river. LAKE_MIN_FILL keeps flat-region ε
+  //    accumulation (pit-fill raises flats by tiny increments) from reading as a
+  //    lake — a genuine basin is filled far deeper than the longest ε run.
+  const surfaceW = new Float32Array(total).fill(-1);
+  const waterMask = new Uint8Array(total);
+  const waterType = new Uint8Array(total);
+  const flowDirX = new Float32Array(total);
+  const flowDirY = new Float32Array(total);
+  const widthArr = new Float32Array(total);
+  for (let i = 0; i < total; i++) {
+    const belowSea = elevation[i] < seaLevel;
+    const standingFill = W[i] - elevation[i] > LAKE_MIN_FILL;
+    if (oceanMask[i]) {
+      waterType[i] = WaterType.Ocean; waterMask[i] = 1; surfaceW[i] = seaLevel;
+    } else if (standingFill || belowSea) {
+      // inland filled basin, or an enclosed sub-sea depression
+      waterType[i] = WaterType.Lake; waterMask[i] = 1;
+      surfaceW[i] = standingFill ? W[i] : seaLevel;
+    } else if (riverMask[i]) {
+      waterType[i] = WaterType.River; waterMask[i] = 1; surfaceW[i] = elevation[i];
+      const t = drainTo[i];
+      if (t >= 0) {
+        flowDirX[i] = (t % width) - (i % width);          // already unit (4-neighbour drainTo)
+        flowDirY[i] = ((t / width) | 0) - ((i / width) | 0);
+      }
+      widthArr[i] = Math.min(0.5 * strahler[i], 4);
+    }
+    // Strahler is only meaningful as a *channel* attribute; zero it off the wet
+    // network so consumers read 0 on dry land.
+    if (waterType[i] !== WaterType.River) strahler[i] = 0;
+  }
+
+  return {
+    riverMask, flowField,
+    drainTo, surfaceW, waterMask, waterType,
+    flowDirX, flowDirY, strahler, width: widthArr,
+  };
 }
