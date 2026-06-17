@@ -112,6 +112,43 @@ describe('UiRuntime — HUD + pause menu', () => {
     expect(lit).toBe(false);
   });
 
+  it('draws the camera cluster only when the camera hooks are wired', () => {
+    const bare = new UiRuntime();
+    bare.frame(W, H, DPR);
+    expect(bare.hitRegions().some((h) => h.id.startsWith('cam.'))).toBe(false);
+
+    const wired = new UiRuntime();
+    wired.configure({ onZoomIn: () => {}, onZoomOut: () => {}, onFitView: () => {}, onZoomActual: () => {} });
+    wired.frame(W, H, DPR);
+    const camIds = wired.hitRegions().filter((h) => h.id.startsWith('cam.')).map((h) => h.id).sort();
+    expect(camIds).toEqual(['cam.fit', 'cam.in', 'cam.one', 'cam.out']);
+  });
+
+  it('clicking a camera button fires its hook (HUD, no menu)', () => {
+    const fired: string[] = [];
+    const rt = new UiRuntime();
+    rt.configure({
+      onZoomIn: () => fired.push('in'),
+      onZoomOut: () => fired.push('out'),
+      onFitView: () => fired.push('fit'),
+      onZoomActual: () => fired.push('one'),
+    });
+    rt.frame(W, H, DPR);
+    for (const id of ['cam.in', 'cam.out', 'cam.fit', 'cam.one']) {
+      const hit = rt.hitRegions().find((h) => h.id === id)!;
+      click(rt, ...center(hit));
+    }
+    expect(fired).toEqual(['in', 'out', 'fit', 'one']);
+  });
+
+  it('camera buttons consume taps on themselves (so the world does not pan)', () => {
+    const rt = new UiRuntime();
+    rt.configure({ onZoomIn: () => {}, onZoomOut: () => {}, onFitView: () => {}, onZoomActual: () => {} });
+    rt.frame(W, H, DPR);
+    const hit = rt.hitRegions().find((h) => h.id === 'cam.in')!;
+    expect(rt.consumesPointer(...center(hit))).toBe(true);
+  });
+
   it('orb fill scales with power (more power ⇒ more accent geometry)', () => {
     const lo = new UiRuntime(); lo.configure({ getPower: () => 0 });
     const hi = new UiRuntime(); hi.configure({ getPower: () => 1 });
