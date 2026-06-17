@@ -189,4 +189,40 @@ describe('placeSettlement — plan execution', () => {
     expect(result.plan.nodes[0].kind).toBe('founding');
     expect(result.plan.edges.length).toBeGreaterThan(0);
   });
+
+  // ── S3: center-first nucleated grammar ──────────────────────────────────────
+  const bigVillage = { ...villageRule, buildingCount: { min: 8, max: 8 } };
+
+  it('S3 — a large village places its foci (church + manor) anchored at the centre', () => {
+    // The foci are placed FIRST, so they claim the most central frontage; the
+    // closest-to-centre building should be a focus, not a dwelling.
+    const { result } = run(11, bigVillage);
+    const buildings = result.entities.filter(e => blueprintOf(e)?.rb.class === 'building');
+    const presets = new Set(buildings.map(e => blueprintOf(e)!.rb.preset));
+    expect(presets.has('parish-church')).toBe(true);
+    expect(presets.has('manor')).toBe(true);
+
+    const c = result.plan.center;
+    const dist = (e: typeof buildings[number]) => {
+      const fp = blueprintOf(e)!.collision.footprint;
+      return Math.hypot(e.x + fp.w / 2 - c.x, e.y + fp.h / 2 - c.y);
+    };
+    const FOCI = new Set(['parish-church', 'manor']);
+    const foci = buildings.filter(e => FOCI.has(blueprintOf(e)!.rb.preset!));
+    const dwellings = buildings.filter(e => !FOCI.has(blueprintOf(e)!.rb.preset!));
+    const mean = (xs: number[]) => xs.reduce((s, v) => s + v, 0) / xs.length;
+    // The foci sit in a central precinct — closer to the founding node, on average,
+    // than the dwellings that fill in around them.
+    expect(mean(foci.map(dist))).toBeLessThan(mean(dwellings.map(dist)));
+  });
+
+  it('S3 — a hamlet below the focus threshold is dwellings-only (no church/manor)', () => {
+    const hamlet = { ...villageRule, buildingCount: { min: 3, max: 3 } };
+    const { result } = run(11, hamlet);
+    const presets = result.entities
+      .filter(e => blueprintOf(e)?.rb.class === 'building')
+      .map(e => blueprintOf(e)!.rb.preset);
+    expect(presets).not.toContain('parish-church');
+    expect(presets).not.toContain('manor');
+  });
 });

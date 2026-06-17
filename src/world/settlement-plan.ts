@@ -110,16 +110,29 @@ export interface SiteRule {
   nearWater?: number;
   /** Soft preference for frontage near the founding node or the edge of town. */
   affinity?: 'center' | 'edge';
+  /** S3 (nucleated grammar): a FOCUS building — the parish church / manor hall the
+   *  village nucleates around. Focus buildings are placed FIRST, so they claim the
+   *  most central frontage and become the layout's root anchor; dwellings then fill
+   *  in around them (HEAG210: church + manor are the village's defining foci). */
+  focus?: boolean;
+  /** A focus only appears once the settlement reaches this many buildings (HEAG210:
+   *  the smallest hamlets are dwellings only; a church arrives as a village forms, a
+   *  manor later still). Below the threshold the focus is omitted so a tiny hamlet
+   *  isn't all church-and-manor with nowhere to live. Same rung idea as the
+   *  enclosure ring's `minBuildings`. */
+  focusMin?: number;
 }
 
 export const SITE_RULES: Record<string, SiteRule> = {
-  dock:         { nearWater: 2 },
-  tavern:       { affinity: 'center' },
-  temple_small: { affinity: 'center' },
-  shrine:       { affinity: 'center' },
-  market_stall: { affinity: 'center' },
-  farm_barn:    { affinity: 'edge' },
-  longhouse:    { affinity: 'edge' },
+  dock:           { nearWater: 2 },
+  tavern:         { affinity: 'center' },
+  temple_small:   { affinity: 'center' },
+  shrine:         { affinity: 'center' },
+  market_stall:   { affinity: 'center' },
+  farm_barn:      { affinity: 'edge' },
+  longhouse:      { affinity: 'edge' },
+  'parish-church': { affinity: 'center', focus: true, focusMin: 4 },
+  manor:           { affinity: 'center', focus: true, focusMin: 6 },
 };
 
 /**
