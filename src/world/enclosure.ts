@@ -156,26 +156,42 @@ export function deriveCroftEnclosures(
 }
 
 /**
- * Walk a closed ring `path` tile-by-tile and merge the spans where `isOpen(x,y)`
- * holds into gate spans (centre distance + padded width). Shared by the croft and
- * settlement rings so "incorporate the feature into the line" is one rule.
+ * Walk a closed ring SLAB-BY-SLAB (the same unit segments `barrierItems` draws)
+ * and merge the spans where the slab crosses an `isOpen` cell into gate spans.
+ *
+ * Two invariants keep this in lockstep with the renderer (`iso-barrier.ts`),
+ * which drops a slab `[k, k+1]` when its MIDPOINT `k+0.5` falls in a gate:
+ *   - we sample at slab midpoints `k+0.5` (not integer vertices) — no half-tile
+ *     phase drift between "where we open a gate" and "which slab gets dropped";
+ *   - a slab counts as blocked if EITHER endpoint cell or its midpoint cell is
+ *     open, so a slab straddling two building cells can't slip through the seam.
+ * The emitted gate covers the full run of blocked slab midpoints plus the
+ * configured door padding.
  */
 function gatesWhereOpen(
   path: Pt[], total: number, isOpen: (x: number, y: number) => boolean, gateW: number,
 ): BarrierGate[] {
-  const openAt: boolean[] = [];
-  for (let t = 0; t <= total; t += 1) {
+  const cellOpen = (t: number): boolean => {
     const [px, py] = pointOnPath(path, t);
-    openAt.push(isOpen(Math.round(px), Math.round(py)));
+    return isOpen(Math.round(px), Math.round(py));
+  };
+  // One sample per unit slab: blocked if the slab touches an open cell anywhere.
+  const slabCount = Math.max(0, Math.ceil(total));
+  const blocked: boolean[] = [];
+  for (let k = 0; k < slabCount; k++) {
+    const t1 = Math.min(k + 1, total);
+    blocked.push(cellOpen(k) || cellOpen((k + t1) / 2) || cellOpen(t1));
   }
   const gates: BarrierGate[] = [];
   let runStart = -1;
-  for (let i = 0; i <= openAt.length; i++) {
-    const open = openAt[i] ?? false;
-    if (open && runStart < 0) runStart = i;
-    else if (!open && runStart >= 0) {
-      const centre = (runStart + (i - 1)) / 2;
-      const width = Math.max(gateW, (i - 1 - runStart) + gateW * 0.5);
+  for (let k = 0; k <= slabCount; k++) {
+    const isBlocked = blocked[k] ?? false;
+    if (isBlocked && runStart < 0) runStart = k;
+    else if (!isBlocked && runStart >= 0) {
+      const last = k - 1;
+      // blocked slab midpoints span [runStart+0.5, last+0.5]
+      const centre = (runStart + last + 1) / 2;
+      const width = Math.max(gateW, (last - runStart) + 1 + gateW * 0.5);
       gates.push({ t: centre, width });
       runStart = -1;
     }
