@@ -35,6 +35,13 @@ export interface StagedBeat {
   hard: Command[];
   /** Pre-written narration primed into the attention store on fire. */
   soft?: SoftBeat;
+  /**
+   * Optional id of a storylet (in a loaded StoryPack) to ENTER on fire — the
+   * branching/interactive payload single-beat staging lacks. Surfaced via the
+   * activation system's `onStoryletBeat` callback; the game layer plays it in a
+   * StorySession. `hard`/`soft` still apply alongside. See src/story/.
+   */
+  storylet?: string;
   status: BeatStatus;
   stagedTick: number;
 }

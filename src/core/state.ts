@@ -36,6 +36,11 @@ export interface GameState {
   plotThreads: PlotThreadStore;
   /** Narrative substrate: armed, dormant staged beats (serialized in snapshots). */
   staging: StagingBuffer;
+  /** Fate-surfacing seam (Track B / B-E): divine-inbox item ids the director has
+   *  promoted with intent. Read by `GameQuery.divineInbox` to boost salience +
+   *  flag items. Transient exogenous intent (like the command queue), not core sim
+   *  state — dropped on snapshot restore, repopulated by the live director. */
+  surfacedInbox: Set<string>;
 }
 
 export function createState(): GameState {
@@ -79,5 +84,6 @@ export function createState(): GameState {
     generatedDecorations: [],
     plotThreads: new PlotThreadStore(),
     staging: new StagingBuffer(),
+    surfacedInbox: new Set<string>(),
   };
 }

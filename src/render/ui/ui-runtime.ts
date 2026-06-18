@@ -20,6 +20,8 @@ import { shade, withAlpha } from '@/render/ui/ui-color';
 import type { UiDrawGroup } from '@/render/ui/ui-batcher';
 import { SettingsIsland } from '@/render/ui/ui-settings-island';
 import type { ProviderConfig } from '@/llm/provider-factory';
+import type { StorySession, Stage } from '@/story/story-session';
+import type { BeliefPowerView, InboxItem } from '@/game/game-query';
 
 /** Bigger-font multipliers (× the integer DPR scale). The S1 demo drew at 1×s
  *  which read tiny; the HUD/menu want chunky, legible pixel text. */
@@ -43,7 +45,24 @@ export interface UiRuntimeHooks {
   getLighting?: () => boolean;
   /** Persist + live-apply a new LLM provider config (from the DOM input island). */
   onSaveLlmConfig?: (cfg: ProviderConfig) => void;
+  /** A story card opened/closed — the game pauses the sim while one is up. */
+  onStoryToggle?: (active: boolean) => void;
+
+  // ── Track B: belief-granted powers + the divine inbox ──
+  /** The belief-granted powers to render in the skill panel (default []). */
+  getBeliefPowers?: () => BeliefPowerView[];
+  /** Cast an unlocked power (the Game picks/uses the current target). */
+  onCastPower?: (verb: string) => void;
+  /** The triageable divine-inbox items, salience-ranked (default []). */
+  getInbox?: () => InboxItem[];
+  /** Triage: act on an item (route to the matching divine action). */
+  onInboxAct?: (item: InboxItem) => void;
+  /** Triage: investigate (focus the subject — mind page / backfill). */
+  onInboxInvestigate?: (item: InboxItem) => void;
 }
+
+/** Which bottom-left side panel is open (mutually exclusive; below menu/story). */
+type Panel = 'powers' | 'inbox' | null;
 
 type Section = 'settings' | null;
 
@@ -61,6 +80,14 @@ export class UiRuntime {
   private menuOpen = false;
   private section: Section = null;
 
+  /** The story card currently on screen (modal narrative beat), or null. */
+  private story: StorySession | null = null;
+
+  /** Open bottom-left side panel (powers / inbox), or null. Non-modal. */
+  private panel: Panel = null;
+  /** Inbox item ids the player has dismissed this session (local triage state). */
+  private ignoredInbox = new Set<string>();
+
   /** Hit regions claimed by the LAST built frame — used by capture-phase input to
    *  decide whether a pointer-down belongs to the UI (consume) or the world. */
   private lastHits: readonly UiHit[] = [];
@@ -77,10 +104,34 @@ export class UiRuntime {
     return this.menuOpen;
   }
 
-  /** Whether a pointer at (px,py device) should be eaten by the UI. The menu is
-   *  modal (eats everything); the HUD only eats taps on its own widgets. */
+  /** Whether a story card is currently on screen. */
+  hasStory(): boolean {
+    return this.story !== null;
+  }
+
+  /**
+   * Present a storylet as a modal card. The runtime OWNS starting it (the caller
+   * passes an un-started session + the storylet id to enter), so the first stage
+   * is pumped here. A pack that yields nothing (immediate end / no eligible
+   * storylet) is dropped silently. Pauses the sim via `onStoryToggle`.
+   */
+  presentStory(session: StorySession, startId?: string): void {
+    try {
+      session.start(startId);
+    } catch {
+      return; // no eligible storylet / bad id — never crash the frame
+    }
+    if (session.done) return;
+    this.story = session;
+    this.hooks.onStoryToggle?.(true);
+    this.hooks.requestRender?.();
+  }
+
+  /** Whether a pointer at (px,py device) should be eaten by the UI. The menu and
+   *  an open story card are modal (eat everything); the HUD only eats taps on its
+   *  own widgets. */
   consumesPointer(px: number, py: number): boolean {
-    if (this.menuOpen) return true;
+    if (this.menuOpen || this.story) return true;
     return this.lastHits.some((h) => px >= h.x && px < h.x + h.w && py >= h.y && py < h.y + h.h);
   }
 
@@ -195,6 +246,8 @@ export class UiRuntime {
     if (this.menuOpen) {
       const clickAt = input.released ? { x: input.px, y: input.py } : null;
       r = this.drawMenu(c, wDev, hDev, s, clickAt);
+    } else if (this.story) {
+      this.drawStory(c, wDev, hDev, s);
     } else {
       this.drawHud(c, wDev, hDev, s);
     }
@@ -240,6 +293,221 @@ export class UiRuntime {
       FS_BODY * s, hot ? UI_PALETTE.text : UI_PALETTE.textDim);
 
     if (clicked) this.setMenu(true);
+
+    // ── Track B affordances: POWERS + INBOX toggles along the bottom strip ──
+    const bh = 28 * s;
+    const by = h - bh - pad;
+    let bx = ox + orb + 64 * s;
+    const powers = this.hooks.getBeliefPowers?.() ?? [];
+    const unlocked = powers.filter((p) => p.unlocked).length;
+    const pLabel = `⚡ POWERS${unlocked > 0 ? ` (${unlocked})` : ''}`;
+    const pw = Math.ceil(c.measure(pLabel, FS_BODY * s)) + 24 * s;
+    if (c.button('ui.powers', pLabel, bx, by, pw, bh, { scale: FS_BODY * s })) {
+      this.panel = this.panel === 'powers' ? null : 'powers';
+    }
+    bx += pw + 10 * s;
+
+    const inbox = (this.hooks.getInbox?.() ?? []).filter((it) => !this.ignoredInbox.has(it.id));
+    const iLabel = `✉ INBOX${inbox.length > 0 ? ` (${inbox.length})` : ''}`;
+    const iw = Math.ceil(c.measure(iLabel, FS_BODY * s)) + 24 * s;
+    if (c.button('ui.inbox', iLabel, bx, by, iw, bh, { scale: FS_BODY * s })) {
+      this.panel = this.panel === 'inbox' ? null : 'inbox';
+    }
+
+    if (this.panel === 'powers') this.drawPowers(c, _w, h, s, powers, by - pad);
+    else if (this.panel === 'inbox') this.drawInbox(c, _w, h, s, inbox, by - pad);
+  }
+
+  // ── skill panel: belief-granted powers, locked→unlocked with progress ──────
+  private drawPowers(c: UiContext, _w: number, _h: number, s: number, powers: BeliefPowerView[], bottom: number): void {
+    const pad = 16 * s;
+    const pw = 360 * s;
+    const px = pad;
+    const top = Math.max(pad, 80 * s);
+    const ph = bottom - top;
+    c.panel(px, top, pw, ph);
+
+    const innerX = px + 20 * s;
+    const innerW = pw - 40 * s;
+    let y = top + 20 * s;
+    c.label('POWERS', innerX, y, FS_BODY * s, UI_PALETTE.textDim);
+    y += c.lineHeight(FS_BODY * s) + 14 * s;
+
+    if (powers.length === 0) {
+      c.label('No powers yet. Make them believe.', innerX, y, FS_BODY * s, UI_PALETTE.textDim);
+      return;
+    }
+
+    const rowH = 86 * s;
+    for (const p of powers) {
+      const accent = p.unlocked ? UI_PALETTE.accent : UI_PALETTE.textDim;
+      c.label(p.label.toUpperCase(), innerX, y, FS_BODY * s, p.unlocked ? UI_PALETTE.text : UI_PALETTE.textDim);
+      let ry = y + c.lineHeight(FS_BODY * s) + 6 * s;
+
+      // progress bar: conviction vs threshold
+      const barW = innerW;
+      const barH = 8 * s;
+      c.rect(innerX, ry, barW, barH, withAlpha(shade(UI_PALETTE.panelBg, -0.3), 0.9));
+      const conv = Math.max(0, Math.min(1, p.conviction));
+      if (conv > 0) c.rect(innerX, ry, Math.round(barW * conv), barH, accent);
+      // threshold tick
+      const tx = innerX + Math.round(barW * Math.max(0, Math.min(1, p.threshold)));
+      c.rect(tx, ry - 2 * s, Math.max(1, Math.round(s)), barH + 4 * s, UI_PALETTE.text);
+      ry += barH + 8 * s;
+
+      const pct = Math.round(p.conviction * 100);
+      const need = Math.round(p.threshold * 100);
+      if (p.unlocked) {
+        c.label(`believed by ${p.reach} — ${pct}%`, innerX, ry, FS_BODY * s, UI_PALETTE.textDim);
+        const bw = 110 * s;
+        const bh = 26 * s;
+        if (c.button(`power.cast.${p.verb}`, 'CAST ⚡', innerX + innerW - bw, ry - 4 * s, bw, bh, { scale: FS_BODY * s })) {
+          this.hooks.onCastPower?.(p.verb);
+        }
+      } else {
+        c.label(`not yet believed — ${pct}% of ${need}% needed`, innerX, ry, FS_BODY * s, UI_PALETTE.textDim);
+      }
+      y += rowH;
+      if (y > bottom - rowH) break;
+    }
+  }
+
+  // ── divine inbox: triageable prayers / opportunities / threats ─────────────
+  private drawInbox(c: UiContext, _w: number, _h: number, s: number, items: InboxItem[], bottom: number): void {
+    const pad = 16 * s;
+    const pw = 400 * s;
+    const px = pad;
+    const top = Math.max(pad, 80 * s);
+    const ph = bottom - top;
+    c.panel(px, top, pw, ph);
+
+    const innerX = px + 20 * s;
+    const innerW = pw - 40 * s;
+    let y = top + 20 * s;
+    c.label(`DIVINE INBOX (${items.length})`, innerX, y, FS_BODY * s, UI_PALETTE.textDim);
+    y += c.lineHeight(FS_BODY * s) + 14 * s;
+
+    if (items.length === 0) {
+      c.label('All quiet. For now.', innerX, y, FS_BODY * s, UI_PALETTE.textDim);
+      return;
+    }
+
+    const rowH = 92 * s;
+    for (const it of items) {
+      const tag = it.surfaced ? UI_PALETTE.accent : kindColor(it.kind);
+      // kind dot + title
+      c.rect(innerX, y + 4 * s, 8 * s, 8 * s, tag);
+      c.label(it.title, innerX + 16 * s, y, FS_BODY * s, UI_PALETTE.text);
+      let ry = y + c.lineHeight(FS_BODY * s) + 4 * s;
+      c.label(it.detail.length > 44 ? it.detail.slice(0, 43) + '…' : it.detail,
+        innerX, ry, FS_BODY * s, UI_PALETTE.textDim);
+      ry += c.lineHeight(FS_BODY * s) + 8 * s;
+
+      // triage row: ACT · LOOK · IGNORE
+      const bh = 24 * s;
+      const gap = 8 * s;
+      const bw = (innerW - 2 * gap) / 3;
+      if (it.target.kind !== 'none' &&
+          c.button(`inbox.act.${it.id}`, 'ACT', innerX, ry, bw, bh, { scale: FS_BODY * s })) {
+        this.hooks.onInboxAct?.(it);
+      }
+      if (c.button(`inbox.look.${it.id}`, 'LOOK', innerX + (bw + gap), ry, bw, bh, { scale: FS_BODY * s })) {
+        this.hooks.onInboxInvestigate?.(it);
+      }
+      if (c.button(`inbox.ignore.${it.id}`, 'IGNORE', innerX + 2 * (bw + gap), ry, bw, bh, { scale: FS_BODY * s })) {
+        this.ignoredInbox.add(it.id);
+        this.hooks.requestRender?.();
+      }
+      y += rowH;
+      if (y > bottom - rowH) break;
+    }
+  }
+
+  // ── story card: a modal narrative beat (line / choice) over a dim backdrop ──
+  private drawStory(c: UiContext, w: number, h: number, s: number): void {
+    const session = this.story;
+    if (!session) return;
+    const stage: Stage = session.current;
+
+    // dim the world so the beat reads as the focus
+    c.rect(0, 0, w, h, withAlpha([0, 0, 0, 1], 0.45));
+
+    const fsBody = FS_BODY * s;
+    const fsName = FS_BODY * s;
+    const lh = c.lineHeight(fsBody);
+
+    // bottom-anchored card spanning most of the width
+    const margin = 40 * s;
+    const cardH = Math.max(160 * s, Math.round(h * 0.34));
+    const cx = margin;
+    const cy = h - cardH - margin;
+    const cw = w - margin * 2;
+    c.panel(cx, cy, cw, cardH);
+
+    const innerX = cx + 28 * s;
+    const innerW = cw - 56 * s;
+    let y = cy + 24 * s;
+
+    if (stage.kind === 'line') {
+      if (stage.line.who) {
+        c.label(stage.line.who.toUpperCase(), innerX, y, fsName, UI_PALETTE.accent);
+        y += lh + 8 * s;
+      }
+      this.drawWrapped(c, stage.line.text, innerX, y, innerW, fsBody, UI_PALETTE.text);
+
+      const bw = 150 * s;
+      const bh = 30 * s;
+      if (c.button('story.next', 'CONTINUE ▸', cx + cw - bw - 24 * s, cy + cardH - bh - 14 * s, bw, bh, { scale: fsBody })) {
+        this.advanceStory(() => session.next());
+      }
+    } else if (stage.kind === 'choice') {
+      // options stack upward from the button strip; one button each.
+      const bh = 30 * s;
+      const gap = 8 * s;
+      const opts = stage.options;
+      const stackH = opts.length * bh + Math.max(0, opts.length - 1) * gap;
+      let by = cy + cardH - 14 * s - stackH; // bottom-aligned block of options
+      const bw = innerW;
+      opts.forEach((opt) => {
+        if (c.button(`story.opt.${opt.index}`, opt.text, innerX, by, bw, bh, { scale: fsBody })) {
+          this.advanceStory(() => session.choose(opt.index));
+        }
+        by += bh + gap;
+      });
+    }
+  }
+
+  /** Greedy word-wrap a run into the card width; returns the y past the last line. */
+  private drawWrapped(c: UiContext, text: string, x: number, y: number, maxW: number, scale: number, color = UI_PALETTE.text): number {
+    const lh = c.lineHeight(scale);
+    let line = '';
+    for (const word of text.split(/\s+/).filter(Boolean)) {
+      const probe = line ? `${line} ${word}` : word;
+      if (line && c.measure(probe, scale) > maxW) {
+        c.label(line, x, y, scale, color);
+        y += lh + 2 * scale;
+        line = word;
+      } else {
+        line = probe;
+      }
+    }
+    if (line) { c.label(line, x, y, scale, color); y += lh + 2 * scale; }
+    return y;
+  }
+
+  /** Run one story step; dismiss when the beat ends. */
+  private advanceStory(step: () => Stage): void {
+    if (!this.story) return;
+    const next = step();
+    if (next.kind === 'done') this.dismissStory();
+    this.hooks.requestRender?.();
+  }
+
+  private dismissStory(): void {
+    if (!this.story) return;
+    this.story = null;
+    this.hooks.onStoryToggle?.(false);
+    this.hooks.requestRender?.();
   }
 
   // ── Esc pause menu: dim backdrop + left nav + settings panel ──────────────
@@ -326,6 +594,15 @@ function clamp01(n: number): number {
 
 function inRect(p: { x: number; y: number }, r: Rect): boolean {
   return p.x >= r.x && p.x < r.x + r.w && p.y >= r.y && p.y < r.y + r.h;
+}
+
+/** Inbox kind → dot colour (surfaced items override with the accent). */
+function kindColor(kind: InboxItem['kind']): [number, number, number, number] {
+  switch (kind) {
+    case 'prayer': return UI_PALETTE.accent as [number, number, number, number];
+    case 'opportunity': return [0.55, 0.7, 0.9, 1]; // storm-sky
+    case 'threat': return [0.85, 0.32, 0.27, 1];    // rival red
+  }
 }
 
 let singleton: UiRuntime | null = null;

@@ -33,6 +33,9 @@ export class StagingActivationSystem implements System {
     private readonly getStaging: () => StagingBuffer,
     private readonly getThreads: () => PlotThreadStore,
     private readonly onSoftBeat?: (subject: ThreadSubject, soft: NonNullable<StagedBeat['soft']>) => void,
+    /** Surfaced when a fired beat carries a `storylet` ref — the game layer plays
+     *  it in a StorySession (interactive/branching). Optional; hard/soft still apply. */
+    private readonly onStoryletBeat?: (subject: ThreadSubject, storyletId: string, beat: StagedBeat) => void,
   ) {}
 
   tick(ctx: SystemContext): void {
@@ -72,6 +75,7 @@ export class StagingActivationSystem implements System {
       this.queue.emit({ verb: cmd.verb, source: cmd.source, target: cmd.target, params: cmd.params, payload: cmd.payload });
     }
     if (beat.soft) this.onSoftBeat?.(beat.subject, beat.soft);
+    if (beat.storylet) this.onStoryletBeat?.(beat.subject, beat.storylet, beat);
     if (beat.threadId !== undefined) threads.activate(beat.threadId, ctx.now);
     staging.markFired(beat.id);
     ctx.log.append({ type: 'beat_fired', beatId: beat.id, subject: beat.subject, threadId: beat.threadId });

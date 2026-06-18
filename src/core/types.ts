@@ -261,6 +261,13 @@ export interface SpiritBelief {
   devotion:      number;  // 0–1: behavioral commitment
 }
 
+/** A *kind of power* believers can attribute to a spirit — the content of belief,
+ *  not its strength. Each domain is backed by a real coded capability (no button
+ *  without an effect; see `src/sim/belief-domains.ts`). Bounded enum: Fate may
+ *  name/flavour a domain but cannot invent an effect outside this set. */
+export type BeliefDomain =
+  | 'storm';  // storm & lightning → the `smite` capability. (More land per slice.)
+
 export interface NpcNeeds {
   safety:     number;  // 0–1 (higher = more satisfied)
   prosperity: number;
@@ -403,6 +410,10 @@ export interface NpcProperties {
   // sim
   personality: NpcPersonality;
   beliefs: Record<SpiritId, SpiritBelief>;
+  /** Belief *content* (Track-B): what this NPC thinks a spirit can DO, per domain
+   *  (storm, fire, …), 0–1. Sparse — most NPCs hold 0–2 domain beliefs. Keyed by
+   *  spirit id, then domain. Optional → old saves/snapshots read as no content. */
+  domains?: Record<SpiritId, Partial<Record<BeliefDomain, number>>>;
   needs: NpcNeeds;
   mood: number;
   whisperCooldown: number;

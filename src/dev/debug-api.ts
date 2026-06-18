@@ -41,6 +41,15 @@ export interface DebugApi {
   fitMap(): void;
   /** The rendered frame as a PNG data URL (robust capture; survives headed). */
   grab(): string;
+  /** Open a registered storylet as an interactive card. False if the id is unknown. */
+  playStory(storyletId: string): boolean;
+  /** Belief-granted powers (skill-panel payload) for the player. */
+  powers(): ReturnType<GameQuery['beliefPowers']>;
+  /** The divine inbox (salience-ranked) for the player. */
+  inbox(): ReturnType<GameQuery['divineInbox']>;
+  /** Fate-surfacing stub (B-E): promote an inbox item id (boosts salience + flags
+   *  it). Pass nothing to clear all surfacing. Returns the surfaced-id count. */
+  surfaceInbox(id?: string): number;
 }
 
 export interface DebugApiDeps {
@@ -49,10 +58,12 @@ export interface DebugApiDeps {
   /** For the camera-mutating verbs (focus/fit), which GameQuery deliberately omits. */
   state: GameState;
   viewport: () => { width: number; height: number };
+  /** Open a storylet card by id (Game.playStorylet). */
+  playStory: (storyletId: string) => boolean;
 }
 
 export function createDebugApi(deps: DebugApiDeps): DebugApi {
-  const { query, state, viewport } = deps;
+  const { query, state, viewport, playStory } = deps;
   const camera = (): Camera => state.camera;
 
   return {
@@ -99,6 +110,25 @@ export function createDebugApi(deps: DebugApiDeps): DebugApi {
 
     grab(): string {
       return query.screenshot();
+    },
+
+    playStory(storyletId: string): boolean {
+      return playStory(storyletId);
+    },
+
+    powers() {
+      return query.beliefPowers();
+    },
+
+    inbox() {
+      return query.divineInbox();
+    },
+
+    surfaceInbox(id?: string): number {
+      if (!state.surfacedInbox) state.surfacedInbox = new Set<string>();
+      if (id === undefined) state.surfacedInbox.clear();
+      else state.surfacedInbox.add(id);
+      return state.surfacedInbox.size;
     },
   };
 }

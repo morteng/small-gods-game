@@ -137,6 +137,11 @@ export class UiContext {
     return this.font.lineHeight(scale);
   }
 
+  /** Pixel width of a text run at the given scale (for wrapping / centring). */
+  measure(text: string, scale: number): number {
+    return this.font.measure(text, scale);
+  }
+
   /** End the frame; returns the hit regions claimed (for the input router). */
   end(): { hits: readonly UiHit[] } {
     return { hits: this.hits };
