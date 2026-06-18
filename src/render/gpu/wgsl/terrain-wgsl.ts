@@ -131,6 +131,24 @@ fn unpackColor(rgba : u32) -> vec3<f32> {
   return vec3<f32>(r, g, b);
 }
 
+// 4×4 ordered Bayer threshold, returns (value/16 - 0.5/16) ∈ ~[-0.5,0.5)/1. The
+// scene renders into the LOW-RES (art-pixel) target, so the fragment's framebuffer
+// coord IS the art-texel index — one dither cell per art pixel, upscaled crisply by
+// the nearest blit. This is the "pixel-art way": gradients/band edges become an
+// ordered stipple in art-pixel space instead of smooth ramps or hard contour lines.
+fn bayer4(p : vec2<f32>) -> f32 {
+  let ix = u32(i32(floor(p.x)) & 3);
+  let iy = u32(i32(floor(p.y)) & 3);
+  let i = iy * 4u + ix;
+  var m = array<f32, 16>(
+     0.0,  8.0,  2.0, 10.0,
+    12.0,  4.0, 14.0,  6.0,
+     3.0, 11.0,  1.0,  9.0,
+    15.0,  7.0, 13.0,  5.0,
+  );
+  return (m[i] + 0.5) / 16.0 - 0.5;   // [-0.5, 0.5)
+}
+
 @fragment
 fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   let W = u32(G.uGrid.x);
@@ -189,11 +207,23 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   let wet = smoothstep(0.045, 0.0, aboveSea) * step(0.0, aboveSea);
   let shoreAlbedo = albedo * mix(1.0, 0.6, wet);
 
-  // Banded diffuse so the lit relief stays pixel-art (matches the sprites).
+  // Ordered dither in ART-PIXEL space (in.pos = low-res target framebuffer coord).
+  let dith = bayer4(in.pos.xy);
+
+  // Banded diffuse so the lit relief stays pixel-art (matches the sprites). The
+  // band threshold is dithered by ±½ a band so the boundary between two light
+  // terraces becomes a 1-art-pixel ordered stipple instead of a hard contour ring.
   let ndl = max(dot(n, normalize(G.uSun.xyz)), 0.0);
   let bands = max(1.0, G.uSun.w);
-  let banded = floor(ndl * bands + 0.5) / bands;
+  let banded = floor(ndl * bands + 0.5 + dith) / bands;
   let light = G.uAmbient.xyz + vec3<f32>(G.uAmbient.w) * banded;
-  return vec4<f32>(shoreAlbedo * light, 1.0);
+
+  // Posterize the final colour to a fixed number of levels per channel, with the
+  // SAME ordered dither applied before quantization — turns the height-blend /
+  // biome gradients into a crisp dithered palette (no smooth mush) while keeping
+  // the apparent colour range. Opaque output, no alpha blending.
+  let LV = 16.0;
+  let col = floor(shoreAlbedo * light * LV + 0.5 + dith) / LV;
+  return vec4<f32>(clamp(col, vec3<f32>(0.0), vec3<f32>(1.0)), 1.0);
 }
 `;
