@@ -15,6 +15,9 @@ import type { Rng } from '@/core/rng';
 export type CommandVerb =
   // divine tier — implemented, belief-spending interventions
   | 'whisper' | 'omen' | 'dream' | 'miracle' | 'answer_prayer' | 'probe_mind'
+  // divine tier — belief-CONTENT gated dramatic actions (Track B, what believers
+  // think you can do unlocks the verb; see src/sim/belief-domains.ts)
+  | 'smite'
   // authoring tier — DECLARED, executor pending (filled in by the Fate cycle)
   | 'bias_event' | 'inject_npc' | 'nudge_severity' | 'place_building' | 'grow_settlement'
   | 'rename_ward' | 'retype_ward'

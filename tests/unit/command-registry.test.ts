@@ -11,19 +11,28 @@ const EDITOR_VERBS: CommandVerb[] = [
 ];
 
 const ALL_VERBS: CommandVerb[] = [
-  'whisper', 'omen', 'dream', 'miracle', 'answer_prayer', 'probe_mind',
+  'whisper', 'omen', 'dream', 'miracle', 'answer_prayer', 'probe_mind', 'smite',
   'bias_event', 'inject_npc', 'nudge_severity', 'place_building', 'grow_settlement',
   'rename_ward', 'retype_ward',
   ...EDITOR_VERBS,
 ];
 
 describe('capability registry', () => {
-  it('declares all 18 verbs', () => {
-    expect(listCapabilities()).toHaveLength(18);
+  it('declares all 19 verbs', () => {
+    expect(listCapabilities()).toHaveLength(19);
     for (const v of ALL_VERBS) {
       expect(getCapability(v)).toBeDefined();
       expect(CAPABILITY_REGISTRY[v].verb).toBe(v);
     }
+  });
+
+  it('wires smite as a belief-gated divine verb (npc target, has a precondition)', () => {
+    const def = CAPABILITY_REGISTRY.smite;
+    expect(def.tier).toBe('divine');
+    expect(def.implemented).toBe(true);
+    expect(def.targetKind).toBe('npc');
+    expect(typeof def.apply).toBe('function');
+    expect(typeof def.precondition).toBe('function');
   });
 
   it('declares the 5 editor verbs as implemented, cost-0, editor-tier', () => {

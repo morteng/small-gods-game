@@ -1,9 +1,10 @@
 # Belief-Granted Powers + the Divine Inbox (Brainstorm / Design)
 
-**Status:** brainstorm only — no code. The headline new system: **a god's powers are
-exactly what its believers think it can do.** Belief *content* (domains) gates the action
-vocabulary; an inbox surfaces prayers/opportunities/threats (curated by Fate + the
-storylet reservoir); a skill panel renders belief as buttons.
+**Status:** **MVP vertical slice (B-A…B-E) BUILT** on `feat/storylet-engine`. The headline
+system: **a god's powers are exactly what its believers think it can do.** Belief *content*
+(domains) gates the action vocabulary; an inbox surfaces prayers/opportunities/threats
+(curated by Fate + the storylet reservoir); a skill panel renders belief as buttons.
+The whole loop turns end-to-end no-key — see §10 for what shipped vs deferred.
 **Relates to:** [[project-storylet-engine]] (the inbox = the reservoir surfaced),
 [[project-fate-orchestration-layer]] (purposeful surfacing/pacing),
 [[project-command-query-bus]] (capability registry = the power vocabulary),
@@ -163,26 +164,49 @@ Belief made visible. Rendered from `bus.capabilities()` filtered by a per-capabi
 7. **Inbox capacity / decay** — queue size, staleness, and how "Ignore" feeds back into
    belief (ignored prayers erode devotion?).
 
-## 10. Proposed vertical slice (MVP — feel the loop turn once)
+## 10. Vertical slice (MVP — feel the loop turn once) — **BUILT**
 
-Smallest cut that exercises the *entire* belief→power→reinforce loop end-to-end, no key:
+The whole belief→power→reinforce loop turns end-to-end no-key. What shipped:
 
-- **B-A — belief-content model:** sparse per-NPC domain vector + propagation + aggregate
-  read; one domain (`storm/lightning`). Deterministic, snapshotable, guard-tested.
-- **B-B — attribution:** a natural storm event + a witness/attribution hook in
-  PerceptionSystem; an omen/presence near it seeds `lightning` belief.
-- **B-C — gated capability + panel:** a `lightning` capability behind the belief-gate; the
-  WebGPU skill panel renders it locked→unlocked with the legibility/progress hint; casting
-  it reinforces the domain (and costs power, needs witnesses).
-- **B-D — inbox (two item kinds):** a **prayer** and a **storm-opportunity**, triageable
-  (ignore/investigate/act); deterministic salience. Acting on the opportunity routes into
-  the claim/cast.
-- **B-E — Fate surfacing seam (stub):** the inbox reads a "surfaced/intent" flag a staged
-  storylet can set, so Fate can later promote an item — wired but dumb-director by default.
+- **B-A — belief-content model** ✅ `src/sim/belief-domains.ts` + `NpcProperties.domains`
+  (sparse, pruned, snapshot-rides). One live domain `storm` → `smite`. `aggregateDomain`
+  is the faith×devotion-weighted unlock signal; `BeliefDomain` is a bounded enum. The
+  domain→capability binding (`DOMAIN_DEFS`) is the no-button-without-effect law in code.
+- **B-B — attribution + propagation + decay** ✅ Attribution lives **at the act site**
+  (cleaner than overloading PerceptionSystem): `omen` over a settlement with an **ominous**
+  active event (drought/plague/raiders/dispute) seeds `storm` belief — the coincidence
+  bootstrap — and `smite` reinforces witnesses. `BeliefContentSystem` (0.5 Hz, read-then-
+  write, `Math.random`-free) runs **propagation** along the social graph + **gentle decay**
+  that **devotion resists** (doctrine freezes a power in place).
+- **B-C — gated capability + skill panel** ✅ `smite` verb + effect (grill a target into
+  fear-faith, terrify+convert witnesses, reinforce the domain) behind a **belief-gate**
+  precondition in the registry (conviction < threshold → `precondition_failed`, after the
+  `insufficient_power` check). `GameQuery.beliefPowers` is the **single legibility payload**;
+  the WebGPU skill panel (`UiRuntime`) renders locked→unlocked with a conviction bar +
+  threshold tick + "not yet believed — N% of M%", and a `CAST ⚡` button when unlocked.
+- **B-D — divine inbox** ✅ `GameQuery.divineInbox` ranks **prayers** (worship NPCs, by
+  faith×need), **opportunities** (ominous active events), and **threats** (rival-courted
+  souls) by deterministic salience; the WebGPU inbox panel offers **ACT / LOOK / IGNORE**
+  (act routes prayer→`answer_prayer`, opportunity→`omen`; ignore is session-local).
+- **B-E — Fate surfacing seam** ✅ `state.surfacedInbox` (transient, dropped on restore);
+  `divineInbox` flags + boosts surfaced ids above the pack. Dumb by default; `__debug.
+  surfaceInbox(id)` drives it. The director (Fate / a staged storylet) promotes items later.
 
-Later slices: more domains, decay + doctrine lock, identity/portfolio axis, rival
-attribution contest, manifestation domain (→ conversation/storylet payload), "powers you
-didn't ask for."
+**Tests:** `tests/unit/belief-powers.test.ts` (13: domains/aggregate/attribution/gating/
+reinforcement/decay/propagation/projections/surfacing) + `belief-powers-ui.test.ts` (5:
+panel locked→cast, inbox triage). `--pool=forks` in this worktree.
+
+**Honest deferrals (documented, not silently dropped):**
+- **Targeting UX** — `castPower` fires on the selected NPC or a deterministic default (first
+  by id). A real "arm the bolt, then click a target" mode is a follow-up; the belief-gate
+  still runs at the tick boundary regardless.
+- **Snapshot turnover for D2 time-skip** — `domains` rides structuredClone, but a closed-form
+  domain-belief turnover (like faith) for jump-N-years isn't written yet.
+- **Investigate** routes to selection only (no mind-page/backfill focus yet).
+
+Later slices: more domains (fire, rain, healing, manifestation→conversation payload),
+identity/portfolio axis that *gates* other domains, rival attribution contest (Track 3),
+"powers you didn't ask for", per-cast witness-radius economy tuning.
 
 ## 11. Determinism & perf guardrails
 

@@ -43,6 +43,13 @@ export interface DebugApi {
   grab(): string;
   /** Open a registered storylet as an interactive card. False if the id is unknown. */
   playStory(storyletId: string): boolean;
+  /** Belief-granted powers (skill-panel payload) for the player. */
+  powers(): ReturnType<GameQuery['beliefPowers']>;
+  /** The divine inbox (salience-ranked) for the player. */
+  inbox(): ReturnType<GameQuery['divineInbox']>;
+  /** Fate-surfacing stub (B-E): promote an inbox item id (boosts salience + flags
+   *  it). Pass nothing to clear all surfacing. Returns the surfaced-id count. */
+  surfaceInbox(id?: string): number;
 }
 
 export interface DebugApiDeps {
@@ -107,6 +114,21 @@ export function createDebugApi(deps: DebugApiDeps): DebugApi {
 
     playStory(storyletId: string): boolean {
       return playStory(storyletId);
+    },
+
+    powers() {
+      return query.beliefPowers();
+    },
+
+    inbox() {
+      return query.divineInbox();
+    },
+
+    surfaceInbox(id?: string): number {
+      if (!state.surfacedInbox) state.surfacedInbox = new Set<string>();
+      if (id === undefined) state.surfacedInbox.clear();
+      else state.surfacedInbox.add(id);
+      return state.surfacedInbox.size;
     },
   };
 }

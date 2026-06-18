@@ -4,6 +4,7 @@ import type { EventLog } from '@/core/events';
 import { npcProps, forEachNpc } from '@/world/npc-helpers';
 import { clamp01, signResponse } from '@/sim/npc-sim';
 import type { World } from '@/world/world';
+import { addDomainBelief, isOminous } from '@/sim/belief-domains';
 
 // ─── Power costs ──────────────────────────────────────────────────────────────
 
@@ -12,6 +13,7 @@ export const OMEN_COST = 3;
 export const DREAM_COST = 4;
 export const MIRACLE_COST = 10;
 export const ANSWER_PRAYER_COST = 2;
+export const SMITE_COST = 8;
 
 // ─── Effect magnitudes ───────────────────────────────────────────────────────
 
@@ -34,6 +36,20 @@ const MIRACLE_UNDERSTANDING_BOOST = 0.05;
 const ANSWER_PRAYER_FAITH_BOOST = 0.2;
 const ANSWER_PRAYER_MEANING_BOOST = 0.3; // Answer restores the divine need specifically
 const ANSWER_UNDERSTANDING_BOOST = 0.04; // a heard prayer teaches a little of your form
+
+// ── Belief-content attribution (Track B) ─────────────────────────────────────
+// An omen is a sign in the sky; over a suffering settlement it reads as wrath →
+// believers start to attribute the storm to you (the coincidence bootstrap).
+const OMEN_STORM_SEED = 0.05;          // per believing witness, ×signResponse
+// A smite is unambiguous — the storm OBEYED. Strong reinforcement for witnesses,
+// and the target felt it directly.
+const SMITE_TARGET_FEAR_FAITH = 0.35;  // fear converts (×signResponse on existing belief)
+const SMITE_TARGET_DEVOTION_PENALTY = 0.1; // fear is not love
+const SMITE_TARGET_UNDERSTANDING_BOOST = 0.06;
+const SMITE_TARGET_SAFETY_DROP = 0.5;
+const SMITE_TARGET_STORM_SEED = 0.25;
+const SMITE_WITNESS_FAITH_BOOST = 0.12;
+const SMITE_WITNESS_STORM_SEED = 0.15;
 
 // ─── Whisper (already exists in whisper.ts, reproduced here for completeness) ──
 
@@ -72,6 +88,16 @@ export function omen(spirit: Spirit, poiId: string, world: World, log: EventLog)
   if (spirit.power < OMEN_COST) return false;
   spirit.power -= OMEN_COST;
 
+  // A sign over a suffering settlement breeds storm-attribution. Scale the seed
+  // by how dire the running events are (no ominous event → a faint base seed).
+  const active = world.activeEvents.get(poiId);
+  let ominousSeverity = 0;
+  if (active) {
+    for (const ev of active) {
+      if (isOminous(ev.type)) ominousSeverity = Math.max(ominousSeverity, ev.severity);
+    }
+  }
+
   let affected = 0;
   forEachNpc(world, (e) => {
     const p = npcProps(e);
@@ -79,12 +105,14 @@ export function omen(spirit: Spirit, poiId: string, world: World, log: EventLog)
     const existing = p.beliefs[spirit.id];
     if (existing) {
       existing.faith = clamp01(existing.faith + OMEN_FAITH_BOOST * signResponse(existing.understanding));
+      // Attribution: a believer who grasps signs reads this one as the angry sky.
+      addDomainBelief(p, spirit.id, 'storm',
+        OMEN_STORM_SEED * signResponse(existing.understanding) * (1 + ominousSeverity));
     }
     affected++;
   });
 
   // Boost active event severity if there's one running
-  const active = world.activeEvents.get(poiId);
   if (active) {
     for (const ev of active) {
       ev.severity = clamp01(ev.severity + OMEN_SEVERITY_BOOST);
@@ -236,6 +264,58 @@ export function answerPrayer(spirit: Spirit, npc: Entity, log: EventLog): boolea
   const appended = log.append({ type: 'answer_prayer', spiritId: spirit.id, npcId: npc.id });
   p.recentEventIds.push(appended.id);
   if (p.recentEventIds.length > 8) p.recentEventIds.shift();
+
+  return true;
+}
+
+// ─── Smite: call lightning down on one NPC (belief-content gated) ────────────
+// The headline dramatic action. Gated by the `storm` domain aggregate (the
+// congregation must believe you command the sky — see registry.ts). The strike
+// terrifies the target into belief, and every witness who sees the storm OBEY
+// has their storm-attribution reinforced — the loop's positive feedback.
+
+export function smite(spirit: Spirit, npc: Entity, world: World, log: EventLog): boolean {
+  if (spirit.power < SMITE_COST) return false;
+  spirit.power -= SMITE_COST;
+
+  const tp = npcProps(npc);
+  const poiId = tp.homePoiId;
+
+  // ── the target: fear converts (but fear is not love → devotion suffers) ──
+  const tb = tp.beliefs[spirit.id];
+  if (tb) {
+    tb.faith = clamp01(tb.faith + SMITE_TARGET_FEAR_FAITH * signResponse(tb.understanding));
+    tb.understanding = clamp01(tb.understanding + SMITE_TARGET_UNDERSTANDING_BOOST);
+    tb.devotion = clamp01(tb.devotion - SMITE_TARGET_DEVOTION_PENALTY);
+  } else {
+    tp.beliefs[spirit.id] = {
+      faith: SMITE_TARGET_FEAR_FAITH * signResponse(0),
+      understanding: SMITE_TARGET_UNDERSTANDING_BOOST,
+      devotion: 0,
+    };
+  }
+  tp.needs.safety = clamp01(tp.needs.safety - SMITE_TARGET_SAFETY_DROP);
+  addDomainBelief(tp, spirit.id, 'storm', SMITE_TARGET_STORM_SEED);
+
+  // ── witnesses in the same settlement: the storm obeyed → reinforce ──
+  let witnesses = 0;
+  if (poiId) {
+    forEachNpc(world, (e) => {
+      if (e.id === npc.id) return;
+      const p = npcProps(e);
+      if (p.homePoiId !== poiId) return;
+      const b = p.beliefs[spirit.id];
+      if (b) {
+        b.faith = clamp01(b.faith + SMITE_WITNESS_FAITH_BOOST * signResponse(b.understanding));
+        addDomainBelief(p, spirit.id, 'storm', SMITE_WITNESS_STORM_SEED * signResponse(b.understanding));
+      }
+      witnesses++;
+    });
+  }
+
+  const appended = log.append({ type: 'smite', spiritId: spirit.id, npcId: npc.id, poiId, witnesses });
+  tp.recentEventIds.push(appended.id);
+  if (tp.recentEventIds.length > 8) tp.recentEventIds.shift();
 
   return true;
 }

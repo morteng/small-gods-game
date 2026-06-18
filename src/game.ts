@@ -8,7 +8,8 @@ import { attachControls, attachTimeKeys } from '@/ui/controls';
 import type { GameMap, WorldSeed, TerrainOptions } from '@/core/types';
 import { ART_RECIPE_VERSION } from '@/core/content-version';
 import { createDebugApi, type DebugApi } from '@/dev/debug-api';
-import { createGameQuery, type GameQuery } from '@/game/game-query';
+import { createGameQuery, type GameQuery, type InboxItem } from '@/game/game-query';
+import type { CommandVerb } from '@/sim/command/types';
 import { createGameBus, type GameBus } from '@/game/game-bus';
 import { getUiRuntime } from '@/render/ui/ui-runtime';
 import { bootMark, FpsMeter, type FpsStats } from '@/dev/profile';
@@ -53,6 +54,7 @@ import { BeliefPropagationSystem } from '@/sim/systems/belief-propagation-system
 import { NpcActivitySystem } from '@/sim/systems/npc-activity-system';
 import { SettlementEventSystem } from '@/sim/systems/settlement-event-system';
 import { SpiritSystem } from '@/sim/spirit-system';
+import { BeliefContentSystem } from '@/sim/systems/belief-content-system';
 import { PerceptionSystem } from '@/world/perception-system';
 import { PlotThreadSystem } from '@/sim/threads/systems/plot-thread-system';
 import { AbandonmentSystem } from '@/sim/systems/abandonment-system';
@@ -210,6 +212,9 @@ export class Game {
     this.scheduler.register(new AbandonmentSystem());
     this.scheduler.register(new NpcActivitySystem());
     this.scheduler.register(new BeliefPropagationSystem());
+    // Belief CONTENT (Track B): propagate + decay what they think you can DO.
+    // After propagation (faith spread) so content rides the same social graph.
+    this.scheduler.register(new BeliefContentSystem());
     this.scheduler.register(new SpiritSystem());
     this.scheduler.register(new RivalSystem(this.commandQueue));
     this.scheduler.register(new MortalitySystem());
@@ -602,6 +607,17 @@ export class Game {
         this.refreshPauseBanner();
         this.requestRender();
       },
+      // ── Track B: belief-granted powers + the divine inbox ──
+      getBeliefPowers: () => this.query.beliefPowers(),
+      onCastPower: (verb) => this.castPower(verb),
+      getInbox: () => this.query.divineInbox(),
+      onInboxAct: (item) => this.actOnInbox(item),
+      onInboxInvestigate: (item) => {
+        if (item.target.kind === 'npc') {
+          this.state.selectedNpcId = item.target.npcId;
+          this.requestRender();
+        }
+      },
     });
     this.cleanupUi = ui.attach(this.canvas);
 
@@ -655,6 +671,41 @@ export class Game {
     const session = new StorySession(pack, { host, seed });
     getUiRuntime().presentStory(session, storyletId);
     return true;
+  }
+
+  /**
+   * Cast a belief-granted power (the skill panel's "CAST"). NPC-targeted verbs
+   * (smite) fire on the selected NPC, or — until a dedicated targeting UX lands —
+   * a deterministic default (the first NPC by id) so the loop is exercisable. The
+   * command still runs the full belief-gate at the tick boundary, so a not-yet-
+   * believed power is rejected even if the panel button were somehow pressed.
+   */
+  private castPower(verb: string): void {
+    const cap = this.bus.capabilities().find(c => c.verb === verb);
+    if (!cap) return;
+    if (cap.targetKind === 'npc') {
+      const npcId = this.state.selectedNpcId ?? this.query.npcs()[0]?.id;
+      if (!npcId) return;
+      this.bus.emit({ verb: verb as CommandVerb, source: PLAYER_SPIRIT_ID, target: { kind: 'npc', npcId } });
+    } else if (cap.targetKind === 'settlement') {
+      const poiId = this.state.worldSeed?.pois[0]?.id;
+      if (!poiId) return;
+      this.bus.emit({ verb: verb as CommandVerb, source: PLAYER_SPIRIT_ID, target: { kind: 'settlement', poiId } });
+    }
+    this.requestRender();
+  }
+
+  /** Triage "Act": route an inbox item to the matching divine action. */
+  private actOnInbox(item: InboxItem): void {
+    if (item.target.kind === 'npc') {
+      // A prayer → answer it; any other npc-target → focus for now.
+      const verb: CommandVerb = item.kind === 'prayer' ? 'answer_prayer' : 'whisper';
+      this.bus.emit({ verb, source: PLAYER_SPIRIT_ID, target: { kind: 'npc', npcId: item.target.npcId } });
+    } else if (item.target.kind === 'settlement') {
+      // An opportunity → show a sign over it (the claim that bootstraps belief).
+      this.bus.emit({ verb: 'omen', source: PLAYER_SPIRIT_ID, target: { kind: 'settlement', poiId: item.target.poiId } });
+    }
+    this.requestRender();
   }
 
   private togglePause(): void {

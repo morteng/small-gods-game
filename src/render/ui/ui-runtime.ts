@@ -21,6 +21,7 @@ import type { UiDrawGroup } from '@/render/ui/ui-batcher';
 import { SettingsIsland } from '@/render/ui/ui-settings-island';
 import type { ProviderConfig } from '@/llm/provider-factory';
 import type { StorySession, Stage } from '@/story/story-session';
+import type { BeliefPowerView, InboxItem } from '@/game/game-query';
 
 /** Bigger-font multipliers (× the integer DPR scale). The S1 demo drew at 1×s
  *  which read tiny; the HUD/menu want chunky, legible pixel text. */
@@ -46,7 +47,22 @@ export interface UiRuntimeHooks {
   onSaveLlmConfig?: (cfg: ProviderConfig) => void;
   /** A story card opened/closed — the game pauses the sim while one is up. */
   onStoryToggle?: (active: boolean) => void;
+
+  // ── Track B: belief-granted powers + the divine inbox ──
+  /** The belief-granted powers to render in the skill panel (default []). */
+  getBeliefPowers?: () => BeliefPowerView[];
+  /** Cast an unlocked power (the Game picks/uses the current target). */
+  onCastPower?: (verb: string) => void;
+  /** The triageable divine-inbox items, salience-ranked (default []). */
+  getInbox?: () => InboxItem[];
+  /** Triage: act on an item (route to the matching divine action). */
+  onInboxAct?: (item: InboxItem) => void;
+  /** Triage: investigate (focus the subject — mind page / backfill). */
+  onInboxInvestigate?: (item: InboxItem) => void;
 }
+
+/** Which bottom-left side panel is open (mutually exclusive; below menu/story). */
+type Panel = 'powers' | 'inbox' | null;
 
 type Section = 'settings' | null;
 
@@ -66,6 +82,11 @@ export class UiRuntime {
 
   /** The story card currently on screen (modal narrative beat), or null. */
   private story: StorySession | null = null;
+
+  /** Open bottom-left side panel (powers / inbox), or null. Non-modal. */
+  private panel: Panel = null;
+  /** Inbox item ids the player has dismissed this session (local triage state). */
+  private ignoredInbox = new Set<string>();
 
   /** Hit regions claimed by the LAST built frame — used by capture-phase input to
    *  decide whether a pointer-down belongs to the UI (consume) or the world. */
@@ -272,6 +293,134 @@ export class UiRuntime {
       FS_BODY * s, hot ? UI_PALETTE.text : UI_PALETTE.textDim);
 
     if (clicked) this.setMenu(true);
+
+    // ── Track B affordances: POWERS + INBOX toggles along the bottom strip ──
+    const bh = 28 * s;
+    const by = h - bh - pad;
+    let bx = ox + orb + 64 * s;
+    const powers = this.hooks.getBeliefPowers?.() ?? [];
+    const unlocked = powers.filter((p) => p.unlocked).length;
+    const pLabel = `⚡ POWERS${unlocked > 0 ? ` (${unlocked})` : ''}`;
+    const pw = Math.ceil(c.measure(pLabel, FS_BODY * s)) + 24 * s;
+    if (c.button('ui.powers', pLabel, bx, by, pw, bh, { scale: FS_BODY * s })) {
+      this.panel = this.panel === 'powers' ? null : 'powers';
+    }
+    bx += pw + 10 * s;
+
+    const inbox = (this.hooks.getInbox?.() ?? []).filter((it) => !this.ignoredInbox.has(it.id));
+    const iLabel = `✉ INBOX${inbox.length > 0 ? ` (${inbox.length})` : ''}`;
+    const iw = Math.ceil(c.measure(iLabel, FS_BODY * s)) + 24 * s;
+    if (c.button('ui.inbox', iLabel, bx, by, iw, bh, { scale: FS_BODY * s })) {
+      this.panel = this.panel === 'inbox' ? null : 'inbox';
+    }
+
+    if (this.panel === 'powers') this.drawPowers(c, _w, h, s, powers, by - pad);
+    else if (this.panel === 'inbox') this.drawInbox(c, _w, h, s, inbox, by - pad);
+  }
+
+  // ── skill panel: belief-granted powers, locked→unlocked with progress ──────
+  private drawPowers(c: UiContext, _w: number, _h: number, s: number, powers: BeliefPowerView[], bottom: number): void {
+    const pad = 16 * s;
+    const pw = 360 * s;
+    const px = pad;
+    const top = Math.max(pad, 80 * s);
+    const ph = bottom - top;
+    c.panel(px, top, pw, ph);
+
+    const innerX = px + 20 * s;
+    const innerW = pw - 40 * s;
+    let y = top + 20 * s;
+    c.label('POWERS', innerX, y, FS_BODY * s, UI_PALETTE.textDim);
+    y += c.lineHeight(FS_BODY * s) + 14 * s;
+
+    if (powers.length === 0) {
+      c.label('No powers yet. Make them believe.', innerX, y, FS_BODY * s, UI_PALETTE.textDim);
+      return;
+    }
+
+    const rowH = 86 * s;
+    for (const p of powers) {
+      const accent = p.unlocked ? UI_PALETTE.accent : UI_PALETTE.textDim;
+      c.label(p.label.toUpperCase(), innerX, y, FS_BODY * s, p.unlocked ? UI_PALETTE.text : UI_PALETTE.textDim);
+      let ry = y + c.lineHeight(FS_BODY * s) + 6 * s;
+
+      // progress bar: conviction vs threshold
+      const barW = innerW;
+      const barH = 8 * s;
+      c.rect(innerX, ry, barW, barH, withAlpha(shade(UI_PALETTE.panelBg, -0.3), 0.9));
+      const conv = Math.max(0, Math.min(1, p.conviction));
+      if (conv > 0) c.rect(innerX, ry, Math.round(barW * conv), barH, accent);
+      // threshold tick
+      const tx = innerX + Math.round(barW * Math.max(0, Math.min(1, p.threshold)));
+      c.rect(tx, ry - 2 * s, Math.max(1, Math.round(s)), barH + 4 * s, UI_PALETTE.text);
+      ry += barH + 8 * s;
+
+      const pct = Math.round(p.conviction * 100);
+      const need = Math.round(p.threshold * 100);
+      if (p.unlocked) {
+        c.label(`believed by ${p.reach} — ${pct}%`, innerX, ry, FS_BODY * s, UI_PALETTE.textDim);
+        const bw = 110 * s;
+        const bh = 26 * s;
+        if (c.button(`power.cast.${p.verb}`, 'CAST ⚡', innerX + innerW - bw, ry - 4 * s, bw, bh, { scale: FS_BODY * s })) {
+          this.hooks.onCastPower?.(p.verb);
+        }
+      } else {
+        c.label(`not yet believed — ${pct}% of ${need}% needed`, innerX, ry, FS_BODY * s, UI_PALETTE.textDim);
+      }
+      y += rowH;
+      if (y > bottom - rowH) break;
+    }
+  }
+
+  // ── divine inbox: triageable prayers / opportunities / threats ─────────────
+  private drawInbox(c: UiContext, _w: number, _h: number, s: number, items: InboxItem[], bottom: number): void {
+    const pad = 16 * s;
+    const pw = 400 * s;
+    const px = pad;
+    const top = Math.max(pad, 80 * s);
+    const ph = bottom - top;
+    c.panel(px, top, pw, ph);
+
+    const innerX = px + 20 * s;
+    const innerW = pw - 40 * s;
+    let y = top + 20 * s;
+    c.label(`DIVINE INBOX (${items.length})`, innerX, y, FS_BODY * s, UI_PALETTE.textDim);
+    y += c.lineHeight(FS_BODY * s) + 14 * s;
+
+    if (items.length === 0) {
+      c.label('All quiet. For now.', innerX, y, FS_BODY * s, UI_PALETTE.textDim);
+      return;
+    }
+
+    const rowH = 92 * s;
+    for (const it of items) {
+      const tag = it.surfaced ? UI_PALETTE.accent : kindColor(it.kind);
+      // kind dot + title
+      c.rect(innerX, y + 4 * s, 8 * s, 8 * s, tag);
+      c.label(it.title, innerX + 16 * s, y, FS_BODY * s, UI_PALETTE.text);
+      let ry = y + c.lineHeight(FS_BODY * s) + 4 * s;
+      c.label(it.detail.length > 44 ? it.detail.slice(0, 43) + '…' : it.detail,
+        innerX, ry, FS_BODY * s, UI_PALETTE.textDim);
+      ry += c.lineHeight(FS_BODY * s) + 8 * s;
+
+      // triage row: ACT · LOOK · IGNORE
+      const bh = 24 * s;
+      const gap = 8 * s;
+      const bw = (innerW - 2 * gap) / 3;
+      if (it.target.kind !== 'none' &&
+          c.button(`inbox.act.${it.id}`, 'ACT', innerX, ry, bw, bh, { scale: FS_BODY * s })) {
+        this.hooks.onInboxAct?.(it);
+      }
+      if (c.button(`inbox.look.${it.id}`, 'LOOK', innerX + (bw + gap), ry, bw, bh, { scale: FS_BODY * s })) {
+        this.hooks.onInboxInvestigate?.(it);
+      }
+      if (c.button(`inbox.ignore.${it.id}`, 'IGNORE', innerX + 2 * (bw + gap), ry, bw, bh, { scale: FS_BODY * s })) {
+        this.ignoredInbox.add(it.id);
+        this.hooks.requestRender?.();
+      }
+      y += rowH;
+      if (y > bottom - rowH) break;
+    }
   }
 
   // ── story card: a modal narrative beat (line / choice) over a dim backdrop ──
@@ -445,6 +594,15 @@ function clamp01(n: number): number {
 
 function inRect(p: { x: number; y: number }, r: Rect): boolean {
   return p.x >= r.x && p.x < r.x + r.w && p.y >= r.y && p.y < r.y + r.h;
+}
+
+/** Inbox kind → dot colour (surfaced items override with the accent). */
+function kindColor(kind: InboxItem['kind']): [number, number, number, number] {
+  switch (kind) {
+    case 'prayer': return UI_PALETTE.accent as [number, number, number, number];
+    case 'opportunity': return [0.55, 0.7, 0.9, 1]; // storm-sky
+    case 'threat': return [0.85, 0.32, 0.27, 1];    // rival red
+  }
 }
 
 let singleton: UiRuntime | null = null;
