@@ -59,6 +59,13 @@ export interface UiRuntimeHooks {
   onInboxAct?: (item: InboxItem) => void;
   /** Triage: investigate (focus the subject — mind page / backfill). */
   onInboxInvestigate?: (item: InboxItem) => void;
+
+  // ── legacy-chrome L0: camera cluster (HUD) ──
+  /** Camera cluster (HUD). When all four are set, the HUD draws zoom controls. */
+  onZoomIn?: () => void;
+  onZoomOut?: () => void;
+  onFitView?: () => void;
+  onZoomActual?: () => void;
 }
 
 /** Which bottom-left side panel is open (mutually exclusive; below menu/story). */
@@ -268,7 +275,7 @@ export class UiRuntime {
   }
 
   // ── barebones HUD: a single presence orb that also opens the menu ─────────
-  private drawHud(c: UiContext, _w: number, h: number, s: number): void {
+  private drawHud(c: UiContext, w: number, h: number, s: number): void {
     const pad = 16 * s;
     const orb = 30 * s;
     const ox = pad;
@@ -314,8 +321,10 @@ export class UiRuntime {
       this.panel = this.panel === 'inbox' ? null : 'inbox';
     }
 
-    if (this.panel === 'powers') this.drawPowers(c, _w, h, s, powers, by - pad);
-    else if (this.panel === 'inbox') this.drawInbox(c, _w, h, s, inbox, by - pad);
+    if (this.panel === 'powers') this.drawPowers(c, w, h, s, powers, by - pad);
+    else if (this.panel === 'inbox') this.drawInbox(c, w, h, s, inbox, by - pad);
+
+    this.drawCameraCluster(c, w, h, s);
   }
 
   // ── skill panel: belief-granted powers, locked→unlocked with progress ──────
@@ -508,6 +517,32 @@ export class UiRuntime {
     this.story = null;
     this.hooks.onStoryToggle?.(false);
     this.hooks.requestRender?.();
+  }
+
+  /** Right-edge zoom controls (in/out/fit/1:1) — the GPU port of the legacy DOM
+   *  `cameraControls`. Drawn only when the camera hooks are wired. */
+  private drawCameraCluster(c: UiContext, w: number, h: number, s: number): void {
+    const { onZoomIn, onZoomOut, onFitView, onZoomActual } = this.hooks;
+    if (!onZoomIn || !onZoomOut || !onFitView || !onZoomActual) return;
+
+    const pad = 16 * s;
+    const bw = 38 * s;
+    const bh = 32 * s;
+    const gap = 4 * s;
+    const fs = FS_BODY * s;
+    const rows: Array<[string, string, () => void]> = [
+      ['cam.in', '+', onZoomIn],
+      ['cam.out', '-', onZoomOut],
+      ['cam.fit', 'FIT', onFitView],
+      ['cam.one', '1:1', onZoomActual],
+    ];
+    const bx = w - bw - pad;
+    // vertically centred cluster on the right edge
+    let by = Math.round((h - (bh * rows.length + gap * (rows.length - 1))) / 2);
+    for (const [id, label, fn] of rows) {
+      if (c.button(id, label, bx, by, bw, bh, { scale: fs })) fn();
+      by += bh + gap;
+    }
   }
 
   // ── Esc pause menu: dim backdrop + left nav + settings panel ──────────────

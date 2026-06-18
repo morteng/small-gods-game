@@ -366,33 +366,10 @@ export class Game {
         focusCameraOnTile(this.state.camera, x, y, vp.width, vp.height);
         this.requestRender();
       },
-      onZoomIn: () => {
-        const vp = this.viewport();
-        zoomAt(this.state.camera, 1.2, vp.width / 2, vp.height / 2, quantizeIsoZoom);
-        this.requestRender();
-      },
-      onZoomOut: () => {
-        const vp = this.viewport();
-        zoomAt(this.state.camera, 1 / 1.2, vp.width / 2, vp.height / 2, quantizeIsoZoom);
-        this.requestRender();
-      },
-      onFitView: () => {
-        if (!this.state.map) return;
-        const vp = this.viewport();
-        fitCameraToMap(
-          this.state.camera, this.state.map.width, this.state.map.height,
-          vp.width, vp.height,
-        );
-        this.requestRender();
-      },
-      onZoomActual: () => {
-        // Snap to exactly 1:1 about the viewport centre — keeps the centred world
-        // point fixed while setting zoom to 1 (native pixel scale, crisp art).
-        const vp = this.viewport();
-        const z = this.state.camera.zoom || 1;
-        zoomAt(this.state.camera, 1 / z, vp.width / 2, vp.height / 2);
-        this.requestRender();
-      },
+      onZoomIn: () => this.cameraZoomIn(),
+      onZoomOut: () => this.cameraZoomOut(),
+      onFitView: () => this.cameraFitView(),
+      onZoomActual: () => this.cameraZoomActual(),
       onNewWorld: () => { void this.newWorld(); },
       onGameSettingChange: (key, value) => {
         if (key === 'liveBuildingArt') this.liveBuildingArtEnabled = value !== false;
@@ -632,6 +609,11 @@ export class Game {
           this.requestRender();
         }
       },
+      // ── legacy-chrome L0: camera controls as GPU buttons ──
+      onZoomIn: () => this.cameraZoomIn(),
+      onZoomOut: () => this.cameraZoomOut(),
+      onFitView: () => this.cameraFitView(),
+      onZoomActual: () => this.cameraZoomActual(),
     });
     this.cleanupUi = ui.attach(this.canvas);
 
@@ -719,6 +701,32 @@ export class Game {
       // An opportunity → show a sign over it (the claim that bootstraps belief).
       this.bus.emit({ verb: 'omen', source: PLAYER_SPIRIT_ID, target: { kind: 'settlement', poiId: item.target.poiId } });
     }
+    this.requestRender();
+  }
+
+  // ── Camera ops (shared by the GPU HUD cluster and the legacy DOM controls) ──
+  private cameraZoomIn(): void {
+    const vp = this.viewport();
+    zoomAt(this.state.camera, 1.2, vp.width / 2, vp.height / 2, quantizeIsoZoom);
+    this.requestRender();
+  }
+  private cameraZoomOut(): void {
+    const vp = this.viewport();
+    zoomAt(this.state.camera, 1 / 1.2, vp.width / 2, vp.height / 2, quantizeIsoZoom);
+    this.requestRender();
+  }
+  private cameraFitView(): void {
+    if (!this.state.map) return;
+    const vp = this.viewport();
+    fitCameraToMap(this.state.camera, this.state.map.width, this.state.map.height, vp.width, vp.height);
+    this.requestRender();
+  }
+  private cameraZoomActual(): void {
+    // Snap to exactly 1:1 about the viewport centre — keeps the centred world
+    // point fixed while setting zoom to 1 (native pixel scale, crisp art).
+    const vp = this.viewport();
+    const z = this.state.camera.zoom || 1;
+    zoomAt(this.state.camera, 1 / z, vp.width / 2, vp.height / 2);
     this.requestRender();
   }
 

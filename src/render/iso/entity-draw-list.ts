@@ -16,7 +16,7 @@ import { isPlantPreset } from '@/blueprint/presets';
 import {
   buildingSpriteItemFromImage, buildingSpriteItemFromPack, flatBlockItems, pickBuildingSource,
 } from './iso-building';
-import { barrierItems } from './iso-barrier';
+import { barrierSlabs } from './iso-barrier';
 import { buildRoadRibbonItems } from './iso-road-ribbon';
 import { buildYSortBucket, buildingSortKey, type YSortEntry } from './iso-ysort';
 import { blueprintOf } from '@/blueprint/entity';
@@ -74,7 +74,9 @@ export function buildEntityDrawList(
   // emission pass below — byte-identical draw list, now flowing through the seam.
   const buildingById = new Map<string, { e: Entity; s: StructureBox }>();
   const vegById = new Map<string, Entity>();
-  const barrierById = new Map<string, Entity>();
+  // Per-slab draw items keyed by a composite `${entityId}#${slabIndex}` id, so
+  // each piece of a barrier run y-sorts independently (see barrierSlabs).
+  const barrierSlabItems = new Map<string, DrawItem[]>();
   const decoById = new Map<string, { tx: number; ty: number; assetId: string }>();
 
   // Translate layer-visibility policy into a category read-filter, so the graph
@@ -97,11 +99,17 @@ export function buildEntityDrawList(
     switch (node.category) {
       case 'barrier': {
         const e = node.ref as Entity;
-        barrierById.set(e.id, e);
-        entries.push({
-          id: e.id, kind: 'barrier',
-          tx: Math.floor(e.x), ty: Math.floor(e.y), z: 0,
-          kindPriority: KIND_PRIORITY.barrier,
+        // One y-sort entry per slab — a long run interleaves with buildings at
+        // each piece's own iso depth instead of all at the entity anchor.
+        const slabs = barrierSlabs(e, ic);
+        slabs.forEach((sl, i) => {
+          const cid = `${e.id}#${i}`;
+          barrierSlabItems.set(cid, sl.items);
+          entries.push({
+            id: cid, kind: 'barrier',
+            tx: Math.floor(sl.wx), ty: Math.floor(sl.wy), z: 0,
+            kindPriority: KIND_PRIORITY.barrier,
+          });
         });
         break;
       }
@@ -190,8 +198,8 @@ export function buildEntityDrawList(
         }
       }
     } else if (e.kind === 'barrier') {
-      const b = barrierById.get(e.id);
-      if (b) items.push(...barrierItems(b, ic));
+      const slab = barrierSlabItems.get(e.id);
+      if (slab) items.push(...slab);
     } else if (e.kind === 'npc') {
       const n = rc.npcs.find((x) => x.id === e.id);
       if (n) items.push(...npcItems(ic, n));

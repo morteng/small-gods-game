@@ -74,18 +74,38 @@ function inGate(run: BarrierRun, t: number): boolean {
   return false;
 }
 
-export function barrierItems(
+/**
+ * One independently y-sortable piece of a barrier run: its draw items plus a
+ * WORLD anchor tile (`wx`/`wy`) the entity draw list uses as the iso-depth key.
+ * A long fence is many slabs, so each slab interleaves with buildings/NPCs at
+ * its OWN depth — without this a whole run sorts at the entity anchor and draws
+ * entirely in front of or behind a house it actually weaves past.
+ */
+export interface BarrierSlab {
+  wx: number;
+  wy: number;
+  items: DrawItem[];
+}
+
+/**
+ * Decompose a barrier run into per-slab pieces, each carrying its own world
+ * anchor for y-sorting. Wall slabs walk the polyline in unit steps (gated steps
+ * dropped); posts become one slab per vertex. The screen geometry is identical
+ * to the old single-list emit — only the grouping (and thus draw order) changes.
+ */
+export function barrierSlabs(
   entity: Entity,
   o: { originX: number; originY: number },
-): DrawItem[] {
+): BarrierSlab[] {
   const run = entity.properties?.barrier as BarrierRun | undefined;
   if (!run || run.path.length < 2) return [];
 
-  const items: DrawItem[] = [];
+  const slabs: BarrierSlab[] = [];
   const base = MATERIAL_COLORS[run.material] ?? FALLBACK_COLOR;
   const riseZ = Math.max(0.1, run.height) * HEIGHT_UNIT_PX;
   const total = pathLength(run.path);
   const step = 1; // one unit-tile per slab
+  const capLift = Math.max(2, run.thickness * (ISO_TILE_H / 8));
 
   // Walk the polyline in unit steps; each step is one wall slab unless gated.
   for (let t = 0; t < total; t += step) {
@@ -100,11 +120,12 @@ export function barrierItems(
     const aTop = raise(a0, riseZ);
     const bTop = raise(b0, riseZ);
 
-    // near (front-facing) wall face
-    items.push(quadItem(a0, b0, bTop, aTop, shade(base, 0.7)));
-    // top edge of the slab (thin cap)
-    const capLift = Math.max(2, run.thickness * (ISO_TILE_H / 8));
-    items.push(quadItem(aTop, bTop, raise(bTop, capLift), raise(aTop, capLift), base));
+    const items: DrawItem[] = [
+      // near (front-facing) wall face
+      quadItem(a0, b0, bTop, aTop, shade(base, 0.7)),
+      // top edge of the slab (thin cap)
+      quadItem(aTop, bTop, raise(bTop, capLift), raise(aTop, capLift), base),
+    ];
 
     // crenellation: small merlon notches along the top
     if (run.crenellated) {
@@ -119,23 +140,39 @@ export function barrierItems(
         { sx: mx - mw, sy: my - merlonH },
         shade(base, 0.85)));
     }
+
+    // anchor the slab at its midpoint tile so it y-sorts where it actually sits
+    const [cx, cy] = pointAt(run.path, mid);
+    slabs.push({ wx: cx, wy: cy, items });
   }
 
-  // posts: a small upright at each path vertex
+  // posts: a small upright at each path vertex, each its own y-sorted piece
   if (run.posts) {
     const postZ = riseZ * 1.1;
     const pw = 4;
     for (const [vx, vy] of run.path) {
       const g = worldToScreen(vx, vy, 0, o.originX, o.originY);
       const tp = raise(g, postZ);
-      items.push(quadItem(
-        { sx: g.sx - pw, sy: g.sy },
-        { sx: g.sx + pw, sy: g.sy },
-        { sx: tp.sx + pw, sy: tp.sy },
-        { sx: tp.sx - pw, sy: tp.sy },
-        shade(base, 0.6)));
+      slabs.push({
+        wx: vx, wy: vy,
+        items: [quadItem(
+          { sx: g.sx - pw, sy: g.sy },
+          { sx: g.sx + pw, sy: g.sy },
+          { sx: tp.sx + pw, sy: tp.sy },
+          { sx: tp.sx - pw, sy: tp.sy },
+          shade(base, 0.6))],
+      });
     }
   }
 
-  return items;
+  return slabs;
+}
+
+/** Flattened single-list emit — kept for direct callers/tests. Per-slab y-sort
+ *  ordering is applied by the entity draw list via {@link barrierSlabs}. */
+export function barrierItems(
+  entity: Entity,
+  o: { originX: number; originY: number },
+): DrawItem[] {
+  return barrierSlabs(entity, o).flatMap((s) => s.items);
 }
