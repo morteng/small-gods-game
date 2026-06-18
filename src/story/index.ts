@@ -29,6 +29,9 @@ export type { Stage, StorySessionOptions } from './story-session';
 export { createBusStoryHost, busAllowedVerbs } from './story-host-bus';
 export type { BusHostConfig } from './story-host-bus';
 
+// Loaded-pack catalogue (storylet id → pack lookup for the staging seam)
+export { StoryRegistry } from './story-registry';
+
 // Agent-first authoring + direction
 export { parsePack, STORY_PACK_SCHEMA } from './pack-schema';
 export type { ParseResult } from './pack-schema';

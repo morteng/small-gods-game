@@ -41,6 +41,8 @@ export interface DebugApi {
   fitMap(): void;
   /** The rendered frame as a PNG data URL (robust capture; survives headed). */
   grab(): string;
+  /** Open a registered storylet as an interactive card. False if the id is unknown. */
+  playStory(storyletId: string): boolean;
 }
 
 export interface DebugApiDeps {
@@ -49,10 +51,12 @@ export interface DebugApiDeps {
   /** For the camera-mutating verbs (focus/fit), which GameQuery deliberately omits. */
   state: GameState;
   viewport: () => { width: number; height: number };
+  /** Open a storylet card by id (Game.playStorylet). */
+  playStory: (storyletId: string) => boolean;
 }
 
 export function createDebugApi(deps: DebugApiDeps): DebugApi {
-  const { query, state, viewport } = deps;
+  const { query, state, viewport, playStory } = deps;
   const camera = (): Camera => state.camera;
 
   return {
@@ -99,6 +103,10 @@ export function createDebugApi(deps: DebugApiDeps): DebugApi {
 
     grab(): string {
       return query.screenshot();
+    },
+
+    playStory(storyletId: string): boolean {
+      return playStory(storyletId);
     },
   };
 }

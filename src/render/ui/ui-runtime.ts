@@ -20,6 +20,7 @@ import { shade, withAlpha } from '@/render/ui/ui-color';
 import type { UiDrawGroup } from '@/render/ui/ui-batcher';
 import { SettingsIsland } from '@/render/ui/ui-settings-island';
 import type { ProviderConfig } from '@/llm/provider-factory';
+import type { StorySession, Stage } from '@/story/story-session';
 
 /** Bigger-font multipliers (× the integer DPR scale). The S1 demo drew at 1×s
  *  which read tiny; the HUD/menu want chunky, legible pixel text. */
@@ -43,6 +44,8 @@ export interface UiRuntimeHooks {
   getLighting?: () => boolean;
   /** Persist + live-apply a new LLM provider config (from the DOM input island). */
   onSaveLlmConfig?: (cfg: ProviderConfig) => void;
+  /** A story card opened/closed — the game pauses the sim while one is up. */
+  onStoryToggle?: (active: boolean) => void;
 }
 
 type Section = 'settings' | null;
@@ -61,6 +64,9 @@ export class UiRuntime {
   private menuOpen = false;
   private section: Section = null;
 
+  /** The story card currently on screen (modal narrative beat), or null. */
+  private story: StorySession | null = null;
+
   /** Hit regions claimed by the LAST built frame — used by capture-phase input to
    *  decide whether a pointer-down belongs to the UI (consume) or the world. */
   private lastHits: readonly UiHit[] = [];
@@ -77,10 +83,34 @@ export class UiRuntime {
     return this.menuOpen;
   }
 
-  /** Whether a pointer at (px,py device) should be eaten by the UI. The menu is
-   *  modal (eats everything); the HUD only eats taps on its own widgets. */
+  /** Whether a story card is currently on screen. */
+  hasStory(): boolean {
+    return this.story !== null;
+  }
+
+  /**
+   * Present a storylet as a modal card. The runtime OWNS starting it (the caller
+   * passes an un-started session + the storylet id to enter), so the first stage
+   * is pumped here. A pack that yields nothing (immediate end / no eligible
+   * storylet) is dropped silently. Pauses the sim via `onStoryToggle`.
+   */
+  presentStory(session: StorySession, startId?: string): void {
+    try {
+      session.start(startId);
+    } catch {
+      return; // no eligible storylet / bad id — never crash the frame
+    }
+    if (session.done) return;
+    this.story = session;
+    this.hooks.onStoryToggle?.(true);
+    this.hooks.requestRender?.();
+  }
+
+  /** Whether a pointer at (px,py device) should be eaten by the UI. The menu and
+   *  an open story card are modal (eat everything); the HUD only eats taps on its
+   *  own widgets. */
   consumesPointer(px: number, py: number): boolean {
-    if (this.menuOpen) return true;
+    if (this.menuOpen || this.story) return true;
     return this.lastHits.some((h) => px >= h.x && px < h.x + h.w && py >= h.y && py < h.y + h.h);
   }
 
@@ -195,6 +225,8 @@ export class UiRuntime {
     if (this.menuOpen) {
       const clickAt = input.released ? { x: input.px, y: input.py } : null;
       r = this.drawMenu(c, wDev, hDev, s, clickAt);
+    } else if (this.story) {
+      this.drawStory(c, wDev, hDev, s);
     } else {
       this.drawHud(c, wDev, hDev, s);
     }
@@ -240,6 +272,93 @@ export class UiRuntime {
       FS_BODY * s, hot ? UI_PALETTE.text : UI_PALETTE.textDim);
 
     if (clicked) this.setMenu(true);
+  }
+
+  // ── story card: a modal narrative beat (line / choice) over a dim backdrop ──
+  private drawStory(c: UiContext, w: number, h: number, s: number): void {
+    const session = this.story;
+    if (!session) return;
+    const stage: Stage = session.current;
+
+    // dim the world so the beat reads as the focus
+    c.rect(0, 0, w, h, withAlpha([0, 0, 0, 1], 0.45));
+
+    const fsBody = FS_BODY * s;
+    const fsName = FS_BODY * s;
+    const lh = c.lineHeight(fsBody);
+
+    // bottom-anchored card spanning most of the width
+    const margin = 40 * s;
+    const cardH = Math.max(160 * s, Math.round(h * 0.34));
+    const cx = margin;
+    const cy = h - cardH - margin;
+    const cw = w - margin * 2;
+    c.panel(cx, cy, cw, cardH);
+
+    const innerX = cx + 28 * s;
+    const innerW = cw - 56 * s;
+    let y = cy + 24 * s;
+
+    if (stage.kind === 'line') {
+      if (stage.line.who) {
+        c.label(stage.line.who.toUpperCase(), innerX, y, fsName, UI_PALETTE.accent);
+        y += lh + 8 * s;
+      }
+      this.drawWrapped(c, stage.line.text, innerX, y, innerW, fsBody, UI_PALETTE.text);
+
+      const bw = 150 * s;
+      const bh = 30 * s;
+      if (c.button('story.next', 'CONTINUE ▸', cx + cw - bw - 24 * s, cy + cardH - bh - 14 * s, bw, bh, { scale: fsBody })) {
+        this.advanceStory(() => session.next());
+      }
+    } else if (stage.kind === 'choice') {
+      // options stack upward from the button strip; one button each.
+      const bh = 30 * s;
+      const gap = 8 * s;
+      const opts = stage.options;
+      const stackH = opts.length * bh + Math.max(0, opts.length - 1) * gap;
+      let by = cy + cardH - 14 * s - stackH; // bottom-aligned block of options
+      const bw = innerW;
+      opts.forEach((opt) => {
+        if (c.button(`story.opt.${opt.index}`, opt.text, innerX, by, bw, bh, { scale: fsBody })) {
+          this.advanceStory(() => session.choose(opt.index));
+        }
+        by += bh + gap;
+      });
+    }
+  }
+
+  /** Greedy word-wrap a run into the card width; returns the y past the last line. */
+  private drawWrapped(c: UiContext, text: string, x: number, y: number, maxW: number, scale: number, color = UI_PALETTE.text): number {
+    const lh = c.lineHeight(scale);
+    let line = '';
+    for (const word of text.split(/\s+/).filter(Boolean)) {
+      const probe = line ? `${line} ${word}` : word;
+      if (line && c.measure(probe, scale) > maxW) {
+        c.label(line, x, y, scale, color);
+        y += lh + 2 * scale;
+        line = word;
+      } else {
+        line = probe;
+      }
+    }
+    if (line) { c.label(line, x, y, scale, color); y += lh + 2 * scale; }
+    return y;
+  }
+
+  /** Run one story step; dismiss when the beat ends. */
+  private advanceStory(step: () => Stage): void {
+    if (!this.story) return;
+    const next = step();
+    if (next.kind === 'done') this.dismissStory();
+    this.hooks.requestRender?.();
+  }
+
+  private dismissStory(): void {
+    if (!this.story) return;
+    this.story = null;
+    this.hooks.onStoryToggle?.(false);
+    this.hooks.requestRender?.();
   }
 
   // ── Esc pause menu: dim backdrop + left nav + settings panel ──────────────

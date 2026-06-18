@@ -1,8 +1,9 @@
 # Storylet Engine — Authored Narrative Layer (Brainstorm / Design)
 
-**Status:** first-proof runtime + **agent-first integration layer** built (`src/story/`).
-Library-level wiring to the bus and to single-beat staging done; final game.ts/UI
-wiring is the one remaining step.
+**Status:** first-proof runtime + **agent-first integration layer** + **live game/UI
+wiring** built (`src/story/`). A fired `StagedBeat.storylet` now opens an interactive
+story card in the WebGPU UI, plays it through the bus-backed host, and pauses the sim
+while it's up. The engine is end-to-end playable no-key.
 **Branch / worktree:** `feat/storylet-engine` @ `/Users/Morten/mcpui/sg-story`.
 **Inspiration:** [jeremyfa/loreline](https://github.com/jeremyfa/loreline) — concepts borrowed, runtime rebuilt native.
 
@@ -129,18 +130,34 @@ not just a runtime the dumb path drives. New modules (`src/story/`):
 **Tests:** `tests/unit/story-integration.test.ts` (+16, total **36/36** across both story
 suites; 10/10 existing staging/fate tests still green; tsc clean).
 
-### Remaining wiring (the one next step)
-Construct the `onStoryletBeat` handler in `game.ts` where `StagingActivationSystem` is
-built (next to the `onSoftBeat` handler at ~game.ts:219): it creates a `StorySession`
-over a loaded `StoryPack` with `createBusStoryHost(this.bus, { source: PLAYER })` and
-presents stages to the UI (player) or to Fate (`FateDirector` + `StoryAgent`). Needs a
-pack **registry/loader** and a UI surface for lines/choices — both deliberate decisions,
-hence left for explicit sign-off rather than guessed.
+## 7. Live game + UI wiring (BUILT this slice — WebGPU-only)
+
+Three pieces, all behind the existing seams (no new sim coupling):
+
+- **`story-registry.ts`** — `StoryRegistry`, the loaded-pack catalogue. `register(pack,
+  { allowedVerbs })` runs the same `validatePack` UGC ingest uses, so a malformed or
+  out-of-sandbox pack never enters the playable set; `findByStorylet(id)` turns a
+  `StagedBeat.storylet` ref into its owning pack. Pure Maps, Node-testable.
+- **WebGPU story card** (`UiRuntime.presentStory` / `drawStory` in
+  `src/render/ui/ui-runtime.ts`) — a modal narrative card in the immediate-mode UI (NO
+  DOM): dim backdrop + bottom panel, speaker + word-wrapped line + a `CONTINUE ▸`
+  affordance, or one button per eligible choice. It eats all pointer input while up,
+  auto-advances effects between stops, and dismisses on `end`. A new `onStoryToggle`
+  hook pauses the sim while a card is up (mirrors the pause-menu rate save/restore).
+- **`game.ts` wiring** — `StagingActivationSystem` gets the `onStoryletBeat` callback
+  (5th ctor arg) → `Game.playStorylet(id)`: look the id up in the registry, build a
+  `createBusStoryHost(this.bus, { source: PLAYER_SPIRIT_ID })` host + a deterministic
+  `StorySession` (seeded from map seed ⊕ clock), hand it to `getUiRuntime().presentStory`.
+  The drought sample is registered as a built-in; `__debug.playStory(id)` opens any
+  registered storylet for the dev loop.
+
+The with-AI path is unchanged and ready: pass a `FateDirector` (+ pre-`warmEnrichment`)
+as the session's `director` instead of the default dumb one — same card, same runtime.
 
 - **Story package** = IR + asset manifest (stable catalogue IDs) + world seed; resolve
-  assets at **author time** (bounds cost — relevant to the frozen reseed).
+  assets at **author time** (bounds cost — relevant to the frozen reseed). Still TODO.
 
-## 7. Open decisions
+## 8. Open decisions
 
 - **IR surface:** JSON-IR-only for now (validator = contract). Add Loreline-style
   human-readable syntax + `parse`/`print` later? (Recommend: defer.)

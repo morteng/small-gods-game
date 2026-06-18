@@ -41,6 +41,9 @@ import { TimelineController } from '@/core/timeline';
 import { CommandQueue } from '@/sim/command/command-queue';
 import { DiscoveryQueue } from '@/sim/threads/discovery-queue';
 import { StagingActivationSystem } from '@/sim/threads/systems/staging-activation-system';
+import { StoryRegistry, StorySession, createBusStoryHost, busAllowedVerbs } from '@/story';
+import { droughtOmenPack } from '@/story/samples/the-drought-omen';
+import { PLAYER_SPIRIT_ID } from '@/sim/believers';
 import { CommandExecutorSystem } from '@/sim/command/command-system';
 import { AuthorCommandLog } from '@/sim/command/author-command-log';
 import { RivalSystem } from '@/sim/systems/rival-system';
@@ -111,6 +114,10 @@ export class Game {
   private cleanupUi: (() => void) | null = null;
   /** Sim rate captured when the pause menu opened, restored on close. */
   private menuPrevRate = 1;
+  /** Sim rate captured when a story card opened, restored when it dismisses. */
+  private storyPrevRate = 1;
+  /** Loaded story packs; a fired beat's `storylet` ref is looked up here. */
+  private storyRegistry = new StoryRegistry();
   private cleanupTokens: (() => void) | null = null;
   private resizeObserver: ResizeObserver;
   private rafId: number | null = null;
@@ -225,6 +232,8 @@ export class Game {
           this.attentionStore.putPage(subject.npcId, pathKey(['staged']), { prose: soft.text, links: [], depth: 0 });
         }
       },
+      // A fired beat carrying a storylet ref opens it as an interactive card.
+      (_subject, storyletId) => this.playStorylet(storyletId),
     ));
 
     this.timeline = new TimelineController({
@@ -288,6 +297,12 @@ export class Game {
       timeline: this.timeline,
     });
     this.bus = createGameBus({ queue: this.commandQueue, state: this.state, query: this.query });
+
+    // Story packs are validated against the bus's actual capability set on load,
+    // so an authored `do` can only invoke registered, sandboxed verbs. The drought
+    // sample ships as a built-in; UGC/Fate-authored packs register the same way.
+    const packErrors = this.storyRegistry.register(droughtOmenPack, { allowedVerbs: busAllowedVerbs(this.bus) });
+    if (packErrors.length) console.warn('[story] sample pack rejected:', packErrors);
 
     if (getComputedStyle(container).position === 'static') {
       container.style.position = 'relative';
@@ -575,6 +590,18 @@ export class Game {
         return this.dev.devMode.lighting !== 'off';
       },
       onSaveLlmConfig: (cfg) => this.applyLlmConfig(cfg),
+      // A story card is modal narrative — pause the sim while it's up, restore the
+      // prior rate (could be 2×/4×/8× or an existing pause) when it dismisses.
+      onStoryToggle: (active) => {
+        if (active) {
+          this.storyPrevRate = this.scheduler.getRate();
+          this.scheduler.setRate(0);
+        } else {
+          this.scheduler.setRate(this.storyPrevRate);
+        }
+        this.refreshPauseBanner();
+        this.requestRender();
+      },
     });
     this.cleanupUi = ui.attach(this.canvas);
 
@@ -611,6 +638,23 @@ export class Game {
     } catch (err) {
       console.warn('[llm] config not applied:', err);
     }
+  }
+
+  /**
+   * Open a storylet as an interactive card in the WebGPU UI. Looks the id up in
+   * the registry, builds a bus-backed host (so `do` effects become real, sandboxed
+   * commands acting as the player) and a deterministic session (seeded from the
+   * world + clock), then hands it to the UI runtime. Returns false if the id is
+   * unknown — the staging seam and `__debug.playStory` both route through here.
+   */
+  playStorylet(storyletId: string): boolean {
+    const pack = this.storyRegistry.findByStorylet(storyletId);
+    if (!pack) return false;
+    const host = createBusStoryHost(this.bus, { source: PLAYER_SPIRIT_ID });
+    const seed = ((this.state.map?.seed ?? 1) ^ (this.state.clock.now() | 0)) >>> 0;
+    const session = new StorySession(pack, { host, seed });
+    getUiRuntime().presentStory(session, storyletId);
+    return true;
   }
 
   private togglePause(): void {
@@ -662,7 +706,10 @@ export class Game {
 
   /** Stable debug surface for console/Playwright/MCP (see src/dev/debug-api.ts). */
   debug(): DebugApi {
-    return createDebugApi({ query: this.query, state: this.state, viewport: () => this.viewport() });
+    return createDebugApi({
+      query: this.query, state: this.state, viewport: () => this.viewport(),
+      playStory: (id) => this.playStorylet(id),
+    });
   }
 
   /** Latest rendered-frame stats (see src/dev/profile.ts). For `window.__perf`. */
