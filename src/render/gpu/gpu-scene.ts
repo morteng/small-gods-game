@@ -127,6 +127,12 @@ export class GpuScene {
   private staticBundleSrc: readonly DrawItem[] | null = null;
   private staticBundle: { batch: InstanceBatch; buf: GPUBuffer; count: number }[] = [];
   private staticLifted: readonly DrawItem[] = [];
+  /** L2 static cast-shadow bundle: the static layer's shadow parallelograms packed
+   *  ONCE into persistent buffers (world px), keyed by the lifted-array identity +
+   *  a lighting signature (sun move re-bakes). The camera bake is the shader uXform. */
+  private staticShadowSrc: readonly DrawItem[] | null = null;
+  private staticShadowSig = '';
+  private staticShadowBundle: { texture: CanvasImageSource; buf: GPUBuffer; count: number }[] = [];
   /** Screen-space UI pass (S1) — drawn last, over the entity pass, no depth. */
   private uiPass: UiPass;
 
@@ -286,7 +292,9 @@ export class GpuScene {
         stencilReadMask: 0xff, stencilWriteMask: 0xff,
       },
     });
-    this.shadowGlobalsBuf = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    // 8 floats: viewport(2) + alpha(1) + pad(1) + xform(4). L2 added uXform so the
+    // shadow corners can stay WORLD-px (camera-independent) and be packed once.
+    this.shadowGlobalsBuf = device.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.shadowGlobalsBind = device.createBindGroup({
       layout: this.shadowPipeline.getBindGroupLayout(0),
       entries: [{ binding: 0, resource: { buffer: this.shadowGlobalsBuf } }],
@@ -609,6 +617,29 @@ export class GpuScene {
     this.staticBundleSrc = items;
   }
 
+  /** L2 — pack the STATIC layer's cast shadows ONCE (world px, no xform baked) into
+   *  persistent per-texture buffers. Re-bakes only when the lifted geometry changes
+   *  (new array identity) or the sun moves (signature change). The camera transform
+   *  is applied by the shader (uXform), so pan/zoom never re-packs these. */
+  private ensureStaticShadowBundle(lifted: readonly DrawItem[], lighting: LightingState): void {
+    const sig = `${+lighting.enabled}|${lighting.shadowMode ?? 'silhouette'}|${lighting.sunDir.join(',')}`;
+    if (this.staticShadowSrc === lifted && this.staticShadowSig === sig) return;
+    for (const e of this.staticShadowBundle) e.buf.destroy();
+    this.staticShadowBundle = [];
+    // No xform → corners stay WORLD px (the shader bakes the camera).
+    const batches = buildShadowBatches(lifted, lighting).filter(b => b.instances.length > 0);
+    for (const b of batches) {
+      const data = packShadowInstances(b.instances);
+      const buf = this.device.createBuffer({
+        size: data.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+      });
+      this.device.queue.writeBuffer(buf, 0, data as GPUAllowSharedBufferSource);
+      this.staticShadowBundle.push({ texture: b.texture, buf, count: b.instances.length });
+    }
+    this.staticShadowSrc = lifted;
+    this.staticShadowSig = sig;
+  }
+
   /**
    * Render one frame: terrain (buffer-driven heightfield, T1) in its OWN depth
    * pass, then the blended water pass over it, then the entity draw list (depth
@@ -666,18 +697,26 @@ export class GpuScene {
     // static-bundle caching is L2); the static half is already lifted (no re-lift).
     const combined: readonly DrawItem[] = staticItems ? [...this.staticLifted, ...dynLifted] : dynLifted;
 
-    // Cast-shadow parallelograms (world coords → device via the same xform).
-    const shadowBatches = (lighting.enabled && P.shadows)
-      ? buildShadowBatches(combined, lighting, xform).filter(b => b.instances.length > 0)
+    // Cast-shadow parallelograms in WORLD px (the shader's uXform bakes the
+    // camera). L2: the static half is packed once into persistent buffers; only
+    // the small dynamic layer (NPCs/flotsam) is rebuilt + packed per frame.
+    const shadowsOn = lighting.enabled && P.shadows;
+    if (shadowsOn && staticItems) this.ensureStaticShadowBundle(this.staticLifted, lighting);
+    const dynShadowBatches = shadowsOn
+      ? buildShadowBatches(staticItems ? dynLifted : combined, lighting).filter(b => b.instances.length > 0)
       : [];
-    const hasShadows = shadowBatches.length > 0;
+    const staticShadowCount = (shadowsOn && staticItems)
+      ? this.staticShadowBundle.reduce((s, b) => s + b.count, 0) : 0;
+    const hasShadows = staticShadowCount > 0 || dynShadowBatches.length > 0;
 
     device.queue.writeBuffer(this.globalsBuf, 0, packGlobals({
       viewport: [w, h], bands: lighting.bands, ambient: lighting.ambient,
       sunDir: lighting.sunDir, sunColor: lighting.sunColor, xform,
     }) as GPUAllowSharedBufferSource);
     if (hasShadows) {
-      device.queue.writeBuffer(this.shadowGlobalsBuf, 0, new Float32Array([w, h, SHADOW_ALPHA, 0]));
+      const xf = xform ?? { sx: 1, sy: 1, ox: 0, oy: 0 };
+      device.queue.writeBuffer(this.shadowGlobalsBuf, 0,
+        new Float32Array([w, h, SHADOW_ALPHA, 0, xf.sx, xf.sy, xf.ox, xf.oy]));
     }
 
     const hasTerrain = !!(terrain && terrain.vertexCount > 0 && terrain.heights.length > 0 && P.terrain);
@@ -748,16 +787,28 @@ export class GpuScene {
       apass.setStencilReference(0);
       apass.setVertexBuffer(0, this.quadBuf);
       apass.setBindGroup(0, this.shadowGlobalsBind);
-      const shadowInst = shadowBatches.reduce((s, b) => s + b.instances.length, 0);
-      const shadowBuf = this.dynBuf('shadow', shadowInst * SHADOW_INSTANCE_STRIDE);
-      let soff = 0;
-      for (const b of shadowBatches) {
-        const data = packShadowInstances(b.instances);
-        device.queue.writeBuffer(shadowBuf, soff, data as GPUAllowSharedBufferSource);
-        apass.setBindGroup(1, this.shadowBind(b.texture));
-        apass.setVertexBuffer(1, shadowBuf, soff);
-        apass.draw(QUAD_VERTEX_COUNT, b.instances.length);
-        soff += data.byteLength;
+      // Static shadows: persistent buffers packed once (L2), drawn first into the
+      // shared stencil so the dynamic layer still unions correctly over them.
+      if (staticItems) {
+        for (const b of this.staticShadowBundle) {
+          apass.setBindGroup(1, this.shadowBind(b.texture));
+          apass.setVertexBuffer(1, b.buf);
+          apass.draw(QUAD_VERTEX_COUNT, b.count);
+        }
+      }
+      // Dynamic shadows: packed per frame into the shared grow-on-demand buffer.
+      const dynShadowInst = dynShadowBatches.reduce((s, b) => s + b.instances.length, 0);
+      if (dynShadowInst > 0) {
+        const shadowBuf = this.dynBuf('shadow', dynShadowInst * SHADOW_INSTANCE_STRIDE);
+        let soff = 0;
+        for (const b of dynShadowBatches) {
+          const data = packShadowInstances(b.instances);
+          device.queue.writeBuffer(shadowBuf, soff, data as GPUAllowSharedBufferSource);
+          apass.setBindGroup(1, this.shadowBind(b.texture));
+          apass.setVertexBuffer(1, shadowBuf, soff);
+          apass.draw(QUAD_VERTEX_COUNT, b.instances.length);
+          soff += data.byteLength;
+        }
       }
       apass.end();
       colorCleared = true;

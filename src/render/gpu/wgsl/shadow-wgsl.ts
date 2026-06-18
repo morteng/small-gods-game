@@ -24,7 +24,11 @@
 // silhouette and the rectangular baked quad.
 
 export const SHADOW_WGSL = /* wgsl */ `
-struct Globals { uViewport : vec2<f32>, uAlpha : f32, _pad : f32 };
+// uXform = world→device transform (sx, sy, ox, oy). Shadow corners arrive in
+// WORLD px now (L2: the static half is packed ONCE, camera-independent) and the
+// camera bake happens here in the shader — exactly like the entity pass (uXform
+// in lit-wgsl). A uniform scale preserves the screen-space shadow lean ratios.
+struct Globals { uViewport : vec2<f32>, uAlpha : f32, _pad : f32, uXform : vec4<f32> };
 @group(0) @binding(0) var<uniform> G : Globals;
 
 @group(1) @binding(0) var uSampler : sampler;
@@ -44,7 +48,8 @@ fn vsMain(
 ) -> VSOut {
   let top = mix(cTop.xy, cTop.zw, corner.x);
   let bot = mix(cBot.xy, cBot.zw, corner.x);
-  let px  = mix(top, bot, corner.y);
+  let world = mix(top, bot, corner.y);
+  let px = world * G.uXform.xy + G.uXform.zw;   // world → device px
   let ndc = vec2<f32>(
     px.x / (G.uViewport.x * 0.5) - 1.0,
     1.0 - px.y / (G.uViewport.y * 0.5),
