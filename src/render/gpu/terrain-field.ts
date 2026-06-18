@@ -154,8 +154,43 @@ export interface BuildTerrainFieldOpts {
 }
 
 /** Relative luminance of an RGB triple in `[0,1]` — terrain sun strength scalar. */
-function luminance(c: readonly [number, number, number]): number {
+export function luminance(c: readonly [number, number, number]): number {
   return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+}
+
+/**
+ * Build the terrain/water shader uniform inputs for a world + camera frame. The
+ * terrain and water passes share the SAME iso/z/lighting projection (water rides
+ * the terrain heightfield), so both call this — the one place the world-style z
+ * knobs, sea level, iso half-tile, sun direction and lighting are assembled. The
+ * caller supplies the LOD `subsample` (from `terrainGrid`).
+ */
+export function terrainGlobalsFor(
+  map: GameMap,
+  opts: {
+    viewport: [number, number];
+    xform: { sx: number; sy: number; ox: number; oy: number };
+    lighting: LightingState;
+    subsample: number;
+  },
+): TerrainGlobalsInput {
+  // S1 style knobs: vertical exaggeration + relief metres. Default to
+  // TERRAIN_Z_PX_PER_M / TERRAIN_RELIEF_M, so unstyled worlds are unchanged.
+  const style = worldStyleOf(map.worldSeed);
+  return {
+    viewport: opts.viewport,
+    xform: opts.xform,
+    grid: [map.width, map.height],
+    half: [ISO_TILE_W / 2, ISO_TILE_H / 2],
+    zPxPerM: style.terrainVerticalExaggeration,
+    seaLevel: ELEVATION_SEA_LEVEL,
+    reliefM: style.mountainRelief,
+    subsample: opts.subsample,
+    sunDir: TERRAIN_SUN_DIR,
+    bands: opts.lighting.bands,
+    ambient: opts.lighting.ambient,
+    sunStrength: luminance(opts.lighting.sunColor),
+  };
 }
 
 /**
@@ -166,23 +201,9 @@ function luminance(c: readonly [number, number, number]): number {
  */
 export function buildTerrainField(map: GameMap, opts: BuildTerrainFieldOpts): TerrainField {
   const grid = terrainGrid(map.width, map.height, opts.maxQuads);
-  // S1 style knobs: vertical exaggeration + relief metres. Default to
-  // TERRAIN_Z_PX_PER_M / TERRAIN_RELIEF_M, so unstyled worlds are unchanged.
-  const style = worldStyleOf(map.worldSeed);
-  const globals: TerrainGlobalsInput = {
-    viewport: opts.viewport,
-    xform: opts.xform,
-    grid: [map.width, map.height],
-    half: [ISO_TILE_W / 2, ISO_TILE_H / 2],
-    zPxPerM: style.terrainVerticalExaggeration,
-    seaLevel: ELEVATION_SEA_LEVEL,
-    reliefM: style.mountainRelief,
-    subsample: grid.subsample,
-    sunDir: TERRAIN_SUN_DIR,
-    bands: opts.lighting.bands,
-    ambient: opts.lighting.ambient,
-    sunStrength: luminance(opts.lighting.sunColor),
-  };
+  const globals = terrainGlobalsFor(map, {
+    viewport: opts.viewport, xform: opts.xform, lighting: opts.lighting, subsample: grid.subsample,
+  });
   const climate = getClimateFields(map);
   return {
     heights: heightField(map),

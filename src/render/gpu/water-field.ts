@@ -7,10 +7,7 @@
 // depth = surfaceW − terrainHeight needs no extra upload. No GPU/DOM here.
 
 import type { GameMap } from '@/core/types';
-import { ELEVATION_SEA_LEVEL } from '@/world/heightfield';
-import { ISO_TILE_W, ISO_TILE_H } from '@/render/iso/iso-constants';
-import { worldStyleOf } from '@/core/world-style';
-import { terrainGrid, TERRAIN_SUN_DIR } from '@/render/gpu/terrain-field';
+import { terrainGrid, terrainGlobalsFor } from '@/render/gpu/terrain-field';
 import { packTerrainGlobals, TERRAIN_GLOBALS_FLOATS, type TerrainGlobalsInput } from '@/render/gpu/instance-buffer';
 import type { LightingState } from '@/render/lighting-state';
 import { getHydrologyResult } from '@/world/hydrology-store';
@@ -23,11 +20,6 @@ export const SHALLOW_BAND_M = 1.5;
 export const FOAM_BAND_M = 0.4;
 /** WGlobals = TGlobals (24) + uWater vec4 = 28 floats / 112 bytes. */
 export const WATER_GLOBALS_FLOATS = TERRAIN_GLOBALS_FLOATS + 4;
-
-/** Relative luminance of an RGB triple — the water sun-strength scalar. */
-function luminance(c: readonly [number, number, number]): number {
-  return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
-}
 
 /** Linear-RGB 0..1 → 0xAABBGGRR (LE-friendly upload; shader unpacks to 0..1). */
 function rgbToAbgr(c: Rgb): number {
@@ -160,21 +152,11 @@ export function buildWaterField(map: GameMap, opts: BuildWaterFieldOpts): WaterF
   const stat = waterStatic(map, opts.maxQuads);
   if (stat.dry) return null;
 
-  const style = worldStyleOf(map.worldSeed);
-  const tg: TerrainGlobalsInput = {
-    viewport: opts.viewport,
-    xform: opts.xform,
-    grid: [map.width, map.height],
-    half: [ISO_TILE_W / 2, ISO_TILE_H / 2],
-    zPxPerM: style.terrainVerticalExaggeration,
-    seaLevel: ELEVATION_SEA_LEVEL,
-    reliefM: style.mountainRelief,
-    subsample: stat.subsample,
-    sunDir: TERRAIN_SUN_DIR,
-    bands: opts.lighting.bands,
-    ambient: opts.lighting.ambient,
-    sunStrength: luminance(opts.lighting.sunColor),
-  };
+  // Water rides the terrain heightfield → it shares the terrain projection
+  // uniform exactly; the only water-specific bits are the trailing uWater vec4.
+  const tg: TerrainGlobalsInput = terrainGlobalsFor(map, {
+    viewport: opts.viewport, xform: opts.xform, lighting: opts.lighting, subsample: stat.subsample,
+  });
 
   return {
     surfaceW: stat.surfaceW,
