@@ -19,13 +19,16 @@ import { buildWaterField } from '@/render/gpu/water-field';
 import { isLayerHidden } from '@/render/layer-visibility';
 import { DEFAULT_LIGHTING } from '@/render/lighting-state';
 
-/** The most-recent rendered frame's inputs — enough to rebuild fields per px. */
+/** The most-recent rendered frame's inputs — enough to rebuild fields per px.
+ *  `items` is the per-frame dynamic layer; `staticItems` is the cached static
+ *  layer (so the bench measures the SAME static-bundle path the live loop uses). */
 export interface LastFrame {
   rc: RenderContext;
   dpr: number;
   targetW: number;
   targetH: number;
-  frameItems: readonly DrawItem[];
+  items: readonly DrawItem[];
+  staticItems?: readonly DrawItem[];
 }
 
 /**
@@ -118,7 +121,7 @@ async function runMatrix(
     const water = (terrain && !isLayerHidden('rivers', rc.devMode))
       ? buildWaterField(map, { viewport: [lowW, lowH], xform, lighting, timeSec: 0 })
       : null;
-    return { items: lf.frameItems, lighting, terrain, water, w: lowW, h: lowH, out, xform, passes };
+    return { items: lf.items, staticItems: lf.staticItems, lighting, terrain, water, w: lowW, h: lowH, out, xform, passes };
   };
 
   const variants: { label: string; opts: Parameters<GpuScene['renderFrame']>[0] }[] = [

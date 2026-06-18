@@ -28,6 +28,7 @@ struct Globals {
   _pad2     : f32,
   uSunColor : vec3<f32>,
   _pad3     : f32,
+  uXform    : vec4<f32>,   // world→device affine: sx, sy, ox, oy (applied in VS)
 };
 
 @group(0) @binding(0) var<uniform> G : Globals;
@@ -45,11 +46,14 @@ struct VSOut {
 @vertex
 fn vsMain(
   @location(0) corner : vec2<f32>,   // unit quad 0..1
-  @location(1) iRect  : vec4<f32>,   // dx, dy, dw, dh  (screen px)
+  @location(1) iRect  : vec4<f32>,   // dx, dy, dw, dh  (WORLD px)
   @location(2) iUV    : vec4<f32>,   // u0, v0, u1, v1
   @location(3) iDepth : f32,         // painter-order depth, 0..1
 ) -> VSOut {
-  let px = iRect.xy + corner * iRect.zw;
+  // Instances are packed in WORLD px (camera-independent, so the static layer can
+  // be packed once); the camera world→device affine is applied here in the VS.
+  let world = iRect.xy + corner * iRect.zw;
+  let px = world * G.uXform.xy + G.uXform.zw;
   // screen px (y down, origin top-left) → clip NDC (y up)
   let ndc = vec2<f32>(
     px.x / (G.uViewport.x * 0.5) - 1.0,

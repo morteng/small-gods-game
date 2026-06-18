@@ -16,7 +16,7 @@
 import type { DrawItem } from '@/render/iso/draw-list';
 import type { LightingState } from '@/render/lighting-state';
 import {
-  buildInstanceBatches, srcSize, applyViewTransform,
+  buildInstanceBatches, srcSize,
   type InstanceBatch, type ViewTransform,
 } from '@/render/gpu/instance-batch';
 import {
@@ -120,6 +120,13 @@ export class GpuScene {
   /** Persistent, grow-on-demand vertex/instance buffers (one per stream), reused
    *  every frame instead of allocating + destroying dozens of buffers per frame. */
   private dynBufs = new Map<string, { buf: GPUBuffer; cap: number }>();
+  /** L1 static entity bundle: the camera-independent layer (flora/buildings/roads)
+   *  lifted + batched + packed into persistent per-batch buffers ONCE, keyed by the
+   *  source-array identity. The camera transform is an entity uniform (uXform) now,
+   *  so these WORLD-px instances never re-pack on pan/zoom. */
+  private staticBundleSrc: readonly DrawItem[] | null = null;
+  private staticBundle: { batch: InstanceBatch; buf: GPUBuffer; count: number }[] = [];
+  private staticLifted: readonly DrawItem[] = [];
   /** Screen-space UI pass (S1) — drawn last, over the entity pass, no depth. */
   private uiPass: UiPass;
 
@@ -180,7 +187,7 @@ export class GpuScene {
     this.quadBuf = device.createBuffer({ size: QUAD_STRIP.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
     device.queue.writeBuffer(this.quadBuf, 0, QUAD_STRIP);
 
-    this.globalsBuf = device.createBuffer({ size: 64, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    this.globalsBuf = device.createBuffer({ size: 80, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.globalsBind = device.createBindGroup({
       layout: this.pipeline.getBindGroupLayout(0),
       entries: [{ binding: 0, resource: { buffer: this.globalsBuf } }],
@@ -578,6 +585,30 @@ export class GpuScene {
     return true;
   }
 
+  /** Build the L1 static entity bundle when the source array identity changes:
+   *  lift onto the terrain, batch by texture, and pack each batch into its own
+   *  persistent WORLD-px buffer (the camera is applied in the VS via uXform). The
+   *  caller swaps the array only when the world changes, so this rebuild is rare —
+   *  every other frame just re-draws the persistent buffers. */
+  private ensureStaticBundle(items: readonly DrawItem[], terrain: TerrainField | null): void {
+    if (this.staticBundleSrc === items) return;
+    for (const e of this.staticBundle) e.buf.destroy();
+    this.staticBundle = [];
+    const lifted = terrain ? liftDrawList(items, terrain) : items;
+    this.staticLifted = lifted;
+    const { batches } = buildInstanceBatches(lifted);
+    for (const b of batches) {
+      if (b.instances.length === 0) continue;
+      const data = packInstances(b.instances);
+      const buf = this.device.createBuffer({
+        size: data.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+      });
+      this.device.queue.writeBuffer(buf, 0, data as GPUAllowSharedBufferSource);
+      this.staticBundle.push({ batch: b, buf, count: b.instances.length });
+    }
+    this.staticBundleSrc = items;
+  }
+
   /**
    * Render one frame: terrain (buffer-driven heightfield, T1) in its OWN depth
    * pass, then the blended water pass over it, then the entity draw list (depth
@@ -585,6 +616,10 @@ export class GpuScene {
    */
   renderFrame(opts: {
     items: readonly DrawItem[];
+    /** L1 — the camera-independent static layer (flora/buildings/roads). Lifted +
+     *  batched + packed into persistent buffers once (keyed by array identity) and
+     *  reused every frame. Omitted ⇒ `items` is treated as the full per-frame list. */
+    staticItems?: readonly DrawItem[];
     lighting: LightingState;
     w: number; h: number;
     xform?: ViewTransform;
@@ -607,7 +642,7 @@ export class GpuScene {
     };
   }): void {
     const { device } = this;
-    const { items: rawItems, lighting, w, h, xform, terrain, water, uiGroups, out, pixelOffset } = opts;
+    const { items: rawItems, staticItems, lighting, w, h, xform, terrain, water, uiGroups, out, pixelOffset } = opts;
     const P = {
       terrain: opts.passes?.terrain ?? true,
       water: opts.passes?.water ?? true,
@@ -615,22 +650,31 @@ export class GpuScene {
       entities: opts.passes?.entities ?? true,
       ui: opts.passes?.ui ?? true,
     };
-    // Lift entities onto the GPU terrain surface (foot-z parity) before any
-    // batching/shadow/shape work, so sprites, fallback shapes and cast shadows
-    // all ride the heightfield together. No-op when there's no terrain.
-    const items = terrain ? liftDrawList(rawItems, terrain) : rawItems;
-    const { batches } = buildInstanceBatches(items);
-    if (xform) for (const b of batches) applyViewTransform(b, xform);
+    // L1 — the static layer (flora/buildings/roads) is camera-independent: lift +
+    // batch + pack it into persistent per-batch buffers ONCE (keyed by array
+    // identity). The camera transform is now an entity uniform (uXform), so the
+    // packed WORLD-px instances never re-pack on pan/zoom — killing the per-frame
+    // re-pack of ~10k entities the profiler found dominating the encode (and the
+    // jerky-zoom fix). Lift entities onto the GPU terrain surface (foot-z parity)
+    // before batching so sprites, shapes and shadows ride the heightfield together.
+    if (staticItems) this.ensureStaticBundle(staticItems, terrain ?? null);
+    // Dynamic items (NPCs, flotsam — or, with no static split, EVERYTHING) are
+    // lifted + packed per frame; the set is small so this stays cheap.
+    const dynLifted = terrain ? liftDrawList(rawItems, terrain) : rawItems;
+    const { batches: dynBatches } = buildInstanceBatches(dynLifted);
+    // Shadows + shapes still consume the COMBINED lifted list each frame (their
+    // static-bundle caching is L2); the static half is already lifted (no re-lift).
+    const combined: readonly DrawItem[] = staticItems ? [...this.staticLifted, ...dynLifted] : dynLifted;
 
     // Cast-shadow parallelograms (world coords → device via the same xform).
     const shadowBatches = (lighting.enabled && P.shadows)
-      ? buildShadowBatches(items, lighting, xform).filter(b => b.instances.length > 0)
+      ? buildShadowBatches(combined, lighting, xform).filter(b => b.instances.length > 0)
       : [];
     const hasShadows = shadowBatches.length > 0;
 
     device.queue.writeBuffer(this.globalsBuf, 0, packGlobals({
       viewport: [w, h], bands: lighting.bands, ambient: lighting.ambient,
-      sunDir: lighting.sunDir, sunColor: lighting.sunColor,
+      sunDir: lighting.sunDir, sunColor: lighting.sunColor, xform,
     }) as GPUAllowSharedBufferSource);
     if (hasShadows) {
       device.queue.writeBuffer(this.shadowGlobalsBuf, 0, new Float32Array([w, h, SHADOW_ALPHA, 0]));
@@ -751,24 +795,33 @@ export class GpuScene {
     epass.setPipeline(this.pipeline);
     epass.setVertexBuffer(0, this.quadBuf);
     epass.setBindGroup(0, this.globalsBind);
-    const entInst = batches.reduce((s, b) => s + b.instances.length, 0);
-    if (P.entities && entInst > 0) {
-      const entBuf = this.dynBuf('entity', entInst * INSTANCE_STRIDE);
-      let eoff = 0;
-      for (const b of batches) {
-        if (b.instances.length === 0) continue;
-        const data = packInstances(b.instances);
-        device.queue.writeBuffer(entBuf, eoff, data as GPUAllowSharedBufferSource);
-        epass.setBindGroup(1, this.batchBind(b));
-        epass.setVertexBuffer(1, entBuf, eoff);
-        epass.draw(QUAD_VERTEX_COUNT, b.instances.length);
-        eoff += data.byteLength;
+    if (P.entities) {
+      // Static bundle — persistent per-batch buffers, packed once (world px).
+      for (const e of this.staticBundle) {
+        epass.setBindGroup(1, this.batchBind(e.batch));
+        epass.setVertexBuffer(1, e.buf);
+        epass.draw(QUAD_VERTEX_COUNT, e.count);
+      }
+      // Dynamic batches — packed this frame into the shared grow-on-demand buffer.
+      const dynInst = dynBatches.reduce((s, b) => s + b.instances.length, 0);
+      if (dynInst > 0) {
+        const entBuf = this.dynBuf('entity', dynInst * INSTANCE_STRIDE);
+        let eoff = 0;
+        for (const b of dynBatches) {
+          if (b.instances.length === 0) continue;
+          const data = packInstances(b.instances);
+          device.queue.writeBuffer(entBuf, eoff, data as GPUAllowSharedBufferSource);
+          epass.setBindGroup(1, this.batchBind(b));
+          epass.setVertexBuffer(1, entBuf, eoff);
+          epass.draw(QUAD_VERTEX_COUNT, b.instances.length);
+          eoff += data.byteLength;
+        }
       }
     }
 
     // Solid-colour shapes (poly/circle) — same pass + depth buffer, so they
     // interleave with sprites by their list-order depth.
-    const shapes = P.entities ? buildShapeVertices(items, xform) : { vertices: new Float32Array(0), vertexCount: 0 };
+    const shapes = P.entities ? buildShapeVertices(combined, xform) : { vertices: new Float32Array(0), vertexCount: 0 };
     if (shapes.vertexCount > 0) {
       device.queue.writeBuffer(this.shapeGlobalsBuf, 0, new Float32Array([w, h, 0, 0]));
       const sBuf = this.dynBuf('shape', shapes.vertices.byteLength);

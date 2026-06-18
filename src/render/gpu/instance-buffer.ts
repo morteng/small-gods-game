@@ -42,7 +42,7 @@ export function packInstances(instances: readonly InstanceAttrs[]): Float32Array
 }
 
 /** Globals uniform buffer (std140-ish; matches the `Globals` struct in lit-wgsl). */
-export const GLOBALS_FLOATS = 16; // 4 vec4 slots: [vp.xy,bands,_], [amb,_], [sun,_], [col,_]
+export const GLOBALS_FLOATS = 20; // 5 vec4 slots: [vp.xy,bands,_], [amb,_], [sun,_], [col,_], [xform]
 
 export interface GlobalsInput {
   viewport: [number, number];
@@ -50,6 +50,9 @@ export interface GlobalsInput {
   ambient: [number, number, number];
   sunDir: [number, number, number];
   sunColor: [number, number, number];
+  /** World→device affine applied in the VS (instances packed in world px).
+   *  Omitted ⇒ identity (instances already in device px / no camera). */
+  xform?: { sx: number; sy: number; ox: number; oy: number };
 }
 
 /** Pack the per-frame Globals uniform (vec3s padded to 16-byte boundaries). */
@@ -59,6 +62,7 @@ export function packGlobals(g: GlobalsInput): Float32Array {
   b[4] = g.ambient[0]; b[5] = g.ambient[1]; b[6] = g.ambient[2]; b[7] = 0;
   b[8] = g.sunDir[0]; b[9] = g.sunDir[1]; b[10] = g.sunDir[2]; b[11] = 0;
   b[12] = g.sunColor[0]; b[13] = g.sunColor[1]; b[14] = g.sunColor[2]; b[15] = 0;
+  b[16] = g.xform?.sx ?? 1; b[17] = g.xform?.sy ?? 1; b[18] = g.xform?.ox ?? 0; b[19] = g.xform?.oy ?? 0;
   return b;
 }
 

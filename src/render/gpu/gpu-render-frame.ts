@@ -132,8 +132,11 @@ export function buildGpuRenderFrame(scene: GpuScene, gpuCanvas: HTMLCanvasElemen
       cachedList = buildEntityDrawList(rc, full, ic, { only: 'static' });
       cacheKey = key;
     }
+    // The static layer flows to the scene AS the cached array (its identity is the
+    // bundle's cache key — a new array only when the world changed). The dynamic
+    // layer (NPCs, + flotsam below) is packed per frame.
+    const staticList: DrawItem[] = cachedList;
     const npcItems = buildEntityDrawList(rc, bounds, ic, { only: 'npcs' });
-    const items: DrawItem[] = npcItems.length ? [...cachedList, ...npcItems] : cachedList;
     const tDrawList = performance.now();
 
     // GPU terrain + entity passes → overlay canvas, composited identity (device→device).
@@ -169,28 +172,31 @@ export function buildGpuRenderFrame(scene: GpuScene, gpuCanvas: HTMLCanvasElemen
     // Flotsam/fauna (S6): step + emit cosmetic circles on the water surface.
     // Appended after the entity list so they composite over the water; the
     // renderer doesn't terrain-lift `circle` items, so they keep their surface z.
-    let frameItems = items;
+    let dynamicItems: readonly DrawItem[] = npcItems;
     if (water) {
       const hydro = getHydrologyResult(map);
       if (!flotsam) flotsam = new FlotsamSystem(map.seed);
       const dt = lastFlotsamTime > 0 ? timeSec - lastFlotsamTime : 0;
       lastFlotsamTime = timeSec;
       flotsam.step(map, hydro, dt);
-      frameItems = [...items, ...flotsam.drawItems(map, hydro)];
+      dynamicItems = [...npcItems, ...flotsam.drawItems(map, hydro)];
     }
 
     const uiGroups = ui.frame(target.width, target.height, dpr);
     const tFields = performance.now();
 
     scene.renderFrame({
-      items: frameItems, lighting, terrain, water,
+      items: dynamicItems, staticItems: staticList, lighting, terrain, water,
       w: lowW, h: lowH, out: { w: target.width, h: target.height },
       xform, uiGroups,
     });
     const tRender = performance.now();
 
     // Capture inputs for the deterministic profiler (rebuilds fields per px).
-    lastFrame = { rc, dpr, targetW: target.width, targetH: target.height, frameItems };
+    lastFrame = {
+      rc, dpr, targetW: target.width, targetH: target.height,
+      items: dynamicItems, staticItems: staticList,
+    };
 
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
