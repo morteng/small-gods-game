@@ -79,16 +79,35 @@ export interface BuildWaterFieldOpts {
   maxQuads?: number;
 }
 
-/**
- * Assemble the `WaterField` for a world + camera frame, or `null` when the world
- * is bone dry (so the caller skips the pass entirely). The per-cell arrays are the
- * hydrology model's own buffers (shared by reference — read-only on the GPU).
- */
-export function buildWaterField(map: GameMap, opts: BuildWaterFieldOpts): WaterField | null {
+/** The per-cell water buffers — static for a given map (they come from the
+ *  deterministic, memoised hydrology model). Cached so the live loop neither
+ *  re-allocates nor re-loops over the whole map every frame, AND so the GPU
+ *  upload's reference guard (`gpu-scene.uploadWaterFields`) actually hits and
+ *  skips the per-frame writeBuffer. Only the `globals` uniform (camera/time)
+ *  changes frame-to-frame. */
+interface WaterStatic {
+  surfaceW: Float32Array;
+  waterType: Uint32Array;
+  flow: Float32Array;
+  shallow: Uint32Array;
+  deep: Uint32Array;
+  clarity: Float32Array;
+  wetCount: number;
+  vertexCount: number;
+  subsample: number;
+  /** null = world is bone dry (skip the pass). */
+  dry: boolean;
+}
+
+const STATIC_CACHE = new WeakMap<GameMap, WaterStatic>();
+
+function waterStatic(map: GameMap, maxQuads?: number): WaterStatic {
+  const cached = STATIC_CACHE.get(map);
+  if (cached) return cached;
+
   const hydro = getHydrologyResult(map);
   let wet = 0;
   for (const m of hydro.waterMask) wet += m;
-  if (wet === 0) return null;
 
   const cells = map.width * map.height;
   const flow = new Float32Array(cells * 2);
@@ -96,8 +115,8 @@ export function buildWaterField(map: GameMap, opts: BuildWaterFieldOpts): WaterF
   const deep = new Uint32Array(cells);
   const clarity = new Float32Array(cells);
 
-  // Aquatic biome is constant per (climate × body kind), so resolve the three
-  // body kinds once and reuse — climate is world-level for this slice.
+  // Aquatic biome is constant per (climate × body kind), so resolve the body
+  // kinds once and reuse — climate is world-level for this slice.
   const climate = climateOf(map.worldSeed?.biome);
   const biomeByType = new Map<WaterType, AquaticBiome | null>();
   const biomeFor = (wt: WaterType): AquaticBiome | null => {
@@ -116,7 +135,31 @@ export function buildWaterField(map: GameMap, opts: BuildWaterFieldOpts): WaterF
     }
   }
 
-  const grid = terrainGrid(map.width, map.height, opts.maxQuads);
+  const grid = terrainGrid(map.width, map.height, maxQuads);
+  const stat: WaterStatic = {
+    surfaceW: hydro.surfaceW,
+    waterType: Uint32Array.from(hydro.waterType),
+    flow, shallow, deep, clarity,
+    wetCount: wet,
+    vertexCount: grid.vertexCount,
+    subsample: grid.subsample,
+    dry: wet === 0,
+  };
+  STATIC_CACHE.set(map, stat);
+  return stat;
+}
+
+/**
+ * Assemble the `WaterField` for a world + camera frame, or `null` when the world
+ * is bone dry (so the caller skips the pass entirely). The per-cell arrays are
+ * cached per map (see `waterStatic`) — only the camera/time `globals` uniform is
+ * rebuilt each frame, and the cached array references let the GPU upload skip its
+ * per-frame writeBuffer.
+ */
+export function buildWaterField(map: GameMap, opts: BuildWaterFieldOpts): WaterField | null {
+  const stat = waterStatic(map, opts.maxQuads);
+  if (stat.dry) return null;
+
   const style = worldStyleOf(map.worldSeed);
   const tg: TerrainGlobalsInput = {
     viewport: opts.viewport,
@@ -126,7 +169,7 @@ export function buildWaterField(map: GameMap, opts: BuildWaterFieldOpts): WaterF
     zPxPerM: style.terrainVerticalExaggeration,
     seaLevel: ELEVATION_SEA_LEVEL,
     reliefM: style.mountainRelief,
-    subsample: grid.subsample,
+    subsample: stat.subsample,
     sunDir: TERRAIN_SUN_DIR,
     bands: opts.lighting.bands,
     ambient: opts.lighting.ambient,
@@ -134,14 +177,14 @@ export function buildWaterField(map: GameMap, opts: BuildWaterFieldOpts): WaterF
   };
 
   return {
-    surfaceW: hydro.surfaceW,
-    waterType: Uint32Array.from(hydro.waterType),
-    flow,
-    shallow,
-    deep,
-    clarity,
-    wetCount: wet,
-    vertexCount: grid.vertexCount,
+    surfaceW: stat.surfaceW,
+    waterType: stat.waterType,
+    flow: stat.flow,
+    shallow: stat.shallow,
+    deep: stat.deep,
+    clarity: stat.clarity,
+    wetCount: stat.wetCount,
+    vertexCount: stat.vertexCount,
     globals: packWaterGlobals(tg, [opts.timeSec ?? 0, SHALLOW_BAND_M, FOAM_BAND_M, 0]),
   };
 }
