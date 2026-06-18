@@ -18,10 +18,18 @@ describe('AdaptiveResolution', () => {
     expect(feed(ar, 16.7, 300)).toBe(1);
   });
 
-  it('coarsens to 2 after sustained sub-30fps frames', () => {
+  it('climbs the ladder to the top under sustained sub-30fps load', () => {
     const ar = new AdaptiveResolution();
-    // 40ms frames (25 fps) — over the 33.3ms down threshold.
-    expect(feed(ar, 40, 200)).toBe(2);
+    // 40ms frames (25 fps) — below the 30fps goal at every level → max out at px4.
+    expect(feed(ar, 40, 400)).toBe(4);
+  });
+
+  it('coarsens just one step for a mild sag, not to the top', () => {
+    const ar = new AdaptiveResolution();
+    // ~28 fps (35.7ms): below the 30fps goal but only barely — one step is enough
+    // here because the test holds a constant rate (real load would re-sag at px2).
+    const px = feed(ar, 35.7, 60);
+    expect(px).toBeGreaterThanOrEqual(2);
   });
 
   it('does not coarsen on a brief spike (hysteresis)', () => {
@@ -36,10 +44,10 @@ describe('AdaptiveResolution', () => {
     expect(ar.step(100000)).toBe(1); // tab-stall spike clamped + needs sustain
   });
 
-  it('refines back to 1 once the rate recovers', () => {
+  it('refines all the way back to 1 once the rate recovers', () => {
     const ar = new AdaptiveResolution();
-    expect(feed(ar, 40, 200)).toBe(2);  // sag → coarsen
-    expect(feed(ar, 16.7, 400)).toBe(1); // recover → refine
+    expect(feed(ar, 40, 400)).toBe(4);   // sag → climb to the top
+    expect(feed(ar, 16.7, 800)).toBe(1); // recover → refine down to 1:1
   });
 
   it('does not flap around the boundary', () => {

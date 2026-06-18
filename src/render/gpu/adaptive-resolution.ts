@@ -2,14 +2,15 @@
 //
 // P-E — adaptive art-pixel resolution. The scene renders into a low-res target
 // (`gpu-scene` blit); this controller picks the art-pixel size from a smoothed
-// frame time. Default policy: render 1:1 (px=1, crispest) and only coarsen to
-// px=2 when the frame rate sags below ~30 fps, restoring 1:1 once it recovers.
+// frame time. Default policy: render 1:1 (px=1, crispest) and coarsen step-by-
+// step up the [1,2,3,4] ladder to HOLD ≈30 fps — each coarser level cuts the
+// fragment cost ~quadratically — restoring finer levels once it recovers margin.
 //
 // Pure logic — no DOM, no GPU, no `performance.now()` — so the hysteresis is
 // unit-testable by feeding synthetic frame deltas. The caller measures the delta.
 
 export interface AdaptiveResolutionOpts {
-  /** Art-pixel ladder, ascending (finer → coarser). Default [1, 2]. */
+  /** Art-pixel ladder, ascending (finer → coarser). Default [1, 2, 3, 4]. */
   levels?: number[];
   /** Smoothed frame-time (ms) above which to coarsen. Default 33.3 (≈30 fps). */
   downMs?: number;
@@ -47,7 +48,7 @@ export class AdaptiveResolution {
   private under = 0;
 
   constructor(opts: AdaptiveResolutionOpts = {}) {
-    this.levels = opts.levels && opts.levels.length > 0 ? opts.levels.slice() : [1, 2];
+    this.levels = opts.levels && opts.levels.length > 0 ? opts.levels.slice() : [1, 2, 3, 4];
     this.downMs = opts.downMs ?? 1000 / 30;
     this.upMs = opts.upMs ?? 20;
     this.downFrames = opts.downFrames ?? 20;
