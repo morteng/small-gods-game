@@ -1,6 +1,8 @@
 # Storylet Engine — Authored Narrative Layer (Brainstorm / Design)
 
-**Status:** brainstorm + first-proof runtime built (`src/story/`), no game integration yet.
+**Status:** first-proof runtime + **agent-first integration layer** built (`src/story/`).
+Library-level wiring to the bus and to single-beat staging done; final game.ts/UI
+wiring is the one remaining step.
 **Branch / worktree:** `feat/storylet-engine` @ `/Users/Morten/mcpui/sg-story`.
 **Inspiration:** [jeremyfa/loreline](https://github.com/jeremyfa/loreline) — concepts borrowed, runtime rebuilt native.
 
@@ -91,16 +93,50 @@ beats replayable and snapshot-compatible, and makes UGC runs reproducible across
 - **Worktree gotcha:** vitest's default *threads* pool hangs here (symlinked
   node_modules); run with `--pool=forks`.
 
-## 6. Integration seam (next, not yet done)
+## 6. Agent-first integration layer (BUILT this slice)
 
-- A `StoryHost` adapter backed by `GameBus` (`read` → `GameBus.query`, `dispatch` →
-  `GameBus.emit`), with `allowedVerbs` = `bus.capabilities()`.
-- Connect to the existing **single-beat staging** (`src/sim/threads/staging-types.ts`):
-  a `StagedBeat` on fire could *enter a storylet* — the storylet engine is the branching
-  layer that single-beat `StagedBeat.hard` currently lacks.
-- A `FateDirector implements Director` (Track 4): `enrich` rewrites slots from
-  `exemplars`; `select` picks storylets for pacing/theme/player-model. Async LLM driver
-  is a separate slice from the sync no-key driver.
+The engine is built to be something Fate can **author into, draw from, and enrich** —
+not just a runtime the dumb path drives. New modules (`src/story/`):
+
+- **`story-host-bus.ts`** — `createBusStoryHost(bus, { source })`: `dispatch` maps a
+  `StoryEffect` → real `Command` → `GameBus.emit` (so `do` nodes are genuine
+  divine/authoring actions, sandboxed to registered capabilities); `read` resolves
+  dotted guards (`npc.<id>.faith`, `belief.power`, `world.tick`) over the query facade.
+  `busAllowedVerbs(bus)` feeds the validator allowlist.
+- **`story-session.ts`** — `StorySession`, the **interactive** driver (live counterpart
+  to headless `scriptedPlay`): surfaces one `line`/`choice` at a time and waits;
+  auto-dispatches effects between stops. The choice source is decoupled — a human clicks
+  or **an agent calls `choose()`**, identical API.
+- **`fate-director.ts`** — the with-AI tier, **determinism-preserving**. The runtime
+  stays synchronous; the agent works at two ASYNC boundaries *between* sync steps:
+  `warmEnrichment()` pre-warms a slot cache the runner reads sync (un-warmed/declined →
+  fallback, so a slow/failed agent never blocks or desyncs); `chooseNext()` lets the
+  agent narrow the already-eligible pool (advisory; out-of-pool ids ignored). The
+  `StoryAgent` interface is the Track-4 seam (capable-tier client backs it; tests use a
+  mock). The cache is also the **replay/persistence unit** — a warmed slot reproduces.
+- **`pack-schema.ts`** — the **authoring contract**: `STORY_PACK_SCHEMA` (JSON Schema)
+  constrains an agent's tool-input/structured-output so Fate can only EMIT valid IR;
+  `parsePack()` is the ingest gate (parse → structural → `validatePack`) returning
+  precise, iterable error messages. Two layers: schema = shape at generation time,
+  validator = semantics (goto targets, the fallback law, the capability allowlist).
+- **Single-beat staging seam** — `StagedBeat` gains an optional `storylet?: string`
+  (additive, structuredClone-safe), and `StagingActivationSystem` gains a parallel
+  optional `onStoryletBeat` callback (mirrors `onSoftBeat`). On fire, a beat carrying a
+  storylet ref surfaces it so the game layer plays it in a `StorySession` — the
+  branching/interactive payload single-beat `hard`/`soft` lacks. Existing staging + fate
+  tests stay green (additive, non-breaking).
+
+**Tests:** `tests/unit/story-integration.test.ts` (+16, total **36/36** across both story
+suites; 10/10 existing staging/fate tests still green; tsc clean).
+
+### Remaining wiring (the one next step)
+Construct the `onStoryletBeat` handler in `game.ts` where `StagingActivationSystem` is
+built (next to the `onSoftBeat` handler at ~game.ts:219): it creates a `StorySession`
+over a loaded `StoryPack` with `createBusStoryHost(this.bus, { source: PLAYER })` and
+presents stages to the UI (player) or to Fate (`FateDirector` + `StoryAgent`). Needs a
+pack **registry/loader** and a UI surface for lines/choices — both deliberate decisions,
+hence left for explicit sign-off rather than guessed.
+
 - **Story package** = IR + asset manifest (stable catalogue IDs) + world seed; resolve
   assets at **author time** (bounds cost — relevant to the frozen reseed).
 

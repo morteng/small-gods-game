@@ -20,3 +20,21 @@ export { validatePack } from './validate';
 export type { ValidateOptions } from './validate';
 export { scriptedPlay } from './play';
 export type { Transcript, ScriptedPlayOptions } from './play';
+
+// Interactive driver (live game / agent-driven)
+export { StorySession } from './story-session';
+export type { Stage, StorySessionOptions } from './story-session';
+
+// Bus integration (effects → commands, guards → query)
+export { createBusStoryHost, busAllowedVerbs } from './story-host-bus';
+export type { BusHostConfig } from './story-host-bus';
+
+// Agent-first authoring + direction
+export { parsePack, STORY_PACK_SCHEMA } from './pack-schema';
+export type { ParseResult } from './pack-schema';
+export {
+  FateDirector, warmEnrichment, chooseNext, collectEnrichHints, snapshotScope,
+} from './fate-director';
+export type {
+  StoryAgent, EnrichRequest, SelectRequest, StateSnapshot, EnrichmentCache,
+} from './fate-director';
