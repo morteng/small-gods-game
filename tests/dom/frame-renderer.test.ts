@@ -16,7 +16,7 @@ describe('FrameRenderer', () => {
       divine: { lastCastTime: -Infinity } as any,
       dev: { drawOverlays() {}, isEnabled: () => false, hitTest: () => ({ type: null }) } as any,
       llmBackfill: { trigger: async () => {} } as any,
-      interaction: { overlayHitAreas: [], poiOverlay: null, hoverTile: null, hoverScreen: null } as any,
+      interaction: { hoverTile: null, hoverScreen: null } as any,
       ui: { minimap: {} as any, spiritHud: {} as any, divineEffects: {} as any, npcInfoPanel: document.createElement('div'), npcAttentionPanel: {} as any, buildingInfoPanel: { render() {}, show() {}, hide() {}, destroy() {} } as any, tooltip: document.createElement('div'), debugHud: document.createElement('div') },
     });
     expect(() => fr.render(16)).not.toThrow();

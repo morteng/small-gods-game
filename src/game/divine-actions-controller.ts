@@ -13,11 +13,10 @@
 
 import type { Entity, MemoryKind } from '@/core/types';
 import type { DivineEffects } from '@/render/divine-effects';
-import type { OverlayDispatcher } from '@/ui/overlay-dispatcher';
 import type { CommandQueue } from '@/sim/command/command-queue';
 import { previewCommand } from '@/sim/command/command-system';
 import type { Command, CommandTarget, CommandVerb, CommandCtx } from '@/sim/command/types';
-import { getNpc, npcProps } from '@/world/npc-helpers';
+import { npcProps } from '@/world/npc-helpers';
 import type { GameState } from '@/core/state';
 import { recordMemory, summarizeDivineAct, computeSalience } from '@/llm/interaction-memory';
 
@@ -130,41 +129,5 @@ export class DivineActionsController {
     if (poi?.position) {
       this.deps.divineEffects.trigger(kind, poi.position.x, poi.position.y);
     }
-  }
-
-  // ─── Dispatcher registration ───────────────────────────────────────────────
-
-  /** Register all five divine-action handlers onto the given dispatcher. */
-  register(dispatcher: OverlayDispatcher): void {
-    const world = () => this.deps.state.world;
-
-    dispatcher.register('whisper', (p) => {
-      const w = world();
-      if (!w) return false;
-      const e = getNpc(w, (p as { npcId: string }).npcId);
-      return !!e && this.whisper(e);
-    });
-
-    dispatcher.register('omen', (p) => {
-      return this.omenAt((p as { poiId: string }).poiId);
-    });
-
-    dispatcher.register('dream', (p) => {
-      const w = world();
-      if (!w) return false;
-      const e = getNpc(w, (p as { npcId: string }).npcId);
-      return !!e && this.dream(e);
-    });
-
-    dispatcher.register('miracle', (p) => {
-      return this.miracleAt((p as { poiId: string }).poiId);
-    });
-
-    dispatcher.register('answer_prayer', (p) => {
-      const w = world();
-      if (!w) return false;
-      const e = getNpc(w, (p as { npcId: string }).npcId);
-      return !!e && this.answerPrayer(e);
-    });
   }
 }

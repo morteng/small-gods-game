@@ -1,5 +1,4 @@
 import type { GameState } from '@/core/state';
-import type { OverlayDispatcher } from '@/ui/overlay-dispatcher';
 import type { InteractionState } from './interaction-state';
 import type { DevModeController } from './dev-mode-controller';
 import type { DecorationPlacementModalHandle } from '@/ui/decoration-placement-modal';
@@ -9,7 +8,6 @@ import { findBuildingAtTile } from '@/world/building-helpers';
 
 export interface InteractionControllerDeps {
   state: GameState;
-  dispatcher: OverlayDispatcher;
   interaction: InteractionState;
   dev: DevModeController;
   placementModal: DecorationPlacementModalHandle;
@@ -19,15 +17,8 @@ export interface InteractionControllerDeps {
 export class InteractionController {
   constructor(private deps: InteractionControllerDeps) {}
 
-  onCanvasClick(sx: number, sy: number): boolean {
-    this.deps.interaction.poiOverlay = null;
-    return this.deps.dispatcher.tryDispatch(sx, sy, this.deps.interaction.overlayHitAreas);
-  }
-
   onTileClick(x: number, y: number): void {
     if (!this.deps.state.map || !this.deps.state.world) return;
-    // Clear POI overlay on any left-click
-    this.deps.interaction.poiOverlay = null;
 
     const clicked = this.deps.state.world.query({ kind: 'npc' })
       .find(e => Math.floor(e.x) === x && Math.floor(e.y) === y);
@@ -61,21 +52,13 @@ export class InteractionController {
     const tile = map.tiles[tileY]?.[tileX];
     if (!tile || !tile.walkable) return;
 
-    // Check if this tile belongs to a POI
-    let poiId: string | undefined;
+    // Right-clicking a settlement POI is a no-op for now: settlement-scoped
+    // divine actions (omen/miracle) move into the WebGPU divine panel. We still
+    // swallow the click here so it doesn't open the decoration modal over a POI.
     if (this.deps.state.worldSeed) {
       for (const poi of this.deps.state.worldSeed.pois) {
-        if (poi.position && poi.position.x === tileX && poi.position.y === tileY) {
-          poiId = poi.id;
-          break;
-        }
+        if (poi.position && poi.position.x === tileX && poi.position.y === tileY) return;
       }
-    }
-
-    if (poiId) {
-      // Show POI overlay for Omen/Miracle
-      this.deps.interaction.poiOverlay = { poiId, tileX, tileY };
-      return;
     }
 
     const result = await this.deps.placementModal.open({ x: tileX, y: tileY });

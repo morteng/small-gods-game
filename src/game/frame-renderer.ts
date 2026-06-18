@@ -11,7 +11,6 @@ import type { SpiritHudHandle } from '@/ui/spirit-hud';
 import type { DivineEffects } from '@/render/divine-effects';
 import { buildRenderContext } from './render-context';
 import { getNpc, toRenderNpc, simStateFromEntity } from '@/world/npc-helpers';
-import { drawNpcOverlay, drawPoiOverlay } from '@/render/sim-overlay';
 import type { NpcAttentionPanelHandle } from '@/ui/npc-attention-panel';
 import type { BuildingInfoPanelHandle } from '@/ui/building-info-panel';
 import { findBuildingAtTile, buildingInfoOf } from '@/world/building-helpers';
@@ -93,11 +92,6 @@ export class FrameRenderer {
       );
     }
 
-    // Prayer 🙏 markers hidden for now (2026-06-06) — re-enable by uncommenting.
-    // if (this.deps.state.world) {
-    //   drawPrayerMarkers(this.deps.ctx, this.deps.state.world, this.deps.state.camera, this.renderMode);
-    // }
-
     // Update Spirit HUD
     if (this.deps.ui.spiritHud && this.deps.ui.spiritHud.isVisible() && this.deps.state.world) {
       const player = this.deps.state.spirits.get('player')!;
@@ -137,27 +131,12 @@ export class FrameRenderer {
     if (this.deps.state.selectedNpcId && this.deps.state.world) {
       const entity = getNpc(this.deps.state.world, this.deps.state.selectedNpcId);
       if (entity) {
-        const npc = toRenderNpc(entity);
         const sim = simStateFromEntity(entity);
         const player = this.deps.state.spirits.get('player')!;
-        this.deps.interaction.overlayHitAreas = drawNpcOverlay(
-          this.deps.ctx, npc, sim, this.deps.state.camera,
-          rc.canvasWidth, rc.canvasHeight,
-          player.power,
-        );
 
-        // POI overlay (right-click on POI)
-        if (this.deps.interaction.poiOverlay && this.deps.state.world) {
-          const { poiId, tileX, tileY } = this.deps.interaction.poiOverlay;
-          const poiAreas = drawPoiOverlay(
-            this.deps.ctx, poiId, tileX, tileY, this.deps.state.camera,
-            rc.canvasWidth, rc.canvasHeight, player.power,
-          );
-          this.deps.interaction.overlayHitAreas = [...this.deps.interaction.overlayHitAreas, ...poiAreas];
-        }
-
-        // The DOM attention/whisper panel is legacy chrome (a WebGPU inspector
-        // replaces it); the on-canvas selection overlay above always renders.
+        // The floating Canvas2D selection overlay (whisper/omen/miracle buttons)
+        // is gone — divine actions move into the WebGPU divine panel. Only the
+        // legacy DOM attention panel remains, behind ?legacyui.
         if (this.deps.legacyChrome) {
           const now = performance.now();
           const pinned = this.deps.state.pinnedNpcId === sim.npcId;
@@ -189,7 +168,6 @@ export class FrameRenderer {
         }
       }
     } else {
-      this.deps.interaction.overlayHitAreas = [];
       this.deps.ui.npcInfoPanel.style.display = 'none';
       this.renderedNpcId = null;
     }

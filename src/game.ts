@@ -26,7 +26,6 @@ import { NpcAttentionStore } from '@/llm/npc-attention-store';
 import { simStateFromEntity, getNpc } from '@/world/npc-helpers';
 import { sendWhisper } from '@/game/whisper-orchestrator';
 import { openMindPage, pathKey } from '@/game/mind-orchestrator';
-import { OverlayDispatcher } from '@/ui/overlay-dispatcher';
 import { DivineActionsController } from '@/game/divine-actions-controller';
 import { GameUi } from '@/game/game-ui';
 import { ArtImageCache } from '@/render/decoration-image-cache';
@@ -184,7 +183,6 @@ export class Game {
   /** Resolved spritesheets keyed by NPC id */
   private sheets = new Map<string, HTMLCanvasElement>();
   private assets = new AssetManager();
-  private dispatcher = new OverlayDispatcher();
   private chrome!: ChromeHandle;
   private veil!: ReturnType<typeof mountPastVeil>;
   private timeChip!: TimeChipHandle;
@@ -487,7 +485,6 @@ export class Game {
     fateTrigger.attach((fn) => this.state.eventLog.subscribe(fn));
 
     this.divine = new DivineActionsController({ state: this.state, queue: this.commandQueue, divineEffects: this.ui.divineEffects });
-    this.divine.register(this.dispatcher);
 
     this.dev = new DevModeController({
       container: this.container, state: this.state, scheduler: this.scheduler,
@@ -514,7 +511,7 @@ export class Game {
     });
 
     this.input = new InteractionController({
-      state: this.state, dispatcher: this.dispatcher, interaction: this.interaction,
+      state: this.state, interaction: this.interaction,
       dev: this.dev, placementModal: this.ui.placementModal, decorationImages: this.decorationImages,
     });
 
@@ -526,7 +523,6 @@ export class Game {
       // Canvas interactions mutate selection / cast divine actions → redraw even
       // while paused (divine effects keep animating via DivineEffects.isActive()).
       onTileClick: (x, y) => { this.input.onTileClick(x, y); this.requestRender(); },
-      onCanvasClick: (sx, sy) => { const r = this.input.onCanvasClick(sx, sy); this.requestRender(); return r; },
       onTileRightClick: (x, y) => { void this.input.onTileRightClick(x, y); this.requestRender(); },
       onRightClick: (sx, sy) => { void this.input.onRightClick(sx, sy); this.requestRender(); },
       onTogglePause: () => this.togglePause(),

@@ -3,7 +3,6 @@ import { DivineActionsController } from '@/game/divine-actions-controller';
 import { createState } from '@/core/state';
 import { World } from '@/world/world';
 import { initNpcProps } from '@/world/npc-helpers';
-import { OverlayDispatcher } from '@/ui/overlay-dispatcher';
 import { CommandQueue } from '@/sim/command/command-queue';
 import type { DivineEffects } from '@/render/divine-effects';
 import type { GameMap, Tile } from '@/core/types';
@@ -87,24 +86,5 @@ describe('DivineActionsController', () => {
     const npc = world.query({ kind: 'npc' })[0];
     expect(ctrl.dream(npc)).toBe(false);
     expect(triggers).toBe(0);
-  });
-
-  it('register hooks up dispatcher for whisper action', () => {
-    const state = createState();
-    const world = makeWorld();
-    const props = initNpcProps('Dan', 'farmer', 1) as any;
-    props.whisperCooldown = 0;
-    world.addEntity({ id: 'n4', kind: 'npc', x: 1, y: 1, properties: props, tags: [] });
-    state.world = world;
-    const player = state.spirits.get('player')!;
-    player.power = 100;
-    let triggers = 0;
-    const fx = { trigger: () => { triggers++; } } as unknown as DivineEffects;
-    const ctrl = new DivineActionsController({ state, queue: new CommandQueue(), divineEffects: fx, now: () => 0 });
-    const dispatcher = new OverlayDispatcher();
-    ctrl.register(dispatcher);
-    const result = (dispatcher as any).handlers.get('whisper')({ npcId: 'n4' });
-    expect(result).toBe(true);
-    expect(triggers).toBe(1);
   });
 });

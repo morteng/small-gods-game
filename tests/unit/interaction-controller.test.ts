@@ -5,7 +5,6 @@ import { createState } from '@/core/state';
 import { World } from '@/world/world';
 import { initNpcProps } from '@/world/npc-helpers';
 import { createInteractionState } from '@/game/interaction-state';
-import { OverlayDispatcher } from '@/ui/overlay-dispatcher';
 import type { GameMap, Tile } from '@/core/types';
 
 function makeMap(w = 5, h = 5): GameMap {
@@ -25,7 +24,6 @@ function makeWorld() {
 function ctrlWith(state: any) {
   return new InteractionController({
     state,
-    dispatcher: new OverlayDispatcher(),
     interaction: createInteractionState(),
     dev: { isEnabled: () => false, handleRightClick: async () => {} } as any,
     placementModal: { open: async () => null } as any,
