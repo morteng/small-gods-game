@@ -2,7 +2,7 @@ import { createState, type GameState } from '@/core/state';
 import { selectRenderer, type RenderFn } from '@/render/select-renderer';
 import { zoomAt } from '@/render/camera';
 import { quantizeIsoZoom } from '@/render/iso/iso-camera';
-import { fitCameraToMap } from '@/render/fit-camera';
+import { fitCameraToMap, clampCameraToMap } from '@/render/fit-camera';
 import { focusCameraOnTile } from '@/render/focus-camera';
 import { attachControls, attachTimeKeys } from '@/ui/controls';
 import type { GameMap, WorldSeed, TerrainOptions } from '@/core/types';
@@ -14,6 +14,8 @@ import { getUiRuntime } from '@/render/ui/ui-runtime';
 import { bootMark, FpsMeter, type FpsStats } from '@/dev/profile';
 import { createFpsHud, type FpsHudHandle } from '@/dev/fps-hud';
 import { advanceNpcFrames } from '@/render/npc-animator';
+import { isLayerHidden } from '@/render/layer-visibility';
+import { getHydrologyResult } from '@/world/hydrology-store';
 // divine-actions functions now invoked via DivineActionsController
 import { LLMClient } from "@/llm/llm-client";
 import { createProvider, loadProviderConfig, openrouterImageBaseUrl, type ProviderConfig } from '@/llm/provider-factory';
@@ -126,6 +128,11 @@ export class Game {
   private needsRender = true;
   /** Mark the scene dirty so the next frame redraws even while paused. */
   private requestRender = (): void => { this.needsRender = true; };
+  // Ambient water ripples animate on wall-clock time, so the loop must keep
+  // drawing while visible water is on screen — even with the sim PAUSED — or the
+  // ocean only moves on interaction. Memoised has-water scan per map identity.
+  private waterAnimMapRef: GameMap | null = null;
+  private waterAnimHasWater = false;
   private divine!: DivineActionsController;
   private ui!: GameUi;
   /** The barebones game (WebGPU UI only). `?legacyui` flips back to the old
@@ -193,6 +200,13 @@ export class Game {
         // rejections (insufficient power / cooldown) are already pre-suppressed at
         // emit by the controller's previewCommand gate, so this is rare.
         console.debug('[command] player command rejected:', r.verb, r.reason);
+      }
+      // A god-mode climate re-zone changed worldSeed.climate; the renderer's
+      // getClimateFields re-derives on its next read (cache key folds in the
+      // climate signature) — just force a redraw so the new band shows at once.
+      if (r.status === 'applied' && r.verb === 'author_set_climate') {
+        this.renderer.forceInfoRefresh();
+        this.requestRender();
       }
     }, this.authorLog));
     this.scheduler.register(new NpcMovementSystem(() => this.state.map));
@@ -762,6 +776,23 @@ export class Game {
     location.reload();
   }
 
+  /** True when visible animated water is on screen — keeps the frame loop drawing
+   *  so ambient ripples/caustics animate even while the sim is paused. Cheap: the
+   *  has-water scan is memoised per map; the layer toggle is O(1). */
+  private waterAnimating(): boolean {
+    const map = this.state.map;
+    if (!map) return false;
+    if (isLayerHidden('rivers', this.dev.devMode)) return false;
+    if (this.waterAnimMapRef !== map) {
+      this.waterAnimMapRef = map;
+      const wm = getHydrologyResult(map).waterMask;
+      let any = false;
+      for (let i = 0; i < wm.length; i++) { if (wm[i]) { any = true; break; } }
+      this.waterAnimHasWater = any;
+    }
+    return this.waterAnimHasWater;
+  }
+
   private startLoop(): void {
     if (this.rafId !== null) return;
     this.lastTime = performance.now();
@@ -790,9 +821,14 @@ export class Game {
       // REAL PAUSE: when not live, do the expensive scene render + UI refresh only
       // if something changed (requestRender), an effect is still animating, or the
       // past is being scrubbed. Otherwise the rAF body is ~free and the GPU idles.
-      if (live || this.needsRender || this.timeline.isScrubbed || this.ui.divineEffects.isActive()) {
+      if (live || this.needsRender || this.timeline.isScrubbed || this.ui.divineEffects.isActive() || this.waterAnimating()) {
         this.needsRender = false;
         applyFollowCamera(this.state, this.viewport());
+        // Keep the island from being panned/zoomed fully off-screen.
+        if (this.state.map) {
+          const vp = this.viewport();
+          clampCameraToMap(this.state.camera, this.state.map.width, this.state.map.height, vp.width, vp.height);
+        }
         const r0 = performance.now();
         this.renderer.render(deltaMs);
         this.fps.frame(performance.now() - r0);

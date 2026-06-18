@@ -1,5 +1,6 @@
 import type { WorldSeed, POI } from '@/core/types';
 import { ERAS, isEra } from '@/core/era';
+import { CLIMATE_NAMES, isClimateName } from '@/terrain/climate';
 
 export const CONNECTION_TYPES = ['road', 'river', 'wall'] as const;
 export const CONNECTION_STYLES = ['dirt', 'stone', 'bridge'] as const;
@@ -97,6 +98,11 @@ export function validateWorldSeed(seed: Partial<WorldSeed>): { valid: boolean; e
   }
   if (seed.era !== undefined && !isEra(seed.era)) {
     errors.push(`Invalid era "${seed.era}". Use: ${ERAS.join(', ')}`);
+  }
+  // Climate: a named zone OR an object override (partial ClimateSpec). A bare
+  // string must be a known preset; objects are accepted as overrides.
+  if (typeof seed.climate === 'string' && !isClimateName(seed.climate)) {
+    errors.push(`Invalid climate "${seed.climate}". Use: ${CLIMATE_NAMES.join(', ')}`);
   }
 
   if (seed.pois) {

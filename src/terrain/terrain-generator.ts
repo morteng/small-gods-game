@@ -19,7 +19,8 @@
 import { fbm, warpedNoise, ridgeNoise } from '@/core/noise';
 import type { TerrainConfig, TerrainField, BiomeMap } from '@/core/types';
 import { classifyBiome, sampleBiomeTile, Biome } from './biomes';
-import { islandFalloff, islandDome } from './island-mask';
+import { shapeCoastElevation } from './island-mask';
+import { resolveClimate } from './climate';
 
 // ── Elevation shaping tunables (see generateTerrainFields) ──────────────────────
 /** Weight of the warped continental base (raised from 0.7 to absorb the removed
@@ -44,12 +45,18 @@ export { Biome };
 /**
  * Generate the three noise fields (elevation, moisture, temperature).
  *
- * Temperature model:
- *   baseTemp(y) = 1.0 − |y/height − 0.5| × 2.0  (equator=1, poles=0)
- *   modified by elevation (−0.3 per unit above 0) and noise jitter.
+ * Temperature model (latitude band set by the world's CLIMATE — north cold,
+ * south warm):
+ *   baseTemp(y) = mix(climate.tempNorth, climate.tempSouth, y/(height−1))
+ *   + a gentle east-warm lean (climate.eastWarmLean)
+ *   − climate.elevationLapse · elevation   (snowy peaks)
+ *   + noise jitter.
+ *   The climate (default `european`, a temperate band) decides WHERE the band
+ *   sits; local cold/heat is the POI layer (glacier/mountain/volcano deltas).
  *
  * Moisture model:
- *   fBm base + water-proximity bonus applied after elevation is known.
+ *   fBm base + climate.moistureBias + a west-wet lean (prevailing-wind rain
+ *   shadow: west wetter, east drier) + water-proximity bonus (after elevation).
  */
 export function generateTerrainFields(config: TerrainConfig): TerrainField {
   const {
@@ -63,6 +70,7 @@ export function generateTerrainFields(config: TerrainConfig): TerrainField {
     continentWarp  = 2.0,
     island,
   } = config;
+  const climate = resolveClimate(config.climate);
 
   const size = width * height;
   const elevation    = new Float32Array(size);
@@ -86,23 +94,35 @@ export function generateTerrainFields(config: TerrainConfig): TerrainField {
       const zone   = fbm(x * elevationScale * 0.6, y * elevationScale * 0.6, { seed: seed + 777, octaves: 2 });
       const mountainMask = smoothstep01(MOUNTAIN_ZONE_LO, MOUNTAIN_ZONE_HI, zone);
       let elev = baseElev * BASE_WEIGHT + ridges * RIDGE_WEIGHT * mountainMask;
-      // Island shaping: SWELL the interior with a central dome (land rising from
-      // coast to highlands — natural for an island, fixes the flat-disc look),
-      // then SINK the map edges toward ocean. Both before any downstream step
-      // reads elevation (water-proximity, biome classification, erosion).
+      // Island shaping via the ONE coast/relief seam (C0): swell the interior
+      // (dome today; distance-to-coast relief in C1), then sink the edges toward
+      // ocean — before any downstream step reads elevation (water-proximity,
+      // biome classification, erosion). `seed` feeds the warped coastline (C2).
       if (island) {
-        elev += islandDome(x, y, width, height, island);
-        elev *= 1 - islandFalloff(x, y, width, height, island);
+        elev = shapeCoastElevation(elev, x, y, width, height, island, seed);
       }
       elevation[idx] = Math.max(0, Math.min(1, elev));
 
-      // Moisture: base fBm (water proximity applied below)
-      moisture[idx] = fbm(x * moistureScale, y * moistureScale, { seed: seed + 500, octaves: 5 });
+      // East/west lean (−0.5 west … +0.5 east): a roughly continental feel —
+      // west wetter, east drier + a touch warmer.
+      const ew = width > 1 ? x / (width - 1) - 0.5 : 0;
 
-      // Temperature: latitude gradient + elevation penalty + noise jitter
-      const lat    = poleFalloff ? 1.0 - Math.abs(y / height - 0.5) * 2.0 : 0.5;
-      const jitter = fbm(x * 0.02, y * 0.02, { seed: seed + 1500, octaves: 3 }) * 0.15 - 0.075;
-      temperature[idx] = Math.max(0, Math.min(1, lat - 0.3 * elevation[idx] + jitter));
+      // Moisture: base fBm + climate bias − west-wet lean (water proximity below).
+      moisture[idx] = fbm(x * moistureScale, y * moistureScale, { seed: seed + 500, octaves: 5 })
+        + climate.moistureBias - ew * climate.westWetLean;
+
+      // Temperature: latitude band (climate.tempNorth → tempSouth, south=warm) +
+      // east-warm lean − elevation lapse + noise jitter. poleFalloff off → the
+      // band's midpoint everywhere (no N–S gradient). The lapse is on elevation
+      // ABOVE SEA LEVEL so lowlands keep their latitude temperature (a near-sea
+      // tile barely cools) and only real high ground ices — snow-capped peaks at
+      // any latitude, green valleys below.
+      const south    = poleFalloff ? (height > 1 ? y / (height - 1) : 0.5) : 0.5;
+      const lat      = climate.tempNorth + (climate.tempSouth - climate.tempNorth) * south;
+      const aboveSea = Math.max(0, elevation[idx] - seaLevel);
+      const jitter   = fbm(x * 0.02, y * 0.02, { seed: seed + 1500, octaves: 3 }) * 0.15 - 0.075;
+      temperature[idx] = Math.max(0, Math.min(1,
+        lat + ew * climate.eastWarmLean - climate.elevationLapse * aboveSea + jitter));
     }
   }
 

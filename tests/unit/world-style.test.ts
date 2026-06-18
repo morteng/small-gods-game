@@ -31,7 +31,7 @@ describe('world-style S0 — resolution core', () => {
     expect(b).toEqual(STYLE_DEFAULTS);
     expect(a).not.toBe(STYLE_DEFAULTS); // not the shared instance
     a.terrainVerticalExaggeration = 999; // mutating the copy can't poison defaults
-    expect(STYLE_DEFAULTS.terrainVerticalExaggeration).toBe(14);
+    expect(STYLE_DEFAULTS.terrainVerticalExaggeration).toBe(17);
   });
 
   it('natural preset == defaults (empty override bag)', () => {

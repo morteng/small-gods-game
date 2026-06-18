@@ -22,6 +22,7 @@ import {
   modifyPrecondition, modifyApply,
   placePrecondition, placeApply,
   movePrecondition, moveApply,
+  setClimatePrecondition, setClimateApply,
 } from './editor-verbs';
 import { injectNpcPrecondition, injectNpcApply, biasEventPrecondition, biasEventApply, nudgeSeverityPrecondition, nudgeSeverityApply } from './authoring-verbs';
 import { placeBuildingPrecondition, placeBuildingApply } from './building-verbs';
@@ -211,6 +212,12 @@ export const CAPABILITY_REGISTRY: Record<CommandVerb, CapabilityDef> = {
     precondition: movePrecondition,
     apply: moveApply,
     describe: (cmd) => `move ${cmd.payload?.entityId ?? 'an entity'}`,
+  },
+  author_set_climate: {
+    verb: 'author_set_climate', tier: 'editor', cost: 0, targetKind: 'none', implemented: true,
+    precondition: setClimatePrecondition,
+    apply: setClimateApply,
+    describe: (cmd) => `set the world climate to ${cmd.payload?.climate ?? '?'}`,
   },
 };
 

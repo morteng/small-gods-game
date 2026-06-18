@@ -11,6 +11,7 @@ import type { Entity, NpcRole, NpcProperties } from '@/core/types';
 import type { Command, ApplyCtx, CommandCtx, RejectionReason } from './types';
 import { npcProps, queryNpcs, initNpcProps } from '@/world/npc-helpers';
 import { tryGetEntityKindDef } from '@/world/entity-kinds';
+import { isClimateName, type ClimateName } from '@/terrain/climate';
 
 const P = (cmd: Command): Record<string, unknown> => cmd.payload ?? {};
 
@@ -247,5 +248,29 @@ export function moveApply(cmd: Command, ctx: ApplyCtx): boolean {
   const to = p.to as { x: number; y: number };
   ctx.world.updateEntity(entityId, { x: Math.round(to.x), y: Math.round(to.y) });
   ctx.log.append({ type: 'authored_move', entityId, to: { x: Math.round(to.x), y: Math.round(to.y) } });
+  return true;
+}
+
+// ── author_set_climate ───────────────────────────────────────────────────────
+// payload: { climate: <ClimateName> }
+// God-mode: re-zone the whole world's temperature/moisture band. Mutates the
+// shared worldSeed.climate (the same object state.map.worldSeed points at), so
+// the renderer's getClimateFields re-derives on its next read (its cache key
+// folds in the climate signature) → the snow/mud/aridity materials re-texture
+// live over the existing biome base. Game-level listener requests the redraw.
+
+export function setClimatePrecondition(cmd: Command, ctx: CommandCtx): RejectionReason | null {
+  const name = P(cmd).climate;
+  if (!isClimateName(name)) return 'invalid_payload';
+  if (!ctx.world.tiles.worldSeed) return 'invalid_target';   // no seed to re-zone
+  return null;
+}
+
+export function setClimateApply(cmd: Command, ctx: ApplyCtx): boolean {
+  const name = P(cmd).climate as ClimateName;
+  const ws = ctx.world.tiles.worldSeed;
+  if (!ws) return false;                                      // lost a race after the pre-gate
+  ws.climate = name;
+  ctx.log.append({ type: 'authored_climate', climate: name });
   return true;
 }

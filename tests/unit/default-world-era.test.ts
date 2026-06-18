@@ -39,7 +39,7 @@ describe('default world recipe', () => {
   });
 
   it('places no buildings on terrain POIs', () => {
-    for (const id of ['crystal_lake', 'murkmire_swamp', 'eastern_peaks']) {
+    for (const id of ['crystal_lake', 'murkmire_swamp', 'cloudwall_peaks']) {
       expect(getZoneRule(poi(id).type).buildingCount.max).toBe(0);
     }
   });

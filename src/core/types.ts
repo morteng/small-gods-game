@@ -5,6 +5,7 @@ import type { Era } from '@/core/era';
 import type { SpritePack } from '@/render/iso/sprite-canvas';
 import type { LightingState } from '@/render/lighting-state';
 import type { IslandSpec } from '@/terrain/island-mask';
+import type { ClimateName, ClimateSpec } from '@/terrain/climate';
 import type { WorldStyleConfig } from '@/core/world-style';
 
 export type { Era } from '@/core/era';
@@ -72,7 +73,7 @@ export interface POI {
   description?: string;
   position?: { x: number; y: number };
   region?: { x_min: number; x_max: number; y_min: number; y_max: number };
-  size?: 'small' | 'medium' | 'large';
+  size?: 'small' | 'medium' | 'large' | 'huge';
   importance?: 'low' | 'medium' | 'high' | 'critical';
   npcs?: NPC[];
   /** Overrides the world era for this settlement's buildings. */
@@ -125,6 +126,14 @@ export interface WorldSeed {
    * `worldStyleOf` (see `src/core/world-style.ts`). Absent → neutral defaults.
    */
   style?: WorldStyleConfig;
+  /**
+   * Climate zone — where the temperature/moisture band sits (north cold → south
+   * warm). A {@link ClimateName} preset (`'european'` default) or a partial
+   * {@link ClimateSpec} override. Local cold/heat is the POI layer's job
+   * (glacier/mountain/volcano deltas), independent of this global backdrop.
+   * Resolved by `styledClimate` (see `src/terrain/climate.ts`).
+   */
+  climate?: ClimateName | Partial<ClimateSpec>;
 }
 
 /** Camera state for pan/zoom */
@@ -272,6 +281,8 @@ export interface TerrainConfig {
   continentWarp?: number;    // domain warp strength (0 = off)
   /** W1 island mask: sinks the map edges to ocean. Off when undefined. */
   island?: IslandSpec;
+  /** Resolved climate gradient. Defaults to `european` when undefined. */
+  climate?: ClimateSpec;
 }
 
 export interface TerrainField {

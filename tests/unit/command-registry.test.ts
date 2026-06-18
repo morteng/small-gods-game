@@ -7,7 +7,7 @@ import type { CommandVerb } from '@/sim/command/types';
 
 const EDITOR_VERBS: CommandVerb[] = [
   'author_spawn_npc', 'author_remove_entity', 'author_modify_npc',
-  'author_place_object', 'author_move_entity',
+  'author_place_object', 'author_move_entity', 'author_set_climate',
 ];
 
 const ALL_VERBS: CommandVerb[] = [
@@ -18,15 +18,15 @@ const ALL_VERBS: CommandVerb[] = [
 ];
 
 describe('capability registry', () => {
-  it('declares all 18 verbs', () => {
-    expect(listCapabilities()).toHaveLength(18);
+  it('declares all 19 verbs', () => {
+    expect(listCapabilities()).toHaveLength(19);
     for (const v of ALL_VERBS) {
       expect(getCapability(v)).toBeDefined();
       expect(CAPABILITY_REGISTRY[v].verb).toBe(v);
     }
   });
 
-  it('declares the 5 editor verbs as implemented, cost-0, editor-tier', () => {
+  it('declares the editor verbs as implemented, cost-0, editor-tier', () => {
     for (const v of EDITOR_VERBS) {
       const def = CAPABILITY_REGISTRY[v];
       expect(def.tier).toBe('editor');

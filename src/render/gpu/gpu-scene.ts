@@ -59,11 +59,16 @@ export class GpuScene {
   // is rebuilt whenever they reallocate (grow-on-demand by cell count).
   private terrainHeightsBuf: GPUBuffer | null = null;
   private terrainColorsBuf: GPUBuffer | null = null;
+  // T-A: shared climate fields the material shader reads (moisture/temperature).
+  private terrainMoistureBuf: GPUBuffer | null = null;
+  private terrainTemperatureBuf: GPUBuffer | null = null;
   private terrainBind: GPUBindGroup | null = null;
   private terrainCellCap = 0;
   // Last-uploaded field arrays — skip the re-upload when unchanged by reference.
   private lastHeights: Float32Array | null = null;
   private lastColors: Uint32Array | null = null;
+  private lastMoisture: Float32Array | null = null;
+  private lastTemperature: Float32Array | null = null;
   // Water pass (S2): one blended pass, all body types. Reads the SAME composed
   // terrain height buffer (depth = surface − terrain) + its own surface/type/flow
   // storage buffers; the bind group rebuilds whenever any of them (incl. the
@@ -409,15 +414,25 @@ export class GpuScene {
    *  growth. Skips the writeBuffer when the field ARRAYS are unchanged by
    *  reference (the common case: `getHeightfield` is memoised and the colour
    *  field is now memoised too), so a static world re-uploads nothing per frame. */
-  private uploadFields(heights: Float32Array, colors: Uint32Array): void {
+  private uploadFields(
+    heights: Float32Array,
+    colors: Uint32Array,
+    moisture: Float32Array,
+    temperature: Float32Array,
+  ): void {
     const { device } = this;
     const cells = heights.length;
     let realloc = false;
     if (!this.terrainHeightsBuf || cells > this.terrainCellCap) {
       this.terrainHeightsBuf?.destroy();
       this.terrainColorsBuf?.destroy();
-      this.terrainHeightsBuf = device.createBuffer({ size: cells * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
-      this.terrainColorsBuf = device.createBuffer({ size: cells * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+      this.terrainMoistureBuf?.destroy();
+      this.terrainTemperatureBuf?.destroy();
+      const storage = (n: number) => device.createBuffer({ size: n, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+      this.terrainHeightsBuf = storage(cells * 4);
+      this.terrainColorsBuf = storage(cells * 4);
+      this.terrainMoistureBuf = storage(cells * 4);
+      this.terrainTemperatureBuf = storage(cells * 4);
       this.terrainCellCap = cells;
       this.terrainBind = device.createBindGroup({
         layout: this.terrainPipeline.getBindGroupLayout(0),
@@ -425,6 +440,8 @@ export class GpuScene {
           { binding: 0, resource: { buffer: this.terrainGlobalsBuf } },
           { binding: 1, resource: { buffer: this.terrainHeightsBuf } },
           { binding: 2, resource: { buffer: this.terrainColorsBuf } },
+          { binding: 3, resource: { buffer: this.terrainMoistureBuf } },
+          { binding: 4, resource: { buffer: this.terrainTemperatureBuf } },
         ],
       });
       realloc = true;
@@ -436,6 +453,14 @@ export class GpuScene {
     if (realloc || colors !== this.lastColors) {
       device.queue.writeBuffer(this.terrainColorsBuf!, 0, colors as GPUAllowSharedBufferSource);
       this.lastColors = colors;
+    }
+    if (realloc || moisture !== this.lastMoisture) {
+      device.queue.writeBuffer(this.terrainMoistureBuf!, 0, moisture as GPUAllowSharedBufferSource);
+      this.lastMoisture = moisture;
+    }
+    if (realloc || temperature !== this.lastTemperature) {
+      device.queue.writeBuffer(this.terrainTemperatureBuf!, 0, temperature as GPUAllowSharedBufferSource);
+      this.lastTemperature = temperature;
     }
   }
 
@@ -546,7 +571,7 @@ export class GpuScene {
 
     const hasTerrain = !!(terrain && terrain.vertexCount > 0 && terrain.heights.length > 0);
     if (hasTerrain) {
-      this.uploadFields(terrain!.heights, terrain!.colors);
+      this.uploadFields(terrain!.heights, terrain!.colors, terrain!.moisture, terrain!.temperature);
       device.queue.writeBuffer(this.terrainGlobalsBuf, 0,
         packTerrainGlobals(terrain!.globals) as GPUAllowSharedBufferSource);
     }
@@ -565,10 +590,17 @@ export class GpuScene {
     const colorView = this.ctx.getCurrentTexture().createView();
     const depthView = this.ensureDepth(w, h);
 
+    // "Ocean forever": clear the scene to deep-ocean blue so anything beyond the
+    // map grid reads as open sea, not void — the island never sits on a black
+    // edge. Matched to the RENDERED deep-ocean tone (sampled = rgb 15,68,111) so
+    // the map rim blends into the background with no visible "underwater border"
+    // seam; the camera clamp keeps that rim near the screen edge anyway.
+    const OCEAN_CLEAR = { r: 15 / 255, g: 68 / 255, b: 111 / 255, a: 1 };
+
     // Pass 1 — terrain (own depth: spatial iso depth, greater, write).
     if (hasTerrain) {
       const tpass = enc.beginRenderPass({
-        colorAttachments: [{ view: colorView, clearValue: { r: 0, g: 0, b: 0, a: 0 }, loadOp: 'clear', storeOp: 'store' }],
+        colorAttachments: [{ view: colorView, clearValue: OCEAN_CLEAR, loadOp: 'clear', storeOp: 'store' }],
         depthStencilAttachment: { view: depthView, depthClearValue: 0.0, depthLoadOp: 'clear', depthStoreOp: 'store' },
       });
       tpass.setPipeline(this.terrainPipeline);
@@ -591,7 +623,7 @@ export class GpuScene {
       const stencilView = this.ensureStencil(w, h);
       const apass = enc.beginRenderPass({
         colorAttachments: [{
-          view: colorView, clearValue: { r: 0, g: 0, b: 0, a: 0 },
+          view: colorView, clearValue: OCEAN_CLEAR,
           loadOp: colorCleared ? 'load' : 'clear', storeOp: 'store',
         }],
         depthStencilAttachment: {
@@ -624,7 +656,7 @@ export class GpuScene {
     if (hasWater) {
       const wpass = enc.beginRenderPass({
         colorAttachments: [{
-          view: colorView, clearValue: { r: 0, g: 0, b: 0, a: 0 },
+          view: colorView, clearValue: OCEAN_CLEAR,
           loadOp: colorCleared ? 'load' : 'clear', storeOp: 'store',
         }],
         depthStencilAttachment: { view: depthView, depthLoadOp: 'load', depthStoreOp: 'store' },
@@ -641,7 +673,7 @@ export class GpuScene {
     const epass = enc.beginRenderPass({
       colorAttachments: [{
         view: colorView,
-        clearValue: { r: 0, g: 0, b: 0, a: 0 },
+        clearValue: OCEAN_CLEAR,
         loadOp: colorCleared ? 'load' : 'clear', storeOp: 'store',
       }],
       depthStencilAttachment: { view: depthView, depthClearValue: 0.0, depthLoadOp: 'clear', depthStoreOp: 'store' },
@@ -684,7 +716,7 @@ export class GpuScene {
       const upass = enc.beginRenderPass({
         colorAttachments: [{
           view: colorView,
-          clearValue: { r: 0, g: 0, b: 0, a: 0 },
+          clearValue: OCEAN_CLEAR,
           loadOp: colorCleared ? 'load' : 'clear', storeOp: 'store',
         }],
       });

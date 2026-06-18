@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { fitCameraToMap } from '@/render/fit-camera';
+import { fitCameraToMap, clampCameraToMap } from '@/render/fit-camera';
 import { createCamera } from '@/render/camera';
 import { worldToScreen as isoWorldToScreen } from '@/render/iso/iso-projection';
 
@@ -44,6 +44,50 @@ describe('fitCameraToMap', () => {
     const cam = createCamera();
     const before = { ...cam };
     fitCameraToMap(cam, 0, 0, VIEW_W, VIEW_H);
+    expect(cam).toEqual(before);
+  });
+});
+
+describe('clampCameraToMap', () => {
+  const VIEW_W = 800, VIEW_H = 600;
+  // Some part of the map's iso bbox must stay within the viewport on each axis.
+  const overlapsView = (cam: { x: number; y: number; zoom: number }, W: number, H: number) => {
+    const c0 = isoScreen(W / 2, H / 2, cam); // map centre
+    // The centre tile must be on-screen (sufficient: island never fully gone).
+    return c0.x >= -1 && c0.x <= VIEW_W + 1 && c0.y >= -1 && c0.y <= VIEW_H + 1;
+  };
+
+  it('an extreme pan can no longer push the island off-screen', () => {
+    const cam = createCamera();
+    fitCameraToMap(cam, 120, 90, VIEW_W, VIEW_H);
+    cam.x += 1e6; cam.y -= 1e6;                       // shove far away
+    clampCameraToMap(cam, 120, 90, VIEW_W, VIEW_H);
+    expect(overlapsView(cam, 120, 90)).toBe(true);
+  });
+
+  it('when zoomed in, the viewport stays inside the map (no panning past the shore)', () => {
+    const cam = createCamera();
+    cam.zoom = 1; cam.x = 1e6; cam.y = 1e6;
+    clampCameraToMap(cam, 300, 300, VIEW_W, VIEW_H);
+    // viewport [x, x+view] must lie within the iso bbox x-range.
+    const halfW = 64; // ISO_TILE_W / 2
+    expect(cam.x).toBeLessThanOrEqual(300 * halfW);
+    expect(cam.x + VIEW_W / cam.zoom).toBeGreaterThanOrEqual(-300 * halfW);
+  });
+
+  it('a fitted camera is already within bounds (clamp is a no-op there)', () => {
+    const cam = createCamera();
+    fitCameraToMap(cam, 100, 80, VIEW_W, VIEW_H);
+    const before = { ...cam };
+    clampCameraToMap(cam, 100, 80, VIEW_W, VIEW_H);
+    expect(cam.x).toBeCloseTo(before.x);
+    expect(cam.y).toBeCloseTo(before.y);
+  });
+
+  it('ignores degenerate inputs', () => {
+    const cam = createCamera();
+    const before = { ...cam };
+    clampCameraToMap(cam, 0, 0, VIEW_W, VIEW_H);
     expect(cam).toEqual(before);
   });
 });

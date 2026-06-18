@@ -28,6 +28,7 @@ export type SimEvent =
   | { type: 'authored_modify';    entityId: EntityId; fields: string[] }
   | { type: 'authored_place';     entityIds: EntityId[]; kind: string; count: number }
   | { type: 'authored_move';      entityId: EntityId; to: { x: number; y: number } }
+  | { type: 'authored_climate';   climate: string }
   | { type: 'belief_cross';       npcId: EntityId; spiritId: SpiritId; kind: 'high' | 'low'; faith: number }
   | { type: 'mood_cross';         npcId: EntityId; kind: 'high' | 'low'; mood: number }
   | { type: 'power_depleted';     spiritId: SpiritId }

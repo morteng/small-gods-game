@@ -128,8 +128,8 @@ describe('executeCommand', () => {
 });
 
 describe('editor tier (foundation)', () => {
-  it('declares the five editor verbs as cost-0 editor-tier capabilities', () => {
-    const editorVerbs = ['author_spawn_npc', 'author_remove_entity', 'author_modify_npc', 'author_place_object', 'author_move_entity'] as const;
+  it('declares the editor verbs as cost-0 editor-tier capabilities', () => {
+    const editorVerbs = ['author_spawn_npc', 'author_remove_entity', 'author_modify_npc', 'author_place_object', 'author_move_entity', 'author_set_climate'] as const;
     for (const v of editorVerbs) {
       const def = CAPABILITY_REGISTRY[v];
       expect(def).toBeDefined();

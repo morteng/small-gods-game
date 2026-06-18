@@ -33,8 +33,27 @@ struct TGlobals {
 @group(0) @binding(0) var<uniform> G : TGlobals;
 @group(0) @binding(1) var<storage, read> heights : array<f32>; // normalised elev [0,1], row-major
 @group(0) @binding(2) var<storage, read> colors  : array<u32>; // 0xAABBGGRR per cell
+@group(0) @binding(3) var<storage, read> moisture    : array<f32>; // [0,1] per cell (T-A)
+@group(0) @binding(4) var<storage, read> temperature : array<f32>; // [0,1] per cell (T-A)
 
 fn cellIdx(cx : u32, cy : u32) -> u32 { return cy * u32(G.uGrid.x) + cx; }
+
+// Cheap value noise for jittering material thresholds so edges wander (kills the
+// flat contour rings / square biome borders that betray procedural terrain).
+fn hash21(p : vec2<f32>) -> f32 {
+  let h = dot(p, vec2<f32>(127.1, 311.7));
+  return fract(sin(h) * 43758.5453123);
+}
+fn vnoise(p : vec2<f32>) -> f32 {
+  let i = floor(p);
+  let f = fract(p);
+  let u = f * f * (3.0 - 2.0 * f);
+  let a = hash21(i);
+  let b = hash21(i + vec2<f32>(1.0, 0.0));
+  let c = hash21(i + vec2<f32>(0.0, 1.0));
+  let d = hash21(i + vec2<f32>(1.0, 1.0));
+  return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+}
 
 // Screen-px lift of a cell from its normalised elevation.
 fn heightPx(cx : u32, cy : u32) -> f32 {
@@ -118,14 +137,63 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   let H = u32(G.uGrid.y);
   let cx = min(u32(in.vGrid.x + 0.5), W - 1u);
   let cy = min(u32(in.vGrid.y + 0.5), H - 1u);
-  let base = unpackColor(colors[cellIdx(cx, cy)]);
+  let ci = cellIdx(cx, cy);
+  let base = unpackColor(colors[ci]);            // biome albedo (the "ground" layer)
+
+  let n = normalize(in.vNormal);
+  let slope = clamp(1.0 - n.y, 0.0, 1.0);        // 0 flat → 1 vertical, free from normal
+
+  // Shared-field reads: the material axis is computed downstream of the producers
+  // (mountains/roads only wrote HEIGHT) so texturing stays consistent with biome.
+  let elev = heights[ci];
+  let seaLevel = G.uZParams.y;
+  let aboveSea = elev - seaLevel;
+  let moist = moisture[ci];
+  let temp = temperature[ci];
+  let jit = vnoise(in.vGrid * 0.35) - 0.5;       // [-0.5,0.5] threshold wander
+
+  // Material WEIGHTS — each becomes a height-blend layer below.
+  let wRock = smoothstep(0.42, 0.78, slope + jit * 0.18);                 // steep faces
+  let wSnow = smoothstep(0.30, 0.16, temp + jit * 0.06)                   // cold + settles
+            * smoothstep(0.45, 0.72, n.y);
+  let sandBand = 0.05 + jit * 0.015;
+  let wSand = step(0.0, aboveSea) * (1.0 - smoothstep(0.0, sandBand, aboveSea)); // shore band
+  let wMud  = smoothstep(0.62, 0.92, moist)                              // wet low gentle ground
+            * (1.0 - smoothstep(0.18, 0.40, slope))
+            * (1.0 - smoothstep(0.06, 0.22, aboveSea));
+
+  // Stylized material albedos (palette-tuned later via world-style).
+  let ROCK = vec3<f32>(0.42, 0.40, 0.38);
+  let SNOW = vec3<f32>(0.90, 0.93, 0.97);
+  let SAND = vec3<f32>(0.80, 0.74, 0.55);
+  let MUD  = vec3<f32>(0.30, 0.24, 0.17);
+
+  // HEIGHT-BLEND composite (crisp, NOT linear-alpha mush): the biome base is the
+  // ground layer at a constant height; each material pokes through where its weight
+  // exceeds the running max within a transition band ("sand fills the cracks").
+  let band = 0.12;
+  let hGround = 0.34;
+  let m = max(max(hGround, wRock), max(wSnow, max(wSand, wMud))) - band;
+  let bG = max(hGround - m, 0.0);
+  let bR = max(wRock   - m, 0.0);
+  let bS = max(wSnow   - m, 0.0);
+  let bA = max(wSand   - m, 0.0);
+  let bM = max(wMud    - m, 0.0);
+  let sum = bG + bR + bS + bA + bM + 1e-4;
+  let albedo = (base * bG + ROCK * bR + SNOW * bS + SAND * bA + MUD * bM) / sum;
+
+  // Wet-sand band (T-C shore coordination): damp + darken the land within a thin
+  // strip just above the waterline so the water pass's contact-fade edge melts into
+  // wet ground instead of a hard line. Land-only (step) — the bed under water keeps
+  // its colour since the water pass draws over it.
+  let wet = smoothstep(0.045, 0.0, aboveSea) * step(0.0, aboveSea);
+  let shoreAlbedo = albedo * mix(1.0, 0.6, wet);
 
   // Banded diffuse so the lit relief stays pixel-art (matches the sprites).
-  let n = normalize(in.vNormal);
   let ndl = max(dot(n, normalize(G.uSun.xyz)), 0.0);
   let bands = max(1.0, G.uSun.w);
   let banded = floor(ndl * bands + 0.5) / bands;
   let light = G.uAmbient.xyz + vec3<f32>(G.uAmbient.w) * banded;
-  return vec4<f32>(base * light, 1.0);
+  return vec4<f32>(shoreAlbedo * light, 1.0);
 }
 `;

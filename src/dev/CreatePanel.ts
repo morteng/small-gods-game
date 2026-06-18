@@ -54,7 +54,7 @@ export function mountCreatePanel(deps: CreatePanelDeps): CreatePanelHandle {
   fp.body.appendChild(col);
 
   const prompt = document.createElement('textarea');
-  prompt.placeholder = 'e.g. add three farmers near Northvale; make n1 a devout priest';
+  prompt.placeholder = 'e.g. add three farmers near Northvale; make n1 a devout priest; make this an arctic world';
   prompt.style.cssText = 'width:100%; min-height:64px; resize:vertical; background:#1a1a2e; color:#e0e0e0; border:1px solid #555; border-radius:4px; padding:8px; font-size:12px; box-sizing:border-box;';
   col.appendChild(prompt);
 

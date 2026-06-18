@@ -29,6 +29,7 @@ import { generateTerrainFields } from '@/terrain/terrain-generator';
 import { erodeElevation } from '@/terrain/erosion';
 import { applyPoiInfluences, POI_INFLUENCES } from '@/terrain/poi-influence';
 import { islandSignature, styledIslandSpec, type IslandSpec } from '@/terrain/island-mask';
+import { climateSignature, styledClimate, type ClimateSpec } from '@/terrain/climate';
 import { worldStyleOf } from '@/core/world-style';
 
 /** Memo-key fragment for the POIs that move elevation (mountains/lakes/…). Two
@@ -73,6 +74,7 @@ function configFor(
   width: number,
   height: number,
   island: IslandSpec | null = null,
+  climate: ClimateSpec | null = null,
 ): TerrainConfig {
   const maxDim = Math.max(width, height);
   return {
@@ -85,6 +87,7 @@ function configFor(
     poleFalloff: true,
     continentWarp: 2.0,
     island: island ?? undefined,
+    climate: climate ?? undefined,
   };
 }
 
@@ -149,6 +152,50 @@ export function getHeightfield(
 /** Drop all cached heightfields (used by tests; harmless in prod). */
 export function clearHeightfieldCache(): void {
   cache.clear();
+  climateCache.clear();
+}
+
+/**
+ * The two climate fields biome classification reads — moisture + temperature —
+ * resurfaced the SAME way {@link getHeightfield} resurfaces elevation: recomputed
+ * deterministically from `(seed, width, height, island)` via `generateTerrainFields`
+ * (which already produces them, then discards them into flat tiles), memoised, and
+ * never persisted. Both are row-major `Float32Array[width*height]`, values `[0,1]`.
+ *
+ * Unlike elevation these need no erosion or POI influence (those only move height),
+ * so a single `generateTerrainFields` call is exact. The terrain shader reads them
+ * (with slope, free from the surface normal) to drive material texturing —
+ * water→mud→earth→snow — so placement stays consistent with the biome the world
+ * was classified into.
+ */
+export interface ClimateFields {
+  moisture: Float32Array;
+  temperature: Float32Array;
+}
+
+const climateCache = new Map<string, ClimateFields>();
+
+/** Memoised moisture+temperature fields for a world. Same array instances across
+ *  calls with matching `(seed, width, height, island)`; treat as read-only. */
+export function getClimateFields(map: GameMap): ClimateFields {
+  const { seed, width, height } = map;
+  const island = styledIslandSpec(map.worldSeed);
+  const climate = styledClimate(map.worldSeed);
+  const key = `${seed}:${width}x${height}:${islandSignature(island)}:${climateSignature(climate)}`;
+  let c = climateCache.get(key);
+  if (c) {
+    climateCache.delete(key);
+    climateCache.set(key, c);
+    return c;
+  }
+  const fields = generateTerrainFields(configFor(seed, width, height, island, climate));
+  c = { moisture: fields.moisture, temperature: fields.temperature };
+  climateCache.set(key, c);
+  if (climateCache.size > CACHE_CAP) {
+    const oldest = climateCache.keys().next().value;
+    if (oldest !== undefined) climateCache.delete(oldest);
+  }
+  return c;
 }
 
 /** Normalised elevation `[0,1]` at a tile (edge-clamped to the map). */

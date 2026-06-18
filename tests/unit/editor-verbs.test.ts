@@ -222,3 +222,31 @@ describe('author_move_entity', () => {
     expect(world.registry.get('mv3')).toMatchObject({ x: 1, y: 1 }); // unmoved
   });
 });
+
+describe('author_set_climate', () => {
+  function mapWithSeed(): GameMap {
+    const m = bigMap();
+    (m as { worldSeed: unknown }).worldSeed = { name: 'T', size: { width: 12, height: 12 }, biome: 'temperate', pois: [], connections: [], constraints: [] };
+    return m;
+  }
+
+  it('sets worldSeed.climate to a valid named zone', () => {
+    const world = new World(mapWithSeed());
+    const res = executeCommand(authorCmd('author_set_climate', { climate: 'arctic' }), applyCtx(world));
+    expect(res.status).toBe('applied');
+    expect(world.tiles.worldSeed!.climate).toBe('arctic');
+  });
+
+  it('rejects an unknown climate name with invalid_payload', () => {
+    const world = new World(mapWithSeed());
+    const res = executeCommand(authorCmd('author_set_climate', { climate: 'martian' }), applyCtx(world));
+    expect(res).toMatchObject({ status: 'rejected', reason: 'invalid_payload' });
+    expect(world.tiles.worldSeed!.climate).toBeUndefined();
+  });
+
+  it('rejects when the world has no seed to re-zone (invalid_target)', () => {
+    const world = new World(bigMap()); // worldSeed: null
+    const res = executeCommand(authorCmd('author_set_climate', { climate: 'tropical' }), applyCtx(world));
+    expect(res).toMatchObject({ status: 'rejected', reason: 'invalid_target' });
+  });
+});

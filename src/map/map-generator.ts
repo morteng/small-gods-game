@@ -15,6 +15,7 @@ import type { GameMap, WorldSeed, Tile, BuildingInstance, TerrainConfig, POI, Re
 import { WATER_TYPES } from '@/core/constants';
 import { generateTerrainFields, classifyBiomes, sampleTiles } from '@/terrain/terrain-generator';
 import { styledIslandSpec } from '@/terrain/island-mask';
+import { styledClimate } from '@/terrain/climate';
 import { applyPoiInfluences } from '@/terrain/poi-influence';
 import { generateHydrology } from '@/terrain/hydrology';
 import { buildRoadGraph } from '@/world/road-graph';
@@ -118,6 +119,7 @@ export async function generateWithNoise(
     poleFalloff: true,
     continentWarp: 2.0,
     island: styledIslandSpec(worldSeed) ?? undefined,
+    climate: styledClimate(worldSeed),
   };
 
   const fields = generateTerrainFields(config);

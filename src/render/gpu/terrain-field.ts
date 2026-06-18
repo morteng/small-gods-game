@@ -18,7 +18,7 @@
 import type { GameMap, DevModeState } from '@/core/types';
 import { TILE_COLORS } from '@/core/constants';
 import { effectiveTileType, RENDER_LAYERS, layerFlag } from '@/render/layer-visibility';
-import { ELEVATION_SEA_LEVEL } from '@/world/heightfield';
+import { ELEVATION_SEA_LEVEL, getClimateFields } from '@/world/heightfield';
 import { getComposedHeightfield } from '@/world/road-deformation';
 import { ISO_TILE_W, ISO_TILE_H } from '@/render/iso/iso-constants';
 import type { LightingState } from '@/render/lighting-state';
@@ -41,12 +41,12 @@ export const TERRAIN_SUN_DIR: [number, number, number] = [-1, 1.6, -1];
  * DELIBERATELY far below the XY scale (PX_PER_METRE=32): terrain z is compressed
  * for readability like most iso games (real GIS exaggeration is 2–3×, but iso
  * already halves apparent height, and our modest TERRAIN_RELIEF_M wants a larger
- * multiplier to read). At reliefM=48 a sea-to-peak swing (~0.65) lifts ~437 px.
+ * multiplier to read). At reliefM=48 a sea-to-peak swing (~0.65) lifts ~530 px.
  * This is the seed default for the future `terrainVerticalExaggeration` style
  * knob (see the world-style / "game factor" epic) — raise toward a storybook
  * look, lower toward a flatter simulator look.
  */
-export const TERRAIN_Z_PX_PER_M = 14.0;
+export const TERRAIN_Z_PX_PER_M = 17.0;
 
 /** Cap on generated quads — picks the subsample LOD so big maps stay cheap. */
 export const MAX_TERRAIN_QUADS = 50000;
@@ -132,6 +132,10 @@ export interface TerrainField {
   heights: Float32Array;
   /** Row-major biome base colour `0xAABBGGRR`, `width*height` (the colour buffer). */
   colors: Uint32Array;
+  /** Row-major moisture `[0,1]`, `width*height` — drives mud/grass material weight. */
+  moisture: Float32Array;
+  /** Row-major temperature `[0,1]`, `width*height` — drives the snowline (cold→snow). */
+  temperature: Float32Array;
   /** Vertices the grid-gen vertex shader draws (`quadsX*quadsY*6`). */
   vertexCount: number;
   /** Terrain uniform input (camera + iso + z + lighting); `packTerrainGlobals`-ready. */
@@ -179,9 +183,12 @@ export function buildTerrainField(map: GameMap, opts: BuildTerrainFieldOpts): Te
     ambient: opts.lighting.ambient,
     sunStrength: luminance(opts.lighting.sunColor),
   };
+  const climate = getClimateFields(map);
   return {
     heights: heightField(map),
     colors: packColorFieldMemo(map, opts.devMode),
+    moisture: climate.moisture,
+    temperature: climate.temperature,
     vertexCount: grid.vertexCount,
     globals,
   };

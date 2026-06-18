@@ -20,7 +20,7 @@ export type CommandVerb =
   | 'rename_ward' | 'retype_ward'
   // editor tier — god-mode world authoring (the Create panel; cost 0, no spirit)
   | 'author_spawn_npc' | 'author_remove_entity' | 'author_modify_npc'
-  | 'author_place_object' | 'author_move_entity';
+  | 'author_place_object' | 'author_move_entity' | 'author_set_climate';
 
 export type CommandTarget =
   | { kind: 'npc'; npcId: string }

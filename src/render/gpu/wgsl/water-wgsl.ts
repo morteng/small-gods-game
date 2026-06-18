@@ -123,23 +123,49 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   let tDeep = clamp(depthM / depthScale, 0.0, 1.0);
   var color = mix(unpackRgb(shallowC[ci]), unpackRgb(deepC[ci]), tDeep);
 
-  // Flow-advected ripple → perturbed normal. Still water (ocean/lake) gets a
-  // gentle wind ripple; rivers streak along the flow vector.
+  // Flow-advected ripple → perturbed normal. Scale is sub-to-~1-tile (a coarser
+  // scale read as big slabs, not water). STILL water (ocean/lake) gets a gentle
+  // crosshatch wind ripple; FLOWING water (rivers) gets wavefronts PERPENDICULAR
+  // to the flow vector that scroll downstream, so the current direction is
+  // legible. The normal tilts directionally (cos → gradient), not isotropically.
   let t = G.uWater.x;
   let fv = vec2<f32>(flow[ci * 2u], flow[ci * 2u + 1u]);
-  let along = dot(in.vGrid, normalize(fv + vec2<f32>(0.0001, 0.0)));
-  let ripple = sin(in.vGrid.x * 1.7 + in.vGrid.y * 1.3 - t * 1.6)
-             + 0.6 * sin(along * 2.3 - t * 3.0);
   let flowMag = clamp(length(fv), 0.0, 1.0);
-  let amp = 0.12 + 0.18 * flowMag;
-  let n = normalize(vec3<f32>(ripple * amp, 1.0, ripple * amp * 0.5));
+  let fdir = select(vec2<f32>(1.0, 0.0), fv / max(flowMag, 1e-4), flowMag > 1e-3);
+  let RP = 6.0;                          // ripple spatial freq (~1-tile wavelength)
+  let along = dot(in.vGrid, fdir);       // distance measured along the flow
+  let windX = cos(in.vGrid.x * RP - t * 1.4);
+  let windY = cos(in.vGrid.y * RP * 0.85 + t * 1.1);
+  let stream = cos(along * RP * 1.3 - t * 5.0); // travels downstream along fdir
+  let amp = 0.10 + 0.24 * flowMag;
+  let nx = mix(windX * 0.6, stream * fdir.x, flowMag) * amp;
+  let nz = mix(windY * 0.6, stream * fdir.y, flowMag) * amp;
+  let n = normalize(vec3<f32>(nx, 1.0, nz));
 
-  // Banded diffuse (matches terrain/sprites) + a small sun sparkle.
-  let ndl = max(dot(n, normalize(G.uSun.xyz)), 0.0);
-  let bands = max(1.0, G.uSun.w);
-  let banded = floor(ndl * bands + 0.5) / bands;
-  let light = G.uAmbient.xyz + vec3<f32>(G.uAmbient.w) * banded;
-  color = color * light + vec3<f32>(pow(banded, 6.0) * 0.25);
+  // Smooth diffuse + tight sun glint. Water is specular — the terrain's hard
+  // floor-band quantization here produced ugly flat dark slabs; a smooth ndl
+  // ramp shimmers instead.
+  let sunDir = normalize(G.uSun.xyz);
+  let ndl = max(dot(n, sunDir), 0.0);
+  let light = G.uAmbient.xyz + vec3<f32>(G.uAmbient.w) * ndl;
+
+  // W-D: procedural sky-gradient reflection masked by Fresnel. View is ~straight
+  // down in tile space (ortho iso) so dot(N,V)=n.y — flat water reflects little
+  // (you see into the depth), tilted ripples catch the sky. A cheap stand-in until
+  // the skydome's deriveSkyState feeds real sky colours; dims at night via uAmbient.w.
+  let skyAmt = G.uAmbient.w;
+  let refl = reflect(vec3<f32>(0.0, -1.0, 0.0), n);
+  let zenith  = vec3<f32>(0.33, 0.50, 0.72) * (0.4 + 0.6 * skyAmt);
+  let horizon = vec3<f32>(0.66, 0.78, 0.90) * (0.4 + 0.6 * skyAmt);
+  let sky = mix(horizon, zenith, clamp(refl.y, 0.0, 1.0));
+  let fresnel = pow(1.0 - clamp(n.y, 0.0, 1.0), 4.0) * 0.5;
+  color = mix(color * light, sky, fresnel);
+
+  // W-D: soft specular highlight + a SHARP thresholded sun-glitter that sparkles
+  // on the ripple ridges (the normals already scatter it into many points).
+  let glint = pow(ndl, 32.0) * skyAmt;
+  let glitter = smoothstep(0.965, 0.995, max(dot(sunDir, refl), 0.0)) * skyAmt;
+  color = color + vec3<f32>(glint * 0.35 + glitter * 0.6);
 
   // Shoreline foam: bright band where the water is very shallow.
   let foamBand = G.uWater.z;
@@ -157,17 +183,24 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   let cfade = clamp(1.0 - depthM / max(causticReach, 0.001), 0.0, 1.0);
   let sun = G.uAmbient.w;
   if (cfade > 0.0 && sun > 0.0) {
-    let cw = in.vGrid * 1.5 + fv * t * 0.6;
+    // Two summed-sine nets at different scale/drift, combined with min() so only
+    // filaments where BOTH fire survive — sharpens the caustic net + hides tiling.
+    let cw = in.vGrid * 3.0 - fv * t * 1.2;   // finer net, drifting downstream
     let cnet = sin(cw.x * 2.0 + t * 1.3) + sin(cw.y * 2.3 - t * 1.1) + sin((cw.x + cw.y) * 1.7 + t * 1.7);
-    let caustic = pow(max(cnet * 0.33, 0.0), 2.0);
-    color += vec3<f32>(caustic * cfade * clar * sun * 0.5);
+    let cw2 = in.vGrid * 4.7 + fv * t * 0.7;
+    let cnet2 = sin(cw2.x * 2.0 - t * 1.1) + sin(cw2.y * 2.3 + t * 1.5) + sin((cw2.x - cw2.y) * 1.7 - t * 1.3);
+    let caustic = min(pow(max(cnet * 0.33, 0.0), 2.0), pow(max(cnet2 * 0.33, 0.0), 2.0));
+    color += vec3<f32>(caustic * cfade * clar * sun * 0.8);
   }
 
   // Deep = opaque (no see-through), shallow = translucent over the bed. Clear
   // water (high clarity ⇒ larger depthScale ⇒ smaller tDeep) stays see-through
-  // deeper, so you read the bed/caustics through it.
-  var alpha = mix(0.5, 0.97, tDeep);
-  if (depthM < foamBand) { alpha = max(alpha, 0.85); }
+  // deeper, so you read the bed/caustics through it. A CONTACT fade ramps the
+  // shallowest lip toward transparent (T-C) so the waterline melts into the
+  // terrain's wet-sand band instead of a hard edge; foam fades with it.
+  let contact = smoothstep(0.0, foamBand, depthM);
+  var alpha = mix(0.5, 0.97, tDeep) * contact;
+  if (depthM < foamBand) { alpha = max(alpha, 0.82 * contact); }
 
   // S3 dynamics — whitewater where fast flow meets a steep bed (waterfalls,
   // rapids, the churn at obstructions/merges). Faster, higher-frequency churn

@@ -9,6 +9,7 @@
  * src/sim/command/editor-verbs.ts.
  */
 import type { LLMTool } from './llm-client';
+import { CLIMATE_NAMES } from '@/terrain/climate';
 
 const ROLES = ['priest', 'elder', 'farmer', 'merchant', 'soldier', 'noble', 'child', 'beggar'];
 const ACTIVITIES = ['sleep', 'work', 'socialize', 'worship', 'idle', 'wander'];
@@ -101,6 +102,24 @@ export const EDITOR_TOOLS: LLMTool[] = [
         to: { type: 'object', properties: { x: { type: 'integer' }, y: { type: 'integer' } }, required: ['x', 'y'] },
       },
       required: ['entityId', 'to'],
+    },
+  },
+  {
+    name: 'author_set_climate',
+    description:
+      "Set the world's overall climate zone (the north-cold→south-warm temperature/moisture band). " +
+      'Re-textures the whole world live: snow lines, mud, and aridity shift to match. Use for ' +
+      '"make this an arctic world" / "warm it up to a mediterranean climate". For LOCAL cold/heat ' +
+      '(a single ice field or volcano) place a glacier/mountain/volcano object instead — this verb is global.',
+    parameters: {
+      type: 'object',
+      properties: {
+        climate: {
+          type: 'string', enum: [...CLIMATE_NAMES],
+          description: 'Climate zone. european/temperate = default mild band; boreal/arctic = cold; mediterranean/tropical/arid = warm.',
+        },
+      },
+      required: ['climate'],
     },
   },
 ];

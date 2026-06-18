@@ -33,3 +33,20 @@ describe('world seed era validation', () => {
     expect(r.valid).toBe(true);
   });
 });
+
+describe('world seed climate validation', () => {
+  it('treats a missing climate as valid (defaults to european)', () => {
+    expect(validateWorldSeed(base()).valid).toBe(true);
+  });
+  it('accepts a known climate preset name', () => {
+    expect(validateWorldSeed(base({ climate: 'arctic' })).valid).toBe(true);
+  });
+  it('rejects an unknown climate name', () => {
+    const r = validateWorldSeed(base({ climate: 'martian' as WorldSeed['climate'] }));
+    expect(r.valid).toBe(false);
+    expect(r.errors.some(e => e.includes('climate'))).toBe(true);
+  });
+  it('accepts an object climate override', () => {
+    expect(validateWorldSeed(base({ climate: { tempNorth: 0.3, tempSouth: 0.7 } })).valid).toBe(true);
+  });
+});
