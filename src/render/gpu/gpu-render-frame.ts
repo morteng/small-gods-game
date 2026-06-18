@@ -29,6 +29,7 @@ import { getHydrologyResult } from '@/world/hydrology-store';
 import { FlotsamSystem } from '@/water/water-flotsam';
 import { drawWorldConnectome } from '@/render/connectome-overlay';
 import type { GpuScene } from '@/render/gpu/gpu-scene';
+import { AdaptiveResolution } from '@/render/gpu/adaptive-resolution';
 import { getUiRuntime } from '@/render/ui/ui-runtime';
 
 const BG_COLOR = '#1a1a24';
@@ -40,6 +41,19 @@ function connectomeRequested(): boolean {
 }
 
 /**
+ * P-E — fixed art-pixel-size override (CSS px per art texel). `?px=N` PINS the
+ * resolution (disables adaptation, for A/B and preference); absent ⇒ null, i.e.
+ * the adaptive controller drives it (1:1, dropping to 2 only when fps sags).
+ */
+function artPixelOverride(): number | null {
+  try {
+    const v = new URLSearchParams(window.location.search).get('px');
+    if (v !== null) { const n = Math.round(Number(v)); if (Number.isFinite(n) && n >= 1 && n <= 8) return n; }
+  } catch { /* no window */ }
+  return null;
+}
+
+/**
  * Build the `?render=gpu` frame closure over a ready GpuScene and its overlay
  * canvas. The overlay is resized to the main canvas's device backing size each
  * frame; WebGPU tracks the canvas size, so its swap chain follows.
@@ -47,6 +61,9 @@ function connectomeRequested(): boolean {
 export function buildGpuRenderFrame(scene: GpuScene, gpuCanvas: HTMLCanvasElement): RenderFn {
   const atlas = createNullAtlas();
   const showConnectome = connectomeRequested();
+  const fixedPx = artPixelOverride();
+  const adaptive = new AdaptiveResolution();
+  let lastFrameStart = 0;
   const ui = getUiRuntime();
   // Cosmetic flow-advected particles (S6) — created on first frame from the map
   // seed, stepped by wall-clock delta (pure render, never the sim clock).
@@ -58,6 +75,14 @@ export function buildGpuRenderFrame(scene: GpuScene, gpuCanvas: HTMLCanvasElemen
     // The context carries an outer devicePixelRatio scale; recover it from the
     // backing-store size so the overlay and transform land on device pixels.
     const dpr = canvasWidth > 0 ? target.width / canvasWidth : 1;
+
+    // P-E adaptive resolution: measure the real frame interval (wall-clock,
+    // never the sim clock) and let the controller pick the art-pixel size — 1:1
+    // until fps sags below ~30, then 2. A `?px=N` override pins it instead.
+    const nowMs = typeof performance !== 'undefined' ? performance.now() : 0;
+    const frameDt = lastFrameStart > 0 ? nowMs - lastFrameStart : 16.7;
+    lastFrameStart = nowMs;
+    const px = fixedPx ?? adaptive.step(frameDt);
 
     // Background only — terrain + entities both render on the GPU now (R2d).
     ctx.fillStyle = BG_COLOR;
@@ -81,16 +106,24 @@ export function buildGpuRenderFrame(scene: GpuScene, gpuCanvas: HTMLCanvasElemen
       gpuCanvas.height = target.height;
     }
     const lighting = rc.lighting ?? DEFAULT_LIGHTING;
-    const offX = Math.round(-camera.x * z);
-    const offY = Math.round(-camera.y * z);
-    const xform = { sx: z * dpr, sy: z * dpr, ox: offX * dpr, oy: offY * dpr };
+    // P-E: render the scene into a low-res target (`S` device px per art texel,
+    // integer for crisp nearest upscaling), then blit up to the device. The
+    // world→target transform is divided by `S`; offsets are snapped to the art
+    // texel grid in low-res space so pixels stay stable under pan/zoom.
+    const S = Math.max(1, Math.round(px * dpr));
+    const lowW = Math.max(1, Math.ceil(target.width / S));
+    const lowH = Math.max(1, Math.ceil(target.height / S));
+    const sLow = (z * dpr) / S;
+    const offX = Math.round(-camera.x * z * dpr / S);
+    const offY = Math.round(-camera.y * z * dpr / S);
+    const xform = { sx: sLow, sy: sLow, ox: offX, oy: offY };
 
     // Buffer-driven terrain field (T1): the GPU generates + lifts the grid from
     // the height/colour storage buffers. Whole-map for now — chunk culling is T5.
     const terrain: TerrainField | null = isLayerHidden('terrain', rc.devMode)
       ? null
       : buildTerrainField(map, {
-          viewport: [target.width, target.height],
+          viewport: [lowW, lowH],
           xform, lighting, devMode: rc.devMode,
         });
 
@@ -99,7 +132,7 @@ export function buildGpuRenderFrame(scene: GpuScene, gpuCanvas: HTMLCanvasElemen
     // sim clock), so a wall-clock seconds value is fine here.
     const timeSec = (typeof performance !== 'undefined' ? performance.now() : 0) * 0.001;
     const water: WaterField | null = (terrain && !isLayerHidden('rivers', rc.devMode))
-      ? buildWaterField(map, { viewport: [target.width, target.height], xform, lighting, timeSec })
+      ? buildWaterField(map, { viewport: [lowW, lowH], xform, lighting, timeSec })
       : null;
 
     // Flotsam/fauna (S6): step + emit cosmetic circles on the water surface.
@@ -117,7 +150,11 @@ export function buildGpuRenderFrame(scene: GpuScene, gpuCanvas: HTMLCanvasElemen
 
     const uiGroups = ui.frame(target.width, target.height, dpr);
 
-    scene.renderFrame({ items: frameItems, lighting, terrain, water, w: target.width, h: target.height, xform, uiGroups });
+    scene.renderFrame({
+      items: frameItems, lighting, terrain, water,
+      w: lowW, h: lowH, out: { w: target.width, h: target.height },
+      xform, uiGroups,
+    });
 
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);

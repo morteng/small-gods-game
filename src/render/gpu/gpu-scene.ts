@@ -28,6 +28,7 @@ import { TERRAIN_WGSL } from '@/render/gpu/wgsl/terrain-wgsl';
 import { WATER_WGSL } from '@/render/gpu/wgsl/water-wgsl';
 import { SHADOW_WGSL } from '@/render/gpu/wgsl/shadow-wgsl';
 import { SHAPE_WGSL } from '@/render/gpu/wgsl/shape-wgsl';
+import { BLIT_WGSL } from '@/render/gpu/wgsl/blit-wgsl';
 import {
   buildShadowBatches, packShadowInstances, SHADOW_ALPHA,
   SHADOW_INSTANCE_STRIDE,
@@ -45,6 +46,7 @@ const DEPTH_FORMAT: GPUTextureFormat = 'depth24plus';
 export class GpuScene {
   private device: GPUDevice;
   private ctx: GPUCanvasContext;
+  private format: GPUTextureFormat;
   private pipeline: GPURenderPipeline;
   private sampler: GPUSampler;
   private quadBuf: GPUBuffer;
@@ -121,9 +123,21 @@ export class GpuScene {
   /** Screen-space UI pass (S1) — drawn last, over the entity pass, no depth. */
   private uiPass: UiPass;
 
+  // P-E — pixel-perfect low-res target + nearest-upscale blit. The scene passes
+  // (terrain/water/shadow/entity/shape) render into `sceneTex` at the art-pixel
+  // resolution; `blitPipeline` then nearest-upscales it onto the swapchain, with
+  // the UI drawn crisp at full device res on top.
+  private blitPipeline: GPURenderPipeline;
+  private blitGlobalsBuf: GPUBuffer;
+  private sceneTex: GPUTexture | null = null;
+  private sceneW = 0;
+  private sceneH = 0;
+  private blitBind: GPUBindGroup | null = null;
+
   constructor(gpu: GpuContext) {
     this.device = gpu.device;
     this.ctx = gpu.ctx;
+    this.format = gpu.format;
     const { device } = this;
     this.uiPass = new UiPass(device, gpu.format);
 
@@ -306,6 +320,40 @@ export class GpuScene {
       layout: this.shapePipeline.getBindGroupLayout(0),
       entries: [{ binding: 0, resource: { buffer: this.shapeGlobalsBuf } }],
     });
+
+    // Blit pipeline (P-E): a single fullscreen triangle, no vertex buffers, no
+    // depth, no blend (the source is already composited) — nearest-samples the
+    // low-res scene target onto the swapchain.
+    const blitModule = device.createShaderModule({ code: BLIT_WGSL });
+    this.blitPipeline = device.createRenderPipeline({
+      layout: 'auto',
+      vertex: { module: blitModule, entryPoint: 'vsMain' },
+      fragment: { module: blitModule, entryPoint: 'fsMain', targets: [{ format: gpu.format }] },
+      primitive: { topology: 'triangle-list' },
+    });
+    this.blitGlobalsBuf = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  }
+
+  /** (Re)create the low-res scene colour target + its blit bind group on resize. */
+  private ensureSceneTarget(w: number, h: number): GPUTextureView {
+    if (!this.sceneTex || this.sceneW !== w || this.sceneH !== h) {
+      this.sceneTex?.destroy();
+      this.sceneTex = this.device.createTexture({
+        size: [w, h, 1], format: this.format,
+        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+      });
+      this.sceneW = w;
+      this.sceneH = h;
+      this.blitBind = this.device.createBindGroup({
+        layout: this.blitPipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: this.sampler },
+          { binding: 1, resource: this.sceneTex.createView() },
+          { binding: 2, resource: { buffer: this.blitGlobalsBuf } },
+        ],
+      });
+    }
+    return this.sceneTex!.createView();
   }
 
   private make1x1(rgba: [number, number, number, number]): GPUTexture {
@@ -545,9 +593,15 @@ export class GpuScene {
     water?: WaterField | null;
     /** Screen-space UI geometry (S1) — drawn in its own pass over the entities. */
     uiGroups?: readonly UiDrawGroup[];
+    /** P-E: when set, the scene passes render into a low-res target sized `w×h`
+     *  and are nearest-upscaled to `out` (swapchain device px); the UI then draws
+     *  crisp at `out`. Absent ⇒ legacy direct-to-swapchain at `w×h`. */
+    out?: { w: number; h: number };
+    /** P-E: snap-then-offset remainder in OUTPUT pixels (default 0). */
+    pixelOffset?: readonly [number, number];
   }): void {
     const { device } = this;
-    const { items: rawItems, lighting, w, h, xform, terrain, water, uiGroups } = opts;
+    const { items: rawItems, lighting, w, h, xform, terrain, water, uiGroups, out, pixelOffset } = opts;
     // Lift entities onto the GPU terrain surface (foot-z parity) before any
     // batching/shadow/shape work, so sprites, fallback shapes and cast shadows
     // all ride the heightfield together. No-op when there's no terrain.
@@ -587,7 +641,10 @@ export class GpuScene {
     }
 
     const enc = device.createCommandEncoder();
-    const colorView = this.ctx.getCurrentTexture().createView();
+    // P-E: the scene passes target the low-res offscreen when `out` is set, then
+    // a blit upscales it to the swapchain; otherwise they draw straight to it.
+    const swapView = this.ctx.getCurrentTexture().createView();
+    const colorView = out ? this.ensureSceneTarget(w, h) : swapView;
     const depthView = this.ensureDepth(w, h);
 
     // "Ocean forever": clear the scene to deep-ocean blue so anything beyond the
@@ -710,17 +767,37 @@ export class GpuScene {
     }
     epass.end();
 
-    // Pass 3 — UI (screen-space HUD): painter-order over the scene colour, no
-    // depth. Its own pass so it never participates in the entity depth test.
-    if (uiGroups && uiGroups.length > 0) {
-      const upass = enc.beginRenderPass({
-        colorAttachments: [{
-          view: colorView,
-          clearValue: OCEAN_CLEAR,
-          loadOp: colorCleared ? 'load' : 'clear', storeOp: 'store',
-        }],
+    // Pass 2.5 — blit (P-E): nearest-upscale the low-res scene target onto the
+    // swapchain. Only when rendering through the offscreen target (`out` set).
+    if (out) {
+      const ox = pixelOffset ? pixelOffset[0] : 0;
+      const oy = pixelOffset ? pixelOffset[1] : 0;
+      device.queue.writeBuffer(this.blitGlobalsBuf, 0,
+        new Float32Array([1 / out.w, 1 / out.h, ox, oy]));
+      const bpass = enc.beginRenderPass({
+        colorAttachments: [{ view: swapView, clearValue: OCEAN_CLEAR, loadOp: 'clear', storeOp: 'store' }],
       });
-      this.uiPass.record(upass, uiGroups, w, h);
+      bpass.setPipeline(this.blitPipeline);
+      bpass.setBindGroup(0, this.blitBind!);
+      bpass.draw(3);
+      bpass.end();
+    }
+
+    // Pass 3 — UI (screen-space HUD): painter-order over the scene colour, no
+    // depth. Its own pass so it never participates in the entity depth test. When
+    // P-E is active the UI draws CRISP at full device res on the swapchain, over
+    // the upscaled scene; otherwise it shares the scene target at `w×h`.
+    if (uiGroups && uiGroups.length > 0) {
+      const uiView = out ? swapView : colorView;
+      const uiW = out ? out.w : w;
+      const uiH = out ? out.h : h;
+      // The swapchain already holds the blit (out) or the scene (legacy) here, so
+      // always load — clearing would erase what we just drew.
+      const uiLoad: GPULoadOp = (out || colorCleared) ? 'load' : 'clear';
+      const upass = enc.beginRenderPass({
+        colorAttachments: [{ view: uiView, clearValue: OCEAN_CLEAR, loadOp: uiLoad, storeOp: 'store' }],
+      });
+      this.uiPass.record(upass, uiGroups, uiW, uiH);
       upass.end();
     }
 
