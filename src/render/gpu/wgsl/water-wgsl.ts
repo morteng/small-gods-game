@@ -38,23 +38,6 @@ fn unpackRgb(rgba : u32) -> vec3<f32> {
   return vec3<f32>(f32(rgba & 0xFFu), f32((rgba >> 8u) & 0xFFu), f32((rgba >> 16u) & 0xFFu)) / 255.0;
 }
 
-// 4×4 ordered Bayer threshold ∈ [-0.5,0.5), indexed in ART-PIXEL space (the water
-// pass renders into the low-res target, so in.pos.xy is the art-texel coord). Used
-// to dither the banded light + posterize so the opaque water reads as pixel-art
-// stipple, not smooth gradients. Matches the terrain shader's bayer4 exactly.
-fn bayer4(p : vec2<f32>) -> f32 {
-  let ix = u32(i32(floor(p.x)) & 3);
-  let iy = u32(i32(floor(p.y)) & 3);
-  let i = iy * 4u + ix;
-  var m = array<f32, 16>(
-     0.0,  8.0,  2.0, 10.0,
-    12.0,  4.0, 14.0,  6.0,
-     3.0, 11.0,  1.0,  9.0,
-    15.0,  7.0, 13.0,  5.0,
-  );
-  return (m[i] + 0.5) / 16.0 - 0.5;
-}
-
 fn liftPx(e : f32) -> f32 { return (e - G.uZParams.y) * G.uZParams.z * G.uZParams.x; }
 
 struct VSOut {
@@ -112,7 +95,7 @@ fn vsMain(@builtin(vertex_index) vid : u32) -> VSOut {
 // 12-sine twin caustic net + per-cell bedSlope rapids — fine when water was a
 // thin border, but fullscreen ocean at 1:1 made every pixel pay all of it (~9fps
 // on the iGPU). Opaque pixel-art doesn't need refraction/caustics/specular: the
-// look is flat depth bands + a cheap animated shimmer + ordered dither. One sine,
+// look is flat depth bands + a cheap animated shimmer. One sine,
 // no neighbour reads, no pow — many× cheaper per fragment.
 @fragment
 fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
@@ -127,7 +110,6 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   let tDeep = clamp(depthM / mix(1.5, 6.0, clar), 0.0, 1.0);
   var color = mix(unpackRgb(shallowC[ci]), unpackRgb(deepC[ci]), tDeep);
 
-  let dith = bayer4(in.pos.xy);   // ordered dither in art-pixel space
   let day = G.uAmbient.w;
 
   // Cheap surface motion: ONE flow-advected sine. Rivers scroll their shimmer
@@ -138,11 +120,11 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   let wave = sin((in.vGrid.x + in.vGrid.y) * 3.0 - t * 1.6 - dot(in.vGrid, fv) * 5.0);
   let shimmer = smoothstep(0.55, 1.0, wave);          // bright ripple ridges (0..1)
 
-  // Flat banded light: two terraces (base ↔ ridge) dithered into a 1-art-pixel
-  // stipple. No per-pixel normal — the surface reads as water from the shimmer.
+  // Flat banded light: two terraces (base ↔ ridge), no per-pixel normal — the
+  // surface reads as water from the shimmer. Clean bands (no dither).
   let bands = max(1.0, G.uSun.w);
   let level = 0.62 + 0.38 * shimmer;
-  let banded = floor(level * bands + 0.5 + dith) / bands;
+  let banded = floor(level * bands + 0.5) / bands;
   color = color * (G.uAmbient.xyz + vec3<f32>(day) * banded);
 
   // Shore foam: bright lip where the water is very shallow (crisp, opaque).
@@ -152,9 +134,7 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
     color = mix(color, vec3<f32>(0.90, 0.95, 0.97), f * f * 0.7);
   }
 
-  // Opaque pixel-art posterize (same dither) — no transparency, crisp waterline.
-  let LV = 16.0;
-  let outc = floor(color * LV + 0.5 + dith) / LV;
-  return vec4<f32>(clamp(outc, vec3<f32>(0.0), vec3<f32>(1.0)), 1.0);
+  // Opaque — no transparency, crisp waterline (the pixel-art way).
+  return vec4<f32>(clamp(color, vec3<f32>(0.0), vec3<f32>(1.0)), 1.0);
 }
 `;

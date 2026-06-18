@@ -100,9 +100,11 @@ export function buildGpuRenderFrame(scene: GpuScene, gpuCanvas: HTMLCanvasElemen
     // backing-store size so the overlay and transform land on device pixels.
     const dpr = canvasWidth > 0 ? target.width / canvasWidth : 1;
 
-    // P-E adaptive resolution: measure the real frame interval (wall-clock,
-    // never the sim clock) and let the controller pick the art-pixel size — 1:1
-    // until fps sags below ~30, then 2. A `?px=N` override pins it instead.
+    // Target is TRUE 1:1 (one art texel per CSS px). The adaptive controller holds
+    // that 1:1 steady-state and only TEMPORARILY drops the raster resolution to
+    // keep pan/zoom responsive on a slow machine, refining back to 1:1 once the
+    // frame budget recovers — it's a responsiveness fallback, not a quality knob.
+    // `?px=N` pins a fixed size for A/B + the deterministic profiler.
     const nowMs = typeof performance !== 'undefined' ? performance.now() : 0;
     const frameDt = lastFrameStart > 0 ? nowMs - lastFrameStart : 16.7;
     lastFrameStart = nowMs;
