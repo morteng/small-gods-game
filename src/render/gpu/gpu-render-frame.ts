@@ -64,6 +64,7 @@ export function buildGpuRenderFrame(scene: GpuScene, gpuCanvas: HTMLCanvasElemen
   const fixedPx = artPixelOverride();
   const adaptive = new AdaptiveResolution();
   let lastFrameStart = 0;
+  let fpsEma = 0;
   const ui = getUiRuntime();
   // Cosmetic flow-advected particles (S6) — created on first frame from the map
   // seed, stepped by wall-clock delta (pure render, never the sim clock).
@@ -164,5 +165,32 @@ export function buildGpuRenderFrame(scene: GpuScene, gpuCanvas: HTMLCanvasElemen
 
     drawIsoOverlays(ctx, rc);
     if (showConnectome) drawWorldConnectome(ctx, rc);
+
+    // FPS + art-pixel-scale readout (top-right), smoothed so it doesn't jitter.
+    const fps = 1000 / Math.max(1, frameDt);
+    fpsEma = fpsEma > 0 ? fpsEma * 0.9 + fps * 0.1 : fps;
+    drawPerfHud(ctx, canvasWidth, fpsEma, px, fixedPx !== null);
   };
+}
+
+/** Tiny top-right pill: "60 fps · px 1" (adaptive) or "· px 2 (fixed)". */
+function drawPerfHud(
+  ctx: CanvasRenderingContext2D, cssW: number, fps: number, px: number, fixed: boolean,
+): void {
+  const label = `${Math.round(fps)} fps · px ${px}${fixed ? ' (fixed)' : ''}`;
+  ctx.save();
+  ctx.font = '600 11px ui-monospace, Menlo, monospace';
+  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'left';
+  const padX = 6;
+  const w = ctx.measureText(label).width + padX * 2;
+  const h = 18;
+  const x = cssW - w - 8;
+  const y = 8;
+  ctx.fillStyle = 'rgba(10,12,20,0.62)';
+  ctx.fillRect(x, y, w, h);
+  // colour the rate: green ≥50, amber ≥30, red below.
+  ctx.fillStyle = fps >= 50 ? '#7ee787' : fps >= 30 ? '#e3b341' : '#f85149';
+  ctx.fillText(label, x + padX, y + h / 2 + 0.5);
+  ctx.restore();
 }
