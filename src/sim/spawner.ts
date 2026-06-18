@@ -2,6 +2,7 @@ import type { BuildingInstance, NpcRole, WorldSeed, GameMap, Entity } from '@/co
 import type { World } from '@/world/world';
 import type { EventLog } from '@/core/events';
 import { initNpcProps, forEachNpc } from '@/world/npc-helpers';
+import { snapToLand } from '@/world/land-snap';
 import { getBuildingTemplate } from '@/map/building-templates';
 import { seedSocialGraph } from '@/sim/social-graph';
 import { TICKS_PER_YEAR } from '@/sim/mortality';
@@ -66,6 +67,9 @@ export function spawnAllPoiNpcs(args: {
         tileX = Math.max(0, Math.min(map.width - 1, px + (seed % 3) - 1));
         tileY = Math.max(0, Math.min(map.height - 1, py + ((seed >> 2) % 3) - 1));
       }
+      // Never strand an NPC in the ocean: a coastal POI's door/jitter can land on
+      // water, so snap to the nearest land tile.
+      ({ x: tileX, y: tileY } = snapToLand(map, tileX, tileY));
 
       const props = initNpcProps(name, role, seed);
       props.homeBuildingId = home?.id;

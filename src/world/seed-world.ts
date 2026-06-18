@@ -7,6 +7,7 @@ import type { Rng } from '@/core/rng';
 import { World } from '@/world/world';
 import { PerceptionSystem } from '@/world/perception-system';
 import { initNpcProps, forEachNpc } from '@/world/npc-helpers';
+import { snapToLand } from '@/world/land-snap';
 import { seedSocialGraph } from '@/sim/social-graph';
 import { TICKS_PER_YEAR } from '@/sim/mortality';
 import { placeWallConnections } from '@/world/wall-connections';
@@ -57,8 +58,11 @@ export function seedWorld(args: SeedWorldArgs): void {
   const mapH = map.height;
 
   BAND.forEach((member, i) => {
-    const x = Math.max(0, Math.min(mapW - 1, ox + member.dx));
-    const y = Math.max(0, Math.min(mapH - 1, oy + member.dy));
+    const cx = Math.max(0, Math.min(mapW - 1, ox + member.dx));
+    const cy = Math.max(0, Math.min(mapH - 1, oy + member.dy));
+    // Snap each founder onto land — a coastal seed POI can push band members
+    // (offsets up to ±2) into the sea otherwise.
+    const { x, y } = snapToLand(map, cx, cy);
     const id = `${seedPoi.id}-npc-${i}`;
     const memberSeed = hashId(id);
     const p = initNpcProps(member.name, member.role, memberSeed);
