@@ -748,7 +748,10 @@ export class Game {
     this.artResolver = new ArtResolver(this.assetLibrary, 'pixel-art');
     this.buildingArtResolver = new ArtResolver(this.assetLibrary, 'pixel-art', 'building', ART_RECIPE_VERSION);
     bootMark('art-library');
-    loading.setProgress(0.55, 'Generating the world…');
+    loading.setProgress(0.5, 'Growing the forest…');
+    await this.parametricPlantSource.prewarmAll(); // species sprites ready before frame 1 — no placeholder flash
+    bootMark('flora-prewarm');
+    loading.setProgress(0.6, 'Generating the world…');
     const map = await bootstrapWorld({
       state: this.state, assets: this.assets, sheets: this.sheets,
       decorationImages: this.decorationImages, getViewport: () => this.viewport(),

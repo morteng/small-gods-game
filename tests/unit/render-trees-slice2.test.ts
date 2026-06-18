@@ -3,7 +3,7 @@
 // through the generative pipeline (not the flat billboard) when warm.
 import { describe, it, expect, beforeAll } from 'vitest';
 import { ensureBuildingTypesRegistered } from '@/blueprint/register-buildings';
-import { synthesizeBlueprint, isPlantPreset, getBlueprintPreset } from '@/blueprint/presets';
+import { synthesizeBlueprint, isPlantPreset, getBlueprintPreset, plantPresetNames } from '@/blueprint/presets';
 import { blueprintEntity } from '@/blueprint/entity';
 import { toGeometry } from '@/blueprint/compile/to-geometry';
 import { plantSpriteItemFromPack } from '@/render/iso/iso-sprites';
@@ -92,6 +92,20 @@ describe('ParametricPlantSource (species-keyed)', () => {
     await new Promise(r => setTimeout(r, 0));
     expect(src.peek('cottage')).toBeNull();
     expect(composes).toBe(0);
+  });
+
+  it('prewarmAll resolves only once every species pack is cached (no placeholder flash)', async () => {
+    const species = plantPresetNames();
+    expect(species.length).toBeGreaterThan(0);
+    let composes = 0;
+    const src = new ParametricPlantSource({
+      compose: async () => { composes++; await new Promise(r => setTimeout(r, 0)); return {} as never; },
+      toSprite: () => fakePack(),
+    });
+    await src.prewarmAll();
+    // Every species peeks hot the instant prewarm resolves — frame 1 never falls back.
+    for (const k of species) expect(src.peek(k)).not.toBeNull();
+    expect(composes).toBe(species.length);
   });
 });
 

@@ -7,7 +7,7 @@
 // path. Any failure / non-plant kind caches null → caller falls back to the
 // flat billboard. Never throws on the frame path.
 import type { ResolvedBlueprint } from '@/blueprint/types';
-import { synthesizeBlueprint, isPlantPreset } from '@/blueprint/presets';
+import { synthesizeBlueprint, isPlantPreset, plantPresetNames } from '@/blueprint/presets';
 import { toGeometry } from '@/blueprint/compile/to-geometry';
 import { type SpritePack } from '@/render/iso/sprite-canvas';
 import { composeStructure, type StructureSpec, type StructureResult } from '@/assetgen/compose';
@@ -25,7 +25,7 @@ export interface ParametricPlantDeps {
 export class ParametricPlantSource {
   private readonly cache = new Map<string, SpritePack | null>();
   private readonly stages = new Map<string, StructureResult>();
-  private readonly inflight = new Set<string>();
+  private readonly inflight = new Map<string, Promise<void>>();
   private readonly warned = new Set<string>();
   private readonly toSpec: NonNullable<ParametricPlantDeps['toSpec']>;
   private readonly compose: NonNullable<ParametricPlantDeps['compose']>;
@@ -49,29 +49,41 @@ export class ParametricPlantSource {
     return this.stages.get(kind) ?? null;
   }
 
-  /** Fire-and-forget generation for a species kind. Safe every frame; runs once per kind. */
-  warm(kind: string): void {
-    if (this.cache.has(kind) || this.inflight.has(kind)) return;
-    if (!isPlantPreset(kind)) { this.cache.set(kind, null); return; }
+  /** Fire-and-forget generation for a species kind. Safe every frame; runs once per
+   *  kind. Returns a promise that resolves when the pack is cached (or fails to) so
+   *  `prewarmAll` can block the loading screen until every species is ready. */
+  warm(kind: string): Promise<void> {
+    if (this.cache.has(kind)) return Promise.resolve();
+    const pending = this.inflight.get(kind);
+    if (pending) return pending;
+    if (!isPlantPreset(kind)) { this.cache.set(kind, null); return Promise.resolve(); }
     const rb = synthesizeBlueprint(kind);
-    if (!rb) { this.cache.set(kind, null); return; }
+    if (!rb) { this.cache.set(kind, null); return Promise.resolve(); }
     let spec: StructureSpec | null;
     try {
       spec = this.toSpec(rb);
     } catch (err) {
       if (!this.warned.has(kind)) { console.warn('[parametric-plant] spec failed', err); this.warned.add(kind); }
       this.cache.set(kind, null);
-      return;
+      return Promise.resolve();
     }
-    if (!spec) { this.cache.set(kind, null); return; }
-    this.inflight.add(kind);
-    this.compose(spec)
+    if (!spec) { this.cache.set(kind, null); return Promise.resolve(); }
+    const p = this.compose(spec)
       .then((r) => { if (this.keepStages) this.stages.set(kind, r); this.cache.set(kind, this.toSprite(r)); })
       .catch((err) => {
         if (!this.warned.has(kind)) { console.warn('[parametric-plant] generation failed', err); this.warned.add(kind); }
         this.cache.set(kind, null);
       })
       .finally(() => { this.inflight.delete(kind); });
+    this.inflight.set(kind, p);
+    return p;
+  }
+
+  /** Warm every plant species up front (handful of `composeStructure` calls). Awaited
+   *  at the loading screen so in-game trees render their real sprite from frame one —
+   *  no placeholder→billboard→sprite flash. */
+  prewarmAll(): Promise<void> {
+    return Promise.all(plantPresetNames().map((k) => this.warm(k))).then(() => undefined);
   }
 
   /** Clear on world reset. */

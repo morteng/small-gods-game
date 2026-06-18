@@ -343,6 +343,12 @@ export function getBlueprintPreset(name: string): Blueprint | undefined { return
  *  to route a vegetation entity to the generative species-keyed sprite vs the billboard. */
 export function isPlantPreset(name: string): boolean { return BUILDING_BLUEPRINTS[name]?.class === 'plant'; }
 
+/** Every plant/species preset name. The renderer pre-warms all of these at load
+ *  (only a handful of species) so trees never flash a placeholder mid-game. */
+export function plantPresetNames(): string[] {
+  return Object.keys(BUILDING_BLUEPRINTS).filter((n) => BUILDING_BLUEPRINTS[n].class === 'plant');
+}
+
 /** Resolve `name` (+ optional override patches) into a ResolvedBlueprint. Seed from name.
  *  Buildings derive their hearth→smoke vent from the latent connectome (so the runtime
  *  placement path — building-placer → synthesizeBlueprint — gets the same period-correct
