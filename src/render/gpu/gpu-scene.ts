@@ -31,7 +31,7 @@ import { SHAPE_WGSL } from '@/render/gpu/wgsl/shape-wgsl';
 import { BLIT_WGSL } from '@/render/gpu/wgsl/blit-wgsl';
 import {
   buildShadowBatches, packShadowInstances, SHADOW_ALPHA,
-  SHADOW_INSTANCE_STRIDE,
+  SHADOW_INSTANCE_STRIDE, type ShadowBatch,
 } from '@/render/gpu/shadow-instance';
 import { buildShapeVertices, SHAPE_VERTEX_STRIDE } from '@/render/gpu/shape-geometry';
 import { liftDrawList } from '@/render/gpu/terrain-lift';
@@ -42,6 +42,25 @@ import { UiPass } from '@/render/ui/ui-pass';
 import type { UiDrawGroup } from '@/render/ui/ui-batcher';
 
 const DEPTH_FORMAT: GPUTextureFormat = 'depth24plus';
+
+/** Shared per-frame render state threaded through the per-pass helpers (so they
+ *  don't each take a dozen params). `colorCleared` is mutated as passes draw — the
+ *  FIRST colour pass clears the target, the rest load. `out` set ⇒ the scene
+ *  passes target the low-res offscreen and a blit upscales to `swapView`. */
+interface PassCtx {
+  enc: GPUCommandEncoder;
+  /** Where the scene passes draw (offscreen low-res when `out` set, else swapchain). */
+  colorView: GPUTextureView;
+  /** The swapchain view (blit + UI target when `out` set). */
+  swapView: GPUTextureView;
+  depthView: GPUTextureView;
+  /** Scene (low-res) size in px. */
+  w: number; h: number;
+  /** Swapchain size when rendering through the offscreen target; absent ⇒ direct. */
+  out?: { w: number; h: number };
+  ocean: GPUColor;
+  colorCleared: boolean;
+}
 
 export class GpuScene {
   private device: GPUDevice;
@@ -736,117 +755,129 @@ export class GpuScene {
       }
     }
 
-    const enc = device.createCommandEncoder();
     // P-E: the scene passes target the low-res offscreen when `out` is set, then
     // a blit upscales it to the swapchain; otherwise they draw straight to it.
+    // "Ocean forever": clear to deep-ocean blue (matched to the RENDERED deep
+    // tone, rgb 15,68,111) so anything beyond the map grid reads as open sea, not
+    // a black void — the island rim blends in with no "underwater border" seam.
     const swapView = this.ctx.getCurrentTexture().createView();
-    const colorView = out ? this.ensureSceneTarget(w, h) : swapView;
-    const depthView = this.ensureDepth(w, h);
+    const ctx: PassCtx = {
+      enc: device.createCommandEncoder(),
+      colorView: out ? this.ensureSceneTarget(w, h) : swapView,
+      swapView,
+      depthView: this.ensureDepth(w, h),
+      w, h, out,
+      ocean: { r: 15 / 255, g: 68 / 255, b: 111 / 255, a: 1 },
+      colorCleared: false,
+    };
 
-    // "Ocean forever": clear the scene to deep-ocean blue so anything beyond the
-    // map grid reads as open sea, not void — the island never sits on a black
-    // edge. Matched to the RENDERED deep-ocean tone (sampled = rgb 15,68,111) so
-    // the map rim blends into the background with no visible "underwater border"
-    // seam; the camera clamp keeps that rim near the screen edge anyway.
-    const OCEAN_CLEAR = { r: 15 / 255, g: 68 / 255, b: 111 / 255, a: 1 };
+    // Ordered passes — each helper reads/sets `ctx.colorCleared` so the first
+    // colour pass clears and the rest load. terrain → shadows → water (all under
+    // the entities) → entities+shapes → blit (upscale) → UI (crisp, on top).
+    if (hasTerrain) this.passTerrain(ctx, terrain!);
+    if (hasShadows) this.passShadows(ctx, !!staticItems, dynShadowBatches);
+    if (hasWater) this.passWater(ctx, water!);
+    this.passEntities(ctx, P.entities, dynBatches, combined, xform);
+    if (out) this.passBlit(ctx, out, pixelOffset);
+    if (P.ui && uiGroups && uiGroups.length > 0) this.passUi(ctx, uiGroups);
 
-    // Pass 1 — terrain (own depth: spatial iso depth, greater, write).
-    if (hasTerrain) {
-      const tpass = enc.beginRenderPass({
-        colorAttachments: [{ view: colorView, clearValue: OCEAN_CLEAR, loadOp: 'clear', storeOp: 'store' }],
-        depthStencilAttachment: { view: depthView, depthClearValue: 0.0, depthLoadOp: 'clear', depthStoreOp: 'store' },
-      });
-      tpass.setPipeline(this.terrainPipeline);
-      tpass.setBindGroup(0, this.terrainBind!);
-      tpass.draw(terrain!.vertexCount);
-      tpass.end();
-    }
-    // `colorCleared` tracks whether any prior pass has written the colour
-    // target, so the FIRST colour pass clears and the rest load.
-    let colorCleared = hasTerrain;
+    device.queue.submit([ctx.enc.finish()]);
+  }
 
-    // Pass 1.5 — cast shadows (stencil-union): each silhouette draws premult
-    // black at SHADOW_ALPHA straight onto the scene colour target; the stencil
-    // (cleared to 0 here, test `equal 0` + increment) makes each pixel darken at
-    // most once so overlaps union instead of double-darkening — touching only
-    // shadow pixels, never the full screen (the old fullscreen composite is gone).
-    // Drawn between terrain and entities → shadows sit on the ground, under the
-    // sprites that cast them.
-    if (hasShadows) {
-      const stencilView = this.ensureStencil(w, h);
-      const apass = enc.beginRenderPass({
-        colorAttachments: [{
-          view: colorView, clearValue: OCEAN_CLEAR,
-          loadOp: colorCleared ? 'load' : 'clear', storeOp: 'store',
-        }],
-        depthStencilAttachment: {
-          view: stencilView, stencilClearValue: 0, stencilLoadOp: 'clear', stencilStoreOp: 'discard',
-        },
-      });
-      apass.setPipeline(this.shadowPipeline);
-      apass.setStencilReference(0);
-      apass.setVertexBuffer(0, this.quadBuf);
-      apass.setBindGroup(0, this.shadowGlobalsBind);
-      // Static shadows: persistent buffers packed once (L2), drawn first into the
-      // shared stencil so the dynamic layer still unions correctly over them.
-      if (staticItems) {
-        for (const b of this.staticShadowBundle) {
-          apass.setBindGroup(1, this.shadowBind(b.texture));
-          apass.setVertexBuffer(1, b.buf);
-          apass.draw(QUAD_VERTEX_COUNT, b.count);
-        }
+  /** Pass 1 — terrain (own depth: spatial iso depth, greater, write). */
+  private passTerrain(ctx: PassCtx, terrain: TerrainField): void {
+    const tpass = ctx.enc.beginRenderPass({
+      colorAttachments: [{ view: ctx.colorView, clearValue: ctx.ocean, loadOp: 'clear', storeOp: 'store' }],
+      depthStencilAttachment: { view: ctx.depthView, depthClearValue: 0.0, depthLoadOp: 'clear', depthStoreOp: 'store' },
+    });
+    tpass.setPipeline(this.terrainPipeline);
+    tpass.setBindGroup(0, this.terrainBind!);
+    tpass.draw(terrain.vertexCount);
+    tpass.end();
+    ctx.colorCleared = true;
+  }
+
+  /**
+   * Pass 1.5 — cast shadows (stencil-union): each silhouette draws premult black
+   * at SHADOW_ALPHA straight onto the scene colour; the stencil (cleared to 0,
+   * test `equal 0` + increment) makes each pixel darken at most once so overlaps
+   * union instead of double-darkening — touching only shadow pixels, never the
+   * full screen. Between terrain and entities → shadows sit on the ground.
+   */
+  private passShadows(ctx: PassCtx, hasStatic: boolean, dynShadowBatches: readonly ShadowBatch[]): void {
+    const apass = ctx.enc.beginRenderPass({
+      colorAttachments: [{ view: ctx.colorView, clearValue: ctx.ocean, loadOp: ctx.colorCleared ? 'load' : 'clear', storeOp: 'store' }],
+      depthStencilAttachment: {
+        view: this.ensureStencil(ctx.w, ctx.h), stencilClearValue: 0, stencilLoadOp: 'clear', stencilStoreOp: 'discard',
+      },
+    });
+    apass.setPipeline(this.shadowPipeline);
+    apass.setStencilReference(0);
+    apass.setVertexBuffer(0, this.quadBuf);
+    apass.setBindGroup(0, this.shadowGlobalsBind);
+    // Static shadows: persistent buffers packed once (L2), drawn first into the
+    // shared stencil so the dynamic layer still unions correctly over them.
+    if (hasStatic) {
+      for (const b of this.staticShadowBundle) {
+        apass.setBindGroup(1, this.shadowBind(b.texture));
+        apass.setVertexBuffer(1, b.buf);
+        apass.draw(QUAD_VERTEX_COUNT, b.count);
       }
-      // Dynamic shadows: packed per frame into the shared grow-on-demand buffer.
-      const dynShadowInst = dynShadowBatches.reduce((s, b) => s + b.instances.length, 0);
-      if (dynShadowInst > 0) {
-        const shadowBuf = this.dynBuf('shadow', dynShadowInst * SHADOW_INSTANCE_STRIDE);
-        let soff = 0;
-        for (const b of dynShadowBatches) {
-          const data = packShadowInstances(b.instances);
-          device.queue.writeBuffer(shadowBuf, soff, data as GPUAllowSharedBufferSource);
-          apass.setBindGroup(1, this.shadowBind(b.texture));
-          apass.setVertexBuffer(1, shadowBuf, soff);
-          apass.draw(QUAD_VERTEX_COUNT, b.instances.length);
-          soff += data.byteLength;
-        }
+    }
+    // Dynamic shadows: packed per frame into the shared grow-on-demand buffer.
+    const dynShadowInst = dynShadowBatches.reduce((s, b) => s + b.instances.length, 0);
+    if (dynShadowInst > 0) {
+      const shadowBuf = this.dynBuf('shadow', dynShadowInst * SHADOW_INSTANCE_STRIDE);
+      let soff = 0;
+      for (const b of dynShadowBatches) {
+        const data = packShadowInstances(b.instances);
+        this.device.queue.writeBuffer(shadowBuf, soff, data as GPUAllowSharedBufferSource);
+        apass.setBindGroup(1, this.shadowBind(b.texture));
+        apass.setVertexBuffer(1, shadowBuf, soff);
+        apass.draw(QUAD_VERTEX_COUNT, b.instances.length);
+        soff += data.byteLength;
       }
-      apass.end();
-      colorCleared = true;
     }
+    apass.end();
+    ctx.colorCleared = true;
+  }
 
-    // Pass 1.75 — water (blended over terrain, BEFORE entities so boats/NPCs at
-    // the shore draw on top). Loads the terrain depth (greater-equal, no write):
-    // nearer terrain occludes water, but water never disturbs the depth the entity
-    // pass resets. One draw for the whole grid; the fragment discards dry cells.
-    if (hasWater) {
-      const wpass = enc.beginRenderPass({
-        colorAttachments: [{
-          view: colorView, clearValue: OCEAN_CLEAR,
-          loadOp: colorCleared ? 'load' : 'clear', storeOp: 'store',
-        }],
-        depthStencilAttachment: { view: depthView, depthLoadOp: 'load', depthStoreOp: 'store' },
-      });
-      wpass.setPipeline(this.waterPipeline);
-      wpass.setBindGroup(0, this.waterBind!);
-      wpass.draw(water!.vertexCount);
-      wpass.end();
-      colorCleared = true;
-    }
+  /**
+   * Pass 1.75 — water (over terrain, BEFORE entities so boats/NPCs at the shore
+   * draw on top). Loads the terrain depth (greater-equal, no write): nearer
+   * terrain occludes water, but water never disturbs the depth the entity pass
+   * resets. One draw for the whole grid; the fragment discards dry cells.
+   */
+  private passWater(ctx: PassCtx, water: WaterField): void {
+    const wpass = ctx.enc.beginRenderPass({
+      colorAttachments: [{ view: ctx.colorView, clearValue: ctx.ocean, loadOp: ctx.colorCleared ? 'load' : 'clear', storeOp: 'store' }],
+      depthStencilAttachment: { view: ctx.depthView, depthLoadOp: 'load', depthStoreOp: 'store' },
+    });
+    wpass.setPipeline(this.waterPipeline);
+    wpass.setBindGroup(0, this.waterBind!);
+    wpass.draw(water.vertexCount);
+    wpass.end();
+    ctx.colorCleared = true;
+  }
 
-    // Pass 2 — entities (colour preserved if terrain/shadows drew; depth RESET so
-    // the entity index-depth scheme is self-contained and always wins over terrain).
-    const epass = enc.beginRenderPass({
-      colorAttachments: [{
-        view: colorView,
-        clearValue: OCEAN_CLEAR,
-        loadOp: colorCleared ? 'load' : 'clear', storeOp: 'store',
-      }],
-      depthStencilAttachment: { view: depthView, depthClearValue: 0.0, depthLoadOp: 'clear', depthStoreOp: 'store' },
+  /**
+   * Pass 2 — entities + solid-colour shapes (colour preserved if terrain/shadows
+   * drew; depth RESET so the entity index-depth scheme is self-contained and
+   * always wins over terrain). Shapes share the pass + depth so they interleave
+   * with sprites by list-order depth.
+   */
+  private passEntities(
+    ctx: PassCtx, entitiesOn: boolean,
+    dynBatches: readonly InstanceBatch[], combined: readonly DrawItem[], xform?: ViewTransform,
+  ): void {
+    const epass = ctx.enc.beginRenderPass({
+      colorAttachments: [{ view: ctx.colorView, clearValue: ctx.ocean, loadOp: ctx.colorCleared ? 'load' : 'clear', storeOp: 'store' }],
+      depthStencilAttachment: { view: ctx.depthView, depthClearValue: 0.0, depthLoadOp: 'clear', depthStoreOp: 'store' },
     });
     epass.setPipeline(this.pipeline);
     epass.setVertexBuffer(0, this.quadBuf);
     epass.setBindGroup(0, this.globalsBind);
-    if (P.entities) {
+    if (entitiesOn) {
       // Static bundle — persistent per-batch buffers, packed once (world px).
       for (const e of this.staticBundle) {
         epass.setBindGroup(1, this.batchBind(e.batch));
@@ -861,7 +892,7 @@ export class GpuScene {
         for (const b of dynBatches) {
           if (b.instances.length === 0) continue;
           const data = packInstances(b.instances);
-          device.queue.writeBuffer(entBuf, eoff, data as GPUAllowSharedBufferSource);
+          this.device.queue.writeBuffer(entBuf, eoff, data as GPUAllowSharedBufferSource);
           epass.setBindGroup(1, this.batchBind(b));
           epass.setVertexBuffer(1, entBuf, eoff);
           epass.draw(QUAD_VERTEX_COUNT, b.instances.length);
@@ -869,56 +900,53 @@ export class GpuScene {
         }
       }
     }
-
-    // Solid-colour shapes (poly/circle) — same pass + depth buffer, so they
-    // interleave with sprites by their list-order depth.
-    const shapes = P.entities ? buildShapeVertices(combined, xform) : { vertices: new Float32Array(0), vertexCount: 0 };
+    const shapes = entitiesOn ? buildShapeVertices(combined, xform) : { vertices: new Float32Array(0), vertexCount: 0 };
     if (shapes.vertexCount > 0) {
-      device.queue.writeBuffer(this.shapeGlobalsBuf, 0, new Float32Array([w, h, 0, 0]));
+      this.device.queue.writeBuffer(this.shapeGlobalsBuf, 0, new Float32Array([ctx.w, ctx.h, 0, 0]));
       const sBuf = this.dynBuf('shape', shapes.vertices.byteLength);
-      device.queue.writeBuffer(sBuf, 0, shapes.vertices as GPUAllowSharedBufferSource);
+      this.device.queue.writeBuffer(sBuf, 0, shapes.vertices as GPUAllowSharedBufferSource);
       epass.setPipeline(this.shapePipeline);
       epass.setBindGroup(0, this.shapeGlobalsBind);
       epass.setVertexBuffer(0, sBuf);
       epass.draw(shapes.vertexCount);
     }
     epass.end();
+    ctx.colorCleared = true;
+  }
 
-    // Pass 2.5 — blit (P-E): nearest-upscale the low-res scene target onto the
-    // swapchain. Only when rendering through the offscreen target (`out` set).
-    if (out) {
-      const ox = pixelOffset ? pixelOffset[0] : 0;
-      const oy = pixelOffset ? pixelOffset[1] : 0;
-      device.queue.writeBuffer(this.blitGlobalsBuf, 0,
-        new Float32Array([1 / out.w, 1 / out.h, ox, oy]));
-      const bpass = enc.beginRenderPass({
-        colorAttachments: [{ view: swapView, clearValue: OCEAN_CLEAR, loadOp: 'clear', storeOp: 'store' }],
-      });
-      bpass.setPipeline(this.blitPipeline);
-      bpass.setBindGroup(0, this.blitBind!);
-      bpass.draw(3);
-      bpass.end();
-    }
+  /** Pass 2.5 — blit (P-E): nearest-upscale the low-res scene target onto the
+   *  swapchain. Only runs when rendering through the offscreen target. */
+  private passBlit(ctx: PassCtx, out: { w: number; h: number }, pixelOffset?: readonly [number, number]): void {
+    const ox = pixelOffset ? pixelOffset[0] : 0;
+    const oy = pixelOffset ? pixelOffset[1] : 0;
+    this.device.queue.writeBuffer(this.blitGlobalsBuf, 0, new Float32Array([1 / out.w, 1 / out.h, ox, oy]));
+    const bpass = ctx.enc.beginRenderPass({
+      colorAttachments: [{ view: ctx.swapView, clearValue: ctx.ocean, loadOp: 'clear', storeOp: 'store' }],
+    });
+    bpass.setPipeline(this.blitPipeline);
+    bpass.setBindGroup(0, this.blitBind!);
+    bpass.draw(3);
+    bpass.end();
+  }
 
-    // Pass 3 — UI (screen-space HUD): painter-order over the scene colour, no
-    // depth. Its own pass so it never participates in the entity depth test. When
-    // P-E is active the UI draws CRISP at full device res on the swapchain, over
-    // the upscaled scene; otherwise it shares the scene target at `w×h`.
-    if (P.ui && uiGroups && uiGroups.length > 0) {
-      const uiView = out ? swapView : colorView;
-      const uiW = out ? out.w : w;
-      const uiH = out ? out.h : h;
-      // The swapchain already holds the blit (out) or the scene (legacy) here, so
-      // always load — clearing would erase what we just drew.
-      const uiLoad: GPULoadOp = (out || colorCleared) ? 'load' : 'clear';
-      const upass = enc.beginRenderPass({
-        colorAttachments: [{ view: uiView, clearValue: OCEAN_CLEAR, loadOp: uiLoad, storeOp: 'store' }],
-      });
-      this.uiPass.record(upass, uiGroups, uiW, uiH);
-      upass.end();
-    }
-
-    device.queue.submit([enc.finish()]);
+  /**
+   * Pass 3 — UI (screen-space HUD): painter-order over the scene colour, no
+   * depth, so it never participates in the entity depth test. With P-E active the
+   * UI draws CRISP at full device res on the swapchain over the upscaled scene;
+   * otherwise it shares the scene target at `w×h`.
+   */
+  private passUi(ctx: PassCtx, uiGroups: readonly UiDrawGroup[]): void {
+    const uiView = ctx.out ? ctx.swapView : ctx.colorView;
+    const uiW = ctx.out ? ctx.out.w : ctx.w;
+    const uiH = ctx.out ? ctx.out.h : ctx.h;
+    // The swapchain already holds the blit (out) or the scene (legacy), so load —
+    // clearing would erase what we just drew.
+    const uiLoad: GPULoadOp = (ctx.out || ctx.colorCleared) ? 'load' : 'clear';
+    const upass = ctx.enc.beginRenderPass({
+      colorAttachments: [{ view: uiView, clearValue: ctx.ocean, loadOp: uiLoad, storeOp: 'store' }],
+    });
+    this.uiPass.record(upass, uiGroups, uiW, uiH);
+    upass.end();
   }
 
   /**
