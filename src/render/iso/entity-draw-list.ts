@@ -49,12 +49,21 @@ export function isoStageTransform(camera: { x: number; y: number; zoom: number }
  * context). Art resolvers on `rc` are peek/warm — a miss warms the cache and
  * falls through, never blocking the frame.
  */
-export function buildEntityDrawList(rc: RenderContext, bounds: TileBounds, ic: IsoItemCtx): DrawItem[] {
+export function buildEntityDrawList(
+  rc: RenderContext, bounds: TileBounds, ic: IsoItemCtx,
+  opts: { only?: 'static' | 'npcs' } = {},
+): DrawItem[] {
+  // `only` partitions the list so the renderer can CACHE the camera-independent
+  // static layer (flora/buildings/deco/roads) and re-emit just the moving NPC
+  // layer each frame — the static set never changes when an NPC walks, so its
+  // expensive build (the ~293ms over ~10k flora) is paid once, not per frame.
+  const wantNpcs = opts.only !== 'static';
+  const wantStatic = opts.only !== 'npcs';
   const entries: YSortEntry[] = [];
-  const hideBuildings = isLayerHidden('buildings', rc.devMode);
-  const hideVegetation = isLayerHidden('vegetation', rc.devMode);
-  const hideBarriers = isLayerHidden('buildings', rc.devMode);
-  const hideNpcs = isLayerHidden('npcs', rc.devMode);
+  const hideBuildings = isLayerHidden('buildings', rc.devMode) || !wantStatic;
+  const hideVegetation = isLayerHidden('vegetation', rc.devMode) || !wantStatic;
+  const hideBarriers = isLayerHidden('buildings', rc.devMode) || !wantStatic;
+  const hideNpcs = isLayerHidden('npcs', rc.devMode) || !wantNpcs;
 
   // Source the drawable stream from the RenderGraph seam (Slice R0b): a
   // WorldRenderGraph projects today's World into category-tagged nodes — the
@@ -77,7 +86,7 @@ export function buildEntityDrawList(rc: RenderContext, bounds: TileBounds, ic: I
   if (!hideVegetation) want.add('vegetation');
   if (!hideBarriers) want.add('barrier');
   if (!hideNpcs) want.add('npc');
-  want.add('decoration'); // decorations have no hide toggle today
+  if (wantStatic) want.add('decoration'); // decorations have no hide toggle today
 
   const region = {
     x: bounds.minTx, y: bounds.minTy,
@@ -211,7 +220,8 @@ export function buildEntityDrawList(rc: RenderContext, bounds: TileBounds, ic: I
   // Road ribbons ride the ground UNDER every entity: prepended → lowest list
   // depth, and emitted as polys so the terrain lift raises each quad onto the
   // heightfield (the grade-cut corridor it sits in). Hidden with the terrain.
-  const roadItems = isLayerHidden('terrain', rc.devMode)
+  // Static layer, so the npcs-only pass skips them.
+  const roadItems = (isLayerHidden('terrain', rc.devMode) || !wantStatic)
     ? []
     : buildRoadRibbonItems(rc.map.roadGraph, ic);
   return roadItems.length ? [...roadItems, ...items] : items;
