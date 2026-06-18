@@ -30,6 +30,7 @@ import { FlotsamSystem } from '@/water/water-flotsam';
 import { drawWorldConnectome } from '@/render/connectome-overlay';
 import type { GpuScene } from '@/render/gpu/gpu-scene';
 import { AdaptiveResolution } from '@/render/gpu/adaptive-resolution';
+import { computeView, installRenderProfiler, frameTrace, type LastFrame } from '@/render/gpu/render-profiler';
 import { getUiRuntime } from '@/render/ui/ui-runtime';
 
 const BG_COLOR = '#1a1a24';
@@ -53,6 +54,7 @@ function artPixelOverride(): number | null {
   return null;
 }
 
+
 /**
  * Build the `?render=gpu` frame closure over a ready GpuScene and its overlay
  * canvas. The overlay is resized to the main canvas's device backing size each
@@ -66,11 +68,19 @@ export function buildGpuRenderFrame(scene: GpuScene, gpuCanvas: HTMLCanvasElemen
   let lastFrameStart = 0;
   let fpsEma = 0;
   const ui = getUiRuntime();
+
+  // Deterministic profiler state: the most-recent frame's inputs (so the bench
+  // can rebuild fields per art-pixel size) + a guard that pauses the live loop
+  // while a profile runs, giving it exclusive GPU access for clean numbers.
+  let lastFrame: LastFrame | null = null;
+  let profiling = false;
+  installRenderProfiler(scene, () => lastFrame, (on) => { profiling = on; });
   // Cosmetic flow-advected particles (S6) — created on first frame from the map
   // seed, stepped by wall-clock delta (pure render, never the sim clock).
   let flotsam: FlotsamSystem | null = null;
   let lastFlotsamTime = 0;
   return function renderMap(ctx: CanvasRenderingContext2D, rc: RenderContext): void {
+    if (profiling) return; // a profile run owns the GPU; skip the live frame
     const { camera, canvasWidth, canvasHeight, map } = rc;
     const target = ctx.canvas;
     // The context carries an outer devicePixelRatio scale; recover it from the
@@ -89,7 +99,7 @@ export function buildGpuRenderFrame(scene: GpuScene, gpuCanvas: HTMLCanvasElemen
     ctx.fillStyle = BG_COLOR;
     ctx.fillRect(0, 0, canvasWidth, canvasHeight);
 
-    const z = camera.zoom;
+    const tPhase0 = performance.now();
     const bounds = visibleTileBounds(
       { originX: -camera.x, originY: -camera.y },
       canvasWidth / camera.zoom,
@@ -100,6 +110,7 @@ export function buildGpuRenderFrame(scene: GpuScene, gpuCanvas: HTMLCanvasElemen
     const items = buildEntityDrawList(rc, bounds, {
       atlas, originX: 0, originY: 0, npcSheets: rc.npcSheets, treeSheets: rc.treeSheets,
     });
+    const tDrawList = performance.now();
 
     // GPU terrain + entity passes → overlay canvas, composited identity (device→device).
     if (gpuCanvas.width !== target.width || gpuCanvas.height !== target.height) {
@@ -111,13 +122,7 @@ export function buildGpuRenderFrame(scene: GpuScene, gpuCanvas: HTMLCanvasElemen
     // integer for crisp nearest upscaling), then blit up to the device. The
     // world→target transform is divided by `S`; offsets are snapped to the art
     // texel grid in low-res space so pixels stay stable under pan/zoom.
-    const S = Math.max(1, Math.round(px * dpr));
-    const lowW = Math.max(1, Math.ceil(target.width / S));
-    const lowH = Math.max(1, Math.ceil(target.height / S));
-    const sLow = (z * dpr) / S;
-    const offX = Math.round(-camera.x * z * dpr / S);
-    const offY = Math.round(-camera.y * z * dpr / S);
-    const xform = { sx: sLow, sy: sLow, ox: offX, oy: offY };
+    const { lowW, lowH, xform } = computeView(px, camera, dpr, target.width, target.height);
 
     // Buffer-driven terrain field (T1): the GPU generates + lifts the grid from
     // the height/colour storage buffers. Whole-map for now — chunk culling is T5.
@@ -127,6 +132,7 @@ export function buildGpuRenderFrame(scene: GpuScene, gpuCanvas: HTMLCanvasElemen
           viewport: [lowW, lowH],
           xform, lighting, devMode: rc.devMode,
         });
+    const tTerrain = performance.now();
 
     // Water surface (S2): null when the layer is hidden, there's no terrain to
     // read depth from, or the world is dry. Ripple time is pure render (never the
@@ -150,21 +156,39 @@ export function buildGpuRenderFrame(scene: GpuScene, gpuCanvas: HTMLCanvasElemen
     }
 
     const uiGroups = ui.frame(target.width, target.height, dpr);
+    const tFields = performance.now();
 
     scene.renderFrame({
       items: frameItems, lighting, terrain, water,
       w: lowW, h: lowH, out: { w: target.width, h: target.height },
       xform, uiGroups,
     });
+    const tRender = performance.now();
+
+    // Capture inputs for the deterministic profiler (rebuilds fields per px).
+    lastFrame = { rc, dpr, targetW: target.width, targetH: target.height, frameItems };
 
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.imageSmoothingEnabled = false;
     ctx.drawImage(gpuCanvas, 0, 0);
     ctx.restore();
+    const tComposite = performance.now();
 
     drawIsoOverlays(ctx, rc);
     if (showConnectome) drawWorldConnectome(ctx, rc);
+    const tOverlay = performance.now();
+
+    // Live-frame phase breakdown (free when the trace is off).
+    frameTrace.record({
+      drawList: tDrawList - tPhase0,
+      terrain: tTerrain - tDrawList,
+      water: tFields - tTerrain,
+      render: tRender - tFields,
+      composite: tComposite - tRender,
+      overlay: tOverlay - tComposite,
+      total: tOverlay - tPhase0,
+    });
 
     // FPS + art-pixel-scale readout (top-right), smoothed so it doesn't jitter.
     const fps = 1000 / Math.max(1, frameDt);

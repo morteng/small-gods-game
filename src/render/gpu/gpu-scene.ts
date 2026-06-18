@@ -599,9 +599,22 @@ export class GpuScene {
     out?: { w: number; h: number };
     /** P-E: snap-then-offset remainder in OUTPUT pixels (default 0). */
     pixelOffset?: readonly [number, number];
+    /** Profiler ablation: turn individual passes off to attribute GPU cost
+     *  (all on by default). */
+    passes?: {
+      terrain?: boolean; water?: boolean; shadows?: boolean;
+      entities?: boolean; ui?: boolean;
+    };
   }): void {
     const { device } = this;
     const { items: rawItems, lighting, w, h, xform, terrain, water, uiGroups, out, pixelOffset } = opts;
+    const P = {
+      terrain: opts.passes?.terrain ?? true,
+      water: opts.passes?.water ?? true,
+      shadows: opts.passes?.shadows ?? true,
+      entities: opts.passes?.entities ?? true,
+      ui: opts.passes?.ui ?? true,
+    };
     // Lift entities onto the GPU terrain surface (foot-z parity) before any
     // batching/shadow/shape work, so sprites, fallback shapes and cast shadows
     // all ride the heightfield together. No-op when there's no terrain.
@@ -610,7 +623,7 @@ export class GpuScene {
     if (xform) for (const b of batches) applyViewTransform(b, xform);
 
     // Cast-shadow parallelograms (world coords → device via the same xform).
-    const shadowBatches = lighting.enabled
+    const shadowBatches = (lighting.enabled && P.shadows)
       ? buildShadowBatches(items, lighting, xform).filter(b => b.instances.length > 0)
       : [];
     const hasShadows = shadowBatches.length > 0;
@@ -623,7 +636,7 @@ export class GpuScene {
       device.queue.writeBuffer(this.shadowGlobalsBuf, 0, new Float32Array([w, h, SHADOW_ALPHA, 0]));
     }
 
-    const hasTerrain = !!(terrain && terrain.vertexCount > 0 && terrain.heights.length > 0);
+    const hasTerrain = !!(terrain && terrain.vertexCount > 0 && terrain.heights.length > 0 && P.terrain);
     if (hasTerrain) {
       this.uploadFields(terrain!.heights, terrain!.colors, terrain!.moisture, terrain!.temperature);
       device.queue.writeBuffer(this.terrainGlobalsBuf, 0,
@@ -632,7 +645,7 @@ export class GpuScene {
 
     // Water needs the terrain height buffer (for depth), so it only runs when
     // terrain did. uploadWaterFields returns false if that buffer isn't ready.
-    let hasWater = !!(hasTerrain && water && water.wetCount > 0 && water.vertexCount > 0);
+    let hasWater = !!(hasTerrain && water && water.wetCount > 0 && water.vertexCount > 0 && P.water);
     if (hasWater) {
       hasWater = this.uploadWaterFields(water!);
       if (hasWater) {
@@ -739,7 +752,7 @@ export class GpuScene {
     epass.setVertexBuffer(0, this.quadBuf);
     epass.setBindGroup(0, this.globalsBind);
     const entInst = batches.reduce((s, b) => s + b.instances.length, 0);
-    if (entInst > 0) {
+    if (P.entities && entInst > 0) {
       const entBuf = this.dynBuf('entity', entInst * INSTANCE_STRIDE);
       let eoff = 0;
       for (const b of batches) {
@@ -755,7 +768,7 @@ export class GpuScene {
 
     // Solid-colour shapes (poly/circle) — same pass + depth buffer, so they
     // interleave with sprites by their list-order depth.
-    const shapes = buildShapeVertices(items, xform);
+    const shapes = P.entities ? buildShapeVertices(items, xform) : { vertices: new Float32Array(0), vertexCount: 0 };
     if (shapes.vertexCount > 0) {
       device.queue.writeBuffer(this.shapeGlobalsBuf, 0, new Float32Array([w, h, 0, 0]));
       const sBuf = this.dynBuf('shape', shapes.vertices.byteLength);
@@ -787,7 +800,7 @@ export class GpuScene {
     // depth. Its own pass so it never participates in the entity depth test. When
     // P-E is active the UI draws CRISP at full device res on the swapchain, over
     // the upscaled scene; otherwise it shares the scene target at `w×h`.
-    if (uiGroups && uiGroups.length > 0) {
+    if (P.ui && uiGroups && uiGroups.length > 0) {
       const uiView = out ? swapView : colorView;
       const uiW = out ? out.w : w;
       const uiH = out ? out.h : h;
@@ -802,6 +815,46 @@ export class GpuScene {
     }
 
     device.queue.submit([enc.finish()]);
+  }
+
+  /**
+   * Deterministic GPU bench. Renders each variant of a FIXED scene repeatedly
+   * and times it, separating CPU encode (renderFrame returns) from GPU execution
+   * (queue.onSubmittedWorkDone resolves). gen-8 iGPUs lack `timestamp-query`, so
+   * per-pass cost is attributed by ABLATION: pass `passes:{water:false}` etc. in
+   * a variant and diff against the all-on baseline. Awaiting GPU completion each
+   * frame serialises CPU/GPU (no pipelining) — fair + consistent for ranking.
+   *
+   * Caller supplies fully-formed renderFrame opts per variant (so a px sweep is
+   * just different w/h/out values). Returns averaged ms over `frames` after a
+   * `warmup`.
+   */
+  async profile(
+    variants: readonly { label: string; opts: Parameters<GpuScene['renderFrame']>[0] }[],
+    frames = 30,
+    warmup = 8,
+  ): Promise<{ label: string; cpuMs: number; gpuMs: number; totalMs: number; fps: number }[]> {
+    const results: { label: string; cpuMs: number; gpuMs: number; totalMs: number; fps: number }[] = [];
+    for (const v of variants) {
+      for (let i = 0; i < warmup; i++) this.renderFrame(v.opts);
+      await this.device.queue.onSubmittedWorkDone();
+      let cpu = 0, total = 0;
+      for (let i = 0; i < frames; i++) {
+        const t0 = performance.now();
+        this.renderFrame(v.opts);
+        const t1 = performance.now();
+        await this.device.queue.onSubmittedWorkDone();
+        const t2 = performance.now();
+        cpu += t1 - t0;
+        total += t2 - t0;
+      }
+      const cpuMs = cpu / frames;
+      const totalMs = total / frames;
+      results.push({
+        label: v.label, cpuMs, gpuMs: Math.max(0, totalMs - cpuMs), totalMs, fps: 1000 / totalMs,
+      });
+    }
+    return results;
   }
 
   /**
