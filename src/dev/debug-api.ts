@@ -50,6 +50,9 @@ export interface DebugApi {
   /** Fate-surfacing stub (B-E): promote an inbox item id (boosts salience + flags
    *  it). Pass nothing to clear all surfacing. Returns the surfaced-id count. */
   surfaceInbox(id?: string): number;
+  /** Adaptive-score control (P-A). `music()` → state; `music(true|false)` toggles;
+   *  `music(0.5)` sets master volume. Returns the director's debug snapshot. */
+  music(arg?: boolean | number | 'voice' | 'camera' | 'cinematic'): object;
 }
 
 export interface DebugApiDeps {
@@ -60,10 +63,12 @@ export interface DebugApiDeps {
   viewport: () => { width: number; height: number };
   /** Open a storylet card by id (Game.playStorylet). */
   playStory: (storyletId: string) => boolean;
+  /** Adaptive-score control (Game.presentation): toggle / set volume / inspect. */
+  music: (arg?: boolean | number | 'voice' | 'camera' | 'cinematic') => object;
 }
 
 export function createDebugApi(deps: DebugApiDeps): DebugApi {
-  const { query, state, viewport, playStory } = deps;
+  const { query, state, viewport, playStory, music } = deps;
   const camera = (): Camera => state.camera;
 
   return {
@@ -129,6 +134,10 @@ export function createDebugApi(deps: DebugApiDeps): DebugApi {
       if (id === undefined) state.surfacedInbox.clear();
       else state.surfacedInbox.add(id);
       return state.surfacedInbox.size;
+    },
+
+    music(arg?: boolean | number | 'voice' | 'camera' | 'cinematic'): object {
+      return music(arg);
     },
   };
 }

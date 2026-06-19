@@ -17,12 +17,12 @@
   "license": "ISC",
   "devDependencies": {
     "@playwright/test": "^1.60.0",
-    "@webgpu/types": "^0.1.70",
     "@tauri-apps/api": "^2.11.0",
     "@tauri-apps/cli": "^2.11.2",
     "@types/node": "^25.0.9",
     "@types/pngjs": "^6.0.5",
     "@vitest/ui": "^4.0.18",
+    "@webgpu/types": "^0.1.70",
     "fake-indexeddb": "^6.2.5",
     "jsdom": "^27.4.0",
     "playwright": "^1.60.0",
@@ -33,6 +33,7 @@
     "vitest": "^4.0.18"
   },
   "dependencies": {
-    "manifold-3d": "^3.5.1"
+    "manifold-3d": "^3.5.1",
+    "webaudio-tinysynth": "^1.1.3"
   }
 }
