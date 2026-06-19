@@ -10,7 +10,7 @@
  * (user pref: pixel-perfect over fractional scaling); only the brief move is
  * fractional.
  */
-import type { Camera } from '@/core/types';
+import type { Camera, GameMap } from '@/core/types';
 import { focusCameraOnTile } from '@/render/focus-camera';
 import { quantizeIsoZoom } from '@/render/iso/iso-camera';
 
@@ -24,6 +24,9 @@ export interface CinematicOptions {
   holdMs?: number;
   /** Step this many pixel-perfect rungs closer (toward 1:1). Default 1; 0 = pan only. */
   zoomIn?: number;
+  /** The live map — passed through so framing accounts for terrain lift (hilltops
+   *  frame at their raised screen position, not their sea-level shadow). */
+  map?: GameMap | null;
 }
 
 function smoothstep(t: number): number {
@@ -55,7 +58,7 @@ export class CameraDirector {
 
     // Compute the target x/y by framing the tile at the target zoom on a clone.
     const clone: Camera = { ...camera, zoom: targetZoom };
-    focusCameraOnTile(clone, tileX, tileY, vp.width, vp.height);
+    focusCameraOnTile(clone, tileX, tileY, vp.width, vp.height, opts.map);
 
     this.from = { x: camera.x, y: camera.y, zoom: camera.zoom };
     this.to = { x: clone.x, y: clone.y, zoom: clone.zoom };

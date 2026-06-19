@@ -391,7 +391,7 @@ export class Game {
       },
       onClickMinimapTile: (x, y) => {
         const vp = this.viewport();
-        focusCameraOnTile(this.state.camera, x, y, vp.width, vp.height);
+        focusCameraOnTile(this.state.camera, x, y, vp.width, vp.height, this.state.map);
         this.requestRender();
       },
       onZoomIn: () => this.cameraZoomIn(),
@@ -482,7 +482,7 @@ export class Game {
             : null);
         if (pos) {
           const vp = this.viewport();
-          focusCameraOnTile(this.state.camera, pos.x, pos.y, vp.width, vp.height);
+          focusCameraOnTile(this.state.camera, pos.x, pos.y, vp.width, vp.height, this.state.map);
           this.requestRender();
         }
       },

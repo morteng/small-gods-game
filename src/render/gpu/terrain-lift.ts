@@ -41,6 +41,23 @@ export function liftAt(field: TerrainLiftField, sx: number, sy: number): number 
   return (e - seaLevel) * reliefM * zPxPerM;
 }
 
+/**
+ * Screen-px vertical lift at a tile centre, matching the shader's `heightPx`.
+ * Camera framing uses this so focusing a hilltop centres the LIFTED surface
+ * (the shader pushes high terrain up-screen by exactly this), not the flat
+ * sea-level position. Clamps the tile into range and rounds to the nearest cell.
+ */
+export function tileLiftPx(field: TerrainLiftField, tileX: number, tileY: number): number {
+  const { grid, seaLevel, reliefM, zPxPerM } = field.globals;
+  const [w, h] = grid;
+  if (w <= 0 || h <= 0 || field.heights.length === 0) return 0;
+  let tx = Math.round(tileX), ty = Math.round(tileY);
+  if (tx < 0) tx = 0; else if (tx > w - 1) tx = w - 1;
+  if (ty < 0) ty = 0; else if (ty > h - 1) ty = h - 1;
+  const e = field.heights[ty * w + tx] ?? 0;
+  return (e - seaLevel) * reliefM * zPxPerM;
+}
+
 /** Lift one draw item by the terrain height under its ground-contact point. */
 function liftItem(it: DrawItem, field: TerrainLiftField): DrawItem {
   if (it.t === 'image') {

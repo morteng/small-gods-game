@@ -197,6 +197,26 @@ export function terrainGlobalsFor(
 }
 
 /**
+ * Camera-independent lift field for framing/picking — the (memoised) height
+ * buffer plus only the five globals `tileLiftPx`/`liftAt` read (grid, half, and
+ * the z knobs). No viewport/lighting needed, so callers that just want "how far
+ * up-screen is this tile lifted" (camera focus) can build it from the map alone.
+ */
+export function terrainLiftFieldFor(map: GameMap): { heights: Float32Array; globals: Pick<TerrainGlobalsInput, 'grid' | 'half' | 'zPxPerM' | 'seaLevel' | 'reliefM'> } {
+  const style = worldStyleOf(map.worldSeed);
+  return {
+    heights: heightField(map),
+    globals: {
+      grid: [map.width, map.height],
+      half: [ISO_TILE_W / 2, ISO_TILE_H / 2],
+      zPxPerM: style.terrainVerticalExaggeration,
+      seaLevel: ELEVATION_SEA_LEVEL,
+      reliefM: style.mountainRelief,
+    },
+  };
+}
+
+/**
  * Assemble the full `TerrainField` for a world + camera frame: the (memoised)
  * height buffer, the biome colour buffer, the LOD vertex count, and the packed
  * uniform inputs. Cheap per-frame — `getHeightfield` is cached, so the height

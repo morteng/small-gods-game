@@ -113,7 +113,7 @@ export class PresentationDirector {
   cueBeat(subjectKey: string | null, tile: { x: number; y: number } | null): void {
     if (this.enabled && subjectKey) this.music.playLeitmotif(leitmotifFor(subjectKey));
     if (this.cameraEnabled && tile) {
-      this.camera.focusTile(this.state.camera, tile.x, tile.y, this.viewport());
+      this.camera.focusTile(this.state.camera, tile.x, tile.y, this.viewport(), { map: this.state.map });
     }
   }
 

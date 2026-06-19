@@ -97,7 +97,7 @@ export class DevModeController {
       onRedo: () => this.redo(),
       onFocusCamera: (x, y) => {
         const vp = this.deps.getViewport();
-        focusCameraOnTile(this.deps.state.camera, x, y, vp.width, vp.height);
+        focusCameraOnTile(this.deps.state.camera, x, y, vp.width, vp.height, this.deps.state.map);
       },
       dock: this.dock,
     });
@@ -128,7 +128,7 @@ export class DevModeController {
         if (!e) return false;
         const vp = this.deps.getViewport();
         this.deps.state.camera.zoom = zoom;
-        focusCameraOnTile(this.deps.state.camera, e.x, e.y, vp.width, vp.height);
+        focusCameraOnTile(this.deps.state.camera, e.x, e.y, vp.width, vp.height, this.deps.state.map);
         return true;
       },
       dock: this.dock,

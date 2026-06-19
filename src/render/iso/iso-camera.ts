@@ -70,8 +70,12 @@ export function centerOnTile(
   camera: Camera,
   tx: number, ty: number,
   viewWidth: number, viewHeight: number,
+  liftPx = 0,
 ): void {
-  const { sx, sy } = worldToScreen(tx, ty, 0, 0, 0);
+  // `liftPx` is the terrain shader's screen-y lift at this tile. Passing it as
+  // the projection's z centres the LIFTED surface (the shader subtracts z from
+  // sy), so focusing a hilltop frames the hilltop, not its sea-level shadow.
+  const { sx, sy } = worldToScreen(tx, ty, liftPx, 0, 0);
   camera.x = sx - viewWidth / (2 * camera.zoom);
   camera.y = sy - viewHeight / (2 * camera.zoom);
 }

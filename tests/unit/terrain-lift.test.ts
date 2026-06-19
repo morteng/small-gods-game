@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { liftAt, liftDrawList, type TerrainLiftField } from '@/render/gpu/terrain-lift';
+import { liftAt, liftDrawList, tileLiftPx, type TerrainLiftField } from '@/render/gpu/terrain-lift';
 import type { DrawItem } from '@/render/iso/draw-list';
 
 // 2x2 field; only tile (1,1) is elevated. half = ISO half-tile (64,32).
@@ -25,6 +25,24 @@ describe('liftAt', () => {
   it('returns 0 for a degenerate field', () => {
     const empty: TerrainLiftField = { heights: new Float32Array(), globals: { grid: [0, 0], half: [64, 32], zPxPerM: 2, seaLevel: 0, reliefM: 10 } };
     expect(liftAt(empty, 0, 64)).toBe(0);
+  });
+});
+
+describe('tileLiftPx', () => {
+  it('is zero over a flat sea-level tile', () => {
+    expect(tileLiftPx(field, 0, 0)).toBe(0);
+  });
+  it('matches the shader heightPx at an elevated tile centre', () => {
+    // tile (1,1) elev 1 ⇒ 20px. Tile-centre 1.5 rounds to cell (1,1).
+    expect(tileLiftPx(field, 1.5, 1.5)).toBe(20);
+  });
+  it('clamps out-of-range tiles to the nearest edge cell', () => {
+    expect(tileLiftPx(field, 99, 99)).toBe(20);  // clamps to (1,1)
+    expect(tileLiftPx(field, -99, -99)).toBe(0); // clamps to (0,0)
+  });
+  it('returns 0 for a degenerate field', () => {
+    const empty: TerrainLiftField = { heights: new Float32Array(), globals: { grid: [0, 0], half: [64, 32], zPxPerM: 2, seaLevel: 0, reliefM: 10 } };
+    expect(tileLiftPx(empty, 1.5, 1.5)).toBe(0);
   });
 });
 

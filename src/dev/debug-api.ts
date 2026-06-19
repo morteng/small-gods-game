@@ -128,7 +128,7 @@ export function createDebugApi(deps: DebugApiDeps): DebugApi {
       const vp = viewport();
       // Set zoom first: focusCameraOnTile centers using the current zoom.
       camera().zoom = zoom;
-      focusCameraOnTile(camera(), x, y, vp.width, vp.height);
+      focusCameraOnTile(camera(), x, y, vp.width, vp.height, state.map);
     },
 
     fitMap(): void {
