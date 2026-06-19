@@ -312,16 +312,32 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
 
   } else if (typ == 2u) {
     // ---- LAKE -----------------------------------------------------------------
-    // Calm sheet: a faint uniform breeze-ripple in LAKE_DIR + soft noise glints. No
-    // shoreward swell (those concentric rings looked like a central wave maker) and
-    // no surf — just a thin waterline lip.
+    // Calm sheet, but with a LEGIBLE shoreline so the lake reads as a water surface
+    // and not a flat dark slab. Keyed to the SAME shore-distance field the ocean uses
+    // (binding 8) — the BFS is seeded from every land cell, so it's valid inside lakes
+    // too (distance to the lake bank). Still no shoreward swell rings (those read as a
+    // central wave-maker) and no breaking surf — a still pond with a lapping rim.
+    let shore = sampleShore(g.x, g.y);                  // tiles from the lake bank
+    let nearShore = exp(-shore * 0.5);                  // tight rim — lakes are small
+
+    // Shallow RIM: shelve up toward the shallow biome tone at the very edge, so the
+    // bank reads as water lightening into the shallows rather than a hard dark border.
+    let rimCol = unpackRgb(shallowC[ci]) * (G.uAmbient.xyz + vec3<f32>(day * 0.85));
+    color = mix(color, rimCol, nearShore * 0.5);
+
+    // Faint uniform breeze-ripple (fades toward the still centre) + soft noise glints.
     let ripplePhase = dot(g, LAKE_DIR) * (TWO_PI / 5.5) + t * 0.7
                     + (fbm(g * 0.18 + vec2<f32>(t * 0.04, 0.0)) - 0.5) * 2.0;
     let ripple = sin(ripplePhase) * 0.5 + 0.5;
     color += vec3<f32>(smoothstep(0.6, 1.0, ripple) * 0.04);
     let lakeGl = fbm(g * 0.55 + vec2<f32>(t * 0.05, -t * 0.04));
     color += vec3<f32>(smoothstep(0.82, 0.97, lakeGl) * 0.04);
-    color = mix(color, vec3<f32>(0.92, 0.96, 0.98), lip * 0.6);
+
+    // Shore foam: a soft lapping band right at the bank (slow "breathing" so the edge
+    // feels alive) plus the thin waterline lip. Much quieter than ocean surf.
+    let lap = 0.5 + 0.5 * sin(t * 0.8 + (fbm(g * 0.3) - 0.5) * 3.0);
+    let shoreFoam = smoothstep(1.4, 0.0, shore) * (0.35 + 0.25 * lap);
+    color = mix(color, vec3<f32>(0.90, 0.95, 0.97), max(lip * 0.6, shoreFoam * 0.55));
 
   } else {
     // ---- RIVER ----------------------------------------------------------------
