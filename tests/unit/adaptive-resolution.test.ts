@@ -50,6 +50,35 @@ describe('AdaptiveResolution', () => {
     expect(feed(ar, 16.7, 800)).toBe(1); // recover → refine down to 1:1
   });
 
+  it('refines when cruising above target but inside the old dead zone', () => {
+    // ~45 fps (22ms): comfortably above the 30fps target with real headroom. The
+    // old controller treated 30–50fps as a dead band and stuck at px4 forever; the
+    // new band is 30–40fps so this must refine back to 1:1.
+    const ar = new AdaptiveResolution();
+    expect(feed(ar, 40, 400)).toBe(4);
+    expect(feed(ar, 22, 1200)).toBe(1);
+  });
+
+  it('climbs back to 1:1 despite periodic single-frame hitches', () => {
+    // The real failure: 60fps steady-state with a slow frame every ~30 frames (GC,
+    // a zoom-time instance repack). The old per-frame counter reset killed the
+    // 90-frame climb every hitch; bleed-counters must still reach 1:1.
+    const ar = new AdaptiveResolution();
+    expect(feed(ar, 40, 400)).toBe(4);
+    let px = ar.px;
+    for (let i = 0; i < 1500; i++) px = ar.step(i % 30 === 0 ? 45 : 16.7);
+    expect(px).toBe(1);
+  });
+
+  it('a clamped stall loses no refine progress', () => {
+    // A tab-stall mid-climb must be ignored outright, not reset the climb.
+    const ar = new AdaptiveResolution();
+    feed(ar, 40, 400);                  // → px4
+    feed(ar, 16.7, 50);                 // partway up the climb-back
+    ar.step(100000);                    // tab stall — ignored
+    expect(feed(ar, 16.7, 200)).toBe(1); // climb completes as if it never happened
+  });
+
   it('does not flap around the boundary', () => {
     const ar = new AdaptiveResolution();
     // Alternate just-over and just-under frames; EMA should sit near neutral and

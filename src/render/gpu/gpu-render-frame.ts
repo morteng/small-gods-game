@@ -45,7 +45,8 @@ function connectomeRequested(): boolean {
 /**
  * P-E — fixed art-pixel-size override (CSS px per art texel). `?px=N` PINS the
  * resolution (disables adaptation, for A/B and preference); absent ⇒ null, i.e.
- * the adaptive controller drives it (1:1, dropping to 2 only when fps sags).
+ * the adaptive controller drives it — striving for 1:1 and only coarsening while
+ * the rate sags below 30 fps, refining back as soon as there's ≥40 fps headroom.
  */
 function artPixelOverride(): number | null {
   try {
