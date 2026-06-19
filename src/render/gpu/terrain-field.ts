@@ -54,7 +54,10 @@ export const MAX_TERRAIN_QUADS = 50000;
 /** The row-major normalised-elevation field (the height storage buffer): the
  *  base seed heightfield with the deformation channel composed on top (road
  *  grade-cuts today; rivers/earthworks as those producers land). Identical to
- *  the bare base field — same instance — for worlds with no deformations. */
+ *  the bare base field — same instance — for worlds with no deformations.
+ *  (The map edge is hidden in the SHADERS, not by distorting geometry: the terrain
+ *  fragment culls deep seabed + fades to dark, and the water/backdrop render a
+ *  uniform infinite ocean over it — see terrain-wgsl / ocean-backdrop-wgsl.) */
 export function heightField(map: GameMap): Float32Array {
   return getComposedHeightfield(map);
 }

@@ -26,6 +26,7 @@ import {
 import { LIT_WGSL } from '@/render/gpu/wgsl/lit-wgsl';
 import { TERRAIN_WGSL } from '@/render/gpu/wgsl/terrain-wgsl';
 import { WATER_WGSL } from '@/render/gpu/wgsl/water-wgsl';
+import { OCEAN_BACKDROP_WGSL } from '@/render/gpu/wgsl/ocean-backdrop-wgsl';
 import { SHADOW_WGSL } from '@/render/gpu/wgsl/shadow-wgsl';
 import { SHAPE_WGSL } from '@/render/gpu/wgsl/shape-wgsl';
 import { BLIT_WGSL } from '@/render/gpu/wgsl/blit-wgsl';
@@ -96,6 +97,10 @@ export class GpuScene {
   // terrain heights it borrows) reallocate.
   private waterPipeline: GPURenderPipeline;
   private waterGlobalsBuf: GPUBuffer;
+  /** Infinite-ocean backdrop (fullscreen) — drawn before terrain so open sea fills
+   *  the whole viewport past the map edge. Reuses the water globals uniform. */
+  private oceanBackdropPipeline: GPURenderPipeline;
+  private oceanBackdropBind: GPUBindGroup | null = null;
   private waterSurfaceBuf: GPUBuffer | null = null;
   private waterTypeBuf: GPUBuffer | null = null;
   private waterFlowBuf: GPUBuffer | null = null;
@@ -268,6 +273,22 @@ export class GpuScene {
       depthStencil: { format: DEPTH_FORMAT, depthWriteEnabled: false, depthCompare: 'greater-equal' },
     });
     this.waterGlobalsBuf = device.createBuffer({ size: 112, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+
+    // Infinite-ocean backdrop pipeline: a fullscreen triangle, OPAQUE, no depth
+    // (drawn first; terrain loads over it and covers the whole map rect, so the
+    // backdrop survives only OUTSIDE the island = open sea to the horizon). Reuses
+    // the 112-byte water globals uniform for the inverse projection + time.
+    const backdropModule = device.createShaderModule({ code: OCEAN_BACKDROP_WGSL });
+    this.oceanBackdropPipeline = device.createRenderPipeline({
+      layout: 'auto',
+      vertex: { module: backdropModule, entryPoint: 'vsMain' },
+      fragment: { module: backdropModule, entryPoint: 'fsMain', targets: [{ format: gpu.format }] },
+      primitive: { topology: 'triangle-list' },
+    });
+    this.oceanBackdropBind = device.createBindGroup({
+      layout: this.oceanBackdropPipeline.getBindGroupLayout(0),
+      entries: [{ binding: 0, resource: { buffer: this.waterGlobalsBuf } }],
+    });
 
     // Shadow union pipeline: parallelogram quads (4 corners) → premult black at
     // SHADOW_ALPHA straight onto the scene colour target, stencil-gated so each
@@ -765,9 +786,10 @@ export class GpuScene {
 
     // P-E: the scene passes target the low-res offscreen when `out` is set, then
     // a blit upscales it to the swapchain; otherwise they draw straight to it.
-    // "Ocean forever": clear to deep-ocean blue (matched to the RENDERED deep
-    // tone, rgb 15,68,111) so anything beyond the map grid reads as open sea, not
-    // a black void — the island rim blends in with no "underwater border" seam.
+    // The infinite-ocean backdrop (pass 0) paints uniform open sea over everything
+    // for ocean worlds and extends past the map unchanged, so the base clear is the
+    // matching deep-ocean tone (rgb 15,68,107) — any sliver beyond the backdrop or
+    // on a landlocked world still reads as sea, never a void.
     const swapView = this.ctx.getCurrentTexture().createView();
     const ctx: PassCtx = {
       enc: device.createCommandEncoder(),
@@ -775,13 +797,16 @@ export class GpuScene {
       swapView,
       depthView: this.ensureDepth(w, h),
       w, h, out,
-      ocean: { r: 15 / 255, g: 68 / 255, b: 111 / 255, a: 1 },
+      ocean: { r: 0.06, g: 0.27, b: 0.42, a: 1 },
       colorCleared: false,
     };
 
     // Ordered passes — each helper reads/sets `ctx.colorCleared` so the first
     // colour pass clears and the rest load. terrain → shadows → water (all under
     // the entities) → entities+shapes → blit (upscale) → UI (crisp, on top).
+    // Pass 0: open-ocean backdrop fills the viewport beyond the map (needs the water
+    // globals, which are uploaded only when hasWater). Terrain then loads over it.
+    if (hasWater) this.passBackdrop(ctx);
     if (hasTerrain) this.passTerrain(ctx, terrain!);
     if (hasShadows) this.passShadows(ctx, !!staticItems, dynShadowBatches);
     if (hasWater) this.passWater(ctx, water!);
@@ -792,10 +817,29 @@ export class GpuScene {
     device.queue.submit([ctx.enc.finish()]);
   }
 
-  /** Pass 1 — terrain (own depth: spatial iso depth, greater, write). */
+  /**
+   * Pass 0 — infinite-ocean backdrop. A fullscreen triangle, OPAQUE, no depth: each
+   * pixel is inverse-projected onto the sea-level plane and shaded as open water, so
+   * the sea fills the whole viewport past the map grid. Drawn FIRST; terrain then
+   * loads over it and covers the map rect, leaving the backdrop visible only beyond
+   * the island. Reuses the water globals uniform (uploaded with the water field).
+   */
+  private passBackdrop(ctx: PassCtx): void {
+    const bpass = ctx.enc.beginRenderPass({
+      colorAttachments: [{ view: ctx.colorView, clearValue: ctx.ocean, loadOp: 'clear', storeOp: 'store' }],
+    });
+    bpass.setPipeline(this.oceanBackdropPipeline);
+    bpass.setBindGroup(0, this.oceanBackdropBind!);
+    bpass.draw(3);
+    bpass.end();
+    ctx.colorCleared = true;
+  }
+
+  /** Pass 1 — terrain (own depth: spatial iso depth, greater, write). Loads colour
+   *  if the backdrop already filled it; otherwise clears. */
   private passTerrain(ctx: PassCtx, terrain: TerrainField): void {
     const tpass = ctx.enc.beginRenderPass({
-      colorAttachments: [{ view: ctx.colorView, clearValue: ctx.ocean, loadOp: 'clear', storeOp: 'store' }],
+      colorAttachments: [{ view: ctx.colorView, clearValue: ctx.ocean, loadOp: ctx.colorCleared ? 'load' : 'clear', storeOp: 'store' }],
       depthStencilAttachment: { view: ctx.depthView, depthClearValue: 0.0, depthLoadOp: 'clear', depthStoreOp: 'store' },
     });
     tpass.setPipeline(this.terrainPipeline);

@@ -223,6 +223,15 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
     let nearShore = exp(-shore * 0.13);                 // 1 at coast → ~0 by ~15 tiles
     let refract = smoothstep(0.0, 1.0, nearShore);      // 0 deep → 1 at the waterline
 
+    // Saturate to the DEEP biome colour by SHORE DISTANCE, not just bed depth: the
+    // open sea reaches a constant deep tone a little offshore regardless of how
+    // shallow the noise seabed happens to be, so the far ocean matches the infinite
+    // backdrop exactly (no bright shelf at the map edge) and the sea reads uniform
+    // out to the horizon. Near shore the real depth tint + shallows still show.
+    let shoreDeep = smoothstep(5.0, 26.0, shore);
+    color = mix(unpackRgb(shallowC[ci]), unpackRgb(deepC[ci]), max(tDeep, shoreDeep))
+          * (G.uAmbient.xyz + vec3<f32>(day * 0.85));
+
     // Coast normal (offshore) from the shore-distance gradient — windward coasts
     // (facing the swell) get rougher water + harder breakers than lee shores.
     let sgx = sampleShore(g.x + 1.0, g.y) - sampleShore(g.x - 1.0, g.y);

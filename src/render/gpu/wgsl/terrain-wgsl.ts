@@ -148,6 +148,13 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   let elev = heights[ci];
   let seaLevel = G.uZParams.y;
   let aboveSea = elev - seaLevel;
+
+  // DEEP-SEABED CULL: where the bed is well below the waterline the water pass is
+  // already fully opaque-deep over it, so the seabed is invisible anyway — but its
+  // sunk geometry would poke out below the flat sea sheet on the camera-facing map
+  // edges as a hard rim. Discard it: the uniform infinite-ocean backdrop + water
+  // surface fill that screen area instead, so the bottom map edges fully vanish.
+  if (seaLevel - elev > 0.10) { discard; }
   let moist = moisture[ci];
   let temp = temperature[ci];
   let jit = vnoise(in.vGrid * 0.35) - 0.5;       // [-0.5,0.5] threshold wander
@@ -194,6 +201,16 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   let bands = max(1.0, G.uSun.w);
   let banded = floor(ndl * bands + 0.5) / bands;
   let light = G.uAmbient.xyz + vec3<f32>(G.uAmbient.w) * banded;
-  return vec4<f32>(shoreAlbedo * light, 1.0);
+
+  // SUBMARINE FADE-TO-DARK: the terrain sinks into darkness as it descends below the
+  // waterline, away from the island — so the seabed (and the map's outer rim where
+  // the heightfield grid ends) dissolves into the depths instead of showing a lit
+  // edge. The ocean surface above stays uniform and infinite (water/backdrop pass);
+  // this only darkens the GROUND beneath it, fully hiding the bottom map edges. Land
+  // above the waterline is untouched.
+  let depthBelow = max(seaLevel - elev, 0.0);
+  let submerge = smoothstep(0.0, 0.22, depthBelow);    // 0 at shore → ~1 a few m down
+  let lit = shoreAlbedo * light;
+  return vec4<f32>(lit * (1.0 - submerge * 0.97), 1.0);
 }
 `;
