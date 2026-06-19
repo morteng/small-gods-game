@@ -88,6 +88,27 @@ function featureOf(type: Connection['type']): LinearFeature {
   return type; // 'road' | 'river' | 'wall' — identical vocabulary
 }
 
+// ── Slice 4: tier a road by the SIGNIFICANCE of the places it joins ──────────
+// A road carries traffic proportional to its endpoints, so its hierarchy (and
+// thus its width, surface detail, and how hard it carves the ground) follows the
+// more significant end: a spur off a great town is a real road even where it
+// reaches a hamlet; a lane between two hamlets is a track or footpath. We read
+// `importance` first, then fall back to settlement `size`, then a neutral middle.
+const IMPORTANCE_RANK: Record<string, number> = { low: 0, medium: 1, high: 2, critical: 3 };
+const SIZE_RANK: Record<string, number> = { small: 0, medium: 1, large: 2, huge: 3 };
+
+function poiRank(poi: POI | undefined): number {
+  if (poi?.importance) return IMPORTANCE_RANK[poi.importance] ?? 1;
+  if (poi?.size) return SIZE_RANK[poi.size] ?? 1;
+  return 1; // unknown → a plain 'road'-grade middle
+}
+
+/** Road class from the busier endpoint: huge→highway … small→footpath. */
+function classForConnection(from: POI | undefined, to: POI | undefined): RoadClass {
+  const r = Math.max(poiRank(from), poiRank(to));
+  return r >= 3 ? 'highway' : r >= 2 ? 'road' : r >= 1 ? 'track' : 'path';
+}
+
 function surfaceOf(conn: Connection): RoadSurface {
   if (conn.type === 'river') return 'water';
   return conn.style === 'stone' ? 'stone' : 'dirt';
@@ -156,6 +177,15 @@ export function buildRoadGraph(
     const feature = featureOf(conn.type);
     const surface = surfaceOf(conn);
     const autoBridge = conn.autoBridge ?? (conn.type !== 'river');
+    // Tier roads by their endpoints' significance; rivers/walls keep the neutral
+    // label (their look comes from the feature, not the class).
+    const roadClass: RoadClass =
+      feature === 'road'
+        ? classForConnection(
+            pois.find((p) => p.id === conn.from),
+            pois.find((p) => p.id === conn.to),
+          )
+        : 'road';
 
     // Same point sequence the original loop used: explicit waypoints if given,
     // else the two POI endpoints.
@@ -193,7 +223,7 @@ export function buildRoadGraph(
         b: nodeFor(b.x, b.y, i === points.length - 2).id,
         polyline: cells.map(c => ({ x: c.x, y: c.y })),
         feature,
-        class: 'road', // Slice 0: single class; Slice 4 introduces tiering.
+        class: roadClass, // Slice 4: tiered by endpoint significance (see classForConnection).
         surface,
         bridgeCells,
       };

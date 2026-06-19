@@ -31,6 +31,10 @@ function poi(id: string, x: number, y: number): POI {
   return { id, type: 'village', position: { x, y } };
 }
 
+function sizedPoi(id: string, x: number, y: number, size: POI['size']): POI {
+  return { id, type: 'village', position: { x, y }, size };
+}
+
 /** Snapshot just the carve-relevant tile fields for byte-identical comparison. */
 function snapshot(tiles: Tile[][]): { type: string; walkable: boolean }[] {
   return tiles.flat().map(t => ({ type: t.type, walkable: t.walkable }));
@@ -114,6 +118,33 @@ describe('buildRoadGraph', () => {
   it('returns an empty graph when there are no connections', () => {
     const graph = buildRoadGraph(undefined, [], makeTiles(3, 3), flatField(3, 3));
     expect(graph).toEqual({ nodes: [], edges: [] });
+  });
+
+  it('tiers a road by the more significant endpoint (Slice 4)', () => {
+    const tiles = makeTiles(8, 1);
+    const fields = flatField(8, 1);
+    // huge↔small ⇒ highway; large↔medium ⇒ road; medium↔small ⇒ track; small↔small ⇒ path.
+    const cases: Array<[POI['size'], POI['size'], string]> = [
+      ['huge', 'small', 'highway'],
+      ['large', 'medium', 'road'],
+      ['medium', 'small', 'track'],
+      ['small', 'small', 'path'],
+    ];
+    for (const [sa, sb, expected] of cases) {
+      const pois = [sizedPoi('a', 0, 0, sa), sizedPoi('b', 7, 0, sb)];
+      const conns: Connection[] = [{ from: 'a', to: 'b', type: 'road' }];
+      const graph = buildRoadGraph(conns, pois, makeTiles(8, 1), fields);
+      expect(graph.edges[0].class, `${sa}↔${sb}`).toBe(expected);
+    }
+    void tiles;
+  });
+
+  it('leaves rivers on the neutral class label', () => {
+    const tiles = makeTiles(6, 1);
+    const fields = flatField(6, 1);
+    const pois = [sizedPoi('hi', 0, 0, 'huge'), sizedPoi('lo', 5, 0, 'small')];
+    const graph = buildRoadGraph([{ from: 'hi', to: 'lo', type: 'river' }], pois, tiles, fields);
+    expect(graph.edges[0].class).toBe('road'); // class is meaningless for rivers
   });
 });
 
