@@ -42,6 +42,7 @@ import { Scheduler } from '@/core/scheduler';
 import { TimelineController } from '@/core/timeline';
 import { CommandQueue } from '@/sim/command/command-queue';
 import { DiscoveryQueue } from '@/sim/threads/discovery-queue';
+import type { ThreadSubject } from '@/sim/threads/thread-types';
 import { StagingActivationSystem } from '@/sim/threads/systems/staging-activation-system';
 import { StoryRegistry, StorySession, createBusStoryHost, busAllowedVerbs } from '@/story';
 import { droughtOmenPack } from '@/story/samples/the-drought-omen';
@@ -78,6 +79,7 @@ import { FateBrainService } from '@/game/fate/fate-brain-service';
 import { FateTrigger } from '@/game/fate/fate-trigger';
 import { DevModeController } from '@/game/dev-mode-controller';
 import { FrameRenderer } from '@/game/frame-renderer';
+import { PresentationDirector } from '@/presentation/presentation-director';
 import { createInteractionState } from '@/game/interaction-state';
 import { InteractionController } from '@/game/interaction-controller';
 
@@ -201,6 +203,7 @@ export class Game {
   private renderer!: FrameRenderer;
   private interaction = createInteractionState();
   private input!: InteractionController;
+  private presentation!: PresentationDirector;
 
   constructor(container: HTMLElement, _options: GameOptions = {}) {
     this.container = container;
@@ -258,7 +261,10 @@ export class Game {
         }
       },
       // A fired beat carrying a storylet ref opens it as an interactive card.
-      (_subject, storyletId) => this.playStorylet(storyletId),
+      (subject, storyletId) => {
+        this.cuePresentationBeat(subject);
+        return this.playStorylet(storyletId);
+      },
     ));
 
     this.timeline = new TimelineController({
@@ -347,6 +353,12 @@ export class Game {
 
     this.chrome = mountChrome(this.container);
     this.veil = mountPastVeil(this.container);
+
+    // Presentation layer (adaptive score + sfx + cinematic camera + voice). Pure
+    // observer of the sim — reads GameState + EventLog, never mutates. Off the
+    // deterministic path; turning it off leaves the game bit-identical.
+    this.presentation = new PresentationDirector(this.state, { viewport: () => this.viewport() });
+    this.presentation.attach();
     this.timeChip = mountTimeChip(this.chrome.anchorTopRight, {
       clock: this.state.clock,
       getRate: () => this.scheduler.getRate(),
@@ -609,6 +621,7 @@ export class Game {
         } else {
           this.scheduler.setRate(this.storyPrevRate);
         }
+        this.presentation.setStoryActive(active); // duck the score while modal
         this.refreshPauseBanner();
         this.requestRender();
       },
@@ -680,7 +693,29 @@ export class Game {
     const seed = ((this.state.map?.seed ?? 1) ^ (this.state.clock.now() | 0)) >>> 0;
     const session = new StorySession(pack, { host, seed });
     getUiRuntime().presentStory(session, storyletId);
+    // Voice the opening line (no-op unless voiceover is enabled).
+    const stage = session.current;
+    if (stage.kind === 'line' && stage.line.text) this.presentation.speakLine(stage.line.text);
     return true;
+  }
+
+  /** Cinematic + leitmotif cue when a staged beat fires on a subject. Resolves
+   *  the subject to a tile so the camera can frame it; pure presentation. */
+  private cuePresentationBeat(subject: ThreadSubject): void {
+    let key: string | null = null;
+    let tile: { x: number; y: number } | null = null;
+    if (subject.kind === 'npc') {
+      key = subject.npcId;
+      const e = this.state.world ? getNpc(this.state.world, subject.npcId) : undefined;
+      if (e) tile = { x: e.x, y: e.y };
+    } else if (subject.kind === 'settlement') {
+      key = subject.poiId;
+      const poi = this.state.worldSeed?.pois.find((p) => p.id === subject.poiId);
+      if (poi?.position) tile = { x: poi.position.x, y: poi.position.y };
+    } else {
+      key = subject.spiritId;
+    }
+    this.presentation.cueBeat(key, tile);
   }
 
   /**
@@ -817,6 +852,19 @@ export class Game {
     return createDebugApi({
       query: this.query, state: this.state, viewport: () => this.viewport(),
       playStory: (id) => this.playStorylet(id),
+      music: (arg) => {
+        const snap = this.presentation.debug() as { voice: boolean; camera: boolean };
+        if (typeof arg === 'boolean') this.presentation.setEnabled(arg);
+        else if (typeof arg === 'number') this.presentation.setVolume(arg);
+        else if (arg === 'voice') this.presentation.setVoiceEnabled(!snap.voice);
+        else if (arg === 'camera') this.presentation.setCameraEnabled(!snap.camera);
+        else if (arg === 'cinematic') {
+          // Manual preview: frame the selected/first NPC as a staged beat would.
+          const id = this.state.selectedNpcId ?? this.query.npcs()[0]?.id;
+          if (id) this.cuePresentationBeat({ kind: 'npc', npcId: id });
+        }
+        return this.presentation.debug();
+      },
     });
   }
 
@@ -952,6 +1000,8 @@ export class Game {
       const deltaMs = Math.min(now - this.lastTime, 100);
       this.lastTime = now;
       const live = this.scheduler.getRate() > 0 && this.state.world && !this.timeline.isScrubbed;
+      // Presentation runs every frame (keeps the audio scheduler fed); ducks on scrub.
+      this.presentation.update(deltaMs, { live: !!live, scrubbed: this.timeline.isScrubbed });
       if (live) {
         advanceNpcFrames(this.state.world!, deltaMs);  // presentation animation - not a scheduled system
         // Focusing a new NPC = the player's attention reaching it → a discovery
@@ -972,9 +1022,11 @@ export class Game {
       // REAL PAUSE: when not live, do the expensive scene render + UI refresh only
       // if something changed (requestRender), an effect is still animating, or the
       // past is being scrubbed. Otherwise the rAF body is ~free and the GPU idles.
-      if (live || this.needsRender || this.timeline.isScrubbed || this.ui.divineEffects.isActive() || this.waterAnimating()) {
+      const cinematic = this.presentation.cameraActive();
+      if (live || this.needsRender || this.timeline.isScrubbed || this.ui.divineEffects.isActive() || this.waterAnimating() || cinematic) {
         this.needsRender = false;
-        applyFollowCamera(this.state, this.viewport());
+        // The cinematic camera owns the view while active; otherwise follow normally.
+        if (!cinematic) applyFollowCamera(this.state, this.viewport());
         // Keep the island from being panned/zoomed fully off-screen.
         if (this.state.map) {
           const vp = this.viewport();
@@ -1004,6 +1056,7 @@ export class Game {
 
   destroy(): void {
     this.stopLoop();
+    this.presentation.destroy();
     this.persistence?.destroy();
     this.detachProfileKeys?.();
     this.fpsHud?.destroy();
