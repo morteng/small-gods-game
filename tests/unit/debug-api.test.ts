@@ -28,7 +28,12 @@ function setup() {
   state.world.addEntity({ id: 'v1', kind: 'tree', x: 6, y: 6, tags: ['vegetation'], properties: {} } as any);
   const canvas = document.createElement('canvas');
   const query = createGameQuery({ state, canvas });
-  const api = createDebugApi({ query, state, viewport: () => ({ width: 800, height: 600 }), playStory: () => false, music: () => ({}) });
+  const api = createDebugApi({
+    query, state, viewport: () => ({ width: 800, height: 600 }),
+    playStory: () => false, music: () => ({}),
+    devMode: () => ({} as any),
+    requestRender: () => {}, newWorld: () => {},
+  });
   return { state, api };
 }
 

@@ -29,6 +29,8 @@ import { StaticDrawListCache } from '@/render/gpu/static-draw-list-cache';
 import { DEFAULT_LIGHTING } from '@/render/lighting-state';
 import { buildTerrainField, type TerrainField } from '@/render/gpu/terrain-field';
 import { buildWaterField, type WaterField } from '@/render/gpu/water-field';
+import { buildRoadRibbonMeshMemo } from '@/render/ribbon/road-ribbon-field';
+import type { RibbonMesh } from '@/render/ribbon/ribbon-geometry';
 import { FlotsamLayer } from '@/render/gpu/flotsam-layer';
 import { drawWorldConnectome } from '@/render/connectome-overlay';
 import type { GpuScene } from '@/render/gpu/gpu-scene';
@@ -162,6 +164,13 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
       ? buildWaterField(map, { viewport: [lowW, lowH], xform, lighting, timeSec })
       : null;
 
+    // Road/river ribbons (T7): swept terrain-following meshes drawn over terrain +
+    // water, under entities. Memoised per road-graph identity; hidden with the
+    // 'roads' layer. (Rivers join this mesh in R2.)
+    const ribbon: RibbonMesh | null = (terrain && !isLayerHidden('roads', rc.devMode))
+      ? buildRoadRibbonMeshMemo(map.roadGraph)
+      : null;
+
     // Flotsam/fauna (S6): step + emit cosmetic circles on the water surface.
     // Appended after the entity list so they composite over the water; the
     // renderer doesn't terrain-lift `circle` items, so they keep their surface z.
@@ -173,6 +182,7 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
 
     scene.renderFrame({
       items: dynamicItems, staticItems: staticList, lighting, terrain, water,
+      ribbon, ribbonTime: timeSec,
       w: lowW, h: lowH, out: { w: target.width, h: target.height },
       xform, uiGroups,
     });

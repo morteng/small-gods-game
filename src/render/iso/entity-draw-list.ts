@@ -17,7 +17,6 @@ import {
   buildingSpriteItemFromImage, buildingSpriteItemFromPack, flatBlockItems, pickBuildingSource,
 } from './iso-building';
 import { barrierSlabs } from './iso-barrier';
-import { buildRoadRibbonItems } from './iso-road-ribbon';
 import { buildYSortBucket, buildingSortKey, type YSortEntry } from './iso-ysort';
 import { blueprintOf } from '@/blueprint/entity';
 import { isLayerHidden } from '@/render/layer-visibility';
@@ -225,12 +224,8 @@ export function buildEntityDrawList(
     }
   }
 
-  // Road ribbons ride the ground UNDER every entity: prepended → lowest list
-  // depth, and emitted as polys so the terrain lift raises each quad onto the
-  // heightfield (the grade-cut corridor it sits in). Hidden with the terrain.
-  // Static layer, so the npcs-only pass skips them.
-  const roadItems = (isLayerHidden('terrain', rc.devMode) || !wantStatic)
-    ? []
-    : buildRoadRibbonItems(rc.map.roadGraph, ic);
-  return roadItems.length ? [...roadItems, ...items] : items;
+  // Roads are no longer poly DrawItems: they render in the dedicated GPU ribbon
+  // pass (T7, `road-ribbon-field` → `ribbon-wgsl`), a terrain-following parametric
+  // surface lifted + iso-projected on the GPU. See gpu-render-frame / gpu-scene.
+  return items;
 }

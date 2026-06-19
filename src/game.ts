@@ -865,6 +865,9 @@ export class Game {
         }
         return this.presentation.debug();
       },
+      devMode: () => this.dev.devMode,
+      requestRender: this.requestRender,
+      newWorld: () => { void this.newWorld(); },
     });
   }
 

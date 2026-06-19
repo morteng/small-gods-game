@@ -32,10 +32,43 @@ export function isRoadOrRiver(type: string): boolean {
 }
 
 /**
- * Remove vegetation / terrain-feature entities sitting on a road, river, or
- * building footprint. Returns the number of entities removed.
+ * Clearance radius (TILES) of the road/river CORRIDOR within which vegetation is
+ * removed. The 1-tile road/river cell is not enough: roads render as a swept
+ * ribbon ~1 tile wide that now snakes DIAGONALLY across cells the grid never
+ * marked as road, and tree canopies overhang. So we clear trunks within this
+ * radius of any road/river cell centre — a clean strip the ribbon sits in, with a
+ * margin for the canopy. Tuned so a forest road reads as a real clearing without
+ * carving a bald motorway.
  */
-export function clearObstructedVegetation(world: World, map: GameMap): number {
+export const CORRIDOR_CLEAR_RADIUS = 1.6;
+
+/** True if any cell within `r` tiles of continuous point (x,y) is road/river. */
+function nearRoadOrRiver(map: GameMap, x: number, y: number, r: number): boolean {
+  const span = Math.ceil(r);
+  const cx = Math.floor(x), cy = Math.floor(y);
+  const r2 = r * r;
+  for (let dy = -span; dy <= span; dy++) {
+    for (let dx = -span; dx <= span; dx++) {
+      const tx = cx + dx, ty = cy + dy;
+      const tile = map.tiles[ty]?.[tx];
+      if (!tile || !isRoadOrRiver(tile.type)) continue;
+      // Distance from the trunk to the cell centre (continuous), so the strip
+      // width is symmetric regardless of which cell the trunk floored into.
+      const ddx = (tx + 0.5) - x, ddy = (ty + 0.5) - y;
+      if (ddx * ddx + ddy * ddy <= r2) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Remove vegetation / terrain-feature entities sitting on a building footprint or
+ * within the road/river CORRIDOR (a dilation of the road/river cells by
+ * {@link CORRIDOR_CLEAR_RADIUS} — see above). Returns the number removed.
+ */
+export function clearObstructedVegetation(
+  world: World, map: GameMap, corridorRadius = CORRIDOR_CLEAR_RADIUS,
+): number {
   const toRemove: EntityId[] = [];
 
   for (const e of world.query({})) {
@@ -45,13 +78,12 @@ export function clearObstructedVegetation(world: World, map: GameMap): number {
     const tx = Math.floor(e.x);
     const ty = Math.floor(e.y);
 
-    const tile = map.tiles[ty]?.[tx];
-    const onRoadOrRiver = tile ? isRoadOrRiver(tile.type) : false;
+    const inCorridor = nearRoadOrRiver(map, e.x, e.y, corridorRadius);
     const onBuilding = world.registry
       .getAtTile(tx, ty)
       .some(b => b.id !== e.id && isBuilding(b));
 
-    if (onRoadOrRiver || onBuilding) toRemove.push(e.id);
+    if (inCorridor || onBuilding) toRemove.push(e.id);
   }
 
   for (const id of toRemove) world.removeEntity(id);

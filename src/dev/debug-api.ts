@@ -12,11 +12,12 @@
  * Capture lesson (see memory feedback-playwright-in-dev-loop): use `grab()`
  * (canvas → dataURL), NOT Playwright `page.screenshot()` which stalls headed.
  */
-import type { Camera, Entity } from '@/core/types';
+import type { Camera, Entity, DevModeState } from '@/core/types';
 import type { GameState } from '@/core/state';
 import type { QueryOpts } from '@/world/world';
 import { focusCameraOnTile } from '@/render/focus-camera';
 import { fitCameraToMap } from '@/render/fit-camera';
+import { RENDER_LAYERS, layerFlag, type RenderLayer } from '@/render/layer-visibility';
 import type { GameQuery } from '@/game/game-query';
 
 export interface DebugInventory {
@@ -53,6 +54,15 @@ export interface DebugApi {
   /** Adaptive-score control (P-A). `music()` → state; `music(true|false)` toggles;
    *  `music(0.5)` sets master volume. Returns the director's debug snapshot. */
   music(arg?: boolean | number | 'voice' | 'camera' | 'cinematic'): object;
+  /** Show/hide a render layer (dev). `layer()` → all visibilities; `layer('vegetation')`
+   *  toggles trees; `layer('roads', false)` hides. Layers: terrain, roads, rivers,
+   *  npcs, buildings, vegetation, props, terrainFeatures, decorations, remains. */
+  layer(name?: RenderLayer, visible?: boolean): boolean | Record<string, boolean>;
+  /** Convenience: show/hide vegetation (trees). No arg toggles. Returns visible. */
+  trees(visible?: boolean): boolean;
+  /** Regenerate a fresh world: clears the autosave slot and reloads (boot then seeds
+   *  anew). The ONLY way to see new worldgen — a stale autosave masks it. */
+  newWorld(): void;
 }
 
 export interface DebugApiDeps {
@@ -65,11 +75,25 @@ export interface DebugApiDeps {
   playStory: (storyletId: string) => boolean;
   /** Adaptive-score control (Game.presentation): toggle / set volume / inspect. */
   music: (arg?: boolean | number | 'voice' | 'camera' | 'cinematic') => object;
+  /** Live dev-mode state (render-layer flags live here). */
+  devMode: () => DevModeState;
+  /** Mark the next frame dirty after a dev mutation. */
+  requestRender: () => void;
+  /** Clear the autosave + reload for a fresh world (Game.newWorld). */
+  newWorld: () => void;
 }
 
 export function createDebugApi(deps: DebugApiDeps): DebugApi {
   const { query, state, viewport, playStory, music } = deps;
   const camera = (): Camera => state.camera;
+  const setLayer = (name: RenderLayer, visible?: boolean): boolean => {
+    const dm = deps.devMode();
+    const flag = layerFlag(name);
+    const next = visible === undefined ? dm[flag] === false : visible;
+    dm[flag] = next;
+    deps.requestRender();
+    return next;
+  };
 
   return {
     inventory(): DebugInventory {
@@ -138,6 +162,24 @@ export function createDebugApi(deps: DebugApiDeps): DebugApi {
 
     music(arg?: boolean | number | 'voice' | 'camera' | 'cinematic'): object {
       return music(arg);
+    },
+
+    layer(name?: RenderLayer, visible?: boolean): boolean | Record<string, boolean> {
+      if (!name) {
+        const dm = deps.devMode();
+        const out: Record<string, boolean> = {};
+        for (const l of RENDER_LAYERS) out[l] = dm[layerFlag(l)] !== false;
+        return out;
+      }
+      return setLayer(name, visible);
+    },
+
+    trees(visible?: boolean): boolean {
+      return setLayer('vegetation', visible);
+    },
+
+    newWorld(): void {
+      deps.newWorld();
     },
   };
 }

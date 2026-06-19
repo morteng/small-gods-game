@@ -27,6 +27,8 @@ import { LIT_WGSL } from '@/render/gpu/wgsl/lit-wgsl';
 import { TERRAIN_WGSL } from '@/render/gpu/wgsl/terrain-wgsl';
 import { WATER_WGSL } from '@/render/gpu/wgsl/water-wgsl';
 import { OCEAN_BACKDROP_WGSL } from '@/render/gpu/wgsl/ocean-backdrop-wgsl';
+import { RIBBON_WGSL } from '@/render/gpu/wgsl/ribbon-wgsl';
+import { RIBBON_FLOATS_PER_VERTEX, type RibbonMesh } from '@/render/ribbon/ribbon-geometry';
 import { SHADOW_WGSL } from '@/render/gpu/wgsl/shadow-wgsl';
 import { SHAPE_WGSL } from '@/render/gpu/wgsl/shape-wgsl';
 import { BLIT_WGSL } from '@/render/gpu/wgsl/blit-wgsl';
@@ -118,6 +120,18 @@ export class GpuScene {
   private lastWaterDeep: Uint32Array | null = null;
   private lastWaterClarity: Float32Array | null = null;
   private lastWaterShore: Float32Array | null = null;
+  // Ribbon pass (roads-epic T7): swept road/river ribbon meshes (`ribbon-geometry`)
+  // drawn as a terrain-following parametric surface. Reuses the terrain globals
+  // uniform + height buffer (binding 0/1) for the SAME lift+projection; binding 2
+  // is a small params block (time/kind). The vertex data is a per-world static
+  // mesh streamed into a grow-on-demand vertex buffer.
+  private ribbonPipeline: GPURenderPipeline;
+  private ribbonParamsBuf: GPUBuffer;
+  private ribbonBind: GPUBindGroup | null = null;
+  private ribbonBoundHeights: GPUBuffer | null = null;
+  private lastRibbonData: Float32Array | null = null;
+  private lastRibbonVbuf: GPUBuffer | null = null;
+  private ribbonVertexCount = 0;
   private depthTex: GPUTexture | null = null;
   private depthW = 0;
   private depthH = 0;
@@ -289,6 +303,47 @@ export class GpuScene {
       layout: this.oceanBackdropPipeline.getBindGroupLayout(0),
       entries: [{ binding: 0, resource: { buffer: this.waterGlobalsBuf } }],
     });
+
+    // Ribbon pipeline (T7): swept road/river ribbons. Interleaved vertex layout
+    // (RIBBON_FLOATS_PER_VERTEX f32): pos, across, along, width, tangent, speed,
+    // tag. Same depth contract as water (load terrain depth, greater-equal, no
+    // write) so the ribbon sits ON the ground without disturbing the entity depth
+    // reset. Alpha-blended so the feathered banks melt into the terrain.
+    const ribbonModule = device.createShaderModule({ code: RIBBON_WGSL });
+    const RBN_STRIDE = RIBBON_FLOATS_PER_VERTEX * 4;
+    this.ribbonPipeline = device.createRenderPipeline({
+      layout: 'auto',
+      vertex: {
+        module: ribbonModule,
+        entryPoint: 'vsMain',
+        buffers: [{
+          arrayStride: RBN_STRIDE,
+          attributes: [
+            { shaderLocation: 0, offset: 0, format: 'float32x2' },  // pos
+            { shaderLocation: 1, offset: 8, format: 'float32' },    // across
+            { shaderLocation: 2, offset: 12, format: 'float32' },   // along
+            { shaderLocation: 3, offset: 16, format: 'float32' },   // width
+            { shaderLocation: 4, offset: 20, format: 'float32x2' }, // tangent
+            { shaderLocation: 5, offset: 28, format: 'float32' },   // speed
+            { shaderLocation: 6, offset: 32, format: 'float32x2' }, // tag
+          ],
+        }],
+      },
+      fragment: {
+        module: ribbonModule,
+        entryPoint: 'fsMain',
+        targets: [{
+          format: gpu.format,
+          blend: {
+            color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' },
+            alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' },
+          },
+        }],
+      },
+      primitive: { topology: 'triangle-list' },
+      depthStencil: { format: DEPTH_FORMAT, depthWriteEnabled: false, depthCompare: 'greater-equal' },
+    });
+    this.ribbonParamsBuf = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 
     // Shadow union pipeline: parallelogram quads (4 corners) → premult black at
     // SHADOW_ALPHA straight onto the scene colour target, stencil-gated so each
@@ -705,6 +760,11 @@ export class GpuScene {
     terrain?: TerrainField | null;
     /** Blended water surface (S2) — drawn over terrain, under entities. */
     water?: WaterField | null;
+    /** Swept road/river ribbon mesh (T7) — drawn over terrain/water, under
+     *  entities. Tile-space; lifted + iso-projected on the GPU. */
+    ribbon?: RibbonMesh | null;
+    /** Render-clock seconds for ribbon flow animation (rivers). */
+    ribbonTime?: number;
     /** Screen-space UI geometry (S1) — drawn in its own pass over the entities. */
     uiGroups?: readonly UiDrawGroup[];
     /** P-E: when set, the scene passes render into a low-res target sized `w×h`
@@ -721,7 +781,7 @@ export class GpuScene {
     };
   }): void {
     const { device } = this;
-    const { items: rawItems, staticItems, lighting, w, h, xform, terrain, water, uiGroups, out, pixelOffset } = opts;
+    const { items: rawItems, staticItems, lighting, w, h, xform, terrain, water, ribbon, uiGroups, out, pixelOffset } = opts;
     const P = {
       terrain: opts.passes?.terrain ?? true,
       water: opts.passes?.water ?? true,
@@ -784,6 +844,39 @@ export class GpuScene {
       }
     }
 
+    // Ribbon mesh (T7): roads (+ rivers in R2). Needs the terrain height buffer
+    // (lift) + globals (projection), so it only runs when terrain did. Streamed
+    // into a persistent vertex buffer; the data is a per-world static mesh so the
+    // upload is skipped while the array identity is unchanged.
+    const hasRibbon = !!(hasTerrain && ribbon && ribbon.vertexCount > 0 && this.terrainHeightsBuf);
+    (globalThis as Record<string, unknown>).__ribbonDiag = {
+      hasRibbon, hasTerrain, vc: ribbon?.vertexCount ?? null,
+      terrHeights: !!this.terrainHeightsBuf, ribbonNull: ribbon == null,
+      sample: ribbon && ribbon.data.length >= 10 ? Array.from(ribbon.data.slice(0, 10)) : null,
+    };
+    if (hasRibbon) {
+      const rbuf = this.dynBuf('ribbon', ribbon!.data.byteLength);
+      if (ribbon!.data !== this.lastRibbonData || rbuf !== this.lastRibbonVbuf) {
+        device.queue.writeBuffer(rbuf, 0, ribbon!.data as GPUAllowSharedBufferSource);
+        this.lastRibbonData = ribbon!.data;
+        this.lastRibbonVbuf = rbuf;
+      }
+      if (!this.ribbonBind || this.ribbonBoundHeights !== this.terrainHeightsBuf) {
+        this.ribbonBind = device.createBindGroup({
+          layout: this.ribbonPipeline.getBindGroupLayout(0),
+          entries: [
+            { binding: 0, resource: { buffer: this.terrainGlobalsBuf } },
+            { binding: 1, resource: { buffer: this.terrainHeightsBuf! } },
+            { binding: 2, resource: { buffer: this.ribbonParamsBuf } },
+          ],
+        });
+        this.ribbonBoundHeights = this.terrainHeightsBuf;
+      }
+      device.queue.writeBuffer(this.ribbonParamsBuf, 0,
+        new Float32Array([opts.ribbonTime ?? 0, 0, 0, 0]));
+      this.ribbonVertexCount = ribbon!.vertexCount;
+    }
+
     // P-E: the scene passes target the low-res offscreen when `out` is set, then
     // a blit upscales it to the swapchain; otherwise they draw straight to it.
     // The infinite-ocean backdrop (pass 0) paints uniform open sea over everything
@@ -810,6 +903,7 @@ export class GpuScene {
     if (hasTerrain) this.passTerrain(ctx, terrain!);
     if (hasShadows) this.passShadows(ctx, !!staticItems, dynShadowBatches);
     if (hasWater) this.passWater(ctx, water!);
+    if (hasRibbon) this.passRibbon(ctx);
     this.passEntities(ctx, P.entities, dynBatches, combined, xform);
     if (out) this.passBlit(ctx, out, pixelOffset);
     if (P.ui && uiGroups && uiGroups.length > 0) this.passUi(ctx, uiGroups);
@@ -909,6 +1003,25 @@ export class GpuScene {
     wpass.setBindGroup(0, this.waterBind!);
     wpass.draw(water.vertexCount);
     wpass.end();
+    ctx.colorCleared = true;
+  }
+
+  /**
+   * Pass 1.8 — ribbons (roads/rivers; T7). Over terrain + water, BEFORE entities
+   * so buildings/trees/NPCs draw on top. Loads the terrain depth (greater-equal,
+   * no write — same contract as water) so it sits on the ground at its own cells
+   * without disturbing the depth the entity pass resets. Alpha-blended banks.
+   */
+  private passRibbon(ctx: PassCtx): void {
+    const rpass = ctx.enc.beginRenderPass({
+      colorAttachments: [{ view: ctx.colorView, clearValue: ctx.ocean, loadOp: ctx.colorCleared ? 'load' : 'clear', storeOp: 'store' }],
+      depthStencilAttachment: { view: ctx.depthView, depthLoadOp: 'load', depthStoreOp: 'store' },
+    });
+    rpass.setPipeline(this.ribbonPipeline);
+    rpass.setBindGroup(0, this.ribbonBind!);
+    rpass.setVertexBuffer(0, this.lastRibbonVbuf!);
+    rpass.draw(this.ribbonVertexCount);
+    rpass.end();
     ctx.colorCleared = true;
   }
 
