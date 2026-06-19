@@ -29,8 +29,7 @@ import { StaticDrawListCache } from '@/render/gpu/static-draw-list-cache';
 import { DEFAULT_LIGHTING } from '@/render/lighting-state';
 import { buildTerrainField, type TerrainField } from '@/render/gpu/terrain-field';
 import { buildWaterField, type WaterField } from '@/render/gpu/water-field';
-import { getHydrologyResult } from '@/world/hydrology-store';
-import { FlotsamSystem } from '@/water/water-flotsam';
+import { FlotsamLayer } from '@/render/gpu/flotsam-layer';
 import { drawWorldConnectome } from '@/render/connectome-overlay';
 import type { GpuScene } from '@/render/gpu/gpu-scene';
 import { AdaptiveResolution } from '@/render/gpu/adaptive-resolution';
@@ -89,10 +88,8 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
   const staticCache = new StaticDrawListCache();
   (window as unknown as { __invalidateDrawCache?: () => void }).__invalidateDrawCache =
     () => staticCache.invalidate();
-  // Cosmetic flow-advected particles (S6) — created on first frame from the map
-  // seed, stepped by wall-clock delta (pure render, never the sim clock).
-  let flotsam: FlotsamSystem | null = null;
-  let lastFlotsamTime = 0;
+  // Cosmetic flow-advected particles (S6), owning their own seed + step timing.
+  const flotsam = new FlotsamLayer();
   return function renderMap(ctx: CanvasRenderingContext2D, rc: RenderContext): void {
     if (profiling) return; // a profile run owns the GPU; skip the live frame
     const { camera, canvasWidth, canvasHeight, map } = rc;
@@ -169,14 +166,7 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
     // Appended after the entity list so they composite over the water; the
     // renderer doesn't terrain-lift `circle` items, so they keep their surface z.
     let dynamicItems: readonly DrawItem[] = npcItems;
-    if (water) {
-      const hydro = getHydrologyResult(map);
-      if (!flotsam) flotsam = new FlotsamSystem(map.seed);
-      const dt = lastFlotsamTime > 0 ? timeSec - lastFlotsamTime : 0;
-      lastFlotsamTime = timeSec;
-      flotsam.step(map, hydro, dt);
-      dynamicItems = [...npcItems, ...flotsam.drawItems(map, hydro)];
-    }
+    if (water) dynamicItems = [...npcItems, ...flotsam.items(map, timeSec)];
 
     const uiGroups = ui.frame(target.width, target.height, dpr);
     const tFields = performance.now();
