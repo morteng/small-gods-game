@@ -102,6 +102,7 @@ export class GpuScene {
   private waterShallowBuf: GPUBuffer | null = null;
   private waterDeepBuf: GPUBuffer | null = null;
   private waterClarityBuf: GPUBuffer | null = null;
+  private waterShoreBuf: GPUBuffer | null = null;
   private waterBind: GPUBindGroup | null = null;
   private waterCellCap = 0;
   private waterBoundHeights: GPUBuffer | null = null;
@@ -111,6 +112,7 @@ export class GpuScene {
   private lastWaterShallow: Uint32Array | null = null;
   private lastWaterDeep: Uint32Array | null = null;
   private lastWaterClarity: Float32Array | null = null;
+  private lastWaterShore: Float32Array | null = null;
   private depthTex: GPUTexture | null = null;
   private depthW = 0;
   private depthH = 0;
@@ -558,7 +560,7 @@ export class GpuScene {
     let realloc = false;
     if (!this.waterSurfaceBuf || cells > this.waterCellCap) {
       for (const b of [this.waterSurfaceBuf, this.waterTypeBuf, this.waterFlowBuf,
-        this.waterShallowBuf, this.waterDeepBuf, this.waterClarityBuf]) b?.destroy();
+        this.waterShallowBuf, this.waterDeepBuf, this.waterClarityBuf, this.waterShoreBuf]) b?.destroy();
       const storage = (n: number) => device.createBuffer({ size: n, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
       this.waterSurfaceBuf = storage(cells * 4);
       this.waterTypeBuf = storage(cells * 4);
@@ -566,6 +568,7 @@ export class GpuScene {
       this.waterShallowBuf = storage(cells * 4);
       this.waterDeepBuf = storage(cells * 4);
       this.waterClarityBuf = storage(cells * 4);
+      this.waterShoreBuf = storage(cells * 4);
       this.waterCellCap = cells;
       realloc = true;
     }
@@ -581,6 +584,7 @@ export class GpuScene {
           { binding: 5, resource: { buffer: this.waterShallowBuf! } },
           { binding: 6, resource: { buffer: this.waterDeepBuf! } },
           { binding: 7, resource: { buffer: this.waterClarityBuf! } },
+          { binding: 8, resource: { buffer: this.waterShoreBuf! } },
         ],
       });
       this.waterBoundHeights = this.terrainHeightsBuf;
@@ -608,6 +612,10 @@ export class GpuScene {
     if (realloc || water.clarity !== this.lastWaterClarity) {
       device.queue.writeBuffer(this.waterClarityBuf!, 0, water.clarity as GPUAllowSharedBufferSource);
       this.lastWaterClarity = water.clarity;
+    }
+    if (realloc || water.shoreDist !== this.lastWaterShore) {
+      device.queue.writeBuffer(this.waterShoreBuf!, 0, water.shoreDist as GPUAllowSharedBufferSource);
+      this.lastWaterShore = water.shoreDist;
     }
     return true;
   }

@@ -54,12 +54,59 @@ export interface WaterField {
   deep: Uint32Array;
   /** Per-cell water clarity 0..1 (S4) — blend depth + caustic reach. */
   clarity: Float32Array;
+  /** Per-cell distance to the nearest shore (land), in TILES; 0 on/at land,
+   *  growing offshore. Drives shoreward swell bands + the breaking-foam line. */
+  shoreDist: Float32Array;
   /** Wet cells in the field — the pass is skipped when 0. */
   wetCount: number;
   /** Vertices the grid-gen vertex shader draws (same LOD grid as terrain). */
   vertexCount: number;
   /** Packed water uniform (`WATER_GLOBALS_FLOATS`), ready to upload. */
   globals: Float32Array;
+}
+
+/**
+ * Per-water-cell distance to the nearest shore (land cell), in tiles, via a
+ * multi-source BFS seeded from every land cell (8-neighbour, so contours stay
+ * round-ish around an island). Land reads 0; a water cell touching land reads 1,
+ * and so on offshore. The shader bilinearly samples this so swell crests run
+ * parallel to the coast and roll shoreward — "waves washing ashore" keyed to the
+ * actual island shape. Cheap (one O(cells) sweep) and cached per map.
+ */
+export function computeShoreDist(width: number, height: number, waterMask: Uint8Array): Float32Array {
+  const cells = width * height;
+  const dist = new Float32Array(cells).fill(0);
+  // Frontier = land cells adjacent to water (the coastline). BFS outward INTO
+  // water only; land stays 0 (the shader never reads land cells).
+  const queue = new Int32Array(cells);
+  let head = 0, tail = 0;
+  const visited = new Uint8Array(cells);
+  for (let i = 0; i < cells; i++) {
+    if (waterMask[i]) continue;          // land: distance 0, a BFS source
+    visited[i] = 1;
+    queue[tail++] = i;
+  }
+  while (head < tail) {
+    const c = queue[head++];
+    const cx = c % width;
+    const cy = (c / width) | 0;
+    const d = dist[c] + 1;
+    for (let dy = -1; dy <= 1; dy++) {
+      const ny = cy + dy;
+      if (ny < 0 || ny >= height) continue;
+      for (let dx = -1; dx <= 1; dx++) {
+        if (dx === 0 && dy === 0) continue;
+        const nx = cx + dx;
+        if (nx < 0 || nx >= width) continue;
+        const ni = ny * width + nx;
+        if (visited[ni] || !waterMask[ni]) continue;
+        visited[ni] = 1;
+        dist[ni] = d;
+        queue[tail++] = ni;
+      }
+    }
+  }
+  return dist;
 }
 
 export interface BuildWaterFieldOpts {
@@ -84,6 +131,7 @@ interface WaterStatic {
   shallow: Uint32Array;
   deep: Uint32Array;
   clarity: Float32Array;
+  shoreDist: Float32Array;
   wetCount: number;
   vertexCount: number;
   subsample: number;
@@ -128,10 +176,11 @@ function waterStatic(map: GameMap, maxQuads?: number): WaterStatic {
   }
 
   const grid = terrainGrid(map.width, map.height, maxQuads);
+  const shoreDist = computeShoreDist(map.width, map.height, hydro.waterMask);
   const stat: WaterStatic = {
     surfaceW: hydro.surfaceW,
     waterType: Uint32Array.from(hydro.waterType),
-    flow, shallow, deep, clarity,
+    flow, shallow, deep, clarity, shoreDist,
     wetCount: wet,
     vertexCount: grid.vertexCount,
     subsample: grid.subsample,
@@ -165,6 +214,7 @@ export function buildWaterField(map: GameMap, opts: BuildWaterFieldOpts): WaterF
     shallow: stat.shallow,
     deep: stat.deep,
     clarity: stat.clarity,
+    shoreDist: stat.shoreDist,
     wetCount: stat.wetCount,
     vertexCount: stat.vertexCount,
     globals: packWaterGlobals(tg, [opts.timeSec ?? 0, SHALLOW_BAND_M, FOAM_BAND_M, 0]),
