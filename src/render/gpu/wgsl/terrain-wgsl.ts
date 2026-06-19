@@ -38,6 +38,45 @@ struct TGlobals {
 
 fn cellIdx(cx : u32, cy : u32) -> u32 { return cy * u32(G.uGrid.x) + cx; }
 
+fn unpackColor(rgba : u32) -> vec3<f32> {
+  let r = f32(rgba & 0xFFu) / 255.0;
+  let g = f32((rgba >> 8u) & 0xFFu) / 255.0;
+  let b = f32((rgba >> 16u) & 0xFFu) / 255.0;
+  return vec3<f32>(r, g, b);
+}
+
+// ── Bilinear field sampling (kills the per-cell DIAMOND look) ────────────────
+// The biome colour + material scalars used to be read from the NEAREST cell
+// (round vGrid), so every cell painted as a flat iso-diamond and biome borders
+// stepped along the grid. Sampling them BILINEARLY at the continuous fragment
+// position (the same way the height buffer already lifts geometry) dissolves the
+// diamonds into smooth gradients — terrain texturing now reads at pixel
+// resolution over the coarse cell grid, no subdivision needed.
+struct BiCell { x0 : u32, y0 : u32, x1 : u32, y1 : u32, tx : f32, ty : f32 }
+fn biCell(fx : f32, fy : f32) -> BiCell {
+  let W = u32(G.uGrid.x); let H = u32(G.uGrid.y);
+  let px = clamp(fx, 0.0, f32(W - 1u));
+  let py = clamp(fy, 0.0, f32(H - 1u));
+  let x0 = u32(floor(px)); let y0 = u32(floor(py));
+  var o : BiCell;
+  o.x0 = x0; o.y0 = y0;
+  o.x1 = min(x0 + 1u, W - 1u); o.y1 = min(y0 + 1u, H - 1u);
+  o.tx = px - f32(x0); o.ty = py - f32(y0);
+  return o;
+}
+fn sampleScalarBi(b : BiCell, fld : ptr<storage, array<f32>, read>) -> f32 {
+  let W = u32(G.uGrid.x);
+  let s00 = (*fld)[b.y0 * W + b.x0]; let s10 = (*fld)[b.y0 * W + b.x1];
+  let s01 = (*fld)[b.y1 * W + b.x0]; let s11 = (*fld)[b.y1 * W + b.x1];
+  return mix(mix(s00, s10, b.tx), mix(s01, s11, b.tx), b.ty);
+}
+fn sampleColorBi(b : BiCell) -> vec3<f32> {
+  let W = u32(G.uGrid.x);
+  let c00 = unpackColor(colors[b.y0 * W + b.x0]); let c10 = unpackColor(colors[b.y0 * W + b.x1]);
+  let c01 = unpackColor(colors[b.y1 * W + b.x0]); let c11 = unpackColor(colors[b.y1 * W + b.x1]);
+  return mix(mix(c00, c10, b.tx), mix(c01, c11, b.tx), b.ty);
+}
+
 // Cheap value noise for jittering material thresholds so edges wander (kills the
 // flat contour rings / square biome borders that betray procedural terrain).
 fn hash21(p : vec2<f32>) -> f32 {
@@ -124,28 +163,25 @@ fn vsMain(@builtin(vertex_index) vid : u32) -> VSOut {
   return out;
 }
 
-fn unpackColor(rgba : u32) -> vec3<f32> {
-  let r = f32(rgba & 0xFFu) / 255.0;
-  let g = f32((rgba >> 8u) & 0xFFu) / 255.0;
-  let b = f32((rgba >> 16u) & 0xFFu) / 255.0;
-  return vec3<f32>(r, g, b);
-}
-
 @fragment
 fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   let W = u32(G.uGrid.x);
   let H = u32(G.uGrid.y);
-  let cx = min(u32(in.vGrid.x + 0.5), W - 1u);
-  let cy = min(u32(in.vGrid.y + 0.5), H - 1u);
+  // Bilinear sample EVERY per-cell field at the continuous fragment position, so
+  // the biome colour + material bands cross-fade smoothly instead of snapping to
+  // iso-diamond cell borders. ci (nearest) is kept only for the seabed cull.
+  let bc = biCell(in.vGrid.x, in.vGrid.y);
+  let cx = bc.x0;
+  let cy = bc.y0;
   let ci = cellIdx(cx, cy);
-  let base = unpackColor(colors[ci]);            // biome albedo (the "ground" layer)
+  let base = sampleColorBi(bc);                  // biome albedo (the "ground" layer)
 
   let n = normalize(in.vNormal);
   let slope = clamp(1.0 - n.y, 0.0, 1.0);        // 0 flat → 1 vertical, free from normal
 
   // Shared-field reads: the material axis is computed downstream of the producers
   // (mountains/roads only wrote HEIGHT) so texturing stays consistent with biome.
-  let elev = heights[ci];
+  let elev = sampleScalarBi(bc, &heights);
   let seaLevel = G.uZParams.y;
   let aboveSea = elev - seaLevel;
 
