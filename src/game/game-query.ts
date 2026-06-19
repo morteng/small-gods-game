@@ -162,8 +162,15 @@ export interface GameQuery {
 
 export interface GameQueryDeps {
   state: GameState;
-  /** Browser-only; omit in Node tests → `screenshot()` returns ''. */
+  /** The on-screen scene canvas (WebGPU). Browser-only; omit in Node tests →
+   *  `screenshot()` returns ''. */
   canvas?: HTMLCanvasElement | null;
+  /** Capture provider: renders one fresh frame and composites scene+overlay into a
+   *  data URL. Supplied by Game — a WebGPU canvas can't be read between frames
+   *  (the swap chain detaches after present), so the grab must drawImage straight
+   *  after a synchronous render. Omitted ⇒ `screenshot()` falls back to
+   *  `canvas.toDataURL()`. */
+  capture?: () => string;
   /** Live transport rate (scheduler.getRate). Omit → reported as 0. */
   rate?: () => number;
   /** Scrub/tick window (TimelineController). Omit → live, no scrub. */
@@ -413,6 +420,9 @@ export function createGameQuery(deps: GameQueryDeps): GameQuery {
     },
 
     screenshot(): string {
+      // Prefer the capture provider (fresh render + scene/overlay composite); fall
+      // back to the raw canvas in environments that don't supply one.
+      if (deps.capture) return deps.capture();
       return deps.canvas ? deps.canvas.toDataURL('image/png') : '';
     },
   };

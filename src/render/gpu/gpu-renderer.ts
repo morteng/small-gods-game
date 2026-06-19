@@ -32,24 +32,29 @@ export interface GpuRenderDeps {
   /** Override the capability probe (tests). */
   probe?: () => boolean;
   /** Build the real WebGPU scene RenderFn. */
-  makeGpuScene?: () => Promise<RenderFn>;
+  makeGpuScene?: (canvas?: HTMLCanvasElement) => Promise<RenderFn>;
+  /** The on-screen canvas WebGPU binds to. The scene renders straight to its swap
+   *  chain (no offscreen copy). Omitted ⇒ an offscreen canvas is created (the old
+   *  blit-onto-2D path, kept for the studio + any caller that lacks a live canvas). */
+  canvas?: HTMLCanvasElement;
 }
 
 /**
- * Default GPU scene factory: create an overlay canvas, bring up WebGPU, and
- * build the real frame closure. Throws on any unavailability (no document, no
- * adapter/device) so `createGpuRenderMap` reports `unavailable`. In Node/jsdom
- * there's no real WebGPU, so this throws.
+ * Default GPU scene factory: bind WebGPU to the supplied on-screen canvas (or an
+ * offscreen one when none is given), bring up the device, and build the frame
+ * closure. Throws on any unavailability (no document, no adapter/device) so
+ * `createGpuRenderMap` reports `unavailable`. In Node/jsdom there's no real
+ * WebGPU, so this throws.
  */
-async function defaultGpuScene(): Promise<RenderFn> {
+async function defaultGpuScene(canvas?: HTMLCanvasElement): Promise<RenderFn> {
   if (typeof document === 'undefined') throw new Error('no document for GPU canvas');
-  const canvas = document.createElement('canvas');
+  const target = canvas ?? document.createElement('canvas');
   const { initWebGpu } = await import('@/render/gpu/webgpu-context');
-  const gpu = await initWebGpu(canvas);
+  const gpu = await initWebGpu(target);
   if (!gpu) throw new Error('WebGPU init returned null');
   const { GpuScene } = await import('@/render/gpu/gpu-scene');
   const { buildGpuRenderFrame } = await import('@/render/gpu/gpu-render-frame');
-  return buildGpuRenderFrame(new GpuScene(gpu), canvas);
+  return buildGpuRenderFrame(new GpuScene(gpu), target);
 }
 
 /** A RenderFn that paints an honest "WebGPU required" message — used when the
@@ -87,7 +92,7 @@ export async function createGpuRenderMap(
     return { render: unavailableRenderFn('This browser does not expose navigator.gpu.'), backend: 'unavailable' };
   }
   try {
-    return { render: await makeGpuScene(), backend: 'webgpu' };
+    return { render: await makeGpuScene(deps.canvas), backend: 'webgpu' };
   } catch (err) {
     const reason = err instanceof Error ? err.message : 'GPU initialisation failed.';
     return { render: unavailableRenderFn(reason), backend: 'unavailable' };

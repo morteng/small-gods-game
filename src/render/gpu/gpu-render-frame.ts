@@ -1,11 +1,13 @@
 // src/render/gpu/gpu-render-frame.ts
 //
-// R2d-integrate — the game frame through the WebGPU scene. The GPU now draws
-// BOTH the terrain heightfield mesh (lifted geometry, R2d) AND the y-sorted
-// entity draw list, composited onto an overlay WebGPU canvas that's blitted over
-// the Canvas2D background device-pixel to device-pixel (the same blit the Pixi
-// layer used). Only overlays remain on Canvas2D. (R2c-integrate first put the
-// entities here over a Canvas2D terrain; R2d moved terrain onto the GPU too.)
+// R2d-integrate — the game frame through the WebGPU scene. The GPU draws BOTH the
+// terrain heightfield mesh (lifted geometry, R2d) AND the y-sorted entity draw
+// list STRAIGHT to `sceneCanvas`'s swap chain — the on-screen scene canvas. The
+// old offscreen-canvas + per-frame `ctx.drawImage` composite onto a 2D main
+// canvas is GONE (the "Canvas2D seam" collapse): a transparent Canvas2D overlay
+// is stacked above the scene canvas for the few 2D overlays (perf HUD, connectome),
+// so there's no copy between them. (R2c-integrate first put the entities over a
+// Canvas2D terrain; R2d moved terrain onto the GPU; the seam collapse removed the blit.)
 //
 // Draw list + terrain mesh are authored in WORLD coordinates; the scene bakes
 // the camera's world→device transform (zoom + snapped offset × DPR) into the
@@ -34,8 +36,6 @@ import { AdaptiveResolution } from '@/render/gpu/adaptive-resolution';
 import { computeView, installRenderProfiler, frameTrace, type LastFrame } from '@/render/gpu/render-profiler';
 import { getUiRuntime } from '@/render/ui/ui-runtime';
 
-const BG_COLOR = '#1a1a24';
-
 /** `?connectome` shows the whole-world graph overlay (POIs, roads, settlements). */
 function connectomeRequested(): boolean {
   try { return new URLSearchParams(window.location.search).has('connectome'); }
@@ -57,11 +57,14 @@ function artPixelOverride(): number | null {
 
 
 /**
- * Build the `?render=gpu` frame closure over a ready GpuScene and its overlay
- * canvas. The overlay is resized to the main canvas's device backing size each
- * frame; WebGPU tracks the canvas size, so its swap chain follows.
+ * Build the game frame closure over a ready GpuScene and the on-screen SCENE
+ * canvas it renders to. `ctx` (passed per frame) is the transparent 2D OVERLAY
+ * canvas stacked above the scene canvas — the scene draws straight to its swap
+ * chain, the overlay only carries the perf HUD + `?connectome` graph. The scene
+ * canvas's device backing is kept in sync with the overlay each frame; WebGPU
+ * tracks the canvas size, so the swap chain follows.
  */
-export function buildGpuRenderFrame(scene: GpuScene, gpuCanvas: HTMLCanvasElement): RenderFn {
+export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElement): RenderFn {
   const atlas = createNullAtlas();
   const showConnectome = connectomeRequested();
   const fixedPx = artPixelOverride();
@@ -95,9 +98,11 @@ export function buildGpuRenderFrame(scene: GpuScene, gpuCanvas: HTMLCanvasElemen
   return function renderMap(ctx: CanvasRenderingContext2D, rc: RenderContext): void {
     if (profiling) return; // a profile run owns the GPU; skip the live frame
     const { camera, canvasWidth, canvasHeight, map } = rc;
-    const target = ctx.canvas;
-    // The context carries an outer devicePixelRatio scale; recover it from the
-    // backing-store size so the overlay and transform land on device pixels.
+    // `target` is the SCENE canvas (the WebGPU swap chain we render into); `ctx` is
+    // the transparent 2D overlay above it. They share a device-pixel backing size.
+    const target = sceneCanvas;
+    // The overlay ctx carries an outer devicePixelRatio scale; recover it from the
+    // backing-store size so the transform lands on device pixels.
     const dpr = canvasWidth > 0 ? target.width / canvasWidth : 1;
 
     // Target is TRUE 1:1 (one art texel per CSS px). The adaptive controller holds
@@ -110,9 +115,10 @@ export function buildGpuRenderFrame(scene: GpuScene, gpuCanvas: HTMLCanvasElemen
     lastFrameStart = nowMs;
     const px = fixedPx ?? adaptive.step(frameDt);
 
-    // Background only — terrain + entities both render on the GPU now (R2d).
-    ctx.fillStyle = BG_COLOR;
-    ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+    // Wipe the transparent overlay so last frame's HUD/connectome don't smear; the
+    // GPU scene (which clears to deep-ocean) shows through everywhere the overlay
+    // doesn't draw. No background fill here — that's the scene's clear colour now.
+    ctx.clearRect(0, 0, canvasWidth, canvasHeight);
 
     const tPhase0 = performance.now();
     const bounds = visibleTileBounds(
@@ -141,11 +147,8 @@ export function buildGpuRenderFrame(scene: GpuScene, gpuCanvas: HTMLCanvasElemen
     const npcItems = buildEntityDrawList(rc, bounds, ic, { only: 'npcs' });
     const tDrawList = performance.now();
 
-    // GPU terrain + entity passes → overlay canvas, composited identity (device→device).
-    if (gpuCanvas.width !== target.width || gpuCanvas.height !== target.height) {
-      gpuCanvas.width = target.width;
-      gpuCanvas.height = target.height;
-    }
+    // GPU terrain + entity passes render straight to the scene canvas's swap chain
+    // (sized by Game.resize). No offscreen canvas, no per-frame composite.
     const lighting = rc.lighting ?? DEFAULT_LIGHTING;
     // P-E: render the scene into a low-res target (`S` device px per art texel,
     // integer for crisp nearest upscaling), then blit up to the device. The
@@ -200,11 +203,8 @@ export function buildGpuRenderFrame(scene: GpuScene, gpuCanvas: HTMLCanvasElemen
       items: dynamicItems, staticItems: staticList,
     };
 
-    ctx.save();
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(gpuCanvas, 0, 0);
-    ctx.restore();
+    // No composite: the scene is already on screen (its own swap chain). The 2D
+    // overlays draw straight onto the transparent overlay ctx above it.
     const tComposite = performance.now();
 
     drawIsoOverlays(ctx, rc);

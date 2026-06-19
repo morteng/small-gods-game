@@ -97,7 +97,15 @@ function hasQueryFlag(flag: string): boolean {
 
 export class Game {
   private container: HTMLElement;
+  /** The interactive WebGPU scene canvas (bottom layer). All pointer input, the
+   *  WebGPU swap chain and coordinate math reference THIS canvas. Never gets a 2D
+   *  context — the scene renders straight to its swap chain (no offscreen copy). */
   private canvas: HTMLCanvasElement;
+  /** Transparent Canvas2D overlay stacked ON TOP of the scene canvas
+   *  (pointer-events:none, so clicks fall through to the scene). Holds the 2D
+   *  overlays the WebGPU-only decree explicitly keeps on 2D-ctx: perf HUD, divine
+   *  effects, the cast-flash, dev overlays and the `?connectome` graph. */
+  private overlayCanvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
   private state: GameState;
   private scheduler: Scheduler;
@@ -298,18 +306,28 @@ export class Game {
     } catch (err) {
       console.warn('[llm] capable client not built at boot:', err);
     }
+    // Scene canvas (bottom): the WebGPU swap chain renders straight to it — no
+    // offscreen canvas, no per-frame drawImage copy. It is the interactive layer.
     this.canvas = document.createElement('canvas');
-    this.canvas.style.width = '100%';
-    this.canvas.style.height = '100%';
-    this.canvas.style.display = 'block';
+    this.canvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:block';
     container.appendChild(this.canvas);
-    this.ctx = this.canvas.getContext('2d')!;
+
+    // Overlay canvas (top): transparent 2D-ctx layer for the few overlays the
+    // WebGPU-only decree keeps on Canvas2D. pointer-events:none so input reaches
+    // the scene canvas underneath; it never clears to an opaque colour, so the
+    // GPU scene shows through everywhere it doesn't draw.
+    this.overlayCanvas = document.createElement('canvas');
+    this.overlayCanvas.style.cssText =
+      'position:absolute;inset:0;width:100%;height:100%;display:block;pointer-events:none';
+    container.appendChild(this.overlayCanvas);
+    this.ctx = this.overlayCanvas.getContext('2d')!;
 
     // S0 command/query bus: the read facade + the unified seam a UI/MCP bridge
     // consumes. Built over the already-owned state/queue; __debug shims onto it.
     this.query = createGameQuery({
       state: this.state,
       canvas: this.canvas,
+      capture: () => this.captureFrame(),
       rate: () => this.scheduler.getRate(),
       timeline: this.timeline,
     });
@@ -773,6 +791,27 @@ export class Game {
     };
   }
 
+  /**
+   * Capture the current frame as a PNG data URL (the `query.screenshot()` / dev
+   * `grab()` backend). A WebGPU canvas can't be read between frames — the swap
+   * chain detaches after present — so we render ONE fresh frame and `drawImage`
+   * the scene + overlay into a temp 2D canvas synchronously, while the swap chain
+   * texture is still live in this call stack (the same timing the old in-loop
+   * composite relied on). Returns '' before the renderer/world exist.
+   */
+  private captureFrame(): string {
+    if (!this.renderMap || !this.state.map) return '';
+    this.renderer.render(0);
+    const tmp = document.createElement('canvas');
+    tmp.width = this.canvas.width;
+    tmp.height = this.canvas.height;
+    const t = tmp.getContext('2d');
+    if (!t) return '';
+    t.drawImage(this.canvas, 0, 0);          // WebGPU scene (fresh this frame)
+    t.drawImage(this.overlayCanvas, 0, 0);   // 2D overlays (HUD, connectome)
+    return tmp.toDataURL('image/png');
+  }
+
   /** Stable debug surface for console/Playwright/MCP (see src/dev/debug-api.ts). */
   debug(): DebugApi {
     return createDebugApi({
@@ -828,9 +867,16 @@ export class Game {
 
   private resize(): void {
     const rect = this.container.getBoundingClientRect();
-    this.canvas.width = rect.width * devicePixelRatio;
-    this.canvas.height = rect.height * devicePixelRatio;
-    this.ctx.scale(devicePixelRatio, devicePixelRatio);
+    const dw = rect.width * devicePixelRatio;
+    const dh = rect.height * devicePixelRatio;
+    // Both layers share the device-pixel backing size: the scene canvas drives the
+    // WebGPU swap chain, the overlay matches it 1:1 so 2D overlays land on the same
+    // pixels. setTransform (not scale) resets first so repeated resizes don't stack.
+    this.canvas.width = dw;
+    this.canvas.height = dh;
+    this.overlayCanvas.width = dw;
+    this.overlayCanvas.height = dh;
+    this.ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
     this.requestRender();  // a resized canvas is blank until the next draw
   }
 
@@ -842,7 +888,7 @@ export class Game {
     initManifoldWasm();
     bootMark('engine');
     loading.setProgress(0.22, 'Preparing the canvas…');
-    this.renderMap = await selectRenderer();
+    this.renderMap = await selectRenderer(this.canvas);
     bootMark('renderer');
     loading.setProgress(0.38, 'Loading the art library…');
     const baseLibrary = await loadBaseLibrary();
@@ -975,6 +1021,7 @@ export class Game {
     this.chrome.dispose();
     this.dev.destroy();
     this.canvas.remove();
+    this.overlayCanvas.remove();
   }
 }
 
