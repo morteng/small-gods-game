@@ -188,6 +188,10 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   let ci = in.vCell;
   let typ = wtype[ci];
   if (typ == 0u) { discard; }
+  // Rivers (typ 3) now render as smooth terrain-following RIBBONS (ribbon-wgsl),
+  // not per-cell water — so the blocky grid-channel never shows under the ribbon.
+  // Ocean (1) + lakes (2) stay per-cell here.
+  if (typ == 3u) { discard; }
 
   // Smooth (bilinear) bed height → continuous depth, no per-cell diamond facets.
   let depthM = max(surfaceW[ci] - sampleTerrainH(in.vGrid.x, in.vGrid.y), 0.0) * G.uZParams.z;

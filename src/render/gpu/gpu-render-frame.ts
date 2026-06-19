@@ -30,7 +30,8 @@ import { DEFAULT_LIGHTING } from '@/render/lighting-state';
 import { buildTerrainField, type TerrainField } from '@/render/gpu/terrain-field';
 import { buildWaterField, type WaterField } from '@/render/gpu/water-field';
 import { buildRoadRibbonMeshMemo } from '@/render/ribbon/road-ribbon-field';
-import type { RibbonMesh } from '@/render/ribbon/ribbon-geometry';
+import { buildRiverRibbonMeshMemo } from '@/render/ribbon/river-ribbon-field';
+import { concatRibbonMeshes, type RibbonMesh } from '@/render/ribbon/ribbon-geometry';
 import { FlotsamLayer } from '@/render/gpu/flotsam-layer';
 import { drawWorldConnectome } from '@/render/connectome-overlay';
 import type { GpuScene } from '@/render/gpu/gpu-scene';
@@ -164,11 +165,15 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
       ? buildWaterField(map, { viewport: [lowW, lowH], xform, lighting, timeSec })
       : null;
 
-    // Road/river ribbons (T7): swept terrain-following meshes drawn over terrain +
-    // water, under entities. Memoised per road-graph identity; hidden with the
-    // 'roads' layer. (Rivers join this mesh in R2.)
-    const ribbon: RibbonMesh | null = (terrain && !isLayerHidden('roads', rc.devMode))
-      ? buildRoadRibbonMeshMemo(map.roadGraph)
+    // Road/river ribbons (T7/R2): swept terrain-following meshes drawn over terrain
+    // + water, under entities — roads (hidden with 'roads') and rivers (hidden with
+    // 'rivers') concatenated into ONE pass; the per-vertex tag.y tells them apart.
+    const roadMesh = (terrain && !isLayerHidden('roads', rc.devMode))
+      ? buildRoadRibbonMeshMemo(map.roadGraph) : null;
+    const riverMesh = (terrain && !isLayerHidden('rivers', rc.devMode))
+      ? buildRiverRibbonMeshMemo(map) : null;
+    const ribbon: RibbonMesh | null = (roadMesh || riverMesh)
+      ? concatRibbonMeshes([roadMesh, riverMesh].filter(Boolean) as RibbonMesh[])
       : null;
 
     // Flotsam/fauna (S6): step + emit cosmetic circles on the water surface.

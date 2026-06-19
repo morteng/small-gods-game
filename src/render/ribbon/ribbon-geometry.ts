@@ -253,3 +253,17 @@ export function buildRibbonMesh(specs: RibbonSpec[]): RibbonMesh {
   }
   return { data: new Float32Array(arr), vertexCount: arr.length / RIBBON_FLOATS_PER_VERTEX };
 }
+
+/** Concatenate ribbon meshes into one interleaved buffer (e.g. roads + rivers
+ *  drawn in a single ribbon pass; the per-vertex tag tells the shader them apart). */
+export function concatRibbonMeshes(meshes: RibbonMesh[]): RibbonMesh {
+  const live = meshes.filter((m) => m.vertexCount > 0);
+  if (live.length === 0) return { data: new Float32Array(0), vertexCount: 0 };
+  if (live.length === 1) return live[0];
+  let total = 0;
+  for (const m of live) total += m.data.length;
+  const data = new Float32Array(total);
+  let off = 0;
+  for (const m of live) { data.set(m.data, off); off += m.data.length; }
+  return { data, vertexCount: total / RIBBON_FLOATS_PER_VERTEX };
+}

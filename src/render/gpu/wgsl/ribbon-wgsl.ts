@@ -129,6 +129,29 @@ const MORTAR= vec3<f32>(0.24, 0.23, 0.21);
 @fragment
 fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   let aa = abs(in.vAcross);
+
+  // tag.y selects the feature program: 1 = river, 0 = road. uTime drives the river
+  // flow (and keeps the RParams binding live under the auto bind-group layout).
+  if (in.vTag.y > 0.5) {
+    // ── RIVER ── flow advected ALONG the centerline (downstream by construction of
+    // the traced polyline), depth-tinted across, with bank + whitewater foam.
+    let dwn = in.vAlong - R.uTime * (0.3 + in.vSpeed * 0.7);
+    let ripple = fbm(vec2<f32>(in.vAlong * 1.6 + dwn, in.vAcross * 3.0));
+    var rcol = mix(vec3<f32>(0.09, 0.26, 0.32), vec3<f32>(0.15, 0.41, 0.47), ripple); // deep→lit
+    let streak = smoothstep(0.62, 0.96, fract(dwn * 0.6));
+    rcol += vec3<f32>(streak * 0.05);
+    let bankFoam = smoothstep(0.66, 1.0, aa) * (0.45 + 0.55 * ripple);
+    let white = smoothstep(0.9, 1.7, in.vSpeed)
+              * smoothstep(0.45, 0.85, fbm(vec2<f32>(in.vAlong * 2.2 - R.uTime * (0.5 + in.vSpeed), in.vAcross * 2.0)));
+    rcol = mix(rcol, vec3<f32>(0.85, 0.92, 0.95), max(bankFoam * 0.5, white * 0.65));
+    let rRagged = (fbm(in.vGrid * 1.7) - 0.5) * 0.08;
+    let rAlpha = smoothstep(1.0, 0.82, aa + rRagged);
+    let rNdl = max(G.uSun.y, 0.0) / max(length(G.uSun.xyz), 1e-3);
+    let rBands = max(1.0, G.uSun.w);
+    let rLight = G.uAmbient.xyz + vec3<f32>(G.uAmbient.w) * (floor(rNdl * rBands + 0.5) / rBands);
+    return vec4<f32>(rcol * rLight * rAlpha, rAlpha);
+  }
+
   // tag.x = road TIER (0 path · 1 rutted track · 2 packed road · 3 cobbled+curb).
   let tier = i32(in.vTag.x + 0.5);
 
@@ -182,14 +205,6 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
       // Packed ROAD: a little pale gravel speckle for a maintained surface.
       col = mix(col, vec3<f32>(0.55, 0.50, 0.42), smoothstep(0.7, 0.95, vnoise(in.vGrid * 7.0)) * 0.25);
     }
-  }
-
-  // River branch (R2): kind is a runtime uniform so this can't be folded away —
-  // it both reserves the flow shading and keeps binding 2 (RParams) live under the
-  // auto bind-group layout. Roads run with uKind = 0, so this never triggers yet.
-  if (R.uKind > 0.5) {
-    let flow = fract(in.vAlong * 0.5 - R.uTime * (0.2 + in.vSpeed));
-    col = mix(col, vec3<f32>(0.55, 0.70, 0.78), smoothstep(0.45, 0.5, flow) * 0.3);
   }
 
   // Flat banded lighting (ribbon rides graded ~level ground, normal ≈ up) so it
