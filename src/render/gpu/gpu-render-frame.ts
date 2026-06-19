@@ -17,7 +17,7 @@
 // and entities ride the terrain surface (foot-z lift, `terrain-lift.ts`), so the
 // GPU path matches the Canvas2D/Pixi entity passes.
 
-import type { RenderContext, GameMap } from '@/core/types';
+import type { RenderContext } from '@/core/types';
 import type { DrawItem } from '@/render/iso/draw-list';
 import type { RenderFn } from '@/render/select-renderer';
 import { drawIsoOverlays } from '@/render/iso/iso-overlay';
@@ -25,6 +25,7 @@ import { createNullAtlas } from '@/render/iso/iso-atlas';
 import { visibleTileBounds } from '@/render/iso/iso-projection';
 import { isLayerHidden } from '@/render/layer-visibility';
 import { buildEntityDrawList } from '@/render/iso/entity-draw-list';
+import { StaticDrawListCache } from '@/render/gpu/static-draw-list-cache';
 import { DEFAULT_LIGHTING } from '@/render/lighting-state';
 import { buildTerrainField, type TerrainField } from '@/render/gpu/terrain-field';
 import { buildWaterField, type WaterField } from '@/render/gpu/water-field';
@@ -81,17 +82,13 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
   let profiling = false;
   installRenderProfiler(scene, () => lastFrame, (on) => { profiling = on; });
 
-  // Entity draw-list cache (perf): at WIDE zoom (most of the map visible) the
-  // draw list is camera-independent, so build it UNCULLED once and reuse it
-  // across pan/zoom — that kills the ~293ms/frame rebuild over ~10k flora the
-  // profiler found. At narrow zoom the culled per-frame path stays (cheap, no
-  // regression). Invalidated by a coarse key today; the regional dirty-region
-  // substrate (docs) will drive precise invalidation as effects (digs/craters)
-  // land. `window.__invalidateDrawCache()` is the manual/seam escape hatch.
-  let cachedList: DrawItem[] | null = null;
-  let cacheKey = '';
+  // Static (camera-independent) draw layer, cached — built UNCULLED once and reused
+  // across pan/zoom so the ~293ms/frame rebuild over ~10k flora the profiler found
+  // is paid once, not per frame. `window.__invalidateDrawCache()` is the manual/seam
+  // escape hatch the dirty-region substrate (docs) will drive.
+  const staticCache = new StaticDrawListCache();
   (window as unknown as { __invalidateDrawCache?: () => void }).__invalidateDrawCache =
-    () => { cachedList = null; cacheKey = ''; };
+    () => staticCache.invalidate();
   // Cosmetic flow-advected particles (S6) — created on first frame from the map
   // seed, stepped by wall-clock delta (pure render, never the sim clock).
   let flotsam: FlotsamSystem | null = null;
@@ -131,20 +128,13 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
     const ic = { atlas, originX: 0, originY: 0, npcSheets: rc.npcSheets, treeSheets: rc.treeSheets };
 
     // Static layer (flora/buildings/deco/roads) is camera-independent and changes
-    // only when the world does — build it UNCULLED once and cache it, so the
-    // ~293ms/frame rebuild over ~10k flora the profiler found is paid once, not
-    // per frame. The moving NPC layer is re-emitted cheaply every frame and
-    // appended (it draws over static — exact depth interleave is a follow-up).
-    const key = drawCacheKey(rc, map);
-    if (!cachedList || cacheKey !== key) {
-      const full = { minTx: 0, minTy: 0, maxTx: map.width - 1, maxTy: map.height - 1 };
-      cachedList = buildEntityDrawList(rc, full, ic, { only: 'static' });
-      cacheKey = key;
-    }
-    // The static layer flows to the scene AS the cached array (its identity is the
-    // bundle's cache key — a new array only when the world changed). The dynamic
-    // layer (NPCs, + flotsam below) is packed per frame.
-    const staticList: DrawItem[] = cachedList;
+    // only when the world does — the cache builds it UNCULLED once and reuses it,
+    // so the ~293ms/frame rebuild over ~10k flora the profiler found is paid once.
+    // Its array identity is stable across reuse (a new array only when the world
+    // changed), so the scene can key the instance pack off it. The moving NPC layer
+    // is re-emitted cheaply every frame and appended (it draws over static — exact
+    // depth interleave is a follow-up).
+    const staticList: DrawItem[] = staticCache.get(rc, map, ic);
     const npcItems = buildEntityDrawList(rc, bounds, ic, { only: 'npcs' });
     const tDrawList = performance.now();
 
@@ -228,23 +218,6 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
     fpsEma = fpsEma > 0 ? fpsEma * 0.9 + fps * 0.1 : fps;
     drawPerfHud(ctx, canvasWidth, fpsEma, px, fixedPx !== null);
   };
-}
-
-/**
- * Coarse invalidation key for the cached STATIC draw layer. Camera AND NPCs are
- * deliberately EXCLUDED — the static list is unculled (camera-independent) and
- * NPCs render in a separate per-frame layer, so neither should bust the cache.
- * Keyed on map identity + layer-visibility flags + building render mode.
- * Static-entity edits (author add/move, settlement growth) don't change this key
- * yet — the regional dirty-region substrate (docs) will drive precise
- * invalidation; `__invalidateDrawCache()` is the interim escape hatch.
- */
-function drawCacheKey(rc: RenderContext, map: GameMap): string {
-  const dm = rc.devMode;
-  const layers = `${+isLayerHidden('buildings', dm)}${+isLayerHidden('vegetation', dm)}`
-    + `${+isLayerHidden('terrain', dm)}`;
-  const mode = dm?.buildingRenderMode ?? 'auto';
-  return `${map.width}x${map.height}#${map.seed}:${layers}:${mode}`;
 }
 
 /** Tiny top-right pill: "60 fps · px 1" (adaptive) or "· px 2 (fixed)". */
