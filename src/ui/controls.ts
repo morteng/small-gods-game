@@ -28,9 +28,15 @@ export interface ControlsCallbacks {
 }
 
 // --- Wheel / trackpad zoom tuning -------------------------------------------
-// Continuous pinch-zoom sensitivity per (deltaMode-normalized) pixel of pinch.
-// The effective per-gesture zoom is exp(-Σdy·k), so total zoom tracks the pinch.
+// Continuous-zoom sensitivity per (deltaMode-normalized) pixel. The effective
+// per-gesture zoom is exp(-Σdy·k), so total zoom tracks the input. Pinch and wheel
+// get DIFFERENT constants because their delta scales differ by ~20×: a trackpad
+// pinch streams small deltas, while one mouse-wheel notch is a ±100 chunk. Sharing
+// the pinch value would make a single notch zoom ~39% (jarring, and it trips the
+// clamp below); the gentler wheel value gives ~22%/notch and stays unclamped so
+// repeated notches compose proportionally.
 const ZOOM_SENS_PINCH = 0.005;   // Mac trackpad pinch (ctrlKey wheel, small deltas) — tune on real hardware
+const ZOOM_SENS_WHEEL = 0.0025;  // physical mouse wheel (coarse ±100 notches)
 // No single wheel event may zoom more than this factor (guards giant deltas).
 const ZOOM_FACTOR_CLAMP = 1.6;
 // Snapped (iso) zoom: scroll distance accumulated before stepping one rung.
@@ -48,6 +54,23 @@ function normalizeWheelDeltaX(e: WheelEvent, canvas: HTMLCanvasElement): number 
   if (e.deltaMode === 1) return e.deltaX * 16;                      // lines → px
   if (e.deltaMode === 2) return e.deltaX * (canvas.clientWidth || 1200); // pages → px
   return e.deltaX;
+}
+
+/**
+ * Heuristically tell a physical MOUSE WHEEL from a trackpad two-finger SCROLL.
+ * Both fire `wheel` without `ctrlKey` (a trackpad PINCH carries `ctrlKey` and is
+ * handled separately, so it never reaches here). A wheel fires coarse, vertical-
+ * only notches — a line/page `deltaMode`, or pixel-mode with no horizontal
+ * component and an integer `deltaY`. A trackpad pan streams fine, frequently
+ * fractional deltas, often with a horizontal component. Imperfect (a pure-vertical
+ * trackpad swipe that happens to emit whole-pixel deltas can read as a wheel), but
+ * pinch — the trackpad's actual zoom gesture — is unaffected, and this restores
+ * the standard desktop "wheel zooms" behaviour.
+ */
+function isMouseWheel(e: WheelEvent): boolean {
+  if (e.deltaMode !== 0) return true;   // lines/pages ⇒ classic wheel
+  if (e.deltaX !== 0) return false;     // horizontal component ⇒ trackpad pan
+  return Number.isInteger(e.deltaY);    // fractional ⇒ trackpad; integer ⇒ wheel
 }
 
 const TEXT_INPUT_TAGS = new Set(['INPUT', 'TEXTAREA', 'SELECT']);
@@ -141,12 +164,12 @@ export function attachControls(canvas: HTMLCanvasElement, camera: Camera, callba
     const cx = e.clientX - rect.left;
     const cy = e.clientY - rect.top;
 
-    // Trackpad gesture split: a PINCH arrives as a wheel event with `ctrlKey`
-    // synthesized by the browser → that ZOOMS (about the cursor). A plain
-    // two-finger scroll (no ctrlKey) PANS in both axes — the canvas follows the
-    // fingers like grabbing the map. (A bare mouse wheel has no ctrlKey, so it
-    // pans vertically; pinch is the only zoom path now, per design.)
-    if (!e.ctrlKey) {
+    // Gesture split. A trackpad PINCH arrives as a wheel event with `ctrlKey`
+    // synthesized by the browser → ZOOM (about the cursor). A physical MOUSE WHEEL
+    // (no ctrlKey, but coarse/vertical/integer) also ZOOMS — the standard desktop
+    // map control. A trackpad two-finger SCROLL (no ctrlKey, fine/fractional/
+    // horizontal) PANS in both axes, the canvas following the fingers.
+    if (!e.ctrlKey && !isMouseWheel(e)) {
       const dx = normalizeWheelDeltaX(e, canvas);
       const dy = normalizeWheelDeltaY(e, canvas);
       pan(camera, -dx, -dy);
@@ -169,10 +192,12 @@ export function attachControls(canvas: HTMLCanvasElement, camera: Camera, callba
         wheelAccum -= Math.sign(wheelAccum) * QUANTIZED_STEP_PX;
       }
     } else {
-      // Continuous (GPU/topdown) pinch-zoom: factor proportional to the pinch
-      // MAGNITUDE. Exponential mapping keeps zoom perceptually uniform; the
-      // product across a gesture's events is exp(-Σdy·k).
-      let factor = Math.exp(-dy * ZOOM_SENS_PINCH);
+      // Continuous (GPU/topdown) zoom: factor proportional to the gesture
+      // MAGNITUDE, with a wheel-vs-pinch sensitivity (their delta scales differ).
+      // Exponential mapping keeps zoom perceptually uniform; the product across a
+      // gesture's events is exp(-Σdy·k).
+      const sens = isMouseWheel(e) ? ZOOM_SENS_WHEEL : ZOOM_SENS_PINCH;
+      let factor = Math.exp(-dy * sens);
       factor = Math.max(1 / ZOOM_FACTOR_CLAMP, Math.min(ZOOM_FACTOR_CLAMP, factor));
       zoomAt(camera, factor, cx, cy);
     }
