@@ -109,6 +109,73 @@ export function computeShoreDist(width: number, height: number, waterMask: Uint8
   return dist;
 }
 
+/**
+ * One-ring shore dilation — the CPU half of the pixel-perfect waterline. Copies
+ * each WET cell's water attributes (surface height, type, biome colours, clarity,
+ * flow) into its DRY 8-neighbours, so the water pass draws a flat water plane that
+ * slightly OVERHANGS the bank on every side. The fragment shader then clips that
+ * plane per-pixel at the exact terrain contour (`surfaceW − bed ≤ 0` → discard),
+ * yielding a sub-cell waterline instead of the cell-quantised diamond staircase.
+ *
+ * Why a ring is needed: each cell's quad spans `[cell, cell+1]`, so a wet cell's
+ * own quad covers only its +x/+y transitions; the −x/−y transitions live in the
+ * dry neighbour's quad, which would otherwise be discarded wholesale (leaving a
+ * half-cell of missing water — the staircase). Filling that neighbour lets its
+ * quad draw the water up to the contour from the other side.
+ *
+ * Mutates the passed arrays IN PLACE. Reads the original `waterMask` to know the
+ * wet/dry split: it only ever READS wet cells as sources and WRITES dry cells as
+ * targets (disjoint sets), so in-place writes never chain outward past one ring.
+ */
+export function fillShoreRing(
+  width: number,
+  height: number,
+  waterMask: Uint8Array,
+  f: {
+    surfaceW: Float32Array;
+    waterType: Uint32Array;
+    shallow: Uint32Array;
+    deep: Uint32Array;
+    clarity: Float32Array;
+    flow: Float32Array;
+  },
+): void {
+  const cells = width * height;
+  for (let i = 0; i < cells; i++) {
+    if (waterMask[i]) continue; // only fill dry cells
+    const cx = i % width;
+    const cy = (i / width) | 0;
+    // Pick the wet neighbour with the HIGHEST surface (a conservative waterline —
+    // the plane sits at the taller adjacent body so it can only ever over-reach,
+    // never under-reach, the bank the depth clip then trims back).
+    let src = -1;
+    let bestSurf = -Infinity;
+    for (let dy = -1; dy <= 1; dy++) {
+      const ny = cy + dy;
+      if (ny < 0 || ny >= height) continue;
+      for (let dx = -1; dx <= 1; dx++) {
+        if (dx === 0 && dy === 0) continue;
+        const nx = cx + dx;
+        if (nx < 0 || nx >= width) continue;
+        const ni = ny * width + nx;
+        if (!waterMask[ni]) continue; // sources are wet cells only
+        if (f.surfaceW[ni] > bestSurf) {
+          bestSurf = f.surfaceW[ni];
+          src = ni;
+        }
+      }
+    }
+    if (src < 0) continue; // dry cell not on the shore ring — leave it dry (−1)
+    f.surfaceW[i] = f.surfaceW[src];
+    f.waterType[i] = f.waterType[src];
+    f.shallow[i] = f.shallow[src];
+    f.deep[i] = f.deep[src];
+    f.clarity[i] = f.clarity[src];
+    f.flow[i * 2] = f.flow[src * 2];
+    f.flow[i * 2 + 1] = f.flow[src * 2 + 1];
+  }
+}
+
 export interface BuildWaterFieldOpts {
   viewport: [number, number];
   xform: { sx: number; sy: number; ox: number; oy: number };
@@ -177,9 +244,20 @@ function waterStatic(map: GameMap, maxQuads?: number): WaterStatic {
 
   const grid = terrainGrid(map.width, map.height, maxQuads);
   const shoreDist = computeShoreDist(map.width, map.height, hydro.waterMask);
+
+  // Clone the (shared, memoised) hydrology surface before dilating — fillShoreRing
+  // mutates it to overhang the bank for the pixel-perfect waterline, and the
+  // hydrology result must stay pristine for other consumers. `waterType` is already
+  // a copy (Uint32Array.from); flow/shallow/deep/clarity are freshly allocated above.
+  const surfaceW = Float32Array.from(hydro.surfaceW);
+  const waterType = Uint32Array.from(hydro.waterType);
+  fillShoreRing(map.width, map.height, hydro.waterMask, {
+    surfaceW, waterType, shallow, deep, clarity, flow,
+  });
+
   const stat: WaterStatic = {
-    surfaceW: hydro.surfaceW,
-    waterType: Uint32Array.from(hydro.waterType),
+    surfaceW,
+    waterType,
     flow, shallow, deep, clarity, shoreDist,
     wetCount: wet,
     vertexCount: grid.vertexCount,

@@ -193,8 +193,15 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   // Ocean (1) + lakes (2) stay per-cell here.
   if (typ == 3u) { discard; }
 
-  // Smooth (bilinear) bed height → continuous depth, no per-cell diamond facets.
-  let depthM = max(surfaceW[ci] - sampleTerrainH(in.vGrid.x, in.vGrid.y), 0.0) * G.uZParams.z;
+  // PIXEL-PERFECT WATERLINE. Each quad is a FLAT plane at this cell's surface
+  // height (surfaceW[ci]); the bed (terrainH) is bilinear, so surface minus bed
+  // crosses zero exactly where the terrain contour meets the water plane. Discard
+  // the dry side per-fragment → the visible edge follows the real coastline at
+  // pixel resolution, not the cell grid. The one-ring shore dilation (fillShoreRing)
+  // gives near-bank dry cells a water plane so BOTH sides of the line are covered.
+  let rawDepthN = surfaceW[ci] - sampleTerrainH(in.vGrid.x, in.vGrid.y);
+  if (rawDepthN <= 0.0) { discard; }
+  let depthM = rawDepthN * G.uZParams.z;
 
   // Depth tint (S4 biome shallow→deep), SMOOTH — clarity stretches the ramp so
   // clear water shows its bed further down. Depth varies with the real bed, so the

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { generateWithNoise } from '@/map/map-generator';
 import { WaterType, type WorldSeed } from '@/core/types';
 import { ELEVATION_SEA_LEVEL } from '@/world/heightfield';
-import { buildWaterField, computeShoreDist, packWaterGlobals, WATER_GLOBALS_FLOATS } from '@/render/gpu/water-field';
+import { buildWaterField, computeShoreDist, fillShoreRing, packWaterGlobals, WATER_GLOBALS_FLOATS } from '@/render/gpu/water-field';
 import { terrainGrid } from '@/render/gpu/terrain-field';
 import { packTerrainGlobals, type TerrainGlobalsInput } from '@/render/gpu/instance-buffer';
 import { DEFAULT_LIGHTING } from '@/render/lighting-state';
@@ -97,6 +97,75 @@ describe('Water S2 — water field builder', () => {
       expect(d[y * W + 3]).toBe(2);
       expect(d[y * W + 4]).toBe(3);
     }
+  });
+
+  it('fillShoreRing overhangs the bank by one cell on every side (pixel-perfect waterline)', () => {
+    // 5×5: a 3×3 water pond at the centre (cols/rows 1..3), land rim. The single
+    // wet cell is the centre (2,2)'s ring; verify a dry cell that orthogonally OR
+    // diagonally touches water inherits the water plane, and a far corner stays dry.
+    const W = 5, H = 5;
+    const mask = new Uint8Array(W * H);
+    // One wet cell at (2,2).
+    const wet = 2 * W + 2;
+    mask[wet] = 1;
+    const f = {
+      surfaceW: new Float32Array(W * H).fill(-1),
+      waterType: new Uint32Array(W * H), // 0 = Dry
+      shallow: new Uint32Array(W * H),
+      deep: new Uint32Array(W * H),
+      clarity: new Float32Array(W * H),
+      flow: new Float32Array(W * H * 2),
+    };
+    // Seed the lone wet cell with a recognisable signature.
+    f.surfaceW[wet] = 0.35;
+    f.waterType[wet] = WaterType.Lake;
+    f.shallow[wet] = 0xaabbccdd;
+    f.deep[wet] = 0x11223344;
+    f.clarity[wet] = 0.8;
+    f.flow[wet * 2] = 0.5;
+    f.flow[wet * 2 + 1] = -0.25;
+
+    fillShoreRing(W, H, mask, f);
+
+    const at = (x: number, y: number) => y * W + x;
+    // All 8 neighbours of the wet cell inherit the full water signature.
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        if (dx === 0 && dy === 0) continue;
+        const i = at(2 + dx, 2 + dy);
+        expect(f.surfaceW[i], `(${2 + dx},${2 + dy}) surface`).toBeCloseTo(0.35, 6);
+        expect(f.waterType[i]).toBe(WaterType.Lake);
+        expect(f.shallow[i]).toBe(0xaabbccdd);
+        expect(f.deep[i]).toBe(0x11223344);
+        expect(f.clarity[i]).toBeCloseTo(0.8, 6);
+        expect(f.flow[i * 2]).toBeCloseTo(0.5, 6);
+        expect(f.flow[i * 2 + 1]).toBeCloseTo(-0.25, 6);
+      }
+    }
+    // A cell two tiles away (no water neighbour) stays bone dry — the ring does not chain.
+    expect(f.surfaceW[at(0, 0)]).toBe(-1);
+    expect(f.waterType[at(0, 0)]).toBe(WaterType.Dry);
+    // The original wet cell is untouched.
+    expect(f.surfaceW[wet]).toBeCloseTo(0.35, 6);
+  });
+
+  it('fillShoreRing picks the highest adjacent surface for a dry cell between two bodies', () => {
+    // Row of 3: wet(low) · dry · wet(high). The dry middle cell should take the
+    // taller plane so the waterline can only over-reach (the depth clip trims it).
+    const W = 3, H = 1;
+    const mask = new Uint8Array([1, 0, 1]);
+    const f = {
+      surfaceW: new Float32Array([0.2, -1, 0.6]),
+      waterType: new Uint32Array([WaterType.Lake, WaterType.Dry, WaterType.Ocean]),
+      shallow: new Uint32Array([1, 0, 2]),
+      deep: new Uint32Array([3, 0, 4]),
+      clarity: new Float32Array([0.1, 0, 0.9]),
+      flow: new Float32Array([0, 0, 0, 0, 0, 0]),
+    };
+    fillShoreRing(W, H, mask, f);
+    expect(f.surfaceW[1]).toBeCloseTo(0.6, 6);     // took the higher (ocean) surface
+    expect(f.waterType[1]).toBe(WaterType.Ocean);
+    expect(f.shallow[1]).toBe(2);
   });
 
   it('is deterministic — same world ⇒ identical surface/type/flow', async () => {
