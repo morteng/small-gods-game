@@ -35,8 +35,14 @@
  * (exterior portals ⇒ doors, needs-light zones ⇒ windows, distributed by wall length +
  * era glazing) for presets tagged 'gen-openings' (cottage/shrine/guard_post/watermill/
  * temple_small migrated to fact-seeds), so their fenestration shifts.
+ * 'v11' — procedural weathering: building/prop albedo is aged in `composeStructure`
+ * (dirt pooling low, grime in AO crevices, vertical rain-streaks, rust blooming on
+ * metal) via `src/assetgen/render/weathering.ts`; pure flora/rock left pristine.
+ * 'v12' — lit windows: window panes are a new 'glass' material (dark cool albedo by
+ * day) carrying a warm emissive, so the renderer glows them at night (emissive ×
+ * nightFactor). Shifts the grey/material/emissive of any preset with windows.
  */
-export const ART_RECIPE_VERSION = 'v10';
+export const ART_RECIPE_VERSION = 'v12';
 
 /**
  * Bump when WORLDGEN / preset output changes (footprints, placement, heights).

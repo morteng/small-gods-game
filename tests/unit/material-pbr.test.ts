@@ -12,7 +12,12 @@ describe('material PBR table', () => {
     expect(materialPbr('metal').metallic).toBe(1);
     expect(materialPbr('metal').roughness).toBeLessThan(materialPbr('thatch').roughness);
   });
-  it('emissive defaults to black (no emissive materials yet)', () => {
+  it('non-emissive materials are black; glass glows warm (lit windows)', () => {
     expect(materialPbr('thatch').emissive).toEqual([0, 0, 0]);
+    expect(materialPbr('stone').emissive).toEqual([0, 0, 0]);
+    const glow = materialPbr('glass').emissive;
+    expect(glow[0]).toBeGreaterThan(0);            // emits light
+    expect(glow[0]).toBeGreaterThan(glow[2]);      // warm (R > B)
+    expect(materialPbr('glass').roughness).toBeLessThan(materialPbr('door').roughness); // smooth glazing
   });
 });

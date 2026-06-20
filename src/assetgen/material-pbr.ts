@@ -1,6 +1,7 @@
 // Per-material PBR constants (metallic-roughness workflow), stylized for a medieval
-// settlement. roughness/metallic in 0..1; emissive RGB 0..255 (all black for now —
-// window/hearth glow is painted from anchors in a later slice, not a material property).
+// settlement. roughness/metallic in 0..1; emissive RGB 0..255. Window panes ('glass')
+// carry a warm emissive so they glow at night (modulated by the renderer's night factor);
+// every other material is non-emissive. Hearth/forge glow is a later slice.
 import type { Mat, RGB } from '@/assetgen/types';
 
 export interface MaterialPbr { roughness: number; metallic: number; emissive: RGB }
@@ -17,6 +18,9 @@ export const MATERIAL_PBR: Record<Mat, MaterialPbr> = {
   metal:   { roughness: 0.35, metallic: 1, emissive: [0, 0, 0] },
   door:    { roughness: 0.70, metallic: 0, emissive: [0, 0, 0] },
   brick:   { roughness: 0.85, metallic: 0, emissive: [0, 0, 0] },
+  // Window pane: smooth glazing + a warm hearth-light emissive. The renderer adds
+  // emissive·nightFactor, so this is invisible by day and glows at dusk/night.
+  glass:   { roughness: 0.15, metallic: 0, emissive: [255, 196, 120] },
 };
 
 export function materialPbr(m: Mat): MaterialPbr { return MATERIAL_PBR[m]; }

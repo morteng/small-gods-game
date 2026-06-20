@@ -9,6 +9,7 @@ import type { GeneratedBuildingArtSource } from '@/render/generated-building-art
 import type { Viewport } from './viewport';
 import { toRenderNpc } from '@/world/npc-helpers';
 import { DEFAULT_LIGHTING, LIGHTING_OFF } from '@/render/lighting-state';
+import { nightFactorForTick } from '@/core/calendar';
 
 export interface RenderContextDeps {
   state: GameState;
@@ -22,6 +23,14 @@ export interface RenderContextDeps {
   parametricPlantSource: ParametricPlantSource;
   generatedBuildingArtSource?: GeneratedBuildingArtSource;
   devMode: DevModeState;
+}
+
+/** Dev eyeball override for the day/night emissive factor. Set `window.__nightFactor`
+ *  to a 0..1 number to force the lit-window glow at any time of day; clear it (or set a
+ *  non-number) to fall back to the clock-derived value. */
+function nightFactorOverride(): number | null {
+  const v = (globalThis as { __nightFactor?: unknown }).__nightFactor;
+  return typeof v === 'number' && isFinite(v) ? Math.max(0, Math.min(1, v)) : null;
 }
 
 /** Single source of truth for the per-frame RenderContext.
@@ -80,7 +89,11 @@ export function buildRenderContext(deps: RenderContextDeps): RenderContext {
       src.warm(entity); // fire-and-forget; never blocks the frame
       return null;
     },
-    lighting: devMode.lighting === 'off' ? LIGHTING_OFF : DEFAULT_LIGHTING,
+    // Day/night: derive the emissive (lit-window) factor from the sim clock, so
+    // panes glow at dusk/night. `__nightFactor` (dev) overrides the clock for eyeballing.
+    lighting: devMode.lighting === 'off'
+      ? LIGHTING_OFF
+      : { ...DEFAULT_LIGHTING, nightFactor: nightFactorOverride() ?? nightFactorForTick(state.clock.now()) },
     devMode,
   };
 }

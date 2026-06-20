@@ -123,6 +123,7 @@ const MAT_DESC: Record<Mat, { init: string; noun: string }> = {
   metal:   { init: 'steel grey', noun: 'metal' },
   door:    { init: 'dark wood', noun: 'a door or recessed opening' },
   brick:   { init: 'red-brown', noun: 'brick' },
+  glass:   { init: 'dark slate-blue', noun: 'a glazed window pane' },
 };
 
 export { MAT_DESC };

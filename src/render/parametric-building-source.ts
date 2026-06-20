@@ -22,6 +22,14 @@ export interface ParametricSourceDeps {
   keepStages?: boolean;
 }
 
+/** True if an emissive RGBA buffer has any self-illuminated (non-black) pixel. */
+function hasEmissive(buf: Uint8ClampedArray): boolean {
+  for (let i = 0; i < buf.length; i += 4) {
+    if (buf[i] > 0 || buf[i + 1] > 0 || buf[i + 2] > 0) return true;
+  }
+  return false;
+}
+
 /** Crop the grey render + its co-registered normal/material maps to one pack. */
 export function structureResultToPack(r: StructureResult): SpritePack | null {
   const albedo = greyToSpriteCanvas(r.grey, r.size, r.bbox);
@@ -31,6 +39,11 @@ export function structureResultToPack(r: StructureResult): SpritePack | null {
     normal: greyToSpriteCanvas(r.normal, r.size, r.bbox) ?? undefined,
     material: greyToSpriteCanvas(r.material, r.size, r.bbox) ?? undefined,
   };
+  // Emissive (lit window panes) — only crop+attach when there's actual glow, so
+  // the vast majority of window-less sprites never upload a black texture.
+  if (hasEmissive(r.emissive)) {
+    pack.emissive = greyToSpriteCanvas(r.emissive, r.size, r.bbox) ?? undefined;
+  }
   // Geometry-baked ground shadow. Offset is stored relative to the albedo crop's
   // BOTTOM-CENTRE (the sprite's foot/ground anchor) — NOT its top-left — so the
   // same shadow aligns under ANY co-footed sprite (parametric OR the img2img

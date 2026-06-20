@@ -93,7 +93,7 @@ describe('toGeometry', () => {
         features: { win: { type: 'window', face: 'south', params: { t: 0.5, sill: 0.3, height: 3 } } },
       } },
     };
-    const leaf = toGeometry(resolveBlueprint([tall], 0)).parts.find(p => p.prim === 'box' && p.material === 'door');
+    const leaf = toGeometry(resolveBlueprint([tall], 0)).parts.find(p => p.prim === 'box' && p.material === 'glass');
     // pane height (z extent) was clamped to fit beneath the eave (well under the authored 3).
     expect(leaf && leaf.prim === 'box' ? leaf.size[2] : 99).toBeLessThan(1.5);
   });

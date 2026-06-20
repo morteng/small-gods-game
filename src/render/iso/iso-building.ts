@@ -146,10 +146,11 @@ export function buildingSpriteItemFromPack(
   tileX: number, tileY: number, footprint: { w: number; h: number },
 ): DrawItem {
   const item = buildingSpriteItemFromCanvas(o, pack.albedo, tileX, tileY, footprint);
-  if (item.t === 'image' && (pack.normal || pack.material)) {
+  if (item.t === 'image' && (pack.normal || pack.material || pack.emissive)) {
     item.maps = {
       normal: pack.normal as CanvasImageSource | undefined,
       material: pack.material as CanvasImageSource | undefined,
+      emissive: pack.emissive as CanvasImageSource | undefined,
     };
   }
   if (item.t === 'image' && pack.shadow) {

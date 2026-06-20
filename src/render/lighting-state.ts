@@ -35,6 +35,9 @@ export interface LightingState {
   sunColor: Vec3;
   /** Diffuse quantization band count (≥1). */
   bands: number;
+  /** Night factor 0..1 — fades in sprite emissive (lit window panes). 0 ⇒ day, no
+   *  glow; 1 ⇒ full glow. Derived per-frame from the clock; absent ⇒ treated as 0. */
+  nightFactor?: number;
 }
 
 export function normalizeVec3(v: Vec3): Vec3 {

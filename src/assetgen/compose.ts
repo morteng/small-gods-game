@@ -13,6 +13,7 @@ import type { BarrierRun } from '@/world/barrier';
 import { projectFacets, project } from '@/assetgen/render/projection';
 import { rasterizeMaps, writeNormalisedDepth } from '@/assetgen/render/rasterize';
 import { computeAO } from '@/assetgen/render/ao';
+import { applyWeathering, weatherSeed, type WeatherOpts } from '@/assetgen/render/weathering';
 import { computeFit, fixedFit, opaqueBounds, type BBox } from '@/assetgen/render/fit';
 import { composeGroundShadow, type GroundShadow } from '@/assetgen/render/ground-shadow';
 
@@ -97,6 +98,10 @@ export interface ComposeOpts {
   /** 0 = hard-edged apron; >0 fades the visible skirt's OUTER edge to transparent over
    *  ~`skirtFade × 22 px`, so it reads as blending into the ground (erosion preview). */
   skirtFade?: number;
+  /** Procedural weathering of building/prop albedo (dirt/streaks/rust). Default ON.
+   *  Pass `false` when the grey is consumed as an img2img INIT — weathering muddies the
+   *  material-coded colours the prompt legend keys off. Pure flora/rock never weathers. */
+  weather?: WeatherOpts | false;
 }
 
 /**
@@ -163,6 +168,14 @@ export async function composeStructure(spec: StructureSpec, shadowSun?: [number,
   const grey = maps.albedo;
   const normal = maps.normal;
   const bbox = opaqueBounds(grey, size);
+  // Procedural weathering — age building/prop bodies (dirt low, grime in crevices,
+  // rain-streaks, rust on metal). Pure flora/rock is left pristine. Mutates `grey`
+  // (= maps.albedo) + material in place; deterministic, seeded off the spec id.
+  const weather = opts?.weather;
+  const pureFloraRock = spec.parts.length > 0 && spec.parts.every(p => p.prim === 'flora' || p.prim === 'rock');
+  if (weather !== false && !pureFloraRock) {
+    applyWeathering(maps, bbox, { seed: weatherSeed(spec.id), ...(typeof weather === 'object' ? weather : {}) });
+  }
   // Geometry-correct ground shadow, baked from the SAME facets.
   const shadow = composeGroundShadow(facets, fit, shadowSun);
 

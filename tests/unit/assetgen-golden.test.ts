@@ -27,18 +27,20 @@ describe('assetgen golden hashes', () => {
   it('cottage (full Blueprint pipeline) is bit-stable', async () => {
     const rb = synthesizeBlueprint('cottage')!;
     const r = await composeStructure(toGeometry(rb));
-    // Updated for v10 generative openings: the cottage's door + windows are now DERIVED
-    // from the room graph (south door + 2 flanking south windows + 1 east window) instead
-    // of the old hand-authored feature list. Geometry shifted intentionally ⇒ ART_RECIPE_VERSION bumped.
+    // v11 procedural weathering bakes dirt/grime/rain-streaks into the albedo (`grey`).
+    // v12 lit windows: the cottage's window panes are now a 'glass' material (cool
+    // albedo + warm emissive), so `grey` (pane colour), `material` (glass roughness)
+    // and `emissive` (warm glow) all shift; `normal` is geometry-only ⇒ unchanged.
+    // Intentional ⇒ ART_RECIPE_VERSION bumped to v12.
     expect(fingerprint(r)).toEqual({
-      size: 386, grey: '92cde73b', normal: 'ae385f81', material: 'c4d5237b', emissive: '687d769e',
+      size: 386, grey: '9c20afd2', normal: 'ae385f81', material: '342c7b25', emissive: '8e3dc9b8',
     });
   });
 
   it('plain stone box primitive is bit-stable', async () => {
     const r = await composeStructure({ parts: [{ prim: 'box', at: [0, 0, 0], size: [2, 2, 2], material: 'stone' }] });
     expect(fingerprint(r)).toEqual({
-      size: 264, grey: '8d493e6e', normal: '103f0c0b', material: 'd829cbcb', emissive: 'a9c77405',
+      size: 264, grey: '73bee633', normal: '103f0c0b', material: 'd829cbcb', emissive: 'a9c77405',
     });
   });
 });

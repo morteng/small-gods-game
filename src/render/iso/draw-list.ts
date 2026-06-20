@@ -24,7 +24,7 @@ export type DrawItem =
        * framed). Present only on building-pack sprites; the GPU scene lights
        * items that carry a normal map.
        */
-      maps?: { normal?: CanvasImageSource; material?: CanvasImageSource };
+      maps?: { normal?: CanvasImageSource; material?: CanvasImageSource; emissive?: CanvasImageSource };
       /**
        * Cast-shadow hint. `footLift` = screen px the ground-contact point sits
        * ABOVE the sprite's bottom edge (buildings anchor at their

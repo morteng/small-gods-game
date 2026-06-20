@@ -121,6 +121,23 @@ describe('R2c — instance batching', () => {
     expect(inst.dh).toBe(48 * 4);
   });
 
+  it('carries the emissive map onto the batch, independent of lit', () => {
+    const albedo = tex(), emissive = tex();
+    // emissive WITHOUT normal/material ⇒ a glowing-but-unlit batch (lit stays false).
+    const { batches } = buildInstanceBatches([img(albedo, 0, { maps: { emissive } })]);
+    expect(batches[0].emissive).toBe(emissive);
+    expect(batches[0].lit).toBe(false);
+  });
+
+  it('a sprite with full PBR + emissive carries all maps and is lit', () => {
+    const albedo = tex(), normal = tex(), material = tex(), emissive = tex();
+    const { batches } = buildInstanceBatches([img(albedo, 0, { maps: { normal, material, emissive } })]);
+    expect(batches[0].normal).toBe(normal);
+    expect(batches[0].material).toBe(material);
+    expect(batches[0].emissive).toBe(emissive);
+    expect(batches[0].lit).toBe(true);
+  });
+
   it('applyViewTransform leaves UV and depth untouched', () => {
     const { batches } = buildInstanceBatches([img(tex(128, 64), 0, { frame: { sx: 64, sy: 0, sw: 32, sh: 64 } })]);
     const before = { ...batches[0].instances[0] };

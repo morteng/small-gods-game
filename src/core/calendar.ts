@@ -29,3 +29,13 @@ export function calendarLabel(tick: number): string {
   const c = formatCalendarTick(tick);
   return `Y${c.year} ${c.season} · ${c.dayOfYear}/${DAYS_PER_YEAR}`;
 }
+
+/**
+ * Night factor 0..1 for sprite emissive (lit windows): 1 at midnight, 0 at noon,
+ * a smooth cosine through dawn/dusk. Pure + deterministic from the tick — the day
+ * phase is `(tick mod TICKS_PER_DAY) / TICKS_PER_DAY`, with midnight at phase 0.
+ */
+export function nightFactorForTick(tick: number): number {
+  const phase = ((Math.floor(tick) % TICKS_PER_DAY) + TICKS_PER_DAY) % TICKS_PER_DAY / TICKS_PER_DAY;
+  return 0.5 + 0.5 * Math.cos(2 * Math.PI * phase);
+}
