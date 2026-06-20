@@ -88,11 +88,11 @@ describe('buildShapeVertices', () => {
     expect(vertices[2]).toBeCloseTo(0.5, 6); // z of first vertex
   });
 
-  it('applies the view transform to vertices', () => {
+  it('emits vertices in WORLD px (the camera xform is applied by the shape VS)', () => {
     const poly: DrawItem = { t: 'poly', color: '#fff', points: [{ x: 1, y: 2 }, { x: 3, y: 2 }, { x: 1, y: 4 }] };
-    const { vertices } = buildShapeVertices([poly], { sx: 2, sy: 2, ox: 10, oy: 20 });
-    expect(vertices[0]).toBe(1 * 2 + 10); // 12
-    expect(vertices[1]).toBe(2 * 2 + 20); // 24
+    const { vertices } = buildShapeVertices([poly]);
+    expect(vertices[0]).toBe(1); // unchanged world x
+    expect(vertices[1]).toBe(2); // unchanged world y
   });
 
   it('packs SHAPE_VERTEX_FLOATS floats per vertex', () => {

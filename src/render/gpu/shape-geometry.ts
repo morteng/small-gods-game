@@ -8,13 +8,16 @@
 // Painter order: each item's depth is its position in the ORIGINAL draw list
 // (`(i+1)/(count+1)`, the SAME encoding `instance-batch.ts` gives image items),
 // so shapes interleave correctly with sprites under the shared depth test
-// (greater = front). World→device is the same `ViewTransform` the image batches
-// bake in, applied per vertex so non-uniform scale degrades gracefully.
+// (greater = front).
+//
+// Vertices are emitted in WORLD px — the camera transform is applied by the shape
+// VS (uXform), exactly as the image batches apply it. Keeping the xform out of the
+// CPU geometry is what lets the static shape layer (~15k flora trunks/canopies) be
+// triangulated ONCE and cached, instead of re-baked every frame on pan/zoom.
 //
 // Pure data — no GPU, no DOM. Triangulation + colour parsing are unit-tested.
 
 import type { DrawItem } from '@/render/iso/draw-list';
-import type { ViewTransform } from '@/render/gpu/instance-batch';
 
 /** Floats per shape vertex: x, y, depth, r, g, b, a. */
 export const SHAPE_VERTEX_FLOATS = 7;
@@ -48,29 +51,29 @@ export function parseColor(s: string): [number, number, number, number] {
   return [0, 0, 0, 1]; // unknown ⇒ opaque black, like an unstyled fill
 }
 
-function tx(x: number, y: number, xf?: ViewTransform): [number, number] {
-  return xf ? [x * xf.sx + xf.ox, y * xf.sy + xf.oy] : [x, y];
-}
-
 /**
  * Triangulate every `poly`/`circle` item of a draw list into one interleaved
  * vertex array (x, y, depth, r, g, b, a per vertex) ready for an instanced-less
  * `triangle-list` draw. Image items contribute only to the depth counter (so
  * shape depths line up with the image-pass depths). Returns an empty buffer when
  * there are no shapes.
+ *
+ * Vertices are in WORLD px — the shape VS applies the camera xform (uXform), so a
+ * caller can triangulate a static layer ONCE and re-draw it across pan/zoom.
  */
 export function buildShapeVertices(
   items: readonly DrawItem[],
-  xform?: ViewTransform,
 ): { vertices: Float32Array; vertexCount: number } {
   const out: number[] = [];
   const count = items.length;
 
   const pushTri = (
-    p0: [number, number], p1: [number, number], p2: [number, number],
+    p0x: number, p0y: number, p1x: number, p1y: number, p2x: number, p2y: number,
     depth: number, c: [number, number, number, number],
   ) => {
-    for (const p of [p0, p1, p2]) out.push(p[0], p[1], depth, c[0], c[1], c[2], c[3]);
+    out.push(p0x, p0y, depth, c[0], c[1], c[2], c[3]);
+    out.push(p1x, p1y, depth, c[0], c[1], c[2], c[3]);
+    out.push(p2x, p2y, depth, c[0], c[1], c[2], c[3]);
   };
 
   items.forEach((it, i) => {
@@ -80,24 +83,23 @@ export function buildShapeVertices(
 
     if (it.t === 'poly') {
       if (it.points.length < 3) return;
-      const p0 = tx(it.points[0].x, it.points[0].y, xform);
+      const p0 = it.points[0];
       // Fan triangulation from the first vertex (matches a Canvas2D convex fill).
       for (let k = 1; k < it.points.length - 1; k++) {
-        const p1 = tx(it.points[k].x, it.points[k].y, xform);
-        const p2 = tx(it.points[k + 1].x, it.points[k + 1].y, xform);
-        pushTri(p0, p1, p2, depth, c);
+        const p1 = it.points[k];
+        const p2 = it.points[k + 1];
+        pushTri(p0.x, p0.y, p1.x, p1.y, p2.x, p2.y, depth, c);
       }
     } else {
-      // circle ⇒ triangle fan around the centre; transform each rim point so a
-      // non-uniform xform yields the correct ellipse.
-      const segs = circleSegments(it.r * (xform ? Math.max(Math.abs(xform.sx), Math.abs(xform.sy)) : 1));
-      const ctr = tx(it.cx, it.cy, xform);
-      let prev = tx(it.cx + it.r, it.cy, xform);
+      // circle ⇒ triangle fan around the centre. Segment count keys off the WORLD
+      // radius (xform-independent) so the buffer stays cacheable across zoom.
+      const segs = circleSegments(it.r);
+      let prevx = it.cx + it.r, prevy = it.cy;
       for (let s = 1; s <= segs; s++) {
         const ang = (s / segs) * Math.PI * 2;
-        const cur = tx(it.cx + Math.cos(ang) * it.r, it.cy + Math.sin(ang) * it.r, xform);
-        pushTri(ctr, prev, cur, depth, c);
-        prev = cur;
+        const curx = it.cx + Math.cos(ang) * it.r, cury = it.cy + Math.sin(ang) * it.r;
+        pushTri(it.cx, it.cy, prevx, prevy, curx, cury, depth, c);
+        prevx = curx; prevy = cury;
       }
     }
   });

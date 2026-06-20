@@ -203,6 +203,14 @@ export class GpuScene {
   private staticShadowSrc: readonly DrawItem[] | null = null;
   private staticShadowSig = '';
   private staticShadowBundle: { texture: CanvasImageSource; buf: GPUBuffer; count: number }[] = [];
+  /** L2 static shape bundle: the static layer's poly/circle fills (flora trunks +
+   *  canopies, fallback shapes) triangulated ONCE into a persistent WORLD-px vertex
+   *  buffer, keyed by the lifted-array identity. The camera xform is applied in the
+   *  shape VS (uXform), so this never re-triangulates on pan/zoom — killing the
+   *  ~9 ms/frame re-bake of ~15k flora shapes the ablation found dominating encode. */
+  private staticShapeSrc: readonly DrawItem[] | null = null;
+  private staticShapeBuf: GPUBuffer | null = null;
+  private staticShapeCount = 0;
   /** Screen-space UI pass (S1) — drawn last, over the entity pass, no depth. */
   private uiPass: UiPass;
 
@@ -483,7 +491,8 @@ export class GpuScene {
       primitive: { topology: 'triangle-list' },
       depthStencil: { format: DEPTH_FORMAT, depthWriteEnabled: true, depthCompare: 'greater' },
     });
-    this.shapeGlobalsBuf = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    // 32 B: vec2 viewport + vec2 pad + vec4 uXform (world→device affine, sx/sy/ox/oy).
+    this.shapeGlobalsBuf = device.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.shapeGlobalsBind = device.createBindGroup({
       layout: this.shapePipeline.getBindGroupLayout(0),
       entries: [{ binding: 0, resource: { buffer: this.shapeGlobalsBuf } }],
@@ -853,6 +862,27 @@ export class GpuScene {
     this.staticShadowSig = sig;
   }
 
+  /** L2 — triangulate the STATIC layer's poly/circle shapes ONCE (world px, no xform
+   *  baked) into a persistent vertex buffer, keyed by the lifted-array identity. The
+   *  camera transform is applied by the shape VS (uXform), so pan/zoom never
+   *  re-triangulates these — the per-frame cost was ~15k flora trunks/canopies. */
+  private ensureStaticShapeBundle(lifted: readonly DrawItem[]): void {
+    if (this.staticShapeSrc === lifted) return;
+    const { vertices, vertexCount } = buildShapeVertices(lifted);
+    this.staticShapeBuf?.destroy();
+    if (vertexCount > 0) {
+      const buf = this.device.createBuffer({
+        size: vertices.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+      });
+      this.device.queue.writeBuffer(buf, 0, vertices as GPUAllowSharedBufferSource);
+      this.staticShapeBuf = buf;
+    } else {
+      this.staticShapeBuf = null;
+    }
+    this.staticShapeCount = vertexCount;
+    this.staticShapeSrc = lifted;
+  }
+
   /**
    * Render one frame: terrain (buffer-driven heightfield, T1) in its OWN depth
    * pass, then the blended water pass over it, then the entity draw list (depth
@@ -915,13 +945,15 @@ export class GpuScene {
     // jerky-zoom fix). Lift entities onto the GPU terrain surface (foot-z parity)
     // before batching so sprites, shapes and shadows ride the heightfield together.
     if (staticItems) this.ensureStaticBundle(staticItems, terrain ?? null);
+    // The static layer's poly/circle shapes (flora trunks/canopies, fallback fills)
+    // are triangulated ONCE into a persistent world-px buffer (L2), keyed by the
+    // lifted-array identity — the shape VS applies the camera (uXform), so this
+    // never re-bakes on pan/zoom. Only the small dynamic shape set is built below.
+    if (staticItems) this.ensureStaticShapeBundle(this.staticLifted);
     // Dynamic items (NPCs, flotsam — or, with no static split, EVERYTHING) are
     // lifted + packed per frame; the set is small so this stays cheap.
     const dynLifted = terrain ? liftDrawList(rawItems, terrain) : rawItems;
     const { batches: dynBatches } = buildInstanceBatches(dynLifted);
-    // Shadows + shapes still consume the COMBINED lifted list each frame (their
-    // static-bundle caching is L2); the static half is already lifted (no re-lift).
-    const combined: readonly DrawItem[] = staticItems ? [...this.staticLifted, ...dynLifted] : dynLifted;
 
     // Cast-shadow parallelograms in WORLD px (the shader's uXform bakes the
     // camera). L2: the static half is packed once into persistent buffers; only
@@ -929,7 +961,7 @@ export class GpuScene {
     const shadowsOn = lighting.enabled && P.shadows;
     if (shadowsOn && staticItems) this.ensureStaticShadowBundle(this.staticLifted, lighting);
     const dynShadowBatches = shadowsOn
-      ? buildShadowBatches(staticItems ? dynLifted : combined, lighting).filter(b => b.instances.length > 0)
+      ? buildShadowBatches(dynLifted, lighting).filter(b => b.instances.length > 0)
       : [];
     const staticShadowCount = (shadowsOn && staticItems)
       ? this.staticShadowBundle.reduce((s, b) => s + b.count, 0) : 0;
@@ -1054,7 +1086,7 @@ export class GpuScene {
     if (hasShadows) this.passShadows(ctx, !!staticItems, dynShadowBatches);
     if (hasWater) this.passWater(ctx, water!);
     if (hasRibbon) this.passRibbon(ctx);
-    this.passEntities(ctx, P.entities, dynBatches, combined, xform);
+    this.passEntities(ctx, P.entities, dynBatches, dynLifted, xform);
     if (out) this.passBlit(ctx, out, pixelOffset);
     if (P.ui && uiGroups && uiGroups.length > 0) this.passUi(ctx, uiGroups);
 
@@ -1220,7 +1252,7 @@ export class GpuScene {
    */
   private passEntities(
     ctx: PassCtx, entitiesOn: boolean,
-    dynBatches: readonly InstanceBatch[], combined: readonly DrawItem[], xform?: ViewTransform,
+    dynBatches: readonly InstanceBatch[], dynLifted: readonly DrawItem[], xform?: ViewTransform,
   ): void {
     const epass = ctx.enc.beginRenderPass({
       colorAttachments: [{ view: ctx.colorView, clearValue: ctx.ocean, loadOp: ctx.colorCleared ? 'load' : 'clear', storeOp: 'store' }],
@@ -1252,15 +1284,29 @@ export class GpuScene {
         }
       }
     }
-    const shapes = entitiesOn ? buildShapeVertices(combined, xform) : { vertices: new Float32Array(0), vertexCount: 0 };
-    if (shapes.vertexCount > 0) {
-      this.device.queue.writeBuffer(this.shapeGlobalsBuf, 0, new Float32Array([ctx.w, ctx.h, 0, 0]));
-      const sBuf = this.dynBuf('shape', shapes.vertices.byteLength);
-      this.device.queue.writeBuffer(sBuf, 0, shapes.vertices as GPUAllowSharedBufferSource);
+    // Shape pass (poly/circle fills). The static layer is triangulated once into a
+    // persistent buffer (ensureStaticShapeBundle); only the small dynamic set is
+    // rebuilt this frame. Both are WORLD px — the camera xform rides in the shape
+    // globals (uXform), so neither re-triangulates on pan/zoom.
+    const dynShapes = entitiesOn
+      ? buildShapeVertices(dynLifted) : { vertices: new Float32Array(0), vertexCount: 0 };
+    const staticShapeCount = entitiesOn ? this.staticShapeCount : 0;
+    if (staticShapeCount > 0 || dynShapes.vertexCount > 0) {
+      const xf = xform ?? { sx: 1, sy: 1, ox: 0, oy: 0 };
+      this.device.queue.writeBuffer(this.shapeGlobalsBuf, 0,
+        new Float32Array([ctx.w, ctx.h, 0, 0, xf.sx, xf.sy, xf.ox, xf.oy]));
       epass.setPipeline(this.shapePipeline);
       epass.setBindGroup(0, this.shapeGlobalsBind);
-      epass.setVertexBuffer(0, sBuf);
-      epass.draw(shapes.vertexCount);
+      if (staticShapeCount > 0 && this.staticShapeBuf) {
+        epass.setVertexBuffer(0, this.staticShapeBuf);
+        epass.draw(staticShapeCount);
+      }
+      if (dynShapes.vertexCount > 0) {
+        const sBuf = this.dynBuf('shape', dynShapes.vertices.byteLength);
+        this.device.queue.writeBuffer(sBuf, 0, dynShapes.vertices as GPUAllowSharedBufferSource);
+        epass.setVertexBuffer(0, sBuf);
+        epass.draw(dynShapes.vertexCount);
+      }
     }
     epass.end();
     ctx.colorCleared = true;
