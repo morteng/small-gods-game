@@ -16,6 +16,7 @@ import type { Camera, Entity, DevModeState } from '@/core/types';
 import type { GameState } from '@/core/state';
 import type { QueryOpts } from '@/world/world';
 import { focusCameraOnTile } from '@/render/focus-camera';
+import { frameTargets, applyFrame } from '@/render/camera-framing';
 import { fitCameraToMap } from '@/render/fit-camera';
 import { RENDER_LAYERS, layerFlag, type RenderLayer } from '@/render/layer-visibility';
 import type { GameQuery } from '@/game/game-query';
@@ -29,6 +30,25 @@ export interface DebugInventory {
   vegetation: number;
 }
 
+/** Selector for {@link DebugApi.frameEntities} — any combination narrows the set. */
+export interface FrameEntitiesOpts {
+  kind?: string;
+  tag?: string;
+  /** Match entities whose `properties.poiId` starts with this (e.g. 'crossing@'). */
+  poiPrefix?: string;
+  ids?: string[];
+  /** Context padding in tiles + viewport fill fraction (see camera-framing). */
+  padTiles?: number;
+  margin?: number;
+}
+
+export interface FrameReport {
+  total: number;
+  onScreen: number;
+  coverage: number;
+  zoom: number;
+}
+
 export interface DebugApi {
   /** Summary of what worldgen produced: building counts by kind, npc/veg totals. */
   inventory(): DebugInventory;
@@ -40,6 +60,11 @@ export interface DebugApi {
   focusXY(x: number, y: number, zoom?: number): void;
   /** Fit the whole map in the viewport. */
   fitMap(): void;
+  /** Frame a SET of entities in the viewport (cameraman primitive) and report how many
+   *  actually land on screen — so a capture of named connectome nodes is reliable, not a
+   *  guessed focus point. Select by `kind`, `tag`, `poiPrefix` (e.g. 'crossing@'), or
+   *  explicit `ids`. Returns `{total, onScreen, coverage, zoom}`. */
+  frameEntities(opts: FrameEntitiesOpts): FrameReport;
   /** The rendered frame as a PNG data URL (robust capture; survives headed). */
   grab(): string;
   /** Open a registered storylet as an interactive card. False if the id is unknown. */
@@ -135,6 +160,20 @@ export function createDebugApi(deps: DebugApiDeps): DebugApi {
       if (!state.map) return;
       const vp = viewport();
       fitCameraToMap(camera(), state.map.width, state.map.height, vp.width, vp.height);
+    },
+
+    frameEntities(opts: FrameEntitiesOpts): FrameReport {
+      let ents = query.entities(opts.kind ? { kind: opts.kind } : opts.tag ? { tag: opts.tag } : {});
+      if (opts.poiPrefix) ents = ents.filter((e) => String((e.properties as { poiId?: string })?.poiId ?? '').startsWith(opts.poiPrefix!));
+      if (opts.ids) { const set = new Set(opts.ids); ents = ents.filter((e) => set.has(e.id)); }
+      const vp = viewport();
+      const r = frameTargets(ents.map((e) => ({ x: e.x, y: e.y })), vp.width, vp.height, {
+        map: state.map, padTiles: opts.padTiles, margin: opts.margin,
+      });
+      if (!r) return { total: 0, onScreen: 0, coverage: 0, zoom: camera().zoom };
+      applyFrame(camera(), r);
+      deps.requestRender();
+      return { total: r.total, onScreen: r.onScreen, coverage: r.coverage, zoom: r.zoom };
     },
 
     grab(): string {
