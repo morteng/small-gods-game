@@ -33,6 +33,10 @@ playwright-report/
 test-results/
 .playwright-mcp/
 
+# Stray root-level capture/debug artifacts (real PNG assets live under public/ & src/)
+/*.png
+/frame-report.txt
+
 # PixelLab on-disk cache used by scripts/gen-iso-terrain.ts.
 # The cache survives across script runs to avoid re-spending API credits;
 # it is intentionally not committed.
