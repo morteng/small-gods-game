@@ -28,6 +28,7 @@ import { buildEntityDrawList } from '@/render/iso/entity-draw-list';
 import { StaticDrawListCache } from '@/render/gpu/static-draw-list-cache';
 import { DEFAULT_LIGHTING } from '@/render/lighting-state';
 import { buildTerrainField, type TerrainField } from '@/render/gpu/terrain-field';
+import { buildDetailField } from '@/render/gpu/detail-field';
 import { buildWaterField, type WaterField } from '@/render/gpu/water-field';
 import { buildRoadRibbonMeshMemo } from '@/render/ribbon/road-ribbon-field';
 import { buildRiverRibbonMeshMemo } from '@/render/ribbon/river-ribbon-field';
@@ -44,6 +45,12 @@ import { getUiRuntime } from '@/render/ui/ui-runtime';
 /** `?connectome` shows the whole-world graph overlay (POIs, roads, settlements). */
 function connectomeRequested(): boolean {
   try { return new URLSearchParams(window.location.search).has('connectome'); }
+  catch { return false; }
+}
+
+/** `?nodetail` turns the adaptive sub-tile detail patches OFF (A/B + preference). */
+function detailDisabled(): boolean {
+  try { return new URLSearchParams(window.location.search).has('nodetail'); }
   catch { return false; }
 }
 
@@ -157,6 +164,12 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
           viewport: [lowW, lowH],
           xform, lighting, devMode: rc.devMode,
         });
+    // Adaptive sub-tile detail patches (the px4-3-2-1 idea): a finer instanced mesh
+    // with GENUINE analytic relief, overlaid ONLY on the hot regions (coast/carve/
+    // slope) and ONLY when zoomed in enough to read it — native + free at overview.
+    const detail = (terrain && camera.zoom >= 2 && !detailDisabled())
+      ? buildDetailField(map)
+      : null;
     const tTerrain = performance.now();
 
     // Water surface (S2): null when the layer is hidden, there's no terrain to
@@ -196,7 +209,7 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
     const tFields = performance.now();
 
     scene.renderFrame({
-      items: dynamicItems, staticItems: staticList, lighting, terrain, water,
+      items: dynamicItems, staticItems: staticList, lighting, terrain, detail, water,
       ribbon, ribbonTime: timeSec, riverSurface, riverLevelDeltaN,
       w: lowW, h: lowH, out: { w: target.width, h: target.height },
       xform, uiGroups,
