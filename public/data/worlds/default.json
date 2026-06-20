@@ -6,6 +6,7 @@
   "era": "medieval",
   "island": true,
   "visualTheme": "early medieval island world, vibrant colors",
+  "style": { "overrides": { "terrainHeightGamma": 1.8, "mountainRelief": 60 } },
   "pois": [
     {
       "id": "cloudwall_peaks",

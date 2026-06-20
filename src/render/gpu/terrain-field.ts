@@ -58,8 +58,46 @@ export const MAX_TERRAIN_QUADS = 50000;
  *  (The map edge is hidden in the SHADERS, not by distorting geometry: the terrain
  *  fragment culls deep seabed + fades to dark, and the water/backdrop render a
  *  uniform infinite ocean over it — see terrain-wgsl / ocean-backdrop-wgsl.) */
+/**
+ * Non-linear RENDER height curve. Reshapes elevation ABOVE sea level by a gamma
+ * on the above-sea fraction (`a' = a^gamma`), so a `gamma > 1` keeps high peaks
+ * tall while flattening gentle mounds — a dramatic massif over soft valleys —
+ * without touching the raw elevation that hydrology, biomes and roads read.
+ *
+ * Identity at/below sea level (preserves the seabed cull, ocean depth and every
+ * elevation threshold) and at `gamma === 1` (the neutral default). Monotonic, so
+ * the waterline's zero-crossing is preserved when the SAME curve is applied to
+ * the water surface (`buildWaterField`). Pure.
+ */
+export function curveRenderElev(e: number, seaLevel: number, gamma: number): number {
+  if (gamma === 1 || e <= seaLevel) return e;
+  const span = 1 - seaLevel;
+  if (span <= 0) return e;
+  const a = (e - seaLevel) / span;            // above-sea fraction 0..1
+  return seaLevel + Math.pow(a, gamma) * span;
+}
+
+// Curved height buffers are memoised by (base array identity, gamma): the base
+// from getComposedHeightfield is itself memoised (stable reference for a static
+// world), so the same curved array is returned each frame and the GPU upload's
+// reference guard keeps hitting. A gamma of 1 returns the base array untouched
+// (byte-parity, zero alloc).
+const curveMemo = new WeakMap<Float32Array, { gamma: number; out: Float32Array }>();
+
+/** Apply {@link curveRenderElev} across a whole height buffer (memoised). */
+export function curveHeightBuffer(base: Float32Array, seaLevel: number, gamma: number): Float32Array {
+  if (gamma === 1) return base;
+  const hit = curveMemo.get(base);
+  if (hit && hit.gamma === gamma) return hit.out;
+  const out = new Float32Array(base.length);
+  for (let i = 0; i < base.length; i++) out[i] = curveRenderElev(base[i], seaLevel, gamma);
+  curveMemo.set(base, { gamma, out });
+  return out;
+}
+
 export function heightField(map: GameMap): Float32Array {
-  return getComposedHeightfield(map);
+  const base = getComposedHeightfield(map);
+  return curveHeightBuffer(base, ELEVATION_SEA_LEVEL, worldStyleOf(map.worldSeed).terrainHeightGamma);
 }
 
 /** Pack the per-cell biome base colour as 0xAABBGGRR (LE-friendly for upload). */

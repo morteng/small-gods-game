@@ -49,6 +49,12 @@ export interface WorldStyle {
   /** Total relief in metres for the full `0→1` elevation span. (S1; mirrors
    *  `TERRAIN_RELIEF_M`.) Taller = more dramatic mountains. */
   mountainRelief: number;
+  /** Gamma applied to the render height ABOVE sea level: `a' = a^gamma` on the
+   *  above-sea fraction. `1` = linear (neutral). `>1` keeps peaks tall while
+   *  flattening low mounds (a dramatic massif over gentle valleys); `<1` puffs
+   *  rises up. Affects ONLY the visual height buffer + water surface (hydrology /
+   *  biomes / roads read the raw field), so the waterline stays aligned. (S1) */
+  terrainHeightGamma: number;
   /** ×multiplier on the island's central-dome swell (coast → interior rise). (S1) */
   coastDrama: number;
   /** ×multiplier on open-field / croft dimensions. (S2) */
@@ -100,6 +106,7 @@ export const STYLE_DEFAULTS: WorldStyle = {
   // Scale
   terrainVerticalExaggeration: 17, // == TERRAIN_Z_PX_PER_M (1:1=32 deferred: needs focus/occlusion handling)
   mountainRelief: 48,              // == TERRAIN_RELIEF_M
+  terrainHeightGamma: 1,           // linear (neutral); >1 = dramatic peaks + flat mounds
   coastDrama: 1,
   fieldSize: 1,
   buildingSpacing: 1,

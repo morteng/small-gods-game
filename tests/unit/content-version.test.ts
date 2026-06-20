@@ -6,7 +6,7 @@ describe('content-version constants', () => {
     expect(ART_RECIPE_VERSION).toBe('v10');
   });
 
-  it('declares the current world content version (10: DC-3 enclosure barriers)', () => {
-    expect(WORLD_CONTENT_VERSION).toBe(10);
+  it('declares the current world content version (11: default-world height curve)', () => {
+    expect(WORLD_CONTENT_VERSION).toBe(11);
   });
 });

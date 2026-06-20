@@ -43,4 +43,4 @@ export const ART_RECIPE_VERSION = 'v10';
  * An autosave stamped with a different value is discarded on load → a fresh
  * world is generated. Distinct from SAVE_VERSION (which guards the save *schema*).
  */
-export const WORLD_CONTENT_VERSION = 10;  // DC-3 barriers: settlements/crofts now ringed by enclosure barriers (hedge/fence/palisade/town-wall)
+export const WORLD_CONTENT_VERSION = 11;  // default world gains a non-linear height curve (style.terrainHeightGamma 1.8 / mountainRelief 60) — discard pre-curve autosaves so the new terrain shows

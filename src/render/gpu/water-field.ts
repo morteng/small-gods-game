@@ -7,7 +7,9 @@
 // depth = surfaceW − terrainHeight needs no extra upload. No GPU/DOM here.
 
 import type { GameMap } from '@/core/types';
-import { terrainGrid, terrainGlobalsFor } from '@/render/gpu/terrain-field';
+import { terrainGrid, terrainGlobalsFor, curveRenderElev } from '@/render/gpu/terrain-field';
+import { ELEVATION_SEA_LEVEL } from '@/world/heightfield';
+import { worldStyleOf } from '@/core/world-style';
 import { packTerrainGlobals, TERRAIN_GLOBALS_FLOATS, type TerrainGlobalsInput } from '@/render/gpu/instance-buffer';
 import type { LightingState } from '@/render/lighting-state';
 import { getHydrologyResult } from '@/world/hydrology-store';
@@ -249,7 +251,13 @@ function waterStatic(map: GameMap, maxQuads?: number): WaterStatic {
   // mutates it to overhang the bank for the pixel-perfect waterline, and the
   // hydrology result must stay pristine for other consumers. `waterType` is already
   // a copy (Uint32Array.from); flow/shallow/deep/clarity are freshly allocated above.
-  const surfaceW = Float32Array.from(hydro.surfaceW);
+  // Apply the SAME render height curve the terrain buffer uses (terrain-field
+  // `heightField`) so the water plane rides the curved bed and the waterline's
+  // zero-crossing stays put. Ocean (surfaceW == seaLevel) and dry (−1) are below/at
+  // sea level ⇒ curve is identity there; only lake surfaces (above sea) shift.
+  const gamma = worldStyleOf(map.worldSeed).terrainHeightGamma;
+  const surfaceW = new Float32Array(cells);
+  for (let i = 0; i < cells; i++) surfaceW[i] = curveRenderElev(hydro.surfaceW[i], ELEVATION_SEA_LEVEL, gamma);
   const waterType = Uint32Array.from(hydro.waterType);
   fillShoreRing(map.width, map.height, hydro.waterMask, {
     surfaceW, waterType, shallow, deep, clarity, flow,
