@@ -50,8 +50,14 @@ export const TERRAIN_SUN_DIR: [number, number, number] = [-1, 1.6, -1];
  */
 export const TERRAIN_Z_PX_PER_M = 17.0;
 
-/** Cap on generated quads — picks the subsample LOD so big maps stay cheap. */
-export const MAX_TERRAIN_QUADS = 50000;
+/** Cap on generated quads — picks the subsample LOD so big maps stay cheap. Raised
+ *  from 50k: a default 384×272 world (~104k tiles) was rendering at subsample=2
+ *  (HALF tile resolution), so carved valleys + shorelines showed coarse triangle
+ *  facets. At 700k the typical world renders at full tile resolution (sub=1) — a 4×
+ *  denser mesh — while very large maps still coarsen. A GPU generates ~10⁶ quads
+ *  trivially and the terrain buffers are memoised, so the only per-frame cost is the
+ *  (larger) draw call. (True sub-tile super-sampling is a planned follow-up.) */
+export const MAX_TERRAIN_QUADS = 700_000;
 
 /** The row-major normalised-elevation field (the height storage buffer): the
  *  base seed heightfield with the deformation channel composed on top (road
