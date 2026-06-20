@@ -168,12 +168,15 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
     // Road/river ribbons (T7/R2): swept terrain-following meshes drawn over terrain
     // + water, under entities — roads (hidden with 'roads') and rivers (hidden with
     // 'rivers') concatenated into ONE pass; the per-vertex tag.y tells them apart.
+    // `map` is passed to roads so bridge spans get a raised plank deck (R3b). Rivers
+    // are concatenated FIRST so roads draw last — a bridge deck wins over the river
+    // it crosses at the shared cells (grid-depth ties, no depth write → painter order).
     const roadMesh = (terrain && !isLayerHidden('roads', rc.devMode))
-      ? buildRoadRibbonMeshMemo(map.roadGraph) : null;
+      ? buildRoadRibbonMeshMemo(map.roadGraph, map) : null;
     const riverMesh = (terrain && !isLayerHidden('rivers', rc.devMode))
       ? buildRiverRibbonMeshMemo(map) : null;
     const ribbon: RibbonMesh | null = (roadMesh || riverMesh)
-      ? concatRibbonMeshes([roadMesh, riverMesh].filter(Boolean) as RibbonMesh[])
+      ? concatRibbonMeshes([riverMesh, roadMesh].filter(Boolean) as RibbonMesh[])
       : null;
 
     // Flotsam/fauna (S6): step + emit cosmetic circles on the water surface.

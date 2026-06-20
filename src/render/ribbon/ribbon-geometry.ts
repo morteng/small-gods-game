@@ -53,6 +53,10 @@ export interface RibbonSpec {
   tag?: [number, number] | ((x: number, y: number, along01: number) => [number, number]);
   /** Centerline resample step in tiles (smaller = smoother curve). */
   stepTiles?: number;
+  /** Per-input-point force-keep flags for RDP: a `true` point survives simplification
+   *  even on a straight run. Used to preserve bridge cells so the deck span is densely
+   *  resampled (and thus plank-shaded + deck-lifted) instead of collapsed to a chord. */
+  keepMask?: boolean[];
 }
 
 /** One resampled centerline sample with its frame + parametric attributes. */
@@ -98,10 +102,13 @@ function perpDist(p: Pt, a: Pt, b: Pt): number {
  * runs; real corners (deviation ≫ eps) survive to be rounded by the spline. Iterative
  * (explicit stack) so long polylines don't blow the call stack.
  */
-export function simplifyRDP(pts: Pt[], eps: number): Pt[] {
+export function simplifyRDP(pts: Pt[], eps: number, force?: boolean[]): Pt[] {
   if (pts.length < 3 || eps <= 0) return pts.slice();
   const keep = new Array<boolean>(pts.length).fill(false);
   keep[0] = keep[pts.length - 1] = true;
+  // Force-keep flagged points (e.g. bridge cells) so straight runs aren't collapsed
+  // across them — the output filter honours these regardless of deviation.
+  if (force) for (let i = 0; i < pts.length; i++) if (force[i]) keep[i] = true;
   const stack: Array<[number, number]> = [[0, pts.length - 1]];
   while (stack.length) {
     const [a, b] = stack.pop()!;
@@ -177,7 +184,7 @@ function dedupe(pts: Pt[]): Pt[] {
 export function centerlineSamples(spec: RibbonSpec): CenterlineSample[] {
   // Liberate from the grid: collapse the cell staircase into diagonal runs BEFORE
   // smoothing, so the spline rounds real bends instead of every tile step.
-  const simplified = simplifyRDP(spec.points, spec.simplifyTol ?? 1.4);
+  const simplified = simplifyRDP(spec.points, spec.simplifyTol ?? 1.4, spec.keepMask);
   const c = smoothCenterline(simplified, spec.stepTiles ?? 0.5);
   if (c.length < 2) return [];
 

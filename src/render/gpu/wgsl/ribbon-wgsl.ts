@@ -98,7 +98,12 @@ fn vsMain(
   @location(5) aSpeed : f32,
   @location(6) aTag : vec2<f32>,
 ) -> VSOut {
-  let hPx = heightPxAt(aPos);
+  // Bridge decks (road tag.y == BRIDGE_TAG ~ 0.25) carry their LEVEL deck elevation in
+  // aSpeed; lift to that instead of the riverbed below, so the deck spans the water.
+  let isBridge = aTag.y > 0.1 && aTag.y < 0.5;
+  var elev = sampleElev(aPos);
+  if (isBridge) { elev = aSpeed; }
+  let hPx = (elev - G.uZParams.y) * G.uZParams.z * G.uZParams.x;
   // A hair of lift so the ribbon never z-fights the terrain it rides on.
   let scr = vec2<f32>((aPos.x - aPos.y) * G.uHalf.x, (aPos.x + aPos.y) * G.uHalf.y - hPx - 0.5);
   let dev = scr * G.uXform.xy + G.uXform.zw;
@@ -164,14 +169,33 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
 
   // tag.x = road TIER (0 path · 1 rutted track · 2 packed road · 3 cobbled+curb).
   let tier = i32(in.vTag.x + 0.5);
+  let isBridge = in.vTag.y > 0.1 && in.vTag.y < 0.5;
 
   // Bank feather: fade the ribbon out so it melts into the ground. Cobbled roads
-  // keep a harder edge (the curb) than trodden dirt paths.
+  // keep a harder edge (the curb) than trodden dirt paths; a bridge deck has a hard
+  // plank edge over the void.
   let ragged = (fbm(in.vGrid * 1.7) - 0.5) * 0.10;
   var edgeStart = 0.78;
   if (tier == 3) { edgeStart = 0.90; }
   if (tier == 0) { edgeStart = 0.62; }   // a path has no firm edge at all
+  if (isBridge) { edgeStart = 0.95; }
   let alpha = smoothstep(1.0, edgeStart, aa + ragged);
+
+  // ── BRIDGE DECK ── timber planks laid ACROSS the span (period along the route),
+  // warm wood with darker seams, raised rails at the outer edges. Overrides the tier.
+  if (isBridge) {
+    let plank = fract(in.vAlong * 2.0);                       // ~0.5-tile (1 m) planks
+    let seam = smoothstep(0.06, 0.0, abs(plank - 0.5) - 0.42); // dark gap between boards
+    let grain = vnoise(vec2<f32>(in.vAlong * 3.0, in.vAcross * 1.5));
+    var wood = mix(vec3<f32>(0.42, 0.30, 0.18), vec3<f32>(0.54, 0.39, 0.24), grain);
+    wood = mix(wood, vec3<f32>(0.19, 0.13, 0.08), seam);
+    let rail = smoothstep(0.80, 0.94, aa);                    // dressed-timber side rails
+    wood = mix(wood, vec3<f32>(0.33, 0.23, 0.14), rail * 0.85);
+    let bndl = max(G.uSun.y, 0.0) / max(length(G.uSun.xyz), 1e-3);
+    let bbands = max(1.0, G.uSun.w);
+    let blight = G.uAmbient.xyz + vec3<f32>(G.uAmbient.w) * (floor(bndl * bbands + 0.5) / bbands);
+    return vec4<f32>(wood * blight * alpha, alpha);
+  }
 
   var col : vec3<f32>;
   if (tier == 3) {
