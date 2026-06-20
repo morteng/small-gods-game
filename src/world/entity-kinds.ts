@@ -1,4 +1,6 @@
 import type { SpriteRef } from '@/core/types';
+import { getFloraSpecies } from '@/flora/flora-registry';
+import { deriveRecipe } from '@/flora/flora-species';
 
 export interface EntityKindDef {
   id: string;
@@ -108,14 +110,47 @@ export const entityKinds: ReadonlyMap<string, EntityKindDef> = new Map<string, E
   ['shrine_stone',  def('shrine_stone',  'terrain-feature',  '#9a8aa8', 'square', ['religious', 'sacred'], 0.5)],
 ]);
 
+/** Memoised entity-kind defs DERIVED from the flora fact DB, so every species id
+ *  (e.g. 'english-oak') is a first-class entity kind — visible to sim queries,
+ *  collision and the render fallback — without hand-listing 26 species here. The
+ *  flora DB is the single source of truth; art comes from the parametric pipeline
+ *  (see blueprint/presets `floraSpeciesBlueprint`), this is just the catalog face. */
+const floraDefMemo = new Map<string, EntityKindDef | null>();
+function floraKindDef(kind: string): EntityKindDef | null {
+  const cached = floraDefMemo.get(kind);
+  if (cached !== undefined) return cached;
+  const sp = getFloraSpecies(kind);
+  let d: EntityKindDef | null = null;
+  if (sp) {
+    const b = sp.botanical;
+    if (b.habit === 'rock') {
+      d = def(kind, 'terrain-feature', '#888888', 'circle', ['rock', 'obstacle'], 1);
+    } else {
+      const recipe = deriveRecipe(b);
+      const isTree = b.habit === 'tree';
+      const shape = recipe === 'pine' ? 'triangle' : 'circle';
+      const color =
+        recipe === 'pine' ? '#2d5a2d'
+        : b.habit === 'shrub' ? '#4a7a3a'
+        : b.habit === 'fern' ? '#3a6a2a'
+        : b.habit === 'herb' || b.habit === 'grass' ? '#6a9a4a'
+        : '#3a6e3a';
+      const tags = ['vegetation', isTree ? 'tree' : b.habit];
+      d = def(kind, 'vegetation', color, shape, tags, isTree ? 0.5 : 0.3);
+    }
+  }
+  floraDefMemo.set(kind, d);
+  return d;
+}
+
 /** Throws on unknown kinds — non-render code MUST use this. */
 export function getEntityKindDef(kind: string): EntityKindDef {
-  const d = entityKinds.get(kind);
+  const d = entityKinds.get(kind) ?? floraKindDef(kind);
   if (!d) throw new Error(`Unknown entity kind: ${kind}`);
   return d;
 }
 
 /** Returns null on unknown kinds — render code uses this for fallback drawing. */
 export function tryGetEntityKindDef(kind: string): EntityKindDef | null {
-  return entityKinds.get(kind) ?? null;
+  return entityKinds.get(kind) ?? floraKindDef(kind);
 }

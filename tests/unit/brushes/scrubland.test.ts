@@ -1,7 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { scrublandBrush } from '@/world/brushes/scrubland';
+import { canopyOf, undergrowthOf } from '@/flora/biome-flora';
 import { EMPTY_CONTEXT } from '@/world/brush-helpers';
 import type { BrushContext, GameMap, Tile } from '@/core/types';
+
+const CANOPY = new Set(canopyOf('scrubland').map(([k]) => k));
+// Brush adds field-stone to the pool undergrowth for scrub texture.
+const ALLOWED = new Set<string>([...CANOPY, ...undergrowthOf('scrubland').map(([k]) => k), 'field-stone']);
 
 function ctx(rows: string[][]): BrushContext {
   const h = rows.length, w = rows[0].length;
@@ -24,17 +29,16 @@ describe('scrubland brush', () => {
   it('emits zero on non-scrubland tiles', () => {
     expect(scrublandBrush({ x: 0, y: 0, w: 2, h: 2 }, 1, ctx([['grass','grass'],['grass','grass']]))).toEqual([]);
   });
-  it('only emits allowed kinds', () => {
-    const allowed = new Set(['shrub', 'cactus', 'grass_tuft', 'boulder']);
+  it('only emits the scrubland pool species', () => {
     const c = allScrub(16, 16);
     for (const e of scrublandBrush({ x: 0, y: 0, w: 16, h: 16 }, 3, c)) {
-      expect(allowed.has(e.kind)).toBe(true);
+      expect(ALLOWED.has(e.kind)).toBe(true);
     }
   });
   it('produces ~20% vegetation density', () => {
     const c = allScrub(20, 20);
     const out = scrublandBrush({ x: 0, y: 0, w: 20, h: 20 }, 11, c);
-    const veg = out.filter(e => e.kind === 'shrub' || e.kind === 'cactus' || e.kind === 'grass_tuft');
+    const veg = out.filter(e => CANOPY.has(e.kind));
     expect(veg.length).toBeGreaterThan(40);
     expect(veg.length).toBeLessThan(120);
   });

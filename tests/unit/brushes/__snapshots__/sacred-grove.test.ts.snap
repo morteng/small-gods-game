@@ -3,8 +3,8 @@
 exports[`sacred_grove brush > produces a stable snapshot 1`] = `
 [
   {
-    "id": "sacred_grove-birch_tree-3-0",
-    "kind": "birch_tree",
+    "id": "sacred_grove-silver-birch-3-0",
+    "kind": "silver-birch",
     "properties": {
       "offsetX": 0.1469623805475246,
       "offsetY": 0.001121699880399618,
@@ -12,15 +12,14 @@ exports[`sacred_grove brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
       "sacred",
     ],
     "x": 3.1469623805475244,
     "y": 0.001121699880399618,
   },
   {
-    "id": "sacred_grove-birch_tree-4--1",
-    "kind": "birch_tree",
+    "id": "sacred_grove-silver-birch-4--1",
+    "kind": "silver-birch",
     "properties": {
       "offsetX": 0.13355981124730773,
       "offsetY": -0.012280905182604168,
@@ -28,15 +27,14 @@ exports[`sacred_grove brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
       "sacred",
     ],
     "x": 4.1335598112473075,
     "y": -0.012280905182604168,
   },
   {
-    "id": "sacred_grove-birch_tree-5--1",
-    "kind": "birch_tree",
+    "id": "sacred_grove-silver-birch-5--1",
+    "kind": "silver-birch",
     "properties": {
       "offsetX": 0.12015720618430396,
       "offsetY": -0.025683510245607936,
@@ -44,15 +42,14 @@ exports[`sacred_grove brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
       "sacred",
     ],
     "x": 5.120157206184304,
     "y": -0.025683510245607936,
   },
   {
-    "id": "sacred_grove-birch_tree-6--1",
-    "kind": "birch_tree",
+    "id": "sacred_grove-silver-birch-6--1",
+    "kind": "silver-birch",
     "properties": {
       "offsetX": 0.10675463688408705,
       "offsetY": -0.039086079545824826,
@@ -60,15 +57,14 @@ exports[`sacred_grove brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
       "sacred",
     ],
     "x": 6.106754636884087,
     "y": -0.039086079545824826,
   },
   {
-    "id": "sacred_grove-birch_tree-7--1",
-    "kind": "birch_tree",
+    "id": "sacred_grove-silver-birch-7--1",
+    "kind": "silver-birch",
     "properties": {
       "offsetX": 0.09335203182108329,
       "offsetY": -0.05248868460882859,
@@ -76,39 +72,38 @@ exports[`sacred_grove brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
       "sacred",
     ],
     "x": 7.093352031821083,
     "y": -0.05248868460882859,
   },
   {
-    "id": "sacred_grove-flower_patch-0-1",
-    "kind": "flower_patch",
+    "id": "sacred_grove-foxglove-0-1",
+    "kind": "foxglove",
     "properties": {},
     "tags": [
       "vegetation",
-      "decoration",
+      "herb",
       "sacred",
     ],
     "x": 0.5,
     "y": 1.5,
   },
   {
-    "id": "sacred_grove-flower_patch-1-1",
-    "kind": "flower_patch",
+    "id": "sacred_grove-foxglove-1-1",
+    "kind": "foxglove",
     "properties": {},
     "tags": [
       "vegetation",
-      "decoration",
+      "herb",
       "sacred",
     ],
     "x": 1.5,
     "y": 1.5,
   },
   {
-    "id": "sacred_grove-birch_tree-0-1",
-    "kind": "birch_tree",
+    "id": "sacred_grove-silver-birch-0-1",
+    "kind": "silver-birch",
     "properties": {
       "offsetX": 0.08716632138805759,
       "offsetY": -0.05867435927906742,
@@ -116,15 +111,14 @@ exports[`sacred_grove brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
       "sacred",
     ],
     "x": 0.08716632138805759,
     "y": 1.9413256407209325,
   },
   {
-    "id": "sacred_grove-birch_tree-1-1",
-    "kind": "birch_tree",
+    "id": "sacred_grove-european-yew-1-1",
+    "kind": "european-yew",
     "properties": {
       "offsetX": 0.0737637520878407,
       "offsetY": -0.07207696434207118,
@@ -132,15 +126,14 @@ exports[`sacred_grove brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
       "sacred",
     ],
     "x": 1.0737637520878407,
     "y": 1.9279230356579289,
   },
   {
-    "id": "sacred_grove-birch_tree-2-1",
-    "kind": "birch_tree",
+    "id": "sacred_grove-european-yew-2-1",
+    "kind": "european-yew",
     "properties": {
       "offsetX": 0.06036114702483692,
       "offsetY": -0.08547956940507496,
@@ -148,15 +141,14 @@ exports[`sacred_grove brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
       "sacred",
     ],
     "x": 2.060361147024837,
     "y": 1.914520430594925,
   },
   {
-    "id": "sacred_grove-birch_tree-3-1",
-    "kind": "birch_tree",
+    "id": "sacred_grove-european-yew-3-1",
+    "kind": "european-yew",
     "properties": {
       "offsetX": 0.046958541961833154,
       "offsetY": -0.09888217446807873,
@@ -164,15 +156,14 @@ exports[`sacred_grove brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
       "sacred",
     ],
     "x": 3.0469585419618332,
     "y": 1.9011178255319212,
   },
   {
-    "id": "sacred_grove-birch_tree-4-1",
-    "kind": "birch_tree",
+    "id": "sacred_grove-european-yew-4-1",
+    "kind": "european-yew",
     "properties": {
       "offsetX": 0.03355593689882939,
       "offsetY": -0.11228470800550873,
@@ -180,15 +171,14 @@ exports[`sacred_grove brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
       "sacred",
     ],
     "x": 4.033555936898829,
     "y": 1.8877152919944913,
   },
   {
-    "id": "sacred_grove-birch_tree-5-1",
-    "kind": "birch_tree",
+    "id": "sacred_grove-european-yew-5-1",
+    "kind": "european-yew",
     "properties": {
       "offsetX": 0.020153331835825617,
       "offsetY": -0.1256873130685125,
@@ -196,39 +186,38 @@ exports[`sacred_grove brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
       "sacred",
     ],
     "x": 5.020153331835826,
     "y": 1.8743126869314874,
   },
   {
-    "id": "sacred_grove-flower_patch-6-2",
-    "kind": "flower_patch",
+    "id": "sacred_grove-foxglove-6-2",
+    "kind": "foxglove",
     "properties": {},
     "tags": [
       "vegetation",
-      "decoration",
+      "herb",
       "sacred",
     ],
     "x": 6.5,
     "y": 2.5,
   },
   {
-    "id": "sacred_grove-flower_patch-7-2",
-    "kind": "flower_patch",
+    "id": "sacred_grove-foxglove-7-2",
+    "kind": "foxglove",
     "properties": {},
     "tags": [
       "vegetation",
-      "decoration",
+      "herb",
       "sacred",
     ],
     "x": 7.5,
     "y": 2.5,
   },
   {
-    "id": "sacred_grove-birch_tree-3-3",
-    "kind": "birch_tree",
+    "id": "sacred_grove-silver-birch-3-3",
+    "kind": "silver-birch",
     "properties": {
       "offsetX": 0.1469566585016235,
       "offsetY": 0.0011159420717116175,
@@ -236,15 +225,14 @@ exports[`sacred_grove brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
       "sacred",
     ],
     "x": 3.1469566585016233,
     "y": 3.0011159420717117,
   },
   {
-    "id": "sacred_grove-birch_tree-4-2",
-    "kind": "birch_tree",
+    "id": "sacred_grove-silver-birch-4-2",
+    "kind": "silver-birch",
     "properties": {
       "offsetX": 0.13355405343861973,
       "offsetY": -0.012286662991292151,
@@ -252,15 +240,14 @@ exports[`sacred_grove brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
       "sacred",
     ],
     "x": 4.13355405343862,
     "y": 2.987713337008708,
   },
   {
-    "id": "sacred_grove-birch_tree-5-2",
-    "kind": "birch_tree",
+    "id": "sacred_grove-silver-birch-5-2",
+    "kind": "silver-birch",
     "properties": {
       "offsetX": 0.12015144837561596,
       "offsetY": -0.02568926805429592,
@@ -268,15 +255,14 @@ exports[`sacred_grove brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
       "sacred",
     ],
     "x": 5.120151448375616,
     "y": 2.974310731945704,
   },
   {
-    "id": "sacred_grove-birch_tree-6-2",
-    "kind": "birch_tree",
+    "id": "sacred_grove-silver-birch-6-2",
+    "kind": "silver-birch",
     "properties": {
       "offsetX": 0.10674891483818595,
       "offsetY": -0.03909187311729969,
@@ -284,15 +270,14 @@ exports[`sacred_grove brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
       "sacred",
     ],
     "x": 6.106748914838186,
     "y": 2.9609081268827,
   },
   {
-    "id": "sacred_grove-birch_tree-7-2",
-    "kind": "birch_tree",
+    "id": "sacred_grove-silver-birch-7-2",
+    "kind": "silver-birch",
     "properties": {
       "offsetX": 0.09334630977518218,
       "offsetY": -0.05249447818030346,
@@ -300,39 +285,38 @@ exports[`sacred_grove brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
       "sacred",
     ],
     "x": 7.093346309775182,
     "y": 2.9475055218196964,
   },
   {
-    "id": "sacred_grove-flower_patch-0-4",
-    "kind": "flower_patch",
+    "id": "sacred_grove-foxglove-0-4",
+    "kind": "foxglove",
     "properties": {},
     "tags": [
       "vegetation",
-      "decoration",
+      "herb",
       "sacred",
     ],
     "x": 0.5,
     "y": 4.5,
   },
   {
-    "id": "sacred_grove-flower_patch-1-4",
-    "kind": "flower_patch",
+    "id": "sacred_grove-foxglove-1-4",
+    "kind": "foxglove",
     "properties": {},
     "tags": [
       "vegetation",
-      "decoration",
+      "herb",
       "sacred",
     ],
     "x": 1.5,
     "y": 4.5,
   },
   {
-    "id": "sacred_grove-birch_tree-0-4",
-    "kind": "birch_tree",
+    "id": "sacred_grove-silver-birch-0-4",
+    "kind": "silver-birch",
     "properties": {
       "offsetX": 0.08716056357936959,
       "offsetY": -0.05868015285054229,
@@ -340,15 +324,14 @@ exports[`sacred_grove brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
       "sacred",
     ],
     "x": 0.08716056357936959,
     "y": 4.941319847149458,
   },
   {
-    "id": "sacred_grove-birch_tree-1-4",
-    "kind": "birch_tree",
+    "id": "sacred_grove-european-yew-1-4",
+    "kind": "european-yew",
     "properties": {
       "offsetX": 0.07375795851636582,
       "offsetY": -0.07208268638797229,
@@ -356,15 +339,14 @@ exports[`sacred_grove brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
       "sacred",
     ],
     "x": 1.073757958516366,
     "y": 4.927917313612028,
   },
   {
-    "id": "sacred_grove-birch_tree-2-4",
-    "kind": "birch_tree",
+    "id": "sacred_grove-european-yew-2-4",
+    "kind": "european-yew",
     "properties": {
       "offsetX": 0.06035535345336206,
       "offsetY": -0.08548529145097607,
@@ -372,15 +354,14 @@ exports[`sacred_grove brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
       "sacred",
     ],
     "x": 2.060355353453362,
     "y": 4.9145147085490235,
   },
   {
-    "id": "sacred_grove-birch_tree-3-4",
-    "kind": "birch_tree",
+    "id": "sacred_grove-european-yew-3-4",
+    "kind": "european-yew",
     "properties": {
       "offsetX": 0.04695281991593205,
       "offsetY": -0.09888796803955359,
@@ -388,15 +369,14 @@ exports[`sacred_grove brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
       "sacred",
     ],
     "x": 3.046952819915932,
     "y": 4.901112031960446,
   },
   {
-    "id": "sacred_grove-birch_tree-4-4",
-    "kind": "birch_tree",
+    "id": "sacred_grove-european-yew-4-4",
+    "kind": "european-yew",
     "properties": {
       "offsetX": 0.033550214852928285,
       "offsetY": -0.11229043005140983,
@@ -404,15 +384,14 @@ exports[`sacred_grove brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
       "sacred",
     ],
     "x": 4.033550214852928,
     "y": 4.88770956994859,
   },
   {
-    "id": "sacred_grove-birch_tree-5-4",
-    "kind": "birch_tree",
+    "id": "sacred_grove-european-yew-5-4",
+    "kind": "european-yew",
     "properties": {
       "offsetX": 0.020147609789924515,
       "offsetY": -0.1256930351144136,
@@ -420,39 +399,38 @@ exports[`sacred_grove brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
       "sacred",
     ],
     "x": 5.020147609789925,
     "y": 4.874306964885586,
   },
   {
-    "id": "sacred_grove-flower_patch-6-5",
-    "kind": "flower_patch",
+    "id": "sacred_grove-foxglove-6-5",
+    "kind": "foxglove",
     "properties": {},
     "tags": [
       "vegetation",
-      "decoration",
+      "herb",
       "sacred",
     ],
     "x": 6.5,
     "y": 5.5,
   },
   {
-    "id": "sacred_grove-flower_patch-7-5",
-    "kind": "flower_patch",
+    "id": "sacred_grove-foxglove-7-5",
+    "kind": "foxglove",
     "properties": {},
     "tags": [
       "vegetation",
-      "decoration",
+      "herb",
       "sacred",
     ],
     "x": 7.5,
     "y": 5.5,
   },
   {
-    "id": "sacred_grove-birch_tree-3-6",
-    "kind": "birch_tree",
+    "id": "sacred_grove-silver-birch-3-6",
+    "kind": "silver-birch",
     "properties": {
       "offsetX": 0.14695086493014864,
       "offsetY": 0.0011102200258105155,
@@ -460,15 +438,14 @@ exports[`sacred_grove brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
       "sacred",
     ],
     "x": 3.1469508649301488,
     "y": 6.001110220025811,
   },
   {
-    "id": "sacred_grove-birch_tree-4-5",
-    "kind": "birch_tree",
+    "id": "sacred_grove-silver-birch-4-5",
+    "kind": "silver-birch",
     "properties": {
       "offsetX": 0.13354825986714486,
       "offsetY": -0.012292385037193253,
@@ -476,15 +453,14 @@ exports[`sacred_grove brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
       "sacred",
     ],
     "x": 4.133548259867145,
     "y": 5.987707614962806,
   },
   {
-    "id": "sacred_grove-birch_tree-5-5",
-    "kind": "birch_tree",
+    "id": "sacred_grove-silver-birch-5-5",
+    "kind": "silver-birch",
     "properties": {
       "offsetX": 0.12014565480414109,
       "offsetY": -0.02569499010019702,
@@ -492,15 +468,14 @@ exports[`sacred_grove brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
       "sacred",
     ],
     "x": 5.1201456548041415,
     "y": 5.974305009899803,
   },
   {
-    "id": "sacred_grove-birch_tree-6-5",
-    "kind": "birch_tree",
+    "id": "sacred_grove-silver-birch-6-5",
+    "kind": "silver-birch",
     "properties": {
       "offsetX": 0.10674304974113732,
       "offsetY": -0.03909759516320079,
@@ -508,15 +483,14 @@ exports[`sacred_grove brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
       "sacred",
     ],
     "x": 6.106743049741137,
     "y": 5.9609024048368,
   },
   {
-    "id": "sacred_grove-birch_tree-7-5",
-    "kind": "birch_tree",
+    "id": "sacred_grove-silver-birch-7-5",
+    "kind": "silver-birch",
     "properties": {
       "offsetX": 0.09334044467813356,
       "offsetY": -0.05250020022620456,
@@ -524,31 +498,30 @@ exports[`sacred_grove brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
       "sacred",
     ],
     "x": 7.093340444678134,
     "y": 5.947499799773795,
   },
   {
-    "id": "sacred_grove-flower_patch-0-7",
-    "kind": "flower_patch",
+    "id": "sacred_grove-foxglove-0-7",
+    "kind": "foxglove",
     "properties": {},
     "tags": [
       "vegetation",
-      "decoration",
+      "herb",
       "sacred",
     ],
     "x": 0.5,
     "y": 7.5,
   },
   {
-    "id": "sacred_grove-flower_patch-1-7",
-    "kind": "flower_patch",
+    "id": "sacred_grove-foxglove-1-7",
+    "kind": "foxglove",
     "properties": {},
     "tags": [
       "vegetation",
-      "decoration",
+      "herb",
       "sacred",
     ],
     "x": 1.5,

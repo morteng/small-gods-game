@@ -1,10 +1,13 @@
 import { noise } from '@/core/noise';
 import { defaultEntity } from '@/world/brush-helpers';
 import { registerBrush } from '@/world/brushes';
+import { canopyOf } from '@/flora/biome-flora';
 import type { Entity, Region, BrushContext } from '@/core/types';
 
 const BRUSH = 'sacred_grove';
 const TILE_TYPES = new Set(['sacred_grove', 'glen']);
+// The grove's canopy species (yew/oak/birch), picked deterministically per cell.
+const GROVE_CANOPY = canopyOf('sacred_grove');
 
 export function sacredGroveBrush(region: Region, seed: number, ctx: BrushContext): Entity[] {
   const out: Entity[] = [];
@@ -14,12 +17,15 @@ export function sacredGroveBrush(region: Region, seed: number, ctx: BrushContext
       if (!tile || !TILE_TYPES.has(tile.type)) continue;
 
       if (noise(x, y, seed) < 0.45) {
-        const kind = noise(x, y, seed + 1) < 0.5 ? 'oak_tree' : 'birch_tree';
+        // Pick a canopy species deterministically from the grove pool.
+        const pick = noise(x, y, seed + 1);
+        let acc = 0, kind = GROVE_CANOPY[0]?.[0] ?? 'english-oak';
+        for (const [id, w] of GROVE_CANOPY) { acc += w; if (pick < acc) { kind = id; break; } }
         const ox = (noise(x, y, seed + 3) - 0.5) * 0.3;
         const oy = (noise(x, y, seed + 4) - 0.5) * 0.3;
         out.push(defaultEntity(BRUSH, kind, x + ox, y + oy, { offsetX: ox, offsetY: oy }, ['sacred']));
       } else if (noise(x, y, seed + 10) < 0.15) {
-        out.push(defaultEntity(BRUSH, 'flower_patch', x + 0.5, y + 0.5, {}, ['sacred']));
+        out.push(defaultEntity(BRUSH, 'foxglove', x + 0.5, y + 0.5, {}, ['sacred']));
       } else if (noise(x, y, seed + 20) < 0.01) {
         if (ctx.world.query({ region: { x, y, w: 1, h: 1 } }).length === 0) {
           out.push(defaultEntity(BRUSH, 'standing_stone', x + 0.5, y + 0.5, {}, ['sacred']));

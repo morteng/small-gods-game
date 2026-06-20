@@ -28,7 +28,8 @@ export function coastalBrush(region: Region, seed: number, ctx: BrushContext): E
       } else if (noise(x, y, seed + 1) < 0.10) {
         out.push(defaultEntity(BRUSH, 'shell', x + 0.5, y + 0.5));
       } else if (nearWater(ctx.tiles, x, y) && noise(x, y, seed + 2) < 0.30) {
-        out.push(defaultEntity(BRUSH, 'reeds', x + 0.5, y + 0.5));
+        // Gorse — the DB's coastal shrub — fringes the waterline (no reed species yet).
+        out.push(defaultEntity(BRUSH, 'gorse', x + 0.5, y + 0.5));
       }
     }
   }

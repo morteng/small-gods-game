@@ -1,8 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { forestBrush } from '@/world/brushes/forest';
 import { placeVegetation, type VegetationParams } from '@/world/brushes/vegetation-placer';
+import { canopyOf, undergrowthOf } from '@/flora/biome-flora';
 import { EMPTY_CONTEXT } from '@/world/brush-helpers';
 import type { BrushContext, GameMap, Tile } from '@/core/types';
+
+const FOREST_CANOPY = new Set(canopyOf('forest').map(([k]) => k));
+const FOREST_KINDS = new Set<string>([...FOREST_CANOPY, ...undergrowthOf('forest').map(([k]) => k)]);
 
 function ctx(rows: string[][]): BrushContext {
   const h = rows.length, w = rows[0].length;
@@ -34,11 +38,10 @@ describe('forest brush', () => {
     expect(forestBrush({ x: 0, y: 0, w: 2, h: 2 }, 1, c)).toEqual([]);
   });
 
-  it('emits only oak/orange/pale tree and undergrowth kinds', () => {
+  it('emits only the forest pool species (canopy + undergrowth)', () => {
     const c = allForest(16, 16);
     const out = forestBrush({ x: 0, y: 0, w: 16, h: 16 }, 7, c);
-    const allowed = new Set(['oak_tree', 'orange_tree', 'pale_tree', 'shrub', 'fern']);
-    for (const e of out) expect(allowed.has(e.kind)).toBe(true);
+    for (const e of out) expect(FOREST_KINDS.has(e.kind)).toBe(true);
   });
 
   it('all emitted entities are inside the region (with sub-tile jitter tolerance)', () => {

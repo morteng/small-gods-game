@@ -3,8 +3,8 @@
 exports[`dense_forest brush > produces a stable snapshot 1`] = `
 [
   {
-    "id": "dense_forest-brown_tree-0-0",
-    "kind": "brown_tree",
+    "id": "dense_forest-silver-birch-0-0",
+    "kind": "silver-birch",
     "properties": {
       "offsetX": 0.04400716372765601,
       "offsetY": 0.48964877566322684,
@@ -14,14 +14,13 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 0.04400716372765601,
     "y": 0.48964877566322684,
   },
   {
-    "id": "dense_forest-brown_tree-0-0",
-    "kind": "brown_tree",
+    "id": "dense_forest-european-beech-0-0",
+    "kind": "european-beech",
     "properties": {
       "offsetX": 0.11311078234575689,
       "offsetY": 0.984447154449299,
@@ -31,14 +30,28 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 0.11311078234575689,
     "y": 0.984447154449299,
   },
   {
-    "id": "dense_forest-oak_tree-1-0",
-    "kind": "oak_tree",
+    "id": "dense_forest-common-hazel-0-0",
+    "kind": "common-hazel",
+    "properties": {
+      "offsetX": 0.6237520201131701,
+      "offsetY": 0.3053742504445836,
+      "scale": 0.6119831680320204,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+    ],
+    "x": 0.6237520201131701,
+    "y": 0.3053742504445836,
+  },
+  {
+    "id": "dense_forest-european-beech-1-0",
+    "kind": "european-beech",
     "properties": {
       "offsetX": 0.21510060434229672,
       "offsetY": 0.829653670778498,
@@ -48,14 +61,13 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 1.2151006043422967,
     "y": 0.829653670778498,
   },
   {
-    "id": "dense_forest-oak_tree-1-0",
-    "kind": "oak_tree",
+    "id": "dense_forest-english-oak-1-0",
+    "kind": "english-oak",
     "properties": {
       "offsetX": 0.7781744019594043,
       "offsetY": 0.21300582867115736,
@@ -65,14 +77,13 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 1.7781744019594043,
     "y": 0.21300582867115736,
   },
   {
-    "id": "dense_forest-oak_tree-2-0",
-    "kind": "oak_tree",
+    "id": "dense_forest-english-oak-2-0",
+    "kind": "english-oak",
     "properties": {
       "offsetX": 0.22547213942743838,
       "offsetY": 0.6010450881440192,
@@ -82,14 +93,43 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 2.2254721394274384,
     "y": 0.6010450881440192,
   },
   {
-    "id": "dense_forest-oak_tree-3-0",
-    "kind": "oak_tree",
+    "id": "dense_forest-bramble-2-0",
+    "kind": "bramble",
+    "properties": {
+      "offsetX": 0.8377451629843562,
+      "offsetY": 0.18932579061947763,
+      "scale": 0.6059733750298619,
+    },
+    "tags": [
+      "vegetation",
+      "shrub",
+    ],
+    "x": 2.837745162984356,
+    "y": 0.18932579061947763,
+  },
+  {
+    "id": "dense_forest-common-hazel-2-0",
+    "kind": "common-hazel",
+    "properties": {
+      "offsetX": 0.8377451629843562,
+      "offsetY": 0.18932579061947763,
+      "scale": 0.6059733750298619,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+    ],
+    "x": 2.837745162984356,
+    "y": 0.18932579061947763,
+  },
+  {
+    "id": "dense_forest-english-oak-3-0",
+    "kind": "english-oak",
     "properties": {
       "offsetX": 0.81328304996714,
       "offsetY": 0.11834466084837914,
@@ -99,14 +139,13 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 3.81328304996714,
     "y": 0.11834466084837914,
   },
   {
-    "id": "dense_forest-oak_tree-4-0",
-    "kind": "oak_tree",
+    "id": "dense_forest-european-beech-4-0",
+    "kind": "european-beech",
     "properties": {
       "offsetX": 0.12359766359440982,
       "offsetY": 0.8837197874672711,
@@ -116,14 +155,28 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 4.12359766359441,
     "y": 0.8837197874672711,
   },
   {
-    "id": "dense_forest-brown_tree-5-0",
-    "kind": "brown_tree",
+    "id": "dense_forest-bramble-4-0",
+    "kind": "bramble",
+    "properties": {
+      "offsetX": 0.6714043079642579,
+      "offsetY": 0.7561470811720937,
+      "scale": 0.8826908156275749,
+    },
+    "tags": [
+      "vegetation",
+      "shrub",
+    ],
+    "x": 4.6714043079642575,
+    "y": 0.7561470811720937,
+  },
+  {
+    "id": "dense_forest-silver-birch-5-0",
+    "kind": "silver-birch",
     "properties": {
       "offsetX": 0.6842999095097184,
       "offsetY": 0.8000500919297338,
@@ -133,14 +186,13 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 5.684299909509718,
     "y": 0.8000500919297338,
   },
   {
-    "id": "dense_forest-brown_tree-5-0",
-    "kind": "brown_tree",
+    "id": "dense_forest-silver-birch-5-0",
+    "kind": "silver-birch",
     "properties": {
       "offsetX": 0.42937171715311706,
       "offsetY": 0.4049503728747368,
@@ -150,14 +202,13 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 5.429371717153117,
     "y": 0.4049503728747368,
   },
   {
-    "id": "dense_forest-brown_tree-5-0",
-    "kind": "brown_tree",
+    "id": "dense_forest-silver-birch-5-0",
+    "kind": "silver-birch",
     "properties": {
       "offsetX": 0.6438214608933777,
       "offsetY": 0.4322927570901811,
@@ -167,14 +218,28 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 5.643821460893378,
     "y": 0.4322927570901811,
   },
   {
-    "id": "dense_forest-oak_tree-6-0",
-    "kind": "oak_tree",
+    "id": "dense_forest-common-hazel-5-0",
+    "kind": "common-hazel",
+    "properties": {
+      "offsetX": 0.49266813178546726,
+      "offsetY": 0.22572878517676148,
+      "scale": 0.6226120823062956,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+    ],
+    "x": 5.492668131785467,
+    "y": 0.22572878517676148,
+  },
+  {
+    "id": "dense_forest-european-beech-6-0",
+    "kind": "european-beech",
     "properties": {
       "offsetX": 0.5058474738616496,
       "offsetY": 0.6566831525415182,
@@ -184,14 +249,13 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 6.50584747386165,
     "y": 0.6566831525415182,
   },
   {
-    "id": "dense_forest-oak_tree-7-0",
-    "kind": "oak_tree",
+    "id": "dense_forest-english-oak-7-0",
+    "kind": "english-oak",
     "properties": {
       "offsetX": 0.522320045158267,
       "offsetY": 0.3409066137392074,
@@ -201,14 +265,13 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 7.522320045158267,
     "y": 0.3409066137392074,
   },
   {
-    "id": "dense_forest-brown_tree-7-0",
-    "kind": "brown_tree",
+    "id": "dense_forest-silver-birch-7-0",
+    "kind": "silver-birch",
     "properties": {
       "offsetX": 0.5686395890079439,
       "offsetY": 0.5436648509930819,
@@ -218,14 +281,13 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 7.568639589007944,
     "y": 0.5436648509930819,
   },
   {
-    "id": "dense_forest-brown_tree-7-0",
-    "kind": "brown_tree",
+    "id": "dense_forest-silver-birch-7-0",
+    "kind": "silver-birch",
     "properties": {
       "offsetX": 0.2573232345748693,
       "offsetY": 0.8788819848559797,
@@ -235,14 +297,13 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 7.257323234574869,
     "y": 0.8788819848559797,
   },
   {
-    "id": "dense_forest-oak_tree-0-1",
-    "kind": "oak_tree",
+    "id": "dense_forest-english-oak-0-1",
+    "kind": "english-oak",
     "properties": {
       "offsetX": 0.385648594237864,
       "offsetY": 0.12332087894901633,
@@ -252,14 +313,13 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 0.385648594237864,
     "y": 1.1233208789490163,
   },
   {
-    "id": "dense_forest-brown_tree-0-1",
-    "kind": "brown_tree",
+    "id": "dense_forest-european-beech-0-1",
+    "kind": "european-beech",
     "properties": {
       "offsetX": 0.5320553963538259,
       "offsetY": 0.3565126818139106,
@@ -269,14 +329,13 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 0.5320553963538259,
     "y": 1.3565126818139106,
   },
   {
-    "id": "dense_forest-brown_tree-1-1",
-    "kind": "brown_tree",
+    "id": "dense_forest-silver-birch-1-1",
+    "kind": "silver-birch",
     "properties": {
       "offsetX": 0.0028102651704102755,
       "offsetY": 0.35369161888957024,
@@ -286,14 +345,13 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 1.0028102651704103,
     "y": 1.3536916188895702,
   },
   {
-    "id": "dense_forest-brown_tree-1-1",
-    "kind": "brown_tree",
+    "id": "dense_forest-silver-birch-1-1",
+    "kind": "silver-birch",
     "properties": {
       "offsetX": 0.3657634623814374,
       "offsetY": 0.878306868718937,
@@ -303,14 +361,13 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 1.3657634623814374,
     "y": 1.878306868718937,
   },
   {
-    "id": "dense_forest-brown_tree-2-1",
-    "kind": "brown_tree",
+    "id": "dense_forest-european-beech-2-1",
+    "kind": "european-beech",
     "properties": {
       "offsetX": 0.06066658906638622,
       "offsetY": 0.14487061346881092,
@@ -320,14 +377,13 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 2.0606665890663862,
     "y": 1.144870613468811,
   },
   {
-    "id": "dense_forest-brown_tree-3-1",
-    "kind": "brown_tree",
+    "id": "dense_forest-silver-birch-3-1",
+    "kind": "silver-birch",
     "properties": {
       "offsetX": 0.7826240013819188,
       "offsetY": 0.9809353847522289,
@@ -337,14 +393,28 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 3.782624001381919,
     "y": 1.9809353847522289,
   },
   {
-    "id": "dense_forest-oak_tree-5-1",
-    "kind": "oak_tree",
+    "id": "dense_forest-common-hazel-3-1",
+    "kind": "common-hazel",
+    "properties": {
+      "offsetX": 0.687498996919021,
+      "offsetY": 0.40104146297089754,
+      "scale": 0.6008967284113168,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+    ],
+    "x": 3.687498996919021,
+    "y": 1.4010414629708976,
+  },
+  {
+    "id": "dense_forest-european-beech-5-1",
+    "kind": "european-beech",
     "properties": {
       "offsetX": 0.052990217227488756,
       "offsetY": 0.8941649522166699,
@@ -354,29 +424,13 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 5.052990217227489,
     "y": 1.89416495221667,
   },
   {
-    "id": "dense_forest-fern-5-1",
-    "kind": "fern",
-    "properties": {
-      "offsetX": 0.18902068282477558,
-      "offsetY": 0.408459072955884,
-      "scale": 0.7247781114652753,
-    },
-    "tags": [
-      "vegetation",
-      "undergrowth",
-    ],
-    "x": 5.189020682824776,
-    "y": 1.4084590729558841,
-  },
-  {
-    "id": "dense_forest-oak_tree-6-1",
-    "kind": "oak_tree",
+    "id": "dense_forest-english-oak-6-1",
+    "kind": "english-oak",
     "properties": {
       "offsetX": 0.19090947438962758,
       "offsetY": 0.07806321769021451,
@@ -386,14 +440,13 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 6.190909474389628,
     "y": 1.0780632176902145,
   },
   {
-    "id": "dense_forest-brown_tree-6-1",
-    "kind": "brown_tree",
+    "id": "dense_forest-european-beech-6-1",
+    "kind": "european-beech",
     "properties": {
       "offsetX": 0.8580866537522525,
       "offsetY": 0.5919338562525809,
@@ -403,14 +456,13 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 6.8580866537522525,
     "y": 1.5919338562525809,
   },
   {
-    "id": "dense_forest-oak_tree-6-1",
-    "kind": "oak_tree",
+    "id": "dense_forest-english-oak-6-1",
+    "kind": "english-oak",
     "properties": {
       "offsetX": 0.11066501447930932,
       "offsetY": 0.46318135573528707,
@@ -420,14 +472,28 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 6.110665014479309,
     "y": 1.463181355735287,
   },
   {
-    "id": "dense_forest-brown_tree-7-1",
-    "kind": "brown_tree",
+    "id": "dense_forest-bramble-6-1",
+    "kind": "bramble",
+    "properties": {
+      "offsetX": 0.5881060326704756,
+      "offsetY": 0.586979144695215,
+      "scale": 0.7707285267300904,
+    },
+    "tags": [
+      "vegetation",
+      "shrub",
+    ],
+    "x": 6.588106032670476,
+    "y": 1.5869791446952148,
+  },
+  {
+    "id": "dense_forest-european-beech-7-1",
+    "kind": "european-beech",
     "properties": {
       "offsetX": 0.379950359929353,
       "offsetY": 0.9661216426175088,
@@ -437,14 +503,13 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 7.379950359929353,
     "y": 1.9661216426175088,
   },
   {
-    "id": "dense_forest-brown_tree-0-2",
-    "kind": "brown_tree",
+    "id": "dense_forest-silver-birch-0-2",
+    "kind": "silver-birch",
     "properties": {
       "offsetX": 0.9843170016538352,
       "offsetY": 0.7516073901206255,
@@ -454,29 +519,13 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 0.9843170016538352,
     "y": 2.7516073901206255,
   },
   {
-    "id": "dense_forest-fern-0-2",
-    "kind": "fern",
-    "properties": {
-      "offsetX": 0.835535735101439,
-      "offsetY": 0.5428569820942357,
-      "scale": 0.8599376820027829,
-    },
-    "tags": [
-      "vegetation",
-      "undergrowth",
-    ],
-    "x": 0.835535735101439,
-    "y": 2.5428569820942357,
-  },
-  {
-    "id": "dense_forest-oak_tree-1-2",
-    "kind": "oak_tree",
+    "id": "dense_forest-european-beech-1-2",
+    "kind": "european-beech",
     "properties": {
       "offsetX": 0.16009601089172065,
       "offsetY": 0.8533678788226098,
@@ -486,14 +535,28 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 1.1600960108917207,
     "y": 2.85336787882261,
   },
   {
-    "id": "dense_forest-oak_tree-2-2",
-    "kind": "oak_tree",
+    "id": "dense_forest-lady-fern-1-2",
+    "kind": "lady-fern",
+    "properties": {
+      "offsetX": 0.40467481382656845,
+      "offsetY": 0.23059848202392463,
+      "scale": 0.831236922275275,
+    },
+    "tags": [
+      "vegetation",
+      "fern",
+    ],
+    "x": 1.4046748138265683,
+    "y": 2.2305984820239244,
+  },
+  {
+    "id": "dense_forest-english-oak-2-2",
+    "kind": "english-oak",
     "properties": {
       "offsetX": 0.747854171320796,
       "offsetY": 0.12334352498874068,
@@ -503,14 +566,13 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 2.747854171320796,
     "y": 2.1233435249887407,
   },
   {
-    "id": "dense_forest-brown_tree-2-2",
-    "kind": "brown_tree",
+    "id": "dense_forest-european-beech-2-2",
+    "kind": "european-beech",
     "properties": {
       "offsetX": 0.978611700469628,
       "offsetY": 0.8585625195410103,
@@ -520,14 +582,28 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 2.978611700469628,
     "y": 2.8585625195410103,
   },
   {
-    "id": "dense_forest-brown_tree-3-2",
-    "kind": "brown_tree",
+    "id": "dense_forest-common-hazel-2-2",
+    "kind": "common-hazel",
+    "properties": {
+      "offsetX": 0.6942338070366532,
+      "offsetY": 0.2090535075636581,
+      "scale": 0.6088884100317955,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+    ],
+    "x": 2.694233807036653,
+    "y": 2.209053507563658,
+  },
+  {
+    "id": "dense_forest-european-beech-3-2",
+    "kind": "european-beech",
     "properties": {
       "offsetX": 0.05138488905504346,
       "offsetY": 0.9678558963350952,
@@ -537,14 +613,13 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 3.0513848890550435,
     "y": 2.967855896335095,
   },
   {
-    "id": "dense_forest-brown_tree-3-2",
-    "kind": "brown_tree",
+    "id": "dense_forest-silver-birch-3-2",
+    "kind": "silver-birch",
     "properties": {
       "offsetX": 0.3882316229864955,
       "offsetY": 0.38140630116686225,
@@ -554,14 +629,13 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 3.3882316229864955,
     "y": 2.3814063011668622,
   },
   {
-    "id": "dense_forest-oak_tree-5-2",
-    "kind": "oak_tree",
+    "id": "dense_forest-english-oak-5-2",
+    "kind": "english-oak",
     "properties": {
       "offsetX": 0.4027511030435562,
       "offsetY": 0.3154732114635408,
@@ -571,14 +645,13 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 5.402751103043556,
     "y": 2.315473211463541,
   },
   {
-    "id": "dense_forest-brown_tree-5-2",
-    "kind": "brown_tree",
+    "id": "dense_forest-european-beech-5-2",
+    "kind": "european-beech",
     "properties": {
       "offsetX": 0.24904925771988928,
       "offsetY": 0.6203536738175899,
@@ -588,14 +661,13 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 5.249049257719889,
     "y": 2.62035367381759,
   },
   {
-    "id": "dense_forest-oak_tree-5-2",
-    "kind": "oak_tree",
+    "id": "dense_forest-english-oak-5-2",
+    "kind": "english-oak",
     "properties": {
       "offsetX": 0.23943181266076863,
       "offsetY": 0.07937652571126819,
@@ -605,14 +677,28 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 5.239431812660769,
     "y": 2.079376525711268,
   },
   {
-    "id": "dense_forest-brown_tree-6-2",
-    "kind": "brown_tree",
+    "id": "dense_forest-common-hazel-5-2",
+    "kind": "common-hazel",
+    "properties": {
+      "offsetX": 0.743879528180696,
+      "offsetY": 0.3968728512059897,
+      "scale": 0.6081575670279562,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+    ],
+    "x": 5.743879528180696,
+    "y": 2.39687285120599,
+  },
+  {
+    "id": "dense_forest-silver-birch-6-2",
+    "kind": "silver-birch",
     "properties": {
       "offsetX": 0.8998442469164729,
       "offsetY": 0.9696960458531976,
@@ -622,14 +708,13 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 6.899844246916473,
     "y": 2.9696960458531976,
   },
   {
-    "id": "dense_forest-brown_tree-6-2",
-    "kind": "brown_tree",
+    "id": "dense_forest-silver-birch-6-2",
+    "kind": "silver-birch",
     "properties": {
       "offsetX": 0.6042966034729034,
       "offsetY": 0.9424825259484351,
@@ -639,14 +724,13 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 6.604296603472903,
     "y": 2.942482525948435,
   },
   {
-    "id": "dense_forest-oak_tree-0-3",
-    "kind": "oak_tree",
+    "id": "dense_forest-english-oak-0-3",
+    "kind": "english-oak",
     "properties": {
       "offsetX": 0.9187032352201641,
       "offsetY": 0.8100342662073672,
@@ -656,14 +740,13 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 0.9187032352201641,
     "y": 3.810034266207367,
   },
   {
-    "id": "dense_forest-oak_tree-1-3",
-    "kind": "oak_tree",
+    "id": "dense_forest-european-beech-1-3",
+    "kind": "european-beech",
     "properties": {
       "offsetX": 0.7691060681827366,
       "offsetY": 0.21334919100627303,
@@ -673,14 +756,13 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 1.7691060681827366,
     "y": 3.213349191006273,
   },
   {
-    "id": "dense_forest-oak_tree-1-3",
-    "kind": "oak_tree",
+    "id": "dense_forest-european-beech-1-3",
+    "kind": "european-beech",
     "properties": {
       "offsetX": 0.5467641400173306,
       "offsetY": 0.9122345331124961,
@@ -690,14 +772,13 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 1.5467641400173306,
     "y": 3.912234533112496,
   },
   {
-    "id": "dense_forest-shrub-1-3",
-    "kind": "shrub",
+    "id": "dense_forest-bramble-1-3",
+    "kind": "bramble",
     "properties": {
       "offsetX": 0.6030912332236766,
       "offsetY": 0.21989787132479255,
@@ -705,14 +786,14 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     },
     "tags": [
       "vegetation",
-      "undergrowth",
+      "shrub",
     ],
     "x": 1.6030912332236766,
     "y": 3.2198978713247923,
   },
   {
-    "id": "dense_forest-brown_tree-3-3",
-    "kind": "brown_tree",
+    "id": "dense_forest-silver-birch-3-3",
+    "kind": "silver-birch",
     "properties": {
       "offsetX": 0.2837991660926491,
       "offsetY": 0.03754255082458258,
@@ -722,14 +803,13 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 3.283799166092649,
     "y": 3.0375425508245826,
   },
   {
-    "id": "dense_forest-oak_tree-3-3",
-    "kind": "oak_tree",
+    "id": "dense_forest-english-oak-3-3",
+    "kind": "english-oak",
     "properties": {
       "offsetX": 0.3757879042532295,
       "offsetY": 0.37887929007411003,
@@ -739,44 +819,13 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 3.3757879042532295,
     "y": 3.37887929007411,
   },
   {
-    "id": "dense_forest-shrub-3-3",
-    "kind": "shrub",
-    "properties": {
-      "offsetX": 0.25395692794118074,
-      "offsetY": 0.5142660338198766,
-      "scale": 0.8291342407464981,
-    },
-    "tags": [
-      "vegetation",
-      "undergrowth",
-    ],
-    "x": 3.253956927941181,
-    "y": 3.514266033819877,
-  },
-  {
-    "id": "dense_forest-fern-3-3",
-    "kind": "fern",
-    "properties": {
-      "offsetX": 0.25395692794118074,
-      "offsetY": 0.5142660338198766,
-      "scale": 0.8291342407464981,
-    },
-    "tags": [
-      "vegetation",
-      "undergrowth",
-    ],
-    "x": 3.253956927941181,
-    "y": 3.514266033819877,
-  },
-  {
-    "id": "dense_forest-brown_tree-4-3",
-    "kind": "brown_tree",
+    "id": "dense_forest-european-beech-4-3",
+    "kind": "european-beech",
     "properties": {
       "offsetX": 0.6330984053201973,
       "offsetY": 0.836149221053347,
@@ -786,29 +835,13 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 4.633098405320197,
     "y": 3.836149221053347,
   },
   {
-    "id": "dense_forest-fern-4-3",
-    "kind": "fern",
-    "properties": {
-      "offsetX": 0.7412142545450479,
-      "offsetY": 0.18287264553364369,
-      "scale": 0.853958351816982,
-    },
-    "tags": [
-      "vegetation",
-      "undergrowth",
-    ],
-    "x": 4.7412142545450475,
-    "y": 3.1828726455336436,
-  },
-  {
-    "id": "dense_forest-oak_tree-5-3",
-    "kind": "oak_tree",
+    "id": "dense_forest-english-oak-5-3",
+    "kind": "english-oak",
     "properties": {
       "offsetX": 0.3601848119869828,
       "offsetY": 0.18563468614593148,
@@ -818,14 +851,13 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 5.360184811986983,
     "y": 3.1856346861459315,
   },
   {
-    "id": "dense_forest-brown_tree-6-3",
-    "kind": "brown_tree",
+    "id": "dense_forest-silver-birch-6-3",
+    "kind": "silver-birch",
     "properties": {
       "offsetX": 0.049971539760008454,
       "offsetY": 0.038875788915902376,
@@ -835,14 +867,13 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 6.0499715397600085,
     "y": 3.0388757889159024,
   },
   {
-    "id": "dense_forest-brown_tree-7-3",
-    "kind": "brown_tree",
+    "id": "dense_forest-silver-birch-7-3",
+    "kind": "silver-birch",
     "properties": {
       "offsetX": 0.18665207573212683,
       "offsetY": 0.7305558039806783,
@@ -852,14 +883,13 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 7.186652075732127,
     "y": 3.7305558039806783,
   },
   {
-    "id": "dense_forest-brown_tree-0-4",
-    "kind": "brown_tree",
+    "id": "dense_forest-european-beech-0-4",
+    "kind": "european-beech",
     "properties": {
       "offsetX": 0.15350955538451672,
       "offsetY": 0.5393947686534375,
@@ -869,14 +899,13 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 0.15350955538451672,
     "y": 4.5393947686534375,
   },
   {
-    "id": "dense_forest-oak_tree-0-4",
-    "kind": "oak_tree",
+    "id": "dense_forest-english-oak-0-4",
+    "kind": "english-oak",
     "properties": {
       "offsetX": 0.6105308516416699,
       "offsetY": 0.8102587696630508,
@@ -886,14 +915,28 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 0.6105308516416699,
     "y": 4.810258769663051,
   },
   {
-    "id": "dense_forest-brown_tree-1-4",
-    "kind": "brown_tree",
+    "id": "dense_forest-bramble-0-4",
+    "kind": "bramble",
+    "properties": {
+      "offsetX": 0.6700181352440268,
+      "offsetY": 0.19463131176307802,
+      "scale": 0.7011853120289743,
+    },
+    "tags": [
+      "vegetation",
+      "shrub",
+    ],
+    "x": 0.6700181352440268,
+    "y": 4.194631311763078,
+  },
+  {
+    "id": "dense_forest-silver-birch-1-4",
+    "kind": "silver-birch",
     "properties": {
       "offsetX": 0.009173821425065398,
       "offsetY": 0.3945559181738645,
@@ -903,14 +946,13 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 1.0091738214250654,
     "y": 4.3945559181738645,
   },
   {
-    "id": "dense_forest-brown_tree-1-4",
-    "kind": "brown_tree",
+    "id": "dense_forest-silver-birch-1-4",
+    "kind": "silver-birch",
     "properties": {
       "offsetX": 0.023933399468660355,
       "offsetY": 0.033425585366785526,
@@ -920,14 +962,13 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 1.0239333994686604,
     "y": 4.0334255853667855,
   },
   {
-    "id": "dense_forest-oak_tree-0-5",
-    "kind": "oak_tree",
+    "id": "dense_forest-english-oak-0-5",
+    "kind": "english-oak",
     "properties": {
       "offsetX": 0.5082228407263756,
       "offsetY": 0.9997865040786564,
@@ -937,14 +978,13 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 0.5082228407263756,
     "y": 5.999786504078656,
   },
   {
-    "id": "dense_forest-brown_tree-2-5",
-    "kind": "brown_tree",
+    "id": "dense_forest-silver-birch-2-5",
+    "kind": "silver-birch",
     "properties": {
       "offsetX": 0.3362624200526625,
       "offsetY": 0.9269304091576487,
@@ -954,14 +994,13 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 2.3362624200526625,
     "y": 5.926930409157649,
   },
   {
-    "id": "dense_forest-oak_tree-4-5",
-    "kind": "oak_tree",
+    "id": "dense_forest-english-oak-4-5",
+    "kind": "english-oak",
     "properties": {
       "offsetX": 0.41052188840694726,
       "offsetY": 0.05906938179396093,
@@ -971,14 +1010,13 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 4.410521888406947,
     "y": 5.059069381793961,
   },
   {
-    "id": "dense_forest-oak_tree-5-5",
-    "kind": "oak_tree",
+    "id": "dense_forest-english-oak-5-5",
+    "kind": "english-oak",
     "properties": {
       "offsetX": 0.2653405014425516,
       "offsetY": 0.308999594533816,
@@ -988,14 +1026,28 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 5.265340501442552,
     "y": 5.308999594533816,
   },
   {
-    "id": "dense_forest-oak_tree-5-6",
-    "kind": "oak_tree",
+    "id": "dense_forest-common-hazel-5-5",
+    "kind": "common-hazel",
+    "properties": {
+      "offsetX": 0.6192974958568811,
+      "offsetY": 0.544726297678426,
+      "scale": 0.612695272359997,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+    ],
+    "x": 5.619297495856881,
+    "y": 5.544726297678426,
+  },
+  {
+    "id": "dense_forest-english-oak-5-6",
+    "kind": "english-oak",
     "properties": {
       "offsetX": 0.9989775670692325,
       "offsetY": 0.05839694128371775,
@@ -1005,14 +1057,13 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 5.9989775670692325,
     "y": 6.058396941283718,
   },
   {
-    "id": "dense_forest-oak_tree-6-6",
-    "kind": "oak_tree",
+    "id": "dense_forest-english-oak-6-6",
+    "kind": "english-oak",
     "properties": {
       "offsetX": 0.47520807781256735,
       "offsetY": 0.6599075167905539,
@@ -1022,29 +1073,13 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 6.475208077812567,
     "y": 6.659907516790554,
   },
   {
-    "id": "dense_forest-shrub-6-6",
-    "kind": "shrub",
-    "properties": {
-      "offsetX": 0.840454629366286,
-      "offsetY": 0.18473897334188227,
-      "scale": 0.6524837435223162,
-    },
-    "tags": [
-      "vegetation",
-      "undergrowth",
-    ],
-    "x": 6.8404546293662865,
-    "y": 6.184738973341882,
-  },
-  {
-    "id": "dense_forest-oak_tree-1-7",
-    "kind": "oak_tree",
+    "id": "dense_forest-european-beech-1-7",
+    "kind": "european-beech",
     "properties": {
       "offsetX": 0.5275878091342747,
       "offsetY": 0.917833250015974,
@@ -1054,14 +1089,13 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 1.5275878091342747,
     "y": 7.917833250015974,
   },
   {
-    "id": "dense_forest-oak_tree-1-7",
-    "kind": "oak_tree",
+    "id": "dense_forest-english-oak-1-7",
+    "kind": "english-oak",
     "properties": {
       "offsetX": 0.20060976967215538,
       "offsetY": 0.7652047101873904,
@@ -1071,14 +1105,13 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 1.2006097696721554,
     "y": 7.7652047101873904,
   },
   {
-    "id": "dense_forest-oak_tree-3-7",
-    "kind": "oak_tree",
+    "id": "dense_forest-english-oak-3-7",
+    "kind": "english-oak",
     "properties": {
       "offsetX": 0.3809686382301152,
       "offsetY": 0.4088412462733686,
@@ -1088,14 +1121,13 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 3.380968638230115,
     "y": 7.408841246273369,
   },
   {
-    "id": "dense_forest-brown_tree-4-7",
-    "kind": "brown_tree",
+    "id": "dense_forest-european-beech-4-7",
+    "kind": "european-beech",
     "properties": {
       "offsetX": 0.6224786543752998,
       "offsetY": 0.491435568081215,
@@ -1105,14 +1137,13 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 4.6224786543753,
     "y": 7.491435568081215,
   },
   {
-    "id": "dense_forest-brown_tree-5-7",
-    "kind": "brown_tree",
+    "id": "dense_forest-silver-birch-5-7",
+    "kind": "silver-birch",
     "properties": {
       "offsetX": 0.39735519350506365,
       "offsetY": 0.7775163028854877,
@@ -1122,14 +1153,13 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 5.397355193505064,
     "y": 7.777516302885488,
   },
   {
-    "id": "dense_forest-brown_tree-5-7",
-    "kind": "brown_tree",
+    "id": "dense_forest-european-beech-5-7",
+    "kind": "european-beech",
     "properties": {
       "offsetX": 0.4133908248040825,
       "offsetY": 0.0522831198759377,
@@ -1139,29 +1169,13 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 5.4133908248040825,
     "y": 7.052283119875938,
   },
   {
-    "id": "dense_forest-fern-5-7",
-    "kind": "fern",
-    "properties": {
-      "offsetX": 0.7054329036734999,
-      "offsetY": 0.4408242481993511,
-      "scale": 0.6761164707131684,
-    },
-    "tags": [
-      "vegetation",
-      "undergrowth",
-    ],
-    "x": 5.7054329036735,
-    "y": 7.440824248199351,
-  },
-  {
-    "id": "dense_forest-oak_tree-6-7",
-    "kind": "oak_tree",
+    "id": "dense_forest-english-oak-6-7",
+    "kind": "english-oak",
     "properties": {
       "offsetX": 0.6801179945468903,
       "offsetY": 0.14750021044164896,
@@ -1171,10 +1185,24 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 6.68011799454689,
     "y": 7.147500210441649,
+  },
+  {
+    "id": "dense_forest-lady-fern-6-7",
+    "kind": "lady-fern",
+    "properties": {
+      "offsetX": 0.6828410289483144,
+      "offsetY": 0.42293600232806056,
+      "scale": 0.8934414019808172,
+    },
+    "tags": [
+      "vegetation",
+      "fern",
+    ],
+    "x": 6.682841028948315,
+    "y": 7.42293600232806,
   },
 ]
 `;

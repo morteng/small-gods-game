@@ -14,6 +14,8 @@ import { deriveSmokeEgress } from '../connectome/smoke';
 import { connectomeToBlueprint } from '../connectome/to-blueprint';
 import { connectomeOpenings, GEN_OPENINGS_TAG } from '../connectome/openings';
 import type { Connectome, ExpandCtx } from '../connectome/types';
+import { allFloraSpecies, getFloraSpecies } from '@/flora/flora-registry';
+import { deriveGenParams } from '@/flora/flora-species';
 
 const bp = (preset: string, b: Omit<Blueprint, 'version' | 'class' | 'preset'>): Blueprint =>
   ({ version: BLUEPRINT_VERSION, class: 'building', preset, ...b });
@@ -341,12 +343,41 @@ export function getBlueprintPreset(name: string): Blueprint | undefined { return
 
 /** True if `name` is a tree/plant preset (class:'plant') — the render layer uses this
  *  to route a vegetation entity to the generative species-keyed sprite vs the billboard. */
-export function isPlantPreset(name: string): boolean { return BUILDING_BLUEPRINTS[name]?.class === 'plant'; }
+export function isPlantPreset(name: string): boolean {
+  return BUILDING_BLUEPRINTS[name]?.class === 'plant' || floraPlantIds().has(name);
+}
 
-/** Every plant/species preset name. The renderer pre-warms all of these at load
- *  (only a handful of species) so trees never flash a placeholder mid-game. */
+/** Every plant/species preset name. The renderer pre-warms all of these at load so
+ *  trees never flash a placeholder mid-game. Includes both the hand-authored plant
+ *  presets and the flora-DB species (the canonical, generative set). */
 export function plantPresetNames(): string[] {
-  return Object.keys(BUILDING_BLUEPRINTS).filter((n) => BUILDING_BLUEPRINTS[n].class === 'plant');
+  const hand = Object.keys(BUILDING_BLUEPRINTS).filter((n) => BUILDING_BLUEPRINTS[n].class === 'plant');
+  return [...hand, ...floraPlantIds()];
+}
+
+/** Lazily-built set of flora-DB species ids whose growth form is a plant (not rock) —
+ *  these resolve to a branched Blueprint via {@link floraSpeciesBlueprint}. Memoised:
+ *  the species DB is static, and the render seam queries this per vegetation entity. */
+let _floraPlantIds: Set<string> | null = null;
+function floraPlantIds(): Set<string> {
+  if (!_floraPlantIds) {
+    _floraPlantIds = new Set(
+      allFloraSpecies().filter((s) => deriveGenParams(s).kind === 'plant').map((s) => s.id),
+    );
+  }
+  return _floraPlantIds;
+}
+
+/** Bridge a flora-DB species id (e.g. 'english-oak') to a plant/rock Blueprint via its
+ *  derived generation params, so the species DB feeds the SAME parametric pipeline as the
+ *  hand-authored `*_branched` presets. Returns undefined for non-species names. */
+function floraSpeciesBlueprint(name: string): Blueprint | undefined {
+  const sp = getFloraSpecies(name);
+  if (!sp) return undefined;
+  const g = deriveGenParams(sp);
+  return g.kind === 'rock'
+    ? rock(name, g.sizeM ?? g.heightM)
+    : branched(name, g.recipe ?? 'shrub', g.heightM, g.trunkR);
 }
 
 /** Resolve `name` (+ optional override patches) into a ResolvedBlueprint. Seed from name.
@@ -355,7 +386,7 @@ export function plantPresetNames(): string[] {
  *  louver/chimney as resolveAsset; the derived vent patch is applied LAST). */
 export function synthesizeBlueprint(name: string, patches: BlueprintPatch[] = [], seed?: number): ResolvedBlueprint | undefined {
   ensureBuildingTypesRegistered();
-  const base = BUILDING_BLUEPRINTS[name];
+  const base = BUILDING_BLUEPRINTS[name] ?? floraSpeciesBlueprint(name);
   if (!base) return undefined;
   const s = seed ?? [...name].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7);
   const all = [base, ...patches];

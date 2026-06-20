@@ -1,7 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import { sacredGroveBrush } from '@/world/brushes/sacred-grove';
+import { canopyOf } from '@/flora/biome-flora';
 import { EMPTY_CONTEXT } from '@/world/brush-helpers';
 import type { BrushContext, GameMap, Tile } from '@/core/types';
+
+const ALLOWED = new Set<string>([
+  ...canopyOf('sacred_grove').map(([k]) => k),
+  'foxglove', 'standing_stone', 'shrine_stone',
+]);
 
 function ctx(rows: string[][]): BrushContext {
   const h = rows.length, w = rows[0].length;
@@ -29,11 +35,10 @@ describe('sacred_grove brush', () => {
     const out = sacredGroveBrush({ x: 0, y: 0, w: 2, h: 2 }, 1, c);
     expect(out.length).toBeGreaterThanOrEqual(0);
   });
-  it('only emits allowed kinds', () => {
-    const allowed = new Set(['oak_tree', 'birch_tree', 'flower_patch', 'standing_stone', 'shrine_stone']);
+  it('only emits the grove pool species + sacred props', () => {
     const c = allSacred(16, 16);
     for (const e of sacredGroveBrush({ x: 0, y: 0, w: 16, h: 16 }, 3, c)) {
-      expect(allowed.has(e.kind)).toBe(true);
+      expect(ALLOWED.has(e.kind)).toBe(true);
     }
   });
   it('every entity has the sacred tag', () => {

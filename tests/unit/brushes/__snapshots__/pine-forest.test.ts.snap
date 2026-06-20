@@ -3,8 +3,8 @@
 exports[`pine_forest brush > produces a stable snapshot 1`] = `
 [
   {
-    "id": "pine_forest-pale_tree-0-0",
-    "kind": "pale_tree",
+    "id": "pine_forest-silver-birch-0-0",
+    "kind": "silver-birch",
     "properties": {
       "offsetX": 0.04400716372765601,
       "offsetY": 0.48964877566322684,
@@ -14,14 +14,13 @@ exports[`pine_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 0.04400716372765601,
     "y": 0.48964877566322684,
   },
   {
-    "id": "pine_forest-pine_tree-1-0",
-    "kind": "pine_tree",
+    "id": "pine_forest-scots-pine-1-0",
+    "kind": "scots-pine",
     "properties": {
       "offsetX": 0.21510060434229672,
       "offsetY": 0.829653670778498,
@@ -31,14 +30,13 @@ exports[`pine_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 1.2151006043422967,
     "y": 0.829653670778498,
   },
   {
-    "id": "pine_forest-pine_tree-2-0",
-    "kind": "pine_tree",
+    "id": "pine_forest-scots-pine-2-0",
+    "kind": "scots-pine",
     "properties": {
       "offsetX": 0.22547213942743838,
       "offsetY": 0.6010450881440192,
@@ -48,14 +46,28 @@ exports[`pine_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 2.2254721394274384,
     "y": 0.6010450881440192,
   },
   {
-    "id": "pine_forest-pine_tree-3-0",
-    "kind": "pine_tree",
+    "id": "pine_forest-heather-2-0",
+    "kind": "heather",
+    "properties": {
+      "offsetX": 0.8377451629843562,
+      "offsetY": 0.18932579061947763,
+      "scale": 0.6059733750298619,
+    },
+    "tags": [
+      "vegetation",
+      "shrub",
+    ],
+    "x": 2.837745162984356,
+    "y": 0.18932579061947763,
+  },
+  {
+    "id": "pine_forest-scots-pine-3-0",
+    "kind": "scots-pine",
     "properties": {
       "offsetX": 0.81328304996714,
       "offsetY": 0.11834466084837914,
@@ -65,14 +77,13 @@ exports[`pine_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 3.81328304996714,
     "y": 0.11834466084837914,
   },
   {
-    "id": "pine_forest-pine_tree-4-0",
-    "kind": "pine_tree",
+    "id": "pine_forest-scots-pine-4-0",
+    "kind": "scots-pine",
     "properties": {
       "offsetX": 0.12359766359440982,
       "offsetY": 0.8837197874672711,
@@ -82,14 +93,43 @@ exports[`pine_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 4.12359766359441,
     "y": 0.8837197874672711,
   },
   {
-    "id": "pine_forest-pale_tree-5-0",
-    "kind": "pale_tree",
+    "id": "pine_forest-common-juniper-4-0",
+    "kind": "common-juniper",
+    "properties": {
+      "offsetX": 0.6714043079642579,
+      "offsetY": 0.7561470811720937,
+      "scale": 0.8826908156275749,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+    ],
+    "x": 4.6714043079642575,
+    "y": 0.7561470811720937,
+  },
+  {
+    "id": "pine_forest-heather-4-0",
+    "kind": "heather",
+    "properties": {
+      "offsetX": 0.6714043079642579,
+      "offsetY": 0.7561470811720937,
+      "scale": 0.8826908156275749,
+    },
+    "tags": [
+      "vegetation",
+      "shrub",
+    ],
+    "x": 4.6714043079642575,
+    "y": 0.7561470811720937,
+  },
+  {
+    "id": "pine_forest-silver-birch-5-0",
+    "kind": "silver-birch",
     "properties": {
       "offsetX": 0.6842999095097184,
       "offsetY": 0.8000500919297338,
@@ -99,14 +139,13 @@ exports[`pine_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 5.684299909509718,
     "y": 0.8000500919297338,
   },
   {
-    "id": "pine_forest-pale_tree-5-0",
-    "kind": "pale_tree",
+    "id": "pine_forest-silver-birch-5-0",
+    "kind": "silver-birch",
     "properties": {
       "offsetX": 0.42937171715311706,
       "offsetY": 0.4049503728747368,
@@ -116,14 +155,13 @@ exports[`pine_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 5.429371717153117,
     "y": 0.4049503728747368,
   },
   {
-    "id": "pine_forest-pine_tree-6-0",
-    "kind": "pine_tree",
+    "id": "pine_forest-scots-pine-6-0",
+    "kind": "scots-pine",
     "properties": {
       "offsetX": 0.5058474738616496,
       "offsetY": 0.6566831525415182,
@@ -133,14 +171,13 @@ exports[`pine_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 6.50584747386165,
     "y": 0.6566831525415182,
   },
   {
-    "id": "pine_forest-pine_tree-7-0",
-    "kind": "pine_tree",
+    "id": "pine_forest-scots-pine-7-0",
+    "kind": "scots-pine",
     "properties": {
       "offsetX": 0.522320045158267,
       "offsetY": 0.3409066137392074,
@@ -150,14 +187,13 @@ exports[`pine_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 7.522320045158267,
     "y": 0.3409066137392074,
   },
   {
-    "id": "pine_forest-pale_tree-7-0",
-    "kind": "pale_tree",
+    "id": "pine_forest-norway-spruce-7-0",
+    "kind": "norway-spruce",
     "properties": {
       "offsetX": 0.5686395890079439,
       "offsetY": 0.5436648509930819,
@@ -167,14 +203,13 @@ exports[`pine_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 7.568639589007944,
     "y": 0.5436648509930819,
   },
   {
-    "id": "pine_forest-pine_tree-0-1",
-    "kind": "pine_tree",
+    "id": "pine_forest-scots-pine-0-1",
+    "kind": "scots-pine",
     "properties": {
       "offsetX": 0.40566547540947795,
       "offsetY": 0.7612727049272507,
@@ -184,14 +219,13 @@ exports[`pine_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 0.40566547540947795,
     "y": 1.7612727049272507,
   },
   {
-    "id": "pine_forest-pine_tree-0-1",
-    "kind": "pine_tree",
+    "id": "pine_forest-scots-pine-0-1",
+    "kind": "scots-pine",
     "properties": {
       "offsetX": 0.385648594237864,
       "offsetY": 0.12332087894901633,
@@ -201,14 +235,13 @@ exports[`pine_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 0.385648594237864,
     "y": 1.1233208789490163,
   },
   {
-    "id": "pine_forest-pale_tree-1-1",
-    "kind": "pale_tree",
+    "id": "pine_forest-norway-spruce-1-1",
+    "kind": "norway-spruce",
     "properties": {
       "offsetX": 0.0028102651704102755,
       "offsetY": 0.35369161888957024,
@@ -218,14 +251,13 @@ exports[`pine_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 1.0028102651704103,
     "y": 1.3536916188895702,
   },
   {
-    "id": "pine_forest-pale_tree-1-1",
-    "kind": "pale_tree",
+    "id": "pine_forest-silver-birch-1-1",
+    "kind": "silver-birch",
     "properties": {
       "offsetX": 0.3657634623814374,
       "offsetY": 0.878306868718937,
@@ -235,14 +267,13 @@ exports[`pine_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 1.3657634623814374,
     "y": 1.878306868718937,
   },
   {
-    "id": "pine_forest-pine_tree-5-1",
-    "kind": "pine_tree",
+    "id": "pine_forest-norway-spruce-5-1",
+    "kind": "norway-spruce",
     "properties": {
       "offsetX": 0.052990217227488756,
       "offsetY": 0.8941649522166699,
@@ -252,14 +283,13 @@ exports[`pine_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 5.052990217227489,
     "y": 1.89416495221667,
   },
   {
-    "id": "pine_forest-pine_tree-6-1",
-    "kind": "pine_tree",
+    "id": "pine_forest-scots-pine-6-1",
+    "kind": "scots-pine",
     "properties": {
       "offsetX": 0.19090947438962758,
       "offsetY": 0.07806321769021451,
@@ -269,14 +299,13 @@ exports[`pine_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 6.190909474389628,
     "y": 1.0780632176902145,
   },
   {
-    "id": "pine_forest-pale_tree-6-1",
-    "kind": "pale_tree",
+    "id": "pine_forest-norway-spruce-6-1",
+    "kind": "norway-spruce",
     "properties": {
       "offsetX": 0.8580866537522525,
       "offsetY": 0.5919338562525809,
@@ -286,14 +315,28 @@ exports[`pine_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 6.8580866537522525,
     "y": 1.5919338562525809,
   },
   {
-    "id": "pine_forest-pale_tree-7-1",
-    "kind": "pale_tree",
+    "id": "pine_forest-heather-6-1",
+    "kind": "heather",
+    "properties": {
+      "offsetX": 0.5881060326704756,
+      "offsetY": 0.586979144695215,
+      "scale": 0.7707285267300904,
+    },
+    "tags": [
+      "vegetation",
+      "shrub",
+    ],
+    "x": 6.588106032670476,
+    "y": 1.5869791446952148,
+  },
+  {
+    "id": "pine_forest-norway-spruce-7-1",
+    "kind": "norway-spruce",
     "properties": {
       "offsetX": 0.379950359929353,
       "offsetY": 0.9661216426175088,
@@ -303,14 +346,13 @@ exports[`pine_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 7.379950359929353,
     "y": 1.9661216426175088,
   },
   {
-    "id": "pine_forest-pale_tree-0-2",
-    "kind": "pale_tree",
+    "id": "pine_forest-norway-spruce-0-2",
+    "kind": "norway-spruce",
     "properties": {
       "offsetX": 0.9843170016538352,
       "offsetY": 0.7516073901206255,
@@ -320,14 +362,13 @@ exports[`pine_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 0.9843170016538352,
     "y": 2.7516073901206255,
   },
   {
-    "id": "pine_forest-pine_tree-1-2",
-    "kind": "pine_tree",
+    "id": "pine_forest-norway-spruce-1-2",
+    "kind": "norway-spruce",
     "properties": {
       "offsetX": 0.16009601089172065,
       "offsetY": 0.8533678788226098,
@@ -337,14 +378,13 @@ exports[`pine_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 1.1600960108917207,
     "y": 2.85336787882261,
   },
   {
-    "id": "pine_forest-pine_tree-2-2",
-    "kind": "pine_tree",
+    "id": "pine_forest-scots-pine-2-2",
+    "kind": "scots-pine",
     "properties": {
       "offsetX": 0.747854171320796,
       "offsetY": 0.12334352498874068,
@@ -354,14 +394,13 @@ exports[`pine_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 2.747854171320796,
     "y": 2.1233435249887407,
   },
   {
-    "id": "pine_forest-pine_tree-2-2",
-    "kind": "pine_tree",
+    "id": "pine_forest-scots-pine-2-2",
+    "kind": "scots-pine",
     "properties": {
       "offsetX": 0.061599471839144826,
       "offsetY": 0.10394424735568464,
@@ -371,14 +410,13 @@ exports[`pine_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 2.061599471839145,
     "y": 2.1039442473556846,
   },
   {
-    "id": "pine_forest-pale_tree-3-2",
-    "kind": "pale_tree",
+    "id": "pine_forest-norway-spruce-3-2",
+    "kind": "norway-spruce",
     "properties": {
       "offsetX": 0.05138488905504346,
       "offsetY": 0.9678558963350952,
@@ -388,14 +426,13 @@ exports[`pine_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 3.0513848890550435,
     "y": 2.967855896335095,
   },
   {
-    "id": "pine_forest-pale_tree-3-2",
-    "kind": "pale_tree",
+    "id": "pine_forest-silver-birch-3-2",
+    "kind": "silver-birch",
     "properties": {
       "offsetX": 0.3882316229864955,
       "offsetY": 0.38140630116686225,
@@ -405,14 +442,13 @@ exports[`pine_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 3.3882316229864955,
     "y": 2.3814063011668622,
   },
   {
-    "id": "pine_forest-pine_tree-5-2",
-    "kind": "pine_tree",
+    "id": "pine_forest-scots-pine-5-2",
+    "kind": "scots-pine",
     "properties": {
       "offsetX": 0.4027511030435562,
       "offsetY": 0.3154732114635408,
@@ -422,14 +458,13 @@ exports[`pine_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 5.402751103043556,
     "y": 2.315473211463541,
   },
   {
-    "id": "pine_forest-pale_tree-5-2",
-    "kind": "pale_tree",
+    "id": "pine_forest-norway-spruce-5-2",
+    "kind": "norway-spruce",
     "properties": {
       "offsetX": 0.24904925771988928,
       "offsetY": 0.6203536738175899,
@@ -439,14 +474,13 @@ exports[`pine_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 5.249049257719889,
     "y": 2.62035367381759,
   },
   {
-    "id": "pine_forest-pale_tree-6-2",
-    "kind": "pale_tree",
+    "id": "pine_forest-norway-spruce-6-2",
+    "kind": "norway-spruce",
     "properties": {
       "offsetX": 0.8998442469164729,
       "offsetY": 0.9696960458531976,
@@ -456,14 +490,13 @@ exports[`pine_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 6.899844246916473,
     "y": 2.9696960458531976,
   },
   {
-    "id": "pine_forest-pine_tree-0-3",
-    "kind": "pine_tree",
+    "id": "pine_forest-scots-pine-0-3",
+    "kind": "scots-pine",
     "properties": {
       "offsetX": 0.9187032352201641,
       "offsetY": 0.8100342662073672,
@@ -473,14 +506,13 @@ exports[`pine_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 0.9187032352201641,
     "y": 3.810034266207367,
   },
   {
-    "id": "pine_forest-pine_tree-1-3",
-    "kind": "pine_tree",
+    "id": "pine_forest-scots-pine-1-3",
+    "kind": "scots-pine",
     "properties": {
       "offsetX": 0.7691060681827366,
       "offsetY": 0.21334919100627303,
@@ -490,14 +522,13 @@ exports[`pine_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 1.7691060681827366,
     "y": 3.213349191006273,
   },
   {
-    "id": "pine_forest-pine_tree-1-3",
-    "kind": "pine_tree",
+    "id": "pine_forest-scots-pine-1-3",
+    "kind": "scots-pine",
     "properties": {
       "offsetX": 0.5467641400173306,
       "offsetY": 0.9122345331124961,
@@ -507,29 +538,13 @@ exports[`pine_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 1.5467641400173306,
     "y": 3.912234533112496,
   },
   {
-    "id": "pine_forest-mushroom-1-3",
-    "kind": "mushroom",
-    "properties": {
-      "offsetX": 0.6030912332236766,
-      "offsetY": 0.21989787132479255,
-      "scale": 0.7760054030455649,
-    },
-    "tags": [
-      "vegetation",
-      "small",
-    ],
-    "x": 1.6030912332236766,
-    "y": 3.2198978713247923,
-  },
-  {
-    "id": "pine_forest-pale_tree-3-3",
-    "kind": "pale_tree",
+    "id": "pine_forest-silver-birch-3-3",
+    "kind": "silver-birch",
     "properties": {
       "offsetX": 0.2837991660926491,
       "offsetY": 0.03754255082458258,
@@ -539,14 +554,13 @@ exports[`pine_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 3.283799166092649,
     "y": 3.0375425508245826,
   },
   {
-    "id": "pine_forest-pine_tree-3-3",
-    "kind": "pine_tree",
+    "id": "pine_forest-scots-pine-3-3",
+    "kind": "scots-pine",
     "properties": {
       "offsetX": 0.3757879042532295,
       "offsetY": 0.37887929007411003,
@@ -556,14 +570,13 @@ exports[`pine_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 3.3757879042532295,
     "y": 3.37887929007411,
   },
   {
-    "id": "pine_forest-pine_tree-5-3",
-    "kind": "pine_tree",
+    "id": "pine_forest-scots-pine-5-3",
+    "kind": "scots-pine",
     "properties": {
       "offsetX": 0.3601848119869828,
       "offsetY": 0.18563468614593148,
@@ -573,14 +586,13 @@ exports[`pine_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 5.360184811986983,
     "y": 3.1856346861459315,
   },
   {
-    "id": "pine_forest-pine_tree-6-3",
-    "kind": "pine_tree",
+    "id": "pine_forest-scots-pine-6-3",
+    "kind": "scots-pine",
     "properties": {
       "offsetX": 0.6153609736356884,
       "offsetY": 0.26982769649475813,
@@ -590,14 +602,13 @@ exports[`pine_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 6.615360973635688,
     "y": 3.269827696494758,
   },
   {
-    "id": "pine_forest-pale_tree-6-3",
-    "kind": "pale_tree",
+    "id": "pine_forest-silver-birch-6-3",
+    "kind": "silver-birch",
     "properties": {
       "offsetX": 0.049971539760008454,
       "offsetY": 0.038875788915902376,
@@ -607,14 +618,13 @@ exports[`pine_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 6.0499715397600085,
     "y": 3.0388757889159024,
   },
   {
-    "id": "pine_forest-pale_tree-0-4",
-    "kind": "pale_tree",
+    "id": "pine_forest-norway-spruce-0-4",
+    "kind": "norway-spruce",
     "properties": {
       "offsetX": 0.15350955538451672,
       "offsetY": 0.5393947686534375,
@@ -624,14 +634,13 @@ exports[`pine_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 0.15350955538451672,
     "y": 4.5393947686534375,
   },
   {
-    "id": "pine_forest-pale_tree-1-4",
-    "kind": "pale_tree",
+    "id": "pine_forest-norway-spruce-1-4",
+    "kind": "norway-spruce",
     "properties": {
       "offsetX": 0.009173821425065398,
       "offsetY": 0.3945559181738645,
@@ -641,14 +650,13 @@ exports[`pine_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 1.0091738214250654,
     "y": 4.3945559181738645,
   },
   {
-    "id": "pine_forest-pine_tree-0-5",
-    "kind": "pine_tree",
+    "id": "pine_forest-scots-pine-0-5",
+    "kind": "scots-pine",
     "properties": {
       "offsetX": 0.5082228407263756,
       "offsetY": 0.9997865040786564,
@@ -658,14 +666,13 @@ exports[`pine_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 0.5082228407263756,
     "y": 5.999786504078656,
   },
   {
-    "id": "pine_forest-pale_tree-2-5",
-    "kind": "pale_tree",
+    "id": "pine_forest-norway-spruce-2-5",
+    "kind": "norway-spruce",
     "properties": {
       "offsetX": 0.3362624200526625,
       "offsetY": 0.9269304091576487,
@@ -675,14 +682,13 @@ exports[`pine_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 2.3362624200526625,
     "y": 5.926930409157649,
   },
   {
-    "id": "pine_forest-pine_tree-4-5",
-    "kind": "pine_tree",
+    "id": "pine_forest-scots-pine-4-5",
+    "kind": "scots-pine",
     "properties": {
       "offsetX": 0.41052188840694726,
       "offsetY": 0.05906938179396093,
@@ -692,14 +698,13 @@ exports[`pine_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 4.410521888406947,
     "y": 5.059069381793961,
   },
   {
-    "id": "pine_forest-pine_tree-5-5",
-    "kind": "pine_tree",
+    "id": "pine_forest-scots-pine-5-5",
+    "kind": "scots-pine",
     "properties": {
       "offsetX": 0.2653405014425516,
       "offsetY": 0.308999594533816,
@@ -709,14 +714,13 @@ exports[`pine_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 5.265340501442552,
     "y": 5.308999594533816,
   },
   {
-    "id": "pine_forest-pine_tree-6-6",
-    "kind": "pine_tree",
+    "id": "pine_forest-scots-pine-6-6",
+    "kind": "scots-pine",
     "properties": {
       "offsetX": 0.47520807781256735,
       "offsetY": 0.6599075167905539,
@@ -726,14 +730,13 @@ exports[`pine_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 6.475208077812567,
     "y": 6.659907516790554,
   },
   {
-    "id": "pine_forest-pine_tree-1-7",
-    "kind": "pine_tree",
+    "id": "pine_forest-scots-pine-1-7",
+    "kind": "scots-pine",
     "properties": {
       "offsetX": 0.5275878091342747,
       "offsetY": 0.917833250015974,
@@ -743,14 +746,13 @@ exports[`pine_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 1.5275878091342747,
     "y": 7.917833250015974,
   },
   {
-    "id": "pine_forest-pine_tree-3-7",
-    "kind": "pine_tree",
+    "id": "pine_forest-scots-pine-3-7",
+    "kind": "scots-pine",
     "properties": {
       "offsetX": 0.3809686382301152,
       "offsetY": 0.4088412462733686,
@@ -760,29 +762,13 @@ exports[`pine_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 3.380968638230115,
     "y": 7.408841246273369,
   },
   {
-    "id": "pine_forest-mushroom-3-7",
-    "kind": "mushroom",
-    "properties": {
-      "offsetX": 0.46369130569510164,
-      "offsetY": 0.44230665934737773,
-      "scale": 0.8080218827351928,
-    },
-    "tags": [
-      "vegetation",
-      "small",
-    ],
-    "x": 3.4636913056951015,
-    "y": 7.442306659347378,
-  },
-  {
-    "id": "pine_forest-pale_tree-4-7",
-    "kind": "pale_tree",
+    "id": "pine_forest-norway-spruce-4-7",
+    "kind": "norway-spruce",
     "properties": {
       "offsetX": 0.6224786543752998,
       "offsetY": 0.491435568081215,
@@ -792,14 +778,13 @@ exports[`pine_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 4.6224786543753,
     "y": 7.491435568081215,
   },
   {
-    "id": "pine_forest-pale_tree-5-7",
-    "kind": "pale_tree",
+    "id": "pine_forest-norway-spruce-5-7",
+    "kind": "norway-spruce",
     "properties": {
       "offsetX": 0.39735519350506365,
       "offsetY": 0.7775163028854877,
@@ -809,14 +794,13 @@ exports[`pine_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 5.397355193505064,
     "y": 7.777516302885488,
   },
   {
-    "id": "pine_forest-pale_tree-5-7",
-    "kind": "pale_tree",
+    "id": "pine_forest-norway-spruce-5-7",
+    "kind": "norway-spruce",
     "properties": {
       "offsetX": 0.4133908248040825,
       "offsetY": 0.0522831198759377,
@@ -826,7 +810,6 @@ exports[`pine_forest brush > produces a stable snapshot 1`] = `
     "tags": [
       "vegetation",
       "tree",
-      "forest",
     ],
     "x": 5.4133908248040825,
     "y": 7.052283119875938,

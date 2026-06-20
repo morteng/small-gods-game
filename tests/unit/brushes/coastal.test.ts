@@ -30,18 +30,18 @@ describe('coastal brush', () => {
     expect(coastalBrush({ x: 0, y: 0, w: 2, h: 2 }, 1, c)).toEqual([]);
   });
 
-  it('only emits driftwood, shell, reeds', () => {
+  it('only emits driftwood, shell, gorse', () => {
     const c = ctx(Array.from({ length: 16 }, () => Array(16).fill('sand')));
-    const allowed = new Set(['driftwood', 'shell', 'reeds']);
+    const allowed = new Set(['driftwood', 'shell', 'gorse']);
     for (const e of coastalBrush({ x: 0, y: 0, w: 16, h: 16 }, 3, c)) {
       expect(allowed.has(e.kind)).toBe(true);
     }
   });
 
-  it('reeds only appear adjacent to water tiles', () => {
+  it('the waterline shrub (gorse) only appears adjacent to water tiles', () => {
     // Inland sand block, NO water anywhere
     const c = ctx(Array.from({ length: 8 }, () => Array(8).fill('sand')));
     const out = coastalBrush({ x: 0, y: 0, w: 8, h: 8 }, 9, c);
-    expect(out.some(e => e.kind === 'reeds')).toBe(false);
+    expect(out.some(e => e.kind === 'gorse')).toBe(false);
   });
 });

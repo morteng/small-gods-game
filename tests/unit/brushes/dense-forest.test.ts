@@ -1,7 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { denseForestBrush } from '@/world/brushes/dense-forest';
+import { canopyOf, undergrowthOf } from '@/flora/biome-flora';
 import { EMPTY_CONTEXT } from '@/world/brush-helpers';
 import type { BrushContext, GameMap, Tile } from '@/core/types';
+
+const CANOPY = new Set(canopyOf('dense_forest').map(([k]) => k));
+const UNDER = new Set(undergrowthOf('dense_forest').map(([k]) => k));
+const ALLOWED = new Set<string>([...CANOPY, ...UNDER]);
 
 function ctx(rows: string[][]): BrushContext {
   const h = rows.length, w = rows[0].length;
@@ -37,22 +42,21 @@ describe('dense_forest brush', () => {
     const c = allDense(20, 20);
     const out = denseForestBrush({ x: 0, y: 0, w: 20, h: 20 }, 7, c);
     const kinds = new Set(out.map(e => e.kind));
-    expect(kinds.has('oak_tree') || kinds.has('brown_tree')).toBe(true);
-    expect(kinds.has('shrub') || kinds.has('fern')).toBe(true);
+    expect([...kinds].some(k => CANOPY.has(k))).toBe(true);
+    expect([...kinds].some(k => UNDER.has(k))).toBe(true);
   });
 
-  it('only emits the allowed kinds', () => {
+  it('only emits the allowed pool species', () => {
     const c = allDense(16, 16);
-    const allowed = new Set(['oak_tree', 'brown_tree', 'shrub', 'fern', 'mushroom']);
     for (const e of denseForestBrush({ x: 0, y: 0, w: 16, h: 16 }, 3, c)) {
-      expect(allowed.has(e.kind)).toBe(true);
+      expect(ALLOWED.has(e.kind)).toBe(true);
     }
   });
 
   it('tree density ~0.70 produces ~60-70% tile coverage', () => {
     const c = allDense(20, 20);  // 400 tiles
     const out = denseForestBrush({ x: 0, y: 0, w: 20, h: 20 }, 11, c);
-    const trees = out.filter(e => e.kind === 'oak_tree' || e.kind === 'brown_tree');
+    const trees = out.filter(e => CANOPY.has(e.kind));
     expect(trees.length).toBeGreaterThan(200);
     expect(trees.length).toBeLessThan(360);
   });
