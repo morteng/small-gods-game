@@ -25,7 +25,7 @@
 // import it read-only. It returns metres — a pure world unit — so it never
 // depends on render-layer pixel scales.
 import type { GameMap, TerrainConfig, POI } from '@/core/types';
-import { generateTerrainFields } from '@/terrain/terrain-generator';
+import { generateTerrainFields, makeBaseElevationSampler } from '@/terrain/terrain-generator';
 import { erodeElevation } from '@/terrain/erosion';
 import { applyPoiInfluences, POI_INFLUENCES } from '@/terrain/poi-influence';
 import { islandSignature, styledIslandSpec, type IslandSpec } from '@/terrain/island-mask';
@@ -196,6 +196,18 @@ export function getClimateFields(map: GameMap): ClimateFields {
     if (oldest !== undefined) climateCache.delete(oldest);
   }
   return c;
+}
+
+/**
+ * The world's analytic BASE-elevation sampler at CONTINUOUS tile coords — the
+ * pre-erosion, pre-POI elevation math (same one worldgen runs per integer cell),
+ * built for this map's seed/dims/island. Used to recover genuine sub-tile relief
+ * for the detail-patch renderer: re-evaluating it at half-tile coords reveals real
+ * high-frequency structure that bilinear upsampling of the coarse field cannot.
+ */
+export function baseElevationSamplerFor(map: GameMap): (x: number, y: number) => number {
+  const island = styledIslandSpec(map.worldSeed);
+  return makeBaseElevationSampler(configFor(map.seed, map.width, map.height, island));
 }
 
 /** Normalised elevation `[0,1]` at a tile (edge-clamped to the map). */

@@ -43,6 +43,37 @@ export type { TerrainConfig, TerrainField, BiomeMap };
 export { Biome };
 
 /**
+ * Build the per-cell BASE elevation sampler (pre-erosion, pre-POI) as a pure
+ * function of CONTINUOUS tile coordinates. This is the exact elevation math the
+ * `generateTerrainFields` loop runs per integer cell, lifted out so it can be
+ * evaluated at FRACTIONAL coords — the basis for genuine sub-tile detail (the
+ * noise is analytic, so half-tile samples reveal real high-frequency relief that
+ * bilinear upsampling of the coarse field cannot). The worldgen loop calls this
+ * at integer coords, so the field stays byte-identical.
+ */
+export function makeBaseElevationSampler(
+  config: TerrainConfig,
+): (x: number, y: number) => number {
+  const {
+    seed, width, height,
+    elevationScale = 0.02, continentWarp = 2.0, island,
+  } = config;
+  return (x: number, y: number): number => {
+    const baseElev = continentWarp > 0
+      ? warpedNoise(x * elevationScale, y * elevationScale, seed, continentWarp)
+      : fbm(x * elevationScale, y * elevationScale, { seed, octaves: 6 });
+    const ridges = ridgeNoise(x * elevationScale * 1.5, y * elevationScale * 1.5, seed + 999, 5);
+    const zone   = fbm(x * elevationScale * 0.6, y * elevationScale * 0.6, { seed: seed + 777, octaves: 2 });
+    const mountainMask = smoothstep01(MOUNTAIN_ZONE_LO, MOUNTAIN_ZONE_HI, zone);
+    let elev = baseElev * BASE_WEIGHT + ridges * RIDGE_WEIGHT * mountainMask;
+    if (island) {
+      elev = shapeCoastElevation(elev, x, y, width, height, island, seed);
+    }
+    return Math.max(0, Math.min(1, elev));
+  };
+}
+
+/**
  * Generate the three noise fields (elevation, moisture, temperature).
  *
  * Temperature model (latitude band set by the world's CLIMATE — north cold,
@@ -63,13 +94,12 @@ export function generateTerrainFields(config: TerrainConfig): TerrainField {
     seed,
     width,
     height,
-    elevationScale = 0.02,
     moistureScale  = 0.03,
     seaLevel       = 0.35,
     poleFalloff    = true,
-    continentWarp  = 2.0,
-    island,
   } = config;
+  // elevationScale / continentWarp / island are consumed by the base-elevation
+  // sampler (makeBaseElevationSampler), which owns the elevation math now.
   const climate = resolveClimate(config.climate);
 
   const size = width * height;
@@ -77,31 +107,21 @@ export function generateTerrainFields(config: TerrainConfig): TerrainField {
   const moisture     = new Float32Array(size);
   const temperature  = new Float32Array(size);
 
+  // Elevation: warped continental base, with sharp ridges GATED behind a
+  // low-frequency "mountain zone" mask so peaks form RANGES in a few places
+  // instead of blobbing isotropically everywhere (research: libnoise ridged
+  // multifractal + Red Blob ridge gating). The base weight is raised to 0.9 to
+  // compensate for the removed flat ridge term, so lowland area/coastlines stay
+  // put; ridges only ADD inside mountain zones. Island shaping (C0 coast/relief
+  // seam) swells the interior + sinks the edges. Lifted into one continuous-coord
+  // sampler so sub-tile detail can re-evaluate it (see makeBaseElevationSampler).
+  const sampleBaseElev = makeBaseElevationSampler(config);
+
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       const idx = y * width + x;
 
-      // Elevation: warped continental base, with sharp ridges GATED behind a
-      // low-frequency "mountain zone" mask so peaks form RANGES in a few places
-      // instead of blobbing isotropically everywhere (research: libnoise ridged
-      // multifractal + Red Blob ridge gating). The base weight is raised to 0.9
-      // to compensate for the removed flat ridge term, so lowland area/coastlines
-      // stay put; ridges only ADD inside mountain zones.
-      const baseElev = continentWarp > 0
-        ? warpedNoise(x * elevationScale, y * elevationScale, seed, continentWarp)
-        : fbm(x * elevationScale, y * elevationScale, { seed, octaves: 6 });
-      const ridges = ridgeNoise(x * elevationScale * 1.5, y * elevationScale * 1.5, seed + 999, 5);
-      const zone   = fbm(x * elevationScale * 0.6, y * elevationScale * 0.6, { seed: seed + 777, octaves: 2 });
-      const mountainMask = smoothstep01(MOUNTAIN_ZONE_LO, MOUNTAIN_ZONE_HI, zone);
-      let elev = baseElev * BASE_WEIGHT + ridges * RIDGE_WEIGHT * mountainMask;
-      // Island shaping via the ONE coast/relief seam (C0): swell the interior
-      // (dome today; distance-to-coast relief in C1), then sink the edges toward
-      // ocean — before any downstream step reads elevation (water-proximity,
-      // biome classification, erosion). `seed` feeds the warped coastline (C2).
-      if (island) {
-        elev = shapeCoastElevation(elev, x, y, width, height, island, seed);
-      }
-      elevation[idx] = Math.max(0, Math.min(1, elev));
+      elevation[idx] = sampleBaseElev(x, y);
 
       // East/west lean (−0.5 west … +0.5 east): a roughly continental feel —
       // west wetter, east drier + a touch warmer.
