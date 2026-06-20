@@ -1,0 +1,549 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sprite Forge · LPC Animation Codex</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0c0a09; --panel:#16120f; --panel2:#1d1813; --raise:#241d16;
+    --line:#2c231b; --line2:#3a2d20;
+    --ink:#ece0d0; --ink-dim:#9c8a76; --ink-faint:#6b5d4d;
+    --bronze:#e8a13a; --bronze-deep:#b9701d; --ember:#d8412f; --jade:#7fb069;
+    --glow:rgba(232,161,58,.45);
+    --cell:64px;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:"IBM Plex Mono",ui-monospace,monospace;
+    font-size:13px; line-height:1.5; overflow:hidden;
+    -webkit-font-smoothing:antialiased;
+    background-image:
+      radial-gradient(1200px 600px at 70% -10%, rgba(232,161,58,.08), transparent 60%),
+      radial-gradient(900px 500px at 0% 110%, rgba(216,65,47,.06), transparent 55%);
+  }
+  /* film-grain + scanlines overlay */
+  body::after{
+    content:""; position:fixed; inset:0; pointer-events:none; z-index:50;
+    background:
+      repeating-linear-gradient(0deg, rgba(0,0,0,.16) 0 1px, transparent 1px 3px);
+    mix-blend-mode:multiply; opacity:.5;
+  }
+  .pixel{image-rendering:pixelated; image-rendering:crisp-edges;}
+
+  .app{height:100vh; display:grid; grid-template-rows:auto 1fr auto;}
+
+  /* ── Header ─────────────────────────────────────────── */
+  header{
+    display:flex; align-items:baseline; gap:18px; padding:14px 22px 13px;
+    border-bottom:1px solid var(--line);
+    background:linear-gradient(180deg,#191410, #120e0b);
+  }
+  .mark{
+    font-family:"Silkscreen",monospace; font-weight:700;
+    font-size:22px; letter-spacing:1px; color:var(--bronze);
+    text-shadow:0 0 18px var(--glow), 2px 2px 0 #000;
+  }
+  .mark b{color:var(--ember); text-shadow:0 0 18px rgba(216,65,47,.5),2px 2px 0 #000;}
+  .sub{color:var(--ink-faint); font-size:11px; letter-spacing:.18em; text-transform:uppercase;}
+  .spacer{flex:1}
+  .legend{display:flex; gap:2px; align-items:stretch; font-size:10px;}
+  .legend .lg{
+    padding:5px 9px; border:1px solid var(--line2); border-right:none;
+    color:var(--ink-dim); background:var(--panel); letter-spacing:.06em;
+    display:flex; flex-direction:column; gap:1px; min-width:62px;
+  }
+  .legend .lg:last-child{border-right:1px solid var(--line2)}
+  .legend .lg .r{color:var(--bronze); font-family:"Silkscreen"; font-size:9px}
+  .legend .lg.on{background:var(--raise); color:var(--ink); box-shadow:inset 0 0 0 1px var(--bronze-deep)}
+  .legend .lg.on .r{color:var(--ember)}
+
+  /* ── Main ───────────────────────────────────────────── */
+  main{display:grid; grid-template-columns:208px 1fr 248px; min-height:0;}
+  .rail{border-right:1px solid var(--line); background:var(--panel); padding:14px 12px; overflow:auto;}
+  .controls{border-left:1px solid var(--line); background:var(--panel); padding:16px 14px; overflow:auto;}
+  .stage-wrap{position:relative; display:grid; place-items:center; min-height:0; overflow:hidden;
+    background:
+      radial-gradient(60% 50% at 50% 42%, rgba(232,161,58,.10), transparent 70%),
+      repeating-linear-gradient(0deg, transparent 0 31px, rgba(255,255,255,.018) 31px 32px),
+      repeating-linear-gradient(90deg, transparent 0 31px, rgba(255,255,255,.018) 31px 32px);
+  }
+
+  .eyebrow{font-family:"Silkscreen"; font-size:10px; color:var(--ink-faint);
+    letter-spacing:.12em; text-transform:uppercase; margin:0 0 10px;}
+  .rail .eyebrow:not(:first-child){margin-top:20px}
+
+  /* animation list */
+  .anim{
+    width:100%; text-align:left; cursor:pointer; color:var(--ink-dim);
+    background:var(--panel2); border:1px solid var(--line); border-left:3px solid transparent;
+    padding:9px 11px; margin-bottom:6px; display:flex; align-items:center; gap:8px;
+    font-size:13px; letter-spacing:.04em; transition:.13s ease; position:relative;
+  }
+  .anim:hover{color:var(--ink); border-color:var(--line2); transform:translateX(2px)}
+  .anim.on{color:var(--ink); background:var(--raise); border-left-color:var(--bronze);
+    box-shadow:0 0 0 1px var(--bronze-deep), -6px 0 18px -10px var(--glow);}
+  .anim .nm{flex:1; font-family:"Silkscreen"; font-size:11px; text-transform:uppercase}
+  .anim.on .nm{color:var(--bronze)}
+  .anim .fc{font-size:10px; color:var(--ink-faint); border:1px solid var(--line2);
+    padding:1px 5px; border-radius:2px;}
+  .anim.on .fc{color:var(--ember); border-color:var(--bronze-deep)}
+  .anim .gap{position:absolute; right:8px; top:-7px; font-size:8px; color:var(--ember);
+    background:#1a0f0c; border:1px solid var(--ember); padding:0 4px; letter-spacing:.05em;
+    display:none;}
+  .anim.has-gap .gap{display:block}
+
+  /* ── Stage ──────────────────────────────────────────── */
+  .stage{position:relative; display:grid; place-items:center;}
+  .dais{position:absolute; left:50%; bottom:-6%; width:62%; height:30px; transform:translateX(-50%);
+    background:radial-gradient(50% 60% at 50% 50%, var(--glow), transparent 72%);
+    filter:blur(2px);}
+  #spriteCanvas{position:relative; z-index:2; filter:drop-shadow(0 8px 10px rgba(0,0,0,.55));
+    animation:bob 2.6s ease-in-out infinite;}
+  @keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
+  .nosource{position:absolute; z-index:3; font-family:"Silkscreen"; font-size:11px; color:var(--ember);
+    text-align:center; letter-spacing:.05em; line-height:1.7; display:none;
+    border:1px dashed var(--ember); padding:14px 18px; background:rgba(20,10,8,.7)}
+  .nosource small{color:var(--ink-dim); font-family:"IBM Plex Mono"; font-size:10px}
+
+  .stage-meta{position:absolute; top:16px; left:18px; font-size:10px; color:var(--ink-faint);
+    letter-spacing:.1em; text-transform:uppercase; z-index:4;}
+  .stage-meta b{color:var(--bronze); font-family:"Silkscreen"; font-size:11px}
+  .stage-tag{position:absolute; top:16px; right:18px; z-index:4; font-size:10px;
+    color:var(--ink-faint); letter-spacing:.08em}
+  .stage-tag .dot{display:inline-block; width:6px; height:6px; border-radius:50%;
+    background:var(--jade); box-shadow:0 0 8px var(--jade); margin-right:5px; vertical-align:middle}
+  .stage-tag.paused .dot{background:var(--ember); box-shadow:0 0 8px var(--ember)}
+
+  /* direction pad */
+  .dpad{position:absolute; bottom:22px; left:50%; transform:translateX(-50%); z-index:4;
+    display:grid; grid-template-columns:repeat(3,34px); grid-template-rows:repeat(2,30px); gap:4px;}
+  .dpad button{
+    border:1px solid var(--line2); background:var(--panel2); color:var(--ink-dim);
+    font-family:"Silkscreen"; font-size:10px; cursor:pointer; transition:.12s;
+  }
+  .dpad button:hover{color:var(--ink); border-color:var(--bronze-deep)}
+  .dpad button.on{color:#120d09; background:var(--bronze); border-color:var(--bronze);
+    box-shadow:0 0 14px var(--glow)}
+  .dN{grid-column:2; grid-row:1} .dW{grid-column:1; grid-row:2}
+  .dS{grid-column:2; grid-row:2} .dE{grid-column:3; grid-row:2}
+
+  /* ── Controls ───────────────────────────────────────── */
+  .seg{display:flex; border:1px solid var(--line2); margin-bottom:18px}
+  .seg button{flex:1; padding:8px 4px; cursor:pointer; background:var(--panel2);
+    color:var(--ink-dim); border:none; border-right:1px solid var(--line2);
+    font-family:"Silkscreen"; font-size:9px; letter-spacing:.04em; transition:.12s; text-transform:uppercase}
+  .seg button:last-child{border-right:none}
+  .seg button:hover{color:var(--ink)}
+  .seg button.on{background:var(--bronze); color:#120d09; box-shadow:inset 0 0 0 1px #000}
+
+  .toggle{display:flex; align-items:center; gap:10px; padding:7px 2px; cursor:pointer;
+    color:var(--ink-dim); border-bottom:1px solid var(--line); user-select:none}
+  .toggle:hover{color:var(--ink)}
+  .toggle .box{width:15px; height:15px; border:1px solid var(--line2); display:grid; place-items:center;
+    background:var(--panel2); flex:none}
+  .toggle.on .box{background:var(--bronze); border-color:var(--bronze)}
+  .toggle .box::after{content:"✕"; font-size:10px; color:#120d09; opacity:0}
+  .toggle.on .box::after{opacity:1}
+  .toggle .cat{flex:1; text-transform:uppercase; letter-spacing:.06em; font-size:11px}
+  .toggle .miss{font-size:9px; color:var(--ember); opacity:.8}
+
+  .slab{margin:18px 0}
+  .slab .row{display:flex; justify-content:space-between; align-items:baseline; margin-bottom:6px}
+  .slab .row label{font-size:10px; text-transform:uppercase; letter-spacing:.1em; color:var(--ink-faint)}
+  .slab .row .val{font-family:"Silkscreen"; font-size:11px; color:var(--bronze)}
+  input[type=range]{ -webkit-appearance:none; width:100%; height:3px; background:var(--line2); outline:none}
+  input[type=range]::-webkit-slider-thumb{ -webkit-appearance:none; width:14px; height:14px;
+    background:var(--bronze); border:2px solid #120d09; cursor:pointer; box-shadow:0 0 10px var(--glow)}
+
+  .bigbtn{width:100%; padding:11px; margin-top:8px; cursor:pointer; font-family:"Silkscreen";
+    font-size:12px; letter-spacing:.06em; text-transform:uppercase; color:#120d09;
+    background:linear-gradient(180deg,var(--bronze),var(--bronze-deep)); border:1px solid var(--bronze);
+    box-shadow:0 0 18px -4px var(--glow); transition:.12s}
+  .bigbtn:hover{filter:brightness(1.08)}
+  .bigbtn.paused{background:linear-gradient(180deg,#2a221a,#1c1610); color:var(--bronze);
+    border-color:var(--line2); box-shadow:none}
+
+  /* ── Filmstrip ──────────────────────────────────────── */
+  footer{border-top:1px solid var(--line); background:linear-gradient(180deg,#120e0b,#0e0b09);
+    padding:12px 18px; display:flex; align-items:center; gap:16px; min-height:108px}
+  .strip-label{font-family:"Silkscreen"; font-size:10px; color:var(--ink-faint);
+    writing-mode:vertical-rl; transform:rotate(180deg); letter-spacing:.14em; text-transform:uppercase}
+  .strip{display:flex; gap:8px; overflow-x:auto; padding:4px 2px 8px; flex:1}
+  .frame{flex:none; cursor:pointer; position:relative; padding:6px; background:var(--panel2);
+    border:1px solid var(--line); transition:.12s}
+  .frame:hover{border-color:var(--line2)}
+  .frame.on{border-color:var(--bronze); box-shadow:0 0 0 1px var(--bronze-deep), 0 0 16px -6px var(--glow);
+    background:var(--raise)}
+  .frame canvas{display:block}
+  .frame .n{position:absolute; top:2px; left:4px; font-size:9px; color:var(--ink-faint);
+    font-family:"Silkscreen"}
+  .frame.on .n{color:var(--bronze)}
+
+  ::-webkit-scrollbar{height:8px; width:8px}
+  ::-webkit-scrollbar-thumb{background:var(--line2)}
+  ::-webkit-scrollbar-track{background:transparent}
+
+  /* staged load reveal */
+  .rail,.controls,footer,header{animation:rise .5s both}
+  .controls{animation-delay:.08s} footer{animation-delay:.16s} .stage-wrap{animation:fade .7s .1s both}
+  @keyframes rise{from{opacity:0; transform:translateY(8px)}to{opacity:1; transform:none}}
+  @keyframes fade{from{opacity:0}to{opacity:1}}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="mark">SPRITE<b>·</b>FORGE</div>
+    <div class="sub">LPC Animation Codex<br>small gods · npc</div>
+    <div class="spacer"></div>
+    <div class="legend" id="legend"></div>
+  </header>
+
+  <main>
+    <!-- LEFT: animation list -->
+    <nav class="rail">
+      <p class="eyebrow">Animations</p>
+      <div id="animList"></div>
+      <p class="eyebrow">Universal Sheet</p>
+      <div style="font-size:10px; color:var(--ink-faint); line-height:1.8">
+        Each pose is one PNG of 4 directional rows<br>(north·west·south·east), composited live
+        from <span style="color:var(--ink-dim)">/sprites/lpc/</span>. Hurt is the lone south-only row.
+      </div>
+    </nav>
+
+    <!-- CENTER: stage -->
+    <section class="stage-wrap">
+      <div class="stage-meta"><b id="mAnim">WALK</b> · <span id="mDir">south</span> · frame <span id="mFrame">1</span>/<span id="mTotal">8</span></div>
+      <div class="stage-tag" id="playTag"><span class="dot"></span><span id="playTxt">PLAYING</span></div>
+      <div class="stage">
+        <div class="dais"></div>
+        <canvas id="spriteCanvas" class="pixel" width="384" height="384"></canvas>
+        <div class="nosource" id="nosource">NO SOURCE<br><small>upstream child body lacks this pose</small></div>
+      </div>
+      <div class="dpad">
+        <button class="dN" data-dir="up">N</button>
+        <button class="dW" data-dir="left">W</button>
+        <button class="dS on" data-dir="down">S</button>
+        <button class="dE" data-dir="right">E</button>
+      </div>
+    </section>
+
+    <!-- RIGHT: controls -->
+    <aside class="controls">
+      <p class="eyebrow">Body Type</p>
+      <div class="seg" id="bodySeg">
+        <button data-body="male" class="on">Male</button>
+        <button data-body="female">Female</button>
+        <button data-body="child">Child</button>
+      </div>
+
+      <p class="eyebrow">Layers</p>
+      <div id="layerList"></div>
+
+      <div class="slab">
+        <div class="row"><label>Speed</label><span class="val" id="fpsVal">10 fps</span></div>
+        <input type="range" id="fps" min="1" max="24" value="10">
+      </div>
+      <div class="slab">
+        <div class="row"><label>Scale</label><span class="val" id="scaleVal">6×</span></div>
+        <input type="range" id="scale" min="2" max="9" value="6">
+      </div>
+
+      <button class="bigbtn" id="playBtn">❚❚ Pause</button>
+
+      <p class="eyebrow" style="margin-top:22px">Wire-up</p>
+      <div style="font-size:10px; color:var(--ink-faint); line-height:1.8">
+        In game: worship → <span style="color:var(--bronze)">spellcast</span>,
+        soldier@work → <span style="color:var(--bronze)">slash/thrust/shoot</span>.
+        Console: <span style="color:var(--ink-dim)">__debug.playAnim('hurt')</span>
+      </div>
+    </aside>
+  </main>
+
+  <!-- BOTTOM: filmstrip -->
+  <footer>
+    <div class="strip-label">Frames</div>
+    <div class="strip" id="strip"></div>
+  </footer>
+</div>
+
+<script type="module">
+const BASE = 'sprites/lpc/spritesheets/';
+const CELL = 64;
+
+// ── Animation table (mirrors src/core/npc-animation.ts) ──────────────
+const ANIMS = {
+  spellcast: { rowBase:0,  cycle:[0,1,2,3,4,5,6],               dir:true  },
+  thrust:    { rowBase:4,  cycle:[0,1,2,3,4,5,6,7],             dir:true  },
+  walk:      { rowBase:8,  cycle:[1,2,3,4,5,6,7,8],             dir:true  },
+  slash:     { rowBase:12, cycle:[0,1,2,3,4,5],                 dir:true  },
+  shoot:     { rowBase:16, cycle:[0,1,2,3,4,5,6,7,8,9,10,11,12],dir:true  },
+  hurt:      { rowBase:20, cycle:[0,1,2,3,4,5],                 dir:false },
+};
+const ANIM_ORDER = ['walk','spellcast','thrust','slash','shoot','hurt'];
+const DIR_ROW = { up:0, left:1, down:2, right:3 };
+const DIR_NAME = { up:'north', left:'west', down:'south', right:'east' };
+
+// ── Character layer presets per body type ────────────────────────────
+// {dir, variant?, z, cat}. Path = variant ? dir/<anim>/<variant>.png : dir/<anim>.png
+const PRESETS = {
+  male: [
+    { dir:'body/bodies/male',                                   z:0,  cat:'body' },
+    { dir:'legs/hose/male',           variant:'brown',          z:10, cat:'legs' },
+    { dir:'feet/boots/basic/male',    variant:'black',          z:15, cat:'feet' },
+    { dir:'torso/clothes/longsleeve/longsleeve2_polo/male',     z:20, cat:'torso' },
+    { dir:'hair/messy1/adult',                                  z:30, cat:'hair' },
+  ],
+  female: [
+    { dir:'body/bodies/female',                                 z:0,  cat:'body' },
+    { dir:'legs/hose/thin',           variant:'brown',          z:10, cat:'legs' },
+    { dir:'feet/boots/basic/thin',    variant:'black',          z:15, cat:'feet' },
+    { dir:'torso/clothes/blouse/female', variant:'green',       z:20, cat:'torso' },
+    { dir:'hair/long/adult',                                    z:30, cat:'hair' },
+  ],
+  child: [
+    { dir:'body/bodies/child',                                  z:0,  cat:'body' },
+    { dir:'legs/pants/child',         variant:'brown',          z:10, cat:'legs' },
+    { dir:'torso/clothes/shirt/child', variant:'brown',         z:20, cat:'torso' },
+  ],
+};
+const CATS = ['body','legs','feet','torso','hair'];
+const CAT_LABEL = { body:'Body', legs:'Legs', feet:'Feet', torso:'Torso', hair:'Hair' };
+
+// ── State ────────────────────────────────────────────────────────────
+const S = {
+  body:'male', anim:'walk', dir:'down', frame:0, playing:true,
+  fps:10, scale:6, enabled:new Set(CATS),
+};
+
+// ── Image cache ──────────────────────────────────────────────────────
+const cache = new Map(); // url -> {img, ok}
+function urlFor(layer, anim){
+  return BASE + (layer.variant ? `${layer.dir}/${anim}/${layer.variant}.png`
+                               : `${layer.dir}/${anim}.png`);
+}
+function load(url){
+  if (cache.has(url)) return cache.get(url).promise ?? Promise.resolve(cache.get(url));
+  const img = new Image();
+  const rec = { img, ok:false };
+  rec.promise = new Promise(res=>{
+    img.onload = ()=>{ rec.ok = true; res(rec); };
+    img.onerror= ()=>{ rec.ok = false; res(rec); };
+    img.src = url;
+  });
+  cache.set(url, rec);
+  return rec.promise;
+}
+// Preload every layer of the current body+anim; resolve when settled.
+async function preload(){
+  const layers = PRESETS[S.body];
+  await Promise.all(layers.map(l => load(urlFor(l, S.anim))));
+}
+
+// ── Rendering ────────────────────────────────────────────────────────
+const canvas = document.getElementById('spriteCanvas');
+const ctx = canvas.getContext('2d');
+ctx.imageSmoothingEnabled = false;
+
+function rowFor(anim, dir){ return ANIMS[anim].dir ? DIR_ROW[dir] : 0; }
+
+function draw(){
+  const a = ANIMS[S.anim];
+  const col = a.cycle[S.frame % a.cycle.length];
+  const row = rowFor(S.anim, S.dir);
+  const sc = S.scale, size = CELL*sc;
+  canvas.width = size; canvas.height = size;
+  ctx.imageSmoothingEnabled = false;
+  ctx.clearRect(0,0,size,size);
+
+  const layers = PRESETS[S.body]
+    .filter(l => S.enabled.has(l.cat))
+    .sort((x,y)=>x.z-y.z);
+
+  let bodyMissing = false;
+  for (const l of layers){
+    const rec = cache.get(urlFor(l, S.anim));
+    if (!rec || !rec.ok){ if (l.cat==='body') bodyMissing = true; continue; }
+    const rows = Math.max(1, Math.round(rec.img.height / CELL));
+    if (row > rows-1) continue; // e.g. hurt single-row safety
+    ctx.drawImage(rec.img, col*CELL, row*CELL, CELL, CELL, 0,0,size,size);
+  }
+  document.getElementById('nosource').style.display = bodyMissing ? 'block':'none';
+
+  // meta readout
+  document.getElementById('mAnim').textContent = S.anim.toUpperCase();
+  document.getElementById('mDir').textContent  = DIR_NAME[S.dir];
+  document.getElementById('mFrame').textContent= (S.frame%a.cycle.length)+1;
+  document.getElementById('mTotal').textContent= a.cycle.length;
+  syncStripActive();
+}
+
+// ── Filmstrip ────────────────────────────────────────────────────────
+function buildStrip(){
+  const strip = document.getElementById('strip');
+  strip.innerHTML = '';
+  const a = ANIMS[S.anim];
+  a.cycle.forEach((col, i)=>{
+    const cell = document.createElement('div');
+    cell.className = 'frame' + (i===S.frame%a.cycle.length ? ' on':'');
+    cell.dataset.i = i;
+    const n = document.createElement('div'); n.className='n'; n.textContent=i+1; cell.appendChild(n);
+    const fc = document.createElement('canvas'); fc.width=48; fc.height=48; fc.className='pixel';
+    const fctx = fc.getContext('2d'); fctx.imageSmoothingEnabled=false;
+    const row = rowFor(S.anim, S.dir);
+    for (const l of PRESETS[S.body].filter(l=>S.enabled.has(l.cat)).sort((x,y)=>x.z-y.z)){
+      const rec = cache.get(urlFor(l, S.anim));
+      if (!rec || !rec.ok) continue;
+      const rows = Math.max(1, Math.round(rec.img.height/CELL));
+      if (row > rows-1) continue;
+      fctx.drawImage(rec.img, col*CELL, row*CELL, CELL, CELL, 0,0,48,48);
+    }
+    cell.appendChild(fc);
+    cell.addEventListener('click', ()=>{ S.frame=i; setPlaying(false); draw(); });
+    strip.appendChild(cell);
+  });
+}
+function syncStripActive(){
+  const cur = S.frame % ANIMS[S.anim].cycle.length;
+  document.querySelectorAll('.frame').forEach(f=>{
+    f.classList.toggle('on', +f.dataset.i === cur);
+  });
+}
+
+// ── List / legend / controls build ───────────────────────────────────
+function buildAnimList(){
+  const list = document.getElementById('animList');
+  list.innerHTML='';
+  ANIM_ORDER.forEach(name=>{
+    const a = ANIMS[name];
+    const b = document.createElement('button');
+    b.className='anim'+(name===S.anim?' on':'');
+    b.dataset.anim=name;
+    b.innerHTML = `<span class="nm">${name}</span>
+      <span class="fc">${a.cycle.length}f</span>
+      <span class="gap">gap</span>`;
+    b.addEventListener('click', ()=>selectAnim(name));
+    list.appendChild(b);
+  });
+  markGaps();
+}
+function buildLegend(){
+  const el = document.getElementById('legend');
+  el.innerHTML='';
+  ANIM_ORDER.forEach(name=>{
+    const d = document.createElement('div');
+    d.className='lg'+(name===S.anim?' on':'');
+    d.dataset.anim=name;
+    d.innerHTML=`<span>${name.slice(0,4)}</span><span class="r">row ${ANIMS[name].rowBase}</span>`;
+    d.addEventListener('click', ()=>selectAnim(name));
+    el.appendChild(d);
+  });
+}
+function buildLayers(){
+  const wrap = document.getElementById('layerList');
+  wrap.innerHTML='';
+  const present = new Set(PRESETS[S.body].map(l=>l.cat));
+  CATS.forEach(cat=>{
+    if (!present.has(cat)) return;
+    const t = document.createElement('div');
+    t.className='toggle'+(S.enabled.has(cat)?' on':'');
+    const locked = cat==='body';
+    t.innerHTML=`<span class="box"></span><span class="cat">${CAT_LABEL[cat]}</span>
+      ${locked?'<span class="miss">base</span>':''}`;
+    t.addEventListener('click', ()=>{
+      if (locked) return;
+      if (S.enabled.has(cat)) S.enabled.delete(cat); else S.enabled.add(cat);
+      t.classList.toggle('on', S.enabled.has(cat));
+      buildStrip(); draw();
+    });
+    wrap.appendChild(t);
+  });
+}
+// Flag animations the current body type can't render (missing body source).
+async function markGaps(){
+  for (const name of ANIM_ORDER){
+    const bodyLayer = PRESETS[S.body].find(l=>l.cat==='body');
+    const rec = await load(urlFor(bodyLayer, name));
+    const btn = document.querySelector(`.anim[data-anim="${name}"]`);
+    if (btn) btn.classList.toggle('has-gap', !rec.ok);
+  }
+}
+
+// ── Actions ──────────────────────────────────────────────────────────
+async function selectAnim(name){
+  S.anim = name; S.frame = 0;
+  document.querySelectorAll('.anim').forEach(b=>b.classList.toggle('on', b.dataset.anim===name));
+  document.querySelectorAll('.legend .lg').forEach(b=>b.classList.toggle('on', b.dataset.anim===name));
+  await preload(); buildStrip(); draw();
+}
+function setDir(dir){
+  S.dir = dir;
+  document.querySelectorAll('.dpad button').forEach(b=>b.classList.toggle('on', b.dataset.dir===dir));
+  buildStrip(); draw();
+}
+async function setBody(body){
+  S.body = body;
+  document.querySelectorAll('#bodySeg button').forEach(b=>b.classList.toggle('on', b.dataset.body===body));
+  buildLayers();
+  await preload(); buildStrip(); draw(); markGaps();
+}
+function setPlaying(p){
+  S.playing = p;
+  const btn=document.getElementById('playBtn');
+  btn.textContent = p ? '❚❚ Pause' : '▶ Play';
+  btn.classList.toggle('paused', !p);
+  const tag=document.getElementById('playTag');
+  tag.classList.toggle('paused', !p);
+  document.getElementById('playTxt').textContent = p ? 'PLAYING':'PAUSED';
+}
+
+// dpad + body + sliders + play
+document.querySelectorAll('.dpad button').forEach(b=>b.addEventListener('click',()=>setDir(b.dataset.dir)));
+document.querySelectorAll('#bodySeg button').forEach(b=>b.addEventListener('click',()=>setBody(b.dataset.body)));
+document.getElementById('playBtn').addEventListener('click',()=>setPlaying(!S.playing));
+const fps=document.getElementById('fps'); fps.addEventListener('input',()=>{
+  S.fps=+fps.value; document.getElementById('fpsVal').textContent=S.fps+' fps';
+});
+const scale=document.getElementById('scale'); scale.addEventListener('input',()=>{
+  S.scale=+scale.value; document.getElementById('scaleVal').textContent=S.scale+'×'; draw();
+});
+// keyboard: arrows = direction, space = play/pause, [ ] = anim
+addEventListener('keydown',e=>{
+  const map={ArrowUp:'up',ArrowDown:'down',ArrowLeft:'left',ArrowRight:'right'};
+  if (map[e.key]){ setDir(map[e.key]); e.preventDefault(); }
+  else if (e.code==='Space'){ setPlaying(!S.playing); e.preventDefault(); }
+  else if (e.key==='['||e.key===']'){
+    const i=ANIM_ORDER.indexOf(S.anim);
+    const ni=(i+(e.key===']'?1:ANIM_ORDER.length-1))%ANIM_ORDER.length;
+    selectAnim(ANIM_ORDER[ni]);
+  }
+});
+
+// ── Loop ─────────────────────────────────────────────────────────────
+let acc=0, last=performance.now();
+function tick(now){
+  const dt=now-last; last=now;
+  if (S.playing){
+    acc+=dt;
+    const step=1000/S.fps;
+    while(acc>=step){ acc-=step; S.frame=(S.frame+1)%ANIMS[S.anim].cycle.length; }
+    draw();
+  }
+  requestAnimationFrame(tick);
+}
+
+// ── Boot ─────────────────────────────────────────────────────────────
+(async function(){
+  buildLegend(); buildAnimList(); buildLayers();
+  await preload(); buildStrip(); draw();
+  requestAnimationFrame(t=>{ last=t; requestAnimationFrame(tick); });
+})();
+</script>
+</body>
+</html>

@@ -7,6 +7,7 @@ import type { LightingState } from '@/render/lighting-state';
 import type { IslandSpec } from '@/terrain/island-mask';
 import type { ClimateName, ClimateSpec } from '@/terrain/climate';
 import type { WorldStyleConfig } from '@/core/world-style';
+import type { NpcAnimation } from '@/core/npc-animation';
 
 export type { Era } from '@/core/era';
 
@@ -236,8 +237,10 @@ export interface NpcInstance {
   tileX: number;
   tileY: number;
   direction: Direction;
-  frame: number;      // 0 = idle stand, 1–8 = walk cycle
+  frame: number;      // column within the current animation's cycle (walk: 0=idle, 1–8)
   frameTimer: number; // ms accumulator since last frame advance
+  /** LPC animation row to sample. Omitted/undefined renders as 'walk'. */
+  animation?: NpcAnimation;
   homeBuildingId?: string;
   homePoiId?: string;
   // Random-walk movement scaffolding (placeholder until proper schedules land).
@@ -396,6 +399,10 @@ export interface NpcProperties {
   direction: Direction;
   frame: number;
   frameTimer: number;
+  /** LPC animation row currently playing. Omitted/undefined → 'walk'. */
+  animation?: NpcAnimation;
+  /** Dev override (`__debug.playAnim`): pins the animation, bypassing the sim. */
+  animForce?: NpcAnimation;
   moveCooldown?: number;
   // pathfinding / smooth movement
   /** Ordered tile positions to walk through. First entry is the NPC's immediate destination. */

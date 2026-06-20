@@ -12,7 +12,8 @@
  * Capture lesson (see memory feedback-playwright-in-dev-loop): use `grab()`
  * (canvas → dataURL), NOT Playwright `page.screenshot()` which stalls headed.
  */
-import type { Camera, Entity, DevModeState } from '@/core/types';
+import type { Camera, Entity, DevModeState, NpcProperties } from '@/core/types';
+import type { NpcAnimation } from '@/core/npc-animation';
 import type { GameState } from '@/core/state';
 import type { QueryOpts } from '@/world/world';
 import { focusCameraOnTile } from '@/render/focus-camera';
@@ -85,6 +86,11 @@ export interface DebugApi {
   layer(name?: RenderLayer, visible?: boolean): boolean | Record<string, boolean>;
   /** Convenience: show/hide vegetation (trees). No arg toggles. Returns visible. */
   trees(visible?: boolean): boolean;
+  /** Dev: pin the first `count` NPCs to an LPC animation to eyeball poses
+   *  (e.g. `playAnim('slash')`, `playAnim('hurt')`, `playAnim('spellcast')`).
+   *  Call with no args (or null) to release the override. Returns # pinned.
+   *  Animations: walk, spellcast, thrust, slash, shoot, hurt. */
+  playAnim(anim?: NpcAnimation | null, count?: number): number;
   /** Regenerate a fresh world: clears the autosave slot and reloads (boot then seeds
    *  anew). The ONLY way to see new worldgen — a stale autosave masks it. */
   newWorld(): void;
@@ -219,6 +225,21 @@ export function createDebugApi(deps: DebugApiDeps): DebugApi {
 
     trees(visible?: boolean): boolean {
       return setLayer('vegetation', visible);
+    },
+
+    playAnim(anim?: NpcAnimation | null, count = 24): number {
+      const npcs = query.entities({ kind: 'npc' });
+      if (!anim) {
+        for (const e of npcs) (e.properties as unknown as NpcProperties).animForce = undefined;
+        deps.requestRender();
+        return 0;
+      }
+      const n = Math.min(count, npcs.length);
+      for (let i = 0; i < n; i++) {
+        (npcs[i].properties as unknown as NpcProperties).animForce = anim;
+      }
+      deps.requestRender();
+      return n;
     },
 
     newWorld(): void {

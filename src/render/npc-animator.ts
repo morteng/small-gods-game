@@ -1,15 +1,9 @@
 import type { NpcInstance, NpcProperties } from '@/core/types';
 import type { World } from '@/world/world';
+import { LPC_ANIMATIONS, LPC_DIR_OFFSET } from '@/core/npc-animation';
 
 /** Walk cycle frame duration in ms (~6.7 FPS) */
 export const FRAME_MS = 150;
-
-const DIRECTION_ROW: Record<string, number> = {
-  up: 8,
-  left: 9,
-  down: 10,
-  right: 11,
-};
 
 /**
  * Advance NPC walk animation frames.
@@ -30,11 +24,18 @@ export function updateNpcs(npcs: NpcInstance[], deltaMs: number): void {
 /**
  * Get source coordinates within an LPC spritesheet for a given NPC state.
  * Spritesheet frame size: 64×64px.
- * Row layout: up=8, left=9, down=10, right=11.
+ *
+ * Row = the animation's `rowBase` + the direction offset (hurt is the one
+ * non-directional row). Column = the NPC's current `frame`, clamped to the
+ * animation's last column so a stale/foreign frame index can never read garbage
+ * pixels from the next animation's row.
  */
 export function getSpriteCoords(npc: NpcInstance): { sx: number; sy: number } {
-  const row = DIRECTION_ROW[npc.direction] ?? 10;
-  return { sx: npc.frame * 64, sy: row * 64 };
+  const anim = npc.animation ?? 'walk';
+  const spec = LPC_ANIMATIONS[anim] ?? LPC_ANIMATIONS.walk;
+  const dirOff = spec.directional ? (LPC_DIR_OFFSET[npc.direction] ?? 2) : 0;
+  const col = Math.min(Math.max(npc.frame, 0), spec.lastCol);
+  return { sx: col * 64, sy: (spec.rowBase + dirOff) * 64 };
 }
 
 /** Advance walk-cycle frames on the canonical entity properties (source of truth). */
