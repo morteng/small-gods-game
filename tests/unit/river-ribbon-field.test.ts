@@ -83,4 +83,30 @@ describe('traceRiverPolylines', () => {
     const { map, hydro } = makeHydro(4, 4, []);
     expect(buildRiverRibbonMesh(map, hydro).vertexCount).toBe(0);
   });
+
+  it('flags a reach spilling into still water as a mouth and ramps splash foam (tag.x)', () => {
+    // 6×1: river cells 0..3 drain right into cell 4, a LAKE → a real river mouth.
+    const { map, hydro } = makeHydro(6, 1, [[0, 1, 2, 3]], 4);
+    hydro.waterType[4] = WaterType.Lake;
+    const paths = traceRiverPolylines(map, hydro);
+    expect(paths).toHaveLength(1);
+    expect(paths[0].endsAtMouth).toBe(true);
+
+    // tag.x (vertex float index 8) ramps from 0 upstream to >0 at the lip.
+    const mesh = buildRiverRibbonMesh(map, hydro);
+    let maxTagX = 0;
+    for (let v = 0; v < mesh.vertexCount; v++) maxTagX = Math.max(maxTagX, mesh.data[v * 10 + 8]);
+    expect(maxTagX).toBeGreaterThan(0.5); // splash present near the mouth
+    expect(mesh.data[8]).toBeCloseTo(0, 6); // the very first vertex is calm (no splash)
+  });
+
+  it('an off-map outlet is NOT a mouth — no splash foam', () => {
+    const { map, hydro } = makeHydro(6, 1, [[0, 1, 2, 3]]); // mouthDrain = -1 (outlet)
+    const paths = traceRiverPolylines(map, hydro);
+    expect(paths[0].endsAtMouth).toBe(false);
+    const mesh = buildRiverRibbonMesh(map, hydro);
+    let maxTagX = 0;
+    for (let v = 0; v < mesh.vertexCount; v++) maxTagX = Math.max(maxTagX, mesh.data[v * 10 + 8]);
+    expect(maxTagX).toBe(0);
+  });
 });

@@ -144,8 +144,18 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
     let white = smoothstep(0.9, 1.7, in.vSpeed)
               * smoothstep(0.45, 0.85, fbm(vec2<f32>(in.vAlong * 2.2 - R.uTime * (0.5 + in.vSpeed), in.vAcross * 2.0)));
     rcol = mix(rcol, vec3<f32>(0.85, 0.92, 0.95), max(bankFoam * 0.5, white * 0.65));
+    // ── RIVER-MOUTH SPLASH ── tag.x ramps 0→1 over the last stretch of a reach that
+    // spills into still water. Churning, fast-animated spray that broadens across the
+    // full channel and blooms to the lip — the river breaking into the lake/sea.
+    let mouth = in.vTag.x;
+    if (mouth > 0.001) {
+      let churn = fbm(vec2<f32>(in.vAlong * 3.1 - R.uTime * 1.4, in.vAcross * 4.5 + R.uTime * 0.8));
+      let spray = mouth * mouth * smoothstep(0.28, 0.85, churn);
+      rcol = mix(rcol, vec3<f32>(0.90, 0.95, 0.98), clamp(spray, 0.0, 0.85));
+    }
     let rRagged = (fbm(in.vGrid * 1.7) - 0.5) * 0.08;
-    let rAlpha = smoothstep(1.0, 0.82, aa + rRagged);
+    // The splashing lip frays wider than the calm channel edge.
+    let rAlpha = smoothstep(1.0, 0.82 - mouth * 0.10, aa + rRagged);
     let rNdl = max(G.uSun.y, 0.0) / max(length(G.uSun.xyz), 1e-3);
     let rBands = max(1.0, G.uSun.w);
     let rLight = G.uAmbient.xyz + vec3<f32>(G.uAmbient.w) * (floor(rNdl * rBands + 0.5) / rBands);
