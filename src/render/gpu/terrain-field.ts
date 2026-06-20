@@ -16,7 +16,9 @@
 // No GPU/DOM here; everything is unit-testable.
 
 import type { GameMap, DevModeState } from '@/core/types';
+import { WaterType } from '@/core/types';
 import { TILE_COLORS, WATER_TYPES } from '@/core/constants';
+import { getHydrologyResult } from '@/world/hydrology-store';
 import { effectiveTileType, RENDER_LAYERS, layerFlag } from '@/render/layer-visibility';
 import { ELEVATION_SEA_LEVEL, getClimateFields } from '@/world/heightfield';
 import { getComposedHeightfield } from '@/world/road-deformation';
@@ -100,20 +102,23 @@ export function heightField(map: GameMap): Float32Array {
   return curveHeightBuffer(base, ELEVATION_SEA_LEVEL, worldStyleOf(map.worldSeed).terrainHeightGamma);
 }
 
-/** Damp-earth fallback for a river bed when no dry neighbour is found nearby. */
-const RIVERBED_FALLBACK = '#5E4C3A';
+/** Damp-earth fallback for a submerged bed when no dry neighbour is found nearby. */
+const WETBED_FALLBACK = '#5E4C3A';
 /** How far the carved bed is darkened vs the inherited bank colour (wet sheen). */
-const RIVERBED_DARKEN = 0.62;
+const WETBED_DARKEN = 0.62;
 
 /**
- * Base colour for a RIVER bed cell. The terrain must NOT paint river-blue — the
- * ribbon pass (`ribbon-wgsl`) owns the entire river water look, so the carved
- * channel below it shows damp GROUND, not a doubled-up blue smear that bleeds out
- * past the ribbon's frayed edges. The bed inherits the nearest dry neighbour's
- * biome colour (so a grassy valley gets a muddy-green bed, a desert a sandy one),
- * darkened toward wet earth. Pure; only the (few hundred) river cells hit this.
+ * Base colour for a SUBMERGED bed cell (river channel or lake basin). The terrain
+ * must NOT paint water-blue — the ribbon pass (rivers) and the water pass (lakes)
+ * own the entire wet look, so the bed below shows damp GROUND, not a doubled-up
+ * blue smear. This matters the instant the water level RECEDES (drought): the
+ * water pass clips per-pixel at the contour and reveals exactly this bed colour,
+ * so a drained lake shows mud, not a blue stain. The bed inherits the nearest dry
+ * neighbour's biome colour (grassy valley → muddy-green, desert → sandy), darkened
+ * toward wet earth. Pure; only the wet cells hit this. A big lake's deep interior
+ * (no dry neighbour within the ring) falls back to damp earth.
  */
-function riverbedColorAbgr(
+function wetBedColorAbgr(
   tiles: GameMap['tiles'], x: number, y: number, width: number, height: number, devMode?: DevModeState,
 ): number {
   for (let r = 1; r <= 5; r++) {
@@ -126,12 +131,12 @@ function riverbedColorAbgr(
         if (nx < 0 || nx >= width) continue;
         const t = tiles[ny]?.[nx];
         if (!t || WATER_TYPES.has(t.type)) continue;
-        const hex = TILE_COLORS[effectiveTileType(t.type, devMode)] ?? RIVERBED_FALLBACK;
-        return darkenAbgr(hexToAbgr(hex), RIVERBED_DARKEN);
+        const hex = TILE_COLORS[effectiveTileType(t.type, devMode)] ?? WETBED_FALLBACK;
+        return darkenAbgr(hexToAbgr(hex), WETBED_DARKEN);
       }
     }
   }
-  return darkenAbgr(hexToAbgr(RIVERBED_FALLBACK), 1);
+  return darkenAbgr(hexToAbgr(WETBED_FALLBACK), 1);
 }
 
 /** Scale an 0xAABBGGRR colour's RGB toward black by `f` (alpha kept). */
@@ -143,21 +148,33 @@ function darkenAbgr(abgr: number, f: number): number {
   return (a | (b << 16) | (g << 8) | r) >>> 0;
 }
 
-/** Pack the per-cell biome base colour as 0xAABBGGRR (LE-friendly for upload). */
-export function packColorField(map: GameMap, devMode?: DevModeState): Uint32Array {
+/**
+ * Pack the per-cell biome base colour as 0xAABBGGRR (LE-friendly for upload).
+ *
+ * `waterType` (the memoised hydrology classification, row-major) is optional: when
+ * supplied, RIVER and LAKE cells are painted as damp BEDS (never blue) so a
+ * receding water level reveals ground, not a stain — the wet look is owned by the
+ * ribbon/water passes. Without it, only `'river'` tiles fall back to a bed colour
+ * (the lake basin can't be told from the ocean by `tile.type` alone). Ocean stays
+ * blue — it's the fixed datum that never recedes.
+ */
+export function packColorField(map: GameMap, devMode?: DevModeState, waterType?: Uint8Array): Uint32Array {
   const { width, height, tiles } = map;
   const out = new Uint32Array(width * height);
   for (let ty = 0; ty < height; ty++) {
     const row = tiles[ty];
     for (let tx = 0; tx < width; tx++) {
+      const idx = ty * width + tx;
       const tile = row?.[tx];
-      if (tile && tile.type === 'river') {
-        // Rivers render via the ribbon pass; the bed shows damp ground, never blue.
-        out[ty * width + tx] = riverbedColorAbgr(tiles, tx, ty, width, height, devMode);
+      const wt = waterType ? waterType[idx] : (tile?.type === 'river' ? WaterType.River : WaterType.Dry);
+      if (wt === WaterType.River || wt === WaterType.Lake) {
+        // River channel + lake basin: damp ground bed, never blue. Revealed when
+        // the ribbon/water pass clips the surface back on drought.
+        out[idx] = wetBedColorAbgr(tiles, tx, ty, width, height, devMode);
         continue;
       }
       const hex = tile ? (TILE_COLORS[effectiveTileType(tile.type, devMode)] ?? '#444') : '#1a1a24';
-      out[ty * width + tx] = hexToAbgr(hex);
+      out[idx] = hexToAbgr(hex);
     }
   }
   return out;
@@ -176,7 +193,10 @@ export function packColorFieldMemo(map: GameMap, devMode?: DevModeState): Uint32
   const key = `${map.width}x${map.height}|` +
     RENDER_LAYERS.map((l) => (devMode?.[layerFlag(l)] === false ? '0' : '1')).join('');
   if (colorMemo && colorMemo.map === map && colorMemo.key === key) return colorMemo.colors;
-  const colors = packColorField(map, devMode);
+  // The hydrology classification (memoised, derived from seed) lets us paint LAKE
+  // basins as damp beds too — not just `'river'` tiles — so a drained lake shows
+  // ground. Derived from the map, so the memo key (map identity) stays valid.
+  const colors = packColorField(map, devMode, getHydrologyResult(map).waterType);
   colorMemo = { map, key, colors };
   return colors;
 }

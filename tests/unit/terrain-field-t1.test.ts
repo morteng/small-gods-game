@@ -103,6 +103,29 @@ describe('packColorField', () => {
     expect(colors).toHaveLength(6);
     for (const c of colors) expect((c >>> 24) & 0xff).toBe(0xff); // alpha opaque
   });
+
+  it('paints LAKE basins as a damp bed (never blue) so a drought reveals ground', () => {
+    // 3×1 grass strip; the middle cell is classified a lake by hydrology. With the
+    // waterType array it must NOT keep the grass colour OR turn blue — it becomes a
+    // darkened damp bed (inherited from the dry grass neighbour) that the water pass
+    // covers at full level and reveals on drought.
+    const map = tinyMap(3, 1);
+    const wt = new Uint8Array([0 /*Dry*/, 2 /*Lake*/, 0 /*Dry*/]);
+    const colors = packColorField(map, undefined, wt);
+    const lum = (c: number) => 0.2126 * (c & 0xff) + 0.7152 * ((c >> 8) & 0xff) + 0.0722 * ((c >> 16) & 0xff);
+    expect(colors[1]).not.toBe(colors[0]);          // bed differs from dry grass
+    expect(lum(colors[1])).toBeLessThan(lum(colors[0])); // and is darker (wet sheen)
+    expect((colors[1] >>> 24) & 0xff).toBe(0xff);   // still opaque
+    expect(colors[2]).toBe(colors[0]);              // dry neighbour untouched
+  });
+
+  it('leaves OCEAN cells alone (the sea is the datum — no drained bed)', () => {
+    // An ocean-classified cell keeps its tile colour; only river/lake beds remap.
+    const map = tinyMap(2, 1);
+    const wt = new Uint8Array([1 /*Ocean*/, 0 /*Dry*/]);
+    const colors = packColorField(map, undefined, wt);
+    expect(colors[0]).toBe(colors[1]); // both render the underlying grass tile colour
+  });
 });
 
 describe('buildTerrainField', () => {
