@@ -297,7 +297,18 @@ export function coastReliefAt(
   if (plateau <= 0) return 0;
   const { dist, maxDist } = getCoastField(width, height, spec, seed);
   if (maxDist <= 0) return 0;
-  const d = dist[y * width + x];
+  // Bilinear-sample the coast distance field so FRACTIONAL coords (sub-tile detail
+  // sampling) read a finite, continuous value instead of `dist[non-integer]` =
+  // undefined ⇒ NaN. At integer coords this is exactly the cell value, so worldgen
+  // (which only samples integer cells) stays byte-identical.
+  const px = x < 0 ? 0 : x > width - 1 ? width - 1 : x;
+  const py = y < 0 ? 0 : y > height - 1 ? height - 1 : y;
+  const x0 = Math.floor(px), y0 = Math.floor(py);
+  const x1 = Math.min(x0 + 1, width - 1), y1 = Math.min(y0 + 1, height - 1);
+  const tx = px - x0, ty = py - y0;
+  const dTop = dist[y0 * width + x0] + (dist[y0 * width + x1] - dist[y0 * width + x0]) * tx;
+  const dBot = dist[y1 * width + x0] + (dist[y1 * width + x1] - dist[y1 * width + x0]) * tx;
+  const d = dTop + (dBot - dTop) * ty;
   if (d <= 0) return 0;
   const ramp = maxDist * RELIEF_RAMP_FRAC;
   return plateau * (ramp <= 0 ? 1 : smoothstep(0, ramp, d));

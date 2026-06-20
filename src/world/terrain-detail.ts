@@ -28,6 +28,7 @@
 
 import type { GameMap } from '@/core/types';
 import { WaterType } from '@/core/types';
+import { fbm } from '@/core/noise';
 import {
   getHeightfield, baseElevationSamplerFor, ELEVATION_SEA_LEVEL,
 } from '@/world/heightfield';
@@ -40,6 +41,18 @@ import { curveRenderElev } from '@/render/gpu/terrain-field';
 
 const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);
 const mix = (a: number, b: number, t: number): number => a + (b - a) * t;
+
+// High-frequency DETAIL octaves — the terrain's own fBm continued past what the
+// coarse one-sample-per-tile grid can represent. The base elevation noise is
+// near-tile-Nyquist (adjacent tiles already highly correlated), so simply
+// re-evaluating it sub-tile reveals almost nothing; this ADDS genuine sub-tile
+// relief at a higher frequency. Applied as a bilinear RESIDUAL (the value minus
+// the bilinear of its integer corners) so it is exactly zero at integer tile
+// coords — the patch still seams perfectly to the coarse mesh, gaining micro-relief
+// only in the cell interiors. Frequency in cycles/tile; amplitude in normalised
+// elevation (× mountainRelief metres).
+const DETAIL_FREQ = 0.5;
+const DETAIL_AMP = 0.018;
 
 /** Bilinear sample of a row-major `Float32Array[W*H]` at a fractional coord. */
 function bilin(arr: Float32Array, W: number, H: number, fx: number, fy: number): number {
@@ -90,12 +103,24 @@ export function makeDetailElevSampler(map: GameMap): (fx: number, fy: number) =>
     );
     const residual = baseCont(px, py) - baseBilin;
 
+    // High-frequency detail octave (continues the fBm past the coarse grid), as a
+    // bilinear residual so it is zero at integer coords (perfect seam) and adds
+    // genuine sub-tile micro-relief only inside the cells.
+    const det = (gx: number, gy: number): number =>
+      fbm(gx * DETAIL_FREQ, gy * DETAIL_FREQ, { seed: map.seed + 4096, octaves: 3 });
+    const detBilin = mix(
+      mix(det(x0, y0), det(x1, y0), tx),
+      mix(det(x0, y1), det(x1, y1), tx),
+      ty,
+    );
+    const detail = (det(px, py) - detBilin) * DETAIL_AMP;
+
     // 3. Sharp analytic carve (roads + river incision), re-sampled continuously.
     //    heightAt − baseHeightAt cancels the floored base, leaving the brush's
     //    continuous metre delta; normalise to the [0,1] elevation space.
     const carveN = (heightAt(map, store, px, py) - baseHeightAt(map, px, py)) / relief;
 
-    const e = clamp01(smooth + residual + carveN);
+    const e = clamp01(smooth + residual + detail + carveN);
     return curveRenderElev(e, sea, gamma);
   };
 }

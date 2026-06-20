@@ -57,6 +57,27 @@ describe('makeDetailElevSampler', () => {
     expect(maxDev).toBeGreaterThan(1e-3);
   });
 
+  it('stays FINITE at fractional coords on an island-shaped world (coast field)', async () => {
+    // Regression: an island spec with a dome reads a coast DISTANCE FIELD by integer
+    // index; at fractional coords that was `dist[non-integer]` = undefined ⇒ NaN, so
+    // the baked patch heights were NaN (invisible). Exercise the island path here.
+    const islandSeed: WorldSeed = {
+      name: 'isle', size: { width: 80, height: 80 }, biome: 'temperate',
+      island: true, pois: [], connections: [], constraints: [],
+    };
+    const { map } = await generateWithNoise(80, 80, 5, islandSeed);
+    const sampler = makeDetailElevSampler(map);
+    let allFinite = true;
+    for (let y = 4; y < 76; y += 1) {
+      for (let x = 4; x < 76; x += 1) {
+        const v = sampler(x + 0.5, y + 0.5);
+        if (!Number.isFinite(v)) { allFinite = false; break; }
+      }
+      if (!allFinite) break;
+    }
+    expect(allFinite).toBe(true);
+  });
+
   it('is deterministic — same world ⇒ identical samples', async () => {
     const a = await generateWithNoise(64, 64, 7, seed);
     const sa = makeDetailElevSampler(a.map);

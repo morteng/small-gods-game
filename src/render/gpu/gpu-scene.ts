@@ -25,6 +25,8 @@ import {
 } from '@/render/gpu/instance-buffer';
 import { LIT_WGSL } from '@/render/gpu/wgsl/lit-wgsl';
 import { TERRAIN_WGSL } from '@/render/gpu/wgsl/terrain-wgsl';
+import { DETAIL_PATCH_WGSL } from '@/render/gpu/wgsl/detail-patch-wgsl';
+import type { DetailField } from '@/render/gpu/detail-field';
 import { WATER_WGSL } from '@/render/gpu/wgsl/water-wgsl';
 import { OCEAN_BACKDROP_WGSL } from '@/render/gpu/wgsl/ocean-backdrop-wgsl';
 import { RIBBON_WGSL } from '@/render/gpu/wgsl/ribbon-wgsl';
@@ -94,6 +96,21 @@ export class GpuScene {
   private lastColors: Uint32Array | null = null;
   private lastMoisture: Float32Array | null = null;
   private lastTemperature: Float32Array | null = null;
+  // Adaptive detail patches (Slice B): a finer instanced mesh over the hot regions,
+  // reading baked sub-tile heights. Reuses the terrain FRAGMENT (shared module) +
+  // the coarse colour/material/height buffers (bindings 1–4); the patch heights are
+  // a separate storage buffer (binding 5); the per-patch tile origin is an instance
+  // vertex buffer. Drawn right after terrain into the shared depth (greater-equal +
+  // write) so patches overdraw the coarse tiles they cover.
+  private detailPatchPipeline: GPURenderPipeline;
+  private detailHeightsBuf: GPUBuffer | null = null;     // storage: packed fine heights
+  private detailOriginsBuf: GPUBuffer | null = null;     // vertex: per-patch origin
+  private detailBind: GPUBindGroup | null = null;
+  private detailHeightsCap = 0;                          // bytes
+  private detailOriginsCap = 0;                          // bytes
+  private detailBoundHeights: GPUBuffer | null = null;   // coarse-height identity at bind time
+  private lastDetailHeights: Float32Array | null = null;
+  private lastDetailOrigins: Float32Array | null = null;
   // Water pass (S2): one blended pass, all body types. Reads the SAME composed
   // terrain height buffer (depth = surface − terrain) + its own surface/type/flow
   // storage buffers; the bind group rebuilds whenever any of them (incl. the
@@ -274,6 +291,30 @@ export class GpuScene {
       depthStencil: { format: DEPTH_FORMAT, depthWriteEnabled: true, depthCompare: 'greater' },
     });
     this.terrainGlobalsBuf = device.createBuffer({ size: 96, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+
+    // Detail-patch pipeline (Slice B): a NEW vertex stage (instanced finer mesh
+    // over baked sub-tile heights) paired with the terrain FRAGMENT (same module,
+    // same VSOut + colour/material/coarse-height bindings) — so patches shade and
+    // texture identically over a denser mesh, no fragment duplication. One
+    // per-instance vertex buffer carries the patch tile origin. Shares the terrain
+    // depth (greater-equal + write): a patch sits at the same iso depth as the
+    // coarse tile it covers and, drawn after terrain, wins; the next tile in front
+    // still occludes it. Opaque (no blend), like terrain.
+    const detailModule = device.createShaderModule({ code: DETAIL_PATCH_WGSL });
+    this.detailPatchPipeline = device.createRenderPipeline({
+      layout: 'auto',
+      vertex: {
+        module: detailModule,
+        entryPoint: 'vsMain',
+        buffers: [{
+          arrayStride: 8, stepMode: 'instance',
+          attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x2' }],
+        }],
+      },
+      fragment: { module: terrainModule, entryPoint: 'fsMain', targets: [{ format: gpu.format }] },
+      primitive: { topology: 'triangle-list' },
+      depthStencil: { format: DEPTH_FORMAT, depthWriteEnabled: true, depthCompare: 'greater-equal' },
+    });
 
     // Water pipeline (S2): GPU-generated per-cell quads (no vertex buffers),
     // lifted to the water surface + blended over the terrain. Shares the terrain
@@ -637,6 +678,56 @@ export class GpuScene {
     }
   }
 
+  /** (Re)upload the detail-patch buffers (packed fine heights + per-patch origins).
+   *  The bind group reuses the coarse terrain buffers (heights/colour/material) for
+   *  the shared fragment, so it rebuilds when EITHER the patch buffers grow OR the
+   *  coarse height buffer identity changes. Skips the writeBuffer when arrays are
+   *  unchanged by reference. Returns false if the coarse terrain buffers aren't
+   *  ready (patches reuse them). */
+  private uploadDetail(detail: DetailField): boolean {
+    const { device } = this;
+    if (!this.terrainHeightsBuf || !this.terrainColorsBuf
+      || !this.terrainMoistureBuf || !this.terrainTemperatureBuf) return false;
+    const hBytes = detail.heights.byteLength;
+    const oBytes = detail.origins.byteLength;
+    let realloc = false;
+    if (!this.detailHeightsBuf || hBytes > this.detailHeightsCap) {
+      this.detailHeightsBuf?.destroy();
+      this.detailHeightsBuf = device.createBuffer({ size: hBytes, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+      this.detailHeightsCap = hBytes;
+      realloc = true;
+    }
+    if (!this.detailOriginsBuf || oBytes > this.detailOriginsCap) {
+      this.detailOriginsBuf?.destroy();
+      this.detailOriginsBuf = device.createBuffer({ size: oBytes, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+      this.detailOriginsCap = oBytes;
+      realloc = true;
+    }
+    if (realloc || !this.detailBind || this.detailBoundHeights !== this.terrainHeightsBuf) {
+      this.detailBind = device.createBindGroup({
+        layout: this.detailPatchPipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: this.terrainGlobalsBuf } },
+          { binding: 1, resource: { buffer: this.terrainHeightsBuf } },
+          { binding: 2, resource: { buffer: this.terrainColorsBuf } },
+          { binding: 3, resource: { buffer: this.terrainMoistureBuf } },
+          { binding: 4, resource: { buffer: this.terrainTemperatureBuf } },
+          { binding: 5, resource: { buffer: this.detailHeightsBuf } },
+        ],
+      });
+      this.detailBoundHeights = this.terrainHeightsBuf;
+    }
+    if (realloc || detail.heights !== this.lastDetailHeights) {
+      device.queue.writeBuffer(this.detailHeightsBuf, 0, detail.heights as GPUAllowSharedBufferSource);
+      this.lastDetailHeights = detail.heights;
+    }
+    if (realloc || detail.origins !== this.lastDetailOrigins) {
+      device.queue.writeBuffer(this.detailOriginsBuf, 0, detail.origins as GPUAllowSharedBufferSource);
+      this.lastDetailOrigins = detail.origins;
+    }
+    return true;
+  }
+
   /** (Re)upload the water field buffers. The bind group borrows the terrain
    *  height buffer (binding 1) for depth, so it rebuilds when EITHER the water
    *  buffers grow OR the terrain heights buffer identity changes. Skips the
@@ -771,6 +862,9 @@ export class GpuScene {
     w: number; h: number;
     xform?: ViewTransform;
     terrain?: TerrainField | null;
+    /** Adaptive sub-tile detail patches (Slice B) — a finer instanced mesh over the
+     *  hot regions, drawn right after terrain. Null/absent ⇒ coarse terrain only. */
+    detail?: DetailField | null;
     /** Blended water surface (S2) — drawn over terrain, under entities. */
     water?: WaterField | null;
     /** Swept road/river ribbon mesh (T7) — drawn over terrain/water, under
@@ -851,6 +945,11 @@ export class GpuScene {
       device.queue.writeBuffer(this.terrainGlobalsBuf, 0,
         packTerrainGlobals(terrain!.globals) as GPUAllowSharedBufferSource);
     }
+
+    // Detail patches reuse the coarse terrain buffers (+ its globals/depth), so they
+    // only run when terrain did; uploadDetail returns false if those aren't ready.
+    let hasDetail = !!(hasTerrain && opts.detail && opts.detail.patchCount > 0);
+    if (hasDetail) hasDetail = this.uploadDetail(opts.detail!);
 
     // Water needs the terrain height buffer (for depth), so it only runs when
     // terrain did. uploadWaterFields returns false if that buffer isn't ready.
@@ -944,6 +1043,7 @@ export class GpuScene {
     // globals, which are uploaded only when hasWater). Terrain then loads over it.
     if (hasWater) this.passBackdrop(ctx);
     if (hasTerrain) this.passTerrain(ctx, terrain!);
+    if (hasDetail) this.passDetail(ctx, opts.detail!);
     if (hasShadows) this.passShadows(ctx, !!staticItems, dynShadowBatches);
     if (hasWater) this.passWater(ctx, water!);
     if (hasRibbon) this.passRibbon(ctx);
@@ -983,6 +1083,23 @@ export class GpuScene {
     tpass.setBindGroup(0, this.terrainBind!);
     tpass.draw(terrain.vertexCount);
     tpass.end();
+    ctx.colorCleared = true;
+  }
+
+  /** Pass 1.1 — adaptive detail patches over the coarse terrain. Loads colour +
+   *  depth (greater-equal + write): each patch overdraws the coarse tiles it covers
+   *  at finer resolution; the next un-patched tile in front still occludes it. One
+   *  instanced draw — `vertexCountPerPatch` verts × `patchCount` instances. */
+  private passDetail(ctx: PassCtx, detail: DetailField): void {
+    const dpass = ctx.enc.beginRenderPass({
+      colorAttachments: [{ view: ctx.colorView, clearValue: ctx.ocean, loadOp: ctx.colorCleared ? 'load' : 'clear', storeOp: 'store' }],
+      depthStencilAttachment: { view: ctx.depthView, depthLoadOp: 'load', depthStoreOp: 'store' },
+    });
+    dpass.setPipeline(this.detailPatchPipeline);
+    dpass.setBindGroup(0, this.detailBind!);
+    dpass.setVertexBuffer(0, this.detailOriginsBuf!);
+    dpass.draw(detail.vertexCountPerPatch, detail.patchCount);
+    dpass.end();
     ctx.colorCleared = true;
   }
 
