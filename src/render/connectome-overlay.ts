@@ -98,6 +98,34 @@ export function drawWorldConnectome(ctx: CanvasRenderingContext2D, rc: RenderCon
     }
   }
 
+  // 3b) Anchor-snap layer: links first (thin, relation-coloured), then anchors as ticked dots.
+  const LINK_COLOR: Record<string, string> = {
+    connects: 'rgba(120, 230, 160, 0.85)',
+    serves: 'rgba(230, 200, 110, 0.85)',
+    spans: 'rgba(120, 190, 240, 0.85)',
+  };
+  for (const link of map.anchorLinks ?? []) {
+    ctx.strokeStyle = LINK_COLOR[link.relation] ?? 'rgba(200,200,200,0.7)';
+    ctx.lineWidth = 1.25;
+    strokePolyline(ctx, map, camera, [link.a, link.b]);
+  }
+  const ANCHOR_COLOR: Record<string, string> = {
+    door: 'rgba(120, 230, 160, 0.95)', frontage: 'rgba(120, 230, 160, 0.7)',
+    gate: 'rgba(230, 200, 110, 0.95)', service: 'rgba(230, 200, 110, 0.7)',
+    road: 'rgba(225, 178, 92, 0.8)', wall_end: 'rgba(200, 200, 210, 0.9)',
+    bank: 'rgba(120, 190, 240, 0.95)', water_edge: 'rgba(120, 190, 240, 0.7)',
+  };
+  for (const a of map.anchors ?? []) {
+    const p = project(map, a.x, a.y, camera);
+    const col = ANCHOR_COLOR[a.kind] ?? 'rgba(220,220,220,0.8)';
+    dot(ctx, p.x, p.y, 1.8, col);
+    // facing tick
+    const tip = project(map, a.x + a.facing[0] * 0.6, a.y + a.facing[1] * 0.6, camera);
+    ctx.strokeStyle = col;
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(tip.x, tip.y); ctx.stroke();
+  }
+
   // 4) POI nodes (the whole set, including unconnected ones) with labels.
   const pois: POI[] = map.worldSeed?.pois ?? [];
   ctx.font = '600 11px ui-sans-serif, system-ui, sans-serif';

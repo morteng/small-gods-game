@@ -1,11 +1,24 @@
 // src/world/anchors.ts
-export type AnchorKind = 'door' | 'gate' | 'road' | 'wall_end' | 'water_edge' | 'frontage' | 'service';
+//
+// An Anchor is a typed connection point on a world feature: a point, an outward unit
+// tangent ("which way it faces"), and a kind/tags that say what it attaches to. It is the
+// roads-article "profile" (point + direction) lifted to a connection primitive — every
+// producer emits anchors, and `matchAnchors` (anchor-rules.ts) snaps compatible ones into
+// links. See docs/superpowers/specs/2026-06-20-anchor-snap-fit-connectome-design.md.
+export type AnchorKind =
+  | 'door' | 'gate' | 'road' | 'wall_end' | 'water_edge' | 'frontage' | 'service' | 'bank';
 export interface Anchor {
   kind: AnchorKind;
   x: number; y: number;          // world tile coords (fractional ok)
   facing: [number, number];      // outward unit vector
   width?: number;
   main?: boolean;
+  /** Stable, deterministic id (owner-derived). Optional for legacy emitters. */
+  id?: string;
+  /** The feature that emitted this anchor — building entity id, road edge id, barrier id, … */
+  ownerId?: string;
+  /** Free tags: 'approach', 'street', 'fortified', … */
+  tags?: string[];
 }
 
 /** Outward unit vector for a footprint-relative cell: toward the nearest footprint edge. */

@@ -20,6 +20,8 @@ import { applyPoiInfluences } from '@/terrain/poi-influence';
 import { generateHydrology } from '@/terrain/hydrology';
 import { buildRoadGraph } from '@/world/road-graph';
 import type { RoadGraph } from '@/world/road-graph';
+import { collectAnchors } from '@/world/anchor-collect';
+import { matchAnchors } from '@/world/anchor-rules';
 import { erodeElevation } from '@/terrain/erosion';
 import { placeSettlement } from '@/world/building-placer';
 import { buildCrossingStructureEntities } from '@/world/connectome/crossing-structures';
@@ -330,6 +332,14 @@ export async function generateWithNoise(
   report('Clearing obstructed vegetation...');
   const cleared = clearObstructedVegetation(world, map);
   if (cleared > 0) report(`Cleared ${cleared} obstructed nature entities`);
+
+  // Anchor snap-fit layer: gather every feature's connection anchors and match them into
+  // links (door→road, gate→road, wall_end↔wall_end, …). Derived data only — no tile/geometry
+  // mutation, so worldgen output and golden hashes are unchanged.
+  report('Matching feature anchors...');
+  const { anchors, roads } = collectAnchors(world, roadGraph, width);
+  map.anchors = anchors;
+  map.anchorLinks = matchAnchors(anchors, { roads });
 
   return { map, world, biomeMap };
 }
