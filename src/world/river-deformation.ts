@@ -16,15 +16,30 @@ import { WaterType } from '@/core/types';
 import { DeformationStore, polylineDeformation, type Deformation } from '@/world/terrain-deformation';
 import { getHydrologyResult } from '@/world/hydrology-store';
 
-/** Channel carve depth (metres) by Strahler order: a headwater is shallow, a trunk deep. */
-const RIVER_CARVE_BASE_M = 0.6;
-const RIVER_CARVE_PER_ORDER_M = 0.5;
-const RIVER_CARVE_MAX_M = 3.0;
-/** Shoulder taper beyond the channel half-width, in tiles (no cliff at the bank). */
-const BANK_FEATHER_TILES = 1.0;
+/** Channel carve depth (metres) by Strahler order: a headwater is shallow, a trunk deep.
+ *  Deepened from the old 0.6/0.5/3.0 so a river reads as a real incision against the
+ *  world relief (~39 m sea-to-peak): a headwater cuts a ~1 m gully, a major trunk a
+ *  ~6 m gorge. The render-space water surface (river-surface-field) fills the channel
+ *  back to a bank-referenced line, so a deeper carve deepens the *valley*, not the
+ *  apparent water depth. */
+const RIVER_CARVE_BASE_M = 1.0;
+const RIVER_CARVE_PER_ORDER_M = 0.8;
+const RIVER_CARVE_MAX_M = 6.0;
+/** Valley-wall width beyond the channel half-width, in tiles, scaled to the carve
+ *  depth so the ground GRADES down into the channel (a V/U valley) rather than
+ *  dropping a one-tile cliff. A 1 m gully gets a ~1.5-tile shoulder, a 6 m gorge a
+ *  ~5-tile sloping wall. Clamped so the brush footprint stays bounded. */
+const BANK_FEATHER_MIN_TILES = 1.5;
+const BANK_FEATHER_MAX_TILES = 5.0;
+const BANK_FEATHER_PER_M = 0.85;
 
 function carveDepthM(strahler: number): number {
   return Math.min(RIVER_CARVE_BASE_M + RIVER_CARVE_PER_ORDER_M * Math.max(0, strahler - 1), RIVER_CARVE_MAX_M);
+}
+
+/** Valley-wall taper width (tiles) for a given carve depth — deeper ⇒ broader slope. */
+function bankFeatherTiles(depthM: number): number {
+  return Math.min(BANK_FEATHER_MAX_TILES, Math.max(BANK_FEATHER_MIN_TILES, depthM * BANK_FEATHER_PER_M));
 }
 
 /**
@@ -45,14 +60,15 @@ export function buildRiverDeformations(map: GameMap, hydro: HydrologyResult): De
     const bx = t >= 0 ? t % w : ax;
     const by = t >= 0 ? (t / w) | 0 : ay;
     const halfWidth = Math.max(0.4, chWidth[i] / 2);
+    const amount = carveDepthM(strahler[i]);
     out.push(
       polylineDeformation({
         id: `river:${i}`,
         source: 'river:incision',
         points: bx === ax && by === ay ? [{ x: ax, y: ay }] : [{ x: ax, y: ay }, { x: bx, y: by }],
         halfWidth,
-        feather: BANK_FEATHER_TILES,
-        amount: carveDepthM(strahler[i]),
+        feather: bankFeatherTiles(amount),
+        amount,
         op: 'carve',
       }),
     );

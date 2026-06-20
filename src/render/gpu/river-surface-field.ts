@@ -26,8 +26,10 @@
 import type { GameMap, HydrologyResult } from '@/core/types';
 import { WaterType } from '@/core/types';
 import { worldStyleOf } from '@/core/world-style';
-import { heightField } from '@/render/gpu/terrain-field';
+import { heightField, curveHeightBuffer } from '@/render/gpu/terrain-field';
 import { getHydrologyResult } from '@/world/hydrology-store';
+import { getHeightfield, ELEVATION_SEA_LEVEL } from '@/world/heightfield';
+import { styledIslandSpec } from '@/terrain/island-mask';
 
 /** Metres the water surface sits below the lower bank (a contained channel). */
 const SURFACE_INSET_M = 0.5;
@@ -48,14 +50,25 @@ const SMOOTH_PASSES = 2;
  * tests; by default they come from the memoised render heightfield + hydrology.
  */
 export function buildRiverSurfaceField(
-  map: GameMap, heights?: Float32Array, hydro?: HydrologyResult,
+  map: GameMap, heights?: Float32Array, hydro?: HydrologyResult, baseHeights?: Float32Array,
 ): Float32Array {
   const W = map.width, H = map.height;
   const h = heights ?? heightField(map);
   const hy = hydro ?? getHydrologyResult(map);
-  const relief = worldStyleOf(map.worldSeed).mountainRelief;
+  const style = worldStyleOf(map.worldSeed);
+  const relief = style.mountainRelief;
   const insetN = SURFACE_INSET_M / relief;
   const minDepthN = MIN_DEPTH_M / relief;
+
+  // The BASE (pre-incision) render grade. The river fills its carved channel back
+  // UP toward the surrounding ground, so the bank reference must read the natural
+  // terrain — NOT the composed height `h`, whose graded valley walls are themselves
+  // carved and would drag the fill line down into a dry gorge as the carve deepens.
+  // Injectable for tests; by default the curved base seed field.
+  const base = baseHeights ?? curveHeightBuffer(
+    getHeightfield(map.seed, W, H, styledIslandSpec(map.worldSeed), map.worldSeed?.pois ?? null),
+    ELEVATION_SEA_LEVEL, style.terrainHeightGamma,
+  );
 
   const wt = hy.waterType, drain = hy.drainTo;
   const isRiver = (i: number): boolean => wt[i] === WaterType.River;
@@ -79,11 +92,11 @@ export function buildRiverSurfaceField(
       for (let d = 1; d <= BANK_PROBE_TILES; d++) {
         const bx = Math.round(x + px * d * sign);
         const by = Math.round(y + py * d * sign);
-        if (bx < 0 || by < 0 || bx >= W || by >= H) return h[i];
+        if (bx < 0 || by < 0 || bx >= W || by >= H) return base[i];
         const bi = by * W + bx;
-        if (!isRiver(bi)) return h[bi];      // first dry cell = the bank top
+        if (!isRiver(bi)) return base[bi];   // first dry cell — its NATURAL grade is the bank top
       }
-      return h[i];
+      return base[i];
     };
     const bankMin = Math.min(probeBank(1), probeBank(-1));
     level[i] = Math.max(bankMin - insetN, h[i] + minDepthN);
