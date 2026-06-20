@@ -16,7 +16,7 @@
 // No GPU/DOM here; everything is unit-testable.
 
 import type { GameMap, DevModeState } from '@/core/types';
-import { TILE_COLORS } from '@/core/constants';
+import { TILE_COLORS, WATER_TYPES } from '@/core/constants';
 import { effectiveTileType, RENDER_LAYERS, layerFlag } from '@/render/layer-visibility';
 import { ELEVATION_SEA_LEVEL, getClimateFields } from '@/world/heightfield';
 import { getComposedHeightfield } from '@/world/road-deformation';
@@ -100,6 +100,49 @@ export function heightField(map: GameMap): Float32Array {
   return curveHeightBuffer(base, ELEVATION_SEA_LEVEL, worldStyleOf(map.worldSeed).terrainHeightGamma);
 }
 
+/** Damp-earth fallback for a river bed when no dry neighbour is found nearby. */
+const RIVERBED_FALLBACK = '#5E4C3A';
+/** How far the carved bed is darkened vs the inherited bank colour (wet sheen). */
+const RIVERBED_DARKEN = 0.62;
+
+/**
+ * Base colour for a RIVER bed cell. The terrain must NOT paint river-blue — the
+ * ribbon pass (`ribbon-wgsl`) owns the entire river water look, so the carved
+ * channel below it shows damp GROUND, not a doubled-up blue smear that bleeds out
+ * past the ribbon's frayed edges. The bed inherits the nearest dry neighbour's
+ * biome colour (so a grassy valley gets a muddy-green bed, a desert a sandy one),
+ * darkened toward wet earth. Pure; only the (few hundred) river cells hit this.
+ */
+function riverbedColorAbgr(
+  tiles: GameMap['tiles'], x: number, y: number, width: number, height: number, devMode?: DevModeState,
+): number {
+  for (let r = 1; r <= 5; r++) {
+    for (let dy = -r; dy <= r; dy++) {
+      const ny = y + dy;
+      if (ny < 0 || ny >= height) continue;
+      for (let dx = -r; dx <= r; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue; // ring only
+        const nx = x + dx;
+        if (nx < 0 || nx >= width) continue;
+        const t = tiles[ny]?.[nx];
+        if (!t || WATER_TYPES.has(t.type)) continue;
+        const hex = TILE_COLORS[effectiveTileType(t.type, devMode)] ?? RIVERBED_FALLBACK;
+        return darkenAbgr(hexToAbgr(hex), RIVERBED_DARKEN);
+      }
+    }
+  }
+  return darkenAbgr(hexToAbgr(RIVERBED_FALLBACK), 1);
+}
+
+/** Scale an 0xAABBGGRR colour's RGB toward black by `f` (alpha kept). */
+function darkenAbgr(abgr: number, f: number): number {
+  const a = abgr & 0xff000000;
+  const b = Math.round(((abgr >> 16) & 0xff) * f);
+  const g = Math.round(((abgr >> 8) & 0xff) * f);
+  const r = Math.round((abgr & 0xff) * f);
+  return (a | (b << 16) | (g << 8) | r) >>> 0;
+}
+
 /** Pack the per-cell biome base colour as 0xAABBGGRR (LE-friendly for upload). */
 export function packColorField(map: GameMap, devMode?: DevModeState): Uint32Array {
   const { width, height, tiles } = map;
@@ -108,6 +151,11 @@ export function packColorField(map: GameMap, devMode?: DevModeState): Uint32Arra
     const row = tiles[ty];
     for (let tx = 0; tx < width; tx++) {
       const tile = row?.[tx];
+      if (tile && tile.type === 'river') {
+        // Rivers render via the ribbon pass; the bed shows damp ground, never blue.
+        out[ty * width + tx] = riverbedColorAbgr(tiles, tx, ty, width, height, devMode);
+        continue;
+      }
       const hex = tile ? (TILE_COLORS[effectiveTileType(tile.type, devMode)] ?? '#444') : '#1a1a24';
       out[ty * width + tx] = hexToAbgr(hex);
     }
