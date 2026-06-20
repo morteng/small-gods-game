@@ -74,9 +74,38 @@ function deckElevByCell(edge: RoadEdge, map: GameMap, hf: Float32Array): Map<num
   return out;
 }
 
-/** Pure: road graph → swept ribbon mesh (tile space; lifted on the GPU). When `map`
- *  is given, road edges that bridge water get a raised plank DECK (tag.y = BRIDGE_TAG,
- *  deck elevation baked into the `speed` channel for the vertex shader to lift to). */
+/** A maximal run of polyline points, flagged land (road) or bridge (deck). */
+interface PolyRun { bridge: boolean; pts: { x: number; y: number }[] }
+
+/**
+ * Split a road polyline at its bridge-cell runs. Land runs become ROAD (the ribbon stops at
+ * the bank); bridge runs become a separate DECK that spans the gap — so the road genuinely
+ * terminates at each side of the crossing (the ford) instead of carrying across. Each bridge
+ * run is padded by its flanking approach points so the deck meets the banks.
+ */
+function splitAtBridges(pts: { x: number; y: number }[], onBridge: boolean[]): PolyRun[] {
+  const runs: PolyRun[] = [];
+  let i = 0;
+  while (i < pts.length) {
+    const bridge = onBridge[i];
+    const s = i;
+    while (i < pts.length && onBridge[i] === bridge) i++;
+    const e = i - 1;
+    if (bridge) {
+      // Pad the deck with one approach point each side so it lands on the banks.
+      const a = Math.max(0, s - 1), b = Math.min(pts.length - 1, e + 1);
+      runs.push({ bridge: true, pts: pts.slice(a, b + 1) });
+    } else {
+      runs.push({ bridge: false, pts: pts.slice(s, e + 1) });
+    }
+  }
+  return runs;
+}
+
+/** Pure: road graph → swept ribbon mesh (tile space; lifted on the GPU). When `map` is given,
+ *  a road that meets water TERMINATES at the bank (its land segments sweep as road) and each
+ *  water crossing becomes a SEPARATE level DECK span (tag.y = BRIDGE_TAG, deck elevation in
+ *  `speed`) — the road no longer carries across the river. */
 export function buildRoadRibbonMesh(graph: RoadGraph | undefined, map?: GameMap): RibbonMesh {
   if (!graph?.edges.length) return EMPTY;
   const hf = map ? heightField(map) : null;
@@ -92,17 +121,23 @@ export function buildRoadRibbonMesh(graph: RoadGraph | undefined, map?: GameMap)
       const W = map!.width, H = map!.height;
       const idxOf = (x: number, y: number) =>
         Math.min(H - 1, Math.max(0, Math.floor(y))) * W + Math.min(W - 1, Math.max(0, Math.floor(x)));
-      // Force-keep the bridge cells through RDP so the deck span is densely resampled
-      // (else a straight crossing collapses to a chord and gets no planks / deck lift).
-      const keepMask = edge.polyline.map((p) => decks.has(idxOf(p.x, p.y)));
-      specs.push({
-        points: edge.polyline,
-        halfWidth: hw,
-        keepMask,
-        // tag.y flags bridge spans; `speed` carries the deck elevation the VS lifts to.
-        tag: (x, y): [number, number] => [tier, decks.has(idxOf(x, y)) ? BRIDGE_TAG : 0],
-        speed: (x, y): number => decks.get(idxOf(x, y)) ?? 0,
-      });
+      const onBridge = edge.polyline.map((p) => decks.has(idxOf(p.x, p.y)));
+      for (const run of splitAtBridges(edge.polyline, onBridge)) {
+        if (run.pts.length < 2) continue;
+        if (run.bridge) {
+          // Deck span: force-keep every point (no RDP collapse), lift to the level deck
+          // elevation (approach terrain at the ends, deck level over the water).
+          specs.push({
+            points: run.pts,
+            halfWidth: hw,
+            keepMask: run.pts.map(() => true),
+            tag: [tier, BRIDGE_TAG],
+            speed: (x, y): number => decks.get(idxOf(x, y)) ?? (hf![idxOf(x, y)] ?? 0),
+          });
+        } else {
+          specs.push({ points: run.pts, halfWidth: hw, tag: [tier, 0] });
+        }
+      }
     } else {
       specs.push({ points: edge.polyline, halfWidth: hw, tag: [tier, 0] });
     }
