@@ -199,9 +199,13 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
 
   var col : vec3<f32>;
   if (tier == 3) {
-    // Cobblestones laid along the ribbon (u = along, v = across); mortar lines
-    // darken the cell borders, per-cell jitter breaks uniformity.
-    let cellLen = 0.5;
+    // Cobblestones laid along the ribbon (u = along, v = across). Cobble CHARACTER
+    // varies regionally (low-freq noise over the world position) so cobbled stretches
+    // read as different pavements, not one tiled texture: sett SIZE drifts from small
+    // setts to big flagstones, the stone HUE drifts warm granite ↔ cool bluestone, and
+    // a sparse few cobbles sit worn/sunken. Mortar darkens the cell borders.
+    let region = fbm(in.vGrid * 0.18);                 // slow drift across the world
+    let cellLen = mix(0.40, 0.62, region);             // small setts ↔ big flagstones
     let u = in.vAlong / cellLen;
     let v = (in.vAcross * in.vWidth) / cellLen;
     let cell = floor(vec2<f32>(u, v));
@@ -209,8 +213,13 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
     let jitter = hash21(cell);
     let edge = max(abs(f.x), abs(f.y));
     let mortar = smoothstep(0.36, 0.46, edge);
-    col = mix(mix(STONE2, STONE, jitter), MORTAR, mortar);
+    let warm = mix(STONE2, STONE, jitter);                                  // sandy granite
+    let cool = mix(vec3<f32>(0.40, 0.41, 0.44), vec3<f32>(0.53, 0.55, 0.58), jitter); // bluestone
+    col = mix(mix(warm, cool, smoothstep(0.35, 0.65, region)), MORTAR, mortar);
     col *= 0.92 + 0.16 * vnoise(in.vGrid * 6.0);
+    // Worn/sunken cobbles: a sparse few cells settle darker into the bed.
+    let worn = smoothstep(0.80, 0.93, hash21(cell + vec2<f32>(7.3, 1.9)));
+    col *= 1.0 - worn * 0.32;
     // Raised stone CURB: a lighter dressed-stone band along each outer edge.
     let curb = smoothstep(0.72, 0.86, aa);
     col = mix(col, vec3<f32>(0.60, 0.58, 0.54), curb * 0.85);
