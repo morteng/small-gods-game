@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { generateWithNoise } from '@/map/map-generator';
 import { WaterType, type WorldSeed } from '@/core/types';
 import { ELEVATION_SEA_LEVEL } from '@/world/heightfield';
-import { buildWaterField, computeShoreDist, fillShoreRing, packWaterGlobals, WATER_GLOBALS_FLOATS } from '@/render/gpu/water-field';
+import { buildWaterField, computeShoreDist, fillShoreRing, floodDilateLakes, LAKE_FLOOD_RINGS, packWaterGlobals, WATER_GLOBALS_FLOATS } from '@/render/gpu/water-field';
 import { terrainGrid } from '@/render/gpu/terrain-field';
 import { packTerrainGlobals, type TerrainGlobalsInput } from '@/render/gpu/instance-buffer';
 import { DEFAULT_LIGHTING } from '@/render/lighting-state';
@@ -160,6 +160,54 @@ describe('Water S2 — water field builder', () => {
     expect(f.waterType[at(0, 0)]).toBe(WaterType.Dry);
     // The original wet cell is untouched.
     expect(f.surfaceW[wet]).toBeCloseTo(0.35, 6);
+  });
+
+  it('floodDilateLakes extends a LAKE plane outward by N rings (flood headroom)', () => {
+    // 9×1 strip, a single lake cell at the centre (index 4). With 3 rings the lake
+    // plane spreads to cells 1..7; cells 0 and 8 (ring 4) stay bone dry. The cells
+    // carry the lake's surface + biome so a flood can later climb them.
+    const W = 9, H = 1;
+    const f = {
+      surfaceW: new Float32Array(W * H).fill(-1),
+      waterType: new Uint32Array(W * H), // 0 = Dry
+      shallow: new Uint32Array(W * H),
+      deep: new Uint32Array(W * H),
+      clarity: new Float32Array(W * H),
+      flow: new Float32Array(W * H * 2),
+    };
+    f.surfaceW[4] = 0.4; f.waterType[4] = WaterType.Lake;
+    f.shallow[4] = 0x1234; f.deep[4] = 0x5678; f.clarity[4] = 0.6;
+
+    floodDilateLakes(W, H, 3, f);
+
+    for (let x = 1; x <= 7; x++) {
+      expect(f.waterType[x], `cell ${x} type`).toBe(WaterType.Lake);
+      expect(f.surfaceW[x], `cell ${x} surface`).toBeCloseTo(0.4, 6);
+      expect(f.shallow[x]).toBe(0x1234);
+    }
+    expect(f.waterType[0]).toBe(WaterType.Dry);
+    expect(f.surfaceW[0]).toBe(-1);
+    expect(f.waterType[8]).toBe(WaterType.Dry);
+  });
+
+  it('floodDilateLakes ignores OCEAN (the datum never floods) and occupied cells', () => {
+    // A lone OCEAN cell does NOT dilate; and a pre-occupied neighbour is left as-is.
+    const W = 5, H = 1;
+    const f = {
+      surfaceW: new Float32Array([-1, -1, 0.35, 0.42, -1]),
+      waterType: new Uint32Array([WaterType.Dry, WaterType.Dry, WaterType.Ocean, WaterType.Lake, WaterType.Dry]),
+      shallow: new Uint32Array(W), deep: new Uint32Array(W),
+      clarity: new Float32Array(W), flow: new Float32Array(W * 2),
+    };
+    floodDilateLakes(W, H, 3, f);
+    expect(f.waterType[2]).toBe(WaterType.Ocean);   // ocean untouched (not a seed)
+    expect(f.surfaceW[2]).toBeCloseTo(0.35, 6);     // occupied cell kept its surface
+    expect(f.waterType[4]).toBe(WaterType.Lake);    // lake spread to the open dry side
+    expect(f.surfaceW[4]).toBeCloseTo(0.42, 6);
+  });
+
+  it('LAKE_FLOOD_RINGS is a positive headroom band', () => {
+    expect(LAKE_FLOOD_RINGS).toBeGreaterThan(1);
   });
 
   it('fillShoreRing picks the highest adjacent surface for a dry cell between two bodies', () => {

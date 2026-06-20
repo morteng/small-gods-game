@@ -20,6 +20,12 @@ import { classifyWaterCell, climateOf, type AquaticBiome, type Rgb } from '@/wat
 export const SHALLOW_BAND_M = 1.5;
 /** Depth (m) under which the shoreline foam band shows. */
 export const FOAM_BAND_M = 0.4;
+/** Extra rings a LAKE surface is dilated past its bank so a FLOOD can climb the
+ *  shore. The 1-ring `fillShoreRing` overhang only lets the waterline advance one
+ *  cell; a flood needs candidate land cells further out to clip against. Lakes
+ *  only — the sea (ocean) is the datum and never floods, so it keeps the 1-ring
+ *  overhang and pays no extra overdraw. A flood beyond this reach is ring-capped. */
+export const LAKE_FLOOD_RINGS = 6;
 /** WGlobals = TGlobals (24) + uWater vec4 = 28 floats / 112 bytes. */
 export const WATER_GLOBALS_FLOATS = TERRAIN_GLOBALS_FLOATS + 4;
 
@@ -178,6 +184,71 @@ export function fillShoreRing(
   }
 }
 
+/**
+ * Flood headroom for LAKES — dilate the lake water plane `rings` cells further out
+ * than the 1-ring waterline overhang, so a positive water-level offset (flood) has
+ * land cells to climb. A multi-source BFS seeded from every cell currently carrying
+ * a LAKE surface (the original basin + the lake cells `fillShoreRing` already
+ * overhung), expanding only into still-DRY cells (`surfaceW === -1`), each taking
+ * its BFS parent's lake surface/colours. The in-shader depth clip
+ * (`surfaceW + offset − terrain ≤ 0 → discard`) trims this generous band back to
+ * the real contour every frame, so at level 0 the extra cells are all discarded
+ * (their land terrain sits above the lake plane) and cost only a few hundred
+ * discarded fragments. Ocean/river are left at the 1-ring overhang.
+ *
+ * Mutates the passed arrays IN PLACE; must run AFTER {@link fillShoreRing}.
+ */
+export function floodDilateLakes(
+  width: number,
+  height: number,
+  rings: number,
+  f: {
+    surfaceW: Float32Array;
+    waterType: Uint32Array;
+    shallow: Uint32Array;
+    deep: Uint32Array;
+    clarity: Float32Array;
+    flow: Float32Array;
+  },
+): void {
+  if (rings <= 0) return;
+  const cells = width * height;
+  const dist = new Int16Array(cells).fill(-1);
+  const queue = new Int32Array(cells);
+  let head = 0, tail = 0;
+  for (let i = 0; i < cells; i++) {
+    if (f.waterType[i] === WaterType.Lake) { dist[i] = 0; queue[tail++] = i; }
+  }
+  while (head < tail) {
+    const c = queue[head++];
+    const d = dist[c];
+    if (d >= rings) continue;
+    const cx = c % width;
+    const cy = (c / width) | 0;
+    for (let dy = -1; dy <= 1; dy++) {
+      const ny = cy + dy;
+      if (ny < 0 || ny >= height) continue;
+      for (let dx = -1; dx <= 1; dx++) {
+        if (dx === 0 && dy === 0) continue;
+        const nx = cx + dx;
+        if (nx < 0 || nx >= width) continue;
+        const ni = ny * width + nx;
+        if (dist[ni] !== -1) continue;          // already queued/seeded
+        if (f.surfaceW[ni] !== -1) continue;     // occupied (wet or ring-1 overhang) — leave it
+        dist[ni] = d + 1;
+        f.surfaceW[ni] = f.surfaceW[c];
+        f.waterType[ni] = WaterType.Lake;
+        f.shallow[ni] = f.shallow[c];
+        f.deep[ni] = f.deep[c];
+        f.clarity[ni] = f.clarity[c];
+        f.flow[ni * 2] = 0;
+        f.flow[ni * 2 + 1] = 0;
+        queue[tail++] = ni;
+      }
+    }
+  }
+}
+
 export interface BuildWaterFieldOpts {
   viewport: [number, number];
   xform: { sx: number; sy: number; ox: number; oy: number };
@@ -263,6 +334,11 @@ function waterStatic(map: GameMap, maxQuads?: number): WaterStatic {
   for (let i = 0; i < cells; i++) surfaceW[i] = curveRenderElev(hydro.surfaceW[i], ELEVATION_SEA_LEVEL, gamma);
   const waterType = Uint32Array.from(hydro.waterType);
   fillShoreRing(map.width, map.height, hydro.waterMask, {
+    surfaceW, waterType, shallow, deep, clarity, flow,
+  });
+  // Give lakes flood headroom past the 1-ring waterline overhang (the sea is the
+  // datum and never floods, so it's left at one ring).
+  floodDilateLakes(map.width, map.height, LAKE_FLOOD_RINGS, {
     surfaceW, waterType, shallow, deep, clarity, flow,
   });
 
