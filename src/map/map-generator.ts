@@ -22,6 +22,7 @@ import { buildRoadGraph } from '@/world/road-graph';
 import type { RoadGraph } from '@/world/road-graph';
 import { erodeElevation } from '@/terrain/erosion';
 import { placeSettlement } from '@/world/building-placer';
+import { buildCrossingStructureEntities } from '@/world/connectome/crossing-structures';
 import { tileBlockedByBuilding } from '@/world/building-collision';
 import { reconcileBarriersWithBuildings } from '@/world/place-barrier';
 import type { SettlementPlan } from '@/world/settlement-plan';
@@ -264,6 +265,14 @@ export async function generateWithNoise(
     roadGraph = buildRoadGraph(worldSeed.connections, worldSeed.pois ?? [], tiles, fields, {
       isObstacle: (x, y) => tileBlockedByBuilding(world, x, y) || greenTiles.has(`${x},${y}`),
     });
+
+    // River-crossing SITES (unified connectome, v0): where a road bridges water, compose a
+    // crossing sub-connectome and realize its ancillary structures (toll/guard/shrine/mill/
+    // shops/gatehouse) as grey-massing building entities, sized by era × prosperity × road
+    // class. Span/piers stay on the road ribbon's interim deck for now. Added BEFORE the
+    // static draw cache is built so they render without invalidation.
+    report('Siting river crossings...');
+    for (const e of buildCrossingStructureEntities(roadGraph, width)) world.addEntity(e);
   }
 
   // All buildings are placed: a building is authoritative over its footprint, so
