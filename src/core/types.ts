@@ -54,6 +54,10 @@ export interface GameMap {
   /** Inter-POI road graph (Roads Slice 0): polylines + bridges are the source of
    *  truth, tile carving is derived. Persisted verbatim via SaveFile.map. */
   roadGraph?: import('@/world/road-graph').RoadGraph;
+  /** Derived anchor-snap layer: typed connection points on every feature + the matched
+   *  links between them. Re-derivable from world+roadGraph; persisted for overlay/authoring. */
+  anchors?: import('@/world/anchors').Anchor[];
+  anchorLinks?: import('@/world/anchor-rules').AnchorLink[];
 }
 
 /** Village/settlement on the map */
