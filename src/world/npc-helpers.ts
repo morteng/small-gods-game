@@ -37,6 +37,7 @@ export function toRenderNpc(e: Entity): NpcInstance {
     direction: p.direction,
     frame: p.frame,
     frameTimer: p.frameTimer,
+    animation: p.animForce ?? p.animation,
     homeBuildingId: p.homeBuildingId,
     homePoiId: p.homePoiId,
     moveCooldown: p.moveCooldown,
