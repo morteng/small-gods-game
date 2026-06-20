@@ -130,6 +130,12 @@ export class GpuScene {
   private ribbonParamsBuf: GPUBuffer;
   private ribbonBind: GPUBindGroup | null = null;
   private ribbonBoundHeights: GPUBuffer | null = null;
+  private ribbonBoundSurf: GPUBuffer | null = null;
+  // River water-surface storage buffer (ribbon binding 6): river verts lift to this
+  // fill line instead of the carved bed. Null/heights on a world with no rivers.
+  private riverSurfaceBuf: GPUBuffer | null = null;
+  private riverSurfaceCap = 0;
+  private riverSurfaceData: Float32Array | null = null;
   // Road-material atlas (binding 3/4/5): a seamless PBR swatch per surface
   // (dirt/cobble/plank), built once and bound into the ribbon pass.
   private roadMatSampler: GPUSampler | null = null;
@@ -772,6 +778,9 @@ export class GpuScene {
     ribbon?: RibbonMesh | null;
     /** Render-clock seconds for ribbon flow animation (rivers). */
     ribbonTime?: number;
+    /** River water-surface field (`buildRiverSurfaceFieldMemo`): row-major `W*H`
+     *  render-elevation the river ribbon verts lift to. Null on a dry world. */
+    riverSurface?: Float32Array | null;
     /** Screen-space UI geometry (S1) — drawn in its own pass over the entities. */
     uiGroups?: readonly UiDrawGroup[];
     /** P-E: when set, the scene passes render into a low-res target sized `w×h`
@@ -868,7 +877,27 @@ export class GpuScene {
         this.lastRibbonData = ribbon!.data;
         this.lastRibbonVbuf = rbuf;
       }
-      if (!this.ribbonBind || this.ribbonBoundHeights !== this.terrainHeightsBuf) {
+      // River water-surface buffer (binding 6): upload + bind when the world has
+      // rivers; otherwise bind the height buffer itself (river verts are absent, so
+      // the value is never read — the binding just has to exist for the layout).
+      let surfBuf = this.terrainHeightsBuf!;
+      if (opts.riverSurface) {
+        const bytes = opts.riverSurface.byteLength;
+        if (!this.riverSurfaceBuf || this.riverSurfaceCap < bytes) {
+          this.riverSurfaceBuf?.destroy();
+          this.riverSurfaceBuf = device.createBuffer({
+            size: bytes, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+          });
+          this.riverSurfaceCap = bytes;
+          this.riverSurfaceData = null;
+        }
+        if (this.riverSurfaceData !== opts.riverSurface) {
+          device.queue.writeBuffer(this.riverSurfaceBuf, 0, opts.riverSurface as GPUAllowSharedBufferSource);
+          this.riverSurfaceData = opts.riverSurface;
+        }
+        surfBuf = this.riverSurfaceBuf;
+      }
+      if (!this.ribbonBind || this.ribbonBoundHeights !== this.terrainHeightsBuf || this.ribbonBoundSurf !== surfBuf) {
         this.ribbonBind = device.createBindGroup({
           layout: this.ribbonPipeline.getBindGroupLayout(0),
           entries: [
@@ -878,9 +907,11 @@ export class GpuScene {
             { binding: 3, resource: this.roadMatSampler! },
             { binding: 4, resource: this.roadAlbedoTex!.createView({ dimension: '2d-array' }) },
             { binding: 5, resource: this.roadNormalTex!.createView({ dimension: '2d-array' }) },
+            { binding: 6, resource: { buffer: surfBuf } },
           ],
         });
         this.ribbonBoundHeights = this.terrainHeightsBuf;
+        this.ribbonBoundSurf = surfBuf;
       }
       device.queue.writeBuffer(this.ribbonParamsBuf, 0,
         new Float32Array([opts.ribbonTime ?? 0, 0, 0, 0]));

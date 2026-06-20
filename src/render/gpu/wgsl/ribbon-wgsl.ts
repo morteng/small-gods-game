@@ -36,6 +36,12 @@ struct RParams {
 @group(0) @binding(0) var<uniform> G : TGlobals;
 @group(0) @binding(1) var<storage, read> heights : array<f32>;
 @group(0) @binding(2) var<uniform> R : RParams;
+// River WATER-SURFACE field (render-elevation space): river verts lift to THIS
+// (the fill line just below the banks), not the carved bed; off-channel it equals
+// the terrain, so the fragment's surface−terrain test discards the dry side and the
+// waterline follows the real bank contour pixel-perfectly. Equals the height buffer
+// on a world with no rivers (the host binds the heights buffer itself there).
+@group(0) @binding(6) var<storage, read> riverSurf : array<f32>;
 // Road-material atlas (prototype: hand-authored placeholder, img2img-generated later).
 // One seamless layer per surface — 0 dirt · 1 cobble · 2 plank — albedo + a local-frame
 // normal (RG bump, B up). The FS samples these for roads and lights the normal banded.
@@ -82,6 +88,19 @@ fn sampleElev(p : vec2<f32>) -> f32 {
 fn heightPxAt(p : vec2<f32>) -> f32 {
   return (sampleElev(p) - G.uZParams.y) * G.uZParams.z * G.uZParams.x;
 }
+// Bilinear river water-surface elevation at a fractional tile pos (same lattice as
+// sampleElev). Off-channel this equals the terrain, so depth = surf − bed ≤ 0 there.
+fn sampleSurf(p : vec2<f32>) -> f32 {
+  let W = i32(G.uGrid.x); let H = i32(G.uGrid.y);
+  let fx = clamp(p.x, 0.0, f32(W - 1));
+  let fy = clamp(p.y, 0.0, f32(H - 1));
+  let x0 = i32(floor(fx)); let y0 = i32(floor(fy));
+  let x1 = min(x0 + 1, W - 1); let y1 = min(y0 + 1, H - 1);
+  let tx = fx - f32(x0); let ty = fy - f32(y0);
+  let s00 = riverSurf[y0 * W + x0]; let s10 = riverSurf[y0 * W + x1];
+  let s01 = riverSurf[y1 * W + x0]; let s11 = riverSurf[y1 * W + x1];
+  return mix(mix(s00, s10, tx), mix(s01, s11, tx), ty);
+}
 
 struct VSOut {
   @builtin(position) pos : vec4<f32>,
@@ -106,8 +125,12 @@ fn vsMain(
 ) -> VSOut {
   // Bridge decks (road tag.y == BRIDGE_TAG ~ 0.25) carry their LEVEL deck elevation in
   // aSpeed; lift to that instead of the riverbed below, so the deck spans the water.
+  // Rivers (tag.y == 1) lift to the WATER SURFACE (fill line), not the carved bed —
+  // so the river sits in its channel instead of at the bottom of its own trench.
   let isBridge = aTag.y > 0.1 && aTag.y < 0.5;
+  let isRiver = aTag.y > 0.5;
   var elev = sampleElev(aPos);
+  if (isRiver) { elev = sampleSurf(aPos); }
   if (isBridge) { elev = aSpeed; }
   let hPx = (elev - G.uZParams.y) * G.uZParams.z * G.uZParams.x;
   // A hair of lift so the ribbon never z-fights the terrain it rides on.
@@ -138,16 +161,38 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   // flow (and keeps the RParams binding live under the auto bind-group layout).
   if (in.vTag.y > 0.5) {
     // ── RIVER ── flow advected ALONG the centerline (downstream by construction of
-    // the traced polyline), depth-tinted across, with bank + whitewater foam.
+    // the traced polyline), depth-tinted across, with a depth-keyed shore foam.
+    //
+    // PIXEL-PERFECT WATERLINE: the water surface (riverSurf) and the carved bed
+    // (heights) are both sampled per-fragment; depth = surf − bed. Off the channel
+    // the surface equals the terrain, so depth ≤ 0 and the dry side is discarded —
+    // the visible edge is the real bank contour, not the parametric ribbon edge.
+    let bed = sampleElev(in.vGrid);
+    let surf = sampleSurf(in.vGrid);
+    let depthN = surf - bed;
+    if (depthN <= 0.0) { discard; }
+    let depthM = depthN * G.uZParams.z;            // uZParams.z = reliefM
+
     let dwn = in.vAlong - R.uTime * (0.3 + in.vSpeed * 0.7);
     let ripple = fbm(vec2<f32>(in.vAlong * 1.6 + dwn, in.vAcross * 3.0));
-    var rcol = mix(vec3<f32>(0.09, 0.26, 0.32), vec3<f32>(0.15, 0.41, 0.47), ripple); // deep→lit
+    // Depth tint: a DEEP teal thread runs mid-channel (real rivers are shallow, so
+    // keying purely off depthM washes out — the across-coordinate guarantees a deep
+    // current line) fading to a lighter margin at the banks.
+    let center = smoothstep(1.0, 0.15, aa);              // 1 mid-channel → 0 at the bank
+    let tDeep = max(clamp(depthM / 1.0, 0.0, 1.0), center * 0.85);
+    var rcol = mix(vec3<f32>(0.21, 0.45, 0.49), vec3<f32>(0.05, 0.19, 0.27), tDeep);
+    rcol = mix(rcol, rcol + vec3<f32>(0.04), ripple);
     let streak = smoothstep(0.62, 0.96, fract(dwn * 0.6));
     rcol += vec3<f32>(streak * 0.05);
-    let bankFoam = smoothstep(0.66, 1.0, aa) * (0.45 + 0.55 * ripple);
+
+    // SHORE FOAM keyed to real depth — a bright lapping lip in the last ~0.4 m before
+    // the bank (where bed climbs to meet the surface), so foam hugs the true contour.
+    let shoreFoam = smoothstep(0.45, 0.0, depthM) * (0.55 + 0.45 * ripple);
+    // WHITEWATER over fast/steep reaches (carried in vSpeed), broken up by fbm.
     let white = smoothstep(0.9, 1.7, in.vSpeed)
               * smoothstep(0.45, 0.85, fbm(vec2<f32>(in.vAlong * 2.2 - R.uTime * (0.5 + in.vSpeed), in.vAcross * 2.0)));
-    rcol = mix(rcol, vec3<f32>(0.85, 0.92, 0.95), max(bankFoam * 0.5, white * 0.65));
+    rcol = mix(rcol, vec3<f32>(0.86, 0.93, 0.96), max(shoreFoam * 0.7, white * 0.65));
+
     // ── RIVER-MOUTH SPLASH ── tag.x ramps 0→1 over the last stretch of a reach that
     // spills into still water. Churning, fast-animated spray that broadens across the
     // full channel and blooms to the lip — the river breaking into the lake/sea.
@@ -157,9 +202,11 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
       let spray = mouth * mouth * smoothstep(0.28, 0.85, churn);
       rcol = mix(rcol, vec3<f32>(0.90, 0.95, 0.98), clamp(spray, 0.0, 0.85));
     }
-    let rRagged = (fbm(in.vGrid * 1.7) - 0.5) * 0.08;
-    // The splashing lip frays wider than the calm channel edge.
-    let rAlpha = smoothstep(1.0, 0.82 - mouth * 0.10, aa + rRagged);
+    // Soft outer fade at the parametric geometry edge as a backstop where the ribbon
+    // overhangs a LOW bank the depth-clip doesn't catch (a floodplain). The terrain
+    // clip above is the primary, crisp waterline.
+    let rRagged = (fbm(in.vGrid * 1.7) - 0.5) * 0.06;
+    let rAlpha = smoothstep(1.0, 0.86 - mouth * 0.08, aa + rRagged);
     let rNdl = max(G.uSun.y, 0.0) / max(length(G.uSun.xyz), 1e-3);
     let rBands = max(1.0, G.uSun.w);
     let rLight = G.uAmbient.xyz + vec3<f32>(G.uAmbient.w) * (floor(rNdl * rBands + 0.5) / rBands);
