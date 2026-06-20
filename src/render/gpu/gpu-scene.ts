@@ -29,6 +29,7 @@ import { WATER_WGSL } from '@/render/gpu/wgsl/water-wgsl';
 import { OCEAN_BACKDROP_WGSL } from '@/render/gpu/wgsl/ocean-backdrop-wgsl';
 import { RIBBON_WGSL } from '@/render/gpu/wgsl/ribbon-wgsl';
 import { RIBBON_FLOATS_PER_VERTEX, type RibbonMesh } from '@/render/ribbon/ribbon-geometry';
+import { roadMaterialAtlas } from '@/render/gpu/road-material-atlas';
 import { SHADOW_WGSL } from '@/render/gpu/wgsl/shadow-wgsl';
 import { SHAPE_WGSL } from '@/render/gpu/wgsl/shape-wgsl';
 import { BLIT_WGSL } from '@/render/gpu/wgsl/blit-wgsl';
@@ -129,6 +130,11 @@ export class GpuScene {
   private ribbonParamsBuf: GPUBuffer;
   private ribbonBind: GPUBindGroup | null = null;
   private ribbonBoundHeights: GPUBuffer | null = null;
+  // Road-material atlas (binding 3/4/5): a seamless PBR swatch per surface
+  // (dirt/cobble/plank), built once and bound into the ribbon pass.
+  private roadMatSampler: GPUSampler | null = null;
+  private roadAlbedoTex: GPUTexture | null = null;
+  private roadNormalTex: GPUTexture | null = null;
   private lastRibbonData: Float32Array | null = null;
   private lastRibbonVbuf: GPUBuffer | null = null;
   private ribbonVertexCount = 0;
@@ -344,6 +350,7 @@ export class GpuScene {
       depthStencil: { format: DEPTH_FORMAT, depthWriteEnabled: false, depthCompare: 'greater-equal' },
     });
     this.ribbonParamsBuf = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    this.buildRoadMaterials();
 
     // Shadow union pipeline: parallelogram quads (4 corners) → premult black at
     // SHADOW_ALPHA straight onto the scene colour target, stencil-gated so each
@@ -868,6 +875,9 @@ export class GpuScene {
             { binding: 0, resource: { buffer: this.terrainGlobalsBuf } },
             { binding: 1, resource: { buffer: this.terrainHeightsBuf! } },
             { binding: 2, resource: { buffer: this.ribbonParamsBuf } },
+            { binding: 3, resource: this.roadMatSampler! },
+            { binding: 4, resource: this.roadAlbedoTex!.createView({ dimension: '2d-array' }) },
+            { binding: 5, resource: this.roadNormalTex!.createView({ dimension: '2d-array' }) },
           ],
         });
         this.ribbonBoundHeights = this.terrainHeightsBuf;
@@ -1023,6 +1033,26 @@ export class GpuScene {
     rpass.draw(this.ribbonVertexCount);
     rpass.end();
     ctx.colorCleared = true;
+  }
+
+  /** Build the road-material atlas textures (albedo + local-frame normal) once — a
+   *  seamless layer per surface, bound into the ribbon pass at binding 4/5. */
+  private buildRoadMaterials(): void {
+    const { device } = this;
+    const atlas = roadMaterialAtlas();
+    const size = { width: atlas.size, height: atlas.size, depthOrArrayLayers: atlas.layers };
+    const make = (label: string) => device.createTexture({
+      label, size, format: 'rgba8unorm', dimension: '2d',
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+    });
+    this.roadAlbedoTex = make('road-albedo');
+    this.roadNormalTex = make('road-normal');
+    const layout = { bytesPerRow: atlas.size * 4, rowsPerImage: atlas.size };
+    device.queue.writeTexture({ texture: this.roadAlbedoTex }, atlas.albedo as GPUAllowSharedBufferSource, layout, size);
+    device.queue.writeTexture({ texture: this.roadNormalTex }, atlas.normal as GPUAllowSharedBufferSource, layout, size);
+    this.roadMatSampler = device.createSampler({
+      addressModeU: 'repeat', addressModeV: 'repeat', magFilter: 'linear', minFilter: 'linear',
+    });
   }
 
   /**

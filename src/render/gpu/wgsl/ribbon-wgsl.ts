@@ -36,6 +36,12 @@ struct RParams {
 @group(0) @binding(0) var<uniform> G : TGlobals;
 @group(0) @binding(1) var<storage, read> heights : array<f32>;
 @group(0) @binding(2) var<uniform> R : RParams;
+// Road-material atlas (prototype: hand-authored placeholder, img2img-generated later).
+// One seamless layer per surface — 0 dirt · 1 cobble · 2 plank — albedo + a local-frame
+// normal (RG bump, B up). The FS samples these for roads and lights the normal banded.
+@group(0) @binding(3) var matSamp   : sampler;
+@group(0) @binding(4) var albedoTex : texture_2d_array<f32>;
+@group(0) @binding(5) var normalTex : texture_2d_array<f32>;
 
 fn hash21(p : vec2<f32>) -> f32 {
   return fract(sin(dot(p, vec2<f32>(127.1, 311.7))) * 43758.5453);
@@ -124,13 +130,6 @@ fn vsMain(
   return out;
 }
 
-// ── Road surface palette (tag.x: 0 dirt, 1 stone) ──
-const DIRT  = vec3<f32>(0.37, 0.30, 0.20);
-const DIRT2 = vec3<f32>(0.30, 0.24, 0.16);
-const STONE = vec3<f32>(0.52, 0.49, 0.45);
-const STONE2= vec3<f32>(0.40, 0.38, 0.35);
-const MORTAR= vec3<f32>(0.24, 0.23, 0.21);
-
 @fragment
 fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   let aa = abs(in.vAcross);
@@ -181,82 +180,41 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   if (isBridge) { edgeStart = 0.95; }
   let alpha = smoothstep(1.0, edgeStart, aa + ragged);
 
-  // ── BRIDGE DECK ── timber planks laid ACROSS the span (period along the route),
-  // warm wood with darker seams, raised rails at the outer edges. Overrides the tier.
-  if (isBridge) {
-    let plank = fract(in.vAlong * 2.0);                       // ~0.5-tile (1 m) planks
-    let seam = smoothstep(0.06, 0.0, abs(plank - 0.5) - 0.42); // dark gap between boards
-    let grain = vnoise(vec2<f32>(in.vAlong * 3.0, in.vAcross * 1.5));
-    var wood = mix(vec3<f32>(0.42, 0.30, 0.18), vec3<f32>(0.54, 0.39, 0.24), grain);
-    wood = mix(wood, vec3<f32>(0.19, 0.13, 0.08), seam);
-    let rail = smoothstep(0.80, 0.94, aa);                    // dressed-timber side rails
-    wood = mix(wood, vec3<f32>(0.33, 0.23, 0.14), rail * 0.85);
-    let bndl = max(G.uSun.y, 0.0) / max(length(G.uSun.xyz), 1e-3);
-    let bbands = max(1.0, G.uSun.w);
-    let blight = G.uAmbient.xyz + vec3<f32>(G.uAmbient.w) * (floor(bndl * bbands + 0.5) / bbands);
-    return vec4<f32>(wood * blight * alpha, alpha);
-  }
+  // ── GENERATIVE ROAD MATERIAL (prototype) ── sample the seamless PBR atlas instead
+  // of procedural surface noise: layer 0 dirt, 1 cobble, 2 plank. UV is metric-square
+  // (along × across·width) so setts/boards stay round at any width; the repeat sampler
+  // tiles it. textureSampleLevel (LOD 0, no mips) is safe after the river early-return.
+  var layer = 0;                    // dirt — path / track / packed road
+  if (tier == 3) { layer = 1; }     // cobble — stone road
+  if (isBridge)  { layer = 2; }     // plank — bridge deck
+  let uv = vec2<f32>(in.vAlong * 2.2, in.vAcross * in.vWidth * 2.2);
+  var col = textureSampleLevel(albedoTex, matSamp, uv, layer, 0.0).rgb;
 
-  var col : vec3<f32>;
-  if (tier == 3) {
-    // Cobblestones laid along the ribbon (u = along, v = across). Cobble CHARACTER
-    // varies regionally (low-freq noise over the world position) so cobbled stretches
-    // read as different pavements, not one tiled texture: sett SIZE drifts from small
-    // setts to big flagstones, the stone HUE drifts warm granite ↔ cool bluestone, and
-    // a sparse few cobbles sit worn/sunken. Mortar darkens the cell borders.
-    let region = fbm(in.vGrid * 0.18);                 // slow drift across the world
-    let cellLen = mix(0.40, 0.62, region);             // small setts ↔ big flagstones
-    let u = in.vAlong / cellLen;
-    let v = (in.vAcross * in.vWidth) / cellLen;
-    let cell = floor(vec2<f32>(u, v));
-    let f = fract(vec2<f32>(u, v)) - 0.5;
-    let jitter = hash21(cell);
-    let edge = max(abs(f.x), abs(f.y));
-    let mortar = smoothstep(0.36, 0.46, edge);
-    let warm = mix(STONE2, STONE, jitter);                                  // sandy granite
-    let cool = mix(vec3<f32>(0.40, 0.41, 0.44), vec3<f32>(0.53, 0.55, 0.58), jitter); // bluestone
-    col = mix(mix(warm, cool, smoothstep(0.35, 0.65, region)), MORTAR, mortar);
-    col *= 0.92 + 0.16 * vnoise(in.vGrid * 6.0);
-    // Worn/sunken cobbles: a sparse few cells settle darker into the bed.
-    let worn = smoothstep(0.80, 0.93, hash21(cell + vec2<f32>(7.3, 1.9)));
-    col *= 1.0 - worn * 0.32;
-    // Raised stone CURB: a lighter dressed-stone band along each outer edge.
-    let curb = smoothstep(0.72, 0.86, aa);
-    col = mix(col, vec3<f32>(0.60, 0.58, 0.54), curb * 0.85);
-  } else {
-    // Dirt family. fbm mottling base; detail accretes with tier (usage/upkeep).
-    let mottle = fbm(in.vGrid * 3.0);
-    col = mix(DIRT2, DIRT, mottle);
-    if (tier == 0) {
-      // Foot PATH: a fainter, lighter trodden line, narrower already by geometry.
-      col = mix(col, DIRT * 1.06, 0.35);
-    }
-    if (tier >= 1) {
-      // Wheel RUTS either side of centre (deeper/darker on the busier road).
-      let rutDepth = select(0.55, 0.7, tier == 1);
-      let rut = smoothstep(0.12, 0.0, abs(aa - 0.45));
-      col = mix(col, DIRT2 * 0.78, rut * rutDepth);
-    }
-    if (tier == 1) {
-      // TRACK: a grassy median strip down the middle, only where traffic is light
-      // (noise-gated patches) — the cart-track-with-a-green-spine look.
-      let median = smoothstep(0.16, 0.03, aa);
-      let grassy = smoothstep(0.5, 0.72, fbm(in.vGrid * 0.5));
-      col = mix(col, vec3<f32>(0.31, 0.41, 0.20), median * grassy * 0.85);
-    }
-    if (tier == 2) {
-      // Packed ROAD: a little pale gravel speckle for a maintained surface.
-      col = mix(col, vec3<f32>(0.55, 0.50, 0.42), smoothstep(0.7, 0.95, vnoise(in.vGrid * 7.0)) * 0.25);
-    }
-  }
-
-  // Flat banded lighting (ribbon rides graded ~level ground, normal ≈ up) so it
-  // sits in the same light as the terrain without recomputing a normal.
-  let ndl = max(G.uSun.y, 0.0) / max(length(G.uSun.xyz), 1e-3);
+  // Normal-mapped banded lighting: decode the LOCAL-frame normal and rotate it into
+  // tile space by the ribbon tangent (X across, Z along, Y up), then dot the sun — so
+  // cobble domes & planks catch the light instead of reading dead flat.
+  let nl = textureSampleLevel(normalTex, matSamp, uv, layer, 0.0).rgb * 2.0 - 1.0;
+  let alongDir = vec3<f32>(in.vTangent.x, 0.0, in.vTangent.y);   // texture x → along
+  let acrossDir = vec3<f32>(-in.vTangent.y, 0.0, in.vTangent.x); // texture y → across
+  let nrm = normalize(nl.x * alongDir + nl.y * acrossDir + nl.z * vec3<f32>(0.0, 1.0, 0.0));
+  let ndl = max(dot(nrm, normalize(G.uSun.xyz)), 0.0);
   let bands = max(1.0, G.uSun.w);
   let banded = floor(ndl * bands + 0.5) / bands;
   let light = G.uAmbient.xyz + vec3<f32>(G.uAmbient.w) * banded;
+  col = col * light;
 
-  return vec4<f32>(col * light * alpha, alpha);
+  // Edge features are geometry, not surface texture, so they stay procedural overlays.
+  if (tier == 3 && !isBridge) {
+    // Raised dressed-stone CURB along each outer edge of a cobbled road.
+    let curb = smoothstep(0.72, 0.86, aa);
+    col = mix(col, vec3<f32>(0.60, 0.58, 0.54) * light, curb * 0.85);
+  }
+  if (isBridge) {
+    // Dressed-timber side RAILS at the deck edges.
+    let rail = smoothstep(0.80, 0.94, aa);
+    col = mix(col, vec3<f32>(0.33, 0.23, 0.14) * light, rail * 0.85);
+  }
+
+  return vec4<f32>(col * alpha, alpha);
 }
 `;
