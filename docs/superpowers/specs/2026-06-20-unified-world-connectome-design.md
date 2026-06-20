@@ -134,3 +134,102 @@ Stay in design: pick **2–3 worked examples** (crossing + settlement + an inhab
 bridge) and draft their node/edge/param compositions concretely. The shared vocabulary that
 falls out of all three becomes the v0 connectome model — then we spec the realization
 dispatch + the agent verb set against it.
+
+---
+
+# v0 derivation — three worked examples
+
+Working assumptions (my leans on the two open decisions; revisit freely): **grow the
+vocabulary from examples**, and a **thin `WorldNode` layer above Blueprint** (Blueprint stays
+a single-structure leaf; composition/relations live one level up). Notation: `kind {params}`,
+`─relation→` edges, indentation = `contains`.
+
+### Example A — footpath × stream (poor, early era): a bare footbridge
+
+```
+crossing#1 {importance: low, era: early, prosperity: poor, biome: riparian-wood, style: rustic}
+  ─spans→ river-reach#r            (existing hydrology node)
+  deck#1   {material: log-plank, span: 3t, width: 0.5t}      // a part, not a building
+  pier#1, pier#2 {material: timber}
+  apron#W {side: W} ─connects→ road-edge#5   (the footpath TERMINATES here)
+  apron#E {side: E} ─connects→ road-edge#6
+```
+No ancillary structures; biome only lightly trodden. The "bridge" is just `deck + piers`.
+
+### Example B — trunk road × river (rich, late era): an inhabited / gatehouse bridge
+
+```
+crossing#2 {importance: high, era: late-medieval, prosperity: rich, biome: river-meadow, style: region-X}
+  ─spans→ river-reach#q
+  bridge#2 {material: dressed-stone, span: 8t, arches: 3, width: 1.2t}   // interior node
+    deck#2
+      building(shop)#a, building(shop)#b      // buildings ON the deck — Ponte Vecchio
+    building(gatehouse)#g {fortified: true, at: deck-end}
+    pier#1 .. pier#3
+  apron#N
+    building(toll_booth)#t
+    building(guard_post)#s
+  apron#S
+    building(shrine)#h {at: threshold}          // thresholds attract devotion (belief hook)
+  building(watermill)#m ─serves→ crossing#2 ─spans→ river-reach#q   (uses the water power)
+  biome: paved apron + cleared verge + riparian planting (worldgen adaptation)
+```
+Every `building(...)` is a Blueprint **leaf** realized by the existing img2img pipeline. The
+bridge is an **interior node** whose children happen to include buildings — exactly the
+"bridges are part of the same system, and some carry buildings" point, with no special case.
+
+### Example C — a small hamlet (scale-free check: same vocab, no bridge in sight)
+
+```
+hamlet#1 {size: small, era: early-medieval, prosperity: modest, biome: vale, style: region-Y}
+  village_green#1
+  lot#1 .. lot#6 { each:  building(cottage) + garden }   // lot = a small site node
+  building(church)#1, building(well)#1
+  ─connects→ road-edge#…  (leads to neighbouring places)
+  biome: cleared fields radiating from the green (worldgen)
+```
+
+## The v0 vocabulary that falls out
+
+All three are expressed by ONE small model:
+
+- **Node** `{ id, kind, params, anchor/footprint, composition }`
+  - `kind` — open, fact-DB-backed. Two flavours emerge: **leaf** kinds (`building(*)`,
+    `deck`, `pier`, `village_green`) realized directly by a generator, and **interior**
+    kinds (`crossing`, `bridge`, `apron`, `lot`, `settlement`) that compose children.
+  - `params` — **cascade down `contains`** with local override: `era / prosperity / style /
+    biome / scale` set once high (site) and inherited by every descendant; `material / role /
+    fortified / span` are typically local. This is how "all relevant parameters" resolve
+    without threading them by hand — it's Blueprint's layered-patch idea at world scale.
+- **Relations** — four, and `contains` does most of the work:
+  - `contains` — the scale-free nesting workhorse (deck contains shop; apron contains toll
+    booth; settlement contains lots). **"Building on a bridge" is just nesting** — the headline
+    result: it needs no special type.
+  - `connects` / `leads-to` — graph topology (roads/portals/paths); how roads terminate at aprons.
+  - `spans` — a structure over a feature (bridge over a reach; mill over the race).
+  - `serves` — functional dependency across the graph (mill serves the crossing) — the main
+    non-tree edge.
+- **Leaves = Blueprints.** A building/part is realized by the existing
+  blueprint→manifold→img2img→SpritePack pipeline. **Interior nodes = composition + layout +
+  biome adaptation** only; they own no geometry of their own beyond placing children. → the
+  **thin-WorldNode-layer decision is validated**: Blueprint never needs to know about sites.
+- **Realization = post-order:** realize leaves (cached per `(kind, params, composition-hash)`
+  exactly like building art today), place each via the one occupancy authority
+  (spatial-coordination), let interior nodes contribute apron/biome ground. Render projects it.
+- **Agent surface = graph ops:** `place / compose_into / connect / span / serve / set_param /
+  remove`, plus queries that walk the tree. Fate edits like *"`set_param prosperity↑` on
+  crossing#2"* (site grows shops), *"`span destroyed`"* (flood → reroute), *"`compose_into
+  apron#S building(shrine)`"* (a cult claims the threshold) — all predictable & replayable
+  because realization is deterministic.
+
+### What the three examples proved
+
+1. `contains` + param-cascade carries ~all structure at every scale (A, B, C all fit).
+2. *Building-on-a-bridge falls out for free* as nesting — validates the user's core point.
+3. A bridge is an **interior node over `building` leaves** → "same system as buildings",
+   not "a building". Validates the framing correction.
+4. **Thin WorldNode layer** is the right cut: Blueprint stays the leaf; composition lives above.
+5. `spans` + `serves` are the only edges beyond the containment tree — a tiny relation set.
+
+→ **Next:** spec the realization dispatch (kind → generator, post-order, caching) and the
+agent verb set against this v0 model; then port the crossing as the first native producer.
