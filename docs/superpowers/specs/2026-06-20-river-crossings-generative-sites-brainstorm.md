@@ -9,12 +9,30 @@ toll booths and so on located there if needed."*
 
 ## Thesis
 
-A river crossing is **not a road texture — it is a PLACE**. Model it as a node in the
-world connectome (same shape as the shrine-procession sub-connectome). The road
-*terminates* at each bank; the span is a generated **structure**; each bank becomes a
-**waypoint** where ancillary structures site and storylets fire. This reuses two systems
-already in the codebase — the building-art generation pipeline and the storylet/Fate
-place layer — instead of inventing a bespoke bridge renderer.
+A river crossing is **not a road texture — it is a generative SITE**, and it is a sharp test
+case for a bigger goal: a **unified, composable, agent-controllable world connectome** (see
+the companion note `2026-06-20-unified-world-connectome-design.md`). A road (or footpath, or
+highway) crossing water emits a **full connectome sub-structure** for that area, derived
+from all relevant parameters, and **every element is realized through the same pipelines the
+rest of the world uses**:
+
+- the **bridge** is *not "a building"* — it is a **composition in the same structural
+  system** as buildings. A bare footbridge is just a deck + piers; a wealthier crossing
+  grows rooms, gatehouses, even **buildings placed ON the deck** (Ponte Vecchio). Same
+  parts/features vocabulary → manifold geometry → img2img → sprite. Composition, not a
+  special bridge type.
+- each **bank endpoint** is a waypoint AREA that composes its own **relevant structures**
+  (toll booth, guard shack, shrine, inn, mill…) **and adapts its local biome** through
+  worldgen — a micro-settlement sited at the crossing;
+- the road *terminates* at each bank apron; the span belongs to the crossing, not the road
+  ribbon.
+
+So crossing generation reuses, wholesale: the **structure/blueprint system** (class-neutral
+parts+features → manifold → img2img → SpritePack), **settlement-growth siting**,
+**biome/worldgen**, and the **storylet/Fate place layer** — and it is fully **agent-legible**
+(Fate/MCP can read, build, and modify the crossing sub-connectome over the command/query
+bus). The crossing is just another connectome node that, when realized, fans out to those
+shared generators with site-specific parameters.
 
 ## What exists today (and what changes)
 
