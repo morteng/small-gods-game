@@ -212,6 +212,9 @@ export interface RenderContext {
   devMode?: DevModeState;
   /** Debug overlay options (extracted from devMode for convenience). */
   debugOverlays?: DebugOverlayOptions;
+  /** Inland water-level offset in METRES (drought < 0, flood > 0) — shifts the
+   *  river + lake water surfaces; the sea is the fixed datum. Default 0. */
+  waterLevelM?: number;
 }
 
 /** Options for debug visualization overlays */

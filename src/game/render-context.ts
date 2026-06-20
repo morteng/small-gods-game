@@ -32,6 +32,7 @@ export function buildRenderContext(deps: RenderContextDeps): RenderContext {
   return {
     map: state.map!,
     camera: state.camera,
+    waterLevelM: state.waterLevelM,
     canvasWidth: viewport.width,
     canvasHeight: viewport.height,
     npcs: state.world ? state.world.query({ kind: 'npc' }).map(toRenderNpc) : [],

@@ -7,6 +7,7 @@ import { terrainGrid } from '@/render/gpu/terrain-field';
 import { packTerrainGlobals, type TerrainGlobalsInput } from '@/render/gpu/instance-buffer';
 import { DEFAULT_LIGHTING } from '@/render/lighting-state';
 import { clearHydrologyCache } from '@/world/hydrology-store';
+import { worldStyleOf } from '@/core/world-style';
 
 const noPoiSeed: WorldSeed = {
   name: 'test', size: { width: 64, height: 64 }, biome: 'temperate',
@@ -32,6 +33,18 @@ describe('Water S2 — water field builder', () => {
     expect(wf!.wetCount).toBeGreaterThan(0);
     expect(wf!.vertexCount).toBe(terrainGrid(64, 64).vertexCount);
     expect(wf!.globals.length).toBe(WATER_GLOBALS_FLOATS); // 28
+  });
+
+  it('encodes the inland water-level offset (drought/flood) into uWater.w (normalised)', async () => {
+    clearHydrologyCache();
+    const { map } = await generateWithNoise(64, 64, 1, noPoiSeed);
+    const relief = worldStyleOf(map.worldSeed).mountainRelief;
+    const flood = buildWaterField(map, { ...opts, waterLevelM: 3 })!;
+    const drought = buildWaterField(map, { ...opts, waterLevelM: -2 })!;
+    const none = buildWaterField(map, opts)!;
+    expect(none.globals[27]).toBe(0);                         // default = no offset
+    expect(flood.globals[27]).toBeCloseTo(3 / relief, 6);     // flood raises
+    expect(drought.globals[27]).toBeCloseTo(-2 / relief, 6);  // drought lowers
   });
 
   it('ocean cells carry the sea-level surface; dry land carries the −1 sentinel', async () => {

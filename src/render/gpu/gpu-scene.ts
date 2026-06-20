@@ -781,6 +781,8 @@ export class GpuScene {
     /** River water-surface field (`buildRiverSurfaceFieldMemo`): row-major `W*H`
      *  render-elevation the river ribbon verts lift to. Null on a dry world. */
     riverSurface?: Float32Array | null;
+    /** River water-level offset in NORMALISED elevation (drought < 0, flood > 0). */
+    riverLevelDeltaN?: number;
     /** Screen-space UI geometry (S1) — drawn in its own pass over the entities. */
     uiGroups?: readonly UiDrawGroup[];
     /** P-E: when set, the scene passes render into a low-res target sized `w×h`
@@ -914,7 +916,7 @@ export class GpuScene {
         this.ribbonBoundSurf = surfBuf;
       }
       device.queue.writeBuffer(this.ribbonParamsBuf, 0,
-        new Float32Array([opts.ribbonTime ?? 0, 0, 0, 0]));
+        new Float32Array([opts.ribbonTime ?? 0, 0, opts.riverLevelDeltaN ?? 0, 0]));
       this.ribbonVertexCount = ribbon!.vertexCount;
     }
 

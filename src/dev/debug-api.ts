@@ -88,6 +88,10 @@ export interface DebugApi {
   /** Regenerate a fresh world: clears the autosave slot and reloads (boot then seeds
    *  anew). The ONLY way to see new worldgen — a stale autosave masks it. */
   newWorld(): void;
+  /** Inland water level in METRES (drought < 0, flood > 0) — shifts river + lake
+   *  surfaces; the sea is fixed. `waterLevel()` reads, `waterLevel(1.5)` floods,
+   *  `waterLevel(-1)` droughts. Returns the current offset. */
+  waterLevel(m?: number): number;
 }
 
 export interface DebugApiDeps {
@@ -219,6 +223,14 @@ export function createDebugApi(deps: DebugApiDeps): DebugApi {
 
     newWorld(): void {
       deps.newWorld();
+    },
+
+    waterLevel(m?: number): number {
+      if (typeof m === 'number') {
+        state.waterLevelM = m;
+        deps.requestRender();
+      }
+      return state.waterLevelM ?? 0;
     },
   };
 }

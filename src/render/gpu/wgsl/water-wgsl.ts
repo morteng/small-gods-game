@@ -33,7 +33,7 @@ struct WGlobals {
   uZParams  : vec4<f32>,   // zPxPerM, seaLevel, reliefM, subsample
   uSun      : vec4<f32>,   // tile-space sun dir xyz, bands
   uAmbient  : vec4<f32>,   // ambient rgb, sun strength
-  uWater    : vec4<f32>,   // time(s), shallowBand(m), foamBand(m), flags
+  uWater    : vec4<f32>,   // time(s), shallowBand(m), foamBand(m), lakeLevelOffset(norm)
 };
 
 @group(0) @binding(0) var<uniform> G : WGlobals;
@@ -151,7 +151,9 @@ fn vsMain(@builtin(vertex_index) vid : u32) -> VSOut {
   // wholly discarded in the fragment).
   let gx = f32(cellX) + f32(corner.x) * f32(sub);
   let gy = f32(cellY) + f32(corner.y) * f32(sub);
-  let surf = surfaceW[ci];
+  // Lakes (typ 2) ride the drought/flood-shifted plane; ocean is the fixed datum.
+  var surf = surfaceW[ci];
+  if (wtype[ci] == 2u) { surf = surf + G.uWater.w; }
   let hPx = liftPx(surf);
 
   let scr = vec2<f32>((gx - gy) * G.uHalf.x, (gx + gy) * G.uHalf.y - hPx);
@@ -199,7 +201,10 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   // the dry side per-fragment → the visible edge follows the real coastline at
   // pixel resolution, not the cell grid. The one-ring shore dilation (fillShoreRing)
   // gives near-bank dry cells a water plane so BOTH sides of the line are covered.
-  let rawDepthN = surfaceW[ci] - sampleTerrainH(in.vGrid.x, in.vGrid.y);
+  // Lakes ride the drought/flood-shifted surface; ocean stays at its datum.
+  var surfLvl = surfaceW[ci];
+  if (typ == 2u) { surfLvl = surfLvl + G.uWater.w; }
+  let rawDepthN = surfLvl - sampleTerrainH(in.vGrid.x, in.vGrid.y);
   if (rawDepthN <= 0.0) { discard; }
   let depthM = rawDepthN * G.uZParams.z;
 

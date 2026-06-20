@@ -32,6 +32,7 @@ import { buildWaterField, type WaterField } from '@/render/gpu/water-field';
 import { buildRoadRibbonMeshMemo } from '@/render/ribbon/road-ribbon-field';
 import { buildRiverRibbonMeshMemo } from '@/render/ribbon/river-ribbon-field';
 import { buildRiverSurfaceFieldMemo } from '@/render/gpu/river-surface-field';
+import { worldStyleOf } from '@/core/world-style';
 import { concatRibbonMeshes, type RibbonMesh } from '@/render/ribbon/ribbon-geometry';
 import { FlotsamLayer } from '@/render/gpu/flotsam-layer';
 import { drawWorldConnectome } from '@/render/connectome-overlay';
@@ -162,8 +163,10 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
     // read depth from, or the world is dry. Ripple time is pure render (never the
     // sim clock), so a wall-clock seconds value is fine here.
     const timeSec = (typeof performance !== 'undefined' ? performance.now() : 0) * 0.001;
+    // Inland water level (drought/flood): shifts river + lake surfaces. Sea is fixed.
+    const waterLevelM = rc.waterLevelM ?? 0;
     const water: WaterField | null = (terrain && !isLayerHidden('rivers', rc.devMode))
-      ? buildWaterField(map, { viewport: [lowW, lowH], xform, lighting, timeSec })
+      ? buildWaterField(map, { viewport: [lowW, lowH], xform, lighting, timeSec, waterLevelM })
       : null;
 
     // Road/river ribbons (T7/R2): swept terrain-following meshes drawn over terrain
@@ -181,6 +184,7 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
       : null;
     // The river ribbon lifts to the water-surface (fill) field, not the carved bed.
     const riverSurface = riverMesh ? buildRiverSurfaceFieldMemo(map) : null;
+    const riverLevelDeltaN = waterLevelM / worldStyleOf(map.worldSeed).mountainRelief;
 
     // Flotsam/fauna (S6): step + emit cosmetic circles on the water surface.
     // Appended after the entity list so they composite over the water; the
@@ -193,7 +197,7 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
 
     scene.renderFrame({
       items: dynamicItems, staticItems: staticList, lighting, terrain, water,
-      ribbon, ribbonTime: timeSec, riverSurface,
+      ribbon, ribbonTime: timeSec, riverSurface, riverLevelDeltaN,
       w: lowW, h: lowH, out: { w: target.width, h: target.height },
       xform, uiGroups,
     });

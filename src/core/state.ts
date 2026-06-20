@@ -41,6 +41,12 @@ export interface GameState {
    *  flag items. Transient exogenous intent (like the command queue), not core sim
    *  state — dropped on snapshot restore, repopulated by the live director. */
   surfacedInbox: Set<string>;
+  /** Inland water-level offset in METRES (drought < 0, flood > 0), applied to the
+   *  river + lake water surfaces at render time — the shoreline recedes/advances
+   *  along the real terrain contour. The sea (ocean) is the fixed datum, unaffected.
+   *  A render parameter today (reversible, scrub-safe); the seam a climate/Fate
+   *  drought-or-flood condition drives. */
+  waterLevelM: number;
 }
 
 export function createState(): GameState {
@@ -85,5 +91,6 @@ export function createState(): GameState {
     plotThreads: new PlotThreadStore(),
     staging: new StagingBuffer(),
     surfacedInbox: new Set<string>(),
+    waterLevelM: 0,
   };
 }

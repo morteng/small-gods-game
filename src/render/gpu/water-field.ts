@@ -184,6 +184,9 @@ export interface BuildWaterFieldOpts {
   lighting: LightingState;
   /** Seconds, for ripple animation (pure render — never the sim clock). */
   timeSec?: number;
+  /** Inland water-level offset in METRES (drought < 0, flood > 0) — shifts LAKE
+   *  surfaces only (the sea is the fixed datum). Default 0. */
+  waterLevelM?: number;
   maxQuads?: number;
 }
 
@@ -303,6 +306,11 @@ export function buildWaterField(map: GameMap, opts: BuildWaterFieldOpts): WaterF
     shoreDist: stat.shoreDist,
     wetCount: stat.wetCount,
     vertexCount: stat.vertexCount,
-    globals: packWaterGlobals(tg, [opts.timeSec ?? 0, SHALLOW_BAND_M, FOAM_BAND_M, 0]),
+    // uWater.w carries the LAKE water-level offset in NORMALISED elevation (metres /
+    // relief), so a drought/flood shifts the lake plane + waterline in-shader.
+    globals: packWaterGlobals(tg, [
+      opts.timeSec ?? 0, SHALLOW_BAND_M, FOAM_BAND_M,
+      (opts.waterLevelM ?? 0) / worldStyleOf(map.worldSeed).mountainRelief,
+    ]),
   };
 }

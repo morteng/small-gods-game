@@ -30,7 +30,8 @@ struct TGlobals {
 struct RParams {
   uTime  : f32,
   uKind  : f32,            // 0 = road, 1 = river (R2)
-  uPad   : vec2<f32>,
+  uRiverLevel : f32,       // river water-level offset (normalised): drought < 0, flood > 0
+  uPad   : f32,
 };
 
 @group(0) @binding(0) var<uniform> G : TGlobals;
@@ -130,7 +131,7 @@ fn vsMain(
   let isBridge = aTag.y > 0.1 && aTag.y < 0.5;
   let isRiver = aTag.y > 0.5;
   var elev = sampleElev(aPos);
-  if (isRiver) { elev = sampleSurf(aPos); }
+  if (isRiver) { elev = sampleSurf(aPos) + R.uRiverLevel; }   // drought/flood shift
   if (isBridge) { elev = aSpeed; }
   let hPx = (elev - G.uZParams.y) * G.uZParams.z * G.uZParams.x;
   // A hair of lift so the ribbon never z-fights the terrain it rides on.
@@ -168,7 +169,7 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
     // the surface equals the terrain, so depth ≤ 0 and the dry side is discarded —
     // the visible edge is the real bank contour, not the parametric ribbon edge.
     let bed = sampleElev(in.vGrid);
-    let surf = sampleSurf(in.vGrid);
+    let surf = sampleSurf(in.vGrid) + R.uRiverLevel;   // drought/flood shift
     let depthN = surf - bed;
     if (depthN <= 0.0) { discard; }
     let depthM = depthN * G.uZParams.z;            // uZParams.z = reliefM
