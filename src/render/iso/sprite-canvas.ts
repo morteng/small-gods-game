@@ -9,12 +9,15 @@ export type SpriteCanvas = HTMLCanvasElement | OffscreenCanvas;
  * A building sprite + its co-registered companion PBR maps (same crop as the
  * albedo, so UVs align by construction). `normal`/`material` feed the WebGL
  * layer's lit path (PBR Slice 3); absent maps degrade to unlit rendering.
- * Emissive stays persisted in the caches but isn't decoded until Slice 5.
+ * `emissive` (RGB self-illumination, e.g. lit window panes) is added by the
+ * shader scaled by the renderer's night factor; absent ⇒ no glow. Only present
+ * when the sprite actually has emissive pixels (saves a black-texture upload).
  */
 export interface SpritePack {
   albedo: SpriteCanvas;
   normal?: SpriteCanvas;
   material?: SpriteCanvas;
+  emissive?: SpriteCanvas;
   /** Geometry-baked ground cast shadow + its offset (px) from the albedo crop's
    *  top-left, so the runtime blits it on the ground under the sprite. */
   shadow?: { canvas: SpriteCanvas; dx: number; dy: number };

@@ -77,6 +77,7 @@ export class GpuScene {
   private globalsBind: GPUBindGroup;
   private flatNormal: GPUTexture;
   private neutralMaterial: GPUTexture;
+  private blackEmissive: GPUTexture;
   // Terrain pass (R2d): flat per-vertex-colour heightfield mesh, drawn first.
   private terrainPipeline: GPURenderPipeline;
   private terrainGlobalsBuf: GPUBuffer;
@@ -253,6 +254,7 @@ export class GpuScene {
 
     this.flatNormal = this.make1x1([128, 128, 255, 0]);      // a=0 ⇒ flat normal
     this.neutralMaterial = this.make1x1([0, 255, 0, 0]);     // a=0 ⇒ AO 1
+    this.blackEmissive = this.make1x1([0, 0, 0, 0]);         // no self-illumination
 
     // Terrain pipeline (T1): NO vertex buffers — the grid is generated in the
     // vertex shader from @builtin(vertex_index) + the height/colour storage
@@ -514,6 +516,9 @@ export class GpuScene {
     const albedo = this.uploadTexture(b.texture, true);
     const normal = b.normal ? this.uploadTexture(b.normal, false) : this.flatNormal;
     const material = b.material ? this.uploadTexture(b.material, false) : this.neutralMaterial;
+    // Emissive is premultiplied-uploaded (true) like the albedo: lit-pane RGB is
+    // co-keyed to the same alpha cutout, and the shader scales it by alpha.
+    const emissive = b.emissive ? this.uploadTexture(b.emissive, true) : this.blackEmissive;
     const bind = this.device.createBindGroup({
       layout: this.pipeline.getBindGroupLayout(1),
       entries: [
@@ -521,6 +526,7 @@ export class GpuScene {
         { binding: 1, resource: albedo.createView() },
         { binding: 2, resource: normal.createView() },
         { binding: 3, resource: material.createView() },
+        { binding: 4, resource: emissive.createView() },
       ],
     });
     this.bindCache.set(b.texture, bind);
@@ -837,7 +843,8 @@ export class GpuScene {
 
     device.queue.writeBuffer(this.globalsBuf, 0, packGlobals({
       viewport: [w, h], bands: lighting.bands, ambient: lighting.ambient,
-      sunDir: lighting.sunDir, sunColor: lighting.sunColor, xform,
+      sunDir: lighting.sunDir, sunColor: lighting.sunColor,
+      night: lighting.enabled ? (lighting.nightFactor ?? 0) : 0, xform,
     }) as GPUAllowSharedBufferSource);
     if (hasShadows) {
       const xf = xform ?? { sx: 1, sy: 1, ox: 0, oy: 0 };

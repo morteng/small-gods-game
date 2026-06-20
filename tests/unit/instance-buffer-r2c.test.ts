@@ -49,6 +49,15 @@ describe('R2c — instance/globals buffer packing', () => {
     expect(g[7]).toBe(0); // pad
     expect([g[8], g[9], g[10]]).toEqual([-0.5, 0.5, 0.25]);
     expect([g[12], g[13], g[14]]).toEqual([0.25, 0.5, 0.75]);
+    expect(g[15]).toBe(0); // uNight defaults to 0 (day) when not passed
+  });
+
+  it('packGlobals writes the night factor into the sunColor slot pad (uNight)', () => {
+    const g = packGlobals({
+      viewport: [800, 600], bands: 4, ambient: [0.5, 0.5, 0.5],
+      sunDir: [0, 1, 0], sunColor: [0.25, 0.25, 0.25], night: 0.75,
+    });
+    expect(g[15]).toBe(0.75);
   });
 
   it('packTerrainGlobals lays out viewport/xform/grid/half/z/sun/ambient (T1)', () => {

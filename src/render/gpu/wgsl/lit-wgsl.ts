@@ -13,9 +13,12 @@
 // sub-rect, and a painter-order depth (see instance-buffer.ts for the byte
 // layout these @location indices must match).
 //
-// The fragment MATH mirrors `banded-pbr.ts` (the executable reference) exactly:
+// The DIFFUSE math mirrors `banded-pbr.ts` (the executable reference) exactly:
 // hard alpha-cutout, flat-normal fallback on mask ≤ 0.5, AO = mix(1, mat.G,
 // mat.A), diffuse banded by floor(ndl·bands + 0.5)/bands, premultiplied output.
+// On top of that, a night-only EMISSIVE term (`uEmissiveMap.rgb · uNight`) fades
+// in self-illumination (lit window panes) — absent from the TS reference, which
+// models the daytime diffuse only; at uNight = 0 the two are identical.
 
 export const LIT_WGSL = /* wgsl */ `
 struct Globals {
@@ -27,7 +30,7 @@ struct Globals {
   uSunDir   : vec3<f32>,   // toward the light, screen space, normalized
   _pad2     : f32,
   uSunColor : vec3<f32>,
-  _pad3     : f32,
+  uNight    : f32,         // 0 = day (no emissive), 1 = night (full window glow)
   uXform    : vec4<f32>,   // world→device affine: sx, sy, ox, oy (applied in VS)
 };
 
@@ -37,6 +40,7 @@ struct Globals {
 @group(1) @binding(1) var uAlbedo      : texture_2d<f32>;
 @group(1) @binding(2) var uNormalMap   : texture_2d<f32>;
 @group(1) @binding(3) var uMaterialMap : texture_2d<f32>;
+@group(1) @binding(4) var uEmissiveMap : texture_2d<f32>;
 
 struct VSOut {
   @builtin(position) pos : vec4<f32>,
@@ -83,6 +87,10 @@ fn fsMain(@location(0) vUV : vec2<f32>) -> @location(0) vec4<f32> {
   let banded = floor(ndl * G.uBands + 0.5) / G.uBands;
 
   let lit = (G.uAmbient + G.uSunColor * banded) * ao;
-  return vec4<f32>(albedo.rgb * lit, albedo.a);
+  // Self-illumination (lit window panes): added on top of the lit albedo and
+  // faded in by the night factor, so panes are dark glass by day and glow at night.
+  // Premultiplied: scale by alpha to stay consistent with the cutout output.
+  let emissive = textureSample(uEmissiveMap, uSampler, vUV).rgb * G.uNight;
+  return vec4<f32>(albedo.rgb * lit + emissive * albedo.a, albedo.a);
 }
 `;

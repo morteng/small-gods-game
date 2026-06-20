@@ -56,7 +56,7 @@ export const windowFeatureType: FeatureType = {
   threshold: false,
   aperture: (f): ApertureSpec => windowSpec(f),
   filler: (f, host): Prim[] => {
-    const pane = leafBox(windowSpec(f), host);   // a recessed dark pane reads as a glazed opening
-    return [{ prim: 'box', at: pane.at, size: pane.size, material: 'door', ...(pane.yaw !== undefined ? { yaw: pane.yaw } : {}) }];
+    const pane = leafBox(windowSpec(f), host);   // a recessed 'glass' pane: dark glazing by day, warm emissive at night
+    return [{ prim: 'box', at: pane.at, size: pane.size, material: 'glass', ...(pane.yaw !== undefined ? { yaw: pane.yaw } : {}) }];
   },
 };

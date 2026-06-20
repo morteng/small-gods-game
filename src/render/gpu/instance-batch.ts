@@ -35,6 +35,9 @@ export interface InstanceBatch {
   texture: CanvasImageSource;
   normal?: CanvasImageSource;
   material?: CanvasImageSource;
+  /** Self-illumination map (lit window panes); added by the shader × night factor.
+   *  Optional and independent of `lit` — a sprite can glow without normal/material. */
+  emissive?: CanvasImageSource;
   /** True when normal+material are present ⇒ the lit WGSL path; else flat blit. */
   lit: boolean;
   instances: InstanceAttrs[];
@@ -84,6 +87,7 @@ export function buildInstanceBatches(items: readonly DrawItem[]): {
         texture: it.src,
         normal: it.maps?.normal,
         material: it.maps?.material,
+        emissive: it.maps?.emissive,
         lit: !!(it.maps?.normal && it.maps?.material),
         instances: [],
       };
