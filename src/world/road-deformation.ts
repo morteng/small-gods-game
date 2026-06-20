@@ -14,6 +14,11 @@
 //     (fill). Adjacent segments share a vertex so the target steps smoothly along
 //     the route → a graded ramp, not a staircase. The shoulder feather tapers the
 //     cut back to untouched terrain (no cliff at the road edge).
+//   * Per-class carve STRENGTH (`CARVE_STRENGTH`) scales how fully the corridor pulls
+//     to grade: a path barely cuts (0.3 — follows the slope it threads), a highway
+//     levels a full flat shelf (1.0). One tier knob drives BOTH the shelf width
+//     (`HALF_WIDTH_TILES`) and the cut depth, so "small paths follow terrain, better
+//     roads carve more" falls out of the existing class assignment.
 //   * Roads only (feature === 'road'); rivers (carve) + walls are later slices.
 //
 // Determinism & save-safety: deformations are DERIVED from `map.roadGraph` (which
@@ -45,6 +50,17 @@ const HALF_WIDTH_TILES: Record<RoadClass, number> = {
   path: 0.5,
 };
 
+/** Carve STRENGTH (0..1) by class — how strongly the corridor is pulled to grade.
+ *  A path barely cuts (mostly follows the slope it threads); a highway levels a full
+ *  flat shelf. Multiplies the level-brush mask peak (`peak` in polylineDeformation), so
+ *  one tier knob drives BOTH the wider shelf (half-width) AND the flatter cut. */
+const CARVE_STRENGTH: Record<RoadClass, number> = {
+  highway: 1.0,
+  road: 0.8,
+  track: 0.55,
+  path: 0.3,
+};
+
 /** Shoulder taper beyond the corridor, in tiles — the cut blends back to base
  *  over this distance so there is no cliff at the road edge. */
 const SHOULDER_FEATHER_TILES = 1.5;
@@ -61,6 +77,7 @@ export function buildRoadDeformations(map: GameMap, graph: RoadGraph): Deformati
     const pts = edge.polyline;
     if (pts.length < 2) continue;
     const halfWidth = HALF_WIDTH_TILES[edge.class] ?? HALF_WIDTH_TILES.road;
+    const peak = CARVE_STRENGTH[edge.class] ?? CARVE_STRENGTH.road;
     for (let i = 0; i < pts.length - 1; i++) {
       const a = pts[i];
       const b = pts[i + 1];
@@ -77,6 +94,7 @@ export function buildRoadDeformations(map: GameMap, graph: RoadGraph): Deformati
           amount: 0, // unused by 'level'
           op: 'level',
           target,
+          peak,
         }),
       );
     }

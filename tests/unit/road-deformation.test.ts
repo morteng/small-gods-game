@@ -14,7 +14,7 @@ import {
   ELEVATION_SEA_LEVEL,
   TERRAIN_RELIEF_M,
 } from '@/world/heightfield';
-import { heightAt, baseHeightAt as baseM } from '@/world/terrain-deformation';
+import { heightAt, baseHeightAt as baseM, DeformationStore } from '@/world/terrain-deformation';
 
 // A minimal GameMap — road-deformation reads only seed/width/height/roadGraph.
 function mapWith(roadGraph?: RoadGraph, seed = 1234, width = 24, height = 24): GameMap {
@@ -77,6 +77,30 @@ describe('buildRoadDeformations', () => {
     const map = mapWith();
     const graph: RoadGraph = { nodes: [], edges: [roadEdge('e', [{ x: 3, y: 3 }])] };
     expect(buildRoadDeformations(map, graph)).toHaveLength(0);
+  });
+
+  it('carves a path WEAKER than a highway over the same route (tier→carve strength)', () => {
+    const pts = [{ x: 2, y: 12 }, { x: 21, y: 12 }];
+    const pathMap = mapWith({ nodes: [], edges: [roadEdge('e', pts, { class: 'path' })] });
+    const hwMap = mapWith({ nodes: [], edges: [roadEdge('e', pts, { class: 'highway' })] });
+
+    // Build stores directly — getRoadDeformationStore memoises by (seed,dims), which
+    // collide here, so go through buildRoadDeformations into fresh stores.
+    const pathStore = new DeformationStore();
+    pathStore.add(...buildRoadDeformations(pathMap, pathMap.roadGraph!));
+    const hwStore = new DeformationStore();
+    hwStore.add(...buildRoadDeformations(hwMap, hwMap.roadGraph!));
+
+    // Sum |displacement| along the centreline: the highway pulls to grade harder.
+    let pathMove = 0, hwMove = 0;
+    const y = 12;
+    for (let x = 3; x < 21; x++) {
+      pathMove += Math.abs(heightAt(pathMap, pathStore, x, y) - baseM(pathMap, x, y));
+      hwMove += Math.abs(heightAt(hwMap, hwStore, x, y) - baseM(hwMap, x, y));
+    }
+    expect(hwMove).toBeGreaterThan(pathMove); // highway carves a flatter shelf
+    // The path still does *something* (it is not a no-op).
+    expect(pathMove).toBeGreaterThan(0);
   });
 });
 

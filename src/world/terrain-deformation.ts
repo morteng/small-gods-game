@@ -251,6 +251,11 @@ function distToSegment(px: number, py: number, ax: number, ay: number, bx: numbe
  * A brush following a polyline (road cut / river channel): full within `halfWidth` of
  * the line, tapering to 0 over `feather` beyond. Use op 'carve' (river/road-cut) or
  * 'level' (road grade — pass `target`). Pairs with the roads epic's polylines.
+ *
+ * `peak` (0..1, default 1) scales the mask at the core so the brush only blends `peak`
+ * of the way to its target — the carve STRENGTH. A footpath (low peak) barely pulls the
+ * ground toward grade so it follows the terrain; a highway (peak 1) cuts a full flat
+ * shelf. Drives the tier→carve coupling without changing footprint or feather.
  */
 export function polylineDeformation(
   o: BrushBase & {
@@ -260,9 +265,11 @@ export function polylineDeformation(
     op: 'carve' | 'level';
     target?: number;
     feather?: number;
+    peak?: number;
   },
 ): Deformation {
   const feather = o.feather ?? 1;
+  const peak = o.peak ?? 1;
   const reach = o.halfWidth + feather;
   const xs = o.points.map((p) => p.x);
   const ys = o.points.map((p) => p.y);
@@ -286,9 +293,9 @@ export function polylineDeformation(
         if (d < best) best = d;
       }
       if (o.points.length === 1) best = Math.hypot(tx - o.points[0].x, ty - o.points[0].y);
-      if (best <= o.halfWidth) return 1;
+      if (best <= o.halfWidth) return peak;
       if (best >= reach) return 0;
-      return clamp01(1 - (best - o.halfWidth) / feather);
+      return peak * clamp01(1 - (best - o.halfWidth) / feather);
     },
   };
 }

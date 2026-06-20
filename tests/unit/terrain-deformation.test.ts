@@ -103,4 +103,31 @@ describe('polyline brush (roads/rivers)', () => {
     expect(heightAt(map, store, 20, 24) - base(20, 24)).toBeCloseTo(-4, 6); // on the line
     expect(heightAt(map, store, 20, 40)).toBe(base(20, 40)); // far from the line
   });
+
+  it('peak scales the carve strength at the core (default 1 = full)', () => {
+    const full = new DeformationStore();
+    full.add(polylineDeformation({
+      id: 'r', source: 'river:incision',
+      points: [{ x: 5, y: 24 }, { x: 40, y: 24 }], halfWidth: 1, amount: 4, op: 'carve',
+    }));
+    const half = new DeformationStore();
+    half.add(polylineDeformation({
+      id: 'r', source: 'river:incision',
+      points: [{ x: 5, y: 24 }, { x: 40, y: 24 }], halfWidth: 1, amount: 4, op: 'carve', peak: 0.5,
+    }));
+    // On the centreline: full cut is −4, peak 0.5 cuts only halfway (−2).
+    expect(heightAt(map, full, 20, 24) - base(20, 24)).toBeCloseTo(-4, 6);
+    expect(heightAt(map, half, 20, 24) - base(20, 24)).toBeCloseTo(-2, 6);
+  });
+
+  it('peak scales a level brush — a weak grade-cut only partly reaches the target', () => {
+    const store = new DeformationStore();
+    const target = base(20, 24) - 6; // plateau 6 m below the centreline base
+    store.add(polylineDeformation({
+      id: 'path', source: 'road:cut',
+      points: [{ x: 5, y: 24 }, { x: 40, y: 24 }], halfWidth: 1, amount: 0, op: 'level', target, peak: 0.25,
+    }));
+    // 0.25 of the way from base toward (base − 6) ⇒ −1.5 m.
+    expect(heightAt(map, store, 20, 24) - base(20, 24)).toBeCloseTo(-1.5, 6);
+  });
 });
