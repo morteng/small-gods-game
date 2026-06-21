@@ -98,6 +98,21 @@ Terrain-field shader variants keyed by a uniform enum: `textured` (default) · `
 `slope`/`normal` (debug) · `wireframe`. One enum in `src/render/gpu/terrain-field.ts` +
 shader branch; a Display-popover control in the studio toolbar.
 
+### Dev/prod build separation ✅ (2026-06-21)
+Dev tooling must not ship in distribution builds (user: "dev builds with dev
+features and regular builds for just the game, for distribution"). A build-time
+`__DEV_TOOLS__` flag (Vite `define` in `vite.config.ts`) is `true` in the dev server
+(`command === 'serve'`) and in `--mode devtools` builds, `false` in a plain `vite
+build`. `main.ts` guards both dev entry points behind it — the Studio (`?studio`) and
+the `__game/__debug/__bus/__perf` window surface (extracted to `src/dev/expose.ts`) —
+via DYNAMIC import, so the constant folds to `false` and Rollup drops the studio +
+expose chunks from the distribution bundle. Scripts: `npm run build` → distribution
+(clean game), `npm run build:dev` → with dev tools. Verified empirically: `vite build`
+emits no studio/gallery/zoo/expose chunks; `--mode devtools` emits `studio-*.js` +
+`expose-*.js`. The shipping game uses `game.bus` IN-PROCESS, so hiding the globals
+costs it nothing. Future dev surfaces (in-`Game` dev panels, the bus-bridge) adopt the
+same `__DEV_TOOLS__` gate.
+
 ## Decisions
 
 - **Studio chrome stays DOM.** It's a dev/pro tool, not shipped player UI — keep it out
