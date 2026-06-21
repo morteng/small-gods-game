@@ -91,9 +91,20 @@ server.registerTool('timeline',
   () => run(() => client.query('timeline')));
 
 server.registerTool('recent_events',
-  { description: 'Narrative event log entries since a given event id (0 = from the start).',
-    inputSchema: { sinceId: z.number().optional() } },
-  ({ sinceId }) => run(() => client.query('events', sinceId ?? 0)));
+  { description: 'Narrative event log entries, oldest→newest. Always capped: returns the most recent `limit` entries (default 50) so a long-running world (tens of thousands of events) never overflows. Pass sinceId to start after a specific event id; raise limit to widen the window. The envelope reports total/returned/truncated.',
+    inputSchema: {
+      sinceId: z.number().optional().describe('Only events with id greater than this (0 = from the start)'),
+      limit: z.number().int().positive().max(1000).optional().describe('Max entries to return, newest kept (default 50)'),
+    } },
+  async ({ sinceId, limit }): Promise<ToolResult> => {
+    try {
+      await ensureConnected();
+      const all = (await client.query('events', sinceId ?? 0)) as unknown[];
+      const cap = limit ?? 50;
+      const events = all.slice(Math.max(0, all.length - cap));
+      return asText({ total: all.length, returned: events.length, truncated: all.length > events.length, sinceId: sinceId ?? 0, events });
+    } catch (e) { return asError(e); }
+  });
 
 server.registerTool('capabilities',
   { description: 'The full command verb vocabulary as data (verb, tier, cost, target kind, implemented). Use this to discover valid verbs for emit_command.' },
