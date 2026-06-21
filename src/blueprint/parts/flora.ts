@@ -29,7 +29,7 @@ const TRUNK_FRAC: Record<TreeForm, number> = { broad: 0.42, conifer: 0.16, slend
  * size in the wild) — the part is the right home for that knob. (See
  * docs/.../render-trees-slice2-spec.md.)
  */
-export const TREE_GAME_SCALE = 0.5;
+export const TREE_GAME_SCALE = 0.34;
 
 const footprintCells = (p: { at: { x: number; y: number }; size: { w: number; h: number } }): Array<[number, number]> => {
   const cells: Array<[number, number]> = [];

@@ -41,8 +41,12 @@
  * 'v12' — lit windows: window panes are a new 'glass' material (dark cool albedo by
  * day) carrying a warm emissive, so the renderer glows them at night (emissive ×
  * nightFactor). Shifts the grey/material/emissive of any preset with windows.
+ * 'v13' — real flora generators: trees/shrubs now grow recursive proctree branch
+ * skeletons (broadleaf/weeping) or space-colonization crowns (conifer cones) keyed
+ * on a per-species crownShape, replacing the six L-system recipes that collapsed all
+ * species to ~3 silhouettes. Shifts the geometry of every `branch_plant` (plant) sprite.
  */
-export const ART_RECIPE_VERSION = 'v12';
+export const ART_RECIPE_VERSION = 'v13';
 
 /**
  * Bump when WORLDGEN / preset output changes (footprints, placement, heights).

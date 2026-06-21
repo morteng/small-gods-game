@@ -3,8 +3,8 @@
 exports[`sacred_grove brush > produces a stable snapshot 1`] = `
 [
   {
-    "id": "sacred_grove-silver-birch-3-0",
-    "kind": "silver-birch",
+    "id": "sacred_grove-fastigiate-oak-3-0",
+    "kind": "fastigiate-oak",
     "properties": {
       "offsetX": 0.1469623805475246,
       "offsetY": 0.001121699880399618,
@@ -18,8 +18,8 @@ exports[`sacred_grove brush > produces a stable snapshot 1`] = `
     "y": 0.001121699880399618,
   },
   {
-    "id": "sacred_grove-silver-birch-4--1",
-    "kind": "silver-birch",
+    "id": "sacred_grove-fastigiate-oak-4--1",
+    "kind": "fastigiate-oak",
     "properties": {
       "offsetX": 0.13355981124730773,
       "offsetY": -0.012280905182604168,
@@ -33,8 +33,8 @@ exports[`sacred_grove brush > produces a stable snapshot 1`] = `
     "y": -0.012280905182604168,
   },
   {
-    "id": "sacred_grove-silver-birch-5--1",
-    "kind": "silver-birch",
+    "id": "sacred_grove-weeping-birch-5--1",
+    "kind": "weeping-birch",
     "properties": {
       "offsetX": 0.12015720618430396,
       "offsetY": -0.025683510245607936,
@@ -48,8 +48,8 @@ exports[`sacred_grove brush > produces a stable snapshot 1`] = `
     "y": -0.025683510245607936,
   },
   {
-    "id": "sacred_grove-silver-birch-6--1",
-    "kind": "silver-birch",
+    "id": "sacred_grove-weeping-birch-6--1",
+    "kind": "weeping-birch",
     "properties": {
       "offsetX": 0.10675463688408705,
       "offsetY": -0.039086079545824826,
@@ -117,8 +117,8 @@ exports[`sacred_grove brush > produces a stable snapshot 1`] = `
     "y": 1.9413256407209325,
   },
   {
-    "id": "sacred_grove-european-yew-1-1",
-    "kind": "european-yew",
+    "id": "sacred_grove-silver-birch-1-1",
+    "kind": "silver-birch",
     "properties": {
       "offsetX": 0.0737637520878407,
       "offsetY": -0.07207696434207118,
@@ -132,8 +132,8 @@ exports[`sacred_grove brush > produces a stable snapshot 1`] = `
     "y": 1.9279230356579289,
   },
   {
-    "id": "sacred_grove-european-yew-2-1",
-    "kind": "european-yew",
+    "id": "sacred_grove-silver-birch-2-1",
+    "kind": "silver-birch",
     "properties": {
       "offsetX": 0.06036114702483692,
       "offsetY": -0.08547956940507496,
@@ -147,8 +147,8 @@ exports[`sacred_grove brush > produces a stable snapshot 1`] = `
     "y": 1.914520430594925,
   },
   {
-    "id": "sacred_grove-european-yew-3-1",
-    "kind": "european-yew",
+    "id": "sacred_grove-silver-birch-3-1",
+    "kind": "silver-birch",
     "properties": {
       "offsetX": 0.046958541961833154,
       "offsetY": -0.09888217446807873,
@@ -216,8 +216,8 @@ exports[`sacred_grove brush > produces a stable snapshot 1`] = `
     "y": 2.5,
   },
   {
-    "id": "sacred_grove-silver-birch-3-3",
-    "kind": "silver-birch",
+    "id": "sacred_grove-fastigiate-oak-3-3",
+    "kind": "fastigiate-oak",
     "properties": {
       "offsetX": 0.1469566585016235,
       "offsetY": 0.0011159420717116175,
@@ -231,8 +231,8 @@ exports[`sacred_grove brush > produces a stable snapshot 1`] = `
     "y": 3.0011159420717117,
   },
   {
-    "id": "sacred_grove-silver-birch-4-2",
-    "kind": "silver-birch",
+    "id": "sacred_grove-fastigiate-oak-4-2",
+    "kind": "fastigiate-oak",
     "properties": {
       "offsetX": 0.13355405343861973,
       "offsetY": -0.012286662991292151,
@@ -246,8 +246,8 @@ exports[`sacred_grove brush > produces a stable snapshot 1`] = `
     "y": 2.987713337008708,
   },
   {
-    "id": "sacred_grove-silver-birch-5-2",
-    "kind": "silver-birch",
+    "id": "sacred_grove-weeping-birch-5-2",
+    "kind": "weeping-birch",
     "properties": {
       "offsetX": 0.12015144837561596,
       "offsetY": -0.02568926805429592,
@@ -261,8 +261,8 @@ exports[`sacred_grove brush > produces a stable snapshot 1`] = `
     "y": 2.974310731945704,
   },
   {
-    "id": "sacred_grove-silver-birch-6-2",
-    "kind": "silver-birch",
+    "id": "sacred_grove-weeping-birch-6-2",
+    "kind": "weeping-birch",
     "properties": {
       "offsetX": 0.10674891483818595,
       "offsetY": -0.03909187311729969,
@@ -330,8 +330,8 @@ exports[`sacred_grove brush > produces a stable snapshot 1`] = `
     "y": 4.941319847149458,
   },
   {
-    "id": "sacred_grove-european-yew-1-4",
-    "kind": "european-yew",
+    "id": "sacred_grove-silver-birch-1-4",
+    "kind": "silver-birch",
     "properties": {
       "offsetX": 0.07375795851636582,
       "offsetY": -0.07208268638797229,
@@ -345,8 +345,8 @@ exports[`sacred_grove brush > produces a stable snapshot 1`] = `
     "y": 4.927917313612028,
   },
   {
-    "id": "sacred_grove-european-yew-2-4",
-    "kind": "european-yew",
+    "id": "sacred_grove-silver-birch-2-4",
+    "kind": "silver-birch",
     "properties": {
       "offsetX": 0.06035535345336206,
       "offsetY": -0.08548529145097607,
@@ -360,8 +360,8 @@ exports[`sacred_grove brush > produces a stable snapshot 1`] = `
     "y": 4.9145147085490235,
   },
   {
-    "id": "sacred_grove-european-yew-3-4",
-    "kind": "european-yew",
+    "id": "sacred_grove-silver-birch-3-4",
+    "kind": "silver-birch",
     "properties": {
       "offsetX": 0.04695281991593205,
       "offsetY": -0.09888796803955359,
@@ -429,8 +429,8 @@ exports[`sacred_grove brush > produces a stable snapshot 1`] = `
     "y": 5.5,
   },
   {
-    "id": "sacred_grove-silver-birch-3-6",
-    "kind": "silver-birch",
+    "id": "sacred_grove-fastigiate-oak-3-6",
+    "kind": "fastigiate-oak",
     "properties": {
       "offsetX": 0.14695086493014864,
       "offsetY": 0.0011102200258105155,
@@ -444,8 +444,8 @@ exports[`sacred_grove brush > produces a stable snapshot 1`] = `
     "y": 6.001110220025811,
   },
   {
-    "id": "sacred_grove-silver-birch-4-5",
-    "kind": "silver-birch",
+    "id": "sacred_grove-fastigiate-oak-4-5",
+    "kind": "fastigiate-oak",
     "properties": {
       "offsetX": 0.13354825986714486,
       "offsetY": -0.012292385037193253,
@@ -459,8 +459,8 @@ exports[`sacred_grove brush > produces a stable snapshot 1`] = `
     "y": 5.987707614962806,
   },
   {
-    "id": "sacred_grove-silver-birch-5-5",
-    "kind": "silver-birch",
+    "id": "sacred_grove-weeping-birch-5-5",
+    "kind": "weeping-birch",
     "properties": {
       "offsetX": 0.12014565480414109,
       "offsetY": -0.02569499010019702,
@@ -474,8 +474,8 @@ exports[`sacred_grove brush > produces a stable snapshot 1`] = `
     "y": 5.974305009899803,
   },
   {
-    "id": "sacred_grove-silver-birch-6-5",
-    "kind": "silver-birch",
+    "id": "sacred_grove-weeping-birch-6-5",
+    "kind": "weeping-birch",
     "properties": {
       "offsetX": 0.10674304974113732,
       "offsetY": -0.03909759516320079,

@@ -20,8 +20,8 @@ describe('flora mesh builders', () => {
     expect(tubeFacets([{ a: [1, 1, 1], b: [1, 1, 1], r0: 0.2, r1: 0.2 }], 'bark')).toHaveLength(0);
   });
 
-  it('blobFacets makes a closed low-poly sphere per leaf', () => {
-    const f = blobFacets([{ at: [0, 0, 1], r: 0.5 }], 'foliage', 1);
+  it('blobFacets makes a closed low-poly clump per leaf', () => {
+    const f = blobFacets([{ at: [0, 0, 1], r: 0.5 }], 'foliage', { subdiv: 1, jitter: 0 });
     expect(f.length).toBe(32); // octahedron (8) subdivided once
     expect(f.every(x => x.mat === 'foliage')).toBe(true);
   });

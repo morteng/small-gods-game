@@ -41,12 +41,33 @@ const tree = (preset: string, form: string, heightM: number, crownM: number, tru
 /** Branching L-system plant (class:'plant') — real limbs/foliage vs the blob `tree`.
  *  `recipe` selects the L-system; the blueprint seed fixes the (stochastic) shape so
  *  every instance of a species shares one cached sprite. See flora-branch.ts. */
-const branched = (preset: string, recipe: string, heightM: number, trunkR = 0.16): Blueprint => ({
-  version: BLUEPRINT_VERSION, class: 'plant', preset,
-  category: 'flora', footprint: { w: 1, h: 1 },
-  materials: { walls: 'timber', roof: 'thatch', ground: 'grass' },
-  parts: { trunk: { type: 'branch_plant', size: { w: 1, h: 1 }, params: { recipe, heightM, trunkR } } },
-});
+/** Sensible (generator, crownShape) for a hand-authored preset that only names a
+ *  recipe — mirrors the species-path derivation so legacy presets pick the right
+ *  generator (conifer → spacecol cone, willow → proctree weeping, etc.). */
+const recipeDefaults = (recipe: string): { generator: string; crownShape: string } => {
+  switch (recipe) {
+    case 'pine': return { generator: 'spacecol', crownShape: 'conical' };
+    case 'willow': return { generator: 'proctree', crownShape: 'weeping' };
+    case 'shrub': return { generator: 'proctree', crownShape: 'irregular' };
+    case 'fern': case 'flower': return { generator: 'lsystem', crownShape: 'none' };
+    default: return { generator: 'proctree', crownShape: 'rounded' };
+  }
+};
+
+const branched = (
+  preset: string, recipe: string, heightM: number, trunkR = 0.16,
+  generator?: string, crownShape?: string,
+): Blueprint => {
+  const d = recipeDefaults(recipe);
+  return {
+    version: BLUEPRINT_VERSION, class: 'plant', preset,
+    category: 'flora', footprint: { w: 1, h: 1 },
+    materials: { walls: 'timber', roof: 'thatch', ground: 'grass' },
+    parts: { trunk: { type: 'branch_plant', size: { w: 1, h: 1 }, params: {
+      generator: generator ?? d.generator, recipe, crownShape: crownShape ?? d.crownShape, heightM, trunkR,
+    } } },
+  };
+};
 
 /** A boulder/rock (class:'terrain_feature'); `sizeM` = diameter in metres. */
 const rock = (preset: string, sizeM: number): Blueprint => ({
@@ -377,7 +398,7 @@ function floraSpeciesBlueprint(name: string): Blueprint | undefined {
   const g = deriveGenParams(sp);
   return g.kind === 'rock'
     ? rock(name, g.sizeM ?? g.heightM)
-    : branched(name, g.recipe ?? 'shrub', g.heightM, g.trunkR);
+    : branched(name, g.recipe ?? 'shrub', g.heightM, g.trunkR, g.generator, g.crownShape);
 }
 
 /** Resolve `name` (+ optional override patches) into a ResolvedBlueprint. Seed from name.

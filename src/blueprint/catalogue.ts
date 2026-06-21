@@ -8,6 +8,8 @@
 import type { EntityClass, Era, Descriptors } from './types';
 import { BUILDING_BLUEPRINTS } from './presets';
 import { WEALTH_LEVELS, QUALITY_LEVELS, CONDITION_LEVELS } from './descriptors';
+import { allFloraSpecies } from '@/flora/flora-registry';
+import { deriveGenParams, taxon } from '@/flora/flora-species';
 
 export interface CatalogueEntry {
   type: string;                       // preset key (becomes entity.kind)
@@ -45,6 +47,26 @@ export function assetCatalogue(): CatalogueEntry[] {
         ? { wealth: WEALTH_LEVELS, quality: QUALITY_LEVELS, condition: CONDITION_LEVELS }
         : {},
       defaults: bp.descriptors,
+    });
+  }
+  // Flora-DB species (english-oak, scots-pine, the cultivars…) are blueprints too,
+  // via floraSpeciesBlueprint — surface them so the studio/agents can pick a
+  // *particular* species or cultivar, searchable by family / genus / cultivar /
+  // crown / biome (not just the hand-authored `*_branched` presets).
+  for (const sp of allFloraSpecies()) {
+    const g = deriveGenParams(sp);
+    const t = taxon(sp.identity);
+    const tags = [...new Set([
+      'flora', g.kind, g.generator, g.crownShape, sp.botanical.habit, sp.botanical.leafType,
+      sp.identity.family, t.genus, t.cultivar, ...sp.ecology.biome,
+    ].filter(Boolean) as string[])];
+    out.push({
+      type: sp.id,
+      class: g.kind === 'rock' ? 'terrain_feature' : 'plant',
+      category: 'flora',
+      footprint: { w: 1, h: 1 },
+      tags,
+      descriptorAxes: {},
     });
   }
   return out.sort((a, b) =>

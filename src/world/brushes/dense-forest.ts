@@ -9,11 +9,11 @@ const DENSE_FOREST_PARAMS: import('./vegetation-placer').VegetationParams = {
   brush: BRUSH,
   tileType: 'dense_forest',
   kinds: canopyOf('dense_forest'),
-  density: 0.70,
+  density: 0.42,
   scaleRange: [0.85, 1.15],   // per-instance variety multiplier on metric height (±15%)
   rotationRange: 0,
   offsetRange: [0.5, 0.5],
-  maxPerTile: 3,
+  maxPerTile: 2,
   undergrowth: undergrowthOf('dense_forest'),
 };
 

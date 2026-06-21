@@ -9,7 +9,7 @@ const PINE_FOREST_PARAMS: import('./vegetation-placer').VegetationParams = {
   brush: BRUSH,
   tileType: 'pine_forest',
   kinds: canopyOf('pine_forest'),
-  density: 0.50,
+  density: 0.32,
   scaleRange: [0.85, 1.15],   // per-instance variety multiplier on metric height (±15%)
   rotationRange: 0,
   offsetRange: [0.5, 0.5],

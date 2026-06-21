@@ -53,11 +53,11 @@ describe('dense_forest brush', () => {
     }
   });
 
-  it('tree density ~0.70 produces ~60-70% tile coverage', () => {
+  it('tree density ~0.42 produces ~40-50% tile coverage', () => {
     const c = allDense(20, 20);  // 400 tiles
     const out = denseForestBrush({ x: 0, y: 0, w: 20, h: 20 }, 11, c);
     const trees = out.filter(e => CANOPY.has(e.kind));
-    expect(trees.length).toBeGreaterThan(200);
-    expect(trees.length).toBeLessThan(360);
+    expect(trees.length).toBeGreaterThan(120);
+    expect(trees.length).toBeLessThan(260);
   });
 });

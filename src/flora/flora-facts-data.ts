@@ -121,9 +121,9 @@ export const FLORA_FACTS: FloraSpecies[] = [
   },
   {
     id: 'silver-birch',
-    identity: { commonName: 'Silver birch', scientificName: 'Betula pendula', family: 'Betulaceae', wikipediaTitle: 'Betula pendula' },
+    identity: { genus: 'Betula', species: 'pendula', commonName: 'Silver birch', scientificName: 'Betula pendula', family: 'Betulaceae', wikipediaTitle: 'Betula pendula' },
     botanical: {
-      habit: 'tree', matureHeight_m: { min: 15, max: 25 }, crownShape: 'irregular',
+      habit: 'tree', matureHeight_m: { min: 15, max: 25 }, crownShape: 'columnar',
       leafType: 'broadleaf', leafPhenology: 'deciduous', trunkHabit: 'single',
       lifespanYears: { min: 60, max: 90 }, barkTexture: 'white papery, black fissures',
       flexibility: 0.5, floweringMonths: [4, 5], fruitingMonths: [7, 8],
@@ -132,6 +132,108 @@ export const FLORA_FACTS: FloraSpecies[] = [
     narrative: {
       keyFacts: ['Betula pendula, commonly known as silver birch, is a species of tree native to Europe and parts of Asia, with a range extending into Siberia, China and southwest Asia.'],
       sources: ['Betula pendula'],
+    },
+  },
+  {
+    // Same genus as silver birch, different species: damper habitat, a rounder,
+    // bushier crown — a distinct DB entry driving distinct geometry.
+    id: 'downy-birch',
+    identity: { genus: 'Betula', species: 'pubescens', commonName: 'Downy birch', scientificName: 'Betula pubescens', family: 'Betulaceae', wikipediaTitle: 'Betula pubescens' },
+    botanical: {
+      habit: 'tree', matureHeight_m: { min: 10, max: 20 }, crownShape: 'rounded',
+      leafType: 'broadleaf', leafPhenology: 'deciduous', trunkHabit: 'single',
+      lifespanYears: { min: 60, max: 90 }, barkTexture: 'grey-white, smooth then rough',
+      flexibility: 0.45, floweringMonths: [4, 5], fruitingMonths: [7, 9],
+    },
+    ecology: { biome: ['temperate forest', 'bog', 'heath'], moisture: 'wet', nativeRange: ['Europe', 'Siberia'] },
+    narrative: {
+      keyFacts: ['Betula pubescens, commonly known as downy birch, is a species of deciduous tree native to northern Europe and Asia, growing on wetter, poorer soils than silver birch.'],
+      sources: ['Betula pubescens'],
+    },
+  },
+  {
+    // Same SPECIES as silver birch (Betula pendula), a named cultivar: the weeping
+    // crown routes to the proctree generator's high-drop preset — demonstrating
+    // cultivar → distinct silhouette within one species.
+    id: 'weeping-birch',
+    identity: { genus: 'Betula', species: 'pendula', cultivar: 'Youngii', commonName: "Young's weeping birch", scientificName: "Betula pendula 'Youngii'", family: 'Betulaceae', wikipediaTitle: 'Betula pendula' },
+    botanical: {
+      habit: 'tree', matureHeight_m: { min: 5, max: 8 }, crownShape: 'weeping',
+      leafType: 'broadleaf', leafPhenology: 'deciduous', trunkHabit: 'single',
+      lifespanYears: { min: 50, max: 70 }, barkTexture: 'white papery, black fissures',
+      flexibility: 0.7, floweringMonths: [4, 5], fruitingMonths: [7, 8],
+    },
+    ecology: { biome: ['temperate forest', 'parkland'], moisture: 'mesic', nativeRange: ['Europe (cultivated)'] },
+    narrative: {
+      keyFacts: ["Betula pendula 'Youngii', Young's weeping birch, is a cultivar forming a dome of pendulous branches that weep to the ground, grafted onto a standard stem."],
+      sources: ['Betula pendula'],
+    },
+  },
+  {
+    // Parent species for the Lombardy cultivar below — a broad riparian poplar.
+    id: 'black-poplar',
+    identity: { genus: 'Populus', species: 'nigra', commonName: 'Black poplar', scientificName: 'Populus nigra', family: 'Salicaceae', wikipediaTitle: 'Populus nigra' },
+    botanical: {
+      habit: 'tree', matureHeight_m: { min: 20, max: 30 }, crownShape: 'spreading',
+      leafType: 'broadleaf', leafPhenology: 'deciduous', trunkHabit: 'single',
+      lifespanYears: { min: 150, max: 200 }, barkTexture: 'dark, deeply fissured, burred',
+      flexibility: 0.4, floweringMonths: [3, 4], fruitingMonths: [5, 6],
+    },
+    ecology: { biome: ['floodplain', 'riverbank', 'temperate broadleaf forest'], moisture: 'wet', nativeRange: ['Europe', 'western Asia'] },
+    narrative: {
+      keyFacts: ['Populus nigra, the black poplar, is a fast-growing deciduous tree of riparian floodplains across Europe, with a broad, heavily branched crown and a thick, burred trunk.'],
+      sources: ['Populus nigra'],
+    },
+  },
+  {
+    // Cultivar of black poplar: the iconic narrow, fastigiate "exclamation-mark" tree —
+    // its columnar crown routes to the proctree columnar preset.
+    id: 'lombardy-poplar',
+    identity: { genus: 'Populus', species: 'nigra', cultivar: 'Italica', commonName: 'Lombardy poplar', scientificName: "Populus nigra 'Italica'", family: 'Salicaceae', wikipediaTitle: 'Populus nigra' },
+    botanical: {
+      habit: 'tree', matureHeight_m: { min: 20, max: 30 }, crownShape: 'columnar',
+      leafType: 'broadleaf', leafPhenology: 'deciduous', trunkHabit: 'single',
+      lifespanYears: { min: 50, max: 100 }, barkTexture: 'grey, fissured',
+      flexibility: 0.45, floweringMonths: [3, 4], fruitingMonths: [5, 6],
+    },
+    ecology: { biome: ['parkland', 'hedgerow', 'avenue'], moisture: 'mesic', nativeRange: ['Europe (cultivated)'] },
+    narrative: {
+      keyFacts: ["Populus nigra 'Italica', the Lombardy poplar, is a fastigiate cultivar with a narrow columnar crown of erect branches, widely planted as a windbreak and avenue tree."],
+      sources: ['Populus nigra'],
+    },
+  },
+  {
+    // Cultivar of English oak: an upright, narrow-crowned oak (cf. silver vs weeping
+    // birch) — same species as english-oak, distinct columnar geometry.
+    id: 'fastigiate-oak',
+    identity: { genus: 'Quercus', species: 'robur', cultivar: 'Fastigiata', commonName: 'Cypress oak', scientificName: "Quercus robur 'Fastigiata'", family: 'Fagaceae', wikipediaTitle: 'Quercus robur' },
+    botanical: {
+      habit: 'tree', matureHeight_m: { min: 15, max: 25 }, crownShape: 'columnar',
+      leafType: 'broadleaf', leafPhenology: 'deciduous', trunkHabit: 'single',
+      lifespanYears: { min: 300, max: 600 }, barkTexture: 'fissured grey',
+      coppices: true, flexibility: 0.12, floweringMonths: [4, 5], fruitingMonths: [9, 10],
+    },
+    ecology: { biome: ['parkland', 'avenue'], moisture: 'mesic', nativeRange: ['Europe (cultivated)'] },
+    narrative: {
+      keyFacts: ["Quercus robur 'Fastigiata', the cypress oak, is an upright cultivar of pedunculate oak with a narrow, columnar crown of ascending branches."],
+      sources: ['Quercus robur'],
+    },
+  },
+  {
+    // Cultivar of European ash: a grafted dome of weeping branches — routes to the
+    // proctree weeping preset, distinct from the spreading wild ash.
+    id: 'weeping-ash',
+    identity: { genus: 'Fraxinus', species: 'excelsior', cultivar: 'Pendula', commonName: 'Weeping ash', scientificName: "Fraxinus excelsior 'Pendula'", family: 'Oleaceae', wikipediaTitle: 'Fraxinus excelsior' },
+    botanical: {
+      habit: 'tree', matureHeight_m: { min: 8, max: 15 }, crownShape: 'weeping',
+      leafType: 'broadleaf', leafPhenology: 'deciduous', trunkHabit: 'single',
+      lifespanYears: { min: 100, max: 200 }, barkTexture: 'pale grey, fissured with age',
+      coppices: true, flexibility: 0.4, floweringMonths: [4, 5], fruitingMonths: [9, 11],
+    },
+    ecology: { biome: ['parkland', 'churchyard'], moisture: 'mesic', nativeRange: ['Europe (cultivated)'] },
+    narrative: {
+      keyFacts: ["Fraxinus excelsior 'Pendula', the weeping ash, is a cultivar forming a broad dome of stiffly pendulous branches that arch to the ground, traditionally grafted onto a standard stem."],
+      sources: ['Fraxinus excelsior'],
     },
   },
 

@@ -75,9 +75,12 @@ export const BIOME_FLORA: Readonly<Record<string, FloraPool>> = {
   },
   sacred_grove: {
     canopy: [
-      ['english-oak', 0.45],
-      ['european-yew', 0.3],
-      ['silver-birch', 0.25],
+      ['english-oak', 0.36],
+      ['european-yew', 0.26],
+      ['silver-birch', 0.18],
+      ['weeping-birch', 0.1],
+      ['fastigiate-oak', 0.1],
+      ['lombardy-poplar', 0.08],
     ],
     undergrowth: [
       ['foxglove', 0.6, 0.06],
@@ -87,8 +90,11 @@ export const BIOME_FLORA: Readonly<Record<string, FloraPool>> = {
   /** Riparian/wetland margins (swamp tiles, water-adjacent coastal). */
   wetland: {
     canopy: [
-      ['white-willow', 0.6],
-      ['weeping-willow', 0.4],
+      ['white-willow', 0.42],
+      ['weeping-willow', 0.3],
+      ['downy-birch', 0.13],
+      ['black-poplar', 0.15],
+      ['weeping-ash', 0.1],
     ],
     undergrowth: [
       ['heather', 1.0, 0.04],

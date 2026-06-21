@@ -34,11 +34,11 @@ describe('pine_forest brush', () => {
       expect(ALLOWED.has(e.kind)).toBe(true);
     }
   });
-  it('produces ~50% tree density', () => {
+  it('produces ~32% tree density', () => {
     const c = allPine(20, 20);
     const out = pineForestBrush({ x: 0, y: 0, w: 20, h: 20 }, 11, c);
     const trees = out.filter(e => CANOPY.has(e.kind));
-    expect(trees.length).toBeGreaterThan(140);
-    expect(trees.length).toBeLessThan(260);
+    expect(trees.length).toBeGreaterThan(90);
+    expect(trees.length).toBeLessThan(200);
   });
 });

@@ -9,7 +9,11 @@ import type { PartType } from '../registry';
 import type { Part as Prim } from '@/assetgen/compose';
 import { createRng } from '@/core/rng';
 import { mToTiles } from '@/render/scale-contract';
-import { buildFloraSkeleton, FLORA_RECIPE_NAMES, type FloraRecipeName } from '@/assetgen/geometry/flora/recipes';
+import { FLORA_RECIPE_NAMES, type FloraRecipeName } from '@/assetgen/geometry/flora/recipes';
+import {
+  buildFlora, FLORA_GENERATORS, CROWN_SILHOUETTES,
+  type FloraGenerator, type CrownSilhouette,
+} from '@/assetgen/geometry/flora/generators';
 import { TREE_GAME_SCALE } from './flora';
 
 const footprintCells = (p: { at: { x: number; y: number }; size: { w: number; h: number } }): Array<[number, number]> => {
@@ -33,26 +37,30 @@ const BRIEF: Record<FloraRecipeName, string> = {
 export const branchPlantPartType: PartType = {
   type: 'branch_plant',
   paramSchema: {
+    generator: { kind: 'enum', values: FLORA_GENERATORS, default: 'proctree' },
     recipe: { kind: 'enum', values: FLORA_RECIPE_NAMES, default: 'oak' },
+    crownShape: { kind: 'enum', values: CROWN_SILHOUETTES, default: 'rounded' },
     heightM: { kind: 'number', min: 0.2, max: 40, default: 10 },
     trunkR: { kind: 'number', min: 0.02, max: 0.5, default: 0.16 },
     seed: { kind: 'number', default: 0 },
   },
   resolve: (part, ctx) => ({
     params: {
-      recipe: 'oak', heightM: 10, trunkR: 0.16,
+      generator: 'proctree', recipe: 'oak', crownShape: 'rounded', heightM: 10, trunkR: 0.16,
       ...(part.params ?? {}),
       // Bake the blueprint seed in so toPrims (which has no ctx.seed) is deterministic.
       seed: (part.params?.seed as number | undefined) ?? (ctx.seed >>> 0),
     },
   }),
   toPrims(p): Prim[] {
+    const generator = p.params.generator as FloraGenerator;
     const recipe = p.params.recipe as FloraRecipeName;
+    const crownShape = p.params.crownShape as CrownSilhouette;
     const k = TREE_GAME_SCALE;
     const heightTiles = mToTiles((p.params.heightM as number) * k);
     const baseRadius = (p.params.trunkR as number) * k;
     const rng = createRng((p.params.seed as number) >>> 0);
-    const skel = buildFloraSkeleton({ recipe, heightTiles, baseRadius, rng });
+    const skel = buildFlora({ generator, recipe, crownShape, heightTiles, baseRadius, rng });
     // Offset the skeleton (built at origin) to the part's footprint centre.
     const cx = p.at.x + p.size.w / 2, cy = p.at.y + p.size.h / 2;
     const limbs = skel.limbs.map(l => ({ a: [l.a[0] + cx, l.a[1] + cy, l.a[2]] as [number, number, number], b: [l.b[0] + cx, l.b[1] + cy, l.b[2]] as [number, number, number], r0: l.r0, r1: l.r1 }));

@@ -9,7 +9,7 @@ const FOREST_PARAMS: import('./vegetation-placer').VegetationParams = {
   brush: BRUSH,
   tileType: 'forest',
   kinds: canopyOf('forest'),
-  density: 0.35,
+  density: 0.24,
   // `scale` is a per-instance VARIETY multiplier on the kind's metric height
   // (not an absolute size) — a tight ±15% band. We don't rotate vegetation
   // (tilted trees read as wrong); variety comes from this band + full-cell

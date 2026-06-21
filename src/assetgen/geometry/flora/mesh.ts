@@ -97,12 +97,33 @@ function octaSphere(subdiv: number): { verts: Vec3[]; tris: [number, number, num
   return { verts, tris };
 }
 
-/** Low-poly foliage blobs (one octa-sphere per leaf). */
-export function blobFacets(leaves: Leaf[], mat: Mat, subdiv = 1): WorldFacet[] {
+export interface BlobOpts {
+  /** Octa-sphere subdivisions (1 = 32 tris, 2 = 128). Higher = rounder clumps. */
+  subdiv?: number;
+  /** Per-vertex noise displacement as a fraction of radius — organic, not a smooth
+   *  ball. 0 = perfect sphere; ~0.3 reads as a leafy clump. */
+  jitter?: number;
+  /** Vertical squash (×Z) so canopy clumps sit as flattened lobes, not balloons. */
+  squash?: number;
+}
+
+/** Foliage clumps: noise-displaced octa-spheres (one per leaf), so a crown of them
+ *  reads as bumpy organic foliage rather than a stack of smooth balls. Each clump's
+ *  displacement is seeded from its position → deterministic, varied between clumps. */
+export function blobFacets(leaves: Leaf[], mat: Mat, opts: BlobOpts = {}): WorldFacet[] {
+  const subdiv = opts.subdiv ?? 1;
+  const jitter = opts.jitter ?? 0.35;
+  const squash = opts.squash ?? 0.88;
   const { verts, tris } = octaSphere(subdiv);
   const m = new MeshSoup();
   for (const leaf of leaves) {
-    const w = verts.map(v => add(scale(v, leaf.r), leaf.at) as Vec3);
+    // Stable per-clump seed from its (quantised) centre — varies clump to clump.
+    const seed = (Math.round(leaf.at[0] * 7.3) * 73856093) ^ (Math.round(leaf.at[1] * 7.3) * 19349663) ^ (Math.round(leaf.at[2] * 7.3) * 83492791);
+    const w = verts.map((v) => {
+      const f = 1 + (dirNoise(v, seed >>> 0) - 0.5) * 2 * jitter;
+      const d: Vec3 = [v[0] * f, v[1] * f, v[2] * f * squash];
+      return add(scale(d, leaf.r), leaf.at) as Vec3;
+    });
     for (const [a, b, c] of tris) m.tri(w[a], w[b], w[c]);
   }
   return m.facets(mat);
