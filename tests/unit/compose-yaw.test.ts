@@ -21,7 +21,7 @@ describe('composeStructure turntable yaw', () => {
     const zero = await composeStructure(geo, undefined, { yaw: 0 });
     expect(greyHash(zero)).toBe(greyHash(base));
     expect(zero.size).toBe(base.size);
-  });
+  }, 20_000);   // two full cottage bakes — generous timeout for loaded CI
 
   it('a non-zero yaw rotates the model (different, deterministic bake)', async () => {
     const geo = toGeometry(synthesizeBlueprint('cottage')!);
@@ -30,12 +30,12 @@ describe('composeStructure turntable yaw', () => {
     const b = await composeStructure(geo, undefined, { yaw: Math.PI / 2 });
     expect(greyHash(a)).not.toBe(greyHash(base));   // it moved
     expect(greyHash(a)).toBe(greyHash(b));          // but it's deterministic
-  });
+  }, 20_000);
 
   it('a full turn (2π) returns to the canonical view', async () => {
     const geo = toGeometry(synthesizeBlueprint('cottage')!);
     const base = await composeStructure(geo);
     const full = await composeStructure(geo, undefined, { yaw: Math.PI * 2 });
     expect(greyHash(full)).toBe(greyHash(base));
-  });
+  }, 20_000);
 });
