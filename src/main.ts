@@ -27,4 +27,12 @@ if (container && new URLSearchParams(location.search).has('studio')) {
     fps: () => game.fpsStats(),
     showFps: (v = true) => game.setFpsHud(v),
   };
+
+  // Bus bridge (dev only): with ?bridge / ?bridge=rw, carry the GameBus seam out
+  // to the dev broker so a CLI / MCP server can drive & inspect this tab. Loaded
+  // lazily so it's inert (and tree-shaken from the prod hot path) by default.
+  import('./dev/bus-bridge-client').then(({ readBridgeFlag, startBridgeClient }) => {
+    const flag = readBridgeFlag(location.search);
+    if (flag) startBridgeClient({ bus: game.bus, allowWrite: flag.allowWrite });
+  });
 }

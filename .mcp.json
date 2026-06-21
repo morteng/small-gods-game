@@ -3,6 +3,10 @@
     "playwright": {
       "command": "npx",
       "args": ["-y", "@playwright/mcp@latest", "--browser", "chromium", "--viewport-size", "1280,800"]
+    },
+    "small-gods": {
+      "command": "npx",
+      "args": ["tsx", "tools/mcp-server.ts"]
     }
   }
 }

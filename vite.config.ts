@@ -2,6 +2,7 @@ import { defineConfig, loadEnv } from 'vite';
 import { resolve } from 'path';
 import { promoteAssetPlugin } from './vite-plugins/promote-asset';
 import { llmProxyPlugin } from './vite-plugins/llm-proxy';
+import { busBridgePlugin } from './vite-plugins/bus-bridge';
 
 export default defineConfig(({ command, mode }) => {
   // Load the (non-VITE_-prefixed) OpenRouter key for the dev LLM proxy. Handed
@@ -13,7 +14,7 @@ export default defineConfig(({ command, mode }) => {
     // server and tests run at '/'. Only the production build gets the subpath.
     // Override with VITE_BASE (e.g. a custom domain or renamed repo).
     base: command === 'build' ? (process.env.VITE_BASE ?? '/small-gods-game/') : '/',
-    plugins: [promoteAssetPlugin(), llmProxyPlugin(env.OPENROUTER_API_KEY)],
+    plugins: [promoteAssetPlugin(), llmProxyPlugin(env.OPENROUTER_API_KEY), busBridgePlugin()],
     server: { port: 3000 },
     build: {
       outDir: 'dist',

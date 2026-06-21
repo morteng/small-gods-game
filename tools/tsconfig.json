@@ -1,0 +1,12 @@
+{
+  "comment": "Type-check the standalone bus CLI + MCP server (run via tsx, outside the app tsconfig). `npx tsc -p tools` in CI / pre-commit.",
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "types": ["node"],
+    "lib": ["ES2022", "DOM"],
+    "rootDir": ".."
+  },
+  "include": ["./*.ts", "../src/dev/bus-bridge-protocol.ts"],
+  "exclude": []
+}
