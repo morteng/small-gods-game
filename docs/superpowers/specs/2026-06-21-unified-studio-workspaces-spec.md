@@ -68,13 +68,29 @@ advances every ready cell, so the zoo breathes; an Animate toggle pauses it. Laz
 (8 roles × 4 seeds) bake to distinct characters; a soldier matrix renders all 21
 action×facing poses, animating.
 
-### S4 — Layers panel + `RenderContext.layerMask` ⬜
-World-stage layer toggles: terrain / water / roads / rivers / buildings / flora / npcs
-/ connectome / labels. Today buildings/flora/npcs all flow through one y-sorted entity
-draw list (`entity-draw-list.ts`) and terrain/water are fixed passes. Add a `layerMask`
-to `RenderContext` honored by (a) the draw-list builder per entity-kind and (b) the
-terrain/water passes. Benefits the live game dev loop too, not just the studio. The
-`?connectome` flag is the proof-of-pattern.
+### S4 — World view renders buildings & trees + Layers panel ✅ (2026-06-21)
+Two parts:
+1. **Entity rendering.** The World workspace previously discarded the populated world
+   from `generateWithNoise` (`{ map }`, then a fresh empty `new World(map)`) — so it
+   only drew terrain + the connectome graph. Now it keeps `{ map, world }` (the world
+   already carries building / flora / barrier entities from `placeSettlement` + biome
+   brushes) and provides the two parametric art resolvers (`ParametricBuildingSource`/
+   `ParametricPlantSource`) on the render context. Buildings render as grey lit massing
+   (img2img is the funded-reseed path, OFF — same as the live game), trees as lit
+   parametric flora. Verified: drilling into a settlement shows grey building massing +
+   vegetation on textured terrain.
+2. **Layers panel.** The whole layer-visibility system already existed
+   (`src/render/layer-visibility.ts`; every pass checks `isLayerHidden(layer,
+   rc.devMode)`; `DevModeState` carries `show*` flags) — the live game's Debug Overlays
+   uses it. The World workspace just never passed a `devMode`. Added a Layers panel
+   (Terrain / Roads / Rivers / Buildings / Trees & flora / Connectome) backed by a
+   `Partial<DevModeState>` threaded into `rc.devMode`; the connectome overlay (a 2D
+   pass) is gated by a local `showConnectome`. The frame loop reads both by reference,
+   so toggles apply next frame with no invalidate. Verified causally: connectome toggle
+   (overlay 20417→1782 px); buildings/trees toggles hide the grey massing.
+
+NPCs aren't seeded in this view (no sim), so no NPC toggle yet — a follow-up if the
+world view ever materialises a founder band.
 
 ### S5 — Terrain render modes ⬜
 Terrain-field shader variants keyed by a uniform enum: `textured` (default) · `contour`

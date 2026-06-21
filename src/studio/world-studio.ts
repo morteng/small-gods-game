@@ -30,7 +30,11 @@ import { createGpuRenderMap } from '@/render/gpu/gpu-renderer';
 import { drawWorldConnectome, projectConnectome } from '@/render/connectome-overlay';
 import { DEFAULT_LIGHTING } from '@/render/lighting-state';
 import { ISO_TILE_W, ISO_TILE_H } from '@/render/iso/iso-constants';
-import { injectStudioTheme, COLORS } from './theme';
+import { injectStudioTheme, COLORS, h } from './theme';
+import { layerFlag, type RenderLayer } from '@/render/layer-visibility';
+import { ParametricBuildingSource } from '@/render/parametric-building-source';
+import { ParametricPlantSource } from '@/render/parametric-plant-source';
+import type { DevModeState, Entity } from '@/core/types';
 import { buildWorldBrowser, type InspectorModel, type CrumbLevel } from './world-browser';
 import { type Focus, planForPoi, buildingsOf, planBounds, pickPoi, pickBuilding } from './world-picking';
 
@@ -87,7 +91,7 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
   root.style.cssText = 'position:absolute;inset:0;display:flex;flex-direction:row;overflow:hidden';
   const panel = document.createElement('div');
   panel.className = 'sg-panel';
-  panel.style.cssText = 'flex:0 0 auto;width:288px;border-right:1px solid var(--line);overflow:hidden';
+  panel.style.cssText = 'flex:0 0 auto;width:288px;border-right:1px solid var(--line);overflow:auto';
   const viewPane = document.createElement('div');
   viewPane.style.cssText = 'position:relative;flex:1 1 auto;min-width:0;overflow:hidden';
   root.append(panel, viewPane);
@@ -126,6 +130,21 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
   const lighting = { ...DEFAULT_LIGHTING };
   const cam: Camera = { x: 0, y: 0, zoom: 1, dragging: false, lastX: 0, lastY: 0 };
 
+  // ── layer toggles ───────────────────────────────────────────────────────────
+  // A partial DevModeState carried into the render context: the terrain pass honors
+  // showTerrain/showRoads/showRivers via isLayerHidden (a flag === false hides). The
+  // connectome overlay is a separate 2D pass, gated by `showConnectome`. The frame
+  // loop reads both by reference every frame, so a toggle applies on the next frame
+  // with no manual invalidate.
+  const dev: Partial<DevModeState> = {};
+  let showConnectome = true;
+
+  // Parametric art sources for the entity pass — grey lit massing for buildings &
+  // trees (img2img is the funded-reseed path, OFF here). peek/warm is the frame-safe
+  // contract: peek is the sync read, warm kicks async generation off the frame path.
+  const buildingSource = new ParametricBuildingSource();
+  const plantSource = new ParametricPlantSource();
+
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   let cssW = 0, cssH = 0;
   function resize(): void {
@@ -153,10 +172,13 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
     ws.size = layout.size;
     ws.pois = layout.pois;
     ws.connections = layout.connections;
-    const { map: m } = await generateWithNoise(ws.size.width, ws.size.height, gen.seed, ws);
+    // generateWithNoise returns a world ALREADY populated with building + flora +
+    // barrier entities (placeSettlement + biome brushes). Keep it — the entity pass
+    // renders those buildings & trees, instead of discarding it for an empty World.
+    const { map: m, world: w } = await generateWithNoise(ws.size.width, ws.size.height, gen.seed, ws);
     if (token !== regenToken) return;
     map = m;
-    world = new World(map);
+    world = w;
     visualMap = Autotiler.computeVisualMap(map);
     focus = { level: 'world' };
     selectedPoi = null;
@@ -314,6 +336,32 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
     },
   });
 
+  // ── layers panel ──────────────────────────────────────────────────────────────
+  // Toggles for the layers this view actually renders: the terrain pass (terrain +
+  // road/river tiles) and the connectome overlay. Entity layers (buildings/flora/
+  // npcs) light up once the world view materialises entities — a follow-up.
+  const SCENE_LAYERS: { layer: RenderLayer; label: string }[] = [
+    { layer: 'terrain', label: 'Terrain' },
+    { layer: 'roads', label: 'Roads' },
+    { layer: 'rivers', label: 'Rivers' },
+    { layer: 'buildings', label: 'Buildings' },
+    { layer: 'vegetation', label: 'Trees & flora' },
+  ];
+  function toggleRow(label: string, on: boolean, onChange: (v: boolean) => void): HTMLElement {
+    const cb = h('input', { attrs: { type: 'checkbox' } }) as HTMLInputElement;
+    cb.checked = on;
+    cb.style.cssText = 'accent-color:var(--accent);cursor:pointer';
+    cb.onchange = () => onChange(cb.checked);
+    return h('label', { style: 'display:flex;align-items:center;gap:8px;padding:3px 0;cursor:pointer;font:400 11px var(--font-mono);color:var(--ink-0)' }, cb, h('span', { text: label }));
+  }
+  const layersSec = h('div', { style: 'border-top:1px solid var(--line);margin:10px 9px 4px;padding:9px 0 4px' });
+  layersSec.appendChild(h('div', { class: 'sg-eyebrow', style: 'margin-bottom:5px', text: 'Layers' }));
+  for (const { layer, label } of SCENE_LAYERS) {
+    layersSec.appendChild(toggleRow(label, true, (v) => { dev[layerFlag(layer)] = v; }));
+  }
+  layersSec.appendChild(toggleRow('Connectome', true, (v) => { showConnectome = v; }));
+  panel.appendChild(layersSec);
+
   // ── pan + zoom + click ──────────────────────────────────────────────────────
   let downX = 0, downY = 0, moved = false;
   canvas.addEventListener('mousedown', (e) => {
@@ -416,6 +464,14 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
       map, camera: cam, canvasWidth: cssW, canvasHeight: cssH,
       npcs: [], npcSheets: new Map(), treeSheets: new Map(),
       world, lighting, visualMap: visualMap ?? undefined,
+      devMode: dev as DevModeState,   // terrain/roads/rivers/buildings/vegetation toggles
+      // Parametric art resolvers so the entity pass can draw buildings & trees.
+      resolveParametricBuildingArt: (e: Entity) => {
+        const s = buildingSource.peek(e); if (s) return s; buildingSource.warm(e); return null;
+      },
+      resolveParametricPlantArt: (kind: string) => {
+        const s = plantSource.peek(kind); if (s) return s; plantSource.warm(kind); return null;
+      },
       studioNoChrome: true,   // bare GPU terrain; the connectome overlay is drawn separately
     } as unknown as RenderContext;
   }
@@ -423,9 +479,9 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
     if (disposed) return;
     if (map) {
       const rc = renderContext();
-      render(ctx, rc);               // GPU terrain (entity pass empty)
-      drawWorldConnectome(ctx, rc);  // full connectome backbone
-      drawFocus();                   // spotlight + drill highlight
+      render(ctx, rc);                       // GPU terrain (entity pass empty)
+      if (showConnectome) drawWorldConnectome(ctx, rc);  // full connectome backbone
+      drawFocus();                           // spotlight + drill highlight
     }
     rafId = requestAnimationFrame(frame);
   }
