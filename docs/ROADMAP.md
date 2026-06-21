@@ -145,6 +145,17 @@ Resolve against the kept design reference `docs/design/2026-05-17-ui-system-hand
   interface — generation never touches the sim/replay path; bind chosen asset IDs into
   scenario state. **Now:** keep building Tracks 1–4 with placeholders; do not start the
   renderer rewrite or gen-service yet.
+  - **Spike (2026-06-21) — bake-to-atlas sidesteps the renderer rewrite.**
+    [`docs/superpowers/spikes/2026-06-21-biped-skeletal-bake-spike.md`](superpowers/spikes/2026-06-21-biped-skeletal-bake-spike.md)
+    proved a procedural skeletal biped can be posed by FK and baked to an **8-direction ×
+    8-frame animation atlas through the *existing* asset pipeline** (`composeStructure`):
+    skeleton bones = flora `Limb` capsules, the yaw rotor gives directions, `fixedFit`
+    keeps a constant metric scale, output is plain pixel-perfect sprite blits + full PBR
+    G-buffer — **no WebGL/voxel renderer needed** (coupled track 1 above largely moot for
+    the *render* side). This is the shared multi-angle bake seam the flora multi-view plan
+    builds first; NPCs add the animation-frame dimension. Remaining work is content/policy
+    (real rig, pose library mapping `LPC_ANIMATIONS`, img2img skin + boiling, atlas
+    packing/draw-list wiring), not plumbing. Feeds the generative-NPC rebuild.
 - **Persistence principle + death & remains.** Worldbuilding rule: *once an NPC
   is instantiated it never leaves the world* — no sim-driven hard-deletes. Losing
   faith is a **lapse** (already shipped: `AbandonmentSystem` marks `believer_lost`
