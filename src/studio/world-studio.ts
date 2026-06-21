@@ -32,6 +32,9 @@ import { DEFAULT_LIGHTING } from '@/render/lighting-state';
 import { ISO_TILE_W, ISO_TILE_H } from '@/render/iso/iso-constants';
 import { injectStudioTheme, COLORS, h } from './theme';
 import { layerFlag, type RenderLayer } from '@/render/layer-visibility';
+import { TERRAIN_MODES, terrainModeValue, type TerrainModeId } from '@/render/gpu/terrain-field';
+import { computeDetailMask, coalescePatches, type DetailPatch } from '@/world/terrain-detail';
+import { DETAIL_PATCH_TILES } from '@/render/gpu/detail-field';
 import { ParametricBuildingSource } from '@/render/parametric-building-source';
 import { ParametricPlantSource } from '@/render/parametric-plant-source';
 import type { DevModeState, Entity } from '@/core/types';
@@ -138,6 +141,20 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
   // with no manual invalidate.
   const dev: Partial<DevModeState> = {};
   let showConnectome = true;
+  let showDetailPatches = false;
+
+  // Adaptive detail-patch regions (coast/river/road/slope), memoised per world —
+  // the same importance map the GPU detail pass instances. Drawn as a 2D overlay
+  // so they're legible at any zoom, unlike the GPU patches (zoom ≥ 2 only).
+  let patchMemo: { map: GameMap; patches: DetailPatch[] } | null = null;
+  function detailPatches(): DetailPatch[] {
+    if (!map) return [];
+    if (patchMemo && patchMemo.map === map) return patchMemo.patches;
+    const mask = computeDetailMask(map);
+    const patches = coalescePatches(mask, map.width, map.height, DETAIL_PATCH_TILES);
+    patchMemo = { map, patches };
+    return patches;
+  }
 
   // Parametric art sources for the entity pass — grey lit massing for buildings &
   // trees (img2img is the funded-reseed path, OFF here). peek/warm is the frame-safe
@@ -360,7 +377,26 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
     layersSec.appendChild(toggleRow(label, true, (v) => { dev[layerFlag(layer)] = v; }));
   }
   layersSec.appendChild(toggleRow('Connectome', true, (v) => { showConnectome = v; }));
+  layersSec.appendChild(toggleRow('Detail patches', false, (v) => { showDetailPatches = v; }));
   panel.appendChild(layersSec);
+
+  // ── display: terrain render style ───────────────────────────────────────────
+  // The terrain shader's display-mode enum (textured / contour-vector / hypsometric
+  // / biome / slope / normals), threaded via dev.terrainMode → the terrain uniform.
+  const displaySec = h('div', { style: 'border-top:1px solid var(--line);margin:6px 9px 4px;padding:9px 0 4px' });
+  displaySec.appendChild(h('div', { class: 'sg-eyebrow', style: 'margin-bottom:5px', text: 'Terrain style' }));
+  const styleSel = document.createElement('select');
+  styleSel.style.cssText = 'width:100%;background:var(--bg-1);color:var(--ink-0);border:1px solid var(--line);' +
+    'border-radius:5px;padding:4px 6px;font:400 11px var(--font-mono);cursor:pointer';
+  for (const m of TERRAIN_MODES) {
+    const o = document.createElement('option');
+    o.value = m.id; o.textContent = m.label;
+    styleSel.appendChild(o);
+  }
+  styleSel.value = 'textured';
+  styleSel.onchange = () => { dev.terrainMode = terrainModeValue(styleSel.value as TerrainModeId); };
+  displaySec.appendChild(styleSel);
+  panel.appendChild(displaySec);
 
   // ── pan + zoom + click ──────────────────────────────────────────────────────
   let downX = 0, downY = 0, moved = false;
@@ -410,6 +446,28 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
     ctx.fillStyle = fill; ctx.fill();
     if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = 1.5; ctx.stroke(); }
   }
+  // Outline the adaptive detail-patch blocks (16×16-tile regions the GPU refines
+  // around coasts / rivers / roads / steep slopes) as iso quads, so it's obvious
+  // where the sub-tile mesh is being spent.
+  function drawDetailPatches(): void {
+    const patches = detailPatches();
+    if (!patches.length) return;
+    ctx.save();
+    ctx.lineWidth = 1;
+    ctx.fillStyle = 'rgba(120,220,160,0.10)';
+    ctx.strokeStyle = 'rgba(130,238,176,0.65)';
+    for (const p of patches) {
+      const a = projectConnectome(map, p.ox, p.oy, cam);
+      const b = projectConnectome(map, p.ox + p.w, p.oy, cam);
+      const c = projectConnectome(map, p.ox + p.w, p.oy + p.h, cam);
+      const d = projectConnectome(map, p.ox, p.oy + p.h, cam);
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.lineTo(c.x, c.y); ctx.lineTo(d.x, d.y); ctx.closePath();
+      ctx.fill(); ctx.stroke();
+    }
+    ctx.restore();
+  }
+
   function drawFocus(): void {
     const f = focus;
     if (f.level === 'world') {
@@ -481,6 +539,7 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
       const rc = renderContext();
       render(ctx, rc);                       // GPU terrain (entity pass empty)
       if (showConnectome) drawWorldConnectome(ctx, rc);  // full connectome backbone
+      if (showDetailPatches) drawDetailPatches();         // adaptive high-res regions
       drawFocus();                           // spotlight + drill highlight
     }
     rafId = requestAnimationFrame(frame);

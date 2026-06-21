@@ -28,7 +28,7 @@ export const DP_SUPER = 2;
 export const DETAIL_PATCH_WGSL = /* wgsl */ `
 struct TGlobals {
   uViewport : vec2<f32>,
-  uPad0     : vec2<f32>,
+  uMode     : vec2<f32>,   // x: display mode enum (shared terrain fragment)
   uXform    : vec4<f32>,
   uGrid     : vec2<f32>,
   uHalf     : vec2<f32>,

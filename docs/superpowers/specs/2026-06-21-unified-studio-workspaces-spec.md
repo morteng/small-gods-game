@@ -92,11 +92,31 @@ Two parts:
 NPCs aren't seeded in this view (no sim), so no NPC toggle yet — a follow-up if the
 world view ever materialises a founder band.
 
-### S5 — Terrain render modes ⬜
-Terrain-field shader variants keyed by a uniform enum: `textured` (default) · `contour`
-(iso-height lines) · `hypsometric` (elevation ramp) · `biome` (flat region colours) ·
-`slope`/`normal` (debug) · `wireframe`. One enum in `src/render/gpu/terrain-field.ts` +
-shader branch; a Display-popover control in the studio toolbar.
+### S5 — Terrain render modes ✅ (2026-06-22)
+Terrain-field shader variants keyed by a uniform enum (the former `uPad0.x` slot,
+now `uMode.x` — no buffer-size change). `TERRAIN_MODES` in
+`src/render/gpu/terrain-field.ts` is the single catalogue: `textured` (0, default —
+the shipped material-blend look) · `contour` (1 — the "vector" topographic map:
+hypsometric fill + screen-constant iso-elevation lines, bold index contour every
+5th) · `hypsometric` (2 — elevation ramp) · `biome` (3 — flat region colour) ·
+`slope` (4 — flat→steep ramp) · `normal` (5 — geometry debug). The mode is
+threaded `dev.terrainMode → buildTerrainField → terrainGlobalsFor →
+packTerrainGlobals(b[2])` and branched in the terrain fragment (`terrain-wgsl.ts`);
+the detail-patch pass shares that fragment, so the mode applies to the fine
+patches identically. A **Terrain style** `<select>` in the World workspace's left
+panel drives it (also exposed game-wide via `DevModeState.terrainMode`). Verified
+live: normals show the per-cell surface + road/river incision, slope reads
+flat-green→steep-red (Emberpeak crater bright red), contour rings the calderas.
+Wireframe deferred (needs a line-topology pipeline or barycentric pass — the five
+fragment modes cover the "vector / professional controls" ask).
+
+**Detail-patch overlay (S4 companion).** A "Detail patches" toggle in the same
+panel draws the adaptive sub-tile patch blocks (`computeDetailMask` →
+`coalescePatches`, the SAME importance map the GPU detail pass instances) as green
+iso quads over the terrain — so it's visible exactly where the renderer spends a
+finer mesh (coasts / rivers / roads / steep slopes), at any zoom (the GPU patches
+themselves only draw at zoom ≥ 2). Memoised per world; correctly absent over open
+ocean.
 
 ### Dev/prod build separation ✅ (2026-06-21)
 Dev tooling must not ship in distribution builds (user: "dev builds with dev

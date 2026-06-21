@@ -21,7 +21,7 @@
 export const TERRAIN_WGSL = /* wgsl */ `
 struct TGlobals {
   uViewport : vec2<f32>,
-  uPad0     : vec2<f32>,
+  uMode     : vec2<f32>,   // x: display mode enum (0 textured … 5 normals); y: reserved
   uXform    : vec4<f32>,   // sx, sy, ox, oy : device = world * sxy + oxy
   uGrid     : vec2<f32>,   // cells: width, height
   uHalf     : vec2<f32>,   // iso half-tile: halfW, halfH (px)
@@ -92,6 +92,20 @@ fn vnoise(p : vec2<f32>) -> f32 {
   let c = hash21(i + vec2<f32>(0.0, 1.0));
   let d = hash21(i + vec2<f32>(1.0, 1.0));
   return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+}
+
+// Hypsometric tint ramp: lowland green → tan → brown → snow, keyed by the
+// above-sea elevation fraction t∈[0,1]. Used by the 'hypsometric' display mode
+// and as the base fill for the 'contour' (vector topo) mode.
+fn hypsoRamp(t : f32) -> vec3<f32> {
+  let c0 = vec3<f32>(0.36, 0.52, 0.30); // lowland green
+  let c1 = vec3<f32>(0.78, 0.74, 0.45); // dry tan
+  let c2 = vec3<f32>(0.52, 0.39, 0.27); // upland brown
+  let c3 = vec3<f32>(0.95, 0.96, 0.98); // snow cap
+  let u = clamp(t, 0.0, 1.0);
+  if (u < 0.34) { return mix(c0, c1, u / 0.34); }
+  if (u < 0.67) { return mix(c1, c2, (u - 0.34) / 0.33); }
+  return mix(c2, c3, (u - 0.67) / 0.33);
 }
 
 // Screen-px lift of a cell from its normalised elevation.
@@ -238,6 +252,39 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   let banded = floor(ndl * bands + 0.5) / bands;
   let light = G.uAmbient.xyz + vec3<f32>(G.uAmbient.w) * banded;
 
+  // ── DISPLAY MODE (uMode.x) ───────────────────────────────────────────────────
+  // 0 textured (default) · 1 contour (vector topo) · 2 hypsometric · 3 biome ·
+  // 4 slope · 5 normals. The detail-patch pass shares this fragment, so the mode
+  // applies to the fine patches identically.
+  let mode = u32(G.uMode.x + 0.5);
+  if (mode == 5u) {                                  // NORMALS — geometry debug, unlit
+    return vec4<f32>(n * 0.5 + vec3<f32>(0.5), 1.0);
+  }
+  if (mode == 4u) {                                  // SLOPE — flat→steep ramp, unlit
+    let s = clamp(slope * 2.2, 0.0, 1.0);
+    let lo = mix(vec3<f32>(0.16, 0.42, 0.20), vec3<f32>(0.85, 0.72, 0.20), clamp(s / 0.5, 0.0, 1.0));
+    let col = mix(lo, vec3<f32>(0.88, 0.20, 0.14), clamp((s - 0.5) / 0.5, 0.0, 1.0));
+    return vec4<f32>(col, 1.0);
+  }
+  let aboveFrac = clamp(aboveSea / max(1.0 - seaLevel, 1e-3), 0.0, 1.0);
+  var modeAlbedo = shoreAlbedo;                      // 0 textured (default)
+  if (mode == 1u) {                                  // CONTOUR — vector topographic map
+    let metres = aboveSea * G.uZParams.z;            // reliefM metres above sea
+    let spacing = 8.0;                               // minor contour interval (m)
+    let cu = metres / spacing;
+    let edge = min(fract(cu), 1.0 - fract(cu)) / max(fwidth(cu), 1e-4);
+    let minor = 1.0 - clamp(edge, 0.0, 1.0);         // screen-constant fine line
+    let iu = metres / (spacing * 5.0);               // bold index contour every 5th
+    let iedge = min(fract(iu), 1.0 - fract(iu)) / max(fwidth(iu), 1e-4);
+    let index = 1.0 - clamp(iedge, 0.0, 1.0);
+    let lineMask = max(minor * 0.55, index);
+    modeAlbedo = mix(hypsoRamp(aboveFrac), vec3<f32>(0.12, 0.10, 0.08), lineMask);
+  } else if (mode == 2u) {                           // HYPSOMETRIC — elevation ramp
+    modeAlbedo = hypsoRamp(aboveFrac);
+  } else if (mode == 3u) {                           // BIOME — flat region colour
+    modeAlbedo = base;
+  }
+
   // SUBMARINE FADE-TO-DARK: the terrain sinks into darkness as it descends below the
   // waterline, away from the island — so the seabed (and the map's outer rim where
   // the heightfield grid ends) dissolves into the depths instead of showing a lit
@@ -246,7 +293,7 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   // above the waterline is untouched.
   let depthBelow = max(seaLevel - elev, 0.0);
   let submerge = smoothstep(0.0, 0.22, depthBelow);    // 0 at shore → ~1 a few m down
-  let lit = shoreAlbedo * light;
+  let lit = modeAlbedo * light;
   return vec4<f32>(lit * (1.0 - submerge * 0.97), 1.0);
 }
 `;

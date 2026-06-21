@@ -50,6 +50,31 @@ export const TERRAIN_SUN_DIR: [number, number, number] = [-1, 1.6, -1];
  */
 export const TERRAIN_Z_PX_PER_M = 17.0;
 
+/**
+ * Terrain display modes — a shader uniform enum (`uMode.x`) branched in the
+ * terrain fragment (`terrain-wgsl.ts`). `textured` is the shipped game look; the
+ * rest are professional/analytic styles for the studio (and the game's debug
+ * overlays): `contour` is the "vector" topographic map (flat hypsometric fill +
+ * iso-elevation lines), `hypsometric` an elevation ramp, `biome` flat region
+ * colours, `slope`/`normal` geometry debug. The detail-patch pass shares the
+ * terrain fragment, so the mode applies to the fine patches too. Keep `value`
+ * in sync with the shader's `switch`.
+ */
+export const TERRAIN_MODES = [
+  { id: 'textured', label: 'Textured', value: 0 },
+  { id: 'contour', label: 'Contour (vector)', value: 1 },
+  { id: 'hypsometric', label: 'Hypsometric', value: 2 },
+  { id: 'biome', label: 'Biome', value: 3 },
+  { id: 'slope', label: 'Slope', value: 4 },
+  { id: 'normal', label: 'Normals', value: 5 },
+] as const;
+export type TerrainModeId = (typeof TERRAIN_MODES)[number]['id'];
+
+/** Resolve a {@link TerrainModeId} to its shader enum value (0 = textured). */
+export function terrainModeValue(id: TerrainModeId | undefined): number {
+  return TERRAIN_MODES.find((m) => m.id === id)?.value ?? 0;
+}
+
 /** Cap on generated quads — picks the subsample LOD so big maps stay cheap. Raised
  *  from 50k: a default 384×272 world (~104k tiles) was rendering at subsample=2
  *  (HALF tile resolution), so carved valleys + shorelines showed coarse triangle
@@ -266,6 +291,8 @@ export interface BuildTerrainFieldOpts {
   lighting: LightingState;
   devMode?: DevModeState;
   maxQuads?: number;
+  /** Terrain display mode enum (0 = textured). See {@link TERRAIN_MODES}. */
+  terrainMode?: number;
 }
 
 /** Relative luminance of an RGB triple in `[0,1]` — terrain sun strength scalar. */
@@ -287,6 +314,8 @@ export function terrainGlobalsFor(
     xform: { sx: number; sy: number; ox: number; oy: number };
     lighting: LightingState;
     subsample: number;
+    /** Display mode enum (0 = textured). Defaults to 0 when omitted. */
+    terrainMode?: number;
   },
 ): TerrainGlobalsInput {
   // S1 style knobs: vertical exaggeration + relief metres. Default to
@@ -305,6 +334,7 @@ export function terrainGlobalsFor(
     bands: opts.lighting.bands,
     ambient: opts.lighting.ambient,
     sunStrength: luminance(opts.lighting.sunColor),
+    terrainMode: opts.terrainMode ?? 0,
   };
 }
 
@@ -338,6 +368,7 @@ export function buildTerrainField(map: GameMap, opts: BuildTerrainFieldOpts): Te
   const grid = terrainGrid(map.width, map.height, opts.maxQuads);
   const globals = terrainGlobalsFor(map, {
     viewport: opts.viewport, xform: opts.xform, lighting: opts.lighting, subsample: grid.subsample,
+    terrainMode: opts.terrainMode,
   });
   const climate = getClimateFields(map);
   return {

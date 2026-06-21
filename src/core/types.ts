@@ -773,6 +773,9 @@ export interface DevModeState {
   // Terrain sub-layers (tile-type based; gated inside the terrain pass).
   showRoads?: boolean;
   showRivers?: boolean;
+  // Terrain display mode enum (0 = textured … 5 = normals). See TERRAIN_MODES in
+  // src/render/gpu/terrain-field.ts; threaded into the terrain shader uniform.
+  terrainMode?: number;
   // Time debug
   showEventLog?: boolean;
   showSimState?: boolean;

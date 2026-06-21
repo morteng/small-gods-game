@@ -163,6 +163,7 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
       : buildTerrainField(map, {
           viewport: [lowW, lowH],
           xform, lighting, devMode: rc.devMode,
+          terrainMode: rc.devMode?.terrainMode,
         });
     // Adaptive sub-tile detail patches (the px4-3-2-1 idea): a finer instanced mesh
     // with GENUINE analytic relief, overlaid ONLY on the hot regions (coast/carve/
