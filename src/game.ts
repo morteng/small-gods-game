@@ -35,6 +35,7 @@ import { ArtResolver } from '@/render/art-resolver';
 import { ParametricBuildingSource } from '@/render/parametric-building-source';
 import { ParametricPlantSource } from '@/render/parametric-plant-source';
 import { GeneratedBuildingArtSource } from '@/render/generated-building-art-source';
+import { GeneratedFloraArtSource } from '@/render/generated-flora-art-source';
 import { generateBuildingImage, BUILDING_IMAGE_MODEL } from '@/llm/openrouter-image-client';
 import { initManifoldWasm } from '@/assetgen/geometry/manifold-wasm-browser';
 import { AssetManager } from '@/render/asset-manager';
@@ -176,6 +177,26 @@ export class Game {
   private liveBuildingArtEnabled = false; // setting `liveBuildingArt`, default OFF
   private readonly generatedBuildingArtSource = new GeneratedBuildingArtSource({
     enabled: () => this.liveBuildingArtEnabled,
+    canSpend: () => this.costTracker.snapshot().sessionUsd < SESSION_CAP_USD,
+    model: () => BUILDING_IMAGE_MODEL,
+    generate: async (initImageDataUri, prompt) => {
+      const cfg = loadProviderConfig();
+      const res = await generateBuildingImage(
+        { apiKey: cfg.openrouterApiKey ?? '', baseUrl: openrouterImageBaseUrl(),
+          siteName: cfg.openrouterSiteName },
+        { initImageDataUri, prompt, model: BUILDING_IMAGE_MODEL },
+      );
+      this.costTracker.record({ cost: res.costUsd, cacheStatus: 'MISS' });
+      return res.blob;
+    },
+  });
+  // img2img flora sprites — same pipeline + gating as buildings, default OFF (the
+  // `liveFloraArt` setting). With no key + an unseeded library it always misses and
+  // the renderer shows grey parametric massing; a funded seed (scripts/seed-flora-art.ts)
+  // + the flag turns it on. Reuses BUILDING_IMAGE_MODEL so keys match the seed run.
+  private liveFloraArtEnabled = false; // setting `liveFloraArt`, default OFF
+  private readonly generatedFloraArtSource = new GeneratedFloraArtSource({
+    enabled: () => this.liveFloraArtEnabled,
     canSpend: () => this.costTracker.snapshot().sessionUsd < SESSION_CAP_USD,
     model: () => BUILDING_IMAGE_MODEL,
     generate: async (initImageDataUri, prompt) => {
@@ -401,6 +422,7 @@ export class Game {
       onNewWorld: () => { void this.newWorld(); },
       onGameSettingChange: (key, value) => {
         if (key === 'liveBuildingArt') this.liveBuildingArtEnabled = value !== false;
+        if (key === 'liveFloraArt') this.liveFloraArtEnabled = value !== false;
         if (key === 'showLabels') this.state.showLabels = value as boolean;
         if (key === 'showPoiMarkers') this.state.showPoiMarkers = value as boolean;
         if (key === 'debug') {
@@ -912,6 +934,7 @@ export class Game {
       parametricBuildingSource: this.parametricBuildingSource,
       parametricPlantSource: this.parametricPlantSource,
       generatedBuildingArtSource: this.generatedBuildingArtSource,
+      generatedFloraArtSource: this.generatedFloraArtSource,
       devMode: this.dev.devMode,
     };
   }

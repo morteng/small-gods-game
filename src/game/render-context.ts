@@ -6,6 +6,7 @@ import type { ArtResolver } from '@/render/art-resolver';
 import type { ParametricBuildingSource } from '@/render/parametric-building-source';
 import type { ParametricPlantSource } from '@/render/parametric-plant-source';
 import type { GeneratedBuildingArtSource } from '@/render/generated-building-art-source';
+import type { GeneratedFloraArtSource } from '@/render/generated-flora-art-source';
 import type { Viewport } from './viewport';
 import { toRenderNpc } from '@/world/npc-helpers';
 import { DEFAULT_LIGHTING, LIGHTING_OFF } from '@/render/lighting-state';
@@ -22,6 +23,7 @@ export interface RenderContextDeps {
   parametricBuildingSource: ParametricBuildingSource;
   parametricPlantSource: ParametricPlantSource;
   generatedBuildingArtSource?: GeneratedBuildingArtSource;
+  generatedFloraArtSource?: GeneratedFloraArtSource;
   devMode: DevModeState;
 }
 
@@ -37,7 +39,7 @@ function nightFactorOverride(): number | null {
  *  `map` and `world` are asserted non-null — every caller guards both before calling.
  *  `npcs` is [] when no world exists yet (pre-generation). */
 export function buildRenderContext(deps: RenderContextDeps): RenderContext {
-  const { state, viewport, sheets, assets, decorationImages, artResolver, buildingArtResolver, parametricBuildingSource, parametricPlantSource, generatedBuildingArtSource, devMode } = deps;
+  const { state, viewport, sheets, assets, decorationImages, artResolver, buildingArtResolver, parametricBuildingSource, parametricPlantSource, generatedBuildingArtSource, generatedFloraArtSource, devMode } = deps;
   return {
     map: state.map!,
     camera: state.camera,
@@ -76,6 +78,14 @@ export function buildRenderContext(deps: RenderContextDeps): RenderContext {
       return null;
     },
     resolveParametricPlantArt: (kind: string) => {
+      // Prefer the img2img-refined flora sprite (IDB cache / vendored library /
+      // paid gen when enabled); fall back to the grey parametric massing on a miss.
+      // Both warm fire-and-forget so the frame never blocks.
+      if (generatedFloraArtSource) {
+        const g = generatedFloraArtSource.peek(kind);
+        if (g) return g;
+        generatedFloraArtSource.warm(kind);
+      }
       const s = parametricPlantSource.peek(kind);
       if (s) return s;
       parametricPlantSource.warm(kind); // fire-and-forget; never blocks the frame
