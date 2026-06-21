@@ -35,6 +35,9 @@ test-results/
 
 # Stray root-level capture/debug artifacts (real PNG assets live under public/ & src/)
 /*.png
+/*.jpeg
+/*.jpg
+/_*.mjs
 /frame-report.txt
 
 # PixelLab on-disk cache used by scripts/gen-iso-terrain.ts.

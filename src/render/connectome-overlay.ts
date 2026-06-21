@@ -23,7 +23,12 @@ const EDGE_STYLE: Record<string, { color: string; width: number }> = {
   wall: { color: 'rgba(170, 170, 180, 0.9)', width: 2 },
 };
 
-/** Project a tile coord to CSS-pixel screen space, lifted onto the terrain. */
+/** Project a tile coord to CSS-pixel screen space, lifted onto the terrain.
+ *  Exported as {@link projectConnectome} so the world-studio (drill-down /
+ *  hit-testing / focus overlays) shares pixel-exact parity with this overlay. */
+export function projectConnectome(map: GameMap, tx: number, ty: number, cam: Camera): { x: number; y: number } {
+  return project(map, tx, ty, cam);
+}
 function project(map: GameMap, tx: number, ty: number, cam: Camera): { x: number; y: number } {
   const elev = elevationAt(map, tx, ty);
   // S1 style knobs (default to TERRAIN_RELIEF_M × TERRAIN_Z_PX_PER_M) — must match

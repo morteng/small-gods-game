@@ -43,6 +43,9 @@ export interface StudioState {
   // massing render. Default ON: a fully-generated asset shows its game-ready art.
   textured: boolean;
   fit: boolean; // auto zoom-to-fit the subject (yields to any manual pan/zoom)
+  // Turntable yaw (radians) — orbits the view around the model (right-drag / Q·E),
+  // snapped to 15° steps so each angle's geometry bake is cached & reused.
+  yaw: number;
   // Opt-in ground apron under the building (the "skirt"): null = off; else the apron
   // overhang past the footprint (tiles) + an edge fade (0 = hard edge, 1 = soft blend
   // into the terrain beneath). Re-composes geometry when changed.

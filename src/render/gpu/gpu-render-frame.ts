@@ -205,7 +205,10 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
     let dynamicItems: readonly DrawItem[] = npcItems;
     if (water) dynamicItems = [...npcItems, ...flotsam.items(map, timeSec)];
 
-    const uiGroups = ui.frame(target.width, target.height, dpr);
+    // Studio mode renders the bare scene (terrain + entities) — no game HUD/minimap
+    // and no built-in iso/connectome overlays; the studio owns its own 2D overlay.
+    const chrome = !(rc as { studioNoChrome?: boolean }).studioNoChrome;
+    const uiGroups = chrome ? ui.frame(target.width, target.height, dpr) : [];
     const tFields = performance.now();
 
     scene.renderFrame({
@@ -213,6 +216,7 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
       ribbon, ribbonTime: timeSec, riverSurface, riverLevelDeltaN,
       w: lowW, h: lowH, out: { w: target.width, h: target.height },
       xform, uiGroups,
+      ...(chrome ? null : { passes: { ui: false } }),
     });
     const tRender = performance.now();
 
@@ -226,8 +230,10 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
     // overlays draw straight onto the transparent overlay ctx above it.
     const tComposite = performance.now();
 
-    drawIsoOverlays(ctx, rc);
-    if (showConnectome) drawWorldConnectome(ctx, rc);
+    if (chrome) {
+      drawIsoOverlays(ctx, rc);
+      if (showConnectome) drawWorldConnectome(ctx, rc);
+    }
     const tOverlay = performance.now();
 
     // Live-frame phase breakdown (free when the trace is off).

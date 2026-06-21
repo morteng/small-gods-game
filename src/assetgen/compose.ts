@@ -102,6 +102,11 @@ export interface ComposeOpts {
    *  Pass `false` when the grey is consumed as an img2img INIT — weathering muddies the
    *  material-coded colours the prompt legend keys off. Pure flora/rock never weathers. */
   weather?: WeatherOpts | false;
+  /** Turntable yaw (radians) — spins the model about its vertical axis BEFORE the
+   *  fixed dimetric projection, i.e. orbits the camera around it. 0/undefined =
+   *  the canonical view (unchanged; golden hashes only pin the yaw-0 path). Lighting
+   *  follows (the lit face changes as you spin, like a real turntable). */
+  yaw?: number;
 }
 
 /**
@@ -146,6 +151,26 @@ function applySkirtFade(
   }
 }
 
+/** Build a yaw rotor about the facets' world-XY centre, or null for yaw≈0. The
+ *  returned fn rotates a point about that centre; pass `vector=true` to rotate a
+ *  direction (normal) only (no translation). */
+function makeYawRotor(facets: WorldFacet[], yaw?: number): ((p: Vec3, vector?: boolean) => Vec3) | null {
+  if (!yaw || Math.abs(yaw) < 1e-6 || facets.length === 0) return null;
+  let minx = Infinity, maxx = -Infinity, miny = Infinity, maxy = -Infinity;
+  for (const f of facets) for (const p of f.pts) {
+    if (p[0] < minx) minx = p[0]; if (p[0] > maxx) maxx = p[0];
+    if (p[1] < miny) miny = p[1]; if (p[1] > maxy) maxy = p[1];
+  }
+  const cx = (minx + maxx) / 2, cy = (miny + maxy) / 2;
+  const c = Math.cos(yaw), s = Math.sin(yaw);
+  return (p: Vec3, vector = false): Vec3 => {
+    const dx = vector ? p[0] : p[0] - cx;
+    const dy = vector ? p[1] : p[1] - cy;
+    const rx = dx * c - dy * s, ry = dx * s + dy * c;
+    return vector ? [rx, ry, p[2]] : [cx + rx, cy + ry, p[2]];
+  };
+}
+
 /** Compose a structure spec into aligned grey + normal RGBA buffers (+ bbox/anchors).
  *  Deterministic. `shadowSun` (screen-space, default canonical upper-left) bakes the
  *  geometry cast shadow — vary it to preview different sun directions. `opts.skirtFade`
@@ -153,6 +178,16 @@ function applySkirtFade(
 export async function composeStructure(spec: StructureSpec, shadowSun?: [number, number, number], opts?: ComposeOpts): Promise<StructureResult> {
   const parts = await Promise.all(spec.parts.map(partFacets));
   const facets = parts.flatMap(p => p.facets);
+  // Turntable: rotate every facet (point + normal) about the model's vertical axis
+  // through its world-XY centre. Equivalent to orbiting the fixed camera. Anchors
+  // rotate too (so img2img alignment holds). yaw-0 is a no-op → goldens untouched.
+  const rotWorld = makeYawRotor(facets, opts?.yaw);
+  if (rotWorld) {
+    for (const f of facets) {
+      f.pts = f.pts.map((p) => rotWorld(p));
+      f.normal = rotWorld(f.normal, true);
+    }
+  }
   // Buildings render at a fixed metric scale (content-sized canvas) so heights stay
   // mutually proportional. An explicit spec.size opts back into legacy fit-to-box.
   let fit, size: number;
@@ -190,7 +225,7 @@ export async function composeStructure(spec: StructureSpec, shadowSun?: [number,
 
   // Project world-space anchors through the same fit, then normalise to the opaque bbox.
   const norm = (p: Vec3): NormAnchor => {
-    const s = project(p, fit);
+    const s = project(rotWorld ? rotWorld(p) : p, fit);
     return { x: (s.x - bbox.x) / (bbox.w || 1), y: (s.y - bbox.y) / (bbox.h || 1) };
   };
   const anchors: StructureAnchors = { doors: [], vents: [] };

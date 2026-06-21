@@ -25,6 +25,7 @@ import { structureResultToPack } from '@/render/parametric-building-source';
 import { composeStructure, type StructureResult } from '@/assetgen/compose';
 import { ensureBuildingTypesRegistered } from '@/blueprint/register-buildings';
 import { BUILDING_BLUEPRINTS, synthesizeBlueprint, resolveAsset, isPlantPreset } from '@/blueprint/presets';
+import { assetCatalogue } from '@/blueprint/catalogue';
 import type { ResolvedBlueprint, Descriptors, Era } from '@/blueprint/types';
 import { blueprintEntity } from '@/blueprint/entity';
 import { toGeometry } from '@/blueprint/compile/to-geometry';
@@ -46,6 +47,7 @@ import {
 } from '@/render/sprite-postprocess';
 import { buildAccordion } from './accordion';
 import { buildObjectBrowser } from './object-browser';
+import { mountWorldStudio } from './world-studio';
 import { buildAbSection } from './ab-section';
 import { buildTree } from './blueprint-tree';
 import { buildToolbar } from './toolbar';
@@ -106,14 +108,18 @@ export interface RenderResult {
   finalDataUri: string | null;      // palette-quantized, game-ready albedo
 }
 
-export function mountStudio(container: HTMLElement): void {
-  // World-overview mode (?studio=world): the real default world on the GPU
-  // renderer with the whole-world connectome overlay, separate from the
-  // single-object editor below.
-  if (new URLSearchParams(location.search).get('studio') === 'world') {
-    void import('@/studio/world-studio').then(({ mountWorldStudio }) => mountWorldStudio(container));
-    return;
-  }
+export interface StudioHandle { dispose(): void; }
+export interface ObjectStudioOpts {
+  /** Initial subject kind (building/plant). Falls back to 'oak_tree'. */
+  initialKind?: string;
+}
+
+/** The single-object editor. Returns a dispose handle so the unified shell
+ *  ({@link mountStudio}) can tear it down when switching to World mode. */
+export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts = {}): StudioHandle {
+  let disposed = false;
+  let studioRO: ResizeObserver | null = null;
+  let onOrbitKey: ((e: KeyboardEvent) => void) | null = null;
 
   ensureBuildingTypesRegistered();
   initManifoldWasm();
@@ -136,8 +142,15 @@ export function mountStudio(container: HTMLElement): void {
   root.append(tree, vSplitter, mainCol);
   container.appendChild(root);
 
+  // Two stacked canvases (same as the game): a WebGPU SCENE canvas (renders the lit
+  // model straight to its swap chain), and a transparent 2D OVERLAY canvas on top
+  // for the grid/HUD/stage-buffer view. The GPU frame builder no longer blits onto a
+  // 2D ctx, so the scene must own a real on-screen canvas to be visible.
+  const sceneCanvas = document.createElement('canvas');
+  sceneCanvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:block;z-index:0';
+  viewPane.appendChild(sceneCanvas);
   const canvas = document.createElement('canvas');
-  canvas.style.cssText = 'width:100%;height:100%;display:block';
+  canvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:block;z-index:1';
   viewPane.appendChild(canvas);
   const ctx = canvas.getContext('2d')!;
 
@@ -161,7 +174,9 @@ export function mountStudio(container: HTMLElement): void {
   const subjInflight = new Set<string>();
   // The skirt is a geometry option, so it belongs in the cache key (toggling it must
   // re-compose). Keyed alongside the blueprint JSON.
-  const rbKey = (rb: ResolvedBlueprint): string => JSON.stringify(rb) + (state.skirt ? `|skirt:${state.skirt.margin}:${state.skirt.fade}` : '');
+  const rbKey = (rb: ResolvedBlueprint): string => JSON.stringify(rb)
+    + (state.skirt ? `|skirt:${state.skirt.margin}:${state.skirt.fade}` : '')
+    + (state.yaw ? `|yaw:${state.yaw.toFixed(4)}` : '');
   function warmSubject(): void {
     if (!liveRb) return;
     const rb = liveRb, k = rbKey(rb);
@@ -170,7 +185,7 @@ export function mountStudio(container: HTMLElement): void {
     composeStructure(
       toGeometry(rb, state.skirt ? { skirt: { margin: state.skirt.margin } } : undefined),
       liveSun(),
-      state.skirt ? { skirtFade: state.skirt.fade } : undefined,
+      { ...(state.skirt ? { skirtFade: state.skirt.fade } : null), ...(state.yaw ? { yaw: state.yaw } : null) },
     )
       .then((r) => { subjStages.set(k, r); subjPacks.set(k, structureResultToPack(r)); })
       .catch((err) => { console.warn('[studio] compose failed', err); subjPacks.set(k, null); })
@@ -232,13 +247,12 @@ export function mountStudio(container: HTMLElement): void {
   // WebGPU scene renderer (async bring-up). Until it resolves, the frame loop
   // paints only the background; the GPU canvas composites once ready.
   let renderMap: RenderFn | null = null;
-  void createGpuRenderMap().then((r) => { renderMap = r.render; });
+  void createGpuRenderMap({ canvas: sceneCanvas }).then((r) => { renderMap = r.render; });
 
-  const params = new URLSearchParams(location.search);
-  const initial = (params.get('studio') && params.get('studio') !== '1') ? params.get('studio')! : 'oak_tree';
+  const initial = (opts.initialKind && opts.initialKind !== '1') ? opts.initialKind : 'oak_tree';
 
   const state: StudioState = {
-    kind: BUILDING_BLUEPRINTS[initial] ? initial : 'oak_tree',
+    kind: (BUILDING_BLUEPRINTS[initial] || isPlantPreset(initial)) ? initial : 'oak_tree',
     lighting: { ...DEFAULT_LIGHTING, shadowMode: 'geometry' },
     az: 41, el: 40,
     sunMode: 'solar',
@@ -246,6 +260,7 @@ export function mountStudio(container: HTMLElement): void {
     overlays: true,
     textured: true,
     fit: true,
+    yaw: 0,
     skirt: null,
     dockH: DEFAULT_DOCK,
     view: null,
@@ -339,9 +354,11 @@ export function mountStudio(container: HTMLElement): void {
     const { w, h, dpr } = viewport();
     canvas.width = Math.max(1, Math.round(w * dpr));
     canvas.height = Math.max(1, Math.round(h * dpr));
+    sceneCanvas.width = canvas.width;
+    sceneCanvas.height = canvas.height;   // GPU swap chain follows this size
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   }
-  new ResizeObserver(resize).observe(viewPane);
+  studioRO = new ResizeObserver(resize); studioRO.observe(viewPane);
   resize();
 
   const cam = createCamera();
@@ -372,6 +389,44 @@ export function mountStudio(container: HTMLElement): void {
     onRedraw: () => {},
   });
 
+  // ── turntable orbit (right-drag, or Q/E keys) ────────────────────────────────
+  // Snapped to 15° so each angle's geometry bake is cached & reused (peekSubject
+  // keys on yaw); orbiting through a revolution composes 24 angles once, then
+  // scrubs instantly. No invalidate — that would drop the other angles' bakes.
+  const YAW_STEP = Math.PI / 12;            // 15°
+  const TAU = Math.PI * 2;
+  const RAD_PER_PX = YAW_STEP / 11;         // ~11 px drag per 15° step
+  function setYaw(rad: number): void {
+    const snapped = Math.round(rad / YAW_STEP) * YAW_STEP;
+    state.yaw = ((snapped % TAU) + TAU) % TAU;
+  }
+  // right-button drag orbits without disturbing attachControls' left-drag pan.
+  let orbiting = false, orbitStartX = 0, orbitStartYaw = 0, orbitMoved = false;
+  canvas.addEventListener('mousedown', (e) => {
+    if (e.button !== 2) return;
+    orbiting = true; orbitMoved = false; orbitStartX = e.clientX; orbitStartYaw = state.yaw;
+    canvas.style.cursor = 'ew-resize';
+  });
+  window.addEventListener('mousemove', (e) => {
+    if (disposed || !orbiting) return;
+    if (Math.abs(e.clientX - orbitStartX) > 2) orbitMoved = true;
+    setYaw(orbitStartYaw + (e.clientX - orbitStartX) * RAD_PER_PX);
+  });
+  window.addEventListener('mouseup', (e) => {
+    if (disposed) return;
+    if (e.button === 2 && orbiting) { orbiting = false; canvas.style.cursor = ''; }
+  });
+  // swallow the context menu only when it ends an orbit drag (so a plain
+  // right-click elsewhere still works normally).
+  canvas.addEventListener('contextmenu', (e) => { if (orbitMoved) { e.preventDefault(); orbitMoved = false; } });
+  onOrbitKey = (e: KeyboardEvent): void => {
+    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+    if (e.key === 'q' || e.key === 'Q') setYaw(state.yaw - YAW_STEP);
+    else if (e.key === 'e' || e.key === 'E') setYaw(state.yaw + YAW_STEP);
+    else if (e.key === 'r' || e.key === 'R') state.yaw = 0;
+  };
+  window.addEventListener('keydown', onOrbitKey);
+
   function renderContext(): RenderContext {
     const { w, h } = viewport();
     state.lighting.sunDir = sunDir(state.az, state.el);
@@ -394,6 +449,7 @@ export function mountStudio(container: HTMLElement): void {
       world, lighting: state.lighting,
       resolveParametricBuildingArt: litSubjectPack,
       resolveParametricPlantArt: litSubjectPack,
+      studioNoChrome: true,   // bare scene; the studio draws its own overlays/HUD
     } as unknown as RenderContext;
   }
 
@@ -472,6 +528,14 @@ export function mountStudio(container: HTMLElement): void {
     ctx.strokeStyle = COLORS.accent; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.moveTo(gx, gy); ctx.lineTo(gx + d[0] * R, gy - d[1] * R); ctx.stroke();
     ctx.fillStyle = COLORS.accent; ctx.beginPath(); ctx.arc(gx + d[0] * R, gy - d[1] * R, 3, 0, Math.PI * 2); ctx.fill();
+    // turntable yaw readout (only when rotated off the canonical view)
+    if (state.yaw) {
+      const deg = Math.round((state.yaw * 180) / Math.PI);
+      ctx.fillStyle = 'rgba(232,238,246,0.9)';
+      ctx.font = '600 11px var(--font-mono)';
+      ctx.textAlign = 'center';
+      ctx.fillText(`⟳ ${deg}°`, gx, gy + R + 18);
+    }
     ctx.restore();
   }
 
@@ -556,13 +620,18 @@ export function mountStudio(container: HTMLElement): void {
 
   let raf = 0;
   function frame(): void {
+    if (disposed) return;
     if (state.view) {
+      // Stage-buffer inspection: hide the GPU scene so the (opaque) stage view owns
+      // the pane.
+      sceneCanvas.style.visibility = 'hidden';
       drawStageInPane(state.view.canvas);
       const c = state.view.canvas;
       const s = stageNav.zoom > 0 ? stageNav.zoom : stageFitScale(c);
       liveBtn.show(`${state.view.label}  ·  ${s >= 1 ? `${Math.round(s)}×` : `${(s * 100) | 0}%`} (scroll=zoom, drag=pan, dbl=reset)`);
       stageOverlay.style.display = 'block';
     } else {
+      sceneCanvas.style.visibility = 'visible';
       stageOverlay.style.display = 'none';
       const rc = renderContext();
       if (renderMap) renderMap(ctx, rc);
@@ -702,13 +771,13 @@ export function mountStudio(container: HTMLElement): void {
     return !!peekSubject();
   }
   const studioDebug = {
-    /** All available subject presets (buildings + plants). */
-    kinds: (): string[] => Object.keys(BUILDING_BLUEPRINTS).sort(),
+    /** All available subject presets (buildings + hand plants + flora-DB species). */
+    kinds: (): string[] => assetCatalogue().map((e) => e.type).sort(),
     /** The current subject kind. */
     get kind(): string { return state.kind; },
     /** Switch subject; resolves once its geometry is warm + drawn. */
     async setKind(kind: string): Promise<boolean> {
-      if (!BUILDING_BLUEPRINTS[kind]) throw new Error(`unknown kind "${kind}"`);
+      if (!BUILDING_BLUEPRINTS[kind] && !isPlantPreset(kind)) throw new Error(`unknown kind "${kind}"`);
       setSubject(kind);
       return settleGeometry();
     },
@@ -778,7 +847,7 @@ export function mountStudio(container: HTMLElement): void {
     const struct = await composeStructure(
       toGeometry(rb, state.skirt ? { skirt: { margin: state.skirt.margin } } : undefined),
       liveSun(),
-      state.skirt ? { skirtFade: state.skirt.fade } : undefined,
+      { ...(state.skirt ? { skirtFade: state.skirt.fade } : null), ...(state.yaw ? { yaw: state.yaw } : null) },
     );
     const initDataUri = greyToDataUri(compositeOverChroma(struct.grey), struct.size);
     if (!initDataUri) return null;
@@ -931,6 +1000,11 @@ export function mountStudio(container: HTMLElement): void {
   Object.assign(studioDebug, {
     state, invalidate,
     setSun: (az: number, el: number) => { state.az = az; state.el = el; invalidate(); },
+    /** Orbit the turntable to an absolute yaw in DEGREES (snapped to 15°); resolves
+     *  once that angle's geometry is composed + drawn. */
+    async setYaw(deg: number): Promise<boolean> { setYaw((deg * Math.PI) / 180); return settleGeometry(); },
+    /** Current turntable yaw in degrees. */
+    yaw: (): number => Math.round((state.yaw * 180) / Math.PI),
     structResult: () => shownStruct,
     /** Headless A/B: generate the current subject with two models and return the
      *  gate metrics (cost/ms/border/IoU/verdict) — sprites omitted (not serialisable). */
@@ -944,6 +1018,65 @@ export function mountStudio(container: HTMLElement): void {
   (window as unknown as { __studio?: unknown }).__studio = studioDebug;
   // eslint-disable-next-line no-console
   console.log('[studio] mounted —', state.kind);
+
+  return {
+    dispose(): void {
+      disposed = true;
+      cancelAnimationFrame(raf);
+      studioRO?.disconnect();
+      if (onOrbitKey) window.removeEventListener('keydown', onOrbitKey);
+    },
+  };
+}
+
+// ── unified studio shell ─────────────────────────────────────────────────────
+// One entry point hosting BOTH modes in the same chrome: a slim mode bar over a
+// content host. Switching disposes the current mode and mounts the other; the
+// World Browser's "Edit in studio" hands off in-process (no page reload). Initial
+// mode comes from ?studio (=world → World, =<kind> → that object, bare → oak).
+export function mountStudio(container: HTMLElement): void {
+  injectStudioTheme(container);
+  container.style.position = 'relative';
+  container.style.background = COLORS.bg0;
+
+  const shell = h('div', { style: 'position:absolute;inset:0;display:flex;flex-direction:column;overflow:hidden' });
+  const bar = h('div', { class: 'sg-panel', style: 'flex:0 0 auto;display:flex;gap:6px;align-items:center;padding:5px 10px;border-bottom:1px solid var(--line)' });
+  const host = h('div', { style: 'position:relative;flex:1 1 auto;min-height:0;overflow:hidden' });
+  shell.append(bar, host);
+  container.appendChild(shell);
+
+  const objBtn = h('button', { class: 'sg-btn', html: '🏛 <span style="opacity:.8">Object</span>' });
+  const worldBtn = h('button', { class: 'sg-btn', html: '🌍 <span style="opacity:.8">World</span>' });
+  bar.append(
+    h('span', { class: 'sg-muted', style: 'font-weight:700;letter-spacing:.06em;margin-right:6px', text: 'STUDIO' }),
+    objBtn, worldBtn,
+  );
+
+  const param = new URLSearchParams(location.search).get('studio');
+  let mode: 'object' | 'world' = param === 'world' ? 'world' : 'object';
+  let current: StudioHandle | null = null;
+
+  const paint = (): void => {
+    objBtn.classList.toggle('is-on', mode === 'object');
+    worldBtn.classList.toggle('is-on', mode === 'world');
+  };
+  function showObject(kind?: string): void {
+    current?.dispose();
+    host.replaceChildren();
+    mode = 'object'; paint();
+    current = mountObjectStudio(host, { initialKind: kind });
+  }
+  function showWorld(): void {
+    current?.dispose();
+    host.replaceChildren();
+    mode = 'world'; paint();
+    current = mountWorldStudio(host, { onEdit: (k) => showObject(k) });
+  }
+  objBtn.addEventListener('click', () => { if (mode !== 'object') showObject(); });
+  worldBtn.addEventListener('click', () => { if (mode !== 'world') showWorld(); });
+
+  if (mode === 'world') showWorld();
+  else showObject(param && param !== '1' ? param : undefined);
 }
 
 function cloneRaster(r: Raster): Raster {
