@@ -81,14 +81,18 @@ export interface TerrainGlobalsInput {
   sunDir: [number, number, number]; bands: number;
   ambient: [number, number, number]; sunStrength: number;
   /** Terrain display mode, packed into the former `uPad0.x` slot — 0 = textured
-   *  (default) … 5 = normals. See `TERRAIN_MODES` in terrain-field.ts. */
+   *  (default) … 6 = wireframe. See `TERRAIN_MODES` in terrain-field.ts. */
   terrainMode?: number;
+  /** Sub-tile mesh supersample (≥1; 1 = one quad/tile), packed into `uMode.y`.
+   *  The vertex shader subdivides each tile into this many quads per edge. */
+  terrainSuper?: number;
 }
 
 /** Pack the terrain Globals uniform (std140-ish; vec2 pairs share 16-byte slots). */
 export function packTerrainGlobals(g: TerrainGlobalsInput): Float32Array {
   const b = new Float32Array(TERRAIN_GLOBALS_FLOATS);
-  b[0] = g.viewport[0]; b[1] = g.viewport[1]; b[2] = g.terrainMode ?? 0; b[3] = 0; // uViewport, uMode
+  b[0] = g.viewport[0]; b[1] = g.viewport[1];
+  b[2] = g.terrainMode ?? 0; b[3] = Math.max(1, g.terrainSuper ?? 1);           // uViewport, uMode (mode, super)
   b[4] = g.xform.sx; b[5] = g.xform.sy; b[6] = g.xform.ox; b[7] = g.xform.oy; // uXform
   b[8] = g.grid[0]; b[9] = g.grid[1]; b[10] = g.half[0]; b[11] = g.half[1];   // uGrid, uHalf
   b[12] = g.zPxPerM; b[13] = g.seaLevel; b[14] = g.reliefM; b[15] = Math.max(1, g.subsample); // uZParams

@@ -67,6 +67,7 @@ export const TERRAIN_MODES = [
   { id: 'biome', label: 'Biome', value: 3 },
   { id: 'slope', label: 'Slope', value: 4 },
   { id: 'normal', label: 'Normals', value: 5 },
+  { id: 'wireframe', label: 'Wireframe (mesh)', value: 6 },
 ] as const;
 export type TerrainModeId = (typeof TERRAIN_MODES)[number]['id'];
 
@@ -251,17 +252,27 @@ export interface TerrainGrid {
   vertexCount: number;
 }
 
-/** Choose the subsample LOD + vertex count for a map, honouring the quad cap. */
-export function terrainGrid(width: number, height: number, maxQuads = MAX_TERRAIN_QUADS): TerrainGrid {
+/**
+ * Choose the subsample LOD + vertex count for a map, honouring the quad cap.
+ * `superSample` (≥1, default 1) SUBDIVIDES each tile into that many quads per edge
+ * — the studio's "mesh resolution" control. The cap is enforced on the final
+ * (post-supersample) quad count, so the auto-LOD coarsens the base grid if a high
+ * supersample would blow the budget. At `superSample === 1` this is byte-identical
+ * to the original (game) behaviour.
+ */
+export function terrainGrid(
+  width: number, height: number, maxQuads = MAX_TERRAIN_QUADS, superSample = 1,
+): TerrainGrid {
+  const sup = Math.max(1, Math.floor(superSample));
   let subsample = 1;
   for (let s = 1; s <= 16; s++) {
-    const qx = Math.max(1, Math.floor(width / s));
-    const qy = Math.max(1, Math.floor(height / s));
+    const qx = Math.max(1, Math.floor(width / s)) * sup;
+    const qy = Math.max(1, Math.floor(height / s)) * sup;
     if (qx * qy <= maxQuads) { subsample = s; break; }
     subsample = s;
   }
-  const quadsX = Math.max(1, Math.floor(width / subsample));
-  const quadsY = Math.max(1, Math.floor(height / subsample));
+  const quadsX = Math.max(1, Math.floor(width / subsample)) * sup;
+  const quadsY = Math.max(1, Math.floor(height / subsample)) * sup;
   return { subsample, quadsX, quadsY, vertexCount: quadsX * quadsY * 6 };
 }
 
@@ -293,6 +304,8 @@ export interface BuildTerrainFieldOpts {
   maxQuads?: number;
   /** Terrain display mode enum (0 = textured). See {@link TERRAIN_MODES}. */
   terrainMode?: number;
+  /** Sub-tile mesh supersample (≥1; 1 = one quad/tile). See {@link terrainGrid}. */
+  superSample?: number;
 }
 
 /** Relative luminance of an RGB triple in `[0,1]` — terrain sun strength scalar. */
@@ -316,6 +329,8 @@ export function terrainGlobalsFor(
     subsample: number;
     /** Display mode enum (0 = textured). Defaults to 0 when omitted. */
     terrainMode?: number;
+    /** Sub-tile mesh supersample (≥1; 1 = one quad/tile). Defaults to 1. */
+    superSample?: number;
   },
 ): TerrainGlobalsInput {
   // S1 style knobs: vertical exaggeration + relief metres. Default to
@@ -335,6 +350,7 @@ export function terrainGlobalsFor(
     ambient: opts.lighting.ambient,
     sunStrength: luminance(opts.lighting.sunColor),
     terrainMode: opts.terrainMode ?? 0,
+    terrainSuper: Math.max(1, Math.floor(opts.superSample ?? 1)),
   };
 }
 
@@ -365,10 +381,10 @@ export function terrainLiftFieldFor(map: GameMap): { heights: Float32Array; glob
  * array is reused; only the colour field and globals are recomputed.
  */
 export function buildTerrainField(map: GameMap, opts: BuildTerrainFieldOpts): TerrainField {
-  const grid = terrainGrid(map.width, map.height, opts.maxQuads);
+  const grid = terrainGrid(map.width, map.height, opts.maxQuads, opts.superSample);
   const globals = terrainGlobalsFor(map, {
     viewport: opts.viewport, xform: opts.xform, lighting: opts.lighting, subsample: grid.subsample,
-    terrainMode: opts.terrainMode,
+    terrainMode: opts.terrainMode, superSample: opts.superSample,
   });
   const climate = getClimateFields(map);
   return {

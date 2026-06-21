@@ -73,7 +73,7 @@ describe('R2c — instance/globals buffer packing', () => {
     expect(TERRAIN_GLOBALS_FLOATS).toBe(24);
     // Float32 storage, so fractional values are compared with tolerance.
     const near = (i: number, v: number) => expect(t[i]).toBeCloseTo(v, 5);
-    expect([t[0], t[1], t[2], t[3]]).toEqual([800, 600, 0, 0]);   // viewport, pad
+    expect([t[0], t[1], t[2], t[3]]).toEqual([800, 600, 0, 1]);   // viewport, uMode (mode 0, super≥1)
     expect([t[4], t[5], t[6], t[7]]).toEqual([2, 2, 5, 7]);       // xform
     expect([t[8], t[9], t[10], t[11]]).toEqual([64, 48, 64, 32]); // grid, half
     near(12, 1.5); near(13, 0.35); near(14, 48); near(15, 1);     // zParams (subsample ≥1)

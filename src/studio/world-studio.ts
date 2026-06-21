@@ -377,7 +377,7 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
     layersSec.appendChild(toggleRow(label, true, (v) => { dev[layerFlag(layer)] = v; }));
   }
   layersSec.appendChild(toggleRow('Connectome', true, (v) => { showConnectome = v; }));
-  layersSec.appendChild(toggleRow('Detail patches', false, (v) => { showDetailPatches = v; }));
+  layersSec.appendChild(toggleRow('Detail patch regions', false, (v) => { showDetailPatches = v; }));
   panel.appendChild(layersSec);
 
   // ── display: terrain render style ───────────────────────────────────────────
@@ -396,6 +396,21 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
   styleSel.value = 'textured';
   styleSel.onchange = () => { dev.terrainMode = terrainModeValue(styleSel.value as TerrainModeId); };
   displaySec.appendChild(styleSel);
+
+  // Mesh resolution — the actual GPU terrain grid density. 1:1 = one quad per tile
+  // (the game default); 2×/4× subdivide each tile into a finer lattice (bilinear
+  // off the per-cell height buffer). Most legible in the Wireframe style.
+  displaySec.appendChild(h('div', { class: 'sg-eyebrow', style: 'margin:9px 0 5px', text: 'Mesh resolution' }));
+  const resSel = document.createElement('select');
+  resSel.style.cssText = styleSel.style.cssText;
+  for (const [v, label] of [['1', '1:1 — one quad / tile'], ['2', '2× subdivide'], ['4', '4× subdivide']] as const) {
+    const o = document.createElement('option'); o.value = v; o.textContent = label; resSel.appendChild(o);
+  }
+  resSel.value = '1';
+  resSel.onchange = () => { dev.terrainSuper = parseInt(resSel.value, 10) || 1; };
+  displaySec.appendChild(resSel);
+  const hint = h('div', { style: 'margin-top:6px;font:400 10px var(--font-mono);color:var(--ink-2)', text: 'Pick “Wireframe (mesh)” to see the grid.' });
+  displaySec.appendChild(hint);
   panel.appendChild(displaySec);
 
   // ── pan + zoom + click ──────────────────────────────────────────────────────

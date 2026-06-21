@@ -773,9 +773,12 @@ export interface DevModeState {
   // Terrain sub-layers (tile-type based; gated inside the terrain pass).
   showRoads?: boolean;
   showRivers?: boolean;
-  // Terrain display mode enum (0 = textured … 5 = normals). See TERRAIN_MODES in
+  // Terrain display mode enum (0 = textured … 6 = wireframe). See TERRAIN_MODES in
   // src/render/gpu/terrain-field.ts; threaded into the terrain shader uniform.
   terrainMode?: number;
+  // Terrain mesh supersample (≥1; 1 = one quad/tile). Subdivides the GPU-generated
+  // terrain grid for inspection (visible in the wireframe mode). Default 1.
+  terrainSuper?: number;
   // Time debug
   showEventLog?: boolean;
   showSimState?: boolean;

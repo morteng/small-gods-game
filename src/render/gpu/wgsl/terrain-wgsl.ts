@@ -114,6 +114,24 @@ fn heightPx(cx : u32, cy : u32) -> f32 {
   return (e - G.uZParams.y) * G.uZParams.z * G.uZParams.x;
 }
 
+// Bilinear elevation at a CONTINUOUS tile coord — the vertex-stage sampler for
+// sub-tile mesh subdivision. At integer coords it returns the exact cell height,
+// so the supersample=1 path stays byte-identical to the per-cell heightPx.
+fn heightAtF(fx : f32, fy : f32) -> f32 {
+  let W = u32(G.uGrid.x); let H = u32(G.uGrid.y);
+  let px = clamp(fx, 0.0, f32(W - 1u));
+  let py = clamp(fy, 0.0, f32(H - 1u));
+  let x0 = u32(floor(px)); let y0 = u32(floor(py));
+  let x1 = min(x0 + 1u, W - 1u); let y1 = min(y0 + 1u, H - 1u);
+  let tx = px - f32(x0); let ty = py - f32(y0);
+  let h00 = heights[y0 * W + x0]; let h10 = heights[y0 * W + x1];
+  let h01 = heights[y1 * W + x0]; let h11 = heights[y1 * W + x1];
+  return mix(mix(h00, h10, tx), mix(h01, h11, tx), ty);
+}
+fn heightPxF(fx : f32, fy : f32) -> f32 {
+  return (heightAtF(fx, fy) - G.uZParams.y) * G.uZParams.z * G.uZParams.x;
+}
+
 struct VSOut {
   @builtin(position) pos : vec4<f32>,
   @location(0) vNormal : vec3<f32>,
@@ -124,8 +142,9 @@ struct VSOut {
 fn vsMain(@builtin(vertex_index) vid : u32) -> VSOut {
   let W = u32(G.uGrid.x);
   let H = u32(G.uGrid.y);
-  let sub = max(1u, u32(G.uZParams.w));
-  let quadsPerRow = max(1u, W / sub);
+  let sub = max(1u, u32(G.uZParams.w));   // coarsen LOD (auto, big maps)
+  let sup = max(1u, u32(G.uMode.y));      // subdivide (manual; 1 = one quad/tile)
+  let quadsPerRow = max(1u, (W / sub) * sup);
 
   let quadIdx = vid / 6u;
   let vertInQuad = vid % 6u;
@@ -141,26 +160,29 @@ fn vsMain(@builtin(vertex_index) vid : u32) -> VSOut {
     case 4u: { corner = vec2<u32>(1u, 1u); }
     default: { corner = vec2<u32>(0u, 1u); }
   }
-  let gx = min(qx * sub + corner.x * sub, W - 1u);
-  let gy = min(qy * sub + corner.y * sub, H - 1u);
+  // CONTINUOUS tile coordinate. Each quad edge spans sub/sup tiles, so sup>1
+  // subdivides each tile into a finer lattice; sampled bilinearly off the per-cell
+  // height buffer. At sup=1 the coords are integers and heightPxF is exact, so the
+  // mesh is byte-identical to the per-cell path.
+  let stepT = f32(sub) / f32(sup);
+  let fx = min((f32(qx) + f32(corner.x)) * stepT, f32(W - 1u));
+  let fy = min((f32(qy) + f32(corner.y)) * stepT, f32(H - 1u));
 
-  let hPx = heightPx(gx, gy);
+  let hPx = heightPxF(fx, fy);
 
   // Normal from neighbour heights (central differences); tile space x=east,
-  // y=up, z=south. Flat ground gives (0,1,0). sub scales the up term so slope
-  // magnitude is independent of subsample spacing.
+  // y=up, z=south. Flat ground gives (0,1,0). The ±1-tile spacing + sub up-term
+  // keep slope magnitude independent of the mesh density (matches the original).
   var normal = vec3<f32>(0.0, 1.0, 0.0);
-  if (gx > 0u && gx < W - 1u && gy > 0u && gy < H - 1u) {
-    let hl = heightPx(gx - 1u, gy);
-    let hr = heightPx(gx + 1u, gy);
-    let hu = heightPx(gx, gy - 1u);
-    let hd = heightPx(gx, gy + 1u);
+  if (fx > 0.5 && fx < f32(W - 1u) - 0.5 && fy > 0.5 && fy < f32(H - 1u) - 0.5) {
+    let hl = heightPxF(fx - 1.0, fy);
+    let hr = heightPxF(fx + 1.0, fy);
+    let hu = heightPxF(fx, fy - 1.0);
+    let hd = heightPxF(fx, fy + 1.0);
     normal = normalize(vec3<f32>(-(hr - hl) * 0.5, f32(sub) * G.uHalf.y, -(hd - hu) * 0.5));
   }
 
   // Screen-space iso projection (matches worldToScreen); height lifts -y.
-  let fx = f32(gx);
-  let fy = f32(gy);
   let scr = vec2<f32>((fx - fy) * G.uHalf.x, (fx + fy) * G.uHalf.y - hPx);
   let dev = scr * G.uXform.xy + G.uXform.zw;
   let ndc = vec2<f32>(dev.x / (G.uViewport.x * 0.5) - 1.0, 1.0 - dev.y / (G.uViewport.y * 0.5));
@@ -257,6 +279,20 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   // 4 slope · 5 normals. The detail-patch pass shares this fragment, so the mode
   // applies to the fine patches identically.
   let mode = u32(G.uMode.x + 0.5);
+  if (mode == 6u) {                                  // WIREFRAME — the real mesh grid
+    // Lines at the actual quad edges: vertices sit at multiples of stepT = sub/sup
+    // tiles, so drawing where vGrid/stepT crosses an integer traces the rendered
+    // triangulation. fwidth keeps the line a constant screen width at any zoom.
+    let stepT = max(1.0, G.uZParams.w) / max(1.0, G.uMode.y);
+    let gu = in.vGrid.x / stepT;
+    let gv = in.vGrid.y / stepT;
+    let du = min(fract(gu), 1.0 - fract(gu)) / max(fwidth(gu), 1e-4);
+    let dv = min(fract(gv), 1.0 - fract(gv)) / max(fwidth(gv), 1e-4);
+    let lineMask = 1.0 - clamp(min(du, dv), 0.0, 1.0);
+    let fillCol = base * light * 0.4;                // dim lit terrain underneath
+    let wireCol = vec3<f32>(0.50, 0.95, 0.72);       // cyan-green mesh lines
+    return vec4<f32>(mix(fillCol, wireCol, lineMask), 1.0);
+  }
   if (mode == 5u) {                                  // NORMALS — geometry debug, unlit
     return vec4<f32>(n * 0.5 + vec3<f32>(0.5), 1.0);
   }

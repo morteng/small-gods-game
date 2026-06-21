@@ -107,8 +107,18 @@ patches identically. A **Terrain style** `<select>` in the World workspace's lef
 panel drives it (also exposed game-wide via `DevModeState.terrainMode`). Verified
 live: normals show the per-cell surface + road/river incision, slope reads
 flat-green→steep-red (Emberpeak crater bright red), contour rings the calderas.
-Wireframe deferred (needs a line-topology pipeline or barycentric pass — the five
-fragment modes cover the "vector / professional controls" ask).
+**Wireframe + mesh resolution.** A 7th mode `wireframe` (6) draws the REAL terrain
+mesh grid — lines at the actual quad edges (`vGrid / stepT` crossings, `fwidth`
+anti-aliased, riding the lit relief), so it shows the rendered triangulation, not
+an overlay. Paired with a **Mesh resolution** control (1:1 / 2× / 4×) that genuinely
+subdivides the GPU grid: `terrainGrid` gained a `superSample` factor and the terrain
+vertex shader a continuous-coord path (`stepT = sub/sup` tiles per quad edge,
+bilinear `heightPxF` off the per-cell buffer). At `superSample === 1` the vertex
+math is byte-identical to the original per-cell path (integer coords → exact
+sample), so the shipped game is untouched; the studio threads it via
+`DevModeState.terrainSuper`. Generation stays on the GPU (the vertex stage emits +
+lifts the lattice from the storage buffer — no CPU vertex arrays). True line-topology
+wireframe deferred; the fragment-grid reads as a mesh at any zoom.
 
 **Detail-patch overlay (S4 companion).** A "Detail patches" toggle in the same
 panel draws the adaptive sub-tile patch blocks (`computeDetailMask` →
