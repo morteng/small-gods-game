@@ -53,11 +53,20 @@ flora/terrain show only the default thumbnail (their cultivars are already disti
 catalogue rows in the sheet). Thumbnails are unlit-massing grey/material — no img2img
 painted overlay yet (RESEED FREEZE). 2-axis (row×col) matrix is single-axis for now.
 
-### S3 — Zoo workspace ⬜
-NPC viewer. NPCs are LPC **sprite sheets**, not `composeStructure` geometry, so the
-Gallery's render adapter must branch: building/flora → compose a pack; NPC → draw LPC
-frames. Natural matrix axes: `action (idle/walk/worship/combat/hurt) × direction (4)`.
-Likely a sibling workspace reusing the grid/lazy-bake machinery with an LPC cell renderer.
+### S3 — Zoo workspace ✅ (2026-06-21)
+`src/studio/zoo-studio.ts`. A sibling of the Gallery with an LPC cell adapter:
+- **Sheet** — a menagerie of every role (8) × N seeds, each a LIVING thumbnail
+  (walk cycle facing the viewer). Click a cell → matrix for that role+seed.
+- **Matrix** — pick a role + seed → that character across every action (walk /
+  spellcast / thrust / slash / shoot / hurt) × 4 facings (hurt is non-directional).
+
+Reuses the live renderer's exact path: `buildCharacterSpec(role, seed)` →
+`getOrGenerateSheet` (async, globally cached by spec hash) → blit one 64px frame
+(`LPC_ANIMATIONS`/`LPC_DIR_OFFSET` for the source rect). A single shared rAF (~8fps)
+advances every ready cell, so the zoo breathes; an Animate toggle pauses it. Lazy
+(IntersectionObserver) + concurrency-capped (3). Verified live: 32 menagerie cells
+(8 roles × 4 seeds) bake to distinct characters; a soldier matrix renders all 21
+action×facing poses, animating.
 
 ### S4 — Layers panel + `RenderContext.layerMask` ⬜
 World-stage layer toggles: terrain / water / roads / rivers / buildings / flora / npcs

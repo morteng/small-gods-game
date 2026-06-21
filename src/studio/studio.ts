@@ -49,6 +49,7 @@ import { buildAccordion } from './accordion';
 import { buildObjectBrowser } from './object-browser';
 import { mountWorldStudio } from './world-studio';
 import { mountGalleryStudio } from './gallery-studio';
+import { mountZooStudio } from './zoo-studio';
 import { buildAbSection } from './ab-section';
 import { buildTree } from './blueprint-tree';
 import { buildToolbar } from './toolbar';
@@ -1056,6 +1057,7 @@ interface WorkspaceCtx {
 const WORKSPACES: Workspace[] = [
   { id: 'object', label: '🏛 Object', mount: (host, _ctx, arg) => mountObjectStudio(host, { initialKind: arg }) },
   { id: 'gallery', label: '🖼 Gallery', mount: (host, ctx, arg) => mountGalleryStudio(host, { filter: arg, onEdit: (k) => ctx.open('object', k) }) },
+  { id: 'zoo', label: '🦌 Zoo', mount: (host) => mountZooStudio(host) },
   { id: 'world', label: '🌍 World', mount: (host, ctx) => mountWorldStudio(host, { onEdit: (k) => ctx.open('object', k) }) },
 ];
 
@@ -1063,6 +1065,7 @@ const WORKSPACES: Workspace[] = [
 function initialWorkspace(param: string | null): { id: string; arg?: string } {
   switch (param) {
     case 'world': return { id: 'world' };
+    case 'zoo': return { id: 'zoo' };
     case 'gallery': case '1': case null: return param === 'gallery' ? { id: 'gallery' } : { id: 'object' };
     case 'arboretum': return { id: 'gallery', arg: 'plant' };
     case 'buildings': return { id: 'gallery', arg: 'building' };
