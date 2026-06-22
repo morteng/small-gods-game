@@ -16,7 +16,7 @@ import type { System, SystemContext } from '@/core/scheduler';
 import type { WeatherStepper } from '@/sim/water/weather-stepper';
 import type { FloodWatch } from '@/world/flood-watch';
 import type { CausalSiteStore } from '@/world/causal-site';
-import { seedFloodBelief } from '@/sim/divine-actions';
+import { seedFloodBelief, seedSiteBelief } from '@/sim/divine-actions';
 
 /** Whose flood-power gets the credit when waters rise (the protagonist god). */
 const ATTRIBUTION_SPIRIT = 'player';
@@ -73,6 +73,8 @@ export class WeatherSystem implements System {
           type: 'site_born', siteId: s.id, kind: s.kind, name: s.name,
           x: s.pos.x, y: s.pos.y, depthM: s.intensity * 2, cells: s.cells.length,
         });
+        // W-I-c: NPCs near the new deluge credit the causing spirit (proximity belief).
+        seedSiteBelief(ctx.world, s);
       }
       for (const s of faded) ctx.log.append({ type: 'site_faded', siteId: s.id, name: s.name });
     }

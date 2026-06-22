@@ -6,6 +6,7 @@ import { clamp01, signResponse } from '@/sim/npc-sim';
 import type { World } from '@/world/world';
 import { addDomainBelief, isOminous } from '@/sim/belief-domains';
 import type { WeatherStepper } from '@/sim/water/weather-stepper';
+import type { CausalSite } from '@/world/causal-site';
 
 // ─── Power costs ──────────────────────────────────────────────────────────────
 
@@ -364,6 +365,29 @@ export function seedFloodBelief(
     const p = npcProps(e);
     if (p.homePoiId !== poiId) return;
     addDomainBelief(p, spiritId, 'flood', gain);
+  });
+}
+
+/**
+ * W-I-c — belief at a CAUSAL SITE. Where `seedFloodBelief` keys on residency (a
+ * settlement's own believers), a causal site has no residents — it's a drowned plain.
+ * So belief seeds by PROXIMITY instead: any NPC standing in or adjacent to the site's
+ * footprint witnesses the deluge and credits the causing spirit, scaled by the site's
+ * intensity. Same attribution-at-the-act-site principle, generalized off the poiId.
+ */
+export function seedSiteBelief(world: World, site: CausalSite): void {
+  const gain = FLOOD_WITNESS_SEED * Math.min(1, site.intensity);
+  if (gain <= 0 || site.cause === 'nature') return;   // nobody to credit for a natural flood
+  const w = world.tiles.width;
+  const foot = new Set<number>();
+  for (let k = 0; k < site.cells.length; k++) foot.add(site.cells[k]);
+  forEachNpc(world, (e) => {
+    const cx = Math.round(e.x), cy = Math.round(e.y);
+    const c = cy * w + cx;
+    // In the footprint, or 4-adjacent to it (close enough to witness the waters rise).
+    if (foot.has(c) || foot.has(c - 1) || foot.has(c + 1) || foot.has(c - w) || foot.has(c + w)) {
+      addDomainBelief(npcProps(e), site.cause, 'flood', gain);
+    }
   });
 }
 
