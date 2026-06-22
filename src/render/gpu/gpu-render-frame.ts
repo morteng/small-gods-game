@@ -29,11 +29,10 @@ import { StaticDrawListCache } from '@/render/gpu/static-draw-list-cache';
 import { DEFAULT_LIGHTING } from '@/render/lighting-state';
 import { buildTerrainField, type TerrainField } from '@/render/gpu/terrain-field';
 import { buildDetailField } from '@/render/gpu/detail-field';
-import { buildWaterField, type WaterField } from '@/render/gpu/water-field';
+import { buildWaterField, waterLevelNorm, type WaterField } from '@/render/gpu/water-field';
 import { buildRoadRibbonMeshMemo } from '@/render/ribbon/road-ribbon-field';
 import { buildRiverRibbonMeshMemo } from '@/render/ribbon/river-ribbon-field';
 import { buildRiverSurfaceFieldMemo } from '@/render/gpu/river-surface-field';
-import { worldStyleOf } from '@/core/world-style';
 import { concatRibbonMeshes, type RibbonMesh } from '@/render/ribbon/ribbon-geometry';
 import { FlotsamLayer } from '@/render/gpu/flotsam-layer';
 import { drawWorldConnectome } from '@/render/connectome-overlay';
@@ -211,7 +210,7 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
       : null;
     // The river ribbon lifts to the water-surface (fill) field, not the carved bed.
     const riverSurface = riverMesh ? buildRiverSurfaceFieldMemo(map) : null;
-    const riverLevelDeltaN = waterLevelM / worldStyleOf(map.worldSeed).mountainRelief;
+    const riverLevelDeltaN = waterLevelNorm(map, waterLevelM);
 
     // Flotsam/fauna (S6): step + emit cosmetic circles on the water surface.
     // Appended after the entity list so they composite over the water; the

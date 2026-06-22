@@ -63,6 +63,15 @@ function rgbToAbgr(c: Rgb): number {
   return ((0xff << 24) | (b << 16) | (g << 8) | r) >>> 0;
 }
 
+/** The GLOBAL water-level offset (drought < 0, flood > 0 metres) in NORMALISED render
+ *  elevation — the single source both water passes read: the cell-grid lake plane
+ *  (`uWater.w`) and the river ribbon (`riverLevelDeltaN`), so lakes and rivers shift
+ *  together under one drought/flood. (Per-cell/per-body changes go through the ΔW
+ *  composition; this is the world-wide datum shift.) */
+export function waterLevelNorm(map: GameMap, waterLevelM: number): number {
+  return waterLevelM / worldStyleOf(map.worldSeed).mountainRelief;
+}
+
 /** Pack the water uniform: the terrain globals followed by `uWater`. */
 export function packWaterGlobals(
   g: TerrainGlobalsInput,
@@ -652,11 +661,12 @@ export function buildWaterField(map: GameMap, opts: BuildWaterFieldOpts): WaterF
     shoreDist: stat.shoreDist,
     wetCount: stat.wetCount,
     vertexCount: stat.vertexCount,
-    // uWater.w carries the LAKE water-level offset in NORMALISED elevation (metres /
-    // relief), so a drought/flood shifts the lake plane + waterline in-shader.
+    // uWater.w carries the GLOBAL water-level offset in NORMALISED elevation, so a
+    // drought/flood shifts the lake plane + waterline in-shader. The river ribbon
+    // reads the SAME value (`waterLevelNorm`) so lakes and rivers rise together.
     globals: packWaterGlobals(tg, [
       opts.timeSec ?? 0, SHALLOW_BAND_M, FOAM_BAND_M,
-      (opts.waterLevelM ?? 0) / worldStyleOf(map.worldSeed).mountainRelief,
+      waterLevelNorm(map, opts.waterLevelM ?? 0),
     ]),
   };
 }
