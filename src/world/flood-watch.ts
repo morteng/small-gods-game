@@ -94,6 +94,13 @@ export class FloodWatch {
     for (let p = 0; p < this.places.length; p++) if (this.flooded[p]) out.push(this.places[p].id);
     return out;
   }
+
+  /** Restore the latched flood state from a list of place ids (snapshot scrub/replay).
+   *  Unknown ids are ignored; places not listed are reset to dry. */
+  hydrateFlooded(ids: string[]): void {
+    const wet = new Set(ids);
+    for (let p = 0; p < this.places.length; p++) this.flooded[p] = wet.has(this.places[p].id);
+  }
 }
 
 /** A place to watch, before its footprint cells are resolved. */

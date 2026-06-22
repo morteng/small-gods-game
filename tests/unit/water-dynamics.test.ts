@@ -114,6 +114,35 @@ describe('WaterDynamics — localized water level', () => {
     expect(wd.maxFloodM()).toBe(deep);             // stays at the deeper level
   });
 
+  it('serialize → hydrate round-trips the flood + lake + atmosphere fields (W-G)', async () => {
+    const { map } = await generateWithNoise(96, 96, 3, seed);
+    const a = new WaterDynamics(map);
+    a.floodArea(48, 48, 6, 3);
+    a.shiftLargest(1.5);
+    a.seedClouds(0.4);
+    const snap = a.serialize();
+
+    const b = new WaterDynamics(map);
+    expect(b.maxFloodM()).toBe(0);                 // fresh, before hydrate
+    b.hydrate(snap);
+    expect(b.maxFloodM()).toBeCloseTo(a.maxFloodM());
+    expect(b.maxLevelM()).toBeCloseTo(a.maxLevelM());
+    expect(b.maxCloud()).toBeCloseTo(a.maxCloud());
+    // The hydrated copy must keep evaporating its flood (floodCount was recounted).
+    const dry: WeatherParams = { ...DEFAULT_WEATHER, evapMmPerSec: 500 };
+    const peak = b.maxFloodM();
+    for (let s = 0; s < 80; s++) b.step(0.1, dry);
+    expect(b.maxFloodM()).toBeLessThan(peak);
+  });
+
+  it('stepTick advances deterministically (same dt ⇒ same fields) (W-G)', async () => {
+    const { map } = await generateWithNoise(96, 96, 3, seed);
+    const mk = () => { const w = new WaterDynamics(map); w.setParams({ ...DEFAULT_WEATHER, autoWeather: true }); w.seedClouds(0.5); return w; };
+    const a = mk(), b = mk();
+    for (let i = 0; i < 30; i++) { a.stepTick(1000); b.stepTick(1000); }
+    expect(b.serialize()).toEqual(a.serialize());   // bit-identical evolution
+  });
+
   it('reset clears standing water', async () => {
     const { map } = await generateWithNoise(96, 96, 3, seed);
     const wd = new WaterDynamics(map);

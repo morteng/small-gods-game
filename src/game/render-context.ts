@@ -44,6 +44,10 @@ export function buildRenderContext(deps: RenderContextDeps): RenderContext {
     map: state.map!,
     camera: state.camera,
     waterLevelM: state.waterLevelM,
+    // W-G: localized lake level + per-cell flood from the live water stepper, so a
+    // flood/drought shows in the running game (not just the studio).
+    lakeOffsetM: state.weather?.lakeOffsetM?.(),
+    floodOffsetM: state.weather?.floodOffsetM(),
     canvasWidth: viewport.width,
     canvasHeight: viewport.height,
     npcs: state.world ? state.world.query({ kind: 'npc' }).map(toRenderNpc) : [],

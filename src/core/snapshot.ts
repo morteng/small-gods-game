@@ -4,6 +4,7 @@ import type { RngState } from '@/core/rng';
 import type { Spirit } from '@/core/spirit';
 import type { PlotThread } from '@/sim/threads/thread-types';
 import type { StagedBeat } from '@/sim/threads/staging-types';
+import type { WeatherSnapshot } from '@/sim/water/weather-stepper';
 import { fromState } from '@/core/rng';
 import { World } from '@/world/world';
 import { reconcileSettlementTiles } from '@/world/settlement-reconcile';
@@ -28,6 +29,12 @@ export interface Snapshot {
   threads?: PlotThread[];
   /** Narrative substrate: armed staged beats. Optional for the same reason. */
   staging?: StagedBeat[];
+  /** W-G: water/atmosphere fields (flood depth, lake offsets, humidity/cloud/temp).
+   *  Optional so pre-weather saves + partial test states deserialize without it. */
+  weather?: WeatherSnapshot;
+  /** W-G: ids of places currently latched as flooded (FloodWatch hysteresis state),
+   *  so scrub/replay re-establishes the latch without re-firing flood edges. */
+  floodedPlaces?: string[];
 }
 
 export function captureSnapshot(state: GameState): Snapshot {
@@ -59,6 +66,8 @@ export function captureSnapshot(state: GameState): Snapshot {
     // test harnesses cast a partial GameState that omits the substrate stores.
     threads: state.plotThreads?.serialize() ?? [],
     staging: state.staging?.serialize() ?? [],
+    weather: state.weather?.serialize(),
+    floodedPlaces: state.floodWatch?.floodedPlaceIds(),
   };
 }
 
@@ -100,6 +109,11 @@ export function restoreSnapshot(state: GameState, snap: Snapshot): void {
   // optional chaining tolerates partial test states that omit the substrate stores.
   state.plotThreads?.hydrate(snap.threads ?? []);
   state.staging?.hydrate(snap.staging ?? []);
+
+  // W-G: restore the water fields + flood-watch latch so scrub/replay reproduce the
+  // exact flood state (and don't re-fire edges for places already under water).
+  if (snap.weather) state.weather?.hydrate(snap.weather);
+  state.floodWatch?.hydrateFlooded(snap.floodedPlaces ?? []);
 }
 
 export interface SnapshotStoreOptions {

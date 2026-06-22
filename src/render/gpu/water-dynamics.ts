@@ -55,6 +55,7 @@ import { getLakeBodies } from '@/render/gpu/water-field';
 import { getHeightfield, ELEVATION_SEA_LEVEL } from '@/world/heightfield';
 import { styledIslandSpec } from '@/terrain/island-mask';
 import { styledClimate } from '@/terrain/climate';
+import type { WeatherStepper, WeatherSnapshot } from '@/sim/water/weather-stepper';
 
 /** The tunable emergent parameters — exposed in the studio for live play. */
 export interface WeatherParams {
@@ -120,9 +121,12 @@ export const DEFAULT_WEATHER: WeatherParams = {
 /** Seconds of real time per in-world day (studio-fast, for a visible diurnal cycle). */
 const DAY_SEC = 24;
 
-export class WaterDynamics {
+export class WaterDynamics implements WeatherStepper {
   readonly W: number;
   readonly H: number;
+  /** Current tunable params — used by the deterministic `stepTick` (the studio path
+   *  passes its own params to `step()` directly; the game sets these once). */
+  private params: WeatherParams = { ...DEFAULT_WEATHER };
   /** Air humidity 0..1 per cell (row-major) — read directly for the overlay. */
   readonly humidity: Float32Array;
 
@@ -357,6 +361,43 @@ export class WaterDynamics {
 
   /** Per-cell standing-water depth (metres) handed to `buildWaterField({ floodOffsetM })`. */
   floodOffsetM(): Float32Array { return this.floodM; }
+
+  // ── W-G: deterministic sim seam (WeatherStepper) ─────────────────────────────────
+
+  /** Set the tunable params the deterministic `stepTick` uses (the game path). */
+  setParams(p: WeatherParams): void { this.params = { ...p }; }
+
+  /** Advance on a FIXED sim-tick interval (ms) using the stored params — the
+   *  deterministic entry the sim's `WeatherSystem` calls. Same dt + same logged
+   *  actions ⇒ same fields, so scrub/replay reproduce the flood. */
+  stepTick(dtMs: number): void { this.step(dtMs / 1000, this.params); }
+
+  /** Capture the evolving fields for the snapshot (plain arrays). */
+  serialize(): WeatherSnapshot {
+    return {
+      bodyOffsetM: Array.from(this.bodyOffsetM),
+      floodM: Array.from(this.floodM),
+      humidity: Array.from(this.humidity),
+      cloud: Array.from(this.cloud),
+      temp: Array.from(this.temp),
+      timeOfDaySec: this.timeOfDaySec,
+    };
+  }
+
+  /** Restore the fields from a snapshot. Array lengths are tolerated defensively:
+   *  a snapshot from a different map size is ignored per-field (keeps current). */
+  hydrate(snap: WeatherSnapshot): void {
+    const setIf = (dst: Float32Array, src: number[] | undefined): void => {
+      if (src && src.length === dst.length) dst.set(src);
+    };
+    setIf(this.bodyOffsetM, snap.bodyOffsetM);
+    setIf(this.floodM, snap.floodM);
+    setIf(this.humidity, snap.humidity);
+    setIf(this.cloud, snap.cloud);
+    setIf(this.temp, snap.temp);
+    this.timeOfDaySec = snap.timeOfDaySec ?? 0;
+    this.recountFlood();
+  }
 
   /** Cheap O(cells) refresh of the flood-active count (called after flood edits/step). */
   private recountFlood(): void {

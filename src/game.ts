@@ -64,6 +64,7 @@ import { AbandonmentSystem } from '@/sim/systems/abandonment-system';
 import { MortalitySystem } from '@/sim/systems/mortality-system';
 import { SettlementGrowthSystem } from '@/sim/systems/settlement-growth-system';
 import { BirthSystem } from '@/sim/systems/birth-system';
+import { WeatherSystem } from '@/sim/systems/weather-system';
 import { applySkip } from '@/sim/time-skip';
 import { identityOracle } from '@/world/oracle';
 import { bootstrapWorld } from '@/game/bootstrap-world';
@@ -264,6 +265,12 @@ export class Game {
     this.scheduler.register(new MortalitySystem());
     this.scheduler.register(new BirthSystem());
     this.scheduler.register(new SettlementGrowthSystem());
+    // W-G: deterministic water/atmosphere tick — steps the stepper installed on world
+    // seed + polls the flood watch, writing place_flooded/receded into the event log.
+    this.scheduler.register(new WeatherSystem(
+      () => this.state.weather,
+      () => this.state.floodWatch,
+    ));
     this.scheduler.register(new PerceptionSystem(identityOracle, () => this.state.map));
     // Narrative substrate: recognizers + stub producers run LAST so they see this
     // frame's events; activation fires armed beats (its commands apply next tick).

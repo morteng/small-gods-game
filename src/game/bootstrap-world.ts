@@ -15,6 +15,8 @@ import { identityOracle } from '@/world/oracle';
 import { buildCharacterSpec, getOrGenerateSheet } from '@/render/lpc';
 import { npcProps } from '@/world/npc-helpers';
 import { loadDecorations } from '@/services/decoration-store';
+import { WaterDynamics } from '@/render/gpu/water-dynamics';
+import { buildFloodWatch } from '@/world/flood-watch';
 import { readSave as readSaveDefault } from '@/services/save-store';
 import { applySaveFile, type SaveFile } from '@/core/save-file';
 
@@ -47,6 +49,7 @@ export async function bootstrapWorld(deps: BootstrapDeps): Promise<GameMap> {
     state.generatedDecorations = loadDecorations(state.worldSeed?.name ?? '');
     void decorationImages.preload(state.generatedDecorations.map(d => d.assetId));
     kickOffSheets(state, sheets);
+    if (state.map) installWeather(state, state.map);   // W-G: deterministic water stepper
     deps.onReady?.();
     return state.map!;
   }
@@ -99,6 +102,7 @@ export async function bootstrapWorld(deps: BootstrapDeps): Promise<GameMap> {
     oracle: identityOracle,
   });
   instantiateRivals(state, ws);
+  installWeather(state, map);   // W-G: deterministic water stepper + flood watch
   kickOffSheets(state, sheets);
   state.generatedDecorations = loadDecorations(ws.name);
   // Kick off image preloading; missing ids resolve to null and the renderer
@@ -108,6 +112,22 @@ export async function bootstrapWorld(deps: BootstrapDeps): Promise<GameMap> {
   deps.onReady?.();
 
   return map;
+}
+
+/**
+ * W-G: install the deterministic water/atmosphere stepper + the per-world flood watch
+ * onto the state. `WeatherSystem` (registered in game.ts) steps the stepper on the sim
+ * tick and polls the watch; the stepper's fields are captured in the snapshot. The
+ * watch covers the placed POIs (the "important places" a flood event names).
+ */
+function installWeather(state: GameState, map: GameMap): void {
+  state.weather = new WaterDynamics(map);
+  const pois = state.worldSeed?.pois ?? [];
+  state.floodWatch = buildFloodWatch(
+    pois.filter((p) => p.position)
+      .map((p) => ({ id: p.id, name: p.name ?? p.id, x: p.position!.x, y: p.position!.y, radius: 3 })),
+    map.width, map.height,
+  );
 }
 
 /**
