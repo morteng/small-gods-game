@@ -161,6 +161,8 @@ export class WaterDynamics implements WeatherStepper {
   /** Terminal lake body each cell drains into (−1 = drains to sea / no lake). */
   private readonly drainBody: Int32Array;
   private timeOfDaySec = 0;
+  /** POI id → tile centre, for `floodPoi` (the `summon_storm` target lookup). */
+  private readonly poiPos = new Map<string, { x: number; y: number }>();
 
   constructor(map: GameMap) {
     this.W = map.width;
@@ -220,6 +222,11 @@ export class WaterDynamics implements WeatherStepper {
     // O(1), not a drainTo walk every step over every raining cell).
     this.drainBody = new Int32Array(cells).fill(-2);   // −2 = not yet resolved
     for (let i = 0; i < cells; i++) this.drainBody[i] = this.resolveDrainBody(i);
+
+    // POI centres (for floodPoi / summon_storm) — positioned POIs only.
+    for (const p of map.worldSeed?.pois ?? []) {
+      if (p.position) this.poiPos.set(p.id, { x: p.position.x, y: p.position.y });
+    }
   }
 
   /** Walk `drainTo` from a cell to its terminal lake body (memoised into drainBody). */
@@ -361,6 +368,13 @@ export class WaterDynamics implements WeatherStepper {
 
   /** Per-cell standing-water depth (metres) handed to `buildWaterField({ floodOffsetM })`. */
   floodOffsetM(): Float32Array { return this.floodM; }
+
+  /** Flood the ground around a POI (the `summon_storm` effect). Returns cells flooded. */
+  floodPoi(poiId: string, radius: number, depthM: number): number {
+    const pos = this.poiPos.get(poiId);
+    if (!pos) return 0;
+    return this.floodArea(pos.x, pos.y, radius, depthM);
+  }
 
   // ── W-G: deterministic sim seam (WeatherStepper) ─────────────────────────────────
 

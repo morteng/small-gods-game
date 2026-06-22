@@ -15,6 +15,10 @@
 import type { System, SystemContext } from '@/core/scheduler';
 import type { WeatherStepper } from '@/sim/water/weather-stepper';
 import type { FloodWatch } from '@/world/flood-watch';
+import { seedFloodBelief } from '@/sim/divine-actions';
+
+/** Whose flood-power gets the credit when waters rise (the protagonist god). */
+const ATTRIBUTION_SPIRIT = 'player';
 
 /** 1 Hz — weather/water is slow; a per-second tick is plenty and keeps cost trivial. */
 const WEATHER_HZ = 1;
@@ -46,6 +50,9 @@ export class WeatherSystem implements System {
           type: 'place_flooded', poiId: ev.placeId, name: ev.name,
           depthM: ev.depthM, coverage: ev.coverage,
         });
+        // Attribution at the act site: the waters rising at a settlement seed its
+        // believers' `flood` belief domain — which unlocks (and reinforces) summon_storm.
+        seedFloodBelief(ctx.world, ATTRIBUTION_SPIRIT, ev.placeId, ev.depthM);
       } else {
         ctx.log.append({ type: 'place_receded', poiId: ev.placeId, name: ev.name });
       }

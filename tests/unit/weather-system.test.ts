@@ -3,8 +3,16 @@ import { WeatherSystem } from '@/sim/systems/weather-system';
 import { buildFloodWatch } from '@/world/flood-watch';
 import { EventLog } from '@/core/events';
 import { SimClock } from '@/core/clock';
+import { World } from '@/world/world';
+import { createRng } from '@/core/rng';
+import type { GameMap } from '@/core/types';
 import type { SystemContext } from '@/core/scheduler';
 import type { WeatherStepper, WeatherSnapshot } from '@/sim/water/weather-stepper';
+
+const emptyWorld = (): World => new World({
+  tiles: [], width: W, height: H, villages: [], seed: 1,
+  success: true, worldSeed: null, stats: { iterations: 0, backtracks: 0 }, buildings: [],
+} as GameMap);
 
 const W = 16, H = 16;
 
@@ -15,6 +23,7 @@ class StubStepper implements WeatherStepper {
   stepTick(_dtMs: number): void { this.ticks++; }
   floodOffsetM(): Float32Array { return this.field; }
   lakeOffsetM(): Float32Array { return new Float32Array(0); }
+  floodPoi(): number { return 0; }
   serialize(): WeatherSnapshot { return { bodyOffsetM: [], floodM: Array.from(this.field), humidity: [], cloud: [], temp: [], timeOfDaySec: 0 }; }
   hydrate(): void {}
   reset(): void { this.field.fill(0); }
@@ -24,8 +33,8 @@ class StubStepper implements WeatherStepper {
 
 function ctxWith(log: EventLog): SystemContext {
   const clock = new SimClock();
-  // The WeatherSystem only reads ctx.dt + ctx.log; the rest satisfies the type.
-  return { world: null as never, spirits: new Map(), log, clock, rng: null as never, dt: 1000, now: 0 };
+  // The WeatherSystem reads ctx.dt + ctx.log + ctx.world (flood belief seeding).
+  return { world: emptyWorld(), spirits: new Map(), log, clock, rng: createRng(1), dt: 1000, now: 0 };
 }
 
 describe('WeatherSystem (W-G)', () => {

@@ -283,7 +283,8 @@ export interface SpiritBelief {
  *  without an effect; see `src/sim/belief-domains.ts`). Bounded enum: Fate may
  *  name/flavour a domain but cannot invent an effect outside this set. */
 export type BeliefDomain =
-  | 'storm';  // storm & lightning → the `smite` capability. (More land per slice.)
+  | 'storm'   // storm & lightning → the `smite` capability.
+  | 'flood';  // tempests & deluge → the `summon_storm` capability (W-H).
 
 export interface NpcNeeds {
   safety:     number;  // 0–1 (higher = more satisfied)

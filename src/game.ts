@@ -248,7 +248,7 @@ export class Game {
         this.renderer.forceInfoRefresh();
         this.requestRender();
       }
-    }, this.authorLog));
+    }, this.authorLog, () => this.state.weather));
     this.scheduler.register(new NpcMovementSystem(() => this.state.map));
     // Order: settlement events affect needs → NpcSimSystem decays needs + recomputes mood
     // → activity system picks activities from needs → belief propagation → spirits

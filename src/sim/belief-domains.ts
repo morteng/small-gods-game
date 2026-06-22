@@ -46,6 +46,13 @@ export const DOMAIN_DEFS: Record<BeliefDomain, DomainDef> = {
     verb: 'smite',
     unlockThreshold: 0.5,
   },
+  flood: {
+    domain: 'flood',
+    label: 'Tempests & Deluge',
+    blurb: 'They believe you command the rains — summon a storm to flood a place.',
+    verb: 'summon_storm',
+    unlockThreshold: 0.45,
+  },
 };
 
 export const ALL_DOMAINS: BeliefDomain[] = Object.keys(DOMAIN_DEFS) as BeliefDomain[];

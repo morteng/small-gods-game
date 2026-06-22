@@ -70,12 +70,16 @@ export class CommandExecutorSystem implements System {
     private readonly queue: CommandQueue,
     private readonly onResult?: (r: CommandResult) => void,
     private readonly authorLog?: AuthorCommandLog,
+    /** W-H: the deterministic water stepper, so weather verbs (`summon_storm`) can lay
+     *  a flood during their command apply. Injected by the game; null in headless. */
+    private readonly getWeather?: () => import('@/sim/water/weather-stepper').WeatherStepper | null,
   ) {}
 
   tick(ctx: SystemContext): void {
     const ctxFor: ApplyCtx = {
       world: ctx.world, spirits: ctx.spirits, log: ctx.log,
       rng: ctx.rng, now: ctx.now,
+      weather: this.getWeather?.() ?? null,
     };
     const replaying = ctx.log instanceof SilentEventLog;
 

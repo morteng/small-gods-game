@@ -46,6 +46,10 @@ export interface WeatherStepper {
   floodOffsetM(): Float32Array;
   /** Per-lake-body level offset (metres) — the renderer bakes it into the lake surface. */
   lakeOffsetM(): Float32Array;
+  /** Flood the ground around a named POI (the `summon_storm` effect): lay `depthM`
+   *  metres of standing water over a `radius`-tile disc at the POI. Returns the number
+   *  of cells flooded (0 if the POI is unknown). */
+  floodPoi(poiId: string, radius: number, depthM: number): number;
   /** Clear all dynamic state back to the resting world. */
   reset(): void;
 }

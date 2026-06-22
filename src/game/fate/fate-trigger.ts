@@ -21,6 +21,9 @@ export interface FateTriggerDeps {
 function isSignificant(ev: SimEvent): boolean {
   if (ev.type === 'thread_opened' || ev.type === 'thread_resolved') return true;
   if (ev.type === 'thread_advanced') return ev.weight === 'climax';
+  // W-H: a settlement going under water is a dramatic beat — wake Fate to respond
+  // (a tale of divine wrath, a refugee, a rival's counter-claim…).
+  if (ev.type === 'place_flooded') return true;
   return false;
 }
 

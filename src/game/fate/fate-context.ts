@@ -50,6 +50,10 @@ function describeEvent(ev: SimEvent): string {
     case 'thread_opened': return `A new ${ev.shapeId} thread (${ev.threadId}) just opened.`;
     case 'thread_advanced': return `Thread ${ev.threadId} reached a ${ev.weight} beat (phase ${ev.phase}).`;
     case 'thread_resolved': return `Thread ${ev.threadId} ${ev.status}.`;
+    case 'place_flooded':
+      return `A flood has inundated "${ev.name}" (${ev.poiId}) — ${ev.depthM.toFixed(1)} m deep, ` +
+        `${Math.round(ev.coverage * 100)}% of the settlement under water.`;
+    case 'place_receded': return `The flood at "${ev.name}" (${ev.poiId}) has receded.`;
     default: return `Event: ${ev.type}.`;
   }
 }
@@ -59,11 +63,14 @@ export function buildFateContext(
   focus: FateFocus,
 ): { system: string; user: string; validPoiIds: Set<string> } {
   const { text: threadsText, poiIds } = describeThreadsForFate(state);
+  // A flood is a beat-worthy event even at a settlement with no open thread, so the
+  // triggering flood's POI is a valid subject — let Fate respond to the deluge there.
+  if (focus.event.type === 'place_flooded') poiIds.add(focus.event.poiId);
   const user = [
     buildWorldSummary(state),
     threadsText,
     `Triggering event: ${describeEvent(focus.event)}`,
-    'Decide whether to prepare one grounded beat to be discovered. Only use a subjectPoiId from the list above.',
+    'Decide whether to prepare one grounded beat to be discovered. Use a subjectPoiId from the active threads above, or the settlement named in the triggering event.',
   ].join('\n\n');
   return { system: SYSTEM_CHARTER, user, validPoiIds: poiIds };
 }
