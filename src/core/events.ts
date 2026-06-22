@@ -47,6 +47,8 @@ export type SimEvent =
   | { type: 'summon_storm';       spiritId: SpiritId; poiId: string; depthM: number; cells: number }
   | { type: 'place_flooded';      poiId: string; name: string; depthM: number; coverage: number }
   | { type: 'place_receded';      poiId: string; name: string }
+  | { type: 'site_born';          siteId: string; kind: string; name: string; x: number; y: number; depthM: number; cells: number }
+  | { type: 'site_faded';         siteId: string; name: string }
   | { type: 'system_error';       system: string; message: string };
 
 export interface AppendedEvent {

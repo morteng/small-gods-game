@@ -15,6 +15,7 @@
 import type { System, SystemContext } from '@/core/scheduler';
 import type { WeatherStepper } from '@/sim/water/weather-stepper';
 import type { FloodWatch } from '@/world/flood-watch';
+import type { CausalSiteStore } from '@/world/causal-site';
 import { seedFloodBelief } from '@/sim/divine-actions';
 
 /** Whose flood-power gets the credit when waters rise (the protagonist god). */
@@ -32,6 +33,7 @@ export class WeatherSystem implements System {
   constructor(
     private readonly getStepper: () => WeatherStepper | null,
     private readonly getWatch: () => FloodWatch | null,
+    private readonly getSites: () => CausalSiteStore | null = () => null,
   ) {}
 
   tick(ctx: SystemContext): void {
@@ -41,21 +43,38 @@ export class WeatherSystem implements System {
     // frame pacing / catch-up). Each invocation == one 1/tickHz slice, so the fields
     // evolve identically regardless of frame rate — the determinism W-G needs.
     stepper.stepTick(1000 / this.tickHz);
+    const floodM = stepper.floodOffsetM();
 
     const watch = this.getWatch();
-    if (!watch) return;
-    for (const ev of watch.poll(stepper.floodOffsetM())) {
-      if (ev.type === 'flooded') {
-        ctx.log.append({
-          type: 'place_flooded', poiId: ev.placeId, name: ev.name,
-          depthM: ev.depthM, coverage: ev.coverage,
-        });
-        // Attribution at the act site: the waters rising at a settlement seed its
-        // believers' `flood` belief domain — which unlocks (and reinforces) summon_storm.
-        seedFloodBelief(ctx.world, ATTRIBUTION_SPIRIT, ev.placeId, ev.depthM);
-      } else {
-        ctx.log.append({ type: 'place_receded', poiId: ev.placeId, name: ev.name });
+    if (watch) {
+      for (const ev of watch.poll(floodM)) {
+        if (ev.type === 'flooded') {
+          ctx.log.append({
+            type: 'place_flooded', poiId: ev.placeId, name: ev.name,
+            depthM: ev.depthM, coverage: ev.coverage,
+          });
+          // Attribution at the act site: the waters rising at a settlement seed its
+          // believers' `flood` belief domain — which unlocks (and reinforces) summon_storm.
+          seedFloodBelief(ctx.world, ATTRIBUTION_SPIRIT, ev.placeId, ev.depthM);
+        } else {
+          ctx.log.append({ type: 'place_receded', poiId: ev.placeId, name: ev.name });
+        }
       }
+    }
+
+    // W-I: floods on land the watch does NOT cover become CAUSAL SITES — ephemeral
+    // places (e.g. a god-flooded plain). Born / faded edges go onto the same log so
+    // Fate (W-I-b) can address them and belief (W-I-c) can be seeded at them.
+    const sites = this.getSites();
+    if (sites) {
+      const { born, faded } = sites.update(floodM, ctx.now, ATTRIBUTION_SPIRIT);
+      for (const s of born) {
+        ctx.log.append({
+          type: 'site_born', siteId: s.id, kind: s.kind, name: s.name,
+          x: s.pos.x, y: s.pos.y, depthM: s.intensity * 2, cells: s.cells.length,
+        });
+      }
+      for (const s of faded) ctx.log.append({ type: 'site_faded', siteId: s.id, name: s.name });
     }
   }
 }

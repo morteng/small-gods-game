@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { WeatherSystem } from '@/sim/systems/weather-system';
 import { buildFloodWatch } from '@/world/flood-watch';
+import { CausalSiteStore } from '@/world/causal-site';
 import { EventLog } from '@/core/events';
 import { SimClock } from '@/core/clock';
 import { World } from '@/world/world';
@@ -77,5 +78,24 @@ describe('WeatherSystem (W-G)', () => {
     stub.setCell(8, 8, 2.0); sys.tick(ctxWith(log));   // flood
     stub.reset();           sys.tick(ctxWith(log));    // drain
     expect(log.since(0).filter((e) => e.event.type === 'place_receded')).toHaveLength(1);
+  });
+
+  it('W-I: births a causal site (site_born) for a flood on un-watched land', () => {
+    const stub = new StubStepper();
+    const sites = new CausalSiteStore(W, H, new Set(), []);
+    const sys = new WeatherSystem(() => stub, () => null, () => sites);
+    const log = new EventLog(new SimClock());
+
+    // A 5×5 flood (25 cells > min) on empty land, no watch covering it.
+    for (let y = 6; y < 11; y++) for (let x = 6; x < 11; x++) stub.setCell(x, y, 1.5);
+    sys.tick(ctxWith(log));
+
+    const born = log.since(0).filter((e) => e.event.type === 'site_born');
+    expect(born).toHaveLength(1);
+    expect(born[0].event).toMatchObject({ type: 'site_born', kind: 'flood', siteId: 'causal:flood:0000' });
+    expect(sites.active()).toHaveLength(1);
+
+    sys.tick(ctxWith(log));   // still flooded → renewed, not re-born
+    expect(log.since(0).filter((e) => e.event.type === 'site_born')).toHaveLength(1);
   });
 });

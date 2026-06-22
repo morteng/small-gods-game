@@ -10,6 +10,7 @@ import { PlotThreadStore } from '@/sim/threads/thread-store';
 import { StagingBuffer } from '@/sim/threads/staging-buffer';
 import type { WeatherStepper } from '@/sim/water/weather-stepper';
 import type { FloodWatch } from '@/world/flood-watch';
+import type { CausalSiteStore } from '@/world/causal-site';
 
 export interface GameState {
   map: GameMap | null;
@@ -56,6 +57,10 @@ export interface GameState {
   /** W-F/W-G: per-world flood watch over the important places (POIs). Polled by
    *  `WeatherSystem`; its latched flood state is snapshotted alongside the fields. */
   floodWatch: FloodWatch | null;
+  /** W-I: ephemeral, event-born places (a god-flooded plain → "The Drowned Reach").
+   *  Reconciled by `WeatherSystem` against the flood field each tick; its live sites
+   *  are snapshotted. Null until a world is seeded. */
+  causalSites: CausalSiteStore | null;
 }
 
 export function createState(): GameState {
@@ -103,5 +108,6 @@ export function createState(): GameState {
     waterLevelM: 0,
     weather: null,
     floodWatch: null,
+    causalSites: null,
   };
 }

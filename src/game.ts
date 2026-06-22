@@ -270,6 +270,7 @@ export class Game {
     this.scheduler.register(new WeatherSystem(
       () => this.state.weather,
       () => this.state.floodWatch,
+      () => this.state.causalSites,
     ));
     this.scheduler.register(new PerceptionSystem(identityOracle, () => this.state.map));
     // Narrative substrate: recognizers + stub producers run LAST so they see this

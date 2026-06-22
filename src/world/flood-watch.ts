@@ -55,6 +55,15 @@ export class FloodWatch {
 
   get placeCount(): number { return this.places.length; }
 
+  /** Union of every watched place's footprint cells. Causal sites (W-I) use this as an
+   *  exclusion mask: a flood ON an authored place is this watch's job (→ `place_flooded`);
+   *  only floods on un-watched land become causal sites. */
+  watchedCells(): Set<number> {
+    const out = new Set<number>();
+    for (const p of this.places) for (let k = 0; k < p.cells.length; k++) out.add(p.cells[k]);
+    return out;
+  }
+
   /** Reset all latched state (a fresh world, or after a drain). */
   reset(): void { this.flooded.fill(false); }
 

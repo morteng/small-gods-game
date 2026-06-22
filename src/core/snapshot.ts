@@ -5,6 +5,7 @@ import type { Spirit } from '@/core/spirit';
 import type { PlotThread } from '@/sim/threads/thread-types';
 import type { StagedBeat } from '@/sim/threads/staging-types';
 import type { WeatherSnapshot } from '@/sim/water/weather-stepper';
+import type { CausalSiteSnapshot } from '@/world/causal-site';
 import { fromState } from '@/core/rng';
 import { World } from '@/world/world';
 import { reconcileSettlementTiles } from '@/world/settlement-reconcile';
@@ -35,6 +36,9 @@ export interface Snapshot {
   /** W-G: ids of places currently latched as flooded (FloodWatch hysteresis state),
    *  so scrub/replay re-establishes the latch without re-firing flood edges. */
   floodedPlaces?: string[];
+  /** W-I: live causal sites (ephemeral event-born places). Optional so pre-W-I saves
+   *  + partial test states deserialize without it. */
+  causalSites?: CausalSiteSnapshot;
 }
 
 export function captureSnapshot(state: GameState): Snapshot {
@@ -68,6 +72,7 @@ export function captureSnapshot(state: GameState): Snapshot {
     staging: state.staging?.serialize() ?? [],
     weather: state.weather?.serialize(),
     floodedPlaces: state.floodWatch?.floodedPlaceIds(),
+    causalSites: state.causalSites?.serialize(),
   };
 }
 
@@ -114,6 +119,8 @@ export function restoreSnapshot(state: GameState, snap: Snapshot): void {
   // exact flood state (and don't re-fire edges for places already under water).
   if (snap.weather) state.weather?.hydrate(snap.weather);
   state.floodWatch?.hydrateFlooded(snap.floodedPlaces ?? []);
+  // W-I: restore live causal sites (or clear them for a pre-W-I snapshot).
+  state.causalSites?.hydrate(snap.causalSites ?? { sites: [], nextId: 0 });
 }
 
 export interface SnapshotStoreOptions {
