@@ -575,6 +575,81 @@ export function applyDynamicWater(
   return Int32Array.from(applied);
 }
 
+/** A single-cell read of the unified water surface. */
+export interface WaterProbe {
+  /** True when standing water covers the tile (depth > 0 after the terrain clip). */
+  wet: boolean;
+  /** Standing depth above local terrain in METRES (0 when dry). */
+  depthM: number;
+  /** Water kind at the tile (`WaterType.Dry` when no water stands there). */
+  type: WaterType;
+}
+
+/** Live dynamic offsets a {@link waterSurfaceAt} probe folds in (all optional —
+ *  omit for the static-model height). Same arrays the field bake consumes. */
+export interface WaterProbeDynamics {
+  /** Per-lake-body level offset (metres), indexed by body id. */
+  lakeOffsetM?: Float32Array | null;
+  /** Per-cell standing-water depth above terrain (metres). */
+  floodOffsetM?: Float32Array | null;
+  /** Global inland water-level offset (metres; drought < 0, flood > 0). */
+  waterLevelM?: number;
+}
+
+/**
+ * Point-query the unified water surface — "is there water at this tile, and how
+ * deep?" — for sim / gameplay code (the read-side companion to the GPU bake). It
+ * mirrors {@link applyDynamicWater}'s rule EXACTLY for one cell, then applies the
+ * shader's per-pixel clip (`surface − bed ≤ 0 ⇒ dry`), so the answer always agrees
+ * with what the renderer draws:
+ *
+ *   1. start from the memoised static surface + type,
+ *   2. raise an existing LAKE body by its per-body offset,
+ *   3. shift LAKE+RIVER cells by the global level (the sea stays the datum),
+ *   4. fold a per-cell FLOOD as `max(existing, bed + depth)`,
+ *   5. depth = (surface − bed)·relief; ≤ 0 reads as dry (the terrain clip).
+ *
+ * Cheap: the static water + curved bed are both memoised, so a probe is O(1).
+ */
+export function waterSurfaceAt(
+  map: GameMap, x: number, y: number, dyn?: WaterProbeDynamics,
+): WaterProbe {
+  const dry: WaterProbe = { wet: false, depthM: 0, type: WaterType.Dry };
+  const xi = Math.round(x), yi = Math.round(y);
+  if (xi < 0 || yi < 0 || xi >= map.width || yi >= map.height) return dry;
+
+  const i = yi * map.width + xi;
+  const stat = waterStatic(map);
+  const relief = worldStyleOf(map.worldSeed).mountainRelief;
+  const bedN = heightField(map)[i];               // curved render terrain (the bed)
+
+  let surf = stat.surfaceW[i];
+  let type = stat.waterType[i] as WaterType;
+
+  // (2) per-body LAKE offset — raise an existing basin within its bank.
+  const lo = dyn?.lakeOffsetM ?? null;
+  if (lo && type === WaterType.Lake) {
+    const b = stat.lakeBodies.bodyId[i];
+    if (b >= 0) surf = stat.surfaceW[i] + lo[b] / relief;
+  }
+  // (3) GLOBAL level — lakes + rivers shift together; the ocean is the fixed datum.
+  const glM = dyn?.waterLevelM ?? 0;
+  if (glM !== 0 && (type === WaterType.Lake || type === WaterType.River)) {
+    surf += glM / relief;
+  }
+  // (4) per-cell FLOOD — max(existing, bed + depth); never lowers a deeper channel.
+  const fo = dyn?.floodOffsetM ?? null;
+  if (fo && fo[i] > 0) {
+    const fsurf = bedN + fo[i] / relief;
+    if (fsurf > surf) { surf = fsurf; type = WaterType.Lake; }
+  }
+
+  // (5) the per-pixel terrain clip, in metres.
+  const depthM = (surf - bedN) * relief;
+  if (type === WaterType.Dry || depthM <= 0) return dry;
+  return { wet: true, depthM, type };
+}
+
 /**
  * Assemble the `WaterField` for a world + camera frame, or `null` when the world
  * is bone dry (so the caller skips the pass entirely). The per-cell arrays are
