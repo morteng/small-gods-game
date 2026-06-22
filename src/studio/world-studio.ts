@@ -189,7 +189,8 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
   let waterDyn: WaterDynamics | null = null;
   const weather: WeatherParams = { ...DEFAULT_WEATHER };
   let rainBrush = false;
-  let showHumidity = true;
+  // Which scalar field the overlay draws (W-B humidity, W-C cloud/temperature).
+  let overlay: 'none' | 'humidity' | 'cloud' | 'temp' = 'humidity';
   let lastStepT = (typeof performance !== 'undefined' ? performance.now() : 0);
 
   // Adaptive detail-patch regions (coast/river/road/slope), memoised per world —
@@ -495,20 +496,50 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
     b.onclick = onClick;
     return b;
   }
-  const weatherSec = h('div', { style: 'min-width:240px' });
-  weatherSec.appendChild(toggleRow('Rain brush — click the map', false, (v) => { rainBrush = v; canvas.style.cursor = v ? 'crosshair' : 'grab'; }));
-  weatherSec.appendChild(toggleRow('Humidity overlay', true, (v) => { showHumidity = v; }));
-  weatherSec.appendChild(sliderRow('Rain', 100, 4000, 50, () => weather.rainMm, (v) => { weather.rainMm = v; }, (v) => `${v | 0} mm`));
-  weatherSec.appendChild(sliderRow('Brush', 1, 20, 1, () => weather.brushRadius, (v) => { weather.brushRadius = v; }, (v) => `${v | 0} t`));
-  weatherSec.appendChild(sliderRow('Runoff', 0, 1, 0.05, () => weather.runoffFrac, (v) => { weather.runoffFrac = v; }, (v) => `${(v * 100) | 0}%`));
-  weatherSec.appendChild(sliderRow('Evaporation', 0, 120, 5, () => weather.evapMmPerSec, (v) => { weather.evapMmPerSec = v; }, (v) => `${v | 0} mm/s`));
-  weatherSec.appendChild(sliderRow('Humidity decay', 0, 0.3, 0.01, () => weather.humidityDecayPerSec, (v) => { weather.humidityDecayPerSec = v; }, (v) => `${v.toFixed(2)}/s`));
+  // A row of mutually-exclusive pills (the overlay selector).
+  function pillRow(label: string, opts: { id: typeof overlay; label: string }[], get: () => typeof overlay, set: (v: typeof overlay) => void): HTMLElement {
+    const pills: HTMLButtonElement[] = [];
+    const sync = () => pills.forEach((b) => {
+      const on = b.dataset.id === get();
+      b.style.background = on ? 'var(--accent)' : 'var(--bg-1)';
+      b.style.color = on ? '#1a1206' : 'var(--ink-1)';
+    });
+    const row = h('div', { style: 'display:flex;align-items:center;gap:5px;padding:3px 0' },
+      h('span', { style: 'font:400 11px var(--font-mono);color:var(--ink-0);min-width:54px', text: label }));
+    for (const o of opts) {
+      const b = h('button', { text: o.label, attrs: { 'data-id': o.id } }) as HTMLButtonElement;
+      b.dataset.id = o.id;
+      b.style.cssText = 'flex:1;border:1px solid var(--line);border-radius:5px;padding:4px 5px;font:400 10px var(--font-mono);cursor:pointer';
+      b.onclick = () => { set(o.id); sync(); };
+      pills.push(b); row.appendChild(b);
+    }
+    sync();
+    return row;
+  }
+
+  const weatherSec = h('div', { style: 'min-width:248px' });
+  // ── W-C: emergent weather ──
+  weatherSec.appendChild(toggleRow('⛅ Live weather (wind · clouds · storms)', false, (v) => { weather.autoWeather = v; }));
+  weatherSec.appendChild(sliderRow('Wind dir', 0, 360, 5, () => weather.windDirDeg, (v) => { weather.windDirDeg = v; }, (v) => `${v | 0}°`));
+  weatherSec.appendChild(sliderRow('Wind speed', 0, 20, 0.5, () => weather.windSpeed, (v) => { weather.windSpeed = v; }, (v) => `${v.toFixed(1)} t/s`));
+  weatherSec.appendChild(sliderRow('Evaporation', 0, 0.2, 0.005, () => weather.evapRate, (v) => { weather.evapRate = v; }, (v) => v.toFixed(3)));
+  weatherSec.appendChild(sliderRow('Orographic rain', 0, 2, 0.05, () => weather.orographicGain, (v) => { weather.orographicGain = v; }, (v) => v.toFixed(2)));
+  weatherSec.appendChild(sliderRow('Diurnal swing', 0, 0.25, 0.01, () => weather.diurnalAmp, (v) => { weather.diurnalAmp = v; }, (v) => v.toFixed(2)));
+  weatherSec.appendChild(pillRow('Overlay', [
+    { id: 'humidity', label: 'Humid' }, { id: 'cloud', label: 'Cloud' }, { id: 'temp', label: 'Temp' }, { id: 'none', label: 'Off' },
+  ], () => overlay, (v) => { overlay = v; }));
   const wbtns = h('div', { style: 'display:flex;gap:5px;margin:5px 0 3px' },
-    btn('⛈ Flood lake', () => { waterDyn?.shiftLargest(2.0); }),
+    btn('☁ Seed clouds', () => { waterDyn?.seedClouds(0.7); }),
+    btn('⛈ Flood', () => { waterDyn?.shiftLargest(2.0); }),
     btn('☀ Drought', () => { waterDyn?.shiftLargest(-2.0); }),
     btn('Reset', () => { waterDyn?.reset(); }),
   );
   weatherSec.appendChild(wbtns);
+  // ── W-B: manual rain brush ──
+  weatherSec.appendChild(toggleRow('💧 Rain brush — click the map', false, (v) => { rainBrush = v; canvas.style.cursor = v ? 'crosshair' : 'grab'; }));
+  weatherSec.appendChild(sliderRow('Brush rain', 100, 4000, 50, () => weather.rainMm, (v) => { weather.rainMm = v; }, (v) => `${v | 0} mm`));
+  weatherSec.appendChild(sliderRow('Brush size', 1, 20, 1, () => weather.brushRadius, (v) => { weather.brushRadius = v; }, (v) => `${v | 0} t`));
+  weatherSec.appendChild(sliderRow('Runoff', 0, 1, 0.05, () => weather.runoffFrac, (v) => { weather.runoffFrac = v; }, (v) => `${(v * 100) | 0}%`));
   const weatherReadout = h('div', { style: 'margin-top:4px;font:400 10px var(--font-mono);color:var(--ink-2)', text: '—' });
   weatherSec.appendChild(weatherReadout);
   menuBar.appendChild(dropdown('☁ Weather ▾', weatherSec));
@@ -591,24 +622,34 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
   const HUMIDITY_FLOOR = 0.04;
   const HUM_BUCKETS = 4;
   const HUM_BUDGET = 8000;     // max diamonds drawn — the field stride-samples past this
-  function drawHumidity(): void {
-    const wd = waterDyn;
-    if (!wd) return;
-    const hum = wd.humidity, W = map.width, H = map.height;
-    // Count humid cells, then stride so we draw at most HUM_BUDGET diamonds (a smooth
-    // field downsamples cleanly) — bounds cost no matter how far humidity has spread.
+  // RGB per overlay bucket b (0..HUM_BUCKETS-1) — humidity/cloud are mono ramps,
+  // temperature is a cold-blue → hot-red diverging ramp.
+  function overlayColor(mode: 'humidity' | 'cloud' | 'temp', b: number, n: number): string {
+    const a = Math.min(0.5, 0.12 + b * (0.42 / n));
+    if (mode === 'cloud')  return `rgba(235,238,245,${a})`;   // overcast white
+    if (mode === 'temp') { const t = b / (n - 1); return `rgba(${(40 + t * 200) | 0},${(90 + (0.5 - Math.abs(t - 0.5)) * 200) | 0},${(235 - t * 200) | 0},${a})`; }
+    return `rgba(90,200,235,${a})`;                            // humidity cyan
+  }
+
+  // Draw a per-cell scalar field (0..1) as alpha-bucketed iso diamonds. Counts then
+  // strides to ≤ HUM_BUDGET diamonds (a smooth field downsamples cleanly) so cost is
+  // bounded however far the field has spread; projects INLINE (no per-cell allocs —
+  // the W-B perf lesson). `temp` is always full-grid so it skips the floor.
+  function drawScalarField(field: Float32Array, mode: 'humidity' | 'cloud' | 'temp'): void {
+    const W = map.width, H = map.height;
+    const floor = mode === 'temp' ? -1 : HUMIDITY_FLOOR;
     let count = 0;
-    for (let i = 0; i < hum.length; i++) if (hum[i] >= HUMIDITY_FLOOR) count++;
+    for (let i = 0; i < field.length; i++) if (field[i] > floor) count++;
     if (count === 0) return;
     const stride = Math.max(1, Math.ceil(Math.sqrt(count / HUM_BUDGET)));
     const HW = ISO_TILE_W / 2, HH = ISO_TILE_H / 2, z = cam.zoom;
-    const dx = HW * z * stride, dy = HH * z * stride;   // diamonds grow with the stride
+    const dx = HW * z * stride, dy = HH * z * stride;
     const paths = Array.from({ length: HUM_BUCKETS }, () => new Path2D());
     for (let y = 0; y < H; y += stride) {
       const row = y * W;
       for (let x = 0; x < W; x += stride) {
-        const v = hum[row + x];
-        if (v < HUMIDITY_FLOOR) continue;
+        const v = field[row + x];
+        if (v <= floor) continue;
         const cx = ((x - y) * HW - cam.x) * z;
         const cy = ((x + y) * HH - cam.y) * z;
         if (cx < -dx || cx > cssW + dx || cy < -dy || cy > cssH + dy) continue;   // cull
@@ -617,11 +658,16 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
       }
     }
     ctx.save();
-    for (let b = 0; b < HUM_BUCKETS; b++) {
-      ctx.fillStyle = `rgba(90,200,235,${Math.min(0.5, 0.12 + b * 0.12)})`;
-      ctx.fill(paths[b]);
-    }
+    for (let b = 0; b < HUM_BUCKETS; b++) { ctx.fillStyle = overlayColor(mode, b, HUM_BUCKETS); ctx.fill(paths[b]); }
     ctx.restore();
+  }
+
+  function drawOverlay(): void {
+    const wd = waterDyn;
+    if (!wd || overlay === 'none') return;
+    if (overlay === 'humidity') drawScalarField(wd.humidity, 'humidity');
+    else if (overlay === 'cloud') drawScalarField(wd.cloud, 'cloud');
+    else if (overlay === 'temp')  drawScalarField(wd.temp, 'temp');
   }
 
   function drawFocus(): void {
@@ -700,16 +746,19 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
     if (waterDyn) {
       waterDyn.step(dt, weather);
       const lvl = waterDyn.maxLevelM();
-      weatherReadout.textContent = waterDyn.bodyCount === 0
+      const base = waterDyn.bodyCount === 0
         ? 'no lakes — runoff drains to sea'
         : `lakes ${waterDyn.bodyCount} · peak level ${lvl >= 0 ? '+' : ''}${lvl.toFixed(2)} m · humidity ${(waterDyn.maxHumidity() * 100) | 0}%`;
+      weatherReadout.textContent = weather.autoWeather
+        ? `${base} · cloud ${(waterDyn.maxCloud() * 100) | 0}% · day ${(waterDyn.timeOfDay() * 100) | 0}%`
+        : base;
     }
     if (map) {
       const rc = renderContext();
       render(ctx, rc);                       // GPU terrain (entity pass empty)
       if (showConnectome) drawWorldConnectome(ctx, rc);  // full connectome backbone
       if (showDetailPatches) drawDetailPatches();         // adaptive high-res regions
-      if (showHumidity && waterDyn) drawHumidity();        // air-moisture heat overlay
+      drawOverlay();                          // humidity / cloud / temperature field
       drawFocus();                           // spotlight + drill highlight
     }
     rafId = requestAnimationFrame(frame);
@@ -727,7 +776,14 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
     // Climate W-B handles: rain a basin's catchment + read the field state.
     rain: (tx: number, ty: number) => waterDyn?.rain(tx, ty, weather),
     weather: () => weather,
-    dyn: () => waterDyn && ({ bodies: waterDyn.bodyCount, levelM: waterDyn.maxLevelM(), humidity: waterDyn.maxHumidity() }),
+    dyn: () => waterDyn && ({
+      bodies: waterDyn.bodyCount, levelM: waterDyn.maxLevelM(),
+      humidity: waterDyn.maxHumidity(), cloud: waterDyn.maxCloud(), timeOfDay: waterDyn.timeOfDay(),
+    }),
+    // W-C handles: drive the emergent atmosphere + pick the overlay.
+    storm: (on = true) => { weather.autoWeather = on; },
+    seedClouds: (a?: number) => waterDyn?.seedClouds(a),
+    setOverlay: (m: 'none' | 'humidity' | 'cloud' | 'temp') => { overlay = m; },
   };
   })();
 
