@@ -29,6 +29,7 @@ import { initManifoldWasm } from '@/assetgen/geometry/manifold-wasm-browser';
 import { createGpuRenderMap } from '@/render/gpu/gpu-renderer';
 import { drawWorldConnectome, projectConnectome, screenToTileApprox } from '@/render/connectome-overlay';
 import { WaterDynamics, DEFAULT_WEATHER, type WeatherParams } from '@/render/gpu/water-dynamics';
+import { buildFloodWatch, type FloodWatch } from '@/world/flood-watch';
 import { DEFAULT_LIGHTING } from '@/render/lighting-state';
 import { ISO_TILE_W, ISO_TILE_H } from '@/render/iso/iso-constants';
 import { injectStudioTheme, COLORS, h } from './theme';
@@ -188,6 +189,8 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
   // basin it drains into + the air there). Rebuilt per world in regenerate().
   let waterDyn: WaterDynamics | null = null;
   const weather: WeatherParams = { ...DEFAULT_WEATHER };
+  let floodWatch: FloodWatch | null = null;
+  const floodEventLog: string[] = [];   // recent place-flood edges, newest last
   let rainBrush = false;
   let floodBrush = false;
   let floodRadius = 8;     // tiles
@@ -250,6 +253,14 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
     map = m;
     world = w;
     waterDyn = new WaterDynamics(map);   // fresh climate state for the new world
+    // W-F: watch the placed POIs for flooding (the "important places" Fate cares about).
+    floodWatch = buildFloodWatch(
+      (map.worldSeed?.pois ?? [])
+        .filter((p) => p.position)
+        .map((p) => ({ id: p.id, name: p.name ?? p.id, x: p.position!.x, y: p.position!.y, radius: 3 })),
+      map.width, map.height,
+    );
+    floodEventLog.length = 0;
     visualMap = Autotiler.computeVisualMap(map);
     focus = { level: 'world' };
     selectedPoi = null;
@@ -541,7 +552,7 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
     btn('☁ Seed clouds', () => { waterDyn?.seedClouds(0.7); }),
     btn('⤒ Raise lake', () => { waterDyn?.shiftLargest(2.0); }),
     btn('☀ Drought', () => { waterDyn?.shiftLargest(-2.0); }),
-    btn('Reset', () => { waterDyn?.reset(); }),
+    btn('Reset', () => { waterDyn?.reset(); floodWatch?.reset(); floodEventLog.length = 0; }),
   );
   weatherSec.appendChild(wbtns);
   // ── W-E: flood brush — lay standing water on the ground (a god flooding a plain) ──
@@ -771,15 +782,29 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
     lastStepT = now;
     if (waterDyn) {
       waterDyn.step(dt, weather);
+      // W-F: detect places that just flooded / dried and log the edges (the events
+      // that will surface onto the command bus → Fate in W-H).
+      if (floodWatch) {
+        for (const ev of floodWatch.poll(waterDyn.floodOffsetM())) {
+          const msg = ev.type === 'flooded'
+            ? `🌊 ${ev.name} is flooding (${ev.depthM.toFixed(1)} m)`
+            : `🏜 ${ev.name} has dried out`;
+          floodEventLog.push(msg);
+          if (floodEventLog.length > 6) floodEventLog.shift();
+          // eslint-disable-next-line no-console
+          console.log('[flood]', msg);
+        }
+      }
       const lvl = waterDyn.maxLevelM();
       const base = waterDyn.bodyCount === 0
         ? 'no lakes — runoff drains to sea'
         : `lakes ${waterDyn.bodyCount} · peak level ${lvl >= 0 ? '+' : ''}${lvl.toFixed(2)} m · humidity ${(waterDyn.maxHumidity() * 100) | 0}%`;
       const flood = waterDyn.maxFloodM();
       const floodStr = flood > 0 ? ` · flood ${flood.toFixed(1)} m` : '';
+      const lastEv = floodEventLog.length > 0 ? ` — ${floodEventLog[floodEventLog.length - 1]}` : '';
       weatherReadout.textContent = (weather.autoWeather
         ? `${base} · cloud ${(waterDyn.maxCloud() * 100) | 0}% · day ${(waterDyn.timeOfDay() * 100) | 0}%`
-        : base) + floodStr;
+        : base) + floodStr + lastEv;
     }
     if (map) {
       const rc = renderContext();
@@ -805,6 +830,9 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
     rain: (tx: number, ty: number) => waterDyn?.rain(tx, ty, weather),
     // W-E: flood a plain — lay standing water of `depthM` over a disc of `radius` tiles.
     flood: (tx: number, ty: number, radius = 8, depthM = 2) => waterDyn?.floodArea(tx, ty, radius, depthM),
+    // W-F: place-level flood edges (which important places are under water).
+    floodEvents: () => floodEventLog.slice(),
+    floodedPlaces: () => floodWatch?.floodedPlaceIds() ?? [],
     weather: () => weather,
     dyn: () => waterDyn && ({
       bodies: waterDyn.bodyCount, levelM: waterDyn.maxLevelM(), floodM: waterDyn.maxFloodM(),
