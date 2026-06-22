@@ -187,7 +187,11 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
     // ocean backdrop, since both key off hasWater) — distinct from the river ribbon.
     const waterOn = rc.devMode?.showWater !== false && !isLayerHidden('rivers', rc.devMode);
     const water: WaterField | null = (terrain && waterOn)
-      ? buildWaterField(map, { viewport: [lowW, lowH], xform, lighting, timeSec, waterLevelM })
+      ? buildWaterField(map, {
+          viewport: [lowW, lowH], xform, lighting, timeSec, waterLevelM,
+          // Localized per-basin level (climate W-B) — rain filling one lake.
+          lakeOffsetM: rc.lakeOffsetM,
+        })
       : null;
 
     // Road/river ribbons (T7/R2): swept terrain-following meshes drawn over terrain

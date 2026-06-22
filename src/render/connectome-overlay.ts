@@ -29,6 +29,20 @@ const EDGE_STYLE: Record<string, { color: string; width: number }> = {
 export function projectConnectome(map: GameMap, tx: number, ty: number, cam: Camera): { x: number; y: number } {
   return project(map, tx, ty, cam);
 }
+/** Approximate inverse of {@link projectConnectome}: CSS-pixel screen → tile coord,
+ *  IGNORING terrain lift (which is non-invertible). Good enough for coarse placement
+ *  (a rain brush, a cursor probe) — the lift error is a fraction of a tile in the y
+ *  axis and irrelevant to a multi-tile brush. Clamped to the map. */
+export function screenToTileApprox(map: GameMap, sx: number, sy: number, cam: Camera): { tx: number; ty: number } {
+  const a = (sx / cam.zoom + cam.x) / HALF_W;   // tx − ty
+  const b = (sy / cam.zoom + cam.y) / HALF_H;    // tx + ty (lift omitted)
+  const tx = (a + b) / 2;
+  const ty = (b - a) / 2;
+  return {
+    tx: Math.max(0, Math.min(map.width - 1, tx)),
+    ty: Math.max(0, Math.min(map.height - 1, ty)),
+  };
+}
 function project(map: GameMap, tx: number, ty: number, cam: Camera): { x: number; y: number } {
   const elev = elevationAt(map, tx, ty);
   // S1 style knobs (default to TERRAIN_RELIEF_M × TERRAIN_Z_PX_PER_M) — must match

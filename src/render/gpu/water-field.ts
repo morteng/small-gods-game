@@ -29,6 +29,13 @@ export const LAKE_FLOOD_RINGS = 6;
 /** WGlobals = TGlobals (24) + uWater vec4 = 28 floats / 112 bytes. */
 export const WATER_GLOBALS_FLOATS = TERRAIN_GLOBALS_FLOATS + 4;
 
+/** Element-wise equality of two same-length Float32Arrays. */
+function eqF32(a: Float32Array, b: Float32Array): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
 /** Linear-RGB 0..1 → 0xAABBGGRR (LE-friendly upload; shader unpacks to 0..1). */
 function rgbToAbgr(c: Rgb): number {
   const r = Math.round(Math.min(1, Math.max(0, c[0])) * 255);
@@ -255,10 +262,58 @@ export interface BuildWaterFieldOpts {
   lighting: LightingState;
   /** Seconds, for ripple animation (pure render — never the sim clock). */
   timeSec?: number;
-  /** Inland water-level offset in METRES (drought < 0, flood > 0) — shifts LAKE
-   *  surfaces only (the sea is the fixed datum). Default 0. */
+  /** Inland water-level offset in METRES (drought < 0, flood > 0) — shifts ALL LAKE
+   *  surfaces uniformly (the sea is the fixed datum). Default 0. */
   waterLevelM?: number;
+  /** LOCALIZED per-lake-body water-level offset in METRES, indexed by lake body
+   *  (see {@link getLakeBodies}). The dynamic-weather layer (rain → runoff fills a
+   *  basin) writes this so DIFFERENT lakes rise/recede independently; it's baked
+   *  into the per-cell surface (so the GPU shader needs no extra binding). Sparse —
+   *  when every entry is 0 the cached static surface is reused (no re-upload). */
+  lakeOffsetM?: Float32Array;
   maxQuads?: number;
+}
+
+/** Connected lake bodies over the RENDER lake mask (Lake cells INCLUDING the
+ *  shore/flood dilation), so a localized level offset can be applied per body and
+ *  still cover the dilated overhang the waterline clips against. */
+export interface LakeBodies {
+  /** Per cell: lake-body index, or −1 where the cell is not a (render) lake. */
+  bodyId: Int32Array;
+  /** Surface area (cell count) of each body — converts a runoff VOLUME to a level. */
+  areaCells: number[];
+}
+
+/** Flood-fill the render lake mask into connected bodies (4-neighbour). */
+function computeLakeBodies(width: number, height: number, waterType: Uint32Array): LakeBodies {
+  const cells = width * height;
+  const bodyId = new Int32Array(cells).fill(-1);
+  const areaCells: number[] = [];
+  const queue = new Int32Array(cells);
+  for (let s = 0; s < cells; s++) {
+    if (waterType[s] !== WaterType.Lake || bodyId[s] !== -1) continue;
+    const b = areaCells.length;
+    let head = 0, tail = 0, area = 0;
+    queue[tail++] = s; bodyId[s] = b;
+    while (head < tail) {
+      const c = queue[head++]; area++;
+      const cx = c % width, cy = (c / width) | 0;
+      const tryN = (nx: number, ny: number): void => {
+        if (nx < 0 || ny < 0 || nx >= width || ny >= height) return;
+        const ni = ny * width + nx;
+        if (bodyId[ni] === -1 && waterType[ni] === WaterType.Lake) { bodyId[ni] = b; queue[tail++] = ni; }
+      };
+      tryN(cx - 1, cy); tryN(cx + 1, cy); tryN(cx, cy - 1); tryN(cx, cy + 1);
+    }
+    areaCells.push(area);
+  }
+  return { bodyId, areaCells };
+}
+
+/** The (memoised) connected lake bodies of a world — the body index space the
+ *  localized water-level offset (`lakeOffsetM`) is indexed in. */
+export function getLakeBodies(map: GameMap): LakeBodies {
+  return waterStatic(map).lakeBodies;
 }
 
 /** The per-cell water buffers — static for a given map (they come from the
@@ -275,6 +330,26 @@ interface WaterStatic {
   deep: Uint32Array;
   clarity: Float32Array;
   shoreDist: Float32Array;
+  lakeBodies: LakeBodies;
+  /** Flat list of every (render) lake cell — so a localized offset touches only the
+   *  ~hundreds of lake cells, never the whole 100k-cell grid, each frame. */
+  lakeCells: Int32Array;
+  /** Ping-pong scratch surfaces for the localized offset (allocated lazily on first
+   *  flood, reused forever after — no per-frame allocation → no GC spikes). Both are
+   *  seeded from the base surface, and only lake cells are ever overwritten, so their
+   *  non-lake cells stay equal to the base. Toggling gives the GPU upload guard a
+   *  changed reference exactly when (and only when) the offset is live. */
+  dynA?: Float32Array;
+  dynB?: Float32Array;
+  dynToggle: boolean;
+  /** Per-body offsets last baked into the dyn surface — skips the rebuild + the
+   *  GPU re-upload on frames where no basin level changed (a held flood, a settled
+   *  world), so the localized layer only costs a writeBuffer while it's MOVING. */
+  dynApplied?: Float32Array;
+  /** Wall-clock seconds of the last dyn rebuild — the level offset is re-baked (and
+   *  re-uploaded) at most ~12 Hz while it moves, since a lake level is slow and a
+   *  full per-cell surface re-upload every frame stalls software-WebGPU. */
+  dynBuiltAt?: number;
   wetCount: number;
   vertexCount: number;
   subsample: number;
@@ -342,10 +417,19 @@ function waterStatic(map: GameMap, maxQuads?: number): WaterStatic {
     surfaceW, waterType, shallow, deep, clarity, flow,
   });
 
+  // Connected lake bodies over the DILATED render lake mask — the index space the
+  // localized water-level offset is keyed in — plus the flat lake-cell list.
+  const lakeBodies = computeLakeBodies(map.width, map.height, waterType);
+  const lakeCellArr: number[] = [];
+  for (let i = 0; i < lakeBodies.bodyId.length; i++) if (lakeBodies.bodyId[i] >= 0) lakeCellArr.push(i);
+
   const stat: WaterStatic = {
     surfaceW,
     waterType,
     flow, shallow, deep, clarity, shoreDist,
+    lakeBodies,
+    lakeCells: Int32Array.from(lakeCellArr),
+    dynToggle: false,
     wetCount: wet,
     vertexCount: grid.vertexCount,
     subsample: grid.subsample,
@@ -372,8 +456,45 @@ export function buildWaterField(map: GameMap, opts: BuildWaterFieldOpts): WaterF
     viewport: opts.viewport, xform: opts.xform, lighting: opts.lighting, subsample: stat.subsample,
   });
 
+  // LOCALIZED lake level: bake a per-body metre offset into a fresh per-cell
+  // surface so each basin rises/recedes independently (the global `waterLevelM`
+  // above shifts ALL lakes; this is the dynamic-weather, per-basin layer). When
+  // every body is at 0 the cached static surface is reused — reference-stable, so
+  // the GPU upload's identity guard skips the per-frame writeBuffer.
+  let surfaceW = stat.surfaceW;
+  const lo = opts.lakeOffsetM;
+  if (lo && lo.some((v) => v !== 0)) {
+    // Only rebuild + re-upload the surface when a basin level actually CHANGED since
+    // last frame — a held flood / settled world returns the SAME dyn buffer
+    // reference, so the GPU upload guard skips and the localized layer costs nothing
+    // once it stops moving. (A new array reference is produced only on change.)
+    const now = opts.timeSec ?? 0;
+    const due = stat.dynBuiltAt === undefined || now - stat.dynBuiltAt >= 0.08;   // ≤12 Hz
+    const changed = !stat.dynApplied || !eqF32(stat.dynApplied, lo);
+    if ((changed && due) || !stat.dynA) {
+      const relief = worldStyleOf(map.worldSeed).mountainRelief;
+      const { bodyId } = stat.lakeBodies;
+      if (!stat.dynA) { stat.dynA = stat.surfaceW.slice(); stat.dynB = stat.surfaceW.slice(); }
+      stat.dynToggle = !stat.dynToggle;
+      const buf = stat.dynToggle ? stat.dynA : stat.dynB!;
+      const cells = stat.lakeCells;
+      for (let k = 0; k < cells.length; k++) {
+        const i = cells[k];
+        const b = bodyId[i];
+        buf[i] = stat.surfaceW[i] + (b >= 0 ? lo[b] / relief : 0);
+      }
+      stat.dynApplied = lo.slice();
+      stat.dynBuiltAt = now;
+      surfaceW = buf;
+    } else {
+      // No rebuild this frame (held, or throttled) — reuse the last dyn surface so
+      // the reference is stable and the GPU upload guard skips.
+      surfaceW = stat.dynA ? (stat.dynToggle ? stat.dynA : stat.dynB!) : stat.surfaceW;
+    }
+  }
+
   return {
-    surfaceW: stat.surfaceW,
+    surfaceW,
     waterType: stat.waterType,
     flow: stat.flow,
     shallow: stat.shallow,

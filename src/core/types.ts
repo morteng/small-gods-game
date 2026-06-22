@@ -220,6 +220,10 @@ export interface RenderContext {
   /** Inland water-level offset in METRES (drought < 0, flood > 0) — shifts the
    *  river + lake water surfaces; the sea is the fixed datum. Default 0. */
   waterLevelM?: number;
+  /** LOCALIZED per-lake-body level offset in METRES (climate W-B: rain fills one
+   *  basin) — indexed by lake body (`getLakeBodies`). Baked into the lake surface
+   *  per cell, so different lakes rise/recede independently. Default: none. */
+  lakeOffsetM?: Float32Array;
 }
 
 /** Options for debug visualization overlays */

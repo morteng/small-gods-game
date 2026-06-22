@@ -27,7 +27,8 @@ import { synthesizeBlueprint } from '@/blueprint/presets';
 import { ensureBuildingTypesRegistered } from '@/blueprint/register-buildings';
 import { initManifoldWasm } from '@/assetgen/geometry/manifold-wasm-browser';
 import { createGpuRenderMap } from '@/render/gpu/gpu-renderer';
-import { drawWorldConnectome, projectConnectome } from '@/render/connectome-overlay';
+import { drawWorldConnectome, projectConnectome, screenToTileApprox } from '@/render/connectome-overlay';
+import { WaterDynamics, DEFAULT_WEATHER, type WeatherParams } from '@/render/gpu/water-dynamics';
 import { DEFAULT_LIGHTING } from '@/render/lighting-state';
 import { ISO_TILE_W, ISO_TILE_H } from '@/render/iso/iso-constants';
 import { injectStudioTheme, COLORS, h } from './theme';
@@ -111,13 +112,53 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
   viewPane.appendChild(canvas);
   const ctx = canvas.getContext('2d')!;
 
+  // Top MENU BAR — spans the view, holds the title + the dropdown controls (Layers /
+  // Terrain / Weather), so the left panel is free for the world browser + inspector.
+  const menuBar = document.createElement('div');
+  menuBar.style.cssText =
+    'position:absolute;top:0;left:0;right:0;height:40px;z-index:10;display:flex;align-items:center;' +
+    'gap:8px;padding:0 10px;background:linear-gradient(180deg,rgba(10,14,20,.92),rgba(10,14,20,.78));' +
+    'border-bottom:1px solid var(--line);backdrop-filter:blur(6px)';
+  viewPane.appendChild(menuBar);
+
   const title = document.createElement('div');
-  title.style.cssText =
-    'position:absolute;top:10px;left:12px;z-index:5;font:600 12px var(--font-mono);' +
-    'color:#e8eef6;background:rgba(10,14,20,.72);border:1px solid rgba(120,170,220,.25);' +
-    'padding:5px 9px;border-radius:6px;pointer-events:none';
+  title.style.cssText = 'font:600 12px var(--font-mono);color:#e8eef6;white-space:nowrap;' +
+    'overflow:hidden;text-overflow:ellipsis;max-width:40%';
   title.textContent = 'World connectome — loading…';
-  viewPane.appendChild(title);
+  menuBar.appendChild(title);
+  menuBar.appendChild(h('div', { style: 'flex:1 1 auto' }));   // spacer → controls right-align
+
+  // Single-open dropdown menus anchored in the bar. Each is a button + a popover that
+  // drops below it; opening one closes the others, and an outside click closes all.
+  const MENUBTN_CSS = 'display:flex;align-items:center;gap:5px;background:var(--bg-1);color:var(--ink-0);' +
+    'border:1px solid var(--line);border-radius:6px;padding:5px 10px;font:500 11px var(--font-mono);cursor:pointer;white-space:nowrap';
+  const dropdowns: { pop: HTMLElement; btn: HTMLButtonElement }[] = [];
+  function closeDropdowns(except?: HTMLElement): void {
+    for (const d of dropdowns) if (d.pop !== except) { d.pop.style.display = 'none'; d.btn.style.borderColor = 'var(--line)'; }
+  }
+  function dropdown(label: string, content: HTMLElement): HTMLElement {
+    const wrap = h('div', { style: 'position:relative' });
+    const btn = h('button', { text: label }) as HTMLButtonElement;
+    btn.style.cssText = MENUBTN_CSS;
+    const pop = h('div', {
+      style: 'position:absolute;top:calc(100% + 6px);right:0;min-width:248px;max-height:74vh;overflow:auto;' +
+        'background:rgba(16,20,28,.98);border:1px solid var(--line);border-radius:9px;padding:9px 11px;' +
+        'z-index:30;display:none;box-shadow:0 10px 30px rgba(0,0,0,.5)',
+    });
+    pop.appendChild(content);
+    pop.addEventListener('click', (e) => e.stopPropagation());
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      const open = pop.style.display !== 'none';
+      closeDropdowns();
+      pop.style.display = open ? 'none' : 'block';
+      btn.style.borderColor = open ? 'var(--line)' : 'var(--accent)';
+    };
+    wrap.append(btn, pop);
+    dropdowns.push({ pop, btn });
+    return wrap;
+  }
+  window.addEventListener('click', () => closeDropdowns(), { signal });
 
   // ── world generation params (driven by the browser) ────────────────────────
   const gen = { config: 'default', seed: 0x5109, scale: null as ScalePreset | null };
@@ -142,6 +183,14 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
   const dev: Partial<DevModeState> = {};
   let showConnectome = true;
   let showDetailPatches = false;
+
+  // Climate W-B — localized real-time water + humidity (rain on one spot raises the
+  // basin it drains into + the air there). Rebuilt per world in regenerate().
+  let waterDyn: WaterDynamics | null = null;
+  const weather: WeatherParams = { ...DEFAULT_WEATHER };
+  let rainBrush = false;
+  let showHumidity = true;
+  let lastStepT = (typeof performance !== 'undefined' ? performance.now() : 0);
 
   // Adaptive detail-patch regions (coast/river/road/slope), memoised per world —
   // the same importance map the GPU detail pass instances. Drawn as a 2D overlay
@@ -196,6 +245,7 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
     if (token !== regenToken) return;
     map = m;
     world = w;
+    waterDyn = new WaterDynamics(map);   // fresh climate state for the new world
     visualMap = Autotiler.computeVisualMap(map);
     focus = { level: 'world' };
     selectedPoi = null;
@@ -240,6 +290,12 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
 
   function handleClick(sx: number, sy: number): void {
     if (!map) return;
+    // Rain brush intercepts the click: deposit a cloudburst at the cursor tile.
+    if (rainBrush && waterDyn) {
+      const { tx, ty } = screenToTileApprox(map, sx, sy, cam);
+      waterDyn.rain(tx, ty, weather);
+      return;
+    }
     const f = focus;
     if (f.level === 'world') {
       const poi = pickPoi(map, cam, sx, sy);
@@ -374,20 +430,19 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
     cb.onchange = () => onChange(cb.checked);
     return h('label', { style: 'display:flex;align-items:center;gap:8px;padding:3px 0;cursor:pointer;font:400 11px var(--font-mono);color:var(--ink-0)' }, cb, h('span', { text: label }));
   }
-  const layersSec = h('div', { style: 'border-top:1px solid var(--line);margin:10px 9px 4px;padding:9px 0 4px' });
-  layersSec.appendChild(h('div', { class: 'sg-eyebrow', style: 'margin-bottom:5px', text: 'Layers' }));
+  const layersSec = h('div', { style: 'min-width:200px' });
   for (const { layer, label } of SCENE_LAYERS) {
     layersSec.appendChild(toggleRow(label, true, (v) => { dev[layerFlag(layer)] = v; }));
     if (layer === 'rivers') layersSec.appendChild(waterRow);   // group water with rivers
   }
   layersSec.appendChild(toggleRow('Connectome', true, (v) => { showConnectome = v; }));
   layersSec.appendChild(toggleRow('Detail patch regions', false, (v) => { showDetailPatches = v; }));
-  panel.appendChild(layersSec);
+  menuBar.appendChild(dropdown('◴ Layers ▾', layersSec));
 
   // ── display: terrain render style ───────────────────────────────────────────
   // The terrain shader's display-mode enum (textured / contour-vector / hypsometric
   // / biome / slope / normals), threaded via dev.terrainMode → the terrain uniform.
-  const displaySec = h('div', { style: 'border-top:1px solid var(--line);margin:6px 9px 4px;padding:9px 0 4px' });
+  const displaySec = h('div', { style: 'min-width:210px' });
   displaySec.appendChild(h('div', { class: 'sg-eyebrow', style: 'margin-bottom:5px', text: 'Terrain style' }));
   const styleSel = document.createElement('select');
   styleSel.style.cssText = 'width:100%;background:var(--bg-1);color:var(--ink-0);border:1px solid var(--line);' +
@@ -415,7 +470,48 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
   displaySec.appendChild(resSel);
   const hint = h('div', { style: 'margin-top:6px;font:400 10px var(--font-mono);color:var(--ink-2)', text: 'Pick “Wireframe (mesh)” to see the grid.' });
   displaySec.appendChild(hint);
-  panel.appendChild(displaySec);
+  menuBar.appendChild(dropdown('⛰ Terrain ▾', displaySec));
+
+  // ── weather: emergent climate params (climate W-B) ───────────────────────────
+  // Localized real-time water: rain a basin's catchment → it fills + the air wets,
+  // then evaporates back. Every knob is live on `weather`; the basin offset is read
+  // by reference into the water field, so changes show next frame.
+  function sliderRow(
+    label: string, min: number, max: number, step: number, get: () => number,
+    set: (v: number) => void, fmt: (v: number) => string,
+  ): HTMLElement {
+    const val = h('span', { style: 'margin-left:auto;color:var(--ink-1);font:400 10px var(--font-mono)', text: fmt(get()) });
+    const head = h('div', { style: 'display:flex;align-items:center;gap:6px;font:400 11px var(--font-mono);color:var(--ink-0)' }, h('span', { text: label }), val);
+    const sl = h('input', { attrs: { type: 'range', min: String(min), max: String(max), step: String(step) } }) as HTMLInputElement;
+    sl.value = String(get());
+    sl.style.cssText = 'width:100%;accent-color:var(--accent);cursor:pointer;margin:2px 0 4px';
+    sl.oninput = () => { const v = parseFloat(sl.value); set(v); val.textContent = fmt(v); };
+    return h('div', { style: 'padding:2px 0' }, head, sl);
+  }
+  function btn(label: string, onClick: () => void): HTMLElement {
+    const b = h('button', { text: label }) as HTMLButtonElement;
+    b.style.cssText = 'flex:1;background:var(--bg-1);color:var(--ink-0);border:1px solid var(--line);' +
+      'border-radius:5px;padding:5px 6px;font:400 10px var(--font-mono);cursor:pointer';
+    b.onclick = onClick;
+    return b;
+  }
+  const weatherSec = h('div', { style: 'min-width:240px' });
+  weatherSec.appendChild(toggleRow('Rain brush — click the map', false, (v) => { rainBrush = v; canvas.style.cursor = v ? 'crosshair' : 'grab'; }));
+  weatherSec.appendChild(toggleRow('Humidity overlay', true, (v) => { showHumidity = v; }));
+  weatherSec.appendChild(sliderRow('Rain', 100, 4000, 50, () => weather.rainMm, (v) => { weather.rainMm = v; }, (v) => `${v | 0} mm`));
+  weatherSec.appendChild(sliderRow('Brush', 1, 20, 1, () => weather.brushRadius, (v) => { weather.brushRadius = v; }, (v) => `${v | 0} t`));
+  weatherSec.appendChild(sliderRow('Runoff', 0, 1, 0.05, () => weather.runoffFrac, (v) => { weather.runoffFrac = v; }, (v) => `${(v * 100) | 0}%`));
+  weatherSec.appendChild(sliderRow('Evaporation', 0, 120, 5, () => weather.evapMmPerSec, (v) => { weather.evapMmPerSec = v; }, (v) => `${v | 0} mm/s`));
+  weatherSec.appendChild(sliderRow('Humidity decay', 0, 0.3, 0.01, () => weather.humidityDecayPerSec, (v) => { weather.humidityDecayPerSec = v; }, (v) => `${v.toFixed(2)}/s`));
+  const wbtns = h('div', { style: 'display:flex;gap:5px;margin:5px 0 3px' },
+    btn('⛈ Flood lake', () => { waterDyn?.shiftLargest(2.0); }),
+    btn('☀ Drought', () => { waterDyn?.shiftLargest(-2.0); }),
+    btn('Reset', () => { waterDyn?.reset(); }),
+  );
+  weatherSec.appendChild(wbtns);
+  const weatherReadout = h('div', { style: 'margin-top:4px;font:400 10px var(--font-mono);color:var(--ink-2)', text: '—' });
+  weatherSec.appendChild(weatherReadout);
+  menuBar.appendChild(dropdown('☁ Weather ▾', weatherSec));
 
   // ── pan + zoom + click ──────────────────────────────────────────────────────
   let downX = 0, downY = 0, moved = false;
@@ -487,6 +583,47 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
     ctx.restore();
   }
 
+  // Air-humidity heat overlay — cyan iso-diamonds over cells the rain wetted, alpha
+  // by moisture. Hot path (humidity can spread to thousands of cells), so it projects
+  // INLINE (no per-cell `projectConnectome`, which allocates a style object ×4/cell),
+  // ignores terrain lift (a flat overlay), culls offscreen, and batches every cell
+  // into ONE of 4 alpha buckets → 4 fills total, not one fillStyle change per cell.
+  const HUMIDITY_FLOOR = 0.04;
+  const HUM_BUCKETS = 4;
+  const HUM_BUDGET = 8000;     // max diamonds drawn — the field stride-samples past this
+  function drawHumidity(): void {
+    const wd = waterDyn;
+    if (!wd) return;
+    const hum = wd.humidity, W = map.width, H = map.height;
+    // Count humid cells, then stride so we draw at most HUM_BUDGET diamonds (a smooth
+    // field downsamples cleanly) — bounds cost no matter how far humidity has spread.
+    let count = 0;
+    for (let i = 0; i < hum.length; i++) if (hum[i] >= HUMIDITY_FLOOR) count++;
+    if (count === 0) return;
+    const stride = Math.max(1, Math.ceil(Math.sqrt(count / HUM_BUDGET)));
+    const HW = ISO_TILE_W / 2, HH = ISO_TILE_H / 2, z = cam.zoom;
+    const dx = HW * z * stride, dy = HH * z * stride;   // diamonds grow with the stride
+    const paths = Array.from({ length: HUM_BUCKETS }, () => new Path2D());
+    for (let y = 0; y < H; y += stride) {
+      const row = y * W;
+      for (let x = 0; x < W; x += stride) {
+        const v = hum[row + x];
+        if (v < HUMIDITY_FLOOR) continue;
+        const cx = ((x - y) * HW - cam.x) * z;
+        const cy = ((x + y) * HH - cam.y) * z;
+        if (cx < -dx || cx > cssW + dx || cy < -dy || cy > cssH + dy) continue;   // cull
+        const p = paths[Math.min(HUM_BUCKETS - 1, (v * HUM_BUCKETS) | 0)];
+        p.moveTo(cx, cy - dy); p.lineTo(cx + dx, cy); p.lineTo(cx, cy + dy); p.lineTo(cx - dx, cy); p.closePath();
+      }
+    }
+    ctx.save();
+    for (let b = 0; b < HUM_BUCKETS; b++) {
+      ctx.fillStyle = `rgba(90,200,235,${Math.min(0.5, 0.12 + b * 0.12)})`;
+      ctx.fill(paths[b]);
+    }
+    ctx.restore();
+  }
+
   function drawFocus(): void {
     const f = focus;
     if (f.level === 'world') {
@@ -542,6 +679,7 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
       npcs: [], npcSheets: new Map(), treeSheets: new Map(),
       world, lighting, visualMap: visualMap ?? undefined,
       devMode: dev as DevModeState,   // terrain/roads/rivers/buildings/vegetation toggles
+      lakeOffsetM: waterDyn?.lakeOffsetM(),   // localized lake level (climate W-B)
       // Parametric art resolvers so the entity pass can draw buildings & trees.
       resolveParametricBuildingArt: (e: Entity) => {
         const s = buildingSource.peek(e); if (s) return s; buildingSource.warm(e); return null;
@@ -554,11 +692,24 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
   }
   function frame(): void {
     if (disposed) return;
+    // Step the climate fields on the wall clock (pure render-time, never the sim
+    // clock) — capped so a backgrounded tab doesn't dump a huge dt into evaporation.
+    const now = (typeof performance !== 'undefined' ? performance.now() : lastStepT + 16);
+    const dt = Math.min(0.1, Math.max(0, (now - lastStepT) / 1000));
+    lastStepT = now;
+    if (waterDyn) {
+      waterDyn.step(dt, weather);
+      const lvl = waterDyn.maxLevelM();
+      weatherReadout.textContent = waterDyn.bodyCount === 0
+        ? 'no lakes — runoff drains to sea'
+        : `lakes ${waterDyn.bodyCount} · peak level ${lvl >= 0 ? '+' : ''}${lvl.toFixed(2)} m · humidity ${(waterDyn.maxHumidity() * 100) | 0}%`;
+    }
     if (map) {
       const rc = renderContext();
       render(ctx, rc);                       // GPU terrain (entity pass empty)
       if (showConnectome) drawWorldConnectome(ctx, rc);  // full connectome backbone
       if (showDetailPatches) drawDetailPatches();         // adaptive high-res regions
+      if (showHumidity && waterDyn) drawHumidity();        // air-moisture heat overlay
       drawFocus();                           // spotlight + drill highlight
     }
     rafId = requestAnimationFrame(frame);
@@ -573,6 +724,10 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
     regen: (seed?: number, scale?: ScalePreset | null) => { if (seed != null) gen.seed = seed >>> 0; if (scale !== undefined) gen.scale = scale; return regenerate(); },
     focus: () => focus,
     map: () => map,
+    // Climate W-B handles: rain a basin's catchment + read the field state.
+    rain: (tx: number, ty: number) => waterDyn?.rain(tx, ty, weather),
+    weather: () => weather,
+    dyn: () => waterDyn && ({ bodies: waterDyn.bodyCount, levelM: waterDyn.maxLevelM(), humidity: waterDyn.maxHumidity() }),
   };
   })();
 
