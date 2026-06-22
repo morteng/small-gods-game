@@ -773,6 +773,9 @@ export interface DevModeState {
   // Terrain sub-layers (tile-type based; gated inside the terrain pass).
   showRoads?: boolean;
   showRivers?: boolean;
+  // Sea & lake water surface (the buildWaterField pass + its ocean backdrop). Off
+  // reveals the bathymetry / lake & sea beds. River ribbons are separate (showRivers).
+  showWater?: boolean;
   // Terrain display mode enum (0 = textured … 6 = wireframe). See TERRAIN_MODES in
   // src/render/gpu/terrain-field.ts; threaded into the terrain shader uniform.
   terrainMode?: number;

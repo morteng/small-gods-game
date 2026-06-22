@@ -126,77 +126,35 @@ export function makeDetailElevSampler(map: GameMap): (fx: number, fy: number) =>
 }
 
 export interface DetailMaskOpts {
-  /** Normalised-elevation half-band around the waterline that counts as coast. */
-  coastBand?: number;
-  /** Coarse-gradient magnitude (sum of |∂x|,|∂y| over one tile) above which a cell
-   *  counts as steep enough to want finer geometry. */
-  slopeThresh?: number;
-  /** Tiles either side of a road centreline to flag as carve. */
-  roadRadius?: number;
+  /** Tiles of margin stamped around each river/lake cell, so the carved BANKS get
+   *  the fine mesh too (the carve brush spreads a couple tiles past the channel). */
+  bankRadius?: number;
 }
 
 /**
- * The cheap importance map: per coarse tile, 1 where sub-tile detail is worth
- * spending — near the waterline (crisp shores), on river cells + near roads (sharp
- * carve), and on steep ground (mountain relief). Dilated by one tile so patches
- * have margin around the feature. Row-major `Uint8Array[W*H]`, deterministic.
+ * The importance map: 1 ONLY where a river channel or lake basin carves the
+ * terrain — those beds + banks are the cells whose sharp incision needs the
+ * sub-tile mesh. Everything else (coasts, slopes, roads, plains) rides the coarse
+ * one-quad-per-tile grid, so the detail patches stay sparse (a thin corridor along
+ * each river + a ring around each lake) and cheap. Each carve cell is dilated by
+ * `bankRadius` tiles. Row-major `Uint8Array[W*H]`, deterministic.
  */
 export function computeDetailMask(map: GameMap, opts: DetailMaskOpts = {}): Uint8Array {
   const W = map.width, H = map.height;
-  const coastBand = opts.coastBand ?? 0.04;
-  const slopeThresh = opts.slopeThresh ?? 0.05;
-  const roadRadius = opts.roadRadius ?? 1;
-  const sea = ELEVATION_SEA_LEVEL;
-
-  const eroded = getHeightfield(
-    map.seed, W, H, styledIslandSpec(map.worldSeed), map.worldSeed?.pois ?? null,
-  );
+  const bankRadius = opts.bankRadius ?? 2;
   const waterType = getHydrologyResult(map).waterType;
 
-  const raw = new Uint8Array(W * H);
-  for (let y = 0; y < H; y++) {
-    for (let x = 0; x < W; x++) {
-      const idx = y * W + x;
-      const e = eroded[idx];
-      let hot = Math.abs(e - sea) < coastBand;                 // coastline band
-      if (!hot && waterType[idx] === WaterType.River) hot = true; // river carve
-      if (!hot) {
-        const xl = Math.max(0, x - 1), xr = Math.min(W - 1, x + 1);
-        const yu = Math.max(0, y - 1), yd = Math.min(H - 1, y + 1);
-        const gx = Math.abs(eroded[y * W + xr] - eroded[y * W + xl]);
-        const gy = Math.abs(eroded[yd * W + x] - eroded[yu * W + x]);
-        if (gx + gy > slopeThresh) hot = true;                 // steep slope
-      }
-      if (hot) raw[idx] = 1;
-    }
-  }
-
-  // Roads: stamp a corridor around each edge's polyline (sharp grade-cut banks).
-  if (map.roadGraph) {
-    for (const edge of map.roadGraph.edges) {
-      const pts = edge.polyline;
-      if (!pts || pts.length < 1) continue;
-      for (const p of pts) {
-        const cx = Math.round(p.x), cy = Math.round(p.y);
-        for (let dy = -roadRadius; dy <= roadRadius; dy++) {
-          for (let dx = -roadRadius; dx <= roadRadius; dx++) {
-            const nx = cx + dx, ny = cy + dy;
-            if (nx >= 0 && nx < W && ny >= 0 && ny < H) raw[ny * W + nx] = 1;
-          }
-        }
-      }
-    }
-  }
-
-  // Dilate by one tile (8-neighbour) so a patch covers the feature with margin.
   const mask = new Uint8Array(W * H);
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
-      if (!raw[y * W + x]) continue;
-      for (let dy = -1; dy <= 1; dy++) {
-        for (let dx = -1; dx <= 1; dx++) {
-          const nx = x + dx, ny = y + dy;
-          if (nx >= 0 && nx < W && ny >= 0 && ny < H) mask[ny * W + nx] = 1;
+      const wt = waterType[y * W + x];
+      if (wt !== WaterType.River && wt !== WaterType.Lake) continue;
+      for (let dy = -bankRadius; dy <= bankRadius; dy++) {
+        const ny = y + dy;
+        if (ny < 0 || ny >= H) continue;
+        for (let dx = -bankRadius; dx <= bankRadius; dx++) {
+          const nx = x + dx;
+          if (nx >= 0 && nx < W) mask[ny * W + nx] = 1;
         }
       }
     }

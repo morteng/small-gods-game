@@ -136,6 +136,11 @@ struct VSOut {
   @builtin(position) pos : vec4<f32>,
   @location(0) vNormal : vec3<f32>,
   @location(1) vGrid   : vec2<f32>,
+  // Local mesh spacing in TILES per quad edge — set by whichever pass drew this
+  // vertex (coarse terrain: sub/sup; a detail patch: 1/SUPER). The wireframe mode
+  // reads it so each pass's lines trace ITS real triangulation, so a refined
+  // detail region shows its higher resolution rather than the coarse spacing.
+  @location(2) vStep   : f32,
 };
 
 @vertex
@@ -196,6 +201,7 @@ fn vsMain(@builtin(vertex_index) vid : u32) -> VSOut {
   out.pos = vec4<f32>(ndc, depth, 1.0);
   out.vNormal = normal;
   out.vGrid = vec2<f32>(fx, fy);
+  out.vStep = stepT;          // coarse-terrain quad spacing (tiles per edge)
   return out;
 }
 
@@ -280,18 +286,22 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   // applies to the fine patches identically.
   let mode = u32(G.uMode.x + 0.5);
   if (mode == 6u) {                                  // WIREFRAME — the real mesh grid
-    // Lines at the actual quad edges: vertices sit at multiples of stepT = sub/sup
-    // tiles, so drawing where vGrid/stepT crosses an integer traces the rendered
-    // triangulation. fwidth keeps the line a constant screen width at any zoom.
-    let stepT = max(1.0, G.uZParams.w) / max(1.0, G.uMode.y);
+    // Lines at the actual quad edges: vertices sit at multiples of THIS pass's mesh
+    // spacing (vStep tiles), so drawing where vGrid/vStep crosses an integer traces
+    // the rendered triangulation — coarse terrain at sub/sup, a detail patch at its
+    // finer 1/SUPER. fwidth keeps the line a constant screen width at any zoom.
+    let stepT = max(in.vStep, 1e-4);
     let gu = in.vGrid.x / stepT;
     let gv = in.vGrid.y / stepT;
     let du = min(fract(gu), 1.0 - fract(gu)) / max(fwidth(gu), 1e-4);
     let dv = min(fract(gv), 1.0 - fract(gv)) / max(fwidth(gv), 1e-4);
     let lineMask = 1.0 - clamp(min(du, dv), 0.0, 1.0);
-    let fillCol = base * light * 0.4;                // dim lit terrain underneath
-    let wireCol = vec3<f32>(0.50, 0.95, 0.72);       // cyan-green mesh lines
-    return vec4<f32>(mix(fillCol, wireCol, lineMask), 1.0);
+    // Bare MESH — no biome texture. Dark background; the lines themselves are shaded
+    // by the banded relief light so the 3D form still reads. Finer passes (detail
+    // patches at 1/SUPER) therefore draw visibly denser lines over the same dark.
+    let bg = vec3<f32>(0.045, 0.055, 0.075);
+    let wireCol = vec3<f32>(0.45, 0.95, 0.70) * (0.30 + 0.70 * banded);
+    return vec4<f32>(mix(bg, wireCol, lineMask), 1.0);
   }
   if (mode == 5u) {                                  // NORMALS — geometry debug, unlit
     return vec4<f32>(n * 0.5 + vec3<f32>(0.5), 1.0);

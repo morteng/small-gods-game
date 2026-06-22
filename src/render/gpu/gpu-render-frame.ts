@@ -168,8 +168,11 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
         });
     // Adaptive sub-tile detail patches (the px4-3-2-1 idea): a finer instanced mesh
     // with GENUINE analytic relief, overlaid ONLY on the hot regions (coast/carve/
-    // slope) and ONLY when zoomed in enough to read it — native + free at overview.
-    const detail = (terrain && camera.zoom >= 2 && !detailDisabled())
+    // slope). Always on now (was zoom ≥ 2) so the road/river carve banks keep their
+    // refined mesh at every zoom; the field is memoised per map and covers only the
+    // hot regions, and `?nodetail` is the escape hatch. Sub-pixel at extreme
+    // overview — the adaptive art-pixel resolution absorbs the cost.
+    const detail = (terrain && !detailDisabled())
       ? buildDetailField(map)
       : null;
     const tTerrain = performance.now();
@@ -180,7 +183,10 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
     const timeSec = (typeof performance !== 'undefined' ? performance.now() : 0) * 0.001;
     // Inland water level (drought/flood): shifts river + lake surfaces. Sea is fixed.
     const waterLevelM = rc.waterLevelM ?? 0;
-    const water: WaterField | null = (terrain && !isLayerHidden('rivers', rc.devMode))
+    // Sea & lakes: gated by its own `showWater` flag (nulling it also drops the
+    // ocean backdrop, since both key off hasWater) — distinct from the river ribbon.
+    const waterOn = rc.devMode?.showWater !== false && !isLayerHidden('rivers', rc.devMode);
+    const water: WaterField | null = (terrain && waterOn)
       ? buildWaterField(map, { viewport: [lowW, lowH], xform, lighting, timeSec, waterLevelM })
       : null;
 

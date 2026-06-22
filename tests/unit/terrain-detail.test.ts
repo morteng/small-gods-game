@@ -2,8 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { generateWithNoise } from '@/map/map-generator';
 import { WaterType, type WorldSeed } from '@/core/types';
 import { heightField } from '@/render/gpu/terrain-field';
-import { getHeightfield, ELEVATION_SEA_LEVEL, clearHeightfieldCache } from '@/world/heightfield';
-import { styledIslandSpec } from '@/terrain/island-mask';
+import { clearHeightfieldCache } from '@/world/heightfield';
 import { getHydrologyResult, clearHydrologyCache } from '@/world/hydrology-store';
 import { clearRoadDeformationCache } from '@/world/road-deformation';
 import {
@@ -90,31 +89,34 @@ describe('makeDetailElevSampler', () => {
 });
 
 describe('computeDetailMask', () => {
-  it('flags the coastline band and steep ground, skips the flat deep interior', async () => {
-    const { map } = await generateWithNoise(64, 64, 7, seed);
-    const mask = computeDetailMask(map);
-    // Recompute the base field via the same path the module uses, to classify
-    // reference cells (coastline / deep-flat).
-    const hf = getHeightfield(map.seed, 64, 64, styledIslandSpec(map.worldSeed), null);
+  it('flags only river/lake carves + banks, skips dry land away from water', async () => {
+    const { map } = await generateWithNoise(96, 96, 3, { ...seed, size: { width: 96, height: 96 } });
+    const W = map.width, H = map.height;
+    const wt = getHydrologyResult(map).waterType;
+    const mask = computeDetailMask(map, { bankRadius: 2 });
+    const isCarve = (i: number): boolean => wt[i] === WaterType.River || wt[i] === WaterType.Lake;
 
-    let hot = 0, cold = 0, coastHotAll = true, deepFlatHotAny = false;
-    for (let y = 2; y < 62; y++) {
-      for (let x = 2; x < 62; x++) {
-        const idx = y * 64 + x;
-        if (mask[idx]) hot++; else cold++;
-        const e = hf[idx];
-        // A cell right at the waterline must be flagged (crisp shore matters).
-        if (Math.abs(e - ELEVATION_SEA_LEVEL) < 0.01 && !mask[idx]) coastHotAll = false;
-        // A deep, flat-surrounded ocean cell should generally NOT be flagged.
-        const xl = hf[idx - 1], xr = hf[idx + 1], yu = hf[idx - 64], yd = hf[idx + 64];
-        const flat = Math.abs(xr - xl) + Math.abs(yd - yu) < 0.005;
-        if (e < ELEVATION_SEA_LEVEL - 0.12 && flat && mask[idx]) deepFlatHotAny = true;
-      }
+    let hot = 0, cold = 0, carve = 0, carveFlagged = 0;
+    for (let i = 0; i < W * H; i++) {
+      if (mask[i]) hot++; else cold++;
+      if (isCarve(i)) { carve++; if (mask[i]) carveFlagged++; }
     }
-    expect(hot).toBeGreaterThan(0);             // some detail wanted
-    expect(cold).toBeGreaterThan(0);            // but not everywhere (adaptive)
-    expect(coastHotAll).toBe(true);             // every waterline cell flagged
-    expect(deepFlatHotAny).toBe(false);         // flat abyssal interior skipped
+    expect(carveFlagged).toBe(carve);                 // every carve cell flagged
+    if (carve > 0) {
+      expect(hot).toBeGreaterThan(0);
+      expect(cold).toBeGreaterThan(hot);              // SPARSE — most of the map is cold
+      // A cell with no river/lake within 3 tiles must be cold (water-only mask).
+      let checkedDry = false;
+      for (let y = 3; y < H - 3 && !checkedDry; y++) {
+        for (let x = 3; x < W - 3; x++) {
+          let near = false;
+          for (let dy = -3; dy <= 3 && !near; dy++)
+            for (let dx = -3; dx <= 3; dx++) if (isCarve((y + dy) * W + (x + dx))) { near = true; break; }
+          if (!near) { expect(mask[y * W + x]).toBe(0); checkedDry = true; break; }
+        }
+      }
+      expect(checkedDry).toBe(true);
+    }
   });
 
   it('flags river cells (sharp carve)', async () => {

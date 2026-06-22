@@ -378,6 +378,15 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   }
 
   // Opaque — no transparency, crisp waterline (the pixel-art way).
-  return vec4<f32>(clamp(color, vec3<f32>(0.0), vec3<f32>(1.0)), 1.0);
+  // Depth-keyed TRANSPARENCY so the bed shows through shallow water — riverbeds,
+  // lake margins, sandy sea shallows. The pipeline blends premultiplied alpha
+  // (src 'one'), so premultiply rgb by alpha. Foam/whitewater (near-white) keeps
+  // full alpha so crests stay crisp; deep water saturates to opaque.
+  let bedClear = mix(1.6, 3.2, clar);                   // metres of depth → opaque
+  var wAlpha = clamp(0.28 + 0.72 * (depthM / bedClear), 0.28, 1.0);
+  let foamy = smoothstep(0.80, 0.95, max(color.r, max(color.g, color.b)));
+  wAlpha = clamp(max(wAlpha, foamy), 0.0, 1.0);
+  let outC = clamp(color, vec3<f32>(0.0), vec3<f32>(1.0));
+  return vec4<f32>(outC * wAlpha, wAlpha);
 }
 `;

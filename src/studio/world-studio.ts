@@ -364,6 +364,9 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
     { layer: 'buildings', label: 'Buildings' },
     { layer: 'vegetation', label: 'Trees & flora' },
   ];
+  // Sea & lakes ride a dedicated flag (not the RenderLayer enum) so the bathymetry
+  // / lake beds can be revealed without touching the river ribbons.
+  const waterRow = toggleRow('Sea & lakes', true, (v) => { dev.showWater = v; });
   function toggleRow(label: string, on: boolean, onChange: (v: boolean) => void): HTMLElement {
     const cb = h('input', { attrs: { type: 'checkbox' } }) as HTMLInputElement;
     cb.checked = on;
@@ -375,6 +378,7 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
   layersSec.appendChild(h('div', { class: 'sg-eyebrow', style: 'margin-bottom:5px', text: 'Layers' }));
   for (const { layer, label } of SCENE_LAYERS) {
     layersSec.appendChild(toggleRow(label, true, (v) => { dev[layerFlag(layer)] = v; }));
+    if (layer === 'rivers') layersSec.appendChild(waterRow);   // group water with rivers
   }
   layersSec.appendChild(toggleRow('Connectome', true, (v) => { showConnectome = v; }));
   layersSec.appendChild(toggleRow('Detail patch regions', false, (v) => { showDetailPatches = v; }));

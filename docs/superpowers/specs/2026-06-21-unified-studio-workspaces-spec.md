@@ -120,6 +120,21 @@ sample), so the shipped game is untouched; the studio threads it via
 lifts the lattice from the storage buffer — no CPU vertex arrays). True line-topology
 wireframe deferred; the fragment-grid reads as a mesh at any zoom.
 
+**Wireframe = bare mesh; per-pass density; water-only carves.** Follow-ups after
+review: the wireframe mode draws the BARE mesh (no biome texture — dark bg, lines
+shaded by relief). A per-vertex `vStep` (coarse terrain = `sub/sup`, a detail patch
+= `1/SUPER`) lets the wireframe trace EACH pass's true triangulation, so a refined
+detail region shows its higher resolution. `computeDetailMask` was narrowed to flag
+ONLY river + lake cells (+ a `bankRadius` margin) — not coasts/slopes/roads — so the
+detail patches are sparse (a corridor along each river, a ring around each lake) and
+the dry interior stays coarse; this also let detail go always-on (was zoom ≥ 2)
+without the whole-map stall. `DP_SUPER` raised 2 → 4 (4× the carve-bank triangles).
+Water gained depth-keyed TRANSPARENCY (premultiplied alpha by `depthM`, foam stays
+opaque) so riverbeds / lake margins / sandy shallows show through, and a **Sea &
+lakes** toggle (`DevModeState.showWater`) nulls the water field + ocean backdrop to
+expose the beds. (Caveat: a lake basin BELOW the sea datum shows the deep-ocean
+clear when its surface is hidden — the seabed cull discards it.)
+
 **Detail-patch overlay (S4 companion).** A "Detail patches" toggle in the same
 panel draws the adaptive sub-tile patch blocks (`computeDetailMask` →
 `coalescePatches`, the SAME importance map the GPU detail pass instances) as green
