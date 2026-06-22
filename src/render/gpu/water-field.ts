@@ -36,6 +36,25 @@ function eqF32(a: Float32Array, b: Float32Array): boolean {
   return true;
 }
 
+/** Equality of two OPTIONAL fields (the "applied" cache vs the live input): both
+ *  absent ⇒ equal; one absent ⇒ changed; else element-wise. */
+function eqOptF32(a: Float32Array | undefined, b: Float32Array | null): boolean {
+  if (!a && !b) return true;
+  if (!a || !b) return false;
+  return eqF32(a, b);
+}
+
+/** A fresh, zeroed set of the five per-cell water-surface arrays (one ping-pong slot). */
+function allocSurfaceArrays(cells: number): WaterSurfaceArrays {
+  return {
+    surfaceW: new Float32Array(cells),
+    waterType: new Uint32Array(cells),
+    shallow: new Uint32Array(cells),
+    deep: new Uint32Array(cells),
+    clarity: new Float32Array(cells),
+  };
+}
+
 /** Linear-RGB 0..1 → 0xAABBGGRR (LE-friendly upload; shader unpacks to 0..1). */
 function rgbToAbgr(c: Rgb): number {
   const r = Math.round(Math.min(1, Math.max(0, c[0])) * 255);
@@ -341,42 +360,30 @@ interface WaterStatic {
   /** Flat list of every (render) lake cell — so a localized offset touches only the
    *  ~hundreds of lake cells, never the whole 100k-cell grid, each frame. */
   lakeCells: Int32Array;
-  /** Ping-pong scratch surfaces for the localized offset (allocated lazily on first
-   *  flood, reused forever after — no per-frame allocation → no GC spikes). Both are
-   *  seeded from the base surface, and only lake cells are ever overwritten, so their
-   *  non-lake cells stay equal to the base. Toggling gives the GPU upload guard a
-   *  changed reference exactly when (and only when) the offset is live. */
-  dynA?: Float32Array;
-  dynB?: Float32Array;
+  // ── unified dynamic-water bake (the ΔW composition) ─────────────────────────────
+  // ONE ping-pong set of all five surface arrays, written by `applyDynamicWater` from
+  // the static base ⊕ (lake offset + flood). Lazily allocated on the first dynamic
+  // water, reused forever after (no per-frame alloc → no GC spikes). Toggling the set
+  // hands the GPU upload guard a CHANGED reference exactly when the bake changed — so a
+  // held flood/lake costs nothing, and a moving one (rising, evaporating) re-uploads.
+  dynSetA?: WaterSurfaceArrays;
+  dynSetB?: WaterSurfaceArrays;
   dynToggle: boolean;
-  /** Per-body offsets last baked into the dyn surface — skips the rebuild + the
-   *  GPU re-upload on frames where no basin level changed (a held flood, a settled
-   *  world), so the localized layer only costs a writeBuffer while it's MOVING. */
-  dynApplied?: Float32Array;
-  /** Wall-clock seconds of the last dyn rebuild — the level offset is re-baked (and
-   *  re-uploaded) at most ~12 Hz while it moves, since a lake level is slow and a
-   *  full per-cell surface re-upload every frame stalls software-WebGPU. */
+  /** The set the last bake wrote — handed out (stable ref) on frames that don't rebuild. */
+  dynActive?: WaterSurfaceArrays;
+  /** Inputs last baked — skip the rebuild + GPU re-upload on frames where neither the
+   *  lake offsets nor the flood depths changed (a held flood, a settled world). */
+  dynAppliedLake?: Float32Array;
+  dynAppliedFlood?: Float32Array;
+  /** Wall-clock seconds of the last bake — re-baked (and re-uploaded) at most ~12 Hz
+   *  while moving, since a full per-cell surface re-upload every frame stalls software-WebGPU. */
   dynBuiltAt?: number;
-  // ── W-E flood layer: standing water on arbitrary land ───────────────────────────
-  /** Curved render-terrain height (the bed the shader clips against), lazily built on
-   *  first flood — a flooded dry cell's surface = bed + depth. */
+  /** Curved render-terrain height (the bed a flood sits on), lazily built on first flood. */
   bedRender?: Float32Array;
-  /** Default freshwater colours for a flooded land cell (a still sheet reads as lake). */
+  /** Default freshwater colours for a flooded land cell (a still sheet reads as a lake). */
   floodShallowC?: number;
   floodDeepC?: number;
   floodClarityC?: number;
-  /** Flood dyn buffers (surface + type + colours), allocated on first flood, reused. */
-  floodSurf?: Float32Array;
-  floodType?: Uint32Array;
-  floodShallow?: Uint32Array;
-  floodDeep?: Uint32Array;
-  floodClarity?: Float32Array;
-  /** Cell indices flooded in the last bake — restored to base before the next bake so
-   *  a receded flood leaves no stale water. */
-  floodApplied?: Int32Array;
-  /** Throttle + change-detect for the flood bake (mirrors the lake dyn path). */
-  floodAppliedDepth?: Float32Array;
-  floodBuiltAt?: number;
   wetCount: number;
   vertexCount: number;
   subsample: number;
@@ -473,6 +480,92 @@ function waterStatic(map: GameMap, maxQuads?: number): WaterStatic {
   return stat;
 }
 
+/** The per-cell water-surface arrays a dynamic-water bake reads (base) and writes (out). */
+export interface WaterSurfaceArrays {
+  /** Row-major water-surface height in NORMALISED render elevation. */
+  surfaceW: Float32Array;
+  waterType: Uint32Array;
+  shallow: Uint32Array;
+  deep: Uint32Array;
+  clarity: Float32Array;
+}
+
+/** Everything the one dynamic-water rule needs beyond the base/out arrays. */
+export interface DynamicWaterInputs {
+  /** Per-lake-body level offset (metres), indexed by lake body id. null = none. */
+  lakeOffsetM: Float32Array | null;
+  /** Flat list of every render lake cell — the per-body offset touches only these. */
+  lakeCells: Int32Array;
+  /** Per-cell lake body id (−1 = not a lake cell), for the per-body offset lookup. */
+  bodyId: Int32Array;
+  /** Per-cell standing-water depth above terrain (metres). null = no flood. */
+  floodOffsetM: Float32Array | null;
+  /** Curved render-terrain height (the bed a flood sits on); required iff flooding. */
+  bed: Float32Array | null;
+  /** metres → normalised-elevation divisor (world relief). */
+  relief: number;
+  /** Freshwater colours/clarity a flooded land cell takes (a still sheet = a lake). */
+  floodShallowC: number;
+  floodDeepC: number;
+  floodClarityC: number;
+}
+
+/**
+ * The ONE dynamic-water composition rule (the ΔW unification). Seeds `out` from the
+ * static `base`, then folds EVERY dynamic water source into a single per-cell water
+ * surface — replacing the prior two sequential mutating blocks (lake-offset, then
+ * flood) with one rule whose overlap behaviour is explicit:
+ *
+ *   1. per-body LAKE offset — raises/lowers an existing basin within its bank
+ *      (additive on the static lake surface), applied only to that body's cells.
+ *   2. per-cell FLOOD — standing water on arbitrary land, composited as
+ *      `max(existing, bed + depth)`: a flood RAISES the surface to its level but
+ *      never lowers a deeper river/lake already there (the consistent overlap rule —
+ *      a shallow flood over a deep channel leaves the channel alone).
+ *
+ * Pure: writes only `out` (which may alias none of `base`'s arrays). Returns the
+ * flooded cell indices so the caller can restore them to base when the flood recedes.
+ */
+export function applyDynamicWater(
+  out: WaterSurfaceArrays, base: WaterSurfaceArrays, inp: DynamicWaterInputs,
+): Int32Array {
+  out.surfaceW.set(base.surfaceW);
+  out.waterType.set(base.waterType);
+  out.shallow.set(base.shallow);
+  out.deep.set(base.deep);
+  out.clarity.set(base.clarity);
+
+  const { relief } = inp;
+  const lo = inp.lakeOffsetM;
+  if (lo) {
+    const { bodyId, lakeCells } = inp;
+    for (let k = 0; k < lakeCells.length; k++) {
+      const i = lakeCells[k];
+      const b = bodyId[i];
+      if (b >= 0) out.surfaceW[i] = base.surfaceW[i] + lo[b] / relief;
+    }
+  }
+
+  const fo = inp.floodOffsetM;
+  const bed = inp.bed;
+  const applied: number[] = [];
+  if (fo && bed) {
+    for (let i = 0; i < fo.length; i++) {
+      const d = fo[i];
+      if (d <= 0) continue;
+      const surf = bed[i] + d / relief;
+      if (surf <= out.surfaceW[i]) continue;     // a deeper river/lake already here
+      out.surfaceW[i] = surf;
+      out.waterType[i] = WaterType.Lake;
+      out.shallow[i] = inp.floodShallowC;
+      out.deep[i] = inp.floodDeepC;
+      out.clarity[i] = inp.floodClarityC;
+      applied.push(i);
+    }
+  }
+  return Int32Array.from(applied);
+}
+
 /**
  * Assemble the `WaterField` for a world + camera frame, or `null` when the world
  * is bone dry (so the caller skips the pass entirely). The per-cell arrays are
@@ -490,103 +583,63 @@ export function buildWaterField(map: GameMap, opts: BuildWaterFieldOpts): WaterF
     viewport: opts.viewport, xform: opts.xform, lighting: opts.lighting, subsample: stat.subsample,
   });
 
-  // LOCALIZED lake level: bake a per-body metre offset into a fresh per-cell
-  // surface so each basin rises/recedes independently (the global `waterLevelM`
-  // above shifts ALL lakes; this is the dynamic-weather, per-basin layer). When
-  // every body is at 0 the cached static surface is reused — reference-stable, so
-  // the GPU upload's identity guard skips the per-frame writeBuffer.
+  // DYNAMIC WATER — the ΔW composition. Fold the per-body LAKE level offset and the
+  // per-cell FLOOD into ONE per-cell surface via the single `applyDynamicWater` rule
+  // (was two sequential mutating blocks). A held / settled world reuses the cached
+  // static arrays (reference-stable → the GPU upload guard skips); a moving one (a
+  // basin rising, a flood evaporating) toggles the ping-pong set so the changed
+  // reference re-uploads. The GLOBAL `waterLevelM` stays in-shader (uWater.w, below)
+  // since a uniform shift needs no surface re-upload.
   let surfaceW = stat.surfaceW;
-  const lo = opts.lakeOffsetM;
-  if (lo && lo.some((v) => v !== 0)) {
-    // Only rebuild + re-upload the surface when a basin level actually CHANGED since
-    // last frame — a held flood / settled world returns the SAME dyn buffer
-    // reference, so the GPU upload guard skips and the localized layer costs nothing
-    // once it stops moving. (A new array reference is produced only on change.)
-    const now = opts.timeSec ?? 0;
-    const due = stat.dynBuiltAt === undefined || now - stat.dynBuiltAt >= 0.08;   // ≤12 Hz
-    const changed = !stat.dynApplied || !eqF32(stat.dynApplied, lo);
-    if ((changed && due) || !stat.dynA) {
-      const relief = worldStyleOf(map.worldSeed).mountainRelief;
-      const { bodyId } = stat.lakeBodies;
-      if (!stat.dynA) { stat.dynA = stat.surfaceW.slice(); stat.dynB = stat.surfaceW.slice(); }
-      stat.dynToggle = !stat.dynToggle;
-      const buf = stat.dynToggle ? stat.dynA : stat.dynB!;
-      const cells = stat.lakeCells;
-      for (let k = 0; k < cells.length; k++) {
-        const i = cells[k];
-        const b = bodyId[i];
-        buf[i] = stat.surfaceW[i] + (b >= 0 ? lo[b] / relief : 0);
-      }
-      stat.dynApplied = lo.slice();
-      stat.dynBuiltAt = now;
-      surfaceW = buf;
-    } else {
-      // No rebuild this frame (held, or throttled) — reuse the last dyn surface so
-      // the reference is stable and the GPU upload guard skips.
-      surfaceW = stat.dynA ? (stat.dynToggle ? stat.dynA : stat.dynB!) : stat.surfaceW;
-    }
-  }
-
-  // FLOOD layer (W-E): standing water on arbitrary land. Unlike the lake offset (which
-  // only touches surfaceW of existing lake cells), a flooded plain must also flip the
-  // cell's TYPE to still water and give it freshwater colours, so we keep dyn copies of
-  // surface + type + colours and overlay the flood on top of the (possibly lake-baked)
-  // surface. The per-pixel clip (`surface − bed ≤ 0 → discard`) trims the sheet to the
-  // terrain. Throttled + change-detected like the lake path so a held flood costs nothing.
   let waterType = stat.waterType;
   let shallow = stat.shallow, deep = stat.deep, clarity = stat.clarity;
-  const fo = opts.floodOffsetM;
-  if (fo && fo.some((v) => v > 0)) {
+
+  const lo = opts.lakeOffsetM ?? null;
+  const fo = opts.floodOffsetM ?? null;
+  const lakeActive = !!lo && lo.some((v) => v !== 0);
+  const floodActive = !!fo && fo.some((v) => v > 0);
+
+  if (lakeActive || floodActive) {
     const now = opts.timeSec ?? 0;
-    const due = stat.floodBuiltAt === undefined || now - stat.floodBuiltAt >= 0.08;   // ≤12 Hz
-    const changed = !stat.floodAppliedDepth || !eqF32(stat.floodAppliedDepth, fo);
-    if (!stat.bedRender) stat.bedRender = heightField(map);
-    if (!stat.floodSurf) {
-      const n = stat.surfaceW.length;
-      stat.floodSurf = new Float32Array(n);
-      stat.floodType = new Uint32Array(n);
-      stat.floodShallow = new Uint32Array(n);
-      stat.floodDeep = new Uint32Array(n);
-      stat.floodClarity = new Float32Array(n);
-      stat.floodApplied = new Int32Array(0);
+    const due = stat.dynBuiltAt === undefined || now - stat.dynBuiltAt >= 0.08;   // ≤12 Hz
+    const changed = !eqOptF32(stat.dynAppliedLake, lakeActive ? lo : null)
+                 || !eqOptF32(stat.dynAppliedFlood, floodActive ? fo : null);
+    if (!stat.dynSetA) {
+      stat.dynSetA = allocSurfaceArrays(stat.surfaceW.length);
+      stat.dynSetB = allocSurfaceArrays(stat.surfaceW.length);
     }
-    if ((changed && due)) {
-      const relief = worldStyleOf(map.worldSeed).mountainRelief;
-      const bed = stat.bedRender;
-      // Seed the dyn copies from the current base for THIS frame (surfaceW may already
-      // carry the lake offset). Only the flood cells diverge; everything else mirrors base.
-      stat.floodSurf!.set(surfaceW);
-      stat.floodType!.set(stat.waterType);
-      stat.floodShallow!.set(stat.shallow);
-      stat.floodDeep!.set(stat.deep);
-      stat.floodClarity!.set(stat.clarity);
-      const applied: number[] = [];
-      for (let i = 0; i < fo.length; i++) {
-        const d = fo[i];
-        if (d <= 0) continue;
-        const surf = bed[i] + d / relief;
-        if (surf <= stat.floodSurf![i]) continue;          // existing water already higher
-        stat.floodSurf![i] = surf;
-        stat.floodType![i] = WaterType.Lake;
-        stat.floodShallow![i] = stat.floodShallowC!;
-        stat.floodDeep![i] = stat.floodDeepC!;
-        stat.floodClarity![i] = stat.floodClarityC!;
-        applied.push(i);
-      }
-      stat.floodApplied = Int32Array.from(applied);
-      stat.floodAppliedDepth = fo.slice();
-      stat.floodBuiltAt = now;
+    if (((changed && due)) || !stat.dynActive) {
+      if (floodActive && !stat.bedRender) stat.bedRender = heightField(map);
+      stat.dynToggle = !stat.dynToggle;
+      const set = stat.dynToggle ? stat.dynSetA! : stat.dynSetB!;
+      applyDynamicWater(set, {
+        surfaceW: stat.surfaceW, waterType: stat.waterType,
+        shallow: stat.shallow, deep: stat.deep, clarity: stat.clarity,
+      }, {
+        lakeOffsetM: lakeActive ? lo : null,
+        lakeCells: stat.lakeCells,
+        bodyId: stat.lakeBodies.bodyId,
+        floodOffsetM: floodActive ? fo : null,
+        bed: floodActive ? stat.bedRender! : null,
+        relief: worldStyleOf(map.worldSeed).mountainRelief,
+        floodShallowC: stat.floodShallowC!,
+        floodDeepC: stat.floodDeepC!,
+        floodClarityC: stat.floodClarityC!,
+      });
+      stat.dynAppliedLake = lakeActive ? lo!.slice() : undefined;
+      stat.dynAppliedFlood = floodActive ? fo!.slice() : undefined;
+      stat.dynBuiltAt = now;
+      stat.dynActive = set;
     }
-    surfaceW = stat.floodSurf!;
-    waterType = stat.floodType!;
-    shallow = stat.floodShallow!;
-    deep = stat.floodDeep!;
-    clarity = stat.floodClarity!;
-  } else if (stat.floodApplied && stat.floodApplied.length > 0) {
-    // Flood fully receded since last frame — drop back to the base arrays (the dyn
-    // buffers are kept allocated for the next flood) and clear the applied set.
-    stat.floodApplied = new Int32Array(0);
-    stat.floodAppliedDepth = undefined;
+    const set = stat.dynActive!;
+    surfaceW = set.surfaceW; waterType = set.waterType;
+    shallow = set.shallow; deep = set.deep; clarity = set.clarity;
+  } else if (stat.dynActive) {
+    // Fully receded since last frame — drop back to the cached static arrays (the dyn
+    // sets stay allocated for the next event) so the GPU re-uploads the base once.
+    stat.dynActive = undefined;
+    stat.dynAppliedLake = undefined;
+    stat.dynAppliedFlood = undefined;
   }
 
   return {
