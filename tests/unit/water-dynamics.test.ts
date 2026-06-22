@@ -90,6 +90,39 @@ describe('WaterDynamics — localized water level', () => {
     expect(wd.maxHumidity()).toBe(0);
   });
 
+  it('floodArea lays standing water on dry land; it evaporates back to bare ground', async () => {
+    const { map } = await generateWithNoise(96, 96, 3, seed);
+    const wd = new WaterDynamics(map);
+    expect(wd.maxFloodM()).toBe(0);
+    // Flood a disc somewhere on the island interior (48,48 is land for this seed).
+    const n = wd.floodArea(48, 48, 6, 3);
+    expect(n).toBeGreaterThan(0);                 // some land cells flooded
+    expect(wd.maxFloodM()).toBeGreaterThan(0);    // standing water now present
+    const peak = wd.maxFloodM();
+    // Strong evaporation drains the sheet back toward dry ground.
+    const dry: WeatherParams = { ...DEFAULT_WEATHER, evapMmPerSec: 500 };
+    for (let s = 0; s < 80; s++) wd.step(0.1, dry);  // 8 s
+    expect(wd.maxFloodM()).toBeLessThan(peak);
+  });
+
+  it('flood depth never lowers existing standing water (max, not overwrite)', async () => {
+    const { map } = await generateWithNoise(96, 96, 3, seed);
+    const wd = new WaterDynamics(map);
+    wd.floodArea(48, 48, 6, 4);
+    const deep = wd.maxFloodM();
+    wd.floodArea(48, 48, 6, 1);                    // a shallower pass over the same ground
+    expect(wd.maxFloodM()).toBe(deep);             // stays at the deeper level
+  });
+
+  it('reset clears standing water', async () => {
+    const { map } = await generateWithNoise(96, 96, 3, seed);
+    const wd = new WaterDynamics(map);
+    wd.floodArea(48, 48, 6, 3);
+    expect(wd.maxFloodM()).toBeGreaterThan(0);
+    wd.reset();
+    expect(wd.maxFloodM()).toBe(0);
+  });
+
   it('a lakeless catchment swallows rain without error (humidity only)', async () => {
     const { map } = await generateWithNoise(96, 96, 3, seed);
     const wd = new WaterDynamics(map);

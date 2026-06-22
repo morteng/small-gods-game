@@ -39,8 +39,11 @@
 //
 // Bodies are the connected RENDER lake components (`getLakeBodies`), so different
 // lakes rise independently and the offset covers the dilated overhang the
-// waterline clips against. Rivers (ribbon pass) and puddles on dry land are a
-// later slice; this targets the clearest visual: a basin filling and draining.
+// waterline clips against.
+//
+// W-E (per-cell flood field): `floodM` lays standing water on ARBITRARY land — the
+// "a powerful god floods a plain" lever — generalizing the per-body lake offset into
+// a per-cell sheet the renderer bakes into the surface and clips to the terrain.
 //
 // No RNG, no DOM — a pure stepper. NOT yet wired into snapshot/timeline, so it's a
 // live playground value (the deterministic-replay integration is W-D).
@@ -123,6 +126,16 @@ export class WaterDynamics {
   /** Air humidity 0..1 per cell (row-major) — read directly for the overlay. */
   readonly humidity: Float32Array;
 
+  /** Per-CELL standing-water depth in METRES above the local terrain (≥0). This is
+   *  the "flood a plain" field — water on ARBITRARY ground, not just a raised lake
+   *  basin. The per-body `bodyOffsetM` below raises EXISTING lakes within their bank;
+   *  `floodM` puts a sheet of water anywhere a god (or a deluge) drops it, and the
+   *  per-pixel water clip in the shader carves it to the terrain contour. Sparse:
+   *  almost all cells stay 0 (no per-frame full-grid work unless a flood is live). */
+  readonly floodM: Float32Array;
+  /** Count of cells currently holding standing water — gates the flood bake/scan. */
+  private floodCount = 0;
+
   /** Per-lake-body water-level offset in METRES (flood > 0, drought < 0). */
   private readonly bodyOffsetM: Float32Array;
   private readonly bodyId: Int32Array;
@@ -150,6 +163,7 @@ export class WaterDynamics {
     this.H = map.height;
     const cells = this.W * this.H;
     this.humidity = new Float32Array(cells);
+    this.floodM = new Float32Array(cells);
     this.tmp = new Float32Array(cells);
     this.cloud = new Float32Array(cells);
     this.cloudTmp = new Float32Array(cells);
@@ -290,7 +304,65 @@ export class WaterDynamics {
       }
     }
 
+    // Standing water on dry land evaporates back toward bare ground (a flooded plain
+    // dries out), humidifying the air above it as it goes. Sparse — only touched when
+    // a flood is live, so a dry world pays nothing here.
+    if (this.floodCount > 0) {
+      let remaining = 0;
+      for (let i = 0; i < this.floodM.length; i++) {
+        const f = this.floodM[i];
+        if (f <= 0) continue;
+        const nf = f - evapM;
+        if (nf <= 1e-4) { this.floodM[i] = 0; continue; }
+        this.floodM[i] = nf;
+        this.humidity[i] = Math.min(1, this.humidity[i] + evapHumidity);
+        remaining++;
+      }
+      this.floodCount = remaining;
+    }
+
     this.diffuseHumidity(p, dt);
+  }
+
+  /** Flood a disc of ground: lay a sheet of standing water `depthM` metres deep over
+   *  every land cell in the brush (raising, never lowering, what's already there). The
+   *  headline divine lever — "a powerful god floods a plain." Water on dry land is the
+   *  per-cell `floodM` field; the renderer bakes it into the surface and the per-pixel
+   *  clip trims it to the terrain. Also wets the air over the flood. Returns the number
+   *  of cells flooded. */
+  floodArea(tileX: number, tileY: number, radius: number, depthM: number): number {
+    const { W, H } = this;
+    const r = Math.max(0, Math.round(radius));
+    const cx = Math.round(tileX), cy = Math.round(tileY);
+    const r2 = r * r;
+    const depth = Math.max(0, depthM);
+    let n = 0;
+    for (let dy = -r; dy <= r; dy++) {
+      const ny = cy + dy;
+      if (ny < 0 || ny >= H) continue;
+      for (let dx = -r; dx <= r; dx++) {
+        if (dx * dx + dy * dy > r2) continue;
+        const nx = cx + dx;
+        if (nx < 0 || nx >= W) continue;
+        const i = ny * W + nx;
+        if (this.elev[i] < ELEVATION_SEA_LEVEL) continue;   // below the sea — already ocean
+        if (this.floodM[i] < depth) this.floodM[i] = depth;
+        this.humidity[i] = Math.min(1, this.humidity[i] + 0.4);
+        n++;
+      }
+    }
+    this.recountFlood();
+    return n;
+  }
+
+  /** Per-cell standing-water depth (metres) handed to `buildWaterField({ floodOffsetM })`. */
+  floodOffsetM(): Float32Array { return this.floodM; }
+
+  /** Cheap O(cells) refresh of the flood-active count (called after flood edits/step). */
+  private recountFlood(): void {
+    let n = 0;
+    for (let i = 0; i < this.floodM.length; i++) if (this.floodM[i] > 1e-4) n++;
+    this.floodCount = n;
   }
 
   /** Push a basin into drought (negative offset) — the dry half of the lever. */
@@ -302,6 +374,7 @@ export class WaterDynamics {
 
   /** Any active forcing (a shifted basin or lingering humidity)? Gates re-upload. */
   active(): boolean {
+    if (this.floodCount > 0) return true;
     for (let b = 0; b < this.bodyOffsetM.length; b++) if (this.bodyOffsetM[b] !== 0) return true;
     for (let i = 0; i < this.humidity.length; i++) if (this.humidity[i] > 1e-4) return true;
     return false;
@@ -342,9 +415,18 @@ export class WaterDynamics {
   reset(): void {
     this.bodyOffsetM.fill(0);
     this.humidity.fill(0);
+    this.floodM.fill(0);
+    this.floodCount = 0;
     this.cloud.fill(0);
     this.temp.set(this.baseTemp);
     this.timeOfDaySec = 0;
+  }
+
+  /** Peak standing-water depth (metres) anywhere on land — a studio readout. */
+  maxFloodM(): number {
+    let m = 0;
+    for (let i = 0; i < this.floodM.length; i++) if (this.floodM[i] > m) m = this.floodM[i];
+    return m;
   }
 
   /** Seed an overcast sky so emergent rain has cloud to work with immediately —

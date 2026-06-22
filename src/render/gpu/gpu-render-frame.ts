@@ -191,6 +191,8 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
           viewport: [lowW, lowH], xform, lighting, timeSec, waterLevelM,
           // Localized per-basin level (climate W-B) — rain filling one lake.
           lakeOffsetM: rc.lakeOffsetM,
+          // Per-cell standing water (W-E) — a god flooding a plain.
+          floodOffsetM: rc.floodOffsetM,
         })
       : null;
 

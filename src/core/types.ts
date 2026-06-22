@@ -224,6 +224,9 @@ export interface RenderContext {
    *  basin) — indexed by lake body (`getLakeBodies`). Baked into the lake surface
    *  per cell, so different lakes rise/recede independently. Default: none. */
   lakeOffsetM?: Float32Array;
+  /** Per-CELL standing-water depth in METRES (W-E: "flood a plain") — lays water on
+   *  arbitrary land, baked into the water surface + type. Default: none. */
+  floodOffsetM?: Float32Array;
 }
 
 /** Options for debug visualization overlays */

@@ -189,6 +189,9 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
   let waterDyn: WaterDynamics | null = null;
   const weather: WeatherParams = { ...DEFAULT_WEATHER };
   let rainBrush = false;
+  let floodBrush = false;
+  let floodRadius = 8;     // tiles
+  let floodDepthM = 2.0;   // metres of standing water laid per click
   // Which scalar field the overlay draws (W-B humidity, W-C cloud/temperature).
   let overlay: 'none' | 'humidity' | 'cloud' | 'temp' = 'humidity';
   let lastStepT = (typeof performance !== 'undefined' ? performance.now() : 0);
@@ -295,6 +298,12 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
     if (rainBrush && waterDyn) {
       const { tx, ty } = screenToTileApprox(map, sx, sy, cam);
       waterDyn.rain(tx, ty, weather);
+      return;
+    }
+    // Flood brush: lay a sheet of standing water on the ground at the cursor (W-E).
+    if (floodBrush && waterDyn) {
+      const { tx, ty } = screenToTileApprox(map, sx, sy, cam);
+      waterDyn.floodArea(tx, ty, floodRadius, floodDepthM);
       return;
     }
     const f = focus;
@@ -530,13 +539,29 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
   ], () => overlay, (v) => { overlay = v; }));
   const wbtns = h('div', { style: 'display:flex;gap:5px;margin:5px 0 3px' },
     btn('☁ Seed clouds', () => { waterDyn?.seedClouds(0.7); }),
-    btn('⛈ Flood', () => { waterDyn?.shiftLargest(2.0); }),
+    btn('⤒ Raise lake', () => { waterDyn?.shiftLargest(2.0); }),
     btn('☀ Drought', () => { waterDyn?.shiftLargest(-2.0); }),
     btn('Reset', () => { waterDyn?.reset(); }),
   );
   weatherSec.appendChild(wbtns);
+  // ── W-E: flood brush — lay standing water on the ground (a god flooding a plain) ──
+  const floodToggle = toggleRow('🌊 Flood brush — click the map', false, (v) => {
+    floodBrush = v;
+    if (v) { rainBrush = false; rainCb.checked = false; }
+    canvas.style.cursor = v ? 'crosshair' : 'grab';
+  });
+  const floodCb = floodToggle.querySelector('input') as HTMLInputElement;
+  weatherSec.appendChild(floodToggle);
+  weatherSec.appendChild(sliderRow('Flood depth', 0.5, 10, 0.5, () => floodDepthM, (v) => { floodDepthM = v; }, (v) => `${v.toFixed(1)} m`));
+  weatherSec.appendChild(sliderRow('Flood size', 2, 30, 1, () => floodRadius, (v) => { floodRadius = v; }, (v) => `${v | 0} t`));
   // ── W-B: manual rain brush ──
-  weatherSec.appendChild(toggleRow('💧 Rain brush — click the map', false, (v) => { rainBrush = v; canvas.style.cursor = v ? 'crosshair' : 'grab'; }));
+  const rainToggle = toggleRow('💧 Rain brush — click the map', false, (v) => {
+    rainBrush = v;
+    if (v) { floodBrush = false; floodCb.checked = false; }
+    canvas.style.cursor = v ? 'crosshair' : 'grab';
+  });
+  const rainCb = rainToggle.querySelector('input') as HTMLInputElement;
+  weatherSec.appendChild(rainToggle);
   weatherSec.appendChild(sliderRow('Brush rain', 100, 4000, 50, () => weather.rainMm, (v) => { weather.rainMm = v; }, (v) => `${v | 0} mm`));
   weatherSec.appendChild(sliderRow('Brush size', 1, 20, 1, () => weather.brushRadius, (v) => { weather.brushRadius = v; }, (v) => `${v | 0} t`));
   weatherSec.appendChild(sliderRow('Runoff', 0, 1, 0.05, () => weather.runoffFrac, (v) => { weather.runoffFrac = v; }, (v) => `${(v * 100) | 0}%`));
@@ -726,6 +751,7 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
       world, lighting, visualMap: visualMap ?? undefined,
       devMode: dev as DevModeState,   // terrain/roads/rivers/buildings/vegetation toggles
       lakeOffsetM: waterDyn?.lakeOffsetM(),   // localized lake level (climate W-B)
+      floodOffsetM: waterDyn?.floodOffsetM(), // per-cell standing water (W-E flood)
       // Parametric art resolvers so the entity pass can draw buildings & trees.
       resolveParametricBuildingArt: (e: Entity) => {
         const s = buildingSource.peek(e); if (s) return s; buildingSource.warm(e); return null;
@@ -749,9 +775,11 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
       const base = waterDyn.bodyCount === 0
         ? 'no lakes — runoff drains to sea'
         : `lakes ${waterDyn.bodyCount} · peak level ${lvl >= 0 ? '+' : ''}${lvl.toFixed(2)} m · humidity ${(waterDyn.maxHumidity() * 100) | 0}%`;
-      weatherReadout.textContent = weather.autoWeather
+      const flood = waterDyn.maxFloodM();
+      const floodStr = flood > 0 ? ` · flood ${flood.toFixed(1)} m` : '';
+      weatherReadout.textContent = (weather.autoWeather
         ? `${base} · cloud ${(waterDyn.maxCloud() * 100) | 0}% · day ${(waterDyn.timeOfDay() * 100) | 0}%`
-        : base;
+        : base) + floodStr;
     }
     if (map) {
       const rc = renderContext();
@@ -775,9 +803,11 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
     map: () => map,
     // Climate W-B handles: rain a basin's catchment + read the field state.
     rain: (tx: number, ty: number) => waterDyn?.rain(tx, ty, weather),
+    // W-E: flood a plain — lay standing water of `depthM` over a disc of `radius` tiles.
+    flood: (tx: number, ty: number, radius = 8, depthM = 2) => waterDyn?.floodArea(tx, ty, radius, depthM),
     weather: () => weather,
     dyn: () => waterDyn && ({
-      bodies: waterDyn.bodyCount, levelM: waterDyn.maxLevelM(),
+      bodies: waterDyn.bodyCount, levelM: waterDyn.maxLevelM(), floodM: waterDyn.maxFloodM(),
       humidity: waterDyn.maxHumidity(), cloud: waterDyn.maxCloud(), timeOfDay: waterDyn.timeOfDay(),
     }),
     // W-C handles: drive the emergent atmosphere + pick the overlay.
