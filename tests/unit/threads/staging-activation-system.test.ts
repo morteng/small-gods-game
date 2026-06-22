@@ -8,6 +8,7 @@ import { PlotThreadStore } from '@/sim/threads/thread-store';
 import { StagingBuffer } from '@/sim/threads/staging-buffer';
 import { DiscoveryQueue } from '@/sim/threads/discovery-queue';
 import { StagingActivationSystem } from '@/sim/threads/systems/staging-activation-system';
+import { CausalSiteStore } from '@/world/causal-site';
 import type { SystemContext } from '@/core/scheduler';
 import type { Command } from '@/sim/command/types';
 import type { GameMap, Tile } from '@/core/types';
@@ -40,13 +41,15 @@ function setup() {
   const discovery = new DiscoveryQueue();
   const queue = new CommandQueue();
   const soft: { subject: ThreadSubject; beat: SoftBeat }[] = [];
+  const sites = new CausalSiteStore(3, 3, new Set(), []);
   const sys = new StagingActivationSystem(
     discovery, queue, () => staging, () => threads, (subject, beat) => soft.push({ subject, beat }),
+    undefined, () => sites,
   );
   const ctx = (now: number): SystemContext => ({
     world: new World(makeMap()), spirits: new Map(), log, clock, rng: createRng(1), dt: 2000, now,
   });
-  return { staging, threads, discovery, queue, sys, soft, captured, ctx };
+  return { staging, threads, discovery, queue, sys, soft, captured, ctx, sites };
 }
 
 describe('StagingActivationSystem', () => {
@@ -81,6 +84,26 @@ describe('StagingActivationSystem', () => {
     expect(t.staging.armedFor(subject)).toHaveLength(1); // too early
     t.sys.tick(t.ctx(150));
     expect(t.staging.armedFor(subject)).toHaveLength(0); // fired
+  });
+
+  it('W-I: expires a beat armed at a causal site once the site has faded', () => {
+    const t = setup();
+    // A live site the beat is armed against.
+    t.sites.hydrate({ nextId: 1, sites: [{
+      id: 'causal:flood:0000', kind: 'flood', name: 'The Drowned Reach',
+      x: 1, y: 1, cells: [4], bornTick: 0, lifeTicks: 30, ageTicks: 0, intensity: 0.6, cause: 'player',
+    }] });
+    const subject: ThreadSubject = { kind: 'site', siteId: 'causal:flood:0000' };
+    t.staging.arm({ subject, trigger: { kind: 'discovery' }, hard: [],
+      soft: { kind: 'location_vibe', text: 'The reeds drip.' }, stagedTick: 0 });
+
+    t.sys.tick(t.ctx(10));                       // site still alive → beat survives
+    expect(t.staging.armedFor(subject)).toHaveLength(1);
+
+    t.sites.reset();                             // the flood drained, site gone
+    t.sys.tick(t.ctx(20));
+    expect(t.staging.armedFor(subject)).toHaveLength(0);   // reaped
+    expect(t.staging.get(1)!.status).toBe('expired');
   });
 
   it('activates a staged owning thread on fire', () => {

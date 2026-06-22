@@ -24,6 +24,9 @@ function isSignificant(ev: SimEvent): boolean {
   // W-H: a settlement going under water is a dramatic beat — wake Fate to respond
   // (a tale of divine wrath, a refugee, a rival's counter-claim…).
   if (ev.type === 'place_flooded') return true;
+  // W-I: the waters making a NEW place (a drowned plain) is likewise beat-worthy —
+  // wake Fate so it can prime atmosphere there before it fades.
+  if (ev.type === 'site_born') return true;
   return false;
 }
 

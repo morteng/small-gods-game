@@ -294,6 +294,8 @@ export class Game {
         this.cuePresentationBeat(subject);
         return this.playStorylet(storyletId);
       },
+      // W-I: reap beats armed at a causal site once it has faded.
+      () => this.state.causalSites,
     ));
 
     this.timeline = new TimelineController({
@@ -742,6 +744,10 @@ export class Game {
       key = subject.poiId;
       const poi = this.state.worldSeed?.pois.find((p) => p.id === subject.poiId);
       if (poi?.position) tile = { x: poi.position.x, y: poi.position.y };
+    } else if (subject.kind === 'site') {
+      key = subject.siteId;
+      const site = this.state.causalSites?.byId(subject.siteId);
+      if (site) tile = { x: site.pos.x, y: site.pos.y };
     } else {
       key = subject.spiritId;
     }

@@ -107,19 +107,26 @@ export function parseFateToolCalls(
   return { beats, commands };
 }
 
+/** W-I: causal-site ids are poiId-compatible but name an ephemeral place, not a
+ *  settlement — so they only accept SOFT staged beats, never settlement-event verbs. */
+function isSiteId(id: string): boolean { return id.startsWith('causal:'); }
+
 function parseArmBeat(c: LLMToolCall, ctx: FateToolCtx): Omit<StagedBeat, 'id' | 'status'> | null {
   const a = c.arguments as {
     subjectPoiId?: unknown; threadId?: unknown; hard?: unknown; role?: unknown; soft?: unknown;
   };
   const poiId = typeof a.subjectPoiId === 'string' ? a.subjectPoiId : '';
   if (!ctx.validPoiIds.has(poiId)) { console.warn('[fate] dropped beat: unknown subjectPoiId', poiId); return null; }
+  const onSite = isSiteId(poiId);
   const hard: Command[] = [];
-  if (a.hard === 'inject_npc') {
+  // A transient causal site has no settlement structure to inject a stranger INTO, so
+  // its beats are atmosphere-only (the spec's "soft, discovered if anyone returns here").
+  if (a.hard === 'inject_npc' && !onSite) {
     const role = typeof a.role === 'string' && (FATE_ROLES as readonly string[]).includes(a.role) ? a.role : 'refugee';
     hard.push({ verb: 'inject_npc', source: 'fate', target: { kind: 'settlement', poiId }, payload: { role }, seq: 0 });
   }
   const beat: Omit<StagedBeat, 'id' | 'status'> = {
-    subject: { kind: 'settlement', poiId },
+    subject: onSite ? { kind: 'site', siteId: poiId } : { kind: 'settlement', poiId },
     trigger: { kind: 'discovery' },
     hard,
     stagedTick: ctx.now,
@@ -133,6 +140,7 @@ function parseNudge(c: LLMToolCall, ctx: FateToolCtx): Omit<Command, 'seq'> | nu
   const a = c.arguments as { subjectPoiId?: unknown; delta?: unknown };
   const poiId = typeof a.subjectPoiId === 'string' ? a.subjectPoiId : '';
   if (!ctx.validPoiIds.has(poiId)) { console.warn('[fate] dropped nudge: unknown subjectPoiId', poiId); return null; }
+  if (isSiteId(poiId)) { console.warn('[fate] dropped nudge: causal sites have no settlement event', poiId); return null; }
   if (typeof a.delta !== 'number' || !Number.isFinite(a.delta)) { console.warn('[fate] dropped nudge: bad delta', a.delta); return null; }
   const delta = Math.max(-MAX_NUDGE, Math.min(MAX_NUDGE, a.delta));
   return { verb: 'nudge_severity', source: 'fate', target: { kind: 'settlement', poiId }, payload: { delta } };
@@ -142,6 +150,7 @@ function parseForceEvent(c: LLMToolCall, ctx: FateToolCtx): Omit<Command, 'seq'>
   const a = c.arguments as { subjectPoiId?: unknown; eventType?: unknown };
   const poiId = typeof a.subjectPoiId === 'string' ? a.subjectPoiId : '';
   if (!ctx.validPoiIds.has(poiId)) { console.warn('[fate] dropped force_next_event: unknown subjectPoiId', poiId); return null; }
+  if (isSiteId(poiId)) { console.warn('[fate] dropped force_next_event: causal sites have no settlement event', poiId); return null; }
   if (typeof a.eventType !== 'string' || !(FATE_EVENT_TYPES as readonly string[]).includes(a.eventType)) {
     console.warn('[fate] dropped force_next_event: bad eventType', a.eventType); return null;
   }

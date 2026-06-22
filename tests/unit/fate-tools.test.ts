@@ -33,6 +33,18 @@ describe('parseFateToolCalls — staged beats', () => {
   it('tolerates undefined calls', () => {
     expect(parseFateToolCalls(undefined, ctx())).toEqual({ beats: [], commands: [] });
   });
+
+  it('W-I: arms a SOFT-only site beat for a causal subjectPoiId, dropping any inject_npc', () => {
+    const siteCtx = { validPoiIds: new Set(['causal:flood:0003']), now: 50 };
+    const { beats } = parseFateToolCalls(
+      [armCall({ subjectPoiId: 'causal:flood:0003', hard: 'inject_npc', role: 'refugee', soft: 'The drowned reeds whisper.' })],
+      siteCtx,
+    );
+    expect(beats).toHaveLength(1);
+    expect(beats[0].subject).toEqual({ kind: 'site', siteId: 'causal:flood:0003' });
+    expect(beats[0].hard).toHaveLength(0);                 // no inject into a transient site
+    expect(beats[0].soft).toMatchObject({ text: 'The drowned reeds whisper.' });
+  });
 });
 
 describe('parseFateToolCalls — immediate commands', () => {
@@ -71,6 +83,15 @@ describe('parseFateToolCalls — immediate commands', () => {
       { id: 'b', name: 'nudge_event_severity', arguments: { subjectPoiId: 'poi1', delta: 'lots' } },
       { id: 'c', name: 'force_next_event', arguments: { subjectPoiId: 'poi1', eventType: 'banana' } },
     ], ctx());
+    expect(commands).toHaveLength(0);
+  });
+
+  it('W-I: rejects settlement-event verbs aimed at a causal site (it has no active event)', () => {
+    const siteCtx = { validPoiIds: new Set(['causal:flood:0003']), now: 0 };
+    const { commands } = parseFateToolCalls([
+      { id: 'a', name: 'nudge_event_severity', arguments: { subjectPoiId: 'causal:flood:0003', delta: 0.3 } },
+      { id: 'b', name: 'force_next_event', arguments: { subjectPoiId: 'causal:flood:0003', eventType: 'plague' } },
+    ], siteCtx);
     expect(commands).toHaveLength(0);
   });
 });
