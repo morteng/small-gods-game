@@ -98,6 +98,11 @@ export interface DebugApi {
    *  surfaces; the sea is fixed. `waterLevel()` reads, `waterLevel(1.5)` floods,
    *  `waterLevel(-1)` droughts. Returns the current offset. */
   waterLevel(m?: number): number;
+  /** W-I: lay standing water on a patch of ground (the manual "stormcloud over a
+   *  plain"). `flood(x, y)` floods a 6-tile disc 3 m deep at tile (x,y); pass radius
+   *  + depth to vary. On un-watched land the next weather tick births a CAUSAL SITE.
+   *  Returns the number of cells flooded. */
+  flood(x: number, y: number, radius?: number, depthM?: number): number;
 }
 
 export interface DebugApiDeps {
@@ -252,6 +257,15 @@ export function createDebugApi(deps: DebugApiDeps): DebugApi {
         deps.requestRender();
       }
       return state.waterLevelM ?? 0;
+    },
+
+    flood(x: number, y: number, radius = 6, depthM = 3): number {
+      // floodArea lives on the concrete WaterDynamics, not the sim-side WeatherStepper
+      // interface — narrow to the flood-capable shape rather than widening the contract.
+      const w = state.weather as { floodArea?: (x: number, y: number, r: number, d: number) => number } | null;
+      const n = w?.floodArea?.(Math.round(x), Math.round(y), radius, depthM) ?? 0;
+      deps.requestRender();
+      return n;
     },
   };
 }
