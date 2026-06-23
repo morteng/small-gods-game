@@ -17,7 +17,7 @@
 import type { RenderContext, Camera, GameMap, POI, BuildingInstance } from '@/core/types';
 import type { SettlementPlan } from '@/world/settlement-plan';
 import type { WorldSeed } from '@/core/types';
-import { worldStyleOf, type ScalePreset } from '@/core/world-style';
+import { type ScalePreset } from '@/core/world-style';
 import { World } from '@/world/world';
 import { WorldManager } from '@/map/world-manager';
 import { generateWithNoise } from '@/map/map-generator';
@@ -33,10 +33,8 @@ import { serializeCompact } from '@/world/connectome/world-node';
 import { applyNodeMoves, mergeWaterFeatures, addLakeBody, type LakeStamp } from '@/terrain/water-network-edits';
 import type { WaterNetwork } from '@/terrain/river-network';
 import { tileReadout } from './world-hover';
-import { buildRenderWaterTypeMemo, buildRenderWaterType } from '@/render/gpu/render-water-mask';
-import { curveHeightBuffer } from '@/render/gpu/terrain-field';
-import { getHeightfield, ELEVATION_SEA_LEVEL } from '@/world/heightfield';
-import { styledIslandSpec } from '@/terrain/island-mask';
+import { buildRenderWaterTypeMemo } from '@/render/gpu/render-water-mask';
+import { buildConnectomeWaterOverride } from '@/render/gpu/connectome-water';
 import type { ConnectomeWaterOverride } from '@/core/types';
 import { computePressure, type PressureReport } from '@/world/connectome/pressure';
 import { waterPressureItems, suggestWaterResolutions } from '@/world/connectome/water-nodes';
@@ -704,34 +702,8 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
     if (overrideMemo && overrideMemo.version === waterEditVersion) return overrideMemo.override;
     const net = editedWaterNet();
     if (!net) return undefined;
-    const W = map.width, H = map.height;
-    const style = worldStyleOf(map.worldSeed);
-    const waterType = buildRenderWaterType(map, net);
-    // The natural (uncarved) curved render grade — the bank reference for the fill, so a
-    // placed lake fills to the SURROUNDING ground lip, not the carved basin floor.
-    const base = curveHeightBuffer(
-      getHeightfield(map.seed, W, H, styledIslandSpec(map.worldSeed), map.worldSeed?.pois ?? null),
-      ELEVATION_SEA_LEVEL, style.terrainHeightGamma,
-    );
-    const insetN = 0.5 / style.mountainRelief;   // sit just below the lip (a contained sheet)
-    const lakeSurface = new Float32Array(W * H);
-    for (const lake of net.lakes) {
-      const body = new Set(lake.cells);
-      let lip = Infinity;
-      for (const c of lake.cells) {
-        const x = c % W, y = (c / W) | 0;
-        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
-          const nx = x + dx, ny = y + dy;
-          if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
-          const n = ny * W + nx;
-          if (!body.has(n)) lip = Math.min(lip, base[n]);
-        }
-      }
-      if (!Number.isFinite(lip)) for (const c of lake.cells) lip = Math.min(lip, base[c]);
-      const surf = lip - insetN;
-      for (const c of lake.cells) lakeSurface[c] = surf;
-    }
-    const override: ConnectomeWaterOverride = { waterType, lakeSurface, version: waterEditVersion };
+    // The ONE connectome→render-water projection (classification + still-water surface).
+    const override = buildConnectomeWaterOverride(map, net, waterEditVersion);
     overrideMemo = { version: waterEditVersion, override };
     return override;
   }

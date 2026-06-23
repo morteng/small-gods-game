@@ -3,10 +3,9 @@ import { generateWithNoise } from '@/map/map-generator';
 import { WaterType, type WorldSeed, type GameMap, type ConnectomeWaterOverride } from '@/core/types';
 import { buildWaterField } from '@/render/gpu/water-field';
 import { buildRenderWaterType } from '@/render/gpu/render-water-mask';
-import { curveHeightBuffer } from '@/render/gpu/terrain-field';
+import { buildConnectomeWaterOverride } from '@/render/gpu/connectome-water';
 import { getHeightfield, ELEVATION_SEA_LEVEL } from '@/world/heightfield';
 import { styledIslandSpec } from '@/terrain/island-mask';
-import { worldStyleOf } from '@/core/world-style';
 import { getWaterNetwork } from '@/world/water-network-store';
 import { addLakeBody } from '@/terrain/water-network-edits';
 import { clearHydrologyCache } from '@/world/hydrology-store';
@@ -31,29 +30,10 @@ const opts = {
 let map: GameMap;
 let W = 0, H = 0;
 
-/** Build the studio-style override for a net (placed lakes → mask + lip surface). */
+/** The override for a net (placed lakes → mask + lip surface) — the SAME projection
+ *  the studio render context uses, so this exercises the real seam. */
 function overrideFor(net: ReturnType<typeof getWaterNetwork>, version: number): ConnectomeWaterOverride {
-  const style = worldStyleOf(map.worldSeed);
-  const waterType = buildRenderWaterType(map, net);
-  const base = curveHeightBuffer(
-    getHeightfield(map.seed, W, H, styledIslandSpec(map.worldSeed), map.worldSeed?.pois ?? null),
-    ELEVATION_SEA_LEVEL, style.terrainHeightGamma,
-  );
-  const insetN = 0.5 / style.mountainRelief;
-  const lakeSurface = new Float32Array(W * H);
-  for (const lake of net.lakes) {
-    const body = new Set(lake.cells);
-    let lip = Infinity;
-    for (const c of lake.cells) {
-      const x = c % W, y = (c / W) | 0;
-      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
-        const n = (y + dy) * W + (x + dx);
-        if (!body.has(n)) lip = Math.min(lip, base[n]);
-      }
-    }
-    for (const c of lake.cells) lakeSurface[c] = lip - insetN;
-  }
-  return { waterType, lakeSurface, version };
+  return buildConnectomeWaterOverride(map, net, version);
 }
 
 /** A small placed lake on dry inland land (above sea, away from existing water). */
@@ -97,6 +77,25 @@ describe('buildRenderWaterType — connectome lakes', () => {
     const a = buildRenderWaterType(map);
     const b = buildRenderWaterType(map, getWaterNetwork(map));
     expect(a).toEqual(b);
+  });
+});
+
+describe('buildConnectomeWaterOverride — the one connectome→surface projection', () => {
+  it('a BASE net projects the raster classification; surface is finite everywhere', () => {
+    const ov = buildConnectomeWaterOverride(map, getWaterNetwork(map), 3);
+    expect(ov.version).toBe(3);
+    expect(ov.waterType).toEqual(buildRenderWaterType(map));       // classification half
+    // Only consulted for PLACED cells (none here), but must never carry NaN/Infinity.
+    expect(ov.lakeSurface.every((v) => Number.isFinite(v))).toBe(true);
+  });
+
+  it('an EDITED net fills each placed lake to a finite spill-lip surface above sea level', () => {
+    const { net, cells } = placedLakeNet();
+    const ov = buildConnectomeWaterOverride(map, net, 4);
+    for (const c of cells) {
+      expect(Number.isFinite(ov.lakeSurface[c])).toBe(true);
+      expect(ov.lakeSurface[c]).toBeGreaterThan(ELEVATION_SEA_LEVEL - 0.5);
+    }
   });
 });
 
