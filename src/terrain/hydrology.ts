@@ -17,7 +17,7 @@
 import type { TerrainField, TerrainConfig, HydrologyResult } from '@/core/types';
 import { WaterType } from '@/core/types';
 
-const DEFAULT_RIVER_FLOW_THRESHOLD = 500;
+export const DEFAULT_RIVER_FLOW_THRESHOLD = 500;
 // Headwater taper: a river is extended UPSTREAM (as a thin source trickle) down to
 // this fraction of the river threshold, so a stream visibly ORIGINATES from a thin
 // headwater high on the slope and grows downstream — instead of "popping out of the

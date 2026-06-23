@@ -27,7 +27,9 @@ import { synthesizeBlueprint } from '@/blueprint/presets';
 import { ensureBuildingTypesRegistered } from '@/blueprint/register-buildings';
 import { initManifoldWasm } from '@/assetgen/geometry/manifold-wasm-browser';
 import { createGpuRenderMap } from '@/render/gpu/gpu-renderer';
-import { drawWorldConnectome, projectConnectome, screenToTileApprox } from '@/render/connectome-overlay';
+import { drawWorldConnectome, drawWaterNetwork, projectConnectome, screenToTileApprox } from '@/render/connectome-overlay';
+import { getWaterNetwork } from '@/world/water-network-store';
+import { summarizeNetwork } from '@/terrain/river-network';
 import { WaterDynamics, DEFAULT_WEATHER, type WeatherParams } from '@/render/gpu/water-dynamics';
 import { buildFloodWatch, type FloodWatch } from '@/world/flood-watch';
 import { DEFAULT_LIGHTING } from '@/render/lighting-state';
@@ -184,6 +186,7 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
   const dev: Partial<DevModeState> = {};
   let showConnectome = true;
   let showDetailPatches = false;
+  let showWaterNet = false;   // the water connectome (river-network graph) overlay
 
   // Climate W-B — localized real-time water + humidity (rain on one spot raises the
   // basin it drains into + the air there). Rebuilt per world in regenerate().
@@ -810,6 +813,7 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
       const rc = renderContext();
       render(ctx, rc);                       // GPU terrain (entity pass empty)
       if (showConnectome) drawWorldConnectome(ctx, rc);  // full connectome backbone
+      if (showWaterNet) drawWaterNetwork(ctx, rc);        // water connectome (river graph)
       if (showDetailPatches) drawDetailPatches();         // adaptive high-res regions
       drawOverlay();                          // humidity / cloud / temperature field
       drawFocus();                           // spotlight + drill highlight
@@ -842,6 +846,16 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
     storm: (on = true) => { weather.autoWeather = on; },
     seedClouds: (a?: number) => waterDyn?.seedClouds(a),
     setOverlay: (m: 'none' | 'humidity' | 'cloud' | 'temp') => { overlay = m; },
+    // Water connectome: toggle the overlay + read the graph / its spectrum tally.
+    waterNet: (on?: boolean) => { if (on !== undefined) showWaterNet = on; return showWaterNet; },
+    waterNetwork: () => (map ? getWaterNetwork(map) : null),
+    waterSummary: () => (map ? summarizeNetwork(getWaterNetwork(map)) : null),
+    // View helpers (for headed iteration): frame the whole map, toggle the backbone,
+    // set terrain style, read/poke the camera.
+    fitAll: () => { if (map) fitTiles(cam, 0, 0, map.width, map.height, cssW, cssH, 0.94); },
+    cam: () => ({ x: cam.x, y: cam.y, zoom: cam.zoom }),
+    connectome: (on?: boolean) => { if (on !== undefined) showConnectome = on; return showConnectome; },
+    terrainMode: (id: TerrainModeId) => { dev.terrainMode = terrainModeValue(id); },
   };
   })();
 

@@ -13,6 +13,8 @@ import type { RenderContext, Camera, GameMap, POI } from '@/core/types';
 import { ISO_TILE_W, ISO_TILE_H } from '@/render/iso/iso-constants';
 import { elevationAt, ELEVATION_SEA_LEVEL } from '@/world/heightfield';
 import { worldStyleOf } from '@/core/world-style';
+import { getWaterNetwork } from '@/world/water-network-store';
+import type { ReachClass, WaterNodeKind } from '@/terrain/river-network';
 
 const HALF_W = ISO_TILE_W / 2;
 const HALF_H = ISO_TILE_H / 2;
@@ -164,6 +166,63 @@ export function drawWorldConnectome(ctx: CanvasRenderingContext2D, rc: RenderCon
       ctx.fillStyle = '#fff3d6';
       ctx.fillText(label, p.x, ly);
     }
+  }
+
+  ctx.restore();
+}
+
+// ── Water connectome overlay (the river-network graph) ───────────────────────
+// Strokes each reach's SMOOTHED centreline coloured + weighted by spectrum class,
+// then glyphs the nodes by kind. This is the graph the carve and the editor read —
+// drawing it makes "this brook / from that pond / two sources merge here" legible.
+
+const REACH_STYLE: Record<ReachClass, { color: string; width: number }> = {
+  brook:       { color: 'rgba(150, 205, 235, 0.85)', width: 1.2 },
+  stream:      { color: 'rgba(110, 185, 235, 0.9)',  width: 2.0 },
+  river:       { color: 'rgba(70, 155, 230, 0.92)',  width: 3.2 },
+  major_river: { color: 'rgba(45, 125, 220, 0.95)',  width: 4.6 },
+};
+
+const NODE_STYLE: Record<WaterNodeKind, { color: string; r: number }> = {
+  spring:      { color: 'rgba(120, 235, 160, 0.95)', r: 3.2 },   // green — a source
+  lake_outlet: { color: 'rgba(80, 220, 230, 0.95)',  r: 3.6 },   // cyan — lake-fed birth
+  confluence:  { color: 'rgba(255, 240, 200, 0.95)', r: 3.0 },   // pale — tributaries merge
+  lake_inlet:  { color: 'rgba(150, 170, 235, 0.9)',  r: 3.0 },   // indigo — enters a lake
+  mouth:       { color: 'rgba(60, 130, 210, 0.95)',  r: 3.8 },   // deep blue — estuary
+};
+
+/**
+ * Draw the water connectome (river-network graph) onto the Canvas2D overlay context.
+ * No-op when the world has no rivers. `zoom` scales line weight so it reads at any zoom.
+ */
+export function drawWaterNetwork(ctx: CanvasRenderingContext2D, rc: RenderContext): void {
+  const { map, camera } = rc;
+  if (!map) return;
+  const net = getWaterNetwork(map);
+  if (net.reaches.length === 0) return;
+
+  ctx.save();
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  const zw = Math.max(0.5, Math.min(camera.zoom, 2.5));
+
+  // Reaches — thick trunks first so thin brooks render on top of their confluence.
+  const order: ReachClass[] = ['major_river', 'river', 'stream', 'brook'];
+  for (const klass of order) {
+    for (const reach of net.reaches) {
+      if (reach.klass !== klass) continue;
+      const s = REACH_STYLE[klass];
+      ctx.strokeStyle = reach.lakeFed ? 'rgba(80, 220, 230, 0.9)' : s.color;
+      ctx.lineWidth = s.width * zw;
+      strokePolyline(ctx, map, camera, reach.centerline);
+    }
+  }
+
+  // Nodes — glyph by kind.
+  for (const n of net.nodes) {
+    const st = NODE_STYLE[n.kind];
+    const p = project(map, n.x + 0.5, n.y + 0.5, camera);
+    dot(ctx, p.x, p.y, st.r, st.color, 'rgba(10, 20, 30, 0.85)');
   }
 
   ctx.restore();
