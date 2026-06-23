@@ -139,6 +139,55 @@ fn sampleSurfaceW(gx : f32, gy : f32) -> f32 {
   return mix(mix(s00, s10, tx), mix(s01, s11, tx), ty);
 }
 
+// ── BICUBIC (Catmull-Rom) sampling for a PIXEL-PERFECT waterline ──────────────────
+// Bilinear over a 1-value-per-tile field is only C0: the surface−bed zero-crossing
+// kinks at every tile boundary, which reads as a faceted/jaggy waterline at zoom.
+// Catmull-Rom interpolation is C1 — the crossing is a smooth curve across tile seams,
+// so streams/rivers/lakes get a clean contour with no extra geometry. 16 taps, water
+// fragments only. The DRY fallback (surfaceW < 0 → bed) is applied per-tap so the
+// surface plane still ramps to the ground at the bank.
+fn crSpline(p0 : f32, p1 : f32, p2 : f32, p3 : f32, t : f32) -> f32 {
+  return 0.5 * ((2.0 * p1)
+    + (-p0 + p2) * t
+    + (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * t * t
+    + (-p0 + 3.0 * p1 - 3.0 * p2 + p3) * t * t * t);
+}
+fn terrTap(ix : i32, iy : i32) -> f32 {
+  let W = i32(G.uGrid.x); let H = i32(G.uGrid.y);
+  let cx = clamp(ix, 0, W - 1); let cy = clamp(iy, 0, H - 1);
+  return terrainH[u32(cy) * u32(W) + u32(cx)];
+}
+fn surfTap(ix : i32, iy : i32) -> f32 {
+  let W = i32(G.uGrid.x); let H = i32(G.uGrid.y);
+  let cx = clamp(ix, 0, W - 1); let cy = clamp(iy, 0, H - 1);
+  let i = u32(cy) * u32(W) + u32(cx);
+  let s = surfaceW[i];
+  if (s < 0.0) { return terrainH[i]; }   // dry tap → bed, so the plane meets the bank
+  return s;
+}
+fn cubicTerrainH(gx : f32, gy : f32) -> f32 {
+  let x = floor(gx); let y = floor(gy);
+  let tx = gx - x; let ty = gy - y;
+  let ix = i32(x); let iy = i32(y);
+  var col : array<f32, 4>;
+  for (var r : i32 = 0; r < 4; r = r + 1) {
+    let yy = iy - 1 + r;
+    col[r] = crSpline(terrTap(ix - 1, yy), terrTap(ix, yy), terrTap(ix + 1, yy), terrTap(ix + 2, yy), tx);
+  }
+  return crSpline(col[0], col[1], col[2], col[3], ty);
+}
+fn cubicSurfaceW(gx : f32, gy : f32) -> f32 {
+  let x = floor(gx); let y = floor(gy);
+  let tx = gx - x; let ty = gy - y;
+  let ix = i32(x); let iy = i32(y);
+  var col : array<f32, 4>;
+  for (var r : i32 = 0; r < 4; r = r + 1) {
+    let yy = iy - 1 + r;
+    col[r] = crSpline(surfTap(ix - 1, yy), surfTap(ix, yy), surfTap(ix + 1, yy), surfTap(ix + 2, yy), tx);
+  }
+  return crSpline(col[0], col[1], col[2], col[3], ty);
+}
+
 fn liftPx(e : f32) -> f32 { return (e - G.uZParams.y) * G.uZParams.z * G.uZParams.x; }
 
 struct VSOut {
@@ -231,9 +280,11 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   // pixel resolution, not the cell grid. The one-ring shore dilation (fillShoreRing)
   // gives near-bank dry cells a water plane so BOTH sides of the line are covered.
   // Lakes ride the drought/flood-shifted surface; ocean stays at its datum.
-  var surfLvl = sampleSurfaceW(in.vGrid.x, in.vGrid.y);
+  // BICUBIC (Catmull-Rom) surface AND bed: a C1 zero-crossing, so the waterline is a
+  // smooth contour across tile seams instead of the bilinear C0 facets.
+  var surfLvl = cubicSurfaceW(in.vGrid.x, in.vGrid.y);
   if (typ == 2u || typ == 3u) { surfLvl = surfLvl + G.uWater.w; }
-  let rawDepthN = surfLvl - sampleTerrainH(in.vGrid.x, in.vGrid.y);
+  let rawDepthN = surfLvl - cubicTerrainH(in.vGrid.x, in.vGrid.y);
   if (rawDepthN <= 0.0) { discard; }
   let depthM = rawDepthN * G.uZParams.z;
 
