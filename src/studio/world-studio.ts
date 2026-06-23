@@ -33,6 +33,7 @@ import { serializeCompact } from '@/world/connectome/world-node';
 import { applyNodeMoves, mergeWaterFeatures } from '@/terrain/water-network-edits';
 import type { WaterNetwork } from '@/terrain/river-network';
 import { tileReadout } from './world-hover';
+import { buildRenderWaterTypeMemo } from '@/render/gpu/render-water-mask';
 import { computePressure, type PressureReport } from '@/world/connectome/pressure';
 import { waterPressureItems, suggestWaterResolutions } from '@/world/connectome/water-nodes';
 import { buildRiverDeformationsFromNetwork } from '@/world/river-deformation';
@@ -685,7 +686,7 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
         const hx = node ? node.x : Math.round(lake?.x ?? cx);
         const hy = node ? node.y : Math.round(lake?.y ?? cy);
         return { title: d?.title ?? 'water', hi: { kind: 'node', tx: hx, ty: hy }, sel: { kind: 'water', id },
-          rows: [...(d?.rows ?? []), ...tileReadout(map, hx, hy, { floodM: floodField() })] };
+          rows: [...(d?.rows ?? []), ...tileReadout(map, hx, hy, { floodM: floodField(), renderWaterType: buildRenderWaterTypeMemo(map) })] };
       }
     }
     // 2) a POI (place / settlement)
@@ -694,7 +695,7 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
       const px = poi.position?.x ?? cx, py = poi.position?.y ?? cy;
       const rows: [string, string][] = [['kind', poi.type]];
       if (poi.importance) rows.push(['importance', String(poi.importance)]);
-      rows.push(...tileReadout(map, px, py, { floodM: floodField() }));
+      rows.push(...tileReadout(map, px, py, { floodM: floodField(), renderWaterType: buildRenderWaterTypeMemo(map) }));
       const hi: HoverHighlight = poi.region
         ? { kind: 'rect', x: poi.region.x_min, y: poi.region.y_min, w: poi.region.x_max - poi.region.x_min + 1, h: poi.region.y_max - poi.region.y_min + 1 }
         : { kind: 'tile', tx: px, ty: py };
@@ -714,7 +715,7 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
       }
     }
     // 4) bare terrain
-    return { title: 'terrain', hi: { kind: 'tile', tx: cx, ty: cy }, sel: { kind: 'tile' }, rows: tileReadout(map, cx, cy, { floodM: floodField() }) };
+    return { title: 'terrain', hi: { kind: 'tile', tx: cx, ty: cy }, sel: { kind: 'tile' }, rows: tileReadout(map, cx, cy, { floodM: floodField(), renderWaterType: buildRenderWaterTypeMemo(map) }) };
   }
   const resolveHover = (sx: number, sy: number): void => { hover = resolveHit(sx, sy); };
   /** Select whatever a click resolved — uniform across water nodes / POIs /
@@ -1160,6 +1161,15 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
     fitAll: () => { if (map) fitTiles(cam, 0, 0, map.width, map.height, cssW, cssH, 0.94); },
     lookAt: (tx: number, ty: number, span = 6) => { if (map) fitTiles(cam, tx - span, ty - span, tx + span, ty + span, cssW, cssH, 0.9); return { x: cam.x, y: cam.y, zoom: cam.zoom }; },
     cam: () => ({ x: cam.x, y: cam.y, zoom: cam.zoom }),
+    // Forward projection (tile → CSS-pixel screen), for round-trip alignment checks.
+    projectTile: (tx: number, ty: number) => (map ? projectConnectome(map, tx, ty, cam) : null),
+    // Full hit resolution at a CSS-pixel cursor (the same path hover + click use) —
+    // title + select kind + readout rows. The e2e targeting suite drives this.
+    hitAt: (sx: number, sy: number) => {
+      const h = resolveHit(sx, sy);
+      if (!h) return null;
+      return { title: h.title, kind: h.sel.kind, rows: h.rows };
+    },
     connectome: (on?: boolean) => { if (on !== undefined) showConnectome = on; return showConnectome; },
     terrainMode: (id: TerrainModeId) => { dev.terrainMode = terrainModeValue(id); },
   };

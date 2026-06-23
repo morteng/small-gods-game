@@ -26,6 +26,12 @@ const WATER_LABEL: Record<number, string> = {
 export interface TileReadoutOpts {
   /** Per-cell standing water depth in metres (W-E flood field), if any. */
   floodM?: Float32Array;
+  /** The RENDER water classification (`buildRenderWaterType`) — rivers re-stamped along
+   *  the smooth connectome centreline, i.e. EXACTLY what the terrain pass paints damp.
+   *  When supplied, the readout's water class reads from this so "looks like a river"
+   *  and "says river" always agree; the raster `hydrology.waterType` (the D8 sim truth,
+   *  which staircases off the visible channel) is the fallback. */
+  renderWaterType?: Uint8Array;
 }
 
 /**
@@ -45,7 +51,9 @@ export function tileReadout(map: GameMap, tx: number, ty: number, opts: TileRead
 
   const hydro = getHydrologyResult(map);
   const i = ty * map.width + tx;
-  const wt = hydro.waterType[i] ?? WaterType.Dry;
+  // Classify from what's PAINTED (render mask) when available, so the readout matches
+  // the pixels under the cursor; fall back to the raster sim classification otherwise.
+  const wt = opts.renderWaterType?.[i] ?? hydro.waterType[i] ?? WaterType.Dry;
   if (wt !== WaterType.Dry) {
     const order = hydro.strahler[i];
     const suffix = wt === WaterType.River && order ? ` · order ${order}` : '';

@@ -10,16 +10,13 @@
 // edges sit on the lifted surface rather than floating on a flat plane.
 
 import type { RenderContext, Camera, GameMap, POI } from '@/core/types';
-import { ISO_TILE_W, ISO_TILE_H } from '@/render/iso/iso-constants';
 import { ELEVATION_SEA_LEVEL } from '@/world/heightfield';
 import { heightField } from '@/render/gpu/terrain-field';
 import { worldStyleOf } from '@/core/world-style';
+import { tileToScreen, screenToTile, screenToTileFlat, type IsoEnv } from '@/render/iso/lifted-projection';
 import { getWaterNetwork } from '@/world/water-network-store';
 import type { ReachClass, WaterNodeKind, LakeClass, WaterNetwork } from '@/terrain/river-network';
 import type { PressureReport } from '@/world/connectome/pressure';
-
-const HALF_W = ISO_TILE_W / 2;
-const HALF_H = ISO_TILE_H / 2;
 
 const EDGE_STYLE: Record<string, { color: string; width: number }> = {
   road: { color: 'rgba(225, 178, 92, 0.9)', width: 2 },
@@ -38,31 +35,42 @@ export function projectConnectome(map: GameMap, tx: number, ty: number, cam: Cam
  *  (a rain brush, a cursor probe) — the lift error is a fraction of a tile in the y
  *  axis and irrelevant to a multi-tile brush. Clamped to the map. */
 export function screenToTileApprox(map: GameMap, sx: number, sy: number, cam: Camera): { tx: number; ty: number } {
-  const a = (sx / cam.zoom + cam.x) / HALF_W;   // tx − ty
-  const b = (sy / cam.zoom + cam.y) / HALF_H;    // tx + ty (lift omitted)
-  const tx = (a + b) / 2;
-  const ty = (b - a) / 2;
+  const { tx, ty } = screenToTileFlat(sx, sy, cam);
   return {
     tx: Math.max(0, Math.min(map.width - 1, tx)),
     ty: Math.max(0, Math.min(map.height - 1, ty)),
   };
 }
+/** Bind the world's real terrain sampler + lift constants into an {@link IsoEnv} so the
+ *  pure projection core can run against this map. Memo-light: `heightField` itself is
+ *  memoised, so the closure is cheap to recreate per call. */
+function isoEnv(map: GameMap): IsoEnv {
+  const style = worldStyleOf(map.worldSeed);
+  return {
+    elevAt: (tx, ty) => renderElevAt(map, tx, ty),
+    seaLevel: ELEVATION_SEA_LEVEL,
+    k: style.mountainRelief * style.terrainVerticalExaggeration,
+    width: map.width,
+    height: map.height,
+  };
+}
 /**
  * Lift-AWARE inverse: CSS-pixel screen → the tile whose LIFTED rendering sits under
- * the cursor. `screenToTileApprox` ignores terrain lift, so on raised ground the tile
- * it returns (re-projected with lift) floats far above the cursor. We refine by
- * fixed-point iteration: re-add the lift at the current estimate and re-invert. A few
- * passes converge on the gentle relief here. Matches {@link project}'s lift exactly.
+ * the cursor — the frontmost surface point, matching what the GPU draws there.
+ *
+ * The screen-x of a tile depends only on `tx − ty` and carries NO lift term, so that
+ * axis (`a`) inverts exactly. The screen-y depends on `tx + ty` AND the terrain lift,
+ * and on steep relief MANY tiles along that diagonal project to the same pixel (a near
+ * low tile overlaps a far high peak) — a naive fixed-point iteration can settle on the
+ * wrong one (measured: up to 12 tiles off on a mountain). Instead we MARCH the diagonal
+ * `s = tx + ty` from front (largest `s`, drawn last / lowest on screen) to back and
+ * return the FIRST surface crossing — the frontmost, visible tile — refined by
+ * bisection. Lift matches {@link project} exactly, so forward∘inverse is identity to
+ * sub-tile precision everywhere, slopes included.
  */
 export function screenToTileLifted(map: GameMap, sx: number, sy: number, cam: Camera, iters = 4): { tx: number; ty: number } {
-  const style = worldStyleOf(map.worldSeed);
-  const k = style.mountainRelief * style.terrainVerticalExaggeration;
-  let { tx, ty } = screenToTileApprox(map, sx, sy, cam);
-  for (let i = 0; i < iters; i++) {
-    const lift = (renderElevAt(map, tx, ty) - ELEVATION_SEA_LEVEL) * k;
-    ({ tx, ty } = screenToTileApprox(map, sx, sy + lift * cam.zoom, cam));
-  }
-  return { tx, ty };
+  void iters;   // legacy fixed-point param; the marching inverse needs no iteration count
+  return screenToTile(sx, sy, cam, isoEnv(map));
 }
 /**
  * The EXACT normalised elevation the GPU terrain lifts by at a (fractional) tile —
@@ -83,14 +91,9 @@ function renderElevAt(map: GameMap, tx: number, ty: number): number {
   return top * (1 - dy) + bot * dy;
 }
 function project(map: GameMap, tx: number, ty: number, cam: Camera): { x: number; y: number } {
-  const elev = renderElevAt(map, tx, ty);
-  // S1 style knobs (default to TERRAIN_RELIEF_M × TERRAIN_Z_PX_PER_M) — must match
-  // the GPU terrain lift exactly so overlay nodes sit on the lifted surface.
-  const style = worldStyleOf(map.worldSeed);
-  const lift = (elev - ELEVATION_SEA_LEVEL) * style.mountainRelief * style.terrainVerticalExaggeration;
-  const sx = ((tx - ty) * HALF_W - cam.x) * cam.zoom;
-  const sy = ((tx + ty) * HALF_H - lift - cam.y) * cam.zoom;
-  return { x: sx, y: sy };
+  // One source of truth with the inverse (and the GPU lift): the pure iso core, bound
+  // to this world's terrain sampler + style. Overlay nodes sit on the lifted surface.
+  return tileToScreen(tx, ty, cam, isoEnv(map));
 }
 
 function strokePolyline(

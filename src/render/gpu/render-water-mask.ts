@@ -53,3 +53,27 @@ export function buildRenderWaterType(map: GameMap): Uint8Array {
   }
   return out;
 }
+
+// Memoise by (seed, dims) like the sibling river stores — the mask is static for a
+// world, so per-mouse-move readout lookups (and the colour-field build) reuse it.
+const cache = new Map<string, Uint8Array>();
+const CACHE_CAP = 4;
+
+/** The memoised render waterType for a world. Cheap to call repeatedly (hover readout). */
+export function buildRenderWaterTypeMemo(map: GameMap): Uint8Array {
+  const k = `${map.seed}:${map.width}x${map.height}`;
+  let m = cache.get(k);
+  if (m) return m;
+  m = buildRenderWaterType(map);
+  cache.set(k, m);
+  if (cache.size > CACHE_CAP) {
+    const oldest = cache.keys().next().value;
+    if (oldest !== undefined) cache.delete(oldest);
+  }
+  return m;
+}
+
+/** Drop the memoised masks (tests; harmless in prod). */
+export function clearRenderWaterTypeCache(): void {
+  cache.clear();
+}
