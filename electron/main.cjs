@@ -31,7 +31,9 @@ function createWindow() {
     minHeight: 480,
     backgroundColor: '#1a1a2e',
     title: 'Small Gods',
-    webPreferences: { contextIsolation: true, nodeIntegration: false },
+    // sandbox: renderer runs with no Node primitives (no preload needs them). With
+    // contextIsolation + nodeIntegration off this is belt-and-suspenders, but explicit.
+    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
   });
 
   // External links open in the user's browser, not a stray app window.
@@ -41,6 +43,16 @@ function createWindow() {
       return { action: 'deny' };
     }
     return { action: 'allow' };
+  });
+
+  // Navigation lock: the window only ever shows our own bundle (app://) or the dev
+  // server. A bug or hostile content can't steer the top frame to an arbitrary site —
+  // off-origin nav is cancelled and (if http/https) handed to the system browser.
+  win.webContents.on('will-navigate', (event, url) => {
+    const allowed = process.env.SG_DEV_URL || 'app://';
+    if (url.startsWith(allowed)) return;
+    event.preventDefault();
+    if (url.startsWith('http://') || url.startsWith('https://')) shell.openExternal(url);
   });
 
   // SG_DEV_URL=http://localhost:3000 → live dev server (still real WebGPU via Electron's

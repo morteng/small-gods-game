@@ -86,6 +86,24 @@ The workflow auto-skips itch until both of these exist; the GitHub Release still
 3. Repo **secret** `BUTLER_API_KEY` from <https://itch.io/user/settings/api-keys>
    (`gh secret set BUTLER_API_KEY`).
 
+## Beta access (no key system to build)
+
+A single-player, client-side game has nothing to validate a license against — its logic
+ships to the browser regardless — so don't build activation keys. Use itch.io's built-in
+gating instead:
+
+- Set the itch project visibility to **Restricted** (or keep it a **Draft**), then generate
+  **download keys** under the project's *Distribute* page and hand them to testers. Keys are
+  revocable and gate the download itself.
+- The public web build on GitHub Pages stays as the open demo; itch is the gated channel.
+
+The desktop hardening that *is* worth it lives in `electron/main.cjs`: `contextIsolation` +
+`nodeIntegration:false` + `sandbox:true`, a protocol handler contained to `dist/` (no path
+traversal), and a `will-navigate` lock so the window only ever shows our own bundle. Linux
+AppImage code-signing is deliberately skipped (few verify it; electron-updater already
+SHA512-checks the feed), and a strict CSP is skipped because it fights the user-configurable
+LLM endpoint.
+
 ## Source privacy (deferred decision)
 
 Going private hides the TS source, git history, and `docs/` — not the running bundle (a
