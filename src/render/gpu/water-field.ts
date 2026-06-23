@@ -13,6 +13,7 @@ import { worldStyleOf } from '@/core/world-style';
 import { packTerrainGlobals, TERRAIN_GLOBALS_FLOATS, type TerrainGlobalsInput } from '@/render/gpu/instance-buffer';
 import type { LightingState } from '@/render/lighting-state';
 import { getHydrologyResult } from '@/world/hydrology-store';
+import { buildRiverSurfaceFieldMemo } from '@/render/gpu/river-surface-field';
 import { WaterType } from '@/core/types';
 import { classifyWaterCell, climateOf, type AquaticBiome, type Rgb } from '@/water/water-biome';
 
@@ -451,6 +452,17 @@ function waterStatic(map: GameMap, maxQuads?: number): WaterStatic {
   const surfaceW = new Float32Array(cells);
   for (let i = 0; i < cells; i++) surfaceW[i] = curveRenderElev(hydro.surfaceW[i], ELEVATION_SEA_LEVEL, gamma);
   const waterType = Uint32Array.from(hydro.waterType);
+  // RIVERS join the per-cell water field (the unified water system). `hydro.surfaceW`
+  // is raw pre-erosion elevation, so it can't lift the render mesh — use the
+  // render-space, bank-referenced fill (`river-surface-field`) for river cells. The
+  // per-pixel waterline clip then trims each reach to its REAL erosion-carved channel,
+  // which hugs the terrain contours far better than the swept ribbon did.
+  const riverSurf = buildRiverSurfaceFieldMemo(map);
+  if (riverSurf) {
+    for (let i = 0; i < cells; i++) {
+      if (hydro.waterType[i] === WaterType.River) surfaceW[i] = riverSurf[i];
+    }
+  }
   fillShoreRing(map.width, map.height, hydro.waterMask, {
     surfaceW, waterType, shallow, deep, clarity, flow,
   });

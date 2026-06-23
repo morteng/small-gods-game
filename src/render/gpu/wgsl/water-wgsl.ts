@@ -151,9 +151,9 @@ fn vsMain(@builtin(vertex_index) vid : u32) -> VSOut {
   // wholly discarded in the fragment).
   let gx = f32(cellX) + f32(corner.x) * f32(sub);
   let gy = f32(cellY) + f32(corner.y) * f32(sub);
-  // Lakes (typ 2) ride the drought/flood-shifted plane; ocean is the fixed datum.
+  // Lakes (2) + rivers (3) ride the drought/flood-shifted inland plane; ocean is datum.
   var surf = surfaceW[ci];
-  if (wtype[ci] == 2u) { surf = surf + G.uWater.w; }
+  if (wtype[ci] == 2u || wtype[ci] == 3u) { surf = surf + G.uWater.w; }
   let hPx = liftPx(surf);
 
   let scr = vec2<f32>((gx - gy) * G.uHalf.x, (gx + gy) * G.uHalf.y - hPx);
@@ -190,10 +190,9 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   let ci = in.vCell;
   let typ = wtype[ci];
   if (typ == 0u) { discard; }
-  // Rivers (typ 3) now render as smooth terrain-following RIBBONS (ribbon-wgsl),
-  // not per-cell water — so the blocky grid-channel never shows under the ribbon.
-  // Ocean (1) + lakes (2) stay per-cell here.
-  if (typ == 3u) { discard; }
+  // Ocean (1), lakes (2) AND rivers (3) all render here now — ONE unified per-cell
+  // water pass. Rivers carry a render-space fill surface (river-surface-field) so the
+  // waterline clip below trims them to the real erosion-carved channel.
 
   // PIXEL-PERFECT WATERLINE. Each quad is a FLAT plane at this cell's surface
   // height (surfaceW[ci]); the bed (terrainH) is bilinear, so surface minus bed
@@ -203,7 +202,7 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   // gives near-bank dry cells a water plane so BOTH sides of the line are covered.
   // Lakes ride the drought/flood-shifted surface; ocean stays at its datum.
   var surfLvl = surfaceW[ci];
-  if (typ == 2u) { surfLvl = surfLvl + G.uWater.w; }
+  if (typ == 2u || typ == 3u) { surfLvl = surfLvl + G.uWater.w; }
   let rawDepthN = surfLvl - sampleTerrainH(in.vGrid.x, in.vGrid.y);
   if (rawDepthN <= 0.0) { discard; }
   let depthM = rawDepthN * G.uZParams.z;

@@ -29,10 +29,8 @@ import { StaticDrawListCache } from '@/render/gpu/static-draw-list-cache';
 import { DEFAULT_LIGHTING } from '@/render/lighting-state';
 import { buildTerrainField, type TerrainField } from '@/render/gpu/terrain-field';
 import { buildDetailField } from '@/render/gpu/detail-field';
-import { buildWaterField, waterLevelNorm, type WaterField } from '@/render/gpu/water-field';
+import { buildWaterField, type WaterField } from '@/render/gpu/water-field';
 import { buildRoadRibbonMeshMemo } from '@/render/ribbon/road-ribbon-field';
-import { buildRiverRibbonMeshMemo } from '@/render/ribbon/river-ribbon-field';
-import { buildRiverSurfaceFieldMemo } from '@/render/gpu/river-surface-field';
 import { concatRibbonMeshes, type RibbonMesh } from '@/render/ribbon/ribbon-geometry';
 import { FlotsamLayer } from '@/render/gpu/flotsam-layer';
 import { drawWorldConnectome } from '@/render/connectome-overlay';
@@ -195,22 +193,14 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
         })
       : null;
 
-    // Road/river ribbons (T7/R2): swept terrain-following meshes drawn over terrain
-    // + water, under entities — roads (hidden with 'roads') and rivers (hidden with
-    // 'rivers') concatenated into ONE pass; the per-vertex tag.y tells them apart.
-    // `map` is passed to roads so bridge spans get a raised plank deck (R3b). Rivers
-    // are concatenated FIRST so roads draw last — a bridge deck wins over the river
-    // it crosses at the shared cells (grid-depth ties, no depth write → painter order).
+    // ROAD ribbons (T7/R2): swept terrain-following meshes drawn over terrain + water,
+    // under entities (hidden with 'roads'). `map` is passed so bridge spans get a
+    // raised plank deck (R3b). RIVERS are no longer ribbons — they render through the
+    // per-cell water pass (the unified water system), trimmed to the erosion-carved
+    // channel by the waterline clip; only roads remain ribbons.
     const roadMesh = (terrain && !isLayerHidden('roads', rc.devMode))
       ? buildRoadRibbonMeshMemo(map.roadGraph, map) : null;
-    const riverMesh = (terrain && !isLayerHidden('rivers', rc.devMode))
-      ? buildRiverRibbonMeshMemo(map) : null;
-    const ribbon: RibbonMesh | null = (roadMesh || riverMesh)
-      ? concatRibbonMeshes([riverMesh, roadMesh].filter(Boolean) as RibbonMesh[])
-      : null;
-    // The river ribbon lifts to the water-surface (fill) field, not the carved bed.
-    const riverSurface = riverMesh ? buildRiverSurfaceFieldMemo(map) : null;
-    const riverLevelDeltaN = waterLevelNorm(map, waterLevelM);
+    const ribbon: RibbonMesh | null = roadMesh ? concatRibbonMeshes([roadMesh]) : null;
 
     // Flotsam/fauna (S6): step + emit cosmetic circles on the water surface.
     // Appended after the entity list so they composite over the water; the
@@ -226,7 +216,7 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
 
     scene.renderFrame({
       items: dynamicItems, staticItems: staticList, lighting, terrain, detail, water,
-      ribbon, ribbonTime: timeSec, riverSurface, riverLevelDeltaN,
+      ribbon, ribbonTime: timeSec,
       w: lowW, h: lowH, out: { w: target.width, h: target.height },
       xform, uiGroups,
       ...(chrome ? null : { passes: { ui: false } }),
