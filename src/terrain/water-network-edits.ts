@@ -17,6 +17,53 @@ import { smoothCenterline, classifyLake } from './river-network';
 /** nodeId → new position in node coord space (the same space as `WaterNode.x/.y`). */
 export type NodeMoves = ReadonlyMap<string, Pt>;
 
+/** A lake an author dropped onto the map (not derived from hydrology): a disc of land
+ *  cells the connectome should treat as a still-water body. The terrain conform
+ *  (lake-conform) then carves a basin to hold it + an outlet to drain it. */
+export interface LakeStamp {
+  id: string;
+  cx: number;
+  cy: number;
+  radius: number; // tiles
+}
+
+/**
+ * Stamp a NEW lake body into the network — a disc of `radius` tiles centred at (cx,cy).
+ * The connectome only knew lakes the hydrology raster found; this is how an author places
+ * one ("a lake belongs here"). Pure — returns a new network with the body appended; the
+ * terrain re-conforms from it on drop. An empty disc (off-map) returns the input unchanged.
+ */
+export function addLakeBody(net: WaterNetwork, stamp: LakeStamp): WaterNetwork {
+  const { width: W, height: H } = net;
+  const { cx, cy, radius } = stamp;
+  const r2 = radius * radius;
+  const cells: number[] = [];
+  const y0 = Math.max(0, Math.floor(cy - radius));
+  const y1 = Math.min(H - 1, Math.ceil(cy + radius));
+  const x0 = Math.max(0, Math.floor(cx - radius));
+  const x1 = Math.min(W - 1, Math.ceil(cx + radius));
+  for (let y = y0; y <= y1; y++) {
+    for (let x = x0; x <= x1; x++) {
+      if ((x - cx) ** 2 + (y - cy) ** 2 <= r2) cells.push(y * W + x);
+    }
+  }
+  if (!cells.length) return net;
+  const area = cells.length;
+  let sx = 0, sy = 0;
+  for (const c of cells) { sx += c % W; sy += (c / W) | 0; }
+  const lake: WaterBody = {
+    id: stamp.id,
+    klass: classifyLake(area),
+    cells,
+    area,
+    x: sx / area,
+    y: sy / area,
+    outletIds: [],
+    inletIds: [],
+  };
+  return { ...net, lakes: [...net.lakes, lake] };
+}
+
 /** Cell-centre of a grid index (the centreline coordinate space). */
 function cellCentre(cell: number, W: number): Pt {
   return { x: (cell % W) + 0.5, y: ((cell / W) | 0) + 0.5 };

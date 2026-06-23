@@ -6,7 +6,7 @@
 // reads the SAME composed-terrain height buffer the terrain pass uses, so water
 // depth = surfaceW − terrainHeight needs no extra upload. No GPU/DOM here.
 
-import type { GameMap } from '@/core/types';
+import type { GameMap, ConnectomeWaterOverride } from '@/core/types';
 import { terrainGrid, terrainGlobalsFor, curveRenderElev, heightField } from '@/render/gpu/terrain-field';
 import { ELEVATION_SEA_LEVEL } from '@/world/heightfield';
 import { worldStyleOf } from '@/core/world-style';
@@ -307,6 +307,10 @@ export interface BuildWaterFieldOpts {
    *  so the per-pixel clip carves the sheet to the terrain contour. Sparse — when every
    *  entry is 0 the cached static surface is reused (no re-upload). */
   floodOffsetM?: Float32Array;
+  /** OPT-IN connectome-projected water (studio editing) — author-placed lakes the
+   *  hydrology raster never knew, merged into the static classification + surface so
+   *  they render like generated lakes. Absent → pure raster path (byte-identical). */
+  connectomeWater?: ConnectomeWaterOverride;
   maxQuads?: number;
 }
 
@@ -402,16 +406,46 @@ interface WaterStatic {
 }
 
 const STATIC_CACHE = new WeakMap<GameMap, WaterStatic>();
+// Separate, version-keyed cache for the studio's edited (placed-lake) statics — kept
+// off the WeakMap so a connectome edit never poisons the game's pristine raster static.
+const OVERRIDE_STATIC_CACHE = new Map<string, WaterStatic>();
+const OVERRIDE_CACHE_CAP = 3;
 
-function waterStatic(map: GameMap, maxQuads?: number): WaterStatic {
-  const cached = STATIC_CACHE.get(map);
-  if (cached) return cached;
+function waterStatic(map: GameMap, maxQuads?: number, override?: ConnectomeWaterOverride): WaterStatic {
+  if (!override) {
+    const cached = STATIC_CACHE.get(map);
+    if (cached) return cached;
+  } else {
+    const cached = OVERRIDE_STATIC_CACHE.get(`${map.seed}:${map.width}x${map.height}:v${override.version}`);
+    if (cached) return cached;
+  }
 
   const hydro = getHydrologyResult(map);
-  let wet = 0;
-  for (const m of hydro.waterMask) wet += m;
-
   const cells = map.width * map.height;
+
+  // EFFECTIVE water classification: the raster, plus any author-placed connectome lakes
+  // (cells the override marks Lake that the raster left dry). Absent override ⇒ the same
+  // array references the raster path always used, so the build is byte-identical.
+  let effType: Uint8Array = hydro.waterType;
+  let effMask: Uint8Array = hydro.waterMask;
+  const placed: number[] = [];
+  if (override) {
+    effType = Uint8Array.from(hydro.waterType);
+    effMask = Uint8Array.from(hydro.waterMask);
+    for (let i = 0; i < cells; i++) {
+      if (override.waterType[i] === WaterType.Lake
+          && effType[i] !== WaterType.Lake && effType[i] !== WaterType.Ocean) {
+        effType[i] = WaterType.Lake;
+        effMask[i] = 1;
+        placed.push(i);
+      }
+    }
+  }
+
+  let wet = 0;
+  for (const m of effMask) wet += m;
+
+
   const flow = new Float32Array(cells * 2);
   const shallow = new Uint32Array(cells);
   const deep = new Uint32Array(cells);
@@ -429,7 +463,7 @@ function waterStatic(map: GameMap, maxQuads?: number): WaterStatic {
   for (let i = 0; i < cells; i++) {
     flow[i * 2] = hydro.flowDirX[i];
     flow[i * 2 + 1] = hydro.flowDirY[i];
-    const b = biomeFor(hydro.waterType[i] as WaterType);
+    const b = biomeFor(effType[i] as WaterType);
     if (b) {
       shallow[i] = rgbToAbgr(b.shallowColor);
       deep[i] = rgbToAbgr(b.deepColor);
@@ -438,7 +472,7 @@ function waterStatic(map: GameMap, maxQuads?: number): WaterStatic {
   }
 
   const grid = terrainGrid(map.width, map.height, maxQuads);
-  const shoreDist = computeShoreDist(map.width, map.height, hydro.waterMask);
+  const shoreDist = computeShoreDist(map.width, map.height, effMask);
 
   // Clone the (shared, memoised) hydrology surface before dilating — fillShoreRing
   // mutates it to overhang the bank for the pixel-perfect waterline, and the
@@ -451,7 +485,11 @@ function waterStatic(map: GameMap, maxQuads?: number): WaterStatic {
   const gamma = worldStyleOf(map.worldSeed).terrainHeightGamma;
   const surfaceW = new Float32Array(cells);
   for (let i = 0; i < cells; i++) surfaceW[i] = curveRenderElev(hydro.surfaceW[i], ELEVATION_SEA_LEVEL, gamma);
-  const waterType = Uint32Array.from(hydro.waterType);
+  // Author-placed lakes have no raster surface — fill them to their spill lip (the
+  // override carries it in render-elevation space). Then the shore/flood/body passes
+  // below treat them exactly like a generated lake.
+  for (const i of placed) surfaceW[i] = override!.lakeSurface[i];
+  const waterType = Uint32Array.from(effType);
   // RIVERS join the per-cell water field (the unified water system). `hydro.surfaceW`
   // is raw pre-erosion elevation, so it can't lift the render mesh — use the
   // render-space, bank-referenced fill (`river-surface-field`) for river cells. The
@@ -460,10 +498,12 @@ function waterStatic(map: GameMap, maxQuads?: number): WaterStatic {
   const riverSurf = buildRiverSurfaceFieldMemo(map);
   if (riverSurf) {
     for (let i = 0; i < cells; i++) {
-      if (hydro.waterType[i] === WaterType.River) surfaceW[i] = riverSurf[i];
+      // `effType` (not the raster) so a placed lake sitting over a river keeps its lake
+      // surface rather than being pulled back to the river fill line.
+      if (effType[i] === WaterType.River) surfaceW[i] = riverSurf[i];
     }
   }
-  fillShoreRing(map.width, map.height, hydro.waterMask, {
+  fillShoreRing(map.width, map.height, effMask, {
     surfaceW, waterType, shallow, deep, clarity, flow,
   });
   // Give lakes flood headroom past the 1-ring waterline overhang (the sea is the
@@ -497,7 +537,16 @@ function waterStatic(map: GameMap, maxQuads?: number): WaterStatic {
     subsample: grid.subsample,
     dry: wet === 0,
   };
-  STATIC_CACHE.set(map, stat);
+  if (!override) {
+    STATIC_CACHE.set(map, stat);
+  } else {
+    const k = `${map.seed}:${map.width}x${map.height}:v${override.version}`;
+    OVERRIDE_STATIC_CACHE.set(k, stat);
+    if (OVERRIDE_STATIC_CACHE.size > OVERRIDE_CACHE_CAP) {
+      const oldest = OVERRIDE_STATIC_CACHE.keys().next().value;
+      if (oldest !== undefined) OVERRIDE_STATIC_CACHE.delete(oldest);
+    }
+  }
   return stat;
 }
 
@@ -670,7 +719,7 @@ export function waterSurfaceAt(
  * per-frame writeBuffer.
  */
 export function buildWaterField(map: GameMap, opts: BuildWaterFieldOpts): WaterField | null {
-  const stat = waterStatic(map, opts.maxQuads);
+  const stat = waterStatic(map, opts.maxQuads, opts.connectomeWater);
   if (stat.dry) return null;
 
   // Water rides the terrain heightfield → it shares the terrain projection

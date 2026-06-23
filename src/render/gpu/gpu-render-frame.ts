@@ -170,6 +170,8 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
           xform, lighting, devMode: rc.devMode,
           terrainMode: rc.devMode?.terrainMode,
           superSample: rc.devMode?.terrainSuper,
+          // DIR-A: author-placed lakes paint their beds damp too (studio editing).
+          connectomeWater: rc.connectomeWater,
         });
     // Adaptive sub-tile detail patches (the px4-3-2-1 idea): a finer instanced mesh
     // with GENUINE analytic relief, overlaid ONLY on the hot regions (coast/carve/
@@ -198,6 +200,8 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
           lakeOffsetM: rc.lakeOffsetM,
           // Per-cell standing water (W-E) — a god flooding a plain.
           floodOffsetM: rc.floodOffsetM,
+          // DIR-A: author-placed connectome lakes render as real still water.
+          connectomeWater: rc.connectomeWater,
         })
       : null;
 

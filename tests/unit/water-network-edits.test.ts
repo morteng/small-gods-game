@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { generateHydrology } from '@/terrain/hydrology';
 import { buildWaterNetwork } from '@/terrain/river-network';
-import { applyNodeMoves, mergeWaterFeatures } from '@/terrain/water-network-edits';
+import { applyNodeMoves, mergeWaterFeatures, addLakeBody } from '@/terrain/water-network-edits';
 import { suggestWaterResolutions } from '@/world/connectome/water-nodes';
 import { computePressure } from '@/world/connectome/pressure';
 import { waterPressureItems } from '@/world/connectome/water-nodes';
@@ -123,5 +123,47 @@ describe('water network merging — join, don\'t always push apart', () => {
     expect(resolved.some((r) => r.resolution === 'merge')).toBe(true);
     // every merge suggestion carries a human/agent-legible reason
     for (const r of resolved) expect(r.reason.length).toBeGreaterThan(0);
+  });
+});
+
+describe('addLakeBody — stamp an author-placed lake (DIR-A)', () => {
+  it('appends one classified disc body, leaving the input untouched', () => {
+    const n = net();
+    const before = n.lakes.length;
+    const out = addLakeBody(n, { id: 'wl:placed:0', cx: 1, cy: 1, radius: 1 });
+    expect(n.lakes.length).toBe(before);          // pure — input unchanged
+    expect(out.lakes.length).toBe(before + 1);
+    const lake = out.lakes[out.lakes.length - 1];
+    expect(lake.id).toBe('wl:placed:0');
+    expect(lake.area).toBe(lake.cells.length);
+    expect(lake.area).toBeGreaterThan(0);
+    expect(lake.klass).toBeDefined();
+    // centroid lands near the stamp centre
+    expect(lake.x).toBeCloseTo(1, 1);
+    expect(lake.y).toBeCloseTo(1, 1);
+  });
+
+  it('every stamped cell lies within the radius and on the grid', () => {
+    const n = net();                 // 3×3 grid
+    const out = addLakeBody(n, { id: 'wl:placed:0', cx: 1, cy: 1, radius: 1 });
+    const lake = out.lakes[out.lakes.length - 1];
+    for (const c of lake.cells) {
+      const x = c % n.width, y = (c / n.width) | 0;
+      expect(x).toBeGreaterThanOrEqual(0);
+      expect(x).toBeLessThan(n.width);
+      expect((x - 1) ** 2 + (y - 1) ** 2).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it('an off-map stamp produces no cells and returns the input unchanged', () => {
+    const n = net();
+    expect(addLakeBody(n, { id: 'x', cx: 99, cy: 99, radius: 1 })).toBe(n);
+  });
+
+  it('is deterministic — same stamp → identical cells', () => {
+    const n = net();
+    const la = addLakeBody(n, { id: 'a', cx: 1, cy: 1, radius: 1 }).lakes;
+    const lb = addLakeBody(n, { id: 'a', cx: 1, cy: 1, radius: 1 }).lakes;
+    expect(la[la.length - 1].cells).toEqual(lb[lb.length - 1].cells);
   });
 });

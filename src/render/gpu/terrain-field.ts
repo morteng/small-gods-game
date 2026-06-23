@@ -15,7 +15,7 @@
 //
 // No GPU/DOM here; everything is unit-testable.
 
-import type { GameMap, DevModeState } from '@/core/types';
+import type { GameMap, DevModeState, ConnectomeWaterOverride } from '@/core/types';
 import { WaterType } from '@/core/types';
 import { TILE_COLORS, WATER_TYPES } from '@/core/constants';
 import { buildRenderWaterType } from '@/render/gpu/render-water-mask';
@@ -221,15 +221,17 @@ export function packColorField(map: GameMap, devMode?: DevModeState, waterType?:
  * changes (new world) — the per-tile `type` is otherwise immutable at runtime.
  */
 let colorMemo: { map: GameMap; key: string; colors: Uint32Array } | null = null;
-export function packColorFieldMemo(map: GameMap, devMode?: DevModeState): Uint32Array {
+export function packColorFieldMemo(map: GameMap, devMode?: DevModeState, renderWaterType?: Uint8Array, waterVersion = 0): Uint32Array {
   const key = `${map.width}x${map.height}|` +
-    RENDER_LAYERS.map((l) => (devMode?.[layerFlag(l)] === false ? '0' : '1')).join('');
+    RENDER_LAYERS.map((l) => (devMode?.[layerFlag(l)] === false ? '0' : '1')).join('') +
+    `|w${renderWaterType ? waterVersion : 'base'}`;
   if (colorMemo && colorMemo.map === map && colorMemo.key === key) return colorMemo.colors;
   // The RENDER waterType (ocean + lakes from hydrology, rivers re-stamped along the
   // smooth connectome centrelines) lets us paint LAKE basins + bendy river beds as
-  // damp ground — not the D8-staircased raster rivers. Derived from the map, so the
-  // memo key (map identity) stays valid.
-  const colors = packColorField(map, devMode, buildRenderWaterType(map));
+  // damp ground — not the D8-staircased raster rivers. The studio passes an EDITED
+  // render waterType (author-placed lakes) so their beds read damp too; absent, it's
+  // derived from the map (the memo key stays valid on map identity).
+  const colors = packColorField(map, devMode, renderWaterType ?? buildRenderWaterType(map));
   colorMemo = { map, key, colors };
   return colors;
 }
@@ -307,6 +309,9 @@ export interface BuildTerrainFieldOpts {
   terrainMode?: number;
   /** Sub-tile mesh supersample (≥1; 1 = one quad/tile). See {@link terrainGrid}. */
   superSample?: number;
+  /** OPT-IN connectome-projected water (studio editing) — its render waterType paints
+   *  author-placed lake beds damp too. Absent → derived from the map (raster path). */
+  connectomeWater?: ConnectomeWaterOverride;
 }
 
 /** Relative luminance of an RGB triple in `[0,1]` — terrain sun strength scalar. */
@@ -388,9 +393,10 @@ export function buildTerrainField(map: GameMap, opts: BuildTerrainFieldOpts): Te
     terrainMode: opts.terrainMode, superSample: opts.superSample,
   });
   const climate = getClimateFields(map);
+  const cw = opts.connectomeWater;
   return {
     heights: heightField(map),
-    colors: packColorFieldMemo(map, opts.devMode),
+    colors: packColorFieldMemo(map, opts.devMode, cw?.waterType, cw?.version),
     moisture: climate.moisture,
     temperature: climate.temperature,
     vertexCount: grid.vertexCount,

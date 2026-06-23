@@ -17,7 +17,7 @@
 import type { RenderContext, Camera, GameMap, POI, BuildingInstance } from '@/core/types';
 import type { SettlementPlan } from '@/world/settlement-plan';
 import type { WorldSeed } from '@/core/types';
-import type { ScalePreset } from '@/core/world-style';
+import { worldStyleOf, type ScalePreset } from '@/core/world-style';
 import { World } from '@/world/world';
 import { WorldManager } from '@/map/world-manager';
 import { generateWithNoise } from '@/map/map-generator';
@@ -30,10 +30,14 @@ import { createGpuRenderMap } from '@/render/gpu/gpu-renderer';
 import { drawWorldConnectome, drawWaterNetwork, projectConnectome, screenToTileLifted } from '@/render/connectome-overlay';
 import { getWaterNetwork, getWaterConnectome } from '@/world/water-network-store';
 import { serializeCompact } from '@/world/connectome/world-node';
-import { applyNodeMoves, mergeWaterFeatures } from '@/terrain/water-network-edits';
+import { applyNodeMoves, mergeWaterFeatures, addLakeBody, type LakeStamp } from '@/terrain/water-network-edits';
 import type { WaterNetwork } from '@/terrain/river-network';
 import { tileReadout } from './world-hover';
-import { buildRenderWaterTypeMemo } from '@/render/gpu/render-water-mask';
+import { buildRenderWaterTypeMemo, buildRenderWaterType } from '@/render/gpu/render-water-mask';
+import { curveHeightBuffer } from '@/render/gpu/terrain-field';
+import { getHeightfield, ELEVATION_SEA_LEVEL } from '@/world/heightfield';
+import { styledIslandSpec } from '@/terrain/island-mask';
+import type { ConnectomeWaterOverride } from '@/core/types';
 import { computePressure, type PressureReport } from '@/world/connectome/pressure';
 import { waterPressureItems, suggestWaterResolutions } from '@/world/connectome/water-nodes';
 import { buildRiverDeformationsFromNetwork } from '@/world/river-deformation';
@@ -242,6 +246,13 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
   let floodBrush = false;
   let floodRadius = 8;     // tiles
   let floodDepthM = 2.0;   // metres of standing water laid per click
+  // DIR-A: place a NEW lake by clicking the map — a stamped still-water body the
+  // connectome adopts and the terrain conform carves a basin + outlet for.
+  let placeLakeBrush = false;
+  let lakeRadius = 4;      // tiles
+  const addedLakes: LakeStamp[] = [];   // author-placed lakes (overlay on the base net)
+  let waterEditVersion = 0;             // bumps each connectome edit → busts render water caches
+  let overrideMemo: { version: number; override: ConnectomeWaterOverride } | null = null;
   // Which scalar field the overlay draws (W-B humidity, W-C cloud/temperature).
   let overlay: 'none' | 'humidity' | 'cloud' | 'temp' = 'humidity';
   let lastStepT = (typeof performance !== 'undefined' ? performance.now() : 0);
@@ -363,6 +374,13 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
     if (floodBrush && waterDyn) {
       const { tx, ty } = screenToTileLifted(map, sx, sy, cam);
       waterDyn.floodArea(tx, ty, floodRadius, floodDepthM);
+      return;
+    }
+    // Place-lake brush (DIR-A): stamp a NEW lake body at the cursor; with "conform
+    // terrain" on, the basin + outlet carve in immediately.
+    if (placeLakeBrush) {
+      const { tx, ty } = screenToTileLifted(map, sx, sy, cam);
+      stampLake(Math.round(tx), Math.round(ty), lakeRadius);
       return;
     }
     // Otherwise: select whatever connectome object / building / tile is under the
@@ -597,7 +615,7 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
   // ── W-E: flood brush — lay standing water on the ground (a god flooding a plain) ──
   const floodToggle = toggleRow('🌊 Flood brush — click the map', false, (v) => {
     floodBrush = v;
-    if (v) { rainBrush = false; rainCb.checked = false; }
+    if (v) { rainBrush = false; rainCb.checked = false; placeLakeBrush = false; placeLakeCb.checked = false; }
     canvas.style.cursor = v ? 'crosshair' : 'default';
   });
   const floodCb = floodToggle.querySelector('input') as HTMLInputElement;
@@ -607,7 +625,7 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
   // ── W-B: manual rain brush ──
   const rainToggle = toggleRow('💧 Rain brush — click the map', false, (v) => {
     rainBrush = v;
-    if (v) { floodBrush = false; floodCb.checked = false; }
+    if (v) { floodBrush = false; floodCb.checked = false; placeLakeBrush = false; placeLakeCb.checked = false; }
     canvas.style.cursor = v ? 'crosshair' : 'default';
   });
   const rainCb = rainToggle.querySelector('input') as HTMLInputElement;
@@ -615,6 +633,15 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
   weatherSec.appendChild(sliderRow('Brush rain', 100, 4000, 50, () => weather.rainMm, (v) => { weather.rainMm = v; }, (v) => `${v | 0} mm`));
   weatherSec.appendChild(sliderRow('Brush size', 1, 20, 1, () => weather.brushRadius, (v) => { weather.brushRadius = v; }, (v) => `${v | 0} t`));
   weatherSec.appendChild(sliderRow('Runoff', 0, 1, 0.05, () => weather.runoffFrac, (v) => { weather.runoffFrac = v; }, (v) => `${(v * 100) | 0}%`));
+  // ── DIR-A: place-lake brush — stamp a new still-water body the terrain conforms to ──
+  const placeLakeToggle = toggleRow('🪣 Place lake — click the map', false, (v) => {
+    placeLakeBrush = v;
+    if (v) { rainBrush = false; rainCb.checked = false; floodBrush = false; floodCb.checked = false; }
+    canvas.style.cursor = v ? 'crosshair' : 'default';
+  });
+  const placeLakeCb = placeLakeToggle.querySelector('input') as HTMLInputElement;
+  weatherSec.appendChild(placeLakeToggle);
+  weatherSec.appendChild(sliderRow('Lake size', 2, 14, 1, () => lakeRadius, (v) => { lakeRadius = v; }, (v) => `${v | 0} t`));
   const weatherReadout = h('div', { style: 'margin-top:4px;font:400 10px var(--font-mono);color:var(--ink-2)', text: '—' });
   weatherSec.appendChild(weatherReadout);
   menuBar.appendChild(dropdown('☁ Weather ▾', weatherSec));
@@ -624,8 +651,11 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
   // on top, so the edited graph (and its re-routed reaches) is recomputed each frame.
   function editedWaterNet(): WaterNetwork | undefined {
     if (!map) return undefined;
-    // Replay edits from the seed-derived base: moves first, then merges (which change ids).
-    let net = applyNodeMoves(getWaterNetwork(map), nodeMoves);
+    // Replay edits from the seed-derived base: stamped lakes, then moves, then merges
+    // (which change ids). Order is deterministic so the edited graph is reproducible.
+    let net = getWaterNetwork(map);
+    for (const stamp of addedLakes) net = addLakeBody(net, stamp);
+    net = applyNodeMoves(net, nodeMoves);
     for (const [keep, drop] of mergeOps) net = mergeWaterFeatures(net, keep, drop);
     return net;
   }
@@ -661,6 +691,56 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
     store.removeSource(LAKE_OUTLET_SOURCE);
     if (conformTerrain) store.add(...buildLakeConformDeformations(map, edited));
     // The store's version bump re-keys getComposedHeightfield → new buffer → terrain re-uploads.
+    // Bump the water-edit version so the render water mask + surface (placed lakes) rebuild.
+    waterEditVersion++;
+  }
+  /** The connectome-projected water override for the EDITED network — author-placed
+   *  lakes the hydrology raster never knew, rendered as real still water (mask + surface
+   *  to the spill lip). Undefined when nothing is placed (→ the raster path). Memoised by
+   *  the edit version so the per-frame render context reuses it between edits. */
+  function connectomeWaterOverride(): ConnectomeWaterOverride | undefined {
+    if (!map || addedLakes.length === 0) return undefined;
+    if (overrideMemo && overrideMemo.version === waterEditVersion) return overrideMemo.override;
+    const net = editedWaterNet();
+    if (!net) return undefined;
+    const W = map.width, H = map.height;
+    const style = worldStyleOf(map.worldSeed);
+    const waterType = buildRenderWaterType(map, net);
+    // The natural (uncarved) curved render grade — the bank reference for the fill, so a
+    // placed lake fills to the SURROUNDING ground lip, not the carved basin floor.
+    const base = curveHeightBuffer(
+      getHeightfield(map.seed, W, H, styledIslandSpec(map.worldSeed), map.worldSeed?.pois ?? null),
+      ELEVATION_SEA_LEVEL, style.terrainHeightGamma,
+    );
+    const insetN = 0.5 / style.mountainRelief;   // sit just below the lip (a contained sheet)
+    const lakeSurface = new Float32Array(W * H);
+    for (const lake of net.lakes) {
+      const body = new Set(lake.cells);
+      let lip = Infinity;
+      for (const c of lake.cells) {
+        const x = c % W, y = (c / W) | 0;
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+          const nx = x + dx, ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+          const n = ny * W + nx;
+          if (!body.has(n)) lip = Math.min(lip, base[n]);
+        }
+      }
+      if (!Number.isFinite(lip)) for (const c of lake.cells) lip = Math.min(lip, base[c]);
+      const surf = lip - insetN;
+      for (const c of lake.cells) lakeSurface[c] = surf;
+    }
+    const override: ConnectomeWaterOverride = { waterType, lakeSurface, version: waterEditVersion };
+    overrideMemo = { version: waterEditVersion, override };
+    return override;
+  }
+  /** Stamp a new author-placed lake and re-derive the connectome + terrain from it. */
+  function stampLake(cx: number, cy: number, radius: number): LakeStamp | null {
+    if (!map) return null;
+    const stamp: LakeStamp = { id: `wl:placed:${addedLakes.length}:${cy * map.width + cx}`, cx, cy, radius };
+    addedLakes.push(stamp);
+    recarveFromEdits();
+    return stamp;
   }
 
   // ── hover inspection (DIR-C) ──────────────────────────────────────────────────
@@ -1042,6 +1122,8 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
       devMode: dev as DevModeState,   // terrain/roads/rivers/buildings/vegetation toggles
       lakeOffsetM: waterDyn?.lakeOffsetM(),   // localized lake level (climate W-B)
       floodOffsetM: waterDyn?.floodOffsetM(), // per-cell standing water (W-E flood)
+      connectomeWater: connectomeWaterOverride(), // DIR-A author-placed lakes as real water
+
       // Parametric art resolvers so the entity pass can draw buildings & trees.
       resolveParametricBuildingArt: (e: Entity) => {
         const s = buildingSource.peek(e); if (s) return s; buildingSource.warm(e); return null;
@@ -1141,7 +1223,14 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
     waterEdit: (on?: boolean) => { if (on !== undefined) { waterEdit = on; canvas.style.cursor = on ? 'crosshair' : 'default'; } return waterEdit; },
     moveWaterNode: (id: string, x: number, y: number) => { nodeMoves.set(id, { x, y }); recarveFromEdits(); return editedWaterNet(); },
     mergeWaterFeatures: (keepId: string, dropId: string) => { mergeOps.push([keepId, dropId]); recarveFromEdits(); return editedWaterNet(); },
-    clearWaterEdits: () => { nodeMoves.clear(); mergeOps.length = 0; recarveFromEdits(); },
+    clearWaterEdits: () => { nodeMoves.clear(); mergeOps.length = 0; addedLakes.length = 0; recarveFromEdits(); },
+    // DIR-A: stamp a NEW lake at a tile (the connectome adopts it; conform carves its basin).
+    placeLake: (tx: number, ty: number, radius = lakeRadius) => {
+      const stamp = stampLake(Math.round(tx), Math.round(ty), radius);
+      const net = editedWaterNet();
+      return stamp && net ? { id: stamp.id, lakes: net.lakes.length } : null;
+    },
+    clearPlacedLakes: () => { addedLakes.length = 0; recarveFromEdits(); return addedLakes.length; },
     // DIR-A: lakes conform the terrain (water-holding basin + carved outlet). Toggle +
     // read back how many deformations the current (edited) lakes emit.
     conformTerrain: (on?: boolean) => {

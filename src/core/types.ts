@@ -227,6 +227,25 @@ export interface RenderContext {
   /** Per-CELL standing-water depth in METRES (W-E: "flood a plain") — lays water on
    *  arbitrary land, baked into the water surface + type. Default: none. */
   floodOffsetM?: Float32Array;
+  /** OPT-IN connectome-projected water (studio editing): an author-placed/moved lake
+   *  the hydrology raster never knew. When present, the render water type + surface
+   *  include these lakes so they paint as real still water through the SAME path as
+   *  generated lakes. The game leaves this unset → the pure raster path, byte-identical.
+   *  See `ConnectomeWaterOverride`. Default: none. */
+  connectomeWater?: ConnectomeWaterOverride;
+}
+
+/** DIR-A: a placed/edited connectome lake projected into render space — fed to the
+ *  terrain colour + water-surface builds so it renders like a generated lake. `version`
+ *  bumps on each connectome edit so the (otherwise map-memoised) render caches rebuild. */
+export interface ConnectomeWaterOverride {
+  /** Full RENDER waterType (ocean + connectome rivers + lakes incl. placed), `W*H`. */
+  waterType: Uint8Array;
+  /** Render-elevation water surface for PLACED-lake cells (the spill lip); cells that
+   *  are not a placed lake are ignored (their surface comes from the raster path). */
+  lakeSurface: Float32Array;
+  /** Edit counter — busts the colour + water-static caches when the connectome changes. */
+  version: number;
 }
 
 /** Options for debug visualization overlays */
