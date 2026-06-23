@@ -1,7 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { generateHydrology } from '@/terrain/hydrology';
 import { buildWaterNetwork } from '@/terrain/river-network';
-import { applyNodeMoves } from '@/terrain/water-network-edits';
+import { applyNodeMoves, mergeWaterFeatures } from '@/terrain/water-network-edits';
+import { suggestWaterResolutions } from '@/world/connectome/water-nodes';
+import { computePressure } from '@/world/connectome/pressure';
+import { waterPressureItems } from '@/world/connectome/water-nodes';
 import { type TerrainField } from '@/core/types';
 
 function field(elev: number[]): TerrainField {
@@ -62,5 +65,63 @@ describe('water network edits — movable / reorderable', () => {
       const touches = n.reaches[i].from === spring.id || n.reaches[i].to === spring.id;
       if (!touches) expect(moved.reaches[i]).toBe(n.reaches[i]); // same reference (no re-smooth)
     }
+  });
+});
+
+// A 5×5 valley with a closed pit that fills to a lake spilling into a channel (from the
+// river-network suite) — gives us a lake body + junctions to merge.
+const LAKE_VALLEY = [
+  0.9, 0.9, 0.9, 0.9, 0.9,
+  0.9, 0.9, 0.9, 0.9, 0.9,
+  0.8, 0.2, 0.55, 0.45, 0.1,
+  0.9, 0.9, 0.9, 0.9, 0.9,
+  0.9, 0.9, 0.9, 0.9, 0.9,
+];
+function lakeNet() {
+  const hydro = generateHydrology(field(LAKE_VALLEY), { seed: 1, width: 5, height: 5, seaLevel: 0.05 }, { riverFlowThreshold: 2 });
+  return buildWaterNetwork(hydro, 5, 5);
+}
+
+describe('water network merging — join, don\'t always push apart', () => {
+  it('joins a junction to a lake: the lake becomes its source (lake-fed)', () => {
+    const n = lakeNet();
+    const lake = n.lakes[0];
+    const junc = n.nodes.find((x) => x.kind === 'spring') ?? n.nodes[0];
+    const merged = mergeWaterFeatures(n, lake.id, junc.id);
+    const node = merged.byId.get(junc.id)!;
+    expect(['lake_outlet', 'lake_inlet']).toContain(node.kind);
+    const l = merged.lakes.find((x) => x.id === lake.id)!;
+    expect(l.outletIds.includes(junc.id) || l.inletIds.includes(junc.id)).toBe(true);
+  });
+
+  it('absorbs one headwater into another: the dropped node and its edges are gone', () => {
+    const n = net();
+    const springs = n.nodes.filter((x) => x.kind === 'spring');
+    expect(springs.length).toBeGreaterThanOrEqual(2);
+    const [keep, drop] = springs;
+    const merged = mergeWaterFeatures(n, keep.id, drop.id);
+    expect(merged.nodes.length).toBe(n.nodes.length - 1);
+    expect(merged.byId.has(drop.id)).toBe(false);
+    expect(merged.reaches.every((r) => r.from !== drop.id && r.to !== drop.id)).toBe(true);
+  });
+
+  it('is pure and a no-op for self-merge / unknown ids', () => {
+    const n = net();
+    const id = n.nodes[0].id;
+    expect(mergeWaterFeatures(n, id, id)).toBe(n);
+    expect(mergeWaterFeatures(n, id, 'nope:404')).toBe(n);
+    const before = n.nodes.length;
+    mergeWaterFeatures(n, n.nodes[0].id, n.nodes[1].id);
+    expect(n.nodes.length).toBe(before); // input untouched
+  });
+
+  it('suggests MERGE for a channel meeting a lake, SEPARATE for unrelated', () => {
+    const n = lakeNet();
+    const items = waterPressureItems(n, 6, 6);   // inflate clearance so features impinge
+    const resolved = suggestWaterResolutions(n, computePressure(items).pairs);
+    expect(resolved.length).toBeGreaterThan(0);
+    expect(resolved.some((r) => r.resolution === 'merge')).toBe(true);
+    // every merge suggestion carries a human/agent-legible reason
+    for (const r of resolved) expect(r.reason.length).toBeGreaterThan(0);
   });
 });

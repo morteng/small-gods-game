@@ -30,10 +30,10 @@ import { createGpuRenderMap } from '@/render/gpu/gpu-renderer';
 import { drawWorldConnectome, drawWaterNetwork, projectConnectome, screenToTileApprox } from '@/render/connectome-overlay';
 import { getWaterNetwork, getWaterConnectome } from '@/world/water-network-store';
 import { serializeCompact } from '@/world/connectome/world-node';
-import { applyNodeMoves } from '@/terrain/water-network-edits';
+import { applyNodeMoves, mergeWaterFeatures } from '@/terrain/water-network-edits';
 import type { WaterNetwork } from '@/terrain/river-network';
 import { computePressure, type PressureReport } from '@/world/connectome/pressure';
-import { waterPressureItems } from '@/world/connectome/water-nodes';
+import { waterPressureItems, suggestWaterResolutions } from '@/world/connectome/water-nodes';
 import { buildRiverDeformationsFromNetwork } from '@/world/river-deformation';
 import { getWorldDeformationStore } from '@/world/road-deformation';
 import { summarizeNetwork } from '@/terrain/river-network';
@@ -198,6 +198,7 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
   let waterEdit = false;
   let showPressure = true;            // ring impinging features (advisory) while editing
   const nodeMoves = new Map<string, { x: number; y: number }>();  // the live edit overlay
+  const mergeOps: Array<[string, string]> = [];   // join ops (keepId, dropId), replayed in order
   let draggingNode: string | null = null;
 
   // Climate W-B — localized real-time water + humidity (rain on one spot raises the
@@ -607,7 +608,10 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
   // on top, so the edited graph (and its re-routed reaches) is recomputed each frame.
   function editedWaterNet(): WaterNetwork | undefined {
     if (!map) return undefined;
-    return applyNodeMoves(getWaterNetwork(map), nodeMoves);
+    // Replay edits from the seed-derived base: moves first, then merges (which change ids).
+    let net = applyNodeMoves(getWaterNetwork(map), nodeMoves);
+    for (const [keep, drop] of mergeOps) net = mergeWaterFeatures(net, keep, drop);
+    return net;
   }
   function waterPressure(net: WaterNetwork | undefined): PressureReport | undefined {
     return net ? computePressure(waterPressureItems(net)) : undefined;
@@ -650,7 +654,16 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
     canvas.style.cursor = 'grabbing';
   }, { signal });
   window.addEventListener('mouseup', (e) => {
-    if (draggingNode) {                       // finished a node drag → re-carve terrain
+    if (draggingNode) {                       // finished a node drag
+      // Drop ONTO a merge-compatible feature → join them (the lake feeds the channel, etc.)
+      // instead of leaving a pinch point. Otherwise just settle the move.
+      const r = viewPane.getBoundingClientRect();
+      const net = editedWaterNet();
+      const onto = net ? pickWaterNode(net, e.clientX - r.left, e.clientY - r.top, 14) : null;
+      if (net && onto && onto !== draggingNode) {
+        const pair = suggestWaterResolutions(net, [{ a: draggingNode, b: onto, overlap: 1 }])[0];
+        if (pair.resolution === 'merge') mergeOps.push([onto, draggingNode]); // keep target, drop dragged
+      }
       draggingNode = null;
       canvas.style.cursor = waterEdit ? 'crosshair' : 'grab';
       recarveFromEdits();
@@ -932,12 +945,19 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
     // Water EDITING surface (drag-to-move + advisory pressure) — also the agent seam.
     waterEdit: (on?: boolean) => { if (on !== undefined) { waterEdit = on; canvas.style.cursor = on ? 'crosshair' : 'grab'; } return waterEdit; },
     moveWaterNode: (id: string, x: number, y: number) => { nodeMoves.set(id, { x, y }); recarveFromEdits(); return editedWaterNet(); },
-    clearWaterEdits: () => { nodeMoves.clear(); recarveFromEdits(); },
-    // Advisory crowding report on the (edited) network: pairs ranked worst-first + per-node totals.
+    mergeWaterFeatures: (keepId: string, dropId: string) => { mergeOps.push([keepId, dropId]); recarveFromEdits(); return editedWaterNet(); },
+    clearWaterEdits: () => { nodeMoves.clear(); mergeOps.length = 0; recarveFromEdits(); },
+    // Advisory crowding report on the (edited) network, each pinch annotated with a SUGGESTED
+    // resolution (merge vs separate) — the feedback an agent reads after editing the connectome.
     waterPressure: () => {
-      const rep = waterPressure(editedWaterNet());
-      if (!rep) return null;
-      return { maxPressure: rep.maxPressure, pairs: rep.pairs.slice(0, 12), crowded: [...rep.perItem.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12) };
+      const net = editedWaterNet();
+      const rep = waterPressure(net);
+      if (!rep || !net) return null;
+      return {
+        maxPressure: rep.maxPressure,
+        pinches: suggestWaterResolutions(net, rep.pairs).slice(0, 12),
+        crowded: [...rep.perItem.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12),
+      };
     },
     // View helpers (for headed iteration): frame the whole map, toggle the backbone,
     // set terrain style, read/poke the camera.

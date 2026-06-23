@@ -22,7 +22,7 @@
 
 import type { WaterNetwork, WaterNode, WaterReach, WaterNodeKind, WaterBody } from '@/terrain/river-network';
 import { node, type WorldNode, type WorldNodeParams, type Relation } from './world-node';
-import type { PressureItem } from './pressure';
+import type { PressureItem, PressurePair } from './pressure';
 
 /** Junction kind → the connectome `kind` string. Keeps water kinds namespaced & legible. */
 const JUNCTION_KIND: Record<WaterNodeKind, string> = {
@@ -106,6 +106,43 @@ export function waterPressureItems(net: WaterNetwork, junctionClearance = 1.5, l
     items.push({ id: l.id, x: l.x + 0.5, y: l.y + 0.5, radius: Math.sqrt(l.area / Math.PI) + lakeMargin });
   }
   return items;
+}
+
+/** How a pinch point between two water features wants to resolve. */
+export type WaterResolution = 'merge' | 'separate';
+export interface ResolvedPressurePair extends PressurePair {
+  resolution: WaterResolution;
+  reason: string;
+}
+
+const SOURCEISH = new Set(['spring', 'lake_outlet']);
+function featureKind(net: WaterNetwork, id: string): string {
+  const n = net.byId.get(id);
+  if (n) return n.kind;
+  return net.lakes.some((l) => l.id === id) ? 'lake' : 'unknown';
+}
+
+/**
+ * Annotate impinging pairs with a SUGGESTED resolution — the key idea that pressure isn't
+ * only "push apart". A channel meeting a lake, or two headwaters on top of each other, want
+ * to JOIN (one feeds/becomes the other); unrelated features want to separate. Advisory: the
+ * author (human or agent) still decides, and may leave a deliberate squish.
+ */
+export function suggestWaterResolutions(net: WaterNetwork, pairs: readonly PressurePair[]): ResolvedPressurePair[] {
+  return pairs.map((p) => {
+    const a = featureKind(net, p.a), b = featureKind(net, p.b);
+    const kinds = [a, b];
+    let resolution: WaterResolution = 'separate';
+    let reason = 'unrelated features — separate, or leave squished if intended';
+    if (kinds.includes('lake') && kinds.some((k) => k !== 'lake')) {
+      resolution = 'merge'; reason = 'channel meets a lake — join (the lake feeds the channel)';
+    } else if (a === 'lake' && b === 'lake') {
+      resolution = 'merge'; reason = 'two basins touch — merge into one lake';
+    } else if (SOURCEISH.has(a) && SOURCEISH.has(b)) {
+      resolution = 'merge'; reason = 'two headwaters coincide — join into one source';
+    }
+    return { ...p, resolution, reason };
+  });
 }
 
 export function waterNetworkToConnectome(net: WaterNetwork, opts: WaterConnectomeOptions = {}): WorldNode {
