@@ -279,6 +279,33 @@ export function terrainGrid(
   return { subsample, quadsX, quadsY, vertexCount: quadsX * quadsY * 6 };
 }
 
+/** Hard ceiling on zoom-driven subdivision (a quad never finer than this per tile). */
+const ZOOM_SUPER_MAX = 4;
+/** Target art-pixels per mesh quad edge — below this, subdivide; above, coarsen. A
+ *  zoomed-in tile spanning many art-pixels gets more quads so its silhouette + the
+ *  waterline clipped against it read smooth, not tile-faceted. */
+const ZOOM_SUPER_TARGET_PX = 20;
+
+/**
+ * Zoom-aware mesh subdivision: choose `superSample` from how many low-res art-pixels
+ * one tile edge spans on screen (`ISO_TILE_W · sx`, where `sx` is the world→low-res
+ * scale from {@link computeView}). Zoomed in (big tiles) → more quads → smooth
+ * terrain + waterlines; zoomed out (tiny tiles) → 1 quad/tile (no wasted work).
+ *
+ * Bounded so it NEVER trips `terrainGrid`'s auto-coarsen (which would halve the base
+ * grid and net nothing): the cap is the largest `sup` keeping `W·sup × H·sup` within
+ * `maxQuads` at subsample 1. Pure; called per frame (cheap).
+ */
+export function zoomSuperSample(
+  width: number, height: number, sx: number, maxQuads = MAX_TERRAIN_QUADS,
+): number {
+  const tileArtPx = ISO_TILE_W * Math.abs(sx);
+  const desired = Math.round(tileArtPx / ZOOM_SUPER_TARGET_PX);
+  // Largest sup that keeps the full-res grid (sub=1) under the quad budget.
+  const budgetMax = Math.max(1, Math.floor(Math.sqrt(maxQuads / Math.max(1, width * height))));
+  return Math.max(1, Math.min(desired, budgetMax, ZOOM_SUPER_MAX));
+}
+
 /** The buffer-driven terrain handed to `GpuScene.renderFrame`: the per-cell
  *  storage fields, the GPU-generated vertex count, and the packed-ready uniform. */
 export interface TerrainField {

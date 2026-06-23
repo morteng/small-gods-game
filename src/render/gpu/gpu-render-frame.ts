@@ -27,7 +27,7 @@ import { isLayerHidden } from '@/render/layer-visibility';
 import { buildEntityDrawList } from '@/render/iso/entity-draw-list';
 import { StaticDrawListCache } from '@/render/gpu/static-draw-list-cache';
 import { DEFAULT_LIGHTING } from '@/render/lighting-state';
-import { buildTerrainField, type TerrainField } from '@/render/gpu/terrain-field';
+import { buildTerrainField, zoomSuperSample, type TerrainField } from '@/render/gpu/terrain-field';
 import { buildDetailField } from '@/render/gpu/detail-field';
 import { buildWaterField, type WaterField } from '@/render/gpu/water-field';
 import { buildRoadRibbonMeshMemo } from '@/render/ribbon/road-ribbon-field';
@@ -161,6 +161,11 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
     // texel grid in low-res space so pixels stay stable under pan/zoom.
     const { lowW, lowH, xform } = computeView(px, camera, dpr, target.width, target.height);
 
+    // ZOOM-LOD (Slice 2): one mesh subdivision for BOTH terrain + water this frame, so
+    // their shared grid keeps waterlines aligned. Zoomed in → finer mesh (smooth banks),
+    // zoomed out → 1 quad/tile. A studio `terrainSuper` override pins it for A/B.
+    const superSample = rc.devMode?.terrainSuper ?? zoomSuperSample(map.width, map.height, xform.sx);
+
     // Buffer-driven terrain field (T1): the GPU generates + lifts the grid from
     // the height/colour storage buffers. Whole-map for now — chunk culling is T5.
     const terrain: TerrainField | null = isLayerHidden('terrain', rc.devMode)
@@ -169,7 +174,7 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
           viewport: [lowW, lowH],
           xform, lighting, devMode: rc.devMode,
           terrainMode: rc.devMode?.terrainMode,
-          superSample: rc.devMode?.terrainSuper,
+          superSample,
           // DIR-A: author-placed lakes paint their beds damp too (studio editing).
           connectomeWater: rc.connectomeWater,
         });
@@ -196,6 +201,8 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
     const water: WaterField | null = (terrain && waterOn)
       ? buildWaterField(map, {
           viewport: [lowW, lowH], xform, lighting, timeSec, waterLevelM,
+          // Same zoom-LOD grid as terrain (Slice 2) — aligned waterlines.
+          superSample,
           // Localized per-basin level (climate W-B) — rain filling one lake.
           lakeOffsetM: rc.lakeOffsetM,
           // Per-cell standing water (W-E) — a god flooding a plain.

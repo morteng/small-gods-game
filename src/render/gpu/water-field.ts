@@ -312,6 +312,11 @@ export interface BuildWaterFieldOpts {
    *  they render like generated lakes. Absent → pure raster path (byte-identical). */
   connectomeWater?: ConnectomeWaterOverride;
   maxQuads?: number;
+  /** Sub-tile mesh supersample (≥1; 1 = one quad/tile) — MUST match the terrain pass
+   *  so the water plane and the terrain it clips against share one LOD grid (aligned
+   *  waterlines). Drives only the draw count + `stepT` in the shader; the per-cell
+   *  surface buffers are LOD-independent, so changing it never re-bakes the static. */
+  superSample?: number;
 }
 
 /** Connected lake bodies over the RENDER lake mask (Lake cells INCLUDING the
@@ -399,8 +404,6 @@ interface WaterStatic {
   floodDeepC?: number;
   floodClarityC?: number;
   wetCount: number;
-  vertexCount: number;
-  subsample: number;
   /** null = world is bone dry (skip the pass). */
   dry: boolean;
 }
@@ -411,7 +414,7 @@ const STATIC_CACHE = new WeakMap<GameMap, WaterStatic>();
 const OVERRIDE_STATIC_CACHE = new Map<string, WaterStatic>();
 const OVERRIDE_CACHE_CAP = 3;
 
-function waterStatic(map: GameMap, maxQuads?: number, override?: ConnectomeWaterOverride): WaterStatic {
+function waterStatic(map: GameMap, override?: ConnectomeWaterOverride): WaterStatic {
   if (!override) {
     const cached = STATIC_CACHE.get(map);
     if (cached) return cached;
@@ -471,7 +474,10 @@ function waterStatic(map: GameMap, maxQuads?: number, override?: ConnectomeWater
     }
   }
 
-  const grid = terrainGrid(map.width, map.height, maxQuads);
+  // NOTE: the LOD grid (subsample + vertex count) is camera/zoom-dependent, so it is
+  // computed per-FRAME in buildWaterField — NOT baked here, or the per-map static cache
+  // would freeze the mesh resolution. The per-cell surface buffers below are all
+  // LOD-independent (one entry per tile), so the static survives any zoom-LOD change.
   const shoreDist = computeShoreDist(map.width, map.height, effMask);
 
   // Clone the (shared, memoised) hydrology surface before dilating — fillShoreRing
@@ -533,8 +539,6 @@ function waterStatic(map: GameMap, maxQuads?: number, override?: ConnectomeWater
     lakeCells: Int32Array.from(lakeCellArr),
     dynToggle: false,
     wetCount: wet,
-    vertexCount: grid.vertexCount,
-    subsample: grid.subsample,
     dry: wet === 0,
   };
   if (!override) {
@@ -719,13 +723,20 @@ export function waterSurfaceAt(
  * per-frame writeBuffer.
  */
 export function buildWaterField(map: GameMap, opts: BuildWaterFieldOpts): WaterField | null {
-  const stat = waterStatic(map, opts.maxQuads, opts.connectomeWater);
+  const stat = waterStatic(map, opts.connectomeWater);
   if (stat.dry) return null;
+
+  // LOD grid — computed PER FRAME (camera/zoom-dependent), with the SAME superSample
+  // the terrain pass uses so the water plane and the terrain it clips against draw on
+  // one shared grid (aligned waterlines under the zoom-LOD). The per-cell surface
+  // buffers are LOD-independent, so this never re-bakes the static.
+  const grid = terrainGrid(map.width, map.height, opts.maxQuads, opts.superSample);
 
   // Water rides the terrain heightfield → it shares the terrain projection
   // uniform exactly; the only water-specific bits are the trailing uWater vec4.
   const tg: TerrainGlobalsInput = terrainGlobalsFor(map, {
-    viewport: opts.viewport, xform: opts.xform, lighting: opts.lighting, subsample: stat.subsample,
+    viewport: opts.viewport, xform: opts.xform, lighting: opts.lighting,
+    subsample: grid.subsample, superSample: opts.superSample,
   });
 
   // DYNAMIC WATER — the ΔW composition. Fold the per-body LAKE level offset and the
@@ -796,7 +807,7 @@ export function buildWaterField(map: GameMap, opts: BuildWaterFieldOpts): WaterF
     clarity,
     shoreDist: stat.shoreDist,
     wetCount: stat.wetCount,
-    vertexCount: stat.vertexCount,
+    vertexCount: grid.vertexCount,
     // uWater.w carries the GLOBAL water-level offset in NORMALISED elevation, so a
     // drought/flood shifts the lake plane + waterline in-shader. The river ribbon
     // reads the SAME value (`waterLevelNorm`) so lakes and rivers rise together.
