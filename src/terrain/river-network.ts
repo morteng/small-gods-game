@@ -347,6 +347,46 @@ export function buildWaterNetwork(hydro: HydrologyResult, W: number, H: number, 
   return { nodes, reaches, lakes, byId, nodeAtCell, width: W, height: H };
 }
 
+/**
+ * The cells a water feature DIRECTLY occupies (its own reach/lake cells) and the
+ * cells it INDIRECTLY affects (everything downstream — what its water feeds), as
+ * row-major grid indices. Powers selection highlighting: "this is the water, and
+ * this is what it carries on into." A lake's direct cells are its body and its
+ * indirect cells are its outlet drainage; a junction's direct cells are the
+ * reaches touching it. Downstream is followed by chasing reaches that LEAVE a
+ * node (`from === node`) to the sea, cycle-guarded. Pure.
+ */
+export function affectedWaterCells(net: WaterNetwork, id: string): { direct: number[]; indirect: number[] } {
+  const direct = new Set<number>();
+  const indirect = new Set<number>();
+  const startNodes: string[] = [];
+  const lake = net.lakes.find((l) => l.id === id);
+  if (lake) {
+    for (const c of lake.cells) direct.add(c);
+    startNodes.push(...lake.outletIds);
+  } else if (net.byId.has(id)) {
+    for (const r of net.reaches) {
+      if (r.from === id || r.to === id) for (const c of r.cells) direct.add(c);
+    }
+    startNodes.push(id);
+  } else {
+    return { direct: [], indirect: [] };
+  }
+  const seen = new Set<string>();
+  const queue = [...startNodes];
+  while (queue.length) {
+    const n = queue.shift()!;
+    if (seen.has(n)) continue;
+    seen.add(n);
+    for (const r of net.reaches) {
+      if (r.from !== n) continue;
+      for (const c of r.cells) if (!direct.has(c)) indirect.add(c);
+      queue.push(r.to);
+    }
+  }
+  return { direct: [...direct], indirect: [...indirect] };
+}
+
 /** Quick tally for studio / debug — counts by node kind and reach class. Pure. */
 export function summarizeNetwork(net: WaterNetwork): {
   nodes: Record<WaterNodeKind, number>;

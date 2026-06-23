@@ -27,16 +27,17 @@ import { synthesizeBlueprint } from '@/blueprint/presets';
 import { ensureBuildingTypesRegistered } from '@/blueprint/register-buildings';
 import { initManifoldWasm } from '@/assetgen/geometry/manifold-wasm-browser';
 import { createGpuRenderMap } from '@/render/gpu/gpu-renderer';
-import { drawWorldConnectome, drawWaterNetwork, projectConnectome, screenToTileApprox } from '@/render/connectome-overlay';
+import { drawWorldConnectome, drawWaterNetwork, projectConnectome, screenToTileLifted } from '@/render/connectome-overlay';
 import { getWaterNetwork, getWaterConnectome } from '@/world/water-network-store';
 import { serializeCompact } from '@/world/connectome/world-node';
 import { applyNodeMoves, mergeWaterFeatures } from '@/terrain/water-network-edits';
 import type { WaterNetwork } from '@/terrain/river-network';
+import { tileReadout } from './world-hover';
 import { computePressure, type PressureReport } from '@/world/connectome/pressure';
 import { waterPressureItems, suggestWaterResolutions } from '@/world/connectome/water-nodes';
 import { buildRiverDeformationsFromNetwork } from '@/world/river-deformation';
 import { getWorldDeformationStore } from '@/world/road-deformation';
-import { summarizeNetwork } from '@/terrain/river-network';
+import { summarizeNetwork, affectedWaterCells } from '@/terrain/river-network';
 import { WaterDynamics, DEFAULT_WEATHER, type WeatherParams } from '@/render/gpu/water-dynamics';
 import { buildFloodWatch, type FloodWatch } from '@/world/flood-watch';
 import { DEFAULT_LIGHTING } from '@/render/lighting-state';
@@ -118,9 +119,18 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
   sceneCanvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:block;z-index:0';
   viewPane.appendChild(sceneCanvas);
   const canvas = document.createElement('canvas');
-  canvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:block;cursor:grab;z-index:1';
+  canvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:block;cursor:default;z-index:1';
   viewPane.appendChild(canvas);
   const ctx = canvas.getContext('2d')!;
+
+  // ── per-pixel hover readout (DIR-C) — a floating inspector that follows the
+  // cursor and reports everything the world knows about the tile/feature under it.
+  const hoverPanel = document.createElement('div');
+  hoverPanel.style.cssText =
+    'position:absolute;z-index:20;display:none;pointer-events:none;min-width:120px;max-width:260px;' +
+    'background:rgba(12,16,22,.94);border:1px solid var(--line);border-radius:7px;padding:7px 9px;' +
+    'font:400 11px var(--font-mono);color:var(--ink-0);box-shadow:0 6px 20px rgba(0,0,0,.45);backdrop-filter:blur(4px)';
+  viewPane.appendChild(hoverPanel);
 
   // Top MENU BAR — spans the view, holds the title + the dropdown controls (Layers /
   // Terrain / Weather), so the left panel is free for the world browser + inspector.
@@ -200,6 +210,16 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
   const nodeMoves = new Map<string, { x: number; y: number }>();  // the live edit overlay
   const mergeOps: Array<[string, string]> = [];   // join ops (keepId, dropId), replayed in order
   let draggingNode: string | null = null;
+  // A selected water feature (node/lake id) — outlines its directly + indirectly
+  // (downstream) affected tiles. Cleared when another object is selected.
+  let selectedWater: string | null = null;
+
+  // ── hover inspection (DIR-C) — the feature under the cursor + its highlight ────
+  type HoverHighlight =
+    | { kind: 'tile'; tx: number; ty: number }
+    | { kind: 'node'; tx: number; ty: number }
+    | { kind: 'rect'; x: number; y: number; w: number; h: number };
+  let hover: { title: string; rows: [string, string][]; hi: HoverHighlight } | null = null;
 
   // Climate W-B — localized real-time water + humidity (rain on one spot raises the
   // basin it drains into + the air there). Rebuilt per world in regenerate().
@@ -291,19 +311,20 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
   function footprintOf(templateId: string): { w: number; h: number } | null {
     try { return synthesizeBlueprint(templateId)?.footprint ?? null; } catch { return null; }
   }
+  // Clicking a connectome object SELECTS it in place — no camera move, no veil.
+  // The affected tiles are outlined instead (see drawFocus). The camera only moves
+  // on explicit navigation (regenerate / breadcrumb pop / the fitAll handle).
   function drillToSettlement(poi: POI, plan: SettlementPlan): void {
     focus = { level: 'settlement', poiId: poi.id, poi, plan };
     selectedPoi = null;
     focusFootprint = null;
-    const b = planBounds(plan);
-    fitTiles(cam, b.x - 2, b.y - 2, b.x + b.w + 2, b.y + b.h + 2, cssW, cssH);
+    selectedWater = null;
     syncInspector();
   }
   function drillToBuilding(b: BuildingInstance, plan: SettlementPlan | null): void {
     focus = { level: 'building', building: b, plan };
     focusFootprint = footprintOf(b.templateId);
-    const fw = focusFootprint?.w ?? 2, fh = focusFootprint?.h ?? 2;
-    fitTiles(cam, b.tileX - 3, b.tileY - 3, b.tileX + fw + 3, b.tileY + fh + 3, cssW, cssH, 0.78);
+    selectedWater = null;
     syncInspector();
   }
   function popTo(level: CrumbLevel): void {
@@ -323,16 +344,29 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
     if (!map) return;
     // Rain brush intercepts the click: deposit a cloudburst at the cursor tile.
     if (rainBrush && waterDyn) {
-      const { tx, ty } = screenToTileApprox(map, sx, sy, cam);
+      const { tx, ty } = screenToTileLifted(map, sx, sy, cam);
       waterDyn.rain(tx, ty, weather);
       return;
     }
     // Flood brush: lay a sheet of standing water on the ground at the cursor (W-E).
     if (floodBrush && waterDyn) {
-      const { tx, ty } = screenToTileApprox(map, sx, sy, cam);
+      const { tx, ty } = screenToTileLifted(map, sx, sy, cam);
       waterDyn.floodArea(tx, ty, floodRadius, floodDepthM);
       return;
     }
+    // Water connectome shown (and not in drag-edit mode): clicking a river/lake
+    // node SELECTS it, outlining the water it is + the water it feeds downstream.
+    if (showWaterNet && !waterEdit) {
+      const net = editedWaterNet();
+      const hit = net ? pickWaterNode(net, sx, sy, 14) : null;
+      if (hit) {
+        selectedWater = selectedWater === hit ? null : hit;
+        if (selectedWater) { selectedPoi = null; }
+        syncInspector();
+        return;
+      }
+    }
+    selectedWater = null;   // any other click clears the water selection
     const f = focus;
     if (f.level === 'world') {
       const poi = pickPoi(map, cam, sx, sy);
@@ -478,7 +512,7 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
   // Water EDIT: drag river/lake nodes to move features live; pressure rings show crowding.
   layersSec.appendChild(toggleRow('✥ Edit water — drag nodes', false, (v) => {
     waterEdit = v;
-    canvas.style.cursor = v ? 'crosshair' : 'grab';
+    canvas.style.cursor = v ? 'crosshair' : 'default';
   }));
   layersSec.appendChild(toggleRow('   ↳ show pressure (crowding)', true, (v) => { showPressure = v; }));
   menuBar.appendChild(dropdown('◴ Layers ▾', layersSec));
@@ -582,7 +616,7 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
   const floodToggle = toggleRow('🌊 Flood brush — click the map', false, (v) => {
     floodBrush = v;
     if (v) { rainBrush = false; rainCb.checked = false; }
-    canvas.style.cursor = v ? 'crosshair' : 'grab';
+    canvas.style.cursor = v ? 'crosshair' : 'default';
   });
   const floodCb = floodToggle.querySelector('input') as HTMLInputElement;
   weatherSec.appendChild(floodToggle);
@@ -592,7 +626,7 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
   const rainToggle = toggleRow('💧 Rain brush — click the map', false, (v) => {
     rainBrush = v;
     if (v) { floodBrush = false; floodCb.checked = false; }
-    canvas.style.cursor = v ? 'crosshair' : 'grab';
+    canvas.style.cursor = v ? 'crosshair' : 'default';
   });
   const rainCb = rainToggle.querySelector('input') as HTMLInputElement;
   weatherSec.appendChild(rainToggle);
@@ -640,6 +674,85 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
     // The store's version bump re-keys getComposedHeightfield → new buffer → terrain re-uploads.
   }
 
+  // ── hover inspection (DIR-C) ──────────────────────────────────────────────────
+  /** A water node/lake's title + extra rows for the readout. */
+  function describeWaterFeature(net: WaterNetwork, id: string): { title: string; rows: [string, string][] } | null {
+    const lake = net.lakes.find((l) => l.id === id);
+    if (lake) {
+      return { title: `${lake.klass} · still water`, rows: [
+        ['area', `${lake.area} cells`], ['outlets', String(lake.outletIds.length)], ['inlets', String(lake.inletIds.length)],
+      ] };
+    }
+    const n = net.byId.get(id);
+    if (!n) return null;
+    const inc = net.reaches.filter((r) => r.from === id || r.to === id);
+    return { title: n.kind.replace(/_/g, ' '), rows: [['reaches', String(inc.length)]] };
+  }
+  const floodField = (): Float32Array | undefined => waterDyn?.floodOffsetM();
+  /** Resolve what's under the cursor into the floating readout + its highlight. */
+  function resolveHover(sx: number, sy: number): void {
+    if (!map) { hover = null; return; }
+    const cont = screenToTileLifted(map, sx, sy, cam);
+    const cx = Math.floor(cont.tx), cy = Math.floor(cont.ty);
+    // 1) a water node / lake (when the connectome is on)
+    if (showWaterNet || waterEdit) {
+      const net = editedWaterNet();
+      const id = net ? pickWaterNode(net, sx, sy, 14) : null;
+      if (net && id) {
+        const d = describeWaterFeature(net, id);
+        const node = net.byId.get(id);
+        const lake = node ? null : net.lakes.find((l) => l.id === id);
+        const hx = node ? node.x : Math.round(lake?.x ?? cx);
+        const hy = node ? node.y : Math.round(lake?.y ?? cy);
+        hover = { title: d?.title ?? 'water', hi: { kind: 'node', tx: hx, ty: hy },
+          rows: [...(d?.rows ?? []), ...tileReadout(map, hx, hy, { floodM: floodField() })] };
+        return;
+      }
+    }
+    // 2) a POI (place / settlement)
+    const poi = pickPoi(map, cam, sx, sy);
+    if (poi) {
+      const px = poi.position?.x ?? cx, py = poi.position?.y ?? cy;
+      const rows: [string, string][] = [['kind', poi.type]];
+      if (poi.importance) rows.push(['importance', String(poi.importance)]);
+      rows.push(...tileReadout(map, px, py, { floodM: floodField() }));
+      const hi: HoverHighlight = poi.region
+        ? { kind: 'rect', x: poi.region.x_min, y: poi.region.y_min, w: poi.region.x_max - poi.region.x_min + 1, h: poi.region.y_max - poi.region.y_min + 1 }
+        : { kind: 'tile', tx: px, ty: py };
+      hover = { title: poi.name ?? poi.type, rows, hi };
+      return;
+    }
+    // 3) a building (when its settlement is in focus)
+    const f = focus;
+    const poiId = f.level === 'settlement' ? f.poiId : (f.level === 'building' && f.plan ? f.plan.poiId : null);
+    if (poiId) {
+      const b = pickBuilding(buildingsOf(map, poiId), map, cam, sx, sy);
+      if (b) {
+        const fp = footprintOf(b.templateId);
+        hover = { title: b.templateId, hi: { kind: 'rect', x: b.tileX, y: b.tileY, w: fp?.w ?? 1, h: fp?.h ?? 1 },
+          rows: [['tile', `${b.tileX}, ${b.tileY}`], ['footprint', fp ? `${fp.w}×${fp.h}` : '—'], ['state', b.state]] };
+        return;
+      }
+    }
+    // 4) bare terrain
+    hover = { title: 'terrain', hi: { kind: 'tile', tx: cx, ty: cy }, rows: tileReadout(map, cx, cy, { floodM: floodField() }) };
+  }
+  const esc = (s: string): string => s.replace(/[&<>]/g, (c) => (c === '&' ? '&amp;' : c === '<' ? '&lt;' : '&gt;'));
+  /** Paint the floating readout near the cursor (clamped into the view). */
+  function renderHoverPanel(sx: number, sy: number): void {
+    if (!hover) { hoverPanel.style.display = 'none'; return; }
+    const rows = hover.rows.map(([k, v]) =>
+      `<div style="display:flex;gap:12px;justify-content:space-between"><span style="color:var(--ink-2)">${esc(k)}</span><span style="color:var(--ink-0)">${esc(v)}</span></div>`).join('');
+    hoverPanel.innerHTML = `<div style="font-weight:600;color:var(--accent);margin-bottom:4px">${esc(hover.title)}</div>${rows}`;
+    hoverPanel.style.display = 'block';
+    const pw = hoverPanel.offsetWidth || 160, ph = hoverPanel.offsetHeight || 80;
+    let px = sx + 16, py = sy + 16;
+    if (px + pw > cssW) px = sx - 16 - pw;
+    if (py + ph > cssH) py = sy - 16 - ph;
+    hoverPanel.style.left = `${Math.max(4, px)}px`;
+    hoverPanel.style.top = `${Math.max(44, py)}px`;
+  }
+
   // ── pan + zoom + click ──────────────────────────────────────────────────────
   let downX = 0, downY = 0, moved = false;
   canvas.addEventListener('mousedown', (e) => {
@@ -665,7 +778,7 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
         if (pair.resolution === 'merge') mergeOps.push([onto, draggingNode]); // keep target, drop dragged
       }
       draggingNode = null;
-      canvas.style.cursor = waterEdit ? 'crosshair' : 'grab';
+      canvas.style.cursor = waterEdit ? 'crosshair' : 'default';
       recarveFromEdits();
       return;
     }
@@ -673,21 +786,31 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
       const r = viewPane.getBoundingClientRect();
       handleClick(e.clientX - r.left, e.clientY - r.top);
     }
-    cam.dragging = false; canvas.style.cursor = waterEdit ? 'crosshair' : 'grab';
+    cam.dragging = false; canvas.style.cursor = waterEdit ? 'crosshair' : 'default';
   }, { signal });
   window.addEventListener('mousemove', (e) => {
+    const r = viewPane.getBoundingClientRect();
+    const sx = e.clientX - r.left, sy = e.clientY - r.top;
     if (draggingNode && map) {                 // live-move the grabbed node
-      const r = viewPane.getBoundingClientRect();
-      const { tx, ty } = screenToTileApprox(map, e.clientX - r.left, e.clientY - r.top, cam);
+      const { tx, ty } = screenToTileLifted(map, sx, sy, cam);
       nodeMoves.set(draggingNode, { x: tx - 0.5, y: ty - 0.5 });  // node coords (centre = x+0.5)
       return;
     }
-    if (!cam.dragging) return;
-    if (Math.abs(e.clientX - downX) + Math.abs(e.clientY - downY) > 3) moved = true;
-    cam.x -= (e.clientX - cam.lastX) / cam.zoom;
-    cam.y -= (e.clientY - cam.lastY) / cam.zoom;
-    cam.lastX = e.clientX; cam.lastY = e.clientY;
+    if (cam.dragging) {
+      if (Math.abs(e.clientX - downX) + Math.abs(e.clientY - downY) > 3) moved = true;
+      cam.x -= (e.clientX - cam.lastX) / cam.zoom;
+      cam.y -= (e.clientY - cam.lastY) / cam.zoom;
+      cam.lastX = e.clientX; cam.lastY = e.clientY;
+      hoverPanel.style.display = 'none';   // suppress the readout while panning
+      hover = null;
+      return;
+    }
+    // pointer at rest over the view → per-pixel hover inspection
+    if (sx < 0 || sy < 0 || sx > cssW || sy > cssH) { hover = null; hoverPanel.style.display = 'none'; return; }
+    resolveHover(sx, sy);
+    renderHoverPanel(sx, sy);
   }, { signal });
+  canvas.addEventListener('mouseleave', () => { hover = null; hoverPanel.style.display = 'none'; }, { signal });
   canvas.addEventListener('wheel', (e) => {
     e.preventDefault();
     const r = viewPane.getBoundingClientRect();
@@ -799,10 +922,8 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
       if (selectedPoi?.position) tileDot(selectedPoi.position.x, selectedPoi.position.y, 9, 'rgba(255,194,75,0.25)', COLORS.accent);
       return;
     }
-    // spotlight veil over the rest of the scene
+    // Selection outlines the affected tiles in place — no veil, no camera move.
     ctx.save();
-    ctx.fillStyle = 'rgba(8,10,16,0.55)';
-    ctx.fillRect(0, 0, cssW, cssH);
 
     const plan = f.plan;
     if (plan) {
@@ -832,6 +953,62 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
       strokeTilePath(
         [{ x: b.tileX, y: b.tileY }, { x: b.tileX + w, y: b.tileY }, { x: b.tileX + w, y: b.tileY + h }, { x: b.tileX, y: b.tileY + h }, { x: b.tileX, y: b.tileY }],
         COLORS.accent, 2,
+      );
+    }
+    ctx.restore();
+  }
+
+  // Fill a set of row-major cells as lifted iso diamonds (cell-centre coords, so
+  // they sit on the same lattice as the water connectome + terrain). Used for the
+  // direct/indirect affected-tile wash of a water selection.
+  function fillCells(cells: ArrayLike<number>, color: string): void {
+    if (!cells.length) return;
+    const HW = ISO_TILE_W / 2 * cam.zoom, HH = ISO_TILE_H / 2 * cam.zoom;
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    for (let k = 0; k < cells.length; k++) {
+      const idx = cells[k], tx = idx % map.width, ty = (idx / map.width) | 0;
+      const p = projectConnectome(map, tx + 0.5, ty + 0.5, cam);
+      ctx.moveTo(p.x, p.y - HH); ctx.lineTo(p.x + HW, p.y); ctx.lineTo(p.x, p.y + HH); ctx.lineTo(p.x - HW, p.y); ctx.closePath();
+    }
+    ctx.fill();
+  }
+
+  // Selected water feature → wash its directly-occupied cells + the cells it feeds
+  // downstream (indirect), then ring the selected node. The "select, don't zoom"
+  // model: the affected tiles light up in place.
+  function drawWaterSelection(): void {
+    if (!selectedWater) return;
+    const net = editedWaterNet();
+    if (!net) return;
+    const { direct, indirect } = affectedWaterCells(net, selectedWater);
+    ctx.save();
+    fillCells(indirect, 'rgba(96,170,230,0.20)');   // downstream — what it feeds
+    fillCells(direct, 'rgba(120,210,255,0.42)');    // the water itself
+    const node = net.byId.get(selectedWater);
+    const lake = node ? null : net.lakes.find((l) => l.id === selectedWater);
+    const cxc = node ? node.x : lake?.x ?? 0, cyc = node ? node.y : lake?.y ?? 0;
+    const p = projectConnectome(map, cxc + 0.5, cyc + 0.5, cam);
+    ctx.beginPath(); ctx.arc(p.x, p.y, 8, 0, Math.PI * 2);
+    ctx.strokeStyle = COLORS.accent; ctx.lineWidth = 2.5; ctx.shadowColor = COLORS.accent; ctx.shadowBlur = 10; ctx.stroke();
+    ctx.restore();
+  }
+
+  // The hover highlight — a crisp outline of whatever the cursor is over (DIR-C).
+  function drawHover(): void {
+    if (!hover) return;
+    const hi = hover.hi;
+    ctx.save();
+    ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1.75; ctx.shadowColor = 'rgba(255,255,255,0.9)'; ctx.shadowBlur = 8;
+    const HW = ISO_TILE_W / 2 * cam.zoom, HH = ISO_TILE_H / 2 * cam.zoom;
+    if (hi.kind === 'tile' || hi.kind === 'node') {
+      const p = projectConnectome(map, hi.tx + 0.5, hi.ty + 0.5, cam);   // cell centre
+      if (hi.kind === 'node') { ctx.beginPath(); ctx.arc(p.x, p.y, 9, 0, Math.PI * 2); ctx.stroke(); }
+      else { ctx.beginPath(); ctx.moveTo(p.x, p.y - HH); ctx.lineTo(p.x + HW, p.y); ctx.lineTo(p.x, p.y + HH); ctx.lineTo(p.x - HW, p.y); ctx.closePath(); ctx.stroke(); }
+    } else {
+      strokeTilePath(
+        [{ x: hi.x, y: hi.y }, { x: hi.x + hi.w, y: hi.y }, { x: hi.x + hi.w, y: hi.y + hi.h }, { x: hi.x, y: hi.y + hi.h }, { x: hi.x, y: hi.y }],
+        '#ffffff', 1.75,
       );
     }
     ctx.restore();
@@ -906,7 +1083,9 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
       }
       if (showDetailPatches) drawDetailPatches();         // adaptive high-res regions
       drawOverlay();                          // humidity / cloud / temperature field
-      drawFocus();                           // spotlight + drill highlight
+      drawFocus();                           // selected settlement/building outlines
+      drawWaterSelection();                   // selected river/lake + downstream wash
+      drawHover();                            // per-pixel hover highlight
     }
     rafId = requestAnimationFrame(frame);
   }
@@ -943,7 +1122,7 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
     // The water sub-connectome lifted into WorldNode form (what Fate / agents read).
     waterConnectome: () => (map ? serializeCompact(getWaterConnectome(map)) : null),
     // Water EDITING surface (drag-to-move + advisory pressure) — also the agent seam.
-    waterEdit: (on?: boolean) => { if (on !== undefined) { waterEdit = on; canvas.style.cursor = on ? 'crosshair' : 'grab'; } return waterEdit; },
+    waterEdit: (on?: boolean) => { if (on !== undefined) { waterEdit = on; canvas.style.cursor = on ? 'crosshair' : 'default'; } return waterEdit; },
     moveWaterNode: (id: string, x: number, y: number) => { nodeMoves.set(id, { x, y }); recarveFromEdits(); return editedWaterNet(); },
     mergeWaterFeatures: (keepId: string, dropId: string) => { mergeOps.push([keepId, dropId]); recarveFromEdits(); return editedWaterNet(); },
     clearWaterEdits: () => { nodeMoves.clear(); mergeOps.length = 0; recarveFromEdits(); },
@@ -959,9 +1138,22 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
         crowded: [...rep.perItem.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12),
       };
     },
+    // Selection (DIR-C): pick a water feature by id and read back the affected cells.
+    selectWater: (id: string | null) => { selectedWater = id; return id ? (map ? affectedWaterCells(editedWaterNet()!, id) : null) : null; },
+    selectedWater: () => selectedWater,
+    // Alignment probe: for a CSS-pixel cursor, the picked tile + where the hover
+    // diamond's centre projects (so the residual cursor↔diamond offset is measurable).
+    probe: (sx: number, sy: number) => {
+      if (!map) return null;
+      const c = screenToTileLifted(map, sx, sy, cam);
+      const cx = Math.floor(c.tx), cy = Math.floor(c.ty);
+      const p = projectConnectome(map, cx + 0.5, cy + 0.5, cam);
+      return { cursor: { x: sx, y: sy }, tile: [cx, cy], diamond: p, lifted: c, dx: p.x - sx, dy: p.y - sy };
+    },
     // View helpers (for headed iteration): frame the whole map, toggle the backbone,
     // set terrain style, read/poke the camera.
     fitAll: () => { if (map) fitTiles(cam, 0, 0, map.width, map.height, cssW, cssH, 0.94); },
+    lookAt: (tx: number, ty: number, span = 6) => { if (map) fitTiles(cam, tx - span, ty - span, tx + span, ty + span, cssW, cssH, 0.9); return { x: cam.x, y: cam.y, zoom: cam.zoom }; },
     cam: () => ({ x: cam.x, y: cam.y, zoom: cam.zoom }),
     connectome: (on?: boolean) => { if (on !== undefined) showConnectome = on; return showConnectome; },
     terrainMode: (id: TerrainModeId) => { dev.terrainMode = terrainModeValue(id); },

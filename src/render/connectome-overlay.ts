@@ -11,7 +11,8 @@
 
 import type { RenderContext, Camera, GameMap, POI } from '@/core/types';
 import { ISO_TILE_W, ISO_TILE_H } from '@/render/iso/iso-constants';
-import { elevationAt, ELEVATION_SEA_LEVEL } from '@/world/heightfield';
+import { ELEVATION_SEA_LEVEL } from '@/world/heightfield';
+import { heightField } from '@/render/gpu/terrain-field';
 import { worldStyleOf } from '@/core/world-style';
 import { getWaterNetwork } from '@/world/water-network-store';
 import type { ReachClass, WaterNodeKind, LakeClass, WaterNetwork } from '@/terrain/river-network';
@@ -46,8 +47,43 @@ export function screenToTileApprox(map: GameMap, sx: number, sy: number, cam: Ca
     ty: Math.max(0, Math.min(map.height - 1, ty)),
   };
 }
+/**
+ * Lift-AWARE inverse: CSS-pixel screen → the tile whose LIFTED rendering sits under
+ * the cursor. `screenToTileApprox` ignores terrain lift, so on raised ground the tile
+ * it returns (re-projected with lift) floats far above the cursor. We refine by
+ * fixed-point iteration: re-add the lift at the current estimate and re-invert. A few
+ * passes converge on the gentle relief here. Matches {@link project}'s lift exactly.
+ */
+export function screenToTileLifted(map: GameMap, sx: number, sy: number, cam: Camera, iters = 4): { tx: number; ty: number } {
+  const style = worldStyleOf(map.worldSeed);
+  const k = style.mountainRelief * style.terrainVerticalExaggeration;
+  let { tx, ty } = screenToTileApprox(map, sx, sy, cam);
+  for (let i = 0; i < iters; i++) {
+    const lift = (renderElevAt(map, tx, ty) - ELEVATION_SEA_LEVEL) * k;
+    ({ tx, ty } = screenToTileApprox(map, sx, sy + lift * cam.zoom, cam));
+  }
+  return { tx, ty };
+}
+/**
+ * The EXACT normalised elevation the GPU terrain lifts by at a (fractional) tile —
+ * the composed (road/river carve) + gamma-curved height buffer the shader uploads,
+ * BILINEARLY interpolated between vertices. `elevationAt` reads the raw base field
+ * floored to a corner, so the overlay floated above carved channels and stepped
+ * between vertices; sampling the render buffer puts every node on the lifted surface.
+ */
+function renderElevAt(map: GameMap, tx: number, ty: number): number {
+  const W = map.width, H = map.height;
+  const hf = heightField(map);
+  const fx = Math.max(0, Math.min(W - 1, tx)), fy = Math.max(0, Math.min(H - 1, ty));
+  const x0 = Math.floor(fx), y0 = Math.floor(fy);
+  const x1 = Math.min(W - 1, x0 + 1), y1 = Math.min(H - 1, y0 + 1);
+  const dx = fx - x0, dy = fy - y0;
+  const top = hf[y0 * W + x0] * (1 - dx) + hf[y0 * W + x1] * dx;
+  const bot = hf[y1 * W + x0] * (1 - dx) + hf[y1 * W + x1] * dx;
+  return top * (1 - dy) + bot * dy;
+}
 function project(map: GameMap, tx: number, ty: number, cam: Camera): { x: number; y: number } {
-  const elev = elevationAt(map, tx, ty);
+  const elev = renderElevAt(map, tx, ty);
   // S1 style knobs (default to TERRAIN_RELIEF_M × TERRAIN_Z_PX_PER_M) — must match
   // the GPU terrain lift exactly so overlay nodes sit on the lifted surface.
   const style = worldStyleOf(map.worldSeed);
