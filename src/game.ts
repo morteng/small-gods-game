@@ -13,7 +13,6 @@ import type { CommandVerb } from '@/sim/command/types';
 import { createGameBus, type GameBus } from '@/game/game-bus';
 import { getUiRuntime } from '@/render/ui/ui-runtime';
 import { bootMark, FpsMeter, type FpsStats } from '@/dev/profile';
-import { createFpsHud, type FpsHudHandle } from '@/dev/fps-hud';
 import { advanceNpcFrames } from '@/render/npc-animator';
 import { isLayerHidden } from '@/render/layer-visibility';
 import { getHydrologyResult } from '@/world/hydrology-store';
@@ -137,10 +136,10 @@ export class Game {
   private resizeObserver: ResizeObserver;
   private rafId: number | null = null;
   private lastTime: number = 0;
-  /** Rendered-frame FPS meter (always sampling; cheap). Read via the HUD / __perf. */
+  /** Rendered-frame FPS meter (always sampling; cheap). Read via `__perf.fps()`. The
+   *  on-screen FPS pill is drawn on the canvas in gpu-render-frame (dev-only); there
+   *  is no DOM HUD on the game surface. */
   private readonly fps = new FpsMeter();
-  private fpsHud: FpsHudHandle | null = null;
-  private detachProfileKeys: (() => void) | null = null;
   // Render-on-demand flag for the "real pause" path: a LIVE world redraws every
   // frame, but a PAUSED world only redraws when something visual changed (camera,
   // hover, selection, a UI toggle, resize). Starts true so the first frame draws.
@@ -910,32 +909,6 @@ export class Game {
   /** Latest rendered-frame stats (see src/dev/profile.ts). For `window.__perf`. */
   fpsStats(): FpsStats { return this.fps.stats(); }
 
-  /** Show/hide the in-page FPS HUD; created lazily on first show. */
-  setFpsHud(visible: boolean): void {
-    if (visible && !this.fpsHud) this.fpsHud = createFpsHud(this.container);
-    this.fpsHud?.setVisible(visible);
-    if (visible) this.requestRender();  // wake a frame so the HUD populates
-  }
-
-  toggleFpsHud(): boolean {
-    this.setFpsHud(!(this.fpsHud?.isVisible() ?? false));
-    return this.fpsHud?.isVisible() ?? false;
-  }
-
-  /** Wire profiling controls. The FPS HUD is dev tooling that lives in the dev /
-   *  studio surface, never the barebones game — so it ONLY appears under `?dev`.
-   *  The old `?fps`/`?profile` aliases are retired so a stale one can't leak the
-   *  HUD into normal play; backtick toggles it only on the dev surface. */
-  private installProfiling(): void {
-    if (!hasQueryFlag('dev')) return;
-    this.setFpsHud(true);
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === '`' && !e.metaKey && !e.ctrlKey && !e.altKey) this.toggleFpsHud();
-    };
-    window.addEventListener('keydown', onKey);
-    this.detachProfileKeys = () => window.removeEventListener('keydown', onKey);
-  }
-
   private renderDeps(): RenderContextDeps {
     return {
       state: this.state,
@@ -1002,7 +975,6 @@ export class Game {
       },
     });
     this.startLoop();
-    this.installProfiling();
     return map;
   }
 
@@ -1075,7 +1047,6 @@ export class Game {
         const r0 = performance.now();
         this.renderer.render(deltaMs);
         this.fps.frame(performance.now() - r0);
-        if (this.fpsHud?.isVisible()) this.fpsHud.update(this.fps.stats());
         this.timeChip.refresh();
         this.refreshPauseBanner();
         this.timeBar?.refresh();
@@ -1098,8 +1069,6 @@ export class Game {
     this.stopLoop();
     this.presentation.destroy();
     this.persistence?.destroy();
-    this.detachProfileKeys?.();
-    this.fpsHud?.destroy();
     this.cleanupControls?.();
     this.cleanupUi?.();
     this.cleanupTokens?.();

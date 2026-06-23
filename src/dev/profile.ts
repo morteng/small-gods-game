@@ -8,9 +8,9 @@
  * so the trustworthy reading is an in-page HUD glanced at in a REAL browser.
  *
  * Both pieces are intentionally tiny and always-on-cheap: `bootMark()` is a
- * couple of timestamps, the FPS meter is a ring buffer. The HUD is the only
- * thing gated (it touches the DOM), shown via `?profile`/`?fps`, the backtick
- * key, or `window.__perf.showFps()`.
+ * couple of timestamps, the FPS meter is a ring buffer. The on-screen FPS pill
+ * is drawn on the canvas in gpu-render-frame (dev-only, `?dev`) — there is no DOM
+ * HUD on the game surface; read raw stats via `window.__perf.fps()`.
  */
 
 // ── Boot phase timing ───────────────────────────────────────────────────────

@@ -39,6 +39,13 @@ import { AdaptiveResolution } from '@/render/gpu/adaptive-resolution';
 import { computeView, installRenderProfiler, frameTrace, type LastFrame } from '@/render/gpu/render-profiler';
 import { getUiRuntime } from '@/render/ui/ui-runtime';
 
+/** The canvas perf pill (fps + art-pixel scale) is DEV-only — it's the single FPS
+ *  readout (the DOM `sg-fps` HUD was retired; no DOM chrome on the game surface). */
+function perfHudRequested(): boolean {
+  try { return new URLSearchParams(window.location.search).has('dev'); }
+  catch { return false; }
+}
+
 /** `?connectome` shows the whole-world graph overlay (POIs, roads, settlements). */
 function connectomeRequested(): boolean {
   try { return new URLSearchParams(window.location.search).has('connectome'); }
@@ -81,6 +88,7 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
   const adaptive = new AdaptiveResolution();
   let lastFrameStart = 0;
   let fpsEma = 0;
+  const showPerfHud = perfHudRequested();   // dev-only single FPS pill
   const ui = getUiRuntime();
 
   // Deterministic profiler state: the most-recent frame's inputs (so the bench
@@ -251,9 +259,10 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
     });
 
     // FPS + art-pixel-scale readout (top-right), smoothed so it doesn't jitter.
+    // Dev-only — the single FPS counter (the DOM HUD was removed).
     const fps = 1000 / Math.max(1, frameDt);
     fpsEma = fpsEma > 0 ? fpsEma * 0.9 + fps * 0.1 : fps;
-    drawPerfHud(ctx, canvasWidth, fpsEma, px, fixedPx !== null);
+    if (showPerfHud) drawPerfHud(ctx, canvasWidth, fpsEma, px, fixedPx !== null);
   };
 }
 

@@ -20,6 +20,5 @@ export function exposeDevGlobals(game: Game): void {
   w.__perf = {
     boot: () => getBootProfile(),
     fps: () => game.fpsStats(),
-    showFps: (v = true) => game.setFpsHud(v),
   };
 }
