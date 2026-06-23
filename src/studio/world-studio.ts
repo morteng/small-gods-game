@@ -28,7 +28,8 @@ import { ensureBuildingTypesRegistered } from '@/blueprint/register-buildings';
 import { initManifoldWasm } from '@/assetgen/geometry/manifold-wasm-browser';
 import { createGpuRenderMap } from '@/render/gpu/gpu-renderer';
 import { drawWorldConnectome, drawWaterNetwork, projectConnectome, screenToTileApprox } from '@/render/connectome-overlay';
-import { getWaterNetwork } from '@/world/water-network-store';
+import { getWaterNetwork, getWaterConnectome } from '@/world/water-network-store';
+import { serializeCompact } from '@/world/connectome/world-node';
 import { summarizeNetwork } from '@/terrain/river-network';
 import { WaterDynamics, DEFAULT_WEATHER, type WeatherParams } from '@/render/gpu/water-dynamics';
 import { buildFloodWatch, type FloodWatch } from '@/world/flood-watch';
@@ -850,6 +851,8 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
     waterNet: (on?: boolean) => { if (on !== undefined) showWaterNet = on; return showWaterNet; },
     waterNetwork: () => (map ? getWaterNetwork(map) : null),
     waterSummary: () => (map ? summarizeNetwork(getWaterNetwork(map)) : null),
+    // The water sub-connectome lifted into WorldNode form (what Fate / agents read).
+    waterConnectome: () => (map ? serializeCompact(getWaterConnectome(map)) : null),
     // View helpers (for headed iteration): frame the whole map, toggle the backbone,
     // set terrain style, read/poke the camera.
     fitAll: () => { if (map) fitTiles(cam, 0, 0, map.width, map.height, cssW, cssH, 0.94); },
