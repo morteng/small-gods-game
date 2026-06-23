@@ -37,6 +37,7 @@ import { buildRenderWaterTypeMemo } from '@/render/gpu/render-water-mask';
 import { computePressure, type PressureReport } from '@/world/connectome/pressure';
 import { waterPressureItems, suggestWaterResolutions } from '@/world/connectome/water-nodes';
 import { buildRiverDeformationsFromNetwork } from '@/world/river-deformation';
+import { buildLakeConformDeformations, LAKE_BASIN_SOURCE, LAKE_OUTLET_SOURCE } from '@/world/lake-conform';
 import { getWorldDeformationStore } from '@/world/road-deformation';
 import { summarizeNetwork, affectedWaterCells } from '@/terrain/river-network';
 import { WaterDynamics, DEFAULT_WEATHER, type WeatherParams } from '@/render/gpu/water-dynamics';
@@ -208,6 +209,7 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
   // Water EDIT mode: drag nodes to move features in real time; pressure shows crowding.
   let waterEdit = false;
   let showPressure = true;            // ring impinging features (advisory) while editing
+  let conformTerrain = false;         // DIR-A: lakes adjust the ground to hold water + drain
   const nodeMoves = new Map<string, { x: number; y: number }>();  // the live edit overlay
   const mergeOps: Array<[string, string]> = [];   // join ops (keepId, dropId), replayed in order
   let draggingNode: string | null = null;
@@ -494,6 +496,7 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
     canvas.style.cursor = v ? 'crosshair' : 'default';
   }));
   layersSec.appendChild(toggleRow('   ↳ show pressure (crowding)', true, (v) => { showPressure = v; }));
+  layersSec.appendChild(toggleRow('⛰ Conform terrain to water (basins + outlets)', false, (v) => { conformTerrain = v; recarveFromEdits(); }));
   menuBar.appendChild(dropdown('◴ Layers ▾', layersSec));
 
   // ── display: terrain render style ───────────────────────────────────────────
@@ -645,11 +648,18 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
   /** Re-carve terrain from the edited network (drop time): swap the river:incision
    *  deformations for ones derived from the moved graph, then refresh the GPU terrain. */
   function recarveFromEdits(): void {
-    if (!map || nodeMoves.size === 0) return;
-    const edited = applyNodeMoves(getWaterNetwork(map), nodeMoves);
+    if (!map) return;
+    const edited = editedWaterNet();
+    if (!edited) return;
     const store = getWorldDeformationStore(map);
     store.removeSource('river:incision');
     store.add(...buildRiverDeformationsFromNetwork(map, edited));
+    // DIR-A: lakes own their terrain — level a water-holding basin + carve an outlet so
+    // the connectome "works out". Off by default (generated worlds stay byte-identical);
+    // an author opts in, and the lakes (moved or not) re-conform the ground.
+    store.removeSource(LAKE_BASIN_SOURCE);
+    store.removeSource(LAKE_OUTLET_SOURCE);
+    if (conformTerrain) store.add(...buildLakeConformDeformations(map, edited));
     // The store's version bump re-keys getComposedHeightfield → new buffer → terrain re-uploads.
   }
 
@@ -1132,6 +1142,17 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
     moveWaterNode: (id: string, x: number, y: number) => { nodeMoves.set(id, { x, y }); recarveFromEdits(); return editedWaterNet(); },
     mergeWaterFeatures: (keepId: string, dropId: string) => { mergeOps.push([keepId, dropId]); recarveFromEdits(); return editedWaterNet(); },
     clearWaterEdits: () => { nodeMoves.clear(); mergeOps.length = 0; recarveFromEdits(); },
+    // DIR-A: lakes conform the terrain (water-holding basin + carved outlet). Toggle +
+    // read back how many deformations the current (edited) lakes emit.
+    conformTerrain: (on?: boolean) => {
+      if (on !== undefined) { conformTerrain = on; recarveFromEdits(); }
+      const net = editedWaterNet();
+      return {
+        on: conformTerrain,
+        lakes: net?.lakes.length ?? 0,
+        deformations: map && net ? buildLakeConformDeformations(map, net).length : 0,
+      };
+    },
     // Advisory crowding report on the (edited) network, each pinch annotated with a SUGGESTED
     // resolution (merge vs separate) — the feedback an agent reads after editing the connectome.
     waterPressure: () => {
