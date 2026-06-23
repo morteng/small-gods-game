@@ -14,7 +14,8 @@ import { ISO_TILE_W, ISO_TILE_H } from '@/render/iso/iso-constants';
 import { elevationAt, ELEVATION_SEA_LEVEL } from '@/world/heightfield';
 import { worldStyleOf } from '@/core/world-style';
 import { getWaterNetwork } from '@/world/water-network-store';
-import type { ReachClass, WaterNodeKind, LakeClass } from '@/terrain/river-network';
+import type { ReachClass, WaterNodeKind, LakeClass, WaterNetwork } from '@/terrain/river-network';
+import type { PressureReport } from '@/world/connectome/pressure';
 
 const HALF_W = ISO_TILE_W / 2;
 const HALF_H = ISO_TILE_H / 2;
@@ -199,14 +200,22 @@ const NODE_STYLE: Record<WaterNodeKind, { color: string; r: number }> = {
   mouth:       { color: 'rgba(60, 130, 210, 0.95)',  r: 3.8 },   // deep blue — estuary
 };
 
+/** Optional draw overrides — the studio editor passes an EDITED network (so a dragged
+ *  node + its re-routed reaches render live) and a pressure report to visualize crowding. */
+export interface WaterNetworkDrawOpts {
+  net?: WaterNetwork;
+  pressure?: PressureReport;
+}
+
 /**
  * Draw the water connectome (river-network graph) onto the Canvas2D overlay context.
  * No-op when the world has no rivers. `zoom` scales line weight so it reads at any zoom.
+ * Pass `opts.net` to render an edited network and `opts.pressure` to ring crowded features.
  */
-export function drawWaterNetwork(ctx: CanvasRenderingContext2D, rc: RenderContext): void {
+export function drawWaterNetwork(ctx: CanvasRenderingContext2D, rc: RenderContext, opts: WaterNetworkDrawOpts = {}): void {
   const { map, camera } = rc;
   if (!map) return;
-  const net = getWaterNetwork(map);
+  const net = opts.net ?? getWaterNetwork(map);
   if (net.reaches.length === 0) return;
 
   ctx.save();
@@ -231,6 +240,26 @@ export function drawWaterNetwork(ctx: CanvasRenderingContext2D, rc: RenderContex
       ctx.lineWidth = s.width * zw;
       strokePolyline(ctx, map, camera, reach.centerline);
     }
+  }
+
+  // Pressure rings UNDER the node glyphs — a hot halo whose radius/alpha grows with
+  // crowding, so impinging features read at a glance (advisory; nothing is moved).
+  if (opts.pressure && opts.pressure.maxPressure > 0) {
+    const { perItem, maxPressure } = opts.pressure;
+    const ringAt = (id: string, x: number, y: number): void => {
+      const v = perItem.get(id);
+      if (!v) return;
+      const t = Math.min(1, v / maxPressure);
+      const p = project(map, x, y, camera);
+      const r = (6 + 10 * t) * Math.min(1.4, zw);
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(255, ${Math.round(160 - 120 * t)}, 60, ${0.5 + 0.4 * t})`;
+      ctx.lineWidth = 2 + 2 * t;
+      ctx.stroke();
+    };
+    for (const n of net.nodes) ringAt(n.id, n.x + 0.5, n.y + 0.5);
+    for (const l of net.lakes) ringAt(l.id, l.x + 0.5, l.y + 0.5);
   }
 
   // Nodes — glyph by kind.

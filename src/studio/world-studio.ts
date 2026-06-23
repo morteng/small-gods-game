@@ -30,6 +30,12 @@ import { createGpuRenderMap } from '@/render/gpu/gpu-renderer';
 import { drawWorldConnectome, drawWaterNetwork, projectConnectome, screenToTileApprox } from '@/render/connectome-overlay';
 import { getWaterNetwork, getWaterConnectome } from '@/world/water-network-store';
 import { serializeCompact } from '@/world/connectome/world-node';
+import { applyNodeMoves } from '@/terrain/water-network-edits';
+import type { WaterNetwork } from '@/terrain/river-network';
+import { computePressure, type PressureReport } from '@/world/connectome/pressure';
+import { waterPressureItems } from '@/world/connectome/water-nodes';
+import { buildRiverDeformationsFromNetwork } from '@/world/river-deformation';
+import { getWorldDeformationStore } from '@/world/road-deformation';
 import { summarizeNetwork } from '@/terrain/river-network';
 import { WaterDynamics, DEFAULT_WEATHER, type WeatherParams } from '@/render/gpu/water-dynamics';
 import { buildFloodWatch, type FloodWatch } from '@/world/flood-watch';
@@ -188,6 +194,11 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
   let showConnectome = true;
   let showDetailPatches = false;
   let showWaterNet = false;   // the water connectome (river-network graph) overlay
+  // Water EDIT mode: drag nodes to move features in real time; pressure shows crowding.
+  let waterEdit = false;
+  let showPressure = true;            // ring impinging features (advisory) while editing
+  const nodeMoves = new Map<string, { x: number; y: number }>();  // the live edit overlay
+  let draggingNode: string | null = null;
 
   // Climate W-B — localized real-time water + humidity (rain on one spot raises the
   // basin it drains into + the air there). Rebuilt per world in regenerate().
@@ -461,7 +472,14 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
     if (layer === 'rivers') layersSec.appendChild(waterRow);   // group water with rivers
   }
   layersSec.appendChild(toggleRow('Connectome', true, (v) => { showConnectome = v; }));
+  layersSec.appendChild(toggleRow('Water connectome', false, (v) => { showWaterNet = v; }));
   layersSec.appendChild(toggleRow('Detail patch regions', false, (v) => { showDetailPatches = v; }));
+  // Water EDIT: drag river/lake nodes to move features live; pressure rings show crowding.
+  layersSec.appendChild(toggleRow('✥ Edit water — drag nodes', false, (v) => {
+    waterEdit = v;
+    canvas.style.cursor = v ? 'crosshair' : 'grab';
+  }));
+  layersSec.appendChild(toggleRow('   ↳ show pressure (crowding)', true, (v) => { showPressure = v; }));
   menuBar.appendChild(dropdown('◴ Layers ▾', layersSec));
 
   // ── display: terrain render style ───────────────────────────────────────────
@@ -584,21 +602,73 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
   weatherSec.appendChild(weatherReadout);
   menuBar.appendChild(dropdown('☁ Weather ▾', weatherSec));
 
+  // ── water connectome editing (drag nodes to move features in real time) ───────
+  // The base network re-derives from the seed; `nodeMoves` is a pure overlay applied
+  // on top, so the edited graph (and its re-routed reaches) is recomputed each frame.
+  function editedWaterNet(): WaterNetwork | undefined {
+    if (!map) return undefined;
+    return applyNodeMoves(getWaterNetwork(map), nodeMoves);
+  }
+  function waterPressure(net: WaterNetwork | undefined): PressureReport | undefined {
+    return net ? computePressure(waterPressureItems(net)) : undefined;
+  }
+  /** Nearest water node/lake id to a CSS-pixel cursor, within `tol` px (else null). */
+  function pickWaterNode(net: WaterNetwork, sx: number, sy: number, tol = 12): string | null {
+    if (!map) return null;
+    let best: string | null = null, bestD = tol * tol;
+    const test = (id: string, tx: number, ty: number): void => {
+      const p = projectConnectome(map!, tx, ty, cam);
+      const d = (p.x - sx) ** 2 + (p.y - sy) ** 2;
+      if (d < bestD) { bestD = d; best = id; }
+    };
+    for (const n of net.nodes) test(n.id, n.x + 0.5, n.y + 0.5);
+    for (const l of net.lakes) test(l.id, l.x + 0.5, l.y + 0.5);
+    return best;
+  }
+  /** Re-carve terrain from the edited network (drop time): swap the river:incision
+   *  deformations for ones derived from the moved graph, then refresh the GPU terrain. */
+  function recarveFromEdits(): void {
+    if (!map || nodeMoves.size === 0) return;
+    const edited = applyNodeMoves(getWaterNetwork(map), nodeMoves);
+    const store = getWorldDeformationStore(map);
+    store.removeSource('river:incision');
+    store.add(...buildRiverDeformationsFromNetwork(map, edited));
+    // The store's version bump re-keys getComposedHeightfield → new buffer → terrain re-uploads.
+  }
+
   // ── pan + zoom + click ──────────────────────────────────────────────────────
   let downX = 0, downY = 0, moved = false;
   canvas.addEventListener('mousedown', (e) => {
+    // In edit mode, grab the nearest water node instead of panning.
+    if (waterEdit && map) {
+      const r = viewPane.getBoundingClientRect();
+      const hit = pickWaterNode(editedWaterNet()!, e.clientX - r.left, e.clientY - r.top);
+      if (hit) { draggingNode = hit; canvas.style.cursor = 'grabbing'; return; }
+    }
     cam.dragging = true; cam.lastX = e.clientX; cam.lastY = e.clientY;
     downX = e.clientX; downY = e.clientY; moved = false;
     canvas.style.cursor = 'grabbing';
   }, { signal });
   window.addEventListener('mouseup', (e) => {
+    if (draggingNode) {                       // finished a node drag → re-carve terrain
+      draggingNode = null;
+      canvas.style.cursor = waterEdit ? 'crosshair' : 'grab';
+      recarveFromEdits();
+      return;
+    }
     if (cam.dragging && !moved) {
       const r = viewPane.getBoundingClientRect();
       handleClick(e.clientX - r.left, e.clientY - r.top);
     }
-    cam.dragging = false; canvas.style.cursor = 'grab';
+    cam.dragging = false; canvas.style.cursor = waterEdit ? 'crosshair' : 'grab';
   }, { signal });
   window.addEventListener('mousemove', (e) => {
+    if (draggingNode && map) {                 // live-move the grabbed node
+      const r = viewPane.getBoundingClientRect();
+      const { tx, ty } = screenToTileApprox(map, e.clientX - r.left, e.clientY - r.top, cam);
+      nodeMoves.set(draggingNode, { x: tx - 0.5, y: ty - 0.5 });  // node coords (centre = x+0.5)
+      return;
+    }
     if (!cam.dragging) return;
     if (Math.abs(e.clientX - downX) + Math.abs(e.clientY - downY) > 3) moved = true;
     cam.x -= (e.clientX - cam.lastX) / cam.zoom;
@@ -814,7 +884,13 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
       const rc = renderContext();
       render(ctx, rc);                       // GPU terrain (entity pass empty)
       if (showConnectome) drawWorldConnectome(ctx, rc);  // full connectome backbone
-      if (showWaterNet) drawWaterNetwork(ctx, rc);        // water connectome (river graph)
+      if (showWaterNet || waterEdit) {                    // water connectome (river graph)
+        const edited = editedWaterNet();
+        drawWaterNetwork(ctx, rc, {
+          net: edited,
+          pressure: waterEdit && showPressure ? waterPressure(edited) : undefined,
+        });
+      }
       if (showDetailPatches) drawDetailPatches();         // adaptive high-res regions
       drawOverlay();                          // humidity / cloud / temperature field
       drawFocus();                           // spotlight + drill highlight
@@ -853,6 +929,16 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
     waterSummary: () => (map ? summarizeNetwork(getWaterNetwork(map)) : null),
     // The water sub-connectome lifted into WorldNode form (what Fate / agents read).
     waterConnectome: () => (map ? serializeCompact(getWaterConnectome(map)) : null),
+    // Water EDITING surface (drag-to-move + advisory pressure) — also the agent seam.
+    waterEdit: (on?: boolean) => { if (on !== undefined) { waterEdit = on; canvas.style.cursor = on ? 'crosshair' : 'grab'; } return waterEdit; },
+    moveWaterNode: (id: string, x: number, y: number) => { nodeMoves.set(id, { x, y }); recarveFromEdits(); return editedWaterNet(); },
+    clearWaterEdits: () => { nodeMoves.clear(); recarveFromEdits(); },
+    // Advisory crowding report on the (edited) network: pairs ranked worst-first + per-node totals.
+    waterPressure: () => {
+      const rep = waterPressure(editedWaterNet());
+      if (!rep) return null;
+      return { maxPressure: rep.maxPressure, pairs: rep.pairs.slice(0, 12), crowded: [...rep.perItem.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12) };
+    },
     // View helpers (for headed iteration): frame the whole map, toggle the backbone,
     // set terrain style, read/poke the camera.
     fitAll: () => { if (map) fitTiles(cam, 0, 0, map.width, map.height, cssW, cssH, 0.94); },

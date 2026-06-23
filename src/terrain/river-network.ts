@@ -90,6 +90,9 @@ export interface WaterNetwork {
   byId: Map<string, WaterNode>;
   /** node id at a given channel cell, when that cell IS a node (else undefined). */
   nodeAtCell: Map<number, string>;
+  /** Grid dimensions — so an editor can re-route a reach (cells → centreline) on a move. */
+  width: number;
+  height: number;
 }
 
 /**
@@ -341,7 +344,7 @@ export function buildWaterNetwork(hydro: HydrologyResult, W: number, H: number, 
   }
 
   const lakes = detectLakeBodies(hydro, W, H, nodeAtCell);
-  return { nodes, reaches, lakes, byId, nodeAtCell };
+  return { nodes, reaches, lakes, byId, nodeAtCell, width: W, height: H };
 }
 
 /** Quick tally for studio / debug — counts by node kind and reach class. Pure. */

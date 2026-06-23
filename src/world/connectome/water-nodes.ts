@@ -22,6 +22,7 @@
 
 import type { WaterNetwork, WaterNode, WaterReach, WaterNodeKind, WaterBody } from '@/terrain/river-network';
 import { node, type WorldNode, type WorldNodeParams, type Relation } from './world-node';
+import type { PressureItem } from './pressure';
 
 /** Junction kind → the connectome `kind` string. Keeps water kinds namespaced & legible. */
 const JUNCTION_KIND: Record<WaterNodeKind, string> = {
@@ -92,6 +93,21 @@ function reachNode(r: WaterReach, opts: WaterConnectomeOptions): WorldNode {
  * every junction and reach, reaches `connects`-linked to their endpoints. Deterministic —
  * nodes/reaches are emitted in the network's own (index-derived) order. Pure.
  */
+/**
+ * Clearance discs for the water network's features — what `computePressure` reads to flag
+ * crowding. A junction wants a small fixed clearance; a lake wants room scaled to its own
+ * extent (the radius of an equal-area disc) plus a margin. Positions are cell-centres (so
+ * they line up with the overlay's projection of `x+0.5`).
+ */
+export function waterPressureItems(net: WaterNetwork, junctionClearance = 1.5, lakeMargin = 1): PressureItem[] {
+  const items: PressureItem[] = [];
+  for (const n of net.nodes) items.push({ id: n.id, x: n.x + 0.5, y: n.y + 0.5, radius: junctionClearance });
+  for (const l of net.lakes) {
+    items.push({ id: l.id, x: l.x + 0.5, y: l.y + 0.5, radius: Math.sqrt(l.area / Math.PI) + lakeMargin });
+  }
+  return items;
+}
+
 export function waterNetworkToConnectome(net: WaterNetwork, opts: WaterConnectomeOptions = {}): WorldNode {
   const children: WorldNode[] = [
     ...net.lakes.map((l) => lakeNode(l, opts)),

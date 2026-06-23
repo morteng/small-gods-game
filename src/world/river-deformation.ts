@@ -21,7 +21,7 @@ import type { GameMap, HydrologyResult } from '@/core/types';
 import { DeformationStore, polylineDeformation, type Deformation } from '@/world/terrain-deformation';
 import { getHydrologyResult } from '@/world/hydrology-store';
 import { DEFAULT_RIVER_FLOW_THRESHOLD } from '@/terrain/hydrology';
-import { buildWaterNetwork, type ReachClass, type Pt } from '@/terrain/river-network';
+import { buildWaterNetwork, type ReachClass, type Pt, type WaterNetwork } from '@/terrain/river-network';
 
 /** Channel carve profile by spectrum CLASS — depth (metres) + channel half-width
  *  (tiles). The river reads as a real incision against the world relief (~39 m
@@ -74,6 +74,16 @@ function chunkPolyline(pts: Pt[]): Pt[][] {
 export function buildRiverDeformations(map: GameMap, hydro: HydrologyResult): Deformation[] {
   const { width: w, height: h } = map;
   const net = buildWaterNetwork(hydro, w, h, DEFAULT_RIVER_FLOW_THRESHOLD);
+  return buildRiverDeformationsFromNetwork(map, net);
+}
+
+/**
+ * Carve deformations from an explicit (possibly EDITED) water network — the seam the
+ * studio's drag-to-move uses to re-carve a moved channel without re-running hydrology.
+ * Same per-reach centreline carve as the base path. Pure.
+ */
+export function buildRiverDeformationsFromNetwork(map: GameMap, net: WaterNetwork): Deformation[] {
+  void map;
   const out: Deformation[] = [];
   for (const reach of net.reaches) {
     const { depthM, halfWidth } = REACH_CARVE[reach.klass];
