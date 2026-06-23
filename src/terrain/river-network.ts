@@ -39,6 +39,27 @@ export type WaterNodeKind =
 /** The river spectrum, derived from Strahler order — a brook is not a trunk river. */
 export type ReachClass = 'brook' | 'stream' | 'river' | 'major_river';
 
+/** Still-water size spectrum — a mountain tarn is not a great mere. By cell area. */
+export type LakeClass = 'tarn' | 'pond' | 'lake' | 'mere';
+
+/** A connected still-water body (a lake/pond), classified by area, with the channel
+ *  junctions on its shore (the springs of its outflow, the mouths of its inflow). */
+export interface WaterBody {
+  id: string;
+  klass: LakeClass;
+  cells: number[];       // grid indices of the lake body
+  area: number;          // cell count
+  x: number;             // centroid (tile coords)
+  y: number;
+  outletIds: string[];   // lake_outlet junction node ids fed BY this lake
+  inletIds: string[];    // lake_inlet junction node ids draining INTO this lake
+}
+
+/** Area (cells) → size class. A tarn is a handful of cells; a mere is a major basin. */
+export function classifyLake(area: number): LakeClass {
+  return area <= 3 ? 'tarn' : area <= 12 ? 'pond' : area <= 60 ? 'lake' : 'mere';
+}
+
 export interface WaterNode {
   id: string;
   kind: WaterNodeKind;
@@ -65,9 +86,66 @@ export interface WaterReach {
 export interface WaterNetwork {
   nodes: WaterNode[];
   reaches: WaterReach[];
+  lakes: WaterBody[];
   byId: Map<string, WaterNode>;
   /** node id at a given channel cell, when that cell IS a node (else undefined). */
   nodeAtCell: Map<number, string>;
+}
+
+/**
+ * Connected-component lake bodies over the still-water raster, each classified by area
+ * and linked to the channel junctions on its shore. 4-connected flood fill in index
+ * order (deterministic). `nodeAtCell` maps a shore river cell to its junction id so we
+ * can record which outlets a lake feeds and which inlets drain into it.
+ */
+export function detectLakeBodies(
+  hydro: HydrologyResult, W: number, H: number, nodeAtCell: Map<number, string>,
+): WaterBody[] {
+  const { waterType } = hydro;
+  const total = W * H;
+  const seen = new Uint8Array(total);
+  const bodies: WaterBody[] = [];
+  const isLakeCell = (i: number): boolean => i >= 0 && i < total && waterType[i] === WaterType.Lake;
+  for (let s = 0; s < total; s++) {
+    if (!isLakeCell(s) || seen[s]) continue;
+    const cells: number[] = [];
+    const stack = [s];
+    seen[s] = 1;
+    let sx = 0, sy = 0;
+    const outletIds = new Set<string>();
+    const inletIds = new Set<string>();
+    while (stack.length) {
+      const c = stack.pop()!;
+      const cx = c % W, cy = (c / W) | 0;
+      cells.push(c); sx += cx; sy += cy;
+      const visit = (n: number): void => {
+        if (isLakeCell(n) && !seen[n]) { seen[n] = 1; stack.push(n); }
+        else if (waterType[n] === WaterType.River) {
+          // A river junction on this lake's shore: lake_outlet (fed by lake) or lake_inlet.
+          const id = nodeAtCell.get(n);
+          if (!id) return;
+          if (hydro.drainTo[n] === c) inletIds.add(id);        // river drains INTO this lake cell
+          else if (hydro.drainTo[c] === n) outletIds.add(id);  // lake spills INTO this river cell
+        }
+      };
+      if (cy > 0) visit(c - W);
+      if (cy < H - 1) visit(c + W);
+      if (cx > 0) visit(c - 1);
+      if (cx < W - 1) visit(c + 1);
+    }
+    const area = cells.length;
+    bodies.push({
+      id: `wl:${s}`,
+      klass: classifyLake(area),
+      cells,
+      area,
+      x: sx / area,
+      y: sy / area,
+      outletIds: [...outletIds],
+      inletIds: [...inletIds],
+    });
+  }
+  return bodies;
 }
 
 const CLASS_RANK: Record<ReachClass, number> = { brook: 0, stream: 1, river: 2, major_river: 3 };
@@ -262,28 +340,34 @@ export function buildWaterNetwork(hydro: HydrologyResult, W: number, H: number, 
     });
   }
 
-  return { nodes, reaches, byId, nodeAtCell };
+  const lakes = detectLakeBodies(hydro, W, H, nodeAtCell);
+  return { nodes, reaches, lakes, byId, nodeAtCell };
 }
 
 /** Quick tally for studio / debug — counts by node kind and reach class. Pure. */
 export function summarizeNetwork(net: WaterNetwork): {
   nodes: Record<WaterNodeKind, number>;
   reaches: Record<ReachClass, number>;
+  lakes: Record<LakeClass, number>;
   lakeFedReaches: number;
   totalReaches: number;
   totalNodes: number;
+  totalLakes: number;
 } {
   const nodes: Record<WaterNodeKind, number> = {
     spring: 0, lake_outlet: 0, confluence: 0, lake_inlet: 0, mouth: 0,
   };
   const reaches: Record<ReachClass, number> = { brook: 0, stream: 0, river: 0, major_river: 0 };
+  const lakes: Record<LakeClass, number> = { tarn: 0, pond: 0, lake: 0, mere: 0 };
   for (const n of net.nodes) nodes[n.kind]++;
   let lakeFed = 0;
   for (const r of net.reaches) { reaches[r.klass]++; if (r.lakeFed) lakeFed++; }
+  for (const l of net.lakes) lakes[l.klass]++;
   return {
-    nodes, reaches,
+    nodes, reaches, lakes,
     lakeFedReaches: lakeFed,
     totalReaches: net.reaches.length,
     totalNodes: net.nodes.length,
+    totalLakes: net.lakes.length,
   };
 }

@@ -14,7 +14,7 @@ import { ISO_TILE_W, ISO_TILE_H } from '@/render/iso/iso-constants';
 import { elevationAt, ELEVATION_SEA_LEVEL } from '@/world/heightfield';
 import { worldStyleOf } from '@/core/world-style';
 import { getWaterNetwork } from '@/world/water-network-store';
-import type { ReachClass, WaterNodeKind } from '@/terrain/river-network';
+import type { ReachClass, WaterNodeKind, LakeClass } from '@/terrain/river-network';
 
 const HALF_W = ISO_TILE_W / 2;
 const HALF_H = ISO_TILE_H / 2;
@@ -183,6 +183,14 @@ const REACH_STYLE: Record<ReachClass, { color: string; width: number }> = {
   major_river: { color: 'rgba(45, 125, 220, 0.95)',  width: 4.6 },
 };
 
+// Lake bodies — a ringed marker sized by the still-water spectrum (tarn → mere).
+const LAKE_STYLE: Record<LakeClass, { color: string; r: number }> = {
+  tarn: { color: 'rgba(90, 215, 230, 0.55)', r: 3.5 },
+  pond: { color: 'rgba(70, 195, 230, 0.55)', r: 5.0 },
+  lake: { color: 'rgba(55, 170, 225, 0.55)', r: 7.5 },
+  mere: { color: 'rgba(45, 140, 220, 0.55)', r: 11.0 },
+};
+
 const NODE_STYLE: Record<WaterNodeKind, { color: string; r: number }> = {
   spring:      { color: 'rgba(120, 235, 160, 0.95)', r: 3.2 },   // green — a source
   lake_outlet: { color: 'rgba(80, 220, 230, 0.95)',  r: 3.6 },   // cyan — lake-fed birth
@@ -205,6 +213,13 @@ export function drawWaterNetwork(ctx: CanvasRenderingContext2D, rc: RenderContex
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
   const zw = Math.max(0.5, Math.min(camera.zoom, 2.5));
+
+  // Lake bodies first — a ringed marker at the centroid, sized by class, under the channels.
+  for (const l of net.lakes) {
+    const st = LAKE_STYLE[l.klass];
+    const p = project(map, l.x + 0.5, l.y + 0.5, camera);
+    dot(ctx, p.x, p.y, st.r * Math.min(1.4, zw), st.color, 'rgba(20, 60, 90, 0.8)');
+  }
 
   // Reaches — thick trunks first so thin brooks render on top of their confluence.
   const order: ReachClass[] = ['major_river', 'river', 'stream', 'brook'];

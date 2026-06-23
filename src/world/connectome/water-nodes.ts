@@ -20,8 +20,8 @@
 // other features" hook that makes water a *participating* part of the world graph,
 // not an island. Pure: no rendering, no randomness, no I/O.
 
-import type { WaterNetwork, WaterNode, WaterReach, WaterNodeKind } from '@/terrain/river-network';
-import { node, type WorldNode, type WorldNodeParams } from './world-node';
+import type { WaterNetwork, WaterNode, WaterReach, WaterNodeKind, WaterBody } from '@/terrain/river-network';
+import { node, type WorldNode, type WorldNodeParams, type Relation } from './world-node';
 
 /** Junction kind → the connectome `kind` string. Keeps water kinds namespaced & legible. */
 const JUNCTION_KIND: Record<WaterNodeKind, string> = {
@@ -55,6 +55,21 @@ function junctionNode(n: WaterNode, opts: WaterConnectomeOptions): WorldNode {
   });
 }
 
+/** One lake body → a `WorldNode` (kind `lake`) at its centroid. It `serves` the channel
+ *  junctions on its shore: a lake-fed river is born at the lake (outlet), an inflowing
+ *  stream ends in it (inlet). The lake is the source/sink the channels hang off. */
+function lakeNode(l: WaterBody, opts: WaterConnectomeOptions): WorldNode {
+  const relations: Relation[] = [
+    ...l.outletIds.map((to): Relation => ({ kind: 'serves', to })),
+    ...l.inletIds.map((to): Relation => ({ kind: 'connects', to })),
+  ];
+  return node(l.id, 'lake', {
+    anchor: { x: l.x, y: l.y },
+    params: withTags({ water: true, klass: l.klass, area: l.area }, Math.round(l.x), Math.round(l.y), opts.tagsAt),
+    relations,
+  });
+}
+
 /** One reach → a `WorldNode` (kind `reach`) carrying its class/flow, `connects` to both ends. */
 function reachNode(r: WaterReach, opts: WaterConnectomeOptions): WorldNode {
   const mid = r.centerline[Math.floor(r.centerline.length / 2)] ?? r.centerline[0];
@@ -79,6 +94,7 @@ function reachNode(r: WaterReach, opts: WaterConnectomeOptions): WorldNode {
  */
 export function waterNetworkToConnectome(net: WaterNetwork, opts: WaterConnectomeOptions = {}): WorldNode {
   const children: WorldNode[] = [
+    ...net.lakes.map((l) => lakeNode(l, opts)),
     ...net.nodes.map((n) => junctionNode(n, opts)),
     ...net.reaches.map((r) => reachNode(r, opts)),
   ];

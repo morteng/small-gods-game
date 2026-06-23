@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { generateHydrology } from '@/terrain/hydrology';
 import {
-  buildWaterNetwork, summarizeNetwork, smoothCenterline, classifyReach,
+  buildWaterNetwork, summarizeNetwork, smoothCenterline, classifyReach, classifyLake,
 } from '@/terrain/river-network';
 import { WaterType, type TerrainField } from '@/core/types';
 
@@ -52,6 +52,34 @@ describe('water connectome — river network extraction', () => {
       expect(r.centerline[0].x).toBeCloseTo((a % 3) + 0.5, 5);
       expect(r.centerline[r.centerline.length - 1].x).toBeCloseTo((b % 3) + 0.5, 5);
     }
+  });
+
+  it('classifies still water by area — tarn < pond < lake < mere', () => {
+    expect(classifyLake(1)).toBe('tarn');
+    expect(classifyLake(3)).toBe('tarn');
+    expect(classifyLake(8)).toBe('pond');
+    expect(classifyLake(40)).toBe('lake');
+    expect(classifyLake(200)).toBe('mere');
+  });
+
+  it('lifts the lake body into a node linked to its outflow channel', () => {
+    const W = 5;
+    const elev = [
+      0.9, 0.9, 0.9, 0.9, 0.9,
+      0.9, 0.9, 0.9, 0.9, 0.9,
+      0.8, 0.2, 0.55, 0.45, 0.1,   // valley: source · LAKE · spill · · edge
+      0.9, 0.9, 0.9, 0.9, 0.9,
+      0.9, 0.9, 0.9, 0.9, 0.9,
+    ];
+    const hydro = generateHydrology(field(elev), { seed: 1, width: W, height: 5, seaLevel: 0.05 }, { riverFlowThreshold: 2 });
+    const net = buildWaterNetwork(hydro, W, 5);
+    expect(net.lakes.length).toBeGreaterThanOrEqual(1);
+    const lake = net.lakes[0];
+    expect(lake.area).toBeGreaterThanOrEqual(1);
+    // The lake feeds the outlet channel — its outlet junction is recorded on the body.
+    const outlet = net.nodes.find((n) => n.kind === 'lake_outlet');
+    expect(outlet).toBeDefined();
+    expect(lake.outletIds).toContain(outlet!.id);
   });
 
   it('classifies a channel born at a lake spill as a lake_outlet (lake-fed)', () => {
