@@ -214,12 +214,20 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
   // (downstream) affected tiles. Cleared when another object is selected.
   let selectedWater: string | null = null;
 
-  // ── hover inspection (DIR-C) — the feature under the cursor + its highlight ────
+  // ── hover inspection + selection (DIR-C) — the feature under the cursor ────────
   type HoverHighlight =
     | { kind: 'tile'; tx: number; ty: number }
     | { kind: 'node'; tx: number; ty: number }
     | { kind: 'rect'; x: number; y: number; w: number; h: number };
-  let hover: { title: string; rows: [string, string][]; hi: HoverHighlight } | null = null;
+  // What a hit RESOLVES to — so a click can select the same thing the hover found.
+  type SelTarget =
+    | { kind: 'water'; id: string }
+    | { kind: 'poi'; poi: POI }
+    | { kind: 'building'; building: BuildingInstance; plan: SettlementPlan | null }
+    | { kind: 'tile' };
+  interface Hit { title: string; rows: [string, string][]; hi: HoverHighlight; sel: SelTarget; }
+  let hover: Hit | null = null;
+  let selected: Hit | null = null;   // the pinned selection (any node / building / tile)
 
   // Climate W-B — localized real-time water + humidity (rain on one spot raises the
   // basin it drains into + the air there). Rebuilt per world in regenerate().
@@ -354,41 +362,11 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
       waterDyn.floodArea(tx, ty, floodRadius, floodDepthM);
       return;
     }
-    // Water connectome shown (and not in drag-edit mode): clicking a river/lake
-    // node SELECTS it, outlining the water it is + the water it feeds downstream.
-    if (showWaterNet && !waterEdit) {
-      const net = editedWaterNet();
-      const hit = net ? pickWaterNode(net, sx, sy, 14) : null;
-      if (hit) {
-        selectedWater = selectedWater === hit ? null : hit;
-        if (selectedWater) { selectedPoi = null; }
-        syncInspector();
-        return;
-      }
-    }
-    selectedWater = null;   // any other click clears the water selection
-    const f = focus;
-    if (f.level === 'world') {
-      const poi = pickPoi(map, cam, sx, sy);
-      if (!poi) { selectedPoi = null; syncInspector(); return; }
-      const plan = planForPoi(map, poi.id);
-      if (plan) drillToSettlement(poi, plan);
-      else { selectedPoi = poi; syncInspector(); }
-    } else if (f.level === 'settlement') {
-      const hit = pickBuilding(buildingsOf(map, f.poiId), map, cam, sx, sy);
-      if (hit) drillToBuilding(hit, f.plan);
-      else {
-        const poi = pickPoi(map, cam, sx, sy);
-        if (poi) { const pl = planForPoi(map, poi.id); if (pl) drillToSettlement(poi, pl); }
-      }
-    } else if (f.level === 'building') {
-      // hop between buildings of the same settlement
-      const plan = f.plan;
-      if (plan) {
-        const hit = pickBuilding(buildingsOf(map, plan.poiId), map, cam, sx, sy);
-        if (hit && hit.id !== f.building.id) drillToBuilding(hit, plan);
-      }
-    }
+    // Otherwise: select whatever connectome object / building / tile is under the
+    // cursor — uniform across all of them (resolveHit topmost-wins). Toggling the
+    // same water node off clears it; clicking bare terrain clears the selection.
+    if (waterEdit) return;   // edit mode owns the click (drag-to-move handled elsewhere)
+    selectHit(resolveHit(sx, sy));
   }
 
   // ── inspector model ───────────────────────────────────────────────────────
@@ -689,9 +667,11 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
     return { title: n.kind.replace(/_/g, ' '), rows: [['reaches', String(inc.length)]] };
   }
   const floodField = (): Float32Array | undefined => waterDyn?.floodOffsetM();
-  /** Resolve what's under the cursor into the floating readout + its highlight. */
-  function resolveHover(sx: number, sy: number): void {
-    if (!map) { hover = null; return; }
+  /** Resolve what's under the cursor into a Hit (readout + highlight + select
+   *  target). Topmost-wins: water node → POI → building → bare tile. Shared by the
+   *  hover readout and click-to-select so they always agree on the target. */
+  function resolveHit(sx: number, sy: number): Hit | null {
+    if (!map) return null;
     const cont = screenToTileLifted(map, sx, sy, cam);
     const cx = Math.floor(cont.tx), cy = Math.floor(cont.ty);
     // 1) a water node / lake (when the connectome is on)
@@ -704,9 +684,8 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
         const lake = node ? null : net.lakes.find((l) => l.id === id);
         const hx = node ? node.x : Math.round(lake?.x ?? cx);
         const hy = node ? node.y : Math.round(lake?.y ?? cy);
-        hover = { title: d?.title ?? 'water', hi: { kind: 'node', tx: hx, ty: hy },
+        return { title: d?.title ?? 'water', hi: { kind: 'node', tx: hx, ty: hy }, sel: { kind: 'water', id },
           rows: [...(d?.rows ?? []), ...tileReadout(map, hx, hy, { floodM: floodField() })] };
-        return;
       }
     }
     // 2) a POI (place / settlement)
@@ -719,8 +698,7 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
       const hi: HoverHighlight = poi.region
         ? { kind: 'rect', x: poi.region.x_min, y: poi.region.y_min, w: poi.region.x_max - poi.region.x_min + 1, h: poi.region.y_max - poi.region.y_min + 1 }
         : { kind: 'tile', tx: px, ty: py };
-      hover = { title: poi.name ?? poi.type, rows, hi };
-      return;
+      return { title: poi.name ?? poi.type, rows, hi, sel: { kind: 'poi', poi } };
     }
     // 3) a building (when its settlement is in focus)
     const f = focus;
@@ -729,13 +707,30 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
       const b = pickBuilding(buildingsOf(map, poiId), map, cam, sx, sy);
       if (b) {
         const fp = footprintOf(b.templateId);
-        hover = { title: b.templateId, hi: { kind: 'rect', x: b.tileX, y: b.tileY, w: fp?.w ?? 1, h: fp?.h ?? 1 },
+        const plan = f.level === 'settlement' ? f.plan : (f.level === 'building' ? f.plan : null);
+        return { title: b.templateId, hi: { kind: 'rect', x: b.tileX, y: b.tileY, w: fp?.w ?? 1, h: fp?.h ?? 1 },
+          sel: { kind: 'building', building: b, plan },
           rows: [['tile', `${b.tileX}, ${b.tileY}`], ['footprint', fp ? `${fp.w}×${fp.h}` : '—'], ['state', b.state]] };
-        return;
       }
     }
     // 4) bare terrain
-    hover = { title: 'terrain', hi: { kind: 'tile', tx: cx, ty: cy }, rows: tileReadout(map, cx, cy, { floodM: floodField() }) };
+    return { title: 'terrain', hi: { kind: 'tile', tx: cx, ty: cy }, sel: { kind: 'tile' }, rows: tileReadout(map, cx, cy, { floodM: floodField() }) };
+  }
+  const resolveHover = (sx: number, sy: number): void => { hover = resolveHit(sx, sy); };
+  /** Select whatever a click resolved — uniform across water nodes / POIs /
+   *  buildings / tiles. Drives the inspector drill AND the pinned highlight. */
+  function selectHit(hit: Hit | null): void {
+    selected = hit;
+    const sel = hit?.sel;
+    if (!sel || sel.kind === 'tile') { selectedWater = null; return; }
+    if (sel.kind === 'water') { selectedWater = selectedWater === sel.id ? null : sel.id; return; }
+    selectedWater = null;
+    if (sel.kind === 'poi') {
+      const plan = planForPoi(map, sel.poi.id);
+      if (plan) drillToSettlement(sel.poi, plan); else { selectedPoi = sel.poi; syncInspector(); }
+    } else if (sel.kind === 'building') {
+      drillToBuilding(sel.building, sel.plan);
+    }
   }
   const esc = (s: string): string => s.replace(/[&<>]/g, (c) => (c === '&' ? '&amp;' : c === '<' ? '&lt;' : '&gt;'));
   /** Paint the floating readout near the cursor (clamped into the view). */
@@ -994,12 +989,11 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
     ctx.restore();
   }
 
-  // The hover highlight — a crisp outline of whatever the cursor is over (DIR-C).
-  function drawHover(): void {
-    if (!hover) return;
-    const hi = hover.hi;
+  // Outline one highlight shape (tile diamond / node ring / footprint box) in a
+  // colour. Shared by the live hover (white) and the pinned selection (accent).
+  function strokeHighlight(hi: HoverHighlight, color: string, lineWidth: number, glow: number): void {
     ctx.save();
-    ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1.75; ctx.shadowColor = 'rgba(255,255,255,0.9)'; ctx.shadowBlur = 8;
+    ctx.strokeStyle = color; ctx.lineWidth = lineWidth; ctx.shadowColor = color; ctx.shadowBlur = glow;
     const HW = ISO_TILE_W / 2 * cam.zoom, HH = ISO_TILE_H / 2 * cam.zoom;
     if (hi.kind === 'tile' || hi.kind === 'node') {
       const p = projectConnectome(map, hi.tx + 0.5, hi.ty + 0.5, cam);   // cell centre
@@ -1008,10 +1002,20 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
     } else {
       strokeTilePath(
         [{ x: hi.x, y: hi.y }, { x: hi.x + hi.w, y: hi.y }, { x: hi.x + hi.w, y: hi.y + hi.h }, { x: hi.x, y: hi.y + hi.h }, { x: hi.x, y: hi.y }],
-        '#ffffff', 1.75,
+        color, lineWidth,
       );
     }
     ctx.restore();
+  }
+  // The pinned selection outline (accent). Water selections are drawn by
+  // drawWaterSelection (downstream wash + ring), so skip them here.
+  function drawSelectionHit(): void {
+    if (!selected || selected.sel.kind === 'water') return;
+    strokeHighlight(selected.hi, COLORS.accent, 2.5, 10);
+  }
+  // The live hover highlight — a crisp white outline under the cursor (DIR-C).
+  function drawHover(): void {
+    if (hover) strokeHighlight(hover.hi, '#ffffff', 1.75, 8);
   }
 
   // ── GPU renderer + frame loop ─────────────────────────────────────────────────
@@ -1085,6 +1089,7 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
       drawOverlay();                          // humidity / cloud / temperature field
       drawFocus();                           // selected settlement/building outlines
       drawWaterSelection();                   // selected river/lake + downstream wash
+      drawSelectionHit();                     // pinned selection outline (any object)
       drawHover();                            // per-pixel hover highlight
     }
     rafId = requestAnimationFrame(frame);
