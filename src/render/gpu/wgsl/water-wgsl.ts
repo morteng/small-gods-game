@@ -114,6 +114,31 @@ fn sampleTerrainH(gx : f32, gy : f32) -> f32 {
   return mix(mix(h00, h10, tx), mix(h01, h11, tx), ty);
 }
 
+// Bilinearly sample the WATER-SURFACE height (the same way sampleTerrainH samples the
+// bed), so the waterline (surface − bed crossing) is a SMOOTH sub-cell contour instead
+// of the per-cell staircase the flat-per-cell surface produced. A DRY corner
+// (surfaceW < 0) falls back to its bed height, so the interpolated plane ramps down to
+// the ground at the bank — the depth crosses zero exactly at the real contour, at pixel
+// resolution. Wet interior cells bilerp honest neighbouring surfaces (a river's
+// downstream gradient, a lake's flat plane → still flat). De-jags rivers especially,
+// whose cell-to-cell surface steps used to show as blocky banks.
+fn sampleSurfaceW(gx : f32, gy : f32) -> f32 {
+  let W = u32(G.uGrid.x);
+  let H = u32(G.uGrid.y);
+  let fx = clamp(gx, 0.0, f32(W) - 1.001);
+  let fy = clamp(gy, 0.0, f32(H) - 1.001);
+  let x0 = u32(fx); let y0 = u32(fy);
+  let x1 = min(x0 + 1u, W - 1u); let y1 = min(y0 + 1u, H - 1u);
+  let tx = fx - f32(x0); let ty = fy - f32(y0);
+  let i00 = y0 * W + x0; let i10 = y0 * W + x1;
+  let i01 = y1 * W + x0; let i11 = y1 * W + x1;
+  var s00 = surfaceW[i00]; if (s00 < 0.0) { s00 = terrainH[i00]; }
+  var s10 = surfaceW[i10]; if (s10 < 0.0) { s10 = terrainH[i10]; }
+  var s01 = surfaceW[i01]; if (s01 < 0.0) { s01 = terrainH[i01]; }
+  var s11 = surfaceW[i11]; if (s11 < 0.0) { s11 = terrainH[i11]; }
+  return mix(mix(s00, s10, tx), mix(s01, s11, tx), ty);
+}
+
 fn liftPx(e : f32) -> f32 { return (e - G.uZParams.y) * G.uZParams.z * G.uZParams.x; }
 
 struct VSOut {
@@ -201,7 +226,7 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   // pixel resolution, not the cell grid. The one-ring shore dilation (fillShoreRing)
   // gives near-bank dry cells a water plane so BOTH sides of the line are covered.
   // Lakes ride the drought/flood-shifted surface; ocean stays at its datum.
-  var surfLvl = surfaceW[ci];
+  var surfLvl = sampleSurfaceW(in.vGrid.x, in.vGrid.y);
   if (typ == 2u || typ == 3u) { surfLvl = surfLvl + G.uWater.w; }
   let rawDepthN = surfLvl - sampleTerrainH(in.vGrid.x, in.vGrid.y);
   if (rawDepthN <= 0.0) { discard; }
