@@ -2,8 +2,9 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { generateWithNoise } from '@/map/map-generator';
 import { WaterType, type WorldSeed } from '@/core/types';
 import { heightField } from '@/render/gpu/terrain-field';
+import { buildRenderWaterTypeMemo, clearRenderWaterTypeCache } from '@/render/gpu/render-water-mask';
 import { clearHeightfieldCache } from '@/world/heightfield';
-import { getHydrologyResult, clearHydrologyCache } from '@/world/hydrology-store';
+import { clearHydrologyCache } from '@/world/hydrology-store';
 import { clearRoadDeformationCache } from '@/world/road-deformation';
 import {
   makeDetailElevSampler, computeDetailMask, coalescePatches,
@@ -18,6 +19,7 @@ beforeEach(() => {
   clearHeightfieldCache();
   clearHydrologyCache();
   clearRoadDeformationCache();
+  clearRenderWaterTypeCache();
 });
 
 describe('makeDetailElevSampler', () => {
@@ -92,7 +94,9 @@ describe('computeDetailMask', () => {
   it('flags only river/lake carves + banks, skips dry land away from water', async () => {
     const { map } = await generateWithNoise(96, 96, 3, { ...seed, size: { width: 96, height: 96 } });
     const W = map.width, H = map.height;
-    const wt = getHydrologyResult(map).waterType;
+    // The mask keys off the RENDER classification (smooth connectome rivers + lakes),
+    // not the raw raster — so assert flagging against that same source of truth.
+    const wt = buildRenderWaterTypeMemo(map);
     const mask = computeDetailMask(map, { bankRadius: 2 });
     const isCarve = (i: number): boolean => wt[i] === WaterType.River || wt[i] === WaterType.Lake;
 
@@ -121,7 +125,7 @@ describe('computeDetailMask', () => {
 
   it('flags river cells (sharp carve)', async () => {
     const { map } = await generateWithNoise(96, 96, 3, { ...seed, size: { width: 96, height: 96 } });
-    const wt = getHydrologyResult(map).waterType;
+    const wt = buildRenderWaterTypeMemo(map);
     const mask = computeDetailMask(map);
     let riverCells = 0, riverFlagged = 0;
     for (let i = 0; i < wt.length; i++) {

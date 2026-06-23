@@ -35,9 +35,9 @@ import {
 import { styledIslandSpec } from '@/terrain/island-mask';
 import { getWorldDeformationStore } from '@/world/road-deformation';
 import { heightAt, baseHeightAt } from '@/world/terrain-deformation';
-import { getHydrologyResult } from '@/world/hydrology-store';
 import { worldStyleOf } from '@/core/world-style';
 import { curveRenderElev } from '@/render/gpu/terrain-field';
+import { buildRenderWaterTypeMemo } from '@/render/gpu/render-water-mask';
 
 const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);
 const mix = (a: number, b: number, t: number): number => a + (b - a) * t;
@@ -129,6 +129,12 @@ export interface DetailMaskOpts {
   /** Tiles of margin stamped around each river/lake cell, so the carved BANKS get
    *  the fine mesh too (the carve brush spreads a couple tiles past the channel). */
   bankRadius?: number;
+  /** The RENDER water classification to flag (smooth connectome rivers + lake bodies,
+   *  including author-placed lakes). Defaults to the memoised render waterType — NOT
+   *  the raw D8 raster — so the fine mesh follows the smooth carved channel the
+   *  renderer actually draws, not the 90° drainage staircase. Pass the edited net's
+   *  classification (studio) to give a placed lake fine banks. */
+  waterType?: Uint8Array;
 }
 
 /**
@@ -138,11 +144,16 @@ export interface DetailMaskOpts {
  * one-quad-per-tile grid, so the detail patches stay sparse (a thin corridor along
  * each river + a ring around each lake) and cheap. Each carve cell is dilated by
  * `bankRadius` tiles. Row-major `Uint8Array[W*H]`, deterministic.
+ *
+ * Keys off the RENDER water classification (smooth connectome rivers + lake bodies),
+ * NOT the raw D8 raster: the carve follows the smooth centreline, so the fine mesh
+ * must follow it too — that is what de-jags diagonal rivers and gives connectome /
+ * author-placed lakes their fine banks.
  */
 export function computeDetailMask(map: GameMap, opts: DetailMaskOpts = {}): Uint8Array {
   const W = map.width, H = map.height;
   const bankRadius = opts.bankRadius ?? 2;
-  const waterType = getHydrologyResult(map).waterType;
+  const waterType = opts.waterType ?? buildRenderWaterTypeMemo(map);
 
   const mask = new Uint8Array(W * H);
   for (let y = 0; y < H; y++) {

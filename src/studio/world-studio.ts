@@ -260,13 +260,14 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
   // Adaptive detail-patch regions (coast/river/road/slope), memoised per world —
   // the same importance map the GPU detail pass instances. Drawn as a 2D overlay
   // so they're legible at any zoom, unlike the GPU patches (zoom ≥ 2 only).
-  let patchMemo: { map: GameMap; patches: DetailPatch[] } | null = null;
+  let patchMemo: { map: GameMap; version: number; patches: DetailPatch[] } | null = null;
   function detailPatches(): DetailPatch[] {
     if (!map) return [];
-    if (patchMemo && patchMemo.map === map) return patchMemo.patches;
-    const mask = computeDetailMask(map);
+    if (patchMemo && patchMemo.map === map && patchMemo.version === waterEditVersion) return patchMemo.patches;
+    // Same render classification the GPU detail pass keys off — incl. author-placed lakes.
+    const mask = computeDetailMask(map, { waterType: connectomeWaterOverride()?.waterType });
     const patches = coalescePatches(mask, map.width, map.height, DETAIL_PATCH_TILES);
-    patchMemo = { map, patches };
+    patchMemo = { map, version: waterEditVersion, patches };
     return patches;
   }
 

@@ -180,7 +180,7 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
     // hot regions, and `?nodetail` is the escape hatch. Sub-pixel at extreme
     // overview — the adaptive art-pixel resolution absorbs the cost.
     const detail = (terrain && !detailDisabled())
-      ? buildDetailField(map)
+      ? buildDetailField(map, rc.connectomeWater)
       : null;
     const tTerrain = performance.now();
 
