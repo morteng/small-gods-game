@@ -173,13 +173,38 @@ export function classifyReach(order: number, flow: number, threshold: number): R
 const CENTERLINE_SPACING = 0.5;
 
 /**
- * Catmull-Rom resample of a control polyline at a fixed arc-ish spacing. Endpoints are
- * duplicated for the tangent at the ends, so the curve passes through every control
- * point and stays inside the channel corridor (no overshoot blowups). Pure.
+ * Chaikin corner-cutting — rounds a polyline by replacing each interior corner with
+ * two points 1/4 and 3/4 along its edges, ENDPOINTS PRESERVED (so a reach still
+ * starts at its spring and ends at its mouth). The drainage path the raster hands us
+ * steps in 8 directions, so a diagonal river arrives as a 90° staircase; Catmull-Rom
+ * alone interpolates THROUGH those steps and keeps the jaggedness. Cutting the
+ * corners first turns the staircase into the smooth bends a real river cuts. Pure.
+ */
+function chaikin(pts: Pt[], iterations: number): Pt[] {
+  let cur = pts;
+  for (let it = 0; it < iterations; it++) {
+    if (cur.length < 3) break;
+    const next: Pt[] = [cur[0]];
+    for (let i = 0; i < cur.length - 1; i++) {
+      const a = cur[i], b = cur[i + 1];
+      next.push({ x: a.x * 0.75 + b.x * 0.25, y: a.y * 0.75 + b.y * 0.25 });
+      next.push({ x: a.x * 0.25 + b.x * 0.75, y: a.y * 0.25 + b.y * 0.75 });
+    }
+    next.push(cur[cur.length - 1]);
+    cur = next;
+  }
+  return cur;
+}
+
+/**
+ * Smooth a channel control polyline into a bendy centreline: round the D8 staircase
+ * with Chaikin corner-cutting, then Catmull-Rom resample at a fixed spacing for an
+ * even, sub-cell carve. Endpoints are duplicated for the end tangents so the curve
+ * passes through every (rounded) point and stays in the corridor. Pure.
  */
 export function smoothCenterline(control: Pt[], spacing = CENTERLINE_SPACING): Pt[] {
   if (control.length <= 2) return control.slice();
-  const p = control;
+  const p = chaikin(control, 2);
   const n = p.length;
   const at = (i: number): Pt => p[i < 0 ? 0 : i >= n ? n - 1 : i];
   const out: Pt[] = [{ x: p[0].x, y: p[0].y }];
