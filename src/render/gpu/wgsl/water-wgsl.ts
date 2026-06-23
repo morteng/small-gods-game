@@ -171,13 +171,18 @@ fn vsMain(@builtin(vertex_index) vid : u32) -> VSOut {
     case 4u: { corner = vec2<u32>(1u, 1u); }
     default: { corner = vec2<u32>(0u, 1u); }
   }
-  // Flat per-cell quad: all four corners ride this cell's surface height, so
-  // lakes are flat and wet/dry boundaries are clean (a quad is wholly wet or
-  // wholly discarded in the fragment).
   let gx = f32(cellX) + f32(corner.x) * f32(sub);
   let gy = f32(cellY) + f32(corner.y) * f32(sub);
+  // SMOOTH (Gouraud) water surface: lift each corner to the BILINEAR surface at the
+  // corner position — NOT the flat per-cell value. A shared corner then resolves to the
+  // same height in every quad that touches it, so the surface is continuous instead of a
+  // staircase of flat per-cell diamonds (the blocky facets at zoom). The bilinear sample
+  // ramps a wet-cell corner down to its dry neighbour's bed (the dry-fallback), so the
+  // plane tapers to the bank and the fragment clip below trims it to the pixel-perfect
+  // contour. (The fragment already samples the same surface per-pixel — this aligns the
+  // vertex lift with it.)
+  var surf = sampleSurfaceW(gx, gy);
   // Lakes (2) + rivers (3) ride the drought/flood-shifted inland plane; ocean is datum.
-  var surf = surfaceW[ci];
   if (wtype[ci] == 2u || wtype[ci] == 3u) { surf = surf + G.uWater.w; }
   let hPx = liftPx(surf);
 
