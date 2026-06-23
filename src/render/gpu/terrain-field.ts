@@ -18,7 +18,7 @@
 import type { GameMap, DevModeState } from '@/core/types';
 import { WaterType } from '@/core/types';
 import { TILE_COLORS, WATER_TYPES } from '@/core/constants';
-import { getHydrologyResult } from '@/world/hydrology-store';
+import { buildRenderWaterType } from '@/render/gpu/render-water-mask';
 import { effectiveTileType, RENDER_LAYERS, layerFlag } from '@/render/layer-visibility';
 import { ELEVATION_SEA_LEVEL, getClimateFields } from '@/world/heightfield';
 import { getComposedHeightfield } from '@/world/road-deformation';
@@ -225,10 +225,11 @@ export function packColorFieldMemo(map: GameMap, devMode?: DevModeState): Uint32
   const key = `${map.width}x${map.height}|` +
     RENDER_LAYERS.map((l) => (devMode?.[layerFlag(l)] === false ? '0' : '1')).join('');
   if (colorMemo && colorMemo.map === map && colorMemo.key === key) return colorMemo.colors;
-  // The hydrology classification (memoised, derived from seed) lets us paint LAKE
-  // basins as damp beds too — not just `'river'` tiles — so a drained lake shows
-  // ground. Derived from the map, so the memo key (map identity) stays valid.
-  const colors = packColorField(map, devMode, getHydrologyResult(map).waterType);
+  // The RENDER waterType (ocean + lakes from hydrology, rivers re-stamped along the
+  // smooth connectome centrelines) lets us paint LAKE basins + bendy river beds as
+  // damp ground — not the D8-staircased raster rivers. Derived from the map, so the
+  // memo key (map identity) stays valid.
+  const colors = packColorField(map, devMode, buildRenderWaterType(map));
   colorMemo = { map, key, colors };
   return colors;
 }

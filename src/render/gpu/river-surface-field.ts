@@ -27,6 +27,7 @@ import type { GameMap, HydrologyResult } from '@/core/types';
 import { WaterType } from '@/core/types';
 import { worldStyleOf } from '@/core/world-style';
 import { heightField, curveHeightBuffer } from '@/render/gpu/terrain-field';
+import { buildRenderWaterType } from '@/render/gpu/render-water-mask';
 import { getHydrologyResult } from '@/world/hydrology-store';
 import { getHeightfield, ELEVATION_SEA_LEVEL } from '@/world/heightfield';
 import { styledIslandSpec } from '@/terrain/island-mask';
@@ -51,6 +52,7 @@ const SMOOTH_PASSES = 2;
  */
 export function buildRiverSurfaceField(
   map: GameMap, heights?: Float32Array, hydro?: HydrologyResult, baseHeights?: Float32Array,
+  renderWaterType?: Uint8Array,
 ): Float32Array {
   const W = map.width, H = map.height;
   const h = heights ?? heightField(map);
@@ -70,7 +72,10 @@ export function buildRiverSurfaceField(
     ELEVATION_SEA_LEVEL, style.terrainHeightGamma,
   );
 
-  const wt = hy.waterType, drain = hy.drainTo;
+  // The plateau FOOTPRINT follows the render waterType (rivers re-stamped along the
+  // smooth connectome centrelines) when supplied — so the swept surface is bendy, not
+  // a D8 staircase. Bank levels still read `drainTo` (the raster flow), valid per cell.
+  const wt = renderWaterType ?? hy.waterType, drain = hy.drainTo;
   const isRiver = (i: number): boolean => wt[i] === WaterType.River;
 
   // Default surface = terrain (so a sample off the channel discards in-shader).
@@ -157,7 +162,7 @@ export function buildRiverSurfaceFieldMemo(map: GameMap): Float32Array | null {
   const k = `${map.seed}:${map.width}x${map.height}`;
   let f = cache.get(k);
   if (f) return f;
-  f = buildRiverSurfaceField(map, heightField(map), hy);
+  f = buildRiverSurfaceField(map, heightField(map), hy, undefined, buildRenderWaterType(map));
   cache.set(k, f);
   if (cache.size > CACHE_CAP) {
     const oldest = cache.keys().next().value;

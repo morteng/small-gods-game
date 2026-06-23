@@ -29,7 +29,7 @@ import { buildWaterNetwork, type ReachClass, type Pt, type WaterNetwork } from '
  *  render-space water surface (river-surface-field) fills the channel back to a
  *  bank-referenced line, so a deeper carve deepens the *valley*, not the apparent
  *  water depth. */
-const REACH_CARVE: Record<ReachClass, { depthM: number; halfWidth: number }> = {
+export const REACH_CARVE: Record<ReachClass, { depthM: number; halfWidth: number }> = {
   brook: { depthM: 1.0, halfWidth: 0.6 },
   stream: { depthM: 2.2, halfWidth: 1.1 },
   river: { depthM: 4.0, halfWidth: 1.9 },
