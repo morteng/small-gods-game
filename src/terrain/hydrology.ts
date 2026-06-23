@@ -18,6 +18,13 @@ import type { TerrainField, TerrainConfig, HydrologyResult } from '@/core/types'
 import { WaterType } from '@/core/types';
 
 const DEFAULT_RIVER_FLOW_THRESHOLD = 500;
+// Headwater taper: a river is extended UPSTREAM (as a thin source trickle) down to
+// this fraction of the river threshold, so a stream visibly ORIGINATES from a thin
+// headwater high on the slope and grows downstream — instead of "popping out of the
+// ground" at full channel width the instant flow crosses the threshold. Only cells
+// whose drainage actually reaches a real river downstream are promoted, so isolated
+// gullies that never become a river are NOT turned into rivers.
+const HEADWATER_FLOW_FRACTION = 0.22;
 // Minimum filled depth (normalized elevation) for a cell to count as a lake.
 // Pit-fill raises flat runs by PIT_FILL_EPSILON per cell, so a long flat valley
 // accumulates a small W−elevation gap that is NOT a lake. A genuine basin is
@@ -210,12 +217,45 @@ export function generateHydrology(
     if (target >= 0) flowField[target] += flowField[i];
   }
 
-  // 4. Mark river tiles where flow accumulation exceeds threshold.
-  //    Water tiles (already wet) are never marked.
+  // 4. Mark river tiles where flow reaches the threshold, then TAPER each river up to
+  //    a thin headwater source. We do NOT simply lower the threshold (that recruits
+  //    lateral cells draining INTO the channel and bloats its width); instead, from
+  //    every SOURCE cell (a river whose dominant upstream donor isn't already a river)
+  //    we walk upstream along the single largest-flow donor, marking a ONE-cell trickle
+  //    until the flow falls below the headwater floor. Result: every river originates
+  //    as a thin source high on the slope and grows downstream, while the channel keeps
+  //    its flow-derived width (no blocky widening).
   const riverMask = new Uint8Array(total);
   for (let i = 0; i < total; i++) {
-    if (elevation[i] < seaLevel) continue;
-    if (flowField[i] >= riverFlowThreshold) riverMask[i] = 1;
+    if (elevation[i] >= seaLevel && flowField[i] >= riverFlowThreshold) riverMask[i] = 1;
+  }
+  // A trickle must carry more flow than a lone ridge cell (1), so headwaters stop just
+  // shy of the drainage divide rather than painting every ridgetop.
+  const headwaterFloor = Math.max(2, riverFlowThreshold * HEADWATER_FLOW_FRACTION);
+  // The upstream donor (4-neighbour draining into c) carrying the most flow, or -1.
+  const dominantDonor = (c: number): number => {
+    const cx = c % width, cy = (c / width) | 0;
+    let best = -1, bestF = -1;
+    const tryN = (n: number): void => {
+      if (drainTo[n] === c && flowField[n] > bestF) { bestF = flowField[n]; best = n; }
+    };
+    if (cy > 0) tryN(c - width);
+    if (cy < height - 1) tryN(c + width);
+    if (cx > 0) tryN(c - 1);
+    if (cx < width - 1) tryN(c + 1);
+    return best;
+  };
+  const trunk = riverMask.slice();   // sources are found against the threshold rivers only
+  for (let i = 0; i < total; i++) {
+    if (!trunk[i]) continue;
+    const up = dominantDonor(i);
+    if (up >= 0 && trunk[up]) continue;        // not a source — its main donor is already a river
+    let c = dominantDonor(i), guard = 0;       // a source: trace the trickle upslope
+    while (c >= 0 && elevation[c] >= seaLevel && flowField[c] >= headwaterFloor
+           && !riverMask[c] && guard++ < total) {
+      riverMask[c] = 1;
+      c = dominantDonor(c);
+    }
   }
 
   // ── Water S0: derive the render-facing water data model from W / drainTo. ──
