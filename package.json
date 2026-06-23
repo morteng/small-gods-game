@@ -1,8 +1,9 @@
 {
   "name": "small-gods-game",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "description": "Small Gods - Isometric Game with AI-Powered Map Generation",
   "type": "module",
+  "main": "electron/main.cjs",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
@@ -10,11 +11,36 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "build:electron": "tsc && VITE_BASE=/ vite build",
+    "electron:dev": "SG_DEV_URL=http://localhost:3000 electron .",
+    "electron:preview": "npm run build:electron && electron .",
+    "dist:linux": "npm run build:electron && electron-builder --linux AppImage",
+    "release": "commit-and-tag-version"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
+  "build": {
+    "appId": "com.smallgods.game",
+    "productName": "Small Gods",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Game",
+      "icon": "src-tauri/icons/icon.png",
+      "artifactName": "small-gods-${version}-${arch}.${ext}"
+    }
+  },
   "devDependencies": {
     "@playwright/test": "^1.60.0",
     "@tauri-apps/api": "^2.11.0",
@@ -23,6 +49,9 @@
     "@types/pngjs": "^6.0.5",
     "@vitest/ui": "^4.0.18",
     "@webgpu/types": "^0.1.70",
+    "commit-and-tag-version": "^12.7.3",
+    "electron": "^42.4.1",
+    "electron-builder": "^26.15.3",
     "fake-indexeddb": "^6.2.5",
     "jsdom": "^27.4.0",
     "playwright": "^1.60.0",

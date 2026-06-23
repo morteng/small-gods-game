@@ -1,0 +1,17 @@
+{
+  "header": "# Changelog\n",
+  "types": [
+    { "type": "feat", "section": "Features" },
+    { "type": "fix", "section": "Bug Fixes" },
+    { "type": "perf", "section": "Performance" },
+    { "type": "refactor", "section": "Refactoring", "hidden": false },
+    { "type": "docs", "hidden": true },
+    { "type": "test", "hidden": true },
+    { "type": "chore", "hidden": true },
+    { "type": "style", "hidden": true },
+    { "type": "build", "hidden": true },
+    { "type": "ci", "hidden": true }
+  ],
+  "commitUrlFormat": "https://github.com/morteng/small-gods-game/commit/{{hash}}",
+  "compareUrlFormat": "https://github.com/morteng/small-gods-game/compare/{{previousTag}}...{{currentTag}}"
+}
