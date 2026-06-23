@@ -9,7 +9,7 @@
 // a privileged `app://` origin. We can't use file:// because Chromium blocks fetch()
 // on file URLs, and the game fetches world JSON + asset manifests at runtime.
 
-const { app, BrowserWindow, protocol, net, shell } = require('electron');
+const { app, BrowserWindow, protocol, net, shell, dialog } = require('electron');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 
@@ -51,7 +51,44 @@ function createWindow() {
     win.webContents.openDevTools();
   } else {
     win.loadURL('app://sg/index.html');
+    initAutoUpdate(win);
   }
+}
+
+// Self-update for direct AppImage downloads (itch-app installs are updated by itch
+// itself, so this is a no-op there — both can coexist). electron-updater reads the
+// feed baked in from build.publish (GitHub Releases). Only meaningful in a packaged
+// AppImage: a plain `electron .` preview has no app-update.yml, and on Linux only the
+// AppImage target is self-updatable — so we bail early everywhere else.
+function initAutoUpdate(win) {
+  if (!app.isPackaged || !process.env.APPIMAGE) return;
+  const { autoUpdater } = require('electron-updater');
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+
+  autoUpdater.on('update-downloaded', async (info) => {
+    // Never swap the bundle out from under the player silently — ask, then restart.
+    const { response } = await dialog.showMessageBox(win, {
+      type: 'info',
+      buttons: ['Restart now', 'Later'],
+      defaultId: 0,
+      cancelId: 1,
+      title: 'Update ready',
+      message: `Small Gods ${info.version} is ready.`,
+      detail: 'Restart to apply it — your world is autosaved.',
+    });
+    if (response === 0) autoUpdater.quitAndInstall();
+  });
+
+  // A dead feed (offline, repo gone private, first release not cut yet) must never
+  // break launch — log and move on.
+  autoUpdater.on('error', (err) => {
+    console.error('[auto-update]', err == null ? 'unknown error' : (err.stack || err).toString());
+  });
+
+  autoUpdater.checkForUpdatesAndNotify().catch((err) => {
+    console.error('[auto-update] check failed', err);
+  });
 }
 
 app.whenReady().then(() => {

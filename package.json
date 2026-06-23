@@ -15,7 +15,7 @@
     "build:electron": "tsc && VITE_BASE=/ vite build",
     "electron:dev": "SG_DEV_URL=http://localhost:3000 electron .",
     "electron:preview": "npm run build:electron && electron .",
-    "dist:linux": "npm run build:electron && electron-builder --linux AppImage",
+    "dist:linux": "npm run build:electron && electron-builder --linux AppImage --publish never",
     "release": "commit-and-tag-version"
   },
   "keywords": [],
@@ -31,6 +31,13 @@
       "dist/**/*",
       "electron/**/*",
       "package.json"
+    ],
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "morteng",
+        "repo": "small-gods-game"
+      }
     ],
     "linux": {
       "target": [
@@ -62,6 +69,7 @@
     "vitest": "^4.0.18"
   },
   "dependencies": {
+    "electron-updater": "^6.8.9",
     "manifold-3d": "^3.5.1",
     "webaudio-tinysynth": "^1.1.3"
   }

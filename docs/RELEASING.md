@@ -39,8 +39,30 @@ git push --follow-tags origin main
 
 Pushing the `v*` tag fires `release.yml` on `ubuntu-latest`: it runs `npm run dist:linux`
 (`tsc` → `vite build` with `VITE_BASE=/` → `electron-builder --linux AppImage`), attaches
-`release/small-gods-<version>-x64.AppImage` to a GitHub Release, and — once itch is wired —
-pushes it to itch.io.
+`release/small-gods-<version>-x64.AppImage` **and `release/latest-linux.yml`** to a GitHub
+Release, and — once itch is wired — pushes the AppImage to itch.io.
+
+## Self-update (desktop)
+
+The desktop app updates itself, no store required:
+
+- **itch.io installs** are updated by the **itch desktop app** automatically (delta patches).
+  Nothing in our code is involved.
+- **Direct AppImage downloads** self-update via
+  [`electron-updater`](https://www.electron.build/auto-update). On launch the packaged app
+  reads `latest-linux.yml` off the **latest GitHub Release** (the feed baked in from
+  `build.publish` in `package.json`), downloads a newer AppImage in the background, and
+  prompts *"Update ready — Restart now / Later"*. The two mechanisms coexist; on an itch
+  install the in-app updater simply finds nothing to do.
+
+It only runs in a packaged AppImage (`app.isPackaged && $APPIMAGE`) — `electron:preview` and
+the dev server skip it — and a dead/unreachable feed is logged, never fatal to launch.
+
+> **This ties the update feed to *public* GitHub Releases.** electron-updater fetches the
+> release asset anonymously, so the assets must be downloadable without auth. If you take the
+> source repo private (below), move releases to a **public** repo and repoint `build.publish`
+> `owner`/`repo` there — the split-repo path already covers this. itch-app users are
+> unaffected either way.
 
 ## Local desktop testing (macOS dev box)
 

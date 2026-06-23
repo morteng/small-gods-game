@@ -29,10 +29,14 @@ jobs:
       - name: Build Linux AppImage
         run: npm run dist:linux
 
+      # The AppImage is the download; latest-linux.yml is the self-update feed that
+      # electron-updater reads off the Release (see build.publish in package.json).
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: release/*.AppImage
+          files: |
+            release/*.AppImage
+            release/latest-linux.yml
           generate_release_notes: true
 
       # itch.io is the public download channel (source repo can stay private).
