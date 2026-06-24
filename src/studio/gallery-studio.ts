@@ -28,6 +28,7 @@ import { toGeometry } from '@/blueprint/compile/to-geometry';
 import { composeStructure } from '@/assetgen/compose';
 import { structureResultToPack } from '@/render/parametric-building-source';
 import type { SpritePack } from '@/render/iso/sprite-canvas';
+import { MOUNT_ROLE_COLOR } from '@/render/mount-anchor-overlay';
 import { initManifoldWasm } from '@/assetgen/geometry/manifold-wasm-browser';
 import { injectStudioTheme, COLORS, h } from './theme';
 
@@ -100,7 +101,12 @@ export function mountGalleryStudio(container: HTMLElement, opts: GalleryStudioOp
     text: '',
     subject: '' as string,   // '' = sheet of all matches; else a single type
     axis: null as AxisKey | null,
+    tags: false,             // overlay mount sockets (sign/lamp/perch/smoke) on each thumb
   };
+
+  // Rendered cells, so toggling the mount-socket overlay redraws in place without re-baking.
+  const rendered = new Map<HTMLCanvasElement, SpritePack>();
+  const redrawAll = (): void => { for (const [cv, pack] of rendered) drawPack(cv, pack); };
 
   // ── thumbnail bake: lazy + concurrency-capped + cached by blueprint JSON ─────
   const cache = new Map<string, SpritePack | null>();
@@ -123,7 +129,21 @@ export function mountGalleryStudio(container: HTMLElement, opts: GalleryStudioOp
     const src = pack.albedo, sw = src.width, sh = src.height, pad = 12;
     const s = Math.min((cv.width - pad * 2) / sw, (cv.height - pad * 2) / sh);
     const dw = Math.max(1, Math.round(sw * s)), dh = Math.max(1, Math.round(sh * s));
-    g.drawImage(src, Math.round((cv.width - dw) / 2), Math.round(cv.height - pad - dh), dw, dh);
+    const dx = Math.round((cv.width - dw) / 2), dy = Math.round(cv.height - pad - dh);
+    g.drawImage(src, dx, dy, dw, dh);
+    // Mount-socket overlay: tags are normalised (0..1) to the SAME crop as the albedo, so a
+    // tag maps onto the blitted sprite by the same dx/dy/dw/dh. Toggle-gated; a stem from the
+    // foot up to the socket reads the height, the dot coloured by role.
+    if (state.tags && pack.tags?.length) {
+      for (const t of pack.tags) {
+        const px = dx + t.x * dw, py = dy + t.y * dh;
+        const footY = dy + dh;
+        g.strokeStyle = 'rgba(255,255,255,.35)'; g.lineWidth = 1;
+        g.beginPath(); g.moveTo(px, py); g.lineTo(px, footY); g.stroke();
+        g.fillStyle = MOUNT_ROLE_COLOR[t.kind] ?? '#fff';
+        g.beginPath(); g.arc(px, py, 2.6, 0, Math.PI * 2); g.fill();
+      }
+    }
   }
   function drawNote(cv: HTMLCanvasElement, note: string, colour: string): void {
     const g = cv.getContext('2d'); if (!g) return;
@@ -170,7 +190,7 @@ export function mountGalleryStudio(container: HTMLElement, opts: GalleryStudioOp
           cache.set(key, pack);
         }
         if (disposed) return;
-        if (pack) drawPack(cv, pack); else drawNote(cv, '✕ no geometry', '#c2603a');
+        if (pack) { rendered.set(cv, pack); drawPack(cv, pack); } else drawNote(cv, '✕ no geometry', '#c2603a');
       });
       pump();
     });
@@ -181,6 +201,7 @@ export function mountGalleryStudio(container: HTMLElement, opts: GalleryStudioOp
   // ── grid build ───────────────────────────────────────────────────────────────
   function renderGrid(): void {
     io?.disconnect();
+    rendered.clear();
     io = new IntersectionObserver((obs) => {
       for (const o of obs) if (o.isIntersecting) cellRun.get(o.target)?.();
     }, { root: grid, rootMargin: '300px' });
@@ -224,6 +245,16 @@ export function mountGalleryStudio(container: HTMLElement, opts: GalleryStudioOp
   search.oninput = () => { state.text = search.value.trim().toLowerCase(); if (!state.subject) renderGrid(); };
   panel.appendChild(search);
 
+  // Mount-socket overlay toggle — draws the sign/lamp/perch/smoke sockets on every thumb.
+  const tagsBox = h('input', { attrs: { type: 'checkbox', id: 'sg-gal-tags' } }) as HTMLInputElement;
+  tagsBox.onchange = () => { state.tags = tagsBox.checked; redrawAll(); };
+  const tagsLbl = h('label', {
+    style: 'display:flex;align-items:center;gap:6px;margin-bottom:9px;cursor:pointer;color:var(--ink-0)',
+    attrs: { for: 'sg-gal-tags' }, text: 'Mount sockets',
+  });
+  tagsLbl.prepend(tagsBox);
+  panel.appendChild(tagsLbl);
+
   // Matrix controls: subject + axis. Subject options follow the class/text filter.
   panel.appendChild(h('div', { style: 'border-top:1px solid var(--line);margin:4px 0 7px' }));
   panel.appendChild(h('div', { class: 'sg-eyebrow', style: 'margin-bottom:5px', text: 'Variant matrix' }));
@@ -265,11 +296,21 @@ export function mountGalleryStudio(container: HTMLElement, opts: GalleryStudioOp
   syncSubject();
   renderGrid();
 
+  // Scripting hook (studio-only, like __worldStudio): flip the mount-socket overlay.
+  (window as unknown as { __gallery?: unknown }).__gallery = {
+    tags(on?: boolean): boolean {
+      state.tags = on ?? !state.tags;
+      tagsBox.checked = state.tags; redrawAll();
+      return state.tags;
+    },
+  };
+
   return {
     dispose(): void {
       disposed = true;
       io?.disconnect();
       jobs.length = 0;
+      delete (window as unknown as { __gallery?: unknown }).__gallery;
     },
   };
 }

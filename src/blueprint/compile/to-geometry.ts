@@ -13,6 +13,7 @@ import { isOpening } from '../features/opening';
 import { apertureToBox } from '../wall-geometry';
 import { STOREY } from '@/assetgen/geometry/building';
 import { mToTiles } from '@/render/scale-contract';
+import { toMountAnchors } from './to-mount-anchors';
 
 /** Storey height (tiles) for a wall-bearing body/wing part. */
 function storeyTilesOf(part: ResolvedPart): number {
@@ -220,5 +221,8 @@ export function toGeometry(rb: ResolvedBlueprint, opts?: { skirt?: SkirtOpts }):
     parts.unshift(...skirts);
   }
 
-  return { parts };
+  // Mount sockets (sign/lamp/perch/smoke/…) derived from the SAME resolved geometry, in the
+  // blueprint-local frame (origin 0,0 = footprint top-left) so they share the wings' tile
+  // coords. composeStructure projects them onto the sprite as `anchors.tags`.
+  return { parts, mountAnchors: toMountAnchors(rb, 0, 0) };
 }

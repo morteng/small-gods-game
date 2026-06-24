@@ -16,6 +16,8 @@ import { computeAO } from '@/assetgen/render/ao';
 import { applyWeathering, weatherSeed, type WeatherOpts } from '@/assetgen/render/weathering';
 import { computeFit, fixedFit, opaqueBounds, type BBox } from '@/assetgen/render/fit';
 import { composeGroundShadow, type GroundShadow } from '@/assetgen/render/ground-shadow';
+import { mToTiles } from '@/render/scale-contract';
+import type { Anchor, MountAnchorKind } from '@/world/anchors';
 
 export type Part =
   | { prim: 'box'; at: Vec3; size: Vec3; material?: Mat; apertures?: ApertureBox[]; yaw?: number }
@@ -37,14 +39,21 @@ export type Part =
 /** World-space linear-structure anchors (wall ends + gate openings), pre-normalisation. */
 export interface LinearWorldAnchors { wallEnds: Vec3[]; gates: Vec3[] }
 
-export interface StructureSpec { id?: string; size?: number; parts: Part[] }
+/** `mountAnchors` (optional) are WORLD-space height-bearing sockets (lintel/ridge/gable/eave/
+ *  chimney/apex) in the blueprint-local tile frame with metric `z`; compose projects them
+ *  through the SAME fit as the geometry into `StructureAnchors.tags` (the sprite-normalised
+ *  downstream projection the 2026-06-13 anchor-tags spec wanted persisted in the SpritePack). */
+export interface StructureSpec { id?: string; size?: number; parts: Part[]; mountAnchors?: Anchor[] }
 /** Feature anchors normalised (0..1) against the sprite's opaque bbox, so they survive a repaint + crop. */
 export interface NormAnchor { x: number; y: number }
 export interface DoorAnchorN extends NormAnchor { main: boolean }
+/** A mount socket projected onto the sprite: normalised x/y (opaque-bbox 0..1) plus the role
+ *  and the `accepts` tokens + metric `z` carried over for a decoration/fauna pass to read. */
+export interface MountAnchorN extends NormAnchor { kind: MountAnchorKind; z: number; accepts?: string[] }
 /** `doors` is retained for shape-compat but is always empty now: doors became carved
  *  openings (Blueprint layer) and their pathing anchors live in the world-space `toAnchors`
- *  compiler, not in the sprite-space structure anchors. */
-export interface StructureAnchors { doors: DoorAnchorN[]; vents: NormAnchor[]; wallEnds?: NormAnchor[]; gates?: NormAnchor[] }
+ *  compiler, not in the sprite-space structure anchors. `tags` = the projected mount sockets. */
+export interface StructureAnchors { doors: DoorAnchorN[]; vents: NormAnchor[]; wallEnds?: NormAnchor[]; gates?: NormAnchor[]; tags?: MountAnchorN[] }
 export interface StructureMeta {
   bbox: BBox; anchors: StructureAnchors;
   /** Raw view-depth span the per-sprite depth channel was normalised over (absent if the render is empty). */
@@ -237,6 +246,15 @@ export async function composeStructure(spec: StructureSpec, shadowSun?: [number,
       (anchors.wallEnds ??= []).push(...part.linearAnchors.wallEnds.map(norm));
       (anchors.gates ??= []).push(...part.linearAnchors.gates.map(norm));
     }
+  }
+  // Mount sockets (sign/lamp/perch/smoke). World-space, blueprint-local tile XY + metric z;
+  // lift z into the geometry's tile frame (mToTiles) so it projects through the SAME fit as
+  // the facets, landing on the real ridge/eave/lintel in the sprite. Normalised like the rest.
+  if (spec.mountAnchors?.length) {
+    anchors.tags = spec.mountAnchors.map((a): MountAnchorN => ({
+      ...norm([a.x, a.y, mToTiles(a.z ?? 0)]),
+      kind: a.kind as MountAnchorKind, z: a.z ?? 0, ...(a.accepts ? { accepts: a.accepts } : {}),
+    }));
   }
 
   return { grey, normal, material: maps.material, emissive: maps.emissive, size, meta: { bbox, anchors, depthRange }, bbox, anchors, shadow };
