@@ -1,0 +1,54 @@
+name: Release (Linux desktop)
+
+# Tag-triggered ONLY. This is the only extra Actions usage we add — it runs on a
+# `v*` tag (a rare event), never on push. Cut a release locally with
+# `npm run release` then `git push --follow-tags` (see docs/RELEASING.md).
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write # create the GitHub Release and upload the AppImage
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      # tsc + vite build (VITE_BASE=/) then electron-builder → release/*.AppImage
+      - name: Build Linux AppImage
+        run: npm run dist:linux
+
+      # The AppImage is the download; latest-linux.yml is the self-update feed that
+      # electron-updater reads off the Release (see build.publish in package.json).
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release/*.AppImage
+            release/latest-linux.yml
+          generate_release_notes: true
+
+      # itch.io is the public download channel (source repo can stay private).
+      # Skips automatically until the ITCH_TARGET repo variable + BUTLER_API_KEY
+      # secret are set (see docs/RELEASING.md).
+      - name: Publish to itch.io
+        if: ${{ vars.ITCH_TARGET != '' }}
+        env:
+          BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
+          ITCH_TARGET: ${{ vars.ITCH_TARGET }}
+        run: |
+          curl -sL -o butler.zip https://broth.itch.zone/butler/linux-amd64/LATEST/archive/default
+          unzip -q butler.zip
+          chmod +x butler
+          ./butler push release/*.AppImage "$ITCH_TARGET" --userversion "${GITHUB_REF_NAME#v}"

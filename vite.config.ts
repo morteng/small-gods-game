@@ -25,7 +25,10 @@ export default defineConfig(({ command, mode }) => {
     build: {
       outDir: 'dist',
       emptyOutDir: true,
-      sourcemap: true,
+      // Production builds ship NO source maps so the public bundle (Pages /
+      // desktop) doesn't hand out readable TS. Opt back in with VITE_SOURCEMAP=1
+      // for a debuggable build. (Has no effect on the dev server.)
+      sourcemap: process.env.VITE_SOURCEMAP === '1',
     },
     resolve: {
       alias: { '@': resolve(__dirname, 'src') },

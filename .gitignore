@@ -51,3 +51,6 @@ var/
 # Local scratch / asset-gen probe outputs
 tmp/
 .tmp/
+
+# Electron desktop build output
+/release/
