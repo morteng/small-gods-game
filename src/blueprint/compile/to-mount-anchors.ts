@@ -64,7 +64,7 @@ export function toMountAnchors(rb: ResolvedBlueprint, originX: number, originY: 
     }
 
     if (!isRoofedMass(part)) continue;
-    const { ridgeM } = bodyHeights(part);
+    const { eaveM, ridgeM } = bodyHeights(part);
     const plan = part.params.plan as string | undefined;
     const ox = originX + part.at.x, oy = originY + part.at.y;
     const w = part.size.w, h = part.size.h;
@@ -98,7 +98,17 @@ export function toMountAnchors(rb: ResolvedBlueprint, originX: number, originY: 
       const y = ridgeAlongX ? cy : oy + t * h;
       out.push({ kind: 'chimney_top', x, y, facing: [0, 0], z: ridgeM + CHIMNEY_STACK_M, accepts: ['smoke', 'perch'] });
     }
-    // (eave-bracket sockets — lamp/perch along the wall-top at height `eaveM` — next increment.)
+
+    // 5. Eave sockets at the two long-wall midpoints (the roof's lower edges) — bracket a
+    //    lamp, hang a sign arm, or let a bird perch on the wall-top. The eave walls run
+    //    PARALLEL to the ridge, so they face across the ridge axis.
+    if (ridgeAlongX) {
+      out.push({ kind: 'eave', x: cx, y: oy,     facing: [0, -1], z: eaveM, accepts: ['lamp', 'bracket', 'perch'] });
+      out.push({ kind: 'eave', x: cx, y: oy + h, facing: [0, 1],  z: eaveM, accepts: ['lamp', 'bracket', 'perch'] });
+    } else {
+      out.push({ kind: 'eave', x: ox,     y: cy, facing: [-1, 0], z: eaveM, accepts: ['lamp', 'bracket', 'perch'] });
+      out.push({ kind: 'eave', x: ox + w, y: cy, facing: [1, 0],  z: eaveM, accepts: ['lamp', 'bracket', 'perch'] });
+    }
   }
   return out;
 }

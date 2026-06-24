@@ -69,6 +69,17 @@ describe('toMountAnchors — sockets a sign/lamp/banner/bird attaches to', () =>
     expect(peaks.map(p => p.facing).sort()).toEqual([[0, -1], [0, 1]]);  // ridge along y
   });
 
+  it('brackets two eave sockets on the long walls, below the ridge', () => {
+    const m = toMountAnchors(resolveBlueprint([gableCottage], 0), 10, 20);
+    const eaves = m.filter(a => a.kind === 'eave');
+    expect(eaves).toHaveLength(2);
+    // wide body (ridge along x) ⇒ eave walls face ∓y
+    expect(eaves.map(e => e.facing).sort()).toEqual([[0, -1], [0, 1]]);
+    const ridge = m.find(a => a.kind === 'roof_ridge')!;
+    expect(eaves.every(e => e.z! < ridge.z!)).toBe(true);   // eave sits below the crest
+    expect(eaves[0].accepts).toEqual(['lamp', 'bracket', 'perch']);
+  });
+
   it('every roofed building offers a perch — a place for a bird to land', () => {
     const m = toMountAnchors(resolveBlueprint([gableCottage], 0), 10, 20);
     expect(m.some(a => a.accepts?.includes('perch'))).toBe(true);
