@@ -224,8 +224,8 @@ export function buildEntityDrawList(
     }
   }
 
-  // Roads are no longer poly DrawItems: they render in the dedicated GPU ribbon
-  // pass (T7, `road-ribbon-field` → `ribbon-wgsl`), a terrain-following parametric
-  // surface lifted + iso-projected on the GPU. See gpu-render-frame / gpu-scene.
+  // Roads are not DrawItems at all: a road IS the terrain — carved by `road-deformation`
+  // and textured by the terrain shader (roadSurface pavedness + the material-exemplar
+  // atlas). The old GPU ribbon pass was retired (2026-06-25). See gpu-render-frame.
   return items;
 }

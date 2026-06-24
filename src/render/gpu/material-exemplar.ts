@@ -1,7 +1,7 @@
 // src/render/gpu/material-exemplar.ts
 //
-// Tileable MATERIAL-EXEMPLAR layer — the generalisation of the road material atlas
-// (`road-material-atlas.ts`) to terrain materials too. Each material is a small,
+// Tileable MATERIAL-EXEMPLAR layer — seamless procedural surface swatches for terrain
+// AND road materials (it superseded + replaced the old road-material atlas). Each is small,
 // SEAMLESS (toroidal) swatch carrying albedo + a local-frame normal, built procedurally
 // with the shared seamless primitives in `material-noise.ts`. No `Math.random`.
 //

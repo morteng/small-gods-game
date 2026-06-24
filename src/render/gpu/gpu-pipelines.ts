@@ -18,8 +18,6 @@ import { TERRAIN_WGSL } from '@/render/gpu/wgsl/terrain-wgsl';
 import { DETAIL_PATCH_WGSL } from '@/render/gpu/wgsl/detail-patch-wgsl';
 import { WATER_WGSL } from '@/render/gpu/wgsl/water-wgsl';
 import { OCEAN_BACKDROP_WGSL } from '@/render/gpu/wgsl/ocean-backdrop-wgsl';
-import { RIBBON_WGSL } from '@/render/gpu/wgsl/ribbon-wgsl';
-import { RIBBON_FLOATS_PER_VERTEX } from '@/render/ribbon/ribbon-geometry';
 import { SHADOW_WGSL } from '@/render/gpu/wgsl/shadow-wgsl';
 import { SHAPE_WGSL } from '@/render/gpu/wgsl/shape-wgsl';
 import { BLIT_WGSL } from '@/render/gpu/wgsl/blit-wgsl';
@@ -141,38 +139,6 @@ export function createOceanBackdropPipeline(device: GPUDevice, format: GPUTextur
     vertex: { module, entryPoint: 'vsMain' },
     fragment: { module, entryPoint: 'fsMain', targets: [{ format }] },
     primitive: { topology: 'triangle-list' },
-  });
-}
-
-/** Ribbon pipeline (T7): swept road/river ribbons. Interleaved vertex layout
- *  (RIBBON_FLOATS_PER_VERTEX f32): pos, across, along, width, tangent, speed, tag.
- *  Same depth contract as water (load terrain depth, greater-equal, no write) so the
- *  ribbon sits ON the ground without disturbing the entity depth reset. Alpha-blended
- *  so the feathered banks melt into the terrain. */
-export function createRibbonPipeline(device: GPUDevice, format: GPUTextureFormat): GPURenderPipeline {
-  const module = device.createShaderModule({ code: RIBBON_WGSL });
-  const RBN_STRIDE = RIBBON_FLOATS_PER_VERTEX * 4;
-  return device.createRenderPipeline({
-    layout: 'auto',
-    vertex: {
-      module,
-      entryPoint: 'vsMain',
-      buffers: [{
-        arrayStride: RBN_STRIDE,
-        attributes: [
-          { shaderLocation: 0, offset: 0, format: 'float32x2' },  // pos
-          { shaderLocation: 1, offset: 8, format: 'float32' },    // across
-          { shaderLocation: 2, offset: 12, format: 'float32' },   // along
-          { shaderLocation: 3, offset: 16, format: 'float32' },   // width
-          { shaderLocation: 4, offset: 20, format: 'float32x2' }, // tangent
-          { shaderLocation: 5, offset: 28, format: 'float32' },   // speed
-          { shaderLocation: 6, offset: 32, format: 'float32x2' }, // tag
-        ],
-      }],
-    },
-    fragment: { module, entryPoint: 'fsMain', targets: [{ format, blend: PREMULT_BLEND }] },
-    primitive: { topology: 'triangle-list' },
-    depthStencil: { format: DEPTH_FORMAT, depthWriteEnabled: false, depthCompare: 'greater-equal' },
   });
 }
 

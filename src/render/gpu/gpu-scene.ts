@@ -24,8 +24,6 @@ import {
   QUAD_STRIP, QUAD_VERTEX_COUNT, INSTANCE_STRIDE,
 } from '@/render/gpu/instance-buffer';
 import type { DetailField } from '@/render/gpu/detail-field';
-import type { RibbonMesh } from '@/render/ribbon/ribbon-geometry';
-import { roadMaterialAtlas } from '@/render/gpu/road-material-atlas';
 import {
   buildShadowBatches, packShadowInstances, SHADOW_ALPHA,
   SHADOW_INSTANCE_STRIDE, type ShadowBatch,
@@ -34,7 +32,7 @@ import { buildShapeVertices } from '@/render/gpu/shape-geometry';
 import {
   DEPTH_FORMAT,
   createSpritePipeline, createTerrainPipeline, createDetailPatchPipeline,
-  createWaterPipeline, createOceanBackdropPipeline, createRibbonPipeline,
+  createWaterPipeline, createOceanBackdropPipeline,
   createShadowPipeline, createShapePipeline, createBlitPipeline,
 } from '@/render/gpu/gpu-pipelines';
 import { liftDrawList } from '@/render/gpu/terrain-lift';
@@ -153,29 +151,8 @@ export class GpuScene {
   private lastWaterDeep: Uint32Array | null = null;
   private lastWaterShore: Float32Array | null = null;
   private lastWaterChannel: Uint32Array | null = null;
-  // Ribbon pass (roads-epic T7): swept road/river ribbon meshes (`ribbon-geometry`)
-  // drawn as a terrain-following parametric surface. Reuses the terrain globals
-  // uniform + height buffer (binding 0/1) for the SAME lift+projection; binding 2
-  // is a small params block (time/kind). The vertex data is a per-world static
-  // mesh streamed into a grow-on-demand vertex buffer.
-  private ribbonPipeline: GPURenderPipeline;
-  private ribbonParamsBuf: GPUBuffer;
-  private ribbonBind: GPUBindGroup | null = null;
-  private ribbonBoundHeights: GPUBuffer | null = null;
-  private ribbonBoundSurf: GPUBuffer | null = null;
-  // River water-surface storage buffer (ribbon binding 6): river verts lift to this
-  // fill line instead of the carved bed. Null/heights on a world with no rivers.
-  private riverSurfaceBuf: GPUBuffer | null = null;
-  private riverSurfaceCap = 0;
-  private riverSurfaceData: Float32Array | null = null;
-  // Road-material atlas (binding 3/4/5): a seamless PBR swatch per surface
-  // (dirt/cobble/plank), built once and bound into the ribbon pass.
-  private roadMatSampler: GPUSampler | null = null;
-  private roadAlbedoTex: GPUTexture | null = null;
-  private roadNormalTex: GPUTexture | null = null;
-  private lastRibbonData: Float32Array | null = null;
-  private lastRibbonVbuf: GPUBuffer | null = null;
-  private ribbonVertexCount = 0;
+  // (Ribbon pass retired 2026-06-25 — roads are carved+textured terrain; river/road
+  //  ribbon meshes + the road-material atlas were removed as tech debt.)
   private depthTex: GPUTexture | null = null;
   private depthW = 0;
   private depthH = 0;
@@ -305,10 +282,6 @@ export class GpuScene {
       layout: this.oceanBackdropPipeline.getBindGroupLayout(0),
       entries: [{ binding: 0, resource: { buffer: this.waterGlobalsBuf } }],
     });
-
-    this.ribbonPipeline = createRibbonPipeline(device, gpu.format);
-    this.ribbonParamsBuf = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-    this.buildRoadMaterials();
 
     this.shadowPipeline = createShadowPipeline(device, gpu.format);
     // 8 floats: viewport(2) + alpha(1) + pad(1) + xform(4). uXform keeps the shadow
@@ -750,16 +723,6 @@ export class GpuScene {
     detail?: DetailField | null;
     /** Blended water surface (S2) — drawn over terrain, under entities. */
     water?: WaterField | null;
-    /** Swept road/river ribbon mesh (T7) — drawn over terrain/water, under
-     *  entities. Tile-space; lifted + iso-projected on the GPU. */
-    ribbon?: RibbonMesh | null;
-    /** Render-clock seconds for ribbon flow animation (rivers). */
-    ribbonTime?: number;
-    /** River water-surface field (`buildRiverSurfaceFieldMemo`): row-major `W*H`
-     *  render-elevation the river ribbon verts lift to. Null on a dry world. */
-    riverSurface?: Float32Array | null;
-    /** River water-level offset in NORMALISED elevation (drought < 0, flood > 0). */
-    riverLevelDeltaN?: number;
     /** Screen-space UI geometry (S1) — drawn in its own pass over the entities. */
     uiGroups?: readonly UiDrawGroup[];
     /** P-E: when set, the scene passes render into a low-res target sized `w×h`
@@ -776,7 +739,7 @@ export class GpuScene {
     };
   }): void {
     const { device } = this;
-    const { items: rawItems, staticItems, lighting, w, h, xform, terrain, water, ribbon, uiGroups, out, pixelOffset } = opts;
+    const { items: rawItems, staticItems, lighting, w, h, xform, terrain, water, uiGroups, out, pixelOffset } = opts;
     const P = {
       terrain: opts.passes?.terrain ?? true,
       water: opts.passes?.water ?? true,
@@ -847,64 +810,6 @@ export class GpuScene {
       }
     }
 
-    // Ribbon mesh (T7): roads (+ rivers in R2). Needs the terrain height buffer
-    // (lift) + globals (projection), so it only runs when terrain did. Streamed
-    // into a persistent vertex buffer; the data is a per-world static mesh so the
-    // upload is skipped while the array identity is unchanged.
-    const hasRibbon = !!(hasTerrain && ribbon && ribbon.vertexCount > 0 && this.terrainHeightsBuf);
-    (globalThis as Record<string, unknown>).__ribbonDiag = {
-      hasRibbon, hasTerrain, vc: ribbon?.vertexCount ?? null,
-      terrHeights: !!this.terrainHeightsBuf, ribbonNull: ribbon == null,
-      sample: ribbon && ribbon.data.length >= 10 ? Array.from(ribbon.data.slice(0, 10)) : null,
-    };
-    if (hasRibbon) {
-      const rbuf = this.dynBuf('ribbon', ribbon!.data.byteLength);
-      if (ribbon!.data !== this.lastRibbonData || rbuf !== this.lastRibbonVbuf) {
-        device.queue.writeBuffer(rbuf, 0, ribbon!.data as GPUAllowSharedBufferSource);
-        this.lastRibbonData = ribbon!.data;
-        this.lastRibbonVbuf = rbuf;
-      }
-      // River water-surface buffer (binding 6): upload + bind when the world has
-      // rivers; otherwise bind the height buffer itself (river verts are absent, so
-      // the value is never read — the binding just has to exist for the layout).
-      let surfBuf = this.terrainHeightsBuf!;
-      if (opts.riverSurface) {
-        const bytes = opts.riverSurface.byteLength;
-        if (!this.riverSurfaceBuf || this.riverSurfaceCap < bytes) {
-          this.riverSurfaceBuf?.destroy();
-          this.riverSurfaceBuf = device.createBuffer({
-            size: bytes, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-          });
-          this.riverSurfaceCap = bytes;
-          this.riverSurfaceData = null;
-        }
-        if (this.riverSurfaceData !== opts.riverSurface) {
-          device.queue.writeBuffer(this.riverSurfaceBuf, 0, opts.riverSurface as GPUAllowSharedBufferSource);
-          this.riverSurfaceData = opts.riverSurface;
-        }
-        surfBuf = this.riverSurfaceBuf;
-      }
-      if (!this.ribbonBind || this.ribbonBoundHeights !== this.terrainHeightsBuf || this.ribbonBoundSurf !== surfBuf) {
-        this.ribbonBind = device.createBindGroup({
-          layout: this.ribbonPipeline.getBindGroupLayout(0),
-          entries: [
-            { binding: 0, resource: { buffer: this.terrainGlobalsBuf } },
-            { binding: 1, resource: { buffer: this.terrainHeightsBuf! } },
-            { binding: 2, resource: { buffer: this.ribbonParamsBuf } },
-            { binding: 3, resource: this.roadMatSampler! },
-            { binding: 4, resource: this.roadAlbedoTex!.createView({ dimension: '2d-array' }) },
-            { binding: 5, resource: this.roadNormalTex!.createView({ dimension: '2d-array' }) },
-            { binding: 6, resource: { buffer: surfBuf } },
-          ],
-        });
-        this.ribbonBoundHeights = this.terrainHeightsBuf;
-        this.ribbonBoundSurf = surfBuf;
-      }
-      device.queue.writeBuffer(this.ribbonParamsBuf, 0,
-        new Float32Array([opts.ribbonTime ?? 0, 0, opts.riverLevelDeltaN ?? 0, 0]));
-      this.ribbonVertexCount = ribbon!.vertexCount;
-    }
-
     // P-E: the scene passes target the low-res offscreen when `out` is set, then
     // a blit upscales it to the swapchain; otherwise they draw straight to it.
     // The infinite-ocean backdrop (pass 0) paints uniform open sea over everything
@@ -932,7 +837,6 @@ export class GpuScene {
     if (hasDetail) this.passDetail(ctx, opts.detail!);
     if (hasShadows) this.passShadows(ctx, !!staticItems, dynShadowBatches);
     if (hasWater) this.passWater(ctx, water!);
-    if (hasRibbon) this.passRibbon(ctx);
     this.passEntities(ctx, P.entities, dynBatches, dynLifted, xform);
     if (out) this.passBlit(ctx, out, pixelOffset);
     if (P.ui && uiGroups && uiGroups.length > 0) this.passUi(ctx, uiGroups);
@@ -1050,45 +954,6 @@ export class GpuScene {
     wpass.draw(water.vertexCount);
     wpass.end();
     ctx.colorCleared = true;
-  }
-
-  /**
-   * Pass 1.8 — ribbons (roads/rivers; T7). Over terrain + water, BEFORE entities
-   * so buildings/trees/NPCs draw on top. Loads the terrain depth (greater-equal,
-   * no write — same contract as water) so it sits on the ground at its own cells
-   * without disturbing the depth the entity pass resets. Alpha-blended banks.
-   */
-  private passRibbon(ctx: PassCtx): void {
-    const rpass = ctx.enc.beginRenderPass({
-      colorAttachments: [{ view: ctx.colorView, clearValue: ctx.ocean, loadOp: ctx.colorCleared ? 'load' : 'clear', storeOp: 'store' }],
-      depthStencilAttachment: { view: ctx.depthView, depthLoadOp: 'load', depthStoreOp: 'store' },
-    });
-    rpass.setPipeline(this.ribbonPipeline);
-    rpass.setBindGroup(0, this.ribbonBind!);
-    rpass.setVertexBuffer(0, this.lastRibbonVbuf!);
-    rpass.draw(this.ribbonVertexCount);
-    rpass.end();
-    ctx.colorCleared = true;
-  }
-
-  /** Build the road-material atlas textures (albedo + local-frame normal) once — a
-   *  seamless layer per surface, bound into the ribbon pass at binding 4/5. */
-  private buildRoadMaterials(): void {
-    const { device } = this;
-    const atlas = roadMaterialAtlas();
-    const size = { width: atlas.size, height: atlas.size, depthOrArrayLayers: atlas.layers };
-    const make = (label: string) => device.createTexture({
-      label, size, format: 'rgba8unorm', dimension: '2d',
-      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
-    });
-    this.roadAlbedoTex = make('road-albedo');
-    this.roadNormalTex = make('road-normal');
-    const layout = { bytesPerRow: atlas.size * 4, rowsPerImage: atlas.size };
-    device.queue.writeTexture({ texture: this.roadAlbedoTex }, atlas.albedo as GPUAllowSharedBufferSource, layout, size);
-    device.queue.writeTexture({ texture: this.roadNormalTex }, atlas.normal as GPUAllowSharedBufferSource, layout, size);
-    this.roadMatSampler = device.createSampler({
-      addressModeU: 'repeat', addressModeV: 'repeat', magFilter: 'linear', minFilter: 'linear',
-    });
   }
 
   /**
