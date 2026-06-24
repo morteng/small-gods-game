@@ -36,17 +36,26 @@ struct WGlobals {
   uSun      : vec4<f32>,   // tile-space sun dir xyz, bands
   uAmbient  : vec4<f32>,   // ambient rgb, sun strength
   uWater    : vec4<f32>,   // time(s), shallowBand(m), foamBand(m), lakeLevelOffset(norm)
+  uChannel  : vec4<f32>,   // river-channel grid: bucketTiles, nbx, nby, segCount
 };
 
 @group(0) @binding(0) var<uniform> G : WGlobals;
 @group(0) @binding(1) var<storage, read> terrainH : array<f32>; // normalised elev (composed)
 @group(0) @binding(2) var<storage, read> surfaceW : array<f32>; // water surface, −1 dry
 @group(0) @binding(3) var<storage, read> wtype    : array<u32>; // 0 dry,1 ocean,2 lake,3 river
-@group(0) @binding(4) var<storage, read> flow     : array<f32>; // 2 per cell (x,y)
+// binding 4 (per-cell flow) retired — river flow is now the analytic centreline tangent.
 @group(0) @binding(5) var<storage, read> shallowC : array<u32>; // S4 biome shallow 0xAABBGGRR
 @group(0) @binding(6) var<storage, read> deepC    : array<u32>; // S4 biome deep colour
 @group(0) @binding(7) var<storage, read> clarity  : array<f32>; // S4 water clarity 0..1
 @group(0) @binding(8) var<storage, read> shoreD   : array<f32>; // tiles from shore (0 = land)
+// ── Analytic river channel (connectome-projected SDF geometry) ──────────────────
+// rivers are no longer a per-cell classified band; they are the smooth offset curve
+// of the centreline. ONE packed u32 buffer (to stay within the 8-storage-buffer
+// budget) holds the CSR bucket index then the segments:
+//   [bucketOffset : nbx*nby+1] [bucketSegs : R] [segments : segCount*8 (bitcast f32)]
+// where R = bucketOffset[nbx*nby]. A fragment tests only its bucket's 1-4 segments
+// (stride 8: ax,ay,bx,by,halfA,halfB,surfA,surfB). See river-channel-geometry.ts.
+@group(0) @binding(9) var<storage, read> channel : array<u32>;
 
 fn cellIdx(cx : u32, cy : u32) -> u32 { return cy * u32(G.uGrid.x) + cx; }
 fn unpackRgb(rgba : u32) -> vec3<f32> {
@@ -190,6 +199,61 @@ fn cubicSurfaceW(gx : f32, gy : f32) -> f32 {
   return crSpline(col[0], col[1], col[2], col[3], ty);
 }
 
+// ── ANALYTIC RIVER CHANNEL — distance to the connectome centreline ────────────────
+// The CPU mirror is channelAt() in river-channel-geometry.ts (kept byte-for-byte in
+// step so the wetness oracle, the tests, and this paint agree). For a fragment at tile
+// (gx,gy): look up its bucket, test only that bucket's segments, keep the nearest. The
+// SIGNED distance sd = dist - halfWidth is the smooth silhouette (sd < 0 inside); surf
+// is the bank-referenced fill, flow the downstream unit tangent. hit=false when the
+// world has no rivers (segCount 0) or no segment registers into this bucket.
+struct Chan { hit : bool, sd : f32, surf : f32, flow : vec2<f32> };
+fn segF(i : u32) -> f32 { return bitcast<f32>(channel[i]); }
+fn channelAt(gx : f32, gy : f32) -> Chan {
+  var r : Chan;
+  r.hit = false; r.sd = 1e9; r.surf = -1.0; r.flow = vec2<f32>(0.0, 0.0);
+  let segCount = u32(G.uChannel.w);
+  if (segCount == 0u) { return r; }
+  let bt  = G.uChannel.x;
+  let nbx = u32(G.uChannel.y);
+  let nby = u32(G.uChannel.z);
+  let nb  = nbx * nby;
+  let offLen  = nb + 1u;                       // bucketOffset region length
+  let segBase = offLen + channel[nb];          // segments start after offsets + seg refs
+  let bx = u32(clamp(floor(gx / bt), 0.0, f32(nbx) - 1.0));
+  let by = u32(clamp(floor(gy / bt), 0.0, f32(nby) - 1.0));
+  let b = by * nbx + bx;
+  let start = channel[b];
+  let end   = channel[b + 1u];
+  var best = 1e9;
+  var bestHalf = 0.0;
+  var bestSurf = -1.0;
+  var bestFlow = vec2<f32>(0.0, 0.0);
+  for (var p = start; p < end; p = p + 1u) {
+    let o = segBase + channel[offLen + p] * 8u;   // bucketSegs[p] → segment word offset
+    let ax = segF(o);      let ay = segF(o + 1u);
+    let bx2 = segF(o + 2u); let by2 = segF(o + 3u);
+    let dx = bx2 - ax; let dy = by2 - ay;
+    let len2 = dx * dx + dy * dy;
+    var t = 0.0;
+    if (len2 > 0.0) { t = clamp(((gx - ax) * dx + (gy - ay) * dy) / len2, 0.0, 1.0); }
+    let cx = ax + t * dx; let cy = ay + t * dy;
+    let d = length(vec2<f32>(gx - cx, gy - cy));
+    if (d < best) {
+      best = d;
+      bestHalf = mix(segF(o + 4u), segF(o + 5u), t);
+      bestSurf = mix(segF(o + 6u), segF(o + 7u), t);
+      let fl = max(sqrt(len2), 1e-4);
+      bestFlow = vec2<f32>(dx / fl, dy / fl);
+    }
+  }
+  if (best >= 1e9) { return r; }
+  r.hit = true;
+  r.sd = best - bestHalf;
+  r.surf = bestSurf;
+  r.flow = bestFlow;
+  return r;
+}
+
 fn liftPx(e : f32) -> f32 { return (e - G.uZParams.y) * G.uZParams.z * G.uZParams.x; }
 
 struct VSOut {
@@ -224,17 +288,38 @@ fn vsMain(@builtin(vertex_index) vid : u32) -> VSOut {
   }
   let gx = f32(cellX) + f32(corner.x) * f32(sub);
   let gy = f32(cellY) + f32(corner.y) * f32(sub);
-  // SMOOTH (Gouraud) water surface: lift each corner to the BILINEAR surface at the
-  // corner position — NOT the flat per-cell value. A shared corner then resolves to the
-  // same height in every quad that touches it, so the surface is continuous instead of a
-  // staircase of flat per-cell diamonds (the blocky facets at zoom). The bilinear sample
-  // ramps a wet-cell corner down to its dry neighbour's bed (the dry-fallback), so the
-  // plane tapers to the bank and the fragment clip below trims it to the pixel-perfect
-  // contour. (The fragment already samples the same surface per-pixel — this aligns the
-  // vertex lift with it.)
-  var surf = sampleSurfaceW(gx, gy);
-  // Lakes (2) + rivers (3) ride the drought/flood-shifted inland plane; ocean is datum.
-  if (wtype[ci] == 2u || wtype[ci] == 3u) { surf = surf + G.uWater.w; }
+
+  // DRAW-GATE. Ocean/lake/river-classified cells (wtype != 0) always draw. A cell the
+  // raster calls DRY still draws when it falls inside the river BAND (within the channel
+  // half-width + margin) so the analytic silhouette can extend past the old per-cell
+  // mask — this is what un-staircases the river. Quads that are neither collapse to a
+  // off-clip degenerate triangle (no fragments), so far-from-water cells cost nothing.
+  let typ = wtype[ci];
+  let cc = channelAt(f32(cellX) + f32(sub) * 0.5, f32(cellY) + f32(sub) * 0.5);
+  let inBand = cc.hit && cc.sd < (f32(sub) + 2.0);
+  if (typ == 0u && !inBand) {
+    var deg : VSOut;
+    deg.pos = vec4<f32>(2.0, 2.0, 2.0, 1.0);   // outside clip → culled, zero area
+    deg.vGrid = vec2<f32>(0.0, 0.0);
+    deg.vCell = ci;
+    return deg;
+  }
+
+  // SMOOTH water surface, lifted per corner. Ocean (1) is the fixed datum; lake (2)
+  // rides the drought/flood plane (uWater.w). Rivers + dry-band cells take the ANALYTIC
+  // channel fill at the corner (the smooth bank-referenced surface from the connectome),
+  // falling back to the bilinear per-cell surface only where the corner is out of band.
+  // A shared corner resolves to one height in every quad, so the plane is continuous.
+  var surf : f32;
+  if (typ == 1u) {
+    surf = sampleSurfaceW(gx, gy);
+  } else if (typ == 2u) {
+    surf = sampleSurfaceW(gx, gy) + G.uWater.w;
+  } else {
+    let cg = channelAt(gx, gy);
+    if (cg.hit) { surf = cg.surf + G.uWater.w; }
+    else { surf = sampleSurfaceW(gx, gy) + G.uWater.w; }
+  }
   let hPx = liftPx(surf);
 
   let scr = vec2<f32>((gx - gy) * G.uHalf.x, (gx + gy) * G.uHalf.y - hPx);
@@ -269,26 +354,44 @@ const LAKE_DIR = vec2<f32>(0.60, -0.80);
 @fragment
 fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   let ci = in.vCell;
-  let typ = wtype[ci];
-  if (typ == 0u) { discard; }
-  // Ocean (1), lakes (2) AND rivers (3) all render here now — ONE unified per-cell
-  // water pass. Rivers carry a render-space fill surface (river-surface-field) so the
-  // waterline clip below trims them to the real erosion-carved channel.
+  let cellTyp = wtype[ci];
 
-  // PIXEL-PERFECT WATERLINE. Each quad is a FLAT plane at this cell's surface
-  // height (surfaceW[ci]); the bed (terrainH) is bilinear, so surface minus bed
-  // crosses zero exactly where the terrain contour meets the water plane. Discard
-  // the dry side per-fragment → the visible edge follows the real coastline at
-  // pixel resolution, not the cell grid. The one-ring shore dilation (fillShoreRing)
-  // gives near-bank dry cells a water plane so BOTH sides of the line are covered.
-  // Lakes ride the drought/flood-shifted surface; ocean stays at its datum.
-  // BICUBIC (Catmull-Rom) surface AND bed: a C1 zero-crossing, so the waterline is a
-  // smooth contour across tile seams instead of the bilinear C0 facets.
-  var surfLvl = cubicSurfaceW(in.vGrid.x, in.vGrid.y);
-  if (typ == 2u || typ == 3u) { surfLvl = surfLvl + G.uWater.w; }
+  // OCEAN (1) + LAKE (2) keep the per-cell path. RIVER is now ANALYTIC: a dry-band or
+  // river-classified cell resolves its wetness, surface and flow from the connectome
+  // channel geometry, so the silhouette is the smooth offset curve sd = 0, NOT the
+  // per-cell classification edge (the staircase). Ocean/lake fold into the same scheme
+  // in S4.
+  var typ = cellTyp;
+  var surfLvl : f32;
+  var sdEdge : f32 = -1.0;                  // analytic signed distance (rivers); <0 inside
+  var flowV : vec2<f32> = vec2<f32>(0.0, 0.0);
+  if (cellTyp == 1u || cellTyp == 2u) {
+    // PIXEL-PERFECT WATERLINE. The bed (terrainH) is bicubic, the surface bicubic, so
+    // surface − bed crosses zero exactly where the terrain contour meets the water
+    // plane — a C1 contour across tile seams. The one-ring shore dilation gives near-
+    // bank dry cells a water plane so BOTH sides of the line are covered. Lakes ride the
+    // drought/flood-shifted surface; ocean stays at its datum.
+    surfLvl = cubicSurfaceW(in.vGrid.x, in.vGrid.y);
+    if (cellTyp == 2u) { surfLvl = surfLvl + G.uWater.w; }
+  } else {
+    // RIVER / dry-band → analytic channel. The signed distance is a smooth (cell-grid-
+    // free) function, so even a hard threshold gives a clean curve; the surface is the
+    // bank-referenced fill the carve uses, so paint + erosion finally agree.
+    let cg = channelAt(in.vGrid.x, in.vGrid.y);
+    if (!cg.hit || cg.sd >= 0.0) { discard; }
+    typ = 3u;
+    surfLvl = cg.surf + G.uWater.w;
+    sdEdge = cg.sd;
+    flowV = cg.flow;
+  }
+
   let rawDepthN = surfLvl - cubicTerrainH(in.vGrid.x, in.vGrid.y);
   if (rawDepthN <= 0.0) { discard; }
   let depthM = rawDepthN * G.uZParams.z;
+  // Screen-space gradient of the analytic river distance, for the silhouette anti-alias
+  // below. fwidth MUST be evaluated in UNIFORM control flow, so compute it here at the
+  // fragment top level (ocean/lake hold sdEdge = -1, a constant → gradient 0, unused).
+  let sdGrad = fwidth(sdEdge);
 
   // Depth tint (S4 biome shallow→deep), SMOOTH — clarity stretches the ramp so
   // clear water shows its bed further down. Depth varies with the real bed, so the
@@ -435,9 +538,10 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
 
   } else {
     // ---- RIVER ----------------------------------------------------------------
-    // Streaks advected ALONG the per-cell flow vector; speed + whitewater scale with
-    // the local bed slope (height drop to the downstream cell).
-    let fv = vec2<f32>(flow[ci * 2u], flow[ci * 2u + 1u]);
+    // Streaks advected ALONG the ANALYTIC flow vector (the centreline tangent at the
+    // nearest point); speed + whitewater scale with the local bed slope (height drop to
+    // the downstream cell).
+    let fv = flowV;
     let W = u32(G.uGrid.x);
     let H = u32(G.uGrid.y);
     let cx = ci % W;
@@ -467,6 +571,14 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   var wAlpha = clamp(0.28 + 0.72 * (depthM / bedClear), 0.28, 1.0);
   let foamy = smoothstep(0.80, 0.95, max(color.r, max(color.g, color.b)));
   wAlpha = clamp(max(wAlpha, foamy), 0.0, 1.0);
+  // RIVER EDGE ANTI-ALIASING. The silhouette is the analytic curve sd = 0; feather the
+  // last pixel of coverage by the screen-space gradient of sd (fwidth) so the bank is a
+  // clean 1px edge rather than a hard alpha cliff. Uniform per quad (typ is flat), so
+  // the derivative is well-defined. Ocean/lake keep their depth/foam alpha unchanged.
+  if (typ == 3u) {
+    let aa = clamp(-sdEdge / max(sdGrad, 1e-4), 0.0, 1.0);
+    wAlpha = wAlpha * aa;
+  }
   let outC = clamp(color, vec3<f32>(0.0), vec3<f32>(1.0));
   return vec4<f32>(outC * wAlpha, wAlpha);
 }

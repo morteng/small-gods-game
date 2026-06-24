@@ -32,7 +32,7 @@ describe('Water S2 — water field builder', () => {
     expect(wf!.flow.length).toBe(cells * 2);
     expect(wf!.wetCount).toBeGreaterThan(0);
     expect(wf!.vertexCount).toBe(terrainGrid(64, 64).vertexCount);
-    expect(wf!.globals.length).toBe(WATER_GLOBALS_FLOATS); // 28
+    expect(wf!.globals.length).toBe(WATER_GLOBALS_FLOATS); // 32 (TGlobals 24 + uWater 4 + uChannel 4)
   });
 
   it('encodes the inland water-level offset (drought/flood) into uWater.w (normalised)', async () => {
@@ -57,20 +57,25 @@ describe('Water S2 — water field builder', () => {
     if (dry >= 0) expect(wf.surfaceW[dry]).toBe(-1);
   });
 
-  it('packs WGlobals as terrain globals (24) + uWater (4)', () => {
+  it('packs WGlobals as terrain globals (24) + uWater (4) + uChannel (4)', () => {
     const tg: TerrainGlobalsInput = {
       viewport: [800, 600], xform: { sx: 1, sy: 1, ox: 0, oy: 0 },
       grid: [64, 64], half: [16, 8], zPxPerM: 14, seaLevel: 0.35, reliefM: 48, subsample: 1,
       sunDir: [-1, 1.6, -1], bands: 4, ambient: [0.7, 0.7, 0.74], sunStrength: 0.4,
     };
     const packed = packWaterGlobals(tg, [2.5, 1.5, 0.4, 0]);
-    expect(packed.length).toBe(28);
+    expect(packed.length).toBe(32);
     expect(Array.from(packed.subarray(0, 24))).toEqual(Array.from(packTerrainGlobals(tg)));
     // uWater (Float32-rounded): time, shallowBand, foamBand, flags
     expect(packed[24]).toBe(2.5);
     expect(packed[25]).toBe(1.5);
     expect(packed[26]).toBeCloseTo(0.4, 6);
     expect(packed[27]).toBe(0);
+    // uChannel defaults to a no-river [1,1,1,0] when omitted (shader skips on segCount 0).
+    expect(Array.from(packed.subarray(28, 32))).toEqual([1, 1, 1, 0]);
+    // …and carries the channel grid dims when supplied.
+    const withCh = packWaterGlobals(tg, [0, 0, 0, 0], [8, 12, 9, 240]);
+    expect(Array.from(withCh.subarray(28, 32))).toEqual([8, 12, 9, 240]);
   });
 
   it('shore distance is 0 on land everywhere when the map is bone dry', () => {

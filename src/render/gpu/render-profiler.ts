@@ -14,7 +14,7 @@
 import type { RenderContext } from '@/core/types';
 import type { DrawItem } from '@/render/iso/draw-list';
 import type { GpuScene } from '@/render/gpu/gpu-scene';
-import { buildTerrainField } from '@/render/gpu/terrain-field';
+import { buildTerrainField, zoomSuperSample, zoomCoarsenMaxQuads } from '@/render/gpu/terrain-field';
 import { buildWaterField } from '@/render/gpu/water-field';
 import { isLayerHidden } from '@/render/layer-visibility';
 import { DEFAULT_LIGHTING } from '@/render/lighting-state';
@@ -115,11 +115,18 @@ async function runMatrix(
 
   const build = (px: number, passes?: PassToggles): Parameters<GpuScene['renderFrame']>[0] => {
     const { lowW, lowH, xform, out } = computeView(px, camera, dpr, targetW, targetH);
+    // Mirror the live frame's zoom-LOD so the bench measures the REAL mesh (the live
+    // loop coarsens terrain + water when zoomed out — without this the bench always
+    // rebuilt the full subsample-1 grid and over-reported the water pass).
+    const superSample = rc.devMode?.terrainSuper ?? zoomSuperSample(map.width, map.height, xform.sx);
+    const maxQuads = rc.devMode?.terrainSuper != null
+      ? undefined
+      : zoomCoarsenMaxQuads(map.width, map.height, xform.sx);
     const terrain = isLayerHidden('terrain', rc.devMode)
       ? null
-      : buildTerrainField(map, { viewport: [lowW, lowH], xform, lighting, devMode: rc.devMode });
+      : buildTerrainField(map, { viewport: [lowW, lowH], xform, lighting, devMode: rc.devMode, superSample, maxQuads });
     const water = (terrain && !isLayerHidden('rivers', rc.devMode))
-      ? buildWaterField(map, { viewport: [lowW, lowH], xform, lighting, timeSec: 0 })
+      ? buildWaterField(map, { viewport: [lowW, lowH], xform, lighting, timeSec: 0, superSample, maxQuads })
       : null;
     return { items: lf.items, staticItems: lf.staticItems, lighting, terrain, water, w: lowW, h: lowH, out, xform, passes };
   };

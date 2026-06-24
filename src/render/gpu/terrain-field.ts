@@ -312,6 +312,38 @@ export function zoomSuperSample(
   return Math.max(1, Math.min(desired, budgetMax, ZOOM_SUPER_MAX));
 }
 
+/** Coarsen target — below this many art-pixels per tile, ONE quad/tile is wasted
+ *  geometry. At fit-zoom a tile spans only ~2-3 art-px, so the default 384×272 world
+ *  draws ~104k quads (≈624k verts) every frame for a mesh no one can resolve. Finer
+ *  than {@link ZOOM_SUPER_TARGET_PX} so the coast silhouette stays clean; perf is
+ *  already saturated at subsample 2 (the water pass falls ~27× on this hardware), so
+ *  the max coarsen is deliberately modest. */
+const ZOOM_COARSEN_TARGET_PX = 8;
+/** Never coarser than one quad per this-many tiles per edge (protects the silhouette). */
+const ZOOM_COARSEN_MAX = 4;
+
+/**
+ * Zoom-aware mesh COARSENING — the zoom-out half of the LOD (the subdivide half is
+ * {@link zoomSuperSample}). Returns a `maxQuads` cap to hand BOTH `buildTerrainField`
+ * and `buildWaterField` so they pick the SAME coarser subsample (aligned waterlines).
+ * The water pass is purely primitive-bound on weak GPUs — coarsening the mesh when a
+ * tile is sub-pixel-ish is a large win at no visible cost (the per-pixel waterline is a
+ * bicubic clip against the FULL-RES height buffers, LOD-independent, so it stays crisp).
+ *
+ * Returns the full `maxQuads` (no coarsening) once tiles are ≥ the target — at which
+ * point `zoomSuperSample` takes over and SUBDIVIDES — so the two never fight. Pure.
+ */
+export function zoomCoarsenMaxQuads(
+  width: number, height: number, sx: number, maxQuads = MAX_TERRAIN_QUADS,
+): number {
+  const tileArtPx = ISO_TILE_W * Math.abs(sx);
+  if (tileArtPx >= ZOOM_COARSEN_TARGET_PX) return maxQuads;   // not zoomed out: full res (+ superSample)
+  const sub = Math.min(ZOOM_COARSEN_MAX, Math.max(1, Math.round(ZOOM_COARSEN_TARGET_PX / Math.max(tileArtPx, 1e-3))));
+  if (sub <= 1) return maxQuads;
+  // Cap that makes terrainGrid pick exactly `sub` (the smallest s with ⌊W/s⌋·⌊H/s⌋ ≤ cap).
+  return Math.max(1, Math.floor(width / sub)) * Math.max(1, Math.floor(height / sub));
+}
+
 /** The buffer-driven terrain handed to `GpuScene.renderFrame`: the per-cell
  *  storage fields, the GPU-generated vertex count, and the packed-ready uniform. */
 export interface TerrainField {

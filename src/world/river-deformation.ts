@@ -30,18 +30,20 @@ import { buildWaterNetwork, type ReachClass, type Pt, type WaterNetwork } from '
  *  bank-referenced line, so a deeper carve deepens the *valley*, not the apparent
  *  water depth. */
 export const REACH_CARVE: Record<ReachClass, { depthM: number; halfWidth: number }> = {
-  brook: { depthM: 1.0, halfWidth: 0.6 },
-  stream: { depthM: 2.2, halfWidth: 1.1 },
-  river: { depthM: 4.0, halfWidth: 1.9 },
-  major_river: { depthM: 6.0, halfWidth: 3.0 },
+  brook: { depthM: 1.0, halfWidth: 0.5 },
+  stream: { depthM: 2.4, halfWidth: 0.9 },
+  river: { depthM: 4.5, halfWidth: 1.4 },
+  major_river: { depthM: 6.5, halfWidth: 2.2 },
 };
 /** Valley-wall width beyond the channel half-width, in tiles, scaled to the carve
  *  depth so the ground GRADES down into the channel (a V/U valley) rather than
- *  dropping a one-tile cliff. A 1 m gully gets a ~1.5-tile shoulder, a 6 m gorge a
- *  ~5-tile sloping wall. Clamped so the brush footprint stays bounded. */
-const BANK_FEATHER_MIN_TILES = 1.5;
-const BANK_FEATHER_MAX_TILES = 5.0;
-const BANK_FEATHER_PER_M = 0.85;
+ *  dropping a one-tile cliff. Kept relatively STEEP: a broad gentle feather makes the
+ *  water sheet across the whole valley and read wide + staircased on flats, so the
+ *  wall is just enough to avoid a one-tile cliff while still containing the channel.
+ *  A 1 m gully gets a ~1-tile shoulder, a 6.5 m gorge a ~3-tile sloping wall. */
+const BANK_FEATHER_MIN_TILES = 1.0;
+const BANK_FEATHER_MAX_TILES = 3.0;
+const BANK_FEATHER_PER_M = 0.5;
 
 /** Max centreline vertices per carve brush. A long trunk reach is split into bounded
  *  chunks (sharing a boundary vertex, so no gap) — this keeps each brush's AABB tight

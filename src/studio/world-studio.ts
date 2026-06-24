@@ -34,6 +34,10 @@ import { applyNodeMoves, mergeWaterFeatures, addLakeBody, type LakeStamp } from 
 import type { WaterNetwork } from '@/terrain/river-network';
 import { tileReadout } from './world-hover';
 import { buildRenderWaterTypeMemo } from '@/render/gpu/render-water-mask';
+import {
+  getRiverChannelGeometry, buildRiverChannelGeometry, type RiverChannelGeometry,
+} from '@/render/gpu/river-channel-geometry';
+import { paintedWaterAt as paintedWaterAtFn } from '@/render/gpu/water-field';
 import { buildConnectomeWaterOverride } from '@/render/gpu/connectome-water';
 import type { ConnectomeWaterOverride } from '@/core/types';
 import { computePressure, type PressureReport } from '@/world/connectome/pressure';
@@ -251,6 +255,10 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
   const addedLakes: LakeStamp[] = [];   // author-placed lakes (overlay on the base net)
   let waterEditVersion = 0;             // bumps each connectome edit → busts render water caches
   let overrideMemo: { version: number; override: ConnectomeWaterOverride } | null = null;
+  // Analytic river-channel geometry for the EDITED network, memoised by edit version so
+  // idle frames hand the renderer a stable reference (the GPU upload guard skips); a
+  // drag bumps the version → re-projects the smooth river silhouette in real time.
+  let channelMemo: { version: number; geo: RiverChannelGeometry } | null = null;
   // Which scalar field the overlay draws (W-B humidity, W-C cloud/temperature).
   let overlay: 'none' | 'humidity' | 'cloud' | 'temp' = 'humidity';
   let lastStepT = (typeof performance !== 'undefined' ? performance.now() : 0);
@@ -707,6 +715,22 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
     overrideMemo = { version: waterEditVersion, override };
     return override;
   }
+  /** Analytic river-channel geometry for the EDITED network — the connectome projected
+   *  as the segment + bucket buffers the water shader reads to draw rivers as a smooth
+   *  signed-distance silhouette. Memoised by the edit version, so a node drag re-projects
+   *  the channel instantly while held frames reuse the same reference. Falls back to the
+   *  base (memoised per-seed) geometry when nothing is edited. */
+  function riverChannelGeo(): RiverChannelGeometry | undefined {
+    if (!map) return undefined;
+    const edited = addedLakes.length > 0 || nodeMoves.size > 0 || mergeOps.length > 0;
+    if (!edited) return getRiverChannelGeometry(map) ?? undefined;
+    if (channelMemo && channelMemo.version === waterEditVersion) return channelMemo.geo;
+    const net = editedWaterNet();
+    if (!net) return undefined;
+    const geo = buildRiverChannelGeometry(map, net);
+    channelMemo = { version: waterEditVersion, geo };
+    return geo;
+  }
   /** Stamp a new author-placed lake and re-derive the connectome + terrain from it. */
   function stampLake(cx: number, cy: number, radius: number): LakeStamp | null {
     if (!map) return null;
@@ -749,7 +773,7 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
         const hx = node ? node.x : Math.round(lake?.x ?? cx);
         const hy = node ? node.y : Math.round(lake?.y ?? cy);
         return { title: d?.title ?? 'water', hi: { kind: 'node', tx: hx, ty: hy }, sel: { kind: 'water', id },
-          rows: [...(d?.rows ?? []), ...tileReadout(map, hx, hy, { floodM: floodField(), renderWaterType: buildRenderWaterTypeMemo(map) })] };
+          rows: [...(d?.rows ?? []), ...tileReadout(map, hx, hy, { floodM: floodField(), renderWaterType: buildRenderWaterTypeMemo(map), paintedWaterAt: (tx, ty) => paintedWaterAtFn(map, tx, ty) })] };
       }
     }
     // 2) a POI (place / settlement)
@@ -758,7 +782,7 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
       const px = poi.position?.x ?? cx, py = poi.position?.y ?? cy;
       const rows: [string, string][] = [['kind', poi.type]];
       if (poi.importance) rows.push(['importance', String(poi.importance)]);
-      rows.push(...tileReadout(map, px, py, { floodM: floodField(), renderWaterType: buildRenderWaterTypeMemo(map) }));
+      rows.push(...tileReadout(map, px, py, { floodM: floodField(), renderWaterType: buildRenderWaterTypeMemo(map), paintedWaterAt: (tx, ty) => paintedWaterAtFn(map, tx, ty) }));
       const hi: HoverHighlight = poi.region
         ? { kind: 'rect', x: poi.region.x_min, y: poi.region.y_min, w: poi.region.x_max - poi.region.x_min + 1, h: poi.region.y_max - poi.region.y_min + 1 }
         : { kind: 'tile', tx: px, ty: py };
@@ -778,7 +802,7 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
       }
     }
     // 4) bare terrain
-    return { title: 'terrain', hi: { kind: 'tile', tx: cx, ty: cy }, sel: { kind: 'tile' }, rows: tileReadout(map, cx, cy, { floodM: floodField(), renderWaterType: buildRenderWaterTypeMemo(map) }) };
+    return { title: 'terrain', hi: { kind: 'tile', tx: cx, ty: cy }, sel: { kind: 'tile' }, rows: tileReadout(map, cx, cy, { floodM: floodField(), renderWaterType: buildRenderWaterTypeMemo(map), paintedWaterAt: (tx, ty) => paintedWaterAtFn(map, tx, ty) }) };
   }
   const resolveHover = (sx: number, sy: number): void => { hover = resolveHit(sx, sy); };
   /** Select whatever a click resolved — uniform across water nodes / POIs /
@@ -1096,6 +1120,7 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
       lakeOffsetM: waterDyn?.lakeOffsetM(),   // localized lake level (climate W-B)
       floodOffsetM: waterDyn?.floodOffsetM(), // per-cell standing water (W-E flood)
       connectomeWater: connectomeWaterOverride(), // DIR-A author-placed lakes as real water
+      riverChannel: riverChannelGeo(),            // analytic river silhouette from the live net
 
       // Parametric art resolvers so the entity pass can draw buildings & trees.
       resolveParametricBuildingArt: (e: Entity) => {

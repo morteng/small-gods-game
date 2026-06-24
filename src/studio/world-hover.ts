@@ -27,11 +27,16 @@ export interface TileReadoutOpts {
   /** Per-cell standing water depth in metres (W-E flood field), if any. */
   floodM?: Float32Array;
   /** The RENDER water classification (`buildRenderWaterType`) — rivers re-stamped along
-   *  the smooth connectome centreline, i.e. EXACTLY what the terrain pass paints damp.
-   *  When supplied, the readout's water class reads from this so "looks like a river"
-   *  and "says river" always agree; the raster `hydrology.waterType` (the D8 sim truth,
-   *  which staircases off the visible channel) is the fallback. */
+   *  the smooth connectome centreline. A fallback for the painted oracle below; the
+   *  raster `hydrology.waterType` (D8 sim truth, which staircases off the visible
+   *  channel) is the last resort. */
   renderWaterType?: Uint8Array;
+  /** The authoritative "is this cell painted blue" oracle (`paintedWaterAt`), injected
+   *  by the studio (it needs the render water-surface field). The PAINTED water reaches
+   *  ~1 cell past the classified channel via the shader's bilinear surface sample, so a
+   *  bank cell the cursor lands on reads water even where the classification says dry.
+   *  When supplied it wins, so "looks wet" and "says wet" agree. */
+  paintedWaterAt?: (tx: number, ty: number) => { wet: boolean; type: number };
 }
 
 /**
@@ -51,9 +56,13 @@ export function tileReadout(map: GameMap, tx: number, ty: number, opts: TileRead
 
   const hydro = getHydrologyResult(map);
   const i = ty * map.width + tx;
-  // Classify from what's PAINTED (render mask) when available, so the readout matches
-  // the pixels under the cursor; fall back to the raster sim classification otherwise.
-  const wt = opts.renderWaterType?.[i] ?? hydro.waterType[i] ?? WaterType.Dry;
+  // Classify from what's PAINTED under the cursor. The injected oracle mirrors the
+  // shader's bilinear surface clip (so the bank fringe reads water) and is authoritative
+  // when present; otherwise fall back to the render mask, then the raster sim truth.
+  const painted = opts.paintedWaterAt?.(tx, ty);
+  const wt = painted
+    ? (painted.wet ? painted.type : WaterType.Dry)
+    : (opts.renderWaterType?.[i] ?? hydro.waterType[i] ?? WaterType.Dry);
   if (wt !== WaterType.Dry) {
     const order = hydro.strahler[i];
     const suffix = wt === WaterType.River && order ? ` · order ${order}` : '';
