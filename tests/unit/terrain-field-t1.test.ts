@@ -2,7 +2,9 @@ import { describe, it, expect } from 'vitest';
 import {
   hexToAbgr, terrainGrid, packColorField, buildTerrainField,
   TERRAIN_Z_PX_PER_M, MAX_TERRAIN_QUADS, curveRenderElev, curveHeightBuffer,
+  zoomCoarsenMaxQuads,
 } from '@/render/gpu/terrain-field';
+import { ISO_TILE_W } from '@/render/iso/iso-constants';
 import { DEFAULT_LIGHTING } from '@/render/lighting-state';
 import type { GameMap, Tile } from '@/core/types';
 
@@ -93,6 +95,38 @@ describe('terrainGrid LOD', () => {
     const g = terrainGrid(2000, 2000, MAX_TERRAIN_QUADS);
     expect(g.subsample).toBeGreaterThan(1);
     expect(g.quadsX * g.quadsY).toBeLessThanOrEqual(MAX_TERRAIN_QUADS);
+  });
+});
+
+describe('zoomCoarsenMaxQuads (zoom-out LOD)', () => {
+  const W = 384, H = 272;
+  // sx such that a tile spans `px` low-res art-pixels: tileArtPx = ISO_TILE_W·sx.
+  const sxFor = (tileArtPx: number) => tileArtPx / ISO_TILE_W;
+
+  it('does not coarsen once tiles are at/above the target size', () => {
+    // A comfortably-zoomed-in tile (≥ target px) keeps the full quad budget so the
+    // subdivide half (zoomSuperSample) can take over without fighting a low cap.
+    expect(zoomCoarsenMaxQuads(W, H, sxFor(20))).toBe(MAX_TERRAIN_QUADS);
+    expect(zoomCoarsenMaxQuads(W, H, sxFor(8))).toBe(MAX_TERRAIN_QUADS);
+  });
+
+  it('coarsens the shared grid when a tile is sub-pixel-ish (fit-zoom)', () => {
+    // ~2.8 art-px/tile (the default world at fit) → a cap that forces subsample > 1,
+    // i.e. fewer quads than the full grid.
+    const cap = zoomCoarsenMaxQuads(W, H, sxFor(2.8));
+    const full = terrainGrid(W, H).quadsX * terrainGrid(W, H).quadsY;
+    expect(cap).toBeLessThan(full);
+    const g = terrainGrid(W, H, cap);
+    expect(g.subsample).toBeGreaterThan(1);
+  });
+
+  it('never coarsens past the silhouette-protecting bound', () => {
+    // Even at an absurd zoom-out the subsample is capped (ZOOM_COARSEN_MAX = 4): the
+    // grid never drops below ⌊W/4⌋·⌊H/4⌋ quads.
+    const cap = zoomCoarsenMaxQuads(W, H, sxFor(0.01));
+    const floorQuads = Math.floor(W / 4) * Math.floor(H / 4);
+    expect(cap).toBeGreaterThanOrEqual(floorQuads);
+    expect(terrainGrid(W, H, cap).subsample).toBeLessThanOrEqual(4);
   });
 });
 
