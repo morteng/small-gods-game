@@ -715,6 +715,47 @@ export function waterSurfaceAt(
   return { wet: true, depthM, type };
 }
 
+/** River > Lake > Ocean > Dry — prefer the more specific body when several cover one cell. */
+function bodyRank(t: WaterType): number {
+  return t === WaterType.River ? 3 : t === WaterType.Lake ? 2 : t === WaterType.Ocean ? 1 : 0;
+}
+
+/**
+ * Does the PAINTED water plane cover tile (tx,ty) — i.e. is this cell BLUE on screen?
+ *
+ * The rendered water reaches ~1 cell PAST the classified channel: the shader bilinearly
+ * samples the per-cell surface field, so a dry-classified bank cell sitting under a
+ * neighbour's fill line still draws water (and the waterline is the sub-cell contour
+ * where that interpolated surface crosses the terrain). A per-cell classification lookup
+ * therefore disagrees with the eye on exactly the fringe the cursor most often lands on.
+ *
+ * This mirrors the paint: the cell is wet if its bed sits below the water SURFACE of
+ * itself or any 8-neighbour water cell. Returns the covering body's type (most specific
+ * wins). Static (no dynamic offsets) — the studio overhead hover has no live weather.
+ * O(1): the static water + curved bed are memoised. The seam the studio hover reads so
+ * "looks wet" and "says wet" finally agree.
+ */
+export function paintedWaterAt(map: GameMap, tx: number, ty: number): { wet: boolean; type: WaterType } {
+  const W = map.width, H = map.height;
+  if (tx < 0 || ty < 0 || tx >= W || ty >= H) return { wet: false, type: WaterType.Dry };
+  const stat = waterStatic(map);
+  if (stat.dry) return { wet: false, type: WaterType.Dry };
+  const bed = heightField(map)[ty * W + tx];
+  let type = WaterType.Dry;
+  for (let dy = -1; dy <= 1; dy++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      const nx = tx + dx, ny = ty + dy;
+      if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+      const ni = ny * W + nx;
+      const t = stat.waterType[ni] as WaterType;
+      if (t === WaterType.Dry) continue;
+      // The neighbour's fill surface covers this cell's bed ⇒ the plane is painted here.
+      if (stat.surfaceW[ni] > bed && bodyRank(t) > bodyRank(type)) type = t;
+    }
+  }
+  return { wet: type !== WaterType.Dry, type };
+}
+
 /**
  * Assemble the `WaterField` for a world + camera frame, or `null` when the world
  * is bone dry (so the caller skips the pass entirely). The per-cell arrays are
