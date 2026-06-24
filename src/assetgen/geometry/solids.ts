@@ -119,11 +119,18 @@ export async function boreCylinder(solid: Manifold, center: Vec2, topZ: number, 
 // Building massing — walls + roof as two unioned solids
 // ---------------------------------------------------------------------------
 
-const GABLE_PITCH = 1.5, HIP_PITCH = 1.35;
+// Roof pitches (rise per unit of HALF the across-ridge span) and the mono-pitch slope.
+// Exported so the world-space mount-anchor model (`to-mount-anchors.ts`) lands its
+// ridge/gable/chimney sockets at the SAME heights the geometry actually builds — keep the
+// two in lockstep (a divergence put the sprite tags below the real ridge, 2026-06-25).
+export const GABLE_PITCH = 1.5, HIP_PITCH = 1.35;
 // Mono-pitch (shed / lean-to) slope: rise per unit of across-ridge RUN. A shallower
 // single plane than a gable's per-side slope — reads clearly as one-way without
 // towering. The high side stands `SHED_SLOPE · span` above the low eave.
-const SHED_SLOPE = 0.5;
+export const SHED_SLOPE = 0.5;
+/** Height a ridge chimney stack stands proud of the roof slope it pierces (cube-units;
+ *  1 = 2 m). Matches `ventProfile('chimney').protrude`. */
+export const CHIMNEY_PROTRUDE = 0.55;
 
 /**
  * Eave (across the ridge) + verge (along it) overhang per roof material, in
