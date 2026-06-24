@@ -225,6 +225,7 @@ export function placeSettlement(
   era:                 Era = 'medieval',
   world?:              World,  // Optional World reference for entity sync
   worldSeed = 0,                // Stable seed for coordinate-keyed lots/wards
+  corridorReserved?:   Set<string>, // Slice 3: inter-POI trunk corridor cells to keep clear of lots
 ): SettlementResult {
   const cx = poi.position?.x ?? 0;
   const cy = poi.position?.y ?? 0;
@@ -258,6 +259,21 @@ export function placeSettlement(
   // deconfliction by construction, replacing the old roadSet/civicSet/registry
   // post-hoc filtering. Barriers later gate over 'building' claims.
   const occ = new OccupancyGrid();
+
+  // Slice 3 — connectome loosening: keep the inter-POI trunk corridor clear of this
+  // settlement's lots so the road threads through instead of detouring around sprawl.
+  // Claimed as 'road' (settlements FRONT onto it); only cells near this hub matter, so
+  // clip to the working radius rather than claiming the whole world per settlement.
+  if (corridorReserved && plan.lots.length > 0) {
+    const reach = radius + 4;
+    for (const k of corridorReserved) {
+      const ci = k.indexOf(',');
+      const x = +k.slice(0, ci), y = +k.slice(ci + 1);
+      if (Math.abs(x - cx) <= reach && Math.abs(y - cy) <= reach && !occ.has(x, y)) {
+        occ.claim(x, y, 'road');
+      }
+    }
+  }
 
   if (plan.lots.length > 0) {
     for (const c of plan.civics) {
