@@ -20,6 +20,7 @@ import type { RoadGraph, RoadEdge, RoadClass } from '@/world/road-graph';
 import type { RoadDynamics } from '@/world/road-state';
 import type { GameMap, POI } from '@/core/types';
 import type { ClimateFields } from '@/world/heightfield';
+import { terrainContextFrom, weatherAggression } from '@/world/terrain-context';
 import { clamp01 } from '@/core/math';
 import { TICKS_PER_DAY, DAYS_PER_YEAR } from '@/core/calendar';
 
@@ -81,9 +82,10 @@ function poiVitality(p: POI | undefined, residents?: Map<string, number>): numbe
   return cap * (0.2 + 0.8 * popFactor);
 }
 
-/** Climate aggression 0..1 at an edge's midpoint: wet ground (rain) + frost (heave below the
- *  snowline) weather a road faster. A dry temperate road sits near the {@link DEFAULT_CLIMATE}
- *  baseline; a cold wet upland road approaches 1. */
+/** Climate aggression 0..1 at an edge's midpoint, via the shared object↔terrain seam: wet ground
+ *  (rain) + frost (snow-cold heave) weather a road faster. A dry temperate road sits near the
+ *  {@link DEFAULT_CLIMATE} baseline; a cold wet upland road approaches 1. Shares the snow/mud/rain
+ *  definition with every other object that dresses to its ground (see terrain-context). */
 function edgeClimateAggression(edge: RoadEdge, climate: ClimateFields, w: number, h: number): number {
   const line = edge.polyline;
   if (!line.length) return DEFAULT_CLIMATE;
@@ -91,9 +93,7 @@ function edgeClimateAggression(edge: RoadEdge, climate: ClimateFields, w: number
   const cx = Math.max(0, Math.min(w - 1, Math.round(mid.x)));
   const cy = Math.max(0, Math.min(h - 1, Math.round(mid.y)));
   const i = cy * w + cx;
-  const wet = clamp01(climate.moisture[i] ?? 0.5);
-  const frost = clamp01((0.45 - (climate.temperature[i] ?? 0.5)) / 0.45);
-  return clamp01(0.3 + 0.45 * wet + 0.55 * frost);
+  return weatherAggression(terrainContextFrom(climate.moisture[i] ?? 0.5, climate.temperature[i] ?? 0.5));
 }
 
 /** Live connectome signals folded into road evolution. Both optional: with neither, evolution
