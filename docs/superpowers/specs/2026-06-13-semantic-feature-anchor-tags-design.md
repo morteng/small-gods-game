@@ -1,8 +1,22 @@
 # Semantic Feature-Anchor Tags — design note
 
-Status: **brainstorm / forward seam** (not yet built). Captured 2026-06-13 at user
-request ("tag all things in asset for use later — gables, tops of roofs, windows…
-bird landing spots … planning for it now is smart").
+Status: **partially realised (2026-06-24)** — the gameplay half is built in WORLD space
+on branch `feat/site-anchors`, NOT at the sprite layer this note originally proposed.
+Captured 2026-06-13 at user request ("tag all things in asset for use later — gables,
+tops of roofs, windows… bird landing spots … planning for it now is smart").
+
+> **2026-06-24 reconciliation.** The 2026-06-24 "unified anchor, whole stack" decision
+> (see `2026-06-24-establishments-site-connectome-design.md` §5) made the WORLD-space
+> `Anchor` (`src/world/anchors.ts`) the single canonical socket. So this note's role
+> vocabulary now lives there as `MountAnchorKind` (lintel / roof_ridge / gable_peak /
+> chimney_top / eave / roof_apex), emitted by `src/blueprint/compile/to-mount-anchors.ts`
+> from resolved blueprint geometry (metric `z` + `accepts` tokens; works on grey massing,
+> no dependency on the frozen art pipeline). What remains of THIS note is its *other* half:
+> the **sprite-normalised projection** — projecting those world anchors through the sprite
+> fit into `StructureAnchors.tags` (0..1, persisted in the SpritePack, surviving img2img)
+> for 2D decoration rendering. Build that when a renderer needs it, as a downstream lookup
+> off the world anchors — not as a second source of truth. The build-order / source-table
+> below still applies to that projection step.
 
 ## Goal
 
