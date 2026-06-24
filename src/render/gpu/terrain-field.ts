@@ -206,7 +206,12 @@ export function packColorField(map: GameMap, devMode?: DevModeState, waterType?:
         out[idx] = wetBedColorAbgr(tiles, tx, ty, width, height, devMode);
         continue;
       }
-      const hex = tile ? (TILE_COLORS[effectiveTileType(tile.type, devMode)] ?? '#444') : '#1a1a24';
+      // Paint the biome *under* a road/bridge (baseType is set only when a road
+      // overwrote real ground). The road's albedo comes from the shader surface
+      // channel, so an overgrown road fades back to this ground instead of a flat
+      // road-brown — and roads compose with snow/mud/wet like any other terrain.
+      const colorType = tile ? (tile.baseType ?? tile.type) : undefined;
+      const hex = colorType ? (TILE_COLORS[effectiveTileType(colorType, devMode)] ?? '#444') : '#1a1a24';
       out[idx] = hexToAbgr(hex);
     }
   }

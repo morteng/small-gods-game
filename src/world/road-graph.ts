@@ -253,16 +253,25 @@ function applyEdge(tiles: Tile[][], edge: RoadEdge, width: number): void {
     if (!t) continue;
     const idx = cell.y * width + cell.x;
     if (bridges.has(idx)) {
+      preserveBaseType(t);
       t.type = 'bridge';
       t.walkable = true;
     } else if (WATER_TYPES.has(t.type)) {
       // Walker chose to stop at water (autoBridge=false); leave it untouched.
       continue;
     } else {
+      preserveBaseType(t);
       t.type = roadTile;
       t.walkable = roadTile !== 'river';
     }
   }
+}
+
+/** Record the biome a road/bridge is about to overwrite, so the colour field can
+ *  paint the ground *under* the road (the surface channel supplies the road albedo).
+ *  Idempotent: only the FIRST overwrite — a real biome — is captured. */
+function preserveBaseType(t: Tile): void {
+  if (t.baseType === undefined && !ROAD_TILE_TYPES.has(t.type)) t.baseType = t.type;
 }
 
 /**
@@ -295,11 +304,13 @@ export function applyRoadMask(tiles: Tile[][], mask: RoadMask): void {
     const t = tiles[w.y]?.[w.x];
     if (!t) continue;
     if (w.bridge) {
+      preserveBaseType(t);
       t.type = 'bridge';
       t.walkable = true;
     } else if (WATER_TYPES.has(t.type)) {
       continue;
     } else {
+      preserveBaseType(t);
       const roadTile = tileTypeOf(w.surface);
       t.type = roadTile;
       t.walkable = roadTile !== 'river';

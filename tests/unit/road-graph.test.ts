@@ -205,6 +205,26 @@ describe('graph is the truth — derived carve reproduces worldgen byte-for-byte
     expect(snapshot(tiles).some(c => c.type === 'river')).toBe(true);
   });
 
+  it('preserves the overwritten biome in baseType so the ground under a road is recoverable', () => {
+    const w = 8, h = 1;
+    const tiles = makeTiles(w, h, 'grass');
+    const fields = flatField(w, h);
+    const pois = [poi('a', 0, 0), poi('b', 7, 0)];
+    const conns: Connection[] = [{ from: 'a', to: 'b', type: 'road' }];
+
+    const graph = buildRoadGraph(conns, pois, tiles, fields);
+    const carriageway = tiles.flat().filter(t => t.type === 'dirt_road' || t.type === 'stone_road');
+    expect(carriageway.length).toBeGreaterThan(0);
+    // Every carved road cell remembers it was grass; off-road cells keep none.
+    expect(carriageway.every(t => t.baseType === 'grass')).toBe(true);
+    expect(tiles.flat().filter(t => t.type === 'grass').every(t => t.baseType === undefined)).toBe(true);
+
+    // Re-deriving onto a fresh grid reproduces baseType too (save-safe).
+    const fresh = makeTiles(w, h, 'grass');
+    applyRoadMask(fresh, rasterizeRoadGraph(graph, w, h));
+    expect(fresh.flat().map(t => t.baseType)).toEqual(tiles.flat().map(t => t.baseType));
+  });
+
   it('reproduces bridges across a water wall through the rasterize round-trip', () => {
     // A full-height water column forces the road to bridge (no detour).
     const w = 7, h = 3;
