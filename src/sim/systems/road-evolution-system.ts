@@ -1,5 +1,5 @@
 import type { System, SystemContext } from '@/core/scheduler';
-import { advanceRoadEvolution } from '@/world/road-evolution';
+import { advanceRoadEvolution, connectomeEvolveOptions } from '@/world/road-evolution';
 
 /**
  * Roads age, wear, are repaired, and overgrow over time. This system advances the road
@@ -17,8 +17,12 @@ export class RoadEvolutionSystem implements System {
   readonly tickHz = 0.1;
 
   tick(ctx: SystemContext): void {
-    const graph = ctx.world.tiles.roadGraph;
+    const map = ctx.world.tiles;
+    const graph = map.roadGraph;
     if (!graph || graph.edges.length === 0) return;
-    advanceRoadEvolution(graph, ctx.now);
+    // Upkeep/traffic come from the endpoint settlements: a road outlives a thriving town
+    // and rots toward a declining one. (Building the options is cheap and gated to the
+    // rare ticks that actually apply by advanceRoadEvolution's years-gate.)
+    advanceRoadEvolution(graph, ctx.now, connectomeEvolveOptions(map));
   }
 }

@@ -1,10 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import type { RoadGraph, RoadEdge } from '@/world/road-graph';
+import type { GameMap } from '@/core/types';
 import {
   stepRoadDynamics,
   repairRoad,
   evolveRoadGraph,
   advanceRoadEvolution,
+  connectomeEvolveOptions,
   freshDynamics,
 } from '@/world/road-evolution';
 
@@ -191,5 +193,46 @@ describe('advanceRoadEvolution (stateless graph-clock driver)', () => {
 
     expect(stepped.edges[0].dynamics!.condition!).toBeCloseTo(jumped.edges[0].dynamics!.condition!, 6);
     expect(stepped.edges[0].dynamics!.overgrowth!).toBeCloseTo(jumped.edges[0].dynamics!.overgrowth!, 6);
+  });
+});
+
+describe('connectomeEvolveOptions (endpoint-settlement drive)', () => {
+  function mapWith(graph: RoadGraph, pois: { id: string; importance?: string; size?: string }[]): GameMap {
+    return { roadGraph: graph, worldSeed: { pois } } as unknown as GameMap;
+  }
+  const linkEdge = (id: string): RoadEdge => edge(id, { a: `${id}-a`, b: `${id}-b` });
+  const graphFor = (id: string, aPoi: string, bPoi: string): RoadGraph => ({
+    nodes: [
+      { id: `${id}-a`, x: 0, y: 0, kind: 'poi', poiRef: aPoi },
+      { id: `${id}-b`, x: 5, y: 0, kind: 'poi', poiRef: bPoi },
+    ] as RoadGraph['nodes'],
+    edges: [linkEdge(id)],
+  });
+
+  it('a thriving endpoint keeps a road maintained; an abandoned one lets it rot', () => {
+    const capital = graphFor('hi', 'A', 'B');
+    const hiMap = mapWith(capital, [{ id: 'A', importance: 'critical', size: 'huge' }, { id: 'B', importance: 'high', size: 'large' }]);
+    const loGraph = graphFor('lo', 'C', 'D');
+    const loMap = mapWith(loGraph, [{ id: 'C', importance: 'low', size: 'small' }, { id: 'D', importance: 'low', size: 'small' }]);
+
+    evolveRoadGraph(capital, 60, connectomeEvolveOptions(hiMap));
+    evolveRoadGraph(loGraph, 60, connectomeEvolveOptions(loMap));
+
+    const rich = capital.edges[0].dynamics!;
+    const poor = loGraph.edges[0].dynamics!;
+    expect(rich.condition!).toBeGreaterThan(0.95);     // the capital keeps its road pristine
+    expect(poor.condition!).toBeLessThan(rich.condition!); // the hamlet's road has slipped
+    expect(poor.condition!).toBeLessThan(0.8);
+  });
+
+  it('upkeep follows the MORE prosperous end (one rich patron suffices)', () => {
+    const g = graphFor('e', 'rich', 'ruin');
+    const m = mapWith(g, [{ id: 'rich', importance: 'critical', size: 'huge' }, { id: 'ruin', importance: 'low', size: 'small' }]);
+    const opts = connectomeEvolveOptions(m);
+    expect(opts.upkeepFor!(g.edges[0])).toBeGreaterThan(0.7); // the huge capital carries it
+  });
+
+  it('returns empty options for a graphless map', () => {
+    expect(connectomeEvolveOptions({} as GameMap)).toEqual({});
   });
 });

@@ -18,6 +18,7 @@
 
 import type { RoadGraph, RoadEdge, RoadClass } from '@/world/road-graph';
 import type { RoadDynamics } from '@/world/road-state';
+import type { GameMap, POI } from '@/core/types';
 import { clamp01 } from '@/core/math';
 import { TICKS_PER_DAY, DAYS_PER_YEAR } from '@/core/calendar';
 
@@ -39,6 +40,45 @@ export const ROAD_EVOLUTION_RATES = {
 
 /** Default climate aggression when the caller has no per-edge climate sample. */
 const DEFAULT_CLIMATE = 0.5;
+
+// ── Connectome-driven upkeep/traffic: a road is kept up by its endpoint settlements ──
+// Importance/size are the same static connectome signals road-classing reads. A road decays
+// because its endpoint declined — wire LIVE settlement population here later for true emergence.
+
+const IMPORTANCE_LEVEL: Record<string, number> = { low: 0.1, medium: 0.4, high: 0.7, critical: 1 };
+const SIZE_LEVEL: Record<string, number> = { small: 0.12, medium: 0.45, large: 0.75, huge: 1 };
+
+/** A settlement's capacity to maintain/use a road, 0..1: a hamlet (low/small ≈ 0.11) barely
+ *  keeps its track passable, a capital (critical/huge = 1) keeps a highway pristine. A
+ *  wilderness waypoint (no POI) sits low. */
+function poiVitality(p: POI | undefined): number {
+  if (!p) return 0.18;
+  const imp = IMPORTANCE_LEVEL[p.importance ?? 'medium'] ?? 0.4;
+  const sz = SIZE_LEVEL[p.size ?? 'medium'] ?? 0.45;
+  return clamp01(0.6 * imp + 0.4 * sz);
+}
+
+/**
+ * Build {@link EvolveOptions} that draw upkeep + traffic from a road's endpoint settlements:
+ *  - **upkeep** = the MORE prosperous end (one rich patron is enough to keep a road), and
+ *  - **traffic** = the average vitality (flow needs both ends alive).
+ * So a road between two thriving towns stays pristine, while a road to an abandoned hamlet
+ * loses upkeep AND traffic → it decays and greens over. Deterministic; pure over the map.
+ */
+export function connectomeEvolveOptions(map: GameMap): EvolveOptions {
+  const graph = map.roadGraph;
+  if (!graph) return {};
+  const nodeById = new Map(graph.nodes.map((n) => [n.id, n]));
+  const poiById = new Map((map.worldSeed?.pois ?? []).map((p) => [p.id, p]));
+  const endpointVitality = (edge: RoadEdge): [number, number] => [
+    poiVitality(poiById.get(nodeById.get(edge.a)?.poiRef ?? '')),
+    poiVitality(poiById.get(nodeById.get(edge.b)?.poiRef ?? '')),
+  ];
+  return {
+    upkeepFor: (edge) => { const [a, b] = endpointVitality(edge); return Math.max(a, b); },
+    trafficFor: (edge) => { const [a, b] = endpointVitality(edge); return clamp01(0.5 * (a + b)); },
+  };
+}
 
 export interface RoadStepContext {
   /** Elapsed sim years for this step (may be large for a time-skip). */
