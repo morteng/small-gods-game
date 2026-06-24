@@ -25,6 +25,7 @@ import { matchAnchors } from '@/world/anchor-rules';
 import { erodeElevation } from '@/terrain/erosion';
 import { placeSettlement } from '@/world/building-placer';
 import { buildCrossingStructureEntities } from '@/world/connectome/crossing-structures';
+import { buildRiparianEntities } from '@/world/riparian-scatter';
 import { tileBlockedByBuilding } from '@/world/building-collision';
 import { reconcileBarriersWithBuildings } from '@/world/place-barrier';
 import type { SettlementPlan } from '@/world/settlement-plan';
@@ -180,6 +181,15 @@ export async function generateWithNoise(
     const brushName = brushForBiome(region.biome);
     if (!brushName) continue;
     world.applyBrush(brushName, region, seed);
+  }
+
+  // Riparian band: dress the fresh-water margin (stones in the shallows, willows on
+  // the banks) ON TOP of the base vegetation, driven off the hydrology raster so it
+  // tracks rivers + lakes but not the sea. In-bounds by construction; guard against
+  // the rare id collision with a biome-brush entity on the same cell.
+  report('Dressing riverbanks...');
+  for (const e of buildRiparianEntities(hydrology, width, height, seed + 4242)) {
+    if (!world.registry.has(e.id)) world.addEntity(e);
   }
 
   // Connectome-placed mini-biomes: stamp distinctive ground (e.g. a temple's
