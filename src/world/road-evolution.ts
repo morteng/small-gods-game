@@ -19,6 +19,7 @@
 import type { RoadGraph, RoadEdge, RoadClass } from '@/world/road-graph';
 import type { RoadDynamics } from '@/world/road-state';
 import type { GameMap, POI } from '@/core/types';
+import type { ClimateFields } from '@/world/heightfield';
 import { clamp01 } from '@/core/math';
 import { TICKS_PER_DAY, DAYS_PER_YEAR } from '@/core/calendar';
 
@@ -42,42 +43,105 @@ export const ROAD_EVOLUTION_RATES = {
 const DEFAULT_CLIMATE = 0.5;
 
 // ── Connectome-driven upkeep/traffic: a road is kept up by its endpoint settlements ──
-// Importance/size are the same static connectome signals road-classing reads. A road decays
-// because its endpoint declined — wire LIVE settlement population here later for true emergence.
+// Importance/size set a settlement's static CEILING; LIVE resident count (settlement-growth's
+// residentsByPoi) sets how much of that ceiling is realised. A road decays because its endpoint
+// EMPTIED — measured against what that place was built to hold — true time-varying emergence.
 
 const IMPORTANCE_LEVEL: Record<string, number> = { low: 0.1, medium: 0.4, high: 0.7, critical: 1 };
 const SIZE_LEVEL: Record<string, number> = { small: 0.12, medium: 0.45, large: 0.75, huge: 1 };
 
-/** A settlement's capacity to maintain/use a road, 0..1: a hamlet (low/small ≈ 0.11) barely
- *  keeps its track passable, a capital (critical/huge = 1) keeps a highway pristine. A
- *  wilderness waypoint (no POI) sits low. */
-function poiVitality(p: POI | undefined): number {
+/** A settlement's STATIC ceiling, 0..1: a hamlet (low/small ≈ 0.11) barely keeps its track
+ *  passable, a capital (critical/huge = 1) keeps a highway pristine. */
+function staticCapacity(p: POI | undefined): number {
   if (!p) return 0.18;
   const imp = IMPORTANCE_LEVEL[p.importance ?? 'medium'] ?? 0.4;
   const sz = SIZE_LEVEL[p.size ?? 'medium'] ?? 0.45;
   return clamp01(0.6 * imp + 0.4 * sz);
 }
 
+/** The resident count a settlement of this importance/size is built to hold — the baseline live
+ *  population is measured AGAINST, so decline is relative to what the place once was (~3 for a
+ *  hamlet → ~48 for a capital). */
+function expectedPopulation(p: POI | undefined): number {
+  if (!p) return 4;
+  const imp = IMPORTANCE_LEVEL[p.importance ?? 'medium'] ?? 0.4;
+  const sz = SIZE_LEVEL[p.size ?? 'medium'] ?? 0.45;
+  return 3 + 45 * (0.6 * imp + 0.4 * sz);
+}
+
+/** A settlement's capacity to maintain/use a road, 0..1. Without a live census this is the static
+ *  ceiling; WITH one, the ceiling is scaled by how peopled the place is relative to its baseline —
+ *  an emptied town lets its roads rot (floor 0.2× keeps stone from ruining on a single lean year),
+ *  a thriving one keeps them to the class ceiling. */
+function poiVitality(p: POI | undefined, residents?: Map<string, number>): number {
+  const cap = staticCapacity(p);
+  if (!residents) return cap;
+  const live = p ? (residents.get(p.id) ?? 0) : 0;
+  const popFactor = clamp01(live / expectedPopulation(p));
+  return cap * (0.2 + 0.8 * popFactor);
+}
+
+/** Climate aggression 0..1 at an edge's midpoint: wet ground (rain) + frost (heave below the
+ *  snowline) weather a road faster. A dry temperate road sits near the {@link DEFAULT_CLIMATE}
+ *  baseline; a cold wet upland road approaches 1. */
+function edgeClimateAggression(edge: RoadEdge, climate: ClimateFields, w: number, h: number): number {
+  const line = edge.polyline;
+  if (!line.length) return DEFAULT_CLIMATE;
+  const mid = line[line.length >> 1];
+  const cx = Math.max(0, Math.min(w - 1, Math.round(mid.x)));
+  const cy = Math.max(0, Math.min(h - 1, Math.round(mid.y)));
+  const i = cy * w + cx;
+  const wet = clamp01(climate.moisture[i] ?? 0.5);
+  const frost = clamp01((0.45 - (climate.temperature[i] ?? 0.5)) / 0.45);
+  return clamp01(0.3 + 0.45 * wet + 0.55 * frost);
+}
+
+/** Live connectome signals folded into road evolution. Both optional: with neither, evolution
+ *  falls back to the static importance/size ceiling + a flat climate (the pre-live behaviour). */
+export interface ConnectomeEvolveInputs {
+  /** Living residents per POI id — `residentsByPoi(world)` from the settlement-growth system. */
+  residents?: Map<string, number>;
+  /** Per-tile moisture/temperature fields — `getClimateFields(map)`. */
+  climate?: ClimateFields;
+}
+
 /**
- * Build {@link EvolveOptions} that draw upkeep + traffic from a road's endpoint settlements:
- *  - **upkeep** = the MORE prosperous end (one rich patron is enough to keep a road), and
- *  - **traffic** = the average vitality (flow needs both ends alive).
- * So a road between two thriving towns stays pristine, while a road to an abandoned hamlet
- * loses upkeep AND traffic → it decays and greens over. Deterministic; pure over the map.
+ * Build {@link EvolveOptions} that draw upkeep + traffic from a road's endpoint settlements, and
+ * (when a climate is supplied) per-edge weather aggression from where the road runs:
+ *  - **upkeep** = the MORE prosperous end (one rich patron is enough to keep a road),
+ *  - **traffic** = the average vitality (flow needs both ends alive),
+ *  - **climate** = wetness + frost sampled at the edge midpoint.
+ * So a road between two thriving towns stays pristine, a road to a settlement that EMPTIED loses
+ * upkeep AND traffic → it decays and greens over, and a cold/wet road wears faster than a dry one.
+ * Edges with no POI at either end fall back to their class default. Deterministic; pure over inputs.
  */
-export function connectomeEvolveOptions(map: GameMap): EvolveOptions {
+export function connectomeEvolveOptions(map: GameMap, inputs: ConnectomeEvolveInputs = {}): EvolveOptions {
   const graph = map.roadGraph;
   if (!graph) return {};
+  const { residents, climate } = inputs;
   const nodeById = new Map(graph.nodes.map((n) => [n.id, n]));
   const poiById = new Map((map.worldSeed?.pois ?? []).map((p) => [p.id, p]));
-  const endpointVitality = (edge: RoadEdge): [number, number] => [
-    poiVitality(poiById.get(nodeById.get(edge.a)?.poiRef ?? '')),
-    poiVitality(poiById.get(nodeById.get(edge.b)?.poiRef ?? '')),
+  const endpointPois = (edge: RoadEdge): [POI | undefined, POI | undefined] => [
+    poiById.get(nodeById.get(edge.a)?.poiRef ?? ''),
+    poiById.get(nodeById.get(edge.b)?.poiRef ?? ''),
   ];
-  return {
-    upkeepFor: (edge) => { const [a, b] = endpointVitality(edge); return Math.max(a, b); },
-    trafficFor: (edge) => { const [a, b] = endpointVitality(edge); return clamp01(0.5 * (a + b)); },
+  const opts: EvolveOptions = {
+    upkeepFor: (edge) => {
+      const [a, b] = endpointPois(edge);
+      if (!a && !b) return CLASS_UPKEEP[edge.class]; // no settlement signal → class default
+      return Math.max(poiVitality(a, residents), poiVitality(b, residents));
+    },
+    trafficFor: (edge) => {
+      const [a, b] = endpointPois(edge);
+      if (!a && !b) return CLASS_TRAFFIC[edge.class];
+      return clamp01(0.5 * (poiVitality(a, residents) + poiVitality(b, residents)));
+    },
   };
+  if (climate) {
+    const w = map.width, h = map.height;
+    opts.climateFor = (edge) => edgeClimateAggression(edge, climate, w, h);
+  }
+  return opts;
 }
 
 export interface RoadStepContext {
@@ -204,13 +268,19 @@ export const ROAD_EVOLUTION_MIN_APPLY_YEARS = 0.5;
  * caller (live tick system OR the D2 time-skip) need hold no state. No-op (no rev bump) until
  * at least {@link ROAD_EVOLUTION_MIN_APPLY_YEARS} have elapsed, so the expensive re-derivation
  * runs at most ~twice per in-game year. Returns the years actually applied (0 if skipped).
+ *
+ * `opts` may be a thunk: it is invoked ONLY when an advance actually applies, so a live caller
+ * can defer the expensive residents/climate gather past the years-gate (it fires every tick but
+ * applies twice a year).
  */
-export function advanceRoadEvolution(graph: RoadGraph, now: number, opts: EvolveOptions = {}): number {
+export function advanceRoadEvolution(
+  graph: RoadGraph, now: number, opts: EvolveOptions | (() => EvolveOptions) = {},
+): number {
   const baseline = graph.evolvedAtTick ?? now;
   const dtYears = (now - baseline) / TICKS_PER_YEAR;
   if (graph.evolvedAtTick === undefined) { graph.evolvedAtTick = now; return 0; } // first sight: start fresh
   if (dtYears < ROAD_EVOLUTION_MIN_APPLY_YEARS) return 0;
-  evolveRoadGraph(graph, dtYears, opts);
+  evolveRoadGraph(graph, dtYears, typeof opts === 'function' ? opts() : opts);
   graph.evolvedAtTick = now;
   return dtYears;
 }

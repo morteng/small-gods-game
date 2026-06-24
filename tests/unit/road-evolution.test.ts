@@ -236,3 +236,82 @@ describe('connectomeEvolveOptions (endpoint-settlement drive)', () => {
     expect(connectomeEvolveOptions({} as GameMap)).toEqual({});
   });
 });
+
+describe('connectomeEvolveOptions — live population & climate', () => {
+  const graphFor = (id: string, aPoi: string, bPoi: string, line = [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 2, y: 0 }]): RoadGraph => ({
+    nodes: [
+      { id: `${id}-a`, x: 0, y: 0, kind: 'poi', poiRef: aPoi },
+      { id: `${id}-b`, x: 2, y: 0, kind: 'poi', poiRef: bPoi },
+    ] as RoadGraph['nodes'],
+    edges: [edge(id, { polyline: line })],
+  });
+  const mapWith = (graph: RoadGraph, pois: { id: string; importance?: string; size?: string }[]): GameMap =>
+    ({ roadGraph: graph, worldSeed: { pois }, width: 8, height: 2 } as unknown as GameMap);
+
+  it('a settlement that EMPTIED lets its road rot; the same settlement fully peopled keeps it', () => {
+    const pois = [{ id: 'A', importance: 'medium', size: 'medium' }, { id: 'B', importance: 'medium', size: 'medium' }];
+    const full = graphFor('full', 'A', 'B');
+    const empty = graphFor('empty', 'A', 'B');
+    // Same static ceiling for both maps — only the live census differs.
+    const peopled = new Map([['A', 40], ['B', 40]]);
+    const abandoned = new Map([['A', 0], ['B', 0]]);
+
+    evolveRoadGraph(full, 60, connectomeEvolveOptions(mapWith(full, pois), { residents: peopled }));
+    evolveRoadGraph(empty, 60, connectomeEvolveOptions(mapWith(empty, pois), { residents: abandoned }));
+
+    const kept = full.edges[0].dynamics!;
+    const rotted = empty.edges[0].dynamics!;
+    expect(rotted.condition!).toBeLessThan(kept.condition!);       // the emptied town's road slipped
+    expect(rotted.overgrowth!).toBeGreaterThan(kept.overgrowth!);  // and greened over
+    expect(kept.condition!).toBeGreaterThan(0.7);                  // the peopled one held up
+  });
+
+  it('with no census the live path matches the static ceiling exactly (back-compat)', () => {
+    const pois = [{ id: 'A', importance: 'high', size: 'large' }, { id: 'B', importance: 'high', size: 'large' }];
+    const g = graphFor('g', 'A', 'B');
+    const m = mapWith(g, pois);
+    // residents absent ⇒ vitality is the static ceiling; a full census at/above baseline equals it.
+    const staticUpkeep = connectomeEvolveOptions(m).upkeepFor!(g.edges[0]);
+    const liveFull = connectomeEvolveOptions(m, { residents: new Map([['A', 99], ['B', 99]]) }).upkeepFor!(g.edges[0]);
+    expect(liveFull).toBeCloseTo(staticUpkeep, 5);
+  });
+
+  it('per-edge climate: a cold, wet road wears faster than a warm, dry one', () => {
+    const cold = graphFor('cold', 'A', 'B', [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 2, y: 0 }]); // mid → cell (1,0)
+    const warm = graphFor('warm', 'A', 'B', [{ x: 5, y: 0 }, { x: 6, y: 0 }, { x: 7, y: 0 }]); // mid → cell (6,0)
+    const moisture = new Float32Array(16); const temperature = new Float32Array(16).fill(0.5);
+    moisture[1] = 0.9; temperature[1] = 0.05; // (1,0): wet + frozen
+    moisture[6] = 0.1; temperature[6] = 0.70; // (6,0): dry + warm
+    const climate = { moisture, temperature };
+    const coldOpts = connectomeEvolveOptions(mapWith(cold, [{ id: 'A' }, { id: 'B' }]), { climate });
+    const warmOpts = connectomeEvolveOptions(mapWith(warm, [{ id: 'A' }, { id: 'B' }]), { climate });
+    expect(coldOpts.climateFor!(cold.edges[0])).toBeGreaterThan(warmOpts.climateFor!(warm.edges[0]));
+  });
+});
+
+describe('advanceRoadEvolution — lazy opts thunk', () => {
+  const roadGraph = (): RoadGraph => ({ nodes: [], edges: [edge('e')] });
+
+  it('does NOT invoke the opts thunk below the half-year gate', () => {
+    const g = roadGraph(); g.evolvedAtTick = 0;
+    let calls = 0;
+    advanceRoadEvolution(g, 0.1 * TICKS_PER_YEAR, () => { calls++; return {}; });
+    expect(calls).toBe(0);
+  });
+
+  it('invokes the opts thunk exactly once when an advance applies', () => {
+    const g = roadGraph(); g.evolvedAtTick = 0;
+    let calls = 0;
+    const years = advanceRoadEvolution(g, 0.6 * TICKS_PER_YEAR, () => { calls++; return {}; });
+    expect(years).toBeGreaterThan(0);
+    expect(calls).toBe(1);
+  });
+
+  it('does NOT invoke the thunk on first sight (baseline-only)', () => {
+    const g = roadGraph(); // evolvedAtTick undefined
+    let calls = 0;
+    advanceRoadEvolution(g, 5 * TICKS_PER_YEAR, () => { calls++; return {}; });
+    expect(calls).toBe(0);
+    expect(g.evolvedAtTick).toBe(5 * TICKS_PER_YEAR);
+  });
+});
