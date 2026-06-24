@@ -17,11 +17,13 @@ import { UiContext, type UiInput, type UiHit } from '@/render/ui/ui-context';
 import { uiScaleFor } from '@/render/ui/ui-layer';
 import { UI_PALETTE } from '@/render/ui/ui-palette';
 import { shade, withAlpha } from '@/render/ui/ui-color';
+import { clamp01 } from '@/core/math';
 import type { UiDrawGroup } from '@/render/ui/ui-batcher';
 import { SettingsIsland } from '@/render/ui/ui-settings-island';
 import type { ProviderConfig } from '@/llm/provider-factory';
 import type { StorySession, Stage } from '@/story/story-session';
 import type { BeliefPowerView, InboxItem } from '@/game/game-query';
+import type { SiteCardView } from '@/game/causal-site-view';
 
 /** Bigger-font multipliers (× the integer DPR scale). The S1 demo drew at 1×s
  *  which read tiny; the HUD/menu want chunky, legible pixel text. */
@@ -59,6 +61,13 @@ export interface UiRuntimeHooks {
   onInboxAct?: (item: InboxItem) => void;
   /** Triage: investigate (focus the subject — mind page / backfill). */
   onInboxInvestigate?: (item: InboxItem) => void;
+
+  // ── W-I-d: the selected CAUSAL SITE card (flood plain / drowned village) ──
+  /** The card view for the currently-selected causal site, or null. The runtime
+   *  draws nothing when this returns null (no selection). */
+  getSelectedSite?: () => SiteCardView | null;
+  /** Dismiss the site card (clears `state.selectedCausalSiteId`). */
+  onCloseSite?: () => void;
 
   // ── legacy-chrome L0: camera cluster (HUD) ──
   /** Camera cluster (HUD). When all four are set, the HUD draws zoom controls. */
@@ -324,7 +333,52 @@ export class UiRuntime {
     if (this.panel === 'powers') this.drawPowers(c, w, h, s, powers, by - pad);
     else if (this.panel === 'inbox') this.drawInbox(c, w, h, s, inbox, by - pad);
 
+    const site = this.hooks.getSelectedSite?.() ?? null;
+    if (site) this.drawSiteCard(c, w, s, site);
+
     this.drawCameraCluster(c, w, h, s);
+  }
+
+  // ── W-I-d: the selected causal-site card (a focused ephemeral place) ────────
+  // A non-modal banner near the top centre: name, attribution, an intensity bar,
+  // and the lifecycle line. The whole card registers a hotspot so a tap on it is
+  // eaten by the UI (doesn't fall through to the world and deselect); the ✕ button
+  // dismisses. Mirrors `drawInbox`'s panel/label/rect vocabulary.
+  private drawSiteCard(c: UiContext, w: number, s: number, view: SiteCardView): void {
+    const pad = 16 * s;
+    const cw = 320 * s;
+    const cx = Math.round((w - cw) / 2);
+    const cy = pad;
+    const fsName = 3 * s;
+    const fsBody = FS_BODY * s;
+    const nameLh = c.lineHeight(fsName);
+    const lh = c.lineHeight(fsBody);
+    const barH = 8 * s;
+    const ch = 18 * s + nameLh + 6 * s + lh + 12 * s + barH + 10 * s + lh + 16 * s;
+
+    c.panel(cx, cy, cw, ch);
+    c.hotspot('ui.sitecard', cx, cy, cw, ch); // eat clicks on the card body
+
+    const innerX = cx + 18 * s;
+    const innerW = cw - 36 * s;
+    let y = cy + 18 * s;
+
+    c.label(view.name, innerX, y, fsName, UI_PALETTE.text);
+    const close = 22 * s;
+    if (c.button('ui.sitecard.close', '✕', cx + cw - close - 12 * s, cy + 12 * s, close, close, { scale: fsBody })) {
+      this.hooks.onCloseSite?.();
+    }
+    y += nameLh + 6 * s;
+
+    c.label(view.subtitle, innerX, y, fsBody, UI_PALETTE.textDim);
+    y += lh + 12 * s;
+
+    c.rect(innerX, y, innerW, barH, withAlpha(shade(UI_PALETTE.panelBg, -0.3), 0.85));
+    const fillW = Math.round(innerW * clamp01(view.intensity));
+    if (fillW > 0) c.rect(innerX, y, fillW, barH, UI_PALETTE.accent);
+    y += barH + 10 * s;
+
+    c.label(view.status, innerX, y, fsBody, UI_PALETTE.textDim);
   }
 
   // ── skill panel: belief-granted powers, locked→unlocked with progress ──────
@@ -621,10 +675,6 @@ export class UiRuntime {
     }
     return island;
   }
-}
-
-function clamp01(n: number): number {
-  return n < 0 ? 0 : n > 1 ? 1 : n;
 }
 
 function inRect(p: { x: number; y: number }, r: Rect): boolean {

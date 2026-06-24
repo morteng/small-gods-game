@@ -19,6 +19,9 @@ export interface GameState {
   selectedNpcId: string | null;
   /** Building entity whose info panel is open, or null. Mirrors selectedNpcId. */
   selectedBuildingId: string | null;
+  /** W-I-d: the causal site (`causalSites`) whose card is open, or null. The
+   *  third member of the mutually-exclusive selection set (npc / building / site). */
+  selectedCausalSiteId: string | null;
   visualMap: string[][] | null;
   blobMap: BlobTile[][] | null;
   debug: boolean;
@@ -86,6 +89,7 @@ export function createState(): GameState {
     worldSeed: null,
     selectedNpcId: null,
     selectedBuildingId: null,
+    selectedCausalSiteId: null,
     visualMap: null,
     blobMap: null,
     debug: false,

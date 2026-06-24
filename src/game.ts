@@ -9,6 +9,7 @@ import type { GameMap, WorldSeed, TerrainOptions } from '@/core/types';
 import { ART_RECIPE_VERSION } from '@/core/content-version';
 import { createDebugApi, type DebugApi } from '@/dev/debug-api';
 import { createGameQuery, type GameQuery, type InboxItem } from '@/game/game-query';
+import { causalSiteCardView } from '@/game/causal-site-view';
 import type { CommandVerb } from '@/sim/command/types';
 import { createGameBus, type GameBus } from '@/game/game-bus';
 import { getUiRuntime } from '@/render/ui/ui-runtime';
@@ -666,6 +667,17 @@ export class Game {
           this.state.selectedNpcId = item.target.npcId;
           this.requestRender();
         }
+      },
+      // ── W-I-d: selected causal-site card ──
+      getSelectedSite: () => {
+        const id = this.state.selectedCausalSiteId;
+        if (!id) return null;
+        const site = this.state.causalSites?.byId(id);
+        return site ? causalSiteCardView(site, this.state.spirits) : null;
+      },
+      onCloseSite: () => {
+        this.state.selectedCausalSiteId = null;
+        this.requestRender();
       },
       // ── legacy-chrome L0: camera controls as GPU buttons ──
       onZoomIn: () => this.cameraZoomIn(),

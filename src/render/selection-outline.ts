@@ -186,6 +186,55 @@ export function fillTileRect(
   ctx.restore();
 }
 
+/**
+ * Fill an arbitrary set of tile cells (row-major indices into a `mapWidth`-wide
+ * grid) with a translucent wash — used to highlight a causal site's IRREGULAR
+ * footprint in the live game (its blob isn't a rect, so `fillTileRect` can't).
+ * Draws in raw screen space, matching the iso terrain diamonds.
+ */
+export function fillTiles(
+  ctx: CanvasRenderingContext2D,
+  cells: ArrayLike<number>,
+  mapWidth: number,
+  camera: Camera,
+  color: string,
+  alpha = 0.3,
+): void {
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = color;
+  const halfW = (ISO_TILE_W / 2) * camera.zoom;
+  const halfH = (ISO_TILE_H / 2) * camera.zoom;
+  for (let k = 0; k < cells.length; k++) {
+    const idx = cells[k];
+    const tx = idx % mapWidth, ty = (idx / mapWidth) | 0;
+    const c = isoTileCenter(tx, ty, camera);
+    ctx.beginPath();
+    ctx.moveTo(c.sx, c.sy - halfH);
+    ctx.lineTo(c.sx + halfW, c.sy);
+    ctx.lineTo(c.sx, c.sy + halfH);
+    ctx.lineTo(c.sx - halfW, c.sy);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+/** Bounding tile-rect of a set of row-major cell indices, or null if empty. */
+export function cellsBBox(cells: ArrayLike<number>, mapWidth: number): OutlineRect | null {
+  if (cells.length === 0) return null;
+  let xmin = Infinity, xmax = -Infinity, ymin = Infinity, ymax = -Infinity;
+  for (let k = 0; k < cells.length; k++) {
+    const idx = cells[k];
+    const tx = idx % mapWidth, ty = (idx / mapWidth) | 0;
+    if (tx < xmin) xmin = tx;
+    if (tx > xmax) xmax = tx;
+    if (ty < ymin) ymin = ty;
+    if (ty > ymax) ymax = ty;
+  }
+  return { x: xmin, y: ymin, w: xmax - xmin + 1, h: ymax - ymin + 1 };
+}
+
 /** Faint, non-pulsing outline for the hovered target (distinct from selection). */
 export function drawHoverOutline(
   ctx: CanvasRenderingContext2D,

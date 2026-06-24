@@ -17,6 +17,7 @@ import { findBuildingAtTile, buildingInfoOf } from '@/world/building-helpers';
 import { formatNpcTooltip } from '@/ui/npc-tooltip';
 import { formatDevTooltip } from '@/dev/tooltip';
 import { drawPowerHud } from '@/render/hud';
+import { fillTiles } from '@/render/selection-outline';
 import { formatDebugHud } from '@/ui/debug-hud';
 import { POWER_REGEN_RATE, POWER_UNDERSTANDING_COEFF, POWER_DEVOTION_COEFF } from '@/sim/spirit-system';
 import { countPlayerBelievers, countDurableBelievers } from '@/sim/believers';
@@ -119,6 +120,16 @@ export class FrameRenderer {
       ? this.deps.dev.hitTest(this.deps.interaction.hoverScreen.x, this.deps.interaction.hoverScreen.y)
       : null;
     this.deps.dev.drawOverlays(this.deps.ctx, rc, hoverHit);
+
+    // W-I-d: wash the selected causal site's irregular footprint on the map, so a
+    // focused ephemeral place (a god-flooded plain) reads as a bounded site.
+    const siteId = this.deps.state.selectedCausalSiteId;
+    if (siteId && this.deps.state.map) {
+      const site = this.deps.state.causalSites?.byId(siteId);
+      if (site) {
+        fillTiles(this.deps.ctx, site.cells, this.deps.state.map.width, this.deps.state.camera, '#4aa3d8', 0.32);
+      }
+    }
 
     // Gold flash when a divine action was just cast
     const flashAge = performance.now() - this.deps.divine.lastCastTime;
