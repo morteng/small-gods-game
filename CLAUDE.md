@@ -195,14 +195,25 @@ npm run dev        # Start Vite dev server
 npm run build      # TypeScript check + Vite production build
 npm test           # Run all tests (vitest)
 npm run test:watch # Watch mode
+npm run bus -- ping        # Drive a running game from the CLI (needs the tab on ?bridge)
+npm run mcp                # Stdio MCP server over the running game (registered in .mcp.json as `small-gods`)
 ```
+
+**Dev bus bridge (out-of-process control).** With the game opened on `?bridge`
+(read-only) or `?bridge=rw` (writes), the in-browser `GameBus` seam is published
+over a WebSocket broker (Vite dev plugin on `/__bus`) so a CLI (`tools/bus-cli.ts`)
+or a stdio **MCP server** (`tools/mcp-server.ts`, 14 tools) can drive + inspect a
+live game. The browser tab is the *game peer* and does all dispatch, so it inherits
+the bus's gating/replay. **DEV ONLY — Fate and the WebGPU UI call `GameBus`
+in-process and must never round-trip through the bridge.** Spec:
+`docs/superpowers/specs/2026-06-21-bus-over-ws-bridge-mcp-spec.md`.
 
 ## Gameplay Architecture
 
-Phases 7–8 shipped; Phase 9 (LLM) is partway; rivals (Track 3) and the DM agent (Track 4 / "Fate") are still ahead — see [ROADMAP.md](docs/ROADMAP.md).
+Phases 7–8 shipped; Phase 9 (LLM backfill) is largely shipped; rivals (Track 3) and the DM agent (Track 4 / "Fate") are still ahead — see [ROADMAP.md](docs/ROADMAP.md).
 
 - **NPC sim** (✅): personality traits, belief per spirit (faith/understanding/devotion), needs (safety/prosperity/community/meaning), social graph, event ring buffer, mortality + birth + lineage (D1)
-- **Divine actions** (✅): whisper, omen, answer prayer, dream, miracle — each costs belief-power; understanding gates sign-perception & prayer efficacy (Track 1)
-- **LLM backfill** (🟡): ~500-token prompt → narrative + JSON state delta, target <200 ms; client/providers/writeback live, provider config UI in progress
+- **Divine actions** (✅): whisper, omen, answer prayer, dream, miracle — each costs belief-power; understanding gates sign-perception & prayer efficacy (Track 1). Extended by **belief-granted powers + the divine inbox** (a god's vocabulary = what its believers think it can do).
+- **LLM backfill** (🟢): ~500-token prompt → narrative + JSON state delta, target <200 ms; client/providers/writeback + player provider-config UI + live-apply all shipped. Runs the **fast/chat tier** (`DEFAULT_CHAT_MODEL`, currently `deepseek/deepseek-v4-flash`) of the two-tier OpenRouter catalog (`src/llm/openrouter-catalog.ts`). Remaining Track-2 work: conversation UI + interaction memory.
 - **Rival spirits** (⬜ Track 3): personality-driven programmatic actions, LLM-narrated when intersecting with the player
-- **Fate / DM agent** (⬜ Track 4): background LLM (larger model, infrequent) managing pacing, plot threads, rival coaching, escalation, player modeling — also the LLM era-authoring half of the D2 time-skip loop. The codebase calls this layer **"Fate."**
+- **Fate / DM agent** (⬜ Track 4): background LLM on the **capable tier** (`DEFAULT_CAPABLE_MODEL`, currently `deepseek/deepseek-v4-pro`) via the built-but-uncalled `Game.llmClientCapable` seam — managing pacing, plot threads, rival coaching, escalation; also the LLM era-authoring half of the D2 time-skip loop. The codebase calls this layer **"Fate."**
