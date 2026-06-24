@@ -202,11 +202,19 @@ in play; `applySkip` (D2) advances it across a closed-form jump. No `Math.random
 
 Because the carve and the surface both read `edge.dynamics`, an overgrown road **softens its cut
 AND fades back to biome** (the `baseType` cleanup pays off: low pavedness reveals the grass under
-the road). `upkeep`/`traffic` are now **connectome-driven** (`connectomeEvolveOptions`): a road's
-upkeep follows its MORE prosperous endpoint settlement and its traffic the average — so a road
-decays *because its settlement declined*. Live settlement **population** (true collapse-driven rot)
-and per-edge **climate** (weather-system wetness) are the next refinements — the `EvolveOptions`
-`upkeepFor`/`trafficFor`/`climateFor` seams carry them.
+the road). `upkeep`/`traffic` are **connectome-driven** (`connectomeEvolveOptions`): a road's upkeep
+follows its MORE prosperous endpoint settlement and its traffic the average — so a road decays
+*because its settlement declined*.
+
+**Live-population + per-edge climate (BUILT).** Importance/size now set only a settlement's static
+*ceiling*; the **live resident census** (`residentsByPoi`) sets how much of it is realised, measured
+against the settlement's own baseline (`expectedPopulation`) — so a road to a town that **emptied
+over time** loses upkeep + traffic and greens over, while one to a town that grew stays kept (true
+collapse-driven rot, time-varying). Per-edge **climate** weathering samples the per-tile moisture +
+temperature at each edge midpoint (`climateFor`) — a cold, wet upland road wears faster than a dry,
+temperate one. Both feed the live `RoadEvolutionSystem` and the D2 time-skip (post-skip census); the
+gather is deferred behind a thunk in `advanceRoadEvolution` so it only runs past the half-year gate.
+Wider settlement-prosperity signals (granary stores, war/plague shocks) can ride the same seam later.
 
 ### Slice 0b — Junction topology (BUILT)
 `splitRoadGraphAtJunctions` (`src/world/road-junctions.ts`) derives real network topology: it splits
@@ -256,9 +264,13 @@ The road surface channel is the **first instance** of a general principle: **eve
 samples the unified per-cell terrain context at its footprint and blends toward it, with
 per-object-type parameters.** One shared seam, many consumers:
 
-- the **unified per-cell context** already exists for terrain (biome colour, material weights,
-  moisture, temperature, road, wetness, snow — `terrain-field.ts` + the T-A/B/C gradient). Generalise
-  "sample the context at a position" into a reusable read the *entity* passes can call too.
+- **SEAM BUILT — `src/world/terrain-context.ts`.** `sampleTerrainContext(map,x,y)` is the single
+  "what is the ground like here?" read: `{baseType, moisture, temperature, elevation, snow, mud}`
+  from the SAME memoised climate/height fields the terrain shader uses. `groundBlend(ctx)` derives the
+  per-object dressing weights (`snow`/`mud`/`biomeTint`); `weatherAggression(ctx)` is the rain+frost
+  surface-weathering term. **Proving consumer:** road evolution's per-edge climate weathering now runs
+  through `weatherAggression`/`terrainContextFrom`, so roads and every future object share ONE snow/
+  mud/rain definition. (Replaces the earlier "generalise this later" note — the reusable read exists.)
 - each object type carries **blend params**: `groundTint` (pick up the ground colour at its base —
   a rock in grass greens slightly, on sand sands), `edgeBlend`/`skirt` (silhouette feathers into the
   surroundings instead of a hard cut), `overgrowthSusceptibility` (how readily moss/vegetation
