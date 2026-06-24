@@ -182,6 +182,51 @@ without any road-specific ice code.
 Reserve **road corridors before lots subdivide** in `src/world/settlement-plan.ts` so the carve has
 good ground to sit on, rather than roads being placed last and threading whatever gaps remain.
 
+## Roads render entirely through the terrain shader (no road pass)
+
+After Slice 1+2 there is **no separate road/ribbon render pass** — a road's whole 3D
+appearance is produced by the terrain shader: the **carve** (height channel) shapes it, the
+**surface channel** (binding 6 pavedness) gives it its material albedo, and the existing
+material gradient lets snow/mud/ice/wet compose on top. Roads are terrain.
+
+Caveat / cleanup: the legacy `dirt_road`/`stone_road` **tiles** still exist (NPC walkability,
+minimap, 4-connected flood invariants) and still tint the biome base colour in
+`packColorField`, which is now mildly **redundant** with the surface channel. That's benign
+(both paint road-ish colour), but a follow-up can stop special-casing road tiles in
+`packColorField` so the road's look is *purely* carve+surface — the tiles then carry only
+sim/walkability semantics.
+
+## Engine-wide contextual blend (object ↔ terrain grounding)
+
+**(User direction 2026-06-24:** *"texture blend where wilderness can gradually grow into/onto
+road, buildings get tint from terrain they are placed on… effective for rocks placed in nature.
+should be an engine-wide thing with different parameters for different objects."*)
+
+The road surface channel is the **first instance** of a general principle: **every placed object
+samples the unified per-cell terrain context at its footprint and blends toward it, with
+per-object-type parameters.** One shared seam, many consumers:
+
+- the **unified per-cell context** already exists for terrain (biome colour, material weights,
+  moisture, temperature, road, wetness, snow — `terrain-field.ts` + the T-A/B/C gradient). Generalise
+  "sample the context at a position" into a reusable read the *entity* passes can call too.
+- each object type carries **blend params**: `groundTint` (pick up the ground colour at its base —
+  a rock in grass greens slightly, on sand sands), `edgeBlend`/`skirt` (silhouette feathers into the
+  surroundings instead of a hard cut), `overgrowthSusceptibility` (how readily moss/vegetation
+  reclaims it — high for ruins, ~0 for a kept road), `wetnessResponse`/`snowResponse` (does it darken
+  when wet, cap with snow).
+- **road↔wilderness** is just this with the road's params: as `RoadState.overgrowth` rises,
+  `road-surface.ts` fades pavedness → biome grass returns → the flora scatter reclaims it. Same
+  machinery grounds a **rock** (groundTint + skirt), tints a **building** by its pad terrain, and
+  weathers a **ruin** (overgrowth). It also unifies with the existing sprite **skirt/affordance-graph**
+  and **sprite-weathering** work.
+
+**Ownership / sequencing.** This is a cross-cutting seam like the deformation channel — design it as
+shared, build instances per owner: **roads = this session** (done as the first instance);
+**rocks/trees/overgrowth scatter = the flora/rock session** (their files — coordinate, don't touch);
+**building tint = a renderer/building task**. It also wants the incremental substrate (context changes
+→ re-blend the affected objects). Recommend a small standalone brainstorm doc for the engine-wide
+version rather than overloading this roads spec; the road instance proves the pattern.
+
 ## Cross-session coordination (read before building)
 
 - **Shared deformation channel is a cross-session seam** (`spec-shared-terrain-deformation-channel`).

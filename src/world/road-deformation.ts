@@ -39,6 +39,7 @@ import { resolveSettlementEra, isEra, type Era } from '@/core/era';
 import {
   deriveRoadState,
   roadCrossSection,
+  type RoadState,
   type RoadCrossSection,
   type RoadDynamics,
 } from '@/world/road-state';
@@ -154,6 +155,31 @@ function eraForEdge(edge: RoadEdge, fromPoi: POI | undefined, toPoi: POI | undef
   return isEra(ws?.era) ? (ws!.era as Era) : 'medieval';
 }
 
+/** Per-edge derived road profile — the shared seam the carve AND the surface field read. */
+export interface EdgeRoadProfile {
+  centerline: Pt[];
+  state: RoadState;
+  x: RoadCrossSection;
+}
+
+/** Derive one road edge's smoothed centerline + RoadState + cross-section, or null. */
+export function edgeRoadProfile(
+  map: GameMap,
+  edge: RoadEdge,
+  nodeById: Map<string, RoadNode>,
+  poiById: Map<string, POI>,
+  dynamicFor?: (edge: RoadEdge) => RoadDynamics | undefined,
+): EdgeRoadProfile | null {
+  if (edge.feature !== 'road' || edge.polyline.length < 2) return null;
+  const centerline = smoothCenterline(edge.polyline);
+  if (centerline.length < 2) return null;
+  const fromPoi = poiById.get(nodeById.get(edge.a)?.poiRef ?? '');
+  const toPoi = poiById.get(nodeById.get(edge.b)?.poiRef ?? '');
+  const era = eraForEdge(edge, fromPoi, toPoi, map);
+  const state = deriveRoadState({ roadClass: edge.class, surface: edge.surface, era, dynamic: dynamicFor?.(edge) });
+  return { centerline, state, x: roadCrossSection(state) };
+}
+
 /** One road edge → its corridor deformation, or null if too short to carve. */
 export function buildEdgeDeformation(
   map: GameMap,
@@ -162,21 +188,9 @@ export function buildEdgeDeformation(
   poiById: Map<string, POI>,
   dynamicFor?: (edge: RoadEdge) => RoadDynamics | undefined,
 ): Deformation | null {
-  if (edge.feature !== 'road' || edge.polyline.length < 2) return null;
-
-  const centerline = smoothCenterline(edge.polyline);
-  if (centerline.length < 2) return null;
-
-  const fromPoi = poiById.get(nodeById.get(edge.a)?.poiRef ?? '');
-  const toPoi = poiById.get(nodeById.get(edge.b)?.poiRef ?? '');
-  const era = eraForEdge(edge, fromPoi, toPoi, map);
-  const state = deriveRoadState({
-    roadClass: edge.class,
-    surface: edge.surface,
-    era,
-    dynamic: dynamicFor?.(edge),
-  });
-  const x = roadCrossSection(state);
+  const profile = edgeRoadProfile(map, edge, nodeById, poiById, dynamicFor);
+  if (!profile) return null;
+  const { centerline, x } = profile;
 
   // Per-vertex base grade + cumulative arc-length.
   const n = centerline.length;

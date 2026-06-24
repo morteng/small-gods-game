@@ -35,6 +35,9 @@ struct TGlobals {
 @group(0) @binding(2) var<storage, read> colors  : array<u32>; // 0xAABBGGRR per cell
 @group(0) @binding(3) var<storage, read> moisture    : array<f32>; // [0,1] per cell (T-A)
 @group(0) @binding(4) var<storage, read> temperature : array<f32>; // [0,1] per cell (T-A)
+// Binding 5 is the detail-patch fine-height buffer (detail pipeline only) — keep it free
+// here. Road pavedness rides binding 6 so it is shared by both the terrain and detail passes.
+@group(0) @binding(6) var<storage, read> roadSurface : array<f32>; // [0,1] per cell: 0=none … 1=paved
 
 fn cellIdx(cx : u32, cy : u32) -> u32 { return cy * u32(G.uGrid.x) + cx; }
 
@@ -216,7 +219,7 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   let cx = bc.x0;
   let cy = bc.y0;
   let ci = cellIdx(cx, cy);
-  let base = sampleColorBi(bc);                  // biome albedo (the "ground" layer)
+  let biome = sampleColorBi(bc);                 // biome albedo (the "ground" layer)
 
   let n = normalize(in.vNormal);
   let slope = clamp(1.0 - n.y, 0.0, 1.0);        // 0 flat → 1 vertical, free from normal
@@ -236,6 +239,21 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   let moist = moisture[ci];
   let temp = temperature[ci];
   let jit = vnoise(in.vGrid * 0.35) - 0.5;       // [-0.5,0.5] threshold wander
+
+  // ── Road surface as a CONTEXT BLEND of the ground layer ──────────────────────
+  // The carved carriageway replaces grass with its material albedo (packed earth →
+  // cobble), ramped by pavedness. This is folded into the GROUND layer BEFORE the
+  // material composite, so snow/mud/wet/rock still poke through by their own weights
+  // — a snowy road, a muddy track — with no road-specific branch. Where a road is
+  // overgrown, road-surface.ts already fades the pavedness, so the biome grass
+  // returns and the wilderness reclaims it (the first instance of the engine-wide
+  // object↔terrain contextual blend).
+  let road = sampleScalarBi(bc, &roadSurface);
+  let EARTH  = vec3<f32>(0.34, 0.27, 0.20);      // packed-earth track
+  let COBBLE = vec3<f32>(0.60, 0.58, 0.55);      // pale stone road
+  let roadAlb = mix(EARTH, COBBLE, smoothstep(0.2, 1.0, road));
+  let roadMix = smoothstep(0.0, 0.16, road);     // soft road↔land edge
+  let base = mix(biome, roadAlb, roadMix);
 
   // Material WEIGHTS — each becomes a height-blend layer below.
   let wRock = smoothstep(0.42, 0.78, slope + jit * 0.18);                 // steep faces
