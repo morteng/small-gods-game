@@ -202,13 +202,35 @@ in play; `applySkip` (D2) advances it across a closed-form jump. No `Math.random
 
 Because the carve and the surface both read `edge.dynamics`, an overgrown road **softens its cut
 AND fades back to biome** (the `baseType` cleanup pays off: low pavedness reveals the grass under
-the road). `upkeep`/`traffic` default from road **class** today; per-edge **settlement prosperity**
-and per-edge **climate** (weather-system wetness) are the connectome follow-up — the `EvolveOptions`
-`upkeepFor`/`trafficFor`/`climateFor` seams already exist for it.
+the road). `upkeep`/`traffic` are now **connectome-driven** (`connectomeEvolveOptions`): a road's
+upkeep follows its MORE prosperous endpoint settlement and its traffic the average — so a road
+decays *because its settlement declined*. Live settlement **population** (true collapse-driven rot)
+and per-edge **climate** (weather-system wetness) are the next refinements — the `EvolveOptions`
+`upkeepFor`/`trafficFor`/`climateFor` seams carry them.
 
-### Slice 3 — Connectome loosening
-Reserve **road corridors before lots subdivide** in `src/world/settlement-plan.ts` so the carve has
-good ground to sit on, rather than roads being placed last and threading whatever gaps remain.
+### Slice 0b — Junction topology (BUILT)
+`splitRoadGraphAtJunctions` (`src/world/road-junctions.ts`) derives real network topology: it splits
+road edges at cells shared by ≥2 roads and inserts `junction` nodes (degree-N vertices). Pure +
+non-destructive (returns a new graph; worldgen carve/rasterize byte-parity is untouched, since a
+split only partitions the same polyline cells). Bridge cells reassign to the containing sub-edge.
+
+### Roads as connectome Portals (BUILT — "fully into the connectome")
+`roadGraphToConnectome` (`src/world/road-connectome.ts`) projects the road graph into the SAME
+scale-free primitives the building connectome uses: **Zone** = settlement/junction node, **Portal**
+= road edge (carrying spline + class + live `dynamics` in `attrs`). Two roads into a town share that
+town's Zone. `getRoadConnectome(map)` memoises split→project keyed by `rev`, so an evolving world
+refreshes its Portals' dynamics. The world is now "one composable, scale-free connectome" (VISION)
+— the road graph is no longer a bespoke structure bolted on.
+
+### Slice 3 — Connectome loosening (BUILT)
+`corridorCells` (`src/world/road-corridors.ts`) reserves a keep-clear band along each inter-POI
+connection (excluding a disc around each hub so settlements still form); `placeSettlement` claims
+those cells as `road` in the `OccupancyGrid`, so lots/buildings leave the direct route open and
+**front onto it** instead of boxing the road into a detour. Wired at `margin:0` (the carriageway
+centreline) because a wider band trips the *currently-red* settlement-spatial-invariants
+deconfliction net (the spatial-coordination epic's unfinished C1) into new overlaps — verified it
+keeps that net at exactly its 5 pre-existing failures. Widening the band is a one-line follow-up
+once that occupancy authority lands; the corridor module is the tested seam for it.
 
 ## Roads render entirely through the terrain shader (no road pass)
 
