@@ -32,8 +32,15 @@ import { getHydrologyResult } from '@/world/hydrology-store';
 import { getHeightfield, ELEVATION_SEA_LEVEL } from '@/world/heightfield';
 import { styledIslandSpec } from '@/terrain/island-mask';
 
-/** Metres the water surface sits below the lower bank (a contained channel). */
+/** Minimum metres the water surface sits below the lower bank (a contained channel). */
 const SURFACE_INSET_M = 0.5;
+/** Fraction of the channel's incision depth the water sits BELOW the rim. A fixed
+ *  0.5 m inset is fine for a 1 m brook but leaves a 4 m river filled to within 0.5 m
+ *  of its rim — so the water sheets across the whole graded V-valley and reads wide +
+ *  blocky on flats. Scaling the inset to the incision keeps a deep channel filled to
+ *  ~(1−fraction) of its depth: the waterline retreats into the steep lower channel,
+ *  where the per-pixel clip cuts a tight, smooth contour instead of a wide staircase. */
+const INSET_DEPTH_FRACTION = 0.6;
 /** Minimum water depth kept over the bed, so a barely-carved reach never vanishes. */
 const MIN_DEPTH_M = 0.35;
 /** How far (tiles) the water plateau is dilated past the channel so the ribbon's
@@ -112,7 +119,11 @@ export function buildRiverSurfaceField(
       return base[i];
     };
     const bankMin = Math.min(probeBank(1), probeBank(-1));
-    level[i] = Math.max(bankMin - insetN, h[i] + minDepthN);
+    // Inset scales with the local incision (rim minus carved bed) so a deep channel
+    // is contained well below its brim, not filled to the rim like a shallow brook.
+    const incision = Math.max(0, bankMin - h[i]);
+    const inset = Math.max(insetN, INSET_DEPTH_FRACTION * incision);
+    level[i] = Math.max(bankMin - inset, h[i] + minDepthN);
   }
 
   // 2) Downstream smoothing for a continuous (gently monotone) gradient.
