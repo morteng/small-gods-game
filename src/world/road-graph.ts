@@ -29,6 +29,9 @@ import type { Connection, POI, Tile, TerrainField } from '@/core/types';
 import { WATER_TYPES } from '@/core/constants';
 import { walkRoad } from '@/terrain/road-walker';
 
+/** Carved road/bridge tile types — the reuse-affinity set (new roads bundle onto these). */
+const ROAD_TILE_TYPES = new Set(['dirt_road', 'stone_road', 'bridge']);
+
 /** Road hierarchy — a type label on the edge (Slice 4 fills the tiers). */
 export type RoadClass = 'highway' | 'road' | 'track' | 'path';
 /** What kind of linear feature an edge is (mirrors `Connection.type`/`RenderEdge`). */
@@ -206,7 +209,11 @@ export function buildRoadGraph(
       // bulldozing them — they thread the settlement's streets to reach a
       // waypoint. Rivers/walls ignore the obstacle (only roads obey it).
       const isObstacle = feature === 'road' ? opts.isObstacle : undefined;
-      const result = walkRoad(a, b, tiles, fields, { autoBridge, isObstacle });
+      // Roads prefer to REUSE an already-carved road/bridge cell — so minor roads
+      // bundle onto existing trunks and crossings concentrate at shared bridge sites
+      // (walk-and-carve is interleaved, so earlier segments are already on `tiles`).
+      const isRoad = feature === 'road' ? (x: number, y: number) => ROAD_TILE_TYPES.has(tiles[y]?.[x]?.type) : undefined;
+      const result = walkRoad(a, b, tiles, fields, { autoBridge, isObstacle, isRoad });
       if (result.cells.length === 0) continue;
 
       // The cost model steers AROUND buildings; this drops the residual cells it

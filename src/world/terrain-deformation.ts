@@ -54,13 +54,27 @@ export interface Deformation {
   amount: number;
   /** Absolute plateau height in metres (level only). */
   target?: number;
+  /**
+   * Per-tile absolute plateau height in metres (level/sink only) — overrides the
+   * scalar `target` when present. This is what lets ONE level deformation express a
+   * full road cross-section: target = longitudinal grade(s) + cross-section profile
+   * (crown/gutter/curb) at the tile, rather than a single flat plateau. Additive and
+   * backward-compatible: a deformation without `targetAt` is byte-identical to before.
+   */
+  targetAt?(tx: number, ty: number): number;
   /** Footprint falloff 0..1 at a tile — 1 at the core, 0 at/beyond the edge. */
   mask(tx: number, ty: number): number;
 }
 
-/** Combine one deformation's masked contribution into the accumulator. Pure. */
-export function applyOp(d: Deformation, acc: number, base: number, m: number): number {
+/**
+ * Combine one deformation's masked contribution into the accumulator. Pure.
+ * `tx`/`ty` are optional and only consulted by level/sink with a `targetAt` (so the
+ * existing `applyOp(d, acc, base, m)` callers/tests keep working unchanged).
+ */
+export function applyOp(d: Deformation, acc: number, base: number, m: number, tx?: number, ty?: number): number {
   if (m <= 0) return acc;
+  const levelTarget = (): number =>
+    d.targetAt && tx !== undefined && ty !== undefined ? d.targetAt(tx, ty) : d.target ?? acc;
   switch (d.op) {
     case 'raise':
       return lerp(acc, Math.max(acc, base + d.amount), m);
@@ -69,9 +83,9 @@ export function applyOp(d: Deformation, acc: number, base: number, m: number): n
     case 'add':
       return acc + d.amount * m;
     case 'level':
-      return lerp(acc, d.target ?? acc, m);
+      return lerp(acc, levelTarget(), m);
     case 'sink':
-      return Math.min(acc, lerp(acc, d.target ?? acc, m));
+      return Math.min(acc, lerp(acc, levelTarget(), m));
     default:
       return acc;
   }
@@ -149,7 +163,7 @@ export function heightAt(map: GameMap, store: DeformationStore, tx: number, ty: 
   const base = baseHeightAt(map, tx, ty);
   let acc = base;
   for (const d of store.at(tx, ty)) {
-    acc = applyOp(d, acc, base, d.mask(tx, ty));
+    acc = applyOp(d, acc, base, d.mask(tx, ty), tx, ty);
   }
   return acc;
 }

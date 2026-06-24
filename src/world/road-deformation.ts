@@ -1,103 +1,243 @@
 // src/world/road-deformation.ts
 //
-// Roads → terrain GRADE-CUT. The "down" half of the road↔terrain coupling
-// (design doc §6): a road doesn't just paint dirt tiles, it cuts a level shelf
-// into the slope it threads. This is the first producer to feed the shared
-// deformation channel (`terrain-deformation.ts`) from the roads epic — the
-// `heightAt = baseSeedHeight ⊕ deformations` contract, finally exercised.
+// Roads → terrain CARVE. Roads are not drawn as a ribbon; they ARE the terrain. Each
+// road edge writes ONE corridor deformation into the shared channel
+// (`terrain-deformation.ts`, the `heightAt = baseSeedHeight ⊕ deformations` contract),
+// and water/ice/snow interaction then falls out of the unified terrain+water shader
+// for free (a gutter pools water; a cold paved surface ices; a sunken path floods).
 //
-// Model (deterministic, pure, save-safe):
-//   * Each road edge's polyline is the source of truth (Slice 0 promoted it).
-//   * Per unit segment we drop a `polylineDeformation` with op 'level' toward the
-//     segment's MEAN base height — cut-and-fill: where the hill rises above the
-//     local grade the ground is lowered (cut), where it dips below it is raised
-//     (fill). Adjacent segments share a vertex so the target steps smoothly along
-//     the route → a graded ramp, not a staircase. The shoulder feather tapers the
-//     cut back to untouched terrain (no cliff at the road edge).
-//   * Per-class carve STRENGTH (`CARVE_STRENGTH`) scales how fully the corridor pulls
-//     to grade: a path barely cuts (0.3 — follows the slope it threads), a highway
-//     levels a full flat shelf (1.0). One tier knob drives BOTH the shelf width
-//     (`HALF_WIDTH_TILES`) and the cut depth, so "small paths follow terrain, better
-//     roads carve more" falls out of the existing class assignment.
-//   * Roads only (feature === 'road'); rivers (carve) + walls are later slices.
+// The carve is a PROJECTION of a derived `RoadState` (road-state.ts), NOT a per-class
+// table (design doc 2026-06-24 "Road as a connectome projection"):
+//   * The cell path is first smoothed to a centripetal Catmull-Rom centerline
+//     (road-centerline.ts) — carving a raw 4-connected staircase would dig a staircase
+//     ditch.
+//   * A per-VERTEX longitudinal grade is smoothed over a window driven by `construction`
+//     (roadCrossSection.gradeWindowTiles): a footpath uses local ground height → FOLLOWS
+//     the terrain; a prosperous highway averages a long grade → CUTS a flat shelf THROUGH
+//     hills ("they spent more on workers modifying terrain"). One knob, emergent.
+//   * One `level` deformation with a per-tile `targetAt` = grade(s) + cross-section
+//     profile(d): crown camber, kerb gutter+curb, side drainage ditch, worn ruts, and
+//     edge irregularity from wear/overgrowth — every dimension a function of RoadState.
 //
-// Determinism & save-safety: deformations are DERIVED from `map.roadGraph` (which
-// IS persisted) + the seed heightfield. Nothing here is persisted; it re-derives
-// identically on load, exactly like `getHeightfield`. Both the store and the
-// composed field are memoised per (seed, dims) so the build cost is paid once,
-// not per frame.
-import type { GameMap } from '@/core/types';
-import type { RoadGraph, RoadClass } from '@/world/road-graph';
+// Determinism & save-safety: deformations are DERIVED from `map.roadGraph` (persisted)
+// + the seed heightfield + worldSeed era; nothing here is persisted; re-derives
+// identically on load. Memoised per (seed, dims) like getHeightfield.
+import type { GameMap, POI } from '@/core/types';
+import type { RoadGraph, RoadEdge, RoadNode } from '@/world/road-graph';
 import {
   DeformationStore,
-  polylineDeformation,
-  baseHeightAt,
   heightAt,
   type Deformation,
 } from '@/world/terrain-deformation';
-import { getHeightfield, ELEVATION_SEA_LEVEL } from '@/world/heightfield';
+import { getHeightfield, ELEVATION_SEA_LEVEL, heightMetresAt } from '@/world/heightfield';
 import { styledIslandSpec } from '@/terrain/island-mask';
 import { worldStyleOf } from '@/core/world-style';
 import { buildRiverDeformations } from '@/world/river-deformation';
 import { getHydrologyResult } from '@/world/hydrology-store';
+import { smoothCenterline, type Pt } from '@/terrain/road-centerline';
+import { resolveSettlementEra, isEra, type Era } from '@/core/era';
+import {
+  deriveRoadState,
+  roadCrossSection,
+  type RoadCrossSection,
+  type RoadDynamics,
+} from '@/world/road-state';
+import { clamp01 } from '@/core/math';
 
-/** Corridor half-width in TILES by road class (a tile is 2 m). Highways cut a
- *  wider shelf than footpaths. */
-const HALF_WIDTH_TILES: Record<RoadClass, number> = {
-  highway: 1.4,
-  road: 1.0,
-  track: 0.7,
-  path: 0.5,
-};
+// ── Geometry helpers (pure) ──────────────────────────────────────────────────────
 
-/** Carve STRENGTH (0..1) by class — how strongly the corridor is pulled to grade.
- *  A path barely cuts (mostly follows the slope it threads); a highway levels a full
- *  flat shelf. Multiplies the level-brush mask peak (`peak` in polylineDeformation), so
- *  one tier knob drives BOTH the wider shelf (half-width) AND the flatter cut. */
-const CARVE_STRENGTH: Record<RoadClass, number> = {
-  highway: 1.0,
-  road: 0.8,
-  track: 0.55,
-  path: 0.3,
-};
+/** Project a point onto a polyline: nearest cross-distance `d` + arc-length `s`. */
+function projectToPolyline(pts: Pt[], cumS: number[], px: number, py: number): { d: number; s: number } {
+  let best = Infinity;
+  let bestS = 0;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const ax = pts[i].x, ay = pts[i].y;
+    const dx = pts[i + 1].x - ax, dy = pts[i + 1].y - ay;
+    const len2 = dx * dx + dy * dy;
+    let t = len2 > 0 ? ((px - ax) * dx + (py - ay) * dy) / len2 : 0;
+    t = t < 0 ? 0 : t > 1 ? 1 : t;
+    const cx = ax + t * dx, cy = ay + t * dy;
+    const dist = Math.hypot(px - cx, py - cy);
+    if (dist < best) {
+      best = dist;
+      bestS = cumS[i] + t * Math.sqrt(len2);
+    }
+  }
+  return { d: best, s: bestS };
+}
 
-/** Shoulder taper beyond the corridor, in tiles — the cut blends back to base
- *  over this distance so there is no cliff at the road edge. */
-const SHOULDER_FEATHER_TILES = 1.5;
+/** Interpolate a per-vertex value at arc-length `s` (cumS is sorted ascending). */
+function interpAtArc(cumS: number[], vals: number[], s: number): number {
+  if (s <= cumS[0]) return vals[0];
+  const n = cumS.length;
+  if (s >= cumS[n - 1]) return vals[n - 1];
+  // binary search for the segment containing s
+  let lo = 0, hi = n - 1;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (cumS[mid] <= s) lo = mid; else hi = mid;
+  }
+  const span = cumS[hi] - cumS[lo] || 1;
+  const w = (s - cumS[lo]) / span;
+  return vals[lo] + (vals[hi] - vals[lo]) * w;
+}
+
+/** Symmetric moving-average smoothing — the longitudinal grade window (cut-through). */
+function boxSmooth(vals: number[], halfWindow: number): number[] {
+  if (halfWindow < 1 || vals.length <= 2) return vals.slice();
+  const n = vals.length;
+  const out = new Array<number>(n);
+  for (let i = 0; i < n; i++) {
+    let sum = 0, cnt = 0;
+    for (let k = -halfWindow; k <= halfWindow; k++) {
+      const j = i + k;
+      if (j < 0 || j >= n) continue;
+      sum += vals[j];
+      cnt++;
+    }
+    out[i] = sum / cnt;
+  }
+  return out;
+}
+
+/** Deterministic [0,1) hash for edge/surface irregularity (no Math.random). */
+function hash2(x: number, y: number): number {
+  let h = (Math.imul(x | 0, 374761393) + Math.imul(y | 0, 668265263)) >>> 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177) >>> 0;
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
 
 /**
- * Pure: a road graph → the grade-cut deformations its edges imply. One 'level'
- * brush per unit segment, targeting that segment's mean base height. Rivers and
- * walls are skipped (separate producers). `map` is read for base heights only.
+ * The signed cross-section displacement (metres) added to the longitudinal grade at
+ * cross-distance |d| (tiles). Crown camber over the carriageway, a kerb gutter+lip,
+ * a side drainage ditch, worn wheel ruts, and wear/overgrowth edge irregularity.
+ */
+function crossProfile(ad: number, x: RoadCrossSection, tx: number, ty: number): number {
+  let p = 0;
+  const half = x.carriageHalf;
+  if (ad <= half) {
+    const u = half > 0 ? ad / half : 0;
+    p += x.crownM * (1 - u * u); // camber: high at centre, 0 at edge
+    if (x.rutDepthM > 0) {
+      // two symmetric ruts near the wheel paths (~0.55 of the half-width)
+      const r = Math.exp(-Math.pow((ad - 0.55 * half) / (0.18 * half + 1e-3), 2));
+      p -= x.rutDepthM * r;
+    }
+  } else if (x.hasCurb && ad <= half + x.curbWidthTiles) {
+    const t = (ad - half) / x.curbWidthTiles; // 0..1 across the kerb zone
+    if (t < 0.5) {
+      // gutter dip (inner half) — collects the water the crown sheds
+      p -= x.gutterDepthM * (1 - Math.abs(t - 0.25) / 0.25);
+    } else {
+      // raised kerb lip (outer half)
+      p += x.curbHeightM * (1 - Math.abs(t - 0.75) / 0.25);
+    }
+  }
+  if (x.ditchDepthM > 0) {
+    const dd = Math.abs(ad - x.ditchOffsetTiles);
+    if (dd < 0.5) p -= x.ditchDepthM * (1 - dd / 0.5);
+  }
+  if (x.edgeNoiseM > 0) {
+    // irregularity concentrated near the shoulders, fading into the carriageway
+    const falloff = clamp01((ad - half * 0.6) / (half + x.shoulderFeatherTiles));
+    p += x.edgeNoiseM * (hash2(tx, ty) - 0.5) * 2 * falloff;
+  }
+  return p;
+}
+
+// ── RoadState derivation from the graph ──────────────────────────────────────────
+
+function eraForEdge(edge: RoadEdge, fromPoi: POI | undefined, toPoi: POI | undefined, map: GameMap): Era {
+  const ws = map.worldSeed;
+  if (fromPoi) return resolveSettlementEra(fromPoi, ws);
+  if (toPoi) return resolveSettlementEra(toPoi, ws);
+  return isEra(ws?.era) ? (ws!.era as Era) : 'medieval';
+}
+
+/** One road edge → its corridor deformation, or null if too short to carve. */
+export function buildEdgeDeformation(
+  map: GameMap,
+  edge: RoadEdge,
+  nodeById: Map<string, RoadNode>,
+  poiById: Map<string, POI>,
+  dynamicFor?: (edge: RoadEdge) => RoadDynamics | undefined,
+): Deformation | null {
+  if (edge.feature !== 'road' || edge.polyline.length < 2) return null;
+
+  const centerline = smoothCenterline(edge.polyline);
+  if (centerline.length < 2) return null;
+
+  const fromPoi = poiById.get(nodeById.get(edge.a)?.poiRef ?? '');
+  const toPoi = poiById.get(nodeById.get(edge.b)?.poiRef ?? '');
+  const era = eraForEdge(edge, fromPoi, toPoi, map);
+  const state = deriveRoadState({
+    roadClass: edge.class,
+    surface: edge.surface,
+    era,
+    dynamic: dynamicFor?.(edge),
+  });
+  const x = roadCrossSection(state);
+
+  // Per-vertex base grade + cumulative arc-length.
+  const n = centerline.length;
+  const grade = new Array<number>(n);
+  const cumS = new Array<number>(n);
+  cumS[0] = 0;
+  for (let i = 0; i < n; i++) {
+    grade[i] = heightMetresAt(map, Math.round(centerline[i].x), Math.round(centerline[i].y));
+    if (i > 0) cumS[i] = cumS[i - 1] + Math.hypot(centerline[i].x - centerline[i - 1].x, centerline[i].y - centerline[i - 1].y);
+  }
+  // Longitudinal smoothing window IS the cut-through lever (construction-driven).
+  const halfWindow = Math.max(0, Math.round(x.gradeWindowTiles / 2));
+  const smoothGrade = boxSmooth(grade, halfWindow);
+
+  // Footprint: carriageway + kerb + ditch + feather.
+  const core = x.carriageHalf + (x.hasCurb ? x.curbWidthTiles : 0);
+  const ditchReach = x.ditchDepthM > 0 ? x.ditchOffsetTiles + 0.5 : 0;
+  const featherStart = Math.max(core, ditchReach);
+  const reach = featherStart + x.shoulderFeatherTiles;
+
+  const xs = centerline.map((p) => p.x);
+  const ys = centerline.map((p) => p.y);
+  const bounds = {
+    minX: Math.min(...xs) - reach,
+    minY: Math.min(...ys) - reach,
+    maxX: Math.max(...xs) + reach,
+    maxY: Math.max(...ys) + reach,
+  };
+
+  return {
+    id: `${edge.id}:corridor`,
+    source: 'road:cut',
+    op: 'level',
+    priority: 30,
+    amount: 0,
+    bounds,
+    mask(tx, ty) {
+      const { d } = projectToPolyline(centerline, cumS, tx, ty);
+      if (d >= reach) return 0;
+      if (d <= featherStart) return x.cutStrength;
+      return x.cutStrength * clamp01(1 - (d - featherStart) / x.shoulderFeatherTiles);
+    },
+    targetAt(tx, ty) {
+      const { d, s } = projectToPolyline(centerline, cumS, tx, ty);
+      return interpAtArc(cumS, smoothGrade, s) + crossProfile(d, x, tx, ty);
+    },
+  };
+}
+
+/**
+ * Pure: a road graph → the corridor carve deformations its road edges imply (one per
+ * edge). Rivers and walls are skipped (separate producers). `map` is read for base
+ * heights + era only.
  */
 export function buildRoadDeformations(map: GameMap, graph: RoadGraph): Deformation[] {
+  const nodeById = new Map(graph.nodes.map((nd) => [nd.id, nd]));
+  const poiById = new Map((map.worldSeed?.pois ?? []).map((p) => [p.id, p]));
   const out: Deformation[] = [];
   for (const edge of graph.edges) {
-    if (edge.feature !== 'road') continue;
-    const pts = edge.polyline;
-    if (pts.length < 2) continue;
-    const halfWidth = HALF_WIDTH_TILES[edge.class] ?? HALF_WIDTH_TILES.road;
-    const peak = CARVE_STRENGTH[edge.class] ?? CARVE_STRENGTH.road;
-    for (let i = 0; i < pts.length - 1; i++) {
-      const a = pts[i];
-      const b = pts[i + 1];
-      // Mean base height of the segment endpoints (metres) is the local grade the
-      // shelf levels toward — cut above it, fill below it.
-      const target = (baseHeightAt(map, a.x, a.y) + baseHeightAt(map, b.x, b.y)) / 2;
-      out.push(
-        polylineDeformation({
-          id: `${edge.id}:${i}`,
-          source: 'road:cut',
-          points: [a, b],
-          halfWidth,
-          feather: SHOULDER_FEATHER_TILES,
-          amount: 0, // unused by 'level'
-          op: 'level',
-          target,
-          peak,
-        }),
-      );
-    }
+    const def = buildEdgeDeformation(map, edge, nodeById, poiById);
+    if (def) out.push(def);
   }
   return out;
 }
@@ -138,10 +278,10 @@ export function getRoadDeformationStore(map: GameMap): DeformationStore {
 const worldStoreCache = new Map<string, DeformationStore>();
 
 /**
- * The full terrain-deformation store for a world — road grade-cuts AND river
- * incision, composed into one store (priority/id order handles overlaps where a
- * road bridges a river). This is what the renderer and composed heightfield read;
- * `getRoadDeformationStore` stays road-only for callers that want just roads.
+ * The full terrain-deformation store for a world — road corridors AND river incision,
+ * composed into one store (priority/id order handles overlaps where a road bridges a
+ * river). This is what the renderer and composed heightfield read; `getRoadDeformationStore`
+ * stays road-only for callers that want just roads.
  */
 export function getWorldDeformationStore(map: GameMap): DeformationStore {
   const k = key(map);
@@ -171,15 +311,10 @@ export function getComposedHeightfield(map: GameMap): Float32Array {
   if (cached) return cached;
 
   const { width, height } = map;
-  // Use the SAME styled relief the renderer reads (inverse of heightMetresAt), so
-  // a metre-deformation embeds into normalised space at the world's actual scale.
-  // Defaults to TERRAIN_RELIEF_M, so unstyled worlds are byte-identical.
   const relief = worldStyleOf(map.worldSeed).mountainRelief;
   const out = new Float32Array(width * height);
   for (let ty = 0; ty < height; ty++) {
     for (let tx = 0; tx < width; tx++) {
-      // heightAt composes deformations in metres; convert back to the normalised
-      // [0,1] range the height buffer carries (inverse of heightMetresAt).
       const m = heightAt(map, store, tx, ty);
       out[ty * width + tx] = m / relief + ELEVATION_SEA_LEVEL;
     }
