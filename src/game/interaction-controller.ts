@@ -24,7 +24,8 @@ export class InteractionController {
       .find(e => Math.floor(e.x) === x && Math.floor(e.y) === y);
     if (clicked) {
       this.deps.state.selectedNpcId = this.deps.state.selectedNpcId === clicked.id ? null : clicked.id;
-      this.deps.state.selectedBuildingId = null; // NPC + building selection are mutually exclusive
+      this.deps.state.selectedBuildingId = null; // NPC / building / site selection are mutually exclusive
+      this.deps.state.selectedCausalSiteId = null;
       if (this.deps.state.pinnedNpcId && this.deps.state.pinnedNpcId !== this.deps.state.selectedNpcId) {
         this.deps.state.pinnedNpcId = null;
       }
@@ -36,12 +37,29 @@ export class InteractionController {
     if (building) {
       this.deps.state.selectedBuildingId =
         this.deps.state.selectedBuildingId === building.id ? null : building.id;
-      if (this.deps.state.selectedBuildingId) this.deps.state.selectedNpcId = null;
+      if (this.deps.state.selectedBuildingId) {
+        this.deps.state.selectedNpcId = null;
+        this.deps.state.selectedCausalSiteId = null;
+      }
       return;
     }
 
-    // Empty tile — clear both (unless an NPC is pinned).
+    // No building — try a causal site (W-I-d): an ephemeral place whose frozen
+    // footprint covers this tile (a god-flooded plain → "The Drowned Reach").
+    const siteId = this.deps.state.causalSites?.siteAt(x, y) ?? null;
+    if (siteId) {
+      this.deps.state.selectedCausalSiteId =
+        this.deps.state.selectedCausalSiteId === siteId ? null : siteId;
+      if (this.deps.state.selectedCausalSiteId) {
+        this.deps.state.selectedNpcId = null;
+        this.deps.state.selectedBuildingId = null;
+      }
+      return;
+    }
+
+    // Empty tile — clear all (unless an NPC is pinned).
     this.deps.state.selectedBuildingId = null;
+    this.deps.state.selectedCausalSiteId = null;
     if (!this.deps.state.pinnedNpcId) this.deps.state.selectedNpcId = null;
   }
 

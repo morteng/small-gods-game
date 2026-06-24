@@ -4,6 +4,7 @@
  * the Blueprint brief compiler (`@/blueprint/compile/to-brief`). Pure — no
  * canvas, fully unit-testable.
  */
+import { clamp } from '@/core/math';
 
 /** Roof silhouette. Extend by adding a member + a profile in ROOF_PROFILES. */
 export type Roof =
@@ -43,10 +44,6 @@ export const ROOF_PROFILES: Record<Roof, RoofProfile> = {
   spire:      { mode: 'target', targetAspect: 1.4 },
   tented:     { mode: 'target', targetAspect: 1.0 },
 };
-
-function clamp(v: number, lo: number, hi: number): number {
-  return Math.max(lo, Math.min(hi, v));
-}
 
 /** Roof rise above the body, in tile-height units, correct for footprint width. */
 export function roofRise(roof: Roof, footprint: { w: number; h: number }): number {

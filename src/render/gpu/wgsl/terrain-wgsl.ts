@@ -21,7 +21,7 @@
 export const TERRAIN_WGSL = /* wgsl */ `
 struct TGlobals {
   uViewport : vec2<f32>,
-  uPad0     : vec2<f32>,
+  uMode     : vec2<f32>,   // x: display mode enum (0 textured … 5 normals); y: reserved
   uXform    : vec4<f32>,   // sx, sy, ox, oy : device = world * sxy + oxy
   uGrid     : vec2<f32>,   // cells: width, height
   uHalf     : vec2<f32>,   // iso half-tile: halfW, halfH (px)
@@ -94,24 +94,62 @@ fn vnoise(p : vec2<f32>) -> f32 {
   return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
 }
 
+// Hypsometric tint ramp: lowland green → tan → brown → snow, keyed by the
+// above-sea elevation fraction t∈[0,1]. Used by the 'hypsometric' display mode
+// and as the base fill for the 'contour' (vector topo) mode.
+fn hypsoRamp(t : f32) -> vec3<f32> {
+  let c0 = vec3<f32>(0.36, 0.52, 0.30); // lowland green
+  let c1 = vec3<f32>(0.78, 0.74, 0.45); // dry tan
+  let c2 = vec3<f32>(0.52, 0.39, 0.27); // upland brown
+  let c3 = vec3<f32>(0.95, 0.96, 0.98); // snow cap
+  let u = clamp(t, 0.0, 1.0);
+  if (u < 0.34) { return mix(c0, c1, u / 0.34); }
+  if (u < 0.67) { return mix(c1, c2, (u - 0.34) / 0.33); }
+  return mix(c2, c3, (u - 0.67) / 0.33);
+}
+
 // Screen-px lift of a cell from its normalised elevation.
 fn heightPx(cx : u32, cy : u32) -> f32 {
   let e = heights[cellIdx(cx, cy)];
   return (e - G.uZParams.y) * G.uZParams.z * G.uZParams.x;
 }
 
+// Bilinear elevation at a CONTINUOUS tile coord — the vertex-stage sampler for
+// sub-tile mesh subdivision. At integer coords it returns the exact cell height,
+// so the supersample=1 path stays byte-identical to the per-cell heightPx.
+fn heightAtF(fx : f32, fy : f32) -> f32 {
+  let W = u32(G.uGrid.x); let H = u32(G.uGrid.y);
+  let px = clamp(fx, 0.0, f32(W - 1u));
+  let py = clamp(fy, 0.0, f32(H - 1u));
+  let x0 = u32(floor(px)); let y0 = u32(floor(py));
+  let x1 = min(x0 + 1u, W - 1u); let y1 = min(y0 + 1u, H - 1u);
+  let tx = px - f32(x0); let ty = py - f32(y0);
+  let h00 = heights[y0 * W + x0]; let h10 = heights[y0 * W + x1];
+  let h01 = heights[y1 * W + x0]; let h11 = heights[y1 * W + x1];
+  return mix(mix(h00, h10, tx), mix(h01, h11, tx), ty);
+}
+fn heightPxF(fx : f32, fy : f32) -> f32 {
+  return (heightAtF(fx, fy) - G.uZParams.y) * G.uZParams.z * G.uZParams.x;
+}
+
 struct VSOut {
   @builtin(position) pos : vec4<f32>,
   @location(0) vNormal : vec3<f32>,
   @location(1) vGrid   : vec2<f32>,
+  // Local mesh spacing in TILES per quad edge — set by whichever pass drew this
+  // vertex (coarse terrain: sub/sup; a detail patch: 1/SUPER). The wireframe mode
+  // reads it so each pass's lines trace ITS real triangulation, so a refined
+  // detail region shows its higher resolution rather than the coarse spacing.
+  @location(2) vStep   : f32,
 };
 
 @vertex
 fn vsMain(@builtin(vertex_index) vid : u32) -> VSOut {
   let W = u32(G.uGrid.x);
   let H = u32(G.uGrid.y);
-  let sub = max(1u, u32(G.uZParams.w));
-  let quadsPerRow = max(1u, W / sub);
+  let sub = max(1u, u32(G.uZParams.w));   // coarsen LOD (auto, big maps)
+  let sup = max(1u, u32(G.uMode.y));      // subdivide (manual; 1 = one quad/tile)
+  let quadsPerRow = max(1u, (W / sub) * sup);
 
   let quadIdx = vid / 6u;
   let vertInQuad = vid % 6u;
@@ -127,26 +165,29 @@ fn vsMain(@builtin(vertex_index) vid : u32) -> VSOut {
     case 4u: { corner = vec2<u32>(1u, 1u); }
     default: { corner = vec2<u32>(0u, 1u); }
   }
-  let gx = min(qx * sub + corner.x * sub, W - 1u);
-  let gy = min(qy * sub + corner.y * sub, H - 1u);
+  // CONTINUOUS tile coordinate. Each quad edge spans sub/sup tiles, so sup>1
+  // subdivides each tile into a finer lattice; sampled bilinearly off the per-cell
+  // height buffer. At sup=1 the coords are integers and heightPxF is exact, so the
+  // mesh is byte-identical to the per-cell path.
+  let stepT = f32(sub) / f32(sup);
+  let fx = min((f32(qx) + f32(corner.x)) * stepT, f32(W - 1u));
+  let fy = min((f32(qy) + f32(corner.y)) * stepT, f32(H - 1u));
 
-  let hPx = heightPx(gx, gy);
+  let hPx = heightPxF(fx, fy);
 
   // Normal from neighbour heights (central differences); tile space x=east,
-  // y=up, z=south. Flat ground gives (0,1,0). sub scales the up term so slope
-  // magnitude is independent of subsample spacing.
+  // y=up, z=south. Flat ground gives (0,1,0). The ±1-tile spacing + sub up-term
+  // keep slope magnitude independent of the mesh density (matches the original).
   var normal = vec3<f32>(0.0, 1.0, 0.0);
-  if (gx > 0u && gx < W - 1u && gy > 0u && gy < H - 1u) {
-    let hl = heightPx(gx - 1u, gy);
-    let hr = heightPx(gx + 1u, gy);
-    let hu = heightPx(gx, gy - 1u);
-    let hd = heightPx(gx, gy + 1u);
+  if (fx > 0.5 && fx < f32(W - 1u) - 0.5 && fy > 0.5 && fy < f32(H - 1u) - 0.5) {
+    let hl = heightPxF(fx - 1.0, fy);
+    let hr = heightPxF(fx + 1.0, fy);
+    let hu = heightPxF(fx, fy - 1.0);
+    let hd = heightPxF(fx, fy + 1.0);
     normal = normalize(vec3<f32>(-(hr - hl) * 0.5, f32(sub) * G.uHalf.y, -(hd - hu) * 0.5));
   }
 
   // Screen-space iso projection (matches worldToScreen); height lifts -y.
-  let fx = f32(gx);
-  let fy = f32(gy);
   let scr = vec2<f32>((fx - fy) * G.uHalf.x, (fx + fy) * G.uHalf.y - hPx);
   let dev = scr * G.uXform.xy + G.uXform.zw;
   let ndc = vec2<f32>(dev.x / (G.uViewport.x * 0.5) - 1.0, 1.0 - dev.y / (G.uViewport.y * 0.5));
@@ -160,6 +201,7 @@ fn vsMain(@builtin(vertex_index) vid : u32) -> VSOut {
   out.pos = vec4<f32>(ndc, depth, 1.0);
   out.vNormal = normal;
   out.vGrid = vec2<f32>(fx, fy);
+  out.vStep = stepT;          // coarse-terrain quad spacing (tiles per edge)
   return out;
 }
 
@@ -238,6 +280,57 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   let banded = floor(ndl * bands + 0.5) / bands;
   let light = G.uAmbient.xyz + vec3<f32>(G.uAmbient.w) * banded;
 
+  // ── DISPLAY MODE (uMode.x) ───────────────────────────────────────────────────
+  // 0 textured (default) · 1 contour (vector topo) · 2 hypsometric · 3 biome ·
+  // 4 slope · 5 normals. The detail-patch pass shares this fragment, so the mode
+  // applies to the fine patches identically.
+  let mode = u32(G.uMode.x + 0.5);
+  if (mode == 6u) {                                  // WIREFRAME — the real mesh grid
+    // Lines at the actual quad edges: vertices sit at multiples of THIS pass's mesh
+    // spacing (vStep tiles), so drawing where vGrid/vStep crosses an integer traces
+    // the rendered triangulation — coarse terrain at sub/sup, a detail patch at its
+    // finer 1/SUPER. fwidth keeps the line a constant screen width at any zoom.
+    let stepT = max(in.vStep, 1e-4);
+    let gu = in.vGrid.x / stepT;
+    let gv = in.vGrid.y / stepT;
+    let du = min(fract(gu), 1.0 - fract(gu)) / max(fwidth(gu), 1e-4);
+    let dv = min(fract(gv), 1.0 - fract(gv)) / max(fwidth(gv), 1e-4);
+    let lineMask = 1.0 - clamp(min(du, dv), 0.0, 1.0);
+    // Bare MESH — no biome texture. Dark background; the lines themselves are shaded
+    // by the banded relief light so the 3D form still reads. Finer passes (detail
+    // patches at 1/SUPER) therefore draw visibly denser lines over the same dark.
+    let bg = vec3<f32>(0.045, 0.055, 0.075);
+    let wireCol = vec3<f32>(0.45, 0.95, 0.70) * (0.30 + 0.70 * banded);
+    return vec4<f32>(mix(bg, wireCol, lineMask), 1.0);
+  }
+  if (mode == 5u) {                                  // NORMALS — geometry debug, unlit
+    return vec4<f32>(n * 0.5 + vec3<f32>(0.5), 1.0);
+  }
+  if (mode == 4u) {                                  // SLOPE — flat→steep ramp, unlit
+    let s = clamp(slope * 2.2, 0.0, 1.0);
+    let lo = mix(vec3<f32>(0.16, 0.42, 0.20), vec3<f32>(0.85, 0.72, 0.20), clamp(s / 0.5, 0.0, 1.0));
+    let col = mix(lo, vec3<f32>(0.88, 0.20, 0.14), clamp((s - 0.5) / 0.5, 0.0, 1.0));
+    return vec4<f32>(col, 1.0);
+  }
+  let aboveFrac = clamp(aboveSea / max(1.0 - seaLevel, 1e-3), 0.0, 1.0);
+  var modeAlbedo = shoreAlbedo;                      // 0 textured (default)
+  if (mode == 1u) {                                  // CONTOUR — vector topographic map
+    let metres = aboveSea * G.uZParams.z;            // reliefM metres above sea
+    let spacing = 8.0;                               // minor contour interval (m)
+    let cu = metres / spacing;
+    let edge = min(fract(cu), 1.0 - fract(cu)) / max(fwidth(cu), 1e-4);
+    let minor = 1.0 - clamp(edge, 0.0, 1.0);         // screen-constant fine line
+    let iu = metres / (spacing * 5.0);               // bold index contour every 5th
+    let iedge = min(fract(iu), 1.0 - fract(iu)) / max(fwidth(iu), 1e-4);
+    let index = 1.0 - clamp(iedge, 0.0, 1.0);
+    let lineMask = max(minor * 0.55, index);
+    modeAlbedo = mix(hypsoRamp(aboveFrac), vec3<f32>(0.12, 0.10, 0.08), lineMask);
+  } else if (mode == 2u) {                           // HYPSOMETRIC — elevation ramp
+    modeAlbedo = hypsoRamp(aboveFrac);
+  } else if (mode == 3u) {                           // BIOME — flat region colour
+    modeAlbedo = base;
+  }
+
   // SUBMARINE FADE-TO-DARK: the terrain sinks into darkness as it descends below the
   // waterline, away from the island — so the seabed (and the map's outer rim where
   // the heightfield grid ends) dissolves into the depths instead of showing a lit
@@ -246,7 +339,7 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   // above the waterline is untouched.
   let depthBelow = max(seaLevel - elev, 0.0);
   let submerge = smoothstep(0.0, 0.22, depthBelow);    // 0 at shore → ~1 a few m down
-  let lit = shoreAlbedo * light;
+  let lit = modeAlbedo * light;
   return vec4<f32>(lit * (1.0 - submerge * 0.97), 1.0);
 }
 `;

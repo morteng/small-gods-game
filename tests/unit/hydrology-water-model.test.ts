@@ -12,12 +12,18 @@ function field(elev: number[]): TerrainField {
 }
 
 describe('Water S0 — hydrology data model', () => {
-  it('1 · leaves riverMask / flowField unchanged (backward compat)', () => {
-    // The documented 11×1 valley from hydrology.test.ts.
+  it('1 · tapers the river up to a thin headwater (not an abrupt full-flow start)', () => {
+    // The documented 11×1 valley from hydrology.test.ts: flow grows from both ridges
+    // (cells 0 & 10) toward the basin (cell 5), peaking at 11. With a river threshold
+    // of 5, the trunk (flow ≥ 5) is cells 4–6; the HEADWATER taper then extends the
+    // channel upstream as a thin source down to flow ≥ 5·0.22 ≈ 1.1, since every cell
+    // here drains through the flow-11 trunk. Only the ridgetops (cells 0 & 10, flow 1)
+    // stay dry — the river now ORIGINATES near the ridge instead of popping out at the
+    // trunk. (flowField is unchanged; only the classification tapers.)
     const elev = [0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9];
     const r = generateHydrology(field(elev), { seed: 1, width: 11, height: 1, seaLevel: 0.0 }, { riverFlowThreshold: 5 });
     expect(r.flowField[5]).toBe(11);
-    expect(Array.from(r.riverMask)).toEqual([0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0]);
+    expect(Array.from(r.riverMask)).toEqual([0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0]);
   });
 
   it('2 · classifies a closed inland basin as a lake at its spill height, with no flow vector', () => {

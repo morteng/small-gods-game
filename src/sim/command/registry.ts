@@ -11,8 +11,8 @@
 import type { Entity } from '@/core/types';
 import { getNpc, npcProps } from '@/world/npc-helpers';
 import {
-  whisper, omen, dream, miracle, answerPrayer, smite,
-  WHISPER_COST, OMEN_COST, DREAM_COST, MIRACLE_COST, ANSWER_PRAYER_COST, SMITE_COST,
+  whisper, omen, dream, miracle, answerPrayer, smite, summonStorm,
+  WHISPER_COST, OMEN_COST, DREAM_COST, MIRACLE_COST, ANSWER_PRAYER_COST, SMITE_COST, SUMMON_STORM_COST,
 } from '@/sim/divine-actions';
 import { aggregateDomain, DOMAIN_DEFS } from '@/sim/belief-domains';
 import { mindProbeCost, probeMind } from '@/sim/mind-probe';
@@ -154,6 +154,26 @@ export const CAPABILITY_REGISTRY: Record<CommandVerb, CapabilityDef> = {
       return smite(ctx.spirits.get(cmd.source)!, npcOf(cmd, ctx)!, ctx.world, ctx.log);
     },
     describe: (cmd) => `call lightning down on ${targetLabel(cmd)}`,
+  },
+
+  summon_storm: {
+    verb: 'summon_storm', tier: 'divine', cost: SUMMON_STORM_COST, targetKind: 'settlement', implemented: true,
+    precondition(cmd, ctx) {
+      if (cmd.target.kind !== 'settlement') return 'invalid_target';
+      const spirit = ctx.spirits.get(cmd.source);
+      if (!spirit) return 'invalid_target';
+      if (spirit.power < SUMMON_STORM_COST) return 'insufficient_power';
+      // Belief-CONTENT gate: the congregation must believe you command the rains.
+      const def = DOMAIN_DEFS.flood;
+      const agg = aggregateDomain(ctx.world, cmd.source, 'flood');
+      if (agg.conviction < def.unlockThreshold) return 'precondition_failed';
+      return null;
+    },
+    apply(cmd, ctx) {
+      const poiId = (cmd.target as { poiId: string }).poiId;
+      return summonStorm(ctx.spirits.get(cmd.source)!, poiId, ctx.log, ctx.weather);
+    },
+    describe: (cmd) => `summon a deluge over ${targetLabel(cmd)}`,
   },
 
   // ── Authoring tier — declared, executor pending (Fate cycle) ─────────────────

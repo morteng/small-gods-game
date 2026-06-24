@@ -166,7 +166,7 @@ This background agent **is Fate** (see [VISION.md §2.1](VISION.md)): impersonal
 
 **Cadence:** Runs once per game-day, or when significant state changes accumulate (conversion cascade, miracle, settlement flipping religion). Can take 2-5 seconds since it's a background process — completely different latency budget than NPC dialogue.
 
-**Model:** Larger model than NPC backfill (70B or frontier). Needs to reason about narrative arcs, pacing, and multi-faction dynamics. (Reasoning about *player psychology* belongs to rival spirits — Fate stays impersonal.) Runs infrequently enough that cost/latency is acceptable. Can use a different provider than the NPC layer.
+**Model:** The **capable tier** of the two-tier OpenRouter catalog (`DEFAULT_CAPABLE_MODEL` in `src/llm/openrouter-catalog.ts`, currently `deepseek/deepseek-v4-pro`) — a stronger model than the fast NPC-backfill tier (`DEFAULT_CHAT_MODEL`, currently `deepseek/deepseek-v4-flash`). Reached via the built-but-uncalled `Game.llmClientCapable` seam. It needs to reason about narrative arcs, pacing, and multi-faction dynamics. (Reasoning about *player psychology* belongs to rival spirits — Fate stays impersonal.) Runs infrequently enough that cost/latency is acceptable. Players pick the exact model in LLM settings; update the catalog (not this prose) when the recommended defaults change.
 
 **Core responsibilities:**
 

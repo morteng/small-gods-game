@@ -23,31 +23,26 @@ import {
   packInstances, packGlobals, packTerrainGlobals,
   QUAD_STRIP, QUAD_VERTEX_COUNT, INSTANCE_STRIDE,
 } from '@/render/gpu/instance-buffer';
-import { LIT_WGSL } from '@/render/gpu/wgsl/lit-wgsl';
-import { TERRAIN_WGSL } from '@/render/gpu/wgsl/terrain-wgsl';
-import { DETAIL_PATCH_WGSL } from '@/render/gpu/wgsl/detail-patch-wgsl';
 import type { DetailField } from '@/render/gpu/detail-field';
-import { WATER_WGSL } from '@/render/gpu/wgsl/water-wgsl';
-import { OCEAN_BACKDROP_WGSL } from '@/render/gpu/wgsl/ocean-backdrop-wgsl';
-import { RIBBON_WGSL } from '@/render/gpu/wgsl/ribbon-wgsl';
-import { RIBBON_FLOATS_PER_VERTEX, type RibbonMesh } from '@/render/ribbon/ribbon-geometry';
+import type { RibbonMesh } from '@/render/ribbon/ribbon-geometry';
 import { roadMaterialAtlas } from '@/render/gpu/road-material-atlas';
-import { SHADOW_WGSL } from '@/render/gpu/wgsl/shadow-wgsl';
-import { SHAPE_WGSL } from '@/render/gpu/wgsl/shape-wgsl';
-import { BLIT_WGSL } from '@/render/gpu/wgsl/blit-wgsl';
 import {
   buildShadowBatches, packShadowInstances, SHADOW_ALPHA,
   SHADOW_INSTANCE_STRIDE, type ShadowBatch,
 } from '@/render/gpu/shadow-instance';
-import { buildShapeVertices, SHAPE_VERTEX_STRIDE } from '@/render/gpu/shape-geometry';
+import { buildShapeVertices } from '@/render/gpu/shape-geometry';
+import {
+  DEPTH_FORMAT,
+  createSpritePipeline, createTerrainPipeline, createDetailPatchPipeline,
+  createWaterPipeline, createOceanBackdropPipeline, createRibbonPipeline,
+  createShadowPipeline, createShapePipeline, createBlitPipeline,
+} from '@/render/gpu/gpu-pipelines';
 import { liftDrawList } from '@/render/gpu/terrain-lift';
 import type { GpuContext } from '@/render/gpu/webgpu-context';
 import type { TerrainField } from '@/render/gpu/terrain-field';
 import type { WaterField } from '@/render/gpu/water-field';
 import { UiPass } from '@/render/ui/ui-pass';
 import type { UiDrawGroup } from '@/render/ui/ui-batcher';
-
-const DEPTH_FORMAT: GPUTextureFormat = 'depth24plus';
 
 /** Shared per-frame render state threaded through the per-pass helpers (so they
  *  don't each take a dozen params). `colorCleared` is mutated as passes draw — the
@@ -232,39 +227,7 @@ export class GpuScene {
     const { device } = this;
     this.uiPass = new UiPass(device, gpu.format);
 
-    const module = device.createShaderModule({ code: LIT_WGSL });
-
-    this.pipeline = device.createRenderPipeline({
-      layout: 'auto',
-      vertex: {
-        module,
-        entryPoint: 'vsMain',
-        buffers: [
-          { arrayStride: 8, stepMode: 'vertex', attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x2' }] },
-          {
-            arrayStride: INSTANCE_STRIDE, stepMode: 'instance', attributes: [
-              { shaderLocation: 1, offset: 0, format: 'float32x4' },  // iRect
-              { shaderLocation: 2, offset: 16, format: 'float32x4' }, // iUV
-              { shaderLocation: 3, offset: 32, format: 'float32' },   // iDepth
-            ],
-          },
-        ],
-      },
-      fragment: {
-        module,
-        entryPoint: 'fsMain',
-        targets: [{
-          format: gpu.format,
-          blend: {
-            color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' },
-            alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' },
-          },
-        }],
-      },
-      primitive: { topology: 'triangle-strip' },
-      // larger depth = in front (matches painter-order depth encoding); clear to 0.
-      depthStencil: { format: DEPTH_FORMAT, depthWriteEnabled: true, depthCompare: 'greater' },
-    });
+    this.pipeline = createSpritePipeline(device, gpu.format);
 
     this.sampler = device.createSampler({ magFilter: 'nearest', minFilter: 'nearest' });
 
@@ -281,216 +244,40 @@ export class GpuScene {
     this.neutralMaterial = this.make1x1([0, 255, 0, 0]);     // a=0 ⇒ AO 1
     this.blackEmissive = this.make1x1([0, 0, 0, 0]);         // no self-illumination
 
-    // Terrain pipeline (T1): NO vertex buffers — the grid is generated in the
-    // vertex shader from @builtin(vertex_index) + the height/colour storage
-    // buffers. Terrain owns its OWN depth pass (spatial iso depth, greater,
-    // write), so it self-occludes; entities then draw over it in pass 2.
-    const terrainModule = device.createShaderModule({ code: TERRAIN_WGSL });
-    this.terrainPipeline = device.createRenderPipeline({
-      layout: 'auto',
-      vertex: { module: terrainModule, entryPoint: 'vsMain' },
-      fragment: {
-        module: terrainModule,
-        entryPoint: 'fsMain',
-        // No blend: terrain is OPAQUE (alpha 1) and draws first on a cleared
-        // target, so src-over would just read dst for nothing — a wasted RMW per
-        // pixel on a fill-bound iGPU. Plain overwrite.
-        targets: [{ format: gpu.format }],
-      },
-      primitive: { topology: 'triangle-list' },
-      depthStencil: { format: DEPTH_FORMAT, depthWriteEnabled: true, depthCompare: 'greater' },
-    });
+    // Terrain owns its OWN depth pass (spatial iso depth, greater, write) so it
+    // self-occludes; entities draw over it in pass 2. The detail-patch pass reuses
+    // the terrain FRAGMENT module (same shading over a denser mesh).
+    const { pipeline: terrainPipeline, module: terrainModule } = createTerrainPipeline(device, gpu.format);
+    this.terrainPipeline = terrainPipeline;
     this.terrainGlobalsBuf = device.createBuffer({ size: 96, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 
-    // Detail-patch pipeline (Slice B): a NEW vertex stage (instanced finer mesh
-    // over baked sub-tile heights) paired with the terrain FRAGMENT (same module,
-    // same VSOut + colour/material/coarse-height bindings) — so patches shade and
-    // texture identically over a denser mesh, no fragment duplication. One
-    // per-instance vertex buffer carries the patch tile origin. Shares the terrain
-    // depth (greater-equal + write): a patch sits at the same iso depth as the
-    // coarse tile it covers and, drawn after terrain, wins; the next tile in front
-    // still occludes it. Opaque (no blend), like terrain.
-    const detailModule = device.createShaderModule({ code: DETAIL_PATCH_WGSL });
-    this.detailPatchPipeline = device.createRenderPipeline({
-      layout: 'auto',
-      vertex: {
-        module: detailModule,
-        entryPoint: 'vsMain',
-        buffers: [{
-          arrayStride: 8, stepMode: 'instance',
-          attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x2' }],
-        }],
-      },
-      fragment: { module: terrainModule, entryPoint: 'fsMain', targets: [{ format: gpu.format }] },
-      primitive: { topology: 'triangle-list' },
-      depthStencil: { format: DEPTH_FORMAT, depthWriteEnabled: true, depthCompare: 'greater-equal' },
-    });
+    this.detailPatchPipeline = createDetailPatchPipeline(device, gpu.format, terrainModule);
 
-    // Water pipeline (S2): GPU-generated per-cell quads (no vertex buffers),
-    // lifted to the water surface + blended over the terrain. Shares the terrain
-    // depth buffer (greater-equal, NO depth write) so nearer terrain occludes
-    // water but water never writes into the entity depth scheme. Premultiplied
-    // alpha out (one / one-minus-src-alpha), like the sprite pass.
-    const waterModule = device.createShaderModule({ code: WATER_WGSL });
-    this.waterPipeline = device.createRenderPipeline({
-      layout: 'auto',
-      vertex: { module: waterModule, entryPoint: 'vsMain' },
-      fragment: {
-        module: waterModule,
-        entryPoint: 'fsMain',
-        targets: [{
-          format: gpu.format,
-          blend: {
-            color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' },
-            alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' },
-          },
-        }],
-      },
-      primitive: { topology: 'triangle-list' },
-      depthStencil: { format: DEPTH_FORMAT, depthWriteEnabled: false, depthCompare: 'greater-equal' },
-    });
+    this.waterPipeline = createWaterPipeline(device, gpu.format);
     this.waterGlobalsBuf = device.createBuffer({ size: 112, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 
-    // Infinite-ocean backdrop pipeline: a fullscreen triangle, OPAQUE, no depth
-    // (drawn first; terrain loads over it and covers the whole map rect, so the
-    // backdrop survives only OUTSIDE the island = open sea to the horizon). Reuses
-    // the 112-byte water globals uniform for the inverse projection + time.
-    const backdropModule = device.createShaderModule({ code: OCEAN_BACKDROP_WGSL });
-    this.oceanBackdropPipeline = device.createRenderPipeline({
-      layout: 'auto',
-      vertex: { module: backdropModule, entryPoint: 'vsMain' },
-      fragment: { module: backdropModule, entryPoint: 'fsMain', targets: [{ format: gpu.format }] },
-      primitive: { topology: 'triangle-list' },
-    });
+    // Infinite-ocean backdrop reuses the 112-byte water globals uniform for the
+    // inverse projection + time.
+    this.oceanBackdropPipeline = createOceanBackdropPipeline(device, gpu.format);
     this.oceanBackdropBind = device.createBindGroup({
       layout: this.oceanBackdropPipeline.getBindGroupLayout(0),
       entries: [{ binding: 0, resource: { buffer: this.waterGlobalsBuf } }],
     });
 
-    // Ribbon pipeline (T7): swept road/river ribbons. Interleaved vertex layout
-    // (RIBBON_FLOATS_PER_VERTEX f32): pos, across, along, width, tangent, speed,
-    // tag. Same depth contract as water (load terrain depth, greater-equal, no
-    // write) so the ribbon sits ON the ground without disturbing the entity depth
-    // reset. Alpha-blended so the feathered banks melt into the terrain.
-    const ribbonModule = device.createShaderModule({ code: RIBBON_WGSL });
-    const RBN_STRIDE = RIBBON_FLOATS_PER_VERTEX * 4;
-    this.ribbonPipeline = device.createRenderPipeline({
-      layout: 'auto',
-      vertex: {
-        module: ribbonModule,
-        entryPoint: 'vsMain',
-        buffers: [{
-          arrayStride: RBN_STRIDE,
-          attributes: [
-            { shaderLocation: 0, offset: 0, format: 'float32x2' },  // pos
-            { shaderLocation: 1, offset: 8, format: 'float32' },    // across
-            { shaderLocation: 2, offset: 12, format: 'float32' },   // along
-            { shaderLocation: 3, offset: 16, format: 'float32' },   // width
-            { shaderLocation: 4, offset: 20, format: 'float32x2' }, // tangent
-            { shaderLocation: 5, offset: 28, format: 'float32' },   // speed
-            { shaderLocation: 6, offset: 32, format: 'float32x2' }, // tag
-          ],
-        }],
-      },
-      fragment: {
-        module: ribbonModule,
-        entryPoint: 'fsMain',
-        targets: [{
-          format: gpu.format,
-          blend: {
-            color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' },
-            alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' },
-          },
-        }],
-      },
-      primitive: { topology: 'triangle-list' },
-      depthStencil: { format: DEPTH_FORMAT, depthWriteEnabled: false, depthCompare: 'greater-equal' },
-    });
+    this.ribbonPipeline = createRibbonPipeline(device, gpu.format);
     this.ribbonParamsBuf = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.buildRoadMaterials();
 
-    // Shadow union pipeline: parallelogram quads (4 corners) → premult black at
-    // SHADOW_ALPHA straight onto the scene colour target, stencil-gated so each
-    // pixel darkens at most once. Stencil-only attachment (`stencil8`): test
-    // `equal 0` (ref 0) → first fragment passes; passOp `increment-clamp` bumps
-    // it to 1 so any later overlapping shadow fails the test and is skipped.
-    const shadowModule = device.createShaderModule({ code: SHADOW_WGSL });
-    const shadowStencil: GPUStencilFaceState = {
-      compare: 'equal', failOp: 'keep', depthFailOp: 'keep', passOp: 'increment-clamp',
-    };
-    this.shadowPipeline = device.createRenderPipeline({
-      layout: 'auto',
-      vertex: {
-        module: shadowModule,
-        entryPoint: 'vsMain',
-        buffers: [
-          { arrayStride: 8, stepMode: 'vertex', attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x2' }] },
-          {
-            arrayStride: SHADOW_INSTANCE_STRIDE, stepMode: 'instance', attributes: [
-              { shaderLocation: 1, offset: 0, format: 'float32x4' },  // cTop
-              { shaderLocation: 2, offset: 16, format: 'float32x4' }, // cBot
-              { shaderLocation: 3, offset: 32, format: 'float32x4' }, // iUV
-            ],
-          },
-        ],
-      },
-      fragment: {
-        module: shadowModule,
-        entryPoint: 'fsMain',
-        targets: [{
-          format: gpu.format,
-          blend: {
-            color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' },
-            alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' },
-          },
-        }],
-      },
-      primitive: { topology: 'triangle-strip' },
-      // stencil8 carries no depth aspect → depthCompare must be 'always' + no write.
-      depthStencil: {
-        format: 'stencil8', depthWriteEnabled: false, depthCompare: 'always',
-        stencilFront: shadowStencil, stencilBack: shadowStencil,
-        stencilReadMask: 0xff, stencilWriteMask: 0xff,
-      },
-    });
-    // 8 floats: viewport(2) + alpha(1) + pad(1) + xform(4). L2 added uXform so the
-    // shadow corners can stay WORLD-px (camera-independent) and be packed once.
+    this.shadowPipeline = createShadowPipeline(device, gpu.format);
+    // 8 floats: viewport(2) + alpha(1) + pad(1) + xform(4). uXform keeps the shadow
+    // corners WORLD-px (camera-independent), packed once.
     this.shadowGlobalsBuf = device.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.shadowGlobalsBind = device.createBindGroup({
       layout: this.shadowPipeline.getBindGroupLayout(0),
       entries: [{ binding: 0, resource: { buffer: this.shadowGlobalsBuf } }],
     });
 
-    // Solid-colour shape pipeline: per-vertex (pos+depth, colour) triangles.
-    // SAME colour target + blend + depth scheme as the entity pipeline so it can
-    // run in the entity pass and depth-interleave with sprites.
-    const shapeModule = device.createShaderModule({ code: SHAPE_WGSL });
-    this.shapePipeline = device.createRenderPipeline({
-      layout: 'auto',
-      vertex: {
-        module: shapeModule,
-        entryPoint: 'vsMain',
-        buffers: [{
-          arrayStride: SHAPE_VERTEX_STRIDE, stepMode: 'vertex', attributes: [
-            { shaderLocation: 0, offset: 0, format: 'float32x3' },  // x, y, depth
-            { shaderLocation: 1, offset: 12, format: 'float32x4' }, // rgba
-          ],
-        }],
-      },
-      fragment: {
-        module: shapeModule,
-        entryPoint: 'fsMain',
-        targets: [{
-          format: gpu.format,
-          blend: {
-            color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' },
-            alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' },
-          },
-        }],
-      },
-      primitive: { topology: 'triangle-list' },
-      depthStencil: { format: DEPTH_FORMAT, depthWriteEnabled: true, depthCompare: 'greater' },
-    });
+    this.shapePipeline = createShapePipeline(device, gpu.format);
     // 32 B: vec2 viewport + vec2 pad + vec4 uXform (world→device affine, sx/sy/ox/oy).
     this.shapeGlobalsBuf = device.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.shapeGlobalsBind = device.createBindGroup({
@@ -498,16 +285,7 @@ export class GpuScene {
       entries: [{ binding: 0, resource: { buffer: this.shapeGlobalsBuf } }],
     });
 
-    // Blit pipeline (P-E): a single fullscreen triangle, no vertex buffers, no
-    // depth, no blend (the source is already composited) — nearest-samples the
-    // low-res scene target onto the swapchain.
-    const blitModule = device.createShaderModule({ code: BLIT_WGSL });
-    this.blitPipeline = device.createRenderPipeline({
-      layout: 'auto',
-      vertex: { module: blitModule, entryPoint: 'vsMain' },
-      fragment: { module: blitModule, entryPoint: 'fsMain', targets: [{ format: gpu.format }] },
-      primitive: { topology: 'triangle-list' },
-    });
+    this.blitPipeline = createBlitPipeline(device, gpu.format);
     this.blitGlobalsBuf = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
   }
 

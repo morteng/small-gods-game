@@ -15,10 +15,10 @@
 //
 // No GPU/DOM here; everything is unit-testable.
 
-import type { GameMap, DevModeState } from '@/core/types';
+import type { GameMap, DevModeState, ConnectomeWaterOverride } from '@/core/types';
 import { WaterType } from '@/core/types';
 import { TILE_COLORS, WATER_TYPES } from '@/core/constants';
-import { getHydrologyResult } from '@/world/hydrology-store';
+import { buildRenderWaterType } from '@/render/gpu/render-water-mask';
 import { effectiveTileType, RENDER_LAYERS, layerFlag } from '@/render/layer-visibility';
 import { ELEVATION_SEA_LEVEL, getClimateFields } from '@/world/heightfield';
 import { getComposedHeightfield } from '@/world/road-deformation';
@@ -49,6 +49,32 @@ export const TERRAIN_SUN_DIR: [number, number, number] = [-1, 1.6, -1];
  * look, lower toward a flatter simulator look.
  */
 export const TERRAIN_Z_PX_PER_M = 17.0;
+
+/**
+ * Terrain display modes — a shader uniform enum (`uMode.x`) branched in the
+ * terrain fragment (`terrain-wgsl.ts`). `textured` is the shipped game look; the
+ * rest are professional/analytic styles for the studio (and the game's debug
+ * overlays): `contour` is the "vector" topographic map (flat hypsometric fill +
+ * iso-elevation lines), `hypsometric` an elevation ramp, `biome` flat region
+ * colours, `slope`/`normal` geometry debug. The detail-patch pass shares the
+ * terrain fragment, so the mode applies to the fine patches too. Keep `value`
+ * in sync with the shader's `switch`.
+ */
+export const TERRAIN_MODES = [
+  { id: 'textured', label: 'Textured', value: 0 },
+  { id: 'contour', label: 'Contour (vector)', value: 1 },
+  { id: 'hypsometric', label: 'Hypsometric', value: 2 },
+  { id: 'biome', label: 'Biome', value: 3 },
+  { id: 'slope', label: 'Slope', value: 4 },
+  { id: 'normal', label: 'Normals', value: 5 },
+  { id: 'wireframe', label: 'Wireframe (mesh)', value: 6 },
+] as const;
+export type TerrainModeId = (typeof TERRAIN_MODES)[number]['id'];
+
+/** Resolve a {@link TerrainModeId} to its shader enum value (0 = textured). */
+export function terrainModeValue(id: TerrainModeId | undefined): number {
+  return TERRAIN_MODES.find((m) => m.id === id)?.value ?? 0;
+}
 
 /** Cap on generated quads — picks the subsample LOD so big maps stay cheap. Raised
  *  from 50k: a default 384×272 world (~104k tiles) was rendering at subsample=2
@@ -195,14 +221,17 @@ export function packColorField(map: GameMap, devMode?: DevModeState, waterType?:
  * changes (new world) — the per-tile `type` is otherwise immutable at runtime.
  */
 let colorMemo: { map: GameMap; key: string; colors: Uint32Array } | null = null;
-export function packColorFieldMemo(map: GameMap, devMode?: DevModeState): Uint32Array {
+export function packColorFieldMemo(map: GameMap, devMode?: DevModeState, renderWaterType?: Uint8Array, waterVersion = 0): Uint32Array {
   const key = `${map.width}x${map.height}|` +
-    RENDER_LAYERS.map((l) => (devMode?.[layerFlag(l)] === false ? '0' : '1')).join('');
+    RENDER_LAYERS.map((l) => (devMode?.[layerFlag(l)] === false ? '0' : '1')).join('') +
+    `|w${renderWaterType ? waterVersion : 'base'}`;
   if (colorMemo && colorMemo.map === map && colorMemo.key === key) return colorMemo.colors;
-  // The hydrology classification (memoised, derived from seed) lets us paint LAKE
-  // basins as damp beds too — not just `'river'` tiles — so a drained lake shows
-  // ground. Derived from the map, so the memo key (map identity) stays valid.
-  const colors = packColorField(map, devMode, getHydrologyResult(map).waterType);
+  // The RENDER waterType (ocean + lakes from hydrology, rivers re-stamped along the
+  // smooth connectome centrelines) lets us paint LAKE basins + bendy river beds as
+  // damp ground — not the D8-staircased raster rivers. The studio passes an EDITED
+  // render waterType (author-placed lakes) so their beds read damp too; absent, it's
+  // derived from the map (the memo key stays valid on map identity).
+  const colors = packColorField(map, devMode, renderWaterType ?? buildRenderWaterType(map));
   colorMemo = { map, key, colors };
   return colors;
 }
@@ -226,18 +255,55 @@ export interface TerrainGrid {
   vertexCount: number;
 }
 
-/** Choose the subsample LOD + vertex count for a map, honouring the quad cap. */
-export function terrainGrid(width: number, height: number, maxQuads = MAX_TERRAIN_QUADS): TerrainGrid {
+/**
+ * Choose the subsample LOD + vertex count for a map, honouring the quad cap.
+ * `superSample` (≥1, default 1) SUBDIVIDES each tile into that many quads per edge
+ * — the studio's "mesh resolution" control. The cap is enforced on the final
+ * (post-supersample) quad count, so the auto-LOD coarsens the base grid if a high
+ * supersample would blow the budget. At `superSample === 1` this is byte-identical
+ * to the original (game) behaviour.
+ */
+export function terrainGrid(
+  width: number, height: number, maxQuads = MAX_TERRAIN_QUADS, superSample = 1,
+): TerrainGrid {
+  const sup = Math.max(1, Math.floor(superSample));
   let subsample = 1;
   for (let s = 1; s <= 16; s++) {
-    const qx = Math.max(1, Math.floor(width / s));
-    const qy = Math.max(1, Math.floor(height / s));
+    const qx = Math.max(1, Math.floor(width / s)) * sup;
+    const qy = Math.max(1, Math.floor(height / s)) * sup;
     if (qx * qy <= maxQuads) { subsample = s; break; }
     subsample = s;
   }
-  const quadsX = Math.max(1, Math.floor(width / subsample));
-  const quadsY = Math.max(1, Math.floor(height / subsample));
+  const quadsX = Math.max(1, Math.floor(width / subsample)) * sup;
+  const quadsY = Math.max(1, Math.floor(height / subsample)) * sup;
   return { subsample, quadsX, quadsY, vertexCount: quadsX * quadsY * 6 };
+}
+
+/** Hard ceiling on zoom-driven subdivision (a quad never finer than this per tile). */
+const ZOOM_SUPER_MAX = 4;
+/** Target art-pixels per mesh quad edge — below this, subdivide; above, coarsen. A
+ *  zoomed-in tile spanning many art-pixels gets more quads so its silhouette + the
+ *  waterline clipped against it read smooth, not tile-faceted. */
+const ZOOM_SUPER_TARGET_PX = 20;
+
+/**
+ * Zoom-aware mesh subdivision: choose `superSample` from how many low-res art-pixels
+ * one tile edge spans on screen (`ISO_TILE_W · sx`, where `sx` is the world→low-res
+ * scale from {@link computeView}). Zoomed in (big tiles) → more quads → smooth
+ * terrain + waterlines; zoomed out (tiny tiles) → 1 quad/tile (no wasted work).
+ *
+ * Bounded so it NEVER trips `terrainGrid`'s auto-coarsen (which would halve the base
+ * grid and net nothing): the cap is the largest `sup` keeping `W·sup × H·sup` within
+ * `maxQuads` at subsample 1. Pure; called per frame (cheap).
+ */
+export function zoomSuperSample(
+  width: number, height: number, sx: number, maxQuads = MAX_TERRAIN_QUADS,
+): number {
+  const tileArtPx = ISO_TILE_W * Math.abs(sx);
+  const desired = Math.round(tileArtPx / ZOOM_SUPER_TARGET_PX);
+  // Largest sup that keeps the full-res grid (sub=1) under the quad budget.
+  const budgetMax = Math.max(1, Math.floor(Math.sqrt(maxQuads / Math.max(1, width * height))));
+  return Math.max(1, Math.min(desired, budgetMax, ZOOM_SUPER_MAX));
 }
 
 /** The buffer-driven terrain handed to `GpuScene.renderFrame`: the per-cell
@@ -266,6 +332,13 @@ export interface BuildTerrainFieldOpts {
   lighting: LightingState;
   devMode?: DevModeState;
   maxQuads?: number;
+  /** Terrain display mode enum (0 = textured). See {@link TERRAIN_MODES}. */
+  terrainMode?: number;
+  /** Sub-tile mesh supersample (≥1; 1 = one quad/tile). See {@link terrainGrid}. */
+  superSample?: number;
+  /** OPT-IN connectome-projected water (studio editing) — its render waterType paints
+   *  author-placed lake beds damp too. Absent → derived from the map (raster path). */
+  connectomeWater?: ConnectomeWaterOverride;
 }
 
 /** Relative luminance of an RGB triple in `[0,1]` — terrain sun strength scalar. */
@@ -287,6 +360,10 @@ export function terrainGlobalsFor(
     xform: { sx: number; sy: number; ox: number; oy: number };
     lighting: LightingState;
     subsample: number;
+    /** Display mode enum (0 = textured). Defaults to 0 when omitted. */
+    terrainMode?: number;
+    /** Sub-tile mesh supersample (≥1; 1 = one quad/tile). Defaults to 1. */
+    superSample?: number;
   },
 ): TerrainGlobalsInput {
   // S1 style knobs: vertical exaggeration + relief metres. Default to
@@ -305,6 +382,8 @@ export function terrainGlobalsFor(
     bands: opts.lighting.bands,
     ambient: opts.lighting.ambient,
     sunStrength: luminance(opts.lighting.sunColor),
+    terrainMode: opts.terrainMode ?? 0,
+    terrainSuper: Math.max(1, Math.floor(opts.superSample ?? 1)),
   };
 }
 
@@ -335,14 +414,16 @@ export function terrainLiftFieldFor(map: GameMap): { heights: Float32Array; glob
  * array is reused; only the colour field and globals are recomputed.
  */
 export function buildTerrainField(map: GameMap, opts: BuildTerrainFieldOpts): TerrainField {
-  const grid = terrainGrid(map.width, map.height, opts.maxQuads);
+  const grid = terrainGrid(map.width, map.height, opts.maxQuads, opts.superSample);
   const globals = terrainGlobalsFor(map, {
     viewport: opts.viewport, xform: opts.xform, lighting: opts.lighting, subsample: grid.subsample,
+    terrainMode: opts.terrainMode, superSample: opts.superSample,
   });
   const climate = getClimateFields(map);
+  const cw = opts.connectomeWater;
   return {
     heights: heightField(map),
-    colors: packColorFieldMemo(map, opts.devMode),
+    colors: packColorFieldMemo(map, opts.devMode, cw?.waterType, cw?.version),
     moisture: climate.moisture,
     temperature: climate.temperature,
     vertexCount: grid.vertexCount,

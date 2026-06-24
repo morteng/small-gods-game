@@ -20,6 +20,7 @@ import { focusCameraOnTile } from '@/render/focus-camera';
 import { frameTargets, applyFrame } from '@/render/camera-framing';
 import { fitCameraToMap } from '@/render/fit-camera';
 import { RENDER_LAYERS, layerFlag, type RenderLayer } from '@/render/layer-visibility';
+import { waterSurfaceAt, type WaterProbe } from '@/render/gpu/water-field';
 import type { GameQuery } from '@/game/game-query';
 
 export interface DebugInventory {
@@ -98,6 +99,15 @@ export interface DebugApi {
    *  surfaces; the sea is fixed. `waterLevel()` reads, `waterLevel(1.5)` floods,
    *  `waterLevel(-1)` droughts. Returns the current offset. */
   waterLevel(m?: number): number;
+  /** W-I: lay standing water on a patch of ground (the manual "stormcloud over a
+   *  plain"). `flood(x, y)` floods a 6-tile disc 3 m deep at tile (x,y); pass radius
+   *  + depth to vary. On un-watched land the next weather tick births a CAUSAL SITE.
+   *  Returns the number of cells flooded. */
+  flood(x: number, y: number, radius?: number, depthM?: number): number;
+  /** Point-query the unified water surface at a tile — "ask water height anywhere".
+   *  Returns `{ wet, depthM, type }` folding the static model + the live lake/flood
+   *  offsets + the global level (the same ΔW rule the renderer draws). */
+  waterAt(x: number, y: number): WaterProbe;
 }
 
 export interface DebugApiDeps {
@@ -252,6 +262,31 @@ export function createDebugApi(deps: DebugApiDeps): DebugApi {
         deps.requestRender();
       }
       return state.waterLevelM ?? 0;
+    },
+
+    flood(x: number, y: number, radius = 6, depthM = 3): number {
+      // floodArea lives on the concrete WaterDynamics, not the sim-side WeatherStepper
+      // interface — narrow to the flood-capable shape rather than widening the contract.
+      const w = state.weather as { floodArea?: (x: number, y: number, r: number, d: number) => number } | null;
+      const n = w?.floodArea?.(Math.round(x), Math.round(y), radius, depthM) ?? 0;
+      deps.requestRender();
+      return n;
+    },
+
+    waterAt(x: number, y: number): WaterProbe {
+      if (!state.map) return { wet: false, depthM: 0, type: 0 };
+      // Fold the LIVE dynamic offsets (lake/flood from WaterDynamics) + the global
+      // level so the probe matches what's on screen. WeatherStepper exposes neither —
+      // narrow to the WaterDynamics shape rather than widening the sim interface.
+      const w = state.weather as {
+        lakeOffsetM?: () => Float32Array;
+        floodOffsetM?: () => Float32Array;
+      } | null;
+      return waterSurfaceAt(state.map, x, y, {
+        lakeOffsetM: w?.lakeOffsetM?.() ?? null,
+        floodOffsetM: w?.floodOffsetM?.() ?? null,
+        waterLevelM: state.waterLevelM ?? 0,
+      });
     },
   };
 }

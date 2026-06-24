@@ -16,7 +16,9 @@ export type ShapeId = string;
 export type ThreadSubject =
   | { kind: 'npc'; npcId: EntityId }
   | { kind: 'settlement'; poiId: string }
-  | { kind: 'spirit'; spiritId: SpiritId };
+  | { kind: 'spirit'; spiritId: SpiritId }
+  /** W-I: an ephemeral causal site (a god-flooded plain). Its id is poiId-compatible. */
+  | { kind: 'site'; siteId: string };
 
 export type NarrativeWeight = 'setup' | 'rising' | 'climax' | 'resolution';
 
@@ -50,5 +52,6 @@ export function subjectKey(s: ThreadSubject): string {
     case 'npc': return `npc:${s.npcId}`;
     case 'settlement': return `set:${s.poiId}`;
     case 'spirit': return `spr:${s.spiritId}`;
+    case 'site': return `site:${s.siteId}`;
   }
 }

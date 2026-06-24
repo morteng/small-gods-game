@@ -44,6 +44,11 @@ export type SimEvent =
   | { type: 'thread_advanced';    threadId: ThreadId; phase: string; weight: NarrativeWeight }
   | { type: 'thread_resolved';    threadId: ThreadId; status: 'resolved' | 'abandoned' }
   | { type: 'beat_fired';         beatId: BeatId; subject: ThreadSubject; threadId?: ThreadId }
+  | { type: 'summon_storm';       spiritId: SpiritId; poiId: string; depthM: number; cells: number }
+  | { type: 'place_flooded';      poiId: string; name: string; depthM: number; coverage: number }
+  | { type: 'place_receded';      poiId: string; name: string }
+  | { type: 'site_born';          siteId: string; kind: string; name: string; x: number; y: number; depthM: number; cells: number }
+  | { type: 'site_faded';         siteId: string; name: string }
   | { type: 'system_error';       system: string; message: string };
 
 export interface AppendedEvent {

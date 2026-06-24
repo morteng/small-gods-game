@@ -7,6 +7,7 @@ import { initNpcProps } from '@/world/npc-helpers';
 import type { GameMap, Tile, Entity, ActiveEvent } from '@/core/types';
 import type { GameState } from '@/core/state';
 import { buildFateContext, describeThreadsForFate, type FateFocus } from '@/game/fate/fate-context';
+import { CausalSiteStore } from '@/world/causal-site';
 
 function map(): GameMap {
   const tiles: Tile[][] = [];
@@ -71,5 +72,23 @@ describe('buildFateContext', () => {
     expect(user).toContain('trial');         // active thread
     expect(user).toContain('climax');        // the triggering event
     expect([...validPoiIds]).toEqual(['poi1']);
+  });
+
+  it('W-I: surfaces an active causal site as an addressable subject (in user text + valid ids)', () => {
+    const s = state();
+    // A live site, hydrated directly (footprint cells irrelevant for the context).
+    const store = new CausalSiteStore(4, 4, new Set(), []);
+    store.hydrate({ nextId: 1, sites: [{
+      id: 'causal:flood:0000', kind: 'flood', name: 'The Drowned Reach of Northvale',
+      x: 2, y: 2, cells: [5, 6], bornTick: 0, lifeTicks: 30, ageTicks: 0, intensity: 0.7, cause: 'player',
+    }] });
+    s.causalSites = store;
+
+    const focus: FateFocus = { event: { type: 'site_born', siteId: 'causal:flood:0000', kind: 'flood', name: 'The Drowned Reach of Northvale', x: 2, y: 2, depthM: 1.4, cells: 2 } };
+    const { user, validPoiIds } = buildFateContext(s, focus);
+    expect(validPoiIds.has('causal:flood:0000')).toBe(true);
+    expect(user).toContain('The Drowned Reach of Northvale');
+    expect(user).toContain('causal site');
+    expect(user.toLowerCase()).toContain('transient');   // the triggering site_born description
   });
 });

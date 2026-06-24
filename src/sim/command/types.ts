@@ -11,13 +11,14 @@ import type { Spirit, SpiritId } from '@/core/spirit';
 import type { World } from '@/world/world';
 import type { EventLog } from '@/core/events';
 import type { Rng } from '@/core/rng';
+import type { WeatherStepper } from '@/sim/water/weather-stepper';
 
 export type CommandVerb =
   // divine tier — implemented, belief-spending interventions
   | 'whisper' | 'omen' | 'dream' | 'miracle' | 'answer_prayer' | 'probe_mind'
   // divine tier — belief-CONTENT gated dramatic actions (Track B, what believers
   // think you can do unlocks the verb; see src/sim/belief-domains.ts)
-  | 'smite'
+  | 'smite' | 'summon_storm'
   // authoring tier — DECLARED, executor pending (filled in by the Fate cycle)
   | 'bias_event' | 'inject_npc' | 'nudge_severity' | 'place_building' | 'grow_settlement'
   | 'rename_ward' | 'retype_ward'
@@ -60,6 +61,10 @@ export interface CommandCtx {
   world: World;
   spirits: Map<SpiritId, Spirit>;
   log: EventLog;
+  /** W-H: the deterministic water stepper, so weather verbs (`summon_storm`) can lay
+   *  a flood as part of their (logged, replay-safe) command apply. Optional — preview
+   *  callers and headless paths omit it; the verb no-ops its flood if absent. */
+  weather?: WeatherStepper | null;
 }
 
 /**

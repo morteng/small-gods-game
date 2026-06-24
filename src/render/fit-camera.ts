@@ -1,6 +1,7 @@
 import type { Camera } from '@/core/types';
 import { centerOnTile, floorIsoZoom, ISO_ZOOM_MIN, ISO_ZOOM_MAX } from './iso/iso-camera';
 import { ISO_TILE_W, ISO_TILE_H } from './iso/iso-constants';
+import { clamp } from '@/core/math';
 
 /**
  * Set the camera so the entire map fits in the viewport, centered, with a
@@ -26,10 +27,6 @@ export function fitCameraToMap(
   const fit = Math.min(viewWidth / spanW, viewHeight / spanH) * marginFrac;
   camera.zoom = floorIsoZoom(clamp(fit, ISO_ZOOM_MIN, ISO_ZOOM_MAX));
   centerOnTile(camera, mapTilesW / 2, mapTilesH / 2, viewWidth, viewHeight);
-}
-
-function clamp(v: number, lo: number, hi: number): number {
-  return Math.max(lo, Math.min(hi, v));
 }
 
 /**

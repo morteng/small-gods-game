@@ -35,14 +35,15 @@ describe('Water S1 — river carve + fill', () => {
     clearRoadDeformationCache();
   });
 
-  it('builds one carve deformation per river cell, deepening with Strahler order', () => {
+  it('carves along the reach centreline — one brook reach over the 2-cell channel', () => {
     const map = { width: 3, height: 1 } as GameMap;
     const defs = buildRiverDeformations(map, stubHydro());
-    expect(defs.length).toBe(2); // the two river cells; the dry cell gets none
+    // The two river cells form ONE reach (spring→mouth); short channels carve as a
+    // single bounded brush rather than one staircase step per cell.
+    expect(defs.length).toBe(1);
     expect(defs.every((d) => d.source === 'river:incision' && d.op === 'carve')).toBe(true);
-    // Strahler 2 (trunk) carves deeper than Strahler 1 (headwater).
-    expect(defs[1].amount).toBeGreaterThan(defs[0].amount);
-    expect(defs[0].amount).toBeCloseTo(0.6, 5); // base depth at order 1
+    // A zero-flow headwater channel classifies as a brook → the shallow base depth.
+    expect(defs[0].amount).toBeCloseTo(1.0, 5);
   });
 
   it('exposes a unified water model on a generated world (rivers + some still water)', async () => {

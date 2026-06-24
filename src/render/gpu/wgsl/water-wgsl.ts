@@ -21,7 +21,9 @@
 //     cell), so steep reaches run fast and foam up.
 // Lighting is banded to match terrain + sprites. Drawn AFTER terrain, sharing its
 // depth buffer (greater-equal, no depth write) so nearer terrain still occludes
-// water. Opaque (crisp pixel-art waterline).
+// water. The waterline stays crisp (per-pixel terrain clip), but the body is
+// DEPTH-KEYED TRANSPARENT — shallows show the bed through, saturating to opaque
+// with depth (premultiplied-alpha blend; see the fragment tail).
 
 export const WATER_WGSL = /* wgsl */ `
 struct WGlobals {
@@ -114,6 +116,80 @@ fn sampleTerrainH(gx : f32, gy : f32) -> f32 {
   return mix(mix(h00, h10, tx), mix(h01, h11, tx), ty);
 }
 
+// Bilinearly sample the WATER-SURFACE height (the same way sampleTerrainH samples the
+// bed), so the waterline (surface − bed crossing) is a SMOOTH sub-cell contour instead
+// of the per-cell staircase the flat-per-cell surface produced. A DRY corner
+// (surfaceW < 0) falls back to its bed height, so the interpolated plane ramps down to
+// the ground at the bank — the depth crosses zero exactly at the real contour, at pixel
+// resolution. Wet interior cells bilerp honest neighbouring surfaces (a river's
+// downstream gradient, a lake's flat plane → still flat). De-jags rivers especially,
+// whose cell-to-cell surface steps used to show as blocky banks.
+fn sampleSurfaceW(gx : f32, gy : f32) -> f32 {
+  let W = u32(G.uGrid.x);
+  let H = u32(G.uGrid.y);
+  let fx = clamp(gx, 0.0, f32(W) - 1.001);
+  let fy = clamp(gy, 0.0, f32(H) - 1.001);
+  let x0 = u32(fx); let y0 = u32(fy);
+  let x1 = min(x0 + 1u, W - 1u); let y1 = min(y0 + 1u, H - 1u);
+  let tx = fx - f32(x0); let ty = fy - f32(y0);
+  let i00 = y0 * W + x0; let i10 = y0 * W + x1;
+  let i01 = y1 * W + x0; let i11 = y1 * W + x1;
+  var s00 = surfaceW[i00]; if (s00 < 0.0) { s00 = terrainH[i00]; }
+  var s10 = surfaceW[i10]; if (s10 < 0.0) { s10 = terrainH[i10]; }
+  var s01 = surfaceW[i01]; if (s01 < 0.0) { s01 = terrainH[i01]; }
+  var s11 = surfaceW[i11]; if (s11 < 0.0) { s11 = terrainH[i11]; }
+  return mix(mix(s00, s10, tx), mix(s01, s11, tx), ty);
+}
+
+// ── BICUBIC (Catmull-Rom) sampling for a PIXEL-PERFECT waterline ──────────────────
+// Bilinear over a 1-value-per-tile field is only C0: the surface−bed zero-crossing
+// kinks at every tile boundary, which reads as a faceted/jaggy waterline at zoom.
+// Catmull-Rom interpolation is C1 — the crossing is a smooth curve across tile seams,
+// so streams/rivers/lakes get a clean contour with no extra geometry. 16 taps, water
+// fragments only. The DRY fallback (surfaceW < 0 → bed) is applied per-tap so the
+// surface plane still ramps to the ground at the bank.
+fn crSpline(p0 : f32, p1 : f32, p2 : f32, p3 : f32, t : f32) -> f32 {
+  return 0.5 * ((2.0 * p1)
+    + (-p0 + p2) * t
+    + (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * t * t
+    + (-p0 + 3.0 * p1 - 3.0 * p2 + p3) * t * t * t);
+}
+fn terrTap(ix : i32, iy : i32) -> f32 {
+  let W = i32(G.uGrid.x); let H = i32(G.uGrid.y);
+  let cx = clamp(ix, 0, W - 1); let cy = clamp(iy, 0, H - 1);
+  return terrainH[u32(cy) * u32(W) + u32(cx)];
+}
+fn surfTap(ix : i32, iy : i32) -> f32 {
+  let W = i32(G.uGrid.x); let H = i32(G.uGrid.y);
+  let cx = clamp(ix, 0, W - 1); let cy = clamp(iy, 0, H - 1);
+  let i = u32(cy) * u32(W) + u32(cx);
+  let s = surfaceW[i];
+  if (s < 0.0) { return terrainH[i]; }   // dry tap → bed, so the plane meets the bank
+  return s;
+}
+fn cubicTerrainH(gx : f32, gy : f32) -> f32 {
+  let x = floor(gx); let y = floor(gy);
+  let tx = gx - x; let ty = gy - y;
+  let ix = i32(x); let iy = i32(y);
+  var col : array<f32, 4>;
+  for (var r : i32 = 0; r < 4; r = r + 1) {
+    let yy = iy - 1 + r;
+    col[r] = crSpline(terrTap(ix - 1, yy), terrTap(ix, yy), terrTap(ix + 1, yy), terrTap(ix + 2, yy), tx);
+  }
+  return crSpline(col[0], col[1], col[2], col[3], ty);
+}
+fn cubicSurfaceW(gx : f32, gy : f32) -> f32 {
+  let x = floor(gx); let y = floor(gy);
+  let tx = gx - x; let ty = gy - y;
+  let ix = i32(x); let iy = i32(y);
+  var col : array<f32, 4>;
+  for (var r : i32 = 0; r < 4; r = r + 1) {
+    let yy = iy - 1 + r;
+    col[r] = crSpline(surfTap(ix - 1, yy), surfTap(ix, yy), surfTap(ix + 1, yy), surfTap(ix + 2, yy), tx);
+  }
+  return crSpline(col[0], col[1], col[2], col[3], ty);
+}
+
 fn liftPx(e : f32) -> f32 { return (e - G.uZParams.y) * G.uZParams.z * G.uZParams.x; }
 
 struct VSOut {
@@ -146,14 +222,19 @@ fn vsMain(@builtin(vertex_index) vid : u32) -> VSOut {
     case 4u: { corner = vec2<u32>(1u, 1u); }
     default: { corner = vec2<u32>(0u, 1u); }
   }
-  // Flat per-cell quad: all four corners ride this cell's surface height, so
-  // lakes are flat and wet/dry boundaries are clean (a quad is wholly wet or
-  // wholly discarded in the fragment).
   let gx = f32(cellX) + f32(corner.x) * f32(sub);
   let gy = f32(cellY) + f32(corner.y) * f32(sub);
-  // Lakes (typ 2) ride the drought/flood-shifted plane; ocean is the fixed datum.
-  var surf = surfaceW[ci];
-  if (wtype[ci] == 2u) { surf = surf + G.uWater.w; }
+  // SMOOTH (Gouraud) water surface: lift each corner to the BILINEAR surface at the
+  // corner position — NOT the flat per-cell value. A shared corner then resolves to the
+  // same height in every quad that touches it, so the surface is continuous instead of a
+  // staircase of flat per-cell diamonds (the blocky facets at zoom). The bilinear sample
+  // ramps a wet-cell corner down to its dry neighbour's bed (the dry-fallback), so the
+  // plane tapers to the bank and the fragment clip below trims it to the pixel-perfect
+  // contour. (The fragment already samples the same surface per-pixel — this aligns the
+  // vertex lift with it.)
+  var surf = sampleSurfaceW(gx, gy);
+  // Lakes (2) + rivers (3) ride the drought/flood-shifted inland plane; ocean is datum.
+  if (wtype[ci] == 2u || wtype[ci] == 3u) { surf = surf + G.uWater.w; }
   let hPx = liftPx(surf);
 
   let scr = vec2<f32>((gx - gy) * G.uHalf.x, (gx + gy) * G.uHalf.y - hPx);
@@ -190,10 +271,9 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   let ci = in.vCell;
   let typ = wtype[ci];
   if (typ == 0u) { discard; }
-  // Rivers (typ 3) now render as smooth terrain-following RIBBONS (ribbon-wgsl),
-  // not per-cell water — so the blocky grid-channel never shows under the ribbon.
-  // Ocean (1) + lakes (2) stay per-cell here.
-  if (typ == 3u) { discard; }
+  // Ocean (1), lakes (2) AND rivers (3) all render here now — ONE unified per-cell
+  // water pass. Rivers carry a render-space fill surface (river-surface-field) so the
+  // waterline clip below trims them to the real erosion-carved channel.
 
   // PIXEL-PERFECT WATERLINE. Each quad is a FLAT plane at this cell's surface
   // height (surfaceW[ci]); the bed (terrainH) is bilinear, so surface minus bed
@@ -202,9 +282,11 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   // pixel resolution, not the cell grid. The one-ring shore dilation (fillShoreRing)
   // gives near-bank dry cells a water plane so BOTH sides of the line are covered.
   // Lakes ride the drought/flood-shifted surface; ocean stays at its datum.
-  var surfLvl = surfaceW[ci];
-  if (typ == 2u) { surfLvl = surfLvl + G.uWater.w; }
-  let rawDepthN = surfLvl - sampleTerrainH(in.vGrid.x, in.vGrid.y);
+  // BICUBIC (Catmull-Rom) surface AND bed: a C1 zero-crossing, so the waterline is a
+  // smooth contour across tile seams instead of the bilinear C0 facets.
+  var surfLvl = cubicSurfaceW(in.vGrid.x, in.vGrid.y);
+  if (typ == 2u || typ == 3u) { surfLvl = surfLvl + G.uWater.w; }
+  let rawDepthN = surfLvl - cubicTerrainH(in.vGrid.x, in.vGrid.y);
   if (rawDepthN <= 0.0) { discard; }
   let depthM = rawDepthN * G.uZParams.z;
 
@@ -377,7 +459,15 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
     color = mix(color, vec3<f32>(0.92, 0.96, 0.98), max(lip * 0.7, white * 0.7));
   }
 
-  // Opaque — no transparency, crisp waterline (the pixel-art way).
-  return vec4<f32>(clamp(color, vec3<f32>(0.0), vec3<f32>(1.0)), 1.0);
+  // Depth-keyed TRANSPARENCY so the bed shows through shallow water — riverbeds,
+  // lake margins, sandy sea shallows. The pipeline blends premultiplied alpha
+  // (src 'one'), so premultiply rgb by alpha. Foam/whitewater (near-white) keeps
+  // full alpha so crests stay crisp; deep water saturates to opaque.
+  let bedClear = mix(1.6, 3.2, clar);                   // metres of depth → opaque
+  var wAlpha = clamp(0.28 + 0.72 * (depthM / bedClear), 0.28, 1.0);
+  let foamy = smoothstep(0.80, 0.95, max(color.r, max(color.g, color.b)));
+  wAlpha = clamp(max(wAlpha, foamy), 0.0, 1.0);
+  let outC = clamp(color, vec3<f32>(0.0), vec3<f32>(1.0));
+  return vec4<f32>(outC * wAlpha, wAlpha);
 }
 `;

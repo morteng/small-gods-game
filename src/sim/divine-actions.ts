@@ -5,6 +5,8 @@ import { npcProps, forEachNpc } from '@/world/npc-helpers';
 import { clamp01, signResponse } from '@/sim/npc-sim';
 import type { World } from '@/world/world';
 import { addDomainBelief, isOminous } from '@/sim/belief-domains';
+import type { WeatherStepper } from '@/sim/water/weather-stepper';
+import type { CausalSite } from '@/world/causal-site';
 
 // ─── Power costs ──────────────────────────────────────────────────────────────
 
@@ -14,6 +16,14 @@ export const DREAM_COST = 4;
 export const MIRACLE_COST = 10;
 export const ANSWER_PRAYER_COST = 2;
 export const SMITE_COST = 8;
+export const SUMMON_STORM_COST = 12;
+
+// summon_storm: how much water the storm lays, and how far.
+const SUMMON_STORM_RADIUS = 6;   // tiles
+const SUMMON_STORM_DEPTH_M = 3;  // metres of standing water over the disc
+/** Flood-domain belief seeded in a believer when the waters rise at their home — the
+ *  attribution that both unlocks `summon_storm` (a god who floods) and reinforces it. */
+const FLOOD_WITNESS_SEED = 0.12;
 
 // ─── Effect magnitudes ───────────────────────────────────────────────────────
 
@@ -318,6 +328,67 @@ export function smite(spirit: Spirit, npc: Entity, world: World, log: EventLog):
   if (tp.recentEventIds.length > 8) tp.recentEventIds.shift();
 
   return true;
+}
+
+/**
+ * summon_storm (W-H) — the belief-gated weather lever: a god whose believers credit it
+ * with the rains calls a deluge over a settlement, laying standing water on the ground.
+ * The flood itself (per-cell `floodM`) is laid via the injected deterministic stepper;
+ * the next `WeatherSystem` tick polls it and emits `place_flooded`, which seeds more
+ * flood-belief (`seedFloodBelief`) and wakes Fate. Costs power; gate lives in the
+ * capability registry (flood-domain conviction). Returns false on a lost power race.
+ */
+export function summonStorm(
+  spirit: Spirit,
+  poiId: string,
+  log: EventLog,
+  weather: WeatherStepper | null | undefined,
+): boolean {
+  if (spirit.power < SUMMON_STORM_COST) return false;
+  spirit.power -= SUMMON_STORM_COST;
+  const cells = weather?.floodPoi(poiId, SUMMON_STORM_RADIUS, SUMMON_STORM_DEPTH_M) ?? 0;
+  log.append({ type: 'summon_storm', spiritId: spirit.id, poiId, depthM: SUMMON_STORM_DEPTH_M, cells });
+  return true;
+}
+
+/**
+ * When the waters rise at a settlement, its believers attribute it to the god they
+ * follow — seeding the `flood` belief domain (the W-H attribution-at-the-act-site). This
+ * both unlocks `summon_storm` over time and reinforces it. Called by the WeatherSystem on
+ * a `place_flooded` edge. `depthM` scales the conviction a single flood imparts.
+ */
+export function seedFloodBelief(
+  world: World, spiritId: SpiritId, poiId: string, depthM: number,
+): void {
+  const gain = FLOOD_WITNESS_SEED * Math.min(1, depthM / SUMMON_STORM_DEPTH_M);
+  forEachNpc(world, (e) => {
+    const p = npcProps(e);
+    if (p.homePoiId !== poiId) return;
+    addDomainBelief(p, spiritId, 'flood', gain);
+  });
+}
+
+/**
+ * W-I-c — belief at a CAUSAL SITE. Where `seedFloodBelief` keys on residency (a
+ * settlement's own believers), a causal site has no residents — it's a drowned plain.
+ * So belief seeds by PROXIMITY instead: any NPC standing in or adjacent to the site's
+ * footprint witnesses the deluge and credits the causing spirit, scaled by the site's
+ * intensity. Same attribution-at-the-act-site principle, generalized off the poiId.
+ */
+export function seedSiteBelief(world: World, site: CausalSite): void {
+  const gain = FLOOD_WITNESS_SEED * Math.min(1, site.intensity);
+  if (gain <= 0 || site.cause === 'nature') return;   // nobody to credit for a natural flood
+  const w = world.tiles.width;
+  const foot = new Set<number>();
+  for (let k = 0; k < site.cells.length; k++) foot.add(site.cells[k]);
+  forEachNpc(world, (e) => {
+    const cx = Math.round(e.x), cy = Math.round(e.y);
+    const c = cy * w + cx;
+    // In the footprint, or 4-adjacent to it (close enough to witness the waters rise).
+    if (foot.has(c) || foot.has(c - 1) || foot.has(c + 1) || foot.has(c - w) || foot.has(c + w)) {
+      addDomainBelief(npcProps(e), site.cause, 'flood', gain);
+    }
+  });
 }
 
 // ─── Power query ─────────────────────────────────────────────────────────────

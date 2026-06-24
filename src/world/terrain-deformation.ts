@@ -18,6 +18,7 @@
 // World-owned (neither renderer nor connectome); both import read-only. Returns metres.
 import type { GameMap } from '@/core/types';
 import { heightMetresAt } from '@/world/heightfield';
+import { clamp01, lerp } from '@/core/math';
 
 /** Seed terrain height in metres at a tile — the affordance/siting read (no deformations). */
 export const baseHeightAt = heightMetresAt;
@@ -36,9 +37,12 @@ export interface AABB {
  *   carve — always cut down (ditches/river channels): min(acc, base − amount)
  *   add   — genuinely additive (banks/ramparts/spoil): acc + amount
  *   level — move toward an absolute plateau (roads, motte top, pads): toward `target`
+ *   sink  — level toward `target` but NEVER raise: min(acc, toward(target)). A lake
+ *           basin lowers dry land to hold water yet leaves an already-deeper natural
+ *           basin untouched (filling in a deep lake would be wrong).
  * Each is masked by the brush falloff so it is identity at/outside the footprint edge.
  */
-export type BlendOp = 'raise' | 'carve' | 'add' | 'level';
+export type BlendOp = 'raise' | 'carve' | 'add' | 'level' | 'sink';
 
 export interface Deformation {
   id: string;
@@ -54,10 +58,6 @@ export interface Deformation {
   mask(tx: number, ty: number): number;
 }
 
-function lerp(a: number, b: number, t: number): number {
-  return a + (b - a) * t;
-}
-
 /** Combine one deformation's masked contribution into the accumulator. Pure. */
 export function applyOp(d: Deformation, acc: number, base: number, m: number): number {
   if (m <= 0) return acc;
@@ -70,6 +70,8 @@ export function applyOp(d: Deformation, acc: number, base: number, m: number): n
       return acc + d.amount * m;
     case 'level':
       return lerp(acc, d.target ?? acc, m);
+    case 'sink':
+      return Math.min(acc, lerp(acc, d.target ?? acc, m));
     default:
       return acc;
   }
@@ -155,10 +157,6 @@ export function heightAt(map: GameMap, store: DeformationStore, tx: number, ty: 
 // ── Brush constructors — pure geometry → Deformation. Producers (earthworks, roads,
 //    settlement) call these; the channel stays content-neutral. ───────────────────
 
-function clamp01(v: number): number {
-  return v < 0 ? 0 : v > 1 ? 1 : v;
-}
-
 export interface BrushBase {
   id: string;
   source: string;
@@ -233,6 +231,69 @@ export function discDeformation(
       if (r <= o.radius) return 1;
       if (r >= outer) return 0;
       return clamp01(1 - (r - o.radius) / feather);
+    },
+  };
+}
+
+/**
+ * A LEVEL plateau over an arbitrary CELL SET (a lake body, a flooded plain) — full
+ * inside the footprint, feathering to 0 over `feather` tiles beyond its edge. This is
+ * the disc pad generalised to a blobby footprint: a lake is not a circle, so levelling
+ * its bed to a water-holding plateau needs the real cell set, not a centroid disc. Op
+ * 'level' toward `target`.
+ *
+ * A bounded Euclidean distance-to-footprint field is baked once at construction over the
+ * footprint's AABB (+ feather margin) so the per-tile `mask` is an O(1) lookup. Pairs
+ * with the lake-conform producer.
+ */
+export function footprintLevelDeformation(
+  o: BrushBase & { cells: Iterable<number>; gridWidth: number; target: number; feather?: number; op?: 'level' | 'sink' },
+): Deformation {
+  const feather = o.feather ?? 1.5;
+  const cells = [...o.cells];
+  const inSet = new Set(cells);
+  const fx = cells.map((c) => c % o.gridWidth);
+  const fy = cells.map((c) => (c / o.gridWidth) | 0);
+  const margin = Math.ceil(feather) + 1;
+  const bx0 = Math.min(...fx) - margin;
+  const by0 = Math.min(...fy) - margin;
+  const bw = Math.max(...fx) + margin - bx0 + 1;
+  const bh = Math.max(...fy) + margin - by0 + 1;
+  // Bake Euclidean distance to the nearest footprint cell over the padded AABB. Brute
+  // force (box × footprint) — fine for lake-scale sets, built once and memoised upstream.
+  const dist = new Float32Array(bw * bh);
+  for (let y = 0; y < bh; y++) {
+    for (let x = 0; x < bw; x++) {
+      const gx = bx0 + x;
+      const gy = by0 + y;
+      if (inSet.has(gy * o.gridWidth + gx)) {
+        dist[y * bw + x] = 0;
+        continue;
+      }
+      let best = Infinity;
+      for (let i = 0; i < cells.length; i++) {
+        const d = Math.hypot(gx - fx[i], gy - fy[i]);
+        if (d < best) best = d;
+      }
+      dist[y * bw + x] = best;
+    }
+  }
+  return {
+    id: o.id,
+    source: o.source,
+    op: o.op ?? 'level',
+    priority: o.priority ?? 22,
+    amount: 0,
+    target: o.target,
+    bounds: { minX: bx0, minY: by0, maxX: bx0 + bw - 1, maxY: by0 + bh - 1 },
+    mask(tx, ty) {
+      const x = Math.round(tx) - bx0;
+      const y = Math.round(ty) - by0;
+      if (x < 0 || y < 0 || x >= bw || y >= bh) return 0;
+      const d = dist[y * bw + x];
+      if (d <= 0) return 1;
+      if (d >= feather) return 0;
+      return clamp01(1 - d / feather);
     },
   };
 }

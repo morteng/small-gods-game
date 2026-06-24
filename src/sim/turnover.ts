@@ -7,6 +7,7 @@ import {
   FERTILE_MIN_AGE, FERTILE_MAX_AGE, POP_CAP_PER_POI, BIRTH_RATE_PER_PAIR,
 } from '@/sim/systems/birth-system';
 import { INHERIT_FAITH_FRAC, INHERIT_UNDERSTANDING_FRAC } from '@/world/npc-lifecycle';
+import { clamp01 } from '@/core/math';
 
 /**
  * Annual per-pair birth chance for the once-per-year projection roll. Derived
@@ -52,7 +53,6 @@ interface Soul {
 function diluteBeliefs(
   a: Record<string, SpiritBelief>, b: Record<string, SpiritBelief>,
 ): Record<string, SpiritBelief> {
-  const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
   const out: Record<string, SpiritBelief> = {};
   const ids = new Set<string>([...Object.keys(a), ...Object.keys(b)]);
   for (const sid of ids) {

@@ -2,6 +2,7 @@ import type { Entity, EntityId, NpcProperties, NpcRole, Direction, NpcInstance, 
 import type { World } from '@/world/world';
 import type { EventLog, SimEvent } from '@/core/events';
 import { Random } from '@/core/noise';
+import { clamp01 } from '@/core/math';
 
 export const NPC_KIND = 'npc';
 export const REMAINS_KIND = 'remains';
@@ -53,7 +54,6 @@ const ROLE_PIETY_BONUS: Record<NpcRole, number> = {
   priest: 0.3, elder: 0.1, farmer: 0, merchant: -0.1,
   soldier: -0.1, noble: 0, child: 0.05, beggar: 0.1,
 };
-function clamp01(v: number): number { return Math.max(0, Math.min(1, v)); }
 
 /** Human label for a sim event as seen from an NPC's perspective. */
 function describeSimEvent(event: SimEvent): string {

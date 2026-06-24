@@ -9,11 +9,11 @@ import type { GameMap, WorldSeed, TerrainOptions } from '@/core/types';
 import { ART_RECIPE_VERSION } from '@/core/content-version';
 import { createDebugApi, type DebugApi } from '@/dev/debug-api';
 import { createGameQuery, type GameQuery, type InboxItem } from '@/game/game-query';
+import { causalSiteCardView } from '@/game/causal-site-view';
 import type { CommandVerb } from '@/sim/command/types';
 import { createGameBus, type GameBus } from '@/game/game-bus';
 import { getUiRuntime } from '@/render/ui/ui-runtime';
 import { bootMark, FpsMeter, type FpsStats } from '@/dev/profile';
-import { createFpsHud, type FpsHudHandle } from '@/dev/fps-hud';
 import { advanceNpcFrames } from '@/render/npc-animator';
 import { isLayerHidden } from '@/render/layer-visibility';
 import { getHydrologyResult } from '@/world/hydrology-store';
@@ -64,6 +64,7 @@ import { AbandonmentSystem } from '@/sim/systems/abandonment-system';
 import { MortalitySystem } from '@/sim/systems/mortality-system';
 import { SettlementGrowthSystem } from '@/sim/systems/settlement-growth-system';
 import { BirthSystem } from '@/sim/systems/birth-system';
+import { WeatherSystem } from '@/sim/systems/weather-system';
 import { applySkip } from '@/sim/time-skip';
 import { identityOracle } from '@/world/oracle';
 import { bootstrapWorld } from '@/game/bootstrap-world';
@@ -136,10 +137,10 @@ export class Game {
   private resizeObserver: ResizeObserver;
   private rafId: number | null = null;
   private lastTime: number = 0;
-  /** Rendered-frame FPS meter (always sampling; cheap). Read via the HUD / __perf. */
+  /** Rendered-frame FPS meter (always sampling; cheap). Read via `__perf.fps()`. The
+   *  on-screen FPS pill is drawn on the canvas in gpu-render-frame (dev-only); there
+   *  is no DOM HUD on the game surface. */
   private readonly fps = new FpsMeter();
-  private fpsHud: FpsHudHandle | null = null;
-  private detachProfileKeys: (() => void) | null = null;
   // Render-on-demand flag for the "real pause" path: a LIVE world redraws every
   // frame, but a PAUSED world only redraws when something visual changed (camera,
   // hover, selection, a UI toggle, resize). Starts true so the first frame draws.
@@ -247,7 +248,7 @@ export class Game {
         this.renderer.forceInfoRefresh();
         this.requestRender();
       }
-    }, this.authorLog));
+    }, this.authorLog, () => this.state.weather));
     this.scheduler.register(new NpcMovementSystem(() => this.state.map));
     // Order: settlement events affect needs → NpcSimSystem decays needs + recomputes mood
     // → activity system picks activities from needs → belief propagation → spirits
@@ -264,6 +265,13 @@ export class Game {
     this.scheduler.register(new MortalitySystem());
     this.scheduler.register(new BirthSystem());
     this.scheduler.register(new SettlementGrowthSystem());
+    // W-G: deterministic water/atmosphere tick — steps the stepper installed on world
+    // seed + polls the flood watch, writing place_flooded/receded into the event log.
+    this.scheduler.register(new WeatherSystem(
+      () => this.state.weather,
+      () => this.state.floodWatch,
+      () => this.state.causalSites,
+    ));
     this.scheduler.register(new PerceptionSystem(identityOracle, () => this.state.map));
     // Narrative substrate: recognizers + stub producers run LAST so they see this
     // frame's events; activation fires armed beats (its commands apply next tick).
@@ -286,6 +294,8 @@ export class Game {
         this.cuePresentationBeat(subject);
         return this.playStorylet(storyletId);
       },
+      // W-I: reap beats armed at a causal site once it has faded.
+      () => this.state.causalSites,
     ));
 
     this.timeline = new TimelineController({
@@ -658,6 +668,17 @@ export class Game {
           this.requestRender();
         }
       },
+      // ── W-I-d: selected causal-site card ──
+      getSelectedSite: () => {
+        const id = this.state.selectedCausalSiteId;
+        if (!id) return null;
+        const site = this.state.causalSites?.byId(id);
+        return site ? causalSiteCardView(site, this.state.spirits) : null;
+      },
+      onCloseSite: () => {
+        this.state.selectedCausalSiteId = null;
+        this.requestRender();
+      },
       // ── legacy-chrome L0: camera controls as GPU buttons ──
       onZoomIn: () => this.cameraZoomIn(),
       onZoomOut: () => this.cameraZoomOut(),
@@ -734,6 +755,10 @@ export class Game {
       key = subject.poiId;
       const poi = this.state.worldSeed?.pois.find((p) => p.id === subject.poiId);
       if (poi?.position) tile = { x: poi.position.x, y: poi.position.y };
+    } else if (subject.kind === 'site') {
+      key = subject.siteId;
+      const site = this.state.causalSites?.byId(subject.siteId);
+      if (site) tile = { x: site.pos.x, y: site.pos.y };
     } else {
       key = subject.spiritId;
     }
@@ -896,32 +921,6 @@ export class Game {
   /** Latest rendered-frame stats (see src/dev/profile.ts). For `window.__perf`. */
   fpsStats(): FpsStats { return this.fps.stats(); }
 
-  /** Show/hide the in-page FPS HUD; created lazily on first show. */
-  setFpsHud(visible: boolean): void {
-    if (visible && !this.fpsHud) this.fpsHud = createFpsHud(this.container);
-    this.fpsHud?.setVisible(visible);
-    if (visible) this.requestRender();  // wake a frame so the HUD populates
-  }
-
-  toggleFpsHud(): boolean {
-    this.setFpsHud(!(this.fpsHud?.isVisible() ?? false));
-    return this.fpsHud?.isVisible() ?? false;
-  }
-
-  /** Wire profiling controls. The FPS HUD is dev tooling that lives in the dev /
-   *  studio surface, never the barebones game — so it ONLY appears under `?dev`.
-   *  The old `?fps`/`?profile` aliases are retired so a stale one can't leak the
-   *  HUD into normal play; backtick toggles it only on the dev surface. */
-  private installProfiling(): void {
-    if (!hasQueryFlag('dev')) return;
-    this.setFpsHud(true);
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === '`' && !e.metaKey && !e.ctrlKey && !e.altKey) this.toggleFpsHud();
-    };
-    window.addEventListener('keydown', onKey);
-    this.detachProfileKeys = () => window.removeEventListener('keydown', onKey);
-  }
-
   private renderDeps(): RenderContextDeps {
     return {
       state: this.state,
@@ -988,7 +987,6 @@ export class Game {
       },
     });
     this.startLoop();
-    this.installProfiling();
     return map;
   }
 
@@ -1061,7 +1059,6 @@ export class Game {
         const r0 = performance.now();
         this.renderer.render(deltaMs);
         this.fps.frame(performance.now() - r0);
-        if (this.fpsHud?.isVisible()) this.fpsHud.update(this.fps.stats());
         this.timeChip.refresh();
         this.refreshPauseBanner();
         this.timeBar?.refresh();
@@ -1084,8 +1081,6 @@ export class Game {
     this.stopLoop();
     this.presentation.destroy();
     this.persistence?.destroy();
-    this.detachProfileKeys?.();
-    this.fpsHud?.destroy();
     this.cleanupControls?.();
     this.cleanupUi?.();
     this.cleanupTokens?.();

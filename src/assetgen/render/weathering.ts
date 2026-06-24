@@ -18,6 +18,7 @@
 // identically.
 import type { RasterMaps } from '@/assetgen/render/rasterize';
 import type { BBox } from '@/assetgen/render/fit';
+import { clamp01, lerp } from '@/core/math';
 
 export interface WeatherOpts {
   /** Per-asset variation seed (e.g. a hash of the blueprint id). Default 0. */
@@ -36,9 +37,6 @@ const DEFAULTS: Required<Omit<WeatherOpts, 'seed'>> = { dirt: 0.35, streak: 0.30
 // these — never a flat overwrite, so the underlying material colour reads through.
 const GRIME: readonly [number, number, number] = [54, 50, 42];
 const RUST: readonly [number, number, number] = [120, 58, 32];
-
-const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);
-const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
 
 /** Integer hash → [0,1). Math.imul keeps it 32-bit + platform-stable (IEEE754 out). */
 function hash(x: number, y: number, seed: number): number {

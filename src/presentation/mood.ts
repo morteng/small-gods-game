@@ -11,6 +11,7 @@ import type { GameState } from '@/core/state';
 import { formatCalendarTick, TICKS_PER_DAY, type Season } from '@/core/calendar';
 import { queryNpcs, npcProps } from '@/world/npc-helpers';
 import type { SimEvent } from '@/core/events';
+import { clamp01 } from '@/core/math';
 
 /** A small bundle of world-feel axes the MusicDirector maps to musical params. */
 export interface MoodVector {
@@ -32,10 +33,6 @@ export const NEUTRAL_MOOD: MoodVector = {
   timeOfDay: 0.5,
   season: 'spring',
 };
-
-function clamp01(v: number): number {
-  return v < 0 ? 0 : v > 1 ? 1 : v;
-}
 
 /**
  * Project the live sim into a {@link MoodVector}. Single O(npcs) pass; the

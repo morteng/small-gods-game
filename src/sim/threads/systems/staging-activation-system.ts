@@ -18,6 +18,7 @@ import type { PlotThreadStore } from '../thread-store';
 import type { StagedBeat } from '../staging-types';
 import type { ThreadSubject } from '../thread-types';
 import { subjectKey } from '../thread-types';
+import type { CausalSiteStore } from '@/world/causal-site';
 
 /** Named world predicates for `sim_condition` triggers (extend as needed). */
 export type SimPredicate = (ctx: SystemContext) => boolean;
@@ -36,11 +37,25 @@ export class StagingActivationSystem implements System {
     /** Surfaced when a fired beat carries a `storylet` ref — the game layer plays
      *  it in a StorySession (interactive/branching). Optional; hard/soft still apply. */
     private readonly onStoryletBeat?: (subject: ThreadSubject, storyletId: string, beat: StagedBeat) => void,
+    /** W-I: lets the system reap beats armed at a causal site once it has faded. */
+    private readonly getSites?: () => CausalSiteStore | null,
   ) {}
 
   tick(ctx: SystemContext): void {
     const staging = this.getStaging();
     const threads = this.getThreads();
+
+    // W-I: a beat armed at a causal site can never fire once the site is gone (its
+    // footprint — the thing the player would discover — no longer exists). Expire it
+    // so it doesn't linger forever. Cheap: only runs over discovery-armed site beats.
+    const sites = this.getSites?.();
+    if (sites) {
+      for (const beat of staging.armedByTrigger('discovery')) {
+        if (beat.subject.kind === 'site' && !sites.byId(beat.subject.siteId)) {
+          staging.markExpired(beat.id);
+        }
+      }
+    }
 
     // 1. Discovery-triggered beats.
     const discovered = new Set(this.discovery.drain().map(s => subjectKey(s.subject)));

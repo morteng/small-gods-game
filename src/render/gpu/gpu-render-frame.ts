@@ -27,13 +27,10 @@ import { isLayerHidden } from '@/render/layer-visibility';
 import { buildEntityDrawList } from '@/render/iso/entity-draw-list';
 import { StaticDrawListCache } from '@/render/gpu/static-draw-list-cache';
 import { DEFAULT_LIGHTING } from '@/render/lighting-state';
-import { buildTerrainField, type TerrainField } from '@/render/gpu/terrain-field';
+import { buildTerrainField, zoomSuperSample, type TerrainField } from '@/render/gpu/terrain-field';
 import { buildDetailField } from '@/render/gpu/detail-field';
 import { buildWaterField, type WaterField } from '@/render/gpu/water-field';
 import { buildRoadRibbonMeshMemo } from '@/render/ribbon/road-ribbon-field';
-import { buildRiverRibbonMeshMemo } from '@/render/ribbon/river-ribbon-field';
-import { buildRiverSurfaceFieldMemo } from '@/render/gpu/river-surface-field';
-import { worldStyleOf } from '@/core/world-style';
 import { concatRibbonMeshes, type RibbonMesh } from '@/render/ribbon/ribbon-geometry';
 import { FlotsamLayer } from '@/render/gpu/flotsam-layer';
 import { drawWorldConnectome } from '@/render/connectome-overlay';
@@ -41,6 +38,13 @@ import type { GpuScene } from '@/render/gpu/gpu-scene';
 import { AdaptiveResolution } from '@/render/gpu/adaptive-resolution';
 import { computeView, installRenderProfiler, frameTrace, type LastFrame } from '@/render/gpu/render-profiler';
 import { getUiRuntime } from '@/render/ui/ui-runtime';
+
+/** The canvas perf pill (fps + art-pixel scale) is DEV-only — it's the single FPS
+ *  readout (the DOM `sg-fps` HUD was retired; no DOM chrome on the game surface). */
+function perfHudRequested(): boolean {
+  try { return new URLSearchParams(window.location.search).has('dev'); }
+  catch { return false; }
+}
 
 /** `?connectome` shows the whole-world graph overlay (POIs, roads, settlements). */
 function connectomeRequested(): boolean {
@@ -84,6 +88,7 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
   const adaptive = new AdaptiveResolution();
   let lastFrameStart = 0;
   let fpsEma = 0;
+  const showPerfHud = perfHudRequested();   // dev-only single FPS pill
   const ui = getUiRuntime();
 
   // Deterministic profiler state: the most-recent frame's inputs (so the bench
@@ -156,6 +161,11 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
     // texel grid in low-res space so pixels stay stable under pan/zoom.
     const { lowW, lowH, xform } = computeView(px, camera, dpr, target.width, target.height);
 
+    // ZOOM-LOD (Slice 2): one mesh subdivision for BOTH terrain + water this frame, so
+    // their shared grid keeps waterlines aligned. Zoomed in → finer mesh (smooth banks),
+    // zoomed out → 1 quad/tile. A studio `terrainSuper` override pins it for A/B.
+    const superSample = rc.devMode?.terrainSuper ?? zoomSuperSample(map.width, map.height, xform.sx);
+
     // Buffer-driven terrain field (T1): the GPU generates + lifts the grid from
     // the height/colour storage buffers. Whole-map for now — chunk culling is T5.
     const terrain: TerrainField | null = isLayerHidden('terrain', rc.devMode)
@@ -163,12 +173,19 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
       : buildTerrainField(map, {
           viewport: [lowW, lowH],
           xform, lighting, devMode: rc.devMode,
+          terrainMode: rc.devMode?.terrainMode,
+          superSample,
+          // DIR-A: author-placed lakes paint their beds damp too (studio editing).
+          connectomeWater: rc.connectomeWater,
         });
     // Adaptive sub-tile detail patches (the px4-3-2-1 idea): a finer instanced mesh
     // with GENUINE analytic relief, overlaid ONLY on the hot regions (coast/carve/
-    // slope) and ONLY when zoomed in enough to read it — native + free at overview.
-    const detail = (terrain && camera.zoom >= 2 && !detailDisabled())
-      ? buildDetailField(map)
+    // slope). Always on now (was zoom ≥ 2) so the road/river carve banks keep their
+    // refined mesh at every zoom; the field is memoised per map and covers only the
+    // hot regions, and `?nodetail` is the escape hatch. Sub-pixel at extreme
+    // overview — the adaptive art-pixel resolution absorbs the cost.
+    const detail = (terrain && !detailDisabled())
+      ? buildDetailField(map, rc.connectomeWater)
       : null;
     const tTerrain = performance.now();
 
@@ -178,26 +195,31 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
     const timeSec = (typeof performance !== 'undefined' ? performance.now() : 0) * 0.001;
     // Inland water level (drought/flood): shifts river + lake surfaces. Sea is fixed.
     const waterLevelM = rc.waterLevelM ?? 0;
-    const water: WaterField | null = (terrain && !isLayerHidden('rivers', rc.devMode))
-      ? buildWaterField(map, { viewport: [lowW, lowH], xform, lighting, timeSec, waterLevelM })
+    // Sea & lakes: gated by its own `showWater` flag (nulling it also drops the
+    // ocean backdrop, since both key off hasWater) — distinct from the river ribbon.
+    const waterOn = rc.devMode?.showWater !== false && !isLayerHidden('rivers', rc.devMode);
+    const water: WaterField | null = (terrain && waterOn)
+      ? buildWaterField(map, {
+          viewport: [lowW, lowH], xform, lighting, timeSec, waterLevelM,
+          // Same zoom-LOD grid as terrain (Slice 2) — aligned waterlines.
+          superSample,
+          // Localized per-basin level (climate W-B) — rain filling one lake.
+          lakeOffsetM: rc.lakeOffsetM,
+          // Per-cell standing water (W-E) — a god flooding a plain.
+          floodOffsetM: rc.floodOffsetM,
+          // DIR-A: author-placed connectome lakes render as real still water.
+          connectomeWater: rc.connectomeWater,
+        })
       : null;
 
-    // Road/river ribbons (T7/R2): swept terrain-following meshes drawn over terrain
-    // + water, under entities — roads (hidden with 'roads') and rivers (hidden with
-    // 'rivers') concatenated into ONE pass; the per-vertex tag.y tells them apart.
-    // `map` is passed to roads so bridge spans get a raised plank deck (R3b). Rivers
-    // are concatenated FIRST so roads draw last — a bridge deck wins over the river
-    // it crosses at the shared cells (grid-depth ties, no depth write → painter order).
+    // ROAD ribbons (T7/R2): swept terrain-following meshes drawn over terrain + water,
+    // under entities (hidden with 'roads'). `map` is passed so bridge spans get a
+    // raised plank deck (R3b). RIVERS are no longer ribbons — they render through the
+    // per-cell water pass (the unified water system), trimmed to the erosion-carved
+    // channel by the waterline clip; only roads remain ribbons.
     const roadMesh = (terrain && !isLayerHidden('roads', rc.devMode))
       ? buildRoadRibbonMeshMemo(map.roadGraph, map) : null;
-    const riverMesh = (terrain && !isLayerHidden('rivers', rc.devMode))
-      ? buildRiverRibbonMeshMemo(map) : null;
-    const ribbon: RibbonMesh | null = (roadMesh || riverMesh)
-      ? concatRibbonMeshes([riverMesh, roadMesh].filter(Boolean) as RibbonMesh[])
-      : null;
-    // The river ribbon lifts to the water-surface (fill) field, not the carved bed.
-    const riverSurface = riverMesh ? buildRiverSurfaceFieldMemo(map) : null;
-    const riverLevelDeltaN = waterLevelM / worldStyleOf(map.worldSeed).mountainRelief;
+    const ribbon: RibbonMesh | null = roadMesh ? concatRibbonMeshes([roadMesh]) : null;
 
     // Flotsam/fauna (S6): step + emit cosmetic circles on the water surface.
     // Appended after the entity list so they composite over the water; the
@@ -213,7 +235,7 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
 
     scene.renderFrame({
       items: dynamicItems, staticItems: staticList, lighting, terrain, detail, water,
-      ribbon, ribbonTime: timeSec, riverSurface, riverLevelDeltaN,
+      ribbon, ribbonTime: timeSec,
       w: lowW, h: lowH, out: { w: target.width, h: target.height },
       xform, uiGroups,
       ...(chrome ? null : { passes: { ui: false } }),
@@ -248,9 +270,10 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
     });
 
     // FPS + art-pixel-scale readout (top-right), smoothed so it doesn't jitter.
+    // Dev-only — the single FPS counter (the DOM HUD was removed).
     const fps = 1000 / Math.max(1, frameDt);
     fpsEma = fpsEma > 0 ? fpsEma * 0.9 + fps * 0.1 : fps;
-    drawPerfHud(ctx, canvasWidth, fpsEma, px, fixedPx !== null);
+    if (showPerfHud) drawPerfHud(ctx, canvasWidth, fpsEma, px, fixedPx !== null);
   };
 }
 

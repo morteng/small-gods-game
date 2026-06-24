@@ -6,7 +6,7 @@ describe('content-version constants', () => {
     expect(ART_RECIPE_VERSION).toBe('v13');
   });
 
-  it('declares the current world content version (11: default-world height curve)', () => {
-    expect(WORLD_CONTENT_VERSION).toBe(11);
+  it('declares the current world content version (12: W-A region-aware climate)', () => {
+    expect(WORLD_CONTENT_VERSION).toBe(12);
   });
 });

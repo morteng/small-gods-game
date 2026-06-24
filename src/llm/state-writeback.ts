@@ -14,8 +14,7 @@ import type { Entity, NpcProperties } from '@/core/types';
 import type { SpiritId } from '@/core/spirit';
 import { npcProps } from '@/world/npc-helpers';
 import type { EventLog } from '@/core/events';
-
-function clamp01(v: number): number { return Math.max(0, Math.min(1, v)); }
+import { clamp01 } from '@/core/math';
 
 // ─── LLM Response Types ─────────────────────────────────────────────────
 

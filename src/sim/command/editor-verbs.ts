@@ -12,6 +12,7 @@ import type { Command, ApplyCtx, CommandCtx, RejectionReason } from './types';
 import { npcProps, queryNpcs, initNpcProps } from '@/world/npc-helpers';
 import { tryGetEntityKindDef } from '@/world/entity-kinds';
 import { isClimateName, type ClimateName } from '@/terrain/climate';
+import { clamp01 } from '@/core/math';
 
 const P = (cmd: Command): Record<string, unknown> => cmd.payload ?? {};
 
@@ -58,8 +59,6 @@ function matchFilter(ctx: CommandCtx, filter: RemoveFilter): Entity[] {
 
 const VALID_ROLES: NpcRole[] = ['priest', 'elder', 'farmer', 'merchant', 'soldier', 'noble', 'child', 'beggar'];
 const ADULT_NAMES = ['Aldous', 'Bryn', 'Corin', 'Dara', 'Edda', 'Faro', 'Gwen', 'Hale', 'Ivo', 'Juna', 'Kess', 'Lorn'];
-
-function clamp01(v: number): number { return Math.max(0, Math.min(1, v)); }
 
 /** Resolve the spawn center from a `near` payload (poiId via a resident, or {x,y}). */
 export function resolveCenter(near: unknown, ctx: CommandCtx): { x: number; y: number } | null {

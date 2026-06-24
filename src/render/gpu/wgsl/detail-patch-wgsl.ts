@@ -20,15 +20,24 @@
 // one instance per patch, its tile origin a per-instance vertex attribute; the
 // per-patch fine-height slice is `patchHeights[instance * FINE*FINE + ...]`.
 
-/** Tiles per patch edge. Must match DETAIL_PATCH_TILES in detail-field.ts. */
-export const DP_PATCH_TILES = 16;
-/** Supersample factor per patch edge. Must match DETAIL_SUPERSAMPLE. */
-export const DP_SUPER = 2;
+/** Tiles per patch edge. Must match DETAIL_PATCH_TILES in detail-field.ts. Small
+ *  (4) so a patch tightly bounds the river/lake carve it covers — a 16-tile block
+ *  refined a whole neighbourhood around a 1-tile river; 4-tile blocks hug the
+ *  channel + banks, and (being 1/16 the area) cost fewer total verts despite the
+ *  higher instance count. */
+export const DP_PATCH_TILES = 4;
+/** Supersample factor per patch edge — the sub-tile mesh density over carved/coast/
+ *  steep regions. 4 = each tile split into a 4×4 fine lattice (much finer banks at
+ *  road/river carves than the old 2×, 4× the triangles). Drives the baked lattice
+ *  size in detail-field.ts (DETAIL_SUPERSAMPLE = DP_SUPER); patches are hot-region-
+ *  only + memoised. Pushing higher needs frustum culling first (no per-patch view
+ *  cull yet — every patch draws each frame), or the whole-map overview stalls. */
+export const DP_SUPER = 4;
 
 export const DETAIL_PATCH_WGSL = /* wgsl */ `
 struct TGlobals {
   uViewport : vec2<f32>,
-  uPad0     : vec2<f32>,
+  uMode     : vec2<f32>,   // x: display mode enum (shared terrain fragment)
   uXform    : vec4<f32>,
   uGrid     : vec2<f32>,
   uHalf     : vec2<f32>,
@@ -58,6 +67,7 @@ struct VSOut {
   @builtin(position) pos : vec4<f32>,
   @location(0) vNormal : vec3<f32>,
   @location(1) vGrid   : vec2<f32>,
+  @location(2) vStep   : f32,   // this patch's fine quad spacing (1/SUPER tiles)
 };
 
 @vertex
@@ -113,6 +123,7 @@ fn vsMain(
   out.pos = vec4<f32>(ndc, depth, 1.0);
   out.vNormal = normal;
   out.vGrid = vec2<f32>(tx, ty);
+  out.vStep = 1.0 / f32(SUPER);   // fine spacing → wireframe shows the refined mesh
   return out;
 }
 `;

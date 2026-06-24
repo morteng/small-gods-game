@@ -220,6 +220,32 @@ export interface RenderContext {
   /** Inland water-level offset in METRES (drought < 0, flood > 0) — shifts the
    *  river + lake water surfaces; the sea is the fixed datum. Default 0. */
   waterLevelM?: number;
+  /** LOCALIZED per-lake-body level offset in METRES (climate W-B: rain fills one
+   *  basin) — indexed by lake body (`getLakeBodies`). Baked into the lake surface
+   *  per cell, so different lakes rise/recede independently. Default: none. */
+  lakeOffsetM?: Float32Array;
+  /** Per-CELL standing-water depth in METRES (W-E: "flood a plain") — lays water on
+   *  arbitrary land, baked into the water surface + type. Default: none. */
+  floodOffsetM?: Float32Array;
+  /** OPT-IN connectome-projected water (studio editing): an author-placed/moved lake
+   *  the hydrology raster never knew. When present, the render water type + surface
+   *  include these lakes so they paint as real still water through the SAME path as
+   *  generated lakes. The game leaves this unset → the pure raster path, byte-identical.
+   *  See `ConnectomeWaterOverride`. Default: none. */
+  connectomeWater?: ConnectomeWaterOverride;
+}
+
+/** DIR-A: a placed/edited connectome lake projected into render space — fed to the
+ *  terrain colour + water-surface builds so it renders like a generated lake. `version`
+ *  bumps on each connectome edit so the (otherwise map-memoised) render caches rebuild. */
+export interface ConnectomeWaterOverride {
+  /** Full RENDER waterType (ocean + connectome rivers + lakes incl. placed), `W*H`. */
+  waterType: Uint8Array;
+  /** Render-elevation water surface for PLACED-lake cells (the spill lip); cells that
+   *  are not a placed lake are ignored (their surface comes from the raster path). */
+  lakeSurface: Float32Array;
+  /** Edit counter — busts the colour + water-static caches when the connectome changes. */
+  version: number;
 }
 
 /** Options for debug visualization overlays */
@@ -276,7 +302,8 @@ export interface SpiritBelief {
  *  without an effect; see `src/sim/belief-domains.ts`). Bounded enum: Fate may
  *  name/flavour a domain but cannot invent an effect outside this set. */
 export type BeliefDomain =
-  | 'storm';  // storm & lightning → the `smite` capability. (More land per slice.)
+  | 'storm'   // storm & lightning → the `smite` capability.
+  | 'flood';  // tempests & deluge → the `summon_storm` capability (W-H).
 
 export interface NpcNeeds {
   safety:     number;  // 0–1 (higher = more satisfied)
@@ -773,6 +800,15 @@ export interface DevModeState {
   // Terrain sub-layers (tile-type based; gated inside the terrain pass).
   showRoads?: boolean;
   showRivers?: boolean;
+  // Sea & lake water surface (the buildWaterField pass + its ocean backdrop). Off
+  // reveals the bathymetry / lake & sea beds. River ribbons are separate (showRivers).
+  showWater?: boolean;
+  // Terrain display mode enum (0 = textured … 6 = wireframe). See TERRAIN_MODES in
+  // src/render/gpu/terrain-field.ts; threaded into the terrain shader uniform.
+  terrainMode?: number;
+  // Terrain mesh supersample (≥1; 1 = one quad/tile). Subdivides the GPU-generated
+  // terrain grid for inspection (visible in the wireframe mode). Default 1.
+  terrainSuper?: number;
   // Time debug
   showEventLog?: boolean;
   showSimState?: boolean;

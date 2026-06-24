@@ -9,10 +9,10 @@
 // Plain `#hex` / `rgb()` / `rgba()` are accepted too for convenience. Pure data,
 // no DOM, no Canvas2D `getComputedStyle` round-trip — unit-testable in Node.
 
+import { clamp01 } from '@/core/math';
+
 /** Straight (non-premultiplied) RGBA, each channel 0..1. */
 export type Rgba = readonly [number, number, number, number];
-
-const clamp01 = (x: number) => (x < 0 ? 0 : x > 1 ? 1 : x);
 
 /** Linear-light → gamma-encoded sRGB (per channel). */
 function linearToSrgb(x: number): number {

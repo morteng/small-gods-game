@@ -13,6 +13,7 @@
 import type { Camera, GameMap } from '@/core/types';
 import { focusCameraOnTile } from '@/render/focus-camera';
 import { quantizeIsoZoom } from '@/render/iso/iso-camera';
+import { lerp } from '@/core/math';
 
 interface CamState { x: number; y: number; zoom: number }
 interface Viewport { width: number; height: number }
@@ -33,7 +34,6 @@ function smoothstep(t: number): number {
   const x = t < 0 ? 0 : t > 1 ? 1 : t;
   return x * x * (3 - 2 * x);
 }
-const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 
 export class CameraDirector {
   private active = false;

@@ -6,13 +6,14 @@
 // reads the SAME composed-terrain height buffer the terrain pass uses, so water
 // depth = surfaceW − terrainHeight needs no extra upload. No GPU/DOM here.
 
-import type { GameMap } from '@/core/types';
-import { terrainGrid, terrainGlobalsFor, curveRenderElev } from '@/render/gpu/terrain-field';
+import type { GameMap, ConnectomeWaterOverride } from '@/core/types';
+import { terrainGrid, terrainGlobalsFor, curveRenderElev, heightField } from '@/render/gpu/terrain-field';
 import { ELEVATION_SEA_LEVEL } from '@/world/heightfield';
 import { worldStyleOf } from '@/core/world-style';
 import { packTerrainGlobals, TERRAIN_GLOBALS_FLOATS, type TerrainGlobalsInput } from '@/render/gpu/instance-buffer';
 import type { LightingState } from '@/render/lighting-state';
 import { getHydrologyResult } from '@/world/hydrology-store';
+import { buildRiverSurfaceFieldMemo } from '@/render/gpu/river-surface-field';
 import { WaterType } from '@/core/types';
 import { classifyWaterCell, climateOf, type AquaticBiome, type Rgb } from '@/water/water-biome';
 
@@ -29,12 +30,47 @@ export const LAKE_FLOOD_RINGS = 6;
 /** WGlobals = TGlobals (24) + uWater vec4 = 28 floats / 112 bytes. */
 export const WATER_GLOBALS_FLOATS = TERRAIN_GLOBALS_FLOATS + 4;
 
+/** Element-wise equality of two same-length Float32Arrays. */
+function eqF32(a: Float32Array, b: Float32Array): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
+/** Equality of two OPTIONAL fields (the "applied" cache vs the live input): both
+ *  absent ⇒ equal; one absent ⇒ changed; else element-wise. */
+function eqOptF32(a: Float32Array | undefined, b: Float32Array | null): boolean {
+  if (!a && !b) return true;
+  if (!a || !b) return false;
+  return eqF32(a, b);
+}
+
+/** A fresh, zeroed set of the five per-cell water-surface arrays (one ping-pong slot). */
+function allocSurfaceArrays(cells: number): WaterSurfaceArrays {
+  return {
+    surfaceW: new Float32Array(cells),
+    waterType: new Uint32Array(cells),
+    shallow: new Uint32Array(cells),
+    deep: new Uint32Array(cells),
+    clarity: new Float32Array(cells),
+  };
+}
+
 /** Linear-RGB 0..1 → 0xAABBGGRR (LE-friendly upload; shader unpacks to 0..1). */
 function rgbToAbgr(c: Rgb): number {
   const r = Math.round(Math.min(1, Math.max(0, c[0])) * 255);
   const g = Math.round(Math.min(1, Math.max(0, c[1])) * 255);
   const b = Math.round(Math.min(1, Math.max(0, c[2])) * 255);
   return ((0xff << 24) | (b << 16) | (g << 8) | r) >>> 0;
+}
+
+/** The GLOBAL water-level offset (drought < 0, flood > 0 metres) in NORMALISED render
+ *  elevation — the single source both water passes read: the cell-grid lake plane
+ *  (`uWater.w`) and the river ribbon (`riverLevelDeltaN`), so lakes and rivers shift
+ *  together under one drought/flood. (Per-cell/per-body changes go through the ΔW
+ *  composition; this is the world-wide datum shift.) */
+export function waterLevelNorm(map: GameMap, waterLevelM: number): number {
+  return waterLevelM / worldStyleOf(map.worldSeed).mountainRelief;
 }
 
 /** Pack the water uniform: the terrain globals followed by `uWater`. */
@@ -255,10 +291,74 @@ export interface BuildWaterFieldOpts {
   lighting: LightingState;
   /** Seconds, for ripple animation (pure render — never the sim clock). */
   timeSec?: number;
-  /** Inland water-level offset in METRES (drought < 0, flood > 0) — shifts LAKE
-   *  surfaces only (the sea is the fixed datum). Default 0. */
+  /** Inland water-level offset in METRES (drought < 0, flood > 0) — shifts ALL LAKE
+   *  surfaces uniformly (the sea is the fixed datum). Default 0. */
   waterLevelM?: number;
+  /** LOCALIZED per-lake-body water-level offset in METRES, indexed by lake body
+   *  (see {@link getLakeBodies}). The dynamic-weather layer (rain → runoff fills a
+   *  basin) writes this so DIFFERENT lakes rise/recede independently; it's baked
+   *  into the per-cell surface (so the GPU shader needs no extra binding). Sparse —
+   *  when every entry is 0 the cached static surface is reused (no re-upload). */
+  lakeOffsetM?: Float32Array;
+  /** Per-CELL standing-water depth in METRES above the local terrain (≥0) — the
+   *  "flood a plain" field (`WaterDynamics.floodOffsetM`). Unlike `lakeOffsetM` (which
+   *  only raises EXISTING lake basins), this lays water on ARBITRARY dry land: each
+   *  flooded cell's surface is set to bed + depth and its type flipped to still water,
+   *  so the per-pixel clip carves the sheet to the terrain contour. Sparse — when every
+   *  entry is 0 the cached static surface is reused (no re-upload). */
+  floodOffsetM?: Float32Array;
+  /** OPT-IN connectome-projected water (studio editing) — author-placed lakes the
+   *  hydrology raster never knew, merged into the static classification + surface so
+   *  they render like generated lakes. Absent → pure raster path (byte-identical). */
+  connectomeWater?: ConnectomeWaterOverride;
   maxQuads?: number;
+  /** Sub-tile mesh supersample (≥1; 1 = one quad/tile) — MUST match the terrain pass
+   *  so the water plane and the terrain it clips against share one LOD grid (aligned
+   *  waterlines). Drives only the draw count + `stepT` in the shader; the per-cell
+   *  surface buffers are LOD-independent, so changing it never re-bakes the static. */
+  superSample?: number;
+}
+
+/** Connected lake bodies over the RENDER lake mask (Lake cells INCLUDING the
+ *  shore/flood dilation), so a localized level offset can be applied per body and
+ *  still cover the dilated overhang the waterline clips against. */
+export interface LakeBodies {
+  /** Per cell: lake-body index, or −1 where the cell is not a (render) lake. */
+  bodyId: Int32Array;
+  /** Surface area (cell count) of each body — converts a runoff VOLUME to a level. */
+  areaCells: number[];
+}
+
+/** Flood-fill the render lake mask into connected bodies (4-neighbour). */
+function computeLakeBodies(width: number, height: number, waterType: Uint32Array): LakeBodies {
+  const cells = width * height;
+  const bodyId = new Int32Array(cells).fill(-1);
+  const areaCells: number[] = [];
+  const queue = new Int32Array(cells);
+  for (let s = 0; s < cells; s++) {
+    if (waterType[s] !== WaterType.Lake || bodyId[s] !== -1) continue;
+    const b = areaCells.length;
+    let head = 0, tail = 0, area = 0;
+    queue[tail++] = s; bodyId[s] = b;
+    while (head < tail) {
+      const c = queue[head++]; area++;
+      const cx = c % width, cy = (c / width) | 0;
+      const tryN = (nx: number, ny: number): void => {
+        if (nx < 0 || ny < 0 || nx >= width || ny >= height) return;
+        const ni = ny * width + nx;
+        if (bodyId[ni] === -1 && waterType[ni] === WaterType.Lake) { bodyId[ni] = b; queue[tail++] = ni; }
+      };
+      tryN(cx - 1, cy); tryN(cx + 1, cy); tryN(cx, cy - 1); tryN(cx, cy + 1);
+    }
+    areaCells.push(area);
+  }
+  return { bodyId, areaCells };
+}
+
+/** The (memoised) connected lake bodies of a world — the body index space the
+ *  localized water-level offset (`lakeOffsetM`) is indexed in. */
+export function getLakeBodies(map: GameMap): LakeBodies {
+  return waterStatic(map).lakeBodies;
 }
 
 /** The per-cell water buffers — static for a given map (they come from the
@@ -275,24 +375,80 @@ interface WaterStatic {
   deep: Uint32Array;
   clarity: Float32Array;
   shoreDist: Float32Array;
+  lakeBodies: LakeBodies;
+  /** Flat list of every (render) lake cell — so a localized offset touches only the
+   *  ~hundreds of lake cells, never the whole 100k-cell grid, each frame. */
+  lakeCells: Int32Array;
+  // ── unified dynamic-water bake (the ΔW composition) ─────────────────────────────
+  // ONE ping-pong set of all five surface arrays, written by `applyDynamicWater` from
+  // the static base ⊕ (lake offset + flood). Lazily allocated on the first dynamic
+  // water, reused forever after (no per-frame alloc → no GC spikes). Toggling the set
+  // hands the GPU upload guard a CHANGED reference exactly when the bake changed — so a
+  // held flood/lake costs nothing, and a moving one (rising, evaporating) re-uploads.
+  dynSetA?: WaterSurfaceArrays;
+  dynSetB?: WaterSurfaceArrays;
+  dynToggle: boolean;
+  /** The set the last bake wrote — handed out (stable ref) on frames that don't rebuild. */
+  dynActive?: WaterSurfaceArrays;
+  /** Inputs last baked — skip the rebuild + GPU re-upload on frames where neither the
+   *  lake offsets nor the flood depths changed (a held flood, a settled world). */
+  dynAppliedLake?: Float32Array;
+  dynAppliedFlood?: Float32Array;
+  /** Wall-clock seconds of the last bake — re-baked (and re-uploaded) at most ~12 Hz
+   *  while moving, since a full per-cell surface re-upload every frame stalls software-WebGPU. */
+  dynBuiltAt?: number;
+  /** Curved render-terrain height (the bed a flood sits on), lazily built on first flood. */
+  bedRender?: Float32Array;
+  /** Default freshwater colours for a flooded land cell (a still sheet reads as a lake). */
+  floodShallowC?: number;
+  floodDeepC?: number;
+  floodClarityC?: number;
   wetCount: number;
-  vertexCount: number;
-  subsample: number;
   /** null = world is bone dry (skip the pass). */
   dry: boolean;
 }
 
 const STATIC_CACHE = new WeakMap<GameMap, WaterStatic>();
+// Separate, version-keyed cache for the studio's edited (placed-lake) statics — kept
+// off the WeakMap so a connectome edit never poisons the game's pristine raster static.
+const OVERRIDE_STATIC_CACHE = new Map<string, WaterStatic>();
+const OVERRIDE_CACHE_CAP = 3;
 
-function waterStatic(map: GameMap, maxQuads?: number): WaterStatic {
-  const cached = STATIC_CACHE.get(map);
-  if (cached) return cached;
+function waterStatic(map: GameMap, override?: ConnectomeWaterOverride): WaterStatic {
+  if (!override) {
+    const cached = STATIC_CACHE.get(map);
+    if (cached) return cached;
+  } else {
+    const cached = OVERRIDE_STATIC_CACHE.get(`${map.seed}:${map.width}x${map.height}:v${override.version}`);
+    if (cached) return cached;
+  }
 
   const hydro = getHydrologyResult(map);
-  let wet = 0;
-  for (const m of hydro.waterMask) wet += m;
-
   const cells = map.width * map.height;
+
+  // EFFECTIVE water classification: the raster, plus any author-placed connectome lakes
+  // (cells the override marks Lake that the raster left dry). Absent override ⇒ the same
+  // array references the raster path always used, so the build is byte-identical.
+  let effType: Uint8Array = hydro.waterType;
+  let effMask: Uint8Array = hydro.waterMask;
+  const placed: number[] = [];
+  if (override) {
+    effType = Uint8Array.from(hydro.waterType);
+    effMask = Uint8Array.from(hydro.waterMask);
+    for (let i = 0; i < cells; i++) {
+      if (override.waterType[i] === WaterType.Lake
+          && effType[i] !== WaterType.Lake && effType[i] !== WaterType.Ocean) {
+        effType[i] = WaterType.Lake;
+        effMask[i] = 1;
+        placed.push(i);
+      }
+    }
+  }
+
+  let wet = 0;
+  for (const m of effMask) wet += m;
+
+
   const flow = new Float32Array(cells * 2);
   const shallow = new Uint32Array(cells);
   const deep = new Uint32Array(cells);
@@ -310,7 +466,7 @@ function waterStatic(map: GameMap, maxQuads?: number): WaterStatic {
   for (let i = 0; i < cells; i++) {
     flow[i * 2] = hydro.flowDirX[i];
     flow[i * 2 + 1] = hydro.flowDirY[i];
-    const b = biomeFor(hydro.waterType[i] as WaterType);
+    const b = biomeFor(effType[i] as WaterType);
     if (b) {
       shallow[i] = rgbToAbgr(b.shallowColor);
       deep[i] = rgbToAbgr(b.deepColor);
@@ -318,8 +474,11 @@ function waterStatic(map: GameMap, maxQuads?: number): WaterStatic {
     }
   }
 
-  const grid = terrainGrid(map.width, map.height, maxQuads);
-  const shoreDist = computeShoreDist(map.width, map.height, hydro.waterMask);
+  // NOTE: the LOD grid (subsample + vertex count) is camera/zoom-dependent, so it is
+  // computed per-FRAME in buildWaterField — NOT baked here, or the per-map static cache
+  // would freeze the mesh resolution. The per-cell surface buffers below are all
+  // LOD-independent (one entry per tile), so the static survives any zoom-LOD change.
+  const shoreDist = computeShoreDist(map.width, map.height, effMask);
 
   // Clone the (shared, memoised) hydrology surface before dilating — fillShoreRing
   // mutates it to overhang the bank for the pixel-perfect waterline, and the
@@ -332,8 +491,25 @@ function waterStatic(map: GameMap, maxQuads?: number): WaterStatic {
   const gamma = worldStyleOf(map.worldSeed).terrainHeightGamma;
   const surfaceW = new Float32Array(cells);
   for (let i = 0; i < cells; i++) surfaceW[i] = curveRenderElev(hydro.surfaceW[i], ELEVATION_SEA_LEVEL, gamma);
-  const waterType = Uint32Array.from(hydro.waterType);
-  fillShoreRing(map.width, map.height, hydro.waterMask, {
+  // Author-placed lakes have no raster surface — fill them to their spill lip (the
+  // override carries it in render-elevation space). Then the shore/flood/body passes
+  // below treat them exactly like a generated lake.
+  for (const i of placed) surfaceW[i] = override!.lakeSurface[i];
+  const waterType = Uint32Array.from(effType);
+  // RIVERS join the per-cell water field (the unified water system). `hydro.surfaceW`
+  // is raw pre-erosion elevation, so it can't lift the render mesh — use the
+  // render-space, bank-referenced fill (`river-surface-field`) for river cells. The
+  // per-pixel waterline clip then trims each reach to its REAL erosion-carved channel,
+  // which hugs the terrain contours far better than the swept ribbon did.
+  const riverSurf = buildRiverSurfaceFieldMemo(map);
+  if (riverSurf) {
+    for (let i = 0; i < cells; i++) {
+      // `effType` (not the raster) so a placed lake sitting over a river keeps its lake
+      // surface rather than being pulled back to the river fill line.
+      if (effType[i] === WaterType.River) surfaceW[i] = riverSurf[i];
+    }
+  }
+  fillShoreRing(map.width, map.height, effMask, {
     surfaceW, waterType, shallow, deep, clarity, flow,
   });
   // Give lakes flood headroom past the 1-ring waterline overhang (the sea is the
@@ -342,17 +518,201 @@ function waterStatic(map: GameMap, maxQuads?: number): WaterStatic {
     surfaceW, waterType, shallow, deep, clarity, flow,
   });
 
+  // Connected lake bodies over the DILATED render lake mask — the index space the
+  // localized water-level offset is keyed in — plus the flat lake-cell list.
+  const lakeBodies = computeLakeBodies(map.width, map.height, waterType);
+  const lakeCellArr: number[] = [];
+  for (let i = 0; i < lakeBodies.bodyId.length; i++) if (lakeBodies.bodyId[i] >= 0) lakeCellArr.push(i);
+
+  // Default freshwater colours for the flood layer — a still sheet on land reads as a
+  // lake. Resolved once from the world climate (same source the lake cells use).
+  const lakeBiome = biomeFor(WaterType.Lake);
+
   const stat: WaterStatic = {
     surfaceW,
     waterType,
     flow, shallow, deep, clarity, shoreDist,
+    floodShallowC: lakeBiome ? rgbToAbgr(lakeBiome.shallowColor) : rgbToAbgr([0.2, 0.4, 0.55]),
+    floodDeepC: lakeBiome ? rgbToAbgr(lakeBiome.deepColor) : rgbToAbgr([0.08, 0.2, 0.35]),
+    floodClarityC: lakeBiome ? lakeBiome.clarity : 0.6,
+    lakeBodies,
+    lakeCells: Int32Array.from(lakeCellArr),
+    dynToggle: false,
     wetCount: wet,
-    vertexCount: grid.vertexCount,
-    subsample: grid.subsample,
     dry: wet === 0,
   };
-  STATIC_CACHE.set(map, stat);
+  if (!override) {
+    STATIC_CACHE.set(map, stat);
+  } else {
+    const k = `${map.seed}:${map.width}x${map.height}:v${override.version}`;
+    OVERRIDE_STATIC_CACHE.set(k, stat);
+    if (OVERRIDE_STATIC_CACHE.size > OVERRIDE_CACHE_CAP) {
+      const oldest = OVERRIDE_STATIC_CACHE.keys().next().value;
+      if (oldest !== undefined) OVERRIDE_STATIC_CACHE.delete(oldest);
+    }
+  }
   return stat;
+}
+
+/** The per-cell water-surface arrays a dynamic-water bake reads (base) and writes (out). */
+export interface WaterSurfaceArrays {
+  /** Row-major water-surface height in NORMALISED render elevation. */
+  surfaceW: Float32Array;
+  waterType: Uint32Array;
+  shallow: Uint32Array;
+  deep: Uint32Array;
+  clarity: Float32Array;
+}
+
+/** Everything the one dynamic-water rule needs beyond the base/out arrays. */
+export interface DynamicWaterInputs {
+  /** Per-lake-body level offset (metres), indexed by lake body id. null = none. */
+  lakeOffsetM: Float32Array | null;
+  /** Flat list of every render lake cell — the per-body offset touches only these. */
+  lakeCells: Int32Array;
+  /** Per-cell lake body id (−1 = not a lake cell), for the per-body offset lookup. */
+  bodyId: Int32Array;
+  /** Per-cell standing-water depth above terrain (metres). null = no flood. */
+  floodOffsetM: Float32Array | null;
+  /** Curved render-terrain height (the bed a flood sits on); required iff flooding. */
+  bed: Float32Array | null;
+  /** metres → normalised-elevation divisor (world relief). */
+  relief: number;
+  /** Freshwater colours/clarity a flooded land cell takes (a still sheet = a lake). */
+  floodShallowC: number;
+  floodDeepC: number;
+  floodClarityC: number;
+}
+
+/**
+ * The ONE dynamic-water composition rule (the ΔW unification). Seeds `out` from the
+ * static `base`, then folds EVERY dynamic water source into a single per-cell water
+ * surface — replacing the prior two sequential mutating blocks (lake-offset, then
+ * flood) with one rule whose overlap behaviour is explicit:
+ *
+ *   1. per-body LAKE offset — raises/lowers an existing basin within its bank
+ *      (additive on the static lake surface), applied only to that body's cells.
+ *   2. per-cell FLOOD — standing water on arbitrary land, composited as
+ *      `max(existing, bed + depth)`: a flood RAISES the surface to its level but
+ *      never lowers a deeper river/lake already there (the consistent overlap rule —
+ *      a shallow flood over a deep channel leaves the channel alone).
+ *
+ * Pure: writes only `out` (which may alias none of `base`'s arrays). Returns the
+ * flooded cell indices so the caller can restore them to base when the flood recedes.
+ */
+export function applyDynamicWater(
+  out: WaterSurfaceArrays, base: WaterSurfaceArrays, inp: DynamicWaterInputs,
+): Int32Array {
+  out.surfaceW.set(base.surfaceW);
+  out.waterType.set(base.waterType);
+  out.shallow.set(base.shallow);
+  out.deep.set(base.deep);
+  out.clarity.set(base.clarity);
+
+  const { relief } = inp;
+  const lo = inp.lakeOffsetM;
+  if (lo) {
+    const { bodyId, lakeCells } = inp;
+    for (let k = 0; k < lakeCells.length; k++) {
+      const i = lakeCells[k];
+      const b = bodyId[i];
+      if (b >= 0) out.surfaceW[i] = base.surfaceW[i] + lo[b] / relief;
+    }
+  }
+
+  const fo = inp.floodOffsetM;
+  const bed = inp.bed;
+  const applied: number[] = [];
+  if (fo && bed) {
+    for (let i = 0; i < fo.length; i++) {
+      const d = fo[i];
+      if (d <= 0) continue;
+      const surf = bed[i] + d / relief;
+      if (surf <= out.surfaceW[i]) continue;     // a deeper river/lake already here
+      out.surfaceW[i] = surf;
+      out.waterType[i] = WaterType.Lake;
+      out.shallow[i] = inp.floodShallowC;
+      out.deep[i] = inp.floodDeepC;
+      out.clarity[i] = inp.floodClarityC;
+      applied.push(i);
+    }
+  }
+  return Int32Array.from(applied);
+}
+
+/** A single-cell read of the unified water surface. */
+export interface WaterProbe {
+  /** True when standing water covers the tile (depth > 0 after the terrain clip). */
+  wet: boolean;
+  /** Standing depth above local terrain in METRES (0 when dry). */
+  depthM: number;
+  /** Water kind at the tile (`WaterType.Dry` when no water stands there). */
+  type: WaterType;
+}
+
+/** Live dynamic offsets a {@link waterSurfaceAt} probe folds in (all optional —
+ *  omit for the static-model height). Same arrays the field bake consumes. */
+export interface WaterProbeDynamics {
+  /** Per-lake-body level offset (metres), indexed by body id. */
+  lakeOffsetM?: Float32Array | null;
+  /** Per-cell standing-water depth above terrain (metres). */
+  floodOffsetM?: Float32Array | null;
+  /** Global inland water-level offset (metres; drought < 0, flood > 0). */
+  waterLevelM?: number;
+}
+
+/**
+ * Point-query the unified water surface — "is there water at this tile, and how
+ * deep?" — for sim / gameplay code (the read-side companion to the GPU bake). It
+ * mirrors {@link applyDynamicWater}'s rule EXACTLY for one cell, then applies the
+ * shader's per-pixel clip (`surface − bed ≤ 0 ⇒ dry`), so the answer always agrees
+ * with what the renderer draws:
+ *
+ *   1. start from the memoised static surface + type,
+ *   2. raise an existing LAKE body by its per-body offset,
+ *   3. shift LAKE+RIVER cells by the global level (the sea stays the datum),
+ *   4. fold a per-cell FLOOD as `max(existing, bed + depth)`,
+ *   5. depth = (surface − bed)·relief; ≤ 0 reads as dry (the terrain clip).
+ *
+ * Cheap: the static water + curved bed are both memoised, so a probe is O(1).
+ */
+export function waterSurfaceAt(
+  map: GameMap, x: number, y: number, dyn?: WaterProbeDynamics,
+): WaterProbe {
+  const dry: WaterProbe = { wet: false, depthM: 0, type: WaterType.Dry };
+  const xi = Math.round(x), yi = Math.round(y);
+  if (xi < 0 || yi < 0 || xi >= map.width || yi >= map.height) return dry;
+
+  const i = yi * map.width + xi;
+  const stat = waterStatic(map);
+  const relief = worldStyleOf(map.worldSeed).mountainRelief;
+  const bedN = heightField(map)[i];               // curved render terrain (the bed)
+
+  let surf = stat.surfaceW[i];
+  let type = stat.waterType[i] as WaterType;
+
+  // (2) per-body LAKE offset — raise an existing basin within its bank.
+  const lo = dyn?.lakeOffsetM ?? null;
+  if (lo && type === WaterType.Lake) {
+    const b = stat.lakeBodies.bodyId[i];
+    if (b >= 0) surf = stat.surfaceW[i] + lo[b] / relief;
+  }
+  // (3) GLOBAL level — lakes + rivers shift together; the ocean is the fixed datum.
+  const glM = dyn?.waterLevelM ?? 0;
+  if (glM !== 0 && (type === WaterType.Lake || type === WaterType.River)) {
+    surf += glM / relief;
+  }
+  // (4) per-cell FLOOD — max(existing, bed + depth); never lowers a deeper channel.
+  const fo = dyn?.floodOffsetM ?? null;
+  if (fo && fo[i] > 0) {
+    const fsurf = bedN + fo[i] / relief;
+    if (fsurf > surf) { surf = fsurf; type = WaterType.Lake; }
+  }
+
+  // (5) the per-pixel terrain clip, in metres.
+  const depthM = (surf - bedN) * relief;
+  if (type === WaterType.Dry || depthM <= 0) return dry;
+  return { wet: true, depthM, type };
 }
 
 /**
@@ -363,30 +723,97 @@ function waterStatic(map: GameMap, maxQuads?: number): WaterStatic {
  * per-frame writeBuffer.
  */
 export function buildWaterField(map: GameMap, opts: BuildWaterFieldOpts): WaterField | null {
-  const stat = waterStatic(map, opts.maxQuads);
+  const stat = waterStatic(map, opts.connectomeWater);
   if (stat.dry) return null;
+
+  // LOD grid — computed PER FRAME (camera/zoom-dependent), with the SAME superSample
+  // the terrain pass uses so the water plane and the terrain it clips against draw on
+  // one shared grid (aligned waterlines under the zoom-LOD). The per-cell surface
+  // buffers are LOD-independent, so this never re-bakes the static.
+  const grid = terrainGrid(map.width, map.height, opts.maxQuads, opts.superSample);
 
   // Water rides the terrain heightfield → it shares the terrain projection
   // uniform exactly; the only water-specific bits are the trailing uWater vec4.
   const tg: TerrainGlobalsInput = terrainGlobalsFor(map, {
-    viewport: opts.viewport, xform: opts.xform, lighting: opts.lighting, subsample: stat.subsample,
+    viewport: opts.viewport, xform: opts.xform, lighting: opts.lighting,
+    subsample: grid.subsample, superSample: opts.superSample,
   });
 
+  // DYNAMIC WATER — the ΔW composition. Fold the per-body LAKE level offset and the
+  // per-cell FLOOD into ONE per-cell surface via the single `applyDynamicWater` rule
+  // (was two sequential mutating blocks). A held / settled world reuses the cached
+  // static arrays (reference-stable → the GPU upload guard skips); a moving one (a
+  // basin rising, a flood evaporating) toggles the ping-pong set so the changed
+  // reference re-uploads. The GLOBAL `waterLevelM` stays in-shader (uWater.w, below)
+  // since a uniform shift needs no surface re-upload.
+  let surfaceW = stat.surfaceW;
+  let waterType = stat.waterType;
+  let shallow = stat.shallow, deep = stat.deep, clarity = stat.clarity;
+
+  const lo = opts.lakeOffsetM ?? null;
+  const fo = opts.floodOffsetM ?? null;
+  const lakeActive = !!lo && lo.some((v) => v !== 0);
+  const floodActive = !!fo && fo.some((v) => v > 0);
+
+  if (lakeActive || floodActive) {
+    const now = opts.timeSec ?? 0;
+    const due = stat.dynBuiltAt === undefined || now - stat.dynBuiltAt >= 0.08;   // ≤12 Hz
+    const changed = !eqOptF32(stat.dynAppliedLake, lakeActive ? lo : null)
+                 || !eqOptF32(stat.dynAppliedFlood, floodActive ? fo : null);
+    if (!stat.dynSetA) {
+      stat.dynSetA = allocSurfaceArrays(stat.surfaceW.length);
+      stat.dynSetB = allocSurfaceArrays(stat.surfaceW.length);
+    }
+    if (((changed && due)) || !stat.dynActive) {
+      if (floodActive && !stat.bedRender) stat.bedRender = heightField(map);
+      stat.dynToggle = !stat.dynToggle;
+      const set = stat.dynToggle ? stat.dynSetA! : stat.dynSetB!;
+      applyDynamicWater(set, {
+        surfaceW: stat.surfaceW, waterType: stat.waterType,
+        shallow: stat.shallow, deep: stat.deep, clarity: stat.clarity,
+      }, {
+        lakeOffsetM: lakeActive ? lo : null,
+        lakeCells: stat.lakeCells,
+        bodyId: stat.lakeBodies.bodyId,
+        floodOffsetM: floodActive ? fo : null,
+        bed: floodActive ? stat.bedRender! : null,
+        relief: worldStyleOf(map.worldSeed).mountainRelief,
+        floodShallowC: stat.floodShallowC!,
+        floodDeepC: stat.floodDeepC!,
+        floodClarityC: stat.floodClarityC!,
+      });
+      stat.dynAppliedLake = lakeActive ? lo!.slice() : undefined;
+      stat.dynAppliedFlood = floodActive ? fo!.slice() : undefined;
+      stat.dynBuiltAt = now;
+      stat.dynActive = set;
+    }
+    const set = stat.dynActive!;
+    surfaceW = set.surfaceW; waterType = set.waterType;
+    shallow = set.shallow; deep = set.deep; clarity = set.clarity;
+  } else if (stat.dynActive) {
+    // Fully receded since last frame — drop back to the cached static arrays (the dyn
+    // sets stay allocated for the next event) so the GPU re-uploads the base once.
+    stat.dynActive = undefined;
+    stat.dynAppliedLake = undefined;
+    stat.dynAppliedFlood = undefined;
+  }
+
   return {
-    surfaceW: stat.surfaceW,
-    waterType: stat.waterType,
+    surfaceW,
+    waterType,
     flow: stat.flow,
-    shallow: stat.shallow,
-    deep: stat.deep,
-    clarity: stat.clarity,
+    shallow,
+    deep,
+    clarity,
     shoreDist: stat.shoreDist,
     wetCount: stat.wetCount,
-    vertexCount: stat.vertexCount,
-    // uWater.w carries the LAKE water-level offset in NORMALISED elevation (metres /
-    // relief), so a drought/flood shifts the lake plane + waterline in-shader.
+    vertexCount: grid.vertexCount,
+    // uWater.w carries the GLOBAL water-level offset in NORMALISED elevation, so a
+    // drought/flood shifts the lake plane + waterline in-shader. The river ribbon
+    // reads the SAME value (`waterLevelNorm`) so lakes and rivers rise together.
     globals: packWaterGlobals(tg, [
       opts.timeSec ?? 0, SHALLOW_BAND_M, FOAM_BAND_M,
-      (opts.waterLevelM ?? 0) / worldStyleOf(map.worldSeed).mountainRelief,
+      waterLevelNorm(map, opts.waterLevelM ?? 0),
     ]),
   };
 }

@@ -6,6 +6,7 @@
  */
 import type { MemoryEntry, MemoryKind, NpcProperties } from '@/core/types';
 import type { LLMResponse } from '@/llm/state-writeback';
+import { clamp01 } from '@/core/math';
 
 type BeliefDelta = NonNullable<LLMResponse['belief_delta']>;
 
@@ -19,8 +20,6 @@ const KIND_WEIGHT: Record<MemoryKind, number> = {
   whisper: 0.2,
   backfill: 0.1,
 };
-
-function clamp01(v: number): number { return Math.max(0, Math.min(1, v)); }
 
 /** Distill an LLM response into a one-line summary. Consolidates the two former
  *  createInteractionSummary functions (re-exported from their old homes). */

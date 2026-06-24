@@ -48,6 +48,8 @@ import {
 import { buildAccordion } from './accordion';
 import { buildObjectBrowser } from './object-browser';
 import { mountWorldStudio } from './world-studio';
+import { mountGalleryStudio } from './gallery-studio';
+import { mountZooStudio } from './zoo-studio';
 import { buildAbSection } from './ab-section';
 import { buildTree } from './blueprint-tree';
 import { buildToolbar } from './toolbar';
@@ -222,7 +224,7 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
       if (!resp.ok) return;
       const raster = await decodePngToRaster(await resp.blob());
       if (raster) subjFinished.set(k, rasterToSpriteCanvas(raster));
-    })().catch(() => {});
+    })().catch((err) => { console.warn('[studio] finished-sprite load failed:', err); });
   }
   const finishedSubject = (): SpriteCanvas | null => (liveRb ? (subjFinished.get(rbKey(liveRb)) ?? null) : null);
 
@@ -247,7 +249,9 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
   // WebGPU scene renderer (async bring-up). Until it resolves, the frame loop
   // paints only the background; the GPU canvas composites once ready.
   let renderMap: RenderFn | null = null;
-  void createGpuRenderMap({ canvas: sceneCanvas }).then((r) => { renderMap = r.render; });
+  void createGpuRenderMap({ canvas: sceneCanvas })
+    .then((r) => { renderMap = r.render; })
+    .catch((err) => { console.error('[studio] GPU render init failed:', err); });
 
   const initial = (opts.initialKind && opts.initialKind !== '1') ? opts.initialKind : 'oak_tree';
 
@@ -1030,10 +1034,47 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
 }
 
 // ── unified studio shell ─────────────────────────────────────────────────────
-// One entry point hosting BOTH modes in the same chrome: a slim mode bar over a
-// content host. Switching disposes the current mode and mounts the other; the
-// World Browser's "Edit in studio" hands off in-process (no page reload). Initial
-// mode comes from ?studio (=world → World, =<kind> → that object, bare → oak).
+// One entry point hosting EVERY workspace in the same chrome: a slim workspace bar
+// over a content host. Switching disposes the current workspace and mounts the
+// next (no page reload). Each workspace is a thin adapter over its mount fn and
+// gets a shared `ctx` whose `open(id, arg)` lets one workspace hand off to another
+// (the World Browser's "Edit in studio" → the Object editor; a Gallery cell → the
+// Object editor). The registry is data-driven, so new workspaces (Zoo, …) are one
+// entry. Initial workspace comes from ?studio:
+//   =world → World · =gallery/arboretum/buildings → Gallery (filtered) ·
+//   =<kind> → that object · bare → Object (oak).
+
+/** A registered studio surface. `mount` returns the standard dispose handle; `arg`
+ *  carries an initial subject (Object) or class filter (Gallery). */
+interface Workspace {
+  id: string;
+  label: string;   // button label (leading emoji + name)
+  mount(host: HTMLElement, ctx: WorkspaceCtx, arg?: string): StudioHandle;
+}
+interface WorkspaceCtx {
+  /** Switch to another workspace, optionally seeding it (e.g. open a kind in Object). */
+  open(id: string, arg?: string): void;
+}
+
+const WORKSPACES: Workspace[] = [
+  { id: 'object', label: '🏛 Object', mount: (host, _ctx, arg) => mountObjectStudio(host, { initialKind: arg }) },
+  { id: 'gallery', label: '🖼 Gallery', mount: (host, ctx, arg) => mountGalleryStudio(host, { filter: arg, onEdit: (k) => ctx.open('object', k) }) },
+  { id: 'zoo', label: '🦌 Zoo', mount: (host) => mountZooStudio(host) },
+  { id: 'world', label: '🌍 World', mount: (host, ctx) => mountWorldStudio(host, { onEdit: (k) => ctx.open('object', k) }) },
+];
+
+/** Map a ?studio= param to an initial (workspace id, arg). Unknown → Object/<param>. */
+function initialWorkspace(param: string | null): { id: string; arg?: string } {
+  switch (param) {
+    case 'world': return { id: 'world' };
+    case 'zoo': return { id: 'zoo' };
+    case 'gallery': case '1': case null: return param === 'gallery' ? { id: 'gallery' } : { id: 'object' };
+    case 'arboretum': return { id: 'gallery', arg: 'plant' };
+    case 'buildings': return { id: 'gallery', arg: 'building' };
+    default: return { id: 'object', arg: param ?? undefined };
+  }
+}
+
 export function mountStudio(container: HTMLElement): void {
   injectStudioTheme(container);
   container.style.position = 'relative';
@@ -1045,38 +1086,32 @@ export function mountStudio(container: HTMLElement): void {
   shell.append(bar, host);
   container.appendChild(shell);
 
-  const objBtn = h('button', { class: 'sg-btn', html: '🏛 <span style="opacity:.8">Object</span>' });
-  const worldBtn = h('button', { class: 'sg-btn', html: '🌍 <span style="opacity:.8">World</span>' });
-  bar.append(
-    h('span', { class: 'sg-muted', style: 'font-weight:700;letter-spacing:.06em;margin-right:6px', text: 'STUDIO' }),
-    objBtn, worldBtn,
-  );
+  bar.appendChild(h('span', { class: 'sg-muted', style: 'font-weight:700;letter-spacing:.06em;margin-right:6px', text: 'STUDIO' }));
 
-  const param = new URLSearchParams(location.search).get('studio');
-  let mode: 'object' | 'world' = param === 'world' ? 'world' : 'object';
+  let activeId = '';
   let current: StudioHandle | null = null;
+  const buttons = new Map<string, HTMLElement>();
+  const paint = (): void => { for (const [id, btn] of buttons) btn.classList.toggle('is-on', id === activeId); };
 
-  const paint = (): void => {
-    objBtn.classList.toggle('is-on', mode === 'object');
-    worldBtn.classList.toggle('is-on', mode === 'world');
-  };
-  function showObject(kind?: string): void {
+  const ctx: WorkspaceCtx = { open };
+  function open(id: string, arg?: string): void {
+    const ws = WORKSPACES.find((w) => w.id === id);
+    if (!ws) return;
     current?.dispose();
     host.replaceChildren();
-    mode = 'object'; paint();
-    current = mountObjectStudio(host, { initialKind: kind });
+    activeId = id; paint();
+    current = ws.mount(host, ctx, arg);
   }
-  function showWorld(): void {
-    current?.dispose();
-    host.replaceChildren();
-    mode = 'world'; paint();
-    current = mountWorldStudio(host, { onEdit: (k) => showObject(k) });
-  }
-  objBtn.addEventListener('click', () => { if (mode !== 'object') showObject(); });
-  worldBtn.addEventListener('click', () => { if (mode !== 'world') showWorld(); });
 
-  if (mode === 'world') showWorld();
-  else showObject(param && param !== '1' ? param : undefined);
+  for (const ws of WORKSPACES) {
+    const btn = h('button', { class: 'sg-btn', html: ws.label.replace(/^(\S+)\s/, '$1 <span style="opacity:.8">') + '</span>' });
+    btn.addEventListener('click', () => { if (activeId !== ws.id) open(ws.id); });
+    buttons.set(ws.id, btn);
+    bar.appendChild(btn);
+  }
+
+  const init = initialWorkspace(new URLSearchParams(location.search).get('studio'));
+  open(init.id, init.arg);
 }
 
 function cloneRaster(r: Raster): Raster {

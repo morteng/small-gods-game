@@ -7,7 +7,7 @@
 // per-patch tile origin. Memoised per map — the bake is a one-time cost, not
 // per-frame. Pure data; no GPU/DOM.
 
-import type { GameMap } from '@/core/types';
+import type { GameMap, ConnectomeWaterOverride } from '@/core/types';
 import { computeDetailMask, coalescePatches, makeDetailElevSampler } from '@/world/terrain-detail';
 import { DP_PATCH_TILES, DP_SUPER } from '@/render/gpu/wgsl/detail-patch-wgsl';
 
@@ -32,21 +32,26 @@ export interface DetailField {
 }
 
 // Memoise the last world's bake — the importance map + lattice are derived purely
-// from (seed, dims), so a static world reuses the same buffers (the scene's upload
-// reference-guards on these array identities and skips re-uploading).
-let memo: { map: GameMap; field: DetailField | null } | null = null;
+// from (seed, dims, edit version), so a static world reuses the same buffers (the
+// scene's upload reference-guards on these array identities and skips re-uploading).
+let memo: { map: GameMap; version: number; field: DetailField | null } | null = null;
 
 /**
  * Build (or reuse) the detail-patch field for a world: bake a fine height lattice
  * for every hot patch block. Returns null when nothing is flagged (no detail to
- * draw). Deterministic; memoised by map identity.
+ * draw). Deterministic; memoised by map identity + connectome edit version.
+ *
+ * `connectomeWater` (studio editing) supplies the EDITED render classification so an
+ * author-placed lake gets the fine mesh on its banks too; absent → the base world's
+ * render classification (the game path), byte-identical to before.
  */
-export function buildDetailField(map: GameMap): DetailField | null {
-  if (memo && memo.map === map) return memo.field;
+export function buildDetailField(map: GameMap, connectomeWater?: ConnectomeWaterOverride): DetailField | null {
+  const version = connectomeWater?.version ?? 0;
+  if (memo && memo.map === map && memo.version === version) return memo.field;
 
-  const mask = computeDetailMask(map);
+  const mask = computeDetailMask(map, { waterType: connectomeWater?.waterType });
   const patches = coalescePatches(mask, map.width, map.height, DETAIL_PATCH_TILES);
-  if (patches.length === 0) { memo = { map, field: null }; return null; }
+  if (patches.length === 0) { memo = { map, version, field: null }; return null; }
 
   const sampler = makeDetailElevSampler(map);
   const S = DETAIL_SUPERSAMPLE;
@@ -69,7 +74,7 @@ export function buildDetailField(map: GameMap): DetailField | null {
   const field: DetailField = {
     origins, heights, patchCount: patches.length, vertexCountPerPatch: VERTS_PER_PATCH,
   };
-  memo = { map, field };
+  memo = { map, version, field };
   return field;
 }
 

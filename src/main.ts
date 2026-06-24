@@ -1,30 +1,22 @@
 import { Game } from './game';
-import { getBootProfile } from './dev/profile';
 
+// Dev features (the Studio + the __game/__debug/__bus/__perf window surface) are
+// gated behind the build-time `__DEV_TOOLS__` flag and loaded by DYNAMIC import, so a
+// distribution build (`npm run build`) tree-shakes them out entirely — only the dev
+// server and `npm run build:dev` (`--mode devtools`) ship them. See vite.config.ts.
 const container = document.getElementById('app');
-if (container && new URLSearchParams(location.search).has('studio')) {
-  // Render Studio: uncluttered single-object scene reusing the real render path
-  // (terrain + lit entity layer + shadows) for debugging lighting/anchoring.
-  import('./studio/studio').then(({ mountStudio }) => mountStudio(container));
+if (container && __DEV_TOOLS__ && new URLSearchParams(location.search).has('studio')) {
+  // Studio (?studio=…): the unified Object/Gallery/Zoo/World authoring shell, reusing
+  // the real render path. Dev-only.
+  void import('./studio/studio').then(({ mountStudio }) => mountStudio(container));
 } else if (container) {
   const game = new Game(container);
   game.generateWorld().then(() => {
     console.log('World generated');
   });
 
-  // Expose for debugging: __game is the raw instance; __debug is the stable
-  // console/Playwright/MCP surface (see src/dev/debug-api.ts).
-  (window as any).__game = game;
-  (window as any).__debug = game.debug();
-  // __bus is the S0 command/query seam (emit/preview/capabilities/query/subscribe)
-  // a WebGPU UI or MCP bridge consumes. See src/game/game-bus.ts.
-  (window as any).__bus = game.bus;
-
-  // __perf: boot-phase timings + live FPS, read in a REAL browser (Playwright/CDP
-  // throttles the rAF loop, so its absolute numbers can't be trusted). See profile.ts.
-  (window as any).__perf = {
-    boot: () => getBootProfile(),
-    fps: () => game.fpsStats(),
-    showFps: (v = true) => game.setFpsHud(v),
-  };
+  if (__DEV_TOOLS__) {
+    // Attach the dev/debug window globals (excluded from distribution builds).
+    void import('./dev/expose').then(({ exposeDevGlobals }) => exposeDevGlobals(game));
+  }
 }

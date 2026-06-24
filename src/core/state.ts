@@ -8,6 +8,9 @@ import { createCamera } from '@/render/camera';
 import { createRng, type Rng } from '@/core/rng';
 import { PlotThreadStore } from '@/sim/threads/thread-store';
 import { StagingBuffer } from '@/sim/threads/staging-buffer';
+import type { WeatherStepper } from '@/sim/water/weather-stepper';
+import type { FloodWatch } from '@/world/flood-watch';
+import type { CausalSiteStore } from '@/world/causal-site';
 
 export interface GameState {
   map: GameMap | null;
@@ -16,6 +19,9 @@ export interface GameState {
   selectedNpcId: string | null;
   /** Building entity whose info panel is open, or null. Mirrors selectedNpcId. */
   selectedBuildingId: string | null;
+  /** W-I-d: the causal site (`causalSites`) whose card is open, or null. The
+   *  third member of the mutually-exclusive selection set (npc / building / site). */
+  selectedCausalSiteId: string | null;
   visualMap: string[][] | null;
   blobMap: BlobTile[][] | null;
   debug: boolean;
@@ -47,6 +53,17 @@ export interface GameState {
    *  A render parameter today (reversible, scrub-safe); the seam a climate/Fate
    *  drought-or-flood condition drives. */
   waterLevelM: number;
+  /** W-G: the deterministic water/atmosphere stepper (render-side `WaterDynamics`,
+   *  injected by the game) — stepped by `WeatherSystem` on the sim tick, its fields
+   *  captured in the snapshot. Null until a world is seeded / in headless states. */
+  weather: WeatherStepper | null;
+  /** W-F/W-G: per-world flood watch over the important places (POIs). Polled by
+   *  `WeatherSystem`; its latched flood state is snapshotted alongside the fields. */
+  floodWatch: FloodWatch | null;
+  /** W-I: ephemeral, event-born places (a god-flooded plain → "The Drowned Reach").
+   *  Reconciled by `WeatherSystem` against the flood field each tick; its live sites
+   *  are snapshotted. Null until a world is seeded. */
+  causalSites: CausalSiteStore | null;
 }
 
 export function createState(): GameState {
@@ -72,6 +89,7 @@ export function createState(): GameState {
     worldSeed: null,
     selectedNpcId: null,
     selectedBuildingId: null,
+    selectedCausalSiteId: null,
     visualMap: null,
     blobMap: null,
     debug: false,
@@ -92,5 +110,8 @@ export function createState(): GameState {
     staging: new StagingBuffer(),
     surfacedInbox: new Set<string>(),
     waterLevelM: 0,
+    weather: null,
+    floodWatch: null,
+    causalSites: null,
   };
 }

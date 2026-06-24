@@ -10,12 +10,13 @@
 // edges sit on the lifted surface rather than floating on a flat plane.
 
 import type { RenderContext, Camera, GameMap, POI } from '@/core/types';
-import { ISO_TILE_W, ISO_TILE_H } from '@/render/iso/iso-constants';
-import { elevationAt, ELEVATION_SEA_LEVEL } from '@/world/heightfield';
+import { ELEVATION_SEA_LEVEL } from '@/world/heightfield';
+import { heightField } from '@/render/gpu/terrain-field';
 import { worldStyleOf } from '@/core/world-style';
-
-const HALF_W = ISO_TILE_W / 2;
-const HALF_H = ISO_TILE_H / 2;
+import { tileToScreen, screenToTile, screenToTileFlat, type IsoEnv } from '@/render/iso/lifted-projection';
+import { getWaterNetwork } from '@/world/water-network-store';
+import type { ReachClass, WaterNodeKind, LakeClass, WaterNetwork } from '@/terrain/river-network';
+import type { PressureReport } from '@/world/connectome/pressure';
 
 const EDGE_STYLE: Record<string, { color: string; width: number }> = {
   road: { color: 'rgba(225, 178, 92, 0.9)', width: 2 },
@@ -29,15 +30,70 @@ const EDGE_STYLE: Record<string, { color: string; width: number }> = {
 export function projectConnectome(map: GameMap, tx: number, ty: number, cam: Camera): { x: number; y: number } {
   return project(map, tx, ty, cam);
 }
-function project(map: GameMap, tx: number, ty: number, cam: Camera): { x: number; y: number } {
-  const elev = elevationAt(map, tx, ty);
-  // S1 style knobs (default to TERRAIN_RELIEF_M × TERRAIN_Z_PX_PER_M) — must match
-  // the GPU terrain lift exactly so overlay nodes sit on the lifted surface.
+/** Approximate inverse of {@link projectConnectome}: CSS-pixel screen → tile coord,
+ *  IGNORING terrain lift (which is non-invertible). Good enough for coarse placement
+ *  (a rain brush, a cursor probe) — the lift error is a fraction of a tile in the y
+ *  axis and irrelevant to a multi-tile brush. Clamped to the map. */
+export function screenToTileApprox(map: GameMap, sx: number, sy: number, cam: Camera): { tx: number; ty: number } {
+  const { tx, ty } = screenToTileFlat(sx, sy, cam);
+  return {
+    tx: Math.max(0, Math.min(map.width - 1, tx)),
+    ty: Math.max(0, Math.min(map.height - 1, ty)),
+  };
+}
+/** Bind the world's real terrain sampler + lift constants into an {@link IsoEnv} so the
+ *  pure projection core can run against this map. Memo-light: `heightField` itself is
+ *  memoised, so the closure is cheap to recreate per call. */
+function isoEnv(map: GameMap): IsoEnv {
   const style = worldStyleOf(map.worldSeed);
-  const lift = (elev - ELEVATION_SEA_LEVEL) * style.mountainRelief * style.terrainVerticalExaggeration;
-  const sx = ((tx - ty) * HALF_W - cam.x) * cam.zoom;
-  const sy = ((tx + ty) * HALF_H - lift - cam.y) * cam.zoom;
-  return { x: sx, y: sy };
+  return {
+    elevAt: (tx, ty) => renderElevAt(map, tx, ty),
+    seaLevel: ELEVATION_SEA_LEVEL,
+    k: style.mountainRelief * style.terrainVerticalExaggeration,
+    width: map.width,
+    height: map.height,
+  };
+}
+/**
+ * Lift-AWARE inverse: CSS-pixel screen → the tile whose LIFTED rendering sits under
+ * the cursor — the frontmost surface point, matching what the GPU draws there.
+ *
+ * The screen-x of a tile depends only on `tx − ty` and carries NO lift term, so that
+ * axis (`a`) inverts exactly. The screen-y depends on `tx + ty` AND the terrain lift,
+ * and on steep relief MANY tiles along that diagonal project to the same pixel (a near
+ * low tile overlaps a far high peak) — a naive fixed-point iteration can settle on the
+ * wrong one (measured: up to 12 tiles off on a mountain). Instead we MARCH the diagonal
+ * `s = tx + ty` from front (largest `s`, drawn last / lowest on screen) to back and
+ * return the FIRST surface crossing — the frontmost, visible tile — refined by
+ * bisection. Lift matches {@link project} exactly, so forward∘inverse is identity to
+ * sub-tile precision everywhere, slopes included.
+ */
+export function screenToTileLifted(map: GameMap, sx: number, sy: number, cam: Camera, iters = 4): { tx: number; ty: number } {
+  void iters;   // legacy fixed-point param; the marching inverse needs no iteration count
+  return screenToTile(sx, sy, cam, isoEnv(map));
+}
+/**
+ * The EXACT normalised elevation the GPU terrain lifts by at a (fractional) tile —
+ * the composed (road/river carve) + gamma-curved height buffer the shader uploads,
+ * BILINEARLY interpolated between vertices. `elevationAt` reads the raw base field
+ * floored to a corner, so the overlay floated above carved channels and stepped
+ * between vertices; sampling the render buffer puts every node on the lifted surface.
+ */
+function renderElevAt(map: GameMap, tx: number, ty: number): number {
+  const W = map.width, H = map.height;
+  const hf = heightField(map);
+  const fx = Math.max(0, Math.min(W - 1, tx)), fy = Math.max(0, Math.min(H - 1, ty));
+  const x0 = Math.floor(fx), y0 = Math.floor(fy);
+  const x1 = Math.min(W - 1, x0 + 1), y1 = Math.min(H - 1, y0 + 1);
+  const dx = fx - x0, dy = fy - y0;
+  const top = hf[y0 * W + x0] * (1 - dx) + hf[y0 * W + x1] * dx;
+  const bot = hf[y1 * W + x0] * (1 - dx) + hf[y1 * W + x1] * dx;
+  return top * (1 - dy) + bot * dy;
+}
+function project(map: GameMap, tx: number, ty: number, cam: Camera): { x: number; y: number } {
+  // One source of truth with the inverse (and the GPU lift): the pure iso core, bound
+  // to this world's terrain sampler + style. Overlay nodes sit on the lifted surface.
+  return tileToScreen(tx, ty, cam, isoEnv(map));
 }
 
 function strokePolyline(
@@ -150,6 +206,106 @@ export function drawWorldConnectome(ctx: CanvasRenderingContext2D, rc: RenderCon
       ctx.fillStyle = '#fff3d6';
       ctx.fillText(label, p.x, ly);
     }
+  }
+
+  ctx.restore();
+}
+
+// ── Water connectome overlay (the river-network graph) ───────────────────────
+// Strokes each reach's SMOOTHED centreline coloured + weighted by spectrum class,
+// then glyphs the nodes by kind. This is the graph the carve and the editor read —
+// drawing it makes "this brook / from that pond / two sources merge here" legible.
+
+const REACH_STYLE: Record<ReachClass, { color: string; width: number }> = {
+  brook:       { color: 'rgba(150, 205, 235, 0.85)', width: 1.2 },
+  stream:      { color: 'rgba(110, 185, 235, 0.9)',  width: 2.0 },
+  river:       { color: 'rgba(70, 155, 230, 0.92)',  width: 3.2 },
+  major_river: { color: 'rgba(45, 125, 220, 0.95)',  width: 4.6 },
+};
+
+// Lake bodies — a ringed marker sized by the still-water spectrum (tarn → mere).
+const LAKE_STYLE: Record<LakeClass, { color: string; r: number }> = {
+  tarn: { color: 'rgba(90, 215, 230, 0.55)', r: 3.5 },
+  pond: { color: 'rgba(70, 195, 230, 0.55)', r: 5.0 },
+  lake: { color: 'rgba(55, 170, 225, 0.55)', r: 7.5 },
+  mere: { color: 'rgba(45, 140, 220, 0.55)', r: 11.0 },
+};
+
+const NODE_STYLE: Record<WaterNodeKind, { color: string; r: number }> = {
+  spring:      { color: 'rgba(120, 235, 160, 0.95)', r: 3.2 },   // green — a source
+  lake_outlet: { color: 'rgba(80, 220, 230, 0.95)',  r: 3.6 },   // cyan — lake-fed birth
+  confluence:  { color: 'rgba(255, 240, 200, 0.95)', r: 3.0 },   // pale — tributaries merge
+  lake_inlet:  { color: 'rgba(150, 170, 235, 0.9)',  r: 3.0 },   // indigo — enters a lake
+  mouth:       { color: 'rgba(60, 130, 210, 0.95)',  r: 3.8 },   // deep blue — estuary
+};
+
+/** Optional draw overrides — the studio editor passes an EDITED network (so a dragged
+ *  node + its re-routed reaches render live) and a pressure report to visualize crowding. */
+export interface WaterNetworkDrawOpts {
+  net?: WaterNetwork;
+  pressure?: PressureReport;
+}
+
+/**
+ * Draw the water connectome (river-network graph) onto the Canvas2D overlay context.
+ * No-op when the world has no rivers. `zoom` scales line weight so it reads at any zoom.
+ * Pass `opts.net` to render an edited network and `opts.pressure` to ring crowded features.
+ */
+export function drawWaterNetwork(ctx: CanvasRenderingContext2D, rc: RenderContext, opts: WaterNetworkDrawOpts = {}): void {
+  const { map, camera } = rc;
+  if (!map) return;
+  const net = opts.net ?? getWaterNetwork(map);
+  if (net.reaches.length === 0) return;
+
+  ctx.save();
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  const zw = Math.max(0.5, Math.min(camera.zoom, 2.5));
+
+  // Lake bodies first — a ringed marker at the centroid, sized by class, under the channels.
+  for (const l of net.lakes) {
+    const st = LAKE_STYLE[l.klass];
+    const p = project(map, l.x + 0.5, l.y + 0.5, camera);
+    dot(ctx, p.x, p.y, st.r * Math.min(1.4, zw), st.color, 'rgba(20, 60, 90, 0.8)');
+  }
+
+  // Reaches — thick trunks first so thin brooks render on top of their confluence.
+  const order: ReachClass[] = ['major_river', 'river', 'stream', 'brook'];
+  for (const klass of order) {
+    for (const reach of net.reaches) {
+      if (reach.klass !== klass) continue;
+      const s = REACH_STYLE[klass];
+      ctx.strokeStyle = reach.lakeFed ? 'rgba(80, 220, 230, 0.9)' : s.color;
+      ctx.lineWidth = s.width * zw;
+      strokePolyline(ctx, map, camera, reach.centerline);
+    }
+  }
+
+  // Pressure rings UNDER the node glyphs — a hot halo whose radius/alpha grows with
+  // crowding, so impinging features read at a glance (advisory; nothing is moved).
+  if (opts.pressure && opts.pressure.maxPressure > 0) {
+    const { perItem, maxPressure } = opts.pressure;
+    const ringAt = (id: string, x: number, y: number): void => {
+      const v = perItem.get(id);
+      if (!v) return;
+      const t = Math.min(1, v / maxPressure);
+      const p = project(map, x, y, camera);
+      const r = (6 + 10 * t) * Math.min(1.4, zw);
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(255, ${Math.round(160 - 120 * t)}, 60, ${0.5 + 0.4 * t})`;
+      ctx.lineWidth = 2 + 2 * t;
+      ctx.stroke();
+    };
+    for (const n of net.nodes) ringAt(n.id, n.x + 0.5, n.y + 0.5);
+    for (const l of net.lakes) ringAt(l.id, l.x + 0.5, l.y + 0.5);
+  }
+
+  // Nodes — glyph by kind.
+  for (const n of net.nodes) {
+    const st = NODE_STYLE[n.kind];
+    const p = project(map, n.x + 0.5, n.y + 0.5, camera);
+    dot(ctx, p.x, p.y, st.r, st.color, 'rgba(10, 20, 30, 0.85)');
   }
 
   ctx.restore();

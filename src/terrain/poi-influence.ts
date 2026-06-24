@@ -27,6 +27,17 @@ interface FieldInfluence {
    * flanks via a max(). `summit ≤ 1`, so no clamp plateau forms.
    */
   summit?: number;
+  /**
+   * REGION-FILL target [0,1] (temperature/moisture only). When a climate-zone POI
+   * stamps its `region`, a `target` makes the field LERP TOWARD this value
+   * (`f = lerp(f, target, w)`) instead of adding `delta`. This OVERRIDES the global
+   * gradient + elevation lapse, so "this region IS a desert" actually holds: a
+   * `temperature` target of 0.90 clears the desert biome's 0.80 threshold no matter
+   * how cold the base latitude is. Additive `delta` can't guarantee a threshold
+   * (cold base + lapse ate the Sunscorch's +0.40 → it read as scrubland). The disc
+   * (point) path ignores `target` and still uses `delta`.
+   */
+  target?: number;
 }
 
 interface InfluenceSpec {
@@ -41,6 +52,18 @@ interface InfluenceSpec {
    * `0` (default) keeps the exact cosine disc — settlements stay circular.
    */
   warp?: number;
+  /**
+   * CLIMATE-ZONE types (desert, steppe, swamp, forest…): when a POI of this type
+   * carries an authored `region` box, stamp its delta fields across the WHOLE
+   * region (feathered, warped edge) instead of a small point+radius disc. This is
+   * the W-A fix: a 48×48 "Sunscorch desert" region was only getting a ~12-tile
+   * warm disc, so its authored identity ("every clime" island) was lost to the
+   * global temperate gradient. `summit`/PEAK fields (mountain/volcano/glacier
+   * apex) stay POINT features even with a region — a range has a peak, not a
+   * uniformly-raised rectangle. A region-only POI (no `position`) used to be
+   * skipped entirely; with `regionFill` it finally exerts its climate.
+   */
+  regionFill?: boolean;
 }
 
 /** Per-POI `size` → radius/influence multiplier. `medium` (and unset) = 1.0, so
@@ -65,19 +88,26 @@ export const POI_INFLUENCES: Record<string, InfluenceSpec> = {
   // additive-disc mesa that flattened against the [0,1] clamp. `huge` widens the
   // massif; the warp breaks the rim into spurs.
   mountain: { elevation: { summit: 0.99, radius: 16 }, temperature: { delta: -0.20, radius: 16 }, warp: 0.45 },
-  // Forest: moisture boost pushes toward forest biomes
-  forest:   { moisture:  { delta: +0.35, radius: 12 }, warp: 0.30 },
-  // Swamp: lower elevation slightly, very high moisture, warm
-  swamp:    { elevation: { delta: -0.15, radius:  8 }, moisture: { delta: +0.55, radius: 10 }, warp: 0.45 },
-  // Desert: temp delta raised to +0.40 so the DESERT biome (needs temp > 0.80)
-  // actually forms at non-equatorial latitudes, not just dry scrubland.
-  desert:   { moisture:  { delta: -0.55, radius: 14 }, temperature: { delta: +0.40, radius: 12 }, warp: 0.50 },
+  // Forest: moisture boost pushes toward forest biomes. region-fill so an authored
+  // forest BELT (e.g. Whispering Woods — a region with NO position, previously
+  // skipped) actually moistens its whole extent into woodland; a moisture target of
+  // 0.62 clears the forest threshold while latitude decides boreal vs temperate.
+  forest:   { moisture:  { delta: +0.35, radius: 12, target: 0.62 }, warp: 0.30, regionFill: true },
+  // Swamp: a HOT wet lowland (the biome model only has a tropical-style swamp:
+  // temp ≥ 0.80 & moisture > 0.70). region-fill temp+moisture toward those; the
+  // elevation DIP stays a POINT feature (a region-wide −0.15 sank Murkmire's whole
+  // box below sea level → 30% ocean).
+  swamp:    { elevation: { delta: -0.15, radius:  8 }, moisture: { delta: +0.55, radius: 10, target: 0.82 }, temperature: { delta: +0.10, radius: 10, target: 0.84 }, warp: 0.45, regionFill: true },
+  // Desert: lerp temp→0.90 (clears the 0.80 desert threshold against the cold
+  // european base + lapse — an additive +0.40 left it as scrubland) and moisture→0.10
+  // (under the 0.25 dry cap), across the authored 48×48 Sunscorch.
+  desert:   { moisture:  { delta: -0.55, radius: 14, target: 0.10 }, temperature: { delta: +0.40, radius: 12, target: 0.90 }, warp: 0.50, regionFill: true },
   // Volcano: PEAK mode — a steep cinder cone; hot.
   volcano:  { elevation: { summit: 0.95, radius: 10 }, temperature: { delta: +0.25, radius: 16 }, warp: 0.40 },
   // Glacier: PEAK mode to a high-but-not-summit ice dome (clears the ICE
   // threshold elev > 0.65); the strong cold delta makes it ice, not bare rock.
   glacier:  { elevation: { summit: 0.90, radius: 10 }, temperature: { delta: -0.55, radius: 14 }, warp: 0.45 },
-  oasis:    { moisture:  { delta: +0.70, radius:  8 }, temperature: { delta: -0.05, radius:  6 }, warp: 0.35 },
+  oasis:    { moisture:  { delta: +0.70, radius:  8, target: 0.78 }, temperature: { delta: -0.05, radius:  6 }, warp: 0.35, regionFill: true },
   // Settlement types — light terrain adjustments only
   village:  {},
   city:     {},
@@ -88,7 +118,10 @@ export const POI_INFLUENCES: Record<string, InfluenceSpec> = {
   // Plains/steppe: dry the ground enough to clear forest into open grassland over a
   // broad radius, slightly warmer (a wind-scoured steppe, not woodland). Only POIs
   // with a `position` exert influence, so a region-only meadow stays base noise.
-  plains:   { moisture: { delta: -0.30, radius: 15 }, temperature: { delta: +0.06, radius: 15 } },
+  // Steppe/meadow: dry open grassland. moisture→0.30 (in the grassland band, out of
+  // forest), temp→0.52 (lifts spurious lowland tundra to grassland; can't melt the
+  // parts that sit on actual mountain — elevation > 0.76 forces Mountain biome).
+  plains:   { moisture: { delta: -0.30, radius: 15, target: 0.30 }, temperature: { delta: +0.10, radius: 15, target: 0.52 }, regionFill: true },
   ruins:    {},
   tower:    {},
   mine:     {},
@@ -109,18 +142,99 @@ export function applyPoiInfluences(
   const { width, height, seed } = config;
 
   for (const poi of pois) {
-    if (!poi.position) continue;
     const spec = POI_INFLUENCES[poi.type];
     if (!spec) continue;
+    const region = poi.region;
+    // A region-fill type with a region needs no position; everything else (and
+    // PEAK fields) still requires a point. Skip only when neither is usable.
+    const canRegion = !!(spec.regionFill && region);
+    if (!poi.position && !canRegion) continue;
 
-    const px = poi.position.x;
-    const py = poi.position.y;
+    const px = poi.position?.x ?? 0;
+    const py = poi.position?.y ?? 0;
     const scale = SIZE_SCALE[poi.size ?? 'medium'] ?? 1.0;
     const warp = spec.warp ?? 0;
 
-    applyFieldInfluence(fields.elevation,   spec.elevation,   px, py, width, height, seed, scale, warp);
-    applyFieldInfluence(fields.moisture,    spec.moisture,    px, py, width, height, seed, scale, warp);
-    applyFieldInfluence(fields.temperature, spec.temperature, px, py, width, height, seed, scale, warp);
+    // Climate (temperature/moisture) is AREAL — it fills the region. Landform
+    // (elevation: peaks, dips) is LOCAL — it stays a point disc/peak even for a
+    // region-fill type, so a swamp's −0.15 dip doesn't sink its whole box below sea.
+    const stampClimate = (field: Float32Array, inf: FieldInfluence | undefined): void => {
+      if (!inf) return;
+      if (canRegion) {
+        applyFieldInfluenceRegion(field, inf, region!, width, height, seed, warp);
+      } else if (poi.position) {
+        applyFieldInfluence(field, inf, px, py, width, height, seed, scale, warp);
+      }
+    };
+
+    // Elevation is always a point feature (or skipped for a region-only POI).
+    if (poi.position) {
+      applyFieldInfluence(fields.elevation, spec.elevation, px, py, width, height, seed, scale, warp);
+    }
+    stampClimate(fields.moisture,    spec.moisture);
+    stampClimate(fields.temperature, spec.temperature);
+  }
+}
+
+/**
+ * Stamp a delta field across an authored REGION box with a feathered, warped edge
+ * (the W-A region-fill path). Full influence in the interior, a cosine ramp across
+ * a feather band straddling each edge; with `warp > 0` the edge is perturbed by the
+ * same seeded noise the disc path uses, so the zone reads as a natural blob, not a
+ * rectangle. `summit`/PEAK fields are handled by the disc path, never here.
+ */
+function applyFieldInfluenceRegion(
+  field:  Float32Array,
+  spec:   FieldInfluence,
+  region: { x_min: number; x_max: number; y_min: number; y_max: number },
+  width:  number,
+  height: number,
+  seed:   number,
+  warp:   number,
+): void {
+  const delta = spec.delta ?? 0;
+  if (spec.summit !== undefined) return;          // PEAK fields never region-fill
+  if (delta === 0 && spec.target === undefined) return;
+
+  const rw = region.x_max - region.x_min;
+  const rh = region.y_max - region.y_min;
+  if (rw <= 0 || rh <= 0) return;
+
+  // Feather band scales with the smaller side (small zones get a soft but
+  // proportionate edge), clamped so big zones don't bleed for dozens of tiles.
+  const feather = Math.max(4, Math.min(16, Math.min(rw, rh) * 0.3));
+  const warpAmp = warp * feather * 2;       // how far the edge can wobble, in tiles
+  const reach = feather + warpAmp;
+
+  const x0 = Math.max(0, Math.floor(region.x_min - reach));
+  const x1 = Math.min(width  - 1, Math.ceil(region.x_max + reach));
+  const y0 = Math.max(0, Math.floor(region.y_min - reach));
+  const y1 = Math.min(height - 1, Math.ceil(region.y_max + reach));
+
+  for (let y = y0; y <= y1; y++) {
+    for (let x = x0; x <= x1; x++) {
+      // Signed distance INTO the rect: positive inside, negative outside, min()
+      // rounds the corners (natural, not chamfered-square).
+      let dIn = Math.min(x - region.x_min, region.x_max - x,
+                         y - region.y_min, region.y_max - y);
+      if (warp > 0) {
+        const n = fbm(x * WARP_FREQ, y * WARP_FREQ, { seed: seed + 4242, octaves: 3 });
+        dIn += (n - 0.5) * 2 * warpAmp;     // shove the effective edge in/out
+      }
+      // Ramp 0→1 across the feather band centred on the edge (t=0.5 at the edge).
+      let t = dIn / feather + 0.5;
+      if (t <= 0) continue;
+      if (t > 1) t = 1;
+      const w = t * t * (3 - 2 * t);        // smoothstep
+      const idx = y * width + x;
+      const cur = field[idx];
+      // target → lerp toward it (overrides the global gradient: identity holds);
+      // otherwise additive delta.
+      const next = spec.target !== undefined
+        ? cur + (spec.target - cur) * w
+        : cur + delta * w;
+      field[idx] = next < 0 ? 0 : next > 1 ? 1 : next;
+    }
   }
 }
 
@@ -191,11 +305,25 @@ function applyFieldInfluence(
  * Used for incremental recomputation after a POI moves.
  */
 export function getAffectedRegion(poi: POI, config: TerrainConfig): AffectedRegion | null {
-  if (!poi.position) return null;
   const spec = POI_INFLUENCES[poi.type];
   if (!spec) return null;
-
   const { width, height } = config;
+
+  // Region-fill type with a region: the affected box is the region, expanded by
+  // the feather + warp overhang the stamp can reach.
+  if (spec.regionFill && poi.region) {
+    const r = poi.region;
+    const feather = Math.max(4, Math.min(16, Math.min(r.x_max - r.x_min, r.y_max - r.y_min) * 0.3));
+    const reach = feather * (1 + (spec.warp ?? 0) * 2);
+    return {
+      x0: Math.max(0, Math.floor(r.x_min - reach)),
+      y0: Math.max(0, Math.floor(r.y_min - reach)),
+      x1: Math.min(width  - 1, Math.ceil(r.x_max + reach)),
+      y1: Math.min(height - 1, Math.ceil(r.y_max + reach)),
+    };
+  }
+
+  if (!poi.position) return null;
   const px = poi.position.x, py = poi.position.y;
   const scale = SIZE_SCALE[poi.size ?? 'medium'] ?? 1.0;
   const warp = spec.warp ?? 0;
