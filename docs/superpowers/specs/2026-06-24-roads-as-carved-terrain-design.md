@@ -106,10 +106,12 @@ node state (settlement prosperity, era) and edge flow (traffic); carve/surface/o
   connectome signals that exist today (endpoint prosperity/importance, era, surface, class, climate).
   This makes "footpaths follow / prosperous highways cut through" work immediately, with the right
   seam.
-- **Follow-on (designed now, built next):** the road-system **tick** (age/condition/wear/overgrowth) +
-  decay + repair events + incremental re-derivation; full **Portal** unification; **overgrowth↔flora**
-  coordination. These slot in *without* reworking the carve, because the carve already consumes
-  `RoadState`.
+- **Built (Slice 4):** the road-system **tick** (age/condition/wear/overgrowth) + decay + repair +
+  re-derivation, slotted in *without* reworking the carve (it already consumes `RoadState`). See
+  "Slice 4 — Time-evolution" below.
+- **Still follow-on:** per-edge **connectome** drive of upkeep/traffic/climate (replacing the class
+  defaults); full **Portal** unification; **overgrowth↔flora** coordination (roads emit an
+  overgrowth intensity the scatter layer reads — roads never place plants).
 
 ## Scope & slices
 
@@ -177,6 +179,32 @@ field).
 
 **Verify:** a stone road reads as cobble; the same road in a cold zone reads as snow-dusted/icy
 without any road-specific ice code.
+
+### Slice 4 — Time-evolution (BUILT)
+Roads age, wear, are repaired, and overgrow. `src/world/road-evolution.ts` is the pure,
+deterministic stepping model over the time-varying half of `RoadState` (`RoadDynamics`):
+
+- `condition` degrades by `traffic + weather`, is repaired by `upkeep` (the maintenance balance);
+- `wear` integrates use minus upkeep (rut depth, edge softening);
+- `overgrowth` greens over a **neglected, low-condition** road — traffic (trampling) and upkeep
+  (clearing) hold it back; and
+- `ageYears` is monotonic time.
+
+Rates are tuned so a state-kept **highway stays pristine for a century** while a **neglected path
+ruins and is reclaimed in ~50 years**. Large steps integrate in ≤1-year sub-steps, so a single
+*jump-N-years* call matches an N-times-stepped one — the model is **replay- and time-skip-safe**.
+
+Integration is stateless: `RoadGraph.evolvedAtTick` carries the evolution clock **on the graph**
+(persisted, survives snapshot/save), and `RoadGraph.rev` bumps when dynamics change, folding into
+the carve + surface **cache keys** so an evolving world re-derives. `advanceRoadEvolution` gates the
+heavy re-derivation to ≤2×/in-game-year. The live `RoadEvolutionSystem` (0.1 Hz heartbeat) ticks it
+in play; `applySkip` (D2) advances it across a closed-form jump. No `Math.random` — sim-deterministic.
+
+Because the carve and the surface both read `edge.dynamics`, an overgrown road **softens its cut
+AND fades back to biome** (the `baseType` cleanup pays off: low pavedness reveals the grass under
+the road). `upkeep`/`traffic` default from road **class** today; per-edge **settlement prosperity**
+and per-edge **climate** (weather-system wetness) are the connectome follow-up — the `EvolveOptions`
+`upkeepFor`/`trafficFor`/`climateFor` seams already exist for it.
 
 ### Slice 3 — Connectome loosening
 Reserve **road corridors before lots subdivide** in `src/world/settlement-plan.ts` so the carve has
