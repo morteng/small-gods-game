@@ -5,6 +5,7 @@ import type { Rng } from '@/core/rng';
 import type { SynthChild } from '@/sim/turnover';
 import { initNpcProps, npcProps, queryNpcs, NPC_KIND, REMAINS_KIND } from '@/world/npc-helpers';
 import { recordBurial } from '@/world/civic';
+import { clamp01 } from '@/core/math';
 
 /** Child faith = this fraction of the parents' average faith (generational dilution). */
 export const INHERIT_FAITH_FRAC = 0.4;
@@ -14,8 +15,6 @@ export const INHERIT_UNDERSTANDING_FRAC = 0.05;
 export const PERSONALITY_JITTER = 0.1;
 
 const NEWBORN_NAMES = ['Aelf', 'Bryn', 'Cael', 'Dara', 'Edda', 'Finn', 'Gwen', 'Hale', 'Isa', 'Joren'];
-
-function clamp01(v: number): number { return Math.max(0, Math.min(1, v)); }
 
 /**
  * Convert a living NPC into persistent remains (death never deletes — the

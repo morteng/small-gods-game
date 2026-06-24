@@ -224,7 +224,7 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
       if (!resp.ok) return;
       const raster = await decodePngToRaster(await resp.blob());
       if (raster) subjFinished.set(k, rasterToSpriteCanvas(raster));
-    })().catch(() => {});
+    })().catch((err) => { console.warn('[studio] finished-sprite load failed:', err); });
   }
   const finishedSubject = (): SpriteCanvas | null => (liveRb ? (subjFinished.get(rbKey(liveRb)) ?? null) : null);
 
@@ -249,7 +249,9 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
   // WebGPU scene renderer (async bring-up). Until it resolves, the frame loop
   // paints only the background; the GPU canvas composites once ready.
   let renderMap: RenderFn | null = null;
-  void createGpuRenderMap({ canvas: sceneCanvas }).then((r) => { renderMap = r.render; });
+  void createGpuRenderMap({ canvas: sceneCanvas })
+    .then((r) => { renderMap = r.render; })
+    .catch((err) => { console.error('[studio] GPU render init failed:', err); });
 
   const initial = (opts.initialKind && opts.initialKind !== '1') ? opts.initialKind : 'oak_tree';
 

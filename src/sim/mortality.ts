@@ -1,4 +1,5 @@
 import { TICKS_PER_DAY, DAYS_PER_YEAR } from '@/core/calendar';
+import { clamp01 } from '@/core/math';
 
 /** Ticks in one simulated year (23,040 at the current calendar). */
 export const TICKS_PER_YEAR = TICKS_PER_DAY * DAYS_PER_YEAR;
@@ -11,8 +12,6 @@ export const BASE_MORTALITY = 0.005;
 export const SENESCENCE_START = 55;
 /** Age at which annual mortality reaches certainty (1.0). */
 export const MAX_AGE = 95;
-
-function clamp01(v: number): number { return Math.max(0, Math.min(1, v)); }
 
 /** Fractional age in years derived from birth tick and the current tick. */
 export function ageInYears(birthTick: number, now: number): number {

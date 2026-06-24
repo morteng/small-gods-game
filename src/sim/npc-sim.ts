@@ -1,7 +1,11 @@
 import { Random } from '@/core/noise';
-import type { NpcRole, NpcPersonality, SpiritBelief, NpcNeeds, Entity } from '@/core/types';
+import type { NpcRole, NpcPersonality, NpcNeeds, Entity } from '@/core/types';
 import { npcProps, forEachNpc } from '@/world/npc-helpers';
 import type { World } from '@/world/world';
+import { clamp01 } from '@/core/math';
+// Re-exported (consolidated from ~14 local copies into `@/core/math`) so the sim
+// modules importing `clamp01` from this file keep working unchanged.
+export { clamp01 };
 
 export const SIM_TICK_MS = 1000;
 const FAITH_DECAY_BASE = 0.002;
@@ -10,17 +14,6 @@ const COMFORT_THRESHOLD = 0.6;   // avg needs above this → secularization pres
 const COMFORT_DECAY = 0.004;     // max extra faith decay from comfort, per tick
 const ABANDON_DECAY = 0.006;     // extra faith decay while praying unanswered, per tick
 const MEANING_DECAY = 0.004;     // the divine need decays fast enough to drive prayers
-
-const ROLE_FAITH: Record<NpcRole, number> = {
-  priest:   0.7,
-  elder:    0.5,
-  farmer:   0.3,
-  merchant: 0.25,
-  soldier:  0.2,
-  noble:    0.3,
-  child:    0.4,
-  beggar:   0.5,
-};
 
 const ROLE_PIETY_BONUS: Record<NpcRole, number> = {
   priest:   0.3,
@@ -32,10 +25,6 @@ const ROLE_PIETY_BONUS: Record<NpcRole, number> = {
   child:    0.05,
   beggar:   0.1,
 };
-
-export function clamp01(v: number): number {
-  return Math.max(0, Math.min(1, v));
-}
 
 /** Fraction of a divine signal's effect an NPC absorbs, gated by understanding.
  *  understanding=0 → SIGN_RESPONSE_FLOOR; understanding=1 → 1.0. */

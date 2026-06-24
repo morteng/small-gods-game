@@ -11,6 +11,8 @@
  *   corruption  → asymmetry, jagged edges, sickly green
  */
 
+import { lerp } from '@/core/math';
+
 export type SpiritArchetype = 'circle' | 'triangle' | 'diamond';
 
 export interface BeliefState {
@@ -25,11 +27,6 @@ export interface SpiritSigilOptions {
   archetype: SpiritArchetype;
   belief: BeliefState;
   size?: number;        // canvas size in px, default 48
-}
-
-/** Lerp between two values */
-function lerp(a: number, b: number, t: number): number {
-  return a + (b - a) * Math.min(1, Math.max(0, t));
 }
 
 /** Convert HSL (0-360, 0-1, 0-1) to CSS color string */

@@ -21,7 +21,9 @@
 //     cell), so steep reaches run fast and foam up.
 // Lighting is banded to match terrain + sprites. Drawn AFTER terrain, sharing its
 // depth buffer (greater-equal, no depth write) so nearer terrain still occludes
-// water. Opaque (crisp pixel-art waterline).
+// water. The waterline stays crisp (per-pixel terrain clip), but the body is
+// DEPTH-KEYED TRANSPARENT — shallows show the bed through, saturating to opaque
+// with depth (premultiplied-alpha blend; see the fragment tail).
 
 export const WATER_WGSL = /* wgsl */ `
 struct WGlobals {
@@ -457,7 +459,6 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
     color = mix(color, vec3<f32>(0.92, 0.96, 0.98), max(lip * 0.7, white * 0.7));
   }
 
-  // Opaque — no transparency, crisp waterline (the pixel-art way).
   // Depth-keyed TRANSPARENCY so the bed shows through shallow water — riverbeds,
   // lake margins, sandy sea shallows. The pipeline blends premultiplied alpha
   // (src 'one'), so premultiply rgb by alpha. Foam/whitewater (near-white) keeps

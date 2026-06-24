@@ -1,3 +1,5 @@
+import { lerp } from '@/core/math';
+
 export class Random {
   private seed: number;
   constructor(seed: number) { this.seed = seed; }
@@ -42,10 +44,6 @@ const GRAD2: ReadonlyArray<[number, number]> = [
 
 function fade(t: number): number {
   return t * t * t * (t * (t * 6 - 15) + 10);
-}
-
-function lerp(a: number, b: number, t: number): number {
-  return a + (b - a) * t;
 }
 
 // LRU-style cache for permutation tables (keyed by seed)

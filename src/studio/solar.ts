@@ -10,10 +10,9 @@
 // rotates true azimuth into the studio's sunDir convention so the sun visibly
 // crosses the iso scene (tuned by eye, cardinal accuracy is irrelevant here).
 import type { Vec3 } from '@/render/lighting-state';
+import { clamp, lerp } from '@/core/math';
 
 const D2R = Math.PI / 180, R2D = 180 / Math.PI;
-const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v));
-const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
 const lerp3 = (a: Vec3, b: Vec3, t: number): Vec3 => [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)];
 
 /** Rotates true compass azimuth into the studio's sunDir frame (0 = behind/top,

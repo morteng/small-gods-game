@@ -38,8 +38,8 @@ import { heightAt, baseHeightAt } from '@/world/terrain-deformation';
 import { worldStyleOf } from '@/core/world-style';
 import { curveRenderElev } from '@/render/gpu/terrain-field';
 import { buildRenderWaterTypeMemo } from '@/render/gpu/render-water-mask';
+import { clamp01 } from '@/core/math';
 
-const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);
 const mix = (a: number, b: number, t: number): number => a + (b - a) * t;
 
 // High-frequency DETAIL octaves — the terrain's own fBm continued past what the

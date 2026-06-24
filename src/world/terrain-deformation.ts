@@ -18,6 +18,7 @@
 // World-owned (neither renderer nor connectome); both import read-only. Returns metres.
 import type { GameMap } from '@/core/types';
 import { heightMetresAt } from '@/world/heightfield';
+import { clamp01, lerp } from '@/core/math';
 
 /** Seed terrain height in metres at a tile — the affordance/siting read (no deformations). */
 export const baseHeightAt = heightMetresAt;
@@ -55,10 +56,6 @@ export interface Deformation {
   target?: number;
   /** Footprint falloff 0..1 at a tile — 1 at the core, 0 at/beyond the edge. */
   mask(tx: number, ty: number): number;
-}
-
-function lerp(a: number, b: number, t: number): number {
-  return a + (b - a) * t;
 }
 
 /** Combine one deformation's masked contribution into the accumulator. Pure. */
@@ -159,10 +156,6 @@ export function heightAt(map: GameMap, store: DeformationStore, tx: number, ty: 
 
 // ── Brush constructors — pure geometry → Deformation. Producers (earthworks, roads,
 //    settlement) call these; the channel stays content-neutral. ───────────────────
-
-function clamp01(v: number): number {
-  return v < 0 ? 0 : v > 1 ? 1 : v;
-}
 
 export interface BrushBase {
   id: string;
