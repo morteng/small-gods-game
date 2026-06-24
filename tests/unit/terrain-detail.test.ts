@@ -9,7 +9,7 @@ import { clearHeightfieldCache } from '@/world/heightfield';
 import { clearHydrologyCache } from '@/world/hydrology-store';
 import { clearRoadDeformationCache } from '@/world/road-deformation';
 import {
-  makeDetailElevSampler, computeDetailMask, coalescePatches,
+  makeDetailElevSampler, computeDetailMask, coalescePatches, RECOMMENDED_SLOPE_GRADE,
 } from '@/world/terrain-detail';
 
 const seed: WorldSeed = {
@@ -175,6 +175,30 @@ describe('computeDetailMask', () => {
     const a = computeDetailMask(roadMap([roadEdge('e1', STRAIGHT)]), { waterType: noWater });
     const b = computeDetailMask(roadMap([roadEdge('e1', STRAIGHT)]), { waterType: noWater });
     expect(Array.from(a)).toEqual(Array.from(b));
+  });
+
+  // ── Steep-slope flagging is OPT-IN (default off): noise-dominated terrain makes it
+  //    flood or sprinkle rather than select real faces, so it must not fire by default. ──
+  it('does NOT flag steep slopes by default (opt-in only)', async () => {
+    const { map } = await generateWithNoise(96, 96, 3, { ...seed, size: { width: 96, height: 96 } });
+    const W = map.width, H = map.height;
+    const dryNoWater = new Uint8Array(W * H);
+    // Water + roads both suppressed → the ONLY thing that could flag is slope.
+    const dflt = computeDetailMask(map, { waterType: dryNoWater, roadRadius: -1 });
+    const off = computeDetailMask(map, { waterType: dryNoWater, roadRadius: -1, slopeGrade: Infinity });
+    expect(Array.from(dflt)).toEqual(Array.from(off));   // default === explicitly-off
+    expect(off.some((v) => v === 1)).toBe(false);        // nothing flagged
+  });
+
+  it('flags steep ground when slope detail is opted in', async () => {
+    const { map } = await generateWithNoise(96, 96, 3, { ...seed, size: { width: 96, height: 96 } });
+    const W = map.width, H = map.height;
+    const dryNoWater = new Uint8Array(W * H);
+    const on = computeDetailMask(map, { waterType: dryNoWater, roadRadius: -1, slopeGrade: RECOMMENDED_SLOPE_GRADE });
+    let hot = 0;
+    for (let i = 0; i < on.length; i++) if (on[i]) hot++;
+    expect(hot).toBeGreaterThan(0);        // the opt-in pass does flag steep cells
+    expect(hot).toBeLessThan(W * H);       // …but not the entire map
   });
 });
 
