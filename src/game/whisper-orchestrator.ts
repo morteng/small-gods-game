@@ -18,6 +18,7 @@ import type { NpcAttentionStore } from '@/llm/npc-attention-store';
 import { buildWhisperPrompt } from '@/llm/whisper-prompt-builder';
 import { applyWhisperBonus } from '@/llm/state-writeback';
 import { recordMemory, distillInteraction, computeSalience, selectMemoriesForPrompt } from '@/llm/interaction-memory';
+import { clamp } from '@/core/math';
 
 export interface WhisperOrchestratorDeps {
   queue: CommandQueue;
@@ -28,10 +29,6 @@ export interface WhisperOrchestratorDeps {
 }
 
 const MOOD_DELTA_CLAMP = 0.2;
-
-function clamp(v: number, lo: number, hi: number): number {
-  return Math.max(lo, Math.min(hi, v));
-}
 
 export async function sendWhisper(npc: Entity, text: string, deps: WhisperOrchestratorDeps): Promise<void> {
   const npcId = npc.id;
