@@ -20,9 +20,9 @@
 //      and the carve equals the coarse composed delta, so it is byte-identical to
 //      the coarse height buffer — patches seam perfectly to the coarse grid.
 //   2. `computeDetailMask` / `coalescePatches` — the cheap importance map that
-//      decides WHERE detail is worth spending: near the waterline, on river cells,
-//      near roads, and on steep slopes; dilated for margin, then tiled into the
-//      rectangular patch regions the GPU instances.
+//      decides WHERE detail is worth spending: on river/lake carves and along road
+//      corridors (plus an opt-in steep-slope pass); dilated for margin, then tiled into
+//      the rectangular patch regions the GPU instances.
 //
 // No GPU/DOM here; everything is unit-testable.
 
@@ -33,7 +33,10 @@ import {
   getHeightfield, baseElevationSamplerFor, ELEVATION_SEA_LEVEL,
 } from '@/world/heightfield';
 import { styledIslandSpec } from '@/terrain/island-mask';
-import { getWorldDeformationStore } from '@/world/road-deformation';
+import {
+  getWorldDeformationStore, buildRoadDeformations, getComposedHeightfield,
+} from '@/world/road-deformation';
+import { METRES_PER_TILE } from '@/render/scale-contract';
 import { heightAt, baseHeightAt } from '@/world/terrain-deformation';
 import { worldStyleOf } from '@/core/world-style';
 import { curveRenderElev } from '@/render/gpu/terrain-field';
@@ -53,6 +56,18 @@ const mix = (a: number, b: number, t: number): number => a + (b - a) * t;
 // elevation (× mountainRelief metres).
 const DETAIL_FREQ = 0.5;
 const DETAIL_AMP = 0.018;
+
+// Steep-slope detail is OPT-IN (default OFF). Empirically this terrain's relief is
+// noise-dominated at the tile scale: thresholding the gradient either FLOODS the map
+// (≥5–30% of cells light up) or catches a near-random sprinkle, with nothing useful in
+// between — a flat plain and a domed island flag IDENTICALLY, i.e. the detector sees the
+// fBm octaves, not the landform. So slope is NOT a sparse "ridge/cliff" selector here and
+// enabling it by default would add broad patch coverage (cost) for no locality. The knob
+// stays for callers/worlds with a separable macro-relief signal; `RECOMMENDED_SLOPE_GRADE`
+// is the grade (rise/run) to pass if you opt in, measured over `SLOPE_SPAN` tiles to
+// low-pass the worst octave.
+export const RECOMMENDED_SLOPE_GRADE = 0.85;
+const SLOPE_SPAN = 2;
 
 /** Bilinear sample of a row-major `Float32Array[W*H]` at a fractional coord. */
 function bilin(arr: Float32Array, W: number, H: number, fx: number, fy: number): number {
@@ -135,41 +150,103 @@ export interface DetailMaskOpts {
    *  renderer actually draws, not the 90° drainage staircase. Pass the edited net's
    *  classification (studio) to give a placed lake fine banks. */
   waterType?: Uint8Array;
+  /** Tiles of margin stamped around each road-carved cell, so the graded SHOULDERS
+   *  (where the grade-cut transitions back to natural ground — the sharpest slope)
+   *  get the fine mesh too. Defaults to 1. Set < 0 to opt out of road detail. */
+  roadRadius?: number;
+  /** Grade (rise/run) above which a cell counts as STEEP and gets the fine mesh. Slope
+   *  detail is OPT-IN: defaults to `Infinity` (OFF) because on this noise-dominated
+   *  terrain it floods or sprinkles rather than selecting real faces — see
+   *  {@link RECOMMENDED_SLOPE_GRADE} for the value to pass if you do opt in. */
+  slopeGrade?: number;
+  /** Tiles of margin stamped around each steep cell. Defaults to 0 — steep faces are
+   *  already contiguous regions, so no dilation is needed to seam them. */
+  slopeRadius?: number;
 }
 
 /**
- * The importance map: 1 ONLY where a river channel or lake basin carves the
- * terrain — those beds + banks are the cells whose sharp incision needs the
- * sub-tile mesh. Everything else (coasts, slopes, roads, plains) rides the coarse
- * one-quad-per-tile grid, so the detail patches stay sparse (a thin corridor along
- * each river + a ring around each lake) and cheap. Each carve cell is dilated by
- * `bankRadius` tiles. Row-major `Uint8Array[W*H]`, deterministic.
+ * The importance map: 1 where a river channel / lake basin carves or a road corridor
+ * carves — those beds + banks + road shoulders are the cells whose sharp relief needs
+ * the sub-tile mesh. Flat ground rides the coarse one-quad-per-tile grid, so the detail
+ * patches stay sparse (a thin corridor along each river + a ring around each lake + a
+ * ribbon along each road) and cheap. Each carve cell is dilated by `bankRadius` (water)
+ * / `roadRadius` (roads) tiles. Steep-slope flagging is available as an OPT-IN extension
+ * (`slopeGrade`, default off — see {@link RECOMMENDED_SLOPE_GRADE}). Row-major
+ * `Uint8Array[W*H]`, deterministic.
  *
- * Keys off the RENDER water classification (smooth connectome rivers + lake bodies),
+ * Water keys off the RENDER classification (smooth connectome rivers + lake bodies),
  * NOT the raw D8 raster: the carve follows the smooth centreline, so the fine mesh
  * must follow it too — that is what de-jags diagonal rivers and gives connectome /
- * author-placed lakes their fine banks.
+ * author-placed lakes their fine banks. Roads key off the SAME corridor deformations
+ * the renderer lifts (`buildRoadDeformations`), so the fine mesh follows the smoothed
+ * road centreline and resolves the grade-cut + cross-section (camber/gutter/ditch/ruts)
+ * that otherwise facets on the coarse grid.
  */
 export function computeDetailMask(map: GameMap, opts: DetailMaskOpts = {}): Uint8Array {
   const W = map.width, H = map.height;
   const bankRadius = opts.bankRadius ?? 2;
+  const roadRadius = opts.roadRadius ?? 1;
   const waterType = opts.waterType ?? buildRenderWaterTypeMemo(map);
 
   const mask = new Uint8Array(W * H);
+
+  // Stamp a (2r+1)² block around a hot cell, clipped to bounds.
+  const dilate = (cx: number, cy: number, r: number): void => {
+    for (let dy = -r; dy <= r; dy++) {
+      const ny = cy + dy;
+      if (ny < 0 || ny >= H) continue;
+      for (let dx = -r; dx <= r; dx++) {
+        const nx = cx + dx;
+        if (nx >= 0 && nx < W) mask[ny * W + nx] = 1;
+      }
+    }
+  };
+
+  // 1. Water carves — river channels + lake basins + their banks.
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
       const wt = waterType[y * W + x];
       if (wt !== WaterType.River && wt !== WaterType.Lake) continue;
-      for (let dy = -bankRadius; dy <= bankRadius; dy++) {
-        const ny = y + dy;
-        if (ny < 0 || ny >= H) continue;
-        for (let dx = -bankRadius; dx <= bankRadius; dx++) {
-          const nx = x + dx;
-          if (nx >= 0 && nx < W) mask[ny * W + nx] = 1;
+      dilate(x, y, bankRadius);
+    }
+  }
+
+  // 2. Road carves — the corridor deformations roads write into the shared channel
+  //    (carriageway + graded shoulders). Walk each road brush over its own footprint
+  //    only (bounded by the corridor AABB, not the whole map) so this stays cheap.
+  if (roadRadius >= 0 && map.roadGraph) {
+    for (const def of buildRoadDeformations(map, map.roadGraph)) {
+      const x0 = Math.max(0, Math.floor(def.bounds.minX));
+      const y0 = Math.max(0, Math.floor(def.bounds.minY));
+      const x1 = Math.min(W - 1, Math.ceil(def.bounds.maxX));
+      const y1 = Math.min(H - 1, Math.ceil(def.bounds.maxY));
+      for (let y = y0; y <= y1; y++) {
+        for (let x = x0; x <= x1; x++) {
+          if (def.mask(x, y) > 0) dilate(x, y, roadRadius);
         }
       }
     }
   }
+
+  // 3. Steep natural slopes (OPT-IN — default off; see RECOMMENDED_SLOPE_GRADE note).
+  //    Grade = |∇elev|·relief / run over a SLOPE_SPAN-tile stencil (low-passes the octave
+  //    noise), central-differenced on the SAME composed field the mesh lifts.
+  const slopeGrade = opts.slopeGrade ?? Infinity; // OFF by default
+  const slopeRadius = opts.slopeRadius ?? 0;
+  if (Number.isFinite(slopeGrade) && slopeRadius >= 0) {
+    const elev = getComposedHeightfield(map); // normalised [0,1], read-only
+    const relief = worldStyleOf(map.worldSeed).mountainRelief || 1;
+    const S = SLOPE_SPAN;
+    const k = relief / (2 * S * METRES_PER_TILE); // span 2S → /2S; rise(m)=g·relief, run=METRES_PER_TILE
+    for (let y = S; y < H - S; y++) {
+      for (let x = S; x < W - S; x++) {
+        const gx = elev[y * W + (x + S)] - elev[y * W + (x - S)];
+        const gy = elev[(y + S) * W + x] - elev[(y - S) * W + x];
+        if (Math.hypot(gx, gy) * k >= slopeGrade) dilate(x, y, slopeRadius);
+      }
+    }
+  }
+
   return mask;
 }
 

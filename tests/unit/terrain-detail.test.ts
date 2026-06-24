@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { generateWithNoise } from '@/map/map-generator';
+import type { GameMap } from '@/core/types';
+import type { RoadEdge } from '@/world/road-graph';
 import { WaterType, type WorldSeed } from '@/core/types';
 import { heightField } from '@/render/gpu/terrain-field';
 import { buildRenderWaterTypeMemo, clearRenderWaterTypeCache } from '@/render/gpu/render-water-mask';
@@ -7,7 +9,7 @@ import { clearHeightfieldCache } from '@/world/heightfield';
 import { clearHydrologyCache } from '@/world/hydrology-store';
 import { clearRoadDeformationCache } from '@/world/road-deformation';
 import {
-  makeDetailElevSampler, computeDetailMask, coalescePatches,
+  makeDetailElevSampler, computeDetailMask, coalescePatches, RECOMMENDED_SLOPE_GRADE,
 } from '@/world/terrain-detail';
 
 const seed: WorldSeed = {
@@ -132,6 +134,71 @@ describe('computeDetailMask', () => {
       if (wt[i] === WaterType.River) { riverCells++; if (mask[i]) riverFlagged++; }
     }
     if (riverCells > 0) expect(riverFlagged).toBe(riverCells); // every river cell flagged
+  });
+
+  // ── Roads carve a corridor just like rivers; the fine mesh must follow it too. ──
+  const W = 32, H = 32;
+  const STRAIGHT = Array.from({ length: 16 }, (_, i) => ({ x: 8 + i, y: 16 }));
+  const roadMap = (edges: RoadEdge[]): GameMap =>
+    ({ seed: 1234, width: W, height: H, roadGraph: { nodes: [], edges } } as unknown as GameMap);
+  const roadEdge = (id: string, polyline: { x: number; y: number }[]): RoadEdge =>
+    ({ id, a: `${id}-a`, b: `${id}-b`, polyline, feature: 'road', class: 'road', surface: 'dirt', bridgeCells: [] } as RoadEdge);
+  // Isolate the road branch: feed an all-water-free classification so only roads flag.
+  const noWater = new Uint8Array(W * H);
+
+  it('flags road-corridor cells (grade-cut shoulders get the fine mesh)', () => {
+    const map = roadMap([roadEdge('e1', STRAIGHT)]);
+    const mask = computeDetailMask(map, { waterType: noWater });
+    // The carriageway centre is flagged…
+    expect(mask[16 * W + 14]).toBe(1);
+    // …and a cell far from the road is cold (still sparse).
+    expect(mask[2 * W + 2]).toBe(0);
+    let hot = 0;
+    for (let i = 0; i < W * H; i++) if (mask[i]) hot++;
+    expect(hot).toBeGreaterThan(0);
+    expect(hot).toBeLessThan(W * H); // SPARSE — not the whole map
+  });
+
+  it('with NO road graph the same map is entirely cold (water suppressed)', () => {
+    const map = ({ seed: 1234, width: W, height: H } as unknown as GameMap);
+    const mask = computeDetailMask(map, { waterType: noWater });
+    expect(mask.some((v) => v === 1)).toBe(false);
+  });
+
+  it('roadRadius < 0 opts out of road detail', () => {
+    const map = roadMap([roadEdge('e1', STRAIGHT)]);
+    const mask = computeDetailMask(map, { waterType: noWater, roadRadius: -1 });
+    expect(mask.some((v) => v === 1)).toBe(false);
+  });
+
+  it('is deterministic for roads — same graph ⇒ identical mask', () => {
+    const a = computeDetailMask(roadMap([roadEdge('e1', STRAIGHT)]), { waterType: noWater });
+    const b = computeDetailMask(roadMap([roadEdge('e1', STRAIGHT)]), { waterType: noWater });
+    expect(Array.from(a)).toEqual(Array.from(b));
+  });
+
+  // ── Steep-slope flagging is OPT-IN (default off): noise-dominated terrain makes it
+  //    flood or sprinkle rather than select real faces, so it must not fire by default. ──
+  it('does NOT flag steep slopes by default (opt-in only)', async () => {
+    const { map } = await generateWithNoise(96, 96, 3, { ...seed, size: { width: 96, height: 96 } });
+    const W = map.width, H = map.height;
+    const dryNoWater = new Uint8Array(W * H);
+    // Water + roads both suppressed → the ONLY thing that could flag is slope.
+    const dflt = computeDetailMask(map, { waterType: dryNoWater, roadRadius: -1 });
+    const off = computeDetailMask(map, { waterType: dryNoWater, roadRadius: -1, slopeGrade: Infinity });
+    expect(Array.from(dflt)).toEqual(Array.from(off));   // default === explicitly-off
+    expect(off.some((v) => v === 1)).toBe(false);        // nothing flagged
+  });
+
+  it('flags steep ground when slope detail is opted in', async () => {
+    const { map } = await generateWithNoise(96, 96, 3, { ...seed, size: { width: 96, height: 96 } });
+    const W = map.width, H = map.height;
+    const dryNoWater = new Uint8Array(W * H);
+    const on = computeDetailMask(map, { waterType: dryNoWater, roadRadius: -1, slopeGrade: RECOMMENDED_SLOPE_GRADE });
+    let hot = 0;
+    for (let i = 0; i < on.length; i++) if (on[i]) hot++;
+    expect(hot).toBeGreaterThan(0);        // the opt-in pass does flag steep cells
+    expect(hot).toBeLessThan(W * H);       // …but not the entire map
   });
 });
 
