@@ -24,6 +24,11 @@ export interface Tile {
   realizedAt?: number;
   height?: number;
   bridgeDirection?: string;
+  /** Original biome tile type, preserved when a road/bridge overwrites `type`.
+   *  Lets the colour field paint the ground *under* a road so the road's albedo
+   *  comes purely from the shader surface channel — an overgrown road then fades
+   *  back to this biome instead of a flat road-brown. Set once, at carve time. */
+  baseType?: string;
 }
 
 // TODO(building-cleanup): remove BuildingInstance + GameMap.buildings legacy mirror once nothing reads it.

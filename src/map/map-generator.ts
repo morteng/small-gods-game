@@ -19,6 +19,7 @@ import { styledClimate } from '@/terrain/climate';
 import { applyPoiInfluences } from '@/terrain/poi-influence';
 import { generateHydrology } from '@/terrain/hydrology';
 import { buildRoadGraph } from '@/world/road-graph';
+import { corridorCells } from '@/world/road-corridors';
 import type { RoadGraph } from '@/world/road-graph';
 import { collectAnchors } from '@/world/anchor-collect';
 import { matchAnchors } from '@/world/anchor-rules';
@@ -194,6 +195,12 @@ export async function generateWithNoise(
   const villages: GameMap['villages'] = [];
   const rng = new Random((seed * 6271 + 9999) | 0);
 
+  // Slice 3 — connectome loosening: reserve the inter-POI trunk corridors so settlements
+  // leave room for the direct road route instead of boxing it into a detour. margin:0 keeps
+  // the carriageway centreline clear without perturbing the (currently red, spatial-coordination
+  // epic) placement net into new overlaps; widening the band waits on that occupancy-authority fix.
+  const corridorReserved = corridorCells(worldSeed?.pois ?? [], worldSeed?.connections, { margin: 0 });
+
   const settlementPlans: SettlementPlan[] = [];
   if (worldSeed?.pois) {
     for (const poi of worldSeed.pois) {
@@ -206,7 +213,7 @@ export async function generateWithNoise(
 
       const era = resolveSettlementEra(poi, worldSeed);
       const result = placeSettlement(
-        poi, zoneRule, tiles, world.registry, connectedDirs, rng, era, world, seed,
+        poi, zoneRule, tiles, world.registry, connectedDirs, rng, era, world, seed, corridorReserved,
       );
       settlementPlans.push(result.plan);
       villages.push({

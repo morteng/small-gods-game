@@ -29,6 +29,9 @@ import type { Connection, POI, Tile, TerrainField } from '@/core/types';
 import { WATER_TYPES } from '@/core/constants';
 import { walkRoad } from '@/terrain/road-walker';
 
+/** Carved road/bridge tile types — the reuse-affinity set (new roads bundle onto these). */
+const ROAD_TILE_TYPES = new Set(['dirt_road', 'stone_road', 'bridge']);
+
 /** Road hierarchy — a type label on the edge (Slice 4 fills the tiers). */
 export type RoadClass = 'highway' | 'road' | 'track' | 'path';
 /** What kind of linear feature an edge is (mirrors `Connection.type`/`RenderEdge`). */
@@ -60,11 +63,21 @@ export interface RoadEdge {
   surface: RoadSurface;
   /** Grid indices (`y * width + x`) the walker chose to bridge over water. Sorted. */
   bridgeCells: number[];
+  /** Time-varying state (age/condition/wear/overgrowth) accumulated by the road-evolution
+   *  tick. Absent = a new, kept road. Persisted verbatim with the graph and consumed by the
+   *  carve + surface channel via `edge.dynamics` (see {@link edgeRoadProfile}). */
+  dynamics?: import('@/world/road-state').RoadDynamics;
 }
 
 export interface RoadGraph {
   nodes: RoadNode[];
   edges: RoadEdge[];
+  /** Bumped whenever `edge.dynamics` change (road-evolution). Folded into the deformation
+   *  + surface cache keys so an evolving world re-derives its carve/pavedness. */
+  rev?: number;
+  /** Sim tick the dynamics were last advanced to. Lives on the graph (not in the tick
+   *  system) so evolution is stateless + replay/save-safe — the graph carries its own clock. */
+  evolvedAtTick?: number;
 }
 
 /** A single tile write produced by rasterizing the graph. */
@@ -206,7 +219,11 @@ export function buildRoadGraph(
       // bulldozing them — they thread the settlement's streets to reach a
       // waypoint. Rivers/walls ignore the obstacle (only roads obey it).
       const isObstacle = feature === 'road' ? opts.isObstacle : undefined;
-      const result = walkRoad(a, b, tiles, fields, { autoBridge, isObstacle });
+      // Roads prefer to REUSE an already-carved road/bridge cell — so minor roads
+      // bundle onto existing trunks and crossings concentrate at shared bridge sites
+      // (walk-and-carve is interleaved, so earlier segments are already on `tiles`).
+      const isRoad = feature === 'road' ? (x: number, y: number) => ROAD_TILE_TYPES.has(tiles[y]?.[x]?.type) : undefined;
+      const result = walkRoad(a, b, tiles, fields, { autoBridge, isObstacle, isRoad });
       if (result.cells.length === 0) continue;
 
       // The cost model steers AROUND buildings; this drops the residual cells it
@@ -246,16 +263,25 @@ function applyEdge(tiles: Tile[][], edge: RoadEdge, width: number): void {
     if (!t) continue;
     const idx = cell.y * width + cell.x;
     if (bridges.has(idx)) {
+      preserveBaseType(t);
       t.type = 'bridge';
       t.walkable = true;
     } else if (WATER_TYPES.has(t.type)) {
       // Walker chose to stop at water (autoBridge=false); leave it untouched.
       continue;
     } else {
+      preserveBaseType(t);
       t.type = roadTile;
       t.walkable = roadTile !== 'river';
     }
   }
+}
+
+/** Record the biome a road/bridge is about to overwrite, so the colour field can
+ *  paint the ground *under* the road (the surface channel supplies the road albedo).
+ *  Idempotent: only the FIRST overwrite — a real biome — is captured. */
+function preserveBaseType(t: Tile): void {
+  if (t.baseType === undefined && !ROAD_TILE_TYPES.has(t.type)) t.baseType = t.type;
 }
 
 /**
@@ -288,11 +314,13 @@ export function applyRoadMask(tiles: Tile[][], mask: RoadMask): void {
     const t = tiles[w.y]?.[w.x];
     if (!t) continue;
     if (w.bridge) {
+      preserveBaseType(t);
       t.type = 'bridge';
       t.walkable = true;
     } else if (WATER_TYPES.has(t.type)) {
       continue;
     } else {
+      preserveBaseType(t);
       const roadTile = tileTypeOf(w.surface);
       t.type = roadTile;
       t.walkable = roadTile !== 'river';

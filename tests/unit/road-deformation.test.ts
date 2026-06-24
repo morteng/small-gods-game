@@ -11,12 +11,12 @@ import {
   getHeightfield,
   clearHeightfieldCache,
   heightMetresAt as baseHeightAt,
-  ELEVATION_SEA_LEVEL,
-  TERRAIN_RELIEF_M,
 } from '@/world/heightfield';
-import { heightAt, baseHeightAt as baseM, DeformationStore } from '@/world/terrain-deformation';
+import { heightAt } from '@/world/terrain-deformation';
 
-// A minimal GameMap — road-deformation reads only seed/width/height/roadGraph.
+// A minimal GameMap — road-deformation reads seed/width/height/roadGraph/worldSeed.
+// 24×24 seed 1234 is riverless, so the WORLD store (roads ⊕ rivers) is empty without
+// a road graph — the parity case. (A larger map grows rivers that compose too.)
 function mapWith(roadGraph?: RoadGraph, seed = 1234, width = 24, height = 24): GameMap {
   return { seed, width, height, roadGraph } as unknown as GameMap;
 }
@@ -35,144 +35,83 @@ function roadEdge(id: string, polyline: { x: number; y: number }[], partial: Par
   };
 }
 
+// A straight east–west road across the middle of the map.
+const STRAIGHT = Array.from({ length: 16 }, (_, i) => ({ x: 6 + i, y: 16 }));
+
 beforeEach(() => {
   clearRoadDeformationCache();
   clearHeightfieldCache();
 });
 
-describe('buildRoadDeformations', () => {
-  it('emits one level brush per unit segment, targeting the segment mean grade', () => {
-    const map = mapWith();
-    const pts = [{ x: 4, y: 4 }, { x: 5, y: 4 }, { x: 6, y: 4 }];
-    const graph: RoadGraph = { nodes: [], edges: [roadEdge('e1', pts)] };
-    const defs = buildRoadDeformations(map, graph);
-
-    expect(defs).toHaveLength(2); // 3 points → 2 segments
-    expect(defs.map(d => d.id)).toEqual(['e1:0', 'e1:1']);
-    for (const d of defs) {
-      expect(d.op).toBe('level');
-      expect(d.source).toBe('road:cut');
-    }
-    // First segment levels toward the mean base height of its endpoints (metres).
-    const expected = (baseHeightAt(map, 4, 4) + baseHeightAt(map, 5, 4)) / 2;
-    expect(defs[0].target).toBeCloseTo(expected, 6);
+describe('buildRoadDeformations — one corridor per road edge', () => {
+  it('emits exactly one level corridor deformation per road edge', () => {
+    const graph: RoadGraph = { nodes: [], edges: [roadEdge('e1', STRAIGHT)] };
+    const defs = buildRoadDeformations(mapWith(), graph);
+    expect(defs).toHaveLength(1);
+    expect(defs[0].id).toBe('e1:corridor');
+    expect(defs[0].op).toBe('level');
+    expect(defs[0].source).toBe('road:cut');
+    expect(typeof defs[0].targetAt).toBe('function'); // per-tile cross-section target
   });
 
-  it('ignores rivers and walls (roads only)', () => {
-    const map = mapWith();
+  it('skips rivers and walls (separate producers) and too-short edges', () => {
     const graph: RoadGraph = {
       nodes: [],
       edges: [
-        roadEdge('r', [{ x: 1, y: 1 }, { x: 2, y: 1 }], { feature: 'river' }),
-        roadEdge('w', [{ x: 1, y: 3 }, { x: 2, y: 3 }], { feature: 'wall' }),
-        roadEdge('road', [{ x: 1, y: 5 }, { x: 2, y: 5 }]),
+        roadEdge('river', STRAIGHT, { feature: 'river' }),
+        roadEdge('wall', STRAIGHT, { feature: 'wall' }),
+        roadEdge('stub', [{ x: 3, y: 3 }]),
       ],
     };
-    const defs = buildRoadDeformations(map, graph);
-    expect(defs).toHaveLength(1);
-    expect(defs[0].id).toBe('road:0');
+    expect(buildRoadDeformations(mapWith(), graph)).toHaveLength(0);
   });
 
-  it('skips degenerate edges (fewer than 2 points)', () => {
+  it('the corridor footprint covers the road centerline and fades beyond it', () => {
+    const graph: RoadGraph = { nodes: [], edges: [roadEdge('e1', STRAIGHT, { class: 'highway', surface: 'stone' })] };
+    const def = buildRoadDeformations(mapWith(), graph)[0];
+    // On the line: strong pull (the cut strength). Far away: untouched.
+    expect(def.mask(13, 16)).toBeGreaterThan(0.3);
+    expect(def.mask(13, 25)).toBe(0);
+  });
+});
+
+describe('construction drives how hard the road cuts', () => {
+  it('a stone highway pulls harder to grade than a dirt footpath', () => {
+    const hw = buildRoadDeformations(mapWith(), {
+      nodes: [],
+      edges: [roadEdge('hw', STRAIGHT, { class: 'highway', surface: 'stone' })],
+    })[0];
+    const path = buildRoadDeformations(mapWith(), {
+      nodes: [],
+      edges: [roadEdge('pf', STRAIGHT, { class: 'path', surface: 'dirt' })],
+    })[0];
+    // The level mask peak IS the cut strength — the highway commits far more earth-moving.
+    expect(hw.mask(13, 16)).toBeGreaterThan(path.mask(13, 16));
+  });
+});
+
+describe('composed heightfield', () => {
+  it('is byte-identical (same instance) to base when there is no road graph', () => {
     const map = mapWith();
-    const graph: RoadGraph = { nodes: [], edges: [roadEdge('e', [{ x: 3, y: 3 }])] };
-    expect(buildRoadDeformations(map, graph)).toHaveLength(0);
-  });
-
-  it('carves a path WEAKER than a highway over the same route (tier→carve strength)', () => {
-    const pts = [{ x: 2, y: 12 }, { x: 21, y: 12 }];
-    const pathMap = mapWith({ nodes: [], edges: [roadEdge('e', pts, { class: 'path' })] });
-    const hwMap = mapWith({ nodes: [], edges: [roadEdge('e', pts, { class: 'highway' })] });
-
-    // Build stores directly — getRoadDeformationStore memoises by (seed,dims), which
-    // collide here, so go through buildRoadDeformations into fresh stores.
-    const pathStore = new DeformationStore();
-    pathStore.add(...buildRoadDeformations(pathMap, pathMap.roadGraph!));
-    const hwStore = new DeformationStore();
-    hwStore.add(...buildRoadDeformations(hwMap, hwMap.roadGraph!));
-
-    // Sum |displacement| along the centreline: the highway pulls to grade harder.
-    let pathMove = 0, hwMove = 0;
-    const y = 12;
-    for (let x = 3; x < 21; x++) {
-      pathMove += Math.abs(heightAt(pathMap, pathStore, x, y) - baseM(pathMap, x, y));
-      hwMove += Math.abs(heightAt(hwMap, hwStore, x, y) - baseM(hwMap, x, y));
-    }
-    expect(hwMove).toBeGreaterThan(pathMove); // highway carves a flatter shelf
-    // The path still does *something* (it is not a no-op).
-    expect(pathMove).toBeGreaterThan(0);
-  });
-});
-
-describe('getComposedHeightfield — parity', () => {
-  it('returns the BASE array instance when the map has no road graph', () => {
-    const map = mapWith(undefined);
-    const base = getHeightfield(map.seed, map.width, map.height);
+    const base = getHeightfield(map.seed, map.width, map.height, undefined, null);
     expect(getComposedHeightfield(map)).toBe(base);
+    expect(getRoadDeformationStore(map).size).toBe(0);
   });
 
-  it('returns the base instance when the road graph has no road edges', () => {
-    const graph: RoadGraph = { nodes: [], edges: [roadEdge('r', [{ x: 1, y: 1 }, { x: 2, y: 1 }], { feature: 'river' })] };
+  it('lifts the carriageway crown above base where a road runs', () => {
+    const graph: RoadGraph = { nodes: [], edges: [roadEdge('e1', STRAIGHT, { class: 'road', surface: 'stone' })] };
     const map = mapWith(graph);
-    const base = getHeightfield(map.seed, map.width, map.height);
-    expect(getComposedHeightfield(map)).toBe(base);
-  });
-});
-
-describe('getComposedHeightfield — grade-cut', () => {
-  // A long straight road across the map guarantees it crosses sloped terrain.
-  function roadAcross(map: GameMap): RoadGraph {
-    const pts: { x: number; y: number }[] = [];
-    const y = Math.floor(map.height / 2);
-    for (let x = 2; x < map.width - 2; x++) pts.push({ x, y });
-    return { nodes: [], edges: [roadEdge('main', pts)] };
-  }
-
-  it('lowers/raises the road corridor toward grade while leaving distant terrain at base', () => {
-    const graph = roadAcross(mapWith());
-    const map = mapWith(graph);
-    const base = getHeightfield(map.seed, map.width, map.height);
-    const composed = getComposedHeightfield(map);
-
-    expect(composed).not.toBe(base); // a real cut was applied
-    const y = Math.floor(map.height / 2);
-
-    // At least one corridor cell actually moved.
-    let moved = 0;
-    for (let x = 3; x < map.width - 3; x++) {
-      if (Math.abs(composed[y * map.width + x] - base[y * map.width + x]) > 1e-6) moved++;
-    }
-    expect(moved).toBeGreaterThan(0);
-
-    // A row far from the road is untouched (beyond corridor + feather).
-    const farY = 0;
-    for (let x = 0; x < map.width; x++) {
-      expect(composed[farY * map.width + x]).toBeCloseTo(base[farY * map.width + x], 6);
-    }
-  });
-
-  it('composed field equals the channel heightAt converted to normalised units', () => {
-    const graph = roadAcross(mapWith());
-    const map = mapWith(graph);
-    const composed = getComposedHeightfield(map);
     const store = getRoadDeformationStore(map);
-    const y = Math.floor(map.height / 2);
-    const x = Math.floor(map.width / 2);
-    const m = heightAt(map, store, x, y);
-    expect(composed[y * map.width + x]).toBeCloseTo(m / TERRAIN_RELIEF_M + ELEVATION_SEA_LEVEL, 6);
-    // Sanity: the channel's base read matches heightfield metres.
-    expect(baseM(map, x, y)).toBeCloseTo((getHeightfield(map.seed, map.width, map.height)[y * map.width + x] - ELEVATION_SEA_LEVEL) * TERRAIN_RELIEF_M, 6);
+    expect(store.size).toBe(1);
+    // At a mid-road tile the camber leaves the composed surface measurably off base.
+    const tx = 13, ty = 16;
+    const composed = heightAt(map, store, tx, ty);
+    expect(Math.abs(composed - baseHeightAt(map, tx, ty))).toBeGreaterThan(1e-3);
   });
 
-  it('is deterministic and memoised (same instance across calls)', () => {
-    const map = mapWith(roadAcross(mapWith()));
-    const a = getComposedHeightfield(map);
-    const b = getComposedHeightfield(map);
-    expect(a).toBe(b);
-
-    clearRoadDeformationCache();
-    const c = getComposedHeightfield(map);
-    expect(c).not.toBe(a); // fresh array after cache clear
-    expect(Array.from(c)).toEqual(Array.from(a)); // identical values
+  it('produces a fresh composed array (not the base instance) when roads exist', () => {
+    const map = mapWith({ nodes: [], edges: [roadEdge('e1', STRAIGHT)] });
+    const base = getHeightfield(map.seed, map.width, map.height, undefined, null);
+    expect(getComposedHeightfield(map)).not.toBe(base);
   });
 });

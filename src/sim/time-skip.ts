@@ -8,6 +8,7 @@ import { projectTurnover } from '@/sim/turnover';
 import { TICKS_PER_YEAR } from '@/sim/mortality';
 import { countPlayerBelievers } from '@/sim/believers';
 import { growSettlementsOnSkip } from '@/sim/systems/settlement-growth-system';
+import { advanceRoadEvolution, connectomeEvolveOptions } from '@/world/road-evolution';
 
 export interface SkipSummary {
   fromTick: number;
@@ -58,6 +59,11 @@ export function applySkip(
 
   const toTick = fromTick + years * TICKS_PER_YEAR;
   clock.setNow(toTick);
+
+  // Roads age across the jump too: the evolution system can't tick during a closed-form
+  // skip, so advance the graph's dynamics to the post-skip tick deterministically.
+  if (world.tiles.roadGraph) advanceRoadEvolution(world.tiles.roadGraph, toTick, connectomeEvolveOptions(world.tiles));
+
   const believersAfter = countPlayerBelievers(world);
 
   const summary: SkipSummary = {

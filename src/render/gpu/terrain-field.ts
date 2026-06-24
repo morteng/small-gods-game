@@ -22,6 +22,7 @@ import { buildRenderWaterType } from '@/render/gpu/render-water-mask';
 import { effectiveTileType, RENDER_LAYERS, layerFlag } from '@/render/layer-visibility';
 import { ELEVATION_SEA_LEVEL, getClimateFields } from '@/world/heightfield';
 import { getComposedHeightfield } from '@/world/road-deformation';
+import { getRoadSurfaceField } from '@/world/road-surface';
 import { ISO_TILE_W, ISO_TILE_H } from '@/render/iso/iso-constants';
 import type { LightingState } from '@/render/lighting-state';
 import type { TerrainGlobalsInput } from '@/render/gpu/instance-buffer';
@@ -205,7 +206,12 @@ export function packColorField(map: GameMap, devMode?: DevModeState, waterType?:
         out[idx] = wetBedColorAbgr(tiles, tx, ty, width, height, devMode);
         continue;
       }
-      const hex = tile ? (TILE_COLORS[effectiveTileType(tile.type, devMode)] ?? '#444') : '#1a1a24';
+      // Paint the biome *under* a road/bridge (baseType is set only when a road
+      // overwrote real ground). The road's albedo comes from the shader surface
+      // channel, so an overgrown road fades back to this ground instead of a flat
+      // road-brown — and roads compose with snow/mud/wet like any other terrain.
+      const colorType = tile ? (tile.baseType ?? tile.type) : undefined;
+      const hex = colorType ? (TILE_COLORS[effectiveTileType(colorType, devMode)] ?? '#444') : '#1a1a24';
       out[idx] = hexToAbgr(hex);
     }
   }
@@ -317,6 +323,10 @@ export interface TerrainField {
   moisture: Float32Array;
   /** Row-major temperature `[0,1]`, `width*height` — drives the snowline (cold→snow). */
   temperature: Float32Array;
+  /** Row-major road pavedness `[0,1]`, `width*height` — 0=no road … 1=paved. The shader
+   *  ramps it to a road albedo (earth→cobble) and hardens the surface; snow/ice/mud still
+   *  compose on top via the climate-driven material weights. */
+  roadSurface: Float32Array;
   /** Vertices the grid-gen vertex shader draws (`quadsX*quadsY*6`). */
   vertexCount: number;
   /** Terrain uniform input (camera + iso + z + lighting); `packTerrainGlobals`-ready. */
@@ -426,6 +436,7 @@ export function buildTerrainField(map: GameMap, opts: BuildTerrainFieldOpts): Te
     colors: packColorFieldMemo(map, opts.devMode, cw?.waterType, cw?.version),
     moisture: climate.moisture,
     temperature: climate.temperature,
+    roadSurface: getRoadSurfaceField(map),
     vertexCount: grid.vertexCount,
     globals,
   };
