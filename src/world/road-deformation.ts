@@ -176,7 +176,10 @@ export function edgeRoadProfile(
   const fromPoi = poiById.get(nodeById.get(edge.a)?.poiRef ?? '');
   const toPoi = poiById.get(nodeById.get(edge.b)?.poiRef ?? '');
   const era = eraForEdge(edge, fromPoi, toPoi, map);
-  const state = deriveRoadState({ roadClass: edge.class, surface: edge.surface, era, dynamic: dynamicFor?.(edge) });
+  // An explicit dynamicFor (preview/scrub) overrides; otherwise the persisted per-edge
+  // dynamics evolved by the road-evolution tick flow into BOTH the carve and the surface.
+  const dynamic = dynamicFor?.(edge) ?? edge.dynamics;
+  const state = deriveRoadState({ roadClass: edge.class, surface: edge.surface, era, dynamic });
   return { centerline, state, x: roadCrossSection(state) };
 }
 
@@ -263,7 +266,8 @@ const fieldCache = new Map<string, Float32Array>();
 const CACHE_CAP = 4;
 
 function key(map: GameMap): string {
-  return `${map.seed}:${map.width}x${map.height}`;
+  // `rev` bumps when road-evolution mutates edge.dynamics, invalidating the carve.
+  return `${map.seed}:${map.width}x${map.height}:r${map.roadGraph?.rev ?? 0}`;
 }
 
 function evict(cache: Map<string, unknown>): void {

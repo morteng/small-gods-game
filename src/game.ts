@@ -63,6 +63,7 @@ import { PlotThreadSystem } from '@/sim/threads/systems/plot-thread-system';
 import { AbandonmentSystem } from '@/sim/systems/abandonment-system';
 import { MortalitySystem } from '@/sim/systems/mortality-system';
 import { SettlementGrowthSystem } from '@/sim/systems/settlement-growth-system';
+import { RoadEvolutionSystem } from '@/sim/systems/road-evolution-system';
 import { BirthSystem } from '@/sim/systems/birth-system';
 import { WeatherSystem } from '@/sim/systems/weather-system';
 import { applySkip } from '@/sim/time-skip';
@@ -265,6 +266,7 @@ export class Game {
     this.scheduler.register(new MortalitySystem());
     this.scheduler.register(new BirthSystem());
     this.scheduler.register(new SettlementGrowthSystem());
+    this.scheduler.register(new RoadEvolutionSystem());
     // W-G: deterministic water/atmosphere tick — steps the stepper installed on world
     // seed + polls the flood watch, writing place_flooded/receded into the event log.
     this.scheduler.register(new WeatherSystem(

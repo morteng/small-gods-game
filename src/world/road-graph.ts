@@ -63,11 +63,21 @@ export interface RoadEdge {
   surface: RoadSurface;
   /** Grid indices (`y * width + x`) the walker chose to bridge over water. Sorted. */
   bridgeCells: number[];
+  /** Time-varying state (age/condition/wear/overgrowth) accumulated by the road-evolution
+   *  tick. Absent = a new, kept road. Persisted verbatim with the graph and consumed by the
+   *  carve + surface channel via `edge.dynamics` (see {@link edgeRoadProfile}). */
+  dynamics?: import('@/world/road-state').RoadDynamics;
 }
 
 export interface RoadGraph {
   nodes: RoadNode[];
   edges: RoadEdge[];
+  /** Bumped whenever `edge.dynamics` change (road-evolution). Folded into the deformation
+   *  + surface cache keys so an evolving world re-derives its carve/pavedness. */
+  rev?: number;
+  /** Sim tick the dynamics were last advanced to. Lives on the graph (not in the tick
+   *  system) so evolution is stateless + replay/save-safe — the graph carries its own clock. */
+  evolvedAtTick?: number;
 }
 
 /** A single tile write produced by rasterizing the graph. */

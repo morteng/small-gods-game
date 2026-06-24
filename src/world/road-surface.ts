@@ -93,7 +93,7 @@ const CACHE_CAP = 4;
 
 /** Memoised {@link buildRoadSurfaceField}. Same array instance across frames. */
 export function getRoadSurfaceField(map: GameMap): Float32Array {
-  const k = `${map.seed}:${map.width}x${map.height}`;
+  const k = `${map.seed}:${map.width}x${map.height}:r${map.roadGraph?.rev ?? 0}`;
   const hit = cache.get(k);
   if (hit) return hit;
   const field = buildRoadSurfaceField(map);
