@@ -22,11 +22,12 @@ export function periodicNoise(x: number, y: number, P: number): number {
   const xf = x - xi, yf = y - yi;
   const sx = xf * xf * (3 - 2 * xf);
   const sy = yf * yf * (3 - 2 * yf);
-  const m = (v: number) => ((v % P) + P) % P;
-  const a = hashCell(m(xi), m(yi));
-  const b = hashCell(m(xi + 1), m(yi));
-  const c = hashCell(m(xi), m(yi + 1));
-  const d = hashCell(m(xi + 1), m(yi + 1));
+  const x0 = ((xi % P) + P) % P, y0 = ((yi % P) + P) % P;
+  const x1 = ((xi + 1) % P + P) % P, y1 = ((yi + 1) % P + P) % P;
+  const a = hashCell(x0, y0);
+  const b = hashCell(x1, y0);
+  const c = hashCell(x0, y1);
+  const d = hashCell(x1, y1);
   return a + (b - a) * sx + (c - a) * sy + (a - b - c + d) * sx * sy;
 }
 
@@ -74,11 +75,11 @@ export function worley(x: number, y: number, size: number, cellsAcross: number, 
       let dx = px - x, dy = py - y;
       if (dx > size / 2) dx -= size; else if (dx < -size / 2) dx += size;
       if (dy > size / 2) dy -= size; else if (dy < -size / 2) dy += size;
-      const d = Math.hypot(dx, dy);
+      const d = dx * dx + dy * dy;          // squared — compare in d², sqrt once at the end
       if (d < best) { best = d; bestHash = hx; }
     }
   }
-  return { dist: best, hash: bestHash };
+  return { dist: Math.sqrt(best), hash: bestHash };
 }
 
 /**
@@ -98,7 +99,7 @@ export function encodeNormal(
       let nx = -(hr - hl) * 0.5;
       let ny = -(hd - hu) * 0.5;
       let nz = 1 / Math.max(0.05, bump);
-      const len = Math.hypot(nx, ny, nz) || 1;
+      const len = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
       nx /= len; ny /= len; nz /= len;
       const o = layerOffset + (y * size + x) * 4;
       out[o] = ((nx * 0.5 + 0.5) * 255) | 0;

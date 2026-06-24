@@ -40,6 +40,7 @@ import {
 import { liftDrawList } from '@/render/gpu/terrain-lift';
 import type { GpuContext } from '@/render/gpu/webgpu-context';
 import type { TerrainField } from '@/render/gpu/terrain-field';
+import { materialAtlas } from '@/render/gpu/material-exemplar';
 import type { WaterField } from '@/render/gpu/water-field';
 import { UiPass } from '@/render/ui/ui-pass';
 import type { UiDrawGroup } from '@/render/ui/ui-batcher';
@@ -74,6 +75,10 @@ export class GpuScene {
   private format: GPUTextureFormat;
   private pipeline: GPURenderPipeline;
   private sampler: GPUSampler;
+  // Material-exemplar atlas (Slice 1): seamless tileable swatch per terrain/road material,
+  // bound into the terrain + detail passes (bindings 7/8) and sampled with a REPEAT sampler.
+  private matAtlasView: GPUTextureView;
+  private matSampler: GPUSampler;
   private quadBuf: GPUBuffer;
   private globalsBuf: GPUBuffer;
   private globalsBind: GPUBindGroup;
@@ -244,6 +249,29 @@ export class GpuScene {
     this.pipeline = createSpritePipeline(device, gpu.format);
 
     this.sampler = device.createSampler({ magFilter: 'nearest', minFilter: 'nearest' });
+
+    // Material-exemplar atlas → a 2d texture array (one layer per material), uploaded once
+    // (content-static). Sampled with REPEAT addressing + linear filtering so the seamless
+    // swatches tile smoothly under the chunky banded look.
+    {
+      const atlas = materialAtlas();
+      const tex = device.createTexture({
+        size: { width: atlas.size, height: atlas.size, depthOrArrayLayers: atlas.layers },
+        format: 'rgba8unorm',
+        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+      });
+      device.queue.writeTexture(
+        { texture: tex },
+        atlas.albedo as GPUAllowSharedBufferSource,
+        { bytesPerRow: atlas.size * 4, rowsPerImage: atlas.size },
+        { width: atlas.size, height: atlas.size, depthOrArrayLayers: atlas.layers },
+      );
+      this.matAtlasView = tex.createView({ dimension: '2d-array' });
+      this.matSampler = device.createSampler({
+        addressModeU: 'repeat', addressModeV: 'repeat',
+        magFilter: 'linear', minFilter: 'linear', mipmapFilter: 'linear',
+      });
+    }
 
     this.quadBuf = device.createBuffer({ size: QUAD_STRIP.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
     device.queue.writeBuffer(this.quadBuf, 0, QUAD_STRIP);
@@ -467,6 +495,8 @@ export class GpuScene {
           { binding: 3, resource: { buffer: this.terrainMoistureBuf } },
           { binding: 4, resource: { buffer: this.terrainTemperatureBuf } },
           { binding: 6, resource: { buffer: this.terrainRoadSurfaceBuf } },
+          { binding: 7, resource: this.matAtlasView },
+          { binding: 8, resource: this.matSampler },
         ],
       });
       realloc = true;
@@ -529,6 +559,8 @@ export class GpuScene {
           { binding: 4, resource: { buffer: this.terrainTemperatureBuf } },
           { binding: 5, resource: { buffer: this.detailHeightsBuf } },
           { binding: 6, resource: { buffer: this.terrainRoadSurfaceBuf } },
+          { binding: 7, resource: this.matAtlasView },
+          { binding: 8, resource: this.matSampler },
         ],
       });
       this.detailBoundHeights = this.terrainHeightsBuf;

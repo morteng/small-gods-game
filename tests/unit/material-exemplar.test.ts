@@ -1,10 +1,13 @@
+// @vitest-environment node
+// Pure procedural-texture generators — no DOM needed; the lightweight node environment
+// keeps these build-heavy tests fast + contention-proof in the full parallel suite.
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
   MATERIAL_IDS, MATERIAL_LAYER, buildMaterialExemplar, buildMaterialAtlas,
   materialAtlas, clearMaterialAtlasCache, type MaterialId,
 } from '@/render/gpu/material-exemplar';
 
-const SIZE = 64;
+const SIZE = 32;   // size-independent checks; small keeps the build-heavy suite fast
 
 beforeEach(() => clearMaterialAtlasCache());
 
@@ -42,10 +45,15 @@ describe('material-exemplar generators', () => {
       expect(ex.size).toBe(SIZE);
       expect(ex.albedo.length).toBe(SIZE * SIZE * 4);
       expect(ex.normal.length).toBe(SIZE * SIZE * 4);
-      // opaque albedo + opaque normal alpha
-      for (let i = 3; i < ex.albedo.length; i += 4) expect(ex.albedo[i]).toBe(255);
-      // normal Z (B channel) must point generally up (>= 0.5 encoded) everywhere
-      for (let i = 2; i < ex.normal.length; i += 4) expect(ex.normal[i]).toBeGreaterThanOrEqual(120);
+      // Aggregate per-pixel invariants into counts (one expect each — cheap under vitest):
+      // albedo fully opaque, and every normal Z (B) points generally up (>= ~0.47 encoded).
+      let badAlpha = 0, flatN = 0;
+      for (let i = 0; i < ex.albedo.length; i += 4) {
+        if (ex.albedo[i + 3] !== 255) badAlpha++;
+        if (ex.normal[i + 2] < 120) flatN++;
+      }
+      expect(badAlpha, `${id} non-opaque albedo`).toBe(0);
+      expect(flatN, `${id} down-facing normals`).toBe(0);
     }
   });
 

@@ -38,6 +38,19 @@ struct TGlobals {
 // Binding 5 is the detail-patch fine-height buffer (detail pipeline only) — keep it free
 // here. Road pavedness rides binding 6 so it is shared by both the terrain and detail passes.
 @group(0) @binding(6) var<storage, read> roadSurface : array<f32>; // [0,1] per cell: 0=none … 1=paved
+// Material-exemplar atlas (Slice 1): one seamless tileable swatch per material, layer
+// index = MATERIAL_LAYER in material-exemplar.ts (grass0 dirt1 rock2 sand3 snow4 mud5
+// road_dirt6 road_gravel7 road_cobble8). Sampled with a REPEAT sampler at tile-space UV.
+@group(0) @binding(7) var matAtlas : texture_2d_array<f32>;
+@group(0) @binding(8) var matSamp  : sampler;
+
+// How many world tiles one exemplar repeat spans (1 tile = 2 m). ~2.5 tiles → a 64px
+// swatch over ~5 m reads chunky-but-legible under the banded sun.
+const MAT_TILES : f32 = 2.5;
+
+fn matSample(layer : i32, uv : vec2<f32>) -> vec3<f32> {
+  return textureSample(matAtlas, matSamp, uv, layer).rgb;
+}
 
 fn cellIdx(cx : u32, cy : u32) -> u32 { return cy * u32(G.uGrid.x) + cx; }
 
@@ -248,12 +261,19 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   // overgrown, road-surface.ts already fades the pavedness, so the biome grass
   // returns and the wilderness reclaims it (the first instance of the engine-wide
   // object↔terrain contextual blend).
+  // Tile-space UV for the material exemplars (REPEAT sampler tiles them seamlessly).
+  let muv = in.vGrid / MAT_TILES;
+
   let road = sampleScalarBi(bc, &roadSurface);
-  let EARTH  = vec3<f32>(0.34, 0.27, 0.20);      // packed-earth track
-  let COBBLE = vec3<f32>(0.60, 0.58, 0.55);      // pale stone road
-  let roadAlb = mix(EARTH, COBBLE, smoothstep(0.2, 1.0, road));
+  // Road surface = the packed-dirt → cobble exemplars (real sett/grain texture), ramped
+  // by pavedness. (Slice 2 will drive the dirt→gravel→cobble spectrum off road tier.)
+  let roadAlb = mix(matSample(6, muv), matSample(8, muv), smoothstep(0.2, 1.0, road));
   let roadMix = smoothstep(0.0, 0.16, road);     // soft road↔land edge
-  let base = mix(biome, roadAlb, roadMix);
+  // Texture the biome ground by MODULATING its per-cell hue with the grass exemplar's
+  // detail (luminance / mean) — keeps every biome's colour, adds grain without needing a
+  // per-biome swatch. Roads override it where paved.
+  let groundDetail = clamp(dot(matSample(0, muv), vec3<f32>(0.3333)) / 0.5, 0.72, 1.28);
+  let base = mix(biome * groundDetail, roadAlb, roadMix);
 
   // Material WEIGHTS — each becomes a height-blend layer below.
   let wRock = smoothstep(0.42, 0.78, slope + jit * 0.18);                 // steep faces
@@ -265,11 +285,13 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
             * (1.0 - smoothstep(0.18, 0.40, slope))
             * (1.0 - smoothstep(0.06, 0.22, aboveSea));
 
-  // Stylized material albedos (palette-tuned later via world-style).
-  let ROCK = vec3<f32>(0.42, 0.40, 0.38);
-  let SNOW = vec3<f32>(0.90, 0.93, 0.97);
-  let SAND = vec3<f32>(0.80, 0.74, 0.55);
-  let MUD  = vec3<f32>(0.30, 0.24, 0.17);
+  // Material albedos = sampled exemplar swatches (Slice 1). The img2img pipeline upgrades
+  // these same tiles later; today they're the procedural grey-init. Layer indices match
+  // MATERIAL_LAYER (rock2 snow4 sand3 mud5).
+  let ROCK = matSample(2, muv);
+  let SNOW = matSample(4, muv);
+  let SAND = matSample(3, muv);
+  let MUD  = matSample(5, muv);
 
   // HEIGHT-BLEND composite (crisp, NOT linear-alpha mush): the biome base is the
   // ground layer at a constant height; each material pokes through where its weight
