@@ -265,9 +265,19 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   let muv = in.vGrid / MAT_TILES;
 
   let road = sampleScalarBi(bc, &roadSurface);
-  // Road surface = the packed-dirt → cobble exemplars (real sett/grain texture), ramped
-  // by pavedness. (Slice 2 will drive the dirt→gravel→cobble spectrum off road tier.)
-  let roadAlb = mix(matSample(6, muv), matSample(8, muv), smoothstep(0.2, 1.0, road));
+  // Road surface = the full packed-dirt → gravel → cobble exemplar spectrum (real
+  // sett/grain texture), driven by pavedness (Slice 2). road-surface.ts bakes the road
+  // TIER into this scalar at the material anchors (dirt 0.2 · gravel 0.45 · cobble 0.75 ·
+  // paved 1.0), dimmed by condition·overgrowth — so a worn cobble road drifts toward
+  // gravel→dirt on its own, the wear IS the lower pavedness. We span the three road
+  // exemplars (layers 6/7/8) at those anchors, but keep it to TWO texture fetches: the
+  // layer PAIR is picked dynamically (lower half blends dirt→gravel, upper gravel→cobble),
+  // so the fill cost on the iGPU is identical to the old 2-stop dirt↔cobble blend.
+  let upper = road >= 0.45;                       // above the gravel anchor?
+  let loLayer = select(6, 7, upper);              // dirt|gravel  →  gravel|cobble
+  let hiLayer = select(7, 8, upper);
+  let roadF = select(smoothstep(0.2, 0.45, road), smoothstep(0.45, 0.78, road), upper);
+  let roadAlb = mix(matSample(loLayer, muv), matSample(hiLayer, muv), roadF);
   let roadMix = smoothstep(0.0, 0.16, road);     // soft road↔land edge
   // Texture the biome ground by MODULATING its per-cell hue with the grass exemplar's
   // detail (luminance / mean) — keeps every biome's colour, adds grain without needing a
