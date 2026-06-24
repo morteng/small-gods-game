@@ -57,6 +57,13 @@ export interface RiverChannelGeometry {
    *  `bucketSegs[bucketOffset[b] .. bucketOffset[b+1])`. */
   bucketOffset: Uint32Array;
   bucketSegs: Uint32Array;
+  /** The GPU upload: all three arrays concatenated into ONE u32 buffer so the water
+   *  fragment shader stays within the 8-storage-buffer baseline limit (it already reads
+   *  7 per-cell fields). Layout:
+   *    [bucketOffset : nbx*nby+1 words] [bucketSegs : R words] [segments : segCount*8 words]
+   *  where R = bucketOffset[nbx*nby] (the last offset = total seg refs), and the segment
+   *  floats are bit-reinterpreted as u32 (the shader bitcasts them back). */
+  packed: Uint32Array;
 }
 
 /** Bilinear sample of a row-major W*H field at continuous (x,y), clamped at edges. */
@@ -149,11 +156,21 @@ export function buildRiverChannelGeometry(map: GameMap, net?: WaterNetwork): Riv
   for (let i = 0; i < buckets.length; i++) bucketOffset[i + 1] = bucketOffset[i] + buckets[i].length;
   const bucketSegs = new Uint32Array(bucketOffset[buckets.length]);
   for (let i = 0, o = 0; i < buckets.length; i++) for (const id of buckets[i]) bucketSegs[o++] = id;
+  const segments = Float32Array.from(seg);
+
+  // Concatenate into ONE u32 buffer for the GPU (8-storage-buffer budget). The segment
+  // floats are bit-reinterpreted as u32 in place; the shader bitcasts them back.
+  const offLen = nbx * nby + 1;
+  const segWords = segCount * SEG_STRIDE;
+  const packed = new Uint32Array(offLen + bucketSegs.length + segWords);
+  packed.set(bucketOffset, 0);
+  packed.set(bucketSegs, offLen);
+  packed.set(new Uint32Array(segments.buffer, segments.byteOffset, segWords), offLen + bucketSegs.length);
 
   return {
     width: W, height: H,
-    segments: Float32Array.from(seg), segCount,
-    bucketTiles: bt, nbx, nby, bucketOffset, bucketSegs,
+    segments, segCount,
+    bucketTiles: bt, nbx, nby, bucketOffset, bucketSegs, packed,
   };
 }
 

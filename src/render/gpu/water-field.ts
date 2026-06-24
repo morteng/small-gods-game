@@ -14,6 +14,7 @@ import { packTerrainGlobals, TERRAIN_GLOBALS_FLOATS, type TerrainGlobalsInput } 
 import type { LightingState } from '@/render/lighting-state';
 import { getHydrologyResult } from '@/world/hydrology-store';
 import { buildRiverSurfaceFieldMemo } from '@/render/gpu/river-surface-field';
+import { getRiverChannelGeometry, type RiverChannelGeometry } from '@/render/gpu/river-channel-geometry';
 import { WaterType } from '@/core/types';
 import { classifyWaterCell, climateOf, type AquaticBiome, type Rgb } from '@/water/water-biome';
 
@@ -27,8 +28,10 @@ export const FOAM_BAND_M = 0.4;
  *  only — the sea (ocean) is the datum and never floods, so it keeps the 1-ring
  *  overhang and pays no extra overdraw. A flood beyond this reach is ring-capped. */
 export const LAKE_FLOOD_RINGS = 6;
-/** WGlobals = TGlobals (24) + uWater vec4 = 28 floats / 112 bytes. */
-export const WATER_GLOBALS_FLOATS = TERRAIN_GLOBALS_FLOATS + 4;
+/** WGlobals = TGlobals (24) + uWater vec4 + uChannel vec4 = 32 floats / 128 bytes.
+ *  `uChannel` carries the analytic river-channel acceleration-grid dims
+ *  (bucketTiles, nbx, nby, segCount) the shader's `channelAt` reads. */
+export const WATER_GLOBALS_FLOATS = TERRAIN_GLOBALS_FLOATS + 8;
 
 /** Element-wise equality of two same-length Float32Arrays. */
 function eqF32(a: Float32Array, b: Float32Array): boolean {
@@ -73,14 +76,17 @@ export function waterLevelNorm(map: GameMap, waterLevelM: number): number {
   return waterLevelM / worldStyleOf(map.worldSeed).mountainRelief;
 }
 
-/** Pack the water uniform: the terrain globals followed by `uWater`. */
+/** Pack the water uniform: the terrain globals, then `uWater`, then `uChannel`
+ *  (the river-channel acceleration-grid dims — defaults to a no-river `[1,1,1,0]`). */
 export function packWaterGlobals(
   g: TerrainGlobalsInput,
   water: [number, number, number, number],
+  channel: [number, number, number, number] = [1, 1, 1, 0],
 ): Float32Array {
   const b = new Float32Array(WATER_GLOBALS_FLOATS);
   b.set(packTerrainGlobals(g), 0);
   b[24] = water[0]; b[25] = water[1]; b[26] = water[2]; b[27] = water[3];
+  b[28] = channel[0]; b[29] = channel[1]; b[30] = channel[2]; b[31] = channel[3];
   return b;
 }
 
@@ -105,6 +111,11 @@ export interface WaterField {
   wetCount: number;
   /** Vertices the grid-gen vertex shader draws (same LOD grid as terrain). */
   vertexCount: number;
+  /** Analytic river-channel geometry (segment buffer + CSR bucket index) the shader
+   *  reads to draw rivers as a smooth signed-distance silhouette — the connectome
+   *  projected directly, NOT a baked per-cell mask. Null on a world with no rivers
+   *  (the shader's river path then no-ops via `segCount == 0`). */
+  channel: RiverChannelGeometry | null;
   /** Packed water uniform (`WATER_GLOBALS_FLOATS`), ready to upload. */
   globals: Float32Array;
 }
@@ -311,6 +322,11 @@ export interface BuildWaterFieldOpts {
    *  hydrology raster never knew, merged into the static classification + surface so
    *  they render like generated lakes. Absent → pure raster path (byte-identical). */
   connectomeWater?: ConnectomeWaterOverride;
+  /** Pre-built (studio-memoised) river-channel geometry from the LIVE edited network,
+   *  so a dragged node re-projects instantly while idle frames keep a stable reference
+   *  (the GPU upload guard then skips). When absent the memoised per-(seed,dims) channel
+   *  is used — the stable game path. */
+  riverChannel?: RiverChannelGeometry;
   maxQuads?: number;
   /** Sub-tile mesh supersample (≥1; 1 = one quad/tile) — MUST match the terrain pass
    *  so the water plane and the terrain it clips against share one LOD grid (aligned
@@ -839,6 +855,13 @@ export function buildWaterField(map: GameMap, opts: BuildWaterFieldOpts): WaterF
     stat.dynAppliedFlood = undefined;
   }
 
+  // ANALYTIC RIVER CHANNEL — the connectome projected as segment + bucket geometry the
+  // shader reads to draw rivers with a smooth signed-distance silhouette (no per-cell
+  // staircase). A studio-edited network re-projects per frame (cheap, a few KB) so a
+  // dragged node reflects instantly; the game path uses the memoised geometry, whose
+  // stable reference lets the GPU upload guard skip the re-upload.
+  const channel = opts.riverChannel ?? getRiverChannelGeometry(map);
+
   return {
     surfaceW,
     waterType,
@@ -847,14 +870,18 @@ export function buildWaterField(map: GameMap, opts: BuildWaterFieldOpts): WaterF
     deep,
     clarity,
     shoreDist: stat.shoreDist,
+    channel,
     wetCount: stat.wetCount,
     vertexCount: grid.vertexCount,
     // uWater.w carries the GLOBAL water-level offset in NORMALISED elevation, so a
     // drought/flood shifts the lake plane + waterline in-shader. The river ribbon
     // reads the SAME value (`waterLevelNorm`) so lakes and rivers rise together.
+    // uChannel carries the river-channel acceleration-grid dims (or a no-river default).
     globals: packWaterGlobals(tg, [
       opts.timeSec ?? 0, SHALLOW_BAND_M, FOAM_BAND_M,
       waterLevelNorm(map, opts.waterLevelM ?? 0),
-    ]),
+    ], channel
+      ? [channel.bucketTiles, channel.nbx, channel.nby, channel.segCount]
+      : [1, 1, 1, 0]),
   };
 }

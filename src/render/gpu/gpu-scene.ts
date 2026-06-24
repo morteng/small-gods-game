@@ -44,6 +44,11 @@ import type { WaterField } from '@/render/gpu/water-field';
 import { UiPass } from '@/render/ui/ui-pass';
 import type { UiDrawGroup } from '@/render/ui/ui-batcher';
 
+/** 1-element placeholders bound to the river-channel storage slots when a world has
+ *  no rivers, so the bind group always satisfies the (auto) layout; the shader skips
+ *  them via `segCount == 0`. */
+const EMPTY_WATER_U32 = new Uint32Array(1);
+
 /** Shared per-frame render state threaded through the per-pass helpers (so they
  *  don't each take a dozen params). `colorCleared` is mutated as passes draw — the
  *  FIRST colour pass clears the target, the rest load. `out` set ⇒ the scene
@@ -119,21 +124,27 @@ export class GpuScene {
   private oceanBackdropBind: GPUBindGroup | null = null;
   private waterSurfaceBuf: GPUBuffer | null = null;
   private waterTypeBuf: GPUBuffer | null = null;
-  private waterFlowBuf: GPUBuffer | null = null;
   private waterShallowBuf: GPUBuffer | null = null;
   private waterDeepBuf: GPUBuffer | null = null;
   private waterClarityBuf: GPUBuffer | null = null;
   private waterShoreBuf: GPUBuffer | null = null;
+  // Analytic river-channel geometry (binding 9) — ONE packed u32 buffer (CSR bucket
+  // index + bitcast segment floats) so the water fragment stays within the 8-storage-
+  // buffer baseline limit. Sized independently of the cell grid; a studio edit re-emits
+  // a new array → re-upload. A no-river world binds a 1-element dummy (shader skips on
+  // segCount 0).
+  private waterChannelBuf: GPUBuffer | null = null;
+  private waterChannelCap = 0;      // bytes
   private waterBind: GPUBindGroup | null = null;
   private waterCellCap = 0;
   private waterBoundHeights: GPUBuffer | null = null;
   private lastWaterSurface: Float32Array | null = null;
   private lastWaterType: Uint32Array | null = null;
-  private lastWaterFlow: Float32Array | null = null;
   private lastWaterShallow: Uint32Array | null = null;
-  private lastWaterDeep: Uint32Array | null = null;
   private lastWaterClarity: Float32Array | null = null;
+  private lastWaterDeep: Uint32Array | null = null;
   private lastWaterShore: Float32Array | null = null;
+  private lastWaterChannel: Uint32Array | null = null;
   // Ribbon pass (roads-epic T7): swept road/river ribbon meshes (`ribbon-geometry`)
   // drawn as a terrain-following parametric surface. Reuses the terrain globals
   // uniform + height buffer (binding 0/1) for the SAME lift+projection; binding 2
@@ -254,7 +265,7 @@ export class GpuScene {
     this.detailPatchPipeline = createDetailPatchPipeline(device, gpu.format, terrainModule);
 
     this.waterPipeline = createWaterPipeline(device, gpu.format);
-    this.waterGlobalsBuf = device.createBuffer({ size: 112, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    this.waterGlobalsBuf = device.createBuffer({ size: 128, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 
     // Infinite-ocean backdrop reuses the 112-byte water globals uniform for the
     // inverse projection + time.
@@ -529,15 +540,14 @@ export class GpuScene {
   private uploadWaterFields(water: WaterField): boolean {
     const { device } = this;
     if (!this.terrainHeightsBuf) return false;
+    const storage = (n: number) => device.createBuffer({ size: n, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
     const cells = water.surfaceW.length;
     let realloc = false;
     if (!this.waterSurfaceBuf || cells > this.waterCellCap) {
-      for (const b of [this.waterSurfaceBuf, this.waterTypeBuf, this.waterFlowBuf,
+      for (const b of [this.waterSurfaceBuf, this.waterTypeBuf,
         this.waterShallowBuf, this.waterDeepBuf, this.waterClarityBuf, this.waterShoreBuf]) b?.destroy();
-      const storage = (n: number) => device.createBuffer({ size: n, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
       this.waterSurfaceBuf = storage(cells * 4);
       this.waterTypeBuf = storage(cells * 4);
-      this.waterFlowBuf = storage(cells * 8);
       this.waterShallowBuf = storage(cells * 4);
       this.waterDeepBuf = storage(cells * 4);
       this.waterClarityBuf = storage(cells * 4);
@@ -545,6 +555,19 @@ export class GpuScene {
       this.waterCellCap = cells;
       realloc = true;
     }
+
+    // Analytic river-channel geometry (binding 9) — ONE packed u32 buffer, independent
+    // of `cells`; grow on demand by byte size. A null channel (no rivers) binds a
+    // 1-element dummy — the shader's `segCount == 0` guard skips every read (no-op).
+    const ch = water.channel;
+    const chData = ch ? ch.packed : EMPTY_WATER_U32;
+    if (!this.waterChannelBuf || chData.byteLength > this.waterChannelCap) {
+      this.waterChannelBuf?.destroy();
+      this.waterChannelBuf = storage(Math.max(4, chData.byteLength));
+      this.waterChannelCap = Math.max(4, chData.byteLength);
+      realloc = true;
+    }
+
     if (realloc || this.waterBoundHeights !== this.terrainHeightsBuf) {
       this.waterBind = device.createBindGroup({
         layout: this.waterPipeline.getBindGroupLayout(0),
@@ -553,11 +576,11 @@ export class GpuScene {
           { binding: 1, resource: { buffer: this.terrainHeightsBuf } },
           { binding: 2, resource: { buffer: this.waterSurfaceBuf } },
           { binding: 3, resource: { buffer: this.waterTypeBuf! } },
-          { binding: 4, resource: { buffer: this.waterFlowBuf! } },
           { binding: 5, resource: { buffer: this.waterShallowBuf! } },
           { binding: 6, resource: { buffer: this.waterDeepBuf! } },
           { binding: 7, resource: { buffer: this.waterClarityBuf! } },
           { binding: 8, resource: { buffer: this.waterShoreBuf! } },
+          { binding: 9, resource: { buffer: this.waterChannelBuf! } },
         ],
       });
       this.waterBoundHeights = this.terrainHeightsBuf;
@@ -569,10 +592,6 @@ export class GpuScene {
     if (realloc || water.waterType !== this.lastWaterType) {
       device.queue.writeBuffer(this.waterTypeBuf!, 0, water.waterType as GPUAllowSharedBufferSource);
       this.lastWaterType = water.waterType;
-    }
-    if (realloc || water.flow !== this.lastWaterFlow) {
-      device.queue.writeBuffer(this.waterFlowBuf!, 0, water.flow as GPUAllowSharedBufferSource);
-      this.lastWaterFlow = water.flow;
     }
     if (realloc || water.shallow !== this.lastWaterShallow) {
       device.queue.writeBuffer(this.waterShallowBuf!, 0, water.shallow as GPUAllowSharedBufferSource);
@@ -589,6 +608,12 @@ export class GpuScene {
     if (realloc || water.shoreDist !== this.lastWaterShore) {
       device.queue.writeBuffer(this.waterShoreBuf!, 0, water.shoreDist as GPUAllowSharedBufferSource);
       this.lastWaterShore = water.shoreDist;
+    }
+    // Channel buffer — re-upload when the geometry array reference changes (a studio
+    // edit re-emits; the memoised game geometry keeps a stable ref, so this is skipped).
+    if (realloc || chData !== this.lastWaterChannel) {
+      device.queue.writeBuffer(this.waterChannelBuf!, 0, chData as GPUAllowSharedBufferSource);
+      this.lastWaterChannel = chData;
     }
     return true;
   }

@@ -233,6 +233,11 @@ export interface RenderContext {
    *  generated lakes. The game leaves this unset → the pure raster path, byte-identical.
    *  See `ConnectomeWaterOverride`. Default: none. */
   connectomeWater?: ConnectomeWaterOverride;
+  /** OPT-IN analytic river-channel geometry from the LIVE (studio-edited) water network,
+   *  so a dragged node re-projects the smooth signed-distance river silhouette instantly.
+   *  The game leaves this unset → the memoised per-(seed,dims) channel. Type-only import
+   *  (erased), so no runtime coupling to the render layer. */
+  riverChannel?: import('@/render/gpu/river-channel-geometry').RiverChannelGeometry;
 }
 
 /** DIR-A: a placed/edited connectome lake projected into render space — fed to the

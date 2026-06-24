@@ -209,6 +209,10 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
           floodOffsetM: rc.floodOffsetM,
           // DIR-A: author-placed connectome lakes render as real still water.
           connectomeWater: rc.connectomeWater,
+          // Studio realtime: analytic river channel from the LIVE edited network, so a
+          // dragged node re-projects the smooth silhouette instantly (game path: omit →
+          // memoised geometry).
+          riverChannel: rc.riverChannel,
         })
       : null;
 
