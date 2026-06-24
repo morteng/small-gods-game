@@ -21,8 +21,10 @@ describe('medieval-europe pack', () => {
     expect(r.all('fixtureType').length).toBeGreaterThanOrEqual(38);
     expect(r.all('portalType').length).toBeGreaterThanOrEqual(18);
     expect(r.all('material').length).toBeGreaterThanOrEqual(15);
-    expect(r.all('topology').length).toBe(4);
+    expect(r.all('topology').length).toBe(5); // + enclosure (defended-complex grammar)
     expect(r.all('smokeSystem').length).toBeGreaterThanOrEqual(4);
+    expect(r.all('barrierType').length).toBeGreaterThanOrEqual(6); // DC-1 defensive linears
+    expect(r.all('complexType').length).toBeGreaterThanOrEqual(3); // motte-and-bailey, ringwork, town wall
   });
 
   it('validate() over every buildingType returns zero errors (all refs resolve)', () => {

@@ -33,7 +33,8 @@ export const CORE_KINDS = [
   'topology',
   'districtType', // seeded for the settlement connectome (Slice 5); inert until then
   'tradeType',
-  'barrierType', // linear enclosure structures (hedge/fence/palisade/wall) — DC-3
+  'complexType', // a multi-building defended/planned complex (motte-and-bailey, town wall, …)
+  'barrierType', // a linear structure: croft hedge/fence/wall + defensive palisade/curtain/rampart/ditch/dyke
 ] as const;
 
 export type CoreCatalogueKind = (typeof CORE_KINDS)[number];
@@ -157,11 +158,13 @@ export interface TopologyFields {
 }
 
 /**
- * A linear enclosure structure (the connectome `Barrier` primitive's content
- * facts): hedge, paling fence, drystone field wall, timber palisade, stone town
- * wall. Grounds the realistic dimensions worldgen uses to place enclosure rings
- * around crofts and settlements (DC-3). `barrierKind` is an open string keying the
- * runtime barrier primitive (`BARRIER_DEFAULTS`); content stays content-free here.
+ * A linear structure — the connectome `Barrier` primitive's content facts. Two
+ * families share one shape: the croft/settlement ENCLOSURES the live worldgen rings
+ * around plots and built areas (hedge, paling fence, drystone wall, timber palisade,
+ * town wall — grounded in metric dimensions, `src/world/enclosure.ts`), and the
+ * defended-complex RINGS the `enclosure` grammar wraps around wards (palisade, rampart,
+ * ditch, curtain wall, dyke — `blueprint/connectome/complex.ts`). `barrierKind` keys
+ * the runtime barrier primitive (`BARRIER_DEFAULTS`); content stays content-free here.
  */
 export interface BarrierTypeFields {
   barrierKind: string; // runtime BarrierKind ('hedge'|'fence'|'palisade'|'wall'|…)
@@ -170,10 +173,58 @@ export interface BarrierTypeFields {
   material: string; // render material key ('hedge'|'timber'|'stone'|'earth')
   crenellated?: boolean;
   posts?: boolean;
-  /** Which enclosure scale this suits: a single croft/lot yard or a whole settlement. */
-  scale: 'croft' | 'settlement';
+  /**
+   * Which enclosure scale this suits. `croft`/`settlement` feed the LIVE worldgen
+   * enclosure picker (`src/world/enclosure.ts`); `complex` barriers are the rings of a
+   * defended complex (`blueprint/connectome/complex.ts`) and are deliberately INVISIBLE
+   * to that picker, so adding them never perturbs croft/settlement enclosure.
+   */
+  scale: 'croft' | 'settlement' | 'complex';
   /** Settlement-scale selection: smallest settlement (building count) this ring suits. */
   minBuildings?: number;
   /** Gate opening width in tiles where a road (or water) crosses the run. */
   gateWidthTiles: number;
+  // ── Defended-complex extensions (how the ring grammar reads a barrier) ──────────
+  /** How the world realises it: built fabric (`wall`) vs an earthwork (`bank`/`ditch`). */
+  kind?: 'wall' | 'bank' | 'ditch' | (string & {});
+  /** 0..1 — how hard the ring is to cross (the complex grammar's defensive term). */
+  defensibility?: number;
+  /** Metres — height hint for a complex ring (parallels `heightM`, kept for the DC vocab). */
+  heightHint?: number;
+}
+
+// ── Complex scale: a defended/planned multi-building work (Slice DC-1) ───────────
+
+/** One ring of a defended complex: a barrier + how many gates pierce it. */
+export interface RingSlot {
+  barrier: string; // barrierType id
+  radius: number; // relative ring radius (innermost smallest)
+  gates: number; // controlled gate portals through this ring
+  gatePortal?: string; // explicit portalType id for the gate; else queried by sizeClass
+}
+
+/** One ward of a defended complex: a district zone inside a ring, holding buildings. */
+export interface WardSlot {
+  type: string; // districtType id (the ward's function — bailey, motte-top, …)
+  ring: number; // index into the complex's `rings` this ward sits inside
+  buildings?: string[]; // buildingType ids placed in this ward
+  fixtures?: string[]; // fixtureType ids placed in this ward (e.g. the well — siege water)
+  core?: boolean; // the high-point refuge ward (its building sits on the motte)
+}
+
+export interface ComplexTypeFields {
+  topology: string; // topology id — 'enclosure' for defended perimeters
+  wards: WardSlot[];
+  rings: RingSlot[];
+  /** Optional earthwork programme (motte/ditch/rampart sizing); omitted ⇒ no earthworks. */
+  earthworks?: {
+    motteHeight?: number;
+    motteTopRadius?: number;
+    slope?: number;
+    rampartHeight?: number;
+    rampartWidth?: number;
+    ditchWidth?: number;
+  };
+  /** Siting hint: the motte height the design wants (feeds siteSelect/deriveEarthworks). */
+  desiredHeight?: number;
 }

@@ -24,6 +24,9 @@ export type {
   FrameTypeFields,
   TopologyFields,
   BarrierTypeFields,
+  ComplexTypeFields,
+  RingSlot,
+  WardSlot,
   Era,
 } from '@/catalogue/types';
 export { CORE_KINDS } from '@/catalogue/types';

@@ -12,6 +12,7 @@
  */
 import type { CatalogueRegistry } from '@/catalogue/registry';
 import type { Era } from '@/catalogue/types';
+import type { Earthwork } from './earthworks';
 
 /** Wall faces, reused from the blueprint vocabulary. */
 export type WallFace = 'north' | 'south' | 'east' | 'west';
@@ -34,7 +35,30 @@ export interface Zone {
   bays?: number; // size along the run
   level?: number; // 0 = ground (vertical-stack uses this)
   tags?: string[];
+  /**
+   * When this node was built/last rebuilt. A stronghold is a PALIMPSEST — a stone
+   * keep of one era can sit inside an earlier timber bailey — so era is per-Zone,
+   * not per-complex. Omitted ⇒ inherits the expansion's era.
+   */
+  builtEra?: Era;
+  rebuiltEra?: Era;
   /** Open extension bag: footprint, terrain affordance, population, wealth, … */
+  attrs?: Record<string, unknown>;
+}
+
+/**
+ * A linear structure — the boundary OF a zone (a ring) or a line ACROSS terrain (a
+ * dyke/wall). Distinct from a Portal (an edge BETWEEN two zones): a barrier is the
+ * edge of space itself. `encloses: null` marks a SPANNING barrier (Offa's Dyke,
+ * Hadrian's Wall) — a defensive work with no zone it bounds.
+ */
+export interface Barrier {
+  id: string;
+  type: string; // catalogue barrierType id (palisade/curtain/rampart/ditch)
+  encloses: string | null; // zone id it rings, or null for a spanning line
+  ring?: number; // ring index inner→outer (0 = innermost) when enclosing
+  builtEra?: Era;
+  /** Open extension bag: defensibility, material, height, ring radius, line path, … */
   attrs?: Record<string, unknown>;
 }
 
@@ -64,6 +88,10 @@ export interface Connectome {
   zones: Zone[];
   portals: Portal[];
   fixtures: Fixture[];
+  /** Linear structures — present at complex scale (rings + spanning works). */
+  barriers?: Barrier[];
+  /** Terrain deformations this graph projects onto the world heightfield. */
+  earthworks?: Earthwork[];
   /** Where this graph came from — the source catalogue type + its topology. */
   source?: { type?: string; topology?: string };
 }

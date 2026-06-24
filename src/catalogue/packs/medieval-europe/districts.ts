@@ -40,4 +40,7 @@ export const MEDIEVAL_DISTRICT_TYPES: FactEntry<DistrictTypeFields>[] = [
   d('mill-district', 'riverside', 'the mills by the water', ['leats', 'wheels'], ['miller']),
   d('suburb', 'edge', 'the extra-mural suburb', ['ribbon development', 'beyond the gate']),
   d('smiths-row', 'edge', 'the metalworkers’ row (fire risk)', ['forges', 'set from timber'], ['smith']),
+  // ── defended-complex wards (Slice DC-1) ──
+  d('bailey', 'edge', 'the enclosed courtyard ward of a castle', ['palisade or curtain', 'hall, chapel, stables, stores', 'the well']),
+  d('motte-top', 'centre', 'the fortified summit of the motte', ['ring palisade', 'the keep', 'commands the bailey']),
 ];

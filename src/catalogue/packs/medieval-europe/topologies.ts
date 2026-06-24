@@ -51,4 +51,11 @@ export const MEDIEVAL_TOPOLOGIES: FactEntry<TopologyFields>[] = [
     ['long axis', 'altar at the east', 'flanking aisles'],
     'An axial plan entered from the west or south porch, leading down the nave to the chancel and altar at the east, with aisles flanking the nave. Churches, hospitals, and aisled barns.',
   ),
+  t(
+    'enclosure',
+    'enclosure',
+    'nested defended wards, each ringed by a barrier with controlled gates',
+    ['concentric rings', 'a high-point core/keep', 'gates as choke points'],
+    'The defended-perimeter form: one or more wards, each bounded by a barrier ring (rampart/palisade or stone curtain) pierced by controlled gates, with a designated high-point CORE ward whose building (the keep) sits on the motte. Access is a strict outer→inner chain. Covers the ringwork, motte-and-bailey, shell keep, concentric castle, and — over an existing settlement — the walled town.',
+  ),
 ];
