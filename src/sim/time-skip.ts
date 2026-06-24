@@ -7,8 +7,9 @@ import { killNpc, materializeSynthChild } from '@/world/npc-lifecycle';
 import { projectTurnover } from '@/sim/turnover';
 import { TICKS_PER_YEAR } from '@/sim/mortality';
 import { countPlayerBelievers } from '@/sim/believers';
-import { growSettlementsOnSkip } from '@/sim/systems/settlement-growth-system';
+import { growSettlementsOnSkip, residentsByPoi } from '@/sim/systems/settlement-growth-system';
 import { advanceRoadEvolution, connectomeEvolveOptions } from '@/world/road-evolution';
+import { getClimateFields } from '@/world/heightfield';
 
 export interface SkipSummary {
   fromTick: number;
@@ -60,9 +61,16 @@ export function applySkip(
   const toTick = fromTick + years * TICKS_PER_YEAR;
   clock.setNow(toTick);
 
-  // Roads age across the jump too: the evolution system can't tick during a closed-form
-  // skip, so advance the graph's dynamics to the post-skip tick deterministically.
-  if (world.tiles.roadGraph) advanceRoadEvolution(world.tiles.roadGraph, toTick, connectomeEvolveOptions(world.tiles));
+  // Roads age across the jump too: the evolution system can't tick during a closed-form skip,
+  // so advance the graph's dynamics to the post-skip tick deterministically — measured against
+  // the POST-skip population (deaths/births + settlement growth already applied above), so roads
+  // to settlements that emptied over the era decay while roads to ones that grew stay kept.
+  if (world.tiles.roadGraph) {
+    advanceRoadEvolution(world.tiles.roadGraph, toTick, connectomeEvolveOptions(world.tiles, {
+      residents: residentsByPoi(world),
+      climate: getClimateFields(world.tiles),
+    }));
+  }
 
   const believersAfter = countPlayerBelievers(world);
 

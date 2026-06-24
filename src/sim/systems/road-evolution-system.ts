@@ -1,5 +1,7 @@
 import type { System, SystemContext } from '@/core/scheduler';
 import { advanceRoadEvolution, connectomeEvolveOptions } from '@/world/road-evolution';
+import { residentsByPoi } from '@/sim/systems/settlement-growth-system';
+import { getClimateFields } from '@/world/heightfield';
 
 /**
  * Roads age, wear, are repaired, and overgrow over time. This system advances the road
@@ -8,8 +10,10 @@ import { advanceRoadEvolution, connectomeEvolveOptions } from '@/world/road-evol
  * fire rate is harmless. Stateless: the graph carries its own clock (`evolvedAtTick`), so
  * the system is snapshot/replay-safe and needs no rng (sim determinism preserved).
  *
- * Upkeep/traffic default from road class today; wiring per-edge settlement prosperity and
- * per-edge climate (weather-system wetness) into the opts is the connectome follow-up.
+ * Upkeep/traffic come from each road's endpoint settlements (live resident count vs the
+ * settlement's baseline), and weather aggression from the per-tile climate where the road runs.
+ * The opts gather (an O(NPCs) census + the climate fields) is deferred behind a thunk so it only
+ * runs on the rare ticks that actually apply past advanceRoadEvolution's half-year gate.
  */
 export class RoadEvolutionSystem implements System {
   readonly name = 'road-evolution';
@@ -20,9 +24,14 @@ export class RoadEvolutionSystem implements System {
     const map = ctx.world.tiles;
     const graph = map.roadGraph;
     if (!graph || graph.edges.length === 0) return;
-    // Upkeep/traffic come from the endpoint settlements: a road outlives a thriving town
-    // and rots toward a declining one. (Building the options is cheap and gated to the
-    // rare ticks that actually apply by advanceRoadEvolution's years-gate.)
-    advanceRoadEvolution(graph, ctx.now, connectomeEvolveOptions(map));
+    // A road outlives a thriving town and rots toward a declining one; a cold/wet road wears
+    // faster than a dry one. The residents census + climate fields are gathered lazily — only
+    // when the years-gate actually fires (twice an in-game year), not on every 0.1 Hz heartbeat.
+    advanceRoadEvolution(graph, ctx.now, () =>
+      connectomeEvolveOptions(map, {
+        residents: residentsByPoi(ctx.world),
+        climate: getClimateFields(map),
+      }),
+    );
   }
 }
