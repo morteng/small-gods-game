@@ -34,7 +34,7 @@ describe('R0 — WorldRenderGraph projection', () => {
     world.addEntity(buildingStub('b1', 5, 5, 2, 3));
     world.addEntity({ id: 'w1', kind: 'wall_run', x: 6, y: 5 });          // barrier by kind
     world.addEntity({ id: 'f1', kind: 'fence', x: 6, y: 6, tags: ['barrier'] }); // barrier by tag
-    world.addEntity({ id: 't1', kind: 'oak_tree', x: 7, y: 7 });          // vegetation by entity-kind
+    world.addEntity({ id: 't1', kind: 'english-oak', x: 7, y: 7 });       // vegetation by entity-kind
     world.addEntity({ id: 'r1', kind: 'rock_unknown_xyz', x: 8, y: 8 });  // not drawable → skipped
 
     const npcs = [{ id: 'n1', tileX: 3, tileY: 3 }] as unknown as NpcInstance[];
@@ -59,10 +59,10 @@ describe('R0 — WorldRenderGraph projection', () => {
 
   it('nodes carry a usable ref + world tile position', () => {
     const world = new World(emptyMap());
-    world.addEntity({ id: 't1', kind: 'oak_tree', x: 7, y: 7 });
+    world.addEntity({ id: 't1', kind: 'english-oak', x: 7, y: 7 });
     const g = new WorldRenderGraph(rcOf(world));
     const n = [...g.nodes(REGION)][0];
-    expect(n.ref).toMatchObject({ id: 't1', kind: 'oak_tree' });
+    expect(n.ref).toMatchObject({ id: 't1', kind: 'english-oak' });
     expect([n.x, n.y, n.z]).toEqual([7, 7, 0]);
   });
 

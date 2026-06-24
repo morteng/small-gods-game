@@ -12,10 +12,12 @@ import type { SpritePack } from '@/render/iso/sprite-canvas';
 
 beforeAll(() => ensureBuildingTypesRegistered());
 
-const TREE_KINDS = ['oak_tree', 'pine_tree', 'birch_tree', 'dead_tree', 'orange_tree', 'pale_tree', 'brown_tree'];
+// Surviving hand-authored branching presets (blob trees were retired). Worldgen
+// prefers the botanically-derived flora-DB species; these mirror the same path.
+const TREE_KINDS = ['oak_branched', 'pine_branched', 'willow_tree'];
 
-describe('tree presets (class:plant)', () => {
-  it('every tree kind resolves as a 1×1 plant preset', () => {
+describe('flora presets (class:plant)', () => {
+  it('every flora kind resolves as a 1×1 plant preset', () => {
     for (const k of TREE_KINDS) {
       expect(isPlantPreset(k), k).toBe(true);
       const b = getBlueprintPreset(k)!;
@@ -33,30 +35,21 @@ describe('tree presets (class:plant)', () => {
     expect(isPlantPreset('nope')).toBe(false);
   });
 
-  it('compiles to standalone prims — no building prim; foliage crown + bark trunk', () => {
-    const matOf = (p: unknown): string | undefined => (p as { material?: string }).material;
-    const oak = toGeometry(synthesizeBlueprint('oak_tree')!);
-    expect(oak.parts.some(p => p.prim === 'building')).toBe(false);
-    const oakCyl = oak.parts.filter(p => p.prim === 'cylinder');
-    const oakFol = oak.parts.filter(p => p.prim === 'ellipsoid');
-    expect(oakCyl.length).toBeGreaterThanOrEqual(1);            // bark trunk
-    expect(oakFol.length).toBeGreaterThanOrEqual(3);            // rounded crown lobes
-    expect(oakFol.every(p => matOf(p) === 'foliage')).toBe(true);
-    expect(matOf(oakCyl[0])).toBe('bark');
-
-    // conifer = cones, slender = one ellipsoid, bare = no foliage
-    const pine = toGeometry(synthesizeBlueprint('pine_tree')!);
-    expect(pine.parts.some(p => p.prim === 'cone')).toBe(true);
-    const birch = toGeometry(synthesizeBlueprint('birch_tree')!);
-    expect(birch.parts.filter(p => p.prim === 'ellipsoid').length).toBe(1);
-    const dead = toGeometry(synthesizeBlueprint('dead_tree')!);
-    expect(dead.parts.every(p => matOf(p) !== 'foliage')).toBe(true);
-    expect(dead.parts.some(p => p.prim === 'ellipsoid' || p.prim === 'cone')).toBe(false);
+  it('compiles to a standalone flora prim (limbs + leaves) — no building prim', () => {
+    for (const k of TREE_KINDS) {
+      const g = toGeometry(synthesizeBlueprint(k)!);
+      expect(g.parts.some(p => p.prim === 'building'), k).toBe(false);
+      const flora = g.parts.filter(p => p.prim === 'flora') as Array<{ limbs?: unknown[]; leaves?: unknown[] }>;
+      expect(flora.length, k).toBeGreaterThanOrEqual(1);     // branching skeleton
+      expect(flora[0].limbs!.length, k).toBeGreaterThanOrEqual(1);
+    }
+    // A conifer (spacecol) and a broadleaf (proctree) both produce a flora prim.
+    expect(toGeometry(synthesizeBlueprint('pine_branched')!).parts.some(p => p.prim === 'flora')).toBe(true);
   });
 
   it('a plant blueprint entity gets category vegetation (renderer + nature-height keep working)', () => {
-    const e = blueprintEntity('t1', synthesizeBlueprint('oak_tree')!, 5, 6);
-    expect(e.kind).toBe('oak_tree');
+    const e = blueprintEntity('t1', synthesizeBlueprint('oak_branched')!, 5, 6);
+    expect(e.kind).toBe('oak_branched');
     expect(e.properties?.category).toBe('vegetation');
     expect(e.tags).toContain('vegetation');
   });
@@ -73,12 +66,12 @@ describe('ParametricPlantSource (species-keyed)', () => {
       compose: async () => { composes++; await gate; return {} as never; },
       toSprite: () => fakePack(),
     });
-    expect(src.peek('oak_tree')).toBeNull();
-    src.warm('oak_tree');
-    src.warm('oak_tree'); // de-duped while inflight
+    expect(src.peek('oak_branched')).toBeNull();
+    src.warm('oak_branched');
+    src.warm('oak_branched'); // de-duped while inflight
     resolve();
     await new Promise(r => setTimeout(r, 0));
-    expect(src.peek('oak_tree')).not.toBeNull();
+    expect(src.peek('oak_branched')).not.toBeNull();
     expect(composes).toBe(1);
   });
 

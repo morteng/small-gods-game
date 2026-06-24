@@ -36,7 +36,7 @@ describe('entityLayer', () => {
     expect(entityLayer(entity('npc'))).toBe('npcs');
     expect(entityLayer(entity('remains'))).toBe('remains');
     expect(entityLayer(entity('cottage'))).toBe('buildings');
-    expect(entityLayer(entity('oak_tree'))).toBe('vegetation');
+    expect(entityLayer(entity('english-oak'))).toBe('vegetation');
     expect(entityLayer(entity('well'))).toBe('props');
     expect(entityLayer(entity('boulder'))).toBe('terrainFeatures');
   });
@@ -50,7 +50,7 @@ describe('isEntityHidden', () => {
   it('hides an entity when its layer flag is false', () => {
     const dm = { showBuildings: false } as DevModeState;
     expect(isEntityHidden(entity('cottage'), dm)).toBe(true);
-    expect(isEntityHidden(entity('oak_tree'), dm)).toBe(false);
+    expect(isEntityHidden(entity('english-oak'), dm)).toBe(false);
   });
 
   it('hides NPC entities (the fallback square) under the npcs toggle', () => {

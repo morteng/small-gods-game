@@ -25,7 +25,7 @@ describe('ArtResolver', () => {
     // unrelated top candidate at score 0 — the resolver must reject it.
     const lib = fakeLib({ id: 'unrelated', sourceTier: 'base', width: 64, height: 64, score: 0 });
     const r = new ArtResolver(lib, 'pixel-art');
-    const e = ent('oak_tree#3', 'oak_tree');
+    const e = ent('english-oak#3', 'english-oak');
     expect(await r.resolve(e)).toBeNull();
     expect(await r.resolve(e)).toBeNull();
     expect((lib.pick as any)).toHaveBeenCalledTimes(1); // still memoized

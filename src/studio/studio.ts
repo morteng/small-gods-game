@@ -3,7 +3,7 @@
 // game render path (iso terrain + the PixiJS lit entity layer + cast shadows)
 // AND the EXACT game camera controls (drag-pan, wheel-zoom on the pixel-perfect
 // iso ladder via `attachControls`), so lighting / shadows / sprite anchoring can
-// be verified in isolation. Boot with `?studio` (optionally `?studio=oak_tree`).
+// be verified in isolation. Boot with `?studio` (optionally `?studio=english-oak`).
 //
 // Layout: a resizable VIEW PANE (top) over a docked PIPELINE-STAGES strip
 // (bottom). The sources retain every compose buffer per asset (keepStages), so
@@ -112,7 +112,7 @@ export interface RenderResult {
 
 export interface StudioHandle { dispose(): void; }
 export interface ObjectStudioOpts {
-  /** Initial subject kind (building/plant). Falls back to 'oak_tree'. */
+  /** Initial subject kind (building/plant). Falls back to 'english-oak'. */
   initialKind?: string;
 }
 
@@ -253,10 +253,10 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
     .then((r) => { renderMap = r.render; })
     .catch((err) => { console.error('[studio] GPU render init failed:', err); });
 
-  const initial = (opts.initialKind && opts.initialKind !== '1') ? opts.initialKind : 'oak_tree';
+  const initial = (opts.initialKind && opts.initialKind !== '1') ? opts.initialKind : 'english-oak';
 
   const state: StudioState = {
-    kind: (BUILDING_BLUEPRINTS[initial] || isPlantPreset(initial)) ? initial : 'oak_tree',
+    kind: (BUILDING_BLUEPRINTS[initial] || isPlantPreset(initial)) ? initial : 'english-oak',
     lighting: { ...DEFAULT_LIGHTING, shadowMode: 'geometry' },
     az: 41, el: 40,
     sunMode: 'solar',
@@ -449,7 +449,7 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
     if (state.fit) fitCamera();
     return {
       map, camera: cam, canvasWidth: w, canvasHeight: h,
-      npcs: [], npcSheets: new Map(), treeSheets: new Map(),
+      npcs: [], npcSheets: new Map(),
       world, lighting: state.lighting,
       resolveParametricBuildingArt: litSubjectPack,
       resolveParametricPlantArt: litSubjectPack,

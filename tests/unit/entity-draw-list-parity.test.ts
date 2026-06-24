@@ -49,7 +49,7 @@ describe('R0b — buildEntityDrawList parity through the RenderGraph', () => {
     const world = new World(emptyMap());
     world.addEntity(buildingStub('b1', 5, 5, 2, 2));
     world.addEntity({ id: 'w1', kind: 'wall_run', x: 6, y: 5 }); // bare run → no slabs, but sorts
-    world.addEntity({ id: 't1', kind: 'oak_tree', x: 7, y: 7 });
+    world.addEntity({ id: 't1', kind: 'english-oak', x: 7, y: 7 });
     world.addEntity({ id: 'r1', kind: 'rock_unknown_xyz', x: 8, y: 8 }); // not drawn
     const npcs = [{ id: 'n1', role: 'villager', tileX: 3, tileY: 3 }] as unknown as NpcInstance[];
 
@@ -86,8 +86,8 @@ describe('R0b — buildEntityDrawList parity through the RenderGraph', () => {
         {
           "color": "#3a6e3a",
           "cx": 0,
-          "cy": 184,
-          "r": 168,
+          "cy": 430.4,
+          "r": 11.2,
           "t": "circle",
         },
       ]

@@ -64,7 +64,7 @@ describe('catalogue descriptor axes', () => {
   it('buildings expose wealth/quality/condition axes; trees do not', () => {
     const cat = assetCatalogue();
     const cottage = cat.find(e => e.type === 'cottage')!;
-    const oak = cat.find(e => e.type === 'oak_tree')!;
+    const oak = cat.find(e => e.type === 'english-oak')!;
     expect(cottage.descriptorAxes.wealth).toContain('opulent');
     expect(oak.descriptorAxes.wealth).toBeUndefined();
   });

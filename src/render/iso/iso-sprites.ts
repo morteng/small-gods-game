@@ -3,7 +3,6 @@ import type { IsoAtlas } from './iso-atlas';
 import type { NpcInstance, Entity } from '@/core/types';
 import { tryGetEntityKindDef } from '@/world/entity-kinds';
 import { getSpriteCoords } from '@/render/npc-animator';
-import { treeSheetForKind, treeSpriteColumn, TREE_SPRITE_SRC } from '@/render/tree-sheets';
 import { NATURE_HEIGHT_M, DEFAULT_NATURE_HEIGHT_M, mToPx } from '@/render/scale-contract';
 import { npcBillboard } from './npc-billboard';
 import { type DrawItem } from './draw-list';
@@ -15,25 +14,19 @@ export interface IsoDrawCtx {
   originY: number;
   /** LPC spritesheets keyed by NPC id (shared with top-down renderer). */
   npcSheets?: Map<string, HTMLCanvasElement>;
-  /** Tree sheets keyed by variant (green/orange/…), shared with top-down. */
-  treeSheets?: Map<string, HTMLImageElement>;
 }
 
 /** The emitters need everything the draw ctx carries except the 2D context. */
 export type IsoItemCtx = Omit<IsoDrawCtx, 'ctx'>;
 
 /**
- * Billboard target height (px) and the nearest INTEGER source-scale class for a nature
- * kind, given a per-instance variety multiplier (~0.85..1.15; defaults to 1). Integer
- * scale keeps the blit pixel-crisp (1:1 rule).
- * NOTE: source art is TREE_SPRITE_SRC px; a truthful tall tree is a large integer upscale
- * (blocky) until art is re-authored at native sizes (period/style track).
+ * Billboard target height (px) for a nature kind, given a per-instance variety
+ * multiplier (~0.85..1.15; defaults to 1). Drives the drawn canopy/trunk placeholder
+ * (the parametric SpritePack is the real art; this is the headless/cold fallback).
  */
-export function natureBillboard(kind: string, variety = 1): { targetPx: number; srcScale: number } {
+export function natureBillboard(kind: string, variety = 1): { targetPx: number } {
   const m = (NATURE_HEIGHT_M[kind] ?? DEFAULT_NATURE_HEIGHT_M) * variety;
-  const targetPx = mToPx(m);
-  const srcScale = Math.max(1, Math.round(targetPx / TREE_SPRITE_SRC));
-  return { targetPx, srcScale };
+  return { targetPx: mToPx(m) };
 }
 
 const NPC_COLOR_BY_ROLE: Record<string, string> = {
@@ -159,31 +152,11 @@ export function vegetationItems(ic: IsoItemCtx, e: Entity): DrawItem[] {
   // Vegetation is never rotated (tilted trees read as wrong) — variety comes
   // from the multiplier and clumped placement instead.
   const variety = (e.properties?.scale as number) ?? 1;
-  const { targetPx, srcScale } = natureBillboard(e.kind, variety);
+  const { targetPx } = natureBillboard(e.kind, variety);
 
-  // Prefer the real tree sprite (same sheets as the top-down renderer),
-  // billboarded upright like NPCs. Falls back to the drawn placeholder below
-  // when no sheet is loaded (headless/tests) or for sheet-less ground cover.
-  const sheetName = treeSheetForKind(e.kind);
-  const sheet = sheetName ? ic.treeSheets?.get(sheetName) : undefined;
-  if (sheet) {
-    // WYSIWYG native-blit at an INTEGER pixel-scale class (1× small, 2× mature) —
-    // never a fractional scale, so the tree stays pixel-perfect. The 1.5-aspect
-    // stretch is gone (it distorted the square source); clump variety now comes
-    // from the size class + placement. (Tree art will be re-authored at true sizes
-    // in a later pass; until then a square 64/128px billboard is the 1:1 form.)
-    const treeW = TREE_SPRITE_SRC * srcScale;
-    const treeH = TREE_SPRITE_SRC * srcScale;
-    const col = treeSpriteColumn(Math.floor(e.x), Math.floor(e.y));
-    return [{
-      t: 'image', src: sheet,
-      frame: { sx: col * TREE_SPRITE_SRC, sy: 0, sw: TREE_SPRITE_SRC, sh: TREE_SPRITE_SRC },
-      // integer position → crisp blit
-      dx: Math.round(sx) - treeW / 2, dy: Math.round(sy) - treeH,
-      dw: treeW, dh: treeH,
-    }];
-  }
-
+  // Drawn canopy/trunk placeholder. The real flora art is the parametric SpritePack
+  // (resolveParametricPlantArt → plantSpriteItemFromPack); this is the cold/headless
+  // fallback when that pack isn't warm yet.
   const items: DrawItem[] = [];
   // Trees have 'tree' in their defaultTags; ground cover (fern, shrub) does not
   const isTree = def.defaultTags.includes('tree');

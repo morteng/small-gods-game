@@ -43,7 +43,7 @@ describe('planVariants', () => {
 describe('defaultVariantMatrix', () => {
   it('gives plants their whole stage timeline and buildings poor/rich/ruined cuts', () => {
     const specs = defaultVariantMatrix();
-    const oak = specs.find(s => s.type === 'oak_tree')!;
+    const oak = specs.find(s => s.type === 'english-oak')!;
     const cottage = specs.find(s => s.type === 'cottage')!;
     expect(oak.stages).toContain('sapling');
     expect(oak.stages).toContain('stub');

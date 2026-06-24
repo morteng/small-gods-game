@@ -15,10 +15,12 @@ describe('entity-kinds catalog', () => {
     expect(entityKinds.has('dock')).toBe(true);
   });
 
-  it('has the tree kinds emitted by the forest brush', () => {
-    expect(entityKinds.has('oak_tree')).toBe(true);
-    expect(entityKinds.has('pine_tree')).toBe(true);
-    expect(entityKinds.has('dead_tree')).toBe(true);
+  it('resolves the flora-DB species emitted by the forest brushes (lazy, derived)', () => {
+    // Trees are botanically-derived species, not hand-listed — getEntityKindDef
+    // derives them from the flora fact DB on demand.
+    for (const k of ['english-oak', 'silver-birch', 'scots-pine']) {
+      expect(getEntityKindDef(k).category, k).toBe('vegetation');
+    }
   });
 
   it('has the POI-zone prop kinds', () => {

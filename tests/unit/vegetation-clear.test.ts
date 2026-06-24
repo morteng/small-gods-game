@@ -25,7 +25,7 @@ function makeMap(w: number, h: number, type = 'grass'): GameMap {
 }
 
 function tree(id: string, x: number, y: number): Entity {
-  return { id, kind: 'oak_tree', x, y, tags: ['vegetation', 'tree'], properties: {} } as Entity;
+  return { id, kind: 'english-oak', x, y, tags: ['vegetation', 'tree'], properties: {} } as Entity;
 }
 function shrub(id: string, x: number, y: number): Entity {
   return { id, kind: 'shrub', x, y, tags: ['vegetation', 'undergrowth'], properties: {} } as Entity;

@@ -24,19 +24,19 @@ function fillColors(items: DrawItem[]): string[] {
 
 describe('vegetationItems', () => {
   it('emits a canopy for a tree (no programmatic ground shadow)', () => {
-    const items = vegetationItems(ic(), entity('oak_tree'));
+    const items = vegetationItems(ic(), entity('english-oak'));
     // At least one filled shape (canopy); no ellipse/ground-shadow concept exists.
     expect(items.filter((i) => i.t === 'poly' || i.t === 'circle').length).toBeGreaterThanOrEqual(1);
   });
 
   it('paints the canopy in the entity kind fallback color', () => {
-    const items = vegetationItems(ic(), entity('orange_tree'));
-    const expected = tryGetEntityKindDef('orange_tree')!.sprite.fallbackColor;
+    const items = vegetationItems(ic(), entity('english-oak'));
+    const expected = tryGetEntityKindDef('english-oak')!.sprite.fallbackColor;
     expect(fillColors(items)).toContain(expected);
   });
 
   it('emits a triangle canopy for triangle-shaped kinds', () => {
-    const items = vegetationItems(ic(), entity('pine_tree'));
+    const items = vegetationItems(ic(), entity('scots-pine'));
     // A triangle canopy is a 3-point poly.
     const triangles = items.filter(
       (i): i is Extract<DrawItem, { t: 'poly' }> => i.t === 'poly' && i.points.length === 3,
@@ -45,7 +45,7 @@ describe('vegetationItems', () => {
   });
 
   it('emits a trunk for tall trees but not for ground cover', () => {
-    const treeItems = vegetationItems(ic(), entity('oak_tree'));
+    const treeItems = vegetationItems(ic(), entity('english-oak'));
     expect(fillColors(treeItems)).toContain('#5a4030'); // TRUNK_COLOR
 
     const fernItems = vegetationItems(ic(), entity('fern'));

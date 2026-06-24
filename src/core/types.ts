@@ -189,7 +189,6 @@ export interface RenderContext {
   tileAtlas: HTMLImageElement | null;
   terrainSheets: Map<string, HTMLImageElement>;
   buildingSprites: Map<string, HTMLImageElement>;
-  treeSheets: Map<string, HTMLImageElement>;
   world: World;
   showLabels?: boolean;
   showPoiMarkers?: boolean;

@@ -30,9 +30,7 @@ export const STOREY_M       = 2.7;     // interior storey height
  * here (enforced by tests/unit/nature-height-coverage.test.ts in a later task).
  */
 export const NATURE_HEIGHT_M: Record<string, number> = {
-  // trees
-  oak_tree: 15, pine_tree: 18, birch_tree: 12, dead_tree: 8,
-  orange_tree: 6, pale_tree: 10, brown_tree: 11,
+  // saplings / arid (real tree heights come from the flora-DB species)
   sapling: 2.5, cactus: 2.5,
   // shrubs / undergrowth
   shrub: 1.5, fern: 0.5, reeds: 1.8, vine: 1.5,

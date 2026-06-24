@@ -31,7 +31,7 @@ describe('scale-contract: metric core', () => {
     expect(STOREY_TILES).toBeCloseTo(1.35);
   });
   it('nature table', () => {
-    expect(NATURE_HEIGHT_M.oak_tree).toBe(15);
+    expect(NATURE_HEIGHT_M.sapling).toBe(2.5);
     expect(NATURE_HEIGHT_M.boulder).toBe(1.2);
     expect(DEFAULT_NATURE_HEIGHT_M).toBe(1.0);
   });

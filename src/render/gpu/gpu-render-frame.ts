@@ -139,7 +139,7 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
       canvasHeight / camera.zoom,
       { mapW: map.width, mapH: map.height },
     );
-    const ic = { atlas, originX: 0, originY: 0, npcSheets: rc.npcSheets, treeSheets: rc.treeSheets };
+    const ic = { atlas, originX: 0, originY: 0, npcSheets: rc.npcSheets };
 
     // Static layer (flora/buildings/deco/roads) is camera-independent and changes
     // only when the world does — the cache builds it UNCULLED once and reuses it,

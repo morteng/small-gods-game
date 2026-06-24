@@ -31,14 +31,7 @@ const prop = (preset: string, b: Omit<Blueprint, 'version' | 'class' | 'preset'>
  *  Keyed by the existing entity kinds so `kind` is preserved; heights match
  *  NATURE_HEIGHT_M (scale-contract). Render keys ONE sprite per species (see
  *  ParametricPlantSource) — trees never carry a per-entity blueprint. */
-const tree = (preset: string, form: string, heightM: number, crownM: number, trunkR = 0.16): Blueprint => ({
-  version: BLUEPRINT_VERSION, class: 'plant', preset,
-  category: 'flora', footprint: { w: 1, h: 1 },
-  materials: { walls: 'timber', roof: 'thatch', ground: 'grass' },
-  parts: { trunk: { type: 'tree', size: { w: 1, h: 1 }, params: { form, heightM, crownM, trunkR } } },
-});
-
-/** Branching L-system plant (class:'plant') — real limbs/foliage vs the blob `tree`.
+/** Branching L-system plant (class:'plant') — real limbs/foliage.
  *  `recipe` selects the L-system; the blueprint seed fixes the (stochastic) shape so
  *  every instance of a species shares one cached sprite. See flora-branch.ts. */
 /** Sensible (generator, crownShape) for a hand-authored preset that only names a
@@ -268,16 +261,8 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
     materials: { walls: 'hide', roof: 'hide', ground: 'dirt' },
     parts: { canvas: { type: 'tent', size: { w: 2, h: 2 }, params: { heightM: 2.8 } } },
   }),
-  // Trees (class:'plant'). Heights match NATURE_HEIGHT_M; render keys one sprite/species.
-  oak_tree: tree('oak_tree', 'broad', 15, 8, 0.20),
-  pine_tree: tree('pine_tree', 'conifer', 18, 5, 0.16),
-  birch_tree: tree('birch_tree', 'slender', 12, 3.5, 0.11),
-  dead_tree: tree('dead_tree', 'bare', 8, 4, 0.13),
-  orange_tree: tree('orange_tree', 'broad', 6, 4, 0.13),
-  pale_tree: tree('pale_tree', 'broad', 10, 5.5, 0.15),
-  brown_tree: tree('brown_tree', 'broad', 11, 6, 0.16),
-  // Branching L-system flora (richer than the blob trees; opt-in presets for the
-  // flora-generation epic — existing kinds above keep the blob `tree` for now).
+  // Branching L-system flora (class:'plant'). Hand-authored presets; worldgen prefers
+  // the botanically-derived flora-DB species (english-oak, scots-pine, …).
   oak_branched: branched('oak_branched', 'oak', 15, 0.20),
   pine_branched: branched('pine_branched', 'pine', 18, 0.16),
   willow_tree: branched('willow_tree', 'willow', 13, 0.18),

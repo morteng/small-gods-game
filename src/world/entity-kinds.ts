@@ -44,14 +44,10 @@ export const entityKinds: ReadonlyMap<string, EntityKindDef> = new Map<string, E
   ['yurt',          def('yurt',          'building',         '#b9a07a', 'square', ['building', 'residential', 'shelter'], 1)],
   ['longhouse',     def('longhouse',     'building',         '#7a5230', 'square', ['building', 'residential', 'shelter'], 1)],
 
-  // ─── Vegetation (trees — match decoration-placer variants) ────────────────
-  ['oak_tree',      def('oak_tree',      'vegetation',       '#3a6e3a', 'circle', ['vegetation', 'tree', 'forest'], 0.5)],
-  ['pine_tree',     def('pine_tree',     'vegetation',       '#2d5a2d', 'triangle', ['vegetation', 'tree', 'forest'], 0.5)],
-  ['birch_tree',    def('birch_tree',    'vegetation',       '#a8b87a', 'circle', ['vegetation', 'tree', 'forest'], 0.5)],
-  ['dead_tree',     def('dead_tree',     'vegetation',       '#8a7a5a', 'triangle', ['vegetation', 'tree', 'dead'], 0.5)],
-  ['orange_tree',   def('orange_tree',   'vegetation',       '#d97a3a', 'circle', ['vegetation', 'tree', 'forest'], 0.5)],
-  ['pale_tree',     def('pale_tree',     'vegetation',       '#c8b888', 'circle', ['vegetation', 'tree', 'forest'], 0.5)],
-  ['brown_tree',    def('brown_tree',    'vegetation',       '#7a5a3a', 'circle', ['vegetation', 'tree', 'forest'], 0.5)],
+  // ─── Vegetation ───────────────────────────────────────────────────────────
+  // Trees/shrubs/herbs are botanically-derived flora-DB species (english-oak,
+  // scots-pine, …), auto-registered below from FLORA_FACTS. The generic ground
+  // cover kinds here are the remaining hand-authored placeholders.
   ['sapling',       def('sapling',       'vegetation',       '#5a8a4a', 'circle', ['vegetation', 'small'], 0.5)],
   ['shrub',         def('shrub',         'vegetation',       '#4a7a3a', 'circle', ['vegetation', 'undergrowth'], 0.5)],
   ['fern',          def('fern',          'vegetation',       '#3a6a2a', 'circle', ['vegetation', 'undergrowth'], 0.3)],

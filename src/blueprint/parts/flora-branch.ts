@@ -14,7 +14,10 @@ import {
   buildFlora, FLORA_GENERATORS, CROWN_SILHOUETTES,
   type FloraGenerator, type CrownSilhouette,
 } from '@/assetgen/geometry/flora/generators';
-import { TREE_GAME_SCALE } from './flora';
+// Game-feel stylization scale for flora. Metric truth (heightM/sizeM) drives briefs
+// and any sim; only the rendered geometry shrinks so trees read as charming props,
+// not a forester's survey. (Was in the retired blob `parts/flora.ts`.)
+export const TREE_GAME_SCALE = 0.34;
 
 const footprintCells = (p: { at: { x: number; y: number }; size: { w: number; h: number } }): Array<[number, number]> => {
   const cells: Array<[number, number]> = [];

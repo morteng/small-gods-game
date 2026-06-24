@@ -77,7 +77,7 @@ describe('forest brush', () => {
     const c = allForest(40, 40);
     const r = { x: 0, y: 0, w: 40, h: 40 };
     const base: VegetationParams = {
-      brush: 'forest', tileType: 'forest', kinds: [['oak_tree', 1]],
+      brush: 'forest', tileType: 'forest', kinds: [['english-oak', 1]],
       density: 0.35, scaleRange: [1, 1], rotationRange: 0, offsetRange: [0, 0],
     };
     // Variance of per-4×4-block tree counts: clumped should spread wider.
@@ -100,7 +100,7 @@ describe('forest brush', () => {
     const c = allForest(24, 24);
     const r = { x: 0, y: 0, w: 24, h: 24 };
     const p: VegetationParams = {
-      brush: 'forest', tileType: 'forest', kinds: [['oak_tree', 1]],
+      brush: 'forest', tileType: 'forest', kinds: [['english-oak', 1]],
       density: 0.35, scaleRange: [0.6, 1.5], rotationRange: 0, offsetRange: [0.3, 0.3], clumpScale: 5,
     };
     expect(placeVegetation(r, 5, c, p)).toEqual(placeVegetation(r, 5, c, p));
@@ -109,7 +109,7 @@ describe('forest brush', () => {
 
 describe('vegetation scatter (anti-grid)', () => {
   const base: VegetationParams = {
-    brush: 'forest', tileType: 'forest', kinds: [['oak_tree', 1]],
+    brush: 'forest', tileType: 'forest', kinds: [['english-oak', 1]],
     density: 0.6, scaleRange: [1, 1], rotationRange: 0, offsetRange: [0.5, 0.5], clumpScale: 0,
   };
 

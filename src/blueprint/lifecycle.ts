@@ -17,46 +17,44 @@ export const PLANT_STAGES: readonly PlantStage[] = ['sapling', 'young', 'mature'
 export const PLANT_DEFAULT_STAGE: PlantStage = 'mature';
 
 interface PlantProfile {
-  scale: number;          // overall size multiplier (height/crown/trunk)
-  crownScale?: number;    // extra crown multiplier (1 = track size; <1 = thinning)
-  form?: string;          // override crown silhouette ('bare' = leaf-drop)
+  scale: number;          // overall size multiplier (height + trunk radius)
+  leafless?: boolean;     // drop the crown to a bare silhouette (crownShape → 'none')
 }
-// A growth curve over the tree's metric params: a sapling is a quarter-height
-// wisp, maturity is full size, dying thins + drops leaves, fallen/stub collapse.
+// A growth curve over the flora part's metric params: a sapling is a quarter-height
+// wisp, maturity is full size, dying/fallen/stub drop the crown and collapse in size.
 // (A true horizontal "laid log" pose for `fallen` needs flora geometry support —
 // deferred; for now it reads as a bare, low, broken trunk.)
 const PLANT_PROFILES: Record<PlantStage, PlantProfile> = {
-  sapling: { scale: 0.25, crownScale: 0.6 },
-  young:   { scale: 0.55, crownScale: 0.85 },
+  sapling: { scale: 0.25 },
+  young:   { scale: 0.55 },
   mature:  { scale: 1.0 },
-  dying:   { scale: 0.95, crownScale: 0.5, form: 'bare' },
-  fallen:  { scale: 0.85, crownScale: 0.0, form: 'bare' },
-  stub:    { scale: 0.12, crownScale: 0.0 },
+  dying:   { scale: 0.95, leafless: true },
+  fallen:  { scale: 0.85, leafless: true },
+  stub:    { scale: 0.12, leafless: true },
 };
 
 const round = (n: number, dp = 2): number => { const f = 10 ** dp; return Math.round(n * f) / f; };
 
-/** Build the patch a plant stage implies for `base` — scales the tree part's metric
- *  params along the growth curve. Pure; deterministic. Returns an empty patch for the
- *  default stage (no-op). */
+/** Build the patch a plant stage implies for `base` — scales the branching flora part's
+ *  metric params along the growth curve (and drops the crown for the dying/fallen/stub
+ *  end of life). Pure; deterministic. Returns an empty patch for the default stage. The
+ *  patch overrides only heightM/trunkR/crownShape; generator/recipe/seed merge through
+ *  unchanged (resolve.ts mergePart spreads params), so the species' branching is kept. */
 export function plantStagePatch(base: Blueprint, stage: PlantStage): BlueprintPatch {
   if (stage === PLANT_DEFAULT_STAGE) return {};
   const prof = PLANT_PROFILES[stage];
   const patch: BlueprintPatch = { stage };
   const parts: Record<string, Part> = {};
   for (const [pid, part] of Object.entries(base.parts)) {
-    if (part.type !== 'tree') continue;
+    if (part.type !== 'branch_plant') continue;
     const p = part.params ?? {};
     const h = (p.heightM as number) ?? 10;
-    const c = (p.crownM as number) ?? 6;
     const r = (p.trunkR as number) ?? 0.16;
-    const crownMul = prof.scale * (prof.crownScale ?? 1);
     const params: Record<string, unknown> = {
       heightM: round(h * prof.scale),
-      crownM: round(c * crownMul),
       trunkR: round(r * prof.scale, 3),
     };
-    if (prof.form) params.form = prof.form;
+    if (prof.leafless) params.crownShape = 'none';
     parts[pid] = { type: part.type, params };
   }
   if (Object.keys(parts).length) patch.parts = parts;

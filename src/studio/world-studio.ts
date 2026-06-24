@@ -1090,7 +1090,7 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
   function renderContext(): RenderContext {
     return {
       map, camera: cam, canvasWidth: cssW, canvasHeight: cssH,
-      npcs: [], npcSheets: new Map(), treeSheets: new Map(),
+      npcs: [], npcSheets: new Map(),
       world, lighting, visualMap: visualMap ?? undefined,
       devMode: dev as DevModeState,   // terrain/roads/rivers/buildings/vegetation toggles
       lakeOffsetM: waterDyn?.lakeOffsetM(),   // localized lake level (climate W-B)

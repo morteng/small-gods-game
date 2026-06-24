@@ -17,45 +17,45 @@ describe('World', () => {
 
   it('addEntity then query by kind returns it', () => {
     const w = new World(emptyMap());
-    w.addEntity({ id: 'e1', kind: 'oak_tree', x: 5, y: 5, tags: ['tree'] });
-    expect(w.query({ kind: 'oak_tree' }).map(e => e.id)).toEqual(['e1']);
+    w.addEntity({ id: 'e1', kind: 'english-oak', x: 5, y: 5, tags: ['tree'] });
+    expect(w.query({ kind: 'english-oak' }).map(e => e.id)).toEqual(['e1']);
   });
 
   it('query by tag returns matching entities', () => {
     const w = new World(emptyMap());
-    w.addEntity({ id: 'e1', kind: 'oak_tree', x: 5, y: 5, tags: ['tree', 'forest'] });
+    w.addEntity({ id: 'e1', kind: 'english-oak', x: 5, y: 5, tags: ['tree', 'forest'] });
     w.addEntity({ id: 'e2', kind: 'well', x: 6, y: 6, tags: ['water-source'] });
     expect(w.query({ tag: 'water-source' }).map(e => e.id)).toEqual(['e2']);
   });
 
   it('query by region returns only entities inside', () => {
     const w = new World(emptyMap());
-    w.addEntity({ id: 'inside', kind: 'oak_tree', x: 2, y: 2 });
-    w.addEntity({ id: 'outside', kind: 'oak_tree', x: 50, y: 50 });
+    w.addEntity({ id: 'inside', kind: 'english-oak', x: 2, y: 2 });
+    w.addEntity({ id: 'outside', kind: 'english-oak', x: 50, y: 50 });
     const r = w.query({ region: { x: 0, y: 0, w: 10, h: 10 } });
     expect(r.map(e => e.id)).toEqual(['inside']);
   });
 
   it('query combines region + kind filters', () => {
     const w = new World(emptyMap());
-    w.addEntity({ id: 'a', kind: 'oak_tree', x: 2, y: 2 });
-    w.addEntity({ id: 'b', kind: 'pine_tree', x: 3, y: 3 });
-    w.addEntity({ id: 'c', kind: 'oak_tree', x: 80, y: 80 });
-    const r = w.query({ region: { x: 0, y: 0, w: 10, h: 10 }, kind: 'oak_tree' });
+    w.addEntity({ id: 'a', kind: 'english-oak', x: 2, y: 2 });
+    w.addEntity({ id: 'b', kind: 'scots-pine', x: 3, y: 3 });
+    w.addEntity({ id: 'c', kind: 'english-oak', x: 80, y: 80 });
+    const r = w.query({ region: { x: 0, y: 0, w: 10, h: 10 }, kind: 'english-oak' });
     expect(r.map(e => e.id)).toEqual(['a']);
   });
 
   it('limit trims the result quietly', () => {
     const w = new World(emptyMap());
-    for (let i = 0; i < 10; i++) w.addEntity({ id: `e${i}`, kind: 'oak_tree', x: i, y: 0 });
-    expect(w.query({ kind: 'oak_tree', limit: 3 }).length).toBe(3);
+    for (let i = 0; i < 10; i++) w.addEntity({ id: `e${i}`, kind: 'english-oak', x: i, y: 0 });
+    expect(w.query({ kind: 'english-oak', limit: 3 }).length).toBe(3);
   });
 
   it('removeEntity drops it from all indexes', () => {
     const w = new World(emptyMap());
-    w.addEntity({ id: 'e1', kind: 'oak_tree', x: 5, y: 5, tags: ['tree'] });
+    w.addEntity({ id: 'e1', kind: 'english-oak', x: 5, y: 5, tags: ['tree'] });
     w.removeEntity('e1');
-    expect(w.query({ kind: 'oak_tree' })).toEqual([]);
+    expect(w.query({ kind: 'english-oak' })).toEqual([]);
     expect(w.query({ tag: 'tree' })).toEqual([]);
     expect(w.query({ region: { x: 0, y: 0, w: 10, h: 10 } })).toEqual([]);
   });
@@ -69,19 +69,19 @@ describe('World', () => {
 
   it('addEntity with duplicate id throws', () => {
     const w = new World(emptyMap());
-    w.addEntity({ id: 'e1', kind: 'oak_tree', x: 5, y: 5 });
-    expect(() => w.addEntity({ id: 'e1', kind: 'pine_tree', x: 6, y: 6 })).toThrow();
+    w.addEntity({ id: 'e1', kind: 'english-oak', x: 5, y: 5 });
+    expect(() => w.addEntity({ id: 'e1', kind: 'scots-pine', x: 6, y: 6 })).toThrow();
   });
 
   it('applyBrush calls the brush fn and adds returned entities', () => {
     registerBrush('mock', (region) => [
-      defaultEntity('mock', 'oak_tree', region.x, region.y),
+      defaultEntity('mock', 'english-oak', region.x, region.y),
     ]);
     const m = emptyMap(); m.width = 16; m.height = 16;
     const w = new World(m);
     const ids = w.applyBrush('mock', { x: 3, y: 4, w: 1, h: 1 }, 42);
-    expect(ids).toEqual(['mock-oak_tree-3-4']);
-    expect(w.query({ kind: 'oak_tree' }).length).toBe(1);
+    expect(ids).toEqual(['mock-english-oak-3-4']);
+    expect(w.query({ kind: 'english-oak' }).length).toBe(1);
   });
 
   it('applyBrush with unknown brush throws', () => {
@@ -91,9 +91,9 @@ describe('World', () => {
 
   it('applyBrush drops entities outside the map bounds with a warn', () => {
     registerBrush('outofbounds', () => [
-      { id: 'a', kind: 'oak_tree', x: -1, y: 0 },
-      { id: 'b', kind: 'oak_tree', x: 5, y: 5 },
-      { id: 'c', kind: 'oak_tree', x: 100, y: 100 },
+      { id: 'a', kind: 'english-oak', x: -1, y: 0 },
+      { id: 'b', kind: 'english-oak', x: 5, y: 5 },
+      { id: 'c', kind: 'english-oak', x: 100, y: 100 },
     ]);
     const map = emptyMap(); map.width = 16; map.height = 16;
     const w = new World(map);
@@ -103,12 +103,12 @@ describe('World', () => {
 
   it('flushBrushDiagnostics emits one aggregated warn for drops across brushes', () => {
     registerBrush('oob', () => [
-      { id: 'oob-a', kind: 'oak_tree', x: -1, y: 0 },
-      { id: 'oob-b', kind: 'oak_tree', x: 5, y: 5 },
+      { id: 'oob-a', kind: 'english-oak', x: -1, y: 0 },
+      { id: 'oob-b', kind: 'english-oak', x: 5, y: 5 },
     ]);
     registerBrush('dupe', () => [
-      { id: 'oob-b', kind: 'oak_tree', x: 6, y: 6 }, // duplicate
-      { id: 'dupe-a', kind: 'oak_tree', x: 7, y: 7 },
+      { id: 'oob-b', kind: 'english-oak', x: 6, y: 6 }, // duplicate
+      { id: 'dupe-a', kind: 'english-oak', x: 7, y: 7 },
     ]);
     const map = emptyMap(); map.width = 16; map.height = 16;
     const w = new World(map);
@@ -127,7 +127,7 @@ describe('World', () => {
   });
 
   it('flushBrushDiagnostics is silent and idempotent when nothing was dropped', () => {
-    registerBrush('clean', () => [{ id: 'ok', kind: 'oak_tree', x: 1, y: 1 }]);
+    registerBrush('clean', () => [{ id: 'ok', kind: 'english-oak', x: 1, y: 1 }]);
     const map = emptyMap(); map.width = 16; map.height = 16;
     const w = new World(map);
     w.applyBrush('clean', { x: 0, y: 0, w: 16, h: 16 }, 1);
@@ -143,7 +143,7 @@ describe('World', () => {
   });
 
   it('flushBrushDiagnostics resets counters so a second flush is silent', () => {
-    registerBrush('oob2', () => [{ id: 'x', kind: 'oak_tree', x: -1, y: 0 }]);
+    registerBrush('oob2', () => [{ id: 'x', kind: 'english-oak', x: -1, y: 0 }]);
     const map = emptyMap(); map.width = 16; map.height = 16;
     const w = new World(map);
     w.applyBrush('oob2', { x: 0, y: 0, w: 16, h: 16 }, 1);

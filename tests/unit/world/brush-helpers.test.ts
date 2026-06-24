@@ -20,9 +20,9 @@ describe('brush-helpers', () => {
   });
 
   it('defaultEntity populates tags from the kind catalog', () => {
-    const e = defaultEntity('forest', 'oak_tree', 5, 7, { variant: 'green' });
-    expect(e.id).toBe('forest-oak_tree-5-7');
-    expect(e.kind).toBe('oak_tree');
+    const e = defaultEntity('forest', 'english-oak', 5, 7, { variant: 'green' });
+    expect(e.id).toBe('forest-english-oak-5-7');
+    expect(e.kind).toBe('english-oak');
     expect(e.x).toBe(5);
     expect(e.y).toBe(7);
     expect(e.properties?.variant).toBe('green');
@@ -31,14 +31,14 @@ describe('brush-helpers', () => {
   });
 
   it('defaultEntity floors coordinates for id but preserves sub-tile x/y', () => {
-    const e = defaultEntity('forest', 'oak_tree', 5.7, 7.3);
-    expect(e.id).toBe('forest-oak_tree-5-7');
+    const e = defaultEntity('forest', 'english-oak', 5.7, 7.3);
+    expect(e.id).toBe('forest-english-oak-5-7');
     expect(e.x).toBe(5.7);
     expect(e.y).toBe(7.3);
   });
 
   it('defaultEntity appends extra tags after default tags', () => {
-    const e = defaultEntity('temple', 'oak_tree', 0, 0, {}, ['sacred']);
+    const e = defaultEntity('temple', 'english-oak', 0, 0, {}, ['sacred']);
     expect(e.tags).toContain('vegetation');
     expect(e.tags).toContain('sacred');
   });

@@ -14,19 +14,16 @@ export class AssetManager {
   private tileAtlas: HTMLImageElement | null = null;
   private terrain = new Map<string, HTMLImageElement>();
   private buildings = new Map<string, HTMLImageElement>();
-  private trees = new Map<string, HTMLImageElement>();
 
   async loadAll(): Promise<void> {
     if (!this.tileAtlas) this.tileAtlas = await loadImage(assetUrl('sprites/tiles/kenney-town.png'));
     await this.loadTerrain();
     await this.loadBuildings();
-    if (this.trees.size === 0) await this.loadTrees();
   }
 
   getTileAtlas(): HTMLImageElement | null { return this.tileAtlas; }
   getTerrainSheets(): Map<string, HTMLImageElement> { return this.terrain; }
   getBuildingSprites(): Map<string, HTMLImageElement> { return this.buildings; }
-  getTreeSheets(): Map<string, HTMLImageElement> { return this.trees; }
 
   private async loadTerrain(): Promise<void> {
     const groups = ['grass', 'water', 'dirt', 'sand', 'stone', 'rocky'];
@@ -44,14 +41,6 @@ export class AssetManager {
         const img = await loadImage(assetUrl(`sprites/buildings/${tpl.id}.png`));
         if (img) this.buildings.set(tpl.id, img);
       }
-    }));
-  }
-
-  private async loadTrees(): Promise<void> {
-    const variants = ['green', 'orange', 'dead', 'pale', 'brown'];
-    await Promise.all(variants.map(async (v) => {
-      const img = await loadImage(assetUrl(`sprites/trees/trees-${v}.png`));
-      if (img) this.trees.set(v, img);
     }));
   }
 }

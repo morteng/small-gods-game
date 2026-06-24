@@ -84,7 +84,7 @@ export const EDITOR_TOOLS: LLMTool[] = [
     parameters: {
       type: 'object',
       properties: {
-        kind: { type: 'string', description: 'Entity-kind id (e.g. "well", "oak_tree").' },
+        kind: { type: 'string', description: 'Entity-kind id (e.g. "well", "english-oak").' },
         x: { type: 'integer' }, y: { type: 'integer' },
         count: { type: 'integer', minimum: 1, maximum: 50 },
         scatterRadius: { type: 'integer', minimum: 1, maximum: 12 },

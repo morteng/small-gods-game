@@ -57,7 +57,6 @@ export function buildRenderContext(deps: RenderContextDeps): RenderContext {
     tileAtlas: assets.getTileAtlas(),
     terrainSheets: assets.getTerrainSheets(),
     buildingSprites: assets.getBuildingSprites(),
-    treeSheets: assets.getTreeSheets(),
     world: state.world!,
     showLabels: state.showLabels,
     showPoiMarkers: state.showPoiMarkers,
