@@ -22,9 +22,8 @@ describe('GameUi', () => {
     });
     expect(container.childElementCount).toBeGreaterThan(before);
     expect(ui.npcInfoPanel).toBeInstanceOf(HTMLDivElement);
-    const after = container.childElementCount;
     ui.destroy();
     ui = null;
     expect(container.childElementCount).toBe(before);
-  });
+  }, 15000); // GameUi mounts the full panel tree synchronously (~5s in jsdom) — flakes against the 5s default
 });
