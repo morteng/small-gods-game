@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import type { GameMap } from '@/core/types';
 import type { RoadGraph, RoadEdge } from '@/world/road-graph';
-import { getRoadSurfaceField, clearRoadSurfaceCache } from '@/world/road-surface';
+import { getRoadSurfaceField, clearRoadSurfaceCache, ROAD_SURFACE_SUPERSAMPLE as S } from '@/world/road-surface';
 import { evolveRoadGraph } from '@/world/road-evolution';
 
 // End-to-end: prove that evolving the graph actually changes the RENDERED surface field
@@ -20,7 +20,9 @@ function roadEdge(id: string, partial: Partial<RoadEdge> = {}): RoadEdge {
   };
 }
 
-const at = (f: Float32Array, x: number, y: number) => f[y * 24 + x];
+// getRoadSurfaceField is the PRODUCTION accessor — super-sampled S× (24·S wide), so a
+// tile (x,y) lives at fine sub-cell (x·S, y·S). Read that to compare per-tile pavedness.
+const at = (f: Float32Array, x: number, y: number) => f[(y * S) * (24 * S) + (x * S)];
 
 beforeEach(() => clearRoadSurfaceCache());
 
