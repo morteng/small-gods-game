@@ -44,12 +44,14 @@ export const TERRAIN_SUN_DIR: [number, number, number] = [-1, 1.6, -1];
  * DELIBERATELY far below the XY scale (PX_PER_METRE=32): terrain z is compressed
  * for readability like most iso games (real GIS exaggeration is 2–3×, but iso
  * already halves apparent height, and our modest TERRAIN_RELIEF_M wants a larger
- * multiplier to read). At reliefM=48 a sea-to-peak swing (~0.65) lifts ~530 px.
- * This is the seed default for the future `terrainVerticalExaggeration` style
- * knob (see the world-style / "game factor" epic) — raise toward a storybook
+ * multiplier to read). At reliefM=48 a sea-to-peak swing (~0.65) lifts ~625 px.
+ * Render-only (does NOT touch the metre heightfield hydrology/roads read); raised
+ * 17→20 toward a more storybook showcase look so hills + massifs read on the
+ * default world. This is the seed default for the future `terrainVerticalExaggeration`
+ * style knob (see the world-style / "game factor" epic) — raise toward a storybook
  * look, lower toward a flatter simulator look.
  */
-export const TERRAIN_Z_PX_PER_M = 17.0;
+export const TERRAIN_Z_PX_PER_M = 20.0;
 
 /**
  * Terrain display modes — a shader uniform enum (`uMode.x`) branched in the

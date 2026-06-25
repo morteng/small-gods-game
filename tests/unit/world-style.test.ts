@@ -15,7 +15,7 @@ import type { GameMap, Tile, WorldSeed } from '@/core/types';
 
 describe('world-style S0 — resolution core', () => {
   it('STYLE_DEFAULTS mirror today’s terrain constants (the seam is behaviour-neutral)', () => {
-    expect(STYLE_DEFAULTS.terrainVerticalExaggeration).toBe(TERRAIN_Z_PX_PER_M); // 14
+    expect(STYLE_DEFAULTS.terrainVerticalExaggeration).toBe(TERRAIN_Z_PX_PER_M); // 20
     expect(STYLE_DEFAULTS.mountainRelief).toBe(TERRAIN_RELIEF_M);                 // 48
     expect(STYLE_DEFAULTS.coastDrama).toBe(1);
     // every multiplier knob is neutral
@@ -31,7 +31,7 @@ describe('world-style S0 — resolution core', () => {
     expect(b).toEqual(STYLE_DEFAULTS);
     expect(a).not.toBe(STYLE_DEFAULTS); // not the shared instance
     a.terrainVerticalExaggeration = 999; // mutating the copy can't poison defaults
-    expect(STYLE_DEFAULTS.terrainVerticalExaggeration).toBe(17);
+    expect(STYLE_DEFAULTS.terrainVerticalExaggeration).toBe(20);
   });
 
   it('natural preset == defaults (empty override bag)', () => {
