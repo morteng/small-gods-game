@@ -234,8 +234,9 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
 
     // RIBBONS RETIRED (2026-06-25): roads are no longer drawn as ribbons (the road/river
     // ribbon pass was removed as tech debt). A road IS the terrain — carved by
-    // `road-deformation` and textured by the terrain shader from the `roadSurface`
-    // pavedness field + the material-exemplar atlas (dirt → cobble). Bridges over water
+    // `road-deformation` and textured by the terrain shader from the analytic road
+    // feature geometry (pavedness by distance) + the material-exemplar atlas (dirt →
+    // cobble). Bridges over water
     // will return as 3D-modelled, img2img'd structures sited as a PLACE
     // (river-crossings-generative-sites), like buildings/trees. Rivers render through the
     // per-cell water pass.
