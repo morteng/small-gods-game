@@ -37,6 +37,8 @@ struct WGlobals {
   uAmbient  : vec4<f32>,   // ambient rgb, sun strength
   uWater    : vec4<f32>,   // time(s), shallowBand(m), foamBand(m), lakeLevelOffset(norm)
   uChannel  : vec4<f32>,   // river-channel grid: bucketTiles, nbx, nby, segCount
+  uWindow   : vec4<f32>,   // mesh-cull window: tile origin x,y + cell span w,h
+                           // (whole map ⇒ 0,0,W,H — the byte-identical default)
 };
 
 @group(0) @binding(0) var<uniform> G : WGlobals;
@@ -267,14 +269,20 @@ fn vsMain(@builtin(vertex_index) vid : u32) -> VSOut {
   let W = u32(G.uGrid.x);
   let H = u32(G.uGrid.y);
   let sub = max(1u, u32(G.uZParams.w));
-  let quadsPerRow = max(1u, W / sub);
+  // VIEWPORT CULL: the mesh spans only the visible tile window (origin + cell span,
+  // both snapped to the sub lattice CPU-side so the sampled cells are unchanged).
+  // Whole-map default is uWindow = (0,0,W,H) - byte-identical to the un-windowed grid.
+  let ox0 = u32(G.uWindow.x);
+  let oy0 = u32(G.uWindow.y);
+  let winW = max(1u, u32(G.uWindow.z));
+  let quadsPerRow = max(1u, winW / sub);
 
   let quadIdx = vid / 6u;
   let vinq = vid % 6u;
   let qx = quadIdx % quadsPerRow;
   let qy = quadIdx / quadsPerRow;
-  let cellX = min(qx * sub, W - 1u);
-  let cellY = min(qy * sub, H - 1u);
+  let cellX = min(ox0 + qx * sub, W - 1u);
+  let cellY = min(oy0 + qy * sub, H - 1u);
   let ci = cellIdx(cellX, cellY);
 
   var corner = vec2<u32>(0u, 0u);

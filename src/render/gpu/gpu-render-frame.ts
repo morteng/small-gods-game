@@ -203,11 +203,22 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
     // Sea & lakes: gated by its own `showWater` flag (nulling it also drops the
     // ocean backdrop, since both key off hasWater) — distinct from the river ribbon.
     const waterOn = rc.devMode?.showWater !== false && !isLayerHidden('rivers', rc.devMode);
+    // VIEWPORT MESH CULL (T5, water half): the water pass is the dominant primitive-bound
+    // cost at gameplay zoom — ~104k full-map quads/frame, nearly all off-screen (the pass
+    // measured ~49 ms / ~15 fps on a gen-8 iGPU zoomed into a settlement). Water sits on
+    // the flat sea-level plane, so the visible-tile rect (`bounds`, screen corners inverse-
+    // projected onto z=0) is an EXACT cull window — no height-lift margin needed. A couple
+    // of tiles of slack absorb the half-tile iso offset + the coarsen-lattice snap; `bounds`
+    // already clamps to the map, so at fit-zoom the window IS the whole map (byte-identical).
+    const waterWindow = {
+      minTx: bounds.minTx - 2, minTy: bounds.minTy - 2,
+      maxTx: bounds.maxTx + 2, maxTy: bounds.maxTy + 2,
+    };
     const water: WaterField | null = (terrain && waterOn)
       ? buildWaterField(map, {
           viewport: [lowW, lowH], xform, lighting, timeSec, waterLevelM,
           // Same zoom-LOD grid as terrain (Slice 2) — aligned waterlines.
-          superSample, maxQuads: meshMaxQuads,
+          superSample, maxQuads: meshMaxQuads, window: waterWindow,
           // Localized per-basin level (climate W-B) — rain filling one lake.
           lakeOffsetM: rc.lakeOffsetM,
           // Per-cell standing water (W-E) — a god flooding a plain.

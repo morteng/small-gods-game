@@ -28,10 +28,13 @@ export const FOAM_BAND_M = 0.4;
  *  only — the sea (ocean) is the datum and never floods, so it keeps the 1-ring
  *  overhang and pays no extra overdraw. A flood beyond this reach is ring-capped. */
 export const LAKE_FLOOD_RINGS = 6;
-/** WGlobals = TGlobals (24) + uWater vec4 + uChannel vec4 = 32 floats / 128 bytes.
- *  `uChannel` carries the analytic river-channel acceleration-grid dims
- *  (bucketTiles, nbx, nby, segCount) the shader's `channelAt` reads. */
-export const WATER_GLOBALS_FLOATS = TERRAIN_GLOBALS_FLOATS + 8;
+/** WGlobals = TGlobals (24) + uWater vec4 + uChannel vec4 + uWindow vec4 = 36
+ *  floats / 144 bytes. `uChannel` carries the analytic river-channel
+ *  acceleration-grid dims (bucketTiles, nbx, nby, segCount) the shader's
+ *  `channelAt` reads; `uWindow` carries the viewport mesh-cull window (tile
+ *  origin x,y + cell span w,h) so the vertex shader only generates quads over
+ *  the visible tiles instead of the whole map. */
+export const WATER_GLOBALS_FLOATS = TERRAIN_GLOBALS_FLOATS + 12;
 
 /** Element-wise equality of two same-length Float32Arrays. */
 function eqF32(a: Float32Array, b: Float32Array): boolean {
@@ -77,16 +80,20 @@ export function waterLevelNorm(map: GameMap, waterLevelM: number): number {
 }
 
 /** Pack the water uniform: the terrain globals, then `uWater`, then `uChannel`
- *  (the river-channel acceleration-grid dims — defaults to a no-river `[1,1,1,0]`). */
+ *  (the river-channel acceleration-grid dims — defaults to a no-river `[1,1,1,0]`),
+ *  then `uWindow` (the viewport mesh-cull window — defaults to the whole map so the
+ *  vertex shader draws every tile, byte-identical to the pre-cull grid). */
 export function packWaterGlobals(
   g: TerrainGlobalsInput,
   water: [number, number, number, number],
   channel: [number, number, number, number] = [1, 1, 1, 0],
+  window: [number, number, number, number] = [0, 0, g.grid[0], g.grid[1]],
 ): Float32Array {
   const b = new Float32Array(WATER_GLOBALS_FLOATS);
   b.set(packTerrainGlobals(g), 0);
   b[24] = water[0]; b[25] = water[1]; b[26] = water[2]; b[27] = water[3];
   b[28] = channel[0]; b[29] = channel[1]; b[30] = channel[2]; b[31] = channel[3];
+  b[32] = window[0]; b[33] = window[1]; b[34] = window[2]; b[35] = window[3];
   return b;
 }
 
@@ -331,8 +338,17 @@ export interface BuildWaterFieldOpts {
   /** Sub-tile mesh supersample (≥1; 1 = one quad/tile) — MUST match the terrain pass
    *  so the water plane and the terrain it clips against share one LOD grid (aligned
    *  waterlines). Drives only the draw count + `stepT` in the shader; the per-cell
-   *  surface buffers are LOD-independent, so changing it never re-bakes the static. */
+   *  surface buffers are LOD-independent, so changing it never re-bakes the static.
+   *  NOTE: the WATER shader never subdivides (one quad per coarsened tile), so the
+   *  superSample only ever COARSENS the water draw count here — it never multiplies it. */
   superSample?: number;
+  /** Viewport mesh-cull window in TILES: only generate water quads over the visible
+   *  tile rect (inclusive bounds), not the whole map. The water plane sits on the
+   *  sea-level z=0 plane (no height lift), so the screen-corner → tile projection that
+   *  produces these bounds is exact — no lift margin needed. Absent ⇒ whole-map mesh
+   *  (the byte-identical default; used by the static profiler / any caller without a
+   *  camera rect). The window is snapped to the coarsen lattice internally. */
+  window?: { minTx: number; minTy: number; maxTx: number; maxTy: number };
 }
 
 /** Connected lake bodies over the RENDER lake mask (Lake cells INCLUDING the
@@ -789,6 +805,32 @@ export function buildWaterField(map: GameMap, opts: BuildWaterFieldOpts): WaterF
   // buffers are LOD-independent, so this never re-bakes the static.
   const grid = terrainGrid(map.width, map.height, opts.maxQuads, opts.superSample);
 
+  // WATER DRAW WINDOW. The water shader lays exactly ONE quad per coarsened tile (it
+  // never subdivides — that's terrain-only), so the draw count is SUP-FREE: a window of
+  // `cellsX × cellsY` tiles is `⌊cellsX/sub⌋ × ⌊cellsY/sub⌋` quads regardless of super-
+  // Sample. We also CULL the mesh to the visible tile rect (water sits on the flat sea-
+  // level plane, so the screen→tile projection that produced these bounds is exact — no
+  // lift margin). The origin is snapped DOWN to the coarsen lattice so the sampled cells
+  // (`ox0 + qx·sub`) stay on the same {0,sub,2·sub…} lattice the un-windowed grid used,
+  // keeping the surface byte-identical. Absent window ⇒ the whole map (the static
+  // profiler / camera-less callers), which on a slow GPU is the dominant primitive-bound
+  // pass: ~104k quads/frame nearly all off-screen at gameplay zoom.
+  const sub = grid.subsample;
+  const W = map.width, H = map.height;
+  let winX0 = 0, winY0 = 0, winCellsX = W, winCellsY = H;
+  if (opts.window) {
+    const wx = Math.max(0, Math.min(W - 1, Math.floor(opts.window.minTx)));
+    const wy = Math.max(0, Math.min(H - 1, Math.floor(opts.window.minTy)));
+    const ex = Math.max(wx, Math.min(W - 1, Math.floor(opts.window.maxTx))) + 1; // exclusive
+    const ey = Math.max(wy, Math.min(H - 1, Math.floor(opts.window.maxTy))) + 1;
+    winX0 = Math.floor(wx / sub) * sub;
+    winY0 = Math.floor(wy / sub) * sub;
+    winCellsX = Math.max(sub, Math.min(W - winX0, Math.ceil(ex / sub) * sub - winX0));
+    winCellsY = Math.max(sub, Math.min(H - winY0, Math.ceil(ey / sub) * sub - winY0));
+  }
+  const waterVertexCount = Math.max(1, Math.floor(winCellsX / sub))
+    * Math.max(1, Math.floor(winCellsY / sub)) * 6;
+
   // Water rides the terrain heightfield → it shares the terrain projection
   // uniform exactly; the only water-specific bits are the trailing uWater vec4.
   const tg: TerrainGlobalsInput = terrainGlobalsFor(map, {
@@ -872,7 +914,7 @@ export function buildWaterField(map: GameMap, opts: BuildWaterFieldOpts): WaterF
     shoreDist: stat.shoreDist,
     channel,
     wetCount: stat.wetCount,
-    vertexCount: grid.vertexCount,
+    vertexCount: waterVertexCount,
     // uWater.w carries the GLOBAL water-level offset in NORMALISED elevation, so a
     // drought/flood shifts the lake plane + waterline in-shader. The river ribbon
     // reads the SAME value (`waterLevelNorm`) so lakes and rivers rise together.
@@ -882,6 +924,7 @@ export function buildWaterField(map: GameMap, opts: BuildWaterFieldOpts): WaterF
       waterLevelNorm(map, opts.waterLevelM ?? 0),
     ], channel
       ? [channel.bucketTiles, channel.nbx, channel.nby, channel.segCount]
-      : [1, 1, 1, 0]),
+      : [1, 1, 1, 0],
+    [winX0, winY0, winCellsX, winCellsY]),
   };
 }

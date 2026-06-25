@@ -40,6 +40,7 @@ import type { GpuContext } from '@/render/gpu/webgpu-context';
 import type { TerrainField } from '@/render/gpu/terrain-field';
 import { materialAtlas } from '@/render/gpu/material-exemplar';
 import type { WaterField } from '@/render/gpu/water-field';
+import { WATER_GLOBALS_FLOATS } from '@/render/gpu/water-field';
 import { UiPass } from '@/render/ui/ui-pass';
 import type { UiDrawGroup } from '@/render/ui/ui-batcher';
 
@@ -273,7 +274,9 @@ export class GpuScene {
     this.detailPatchPipeline = createDetailPatchPipeline(device, gpu.format, terrainModule);
 
     this.waterPipeline = createWaterPipeline(device, gpu.format);
-    this.waterGlobalsBuf = device.createBuffer({ size: 128, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    // Sized from WATER_GLOBALS_FLOATS (was a hardcoded 128) so it tracks the struct —
+    // grew to 144 bytes when uWindow (the viewport mesh-cull window) was appended.
+    this.waterGlobalsBuf = device.createBuffer({ size: WATER_GLOBALS_FLOATS * 4, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 
     // Infinite-ocean backdrop reuses the 112-byte water globals uniform for the
     // inverse projection + time.
