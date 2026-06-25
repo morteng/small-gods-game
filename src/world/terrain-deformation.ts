@@ -341,11 +341,18 @@ export function polylineDeformation(
     target?: number;
     feather?: number;
     peak?: number;
+    /** Optional per-vertex half-width (tiles), parallel to `points`. When given, the
+     *  channel/cut TAPERS — each segment interpolates its endpoints' half-widths at the
+     *  projection parameter (a river that widens downstream, a road that narrows). When
+     *  absent the brush is the constant `halfWidth` (byte-identical to the old path). */
+    halfWidths?: number[];
   },
 ): Deformation {
   const feather = o.feather ?? 1;
   const peak = o.peak ?? 1;
-  const reach = o.halfWidth + feather;
+  const hw = o.halfWidths && o.halfWidths.length === o.points.length ? o.halfWidths : null;
+  const maxHalf = hw ? Math.max(...hw) : o.halfWidth;
+  const reach = maxHalf + feather;
   const xs = o.points.map((p) => p.x);
   const ys = o.points.map((p) => p.y);
   return {
@@ -362,6 +369,28 @@ export function polylineDeformation(
       maxY: Math.max(...ys) + reach,
     },
     mask(tx, ty) {
+      if (hw) {
+        // Tapered: the most-inside contribution over segments, each judged against its
+        // own locally-interpolated half-width (so the feathered edge follows the taper).
+        let best = 0;
+        if (o.points.length === 1) {
+          const d = Math.hypot(tx - o.points[0].x, ty - o.points[0].y);
+          return d <= hw[0] ? peak : d >= hw[0] + feather ? 0 : peak * clamp01(1 - (d - hw[0]) / feather);
+        }
+        for (let i = 0; i < o.points.length - 1; i++) {
+          const a = o.points[i], b = o.points[i + 1];
+          const dx = b.x - a.x, dy = b.y - a.y;
+          const len2 = dx * dx + dy * dy;
+          let t = len2 > 0 ? ((tx - a.x) * dx + (ty - a.y) * dy) / len2 : 0;
+          t = t < 0 ? 0 : t > 1 ? 1 : t;
+          const cx = a.x + t * dx, cy = a.y + t * dy;
+          const d = Math.hypot(tx - cx, ty - cy);
+          const localHalf = hw[i] * (1 - t) + hw[i + 1] * t;
+          const v = d <= localHalf ? peak : d >= localHalf + feather ? 0 : peak * clamp01(1 - (d - localHalf) / feather);
+          if (v > best) best = v;
+        }
+        return best;
+      }
       let best = Infinity;
       for (let i = 0; i < o.points.length - 1; i++) {
         const d = distToSegment(tx, ty, o.points[i].x, o.points[i].y, o.points[i + 1].x, o.points[i + 1].y);

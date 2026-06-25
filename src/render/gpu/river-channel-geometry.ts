@@ -21,9 +21,8 @@ import { heightField, curveHeightBuffer } from '@/render/gpu/terrain-field';
 import { getHeightfield, ELEVATION_SEA_LEVEL } from '@/world/heightfield';
 import { styledIslandSpec } from '@/terrain/island-mask';
 import { getWaterNetwork } from '@/world/water-network-store';
-import { REACH_CARVE } from '@/world/river-deformation';
 import { binFeatureSegments, type FeatureSeg } from '@/render/gpu/feature-geometry';
-import type { Pt, WaterNetwork } from '@/terrain/river-network';
+import { referenceFlow, reachHalfWidths, type Pt, type WaterNetwork } from '@/terrain/river-network';
 
 /** Metres the surface sits below the lower bank (min inset) — matches river-surface-field. */
 const SURFACE_INSET_M = 0.5;
@@ -123,21 +122,24 @@ export function buildRiverChannelGeometry(map: GameMap, net?: WaterNetwork): Riv
   // fill elevation; reach = halfWidth + a band margin so a fragment just outside the
   // channel still finds the segment to measure against.
   const segs: FeatureSeg[] = [];
+  const refFlow = referenceFlow(n);
   for (const reach of n.reaches) {
-    const halfW = REACH_CARVE[reach.klass].halfWidth;
     const cl: Pt[] = reach.centerline;
     if (cl.length < 2) continue;
+    // Per-vertex half-width tapers with flow (W ∝ √Q) — the same profile the carve uses,
+    // so the rendered channel edge and the carved trough agree end-to-end.
+    const half = reachHalfWidths(reach, refFlow);
     const fill = new Float32Array(cl.length);
     for (let k = 0; k < cl.length; k++) {
       const prev = cl[Math.max(0, k - 1)], next = cl[Math.min(cl.length - 1, k + 1)];
       let tx = next.x - prev.x, ty = next.y - prev.y;
       const tl = Math.hypot(tx, ty) || 1; tx /= tl; ty /= tl;
-      fill[k] = vertexFill(cl[k].x, cl[k].y, -ty, tx, halfW, composed, base, W, H, insetN, minDepthN);
+      fill[k] = vertexFill(cl[k].x, cl[k].y, -ty, tx, half[k], composed, base, W, H, insetN, minDepthN);
     }
-    const reach2 = halfW + BAND_MARGIN_TILES;
     for (let k = 0; k + 1 < cl.length; k++) {
       const a = cl[k], b = cl[k + 1];
-      segs.push({ ax: a.x, ay: a.y, bx: b.x, by: b.y, halfA: halfW, halfB: halfW, surfA: fill[k], surfB: fill[k + 1], reach: reach2 });
+      const reach2 = Math.max(half[k], half[k + 1]) + BAND_MARGIN_TILES;
+      segs.push({ ax: a.x, ay: a.y, bx: b.x, by: b.y, halfA: half[k], halfB: half[k + 1], surfA: fill[k], surfB: fill[k + 1], reach: reach2 });
     }
   }
 

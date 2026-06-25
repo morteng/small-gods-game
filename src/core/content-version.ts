@@ -53,4 +53,4 @@ export const ART_RECIPE_VERSION = 'v13';
  * An autosave stamped with a different value is discarded on load → a fresh
  * world is generated. Distinct from SAVE_VERSION (which guards the save *schema*).
  */
-export const WORLD_CONTENT_VERSION = 12;  // W-A region-aware climate: POI climate zones (desert/steppe/swamp/forest) stamp their authored `region` instead of a point disc, so biomes reclassify — discard pre-region autosaves
+export const WORLD_CONTENT_VERSION = 13;  // river width-by-flow: channels taper W ∝ √Q from spring to mouth instead of one constant per-class width, so the carved trough + rendered channel geometry both shift — discard pre-taper autosaves

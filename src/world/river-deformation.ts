@@ -21,7 +21,10 @@ import type { GameMap, HydrologyResult } from '@/core/types';
 import { DeformationStore, polylineDeformation, type Deformation } from '@/world/terrain-deformation';
 import { getHydrologyResult } from '@/world/hydrology-store';
 import { DEFAULT_RIVER_FLOW_THRESHOLD } from '@/terrain/hydrology';
-import { buildWaterNetwork, type ReachClass, type Pt, type WaterNetwork } from '@/terrain/river-network';
+import {
+  buildWaterNetwork, referenceFlow, reachHalfWidths,
+  type ReachClass, type Pt, type WaterNetwork,
+} from '@/terrain/river-network';
 
 /** Channel carve profile by spectrum CLASS — depth (metres) + channel half-width
  *  (tiles). The river reads as a real incision against the world relief (~39 m
@@ -87,19 +90,27 @@ export function buildRiverDeformations(map: GameMap, hydro: HydrologyResult): De
 export function buildRiverDeformationsFromNetwork(map: GameMap, net: WaterNetwork): Deformation[] {
   void map;
   const out: Deformation[] = [];
+  const refFlow = referenceFlow(net);
   for (const reach of net.reaches) {
-    const { depthM, halfWidth } = REACH_CARVE[reach.klass];
+    // Depth + bank feather stay keyed on the spectrum class (tuned per channel size);
+    // the channel WIDTH tapers continuously with flow (W ∝ √Q), so a reach narrows at
+    // its spring and widens toward its mouth instead of one constant per-class width.
+    const { depthM } = REACH_CARVE[reach.klass];
     const feather = bankFeatherTiles(depthM);
+    const halfWidths = reachHalfWidths(reach, refFlow);
     // Centreline is in cell-CENTRE coords (+0.5); the terrain field samples by cell
     // index (floor), so shift back to integer cell space to align the trough.
     const line: Pt[] = reach.centerline.map((p) => ({ x: p.x - 0.5, y: p.y - 0.5 }));
     chunkPolyline(line).forEach((pts, ci) => {
+      const start = ci * (CHUNK_VERTS - 1);
+      const hw = halfWidths.slice(start, start + pts.length);
       out.push(
         polylineDeformation({
           id: `river:${reach.id}:${ci}`,
           source: 'river:incision',
           points: pts,
-          halfWidth,
+          halfWidth: hw.length ? Math.max(...hw) : 0.5,
+          halfWidths: hw,
           feather,
           amount: depthM,
           op: 'carve',
