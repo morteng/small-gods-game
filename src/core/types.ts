@@ -209,6 +209,10 @@ export interface RenderContext {
   resolveBuildingArt?: (entity: Entity) => HTMLImageElement | null;
   /** A runtime-generated parametric building sprite pack (manifold), or null. */
   resolveParametricBuildingArt?: (entity: Entity) => SpritePack | null;
+  /** Monotonic revision of the parametric building source (bumped as async massing
+   *  packs settle). Folded into the static draw-cache key so the building layer
+   *  rebuilds once packs are ready instead of freezing flatblock fallbacks. */
+  buildingArtRev?: number;
   /** An img2img-generated building sprite pack, or null (falls back to parametric). */
   resolveGeneratedBuildingArt?: (entity: Entity) => SpritePack | null;
   /** A runtime-generated parametric TREE sprite pack, keyed by species kind (not

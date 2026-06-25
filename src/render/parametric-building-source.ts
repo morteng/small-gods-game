@@ -74,6 +74,11 @@ export class ParametricBuildingSource {
   private readonly stages = new Map<string, StructureResult>();
   private readonly inflight = new Set<string>();
   private readonly warned = new Set<string>();
+  /** Bumped each time an async warm BATCH settles (inflight drains to 0). A cache
+   *  whose key folds in `version()` rebuilds once the packs land — otherwise a static
+   *  draw-list snapshot taken before the first compose finishes shows flatblocks
+   *  forever ([[gotcha-buildings-flatblock-static-cache]]). */
+  private rev = 0;
   private readonly toSpec: NonNullable<ParametricSourceDeps['toSpec']>;
   private readonly compose: NonNullable<ParametricSourceDeps['compose']>;
   private readonly toSprite: NonNullable<ParametricSourceDeps['toSprite']>;
@@ -125,9 +130,13 @@ export class ParametricBuildingSource {
         if (!this.warned.has(k)) { console.warn('[parametric-building] generation failed', err); this.warned.add(k); }
         this.cache.set(k, null);
       })
-      .finally(() => { this.inflight.delete(k); });
+      .finally(() => { this.inflight.delete(k); if (this.inflight.size === 0) this.rev++; });
   }
 
+  /** Monotonic counter bumped when an async warm batch settles. Fold into a draw
+   *  cache key so the static list rebuilds once newly-composed packs are ready. */
+  version(): number { return this.rev; }
+
   /** Clear on world reset. */
-  clear(): void { this.cache.clear(); this.stages.clear(); this.inflight.clear(); this.warned.clear(); }
+  clear(): void { this.cache.clear(); this.stages.clear(); this.inflight.clear(); this.warned.clear(); this.rev++; }
 }

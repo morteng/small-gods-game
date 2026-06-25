@@ -107,8 +107,9 @@ function segDist(ax: number, ay: number, bx: number, by: number, px: number, py:
 const PAVEDNESS: Record<SurfaceMaterial, number> = { dirt: 0.2, gravel: 0.45, cobble: 0.75, paved: 1.0 };
 
 /** Carriageway shoulder lip beyond the carriage half-width (tiles) — where pavedness
- *  fades out. Matches the retired per-cell field (`carriageHalf + 0.3`). */
-const SHOULDER_LIP_TILES = 0.3;
+ *  fades out. Kept narrow so the paved surface hugs the carriageway instead of
+ *  bleeding a wide apron into the verge. */
+const SHOULDER_LIP_TILES = 0.18;
 /** Pavedness holds full inside this fraction of the half-width, then feathers to 0. */
 const ROAD_CORE_FRACTION = 0.7;
 
