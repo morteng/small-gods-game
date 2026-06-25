@@ -278,6 +278,44 @@ export function buildMaterialAtlas(size = 64): MaterialAtlas {
   return { size, layers: MATERIAL_IDS.length, albedo, normal };
 }
 
+/** One mip level of the atlas: a stacked albedo buffer at `size` (layers in MATERIAL_IDS order). */
+export interface MaterialMipLevel { size: number; albedo: Uint8Array; }
+
+/**
+ * CPU box-filter mip chain for the (seamless) material atlas — level 0 is the atlas itself,
+ * each subsequent level halves until 1×1 (so a 64px atlas → 7 levels). WebGPU does NOT
+ * auto-generate mips; without them the baked stochastic swatches (grass/dirt/rock/…) alias
+ * badly at far zoom-out (minification with no LOD). A 2×2 box average of a TOROIDAL swatch
+ * stays toroidal, so every level remains seamless. Pure + deterministic (Node + browser).
+ */
+export function buildMaterialAtlasMips(atlas: MaterialAtlas): MaterialMipLevel[] {
+  const levels: MaterialMipLevel[] = [{ size: atlas.size, albedo: atlas.albedo }];
+  const layers = atlas.layers;
+  let prev = atlas.albedo, prevSize = atlas.size;
+  while (prevSize > 1) {
+    const size = prevSize >> 1;
+    const per = size * size * 4, prevPer = prevSize * prevSize * 4;
+    const data = new Uint8Array(per * layers);
+    for (let l = 0; l < layers; l++) {
+      const sB = l * prevPer, dB = l * per;
+      for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+        const sx = x << 1, sy = y << 1;
+        const i00 = sB + (sy * prevSize + sx) * 4;
+        const i10 = sB + (sy * prevSize + sx + 1) * 4;
+        const i01 = sB + ((sy + 1) * prevSize + sx) * 4;
+        const i11 = sB + ((sy + 1) * prevSize + sx + 1) * 4;
+        const di = dB + (y * size + x) * 4;
+        for (let c = 0; c < 4; c++) {
+          data[di + c] = (prev[i00 + c] + prev[i10 + c] + prev[i01 + c] + prev[i11 + c] + 2) >> 2;
+        }
+      }
+    }
+    levels.push({ size, albedo: data });
+    prev = data; prevSize = size;
+  }
+  return levels;
+}
+
 // Memoised — content-static, built once per session.
 let atlasMemo: MaterialAtlas | null = null;
 export function materialAtlas(size = 64): MaterialAtlas {

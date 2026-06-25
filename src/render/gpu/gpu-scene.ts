@@ -38,7 +38,7 @@ import {
 import { liftDrawList } from '@/render/gpu/terrain-lift';
 import type { GpuContext } from '@/render/gpu/webgpu-context';
 import type { TerrainField } from '@/render/gpu/terrain-field';
-import { materialAtlas } from '@/render/gpu/material-exemplar';
+import { materialAtlas, buildMaterialAtlasMips } from '@/render/gpu/material-exemplar';
 import type { WaterField } from '@/render/gpu/water-field';
 import { UiPass } from '@/render/ui/ui-pass';
 import type { UiDrawGroup } from '@/render/ui/ui-batcher';
@@ -232,17 +232,25 @@ export class GpuScene {
     // swatches tile smoothly under the chunky banded look.
     {
       const atlas = materialAtlas();
+      // CPU box-filter mip chain (WebGPU won't auto-generate them) so the baked stochastic
+      // swatches minify cleanly at zoom-out instead of aliasing. Box-averaging a toroidal
+      // swatch stays seamless, so every level still tiles.
+      const mips = buildMaterialAtlasMips(atlas);
       const tex = device.createTexture({
         size: { width: atlas.size, height: atlas.size, depthOrArrayLayers: atlas.layers },
         format: 'rgba8unorm',
+        mipLevelCount: mips.length,
         usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
       });
-      device.queue.writeTexture(
-        { texture: tex },
-        atlas.albedo as GPUAllowSharedBufferSource,
-        { bytesPerRow: atlas.size * 4, rowsPerImage: atlas.size },
-        { width: atlas.size, height: atlas.size, depthOrArrayLayers: atlas.layers },
-      );
+      for (let lvl = 0; lvl < mips.length; lvl++) {
+        const m = mips[lvl];
+        device.queue.writeTexture(
+          { texture: tex, mipLevel: lvl },
+          m.albedo as GPUAllowSharedBufferSource,
+          { bytesPerRow: m.size * 4, rowsPerImage: m.size },
+          { width: m.size, height: m.size, depthOrArrayLayers: atlas.layers },
+        );
+      }
       this.matAtlasView = tex.createView({ dimension: '2d-array' });
       this.matSampler = device.createSampler({
         addressModeU: 'repeat', addressModeV: 'repeat',

@@ -180,6 +180,23 @@ fn analyticGravel(uvTiles : vec2<f32>, fwTiles : vec2<f32>) -> vec3<f32> {
   let val = tone * (0.7 + 0.3 * dome);
   return vec3<f32>(val, val * 0.95, val * 0.86);
 }
+// Blocky outcrop — larger Voronoi facets (~1 m) with darkened seam grooves + fine grain,
+// scaled in world units + band-limited like the road materials. Mirrors the baked rock
+// swatch (worley facets, grooved seams, warm grey) but with no fixed-px resolution ceiling.
+fn analyticRock(uvTiles : vec2<f32>, fwTiles : vec2<f32>) -> vec3<f32> {
+  let facetTiles = 0.5;                        // ~1.0 m facets / 2 m-per-tile
+  let uv = uvTiles / facetTiles;
+  let cellFw = max(fwTiles.x, fwTiles.y) / facetTiles;
+  let v = vorCell(uv, 0.8);
+  let lod = detailLod(cellFw);
+  let grain = (vnoise(uvTiles * 3.2) - 0.5) * lod;          // fine surface grain (~0.31 m)
+  let aa = max(cellFw, 1e-4);
+  let seam = 1.0 - smoothstep(0.04, 0.04 + aa, v.z);        // darken facet crevices (F2−F1 edge)
+  let tone = 0.40 + 0.10 * v.y + 0.10 * grain;
+  let shade = mix(1.0, 0.55, seam);
+  let lit = tone * shade;
+  return vec3<f32>(lit * 1.05, lit, lit * 0.93);
+}
 
 // Hypsometric tint ramp: lowland green → tan → brown → snow, keyed by the
 // above-sea elevation fraction t∈[0,1]. Used by the 'hypsometric' display mode
@@ -380,8 +397,11 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
 
   // Material albedos = sampled exemplar swatches (Slice 1). The img2img pipeline upgrades
   // these same tiles later; today they're the procedural grey-init. Layer indices match
-  // MATERIAL_LAYER (rock2 snow4 sand3 mud5).
-  let ROCK = matSample(2, muv);
+  // MATERIAL_LAYER (snow4 sand3 mud5). ROCK is now ANALYTIC (per-pixel, world-scaled,
+  // band-limited — analyticRock above), gated behind its weight so the Voronoi only runs on
+  // rock faces; the baked rock swatch (layer 2) stays in the atlas as the img2img grey-init.
+  var ROCK = vec3<f32>(0.42, 0.40, 0.37);
+  if (wRock > 0.0) { ROCK = analyticRock(in.vGrid, fwTiles); }
   let SNOW = matSample(4, muv);
   let SAND = matSample(3, muv);
   let MUD  = matSample(5, muv);
