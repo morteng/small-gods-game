@@ -32,7 +32,32 @@ describe('Water S2 — water field builder', () => {
     expect(wf!.flow.length).toBe(cells * 2);
     expect(wf!.wetCount).toBeGreaterThan(0);
     expect(wf!.vertexCount).toBe(terrainGrid(64, 64).vertexCount);
-    expect(wf!.globals.length).toBe(WATER_GLOBALS_FLOATS); // 32 (TGlobals 24 + uWater 4 + uChannel 4)
+    expect(wf!.globals.length).toBe(WATER_GLOBALS_FLOATS); // 36 (TGlobals 24 + uWater 4 + uChannel 4 + uWindow 4)
+  });
+
+  it('culls the water mesh to the viewport window (fewer quads than the whole map)', async () => {
+    clearHydrologyCache();
+    const { map } = await generateWithNoise(64, 64, 1, noPoiSeed);
+    const full = buildWaterField(map, opts)!;
+    // A 16×12-tile window (sub=1 on a 64² map) ⇒ 16·12·6 verts, far fewer than the map.
+    const win = buildWaterField(map, { ...opts, window: { minTx: 0, minTy: 0, maxTx: 15, maxTy: 11 } })!;
+    expect(win.vertexCount).toBe(16 * 12 * 6);
+    expect(win.vertexCount).toBeLessThan(full.vertexCount);
+    // The window rides into uWindow (origin 0,0 + the snapped 16×12 cell span).
+    expect(Array.from(win.globals.subarray(32, 36))).toEqual([0, 0, 16, 12]);
+  });
+
+  it('the water draw count is SUP-FREE — superSample never multiplies it (water never subdivides)', async () => {
+    clearHydrologyCache();
+    const { map } = await generateWithNoise(64, 64, 1, noPoiSeed);
+    // The water shader lays one quad per coarsened tile (no sub-tile subdivision), so a
+    // superSample of 2 must NOT quadruple the draw count the way it does for terrain.
+    const s1 = buildWaterField(map, { ...opts, superSample: 1 })!;
+    const s2 = buildWaterField(map, { ...opts, superSample: 2 })!;
+    expect(s2.vertexCount).toBe(s1.vertexCount);
+    expect(s2.vertexCount).toBe(64 * 64 * 6);
+    // (terrain, by contrast, DOES subdivide: its grid quadruples under superSample 2.)
+    expect(terrainGrid(64, 64, undefined, 2).vertexCount).toBe(s1.vertexCount * 4);
   });
 
   it('encodes the inland water-level offset (drought/flood) into uWater.w (normalised)', async () => {
@@ -57,14 +82,14 @@ describe('Water S2 — water field builder', () => {
     if (dry >= 0) expect(wf.surfaceW[dry]).toBe(-1);
   });
 
-  it('packs WGlobals as terrain globals (24) + uWater (4) + uChannel (4)', () => {
+  it('packs WGlobals as terrain globals (24) + uWater (4) + uChannel (4) + uWindow (4)', () => {
     const tg: TerrainGlobalsInput = {
       viewport: [800, 600], xform: { sx: 1, sy: 1, ox: 0, oy: 0 },
       grid: [64, 64], half: [16, 8], zPxPerM: 14, seaLevel: 0.35, reliefM: 48, subsample: 1,
       sunDir: [-1, 1.6, -1], bands: 4, ambient: [0.7, 0.7, 0.74], sunStrength: 0.4,
     };
     const packed = packWaterGlobals(tg, [2.5, 1.5, 0.4, 0]);
-    expect(packed.length).toBe(32);
+    expect(packed.length).toBe(36);
     expect(Array.from(packed.subarray(0, 24))).toEqual(Array.from(packTerrainGlobals(tg)));
     // uWater (Float32-rounded): time, shallowBand, foamBand, flags
     expect(packed[24]).toBe(2.5);
@@ -73,9 +98,13 @@ describe('Water S2 — water field builder', () => {
     expect(packed[27]).toBe(0);
     // uChannel defaults to a no-river [1,1,1,0] when omitted (shader skips on segCount 0).
     expect(Array.from(packed.subarray(28, 32))).toEqual([1, 1, 1, 0]);
-    // …and carries the channel grid dims when supplied.
-    const withCh = packWaterGlobals(tg, [0, 0, 0, 0], [8, 12, 9, 240]);
+    // uWindow defaults to the WHOLE map (0,0,W,H) when omitted → the vertex shader draws
+    // every tile, byte-identical to the pre-cull grid.
+    expect(Array.from(packed.subarray(32, 36))).toEqual([0, 0, 64, 64]);
+    // …and carries the channel grid dims + an explicit cull window when supplied.
+    const withCh = packWaterGlobals(tg, [0, 0, 0, 0], [8, 12, 9, 240], [10, 20, 16, 12]);
     expect(Array.from(withCh.subarray(28, 32))).toEqual([8, 12, 9, 240]);
+    expect(Array.from(withCh.subarray(32, 36))).toEqual([10, 20, 16, 12]);
   });
 
   it('shore distance is 0 on land everywhere when the map is bone dry', () => {

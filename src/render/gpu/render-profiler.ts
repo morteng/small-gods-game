@@ -16,6 +16,7 @@ import type { DrawItem } from '@/render/iso/draw-list';
 import type { GpuScene } from '@/render/gpu/gpu-scene';
 import { buildTerrainField, zoomSuperSample, zoomCoarsenMaxQuads } from '@/render/gpu/terrain-field';
 import { buildWaterField } from '@/render/gpu/water-field';
+import { visibleTileBounds } from '@/render/iso/iso-projection';
 import { isLayerHidden } from '@/render/layer-visibility';
 import { DEFAULT_LIGHTING } from '@/render/lighting-state';
 
@@ -125,8 +126,17 @@ async function runMatrix(
     const terrain = isLayerHidden('terrain', rc.devMode)
       ? null
       : buildTerrainField(map, { viewport: [lowW, lowH], xform, lighting, devMode: rc.devMode, superSample, maxQuads });
+    // Mirror the live frame's WATER viewport cull (gpu-render-frame): build the water mesh
+    // over the visible tile window only, else the bench rebuilds the full-map mesh and over-
+    // reports the (now culled) water pass — the same trap the zoom-LOD mirror above fixes.
+    const cw = targetW / dpr, chh = targetH / dpr;
+    const b = visibleTileBounds(
+      { originX: -camera.x, originY: -camera.y }, cw / camera.zoom, chh / camera.zoom,
+      { mapW: map.width, mapH: map.height },
+    );
+    const window = { minTx: b.minTx - 2, minTy: b.minTy - 2, maxTx: b.maxTx + 2, maxTy: b.maxTy + 2 };
     const water = (terrain && !isLayerHidden('rivers', rc.devMode))
-      ? buildWaterField(map, { viewport: [lowW, lowH], xform, lighting, timeSec: 0, superSample, maxQuads })
+      ? buildWaterField(map, { viewport: [lowW, lowH], xform, lighting, timeSec: 0, superSample, maxQuads, window })
       : null;
     return { items: lf.items, staticItems: lf.staticItems, lighting, terrain, water, w: lowW, h: lowH, out, xform, passes };
   };

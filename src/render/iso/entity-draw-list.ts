@@ -225,7 +225,7 @@ export function buildEntityDrawList(
   }
 
   // Roads are not DrawItems at all: a road IS the terrain — carved by `road-deformation`
-  // and textured by the terrain shader (roadSurface pavedness + the material-exemplar
-  // atlas). The old GPU ribbon pass was retired (2026-06-25). See gpu-render-frame.
+  // and textured by the terrain shader (analytic pavedness from the road feature geometry
+  // + the material-exemplar atlas). The old GPU ribbon pass was retired (2026-06-25).
   return items;
 }

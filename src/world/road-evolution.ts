@@ -6,7 +6,7 @@
 // settlement keeps it up, and is reclaimed by vegetation when it is not. This module is the
 // PURE, deterministic stepping model over `RoadDynamics` (the time-varying half of RoadState).
 // It mutates `edge.dynamics` in place and bumps `graph.rev` so the carve + surface caches
-// re-derive (see road-deformation `key`, road-surface cache key).
+// re-derive (see road-deformation `key`, feature-geometry road cache key).
 //
 //   condition  ← degrades by traffic+weather, repaired by upkeep  (the maintenance balance)
 //   wear       ← integrates use minus upkeep                       (rut depth, edge softening)

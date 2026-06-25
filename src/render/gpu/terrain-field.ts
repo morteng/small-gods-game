@@ -22,7 +22,7 @@ import { buildRenderWaterType } from '@/render/gpu/render-water-mask';
 import { effectiveTileType, RENDER_LAYERS, layerFlag } from '@/render/layer-visibility';
 import { ELEVATION_SEA_LEVEL, getClimateFields } from '@/world/heightfield';
 import { getComposedHeightfield } from '@/world/road-deformation';
-import { getRoadSurfaceField } from '@/world/road-surface';
+import { getRoadFeatureGeometry } from '@/render/gpu/feature-geometry';
 import { ISO_TILE_W, ISO_TILE_H } from '@/render/iso/iso-constants';
 import type { LightingState } from '@/render/lighting-state';
 import type { TerrainGlobalsInput } from '@/render/gpu/instance-buffer';
@@ -355,10 +355,11 @@ export interface TerrainField {
   moisture: Float32Array;
   /** Row-major temperature `[0,1]`, `width*height` — drives the snowline (cold→snow). */
   temperature: Float32Array;
-  /** Row-major road pavedness `[0,1]`, `width*height` — 0=no road … 1=paved. The shader
-   *  ramps it to a road albedo (earth→cobble) and hardens the surface; snow/ice/mud still
-   *  compose on top via the climate-driven material weights. */
-  roadSurface: Float32Array;
+  /** The road FEATURE geometry as a self-describing u32 buffer (feature-geometry.ts):
+   *  a 4-word header + CSR bucket index + centreline segments. The shader evaluates
+   *  pavedness analytically by distance to the centreline (no per-cell field), then ramps
+   *  it to a road albedo (earth→cobble); snow/ice/mud still compose on top via climate. */
+  roadFeature: Uint32Array;
   /** Vertices the grid-gen vertex shader draws (`quadsX*quadsY*6`). */
   vertexCount: number;
   /** Terrain uniform input (camera + iso + z + lighting); `packTerrainGlobals`-ready. */
@@ -468,7 +469,7 @@ export function buildTerrainField(map: GameMap, opts: BuildTerrainFieldOpts): Te
     colors: packColorFieldMemo(map, opts.devMode, cw?.waterType, cw?.version),
     moisture: climate.moisture,
     temperature: climate.temperature,
-    roadSurface: getRoadSurfaceField(map),
+    roadFeature: getRoadFeatureGeometry(map).packed,
     vertexCount: grid.vertexCount,
     globals,
   };

@@ -40,6 +40,7 @@ import type { GpuContext } from '@/render/gpu/webgpu-context';
 import type { TerrainField } from '@/render/gpu/terrain-field';
 import { materialAtlas } from '@/render/gpu/material-exemplar';
 import type { WaterField } from '@/render/gpu/water-field';
+import { WATER_GLOBALS_FLOATS } from '@/render/gpu/water-field';
 import { UiPass } from '@/render/ui/ui-pass';
 import type { UiDrawGroup } from '@/render/ui/ui-batcher';
 
@@ -93,16 +94,21 @@ export class GpuScene {
   // T-A: shared climate fields the material shader reads (moisture/temperature).
   private terrainMoistureBuf: GPUBuffer | null = null;
   private terrainTemperatureBuf: GPUBuffer | null = null;
-  // Slice 2: per-cell road pavedness (binding 6) — the road surface material channel.
-  private terrainRoadSurfaceBuf: GPUBuffer | null = null;
+  // Road FEATURE geometry (binding 6) — analytic centreline segments + CSR buckets
+  // (feature-geometry.ts), a self-describing u32 buffer; the shader evaluates pavedness
+  // by distance, no per-cell field. Replaces the old super-sampled roadSurface buffer.
+  private terrainFeatureBuf: GPUBuffer | null = null;
   private terrainBind: GPUBindGroup | null = null;
   private terrainCellCap = 0;
+  // The feature buffer is variable-length (header + index + segments), so it has its
+  // own byte capacity / realloc trigger independent of the per-cell fields.
+  private terrainFeatureCap = 0;
   // Last-uploaded field arrays — skip the re-upload when unchanged by reference.
   private lastHeights: Float32Array | null = null;
   private lastColors: Uint32Array | null = null;
   private lastMoisture: Float32Array | null = null;
   private lastTemperature: Float32Array | null = null;
-  private lastRoadSurface: Float32Array | null = null;
+  private lastRoadFeature: Uint32Array | null = null;
   // Adaptive detail patches (Slice B): a finer instanced mesh over the hot regions,
   // reading baked sub-tile heights. Reuses the terrain FRAGMENT (shared module) +
   // the coarse colour/material/height buffers (bindings 1–4); the patch heights are
@@ -273,7 +279,9 @@ export class GpuScene {
     this.detailPatchPipeline = createDetailPatchPipeline(device, gpu.format, terrainModule);
 
     this.waterPipeline = createWaterPipeline(device, gpu.format);
-    this.waterGlobalsBuf = device.createBuffer({ size: 128, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    // Sized from WATER_GLOBALS_FLOATS (was a hardcoded 128) so it tracks the struct —
+    // grew to 144 bytes when uWindow (the viewport mesh-cull window) was appended.
+    this.waterGlobalsBuf = device.createBuffer({ size: WATER_GLOBALS_FLOATS * 4, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 
     // Infinite-ocean backdrop reuses the 112-byte water globals uniform for the
     // inverse projection + time.
@@ -441,24 +449,29 @@ export class GpuScene {
     colors: Uint32Array,
     moisture: Float32Array,
     temperature: Float32Array,
-    roadSurface: Float32Array,
+    roadFeature: Uint32Array,
   ): void {
     const { device } = this;
     const cells = heights.length;
+    // The road feature buffer is variable-length (header + CSR index + segments), so it
+    // has its own byte capacity and can force a realloc even when the cell count is
+    // unchanged (e.g. a world with no roads gains some, growing the geometry).
+    const featBytes = roadFeature.byteLength;
     let realloc = false;
-    if (!this.terrainHeightsBuf || cells > this.terrainCellCap) {
+    if (!this.terrainHeightsBuf || cells > this.terrainCellCap || featBytes > this.terrainFeatureCap) {
       this.terrainHeightsBuf?.destroy();
       this.terrainColorsBuf?.destroy();
       this.terrainMoistureBuf?.destroy();
       this.terrainTemperatureBuf?.destroy();
-      this.terrainRoadSurfaceBuf?.destroy();
+      this.terrainFeatureBuf?.destroy();
       const storage = (n: number) => device.createBuffer({ size: n, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
       this.terrainHeightsBuf = storage(cells * 4);
       this.terrainColorsBuf = storage(cells * 4);
       this.terrainMoistureBuf = storage(cells * 4);
       this.terrainTemperatureBuf = storage(cells * 4);
-      this.terrainRoadSurfaceBuf = storage(cells * 4);
+      this.terrainFeatureBuf = storage(Math.max(featBytes, 16));
       this.terrainCellCap = cells;
+      this.terrainFeatureCap = Math.max(featBytes, 16);
       this.terrainBind = device.createBindGroup({
         layout: this.terrainPipeline.getBindGroupLayout(0),
         entries: [
@@ -467,7 +480,7 @@ export class GpuScene {
           { binding: 2, resource: { buffer: this.terrainColorsBuf } },
           { binding: 3, resource: { buffer: this.terrainMoistureBuf } },
           { binding: 4, resource: { buffer: this.terrainTemperatureBuf } },
-          { binding: 6, resource: { buffer: this.terrainRoadSurfaceBuf } },
+          { binding: 6, resource: { buffer: this.terrainFeatureBuf } },
           { binding: 7, resource: this.matAtlasView },
           { binding: 8, resource: this.matSampler },
         ],
@@ -490,9 +503,9 @@ export class GpuScene {
       device.queue.writeBuffer(this.terrainTemperatureBuf!, 0, temperature as GPUAllowSharedBufferSource);
       this.lastTemperature = temperature;
     }
-    if (realloc || roadSurface !== this.lastRoadSurface) {
-      device.queue.writeBuffer(this.terrainRoadSurfaceBuf!, 0, roadSurface as GPUAllowSharedBufferSource);
-      this.lastRoadSurface = roadSurface;
+    if (realloc || roadFeature !== this.lastRoadFeature) {
+      device.queue.writeBuffer(this.terrainFeatureBuf!, 0, roadFeature as GPUAllowSharedBufferSource);
+      this.lastRoadFeature = roadFeature;
     }
   }
 
@@ -505,7 +518,7 @@ export class GpuScene {
   private uploadDetail(detail: DetailField): boolean {
     const { device } = this;
     if (!this.terrainHeightsBuf || !this.terrainColorsBuf
-      || !this.terrainMoistureBuf || !this.terrainTemperatureBuf || !this.terrainRoadSurfaceBuf) return false;
+      || !this.terrainMoistureBuf || !this.terrainTemperatureBuf || !this.terrainFeatureBuf) return false;
     const hBytes = detail.heights.byteLength;
     const oBytes = detail.origins.byteLength;
     let realloc = false;
@@ -531,7 +544,7 @@ export class GpuScene {
           { binding: 3, resource: { buffer: this.terrainMoistureBuf } },
           { binding: 4, resource: { buffer: this.terrainTemperatureBuf } },
           { binding: 5, resource: { buffer: this.detailHeightsBuf } },
-          { binding: 6, resource: { buffer: this.terrainRoadSurfaceBuf } },
+          { binding: 6, resource: { buffer: this.terrainFeatureBuf } },
           { binding: 7, resource: this.matAtlasView },
           { binding: 8, resource: this.matSampler },
         ],
@@ -790,7 +803,7 @@ export class GpuScene {
 
     const hasTerrain = !!(terrain && terrain.vertexCount > 0 && terrain.heights.length > 0 && P.terrain);
     if (hasTerrain) {
-      this.uploadFields(terrain!.heights, terrain!.colors, terrain!.moisture, terrain!.temperature, terrain!.roadSurface);
+      this.uploadFields(terrain!.heights, terrain!.colors, terrain!.moisture, terrain!.temperature, terrain!.roadFeature);
       device.queue.writeBuffer(this.terrainGlobalsBuf, 0,
         packTerrainGlobals(terrain!.globals) as GPUAllowSharedBufferSource);
     }

@@ -1,12 +1,15 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import type { GameMap } from '@/core/types';
 import type { RoadGraph, RoadEdge } from '@/world/road-graph';
-import { getRoadSurfaceField, clearRoadSurfaceCache } from '@/world/road-surface';
+import {
+  getRoadFeatureGeometry, roadPavednessAt, clearRoadFeatureGeometryCache,
+} from '@/render/gpu/feature-geometry';
 import { evolveRoadGraph } from '@/world/road-evolution';
 
-// End-to-end: prove that evolving the graph actually changes the RENDERED surface field
-// through the rev-keyed cache. This is the data-path check a screenshot would do visually —
-// an overgrown road must read as LESS paved (it greens back toward biome).
+// End-to-end: prove that evolving the graph actually changes the RENDERED road surface
+// through the rev-keyed cache. The surface is now ANALYTIC (feature-geometry) — pavedness
+// is evaluated by distance to the centreline — so this reads it via roadPavednessAt, the
+// CPU mirror of the terrain shader. An overgrown road must read as LESS paved.
 function mapWith(roadGraph?: RoadGraph): GameMap {
   return { seed: 1234, width: 24, height: 24, roadGraph } as unknown as GameMap;
 }
@@ -20,45 +23,46 @@ function roadEdge(id: string, partial: Partial<RoadEdge> = {}): RoadEdge {
   };
 }
 
-const at = (f: Float32Array, x: number, y: number) => f[y * 24 + x];
+/** Pavedness at tile (x,y) via the production accessor — the shader's CPU mirror. */
+const paved = (map: GameMap, x: number, y: number) => roadPavednessAt(getRoadFeatureGeometry(map), x, y);
 
-beforeEach(() => clearRoadSurfaceCache());
+beforeEach(() => clearRoadFeatureGeometryCache());
 
-describe('road evolution → rendered surface field (data path)', () => {
+describe('road evolution → rendered surface (analytic feature geometry)', () => {
   it('a neglected road reads as less paved after decades, via the rev-keyed cache', () => {
     const graph: RoadGraph = { nodes: [], edges: [roadEdge('e1', { class: 'path', surface: 'dirt' })] };
     const map = mapWith(graph);
 
-    const fresh = at(getRoadSurfaceField(map), 13, 12);
+    const fresh = paved(map, 13, 12);
     expect(fresh).toBeGreaterThan(0.1);
 
     // Evolve 60 years with no upkeep: condition collapses, overgrowth rises → pavedness drops.
     evolveRoadGraph(graph, 60, { upkeepFor: () => 0, trafficFor: () => 0.15 });
     expect(graph.rev).toBe(1); // cache key moved
 
-    const aged = at(getRoadSurfaceField(map), 13, 12);
-    expect(aged).toBeLessThan(fresh); // greening over — the cleanup lets biome show through
+    const aged = paved(map, 13, 12);
+    expect(aged).toBeLessThan(fresh); // greening over — the biome shows back through
   });
 
-  it('the rev bump is what invalidates the cache (same rev ⇒ same field instance)', () => {
+  it('the rev bump is what invalidates the cache (same rev ⇒ same geometry instance)', () => {
     const graph: RoadGraph = { nodes: [], edges: [roadEdge('e1')] };
     const map = mapWith(graph);
-    const a = getRoadSurfaceField(map);
-    const b = getRoadSurfaceField(map);
+    const a = getRoadFeatureGeometry(map);
+    const b = getRoadFeatureGeometry(map);
     expect(b).toBe(a); // memoised while rev unchanged
 
     evolveRoadGraph(graph, 10);
-    const c = getRoadSurfaceField(map);
-    expect(c).not.toBe(a); // rev bumped → fresh field
+    const c = getRoadFeatureGeometry(map);
+    expect(c).not.toBe(a); // rev bumped → fresh geometry
   });
 
   it('a maintained highway barely changes its pavedness over the same span', () => {
     const graph: RoadGraph = { nodes: [], edges: [roadEdge('hw', { class: 'highway', surface: 'stone' })] };
     const map = mapWith(graph);
-    const fresh = at(getRoadSurfaceField(map), 13, 12);
+    const fresh = paved(map, 13, 12);
 
     evolveRoadGraph(graph, 60); // class default upkeep 0.9 keeps it pristine
-    const kept = at(getRoadSurfaceField(map), 13, 12);
+    const kept = paved(map, 13, 12);
     expect(Math.abs(kept - fresh)).toBeLessThan(0.1);
   });
 });

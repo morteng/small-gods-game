@@ -22,6 +22,7 @@ import { getHeightfield, ELEVATION_SEA_LEVEL } from '@/world/heightfield';
 import { styledIslandSpec } from '@/terrain/island-mask';
 import { getWaterNetwork } from '@/world/water-network-store';
 import { REACH_CARVE } from '@/world/river-deformation';
+import { binFeatureSegments, type FeatureSeg } from '@/render/gpu/feature-geometry';
 import type { Pt, WaterNetwork } from '@/terrain/river-network';
 
 /** Metres the surface sits below the lower bank (min inset) — matches river-surface-field. */
@@ -117,13 +118,11 @@ export function buildRiverChannelGeometry(map: GameMap, net?: WaterNetwork): Riv
     ELEVATION_SEA_LEVEL, style.terrainHeightGamma,
   );
 
-  const bt = BUCKET_TILES;
-  const nbx = Math.max(1, Math.ceil(W / bt));
-  const nby = Math.max(1, Math.ceil(H / bt));
-  const buckets: number[][] = Array.from({ length: nbx * nby }, () => []);
-  const seg: number[] = [];
-  let segCount = 0;
-
+  // Flatten reaches into feature segments (shared substrate with roads/walls), then bin
+  // into the per-tile buckets. River's surface scalar (surfA/surfB) is the bank-referenced
+  // fill elevation; reach = halfWidth + a band margin so a fragment just outside the
+  // channel still finds the segment to measure against.
+  const segs: FeatureSeg[] = [];
   for (const reach of n.reaches) {
     const halfW = REACH_CARVE[reach.klass].halfWidth;
     const cl: Pt[] = reach.centerline;
@@ -138,28 +137,16 @@ export function buildRiverChannelGeometry(map: GameMap, net?: WaterNetwork): Riv
     const reach2 = halfW + BAND_MARGIN_TILES;
     for (let k = 0; k + 1 < cl.length; k++) {
       const a = cl[k], b = cl[k + 1];
-      const id = segCount++;
-      seg.push(a.x, a.y, b.x, b.y, halfW, halfW, fill[k], fill[k + 1]);
-      // register into every bucket the expanded segment AABB overlaps
-      const minBX = Math.max(0, Math.floor((Math.min(a.x, b.x) - reach2) / bt));
-      const maxBX = Math.min(nbx - 1, Math.floor((Math.max(a.x, b.x) + reach2) / bt));
-      const minBY = Math.max(0, Math.floor((Math.min(a.y, b.y) - reach2) / bt));
-      const maxBY = Math.min(nby - 1, Math.floor((Math.max(a.y, b.y) + reach2) / bt));
-      for (let by = minBY; by <= maxBY; by++) {
-        for (let bx = minBX; bx <= maxBX; bx++) buckets[by * nbx + bx].push(id);
-      }
+      segs.push({ ax: a.x, ay: a.y, bx: b.x, by: b.y, halfA: halfW, halfB: halfW, surfA: fill[k], surfB: fill[k + 1], reach: reach2 });
     }
   }
 
-  // CSR flatten
-  const bucketOffset = new Uint32Array(nbx * nby + 1);
-  for (let i = 0; i < buckets.length; i++) bucketOffset[i + 1] = bucketOffset[i] + buckets[i].length;
-  const bucketSegs = new Uint32Array(bucketOffset[buckets.length]);
-  for (let i = 0, o = 0; i < buckets.length; i++) for (const id of buckets[i]) bucketSegs[o++] = id;
-  const segments = Float32Array.from(seg);
+  const binned = binFeatureSegments(segs, W, H, BUCKET_TILES);
+  const { segments, segCount, nbx, nby, bucketOffset, bucketSegs } = binned;
 
-  // Concatenate into ONE u32 buffer for the GPU (8-storage-buffer budget). The segment
-  // floats are bit-reinterpreted as u32 in place; the shader bitcasts them back.
+  // Concatenate into ONE u32 buffer for the GPU (8-storage-buffer budget; the water pass
+  // passes the bucket dims via its uniform, so this buffer is HEADERLESS unlike the road
+  // buffer). The segment floats are bit-reinterpreted as u32; the shader bitcasts back.
   const offLen = nbx * nby + 1;
   const segWords = segCount * SEG_STRIDE;
   const packed = new Uint32Array(offLen + bucketSegs.length + segWords);
@@ -170,7 +157,7 @@ export function buildRiverChannelGeometry(map: GameMap, net?: WaterNetwork): Riv
   return {
     width: W, height: H,
     segments, segCount,
-    bucketTiles: bt, nbx, nby, bucketOffset, bucketSegs, packed,
+    bucketTiles: binned.bucketTiles, nbx, nby, bucketOffset, bucketSegs, packed,
   };
 }
 

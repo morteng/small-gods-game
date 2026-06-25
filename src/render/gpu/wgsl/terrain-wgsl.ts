@@ -36,8 +36,10 @@ struct TGlobals {
 @group(0) @binding(3) var<storage, read> moisture    : array<f32>; // [0,1] per cell (T-A)
 @group(0) @binding(4) var<storage, read> temperature : array<f32>; // [0,1] per cell (T-A)
 // Binding 5 is the detail-patch fine-height buffer (detail pipeline only) — keep it free
-// here. Road pavedness rides binding 6 so it is shared by both the terrain and detail passes.
-@group(0) @binding(6) var<storage, read> roadSurface : array<f32>; // [0,1] per cell: 0=none … 1=paved
+// here. The road FEATURE geometry rides binding 6 (shared by the terrain + detail passes):
+// an analytic, self-describing segment buffer (feature-geometry.ts) the fragment evaluates
+// for pavedness by DISTANCE to the smooth centreline — no per-cell field, no 2 m grid.
+@group(0) @binding(6) var<storage, read> roadFeat : array<u32>;
 // Material-exemplar atlas (Slice 1): one seamless tileable swatch per material, layer
 // index = MATERIAL_LAYER in material-exemplar.ts (grass0 dirt1 rock2 sand3 snow4 mud5
 // road_dirt6 road_gravel7 road_cobble8). Sampled with a REPEAT sampler at tile-space UV.
@@ -91,6 +93,51 @@ fn sampleColorBi(b : BiCell) -> vec3<f32> {
   let c00 = unpackColor(colors[b.y0 * W + b.x0]); let c10 = unpackColor(colors[b.y0 * W + b.x1]);
   let c01 = unpackColor(colors[b.y1 * W + b.x0]); let c11 = unpackColor(colors[b.y1 * W + b.x1]);
   return mix(mix(c00, c10, b.tx), mix(c01, c11, b.tx), b.ty);
+}
+
+// Road pavedness as an ANALYTIC feature field: the carriageway is no longer a per-cell
+// scalar (which could only resolve the edge to ±½ tile — the "zig-zag roads" artifact),
+// but the distance to the smooth Catmull-Rom centreline, evaluated per fragment. We read
+// the self-describing road-feature buffer (4-word header [bucketTiles,nbx,nby,segCount],
+// then the CSR bucket index, then the segments), test only this fragment's bucket, and
+// take the MAX of paved·fade over its segments (fade = 1 inside the core, → 0 at the
+// half-width). Byte-equivalent to roadPavednessAt() in feature-geometry.ts.
+fn rfF(i : u32) -> f32 { return bitcast<f32>(roadFeat[i]); }
+fn roadPaved(fx : f32, fy : f32) -> f32 {
+  let segCount = roadFeat[3];
+  if (segCount == 0u) { return 0.0; }
+  let bt  = f32(roadFeat[0]);
+  let nbx = roadFeat[1];
+  let nby = roadFeat[2];
+  let nb  = nbx * nby;
+  let offBase = 4u;                              // bucketOffset starts after the header
+  let refBase = offBase + nb + 1u;               // bucketSegs start
+  let segBase = refBase + roadFeat[offBase + nb]; // segments start (R = bucketOffset[nb])
+  let bx = u32(clamp(floor(fx / bt), 0.0, f32(nbx) - 1.0));
+  let by = u32(clamp(floor(fy / bt), 0.0, f32(nby) - 1.0));
+  let b = by * nbx + bx;
+  let start = roadFeat[offBase + b];
+  let end   = roadFeat[offBase + b + 1u];
+  var best = 0.0;
+  for (var p = start; p < end; p = p + 1u) {
+    let o = segBase + roadFeat[refBase + p] * 8u;
+    let ax = rfF(o); let ay = rfF(o + 1u);
+    let bx2 = rfF(o + 2u); let by2 = rfF(o + 3u);
+    let dx = bx2 - ax; let dy = by2 - ay;
+    let len2 = dx * dx + dy * dy;
+    var t = 0.0;
+    if (len2 > 0.0) { t = clamp(((fx - ax) * dx + (fy - ay) * dy) / len2, 0.0, 1.0); }
+    let cx = ax + t * dx; let cy = ay + t * dy;
+    let d = length(vec2<f32>(fx - cx, fy - cy));
+    let half = mix(rfF(o + 4u), rfF(o + 5u), t);
+    if (d <= half) {
+      let core = half * 0.7;
+      let fade = select((half - d) / max(half - core, 1e-4), 1.0, d <= core);
+      let paved = mix(rfF(o + 6u), rfF(o + 7u), t);
+      best = max(best, paved * fade);
+    }
+  }
+  return best;
 }
 
 // Cheap value noise for jittering material thresholds so edges wander (kills the
@@ -258,15 +305,15 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   // cobble), ramped by pavedness. This is folded into the GROUND layer BEFORE the
   // material composite, so snow/mud/wet/rock still poke through by their own weights
   // — a snowy road, a muddy track — with no road-specific branch. Where a road is
-  // overgrown, road-surface.ts already fades the pavedness, so the biome grass
+  // overgrown, feature-geometry.ts already fades the pavedness, so the biome grass
   // returns and the wilderness reclaims it (the first instance of the engine-wide
   // object↔terrain contextual blend).
   // Tile-space UV for the material exemplars (REPEAT sampler tiles them seamlessly).
   let muv = in.vGrid / MAT_TILES;
 
-  let road = sampleScalarBi(bc, &roadSurface);
+  let road = roadPaved(in.vGrid.x, in.vGrid.y);
   // Road surface = the full packed-dirt → gravel → cobble exemplar spectrum (real
-  // sett/grain texture), driven by pavedness (Slice 2). road-surface.ts bakes the road
+  // sett/grain texture), driven by pavedness. feature-geometry.ts encodes the road
   // TIER into this scalar at the material anchors (dirt 0.2 · gravel 0.45 · cobble 0.75 ·
   // paved 1.0), dimmed by condition·overgrowth — so a worn cobble road drifts toward
   // gravel→dirt on its own, the wear IS the lower pavedness. We span the three road

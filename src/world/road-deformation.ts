@@ -33,6 +33,7 @@ import { getHeightfield, ELEVATION_SEA_LEVEL, heightMetresAt } from '@/world/hei
 import { styledIslandSpec } from '@/terrain/island-mask';
 import { worldStyleOf } from '@/core/world-style';
 import { buildRiverDeformations } from '@/world/river-deformation';
+import { buildSettlementPadDeformations, settlementBuildCount } from '@/world/settlement-deformation';
 import { getHydrologyResult } from '@/world/hydrology-store';
 import { smoothCenterline, type Pt } from '@/terrain/road-centerline';
 import { resolveSettlementEra, isEra, type Era } from '@/core/era';
@@ -266,8 +267,10 @@ const fieldCache = new Map<string, Float32Array>();
 const CACHE_CAP = 4;
 
 function key(map: GameMap): string {
-  // `rev` bumps when road-evolution mutates edge.dynamics, invalidating the carve.
-  return `${map.seed}:${map.width}x${map.height}:r${map.roadGraph?.rev ?? 0}`;
+  // `rev` bumps when road-evolution mutates edge.dynamics; `b` is the built-lot count so
+  // settlement foundation pads invalidate when live growth fills a lot. Both keep the
+  // composed heightfield a pure, cache-correct function of the map's evolving state.
+  return `${map.seed}:${map.width}x${map.height}:r${map.roadGraph?.rev ?? 0}:b${settlementBuildCount(map)}`;
 }
 
 function evict(cache: Map<string, unknown>): void {
@@ -308,6 +311,7 @@ export function getWorldDeformationStore(map: GameMap): DeformationStore {
   store = new DeformationStore();
   if (map.roadGraph) store.add(...buildRoadDeformations(map, map.roadGraph));
   store.add(...buildRiverDeformations(map, getHydrologyResult(map)));
+  store.add(...buildSettlementPadDeformations(map));
   worldStoreCache.set(k, store);
   evict(worldStoreCache);
   return store;
