@@ -108,5 +108,9 @@ export function buildRenderContext(deps: RenderContextDeps): RenderContext {
       ? LIGHTING_OFF
       : { ...DEFAULT_LIGHTING, nightFactor: nightFactorOverride() ?? nightFactorForTick(state.clock.now()) },
     devMode,
+    // Folds into the static draw-cache key so the building layer rebuilds once the
+    // async parametric massing packs finish composing (otherwise the first snapshot —
+    // taken before compose lands — freezes flatblock fallbacks forever).
+    buildingArtRev: parametricBuildingSource.version(),
   };
 }

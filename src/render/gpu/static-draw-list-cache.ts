@@ -45,7 +45,11 @@ export function drawCacheKey(rc: RenderContext, map: GameMap): string {
   const layers = `${+isLayerHidden('buildings', dm)}${+isLayerHidden('vegetation', dm)}`
     + `${+isLayerHidden('terrain', dm)}`;
   const mode = dm?.buildingRenderMode ?? 'auto';
-  return `${map.width}x${map.height}#${map.seed}:${layers}:${mode}`;
+  // `buildingArtRev` bumps as async parametric massing packs settle, so the static
+  // list rebuilds once they land (otherwise the first snapshot — taken before any
+  // compose finishes — freezes flatblock fallbacks forever).
+  const bRev = rc.buildingArtRev ?? 0;
+  return `${map.width}x${map.height}#${map.seed}:${layers}:${mode}:b${bRev}`;
 }
 
 /**
