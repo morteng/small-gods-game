@@ -110,4 +110,42 @@ while the analytical model above is the proper follow-up:
   grid (no new uniform; S=1 byte-identical). This is the field §3.2/§4 retires once the surface is
   evaluated analytically.
 
-These are deliberately *workarounds for the grid*, not the cure. The cure is §4.
+These are deliberately *workarounds for the grid*, not the cure. The cure is §7.
+
+## 7. Shipped — the unified-terrain-features epic (2026-06-25, `feat/unified-terrain-features`)
+
+The cure §4 called for, built in slices on a branch off the §6 patch (not pushed). The §6
+super-sampled `roadSurface` workaround is now **retired**.
+
+- **Slice 0 — shared substrate.** `feature-geometry.ts` generalises the proven river analytic-SDF
+  (CSR-by-tile segment buckets) into `binFeatureSegments` + a road feature buffer (self-describing
+  4-word header `[bucketTiles,nbx,nby,segCount]`, so the terrain uniform struct is untouched) +
+  `roadPavednessAt` CPU mirror. `river-channel-geometry.ts` now shares `binFeatureSegments` (byte-parity).
+- **Slice 1 — analytic road surface; tech debt deleted.** `terrain-wgsl.ts` `sampleRoadBi` (per-cell
+  bilinear) → `roadPaved` (analytic distance to the smooth centreline, MAX of paved·fade over the
+  bucket). Binding 6 is now the road feature buffer (shared by the terrain + detail passes; net-zero
+  buffer count). **DELETED** `src/world/road-surface.ts`, `ROAD_SURFACE_SUPERSAMPLE`, `sampleRoadBi`,
+  and all the per-cell road-surface plumbing. The carriageway edge is now sub-tile sharp at any angle.
+- **Slice 4 — gentle building foundation pads.** `settlement-deformation.ts` levels each BUILT burgage
+  lot's footprint to its mean base height (soft feather) via `footprintLevelDeformation`, composed into
+  the world store alongside roads+rivers. Derives purely from `map.settlementPlans` (lots persisted on
+  the map), so the composed heightfield stays a pure, save-safe function of `map`; the world-store key
+  folds the built-lot count so live growth invalidates. Conservative per-building, not whole-town
+  terracing.
+
+**Decisions vs the §4 plan (kept it leaner than feared):**
+- The per-cell composed **height bake is KEPT** (not retired). It is the CPU datum for entity foot-z
+  lift and the water plane; the detail-patch mesh already evaluates the carve analytically, so the
+  visual win came from the analytic *surface* + the existing detail height, not from removing the bake.
+  This also de-risked the patch-seam concern (§5 risk 2 / Slice 2 — folded, no longer needed).
+- **Separate buffers per pass, one shared module/format.** Terrain binds the road feature buffer
+  (binding 6); water keeps its river channel (binding 9). A terrain fragment therefore only ever sees
+  road segments, so the cross-kind priority-composition problem (§ blocker) evaporates for the surface —
+  road↔road overlap is just max-pavedness. This respects the hard 8-storage-buffer budget.
+- **No content-version bump.** Every change re-derives from already-persisted data (roadGraph, lots),
+  so existing saves render with the new look on reload — no save-format change, no autosave invalidation.
+
+**Deferred (honest gaps):** walls/enclosures as berm carves (barriers are World entities, not on `map`
+like `settlementPlans` — needs the same derive-from-map treatment; thin features, low value); deep
+priority-composed bridge crossings (roads already cross water via deformation priority + the entity
+deck); lampposts/point props stay lifted (carving terrain for a point prop is pointless — by design).
