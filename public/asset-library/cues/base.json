@@ -1,0 +1,415 @@
+{
+  "version": 1,
+  "model": "deepseek/deepseek-v4-pro",
+  "cues": [
+    {
+      "id": "bed_lively",
+      "role": "bed",
+      "bpm": 96,
+      "bars": 2,
+      "loop": true,
+      "notes": [
+        {
+          "voice": "bass",
+          "midi": 48,
+          "atBeat": 0,
+          "durBeats": 4,
+          "vel": 45
+        },
+        {
+          "voice": "bass",
+          "midi": 50,
+          "atBeat": 4,
+          "durBeats": 4,
+          "vel": 45
+        },
+        {
+          "voice": "pluck",
+          "midi": 72,
+          "atBeat": 0,
+          "durBeats": 1,
+          "vel": 50
+        },
+        {
+          "voice": "pluck",
+          "midi": 76,
+          "atBeat": 1,
+          "durBeats": 1,
+          "vel": 48
+        },
+        {
+          "voice": "pluck",
+          "midi": 79,
+          "atBeat": 2,
+          "durBeats": 1,
+          "vel": 52
+        },
+        {
+          "voice": "pluck",
+          "midi": 84,
+          "atBeat": 3,
+          "durBeats": 1,
+          "vel": 50
+        },
+        {
+          "voice": "pluck",
+          "midi": 79,
+          "atBeat": 4,
+          "durBeats": 1,
+          "vel": 48
+        },
+        {
+          "voice": "pluck",
+          "midi": 76,
+          "atBeat": 5,
+          "durBeats": 1,
+          "vel": 45
+        },
+        {
+          "voice": "pluck",
+          "midi": 72,
+          "atBeat": 6,
+          "durBeats": 1,
+          "vel": 52
+        },
+        {
+          "voice": "pluck",
+          "midi": 69,
+          "atBeat": 7,
+          "durBeats": 1,
+          "vel": 48
+        },
+        {
+          "voice": "bell",
+          "midi": 84,
+          "atBeat": 3.5,
+          "durBeats": 0.5,
+          "vel": 32
+        },
+        {
+          "voice": "bell",
+          "midi": 79,
+          "atBeat": 7.5,
+          "durBeats": 0.5,
+          "vel": 32
+        }
+      ],
+      "tags": [
+        "town"
+      ],
+      "gain": 0.8,
+      "mood": {
+        "liveliness": [
+          0.6,
+          1
+        ]
+      }
+    },
+    {
+      "id": "bed_reverence",
+      "role": "bed",
+      "bpm": 60,
+      "bars": 2,
+      "loop": true,
+      "notes": [
+        {
+          "voice": "pad",
+          "midi": 60,
+          "atBeat": 0,
+          "durBeats": 8,
+          "vel": 40
+        },
+        {
+          "voice": "pad",
+          "midi": 64,
+          "atBeat": 0,
+          "durBeats": 8,
+          "vel": 38
+        },
+        {
+          "voice": "pad",
+          "midi": 67,
+          "atBeat": 0,
+          "durBeats": 8,
+          "vel": 36
+        },
+        {
+          "voice": "pad",
+          "midi": 71,
+          "atBeat": 0,
+          "durBeats": 8,
+          "vel": 34
+        },
+        {
+          "voice": "bell",
+          "midi": 72,
+          "atBeat": 0,
+          "durBeats": 2,
+          "vel": 30
+        },
+        {
+          "voice": "bell",
+          "midi": 76,
+          "atBeat": 4,
+          "durBeats": 2,
+          "vel": 28
+        },
+        {
+          "voice": "bell",
+          "midi": 79,
+          "atBeat": 6,
+          "durBeats": 2,
+          "vel": 26
+        }
+      ],
+      "tags": [
+        "sacred"
+      ],
+      "gain": 0.75,
+      "mood": {
+        "reverence": [
+          0.55,
+          1
+        ]
+      }
+    },
+    {
+      "id": "bed_tension",
+      "role": "bed",
+      "bpm": 72,
+      "bars": 2,
+      "loop": true,
+      "notes": [
+        {
+          "voice": "pad",
+          "midi": 45,
+          "atBeat": 0,
+          "durBeats": 8,
+          "vel": 42
+        },
+        {
+          "voice": "pad",
+          "midi": 48,
+          "atBeat": 0,
+          "durBeats": 8,
+          "vel": 38
+        },
+        {
+          "voice": "pad",
+          "midi": 52,
+          "atBeat": 0,
+          "durBeats": 8,
+          "vel": 36
+        },
+        {
+          "voice": "bass",
+          "midi": 33,
+          "atBeat": 0,
+          "durBeats": 4,
+          "vel": 45
+        },
+        {
+          "voice": "bass",
+          "midi": 33,
+          "atBeat": 4,
+          "durBeats": 4,
+          "vel": 40
+        },
+        {
+          "voice": "pluck",
+          "midi": 49,
+          "atBeat": 5.5,
+          "durBeats": 0.5,
+          "vel": 30
+        }
+      ],
+      "tags": [
+        "dread"
+      ],
+      "gain": 0.7,
+      "mood": {
+        "tension": [
+          0.5,
+          1
+        ]
+      }
+    },
+    {
+      "id": "swell_miracle",
+      "role": "swell",
+      "bpm": 80,
+      "bars": 1,
+      "loop": false,
+      "notes": [
+        {
+          "voice": "pad",
+          "midi": 60,
+          "atBeat": 0,
+          "durBeats": 4,
+          "vel": 35
+        },
+        {
+          "voice": "pad",
+          "midi": 64,
+          "atBeat": 0,
+          "durBeats": 4,
+          "vel": 40
+        },
+        {
+          "voice": "pad",
+          "midi": 67,
+          "atBeat": 0,
+          "durBeats": 4,
+          "vel": 45
+        },
+        {
+          "voice": "pad",
+          "midi": 71,
+          "atBeat": 0,
+          "durBeats": 4,
+          "vel": 50
+        },
+        {
+          "voice": "bell",
+          "midi": 72,
+          "atBeat": 2,
+          "durBeats": 1,
+          "vel": 48
+        },
+        {
+          "voice": "bell",
+          "midi": 79,
+          "atBeat": 3,
+          "durBeats": 1,
+          "vel": 55
+        }
+      ],
+      "tags": [
+        "miracle",
+        "ascension"
+      ],
+      "gain": 0.85
+    },
+    {
+      "id": "dirge_death",
+      "role": "swell",
+      "bpm": 66,
+      "bars": 2,
+      "loop": false,
+      "notes": [
+        {
+          "voice": "pad",
+          "midi": 57,
+          "atBeat": 0,
+          "durBeats": 4,
+          "vel": 38
+        },
+        {
+          "voice": "pad",
+          "midi": 60,
+          "atBeat": 0,
+          "durBeats": 4,
+          "vel": 36
+        },
+        {
+          "voice": "pad",
+          "midi": 64,
+          "atBeat": 0,
+          "durBeats": 4,
+          "vel": 34
+        },
+        {
+          "voice": "pad",
+          "midi": 55,
+          "atBeat": 4,
+          "durBeats": 4,
+          "vel": 36
+        },
+        {
+          "voice": "pad",
+          "midi": 59,
+          "atBeat": 4,
+          "durBeats": 4,
+          "vel": 34
+        },
+        {
+          "voice": "pad",
+          "midi": 62,
+          "atBeat": 4,
+          "durBeats": 4,
+          "vel": 32
+        },
+        {
+          "voice": "bass",
+          "midi": 45,
+          "atBeat": 0,
+          "durBeats": 4,
+          "vel": 42
+        },
+        {
+          "voice": "bass",
+          "midi": 43,
+          "atBeat": 4,
+          "durBeats": 4,
+          "vel": 38
+        }
+      ],
+      "tags": [
+        "death",
+        "npc_death",
+        "loss"
+      ],
+      "gain": 0.8
+    },
+    {
+      "id": "fanfare_settlement",
+      "role": "swell",
+      "bpm": 100,
+      "bars": 1,
+      "loop": false,
+      "notes": [
+        {
+          "voice": "pluck",
+          "midi": 72,
+          "atBeat": 0,
+          "durBeats": 0.5,
+          "vel": 48
+        },
+        {
+          "voice": "pluck",
+          "midi": 76,
+          "atBeat": 0.5,
+          "durBeats": 0.5,
+          "vel": 50
+        },
+        {
+          "voice": "pluck",
+          "midi": 79,
+          "atBeat": 1,
+          "durBeats": 0.5,
+          "vel": 52
+        },
+        {
+          "voice": "pluck",
+          "midi": 84,
+          "atBeat": 1.5,
+          "durBeats": 0.5,
+          "vel": 55
+        },
+        {
+          "voice": "bell",
+          "midi": 84,
+          "atBeat": 2,
+          "durBeats": 2,
+          "vel": 58
+        }
+      ],
+      "tags": [
+        "settlement_founded",
+        "settlement_grown",
+        "arrival"
+      ],
+      "gain": 0.85
+    }
+  ]
+}

@@ -1,9 +1,38 @@
 # Authored Music Cues + the Composer — score as part of the story system
 
-**Status:** **DESIGN** (no code). Supersedes the runtime generative half of the
-2026-06-19 presentation-director score (`MusicDirector`'s bar-by-bar emitter).
+**Status:** **BUILT** on branch `feat/authored-music-cues` (M-0…M-3 + Fate hook).
+Replaced the runtime generative score (`MusicDirector`'s bar-by-bar emitter is
+**deleted**) with an authored-cue runtime, unified onto the story beat substrate.
 Keeps everything else in `src/presentation/` (the observer rule, SFX, camera,
-voice). **Related:** presentation-director (as-built), storylet-engine,
+voice). tsc + production build green; +32 unit tests. **Related:**
+presentation-director (as-built), storylet-engine, fate-brain/fate-director,
+vision-cosmology.
+
+## As-built (2026-06-25)
+
+- **M-0 — cue runtime (no LLM):** `cue-types.ts` (`MusicCue`/`CueNote`/voices),
+  `cue-library.ts` (mood-eligibility, most-specific bed wins, silence when none),
+  `cue-sequencer.ts` (whole-loop look-ahead scheduling + one-shots + synth
+  leitmotif fallback), `cues/base-cues.ts` (3 mood beds + 3 swells; **beds cover
+  only elevated mood → calm is silence**). `MusicDirector` deleted; mood smoothing
+  moved into `PresentationDirector`.
+- **M-1 — unify the seam:** `StagedBeat.musicCue?` + `beat_fired` event carries it;
+  `PresentationDirector.onEvent` triggers the explicit cue purely as an OBSERVER
+  (no game.ts callback). Leitmotifs stay subject-focus-driven (`cueBeat`).
+- **M-2 — Composer author-time:** `cue-schema.ts` (validate untrusted cues),
+  `composer/load-cues.ts` (runtime loader for `public/asset-library/cues/base.json`,
+  degrades to []), `composer/{cue-prompt,composer-service}.ts`,
+  `scripts/compose-cues.ts` (capable-tier; `--plan`/no-key = **zero API calls**,
+  freeze-safe). The base JSON library is not yet generated (awaits a funded run).
+- **M-3 — on-demand leitmotifs:** `PresentationDirector` optional `composer` warms
+  a leitmotif on first need, caches it, synth plays meanwhile. **Default OFF** —
+  the live capable-client wiring in `game.ts` is the one spend path and is left as
+  a funded opt-in (mirrors paid building gen) per the "don't spend money" freeze.
+- **Fate hook:** `arm_staged_beat` gained an optional `musicCue` enum
+  (`FATE_MUSIC_CUES`), so Fate can swell the score on a beat it arms.
+- **M-4 — timbre (synth voices / samples):** deferred, separate epic.
+
+**Related:** presentation-director (as-built), storylet-engine,
 fate-brain/fate-director, vision-cosmology.
 
 ## What the user asked

@@ -93,6 +93,9 @@ export class StagingActivationSystem implements System {
     if (beat.storylet) this.onStoryletBeat?.(beat.subject, beat.storylet, beat);
     if (beat.threadId !== undefined) threads.activate(beat.threadId, ctx.now);
     staging.markFired(beat.id);
-    ctx.log.append({ type: 'beat_fired', beatId: beat.id, subject: beat.subject, threadId: beat.threadId });
+    ctx.log.append({
+      type: 'beat_fired', beatId: beat.id, subject: beat.subject,
+      threadId: beat.threadId, musicCue: beat.musicCue,
+    });
   }
 }

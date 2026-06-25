@@ -42,6 +42,14 @@ export interface StagedBeat {
    * StorySession. `hard`/`soft` still apply alongside. See src/story/.
    */
   storylet?: string;
+  /**
+   * Optional id of a music cue the presentation layer triggers when this beat
+   * fires (a Composer-chosen swell/leitmotif for the moment). Pure presentation —
+   * it rides the `beat_fired` event so the score reacts off the SAME beat
+   * substrate as prose/camera, never touching sim determinism. See
+   * src/presentation/cue-types.ts.
+   */
+  musicCue?: string;
   status: BeatStatus;
   stagedTick: number;
 }

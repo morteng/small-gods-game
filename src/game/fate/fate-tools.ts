@@ -20,6 +20,9 @@ export const FATE_EVENT_TYPES: readonly SettlementEventType[] = [
   'drought', 'festival', 'dispute', 'plague', 'raiders', 'trading_caravan', 'stranger_arrives', 'harvest_blessing',
 ];
 const MAX_NUDGE = 0.5;
+/** Music cues Fate may attach to a beat — grounded to the base swell vocabulary
+ *  (presentation/cues) so a beat can only reference a cue that actually exists. */
+export const FATE_MUSIC_CUES = ['swell_miracle', 'dirge_death', 'fanfare_settlement'] as const;
 
 export const FATE_TOOLS: LLMTool[] = [
   {
@@ -41,6 +44,10 @@ export const FATE_TOOLS: LLMTool[] = [
           description: 'If hard=inject_npc, who arrives.',
         },
         soft: { type: 'string', description: 'One line of atmosphere/narration primed on discovery.' },
+        musicCue: {
+          type: 'string', enum: [...FATE_MUSIC_CUES],
+          description: 'Optional: a short musical cue to swell when this beat is discovered.',
+        },
       },
       required: ['subjectPoiId', 'hard'],
     },
@@ -113,7 +120,7 @@ function isSiteId(id: string): boolean { return id.startsWith('causal:'); }
 
 function parseArmBeat(c: LLMToolCall, ctx: FateToolCtx): Omit<StagedBeat, 'id' | 'status'> | null {
   const a = c.arguments as {
-    subjectPoiId?: unknown; threadId?: unknown; hard?: unknown; role?: unknown; soft?: unknown;
+    subjectPoiId?: unknown; threadId?: unknown; hard?: unknown; role?: unknown; soft?: unknown; musicCue?: unknown;
   };
   const poiId = typeof a.subjectPoiId === 'string' ? a.subjectPoiId : '';
   if (!ctx.validPoiIds.has(poiId)) { console.warn('[fate] dropped beat: unknown subjectPoiId', poiId); return null; }
@@ -133,6 +140,7 @@ function parseArmBeat(c: LLMToolCall, ctx: FateToolCtx): Omit<StagedBeat, 'id' |
   };
   if (typeof a.threadId === 'number') beat.threadId = a.threadId;
   if (typeof a.soft === 'string' && a.soft.trim()) beat.soft = { kind: 'location_vibe', text: a.soft.trim() };
+  if (typeof a.musicCue === 'string' && (FATE_MUSIC_CUES as readonly string[]).includes(a.musicCue)) beat.musicCue = a.musicCue;
   return beat;
 }
 
