@@ -43,7 +43,7 @@ export type SimEvent =
   | { type: 'thread_opened';      threadId: ThreadId; shapeId: ShapeId; subject: ThreadSubject }
   | { type: 'thread_advanced';    threadId: ThreadId; phase: string; weight: NarrativeWeight }
   | { type: 'thread_resolved';    threadId: ThreadId; status: 'resolved' | 'abandoned' }
-  | { type: 'beat_fired';         beatId: BeatId; subject: ThreadSubject; threadId?: ThreadId }
+  | { type: 'beat_fired';         beatId: BeatId; subject: ThreadSubject; threadId?: ThreadId; musicCue?: string }
   | { type: 'summon_storm';       spiritId: SpiritId; poiId: string; depthM: number; cells: number }
   | { type: 'place_flooded';      poiId: string; name: string; depthM: number; coverage: number }
   | { type: 'place_receded';      poiId: string; name: string }
