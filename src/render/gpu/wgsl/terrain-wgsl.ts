@@ -93,6 +93,26 @@ fn sampleColorBi(b : BiCell) -> vec3<f32> {
   return mix(mix(c00, c10, b.tx), mix(c01, c11, b.tx), b.ty);
 }
 
+// Road pavedness rides a SUPER-SAMPLED grid (road-surface.ts: S× the cell lattice) so the
+// carriageway edge is liberated from the 2 m terrain grid — a per-cell scalar can only
+// resolve the edge to half a tile, which is the "zig-zag roads" artifact. S is recovered
+// from the buffer length (rw*rh = W*H*S*S) so no extra uniform is needed; at S=1 the math
+// collapses to the plain per-cell bilinear sample. fx,fy is the continuous TILE coord.
+fn sampleRoadBi(fx : f32, fy : f32) -> f32 {
+  let W = u32(G.uGrid.x); let H = u32(G.uGrid.y);
+  let rl = arrayLength(&roadSurface);
+  let s = max(1u, u32(round(sqrt(f32(rl) / f32(W * H)))));
+  let rw = W * s; let rh = H * s;
+  let gx = clamp(fx * f32(s), 0.0, f32(rw - 1u));
+  let gy = clamp(fy * f32(s), 0.0, f32(rh - 1u));
+  let x0 = u32(floor(gx)); let y0 = u32(floor(gy));
+  let x1 = min(x0 + 1u, rw - 1u); let y1 = min(y0 + 1u, rh - 1u);
+  let tx = gx - f32(x0); let ty = gy - f32(y0);
+  let s00 = roadSurface[y0 * rw + x0]; let s10 = roadSurface[y0 * rw + x1];
+  let s01 = roadSurface[y1 * rw + x0]; let s11 = roadSurface[y1 * rw + x1];
+  return mix(mix(s00, s10, tx), mix(s01, s11, tx), ty);
+}
+
 // Cheap value noise for jittering material thresholds so edges wander (kills the
 // flat contour rings / square biome borders that betray procedural terrain).
 fn hash21(p : vec2<f32>) -> f32 {
@@ -264,7 +284,7 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   // Tile-space UV for the material exemplars (REPEAT sampler tiles them seamlessly).
   let muv = in.vGrid / MAT_TILES;
 
-  let road = sampleScalarBi(bc, &roadSurface);
+  let road = sampleRoadBi(in.vGrid.x, in.vGrid.y);
   // Road surface = the full packed-dirt → gravel → cobble exemplar spectrum (real
   // sett/grain texture), driven by pavedness (Slice 2). road-surface.ts bakes the road
   // TIER into this scalar at the material anchors (dirt 0.2 · gravel 0.45 · cobble 0.75 ·

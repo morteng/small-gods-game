@@ -22,6 +22,18 @@ import type { Pt } from '@/terrain/road-centerline';
 /** Surface material → base pavedness (how hard/stone-like the running surface reads). */
 const PAVEDNESS: Record<SurfaceMaterial, number> = { dirt: 0.2, gravel: 0.45, cobble: 0.75, paved: 1.0 };
 
+/**
+ * Sub-tile resolution of the pavedness field. A per-cell (1-per-2m-tile) scalar can
+ * only resolve a road EDGE to ±0.5 tile, so the carriageway boundary wobbles at tile
+ * frequency (the "zig-zag roads" artifact) however smooth the centerline is. Sampling
+ * the centerline distance at S× per tile liberates the edge from the 2 m grid — the
+ * shader (which already bilinear-samples this buffer) then reconstructs a smooth sub-
+ * tile carriageway. 4× → 0.5 m precision; the field is static + memoised per world so
+ * the (16× cells in the road bbox) build cost is paid once. The shader derives S from
+ * `arrayLength(&roadSurface)` so no extra uniform is needed.
+ */
+export const ROAD_SURFACE_SUPERSAMPLE = 4;
+
 /** Min distance from (px,py) to a polyline. */
 function minDistToPolyline(pts: Pt[], px: number, py: number): number {
   let best = Infinity;
@@ -38,13 +50,21 @@ function minDistToPolyline(pts: Pt[], px: number, py: number): number {
 }
 
 /**
- * Pure: a world → its per-cell road pavedness field (row-major width*height). Each road
- * edge stamps its carriageway (out to the carriageway half-width + a shoulder lip) with
- * its material pavedness, feathered at the edge; overlapping roads take the strongest.
+ * Pure: a world → its road pavedness field (row-major). Each road edge stamps its
+ * carriageway (out to the carriageway half-width + a shoulder lip) with its material
+ * pavedness, feathered at the edge; overlapping roads take the strongest.
+ *
+ * `supersample` (S) gives the field S× the cell resolution — fine cell (i,j) samples
+ * the centerline distance at the continuous tile coord (i/S, j/S), so the row stride
+ * is `width*S` and the array is `width*S * height*S`. S=1 is byte-identical to the
+ * per-cell field (the integer-tile path tests pin); S>1 is what liberates the rendered
+ * carriageway edge from the 2 m grid. The shader recovers S from the array length.
  */
-export function buildRoadSurfaceField(map: GameMap): Float32Array {
+export function buildRoadSurfaceField(map: GameMap, supersample = 1): Float32Array {
   const { width, height } = map;
-  const field = new Float32Array(width * height);
+  const S = Math.max(1, Math.floor(supersample));
+  const rw = width * S, rh = height * S;
+  const field = new Float32Array(rw * rh);
   const graph = map.roadGraph;
   if (!graph) return field;
 
@@ -68,18 +88,22 @@ export function buildRoadSurfaceField(map: GameMap): Float32Array {
       if (p.y > maxY) maxY = p.y;
     }
     const pad = Math.ceil(halfW) + 1;
-    const x0 = Math.max(0, Math.floor(minX) - pad);
-    const y0 = Math.max(0, Math.floor(minY) - pad);
-    const x1 = Math.min(width - 1, Math.ceil(maxX) + pad);
-    const y1 = Math.min(height - 1, Math.ceil(maxY) + pad);
+    // Fine-index bbox: tile bounds → sub-cell lattice. At S=1 these collapse to the
+    // integer-tile loop (fi0=x0 … fi1=x1), so the field stays byte-for-byte identical.
+    const fi0 = Math.max(0, (Math.floor(minX) - pad) * S);
+    const fj0 = Math.max(0, (Math.floor(minY) - pad) * S);
+    const fi1 = Math.min(rw - 1, (Math.ceil(maxX) + pad + 1) * S - 1);
+    const fj1 = Math.min(rh - 1, (Math.ceil(maxY) + pad + 1) * S - 1);
 
-    for (let ty = y0; ty <= y1; ty++) {
-      for (let tx = x0; tx <= x1; tx++) {
-        const d = minDistToPolyline(centerline, tx, ty);
+    for (let j = fj0; j <= fj1; j++) {
+      const tileY = j / S;
+      for (let i = fi0; i <= fi1; i++) {
+        const tileX = i / S;
+        const d = minDistToPolyline(centerline, tileX, tileY);
         if (d > halfW) continue;
         const fade = d <= core ? 1 : 1 - (d - core) / (halfW - core);
         const v = paved * fade;
-        const idx = ty * width + tx;
+        const idx = j * rw + i;
         if (v > field[idx]) field[idx] = v;
       }
     }
@@ -91,12 +115,13 @@ export function buildRoadSurfaceField(map: GameMap): Float32Array {
 const cache = new Map<string, Float32Array>();
 const CACHE_CAP = 4;
 
-/** Memoised {@link buildRoadSurfaceField}. Same array instance across frames. */
+/** Memoised {@link buildRoadSurfaceField} at the production sub-tile resolution. Same
+ *  array instance across frames (the field is static for a world). */
 export function getRoadSurfaceField(map: GameMap): Float32Array {
-  const k = `${map.seed}:${map.width}x${map.height}:r${map.roadGraph?.rev ?? 0}`;
+  const k = `${map.seed}:${map.width}x${map.height}:r${map.roadGraph?.rev ?? 0}:s${ROAD_SURFACE_SUPERSAMPLE}`;
   const hit = cache.get(k);
   if (hit) return hit;
-  const field = buildRoadSurfaceField(map);
+  const field = buildRoadSurfaceField(map, ROAD_SURFACE_SUPERSAMPLE);
   cache.set(k, field);
   if (cache.size > CACHE_CAP) {
     const oldest = cache.keys().next().value;

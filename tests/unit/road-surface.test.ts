@@ -39,4 +39,43 @@ describe('buildRoadSurfaceField', () => {
     const g: RoadGraph = { nodes: [], edges: [roadEdge('e1', STRAIGHT)] };
     expect(Array.from(buildRoadSurfaceField(mapWith(g)))).toEqual(Array.from(buildRoadSurfaceField(mapWith(g))));
   });
+
+  it('super-samples the field S× (row stride = width·S, length = W·S·H·S)', () => {
+    const g: RoadGraph = { nodes: [], edges: [roadEdge('e1', STRAIGHT)] };
+    const f4 = buildRoadSurfaceField(mapWith(g), 4);
+    expect(f4.length).toBe(24 * 4 * 24 * 4);
+  });
+
+  it('S>1 collapses to the per-cell field at integer tile centres', () => {
+    // Fine cell (i,j) samples tile coord (i/S, j/S), so the sub-cells that land exactly
+    // on a tile centre (i = tx·S, j = ty·S) must equal the S=1 value there — the super-
+    // sampled field only ADDS detail between centres, never moves the integer samples.
+    const g: RoadGraph = { nodes: [], edges: [roadEdge('e1', STRAIGHT, { surface: 'stone', class: 'highway' })] };
+    const S = 4, w = 24;
+    const base = buildRoadSurfaceField(mapWith(g), 1);
+    const fine = buildRoadSurfaceField(mapWith(g), S);
+    for (let ty = 10; ty <= 14; ty++) {
+      for (let tx = 10; tx <= 18; tx++) {
+        const b = base[ty * w + tx];
+        const fIdx = (ty * S) * (w * S) + (tx * S);
+        expect(fine[fIdx]).toBeCloseTo(b, 6);
+      }
+    }
+  });
+
+  it('liberates the edge: a sub-tile sample across the carriageway boundary lands between 0 and full', () => {
+    // The point of super-sampling — the edge no longer snaps to a tile. Scan one row of
+    // the fine lattice across the road and require at least one INTERMEDIATE (feathered)
+    // sub-cell that a per-cell field could never represent at that position.
+    const g: RoadGraph = { nodes: [], edges: [roadEdge('e1', STRAIGHT, { surface: 'stone', class: 'highway' })] };
+    const S = 4, w = 24;
+    const fine = buildRoadSurfaceField(mapWith(g), S);
+    const row = 12 * S; // a fine row through the road centre (tile y=12)
+    let sawFeather = false;
+    for (let i = 0; i < w * S; i++) {
+      const v = fine[row * (w * S) + i];
+      if (v > 0.02 && v < 0.9) { sawFeather = true; break; }
+    }
+    expect(sawFeather).toBe(true);
+  });
 });

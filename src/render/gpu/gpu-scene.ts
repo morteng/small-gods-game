@@ -98,6 +98,9 @@ export class GpuScene {
   private terrainRoadSurfaceBuf: GPUBuffer | null = null;
   private terrainBind: GPUBindGroup | null = null;
   private terrainCellCap = 0;
+  // The road buffer rides a super-sampled grid (road-surface.ts), so it is S² larger
+  // than the cell count and needs its own capacity / realloc trigger.
+  private terrainRoadCap = 0;
   // Last-uploaded field arrays — skip the re-upload when unchanged by reference.
   private lastHeights: Float32Array | null = null;
   private lastColors: Uint32Array | null = null;
@@ -448,8 +451,12 @@ export class GpuScene {
   ): void {
     const { device } = this;
     const cells = heights.length;
+    // The road field is super-sampled (S² × cells), so it has its own capacity and can
+    // force a realloc even when the cell count is unchanged (e.g. a world with no roads
+    // gains some, growing the buffer from cells → cells·S²).
+    const roadCells = roadSurface.length;
     let realloc = false;
-    if (!this.terrainHeightsBuf || cells > this.terrainCellCap) {
+    if (!this.terrainHeightsBuf || cells > this.terrainCellCap || roadCells > this.terrainRoadCap) {
       this.terrainHeightsBuf?.destroy();
       this.terrainColorsBuf?.destroy();
       this.terrainMoistureBuf?.destroy();
@@ -460,8 +467,9 @@ export class GpuScene {
       this.terrainColorsBuf = storage(cells * 4);
       this.terrainMoistureBuf = storage(cells * 4);
       this.terrainTemperatureBuf = storage(cells * 4);
-      this.terrainRoadSurfaceBuf = storage(cells * 4);
+      this.terrainRoadSurfaceBuf = storage(Math.max(roadCells, cells) * 4);
       this.terrainCellCap = cells;
+      this.terrainRoadCap = roadCells;
       this.terrainBind = device.createBindGroup({
         layout: this.terrainPipeline.getBindGroupLayout(0),
         entries: [

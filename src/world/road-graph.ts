@@ -223,14 +223,31 @@ export function buildRoadGraph(
       // bundle onto existing trunks and crossings concentrate at shared bridge sites
       // (walk-and-carve is interleaved, so earlier segments are already on `tiles`).
       const isRoad = feature === 'road' ? (x: number, y: number) => ROAD_TILE_TYPES.has(tiles[y]?.[x]?.type) : undefined;
-      const result = walkRoad(a, b, tiles, fields, { autoBridge, isObstacle, isRoad });
+      // Roads + rivers may step DIAGONALLY so they cut a true ANY-ANGLE line across the
+      // terrain instead of an axis-aligned staircase. A 4-connected A* can only move on
+      // the grid axes, so a line at e.g. 30° comes out as multi-tile W/N jogs that read
+      // as grid-locked zig-zag — and the centerline smoother can't straighten them (RDP
+      // keeps any jog >ε). An 8-connected path distributes the off-axis steps one-per-run,
+      // staying ≤½ tile from the true bearing, so RDP+Catmull reconstruct the real angle.
+      // Walls stay 4-connected (a corner-connected wall leaks). Diagonal water-corner cuts
+      // are already guarded in the walker, so bridges stay sound.
+      const allowDiagonal = feature !== 'wall';
+      const result = walkRoad(a, b, tiles, fields, { autoBridge, isObstacle, isRoad, allowDiagonal });
       if (result.cells.length === 0) continue;
 
+      // A diagonal step leaves the rasterized tile MASK only corner-connected, which
+      // breaks the 4-neighbour invariants the network relies on (NPC walkability, the
+      // road-connectivity flood). Re-insert an orthogonal corner at each diagonal step so
+      // the stamped mask is 4-connected again — the polyline still traces the diagonal, so
+      // the smoothed centerline (carve + surface) stays any-angle; only the 1-tile-wide
+      // mask gains the filler. The filler prefers a land, non-obstacle cell so it never
+      // spawns a phantom bridge or carves a building.
+      const walked = allowDiagonal ? orthogonalize(result.cells, tiles, isObstacle) : result.cells;
       // The cost model steers AROUND buildings; this drops the residual cells it
       // was forced onto (a forced crossing, or the POI-centre endpoint the
       // building covers) so no road tile is ever carved under a building. The
       // polyline IS the source of truth, so carve and replay stay byte-identical.
-      const cells = isObstacle ? result.cells.filter(c => !isObstacle(c.x, c.y)) : result.cells;
+      const cells = isObstacle ? walked.filter(c => !isObstacle(c.x, c.y)) : walked;
       if (cells.length === 0) continue;
 
       const bridgeCells = [...result.bridgeCells].sort((m, n) => m - n);
@@ -252,6 +269,36 @@ export function buildRoadGraph(
   }
 
   return graph;
+}
+
+/**
+ * Insert an orthogonal corner between every diagonally-adjacent pair so a path produced
+ * by an 8-connected walker rasterizes to a 4-connected tile mask (NPC walkability + the
+ * road-connectivity flood both step 4-neighbour). The result is a TIGHT 1-step staircase
+ * — each off-axis move is a single orthogonal step — which RDP+Catmull collapse straight
+ * back to the diagonal, so the smoothed centerline keeps its true angle. The corner prefers
+ * a land, non-obstacle cell (the walker already forbids a diagonal whose BOTH shared
+ * orthogonals are water, so a dry choice always exists) to avoid a phantom bridge/cut.
+ */
+function orthogonalize(
+  cells: Array<{ x: number; y: number }>,
+  tiles: Tile[][],
+  isObstacle?: (x: number, y: number) => boolean,
+): Array<{ x: number; y: number }> {
+  if (cells.length < 2) return cells;
+  const bad = (x: number, y: number): boolean =>
+    WATER_TYPES.has(tiles[y]?.[x]?.type) || (isObstacle?.(x, y) ?? false);
+  const out: Array<{ x: number; y: number }> = [cells[0]];
+  for (let i = 1; i < cells.length; i++) {
+    const p = cells[i - 1], c = cells[i];
+    if (p.x !== c.x && p.y !== c.y) {
+      const optA = { x: c.x, y: p.y };
+      const optB = { x: p.x, y: c.y };
+      out.push(!bad(optA.x, optA.y) ? optA : !bad(optB.x, optB.y) ? optB : optA);
+    }
+    out.push(c);
+  }
+  return out;
 }
 
 /** Apply one edge's writes to live tiles (the per-cell rule from carveConnections). */
