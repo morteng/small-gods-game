@@ -1,6 +1,7 @@
 import type { RenderContext, HitResult, Tile, Entity, NpcInstance, GeneratedDecoration } from '@/core/types';
 import { getEntitySortY } from '@/render/entity-sort';
 import { pickTile } from '@/ui/pick-tile';
+import { isoEnvForMap } from '@/render/iso/iso-env';
 
 /**
  * Convert screen (canvas) coordinates to a tile and perform a hit-test
@@ -13,7 +14,9 @@ import { pickTile } from '@/ui/pick-tile';
  * Returns a HitResult describing what (if anything) was clicked.
  */
 export function hitTest(rc: RenderContext, canvasX: number, canvasY: number): HitResult {
-  const { tx: tileX, ty: tileY } = pickTile(rc.camera, canvasX, canvasY);
+  // Lift-aware when the world is bound, so hit-testing on slopes matches the drawn tile.
+  const env = rc.map ? isoEnvForMap(rc.map) : null;
+  const { tx: tileX, ty: tileY } = pickTile(rc.camera, canvasX, canvasY, env);
 
   // 1. Check NPCs (rendered on top of everything)
   for (const npc of rc.npcs) {

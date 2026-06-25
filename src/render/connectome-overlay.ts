@@ -10,10 +10,8 @@
 // edges sit on the lifted surface rather than floating on a flat plane.
 
 import type { RenderContext, Camera, GameMap, POI } from '@/core/types';
-import { ELEVATION_SEA_LEVEL } from '@/world/heightfield';
-import { heightField } from '@/render/gpu/terrain-field';
-import { worldStyleOf } from '@/core/world-style';
-import { tileToScreen, screenToTile, screenToTileFlat, type IsoEnv } from '@/render/iso/lifted-projection';
+import { tileToScreen, screenToTile, screenToTileFlat } from '@/render/iso/lifted-projection';
+import { isoEnvForMap } from '@/render/iso/iso-env';
 import { getWaterNetwork } from '@/world/water-network-store';
 import type { ReachClass, WaterNodeKind, LakeClass, WaterNetwork } from '@/terrain/river-network';
 import type { PressureReport } from '@/world/connectome/pressure';
@@ -41,19 +39,6 @@ export function screenToTileApprox(map: GameMap, sx: number, sy: number, cam: Ca
     ty: Math.max(0, Math.min(map.height - 1, ty)),
   };
 }
-/** Bind the world's real terrain sampler + lift constants into an {@link IsoEnv} so the
- *  pure projection core can run against this map. Memo-light: `heightField` itself is
- *  memoised, so the closure is cheap to recreate per call. */
-function isoEnv(map: GameMap): IsoEnv {
-  const style = worldStyleOf(map.worldSeed);
-  return {
-    elevAt: (tx, ty) => renderElevAt(map, tx, ty),
-    seaLevel: ELEVATION_SEA_LEVEL,
-    k: style.mountainRelief * style.terrainVerticalExaggeration,
-    width: map.width,
-    height: map.height,
-  };
-}
 /**
  * Lift-AWARE inverse: CSS-pixel screen → the tile whose LIFTED rendering sits under
  * the cursor — the frontmost surface point, matching what the GPU draws there.
@@ -70,30 +55,12 @@ function isoEnv(map: GameMap): IsoEnv {
  */
 export function screenToTileLifted(map: GameMap, sx: number, sy: number, cam: Camera, iters = 4): { tx: number; ty: number } {
   void iters;   // legacy fixed-point param; the marching inverse needs no iteration count
-  return screenToTile(sx, sy, cam, isoEnv(map));
-}
-/**
- * The EXACT normalised elevation the GPU terrain lifts by at a (fractional) tile —
- * the composed (road/river carve) + gamma-curved height buffer the shader uploads,
- * BILINEARLY interpolated between vertices. `elevationAt` reads the raw base field
- * floored to a corner, so the overlay floated above carved channels and stepped
- * between vertices; sampling the render buffer puts every node on the lifted surface.
- */
-function renderElevAt(map: GameMap, tx: number, ty: number): number {
-  const W = map.width, H = map.height;
-  const hf = heightField(map);
-  const fx = Math.max(0, Math.min(W - 1, tx)), fy = Math.max(0, Math.min(H - 1, ty));
-  const x0 = Math.floor(fx), y0 = Math.floor(fy);
-  const x1 = Math.min(W - 1, x0 + 1), y1 = Math.min(H - 1, y0 + 1);
-  const dx = fx - x0, dy = fy - y0;
-  const top = hf[y0 * W + x0] * (1 - dx) + hf[y0 * W + x1] * dx;
-  const bot = hf[y1 * W + x0] * (1 - dx) + hf[y1 * W + x1] * dx;
-  return top * (1 - dy) + bot * dy;
+  return screenToTile(sx, sy, cam, isoEnvForMap(map));
 }
 function project(map: GameMap, tx: number, ty: number, cam: Camera): { x: number; y: number } {
   // One source of truth with the inverse (and the GPU lift): the pure iso core, bound
-  // to this world's terrain sampler + style. Overlay nodes sit on the lifted surface.
-  return tileToScreen(tx, ty, cam, isoEnv(map));
+  // to this world's terrain sampler + style (`isoEnvForMap`). Nodes sit on the lifted surface.
+  return tileToScreen(tx, ty, cam, isoEnvForMap(map));
 }
 
 function strokePolyline(

@@ -24,6 +24,17 @@ export interface TerrainLiftField {
   globals: Pick<TerrainGlobalsInput, 'grid' | 'half' | 'zPxPerM' | 'seaLevel' | 'reliefM'>;
 }
 
+/**
+ * THE screen-px lift of a normalised elevation — the single CPU mirror of the terrain
+ * shader's `heightPx = (elev - seaLevel) * reliefM * zPxPerM`. Every CPU lift (entity
+ * foot-z here, camera framing, the iso `IsoEnv.k` gain) bottoms out in this one formula,
+ * so they can't drift from the GPU or each other. `reliefM * zPxPerM` IS the iso env's
+ * `k` (mountainRelief × terrainVerticalExaggeration); see `iso-env.ts`.
+ */
+export function liftPxFromElev(elev: number, seaLevel: number, reliefM: number, zPxPerM: number): number {
+  return (elev - seaLevel) * reliefM * zPxPerM;
+}
+
 /** Screen-px vertical lift of a flat-world point (sx,sy), matching the shader. */
 export function liftAt(field: TerrainLiftField, sx: number, sy: number): number {
   const { grid, half, zPxPerM, seaLevel, reliefM } = field.globals;
@@ -38,7 +49,7 @@ export function liftAt(field: TerrainLiftField, sx: number, sy: number): number 
   if (tx < 0) tx = 0; else if (tx > w - 1) tx = w - 1;
   if (ty < 0) ty = 0; else if (ty > h - 1) ty = h - 1;
   const e = field.heights[ty * w + tx] ?? 0;
-  return (e - seaLevel) * reliefM * zPxPerM;
+  return liftPxFromElev(e, seaLevel, reliefM, zPxPerM);
 }
 
 /**
@@ -55,7 +66,7 @@ export function tileLiftPx(field: TerrainLiftField, tileX: number, tileY: number
   if (tx < 0) tx = 0; else if (tx > w - 1) tx = w - 1;
   if (ty < 0) ty = 0; else if (ty > h - 1) ty = h - 1;
   const e = field.heights[ty * w + tx] ?? 0;
-  return (e - seaLevel) * reliefM * zPxPerM;
+  return liftPxFromElev(e, seaLevel, reliefM, zPxPerM);
 }
 
 /** Lift one draw item by the terrain height under its ground-contact point. */
