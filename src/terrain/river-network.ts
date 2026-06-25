@@ -77,6 +77,7 @@ export interface WaterReach {
   cells: number[];       // ordered channel cells, upstream→downstream (endpoints included)
   order: number;         // Strahler order (max along the reach)
   flow: number;          // accumulated flow at the downstream end
+  flowUp: number;        // accumulated flow at the upstream end (for width taper)
   klass: ReachClass;     // spectrum classification
   lakeFed: boolean;      // true when the upstream node is a lake outlet
   /** Smoothed sub-cell centreline (tile coords), Catmull-Rom resample of cell centres. */
@@ -248,6 +249,55 @@ export function reachMeander(order: number, springX: number, springY: number): M
   return { amp, wavelength, phase, skew: 0.18 };
 }
 
+// ── Channel width by flow (downstream hydraulic geometry) ──────────────────────────
+// A real channel is not one constant width per spectrum class: it WIDENS downstream as
+// tributaries add discharge. Leopold & Maddock's downstream hydraulic geometry gives
+// width ∝ Qᵇ with b ≈ 0.5, so the half-width scales with √(flow). We taper each reach
+// from its upstream accumulation to its mouth accumulation, and the per-world REFERENCE
+// flow (the smallest channel flow ≈ the threshold) anchors the scale, so the same law
+// reads correctly in any world without plumbing the threshold around. A spring brook
+// stays thin; a post-confluence trunk steps wider; the carve + the render geometry both
+// read this one profile, so they never disagree.
+
+/** Channel half-width (tiles) at the reference flow — a brook. */
+export const RIVER_HALF_AT_REF = 0.5;
+/** Floor / ceiling on a channel's half-width (tiles). */
+export const RIVER_HALF_MIN = 0.32;
+export const RIVER_HALF_MAX = 2.4;
+
+/** The reference flow for a network: its smallest reach flow (≈ the channel threshold),
+ *  so the width law scales per-world. Never 0 (degenerate networks fall back to 1). */
+export function referenceFlow(net: WaterNetwork): number {
+  let m = Infinity;
+  for (const r of net.reaches) if (r.flow < m) m = r.flow;
+  return Number.isFinite(m) && m > 0 ? m : 1;
+}
+
+/** Channel half-width (tiles) from accumulated flow via W ∝ √(Q/Qref), clamped. */
+export function halfWidthFromFlow(flow: number, refFlow: number): number {
+  const w = RIVER_HALF_AT_REF * Math.sqrt(Math.max(flow, 0) / (refFlow || 1));
+  return Math.min(RIVER_HALF_MAX, Math.max(RIVER_HALF_MIN, w));
+}
+
+/** Per-centreline-vertex half-widths (tiles) for a reach: the channel widens by arc
+ *  length from its upstream accumulation (`flowUp`) to its mouth (`flow`). Both the
+ *  carve and the render geometry consume this, so width is coherent end-to-end. */
+export function reachHalfWidths(reach: WaterReach, refFlow: number): number[] {
+  const cl = reach.centerline;
+  const n = cl.length;
+  if (n === 0) return [];
+  if (n === 1) return [halfWidthFromFlow(reach.flow, refFlow)];
+  const s: number[] = [0];
+  for (let i = 1; i < n; i++) s.push(s[i - 1] + Math.hypot(cl[i].x - cl[i - 1].x, cl[i].y - cl[i - 1].y));
+  const total = s[n - 1] || 1;
+  const out: number[] = new Array(n);
+  for (let i = 0; i < n; i++) {
+    const f = reach.flowUp + (reach.flow - reach.flowUp) * (s[i] / total);
+    out[i] = halfWidthFromFlow(f, refFlow);
+  }
+  return out;
+}
+
 /**
  * Smooth a channel control polyline into a bendy centreline: round the D8 staircase
  * with Chaikin corner-cutting, then Catmull-Rom resample at a fixed spacing for an
@@ -408,6 +458,7 @@ export function buildWaterNetwork(hydro: HydrologyResult, W: number, H: number, 
     // the channel's volume for width.
     const order = chOrder[node.cell];
     const flow = flowField[cells[cells.length - 1]] ?? 0;
+    const flowUp = flowField[cells[0]] ?? flow;
     const control: Pt[] = cells.map((c) => ({ x: (c % W) + 0.5, y: ((c / W) | 0) + 0.5 }));
     reaches.push({
       id: `wr:${node.cell}-${cells[cells.length - 1]}`,
@@ -416,6 +467,7 @@ export function buildWaterNetwork(hydro: HydrologyResult, W: number, H: number, 
       cells,
       order,
       flow,
+      flowUp,
       klass: classifyReach(order, flow, threshold),
       lakeFed: node.kind === 'lake_outlet',
       centerline: smoothCenterline(control, CENTERLINE_SPACING,
