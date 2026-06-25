@@ -441,7 +441,7 @@ export class OpenRouterProvider implements LLMProvider {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${this.config.apiKey}`,
-      'HTTP-Referer': this.config.siteUrl ?? window.location?.href ?? 'http://localhost',
+      'HTTP-Referer': this.config.siteUrl ?? (typeof window !== 'undefined' ? window.location?.href : undefined) ?? 'http://localhost',
       'X-Title': this.config.siteName ?? 'Small Gods Game',
       ...this.config.defaultHeaders,
     };

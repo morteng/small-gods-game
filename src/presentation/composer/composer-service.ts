@@ -31,7 +31,9 @@ export class LlmCueComposer implements CueComposer {
   ) {}
 
   async composeLibrary(specs: CueSpec[]): Promise<MusicCue[]> {
-    const parsed = await this.ask(composerUserPrompt(specs));
+    // Scale the output budget to the batch — a full bed/swell is a few hundred
+    // tokens of notes, so 6 cues need headroom well past the single-cue default.
+    const parsed = await this.ask(composerUserPrompt(specs), 800 + specs.length * 700);
     if (!parsed) return [];
     // Keep only cues whose id was actually requested (the model can hallucinate).
     const wanted = new Set(specs.map((s) => s.id));
@@ -53,7 +55,7 @@ export class LlmCueComposer implements CueComposer {
   }
 
   /** Single LLM round-trip → parsed JSON object, or null on any failure. */
-  private async ask(user: string): Promise<unknown | null> {
+  private async ask(user: string, maxTokens = 1500): Promise<unknown | null> {
     if (!this.provider.isAvailable()) return null;
     try {
       const res = await this.provider.generate(
@@ -61,7 +63,7 @@ export class LlmCueComposer implements CueComposer {
           { role: 'system', content: COMPOSER_SYSTEM },
           { role: 'user', content: user },
         ],
-        { model: this.opts.model, temperature: this.opts.temperature ?? 0.7, maxTokens: 1500 },
+        { model: this.opts.model, temperature: this.opts.temperature ?? 0.7, maxTokens },
       );
       return res.parsed ?? safeJson(res.content);
     } catch {
