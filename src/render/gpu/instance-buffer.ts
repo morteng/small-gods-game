@@ -86,6 +86,11 @@ export interface TerrainGlobalsInput {
   /** Sub-tile mesh supersample (≥1; 1 = one quad/tile), packed into `uMode.y`.
    *  The vertex shader subdivides each tile into this many quads per edge. */
   terrainSuper?: number;
+  /** Viewport-cull mesh window `[oxTile, oyTile, spanW, spanH]` in TILES, snapped
+   *  to the subsample lattice CPU-side. Absent ⇒ whole map `[0,0,W,H]` (byte-identical
+   *  to the un-culled mesh). Only the terrain PASS packer (`packTerrainPassGlobals`)
+   *  writes it; the shared `packTerrainGlobals` (water path) ignores it. */
+  window?: [number, number, number, number];
 }
 
 /** Pack the terrain Globals uniform (std140-ish; vec2 pairs share 16-byte slots). */
@@ -98,5 +103,20 @@ export function packTerrainGlobals(g: TerrainGlobalsInput): Float32Array {
   b[12] = g.zPxPerM; b[13] = g.seaLevel; b[14] = g.reliefM; b[15] = Math.max(1, g.subsample); // uZParams
   b[16] = g.sunDir[0]; b[17] = g.sunDir[1]; b[18] = g.sunDir[2]; b[19] = Math.max(1, g.bands); // uSun
   b[20] = g.ambient[0]; b[21] = g.ambient[1]; b[22] = g.ambient[2]; b[23] = g.sunStrength;     // uAmbient
+  return b;
+}
+
+/** Terrain PASS uniform (T5 viewport-cull) — the shared 24-float terrain globals plus a
+ *  7th vec4 `uWindow` (the visible-tile mesh window). Only the terrain pass draws a culled
+ *  mesh, so only it carries the window; water keeps the unchanged 24-float `packTerrainGlobals`
+ *  + its own window slot. 28 floats / 112 bytes; the detail pass shares the buffer and reads
+ *  the first 96 bytes (its struct stops at `uAmbient`). */
+export const TERRAIN_PASS_GLOBALS_FLOATS = TERRAIN_GLOBALS_FLOATS + 4;
+
+export function packTerrainPassGlobals(g: TerrainGlobalsInput): Float32Array {
+  const b = new Float32Array(TERRAIN_PASS_GLOBALS_FLOATS);
+  b.set(packTerrainGlobals(g), 0);
+  const w = g.window ?? [0, 0, g.grid[0], g.grid[1]];
+  b[24] = w[0]; b[25] = w[1]; b[26] = w[2]; b[27] = w[3]; // uWindow: oxTile, oyTile, spanW, spanH
   return b;
 }

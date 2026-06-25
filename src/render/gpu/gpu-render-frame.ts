@@ -172,14 +172,21 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
       : zoomCoarsenMaxQuads(map.width, map.height, xform.sx);
 
     // Buffer-driven terrain field (T1): the GPU generates + lifts the grid from
-    // the height/colour storage buffers. Whole-map for now — chunk culling is T5.
+    // the height/colour storage buffers. VIEWPORT MESH CULL (T5): emit only the quads
+    // under the visible-tile rect (the ±2 slack absorbs the half-tile iso offset +
+    // coarsen-lattice snap; `buildTerrainField` adds the down-screen lift margin for
+    // tall peaks). `bounds` clamps to the map, so at fit-zoom this IS the whole map.
+    const terrainWindow = {
+      minTx: bounds.minTx - 2, minTy: bounds.minTy - 2,
+      maxTx: bounds.maxTx + 2, maxTy: bounds.maxTy + 2,
+    };
     const terrain: TerrainField | null = isLayerHidden('terrain', rc.devMode)
       ? null
       : buildTerrainField(map, {
           viewport: [lowW, lowH],
           xform, lighting, devMode: rc.devMode,
           terrainMode: rc.devMode?.terrainMode,
-          superSample, maxQuads: meshMaxQuads,
+          superSample, maxQuads: meshMaxQuads, window: terrainWindow,
           // DIR-A: author-placed lakes paint their beds damp too (studio editing).
           connectomeWater: rc.connectomeWater,
         });

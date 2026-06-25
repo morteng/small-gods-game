@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   hexToAbgr, terrainGrid, packColorField, buildTerrainField,
   TERRAIN_Z_PX_PER_M, MAX_TERRAIN_QUADS, curveRenderElev, curveHeightBuffer,
-  zoomCoarsenMaxQuads,
+  zoomCoarsenMaxQuads, terrainLiftMarginTiles,
 } from '@/render/gpu/terrain-field';
 import { ISO_TILE_W } from '@/render/iso/iso-constants';
 import { DEFAULT_LIGHTING } from '@/render/lighting-state';
@@ -95,6 +95,69 @@ describe('terrainGrid LOD', () => {
     const g = terrainGrid(2000, 2000, MAX_TERRAIN_QUADS);
     expect(g.subsample).toBeGreaterThan(1);
     expect(g.quadsX * g.quadsY).toBeLessThanOrEqual(MAX_TERRAIN_QUADS);
+  });
+});
+
+describe('terrainGrid viewport cull (T5)', () => {
+  it('is byte-identical to the un-culled grid for the whole-map window', () => {
+    const W = 100, H = 80;
+    const full = terrainGrid(W, H);
+    const windowed = terrainGrid(W, H, MAX_TERRAIN_QUADS, 1, [0, 0, W - 1, H - 1]);
+    expect(windowed.subsample).toBe(full.subsample);
+    expect(windowed.quadsX).toBe(full.quadsX);
+    expect(windowed.quadsY).toBe(full.quadsY);
+    expect(windowed.vertexCount).toBe(full.vertexCount);
+    expect(windowed.window).toEqual([0, 0, W, H]);
+  });
+
+  it('emits only the windowed quads — far fewer than the full map', () => {
+    const W = 384, H = 272;
+    // A 30×30-tile visible rect somewhere mid-map.
+    const g = terrainGrid(W, H, MAX_TERRAIN_QUADS, 1, [100, 100, 129, 129]);
+    expect(g.subsample).toBe(1);          // LOD still chosen map-wide
+    expect(g.window).toEqual([100, 100, 30, 30]);
+    expect(g.vertexCount).toBe(30 * 30 * 6);
+    expect(g.vertexCount).toBeLessThan(terrainGrid(W, H).vertexCount / 50);
+  });
+
+  it('snaps the origin DOWN and span UP to the subsample lattice', () => {
+    // Force subsample 2 via a tight cap, then a window mis-aligned to the lattice.
+    const W = 400, H = 400;
+    const cap = Math.floor(W / 2) * Math.floor(H / 2); // forces subsample 2
+    const g = terrainGrid(W, H, cap, 1, [7, 7, 22, 22]);
+    expect(g.subsample).toBe(2);
+    // origin floored to a multiple of 2 (6), span ceiled to cover [7..23) → [6..24) = 18
+    expect(g.window[0]).toBe(6);
+    expect(g.window[1]).toBe(6);
+    expect(g.window[0] % 2).toBe(0);
+    expect(g.window[2] % 2).toBe(0);
+    expect(g.vertexCount).toBe((g.window[2] / 2) * (g.window[3] / 2) * 6);
+  });
+
+  it('clamps the window to the map and never emits zero quads', () => {
+    const W = 50, H = 50;
+    const g = terrainGrid(W, H, MAX_TERRAIN_QUADS, 1, [-20, -20, 999, 999]);
+    expect(g.window).toEqual([0, 0, W, H]);   // whole map after clamp
+    expect(g.vertexCount).toBe(W * H * 6);
+    // A degenerate window past the map still yields one quad, not zero.
+    const deg = terrainGrid(W, H, MAX_TERRAIN_QUADS, 1, [60, 60, 70, 70]);
+    expect(deg.vertexCount).toBeGreaterThan(0);
+  });
+
+  it('respects supersample subdivision inside the window', () => {
+    const W = 100, H = 100;
+    const g = terrainGrid(W, H, MAX_TERRAIN_QUADS, 2, [10, 10, 19, 19]); // 10-tile span, ×2 subdivide
+    expect(g.window).toEqual([10, 10, 10, 10]);
+    expect(g.vertexCount).toBe(10 * 2 * 10 * 2 * 6);
+  });
+});
+
+describe('terrainLiftMarginTiles', () => {
+  it('is a small non-negative tile count for a flat map (no peaks)', () => {
+    const flat = tinyMap(40, 40); // all grass at sea-ish level, no POIs
+    const m = terrainLiftMarginTiles(flat);
+    expect(m).toBeGreaterThanOrEqual(1);
+    expect(m).toBeLessThan(20);
   });
 });
 

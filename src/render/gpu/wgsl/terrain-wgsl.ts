@@ -28,6 +28,7 @@ struct TGlobals {
   uZParams  : vec4<f32>,   // zPxPerM, seaLevel, reliefM, subsample
   uSun      : vec4<f32>,   // tile-space sun dir xyz, bands
   uAmbient  : vec4<f32>,   // ambient rgb, sun strength
+  uWindow   : vec4<f32>,   // viewport-cull mesh window: oxTile, oyTile, spanW, spanH (tiles)
 };
 
 @group(0) @binding(0) var<uniform> G : TGlobals;
@@ -212,7 +213,13 @@ fn vsMain(@builtin(vertex_index) vid : u32) -> VSOut {
   let H = u32(G.uGrid.y);
   let sub = max(1u, u32(G.uZParams.w));   // coarsen LOD (auto, big maps)
   let sup = max(1u, u32(G.uMode.y));      // subdivide (manual; 1 = one quad/tile)
-  let quadsPerRow = max(1u, (W / sub) * sup);
+  // VIEWPORT CULL (T5): the mesh spans only the visible tile window (origin + span,
+  // both snapped to the sub lattice CPU-side so the sampled cells are unchanged).
+  // Default window [0,0,W,H] => ox0=0, spanW=W => byte-identical to the un-culled mesh.
+  let ox0 = u32(G.uWindow.x);
+  let oy0 = u32(G.uWindow.y);
+  let spanW = max(1u, u32(G.uWindow.z));
+  let quadsPerRow = max(1u, (spanW / sub) * sup);
 
   let quadIdx = vid / 6u;
   let vertInQuad = vid % 6u;
@@ -233,8 +240,8 @@ fn vsMain(@builtin(vertex_index) vid : u32) -> VSOut {
   // height buffer. At sup=1 the coords are integers and heightPxF is exact, so the
   // mesh is byte-identical to the per-cell path.
   let stepT = f32(sub) / f32(sup);
-  let fx = min((f32(qx) + f32(corner.x)) * stepT, f32(W - 1u));
-  let fy = min((f32(qy) + f32(corner.y)) * stepT, f32(H - 1u));
+  let fx = min(f32(ox0) + (f32(qx) + f32(corner.x)) * stepT, f32(W - 1u));
+  let fy = min(f32(oy0) + (f32(qy) + f32(corner.y)) * stepT, f32(H - 1u));
 
   let hPx = heightPxF(fx, fy);
 
