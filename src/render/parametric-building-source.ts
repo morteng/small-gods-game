@@ -56,6 +56,9 @@ export function structureResultToPack(r: StructureResult): SpritePack | null {
       pack.shadow = { canvas, dx: r.shadow.ox - footX, dy: r.shadow.oy - footY };
     }
   }
+  // Mount sockets are already normalised to the same opaque bbox as the crop, so they ride
+  // along unchanged — UVs align with the albedo by construction.
+  if (r.anchors.tags?.length) pack.tags = r.anchors.tags;
   return pack;
 }
 

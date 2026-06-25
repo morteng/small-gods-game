@@ -5,14 +5,39 @@
 // roads-article "profile" (point + direction) lifted to a connection primitive — every
 // producer emits anchors, and `matchAnchors` (anchor-rules.ts) snaps compatible ones into
 // links. See docs/superpowers/specs/2026-06-20-anchor-snap-fit-connectome-design.md.
-export type AnchorKind =
+//
+// Two flavours share this one primitive (the "unified anchor, whole stack" decision —
+// docs/superpowers/specs/2026-06-24-establishments-site-connectome-design.md §5):
+//   • CONNECTION anchors (door/gate/road/wall_end/water_edge/frontage/service/bank) —
+//     ground-plane sockets that `matchAnchors` snaps into links. `z` is omitted.
+//   • MOUNT anchors (lintel/roof_ridge/gable_peak/chimney_top/eave/roof_apex) — typed
+//     attachment points ON a structure that say "a sign hangs here / a bird lands here".
+//     They carry a metric `z` (height above the foot) and an `accepts` token list.
+// The mount-kind vocabulary follows the earlier semantic-feature-anchor-tags brainstorm
+// (docs/superpowers/specs/2026-06-13-semantic-feature-anchor-tags-design.md). That spec
+// homed the tags at the SPRITE layer (normalised to the opaque bbox, persisted in the
+// SpritePack); per the 2026-06-24 "unified anchor, whole stack" decision the WORLD-space
+// anchor here is now canonical, and a sprite-normalised projection is a downstream lookup.
+export type ConnectionAnchorKind =
   | 'door' | 'gate' | 'road' | 'wall_end' | 'water_edge' | 'frontage' | 'service' | 'bank';
+/** Where on a structure something can attach — a lintel over a door, the roof ridge, a
+ *  gable peak, a chimney top, the eaves line, or a cone/dome apex. */
+export type MountAnchorKind =
+  | 'lintel' | 'roof_ridge' | 'gable_peak' | 'chimney_top' | 'eave' | 'roof_apex';
+export type AnchorKind = ConnectionAnchorKind | MountAnchorKind;
 export interface Anchor {
   kind: AnchorKind;
   x: number; y: number;          // world tile coords (fractional ok)
   facing: [number, number];      // outward unit vector
   width?: number;
   main?: boolean;
+  /** Height in METRES above the structure foot. Mount anchors set it (a sign at the
+   *  lintel, a perch on the ridge); connection anchors leave it undefined (ground plane). */
+  z?: number;
+  /** Attachment-kind tokens this socket will host — 'sign' | 'lamp' | 'banner' | 'finial'
+   *  | 'perch' | 'smoke' | … Matched against an attachable's kind the same way Fixture
+   *  `requires`/`satisfies` tokens match (one resolution rule, every scale). */
+  accepts?: string[];
   /** Stable, deterministic id (owner-derived). Optional for legacy emitters. */
   id?: string;
   /** The feature that emitted this anchor — building entity id, road edge id, barrier id, … */

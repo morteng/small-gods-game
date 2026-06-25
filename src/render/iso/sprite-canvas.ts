@@ -2,6 +2,7 @@
 // Crop a composeStructure grey buffer to its opaque bbox → a tight canvas sprite.
 // Returns null where no 2D canvas is available (jsdom tests) — callers fall back.
 import type { BBox } from '@/assetgen/render/fit';
+import type { MountAnchorN } from '@/assetgen/compose';
 
 export type SpriteCanvas = HTMLCanvasElement | OffscreenCanvas;
 
@@ -21,6 +22,10 @@ export interface SpritePack {
   /** Geometry-baked ground cast shadow + its offset (px) from the albedo crop's
    *  top-left, so the runtime blits it on the ground under the sprite. */
   shadow?: { canvas: SpriteCanvas; dx: number; dy: number };
+  /** Mount sockets projected onto the sprite, normalised (0..1) to the albedo crop — a
+   *  sign/lamp/perch/smoke decoration or fauna pass reads these by role/`accepts`. Survives
+   *  the img2img repaint because it's stored alongside the crop, not baked into pixels. */
+  tags?: MountAnchorN[];
 }
 
 /** Build a tight canvas from a w×h RGBA buffer (e.g. the baked ground shadow). */

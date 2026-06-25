@@ -28,6 +28,7 @@ import { ensureBuildingTypesRegistered } from '@/blueprint/register-buildings';
 import { initManifoldWasm } from '@/assetgen/geometry/manifold-wasm-browser';
 import { createGpuRenderMap } from '@/render/gpu/gpu-renderer';
 import { drawWorldConnectome, drawWaterNetwork, projectConnectome, screenToTileLifted } from '@/render/connectome-overlay';
+import { drawMountAnchorOverlay } from '@/render/mount-anchor-overlay';
 import { getWaterNetwork, getWaterConnectome } from '@/world/water-network-store';
 import { serializeCompact } from '@/world/connectome/world-node';
 import { applyNodeMoves, mergeWaterFeatures, addLakeBody, type LakeStamp } from '@/terrain/water-network-edits';
@@ -211,6 +212,7 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
   const dev: Partial<DevModeState> = {};
   let showConnectome = true;
   let showDetailPatches = false;
+  let showMountAnchors = false;  // building mount sockets (sign/lamp/perch dots, by role)
   let showWaterNet = false;   // the water connectome (river-network graph) overlay
   // Water EDIT mode: drag nodes to move features in real time; pressure shows crowding.
   let waterEdit = false;
@@ -515,6 +517,7 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
   layersSec.appendChild(toggleRow('Connectome', true, (v) => { showConnectome = v; }));
   layersSec.appendChild(toggleRow('Water connectome', false, (v) => { showWaterNet = v; }));
   layersSec.appendChild(toggleRow('Detail patch regions', false, (v) => { showDetailPatches = v; }));
+  layersSec.appendChild(toggleRow('Mount anchors (sign/lamp/perch)', false, (v) => { showMountAnchors = v; }));
   // Water EDIT: drag river/lake nodes to move features live; pressure rings show crowding.
   layersSec.appendChild(toggleRow('✥ Edit water — drag nodes', false, (v) => {
     waterEdit = v;
@@ -943,6 +946,10 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
     ctx.restore();
   }
 
+  // Mount-anchor overlay — the 2026-06-13 anchor-tags verification surface (shared with the
+  // in-game dev overlay). Dots each building's mount sockets by role at metric height.
+  const drawMountAnchors = (): void => drawMountAnchorOverlay(ctx, world, map, cam);
+
   // Air-humidity heat overlay — cyan iso-diamonds over cells the rain wetted, alpha
   // by moisture. Hot path (humidity can spread to thousands of cells), so it projects
   // INLINE (no per-cell `projectConnectome`, which allocates a style object ×4/cell),
@@ -1177,6 +1184,7 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
         });
       }
       if (showDetailPatches) drawDetailPatches();         // adaptive high-res regions
+      if (showMountAnchors) drawMountAnchors();           // building mount sockets (by role)
       drawOverlay();                          // humidity / cloud / temperature field
       drawFocus();                           // selected settlement/building outlines
       drawWaterSelection();                   // selected river/lake + downstream wash
@@ -1195,6 +1203,18 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
     regen: (seed?: number, scale?: ScalePreset | null) => { if (seed != null) gen.seed = seed >>> 0; if (scale !== undefined) gen.scale = scale; return regenerate(); },
     focus: () => focus,
     map: () => map,
+    // Building mount-anchor overlay (sign/lamp/perch sockets, by role) — toggle for the dev loop.
+    mountAnchors: (on?: boolean) => { if (on !== undefined) showMountAnchors = on; return showMountAnchors; },
+    // Composite the WebGPU scene + the 2D overlay into one PNG data-URL (studio dev-loop grab;
+    // the on-screen canvases are stacked, so a screenshot must merge both layers).
+    grab: () => {
+      const out = document.createElement('canvas');
+      out.width = sceneCanvas.width; out.height = canvas.height;
+      const g = out.getContext('2d')!;
+      g.drawImage(sceneCanvas, 0, 0);
+      g.drawImage(canvas, 0, 0);
+      return out.toDataURL('image/png');
+    },
     // Climate W-B handles: rain a basin's catchment + read the field state.
     rain: (tx: number, ty: number) => waterDyn?.rain(tx, ty, weather),
     // W-E: flood a plain — lay standing water of `depthM` over a disc of `radius` tiles.
