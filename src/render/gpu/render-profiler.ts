@@ -123,18 +123,18 @@ async function runMatrix(
     const maxQuads = rc.devMode?.terrainSuper != null
       ? undefined
       : zoomCoarsenMaxQuads(map.width, map.height, xform.sx);
-    const terrain = isLayerHidden('terrain', rc.devMode)
-      ? null
-      : buildTerrainField(map, { viewport: [lowW, lowH], xform, lighting, devMode: rc.devMode, superSample, maxQuads });
-    // Mirror the live frame's WATER viewport cull (gpu-render-frame): build the water mesh
-    // over the visible tile window only, else the bench rebuilds the full-map mesh and over-
-    // reports the (now culled) water pass — the same trap the zoom-LOD mirror above fixes.
+    // Mirror the live frame's viewport cull (gpu-render-frame): build the terrain + water
+    // meshes over the visible tile window only, else the bench rebuilds the full-map mesh
+    // and over-reports the (now culled) passes — the same trap the zoom-LOD mirror fixes.
     const cw = targetW / dpr, chh = targetH / dpr;
     const b = visibleTileBounds(
       { originX: -camera.x, originY: -camera.y }, cw / camera.zoom, chh / camera.zoom,
       { mapW: map.width, mapH: map.height },
     );
     const window = { minTx: b.minTx - 2, minTy: b.minTy - 2, maxTx: b.maxTx + 2, maxTy: b.maxTy + 2 };
+    const terrain = isLayerHidden('terrain', rc.devMode)
+      ? null
+      : buildTerrainField(map, { viewport: [lowW, lowH], xform, lighting, devMode: rc.devMode, superSample, maxQuads, window });
     const water = (terrain && !isLayerHidden('rivers', rc.devMode))
       ? buildWaterField(map, { viewport: [lowW, lowH], xform, lighting, timeSec: 0, superSample, maxQuads, window })
       : null;

@@ -20,7 +20,7 @@ import {
   type InstanceBatch, type ViewTransform,
 } from '@/render/gpu/instance-batch';
 import {
-  packInstances, packGlobals, packTerrainGlobals,
+  packInstances, packGlobals, packTerrainPassGlobals, TERRAIN_PASS_GLOBALS_FLOATS,
   QUAD_STRIP, QUAD_VERTEX_COUNT, INSTANCE_STRIDE,
 } from '@/render/gpu/instance-buffer';
 import type { DetailField } from '@/render/gpu/detail-field';
@@ -274,7 +274,9 @@ export class GpuScene {
     // the terrain FRAGMENT module (same shading over a denser mesh).
     const { pipeline: terrainPipeline, module: terrainModule } = createTerrainPipeline(device, gpu.format);
     this.terrainPipeline = terrainPipeline;
-    this.terrainGlobalsBuf = device.createBuffer({ size: 96, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    // 28 floats (112 bytes): the 24 shared terrain globals + a 7th vec4 `uWindow` (T5
+    // viewport cull). The detail pass shares this buffer and reads only the first 96 bytes.
+    this.terrainGlobalsBuf = device.createBuffer({ size: TERRAIN_PASS_GLOBALS_FLOATS * 4, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 
     this.detailPatchPipeline = createDetailPatchPipeline(device, gpu.format, terrainModule);
 
@@ -805,7 +807,7 @@ export class GpuScene {
     if (hasTerrain) {
       this.uploadFields(terrain!.heights, terrain!.colors, terrain!.moisture, terrain!.temperature, terrain!.roadFeature);
       device.queue.writeBuffer(this.terrainGlobalsBuf, 0,
-        packTerrainGlobals(terrain!.globals) as GPUAllowSharedBufferSource);
+        packTerrainPassGlobals(terrain!.globals) as GPUAllowSharedBufferSource);
     }
 
     // Detail patches reuse the coarse terrain buffers (+ its globals/depth), so they

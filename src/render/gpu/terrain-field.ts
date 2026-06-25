@@ -259,7 +259,16 @@ export interface TerrainGrid {
   quadsY: number;
   /** Vertices to draw: quadsX*quadsY*6 (2 tris/quad). */
   vertexCount: number;
+  /** Viewport-cull mesh window `[oxTile, oyTile, spanW, spanH]` in TILES (lattice-snapped),
+   *  for the shader's `uWindow`. Whole-map `[0,0,W,H]` when no window was supplied. */
+  window: [number, number, number, number];
 }
+
+/** A visible-tile cull rect in TILE coords (inclusive bounds), as produced by
+ *  `visibleTileBounds`. `buildTerrainField` snaps it to the LOD lattice and adds a
+ *  down-screen lift margin (tall peaks rise up-screen, so tiles just below the rect
+ *  can still be visible). */
+export interface TerrainWindow { minTx: number; minTy: number; maxTx: number; maxTy: number; }
 
 /**
  * Choose the subsample LOD + vertex count for a map, honouring the quad cap.
@@ -271,6 +280,7 @@ export interface TerrainGrid {
  */
 export function terrainGrid(
   width: number, height: number, maxQuads = MAX_TERRAIN_QUADS, superSample = 1,
+  window?: [number, number, number, number],
 ): TerrainGrid {
   const sup = Math.max(1, Math.floor(superSample));
   let subsample = 1;
@@ -280,9 +290,25 @@ export function terrainGrid(
     if (qx * qy <= maxQuads) { subsample = s; break; }
     subsample = s;
   }
-  const quadsX = Math.max(1, Math.floor(width / subsample)) * sup;
-  const quadsY = Math.max(1, Math.floor(height / subsample)) * sup;
-  return { subsample, quadsX, quadsY, vertexCount: quadsX * quadsY * 6 };
+  // The LOD `subsample` is chosen map-wide (so terrain + water coarsen identically);
+  // the window only limits WHICH quads are emitted. Snap the origin DOWN and the span
+  // UP to the subsample lattice so the sampled cell coordinates are unchanged — at the
+  // default whole-map window this is byte-identical to the un-culled grid.
+  let ox0 = 0, oy0 = 0, spanW = width, spanH = height;
+  if (window) {
+    const sub = subsample;
+    const wx = Math.max(0, Math.min(width - 1, Math.floor(window[0])));
+    const wy = Math.max(0, Math.min(height - 1, Math.floor(window[1])));
+    const ex = Math.max(wx, Math.min(width - 1, Math.floor(window[2]))) + 1;
+    const ey = Math.max(wy, Math.min(height - 1, Math.floor(window[3]))) + 1;
+    ox0 = Math.floor(wx / sub) * sub;
+    oy0 = Math.floor(wy / sub) * sub;
+    spanW = Math.max(sub, Math.min(width - ox0, Math.ceil(ex / sub) * sub - ox0));
+    spanH = Math.max(sub, Math.min(height - oy0, Math.ceil(ey / sub) * sub - oy0));
+  }
+  const quadsX = Math.max(1, Math.floor(spanW / subsample)) * sup;
+  const quadsY = Math.max(1, Math.floor(spanH / subsample)) * sup;
+  return { subsample, quadsX, quadsY, vertexCount: quadsX * quadsY * 6, window: [ox0, oy0, spanW, spanH] };
 }
 
 /** Hard ceiling on zoom-driven subdivision (a quad never finer than this per tile). */
@@ -379,6 +405,9 @@ export interface BuildTerrainFieldOpts {
   terrainMode?: number;
   /** Sub-tile mesh supersample (≥1; 1 = one quad/tile). See {@link terrainGrid}. */
   superSample?: number;
+  /** Viewport-cull rect in TILE coords (inclusive) — the mesh emits only quads inside
+   *  it (plus a down-screen lift margin for tall peaks). Absent ⇒ whole-map mesh. */
+  window?: TerrainWindow;
   /** OPT-IN connectome-projected water (studio editing) — its render waterType paints
    *  author-placed lake beds damp too. Absent → derived from the map (raster path). */
   connectomeWater?: ConnectomeWaterOverride;
@@ -387,6 +416,33 @@ export interface BuildTerrainFieldOpts {
 /** Relative luminance of an RGB triple in `[0,1]` — terrain sun strength scalar. */
 export function luminance(c: readonly [number, number, number]): number {
   return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+}
+
+/** Max normalised elevation in the map's height buffer, memoised per height-array
+ *  identity (stable until the world changes). Drives the viewport cull's down-screen
+ *  lift margin: a tall peak lifts its geometry up-screen, so a tile just BELOW the
+ *  visible rect can still be on-screen and must not be culled. */
+const _maxElevByHeights = new WeakMap<Float32Array, number>();
+export function terrainMaxElevation(map: GameMap): number {
+  const h = heightField(map);
+  let m = _maxElevByHeights.get(h);
+  if (m === undefined) {
+    m = 0;
+    for (let i = 0; i < h.length; i++) if (h[i] > m) m = h[i];
+    _maxElevByHeights.set(h, m);
+  }
+  return m;
+}
+
+/** Down-screen tile margin the cull window needs so a tall peak just below the visible
+ *  rect isn't culled. A lift of `hPx` raises geometry by `hPx/halfH` tiles of (tx+ty);
+ *  extending both maxTx and maxTy by Δ raises the covered (tx+ty) by 2Δ, so
+ *  Δ = ceil(maxLiftPx / (2·halfH)) + 1 (= ceil(maxLiftPx / ISO_TILE_H) + 1). Pure. */
+export function terrainLiftMarginTiles(map: GameMap): number {
+  const style = worldStyleOf(map.worldSeed);
+  const maxLiftPx = Math.max(0,
+    (terrainMaxElevation(map) - ELEVATION_SEA_LEVEL) * style.mountainRelief * style.terrainVerticalExaggeration);
+  return Math.ceil(maxLiftPx / ISO_TILE_H) + 1;
 }
 
 /**
@@ -407,6 +463,9 @@ export function terrainGlobalsFor(
     terrainMode?: number;
     /** Sub-tile mesh supersample (≥1; 1 = one quad/tile). Defaults to 1. */
     superSample?: number;
+    /** Lattice-snapped cull window `[oxTile, oyTile, spanW, spanH]` (from `terrainGrid`).
+     *  Absent ⇒ whole-map (the packer defaults to `[0,0,W,H]`). */
+    window?: [number, number, number, number];
   },
 ): TerrainGlobalsInput {
   // S1 style knobs: vertical exaggeration + relief metres. Default to
@@ -427,6 +486,7 @@ export function terrainGlobalsFor(
     sunStrength: luminance(opts.lighting.sunColor),
     terrainMode: opts.terrainMode ?? 0,
     terrainSuper: Math.max(1, Math.floor(opts.superSample ?? 1)),
+    window: opts.window,
   };
 }
 
@@ -457,10 +517,18 @@ export function terrainLiftFieldFor(map: GameMap): { heights: Float32Array; glob
  * array is reused; only the colour field and globals are recomputed.
  */
 export function buildTerrainField(map: GameMap, opts: BuildTerrainFieldOpts): TerrainField {
-  const grid = terrainGrid(map.width, map.height, opts.maxQuads, opts.superSample);
+  // Viewport cull (T5): a tall peak lifts geometry up-screen, so extend the visible rect
+  // DOWN-screen (+tx,+ty) by the map's max lift in tiles; the up-screen / east-west sides
+  // only need the iso half-tile + lattice-snap slack the caller already baked in.
+  let cullRect: [number, number, number, number] | undefined;
+  if (opts.window) {
+    const lift = terrainLiftMarginTiles(map);
+    cullRect = [opts.window.minTx, opts.window.minTy, opts.window.maxTx + lift, opts.window.maxTy + lift];
+  }
+  const grid = terrainGrid(map.width, map.height, opts.maxQuads, opts.superSample, cullRect);
   const globals = terrainGlobalsFor(map, {
     viewport: opts.viewport, xform: opts.xform, lighting: opts.lighting, subsample: grid.subsample,
-    terrainMode: opts.terrainMode, superSample: opts.superSample,
+    terrainMode: opts.terrainMode, superSample: opts.superSample, window: grid.window,
   });
   const climate = getClimateFields(map);
   const cw = opts.connectomeWater;
