@@ -421,7 +421,13 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   // is correct at every zoom with no tiling seam. Dirt is sampled unconditionally (texture
   // LOD needs uniform control flow); the analytic Voronoi is the cost, so it's gated behind
   // road presence — off-road fragments skip it entirely.
-  let roadMix = smoothstep(0.0, 0.16, road);     // soft road↔land edge
+  // Road-vs-land blend. The OLD smoothstep(0,0.16,road) saturated to ~1 at a dirt road's
+  // 0.2 pavedness, so a dirt track painted a hard-edged, full-strength uniform brown SLAB
+  // (read as a wide muddy scar) while only cobble feathered. Now the blend STRENGTH scales
+  // with pavedness: a dirt track blends ~0.35 (grass shows through, a packed-earth desire
+  // path), gravel rises, cobble/paved go fully opaque. A narrow edge smoothstep keeps the
+  // sub-tile boundary soft for every tier.
+  let roadMix = smoothstep(0.0, 0.08, road) * mix(0.35, 1.0, smoothstep(0.20, 0.75, road));
   let dirtA = matSample(6, muv);
   var roadAlb = dirtA;
   if (roadMix > 0.0) {
