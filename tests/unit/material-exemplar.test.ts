@@ -4,7 +4,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
   MATERIAL_IDS, MATERIAL_LAYER, buildMaterialExemplar, buildMaterialAtlas,
-  materialAtlas, clearMaterialAtlasCache, type MaterialId,
+  buildMaterialAtlasMips, materialAtlas, clearMaterialAtlasCache, type MaterialId,
 } from '@/render/gpu/material-exemplar';
 
 const SIZE = 32;   // size-independent checks; small keeps the build-heavy suite fast
@@ -108,6 +108,36 @@ describe('material atlas', () => {
     expect(materialAtlas(SIZE)).toBe(a);   // same instance
     clearMaterialAtlasCache();
     expect(materialAtlas(SIZE)).not.toBe(a);
+  });
+});
+
+describe('material atlas mip chain', () => {
+  it('halves each level down to 1×1 with the right level count', () => {
+    const atlas = buildMaterialAtlas(SIZE);                 // SIZE = 32 → 6 levels
+    const mips = buildMaterialAtlasMips(atlas);
+    expect(mips.length).toBe(Math.log2(SIZE) + 1);
+    expect(mips[0].size).toBe(SIZE);
+    expect(mips[0].albedo).toBe(atlas.albedo);             // level 0 = the atlas itself
+    mips.forEach((m, i) => {
+      expect(m.size).toBe(SIZE >> i);
+      expect(m.albedo.length).toBe(m.size * m.size * 4 * atlas.layers);
+    });
+    expect(mips[mips.length - 1].size).toBe(1);
+  });
+
+  it('keeps every level fully opaque (box-average of opaque stays opaque)', () => {
+    const mips = buildMaterialAtlasMips(buildMaterialAtlas(SIZE));
+    for (const m of mips) {
+      let badAlpha = 0;
+      for (let i = 3; i < m.albedo.length; i += 4) if (m.albedo[i] !== 255) badAlpha++;
+      expect(badAlpha, `mip ${m.size} non-opaque`).toBe(0);
+    }
+  });
+
+  it('is deterministic', () => {
+    const a = buildMaterialAtlasMips(buildMaterialAtlas(SIZE));
+    const b = buildMaterialAtlasMips(buildMaterialAtlas(SIZE));
+    a.forEach((m, i) => expect(Array.from(m.albedo)).toEqual(Array.from(b[i].albedo)));
   });
 });
 

@@ -158,6 +158,94 @@ fn vnoise(p : vec2<f32>) -> f32 {
   return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
 }
 
+// ── Analytic road materials (Step 2) ─────────────────────────────────────────
+// Cobble + gravel are evaluated PER-PIXEL in continuous world space instead of
+// sampling a baked 64px swatch — so the feature size is set directly in world
+// units (no fixed-px resolution ceiling, no tiling seam ever) and the high-freq
+// detail BAND-LIMITS against the pixel footprint (fwTiles) so it fades to a
+// flat tone as you zoom out instead of shimmering ("octaves read as faceting").
+// An integer bit-hash (not sin-based hash21) keeps the cell field artefact-free
+// at the large coordinates these sub-tile cell grids reach.
+fn hashI(p : vec2<i32>) -> f32 {
+  var n = (u32(p.x) * 1597334677u) ^ (u32(p.y) * 3812015801u);
+  n = (n ^ (n >> 16u)) * 2246822519u;
+  n = n ^ (n >> 13u);
+  return f32(n & 0xffffffu) / f32(0xffffff);
+}
+// Voronoi over a unit cell grid. Returns .x = F1 (nearest centre dist), .y = its
+// hash, .z = F2−F1 (edge proximity — the polygonal seam / grout). 3×3 search.
+fn vorCell(uv : vec2<f32>, jitter : f32) -> vec3<f32> {
+  let ip = floor(uv);
+  let fp = uv - ip;
+  var f1 = 8.0; var f2 = 8.0; var hbest = 0.0;
+  for (var oy = -1; oy <= 1; oy = oy + 1) {
+    for (var ox = -1; ox <= 1; ox = ox + 1) {
+      let g = vec2<f32>(f32(ox), f32(oy));
+      let id = vec2<i32>(ip) + vec2<i32>(ox, oy);
+      let hx = hashI(id);
+      let hy = hashI(id + vec2<i32>(7, 3));
+      let centre = g + vec2<f32>(0.5, 0.5) + (vec2<f32>(hx, hy) - 0.5) * jitter;
+      let d = length(centre - fp);
+      if (d < f1) { f2 = f1; f1 = d; hbest = hx; }
+      else if (d < f2) { f2 = d; }
+    }
+  }
+  return vec3<f32>(f1, hbest, f2 - f1);
+}
+// Footprint→detail fade: 1 when a cell spans many px, →0 once a cell shrinks
+// below the pixel footprint (IQ band-limiting).
+fn detailLod(cellFw : f32) -> f32 { return clamp(smoothstep(1.1, 0.55, cellFw), 0.0, 1.0); }
+
+// Cobbled carriageway. uvTiles = world position in tiles, fwTiles = its pixel
+// footprint (both passed in so no derivative builtin runs in non-uniform flow).
+fn analyticCobble(uvTiles : vec2<f32>, fwTiles : vec2<f32>) -> vec3<f32> {
+  let settTiles = 0.15;                       // 0.30 m setts / 2 m-per-tile
+  let uv = uvTiles / settTiles;
+  let cellFw = max(fwTiles.x, fwTiles.y) / settTiles;
+  let v = vorCell(uv, 0.7);
+  let lod = detailLod(cellFw);
+  // Grout = F2−F1 seam, kept ~constant screen width and AA'd; fades out (lod) when
+  // a sett drops below a pixel so it averages to stone instead of aliasing.
+  let groutW = 0.07;
+  let aa = max(cellFw, 1e-4);
+  let grout = (1.0 - smoothstep(groutW - aa, groutW + aa, v.z)) * lod;
+  let dome = (1.0 - smoothstep(0.0, 0.5, v.x)) * lod;     // brighter sett crown
+  let tone = 0.50 + 0.13 * v.y;
+  let stone = tone * (0.85 + 0.15 * dome);
+  let lit = mix(stone, 0.22, grout);                      // grout darkens
+  return vec3<f32>(lit, lit * 0.98, lit * 0.94);
+}
+// Loose gravel — small jittered chips, no mortar; chips fade to packed tone at range.
+fn analyticGravel(uvTiles : vec2<f32>, fwTiles : vec2<f32>) -> vec3<f32> {
+  let chipTiles = 0.05;                        // 0.10 m chips
+  let uv = uvTiles / chipTiles;
+  let cellFw = max(fwTiles.x, fwTiles.y) / chipTiles;
+  let v = vorCell(uv, 0.9);
+  let lod = detailLod(cellFw);
+  let t = min(1.0, v.x / 0.5);
+  let dome = sqrt(max(0.0, 1.0 - t * t)) * lod;
+  let tone = 0.42 + 0.16 * v.y;
+  let val = tone * (0.7 + 0.3 * dome);
+  return vec3<f32>(val, val * 0.95, val * 0.86);
+}
+// Blocky outcrop — larger Voronoi facets (~1 m) with darkened seam grooves + fine grain,
+// scaled in world units + band-limited like the road materials. Mirrors the baked rock
+// swatch (worley facets, grooved seams, warm grey) but with no fixed-px resolution ceiling.
+fn analyticRock(uvTiles : vec2<f32>, fwTiles : vec2<f32>) -> vec3<f32> {
+  let facetTiles = 0.5;                        // ~1.0 m facets / 2 m-per-tile
+  let uv = uvTiles / facetTiles;
+  let cellFw = max(fwTiles.x, fwTiles.y) / facetTiles;
+  let v = vorCell(uv, 0.8);
+  let lod = detailLod(cellFw);
+  let grain = (vnoise(uvTiles * 3.2) - 0.5) * lod;          // fine surface grain (~0.31 m)
+  let aa = max(cellFw, 1e-4);
+  let seam = 1.0 - smoothstep(0.04, 0.04 + aa, v.z);        // darken facet crevices (F2−F1 edge)
+  let tone = 0.40 + 0.10 * v.y + 0.10 * grain;
+  let shade = mix(1.0, 0.55, seam);
+  let lit = tone * shade;
+  return vec3<f32>(lit * 1.05, lit, lit * 0.93);
+}
+
 // Hypsometric tint ramp: lowland green → tan → brown → snow, keyed by the
 // above-sea elevation fraction t∈[0,1]. Used by the 'hypsometric' display mode
 // and as the base fill for the 'contour' (vector topo) mode.
@@ -317,22 +405,34 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   // object↔terrain contextual blend).
   // Tile-space UV for the material exemplars (REPEAT sampler tiles them seamlessly).
   let muv = in.vGrid / MAT_TILES;
+  // Tile-space pixel footprint, taken ONCE in uniform control flow so the analytic
+  // road materials can band-limit (and be guarded by a branch) without a derivative
+  // builtin running in non-uniform flow.
+  let fwTiles = fwidth(in.vGrid);
 
   let road = roadPaved(in.vGrid.x, in.vGrid.y);
   // Road surface = the full packed-dirt → gravel → cobble exemplar spectrum (real
   // sett/grain texture), driven by pavedness. feature-geometry.ts encodes the road
   // TIER into this scalar at the material anchors (dirt 0.2 · gravel 0.45 · cobble 0.75 ·
   // paved 1.0), dimmed by condition·overgrowth — so a worn cobble road drifts toward
-  // gravel→dirt on its own, the wear IS the lower pavedness. We span the three road
-  // exemplars (layers 6/7/8) at those anchors, but keep it to TWO texture fetches: the
-  // layer PAIR is picked dynamically (lower half blends dirt→gravel, upper gravel→cobble),
-  // so the fill cost on the iGPU is identical to the old 2-stop dirt↔cobble blend.
-  let upper = road >= 0.45;                       // above the gravel anchor?
-  let loLayer = select(6, 7, upper);              // dirt|gravel  →  gravel|cobble
-  let hiLayer = select(7, 8, upper);
-  let roadF = select(smoothstep(0.2, 0.45, road), smoothstep(0.45, 0.78, road), upper);
-  let roadAlb = mix(matSample(loLayer, muv), matSample(hiLayer, muv), roadF);
+  // gravel→dirt on its own, the wear IS the lower pavedness. Packed DIRT stays a baked
+  // low-relief swatch (layer 6); GRAVEL and COBBLE are now ANALYTIC (per-pixel, scaled in
+  // real world units, band-limited — analyticCobble/Gravel above) so their sett/chip size
+  // is correct at every zoom with no tiling seam. Dirt is sampled unconditionally (texture
+  // LOD needs uniform control flow); the analytic Voronoi is the cost, so it's gated behind
+  // road presence — off-road fragments skip it entirely.
   let roadMix = smoothstep(0.0, 0.16, road);     // soft road↔land edge
+  let dirtA = matSample(6, muv);
+  var roadAlb = dirtA;
+  if (roadMix > 0.0) {
+    let gravelA = analyticGravel(in.vGrid, fwTiles);
+    let cobbleA = analyticCobble(in.vGrid, fwTiles);
+    let upper = road >= 0.45;                      // above the gravel anchor?
+    roadAlb = select(
+      mix(dirtA,   gravelA, smoothstep(0.20, 0.45, road)),   // dirt → gravel
+      mix(gravelA, cobbleA, smoothstep(0.45, 0.78, road)),   // gravel → cobble
+      upper);
+  }
   // Texture the biome ground by MODULATING its per-cell hue with the grass exemplar's
   // detail (luminance / mean) — keeps every biome's colour, adds grain without needing a
   // per-biome swatch. Roads override it where paved.
@@ -351,8 +451,11 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
 
   // Material albedos = sampled exemplar swatches (Slice 1). The img2img pipeline upgrades
   // these same tiles later; today they're the procedural grey-init. Layer indices match
-  // MATERIAL_LAYER (rock2 snow4 sand3 mud5).
-  let ROCK = matSample(2, muv);
+  // MATERIAL_LAYER (snow4 sand3 mud5). ROCK is now ANALYTIC (per-pixel, world-scaled,
+  // band-limited — analyticRock above), gated behind its weight so the Voronoi only runs on
+  // rock faces; the baked rock swatch (layer 2) stays in the atlas as the img2img grey-init.
+  var ROCK = vec3<f32>(0.42, 0.40, 0.37);
+  if (wRock > 0.0) { ROCK = analyticRock(in.vGrid, fwTiles); }
   let SNOW = matSample(4, muv);
   let SAND = matSample(3, muv);
   let MUD  = matSample(5, muv);

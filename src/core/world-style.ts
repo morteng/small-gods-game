@@ -104,7 +104,7 @@ export interface WorldStyle {
  */
 export const STYLE_DEFAULTS: WorldStyle = {
   // Scale
-  terrainVerticalExaggeration: 17, // == TERRAIN_Z_PX_PER_M (1:1=32 deferred: needs focus/occlusion handling)
+  terrainVerticalExaggeration: 20, // == TERRAIN_Z_PX_PER_M (1:1=32 deferred: needs focus/occlusion handling)
   mountainRelief: 48,              // == TERRAIN_RELIEF_M
   terrainHeightGamma: 1,           // linear (neutral); >1 = dramatic peaks + flat mounds
   coastDrama: 1,

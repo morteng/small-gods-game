@@ -33,7 +33,38 @@ export const MATERIAL_LAYER: Record<MaterialId, number> =
   Object.fromEntries(MATERIAL_IDS.map((id, i) => [id, i])) as Record<MaterialId, number>;
 
 /** Recipe version — bump on ANY generator change (gates img2img cache + golden hashes). */
-export const TEXTURE_RECIPE_VERSION = 'tex-v1';
+export const TEXTURE_RECIPE_VERSION = 'tex-v2';
+
+// ── Real-world scale ──────────────────────────────────────────────────────────────────
+// One exemplar repeat tiles across MAT_TILES (=2.5, see terrain-wgsl.ts) world tiles ×
+// 2 m/tile = 5 m of ground. Authoring every feature in METRES — not raw cycle counts —
+// keeps the generators physically honest and adjustable; `cyclesFor` converts a feature
+// wavelength into the integer number of periods that span one swatch (worley wraps modulo
+// its cell count, so any integer tiles seamlessly). At the default 64-px swatch the ground
+// resolves at 64/5 ≈ 12.8 px/m, so anything finer than ~0.08 m is sub-pixel and necessarily
+// reads as noise rather than a drawn element — which is exactly what real sub-grain aggregate
+// (sand, fine gravel) looks like. The structured masonry materials (cobble) sit deliberately
+// at the larger, readable end of their real-world range (~0.30 m setts ⇒ ~4 px) so they stay
+// legible at this density; the analytic in-shader path (Step 2) lifts that resolution ceiling.
+export const SWATCH_SPAN_M = 5;
+/** Integer periods of a feature `m` metres wide across one swatch (≥1). */
+const cyclesFor = (m: number): number => Math.max(1, Math.round(SWATCH_SPAN_M / m));
+
+// Feature wavelengths in METRES (real-world ground truth → see cyclesFor). Stochastic
+// surfaces match real patch/grain scales; the one structured material (cobble) sits at the
+// readable end of its real range. Only `sandRipple`, `gravelChip` and `cobbleSett` differ
+// from the pre-metre recipe — every other value reproduces its original cycle count exactly.
+const FEATURE_M = {
+  grassPatch: 0.83,  grassBlade: 0.104,                  // dry/lush patches · fine blades
+  dirtClod:   0.625,
+  rockFacet:  1.0,   rockGrain:  0.3125,                 // blocky outcrop facets (realistic)
+  sandWarp:   1.25,  sandRipple: 0.25,   sandGrain: 0.125, // ripple 0.50→0.25 m (wind-ripple scale)
+  snowDrift:  1.0,   snowSparkle: 0.0893,
+  mudPuddle:  0.714,
+  roadDirt:   0.5,                                        // packed-earth undulation
+  gravelChip: 0.10,  gravelGrit: 0.125,                  // chip 0.45→0.10 m (was boulder-sized)
+  cobbleSett: 0.30,                                      // sett 1.25→0.30 m (real setts 0.10–0.30 m)
+} as const;
 
 export interface MaterialExemplar {
   id: MaterialId;
@@ -54,10 +85,11 @@ interface LayerBuild { height: Float32Array; albedo: Uint8Array; }
 function buildGrass(size: number): LayerBuild {
   const height = new Float32Array(size * size);
   const albedo = new Uint8Array(size * size * 4);
+  const pP = cyclesFor(FEATURE_M.grassPatch), pB = cyclesFor(FEATURE_M.grassBlade);
   for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
     const i = y * size + x;
-    const macro = periodicFbm(x * (6 / size), y * (6 / size), 6, 3);     // patches
-    const blade = periodicNoise(x * (48 / size), y * (48 / size), 48);   // fine blades
+    const macro = periodicFbm(x * (pP / size), y * (pP / size), pP, 3);  // patches
+    const blade = periodicNoise(x * (pB / size), y * (pB / size), pB);   // fine blades
     height[i] = 0.25 * blade + 0.15 * macro;
     // Mottled green: drier (yellow-green) in macro lows, lush in highs.
     const r = 0.30 + 0.18 * macro + 0.04 * blade;
@@ -71,9 +103,10 @@ function buildGrass(size: number): LayerBuild {
 function buildDirt(size: number): LayerBuild {
   const height = new Float32Array(size * size);
   const albedo = new Uint8Array(size * size * 4);
+  const pC = cyclesFor(FEATURE_M.dirtClod);
   for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
     const i = y * size + x;
-    const n = periodicFbm(x * (8 / size), y * (8 / size), 8, 3);
+    const n = periodicFbm(x * (pC / size), y * (pC / size), pC, 3);
     height[i] = n * 0.35;
     const r = 0.42 + 0.16 * n, g = 0.33 + 0.13 * n, b = 0.23 + 0.09 * n;
     packRgb(albedo, i, r, g, b);
@@ -84,13 +117,14 @@ function buildDirt(size: number): LayerBuild {
 function buildRock(size: number): LayerBuild {
   const height = new Float32Array(size * size);
   const albedo = new Uint8Array(size * size * 4);
-  const cells = 5;
+  const cells = cyclesFor(FEATURE_M.rockFacet);
+  const pG = cyclesFor(FEATURE_M.rockGrain);
   for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
     const i = y * size + x;
     const { dist, hash } = worley(x, y, size, cells, 0.8);
     const cellR = size / cells;
     const crack = 1 - Math.min(1, dist / (cellR * 0.62));   // 1 at cell centre → 0 at the seam
-    const grain = periodicFbm(x * (16 / size), y * (16 / size), 16, 3);
+    const grain = periodicFbm(x * (pG / size), y * (pG / size), pG, 3);
     height[i] = 0.35 + 0.45 * crack + 0.2 * grain;          // blocky, raised facets, grooved seams
     const tone = 0.40 + 0.10 * hash + 0.10 * grain;
     const shade = crack < 0.12 ? 0.55 : 1.0;                // darken the crevices
@@ -102,12 +136,14 @@ function buildRock(size: number): LayerBuild {
 function buildSand(size: number): LayerBuild {
   const height = new Float32Array(size * size);
   const albedo = new Uint8Array(size * size * 4);
+  const pW = cyclesFor(FEATURE_M.sandWarp), pR = cyclesFor(FEATURE_M.sandRipple);
+  const pGr = cyclesFor(FEATURE_M.sandGrain);
   for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
     const i = y * size + x;
     // Ripples = integer-cycle sines (seamless), warped by low-freq noise; fine grain on top.
-    const warp = periodicNoise(x * (4 / size), y * (4 / size), 4);
-    const ripple = 0.5 + 0.5 * Math.sin((y * (10 / size) + warp * 1.5) * 2 * Math.PI);
-    const grain = periodicNoise(x * (40 / size), y * (40 / size), 40);
+    const warp = periodicNoise(x * (pW / size), y * (pW / size), pW);
+    const ripple = 0.5 + 0.5 * Math.sin((y * (pR / size) + warp * 1.5) * 2 * Math.PI);
+    const grain = periodicNoise(x * (pGr / size), y * (pGr / size), pGr);
     height[i] = 0.5 * ripple + 0.12 * grain;
     const v = 0.78 + 0.10 * ripple + 0.05 * grain;
     packRgb(albedo, i, v, v * 0.92, v * 0.69);
@@ -118,10 +154,11 @@ function buildSand(size: number): LayerBuild {
 function buildSnow(size: number): LayerBuild {
   const height = new Float32Array(size * size);
   const albedo = new Uint8Array(size * size * 4);
+  const pD = cyclesFor(FEATURE_M.snowDrift), pS = cyclesFor(FEATURE_M.snowSparkle);
   for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
     const i = y * size + x;
-    const drift = periodicFbm(x * (5 / size), y * (5 / size), 5, 3);
-    const sparkle = periodicNoise(x * (56 / size), y * (56 / size), 56);
+    const drift = periodicFbm(x * (pD / size), y * (pD / size), pD, 3);
+    const sparkle = periodicNoise(x * (pS / size), y * (pS / size), pS);
     height[i] = 0.2 * drift + 0.06 * sparkle;
     const v = 0.90 + 0.07 * drift + 0.03 * sparkle;
     packRgb(albedo, i, v * 0.99, v, Math.min(1, v * 1.02));   // faint blue cast
@@ -132,9 +169,10 @@ function buildSnow(size: number): LayerBuild {
 function buildMud(size: number): LayerBuild {
   const height = new Float32Array(size * size);
   const albedo = new Uint8Array(size * size * 4);
+  const pP = cyclesFor(FEATURE_M.mudPuddle);
   for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
     const i = y * size + x;
-    const n = periodicFbm(x * (7 / size), y * (7 / size), 7, 3);
+    const n = periodicFbm(x * (pP / size), y * (pP / size), pP, 3);
     const puddle = Math.max(0, 0.42 - n) / 0.42;             // low spots hold water
     height[i] = n * 0.3 - puddle * 0.18;                     // puddles sink
     const wet = 1 - 0.4 * puddle;                            // darker, glossier in puddles
@@ -147,9 +185,10 @@ function buildMud(size: number): LayerBuild {
 function buildRoadDirt(size: number): LayerBuild {
   const height = new Float32Array(size * size);
   const albedo = new Uint8Array(size * size * 4);
+  const pR = cyclesFor(FEATURE_M.roadDirt);
   for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
     const i = y * size + x;
-    const n = periodicFbm(x * (10 / size), y * (10 / size), 10, 2);
+    const n = periodicFbm(x * (pR / size), y * (pR / size), pR, 2);
     height[i] = n * 0.2;                                     // packed, low relief
     const r = 0.36 + 0.10 * n, g = 0.29 + 0.08 * n, b = 0.21 + 0.06 * n;
     packRgb(albedo, i, r, g, b);
@@ -160,14 +199,15 @@ function buildRoadDirt(size: number): LayerBuild {
 function buildRoadGravel(size: number): LayerBuild {
   const height = new Float32Array(size * size);
   const albedo = new Uint8Array(size * size * 4);
-  const chips = 11;                                          // many small stones
+  const chips = cyclesFor(FEATURE_M.gravelChip);             // ~0.10 m stones (was 0.45 m)
+  const pGr = cyclesFor(FEATURE_M.gravelGrit);
   for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
     const i = y * size + x;
     const { dist, hash } = worley(x, y, size, chips, 0.9);
     const chipR = (size / chips) * 0.5;
     const t = Math.min(1, dist / chipR);
     const dome = Math.sqrt(Math.max(0, 1 - t * t));          // rounded chip
-    const grit = periodicNoise(x * (40 / size), y * (40 / size), 40);
+    const grit = periodicNoise(x * (pGr / size), y * (pGr / size), pGr);
     height[i] = 0.15 + 0.7 * dome + 0.1 * grit;
     const tone = 0.42 + 0.16 * hash;
     const v = tone * (0.7 + 0.3 * dome);
@@ -179,8 +219,8 @@ function buildRoadGravel(size: number): LayerBuild {
 function buildRoadCobble(size: number): LayerBuild {
   const height = new Float32Array(size * size);
   const albedo = new Uint8Array(size * size * 4);
-  const cells = 4;
-  const R = (size / cells) * 0.46;
+  const cells = cyclesFor(FEATURE_M.cobbleSett);            // ~0.30 m setts (was 1.25 m)
+  const R = (size / cells) * 0.50;                          // domes near-touch ⇒ thin (~1 px) grout
   for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
     const i = y * size + x;
     const { dist, hash } = worley(x, y, size, cells, 0.5);
@@ -236,6 +276,44 @@ export function buildMaterialAtlas(size = 64): MaterialAtlas {
     normal.set(ex.normal, l * per);
   }
   return { size, layers: MATERIAL_IDS.length, albedo, normal };
+}
+
+/** One mip level of the atlas: a stacked albedo buffer at `size` (layers in MATERIAL_IDS order). */
+export interface MaterialMipLevel { size: number; albedo: Uint8Array; }
+
+/**
+ * CPU box-filter mip chain for the (seamless) material atlas — level 0 is the atlas itself,
+ * each subsequent level halves until 1×1 (so a 64px atlas → 7 levels). WebGPU does NOT
+ * auto-generate mips; without them the baked stochastic swatches (grass/dirt/rock/…) alias
+ * badly at far zoom-out (minification with no LOD). A 2×2 box average of a TOROIDAL swatch
+ * stays toroidal, so every level remains seamless. Pure + deterministic (Node + browser).
+ */
+export function buildMaterialAtlasMips(atlas: MaterialAtlas): MaterialMipLevel[] {
+  const levels: MaterialMipLevel[] = [{ size: atlas.size, albedo: atlas.albedo }];
+  const layers = atlas.layers;
+  let prev = atlas.albedo, prevSize = atlas.size;
+  while (prevSize > 1) {
+    const size = prevSize >> 1;
+    const per = size * size * 4, prevPer = prevSize * prevSize * 4;
+    const data = new Uint8Array(per * layers);
+    for (let l = 0; l < layers; l++) {
+      const sB = l * prevPer, dB = l * per;
+      for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+        const sx = x << 1, sy = y << 1;
+        const i00 = sB + (sy * prevSize + sx) * 4;
+        const i10 = sB + (sy * prevSize + sx + 1) * 4;
+        const i01 = sB + ((sy + 1) * prevSize + sx) * 4;
+        const i11 = sB + ((sy + 1) * prevSize + sx + 1) * 4;
+        const di = dB + (y * size + x) * 4;
+        for (let c = 0; c < 4; c++) {
+          data[di + c] = (prev[i00 + c] + prev[i10 + c] + prev[i01 + c] + prev[i11 + c] + 2) >> 2;
+        }
+      }
+    }
+    levels.push({ size, albedo: data });
+    prev = data; prevSize = size;
+  }
+  return levels;
 }
 
 // Memoised — content-static, built once per session.
