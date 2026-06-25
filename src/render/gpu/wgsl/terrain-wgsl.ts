@@ -119,7 +119,7 @@ fn vnoise(p : vec2<f32>) -> f32 {
 // An integer bit-hash (not sin-based hash21) keeps the cell field artefact-free
 // at the large coordinates these sub-tile cell grids reach.
 fn hashI(p : vec2<i32>) -> f32 {
-  var n = u32(p.x) * 1597334677u ^ u32(p.y) * 3812015801u;
+  var n = (u32(p.x) * 1597334677u) ^ (u32(p.y) * 3812015801u);
   n = (n ^ (n >> 16u)) * 2246822519u;
   n = n ^ (n >> 13u);
   return f32(n & 0xffffffu) / f32(0xffffff);
