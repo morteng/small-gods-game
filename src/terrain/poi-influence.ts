@@ -106,8 +106,15 @@ export interface AffectedRegion {
 // ─── Influence table ──────────────────────────────────────────────────────────
 
 export const POI_INFLUENCES: Record<string, InfluenceSpec> = {
-  // Lake: strongly suppress elevation (to reliably go below sea level) + moisture boost
-  lake:     { elevation: { delta: -0.55, radius: 10 }, moisture: { delta: +0.45, radius: 18 }, warp: 0.40 },
+  // Lake: a SHALLOW basin that ponds and perches on its local water table, + moisture
+  // boost. The old −0.55 (−33 m) sink "reliably went below sea level" — but that dug a
+  // deep pit whose spill, on near-sea ground, sat at the OCEAN datum, so an inland lake
+  // rendered as a sea-level puddle in a hole. A shallow −0.16 dip keeps the basin floor
+  // above sea on normal upland ground, so hydrology's pit-fill ponds it to a spill lip
+  // ABOVE sea and the surface perches (measured: ~95% of formed lakes perch vs 0% at
+  // −0.55, same lake count, ~2–3 m deep). Lakes that can't enclose a basin simply don't
+  // form there — better than an ugly sub-sea pit. Surface fill stays hydrology's job.
+  lake:     { elevation: { delta: -0.16, radius: 10 }, moisture: { delta: +0.45, radius: 18 }, warp: 0.40 },
   // Mountain: PEAK mode — raise toward a near-ceiling summit as a true point, so
   // the centre is a sharp peak with ridge texture on the flanks, NOT the old
   // additive-disc mesa that flattened against the [0,1] clamp. `peakSharpness`
