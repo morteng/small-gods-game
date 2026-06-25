@@ -2,6 +2,7 @@ import { createState, type GameState } from '@/core/state';
 import { selectRenderer, type RenderFn } from '@/render/select-renderer';
 import { zoomAt } from '@/render/camera';
 import { quantizeIsoZoom } from '@/render/iso/iso-camera';
+import { isoEnvForMap } from '@/render/iso/iso-env';
 import { fitCameraToMap, clampCameraToMap } from '@/render/fit-camera';
 import { focusCameraOnTile } from '@/render/focus-camera';
 import { attachControls, attachTimeKeys } from '@/ui/controls';
@@ -610,6 +611,9 @@ export class Game {
         this.requestRender();
       },
       onUserCameraInput: () => { this.state.followNpc = false; this.requestRender(); },
+      // Lift-aware picking: bind the live world's terrain so a click/hover resolves the
+      // tile actually drawn under the cursor on slopes (not its flat sea-level shadow).
+      getPickEnv: () => (this.state.map ? isoEnvForMap(this.state.map) : null),
       getZoomQuantize: () => quantizeIsoZoom,
       // Barebones: the settings shortcut opens the WebGPU pause menu (which hosts
       // settings); only legacy mode toggles the old DOM settings panel.

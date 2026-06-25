@@ -1,6 +1,7 @@
 import type { Camera } from '@/core/types';
 import { pan, zoomAt, type ZoomQuantizer } from '@/render/camera';
 import { pickTile } from '@/ui/pick-tile';
+import type { IsoEnv } from '@/render/iso/lifted-projection';
 
 export interface ControlsCallbacks {
   onTileClick?: (x: number, y: number) => void;
@@ -18,6 +19,10 @@ export interface ControlsCallbacks {
   onToggleDevMode?: () => void;
   onUserCameraInput?: () => void;
   onHoverTile?: (tileX: number, tileY: number, screenX: number, screenY: number) => void;
+  /** Optional terrain env for LIFT-AWARE tile picking (build with `isoEnvForMap`),
+   *  evaluated per pick so it tracks the live world. Without it, picking is flat
+   *  (height-free) and mis-resolves the tile under the cursor on sloped terrain. */
+  getPickEnv?: () => IsoEnv | null;
   /** Optional pixel-perfect zoom snapper (iso mode); evaluated per wheel tick so
    *  it can track the live render mode. Returns undefined → continuous zoom. */
   getZoomQuantize?: () => ZoomQuantizer | undefined;
@@ -111,7 +116,7 @@ export function attachControls(canvas: HTMLCanvasElement, camera: Camera, callba
       const rect = canvas.getBoundingClientRect();
       const sx = e.clientX - rect.left;
       const sy = e.clientY - rect.top;
-      const { tx, ty } = pickTile(camera, sx, sy);
+      const { tx, ty } = pickTile(camera, sx, sy, callbacks.getPickEnv?.());
       callbacks.onHoverTile(tx, ty, sx, sy);
     }
     if (!dragging) return;
@@ -138,7 +143,7 @@ export function attachControls(canvas: HTMLCanvasElement, camera: Camera, callba
       const sy = e.clientY - rect.top;
       if (callbacks.onCanvasClick?.(sx, sy)) return;
       if (callbacks.onTileClick) {
-        const { tx, ty } = pickTile(camera, sx, sy);
+        const { tx, ty } = pickTile(camera, sx, sy, callbacks.getPickEnv?.());
         callbacks.onTileClick(tx, ty);
       }
     }
@@ -154,7 +159,7 @@ export function attachControls(canvas: HTMLCanvasElement, camera: Camera, callba
       return;
     }
     if (!callbacks.onTileRightClick) return;
-    const { tx, ty } = pickTile(camera, sx, sy);
+    const { tx, ty } = pickTile(camera, sx, sy, callbacks.getPickEnv?.());
     callbacks.onTileRightClick(tx, ty, sx, sy);
   }
 
