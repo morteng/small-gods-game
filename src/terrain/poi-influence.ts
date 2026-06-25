@@ -28,6 +28,31 @@ interface FieldInfluence {
    */
   summit?: number;
   /**
+   * PEAK falloff exponent (summit mode only). The summit weight is
+   * `w = cos((d/r)·π/2)^peakSharpness`. The default `1.6` is a broad dome; higher
+   * values concentrate the high ground near the centre and steepen the upper
+   * slopes, so a large massif reads as a HORN with a foothill skirt rather than a
+   * pancake smeared flat across its whole radius. Only meaningful with `summit`.
+   */
+  peakSharpness?: number;
+  /**
+   * PEAK silhouette: `'dome'` (default) is a rounded `cos^k` top — right for ice
+   * caps and for cinder cones that carry a crater rim; `'horn'` is a pointed
+   * `(1−t)^k` apex with a non-zero summit slope, so a great mountain rises to a
+   * sheer point instead of a broad pancake. Only meaningful with `summit`.
+   */
+  peakProfile?: 'dome' | 'horn';
+  /**
+   * SUMMIT CRATER depth in normalised elevation (volcano/caldera). When > 0 the
+   * inner `craterFrac` of the radius is a bowl: the apex dips to `summit − crater`
+   * and the rim climbs back to `summit`, giving a cinder-cone silhouette instead
+   * of a plain dome. The crater floor still raises toward a depressed target — it
+   * never carves below the surrounding base ground. Only with `summit`.
+   */
+  crater?: number;
+  /** Crater radius as a fraction of `radius` (default 0.22). Only with `crater`. */
+  craterFrac?: number;
+  /**
    * REGION-FILL target [0,1] (temperature/moisture only). When a climate-zone POI
    * stamps its `region`, a `target` makes the field LERP TOWARD this value
    * (`f = lerp(f, target, w)`) instead of adding `delta`. This OVERRIDES the global
@@ -81,13 +106,22 @@ export interface AffectedRegion {
 // ─── Influence table ──────────────────────────────────────────────────────────
 
 export const POI_INFLUENCES: Record<string, InfluenceSpec> = {
-  // Lake: strongly suppress elevation (to reliably go below sea level) + moisture boost
-  lake:     { elevation: { delta: -0.55, radius: 10 }, moisture: { delta: +0.45, radius: 18 }, warp: 0.40 },
+  // Lake: a SHALLOW basin that ponds and perches on its local water table, + moisture
+  // boost. The old −0.55 (−33 m) sink "reliably went below sea level" — but that dug a
+  // deep pit whose spill, on near-sea ground, sat at the OCEAN datum, so an inland lake
+  // rendered as a sea-level puddle in a hole. A shallow −0.16 dip keeps the basin floor
+  // above sea on normal upland ground, so hydrology's pit-fill ponds it to a spill lip
+  // ABOVE sea and the surface perches (measured: ~95% of formed lakes perch vs 0% at
+  // −0.55, same lake count, ~2–3 m deep). Lakes that can't enclose a basin simply don't
+  // form there — better than an ugly sub-sea pit. Surface fill stays hydrology's job.
+  lake:     { elevation: { delta: -0.16, radius: 10 }, moisture: { delta: +0.45, radius: 18 }, warp: 0.40 },
   // Mountain: PEAK mode — raise toward a near-ceiling summit as a true point, so
   // the centre is a sharp peak with ridge texture on the flanks, NOT the old
-  // additive-disc mesa that flattened against the [0,1] clamp. `huge` widens the
-  // massif; the warp breaks the rim into spurs.
-  mountain: { elevation: { summit: 0.99, radius: 16 }, temperature: { delta: -0.20, radius: 16 }, warp: 0.45 },
+  // additive-disc mesa that flattened against the [0,1] clamp. `peakSharpness`
+  // steepens the cone so a `huge` massif (radius ×2) reads as a HORN rising out of
+  // a foothill skirt rather than a broad pancake smeared over 60+ tiles. The warp
+  // breaks the rim into spurs.
+  mountain: { elevation: { summit: 0.99, radius: 12, peakProfile: 'horn', peakSharpness: 1.7 }, temperature: { delta: -0.20, radius: 16 }, warp: 0.45 },
   // Forest: moisture boost pushes toward forest biomes. region-fill so an authored
   // forest BELT (e.g. Whispering Woods — a region with NO position, previously
   // skipped) actually moistens its whole extent into woodland; a moisture target of
@@ -102,8 +136,10 @@ export const POI_INFLUENCES: Record<string, InfluenceSpec> = {
   // european base + lapse — an additive +0.40 left it as scrubland) and moisture→0.10
   // (under the 0.25 dry cap), across the authored 48×48 Sunscorch.
   desert:   { moisture:  { delta: -0.55, radius: 14, target: 0.10 }, temperature: { delta: +0.40, radius: 12, target: 0.90 }, warp: 0.50, regionFill: true },
-  // Volcano: PEAK mode — a steep cinder cone; hot.
-  volcano:  { elevation: { summit: 0.95, radius: 10 }, temperature: { delta: +0.25, radius: 16 }, warp: 0.40 },
+  // Volcano: PEAK mode — a steep cinder cone with a summit crater, so it reads as a
+  // volcano and not a smooth hill: sharp falloff (`peakSharpness`) for the cone
+  // flanks + a `crater` bowl that dips the apex below its rim. Hot.
+  volcano:  { elevation: { summit: 0.96, radius: 10, peakSharpness: 2.8, crater: 0.18, craterFrac: 0.20 }, temperature: { delta: +0.25, radius: 16 }, warp: 0.40 },
   // Glacier: PEAK mode to a high-but-not-summit ice dome (clears the ICE
   // threshold elev > 0.65); the strong cold delta makes it ice, not bare rock.
   glacier:  { elevation: { summit: 0.90, radius: 10 }, temperature: { delta: -0.55, radius: 14 }, warp: 0.45 },
@@ -281,13 +317,30 @@ function applyFieldInfluence(
       if (d < 0) d = 0;
       const idx = y * width + x;
       if (summit !== undefined) {
-        // PEAK mode: raise toward the summit, weighted so the apex is a POINT
-        // (w = 1 only at the exact centre) and steep enough that no flat mesa
-        // forms. max() keeps any base ridge spikes that already top the lerp, so
-        // the flanks keep their texture instead of becoming a smooth cone.
-        const w = Math.pow(Math.cos((d / radius) * (Math.PI / 2)), 1.6);
+        // PEAK mode: raise toward the summit, weighted so the apex is concentrated
+        // near the centre instead of a flat mesa. Two profiles:
+        //   'dome' — cos^k, a rounded top (ice caps / cinder cones want a rim).
+        //   'horn' — (1−t)^k, a POINTED apex with non-zero slope at the summit, so
+        //            a great mountain reads as a sheer horn, not a pancake smeared
+        //            flat across its whole radius.
+        // A higher `peakSharpness` exponent steepens either profile.
+        const t = d / radius;                                   // 0 centre → 1 edge
+        const prof = spec.peakProfile ?? 'dome';
+        const k = spec.peakSharpness ?? (prof === 'horn' ? 1.5 : 1.6);
+        const w = prof === 'horn'
+          ? Math.pow(1 - t, k)
+          : Math.pow(Math.cos(t * (Math.PI / 2)), k);
         const cur = field[idx];
-        const raised = cur + (summit - cur) * w;
+        let raised = cur + (summit - cur) * w;
+        // Summit crater (volcano/caldera): subtract a parabolic bowl over the inner
+        // `craterFrac`, deepest at the apex, zero at the rim — so the rim ring stands
+        // proud of the dipped floor (a cinder-cone silhouette). The `> cur` guard
+        // keeps the floor at base ground at worst; it never carves below it.
+        const crater = spec.crater;
+        if (crater !== undefined && crater > 0) {
+          const cf = spec.craterFrac ?? 0.22;
+          if (t < cf) { const u = t / cf; raised -= crater * (1 - u * u); }
+        }
         if (raised > cur) field[idx] = raised > 1 ? 1 : raised;
       } else {
         // Cosine falloff: full influence at center, 0 at edge
