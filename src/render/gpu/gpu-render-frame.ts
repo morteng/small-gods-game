@@ -30,8 +30,6 @@ import { DEFAULT_LIGHTING } from '@/render/lighting-state';
 import { buildTerrainField, zoomSuperSample, zoomCoarsenMaxQuads, type TerrainField } from '@/render/gpu/terrain-field';
 import { buildDetailField } from '@/render/gpu/detail-field';
 import { buildWaterField, type WaterField } from '@/render/gpu/water-field';
-import { buildRoadRibbonMeshMemo } from '@/render/ribbon/road-ribbon-field';
-import { concatRibbonMeshes, type RibbonMesh } from '@/render/ribbon/ribbon-geometry';
 import { FlotsamLayer } from '@/render/gpu/flotsam-layer';
 import { drawWorldConnectome } from '@/render/connectome-overlay';
 import type { GpuScene } from '@/render/gpu/gpu-scene';
@@ -223,14 +221,13 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
         })
       : null;
 
-    // ROAD ribbons (T7/R2): swept terrain-following meshes drawn over terrain + water,
-    // under entities (hidden with 'roads'). `map` is passed so bridge spans get a
-    // raised plank deck (R3b). RIVERS are no longer ribbons — they render through the
-    // per-cell water pass (the unified water system), trimmed to the erosion-carved
-    // channel by the waterline clip; only roads remain ribbons.
-    const roadMesh = (terrain && !isLayerHidden('roads', rc.devMode))
-      ? buildRoadRibbonMeshMemo(map.roadGraph, map) : null;
-    const ribbon: RibbonMesh | null = roadMesh ? concatRibbonMeshes([roadMesh]) : null;
+    // RIBBONS RETIRED (2026-06-25): roads are no longer drawn as ribbons (the road/river
+    // ribbon pass was removed as tech debt). A road IS the terrain — carved by
+    // `road-deformation` and textured by the terrain shader from the `roadSurface`
+    // pavedness field + the material-exemplar atlas (dirt → cobble). Bridges over water
+    // will return as 3D-modelled, img2img'd structures sited as a PLACE
+    // (river-crossings-generative-sites), like buildings/trees. Rivers render through the
+    // per-cell water pass.
 
     // Flotsam/fauna (S6): step + emit cosmetic circles on the water surface.
     // Appended after the entity list so they composite over the water; the
@@ -246,7 +243,6 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
 
     scene.renderFrame({
       items: dynamicItems, staticItems: staticList, lighting, terrain, detail, water,
-      ribbon, ribbonTime: timeSec,
       w: lowW, h: lowH, out: { w: target.width, h: target.height },
       xform, uiGroups,
       ...(chrome ? null : { passes: { ui: false } }),
