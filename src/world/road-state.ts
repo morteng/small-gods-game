@@ -57,8 +57,10 @@ export interface RoadStateInput {
 /** Class → a 0..3 significance rank (the same ladder road-graph uses to assign class). */
 const CLASS_RANK: Record<RoadClass, number> = { path: 0, track: 1, road: 2, highway: 3 };
 
-/** Class → carriageway half-width in tiles (a tile is 2 m). */
-const CLASS_HALF_WIDTH: Record<RoadClass, number> = { path: 0.5, track: 0.7, road: 1.0, highway: 1.4 };
+/** Class → carriageway half-width in tiles (a tile is 2 m). Sized to real medieval
+ *  running surfaces: footpath ≈ 1.4 m, packhorse track ≈ 2 m, cart road ≈ 3.2 m,
+ *  major road ≈ 4.4 m — narrower than the earlier values, which read as motorways. */
+const CLASS_HALF_WIDTH: Record<RoadClass, number> = { path: 0.35, track: 0.5, road: 0.8, highway: 1.1 };
 
 /** Era → a 0..1 technology factor (primordial 0 … current 1) — engineering capability. */
 export function eraTech(era: Era): number {
@@ -149,8 +151,9 @@ export function roadCrossSection(s: RoadState): RoadCrossSection {
     // Engineered roads cut drainage ditches; paths don't.
     ditchDepthM: c > 0.5 ? 0.12 * c * s.condition : 0,
     ditchOffsetTiles: s.carriageHalfWidth + curbWidthTiles + 0.5,
-    // Worn / overgrown edges blur back into the land.
-    shoulderFeatherTiles: 1 + 0.8 * s.wear + 0.6 * s.overgrowth,
+    // Worn / overgrown edges blur back into the land. Kept tight so a minor road
+    // reads as a trail, not a wide muddy scar; wear/overgrowth still broaden it.
+    shoulderFeatherTiles: 0.5 + 0.6 * s.wear + 0.5 * s.overgrowth,
     rutDepthM: 0.09 * s.wear * (0.5 + 0.5 * s.traffic),
     edgeNoiseM: 0.05 * s.wear + 0.06 * s.overgrowth,
   };

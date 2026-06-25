@@ -196,15 +196,69 @@ function chaikin(pts: Pt[], iterations: number): Pt[] {
   return cur;
 }
 
+/** Deterministic [0,1) hash of two integers (sfc-flavoured; no Math.random). */
+function hash01(x: number, y: number): number {
+  let h = Math.imul((Math.trunc(x) * 73856093) ^ (Math.trunc(y) * 19349663), 2654435761) >>> 0;
+  h ^= h >>> 13; h = Math.imul(h, 2246822519) >>> 0; h ^= h >>> 16;
+  return (h >>> 0) / 4294967296;
+}
+
+/** Per-reach meander shape. `amp`/`wavelength` in tiles; `phase` radians; `skew` is the
+ *  Kinoshita third-harmonic weight (asymmetric, down-valley-leaning bends). */
+export interface MeanderConfig { amp: number; wavelength: number; phase: number; skew: number; }
+
+/**
+ * Bend a polyline into natural sinuous meanders. A raw drainage path reads as a
+ * "finger scrape" because it's straight; a real channel follows a sine-generated
+ * curve (Langbein & Leopold — the minimum-bend-stress shape) with a Kinoshita
+ * third-harmonic skew that leans bends downstream. We displace each vertex
+ * perpendicular to its local tangent by that curve, sampled along arc length, with a
+ * `sin(π·t)` envelope so the displacement is ZERO at both ends — springs and
+ * confluences stay pinned and the network stays joined. Pure + deterministic.
+ */
+export function meanderPolyline(pts: Pt[], cfg: MeanderConfig): Pt[] {
+  const n = pts.length;
+  if (n < 3 || cfg.amp <= 0) return pts;
+  const s: number[] = [0];
+  for (let i = 1; i < n; i++) s.push(s[i - 1] + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y));
+  const total = s[n - 1] || 1;
+  const k = (2 * Math.PI) / Math.max(1e-3, cfg.wavelength);
+  const out: Pt[] = [];
+  for (let i = 0; i < n; i++) {
+    const a = pts[Math.max(0, i - 1)], b = pts[Math.min(n - 1, i + 1)];
+    let tx = b.x - a.x, ty = b.y - a.y;
+    const tl = Math.hypot(tx, ty) || 1; tx /= tl; ty /= tl;
+    const nx = -ty, ny = tx;                              // left normal
+    const phi = k * s[i] + cfg.phase;
+    const env = Math.sin(Math.PI * (s[i] / total));      // 0 at both ends, 1 at mid
+    const d = cfg.amp * env * (Math.sin(phi) - cfg.skew * Math.sin(3 * phi));
+    out.push({ x: pts[i].x + nx * d, y: pts[i].y + ny * d });
+  }
+  return out;
+}
+
+/** Meander shape for a reach of channel Strahler `order`, jittered + sized off the
+ *  spring cell (deterministic). Bigger channels meander broader + longer-wavelength. */
+export function reachMeander(order: number, springX: number, springY: number): MeanderConfig {
+  const wHalf = 0.4 + 0.45 * Math.min(order, 4);         // ~channel half-width proxy (tiles)
+  const j1 = hash01(springX, springY), j2 = hash01(springY * 3, springX * 5);
+  const wavelength = Math.max(8, 24 * wHalf * (0.85 + 0.3 * j1));
+  const amp = Math.min(2.8, (wavelength / 9) * (0.8 + 0.4 * j2));
+  const phase = hash01(springX + 7, springY + 13) * Math.PI * 2;
+  return { amp, wavelength, phase, skew: 0.18 };
+}
+
 /**
  * Smooth a channel control polyline into a bendy centreline: round the D8 staircase
  * with Chaikin corner-cutting, then Catmull-Rom resample at a fixed spacing for an
  * even, sub-cell carve. Endpoints are duplicated for the end tangents so the curve
  * passes through every (rounded) point and stays in the corridor. Pure.
  */
-export function smoothCenterline(control: Pt[], spacing = CENTERLINE_SPACING): Pt[] {
+export function smoothCenterline(control: Pt[], spacing = CENTERLINE_SPACING, meander?: MeanderConfig): Pt[] {
   if (control.length <= 2) return control.slice();
-  const p = chaikin(control, 2);
+  // Round the D8 staircase, THEN meander (so bends ride the smoothed path, not the
+  // jagged one), THEN Catmull-Rom resample to an even sub-cell spacing.
+  const p = meander ? meanderPolyline(chaikin(control, 2), meander) : chaikin(control, 2);
   const n = p.length;
   const at = (i: number): Pt => p[i < 0 ? 0 : i >= n ? n - 1 : i];
   const out: Pt[] = [{ x: p[0].x, y: p[0].y }];
@@ -364,7 +418,8 @@ export function buildWaterNetwork(hydro: HydrologyResult, W: number, H: number, 
       flow,
       klass: classifyReach(order, flow, threshold),
       lakeFed: node.kind === 'lake_outlet',
-      centerline: smoothCenterline(control),
+      centerline: smoothCenterline(control, CENTERLINE_SPACING,
+        reachMeander(order, node.cell % W, (node.cell / W) | 0)),
     });
   }
 

@@ -17,6 +17,7 @@ import type { QueryOpts } from '@/world/world';
 import type { SpiritId } from '@/core/spirit';
 import type { AppendedEvent } from '@/core/events';
 import { npcProps } from '@/world/npc-helpers';
+import { evaluateConnectome, type DiagnosticReport } from '@/world/connectome-diagnostics';
 import { isDurable } from '@/sim/believers';
 import { ALL_DOMAINS, DOMAIN_DEFS, aggregateDomain, isOminous } from '@/sim/belief-domains';
 import { getCapability } from '@/sim/command/registry';
@@ -158,6 +159,9 @@ export interface GameQuery {
   spirits(): SpiritView[];
   /** Canvas as a PNG data URL (browser only; '' headless). */
   screenshot(): string;
+  /** The connectome linter: structured diagnostics (rule breaks / smells / pressure
+   *  points) over the generated world, for agents + the studio overlay. */
+  connectomeDiagnostics(): DiagnosticReport;
 }
 
 export interface GameQueryDeps {
@@ -424,6 +428,13 @@ export function createGameQuery(deps: GameQueryDeps): GameQuery {
       // back to the raw canvas in environments that don't supply one.
       if (deps.capture) return deps.capture();
       return deps.canvas ? deps.canvas.toDataURL('image/png') : '';
+    },
+
+    connectomeDiagnostics(): DiagnosticReport {
+      if (!state.world || !state.map) {
+        return { total: 0, counts: { error: 0, warn: 0, info: 0 }, byRule: {}, diagnostics: [] };
+      }
+      return evaluateConnectome({ world: state.world, map: state.map });
     },
   };
 }

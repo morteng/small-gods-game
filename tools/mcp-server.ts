@@ -110,6 +110,10 @@ server.registerTool('capabilities',
   { description: 'The full command verb vocabulary as data (verb, tier, cost, target kind, implemented). Use this to discover valid verbs for emit_command.' },
   () => run(() => client.capabilities()));
 
+server.registerTool('lint_world',
+  { description: 'Run the connectome linter over the generated world: structured diagnostics (errors / warnings / pressure points) like a compiler. Catches building overlaps, roads or barriers through buildings, parallel roads between the same places, and oversubscribed junctions. Returns severity counts, per-rule tallies, and each finding with its locus (entities/edges/nodes/tiles), metrics, and any suggestedFix verb — the lint → fix → re-lint loop.' },
+  () => run(() => client.query('connectomeDiagnostics')));
+
 server.registerTool('screenshot',
   { description: 'Capture the current game canvas as a PNG image.' },
   async (): Promise<ToolResult> => {
