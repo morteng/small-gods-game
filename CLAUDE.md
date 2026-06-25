@@ -21,13 +21,7 @@ A god game inspired by Terry Pratchett's *Small Gods*. The player is a minor dei
 
 Sim is fully deterministic with seedable RNG; snapshot/replay layer supports scrub + commit + re-roll; summoned Time bar UI with past-veil scrubbed treatment, clickable history strip of past commits/whispers above the transport row, jump-forward presets (+10/+25/+50y), and keyboard shortcuts T/Space/1/2/4/8/Esc. `state.paused` retired in favor of `scheduler.getRate()`. The whole `src/sim/` is `Math.random`-free (guarded by `tests/unit/no-random-in-sim.test.ts`).
 
-**Phase 7 Complete:** NPC simulation layer with tick system, belief propagation, activity state machine, settlement events (8 event types), and event ring buffer.
-
-**Phase 8 Complete:** Divine action system with whisper, omen, dream, miracle, answer prayer. Power economy regenerates from belief × understanding × devotion.
-
-**D1 Complete:** NPCs age, die (convert `npc`→`remains`, never deleted), and reproduce (diluted-faith children). Lineage queries span living + remains. `MortalitySystem` + `BirthSystem` (0.25 Hz, seeded). Closed-form `projectTurnover` bridge for D2.
-
-**D2 Complete:** Deterministic time-skip — `applySkip` (closed-form "jump N years") + one-way commit boundary (`commitSkip`/`SnapshotStore.reset`). Survivors keep frozen belief, no power accrues; the LLM era-authoring half is deferred to Track 4 (Fate).
+**Shipped detail** (Phases 7/8, D1/D2): NPC sim (tick system, belief propagation, activity state machine, 8 settlement-event types, event ring buffer); divine actions (whisper/omen/dream/miracle/answer-prayer, power = belief × understanding × devotion); D1 lifecycle (`npc`→`remains` death never-deleted, diluted-faith birth, lineage over living+remains, `Mortality`+`Birth` @0.25 Hz, `projectTurnover`); D2 deterministic time-skip (`applySkip` closed-form jump + `commitSkip`/`SnapshotStore.reset` one-way boundary; LLM era-authoring half deferred to Track 4 / Fate).
 
 ## Known gaps & gotchas (code reality)
 
@@ -117,7 +111,10 @@ abstraction were deleted in the WebGPU-only cleanup (`pixi.js` dropped, `iso-ren
 required" overlay. Canvas2D 2D-ctx survives only for overlays/UI compositing.
 - **Terrain** = buffer-driven GPU heightfield (`src/render/gpu/terrain-field.ts` packs the
   per-cell height/colour storage buffers; the shader generates + lifts the grid). Height =
-  `baseSeedHeight ⊕ deformations` (road grade-cuts today; rivers/earthworks as producers land).
+  `baseSeedHeight ⊕ deformations`. Roads + rivers carve through ONE analytic feature-SDF
+  (`src/render/gpu/feature-geometry.ts`); earthworks/building pads also write the shared
+  deformation channel (`src/world/terrain-deformation.ts`). The mesh is viewport-culled to the
+  visible-tile window (with a down-screen lift margin for tall peaks).
 - **Entity pass** = y-sorted neutral draw list (`src/render/iso/entity-draw-list.ts`) executed
   by the WebGPU scene (`src/render/gpu/gpu-scene.ts`), instanced; `poly`/`circle` shape pass +
   foot-z terrain lift for placement parity.
