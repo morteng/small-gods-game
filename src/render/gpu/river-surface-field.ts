@@ -213,8 +213,3 @@ export function buildRiverSurfaceFieldMemo(map: GameMap): Float32Array | null {
   }
   return f;
 }
-
-/** Drop the memoised fields (tests; harmless in prod). */
-export function clearRiverSurfaceFieldCache(): void {
-  cache.clear();
-}

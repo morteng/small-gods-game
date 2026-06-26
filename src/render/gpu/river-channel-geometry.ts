@@ -21,7 +21,10 @@ import { heightField, curveHeightBuffer } from '@/render/gpu/terrain-field';
 import { getHeightfield, ELEVATION_SEA_LEVEL } from '@/world/heightfield';
 import { styledIslandSpec } from '@/terrain/island-mask';
 import { getWaterNetwork } from '@/world/water-network-store';
-import { binFeatureSegments, type FeatureSeg } from '@/render/gpu/feature-geometry';
+import {
+  binFeatureSegments, segDist, FEATURE_SEG_STRIDE, FEATURE_BUCKET_TILES,
+  type FeatureSeg, type BinnedFeatures,
+} from '@/render/gpu/feature-geometry';
 import { referenceFlow, reachHalfWidths, type Pt, type WaterNetwork } from '@/terrain/river-network';
 
 /** Metres the surface sits below the lower bank (min inset) — matches river-surface-field. */
@@ -36,27 +39,19 @@ const BANK_PROBE_TILES = 2.5;
  *  buckets, so a fragment just outside the channel still finds the segment to measure
  *  against (the shader needs valid distance on BOTH sides of the `sd=0` silhouette). */
 const BAND_MARGIN_TILES = 3;
-/** Coarse acceleration grid cell (tiles). A fragment reads only its bucket's segments. */
-export const BUCKET_TILES = 8;
-/** Floats per segment in the packed buffer: ax,ay,bx,by,halfA,halfB,surfA,surfB. */
-export const SEG_STRIDE = 8;
+/** Coarse acceleration grid cell (tiles). A fragment reads only its bucket's segments.
+ *  Aliased to the shared feature-geometry constant — rivers and roads bin identically. */
+export const BUCKET_TILES = FEATURE_BUCKET_TILES;
+/** Floats per segment in the packed buffer: ax,ay,bx,by,halfA,halfB,surfA,surfB.
+ *  Aliased to the shared feature-geometry stride. */
+export const SEG_STRIDE = FEATURE_SEG_STRIDE;
 
-export interface RiverChannelGeometry {
+export interface RiverChannelGeometry extends BinnedFeatures {
+  // segments/segCount/bucketTiles/nbx/nby/bucketOffset/bucketSegs come from BinnedFeatures
+  // (the shared bin result; `segments` carries SEG_STRIDE floats each: ax,ay,bx,by,
+  // halfA,halfB,surfA,surfB — per-end channel half-width and bank-referenced fill surface).
   width: number;
   height: number;
-  /** Packed segments, `SEG_STRIDE` floats each: ax,ay,bx,by,halfA,halfB,surfA,surfB
-   *  (centreline endpoints in tile coords; per-end channel half-width in tiles and the
-   *  render-space bank-referenced fill surface, both lerped along the segment by t). */
-  segments: Float32Array;
-  segCount: number;
-  /** Uniform-grid bucket dims. */
-  bucketTiles: number;
-  nbx: number;
-  nby: number;
-  /** CSR bucket index: segment ids of bucket b live in
-   *  `bucketSegs[bucketOffset[b] .. bucketOffset[b+1])`. */
-  bucketOffset: Uint32Array;
-  bucketSegs: Uint32Array;
   /** The GPU upload: all three arrays concatenated into ONE u32 buffer so the water
    *  fragment shader stays within the 8-storage-buffer baseline limit (it already reads
    *  7 per-cell fields). Layout:
@@ -180,16 +175,12 @@ export function channelAt(
   for (let p = geo.bucketOffset[b]; p < geo.bucketOffset[b + 1]; p++) {
     const o = geo.bucketSegs[p] * SEG_STRIDE;
     const ax = s[o], ay = s[o + 1], bx2 = s[o + 2], by2 = s[o + 3];
-    const dx = bx2 - ax, dy = by2 - ay;
-    const len2 = dx * dx + dy * dy;
-    let t = len2 > 0 ? ((x - ax) * dx + (y - ay) * dy) / len2 : 0;
-    t = Math.max(0, Math.min(1, t));
-    const cx = ax + t * dx, cy = ay + t * dy;
-    const d = Math.hypot(x - cx, y - cy);
+    const { t, d } = segDist(ax, ay, bx2, by2, x, y);
     if (d < best) {
       best = d;
       half = s[o + 4] * (1 - t) + s[o + 5] * t;
       surf = s[o + 6] * (1 - t) + s[o + 7] * t;
+      const dx = bx2 - ax, dy = by2 - ay;
       const fl = Math.hypot(dx, dy) || 1; flowX = dx / fl; flowY = dy / fl;
     }
   }
