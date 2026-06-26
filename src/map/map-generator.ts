@@ -26,6 +26,9 @@ import { matchAnchors } from '@/world/anchor-rules';
 import { erodeElevation } from '@/terrain/erosion';
 import { placeSettlement } from '@/world/building-placer';
 import { buildCrossingStructureEntities } from '@/world/connectome/crossing-structures';
+import { getHeightfield, ELEVATION_SEA_LEVEL } from '@/world/heightfield';
+import { curveRenderElev } from '@/render/gpu/terrain-field';
+import { worldStyleOf } from '@/core/world-style';
 import { buildRiparianEntities } from '@/world/riparian-scatter';
 import { tileBlockedByBuilding } from '@/world/building-collision';
 import { reconcileBarriersWithBuildings } from '@/world/place-barrier';
@@ -295,7 +298,15 @@ export async function generateWithNoise(
     // crossing beside a town must not stamp its toll/shrine onto existing buildings — that
     // was the source of the spatial-invariant INV1/INV3 errors at crossing sites).
     const ROAD_TILES = new Set(['dirt_road', 'stone_road', 'bridge']);
+    // Deck elevation: the renderer lifts terrain by `curveRenderElev(getHeightfield…)` (the
+    // same base the terrain `heights` buffer is built from). Sample that exact source at the
+    // banks so a bridge deck rides its bank height over the water rather than sinking.
+    const deckHf = getHeightfield(seed, width, height, styledIslandSpec(worldSeed) ?? null, worldSeed?.pois ?? null);
+    const deckGamma = worldStyleOf(worldSeed ?? undefined).terrainHeightGamma;
+    const deckElevAt = (x: number, y: number): number =>
+      curveRenderElev(deckHf[y * width + x] ?? ELEVATION_SEA_LEVEL, ELEVATION_SEA_LEVEL, deckGamma);
     for (const e of buildCrossingStructureEntities(roadGraph, width, {
+      deckElevAt,
       cellBlocked: (x, y) => {
         const t = tiles[y]?.[x];
         if (!t) return true; // off-map → unusable

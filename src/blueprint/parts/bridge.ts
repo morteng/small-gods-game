@@ -49,11 +49,9 @@ export const deckPartType: PartType = {
     }
     return out;
   },
-  toCollision(p) {
-    const cells: Array<[number, number]> = [];
-    for (let i = 0; i < p.size.w; i++) for (let j = 0; j < p.size.h; j++) cells.push([p.at.x + i, p.at.y + j]);
-    return cells;
-  },
+  // A deck is a WALKABLE surface — the road crosses ON it — so it blocks no cells (traversal
+  // rides the carved road/bridge tiles beneath; the deck is the massing above them).
+  toCollision: () => [],
   toAnchors: () => [],
   toBrief(p) { return `${(p.params.parapet as string) === 'both' ? 'parapeted ' : ''}deck`; },
 };
@@ -81,7 +79,7 @@ export const pierPartType: PartType = {
     }
     return [{ prim: 'box', at: [p.at.x, p.at.y, 0], size: [w, w, h], material: mat }];
   },
-  toCollision(p) { return [[p.at.x, p.at.y]]; },
+  toCollision: () => [],   // stands in the watercourse below the deck — blocks no land cell
   toAnchors: () => [],
   toBrief: () => 'pier',
 };

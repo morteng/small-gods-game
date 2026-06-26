@@ -5,8 +5,10 @@
 // STRUCTURE placement becomes a grey-massing building entity via the SAME path every other
 // building uses — `synthesizeBlueprint(preset)` → `blueprintEntity()` — so it renders as
 // grey massing today and picks up generated art (a bridge/booth blueprint) when the reseed
-// freeze lifts. The span deck + piers are NOT spawned here yet (the road ribbon's interim
-// deck still draws them until the road-flip step); only the buildings the crossing composes.
+// freeze lifts. The span DECK + PIERS are now spawned too (G5): the deck is an inline `deck`
+// blueprint riding its bank elevation via the entity's `liftElev` (G4 above-ground primitive),
+// piers are inline `pier` blueprints standing from the riverbed up — so a crossing renders as a
+// real bridge (deck over the water, supports below) instead of carved-terrain-through-water.
 //
 // Pure (returns `Entity[]`, no World mutation, deterministic via name-seeded synthesis); the
 // caller adds them at world-build time, before the static draw cache is built.
@@ -14,11 +16,15 @@
 import type { Entity } from '@/core/types';
 import type { RoadGraph } from '@/world/road-graph';
 import { synthesizeBlueprint } from '@/blueprint/presets';
+import { ensureBuildingTypesRegistered } from '@/blueprint/register-buildings';
 import { blueprintEntity } from '@/blueprint/entity';
 import { toCollision } from '@/blueprint/compile/to-collision';
+import { resolveBlueprint } from '@/blueprint/resolve';
+import { BLUEPRINT_VERSION, type Blueprint } from '@/blueprint/types';
+import { METRES_PER_TILE } from '@/render/scale-contract';
 import { detectCrossings, type CrossingSiteParams, type DetectOptions } from './detect-crossings';
 import { buildCrossing } from './crossing-builder';
-import { realizeCrossing } from './realize-crossing';
+import { realizeCrossing, type Placement } from './realize-crossing';
 
 /** Crossing structure kind → an existing building preset to grey-mass it with (until a
  *  dedicated bridge/booth blueprint family lands). Closest-available shapes for v0. */
@@ -32,9 +38,55 @@ const PRESET_FOR: Record<string, string> = {
 };
 const FALLBACK_PRESET = 'cottage';
 
+/** Crossing material vocabulary → a blueprint walls material the geometry pipeline knows. */
+const DECK_MAT: Record<string, string> = { 'dressed-stone': 'stone', timber: 'timber', 'log-plank': 'timber', masonry: 'stone' };
+const matOf = (m: unknown): string => DECK_MAT[String(m)] ?? 'timber';
+
+/** Build a deck-segment entity riding the authored bank elevation (G4 liftElev). The deck is
+ *  the running surface a road crosses on; it spans bank-to-bank at `lengthTiles`, oriented
+ *  along the span axis, and sits ABOVE the water it crosses rather than carving into it. */
+function deckEntity(p: Placement, lengthTiles: number, deckElev: number | undefined): Entity | undefined {
+  const widthTiles = Math.max(0.5, Number(p.params.width ?? 1));
+  const ns = Math.abs(p.dir.y) >= Math.abs(p.dir.x);   // span runs north-south?
+  const dir = ns ? 'ns' : 'ew';
+  const fpW = Math.max(1, Math.ceil(ns ? widthTiles : lengthTiles));
+  const fpH = Math.max(1, Math.ceil(ns ? lengthTiles : widthTiles));
+  const mat = matOf(p.params.material);
+  const bp: Blueprint = {
+    version: BLUEPRINT_VERSION, class: 'prop', preset: 'bridge_deck', category: 'infrastructure',
+    footprint: { w: fpW, h: fpH }, materials: { walls: mat, roof: mat, ground: 'dirt' },
+    parts: { deck: { type: 'deck', at: { x: 0, y: 0 }, size: { w: fpW, h: fpH }, params: {
+      lengthM: lengthTiles * METRES_PER_TILE, widthM: widthTiles * METRES_PER_TILE,
+      thicknessM: 0.6, dir, parapet: widthTiles >= 1 ? 'both' : 'none',
+    } } },
+  };
+  const rb = resolveBlueprint([bp], 0);
+  const e = blueprintEntity(p.nodeId, rb, Math.round(p.at.x), Math.round(p.at.y));
+  // Round the foot to the deck centre so the long sprite straddles the span symmetrically.
+  if (deckElev !== undefined) (e.properties as Record<string, unknown>).liftElev = deckElev;
+  return e;
+}
+
+/** Build a pier entity — a vertical support standing from the riverbed up to the deck. It
+ *  billboards from its foot (the bed), so it keeps normal terrain foot-z (no liftElev). */
+function pierEntity(p: Placement, heightM: number): Entity {
+  const mat = matOf(p.params.material);
+  const bp: Blueprint = {
+    version: BLUEPRINT_VERSION, class: 'prop', preset: 'bridge_pier', category: 'infrastructure',
+    footprint: { w: 1, h: 1 }, materials: { walls: mat, roof: mat, ground: 'dirt' },
+    parts: { pier: { type: 'pier', at: { x: 0, y: 0 }, size: { w: 1, h: 1 }, params: { heightM, widthM: 1, batter: 0.15 } } },
+  };
+  const rb = resolveBlueprint([bp], 0);
+  return blueprintEntity(p.nodeId, rb, Math.round(p.at.x), Math.round(p.at.y));
+}
+
 export interface CrossingStructureOptions extends DetectOptions {
   /** Site params when the detector has no resolver — defaults to a modest late-medieval site. */
   defaults?: CrossingSiteParams;
+  /** Normalised terrain elevation (renderer lift space) at a tile — used to ride a bridge
+   *  deck on its bank height over the water. Omitted ⇒ decks foot-sample (sink) — callers
+   *  that want correct deck height must supply a sampler matching the terrain `heights` buffer. */
+  deckElevAt?: (x: number, y: number) => number;
   /** A cell where a building's SOLID footprint may NOT go — already taken by an existing
    *  building's structure, a carved road, or water. When supplied, an ancillary placement
    *  whose solid cells overlap is nudged to nearby clear ground (deterministic ring search),
@@ -79,16 +131,19 @@ function solidCells(
 }
 
 /**
- * Build the grey-massing building entities for every road×water crossing in the graph.
- * Detect → build → realize, then turn each `building(*)` placement into a blueprint entity
- * at its laid-out tile. Span/pier placements are skipped (the road ribbon draws the interim
- * deck). Deterministic + pure.
+ * Build the grey-massing structure entities for every road×water crossing in the graph.
+ * Detect → build → realize, then turn each placement into a blueprint entity: `building(*)`
+ * → ancillary structures (toll/guard/shrine/mill/shops/gatehouse) nudged clear of obstacles;
+ * `span` → a deck riding its bank elevation; `pier` → a support from the bed up. Pure +
+ * deterministic (inline deck/pier blueprints seed identically).
  */
 export function buildCrossingStructureEntities(
   graph: RoadGraph | undefined,
   width: number,
   opts: CrossingStructureOptions = {},
 ): Entity[] {
+  ensureBuildingTypesRegistered();   // inline deck/pier blueprints resolve directly (a bare
+                                     // footbridge never calls synthesizeBlueprint to trigger it)
   const defaults = opts.defaults ?? { era: 'late-medieval', prosperity: 'modest' };
   const specs = detectCrossings(graph, width, { siteParamsAt: opts.siteParamsAt, defaults });
   const out: Entity[] = [];
@@ -98,7 +153,21 @@ export function buildCrossingStructureEntities(
   const claimed = new Set<string>();
   for (const spec of specs) {
     const placements = realizeCrossing(buildCrossing(spec));
+    // Bank-to-bank span + deck elevation: the deck rides the higher of the two banks so it
+    // clears the water; piers stand that height down to the bed (no liftElev, foot-sampled).
+    const banks = spec.banks;
+    const spanLen = banks ? Math.hypot(banks[1].x - banks[0].x, banks[1].y - banks[0].y) : Math.max(1, spec.spanTiles);
+    const deckElev = banks && opts.deckElevAt
+      ? Math.max(opts.deckElevAt(Math.round(banks[0].x), Math.round(banks[0].y)), opts.deckElevAt(Math.round(banks[1].x), Math.round(banks[1].y)))
+      : undefined;
+    const pierHeightM = Math.max(1.5, Math.min(8, spanLen * 0.6));
     for (const p of placements) {
+      if (p.category === 'span') {
+        const e = deckEntity(p, spanLen, deckElev);
+        if (e) out.push(e);
+        continue;
+      }
+      if (p.category === 'pier') { out.push(pierEntity(p, pierHeightM)); continue; }
       if (p.category !== 'building') continue;
       const preset = PRESET_FOR[p.kind] ?? FALLBACK_PRESET;
       const rb = synthesizeBlueprint(preset);

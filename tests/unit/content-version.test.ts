@@ -6,7 +6,7 @@ describe('content-version constants', () => {
     expect(ART_RECIPE_VERSION).toBe('v13');
   });
 
-  it('declares the current world content version (14: grade reconciliation G1+G2)', () => {
-    expect(WORLD_CONTENT_VERSION).toBe(14);
+  it('declares the current world content version (15: parametric bridges G5)', () => {
+    expect(WORLD_CONTENT_VERSION).toBe(15);
   });
 });

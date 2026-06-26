@@ -195,6 +195,13 @@ export function buildEntityDrawList(
             last.shadowSprite = { src: ps.canvas, dx: ps.dx, dy: ps.dy };
           }
         }
+        // Above-ground deck (G4/G5): a bridge deck carries an authored bank elevation so the
+        // terrain-lift pre-pass rides it over the water instead of foot-sampling the bed.
+        const liftElev = (b.e.properties as { liftElev?: number } | undefined)?.liftElev;
+        if (liftElev !== undefined) {
+          const last = items[items.length - 1];
+          if (last?.t === 'image') last.liftElev = liftElev;
+        }
       }
     } else if (e.kind === 'barrier') {
       const slab = barrierSlabItems.get(e.id);
