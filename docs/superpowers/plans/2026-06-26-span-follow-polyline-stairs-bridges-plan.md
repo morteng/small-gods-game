@@ -52,7 +52,7 @@ interface SpanSegment {
 sampleSpanSegments(path: SpanPoint[], opts:{ elevAt, reliefM, maxSegTiles }): SpanSegment[]
 ```
 
-### Slice 1 — shared core + retrofit STAIRS (this session; module we own)
+### Slice 1 — shared core + retrofit STAIRS ✅ (shipped `5095666`, `6a0dbb7`)
 - `sampleSpanSegments` in `road-span.ts` + unit tests (chunking, direction-break, elevation).
 - `stair-structures.ts`: replace the "one flight per steepest window" siter with **one flight per
   over-grade segment** along the polyline. Each segment that exceeds its class walkability grade
@@ -64,14 +64,30 @@ sampleSpanSegments(path: SpanPoint[], opts:{ elevAt, reliefM, maxSegTiles }): Sp
 - Bump `WORLD_CONTENT_VERSION` (entity output changes). Re-pin any golden. Visual verify on a steep
   world (`__debug.grabFile`).
 
-### Slice 2 — retrofit BRIDGES to multi-segment (next)
-- `crossing-structures.ts`: instance deck **segments + piers** along the banks polyline via the same
-  core, each segment lifted to its local bank-line elevation (approach ramps fall out of per-segment
-  lift), piers dropped at regular bays.
-- Wire the **orphaned `arch_span` part** (`crossing-builder` already computes `arches`) → real
-  multi-arch viaducts between piers.
-- Fix the EW-parapet length bug in `bridge.ts` (verify empirically first); derive pier `batter`
-  from era/material instead of the hardcoded constant.
+### Slice 2 — retrofit BRIDGES ✅ (shipped `60401ef`, `5aa062f`)
+**2a — geometry fixes (`60401ef`).** Fixed the EW-deck **parapet** layout (it was hardcoded for an
+ns span, capping an ew deck's short ENDS instead of lining its long sides — verified by reading the
+geometry, locked by a new orientation test). Derived pier **batter** from the crossing material
+(masonry tapers hard with a cutwater feel; timber piles stand near-vertical) instead of a flat 0.15.
+
+**2c — arches wired (`5aa062f`).** The `arch_span` part was orphaned (builder computed `arches`,
+nothing instantiated them → stone bridges were a flat slab on piers). Now arches pop out of the
+connectome end to end: `crossing-builder` emits one `arch_span` node per bay, `realize-crossing`
+lays them at the bay midpoints between piers (new `'arch'` category), `crossing-structures` spawns a
+`bridge_arch` entity sized to the bay and as deep as the traffic width. A single arch spans a brook
+bank-to-bank (packhorse bridge); a long masonry span marches a row of them. `solidArch` gained an
+optional **yaw** so the Π-frame springs ALONG the deck's travel axis (ns decks turn it 90°; default
+0 keeps existing geometry byte-identical — golden unchanged). `WORLD_CONTENT_VERSION 17→18`. Verified
+live: 7 arched crossings; deck+arch orientation tracks per crossing, arch fills its bay.
+
+**2b — multi-segment deck bays: DEFERRED to G6 (aqueduct/viaduct), with rationale.** A river
+crossing's deck is a *straight, level* bank-to-bank surface — segmenting it into bays adds visible
+seam risk for marginal gain. Per-segment terrain-lift (the "approach ramp" win) only pays off on a
+long *sloped* span, which is aqueduct/viaduct territory (G6), not a simple river bridge. The
+"marching modular pieces along the span" outcome the research identified is already delivered by the
+**arch bays** (2c). The shared start/stop vocabulary is honored: the deck rests on its two bank
+anchors and deck/arch orient through the shared `road-span` quantizers. Revisit when a long sloped
+deck (aqueduct) actually needs to follow terrain.
 
 ### Slice 3 — polish (later)
 - Approach/abutment end-segments (straight ramp from road grade to deck/first-tread), per the
