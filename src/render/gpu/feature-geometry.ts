@@ -91,8 +91,10 @@ export function binFeatureSegments(
   return { segments: seg, segCount: segs.length, bucketTiles: bt, nbx, nby, bucketOffset, bucketSegs };
 }
 
-/** Closest-point parameter t∈[0,1] of (px,py) on segment (ax,ay)-(bx,by) + the distance. */
-function segDist(ax: number, ay: number, bx: number, by: number, px: number, py: number): { t: number; d: number } {
+/** Closest-point parameter t∈[0,1] of (px,py) on segment (ax,ay)-(bx,by) + the distance.
+ *  Shared by every feature CPU mirror (road pavedness, river channel) so the segment math
+ *  lives in exactly one place. */
+export function segDist(ax: number, ay: number, bx: number, by: number, px: number, py: number): { t: number; d: number } {
   const dx = bx - ax, dy = by - ay;
   const len2 = dx * dx + dy * dy;
   let t = len2 > 0 ? ((px - ax) * dx + (py - ay) * dy) / len2 : 0;
