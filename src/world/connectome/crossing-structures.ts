@@ -25,6 +25,7 @@ import { METRES_PER_TILE } from '@/render/scale-contract';
 import { detectCrossings, type CrossingSiteParams, type DetectOptions } from './detect-crossings';
 import { buildCrossing } from './crossing-builder';
 import { realizeCrossing, type Placement } from './realize-crossing';
+import { axisOf } from './road-span';
 
 /** Crossing structure kind → an existing building preset to grey-mass it with (until a
  *  dedicated bridge/booth blueprint family lands). Closest-available shapes for v0. */
@@ -51,8 +52,10 @@ const matOf = (m: unknown): string => DECK_MAT[String(m)] ?? 'timber';
  *  along the span axis, and sits ABOVE the water it crosses rather than carving into it. */
 function deckEntity(p: Placement, lengthTiles: number, deckElev: number | undefined): Entity | undefined {
   const widthTiles = Math.max(0.5, Number(p.params.width ?? 1));
-  const ns = Math.abs(p.dir.y) >= Math.abs(p.dir.x);   // span runs north-south?
-  const dir = ns ? 'ns' : 'ew';
+  // A crossing's bank0→bank1 is the same kind of run as a stair's foot→head — quantize its
+  // orientation through the shared road-span primitive (the deck's start/stop axis).
+  const dir = axisOf(p.dir.x, p.dir.y);
+  const ns = dir === 'ns';   // span runs north-south?
   const fpW = Math.max(1, Math.ceil(ns ? widthTiles : lengthTiles));
   const fpH = Math.max(1, Math.ceil(ns ? lengthTiles : widthTiles));
   const mat = matOf(p.params.material);

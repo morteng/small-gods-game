@@ -20,6 +20,7 @@ import { resolveBlueprint } from '@/blueprint/resolve';
 import { stairFootprint, stairTreads } from '@/blueprint/parts/stair';
 import { BLUEPRINT_VERSION, type Blueprint } from '@/blueprint/types';
 import { METRES_PER_TILE } from '@/render/scale-contract';
+import { type RoadSpan, spanCardinal } from './road-span';
 
 /** Stair construction + material + running width AND the ACTUAL surface grade (rise/run) above
  *  which that class wants steps instead of a rolled surface. NOTE this is the real walkability
@@ -61,23 +62,18 @@ export interface StairStructureOptions {
   cellBlocked?: (x: number, y: number) => boolean;
 }
 
-/** Quantize a run vector to the cardinal climb the `stair_flight` part understands, pointing
- *  toward the HIGHER end (steps rise that way). */
-function climbDir(dx: number, dy: number): 'north' | 'south' | 'east' | 'west' {
-  if (Math.abs(dx) >= Math.abs(dy)) return dx >= 0 ? 'east' : 'west';
-  return dy >= 0 ? 'south' : 'north';
-}
-
 function stairEntity(
   id: string,
-  cls: RoadClass,
-  foot: { x: number; y: number },
-  dir: 'north' | 'south' | 'east' | 'west',
+  span: RoadSpan,
   riseM: number,
   runTilesGround: number,
   liftElev: number | undefined,
 ): Entity {
-  const { construction, material, widthM } = CLASS_STAIR[cls];
+  // The span is oriented start(foot)→end(head); the flight foots at `start` and climbs the
+  // cardinal toward `end` (steps rise that way) — the shared road-span start/stop vocabulary.
+  const foot = span.start;
+  const dir = spanCardinal(span);
+  const { construction, material, widthM } = CLASS_STAIR[span.cls];
   // FIT the flight to the ground it sits on: pick the tread COUNT so the flight's run
   // (treads × runM) matches the actual horizontal run, and its riser (riseM / treads) matches
   // the actual rise. Without this the rise-derived tread count produces a run that bears no
@@ -90,7 +86,7 @@ function stairEntity(
     version: BLUEPRINT_VERSION, class: 'prop', preset: 'stair_flight', category: 'infrastructure',
     footprint: { w: fp.w, h: fp.h }, materials: { walls: material, roof: material, ground: 'dirt' },
     parts: { flight: { type: 'stair_flight', at: { x: 0, y: 0 }, size: { w: fp.w, h: fp.h }, params: {
-      riseM, treads, widthM, construction, dir, railing: cls === 'highway' || cls === 'road' ? 'both' : 'none',
+      riseM, treads, widthM, construction, dir, railing: span.cls === 'highway' || span.cls === 'road' ? 'both' : 'none',
     } } },
   };
   const rb = resolveBlueprint([bp], 0);
@@ -138,7 +134,9 @@ export function buildStairStructureEntities(
       const riseM = Math.abs(opts.elevAt(b.x, b.y) - opts.elevAt(a.x, a.y)) * opts.reliefM;
       const actualGrade = runTiles > 0 ? riseM / (runTiles * METRES_PER_TILE) : 0;
       if (runTiles >= MIN_RUN_TILES && riseM >= MIN_RISE_M && actualGrade > classGrade) {
-        // Foot = the LOWER end (the flight climbs up toward the higher end).
+        // The over-grade stretch becomes a road-anchored span: foot (start) at the LOWER end,
+        // head (end) at the higher — the flight climbs from start toward end. (Same start/stop
+        // model a bridge deck uses bank-to-bank; see road-span.ts.)
         const aHigher = opts.elevAt(a.x, a.y) >= opts.elevAt(b.x, b.y);
         const foot = aHigher ? b : a;
         const head = aHigher ? a : b;
@@ -146,9 +144,12 @@ export function buildStairStructureEntities(
         const key = `${fx},${fy}`;
         if (!usedTiles.has(key) && !opts.cellBlocked?.(fx, fy)) {
           usedTiles.add(key);
-          const dir = climbDir(head.x - foot.x, head.y - foot.y);
+          const span: RoadSpan = {
+            edgeId: edge.id, cls: edge.class, obstacle: 'grade',
+            start: { x: fx, y: fy }, end: { x: Math.round(head.x), y: Math.round(head.y) },
+          };
           const liftElev = opts.liftElevAt?.(fx, fy);
-          out.push(stairEntity(`${edge.id}:stair:${i}`, edge.class, { x: fx, y: fy }, dir, riseM, runTiles, liftElev));
+          out.push(stairEntity(`${edge.id}:stair:${i}`, span, riseM, runTiles, liftElev));
         }
         i = j;   // jump past the placed flight so a long climb doesn't stack overlapping stairs
         continue;
