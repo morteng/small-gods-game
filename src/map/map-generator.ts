@@ -26,6 +26,7 @@ import { matchAnchors } from '@/world/anchor-rules';
 import { erodeElevation } from '@/terrain/erosion';
 import { placeSettlement } from '@/world/building-placer';
 import { buildCrossingStructureEntities } from '@/world/connectome/crossing-structures';
+import { buildStairStructureEntities } from '@/world/connectome/stair-structures';
 import { getHeightfield, ELEVATION_SEA_LEVEL } from '@/world/heightfield';
 import { curveRenderElev } from '@/render/gpu/terrain-field';
 import { worldStyleOf } from '@/core/world-style';
@@ -311,6 +312,24 @@ export async function generateWithNoise(
         const t = tiles[y]?.[x];
         if (!t) return true; // off-map → unusable
         return tileBlockedByBuilding(world, x, y) || ROAD_TILES.has(t.type) || WATER_TYPES.has(t.type);
+      },
+    })) world.addEntity(e);
+
+    // STAIR SITES (G3b): where a road's line climbs steeper than its class grade envelope,
+    // the connectome wants a stair flight (the envelope's named reconciliation structure).
+    // Stairs SIT on the road (don't block road tiles like the crossing aprons do) but must
+    // not stand in water or on a building. Grade is read in normalised heightfield space
+    // (deckHf) — the same space the envelope's maxGrade is measured in — and the flight rides
+    // the curved render elevation at its foot via liftElev.
+    report('Siting stairs...');
+    for (const e of buildStairStructureEntities(roadGraph, {
+      elevAt: (x, y) => deckHf[Math.round(y) * width + Math.round(x)] ?? ELEVATION_SEA_LEVEL,
+      reliefM: worldStyleOf(worldSeed ?? undefined).mountainRelief,
+      liftElevAt: deckElevAt,
+      cellBlocked: (x, y) => {
+        const t = tiles[y]?.[x];
+        if (!t) return true;
+        return tileBlockedByBuilding(world, x, y) || WATER_TYPES.has(t.type);
       },
     })) world.addEntity(e);
   }

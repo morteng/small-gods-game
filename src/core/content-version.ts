@@ -53,4 +53,4 @@ export const ART_RECIPE_VERSION = 'v13';
  * An autosave stamped with a different value is discarded on load → a fresh
  * world is generated. Distinct from SAVE_VERSION (which guards the save *schema*).
  */
-export const WORLD_CONTENT_VERSION = 15;  // parametric bridges (G5): river crossings now spawn deck + pier structure entities (the previously-dropped span/pier placements), so worldgen entity output changes — discard pre-bridge autosaves
+export const WORLD_CONTENT_VERSION = 16;  // parametric stairs (G3b): roads climbing steeper than their class walkability grade now spawn stair_flight structure entities, so worldgen entity output changes — discard pre-stair autosaves
