@@ -38,6 +38,10 @@ const PRESET_FOR: Record<string, string> = {
 };
 const FALLBACK_PRESET = 'cottage';
 
+/** Below this bank-to-bank span (tiles), a crossing gets no interior piers — the deck rests
+ *  on its two banks (a plank/clapper bridge). Wider spans earn supports. */
+const MIN_PIER_SPAN_TILES = 3;
+
 /** Crossing material vocabulary → a blueprint walls material the geometry pipeline knows. */
 const DECK_MAT: Record<string, string> = { 'dressed-stone': 'stone', timber: 'timber', 'log-plank': 'timber', masonry: 'stone' };
 const matOf = (m: unknown): string => DECK_MAT[String(m)] ?? 'timber';
@@ -161,13 +165,28 @@ export function buildCrossingStructureEntities(
       ? Math.max(opts.deckElevAt(Math.round(banks[0].x), Math.round(banks[0].y)), opts.deckElevAt(Math.round(banks[1].x), Math.round(banks[1].y)))
       : undefined;
     const pierHeightM = Math.max(1.5, Math.min(8, spanLen * 0.6));
+    // Interior piers only earn their keep on a genuinely wide span — a plank over a 1–2 tile
+    // brook rests on its banks (piers crammed under a 2 m deck just read as stacked clutter).
+    const wantsPiers = spanLen >= MIN_PIER_SPAN_TILES;
+    const deckTile = placements.find((q) => q.category === 'span');
+    const pierTilesUsed = new Set<string>();
+    if (deckTile) pierTilesUsed.add(`${Math.round(deckTile.at.x)},${Math.round(deckTile.at.y)}`);
     for (const p of placements) {
       if (p.category === 'span') {
-        const e = deckEntity(p, spanLen, deckElev);
+        // +1 tile so the deck seats onto both banks (abutments) rather than floating in the gap.
+        const e = deckEntity(p, spanLen + 1, deckElev);
         if (e) out.push(e);
         continue;
       }
-      if (p.category === 'pier') { out.push(pierEntity(p, pierHeightM)); continue; }
+      if (p.category === 'pier') {
+        if (!wantsPiers) continue;
+        // Dedupe coincident piers (short spans collapse several onto one tile).
+        const key = `${Math.round(p.at.x)},${Math.round(p.at.y)}`;
+        if (pierTilesUsed.has(key)) continue;
+        pierTilesUsed.add(key);
+        out.push(pierEntity(p, pierHeightM));
+        continue;
+      }
       if (p.category !== 'building') continue;
       const preset = PRESET_FOR[p.kind] ?? FALLBACK_PRESET;
       const rb = synthesizeBlueprint(preset);

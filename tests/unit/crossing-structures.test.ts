@@ -8,37 +8,42 @@ function edge(id: string, polyline: { x: number; y: number }[], partial: Partial
 }
 
 describe('buildCrossingStructureEntities', () => {
-  it('spawns grey-massing structures (deck + piers + ancillary buildings) for a rich crossing', () => {
-    const poly = [8, 9, 10, 11, 12, 13].map((x) => ({ x, y: 10 }));
-    const graph: RoadGraph = { nodes: [], edges: [edge('e', poly, { class: 'highway', bridgeCells: [10 * W + 10, 10 * W + 11] })] };
-    const ents = buildCrossingStructureEntities(graph, W, { defaults: { era: 'late-medieval', prosperity: 'rich' } });
+  // A WIDE crossing (≥3-tile span) — earns interior piers. bridgeCells span x=8..13 at y=12.
+  const wideRich = (): RoadGraph => {
+    const poly = [6, 7, 8, 9, 10, 11, 12, 13, 14, 15].map((x) => ({ x, y: 12 }));
+    const cells = [8, 9, 10, 11, 12, 13].map((x) => 12 * W + x);
+    return { nodes: [], edges: [edge('e', poly, { class: 'highway', bridgeCells: cells })] };
+  };
+
+  it('spawns grey-massing structures (deck + piers + ancillary buildings) for a wide rich crossing', () => {
+    const ents = buildCrossingStructureEntities(wideRich(), W, { defaults: { era: 'late-medieval', prosperity: 'rich' } });
     const kinds = new Set(ents.map((e) => e.kind));
-    // The span itself now renders: a deck + supporting piers (G5).
+    // The span itself now renders: a deck + supporting piers (wide span earns piers, G5).
     expect(kinds.has('bridge_deck')).toBe(true);
     expect(ents.some((e) => e.kind === 'bridge_pier')).toBe(true);
+    // Piers sit on DISTINCT tiles (short-span collapse is deduped).
+    const pierTiles = ents.filter((e) => e.kind === 'bridge_pier').map((e) => `${e.x},${e.y}`);
+    expect(new Set(pierTiles).size).toBe(pierTiles.length);
     // toll/guard/shrine/shop×2/gatehouse/mill → grey-massing ancillary buildings.
     const buildings = ents.filter((e) => (e.properties as any).category === 'building');
     expect(buildings.length).toBeGreaterThanOrEqual(5);
     expect(kinds.has('shrine')).toBe(true);
     expect(kinds.has('guard_post')).toBe(true);
-    // positioned at real tiles
     expect(ents.every((e) => Number.isInteger(e.x) && Number.isInteger(e.y))).toBe(true);
   });
 
-  it('a poor footpath crossing spawns just its bare footbridge (deck + 2 piers, no buildings)', () => {
+  it('a narrow brook crossing rests on its banks — a clean deck, no interior piers', () => {
     const poly = [4, 5, 6, 7].map((x) => ({ x, y: 4 }));
     const graph: RoadGraph = { nodes: [], edges: [edge('e', poly, { class: 'path', bridgeCells: [4 * W + 5] })] };
     const ents = buildCrossingStructureEntities(graph, W, { defaults: { era: 'stone-age', prosperity: 'poor' } });
     expect(ents.filter((e) => e.kind === 'bridge_deck')).toHaveLength(1);
-    expect(ents.filter((e) => e.kind === 'bridge_pier')).toHaveLength(2);
-    // No ancillary buildings on a poor footpath.
+    // Span < 3 tiles ⇒ no interior piers (no stacked clutter).
+    expect(ents.filter((e) => e.kind === 'bridge_pier')).toHaveLength(0);
     expect(ents.some((e) => (e.properties as any).category === 'building')).toBe(false);
   });
 
   it('deck rides its bank elevation (liftElev); piers stay grounded (foot-sampled)', () => {
-    const poly = [8, 9, 10, 11, 12, 13].map((x) => ({ x, y: 10 }));
-    const graph: RoadGraph = { nodes: [], edges: [edge('e', poly, { class: 'highway', bridgeCells: [10 * W + 10, 10 * W + 11] })] };
-    const ents = buildCrossingStructureEntities(graph, W, {
+    const ents = buildCrossingStructureEntities(wideRich(), W, {
       defaults: { era: 'late-medieval', prosperity: 'rich' },
       deckElevAt: () => 0.42,
     });
