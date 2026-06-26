@@ -46,6 +46,27 @@ import {
 } from '@/world/road-state';
 import { clamp01 } from '@/core/math';
 
+/** Embankment batter (fill-side slope): horizontal run in TILES per metre of fill height.
+ *  ~0.75 = a 1.5 m run per 1 m rise (≈34° angle of repose) at 2 m / tile. */
+const BATTER_RUN_TILES_PER_M = 0.75;
+
+/** Arc step (tiles) for sampling the ground under the grade line to find fill — fine enough
+ *  to catch a valley between sparse centerline vertices, coarse enough to stay cheap. */
+const FILL_SAMPLE_STEP_TILES = 1;
+
+/**
+ * The corridor's fill-side falloff width (tiles) at a point carrying `fillM` metres of
+ * embankment fill, built by a road of the given `cutStrength`. On flat or cut ground
+ * (`fillM ≤ 0`) it's just the thin shoulder feather, so a road that isn't filling keeps its
+ * trail-width footprint (parity with the pre-embankment carve). Where the road rides up on
+ * fill, the width grows with the fill actually carried (`cutStrength·fillM`) so the bank
+ * descends at the soil's repose angle — a footpath barely banks, an engineered road throws a
+ * real causeway. Pure + monotonic; the carve and a parity test both read it.
+ */
+export function embankmentBatterTiles(fillM: number, cutStrength: number, shoulderFeatherTiles: number): number {
+  return Math.max(shoulderFeatherTiles, BATTER_RUN_TILES_PER_M * cutStrength * Math.max(0, fillM));
+}
+
 // ── Geometry helpers (pure) ──────────────────────────────────────────────────────
 
 /** Project a point onto a polyline: nearest cross-distance `d` + arc-length `s`. */
@@ -66,6 +87,21 @@ function projectToPolyline(pts: Pt[], cumS: number[], px: number, py: number): {
     }
   }
   return { d: best, s: bestS };
+}
+
+/** The centerline point at arc-length `s` (cumS sorted ascending) — mirror of interpAtArc. */
+function pointAtArc(pts: Pt[], cumS: number[], s: number): Pt {
+  if (s <= cumS[0]) return pts[0];
+  const n = cumS.length;
+  if (s >= cumS[n - 1]) return pts[n - 1];
+  let lo = 0, hi = n - 1;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (cumS[mid] <= s) lo = mid; else hi = mid;
+  }
+  const span = cumS[hi] - cumS[lo] || 1;
+  const w = (s - cumS[lo]) / span;
+  return { x: pts[lo].x + (pts[hi].x - pts[lo].x) * w, y: pts[lo].y + (pts[hi].y - pts[lo].y) * w };
 }
 
 /** Interpolate a per-vertex value at arc-length `s` (cumS is sorted ascending). */
@@ -209,11 +245,39 @@ export function buildEdgeDeformation(
   const halfWindow = Math.max(0, Math.round(x.gradeWindowTiles / 2));
   const smoothGrade = boxSmooth(grade, halfWindow);
 
-  // Footprint: carriageway + kerb + ditch + feather.
+  // G2 — embankment fill. Where the smoothed grade rides ABOVE the ground (a dip or valley
+  // the road must carry itself across), the road builds UP a fill bank, not only carves down.
+  // The `level` op already raises terrain toward grade (`height = lerp(ground, grade, mask)`);
+  // the only thing missing for a believable embankment is the SHAPE of its side — a fixed
+  // shoulder-feather drops the fill as a near-vertical wall. So on the fill side we widen the
+  // falloff to a BATTER whose run scales with the fill height: the lerp then ramps the height
+  // from grade down to ground over that run, a side-slope at the soil's repose angle (a
+  // footpath barely banks; an engineered road throws a real causeway).
+  //
+  // The grade line is a smooth ramp between (possibly sparse) centerline vertices, so it can
+  // float well above the terrain BETWEEN them — sampling fill only AT vertices misses all of
+  // it (there `smoothGrade == grade` by construction). So sample the ground densely along arc.
+  const total = cumS[n - 1] || 0;
+  const fillArcs: number[] = [];
+  const fillVals: number[] = [];
+  let maxFill = 0;
+  for (let s = 0; s <= total + 1e-6; s += FILL_SAMPLE_STEP_TILES) {
+    const p = pointAtArc(centerline, cumS, s);
+    const ground = heightMetresAt(map, Math.round(p.x), Math.round(p.y));
+    const f = Math.max(0, interpAtArc(cumS, smoothGrade, s) - ground);
+    fillArcs.push(s);
+    fillVals.push(f);
+    if (f > maxFill) maxFill = f;
+  }
+  const batterRun = (s: number): number =>
+    embankmentBatterTiles(interpAtArc(fillArcs, fillVals, s), x.cutStrength, x.shoulderFeatherTiles);
+  const maxBatter = embankmentBatterTiles(maxFill, x.cutStrength, x.shoulderFeatherTiles);
+
+  // Footprint: carriageway + kerb + ditch + feather/batter.
   const core = x.carriageHalf + (x.hasCurb ? x.curbWidthTiles : 0);
   const ditchReach = x.ditchDepthM > 0 ? x.ditchOffsetTiles + 0.5 : 0;
   const featherStart = Math.max(core, ditchReach);
-  const reach = featherStart + x.shoulderFeatherTiles;
+  const reach = featherStart + maxBatter; // worst-case footprint for the AABB bounds
 
   const xs = centerline.map((p) => p.x);
   const ys = centerline.map((p) => p.y);
@@ -232,10 +296,12 @@ export function buildEdgeDeformation(
     amount: 0,
     bounds,
     mask(tx, ty) {
-      const { d } = projectToPolyline(centerline, cumS, tx, ty);
-      if (d >= reach) return 0;
+      const { d, s } = projectToPolyline(centerline, cumS, tx, ty);
+      const batter = batterRun(s); // height-proportional on a fill bank; ≥ the thin shoulder feather
+      const localReach = featherStart + batter;
+      if (d >= localReach) return 0;
       if (d <= featherStart) return x.cutStrength;
-      return x.cutStrength * clamp01(1 - (d - featherStart) / x.shoulderFeatherTiles);
+      return x.cutStrength * clamp01(1 - (d - featherStart) / batter);
     },
     targetAt(tx, ty) {
       const { d, s } = projectToPolyline(centerline, cumS, tx, ty);

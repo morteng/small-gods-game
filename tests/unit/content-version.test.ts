@@ -6,7 +6,7 @@ describe('content-version constants', () => {
     expect(ART_RECIPE_VERSION).toBe('v13');
   });
 
-  it('declares the current world content version (13: river width-by-flow taper)', () => {
-    expect(WORLD_CONTENT_VERSION).toBe(13);
+  it('declares the current world content version (14: grade reconciliation G1+G2)', () => {
+    expect(WORLD_CONTENT_VERSION).toBe(14);
   });
 });

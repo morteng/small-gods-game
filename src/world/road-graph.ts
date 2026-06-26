@@ -28,6 +28,7 @@
 import type { Connection, POI, Tile, TerrainField } from '@/core/types';
 import { WATER_TYPES } from '@/core/constants';
 import { walkRoad } from '@/terrain/road-walker';
+import { gradeEnvelope } from '@/world/road-state';
 
 /** Carved road/bridge tile types — the reuse-affinity set (new roads bundle onto these). */
 const ROAD_TILE_TYPES = new Set(['dirt_road', 'stone_road', 'bridge']);
@@ -232,7 +233,15 @@ export function buildRoadGraph(
       // Walls stay 4-connected (a corner-connected wall leaks). Diagonal water-corner cuts
       // are already guarded in the walker, so bridges stay sound.
       const allowDiagonal = feature !== 'wall';
-      const result = walkRoad(a, b, tiles, fields, { autoBridge, isObstacle, isRoad, allowDiagonal });
+      // G1 — per-class grade envelope: a highway demands a near-flat grade (switchbacks
+      // hard, asks for cuts/embankments), a footpath takes a steeper line. Roads only;
+      // rivers/walls keep the walker's neutral defaults so their routing is unchanged.
+      const env = feature === 'road' ? gradeEnvelope(roadClass) : undefined;
+      const result = walkRoad(a, b, tiles, fields, {
+        autoBridge, isObstacle, isRoad, allowDiagonal,
+        maxGrade: env?.maxGrade,
+        overGradePenalty: env?.overGradePenalty,
+      });
       if (result.cells.length === 0) continue;
 
       // A diagonal step leaves the rasterized tile MASK only corner-connected, which
