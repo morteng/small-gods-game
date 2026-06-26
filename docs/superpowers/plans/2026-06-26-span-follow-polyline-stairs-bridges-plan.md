@@ -91,8 +91,15 @@ deck (aqueduct) actually needs to follow terrain.
 
 ### Slice 3 — polish (later)
 - Approach/abutment end-segments (straight ramp from road grade to deck/first-tread), per the
-  Houdini "straight approach, arched middle" rule.
-- Elastic landing entity (wire the orphaned stair `landing` part) at switchback turns.
+  Houdini "straight approach, arched middle" rule. **Low payoff** — the road's own surface carve
+  already eases grade into the structure foot; revisit only if a render shows a visible step.
+- Elastic landing entity (wire the orphaned stair `landing` part) at switchback turns. **NOT a
+  clean orphan-wire (finding 2026-06-26):** `sampleSpanSegments` emits *contiguous* segments, so at
+  a switchback the upper flight's foot tile IS the lower flight's head tile — there is no spare tile
+  between them, and `usedTiles` already claims it. A correct landing needs the flights *shortened*
+  to reserve a dedicated turn tile (a real siting redesign, not a part-wire). Combined with
+  switchbacks being rare in grade-minimizing worldgen, this is deliberately deferred until a
+  reproducible steep-switchback test world exists to verify against.
 
 ## Critical files
 | Concern | File |
