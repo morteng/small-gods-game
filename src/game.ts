@@ -138,6 +138,7 @@ export class Game {
   private cleanupTokens: (() => void) | null = null;
   private resizeObserver: ResizeObserver;
   private rafId: number | null = null;
+  private destroyed = false;
   private lastTime: number = 0;
   /** Rendered-frame FPS meter (always sampling; cheap). Read via `__perf.fps()`. The
    *  on-screen FPS pill is drawn on the canvas in gpu-render-frame (dev-only); there
@@ -148,8 +149,22 @@ export class Game {
   // hover, selection, a UI toggle, resize). Starts true so the first frame draws.
   // Set via requestRender(); consumed in the frame loop.
   private needsRender = true;
-  /** Mark the scene dirty so the next frame redraws even while paused. */
-  private requestRender = (): void => { this.needsRender = true; };
+  /** Hard pause: stop the rAF loop entirely (CPU + GPU idle) AND mute audio, distinct from
+   *  a sim-rate-0 pause that keeps ambient water animating. Render becomes on-demand (a
+   *  requestRender draws one frame then idles again) so the view stays interactive/grabbable
+   *  while the machine rests. Toggled by the UI pause, `__debug.pause()`, and tab-hidden. */
+  private hardPaused = false;
+  /** True when the hard pause was triggered automatically (tab hidden), so becoming visible
+   *  resumes — a manual pause is NOT auto-resumed. */
+  private autoPaused = false;
+  /** Sim rate to restore on resume (a hard pause forces rate 0). */
+  private savedRate = 1;
+  /** Mark the scene dirty so the next frame redraws. While hard-paused the loop is stopped,
+   *  so this also kicks a single on-demand frame (then it idles again). */
+  private requestRender = (): void => {
+    this.needsRender = true;
+    if (this.rafId === null && !this.destroyed) this.rafId = requestAnimationFrame(this.loop);
+  };
   // Ambient water ripples animate on wall-clock time, so the loop must keep
   // drawing while visible water is on screen — even with the sim PAUSED — or the
   // ocean only moves on interaction. Memoised has-water scan per map identity.
@@ -402,7 +417,7 @@ export class Game {
 
     this.detachTimeKeys = attachTimeKeys(window, {
       onToggleTimeBar: () => this.toggleTimeBar(),
-      onTogglePause:   () => { this.scheduler.setRate(this.scheduler.getRate() === 0 ? 1 : 0); this.requestRender(); },
+      onTogglePause:   () => this.togglePause(),
       onSetRate:       (n) => { this.scheduler.setRate(n); this.requestRender(); },
       timeBarOpen:     () => this.timeBar !== null,
       onEscape:        () => { if (this.timeBar) this.toggleTimeBar(); },
@@ -833,10 +848,8 @@ export class Game {
   }
 
   private togglePause(): void {
-    const paused = this.scheduler.getRate() === 0;
-    this.scheduler.setRate(paused ? 1 : 0);
-    this.refreshPauseBanner();
-    this.requestRender();
+    // The user-facing pause is a HARD pause — it idles the loop + audio, not just the sim.
+    this.setPaused(!this.hardPaused);
   }
 
   private refreshPauseBanner(): void {
@@ -921,6 +934,8 @@ export class Game {
       devMode: () => this.dev.devMode,
       requestRender: this.requestRender,
       newWorld: () => { void this.newWorld(); },
+      setPaused: (p) => { this.setPaused(p); return this.isPaused(); },
+      isPaused: () => this.isPaused(),
     });
   }
 
@@ -993,6 +1008,9 @@ export class Game {
       },
     });
     this.startLoop();
+    // Auto-pause when the tab is hidden (the loop + audio fully idle; resumes on return) —
+    // so a backgrounded game never burns CPU/GPU on this machine.
+    if (typeof document !== 'undefined') document.addEventListener('visibilitychange', this.onVisibilityChange);
     return map;
   }
 
@@ -1025,56 +1043,101 @@ export class Game {
   private startLoop(): void {
     if (this.rafId !== null) return;
     this.lastTime = performance.now();
-
-    const loop = (now: number) => {
-      const deltaMs = Math.min(now - this.lastTime, 100);
-      this.lastTime = now;
-      const live = this.scheduler.getRate() > 0 && this.state.world && !this.timeline.isScrubbed;
-      // Presentation runs every frame (keeps the audio scheduler fed); ducks on scrub.
-      this.presentation.update(deltaMs, { live: !!live, scrubbed: this.timeline.isScrubbed });
-      if (live) {
-        advanceNpcFrames(this.state.world!, deltaMs);  // presentation animation - not a scheduled system
-        // Focusing a new NPC = the player's attention reaching it → a discovery
-        // signal that can fire staged beats armed on that NPC.
-        if (this.state.selectedNpcId && this.state.selectedNpcId !== this.lastDiscoveredNpcId) {
-          this.lastDiscoveredNpcId = this.state.selectedNpcId;
-          this.discoveryQueue.push({ subject: { kind: 'npc', npcId: this.state.selectedNpcId } });
-        }
-        this.scheduler.tick(deltaMs, {
-          world: this.state.world!,
-          spirits: this.state.spirits,
-          log: this.state.eventLog,
-          clock: this.state.clock,
-          rng: this.state.rng,
-        });
-        this.timeline.onAfterLiveTick();
-      }
-      // REAL PAUSE: when not live, do the expensive scene render + UI refresh only
-      // if something changed (requestRender), an effect is still animating, or the
-      // past is being scrubbed. Otherwise the rAF body is ~free and the GPU idles.
-      const cinematic = this.presentation.cameraActive();
-      if (live || this.needsRender || this.timeline.isScrubbed || this.ui.divineEffects.isActive() || this.waterAnimating() || cinematic) {
-        this.needsRender = false;
-        // The cinematic camera owns the view while active; otherwise follow normally.
-        if (!cinematic) applyFollowCamera(this.state, this.viewport());
-        // Keep the island from being panned/zoomed fully off-screen.
-        if (this.state.map) {
-          const vp = this.viewport();
-          clampCameraToMap(this.state.camera, this.state.map.width, this.state.map.height, vp.width, vp.height);
-        }
-        const r0 = performance.now();
-        this.renderer.render(deltaMs);
-        this.fps.frame(performance.now() - r0);
-        this.timeChip.refresh();
-        this.refreshPauseBanner();
-        this.timeBar?.refresh();
-        this.dev.updateTimeDebug();
-        this.veil.setActive(this.timeline.isScrubbed);
-      }
-      this.rafId = requestAnimationFrame(loop);
-    };
-    this.rafId = requestAnimationFrame(loop);
+    this.rafId = requestAnimationFrame(this.loop);
   }
+
+  /** The frame loop, as a class field so `requestRender` can kick a single on-demand frame
+   *  while hard-paused. Reschedules itself ONLY while something is live/animating; a hard
+   *  pause (or an idle paused world) renders the pending frame then stops — CPU + GPU idle
+   *  until the next `requestRender`. */
+  private loop = (now: number): void => {
+    const deltaMs = Math.min(now - this.lastTime, 100);
+    this.lastTime = now;
+    const live = !this.hardPaused && this.scheduler.getRate() > 0 && this.state.world && !this.timeline.isScrubbed;
+    // Presentation runs every frame (keeps the audio scheduler fed); ducks on scrub. Skipped
+    // while hard-paused (audio is muted and the loop is about to idle).
+    if (!this.hardPaused) this.presentation.update(deltaMs, { live: !!live, scrubbed: this.timeline.isScrubbed });
+    if (live) {
+      advanceNpcFrames(this.state.world!, deltaMs);  // presentation animation - not a scheduled system
+      // Focusing a new NPC = the player's attention reaching it → a discovery
+      // signal that can fire staged beats armed on that NPC.
+      if (this.state.selectedNpcId && this.state.selectedNpcId !== this.lastDiscoveredNpcId) {
+        this.lastDiscoveredNpcId = this.state.selectedNpcId;
+        this.discoveryQueue.push({ subject: { kind: 'npc', npcId: this.state.selectedNpcId } });
+      }
+      this.scheduler.tick(deltaMs, {
+        world: this.state.world!,
+        spirits: this.state.spirits,
+        log: this.state.eventLog,
+        clock: this.state.clock,
+        rng: this.state.rng,
+      });
+      this.timeline.onAfterLiveTick();
+    }
+    // REAL PAUSE: when not live, do the expensive scene render + UI refresh only
+    // if something changed (requestRender), an effect is still animating, or the
+    // past is being scrubbed. Otherwise the rAF body is ~free and the GPU idles.
+    // Hard pause forces exactly ONE render of the pending frame (so a capture sees it),
+    // then the loop stops below — fully idle until requestRender kicks it again.
+    const cinematic = !this.hardPaused && this.presentation.cameraActive();
+    const animating = live || this.timeline.isScrubbed || this.ui.divineEffects.isActive() || (!this.hardPaused && this.waterAnimating()) || cinematic;
+    if (animating || this.needsRender) {
+      this.needsRender = false;
+      // The cinematic camera owns the view while active; otherwise follow normally.
+      if (!cinematic) applyFollowCamera(this.state, this.viewport());
+      // Keep the island from being panned/zoomed fully off-screen.
+      if (this.state.map) {
+        const vp = this.viewport();
+        clampCameraToMap(this.state.camera, this.state.map.width, this.state.map.height, vp.width, vp.height);
+      }
+      const r0 = performance.now();
+      this.renderer.render(deltaMs);
+      this.fps.frame(performance.now() - r0);
+      this.timeChip.refresh();
+      this.refreshPauseBanner();
+      this.timeBar?.refresh();
+      this.dev.updateTimeDebug();
+      this.veil.setActive(this.timeline.isScrubbed);
+    }
+    // Reschedule only while something is animating; a hard pause or an idle paused world
+    // stops here and waits for requestRender. This is what makes the machine actually rest.
+    if (animating && !this.destroyed) {
+      this.rafId = requestAnimationFrame(this.loop);
+    } else {
+      this.rafId = null;
+    }
+  };
+
+  /** Hard pause / resume — stops the frame loop (CPU + GPU idle) and mutes audio. The view
+   *  stays grabbable + interactive (each requestRender draws one on-demand frame). */
+  setPaused(paused: boolean, opts: { auto?: boolean } = {}): void {
+    if (paused === this.hardPaused) return;
+    this.hardPaused = paused;
+    this.autoPaused = paused ? !!opts.auto : false;
+    if (paused) {
+      this.savedRate = this.scheduler.getRate() || 1;
+      this.scheduler.setRate(0);
+      this.presentation.suspendAudio(true);
+      this.requestRender();   // draw the paused frame once, then the loop idles
+    } else {
+      this.presentation.suspendAudio(false);
+      this.scheduler.setRate(this.savedRate);
+      this.startLoop();       // resume the continuous loop
+    }
+    this.refreshPauseBanner();
+  }
+
+  /** True while hard-paused (loop + audio suspended). */
+  isPaused(): boolean { return this.hardPaused; }
+
+  private onVisibilityChange = (): void => {
+    if (typeof document === 'undefined') return;
+    if (document.hidden) {
+      if (!this.hardPaused) this.setPaused(true, { auto: true });   // tab hidden → rest
+    } else if (this.autoPaused) {
+      this.setPaused(false);                                        // visible again → resume
+    }
+  };
 
   private stopLoop(): void {
     if (this.rafId !== null) {
@@ -1084,7 +1147,9 @@ export class Game {
   }
 
   destroy(): void {
+    this.destroyed = true;
     this.stopLoop();
+    if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', this.onVisibilityChange);
     this.presentation.destroy();
     this.persistence?.destroy();
     this.cleanupControls?.();

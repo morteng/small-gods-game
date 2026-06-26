@@ -99,6 +99,10 @@ export interface DebugApi {
   /** Regenerate a fresh world: clears the autosave slot and reloads (boot then seeds
    *  anew). The ONLY way to see new worldgen — a stale autosave masks it. */
   newWorld(): void;
+  /** Hard pause/resume: idle the frame loop (CPU + GPU) and mute audio so the machine
+   *  rests between captures. The view stays grabbable (a focus/grab renders on demand).
+   *  `pause(true)` pauses, `pause(false)` resumes, `pause()` toggles. Returns paused state. */
+  pause(on?: boolean): boolean;
   /** Inland water level in METRES (drought < 0, flood > 0) — shifts river + lake
    *  surfaces; the sea is fixed. `waterLevel()` reads, `waterLevel(1.5)` floods,
    *  `waterLevel(-1)` droughts. Returns the current offset. */
@@ -130,6 +134,11 @@ export interface DebugApiDeps {
   requestRender: () => void;
   /** Clear the autosave + reload for a fresh world (Game.newWorld). */
   newWorld: () => void;
+  /** Hard pause/resume — idles the frame loop (CPU + GPU) and mutes audio. Returns the
+   *  resulting paused state. Lets an automation rest the machine between captures. */
+  setPaused: (paused: boolean) => boolean;
+  /** Current hard-paused state (so `pause()` with no arg can toggle). */
+  isPaused: () => boolean;
 }
 
 export function createDebugApi(deps: DebugApiDeps): DebugApi {
@@ -202,6 +211,10 @@ export function createDebugApi(deps: DebugApiDeps): DebugApi {
 
     grab(): string {
       return query.screenshot();
+    },
+
+    pause(on?: boolean): boolean {
+      return deps.setPaused(on ?? !deps.isPaused());
     },
 
     async grabFile(name = 'grab'): Promise<string> {

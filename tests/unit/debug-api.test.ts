@@ -33,6 +33,7 @@ function setup() {
     playStory: () => false, music: () => ({}),
     devMode: () => ({} as any),
     requestRender: () => {}, newWorld: () => {},
+    setPaused: (p: boolean) => p, isPaused: () => false,
   });
   return { state, api };
 }
@@ -40,6 +41,22 @@ function setup() {
 describe('debug-api', () => {
   let s: ReturnType<typeof setup>;
   beforeEach(() => { s = setup(); });
+
+  it('pause(on?) sets/toggles the hard pause through the deps', () => {
+    let paused = false;
+    const api = createDebugApi({
+      query: createGameQuery({ state: s.state, canvas: document.createElement('canvas') }),
+      state: s.state, viewport: () => ({ width: 800, height: 600 }),
+      playStory: () => false, music: () => ({}), devMode: () => ({} as any),
+      requestRender: () => {}, newWorld: () => {},
+      setPaused: (p: boolean) => { paused = p; return paused; }, isPaused: () => paused,
+    });
+    expect(api.pause(true)).toBe(true);
+    expect(paused).toBe(true);
+    expect(api.pause()).toBe(false);   // toggle off
+    expect(paused).toBe(false);
+    expect(api.pause()).toBe(true);    // toggle on
+  });
 
   it('inventory() counts buildings by kind plus npc/veg totals', () => {
     const inv = s.api.inventory();
