@@ -6,7 +6,7 @@ describe('content-version constants', () => {
     expect(ART_RECIPE_VERSION).toBe('v13');
   });
 
-  it('declares the current world content version (17: stairs follow the polyline G3c)', () => {
-    expect(WORLD_CONTENT_VERSION).toBe(17);
+  it('declares the current world content version (18: arched bridges spawn arch bays G5b)', () => {
+    expect(WORLD_CONTENT_VERSION).toBe(18);
   });
 });

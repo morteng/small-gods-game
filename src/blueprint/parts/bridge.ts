@@ -93,23 +93,28 @@ export const pierPartType: PartType = {
   toBrief: () => 'pier',
 };
 
-/** A masonry arch between piers — uses the existing `arch` prim. */
+/** A masonry arch between piers — uses the existing `arch` prim. The arch frame springs along
+ *  the deck's travel axis (`dir`): an ew span uses the native +x frame, an ns span yaws it 90°
+ *  so the opening faces across the watercourse the way a real bridge arch does. */
 export const archSpanPartType: PartType = {
   type: 'arch_span',
   paramSchema: {
     spanM: { kind: 'number', min: 0.5, max: 40, default: 4 },
     riseM: { kind: 'number', min: 0.3, max: 20, default: 2 },
     thicknessM: { kind: 'number', min: 0.2, max: 6, default: 1 },
+    dir: { kind: 'enum', values: ['ns', 'ew'], default: 'ew' },
   },
   resolve: (part: Part, _ctx: ResolveCtx) => ({ params: { ...(part.params ?? {}) } }),
   toPrims(p, ctx): Prim[] {
     const mat = matOf(ctx);
+    const dir = (p.params.dir as Dir) ?? 'ew';
     return [{
       prim: 'arch',
       at: [p.at.x, p.at.y, 0],
       span: mToTiles((p.params.spanM as number) ?? 4),
       height: mToTiles((p.params.riseM as number) ?? 2),
       thickness: mToTiles((p.params.thicknessM as number) ?? 1),
+      yaw: dir === 'ns' ? 90 : 0,
       material: mat,
     }];
   },

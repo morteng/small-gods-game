@@ -24,6 +24,8 @@ describe('buildCrossingStructureEntities', () => {
     // Piers sit on DISTINCT tiles (short-span collapse is deduped).
     const pierTiles = ents.filter((e) => e.kind === 'bridge_pier').map((e) => `${e.x},${e.y}`);
     expect(new Set(pierTiles).size).toBe(pierTiles.length);
+    // A wealthy late-medieval highway crossing is a masonry ARCHED bridge — arch bays now render.
+    expect(ents.some((e) => e.kind === 'bridge_arch')).toBe(true);
     // toll/guard/shrine/shop×2/gatehouse/mill → grey-massing ancillary buildings.
     const buildings = ents.filter((e) => (e.properties as any).category === 'building');
     expect(buildings.length).toBeGreaterThanOrEqual(5);
@@ -51,6 +53,18 @@ describe('buildCrossingStructureEntities', () => {
     expect((deck.properties as any).liftElev).toBe(0.42);
     const pier = ents.find((e) => e.kind === 'bridge_pier')!;
     expect((pier.properties as any).liftElev).toBeUndefined();
+  });
+
+  it('a multi-tile masonry span marches a row of arches between its piers', () => {
+    // A wide late-medieval road over a 6-tile river → an arched stone bridge. The builder sizes
+    // arches at ~one per 3 tiles, so a ~6-tile span earns ≥2 arch bays sitting between the piers.
+    const ents = buildCrossingStructureEntities(wideRich(), W, { defaults: { era: 'late-medieval', prosperity: 'rich' } });
+    const arches = ents.filter((e) => e.kind === 'bridge_arch');
+    expect(arches.length).toBeGreaterThanOrEqual(2);
+    // Arches march along the span (distinct tiles), not stacked on one.
+    expect(new Set(arches.map((e) => `${e.x},${e.y}`)).size).toBe(arches.length);
+    // An arch billboards from the bed like a pier — no liftElev.
+    expect(arches.every((e) => (e.properties as any).liftElev === undefined)).toBe(true);
   });
 
   it('is deterministic', () => {

@@ -34,6 +34,8 @@ describe('buildCrossing — rich trunk crossing (Example B: inhabited stone brid
     const bridge = find(t, (n) => n.kind === 'bridge')!;
     expect(bridge.params.material).toBe('dressed-stone');
     expect(bridge.params.arches).toBe(3); // ceil(8/3)
+    // The arches pop out as connectome NODES (one arch_span per bay), realized between the piers.
+    expect(bridge.children.filter((c) => c.kind === 'arch_span')).toHaveLength(3);
   });
 
   it('carries shops on the deck and a gatehouse — composition, not a special type', () => {

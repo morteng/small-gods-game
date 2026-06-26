@@ -81,6 +81,27 @@ function deckEntity(p: Placement, lengthTiles: number, deckElev: number | undefi
   return e;
 }
 
+/** Build a masonry arch-bay entity — one span springing between two piers, under the deck. Like
+ *  a pier it stands from the bed (no liftElev); its frame yaws to face across the watercourse via
+ *  the shared span axis. Sized to the bay it fills (`spanTiles`) and the traffic width it carries. */
+function archEntity(p: Placement, spanTiles: number, widthTiles: number, riseM: number): Entity {
+  const mat = matOf(p.params.material);
+  const dir = axisOf(p.dir.x, p.dir.y);
+  const ns = dir === 'ns';
+  const spanM = Math.max(1, spanTiles) * METRES_PER_TILE;
+  const fp = Math.max(1, Math.ceil(spanTiles));   // footprint along the span
+  const cross = Math.max(1, Math.ceil(widthTiles));
+  const bp: Blueprint = {
+    version: BLUEPRINT_VERSION, class: 'prop', preset: 'bridge_arch', category: 'infrastructure',
+    footprint: { w: ns ? cross : fp, h: ns ? fp : cross }, materials: { walls: mat, roof: mat, ground: 'dirt' },
+    parts: { arch: { type: 'arch_span', at: { x: 0, y: 0 }, size: { w: ns ? cross : fp, h: ns ? fp : cross }, params: {
+      spanM, riseM, thicknessM: widthTiles * METRES_PER_TILE, dir,
+    } } },
+  };
+  const rb = resolveBlueprint([bp], 0);
+  return blueprintEntity(p.nodeId, rb, Math.round(p.at.x), Math.round(p.at.y));
+}
+
 /** Build a pier entity — a vertical support standing from the riverbed up to the deck. It
  *  billboards from its foot (the bed), so it keeps normal terrain foot-z (no liftElev). */
 function pierEntity(p: Placement, heightM: number): Entity {
@@ -181,6 +202,13 @@ export function buildCrossingStructureEntities(
     const deckTile = placements.find((q) => q.category === 'span');
     const pierTilesUsed = new Set<string>();
     if (deckTile) pierTilesUsed.add(`${Math.round(deckTile.at.x)},${Math.round(deckTile.at.y)}`);
+    // Arch bays: each masonry arch fills one bay of the deck. A single-arch packhorse bridge spans
+    // a brook bank-to-bank (no interior piers); a long viaduct marches many. The opening rises to
+    // ~⅔ the pier height so it sits under the deck, and is as deep as the traffic width.
+    const archCount = placements.reduce((n, q) => n + (q.category === 'arch' ? 1 : 0), 0);
+    const deckWidthTiles = Math.max(0.5, Number(deckTile?.params.width ?? 1));
+    const archBayTiles = archCount > 0 ? spanLen / archCount : spanLen;
+    const archRiseM = Math.max(1, Math.min(6, pierHeightM * 0.7));
     for (const p of placements) {
       if (p.category === 'span') {
         // +1 tile so the deck seats onto both banks (abutments) rather than floating in the gap.
@@ -195,6 +223,12 @@ export function buildCrossingStructureEntities(
         if (pierTilesUsed.has(key)) continue;
         pierTilesUsed.add(key);
         out.push(pierEntity(p, pierHeightM));
+        continue;
+      }
+      if (p.category === 'arch') {
+        // A single arch spans even a brook bank-to-bank; multi-arch needs its interior piers.
+        if (archCount > 1 && !wantsPiers) continue;
+        out.push(archEntity(p, archBayTiles, deckWidthTiles, archRiseM));
         continue;
       }
       if (p.category !== 'building') continue;

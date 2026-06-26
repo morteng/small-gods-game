@@ -12,7 +12,7 @@
 
 import { resolveTree, type WorldNode, type WorldNodeParams } from './world-node';
 
-export type PlacementCategory = 'span' | 'pier' | 'building' | 'apron' | 'feature';
+export type PlacementCategory = 'span' | 'pier' | 'arch' | 'building' | 'apron' | 'feature';
 
 export interface Placement {
   nodeId: string;
@@ -71,6 +71,15 @@ export function realizeCrossing(crossing: WorldNode): Placement[] {
     piers.forEach((p, i) => {
       const t = (i + 1) / (piers.length + 1);
       out.push({ nodeId: p.id, kind: p.kind, category: 'pier', at: lerp(near!, far!, t), dir: axis, params: p.params });
+    });
+
+    // Arches: one masonry bay per gap, marching across the span at the bay midpoints. With N
+    // arches the deck reads as N spans springing between the piers — a multi-arch viaduct rather
+    // than a flat slab. Each carries the span axis so the frame yaws to face across the water.
+    const archNodes = bridge.children.filter((c) => c.kind === 'arch_span');
+    archNodes.forEach((a, i) => {
+      const t = (i + 0.5) / archNodes.length;
+      out.push({ nodeId: a.id, kind: a.kind, category: 'arch', at: lerp(near!, far!, t), dir: axis, params: a.params });
     });
 
     // Deck buildings (shops on the span): spread along the deck line, offset to one side.

@@ -65,6 +65,13 @@ describe('bridge parts compile to geometry', () => {
     expect(prims(arch, 'arch').length).toBe(1);
   });
 
+  it('an arch yaws to spring along the deck axis (ew native, ns turned 90°)', () => {
+    const ew = compile({ a: { type: 'arch_span', size: { w: 3, h: 1 }, params: { spanM: 6, dir: 'ew' } } });
+    const ns = compile({ a: { type: 'arch_span', size: { w: 1, h: 3 }, params: { spanM: 6, dir: 'ns' } } });
+    expect((prims(ew, 'arch')[0] as any).yaw ?? 0).toBe(0);
+    expect((prims(ns, 'arch')[0] as any).yaw).toBe(90);
+  });
+
   it('a stone viabridge composes deck + arches + piers in one blueprint', () => {
     const spec = compile({
       deck: { type: 'deck', size: { w: 3, h: 6 }, params: { lengthM: 12, widthM: 3, parapet: 'both' } },
