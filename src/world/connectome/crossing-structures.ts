@@ -47,6 +47,13 @@ const MIN_PIER_SPAN_TILES = 3;
 const DECK_MAT: Record<string, string> = { 'dressed-stone': 'stone', timber: 'timber', 'log-plank': 'timber', masonry: 'stone' };
 const matOf = (m: unknown): string => DECK_MAT[String(m)] ?? 'timber';
 
+/** Pier top-vs-base taper (batter) DERIVED from the crossing material, not hand-set. A masonry
+ *  river pier is built with a pronounced batter and a cutwater to shed the current; a driven
+ *  timber pile stands all but vertical. So stone piers taper hard, timber barely at all — the
+ *  silhouette reads its construction without a sprite. */
+const PIER_BATTER: Record<string, number> = { 'dressed-stone': 0.22, masonry: 0.22, timber: 0.05, 'log-plank': 0.05 };
+const batterOf = (m: unknown): number => PIER_BATTER[String(m)] ?? 0.12;
+
 /** Build a deck-segment entity riding the authored bank elevation (G4 liftElev). The deck is
  *  the running surface a road crosses on; it spans bank-to-bank at `lengthTiles`, oriented
  *  along the span axis, and sits ABOVE the water it crosses rather than carving into it. */
@@ -81,7 +88,7 @@ function pierEntity(p: Placement, heightM: number): Entity {
   const bp: Blueprint = {
     version: BLUEPRINT_VERSION, class: 'prop', preset: 'bridge_pier', category: 'infrastructure',
     footprint: { w: 1, h: 1 }, materials: { walls: mat, roof: mat, ground: 'dirt' },
-    parts: { pier: { type: 'pier', at: { x: 0, y: 0 }, size: { w: 1, h: 1 }, params: { heightM, widthM: 1, batter: 0.15 } } },
+    parts: { pier: { type: 'pier', at: { x: 0, y: 0 }, size: { w: 1, h: 1 }, params: { heightM, widthM: 1, batter: batterOf(p.params.material) } } },
   };
   const rb = resolveBlueprint([bp], 0);
   return blueprintEntity(p.nodeId, rb, Math.round(p.at.x), Math.round(p.at.y));

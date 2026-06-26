@@ -27,6 +27,32 @@ describe('bridge parts compile to geometry', () => {
     expect(prims(railed, 'box').length).toBe(3);   // deck + 2 parapets
   });
 
+  it('parapets line the deck LONG sides and run its full length — for ns AND ew spans', () => {
+    // A parapet must hug the two long edges of the deck and span its whole length; the bug was the
+    // ew deck got the ns layout, capping its short ENDS instead. Assert the rails for each axis are
+    // long (≈ the deck length) and thin (≈ the rail thickness), oriented along the travel axis.
+    const railThin = 0.25 / 2 + 0.01;   // mToTiles(0.25) is small; rails are the thin boxes
+    const longTiles = (m: number) => m / 2;  // METRES_PER_TILE = 2
+    for (const dir of ['ns', 'ew'] as const) {
+      const deck = compile({ d: { type: 'deck', size: { w: 3, h: 6 }, params: { lengthM: 12, widthM: 3, dir, parapet: 'both' } } });
+      const boxes = prims(deck, 'box');
+      // The two rails are the boxes that are thin on one axis and long on the other.
+      const rails = boxes.filter((b) => Math.min(b.size[0], b.size[1]) <= railThin);
+      expect(rails.length).toBe(2);
+      for (const r of rails) {
+        if (dir === 'ns') {
+          // long in y (the travel axis), thin in x
+          expect(r.size[1]).toBeGreaterThan(longTiles(11));
+          expect(r.size[0]).toBeLessThan(railThin + 0.01);
+        } else {
+          // long in x (the travel axis), thin in y
+          expect(r.size[0]).toBeGreaterThan(longTiles(11));
+          expect(r.size[1]).toBeLessThan(railThin + 0.01);
+        }
+      }
+    }
+  });
+
   it('a straight pier is a box; a battered pier tapers (prism)', () => {
     const straight = compile({ p: { type: 'pier', size: { w: 1, h: 1 }, params: { heightM: 4, widthM: 1, batter: 0 } } });
     const battered = compile({ p: { type: 'pier', size: { w: 1, h: 1 }, params: { heightM: 4, widthM: 1, batter: 0.3 } } });

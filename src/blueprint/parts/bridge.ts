@@ -42,9 +42,18 @@ export const deckPartType: PartType = {
     const out: Prim[] = [{ prim: 'box', at: [p.at.x, p.at.y, 0], size: [cross, along, thick], material: mat }];
     if ((p.params.parapet as string) === 'both') {
       const pH = mToTiles(0.9), pT = mToTiles(0.25);
+      // Parapets line the two LONG sides of the deck and run its full length — so they sit on the
+      // edges of the across-axis. For an ns span the long axis is y, so the rails sit at the two
+      // x-edges and run in y; for an ew span the long axis is x, so they sit at the two y-edges and
+      // run in x. (The old code laid the ns rails unconditionally, capping an ew deck's short ENDS.)
       for (const s of [0, 1]) {
-        const x = p.at.x + (s === 0 ? 0 : cross - pT);
-        out.push({ prim: 'box', at: [x, p.at.y, thick], size: [pT, along, pH], material: mat });
+        if (dir === 'ns') {
+          const x = p.at.x + (s === 0 ? 0 : cross - pT);
+          out.push({ prim: 'box', at: [x, p.at.y, thick], size: [pT, along, pH], material: mat });
+        } else {
+          const y = p.at.y + (s === 0 ? 0 : along - pT);
+          out.push({ prim: 'box', at: [p.at.x, y, thick], size: [cross, pT, pH], material: mat });
+        }
       }
     }
     return out;
