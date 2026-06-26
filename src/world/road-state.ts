@@ -68,6 +68,35 @@ export function eraTech(era: Era): number {
   return i < 0 ? 0.75 : i / (ERAS.length - 1);
 }
 
+// ── Per-class GRADE ENVELOPE (G1: grade reconciliation) ───────────────────────────
+// How steep a class of road tolerates being. Units are the road-walker's per-step
+// grade `g = |Δelev| / horiz` in NORMALISED elevation (the [0,1] heightfield), the same
+// unit as the walker's old global `DEFAULT_MAX_GRADE = 0.05`. Above `maxGrade` the
+// router's over-grade penalty bites, so the walk prefers a longer gentle detour /
+// switchback — and where the terrain leaves no gentle line, the route comes out OVER the
+// envelope, which is the signal that a reconciliation structure (embankment, stairs, a
+// bridge) is wanted there. `road` is held at the prior global default so the commonest
+// class is unchanged; a highway wants a near-flat grade and switchbacks hard, a footpath
+// takes a steep line a cart never could.
+export interface GradeEnvelope {
+  /** Per-step grade (normalised elev/tile) above which the over-grade penalty applies. */
+  maxGrade: number;
+  /** Penalty multiplier on grade ABOVE `maxGrade` — higher = avoids steepness harder. */
+  overGradePenalty: number;
+}
+
+const GRADE_ENVELOPE: Record<RoadClass, GradeEnvelope> = {
+  highway: { maxGrade: 0.035, overGradePenalty: 700 },
+  road: { maxGrade: 0.05, overGradePenalty: 450 },
+  track: { maxGrade: 0.07, overGradePenalty: 300 },
+  path: { maxGrade: 0.11, overGradePenalty: 180 },
+};
+
+/** The steepness a road class tolerates — drives the router's switchback/structure choice. */
+export function gradeEnvelope(roadClass: RoadClass): GradeEnvelope {
+  return GRADE_ENVELOPE[roadClass];
+}
+
 /**
  * Derive a road's state from connectome signals. `construction` blends endpoint
  * significance (they could afford the labour), era tech (they had the engineering),
