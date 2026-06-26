@@ -77,6 +77,3 @@ export function buildDetailField(map: GameMap, connectomeWater?: ConnectomeWater
   memo = { map, version, field };
   return field;
 }
-
-/** Drop the memoised detail field (tests; harmless in prod). */
-export function clearDetailFieldCache(): void { memo = null; }
