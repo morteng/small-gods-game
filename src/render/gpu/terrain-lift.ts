@@ -72,6 +72,12 @@ export function tileLiftPx(field: TerrainLiftField, tileX: number, tileY: number
 /** Lift one draw item by the terrain height under its ground-contact point. */
 function liftItem(it: DrawItem, field: TerrainLiftField): DrawItem {
   if (it.t === 'image') {
+    // Above-ground deck (G4): ride the authored elevation, not the terrain below.
+    if (it.liftElev !== undefined) {
+      const { seaLevel, reliefM, zPxPerM } = field.globals;
+      const dz = liftPxFromElev(it.liftElev, seaLevel, reliefM, zPxPerM);
+      return dz === 0 ? it : { ...it, dy: it.dy - dz };
+    }
     const footLift = it.shadow?.footLift ?? (it.maps ? it.dw / 4 : 0);
     const footX = it.dx + it.dw / 2;
     const footY = it.dy + it.dh - footLift;
