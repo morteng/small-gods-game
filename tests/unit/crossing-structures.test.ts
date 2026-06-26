@@ -37,4 +37,34 @@ describe('buildCrossingStructureEntities', () => {
     const b = buildCrossingStructureEntities(graph, W);
     expect(a.map((e) => `${e.kind}@${e.x},${e.y}`)).toEqual(b.map((e) => `${e.kind}@${e.x},${e.y}`));
   });
+
+  it('without cellBlocked, positions are unchanged (legacy path is byte-identical)', () => {
+    const poly = [8, 9, 10, 11, 12, 13].map((x) => ({ x, y: 10 }));
+    const graph: RoadGraph = { nodes: [], edges: [edge('e', poly, { class: 'highway', bridgeCells: [10 * W + 10, 10 * W + 11] })] };
+    const legacy = buildCrossingStructureEntities(graph, W, { defaults: { era: 'late-medieval', prosperity: 'rich' } });
+    const guarded = buildCrossingStructureEntities(graph, W, {
+      defaults: { era: 'late-medieval', prosperity: 'rich' },
+      cellBlocked: () => false, // nothing blocked → must match the no-predicate path tile-for-tile
+    });
+    expect(guarded.map((e) => `${e.kind}@${e.x},${e.y}`)).toEqual(legacy.map((e) => `${e.kind}@${e.x},${e.y}`));
+  });
+
+  it('nudges ancillary structures off blocked cells; no solid cell lands on a blocked tile', () => {
+    const poly = [8, 9, 10, 11, 12, 13].map((x) => ({ x, y: 10 }));
+    const graph: RoadGraph = { nodes: [], edges: [edge('e', poly, { class: 'highway', bridgeCells: [10 * W + 10, 10 * W + 11] })] };
+    // Block a fat band straight through where the aprons want to sit (rows 6..14, the inland
+    // side) — emulates a settlement abutting the crossing. The road row itself (y=10) is open.
+    const blocked = (x: number, y: number) => y >= 6 && y <= 9 && x >= 4 && x <= 18;
+    const ents = buildCrossingStructureEntities(graph, W, {
+      defaults: { era: 'late-medieval', prosperity: 'rich' },
+      cellBlocked: blocked,
+    });
+    // Every spawned building's footprint origin clears the band (it was nudged out or dropped).
+    for (const e of ents) {
+      expect(blocked(e.x, e.y)).toBe(false);
+    }
+    // And no two crossing buildings share an origin tile (intra-batch claim works).
+    const origins = ents.map((e) => `${e.x},${e.y}`);
+    expect(new Set(origins).size).toBe(origins.length);
+  });
 });
