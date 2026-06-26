@@ -28,6 +28,7 @@ import { buildEntityDrawList } from '@/render/iso/entity-draw-list';
 import { StaticDrawListCache } from '@/render/gpu/static-draw-list-cache';
 import { DEFAULT_LIGHTING } from '@/render/lighting-state';
 import { buildTerrainField, zoomSuperSample, zoomCoarsenMaxQuads, type TerrainField } from '@/render/gpu/terrain-field';
+import { tickMotionCooldown, dragLodMesh } from '@/render/gpu/drag-lod';
 import { buildDetailField } from '@/render/gpu/detail-field';
 import { buildWaterField, type WaterField } from '@/render/gpu/water-field';
 import { FlotsamLayer } from '@/render/gpu/flotsam-layer';
@@ -86,6 +87,13 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
   const adaptive = new AdaptiveResolution();
   let lastFrameStart = 0;
   let fpsEma = 0;
+  // DRAG-LOD state: the camera pose last frame + a frame countdown so the coarsening
+  // lingers a few frames past the last move (no flicker at the end of a pan/zoom).
+  let prevCamX = NaN, prevCamY = NaN, prevCamZoom = NaN;
+  let motionCooldown = 0;
+  // Persistent dev/perf readout (mutated in place — no per-frame allocation on the hot
+  // path); exposed on window beside __renderProfile/__renderTrace once the loop starts.
+  const meshLodReadout = { superSample: 1, maxQuads: 0 as number | null, motion: false };
   const showPerfHud = perfHudRequested();   // dev-only single FPS pill
   const ui = getUiRuntime();
 
@@ -167,9 +175,31 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
     // subsample when a tile is sub-pixel-ish (one quad/tile is then wasted geometry, and
     // the water pass is primitive-bound — a large win at no visible cost). Pinned super
     // (studio A/B) keeps the full mesh so the override stays honest.
-    const meshMaxQuads = rc.devMode?.terrainSuper != null
+    let meshMaxQuads = rc.devMode?.terrainSuper != null
       ? undefined
       : zoomCoarsenMaxQuads(map.width, map.height, xform.sx);
+
+    // DRAG-LOD: while the camera is actively moving, coarsen the SHARED terrain+water
+    // mesh one notch (the water pass is quad-bound and dominant; mesh coarsening cuts it
+    // ~27× with the waterline staying crisp). The QUAD-axis complement to
+    // AdaptiveResolution (raster/fill) + zoomCoarsenMaxQuads (zoomed-out only). A studio
+    // `terrainSuper` pin opts out (keeps the A/B mesh honest). Pure logic in drag-lod.ts.
+    let superSampleEff = superSample;
+    if (rc.devMode?.terrainSuper == null) {
+      const curPose = { x: camera.x, y: camera.y, zoom: camera.zoom };
+      const prevPose = Number.isNaN(prevCamX) ? null : { x: prevCamX, y: prevCamY, zoom: prevCamZoom };
+      motionCooldown = tickMotionCooldown(prevPose, curPose, motionCooldown);
+      prevCamX = camera.x; prevCamY = camera.y; prevCamZoom = camera.zoom;
+      const lod = dragLodMesh(motionCooldown > 0, meshMaxQuads, superSample, map.width, map.height);
+      meshMaxQuads = lod.maxQuads;
+      superSampleEff = lod.superSample;
+      // Dev/perf readout (no overlay, no per-frame alloc) — the effective mesh knobs
+      // this frame, for the profiling loop. Beside __renderProfile/__renderTrace.
+      meshLodReadout.superSample = superSampleEff;
+      meshLodReadout.maxQuads = meshMaxQuads ?? null;
+      meshLodReadout.motion = motionCooldown > 0;
+      (window as unknown as { __meshLod?: unknown }).__meshLod = meshLodReadout;
+    }
 
     // Buffer-driven terrain field (T1): the GPU generates + lifts the grid from
     // the height/colour storage buffers. VIEWPORT MESH CULL (T5): emit only the quads
@@ -186,7 +216,7 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
           viewport: [lowW, lowH],
           xform, lighting, devMode: rc.devMode,
           terrainMode: rc.devMode?.terrainMode,
-          superSample, maxQuads: meshMaxQuads, window: terrainWindow,
+          superSample: superSampleEff, maxQuads: meshMaxQuads, window: terrainWindow,
           // DIR-A: author-placed lakes paint their beds damp too (studio editing).
           connectomeWater: rc.connectomeWater,
         });
@@ -225,7 +255,7 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
       ? buildWaterField(map, {
           viewport: [lowW, lowH], xform, lighting, timeSec, waterLevelM,
           // Same zoom-LOD grid as terrain (Slice 2) — aligned waterlines.
-          superSample, maxQuads: meshMaxQuads, window: waterWindow,
+          superSample: superSampleEff, maxQuads: meshMaxQuads, window: waterWindow,
           // Localized per-basin level (climate W-B) — rain filling one lake.
           lakeOffsetM: rc.lakeOffsetM,
           // Per-cell standing water (W-E) — a god flooding a plain.
