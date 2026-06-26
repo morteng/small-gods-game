@@ -69,6 +69,10 @@ export interface DebugApi {
   frameEntities(opts: FrameEntitiesOpts): FrameReport;
   /** The rendered frame as a PNG data URL (robust capture; survives headed). */
   grab(): string;
+  /** Grab the frame AND write it straight to disk (dev server `.dev-grabs/<name>.png`),
+   *  resolving the saved path. Avoids shuttling megabytes of base64 through a tool boundary
+   *  — the reliable way for an agent/script to capture the live WebGPU canvas. */
+  grabFile(name?: string): Promise<string>;
   /** Open a registered storylet as an interactive card. False if the id is unknown. */
   playStory(storyletId: string): boolean;
   /** Belief-granted powers (skill-panel payload) for the player. */
@@ -198,6 +202,13 @@ export function createDebugApi(deps: DebugApiDeps): DebugApi {
 
     grab(): string {
       return query.screenshot();
+    },
+
+    async grabFile(name = 'grab'): Promise<string> {
+      const dataUrl = query.screenshot();
+      const res = await fetch(`/__grab?name=${encodeURIComponent(name)}`, { method: 'POST', body: dataUrl });
+      if (!res.ok) throw new Error(`grabFile failed: ${res.status} ${await res.text()}`);
+      return (await res.json()).path as string;
     },
 
     playStory(storyletId: string): boolean {
