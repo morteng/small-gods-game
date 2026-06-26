@@ -16,10 +16,12 @@ const stubArtResolver: ArtResolver = {
   clear: () => {},
 } as unknown as ArtResolver;
 
-/** Minimal ParametricBuildingSource stub — peek always misses, warm is a no-op. */
+/** Minimal ParametricBuildingSource stub — peek always misses, warm is a no-op, version is
+ *  the cache-key revision the render context folds in (flatblock cache-key fix). */
 const stubParametricSource: ParametricBuildingSource = {
   peek: () => null,
   warm: () => {},
+  version: () => 0,
 } as unknown as ParametricBuildingSource;
 
 /** Minimal ParametricPlantSource stub — peek always misses, warm is a no-op. */

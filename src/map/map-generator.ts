@@ -291,7 +291,17 @@ export async function generateWithNoise(
     // class. Span/piers stay on the road ribbon's interim deck for now. Added BEFORE the
     // static draw cache is built so they render without invalidation.
     report('Siting river crossings...');
-    for (const e of buildCrossingStructureEntities(roadGraph, width)) world.addEntity(e);
+    // Ancillary structures route AROUND settlement buildings, carved roads and water (a
+    // crossing beside a town must not stamp its toll/shrine onto existing buildings — that
+    // was the source of the spatial-invariant INV1/INV3 errors at crossing sites).
+    const ROAD_TILES = new Set(['dirt_road', 'stone_road', 'bridge']);
+    for (const e of buildCrossingStructureEntities(roadGraph, width, {
+      cellBlocked: (x, y) => {
+        const t = tiles[y]?.[x];
+        if (!t) return true; // off-map → unusable
+        return tileBlockedByBuilding(world, x, y) || ROAD_TILES.has(t.type) || WATER_TYPES.has(t.type);
+      },
+    })) world.addEntity(e);
   }
 
   // All buildings are placed: a building is authoritative over its footprint, so
