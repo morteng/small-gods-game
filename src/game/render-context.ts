@@ -10,7 +10,6 @@ import type { GeneratedFloraArtSource } from '@/render/generated-flora-art-sourc
 import type { Viewport } from './viewport';
 import { toRenderNpc } from '@/world/npc-helpers';
 import { DEFAULT_LIGHTING, LIGHTING_OFF } from '@/render/lighting-state';
-import { nightFactorForTick } from '@/core/calendar';
 
 export interface RenderContextDeps {
   state: GameState;
@@ -102,11 +101,15 @@ export function buildRenderContext(deps: RenderContextDeps): RenderContext {
       src.warm(entity); // fire-and-forget; never blocks the frame
       return null;
     },
-    // Day/night: derive the emissive (lit-window) factor from the sim clock, so
-    // panes glow at dusk/night. `__nightFactor` (dev) overrides the clock for eyeballing.
+    // Window lighting: the emissive (lit-window) glow is DISABLED for now — driving it off the
+    // raw sim clock made every window blink on/off as time advanced, with no relation to whether
+    // anyone's home. It should be wired to real occupancy + time-of-day (a building knows its
+    // residents + their schedules) before it comes back. Until then nightFactor is 0 (no glow);
+    // `__nightFactor` (dev) still overrides for eyeballing the pane emissive. Re-enable via
+    // `nightFactorForTick(state.clock.now())` once an occupancy signal gates it.
     lighting: devMode.lighting === 'off'
       ? LIGHTING_OFF
-      : { ...DEFAULT_LIGHTING, nightFactor: nightFactorOverride() ?? nightFactorForTick(state.clock.now()) },
+      : { ...DEFAULT_LIGHTING, nightFactor: nightFactorOverride() ?? 0 },
     devMode,
     // Folds into the static draw-cache key so the building layer rebuilds once the
     // async parametric massing packs finish composing (otherwise the first snapshot —
