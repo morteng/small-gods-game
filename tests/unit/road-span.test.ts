@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   axisOf, cardinalOf, spanVector, spanLengthTiles, spanAxis, spanCardinal, orientUphill,
-  type RoadSpan,
+  sampleSpanSegments, type RoadSpan, type SpanPoint,
 } from '@/world/connectome/road-span';
 
 const span = (start: [number, number], end: [number, number]): RoadSpan => ({
@@ -35,6 +35,52 @@ describe('road-span — shared start/stop vocabulary for stairs + bridges', () =
     expect(spanAxis(span([2, 5], [8, 5]))).toBe('ew');
     expect(spanCardinal(span([2, 5], [8, 5]))).toBe('east');   // climbs toward +x
     expect(spanCardinal(span([5, 8], [5, 2]))).toBe('north');  // climbs toward -y
+  });
+
+  describe('sampleSpanSegments — follow the polyline as cardinal pieces', () => {
+    const P = (...xy: Array<[number, number]>): SpanPoint[] => xy.map(([x, y]) => ({ x, y }));
+    const ramp = (g: number) => (x: number) => x * g;   // elevation rises with x
+
+    it('chunks a long straight climb into stacked ~maxSeg pieces covering its length', () => {
+      // 8 tiles in x; maxSeg 4 ⇒ two segments [0..4], [4..8].
+      const segs = sampleSpanSegments(P([0, 3], [2, 3], [4, 3], [6, 3], [8, 3]),
+        { elevAt: (x) => ramp(0.1)(x), reliefM: 48, maxSegTiles: 4 });
+      expect(segs.length).toBe(2);
+      expect(segs[0].from).toEqual({ x: 0, y: 3 });
+      expect(segs[0].to).toEqual({ x: 4, y: 3 });
+      expect(segs[1].from).toEqual({ x: 4, y: 3 });
+      expect(segs[0].dir).toBe('east');
+      expect(segs[0].runTiles).toBeCloseTo(4, 6);
+      expect(segs[0].riseM).toBeCloseTo(0.4 * 48, 5);   // Δelev 0.4 · relief 48
+    });
+
+    it('orients each piece foot(low)→head(high) regardless of path direction', () => {
+      // Path runs DOWN in x (8→0) but elevation still rises with x ⇒ foot is the low (x=0) end.
+      const segs = sampleSpanSegments(P([8, 3], [4, 3], [0, 3]),
+        { elevAt: (x) => ramp(0.1)(x), reliefM: 48, maxSegTiles: 4 });
+      expect(segs.length).toBeGreaterThanOrEqual(1);
+      for (const s of segs) expect(s.fromElev).toBeLessThanOrEqual(s.toElev);
+    });
+
+    it('reads a zigzag-diagonal as its dominant cardinal, not sub-tile shards', () => {
+      // Alternating E/S steps that net to a SE diagonal — one ~maxSeg window, net dir cardinal.
+      const segs = sampleSpanSegments(P([0, 0], [1, 0], [1, 1], [2, 1], [2, 2], [3, 2]),
+        { elevAt: (x, y) => (x + y) * 0.2, reliefM: 48, maxSegTiles: 4 });
+      // Every segment is a real multi-tile run (no degenerate zero-length shards).
+      for (const s of segs) expect(s.runTiles).toBeGreaterThan(0);
+      expect(['north', 'south', 'east', 'west']).toContain(segs[0].dir);
+    });
+
+    it('returns [] for a path of fewer than two distinct tiles', () => {
+      expect(sampleSpanSegments(P([2, 2], [2, 2]), { elevAt: () => 0, reliefM: 48 })).toEqual([]);
+      expect(sampleSpanSegments(P([2, 2]), { elevAt: () => 0, reliefM: 48 })).toEqual([]);
+    });
+
+    it('is deterministic', () => {
+      const mk = () => sampleSpanSegments(P([0, 0], [2, 0], [4, 0]),
+        { elevAt: (x) => x * 0.1, reliefM: 48 });
+      expect(JSON.stringify(mk())).toEqual(JSON.stringify(mk()));
+    });
   });
 
   it('orientUphill flips the span so start is the LOWER end', () => {

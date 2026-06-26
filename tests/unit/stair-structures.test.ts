@@ -32,6 +32,24 @@ describe('buildStairStructureEntities — stairs pop out of the connectome', () 
     expect(ents[0].kind).toBeTruthy();
   });
 
+  it('follows a long climb with STACKED flights (not one billboard), each lifted to its terrain', () => {
+    // A 12-tile steep path. Each ~4-tile segment that stays over-grade earns its own flight, so a
+    // long climb reads as a run of stacked flights riding the slope — not one tower into the air.
+    const poly: Array<[number, number]> = [
+      [2, 5], [4, 5], [6, 5], [8, 5], [10, 5], [12, 5], [14, 5],
+    ];
+    const lifts: number[] = [];
+    const ents = buildStairStructureEntities(graph([edge('e1', 'path', poly)]), {
+      elevAt: ramp(0.2), reliefM: RELIEF,
+      liftElevAt: (x) => x,   // record the per-flight foot lift
+    });
+    for (const e of ents) lifts.push((e.properties as { liftElev?: number }).liftElev ?? NaN);
+    expect(ents.length).toBeGreaterThanOrEqual(2);            // more than one flight up the climb
+    expect(new Set(ents.map((e) => `${e.x},${e.y}`)).size).toBe(ents.length);  // no two share a foot
+    // Flights climb the slope: each successive foot sits higher than the last.
+    for (let i = 1; i < lifts.length; i++) expect(lifts[i]).toBeGreaterThan(lifts[i - 1]);
+  });
+
   it('does NOT site a stair on a road gentle enough to roll', () => {
     // road g-threshold ≈ 0.18·2/48 = 0.0075; a 0.005/tile ramp (actual grade 0.12) rolls fine.
     const g = graph([edge('e1', 'road', [[2, 5], [4, 5], [6, 5], [8, 5]])]);

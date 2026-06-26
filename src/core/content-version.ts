@@ -53,4 +53,4 @@ export const ART_RECIPE_VERSION = 'v13';
  * An autosave stamped with a different value is discarded on load → a fresh
  * world is generated. Distinct from SAVE_VERSION (which guards the save *schema*).
  */
-export const WORLD_CONTENT_VERSION = 16;  // parametric stairs (G3b): roads climbing steeper than their class walkability grade now spawn stair_flight structure entities, so worldgen entity output changes — discard pre-stair autosaves
+export const WORLD_CONTENT_VERSION = 17;  // stairs follow the polyline (G3c): a steep climb is now sited as a RUN of stacked flights along the road's curve (one per over-grade segment), each lifted to its own terrain, instead of one flight at the steepest window — so stair entity output changes; discard pre-G3c autosaves

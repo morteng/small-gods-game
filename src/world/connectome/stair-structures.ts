@@ -20,7 +20,7 @@ import { resolveBlueprint } from '@/blueprint/resolve';
 import { stairFootprint, stairTreads } from '@/blueprint/parts/stair';
 import { BLUEPRINT_VERSION, type Blueprint } from '@/blueprint/types';
 import { METRES_PER_TILE } from '@/render/scale-contract';
-import { type RoadSpan, spanCardinal } from './road-span';
+import { type SpanSegment, sampleSpanSegments } from './road-span';
 
 /** Stair construction + material + running width AND the ACTUAL surface grade (rise/run) above
  *  which that class wants steps instead of a rolled surface. NOTE this is the real walkability
@@ -64,16 +64,17 @@ export interface StairStructureOptions {
 
 function stairEntity(
   id: string,
-  span: RoadSpan,
-  riseM: number,
-  runTilesGround: number,
+  cls: RoadClass,
+  seg: SpanSegment,
   liftElev: number | undefined,
 ): Entity {
-  // The span is oriented start(foot)→end(head); the flight foots at `start` and climbs the
-  // cardinal toward `end` (steps rise that way) — the shared road-span start/stop vocabulary.
-  const foot = span.start;
-  const dir = spanCardinal(span);
-  const { construction, material, widthM } = CLASS_STAIR[span.cls];
+  // The segment is oriented from(foot)→to(head); the flight foots at `from` and climbs the
+  // segment's cardinal toward `to` (steps rise that way) — the shared path-follow vocabulary.
+  const foot = seg.from;
+  const dir = seg.dir;
+  const riseM = seg.riseM;
+  const runTilesGround = seg.runTiles;
+  const { construction, material, widthM } = CLASS_STAIR[cls];
   // FIT the flight to the ground it sits on: pick the tread COUNT so the flight's run
   // (treads × runM) matches the actual horizontal run, and its riser (riseM / treads) matches
   // the actual rise. Without this the rise-derived tread count produces a run that bears no
@@ -86,7 +87,7 @@ function stairEntity(
     version: BLUEPRINT_VERSION, class: 'prop', preset: 'stair_flight', category: 'infrastructure',
     footprint: { w: fp.w, h: fp.h }, materials: { walls: material, roof: material, ground: 'dirt' },
     parts: { flight: { type: 'stair_flight', at: { x: 0, y: 0 }, size: { w: fp.w, h: fp.h }, params: {
-      riseM, treads, widthM, construction, dir, railing: span.cls === 'highway' || span.cls === 'road' ? 'both' : 'none',
+      riseM, treads, widthM, construction, dir, railing: cls === 'highway' || cls === 'road' ? 'both' : 'none',
     } } },
   };
   const rb = resolveBlueprint([bp], 0);
@@ -96,10 +97,14 @@ function stairEntity(
 }
 
 /**
- * Site a stair flight on every over-grade run of every ROAD edge in the graph. Detection is
- * pure terrain × class (the grade envelope), so stairs emerge wherever the connectome routes a
- * road up a slope steeper than its class tolerates — "all kinds of stairs, popping out of the
- * connectome", exactly as bridges pop out of crossings.
+ * Site stair flights along every ROAD edge in the graph that FOLLOW the road's curve. The edge
+ * polyline is chunked into arc-length segments (`sampleSpanSegments`); every segment that climbs
+ * steeper than its class walkability grade gets its own `stair_flight`, footed at the segment's
+ * lower end and lifted to that tile's terrain — so a long climb becomes a run of stacked flights
+ * riding the slope (not one billboard shooting into the air), a diagonal road reads as its
+ * dominant cardinal, and flat stretches between steep ones stay plain road. Detection is pure
+ * terrain × class, so stairs emerge wherever the connectome routes a road up too steep a slope —
+ * "all kinds of stairs, popping out of the connectome", exactly as bridges pop out of crossings.
  */
 export function buildStairStructureEntities(
   graph: RoadGraph | undefined,
@@ -116,46 +121,22 @@ export function buildStairStructureEntities(
     // The class's ACTUAL walkability grade (rise/run) above which it wants steps.
     const classGrade = CLASS_STAIR[edge.class].grade;
 
-    // Slide a ~MAX_FLIGHT_RUN_TILES window along the line and place a flight wherever the road
-    // GAINS elevation steeply ON AVERAGE over the window. (A successfully-routed road climbs in
-    // a zigzag — one steep step, one flat — so consecutive over-grade STEPS are mostly length-1;
-    // the steep STRETCH is what wants stairs, measured as net rise over the window's run, not a
-    // monotonic step chain.) On a hit, place the flight and jump past it; else step forward.
-    let i = 0;
-    while (i < poly.length - 1) {
-      // Grow the window from i until its arc length reaches the single-flight span (or the end).
-      let j = i, arc = 0;
-      while (j + 1 < poly.length && arc < MAX_FLIGHT_RUN_TILES) {
-        arc += Math.hypot(poly[j + 1].x - poly[j].x, poly[j + 1].y - poly[j].y);
-        j++;
-      }
-      const a = poly[i], b = poly[j];
-      const runTiles = Math.hypot(b.x - a.x, b.y - a.y);
-      const riseM = Math.abs(opts.elevAt(b.x, b.y) - opts.elevAt(a.x, a.y)) * opts.reliefM;
-      const actualGrade = runTiles > 0 ? riseM / (runTiles * METRES_PER_TILE) : 0;
-      if (runTiles >= MIN_RUN_TILES && riseM >= MIN_RISE_M && actualGrade > classGrade) {
-        // The over-grade stretch becomes a road-anchored span: foot (start) at the LOWER end,
-        // head (end) at the higher — the flight climbs from start toward end. (Same start/stop
-        // model a bridge deck uses bank-to-bank; see road-span.ts.)
-        const aHigher = opts.elevAt(a.x, a.y) >= opts.elevAt(b.x, b.y);
-        const foot = aHigher ? b : a;
-        const head = aHigher ? a : b;
-        const fx = Math.round(foot.x), fy = Math.round(foot.y);
-        const key = `${fx},${fy}`;
-        if (!usedTiles.has(key) && !opts.cellBlocked?.(fx, fy)) {
-          usedTiles.add(key);
-          const span: RoadSpan = {
-            edgeId: edge.id, cls: edge.class, obstacle: 'grade',
-            start: { x: fx, y: fy }, end: { x: Math.round(head.x), y: Math.round(head.y) },
-          };
-          const liftElev = opts.liftElevAt?.(fx, fy);
-          out.push(stairEntity(`${edge.id}:stair:${i}`, span, riseM, runTiles, liftElev));
-        }
-        i = j;   // jump past the placed flight so a long climb doesn't stack overlapping stairs
-        continue;
-      }
-      i++;
-    }
+    // Follow the road: one flight per over-grade segment of its polyline. A segment is over-grade
+    // when it gains elevation steeply ON AVERAGE (net rise / net run) — a routed road climbs in a
+    // zigzag, so the steep STRETCH is what wants stairs, not a monotonic step chain.
+    const segs = sampleSpanSegments(poly, {
+      elevAt: opts.elevAt, reliefM: opts.reliefM, maxSegTiles: MAX_FLIGHT_RUN_TILES,
+    });
+    segs.forEach((seg, idx) => {
+      const actualGrade = seg.runTiles > 0 ? seg.riseM / (seg.runTiles * METRES_PER_TILE) : 0;
+      if (seg.runTiles < MIN_RUN_TILES || seg.riseM < MIN_RISE_M || actualGrade <= classGrade) return;
+      const fx = seg.from.x, fy = seg.from.y;   // foot = the segment's lower end (already integer)
+      const key = `${fx},${fy}`;
+      if (usedTiles.has(key) || opts.cellBlocked?.(fx, fy)) return;
+      usedTiles.add(key);
+      const liftElev = opts.liftElevAt?.(fx, fy);
+      out.push(stairEntity(`${edge.id}:stair:${idx}`, edge.class, seg, liftElev));
+    });
   }
   return out;
 }

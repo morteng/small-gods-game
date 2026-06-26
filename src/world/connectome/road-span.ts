@@ -99,3 +99,96 @@ export function orientUphill(span: RoadSpan, elevAt: (x: number, y: number) => n
   if (eStart <= eEnd) return span;
   return { ...span, start: span.end, end: span.start };
 }
+
+// — Path-follow core (the shared spline-follow primitive) —
+//
+// The engine has NO per-entity rotation and `liftElev` is a single scalar per entity, so a
+// structure that follows a curved road AND rides varying terrain must be realized as a SEQUENCE
+// of short cardinal-oriented pieces, each lifted to its own ground. This is the one place that
+// turns a polyline sub-path into those pieces: a stair siter makes one flight per segment, a
+// bridge siter one deck-bay (+ pier) per segment — both "follow the spline" identically.
+
+/** A short, single-cardinal piece of a span's polyline path. The structure builders instance one
+ *  element per segment (a stair flight, a deck bay), oriented along {@link dir} and lifted to the
+ *  terrain at {@link from}. After {@link sampleSpanSegments}, `from` is always the LOWER end. */
+export interface SpanSegment {
+  /** Lower (placement/foot) end of the segment, integer tile. */
+  from: SpanPoint;
+  /** Higher end, integer tile (the piece runs from→to). */
+  to: SpanPoint;
+  /** Cardinal bearing from→to — the piece's own orientation. */
+  dir: 'north' | 'south' | 'east' | 'west';
+  /** Dominant axis from→to. */
+  axis: 'ns' | 'ew';
+  /** Straight-line length of the segment, in tiles. */
+  runTiles: number;
+  /** Normalised elevation sampled at `from` / `to`. */
+  fromElev: number;
+  toElev: number;
+  /** Metric rise across the segment (`|toElev − fromElev| · reliefM`). */
+  riseM: number;
+}
+
+export interface SampleSpanOptions {
+  /** Normalised [0,1] heightfield elevation at a tile. */
+  elevAt: (x: number, y: number) => number;
+  /** Metres of relief per normalised elevation unit (`worldStyle.mountainRelief`). */
+  reliefM: number;
+  /** A single piece spans at most this much arc length; a longer stretch is split into stacked
+   *  pieces (stairs ⇒ stacked flights with implied landings; bridges ⇒ regular deck bays).
+   *  Defaults to 4 tiles. */
+  maxSegTiles?: number;
+}
+
+/**
+ * Walk a polyline sub-path and chunk it into consecutive arc-length {@link SpanSegment}s that
+ * FOLLOW THE PATH and cover its whole length. Each window grows until its arc reaches
+ * `maxSegTiles` (or the path ends), then its NET endpoints decide the piece's cardinal + rise — so
+ * a zigzag-diagonal road (alternating 1-tile E/S steps) reads as its dominant diagonal cardinal
+ * rather than shattering into sub-tile pieces, a long straight climb becomes stacked same-cardinal
+ * pieces (implied landings between), and a road that turns gets a piece per leg. Each segment is
+ * oriented foot(low)→head(high) by the elevation sampler. Pure + deterministic; `[]` for a path
+ * shorter than two distinct tiles.
+ */
+export function sampleSpanSegments(path: SpanPoint[], opts: SampleSpanOptions): SpanSegment[] {
+  const maxSeg = opts.maxSegTiles ?? 4;
+  // Round to the integer tile lattice and drop consecutive duplicates — placement + cardinal are
+  // tile-quantized anyway, and a deduped vertex list makes the windowing clean.
+  const pts: SpanPoint[] = [];
+  for (const p of path) {
+    const q = { x: Math.round(p.x), y: Math.round(p.y) };
+    const last = pts[pts.length - 1];
+    if (!last || last.x !== q.x || last.y !== q.y) pts.push(q);
+  }
+  if (pts.length < 2) return [];
+
+  const out: SpanSegment[] = [];
+  let i = 0;
+  while (i < pts.length - 1) {
+    // Grow the window from i until its arc length reaches the single-piece span (or the end).
+    let j = i, arc = 0;
+    while (j + 1 < pts.length && arc < maxSeg) {
+      arc += Math.hypot(pts[j + 1].x - pts[j].x, pts[j + 1].y - pts[j].y);
+      j++;
+    }
+    out.push(makeSegment(pts[i], pts[j], opts));   // NET endpoints of the window
+    i = j;
+  }
+  return out;
+}
+
+/** Build one oriented segment foot(low)→head(high) from two tile endpoints. */
+function makeSegment(a: SpanPoint, b: SpanPoint, opts: SampleSpanOptions): SpanSegment {
+  const ea = opts.elevAt(a.x, a.y);
+  const eb = opts.elevAt(b.x, b.y);
+  const [from, to, fromElev, toElev] = ea <= eb ? [a, b, ea, eb] : [b, a, eb, ea];
+  const dx = to.x - from.x, dy = to.y - from.y;
+  return {
+    from, to,
+    dir: cardinalOf(dx, dy),
+    axis: axisOf(dx, dy),
+    runTiles: Math.hypot(dx, dy),
+    fromElev, toElev,
+    riseM: (toElev - fromElev) * opts.reliefM,
+  };
+}
