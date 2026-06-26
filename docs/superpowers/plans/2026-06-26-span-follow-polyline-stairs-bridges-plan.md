@@ -89,6 +89,23 @@ long *sloped* span, which is aqueduct/viaduct territory (G6), not a simple river
 anchors and deck/arch orient through the shared `road-span` quantizers. Revisit when a long sloped
 deck (aqueduct) actually needs to follow terrain.
 
+### Slice 1b — stairs CONNECT point-to-point ✅ (G3d)
+**User direction:** *"make sure steps go from point to point start/end of suitable roads where
+inclines demand it. make sure they connect."* A probe exposed the defect: `sampleSpanSegments`
+collapsed each arc-window to its **net chord**, which is diagonal on a turning/diagonal road, so a
+cardinal-oriented flight (the engine has no per-entity rotation) shot along one axis and its head
+**floated 1.4–3.2 tiles off the road** — disconnected.
+
+Fix: `sampleSpanSegments` now densifies the path to unit steps and chunks it into **maximal same-
+cardinal runs** (break on direction change OR `maxSegTiles`). Each piece is cardinal-colinear, so a
+flight foots on a road tile and its head reaches `from + run·cardinal` — the road tile where the
+climb continues. A genuinely DIAGONAL (45°) stretch shatters into single-tile pieces below
+`MIN_RUN_TILES`, so it sites **no** stair rather than a floating one (the road carve still climbs the
+grade). This finally matches the doc's long-standing intent ("a road that turns gets a piece per
+leg"). Verified: probe (cardinal/L-bend heads land Δ=0; diagonal/zigzag → 0 stairs); a live world's
+**9/9 stair feet sit on `dirt_road`**, with a stacked chain climbing a slope (lifts 0.69→0.88); full
+suite 486/486 green. `WORLD_CONTENT_VERSION 18→19`.
+
 ### Slice 3 — polish (later)
 - Approach/abutment end-segments (straight ramp from road grade to deck/first-tread), per the
   Houdini "straight approach, arched middle" rule. **Low payoff** — the road's own surface carve

@@ -141,38 +141,70 @@ export interface SampleSpanOptions {
 }
 
 /**
- * Walk a polyline sub-path and chunk it into consecutive arc-length {@link SpanSegment}s that
- * FOLLOW THE PATH and cover its whole length. Each window grows until its arc reaches
- * `maxSegTiles` (or the path ends), then its NET endpoints decide the piece's cardinal + rise — so
- * a zigzag-diagonal road (alternating 1-tile E/S steps) reads as its dominant diagonal cardinal
- * rather than shattering into sub-tile pieces, a long straight climb becomes stacked same-cardinal
- * pieces (implied landings between), and a road that turns gets a piece per leg. Each segment is
- * oriented foot(low)→head(high) by the elevation sampler. Pure + deterministic; `[]` for a path
- * shorter than two distinct tiles.
+ * Walk a polyline sub-path and chunk it into consecutive {@link SpanSegment}s that FOLLOW THE PATH,
+ * cover its whole length, AND ARE EACH CARDINAL-COLINEAR — every piece's `from`→`to` lies along one
+ * cardinal axis, so a cardinal-oriented structure placed on it (the engine has no per-entity
+ * rotation) lands its far end EXACTLY on the road's continuation. This is the connection guarantee
+ * the start/stop vocabulary exists for: a stair flight foots at `from` and its head reaches `to`, a
+ * real road tile, instead of a diagonal chord's head floating off into space.
+ *
+ * The path is first densified to unit steps, then chunked into maximal **same-cardinal runs**
+ * (broken by a direction change OR `maxSegTiles`): a long straight climb becomes stacked same-
+ * cardinal pieces (implied landings between), an L-bend gets one piece per cardinal leg, and a
+ * genuinely DIAGONAL stretch (45°, all diagonal unit steps) shatters into single-tile pieces — the
+ * caller's minimum-run filter then drops them, so a diagonal road gets NO floating stair rather than
+ * a disconnected one. Each segment is oriented foot(low)→head(high) by the elevation sampler. Pure +
+ * deterministic; `[]` for a path shorter than two distinct tiles.
  */
 export function sampleSpanSegments(path: SpanPoint[], opts: SampleSpanOptions): SpanSegment[] {
-  const maxSeg = opts.maxSegTiles ?? 4;
-  // Round to the integer tile lattice and drop consecutive duplicates — placement + cardinal are
-  // tile-quantized anyway, and a deduped vertex list makes the windowing clean.
-  const pts: SpanPoint[] = [];
+  const maxSeg = Math.max(1, Math.floor(opts.maxSegTiles ?? 4));
+  // Round to the integer tile lattice, drop consecutive duplicates, then DENSIFY to unit steps so
+  // every consecutive pair differs by one tile (cardinal or diagonal) — that makes "same-cardinal
+  // run" a simple unit-step classification and keeps each run provably colinear.
+  const verts: SpanPoint[] = [];
   for (const p of path) {
     const q = { x: Math.round(p.x), y: Math.round(p.y) };
-    const last = pts[pts.length - 1];
-    if (!last || last.x !== q.x || last.y !== q.y) pts.push(q);
+    const last = verts[verts.length - 1];
+    if (!last || last.x !== q.x || last.y !== q.y) verts.push(q);
   }
-  if (pts.length < 2) return [];
+  if (verts.length < 2) return [];
+  const pts = densifyToUnitSteps(verts);
+
+  // The unit step a→b is "pure cardinal" iff exactly one of dx/dy is non-zero.
+  const stepKind = (a: SpanPoint, b: SpanPoint): 'north' | 'south' | 'east' | 'west' | 'diag' => {
+    const dx = b.x - a.x, dy = b.y - a.y;
+    if (dx !== 0 && dy !== 0) return 'diag';
+    return cardinalOf(dx, dy);
+  };
 
   const out: SpanSegment[] = [];
   let i = 0;
   while (i < pts.length - 1) {
-    // Grow the window from i until its arc length reaches the single-piece span (or the end).
-    let j = i, arc = 0;
-    while (j + 1 < pts.length && arc < maxSeg) {
-      arc += Math.hypot(pts[j + 1].x - pts[j].x, pts[j + 1].y - pts[j].y);
-      j++;
-    }
-    out.push(makeSegment(pts[i], pts[j], opts));   // NET endpoints of the window
+    const kind = stepKind(pts[i], pts[i + 1]);
+    if (kind === 'diag') { out.push(makeSegment(pts[i], pts[i + 1], opts)); i += 1; continue; }
+    // Grow a maximal same-cardinal run, capped at maxSeg tiles. All steps share one cardinal, so
+    // pts[i]→pts[j] is a straight cardinal line — `to` is exactly `from + run·cardinal`.
+    let j = i;
+    while (j + 1 < pts.length && j - i < maxSeg && stepKind(pts[j], pts[j + 1]) === kind) j++;
+    out.push(makeSegment(pts[i], pts[j], opts));
     i = j;
+  }
+  return out;
+}
+
+/** Densify a deduped integer vertex list so every consecutive pair differs by a single tile, using
+ *  a greedy 8-connected line walk (diagonal where both axes move, cardinal otherwise). A path that
+ *  is already unit-stepped passes through unchanged. */
+function densifyToUnitSteps(verts: SpanPoint[]): SpanPoint[] {
+  const out: SpanPoint[] = [verts[0]];
+  for (let k = 1; k < verts.length; k++) {
+    let { x, y } = out[out.length - 1];
+    const b = verts[k];
+    while (x !== b.x || y !== b.y) {
+      x += Math.sign(b.x - x);
+      y += Math.sign(b.y - y);
+      out.push({ x, y });
+    }
   }
   return out;
 }

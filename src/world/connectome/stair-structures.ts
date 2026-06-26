@@ -41,9 +41,9 @@ const CLASS_STAIR: Record<RoadClass, { construction: number; material: string; w
 const MIN_RUN_TILES = 2;
 const MIN_RISE_M = 1.5;        // one storey — below this it's a step, not a flight
 /** A single flight spans at most this much ground run. A long steep climb (the connectome can
- *  route a road 30 tiles up a 50% slope) must NOT become one 40 m staircase shooting off into
- *  the air — it gets ONE believable flight at the steepest pitch; switchbacks / stacked flights
- *  for the full climb are future work (G3c). */
+ *  route a road 30 tiles up a 50% slope) must NOT become one 40 m staircase shooting off into the
+ *  air — it chunks into stacked ≤4-tile flights, each riding its own terrain, with implied landings
+ *  between (G3c). */
 const MAX_FLIGHT_RUN_TILES = 4;
 const MIN_TREADS = 3;
 
@@ -97,13 +97,17 @@ function stairEntity(
 }
 
 /**
- * Site stair flights along every ROAD edge in the graph that FOLLOW the road's curve. The edge
- * polyline is chunked into arc-length segments (`sampleSpanSegments`); every segment that climbs
- * steeper than its class walkability grade gets its own `stair_flight`, footed at the segment's
- * lower end and lifted to that tile's terrain — so a long climb becomes a run of stacked flights
- * riding the slope (not one billboard shooting into the air), a diagonal road reads as its
- * dominant cardinal, and flat stretches between steep ones stay plain road. Detection is pure
- * terrain × class, so stairs emerge wherever the connectome routes a road up too steep a slope —
+ * Site stair flights along every ROAD edge in the graph that FOLLOW the road and CONNECT to it at
+ * both ends. The edge polyline is chunked into cardinal-colinear segments (`sampleSpanSegments`);
+ * every segment that climbs steeper than its class walkability grade gets its own `stair_flight`,
+ * footed at the segment's lower end and lifted to that tile's terrain — so a long climb becomes a
+ * run of stacked flights riding the slope (not one billboard into the air), an L-bend gets a flight
+ * per cardinal leg, and flat stretches between steep ones stay plain road. Because each segment is
+ * cardinal-colinear, a flight foots on a road tile and its head reaches the road tile where the
+ * climb continues — start/end both anchor to the road. A genuinely DIAGONAL (45°) stretch shatters
+ * into single-tile pieces below `MIN_RUN_TILES`, so it gets NO stair rather than a floating,
+ * disconnected one (the road's own carve still climbs the grade). Detection is pure terrain × class,
+ * so stairs emerge wherever the connectome routes a road up too steep a slope on a cardinal run —
  * "all kinds of stairs, popping out of the connectome", exactly as bridges pop out of crossings.
  */
 export function buildStairStructureEntities(
@@ -121,9 +125,10 @@ export function buildStairStructureEntities(
     // The class's ACTUAL walkability grade (rise/run) above which it wants steps.
     const classGrade = CLASS_STAIR[edge.class].grade;
 
-    // Follow the road: one flight per over-grade segment of its polyline. A segment is over-grade
-    // when it gains elevation steeply ON AVERAGE (net rise / net run) — a routed road climbs in a
-    // zigzag, so the steep STRETCH is what wants stairs, not a monotonic step chain.
+    // Follow the road: one flight per over-grade segment of its polyline. Each segment is cardinal-
+    // colinear (foot and head are the SAME road tiles the climb passes through), so a flight that
+    // exceeds the class grade connects to the road at both ends. A diagonal/zigzag stretch yields
+    // only sub-MIN_RUN pieces below, so it stays plain (carved) road — no floating stair.
     const segs = sampleSpanSegments(poly, {
       elevAt: opts.elevAt, reliefM: opts.reliefM, maxSegTiles: MAX_FLIGHT_RUN_TILES,
     });

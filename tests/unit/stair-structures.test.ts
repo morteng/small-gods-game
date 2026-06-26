@@ -68,13 +68,29 @@ describe('buildStairStructureEntities — stairs pop out of the connectome', () 
   });
 
   it('orients the flight to climb toward the higher end', () => {
-    // Uphill toward +x ⇒ climb dir east. Place the flight; the part dir lands in params.
+    // Uphill toward +x ⇒ climb dir east. The first flight foots at the lower (foot) end, x≈2.
     const g = graph([edge('e1', 'path', [[2, 5], [5, 5], [8, 5]])]);
     const ents = buildStairStructureEntities(g, { elevAt: ramp(0.2), reliefM: RELIEF });
-    expect(ents).toHaveLength(1);
-    const e = ents[0];
-    // The flight is a 'prop' entity placed at the lower (foot) end, x≈2.
-    expect(e.x).toBe(2);
+    expect(ents.length).toBeGreaterThanOrEqual(1);
+    expect(ents[0].x).toBe(2);   // a 'prop' entity placed at the lower (foot) end
+  });
+
+  it('only sites stairs on cardinal road runs that CONNECT — a pure-diagonal climb gets none', () => {
+    // The connection contract (user: "make sure they connect"): a stair flight is cardinal-oriented
+    // (the engine has no per-entity rotation), so it can only land its head on the road when the run
+    // it sits on is cardinal. A cardinal east climb gets flights whose feet sit ON the road line; a
+    // pure 45° diagonal climb gets NONE (every cardinal sub-run is a single tile, below MIN_RUN) —
+    // a floating, disconnected stair is worse than no stair (the road carve still climbs the grade).
+    const card: Array<[number, number]> = [[2, 5], [3, 5], [4, 5], [5, 5], [6, 5], [7, 5], [8, 5]];
+    const cEnts = buildStairStructureEntities(graph([edge('c', 'path', card)]),
+      { elevAt: (x, y) => (x + y) * 0.2, reliefM: RELIEF });
+    expect(cEnts.length).toBeGreaterThanOrEqual(1);
+    for (const e of cEnts) expect(card.some(([x, y]) => x === e.x && y === e.y)).toBe(true);  // foot on road
+
+    const diag: Array<[number, number]> = Array.from({ length: 9 }, (_, i) => [2 + i, 5 + i]);
+    const dEnts = buildStairStructureEntities(graph([edge('d', 'path', diag)]),
+      { elevAt: (x, y) => (x + y) * 0.2, reliefM: RELIEF });
+    expect(dEnts.length).toBe(0);   // no floating stair on a pure diagonal
   });
 
   it('skips a flight whose foot lands on a blocked (water/building) tile', () => {

@@ -62,13 +62,31 @@ describe('road-span — shared start/stop vocabulary for stairs + bridges', () =
       for (const s of segs) expect(s.fromElev).toBeLessThanOrEqual(s.toElev);
     });
 
-    it('reads a zigzag-diagonal as its dominant cardinal, not sub-tile shards', () => {
-      // Alternating E/S steps that net to a SE diagonal — one ~maxSeg window, net dir cardinal.
+    it('breaks every piece to be cardinal-colinear so its far end lands on the path (connection)', () => {
+      // Alternating unit E/S steps (a SE zigzag). The OLD behaviour collapsed this to one diagonal
+      // chord whose cardinal-snapped far end floated ~2 tiles off the road; the connection contract
+      // is that EVERY piece is a straight cardinal line (from→to shares an axis), so a cardinal-
+      // oriented structure placed on it reaches a REAL path tile, never a diagonal chord's gap.
       const segs = sampleSpanSegments(P([0, 0], [1, 0], [1, 1], [2, 1], [2, 2], [3, 2]),
         { elevAt: (x, y) => (x + y) * 0.2, reliefM: 48, maxSegTiles: 4 });
-      // Every segment is a real multi-tile run (no degenerate zero-length shards).
-      for (const s of segs) expect(s.runTiles).toBeGreaterThan(0);
-      expect(['north', 'south', 'east', 'west']).toContain(segs[0].dir);
+      expect(segs.length).toBeGreaterThan(0);
+      for (const s of segs) {
+        expect(['north', 'south', 'east', 'west']).toContain(s.dir);
+        const dx = s.to.x - s.from.x, dy = s.to.y - s.from.y;
+        expect(dx === 0 || dy === 0).toBe(true);   // cardinal-colinear: exactly one axis moves
+      }
+    });
+
+    it('gives each cardinal leg of an L-bend its own connected piece', () => {
+      // East leg then south leg. Each piece is a straight cardinal line ending exactly on the bend /
+      // the path end — both legs connect, no diagonal chord across the corner.
+      const segs = sampleSpanSegments(P([0, 0], [4, 0], [4, 4]),
+        { elevAt: (x, y) => (x + y) * 0.1, reliefM: 48, maxSegTiles: 8 });
+      expect(segs.map((s) => s.dir).sort()).toEqual(['east', 'south']);
+      for (const s of segs) {
+        const dx = s.to.x - s.from.x, dy = s.to.y - s.from.y;
+        expect(dx === 0 || dy === 0).toBe(true);
+      }
     });
 
     it('returns [] for a path of fewer than two distinct tiles', () => {

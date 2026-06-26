@@ -53,4 +53,4 @@ export const ART_RECIPE_VERSION = 'v13';
  * An autosave stamped with a different value is discarded on load → a fresh
  * world is generated. Distinct from SAVE_VERSION (which guards the save *schema*).
  */
-export const WORLD_CONTENT_VERSION = 18;  // arched bridges (G5b): a masonry crossing now spawns a row of `bridge_arch` entities marching between its piers (the orphaned arch_span part, wired through the connectome), so crossing entity output changes; discard pre-arch autosaves. (17 = stairs follow the polyline G3c.)
+export const WORLD_CONTENT_VERSION = 19;  // stairs CONNECT (G3d): the polyline is now chunked into cardinal-colinear runs, so a flight foots and heads on real road tiles (no more diagonal-chord heads floating off the road); diagonal/zigzag stretches site no stair. Stair entity placement changes ⇒ discard pre-G3d autosaves. (18 = arched bridges G5b; 17 = stairs follow the polyline G3c.)
