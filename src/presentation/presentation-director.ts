@@ -206,6 +206,10 @@ export class PresentationDirector {
     }
   }
 
+  /** Suspend/resume all audio for a hard pause (without touching the persisted enabled
+   *  flag). Mutes the backend so no notes schedule while the frame loop is idle. */
+  suspendAudio(suspended: boolean): void { this.backend.setMuted(suspended); }
+
   setCameraEnabled(on: boolean): void { this.cameraEnabled = on; if (!on) this.camera.cancel(); }
   setVoiceEnabled(on: boolean): void { this.voice.setEnabled(on); }
 

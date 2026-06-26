@@ -53,4 +53,4 @@ export const ART_RECIPE_VERSION = 'v13';
  * An autosave stamped with a different value is discarded on load → a fresh
  * world is generated. Distinct from SAVE_VERSION (which guards the save *schema*).
  */
-export const WORLD_CONTENT_VERSION = 14;  // grade reconciliation (G1+G2): per-class grade envelope changes road routing, and roads now build embankment fill banks (height-proportional batter) across dips — road layout + carved heights shift, discard pre-grade autosaves
+export const WORLD_CONTENT_VERSION = 18;  // arched bridges (G5b): a masonry crossing now spawns a row of `bridge_arch` entities marching between its piers (the orphaned arch_span part, wired through the connectome), so crossing entity output changes; discard pre-arch autosaves. (17 = stairs follow the polyline G3c.)

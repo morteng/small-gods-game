@@ -15,6 +15,7 @@ import { connectomeToBlueprint } from '../connectome/to-blueprint';
 import { connectomeOpenings, GEN_OPENINGS_TAG } from '../connectome/openings';
 import type { Connectome, ExpandCtx } from '../connectome/types';
 import { allFloraSpecies, getFloraSpecies } from '@/flora/flora-registry';
+import { stairFootprint } from '../parts/stair';
 import { deriveGenParams } from '@/flora/flora-species';
 
 const bp = (preset: string, b: Omit<Blueprint, 'version' | 'class' | 'preset'>): Blueprint =>
@@ -58,6 +59,26 @@ const branched = (
     materials: { walls: 'timber', roof: 'thatch', ground: 'grass' },
     parts: { trunk: { type: 'branch_plant', size: { w: 1, h: 1 }, params: {
       generator: generator ?? d.generator, recipe, crownShape: crownShape ?? d.crownShape, heightM, trunkR,
+    } } },
+  };
+};
+
+/** A flight of stairs (class:'prop') — renders through the same generate→sprite pipeline
+ *  as buildings, sized to its own run. `construction` sweeps the spectrum (0 rough scramble
+ *  → 1 dressed/accessible); `material` (walls) picks timber/stone/brick. */
+const stair = (
+  preset: string,
+  opts: { material: string; riseM?: number; treads?: number; widthM?: number; construction?: number; railing?: 'none' | 'one' | 'both'; dir?: 'north' | 'south' | 'east' | 'west' },
+): Blueprint => {
+  const fp = stairFootprint({ riseM: opts.riseM, treads: opts.treads, widthM: opts.widthM, construction: opts.construction });
+  return {
+    version: BLUEPRINT_VERSION, class: 'prop', preset, category: 'infrastructure',
+    footprint: fp,
+    materials: { walls: opts.material, roof: opts.material, ground: 'dirt' },
+    parts: { flight: { type: 'stair_flight', at: { x: 0, y: 0 }, size: fp, params: {
+      riseM: opts.riseM ?? 1.8, ...(opts.treads ? { treads: opts.treads } : {}),
+      widthM: opts.widthM ?? 2, construction: opts.construction ?? 0.5,
+      railing: opts.railing ?? 'none', dir: opts.dir ?? 'south',
     } } },
   };
 };
@@ -271,6 +292,13 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
   wildflower: branched('wildflower', 'flower', 0.6, 0.02),
   boulder: rock('boulder', 2.5),
   rock_small: rock('rock_small', 1.0),
+  // Stairs — "all kinds, the same way we support all kinds of buildings." One part type,
+  // swept by construction (rough scramble → cut stone → dressed) and material. Switchbacks
+  // compose extra flights + a `landing` part in the same blueprint (see crossing/path siting).
+  stair_scramble: stair('stair_scramble', { material: 'stone', riseM: 1.6, widthM: 1.2, construction: 0.0 }),
+  stair_wood:     stair('stair_wood',     { material: 'timber', riseM: 2.0, widthM: 1.6, construction: 0.5, railing: 'both' }),
+  stair_stone:    stair('stair_stone',    { material: 'stone', riseM: 2.4, widthM: 2.0, construction: 0.6, railing: 'one' }),
+  stair_grand:    stair('stair_grand',    { material: 'stone', riseM: 3.2, widthM: 5.0, construction: 1.0, railing: 'both' }),
   yurt: bp('yurt', {
     category: 'residential', era: 'primordial', footprint: { w: 3, h: 3 },
     materials: { walls: 'hide', roof: 'hide', ground: 'dirt' },

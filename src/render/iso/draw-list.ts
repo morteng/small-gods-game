@@ -40,6 +40,15 @@ export type DrawItem =
        * blits it on the ground under the sprite when shadowMode is 'geometry'.
        */
       shadowSprite?: { src: CanvasImageSource; dx: number; dy: number };
+      /**
+       * Above-ground override (G4 deck primitive). When set, the terrain-lift
+       * pre-pass lifts this item to THIS normalised terrain elevation (heightfield
+       * units) rather than sampling the ground under its foot — so a bridge deck or
+       * elevated aqueduct rides its own feature-authored grade line over the water/
+       * void below it, instead of snapping to the low terrain it spans. Piers, which
+       * stand FROM the ground up to the deck, keep normal foot sampling (omit this).
+       */
+      liftElev?: number;
     }
   | { t: 'poly'; points: Array<{ x: number; y: number }>; color: string }
   | { t: 'circle'; cx: number; cy: number; r: number; color: string };

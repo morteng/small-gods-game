@@ -152,6 +152,50 @@ fn sampleSurfaceW(gx : f32, gy : f32) -> f32 {
   return mix(mix(s00, s10, tx), mix(s01, s11, tx), ty);
 }
 
+// Per-fragment biome WATER COLOUR (shallow + deep), sampled SMOOTHLY at the fragment's
+// true grid position with a DRY-TAP FALLBACK — the colour twin of sampleSurfaceW.
+//
+// Why: the per-cell colour buffers are 0 (black) on dry cells, and the colour used to
+// come from vCell, a @interpolate(flat) per-VERTEX cell index. On the coarse drag-LOD
+// mesh a single triangle spans many cells and takes its whole colour from the provoking
+// vertex's cell — if that vertex sat on a dry (deep == 0) cell the entire triangle
+// rendered solid BLACK, and as the LOD flipped which vertex provoked, river banks
+// blinked. Depth is already evaluated per-fragment (sampleSurfaceW/cubicTerrainH), so a
+// fragment can be wet (depth > 0) while its triangle's flat colour cell is dry. Sampling
+// colour per-fragment from the fine buffer — and treating a 0 (dry) tap as a non-zero
+// sibling so we never blend toward black — makes the colour LOD-independent and kills
+// both the black patches and the bank blink.
+struct WaterCol { shallow : vec3<f32>, deep : vec3<f32> }
+fn blendNonzero4(a : vec3<f32>, b : vec3<f32>, c : vec3<f32>, d : vec3<f32>, tx : f32, ty : f32) -> vec3<f32> {
+  // Any non-zero corner is the fallback for the dry (zero) ones.
+  var fb = a;
+  if (dot(fb, fb) <= 0.0) { fb = b; }
+  if (dot(fb, fb) <= 0.0) { fb = c; }
+  if (dot(fb, fb) <= 0.0) { fb = d; }
+  var a2 = a; if (dot(a2, a2) <= 0.0) { a2 = fb; }
+  var b2 = b; if (dot(b2, b2) <= 0.0) { b2 = fb; }
+  var c2 = c; if (dot(c2, c2) <= 0.0) { c2 = fb; }
+  var d2 = d; if (dot(d2, d2) <= 0.0) { d2 = fb; }
+  return mix(mix(a2, b2, tx), mix(c2, d2, tx), ty);
+}
+fn sampleWaterCol(gx : f32, gy : f32) -> WaterCol {
+  let W = u32(G.uGrid.x);
+  let H = u32(G.uGrid.y);
+  let fx = clamp(gx, 0.0, f32(W) - 1.001);
+  let fy = clamp(gy, 0.0, f32(H) - 1.001);
+  let x0 = u32(fx); let y0 = u32(fy);
+  let x1 = min(x0 + 1u, W - 1u); let y1 = min(y0 + 1u, H - 1u);
+  let tx = fx - f32(x0); let ty = fy - f32(y0);
+  let i00 = y0 * W + x0; let i10 = y0 * W + x1;
+  let i01 = y1 * W + x0; let i11 = y1 * W + x1;
+  var out : WaterCol;
+  out.shallow = blendNonzero4(unpackRgb(shallowC[i00]), unpackRgb(shallowC[i10]),
+                              unpackRgb(shallowC[i01]), unpackRgb(shallowC[i11]), tx, ty);
+  out.deep    = blendNonzero4(unpackRgb(deepC[i00]), unpackRgb(deepC[i10]),
+                              unpackRgb(deepC[i01]), unpackRgb(deepC[i11]), tx, ty);
+  return out;
+}
+
 // ── BICUBIC (Catmull-Rom) sampling for a PIXEL-PERFECT waterline ──────────────────
 // Bilinear over a 1-value-per-tile field is only C0: the surface−bed zero-crossing
 // kinks at every tile boundary, which reads as a faceted/jaggy waterline at zoom.
@@ -406,7 +450,10 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   // gradient hugs the coast instead of making regular stripes.
   let clar = clarity[ci];
   let tDeep = clamp(depthM / mix(1.2, 5.0, clar), 0.0, 1.0);
-  var color = mix(unpackRgb(shallowC[ci]), unpackRgb(deepC[ci]), tDeep);
+  // Smooth, per-fragment biome colour (LOD-independent, never black at a bank). See
+  // sampleWaterCol — this replaced the flat per-vertex vCell colour that black-patched.
+  let wcol = sampleWaterCol(in.vGrid.x, in.vGrid.y);
+  var color = mix(wcol.shallow, wcol.deep, tDeep);
 
   // Flat ambient+sun (water is smooth-shaded; only terrain/sprites get crisp bands).
   let day = G.uAmbient.w;
@@ -438,7 +485,7 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
     // backdrop exactly (no bright shelf at the map edge) and the sea reads uniform
     // out to the horizon. Near shore the real depth tint + shallows still show.
     let shoreDeep = smoothstep(5.0, 26.0, shore);
-    color = mix(unpackRgb(shallowC[ci]), unpackRgb(deepC[ci]), max(tDeep, shoreDeep))
+    color = mix(wcol.shallow, wcol.deep, max(tDeep, shoreDeep))
           * (G.uAmbient.xyz + vec3<f32>(day * 0.85));
 
     // Coast normal (offshore) from the shore-distance gradient — windward coasts
@@ -527,7 +574,7 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
 
     // Shallow RIM: shelve up toward the shallow biome tone at the very edge, so the
     // bank reads as water lightening into the shallows rather than a hard dark border.
-    let rimCol = unpackRgb(shallowC[ci]) * (G.uAmbient.xyz + vec3<f32>(day * 0.85));
+    let rimCol = wcol.shallow * (G.uAmbient.xyz + vec3<f32>(day * 0.85));
     color = mix(color, rimCol, nearShore * 0.5);
 
     // Faint uniform breeze-ripple (fades toward the still centre) + soft noise glints.

@@ -70,6 +70,7 @@ import { WeatherSystem } from '@/sim/systems/weather-system';
 import { applySkip } from '@/sim/time-skip';
 import { identityOracle } from '@/world/oracle';
 import { bootstrapWorld } from '@/game/bootstrap-world';
+import { FrameLoop } from '@/game/frame-loop';
 import { PersistenceController } from '@/game/persistence-controller';
 import { clearSave } from '@/services/save-store';
 import { injectTokens } from '@/ui/inject-tokens';
@@ -137,19 +138,29 @@ export class Game {
   private storyRegistry = new StoryRegistry();
   private cleanupTokens: (() => void) | null = null;
   private resizeObserver: ResizeObserver;
-  private rafId: number | null = null;
-  private lastTime: number = 0;
+  /** The rAF driver: owns scheduling, the real pause (CPU+GPU idle), render-on-demand and
+   *  tab-visibility auto-pause. The Game supplies per-frame work via the onFrame/onRender/
+   *  onPauseChange hooks. */
+  private frameLoop = new FrameLoop({
+    onFrame: (now, deltaMs, paused) => this.onFrame(now, deltaMs, paused),
+    onRender: (deltaMs) => this.onRender(deltaMs),
+    onPauseChange: (paused) => this.onPauseChange(paused),
+  });
+  /** Cinematic-camera state carried from onFrame → onRender (the cinematic camera owns the
+   *  view while active, so the normal follow-camera is skipped that frame). */
+  private lastCinematic = false;
   /** Rendered-frame FPS meter (always sampling; cheap). Read via `__perf.fps()`. The
    *  on-screen FPS pill is drawn on the canvas in gpu-render-frame (dev-only); there
    *  is no DOM HUD on the game surface. */
   private readonly fps = new FpsMeter();
-  // Render-on-demand flag for the "real pause" path: a LIVE world redraws every
-  // frame, but a PAUSED world only redraws when something visual changed (camera,
-  // hover, selection, a UI toggle, resize). Starts true so the first frame draws.
-  // Set via requestRender(); consumed in the frame loop.
-  private needsRender = true;
-  /** Mark the scene dirty so the next frame redraws even while paused. */
-  private requestRender = (): void => { this.needsRender = true; };
+  /** Sim rate to restore on resume (a hard pause forces rate 0). */
+  private savedRate = 1;
+  /** Mark the scene dirty so the next frame redraws. While hard-paused the loop is stopped,
+   *  so this also kicks a single on-demand frame (then it idles again). Delegates to the
+   *  FrameLoop driver; the wrapper keeps the bound reference stable for early subsystem wiring. */
+  private requestRender = (): void => {
+    this.frameLoop.requestRender();
+  };
   // Ambient water ripples animate on wall-clock time, so the loop must keep
   // drawing while visible water is on screen — even with the sim PAUSED — or the
   // ocean only moves on interaction. Memoised has-water scan per map identity.
@@ -402,7 +413,7 @@ export class Game {
 
     this.detachTimeKeys = attachTimeKeys(window, {
       onToggleTimeBar: () => this.toggleTimeBar(),
-      onTogglePause:   () => { this.scheduler.setRate(this.scheduler.getRate() === 0 ? 1 : 0); this.requestRender(); },
+      onTogglePause:   () => this.togglePause(),
       onSetRate:       (n) => { this.scheduler.setRate(n); this.requestRender(); },
       timeBarOpen:     () => this.timeBar !== null,
       onEscape:        () => { if (this.timeBar) this.toggleTimeBar(); },
@@ -833,10 +844,8 @@ export class Game {
   }
 
   private togglePause(): void {
-    const paused = this.scheduler.getRate() === 0;
-    this.scheduler.setRate(paused ? 1 : 0);
-    this.refreshPauseBanner();
-    this.requestRender();
+    // The user-facing pause is a HARD pause — it idles the loop + audio, not just the sim.
+    this.frameLoop.toggle();
   }
 
   private refreshPauseBanner(): void {
@@ -921,6 +930,8 @@ export class Game {
       devMode: () => this.dev.devMode,
       requestRender: this.requestRender,
       newWorld: () => { void this.newWorld(); },
+      setPaused: (p) => { this.setPaused(p); return this.isPaused(); },
+      isPaused: () => this.isPaused(),
     });
   }
 
@@ -993,6 +1004,9 @@ export class Game {
       },
     });
     this.startLoop();
+    // Auto-pause when the tab is hidden (the loop + audio fully idle; resumes on return) —
+    // so a backgrounded game never burns CPU/GPU on this machine.
+    if (typeof document !== 'undefined') document.addEventListener('visibilitychange', this.onVisibilityChange);
     return map;
   }
 
@@ -1023,68 +1037,99 @@ export class Game {
   }
 
   private startLoop(): void {
-    if (this.rafId !== null) return;
-    this.lastTime = performance.now();
-
-    const loop = (now: number) => {
-      const deltaMs = Math.min(now - this.lastTime, 100);
-      this.lastTime = now;
-      const live = this.scheduler.getRate() > 0 && this.state.world && !this.timeline.isScrubbed;
-      // Presentation runs every frame (keeps the audio scheduler fed); ducks on scrub.
-      this.presentation.update(deltaMs, { live: !!live, scrubbed: this.timeline.isScrubbed });
-      if (live) {
-        advanceNpcFrames(this.state.world!, deltaMs);  // presentation animation - not a scheduled system
-        // Focusing a new NPC = the player's attention reaching it → a discovery
-        // signal that can fire staged beats armed on that NPC.
-        if (this.state.selectedNpcId && this.state.selectedNpcId !== this.lastDiscoveredNpcId) {
-          this.lastDiscoveredNpcId = this.state.selectedNpcId;
-          this.discoveryQueue.push({ subject: { kind: 'npc', npcId: this.state.selectedNpcId } });
-        }
-        this.scheduler.tick(deltaMs, {
-          world: this.state.world!,
-          spirits: this.state.spirits,
-          log: this.state.eventLog,
-          clock: this.state.clock,
-          rng: this.state.rng,
-        });
-        this.timeline.onAfterLiveTick();
-      }
-      // REAL PAUSE: when not live, do the expensive scene render + UI refresh only
-      // if something changed (requestRender), an effect is still animating, or the
-      // past is being scrubbed. Otherwise the rAF body is ~free and the GPU idles.
-      const cinematic = this.presentation.cameraActive();
-      if (live || this.needsRender || this.timeline.isScrubbed || this.ui.divineEffects.isActive() || this.waterAnimating() || cinematic) {
-        this.needsRender = false;
-        // The cinematic camera owns the view while active; otherwise follow normally.
-        if (!cinematic) applyFollowCamera(this.state, this.viewport());
-        // Keep the island from being panned/zoomed fully off-screen.
-        if (this.state.map) {
-          const vp = this.viewport();
-          clampCameraToMap(this.state.camera, this.state.map.width, this.state.map.height, vp.width, vp.height);
-        }
-        const r0 = performance.now();
-        this.renderer.render(deltaMs);
-        this.fps.frame(performance.now() - r0);
-        this.timeChip.refresh();
-        this.refreshPauseBanner();
-        this.timeBar?.refresh();
-        this.dev.updateTimeDebug();
-        this.veil.setActive(this.timeline.isScrubbed);
-      }
-      this.rafId = requestAnimationFrame(loop);
-    };
-    this.rafId = requestAnimationFrame(loop);
+    this.frameLoop.start();
   }
 
-  private stopLoop(): void {
-    if (this.rafId !== null) {
-      cancelAnimationFrame(this.rafId);
-      this.rafId = null;
+  /** One frame of WORK (sim + presentation). Returns whether anything is still animating, so
+   *  the FrameLoop driver knows whether to keep the continuous loop running. `paused` = hard
+   *  pause: no sim advance, no presentation, no ambient water — the driver renders one pending
+   *  frame then idles. */
+  private onFrame(_now: number, deltaMs: number, paused: boolean): boolean {
+    const live = !paused && this.scheduler.getRate() > 0 && this.state.world && !this.timeline.isScrubbed;
+    // Presentation runs every frame (keeps the audio scheduler fed); ducks on scrub. Skipped
+    // while hard-paused (audio is muted and the loop is about to idle).
+    if (!paused) this.presentation.update(deltaMs, { live: !!live, scrubbed: this.timeline.isScrubbed });
+    if (live) {
+      advanceNpcFrames(this.state.world!, deltaMs);  // presentation animation - not a scheduled system
+      // Focusing a new NPC = the player's attention reaching it → a discovery
+      // signal that can fire staged beats armed on that NPC.
+      if (this.state.selectedNpcId && this.state.selectedNpcId !== this.lastDiscoveredNpcId) {
+        this.lastDiscoveredNpcId = this.state.selectedNpcId;
+        this.discoveryQueue.push({ subject: { kind: 'npc', npcId: this.state.selectedNpcId } });
+      }
+      this.scheduler.tick(deltaMs, {
+        world: this.state.world!,
+        spirits: this.state.spirits,
+        log: this.state.eventLog,
+        clock: this.state.clock,
+        rng: this.state.rng,
+      });
+      this.timeline.onAfterLiveTick();
     }
+    // The cinematic camera owns the view while active; stash it for onRender.
+    this.lastCinematic = !paused && this.presentation.cameraActive();
+    // Animating = anything that needs continuous redraw: live sim, a scrub, an in-flight
+    // divine effect, ambient water ripples, or the cinematic camera. (A hard pause forces
+    // all of these false, so the driver renders one frame then rests.)
+    return !!live || this.timeline.isScrubbed || this.ui.divineEffects.isActive()
+        || (!paused && this.waterAnimating()) || this.lastCinematic;
+  }
+
+  /** The expensive scene render + UI refresh — only invoked when onFrame reported animating
+   *  or a one-shot requestRender is pending. */
+  private onRender(deltaMs: number): void {
+    // The cinematic camera owns the view while active; otherwise follow normally.
+    if (!this.lastCinematic) applyFollowCamera(this.state, this.viewport());
+    // Keep the island from being panned/zoomed fully off-screen.
+    if (this.state.map) {
+      const vp = this.viewport();
+      clampCameraToMap(this.state.camera, this.state.map.width, this.state.map.height, vp.width, vp.height);
+    }
+    const r0 = performance.now();
+    this.renderer.render(deltaMs);
+    this.fps.frame(performance.now() - r0);
+    this.timeChip.refresh();
+    this.refreshPauseBanner();
+    this.timeBar?.refresh();
+    this.dev.updateTimeDebug();
+    this.veil.setActive(this.timeline.isScrubbed);
+  }
+
+  /** Entering / leaving hard pause: suspend the sim rate + mute audio (the FrameLoop driver
+   *  owns the rAF idle/resume around this). */
+  private onPauseChange(paused: boolean): void {
+    if (paused) {
+      this.savedRate = this.scheduler.getRate() || 1;
+      this.scheduler.setRate(0);
+      this.presentation.suspendAudio(true);
+    } else {
+      this.presentation.suspendAudio(false);
+      this.scheduler.setRate(this.savedRate);
+    }
+    this.refreshPauseBanner();
+  }
+
+  /** Hard pause / resume — idles the loop (CPU + GPU) and mutes audio. The view stays
+   *  grabbable + interactive (each requestRender draws one on-demand frame). */
+  setPaused(paused: boolean, opts: { auto?: boolean } = {}): void {
+    this.frameLoop.setPaused(paused, opts);
+  }
+
+  /** True while hard-paused (loop + audio suspended). */
+  isPaused(): boolean { return this.frameLoop.isPaused(); }
+
+  private onVisibilityChange = (): void => {
+    if (typeof document === 'undefined') return;
+    this.frameLoop.handleVisibility(document.hidden);
+  };
+
+  private stopLoop(): void {
+    this.frameLoop.stop();
   }
 
   destroy(): void {
-    this.stopLoop();
+    this.frameLoop.destroy();
+    if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', this.onVisibilityChange);
     this.presentation.destroy();
     this.persistence?.destroy();
     this.cleanupControls?.();

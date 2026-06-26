@@ -54,3 +54,6 @@ tmp/
 
 # Electron desktop build output
 /release/
+
+# Dev-only canvas grabs (grab-sink plugin)
+.dev-grabs/

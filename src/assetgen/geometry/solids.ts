@@ -74,14 +74,20 @@ export async function solidEllipsoid(center: Vec2, baseZ: number, radii: Vec3): 
   return Manifold.sphere(1).scale(radii).translate([center[0], center[1], baseZ + radii[2]]);
 }
 
-/** Post-and-lintel arch (two uprights + a spanning beam) as one unioned solid, spanning +x. */
-export async function solidArch(at: Vec3, span: number, height: number, thickness: number): Promise<Manifold> {
+/** Post-and-lintel arch (two uprights + a spanning beam) as one unioned solid, spanning +x.
+ *  `yaw` (degrees about Z, at the arch's footprint origin) rotates the whole frame so it can
+ *  span +y instead — a bridge arch must run ALONG the deck's travel axis, and an ns deck needs
+ *  the frame turned 90°. Default 0 keeps the historical +x frame byte-identical. */
+export async function solidArch(at: Vec3, span: number, height: number, thickness: number, yaw = 0): Promise<Manifold> {
   const { Manifold } = await getManifold();
   const t = thickness;
   const left  = Manifold.cube([t, t, height]).translate([at[0], at[1], at[2]]);
   const right = Manifold.cube([t, t, height]).translate([at[0] + span - t, at[1], at[2]]);
   const beam  = Manifold.cube([span, t, t]).translate([at[0], at[1], at[2] + height]);
-  return Manifold.union([left, right, beam]);
+  const arch = Manifold.union([left, right, beam]);
+  if (!yaw) return arch;
+  // Rotate about the springing origin (at.x, at.y) so the frame pivots in place.
+  return arch.translate([-at[0], -at[1], 0]).rotate([0, 0, yaw]).translate([at[0], at[1], 0]);
 }
 
 /** Absolute box to subtract from a wall solid (an opening's aperture). `yaw`, if set,

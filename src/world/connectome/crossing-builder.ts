@@ -66,6 +66,9 @@ export function buildCrossing(spec: CrossingSpec): WorldNode {
     }
     const children: WorldNode[] = [deck];
     for (let i = 0; i < arches + 1; i++) children.push(node(`${id}/pier#${i}`, 'pier', { params: { material: 'masonry' } }));
+    // One masonry arch per bay between the piers — the spans the deck rides on. They pop out of
+    // the connectome as nodes (realized between consecutive piers), not synthesized at draw time.
+    for (let i = 0; i < arches; i++) children.push(node(`${id}/arch#${i}`, 'arch_span', { params: { material: 'dressed-stone' } }));
     // A fortified, important crossing gates the deck.
     if (importance >= 3 && pros >= 1) children.push(node(`${id}/gate`, 'building(gatehouse)', { params: { fortified: true, at: 'deck-end' } }));
     bridge = node(`${id}/bridge`, 'bridge', { params: { material: 'dressed-stone', span, arches, width: deckWidth }, children });
