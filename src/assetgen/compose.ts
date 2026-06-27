@@ -1,10 +1,11 @@
 // src/assetgen/compose.ts
 import type { Vec3, Mat, WorldFacet } from '@/assetgen/types';
 import {
-  solidBox, solidBoxYawed, solidCylinder, solidCone, solidPrism, solidEllipsoid, solidArch,
+  solidBox, solidBoxYawed, solidCylinder, solidCone, solidPrism, solidEllipsoid,
   manifoldToFacets, buildingFacets, carveApertures, boreCylinder, cylindricalProjector,
 } from '@/assetgen/geometry/solids';
 import type { ApertureBox } from '@/assetgen/geometry/solids';
+import { solidArchCurved, type ArchStyle } from '@/assetgen/geometry/arch';
 import type { Wing, RoofStyle, BuildingFeatures, BuildingAnchors } from '@/assetgen/geometry/building';
 import { linearFacets } from '@/assetgen/geometry/linear';
 import { tubeFacets, blobFacets, rockFacets } from '@/assetgen/geometry/flora/mesh';
@@ -25,7 +26,7 @@ export type Part =
   | { prim: 'cone'; center: [number, number]; baseZ: number; radius: number; height: number; material?: Mat }
   | { prim: 'prism'; center: [number, number]; baseZ: number; radius: number; height: number; sides: number; material?: Mat; work?: string }
   | { prim: 'ellipsoid'; center: [number, number]; baseZ: number; radii: Vec3; material?: Mat; bore?: { radius: number; depth: number } }
-  | { prim: 'arch'; at: Vec3; span: number; height: number; thickness: number; yaw?: number; material?: Mat; work?: string }
+  | { prim: 'arch'; at: Vec3; span: number; height: number; thickness: number; yaw?: number; material?: Mat; work?: string; style?: ArchStyle; ringDepth?: number; springZ?: number }
   | { prim: 'building'; wings: Wing[]; wallMat?: Mat; roofMat?: Mat; roofStyle?: RoofStyle; features?: BuildingFeatures; seed?: number; apertures?: ApertureBox[]; wallWork?: string }
   | { prim: 'flora'; limbs: Limb[]; leaves: Leaf[]; barkMat?: Mat; foliageMat?: Mat }
   | { prim: 'rock'; center: [number, number]; baseZ: number; radius: number; seed: number; jitter?: number; mat?: Mat; subdiv?: number }
@@ -87,7 +88,15 @@ async function partFacets(p: Part): Promise<{ facets: WorldFacet[]; anchors?: Bu
       if (p.bore) s = await boreCylinder(s, p.center, p.baseZ + 2 * p.radii[2], p.bore.radius, p.bore.depth);
       return { facets: manifoldToFacets(s.getMesh(), p.material ?? 'foliage') };
     }
-    case 'arch':      return { facets: manifoldToFacets((await solidArch(p.at, p.span, p.height, p.thickness, p.yaw)).getMesh(), p.material ?? 'stone', p.work) };
+    case 'arch': {
+      // `flat` keeps the historic post-and-lintel portal; any other style builds the
+      // real curved ring (round/segmental/pointed/horseshoe). solidArchCurved itself
+      // delegates `flat` back to solidArch, so this one call covers both.
+      const m = await solidArchCurved(p.at, p.span, p.height, p.thickness, {
+        style: p.style ?? 'flat', ringDepth: p.ringDepth, springZ: p.springZ, yaw: p.yaw,
+      });
+      return { facets: manifoldToFacets(m.getMesh(), p.material ?? 'stone', p.work) };
+    }
     case 'building':  return buildingFacets(p.wings, p.wallMat, p.roofMat, p.roofStyle, p.features, p.seed, p.apertures, p.wallWork);
     case 'flora':     return { facets: [...tubeFacets(p.limbs, p.barkMat ?? 'bark'), ...blobFacets(p.leaves, p.foliageMat ?? 'foliage')] };
     case 'rock':      return { facets: rockFacets({ center: p.center, baseZ: p.baseZ, radius: p.radius, seed: p.seed, jitter: p.jitter, mat: p.mat, subdiv: p.subdiv }) };

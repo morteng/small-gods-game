@@ -10,6 +10,7 @@ import type { Part } from '../types';
 import type { PartType, CompileCtx, ResolveCtx } from '../registry';
 import type { Mat } from '@/assetgen/types';
 import type { Part as Prim } from '@/assetgen/compose';
+import type { ArchStyle } from '@/assetgen/geometry/arch';
 import { mToTiles } from '@/render/scale-contract';
 import { WALL_MAT } from './body';
 
@@ -103,6 +104,9 @@ export const archSpanPartType: PartType = {
     riseM: { kind: 'number', min: 0.3, max: 20, default: 2 },
     thicknessM: { kind: 'number', min: 0.2, max: 6, default: 1 },
     dir: { kind: 'enum', values: ['ns', 'ew'], default: 'ew' },
+    // Arch head profile. Default `round` — a real curved ring, replacing the historic
+    // square portal. `flat` keeps the post-and-lintel portal for any caller that wants it.
+    style: { kind: 'enum', values: ['round', 'segmental', 'pointed', 'horseshoe', 'flat'], default: 'round' },
   },
   resolve: (part: Part, _ctx: ResolveCtx) => ({ params: { ...(part.params ?? {}) } }),
   toPrims(p, ctx): Prim[] {
@@ -115,6 +119,7 @@ export const archSpanPartType: PartType = {
       height: mToTiles((p.params.riseM as number) ?? 2),
       thickness: mToTiles((p.params.thicknessM as number) ?? 1),
       yaw: dir === 'ns' ? 90 : 0,
+      style: (p.params.style as ArchStyle) ?? 'round',
       material: mat,
     }];
   },

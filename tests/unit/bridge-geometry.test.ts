@@ -60,9 +60,17 @@ describe('bridge parts compile to geometry', () => {
     expect(prims(battered, 'prism').length).toBe(1);
   });
 
-  it('arch_span emits an arch prim', () => {
+  it('arch_span emits an arch prim, curved (round) by default', () => {
     const arch = compile({ a: { type: 'arch_span', size: { w: 3, h: 1 }, params: { spanM: 6, riseM: 2.5, thicknessM: 1 } } });
     expect(prims(arch, 'arch').length).toBe(1);
+    expect((prims(arch, 'arch')[0] as any).style).toBe('round'); // real curve, not the square portal
+  });
+
+  it('arch_span style is selectable (pointed/segmental/flat)', () => {
+    const pointed = compile({ a: { type: 'arch_span', size: { w: 3, h: 1 }, params: { spanM: 6, style: 'pointed' } } });
+    const flat = compile({ a: { type: 'arch_span', size: { w: 3, h: 1 }, params: { spanM: 6, style: 'flat' } } });
+    expect((prims(pointed, 'arch')[0] as any).style).toBe('pointed');
+    expect((prims(flat, 'arch')[0] as any).style).toBe('flat');
   });
 
   it('an arch yaws to spring along the deck axis (ew native, ns turned 90°)', () => {
