@@ -106,6 +106,45 @@ function cellular(x: number, y: number, cell: number): { dist: number; hash: num
   return { dist: Math.sqrt(best), hash: bestHash };
 }
 
+/**
+ * Voronoi cell-BORDER distance (Inigo Quilez, iquilezles.org/articles/voronoilines).
+ * Two passes: (1) find the nearest feature point's cell, (2) over a 5×5 neighbourhood take
+ * the min perpendicular distance to each bisector `dot(0.5(mr+r), normalize(r-mr))`. Unlike
+ * F1 worley (distance to the POINT — which reads as a dot at each cell centre), this returns
+ * an even-width distance to the JOINT between stones — the mortar line. `cellHash`/`cellId`
+ * identify the owning stone for per-block colour. `jitter` (0..1) sets how irregular the
+ * blocks are (1 = random rubble, low = squarer/coursed). Deterministic + world-continuous.
+ */
+function voronoiEdge(x: number, y: number, jitter = 1): { edge: number; cellHash: number } {
+  const px = Math.floor(x), py = Math.floor(y);
+  const fx = x - px, fy = y - py;
+  const j = Math.max(0, Math.min(1, jitter));
+  // pass 1 — nearest point's cell
+  let mbx = 0, mby = 0, mrx = 0, mry = 0, best = 8, cellHash = 0;
+  for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
+    const rx = di + 0.5 + j * (hash2(px + di, py + dj) - 0.5) - fx;
+    const ry = dj + 0.5 + j * (hash2(px + di + 57, py + dj + 131) - 0.5) - fy;
+    const d = rx * rx + ry * ry;
+    if (d < best) { best = d; mrx = rx; mry = ry; mbx = di; mby = dj; cellHash = hash2(px + di, py + dj); }
+  }
+  // pass 2 — min distance to the bisector edges around that cell
+  let edge = 8;
+  for (let dj = -2; dj <= 2; dj++) for (let di = -2; di <= 2; di++) {
+    const bx = mbx + di, by = mby + dj;
+    const rx = bx + 0.5 + j * (hash2(px + bx, py + by) - 0.5) - fx;
+    const ry = by + 0.5 + j * (hash2(px + bx + 57, py + by + 131) - 0.5) - fy;
+    const ax = rx - mrx, ay = ry - mry;
+    const al = Math.hypot(ax, ay);
+    if (al < 1e-5) continue;                               // the owning cell itself
+    const md = (0.5 * (mrx + rx) * ax + 0.5 * (mry + ry) * ay) / al;
+    if (md < edge) edge = md;
+  }
+  return { edge, cellHash };
+}
+
+/** Smoothstep 0..1. */
+function sstep(e: number): number { const t = Math.max(0, Math.min(1, e)); return t * t * (3 - 2 * t); }
+
 // ── Per-material micro-surface ───────────────────────────────────────────────────────────
 // Each material is `pattern(u, v) → { tone, tint, height, rough }` in a 2-D surface frame
 // (u,v in metres). `tone` is a multiplicative albedo modulation around the material's base
@@ -134,17 +173,21 @@ function bond(u: number, v: number, unitU: number, unitV: number, mortar: number
 }
 
 const PATTERNS: Record<Mat, Pattern> = {
-  // Ashlar / rubble stone: blocky facets (worley) with grooved joints + fine grain.
+  // Coursed rubble: irregular stones laid in rough rows. IQ Voronoi-BORDER distance gives
+  // an even-width mortar line at the joints between stones (F1 worley read as a polka grid of
+  // dots at cell centres); cells are compressed in v so blocks run wider-than-tall = coursing.
+  // Per-stone lightness from the cell hash, fine grain over the face. Continuous across facets.
   stone: (u, v) => {
-    const { dist, hash } = cellular(u, v, 0.7);
-    const seam = Math.min(1, dist / 0.22);                 // 0 at block centre → 1 at the joint
-    const grain = fbm(u * 3.2, v * 3.2, 3);
-    const joint = 1 - seam;                                // deep in the joint
+    const S = 0.42;                                        // ~42 cm rubble stones
+    const { edge, cellHash } = voronoiEdge(u / S, v / (S * 1.55), 0.82);
+    const joint = 1 - sstep(edge / 0.13);                  // 1 in the mortar line → 0 on the face
+    const grain = fbm(u * 3.0, v * 3.0, 3);
+    const block = cellHash - 0.5;                          // per-stone lightness
     return {
-      tone: 0.10 * (hash - 0.5) + 0.12 * (grain - 0.5) - 0.30 * joint,
+      tone: 0.11 * block + 0.10 * (grain - 0.5) - 0.40 * joint,
       tint: ZERO_TINT,
-      height: 0.25 + 0.6 * seam + 0.15 * grain,
-      rough: 1 + 0.1 * joint,
+      height: 0.62 * (1 - joint) + 0.12 * grain,           // raised stone face, recessed joint
+      rough: 1 + 0.14 * joint,
     };
   },
   // Brick: running bond, warm clay variance per brick, recessed mortar.
@@ -279,22 +322,34 @@ const FINISHES: Record<FinishId, Finish> = {
 // The projection plane is chosen by the dominant normal axis (classic single-plane triplanar
 // — no blend seam, because a facet has ONE constant normal). Because this depends only on the
 // normal, it is resolved ONCE per facet (in `prepareSurface`), never per pixel.
-interface Frame { uIdx: 0 | 1 | 2; vIdx: 0 | 1 | 2; uAxis: Vec3; vAxis: Vec3 }
-function frameFor(n: Vec3): Frame {
-  const ax = Math.abs(n[0]), ay = Math.abs(n[1]), az = Math.abs(n[2]);
-  if (az >= ax && az >= ay) {                                          // horizontal (roof/floor/deck)
-    return { uIdx: 0, vIdx: 1, uAxis: [1, 0, 0], vAxis: [0, 1, 0] };   // ground plane
-  }
-  if (ax >= ay) {                                                      // wall facing ±x
-    return { uIdx: 1, vIdx: 2, uAxis: [0, 1, 0], vAxis: [0, 0, 1] };   // world-y × up
-  }
-  return { uIdx: 0, vIdx: 2, uAxis: [1, 0, 0], vAxis: [0, 0, 1] };     // wall facing ±y: world-x × up
-}
-
 const normalize3 = (v: Vec3): Vec3 => {
   const l = Math.hypot(v[0], v[1], v[2]) || 1;
   return [v[0] / l, v[1] / l, v[2] / l];
 };
+
+interface Frame { uAxis: Vec3; vAxis: Vec3 }
+/**
+ * A true tangent basis IN the facet plane, derived from the normal alone. (u,v) are then real
+ * in-surface arc-length coordinates — so a pitched roof's texture advances at the genuine
+ * surface rate up the slope (no top-down foreshortening), the metre scale stays isotropic, and
+ * the basis is continuous + identical across all coplanar facets (courses run unbroken). Depends
+ * only on the normal ⇒ resolved ONCE per facet. Reduces EXACTLY to the old world-axis pick on
+ * axis-aligned walls/roofs (v = world-up projected into the plane; u = N × v).
+ */
+function frameFor(n: Vec3): Frame {
+  const N = normalize3(n);
+  // World up as the "v" reference, unless the facet is near-horizontal (roof apex/floor/deck) —
+  // then up ∥ N degenerates, so fall back to world +y.
+  const ref: Vec3 = Math.abs(N[2]) < 0.985 ? [0, 0, 1] : [0, 1, 0];
+  const d = N[0] * ref[0] + N[1] * ref[1] + N[2] * ref[2];
+  const vAxis = normalize3([ref[0] - N[0] * d, ref[1] - N[1] * d, ref[2] - N[2] * d]); // up the surface
+  const uAxis: Vec3 = [                                                                // N × v: across it
+    N[1] * vAxis[2] - N[2] * vAxis[1],
+    N[2] * vAxis[0] - N[0] * vAxis[2],
+    N[0] * vAxis[1] - N[1] * vAxis[0],
+  ];
+  return { uAxis, vAxis };
+}
 
 const NORMAL_BUMP = 0.6;   // how strongly micro-relief tilts the facet normal
 const EPS = 0.01;          // finite-difference step (metres) for the relief gradient
@@ -328,7 +383,10 @@ export function prepareSurface(spec: SurfaceSpec, normal: Vec3, unitsPerMetre = 
 
   return {
     at(pos: Vec3): SurfaceSample {
-      const u = pos[fr.uIdx] * inv, v = pos[fr.vIdx] * inv;
+      // (u,v) = world position projected onto the in-plane tangent basis → true 1:1 metric
+      // surface coordinates (isotropic, slope-correct, continuous across coplanar facets).
+      const u = (pos[0] * ua[0] + pos[1] * ua[1] + pos[2] * ua[2]) * inv;
+      const v = (pos[0] * va[0] + pos[1] * va[1] + pos[2] * va[2]) * inv;
       const m = pattern(u, v);
       const tone = 1 + m.tone;
       // Material albedo: base modulated by tone + small tint.

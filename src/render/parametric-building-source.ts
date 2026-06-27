@@ -90,7 +90,14 @@ export class ParametricBuildingSource {
     // rather than relying on a preset-synthesis call having happened earlier.
     ensureBuildingTypesRegistered();
     this.toSpec = deps.toSpec ?? ((rb) => toGeometry(rb));
-    this.compose = deps.compose ?? composeStructure;
+    // K0d: the freeze-safe in-game render textures every facet by the analytic
+    // Material+Finish engine at its world position — killing the flat grey-massing
+    // look with $0 procedural surface (no paid gen). Gated HERE, not as a global
+    // compose default, so the img2img grey-INIT path (material-coded flat colours the
+    // prompt legend keys off) and the assetgen goldens stay untouched. The parametric
+    // cache is in-memory + recomputed per session, so no ART_RECIPE_VERSION bump is
+    // needed for returning players to pick up the texture.
+    this.compose = deps.compose ?? ((spec) => composeStructure(spec, undefined, { surfaceTexture: true }));
     this.toSprite = deps.toSprite ?? structureResultToPack;
     this.keepStages = deps.keepStages ?? false;
   }
