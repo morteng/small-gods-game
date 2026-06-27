@@ -87,6 +87,40 @@ function extrudeProfileY(M: typeof import('manifold-3d').Manifold, profile: [num
     .translate([at[0], at[1] + depth + yShift, at[2]]);
 }
 
+/** As extrudeProfileY but the profile's u-axis lands on +y and the run goes along +x
+ *  (mirrors the roof code's ridge==='x' transform) — for arch heads on east/west walls. */
+function extrudeProfileX(M: typeof import('manifold-3d').Manifold, profile: [number, number][], depth: number, at: Vec3): Manifold {
+  return M.extrude(ensureCCW(dedupe(profile)), depth)
+    .rotate([90, 0, 90])
+    .translate([at[0], at[1], at[2]]);
+}
+
+/** A curved head cutter sitting on TOP of a rectangular aperture box, to be subtracted
+ *  so a door/window gets an arched head instead of a square one. `box` is the aperture
+ *  recess ([at]+[size]); `axis` is the wall-run direction (x = south/north faces,
+ *  y = east/west). The head springs at the box top and rises `rise` (round ⇒ rise =
+ *  half the opening width). It carries the opening's depth so it bores the same recess. */
+export async function archHeadCutter(
+  at: Vec3, size: Vec3, axis: 'x' | 'y', style: ArchStyle, rise: number,
+): Promise<Manifold> {
+  const { Manifold } = await getManifold();
+  const eps = 0.05;
+  const span = axis === 'x' ? size[0] : size[1];
+  const depth = axis === 'x' ? size[1] : size[0];
+  const topZ = at[2] + size[2];
+  // A pure cap: the intrados arc from springing (z=0) up and back to 0, base dropped
+  // `eps` so it overlaps the box top for a clean union.
+  const cap: [number, number][] = [[0, -eps]];
+  for (let i = 0; i <= ARC_SEGMENTS; i++) {
+    const u = (i / ARC_SEGMENTS) * span;
+    cap.push([u, intradosZ(style, u, span, rise, 0)]);
+  }
+  cap.push([span, -eps]);
+  return axis === 'x'
+    ? extrudeProfileY(Manifold, cap, depth, [at[0], at[1], topZ])
+    : extrudeProfileX(Manifold, cap, depth, [at[0], at[1], topZ]);
+}
+
 /**
  * A true curved arch ring spanning +x, `depth` along +y. `span` = full footprint
  * width (abutment to abutment), `rise` = intrados crown height above the springing.

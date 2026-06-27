@@ -120,6 +120,9 @@ export function connectomeOpenings(con: Connectome, base: Blueprint, era: Era | 
     const front: WallFace = mainPortal?.face ?? 'south';
     const sacred =
       con.source?.topology === 'church-axial' || con.zones.some((z) => z.fn === 'worship');
+    // Sacred masonry keeps the ecclesiastical round/Gothic head whatever the era — a
+    // stone temple has arched lights even in a 'shuttered'-window period (K2).
+    const winStyle = sacred ? 'arched' : style;
     const [flankA, flankB] = perpFaces(front);
     // A sacred building keeps its entrance front clear (the pediment/portico) and lights
     // the flanks symmetrically; a dwelling lights its front + the near flank.
@@ -134,7 +137,7 @@ export function connectomeOpenings(con: Connectome, base: Blueprint, era: Era | 
         features[`win_${face[0]}${k}`] = {
           type: 'window',
           face,
-          params: { style, glazed, t, sill, height: winH, perStorey: true },
+          params: { style: winStyle, glazed, t, sill, height: winH, perStorey: true },
         };
       });
     }

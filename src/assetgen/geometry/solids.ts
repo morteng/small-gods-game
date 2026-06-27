@@ -4,6 +4,7 @@ import { MATERIAL_RGB } from '@/assetgen/types';
 import type { Mesh, Manifold } from 'manifold-3d';
 import type { Vec2 } from '@/assetgen/types';
 import { getManifold } from '@/assetgen/geometry/manifold-runtime';
+import { archHeadCutter, type ArchStyle } from '@/assetgen/geometry/arch';
 import {
   STOREY, type Wing, type RoofKind, type RoofStyle, type RidgeAxis,
   type BuildingFeatures, type BuildingAnchors, type VentFeature, type VentKind, type WallFace,
@@ -109,8 +110,14 @@ export async function solidArch(at: Vec3, span: number, height: number, thicknes
 
 /** Absolute box to subtract from a wall solid (an opening's aperture). `yaw`, if set,
  *  rotates the box about its own centre by that many degrees around Z — so an opening on
- *  a round wall can sit radially flush to the curve instead of axis-aligned to the bbox. */
-export interface ApertureBox { at: Vec3; size: Vec3; yaw?: number }
+ *  a round wall can sit radially flush to the curve instead of axis-aligned to the bbox.
+ *  `arch`, if set, adds a curved head cutter on TOP of the box (K2) so the opening gets
+ *  an arched head instead of a square one — `axis` is the wall-run direction, `rise` the
+ *  head height above the box top (round ⇒ half the opening width). */
+export interface ApertureBox {
+  at: Vec3; size: Vec3; yaw?: number;
+  arch?: { axis: 'x' | 'y'; style: ArchStyle; rise: number };
+}
 
 /** A solid box, optionally yawed about its own centre (degrees, around Z). */
 async function solidBoxYawed(at: Vec3, size: Vec3, yaw?: number): Promise<Manifold> {
@@ -120,11 +127,19 @@ async function solidBoxYawed(at: Vec3, size: Vec3, yaw?: number): Promise<Manifo
   return box.translate([-cx, -cy, 0]).rotate([0, 0, yaw]).translate([cx, cy, 0]);
 }
 
+/** One aperture cutter: the recess box, plus (if `arch` is set) a curved head on top. */
+async function apertureCutter(a: ApertureBox): Promise<Manifold> {
+  const box = await solidBoxYawed(a.at, a.size, a.yaw);
+  if (!a.arch) return box;
+  const head = await archHeadCutter(a.at, a.size, a.arch.axis, a.arch.style, a.arch.rise);
+  return box.add(head);
+}
+
 /** Subtract a set of aperture boxes from a wall solid (carving openings). No-op if empty. */
 export async function carveApertures(solid: Manifold, apertures: ApertureBox[] = []): Promise<Manifold> {
   if (!apertures.length) return solid;
   const { Manifold } = await getManifold();
-  const holes = await Promise.all(apertures.map(a => solidBoxYawed(a.at, a.size, a.yaw)));
+  const holes = await Promise.all(apertures.map(apertureCutter));
   return solid.subtract(Manifold.union(holes));
 }
 

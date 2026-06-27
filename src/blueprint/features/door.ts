@@ -18,6 +18,8 @@ function doorSpec(f: ResolvedFeature): ApertureSpec {
   return {
     face: f.face ?? 'south', t: f.params.t as number, sill: 0,
     halfW: f.params.halfW as number, height: f.params.height as number, depth: DOOR_RECESS,
+    // An arched doorway (the user's "arches occur in doorways too") — a round head.
+    ...(f.params.arched ? { arch: 'round' as const } : {}),
   };
 }
 
@@ -25,6 +27,7 @@ export const doorFeatureType: FeatureType = {
   type: 'door',
   paramSchema: {
     main: { kind: 'bool', default: false },
+    arched: { kind: 'bool', default: false },   // round-headed doorway (K2)
     // width/height: half-width along the wall (tiles) and height (height-units).
     // Defaulted from the scale contract in resolve() when left unset (-1 sentinel).
     width: { kind: 'number', min: -1, max: 2, default: -1 },
@@ -49,6 +52,7 @@ export const doorFeatureType: FeatureType = {
     return {
       params: {
         main, halfW, height,
+        arched: p.arched === true,
         t: (p.t as number) ?? 0.5,
         hinge: (p.hinge as string) ?? 'left',
         swing: (p.swing as string) ?? 'in',

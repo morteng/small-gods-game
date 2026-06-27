@@ -132,11 +132,16 @@ export function apertureToBox(s: ApertureSpec, part: ResolvedPart): FaceBox {
   if (part.params?.plan === 'round') return roundAperture(part, s);
   const c = alongCentre(part, s);
   const d = s.depth, e = APERTURE_EPS, two = 2 * s.halfW;
+  // The opening runs along x on south/north faces, along y on east/west. A round head
+  // rises `halfW` above the opening top (radius = half the opening width).
+  const arch = s.arch
+    ? { arch: { axis: (s.face === 'south' || s.face === 'north' ? 'x' : 'y') as 'x' | 'y', style: s.arch, rise: s.halfW } }
+    : {};
   switch (s.face) {
-    case 'south': { const yp = outerCoord(part, 'south', c); return { at: [c - s.halfW, yp - d, s.sill], size: [two, d + e, s.height] }; }
-    case 'north': { const yp = outerCoord(part, 'north', c); return { at: [c - s.halfW, yp - e, s.sill], size: [two, d + e, s.height] }; }
-    case 'east':  { const xp = outerCoord(part, 'east',  c); return { at: [xp - d, c - s.halfW, s.sill], size: [d + e, two, s.height] }; }
-    case 'west':  { const xp = outerCoord(part, 'west',  c); return { at: [xp - e, c - s.halfW, s.sill], size: [d + e, two, s.height] }; }
+    case 'south': { const yp = outerCoord(part, 'south', c); return { at: [c - s.halfW, yp - d, s.sill], size: [two, d + e, s.height], ...arch }; }
+    case 'north': { const yp = outerCoord(part, 'north', c); return { at: [c - s.halfW, yp - e, s.sill], size: [two, d + e, s.height], ...arch }; }
+    case 'east':  { const xp = outerCoord(part, 'east',  c); return { at: [xp - d, c - s.halfW, s.sill], size: [d + e, two, s.height], ...arch }; }
+    case 'west':  { const xp = outerCoord(part, 'west',  c); return { at: [xp - e, c - s.halfW, s.sill], size: [d + e, two, s.height], ...arch }; }
   }
 }
 

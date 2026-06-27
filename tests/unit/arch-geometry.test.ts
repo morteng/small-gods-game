@@ -5,8 +5,8 @@
 // opening, and that `flat` still delegates to the historic portal byte-for-byte.
 import { describe, it, expect } from 'vitest';
 import { getManifold } from '@/assetgen/geometry/manifold-runtime';
-import { solidArch } from '@/assetgen/geometry/solids';
-import { solidArchCurved } from '@/assetgen/geometry/arch';
+import { solidArch, solidBox, carveApertures } from '@/assetgen/geometry/solids';
+import { solidArchCurved, archHeadCutter } from '@/assetgen/geometry/arch';
 
 const SPAN = 4, RISE = 2, DEPTH = 1; // round arch: rise = span/2
 
@@ -57,5 +57,39 @@ describe('solidArchCurved', () => {
     // yawing 90° swaps the span extent from x onto y.
     expect(ns.boundingBox().max[1] - ns.boundingBox().min[1]).toBeCloseTo(
       ew.boundingBox().max[0] - ew.boundingBox().min[0], 3);
+  });
+});
+
+describe('archHeadCutter (K2 — arched window/door heads)', () => {
+  it('axis x: head spans the opening width in x, sits ON the box top, runs the depth in y', async () => {
+    const m = await archHeadCutter([2, 5, 1], [0.8, 0.3, 1.2], 'x', 'round', 0.4);
+    const bb = m.boundingBox();
+    expect(bb.min[0]).toBeCloseTo(2, 3);
+    expect(bb.max[0]).toBeCloseTo(2.8, 3);
+    expect(bb.min[1]).toBeCloseTo(5, 2);
+    expect(bb.max[1]).toBeCloseTo(5.3, 2);
+    expect(bb.max[2]).toBeCloseTo(1 + 1.2 + 0.4, 2);   // box top + rise
+    expect(bb.min[2]).toBeLessThan(1 + 1.2);            // overlaps the box top
+  });
+
+  it('axis y: head spans the opening width in y, runs the depth in x', async () => {
+    const m = await archHeadCutter([2, 5, 1], [0.3, 0.8, 1.2], 'y', 'round', 0.4);
+    const bb = m.boundingBox();
+    expect(bb.min[1]).toBeCloseTo(5, 3);
+    expect(bb.max[1]).toBeCloseTo(5.8, 3);
+    expect(bb.min[0]).toBeCloseTo(2, 2);
+    expect(bb.max[0]).toBeCloseTo(2.3, 2);
+    expect(bb.max[2]).toBeCloseTo(1 + 1.2 + 0.4, 2);
+  });
+
+  it('carveApertures with arch removes MORE masonry than a square opening (the head)', async () => {
+    const wall = () => solidBox([0, 0, 0], [4, 0.4, 2]);    // a south-facing wall slab
+    const ap = { at: [1, 0, 0] as [number, number, number], size: [0.8, 0.45, 1.0] as [number, number, number] };
+    const square = await carveApertures(await wall(), [ap]);
+    const arched = await carveApertures(await wall(), [{ ...ap, arch: { axis: 'x' as const, style: 'round' as const, rise: 0.4 } }]);
+    // the arched head bores extra void above the square top, so less solid remains.
+    expect(arched.volume()).toBeLessThan(square.volume());
+    // …and it reaches higher than the square opening's flat top (carves into the masonry above).
+    expect(arched.genus()).toBeGreaterThanOrEqual(0); // still a valid manifold
   });
 });

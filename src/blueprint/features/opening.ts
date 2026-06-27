@@ -4,6 +4,7 @@
 // kind-specific filler (door leaf / window pane). Geometry is carved by wall-geometry.ts.
 import type { FeatureType } from '../registry';
 import type { WallFace } from '../types';
+import type { ArchStyle } from '@/assetgen/geometry/arch';
 
 /** The hole to subtract from a host wall, in part-local units. */
 export interface ApertureSpec {
@@ -16,6 +17,8 @@ export interface ApertureSpec {
   height: number;
   /** how deep to cut into the wall (a recess for door/window; full thickness for a portal). */
   depth: number;
+  /** if set, the opening gets a curved head of this style instead of a square top (K2). */
+  arch?: ArchStyle;
 }
 
 /** True if this feature kind is a wall opening (declares an aperture hook). */
