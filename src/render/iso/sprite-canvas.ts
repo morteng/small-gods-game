@@ -6,6 +6,18 @@ import type { MountAnchorN } from '@/assetgen/compose';
 
 export type SpriteCanvas = HTMLCanvasElement | OffscreenCanvas;
 
+/** A raw, UN-premultiplied RGBA buffer + its dimensions. Used for DATA maps
+ *  (e.g. the material map, whose alpha channel carries metallic, NOT coverage)
+ *  that must NEVER round-trip through a 2D canvas: a canvas backing store is
+ *  premultiplied, so any pixel with alpha≈0 has its RGB silently zeroed — which
+ *  destroys the baked AO (G) and roughness (B) wherever metallic (A) is 0, i.e.
+ *  almost everywhere. These upload straight to the GPU via `writeTexture`. */
+export interface RawMap {
+  data: Uint8ClampedArray;
+  w: number;
+  h: number;
+}
+
 /**
  * A building sprite + its co-registered companion PBR maps (same crop as the
  * albedo, so UVs align by construction). `normal`/`material` feed the WebGL
@@ -18,6 +30,9 @@ export interface SpritePack {
   albedo: SpriteCanvas;
   normal?: SpriteCanvas;
   material?: SpriteCanvas;
+  /** The material map as raw RGBA (preferred over `material` for GPU upload).
+   *  See {@link RawMap}: the canvas form destroys AO/roughness where metallic=0. */
+  materialData?: RawMap;
   emissive?: SpriteCanvas;
   /** Geometry-baked ground cast shadow + its offset (px) from the albedo crop's
    *  top-left, so the runtime blits it on the ground under the sprite. */
@@ -59,6 +74,29 @@ export function greyToSpriteCanvas(grey: Uint8ClampedArray, size: number, bbox: 
   cctx.imageSmoothingEnabled = false;
   cctx.drawImage(full as CanvasImageSource, Math.round(bbox.x), Math.round(bbox.y), w, h, 0, 0, w, h);
   return crop;
+}
+
+/** Crop a full-`size` RGBA data buffer to the opaque `bbox` as a raw {@link RawMap},
+ *  WITHOUT a 2D canvas — so DATA channels survive (no premultiply). Mirrors the
+ *  integer-rect crop `greyToSpriteCanvas` performs, so the result stays co-registered
+ *  pixel-for-pixel with the canvas-cropped albedo/normal. Clamps the source rect to
+ *  the buffer; out-of-range pixels stay zero. */
+export function cropRgba(src: Uint8ClampedArray, size: number, bbox: BBox): RawMap | null {
+  const w = Math.max(1, Math.round(bbox.w));
+  const h = Math.max(1, Math.round(bbox.h));
+  const ox = Math.round(bbox.x), oy = Math.round(bbox.y);
+  const out = new Uint8ClampedArray(w * h * 4);
+  for (let y = 0; y < h; y++) {
+    const sy = oy + y;
+    if (sy < 0 || sy >= size) continue;
+    for (let x = 0; x < w; x++) {
+      const sx = ox + x;
+      if (sx < 0 || sx >= size) continue;
+      const so = (sy * size + sx) * 4, di = (y * w + x) * 4;
+      out[di] = src[so]; out[di + 1] = src[so + 1]; out[di + 2] = src[so + 2]; out[di + 3] = src[so + 3];
+    }
+  }
+  return { data: out, w, h };
 }
 
 /** Encode a full grey RGBA buffer as a PNG data-URI (img2img init image). Null in jsdom (no document). */

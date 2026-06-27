@@ -80,9 +80,15 @@ buildability-envelope spec.
   `FacetProjector` arg; `cylindricalProjector` on cylinder/cone/prism barrels; `prepareSurface(…, frame?)`
   branches (per-pixel angular sampler for cylinders). +3 tests inc. arc-length metric-invariance.
   *(Swept arch frames + run-aligned trim/vent frames are a follow-up — not yet authored.)*
-- **K0e — shader honours roughness + finish** ⬜ (#60). banded-PBR (`lit-wgsl.ts`) currently does
-  diffuse + AO only, no specular to modulate; **also resolve the channel wrinkle**: `rasterize`
-  writes metallic→`material.a` but `lit-wgsl` reads `.a` as AO-strength. A deliberate lighting slice.
+- **K0e — shader honours roughness + finish** ✅ (#60). banded-PBR (`banded-pbr.ts` + `lit-wgsl.ts`)
+  now adds a gloss-gated (1−roughness) banded Blinn-Phong specular tinted by metallic, and reads AO
+  straight from `material.G` (the old `mix(1,G,A)` gated AO by *metallic* ≈0, silently discarding it).
+  **Root-cause caveat found during visual verify:** the baked AO/roughness never actually reached the
+  GPU — the material map (a DATA map whose A=metallic, not coverage) was round-tripped through a
+  *premultiplied* 2D canvas (`greyToSpriteCanvas`), which zeros RGB wherever alpha≈0, so K0e's correct
+  `ao=G` read rendered every non-metal **black**. Fixed by uploading the material map RAW via
+  `cropRgba` → `gpu-scene.uploadRawTexture` (`writeTexture`, no premultiply), bypassing the canvas.
+  This is what makes K0a–K0d's surface engine visible. Verified in-game (buildings + trees lit, textured).
 - **KR — roads/terrain share the engine** ⬜ (DEFERRED per scope decision).
 
 ## Verification

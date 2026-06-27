@@ -14,6 +14,7 @@
 // off the image sources — so the bucketing + draw-call count are unit-testable.
 
 import type { DrawItem } from '@/render/iso/draw-list';
+import type { RawMap } from '@/render/iso/sprite-canvas';
 
 /** Per-instance attributes: a destination quad + its UV sub-rect + depth. */
 export interface InstanceAttrs {
@@ -35,6 +36,9 @@ export interface InstanceBatch {
   texture: CanvasImageSource;
   normal?: CanvasImageSource;
   material?: CanvasImageSource;
+  /** Raw material map (preferred over `material` — uploaded via writeTexture so the
+   *  data channels survive; the canvas form premultiplies away AO/roughness). */
+  materialData?: RawMap;
   /** Self-illumination map (lit window panes); added by the shader × night factor.
    *  Optional and independent of `lit` — a sprite can glow without normal/material. */
   emissive?: CanvasImageSource;
@@ -87,8 +91,9 @@ export function buildInstanceBatches(items: readonly DrawItem[]): {
         texture: it.src,
         normal: it.maps?.normal,
         material: it.maps?.material,
+        materialData: it.maps?.materialData,
         emissive: it.maps?.emissive,
-        lit: !!(it.maps?.normal && it.maps?.material),
+        lit: !!(it.maps?.normal && (it.maps?.material || it.maps?.materialData)),
         instances: [],
       };
       byTexture.set(it.src, batch);

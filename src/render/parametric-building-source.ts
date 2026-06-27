@@ -8,7 +8,7 @@ import type { Entity } from '@/core/types';
 import { blueprintOf } from '@/blueprint/entity';
 import type { ResolvedBlueprint } from '@/blueprint/types';
 import { toGeometry } from '@/blueprint/compile/to-geometry';
-import { greyToSpriteCanvas, rgbaToCanvas, type SpritePack } from '@/render/iso/sprite-canvas';
+import { greyToSpriteCanvas, rgbaToCanvas, cropRgba, type SpritePack } from '@/render/iso/sprite-canvas';
 import { composeStructure, type StructureSpec, type StructureResult } from '@/assetgen/compose';
 import { ensureBuildingTypesRegistered } from '@/blueprint/register-buildings';
 
@@ -37,7 +37,9 @@ export function structureResultToPack(r: StructureResult): SpritePack | null {
   const pack: SpritePack = {
     albedo,
     normal: greyToSpriteCanvas(r.normal, r.size, r.bbox) ?? undefined,
-    material: greyToSpriteCanvas(r.material, r.size, r.bbox) ?? undefined,
+    // Material is a DATA map (A=metallic, not coverage) — crop it RAW, never via a
+    // premultiplied 2D canvas which would zero AO/roughness where metallic=0.
+    materialData: cropRgba(r.material, r.size, r.bbox) ?? undefined,
   };
   // Emissive (lit window panes) — only crop+attach when there's actual glow, so
   // the vast majority of window-less sprites never upload a black texture.

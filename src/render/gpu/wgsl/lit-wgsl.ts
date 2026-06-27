@@ -13,12 +13,14 @@
 // sub-rect, and a painter-order depth (see instance-buffer.ts for the byte
 // layout these @location indices must match).
 //
-// The DIFFUSE math mirrors `banded-pbr.ts` (the executable reference) exactly:
-// hard alpha-cutout, flat-normal fallback on mask ≤ 0.5, AO = mix(1, mat.G,
-// mat.A), diffuse banded by floor(ndl·bands + 0.5)/bands, premultiplied output.
-// On top of that, a night-only EMISSIVE term (`uEmissiveMap.rgb · uNight`) fades
-// in self-illumination (lit window panes) — absent from the TS reference, which
-// models the daytime diffuse only; at uNight = 0 the two are identical.
+// The lighting math mirrors `banded-pbr.ts` (the executable reference) exactly:
+// hard alpha-cutout, flat-normal fallback on mask ≤ 0.5, AO = mat.G (full
+// strength), diffuse banded by floor(ndl·bands + 0.5)/bands, plus a banded
+// Blinn-Phong specular glint gated by gloss (1 − mat.B roughness) and tinted by
+// mat.A metallic — so finished/smooth faces glint and matte faces don't. Output
+// premultiplied. On top of that, a night-only EMISSIVE term (`uEmissiveMap.rgb ·
+// uNight`) fades in self-illumination (lit window panes) — absent from the TS
+// reference, which models daytime only; at uNight = 0 the two are identical.
 
 export const LIT_WGSL = /* wgsl */ `
 struct Globals {
@@ -81,16 +83,29 @@ fn fsMain(@location(0) vUV : vec2<f32>) -> @location(0) vec4<f32> {
   }
 
   let mat = textureSample(uMaterialMap, uSampler, vUV);
-  let ao = mix(1.0, mat.g, mat.a);
+  let ao    = mat.g;   // baked ambient occlusion (1 = open)
+  let rough = mat.b;
+  let metal = mat.a;
 
+  // Diffuse — banded Lambert.
   let ndl = max(dot(n, G.uSunDir), 0.0);
   let banded = floor(ndl * G.uBands + 0.5) / G.uBands;
+  let diffuse = (G.uAmbient + G.uSunColor * banded) * ao;
 
-  let lit = (G.uAmbient + G.uSunColor * banded) * ao;
+  // Specular — banded Blinn-Phong glint, gated to zero on matte surfaces (gloss = 1 − rough).
+  let gloss = 1.0 - rough;
+  let half = normalize(G.uSunDir + vec3<f32>(0.0, 0.0, 1.0));   // viewDir = +z (toward camera)
+  let ndh = max(dot(n, half), 0.0);
+  let specPower = pow(2.0, 2.0 + 9.0 * gloss);
+  let specRaw = pow(ndh, specPower) * gloss * ao;
+  let specBand = floor(specRaw * G.uBands + 0.5) / G.uBands;
+  let specTint = mix(vec3<f32>(1.0, 1.0, 1.0), albedo.rgb, metal);  // metals tint the highlight
+  let specular = G.uSunColor * specBand * specTint;
+
   // Self-illumination (lit window panes): added on top of the lit albedo and
   // faded in by the night factor, so panes are dark glass by day and glow at night.
   // Premultiplied: scale by alpha to stay consistent with the cutout output.
   let emissive = textureSample(uEmissiveMap, uSampler, vUV).rgb * G.uNight;
-  return vec4<f32>(albedo.rgb * lit + emissive * albedo.a, albedo.a);
+  return vec4<f32>(albedo.rgb * diffuse + (specular + emissive) * albedo.a, albedo.a);
 }
 `;

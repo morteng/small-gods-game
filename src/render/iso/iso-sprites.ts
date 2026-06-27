@@ -124,10 +124,11 @@ export function plantSpriteItemFromPack(
   if (pack.shadow) {
     item.shadowSprite = { src: pack.shadow.canvas, dx: pack.shadow.dx, dy: pack.shadow.dy };
   }
-  if (pack.normal || pack.material || pack.emissive) {
+  if (pack.normal || pack.material || pack.materialData || pack.emissive) {
     item.maps = {
       normal: pack.normal as CanvasImageSource | undefined,
       material: pack.material as CanvasImageSource | undefined,
+      materialData: pack.materialData,
       emissive: pack.emissive as CanvasImageSource | undefined,
     };
   }

@@ -9,6 +9,8 @@
  * is the item order.
  */
 
+import type { RawMap } from '@/render/iso/sprite-canvas';
+
 /** Source sub-rectangle for spritesheet frames (sheet px). */
 export interface SrcFrame { sx: number; sy: number; sw: number; sh: number }
 
@@ -24,7 +26,7 @@ export type DrawItem =
        * framed). Present only on building-pack sprites; the GPU scene lights
        * items that carry a normal map.
        */
-      maps?: { normal?: CanvasImageSource; material?: CanvasImageSource; emissive?: CanvasImageSource };
+      maps?: { normal?: CanvasImageSource; material?: CanvasImageSource; materialData?: RawMap; emissive?: CanvasImageSource };
       /**
        * Cast-shadow hint. `footLift` = screen px the ground-contact point sits
        * ABOVE the sprite's bottom edge (buildings anchor at their

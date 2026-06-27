@@ -184,6 +184,8 @@ export class GpuScene {
   /** Per-batch bind group cache, keyed by the albedo source (batch identity). */
   private bindCache = new WeakMap<CanvasImageSource, GPUBindGroup>();
   private texCache = new WeakMap<CanvasImageSource, GPUTexture>();
+  /** Raw material-map textures, keyed by RawMap identity (not a CanvasImageSource). */
+  private rawTexCache = new WeakMap<object, GPUTexture>();
   /** Persistent, grow-on-demand vertex/instance buffers (one per stream), reused
    *  every frame instead of allocating + destroying dozens of buffers per frame. */
   private dynBufs = new Map<string, { buf: GPUBuffer; cap: number }>();
@@ -371,12 +373,35 @@ export class GpuScene {
     return tex;
   }
 
+  /** Upload a raw, UN-premultiplied RGBA buffer (a DATA map like the material map)
+   *  straight to a texture via writeTexture — bypassing the premultiplied 2D-canvas
+   *  path that would zero the AO/roughness channels where metallic (alpha) is 0. */
+  private uploadRawTexture(m: { data: Uint8ClampedArray; w: number; h: number }): GPUTexture {
+    const cached = this.rawTexCache.get(m);
+    if (cached) return cached;
+    const w = Math.max(1, m.w), h = Math.max(1, m.h);
+    const tex = this.device.createTexture({
+      size: [w, h, 1], format: 'rgba8unorm',
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+    });
+    this.device.queue.writeTexture(
+      { texture: tex },
+      m.data as unknown as BufferSource,
+      { bytesPerRow: w * 4, rowsPerImage: h },
+      [w, h, 1],
+    );
+    this.rawTexCache.set(m, tex);
+    return tex;
+  }
+
   private batchBind(b: InstanceBatch): GPUBindGroup {
     const cached = this.bindCache.get(b.texture);
     if (cached) return cached;
     const albedo = this.uploadTexture(b.texture, true);
     const normal = b.normal ? this.uploadTexture(b.normal, false) : this.flatNormal;
-    const material = b.material ? this.uploadTexture(b.material, false) : this.neutralMaterial;
+    const material = b.materialData
+      ? this.uploadRawTexture(b.materialData)
+      : b.material ? this.uploadTexture(b.material, false) : this.neutralMaterial;
     // Emissive is premultiplied-uploaded (true) like the albedo: lit-pane RGB is
     // co-keyed to the same alpha cutout, and the shader scales it by alpha.
     const emissive = b.emissive ? this.uploadTexture(b.emissive, true) : this.blackEmissive;
