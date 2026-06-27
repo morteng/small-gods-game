@@ -69,19 +69,21 @@ buildability-envelope spec.
 
 ## Slices
 
-- **KW — stonework taxonomy.** `SurfaceWork` union + `PATTERNS[family][work]` + the 6 stoneworks
-  (+ brick `running|flemish`, timber `plank|board_batten`). `SurfaceSpec.work?`. Engine-only;
-  unit tests for distinctness/determinism/gamut per work. *(material-surface.ts + tests)*
-- **KU — UV in geometry.** `WorldFacet.frame?`; `manifoldToFacets` projector arg; cylindrical +
-  swept + run-aligned projectors; `prepareSurface(spec, normal, unitsPerMetre, frame?)` consumes it;
-  rasterizer passes `f.frame`. UV-scale parity test. *(types, solids, linear, projection, rasterize,
-  material-surface)*
-- **KC — wiring / Palette→work.** Resolve `{family,work,finish,tint}` per region from the blueprint
-  + Palette; assign stonework per preset class (keep/church = ashlar body + quoins; cottage = coursed
-  rubble; yard/path = cobble; etc). Carry onto facets incl. aperture surrounds. *(blueprint compile +
-  building.ts facet tagging)*
-- **K0e — shader honours roughness + finish** (existing #60; banded-PBR reads material.B).
-- **KR — roads/terrain share the engine** (DEFERRED per scope decision).
+- **K0d — texture in-game + IQ stone + tangent UVs** ✅ (877b287). ParametricBuildingSource composes
+  with surfaceTexture on; stone = IQ Voronoi-border; frame = tangent-from-normal.
+- **KW — stonework taxonomy** ✅ (28561e6). `SurfaceWork` union + `WORK_PATTERNS` + the 6 stoneworks
+  (+ brick `running|flemish`, timber `plank|board_batten`). `DEFAULT_WORK` per family. +4 tests.
+- **KC — wiring / descriptor→work** ✅ (c16c935). `WorldFacet/ScreenFacet += work/finish/tint`;
+  `manifoldToFacets(…, work?)`, `buildingFacets(… wallWork?)`; `WALL_WORK` LUT resolved in
+  body/wing/structural. (Roof works + aperture-surround tagging are a follow-up.)
+- **KU — UV in geometry** ✅ (7005982). `SurfaceFrame` (planar | cylindrical); `manifoldToFacets`
+  `FacetProjector` arg; `cylindricalProjector` on cylinder/cone/prism barrels; `prepareSurface(…, frame?)`
+  branches (per-pixel angular sampler for cylinders). +3 tests inc. arc-length metric-invariance.
+  *(Swept arch frames + run-aligned trim/vent frames are a follow-up — not yet authored.)*
+- **K0e — shader honours roughness + finish** ⬜ (#60). banded-PBR (`lit-wgsl.ts`) currently does
+  diffuse + AO only, no specular to modulate; **also resolve the channel wrinkle**: `rasterize`
+  writes metallic→`material.a` but `lit-wgsl` reads `.a` as AO-strength. A deliberate lighting slice.
+- **KR — roads/terrain share the engine** ⬜ (DEFERRED per scope decision).
 
 ## Verification
 
