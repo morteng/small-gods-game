@@ -2,7 +2,7 @@
 import type { ScreenFacet, RGB, Pt, Vec3 } from '@/assetgen/types';
 import { normalRGB } from '@/assetgen/render/projection';
 import { materialPbr } from '@/assetgen/material-pbr';
-import { prepareSurface, type FinishId } from '@/assetgen/render/material-surface';
+import { prepareSurface, type FinishId, type SurfaceWork } from '@/assetgen/render/material-surface';
 
 /** Opt-in analytic surface texturing (K0). When present, opaque pixels are textured by the
  *  Material+Finish engine at their interpolated world position; absent ⇒ flat per-facet
@@ -94,7 +94,12 @@ export function rasterizeMaps(facets: ScreenFacet[], size: number, surface?: Sur
       if (wx && wy && wz) {
         pw = [wx, wy, wz];
         sampler = prepareSurface(
-          { material: f.mat, finish: f.finish as FinishId | undefined },
+          {
+            material: f.mat,
+            work: f.work as SurfaceWork | undefined,
+            finish: f.finish as FinishId | undefined,
+            tint: f.tint,
+          },
           f.normal, surface.unitsPerMetre,
         );
       }

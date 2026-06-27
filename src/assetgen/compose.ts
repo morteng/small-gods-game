@@ -20,13 +20,13 @@ import { mToTiles } from '@/render/scale-contract';
 import type { Anchor, MountAnchorKind } from '@/world/anchors';
 
 export type Part =
-  | { prim: 'box'; at: Vec3; size: Vec3; material?: Mat; apertures?: ApertureBox[]; yaw?: number }
-  | { prim: 'cylinder'; center: [number, number]; baseZ: number; radius: number; height: number; material?: Mat; apertures?: ApertureBox[] }
+  | { prim: 'box'; at: Vec3; size: Vec3; material?: Mat; work?: string; apertures?: ApertureBox[]; yaw?: number }
+  | { prim: 'cylinder'; center: [number, number]; baseZ: number; radius: number; height: number; material?: Mat; work?: string; apertures?: ApertureBox[] }
   | { prim: 'cone'; center: [number, number]; baseZ: number; radius: number; height: number; material?: Mat }
-  | { prim: 'prism'; center: [number, number]; baseZ: number; radius: number; height: number; sides: number; material?: Mat }
+  | { prim: 'prism'; center: [number, number]; baseZ: number; radius: number; height: number; sides: number; material?: Mat; work?: string }
   | { prim: 'ellipsoid'; center: [number, number]; baseZ: number; radii: Vec3; material?: Mat; bore?: { radius: number; depth: number } }
-  | { prim: 'arch'; at: Vec3; span: number; height: number; thickness: number; yaw?: number; material?: Mat }
-  | { prim: 'building'; wings: Wing[]; wallMat?: Mat; roofMat?: Mat; roofStyle?: RoofStyle; features?: BuildingFeatures; seed?: number; apertures?: ApertureBox[] }
+  | { prim: 'arch'; at: Vec3; span: number; height: number; thickness: number; yaw?: number; material?: Mat; work?: string }
+  | { prim: 'building'; wings: Wing[]; wallMat?: Mat; roofMat?: Mat; roofStyle?: RoofStyle; features?: BuildingFeatures; seed?: number; apertures?: ApertureBox[]; wallWork?: string }
   | { prim: 'flora'; limbs: Limb[]; leaves: Leaf[]; barkMat?: Mat; foliageMat?: Mat }
   | { prim: 'rock'; center: [number, number]; baseZ: number; radius: number; seed: number; jitter?: number; mat?: Mat; subdiv?: number }
   | { prim: 'linear'; run: BarrierRun }
@@ -73,22 +73,22 @@ async function partFacets(p: Part): Promise<{ facets: WorldFacet[]; anchors?: Bu
     case 'box': {
       let s = await solidBoxYawed(p.at, p.size, p.yaw);
       s = await carveApertures(s, p.apertures);
-      return { facets: manifoldToFacets(s.getMesh(), p.material ?? 'stone') };
+      return { facets: manifoldToFacets(s.getMesh(), p.material ?? 'stone', p.work) };
     }
     case 'cylinder': {
       let s = await solidCylinder(p.center, p.baseZ, p.radius, p.height);
       s = await carveApertures(s, p.apertures);
-      return { facets: manifoldToFacets(s.getMesh(), p.material ?? 'stone') };
+      return { facets: manifoldToFacets(s.getMesh(), p.material ?? 'stone', p.work) };
     }
     case 'cone':      return { facets: manifoldToFacets((await solidCone(p.center, p.baseZ, 0, p.radius, p.height)).getMesh(), p.material ?? 'foliage') };
-    case 'prism':     return { facets: manifoldToFacets((await solidPrism(p.center, p.baseZ, p.radius, p.height, p.sides)).getMesh(), p.material ?? 'stone') };
+    case 'prism':     return { facets: manifoldToFacets((await solidPrism(p.center, p.baseZ, p.radius, p.height, p.sides)).getMesh(), p.material ?? 'stone', p.work) };
     case 'ellipsoid': {
       let s = await solidEllipsoid(p.center, p.baseZ, p.radii);
       if (p.bore) s = await boreCylinder(s, p.center, p.baseZ + 2 * p.radii[2], p.bore.radius, p.bore.depth);
       return { facets: manifoldToFacets(s.getMesh(), p.material ?? 'foliage') };
     }
-    case 'arch':      return { facets: manifoldToFacets((await solidArch(p.at, p.span, p.height, p.thickness, p.yaw)).getMesh(), p.material ?? 'stone') };
-    case 'building':  return buildingFacets(p.wings, p.wallMat, p.roofMat, p.roofStyle, p.features, p.seed, p.apertures);
+    case 'arch':      return { facets: manifoldToFacets((await solidArch(p.at, p.span, p.height, p.thickness, p.yaw)).getMesh(), p.material ?? 'stone', p.work) };
+    case 'building':  return buildingFacets(p.wings, p.wallMat, p.roofMat, p.roofStyle, p.features, p.seed, p.apertures, p.wallWork);
     case 'flora':     return { facets: [...tubeFacets(p.limbs, p.barkMat ?? 'bark'), ...blobFacets(p.leaves, p.foliageMat ?? 'foliage')] };
     case 'rock':      return { facets: rockFacets({ center: p.center, baseZ: p.baseZ, radius: p.radius, seed: p.seed, jitter: p.jitter, mat: p.mat, subdiv: p.subdiv }) };
     case 'linear':    { const r = await linearFacets(p.run); return { facets: r.facets, linearAnchors: r.anchors }; }

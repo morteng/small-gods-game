@@ -4,7 +4,7 @@
 import type { PartType, CompileCtx } from '../registry';
 import type { Part as Prim } from '@/assetgen/compose';
 import { STOREY } from '@/assetgen/geometry/building';
-import { WALL_MAT, ROOF_MAT } from './body';
+import { WALL_MAT, WALL_WORK, ROOF_MAT } from './body';
 
 const cellsOf = (p: { at: { x: number; y: number }; size: { w: number; h: number } }): Array<[number, number]> => {
   const out: Array<[number, number]> = [];
@@ -26,15 +26,16 @@ export const towerPartType: PartType = {
   toPrims(p, ctx: CompileCtx): Prim[] {
     const wallMat = WALL_MAT[ctx.materials.walls] ?? 'stone';
     const roofMat = ROOF_MAT[ctx.materials.roof] ?? 'stone';
+    const wallWork = WALL_WORK[ctx.materials.walls];
     const h = Math.max(1, p.params.levels as number) * STOREY;
     const spireMul = (p.params.spire as number) || 1.2;
     if (p.params.shape === 'round') {
       const r = Math.min(p.size.w, p.size.h) / 2, cx = p.at.x + p.size.w / 2, cy = p.at.y + p.size.h / 2;
-      const out: Prim[] = [{ prim: 'cylinder', center: [cx, cy], baseZ: 0, radius: r, height: h, material: wallMat }];
+      const out: Prim[] = [{ prim: 'cylinder', center: [cx, cy], baseZ: 0, radius: r, height: h, material: wallMat, work: wallWork }];
       if (p.params.roof !== 'flat') out.push({ prim: 'cone', center: [cx, cy], baseZ: h, radius: r, height: r * spireMul, material: roofMat });
       return out;
     }
-    const out: Prim[] = [{ prim: 'box', at: [p.at.x, p.at.y, 0], size: [p.size.w, p.size.h, h], material: wallMat }];
+    const out: Prim[] = [{ prim: 'box', at: [p.at.x, p.at.y, 0], size: [p.size.w, p.size.h, h], material: wallMat, work: wallWork }];
     if (p.params.roof !== 'flat') {
       const cx = p.at.x + p.size.w / 2, cy = p.at.y + p.size.h / 2, r = Math.min(p.size.w, p.size.h) / 2;
       out.push({ prim: 'cone', center: [cx, cy], baseZ: h, radius: r, height: r * spireMul, material: roofMat });

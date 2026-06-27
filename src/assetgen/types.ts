@@ -24,14 +24,19 @@ export const MATERIAL_RGB: Record<Mat, RGB> = {
   glass:   [44, 52, 64],   // dark cool glazing by day; the warm glow is its emissive (night)
 };
 
-/** A flat-shaded polygon in WORLD space (tile-local x,y; z up), pre-projection. */
-export interface WorldFacet { pts: Vec3[]; normal: Vec3; albedo: RGB; mat: Mat }
+/** A flat-shaded polygon in WORLD space (tile-local x,y; z up), pre-projection. `work`
+ *  (bond/coursing — a `SurfaceWork`), `finish` (paint layer) and `tint` are the resolved
+ *  surface descriptor (KC); loosely-typed strings here to avoid a render→types import cycle. */
+export interface WorldFacet {
+  pts: Vec3[]; normal: Vec3; albedo: RGB; mat: Mat;
+  work?: string; finish?: string; tint?: RGB;
+}
 
 /** A projected, depth-keyed polygon ready to rasterise. `worldPts` (the pre-projection
  *  world positions, vertex-aligned with `pts`) lets the rasterizer interpolate world xyz
- *  per pixel for analytic surface texturing (K0b). `finish` carries the resolved paint
- *  layer (K0c); absent ⇒ bare. */
+ *  per pixel for analytic surface texturing (K0b). `work`/`finish`/`tint` carry the resolved
+ *  surface descriptor (KC); absent ⇒ family default / bare. */
 export interface ScreenFacet {
   pts: Pt[]; normal: Vec3; albedo: RGB; depth: number; depths?: number[]; mat: Mat;
-  worldPts?: Vec3[]; finish?: string;
+  worldPts?: Vec3[]; work?: string; finish?: string; tint?: RGB;
 }

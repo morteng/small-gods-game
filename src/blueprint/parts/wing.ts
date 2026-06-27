@@ -4,7 +4,7 @@
 import type { PartType, CompileCtx } from '../registry';
 import type { Part as Prim } from '@/assetgen/compose';
 import type { Wing, RoofKind } from '@/assetgen/geometry/building';
-import { WALL_MAT, ROOF_MAT, ROOF_KIND } from './body';
+import { WALL_MAT, WALL_WORK, ROOF_MAT, ROOF_KIND } from './body';
 
 export const wingPartType: PartType = {
   type: 'wing',
@@ -23,6 +23,7 @@ export const wingPartType: PartType = {
       prim: 'building', wings: [wing],
       wallMat: WALL_MAT[ctx.materials.walls] ?? 'plaster',
       roofMat: ROOF_MAT[ctx.materials.roof] ?? 'tile',
+      wallWork: WALL_WORK[ctx.materials.walls],
       roofStyle: 'gable', features: {}, seed: 0,
     }];
   },

@@ -16,6 +16,14 @@ export const WALL_MAT: Record<string, Mat> = {
   mud: 'plaster', wattle: 'plaster', hide: 'plaster',
   timber: 'timber', log: 'timber', brick: 'brick', stone: 'stone', marble: 'stone',
 };
+/** Descriptor → bond/coursing (SurfaceWork) within the wall family (KC). Absent ⇒ family
+ *  default (stone→coursed_rubble, brick→running, timber→plank). marble = fine ashlar;
+ *  log = board-and-batten timber to read distinct from sawn plank. */
+export const WALL_WORK: Record<string, string> = {
+  stone: 'coursed_rubble', marble: 'ashlar', brick: 'running',
+  timber: 'plank', log: 'board_batten',
+};
+const wallWorkOf = (ctx: CompileCtx): string | undefined => WALL_WORK[ctx.materials.walls];
 export const ROOF_MAT: Record<string, Mat> = {
   thatch: 'thatch', hide: 'thatch', wood: 'timber', tile: 'tile', slate: 'stone', none: 'tile',
 };
@@ -64,7 +72,7 @@ function roundPrims(p: ResolvedPart, ctx: CompileCtx): Prim[] {
   // would render a 2.5×-door-tall wall), and decouple the dome rise from radius so WIDE yurts
   // stay shallow instead of ballooning into a tall hemisphere.
   const wallH = Math.max(1, p.params.levels as number) * DOOR_HEIGHT_TILES * 1.15;
-  const out: Prim[] = [{ prim: 'cylinder', center: [cx, cy], baseZ: 0, radius: r, height: wallH, material: wallMatOf(ctx) }];
+  const out: Prim[] = [{ prim: 'cylinder', center: [cx, cy], baseZ: 0, radius: r, height: wallH, material: wallMatOf(ctx), work: wallWorkOf(ctx) }];
   const roof = p.params.roof as string;
   // A round body emits no `building` prim, so a smoke-vent feature can't ride a roof ridge.
   // Render it instead as the yurt's toono: a round hole bored straight through the dome apex.
@@ -96,7 +104,7 @@ function steppedPrims(p: ResolvedPart, ctx: CompileCtx): Prim[] {
     const off = inset * lvl;
     const w = p.size.w - 2 * off, h = p.size.h - 2 * off;
     if (w <= 0 || h <= 0) break;
-    out.push({ prim: 'box', at: [off + p.at.x, off + p.at.y, lvl * storeyTiles], size: [w, h, storeyTiles], material: mat });
+    out.push({ prim: 'box', at: [off + p.at.x, off + p.at.y, lvl * storeyTiles], size: [w, h, storeyTiles], material: mat, work: wallWorkOf(ctx) });
   }
   return out;
 }
@@ -140,7 +148,7 @@ export const bodyPartType: PartType = {
     return [{
       prim: 'building', wings,
       wallMat: wallMatOf(ctx), roofMat: roofMatOf(ctx), roofStyle: 'gable',
-      features: {}, seed: 0,
+      wallWork: wallWorkOf(ctx), features: {}, seed: 0,
     }];
   },
   toCollision(p) {

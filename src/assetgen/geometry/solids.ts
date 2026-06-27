@@ -26,7 +26,7 @@ function brightness(n: Vec3): number {
 }
 
 /** Convert a watertight manifold Mesh into flat-normal world facets, one per triangle. */
-export function manifoldToFacets(mesh: Mesh, material: Mat): WorldFacet[] {
+export function manifoldToFacets(mesh: Mesh, material: Mat, work?: string): WorldFacet[] {
   const c = MATERIAL_RGB[material];
   const { numProp, vertProperties: vp, triVerts: tv } = mesh;
   const pos = (i: number): Vec3 => [vp[i*numProp], vp[i*numProp+1], vp[i*numProp+2]];
@@ -35,7 +35,7 @@ export function manifoldToFacets(mesh: Mesh, material: Mat): WorldFacet[] {
     const a = pos(tv[t]), b = pos(tv[t+1]), d = pos(tv[t+2]);
     const n = cross(sub(b, a), sub(d, a));         // outward (manifold winding is CCW-outward)
     if (n[0] === 0 && n[1] === 0 && n[2] === 0) continue; // skip degenerate
-    out.push({ pts: [a, b, d], normal: n, albedo: shadeRGB(c, brightness(n)), mat: material });
+    out.push({ pts: [a, b, d], normal: n, albedo: shadeRGB(c, brightness(n)), mat: material, work });
   }
   return out;
 }
@@ -544,6 +544,7 @@ export async function buildingFacets(
   features: BuildingFeatures = {},
   seed = 0,
   apertures: ApertureBox[] = [],
+  wallWork?: string,
 ): Promise<{ facets: WorldFacet[]; anchors: BuildingAnchors }> {
   const { Manifold } = await getManifold();
   // Walls: union every storey box of every wing (upper storeys grown by jetty), then
@@ -578,7 +579,7 @@ export async function buildingFacets(
   const facets: WorldFacet[] = [
     ...manifoldToFacets(
       dormerBoxes.length ? walls.add(Manifold.union(dormerBoxes)).getMesh() : walls.getMesh(),
-      wallMat,
+      wallMat, wallWork,
     ),
     ...manifoldToFacets(roof.getMesh(), roofMat),
   ];
