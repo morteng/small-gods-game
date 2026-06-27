@@ -72,10 +72,27 @@ seed-authored connections. Shipped pure + tested:
 placer takes a `needsAqueduct` predicate that defaults to "all demand". The adapter must supply the
 real signal (e.g. a town beyond N tiles of usable lower water, above a population floor).
 
-### Slice 4 — Render (reuse) — feature-buffer cut runs + G4 deck elevated runs + channel water
-- Add `'aqueduct'` to `LinearFeature`/feature-buffer tagging; cut runs reuse river-channel geometry,
-  elevated runs spawn G4 deck bays (`liftElev` = `waterM`), a thin channel water surface rides the
-  authored line (not the terrain datum). Bump `WORLD_CONTENT_VERSION`; re-pin goldens.
+### Slice 4 — Realization (ENTITY-based, shipped) — channel troughs + elevated piered decks
+**Decision: realise as PROP ENTITIES, not a terrain-feature-buffer change** — the same playbook that
+shipped G3/G5 stairs & bridges. The terrain WGSL pass is at 8/8 storage buffers (the
+`feature-geometry.ts` unification is its own epic); spawning entities keeps G6 entirely out of that
+minefield, freeze-safe (grey massing), zero risk to the terrain pass.
+- `src/world/connectome/aqueduct-structures.ts` `buildAqueductStructureEntities(net, settlements, opts)`:
+  lifts the water net's springs/outlets (`findHighlandSources`) → `planAqueducts` → realises each
+  profile segment. `surface`/`cut` → a `deck`-with-both-parapets channel trough foot-sampled to the
+  ground; `elevated` → that channel deck lifted onto its water line via G4 `liftElev`, carried by
+  `pier` entities standing `clearM` tall (one every 2 tiles + the run ends, deduped). No new part
+  types, no `LinearFeature`, no feature buffer, no WGSL. Pure + deterministic (4 tests).
+- Worldgen wiring (`map-generator.ts`, inside the road block after stairs): builds the water net from
+  the live `hydrology` (same raster the visible rivers carve from), settlements from `villages`, and a
+  **demand model** — `nearestWaterDist(town) > WET_RADIUS_TILES (5)` ⇒ a dry/inland town demands one;
+  the head + distance + feasibility gates then pick which actually get a buildable line. `liftForWaterM`
+  = `curveRenderElev(waterM/reliefM, sea, gamma)` (the bridge-deck render-elev space). `blocked` =
+  buildings + water tiles (source/sink always passable). `WORLD_CONTENT_VERSION` 19→20.
+- **Deferred render refinements (later increment):** true TRENCHING for cut runs (today a cut reads as
+  a covered channel hugging the rise, not a sunk trench — needs the deformation channel / feature
+  buffer); a thin flowing channel-water SURFACE on the authored line; arches instead of bare piers for
+  the iconic Roman look (the `arch_span` part already exists — bridge uses it).
 
 ### Slice 5 — Irrigation (G7, its own track)
 Trunk + branches + flow apportionment at junctions + an "irrigated" terrain tag feeding

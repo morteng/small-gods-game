@@ -27,6 +27,9 @@ import { erodeElevation } from '@/terrain/erosion';
 import { placeSettlement } from '@/world/building-placer';
 import { buildCrossingStructureEntities } from '@/world/connectome/crossing-structures';
 import { buildStairStructureEntities } from '@/world/connectome/stair-structures';
+import { buildAqueductStructureEntities } from '@/world/connectome/aqueduct-structures';
+import { buildWaterNetwork } from '@/terrain/river-network';
+import { DEFAULT_RIVER_FLOW_THRESHOLD } from '@/terrain/hydrology';
 import { getHeightfield, ELEVATION_SEA_LEVEL } from '@/world/heightfield';
 import { curveRenderElev } from '@/render/gpu/terrain-field';
 import { worldStyleOf } from '@/core/world-style';
@@ -332,6 +335,37 @@ export async function generateWithNoise(
         return tileBlockedByBuilding(world, x, y) || WATER_TYPES.has(t.type);
       },
     })) world.addEntity(e);
+
+    // AQUEDUCTS (G6): the inverted river. A dry, inland settlement with a HIGHLAND water source
+    // above it (a spring headwater / perched-lake outlet in the water connectome) gets a gravity
+    // channel — CUT through a rise, hugging the SURFACE where the ground falls gently, and ELEVATED
+    // on piered decks across a gorge. It emerges from the connectome the same way a crossing does
+    // from road×river: the planner routes the least-trench+arch feasible line and the realizer
+    // massings each segment. The channel deck rides its water line via the G4 `liftElev` primitive
+    // (same render-elev space as the bridge decks above); surface/cut runs foot-sample to ground.
+    report('Raising aqueducts...');
+    const reliefM = worldStyleOf(worldSeed ?? undefined).mountainRelief;
+    const aqSettlements = villages.map((v) => ({ id: `town:${v.name ?? `${v.x}_${v.y}`}`, x: v.x, y: v.y }));
+    // A town already within WET_RADIUS of usable water needs no aqueduct; only genuinely dry/inland
+    // towns demand one (and the head + distance + feasibility gates then decide which actually get
+    // a buildable line). This is the emergent trigger — water scarcity, not authored placement.
+    const WET_RADIUS_TILES = 5;
+    const isWaterTile = (x: number, y: number) => WATER_TYPES.has(tiles[y]?.[x]?.type ?? '');
+    for (const e of buildAqueductStructureEntities(
+      buildWaterNetwork(hydrology, width, height, DEFAULT_RIVER_FLOW_THRESHOLD),
+      aqSettlements,
+      {
+        elevAt: (x, y) => deckHf[Math.round(y) * width + Math.round(x)] ?? ELEVATION_SEA_LEVEL,
+        reliefM, width, height,
+        liftForWaterM: (m) => curveRenderElev(m / reliefM, ELEVATION_SEA_LEVEL, deckGamma),
+        needsAqueduct: (s) => nearestWaterDist(s.x, s.y, isWaterTile, WET_RADIUS_TILES) > WET_RADIUS_TILES,
+        blocked: (x, y) => {
+          const t = tiles[y]?.[x];
+          if (!t) return true;
+          return tileBlockedByBuilding(world, x, y) || WATER_TYPES.has(t.type);
+        },
+      },
+    )) world.addEntity(e);
   }
 
   // All buildings are placed: a building is authoritative over its footprint, so
@@ -429,6 +463,23 @@ function computeConnectedDirections(
     dirs.push({ dx: ddx / len, dy: ddy / len });
   }
   return dirs;
+}
+
+/** Chebyshev tile distance from (x,y) to the nearest water tile, searched out to `cap` rings.
+ *  Returns `cap + 1` when no water lies within `cap` (so callers can treat that as "dry"). */
+function nearestWaterDist(
+  x: number, y: number, isWater: (x: number, y: number) => boolean, cap: number,
+): number {
+  if (isWater(x, y)) return 0;
+  for (let r = 1; r <= cap; r++) {
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+        if (isWater(x + dx, y + dy)) return r;
+      }
+    }
+  }
+  return cap + 1;
 }
 
 /**

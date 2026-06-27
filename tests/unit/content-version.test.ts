@@ -6,7 +6,7 @@ describe('content-version constants', () => {
     expect(ART_RECIPE_VERSION).toBe('v13');
   });
 
-  it('declares the current world content version (19: stairs connect on cardinal runs G3d)', () => {
-    expect(WORLD_CONTENT_VERSION).toBe(19);
+  it('declares the current world content version (20: emergent aqueducts G6)', () => {
+    expect(WORLD_CONTENT_VERSION).toBe(20);
   });
 });

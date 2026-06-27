@@ -53,4 +53,4 @@ export const ART_RECIPE_VERSION = 'v13';
  * An autosave stamped with a different value is discarded on load → a fresh
  * world is generated. Distinct from SAVE_VERSION (which guards the save *schema*).
  */
-export const WORLD_CONTENT_VERSION = 19;  // stairs CONNECT (G3d): the polyline is now chunked into cardinal-colinear runs, so a flight foots and heads on real road tiles (no more diagonal-chord heads floating off the road); diagonal/zigzag stretches site no stair. Stair entity placement changes ⇒ discard pre-G3d autosaves. (18 = arched bridges G5b; 17 = stairs follow the polyline G3c.)
+export const WORLD_CONTENT_VERSION = 20;  // AQUEDUCTS (G6): a dry inland settlement with a highland water source above it now grows an emergent gravity channel (cut/surface/elevated-on-piers) from the water connectome — new aqueduct_channel/aqueduct_pier entities in worldgen output ⇒ discard pre-G6 autosaves. (19 = stairs CONNECT G3d; 18 = arched bridges G5b; 17 = stairs follow the polyline G3c.)
