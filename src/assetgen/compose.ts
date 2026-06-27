@@ -116,7 +116,14 @@ export interface ComposeOpts {
    *  the canonical view (unchanged; golden hashes only pin the yaw-0 path). Lighting
    *  follows (the lit face changes as you spin, like a real turntable). */
   yaw?: number;
+  /** Analytic Material+Finish surface texturing (K0). When true, opaque pixels are textured
+   *  by the surface engine at their world position (kills the flat grey-massing look,
+   *  freeze-safe procedural). Default off so goldens stay pinned until K0d flips the default. */
+  surfaceTexture?: boolean;
 }
+
+/** Geometry world units per metre — feature wavelengths are authored in metres. */
+const SURFACE_UNITS_PER_M = mToTiles(1);   // 0.5 tile = 1 m
 
 /**
  * Fade the visible skirt's outer edge to transparent in `albedo`'s alpha channel.
@@ -203,7 +210,7 @@ export async function composeStructure(spec: StructureSpec, shadowSun?: [number,
   if (spec.size != null) { size = spec.size; fit = computeFit(facets, size); }
   else { const f = fixedFit(facets); fit = f.fit; size = f.size; }
   const screen = projectFacets(facets, fit);
-  const maps = rasterizeMaps(screen, size);
+  const maps = rasterizeMaps(screen, size, opts?.surfaceTexture ? { unitsPerMetre: SURFACE_UNITS_PER_M } : undefined);
   const depthRange = writeNormalisedDepth(maps) ?? undefined;
   const opaque = new Float32Array(size * size);
   for (let i = 0; i < opaque.length; i++) opaque[i] = maps.albedo[i * 4 + 3] === 255 ? 1 : 0;

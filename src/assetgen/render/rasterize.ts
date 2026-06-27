@@ -1,7 +1,13 @@
 // src/assetgen/render/rasterize.ts
-import type { ScreenFacet, RGB, Pt } from '@/assetgen/types';
+import type { ScreenFacet, RGB, Pt, Vec3 } from '@/assetgen/types';
 import { normalRGB } from '@/assetgen/render/projection';
 import { materialPbr } from '@/assetgen/material-pbr';
+import { prepareSurface, type FinishId } from '@/assetgen/render/material-surface';
+
+/** Opt-in analytic surface texturing (K0). When present, opaque pixels are textured by the
+ *  Material+Finish engine at their interpolated world position; absent ⇒ flat per-facet
+ *  albedo (the original behaviour, used for coverage masks and pre-K0d goldens). */
+export interface SurfaceTexOpts { unitsPerMetre: number }
 
 /**
  * Fit an affine depth plane d(x,y) = A·x + B·y + C from 3 non-collinear (pt, depth)
@@ -61,7 +67,7 @@ export interface RasterMaps {
   size: number;
 }
 
-export function rasterizeMaps(facets: ScreenFacet[], size: number): RasterMaps {
+export function rasterizeMaps(facets: ScreenFacet[], size: number, surface?: SurfaceTexOpts): RasterMaps {
   const n = size * size;
   const albedo = new Uint8ClampedArray(n * 4);
   const normal = new Uint8ClampedArray(n * 4);
@@ -74,6 +80,26 @@ export function rasterizeMaps(facets: ScreenFacet[], size: number): RasterMaps {
     const pbr = materialPbr(f.mat);
     const plane = f.depths ? depthPlane(f.pts, f.depths) : null;
     const [A, B, C] = plane ?? [0, 0, f.depth];
+
+    // ── Surface texturing setup (per facet, hoisted out of the pixel loop) ──
+    // Fit three affine world-coordinate planes wx/wy/wz over screen space (valid because the
+    // projection is orthographic ⇒ world coords are affine in screen x,y), then bind one
+    // Material+Finish sampler. Falls back to flat if world data is missing/degenerate.
+    let sampler: ReturnType<typeof prepareSurface> | null = null;
+    let pw: [number, number, number][] | null = null;
+    if (surface && f.worldPts && f.depths) {
+      const wx = depthPlane(f.pts, f.worldPts.map((p) => p[0]));
+      const wy = depthPlane(f.pts, f.worldPts.map((p) => p[1]));
+      const wz = depthPlane(f.pts, f.worldPts.map((p) => p[2]));
+      if (wx && wy && wz) {
+        pw = [wx, wy, wz];
+        sampler = prepareSurface(
+          { material: f.mat, finish: f.finish as FinishId | undefined },
+          f.normal, surface.unitsPerMetre,
+        );
+      }
+    }
+
     let minY = Infinity, maxY = -Infinity;
     for (const p of f.pts) { if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y; }
     const y0 = Math.max(0, Math.ceil(minY)), y1 = Math.min(size - 1, Math.floor(maxY));
@@ -92,12 +118,28 @@ export function rasterizeMaps(facets: ScreenFacet[], size: number): RasterMaps {
           if (d < zbuf[zi]) continue;
           zbuf[zi] = d;
           const o = zi * 4;
-          albedo[o] = f.albedo[0]; albedo[o + 1] = f.albedo[1]; albedo[o + 2] = f.albedo[2]; albedo[o + 3] = 255;
-          normal[o] = nrm[0]; normal[o + 1] = nrm[1]; normal[o + 2] = nrm[2]; normal[o + 3] = 255;
-          material[o] = 0;
-          material[o + 1] = 255;
-          material[o + 2] = Math.round(pbr.roughness * 255);
-          material[o + 3] = Math.round(pbr.metallic * 255);
+          if (sampler && pw) {
+            const wpos: Vec3 = [
+              pw[0][0] * x + pw[0][1] * y + pw[0][2],
+              pw[1][0] * x + pw[1][1] * y + pw[1][2],
+              pw[2][0] * x + pw[2][1] * y + pw[2][2],
+            ];
+            const s = sampler.at(wpos);
+            const sn = normalRGB(s.normal);
+            albedo[o] = s.albedo[0]; albedo[o + 1] = s.albedo[1]; albedo[o + 2] = s.albedo[2]; albedo[o + 3] = 255;
+            normal[o] = sn[0]; normal[o + 1] = sn[1]; normal[o + 2] = sn[2]; normal[o + 3] = 255;
+            material[o] = 0;
+            material[o + 1] = 255;
+            material[o + 2] = Math.round(s.roughness * 255);
+            material[o + 3] = Math.round(pbr.metallic * 255);
+          } else {
+            albedo[o] = f.albedo[0]; albedo[o + 1] = f.albedo[1]; albedo[o + 2] = f.albedo[2]; albedo[o + 3] = 255;
+            normal[o] = nrm[0]; normal[o + 1] = nrm[1]; normal[o + 2] = nrm[2]; normal[o + 3] = 255;
+            material[o] = 0;
+            material[o + 1] = 255;
+            material[o + 2] = Math.round(pbr.roughness * 255);
+            material[o + 3] = Math.round(pbr.metallic * 255);
+          }
           emissive[o] = pbr.emissive[0]; emissive[o + 1] = pbr.emissive[1]; emissive[o + 2] = pbr.emissive[2]; emissive[o + 3] = 255;
         }
       }

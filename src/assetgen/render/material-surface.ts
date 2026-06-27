@@ -274,22 +274,21 @@ const FINISHES: Record<FinishId, Finish> = {
 };
 
 // ── Triplanar surface frame ──────────────────────────────────────────────────────────────
-// Map a world position + normal to a 2-D (u,v) surface coordinate + the world directions of
-// the u/v axes (so a height gradient can perturb the world normal). Choose the projection
-// plane by the dominant normal axis (classic triplanar, single-plane — no blend seam because
-// we pick one plane per facet-normal, and a facet has a constant normal).
-function surfaceFrame(pos: Vec3, n: Vec3): { u: number; v: number; uAxis: Vec3; vAxis: Vec3 } {
+// Map a facet normal to a 2-D (u,v) surface frame: which two WORLD components feed (u,v) and
+// the world directions of those axes (so a height gradient can perturb the world normal).
+// The projection plane is chosen by the dominant normal axis (classic single-plane triplanar
+// — no blend seam, because a facet has ONE constant normal). Because this depends only on the
+// normal, it is resolved ONCE per facet (in `prepareSurface`), never per pixel.
+interface Frame { uIdx: 0 | 1 | 2; vIdx: 0 | 1 | 2; uAxis: Vec3; vAxis: Vec3 }
+function frameFor(n: Vec3): Frame {
   const ax = Math.abs(n[0]), ay = Math.abs(n[1]), az = Math.abs(n[2]);
-  if (az >= ax && az >= ay) {
-    // horizontal surface (roof pan / floor / deck): ground plane
-    return { u: pos[0], v: pos[1], uAxis: [1, 0, 0], vAxis: [0, 1, 0] };
+  if (az >= ax && az >= ay) {                                          // horizontal (roof/floor/deck)
+    return { uIdx: 0, vIdx: 1, uAxis: [1, 0, 0], vAxis: [0, 1, 0] };   // ground plane
   }
-  if (ax >= ay) {
-    // wall facing ±x: vary along world-y (horizontal) and world-z (up)
-    return { u: pos[1], v: pos[2], uAxis: [0, 1, 0], vAxis: [0, 0, 1] };
+  if (ax >= ay) {                                                      // wall facing ±x
+    return { uIdx: 1, vIdx: 2, uAxis: [0, 1, 0], vAxis: [0, 0, 1] };   // world-y × up
   }
-  // wall facing ±y: vary along world-x (horizontal) and world-z (up)
-  return { u: pos[0], v: pos[2], uAxis: [1, 0, 0], vAxis: [0, 0, 1] };
+  return { uIdx: 0, vIdx: 2, uAxis: [1, 0, 0], vAxis: [0, 0, 1] };     // wall facing ±y: world-x × up
 }
 
 const normalize3 = (v: Vec3): Vec3 => {
@@ -300,58 +299,75 @@ const normalize3 = (v: Vec3): Vec3 => {
 const NORMAL_BUMP = 0.6;   // how strongly micro-relief tilts the facet normal
 const EPS = 0.01;          // finite-difference step (metres) for the relief gradient
 
+/** A surface sampler bound to one facet (material + finish + normal frame resolved once). */
+export interface SurfaceSampler {
+  /** Sample at a world position. The ONLY per-pixel work: the analytic pattern evals. */
+  at(worldPos: Vec3): SurfaceSample;
+}
+
 /**
- * Sample the textured surface at a world position. PURE + deterministic.
+ * Resolve the per-facet surface constants (material LUTs, finish fn, triplanar frame) ONCE,
+ * returning a tight per-pixel sampler. This hoists every map/LUT lookup and the frame trig
+ * out of the inner loop — the rasterizer calls this once per facet, then `.at()` per opaque
+ * pixel. PURE + deterministic.
  *
- * @param spec          resolved (material, finish, tint)
- * @param worldPos      the pixel's world xyz (same units as the geometry)
- * @param normal        the facet's flat world normal
  * @param unitsPerMetre world units per metre (geometry-scale calibration; default 1).
- *                      Feature wavelengths are authored in metres, so the (u,v) frame is
- *                      divided by this to land them at the right size. K0b sets the real value.
+ *                      Feature wavelengths are authored in metres, so (u,v) is divided by
+ *                      this to land them at the right size. K0b passes `mToTiles(1)` (=0.5).
  */
-export function sampleSurface(
-  spec: SurfaceSpec, worldPos: Vec3, normal: Vec3, unitsPerMetre = 1,
-): SurfaceSample {
+export function prepareSurface(spec: SurfaceSpec, normal: Vec3, unitsPerMetre = 1): SurfaceSampler {
   const base = MATERIAL_RGB[spec.material];
   const baseRough = MATERIAL_PBR[spec.material].roughness;
   const pattern = PATTERNS[spec.material];
   const finish = FINISHES[spec.finish ?? 'bare'];
+  const tint = spec.tint;
+  const fr = frameFor(normal);
+  const inv = 1 / unitsPerMetre;
+  const n0 = normal[0], n1 = normal[1], n2 = normal[2];
+  const ua = fr.uAxis, va = fr.vAxis;
 
-  const fr = surfaceFrame(worldPos, normal);
-  const u = fr.u / unitsPerMetre, v = fr.v / unitsPerMetre;
+  return {
+    at(pos: Vec3): SurfaceSample {
+      const u = pos[fr.uIdx] * inv, v = pos[fr.vIdx] * inv;
+      const m = pattern(u, v);
+      const tone = 1 + m.tone;
+      // Material albedo: base modulated by tone + small tint.
+      let r = base[0] * tone + m.tint[0];
+      let g = base[1] * tone + m.tint[1];
+      let b = base[2] * tone + m.tint[2];
+      let rough = baseRough * m.rough;
+      if (rough < 0) rough = 0; else if (rough > 1) rough = 1;
+      // Finish/paint layer over the material.
+      const painted = finish([r, g, b], m.height, rough, tint);
+      r = painted.albedo[0]; g = painted.albedo[1]; b = painted.albedo[2]; rough = painted.rough;
+      const out: RGB = [
+        r < 0 ? 0 : r > 255 ? 255 : Math.round(r),
+        g < 0 ? 0 : g > 255 ? 255 : Math.round(g),
+        b < 0 ? 0 : b > 255 ? 255 : Math.round(b),
+      ];
+      // Normal perturbation: relief gradient (forward difference on `height`) tilts the facet
+      // normal along the surface axes. Two extra pattern evals — the irreducible cost of bump.
+      const hC = m.height;
+      const dU = (pattern(u + EPS, v).height - hC) / EPS;
+      const dV = (pattern(u, v + EPS).height - hC) / EPS;
+      const perturbed: Vec3 = [
+        n0 - NORMAL_BUMP * (dU * ua[0] + dV * va[0]),
+        n1 - NORMAL_BUMP * (dU * ua[1] + dV * va[1]),
+        n2 - NORMAL_BUMP * (dU * ua[2] + dV * va[2]),
+      ];
+      const ao = 0.85 + 0.15 * (hC < 0 ? 0 : hC > 1 ? 1 : hC);
+      return { albedo: out, normal: normalize3(perturbed), roughness: rough, ao };
+    },
+  };
+}
 
-  const m = pattern(u, v);
-  // Material albedo: base modulated by tone + small tint, clamped to 0..255.
-  let albedo: RGB = [
-    base[0] * (1 + m.tone) + m.tint[0],
-    base[1] * (1 + m.tone) + m.tint[1],
-    base[2] * (1 + m.tone) + m.tint[2],
-  ];
-  let rough = Math.min(1, Math.max(0, baseRough * m.rough));
-
-  // Finish/paint layer over the material.
-  const painted = finish(albedo, m.height, rough, spec.tint);
-  albedo = painted.albedo;
-  rough = painted.rough;
-  const out: RGB = [
-    Math.max(0, Math.min(255, Math.round(albedo[0]))),
-    Math.max(0, Math.min(255, Math.round(albedo[1]))),
-    Math.max(0, Math.min(255, Math.round(albedo[2]))),
-  ];
-
-  // Normal perturbation: relief gradient (forward difference on `height`) tilts the facet
-  // normal along the surface axes. AO darkens the relief lows a touch.
-  const hC = m.height;
-  const hU = pattern(u + EPS, v).height;
-  const hV = pattern(u, v + EPS).height;
-  const dU = (hU - hC) / EPS, dV = (hV - hC) / EPS;
-  const perturbed: Vec3 = [
-    normal[0] - NORMAL_BUMP * (dU * fr.uAxis[0] + dV * fr.vAxis[0]),
-    normal[1] - NORMAL_BUMP * (dU * fr.uAxis[1] + dV * fr.vAxis[1]),
-    normal[2] - NORMAL_BUMP * (dU * fr.uAxis[2] + dV * fr.vAxis[2]),
-  ];
-  const ao = 0.85 + 0.15 * Math.min(1, Math.max(0, hC));
-
-  return { albedo: out, normal: normalize3(perturbed), roughness: rough, ao };
+/**
+ * Convenience single-sample form (tests / one-off lookups). For per-pixel rasterization use
+ * `prepareSurface` once per facet then `.at()` per pixel — this re-resolves the facet
+ * constants every call.
+ */
+export function sampleSurface(
+  spec: SurfaceSpec, worldPos: Vec3, normal: Vec3, unitsPerMetre = 1,
+): SurfaceSample {
+  return prepareSurface(spec, normal, unitsPerMetre).at(worldPos);
 }

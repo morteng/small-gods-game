@@ -42,7 +42,9 @@ export function projectFacets(facets: WorldFacet[], s: ProjScale): ScreenFacet[]
     const pts = f.pts.map(p => project(p, s));
     const depths = f.pts.map(viewDepth);
     const depth = depths.reduce((a, d) => a + d, 0) / depths.length;
-    out.push({ pts, normal: f.normal, albedo: f.albedo, depth, depths, mat: f.mat });
+    // Carry the world positions (vertex-aligned with `pts`) so the rasterizer can
+    // interpolate world xyz per pixel for analytic surface texturing (K0b).
+    out.push({ pts, normal: f.normal, albedo: f.albedo, depth, depths, mat: f.mat, worldPts: f.pts });
   }
   return out;
 }
