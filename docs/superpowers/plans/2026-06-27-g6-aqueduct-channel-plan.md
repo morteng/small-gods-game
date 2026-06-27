@@ -59,19 +59,18 @@ prefers to follow contours. Pure + testable on synthetic fields. *Needed under E
 design (emergent or seed-authored both need a grade-respecting route), so it is also path-
 independent and safe to build next.*
 
-### Slice 3 — Emergent placement ✅ (`132f010`) + source extractor 4a (`aqueduct-sources.ts`)
-**Decision: emergent (A), per the user.** Selection + routing shipped pure. Worldgen wiring is Slice 4.
-**This is the one genuinely open decision** and it is deferred until Slice 1–2 land. The rendering
-+ routing stack slots in cleanly; what's undefined is *what makes an aqueduct appear*:
-- **(A) Emergent (matches "pops out of the connectome"):** detect a highland water source (a
-  river headwater / perched lake above a settlement) + a settlement that sits above or far from its
-  nearest river → route an aqueduct from source down to the settlement. Needs a small
-  *water-source* + *settlement-water-demand* model (neither exists today).
-- **(B) Seed-authored:** add `'aqueduct'` to `LinearFeature`; aqueducts come only from
-  `worldSeed.connections{type:'aqueduct'}`, threaded through `buildRoadGraph` exactly like roads.
-  Tractable immediately, but aqueducts appear only where a seed names them (not emergent).
-- **Recommendation:** (A), because the whole epic's headline is emergence; (B) as a fast interim
-  that (A) later supersedes. **Surface this to the user before building Slice 3.**
+### Slice 3 — Emergent placement ✅ (`132f010`) + source extractor 4a (`6a1a0f5`)
+**Decision: EMERGENT, per the user** (2026-06-27) — aqueducts pop out of the connectome, not from
+seed-authored connections. Shipped pure + tested:
+- `planAqueducts(settlements, sources, opts)` (`aqueduct-placement.ts`): per demanding settlement,
+  pick the feasible highland source with the least trench+arch (head + distance gated), route it,
+  emit one plan per served town. Deterministic.
+- `findHighlandSources(net, opts)` (`aqueduct-sources.ts`): lift the river network's `spring` +
+  `lake_outlet` nodes into source candidates — the bridge from the live water graph to the placer.
+
+**Still needed for Slice 4 (the real demand half):** a settlement WATER-DEMAND model — currently the
+placer takes a `needsAqueduct` predicate that defaults to "all demand". The adapter must supply the
+real signal (e.g. a town beyond N tiles of usable lower water, above a population floor).
 
 ### Slice 4 — Render (reuse) — feature-buffer cut runs + G4 deck elevated runs + channel water
 - Add `'aqueduct'` to `LinearFeature`/feature-buffer tagging; cut runs reuse river-channel geometry,
