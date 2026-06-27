@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  sampleSurface, FINISH_IDS, type FinishId, type SurfaceSpec,
+  sampleSurface, FINISH_IDS, SURFACE_WORKS, type FinishId, type SurfaceWork, type SurfaceSpec,
 } from '@/assetgen/render/material-surface';
 import { MATERIAL_RGB, type Mat, type Vec3, type RGB } from '@/assetgen/types';
 
@@ -133,6 +133,56 @@ describe('material-surface — sampleSurface', () => {
     const a = sampleSurface({ material: 'brick' }, [0.5, 0, 0.3], [0, 1, 0], 1);
     const b = sampleSurface({ material: 'brick' }, [0.5, 0, 0.3], [0, 1, 0], 4);
     expect(a.albedo).not.toEqual(b.albedo);
+  });
+});
+
+describe('material-surface — surface works (bond/coursing taxonomy)', () => {
+  const STONEWORKS: SurfaceWork[] = ['ashlar', 'coursed_rubble', 'random_rubble', 'cobble', 'dry_stone', 'flint'];
+
+  it('every work stays in gamut with valid roughness/ao + unit normal, across orientations', () => {
+    for (const work of SURFACE_WORKS) {
+      const material: Mat = work === 'running' || work === 'flemish' ? 'brick'
+        : work === 'plank' || work === 'board_batten' ? 'timber' : 'stone';
+      for (const [pos, n] of [
+        [[1.3, 0.4, 2.1], [1, 0, 0]],
+        [[0.7, 2.9, 1.4], [0, 1, 0]],
+        [[2.2, 1.1, 0.4], [0, 0.6, 0.8]],   // a pitched roof
+      ] as [Vec3, Vec3][]) {
+        const s = sampleSurface({ material, work }, pos, n);
+        expect(inGamut(s.albedo), `${work} albedo ${s.albedo}`).toBe(true);
+        expect(s.roughness).toBeGreaterThanOrEqual(0);
+        expect(s.roughness).toBeLessThanOrEqual(1);
+        expect(Math.hypot(...s.normal)).toBeCloseTo(1, 5);
+      }
+    }
+  });
+
+  it('the six stoneworks read as visually distinct masonry', () => {
+    const n: Vec3 = [0, 1, 0];
+    // Average tone + roughness over a patch; distinct works should not collapse to one signature.
+    const sig = (work: SurfaceWork) => {
+      let lum = 0, rough = 0; const N = 200;
+      for (let i = 0; i < N; i++) {
+        const s = sampleSurface({ material: 'stone', work }, [i * 0.037, 0, (i % 23) * 0.041], n);
+        lum += (s.albedo[0] + s.albedo[1] + s.albedo[2]) / 3; rough += s.roughness;
+      }
+      return `${Math.round(lum / N / 4)}:${Math.round(rough / N * 8)}`;   // coarse bucketed signature
+    };
+    const sigs = new Set(STONEWORKS.map(sig));
+    expect(sigs.size).toBeGreaterThanOrEqual(4);   // at least 4 of 6 clearly separable
+  });
+
+  it('absent work falls back to the family default (stone → coursed_rubble)', () => {
+    const pos: Vec3 = [1.1, 0.6, 1.9]; const n: Vec3 = [1, 0, 0];
+    const dflt = sampleSurface({ material: 'stone' }, pos, n);
+    const explicit = sampleSurface({ material: 'stone', work: 'coursed_rubble' }, pos, n);
+    expect(dflt).toEqual(explicit);
+  });
+
+  it('is deterministic per work', () => {
+    const a = sampleSurface({ material: 'stone', work: 'ashlar' }, [2.1, 0.3, 1.7], [1, 0, 0]);
+    const b = sampleSurface({ material: 'stone', work: 'ashlar' }, [2.1, 0.3, 1.7], [1, 0, 0]);
+    expect(a).toEqual(b);
   });
 });
 

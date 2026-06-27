@@ -40,9 +40,28 @@ export const FINISH_IDS: readonly FinishId[] = [
   'tar', 'polychrome', 'gilt', 'mossed', 'soot',
 ] as const;
 
+// ── Surface work (bond / masonry pattern within a material family) ──────────────────────────
+// A `family` (Mat) says WHAT the surface is made of; a `work` says HOW it's laid up — the bond
+// or coursing. Stone alone spans a cut-ashlar keep, a rubble cottage and a cobbled yard; one
+// pattern can't. `work` is optional: each family has a sensible default (DEFAULT_WORK).
+export type SurfaceWork =
+  // stone family
+  | 'ashlar' | 'coursed_rubble' | 'random_rubble' | 'cobble' | 'dry_stone' | 'flint'
+  // brick family
+  | 'running' | 'flemish'
+  // timber family
+  | 'plank' | 'board_batten';
+
+export const SURFACE_WORKS: readonly SurfaceWork[] = [
+  'ashlar', 'coursed_rubble', 'random_rubble', 'cobble', 'dry_stone', 'flint',
+  'running', 'flemish', 'plank', 'board_batten',
+] as const;
+
 /** Resolved surface tag for one facet (from `Blueprint.materials` + `Palette` in K0c). */
 export interface SurfaceSpec {
   material: Mat;
+  /** Bond / coursing within the family (ashlar vs rubble vs cobble …). Default per family. */
+  work?: SurfaceWork;
   finish?: FinishId;
   /** Optional decorative tint (0..255 RGB) — used by `polychrome`; ignored otherwise. */
   tint?: RGB;
@@ -172,47 +191,178 @@ function bond(u: number, v: number, unitU: number, unitV: number, mortar: number
   return { col, row, joint, h: hash2(col, row * 2 + (row & 1)) };
 }
 
+// ── Stoneworks (family 'stone') ──────────────────────────────────────────────────────────
+// All built from the shared primitives (IQ voronoiEdge mortar lines, `bond` coursing, fbm
+// grain). Coursed rubble is the family default; the rest are selected via SurfaceSpec.work.
+
+/** Coursed rubble: irregular stones in rough rows. IQ Voronoi-BORDER = even mortar lines
+ *  (F1 worley reads as a polka grid of dots at cell centres); cells v-compressed = coursing. */
+const coursedRubble: Pattern = (u, v) => {
+  const S = 0.42;                                          // ~42 cm rubble stones
+  const { edge, cellHash } = voronoiEdge(u / S, v / (S * 1.55), 0.82);
+  const joint = 1 - sstep(edge / 0.13);                    // 1 in the mortar line → 0 on the face
+  const grain = fbm(u * 3.0, v * 3.0, 3);
+  const block = cellHash - 0.5;                            // per-stone lightness
+  return {
+    tone: 0.11 * block + 0.10 * (grain - 0.5) - 0.40 * joint,
+    tint: ZERO_TINT,
+    height: 0.62 * (1 - joint) + 0.12 * grain,             // raised stone face, recessed joint
+    rough: 1 + 0.14 * joint,
+  };
+};
+
+/** Random rubble: uncut field stones, full jitter, no coursing — thicker joints, more relief. */
+const randomRubble: Pattern = (u, v) => {
+  const S = 0.36;
+  const { edge, cellHash } = voronoiEdge(u / S, v / S, 1.0);
+  const joint = 1 - sstep(edge / 0.13);
+  const grain = fbm(u * 3.3, v * 3.3, 3);
+  const block = cellHash - 0.5;
+  return {
+    tone: 0.12 * block + 0.11 * (grain - 0.5) - 0.42 * joint,
+    tint: ZERO_TINT,
+    height: 0.6 * (1 - joint) + 0.14 * grain,
+    rough: 1 + 0.15 * joint,
+  };
+};
+
+/** Ashlar: finely cut blocks, coursed (bond), thin tight joints, smooth faces. Keeps/churches. */
+const ashlar: Pattern = (u, v) => {
+  const b = bond(u, v, 0.6, 0.30, 0.014);                  // ~60×30 cm blocks, ~1.4 cm joint
+  const block = b.h - 0.5;
+  const grain = fbm(u * 3.5, v * 3.5, 2);
+  return {
+    tone: 0.05 * block + 0.06 * (grain - 0.5) - 0.28 * b.joint,
+    tint: ZERO_TINT,
+    height: 0.5 * (1 - b.joint) + 0.06 * grain,            // shallow joint, near-flat face
+    rough: 0.9 + 0.12 * b.joint,
+  };
+};
+
+/** Cobble: small domed rounded stones — bright crowns, dark gaps. Yards, road shoulders. */
+const cobble: Pattern = (u, v) => {
+  const S = 0.11;                                          // ~11 cm setts
+  const { edge, cellHash } = voronoiEdge(u / S, v / S, 1.0);
+  const dome = sstep(edge / 0.34);                         // 0 at the gap → 1 at the crown
+  const joint = 1 - sstep(edge / 0.07);
+  const block = cellHash - 0.5;
+  return {
+    tone: 0.14 * block + 0.16 * (dome - 0.5) - 0.5 * joint,
+    tint: ZERO_TINT,
+    height: 0.7 * dome,
+    rough: 0.95 + 0.1 * joint,
+  };
+};
+
+/** Dry-stone: flat stacked stones, thin DARK gaps (no mortar colour), strong thin coursing. */
+const dryStone: Pattern = (u, v) => {
+  const b = bond(u, v, 0.5, 0.16, 0.008);
+  const block = b.h - 0.5;
+  const grain = fbm(u * 3.5, v * 5, 3);
+  const brk = 1 - sstep(voronoiEdge(u / 0.5, v / 0.5, 0.6).edge / 0.06);  // break long stones
+  const gap = Math.max(b.joint, brk);
+  return {
+    tone: 0.10 * block + 0.10 * (grain - 0.5) - 0.5 * gap,
+    tint: ZERO_TINT,
+    height: 0.5 * (1 - gap),
+    rough: 1 + 0.1 * gap,
+  };
+};
+
+/** Flint: small dark knapped nodules, glassy glints, irregular — cooler, lower roughness. */
+const flint: Pattern = (u, v) => {
+  const S = 0.14;
+  const { edge, cellHash } = voronoiEdge(u / S, v / S, 1.0);
+  const dome = sstep(edge / 0.3);
+  const joint = 1 - sstep(edge / 0.08);
+  const glint = fbm(u * 9, v * 9, 2);
+  const block = cellHash - 0.5;
+  return {
+    tone: 0.10 * block + 0.14 * (glint - 0.5) - 0.22 * joint - 0.10,
+    tint: [-6, -4, 2],
+    height: 0.5 * dome,
+    rough: 0.6 + 0.25 * joint,
+  };
+};
+
+// ── Brick works (family 'brick') ─────────────────────────────────────────────────────────
+/** Running bond: warm clay variance per brick, recessed mortar. Family default. */
+const runningBond: Pattern = (u, v) => {
+  const b = bond(u, v, 0.22, 0.075, 0.012);                // ~22×7.5 cm bricks, ~1.2 cm joint
+  const clay = (b.h - 0.5);
+  return {
+    tone: 0.16 * clay - 0.42 * b.joint,
+    tint: b.joint > 0.5 ? [-12, -10, -8] : [10 * clay, -4, -8] as RGB,
+    height: 0.7 * (1 - b.joint),
+    rough: 1 + 0.15 * b.joint,
+  };
+};
+
+/** Flemish bond: alternating stretchers/headers — a half-unit vertical break splits alternate
+ *  bricks into a short header, giving the busier decorative coursing of finer brickwork. */
+const flemishBond: Pattern = (u, v) => {
+  const b = bond(u, v, 0.24, 0.075, 0.012);
+  // header break: on alternate columns, add a perpend joint at the brick mid-point.
+  const unitU = 0.24;
+  const su = u + ((Math.floor(v / 0.075) & 1) * unitU * 0.5);
+  const fu = su / unitU - Math.floor(su / unitU);
+  const header = (b.col & 1) === 0 && Math.abs(fu - 0.5) < 0.04 ? 1 : 0;
+  const joint = Math.max(b.joint, header);
+  const clay = (b.h - 0.5);
+  return {
+    tone: 0.16 * clay - 0.42 * joint,
+    tint: joint > 0.5 ? [-12, -10, -8] : [10 * clay, -4, -8] as RGB,
+    height: 0.7 * (1 - joint),
+    rough: 1 + 0.15 * joint,
+  };
+};
+
+// ── Timber works (family 'timber') ───────────────────────────────────────────────────────
+/** Plank: directional grain (stretched along u) + plank seams across v. Family default. */
+const plankTimber: Pattern = (u, v) => {
+  const grain = fbm(u * 1.2, v * 9, 3);                    // tight across-grain, loose along
+  const ring = 0.5 + 0.5 * Math.sin((v * 7 + grain * 1.5) * Math.PI * 2);
+  const plank = 1 - Math.min(1, (Math.abs((v / 0.18) % 1 - 0.5) * 0.18) / 0.01);
+  return {
+    tone: 0.14 * (grain - 0.5) + 0.08 * (ring - 0.5) - 0.35 * plank,
+    tint: ZERO_TINT,
+    height: 0.4 * ring + 0.4 * (1 - plank),
+    rough: 1,
+  };
+};
+
+/** Board-and-batten: wide vertical boards with a raised narrow batten over every seam. */
+const boardBatten: Pattern = (u, v) => {
+  const boardW = 0.26;
+  const col = Math.floor(u / boardW);
+  const fu = u / boardW - col;
+  const onBatten = fu < 0.09 || fu > 0.91;                 // raised batten straddling the seam
+  const grain = fbm(u * 1.4, v * 8, 3);
+  return {
+    tone: 0.12 * (grain - 0.5) + (onBatten ? 0.05 : -0.04),
+    tint: ZERO_TINT,
+    height: onBatten ? 0.75 : 0.3 * grain,
+    rough: 1,
+  };
+};
+
+/** Work patterns, indexed by `SurfaceWork`. Selected via SurfaceSpec.work (else DEFAULT_WORK). */
+const WORK_PATTERNS: Record<SurfaceWork, Pattern> = {
+  ashlar, coursed_rubble: coursedRubble, random_rubble: randomRubble,
+  cobble, dry_stone: dryStone, flint,
+  running: runningBond, flemish: flemishBond,
+  plank: plankTimber, board_batten: boardBatten,
+};
+
+/** Default work per material family (used when SurfaceSpec.work is absent). */
+const DEFAULT_WORK: Partial<Record<Mat, SurfaceWork>> = {
+  stone: 'coursed_rubble', brick: 'running', timber: 'plank',
+};
+
 const PATTERNS: Record<Mat, Pattern> = {
-  // Coursed rubble: irregular stones laid in rough rows. IQ Voronoi-BORDER distance gives
-  // an even-width mortar line at the joints between stones (F1 worley read as a polka grid of
-  // dots at cell centres); cells are compressed in v so blocks run wider-than-tall = coursing.
-  // Per-stone lightness from the cell hash, fine grain over the face. Continuous across facets.
-  stone: (u, v) => {
-    const S = 0.42;                                        // ~42 cm rubble stones
-    const { edge, cellHash } = voronoiEdge(u / S, v / (S * 1.55), 0.82);
-    const joint = 1 - sstep(edge / 0.13);                  // 1 in the mortar line → 0 on the face
-    const grain = fbm(u * 3.0, v * 3.0, 3);
-    const block = cellHash - 0.5;                          // per-stone lightness
-    return {
-      tone: 0.11 * block + 0.10 * (grain - 0.5) - 0.40 * joint,
-      tint: ZERO_TINT,
-      height: 0.62 * (1 - joint) + 0.12 * grain,           // raised stone face, recessed joint
-      rough: 1 + 0.14 * joint,
-    };
-  },
-  // Brick: running bond, warm clay variance per brick, recessed mortar.
-  brick: (u, v) => {
-    const b = bond(u, v, 0.22, 0.075, 0.012);              // ~22×7.5 cm bricks, ~1.2 cm joint
-    const clay = (b.h - 0.5);
-    return {
-      tone: 0.16 * clay - 0.42 * b.joint,
-      tint: b.joint > 0.5 ? [-12, -10, -8] : [10 * clay, -4, -8] as RGB,
-      height: 0.7 * (1 - b.joint),
-      rough: 1 + 0.15 * b.joint,
-    };
-  },
-  // Timber: directional grain (stretched along u) + plank seams across v.
-  timber: (u, v) => {
-    const grain = fbm(u * 1.2, v * 9, 3);                  // tight across-grain, loose along
-    const ring = 0.5 + 0.5 * Math.sin((v * 7 + grain * 1.5) * Math.PI * 2);
-    const plank = 1 - Math.min(1, (Math.abs((v / 0.18) % 1 - 0.5) * 0.18) / 0.01);
-    return {
-      tone: 0.14 * (grain - 0.5) + 0.08 * (ring - 0.5) - 0.35 * plank,
-      tint: ZERO_TINT,
-      height: 0.4 * ring + 0.4 * (1 - plank),
-      rough: 1,
-    };
-  },
+  stone: coursedRubble,
+  brick: runningBond,
+  timber: plankTimber,
   // Door: dark vertical boards with deep grooves between them.
   door: (u, _v) => {
     const board = 1 - Math.min(1, (Math.abs((u / 0.12) % 1 - 0.5) * 0.12) / 0.008);
@@ -373,7 +523,9 @@ export interface SurfaceSampler {
 export function prepareSurface(spec: SurfaceSpec, normal: Vec3, unitsPerMetre = 1): SurfaceSampler {
   const base = MATERIAL_RGB[spec.material];
   const baseRough = MATERIAL_PBR[spec.material].roughness;
-  const pattern = PATTERNS[spec.material];
+  // Pick the bond/coursing pattern: explicit work → family default work → family pattern.
+  const work = spec.work ?? DEFAULT_WORK[spec.material];
+  const pattern = work ? WORK_PATTERNS[work] : PATTERNS[spec.material];
   const finish = FINISHES[spec.finish ?? 'bare'];
   const tint = spec.tint;
   const fr = frameFor(normal);
