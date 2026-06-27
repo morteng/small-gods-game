@@ -23,7 +23,7 @@ geometry/surface. The one missing piece is **the aqueduct itself as a routed, pr
 
 ## The decomposition (each slice independently shippable)
 
-### Slice 1 — Aqueduct profile planner ✅ (this push)
+### Slice 1 — Aqueduct profile planner ✅ (`8b54514`)
 **Pure, path-independent, no existing-file edits, no version bump, no goldens.** Given an
 already-chosen source→sink tile path + an elevation field, lay the gravity water-line and classify.
 
@@ -44,7 +44,14 @@ already-chosen source→sink tile path + an elevation field, lay the gravity wat
   run; monotone-never-rises invariant; min-grade always-flows invariant; deterministic; infeasible
   cases (source below sink, hill over cut cap).
 
-### Slice 2 — Grade-constrained router (next)
+> **Status 2026-06-27:** Slices 1, 2, 3 + the source extractor (4a) are SHIPPED on
+> `feat/aqueduct-g6` — the full emergent decision pipeline (water connectome → routed, classified
+> aqueduct geometry), 37 tests, tsc clean, every module pure + isolated (no existing files touched,
+> no version bump, no goldens, not deployed). The user chose **emergent placement (A)**. Remaining:
+> Slice 4 integration + render (the risky half — live worldgen wiring + renderer + version bump +
+> goldens + visual verify) and the settlement **water-demand model**.
+
+### Slice 2 — Grade-constrained router ✅ (`bcea470`)
 `routeAqueduct({source, sink, elevAt, passable, envelope}) → path | null`: an A* variant
 (mirroring `pathfinding.ts`) whose cost couples the **profile planner's structural cost**
 (Σ cut + Σ elevated + length) so the chosen horizontal line minimizes trenching/arching — water
@@ -52,7 +59,8 @@ prefers to follow contours. Pure + testable on synthetic fields. *Needed under E
 design (emergent or seed-authored both need a grade-respecting route), so it is also path-
 independent and safe to build next.*
 
-### Slice 3 — Worldgen placement trigger ⚠️ DESIGN FORK (the user's call)
+### Slice 3 — Emergent placement ✅ (`132f010`) + source extractor 4a (`aqueduct-sources.ts`)
+**Decision: emergent (A), per the user.** Selection + routing shipped pure. Worldgen wiring is Slice 4.
 **This is the one genuinely open decision** and it is deferred until Slice 1–2 land. The rendering
 + routing stack slots in cleanly; what's undefined is *what makes an aqueduct appear*:
 - **(A) Emergent (matches "pops out of the connectome"):** detect a highland water source (a
