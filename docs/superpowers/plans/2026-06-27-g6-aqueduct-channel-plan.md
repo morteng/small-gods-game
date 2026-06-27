@@ -1,0 +1,94 @@
+# G6 — Aqueduct channel (grade-reconciliation epic)
+
+> Plan. 2026-06-27. The grade-reconciliation epic's next slice after G1–G5
+> (envelope, embankment, stairs, deck primitive, bridges — all shipped). Origin: the user's
+> founding direction — *"…with an eye to also supporting aqueducts and other irrigation systems"* —
+> and the headline *"it all pops out of the connectome."*
+
+## Thesis (from the epic brainstorm)
+
+An aqueduct is **the inverted river**: a river is hydrology's *output* (water the terrain sheds,
+carved downhill); an aqueduct is an *input* — water carried along a **near-constant, author-chosen
+gentle down-grade regardless of terrain**: CUT where the ground rises above the water line,
+ELEVATED on a deck/arches where the ground falls below it, hugging the SURFACE where the ground
+descends gently within the grade band. So:
+
+> aqueduct = (grade-envelope linear feature, ~0.3% fall) + (G4 elevated-deck where below ground)
+> + (river-channel cut where above ground) + (a thin channel water surface).
+
+Almost all the machinery exists (recon 2026-06-27): the shared SDF feature buffer
+(`feature-geometry.ts`), the cardinal-run span vocabulary (`road-span.ts` `sampleSpanSegments`),
+the elevated-deck entity + `liftElev` pattern (`crossing-structures.ts`), and the river channel
+geometry/surface. The one missing piece is **the aqueduct itself as a routed, profiled feature.**
+
+## The decomposition (each slice independently shippable)
+
+### Slice 1 — Aqueduct profile planner ✅ (this push)
+**Pure, path-independent, no existing-file edits, no version bump, no goldens.** Given an
+already-chosen source→sink tile path + an elevation field, lay the gravity water-line and classify.
+
+`src/world/connectome/aqueduct-profile.ts`:
+- `planAqueductProfile(path, opts) → AqueductProfile | null`.
+- The water-line is a **greedy monotone forward pass**: start at the source ground; at each tile
+  set the surface to *hug the terrain* but clamped into the grade band `[minFall, maxFall]·stepLen`
+  below the previous station — so it **never rises** and **never falls faster than max**. This one
+  rule makes the three modes fall out: gentle descending ground → `surface`; ground rises → water
+  stays below → `cut` (the depth = how far the hill rises above the held line); ground drops away →
+  water can only ease down at maxFall → ground sinks below → `elevated` (deck height = the gap).
+- Per-tile `AqueductStation {x,y, terrainM, waterM, mode, clearM}`; grouped into
+  `AqueductSegment {from,to,dir,mode,runTiles,fromWaterM,toWaterM}` runs by (mode, cardinal) for the
+  eventual renderer. Reports `deliveredHeadM`, `maxCutM`, `maxElevatedM`, `feasible` (+reason).
+- Feasibility: source must sit above sink; a cut deeper than `cutDepthMaxM` (a hill too tall to
+  trench — the router's job to go around) ⇒ infeasible; water must arrive at the sink with head.
+- Full unit tests: hug-the-slope → all `surface`; a hill → a `cut` run; a valley → an `elevated`
+  run; monotone-never-rises invariant; min-grade always-flows invariant; deterministic; infeasible
+  cases (source below sink, hill over cut cap).
+
+### Slice 2 — Grade-constrained router (next)
+`routeAqueduct({source, sink, elevAt, passable, envelope}) → path | null`: an A* variant
+(mirroring `pathfinding.ts`) whose cost couples the **profile planner's structural cost**
+(Σ cut + Σ elevated + length) so the chosen horizontal line minimizes trenching/arching — water
+prefers to follow contours. Pure + testable on synthetic fields. *Needed under EVERY placement
+design (emergent or seed-authored both need a grade-respecting route), so it is also path-
+independent and safe to build next.*
+
+### Slice 3 — Worldgen placement trigger ⚠️ DESIGN FORK (the user's call)
+**This is the one genuinely open decision** and it is deferred until Slice 1–2 land. The rendering
++ routing stack slots in cleanly; what's undefined is *what makes an aqueduct appear*:
+- **(A) Emergent (matches "pops out of the connectome"):** detect a highland water source (a
+  river headwater / perched lake above a settlement) + a settlement that sits above or far from its
+  nearest river → route an aqueduct from source down to the settlement. Needs a small
+  *water-source* + *settlement-water-demand* model (neither exists today).
+- **(B) Seed-authored:** add `'aqueduct'` to `LinearFeature`; aqueducts come only from
+  `worldSeed.connections{type:'aqueduct'}`, threaded through `buildRoadGraph` exactly like roads.
+  Tractable immediately, but aqueducts appear only where a seed names them (not emergent).
+- **Recommendation:** (A), because the whole epic's headline is emergence; (B) as a fast interim
+  that (A) later supersedes. **Surface this to the user before building Slice 3.**
+
+### Slice 4 — Render (reuse) — feature-buffer cut runs + G4 deck elevated runs + channel water
+- Add `'aqueduct'` to `LinearFeature`/feature-buffer tagging; cut runs reuse river-channel geometry,
+  elevated runs spawn G4 deck bays (`liftElev` = `waterM`), a thin channel water surface rides the
+  authored line (not the terrain datum). Bump `WORLD_CONTENT_VERSION`; re-pin goldens.
+
+### Slice 5 — Irrigation (G7, its own track)
+Trunk + branches + flow apportionment at junctions + an "irrigated" terrain tag feeding
+biome/fertility. Deepest net-new modelling; explicitly later.
+
+## Critical files
+| Concern | File |
+|---|---|
+| Profile planner (Slice 1) | `src/world/connectome/aqueduct-profile.ts` (new) |
+| Cardinal-run vocabulary (reuse) | `src/world/connectome/road-span.ts` |
+| Grade-constrained router (Slice 2) | `src/world/connectome/aqueduct-route.ts` (new), ref `src/sim/pathfinding.ts` |
+| Feature buffer / channel (Slice 4) | `src/render/gpu/feature-geometry.ts`, `river-channel-geometry.ts` |
+| Elevated deck + liftElev (Slice 4) | `src/world/connectome/crossing-structures.ts`, `blueprint/parts/bridge.ts` |
+| Feature enum (Slice 3/4) | `src/world/road-graph.ts` (`LinearFeature`) |
+| Version gate (Slice 4) | `src/core/content-version.ts` |
+
+## Verification
+- Slice 1: `npm test` (new `aqueduct-profile.test.ts`); `tsc --noEmit` clean. No render/worldgen
+  change ⇒ no stale-autosave risk, no goldens to re-pin, nothing to deploy.
+- Later slices carry the visual + golden + version-bump discipline (see G3/G5).
+
+Branch: `feat/aqueduct-g6`. Commit explicit paths. Not pushed without the Slice-3 design decision +
+a coherent rendered increment.
