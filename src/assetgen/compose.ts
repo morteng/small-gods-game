@@ -2,7 +2,7 @@
 import type { Vec3, Mat, WorldFacet } from '@/assetgen/types';
 import {
   solidBox, solidBoxYawed, solidCylinder, solidCone, solidPrism, solidEllipsoid, solidArch,
-  manifoldToFacets, buildingFacets, carveApertures, boreCylinder,
+  manifoldToFacets, buildingFacets, carveApertures, boreCylinder, cylindricalProjector,
 } from '@/assetgen/geometry/solids';
 import type { ApertureBox } from '@/assetgen/geometry/solids';
 import type { Wing, RoofStyle, BuildingFeatures, BuildingAnchors } from '@/assetgen/geometry/building';
@@ -78,10 +78,10 @@ async function partFacets(p: Part): Promise<{ facets: WorldFacet[]; anchors?: Bu
     case 'cylinder': {
       let s = await solidCylinder(p.center, p.baseZ, p.radius, p.height);
       s = await carveApertures(s, p.apertures);
-      return { facets: manifoldToFacets(s.getMesh(), p.material ?? 'stone', p.work) };
+      return { facets: manifoldToFacets(s.getMesh(), p.material ?? 'stone', p.work, cylindricalProjector(p.center, p.radius)) };
     }
-    case 'cone':      return { facets: manifoldToFacets((await solidCone(p.center, p.baseZ, 0, p.radius, p.height)).getMesh(), p.material ?? 'foliage') };
-    case 'prism':     return { facets: manifoldToFacets((await solidPrism(p.center, p.baseZ, p.radius, p.height, p.sides)).getMesh(), p.material ?? 'stone', p.work) };
+    case 'cone':      return { facets: manifoldToFacets((await solidCone(p.center, p.baseZ, 0, p.radius, p.height)).getMesh(), p.material ?? 'foliage', undefined, cylindricalProjector(p.center, p.radius)) };
+    case 'prism':     return { facets: manifoldToFacets((await solidPrism(p.center, p.baseZ, p.radius, p.height, p.sides)).getMesh(), p.material ?? 'stone', p.work, cylindricalProjector(p.center, p.radius)) };
     case 'ellipsoid': {
       let s = await solidEllipsoid(p.center, p.baseZ, p.radii);
       if (p.bore) s = await boreCylinder(s, p.center, p.baseZ + 2 * p.radii[2], p.bore.radius, p.bore.depth);
@@ -202,6 +202,14 @@ export async function composeStructure(spec: StructureSpec, shadowSun?: [number,
     for (const f of facets) {
       f.pts = f.pts.map((p) => rotWorld(p));
       f.normal = rotWorld(f.normal, true);
+      // Keep an authored UV frame consistent with the rotated geometry: planar axes rotate
+      // as vectors; a cylindrical axis-centre rotates as a point (radius is invariant).
+      if (f.frame?.kind === 'planar') {
+        f.frame = { kind: 'planar', uAxis: rotWorld(f.frame.uAxis, true), vAxis: rotWorld(f.frame.vAxis, true) };
+      } else if (f.frame?.kind === 'cylindrical') {
+        const c = rotWorld([f.frame.cx, f.frame.cy, 0]);
+        f.frame = { kind: 'cylindrical', cx: c[0], cy: c[1], radius: f.frame.radius };
+      }
     }
   }
   // Buildings render at a fixed metric scale (content-sized canvas) so heights stay

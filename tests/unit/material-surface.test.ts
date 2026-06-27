@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
-  sampleSurface, FINISH_IDS, SURFACE_WORKS, type FinishId, type SurfaceWork, type SurfaceSpec,
+  sampleSurface, prepareSurface, FINISH_IDS, SURFACE_WORKS,
+  type FinishId, type SurfaceWork, type SurfaceSpec,
 } from '@/assetgen/render/material-surface';
-import { MATERIAL_RGB, type Mat, type Vec3, type RGB } from '@/assetgen/types';
+import { MATERIAL_RGB, type Mat, type Vec3, type RGB, type SurfaceFrame } from '@/assetgen/types';
 
 const MATS: Mat[] = [
   'stone', 'timber', 'plaster', 'thatch', 'tile',
@@ -183,6 +184,52 @@ describe('material-surface — surface works (bond/coursing taxonomy)', () => {
     const a = sampleSurface({ material: 'stone', work: 'ashlar' }, [2.1, 0.3, 1.7], [1, 0, 0]);
     const b = sampleSurface({ material: 'stone', work: 'ashlar' }, [2.1, 0.3, 1.7], [1, 0, 0]);
     expect(a).toEqual(b);
+  });
+});
+
+describe('material-surface — authored UV frames (KU)', () => {
+  // Sample the barrel of a cylinder of radius R at angle θ: world xy on the wall, z up.
+  const onBarrel = (R: number, theta: number, z: number): Vec3 =>
+    [R * Math.cos(theta), R * Math.sin(theta), z];
+
+  it('cylindrical unwrap is 1:1 arc-length: the SAME texture at the same arc-length, any radius', () => {
+    // u = θ·R, so a point at arc-length s = θ·R maps to u = s independent of R. Two cylinders
+    // of different radius sampled at the same arc-length + height must give identical surface.
+    const spec: SurfaceSpec = { material: 'stone', work: 'coursed_rubble' };
+    const s = 1.3, z = 0.9;                       // arc-length (tiles) + height
+    for (const [R1, R2] of [[2, 5], [1.5, 3.7]]) {
+      const f1: SurfaceFrame = { kind: 'cylindrical', cx: 0, cy: 0, radius: R1 };
+      const f2: SurfaceFrame = { kind: 'cylindrical', cx: 0, cy: 0, radius: R2 };
+      const n: Vec3 = [1, 0, 0];                  // radial-ish; only used for the bump base
+      const a = prepareSurface(spec, n, 0.5, f1).at(onBarrel(R1, s / R1, z));
+      const b = prepareSurface(spec, n, 0.5, f2).at(onBarrel(R2, s / R2, z));
+      expect(a.albedo).toEqual(b.albedo);         // metric-invariant: stones the same size
+    }
+  });
+
+  it('wraps the barrel seamlessly (fine steps bounded, like a flat wall — no axis flip)', () => {
+    const spec: SurfaceSpec = { material: 'stone' };
+    const R = 3;
+    const f: SurfaceFrame = { kind: 'cylindrical', cx: 0, cy: 0, radius: R };
+    const samp = prepareSurface(spec, [1, 0, 0], 0.5, f);
+    const dtheta = 0.001 / R;                       // ~1 mm arc steps (1 tile = 2 m)
+    let prev = samp.at(onBarrel(R, 0.2, 1)).albedo;
+    for (let k = 1; k <= 600; k++) {               // sweep ~0.2 rad of the front, well off ±π
+      const cur = samp.at(onBarrel(R, 0.2 + k * dtheta, 1)).albedo;
+      const jump = Math.max(Math.abs(cur[0] - prev[0]), Math.abs(cur[1] - prev[1]), Math.abs(cur[2] - prev[2]));
+      expect(jump).toBeLessThan(40);               // smooth, bar sharp joints — same bound as a flat wall
+      prev = cur;
+    }
+  });
+
+  it('an authored planar frame overrides the normal-derived one', () => {
+    const spec: SurfaceSpec = { material: 'brick' };
+    const pos: Vec3 = [0.7, 0.3, 1.4]; const n: Vec3 = [0, 1, 0];
+    // Swap u/v axes vs the natural wall frame ⇒ the running-bond coursing runs the other way.
+    const swapped: SurfaceFrame = { kind: 'planar', uAxis: [0, 0, 1], vAxis: [1, 0, 0] };
+    const natural = prepareSurface(spec, n, 0.5).at(pos);
+    const authored = prepareSurface(spec, n, 0.5, swapped).at(pos);
+    expect(authored.albedo).not.toEqual(natural.albedo);
   });
 });
 

@@ -100,7 +100,7 @@ export function rasterizeMaps(facets: ScreenFacet[], size: number, surface?: Sur
             finish: f.finish as FinishId | undefined,
             tint: f.tint,
           },
-          f.normal, surface.unitsPerMetre,
+          f.normal, surface.unitsPerMetre, f.frame,
         );
       }
     }

@@ -1,5 +1,5 @@
 // src/assetgen/geometry/solids.ts
-import type { Vec3, RGB, Mat, WorldFacet } from '@/assetgen/types';
+import type { Vec3, RGB, Mat, WorldFacet, SurfaceFrame } from '@/assetgen/types';
 import { MATERIAL_RGB } from '@/assetgen/types';
 import type { Mesh, Manifold } from 'manifold-3d';
 import type { Vec2 } from '@/assetgen/types';
@@ -26,7 +26,23 @@ function brightness(n: Vec3): number {
 }
 
 /** Convert a watertight manifold Mesh into flat-normal world facets, one per triangle. */
-export function manifoldToFacets(mesh: Mesh, material: Mat, work?: string): WorldFacet[] {
+/** Authors a per-facet UV frame (KU) from its centroid + outward normal; `undefined` ⇒ the
+ *  texturer derives a tangent frame from the normal (the default for flat box faces). */
+export type FacetProjector = (centroid: Vec3, normal: Vec3) => SurfaceFrame | undefined;
+
+/** Cylindrical unwrap about a vertical axis at `center`: barrel side facets get an angular
+ *  frame (u = θ·radius wraps seamlessly, v = world-z); the near-horizontal top/bottom caps
+ *  fall back to the normal-derived planar frame. For round towers / columns / wells. */
+export function cylindricalProjector(center: [number, number], radius: number): FacetProjector {
+  const [cx, cy] = center;
+  return (_c, n): SurfaceFrame | undefined => {
+    const az = Math.abs(n[2]);
+    if (az >= Math.abs(n[0]) && az >= Math.abs(n[1])) return undefined;  // a cap, not the barrel
+    return { kind: 'cylindrical', cx, cy, radius };
+  };
+}
+
+export function manifoldToFacets(mesh: Mesh, material: Mat, work?: string, projector?: FacetProjector): WorldFacet[] {
   const c = MATERIAL_RGB[material];
   const { numProp, vertProperties: vp, triVerts: tv } = mesh;
   const pos = (i: number): Vec3 => [vp[i*numProp], vp[i*numProp+1], vp[i*numProp+2]];
@@ -35,7 +51,8 @@ export function manifoldToFacets(mesh: Mesh, material: Mat, work?: string): Worl
     const a = pos(tv[t]), b = pos(tv[t+1]), d = pos(tv[t+2]);
     const n = cross(sub(b, a), sub(d, a));         // outward (manifold winding is CCW-outward)
     if (n[0] === 0 && n[1] === 0 && n[2] === 0) continue; // skip degenerate
-    out.push({ pts: [a, b, d], normal: n, albedo: shadeRGB(c, brightness(n)), mat: material, work });
+    const frame = projector?.([(a[0]+b[0]+d[0])/3, (a[1]+b[1]+d[1])/3, (a[2]+b[2]+d[2])/3], n);
+    out.push({ pts: [a, b, d], normal: n, albedo: shadeRGB(c, brightness(n)), mat: material, work, frame });
   }
   return out;
 }

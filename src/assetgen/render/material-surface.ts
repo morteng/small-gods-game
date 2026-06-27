@@ -23,7 +23,7 @@
 // xyz and call `sampleSurface`. Calibration of metre scale (the `unitsPerMetre` arg) and
 // the default-on flag land in K0b/K0d; K0a is the engine + its tests only.
 
-import type { Mat, RGB, Vec3 } from '@/assetgen/types';
+import type { Mat, RGB, Vec3, SurfaceFrame } from '@/assetgen/types';
 import { MATERIAL_RGB } from '@/assetgen/types';
 import { MATERIAL_PBR } from '@/assetgen/material-pbr';
 
@@ -520,7 +520,9 @@ export interface SurfaceSampler {
  *                      Feature wavelengths are authored in metres, so (u,v) is divided by
  *                      this to land them at the right size. K0b passes `mToTiles(1)` (=0.5).
  */
-export function prepareSurface(spec: SurfaceSpec, normal: Vec3, unitsPerMetre = 1): SurfaceSampler {
+export function prepareSurface(
+  spec: SurfaceSpec, normal: Vec3, unitsPerMetre = 1, frame?: SurfaceFrame,
+): SurfaceSampler {
   const base = MATERIAL_RGB[spec.material];
   const baseRough = MATERIAL_PBR[spec.material].roughness;
   // Pick the bond/coursing pattern: explicit work → family default work → family pattern.
@@ -528,48 +530,67 @@ export function prepareSurface(spec: SurfaceSpec, normal: Vec3, unitsPerMetre = 
   const pattern = work ? WORK_PATTERNS[work] : PATTERNS[spec.material];
   const finish = FINISHES[spec.finish ?? 'bare'];
   const tint = spec.tint;
-  const fr = frameFor(normal);
   const inv = 1 / unitsPerMetre;
   const n0 = normal[0], n1 = normal[1], n2 = normal[2];
-  const ua = fr.uAxis, va = fr.vAxis;
 
+  // Shared shading given the surface coords (u,v in metres) + the local surface axes (for the
+  // relief-gradient normal perturbation). Constant per facet for planar frames; per-pixel for
+  // the cylindrical unwrap (axes rotate around the barrel). Pattern/finish/LUTs are hoisted.
+  const shade = (u: number, v: number, ua: Vec3, va: Vec3): SurfaceSample => {
+    const m = pattern(u, v);
+    const tone = 1 + m.tone;
+    let r = base[0] * tone + m.tint[0];
+    let g = base[1] * tone + m.tint[1];
+    let b = base[2] * tone + m.tint[2];
+    let rough = baseRough * m.rough;
+    if (rough < 0) rough = 0; else if (rough > 1) rough = 1;
+    const painted = finish([r, g, b], m.height, rough, tint);
+    r = painted.albedo[0]; g = painted.albedo[1]; b = painted.albedo[2]; rough = painted.rough;
+    const out: RGB = [
+      r < 0 ? 0 : r > 255 ? 255 : Math.round(r),
+      g < 0 ? 0 : g > 255 ? 255 : Math.round(g),
+      b < 0 ? 0 : b > 255 ? 255 : Math.round(b),
+    ];
+    const hC = m.height;
+    const dU = (pattern(u + EPS, v).height - hC) / EPS;
+    const dV = (pattern(u, v + EPS).height - hC) / EPS;
+    const perturbed: Vec3 = [
+      n0 - NORMAL_BUMP * (dU * ua[0] + dV * va[0]),
+      n1 - NORMAL_BUMP * (dU * ua[1] + dV * va[1]),
+      n2 - NORMAL_BUMP * (dU * ua[2] + dV * va[2]),
+    ];
+    const ao = 0.85 + 0.15 * (hC < 0 ? 0 : hC > 1 ? 1 : hC);
+    return { albedo: out, normal: normalize3(perturbed), roughness: rough, ao };
+  };
+
+  // Cylindrical unwrap: u = θ·radius (arc-length, wraps seamlessly bar one back-seam at ±π),
+  // v = world-z; the local tangent (−sinθ, cosθ, 0) / up axes rotate per pixel around the barrel.
+  if (frame?.kind === 'cylindrical') {
+    const { cx, cy, radius } = frame;
+    return {
+      at(pos: Vec3): SurfaceSample {
+        const ang = Math.atan2(pos[1] - cy, pos[0] - cx);
+        const u = ang * radius * inv;
+        const v = pos[2] * inv;
+        return shade(u, v, [-Math.sin(ang), Math.cos(ang), 0], UP_AXIS);
+      },
+    };
+  }
+
+  // Planar: an authored tangent basis, else one derived from the normal. (u,v) = world position
+  // projected onto it → true 1:1 metric coords (isotropic, slope-correct, continuous coplanar).
+  const fr = frame?.kind === 'planar' ? frame : frameFor(normal);
+  const ua = fr.uAxis, va = fr.vAxis;
   return {
     at(pos: Vec3): SurfaceSample {
-      // (u,v) = world position projected onto the in-plane tangent basis → true 1:1 metric
-      // surface coordinates (isotropic, slope-correct, continuous across coplanar facets).
       const u = (pos[0] * ua[0] + pos[1] * ua[1] + pos[2] * ua[2]) * inv;
       const v = (pos[0] * va[0] + pos[1] * va[1] + pos[2] * va[2]) * inv;
-      const m = pattern(u, v);
-      const tone = 1 + m.tone;
-      // Material albedo: base modulated by tone + small tint.
-      let r = base[0] * tone + m.tint[0];
-      let g = base[1] * tone + m.tint[1];
-      let b = base[2] * tone + m.tint[2];
-      let rough = baseRough * m.rough;
-      if (rough < 0) rough = 0; else if (rough > 1) rough = 1;
-      // Finish/paint layer over the material.
-      const painted = finish([r, g, b], m.height, rough, tint);
-      r = painted.albedo[0]; g = painted.albedo[1]; b = painted.albedo[2]; rough = painted.rough;
-      const out: RGB = [
-        r < 0 ? 0 : r > 255 ? 255 : Math.round(r),
-        g < 0 ? 0 : g > 255 ? 255 : Math.round(g),
-        b < 0 ? 0 : b > 255 ? 255 : Math.round(b),
-      ];
-      // Normal perturbation: relief gradient (forward difference on `height`) tilts the facet
-      // normal along the surface axes. Two extra pattern evals — the irreducible cost of bump.
-      const hC = m.height;
-      const dU = (pattern(u + EPS, v).height - hC) / EPS;
-      const dV = (pattern(u, v + EPS).height - hC) / EPS;
-      const perturbed: Vec3 = [
-        n0 - NORMAL_BUMP * (dU * ua[0] + dV * va[0]),
-        n1 - NORMAL_BUMP * (dU * ua[1] + dV * va[1]),
-        n2 - NORMAL_BUMP * (dU * ua[2] + dV * va[2]),
-      ];
-      const ao = 0.85 + 0.15 * (hC < 0 ? 0 : hC > 1 ? 1 : hC);
-      return { albedo: out, normal: normalize3(perturbed), roughness: rough, ao };
+      return shade(u, v, ua, va);
     },
   };
 }
+
+const UP_AXIS: Vec3 = [0, 0, 1];
 
 /**
  * Convenience single-sample form (tests / one-off lookups). For per-pixel rasterization use

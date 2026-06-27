@@ -24,12 +24,21 @@ export const MATERIAL_RGB: Record<Mat, RGB> = {
   glass:   [44, 52, 64],   // dark cool glazing by day; the warm glow is its emissive (night)
 };
 
+/** An authored surface (u,v) frame for a facet (KU). `planar` = a tangent basis in the facet
+ *  plane (axes in world metres); `cylindrical` = an angular unwrap about a vertical axis at
+ *  (cx,cy) with `radius` (tiles), so masonry wraps a round tower/column seamlessly (u = θ·r
+ *  arc-length, v = world-z). Absent ⇒ the texturer derives a tangent frame from the normal. */
+export type SurfaceFrame =
+  | { kind: 'planar'; uAxis: Vec3; vAxis: Vec3 }
+  | { kind: 'cylindrical'; cx: number; cy: number; radius: number };
+
 /** A flat-shaded polygon in WORLD space (tile-local x,y; z up), pre-projection. `work`
  *  (bond/coursing — a `SurfaceWork`), `finish` (paint layer) and `tint` are the resolved
- *  surface descriptor (KC); loosely-typed strings here to avoid a render→types import cycle. */
+ *  surface descriptor (KC); loosely-typed strings here to avoid a render→types import cycle.
+ *  `frame` is the authored UV mapping (KU); absent ⇒ tangent-from-normal. */
 export interface WorldFacet {
   pts: Vec3[]; normal: Vec3; albedo: RGB; mat: Mat;
-  work?: string; finish?: string; tint?: RGB;
+  work?: string; finish?: string; tint?: RGB; frame?: SurfaceFrame;
 }
 
 /** A projected, depth-keyed polygon ready to rasterise. `worldPts` (the pre-projection
@@ -38,5 +47,5 @@ export interface WorldFacet {
  *  surface descriptor (KC); absent ⇒ family default / bare. */
 export interface ScreenFacet {
   pts: Pt[]; normal: Vec3; albedo: RGB; depth: number; depths?: number[]; mat: Mat;
-  worldPts?: Vec3[]; work?: string; finish?: string; tint?: RGB;
+  worldPts?: Vec3[]; work?: string; finish?: string; tint?: RGB; frame?: SurfaceFrame;
 }
