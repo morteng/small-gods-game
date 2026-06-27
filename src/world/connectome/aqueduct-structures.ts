@@ -7,8 +7,10 @@
 //   • surface / cut → a graded CHANNEL trough sitting on the ground (a `deck` with both parapets
 //     reads as an open water channel — a flat floor between two low walls); foot-sampled.
 //   • elevated      → the iconic arched aqueduct: the channel rides a deck lifted onto its water
-//     line via the G4 `liftElev` primitive, carried on PIERS standing from the ground up to its
-//     underside (`clearM` tall). Marches as cardinal pieces, exactly like a bridge deck's bays.
+//     line via the G4 `liftElev` primitive, carried on an ARCADE of masonry arch bays — each an
+//     `arch_span` portal (two posts = the piers, a lintel = the springing under the deck) standing
+//     from the ground up to the deck underside. Marches as cardinal bays, exactly like a viaduct.
+//     A stretch too low for an arch to read (a shallow lip) falls back to a plain pier.
 // No new geometry, no LinearFeature, no terrain feature-buffer / WGSL — purely additive entity
 // spawning through the existing blueprint pipeline (so it renders grey today and picks up art on
 // a funded reseed). Pure + deterministic: returns `Entity[]`, the caller adds them at world-build
@@ -55,12 +57,16 @@ export interface AqueductStructureOptions {
   maxGrade?: number;
 }
 
-/** Below this clearance (m) a pier would be a stub — skip it (the deck seats on the ground). */
-const MIN_PIER_HEIGHT_M = 1;
-/** Cap pier height so a freak deep gorge doesn't spawn an absurd tower. */
-const MAX_PIER_HEIGHT_M = 14;
-/** Place an elevated-run pier every N tiles (plus always at the run's two ends). */
-const PIER_SPACING_TILES = 2;
+/** Below this clearance (m) a support would be a stub — skip it (the deck seats on the ground). */
+const MIN_SUPPORT_HEIGHT_M = 1;
+/** Cap support height so a freak deep gorge doesn't spawn an absurd tower. */
+const MAX_SUPPORT_HEIGHT_M = 14;
+/** Below this clearance an arch can't read as an opening (the deck would meet a squat lintel) —
+ *  the bay falls back to a plain pier. Above it, the elevated run marches as an arcade. */
+const MIN_ARCH_HEIGHT_M = 1.6;
+/** Arcade bay length, tiles. ~6 m bays leave a real opening between the portal posts (a 2-tile
+ *  bay collapses to solid once the posts are a channel-width thick). Plus the run's two ends. */
+const ARCH_BAY_TILES = 3;
 /** Masonry aqueduct piers taper (batter) like bridge piers — read as built, not poured. */
 const PIER_BATTER = 0.15;
 
@@ -102,10 +108,10 @@ function emitPlan(out: Entity[], plan: AqueductPlan, opts: AqueductStructureOpti
   const stationAt = new Map<string, AqueductStation>();
   for (const s of plan.profile.stations) stationAt.set(`${s.x},${s.y}`, s);
 
-  const pierTiles = new Set<string>();   // dedupe piers shared at a within-mode bend corner
+  const used = new Set<string>();   // dedupe a support tile shared at a within-mode bend corner
   for (const seg of plan.profile.segments) {
     out.push(channelEntity(tag, seg, widthTiles, mat, opts));
-    if (seg.mode === 'elevated') emitPiers(out, tag, seg, stationAt, mat, pierTiles);
+    if (seg.mode === 'elevated') emitArcade(out, tag, seg, stationAt, widthTiles, mat, used);
   }
 }
 
@@ -146,25 +152,69 @@ function channelEntity(
   return e;
 }
 
-/** Piers under an elevated run — one every {@link PIER_SPACING_TILES} tiles plus the two ends,
- *  each standing from the ground to the channel underside (`clearM` tall). */
-function emitPiers(
+/** Carry an elevated run on an ARCADE: march it in {@link ARCH_BAY_TILES}-tile bays, each an
+ *  `arch_span` portal (two posts = the piers, a lintel = the springing under the deck) standing
+ *  from the ground to the deck underside. A bay too low for an arch to read (a shallow lip) falls
+ *  back to a plain pier so the deck end is still supported. Adjacent bays share their boundary
+ *  post; a 1-tile remainder is merged into the last bay so no bay is a degenerate stub. */
+function emitArcade(
   out: Entity[], tag: string, seg: AqueductSegment,
-  stationAt: Map<string, AqueductStation>, mat: string, pierTiles: Set<string>,
+  stationAt: Map<string, AqueductStation>, widthTiles: number, mat: string, used: Set<string>,
 ): void {
   const pts = tilesAlong(seg.from, seg.to);
-  for (let i = 0; i < pts.length; i++) {
-    const isEnd = i === 0 || i === pts.length - 1;
-    if (!isEnd && i % PIER_SPACING_TILES !== 0) continue;
-    const key = `${pts[i].x},${pts[i].y}`;
-    if (pierTiles.has(key)) continue;
-    const st = stationAt.get(key);
-    if (!st) continue;
-    const h = Math.min(MAX_PIER_HEIGHT_M, st.clearM);
-    if (h < MIN_PIER_HEIGHT_M) continue;
-    pierTiles.add(key);
-    out.push(pierEntity(`aqpier:${tag}:${key}`, pts[i].x, pts[i].y, h, mat));
+  const clearAt = (p: SpanPoint) => stationAt.get(`${p.x},${p.y}`)?.clearM ?? 0;
+  let i = 0;
+  while (i < pts.length - 1) {
+    let jb = Math.min(i + ARCH_BAY_TILES, pts.length - 1);
+    if (pts.length - 1 - jb === 1) jb = pts.length - 1;   // absorb a lone trailing tile
+    // The lintel must clear under the deck at EVERY tile of the bay, so seat it at the bay's
+    // shallowest clearance (the deck rides above it everywhere else).
+    let h = Infinity;
+    for (let k = i; k <= jb; k++) h = Math.min(h, clearAt(pts[k]));
+    if (!Number.isFinite(h) || h < MIN_SUPPORT_HEIGHT_M) { i = jb; continue; }
+    const heightM = Math.min(MAX_SUPPORT_HEIGHT_M, h);
+    const a = pts[i], b = pts[jb];
+    if (heightM >= MIN_ARCH_HEIGHT_M) {
+      out.push(archBayEntity(tag, a, b, seg.axis, heightM, widthTiles, mat));
+    } else {
+      // Too shallow for an opening — a single pier at the bay midpoint props the deck.
+      const m = pts[Math.floor((i + jb) / 2)];
+      const key = `${m.x},${m.y}`;
+      if (!used.has(key)) { used.add(key); out.push(pierEntity(`aqpier:${tag}:${key}`, m.x, m.y, heightM, mat)); }
+    }
+    i = jb;
   }
+}
+
+/** One arcade bay — an `arch_span` portal springing along the run axis from a→b, rising `heightM`
+ *  to the deck underside. The portal posts are the piers; the opening between them is the arch. */
+function archBayEntity(
+  tag: string, a: SpanPoint, b: SpanPoint, axis: 'ns' | 'ew',
+  heightM: number, widthTiles: number, mat: string,
+): Entity {
+  const ew = axis === 'ew';
+  const spanTiles = Math.max(1, ew ? Math.abs(b.x - a.x) : Math.abs(b.y - a.y));
+  // Post width / frame depth ≈ the channel width (the deck seats across the portal). Clamp so the
+  // posts stay slim enough to leave an opening yet chunky enough to read as masonry.
+  const frameM = Math.min(2.5, Math.max(1, widthTiles * METRES_PER_TILE));
+  const crossTiles = Math.max(1, Math.ceil(frameM / METRES_PER_TILE));
+  const alongTiles = spanTiles + 1;   // +1 so both posts fall inside the footprint
+  const footW = ew ? alongTiles : crossTiles;
+  const footH = ew ? crossTiles : alongTiles;
+  const minX = Math.min(a.x, b.x), minY = Math.min(a.y, b.y);
+  const halfCross = Math.floor((crossTiles - 1) / 2);
+  const ox = ew ? minX : minX - halfCross;
+  const oy = ew ? minY - halfCross : minY;
+
+  const bp: Blueprint = {
+    version: BLUEPRINT_VERSION, class: 'prop', preset: 'aqueduct_arch', category: 'infrastructure',
+    footprint: { w: footW, h: footH }, materials: { walls: mat, roof: mat, ground: 'dirt' },
+    parts: { arch: { type: 'arch_span', at: { x: 0, y: 0 }, size: { w: footW, h: footH }, params: {
+      spanM: spanTiles * METRES_PER_TILE, riseM: heightM, thicknessM: frameM, dir: axis,
+    } } },
+  };
+  const rb = resolveBlueprint([bp], 0);
+  return blueprintEntity(`aqueduct:${tag}:arch:${a.x},${a.y}-${b.x},${b.y}`, rb, ox, oy);
 }
 
 function pierEntity(id: string, x: number, y: number, heightM: number, mat: string): Entity {

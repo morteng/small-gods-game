@@ -42,7 +42,7 @@ describe('buildAqueductStructureEntities — emergent aqueduct realization', () 
     expect(channels.every((e) => (e.properties as Record<string, unknown>).liftElev === undefined)).toBe(true);
   });
 
-  it('rides an elevated run on a lifted deck carried by piers across a gorge', () => {
+  it('rides an elevated run on a lifted deck carried by an arch arcade across a gorge', () => {
     // A gorge (floor 2 m) at x=9..13 the gentle grade cannot descend into ⇒ an elevated run.
     const elevAt = (x: number) => (x >= 9 && x <= 13 ? 2 : 25 - 0.5 * x);
     const ents = buildAqueductStructureEntities(
@@ -50,8 +50,9 @@ describe('buildAqueductStructureEntities — emergent aqueduct realization', () 
       [town('downstream', 20, 5)],
       baseOpts(elevAt),
     );
-    const piers = ents.filter((e) => e.kind === 'aqueduct_pier');
-    expect(piers.length).toBeGreaterThan(0);
+    // A tall elevated run marches as an ARCADE of arch bays (not bare piers).
+    const arches = ents.filter((e) => e.kind === 'aqueduct_arch');
+    expect(arches.length).toBeGreaterThan(0);
     // The elevated channel deck is lifted to ~its water line (well above the 2 m gorge floor).
     const lifted = ents.filter((e) =>
       e.kind === 'aqueduct_channel' && (e.properties as Record<string, unknown>).liftElev !== undefined);
@@ -59,8 +60,14 @@ describe('buildAqueductStructureEntities — emergent aqueduct realization', () 
     for (const e of lifted) {
       expect((e.properties as { liftElev: number }).liftElev).toBeGreaterThan(2);
     }
-    // A pier stands at a gorge tile and is tall enough to reach the deck.
-    expect(piers.some((e) => e.x >= 9 && e.x <= 13)).toBe(true);
+    // An arch bay spans across the gorge (its from→to endpoints, parsed from the id, bracket it).
+    const spansGorge = arches.some((e) => {
+      const m = /arch:(\d+),\d+-(\d+),\d+$/.exec(e.id);
+      if (!m) return false;
+      const ax = Number(m[1]), bx = Number(m[2]);
+      return Math.min(ax, bx) <= 13 && Math.max(ax, bx) >= 9;
+    });
+    expect(spansGorge).toBe(true);
   });
 
   it('respects the demand gate and a sourceless / townless world', () => {

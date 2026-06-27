@@ -6,7 +6,7 @@ describe('content-version constants', () => {
     expect(ART_RECIPE_VERSION).toBe('v13');
   });
 
-  it('declares the current world content version (20: emergent aqueducts G6)', () => {
-    expect(WORLD_CONTENT_VERSION).toBe(20);
+  it('declares the current world content version (21: aqueduct arcade G6 polish)', () => {
+    expect(WORLD_CONTENT_VERSION).toBe(21);
   });
 });

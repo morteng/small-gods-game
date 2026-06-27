@@ -53,4 +53,4 @@ export const ART_RECIPE_VERSION = 'v13';
  * An autosave stamped with a different value is discarded on load → a fresh
  * world is generated. Distinct from SAVE_VERSION (which guards the save *schema*).
  */
-export const WORLD_CONTENT_VERSION = 20;  // AQUEDUCTS (G6): a dry inland settlement with a highland water source above it now grows an emergent gravity channel (cut/surface/elevated-on-piers) from the water connectome — new aqueduct_channel/aqueduct_pier entities in worldgen output ⇒ discard pre-G6 autosaves. (19 = stairs CONNECT G3d; 18 = arched bridges G5b; 17 = stairs follow the polyline G3c.)
+export const WORLD_CONTENT_VERSION = 21;  // AQUEDUCT ARCADE (G6 polish): elevated aqueduct runs now march as an arcade of aqueduct_arch portal bays (openings carrying the lifted channel deck) instead of bare aqueduct_pier stilts — a low stretch still falls back to a pier ⇒ worldgen output changes, discard pre-arcade autosaves. (20 = emergent aqueducts G6 on piers; 19 = stairs CONNECT G3d; 18 = arched bridges G5b.)
