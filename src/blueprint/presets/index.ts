@@ -7,15 +7,10 @@ import { descriptorPatch } from '../descriptors';
 import { eraPatch } from '../eras';
 import { stagePatch, defaultStageFor } from '../lifecycle';
 import { ensureBuildingTypesRegistered } from '../register-buildings';
-import { catalogue } from '@/catalogue/pack';
-import { loadDefaultPacks } from '@/catalogue/default-packs';
-import { expand } from '../connectome/grammar';
-import { deriveSmokeEgress } from '../connectome/smoke';
-import { connectomeToBlueprint } from '../connectome/to-blueprint';
-import { connectomeOpenings, GEN_OPENINGS_TAG } from '../connectome/openings';
-import { annotateStructure, connectomeStructure } from '../connectome/structure';
-import { connectomeForm, GEN_FORM_TAG } from '../connectome/form';
-import type { Connectome, ExpandCtx } from '../connectome/types';
+import { GEN_OPENINGS_TAG } from '../connectome/openings';
+import { GEN_FORM_TAG } from '../connectome/form';
+import { expressBuilding } from './express';
+import type { Connectome } from '../connectome/types';
 import { allFloraSpecies, getFloraSpecies } from '@/flora/flora-registry';
 import { stairFootprint } from '../parts/stair';
 import { deriveGenParams } from '@/flora/flora-species';
@@ -434,17 +429,13 @@ export function synthesizeBlueprint(name: string, patches: BlueprintPatch[] = []
   if (!base) return undefined;
   const s = seed ?? [...name].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7);
   let connectome: Connectome | undefined;
-  const pre: BlueprintPatch[] = [];  // derived DEFAULTS, before the caller's override patches
-  const post: BlueprintPatch[] = []; // derived projections + frame cap, after the overrides
+  let pre: BlueprintPatch[] = [];  // derived DEFAULTS, before the caller's override patches
+  let post: BlueprintPatch[] = []; // derived projections + frame cap, after the overrides
   if (base.class === 'building') {
-    const d = deriveConnectome(base, name, base.era, undefined, s);
-    connectome = d.connectome;
-    // Form is the derived massing DEFAULT — a caller's override patch (levels bump, etc.)
-    // must still win, so it goes BEFORE the caller patches; the frame cap goes LAST.
-    if (d.formPatch) pre.push(d.formPatch);
-    if (d.openingsPatch) post.push(d.openingsPatch);
-    if (d.ventPatch) post.push(d.ventPatch);
-    if (d.structurePatch) post.push(d.structurePatch);
+    const e = expressBuilding(base, name, base.era, undefined, s);
+    connectome = e.connectome;
+    pre = e.pre;
+    post = e.post;
   }
   const rb = resolveBlueprint([base, ...pre, ...patches, ...post], s);
   if (connectome) attachConnectome(rb, connectome);
@@ -472,66 +463,6 @@ export interface AssetRequest {
 }
 
 const strHash = (s: string): number => [...s].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7);
-
-/** True if any part of `base` already declares a hand-authored vent feature. */
-function hasAuthoredVent(base: Blueprint): boolean {
-  return Object.values(base.parts).some((p) =>
-    Object.values(p.features ?? {}).some((f) => f.type === 'vent'),
-  );
-}
-
-/**
- * Expand the building's latent connectome and derive its smoke vent from the hearth.
- * Returns the graph plus the vent patch to fold into the resolve stack. The vent is
- * only emitted when the preset DOESN'T author its own vent — so the early-medieval
- * commoner dwellings (cottage/longhouse/yurt, vents stripped) derive a period-correct
- * louver/chimney, while tavern/keep/townhouse keep their artistic stacks untouched.
- */
-function deriveConnectome(
-  base: Blueprint,
-  type: string,
-  era: Era | undefined,
-  wealth: string | undefined,
-  seed: number,
-): {
-  connectome: Connectome;
-  ventPatch: BlueprintPatch | null;
-  openingsPatch: BlueprintPatch | null;
-  structurePatch: BlueprintPatch | null;
-  formPatch: BlueprintPatch | null;
-} {
-  loadDefaultPacks();
-  const ctx: ExpandCtx = { era: era ?? base.era ?? 'medieval', wealth, seed, registry: catalogue };
-  // Layer 1 — annotate the graph with its construction (frameType) selected from the wall
-  // material + era/region, BEFORE projecting the room graph down. Form/Fabric read it.
-  // Structure is annotated FIRST so smoke egress (Layer 3) can consult the frame: a
-  // non-flue frame (cruck/stave) is barred from a masonry wall-chimney.
-  const connectome = deriveSmokeEgress(annotateStructure(expand(type, ctx), base, ctx), ctx);
-  const ventPatch = hasAuthoredVent(base) ? null : (() => {
-    const p = connectomeToBlueprint(connectome, base);
-    return Object.keys(p).length ? p : null;
-  })();
-  // Doors + windows derived from the graph — only for a body that opted in (tag
-  // 'gen-openings'); a hand-authored preset returns {} here and keeps its features.
-  const openingsPatch = (() => {
-    const p = connectomeOpenings(connectome, base, ctx.era);
-    return Object.keys(p).length ? p : null;
-  })();
-  // Structure caps the form for HAND-AUTHORED massing: a solid/cruck/stave wall can't jetty,
-  // a frame bears only so many storeys. Lowers only the body parts that exceed the frame.
-  const structurePatch = (() => {
-    const p = connectomeStructure(connectome, base);
-    return Object.keys(p).length ? p : null;
-  })();
-  // Layer 2 — FORM derives the massing (plan/levels/jetty/storeyM) for `gen-form` bodies
-  // from the program + structure, within the frame's caps. It is the DEFAULT massing — the
-  // caller applies it BEFORE override patches (an opulent +storey still wins).
-  const formPatch = (() => {
-    const p = connectomeForm(connectome, base, ctx);
-    return Object.keys(p).length ? p : null;
-  })();
-  return { connectome, ventPatch, openingsPatch, structurePatch, formPatch };
-}
 
 /** Attach the latent room-graph WITHOUT entering the art-cache key. canonicalJson(rb)
  *  walks enumerable keys only, so a non-enumerable field is invisible to it (the vent's
@@ -581,15 +512,13 @@ export function resolveAsset(req: AssetRequest): ResolvedBlueprint | undefined {
   // egress is authoritative (it already accounts for era + wealth). Buildings only.
   let connectome: Connectome | undefined;
   if (base.class === 'building') {
-    const d = deriveConnectome(base, req.type, req.era, req.descriptors?.wealth, seed);
-    connectome = d.connectome;
-    // Form is the derived massing DEFAULT — it must sit BEFORE the era/descriptor/custom
-    // overrides (an opulent +storey wins over it), so splice it right after the base; the
-    // frame cap goes LAST (the hard limit nothing may exceed).
-    if (d.formPatch) patches.splice(1, 0, d.formPatch);
-    if (d.openingsPatch) patches.push(d.openingsPatch);
-    if (d.ventPatch) patches.push(d.ventPatch);
-    if (d.structurePatch) patches.push(d.structurePatch);
+    const e = expressBuilding(base, req.type, req.era, req.descriptors?.wealth, seed);
+    connectome = e.connectome;
+    // Form (pre) is the derived massing DEFAULT — it must sit BEFORE the era/descriptor/
+    // custom overrides (an opulent +storey wins), so splice it right after the base; the
+    // projections + frame cap (post) go LAST (the hard limit nothing may exceed).
+    if (e.pre.length) patches.splice(1, 0, ...e.pre);
+    patches.push(...e.post);
   }
 
   const rb = resolveBlueprint(patches, seed);

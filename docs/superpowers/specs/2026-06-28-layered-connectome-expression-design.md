@@ -140,9 +140,17 @@ Fabric slice (Layer 3) once Form derives the bay grid. None of it needs new prim
   `connectome-fabric.test.ts` (8). NEXT under fabric: cellars as `level:-1` zones, bay-aware door/partition
   placement consuming `con.structure.bayModule`, structure-gated load-bearing internals (Layer 3b, needs
   the Form bay grid + a renderable sub-grade level).
-- **S3 — expressBuilding() pipeline.** Compose Layers 0–3 into one entry; wire `synthesizeBlueprint` /
-  `resolveAsset` onto it; named presets resolve as fixed points (byte-identical where possible). Culture
-  selector stays **identity** for the single medieval pack (no over-engineering ahead of a 2nd culture).
+- **S3 — expressBuilding() pipeline SHIPPED** (`src/blueprint/presets/express.ts`, BYTE-IDENTICAL, no
+  version bump). The layer stack is now ONE composable call: `expressBuilding(base, type, era, wealth, seed)`
+  runs PROGRAM → STRUCTURE → FABRIC(smoke) and returns `{ connectome, pre, post }` — `pre` = the FORM
+  massing DEFAULT (folded before the caller's overrides so an explicit +storey wins), `post` = the
+  OPENINGS/VENT projections + the frame CAP (folded last). Both entry points (`synthesizeBlueprint` /
+  `resolveAsset`) fold `[base, ...pre, ...overrides, ...post]`, so layer order lives in ONE place (the old
+  `deriveConnectome` + its duplicated pre/post ordering at both call sites is gone). A named preset is a
+  pinned shortcut into this product space. `express.ts` is the WIRING layer (imports content loaders), so
+  it stays OUT of the connectome engine-purity set. Culture selector stays **identity** for the single
+  medieval pack (no over-engineering ahead of a 2nd culture). Tests: `express-building.test.ts` (4) +
+  the goldens prove byte-identity.
 - **S4 — Site/aux fall out of the grammar.** `stable` and the establishment auxiliaries are expressed
   (function `stabling` + frame + form), not authored. Unblocks E2 (route placer through `expandSite`,
   `WORLD_CONTENT_VERSION` bump + save-gate).
