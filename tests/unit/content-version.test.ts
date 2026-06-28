@@ -6,7 +6,7 @@ describe('content-version constants', () => {
     expect(ART_RECIPE_VERSION).toBe('v16');
   });
 
-  it('declares the current world content version (31: manor premises — stable + well)', () => {
-    expect(WORLD_CONTENT_VERSION).toBe(31);
+  it('declares the current world content version (32: E4 roster sweep — village/town trades)', () => {
+    expect(WORLD_CONTENT_VERSION).toBe(32);
   });
 });
