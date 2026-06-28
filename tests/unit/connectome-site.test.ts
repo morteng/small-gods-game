@@ -122,6 +122,17 @@ describe('expandSite — determinism', () => {
   });
 });
 
+describe('expandSite — manor premises (derive on a second focus building)', () => {
+  it('the manor derives a stable + a well from its requires tokens', () => {
+    const plan = siteToPlan(expandSite('manor', ctx)); // manor requires ['stabling','water-supply']
+    expect(plan.core.buildingType).toBe('manor');
+    expect(plan.auxiliaries.map((a) => a.buildingType)).toEqual(['stable']);
+    expect(plan.fixtures.map((f) => f.type)).toEqual(['well']);
+    // It's a derived (open) court, like the tavern — no authored wall.
+    expect(plan.barriers).toHaveLength(0);
+  });
+});
+
 describe('siteToPlan — resolve-down', () => {
   it('separates the core from auxiliaries and lists barriers + fixtures + relations', () => {
     const plan = siteToPlan(expandSite('tavern-yard', ctx));

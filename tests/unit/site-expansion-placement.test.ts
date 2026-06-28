@@ -1,13 +1,17 @@
 /**
  * E2 — the live building placer routes a placed establishment through the SITE
- * connectome (`expandSite` → `siteToPlan`) and co-places the auxiliary buildings its
- * function derives. A tavern's 'stabling' requirement yields a `stable` outbuilding,
- * sited on free ground beside the taproom — with no per-preset wiring.
+ * connectome (`expandSite` → `siteToPlan`) and co-places the parts its function
+ * derives: auxiliary BUILDINGS (a `stable` from a 'stabling' requirement) and
+ * realisable FIXTURES (a `well` from 'water-supply'), with no per-preset wiring.
  *
- * The pass is ADDITIVE and deterministic: it scans for the outbuilding's spot without
+ * Two establishments derive premises today: the `tavern` (requires stabling +
+ * water-supply, among others) and the `manor` (a working estate — stabling +
+ * water-supply). Both therefore co-place a stable + a yard well. A settlement with
+ * NO deriving core gains neither.
+ *
+ * The pass is ADDITIVE and deterministic: it scans for each part's spot without
  * drawing from the settlement rng, so the main layout is byte-identical and only the
- * new outbuildings are appended. A settlement with no establishment that derives an
- * auxiliary is unchanged.
+ * new outbuildings/props are appended.
  */
 import { describe, it, expect } from 'vitest';
 import { generateWithNoise } from '@/map/map-generator';
@@ -25,87 +29,91 @@ const villageSeed = (): WorldSeed => ({
 const idsOf = (s: number) =>
   generateWithNoise(48, 48, s, villageSeed()).then(({ map }) => map.buildings.map((b) => b.templateId));
 
-describe('site expansion (E2): auxiliaries co-placed with their core', () => {
-  it('a tavern spawns exactly one adjacent stable (its derived auxiliary)', async () => {
-    // Seed 4 is known to platt a tavern in this village layout.
+// The establishments whose function derives a stable + well (tavern, manor).
+const derivingCores = (ids: string[]) =>
+  ids.filter((t) => t.includes('tavern') || t.includes('manor')).length;
+
+describe('site expansion (E2): auxiliaries co-placed with their deriving core', () => {
+  it('every deriving establishment (tavern/manor) spawns one stable', async () => {
+    // Seed 4 platts both a tavern and a manor in this village layout.
     const ids = await idsOf(4);
-    const taverns = ids.filter((t) => t.includes('tavern')).length;
+    const cores = derivingCores(ids);
     const stables = ids.filter((t) => t.includes('stable')).length;
-    expect(taverns).toBe(1);
-    expect(stables).toBe(taverns); // one stable per tavern
+    expect(cores).toBe(2); // one tavern + one manor
+    expect(stables).toBe(cores); // one stable per deriving core
   });
 
-  it('the stable sits adjacent to its tavern, off any road', async () => {
+  it('the tavern’s stable sits adjacent to it, off any road', async () => {
     const { map } = await generateWithNoise(48, 48, 4, villageSeed());
-    const tavern = map.buildings.find((b) => b.templateId.includes('tavern'));
-    const stable = map.buildings.find((b) => b.templateId.includes('stable'));
+    const tavern = map.buildings.find((b) => b.templateId.includes('tavern'))!;
+    const stables = map.buildings.filter((b) => b.templateId.includes('stable'));
     expect(tavern).toBeDefined();
-    expect(stable).toBeDefined();
-    // Chebyshev gap between footprints stays inside the yard reach (capped scan).
-    const gap = Math.max(
-      Math.abs(stable!.tileX - tavern!.tileX),
-      Math.abs(stable!.tileY - tavern!.tileY),
-    );
+    expect(stables.length).toBeGreaterThan(0);
+    // The stable nearest the tavern is inside the yard reach (capped scan).
+    const gap = Math.min(...stables.map((s) =>
+      Math.max(Math.abs(s.tileX - tavern.tileX), Math.abs(s.tileY - tavern.tileY))));
     expect(gap).toBeLessThanOrEqual(10);
   });
 
-  it('is deterministic — same seed yields the same stable count and position', async () => {
+  it('is deterministic — same seed yields the same stables and positions', async () => {
     const a = await generateWithNoise(48, 48, 4, villageSeed());
     const b = await generateWithNoise(48, 48, 4, villageSeed());
-    const stA = a.map.buildings.filter((x) => x.templateId.includes('stable')).map((x) => `${x.tileX},${x.tileY}`);
-    const stB = b.map.buildings.filter((x) => x.templateId.includes('stable')).map((x) => `${x.tileX},${x.tileY}`);
+    const stA = a.map.buildings.filter((x) => x.templateId.includes('stable')).map((x) => `${x.tileX},${x.tileY}`).sort();
+    const stB = b.map.buildings.filter((x) => x.templateId.includes('stable')).map((x) => `${x.tileX},${x.tileY}`).sort();
     expect(stA).toEqual(stB);
-    expect(stA.length).toBe(1);
+    expect(stA.length).toBe(2); // tavern + manor
   });
 
-  it('a tavern-free settlement gains no auxiliary outbuilding', async () => {
-    // Seed 1 platts no tavern in this layout → no derived auxiliary.
+  it('a settlement’s stables match its deriving cores (manor-only seed gains the manor’s)', async () => {
+    // Seed 1 platts a manor but NO tavern → exactly the manor's one stable.
     const ids = await idsOf(1);
     expect(ids.some((t) => t.includes('tavern'))).toBe(false);
-    expect(ids.some((t) => t.includes('stable'))).toBe(false);
+    expect(ids.some((t) => t.includes('manor'))).toBe(true);
+    expect(ids.filter((t) => t.includes('stable')).length).toBe(derivingCores(ids));
+    expect(derivingCores(ids)).toBe(1);
   });
 });
 
 describe('site fixtures (E2): realisable fixtures co-placed as yard props', () => {
-  // The tavern's `requires: [..., 'water-supply']` resolves to the catalogue `well`
-  // fixtureType, which names the `well` civic prop — so the site-expansion pass now
-  // realises a yard well beside the taproom. Wells are PROPS (not buildings), so they
-  // never appear in `map.buildings`; query the world.
-  const wells = (world: { query: (o: { tag: string }) => { kind: string; x: number; y: number }[] }) =>
+  // A `requires` token that resolves to a fixtureType naming a prop blueprint (the
+  // catalogue 'well' ↔ the 'well' civic prop) is realised as a yard prop. Wells are
+  // PROPS (not buildings), so they never appear in `map.buildings`; query the world.
+  const wells = (world: { query: (o: { tag: string }) => { kind: string; x: number; y: number; properties?: Record<string, unknown> }[] }) =>
     world.query({ tag: 'fixture' }).filter((e) => e.kind === 'well');
 
-  it('a tavern spawns exactly one adjacent well (its derived water-supply fixture)', async () => {
-    // Seed 4 platts one tavern in this village layout.
+  it('every deriving establishment (tavern/manor) spawns one well', async () => {
     const { map, world } = await generateWithNoise(48, 48, 4, villageSeed());
-    const taverns = map.buildings.filter((b) => b.templateId.includes('tavern'));
-    expect(taverns.length).toBe(1);
-    const fxWells = wells(world);
-    expect(fxWells.length).toBe(1);
+    const cores = derivingCores(map.buildings.map((b) => b.templateId));
+    expect(cores).toBe(2);
+    expect(wells(world).length).toBe(cores);
   });
 
-  it('the well sits adjacent to its tavern, off any road', async () => {
+  it('a well sits adjacent to its tavern, off any road, with provenance', async () => {
     const { map, world } = await generateWithNoise(48, 48, 4, villageSeed());
     const tavern = map.buildings.find((b) => b.templateId.includes('tavern'))!;
-    const well = world.query({ tag: 'fixture' }).find((e) => e.kind === 'well')!;
-    expect(well).toBeDefined();
-    const gap = Math.max(Math.abs(well.x - tavern.tileX), Math.abs(well.y - tavern.tileY));
-    expect(gap).toBeLessThanOrEqual(10);
+    const fxWells = wells(world);
+    expect(fxWells.length).toBeGreaterThan(0);
+    const nearest = fxWells.reduce((best, w) => {
+      const gap = Math.max(Math.abs(w.x - tavern.tileX), Math.abs(w.y - tavern.tileY));
+      return gap < best.gap ? { w, gap } : best;
+    }, { w: fxWells[0], gap: Infinity });
+    expect(nearest.gap).toBeLessThanOrEqual(10);
     // It carries the site/fixture provenance the placer stamps on.
-    expect(well.properties?.site).toBeTruthy();
-    expect(well.properties?.fixtureType).toBe('well');
+    expect(nearest.w.properties?.site).toBeTruthy();
+    expect(nearest.w.properties?.fixtureType).toBe('well');
   });
 
-  it('is deterministic — same seed yields the same well position', async () => {
+  it('is deterministic — same seed yields the same well positions', async () => {
     const a = await generateWithNoise(48, 48, 4, villageSeed());
     const b = await generateWithNoise(48, 48, 4, villageSeed());
-    const wa = wells(a.world).map((e) => `${e.x},${e.y}`);
-    const wb = wells(b.world).map((e) => `${e.x},${e.y}`);
+    const wa = wells(a.world).map((e) => `${e.x},${e.y}`).sort();
+    const wb = wells(b.world).map((e) => `${e.x},${e.y}`).sort();
     expect(wa).toEqual(wb);
-    expect(wa.length).toBe(1);
+    expect(wa.length).toBe(2); // tavern + manor
   });
 
   it('the aux stable is still placed — fixtures are additive, not a replacement', async () => {
     const ids = await idsOf(4);
-    expect(ids.filter((t) => t.includes('stable')).length).toBe(1);
+    expect(ids.filter((t) => t.includes('stable')).length).toBe(2);
   });
 });

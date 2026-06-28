@@ -167,7 +167,11 @@ export const MEDIEVAL_BUILDING_TYPES: B[] = [
     { room: 'hall', fixture: 'wall-fireplace' },
     [3, 5], { walls: 'stone', roof: 'tile', ground: 'flagstone' },
     { l0: 'a manor hall house', l1: ['great hall', 'service and solar wings', 'cross-passage'] },
-    { provenance: ['https://en.wikipedia.org/wiki/Manor_house'] }),
+    { provenance: ['https://en.wikipedia.org/wiki/Manor_house'] },
+    // A working estate, not a lone hall: its premises derive a stable block and a
+    // private well (the same site machinery the tavern uses). 'stabling' ⇒ the `stable`
+    // auxiliary building; 'water-supply' ⇒ the `well` yard fixture.
+    { functions: ['residential', 'agrarian'], requires: ['stabling', 'water-supply'] }),
 
   b('inn', 'courtyard-hub',
     [room('taproom', 1, 1), room('kitchen', 1, 1), room('guest-chamber', 4, 1), room('stable', 1, 2)],

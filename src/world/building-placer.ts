@@ -678,6 +678,14 @@ export function placeSettlement(
         entities.push(entity);
         occ.claimCells(buildingSolidCells(toCollision(arb), spot.x, spot.y), 'building');
         for (const cell of buildingVisualCells(arb, spot.x, spot.y)) buildingVisual.add(cell);
+        // Reopen the door threshold(s): clearFootprint marked the whole footprint
+        // solid, but an auxiliary (a stable) is enterable like any building, so its
+        // door cells stay walkable — same rule the core `commit` applies.
+        for (const dc of toCollision(arb).doorCells) {
+          const [ddx, ddy] = dc.split(',').map(Number);
+          const dt = tiles[spot.y + ddy]?.[spot.x + ddx];
+          if (dt) dt.walkable = true;
+        }
       }
     }
 
