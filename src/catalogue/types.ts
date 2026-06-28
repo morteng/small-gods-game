@@ -34,6 +34,7 @@ export const CORE_KINDS = [
   'districtType', // seeded for the settlement connectome (Slice 5); inert until then
   'tradeType',
   'complexType', // a multi-building defended/planned complex (motte-and-bailey, town wall, …)
+  'siteType', // an establishment/premises sub-graph: core building + yard + auxiliaries + fixtures (+ wall or not)
   'barrierType', // a linear structure: croft hedge/fence/wall + defensive palisade/curtain/rampart/ditch/dyke
 ] as const;
 
@@ -105,6 +106,13 @@ export interface BuildingTypeFields {
   hearthRule: HearthRule;
   sizeBays: [number, number]; // min/max
   defaultMaterials: Record<string, string>; // { walls, roof, ground }
+  // ── Establishment / site-graph extensions (read by the `site` grammar; optional) ──
+  /** Establishment function tags ('hospitality'|'craft'|'worship'|'agrarian'|…). */
+  functions?: string[];
+  /** Requirement tokens the establishment emits — a `site` derive resolves these to satisfiers. */
+  requires?: string[];
+  /** Requirement tokens this building SATISFIES as an auxiliary in a site (a stable satisfies 'stabling'). */
+  satisfies?: string[];
 }
 
 export interface RoomTypeFields {
@@ -227,4 +235,31 @@ export interface ComplexTypeFields {
   };
   /** Siting hint: the motte height the design wants (feeds siteSelect/deriveEarthworks). */
   desiredHeight?: number;
+}
+
+// ── Site scale: an establishment/premises sub-graph (E1) ─────────────────────────
+
+/** One auxiliary building in an authored site recipe + the role it fills. */
+export interface SiteBuildingSlot {
+  type: string; // buildingType id
+  role?: string; // 'core' | 'auxiliary' (default 'auxiliary')
+  satisfies?: string[]; // requirement tokens this slot fills in the site
+}
+
+/**
+ * A site/establishment recipe: a CORE building plus the yard, auxiliaries, fixtures
+ * and "wall (or not)" that make it a place rather than a lone footprint. `topology`
+ * names the site interpreter (`yard`/`freestanding`/`procession`/`derive` —
+ * blueprint/connectome/site.ts). Authoring is optional: with no recipe the `derive`
+ * topology synthesises a plausible site from the core's `functions`/`requires` tags.
+ */
+export interface SiteTypeFields {
+  topology: string; // site interpreter id ('yard'|'freestanding'|'derive'|…)
+  core: string; // buildingType id — the establishment's core leaf
+  /** Authored auxiliary buildings (e.g. a stable, a brewhouse) — `yard` topology. */
+  buildings?: SiteBuildingSlot[];
+  /** Authored ground/façade fixtures (sign, bench, well) by fixtureType id. */
+  fixtures?: string[];
+  /** Yard topology: the court the core fronts onto. `barrier` present ⇒ walled court. */
+  yard?: { barrier?: string };
 }

@@ -23,12 +23,14 @@ const b = (
   defaultMaterials: Record<string, string>,
   lod: { l0: string; l1: string[]; l2?: string },
   extra: Partial<B> = {},
+  // Optional establishment tokens read by the site grammar (functions/requires/satisfies).
+  siteFields: Partial<Pick<BuildingTypeFields, 'functions' | 'requires' | 'satisfies'>> = {},
 ): B => ({
   id,
   kind: 'buildingType',
   pack: 'medieval-europe',
   lod,
-  fields: { topology, roomProgram, entrance, hearthRule, sizeBays, defaultMaterials },
+  fields: { topology, roomProgram, entrance, hearthRule, sizeBays, defaultMaterials, ...siteFields },
   visibility: 'geometry',
   ...extra,
 });
@@ -51,7 +53,8 @@ export const MEDIEVAL_BUILDING_TYPES: B[] = [
     [2, 3], { walls: 'timber', roof: 'tile', ground: 'packed_dirt' },
     { l0: 'a timber-framed tavern or inn', l1: ['jettied upper storey', 'twin chimney stacks', 'many windows'],
       l2: 'A cooking-and-lodging house: ground-floor taproom and kitchen, guest chambers above, smoke carried up real chimney stacks.' },
-    { provenance: ['https://en.wikipedia.org/wiki/Inn'] }),
+    { provenance: ['https://en.wikipedia.org/wiki/Inn'] },
+    { functions: ['hospitality', 'commercial'], requires: ['stabling', 'signage', 'seating', 'water-supply'] }),
 
   b('townhouse', 'tripartite-linear',
     [room('parlour', 1, 1), room('chamber', 1, 1)],
@@ -115,7 +118,8 @@ export const MEDIEVAL_BUILDING_TYPES: B[] = [
     { room: 'none' },
     [1, 1], { walls: 'stone', roof: 'tile', ground: 'flagstone' },
     { l0: 'a wayside shrine', l1: ['single arched window', 'gabled stone cell'] },
-    { applicability: { eras: ['classical', 'medieval'] } }),
+    { applicability: { eras: ['classical', 'medieval'] } },
+    { functions: ['worship'] }),
 
   b('guard_post', 'tripartite-linear',
     [room('chamber', 1, 1)],
@@ -206,7 +210,18 @@ export const MEDIEVAL_BUILDING_TYPES: B[] = [
     { room: 'forge-room', fixture: 'forge-hearth' },
     [1, 2], { walls: 'stone', roof: 'tile', ground: 'packed_dirt' },
     { l0: 'a blacksmith’s smithy', l1: ['open forge front', 'tall flue', 'soot-blackened'] },
-    { provenance: ['https://en.wikipedia.org/wiki/Blacksmith'] }),
+    { provenance: ['https://en.wikipedia.org/wiki/Blacksmith'] },
+    { functions: ['craft'], requires: ['water-supply'] }),
+
+  // A stable block — facts-only; primed as a site auxiliary that SATISFIES 'stabling'.
+  b('stable', 'tripartite-linear',
+    [room('stable', 1, 2)],
+    { face: 's', sizeClass: 'cart', portal: 'cart-door' },
+    { room: 'none' },
+    [1, 2], { walls: 'timber', roof: 'tile', ground: 'packed_dirt' },
+    { l0: 'a timber stable block', l1: ['open stalls', 'hay loft over', 'wide cart door'] },
+    { provenance: ['https://en.wikipedia.org/wiki/Stable'] },
+    { functions: ['agrarian', 'hospitality'], satisfies: ['stabling'] }),
 
   b('bakehouse', 'tripartite-linear',
     [room('bakehouse-room', 1, 1)],

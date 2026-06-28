@@ -168,21 +168,44 @@ connectome find the socket.
   with a strong, researched topology (threshold/funnel/axis/boundary) — the ideal proof
   of the generalisation before sweeping taverns/smithies/farmsteads.
 
+## Status (2026-06-28)
+
+- **E0 + E1 SHIPPED** (branch `feat/site-connectome-e1`). Open question 1 resolved
+  **ADD, don't rename**: `complex.ts`/`complexType`/`enclosure` stay byte-identical
+  (DC-2 untouched, all its tests green); a NEW `site` scale + `siteType` kind +
+  `src/blueprint/connectome/site.ts` (`expandSite`/`siteToPlan`/`registerSiteInterpreter`)
+  carry the everyday topologies `yard`/`freestanding`/`derive`. Open question 2 resolved
+  **fields on `buildingType`**: optional `functions`/`requires`/`satisfies` (the tavern
+  emits `['stabling','signage','seating','water-supply']`; a `stable` building satisfies
+  `'stabling'`; `hanging-sign`/`tavern-bench`/`well` fixtures satisfy the rest). PURELY
+  ADDITIVE — `expandComplex`/`complexToPlan` were already DORMANT (tests only, no live
+  worldgen caller), so NO `WORLD_CONTENT_VERSION` bump. Engine-purity guard extended to
+  cover `site.ts`. Tests: `connectome-site.test.ts` (13). Stops at `siteToPlan` (data) —
+  E2 places it.
+- **E0.5 anchors** already on `main` (mount-anchor flavour + sprite projection).
+- **NEXT:** E2 (placer routes a `place(buildingType)` through `expandSite` → co-placed
+  footprints on the shared OccupancyGrid — spatial-coordination **C1** shipped `98acdc1`,
+  so this is now UNBLOCKED + needs the version bump); E3 shrine `procession`; E4 sweep.
+
 ## Proposed slices
 
-- **E0 — `site` scale + `expandSite` rename/seam (behaviour-neutral).** Rename the
-  `complex` interpreter registry to site-scoped; `complexType`/`enclosure` keep working
-  byte-identically. Add the `site` scale to `ConnectomeScale`. No new content. Guard:
-  existing DC-2 tests stay green unchanged.
+- **E0 — `site` scale + `expandSite` rename/seam (behaviour-neutral).** ✅ SHIPPED (as
+  ADD, not rename — see Status). `complexType`/`enclosure` keep working byte-identically;
+  the `site` scale is added to `ConnectomeScale`. No new live behaviour. Guard: existing
+  DC-2 tests stay green unchanged.
 - **E0.5 — scale-free `Anchor` primitive (decided).** Add the `Anchor` interface + the
   attach/contain relations + the `accepts`/kind token matcher (shared with Fixture
   `requires`/`satisfies`). Retrofit the building-scale frontage anchors onto it so
   there's ONE anchor type, not two. Pure data + resolver; no placement change yet.
   Unblocks E1/E2 (a site's parts attach via anchors) and is the connection-point half of
   the unified-connectome stack. Guard: anchor resolution is deterministic + content-free.
-- **E1 — `yard` + `freestanding` topologies + `derive` default.** The generic
-  default-derivation path (function tags → satisfier query). One worked establishment
-  (tavern) end-to-end as a graph (no placement yet — stops at `siteToPlan`).
+- **E1 — `yard` + `freestanding` topologies + `derive` default.** ✅ SHIPPED. The
+  generic default-derivation path (function tags → satisfier query) is the star: a bare
+  `expandSite('tavern')` synthesises an OPEN-yard site (core + yard + stable aux + sign +
+  bench + well) by resolving the core's `requires` tokens to sorted-deterministic
+  catalogue satisfiers (fixtures first, then auxiliary buildings); the authored
+  `tavern-yard` recipe is the OVERRIDE (a `paling-fence`-walled court). `wayside-shrine`
+  exercises `freestanding`. Stops at `siteToPlan`.
 - **E2 — placer routes through site expansion** (gated on spatial-coordination **C1**).
   `place(buildingType)` → `expandSite` → co-placed footprints on the shared
   `OccupancyGrid`. Tavern renders as a yard+building+sign, not a bare box.

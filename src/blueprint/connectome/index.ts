@@ -26,6 +26,8 @@ export {
   registerComplexInterpreter,
 } from './complex';
 export type { ComplexPlan, PlacedComplex } from './complex';
+export { expandSite, siteToPlan, registerSiteInterpreter } from './site';
+export type { SitePlan } from './site';
 export {
   siteSelect,
   scoreSite,

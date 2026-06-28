@@ -621,4 +621,35 @@ export const MEDIEVAL_FIXTURE_TYPES: FactEntry<FixtureTypeFields>[] = [
     visibility: 'data-only',
     tags: ['lighting', 'rush', 'poor', 'iron'],
   },
+
+  // ── SITE / YARD GROUND FIXTURES (satisfy establishment requirement tokens) ──
+  {
+    id: 'hanging-sign',
+    kind: 'fixtureType',
+    pack: 'medieval-europe',
+    applicability: { eras: ['medieval', 'current'] },
+    lod: {
+      l0: 'A painted trade sign hung from a bracket over the door.',
+      l1: ['wrought-iron bracket', 'painted board', 'a bush or device for the illiterate'],
+      l2: 'A board or carved device projecting on an iron bracket above a tradesman’s door — an ale-stake or bush for a tavern, a device for a craft. Read at a glance by a largely illiterate public; the alehouse’s legal mark of a licensed house.',
+    },
+    fields: { satisfies: ['signage'], placement: 'wall' },
+    provenance: ['https://en.wikipedia.org/wiki/Inn_sign'],
+    visibility: 'data-only',
+    tags: ['sign', 'frontage', 'trade'],
+  },
+  {
+    id: 'tavern-bench',
+    kind: 'fixtureType',
+    pack: 'medieval-europe',
+    applicability: { eras: ['classical', 'medieval', 'current'] },
+    lod: {
+      l0: 'A plank bench and board set out in the yard for drinkers.',
+      l1: ['trestle board', 'long plank benches', 'set against the sunny wall'],
+      l2: 'Rough trestle seating in the tavern yard or against its frontage where customers drink in fine weather — the open-air overflow of the taproom.',
+    },
+    fields: { satisfies: ['seating'], placement: 'centre' },
+    visibility: 'data-only',
+    tags: ['seating', 'yard', 'timber'],
+  },
 ];

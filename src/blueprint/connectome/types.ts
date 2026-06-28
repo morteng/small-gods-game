@@ -20,10 +20,12 @@ export type WallFace = 'north' | 'south' | 'east' | 'west';
 /**
  * The scale of a connectome — the same primitives nest from a niche up to the
  * whole world. OPEN string so a pack can add its own scales.
- *   'niche' ⊂ 'room' ⊂ 'building' ⊂ 'district' ⊂ 'settlement' ⊂ 'region' ⊂ 'world'
+ *   'niche' ⊂ 'room' ⊂ 'building' ⊂ 'site' ⊂ 'district' ⊂ 'settlement' ⊂ 'region' ⊂ 'world'
+ * A 'site' (premises/establishment/compound) groups a core building with its
+ * auxiliaries, yard, fixtures and "wall (or not)" — see connectome/site.ts.
  */
 export type ConnectomeScale =
-  | 'niche' | 'room' | 'building' | 'district' | 'settlement' | 'region' | 'world'
+  | 'niche' | 'room' | 'building' | 'site' | 'district' | 'settlement' | 'region' | 'world'
   | (string & {});
 
 export interface Zone {
