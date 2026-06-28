@@ -1,14 +1,21 @@
 // src/blueprint/validity.ts
 // Intrinsic building-validity rules (Tier 1 of the building-validity epic): a building
-// must be self-consistent and period-plausible BEFORE it is placed. These are pure,
-// data-driven coercions applied at resolve-time (resolveBlueprint) with auto-fix —
-// an invalid combo is coerced to the nearest valid value, never crashes — so every
-// resolved blueprint is valid by construction. See
-// docs/superpowers/specs/2026-06-16-building-validity-and-situation-design.md.
+// must be self-consistent and period-plausible BEFORE it is placed. An invalid combo is
+// coerced to the nearest valid value, never crashes — so every resolved blueprint is valid
+// by construction. See docs/superpowers/specs/2026-06-16-building-validity-and-situation-design.md.
 //
-// Slice 2 will fold these into the declarative constraint engine (catalogue/constraints.ts);
-// for now they live here as focused, independently-testable functions.
+// Slice 2 (DONE): the rules are now declarative `Constraint`s (PART_VALIDITY_CONSTRAINTS) run
+// through the shared constraint engine (`validate<T>` in catalogue/constraints.ts), the same
+// engine the medieval pack's chimney-era gate and the defended-complex guardrails use. The
+// pure `coerceRoof`/`capLevels` helpers stay (the constraints + their tests reuse them);
+// `applyPartValidity` is now a thin adapter that builds the target, runs the engine with
+// auto-fix, and preserves the byte-stable-when-valid contract (stable art-cache key).
+//
+// These are UNIVERSAL physics/period rules (organic roofs shed water; era tech caps storeys),
+// so they live at the blueprint layer and apply to every resolve path regardless of which
+// culture pack is loaded — not in a pack. A pack may add its own part-validity constraints.
 import type { Era } from '@/core/era';
+import { validate, type Constraint } from '@/catalogue/constraints';
 import { ROOF_KIND, ROOF_MAT } from './parts/body';
 import { ROOFLESS_BUILDING_STAGES } from './lifecycle';
 
@@ -58,38 +65,79 @@ export function capLevels(levels: number, type: string | undefined, era: Era | u
   return Math.max(1, Math.min(levels, eraCap, typeCap));
 }
 
+// ── The rules, as declarative constraints over a part-validity target ──────────────
+// `validate<T>` runs these in order with auto-fix; each `check` reuses the pure helper
+// above so the logic has exactly one home. The target carries the part's mutable fields
+// (roof shape, storeys) plus the read-only building context (covering, type, era, stage).
+
+/** The slice of a body/wing part the intrinsic rules read & repair. */
+export interface PartValidityTarget {
+  roof?: string;
+  levels?: number;
+  /** Read-only context. */
+  roofMat?: string;
+  type?: string;
+  era?: Era;
+  stage?: string;
+}
+
+/** Rule: an organic roof covering (thatch/hide) cannot sit flat — it must shed water.
+ *  Skipped on roofless lifecycle stages, where `roof:'flat'` means the roof is GONE. */
+export const organicRoofMustPitch: Constraint<PartValidityTarget> = {
+  id: 'organic-roof-must-pitch',
+  kind: 'part-validity',
+  severity: 'warn',
+  check: (t) => {
+    if (t.stage !== undefined && ROOFLESS_BUILDING_STAGES.has(t.stage)) return true;
+    if (typeof t.roof !== 'string') return true;
+    return coerceRoof(t.roof, t.roofMat) === t.roof;
+  },
+  message: 'organic roof covering cannot be flat (must shed water) — pitching it',
+  autoCorrect: (t) => ({ ...t, roof: coerceRoof(t.roof as string, t.roofMat) }),
+};
+
+/** Rule: storeys are capped by era construction tech AND by building type. */
+export const levelsCappedByEraAndType: Constraint<PartValidityTarget> = {
+  id: 'levels-capped-by-era-and-type',
+  kind: 'part-validity',
+  severity: 'warn',
+  check: (t) => typeof t.levels !== 'number' || capLevels(t.levels, t.type, t.era) === t.levels,
+  message: 'storeys exceed the era-tech / building-type limit — capping',
+  autoCorrect: (t) => ({ ...t, levels: capLevels(t.levels as number, t.type, t.era) }),
+};
+
+/** The intrinsic part-validity rule set, in application order. */
+export const PART_VALIDITY_CONSTRAINTS: Constraint<PartValidityTarget>[] = [
+  organicRoofMustPitch,
+  levelsCappedByEraAndType,
+];
+
 /**
  * Apply the intrinsic-validity coercions to a body/wing part's resolved params, given
  * the building's roof covering, type, and era. Returns a NEW params object only when a
  * rule fired (so a valid building serialises byte-identically — stable art-cache key);
- * returns the same reference unchanged otherwise. Warns on each correction.
+ * returns the same reference unchanged otherwise. Warns once per fired rule.
+ *
+ * Thin adapter over the shared constraint engine: build the target → `validate` with
+ * auto-fix → fold any corrected fields back onto `params`.
  */
 export function applyPartValidity(
   params: Record<string, unknown>,
   ctx: { roofMat?: string; type?: string; era?: Era; stage?: string },
 ): Record<string, unknown> {
-  let out = params;
-  const set = (patch: Record<string, unknown>) => { out = out === params ? { ...params, ...patch } : Object.assign(out, patch); };
+  const target: PartValidityTarget = {
+    roof: typeof params.roof === 'string' ? params.roof : undefined,
+    levels: typeof params.levels === 'number' ? params.levels : undefined,
+    roofMat: ctx.roofMat, type: ctx.type, era: ctx.era, stage: ctx.stage,
+  };
 
-  // Skip the thatch-pitch coercion on roofless lifecycle stages (ruin/burnt/cleared/…):
-  // their `roof: 'flat'` means the roof is GONE, not a flat thatch covering.
-  const rooflessStage = ctx.stage !== undefined && ROOFLESS_BUILDING_STAGES.has(ctx.stage);
+  const { issues, corrected } = validate(target, PART_VALIDITY_CONSTRAINTS, undefined, { apply: true });
+  if (!corrected) return params; // valid by construction → same reference (stable cache key)
 
-  if (!rooflessStage && typeof params.roof === 'string') {
-    const fixed = coerceRoof(params.roof, ctx.roofMat);
-    if (fixed !== params.roof) {
-      console.warn(`[validity] ${ctx.type ?? 'building'}: ${ctx.roofMat} roof cannot be '${params.roof}' (must shed water) → '${fixed}'`);
-      set({ roof: fixed });
-    }
-  }
+  for (const issue of issues) console.warn(`[validity] ${ctx.type ?? 'building'}: ${issue.message}`);
 
-  if (typeof params.levels === 'number') {
-    const capped = capLevels(params.levels, ctx.type, ctx.era);
-    if (capped !== params.levels) {
-      console.warn(`[validity] ${ctx.type ?? 'building'}: ${params.levels} storeys exceeds the ${ctx.era ?? 'untyped'}-era/type limit → ${capped}`);
-      set({ levels: capped });
-    }
-  }
-
-  return out;
+  const patch: Record<string, unknown> = {};
+  if (corrected.roof !== target.roof) patch.roof = corrected.roof;
+  if (corrected.levels !== target.levels) patch.levels = corrected.levels;
+  return { ...params, ...patch };
 }

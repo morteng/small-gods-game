@@ -43,18 +43,22 @@ export interface ValidateOpts {
 export function validate<T>(
   target: T,
   constraints: Constraint<T>[],
-  registry: CatalogueRegistry,
+  registry?: CatalogueRegistry,
   opts: ValidateOpts = {},
 ): ValidateResult<T> {
   const issues: Issue[] = [];
   let current = target;
   let didCorrect = false;
 
+  // `registry` is optional: registry-free constraints (e.g. the intrinsic part-validity
+  // rules wired in from resolve, which has no registry) pass `undefined`. Constraints that
+  // DO consult the registry are only run on paths that supply one.
+  const reg = registry as CatalogueRegistry;
   for (const c of constraints) {
-    if (c.check(current, registry)) continue;
+    if (c.check(current, reg)) continue;
     issues.push({ constraintId: c.id, severity: c.severity, message: c.message });
     if (opts.apply && c.severity === 'warn' && c.autoCorrect) {
-      current = c.autoCorrect(current, registry);
+      current = c.autoCorrect(current, reg);
       didCorrect = true;
     }
   }

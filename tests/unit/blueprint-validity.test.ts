@@ -2,7 +2,12 @@
 // Tier-1 intrinsic building-validity rules: thatch⇒pitched roof, levels capped by
 // era tech × type. See docs/superpowers/specs/2026-06-16-building-validity-and-situation-design.md.
 import { describe, it, expect, vi } from 'vitest';
-import { coerceRoof, capLevels, applyPartValidity } from '@/blueprint/validity';
+import {
+  coerceRoof, capLevels, applyPartValidity,
+  PART_VALIDITY_CONSTRAINTS, organicRoofMustPitch, levelsCappedByEraAndType,
+  type PartValidityTarget,
+} from '@/blueprint/validity';
+import { validate } from '@/catalogue/constraints';
 
 describe('coerceRoof — no flat thatch (organic roofs must shed water)', () => {
   it('thatch + flat → gable (coerced)', () => {
@@ -71,5 +76,40 @@ describe('applyPartValidity — combined, byte-stable when valid', () => {
   it('leaves a part with no roof/levels params untouched', () => {
     const params = { plan: 'rect' };
     expect(applyPartValidity(params, { type: 'well' })).toBe(params);
+  });
+});
+
+describe('part-validity rules are declarative constraints run through the shared engine', () => {
+  it('exposes the rules as a Constraint set with the canonical shape (id/severity/check/autoCorrect)', () => {
+    expect(PART_VALIDITY_CONSTRAINTS).toEqual([organicRoofMustPitch, levelsCappedByEraAndType]);
+    for (const c of PART_VALIDITY_CONSTRAINTS) {
+      expect(typeof c.id).toBe('string');
+      expect(c.severity).toBe('warn');           // warn ⇒ auto-fixed under apply, never blocks resolve
+      expect(typeof c.check).toBe('function');
+      expect(typeof c.autoCorrect).toBe('function');
+    }
+  });
+
+  it('validate(...{apply}) reports an issue per fired rule and returns one corrected target', () => {
+    const target: PartValidityTarget = { roof: 'flat', levels: 6, roofMat: 'thatch', type: 'cottage', era: 'medieval' };
+    const { issues, corrected } = validate(target, PART_VALIDITY_CONSTRAINTS, undefined, { apply: true });
+    expect(issues.map((i) => i.constraintId)).toEqual(['organic-roof-must-pitch', 'levels-capped-by-era-and-type']);
+    expect(corrected).toMatchObject({ roof: 'gable', levels: 2 });
+    // The read-only context is carried through untouched.
+    expect(corrected).toMatchObject({ roofMat: 'thatch', type: 'cottage', era: 'medieval' });
+  });
+
+  it('a valid target yields no issues and no corrected copy (engine signals byte-stability)', () => {
+    const target: PartValidityTarget = { roof: 'gable', levels: 2, roofMat: 'thatch', type: 'tavern', era: 'medieval' };
+    const res = validate(target, PART_VALIDITY_CONSTRAINTS, undefined, { apply: true });
+    expect(res.issues).toEqual([]);
+    expect(res.corrected).toBeUndefined();
+  });
+
+  it('the roof rule is a no-op on roofless lifecycle stages (the roof is gone, not flat thatch)', () => {
+    const ruin: PartValidityTarget = { roof: 'flat', roofMat: 'thatch', type: 'cottage', era: 'medieval', stage: 'ruin' };
+    const res = validate(ruin, [organicRoofMustPitch], undefined, { apply: true });
+    expect(res.issues).toEqual([]);
+    expect(res.corrected).toBeUndefined();
   });
 });
