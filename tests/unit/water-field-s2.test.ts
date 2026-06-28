@@ -222,7 +222,9 @@ describe('Water S2 — water field builder', () => {
     f.surfaceW[4] = 0.4; f.waterType[4] = WaterType.Lake;
     f.shallow[4] = 0x1234; f.deep[4] = 0x5678; f.clarity[4] = 0.6;
 
-    floodDilateLakes(W, H, 3, f);
+    // Dry banks standing above the 0.4 lake plane — a rising flood would climb them.
+    const bed = new Float32Array(W * H).fill(0.5);
+    floodDilateLakes(W, H, 3, bed, f);
 
     for (let x = 1; x <= 7; x++) {
       expect(f.waterType[x], `cell ${x} type`).toBe(WaterType.Lake);
@@ -234,6 +236,39 @@ describe('Water S2 — water field builder', () => {
     expect(f.waterType[8]).toBe(WaterType.Dry);
   });
 
+  it('floodDilateLakes does NOT spill a perched crater lake DOWN its outer flanks', () => {
+    // A peak with a tiny summit pond: bed rises to a rim (0.70) around a crater floor
+    // (0.65), then DESCENDS on both flanks. The pond surface (0.68) sits above the floor
+    // but below the rim. An ungated `rings`-deep dilation would leap the rim and paint
+    // the lower flanks (0.6, 0.5, 0.4, 0.3 — all below 0.68) as a square apron of water,
+    // because the in-shader depth clip can't trim a flank that genuinely lies below the
+    // plane. The bed gate must stop the band AT the rim. (The volcano-lake square bug.)
+    const W = 11, H = 1;
+    const bed = new Float32Array([0.3, 0.4, 0.5, 0.6, 0.70, 0.65, 0.70, 0.6, 0.5, 0.4, 0.3]);
+    const f = {
+      surfaceW: new Float32Array(W * H).fill(-1),
+      waterType: new Uint32Array(W * H),
+      shallow: new Uint32Array(W * H),
+      deep: new Uint32Array(W * H),
+      clarity: new Float32Array(W * H),
+      flow: new Float32Array(W * H * 2),
+    };
+    f.surfaceW[5] = 0.68; f.waterType[5] = WaterType.Lake;  // the crater pond
+    f.shallow[5] = 0x1234; f.deep[5] = 0x5678; f.clarity[5] = 0.6;
+
+    floodDilateLakes(W, H, 4, bed, f);
+
+    // The rim cells (4, 6) stand at/above the plane → claimed as dry headroom (the depth
+    // clip renders them dry now, floodable later).
+    expect(f.waterType[4]).toBe(WaterType.Lake);
+    expect(f.waterType[6]).toBe(WaterType.Lake);
+    // The outer flanks lie BELOW the plane across the rim → never painted (no apron).
+    for (const x of [0, 1, 2, 3, 7, 8, 9, 10]) {
+      expect(f.waterType[x], `flank ${x} stays dry`).toBe(WaterType.Dry);
+      expect(f.surfaceW[x], `flank ${x} surface untouched`).toBe(-1);
+    }
+  });
+
   it('floodDilateLakes ignores OCEAN (the datum never floods) and occupied cells', () => {
     // A lone OCEAN cell does NOT dilate; and a pre-occupied neighbour is left as-is.
     const W = 5, H = 1;
@@ -243,7 +278,8 @@ describe('Water S2 — water field builder', () => {
       shallow: new Uint32Array(W), deep: new Uint32Array(W),
       clarity: new Float32Array(W), flow: new Float32Array(W * 2),
     };
-    floodDilateLakes(W, H, 3, f);
+    // Banks above the lake plane so the dilation has somewhere to climb.
+    floodDilateLakes(W, H, 3, new Float32Array(W * H).fill(0.5), f);
     expect(f.waterType[2]).toBe(WaterType.Ocean);   // ocean untouched (not a seed)
     expect(f.surfaceW[2]).toBeCloseTo(0.35, 6);     // occupied cell kept its surface
     expect(f.waterType[4]).toBe(WaterType.Lake);    // lake spread to the open dry side

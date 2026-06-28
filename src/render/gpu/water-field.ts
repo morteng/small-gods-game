@@ -248,18 +248,26 @@ export function fillShoreRing(
  * land cells to climb. A multi-source BFS seeded from every cell currently carrying
  * a LAKE surface (the original basin + the lake cells `fillShoreRing` already
  * overhung), expanding only into still-DRY cells (`surfaceW === -1`), each taking
- * its BFS parent's lake surface/colours. The in-shader depth clip
- * (`surfaceW + offset − terrain ≤ 0 → discard`) trims this generous band back to
- * the real contour every frame, so at level 0 the extra cells are all discarded
- * (their land terrain sits above the lake plane) and cost only a few hundred
- * discarded fragments. Ocean/river are left at the 1-ring overhang.
+ * its BFS parent's lake surface/colours.
  *
- * Mutates the passed arrays IN PLACE; must run AFTER {@link fillShoreRing}.
+ * The band may only climb onto dry land that stands AT OR ABOVE the lake plane (a
+ * real bank a rising flood would submerge — `bed[ni] >= surface`). It must NEVER
+ * paint the plane onto terrain that lies BELOW it: that is the far side of a rim —
+ * a perched crater lake on a peak, whose outer flanks descend below the pond. There
+ * the in-shader depth clip (`surface − terrain ≤ 0 → discard`) can't trim the band
+ * (the flanks ARE below the plane), so an ungated dilation bleeds a square apron of
+ * water down the cone. Gating on the bed stops the BFS at the rim. On a normal lake
+ * the banks rise, so the full headroom band is kept and the clip discards it at
+ * level 0 (a few hundred fragments). Ocean/river are left at the 1-ring overhang.
+ *
+ * `bed` is the curved render terrain height (`heightField`), the SAME space as
+ * `surfaceW`. Mutates the passed arrays IN PLACE; must run AFTER {@link fillShoreRing}.
  */
 export function floodDilateLakes(
   width: number,
   height: number,
   rings: number,
+  bed: Float32Array,
   f: {
     surfaceW: Float32Array;
     waterType: Uint32Array;
@@ -293,6 +301,9 @@ export function floodDilateLakes(
         const ni = ny * width + nx;
         if (dist[ni] !== -1) continue;          // already queued/seeded
         if (f.surfaceW[ni] !== -1) continue;     // occupied (wet or ring-1 overhang) — leave it
+        if (bed[ni] < f.surfaceW[c]) continue;   // only climb banks AT/ABOVE the plane — never
+                                                 // spill the lake DOWN a slope past a rim (perched
+                                                 // crater lake), where the depth clip can't trim it
         dist[ni] = d + 1;
         f.surfaceW[ni] = f.surfaceW[c];
         f.waterType[ni] = WaterType.Lake;
@@ -625,7 +636,7 @@ function waterStatic(map: GameMap, override?: ConnectomeWaterOverride): WaterSta
   });
   // Give lakes flood headroom past the 1-ring waterline overhang (the sea is the
   // datum and never floods, so it's left at one ring).
-  floodDilateLakes(map.width, map.height, LAKE_FLOOD_RINGS, {
+  floodDilateLakes(map.width, map.height, LAKE_FLOOD_RINGS, heightField(map), {
     surfaceW, waterType, shallow, deep, clarity, flow,
   });
   // Extend the river colour to cover the analytic channel's reach past its raster cells,
