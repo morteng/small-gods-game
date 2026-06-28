@@ -6,7 +6,7 @@ describe('content-version constants', () => {
     expect(ART_RECIPE_VERSION).toBe('v13');
   });
 
-  it('declares the current world content version (25: riverside levee)', () => {
-    expect(WORLD_CONTENT_VERSION).toBe(25);
+  it('declares the current world content version (26: diagonal bridges)', () => {
+    expect(WORLD_CONTENT_VERSION).toBe(26);
   });
 });

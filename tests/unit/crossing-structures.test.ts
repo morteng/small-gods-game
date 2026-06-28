@@ -67,6 +67,46 @@ describe('buildCrossingStructureEntities', () => {
     expect(arches.every((e) => (e.properties as any).liftElev === undefined)).toBe(true);
   });
 
+  it('a DIAGONAL crossing gets ONE straight diagonal deck whose AABB centres on the ford', () => {
+    // A road fording water at 45°: bank→bank runs (5,5)→(7,7) over a bridge cell at (6,6). The
+    // deck must be ONE straight slab at the TRUE bearing (not snapped to a cardinal stub that
+    // floats off the road), its footprint the rotated slab's bounding box centred on the ford.
+    const poly = [3, 4, 5, 6, 7, 8, 9].map((d) => ({ x: d, y: d }));
+    const graph: RoadGraph = { nodes: [], edges: [edge('e', poly, { class: 'road', bridgeCells: [6 * W + 6] })] };
+    const ents = buildCrossingStructureEntities(graph, W, { defaults: { era: 'late-medieval', prosperity: 'modest' } });
+    const decks = ents.filter((e) => e.kind === 'bridge_deck');
+    expect(decks).toHaveLength(1);
+    const deck = decks[0];
+    const rb = (deck.properties as { blueprint: { rb: { footprint: { w: number; h: number }; parts: Array<{ type: string; params: Record<string, unknown> }> } } }).blueprint.rb;
+    const part = rb.parts.find((p) => p.type === 'deck')!;
+    // The deck carries the true 45° bank→bank bearing (not axis-snapped).
+    expect(Math.abs(Number(part.params.yawDeg) - 45)).toBeLessThan(2);
+    // A rotated slab ⇒ a (near-)square AABB, NOT the w×1 cardinal stub.
+    expect(rb.footprint.w).toBe(rb.footprint.h);
+    expect(rb.footprint.w).toBeGreaterThanOrEqual(3);
+    // The AABB centres on the ford midpoint (6,6), so the slab's two ends seat on the banks.
+    expect(deck.x + rb.footprint.w / 2).toBeCloseTo(6, 5);
+    expect(deck.y + rb.footprint.h / 2).toBeCloseTo(6, 5);
+  });
+
+  it('pier/arch HEIGHT tracks the crossing depth — a deep gorge earns taller piers than a brook', () => {
+    // Same wide crossing, two elevation profiles: deep (banks far above the carved bed) vs shallow.
+    // The clearance (bank − bed)·relief drives pier height, so deep > shallow.
+    const pierH = (bankNorm: number, bedNorm: number): number => {
+      const elevAt = (x: number) => (x <= 7 || x >= 14 ? bankNorm : bedNorm); // banks flank the span
+      const ents = buildCrossingStructureEntities(wideRich(), W, {
+        defaults: { era: 'late-medieval', prosperity: 'rich' },
+        elevAt: (x) => elevAt(x), reliefM: 60,
+      });
+      const pier = ents.find((e) => e.kind === 'bridge_pier')!;
+      const rb = (pier.properties as { blueprint: { rb: { parts: Array<{ type: string; params: Record<string, unknown> }> } } }).blueprint.rb;
+      return Number(rb.parts.find((p) => p.type === 'pier')!.params.heightM);
+    };
+    const deep = pierH(0.85, 0.15);   // ~42 m drop
+    const shallow = pierH(0.30, 0.25); // ~3 m drop
+    expect(deep).toBeGreaterThan(shallow);
+  });
+
   it('is deterministic', () => {
     const poly = [8, 9, 10, 11, 12].map((x) => ({ x, y: 6 }));
     const graph: RoadGraph = { nodes: [], edges: [edge('e', poly, { class: 'road', bridgeCells: [6 * W + 10] })] };

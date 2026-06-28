@@ -341,6 +341,10 @@ export async function generateWithNoise(
       curveRenderElev(deckHf[y * width + x] ?? ELEVATION_SEA_LEVEL, ELEVATION_SEA_LEVEL, deckGamma);
     for (const e of buildCrossingStructureEntities(roadGraph, width, {
       deckElevAt,
+      // Pier/arch height tracks the real bank-to-bed clearance (same raw heightfield + relief the
+      // stair siter reads), so a deep gorge gets tall supports and a shallow brook short ones.
+      elevAt: (x, y) => deckHf[Math.round(y) * width + Math.round(x)] ?? ELEVATION_SEA_LEVEL,
+      reliefM: worldStyleOf(worldSeed ?? undefined).mountainRelief,
       cellBlocked: (x, y) => {
         const t = tiles[y]?.[x];
         if (!t) return true; // off-map → unusable

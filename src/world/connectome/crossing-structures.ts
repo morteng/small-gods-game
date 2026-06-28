@@ -25,7 +25,6 @@ import { METRES_PER_TILE } from '@/render/scale-contract';
 import { detectCrossings, type CrossingSiteParams, type DetectOptions } from './detect-crossings';
 import { buildCrossing } from './crossing-builder';
 import { realizeCrossing, type Placement } from './realize-crossing';
-import { axisOf } from './road-span';
 
 /** Crossing structure kind → an existing building preset to grey-mass it with (until a
  *  dedicated bridge/booth blueprint family lands). Closest-available shapes for v0. */
@@ -59,24 +58,29 @@ const batterOf = (m: unknown): number => PIER_BATTER[String(m)] ?? 0.12;
  *  along the span axis, and sits ABOVE the water it crosses rather than carving into it. */
 function deckEntity(p: Placement, lengthTiles: number, deckElev: number | undefined): Entity | undefined {
   const widthTiles = Math.max(0.5, Number(p.params.width ?? 1));
-  // A crossing's bank0→bank1 is the same kind of run as a stair's foot→head — quantize its
-  // orientation through the shared road-span primitive (the deck's start/stop axis).
-  const dir = axisOf(p.dir.x, p.dir.y);
-  const ns = dir === 'ns';   // span runs north-south?
-  const fpW = Math.max(1, Math.ceil(ns ? widthTiles : lengthTiles));
-  const fpH = Math.max(1, Math.ceil(ns ? lengthTiles : widthTiles));
+  // The deck spans the crossing as ONE straight slab at the TRUE bank→bank bearing (not snapped
+  // to a cardinal): a diagonal ford gets a diagonal deck whose ends seat on its two banks, where
+  // the road resumes. The footprint is the rotated slab's axis-aligned bounding box; the slab is
+  // centred inside it (see deckPartType), so placing that AABB centred on the crossing midpoint
+  // lands the slab ends on the banks.
+  const yawDeg = (Math.atan2(p.dir.y, p.dir.x) * 180) / Math.PI;
+  const c = Math.abs(Math.cos((yawDeg * Math.PI) / 180));
+  const s = Math.abs(Math.sin((yawDeg * Math.PI) / 180));
+  const fpW = Math.max(1, Math.ceil(lengthTiles * c + widthTiles * s));
+  const fpH = Math.max(1, Math.ceil(lengthTiles * s + widthTiles * c));
   const mat = matOf(p.params.material);
   const bp: Blueprint = {
     version: BLUEPRINT_VERSION, class: 'prop', preset: 'bridge_deck', category: 'infrastructure',
     footprint: { w: fpW, h: fpH }, materials: { walls: mat, roof: mat, ground: 'dirt' },
     parts: { deck: { type: 'deck', at: { x: 0, y: 0 }, size: { w: fpW, h: fpH }, params: {
       lengthM: lengthTiles * METRES_PER_TILE, widthM: widthTiles * METRES_PER_TILE,
-      thicknessM: 0.6, dir, parapet: widthTiles >= 1 ? 'both' : 'none',
+      thicknessM: 0.6, yawDeg, parapet: widthTiles >= 1 ? 'both' : 'none',
     } } },
   };
   const rb = resolveBlueprint([bp], 0);
-  const e = blueprintEntity(p.nodeId, rb, Math.round(p.at.x), Math.round(p.at.y));
-  // Round the foot to the deck centre so the long sprite straddles the span symmetrically.
+  // Centre the footprint AABB on the crossing midpoint so the slab straddles the span symmetrically
+  // and its two ends fall on the banks.
+  const e = blueprintEntity(p.nodeId, rb, Math.round(p.at.x - fpW / 2), Math.round(p.at.y - fpH / 2));
   if (deckElev !== undefined) (e.properties as Record<string, unknown>).liftElev = deckElev;
   return e;
 }
@@ -86,20 +90,28 @@ function deckEntity(p: Placement, lengthTiles: number, deckElev: number | undefi
  *  the shared span axis. Sized to the bay it fills (`spanTiles`) and the traffic width it carries. */
 function archEntity(p: Placement, spanTiles: number, widthTiles: number, riseM: number): Entity {
   const mat = matOf(p.params.material);
-  const dir = axisOf(p.dir.x, p.dir.y);
-  const ns = dir === 'ns';
-  const spanM = Math.max(1, spanTiles) * METRES_PER_TILE;
-  const fp = Math.max(1, Math.ceil(spanTiles));   // footprint along the span
-  const cross = Math.max(1, Math.ceil(widthTiles));
+  // The arch springs along the TRUE bank→bank bearing (like the deck), so a diagonal ford gets a
+  // diagonal arch under its diagonal deck rather than a cardinal-snapped frame.
+  const yawDeg = (Math.atan2(p.dir.y, p.dir.x) * 180) / Math.PI;
+  const a = (yawDeg * Math.PI) / 180, cs = Math.cos(a), sn = Math.sin(a);
+  const span = Math.max(1, spanTiles);          // tiles along the span
+  const depth = Math.max(0.5, widthTiles);      // tiles across (traffic width / arch thickness)
+  const fpW = Math.max(1, Math.ceil(Math.abs(span * cs) + Math.abs(depth * sn)));
+  const fpH = Math.max(1, Math.ceil(Math.abs(span * sn) + Math.abs(depth * cs)));
+  // The arch prim's `at` is its SPRINGING ORIGIN and it rotates about that point; its geometry
+  // centre sits at at + (span/2)·dir + (depth/2)·perp (dir=(cs,sn), perp=(−sn,cs)). Back the origin
+  // off the footprint centre by both so the rotated arch centres in the AABB at any bearing.
+  const ax = fpW / 2 - (span / 2) * cs + (depth / 2) * sn;
+  const ay = fpH / 2 - (span / 2) * sn - (depth / 2) * cs;
   const bp: Blueprint = {
     version: BLUEPRINT_VERSION, class: 'prop', preset: 'bridge_arch', category: 'infrastructure',
-    footprint: { w: ns ? cross : fp, h: ns ? fp : cross }, materials: { walls: mat, roof: mat, ground: 'dirt' },
-    parts: { arch: { type: 'arch_span', at: { x: 0, y: 0 }, size: { w: ns ? cross : fp, h: ns ? fp : cross }, params: {
-      spanM, riseM, thicknessM: widthTiles * METRES_PER_TILE, dir,
+    footprint: { w: fpW, h: fpH }, materials: { walls: mat, roof: mat, ground: 'dirt' },
+    parts: { arch: { type: 'arch_span', at: { x: ax, y: ay }, size: { w: fpW, h: fpH }, params: {
+      spanM: span * METRES_PER_TILE, riseM, thicknessM: widthTiles * METRES_PER_TILE, yawDeg,
     } } },
   };
   const rb = resolveBlueprint([bp], 0);
-  return blueprintEntity(p.nodeId, rb, Math.round(p.at.x), Math.round(p.at.y));
+  return blueprintEntity(p.nodeId, rb, Math.round(p.at.x - fpW / 2), Math.round(p.at.y - fpH / 2));
 }
 
 /** Build a pier entity — a vertical support standing from the riverbed up to the deck. It
@@ -122,6 +134,14 @@ export interface CrossingStructureOptions extends DetectOptions {
    *  deck on its bank height over the water. Omitted ⇒ decks foot-sample (sink) — callers
    *  that want correct deck height must supply a sampler matching the terrain `heights` buffer. */
   deckElevAt?: (x: number, y: number) => number;
+  /** Raw normalised heightfield elevation at a tile (the deckHf space, NOT the curved render
+   *  elev). Supplied alongside {@link reliefM}, it lets pier/arch HEIGHT track the crossing's
+   *  actual depth: clearance = (higher bank − carved bed) · reliefM, so a deep ravine earns tall
+   *  piers and a shallow brook short ones. Omitted ⇒ height falls back to the span proxy. */
+  elevAt?: (x: number, y: number) => number;
+  /** Metres of relief per normalised elevation unit (`worldStyle.mountainRelief`) — converts the
+   *  normalised bank-to-bed drop into a metric pier/arch height. Paired with {@link elevAt}. */
+  reliefM?: number;
   /** A cell where a building's SOLID footprint may NOT go — already taken by an existing
    *  building's structure, a carved road, or water. When supplied, an ancillary placement
    *  whose solid cells overlap is nudged to nearby clear ground (deterministic ring search),
@@ -195,7 +215,17 @@ export function buildCrossingStructureEntities(
     const deckElev = banks && opts.deckElevAt
       ? Math.max(opts.deckElevAt(Math.round(banks[0].x), Math.round(banks[0].y)), opts.deckElevAt(Math.round(banks[1].x), Math.round(banks[1].y)))
       : undefined;
-    const pierHeightM = Math.max(1.5, Math.min(8, spanLen * 0.6));
+    // Pier / arch HEIGHT from the crossing's real depth when a heightfield sampler is supplied:
+    // the deck rides the higher bank, the piers reach down to the carved bed, so the metric
+    // clearance (bank − bed) · reliefM is how tall they stand. Without a sampler, fall back to the
+    // span proxy (wider rivers tend to run deeper) so callers without elevation stay byte-stable.
+    let pierHeightM = Math.max(1.5, Math.min(8, spanLen * 0.6));
+    if (banks && opts.elevAt && opts.reliefM) {
+      const bankNorm = Math.max(opts.elevAt(Math.round(banks[0].x), Math.round(banks[0].y)), opts.elevAt(Math.round(banks[1].x), Math.round(banks[1].y)));
+      const bedNorm = opts.elevAt(Math.round((banks[0].x + banks[1].x) / 2), Math.round((banks[0].y + banks[1].y) / 2));
+      const clearanceM = Math.max(0, bankNorm - bedNorm) * opts.reliefM;
+      pierHeightM = Math.max(1.5, Math.min(14, clearanceM + 0.6));   // +0.6 ≈ deck thickness to its underside
+    }
     // Interior piers only earn their keep on a genuinely wide span — a plank over a 1–2 tile
     // brook rests on its banks (piers crammed under a 2 m deck just read as stacked clutter).
     const wantsPiers = spanLen >= MIN_PIER_SPAN_TILES;

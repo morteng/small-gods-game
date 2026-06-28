@@ -27,30 +27,33 @@ describe('bridge parts compile to geometry', () => {
     expect(prims(railed, 'box').length).toBe(3);   // deck + 2 parapets
   });
 
-  it('parapets line the deck LONG sides and run its full length — for ns AND ew spans', () => {
-    // A parapet must hug the two long edges of the deck and span its whole length; the bug was the
-    // ew deck got the ns layout, capping its short ENDS instead. Assert the rails for each axis are
-    // long (≈ the deck length) and thin (≈ the rail thickness), oriented along the travel axis.
+  it('parapets line the deck LONG sides, run its full length, and YAW with the span', () => {
+    // A parapet hugs the two long edges and spans the whole length. The deck is now built in ONE
+    // canonical local frame (long axis = +x, size [len, thin]) and ORIENTED by a `yaw` field, so a
+    // diagonal ford gets a diagonal deck. A cardinal `dir` maps to that yaw: ew → 0°, ns → 90°.
     const railThin = 0.25 / 2 + 0.01;   // mToTiles(0.25) is small; rails are the thin boxes
     const longTiles = (m: number) => m / 2;  // METRES_PER_TILE = 2
-    for (const dir of ['ns', 'ew'] as const) {
+    for (const [dir, wantYaw] of [['ns', 90], ['ew', 0]] as const) {
       const deck = compile({ d: { type: 'deck', size: { w: 3, h: 6 }, params: { lengthM: 12, widthM: 3, dir, parapet: 'both' } } });
       const boxes = prims(deck, 'box');
-      // The two rails are the boxes that are thin on one axis and long on the other.
       const rails = boxes.filter((b) => Math.min(b.size[0], b.size[1]) <= railThin);
       expect(rails.length).toBe(2);
       for (const r of rails) {
-        if (dir === 'ns') {
-          // long in y (the travel axis), thin in x
-          expect(r.size[1]).toBeGreaterThan(longTiles(11));
-          expect(r.size[0]).toBeLessThan(railThin + 0.01);
-        } else {
-          // long in x (the travel axis), thin in y
-          expect(r.size[0]).toBeGreaterThan(longTiles(11));
-          expect(r.size[1]).toBeLessThan(railThin + 0.01);
-        }
+        // Long along local +x (the run), thin across (the rail thickness), yawed onto the travel axis.
+        expect(r.size[0]).toBeGreaterThan(longTiles(11));
+        expect(r.size[1]).toBeLessThan(railThin + 0.01);
+        expect(((r.yaw ?? 0) % 180 + 180) % 180).toBeCloseTo(wantYaw, 3);
       }
     }
+  });
+
+  it('a diagonal span yaws the WHOLE deck (slab + both parapets) to its true bearing', () => {
+    // The core of the diagonal-bridge work: a `yawDeg` (true bank→bank bearing) overrides `dir`, so
+    // a 45° ford gets one straight 45° deck — slab and parapets share the bearing — not a cardinal stub.
+    const deck = compile({ d: { type: 'deck', size: { w: 5, h: 5 }, params: { lengthM: 12, widthM: 3, yawDeg: 45, parapet: 'both' } } });
+    const boxes = prims(deck, 'box');
+    expect(boxes.length).toBe(3);                       // slab + 2 parapets
+    for (const b of boxes) expect(b.yaw).toBeCloseTo(45, 3);
   });
 
   it('a pier IS a square Column; batter is a TRUE taper (top half-width shrinks)', () => {
@@ -84,6 +87,12 @@ describe('bridge parts compile to geometry', () => {
     const ns = compile({ a: { type: 'arch_span', size: { w: 1, h: 3 }, params: { spanM: 6, dir: 'ns' } } });
     expect((prims(ew, 'arch')[0] as any).yaw ?? 0).toBe(0);
     expect((prims(ns, 'arch')[0] as any).yaw).toBe(90);
+  });
+
+  it('an explicit yawDeg springs the arch along a DIAGONAL ford (overrides dir)', () => {
+    // Mirror of the deck: a true bearing makes the arch face across a diagonal watercourse.
+    const diag = compile({ a: { type: 'arch_span', size: { w: 4, h: 4 }, params: { spanM: 6, yawDeg: 30 } } });
+    expect((prims(diag, 'arch')[0] as any).yaw).toBeCloseTo(30, 3);
   });
 
   it('a stone viabridge composes deck + arches + piers in one blueprint', () => {
