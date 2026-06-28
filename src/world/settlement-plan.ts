@@ -792,21 +792,40 @@ export function assignWards(
 }
 
 /**
+ * How many tiles of distance-affinity a perfect terrain fitness (1.0) is worth when
+ * ordering slots. Small on purpose: terrain re-ranks slots that are *near-equal* on
+ * the existing distance/affinity + jitter, so a building drifts to the best-sited of
+ * the lots its layout already offers (the church onto the sunnier rise) WITHOUT
+ * abandoning the gross centre/edge structure for a far-off knoll.
+ */
+export const SITE_FITNESS_PULL = 3;
+
+/**
  * Deterministic candidate ordering for one preset: slots whose side opposes
  * the door facing, sorted by site affinity (centre-affine in, edge-affine
  * out) with a small seeded jitter for variety.
+ *
+ * `fitnessAt` (optional) is a terrain site-fitness in `0..1` sampled at a slot's
+ * road anchor; when supplied it pulls better-sited slots earlier by up to
+ * {@link SITE_FITNESS_PULL} tile-equivalents. Omitted (or a flat world ⇒ constant
+ * fitness) leaves the ordering byte-identical to the pure distance/affinity sort —
+ * the rng draw order is unchanged either way, so determinism holds.
  */
 export function orderedSlotsFor(
   plan: SettlementPlan,
   doorFacing: [number, number],
   rule: SiteRule | undefined,
   rng: Random,
+  fitnessAt?: (tx: number, ty: number) => number,
 ): FrontageSlot[] {
   const want: [number, number] = [-doorFacing[0], -doorFacing[1]];
   const sign = rule?.affinity === 'edge' ? -1 : 1;
   return plan.slots
     .filter(s => s.side[0] === want[0] && s.side[1] === want[1])
-    .map(s => ({ s, k: sign * s.dist + rng.next() * 1.5 }))
+    .map(s => {
+      const fit = fitnessAt ? fitnessAt(s.roadX, s.roadY) : 0;
+      return { s, k: sign * s.dist + rng.next() * 1.5 - SITE_FITNESS_PULL * fit };
+    })
     .sort((a, b) => a.k - b.k)
     .map(({ s }) => s);
 }

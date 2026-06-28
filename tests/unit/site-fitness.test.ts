@@ -4,7 +4,7 @@
 // scorers, and the composable weighted site-fitness mean S5 builds on.
 import { describe, it, expect } from 'vitest';
 import {
-  SUN_BEARING, alignmentScore, sunFrontageScore, sunSiteScore, scoreSite,
+  SUN_BEARING, alignmentScore, sunFrontageScore, sunSiteScore, scoreSite, siteFitness,
 } from '@/world/site-fitness';
 
 describe('alignmentScore — the generalized alignment primitive', () => {
@@ -82,5 +82,42 @@ describe('scoreSite — composable weighted multi-criteria fitness', () => {
       { id: 'under', weight: 1, score: -3 }, // clamps to 0
       { id: 'off', weight: 0, score: 1 },    // ignored
     ])).toBeCloseTo(0.5, 12);
+  });
+});
+
+describe('siteFitness — settlement building disposition over the affordance layer', () => {
+  // A sunlit, far-seen eminence vs a snug, sheltered hollow.
+  const eminence = { prominence: 0.9, sunny: 0.9, shelter: 0.1, flatness: 0.8 };
+  const hollow = { prominence: 0.1, sunny: 0.2, shelter: 0.9, flatness: 0.8 };
+
+  it('a prominent building prefers the eminence; a humble one the hollow', () => {
+    expect(siteFitness(eminence, 'prominent')).toBeGreaterThan(siteFitness(hollow, 'prominent'));
+    expect(siteFitness(hollow, 'humble')).toBeGreaterThan(siteFitness(eminence, 'humble'));
+  });
+
+  it('the two profiles rank the SAME two sites oppositely (disposition, not absolute quality)', () => {
+    const promChoosesEminence = siteFitness(eminence, 'prominent') > siteFitness(hollow, 'prominent');
+    const humbleChoosesHollow = siteFitness(hollow, 'humble') > siteFitness(eminence, 'humble');
+    expect(promChoosesEminence && humbleChoosesHollow).toBe(true);
+  });
+
+  it('an unprobed / empty affordance is neutral (flatness defaults 0.5), never NaN', () => {
+    const p = siteFitness({}, 'prominent');
+    const h = siteFitness({}, 'humble');
+    expect(Number.isFinite(p)).toBe(true);
+    expect(Number.isFinite(h)).toBe(true);
+    expect(p).toBeGreaterThan(0);
+    expect(h).toBeGreaterThan(0);
+  });
+
+  it('coerces non-numeric / NaN affordance values defensively', () => {
+    const dirty = { prominence: 'high' as unknown as number, sunny: NaN, flatness: 0.5 };
+    expect(Number.isFinite(siteFitness(dirty, 'prominent'))).toBe(true);
+  });
+
+  it('flatness always pulls — a flat prominent site beats a cliff-sited one, all else equal', () => {
+    const flat = { prominence: 0.5, sunny: 0.5, flatness: 1 };
+    const steep = { prominence: 0.5, sunny: 0.5, flatness: 0 };
+    expect(siteFitness(flat, 'prominent')).toBeGreaterThan(siteFitness(steep, 'prominent'));
   });
 });

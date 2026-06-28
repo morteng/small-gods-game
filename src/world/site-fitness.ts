@@ -107,3 +107,53 @@ export function scoreSite(terms: readonly FitnessTerm[]): number {
   }
   return wsum > 0 ? acc / wsum : 0.5;
 }
+
+/**
+ * A settlement building's terrain disposition — which way it leans when choosing
+ * among candidate sites the layout already offers. Two natural classes:
+ *  - `prominent` — a building meant to be SEEN and to catch the light (the parish
+ *    church, the manor, the tavern at the heart of the green). It buys eminence:
+ *    prominence (who can see you), a sunlit aspect, and flat ground to stand on.
+ *  - `humble` — an ordinary dwelling or outbuilding (cottage, longhouse, barn). It
+ *    wants a snug, sheltered, level spot, not a windswept knoll.
+ *
+ * These are the settlement-scale analogue of the earthworks `OPULENT_SITE_WEIGHTS` /
+ * defensive profiles, but expressed over the world-free {@link scoreSite} composer
+ * (no strategic target / defensive intent — an ordinary house has neither).
+ */
+export type SiteProfile = 'prominent' | 'humble';
+
+/**
+ * Score a candidate tile's terrain affordance (from the S4/S5 affordance layer —
+ * `prominence` / `sunny` / `shelter` / `flatness`) for a building of the given
+ * {@link SiteProfile}, as a single `0..1` fitness the placer folds into its slot
+ * ordering. Missing affordance keys read as 0 (an unprobed / flat world ⇒ every
+ * site scores alike, so ordering falls back to the existing distance affinity).
+ *
+ * Generative, not per-preset hand-tuning: a building's profile is derived from its
+ * site rule (focus / centre-affine ⇒ prominent, else humble), so new presets inherit
+ * a plausible disposition with zero authoring.
+ */
+export function siteFitness(
+  affordance: Record<string, unknown>,
+  profile: SiteProfile,
+): number {
+  // Read one affordance defensively (the probe is typed Record<string, unknown> at the
+  // connectome boundary); a missing/NaN key falls back so an unprobed world is neutral.
+  const num = (k: string, fallback: number): number => {
+    const v = affordance[k];
+    return typeof v === 'number' && Number.isFinite(v) ? v : fallback;
+  };
+  const flat = num('flatness', 0.5);
+  if (profile === 'prominent') {
+    return scoreSite([
+      { id: 'prominence', weight: 0.5, score: num('prominence', 0) },
+      { id: 'sun',        weight: 0.3, score: num('sunny', 0) },
+      { id: 'flat',       weight: 0.2, score: flat },
+    ]);
+  }
+  return scoreSite([
+    { id: 'shelter', weight: 0.6, score: num('shelter', 0) },
+    { id: 'flat',    weight: 0.4, score: flat },
+  ]);
+}

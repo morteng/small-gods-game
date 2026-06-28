@@ -233,6 +233,7 @@ export async function generateWithNoise(
       const era = resolveSettlementEra(poi, worldSeed);
       const result = placeSettlement(
         poi, zoneRule, tiles, world.registry, connectedDirs, rng, era, world, seed, corridorReserved,
+        mapStub,  // terrain-aware site selection (height is analytic from seed)
       );
       settlementPlans.push(result.plan);
       villages.push({

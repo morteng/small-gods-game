@@ -6,7 +6,7 @@ describe('content-version constants', () => {
     expect(ART_RECIPE_VERSION).toBe('v13');
   });
 
-  it('declares the current world content version (27: barrier gates over visual extent)', () => {
-    expect(WORLD_CONTENT_VERSION).toBe(27);
+  it('declares the current world content version (28: terrain-aware site selection)', () => {
+    expect(WORLD_CONTENT_VERSION).toBe(28);
   });
 });

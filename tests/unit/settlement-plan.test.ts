@@ -1,7 +1,7 @@
 // tests/unit/settlement-plan.test.ts
 import { describe, it, expect, beforeAll } from 'vitest';
-import { planSettlement, orderedSlotsFor, WATER_TYPES } from '@/world/settlement-plan';
-import { placeSettlement } from '@/world/building-placer';
+import { planSettlement, orderedSlotsFor, SITE_FITNESS_PULL, WATER_TYPES } from '@/world/settlement-plan';
+import { placeSettlement, findCentralPlacement } from '@/world/building-placer';
 import { getZoneRule } from '@/map/poi-zones';
 import { ensureBuildingTypesRegistered } from '@/blueprint/register-buildings';
 import { blueprintOf } from '@/blueprint/entity';
@@ -96,6 +96,69 @@ describe('planSettlement — frontage slots', () => {
   });
 });
 
+describe('orderedSlotsFor — terrain fitness re-ranking (site-fitness live-wiring)', () => {
+  const plan = planSettlement(CENTER, villageRule, grassTiles(), [{ dx: 1, dy: 0 }], new Random(7));
+  const facing: [number, number] = [0, 1];
+  const rule = { affinity: 'center' as const };
+  const xy = (s: { roadX: number; roadY: number }) => [s.roadX, s.roadY] as const;
+
+  it('omitting fitnessAt is byte-identical to a zero fitness (rng draw order unchanged)', () => {
+    const none = orderedSlotsFor(plan, facing, rule, new Random(5));
+    const zero = orderedSlotsFor(plan, facing, rule, new Random(5), () => 0);
+    expect(zero).toEqual(none);
+  });
+
+  it('a uniform fitness leaves the ordering unchanged (a constant shift on every key)', () => {
+    const base = orderedSlotsFor(plan, facing, rule, new Random(1));
+    const flat = orderedSlotsFor(plan, facing, rule, new Random(1), () => 0.7);
+    expect(flat.map(xy)).toEqual(base.map(xy));
+  });
+
+  it('rewarding a slot pulls it ahead of an equal-distance rival (PULL dwarfs the jitter gap)', () => {
+    const base = orderedSlotsFor(plan, facing, rule, new Random(1));
+    // Two slots at equal dist differ in the baseline only by jitter (< 1.5);
+    // SITE_FITNESS_PULL (=3) on the later one guarantees it overtakes.
+    let earlier: typeof base[number] | undefined, later: typeof base[number] | undefined;
+    for (let i = 0; i < base.length && !later; i++)
+      for (let j = i + 1; j < base.length; j++)
+        if (base[i].dist === base[j].dist
+          && (base[i].roadX !== base[j].roadX || base[i].roadY !== base[j].roadY)) {
+          earlier = base[i]; later = base[j]; break;
+        }
+    expect(SITE_FITNESS_PULL).toBeGreaterThan(1.5);
+    expect(later, 'symmetric layout should yield an equal-distance slot pair').toBeDefined();
+    const reranked = orderedSlotsFor(plan, facing, rule, new Random(1),
+      (tx, ty) => (tx === later!.roadX && ty === later!.roadY ? 1 : 0));
+    const ie = reranked.findIndex(s => s.roadX === earlier!.roadX && s.roadY === earlier!.roadY);
+    const il = reranked.findIndex(s => s.roadX === later!.roadX && s.roadY === later!.roadY);
+    expect(il).toBeLessThan(ie);
+  });
+});
+
+describe('findCentralPlacement — terrain-aware focus siting', () => {
+  const fp = { w: 1, h: 1 };
+  const fitsAll = () => true;
+
+  it('without fitnessAt, returns the dead-centre first fit', () => {
+    expect(findCentralPlacement(10, 10, fp, fitsAll, 5)).toEqual({ tileX: 10, tileY: 10 });
+  });
+
+  it('with fitnessAt, climbs within the slack onto the best-sited fit', () => {
+    const best = { x: 12, y: 10 };  // r=2 ring from centre — inside the slack
+    const o = findCentralPlacement(10, 10, fp, fitsAll, 5,
+      (x, y) => (x === best.x && y === best.y ? 1 : 0));
+    expect(o).toEqual({ tileX: best.x, tileY: best.y });
+  });
+
+  it('honours the slack: a far better site beyond it is NOT chosen (stays central)', () => {
+    const far = { x: 20, y: 10 };  // r=10 — past the +2 slack from the r=0 first hit
+    const o = findCentralPlacement(10, 10, fp, fitsAll, 30,
+      (x, y) => (x === far.x && y === far.y ? 1 : 0));
+    expect(o).not.toEqual({ tileX: far.x, tileY: far.y });
+    expect(Math.abs(o!.tileX - 10) + Math.abs(o!.tileY - 10)).toBeLessThanOrEqual(2);
+  });
+});
+
 describe('placeSettlement — plan execution', () => {
   const poi: POI = { id: 'v1', type: 'village', name: 'Test', position: CENTER } as unknown as POI;
 
@@ -104,6 +167,29 @@ describe('placeSettlement — plan execution', () => {
     const result = placeSettlement(poi, rule, tiles, world.registry, [{ dx: 1, dy: 0 }], new Random(seed), 'medieval', world);
     return { world, result, tiles };
   }
+
+  it('terrain-aware wiring is live: passing the map relocates buildings vs the distance-only path', () => {
+    // The synthetic seed-1 heightfield carries ~15 m of relief, so site fitness varies
+    // across the lots. Same POI / rule / rng seed — the ONLY difference is whether the
+    // placer is handed a terrain probe — so any divergence is the live wiring at work.
+    const place = (withMap: boolean): string[] => {
+      const t = grassTiles();
+      const world = new World(emptyMap(t));
+      const r = placeSettlement(
+        poi, villageRule, t, world.registry, [{ dx: 1, dy: 0 }], new Random(11),
+        'medieval', world, 1, undefined, withMap ? emptyMap(t) : undefined,
+      );
+      return r.entities
+        .filter(e => blueprintOf(e)?.rb.class === 'building')
+        .map(e => `${e.x},${e.y}`).sort();
+    };
+    const flat = place(false);
+    const terrained = place(true);
+    expect(terrained.length).toBeGreaterThan(0);
+    expect(terrained.length).toBe(flat.length);     // same roster, only positions move
+    expect(terrained).not.toEqual(flat);            // terrain changed at least one site
+    expect(place(true)).toEqual(terrained);          // …and the terrain-aware path is deterministic
+  });
 
   it('slot-placed buildings front a road: walking out of the door reaches one within 2 tiles', () => {
     const { result } = run();

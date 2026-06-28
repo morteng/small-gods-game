@@ -13,8 +13,10 @@
  *      site rule's water constraint) + a short carved door path.
  */
 
-import type { Entity, Tile, Era } from '@/core/types';
+import type { Entity, Tile, Era, GameMap } from '@/core/types';
 import type { World } from '@/world/world';
+import { makeTerrainProbe } from '@/world/terrain-affordance';
+import { siteFitness, type SiteProfile } from '@/world/site-fitness';
 import type { EntityRegistry } from './entity-registry';
 import type { ZoneRule } from '@/map/poi-zones';
 import { presetsForEra } from '@/map/poi-zones';
@@ -38,6 +40,17 @@ import {
 
 /** Road tile types — door paths stop when they reach an existing road */
 const ROAD_TYPES = new Set(['dirt_road', 'stone_road', 'bridge']);
+
+/**
+ * A preset's terrain disposition, derived from its site rule (generative, not
+ * per-preset hand-tuning): a focus or centre-affine building (church / manor /
+ * tavern at the heart) is `prominent` — it buys the sunlit, far-seen eminence;
+ * everything else is `humble` — a snug, sheltered, level spot.
+ */
+function siteProfileFor(presetName: string): SiteProfile {
+  const rule = SITE_RULES[presetName];
+  return rule?.focus || rule?.affinity === 'center' ? 'prominent' : 'humble';
+}
 
 /** Civic precinct type → Blueprint preset to emit through the generate→sprite
  *  pipeline. The mill is a working building (class:'building', S6); the well and
@@ -173,17 +186,43 @@ export function findPlacement(
  * frontage lot, because a deep focus footprint won't fit a burgage lot and fronting
  * a lane would push it to the rim.
  */
+/**
+ * Extra spiral rings to scan past the first fitting ring when a `fitnessAt` is given,
+ * so a focus building can climb a couple of tiles off dead-centre onto the better-sited
+ * ground (the church crowning the sunlit rise) while staying central. Pure first-fit
+ * with no slack when `fitnessAt` is absent.
+ */
+const FOCUS_FITNESS_SLACK = 2;
+
 export function findCentralPlacement(
   cx: number, cy: number, fp: { w: number; h: number },
   fits: (x: number, y: number, w: number, h: number) => boolean, maxRadius: number,
+  fitnessAt?: (x: number, y: number, w: number, h: number) => number,
 ): PlacementResult | null {
   const ax = cx - Math.floor(fp.w / 2), ay = cy - Math.floor(fp.h / 2);
+  if (!fitnessAt) {
+    for (let r = 0; r <= maxRadius; r++) {
+      for (const { x, y } of spiralRing(ax, ay, r)) {
+        if (fits(x, y, fp.w, fp.h)) return { tileX: x, tileY: y };
+      }
+    }
+    return null;
+  }
+  // Terrain-aware: among the fits within the first hit ring + a small slack, take the
+  // best-sited (so the focus stays central but prefers the eminence the terrain offers).
+  let best: PlacementResult | null = null;
+  let bestScore = -Infinity;
+  let firstHitR = -1;
   for (let r = 0; r <= maxRadius; r++) {
+    if (firstHitR >= 0 && r > firstHitR + FOCUS_FITNESS_SLACK) break;
     for (const { x, y } of spiralRing(ax, ay, r)) {
-      if (fits(x, y, fp.w, fp.h)) return { tileX: x, tileY: y };
+      if (!fits(x, y, fp.w, fp.h)) continue;
+      if (firstHitR < 0) firstHitR = r;
+      const sc = fitnessAt(x, y, fp.w, fp.h);
+      if (sc > bestScore) { bestScore = sc; best = { tileX: x, tileY: y }; }
     }
   }
-  return null;
+  return best;
 }
 
 /** Check placement ignoring vegetation/terrain entities (which get cleared). */
@@ -227,11 +266,30 @@ export function placeSettlement(
   world?:              World,  // Optional World reference for entity sync
   worldSeed = 0,                // Stable seed for coordinate-keyed lots/wards
   corridorReserved?:   Set<string>, // Slice 3: inter-POI trunk corridor cells to keep clear of lots
+  map?:                GameMap,  // Optional: enables terrain-aware site selection (height is analytic from seed)
 ): SettlementResult {
   const cx = poi.position?.x ?? 0;
   const cy = poi.position?.y ?? 0;
   const entities:  Entity[] = [];
   const roadType  = zoneRule.internalRoadType ?? 'dirt_road';
+
+  // Terrain-aware siting (building-validity S3–S5 substrate, wired live here). The
+  // height field is analytic from the seed, so a probe is valid at gen time. Absent a
+  // map the placer stays purely distance-based (every legacy caller / test path).
+  const terrain = map ? makeTerrainProbe(map) : null;
+  // Cache the affordance per tile for this settlement: the fill loop re-orders the same
+  // frontage slots once per building (and across both profiles), so the same tiles get
+  // probed many times — and each affordance is ~30 height lookups. Pure function of the
+  // tile, so caching is behaviour-preserving.
+  const affCache = new Map<string, Record<string, unknown>>();
+  const affAt = (tx: number, ty: number): Record<string, unknown> => {
+    const k = `${tx},${ty}`;
+    let a = affCache.get(k);
+    if (a === undefined) { a = terrain!.affordanceAt(tx, ty); affCache.set(k, a); }
+    return a;
+  };
+  const siteFitnessAt = (profile: SiteProfile) =>
+    terrain ? (tx: number, ty: number) => siteFitness(affAt(tx, ty), profile) : undefined;
   const buildingCount = rng.int(zoneRule.buildingCount.min, zoneRule.buildingCount.max);
   const radius = rng.int(zoneRule.radius.min, zoneRule.radius.max);
 
@@ -484,8 +542,10 @@ export function placeSettlement(
     const rb = synthesizeBlueprint(presetName);
     if (!rb) continue;
     const site = SITE_RULES[presetName];
+    const fit = siteFitnessAt(siteProfileFor(presetName));
     const origin = findCentralPlacement(
       cx, cy, rb.footprint, (x, y, w, h) => fitsAt(x, y, w, h, site?.nearWater), radius,
+      fit && ((x, y, w, h) => fit(x + Math.floor(w / 2), y + Math.floor(h / 2))),
     );
     if (!origin) continue;   // no central room (rare) → focus omitted this gen
     const { facing, doorCell } = doorOf(rb);
@@ -504,7 +564,7 @@ export function placeSettlement(
 
     // Pass 1: claim a burgage lot (footprint fully inside the lot — regular
     // spacing + back yard). Pass 2: any fitting slot for footprints no lot can hold.
-    const orderedSlots = orderedSlotsFor(plan, facing, site, rng);
+    const orderedSlots = orderedSlotsFor(plan, facing, site, rng, siteFitnessAt(siteProfileFor(presetName)));
     for (const strictLots of [true, false]) {
       for (const slot of orderedSlots) {
         // Align the footprint edge on the DOOR side flush against the road.
