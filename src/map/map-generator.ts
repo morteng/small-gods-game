@@ -27,6 +27,7 @@ import { erodeElevation } from '@/terrain/erosion';
 import { placeSettlement } from '@/world/building-placer';
 import { buildCrossingStructureEntities } from '@/world/connectome/crossing-structures';
 import { buildStairStructureEntities } from '@/world/connectome/stair-structures';
+import { buildEntranceStoopEntities } from '@/world/connectome/entrance-stoops';
 import { buildAqueductStructureEntities } from '@/world/connectome/aqueduct-structures';
 import { buildWaterNetwork } from '@/terrain/river-network';
 import { DEFAULT_RIVER_FLOW_THRESHOLD } from '@/terrain/hydrology';
@@ -333,6 +334,23 @@ export async function generateWithNoise(
         const t = tiles[y]?.[x];
         if (!t) return true;
         return tileBlockedByBuilding(world, x, y) || WATER_TYPES.has(t.type);
+      },
+    })) world.addEntity(e);
+
+    // ENTRANCE STOOPS (outdoor-architectural stairs — the kit's entrance/site siting
+    // authority): a building standing proud of the grade it faces (a hall on a hillside pad,
+    // a temple on a rise) gets a perron from grade up to its door, read from the SAME
+    // normalised grade the road stairs use. Flush sites — most buildings — get none.
+    report('Setting entrance steps...');
+    for (const e of buildEntranceStoopEntities(world.query({ tag: 'building' }), {
+      elevAt: (x, y) => deckHf[Math.round(y) * width + Math.round(x)] ?? ELEVATION_SEA_LEVEL,
+      reliefM: worldStyleOf(worldSeed ?? undefined).mountainRelief,
+      liftElevAt: deckElevAt,
+      cellBlocked: (x, y) => {
+        const t = tiles[y]?.[x];
+        if (!t) return true;
+        // A stoop foots OUTSIDE its own door — keep it off water, roads and other buildings.
+        return tileBlockedByBuilding(world, x, y) || ROAD_TILES.has(t.type) || WATER_TYPES.has(t.type);
       },
     })) world.addEntity(e);
 

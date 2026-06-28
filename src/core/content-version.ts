@@ -53,4 +53,4 @@ export const ART_RECIPE_VERSION = 'v13';
  * An autosave stamped with a different value is discarded on load → a fresh
  * world is generated. Distinct from SAVE_VERSION (which guards the save *schema*).
  */
-export const WORLD_CONTENT_VERSION = 22;  // RIVER DENSITY: the river-flow threshold now scales with map AREA (areaScaledRiverThreshold) instead of a fixed 500 tuned for 128×96 — large islands (e.g. 384×272) no longer web over with minor channels, yielding a few trunk rivers + tributaries. Hydrology mask changes on large maps ⇒ discard pre-scaling autosaves. (21 = aqueduct arcade G6 polish; 20 = emergent aqueducts G6 on piers; 19 = stairs CONNECT G3d.)
+export const WORLD_CONTENT_VERSION = 23;  // ENTRANCE STOOPS: a building standing proud of the grade it faces now emits a perron/stoop entity (the outdoor-architectural stair siter) — the worldgen entity set changes on hilly sites ⇒ discard older autosaves. (22 = river density area-scaling; 21 = aqueduct arcade G6 polish; 20 = emergent aqueducts G6 on piers; 19 = stairs CONNECT G3d.)

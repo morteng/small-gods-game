@@ -6,7 +6,7 @@ describe('content-version constants', () => {
     expect(ART_RECIPE_VERSION).toBe('v13');
   });
 
-  it('declares the current world content version (22: area-scaled river density)', () => {
-    expect(WORLD_CONTENT_VERSION).toBe(22);
+  it('declares the current world content version (23: entrance stoops)', () => {
+    expect(WORLD_CONTENT_VERSION).toBe(23);
   });
 });
