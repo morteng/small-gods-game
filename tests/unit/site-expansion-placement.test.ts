@@ -4,10 +4,12 @@
  * derives: auxiliary BUILDINGS (a `stable` from a 'stabling' requirement) and
  * realisable FIXTURES (a `well` from 'water-supply'), with no per-preset wiring.
  *
- * Two establishments derive premises today: the `tavern` (requires stabling +
- * water-supply, among others) and the `manor` (a working estate — stabling +
- * water-supply). Both therefore co-place a stable + a yard well. A settlement with
- * NO deriving core gains neither.
+ * Premises derive from a core's catalogue `requires` tokens, with no per-preset wiring:
+ *   - `stabling`     ⇒ a `stable` auxiliary building. The `tavern` and the `manor` (a
+ *                      working estate) require it, so both co-place a stable.
+ *   - `water-supply` ⇒ a yard `well` (a realisable fixture). The tavern, the manor AND
+ *                      the `smithy` (E4 — a forge needs a slack-tub) require it.
+ * A settlement with no deriving core gains neither.
  *
  * The pass is ADDITIVE and deterministic: it scans for each part's spot without
  * drawing from the settlement rng, so the main layout is byte-identical and only the
@@ -29,9 +31,14 @@ const villageSeed = (): WorldSeed => ({
 const idsOf = (s: number) =>
   generateWithNoise(48, 48, s, villageSeed()).then(({ map }) => map.buildings.map((b) => b.templateId));
 
-// The establishments whose function derives a stable + well (tavern, manor).
-const derivingCores = (ids: string[]) =>
-  ids.filter((t) => t.includes('tavern') || t.includes('manor')).length;
+// Cores whose catalogue `requires` derives each premise (counted from actual placements,
+// so the test tracks the roster rather than hard-coding a per-seed total).
+const STABLING_CORES = ['tavern', 'manor'];          // require 'stabling' ⇒ a stable
+const WATER_CORES = ['tavern', 'manor', 'smithy'];   // require 'water-supply' ⇒ a well
+const countCores = (ids: string[], names: string[]) =>
+  ids.filter((t) => names.some((n) => t.includes(n))).length;
+// Stable-deriving establishments (tavern, manor).
+const derivingCores = (ids: string[]) => countCores(ids, STABLING_CORES);
 
 describe('site expansion (E2): auxiliaries co-placed with their deriving core', () => {
   it('every deriving establishment (tavern/manor) spawns one stable', async () => {
@@ -81,11 +88,11 @@ describe('site fixtures (E2): realisable fixtures co-placed as yard props', () =
   const wells = (world: { query: (o: { tag: string }) => { kind: string; x: number; y: number; properties?: Record<string, unknown> }[] }) =>
     world.query({ tag: 'fixture' }).filter((e) => e.kind === 'well');
 
-  it('every deriving establishment (tavern/manor) spawns one well', async () => {
+  it('every water-requiring establishment (tavern/manor/smithy) spawns one well', async () => {
     const { map, world } = await generateWithNoise(48, 48, 4, villageSeed());
-    const cores = derivingCores(map.buildings.map((b) => b.templateId));
-    expect(cores).toBe(2);
-    expect(wells(world).length).toBe(cores);
+    const waterCores = countCores(map.buildings.map((b) => b.templateId), WATER_CORES);
+    expect(waterCores).toBeGreaterThanOrEqual(2); // at least the tavern + manor
+    expect(wells(world).length).toBe(waterCores);
   });
 
   it('a well sits adjacent to its tavern, off any road, with provenance', async () => {
@@ -109,7 +116,8 @@ describe('site fixtures (E2): realisable fixtures co-placed as yard props', () =
     const wa = wells(a.world).map((e) => `${e.x},${e.y}`).sort();
     const wb = wells(b.world).map((e) => `${e.x},${e.y}`).sort();
     expect(wa).toEqual(wb);
-    expect(wa.length).toBe(2); // tavern + manor
+    // one well per water-requiring core actually platted (tavern + manor + any smithy)
+    expect(wa.length).toBe(countCores(a.map.buildings.map((x) => x.templateId), WATER_CORES));
   });
 
   it('the aux stable is still placed — fixtures are additive, not a replacement', async () => {

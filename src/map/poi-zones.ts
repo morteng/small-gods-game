@@ -39,7 +39,10 @@ export const POI_ZONE_RULES: Record<string, ZoneRule> = {
     // S2: a parish church (sacred focus) appears early; a manor hall once the village
     // is large enough. The roster is consumed round-robin, so order = appearance order;
     // guaranteed center-first anchoring of these foci is S3 (nucleated grammar).
-    buildings: ['cottage', 'parish-church', 'cottage', 'longhouse', 'manor', 'market_stall', 'tavern'],
+    // E4: a working village also carries its trades — a smithy and a communal bakehouse
+    // (catalogue buildingTypes with no pinned preset; geometry comes from the generative
+    // catalogue→fold bridge). They join the non-focus fill pool.
+    buildings: ['cottage', 'parish-church', 'cottage', 'longhouse', 'manor', 'market_stall', 'smithy', 'tavern', 'bakehouse'],
     buildingsByEra: {
       primordial: ['yurt', 'yurt', 'yurt', 'longhouse'],
       ancient: ['longhouse', 'longhouse', 'cottage', 'shrine'],
@@ -52,7 +55,9 @@ export const POI_ZONE_RULES: Record<string, ZoneRule> = {
   },
   city: {
     radius: { min: 6, max: 10 },
-    buildings: ['tavern', 'market_stall', 'cottage'],
+    // E4: a town supports a denser spread of trades than a village — an inn for travellers
+    // plus smith, baker and brewer (all generative catalogue types via the fold bridge).
+    buildings: ['tavern', 'market_stall', 'cottage', 'inn', 'smithy', 'bakehouse', 'brewhouse'],
     buildingCount: { min: 5, max: 12 },
     decorations: ['lamp', 'bench'],
     internalRoads: true,
