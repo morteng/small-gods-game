@@ -72,6 +72,40 @@ describe('terrainAffordanceAt — intrinsic terrain tags', () => {
   });
 });
 
+describe('terrainAffordanceAt — semantic tags (S5)', () => {
+  it('a peak is prominent (dominant / far-seen) and unsheltered', () => {
+    const a = terrainAffordanceAt(cone(50, 50, 30), 50, 50);
+    expect(a.prominence).toBeGreaterThan(0.7); // commands every direction + local rise
+    expect(a.shelter).toBeLessThan(0.1);       // exposed — the opposite of cosy
+  });
+
+  it('a flat valley floor is sheltered (cosy) but not prominent', () => {
+    const a = terrainAffordanceAt(flat(2), 50, 50);
+    expect(a.shelter).toBe(1);     // flat + un-exposed = maximally snug
+    expect(a.prominence).toBe(0);  // sees/dominates nothing
+  });
+
+  it('a sun-facing slope is sunny; the shaded slope is not; flat is neutral', () => {
+    // SUN_BEARING is +y (south); a slope whose downhill aspect is +y faces the sun.
+    const southSlope = terrainAffordanceAt(ramp('y', 1), 40, 40); // aspect +y, slope 0.5
+    const northSlope = terrainAffordanceAt(ramp('y', -1), 40, 40); // aspect -y
+    expect(southSlope.sunny).toBeGreaterThan(0.7);
+    expect(northSlope.sunny).toBeLessThan(0.3);
+    expect(terrainAffordanceAt(flat(5), 10, 10).sunny).toBe(0.5); // no aspect → neutral
+  });
+
+  it('all three semantic tags are present and finite on the probe', () => {
+    const probe = makeTerrainProbe({
+      seed: 1, width: 8, height: 8, worldSeed: undefined,
+    } as unknown as Parameters<typeof makeTerrainProbe>[0]);
+    const a = probe.affordanceAt(4, 4);
+    for (const k of ['prominence', 'shelter', 'sunny']) {
+      expect(typeof a[k]).toBe('number');
+      expect(Number.isFinite(a[k])).toBe(true);
+    }
+  });
+});
+
 describe('terrainAffordanceAt — defensive affordances are unchanged (additive tags)', () => {
   it('still reports the five earthworks protocol fields, all numeric', () => {
     const a = terrainAffordanceAt(cone(10, 10, 20), 12, 10);

@@ -84,6 +84,10 @@ export interface Affordance {
   water: number; // adjacency to water (a wet moat for free)
   commanding: number; // relative elevation over the surroundings (view / fields of fire)
   approachControl: number; // a single natural choke approach (funnels attackers to the gate)
+  // ── Situational tags (building-validity S5) — opulence/sun consumers read these ──
+  sunny: number; // 0..1 how sunlit the site is from its terrain aspect (S3 sunSiteScore)
+  prominence: number; // 0..1 dominance — who can see you (status / opulent sites)
+  shelter: number; // 0..1 cosiness — flat, low, un-exposed ground (snug dwellings)
 }
 
 const AFFORDANCE_KEYS: (keyof Affordance)[] = [
@@ -92,6 +96,9 @@ const AFFORDANCE_KEYS: (keyof Affordance)[] = [
   'water',
   'commanding',
   'approachControl',
+  'sunny',
+  'prominence',
+  'shelter',
 ];
 
 /** Pull the engine affordance protocol fields off a probe record (numeric, default 0). */
@@ -112,12 +119,31 @@ export interface SiteIntent {
   desiredHeight: number; // the motte height the design wants (world units)
 }
 
-/** The three siting terms' relative pull. */
+/**
+ * The siting terms' relative pull. `strat`/`def`/`cost` are the original defensive
+ * tradeoff; `sun`/`prominence` (building-validity S5) are OPTIONAL situational terms that
+ * default to 0 — a caller that leaves them out scores byte-identically to before, so the
+ * defensive siting is unchanged. An opulent civic site weights `sun`+`prominence`; a
+ * defended one weights `def`; a shrine weights `prominence` (a sacred eminence). See the
+ * {@link DEFENSIVE_SITE_WEIGHTS}/{@link OPULENT_SITE_WEIGHTS}/{@link SHRINE_SITE_WEIGHTS}
+ * consumer profiles.
+ */
 export interface SiteWeights {
   strat: number;
   def: number;
   cost: number;
+  /** Pull toward a sunlit aspect (the sun-orientation term, S3). Default 0. */
+  sun?: number;
+  /** Pull toward a dominant, far-seen site (view / status). Default 0. */
+  prominence?: number;
 }
+
+/** Defence picks command + natural protection, accepts a poor view and pays little earth. */
+export const DEFENSIVE_SITE_WEIGHTS: SiteWeights = { strat: 0.4, def: 0.5, cost: 0.1 };
+/** Opulence buys the prime spot: a sunlit, far-seen eminence — view + sun over raw defence. */
+export const OPULENT_SITE_WEIGHTS: SiteWeights = { strat: 0.15, def: 0.05, cost: 0.1, sun: 0.3, prominence: 0.4 };
+/** A shrine wants a sacred eminence — prominence first, with a sun-aligned aspect. */
+export const SHRINE_SITE_WEIGHTS: SiteWeights = { strat: 0.1, def: 0.0, cost: 0.1, sun: 0.3, prominence: 0.5 };
 
 export interface SiteScore {
   site: SiteCandidate;
@@ -136,6 +162,11 @@ const DEF_SUBWEIGHTS: Record<keyof Affordance, number> = {
   water: 0.15,
   commanding: 0.20,
   approachControl: 0.10,
+  // Situational tags are NOT defence — they feed their own siting terms (sun/opulence),
+  // not the natural-defence score, so they carry no weight here.
+  sunny: 0,
+  prominence: 0,
+  shelter: 0,
 };
 
 function defensiveAffordance(a: Affordance, desiredHeight: number): number {
@@ -180,7 +211,10 @@ export function scoreSite(
   const sv = strategicValue(site, intent);
   const da = defensiveAffordance(affordance, intent.desiredHeight);
   const bc = buildCost(affordance, intent.desiredHeight);
-  const score = weights.strat * sv + weights.def * da - weights.cost * bc;
+  // Optional situational terms (S5) — 0 by default, so defensive siting is unchanged.
+  const sun = (weights.sun ?? 0) * clamp01(affordance.sunny);
+  const prom = (weights.prominence ?? 0) * clamp01(affordance.prominence);
+  const score = weights.strat * sv + weights.def * da - weights.cost * bc + sun + prom;
   return { site, affordance, strategicValue: sv, defensiveAffordance: da, buildCost: bc, score };
 }
 

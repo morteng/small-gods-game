@@ -32,6 +32,9 @@ export {
   deriveEarthworks,
   frustumVolume,
   ringVolume,
+  DEFENSIVE_SITE_WEIGHTS,
+  OPULENT_SITE_WEIGHTS,
+  SHRINE_SITE_WEIGHTS,
 } from './earthworks';
 export type {
   Earthwork,

@@ -120,3 +120,46 @@ describe('deriveEarthworks — conservation of spoil', () => {
     expect(earthworks.map((e) => e.kind).sort()).toEqual(['ditch', 'rampart']);
   });
 });
+
+// ── Building-validity S5: situational siting terms + consumer weight profiles ──────────
+import {
+  DEFENSIVE_SITE_WEIGHTS, OPULENT_SITE_WEIGHTS, SHRINE_SITE_WEIGHTS,
+} from '@/blueprint/connectome/earthworks';
+
+describe('siteSelect — situational terms (sun/prominence) and consumer profiles', () => {
+  // Two candidates: a sunlit, far-seen eminence vs a shaded, defensible crag.
+  const eminence = { x: 0, y: 0 };
+  const crag = { x: 50, y: 0 };
+  const probe = probeOf({
+    '0,0': { height: 6, commanding: 0.7, steepFlanks: 0.2, sunny: 0.95, prominence: 0.9, shelter: 0.1 },
+    '50,0': { height: 9, commanding: 0.8, steepFlanks: 0.9, water: 0.5, sunny: 0.1, prominence: 0.7, shelter: 0 },
+  });
+  const intent: SiteIntent = { desiredHeight: 8 };
+
+  it('the optional terms default to 0 — defensive siting is unchanged (the crag wins)', () => {
+    // No sun/prominence weights ⇒ pure defence ⇒ the protected crag.
+    const best = siteSelect([eminence, crag], intent, { strat: 0, def: 1, cost: 0 }, probe);
+    expect(best?.site).toEqual(crag);
+  });
+
+  it('opulence buys the sunlit, far-seen eminence over the defensible crag', () => {
+    const best = siteSelect([eminence, crag], intent, OPULENT_SITE_WEIGHTS, probe);
+    expect(best?.site).toEqual(eminence);
+  });
+
+  it('defence picks the protected crag', () => {
+    const best = siteSelect([eminence, crag], intent, DEFENSIVE_SITE_WEIGHTS, probe);
+    expect(best?.site).toEqual(crag);
+  });
+
+  it('a shrine takes the sacred eminence (prominence-led, sun-aligned)', () => {
+    const best = siteSelect([eminence, crag], intent, SHRINE_SITE_WEIGHTS, probe);
+    expect(best?.site).toEqual(eminence);
+  });
+
+  it('zeroing the situational weights scores identically to the legacy 3-term formula', () => {
+    const legacy = scoreSite(eminence, intent, { strat: 1, def: 1, cost: 1 }, probe);
+    const withDefaults = scoreSite(eminence, intent, { strat: 1, def: 1, cost: 1, sun: 0, prominence: 0 }, probe);
+    expect(withDefaults.score).toBe(legacy.score);
+  });
+});

@@ -28,10 +28,19 @@
 //                     slope has aspect pointing south → couples to the sun arc for orientation.
 //                     (0,0) on flat ground, where aspect is undefined.
 //
-// Adding the intrinsic tags is purely additive: `readAffordance` (earthworks) pulls only
-// the defensive keys, so the defensive siting output is byte-identical.
+//   ── Semantic tags (S5 — the "what does this site MEAN" queries, derived from the above) ──
+//   prominence      — 0..1 dominance: how much the site stands above + looks down on its
+//                     surroundings (who can see YOU → status / opulent sites).
+//   shelter         — 0..1 cosiness: flat, low, un-exposed ground (the snug dwelling spot);
+//                     the inverse of prominence's exposure.
+//   sunny           — 0..1 how sunlit the site is from its terrain aspect (S3 `sunSiteScore`);
+//                     a sun-facing slope is bright, a shaded slope cold. Flat ground = neutral.
+//
+// Adding the intrinsic + semantic tags is purely additive: `readAffordance` (earthworks)
+// pulls only the keys it knows, so existing defensive siting output is byte-identical.
 import type { GameMap } from '@/core/types';
 import { heightMetresAt } from '@/world/heightfield';
+import { sunSiteScore } from '@/world/site-fitness';
 import type { TerrainProbe } from '@/blueprint/connectome';
 
 /** Sample radius (tiles) for the neighbourhood the affordances are measured over. */
@@ -43,6 +52,9 @@ const WATER_R = 6;
 /** The grade (metres of rise per tile) that reads as `slope = 1`. A tile is 2 m across,
  *  so 2 m/tile ≈ a 45° slope — past that, building is impractical. */
 const SLOPE_FULL_M_PER_TILE = 2;
+/** Local prominence (m above the surroundings) that reads as full dominance. ~4 tiles of
+ *  rise — a commanding knoll above its neighbours. */
+const PROMINENCE_FULL_M = 8;
 /** Below this gradient magnitude (m/tile) the ground is effectively flat → no aspect. */
 const ASPECT_EPS = 1e-4;
 
@@ -84,8 +96,8 @@ export function terrainAffordanceAt(
   }
   const meanNeighbour = sum / DIRS.length;
 
-  // Local prominence — how much this tile rises above its surroundings (≥0).
-  const prominence = Math.max(0, here - meanNeighbour);
+  // Local prominence — how much this tile rises above its surroundings (≥0), in metres.
+  const localProminenceM = Math.max(0, here - meanNeighbour);
   const commanding = lower / DIRS.length;
   const steepFlanks = steep / DIRS.length;
   // A funnelled approach: most flanks steep but not a sheer island — the gentle
@@ -115,8 +127,18 @@ export function terrainAffordanceAt(
   const aspectX = gradMag > ASPECT_EPS ? -gx / gradMag : 0;
   const aspectY = gradMag > ASPECT_EPS ? -gy / gradMag : 0;
 
+  // ── Semantic tags (S5) — what the site MEANS, from the intrinsic geometry above ─────
+  // Dominance: stands above its surroundings AND looks down on them → who can see you.
+  const prominence = clamp01(
+    0.5 * commanding + 0.5 * clamp01(localProminenceM / PROMINENCE_FULL_M),
+  );
+  // Cosiness: flat, un-exposed ground — the snug dwelling spot, the inverse of exposure.
+  const shelter = clamp01(flatness * (1 - commanding));
+  // How sunlit from the terrain aspect (couples the S4 aspect/slope tags to the sun arc).
+  const sunny = sunSiteScore(aspectX, aspectY, slope);
+
   return {
-    height: prominence,
+    height: localProminenceM,
     commanding,
     steepFlanks,
     water,
@@ -126,6 +148,9 @@ export function terrainAffordanceAt(
     flatness,
     aspectX,
     aspectY,
+    prominence,
+    shelter,
+    sunny,
   };
 }
 
