@@ -115,10 +115,10 @@ function emitPlan(out: Entity[], plan: AqueductPlan, opts: AqueductStructureOpti
   }
 }
 
-/** One cardinal channel run — a `deck` trough (both parapets = the channel walls) along the run's
- *  axis. Elevated runs ride their water line via `liftElev`; surface / cut runs foot-sample to the
- *  ground (a cut conduit reads as a covered channel hugging the rise — true trenching is a later
- *  render refinement). */
+/** One cardinal channel run — the kit's `channel` trough (a recessed floor between two side
+ *  walls) along the run's axis. Elevated runs ride their water line via `liftElev`; surface / cut
+ *  runs foot-sample to the ground (a cut conduit reads as a covered channel hugging the rise —
+ *  true trenching is a later render refinement). */
 function channelEntity(
   tag: string, seg: AqueductSegment, widthTiles: number, mat: string, opts: AqueductStructureOptions,
 ): Entity {
@@ -138,9 +138,13 @@ function channelEntity(
   const bp: Blueprint = {
     version: BLUEPRINT_VERSION, class: 'prop', preset: 'aqueduct_channel', category: 'infrastructure',
     footprint: { w: footW, h: footH }, materials: { walls: mat, roof: mat, ground: 'dirt' },
-    parts: { channel: { type: 'deck', at: { x: 0, y: 0 }, size: { w: footW, h: footH }, params: {
-      lengthM: lenTiles * METRES_PER_TILE, widthM: widthTiles * METRES_PER_TILE,
-      thicknessM: 0.5, dir: seg.axis, parapet: 'both',
+    parts: { channel: { type: 'channel', at: { x: 0, y: 0 }, size: { w: footW, h: footH }, params: {
+      lengthM: lenTiles * METRES_PER_TILE,
+      axis: ew ? 'x' : 'y',
+      // Inner water width = the run width less the two masonry side walls; floored so a
+      // narrow run still carries an opening.
+      innerWidthM: Math.max(0.4, widthTiles * METRES_PER_TILE - 0.6),
+      wallM: 0.3, depthM: 0.6, floorM: 0.4,
     } } },
   };
   const rb = resolveBlueprint([bp], 0);
