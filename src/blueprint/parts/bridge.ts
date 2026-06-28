@@ -66,7 +66,10 @@ export const deckPartType: PartType = {
   toBrief(p) { return `${(p.params.parapet as string) === 'both' ? 'parapeted ' : ''}deck`; },
 };
 
-/** A pier — a vertical support standing from the riverbed up to the deck underside. */
+/** A pier — a vertical support standing from the riverbed up to the deck underside.
+ *  A pier IS a (square) Column — it emits the kit's `column` prim so its batter is a
+ *  TRUE taper (the old code faked it with a non-tapering 4-gon prism). `batter` maps to
+ *  the column's diminution: top half-width = (1 − batter) × base. */
 export const pierPartType: PartType = {
   type: 'pier',
   paramSchema: {
@@ -78,16 +81,20 @@ export const pierPartType: PartType = {
   resolve: (part: Part) => ({ params: { ...(part.params ?? {}) } }),
   toPrims(p, ctx): Prim[] {
     const mat = matOf(ctx);
-    const hM = (p.params.heightM as number) ?? 3;
     const w = mToTiles((p.params.widthM as number) ?? 1);
-    const h = mToTiles(hM);
+    const h = mToTiles((p.params.heightM as number) ?? 3);
     const batter = (p.params.batter as number) ?? 0;
-    const cx = p.at.x + w / 2, cy = p.at.y + w / 2;
-    if (batter > 0) {
-      // Tapered pier → a many-sided prism is the closest solid (square footprint read).
-      return [{ prim: 'prism', center: [cx, cy], baseZ: 0, radius: w / 2, height: h, sides: 4, material: mat }];
-    }
-    return [{ prim: 'box', at: [p.at.x, p.at.y, 0], size: [w, w, h], material: mat }];
+    const r = w / 2;
+    return [{
+      prim: 'column',
+      center: [p.at.x + r, p.at.y + r],
+      baseZ: 0,
+      shape: 'square',
+      radius: r,
+      topRadius: r * (1 - batter),
+      height: h,
+      material: mat,
+    }];
   },
   toCollision: () => [],   // stands in the watercourse below the deck — blocks no land cell
   toAnchors: () => [],

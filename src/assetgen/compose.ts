@@ -6,6 +6,7 @@ import {
 } from '@/assetgen/geometry/solids';
 import type { ApertureBox } from '@/assetgen/geometry/solids';
 import { solidArchCurved, type ArchStyle } from '@/assetgen/geometry/arch';
+import { solidColumn, columnProjector, type ColumnShape, type ColumnBand } from '@/assetgen/geometry/column';
 import type { Wing, RoofStyle, BuildingFeatures, BuildingAnchors } from '@/assetgen/geometry/building';
 import { linearFacets } from '@/assetgen/geometry/linear';
 import { tubeFacets, blobFacets, rockFacets } from '@/assetgen/geometry/flora/mesh';
@@ -27,6 +28,7 @@ export type Part =
   | { prim: 'prism'; center: [number, number]; baseZ: number; radius: number; height: number; sides: number; material?: Mat; work?: string }
   | { prim: 'ellipsoid'; center: [number, number]; baseZ: number; radii: Vec3; material?: Mat; bore?: { radius: number; depth: number } }
   | { prim: 'arch'; at: Vec3; span: number; height: number; thickness: number; yaw?: number; material?: Mat; work?: string; style?: ArchStyle; ringDepth?: number; springZ?: number }
+  | { prim: 'column'; center: [number, number]; baseZ?: number; shape?: ColumnShape; sides?: number; radius: number; topRadius?: number; height: number; base?: ColumnBand | null; capital?: ColumnBand | null; material?: Mat; work?: string }
   | { prim: 'building'; wings: Wing[]; wallMat?: Mat; roofMat?: Mat; roofStyle?: RoofStyle; features?: BuildingFeatures; seed?: number; apertures?: ApertureBox[]; wallWork?: string }
   | { prim: 'flora'; limbs: Limb[]; leaves: Leaf[]; barkMat?: Mat; foliageMat?: Mat }
   | { prim: 'rock'; center: [number, number]; baseZ: number; radius: number; seed: number; jitter?: number; mat?: Mat; subdiv?: number }
@@ -96,6 +98,11 @@ async function partFacets(p: Part): Promise<{ facets: WorldFacet[]; anchors?: Bu
         style: p.style ?? 'flat', ringDepth: p.ringDepth, springZ: p.springZ, yaw: p.yaw,
       });
       return { facets: manifoldToFacets(m.getMesh(), p.material ?? 'stone', p.work) };
+    }
+    case 'column': {
+      const opts = { baseZ: p.baseZ, shape: p.shape, sides: p.sides, radiusU: p.radius, topRadiusU: p.topRadius, heightU: p.height, base: p.base, capital: p.capital };
+      const m = await solidColumn(p.center, opts);
+      return { facets: manifoldToFacets(m.getMesh(), p.material ?? 'stone', p.work, columnProjector(p.center, opts)) };
     }
     case 'building':  return buildingFacets(p.wings, p.wallMat, p.roofMat, p.roofStyle, p.features, p.seed, p.apertures, p.wallWork);
     case 'flora':     return { facets: [...tubeFacets(p.limbs, p.barkMat ?? 'bark'), ...blobFacets(p.leaves, p.foliageMat ?? 'foliage')] };

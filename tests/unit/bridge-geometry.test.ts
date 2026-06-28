@@ -53,11 +53,17 @@ describe('bridge parts compile to geometry', () => {
     }
   });
 
-  it('a straight pier is a box; a battered pier tapers (prism)', () => {
+  it('a pier IS a square Column; batter is a TRUE taper (top half-width shrinks)', () => {
     const straight = compile({ p: { type: 'pier', size: { w: 1, h: 1 }, params: { heightM: 4, widthM: 1, batter: 0 } } });
     const battered = compile({ p: { type: 'pier', size: { w: 1, h: 1 }, params: { heightM: 4, widthM: 1, batter: 0.3 } } });
-    expect(prims(straight, 'box').length).toBe(1);
-    expect(prims(battered, 'prism').length).toBe(1);
+    const sCol = prims(straight, 'column')[0] as any;
+    const bCol = prims(battered, 'column')[0] as any;
+    expect(sCol).toBeDefined();
+    expect(sCol.shape).toBe('square');
+    // straight: top == base; battered: top narrower than base (real diminution, not a fake prism)
+    expect(sCol.topRadius).toBeCloseTo(sCol.radius, 6);
+    expect(bCol.topRadius).toBeLessThan(bCol.radius);
+    expect(bCol.topRadius).toBeCloseTo(bCol.radius * 0.7, 6);
   });
 
   it('arch_span emits an arch prim, curved (round) by default', () => {
