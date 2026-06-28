@@ -189,14 +189,27 @@ export function computeShoreDist(width: number, height: number, waterMask: Uint8
  * half-cell of missing water — the staircase). Filling that neighbour lets its
  * quad draw the water up to the contour from the other side.
  *
+ * The overhang only lands on a dry neighbour that stands AT OR ABOVE the chosen
+ * water plane (`bed[i] >= surfaceW[src]`) — a real bank the per-pixel clip then
+ * trims back. It must NEVER overhang a neighbour that lies BELOW the plane: that is
+ * the DOWN-slope side of a rim (a perched crater lake's outer flank), where the
+ * clip can't trim it (the cell genuinely sits below the surface) and the quad draws
+ * unbounded water draping down the cone — radial petals from each diagonal corner.
+ * Gating on the bed is the same rule {@link floodDilateLakes} uses, applied to the
+ * 1-ring waterline. On a normal lake the banks rise, so every shore cell is kept and
+ * the AA overhang is unchanged.
+ *
  * Mutates the passed arrays IN PLACE. Reads the original `waterMask` to know the
  * wet/dry split: it only ever READS wet cells as sources and WRITES dry cells as
  * targets (disjoint sets), so in-place writes never chain outward past one ring.
+ * `bed` is the curved render terrain height (`heightField`), the SAME space as
+ * `surfaceW`.
  */
 export function fillShoreRing(
   width: number,
   height: number,
   waterMask: Uint8Array,
+  bed: Float32Array,
   f: {
     surfaceW: Float32Array;
     waterType: Uint32Array;
@@ -232,6 +245,10 @@ export function fillShoreRing(
       }
     }
     if (src < 0) continue; // dry cell not on the shore ring — leave it dry (−1)
+    if (bed[i] < f.surfaceW[src]) continue; // only overhang banks AT/ABOVE the plane —
+                                            // never DOWN a slope below the surface (a perched
+                                            // crater lake's outer flank), where the depth clip
+                                            // can't trim it and water drapes petals down the cone
     f.surfaceW[i] = f.surfaceW[src];
     f.waterType[i] = f.waterType[src];
     f.shallow[i] = f.shallow[src];
@@ -631,12 +648,15 @@ function waterStatic(map: GameMap, override?: ConnectomeWaterOverride): WaterSta
       if (effType[i] === WaterType.River) surfaceW[i] = riverSurf[i];
     }
   }
-  fillShoreRing(map.width, map.height, effMask, {
+  // The curved render bed (`heightField`) gates both shore passes: the overhang/headroom
+  // may only climb a bank that stands AT/ABOVE the water plane, never drape DOWN a rim.
+  const renderBed = heightField(map);
+  fillShoreRing(map.width, map.height, effMask, renderBed, {
     surfaceW, waterType, shallow, deep, clarity, flow,
   });
   // Give lakes flood headroom past the 1-ring waterline overhang (the sea is the
   // datum and never floods, so it's left at one ring).
-  floodDilateLakes(map.width, map.height, LAKE_FLOOD_RINGS, heightField(map), {
+  floodDilateLakes(map.width, map.height, LAKE_FLOOD_RINGS, renderBed, {
     surfaceW, waterType, shallow, deep, clarity, flow,
   });
   // Extend the river colour to cover the analytic channel's reach past its raster cells,

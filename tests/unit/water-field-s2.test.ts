@@ -182,7 +182,9 @@ describe('Water S2 — water field builder', () => {
     f.flow[wet * 2] = 0.5;
     f.flow[wet * 2 + 1] = -0.25;
 
-    fillShoreRing(W, H, mask, f);
+    // Banks that all stand at/above the 0.35 pond plane (a normal basin) — every
+    // shore neighbour is a real bank, so the full 8-ring overhang is kept.
+    fillShoreRing(W, H, mask, new Float32Array(W * H).fill(0.5), f);
 
     const at = (x: number, y: number) => y * W + x;
     // All 8 neighbours of the wet cell inherit the full water signature.
@@ -204,6 +206,48 @@ describe('Water S2 — water field builder', () => {
     expect(f.waterType[at(0, 0)]).toBe(WaterType.Dry);
     // The original wet cell is untouched.
     expect(f.surfaceW[wet]).toBeCloseTo(0.35, 6);
+  });
+
+  it('fillShoreRing does NOT overhang the DOWN-slope corners of a perched crater pond', () => {
+    // A summit pond at the centre of a 5×5: the 8 ring cells around it are the bank.
+    // The orthogonal rim cells RISE above the 0.68 plane (real banks, kept), but the
+    // four DIAGONAL corners DESCEND below it (the outer flank of a crater rim). An
+    // ungated 8-ring sprays the plane onto those corners; the depth clip can't trim a
+    // flank that genuinely sits below the surface, so water drapes as radial petals
+    // down the cone. The bed gate must drop exactly those corners. (The volcano bug.)
+    const W = 5, H = 5;
+    const mask = new Uint8Array(W * H);
+    const wet = 2 * W + 2;
+    mask[wet] = 1;
+    const f = {
+      surfaceW: new Float32Array(W * H).fill(-1),
+      waterType: new Uint32Array(W * H),
+      shallow: new Uint32Array(W * H),
+      deep: new Uint32Array(W * H),
+      clarity: new Float32Array(W * H),
+      flow: new Float32Array(W * H * 2),
+    };
+    f.surfaceW[wet] = 0.68; f.waterType[wet] = WaterType.Lake;
+    f.shallow[wet] = 0x1234; f.deep[wet] = 0x5678; f.clarity[wet] = 0.6;
+    // Bed: orthogonal rim 0.74 (above the plane → kept), diagonal corners 0.60 (below
+    // the plane → the down-slope flank → must be dropped). Centre well below (a basin).
+    const bed = new Float32Array(W * H).fill(0.5);
+    const at = (x: number, y: number) => y * W + x;
+    bed[at(2, 1)] = 0.74; bed[at(1, 2)] = 0.74; bed[at(3, 2)] = 0.74; bed[at(2, 3)] = 0.74;
+    bed[at(1, 1)] = 0.60; bed[at(3, 1)] = 0.60; bed[at(1, 3)] = 0.60; bed[at(3, 3)] = 0.60;
+
+    fillShoreRing(W, H, mask, bed, f);
+
+    // Orthogonal rim banks (≥ plane) are overhung — the waterline AA is preserved.
+    for (const [x, y] of [[2, 1], [1, 2], [3, 2], [2, 3]]) {
+      expect(f.surfaceW[at(x, y)], `rim (${x},${y})`).toBeCloseTo(0.68, 6);
+      expect(f.waterType[at(x, y)]).toBe(WaterType.Lake);
+    }
+    // Diagonal corners (< plane, down-slope) are left bone dry — no petals.
+    for (const [x, y] of [[1, 1], [3, 1], [1, 3], [3, 3]]) {
+      expect(f.surfaceW[at(x, y)], `corner (${x},${y}) dry`).toBe(-1);
+      expect(f.waterType[at(x, y)]).toBe(WaterType.Dry);
+    }
   });
 
   it('floodDilateLakes extends a LAKE plane outward by N rings (flood headroom)', () => {
@@ -303,7 +347,8 @@ describe('Water S2 — water field builder', () => {
       clarity: new Float32Array([0.1, 0, 0.9]),
       flow: new Float32Array([0, 0, 0, 0, 0, 0]),
     };
-    fillShoreRing(W, H, mask, f);
+    // The dry middle bank stands above the taller (ocean) plane, so it's kept.
+    fillShoreRing(W, H, mask, new Float32Array([0.2, 0.65, 0.6]), f);
     expect(f.surfaceW[1]).toBeCloseTo(0.6, 6);     // took the higher (ocean) surface
     expect(f.waterType[1]).toBe(WaterType.Ocean);
     expect(f.shallow[1]).toBe(2);
