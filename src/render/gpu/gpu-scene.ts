@@ -140,6 +140,11 @@ export class GpuScene {
   private waterDeepBuf: GPUBuffer | null = null;
   private waterClarityBuf: GPUBuffer | null = null;
   private waterShoreBuf: GPUBuffer | null = null;
+  // WET-CELL MESH list (binding 4) — packed (cellX | cellY<<16) per drawn quad. Rewritten
+  // EVERY frame (the visible wet set moves with the camera), so unlike the per-cell surface
+  // buffers it has no reference-skip guard. Sized to the cell grid (the dense flood/whole-
+  // map fallback can fill it completely).
+  private waterWetBuf: GPUBuffer | null = null;
   // Analytic river-channel geometry (binding 9) — ONE packed u32 buffer (CSR bucket
   // index + bitcast segment floats) so the water fragment stays within the 8-storage-
   // buffer baseline limit. Sized independently of the cell grid; a studio edit re-emits
@@ -610,13 +615,15 @@ export class GpuScene {
     let realloc = false;
     if (!this.waterSurfaceBuf || cells > this.waterCellCap) {
       for (const b of [this.waterSurfaceBuf, this.waterTypeBuf,
-        this.waterShallowBuf, this.waterDeepBuf, this.waterClarityBuf, this.waterShoreBuf]) b?.destroy();
+        this.waterShallowBuf, this.waterDeepBuf, this.waterClarityBuf, this.waterShoreBuf,
+        this.waterWetBuf]) b?.destroy();
       this.waterSurfaceBuf = storage(cells * 4);
       this.waterTypeBuf = storage(cells * 4);
       this.waterShallowBuf = storage(cells * 4);
       this.waterDeepBuf = storage(cells * 4);
       this.waterClarityBuf = storage(cells * 4);
       this.waterShoreBuf = storage(cells * 4);
+      this.waterWetBuf = storage(cells * 4);   // ≤ one packed u32 per lattice cell
       this.waterCellCap = cells;
       realloc = true;
     }
@@ -641,6 +648,7 @@ export class GpuScene {
           { binding: 1, resource: { buffer: this.terrainHeightsBuf } },
           { binding: 2, resource: { buffer: this.waterSurfaceBuf } },
           { binding: 3, resource: { buffer: this.waterTypeBuf! } },
+          { binding: 4, resource: { buffer: this.waterWetBuf! } },
           { binding: 5, resource: { buffer: this.waterShallowBuf! } },
           { binding: 6, resource: { buffer: this.waterDeepBuf! } },
           { binding: 7, resource: { buffer: this.waterClarityBuf! } },
@@ -650,6 +658,10 @@ export class GpuScene {
       });
       this.waterBoundHeights = this.terrainHeightsBuf;
     }
+    // WET-CELL list — rewritten unconditionally: the visible wet set changes with the
+    // camera, so there's no stable reference to guard on. `wetCells` is a subarray view of
+    // a reused scratch (its byteOffset/byteLength scope the write to the live prefix).
+    device.queue.writeBuffer(this.waterWetBuf!, 0, water.wetCells as GPUAllowSharedBufferSource);
     if (realloc || water.surfaceW !== this.lastWaterSurface) {
       device.queue.writeBuffer(this.waterSurfaceBuf, 0, water.surfaceW as GPUAllowSharedBufferSource);
       this.lastWaterSurface = water.surfaceW;
