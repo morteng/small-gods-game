@@ -42,6 +42,7 @@ import { paintedWaterAt as paintedWaterAtFn } from '@/render/gpu/water-field';
 import { buildConnectomeWaterOverride } from '@/render/gpu/connectome-water';
 import type { ConnectomeWaterOverride } from '@/core/types';
 import { computePressure, type PressureReport } from '@/world/connectome/pressure';
+import { evaluateConnectome, type Diagnostic } from '@/world/connectome-diagnostics';
 import { waterPressureItems, suggestWaterResolutions } from '@/world/connectome/water-nodes';
 import { buildRiverDeformationsFromNetwork } from '@/world/river-deformation';
 import { buildLakeConformDeformations, LAKE_BASIN_SOURCE, LAKE_OUTLET_SOURCE } from '@/world/lake-conform';
@@ -335,6 +336,7 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
     if (refit) fitTiles(cam, 0, 0, map.width, map.height, cssW, cssH, 0.92);
     browser.refreshControls();
     syncInspector();
+    refreshDiagnostics();   // re-lint the freshly-generated world (#30)
     title.textContent = `World connectome — ${wsName} · ${backendLabel}`;
   }
 
@@ -655,6 +657,48 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
   const weatherReadout = h('div', { style: 'margin-top:4px;font:400 10px var(--font-mono);color:var(--ink-2)', text: '—' });
   weatherSec.appendChild(weatherReadout);
   menuBar.appendChild(dropdown('☁ Weather ▾', weatherSec));
+
+  // ── Diagnostics (#30): surface the connectome LINTER (evaluateConnectome) right in the
+  // studio — dev visualization belongs in the studios, not the shipped game. Lists every
+  // rule violation graded by severity; click one to jump the camera to its locus. Refreshes
+  // on each regenerate. (Fate consumes the SAME report via the bus/MCP `lint_world` — #29.)
+  const diagBody = h('div', { style: 'display:flex;flex-direction:column;gap:5px;font:11px var(--font-mono);min-width:300px' });
+  const SEV: Record<string, string> = { error: '#ff6b6b', warn: '#ffc34d', info: '#7fb2ff' };
+  function focusDiagnostic(d: Diagnostic): void {
+    let tx: number | undefined, ty: number | undefined;
+    if (d.locus.tiles?.length) { tx = d.locus.tiles[0].x; ty = d.locus.tiles[0].y; }
+    else if (d.locus.pois?.length) {
+      const p = (map?.worldSeed?.pois ?? []).find((q) => q.id === d.locus.pois![0]);
+      if (p?.position) { tx = p.position.x; ty = p.position.y; }
+    } else if (d.locus.edges?.length) {
+      const e = map?.roadGraph?.edges.find((x) => x.id === d.locus.edges![0]);
+      if (e?.polyline.length) { const m = e.polyline[Math.floor(e.polyline.length / 2)]; tx = m.x; ty = m.y; }
+    }
+    if (tx !== undefined && ty !== undefined) fitTiles(cam, tx - 6, ty - 6, tx + 6, ty + 6, cssW, cssH, 0.9);
+  }
+  function refreshDiagnostics(): void {
+    diagBody.textContent = '';
+    if (!world || !map || !map.width) { diagBody.appendChild(h('div', { text: 'No world.', style: 'color:var(--ink-2)' })); return; }
+    let report;
+    try { report = evaluateConnectome({ world, map }); }
+    catch (e) { diagBody.appendChild(h('div', { text: 'lint failed: ' + (e as Error).message, style: `color:${SEV.error}` })); return; }
+    const head = h('div', { style: 'display:flex;gap:11px;margin-bottom:3px;font-weight:600' });
+    head.appendChild(h('span', { text: `${report.total} issues`, style: 'color:var(--ink-0)' }));
+    head.appendChild(h('span', { text: `${report.counts.error ?? 0} ✕`, style: `color:${SEV.error}` }));
+    head.appendChild(h('span', { text: `${report.counts.warn ?? 0} △`, style: `color:${SEV.warn}` }));
+    head.appendChild(h('span', { text: `${report.counts.info ?? 0} ⓘ`, style: `color:${SEV.info}` }));
+    diagBody.appendChild(head);
+    if (report.total === 0) { diagBody.appendChild(h('div', { text: '✓ clean — no diagnostics', style: 'color:#74d99f' })); return; }
+    const order: Record<string, number> = { error: 0, warn: 1, info: 2 };
+    for (const d of [...report.diagnostics].sort((a, b) => order[a.severity] - order[b.severity])) {
+      const row = h('div', { style: `display:flex;gap:6px;align-items:baseline;padding:3px 5px;border-left:2px solid ${SEV[d.severity]};background:var(--bg-1);border-radius:4px;cursor:pointer` });
+      row.appendChild(h('span', { text: d.rule, style: `color:${SEV[d.severity]};font-weight:600;white-space:nowrap` }));
+      row.appendChild(h('span', { text: d.message, style: 'color:var(--ink-1)' }));
+      row.onclick = () => focusDiagnostic(d);
+      diagBody.appendChild(row);
+    }
+  }
+  menuBar.appendChild(dropdown('🔎 Lint ▾', diagBody));
 
   // ── water connectome editing (drag nodes to move features in real time) ───────
   // The base network re-derives from the seed; `nodeMoves` is a pure overlay applied
