@@ -13,7 +13,7 @@ const ASHLAR: SurfaceSpec = { material: 'stone', work: 'ashlar' };
 describe('polar surface frame (voussoir coursing)', () => {
   it('lays joints on constant-θ lines — the relief drops periodically as we sweep the arc', () => {
     // A ring centred at origin springing line z=0, span-plane x-z, mean radius 2 (cube-units).
-    const frame = { kind: 'polar' as const, cx: 0, cy: 0, cz: 0, meanR: 2, spanAxis: 'x' as const };
+    const frame = { kind: 'polar' as const, cx: 0, cy: 0, cz: 0, meanR: 2, spanAxis: 'x' as const, ringInner: 1.6, ringOuter: 2.4 };
     const s = prepareSurface(ASHLAR, [0, 1, 0], 0.5, frame);   // a face normal (+y)
     // Sweep the arc at a fixed radius; sample the AO (drops into a mortar joint). A planar
     // frame would give NO θ-periodicity; the polar frame must show several joint dips.
@@ -30,7 +30,7 @@ describe('polar surface frame (voussoir coursing)', () => {
   });
 
   it('radius maps to v (concentric courses) — sweeping the radius crosses course joints', () => {
-    const frame = { kind: 'polar' as const, cx: 0, cy: 0, cz: 0, meanR: 2, spanAxis: 'x' as const };
+    const frame = { kind: 'polar' as const, cx: 0, cy: 0, cz: 0, meanR: 2, spanAxis: 'x' as const, ringInner: 1.6, ringOuter: 2.4 };
     const s = prepareSurface(ASHLAR, [0, 1, 0], 0.5, frame);
     // Sweep OUTWARD at a fixed angle (across the ring depth). The radial coordinate is the
     // course axis, so we must cross at least one concentric joint (an AO dip) over a span of

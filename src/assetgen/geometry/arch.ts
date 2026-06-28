@@ -141,7 +141,11 @@ export function archVoussoirProjector(
   const cx = spanAxis === 'x' ? at[0] + span / 2 : at[0];
   const cy = spanAxis === 'x' ? at[1] : at[1] + span / 2;
   const depthIdx = spanAxis === 'x' ? 1 : 0;   // ring depth runs along the OTHER horizontal axis
-  const frame: SurfaceFrame = { kind: 'polar', cx, cy, cz: springZ, meanR, spanAxis };
+  // Voussoir ring band: intrados radius = rise (round arch), extrados = rise + ringDepth.
+  const frame: SurfaceFrame = {
+    kind: 'polar', cx, cy, cz: springZ, meanR, spanAxis,
+    ringInner: rise, ringOuter: rise + ringDepth,
+  };
   return (_c, n): SurfaceFrame | undefined => {
     const ax = Math.abs(n[0]), ay = Math.abs(n[1]), az = Math.abs(n[2]);
     const dom = ax >= ay && ax >= az ? 0 : ay >= az ? 1 : 2;   // dominant normal axis

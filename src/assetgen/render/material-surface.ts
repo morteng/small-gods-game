@@ -583,22 +583,32 @@ export function prepareSurface(
   // the coursing rows are concentric → one ring of voussoirs across the ring depth). The
   // tangent/radial axes rotate per pixel around the centre, in the chosen span-plane.
   if (frame?.kind === 'polar') {
-    const { cx, cy, cz, meanR, spanAxis } = frame;
+    const { cx, cy, cz, meanR, spanAxis, ringInner, ringOuter } = frame;
+    // Spandrel feather: just past the extrados the masonry reverts to upright wall coursing.
+    const outer = ringOuter + 0.04;
     return spanAxis === 'x'
       ? {
           at(pos: Vec3): SurfaceSample {
             const dx = pos[0] - cx, dz = pos[2] - cz;
-            const ang = Math.atan2(dz, dx);
             const r = Math.hypot(dx, dz);
-            return shade(ang * meanR * inv, r * inv, [-Math.sin(ang), 0, Math.cos(ang)], [Math.cos(ang), 0, Math.sin(ang)]);
+            if (r >= ringInner - 0.04 && r <= outer && dz >= -0.04) {
+              // ON THE RING → radial voussoir wedges (u = arc-length, v = radius).
+              const ang = Math.atan2(dz, dx);
+              return shade(ang * meanR * inv, r * inv, [-Math.sin(ang), 0, Math.cos(ang)], [Math.cos(ang), 0, Math.sin(ang)]);
+            }
+            // SPANDREL / abutment → upright horizontal coursing (u = world-x, v = world-z).
+            return shade(pos[0] * inv, pos[2] * inv, X_AXIS, UP_AXIS);
           },
         }
       : {
           at(pos: Vec3): SurfaceSample {
             const dy = pos[1] - cy, dz = pos[2] - cz;
-            const ang = Math.atan2(dz, dy);
             const r = Math.hypot(dy, dz);
-            return shade(ang * meanR * inv, r * inv, [0, -Math.sin(ang), Math.cos(ang)], [0, Math.cos(ang), Math.sin(ang)]);
+            if (r >= ringInner - 0.04 && r <= outer && dz >= -0.04) {
+              const ang = Math.atan2(dz, dy);
+              return shade(ang * meanR * inv, r * inv, [0, -Math.sin(ang), Math.cos(ang)], [0, Math.cos(ang), Math.sin(ang)]);
+            }
+            return shade(pos[1] * inv, pos[2] * inv, Y_AXIS, UP_AXIS);
           },
         };
   }
@@ -617,6 +627,8 @@ export function prepareSurface(
 }
 
 const UP_AXIS: Vec3 = [0, 0, 1];
+const X_AXIS: Vec3 = [1, 0, 0];
+const Y_AXIS: Vec3 = [0, 1, 0];
 
 /**
  * Convenience single-sample form (tests / one-off lookups). For per-pixel rasterization use

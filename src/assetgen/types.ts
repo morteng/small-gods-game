@@ -35,7 +35,11 @@ export const MATERIAL_RGB: Record<Mat, RGB> = {
 export type SurfaceFrame =
   | { kind: 'planar'; uAxis: Vec3; vAxis: Vec3 }
   | { kind: 'cylindrical'; cx: number; cy: number; radius: number }
-  | { kind: 'polar'; cx: number; cy: number; cz: number; meanR: number; spanAxis: 'x' | 'y' };
+  | { kind: 'polar'; cx: number; cy: number; cz: number; meanR: number; spanAxis: 'x' | 'y';
+      /** Voussoir ring band (radii in cube-units, from the springing centre). Inside it the
+       *  texturer lays RADIAL wedges; OUTSIDE (the spandrel corners) it falls back to upright
+       *  horizontal coursing, so the arch ring reads distinct from the wall it sits in. */
+      ringInner: number; ringOuter: number };
 
 /** A flat-shaded polygon in WORLD space (tile-local x,y; z up), pre-projection. `work`
  *  (bond/coursing — a `SurfaceWork`), `finish` (paint layer) and `tint` are the resolved
