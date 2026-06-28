@@ -123,6 +123,13 @@ Fabric slice (Layer 3) once Form derives the bay grid. None of it needs new prim
   `ART_RECIPE_VERSION`.** Tests: selection by era/wealth/region, constraint projection, determinism.
 - **S2 — Form derivation.** `connectome/form.ts` derives massing from topology + size under Structure
   caps; presets lose hardcoded body params (become pinned shortcuts / seeds). Golden re-pin.
+  - **S2a SHIPPED** (`gen-form` opt-in, ART v14→v15): `connectomeForm` derives the VERTICAL massing
+    (plan/levels/jetty/storeyM) from program + structure, footprint/roof held (placement unchanged, ART
+    only). Migrated the dwelling family (cottage/tavern/townhouse): a box-frame dwelling stacks a jettied
+    upper storey (levels 2, jetty = frame's full 0.15), a cruck one stays a single low range (levels 1,
+    jetty 0). Cottage's derived form == authored (byte-identical, golden unchanged) = the fidelity anchor.
+  - **S2b (next):** per-instance seed + footprint/bay variety (the "infinite variety" half) → shifts
+    placement ⇒ `WORLD_CONTENT_VERSION` bump + per-instance art-cache. User chose to STAGE this after S2a.
 - **S3 — expressBuilding() pipeline.** Compose Layers 0–3 into one entry; wire `synthesizeBlueprint` /
   `resolveAsset` onto it; named presets resolve as fixed points (byte-identical where possible). Culture
   selector stays **identity** for the single medieval pack (no over-engineering ahead of a 2nd culture).

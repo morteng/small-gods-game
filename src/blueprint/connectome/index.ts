@@ -30,6 +30,7 @@ export { expandSite, siteToPlan, registerSiteInterpreter } from './site';
 export type { SitePlan } from './site';
 export { selectFrame, annotateStructure, connectomeStructure } from './structure';
 export type { ConnectomeStructure } from './structure';
+export { connectomeForm, GEN_FORM_TAG } from './form';
 export {
   siteSelect,
   scoreSite,

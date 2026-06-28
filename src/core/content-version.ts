@@ -50,8 +50,14 @@
  * longer jetty (only a box-frame does), and storeys are capped to what the frame bears. So
  * any building whose authored massing exceeded its frame shifts (e.g. the stone manor's
  * cross-wing loses its timber-frame jetty). See the layered-connectome-expression spec.
+ * 'v15' — layered-connectome Layer 2a (FORM): a `gen-form` body's vertical massing
+ * (plan/levels/jetty/storeyM) is now DERIVED from the program + structure rather than
+ * hand-listed — a box-frame dwelling stacks a jettied upper storey, a cruck one stays a
+ * single low range. Migrated the dwelling family (cottage/tavern/townhouse); the cottage's
+ * derived form matches its authored one, the box-frame inns/townhouses take the frame's
+ * full jetty. Footprint held (placement unchanged). Shifts the box-frame dwellings' geometry.
  */
-export const ART_RECIPE_VERSION = 'v14';
+export const ART_RECIPE_VERSION = 'v15';
 
 /**
  * Bump when WORLDGEN / preset output changes (footprints, placement, heights).

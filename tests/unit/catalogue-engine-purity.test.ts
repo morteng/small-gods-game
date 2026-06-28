@@ -29,6 +29,7 @@ const ENGINE_FILES = [
   'src/blueprint/connectome/complex.ts',
   'src/blueprint/connectome/site.ts',
   'src/blueprint/connectome/structure.ts',
+  'src/blueprint/connectome/form.ts',
   'src/blueprint/connectome/index.ts',
 ];
 

@@ -14,6 +14,7 @@ import { deriveSmokeEgress } from '../connectome/smoke';
 import { connectomeToBlueprint } from '../connectome/to-blueprint';
 import { connectomeOpenings, GEN_OPENINGS_TAG } from '../connectome/openings';
 import { annotateStructure, connectomeStructure } from '../connectome/structure';
+import { connectomeForm, GEN_FORM_TAG } from '../connectome/form';
 import type { Connectome, ExpandCtx } from '../connectome/types';
 import { allFloraSpecies, getFloraSpecies } from '@/flora/flora-registry';
 import { stairFootprint } from '../parts/stair';
@@ -105,7 +106,9 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
       // Openings + smoke vent are DERIVED from the room graph (gen-openings + the
       // hearth) — a south door and shuttered, unglazed windows for an early-medieval
       // commoner, smoke through a ridge louver. See connectome/openings.ts + smoke.ts.
-      tags: [GEN_OPENINGS_TAG],
+      // Massing (single low cruck range) is DERIVED too (gen-form): the cruck frame bears
+      // one storey and never jetties, so the derived form matches this authored cottage.
+      tags: [GEN_OPENINGS_TAG, GEN_FORM_TAG],
     } },
   }),
   // Inn: a cooking building — TWO ridge stacks, jettied upper storey, two dormers,
@@ -114,7 +117,11 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
     category: 'commercial', era: 'medieval', footprint: { w: 3, h: 3 },
     materials: { walls: 'timber', roof: 'tile', ground: 'packed_dirt' },
     parts: { body: {
+      // Massing (a jettied two-storey range) is DERIVED from the box frame (gen-form): the
+      // box frame stacks a storey and oversails it. The authored levels/jetty here are the
+      // fallback if gen-form is ever removed; the derived values take over at resolve.
       type: 'body', size: { w: 3, h: 2 }, params: { plan: 'rect', levels: 2, roof: 'gable', jetty: 0.12 },
+      tags: [GEN_FORM_TAG],
       features: {
         door: { type: 'door', face: 'south', params: { main: true, t: 0.5 } },
         smoke: { type: 'vent', params: { kind: 'chimney', t: 0.12 } },
@@ -136,8 +143,10 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
     category: 'residential', era: 'medieval', footprint: { w: 3, h: 3 },
     materials: { walls: 'timber', roof: 'tile', ground: 'flagstone' },
     parts: { body: {
+      // Massing DERIVED from the box frame (gen-form) — a jettied two-storey burgage range.
       type: 'body', size: { w: 3, h: 2 },
       params: { plan: 'rect', levels: 2, roof: 'gable', jetty: 0.12 },
+      tags: [GEN_FORM_TAG],
       features: {
         door: { type: 'door', face: 'south', params: { main: true, t: 0.3 } },
         // Ranked ground-floor windows: the upper storey is generated, not hand-listed.
@@ -424,16 +433,20 @@ export function synthesizeBlueprint(name: string, patches: BlueprintPatch[] = []
   const base = BUILDING_BLUEPRINTS[name] ?? floraSpeciesBlueprint(name);
   if (!base) return undefined;
   const s = seed ?? [...name].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7);
-  const all = [base, ...patches];
   let connectome: Connectome | undefined;
+  const pre: BlueprintPatch[] = [];  // derived DEFAULTS, before the caller's override patches
+  const post: BlueprintPatch[] = []; // derived projections + frame cap, after the overrides
   if (base.class === 'building') {
     const d = deriveConnectome(base, name, base.era, undefined, s);
     connectome = d.connectome;
-    if (d.openingsPatch) all.push(d.openingsPatch);
-    if (d.ventPatch) all.push(d.ventPatch);
-    if (d.structurePatch) all.push(d.structurePatch); // last — frame caps win
+    // Form is the derived massing DEFAULT — a caller's override patch (levels bump, etc.)
+    // must still win, so it goes BEFORE the caller patches; the frame cap goes LAST.
+    if (d.formPatch) pre.push(d.formPatch);
+    if (d.openingsPatch) post.push(d.openingsPatch);
+    if (d.ventPatch) post.push(d.ventPatch);
+    if (d.structurePatch) post.push(d.structurePatch);
   }
-  const rb = resolveBlueprint(all, s);
+  const rb = resolveBlueprint([base, ...pre, ...patches, ...post], s);
   if (connectome) attachConnectome(rb, connectome);
   return rb;
 }
@@ -485,6 +498,7 @@ function deriveConnectome(
   ventPatch: BlueprintPatch | null;
   openingsPatch: BlueprintPatch | null;
   structurePatch: BlueprintPatch | null;
+  formPatch: BlueprintPatch | null;
 } {
   loadDefaultPacks();
   const ctx: ExpandCtx = { era: era ?? base.era ?? 'medieval', wealth, seed, registry: catalogue };
@@ -501,13 +515,20 @@ function deriveConnectome(
     const p = connectomeOpenings(connectome, base, ctx.era);
     return Object.keys(p).length ? p : null;
   })();
-  // Structure caps the form: a solid/cruck/stave wall can't jetty, a frame bears only so
-  // many storeys. Lowers only the body parts that exceed the frame's limits (else {}).
+  // Structure caps the form for HAND-AUTHORED massing: a solid/cruck/stave wall can't jetty,
+  // a frame bears only so many storeys. Lowers only the body parts that exceed the frame.
   const structurePatch = (() => {
     const p = connectomeStructure(connectome, base);
     return Object.keys(p).length ? p : null;
   })();
-  return { connectome, ventPatch, openingsPatch, structurePatch };
+  // Layer 2 — FORM derives the massing (plan/levels/jetty/storeyM) for `gen-form` bodies
+  // from the program + structure, within the frame's caps. It is the DEFAULT massing — the
+  // caller applies it BEFORE override patches (an opulent +storey still wins).
+  const formPatch = (() => {
+    const p = connectomeForm(connectome, base, ctx);
+    return Object.keys(p).length ? p : null;
+  })();
+  return { connectome, ventPatch, openingsPatch, structurePatch, formPatch };
 }
 
 /** Attach the latent room-graph WITHOUT entering the art-cache key. canonicalJson(rb)
@@ -560,9 +581,13 @@ export function resolveAsset(req: AssetRequest): ResolvedBlueprint | undefined {
   if (base.class === 'building') {
     const d = deriveConnectome(base, req.type, req.era, req.descriptors?.wealth, seed);
     connectome = d.connectome;
+    // Form is the derived massing DEFAULT — it must sit BEFORE the era/descriptor/custom
+    // overrides (an opulent +storey wins over it), so splice it right after the base; the
+    // frame cap goes LAST (the hard limit nothing may exceed).
+    if (d.formPatch) patches.splice(1, 0, d.formPatch);
     if (d.openingsPatch) patches.push(d.openingsPatch);
     if (d.ventPatch) patches.push(d.ventPatch);
-    if (d.structurePatch) patches.push(d.structurePatch); // last — frame caps win
+    if (d.structurePatch) patches.push(d.structurePatch);
   }
 
   const rb = resolveBlueprint(patches, seed);
