@@ -24,6 +24,29 @@ export function forEachNpc(world: World, fn: (e: Entity) => void): void {
   for (const e of queryNpcs(world)) fn(e);
 }
 
+/**
+ * A settlement's aggregate "enlightenment" 0..1: the mean, over its resident NPCs, of each
+ * resident's STRONGEST understanding across all the gods they believe in. A people who deeply
+ * comprehend SOME deity have the mental sophistication to attempt grander works — this feeds
+ * the buildability-envelope tech axis (`liftEraByUnderstanding`) so a devout settlement grows
+ * grander architecture as belief deepens. Pure read (no mutation, no `Math.random`); 0 when the
+ * settlement has no living residents (early game) so growth stays unchanged until belief grows.
+ */
+export function settlementUnderstanding(world: World, poiId: string): number {
+  let sum = 0, n = 0;
+  for (const e of queryNpcs(world)) {
+    const p = npcProps(e);
+    if (p.homePoiId !== poiId) continue;
+    let best = 0;
+    for (const k in p.beliefs) {
+      const u = p.beliefs[k]?.understanding ?? 0;
+      if (u > best) best = u;
+    }
+    sum += best; n++;
+  }
+  return n > 0 ? sum / n : 0;
+}
+
 /** Adapter to the legacy NpcInstance shape used by the renderer. The renderer
  *  itself is refactored later; this shim keeps PR 3 mechanical. */
 export function toRenderNpc(e: Entity): NpcInstance {

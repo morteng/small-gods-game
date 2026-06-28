@@ -23,3 +23,21 @@ function coerce(x: unknown): Era | undefined {
 export function resolveSettlementEra(poi: POI, worldSeed?: WorldSeed | null): Era {
   return coerce(poi.era) ?? coerce(worldSeed?.era) ?? 'medieval';
 }
+
+/** Understanding at/above which a settlement's masons build as if a full era more advanced. */
+export const UNDERSTANDING_ERA_STEP = 0.66;
+
+/**
+ * Lift an era by aggregate believer UNDERSTANDING — the buildability-envelope tech axis,
+ * applied at growth time. A settlement whose people deeply understand their god (mean
+ * understanding ≥ `UNDERSTANDING_ERA_STEP`) builds as if one era further on (capped at the
+ * latest era). This is the god-game's progression made physical: the player cultivating
+ * understanding literally unlocks grander architecture. Understanding 0 (early game) ⇒ the
+ * era is unchanged, so live growth stays byte-identical until belief actually deepens.
+ */
+export function liftEraByUnderstanding(base: Era, understanding: number): Era {
+  const idx = ERAS.indexOf(base);
+  if (idx < 0) return base;
+  const lift = understanding >= UNDERSTANDING_ERA_STEP ? 1 : 0;
+  return ERAS[Math.min(ERAS.length - 1, idx + lift)];
+}

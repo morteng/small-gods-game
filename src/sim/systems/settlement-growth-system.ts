@@ -19,9 +19,9 @@ import type { Entity, Tile } from '@/core/types';
 import type { World } from '@/world/world';
 import type { Rng } from '@/core/rng';
 import type { EventLog } from '@/core/events';
-import { queryNpcs, npcProps } from '@/world/npc-helpers';
+import { queryNpcs, npcProps, settlementUnderstanding } from '@/world/npc-helpers';
 import { getZoneRule, presetsForEra } from '@/map/poi-zones';
-import { resolveSettlementEra } from '@/core/era';
+import { resolveSettlementEra, liftEraByUnderstanding } from '@/core/era';
 import { synthesizeBlueprint } from '@/blueprint/presets';
 import { blueprintEntity, blueprintOf } from '@/blueprint/entity';
 import { toAnchors } from '@/blueprint/compile/to-anchors';
@@ -240,7 +240,13 @@ export function growSettlement(
   const map = ctx.world.tiles;
   const poi = map.worldSeed?.pois?.find(p => p.id === plan.poiId);
   if (!poi) return false;
-  const era = resolveSettlementEra(poi, map.worldSeed);
+  // Tech = era LIFTED by the settlement's aggregate believer understanding (the buildability
+  // envelope's tech axis, applied live): a devout, deeply-understanding people grow grander
+  // dwellings than their era alone would allow — the player's cultivation of understanding
+  // made physical. Understanding 0 (early game / no residents) ⇒ era unchanged ⇒ growth byte-
+  // identical, so this only ever ADDS reach as belief deepens.
+  const baseEra = resolveSettlementEra(poi, map.worldSeed);
+  const era = liftEraByUnderstanding(baseEra, settlementUnderstanding(ctx.world, poi.id));
   const roster = presetsForEra(getZoneRule(poi.type), era)
     .filter(p => (DWELLING_CAPACITY[p] ?? 0) > 0);
   if (roster.length === 0) return false;
