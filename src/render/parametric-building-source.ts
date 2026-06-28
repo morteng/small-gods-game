@@ -20,6 +20,11 @@ export interface ParametricSourceDeps {
    *  inspection — the Render Studio reads them; the game leaves this off so the
    *  per-asset map buffers aren't held in memory worldwide. */
   keepStages?: boolean;
+  /** Called after EACH async pack settles (bumps the version too). Wire to the frame
+   *  loop's `requestRender` so an idle/paused loop draws the newly-textured building —
+   *  otherwise a pack that lands while nothing is animating shows its flatblock until the
+   *  next camera move ([[gotcha-buildings-flatblock-static-cache]]). */
+  onWarm?: () => void;
 }
 
 /** True if an emissive RGBA buffer has any self-illuminated (non-black) pixel. */
@@ -76,15 +81,16 @@ export class ParametricBuildingSource {
   private readonly stages = new Map<string, StructureResult>();
   private readonly inflight = new Set<string>();
   private readonly warned = new Set<string>();
-  /** Bumped each time an async warm BATCH settles (inflight drains to 0). A cache
-   *  whose key folds in `version()` rebuilds once the packs land — otherwise a static
-   *  draw-list snapshot taken before the first compose finishes shows flatblocks
-   *  forever ([[gotcha-buildings-flatblock-static-cache]]). */
+  /** Bumped each time an async warm settles (per pack, not per batch). A cache whose key
+   *  folds in `version()` rebuilds as each pack lands, so buildings texture incrementally —
+   *  otherwise a static draw-list snapshot taken before the composes finish shows flatblocks
+   *  ([[gotcha-buildings-flatblock-static-cache]]). */
   private rev = 0;
   private readonly toSpec: NonNullable<ParametricSourceDeps['toSpec']>;
   private readonly compose: NonNullable<ParametricSourceDeps['compose']>;
   private readonly toSprite: NonNullable<ParametricSourceDeps['toSprite']>;
   private readonly keepStages: boolean;
+  private readonly onWarm?: () => void;
 
   constructor(deps: ParametricSourceDeps = {}) {
     // Entities restored from an autosave carry an already-RESOLVED blueprint, so this
@@ -102,6 +108,7 @@ export class ParametricBuildingSource {
     this.compose = deps.compose ?? ((spec) => composeStructure(spec, undefined, { surfaceTexture: true }));
     this.toSprite = deps.toSprite ?? structureResultToPack;
     this.keepStages = deps.keepStages ?? false;
+    this.onWarm = deps.onWarm;
   }
 
   /** Sync read of an already-generated sprite pack (null if absent / unsupported / failed). */
@@ -139,7 +146,15 @@ export class ParametricBuildingSource {
         if (!this.warned.has(k)) { console.warn('[parametric-building] generation failed', err); this.warned.add(k); }
         this.cache.set(k, null);
       })
-      .finally(() => { this.inflight.delete(k); if (this.inflight.size === 0) this.rev++; });
+      .finally(() => {
+        // Bump per-pack (NOT only when the whole batch drains): each composed pack changes
+        // the cache key so the static draw list rebuilds and that building textures the next
+        // frame, incrementally — waiting for the last of N packs froze the earlier ones as
+        // flatblocks. Then kick a render so an idle/paused loop actually draws it.
+        this.inflight.delete(k);
+        this.rev++;
+        this.onWarm?.();
+      });
   }
 
   /** Monotonic counter bumped when an async warm batch settles. Fold into a draw

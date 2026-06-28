@@ -94,4 +94,18 @@ describe('ParametricBuildingSource', () => {
     await flush();
     expect(compose).toHaveBeenCalledTimes(1);
   });
+
+  it('version bumps PER pack + signals onWarm — so the static cache rebuilds as each lands', async () => {
+    // The flatblock bug was bumping the version only once the whole batch drained, freezing
+    // the earlier packs as grey blocks. Two distinct blueprints → two packs → two bumps +
+    // two onWarm kicks (one per landed pack, each redrawing that building).
+    const onWarm = vi.fn();
+    const src = new ParametricBuildingSource({ compose: async () => fakeResult, toSprite: () => fakeSprite, onWarm });
+    const v0 = src.version();
+    src.warm(blueprintEntity('a', synthesizeBlueprint('cottage')!, 0, 0));
+    src.warm(blueprintEntity('b', synthesizeBlueprint('tavern')!, 0, 0));
+    await flush();
+    expect(src.version()).toBe(v0 + 2);
+    expect(onWarm).toHaveBeenCalledTimes(2);
+  });
 });

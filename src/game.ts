@@ -180,7 +180,10 @@ export class Game {
   private assetLibrary!: AssetLibrary;
   private artResolver!: ArtResolver;
   private buildingArtResolver!: ArtResolver;
-  private readonly parametricBuildingSource = new ParametricBuildingSource();
+  // onWarm kicks a render as each pack lands so buildings texture the moment they're
+  // composed — even while the frame loop is idle/paused (otherwise they stay flatblocks
+  // until the next camera move; see [[gotcha-buildings-flatblock-static-cache]]).
+  private readonly parametricBuildingSource = new ParametricBuildingSource({ onWarm: () => this.requestRender() });
   private readonly parametricPlantSource = new ParametricPlantSource();
   // Paid building-art generation is OFF by default while the renderer + connectome
   // (roads, etc.) stabilise and the FLUX img2img settings are retuned — re-enable
