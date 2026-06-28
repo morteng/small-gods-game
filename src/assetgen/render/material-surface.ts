@@ -577,6 +577,32 @@ export function prepareSurface(
     };
   }
 
+  // Polar unwrap (arch ring): an angular unwrap in a VERTICAL plane about (cx/cy, cz). u =
+  // θ·meanR runs TANGENTIALLY along the ring (so the masonry's vertical joints fall on
+  // constant-θ lines → radial voussoir joints), v = the radial distance from the centre (so
+  // the coursing rows are concentric → one ring of voussoirs across the ring depth). The
+  // tangent/radial axes rotate per pixel around the centre, in the chosen span-plane.
+  if (frame?.kind === 'polar') {
+    const { cx, cy, cz, meanR, spanAxis } = frame;
+    return spanAxis === 'x'
+      ? {
+          at(pos: Vec3): SurfaceSample {
+            const dx = pos[0] - cx, dz = pos[2] - cz;
+            const ang = Math.atan2(dz, dx);
+            const r = Math.hypot(dx, dz);
+            return shade(ang * meanR * inv, r * inv, [-Math.sin(ang), 0, Math.cos(ang)], [Math.cos(ang), 0, Math.sin(ang)]);
+          },
+        }
+      : {
+          at(pos: Vec3): SurfaceSample {
+            const dy = pos[1] - cy, dz = pos[2] - cz;
+            const ang = Math.atan2(dz, dy);
+            const r = Math.hypot(dy, dz);
+            return shade(ang * meanR * inv, r * inv, [0, -Math.sin(ang), Math.cos(ang)], [0, Math.cos(ang), Math.sin(ang)]);
+          },
+        };
+  }
+
   // Planar: an authored tangent basis, else one derived from the normal. (u,v) = world position
   // projected onto it → true 1:1 metric coords (isotropic, slope-correct, continuous coplanar).
   const fr = frame?.kind === 'planar' ? frame : frameFor(normal);

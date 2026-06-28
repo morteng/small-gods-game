@@ -5,7 +5,7 @@ import {
   manifoldToFacets, buildingFacets, carveApertures, boreCylinder, cylindricalProjector,
 } from '@/assetgen/geometry/solids';
 import type { ApertureBox } from '@/assetgen/geometry/solids';
-import { solidArchCurved, type ArchStyle } from '@/assetgen/geometry/arch';
+import { solidArchCurved, archVoussoirProjector, type ArchStyle } from '@/assetgen/geometry/arch';
 import { solidColumn, columnProjector, type ColumnShape, type ColumnBand } from '@/assetgen/geometry/column';
 import type { Wing, RoofStyle, BuildingFeatures, BuildingAnchors } from '@/assetgen/geometry/building';
 import { linearFacets } from '@/assetgen/geometry/linear';
@@ -94,10 +94,20 @@ async function partFacets(p: Part): Promise<{ facets: WorldFacet[]; anchors?: Bu
       // `flat` keeps the historic post-and-lintel portal; any other style builds the
       // real curved ring (round/segmental/pointed/horseshoe). solidArchCurved itself
       // delegates `flat` back to solidArch, so this one call covers both.
+      const style = p.style ?? 'flat';
+      const ringDepth = p.ringDepth ?? 0.35;
+      const springZ = p.springZ ?? 0;
       const m = await solidArchCurved(p.at, p.span, p.height, p.thickness, {
-        style: p.style ?? 'flat', ringDepth: p.ringDepth, springZ: p.springZ, yaw: p.yaw,
+        style, ringDepth, springZ, yaw: p.yaw,
       });
-      return { facets: manifoldToFacets(m.getMesh(), p.material ?? 'stone', p.work) };
+      // Curved rings get a polar voussoir frame on their faces (KV) + dressed-ashlar
+      // coursing by default, so the masonry reads as radial wedges. The flat portal keeps
+      // the planar default. p.height is the rise; p.span the footprint width.
+      const proj = style !== 'flat'
+        ? archVoussoirProjector(p.at, p.span, p.height, ringDepth, springZ, p.yaw ?? 0)
+        : undefined;
+      const work = p.work ?? (style !== 'flat' ? 'ashlar' : undefined);
+      return { facets: manifoldToFacets(m.getMesh(), p.material ?? 'stone', work, proj) };
     }
     case 'column': {
       const opts = { baseZ: p.baseZ, shape: p.shape, sides: p.sides, radiusU: p.radius, topRadiusU: p.topRadius, heightU: p.height, base: p.base, capital: p.capital };
@@ -225,6 +235,11 @@ export async function composeStructure(spec: StructureSpec, shadowSun?: [number,
       } else if (f.frame?.kind === 'cylindrical') {
         const c = rotWorld([f.frame.cx, f.frame.cy, 0]);
         f.frame = { kind: 'cylindrical', cx: c[0], cy: c[1], radius: f.frame.radius };
+      } else if (f.frame?.kind === 'polar') {
+        // Rotate the centre as a point; the span-plane only changes under a 90° turntable
+        // (studio preview only — the golden/real render path is yaw-0), so leave spanAxis.
+        const c = rotWorld([f.frame.cx, f.frame.cy, f.frame.cz]);
+        f.frame = { ...f.frame, cx: c[0], cy: c[1] };
       }
     }
   }

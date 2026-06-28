@@ -27,10 +27,15 @@ export const MATERIAL_RGB: Record<Mat, RGB> = {
 /** An authored surface (u,v) frame for a facet (KU). `planar` = a tangent basis in the facet
  *  plane (axes in world metres); `cylindrical` = an angular unwrap about a vertical axis at
  *  (cx,cy) with `radius` (tiles), so masonry wraps a round tower/column seamlessly (u = θ·r
- *  arc-length, v = world-z). Absent ⇒ the texturer derives a tangent frame from the normal. */
+ *  arc-length, v = world-z); `polar` = an unwrap in a VERTICAL plane about a centre
+ *  (cx,cy,cz), so masonry on an arch ring lays as radial voussoir wedges (u = θ·meanR
+ *  tangential, v = radius). `spanAxis` says which horizontal world axis the arch spans (the
+ *  other horizontal axis is the ring depth). Absent ⇒ the texturer derives a tangent frame
+ *  from the normal. */
 export type SurfaceFrame =
   | { kind: 'planar'; uAxis: Vec3; vAxis: Vec3 }
-  | { kind: 'cylindrical'; cx: number; cy: number; radius: number };
+  | { kind: 'cylindrical'; cx: number; cy: number; radius: number }
+  | { kind: 'polar'; cx: number; cy: number; cz: number; meanR: number; spanAxis: 'x' | 'y' };
 
 /** A flat-shaded polygon in WORLD space (tile-local x,y; z up), pre-projection. `work`
  *  (bond/coursing — a `SurfaceWork`), `finish` (paint layer) and `tint` are the resolved

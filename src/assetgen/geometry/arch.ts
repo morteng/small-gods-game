@@ -13,8 +13,9 @@
 // `extrudeAlongRidge`'s ridge==='y' branch. The masonry = the spandrel rectangle
 // MINUS the opening, so haunch fill above the springing reads as real spandrel walls.
 
-import type { Vec3 } from '@/assetgen/types';
+import type { Vec3, SurfaceFrame } from '@/assetgen/types';
 import type { Manifold } from 'manifold-3d';
+import type { FacetProjector } from '@/assetgen/geometry/solids';
 import { getManifold } from '@/assetgen/geometry/manifold-runtime';
 import { solidArch } from '@/assetgen/geometry/solids';
 
@@ -119,6 +120,33 @@ export async function archHeadCutter(
   return axis === 'x'
     ? extrudeProfileY(Manifold, cap, depth, [at[0], at[1], topZ])
     : extrudeProfileX(Manifold, cap, depth, [at[0], at[1], topZ]);
+}
+
+/**
+ * A voussoir UV projector for a curved arch ring (KV — "the stone formations arches are
+ * built of"). The ring's visible masonry lives on its two FACES (normal dominantly along
+ * the ring-depth axis); those facets get a `polar` frame centred on the springing mid-point
+ * so the texturer lays radial voussoir wedges instead of horizontal courses. Edges (soffit,
+ * extrados, jambs) keep the default planar frame. Only the two cardinal orientations the
+ * connectome emits (yaw 0 = spans +x, yaw 90 = spans +y) are coursed; others fall back to
+ * planar (safe). `span`/`rise`/`ringDepth`/`springZ` are in cube-units, matching the geometry.
+ */
+export function archVoussoirProjector(
+  at: Vec3, span: number, rise: number, ringDepth: number, springZ: number, yaw = 0,
+): FacetProjector | undefined {
+  const spanAxis: 'x' | 'y' | null = yaw === 0 ? 'x' : yaw === 90 ? 'y' : null;
+  if (!spanAxis) return undefined;
+  const meanR = rise + ringDepth / 2;
+  // Springing mid-point, accounting for the 90° yaw (which pivots the ring about at.xy).
+  const cx = spanAxis === 'x' ? at[0] + span / 2 : at[0];
+  const cy = spanAxis === 'x' ? at[1] : at[1] + span / 2;
+  const depthIdx = spanAxis === 'x' ? 1 : 0;   // ring depth runs along the OTHER horizontal axis
+  const frame: SurfaceFrame = { kind: 'polar', cx, cy, cz: springZ, meanR, spanAxis };
+  return (_c, n): SurfaceFrame | undefined => {
+    const ax = Math.abs(n[0]), ay = Math.abs(n[1]), az = Math.abs(n[2]);
+    const dom = ax >= ay && ax >= az ? 0 : ay >= az ? 1 : 2;   // dominant normal axis
+    return dom === depthIdx ? frame : undefined;               // a face (not soffit/edge) → voussoirs
+  };
 }
 
 /**
