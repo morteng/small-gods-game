@@ -82,10 +82,31 @@ describe('connectome diagnostics', () => {
     expect(rep.counts).toEqual({ error: 0, warn: 0, info: 0 });
   });
 
+  it('flags a building standing on a water tile (and not one on land)', () => {
+    const mkCtx = (wet: boolean): DiagnosticContext => {
+      const e = {
+        id: 'b1', kind: 'cottage', x: 3, y: 3, tags: ['building'],
+        properties: { blueprint: { collision: { footprint: { w: 1, h: 1 }, blocked: ['0,0'], doorCells: [] } } },
+      };
+      const tiles = Array.from({ length: 8 }, (_, y) => Array.from({ length: 8 }, (_, x) =>
+        ({ type: wet && x === 3 && y === 3 ? 'river' : 'grass' })));
+      return {
+        world: { query: (o: { tag?: string }) => (o?.tag === 'building' ? [e] : []) } as unknown as DiagnosticContext['world'],
+        map: { width: 8, height: 8, tiles, roadGraph: { nodes: [], edges: [] } } as unknown as DiagnosticContext['map'],
+      };
+    };
+    const wet = evaluateConnectome(mkCtx(true)).diagnostics.filter((d) => d.rule === 'building.on-water');
+    expect(wet).toHaveLength(1);
+    expect(wet[0].severity).toBe('error');
+    expect(wet[0].locus.entities).toEqual(['b1']);
+    expect(evaluateConnectome(mkCtx(false)).byRule['building.on-water'] ?? 0).toBe(0);
+  });
+
   it('exposes a stable default rule set', () => {
     expect(DEFAULT_RULES.map((r) => r.id)).toEqual([
       'building.overlap', 'barrier.through-building', 'road.through-building',
-      'road.redundant-parallel', 'road.parallel-corridor', 'junction.oversubscribed',
+      'building.on-water', 'road.redundant-parallel', 'road.parallel-corridor',
+      'junction.oversubscribed',
     ]);
   });
 });

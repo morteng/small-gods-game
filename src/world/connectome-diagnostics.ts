@@ -318,11 +318,41 @@ const parallelCorridorRoad: DiagnosticRule = {
   },
 };
 
+/** ERROR — a building's structure stands on a water tile (river/lake/ocean). A guard for the
+ *  "buildings go on land" invariant, the wet-site analogue of `road.through-building`: 0 in a
+ *  healthy world (the placer avoids water), but it CATCHES a regression that would otherwise
+ *  ship a house in a river. Pure read. */
+const buildingOnWater: DiagnosticRule = {
+  id: 'building.on-water',
+  severity: 'error',
+  description: 'A building occupies a water tile — it should be sited on land.',
+  evaluate(ctx) {
+    const tiles = ctx.map.tiles;
+    const out: Diagnostic[] = [];
+    for (const [id, set] of buildingStructureCells(ctx.world)) {
+      const wet: { x: number; y: number }[] = [];
+      for (const key of set) {
+        const ci = key.indexOf(',');
+        const x = Number(key.slice(0, ci)), y = Number(key.slice(ci + 1));
+        if (WATER_TYPES.has(tiles[y]?.[x]?.type ?? '')) wet.push({ x, y });
+      }
+      if (wet.length) out.push({
+        rule: this.id, severity: this.severity,
+        message: `building ${id} occupies ${wet.length} water tile${wet.length > 1 ? 's' : ''}`,
+        locus: { entities: [id], tiles: wet },
+        metrics: { wetCells: wet.length },
+      });
+    }
+    return out.sort((a, b) => (a.locus.entities?.[0] ?? '').localeCompare(b.locus.entities?.[0] ?? ''));
+  },
+};
+
 /** The registered rule set, run in order. */
 export const DEFAULT_RULES: DiagnosticRule[] = [
   buildingOverlap,
   barrierThroughBuilding,
   roadThroughBuilding,
+  buildingOnWater,
   redundantParallelRoad,
   parallelCorridorRoad,
   oversubscribedJunction,
