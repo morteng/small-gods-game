@@ -178,6 +178,14 @@ export interface FrameTypeFields {
   bayModule?: number;
   /** Fenestration generosity the frame's walls permit (Layer 3 openings policy). */
   fenestration?: { maxPerFace?: number; spacing?: number };
+  /**
+   * Whether this frame can carry a masonry FLUE — an integral wall fireplace or an
+   * inserted brick stack. Mass walls host the flue in their thickness; a box frame
+   * takes a brick stack (the Tudor great-rebuilding); the lightest peasant frames
+   * (cruck, stave) cannot, and vent through a ridge smokehole/louver however late or
+   * rich the build (Layer 3 fabric: STRUCTURE gates the hearth's smoke egress).
+   */
+  flue?: boolean;
 }
 
 /** A topology names the interpreter that wires its zones into portals. */

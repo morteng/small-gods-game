@@ -116,6 +116,13 @@ export function connectomeOpenings(con: Connectome, base: Blueprint, era: Era | 
     const winH = clampN(FENESTRATION.winHeightFrac * storeyTiles, FENESTRATION.winHeightMin, FENESTRATION.winHeightMax);
     const sill = clampN(FENESTRATION.sillFrac * storeyTiles, FENESTRATION.sillMin, FENESTRATION.sillMax);
 
+    // STRUCTURE gates fabric (Layer 3): the frame's walls set the opening rhythm. A mass
+    // wall takes few, widely-spaced lights; a box frame's panels glaze generously. The
+    // structure subsystem already resolved this into `con.structure.fenestration`; fall
+    // back to the neutral default when no frame is annotated.
+    const spacing = con.structure?.fenestration?.spacing ?? FENESTRATION.spacing;
+    const maxPerFace = con.structure?.fenestration?.maxPerFace ?? FENESTRATION.maxPerFace;
+
     const mainPortal = ext.find((p) => p.main) ?? ext[0];
     const front: WallFace = mainPortal?.face ?? 'south';
     const sacred =
@@ -130,7 +137,7 @@ export function connectomeOpenings(con: Connectome, base: Blueprint, era: Era | 
 
     for (const face of faces) {
       const run = face === 'south' || face === 'north' ? size.w : size.h;
-      const count = clampN(Math.round(run / FENESTRATION.spacing), 1, FENESTRATION.maxPerFace);
+      const count = clampN(Math.round(run / spacing), 1, maxPerFace);
       const doorTs = doorTsByFace[face] ?? [];
       const slots = windowSlots(count, doorTs.length > 0, doorTs);
       slots.forEach((t, k) => {

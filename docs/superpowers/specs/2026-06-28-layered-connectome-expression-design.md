@@ -54,7 +54,7 @@ Layer 6  SETTLEMENT   sites on a road graph, lots, civics       ✅ planSettleme
 Layer 5  SITE         building + yard + aux + fixtures + wall    ✅ expandSite (E1, data)
 Layer 4  BUILDING     zones(rooms) + portals(doors) + hearth     ✅ expand() room-graph
 ──────────────────────────────────────────────────────────────  ← the seam this epic closes
-Layer 3  FABRIC       bay rhythm, opening policy, vents          ⚠️ openings/smoke only
+Layer 3  FABRIC       bay rhythm, opening policy, vents          🟢 structure-gated (S3a); bay/cellar next
 Layer 2  FORM         massing: plan/levels/roof/span/jetty       ❌ HARDCODED in preset
 Layer 1  STRUCTURE    frameType → load constraints               ❌ authored, dead   ← FIRST BRICK
 Layer 0  PROGRAM      function → rooms + requirements            ✅ E1 functions/requires
@@ -128,8 +128,18 @@ Fabric slice (Layer 3) once Form derives the bay grid. None of it needs new prim
     only). Migrated the dwelling family (cottage/tavern/townhouse): a box-frame dwelling stacks a jettied
     upper storey (levels 2, jetty = frame's full 0.15), a cruck one stays a single low range (levels 1,
     jetty 0). Cottage's derived form == authored (byte-identical, golden unchanged) = the fidelity anchor.
-  - **S2b (next):** per-instance seed + footprint/bay variety (the "infinite variety" half) → shifts
+  - **S2b (deferred):** per-instance seed + footprint/bay variety (the "infinite variety" half) → shifts
     placement ⇒ `WORLD_CONTENT_VERSION` bump + per-instance art-cache. User chose to STAGE this after S2a.
+- **S3a — Fabric gated by structure SHIPPED** (ART v15→v16, content-free, footprint held). STRUCTURE
+  now gates the building's fabric through two visible constraints: (1) **opening rhythm** — `connectomeOpenings`
+  reads `con.structure.fenestration`, so a mass wall takes few, widely-spaced lights and a box frame's
+  panels glaze generously (the cottage's cruck rhythm matches its old default ⇒ golden byte-stable);
+  (2) **smoke egress** — a masonry wall-chimney requires a flue-capable frame (`FrameTypeFields.flue`;
+  mass-wall + box-frame yes, cruck + stave no), so a cruck/stave build keeps its ridge smokehole however
+  late/rich (structure annotated BEFORE `deriveSmokeEgress` in `deriveConnectome`). Tests:
+  `connectome-fabric.test.ts` (8). NEXT under fabric: cellars as `level:-1` zones, bay-aware door/partition
+  placement consuming `con.structure.bayModule`, structure-gated load-bearing internals (Layer 3b, needs
+  the Form bay grid + a renderable sub-grade level).
 - **S3 — expressBuilding() pipeline.** Compose Layers 0–3 into one entry; wire `synthesizeBlueprint` /
   `resolveAsset` onto it; named presets resolve as fixed points (byte-identical where possible). Culture
   selector stays **identity** for the single medieval pack (no over-engineering ahead of a 2nd culture).

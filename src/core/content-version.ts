@@ -56,8 +56,15 @@
  * single low range. Migrated the dwelling family (cottage/tavern/townhouse); the cottage's
  * derived form matches its authored one, the box-frame inns/townhouses take the frame's
  * full jetty. Footprint held (placement unchanged). Shifts the box-frame dwellings' geometry.
+ * 'v16' — layered-connectome Layer 3a (FABRIC): STRUCTURE now gates fabric. (1) The frame's
+ * fenestration policy drives derived openings — a mass wall takes few, widely-spaced lights,
+ * a box frame's panels glaze generously — so any `gen-openings` body's window count/spacing
+ * shifts to the frame's rhythm (the cruck cottage loses a window; mass-wall buildings grow
+ * austere). (2) A masonry wall-chimney requires a flue-capable frame: a cruck/stave build
+ * can never grow a stone stack and keeps its ridge smokehole however late/rich. Footprint
+ * held (placement unchanged). See the layered-connectome-expression spec.
  */
-export const ART_RECIPE_VERSION = 'v15';
+export const ART_RECIPE_VERSION = 'v16';
 
 /**
  * Bump when WORLDGEN / preset output changes (footprints, placement, heights).

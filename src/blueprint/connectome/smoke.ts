@@ -8,7 +8,7 @@
  * from the chosen smokeSystem. The only string is the structural topology id
  * 'vertical-stack', shared engine vocabulary like the grammar interpreters.)
  */
-import type { Era, FixtureTypeFields, SmokeSystemFields } from '@/catalogue/types';
+import type { Era, FrameTypeFields, FixtureTypeFields, SmokeSystemFields } from '@/catalogue/types';
 import type { Connectome, ExpandCtx, Fixture } from './types';
 
 const WEALTH_RANK: Record<string, number> = {
@@ -25,13 +25,23 @@ function admits(f: SmokeSystemFields, era: Era, wealth: string | undefined): boo
   return true;
 }
 
+/** The egress fixture's placement ('wall' ⇒ a masonry flue; 'ridge' ⇒ a smokehole/louver). */
+function egressPlacement(ctx: ExpandCtx, egressFixture: string): string | undefined {
+  return ctx.registry.get<FixtureTypeFields>('fixtureType', egressFixture)?.fields.placement;
+}
+
 /**
  * Pick the most-advanced smokeSystem (last in catalogue order) whose gates admit the
  * context. Falls back to era-only, then to the most basic, so a hearth ALWAYS vents.
  * A masonry vertical-stack (keep/tower) is treated as at least 'rich' — that is where
  * the wall-chimney was actually born.
+ *
+ * STRUCTURE gates fabric (Layer 3): a wall-placement egress IS a masonry flue, so a
+ * frame that cannot carry one (`flue:false` — cruck, stave) drops those candidates and
+ * keeps the most-advanced ridge vent however late/rich the build. A light peasant frame
+ * never grows a stone stack.
  */
-function selectEgress(ctx: ExpandCtx, topology: string | undefined): string | undefined {
+function selectEgress(ctx: ExpandCtx, topology: string | undefined, flueCapable: boolean): string | undefined {
   const systems = ctx.registry.all<SmokeSystemFields>('smokeSystem');
   if (!systems.length) return undefined;
 
@@ -43,8 +53,20 @@ function selectEgress(ctx: ExpandCtx, topology: string | undefined): string | un
 
   const byGate = systems.filter((s) => admits(s.fields, ctx.era, wealth));
   const byEra = byGate.length ? byGate : systems.filter((s) => s.fields.eras.includes(ctx.era));
-  const pool = byEra.length ? byEra : systems;
+  let pool = byEra.length ? byEra : systems;
+  // A non-flue frame cannot host a wall chimney — drop wall-placement egresses.
+  if (!flueCapable) {
+    const ridge = pool.filter((s) => egressPlacement(ctx, s.fields.egressFixture) !== 'wall');
+    if (ridge.length) pool = ridge;
+  }
   return pool[pool.length - 1]?.fields.egressFixture; // last = most advanced
+}
+
+/** Does the connectome's chosen frame carry a masonry flue? Unknown frame ⇒ yes (no constraint). */
+function frameFlue(con: Connectome, ctx: ExpandCtx): boolean {
+  const frame = con.structure?.frame;
+  if (!frame) return true;
+  return ctx.registry.get<FrameTypeFields>('frameType', frame)?.fields.flue ?? true;
 }
 
 /**
@@ -55,9 +77,10 @@ export function deriveSmokeEgress(con: Connectome, ctx: ExpandCtx): Connectome {
   const hearths = con.fixtures.filter((f) => f.requires?.includes('smoke-egress'));
   if (!hearths.length) return con;
 
+  const flueCapable = frameFlue(con, ctx);
   const added: Fixture[] = [];
   hearths.forEach((hearth, i) => {
-    const egressId = selectEgress(ctx, con.source?.topology);
+    const egressId = selectEgress(ctx, con.source?.topology, flueCapable);
     if (!egressId) return;
     const ft = ctx.registry.get<FixtureTypeFields>('fixtureType', egressId);
     added.push({

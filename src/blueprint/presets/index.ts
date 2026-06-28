@@ -504,7 +504,9 @@ function deriveConnectome(
   const ctx: ExpandCtx = { era: era ?? base.era ?? 'medieval', wealth, seed, registry: catalogue };
   // Layer 1 — annotate the graph with its construction (frameType) selected from the wall
   // material + era/region, BEFORE projecting the room graph down. Form/Fabric read it.
-  const connectome = annotateStructure(deriveSmokeEgress(expand(type, ctx), ctx), base, ctx);
+  // Structure is annotated FIRST so smoke egress (Layer 3) can consult the frame: a
+  // non-flue frame (cruck/stave) is barred from a masonry wall-chimney.
+  const connectome = deriveSmokeEgress(annotateStructure(expand(type, ctx), base, ctx), ctx);
   const ventPatch = hasAuthoredVent(base) ? null : (() => {
     const p = connectomeToBlueprint(connectome, base);
     return Object.keys(p).length ? p : null;

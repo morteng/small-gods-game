@@ -37,6 +37,7 @@ export const MEDIEVAL_FRAME_TYPES: FactEntry<FrameTypeFields>[] = [
       jettyMax: 0, // no wall posts to jetty from
       bayModule: 2.0, // the cruck truss defines a generous bay
       fenestration: { maxPerFace: 2, spacing: 1.9 },
+      flue: false, // a light peasant frame — open hearth + smokehole, never a stone stack
     },
     'Pairs of naturally curved timbers (blades) rise from near ground level to meet at the ridge, defining the building in bays. Common for peasant and yeoman houses.',
   ),
@@ -51,6 +52,7 @@ export const MEDIEVAL_FRAME_TYPES: FactEntry<FrameTypeFields>[] = [
       jettyMax: 0.15, // the jetty is THE box-frame signature
       bayModule: 1.6,
       fenestration: { maxPerFace: 3, spacing: 1.5 }, // framed panels glaze generously
+      flue: true, // takes an inserted brick chimney stack (the great rebuilding)
     },
     'Walls of vertical and horizontal members carry the roof on wall plates; the dominant town and high-status timber system, enabling jetties and multiple storeys.',
   ),
@@ -64,6 +66,7 @@ export const MEDIEVAL_FRAME_TYPES: FactEntry<FrameTypeFields>[] = [
       jettyMax: 0, // a solid wall cannot overhang
       bayModule: 2.4, // bays set by what the wall can span, not a frame
       fenestration: { maxPerFace: 2, spacing: 2.3 }, // openings limited by wall strength
+      flue: true, // the wall fireplace is built into the masonry thickness
     },
     'Solid masonry or cob carries all loads; openings are limited by wall strength. Used for keeps, churches, and durable houses where stone is at hand.',
   ),
@@ -78,6 +81,7 @@ export const MEDIEVAL_FRAME_TYPES: FactEntry<FrameTypeFields>[] = [
       jettyMax: 0,
       bayModule: 1.4,
       fenestration: { maxPerFace: 1, spacing: 2.6 }, // staved walls keep openings few
+      flue: false, // upright planks carry no masonry flue
     },
     'Vertical wooden staves form the walls, famously in stave churches; an earlier earth-fast variant set posts directly in the ground.',
   ),
