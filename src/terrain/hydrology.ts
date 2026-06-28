@@ -18,6 +18,20 @@ import type { TerrainField, TerrainConfig, HydrologyResult } from '@/core/types'
 import { WaterType } from '@/core/types';
 
 export const DEFAULT_RIVER_FLOW_THRESHOLD = 500;
+// The cell count the default threshold was tuned on (128×96). A FIXED threshold on a much
+// larger map promotes every minor gully to a river — a 384×272 island webs over. But the
+// scaling must be GENTLE: peak flow accumulates over upstream drainage LENGTH, not area, and
+// an island drains quickly to the surrounding sea, so its max accumulation is bounded. Linear
+// area-scaling (×8.5 here) overshoots to ZERO rivers; scaling by the LINEAR dimension
+// (√area) tracks drainage length and lands a few trunk rivers + tributaries. Floored at the
+// tuned value so small maps stay byte-identical.
+const RIVER_THRESHOLD_REF_CELLS = 128 * 96;
+
+/** The area-scaled river-flow threshold for a map of `totalCells` — scales with the LINEAR
+ *  map dimension (√cells), tracking drainage length rather than area. */
+export function areaScaledRiverThreshold(totalCells: number): number {
+  return Math.max(DEFAULT_RIVER_FLOW_THRESHOLD, DEFAULT_RIVER_FLOW_THRESHOLD * Math.sqrt(totalCells / RIVER_THRESHOLD_REF_CELLS));
+}
 // Headwater taper: a river is extended UPSTREAM (as a thin source trickle) down to
 // this fraction of the river threshold, so a stream visibly ORIGINATES from a thin
 // headwater high on the slope and grows downstream — instead of "popping out of the
@@ -61,7 +75,9 @@ export function generateHydrology(
   const { width, height, seaLevel = 0.35 } = config;
   const { elevation } = fields;
   const total = width * height;
-  const riverFlowThreshold = options.riverFlowThreshold ?? DEFAULT_RIVER_FLOW_THRESHOLD;
+  // Explicit override wins; otherwise scale the tuned default by map area (a fixed
+  // threshold on a large map over-rivers — see areaScaledRiverThreshold).
+  const riverFlowThreshold = options.riverFlowThreshold ?? areaScaledRiverThreshold(total);
 
   // 1. Pit-fill via priority-flood (Barnes 2014 §4.08).
   //    Seeds: water cells (true drainage outlets) and map-edge cells (treated

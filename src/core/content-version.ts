@@ -53,4 +53,4 @@ export const ART_RECIPE_VERSION = 'v13';
  * An autosave stamped with a different value is discarded on load → a fresh
  * world is generated. Distinct from SAVE_VERSION (which guards the save *schema*).
  */
-export const WORLD_CONTENT_VERSION = 21;  // AQUEDUCT ARCADE (G6 polish): elevated aqueduct runs now march as an arcade of aqueduct_arch portal bays (openings carrying the lifted channel deck) instead of bare aqueduct_pier stilts — a low stretch still falls back to a pier ⇒ worldgen output changes, discard pre-arcade autosaves. (20 = emergent aqueducts G6 on piers; 19 = stairs CONNECT G3d; 18 = arched bridges G5b.)
+export const WORLD_CONTENT_VERSION = 22;  // RIVER DENSITY: the river-flow threshold now scales with map AREA (areaScaledRiverThreshold) instead of a fixed 500 tuned for 128×96 — large islands (e.g. 384×272) no longer web over with minor channels, yielding a few trunk rivers + tributaries. Hydrology mask changes on large maps ⇒ discard pre-scaling autosaves. (21 = aqueduct arcade G6 polish; 20 = emergent aqueducts G6 on piers; 19 = stairs CONNECT G3d.)

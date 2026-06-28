@@ -58,4 +58,16 @@ describe('Hydrology in generateWithNoise', () => {
     expect(rivers).toBeGreaterThanOrEqual(120);
     expect(rivers).toBeLessThanOrEqual(560);
   });
+
+  it('the river-flow threshold scales with map area (large maps do not over-river)', async () => {
+    const { areaScaledRiverThreshold, DEFAULT_RIVER_FLOW_THRESHOLD } = await import('@/terrain/hydrology');
+    // Small + reference maps stay at the tuned floor (byte-identical to before).
+    expect(areaScaledRiverThreshold(64 * 64)).toBe(DEFAULT_RIVER_FLOW_THRESHOLD);
+    expect(areaScaledRiverThreshold(128 * 96)).toBe(DEFAULT_RIVER_FLOW_THRESHOLD);
+    // A large island (~8.5× the reference area) scales by its LINEAR dimension (√8.5 ≈ 2.9×),
+    // not area — gentle enough to keep trunk rivers (linear ×8.5 over-corrected to zero).
+    const big = areaScaledRiverThreshold(384 * 272);
+    expect(big).toBeGreaterThan(DEFAULT_RIVER_FLOW_THRESHOLD * 2.5);
+    expect(big).toBeLessThan(DEFAULT_RIVER_FLOW_THRESHOLD * 3.5);
+  });
 });
