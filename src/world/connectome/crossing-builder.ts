@@ -12,6 +12,7 @@
 // and REALIZING the nodes (kind → generator) are separate layers that consume this.
 
 import { node, type WorldNode } from './world-node';
+import { bridgeClassFor } from './buildability-envelope';
 
 /** What a detected road×water crossing hands the producer. */
 export interface CrossingSpec {
@@ -24,6 +25,10 @@ export interface CrossingSpec {
   roadClass: 'path' | 'track' | 'road' | 'highway';
   era: string;
   prosperity: string;
+  /** Aggregate believer understanding 0..1 at the crossing's settlement — raises the
+   *  effective tech the envelope gates on (so a devout people bridge in stone earlier).
+   *  Absent ⇒ 0 (worldgen, before belief exists); the dynamic unlock awaits an evolution loop. */
+  understanding?: number;
   style?: string;
   biome?: string;
   /** Optional bank anchors [near, far] for placement. */
@@ -52,10 +57,13 @@ export function buildCrossing(spec: CrossingSpec): WorldNode {
   const deckWidth = DECK_WIDTH[spec.roadClass];
   const id = spec.id;
 
-  // ── The span: material & form from era × prosperity, sized to the gap ──
+  // ── The span: material & form from the buildability envelope (tech × economy × how busy
+  // the crossing is), sized to the gap. The envelope owns the threshold rule; with
+  // understanding 0 (worldgen) it reproduces the historic era×prosperity gate exactly. ──
   const span = Math.max(1, Math.round(spec.spanTiles));
+  const bridgeClass = bridgeClassFor({ era, economy: pros, understanding: spec.understanding }, importance);
   let bridge: WorldNode;
-  if (era >= 2 && pros >= 1 && importance >= 1) {
+  if (bridgeClass === 'dressed-stone') {
     // Dressed-stone arched bridge — one arch per ~3 tiles of span.
     const arches = Math.max(1, Math.ceil(span / 3));
     const deck = node(`${id}/deck`, 'deck', { params: { material: 'dressed-stone', width: deckWidth } });
@@ -72,7 +80,7 @@ export function buildCrossing(spec: CrossingSpec): WorldNode {
     // A fortified, important crossing gates the deck.
     if (importance >= 3 && pros >= 1) children.push(node(`${id}/gate`, 'building(gatehouse)', { params: { fortified: true, at: 'deck-end' } }));
     bridge = node(`${id}/bridge`, 'bridge', { params: { material: 'dressed-stone', span, arches, width: deckWidth }, children });
-  } else if (era >= 1 || pros >= 1) {
+  } else if (bridgeClass === 'timber') {
     // Timber trestle — piers every ~2 tiles.
     const piers = Math.max(2, Math.ceil(span / 2));
     const children = [node(`${id}/deck`, 'deck', { params: { material: 'timber', width: deckWidth } })];
