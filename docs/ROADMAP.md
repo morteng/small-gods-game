@@ -169,8 +169,25 @@ The arc's spine (VISION §5/§7).
 
 The player-facing payoff. **Shipped:** belief-powers skill panel + divine inbox,
 the storylet card. **Brainstormed:** the Presentation Director (adaptive score,
-cinematic camera, SFX/voice — observes the sim, off the command bus). Remaining:
+cinematic camera, SFX/voice — observes the sim, off the command bus); the
+divine-action interaction UI / semantic-zoom front-end (below). Remaining:
 
+- **Divine-action interaction UI + semantic zoom** ⭐ — the front-end of the
+  shipped belief-powers/inbox loop (its deferred *"targeting UX"*). One model: every
+  act is a `Command{verb,target}`; one `CommandAffordance` (leaf = smite-with-
+  thunderbolt fires; branch = whisper expands to a card of paths) gated by
+  `previewCommand`; one shared `scoreAffordance` salience brain so **hover surfaces
+  the most likely actions given the situation**. **Semantic zoom is the spine** —
+  zoomed-out = aggregate/place-targets/inbox-as-map-alerts, zoomed-in = per-NPC
+  inspector + whisper (zoom = attention = the backfill trigger). Grows
+  `CommandTarget` to entity/tile/area ("lightning on a bush", "rain on a farm").
+  The **whisper card is the first declarative `UiSpec`** — Fate/sim emit a closed,
+  typed structured spec the **WebGPU** UI renders (the 2026 *agent-driven UI*
+  pattern, declarative not open-ended; **no DOM**), structure sim-owned/
+  deterministic + prose LLM-enriched. Wires the built-but-uncalled
+  `Game.llmClientCapable` + `FateBrainDeps.onArmed`. Also Track 2's conversation-UI
+  vehicle and Track 4's Fate-card surface. *Brainstorm:*
+  `docs/superpowers/specs/2026-06-28-agent-driven-ui-semantic-zoom-brainstorm.md`.
 - **Spec E — The Book of [Spirit Name]** (emergent divine identity, naming ritual,
   chapter detection). The strongest expression of VISION §6.
 - **Act 0 stone-age tutorial / Drifting Spirit opening** — first believer; an
