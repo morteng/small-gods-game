@@ -10,6 +10,7 @@ import type { GameState } from '@/core/state';
 import type { SimEvent } from '@/core/events';
 import type { ThreadId } from '@/sim/threads/thread-types';
 import { buildWorldSummary } from '@/llm/world-summary';
+import { evaluateConnectome } from '@/world/connectome-diagnostics';
 
 export interface FateFocus {
   event: SimEvent;
@@ -77,6 +78,21 @@ function describeSitesForFate(state: GameState): { text: string; siteIds: Set<st
   return { text, siteIds };
 }
 
+/** A terse digest of the connectome LINTER for Fate, so the DM can NOTICE and act on
+ *  world-quality issues (a duplicate road corridor, a pressure-point junction) the same way
+ *  it acts on threads — each diagnostic carries a `suggestedFix` verb Fate's command channel
+ *  can apply. Empty string when the world lints clean (the common case), so a healthy world
+ *  adds nothing to the prompt. */
+export function describeWorldQualityForFate(state: GameState): string {
+  if (!state.world || !state.map) return '';
+  let report;
+  try { report = evaluateConnectome({ world: state.world, map: state.map }); }
+  catch { return ''; }
+  if (report.total === 0) return '';
+  const top = report.diagnostics.slice(0, 6).map((d) => `- [${d.severity}] ${d.rule}: ${d.message}`);
+  return `World quality (${report.counts.error} error / ${report.counts.warn} warn / ${report.counts.info} info) — fixable via the command channel:\n${top.join('\n')}`;
+}
+
 export function buildFateContext(
   state: GameState,
   focus: FateFocus,
@@ -93,6 +109,7 @@ export function buildFateContext(
     buildWorldSummary(state),
     threadsText,
     sitesText,
+    describeWorldQualityForFate(state),   // connectome lint digest (empty when clean)
     `Triggering event: ${describeEvent(focus.event)}`,
     'Decide whether to prepare one grounded beat to be discovered. Use a subjectPoiId from the active threads, a flooded settlement, or a causal site listed above.',
   ].filter(Boolean).join('\n\n');
