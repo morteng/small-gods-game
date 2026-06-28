@@ -65,3 +65,47 @@ describe('site expansion (E2): auxiliaries co-placed with their core', () => {
     expect(ids.some((t) => t.includes('stable'))).toBe(false);
   });
 });
+
+describe('site fixtures (E2): realisable fixtures co-placed as yard props', () => {
+  // The tavern's `requires: [..., 'water-supply']` resolves to the catalogue `well`
+  // fixtureType, which names the `well` civic prop — so the site-expansion pass now
+  // realises a yard well beside the taproom. Wells are PROPS (not buildings), so they
+  // never appear in `map.buildings`; query the world.
+  const wells = (world: { query: (o: { tag: string }) => { kind: string; x: number; y: number }[] }) =>
+    world.query({ tag: 'fixture' }).filter((e) => e.kind === 'well');
+
+  it('a tavern spawns exactly one adjacent well (its derived water-supply fixture)', async () => {
+    // Seed 4 platts one tavern in this village layout.
+    const { map, world } = await generateWithNoise(48, 48, 4, villageSeed());
+    const taverns = map.buildings.filter((b) => b.templateId.includes('tavern'));
+    expect(taverns.length).toBe(1);
+    const fxWells = wells(world);
+    expect(fxWells.length).toBe(1);
+  });
+
+  it('the well sits adjacent to its tavern, off any road', async () => {
+    const { map, world } = await generateWithNoise(48, 48, 4, villageSeed());
+    const tavern = map.buildings.find((b) => b.templateId.includes('tavern'))!;
+    const well = world.query({ tag: 'fixture' }).find((e) => e.kind === 'well')!;
+    expect(well).toBeDefined();
+    const gap = Math.max(Math.abs(well.x - tavern.tileX), Math.abs(well.y - tavern.tileY));
+    expect(gap).toBeLessThanOrEqual(10);
+    // It carries the site/fixture provenance the placer stamps on.
+    expect(well.properties?.site).toBeTruthy();
+    expect(well.properties?.fixtureType).toBe('well');
+  });
+
+  it('is deterministic — same seed yields the same well position', async () => {
+    const a = await generateWithNoise(48, 48, 4, villageSeed());
+    const b = await generateWithNoise(48, 48, 4, villageSeed());
+    const wa = wells(a.world).map((e) => `${e.x},${e.y}`);
+    const wb = wells(b.world).map((e) => `${e.x},${e.y}`);
+    expect(wa).toEqual(wb);
+    expect(wa.length).toBe(1);
+  });
+
+  it('the aux stable is still placed — fixtures are additive, not a replacement', async () => {
+    const ids = await idsOf(4);
+    expect(ids.filter((t) => t.includes('stable')).length).toBe(1);
+  });
+});
