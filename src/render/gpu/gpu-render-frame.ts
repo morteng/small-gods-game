@@ -28,7 +28,6 @@ import { buildEntityDrawList } from '@/render/iso/entity-draw-list';
 import { StaticDrawListCache } from '@/render/gpu/static-draw-list-cache';
 import { DEFAULT_LIGHTING } from '@/render/lighting-state';
 import { buildTerrainField, zoomSuperSample, zoomCoarsenMaxQuads, type TerrainField } from '@/render/gpu/terrain-field';
-import { tickMotionCooldown, dragLodMesh } from '@/render/gpu/drag-lod';
 import { buildDetailField } from '@/render/gpu/detail-field';
 import { buildWaterField, type WaterField } from '@/render/gpu/water-field';
 import { FlotsamLayer } from '@/render/gpu/flotsam-layer';
@@ -87,13 +86,6 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
   const adaptive = new AdaptiveResolution();
   let lastFrameStart = 0;
   let fpsEma = 0;
-  // DRAG-LOD state: the camera pose last frame + a frame countdown so the coarsening
-  // lingers a few frames past the last move (no flicker at the end of a pan/zoom).
-  let prevCamX = NaN, prevCamY = NaN, prevCamZoom = NaN;
-  let motionCooldown = 0;
-  // Persistent dev/perf readout (mutated in place — no per-frame allocation on the hot
-  // path); exposed on window beside __renderProfile/__renderTrace once the loop starts.
-  const meshLodReadout = { superSample: 1, maxQuads: 0 as number | null, motion: false };
   const showPerfHud = perfHudRequested();   // dev-only single FPS pill
   const ui = getUiRuntime();
 
@@ -179,32 +171,15 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
       ? undefined
       : zoomCoarsenMaxQuads(map.width, map.height, xform.sx);
 
-    // DRAG-LOD: while the camera is actively moving, coarsen ONLY the water mesh one notch
-    // (the water pass is quad-bound and dominant; mesh coarsening cuts it ~27× with the
-    // waterline — a per-fragment bicubic clip against the FULL-RES height buffers — staying
-    // crisp regardless of water-mesh density). Terrain KEEPS its natural (zoom-derived) mesh
-    // during a pan: the viewport cull (T5) already bounds terrain to the on-screen window,
-    // and a changing terrain grid is the one coarsening the eye DOES catch (user-reported).
-    // The QUAD-axis complement to AdaptiveResolution (raster/fill) + zoomCoarsenMaxQuads
-    // (zoomed-out only). A studio `terrainSuper` pin opts out. Pure logic in drag-lod.ts.
-    const superSampleEff = superSample;          // terrain — drag-LOD no longer touches this
-    let waterSuperSample = superSample;          // water — coarsened during motion only
-    let waterMaxQuads = meshMaxQuads;            // water — coarsened during motion only
-    if (rc.devMode?.terrainSuper == null) {
-      const curPose = { x: camera.x, y: camera.y, zoom: camera.zoom };
-      const prevPose = Number.isNaN(prevCamX) ? null : { x: prevCamX, y: prevCamY, zoom: prevCamZoom };
-      motionCooldown = tickMotionCooldown(prevPose, curPose, motionCooldown);
-      prevCamX = camera.x; prevCamY = camera.y; prevCamZoom = camera.zoom;
-      const lod = dragLodMesh(motionCooldown > 0, meshMaxQuads, superSample, map.width, map.height);
-      waterMaxQuads = lod.maxQuads;
-      waterSuperSample = lod.superSample;
-      // Dev/perf readout (no overlay, no per-frame alloc) — the effective WATER mesh knobs
-      // this frame, for the profiling loop. Beside __renderProfile/__renderTrace.
-      meshLodReadout.superSample = waterSuperSample;
-      meshLodReadout.maxQuads = waterMaxQuads ?? null;
-      meshLodReadout.motion = motionCooldown > 0;
-      (window as unknown as { __meshLod?: unknown }).__meshLod = meshLodReadout;
-    }
+    // Water keeps its FULL (zoom-derived) mesh while panning. The old drag-LOD coarsened
+    // the water grid one notch during camera motion for the quad-bound water pass, but it
+    // made the surface visibly "come and go" as you pan (wet cells flipping in and out of
+    // the coarse lattice) — the user judged that not worth the perf and not true to the
+    // game's feel. Water's perf levers stay the viewport cull (T5) + the overview px-ladder,
+    // never an in-motion resolution drop. Terrain already kept its natural mesh in motion.
+    const superSampleEff = superSample;          // terrain
+    const waterSuperSample = superSample;        // water — same density as terrain, always
+    const waterMaxQuads = meshMaxQuads;          // water — full zoom-derived mesh, even in motion
 
     // Buffer-driven terrain field (T1): the GPU generates + lifts the grid from
     // the height/colour storage buffers. VIEWPORT MESH CULL (T5): emit only the quads
