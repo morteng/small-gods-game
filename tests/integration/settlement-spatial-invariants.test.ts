@@ -25,6 +25,7 @@ import { generateWithNoise } from '@/map/map-generator';
 import type { WorldSeed, Entity } from '@/core/types';
 import type { World } from '@/world/world';
 import { blueprintOf } from '@/blueprint/entity';
+import { buildingVisualCells } from '@/blueprint/footprint';
 
 const seed = JSON.parse(
   readFileSync('public/data/worlds/default.json', 'utf-8'),
@@ -48,6 +49,20 @@ function buildingStructureCells(world: World): Map<string, Set<string>> {
       cells.add(key(ox + lx, oy + ly));
     }
     out.set(String(e.id), cells);
+  }
+  return out;
+}
+
+/** Absolute VISUAL cells of every building, keyed by entity id — the bbox the renderer
+ *  draws the sprite over (a superset of the solid structure cells). A barrier slab here
+ *  would peek out from under the silhouette: the residual fence-through-building leak. */
+function buildingVisualCellsByEntity(world: World): Map<string, Set<string>> {
+  const out = new Map<string, Set<string>>();
+  for (const e of world.query({ tag: 'building' }) as Entity[]) {
+    const bp = blueprintOf(e);
+    if (!bp) continue;
+    const ox = Math.floor(e.x), oy = Math.floor(e.y);
+    out.set(String(e.id), new Set(buildingVisualCells(bp.rb, ox, oy)));
   }
   return out;
 }
@@ -119,6 +134,18 @@ describe('settlement spatial invariants (cross-producer)', () => {
           for (const c of cells) if (g.roadCells.has(c)) under.push(c);
         }
         expect(under, `road tiles under buildings: ${[...new Set(under)].slice(0, 12).join('; ')}`).toEqual([]);
+      });
+
+      it('INV4 — no barrier slab sits under a building VISUAL extent (C1 leak)', () => {
+        // The renderer draws a building over its structure box; a barrier slab in
+        // visual\solid would poke out from under the silhouette (door thresholds /
+        // draw-only part cells). C1 gates the barrier over the visual extent, so this
+        // is empty — a stricter superset of INV2.
+        const visual = buildingVisualCellsByEntity(g.world);
+        const all = new Set<string>();
+        for (const cells of visual.values()) for (const c of cells) all.add(c);
+        const under = barrierBlockingCells(g.world).filter(c => all.has(c));
+        expect(under, `barrier slabs under building silhouettes: ${[...new Set(under)].slice(0, 12).join('; ')}`).toEqual([]);
       });
     });
   }

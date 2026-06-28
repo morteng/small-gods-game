@@ -28,6 +28,7 @@ import { toAnchors } from '@/blueprint/compile/to-anchors';
 import { placeBarrier } from '@/world/place-barrier';
 import { isBuilding as isBuildingEntity, tileBlockedByBuilding } from '@/world/building-collision';
 import { OccupancyGrid, buildingSolidCells } from '@/world/occupancy-grid';
+import { buildingVisualCells } from '@/blueprint/footprint';
 import { deriveCroftEnclosures, deriveSettlementRing, type EnclosureCtx } from '@/world/enclosure';
 import {
   planSettlement, orderedSlotsFor, subdivideLots, widenMarket, assignWards, planCivics,
@@ -259,6 +260,13 @@ export function placeSettlement(
   // deconfliction by construction, replacing the old roadSet/civicSet/registry
   // post-hoc filtering. Barriers later gate over 'building' claims.
   const occ = new OccupancyGrid();
+  // The VISUAL extent of placed buildings (the bbox the renderer draws over —
+  // `buildingVisualCells`), a SUPERSET of the solid 'building' claims in `occ`. The
+  // barrier gate guard reads THIS so no slab is left poking out from under a silhouette
+  // (door thresholds / draw-only cells live in visual\solid). Placement deconfliction
+  // keeps reading `occ`'s solid cells, so worldgen placement is unchanged. (Spatial-
+  // coordination C1.)
+  const buildingVisual = new Set<string>();
 
   // Slice 3 — connectome loosening: keep the inter-POI trunk corridor clear of this
   // settlement's lots so the road threads through instead of detouring around sprawl.
@@ -319,7 +327,10 @@ export function placeSettlement(
       entities.push(civic);
       // A building-class civic (the mill) is solid for barrier gating, exactly as
       // the old registry-read `tileBlockedByBuilding` treated it; props are not.
-      if (isBuildingEntity(civic)) occ.claimCells(buildingSolidCells(toCollision(rb), c.x, c.y), 'building');
+      if (isBuildingEntity(civic)) {
+        occ.claimCells(buildingSolidCells(toCollision(rb), c.x, c.y), 'building');
+        for (const cell of buildingVisualCells(rb, c.x, c.y)) buildingVisual.add(cell);
+      }
     }
   }
 
@@ -410,6 +421,7 @@ export function placeSettlement(
     registry.add(entity);
     entities.push(entity);
     occ.claimCells(buildingSolidCells(toCollision(rb), origin.tileX, origin.tileY), 'building');
+    for (const cell of buildingVisualCells(rb, origin.tileX, origin.tileY)) buildingVisual.add(cell);
     // Claim every lot the footprint INTERSECTS, so live growth (S3) never sees a
     // "free" lot with blocked tiles.
     for (const lot of plan.lots) {
@@ -548,11 +560,11 @@ export function placeSettlement(
   if (world && plan.lots.length > 0 && placed > 0) {
     const ctx: EnclosureCtx = { era };
 
-    // A building structure cell — barrier rings gate (open) rather than run
-    // through it. The occupancy grid holds every solid building cell (roster +
-    // the mill) claimed during placement, so this is the same notion of "inside
-    // the walls" the old registry read (`tileBlockedByBuilding`) gave.
-    const isBuilding = (x: number, y: number) => occ.is(x, y, 'building');
+    // A cell the building is DRAWN over — barrier rings gate (open) rather than
+    // run through it. We consult the VISUAL extent (the renderer's structure box),
+    // not just the solid walls, so a slab can't peek out from under a door threshold
+    // or a draw-only part cell (the residual fence-through-building leak). C1.
+    const isBuilding = (x: number, y: number) => buildingVisual.has(`${x},${y}`);
 
     // Per-croft enclosures (hedge/fence/wall) around each built lot.
     for (const { id, run } of deriveCroftEnclosures(plan.lots, poi.id, rng, ctx, isBuilding)) {

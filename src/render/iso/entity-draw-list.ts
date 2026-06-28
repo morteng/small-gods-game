@@ -19,10 +19,8 @@ import {
 import { barrierSlabs } from './iso-barrier';
 import { buildYSortBucket, buildingSortKey, type YSortEntry } from './iso-ysort';
 import { blueprintOf } from '@/blueprint/entity';
+import { structureBox, type StructureBox } from '@/blueprint/footprint';
 import { isLayerHidden } from '@/render/layer-visibility';
-
-/** Structure bounding box (footprint-local), as the iso renderer consumes it. */
-interface StructureBox { dx: number; dy: number; w: number; h: number; }
 
 const KIND_PRIORITY: Record<string, number> = {
   river: 0, road: 1, deco: 2, vegetation: 3, barrier: 4, building: 4, npc: 5,
@@ -115,14 +113,10 @@ export function buildEntityDrawList(
       case 'building': {
         const e = node.ref as Entity;
         const stored = blueprintOf(e)!; // the graph only tags buildings that have one
-        // Structure bounding box from the resolved parts' footprint claims.
-        let minX = Infinity, minY = Infinity, maxX = 0, maxY = 0;
-        for (const p of stored.rb.parts) {
-          minX = Math.min(minX, p.at.x); minY = Math.min(minY, p.at.y);
-          maxX = Math.max(maxX, p.at.x + p.size.w); maxY = Math.max(maxY, p.at.y + p.size.h);
-        }
-        if (!Number.isFinite(minX)) { minX = 0; minY = 0; maxX = stored.rb.footprint.w; maxY = stored.rb.footprint.h; }
-        const s: StructureBox = { dx: minX, dy: minY, w: maxX - minX, h: maxY - minY };
+        // Structure bounding box from the resolved parts' footprint claims — the SAME
+        // derivation the barrier gate guard consults, so the drawn silhouette and the
+        // "no fence may run here" extent can never drift (spatial-coordination C1).
+        const s: StructureBox = structureBox(stored.rb);
         const tx = Math.floor(e.x) + s.dx, ty = Math.floor(e.y) + s.dy;
         const key = buildingSortKey({ tx, ty, footprintW: s.w, footprintH: s.h });
         buildingById.set(e.id, { e, s });
