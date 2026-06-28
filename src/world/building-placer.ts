@@ -625,45 +625,85 @@ export function placeSettlement(
 
   // 2c. Site expansion (E2): a placed establishment is not a lone footprint but a
   // PREMISES. Expand each core through the site connectome (expandSite → siteToPlan)
-  // and co-place the auxiliary buildings its function derives — a tavern's stable
-  // falls out of its 'stabling' requirement, no per-preset wiring. Auxiliaries are
-  // sited on free, buildable, off-road ground adjacent to their core by a
-  // DETERMINISTIC spiral scan (no rng draw), so the main layout is byte-identical and
-  // only the new outbuildings are appended. Fixtures (sign/bench/well) are data-only
-  // today — no prop entity to realise — and the yard wall comes from the croft
-  // enclosure below; both are deferred site-graph projections. Runs before enclosure
-  // so a croft hedge rings the outbuilding into the yard with its core.
+  // and co-place the parts its function derives — auxiliary BUILDINGS (a tavern's
+  // stable, from its 'stabling' requirement) and ground/façade FIXTURES (a tavern's
+  // well, from 'water-supply') — with no per-preset wiring. Everything is sited on
+  // free, buildable, off-road ground adjacent to its core by a DETERMINISTIC spiral
+  // scan (no rng draw), so the main layout is byte-identical and only the new parts
+  // are appended. Runs before enclosure so a croft hedge rings the outbuildings AND
+  // fixtures into the yard with their core.
+  //
+  // Two passes in order: ALL auxiliaries first, THEN all fixtures. The aux pass sees
+  // exactly the occupancy state the old single-pass loop did (no fixture has claimed a
+  // cell yet), so derived-building placement stays byte-identical; the wells/etc. are
+  // a strictly additive second pass.
   if (placedCores.length > 0) {
     loadDefaultPacks();
     const siteCtx = { era, seed: worldSeed, registry: catalogue };
+    const sited = placedCores.map((pc) => ({
+      pc,
+      plan: siteToPlan(expandSite(pc.preset, siteCtx)),
+      ccx: pc.x + Math.floor(pc.w / 2),
+      ccy: pc.y + Math.floor(pc.h / 2),
+    }));
+    // Scan rings outward from a core centre; the first fitting origin (in fixed scan
+    // order) wins — deterministic, no rng. Capped so a part stays in the yard, never
+    // sprawls across the settlement.
+    const siteNear = (
+      ccx: number, ccy: number, coreW: number, coreH: number, fw: number, fh: number,
+    ): { x: number; y: number } | null => {
+      for (let r = Math.max(coreW, coreH, 2); r <= Math.max(coreW, coreH) + 5; r++) {
+        for (const p of spiralRing(ccx, ccy, r)) {
+          if (fitsAt(p.x, p.y, fw, fh)) return p;
+        }
+      }
+      return null;
+    };
+
+    // Pass 1 — auxiliary BUILDINGS (solid, on the shared occ grid).
     let auxIdx = 0;
-    for (const { core, preset, x, y, w, h } of placedCores) {
-      const auxes = siteToPlan(expandSite(preset, siteCtx)).auxiliaries;
-      if (auxes.length === 0) continue;
-      const ccx = x + Math.floor(w / 2), ccy = y + Math.floor(h / 2);
-      for (const aux of auxes) {
+    for (const { pc, plan, ccx, ccy } of sited) {
+      for (const aux of plan.auxiliaries) {
         const arb = synthesizeBlueprint(aux.buildingType);
         if (!arb) continue;
         const { w: aw, h: ah } = arb.footprint;
-        // Scan rings outward from the core centre; the first fitting origin (in fixed
-        // scan order) wins — deterministic, no rng. Capped so an outbuilding stays in
-        // the yard, never sprawls across the settlement.
-        let spot: { x: number; y: number } | null = null;
-        for (let r = Math.max(w, h, 2); r <= Math.max(w, h) + 5 && !spot; r++) {
-          for (const p of spiralRing(ccx, ccy, r)) {
-            if (fitsAt(p.x, p.y, aw, ah)) { spot = p; break; }
-          }
-        }
+        const spot = siteNear(ccx, ccy, pc.w, pc.h, aw, ah);
         if (!spot) continue;
         const entity = blueprintEntity(`${poi.id}_aux_${auxIdx++}`, arb, spot.x, spot.y, { poiId: poi.id });
         entity.tags = [...new Set([...(entity.tags ?? []), 'settlement', 'building', 'auxiliary'])];
-        entity.properties!.site = core.id;
+        entity.properties!.site = pc.core.id;
         entity.properties!.role = aux.role;
         clearFootprint(spot.x, spot.y, aw, ah, registry, world, tiles);
         registry.add(entity);
         entities.push(entity);
         occ.claimCells(buildingSolidCells(toCollision(arb), spot.x, spot.y), 'building');
         for (const cell of buildingVisualCells(arb, spot.x, spot.y)) buildingVisual.add(cell);
+      }
+    }
+
+    // Pass 2 — ground/façade FIXTURES, realised iff the fixture type names a prop
+    // blueprint (e.g. the catalogue 'well' fixtureType ↔ the 'well' civic prop). Data-
+    // only tokens (signage/seating) have no part to draw yet, so they stay graph-only
+    // until a prop is authored for them — `synthesizeBlueprint` returns undefined and we
+    // skip. A class:'building' match is ignored (those are auxiliaries, handled above).
+    // Props aren't solid, so the cells are reserved as 'civic' (a road/building won't
+    // reuse them, and the croft hedge rings the well in rather than gating around it).
+    let fxIdx = 0;
+    for (const { pc, plan, ccx, ccy } of sited) {
+      for (const fx of plan.fixtures) {
+        const frb = synthesizeBlueprint(fx.type);
+        if (!frb || frb.class === 'building') continue;
+        const { w: fw, h: fh } = frb.footprint;
+        const spot = siteNear(ccx, ccy, pc.w, pc.h, fw, fh);
+        if (!spot) continue;
+        const entity = blueprintEntity(`${poi.id}_fx_${fxIdx++}`, frb, spot.x, spot.y, { poiId: poi.id });
+        entity.tags = [...new Set([...(entity.tags ?? []), 'settlement', 'fixture'])];
+        entity.properties!.site = pc.core.id;
+        entity.properties!.fixtureType = fx.type;
+        clearFootprint(spot.x, spot.y, fw, fh, registry, world, tiles);
+        registry.add(entity);
+        entities.push(entity);
+        for (let dy = 0; dy < fh; dy++) for (let dx = 0; dx < fw; dx++) occ.claim(spot.x + dx, spot.y + dy, 'civic');
       }
     }
   }

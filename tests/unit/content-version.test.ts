@@ -6,7 +6,7 @@ describe('content-version constants', () => {
     expect(ART_RECIPE_VERSION).toBe('v16');
   });
 
-  it('declares the current world content version (29: site expansion — auxiliaries co-placed)', () => {
-    expect(WORLD_CONTENT_VERSION).toBe(29);
+  it('declares the current world content version (30: site fixtures — wells co-placed)', () => {
+    expect(WORLD_CONTENT_VERSION).toBe(30);
   });
 });

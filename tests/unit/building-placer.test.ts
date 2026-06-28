@@ -121,10 +121,12 @@ describe('placeSettlement', () => {
     const zoneRule = getZoneRule('village');
     const rng = new Random(99);
     const { entities } = placeSettlement(poi, zoneRule, tiles, registry, [], rng);
-    // result.entities now includes civic props (S5) and site auxiliaries (E2 — a
-    // tavern's stable). Both are appendages of the platted establishments, not
-    // independently budgeted dwellings, so the buildingCount cap excludes them.
-    const dwellings = entities.filter(e => !e.properties?.civic && !e.tags?.includes('auxiliary'));
+    // result.entities now includes civic props (S5), site auxiliaries (E2 — a tavern's
+    // stable) and site fixtures (E2 — a tavern's well). All are appendages of the
+    // platted establishments, not independently budgeted dwellings, so the buildingCount
+    // cap excludes them.
+    const dwellings = entities.filter(e =>
+      !e.properties?.civic && !e.tags?.includes('auxiliary') && !e.tags?.includes('fixture'));
     expect(dwellings.length).toBeLessThanOrEqual(zoneRule.buildingCount.max);
   });
 
