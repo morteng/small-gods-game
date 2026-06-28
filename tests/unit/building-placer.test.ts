@@ -175,6 +175,35 @@ describe('placeSettlement', () => {
     expect(entities.length).toBeGreaterThanOrEqual(zoneRule.buildingCount.min);
   });
 
+  it('keeps the ground in front of a focus building entrance clear (no doorstep blocking)', () => {
+    // Across several seeds, whenever a settlement nucleates a focus (church/manor/temple),
+    // the tile directly in front of its main door must not be covered by another building's
+    // footprint — the entrance-clearance forecourt reservation.
+    let checked = 0;
+    for (let seed = 1; seed <= 12; seed++) {
+      const reg = new EntityRegistry();
+      const poi = { id: `t${seed}`, type: 'village', position: { x: 50, y: 50 } };
+      const { entities } = placeSettlement(poi, getZoneRule('village'), makeTiles(100, 100, 'grass'), reg, [], new Random(seed));
+      const focus = entities.find(e => /church|temple|manor|hall/.test(String(e.kind)));
+      if (!focus) continue;
+      const anchors = focus.properties?.anchors as Array<{ kind: string; x: number; y: number; facing?: [number, number]; main?: boolean }> | undefined;
+      const door = anchors?.find(a => a.kind === 'door' && a.main) ?? anchors?.find(a => a.kind === 'door');
+      if (!door?.facing) continue;
+      // the tile one step out from the door in its facing direction
+      const ax = Math.round(door.x + door.facing[0] * 0.5);
+      const ay = Math.round(door.y + door.facing[1] * 0.5);
+      const blocked = new Set<string>();
+      for (const e of entities) {
+        if (e === focus) continue;
+        const fp = e.properties?.footprint as { w: number; h: number } | undefined;
+        for (let dy = 0; dy < (fp?.h ?? 1); dy++) for (let dx = 0; dx < (fp?.w ?? 1); dx++) blocked.add(`${e.x + dx},${e.y + dy}`);
+      }
+      expect(blocked.has(`${ax},${ay}`)).toBe(false);
+      checked++;
+    }
+    expect(checked).toBeGreaterThan(0); // at least one seed actually produced a focus to test
+  });
+
   it('deterministic with same seed', () => {
     const poi = { id: 'vd', type: 'village', position: { x: 40, y: 40 } };
     const zoneRule = getZoneRule('village');

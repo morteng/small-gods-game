@@ -439,6 +439,26 @@ export function placeSettlement(
         if (hitRoad) break;
       }
     }
+    // Entrance clearance: keep the ground directly in front of the main door OPEN so
+    // nothing parks on the doorstep (the "cottage in front of the church" bug). A focus
+    // building (church/manor) reserves a small forecourt; any building reserves at least
+    // its single approach tile. Claimed AFTER the connector carve and only on FREE,
+    // buildable ground — so existing roads/footprints and the church's own lane survive,
+    // and a frontage dwelling (door already on a road) reserves nothing extra.
+    const isFocus = !!(rb.preset && SITE_RULES[rb.preset]?.focus);
+    const reach = isFocus ? 2 : 1;          // tiles of clear depth in front of the door
+    const halfW = isFocus ? 1 : 0;          // perpendicular half-width (focus ⇒ 3 wide)
+    const px = -facing[1], py = facing[0];  // perpendicular to the door's facing
+    const dxw = Math.round(origin.tileX + doorLx), dyw = Math.round(origin.tileY + doorLy);
+    for (let step = 1; step <= reach; step++) {
+      for (let s = -halfW; s <= halfW; s++) {
+        const fx = dxw + facing[0] * step + px * s;
+        const fy = dyw + facing[1] * step + py * s;
+        const t = tiles[fy]?.[fx];
+        if (!t || WATER_TYPES.has(t.type) || !occ.isFree(fx, fy)) continue;
+        occ.claim(fx, fy, 'civic');
+      }
+    }
     placed++;
     return entity;
   };
