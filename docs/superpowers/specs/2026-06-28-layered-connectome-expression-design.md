@@ -22,6 +22,15 @@ writes more information onto it; the geometry/render is a *projection* of the fu
 This is already how the **world** scale works ("the renderer is a projection of one connectome"). This
 epic brings the **building** scale into the same discipline.
 
+**The goal (user):** *infinite variety of buildings with REAL architecture and construction.* The variety
+is the **product space × seed**: `function × form × fabric × material × size × era × wealth × culture ×
+seed` is continuous — one function (dwelling) sweeps cottage → cruck hall → box-frame townhouse → stone
+manor as the fabric/wealth/era axes move, and *within* a point the seed varies bay count, footprint, roof
+and fenestration. The "real" is the **inter-layer constraints**: Structure gates Form gates Fabric, so
+every point is a *plausible* building (a stone box can't jetty; a cruck cottage keeps its bay rhythm) — it
+is grounded variety, not random noise. Therefore every subsystem is built **generative + seeded**, not a
+fixed lookup; a named preset is just one pinned point in the space.
+
 ## The four primitives (orthogonal authoring axes)
 
 | Primitive | User's word | What it is | Lives in |
@@ -82,6 +91,25 @@ no longer the *authoring unit*; new buildings are new function tags + the gramma
   derived from `topology` + size under Structure's caps.
 - **Material** already floats: `eras.ts` era-restyles `walls/roof/ground` independently; the ladder is in
   the catalogue `material` facts (`rank`, `wealthLadder`, `regionAffinity`).
+
+## Structural realism the model must carry (user)
+
+These are not extra features bolted on — each is a *facet of the structure axis*, which is exactly why
+Structure is Layer 1: "load-bearing" is meaningless until the frame is a real annotation, and once it is,
+all of these become expressible as reads off it.
+
+| Concern | Where it lives | Rule it encodes |
+|---|---|---|
+| **Foundations & footings** | Structure (sub-grade) | the frame's below-grade member; ties to the existing building-pad terrain deformation (the pad IS the footing). A mass-wall foots wider than a cruck. |
+| **Cellars / undercrofts** | a zone at `level:-1` | the connectome already carries `Zone.level` (0 = ground). A cellar is a sub-grade zone; its walls are always load-bearing (they retain earth). The townhouse "over a stone undercroft" is exactly this. |
+| **Hearth placement** | Structure-gated fixture | an **open hearth** sits central in the hall (no flue, smoke to a ridge louvre); a **wall-fireplace/chimney** must back onto a **load-bearing (mass) wall** — so the smoke subsystem's `'ridge'` vs `'wall'` choice is *gated by the frame* (a cruck cottage can't take a wall-chimney; a mass-wall hall can). |
+| **Load-bearing vs partition internals** | Structure → Fabric | the frame fixes which internal divisions are **structural** (box-frame cross-frames / spine wall, cruck trusses on the `bayModule`) vs free **partitions**. Structural lines define bays and **cannot be freely pierced**; partitions can. |
+| **Door placement** | Fabric, consuming Structure | doors sit in **framed panels / between posts / in partitions** — never through a structural post or a cruck blade. The `bayModule` is what door/window slots must respect (this generalizes today's `FENESTRATION` slot policy to be bay-aware). |
+
+Sequencing: Layer 1 (this slice) makes the frame + its load-bearing lines real. Cellars (`level:-1`
+zones) and structure-gated hearth placement are a near follow-on; bay-aware door/partition placement is the
+Fabric slice (Layer 3) once Form derives the bay grid. None of it needs new primitives — `Zone.level`,
+`Fixture`, and the frame annotation already carry it.
 
 ## Slices (each pure, seeded, tested, deployable)
 

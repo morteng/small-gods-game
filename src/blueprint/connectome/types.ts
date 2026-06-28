@@ -94,6 +94,18 @@ export interface Connectome {
   barriers?: Barrier[];
   /** Terrain deformations this graph projects onto the world heightfield. */
   earthworks?: Earthwork[];
+  /**
+   * Layer 1 — the chosen construction (frameType) + its load limits, written by the
+   * structure subsystem (`structure.ts`). Form/Fabric read it to gate massing + openings.
+   * Shape mirrors `ConnectomeStructure`; kept inline so `types.ts` stays import-light.
+   */
+  structure?: {
+    frame: string;
+    maxStoreys?: number;
+    jettyMax?: number;
+    bayModule?: number;
+    fenestration?: { maxPerFace?: number; spacing?: number };
+  };
   /** Where this graph came from — the source catalogue type + its topology. */
   source?: { type?: string; topology?: string };
 }

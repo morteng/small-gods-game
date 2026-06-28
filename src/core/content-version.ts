@@ -45,8 +45,13 @@
  * skeletons (broadleaf/weeping) or space-colonization crowns (conifer cones) keyed
  * on a per-species crownShape, replacing the six L-system recipes that collapsed all
  * species to ~3 silhouettes. Shifts the geometry of every `branch_plant` (plant) sprite.
+ * 'v14' — layered-connectome Layer 1 (STRUCTURE): a building's frameType is now selected
+ * from its wall material + era/region and GATES its form — a solid/cruck/stave wall can no
+ * longer jetty (only a box-frame does), and storeys are capped to what the frame bears. So
+ * any building whose authored massing exceeded its frame shifts (e.g. the stone manor's
+ * cross-wing loses its timber-frame jetty). See the layered-connectome-expression spec.
  */
-export const ART_RECIPE_VERSION = 'v13';
+export const ART_RECIPE_VERSION = 'v14';
 
 /**
  * Bump when WORLDGEN / preset output changes (footprints, placement, heights).

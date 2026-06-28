@@ -113,6 +113,12 @@ export interface BuildingTypeFields {
   requires?: string[];
   /** Requirement tokens this building SATISFIES as an auxiliary in a site (a stable satisfies 'stabling'). */
   satisfies?: string[];
+  /**
+   * Construction hint (layered-connectome Layer 1): the frameType id this building
+   * PREFERS. A box-frame townhouse jetties and stacks; a cruck cottage doesn't. Omitted
+   * ⇒ the structure subsystem DERIVES the frame from the wall material + era/region.
+   */
+  frame?: string;
 }
 
 export interface RoomTypeFields {
@@ -158,6 +164,20 @@ export interface SmokeSystemFields {
 
 export interface FrameTypeFields {
   regionAffinity?: string[];
+  // ── Structural axis (layered-connectome Layer 1): the load system's geometric
+  // consequences. A building's STRUCTURE subsystem (`blueprint/connectome/structure.ts`)
+  // selects a frame from the wall material + era/region/wealth, then GATES the form:
+  // what can jetty, how many storeys stack, how generously the walls may be opened. ──
+  /** Wall materials this frame carries — the selection affinity (stone ⇒ mass-wall). */
+  wallAffinity?: string[];
+  /** Max load-bearing storeys this frame supports (box-frame town houses stack; cruck ≈ 1). */
+  maxStoreys?: number;
+  /** Max jetty overhang (tiles/storey). A TIMBER-FRAME phenomenon — 0 for mass-wall/cruck/stave. */
+  jettyMax?: number;
+  /** Bay module (tiles) the frame repeats on — the post/window rhythm (Layer 3 fabric). */
+  bayModule?: number;
+  /** Fenestration generosity the frame's walls permit (Layer 3 openings policy). */
+  fenestration?: { maxPerFace?: number; spacing?: number };
 }
 
 /** A topology names the interpreter that wires its zones into portals. */

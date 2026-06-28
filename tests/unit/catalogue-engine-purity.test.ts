@@ -28,6 +28,7 @@ const ENGINE_FILES = [
   'src/blueprint/connectome/earthworks.ts',
   'src/blueprint/connectome/complex.ts',
   'src/blueprint/connectome/site.ts',
+  'src/blueprint/connectome/structure.ts',
   'src/blueprint/connectome/index.ts',
 ];
 

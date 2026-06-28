@@ -28,6 +28,8 @@ export {
 export type { ComplexPlan, PlacedComplex } from './complex';
 export { expandSite, siteToPlan, registerSiteInterpreter } from './site';
 export type { SitePlan } from './site';
+export { selectFrame, annotateStructure, connectomeStructure } from './structure';
+export type { ConnectomeStructure } from './structure';
 export {
   siteSelect,
   scoreSite,

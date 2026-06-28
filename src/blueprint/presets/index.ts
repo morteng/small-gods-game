@@ -13,6 +13,7 @@ import { expand } from '../connectome/grammar';
 import { deriveSmokeEgress } from '../connectome/smoke';
 import { connectomeToBlueprint } from '../connectome/to-blueprint';
 import { connectomeOpenings, GEN_OPENINGS_TAG } from '../connectome/openings';
+import { annotateStructure, connectomeStructure } from '../connectome/structure';
 import type { Connectome, ExpandCtx } from '../connectome/types';
 import { allFloraSpecies, getFloraSpecies } from '@/flora/flora-registry';
 import { stairFootprint } from '../parts/stair';
@@ -430,6 +431,7 @@ export function synthesizeBlueprint(name: string, patches: BlueprintPatch[] = []
     connectome = d.connectome;
     if (d.openingsPatch) all.push(d.openingsPatch);
     if (d.ventPatch) all.push(d.ventPatch);
+    if (d.structurePatch) all.push(d.structurePatch); // last — frame caps win
   }
   const rb = resolveBlueprint(all, s);
   if (connectome) attachConnectome(rb, connectome);
@@ -478,10 +480,17 @@ function deriveConnectome(
   era: Era | undefined,
   wealth: string | undefined,
   seed: number,
-): { connectome: Connectome; ventPatch: BlueprintPatch | null; openingsPatch: BlueprintPatch | null } {
+): {
+  connectome: Connectome;
+  ventPatch: BlueprintPatch | null;
+  openingsPatch: BlueprintPatch | null;
+  structurePatch: BlueprintPatch | null;
+} {
   loadDefaultPacks();
   const ctx: ExpandCtx = { era: era ?? base.era ?? 'medieval', wealth, seed, registry: catalogue };
-  const connectome = deriveSmokeEgress(expand(type, ctx), ctx);
+  // Layer 1 — annotate the graph with its construction (frameType) selected from the wall
+  // material + era/region, BEFORE projecting the room graph down. Form/Fabric read it.
+  const connectome = annotateStructure(deriveSmokeEgress(expand(type, ctx), ctx), base, ctx);
   const ventPatch = hasAuthoredVent(base) ? null : (() => {
     const p = connectomeToBlueprint(connectome, base);
     return Object.keys(p).length ? p : null;
@@ -492,7 +501,13 @@ function deriveConnectome(
     const p = connectomeOpenings(connectome, base, ctx.era);
     return Object.keys(p).length ? p : null;
   })();
-  return { connectome, ventPatch, openingsPatch };
+  // Structure caps the form: a solid/cruck/stave wall can't jetty, a frame bears only so
+  // many storeys. Lowers only the body parts that exceed the frame's limits (else {}).
+  const structurePatch = (() => {
+    const p = connectomeStructure(connectome, base);
+    return Object.keys(p).length ? p : null;
+  })();
+  return { connectome, ventPatch, openingsPatch, structurePatch };
 }
 
 /** Attach the latent room-graph WITHOUT entering the art-cache key. canonicalJson(rb)
@@ -547,6 +562,7 @@ export function resolveAsset(req: AssetRequest): ResolvedBlueprint | undefined {
     connectome = d.connectome;
     if (d.openingsPatch) patches.push(d.openingsPatch);
     if (d.ventPatch) patches.push(d.ventPatch);
+    if (d.structurePatch) patches.push(d.structurePatch); // last — frame caps win
   }
 
   const rb = resolveBlueprint(patches, seed);

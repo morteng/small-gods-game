@@ -23,8 +23,10 @@ const b = (
   defaultMaterials: Record<string, string>,
   lod: { l0: string; l1: string[]; l2?: string },
   extra: Partial<B> = {},
-  // Optional establishment tokens read by the site grammar (functions/requires/satisfies).
-  siteFields: Partial<Pick<BuildingTypeFields, 'functions' | 'requires' | 'satisfies'>> = {},
+  // Optional cross-axis fields: establishment tokens read by the site grammar
+  // (functions/requires/satisfies) + the `frame` construction hint read by the
+  // structure subsystem (omitted ⇒ frame derived from the wall material).
+  siteFields: Partial<Pick<BuildingTypeFields, 'functions' | 'requires' | 'satisfies' | 'frame'>> = {},
 ): B => ({
   id,
   kind: 'buildingType',
@@ -44,7 +46,8 @@ export const MEDIEVAL_BUILDING_TYPES: B[] = [
     [1, 2], { walls: 'wattle', roof: 'thatch', ground: 'packed_dirt' },
     { l0: 'a one-room peasant cottage', l1: ['mud or wattle walls', 'thatched roof', 'central open hearth'],
       l2: 'A single-bay commoner dwelling, hearth in the middle of the floor, smoke escaping through a ridge louver — no chimney.' },
-    { applicability: { eras: ['medieval'] }, provenance: ['https://en.wikipedia.org/wiki/Cottage'] }),
+    { applicability: { eras: ['medieval'] }, provenance: ['https://en.wikipedia.org/wiki/Cottage'] },
+    { frame: 'cruck' }),
 
   b('tavern', 'tripartite-linear',
     [room('taproom', 1, 1), room('kitchen', 1, 1), room('guest-chamber', 2, 1)],
@@ -54,7 +57,7 @@ export const MEDIEVAL_BUILDING_TYPES: B[] = [
     { l0: 'a timber-framed tavern or inn', l1: ['jettied upper storey', 'twin chimney stacks', 'many windows'],
       l2: 'A cooking-and-lodging house: ground-floor taproom and kitchen, guest chambers above, smoke carried up real chimney stacks.' },
     { provenance: ['https://en.wikipedia.org/wiki/Inn'] },
-    { functions: ['hospitality', 'commercial'], requires: ['stabling', 'signage', 'seating', 'water-supply'] }),
+    { functions: ['hospitality', 'commercial'], requires: ['stabling', 'signage', 'seating', 'water-supply'], frame: 'box-frame' }),
 
   b('townhouse', 'tripartite-linear',
     [room('parlour', 1, 1), room('chamber', 1, 1)],
@@ -63,7 +66,8 @@ export const MEDIEVAL_BUILDING_TYPES: B[] = [
     [1, 2], { walls: 'timber', roof: 'tile', ground: 'flagstone' },
     { l0: 'an urban burgage townhouse', l1: ['two jettied storeys', 'stone ground floor', 'gable to the street'],
       l2: 'The cottage’s town upgrade on a narrow burgage plot: parlour over a stone undercroft, chambers above, a proper chimney.' },
-    { provenance: ['https://en.wikipedia.org/wiki/Burgage'] }),
+    { provenance: ['https://en.wikipedia.org/wiki/Burgage'] },
+    { frame: 'box-frame' }),
 
   b('market_stall', 'tripartite-linear',
     [room('shopfront-stall', 1, 1)],
@@ -153,7 +157,8 @@ export const MEDIEVAL_BUILDING_TYPES: B[] = [
     [3, 4], { walls: 'log', roof: 'thatch', ground: 'packed_dirt' },
     { l0: 'a longhouse shared with stock', l1: ['half-hip thatch', 'opposed cross-passage doors', 'blind byre end'],
       l2: 'Humans and cattle under one roof: living end with the hearth, byre end down-slope with a dung drain, divided by a cross-passage.' },
-    { provenance: ['https://en.wikipedia.org/wiki/Longhouse'] }),
+    { provenance: ['https://en.wikipedia.org/wiki/Longhouse'] },
+    { frame: 'cruck' }),
 
   // ── primed (facts now, geometry in Slice 4) ────────────────────────────────
   b('manor', 'tripartite-linear',
