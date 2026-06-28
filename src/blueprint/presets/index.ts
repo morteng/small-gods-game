@@ -10,6 +10,7 @@ import { ensureBuildingTypesRegistered } from '../register-buildings';
 import { GEN_OPENINGS_TAG } from '../connectome/openings';
 import { GEN_FORM_TAG } from '../connectome/form';
 import { expressBuilding } from './express';
+import { blueprintFromBuildingType } from './from-building-type';
 import type { Connectome } from '../connectome/types';
 import { allFloraSpecies, getFloraSpecies } from '@/flora/flora-registry';
 import { stairFootprint } from '../parts/stair';
@@ -440,9 +441,11 @@ function floraSpeciesBlueprint(name: string): Blueprint | undefined {
  *  louver/chimney as resolveAsset; the derived vent patch is applied LAST). */
 export function synthesizeBlueprint(name: string, patches: BlueprintPatch[] = [], seed?: number): ResolvedBlueprint | undefined {
   ensureBuildingTypesRegistered();
-  const base = BUILDING_BLUEPRINTS[name] ?? floraSpeciesBlueprint(name);
-  if (!base) return undefined;
   const s = seed ?? [...name].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7);
+  // Resolution order: a PINNED hand preset → a flora species → the GENERATIVE catalogue
+  // bridge (a buildingType programme with no preset, expressed via the layered fold).
+  const base = BUILDING_BLUEPRINTS[name] ?? floraSpeciesBlueprint(name) ?? blueprintFromBuildingType(name, s);
+  if (!base) return undefined;
   let connectome: Connectome | undefined;
   let pre: BlueprintPatch[] = [];  // derived DEFAULTS, before the caller's override patches
   let post: BlueprintPatch[] = []; // derived projections + frame cap, after the overrides
