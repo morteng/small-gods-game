@@ -254,12 +254,77 @@ const oversubscribedJunction: DiagnosticRule = {
   },
 };
 
+/** Min distance from point (px,py) to the segment [a,b]. */
+function distToSeg(px: number, py: number, ax: number, ay: number, bx: number, by: number): number {
+  const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy;
+  if (l2 === 0) return Math.hypot(px - ax, py - ay);
+  let t = ((px - ax) * dx + (py - ay) * dy) / l2;
+  t = t < 0 ? 0 : t > 1 ? 1 : t;
+  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+}
+/** Min distance from a point to a polyline. */
+function distToPolyline(px: number, py: number, poly: { x: number; y: number }[]): number {
+  let best = Infinity;
+  for (let i = 0; i + 1 < poly.length; i++) best = Math.min(best, distToSeg(px, py, poly[i].x, poly[i].y, poly[i + 1].x, poly[i + 1].y));
+  return best;
+}
+function polylineLength(poly: { x: number; y: number }[]): number {
+  let s = 0;
+  for (let i = 0; i + 1 < poly.length; i++) s += Math.hypot(poly[i + 1].x - poly[i].x, poly[i + 1].y - poly[i].y);
+  return s;
+}
+
+const PARALLEL_PROXIMITY_TILES = 2.5;     // within this, two roads "run together"
+const PARALLEL_MIN_SHARED_TILES = 6;      // a shared corridor must span at least this far
+const PARALLEL_MIN_SHARED_FRACTION = 0.5; // …and cover ≥ half the SHORTER road
+
+/** WARN — two DIFFERENT-endpoint roads run near-parallel for a long stretch (a route-level
+ *  duplicate corridor the same-endpoint `road.redundant-parallel` rule can't see). This is the
+ *  detection half of the "merge parallel roads" work (#26): it surfaces the corridor in the
+ *  studio overlay / `lint_world` so the (connectivity-preserving) merge can target it. Pure
+ *  geometry, no worldgen change. */
+const parallelCorridorRoad: DiagnosticRule = {
+  id: 'road.parallel-corridor',
+  severity: 'warn',
+  description: 'Two roads with different endpoints run near-parallel for a long stretch — a wasteful duplicate corridor.',
+  evaluate(ctx) {
+    const g = ctx.map.roadGraph;
+    if (!g) return [];
+    const roads = g.edges.filter((e) => e.feature === 'road' && e.polyline.length >= 2);
+    const out: Diagnostic[] = [];
+    for (let i = 0; i < roads.length; i++) {
+      for (let j = i + 1; j < roads.length; j++) {
+        const e1 = roads[i], e2 = roads[j];
+        // Shared run = length of e1 whose segment midpoints lie within proximity of e2.
+        let shared = 0;
+        for (let k = 0; k + 1 < e1.polyline.length; k++) {
+          const a = e1.polyline[k], b = e1.polyline[k + 1];
+          const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+          if (distToPolyline(mx, my, e2.polyline) <= PARALLEL_PROXIMITY_TILES) shared += Math.hypot(b.x - a.x, b.y - a.y);
+        }
+        const minLen = Math.min(polylineLength(e1.polyline), polylineLength(e2.polyline)) || 1;
+        if (shared >= PARALLEL_MIN_SHARED_TILES && shared >= PARALLEL_MIN_SHARED_FRACTION * minLen) {
+          out.push({
+            rule: this.id, severity: this.severity,
+            message: `roads ${e1.id} and ${e2.id} run together for ~${Math.round(shared)} tiles — consider merging into one corridor`,
+            locus: { edges: [e1.id, e2.id] },
+            metrics: { sharedTiles: Math.round(shared * 10) / 10 },
+            suggestedFix: { verb: 'merge_roads', args: { edges: [e1.id, e2.id] } },
+          });
+        }
+      }
+    }
+    return out.sort((a, b) => (b.metrics?.sharedTiles ?? 0) - (a.metrics?.sharedTiles ?? 0));
+  },
+};
+
 /** The registered rule set, run in order. */
 export const DEFAULT_RULES: DiagnosticRule[] = [
   buildingOverlap,
   barrierThroughBuilding,
   roadThroughBuilding,
   redundantParallelRoad,
+  parallelCorridorRoad,
   oversubscribedJunction,
 ];
 

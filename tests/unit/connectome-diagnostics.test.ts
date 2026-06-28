@@ -85,7 +85,7 @@ describe('connectome diagnostics', () => {
   it('exposes a stable default rule set', () => {
     expect(DEFAULT_RULES.map((r) => r.id)).toEqual([
       'building.overlap', 'barrier.through-building', 'road.through-building',
-      'road.redundant-parallel', 'junction.oversubscribed',
+      'road.redundant-parallel', 'road.parallel-corridor', 'junction.oversubscribed',
     ]);
   });
 });
