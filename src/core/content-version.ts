@@ -53,4 +53,4 @@ export const ART_RECIPE_VERSION = 'v13';
  * An autosave stamped with a different value is discarded on load → a fresh
  * world is generated. Distinct from SAVE_VERSION (which guards the save *schema*).
  */
-export const WORLD_CONTENT_VERSION = 24;  // PARALLEL-ROAD MERGE (#26): worldgen now drops redundant near-parallel road corridors (connectivity-preserving) and un-carves their tiles — the road network changes where corridors existed ⇒ discard older autosaves. (23 = entrance stoops; 22 = river density area-scaling; 21 = aqueduct arcade G6 polish; 20 = emergent aqueducts G6 on piers; 19 = stairs CONNECT G3d.)
+export const WORLD_CONTENT_VERSION = 25;  // RIVERSIDE LEVEE (#24): roads running alongside open water now ride up on an embankment berm (terrain raise) instead of lying flush with the waterline — the composed heightfield changes along riverside roads ⇒ discard older autosaves. (24 = parallel-road merge; 23 = entrance stoops; 22 = river density area-scaling; 21 = aqueduct arcade G6 polish; 20 = emergent aqueducts G6 on piers; 19 = stairs CONNECT G3d.)

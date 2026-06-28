@@ -23,6 +23,7 @@
 // + the seed heightfield + worldSeed era; nothing here is persisted; re-derives
 // identically on load. Memoised per (seed, dims) like getHeightfield.
 import type { GameMap, POI } from '@/core/types';
+import { WATER_TYPES } from '@/core/constants';
 import type { RoadGraph, RoadEdge, RoadNode } from '@/world/road-graph';
 import {
   DeformationStore,
@@ -326,6 +327,93 @@ export function buildRoadDeformations(map: GameMap, graph: RoadGraph): Deformati
   return out;
 }
 
+// ── Riverside levee (#24): roads alongside open water ride up on an embankment ──
+
+/** Full-height berm rise (metres) where a road runs alongside open water. ~1.5 m reads as a
+ *  real causeway above the waterline without looking like a wall (cf. embankment fill G2). */
+const LEVEE_HEIGHT_M = 1.5;
+/** Half-width (tiles) of the levee's full-height crown about the road centerline. */
+const LEVEE_HALF_TILES = 1.2;
+/** Bank falloff (tiles) beyond the crown — the embankment slopes back down to grade. */
+const LEVEE_FEATHER_TILES = 1.6;
+/** A road vertex counts as "riverside" if open water lies within this radius (tiles). */
+const RIVERSIDE_REACH_TILES = 2.5;
+
+/**
+ * Pure: the riverside-levee deformations a map's roads imply (#24 — "road-river
+ * relationship"). A road that runs flush alongside a river reads as if it would flood;
+ * a real road there sits on a raised embankment. For each road edge we find its
+ * CONTIGUOUS riverside sub-runs (consecutive polyline vertices whose cell is near open
+ * water) and raise each on an `add` berm that composes ABOVE the road's grade-cut and the
+ * river incision (priority 80 > road 30 > river-carve 40). The mask returns 0 over water
+ * tiles, so the river keeps its bed — only the road and its landward bank lift. Empty when
+ * no road runs beside water (exact parity by construction).
+ */
+export function buildLeveeDeformations(map: GameMap): Deformation[] {
+  if (!map.roadGraph || !map.tiles?.length) return [];
+  const W = map.width, H = map.height;
+  const isWater = (tx: number, ty: number): boolean => {
+    if (tx < 0 || ty < 0 || tx >= W || ty >= H) return false;
+    const t = map.tiles[ty]?.[tx];
+    return !!t && WATER_TYPES.has(t.type);
+  };
+  const r = Math.ceil(RIVERSIDE_REACH_TILES);
+  const reach2 = RIVERSIDE_REACH_TILES * RIVERSIDE_REACH_TILES;
+  const nearWater = (p: Pt): boolean => {
+    const cx = Math.round(p.x), cy = Math.round(p.y);
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        if (dx * dx + dy * dy > reach2) continue;
+        if (isWater(cx + dx, cy + dy)) return true;
+      }
+    }
+    return false;
+  };
+
+  const out: Deformation[] = [];
+  for (const edge of map.roadGraph.edges) {
+    if (edge.feature !== 'road' || edge.polyline.length < 2) continue;
+    // Split the edge into contiguous riverside sub-runs — a road may touch water in two
+    // separate places, and one polyline across the gap would berm dry ground between them.
+    const runs: Pt[][] = [];
+    let cur: Pt[] = [];
+    for (const p of edge.polyline) {
+      if (nearWater(p)) cur.push(p);
+      else { if (cur.length >= 2) runs.push(cur); cur = []; }
+    }
+    if (cur.length >= 2) runs.push(cur);
+
+    runs.forEach((run, ri) => {
+      const cumS = new Array<number>(run.length);
+      cumS[0] = 0;
+      for (let i = 1; i < run.length; i++) cumS[i] = cumS[i - 1] + Math.hypot(run[i].x - run[i - 1].x, run[i].y - run[i - 1].y);
+      const reachT = LEVEE_HALF_TILES + LEVEE_FEATHER_TILES;
+      const xs = run.map((p) => p.x), ys = run.map((p) => p.y);
+      out.push({
+        id: `${edge.id}:levee:${ri}`,
+        source: 'road:levee',
+        op: 'add',
+        priority: 80,
+        amount: LEVEE_HEIGHT_M,
+        bounds: {
+          minX: Math.min(...xs) - reachT,
+          minY: Math.min(...ys) - reachT,
+          maxX: Math.max(...xs) + reachT,
+          maxY: Math.max(...ys) + reachT,
+        },
+        mask(tx, ty) {
+          if (isWater(Math.round(tx), Math.round(ty))) return 0; // never raise the river bed
+          const { d } = projectToPolyline(run, cumS, tx, ty);
+          if (d >= reachT) return 0;
+          if (d <= LEVEE_HALF_TILES) return 1;
+          return clamp01(1 - (d - LEVEE_HALF_TILES) / LEVEE_FEATHER_TILES);
+        },
+      });
+    });
+  }
+  return out;
+}
+
 // ── Memoised stores + composed fields, keyed by (seed, dims) like getHeightfield ──
 
 const storeCache = new Map<string, DeformationStore>();
@@ -378,6 +466,7 @@ export function getWorldDeformationStore(map: GameMap): DeformationStore {
   if (map.roadGraph) store.add(...buildRoadDeformations(map, map.roadGraph));
   store.add(...buildRiverDeformations(map, getHydrologyResult(map)));
   store.add(...buildSettlementPadDeformations(map));
+  store.add(...buildLeveeDeformations(map)); // #24: riverside roads ride up on an embankment
   worldStoreCache.set(k, store);
   evict(worldStoreCache);
   return store;

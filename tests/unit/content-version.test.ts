@@ -6,7 +6,7 @@ describe('content-version constants', () => {
     expect(ART_RECIPE_VERSION).toBe('v13');
   });
 
-  it('declares the current world content version (24: parallel-road merge)', () => {
-    expect(WORLD_CONTENT_VERSION).toBe(24);
+  it('declares the current world content version (25: riverside levee)', () => {
+    expect(WORLD_CONTENT_VERSION).toBe(25);
   });
 });
