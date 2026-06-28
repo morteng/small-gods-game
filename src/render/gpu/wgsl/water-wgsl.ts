@@ -45,7 +45,10 @@ struct WGlobals {
 @group(0) @binding(1) var<storage, read> terrainH : array<f32>; // normalised elev (composed)
 @group(0) @binding(2) var<storage, read> surfaceW : array<f32>; // water surface, −1 dry
 @group(0) @binding(3) var<storage, read> wtype    : array<u32>; // 0 dry,1 ocean,2 lake,3 river
-// binding 4 (per-cell flow) retired — river flow is now the analytic centreline tangent.
+// binding 4: WET-CELL MESH list — packed (cellX | cellY<<16), one entry per quad. The CPU
+// emits a quad only for water-or-river-band lattice cells, so the dry map interior costs no
+// vertex work (was: a full-window grid that collapsed dry quads to degenerate triangles).
+@group(0) @binding(4) var<storage, read> wetCells : array<u32>;
 @group(0) @binding(5) var<storage, read> shallowC : array<u32>; // S4 biome shallow 0xAABBGGRR
 @group(0) @binding(6) var<storage, read> deepC    : array<u32>; // S4 biome deep colour
 @group(0) @binding(7) var<storage, read> clarity  : array<f32>; // S4 water clarity 0..1
@@ -81,10 +84,13 @@ fn vnoise(p : vec2<f32>) -> f32 {
   return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
 }
 fn fbm(p : vec2<f32>) -> f32 {
+  // 2 octaves (was 3) — the swell phases are already warped by independent fbm taps in
+  // DIFFERENT directions, so the third octave's fine detail is lost in the warp anyway;
+  // dropping it is the cheapest per-fragment win on the quad/fill-bound water pass.
   var v = 0.0;
   var amp = 0.5;
   var q = p;
-  for (var k = 0u; k < 3u; k = k + 1u) {
+  for (var k = 0u; k < 2u; k = k + 1u) {
     v = v + amp * vnoise(q);
     q = q * 2.03 + vec2<f32>(11.7, 4.3);
     amp = amp * 0.5;
@@ -313,20 +319,16 @@ fn vsMain(@builtin(vertex_index) vid : u32) -> VSOut {
   let W = u32(G.uGrid.x);
   let H = u32(G.uGrid.y);
   let sub = max(1u, u32(G.uZParams.w));
-  // VIEWPORT CULL: the mesh spans only the visible tile window (origin + cell span,
-  // both snapped to the sub lattice CPU-side so the sampled cells are unchanged).
-  // Whole-map default is uWindow = (0,0,W,H) - byte-identical to the un-windowed grid.
-  let ox0 = u32(G.uWindow.x);
-  let oy0 = u32(G.uWindow.y);
-  let winW = max(1u, u32(G.uWindow.z));
-  let quadsPerRow = max(1u, winW / sub);
 
   let quadIdx = vid / 6u;
   let vinq = vid % 6u;
-  let qx = quadIdx % quadsPerRow;
-  let qy = quadIdx / quadsPerRow;
-  let cellX = min(ox0 + qx * sub, W - 1u);
-  let cellY = min(oy0 + qy * sub, H - 1u);
+  // WET-CELL MESH (sparse): one quad per water-or-river-band lattice cell, packed by the
+  // CPU as cellX | (cellY<<16) — already window-culled + lattice-snapped, so the dry map
+  // interior generates no vertices at all. The draw-gate below still trims the generous
+  // river-band dilation precisely. (uWindow now drives only the CPU cull, not this loop.)
+  let packed = wetCells[quadIdx];
+  let cellX = min(packed & 0xffffu, W - 1u);
+  let cellY = min(packed >> 16u, H - 1u);
   let ci = cellIdx(cellX, cellY);
 
   var corner = vec2<u32>(0u, 0u);
@@ -539,21 +541,16 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
     let amp = mix(0.45, 1.0, exposure) * (0.7 + 0.6 * shoal);
     color += vec3<f32>(smoothstep(0.6, 0.97, crest) * (0.05 + 0.05 * nearShore) * amp);
 
-    // Specular-ish glints: noise (NOT a sine lattice) drifting along the swell, only
-    // in open water so they don't fight the shore foam.
-    let gl = fbm(g * 0.7 - dir * (t * 0.5));
-    color += vec3<f32>(smoothstep(0.82, 0.97, gl) * 0.045 * (1.0 - nearShore));
+    // (Open-water specular glints removed — a per-fragment fbm tap whose subtle sparkle
+    // didn't justify its cost on the fill-bound water pass.)
 
     // SWASH run-up: a slow waterline that advances up the shelf and pulls back. The
-    // throw is larger on gentle/long beaches (shoal) so wide shallows get a long
-    // wash; steep shores barely move. As the sheet retreats it leaves a brief WET
-    // band (darkened shallow water) — the just-uncovered shore. The foam crest rides
-    // the leading edge of the run-up.
+    // throw is larger on gentle/long beaches (shoal) so wide shallows get a long wash;
+    // steep shores barely move. (The trailing wet-band darkening was dropped — a second
+    // pair of smoothsteps for a barely-visible effect; the swash sheet + foam stay.)
     let swash = sin(t * 0.55 + dot(g, dir) * 0.08 + warpA * 0.15) * 0.5 + 0.5; // 0..1, slow
     let runLine = (0.6 + 5.0 * shoal) * swash;          // tiles up the shelf the sheet reaches
     let sheet = smoothstep(runLine, runLine - 1.2, shore);   // 1 where the wash currently covers
-    let wet = clamp(smoothstep(runLine + 1.4, runLine, shore) - sheet, 0.0, 1.0) * shoal;
-    color *= 1.0 - wet * 0.22;                           // darken the just-uncovered wet shore
 
     // Foam: the waterline lip + the breaking crest of each swell + the leading edge
     // of the swash sheet. Wider & brighter on shoaling, exposed coasts.

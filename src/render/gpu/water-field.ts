@@ -116,8 +116,12 @@ export interface WaterField {
   shoreDist: Float32Array;
   /** Wet cells in the field — the pass is skipped when 0. */
   wetCount: number;
-  /** Vertices the grid-gen vertex shader draws (same LOD grid as terrain). */
+  /** Vertices the grid-gen vertex shader draws (6 per wet/river-band quad). */
   vertexCount: number;
+  /** WET-CELL MESH list — packed (cellX | cellY<<16), one entry per drawn quad, in the
+   *  order the vertex shader indexes via `vertex_index / 6`. A view into a reused scratch
+   *  buffer, valid only until the next `buildWaterField`; the GPU upload reads it same-frame. */
+  wetCells: Uint32Array;
   /** Analytic river-channel geometry (segment buffer + CSR bucket index) the shader
    *  reads to draw rivers as a smooth signed-distance silhouette — the connectome
    *  projected directly, NOT a baked per-cell mask. Null on a world with no rivers
@@ -436,6 +440,11 @@ interface WaterStatic {
   floodDeepC?: number;
   floodClarityC?: number;
   wetCount: number;
+  /** WET-CELL MESH MASK: 1 where the water shader could draw — any wet cell, plus a
+   *  dilation around RIVER cells covering the analytic channel band. Built once per map;
+   *  `buildWaterField` emits a quad only for masked lattice cells, skipping the dry
+   *  interior entirely. The shader's draw-gate still trims the river dilation exactly. */
+  meshMask: Uint8Array;
   /** null = world is bone dry (skip the pass). */
   dry: boolean;
 }
@@ -445,6 +454,76 @@ const STATIC_CACHE = new WeakMap<GameMap, WaterStatic>();
 // off the WeakMap so a connectome edit never poisons the game's pristine raster static.
 const OVERRIDE_STATIC_CACHE = new Map<string, WaterStatic>();
 const OVERRIDE_CACHE_CAP = 3;
+
+/** River-band dilation radius (tiles) for the wet-cell mesh mask. The shader draws dry
+ *  cells within the analytic channel band (`sd < sub + 2`); `sub` maxes at the zoom-coarsen
+ *  cap (4) + drag-LOD, so the band is ≤ ~6 tiles — 8 over-covers it. Over-inclusion only
+ *  feeds a few extra cells the vertex draw-gate then collapses; UNDER-inclusion would
+ *  re-staircase a river, so we dilate generously. */
+const MESH_BAND_DILATE = 8;
+
+/** Build the wet-cell mesh mask: 1 for every wet cell, plus a Chebyshev dilation around
+ *  RIVER cells (covering the analytic channel band). Ocean/lake get NO apron — their
+ *  waterline lives inside the wet cells (the per-fragment bicubic clip), so meshing exactly
+ *  the wet set is correct; only the river silhouette extends past its classified cells. */
+function buildMeshMask(W: number, H: number, waterType: Uint32Array): Uint8Array {
+  const mask = new Uint8Array(W * H);
+  for (let i = 0; i < mask.length; i++) if (waterType[i] !== WaterType.Dry) mask[i] = 1;
+  const R = MESH_BAND_DILATE;
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      if (waterType[y * W + x] !== WaterType.River) continue;
+      const x0 = Math.max(0, x - R), x1 = Math.min(W - 1, x + R);
+      const y0 = Math.max(0, y - R), y1 = Math.min(H - 1, y + R);
+      for (let yy = y0; yy <= y1; yy++) {
+        const row = yy * W;
+        for (let xx = x0; xx <= x1; xx++) mask[row + xx] = 1;
+      }
+    }
+  }
+  return mask;
+}
+
+/** Paint the (constant, per-climate) RIVER colour onto dry cells the analytic channel can
+ *  render over but the raster never classified — the smooth silhouette bulges past the
+ *  centreline at bends, and `fillShoreRing`'s 1-ring colour overhang doesn't reach. Without
+ *  this, a river fragment whose whole 2×2 colour neighbourhood is dry (0) samples black
+ *  (`blendNonzero4` has no non-zero sibling) → the black wedges on river banks. Only cells
+ *  still uncoloured (shallow == 0) are touched, so ocean/lake/river colours are preserved;
+ *  the painted dry cells are sampled solely by analytic-channel fragments (others discard),
+ *  so over-painting past the rendered channel is invisible. Radius matches the mesh band. */
+function dilateRiverColour(
+  W: number, H: number, waterType: Uint32Array,
+  shallow: Uint32Array, deep: Uint32Array, clarity: Float32Array, R: number,
+): void {
+  let rs = 0, rd = 0, rc = 0, found = false;
+  for (let i = 0; i < waterType.length; i++) {
+    if (waterType[i] === WaterType.River) { rs = shallow[i]; rd = deep[i]; rc = clarity[i]; found = true; break; }
+  }
+  if (!found || rs === 0) return;            // no river, or river cells somehow uncoloured
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      if (waterType[y * W + x] !== WaterType.River) continue;
+      const x0 = Math.max(0, x - R), x1 = Math.min(W - 1, x + R);
+      const y0 = Math.max(0, y - R), y1 = Math.min(H - 1, y + R);
+      for (let yy = y0; yy <= y1; yy++) {
+        const row = yy * W;
+        for (let xx = x0; xx <= x1; xx++) {
+          const j = row + xx;
+          if (shallow[j] === 0) { shallow[j] = rs; deep[j] = rd; clarity[j] = rc; }  // only uncoloured cells
+        }
+      }
+    }
+  }
+}
+
+/** Reused scratch for the per-frame packed wet-cell list — grows monotonically, never
+ *  per-frame allocated. The returned subarray is consumed (uploaded) the same frame. */
+let wetScratch = new Uint32Array(0);
+function wetScratchFor(n: number): Uint32Array {
+  if (wetScratch.length < n) wetScratch = new Uint32Array(n);
+  return wetScratch;
+}
 
 function waterStatic(map: GameMap, override?: ConnectomeWaterOverride): WaterStatic {
   if (!override) {
@@ -549,6 +628,9 @@ function waterStatic(map: GameMap, override?: ConnectomeWaterOverride): WaterSta
   floodDilateLakes(map.width, map.height, LAKE_FLOOD_RINGS, {
     surfaceW, waterType, shallow, deep, clarity, flow,
   });
+  // Extend the river colour to cover the analytic channel's reach past its raster cells,
+  // so the smooth silhouette never samples an all-dry (black) colour neighbourhood at bends.
+  dilateRiverColour(map.width, map.height, waterType, shallow, deep, clarity, MESH_BAND_DILATE);
 
   // Connected lake bodies over the DILATED render lake mask — the index space the
   // localized water-level offset is keyed in — plus the flat lake-cell list.
@@ -571,6 +653,7 @@ function waterStatic(map: GameMap, override?: ConnectomeWaterOverride): WaterSta
     lakeCells: Int32Array.from(lakeCellArr),
     dynToggle: false,
     wetCount: wet,
+    meshMask: buildMeshMask(map.width, map.height, waterType),
     dry: wet === 0,
   };
   if (!override) {
@@ -828,8 +911,8 @@ export function buildWaterField(map: GameMap, opts: BuildWaterFieldOpts): WaterF
     winCellsX = Math.max(sub, Math.min(W - winX0, Math.ceil(ex / sub) * sub - winX0));
     winCellsY = Math.max(sub, Math.min(H - winY0, Math.ceil(ey / sub) * sub - winY0));
   }
-  const waterVertexCount = Math.max(1, Math.floor(winCellsX / sub))
-    * Math.max(1, Math.floor(winCellsY / sub)) * 6;
+  const quadsX = Math.max(1, Math.floor(winCellsX / sub));
+  const quadsY = Math.max(1, Math.floor(winCellsY / sub));
 
   // Water rides the terrain heightfield → it shares the terrain projection
   // uniform exactly; the only water-specific bits are the trailing uWater vec4.
@@ -904,6 +987,35 @@ export function buildWaterField(map: GameMap, opts: BuildWaterFieldOpts): WaterF
   // stable reference lets the GPU upload guard skip the re-upload.
   const channel = opts.riverChannel ?? getRiverChannelGeometry(map);
 
+  // WET-CELL SPARSE MESH: emit one quad per lattice cell the shader could draw, packed
+  // (cellX | cellY<<16) exactly as the vertex shader reads it. The dry map interior never
+  // reaches the GPU. EXCEPTION: an active FLOOD wets arbitrary land the per-map mesh-mask
+  // (built from the static raster) doesn't cover — so fall back to the dense window grid
+  // while flooding, keeping the (rare, transient) flood sheet visible. A lake rising stays
+  // inside the mask (lakes are dilated `LAKE_FLOOD_RINGS` in the static), so it stays sparse.
+  const wetCells = wetScratchFor(quadsX * quadsY);
+  let nQuads = 0;
+  if (floodActive) {
+    for (let qy = 0; qy < quadsY; qy++) {
+      const cy = Math.min(winY0 + qy * sub, H - 1);
+      for (let qx = 0; qx < quadsX; qx++) {
+        const cx = Math.min(winX0 + qx * sub, W - 1);
+        wetCells[nQuads++] = (cx | (cy << 16)) >>> 0;
+      }
+    }
+  } else {
+    const mask = stat.meshMask;
+    for (let qy = 0; qy < quadsY; qy++) {
+      const cy = Math.min(winY0 + qy * sub, H - 1);
+      const row = cy * W;
+      for (let qx = 0; qx < quadsX; qx++) {
+        const cx = Math.min(winX0 + qx * sub, W - 1);
+        if (mask[row + cx]) wetCells[nQuads++] = (cx | (cy << 16)) >>> 0;
+      }
+    }
+  }
+  const waterVertexCount = nQuads * 6;
+
   return {
     surfaceW,
     waterType,
@@ -915,6 +1027,7 @@ export function buildWaterField(map: GameMap, opts: BuildWaterFieldOpts): WaterF
     channel,
     wetCount: stat.wetCount,
     vertexCount: waterVertexCount,
+    wetCells: wetCells.subarray(0, nQuads),
     // uWater.w carries the GLOBAL water-level offset in NORMALISED elevation, so a
     // drought/flood shifts the lake plane + waterline in-shader. The river ribbon
     // reads the SAME value (`waterLevelNorm`) so lakes and rivers rise together.

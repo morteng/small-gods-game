@@ -31,7 +31,13 @@ describe('Water S2 — water field builder', () => {
     expect(wf!.waterType.length).toBe(cells);
     expect(wf!.flow.length).toBe(cells * 2);
     expect(wf!.wetCount).toBeGreaterThan(0);
-    expect(wf!.vertexCount).toBe(terrainGrid(64, 64).vertexCount);
+    // WET-CELL MESH: one quad (6 verts) per water-or-river-band lattice cell — so the draw
+    // is a SUBSET of the dense whole-map grid, and wetCells holds exactly one packed entry
+    // per quad. (Was: the full dense grid, with dry quads collapsed to degenerate triangles.)
+    expect(wf!.vertexCount).toBeGreaterThan(0);
+    expect(wf!.vertexCount % 6).toBe(0);
+    expect(wf!.vertexCount).toBeLessThanOrEqual(terrainGrid(64, 64).vertexCount);
+    expect(wf!.wetCells.length).toBe(wf!.vertexCount / 6);
     expect(wf!.globals.length).toBe(WATER_GLOBALS_FLOATS); // 36 (TGlobals 24 + uWater 4 + uChannel 4 + uWindow 4)
   });
 
@@ -39,11 +45,13 @@ describe('Water S2 — water field builder', () => {
     clearHydrologyCache();
     const { map } = await generateWithNoise(64, 64, 1, noPoiSeed);
     const full = buildWaterField(map, opts)!;
-    // A 16×12-tile window (sub=1 on a 64² map) ⇒ 16·12·6 verts, far fewer than the map.
+    // A 16×12-tile window (sub=1 on a 64² map): at most 16·12 quads, and — being a sub-
+    // region — strictly fewer wet quads than the whole map.
     const win = buildWaterField(map, { ...opts, window: { minTx: 0, minTy: 0, maxTx: 15, maxTy: 11 } })!;
-    expect(win.vertexCount).toBe(16 * 12 * 6);
-    expect(win.vertexCount).toBeLessThan(full.vertexCount);
-    // The window rides into uWindow (origin 0,0 + the snapped 16×12 cell span).
+    expect(win.vertexCount).toBeLessThanOrEqual(16 * 12 * 6);   // sparse ≤ dense window
+    expect(win.vertexCount).toBeLessThan(full.vertexCount);     // window is a strict sub-region
+    // The window still rides into uWindow (origin 0,0 + the snapped 16×12 cell span) — it
+    // drives the CPU cull that scopes which wet cells are emitted.
     expect(Array.from(win.globals.subarray(32, 36))).toEqual([0, 0, 16, 12]);
   });
 
@@ -51,13 +59,15 @@ describe('Water S2 — water field builder', () => {
     clearHydrologyCache();
     const { map } = await generateWithNoise(64, 64, 1, noPoiSeed);
     // The water shader lays one quad per coarsened tile (no sub-tile subdivision), so a
-    // superSample of 2 must NOT quadruple the draw count the way it does for terrain.
+    // superSample of 2 must NOT change the draw count the way it does for terrain.
     const s1 = buildWaterField(map, { ...opts, superSample: 1 })!;
     const s2 = buildWaterField(map, { ...opts, superSample: 2 })!;
     expect(s2.vertexCount).toBe(s1.vertexCount);
-    expect(s2.vertexCount).toBe(64 * 64 * 6);
+    // Sparse: the count is the wet-cell quads, a strict subset of the dense whole-map grid.
+    expect(s1.vertexCount).toBeGreaterThan(0);
+    expect(s1.vertexCount).toBeLessThan(64 * 64 * 6);
     // (terrain, by contrast, DOES subdivide: its grid quadruples under superSample 2.)
-    expect(terrainGrid(64, 64, undefined, 2).vertexCount).toBe(s1.vertexCount * 4);
+    expect(terrainGrid(64, 64, undefined, 2).vertexCount).toBe(terrainGrid(64, 64, undefined, 1).vertexCount * 4);
   });
 
   it('encodes the inland water-level offset (drought/flood) into uWater.w (normalised)', async () => {

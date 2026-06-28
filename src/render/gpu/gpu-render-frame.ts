@@ -175,28 +175,33 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
     // subsample when a tile is sub-pixel-ish (one quad/tile is then wasted geometry, and
     // the water pass is primitive-bound — a large win at no visible cost). Pinned super
     // (studio A/B) keeps the full mesh so the override stays honest.
-    let meshMaxQuads = rc.devMode?.terrainSuper != null
+    const meshMaxQuads = rc.devMode?.terrainSuper != null
       ? undefined
       : zoomCoarsenMaxQuads(map.width, map.height, xform.sx);
 
-    // DRAG-LOD: while the camera is actively moving, coarsen the SHARED terrain+water
-    // mesh one notch (the water pass is quad-bound and dominant; mesh coarsening cuts it
-    // ~27× with the waterline staying crisp). The QUAD-axis complement to
-    // AdaptiveResolution (raster/fill) + zoomCoarsenMaxQuads (zoomed-out only). A studio
-    // `terrainSuper` pin opts out (keeps the A/B mesh honest). Pure logic in drag-lod.ts.
-    let superSampleEff = superSample;
+    // DRAG-LOD: while the camera is actively moving, coarsen ONLY the water mesh one notch
+    // (the water pass is quad-bound and dominant; mesh coarsening cuts it ~27× with the
+    // waterline — a per-fragment bicubic clip against the FULL-RES height buffers — staying
+    // crisp regardless of water-mesh density). Terrain KEEPS its natural (zoom-derived) mesh
+    // during a pan: the viewport cull (T5) already bounds terrain to the on-screen window,
+    // and a changing terrain grid is the one coarsening the eye DOES catch (user-reported).
+    // The QUAD-axis complement to AdaptiveResolution (raster/fill) + zoomCoarsenMaxQuads
+    // (zoomed-out only). A studio `terrainSuper` pin opts out. Pure logic in drag-lod.ts.
+    const superSampleEff = superSample;          // terrain — drag-LOD no longer touches this
+    let waterSuperSample = superSample;          // water — coarsened during motion only
+    let waterMaxQuads = meshMaxQuads;            // water — coarsened during motion only
     if (rc.devMode?.terrainSuper == null) {
       const curPose = { x: camera.x, y: camera.y, zoom: camera.zoom };
       const prevPose = Number.isNaN(prevCamX) ? null : { x: prevCamX, y: prevCamY, zoom: prevCamZoom };
       motionCooldown = tickMotionCooldown(prevPose, curPose, motionCooldown);
       prevCamX = camera.x; prevCamY = camera.y; prevCamZoom = camera.zoom;
       const lod = dragLodMesh(motionCooldown > 0, meshMaxQuads, superSample, map.width, map.height);
-      meshMaxQuads = lod.maxQuads;
-      superSampleEff = lod.superSample;
-      // Dev/perf readout (no overlay, no per-frame alloc) — the effective mesh knobs
+      waterMaxQuads = lod.maxQuads;
+      waterSuperSample = lod.superSample;
+      // Dev/perf readout (no overlay, no per-frame alloc) — the effective WATER mesh knobs
       // this frame, for the profiling loop. Beside __renderProfile/__renderTrace.
-      meshLodReadout.superSample = superSampleEff;
-      meshLodReadout.maxQuads = meshMaxQuads ?? null;
+      meshLodReadout.superSample = waterSuperSample;
+      meshLodReadout.maxQuads = waterMaxQuads ?? null;
       meshLodReadout.motion = motionCooldown > 0;
       (window as unknown as { __meshLod?: unknown }).__meshLod = meshLodReadout;
     }
@@ -254,8 +259,10 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
     const water: WaterField | null = (terrain && waterOn)
       ? buildWaterField(map, {
           viewport: [lowW, lowH], xform, lighting, timeSec, waterLevelM,
-          // Same zoom-LOD grid as terrain (Slice 2) — aligned waterlines.
-          superSample: superSampleEff, maxQuads: meshMaxQuads, window: waterWindow,
+          // Same zoom-LOD grid as terrain (Slice 2), plus the drag-LOD coarsening during a
+          // pan (terrain opts out of that half). Waterlines stay crisp — the shore is a
+          // per-fragment bicubic clip against the full-res height buffers, not the mesh.
+          superSample: waterSuperSample, maxQuads: waterMaxQuads, window: waterWindow,
           // Localized per-basin level (climate W-B) — rain filling one lake.
           lakeOffsetM: rc.lakeOffsetM,
           // Per-cell standing water (W-E) — a god flooding a plain.
