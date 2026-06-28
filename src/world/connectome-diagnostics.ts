@@ -347,6 +347,58 @@ const buildingOnWater: DiagnosticRule = {
   },
 };
 
+/** Distance (tiles) to the nearest WATER tile within a box of radius `maxR` of (x,y), or
+ *  Infinity if none. A small local scan — cheap at worldgen-lint scale. */
+function nearestWaterDist(map: DiagnosticContext['map'], x: number, y: number, maxR: number): number {
+  const cx = Math.round(x), cy = Math.round(y), r = Math.ceil(maxR);
+  let best = Infinity;
+  for (let dy = -r; dy <= r; dy++) {
+    for (let dx = -r; dx <= r; dx++) {
+      const t = map.tiles[cy + dy]?.[cx + dx];
+      if (t && WATER_TYPES.has(t.type)) { const d = Math.hypot(dx, dy); if (d < best) best = d; }
+    }
+  }
+  return best;
+}
+
+const RIVERSIDE_PROXIMITY_TILES = 2.5;   // water within this (but not ON the road) = "alongside"
+const RIVERSIDE_MIN_RUN_TILES = 6;       // a riverside stretch must run at least this far
+
+/** INFO — a road runs ALONGSIDE open water for a long stretch (water beside it, not a crossing).
+ *  Such a road wants an embankment/levee to stay dry — the DETECTION half of "road-river
+ *  relationship + embankments" (#24); the terrain-deformation apply is the (riskier) other half.
+ *  Excludes the road's own bridge cells (a crossing is correct, not riverside). Pure read. */
+const riversideUnbankedRoad: DiagnosticRule = {
+  id: 'road.riverside-unbanked',
+  severity: 'info',
+  description: 'A road runs alongside open water for a long stretch — it wants an embankment/levee.',
+  evaluate(ctx) {
+    const g = ctx.map.roadGraph;
+    if (!g) return [];
+    const W = ctx.map.width;
+    const out: Diagnostic[] = [];
+    for (const e of g.edges) {
+      if (e.feature !== 'road' || e.polyline.length < 2) continue;
+      const bridges = new Set(e.bridgeCells);
+      let run = 0;
+      for (let k = 0; k + 1 < e.polyline.length; k++) {
+        const a = e.polyline[k], b = e.polyline[k + 1];
+        const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+        if (bridges.has(Math.round(my) * W + Math.round(mx))) continue;   // a crossing, not riverside
+        const d = nearestWaterDist(ctx.map, mx, my, RIVERSIDE_PROXIMITY_TILES);
+        if (d >= 0.6 && d <= RIVERSIDE_PROXIMITY_TILES) run += Math.hypot(b.x - a.x, b.y - a.y);
+      }
+      if (run >= RIVERSIDE_MIN_RUN_TILES) out.push({
+        rule: this.id, severity: this.severity,
+        message: `road ${e.id} runs alongside water for ~${Math.round(run)} tiles — wants an embankment`,
+        locus: { edges: [e.id] },
+        metrics: { riversideTiles: Math.round(run) },
+      });
+    }
+    return out.sort((a, b) => (b.metrics?.riversideTiles ?? 0) - (a.metrics?.riversideTiles ?? 0));
+  },
+};
+
 /** The registered rule set, run in order. */
 export const DEFAULT_RULES: DiagnosticRule[] = [
   buildingOverlap,
@@ -355,6 +407,7 @@ export const DEFAULT_RULES: DiagnosticRule[] = [
   buildingOnWater,
   redundantParallelRoad,
   parallelCorridorRoad,
+  riversideUnbankedRoad,
   oversubscribedJunction,
 ];
 

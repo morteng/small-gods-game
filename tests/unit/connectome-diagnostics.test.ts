@@ -102,11 +102,32 @@ describe('connectome diagnostics', () => {
     expect(evaluateConnectome(mkCtx(false)).byRule['building.on-water'] ?? 0).toBe(0);
   });
 
+  it('flags a road running alongside water, but not one away from it or one that just crosses', () => {
+    // a 20-tile road; water sits ~1.5 tiles to its side along the whole run.
+    const road = (id: string, bridgeCells: number[] = []) => ({
+      id, a: 'a', b: 'b', feature: 'road', class: 'road', surface: 'dirt', bridgeCells,
+      polyline: Array.from({ length: 21 }, (_, i) => ({ x: i, y: 10 })),
+    });
+    const W = 32;
+    const tiles = Array.from({ length: 32 }, (_, y) => Array.from({ length: W }, (_, x) =>
+      ({ type: y === 12 && x < 21 ? 'river' : 'grass' })));   // river 2 tiles south of the road
+    const mk = (rd: ReturnType<typeof road>) => ({
+      world: { query: () => [] } as unknown as DiagnosticContext['world'],
+      map: { width: W, height: 32, tiles, roadGraph: { nodes: [], edges: [rd] } } as unknown as DiagnosticContext['map'],
+    });
+    const hits = (c: ReturnType<typeof mk>) => evaluateConnectome(c).diagnostics.filter((d) => d.rule === 'road.riverside-unbanked');
+    expect(hits(mk(road('riverside')))).toHaveLength(1);
+    // a road far from any water (no river tiles in range) is not flagged
+    const dry = { world: { query: () => [] } as unknown as DiagnosticContext['world'],
+      map: { width: W, height: 32, tiles: Array.from({ length: 32 }, () => Array.from({ length: W }, () => ({ type: 'grass' }))), roadGraph: { nodes: [], edges: [road('dry')] } } as unknown as DiagnosticContext['map'] };
+    expect(evaluateConnectome(dry).byRule['road.riverside-unbanked'] ?? 0).toBe(0);
+  });
+
   it('exposes a stable default rule set', () => {
     expect(DEFAULT_RULES.map((r) => r.id)).toEqual([
       'building.overlap', 'barrier.through-building', 'road.through-building',
       'building.on-water', 'road.redundant-parallel', 'road.parallel-corridor',
-      'junction.oversubscribed',
+      'road.riverside-unbanked', 'junction.oversubscribed',
     ]);
   });
 });
