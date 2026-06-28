@@ -13,6 +13,7 @@ import type { Part as Prim } from '@/assetgen/compose';
 import type { ArchStyle } from '@/assetgen/geometry/arch';
 import { mToTiles } from '@/render/scale-contract';
 import { WALL_MAT } from './body';
+import { railingPrims } from './railing';
 
 type Dir = 'ns' | 'ew';
 
@@ -44,17 +45,16 @@ export const deckPartType: PartType = {
     if ((p.params.parapet as string) === 'both') {
       const pH = mToTiles(0.9), pT = mToTiles(0.25);
       // Parapets line the two LONG sides of the deck and run its full length — so they sit on the
-      // edges of the across-axis. For an ns span the long axis is y, so the rails sit at the two
-      // x-edges and run in y; for an ew span the long axis is x, so they sit at the two y-edges and
-      // run in x. (The old code laid the ns rails unconditionally, capping an ew deck's short ENDS.)
+      // edges of the across-axis, drawn by the shared Railing generator (a solid `parapet`). For an
+      // ns span the long axis is y, so the rails sit at the two x-edges and run in y; for an ew span
+      // the long axis is x, so they sit at the two y-edges and run in x.
+      const railAxis = dir === 'ns' ? 'y' : 'x';
+      const railLen = dir === 'ns' ? along : cross;   // the long travel-axis extent the rail runs
       for (const s of [0, 1]) {
-        if (dir === 'ns') {
-          const x = p.at.x + (s === 0 ? 0 : cross - pT);
-          out.push({ prim: 'box', at: [x, p.at.y, thick], size: [pT, along, pH], material: mat });
-        } else {
-          const y = p.at.y + (s === 0 ? 0 : along - pT);
-          out.push({ prim: 'box', at: [p.at.x, y, thick], size: [cross, pT, pH], material: mat });
-        }
+        const base: [number, number, number] = dir === 'ns'
+          ? [p.at.x + (s === 0 ? 0 : cross - pT), p.at.y, thick]
+          : [p.at.x, p.at.y + (s === 0 ? 0 : along - pT), thick];
+        out.push(...railingPrims(base, { style: 'parapet', lengthU: railLen, axis: railAxis, heightU: pH, thickU: pT, material: mat }));
       }
     }
     return out;
