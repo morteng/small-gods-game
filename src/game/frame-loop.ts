@@ -67,7 +67,14 @@ export class FrameLoop {
   }
 
   private tick = (now: number): void => {
-    const deltaMs = Math.min(now - this.lastTime, 100);
+    // Clamp the real frame delta before it reaches the scheduler. A slow frame
+    // (a pan hitch, GC pause, brief tab blur) would otherwise feed a larger dt →
+    // the rate-scaled scheduler runs MORE catch-up ticks → an even slower frame:
+    // the classic spiral. Capping at 50 ms bounds the 60 Hz movement burst to ≤3
+    // ticks/frame at 1×, so the sim degrades to gentle slow-motion under load
+    // instead of stuttering. Replay/determinism are unaffected (they drive the
+    // scheduler directly with recorded ticks, never through this live path).
+    const deltaMs = Math.min(now - this.lastTime, 50);
     this.lastTime = now;
     const animating = this.hooks.onFrame(now, deltaMs, this.hardPaused);
     if (animating || this.needsRender) {

@@ -71,6 +71,10 @@ export function buildEntityDrawList(
   // emission pass below — byte-identical draw list, now flowing through the seam.
   const buildingById = new Map<string, { e: Entity; s: StructureBox }>();
   const vegById = new Map<string, Entity>();
+  // NPCs by id, so the emission pass below resolves each in O(1) instead of a
+  // linear `rc.npcs.find()` per y-sorted entry (which was O(n²) in NPC count
+  // every frame — the moving NPC layer is rebuilt unconditionally).
+  const npcById = new Map<string, NpcInstance>();
   // Per-slab draw items keyed by a composite `${entityId}#${slabIndex}` id, so
   // each piece of a barrier run y-sorts independently (see barrierSlabs).
   const barrierSlabItems = new Map<string, DrawItem[]>();
@@ -140,6 +144,7 @@ export function buildEntityDrawList(
       }
       case 'npc': {
         const n = node.ref as NpcInstance;
+        npcById.set(n.id, n);
         entries.push({
           id: n.id, kind: 'npc',
           tx: n.tileX, ty: n.tileY, z: 0,
@@ -201,7 +206,7 @@ export function buildEntityDrawList(
       const slab = barrierSlabItems.get(e.id);
       if (slab) items.push(...slab);
     } else if (e.kind === 'npc') {
-      const n = rc.npcs.find((x) => x.id === e.id);
+      const n = npcById.get(e.id);
       if (n) items.push(...npcItems(ic, n));
     } else if (e.kind === 'vegetation') {
       const v = vegById.get(e.id);

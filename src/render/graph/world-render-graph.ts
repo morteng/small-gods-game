@@ -86,12 +86,23 @@ export class WorldRenderGraph implements RenderGraph<WorldRef> {
       }
     }
 
-    // NPCs + decorations are not region-culled today; iterate them whole.
-    if (wants('npc')) for (const n of this.rc.npcs) {
-      yield {
-        id: n.id, x: n.tileX, y: n.tileY, z: 0,
-        footprint: { w: 1, h: 1 }, kind: 'npc', category: 'npc', ref: n,
-      };
+    // NPCs are region-culled to the visible window (point entities, 1×1) — the
+    // same region the building query above consults (it carries the
+    // visibleTileBounds 1-tile pad), expanded by a few tiles so a taller-than-
+    // one-tile NPC sprite never pops at the south edge. Off-screen NPCs then cost
+    // nothing per frame, which is the bulk of them on a large map. (Decorations
+    // stay whole below — they live in the cached static layer, not this hot path.)
+    if (wants('npc')) {
+      const M = 4; // sprite-height + lift slack around the visible tile box
+      const rx0 = region.x - M, ry0 = region.y - M;
+      const rx1 = region.x + region.w + M, ry1 = region.y + region.h + M;
+      for (const n of this.rc.npcs) {
+        if (n.tileX < rx0 || n.tileX >= rx1 || n.tileY < ry0 || n.tileY >= ry1) continue;
+        yield {
+          id: n.id, x: n.tileX, y: n.tileY, z: 0,
+          footprint: { w: 1, h: 1 }, kind: 'npc', category: 'npc', ref: n,
+        };
+      }
     }
     if (wants('decoration')) for (const d of this.rc.generatedDecorations ?? []) {
       yield {
