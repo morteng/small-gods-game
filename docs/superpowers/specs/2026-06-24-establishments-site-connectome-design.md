@@ -209,6 +209,19 @@ connectome find the socket.
 - **E2 — placer routes through site expansion** (gated on spatial-coordination **C1**).
   `place(buildingType)` → `expandSite` → co-placed footprints on the shared
   `OccupancyGrid`. Tavern renders as a yard+building+sign, not a bare box.
+  ✅ **AUXILIARY-BUILDING SLICE SHIPPED (2026-06-28, `WORLD_CONTENT_VERSION` 28→29).**
+  `placeSettlement` now runs a `2c` site-expansion pass: after the main layout, every
+  placed core is expanded through `expandSite → siteToPlan` and the auxiliary buildings
+  its function derives are co-placed on free, off-road ground beside it. The tavern's
+  `stabling` requirement yields a `stable` outbuilding (a new generative preset) with no
+  per-preset wiring — the first real consumer of the site graph. The pass is ADDITIVE +
+  deterministic (a fixed spiral scan, no rng draw), so the main layout is byte-identical
+  and only outbuildings are appended; auxiliaries are excluded from the `buildingCount`
+  budget (they're appendages, like civic props). **Deferred to later E2 slices:** fixtures
+  (sign/bench/well) — data-only today, no prop entity to realise (the well is already a
+  civic prop); the yard *wall* (the croft enclosure already rings the yard); and routing
+  the FOCUS path's `parish-church`/`manor` presets (their catalogue ids don't match the
+  preset names, so they derive no aux yet).
 - **E3 — shrine `procession` topology**, retiring `temple_small`.
 - **E4 — sweep:** smithy work-yard, farmstead, market stall, manor curtilage; author
   recipes only where the default isn't good enough.
