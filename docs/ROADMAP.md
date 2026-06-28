@@ -207,6 +207,12 @@ current shortlist (see `MEMORY.md` for status & next slices):
 
 - **Terrain+Water shader system** — one per-cell field → texturing + water +
   scatter; zoom-LOD; pixel-perfect snap (also kills jerky-zoom). *Spec, no code.*
+- **Render-perf engine pass** — attack the overview fill-bound regime (deeper px
+  ladder + half-res water target + bake fbm noise to a tiling texture), kill
+  redundant per-frame `world.query()` waste, then professionalize (timestamp-query
+  GPU profiling, render bundles, alloc hygiene). GPU-driven culling + bindless are
+  the noted *later* scaling path. *Spec, no code:*
+  `docs/superpowers/specs/2026-06-28-render-perf-engine-pass-spec.md`.
 - **Incremental world-update substrate** — regional (dig/crater) + global
   (climate) edits over one dirty-region substrate. *Design only.*
 - **Spatial-coordination** — one footprint def / occupancy authority across all
