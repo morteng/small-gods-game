@@ -23,6 +23,9 @@ import { presetsForEra } from '@/map/poi-zones';
 import type { POI } from '@/core/types';
 import { Random } from '@/core/noise';
 import { synthesizeBlueprint } from '@/blueprint/presets';
+import { expandSite, siteToPlan } from '@/blueprint/connectome/site';
+import { catalogue } from '@/catalogue/pack';
+import { loadDefaultPacks } from '@/catalogue/default-packs';
 import type { ResolvedBlueprint } from '@/blueprint/types';
 import { blueprintEntity } from '@/blueprint/entity';
 import { toCollision } from '@/blueprint/compile/to-collision';
@@ -439,6 +442,12 @@ export function placeSettlement(
     return true;
   };
 
+  // Establishments placed this gen, for the E2 site-expansion pass below: each core
+  // building + the preset it was built from. After the main layout, every core is
+  // expanded through `expandSite` and its auxiliary buildings (a tavern's stable) are
+  // co-placed in the adjacent yard.
+  const placedCores: { core: Entity; preset: string; x: number; y: number; w: number; h: number }[] = [];
+
   // 2. Execute placement. S3 — CENTER-FIRST: the settlement nucleates around its
   // FOCI (parish church / manor hall). Those anchor a central precinct first
   // (2a); dwellings then fill frontage lots around them (2b).
@@ -529,6 +538,9 @@ export function placeSettlement(
         occ.claim(fx, fy, 'civic');
       }
     }
+    if (rb.preset) {
+      placedCores.push({ core: entity, preset: rb.preset, x: origin.tileX, y: origin.tileY, w: rb.footprint.w, h: rb.footprint.h });
+    }
     placed++;
     return entity;
   };
@@ -609,6 +621,51 @@ export function placeSettlement(
     if (!origin) continue;
 
     commit(rb, origin, facing, doorCell, viaSlot);
+  }
+
+  // 2c. Site expansion (E2): a placed establishment is not a lone footprint but a
+  // PREMISES. Expand each core through the site connectome (expandSite → siteToPlan)
+  // and co-place the auxiliary buildings its function derives — a tavern's stable
+  // falls out of its 'stabling' requirement, no per-preset wiring. Auxiliaries are
+  // sited on free, buildable, off-road ground adjacent to their core by a
+  // DETERMINISTIC spiral scan (no rng draw), so the main layout is byte-identical and
+  // only the new outbuildings are appended. Fixtures (sign/bench/well) are data-only
+  // today — no prop entity to realise — and the yard wall comes from the croft
+  // enclosure below; both are deferred site-graph projections. Runs before enclosure
+  // so a croft hedge rings the outbuilding into the yard with its core.
+  if (placedCores.length > 0) {
+    loadDefaultPacks();
+    const siteCtx = { era, seed: worldSeed, registry: catalogue };
+    let auxIdx = 0;
+    for (const { core, preset, x, y, w, h } of placedCores) {
+      const auxes = siteToPlan(expandSite(preset, siteCtx)).auxiliaries;
+      if (auxes.length === 0) continue;
+      const ccx = x + Math.floor(w / 2), ccy = y + Math.floor(h / 2);
+      for (const aux of auxes) {
+        const arb = synthesizeBlueprint(aux.buildingType);
+        if (!arb) continue;
+        const { w: aw, h: ah } = arb.footprint;
+        // Scan rings outward from the core centre; the first fitting origin (in fixed
+        // scan order) wins — deterministic, no rng. Capped so an outbuilding stays in
+        // the yard, never sprawls across the settlement.
+        let spot: { x: number; y: number } | null = null;
+        for (let r = Math.max(w, h, 2); r <= Math.max(w, h) + 5 && !spot; r++) {
+          for (const p of spiralRing(ccx, ccy, r)) {
+            if (fitsAt(p.x, p.y, aw, ah)) { spot = p; break; }
+          }
+        }
+        if (!spot) continue;
+        const entity = blueprintEntity(`${poi.id}_aux_${auxIdx++}`, arb, spot.x, spot.y, { poiId: poi.id });
+        entity.tags = [...new Set([...(entity.tags ?? []), 'settlement', 'building', 'auxiliary'])];
+        entity.properties!.site = core.id;
+        entity.properties!.role = aux.role;
+        clearFootprint(spot.x, spot.y, aw, ah, registry, world, tiles);
+        registry.add(entity);
+        entities.push(entity);
+        occ.claimCells(buildingSolidCells(toCollision(arb), spot.x, spot.y), 'building');
+        for (const cell of buildingVisualCells(arb, spot.x, spot.y)) buildingVisual.add(cell);
+      }
+    }
   }
 
   // 3. Enclose (DC-3, barriers half): ring built crofts with hedges/fences and,

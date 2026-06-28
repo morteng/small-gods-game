@@ -376,6 +376,21 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
       },
     } },
   }),
+  // Stable: a low timber byre range — the auxiliary an establishment's site graph
+  // (connectome/site.ts) derives for a 'stabling' requirement (a tavern's yard).
+  // A single open range: wide stall door, no glazing, no hearth/smoke (animals,
+  // not people). Openings DERIVED from the agrarian room graph (gen-openings).
+  stable: bp('stable', {
+    category: 'farm', era: 'medieval', footprint: { w: 3, h: 2 },
+    materials: { walls: 'timber', roof: 'thatch', ground: 'dirt' },
+    parts: { body: {
+      type: 'body', size: { w: 3, h: 2 }, params: { plan: 'rect', levels: 1, storeyM: 2.8, roof: 'gable' },
+      features: {
+        door: { type: 'door', face: 'south', params: { main: true, t: 0.5, width: 0.45, height: 1.4 } },
+        slit_e: { type: 'window', face: 'east', params: { t: 0.5, width: 0.05, height: 0.3, sill: 1.1, glazed: false } },
+      },
+    } },
+  }),
 };
 
 export function getBlueprintPreset(name: string): Blueprint | undefined { return BUILDING_BLUEPRINTS[name]; }

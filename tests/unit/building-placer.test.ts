@@ -121,9 +121,11 @@ describe('placeSettlement', () => {
     const zoneRule = getZoneRule('village');
     const rng = new Random(99);
     const { entities } = placeSettlement(poi, zoneRule, tiles, registry, [], rng);
-    // result.entities now includes civic props (S5) — count only buildings.
-    const buildings = entities.filter(e => !e.properties?.civic);
-    expect(buildings.length).toBeLessThanOrEqual(zoneRule.buildingCount.max);
+    // result.entities now includes civic props (S5) and site auxiliaries (E2 — a
+    // tavern's stable). Both are appendages of the platted establishments, not
+    // independently budgeted dwellings, so the buildingCount cap excludes them.
+    const dwellings = entities.filter(e => !e.properties?.civic && !e.tags?.includes('auxiliary'));
+    expect(dwellings.length).toBeLessThanOrEqual(zoneRule.buildingCount.max);
   });
 
   it('buildings do not overlap each other', () => {
