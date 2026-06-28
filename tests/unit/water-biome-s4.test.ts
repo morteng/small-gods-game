@@ -4,7 +4,7 @@ import { WaterType, type WorldSeed } from '@/core/types';
 import {
   WATER_BIOMES, classifyWaterCell, climateOf, getWaterBiome,
 } from '@/water/water-biome';
-import { buildWaterField } from '@/render/gpu/water-field';
+import { buildWaterField, MESH_BAND_DILATE } from '@/render/gpu/water-field';
 import { DEFAULT_LIGHTING } from '@/render/lighting-state';
 import { clearHydrologyCache } from '@/world/hydrology-store';
 
@@ -49,13 +49,28 @@ describe('Water S4 — aquatic biomes', () => {
       pois: [], connections: [], constraints: [],
     };
     const { map } = await generateWithNoise(64, 64, 1, seed);
+    const W = map.width;
     const wf = buildWaterField(map, {
       viewport: [800, 600], xform: { sx: 1, sy: 1, ox: 0, oy: 0 }, lighting: DEFAULT_LIGHTING,
     })!;
+    // `dilateRiverColour` intentionally bleeds river biome colour into a MESH_BAND_DILATE
+    // band of DRY cells around each river, so analytic-channel fragments always have a
+    // non-zero colour neighbour to blend (kills the black bank wedges). Those painted dry
+    // cells are never rendered as water — non-channel fragments discard — so the colour is
+    // invisible. It does mean "dry ⇒ clarity 0" only holds OUTSIDE that band; exempt it.
+    const rivers: Array<[number, number]> = [];
+    for (let i = 0; i < wf.waterType.length; i++) {
+      if (wf.waterType[i] === WaterType.River) rivers.push([i % W, (i / W) | 0]);
+    }
+    const inRiverBand = (i: number): boolean => {
+      const x = i % W, y = (i / W) | 0;
+      return rivers.some(([rx, ry]) => Math.abs(rx - x) <= MESH_BAND_DILATE && Math.abs(ry - y) <= MESH_BAND_DILATE);
+    };
     let wet = 0, withColour = 0;
     for (let i = 0; i < wf.waterType.length; i++) {
       if (wf.waterType[i] === WaterType.Dry) {
-        expect(wf.clarity[i]).toBe(0);         // dry cells carry no biome
+        // Dry LAND away from any river carries no biome; the river-bank bleed band is exempt.
+        if (!inRiverBand(i)) expect(wf.clarity[i]).toBe(0);
       } else {
         wet++;
         if (wf.shallow[i] !== 0 && wf.clarity[i] > 0) withColour++;
