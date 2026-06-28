@@ -460,7 +460,7 @@ const OVERRIDE_CACHE_CAP = 3;
  *  cap (4) + drag-LOD, so the band is ≤ ~6 tiles — 8 over-covers it. Over-inclusion only
  *  feeds a few extra cells the vertex draw-gate then collapses; UNDER-inclusion would
  *  re-staircase a river, so we dilate generously. */
-const MESH_BAND_DILATE = 8;
+export const MESH_BAND_DILATE = 8;
 
 /** Build the wet-cell mesh mask: 1 for every wet cell, plus a Chebyshev dilation around
  *  RIVER cells (covering the analytic channel band). Ocean/lake get NO apron — their
