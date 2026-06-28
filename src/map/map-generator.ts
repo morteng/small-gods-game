@@ -19,6 +19,7 @@ import { styledClimate } from '@/terrain/climate';
 import { applyPoiInfluences } from '@/terrain/poi-influence';
 import { generateHydrology } from '@/terrain/hydrology';
 import { buildRoadGraph } from '@/world/road-graph';
+import { mergeParallelRoads } from '@/world/connectome/merge-parallel-roads';
 import { corridorCells } from '@/world/road-corridors';
 import type { RoadGraph } from '@/world/road-graph';
 import { collectAnchors } from '@/world/anchor-collect';
@@ -289,9 +290,37 @@ export async function generateWithNoise(
     }
     // Buildings are already placed: roads route AROUND their structure cells
     // (thread the streets) rather than carving through them.
+    // Snapshot the pre-(inter-POI-road) tile state — taken AFTER settlements (their streets
+    // are already carved, so they're preserved in the snapshot) — so a road merged away below
+    // (#26) un-carves only the terrain/water it itself covered. `rasterizeRoadGraph` shows the
+    // carve is exactly the edge's POLYLINE cells, so the polyline IS the footprint to restore.
+    const preRoad = tiles.map((row) => row.map((t) => ({ type: t.type, walkable: t.walkable })));
     roadGraph = buildRoadGraph(worldSeed.connections, worldSeed.pois ?? [], tiles, fields, {
       isObstacle: (x, y) => tileBlockedByBuilding(world, x, y) || greenTiles.has(`${x},${y}`),
     });
+
+    // #26 — MERGE near-parallel duplicate road corridors. Connectivity-preserving: drops the
+    // redundant edge of each parallel pair ONLY when its endpoints stay connected without it
+    // (so the network never splits), then UN-CARVES that edge's polyline cells that no KEPT road
+    // still traces, back to the snapshot — the graph-derived surface/deformation auto-excludes the
+    // dropped edge. Usually a no-op (most worlds have no parallel corridors); runs BEFORE
+    // crossing/stair siting so they site on the merged network.
+    const { graph: mergedRoads, removed } = mergeParallelRoads(roadGraph);
+    if (removed.length) {
+      const removedSet = new Set(removed);
+      const keptCells = new Set<string>();
+      for (const e of mergedRoads.edges) if (e.feature === 'road') for (const c of e.polyline) keptCells.add(`${Math.round(c.x)},${Math.round(c.y)}`);
+      for (const e of roadGraph.edges) {
+        if (!removedSet.has(e.id)) continue;
+        for (const c of e.polyline) {
+          const x = Math.round(c.x), y = Math.round(c.y);
+          if (keptCells.has(`${x},${y}`)) continue;       // a kept road still traces this tile
+          const snap = preRoad[y]?.[x], t = tiles[y]?.[x];
+          if (snap && t) { t.type = snap.type; t.walkable = snap.walkable; }
+        }
+      }
+      roadGraph = mergedRoads;
+    }
 
     // River-crossing SITES (unified connectome, v0): where a road bridges water, compose a
     // crossing sub-connectome and realize its ancillary structures (toll/guard/shrine/mill/
