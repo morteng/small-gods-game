@@ -7,6 +7,7 @@ import { ensureBuildingTypesRegistered } from '@/blueprint/register-buildings';
 import { blueprintOf } from '@/blueprint/entity';
 import { World } from '@/world/world';
 import { Random } from '@/core/noise';
+import { makeTerrainProbe } from '@/world/terrain-affordance';
 import type { GameMap, Tile, POI } from '@/core/types';
 
 beforeAll(() => ensureBuildingTypesRegistered());
@@ -189,6 +190,46 @@ describe('placeSettlement — plan execution', () => {
     expect(terrained.length).toBe(flat.length);     // same roster, only positions move
     expect(terrained).not.toEqual(flat);            // terrain changed at least one site
     expect(place(true)).toEqual(terrained);          // …and the terrain-aware path is deterministic
+  });
+
+  it('terrain-aware siting lifts the PROMINENT building onto higher ground vs the distance-only path', () => {
+    // The liveness test above proves the wiring MOVES buildings; this proves it moves
+    // them in the RIGHT direction — the focus (church/manor) should crown a more
+    // prominent site than the distance-only baseline picks. Across a spread of seeds
+    // (each a different synthetic relief) the strong majority must improve, and at
+    // least one strictly so — calibration (SITE_FITNESS_PULL) that's too weak to bite
+    // would fail this.
+    const FOCI = new Set(['parish-church', 'manor']);
+    const bigVillage = { ...villageRule, buildingCount: { min: 8, max: 8 } };
+    const focusProminence = (seed: number, withMap: boolean): number | null => {
+      const t = grassTiles();
+      const map = emptyMap(t); map.seed = seed;
+      const world = new World(map);
+      const r = placeSettlement(
+        poi, bigVillage, t, world.registry, [{ dx: 1, dy: 0 }], new Random(seed),
+        'medieval', world, seed, undefined, withMap ? (() => { const m = emptyMap(t); m.seed = seed; return m; })() : undefined,
+      );
+      const focus = r.entities.find(e => {
+        const p = blueprintOf(e)?.rb.preset; return p !== undefined && FOCI.has(p);
+      });
+      if (!focus) return null;
+      const fp = blueprintOf(focus)!.collision.footprint;
+      const a = makeTerrainProbe(map).affordanceAt(focus.x + Math.floor(fp.w / 2), focus.y + Math.floor(fp.h / 2));
+      return typeof a.prominence === 'number' ? a.prominence : null;
+    };
+
+    const seeds = [1, 2, 3, 7, 11, 19, 23, 31];
+    let improved = 0, strictly = 0, compared = 0;
+    for (const s of seeds) {
+      const flat = focusProminence(s, false), terr = focusProminence(s, true);
+      if (flat === null || terr === null) continue;
+      compared++;
+      if (terr >= flat - 1e-9) improved++;
+      if (terr > flat + 1e-9) strictly++;
+    }
+    expect(compared).toBeGreaterThanOrEqual(6);            // foci actually placed
+    expect(improved / compared).toBeGreaterThanOrEqual(0.8); // strong majority climb (or hold)
+    expect(strictly).toBeGreaterThan(0);                    // the pull genuinely bites
   });
 
   it('slot-placed buildings front a road: walking out of the door reaches one within 2 tiles', () => {
