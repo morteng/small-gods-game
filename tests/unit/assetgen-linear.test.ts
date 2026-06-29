@@ -16,6 +16,19 @@ describe('linearFacets', () => {
     expect(gated.anchors.gates).toHaveLength(1);
     expect(gated.volume).toBeLessThan(plain.volume);
   });
+  it('a masonry gate is an ARCHED passage — masonry spans over it (not a full-height slot)', async () => {
+    // The void is a passage capped by an arch whose crown is held below the wall-top, so the
+    // curtain still reaches its full height OVER the gate. A regression to a full-height slot
+    // would drop the wall-top to grade across the opening.
+    const tall: BarrierRun = { ...base, height: 3, thickness: 1.5 };
+    const gated = await linearFacets({ ...tall, gates: [{ t: 2, width: 2 }] });
+    const plain = await linearFacets(tall);
+    const maxZ = (r: { facets: { pts: number[][] }[] }) => Math.max(...r.facets.flatMap(f => f.pts.map(p => p[2])));
+    // Masonry bridges the gate: the gated wall is just as TALL as the plain one.
+    expect(maxZ(gated)).toBeGreaterThan(maxZ(plain) - 0.05);
+    // …yet material WAS removed (the passage) — so it's an opening, not a no-op.
+    expect(gated.volume).toBeLessThan(plain.volume);
+  });
   it('crenellation gives a TOOTHED top (merlons + crenel gaps), not extra height', async () => {
     // run.height is the full height to the merlon crest (the parapet is PART of the wall, not
     // glued on top), so a crenellated wall is no TALLER than a plain one of the same height —

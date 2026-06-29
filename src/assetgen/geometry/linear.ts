@@ -247,13 +247,43 @@ function hedgeSeg(M: ManifoldNS, run: BarrierRun, s: Seg, segIdx: number): Manif
   return out;
 }
 
-// ── Gate cut: an oversized oriented void centred on the path point ────────────────────────
+// ── Gate cut: an ARCHED passage void centred on the path point ────────────────────────────
+// Not a full-height slot — a rectangular passage rising to a springing line, capped by a
+// semicircular arch barrel running through the wall thickness. The crown is held BELOW the
+// wall-walk so masonry (and the parapet/merlons placed along the segment) span over the gate:
+// the curtain reads as a real arched gateway, not a wall sliced to the ground. For a humble
+// barrier (fence/hedge/low bank) with no spanning mass to keep, it degrades to a clean slot.
 function gateCut(M: ManifoldNS, run: BarrierRun, t: number, width: number): ManifoldT {
   const { p, angleDeg } = pointAt(run.path, t);
-  const th = run.thickness + mToTiles(1.0);
-  const h = Math.max(mToTiles(1.0), run.height) + mToTiles(1.2);
-  return M.cube([width, th, h])
-    .translate([-width / 2, -th / 2, -mToTiles(0.6)])
+  const H = Math.max(mToTiles(1.0), run.height);
+  const th = run.thickness + mToTiles(1.0);          // overshoot both faces for a clean punch
+  const base = mToTiles(0.6);                          // start the void just below grade
+  const family = familyOf(run);
+
+  // Low/insubstantial barriers can't carry an arch — punch a plain full-height slot.
+  if (family !== 'masonry' || H < mToTiles(2.4)) {
+    return M.cube([width, th, H + base + mToTiles(1.2)])
+      .translate([-width / 2, -th / 2, -base])
+      .rotate([0, 0, angleDeg])
+      .translate([p[0], p[1], 0]);
+  }
+
+  // Arched passage. The crown is kept under ~0.74·H so a masonry spandrel + the parapet/merlons
+  // (placed along the segment) bridge over the gate. A narrow gate gets a full semicircular head;
+  // a wide one a flatter SEGMENTAL arch (rise < half-span) — both meet the jambs exactly at the
+  // springing line, so the opening reads as one clean arch of the right span.
+  const halfW = width / 2;
+  const maxCrown = H * 0.74;
+  const passageH = Math.min(mToTiles(2.0), maxCrown - mToTiles(0.5));   // clear height to springing
+  const rise = Math.max(mToTiles(0.5), Math.min(halfW, maxCrown - passageH));
+  const archR = (halfW * halfW + rise * rise) / (2 * rise);            // circle through jamb-tops + crown
+  const centreZ = passageH + rise - archR;                            // arc centre (below springing for segmental)
+  const rect = M.cube([width, th, passageH + base]).translate([-width / 2, -th / 2, -base]);
+  const arch = M.cylinder(th, archR, archR, 48)       // z-axis barrel of the arc radius
+    .translate([0, 0, -th / 2])                        // centre on its own axis…
+    .rotate([90, 0, 0])                                // …then lay it through the wall thickness (axis → y)
+    .translate([0, 0, centreZ]);                       // arc centre on the wall centreline
+  return rect.add(arch)
     .rotate([0, 0, angleDeg])
     .translate([p[0], p[1], 0]);
 }

@@ -77,6 +77,11 @@ async function main(): Promise<void> {
   const wall = { ...BARRIER_DEFAULTS.wall, crenellated: true, thickness: 2, height: 3 };
   // Straight 12-tile crenellated wall (3 chunks) — must read continuous.
   composite(await placeRun({ kind: 'wall', path: [[0, 0], [12, 0]], ...wall, gates: [] }), 'place-straight');
+  // Straight wall with a centred arched gate — the arch crown must sit BELOW the parapet, with
+  // masonry + merlons spanning over it (a real gateway), flanked by twin towers.
+  composite(await placeRun({ kind: 'wall', path: [[0, 0], [12, 0]], ...wall, gates: [{ t: 6, width: 2.5 }] }), 'place-gate');
+  // Unobstructed arch: a plain (uncrenellated → no towers/merlons) masonry wall, single gate.
+  composite(await placeRun({ kind: 'wall', path: [[0, 0], [8, 0]], material: 'stone', height: 3, thickness: 1, crenellated: false, gates: [{ t: 4, width: 2.5 }] }), 'place-gate-plain');
   // L-corner — two legs meeting at a right angle; chunks must meet cleanly at the bend.
   composite(await placeRun({ kind: 'wall', path: [[0, 0], [10, 0], [10, 10]], ...wall, gates: [] }), 'place-corner');
   // Rectangular town-wall ring with a gate on the south edge.
