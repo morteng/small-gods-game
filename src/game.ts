@@ -34,6 +34,7 @@ import { loadBaseLibrary } from '@/services/base-library-loader';
 import { AssetLibrary } from '@/services/asset-library';
 import { ArtResolver } from '@/render/art-resolver';
 import { ParametricBuildingSource } from '@/render/parametric-building-source';
+import { ParametricBarrierSource } from '@/render/parametric-barrier-source';
 import { ParametricPlantSource } from '@/render/parametric-plant-source';
 import { GeneratedBuildingArtSource } from '@/render/generated-building-art-source';
 import { GeneratedFloraArtSource } from '@/render/generated-flora-art-source';
@@ -190,6 +191,9 @@ export class Game {
   // composed — even while the frame loop is idle/paused (otherwise they stay flatblocks
   // until the next camera move; see [[gotcha-buildings-flatblock-static-cache]]).
   private readonly parametricBuildingSource = new ParametricBuildingSource({ onWarm: () => this.requestRender() });
+  // Walls/barriers ride the same generate→sprite pipeline as buildings (lit SpritePack per run
+  // chunk), replacing the flat-quad barrierSlabs. onWarm re-renders an idle loop as packs land.
+  private readonly parametricBarrierSource = new ParametricBarrierSource({ onWarm: () => this.requestRender() });
   private readonly parametricPlantSource = new ParametricPlantSource();
   // Paid building-art generation is OFF by default while the renderer + connectome
   // (roads, etc.) stabilise and the FLUX img2img settings are retuned — re-enable
@@ -957,6 +961,7 @@ export class Game {
       artResolver: this.artResolver,
       buildingArtResolver: this.buildingArtResolver,
       parametricBuildingSource: this.parametricBuildingSource,
+      parametricBarrierSource: this.parametricBarrierSource,
       parametricPlantSource: this.parametricPlantSource,
       generatedBuildingArtSource: this.generatedBuildingArtSource,
       generatedFloraArtSource: this.generatedFloraArtSource,

@@ -16,7 +16,7 @@ import { isPlantPreset } from '@/blueprint/presets';
 import {
   buildingSpriteItemFromImage, buildingSpriteItemFromPack, flatBlockItems, pickBuildingSource,
 } from './iso-building';
-import { barrierSlabs } from './iso-barrier';
+import { barrierSlabs, barrierPieceItem } from './iso-barrier';
 import { buildYSortBucket, buildingSortKey, type YSortEntry } from './iso-ysort';
 import { blueprintOf } from '@/blueprint/entity';
 import { structureBox, type StructureBox } from '@/blueprint/footprint';
@@ -100,18 +100,35 @@ export function buildEntityDrawList(
     switch (node.category) {
       case 'barrier': {
         const e = node.ref as Entity;
-        // One y-sort entry per slab — a long run interleaves with buildings at
-        // each piece's own iso depth instead of all at the entity anchor.
-        const slabs = barrierSlabs(e, ic);
-        slabs.forEach((sl, i) => {
-          const cid = `${e.id}#${i}`;
-          barrierSlabItems.set(cid, sl.items);
-          entries.push({
-            id: cid, kind: 'barrier',
-            tx: Math.floor(sl.wx), ty: Math.floor(sl.wy), z: 0,
-            kindPriority: KIND_PRIORITY.barrier,
+        // Prefer the composed-and-lit parametric pieces (one bounded sprite per run chunk);
+        // each y-sorts at its own chunk midpoint, interleaving with the buildings it weaves
+        // past — exactly like the legacy slabs, but lit. Until every chunk's compose settles
+        // the resolver returns null and we draw the flat-quad fallback for the whole run.
+        const pieces = rc.resolveParametricBarrierArt?.(e) ?? null;
+        if (pieces && pieces.length) {
+          pieces.forEach((p, i) => {
+            const cid = `${e.id}#${i}`;
+            barrierSlabItems.set(cid, [barrierPieceItem(ic, p)]);
+            entries.push({
+              id: cid, kind: 'barrier',
+              tx: Math.floor(p.sortX), ty: Math.floor(p.sortY), z: 0,
+              kindPriority: KIND_PRIORITY.barrier,
+            });
           });
-        });
+        } else {
+          // One y-sort entry per slab — a long run interleaves with buildings at
+          // each piece's own iso depth instead of all at the entity anchor.
+          const slabs = barrierSlabs(e, ic);
+          slabs.forEach((sl, i) => {
+            const cid = `${e.id}#${i}`;
+            barrierSlabItems.set(cid, sl.items);
+            entries.push({
+              id: cid, kind: 'barrier',
+              tx: Math.floor(sl.wx), ty: Math.floor(sl.wy), z: 0,
+              kindPriority: KIND_PRIORITY.barrier,
+            });
+          });
+        }
         break;
       }
       case 'building': {

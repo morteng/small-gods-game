@@ -2,7 +2,7 @@ import type { BlobTile } from '@/map/blob-autotiler';
 import type { World } from '@/world/world';
 import type { SpiritId } from '@/core/spirit';
 import type { Era } from '@/core/era';
-import type { SpritePack } from '@/render/iso/sprite-canvas';
+import type { SpritePack, BarrierPiece } from '@/render/iso/sprite-canvas';
 import type { LightingState } from '@/render/lighting-state';
 import type { IslandSpec } from '@/terrain/island-mask';
 import type { ClimateName, ClimateSpec } from '@/terrain/climate';
@@ -213,6 +213,9 @@ export interface RenderContext {
   resolveBuildingArt?: (entity: Entity) => HTMLImageElement | null;
   /** A runtime-generated parametric building sprite pack (manifold), or null. */
   resolveParametricBuildingArt?: (entity: Entity) => SpritePack | null;
+  /** A barrier run's composed-and-lit chunk pieces (manifold), or null until warm — the
+   *  parametric replacement for the flat-quad `barrierSlabs`. Each piece y-sorts independently. */
+  resolveParametricBarrierArt?: (entity: Entity) => BarrierPiece[] | null;
   /** Monotonic revision of the parametric building source (bumped as async massing
    *  packs settle). Folded into the static draw-cache key so the building layer
    *  rebuilds once packs are ready instead of freezing flatblock fallbacks. */

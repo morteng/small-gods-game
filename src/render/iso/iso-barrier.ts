@@ -17,6 +17,37 @@ import type { BarrierRun } from '@/world/barrier';
 import { worldToScreen } from './iso-projection';
 import { HEIGHT_UNIT_PX, ISO_TILE_H } from '@/render/scale-contract';
 import { type DrawItem } from './draw-list';
+import type { BarrierPiece } from './sprite-canvas';
+
+/**
+ * One composed-and-lit barrier chunk → an image DrawItem, placed pixel-exactly: the chunk's
+ * `refX/refY` (a real z=0 world point) projects to screen, and the sprite is offset so its
+ * normalised anchor pixel lands there. Co-registered normal/material/emissive + the geometry
+ * cast shadow ride along (Canvas2D ignores the maps; the WebGPU scene lights them). The general
+ * form of the building foot-anchor, but for an arbitrary geometry point (a wall has no
+ * bottom-centre footprint to anchor on).
+ */
+export function barrierPieceItem(o: { originX: number; originY: number }, piece: BarrierPiece): DrawItem {
+  const { pack } = piece;
+  const w = pack.albedo.width, h = pack.albedo.height;
+  const s = worldToScreen(piece.refX, piece.refY, 0, o.originX, o.originY);
+  const item: DrawItem = {
+    t: 'image', src: pack.albedo,
+    dx: Math.round(s.sx - piece.anchorNX * w),
+    dy: Math.round(s.sy - piece.anchorNY * h),
+    dw: w, dh: h,
+  };
+  if (pack.normal || pack.material || pack.materialData || pack.emissive) {
+    item.maps = {
+      normal: pack.normal as CanvasImageSource | undefined,
+      material: pack.material as CanvasImageSource | undefined,
+      materialData: pack.materialData,
+      emissive: pack.emissive as CanvasImageSource | undefined,
+    };
+  }
+  if (pack.shadow) item.shadowSprite = { src: pack.shadow.canvas, dx: pack.shadow.dx, dy: pack.shadow.dy };
+  return item;
+}
 
 interface P { sx: number; sy: number }
 

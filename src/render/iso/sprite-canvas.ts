@@ -43,6 +43,24 @@ export interface SpritePack {
   tags?: MountAnchorN[];
 }
 
+/**
+ * One renderable piece of a barrier RUN: a composed lit {@link SpritePack} for a bounded
+ * chunk of the polyline, plus the placement data the draw list needs. A long run (a town-wall
+ * ring) decomposes into many pieces so each composes to a bounded sprite AND y-sorts at its
+ * own iso depth (interleaving with the buildings it weaves past), exactly as the legacy
+ * per-slab path did — but now lit like a building.
+ *
+ * Placement is exact (no footprint guess): `refX/refY` is a real z=0 world point (the chunk's
+ * start), and `anchorNX/anchorNY` is that point's normalised position (0..1) inside the cropped
+ * pack — so the sprite lands by mapping `worldToScreen(refX,refY)` onto `(anchorN·cropSize)`.
+ */
+export interface BarrierPiece {
+  pack: SpritePack;
+  refX: number; refY: number;        // world tile point the sprite anchors on (z=0)
+  anchorNX: number; anchorNY: number; // normalised (0..1 of the crop) position of (refX,refY)
+  sortX: number; sortY: number;       // y-sort anchor tile (the chunk's midpoint)
+}
+
 /** Build a tight canvas from a w×h RGBA buffer (e.g. the baked ground shadow). */
 export function rgbaToCanvas(data: Uint8ClampedArray, w: number, h: number): SpriteCanvas | null {
   const c = makeCanvas(w, h);

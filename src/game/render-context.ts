@@ -4,6 +4,7 @@ import type { AssetManager } from '@/render/asset-manager';
 import type { DecorationImageCache } from '@/render/decoration-image-cache';
 import type { ArtResolver } from '@/render/art-resolver';
 import type { ParametricBuildingSource } from '@/render/parametric-building-source';
+import type { ParametricBarrierSource } from '@/render/parametric-barrier-source';
 import type { ParametricPlantSource } from '@/render/parametric-plant-source';
 import type { GeneratedBuildingArtSource } from '@/render/generated-building-art-source';
 import type { GeneratedFloraArtSource } from '@/render/generated-flora-art-source';
@@ -20,6 +21,8 @@ export interface RenderContextDeps {
   artResolver: ArtResolver;
   buildingArtResolver: ArtResolver;
   parametricBuildingSource: ParametricBuildingSource;
+  /** Optional: the world barrier source. Absent ⇒ barriers fall back to the flat-quad slabs. */
+  parametricBarrierSource?: ParametricBarrierSource;
   parametricPlantSource: ParametricPlantSource;
   generatedBuildingArtSource?: GeneratedBuildingArtSource;
   generatedFloraArtSource?: GeneratedFloraArtSource;
@@ -41,7 +44,7 @@ function nightFactorOverride(): number | null {
  *  `map` and `world` are asserted non-null — every caller guards both before calling.
  *  `npcs` is [] when no world exists yet (pre-generation). */
 export function buildRenderContext(deps: RenderContextDeps): RenderContext {
-  const { state, viewport, sheets, assets, decorationImages, artResolver, buildingArtResolver, parametricBuildingSource, parametricPlantSource, generatedBuildingArtSource, generatedFloraArtSource, devMode } = deps;
+  const { state, viewport, sheets, assets, decorationImages, artResolver, buildingArtResolver, parametricBuildingSource, parametricBarrierSource, parametricPlantSource, generatedBuildingArtSource, generatedFloraArtSource, devMode } = deps;
   // Interior I-2: the focused building (if any) renders cutaway when the reveal flag is on.
   // Off (default) ⇒ null ⇒ every building takes the unchanged closed path.
   const cutawayBuildingId = deps.interiorReveal ? (state.selectedBuildingId ?? null) : null;
@@ -89,6 +92,14 @@ export function buildRenderContext(deps: RenderContextDeps): RenderContext {
       parametricBuildingSource.warm(entity, cutaway); // fire-and-forget; never blocks the frame
       return null;
     },
+    resolveParametricBarrierArt: parametricBarrierSource
+      ? (entity: Entity) => {
+          const pieces = parametricBarrierSource.peek(entity);
+          if (pieces) return pieces;
+          parametricBarrierSource.warm(entity); // fire-and-forget; never blocks the frame
+          return null;
+        }
+      : undefined,
     resolveParametricPlantArt: (kind: string) => {
       // Prefer the img2img-refined flora sprite (IDB cache / vendored library /
       // paid gen when enabled); fall back to the grey parametric massing on a miss.
@@ -126,7 +137,7 @@ export function buildRenderContext(deps: RenderContextDeps): RenderContext {
     // Folds into the static draw-cache key so the building layer rebuilds once the
     // async parametric massing packs finish composing (otherwise the first snapshot —
     // taken before compose lands — freezes flatblock fallbacks forever).
-    buildingArtRev: parametricBuildingSource.version(),
+    buildingArtRev: parametricBuildingSource.version() + (parametricBarrierSource?.version() ?? 0),
     cutawayBuildingId,
   };
 }
