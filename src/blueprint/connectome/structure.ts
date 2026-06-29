@@ -28,6 +28,9 @@ export interface ConnectomeStructure {
   jettyMax?: number;
   bayModule?: number;
   fenestration?: { maxPerFace?: number; spacing?: number };
+  /** Masonry-capable frame (mass-wall/box-frame) — carries a wall chimney AND a stone
+   *  undercroft base course; false for light cruck/stave frames. */
+  flue?: boolean;
 }
 
 /**
@@ -75,6 +78,7 @@ export function annotateStructure(con: Connectome, base: Blueprint, ctx: ExpandC
     ...(frame.fields.jettyMax !== undefined ? { jettyMax: frame.fields.jettyMax } : {}),
     ...(frame.fields.bayModule !== undefined ? { bayModule: frame.fields.bayModule } : {}),
     ...(frame.fields.fenestration ? { fenestration: frame.fields.fenestration } : {}),
+    ...(frame.fields.flue !== undefined ? { flue: frame.fields.flue } : {}),
   };
   return { ...con, structure };
 }

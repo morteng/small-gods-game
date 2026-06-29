@@ -119,6 +119,9 @@ export const bodyPartType: PartType = {
     /** Tiles each upper storey oversails the one below toward the street (+x/+y) —
      *  the jettied townhouse cue. 0.12 ≈ a 24 cm jetty per storey. */
     jetty: { kind: 'number', min: 0, max: 0.3, default: 0 },
+    /** L3b undercroft: height (tiles) of a stone base course at the wall foot, the rest in
+     *  the wall material — the burgage townhouse's stone storey under timber. 0 = none. */
+    baseCourse: { kind: 'number', min: 0, max: 2, default: 0 },
     roof: {
       kind: 'enum',
       values: [
@@ -145,10 +148,14 @@ export const bodyPartType: PartType = {
       roof: ROOF_KIND[p.params.roof as string] ?? 'gable',
       ...(jetty > 0 ? { jetty } : {}),
     }));
+    // L3b: a stone undercroft base course (tiles) under the wall material, derived for bodies
+    // with a sub-grade zone (see connectome/form) — the burgage townhouse's stone storey.
+    const baseCourse = (p.params.baseCourse as number) || 0;
     return [{
       prim: 'building', wings,
       wallMat: wallMatOf(ctx), roofMat: roofMatOf(ctx), roofStyle: 'gable',
       wallWork: wallWorkOf(ctx), features: {}, seed: 0,
+      ...(baseCourse > 0 ? { baseCourse } : {}),
     }];
   },
   toCollision(p) {

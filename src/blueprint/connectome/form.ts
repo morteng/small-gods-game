@@ -28,6 +28,7 @@
 import type { Blueprint, BlueprintPatch } from '../types';
 import type { Connectome, ExpandCtx } from './types';
 import type { BuildingTypeFields } from '@/catalogue/types';
+import { mToTiles, STOREY_TILES } from '@/render/scale-contract';
 
 /** The part tag a preset sets to opt a body into graph-derived massing. */
 export const GEN_FORM_TAG = 'gen-form';
@@ -66,6 +67,15 @@ export function connectomeForm(con: Connectome, base: Blueprint, _ctx: ExpandCtx
 
   const bodyLen = deriveBodyLength(con, base, _ctx);
 
+  // L3b undercroft: a buildingType that declares `undercroft` (the burgage townhouse) raised
+  // on a stone base course — but only where the FRAME can carry masonry (mass-wall/box-frame;
+  // a light cruck/stave cot can't sink a stone cellar) AND the body stacks a storey above it,
+  // so the stone undercroft reads UNDER a (timber) upper rather than turning the hut to stone.
+  const undercroftType = !!con.source?.type
+    && !!_ctx.registry.get<BuildingTypeFields>('buildingType', con.source.type)?.fields.undercroft;
+  const hasUndercroft = undercroftType || con.zones.some((z) => (z.level ?? 0) < 0);
+  const canMasonryBase = !!st?.flue;
+
   const parts: Record<string, {
     type: string; params: Record<string, number | string>; size?: { w: number; h: number };
   }> = {};
@@ -91,6 +101,15 @@ export function connectomeForm(con: Connectome, base: Blueprint, _ctx: ExpandCtx
     // A sacred hall is built tall (the lofty nave/cella); ordinary dwellings use the
     // standard storey. Only set storeyM when we mean to override the default.
     if (sacred) params.storeyM = 4.5;
+
+    // L3b: stone undercroft — the ground storey becomes a stone base course carrying the
+    // (timber) upper. One storey high, so a 2-storey box-frame burgage reads stone-over-
+    // timber. The geometry splits the wall solid at this height (buildingFacets).
+    if (hasUndercroft && canMasonryBase && levels >= 2) {
+      const storeyTiles = mToTiles((params.storeyM as number) ?? -1) > 0
+        ? mToTiles(params.storeyM as number) : STOREY_TILES;
+      params.baseCourse = storeyTiles;
+    }
 
     // L2b: size the body's plan run to the seeded bay count, keeping the authored depth
     // (so frontage + the door's facing row are preserved) and never exceeding the lot.

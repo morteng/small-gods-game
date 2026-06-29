@@ -577,6 +577,10 @@ export async function buildingFacets(
   seed = 0,
   apertures: ApertureBox[] = [],
   wallWork?: string,
+  // L3b cellars/undercroft: a stone base course of this height (tiles) at the wall foot, the
+  // rest of the wall in `wallMat`. >0 ⇒ the body reads as a stone undercroft carrying a
+  // (timber) upper — the burgage townhouse. 0 ⇒ a single wall material as before.
+  baseCourse = 0,
 ): Promise<{ facets: WorldFacet[]; anchors: BuildingAnchors }> {
   const { Manifold } = await getManifold();
   // Walls: union every storey box of every wing (upper storeys grown by jetty), then
@@ -608,11 +612,28 @@ export async function buildingFacets(
     roof = roof.add(c.cap);
   }
 
+  const wallSolid = dormerBoxes.length ? walls.add(Manifold.union(dormerBoxes)) : walls;
+  // Split the wall into a stone undercroft band + the upper wall material when asked; else
+  // one material. The boolean clips the band to the actual wall solid, so an oversized base
+  // box is safe (the ground storey is un-jettied, so a wings-bbox cover is exact at z=0).
+  let wallFacets: WorldFacet[];
+  if (baseCourse > 0) {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const w of wings) {
+      if (w.x < minX) minX = w.x; if (w.y < minY) minY = w.y;
+      if (w.x + w.w > maxX) maxX = w.x + w.w; if (w.y + w.h > maxY) maxY = w.y + w.h;
+    }
+    const baseBox = await solidBox([minX - 1, minY - 1, 0], [maxX - minX + 2, maxY - minY + 2, baseCourse]);
+    wallFacets = [
+      ...manifoldToFacets(wallSolid.intersect(baseBox).getMesh(), 'stone', wallWork),
+      ...manifoldToFacets(wallSolid.subtract(baseBox).getMesh(), wallMat, wallWork),
+    ];
+  } else {
+    wallFacets = manifoldToFacets(wallSolid.getMesh(), wallMat, wallWork);
+  }
+
   const facets: WorldFacet[] = [
-    ...manifoldToFacets(
-      dormerBoxes.length ? walls.add(Manifold.union(dormerBoxes)).getMesh() : walls.getMesh(),
-      wallMat, wallWork,
-    ),
+    ...wallFacets,
     ...manifoldToFacets(roof.getMesh(), roofMat),
   ];
   const anchors: BuildingAnchors = { vents: [] };

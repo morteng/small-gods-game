@@ -105,6 +105,9 @@ export interface Connectome {
     jettyMax?: number;
     bayModule?: number;
     fenestration?: { maxPerFace?: number; spacing?: number };
+    /** Can the frame carry masonry — a wall chimney AND a stone undercroft/base course? True
+     *  for mass-wall + box-frame; false for cruck/stave (light timber). */
+    flue?: boolean;
   };
   /** Where this graph came from — the source catalogue type + its topology. */
   source?: { type?: string; topology?: string };

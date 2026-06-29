@@ -119,6 +119,13 @@ export interface BuildingTypeFields {
    * ⇒ the structure subsystem DERIVES the frame from the wall material + era/region.
    */
   frame?: string;
+  /**
+   * Layered-connectome Layer 3b: this building stands on a stone UNDERCROFT — its ground
+   * storey is a masonry base course carrying the (timber) upper floors (the burgage
+   * townhouse). The FORM layer renders it only when the frame can bear masonry and the body
+   * stacks ≥2 storeys; a cruck/stave cot never gets one. Omitted ⇒ no undercroft.
+   */
+  undercroft?: boolean;
 }
 
 export interface RoomTypeFields {

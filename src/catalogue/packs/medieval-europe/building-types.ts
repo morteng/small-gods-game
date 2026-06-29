@@ -26,7 +26,7 @@ const b = (
   // Optional cross-axis fields: establishment tokens read by the site grammar
   // (functions/requires/satisfies) + the `frame` construction hint read by the
   // structure subsystem (omitted ⇒ frame derived from the wall material).
-  siteFields: Partial<Pick<BuildingTypeFields, 'functions' | 'requires' | 'satisfies' | 'frame'>> = {},
+  siteFields: Partial<Pick<BuildingTypeFields, 'functions' | 'requires' | 'satisfies' | 'frame' | 'undercroft'>> = {},
 ): B => ({
   id,
   kind: 'buildingType',
@@ -67,7 +67,7 @@ export const MEDIEVAL_BUILDING_TYPES: B[] = [
     { l0: 'an urban burgage townhouse', l1: ['two jettied storeys', 'stone ground floor', 'gable to the street'],
       l2: 'The cottage’s town upgrade on a narrow burgage plot: parlour over a stone undercroft, chambers above, a proper chimney.' },
     { provenance: ['https://en.wikipedia.org/wiki/Burgage'] },
-    { frame: 'box-frame' }),
+    { frame: 'box-frame', undercroft: true }),
 
   b('market_stall', 'tripartite-linear',
     [room('shopfront-stall', 1, 1)],
