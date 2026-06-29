@@ -171,10 +171,12 @@ export class Game {
   /** The barebones game (WebGPU UI only). `?legacyui` flips back to the old
    *  DOM/Canvas2D chrome. Single source of truth for chrome suppression. */
   private readonly barebones = !hasQueryFlag('legacyui');
-  /** Interior I-2 reveal: `?interiorReveal` (or `?i2`) draws the SELECTED building cutaway
-   *  (roof off, floor exposed). OFF by default — the swap is inert until verified, keeping the
-   *  shipped game's render byte-identical. */
-  private readonly interiorReveal = hasQueryFlag('interiorReveal') || hasQueryFlag('i2');
+  /** Interior reveal (epic I-1…I-6): the SELECTED building renders as a roof-off cutaway
+   *  (interior rooms, rood screen, stacked storeys, crypt). ON by default now that the cutaway
+   *  is verified coherent in-game; `?noInterior` opts back to the solid-exterior render. (The
+   *  legacy `?interiorReveal`/`?i2` enable-flags are kept as harmless no-ops.) With nothing
+   *  selected, `cutawayBuildingId` is null and the render is unchanged from before. */
+  private readonly interiorReveal = !hasQueryFlag('noInterior');
   private llmClient!: LLMClient;
   private llmBackfill!: LlmBackfillService;
   private fateBrain!: FateBrainService;
