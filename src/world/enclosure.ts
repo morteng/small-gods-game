@@ -231,29 +231,17 @@ export function deriveSettlementRing(args: {
   const path = rectRing(minX, minY, maxX, maxY);
   const gateW = catalogue.get<BarrierTypeFields>('barrierType', typeId)?.fields.gateWidthTiles ?? 3;
 
-  // Walk the ring; a perimeter tile that is a road or water becomes a gate/opening.
+  // Walk the ring; a perimeter tile that is a road, water, OR under a building's VISUAL
+  // extent becomes a gate/opening. Reuse the SAME slab-midpoint gating the croft rings use
+  // (gatesWhereOpen) instead of an integer-vertex merge: the vertex sampling this replaced
+  // drifted half a tile from where slabs actually land, so in a dense settlement a slab
+  // straddling a perimeter building's cell slipped through the seam and poked out under the
+  // silhouette (the INV4 C1 leak that surfaced once settlements scaled up). One robust gate
+  // path for both ring kinds.
   const total = 2 * dx + 2 * dy;
-  const openAt: boolean[] = [];
-  const pts: Pt[] = [];
-  for (let t = 0; t <= total; t += 1) {
-    const [px, py] = pointOnPath(path, t);
-    const x = Math.round(px), y = Math.round(py);
-    pts.push([x, y]);
-    openAt.push(args.isRoad(x, y) || args.isWater(x, y) || (args.isBuilding?.(x, y) ?? false));
-  }
-  // Merge consecutive open steps into gate spans (centre t + padded width).
-  const gates: BarrierGate[] = [];
-  let runStart = -1;
-  for (let i = 0; i <= openAt.length; i++) {
-    const open = openAt[i] ?? false;
-    if (open && runStart < 0) runStart = i;
-    else if (!open && runStart >= 0) {
-      const centre = (runStart + (i - 1)) / 2;
-      const width = Math.max(gateW, (i - 1 - runStart) + gateW * 0.5);
-      gates.push({ t: centre, width });
-      runStart = -1;
-    }
-  }
+  const isOpen = (x: number, y: number): boolean =>
+    args.isRoad(x, y) || args.isWater(x, y) || (args.isBuilding?.(x, y) ?? false);
+  const gates = gatesWhereOpen(path, total, isOpen, gateW);
 
   const run = barrierRunFromType(typeId, path, gates);
   if (!run) return null;
