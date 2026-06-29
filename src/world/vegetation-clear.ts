@@ -33,6 +33,15 @@ import type { World } from '@/world/world';
 import type { RoadGraph } from '@/world/road-graph';
 import { tryGetEntityKindDef } from '@/world/entity-kinds';
 import { isBuilding } from '@/world/building-collision';
+import { elevationAt } from '@/world/heightfield';
+
+/**
+ * Treeline: normalised elevation above which no vegetation grows — the high ground
+ * is bare rock and snow (the Mountain biome begins at 0.76). Forests that a biome
+ * brush draped over a massif get culled above this so a peak reads as a rocky crag,
+ * not a tree-covered mound, and trees stop poking through the summit.
+ */
+export const TREELINE_ELEV = 0.72;
 
 /** Entity categories considered "nature" and therefore clearable. */
 const NATURE_CATEGORIES = new Set(['vegetation', 'terrain-feature']);
@@ -161,8 +170,10 @@ export function clearObstructedVegetation(world: World, map: GameMap): number {
     const onBuilding = world.registry
       .getAtTile(tx, ty)
       .some((b) => b.id !== e.id && isBuilding(b));
+    // Above the treeline the ground is bare rock/snow — nothing vegetates there.
+    const aboveTreeline = elevationAt(map, tx, ty) > TREELINE_ELEV;
 
-    if (inCorridor || onBuilding) toRemove.push(e.id);
+    if (inCorridor || onBuilding || aboveTreeline) toRemove.push(e.id);
   }
 
   for (const id of toRemove) world.removeEntity(id);

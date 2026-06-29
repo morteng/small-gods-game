@@ -447,8 +447,18 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
 
   // Material WEIGHTS — each becomes a height-blend layer below.
   let wRock = smoothstep(0.42, 0.78, slope + jit * 0.18);                 // steep faces
-  let wSnow = smoothstep(0.30, 0.16, temp + jit * 0.06)                   // cold + settles
-            * smoothstep(0.45, 0.72, n.y);
+  // Snow: cold ground (latitude/lapse) OR a permanent high-altitude cap. The
+  // elevation snowline gives every great peak a white crown regardless of climate
+  // (aboveSea ≈ 0.47 ≈ elev 0.82 = upper mountain, full by ≈ 0.58 = the summit);
+  // both settle on flatter ground so steep faces stay bare rock.
+  let wSnowCold = smoothstep(0.30, 0.16, temp + jit * 0.06);
+  // The altitude cap only forms where the high ground is also COOL: a great peak in a
+  // cold/temperate latitude crowns white, but a hot-country summit (a desert cinder
+  // cone, altitude-cooled to ~0.44 yet far from polar) stays bare. Without this gate
+  // the snowline dusted the volcano and read as an alpine mountain dropped on the desert.
+  let wSnowAlt  = smoothstep(0.47, 0.58, aboveSea + jit * 0.03)
+                * smoothstep(0.45, 0.33, temp + jit * 0.04);
+  let wSnow = max(wSnowCold, wSnowAlt) * smoothstep(0.42, 0.70, n.y);
   let sandBand = 0.05 + jit * 0.015;
   let wSand = step(0.0, aboveSea) * (1.0 - smoothstep(0.0, sandBand, aboveSea)); // shore band
   let wMud  = smoothstep(0.62, 0.92, moist)                              // wet low gentle ground
