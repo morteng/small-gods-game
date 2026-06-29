@@ -29,6 +29,7 @@ import { connectomeToBlueprint } from '../connectome/to-blueprint';
 import { connectomeOpenings } from '../connectome/openings';
 import { annotateStructure, connectomeStructure } from '../connectome/structure';
 import { connectomeForm } from '../connectome/form';
+import { deriveCellar } from '../connectome/cellar';
 import type { Connectome, ExpandCtx } from '../connectome/types';
 import type { Blueprint, BlueprintPatch, Era } from '../types';
 
@@ -89,5 +90,8 @@ export function expressBuilding(
   const cap = connectomeStructure(connectome, base);
   if (nonEmpty(cap)) post.push(cap);
 
-  return { connectome, pre, post };
+  // CELLAR (L3b) is render-only — derived LAST, after every massing/opening/vent/cap pass has
+  // already read the connectome, so a below-grade (level:-1) zone can never perturb the
+  // exterior. It surfaces only in the interior cutaway (interiorPlan → a sub-grade floor plate).
+  return { connectome: deriveCellar(connectome, ctx), pre, post };
 }

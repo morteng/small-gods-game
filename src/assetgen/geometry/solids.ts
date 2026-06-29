@@ -674,9 +674,13 @@ export async function buildingFacets(
     const nStoreys = Math.max(...wings.map(w => w.storeys ?? 1));
     const tall = storeyH * nStoreys + 5;          // taller than any wall — clears the whole interior
     const FLOOR_T = 0.08, WALL_T = 0.3, SILL = 0.5;
+    // Sub-grade depth: a cellar/crypt is a normal-height storey even under a building with a
+    // LOFTY one (a sacred 4.5 m nave shouldn't dig a deep pit) — cap it at a plain storey.
+    const subH = Math.min(storeyH, STOREY);
+    const levelZ = (lvl: number) => lvl * (lvl < 0 ? subH : storeyH);
     // A below-grade cellar (a level:-1 zone) digs the cavity + near-wall cuts down to its floor
     // so it reads in the dollhouse; without one, cellarZ = 0 and the bytes match I-3 exactly.
-    const cellarZ = Math.min(0, ...(interior?.levels ?? [0])) * storeyH;
+    const cellarZ = levelZ(Math.min(0, ...(interior?.levels ?? [0])));
     const cavBot = Math.min(-2, cellarZ - 2);
     const cutBot = cellarZ < 0 ? cellarZ : SILL; // ground sill normally; dig past it for a cellar
     // Hollow the solid massing: subtract an inset cavity (open all the way down so we add our
@@ -736,7 +740,7 @@ export async function buildingFacets(
     // tower/keep reads as stacked rooms; a negative level is a below-grade cellar floor (the
     // cavity + near-wall cuts above already dug down to meet it). Level 0 is the ground slab.
     for (const lvl of interior?.levels ?? []) {
-      const plate = await solidBox([fx0 + WALL_T, fy0 + WALL_T, lvl * storeyH - FLOOR_T], [W - 2 * WALL_T, H - 2 * WALL_T, FLOOR_T]);
+      const plate = await solidBox([fx0 + WALL_T, fy0 + WALL_T, levelZ(lvl) - FLOOR_T], [W - 2 * WALL_T, H - 2 * WALL_T, FLOOR_T]);
       facets.push(...manifoldToFacets(plate.getMesh(), 'stone'));
     }
     return { facets, anchors: { vents: [] } };

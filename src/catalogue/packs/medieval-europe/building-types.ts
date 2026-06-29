@@ -26,7 +26,7 @@ const b = (
   // Optional cross-axis fields: establishment tokens read by the site grammar
   // (functions/requires/satisfies) + the `frame` construction hint read by the
   // structure subsystem (omitted ⇒ frame derived from the wall material).
-  siteFields: Partial<Pick<BuildingTypeFields, 'functions' | 'requires' | 'satisfies' | 'frame' | 'undercroft'>> = {},
+  siteFields: Partial<Pick<BuildingTypeFields, 'functions' | 'requires' | 'satisfies' | 'frame' | 'undercroft' | 'cellar'>> = {},
 ): B => ({
   id,
   kind: 'buildingType',
@@ -84,7 +84,8 @@ export const MEDIEVAL_BUILDING_TYPES: B[] = [
     { l0: 'a small stone temple', l1: ['tall arched windows', 'rectangular cella', 'pedimented gable front'] },
     { applicability: { eras: ['classical', 'medieval'] } },
     // E3 Threshold: the sacred precinct cleanses at its border ⇒ a co-placed font.
-    { functions: ['worship'], requires: ['cleansing'] }),
+    // L3b: a stone temple sinks a crypt under its cella (render-only, in the cutaway).
+    { functions: ['worship'], requires: ['cleansing'], cellar: 'crypt' }),
 
   b('farm_barn', 'church-axial',
     [room('nave', 1, 3), room('aisle', 2, 3)],
@@ -189,7 +190,9 @@ export const MEDIEVAL_BUILDING_TYPES: B[] = [
     { room: 'none' },
     [4, 6], { walls: 'stone', roof: 'slate', ground: 'flagstone' },
     { l0: 'a parish church', l1: ['west tower', 'aisled nave', 'east chancel'] },
-    { provenance: ['https://en.wikipedia.org/wiki/Parish_church'] }),
+    { provenance: ['https://en.wikipedia.org/wiki/Parish_church'] },
+    // L3b: a stone parish church sinks a crypt under its chancel (render-only, in the cutaway).
+    { cellar: 'crypt' }),
 
   b('tithe-barn', 'church-axial',
     [room('nave', 1, 4), room('aisle', 2, 4)],
