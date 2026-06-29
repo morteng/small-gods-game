@@ -12,7 +12,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { PNG } from 'pngjs';
 import { composeStructure } from '../src/assetgen/compose';
-import { chunkBarrierRun } from '../src/render/parametric-barrier-source';
+import { runElements } from '../src/render/parametric-barrier-source';
 import { worldToScreen } from '../src/render/iso/iso-projection';
 import { BARRIER_DEFAULTS, type BarrierRun } from '../src/world/barrier';
 
@@ -22,10 +22,10 @@ interface Placed { grey: Uint8ClampedArray; cw: number; ch: number; ox: number; 
 
 async function placeRun(run: BarrierRun): Promise<Placed[]> {
   const out: Placed[] = [];
-  for (const c of chunkBarrierRun(run)) {
-    const r = await composeStructure({ parts: [{ prim: 'linear', run: c.localRun }] }, undefined, { surfaceTexture: true });
+  for (const el of runElements(run)) {
+    const r = await composeStructure(el.spec(), undefined, { surfaceTexture: true });
     const bb = { x: Math.round(r.bbox.x), y: Math.round(r.bbox.y), w: Math.max(1, Math.round(r.bbox.w)), h: Math.max(1, Math.round(r.bbox.h)) };
-    const a = r.anchors.wallEnds?.[0] ?? { x: 0.5, y: 1 };
+    const a = el.anchor(r) ?? { x: 0.5, y: 1 };
     // Crop the chunk's grey to its opaque bbox.
     const crop = new Uint8ClampedArray(bb.w * bb.h * 4);
     for (let y = 0; y < bb.h; y++) {
@@ -35,7 +35,7 @@ async function placeRun(run: BarrierRun): Promise<Placed[]> {
         crop[d] = r.grey[s]; crop[d + 1] = r.grey[s + 1]; crop[d + 2] = r.grey[s + 2]; crop[d + 3] = r.grey[s + 3];
       }
     }
-    const sc = worldToScreen(c.refX, c.refY, 0, 0, 0);
+    const sc = worldToScreen(el.refX, el.refY, 0, 0, 0);
     out.push({ grey: crop, cw: bb.w, ch: bb.h, ox: sc.sx - a.x * bb.w, oy: sc.sy - a.y * bb.h });
   }
   return out;

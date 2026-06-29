@@ -1,9 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { chunkBarrierRun } from '@/render/parametric-barrier-source';
+import { chunkBarrierRun, runElements } from '@/render/parametric-barrier-source';
 import { BARRIER_DEFAULTS, type BarrierRun } from '@/world/barrier';
 
 const wall = (path: [number, number][], gates = [] as { t: number; width: number }[]): BarrierRun =>
   ({ kind: 'wall', path, ...BARRIER_DEFAULTS.wall, gates });
+
+const RING: [number, number][] = [[0, 0], [14, 0], [14, 10], [0, 10], [0, 0]];
+const crenStoneRing = (gates = [] as { t: number; width: number }[]): BarrierRun =>
+  ({ kind: 'wall', path: RING, height: 3, thickness: 2, material: 'stone', crenellated: true, gates });
 
 describe('chunkBarrierRun', () => {
   it('splits a straight run into ≤4-tile chunks that cover the whole length', () => {
@@ -47,5 +51,25 @@ describe('chunkBarrierRun', () => {
 
   it('a degenerate run (one point) yields no chunks', () => {
     expect(chunkBarrierRun(wall([[3, 3]]))).toHaveLength(0);
+  });
+
+  it('a crenellated stone ring adds a flanking tower at every corner', () => {
+    const chunks = chunkBarrierRun(crenStoneRing()).length;
+    const elements = runElements(crenStoneRing()).length;
+    // 4 rectangular corners → 4 extra tower elements over the curtain chunks.
+    expect(elements).toBe(chunks + 4);
+  });
+
+  it('a gate adds two flanking towers (a gatehouse)', () => {
+    const ungated = runElements(crenStoneRing()).length;
+    const gated = runElements(crenStoneRing([{ t: 7, width: 3 }])).length;
+    expect(gated).toBe(ungated + 2);
+  });
+
+  it('non-masonry / uncrenellated runs get NO towers (curtain chunks only)', () => {
+    const hedge: BarrierRun = { kind: 'hedge', path: RING, ...BARRIER_DEFAULTS.hedge, gates: [] };
+    expect(runElements(hedge).length).toBe(chunkBarrierRun(hedge).length);
+    const plainStone: BarrierRun = { kind: 'wall', path: RING, height: 1.3, thickness: 1, material: 'stone', crenellated: false, gates: [] };
+    expect(runElements(plainStone).length).toBe(chunkBarrierRun(plainStone).length);
   });
 });
