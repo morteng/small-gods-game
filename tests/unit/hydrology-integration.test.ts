@@ -51,12 +51,14 @@ describe('Hydrology in generateWithNoise', () => {
         if (map.tiles[y]?.[x]?.type === 'river') rivers++;
       }
     }
-    // Calibrated empirically after pit-filling (Barnes 2014 priority-flood)
-    // started routing all drainage to water: seed=1 produces ~280 rivers at
-    // the default threshold of 500. Tolerance allows small tuning without
-    // brittleness.
-    expect(rivers).toBeGreaterThanOrEqual(120);
-    expect(rivers).toBeLessThanOrEqual(560);
+    // Calibrated for the WIDE river raster (WORLD_CONTENT_VERSION 42): the tile
+    // raster is stamped out to the connectome channel half-width (the same swath the
+    // render mask + carve use) instead of the 1-cell D8 centreline, so the count is
+    // ~4–5× the old centreline figure — seed=1 produces ~1300 rivers at the default
+    // threshold of 500. The band is still bounded (it never sheets across the map);
+    // the tolerance allows tuning the half-widths without brittleness.
+    expect(rivers).toBeGreaterThanOrEqual(500);
+    expect(rivers).toBeLessThanOrEqual(2200);
   });
 
   it('the river-flow threshold scales with map area (large maps do not over-river)', async () => {

@@ -31,6 +31,7 @@ import { buildStairStructureEntities } from '@/world/connectome/stair-structures
 import { buildEntranceStoopEntities } from '@/world/connectome/entrance-stoops';
 import { buildAqueductStructureEntities } from '@/world/connectome/aqueduct-structures';
 import { buildWaterNetwork } from '@/terrain/river-network';
+import { REACH_CARVE } from '@/world/river-deformation';
 import { DEFAULT_RIVER_FLOW_THRESHOLD } from '@/terrain/hydrology';
 import { getHeightfield, ELEVATION_SEA_LEVEL } from '@/world/heightfield';
 import { curveRenderElev } from '@/render/gpu/terrain-field';
@@ -171,6 +172,37 @@ export async function generateWithNoise(
         if (WATER_TYPES.has(t.type)) continue;
         t.type = 'river';
         t.walkable = false;
+      }
+    }
+  }
+
+  // Widen the river RASTER to match the river that is actually drawn and carved.
+  // The hydrology raster above is a 1-cell D8 centreline, but the VISIBLE + carved
+  // river follows the smooth connectome at the reach's channel half-width (up to ~2.2
+  // tiles → a ~5-tile band). If the raster stays 1 cell, settlements site on "grass"
+  // that is under painted water and roads carve dirt over the visible channel, only
+  // bridging the single raster cell. We re-stamp the SAME disc swath the render mask
+  // uses (render-water-mask.ts `buildRenderWaterType`) into the tile raster so every
+  // downstream consumer — building placer, road walker, pathfinding, picking — agrees
+  // with what is on screen. This runs BEFORE settlements + roads (below) so they avoid
+  // and bridge the full channel. The network is reused by the aqueduct pass later.
+  const waterNet = buildWaterNetwork(hydrology, width, height, DEFAULT_RIVER_FLOW_THRESHOLD);
+  for (const reach of waterNet.reaches) {
+    const r = Math.max(0.5, REACH_CARVE[reach.klass].halfWidth);
+    const r2 = r * r;
+    for (const p of reach.centerline) {
+      const x0 = Math.max(0, Math.floor(p.x - r)), x1 = Math.min(width - 1, Math.ceil(p.x + r));
+      const y0 = Math.max(0, Math.floor(p.y - r)), y1 = Math.min(height - 1, Math.ceil(p.y + r));
+      for (let cy = y0; cy <= y1; cy++) {
+        const dy = cy + 0.5 - p.y;
+        for (let cx = x0; cx <= x1; cx++) {
+          const dx = cx + 0.5 - p.x;
+          if (dx * dx + dy * dy > r2) continue;
+          const t = tiles[cy]?.[cx];
+          if (!t || WATER_TYPES.has(t.type)) continue;  // never overwrite ocean/lake/existing water
+          t.type = 'river';
+          t.walkable = false;
+        }
       }
     }
   }
@@ -404,7 +436,7 @@ export async function generateWithNoise(
     const WET_RADIUS_TILES = 5;
     const isWaterTile = (x: number, y: number) => WATER_TYPES.has(tiles[y]?.[x]?.type ?? '');
     for (const e of buildAqueductStructureEntities(
-      buildWaterNetwork(hydrology, width, height, DEFAULT_RIVER_FLOW_THRESHOLD),
+      waterNet,
       aqSettlements,
       {
         elevAt: (x, y) => deckHf[Math.round(y) * width + Math.round(x)] ?? ELEVATION_SEA_LEVEL,

@@ -279,6 +279,37 @@ export function halfWidthFromFlow(flow: number, refFlow: number): number {
   return Math.min(RIVER_HALF_MAX, Math.max(RIVER_HALF_MIN, w));
 }
 
+/** Downstream depth exponent (Leopold & Maddock: mean depth ∝ Qᶠ, f ≈ 0.4). */
+export const RIVER_DEPTH_FLOW_EXP = 0.4;
+/** Floor on the depth taper so a headwater bed never vanishes (fraction of class depth). */
+export const RIVER_DEPTH_MIN_FRAC = 0.4;
+
+/** Per-centreline-vertex carve depth (metres) for a reach: the reach's spectrum-class
+ *  depth (`classDepthM`, the value at the mouth) tapered SHALLOWER upstream by
+ *  (localFlow / mouthFlow)^0.4, floored so the bed never disappears at the spring. The
+ *  bed therefore drops continuously from headwater to mouth WITHIN a reach, and steps up
+ *  at confluences where the class grows — so the river stops reading as one flat trench. */
+export function reachDepths(reach: WaterReach, classDepthM: number): number[] {
+  const cl = reach.centerline;
+  const n = cl.length;
+  if (n === 0) return [];
+  // No flow gradient to taper along (a zero-flow degenerate/headwater stub) ⇒ uniform
+  // class depth, the shallow base value for that channel size.
+  if (reach.flow <= 0) return new Array(n).fill(classDepthM);
+  const mouth = reach.flow;
+  if (n === 1) return [classDepthM];
+  const s: number[] = [0];
+  for (let i = 1; i < n; i++) s.push(s[i - 1] + Math.hypot(cl[i].x - cl[i - 1].x, cl[i].y - cl[i - 1].y));
+  const total = s[n - 1] || 1;
+  const out: number[] = new Array(n);
+  for (let i = 0; i < n; i++) {
+    const f = reach.flowUp + (reach.flow - reach.flowUp) * (s[i] / total);
+    const ratio = Math.min(1, Math.max(0, f / mouth));
+    out[i] = classDepthM * Math.max(RIVER_DEPTH_MIN_FRAC, Math.pow(ratio, RIVER_DEPTH_FLOW_EXP));
+  }
+  return out;
+}
+
 /** Per-centreline-vertex half-widths (tiles) for a reach: the channel widens by arc
  *  length from its upstream accumulation (`flowUp`) to its mouth (`flow`). Both the
  *  carve and the render geometry consume this, so width is coherent end-to-end. */

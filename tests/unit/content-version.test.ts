@@ -6,7 +6,7 @@ describe('content-version constants', () => {
     expect(ART_RECIPE_VERSION).toBe('v22');
   });
 
-  it('declares the current world content version (41: 4-way building orientation)', () => {
-    expect(WORLD_CONTENT_VERSION).toBe(41);
+  it('declares the current world content version (43: roomier world layout)', () => {
+    expect(WORLD_CONTENT_VERSION).toBe(43);
   });
 });

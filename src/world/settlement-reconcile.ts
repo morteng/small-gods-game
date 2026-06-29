@@ -20,6 +20,7 @@
 import type { GameMap } from '@/core/types';
 import type { World } from '@/world/world';
 import { blueprintOf } from '@/blueprint/entity';
+import { isBuilding } from '@/world/building-collision';
 
 export function reconcileSettlementTiles(map: GameMap, world: World): void {
   const plans = map.settlementPlans;
@@ -41,6 +42,11 @@ export function reconcileSettlementTiles(map: GameMap, world: World): void {
   for (const e of world.query({})) {
     const bp = blueprintOf(e);
     if (!bp) continue;
+    // Only true buildings re-stamp their footprint non-walkable. Infrastructure
+    // props (bridge decks, stairs) and barriers carry blueprints too, but their
+    // tiles are deliberately traversable (road/bridge cells carved walkable by
+    // the road graph) — re-stamping them here severed every crossing on restore.
+    if (!isBuilding(e)) continue;
     const doorCells = new Set(bp.collision.doorCells);
     for (let dy = 0; dy < bp.collision.footprint.h; dy++) {
       for (let dx = 0; dx < bp.collision.footprint.w; dx++) {

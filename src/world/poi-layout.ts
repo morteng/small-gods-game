@@ -39,7 +39,11 @@ export interface LayoutOptions {
   maxDim?: number;
 }
 
-const DEFAULTS = { targetCornerD: 0.7, snap: 8, maxDim: 512 };
+// targetCornerD = how far the content's corners reach toward the island edge. Lower ⇒
+// the settlements seat more centrally with more land + coastline around them, so POI
+// areas get room to breathe instead of crowding the shore (0.7 → 0.66, a touch of margin
+// on top of the ~1.2× POI spread in default.json).
+const DEFAULTS = { targetCornerD: 0.66, snap: 8, maxDim: 512 };
 
 interface Bounds { minX: number; minY: number; maxX: number; maxY: number; }
 
