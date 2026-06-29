@@ -62,6 +62,13 @@ export interface Deformation {
    * backward-compatible: a deformation without `targetAt` is byte-identical to before.
    */
   targetAt?(tx: number, ty: number): number;
+  /**
+   * Per-tile carve/raise/add displacement in metres (overrides the scalar `amount` when
+   * present). This lets ONE carve deformation express a depth PROFILE — a river bed that
+   * deepens from spring to mouth with flow — rather than one constant depth per reach.
+   * Additive and backward-compatible: a deformation without `amountAt` is byte-identical.
+   */
+  amountAt?(tx: number, ty: number): number;
   /** Footprint falloff 0..1 at a tile — 1 at the core, 0 at/beyond the edge. */
   mask(tx: number, ty: number): number;
 }
@@ -75,13 +82,15 @@ export function applyOp(d: Deformation, acc: number, base: number, m: number, tx
   if (m <= 0) return acc;
   const levelTarget = (): number =>
     d.targetAt && tx !== undefined && ty !== undefined ? d.targetAt(tx, ty) : d.target ?? acc;
+  const amt = (): number =>
+    d.amountAt && tx !== undefined && ty !== undefined ? d.amountAt(tx, ty) : d.amount;
   switch (d.op) {
     case 'raise':
-      return lerp(acc, Math.max(acc, base + d.amount), m);
+      return lerp(acc, Math.max(acc, base + amt()), m);
     case 'carve':
-      return lerp(acc, Math.min(acc, base - d.amount), m);
+      return lerp(acc, Math.min(acc, base - amt()), m);
     case 'add':
-      return acc + d.amount * m;
+      return acc + amt() * m;
     case 'level':
       return lerp(acc, levelTarget(), m);
     case 'sink':
@@ -346,11 +355,17 @@ export function polylineDeformation(
      *  projection parameter (a river that widens downstream, a road that narrows). When
      *  absent the brush is the constant `halfWidth` (byte-identical to the old path). */
     halfWidths?: number[];
+    /** Optional per-vertex carve depth (metres), parallel to `points`. When given, the
+     *  channel DEEPENS along its length — each segment interpolates its endpoints' depths
+     *  at the projection parameter (a river bed that drops from spring to mouth). When
+     *  absent the carve is the constant `amount` (byte-identical to the old path). */
+    amounts?: number[];
   },
 ): Deformation {
   const feather = o.feather ?? 1;
   const peak = o.peak ?? 1;
   const hw = o.halfWidths && o.halfWidths.length === o.points.length ? o.halfWidths : null;
+  const am = o.amounts && o.amounts.length === o.points.length ? o.amounts : null;
   const maxHalf = hw ? Math.max(...hw) : o.halfWidth;
   const reach = maxHalf + feather;
   const xs = o.points.map((p) => p.x);
@@ -362,6 +377,27 @@ export function polylineDeformation(
     priority: o.priority ?? (o.op === 'carve' ? 40 : 30),
     amount: o.amount,
     target: o.target,
+    ...(am
+      ? {
+          amountAt(tx: number, ty: number): number {
+            // Depth interpolated along the CLOSEST segment (parallel to the mask's taper):
+            // each segment carries its endpoints' depths; the bed deepens with flow.
+            if (o.points.length === 1) return am[0];
+            let bestD = Infinity, bestVal = am[0];
+            for (let i = 0; i < o.points.length - 1; i++) {
+              const a = o.points[i], b = o.points[i + 1];
+              const dx = b.x - a.x, dy = b.y - a.y;
+              const len2 = dx * dx + dy * dy;
+              let t = len2 > 0 ? ((tx - a.x) * dx + (ty - a.y) * dy) / len2 : 0;
+              t = t < 0 ? 0 : t > 1 ? 1 : t;
+              const cx = a.x + t * dx, cy = a.y + t * dy;
+              const d = Math.hypot(tx - cx, ty - cy);
+              if (d < bestD) { bestD = d; bestVal = am[i] * (1 - t) + am[i + 1] * t; }
+            }
+            return bestVal;
+          },
+        }
+      : {}),
     bounds: {
       minX: Math.min(...xs) - reach,
       minY: Math.min(...ys) - reach,
