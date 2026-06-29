@@ -598,6 +598,9 @@ export async function buildingFacets(
   // rest of the wall in `wallMat`. >0 ⇒ the body reads as a stone undercroft carrying a
   // (timber) upper — the burgage townhouse. 0 ⇒ a single wall material as before.
   baseCourse = 0,
+  // Interior epic I-1: a CUTAWAY — omit the roof + roof features and expose a floor slab, so
+  // the inside is visible. The geometry foundation the interior reveal (I-2) swaps in on focus.
+  cutaway = false,
 ): Promise<{ facets: WorldFacet[]; anchors: BuildingAnchors }> {
   const { Manifold } = await getManifold();
   // Walls: union every storey box of every wing (upper storeys grown by jetty), then
@@ -647,6 +650,21 @@ export async function buildingFacets(
     ];
   } else {
     wallFacets = manifoldToFacets(wallSolid.getMesh(), wallMat, wallWork);
+  }
+
+  // Cutaway: walls + an exposed flagstone floor slab, NO roof/dormers/vents — the interior is
+  // open to view. Floor is a thin slab over the footprint bbox at the ground plane.
+  if (cutaway) {
+    let fx0 = Infinity, fy0 = Infinity, fx1 = -Infinity, fy1 = -Infinity;
+    for (const w of wings) {
+      if (w.x < fx0) fx0 = w.x; if (w.y < fy0) fy0 = w.y;
+      if (w.x + w.w > fx1) fx1 = w.x + w.w; if (w.y + w.h > fy1) fy1 = w.y + w.h;
+    }
+    const floor = await solidBox([fx0, fy0, 0], [fx1 - fx0, fy1 - fy0, 0.06]);
+    return {
+      facets: [...wallFacets, ...manifoldToFacets(floor.getMesh(), 'stone')],
+      anchors: { vents: [] },
+    };
   }
 
   const facets: WorldFacet[] = [
