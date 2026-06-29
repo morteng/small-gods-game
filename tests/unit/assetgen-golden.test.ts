@@ -33,11 +33,13 @@ describe('assetgen golden hashes', () => {
     // and `emissive` (warm glow) all shift; `normal` is geometry-only ⇒ unchanged.
     // v17 layered-connectome L2b (FORM footprint variety): a gen-form body's plan LENGTH
     // is now sized to a seeded bay count from `sizeBays` ([1,2] for a cottage), so the
-    // name-derived default cottage resolves to a SHORTER single-bay body (size 386→322;
-    // every channel hash shifts with the smaller raster). Intentional ⇒ ART_RECIPE_VERSION
-    // bumped to v17.
+    // name-derived default cottage resolves to a SHORTER single-bay body (size 386→322).
+    // v18 L3b (bay-aware openings): windows now snap to the structural bay CENTRES (from the
+    // frame's `bayModule`) instead of fixed fractions, so the cottage's pane positions shift
+    // — `size` holds (same footprint) but every channel hash moves with the relocated lights.
+    // Intentional ⇒ ART_RECIPE_VERSION bumped to v18.
     expect(fingerprint(r)).toEqual({
-      size: 322, grey: '5ba8cd8e', normal: '5ef3ece1', material: '349b1f76', emissive: 'f55857d8',
+      size: 322, grey: '2da29a4b', normal: 'ab16379e', material: 'e66ee5bd', emissive: 'a89c57d8',
     });
   });
 

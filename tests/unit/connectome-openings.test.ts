@@ -83,6 +83,26 @@ describe('connectomeOpenings', () => {
     expect(body.features.some(f => f.type === 'vent')).toBe(true); // derived louver still present
   });
 
+  it('L3b: windows snap to the structural bay centres when a frame is annotated', () => {
+    // 4-tile (8 m) front, 2 m bay module ⇒ 4 bays ⇒ panel centres {0.125,0.375,0.625,0.875};
+    // the south door at t=0.5 knocks out the two inner bays, so the front lights its outer
+    // bays. The 2-tile (4 m) east flank ⇒ 2 bays ⇒ centres {0.25,0.75}.
+    const c = con({
+      structure: { frame: 'cruck', bayModule: 2.0, fenestration: { maxPerFace: 3, spacing: 1.0 } },
+      portals: [{ id: 'p', type: 'd', from: 'OUTSIDE', to: 'z0', face: 'south', main: true }],
+      zones: [{ id: 'z0', type: 'hall', fn: 'living', tags: ['needs-light'] }],
+    });
+    const b = base({ footprint: { w: 4, h: 2 } });
+    b.parts.body.size = { w: 4, h: 2 };
+    const wins = Object.values(connectomeOpenings(c, b, 'medieval').parts!.body!.features!)
+      .filter(f => f.type === 'window');
+    const south = wins.filter(w => w.face === 'south').map(w => w.params!.t as number);
+    const east = wins.filter(w => w.face === 'east').map(w => w.params!.t as number);
+    expect(south.length).toBeGreaterThan(0);
+    expect(south.every(t => t === 0.125 || t === 0.875)).toBe(true); // outer bays, door bay skipped
+    expect(east.every(t => t === 0.25 || t === 0.75)).toBe(true);
+  });
+
   it('the migrated temple resolves to bilateral arched flank windows, front kept clear', () => {
     const rb = synthesizeBlueprint('temple_small')!;
     const wins = rb.parts.find(p => p.type === 'body')!.features.filter(f => f.type === 'window');
