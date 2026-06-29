@@ -13,6 +13,10 @@ export interface InteriorPlan {
   /** Floor z-drop (tiles, downward) per room SEGMENT — length === partitions.length + 1.
    *  A worship procession sinks toward the sanctum (the funnel, Law 2); else all zero. */
   floorDrop: number[];
+  /** Per-partition permeability (length === partitions.length): the threshold INTO the
+   *  sanctum of a worship procession is a pierced/latticed SCREEN (a rood screen — Law 4,
+   *  Controlled Contact), not a solid wall. Every other partition is solid (false). */
+  screens: boolean[];
 }
 
 // Zones that flank or precede the main spine rather than sit on it — excluded from the
@@ -48,5 +52,10 @@ export function interiorPlan(rb: ResolvedBlueprint): InteriorPlan | undefined {
   const last = spine.length - 1;
   const floorDrop = spine.map((_, i) => (worship ? Number(((FUNNEL_DROP * i) / last).toFixed(3)) : 0));
 
-  return { partitions, floorDrop };
+  // Law 4 (Controlled Contact): in a worship procession the partition that crosses INTO a
+  // sanctum room (nave→chancel) is the rood screen — a permeable lattice the laity see
+  // through but cannot pass. Partition i sits after spine[i], so it screens spine[i+1].
+  const screens = partitions.map((_, i) => worship && SANCTUM.has(spine[i + 1].type));
+
+  return { partitions, floorDrop, screens };
 }

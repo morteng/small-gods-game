@@ -102,9 +102,19 @@ it, and reloaded worlds keep their interiors.
 **Deferred:** `width↓` nave narrowing (needs interior screen walls — overlaps Law 4); interior
 lighting/darkening.
 
-**I-4 — E3 Controlled Contact (Law 4): permeable portals.** Permeable/stateful `Portal`
-(screen/grille/fenestella) → a pierced/latticed partition prim in the cutaway, with a contact
-anchor (wear accumulator deferred). The chancel screen reads in the cutaway.
+**I-4 — E3 Controlled Contact (Law 4): permeable screen. ✅ SHIPPED (flag-gated, render-only).**
+The chancel screen now reads in the cutaway. Implementation note: the rood screen is modelled in
+the catalogue as a *fixture* (`fixture-types.ts` `rood-screen`, `satisfies:['chancel-division']`),
+but the building grammar only places a hearth — no screen fixture is generated — so rather than a
+stateful `Portal`, I-4 **infers** the permeable threshold in `interiorPlan`: the partition that
+crosses INTO a SANCTUM room (nave→chancel) of a worship procession is flagged `screens[i]=true`.
+`buildingFacets` renders those partitions as a pierced/latticed rood SCREEN — a low solid dado +
+slender balusters with see-through gaps + a head beam (the loft) — instead of a solid cross-wall.
+Verified live (`scripts`-rendered cutaway): parish-church shows the lattice between nave and
+chancel; the manor's room partitions stay solid (no worship procession ⇒ no screen). Confined to
+the `if (cutaway)` branch → closed-path assetgen golden byte-identical (no `ART_RECIPE_VERSION`
+bump; the cutaway packs are in-memory parametric, never persisted to the art cache). The stateful
+contact anchor + wear accumulator stay deferred (no gameplay consumer yet).
 
 ## Risk / sequencing notes
 
@@ -113,8 +123,10 @@ anchor (wear accumulator deferred). The chancel screen reads in the cutaway.
   verify visually before default-on.
 - Each slice keeps the per-slice discipline: tsc + targeted tests + full-suite gate + a live
   `__debug.grab` visual, branch off `main`, `--no-ff`, push only on green build.
-- Versions: I-1/I-3/I-4 bump `ART_RECIPE_VERSION` (geometry); I-2 is render-only (no bump). No
-  `WORLD_CONTENT_VERSION` bump (placement/footprints unchanged — the cutaway is a render
-  variant, not a worldgen change).
+- Versions: I-1 bumped `ART_RECIPE_VERSION` (it touched the geometry foundation). I-2/I-3/I-4
+  turned out render-only — no bump — because the interior geometry is confined to the
+  `if (cutaway)` branch (closed-path golden byte-identical) and the cutaway packs are in-memory
+  parametric, never persisted to the IDB art cache. No `WORLD_CONTENT_VERSION` bump (the cutaway
+  is a render variant, not a worldgen/placement change).
 
 This is the buildable plan for the foundational epic's interior layer; start at I-1.

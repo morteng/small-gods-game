@@ -602,9 +602,10 @@ export async function buildingFacets(
   // the inside is visible. The geometry foundation the interior reveal (I-2) swaps in on focus.
   cutaway = false,
   // Interior epic I-3: a connectome-derived interior plan — partition walls (fractions along
-  // the long axis) + a funnel floor (per-segment downward drop). Only used in the cutaway;
-  // absent ⇒ the cutaway is a single open shell with a flat floor (I-2).
-  interior?: { partitions: number[]; floorDrop: number[] },
+  // the long axis) + a funnel floor (per-segment downward drop) + per-partition `screens`
+  // (Law 4: the threshold into a sanctum is a pierced rood SCREEN, not a solid wall). Only
+  // used in the cutaway; absent ⇒ the cutaway is a single open shell with a flat floor (I-2).
+  interior?: { partitions: number[]; floorDrop: number[]; screens?: boolean[] },
 ): Promise<{ facets: WorldFacet[]; anchors: BuildingAnchors }> {
   const { Manifold } = await getManifold();
   // Walls: union every storey box of every wing (upper storeys grown by jetty), then
@@ -698,13 +699,33 @@ export async function buildingFacets(
       facets.push(...manifoldToFacets(slab.getMesh(), 'stone'));
     }
     // Partition walls divide the cavity, rising from the LOWER of the two adjoining floors.
+    // A `screens[i]` partition is a permeable rood SCREEN (Law 4) — a low solid dado, slender
+    // balusters with see-through gaps, and a head beam (the loft) — rather than a solid wall.
+    const screens = interior?.screens ?? [];
+    const crossLen = (alongX ? H : W) - 2 * WALL_T;
+    const cross0 = (alongX ? fy0 : fx0) + WALL_T;
+    // A box of cross-axis span [cAt, cLen] and vertical span [z0, zLen] at the partition line.
+    const partBox = (cAt: number, cLen: number, z0: number, zLen: number, at: number) =>
+      alongX
+        ? solidBox([at - PT / 2, cAt, z0], [PT, cLen, zLen])
+        : solidBox([cAt, at - PT / 2, z0], [cLen, PT, zLen]);
     for (let i = 0; i < parts.length; i++) {
       const at = long0 + parts[i] * longLen;
       const base = -Math.max(drops[i] ?? 0, drops[i + 1] ?? 0) - FLOOR_T;
-      const wall = alongX
-        ? await solidBox([at - PT / 2, fy0 + WALL_T, base], [PT, H - 2 * WALL_T, partH - base])
-        : await solidBox([fx0 + WALL_T, at - PT / 2, base], [W - 2 * WALL_T, PT, partH - base]);
-      facets.push(...manifoldToFacets(wall.getMesh(), wallMat, wallWork));
+      if (screens[i]) {
+        const dadoH = Math.min(0.35, (partH - base) * 0.4); // solid lower panel
+        const beamT = 0.16;                                  // head beam / loft
+        facets.push(...manifoldToFacets((await partBox(cross0, crossLen, base, dadoH, at)).getMesh(), wallMat, wallWork));
+        facets.push(...manifoldToFacets((await partBox(cross0, crossLen, partH - beamT, beamT, at)).getMesh(), wallMat, wallWork));
+        const nBal = Math.max(3, Math.round(crossLen / 0.5)); // one slender baluster per ~0.5 tile
+        const BW = 0.09, balZ0 = base + dadoH, balH = partH - beamT - balZ0;
+        for (let k = 0; k < nBal && balH > 0; k++) {
+          const c = cross0 + (k + 0.5) * (crossLen / nBal) - BW / 2;
+          facets.push(...manifoldToFacets((await partBox(c, BW, balZ0, balH, at)).getMesh(), wallMat, wallWork));
+        }
+      } else {
+        facets.push(...manifoldToFacets((await partBox(cross0, crossLen, base, partH - base, at)).getMesh(), wallMat, wallWork));
+      }
     }
     return { facets, anchors: { vents: [] } };
   }

@@ -26,13 +26,19 @@ describe('interiorPlan (interior I-3)', () => {
     for (let i = 1; i < plan!.floorDrop.length; i++) {
       expect(plan!.floorDrop[i]).toBeGreaterThanOrEqual(plan!.floorDrop[i - 1]);
     }
+    // Law 4: the partition INTO the chancel (the last, deepest one) is a permeable rood SCREEN.
+    expect(plan!.screens.length).toBe(plan!.partitions.length);
+    expect(plan!.screens[plan!.screens.length - 1]).toBe(true);
   });
 
-  it('a multi-room dwelling (manor) partitions its rooms but keeps a LEVEL floor (no funnel)', () => {
+  it('a multi-room dwelling (manor) partitions its rooms but keeps a LEVEL floor and NO screens', () => {
     const plan = interiorPlan(synthesizeBlueprint('manor', [], 1)!);
     expect(plan).toBeDefined();
     expect(plan!.partitions.length).toBeGreaterThanOrEqual(2);
     expect(plan!.floorDrop.every((d) => d === 0)).toBe(true);
+    // No worship procession ⇒ every partition is a solid wall (no rood screen).
+    expect(plan!.screens.length).toBe(plan!.partitions.length);
+    expect(plan!.screens.every((s) => s === false)).toBe(true);
   });
 
   it('is undefined when the blueprint carries no connectome (raw rb, no persisted sibling)', () => {
