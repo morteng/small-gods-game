@@ -24,6 +24,9 @@ export interface RenderContextDeps {
   generatedBuildingArtSource?: GeneratedBuildingArtSource;
   generatedFloraArtSource?: GeneratedFloraArtSource;
   devMode: DevModeState;
+  /** Interior I-2 reveal flag (`?interiorReveal`/`?i2`): when on, the SELECTED building
+   *  renders cutaway (roof off). Off ⇒ the cutaway swap is fully inert (byte-identical render). */
+  interiorReveal?: boolean;
 }
 
 /** Dev eyeball override for the day/night emissive factor. Set `window.__nightFactor`
@@ -39,6 +42,9 @@ function nightFactorOverride(): number | null {
  *  `npcs` is [] when no world exists yet (pre-generation). */
 export function buildRenderContext(deps: RenderContextDeps): RenderContext {
   const { state, viewport, sheets, assets, decorationImages, artResolver, buildingArtResolver, parametricBuildingSource, parametricPlantSource, generatedBuildingArtSource, generatedFloraArtSource, devMode } = deps;
+  // Interior I-2: the focused building (if any) renders cutaway when the reveal flag is on.
+  // Off (default) ⇒ null ⇒ every building takes the unchanged closed path.
+  const cutawayBuildingId = deps.interiorReveal ? (state.selectedBuildingId ?? null) : null;
   return {
     map: state.map!,
     camera: state.camera,
@@ -68,15 +74,19 @@ export function buildRenderContext(deps: RenderContextDeps): RenderContext {
       return null;
     },
     resolveBuildingArt: (entity: Entity) => {
+      // The focused (cutaway) building skips the closed asset/img2img sprite so the
+      // parametric cutaway wins via pickBuildingSource.
+      if (entity.id === cutawayBuildingId) return null;
       const id = buildingArtResolver.peek(entity);
       if (id) return decorationImages.get(id); // shared kind-agnostic image cache
       buildingArtResolver.warm(entity); // fire-and-forget; never blocks the frame
       return null;
     },
     resolveParametricBuildingArt: (entity: Entity) => {
-      const s = parametricBuildingSource.peek(entity);
+      const cutaway = entity.id === cutawayBuildingId;
+      const s = parametricBuildingSource.peek(entity, cutaway);
       if (s) return s;
-      parametricBuildingSource.warm(entity); // fire-and-forget; never blocks the frame
+      parametricBuildingSource.warm(entity, cutaway); // fire-and-forget; never blocks the frame
       return null;
     },
     resolveParametricPlantArt: (kind: string) => {
@@ -96,6 +106,8 @@ export function buildRenderContext(deps: RenderContextDeps): RenderContext {
     resolveGeneratedBuildingArt: (entity: Entity) => {
       const src = generatedBuildingArtSource;
       if (!src) return null;
+      // Focused (cutaway) building skips its closed img2img sprite — parametric cutaway wins.
+      if (entity.id === cutawayBuildingId) return null;
       const s = src.peek(entity);
       if (s) return s;
       src.warm(entity); // fire-and-forget; never blocks the frame
@@ -115,5 +127,6 @@ export function buildRenderContext(deps: RenderContextDeps): RenderContext {
     // async parametric massing packs finish composing (otherwise the first snapshot —
     // taken before compose lands — freezes flatblock fallbacks forever).
     buildingArtRev: parametricBuildingSource.version(),
+    cutawayBuildingId,
   };
 }

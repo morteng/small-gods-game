@@ -215,6 +215,10 @@ export interface RenderContext {
   buildingArtRev?: number;
   /** An img2img-generated building sprite pack, or null (falls back to parametric). */
   resolveGeneratedBuildingArt?: (entity: Entity) => SpritePack | null;
+  /** Interior I-2 focus reveal: the entity id of the building drawn CUTAWAY (roof off,
+   *  floor exposed), or null/absent for none. Folded into the static draw-cache key so
+   *  the building layer rebuilds when the focused building changes. */
+  cutawayBuildingId?: string | null;
   /** A runtime-generated parametric TREE sprite pack, keyed by species kind (not
    *  entity — trees are many and carry no blueprint), or null to fall back to the
    *  flat billboard. */

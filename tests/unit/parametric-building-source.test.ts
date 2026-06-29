@@ -3,7 +3,8 @@ import { ParametricBuildingSource } from '@/render/parametric-building-source';
 import type { Entity } from '@/core/types';
 import { blueprintEntity } from '@/blueprint/entity';
 import { synthesizeBlueprint } from '@/blueprint/presets';
-import type { StructureResult } from '@/assetgen/compose';
+import type { StructureResult, StructureSpec } from '@/assetgen/compose';
+import type { ResolvedPart } from '@/blueprint/types';
 
 const withBlueprint = (): Entity => blueprintEntity('b1', synthesizeBlueprint('cottage')!, 0, 0);
 const noBlueprint = (): Entity => ({
@@ -107,5 +108,35 @@ describe('ParametricBuildingSource', () => {
     await flush();
     expect(src.version()).toBe(v0 + 2);
     expect(onWarm).toHaveBeenCalledTimes(2);
+  });
+
+  // Interior I-2 (focus reveal): the cutaway variant is a SEPARATE cache entry keyed off the
+  // cutaway-patched blueprint, so the closed and open sprites never collide.
+  describe('cutaway view (interior I-2)', () => {
+    it('cutaway is a distinct cache entry — warming the closed building does not populate it', async () => {
+      const src = new ParametricBuildingSource({ compose: async () => fakeResult, toSprite: () => fakeSprite });
+      src.warm(withBlueprint());                       // closed only
+      await flush();
+      expect(src.peek(withBlueprint())).toBe(fakeSprite);    // closed present
+      expect(src.peek(withBlueprint(), true)).toBeNull();    // cutaway not warmed → null
+      src.warm(withBlueprint(), true);                 // now warm cutaway
+      await flush();
+      expect(src.peek(withBlueprint(), true)).toBe(fakeSprite);
+    });
+
+    it('cutaway warm patches the body part with cutaway:true; closed warm leaves it off', async () => {
+      const specs: StructureSpec[] = [];
+      const src = new ParametricBuildingSource({
+        toSpec: (rb) => { specs.push({ parts: rb.parts } as unknown as StructureSpec); return specs[specs.length - 1]; },
+        compose: async () => fakeResult, toSprite: () => fakeSprite,
+      });
+      src.warm(withBlueprint());        // closed
+      src.warm(withBlueprint(), true);  // cutaway
+      await flush();
+      const bodyOf = (s: StructureSpec) =>
+        (s as unknown as { parts: ResolvedPart[] }).parts.find((p) => p.type === 'body')!;
+      expect(bodyOf(specs[0]).params.cutaway).not.toBe(true); // closed
+      expect(bodyOf(specs[1]).params.cutaway).toBe(true);     // cutaway
+    });
   });
 });

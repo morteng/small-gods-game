@@ -54,12 +54,21 @@ exists; only its projection-to-geometry and its reveal are missing.
 - Verify: `composeStructure(toGeometry(cutawayRb))` differs from the normal sprite (no roof,
   has floor+partitions); golden-pin one. NO render-path change yet → zero risk to the game.
 
-**I-2 — The reveal (makes I-1 visible in-world).**
-- A focus/hover state on a building requests its `view:'cutaway'` variant from the art
-  resolver; the GPU scene swaps that building's SpritePack. (Or a roof-fade alpha ramp if the
-  sprite is split into roof/body layers — decide during I-2 after measuring I-1.)
-- Verify: focus a temple → roof gone, nave + chancel + stoup-side visible; focus a townhouse →
-  the stone undercroft cellar reads as a sunken floor.
+**I-2 — The reveal (makes I-1 visible in-world). ✅ SHIPPED.**
+- The SELECTED building (`state.selectedBuildingId`, the existing click-to-select) requests the
+  cutaway view. Implementation chosen: a `cutawayOf(rb)` deriving a cutaway-patched clone of the
+  resolved blueprint (`src/blueprint/cutaway.ts`); `ParametricBuildingSource.peek/warm(e, cutaway)`
+  caches it under the patched blueprint's distinct JSON key; `render-context.ts` resolves the
+  focused building cutaway (and forces the asset/img2img sources to null so the parametric cutaway
+  wins via `pickBuildingSource`); `drawCacheKey` folds in `cutawayBuildingId` so a focus rebuilds
+  the static draw layer. (Not a roof-fade alpha ramp — the sprite isn't split into layers; the
+  whole-pack swap is simpler and the cutaway geometry already exists from I-1.)
+- **Gated behind `?interiorReveal`/`?i2`, OFF by default** — with the flag off, `cutawayBuildingId`
+  is always null, the draw-cache key is unchanged, and the render is byte-identical to before.
+- Verified live (`__debug.grabFile`): focusing a cottage removes its roof and exposes the floor
+  slab + walls while neighbours keep their roofs. First focus may flash the flat-block fallback
+  until the cutaway pack composes (same progressive-texturing path buildings already use), then
+  `onWarm` rebuilds to the cutaway.
 
 **I-3 — E3 Funnel (Law 2): ordered-path ramps.** Add the ordered-path-with-attribute-ramps
 connectome primitive; project `width↓`/`floorZ↓` into the cutaway partition spacing + floor

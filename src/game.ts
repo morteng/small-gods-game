@@ -171,6 +171,10 @@ export class Game {
   /** The barebones game (WebGPU UI only). `?legacyui` flips back to the old
    *  DOM/Canvas2D chrome. Single source of truth for chrome suppression. */
   private readonly barebones = !hasQueryFlag('legacyui');
+  /** Interior I-2 reveal: `?interiorReveal` (or `?i2`) draws the SELECTED building cutaway
+   *  (roof off, floor exposed). OFF by default — the swap is inert until verified, keeping the
+   *  shipped game's render byte-identical. */
+  private readonly interiorReveal = hasQueryFlag('interiorReveal') || hasQueryFlag('i2');
   private llmClient!: LLMClient;
   private llmBackfill!: LlmBackfillService;
   private fateBrain!: FateBrainService;
@@ -955,6 +959,7 @@ export class Game {
       generatedBuildingArtSource: this.generatedBuildingArtSource,
       generatedFloraArtSource: this.generatedFloraArtSource,
       devMode: this.dev.devMode,
+      interiorReveal: this.interiorReveal,
     };
   }
 

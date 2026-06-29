@@ -49,7 +49,10 @@ export function drawCacheKey(rc: RenderContext, map: GameMap): string {
   // list rebuilds once they land (otherwise the first snapshot — taken before any
   // compose finishes — freezes flatblock fallbacks forever).
   const bRev = rc.buildingArtRev ?? 0;
-  return `${map.width}x${map.height}#${map.seed}:${layers}:${mode}:b${bRev}`;
+  // Interior I-2: the focused (cutaway) building changes the static layer, so a focus
+  // change must rebuild it. Empty when the reveal is off ⇒ key unchanged vs before.
+  const cut = rc.cutawayBuildingId ?? '';
+  return `${map.width}x${map.height}#${map.seed}:${layers}:${mode}:b${bRev}:c${cut}`;
 }
 
 /**
