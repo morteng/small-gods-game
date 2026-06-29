@@ -31,9 +31,13 @@ describe('assetgen golden hashes', () => {
     // v12 lit windows: the cottage's window panes are now a 'glass' material (cool
     // albedo + warm emissive), so `grey` (pane colour), `material` (glass roughness)
     // and `emissive` (warm glow) all shift; `normal` is geometry-only ⇒ unchanged.
-    // Intentional ⇒ ART_RECIPE_VERSION bumped to v12.
+    // v17 layered-connectome L2b (FORM footprint variety): a gen-form body's plan LENGTH
+    // is now sized to a seeded bay count from `sizeBays` ([1,2] for a cottage), so the
+    // name-derived default cottage resolves to a SHORTER single-bay body (size 386→322;
+    // every channel hash shifts with the smaller raster). Intentional ⇒ ART_RECIPE_VERSION
+    // bumped to v17.
     expect(fingerprint(r)).toEqual({
-      size: 386, grey: '9c20afd2', normal: 'ae385f81', material: '342c7b25', emissive: '8e3dc9b8',
+      size: 322, grey: '5ba8cd8e', normal: '5ef3ece1', material: '349b1f76', emissive: 'f55857d8',
     });
   });
 

@@ -63,14 +63,23 @@
  * austere). (2) A masonry wall-chimney requires a flue-capable frame: a cruck/stave build
  * can never grow a stone stack and keeps its ridge smokehole however late/rich. Footprint
  * held (placement unchanged). See the layered-connectome-expression spec.
+ * 'v17' — layered-connectome Layer 2b (FORM footprint variety): a `gen-form` body's plan
+ * LENGTH is now sized to a bay count picked from the program's `sizeBays` range by the
+ * per-instance seed (a cottage is 1–2 bays, a tavern 2–3), CLAMPED to the authored footprint
+ * so the lot — and placement — is unchanged. Two cottages on a street now read as a short
+ * single-bay cot and a longer two-bay one rather than clones. The name-derived default
+ * cottage resolves to a shorter single-bay body, so its geometry shifts (see
+ * assetgen-golden). Pairs with the placer threading a per-instance seed (a WORLD bump, since
+ * the generative catalogue→geometry bridge grows the FOOTPRINT itself per instance).
  */
-export const ART_RECIPE_VERSION = 'v16';
+export const ART_RECIPE_VERSION = 'v17';
 
 /**
  * Bump when WORLDGEN / preset output changes (footprints, placement, heights).
  * An autosave stamped with a different value is discarded on load → a fresh
  * world is generated. Distinct from SAVE_VERSION (which guards the save *schema*).
  */
-export const WORLD_CONTENT_VERSION = 33;  // VERDANT VALE MASSIF: craggy mountain peaks (ridge-noise corrugation in the POI peak), larger mountain influence radius (12→18) + colder cap, a treeline that culls vegetation off bare high ground, Verdant Vale's enlarged/outward-moved mountain region (grows the island), AND a volcano right-sizing — Emberpeak's summit dropped 0.96→0.80 so a cinder cone no longer towers like (or out-snows) the alpine Cloudwall, plus a temperature-gated altitude snowline so only COLD high ground crowns white (a hot desert cone stays bare) — all shift worldgen elevation/biome/entity output ⇒ discard older autosaves. See prior notes below.
+export const WORLD_CONTENT_VERSION = 34;  // L2b PER-INSTANCE BUILDING VARIETY: the placer now threads a deterministic per-instance seed (worldSeed ^ poi ^ call-order) into every building synthesis, so each placed instance varies — the generative catalogue→geometry bridge grows its FOOTPRINT from the seed (smithy/inn/bakehouse/brewhouse/granary/dovecote/tithe-barn differ between instances) and gen-form bodies vary their plan length within their lot. Placement stays valid (occupancy-grid reserves whatever footprint results; spatial invariants hold) but differs from v33 ⇒ discard older autosaves. See prior notes below.
+// 33 = VERDANT VALE MASSIF: craggy mountain peaks (ridge-noise corrugation in the POI peak), larger mountain influence radius (12→18) + colder cap, a treeline that culls vegetation off bare high ground, Verdant Vale's enlarged/outward-moved mountain region (grows the island), AND a volcano right-sizing — Emberpeak's summit dropped 0.96→0.80 so a cinder cone no longer towers like (or out-snows) the alpine Cloudwall, plus a temperature-gated altitude snowline so only COLD high ground crowns white (a hot desert cone stays bare) — all shift worldgen elevation/biome/entity output ⇒ discard older autosaves. See prior notes below.
 // ---- prior WCV notes (kept for history) ----
 // 32 = E4 ROSTER SWEEP: villages now plat a smithy + communal bakehouse; towns add an inn, smith, baker and brewer. These catalogue buildingTypes had no pinned geometry preset — they render via the new generative catalogue→fold bridge — so the village/city fill rosters change, shifting which buildings appear (round-robin order) ⇒ worldgen output changes, discard older autosaves. (31 = manor premises stable+well; 30 = site FIXTURES — wells co-placed; 29 = site expansion E2 auxiliaries; 28 = site-fitness live-wiring; 27 = barrier gates over visual extent C1; 26 = diagonal bridges; 25 = riverside levee #24; 24 = parallel-road merge; 23 = entrance stoops; 22 = river density area-scaling; 21 = aqueduct arcade G6 polish; 20 = emergent aqueducts G6 on piers; 19 = stairs CONNECT G3d.)

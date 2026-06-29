@@ -79,4 +79,30 @@ describe('connectomeForm — form follows construction', () => {
     const c = annotateStructure(con(), base, ctx);
     expect(connectomeForm(c, base, ctx)).toEqual(connectomeForm(c, base, ctx));
   });
+
+  // L2b — FORM footprint variety: the body's plan LENGTH is sized to a bay count picked
+  // from the program's sizeBays range by the seed, clamped to the authored lot.
+  it('sizes a gen-form body to a seeded bay count, never exceeding the lot', () => {
+    const base = dwelling('wattle'); // footprint 3×3, authored body 3×2
+    // 'cottage' is a real catalogue type with sizeBays [1,2].
+    const cottageCon: Connectome = {
+      ...con('tripartite-linear'),
+      source: { type: 'cottage', topology: 'tripartite-linear' },
+    };
+    const widthFor = (seed: number): number => {
+      const c = annotateStructure(cottageCon, base, { ...ctx, seed });
+      const patch = connectomeForm(c, base, { ...ctx, seed });
+      return patch.parts?.body?.size?.w ?? base.parts.body.size!.w; // effective body length
+    };
+    expect(widthFor(0)).toBe(2); // 1 bay → short cot
+    expect(widthFor(1)).toBe(3); // 2 bays → longer range
+    expect(widthFor(0)).not.toBe(widthFor(1));
+    expect(widthFor(7)).toBeLessThanOrEqual(base.footprint.w); // lot (placement) unchanged
+  });
+
+  it('a type with no bay range / no catalogue entry keeps its authored body size', () => {
+    const base = dwelling('timber');
+    const c = annotateStructure(con(), base, ctx); // source.type '' ⇒ no lookup
+    expect(connectomeForm(c, base, ctx).parts?.body?.size).toBeUndefined();
+  });
 });

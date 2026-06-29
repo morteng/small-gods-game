@@ -24,9 +24,10 @@ describe('building collision with a structure sub-rect (lawn)', () => {
 
   it('makes lawn (outside the structure) walkable, structure solid, door open', () => {
     const w = new World(emptyMap());
-    // cottage (v6): 3x3 plot with a 3x2 body at (0,0); the y=2 row is walkable lawn.
-    // Door on south at t=0.35 → cell (1,1).
-    const rb = synthesizeBlueprint('cottage')!;
+    // cottage: 3x3 plot with a 3x2 body at (0,0); the y=2 row is walkable lawn. Door on
+    // south at t=0.35 → cell (1,1). L2b makes the body length seed-derived (1–2 bays); seed 1
+    // yields the 2-bay 3x2 form this test documents (seed 0 would be a shorter 2x2 cot).
+    const rb = synthesizeBlueprint('cottage', [], 1)!;
     w.addEntity(blueprintEntity('c1', rb, 10, 10));
     // structure cells → solid
     expect(tileBlockedByBuilding(w, 10, 10)).toBe(true);
