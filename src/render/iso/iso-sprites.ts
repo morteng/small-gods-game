@@ -64,11 +64,15 @@ export function npcItems(ic: IsoItemCtx, npc: NpcInstance): DrawItem[] {
     const drawW = LPC_FRAME * s, drawH = LPC_FRAME * s;
 
     // Feet (opaque bbox bottom) land on the tile point; whole frame at integer scale.
+    // The cast shadow must anchor at the FEET, not the frame bottom — the LPC frame
+    // has transparent padding below the feet (`bb.bottom` < LPC_FRAME), so without a
+    // footLift the shadow detaches a few px below the sprite.
     return [{
       t: 'image', src: sheet,
       frame: { sx: sheetSx, sy: sheetSy, sw: LPC_FRAME, sh: LPC_FRAME },
       dx: Math.round(sx - drawW / 2), dy: Math.round(sy - bb.bottom * s),
       dw: drawW, dh: drawH,
+      shadow: { footLift: (LPC_FRAME - bb.bottom) * s },
     }];
   }
 
