@@ -268,6 +268,24 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
     return massing;
   }
   const invalidate = (): void => { subjPacks.clear(); subjStages.clear(); subjInflight.clear(); subjFinished.clear(); };
+
+  // The scene's STATIC draw layer (which the subject building/plant lives in) is
+  // cached and only rebuilds when `RenderContext.buildingArtRev` changes. The studio
+  // reuses ONE map (same dims/seed) across every subject, so without this the cache
+  // key never moves and a subject switch keeps drawing the PREVIOUS building. Derive a
+  // rev from a cheap signature of everything that changes what the static layer draws —
+  // kind, blueprint (rbKey folds skirt+yaw), the textured toggle, and whether the async
+  // massing pack / finished sprite has settled (so the subject appears progressively as
+  // compose lands, mirroring the game's progressive building texturing).
+  let subjectRev = 0;
+  let lastSubjSig = '';
+  function subjectArtRev(): number {
+    const k = liveRb ? rbKey(liveRb) : '';
+    const sig = `${state.kind}|${k}|${+state.textured}|${peekSubject() ? 'p' : '-'}`
+      + `|${state.textured && finishedSubject() ? 'f' : '-'}`;
+    if (sig !== lastSubjSig) { lastSubjSig = sig; subjectRev++; }
+    return subjectRev;
+  }
   // WebGPU scene renderer (async bring-up). Until it resolves, the frame loop
   // paints only the background; the GPU canvas composites once ready.
   let renderMap: RenderFn | null = null;
@@ -483,6 +501,9 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
       world, lighting: state.lighting,
       resolveParametricBuildingArt: litSubjectPack,
       resolveParametricPlantArt: litSubjectPack,
+      // Bust the scene's static-draw-list cache when the subject changes (see
+      // subjectArtRev) — the studio's constant map would otherwise freeze the layer.
+      buildingArtRev: subjectArtRev(),
       studioNoChrome: true,   // bare scene; the studio draws its own overlays/HUD
     } as unknown as RenderContext;
   }
