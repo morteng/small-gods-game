@@ -82,7 +82,9 @@ export const MEDIEVAL_BUILDING_TYPES: B[] = [
     { room: 'none' },
     [2, 3], { walls: 'stone', roof: 'tile', ground: 'flagstone' },
     { l0: 'a small stone temple', l1: ['tall arched windows', 'rectangular cella', 'pedimented gable front'] },
-    { applicability: { eras: ['classical', 'medieval'] } }),
+    { applicability: { eras: ['classical', 'medieval'] } },
+    // E3 Threshold: the sacred precinct cleanses at its border ⇒ a co-placed font.
+    { functions: ['worship'], requires: ['cleansing'] }),
 
   b('farm_barn', 'church-axial',
     [room('nave', 1, 3), room('aisle', 2, 3)],
@@ -123,7 +125,7 @@ export const MEDIEVAL_BUILDING_TYPES: B[] = [
     [1, 1], { walls: 'stone', roof: 'tile', ground: 'flagstone' },
     { l0: 'a wayside shrine', l1: ['single arched window', 'gabled stone cell'] },
     { applicability: { eras: ['classical', 'medieval'] } },
-    { functions: ['worship'] }),
+    { functions: ['worship'], requires: ['cleansing'] }),
 
   b('guard_post', 'tripartite-linear',
     [room('chamber', 1, 1)],

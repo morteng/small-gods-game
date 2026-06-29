@@ -273,6 +273,20 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
     materials: { walls: 'stone', roof: 'tile', ground: 'dirt' },
     parts: { yard: { type: 'graveyard', size: { w: 2, h: 2 }, params: { stones: 5 } } },
   }),
+  // E3 Threshold (Law 1): a stone holy-water STOUP — the cleansing fixture at a sacred
+  // precinct's border, co-placed at temples/shrines via the site `cleansing` token. Composed
+  // from raw prims (a stone pedestal + a shallow bored basin) — no new part renderer.
+  stoup: prop('stoup', {
+    category: 'religious', era: 'medieval', footprint: { w: 1, h: 1 },
+    materials: { walls: 'stone', roof: 'tile', ground: 'flagstone' },
+    parts: {
+      pedestal: { type: 'prim', size: { w: 1, h: 1 }, params: {
+        prim: { prim: 'cylinder', center: [0.5, 0.5], baseZ: 0, radius: 0.16, height: 0.52, material: 'stone' } } },
+      basin: { type: 'prim', size: { w: 1, h: 1 }, params: {
+        prim: { prim: 'ellipsoid', center: [0.5, 0.5], baseZ: 0.52, radii: [0.3, 0.3, 0.16], material: 'stone',
+          bore: { radius: 0.2, depth: 0.13 } } } },
+    },
+  }),
   // A canvas bell tent (prop) — the seed of the tent family; pairs with market stalls
   // for fairs/encampments. Open-frame `tent` part, no catalogue buildingType needed.
   bell_tent: prop('bell_tent', {

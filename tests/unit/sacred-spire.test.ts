@@ -5,6 +5,11 @@ import { describe, it, expect } from 'vitest';
 import { synthesizeBlueprint } from '@/blueprint/presets';
 import { toGeometry } from '@/blueprint/compile/to-geometry';
 import { composeStructure } from '@/assetgen/compose';
+import { loadDefaultPacks, catalogue } from '@/catalogue';
+import { expandSite, siteToPlan } from '@/blueprint/connectome/site';
+import type { ExpandCtx } from '@/blueprint/connectome/types';
+
+loadDefaultPacks();
 
 const spireCount = (rb: ReturnType<typeof synthesizeBlueprint>): number =>
   (rb!.parts.find((p) => p.type === 'body')?.features ?? [])
@@ -25,5 +30,16 @@ describe('sacred spire (E3 axis mundi)', () => {
     expect(g.parts.length).toBeGreaterThan(0);
     const r = await composeStructure(g); // must not throw; the steeple adds opaque pixels up high
     expect(r.size).toBeGreaterThan(0);
+  });
+});
+
+describe('threshold stoup (E3 Law 1)', () => {
+  it('worship buildings derive a cleansing stoup at their site, and it compiles', () => {
+    for (const t of ['temple_small', 'shrine']) {
+      const plan = siteToPlan(expandSite(t, { era: 'medieval', seed: 1, registry: catalogue } as ExpandCtx));
+      expect((plan.fixtures ?? []).map((f: { type: string }) => f.type)).toContain('stoup');
+    }
+    const rb = synthesizeBlueprint('stoup')!; // the stoup prop exists ⇒ E2 co-places it
+    expect(toGeometry(rb).parts.length).toBeGreaterThan(0);
   });
 });
