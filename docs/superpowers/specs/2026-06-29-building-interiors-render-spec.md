@@ -114,8 +114,25 @@ cellar zone), which is a worldgen change (WORLD_CONTENT_VERSION + golden re-pin 
 regression risk) and belongs in its own deliberate slice, NOT this render epic. Confined to the
 `if (cutaway)` branch → closed-path golden byte-identical; no version bump.
 
+**I-6 — Cellar CONTENT hookup (L3b, generative). ✅ SHIPPED.** I-5 made cellars render-ready;
+I-6 gives real presets one. A buildingType now declares its cellar via a `cellar?: string` field
+(the roomType id to sink below grade, like the existing `undercroft?: boolean`); a new content-
+pure pass `deriveCellar` (`src/blueprint/connectome/cellar.ts`, mirroring `deriveSmokeEgress`)
+adds that room at `level:-1` under the deepest worship zone — gated on `structure.flue` (only a
+masonry frame can sink a stone vault) and wired by a stair portal reusing an interior portal type
+already in the graph (no content id in the engine). `parish-church` + `temple_small` (stone)
+declare `cellar:'crypt'` and a new `crypt` roomType was added to the pack. The pass runs LAST in
+`expressBuilding` (after every massing/opening/vent/cap pass has read the connectome), so a
+below-grade zone provably can't perturb the exterior — confirmed: `blueprint-golden-regression`
+(parish-church/temple_small) + the assetgen golden stay byte-stable, no `ART_RECIPE_VERSION` /
+`WORLD_CONTENT_VERSION` bump (a stale save just shows a crypt-less cutaway until regenerated).
+Verified live: the parish-church cutaway now shows the rood screen (I-4) AND a sub-grade crypt
+plate beneath the chancel, from real content (no test injection). Crypt depth capped to a plain
+storey (I-5's `subH`) so a lofty 4.5 m nave doesn't dig a pit.
+
 **Deferred:** `width↓` nave narrowing (needs interior screen walls — overlaps Law 4); interior
-lighting/darkening; the cellar CONTENT hookup (a worldgen slice, see I-5).
+lighting/darkening; a real in-game CONSUMER for the reveal (it is still `?i2`-gated OFF, with no
+gameplay entry point).
 
 **I-4 — E3 Controlled Contact (Law 4): permeable screen. ✅ SHIPPED (flag-gated, render-only).**
 The chancel screen now reads in the cutaway. Implementation note: the rood screen is modelled in

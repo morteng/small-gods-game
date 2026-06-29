@@ -126,6 +126,14 @@ export interface BuildingTypeFields {
    * stacks ≥2 storeys; a cruck/stave cot never gets one. Omitted ⇒ no undercroft.
    */
   undercroft?: boolean;
+  /**
+   * Layered-connectome L3b (cellars): this building sinks a below-grade chamber — the named
+   * roomType placed at `level:-1` (a church's CRYPT under the sanctum, a hall's cellar). The
+   * connectome's cellar pass adds it only when the FRAME can bear masonry (a stone vault needs
+   * a mass/box wall); a light cruck/stave frame gets none. Omitted ⇒ no cellar. Render-visible
+   * only in the interior cutaway (a sub-grade floor plate); never changes the exterior massing.
+   */
+  cellar?: string;
 }
 
 export interface RoomTypeFields {

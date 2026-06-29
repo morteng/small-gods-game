@@ -208,6 +208,20 @@ export const MEDIEVAL_ROOM_TYPES: FactEntry<RoomTypeFields>[] = [
     tags: ['storage', 'sub-floor'],
   },
   {
+    id: 'crypt',
+    kind: 'roomType',
+    pack: PACK,
+    lod: {
+      l0: 'A vaulted chamber below the church, holding tombs and relics.',
+      l1: ['stone groin-vaulting on squat piers', 'below the chancel', 'tombs and a relic shrine', 'reached by a stair from the choir'],
+      l2: 'A sub-grade vaulted space beneath the east end of a church, carrying the raised chancel above and sheltering the tombs of the founders, the relics of a saint, and a subterranean altar. Cool, dim, and reached by stairs flanking the chancel step — the holy underworld of the building.',
+    },
+    fields: { fn: 'storage', needsLight: false, heatable: false, bays: 1 },
+    visibility: 'data-only',
+    provenance: ['https://en.wikipedia.org/wiki/Crypt'],
+    tags: ['worship', 'sub-floor', 'vault', 'sacred'],
+  },
+  {
     id: 'loft',
     kind: 'roomType',
     pack: PACK,
