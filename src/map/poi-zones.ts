@@ -47,7 +47,12 @@ export const POI_ZONE_RULES: Record<string, ZoneRule> = {
       primordial: ['yurt', 'yurt', 'yurt', 'longhouse'],
       ancient: ['longhouse', 'longhouse', 'cottage', 'shrine'],
     },
-    buildingCount: { min: 3, max: 8 },
+    // A village is a real cluster, not a hamlet of three: the base count (before the POI
+    // size scale in building-placer) reaches far enough into the round-robin roster to plat
+    // the manor + a trade or two even at medium size. A `large` village (×1.8) bustles
+    // (~9–18) yet still reads smaller than a large city (~9–21). The lowest roll stays a
+    // believable small village, not two cottages.
+    buildingCount: { min: 5, max: 10 },
     decorations: ['well', 'sign_post', 'bench', 'lamp'],
     internalRoads: true,
     internalRoadType: 'dirt_road',

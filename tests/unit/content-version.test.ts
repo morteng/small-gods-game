@@ -6,7 +6,7 @@ describe('content-version constants', () => {
     expect(ART_RECIPE_VERSION).toBe('v18');
   });
 
-  it('declares the current world content version (35: settlement size scaling)', () => {
-    expect(WORLD_CONTENT_VERSION).toBe(35);
+  it('declares the current world content version (36: village density)', () => {
+    expect(WORLD_CONTENT_VERSION).toBe(36);
   });
 });
