@@ -305,8 +305,20 @@ export function placeSettlement(
   };
   const siteFitnessAt = (profile: SiteProfile) =>
     terrain ? (tx: number, ty: number) => siteFitness(affAt(tx, ty), profile) : undefined;
-  const buildingCount = rng.int(zoneRule.buildingCount.min, zoneRule.buildingCount.max);
-  const radius = rng.int(zoneRule.radius.min, zoneRule.radius.max);
+  // A POI's authored `size` scales how many buildings it musters (and the radius they
+  // spread over) — a "large" market town should bustle where a hamlet stays a handful, but
+  // the zone rule's base count ignored it, so even Oakshire (size:large) rolled ~3–4
+  // buildings: enough for the church focus and a cottage or two, never the manor rung
+  // (focusMin 6) nor the round-robin's later trades (smithy/tavern/bakehouse). Scaling the
+  // count by size lets a large village clear those rungs, so its smithy + baker finally
+  // plat. Radius grows with √scale so the denser roster still has lots to land on. The rng
+  // draws stay in the SAME order (determinism preserved); a size-less POI (every test path)
+  // scales by 1.0, so only authored, sized settlements change. Buildings that can't fit
+  // simply don't place (occupancy-gated) — never invalidly.
+  const SETTLEMENT_SIZE_SCALE: Record<string, number> = { small: 0.7, medium: 1.0, large: 1.8, huge: 2.6 };
+  const sizeScale = SETTLEMENT_SIZE_SCALE[poi.size ?? 'medium'] ?? 1.0;
+  const buildingCount = Math.max(1, Math.round(rng.int(zoneRule.buildingCount.min, zoneRule.buildingCount.max) * sizeScale));
+  const radius = Math.round(rng.int(zoneRule.radius.min, zoneRule.radius.max) * Math.sqrt(sizeScale));
 
   // 1. Plan: road graph + market widening + burgage lots + wards.
   const plan = planSettlement({ x: cx, y: cy }, zoneRule, tiles, connectedDirections, rng);

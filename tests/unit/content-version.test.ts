@@ -6,7 +6,7 @@ describe('content-version constants', () => {
     expect(ART_RECIPE_VERSION).toBe('v17');
   });
 
-  it('declares the current world content version (34: L2b per-instance building variety)', () => {
-    expect(WORLD_CONTENT_VERSION).toBe(34);
+  it('declares the current world content version (35: settlement size scaling)', () => {
+    expect(WORLD_CONTENT_VERSION).toBe(35);
   });
 });

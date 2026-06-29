@@ -3,6 +3,8 @@ import type { World } from '@/world/world';
 import type { Entity, EntityId } from '@/core/types';
 import { barrierFootprintTiles, type BarrierRun } from '@/world/barrier';
 import { tileBlockedByBuilding } from '@/world/building-collision';
+import { blueprintOf } from '@/blueprint/entity';
+import { buildingVisualCells } from '@/blueprint/footprint';
 import type { Anchor } from '@/world/anchors';
 
 /** Map a path distance `t` (tiles) to a world point along the polyline. */
@@ -100,13 +102,29 @@ export function placeBarrier(world: World, run: BarrierRun, id?: string): Entity
  * time, but a building placed LATER (a neighbouring settlement) can still land on
  * an earlier ring. Run once after all settlements are placed: a building is
  * authoritative over its footprint, so a barrier never blocks a building wall.
+ *
+ * Filters against the building VISUAL extent (the renderer's silhouette box — a
+ * SUPERSET of the solid walls: door thresholds, eave overhang, draw-only cells),
+ * not just the collision footprint. The ring/croft gating opens the line at building
+ * crossings, but sub-tile slab rasterization (gate spans sampled at one phase, slabs
+ * at another) can still drift a single blocking cell under a silhouette in a dense
+ * settlement — this post-pass is the authoritative C1 guarantee (INV4) by construction.
  */
 export function reconcileBarriersWithBuildings(world: World): void {
+  // Union of every building's drawn silhouette cells.
+  const visual = new Set<string>();
+  for (const e of world.query({ tag: 'building' })) {
+    const bp = blueprintOf(e);
+    if (!bp) continue;
+    for (const c of buildingVisualCells(bp.rb, Math.floor(e.x), Math.floor(e.y))) visual.add(c);
+  }
   for (const e of world.query({ tag: 'barrier' })) {
     const props = e.properties as { footprintCells?: [number, number][] } | undefined;
     const cells = props?.footprintCells;
     if (!Array.isArray(cells)) continue;
-    const kept = cells.filter(([x, y]) => !tileBlockedByBuilding(world, x, y));
+    const kept = cells.filter(
+      ([x, y]) => !tileBlockedByBuilding(world, x, y) && !visual.has(`${x},${y}`),
+    );
     if (kept.length !== cells.length) props!.footprintCells = kept;
   }
 }
