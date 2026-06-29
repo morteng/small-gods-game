@@ -140,21 +140,28 @@ function chunkElements(run: BarrierRun): Element[] {
   }));
 }
 
-/** Tower elements: a flanking tower at each ring corner + twin towers at each gate. All share
- *  one cached compose (same geometry); only the placement differs per element. */
+/** Tower elements: a ROUND drum at each ring corner + twin SQUARE gatehouse towers at each gate
+ *  (the authentic medieval pairing). Each kind shares one cached compose (same geometry); only
+ *  the placement differs per element. */
 function towerElements(run: BarrierRun): Element[] {
   if (!towersEnabled(run)) return [];
   const mat = masonryMat(run);
-  const ts = towerSpec({ curtainHeight: run.height, curtainThickness: run.thickness, material: mat });
-  const key = `tower:${r3(run.height)}:${r3(run.thickness)}:${mat}`;
-  const spec = (): StructureSpec => ({ parts: ts.parts, mountAnchors: ts.mountAnchors });
-  const mk = (x: number, y: number): Element => ({ key, spec, anchor: tagAnchor, refX: x, refY: y, sortX: x, sortY: y });
-  const out: Element[] = cornerVertices(run.path).map(([x, y]) => mk(x, y));
+  const base = { curtainHeight: run.height, curtainThickness: run.thickness, material: mat };
+  const tag = `${r3(run.height)}:${r3(run.thickness)}:${mat}`;
+
+  const drum = towerSpec({ ...base, round: true });
+  const drumSpec = (): StructureSpec => ({ parts: drum.parts, mountAnchors: drum.mountAnchors });
+  const gate = towerSpec({ ...base, tall: true });        // square, taller — frames the gate
+  const gateSpec = (): StructureSpec => ({ parts: gate.parts, mountAnchors: gate.mountAnchors });
+  const mk = (key: string, spec: () => StructureSpec, x: number, y: number): Element =>
+    ({ key, spec, anchor: tagAnchor, refX: x, refY: y, sortX: x, sortY: y });
+
+  const out: Element[] = cornerVertices(run.path).map(([x, y]) => mk(`tower:round:${tag}`, drumSpec, x, y));
   for (const g of run.gates) {
     const { p, dir } = frameAt(run.path, g.t);
-    const off = g.width / 2 + ts.side * 0.45;     // flank the opening just outside it
-    out.push(mk(p[0] - dir[0] * off, p[1] - dir[1] * off));
-    out.push(mk(p[0] + dir[0] * off, p[1] + dir[1] * off));
+    const off = g.width / 2 + gate.side * 0.45;           // flank the opening just outside it
+    out.push(mk(`tower:gate:${tag}`, gateSpec, p[0] - dir[0] * off, p[1] - dir[1] * off));
+    out.push(mk(`tower:gate:${tag}`, gateSpec, p[0] + dir[0] * off, p[1] + dir[1] * off));
   }
   return out;
 }

@@ -1,11 +1,15 @@
 // src/assetgen/geometry/tower-spec.ts
 // A mural/corner TOWER expressed as composeStructure prims, so it rides the SAME lit pipeline
-// as a building/curtain and composites into ONE sprite. A square tower (reads cleanest in iso)
-// that rises above the curtain it flanks: a battered base, a shaft, a corbelled machicolation
-// band overhanging the face (the projecting gallery defenders dropped through), and a
-// crenellated parapet of merlons + crenel embrasures around all four edges — the defining
-// "flanking tower" that lets defenders rake the foot of the wall, and the authentic cover over
-// a curtain's corner joint. Pure prim emission; the source composes + caches it.
+// as a building/curtain and composites into ONE sprite. Rises above the curtain it flanks so it
+// covers the wall's corner joint and lets defenders rake the foot of the wall.
+//
+// Two authentic forms (medieval walls mixed them — round drums on the open circuit, square
+// gatehouse towers framing the gate):
+//   • SQUARE — battered base, shaft, a corbelled machicolation band, a crenellated parapet of
+//     merlons + crenels on all four edges. Used (taller, `tall`) to flank a gate.
+//   • ROUND (drum) — a battered frustum foot, a cylindrical shaft, a corbel ring, and merlons
+//     wrapped around the parapet ring. The classic wall/corner tower.
+// Pure prim emission; the source composes + caches it.
 import type { Part } from '@/assetgen/compose';
 import type { Mat } from '@/assetgen/types';
 import { mToTiles } from '@/render/scale-contract';
@@ -19,6 +23,8 @@ export interface TowerOpts {
   material: Mat;
   /** A taller, slimmer keep-like tower (a gate flank) vs a squat corner bastion. */
   tall?: boolean;
+  /** A round drum tower (the default corner/wall tower) rather than a square one. */
+  round?: boolean;
 }
 
 export interface TowerSpec {
@@ -26,7 +32,8 @@ export interface TowerSpec {
   /** A z=0 mount anchor at the tower's base CENTRE — the source reads its normalised sprite
    *  position to land the tower exactly on the ring corner / gate jamb. */
   mountAnchors: Anchor[];
-  /** Tower side (tiles) — the source uses it to inset twin gate towers. */
+  /** Tower footprint extent (tiles): the side of a square, the diameter of a drum — the source
+   *  uses it to inset twin gate towers. */
   side: number;
 }
 
@@ -45,8 +52,24 @@ function merlonsAlongEdge(
   return out;
 }
 
-/** Build a square tower centred at world (cx,cy), base at z=0. */
-export function towerSpec(opts: TowerOpts, cx = 0, cy = 0): TowerSpec {
+/** Merlon teeth wrapped around a parapet RING of radius `rp`, each box yawed to face radially
+ *  (yaw rotates a box about its own centre, so radial thickness `pt` × tangential width `mw`). */
+function merlonsAroundRing(cx: number, cy: number, rp: number, z: number, mh: number, pt: number, mat: Mat): Part[] {
+  const out: Part[] = [];
+  const period = mToTiles(1.4);
+  const n = Math.max(6, Math.round((2 * Math.PI * rp) / period));
+  const mw = ((2 * Math.PI * rp) / n) * 0.56;          // tangential chord, a touch under the pitch
+  const ringR = rp - pt / 2;                            // box centre sits on the ring mid-thickness
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * 2 * Math.PI;
+    const ccx = cx + ringR * Math.cos(a), ccy = cy + ringR * Math.sin(a);
+    out.push({ prim: 'box', at: [ccx - pt / 2, ccy - mw / 2, z], size: [pt, mw, mh], material: mat, yaw: a * 180 / Math.PI });
+  }
+  return out;
+}
+
+/** Square mural tower centred at world (cx,cy), base at z=0. */
+function squareTower(opts: TowerOpts, cx: number, cy: number): TowerSpec {
   const mat = opts.material;
   const side = Math.max(mToTiles(2.4), opts.curtainThickness + mToTiles(opts.tall ? 1.4 : 2.0));
   const rise = mToTiles(opts.tall ? 4.0 : 2.4);
@@ -76,9 +99,38 @@ export function towerSpec(opts: TowerOpts, cx = 0, cy = 0): TowerSpec {
   parts.push(...merlonsAlongEdge('y', cx + lo, cy - ch, cy + ch, walkZ, parapetH, pt, mat));   // west edge
   parts.push(...merlonsAlongEdge('y', cx + hi, cy - ch, cy + ch, walkZ, parapetH, pt, mat));   // east edge
 
-  return {
-    parts,
-    mountAnchors: [{ kind: 'lintel', x: cx, y: cy, facing: [0, 0], z: 0 }],
-    side,
-  };
+  return { parts, mountAnchors: [{ kind: 'lintel', x: cx, y: cy, facing: [0, 0], z: 0 }], side };
+}
+
+/** Round drum tower centred at world (cx,cy), base at z=0. */
+function roundTower(opts: TowerOpts, cx: number, cy: number): TowerSpec {
+  const mat = opts.material;
+  const dia = Math.max(mToTiles(2.4), opts.curtainThickness + mToTiles(opts.tall ? 1.4 : 2.0));
+  const r = dia / 2;
+  const rise = mToTiles(opts.tall ? 3.6 : 2.2);
+  const towerH = opts.curtainHeight + rise;
+  const parapetH = mToTiles(1.5);
+  const baseH = mToTiles(1.2);
+  const flare = mToTiles(0.6);
+  const corbel = mToTiles(0.32);
+  const corbelH = mToTiles(0.5);
+  const walkZ = towerH - parapetH;
+  const center: [number, number] = [cx, cy];
+
+  const parts: Part[] = [];
+  // Battered frustum foot (a tapered drum — wide at grade, narrowing to the shaft).
+  parts.push({ prim: 'column', center, baseZ: 0, radius: r + flare, topRadius: r, height: baseH, material: mat });
+  // Cylindrical shaft.
+  parts.push({ prim: 'cylinder', center, baseZ: baseH * 0.7, radius: r, height: walkZ - baseH * 0.7, material: mat });
+  // Corbel ring (machicolation) overhanging just below the parapet.
+  parts.push({ prim: 'cylinder', center, baseZ: walkZ - corbelH, radius: r + corbel, height: corbelH, material: mat });
+  // Crenellated parapet wrapped around the corbel-widened ring.
+  parts.push(...merlonsAroundRing(cx, cy, r + corbel, walkZ, parapetH, mToTiles(0.4), mat));
+
+  return { parts, mountAnchors: [{ kind: 'lintel', x: cx, y: cy, facing: [0, 0], z: 0 }], side: dia };
+}
+
+/** Build a tower (round drum by default; square when `round` is false) centred at (cx,cy). */
+export function towerSpec(opts: TowerOpts, cx = 0, cy = 0): TowerSpec {
+  return opts.round ? roundTower(opts, cx, cy) : squareTower(opts, cx, cy);
 }

@@ -66,6 +66,14 @@ describe('chunkBarrierRun', () => {
     expect(gated).toBe(ungated + 2);
   });
 
+  it('corner towers are ROUND drums; gate towers are SQUARE (distinct cached geometry)', () => {
+    const keys = runElements(crenStoneRing([{ t: 7, width: 3 }])).map((e) => e.key);
+    expect(keys.some((k) => k.startsWith('tower:round:'))).toBe(true);   // 4 corner drums
+    expect(keys.some((k) => k.startsWith('tower:gate:'))).toBe(true);    // 2 gatehouse towers
+    // The two kinds compose separately (one cache entry each), not as one shared tower.
+    expect(new Set(keys.filter((k) => k.startsWith('tower:'))).size).toBe(2);
+  });
+
   it('non-masonry / uncrenellated runs get NO towers (curtain chunks only)', () => {
     const hedge: BarrierRun = { kind: 'hedge', path: RING, ...BARRIER_DEFAULTS.hedge, gates: [] };
     expect(runElements(hedge).length).toBe(chunkBarrierRun(hedge).length);
