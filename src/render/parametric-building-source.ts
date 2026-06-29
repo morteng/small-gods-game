@@ -6,6 +6,7 @@
 // falls back to the legacy massing. Never throws on the frame path.
 import type { Entity } from '@/core/types';
 import { blueprintOf } from '@/blueprint/entity';
+import { cutawayOf } from '@/blueprint/cutaway';
 import type { ResolvedBlueprint } from '@/blueprint/types';
 import { toGeometry } from '@/blueprint/compile/to-geometry';
 import { greyToSpriteCanvas, rgbaToCanvas, cropRgba, type SpritePack } from '@/render/iso/sprite-canvas';
@@ -111,10 +112,14 @@ export class ParametricBuildingSource {
     this.onWarm = deps.onWarm;
   }
 
-  /** Sync read of an already-generated sprite pack (null if absent / unsupported / failed). */
-  peek(e: Entity): SpritePack | null {
-    const rb = blueprintRbOf(e);
-    return rb ? (this.cache.get(keyOf(rb)) ?? null) : null;
+  /** Sync read of an already-generated sprite pack (null if absent / unsupported / failed).
+   *  `cutaway` reads the roof-off interior variant (interior I-2 focus reveal) — a separate
+   *  cache entry keyed off the cutaway-patched blueprint. */
+  peek(e: Entity, cutaway = false): SpritePack | null {
+    const rb0 = blueprintRbOf(e);
+    if (!rb0) return null;
+    const rb = cutaway ? cutawayOf(rb0) : rb0;
+    return this.cache.get(keyOf(rb)) ?? null;
   }
 
   /** Sync read of an asset's retained pipeline buffers (only when `keepStages`). */
@@ -123,10 +128,12 @@ export class ParametricBuildingSource {
     return rb ? (this.stages.get(keyOf(rb)) ?? null) : null;
   }
 
-  /** Fire-and-forget generation. Safe to call every frame; runs at most once per key. */
-  warm(e: Entity): void {
-    const rb = blueprintRbOf(e);
-    if (!rb) return;
+  /** Fire-and-forget generation. Safe to call every frame; runs at most once per key.
+   *  `cutaway` warms the roof-off interior variant (interior I-2). */
+  warm(e: Entity, cutaway = false): void {
+    const rb0 = blueprintRbOf(e);
+    if (!rb0) return;
+    const rb = cutaway ? cutawayOf(rb0) : rb0;
     const k = keyOf(rb);
     if (this.cache.has(k) || this.inflight.has(k)) return;
     let spec: StructureSpec | null;

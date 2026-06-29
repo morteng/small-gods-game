@@ -34,6 +34,22 @@ describe('drawCacheKey', () => {
     const grey = makeRc(map, { buildingRenderMode: 'fallback' } as unknown as RenderContext['devMode']);
     expect(drawCacheKey(auto, map)).not.toBe(drawCacheKey(grey, map));
   });
+
+  it('interior I-2: changes when the focused (cutaway) building changes, so a focus rebuilds the static layer', () => {
+    const map = makeMap();
+    const none = makeRc(map);
+    const focusA = { ...makeRc(map), cutawayBuildingId: 'b1' } as RenderContext;
+    const focusB = { ...makeRc(map), cutawayBuildingId: 'b2' } as RenderContext;
+    expect(drawCacheKey(focusA, map)).not.toBe(drawCacheKey(none, map));
+    expect(drawCacheKey(focusA, map)).not.toBe(drawCacheKey(focusB, map));
+  });
+
+  it('interior I-2: an absent/null cutaway id keeps the key identical to before (reveal-off is inert)', () => {
+    const map = makeMap();
+    const absent = makeRc(map);
+    const nulled = { ...makeRc(map), cutawayBuildingId: null } as RenderContext;
+    expect(drawCacheKey(nulled, map)).toBe(drawCacheKey(absent, map));
+  });
 });
 
 describe('StaticDrawListCache', () => {
