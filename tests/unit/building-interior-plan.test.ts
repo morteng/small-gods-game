@@ -41,6 +41,35 @@ describe('interiorPlan (interior I-3)', () => {
     expect(plan!.screens.every((s) => s === false)).toBe(true);
   });
 
+  it('a single-storey building has no vertical levels (the cutaway stays one-storey)', () => {
+    expect(interiorPlan(synthesizeBlueprint('manor', [], 1)!)!.levels).toEqual([]);
+  });
+
+  it('a vertical stack (tower / castle keep) reports its upper storeys as floor-plate levels', () => {
+    const tower = interiorPlan(synthesizeBlueprint('tower', [], 1)!);
+    expect(tower).toBeDefined();
+    // chamber@L0 + stacked chambers above ⇒ ascending positive levels, none zero.
+    expect(tower!.levels.length).toBeGreaterThanOrEqual(1);
+    expect(tower!.levels.every((l) => l > 0)).toBe(true);
+    expect([...tower!.levels].sort((a, b) => a - b)).toEqual(tower!.levels);
+
+    const keep = interiorPlan(synthesizeBlueprint('castle_keep', [], 1)!);
+    expect(keep!.levels.length).toBeGreaterThanOrEqual(2); // undercroft@L0 + hall/solar/chamber above
+  });
+
+  it('a below-grade zone (level:-1) surfaces as a negative level — the cellar floor plate', () => {
+    // interiorPlan reads only the connectome graph, so a minimal one exercises the cellar path.
+    const rb = {
+      connectome: { zones: [
+        { id: 'z0', type: 'hall', level: 0 },
+        { id: 'z1', type: 'cellar', level: -1 },
+      ] },
+    } as unknown as Parameters<typeof interiorPlan>[0];
+    const plan = interiorPlan(rb);
+    expect(plan).toBeDefined();
+    expect(plan!.levels).toContain(-1);
+  });
+
   it('is undefined when the blueprint carries no connectome (raw rb, no persisted sibling)', () => {
     const rb = synthesizeBlueprint('manor', [], 1)!;
     const stripped = JSON.parse(JSON.stringify(rb)); // serialization drops the non-enumerable graph

@@ -99,8 +99,23 @@ impact) and re-attached to `rb` non-enumerably by `blueprintOf` on access — so
 (snapshot `structuredClone`, which drops non-enumerable props just like JSON) no longer loses
 it, and reloaded worlds keep their interiors.
 
+**I-5 — Vertical storeys + cellars (the stacked-storey half of I-3 + L3b). ✅ SHIPPED
+(flag-gated, render-only).** I-3 only laid out the LEVEL-0 horizontal spine; a multi-storey
+building (tower, keep) cut away as one tall hollow shell with no floor plates. `interiorPlan` now
+also returns `levels` — the distinct non-ground zone levels — and `buildingFacets` draws a floor
+slab per level (`z = level × storeyHeight`), so a tower/keep reads as stacked rooms. A NEGATIVE
+level is a below-grade cellar: the cutaway's cavity + near-wall cuts dig down to `level ×
+storeyHeight` to expose it (`cellarZ`/`cavBot`/`cutBot`; `cellarZ = 0` ⇒ bytes match I-3 for
+ground-only buildings). Verified live: keep → 4 stacked storeys; tower → 3; a manor with an
+injected `level:-1` zone → a sunken cellar plate dug below the footprint. This makes **L3b
+walkable cellars render-ready** — the geometry + plan handle `level:-1` and a test pins it — so
+the only thing left for cellars is the *content* hookup (assigning a preset a `level:-1` crypt/
+cellar zone), which is a worldgen change (WORLD_CONTENT_VERSION + golden re-pin + exterior-
+regression risk) and belongs in its own deliberate slice, NOT this render epic. Confined to the
+`if (cutaway)` branch → closed-path golden byte-identical; no version bump.
+
 **Deferred:** `width↓` nave narrowing (needs interior screen walls — overlaps Law 4); interior
-lighting/darkening.
+lighting/darkening; the cellar CONTENT hookup (a worldgen slice, see I-5).
 
 **I-4 — E3 Controlled Contact (Law 4): permeable screen. ✅ SHIPPED (flag-gated, render-only).**
 The chancel screen now reads in the cutaway. Implementation note: the rood screen is modelled in
