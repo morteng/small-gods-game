@@ -150,6 +150,13 @@ export function findPlacement(
   tiles:      Tile[][],
   registry:   EntityRegistry,
   maxRadius = 20,
+  // Extra per-cell veto consulted alongside terrain/nature. The settlement placer passes
+  // its occupancy grid here so the spiral SKIPS road + civic + claimed cells and returns the
+  // first genuinely free spot. Without it, a road cell (dirt_road/stone_road are in
+  // BUILDABLE_TERRAIN) passed the terrain check and was returned, only to be rejected by the
+  // caller — so a dense road network exhausted the attempts and a foci village stayed nearly
+  // empty despite open ground. Optional ⇒ existing callers (tests) keep prior behaviour.
+  isBlocked?: (x: number, y: number) => boolean,
 ): PlacementResult | null {
   const { w, h } = footprint;
   const { allowedTerrain, margin, nearWater } = constraint;
@@ -170,6 +177,14 @@ export function findPlacement(
 
       // Occupancy check (includes margin) — vegetation is allowed (will be cleared)
       if (!canPlaceIgnoringNature(x0, y0, w, h, margin, registry)) continue;
+
+      // Caller veto (settlement occupancy: roads / civics / claimed footprints)
+      if (isBlocked) {
+        let blocked = false;
+        for (let dy = 0; dy < h && !blocked; dy++)
+          for (let dx = 0; dx < w; dx++) if (isBlocked(x0 + dx, y0 + dy)) { blocked = true; break; }
+        if (blocked) continue;
+      }
 
       // Water adjacency check
       if (nearWater !== undefined) {
@@ -627,19 +642,14 @@ export function placeSettlement(
     if (!origin) {
       const targetX = Math.round(cx + (rng.next() * 2 - 1) * radius * 0.8);
       const targetY = Math.round(cy + (rng.next() * 2 - 1) * radius * 0.8);
+      // The spiral now skips occupied cells itself (roads/civics/claimed footprints), so it
+      // returns the first genuinely free spot instead of a road cell the caller had to reject
+      // — the fix that lets a road-dense foci village actually fill its open ground.
       origin = findPlacement(
         { x: targetX, y: targetY }, rb.footprint,
         { ...constraint, nearWater: site?.nearWater }, tiles, registry, radius,
+        (bx, by) => occ.has(bx, by) || ROAD_TYPES.has(tiles[by]?.[bx]?.type ?? ''),
       );
-      // Planned roads + civic precincts aren't on the tile grid yet — keep off them.
-      if (origin) {
-        const { tileX, tileY } = origin;
-        outer: for (let dy = 0; dy < rb.footprint.h; dy++) {
-          for (let dx = 0; dx < rb.footprint.w; dx++) {
-            if (occ.has(tileX + dx, tileY + dy)) { origin = null; break outer; }
-          }
-        }
-      }
       viaSlot = false;
     }
     if (!origin) continue;
