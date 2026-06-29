@@ -85,15 +85,22 @@
  * Manifold boolean (stone band + wall-material upper). Only undercroft bodies change; every
  * other building's wall is byte-identical (the single-material path is the original code).
  * See the layered-connectome-expression spec.
+ * 'v20' — E3 shrine-procession slice 1 (retire temple_small): the hand-tuned `temple_small`
+ * preset is gone — a temple now EXPRESSES from its church-axial programme through the fold
+ * (generative bridge → FORM → FABRIC), so its geometry is derived not pinned. The generative
+ * bridge gains a SACRED-AXIAL footprint rule (a temple/shrine cella is DEEPER than wide, the
+ * nave fronting the door with a pediment; an axial barn stays wide). Temples now vary their
+ * footprint per instance. See the shrine-procession spec.
  */
-export const ART_RECIPE_VERSION = 'v19';
+export const ART_RECIPE_VERSION = 'v20';
 
 /**
  * Bump when WORLDGEN / preset output changes (footprints, placement, heights).
  * An autosave stamped with a different value is discarded on load → a fresh
  * world is generated. Distinct from SAVE_VERSION (which guards the save *schema*).
  */
-export const WORLD_CONTENT_VERSION = 38;  // L3b UNDERCROFT + TOWNHOUSE ROSTER: cities now plat burgage TOWNHOUSES (jettied box-frame upper over a stone undercroft base course, L3b) alongside their trades — the city `buildings` roster gains `townhouse` ×3, so which buildings appear shifts. (Pairs with ART v19, the undercroft geometry.) ⇒ discard older autosaves. See prior notes below.
+export const WORLD_CONTENT_VERSION = 39;  // TEMPLE RETIRED → GENERATIVE (E3 slice 1): temple_small loses its hand preset and expresses via the fold — a deep stone cella (sacred-axial footprint rule) whose footprint VARIES per instance instead of a frozen 3×4 box. Shifts temple geometry/footprint in every temple/shrine POI ⇒ discard older autosaves. See prior notes below.
+// 38 = L3b UNDERCROFT + TOWNHOUSE ROSTER: cities now plat burgage TOWNHOUSES (jettied box-frame upper over a stone undercroft base course, L3b) alongside their trades — the city `buildings` roster gains `townhouse` ×3, so which buildings appear shifts. (Pairs with ART v19, the undercroft geometry.) ⇒ discard older autosaves. See prior notes below.
 // 37 = FOCI-VILLAGE FILL FIX: the fill spiral (`findPlacement`) is now occupancy-aware — it skips road/civic/claimed cells and returns the first genuinely free spot, instead of returning a road cell (dirt_road/stone_road are BUILDABLE_TERRAIN) that the caller then rejected. A road-dense foci village (church+manor) used to exhaust its placement attempts and stay nearly empty; now it fills its open ground (Oakshire 4→11 buildings with its full roster — manor + smithy/bakehouse/tavern). Shifts every settlement's building layout ⇒ discard older autosaves. See prior notes below.
 // 36 = VILLAGE DENSITY: village base buildingCount 3-8→5-10 so a village reads as a real cluster (manor + trades plat even at medium size; a large village bustles ~9-18 yet stays under a large city) instead of a 2-3-building hamlet. Shifts every village's building set ⇒ discard older autosaves. See prior notes below.
 // 35 = SETTLEMENT SIZE SCALING: a POI's authored `size` now scales its building count (small 0.7 / medium 1.0 / large 1.8 / huge 2.6) + radius (√scale), so a large village finally musters enough buildings to clear the manor focus rung (focusMin 6) AND round-robin its way to the trades (smithy/tavern/bakehouse) — the E4 roster buildings that previously never landed. Shifts which/how-many buildings every SIZED settlement plats (size-less POIs, e.g. test paths, unchanged). Denser settlements surfaced a latent C1 barrier leak (a slab poking under a building silhouette) — fixed by unifying the settlement-ring gating onto the croft rings' robust slab-midpoint sampling AND filtering `reconcileBarriersWithBuildings` against the building VISUAL extent (not just solid cells), so INV4 holds by construction. ⇒ discard older autosaves. See prior notes below.
