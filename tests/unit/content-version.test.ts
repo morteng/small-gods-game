@@ -2,11 +2,11 @@ import { describe, it, expect } from 'vitest';
 import { ART_RECIPE_VERSION, WORLD_CONTENT_VERSION } from '@/core/content-version';
 
 describe('content-version constants', () => {
-  it('declares the current art recipe version (v16: fabric gated by structure)', () => {
-    expect(ART_RECIPE_VERSION).toBe('v16');
+  it('declares the current art recipe version (v17: L2b form footprint variety)', () => {
+    expect(ART_RECIPE_VERSION).toBe('v17');
   });
 
-  it('declares the current world content version (33: Verdant Vale massif — craggy peaks + treeline)', () => {
-    expect(WORLD_CONTENT_VERSION).toBe(33);
+  it('declares the current world content version (34: L2b per-instance building variety)', () => {
+    expect(WORLD_CONTENT_VERSION).toBe(34);
   });
 });

@@ -1,6 +1,6 @@
 // tests/unit/blueprint-presets.test.ts
 import { describe, it, expect, beforeAll } from 'vitest';
-import { BUILDING_BLUEPRINTS, synthesizeBlueprint, getBlueprintPreset } from '@/blueprint/presets';
+import { synthesizeBlueprint, getBlueprintPreset } from '@/blueprint/presets';
 import { ensureBuildingTypesRegistered } from '@/blueprint/register-buildings';
 import { toGeometry } from '@/blueprint/compile/to-geometry';
 
@@ -19,11 +19,17 @@ describe('blueprint presets', () => {
       expect(spec.parts.length, n).toBeGreaterThan(0);
     }
   });
-  it('cottage has a rectangular 3x2 body on a 3x3 plot (yard strip) and a south door', () => {
-    const rb = synthesizeBlueprint('cottage')!;
+  it('cottage body length varies with the seed (sizeBays [1,2]) within a fixed 3x3 plot, south door', () => {
+    // L2b: the gen-form body's plan length is derived from the cottage's bay range by the
+    // seed, CLAMPED to the authored 3x3 lot — so the lot (placement) is fixed but the house
+    // reads as a short 1-bay cot or a longer 2-bay range. The authored 3x2 is now a fallback.
+    const bodyOf = (seed: number) =>
+      synthesizeBlueprint('cottage', [], seed)!.parts.find(p => p.type === 'body')!;
+    expect(bodyOf(0).size).toEqual({ w: 2, h: 2 }); // 1 bay → short cot
+    expect(bodyOf(1).size).toEqual({ w: 3, h: 2 }); // 2 bays → longer range
+    const rb = synthesizeBlueprint('cottage', [], 1)!;
     const body = rb.parts.find(p => p.type === 'body')!;
-    expect(body.size).toEqual({ w: 3, h: 2 });
-    expect(rb.footprint).toEqual({ w: 3, h: 3 });
+    expect(rb.footprint).toEqual({ w: 3, h: 3 });   // lot fixed regardless of seed
     expect(body.features.find(f => f.type === 'door')?.face).toBe('south');
   });
   it('castle_keep is a bailey + tall tower, not a pancaked stepped slab', () => {

@@ -276,6 +276,18 @@ export function placeSettlement(
   const entities:  Entity[] = [];
   const roadType  = zoneRule.internalRoadType ?? 'dirt_road';
 
+  // L2b — per-instance building seed. Every `synthesizeBlueprint` below draws a fresh seed
+  // from this so each placed instance varies: the generative catalogue→geometry bridge grows
+  // its FOOTPRINT from the seed, and a gen-form body varies its plan LENGTH within its lot.
+  // Pure function of (worldSeed, poi, call order) — the call order is fixed by the
+  // deterministic rng, so worldgen stays fully reproducible (snapshot/replay re-derives it).
+  // Drawing per CALL (not per success) means a footprint that didn't fit is re-rolled smaller
+  // on the next attempt rather than retried identically.
+  const poiHash = [...poi.id].reduce((a, c) => (Math.imul(a, 31) + c.charCodeAt(0)) >>> 0, 7);
+  const poiSeed = (worldSeed ^ poiHash) >>> 0;
+  let synthSeq = 0;
+  const instSeed = (): number => (poiSeed ^ Math.imul(++synthSeq, 0x9e3779b1)) >>> 0;
+
   // Terrain-aware siting (building-validity S3–S5 substrate, wired live here). The
   // height field is analytic from the seed, so a probe is valid at gen time. Absent a
   // map the placer stays purely distance-based (every legacy caller / test path).
@@ -377,7 +389,7 @@ export function placeSettlement(
       // (no rng). The mill is a workplace; well/graveyard are civic props.
       const presetName = CIVIC_PRESETS[c.type];
       if (!presetName) continue;   // agent-registered precinct with no art: ground only
-      const rb = synthesizeBlueprint(presetName);
+      const rb = synthesizeBlueprint(presetName, [], instSeed());
       if (!rb) continue;
       const civic = blueprintEntity(`${poi.id}_civic_${c.type}`, rb, c.x, c.y, { poiId: poi.id });
       civic.properties!.civic = c.type;
@@ -551,7 +563,7 @@ export function placeSettlement(
   // claims the nearest clear, buildable ground to the centre instead.
   for (const presetName of focusPresets) {
     if (placed >= buildingCount) break;
-    const rb = synthesizeBlueprint(presetName);
+    const rb = synthesizeBlueprint(presetName, [], instSeed());
     if (!rb) continue;
     const site = SITE_RULES[presetName];
     const fit = siteFitnessAt(siteProfileFor(presetName));
@@ -568,7 +580,7 @@ export function placeSettlement(
   const focusPlaced = placed;
   for (let attempt = 0; attempt < buildingCount * 4 && placed < buildingCount && fillPool.length > 0; attempt++) {
     const presetName = fillPool[(placed - focusPlaced) % fillPool.length];
-    const rb = synthesizeBlueprint(presetName);
+    const rb = synthesizeBlueprint(presetName, [], instSeed());
     if (!rb) continue;
     const site = SITE_RULES[presetName];
     const { facing, doorCell } = doorOf(rb);
@@ -664,7 +676,7 @@ export function placeSettlement(
     let auxIdx = 0;
     for (const { pc, plan, ccx, ccy } of sited) {
       for (const aux of plan.auxiliaries) {
-        const arb = synthesizeBlueprint(aux.buildingType);
+        const arb = synthesizeBlueprint(aux.buildingType, [], instSeed());
         if (!arb) continue;
         const { w: aw, h: ah } = arb.footprint;
         const spot = siteNear(ccx, ccy, pc.w, pc.h, aw, ah);
@@ -699,7 +711,7 @@ export function placeSettlement(
     let fxIdx = 0;
     for (const { pc, plan, ccx, ccy } of sited) {
       for (const fx of plan.fixtures) {
-        const frb = synthesizeBlueprint(fx.type);
+        const frb = synthesizeBlueprint(fx.type, [], instSeed());
         if (!frb || frb.class === 'building') continue;
         const { w: fw, h: fh } = frb.footprint;
         const spot = siteNear(ccx, ccy, pc.w, pc.h, fw, fh);
