@@ -30,6 +30,7 @@ import type { ResolvedBlueprint } from '@/blueprint/types';
 import { blueprintEntity } from '@/blueprint/entity';
 import { toCollision } from '@/blueprint/compile/to-collision';
 import { toAnchors } from '@/blueprint/compile/to-anchors';
+import { orientationForFacing, rotateFootprint, rotateCell, type Orientation } from '@/blueprint/orientation';
 import { placeBarrier } from '@/world/place-barrier';
 import { isBuilding as isBuildingEntity, tileBlockedByBuilding } from '@/world/building-collision';
 import { OccupancyGrid, buildingSolidCells } from '@/world/occupancy-grid';
@@ -523,18 +524,22 @@ export function placeSettlement(
     facing: [number, number], doorCell: number[], viaSlot: boolean,
   ): Entity => {
     const entity = blueprintEntity(`${poi.id}_bld_${placed}`, rb, origin.tileX, origin.tileY, { poiId: poi.id });
-    clearFootprint(origin.tileX, origin.tileY, rb.footprint.w, rb.footprint.h, registry, world, tiles);
+    // The PLACED footprint is orientation-rotated (toCollision swaps w/h on odd turns), so
+    // every occupancy/lot/clearance op below reads `fp`, not the canonical `rb.footprint`.
+    const col = toCollision(rb);
+    const fp = col.footprint;
+    clearFootprint(origin.tileX, origin.tileY, fp.w, fp.h, registry, world, tiles);
     registry.add(entity);
     entities.push(entity);
-    occ.claimCells(buildingSolidCells(toCollision(rb), origin.tileX, origin.tileY), 'building');
+    occ.claimCells(buildingSolidCells(col, origin.tileX, origin.tileY), 'building');
     for (const cell of buildingVisualCells(rb, origin.tileX, origin.tileY)) buildingVisual.add(cell);
     // Claim every lot the footprint INTERSECTS, so live growth (S3) never sees a
     // "free" lot with blocked tiles.
     for (const lot of plan.lots) {
       if (lot.buildingId) continue;
       const hit = lot.tiles.some(t =>
-        t.x >= origin.tileX && t.x < origin.tileX + rb.footprint.w &&
-        t.y >= origin.tileY && t.y < origin.tileY + rb.footprint.h);
+        t.x >= origin.tileX && t.x < origin.tileX + fp.w &&
+        t.y >= origin.tileY && t.y < origin.tileY + fp.h);
       if (hit) lot.buildingId = entity.id;
     }
     const [doorLx, doorLy] = [doorCell[0], doorCell[1]];
@@ -578,7 +583,7 @@ export function placeSettlement(
       }
     }
     if (rb.preset) {
-      placedCores.push({ core: entity, preset: rb.preset, x: origin.tileX, y: origin.tileY, w: rb.footprint.w, h: rb.footprint.h });
+      placedCores.push({ core: entity, preset: rb.preset, x: origin.tileX, y: origin.tileY, w: fp.w, h: fp.h });
     }
     placed++;
     return entity;
@@ -607,37 +612,52 @@ export function placeSettlement(
   const focusPlaced = placed;
   for (let attempt = 0; attempt < buildingCount * 4 && placed < buildingCount && fillPool.length > 0; attempt++) {
     const presetName = fillPool[(placed - focusPlaced) % fillPool.length];
-    const rb = synthesizeBlueprint(presetName, [], instSeed());
-    if (!rb) continue;
+    const base = synthesizeBlueprint(presetName, [], instSeed());
+    if (!base) continue;
     const site = SITE_RULES[presetName];
-    const { facing, doorCell } = doorOf(rb);
+    const { facing: cFacing, doorCell: cDoor } = doorOf(base);
     let origin: PlacementResult | null = null;
+    // The blueprint actually placed (may carry an orientation) + the EFFECTIVE door facing/
+    // cell after that turn — passed to commit for the connector/clearance carve. Default to
+    // the canonical values (used by the spiral fallback, which keeps orientation 0).
+    let rb: ResolvedBlueprint = base;
+    let efacing: [number, number] = cFacing;
+    let edoor: number[] = cDoor;
 
-    // Pass 1: claim a burgage lot (footprint fully inside the lot — regular
-    // spacing + back yard). Pass 2: any fitting slot for footprints no lot can hold.
-    const orderedSlots = orderedSlotsFor(plan, facing, site, rng, siteFitnessAt(siteProfileFor(presetName)));
+    // Pass 1: claim a burgage lot (footprint fully inside the lot — regular spacing + back
+    // yard). Pass 2: any fitting slot for footprints no lot can hold. Slots from ALL sides
+    // (doorFacing=null): the building ROTATES so its door fronts whichever road its slot
+    // faces, so dwellings line streets from every direction, not just the canonical side.
+    const orderedSlots = orderedSlotsFor(plan, null, site, rng, siteFitnessAt(siteProfileFor(presetName)));
     for (const strictLots of [true, false]) {
       for (const slot of orderedSlots) {
-        // Align the footprint edge on the DOOR side flush against the road.
-        const { w, h } = rb.footprint;
-        const ox = facing[0] > 0 ? slot.roadX - w
-          : facing[0] < 0 ? slot.roadX + 1
-          : slot.roadX - doorCell[0];
-        const oy = facing[1] > 0 ? slot.roadY - h
-          : facing[1] < 0 ? slot.roadY + 1
-          : slot.roadY - doorCell[1];
+        // Door should face the road = opposite the slot's road→building side.
+        const ef: [number, number] = [-slot.side[0], -slot.side[1]];
+        const o = orientationForFacing(cFacing[0], cFacing[1], ef[0], ef[1]);
+        const { w, h } = rotateFootprint(base.footprint.w, base.footprint.h, o);
+        const dc = o ? rotateCell(Math.round(cDoor[0]), Math.round(cDoor[1]), base.footprint.w, base.footprint.h, o) : cDoor;
+        // Align the (rotated) footprint edge on the DOOR side flush against the road.
+        const ox = ef[0] > 0 ? slot.roadX - w
+          : ef[0] < 0 ? slot.roadX + 1
+          : slot.roadX - dc[0];
+        const oy = ef[1] > 0 ? slot.roadY - h
+          : ef[1] < 0 ? slot.roadY + 1
+          : slot.roadY - dc[1];
         if (!fitsAt(ox, oy, w, h, site?.nearWater)) continue;
         if (strictLots) {
           const lot = lotForSlot(slot);
           if (!lot || !footprintInLot(lot, ox, oy, w, h)) continue;
         }
         origin = { tileX: ox, tileY: oy };
+        rb = o ? { ...base, orientation: o as Orientation } : base;
+        efacing = ef; edoor = dc;
         break;
       }
       if (origin || plan.lots.length === 0) break;
     }
 
-    // Fallback: spiral search near a jittered target (with the water rule).
+    // Fallback: spiral search near a jittered target (with the water rule). Canonical
+    // orientation — a free-ground plop has no road to front.
     let viaSlot = origin !== null;
     if (!origin) {
       const targetX = Math.round(cx + (rng.next() * 2 - 1) * radius * 0.8);
@@ -646,15 +666,45 @@ export function placeSettlement(
       // returns the first genuinely free spot instead of a road cell the caller had to reject
       // — the fix that lets a road-dense foci village actually fill its open ground.
       origin = findPlacement(
-        { x: targetX, y: targetY }, rb.footprint,
+        { x: targetX, y: targetY }, base.footprint,
         { ...constraint, nearWater: site?.nearWater }, tiles, registry, radius,
         (bx, by) => occ.has(bx, by) || ROAD_TYPES.has(tiles[by]?.[bx]?.type ?? ''),
       );
+      rb = base; efacing = cFacing; edoor = cDoor;
       viaSlot = false;
+      // Even a free-ground infill building should FRONT the nearest street if one is close.
+      // Scan a small ring around the canonical footprint for the nearest road tile; rotate so
+      // the door faces it, but only if the rotated footprint still fits free ground at this
+      // origin (fitsAt re-checks occupancy/terrain — no overlap, deterministic, no rng draw).
+      if (origin) {
+        const fw0 = base.footprint.w, fh0 = base.footprint.h;
+        const bcx = origin.tileX + fw0 / 2, bcy = origin.tileY + fh0 / 2;
+        let bestDx = 0, bestDy = 0, bestD = Infinity;
+        const R = 4;
+        for (let ty = origin.tileY - R; ty < origin.tileY + fh0 + R; ty++) {
+          for (let tx = origin.tileX - R; tx < origin.tileX + fw0 + R; tx++) {
+            if (!occ.is(tx, ty, 'road') && !ROAD_TYPES.has(tiles[ty]?.[tx]?.type ?? '')) continue;
+            const d = (tx + 0.5 - bcx) ** 2 + (ty + 0.5 - bcy) ** 2;
+            if (d < bestD) { bestD = d; bestDx = tx + 0.5 - bcx; bestDy = ty + 0.5 - bcy; }
+          }
+        }
+        if (bestD < Infinity) {
+          // Cardinal toward the road (dominant axis), door faces it.
+          const ef: [number, number] = Math.abs(bestDx) >= Math.abs(bestDy)
+            ? [Math.sign(bestDx) || 1, 0] : [0, Math.sign(bestDy) || 1];
+          const o = orientationForFacing(cFacing[0], cFacing[1], ef[0], ef[1]);
+          const fr = rotateFootprint(fw0, fh0, o);
+          if (o && fitsAt(origin.tileX, origin.tileY, fr.w, fr.h, site?.nearWater)) {
+            rb = { ...base, orientation: o as Orientation };
+            efacing = ef;
+            edoor = rotateCell(Math.round(cDoor[0]), Math.round(cDoor[1]), fw0, fh0, o);
+          }
+        }
+      }
     }
     if (!origin) continue;
 
-    commit(rb, origin, facing, doorCell, viaSlot);
+    commit(rb, origin, efacing, edoor, viaSlot);
   }
 
   // 2c. Site expansion (E2): a placed establishment is not a lone footprint but a

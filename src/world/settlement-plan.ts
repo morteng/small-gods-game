@@ -813,15 +813,18 @@ export const SITE_FITNESS_PULL = 3;
  */
 export function orderedSlotsFor(
   plan: SettlementPlan,
-  doorFacing: [number, number],
+  doorFacing: [number, number] | null,
   rule: SiteRule | undefined,
   rng: Random,
   fitnessAt?: (tx: number, ty: number) => number,
 ): FrontageSlot[] {
-  const want: [number, number] = [-doorFacing[0], -doorFacing[1]];
+  // `doorFacing === null` ⇒ ALL frontage sides (the building rotates to face whichever road
+  // its slot fronts, via blueprint orientation). A concrete facing keeps the legacy filter
+  // (slots whose side opposes a FIXED door — used by orientation-less callers / focus logic).
+  const want: [number, number] | null = doorFacing ? [-doorFacing[0], -doorFacing[1]] : null;
   const sign = rule?.affinity === 'edge' ? -1 : 1;
   return plan.slots
-    .filter(s => s.side[0] === want[0] && s.side[1] === want[1])
+    .filter(s => !want || (s.side[0] === want[0] && s.side[1] === want[1]))
     .map(s => {
       const fit = fitnessAt ? fitnessAt(s.roadX, s.roadY) : 0;
       return { s, k: sign * s.dist + rng.next() * 1.5 - SITE_FITNESS_PULL * fit };

@@ -45,6 +45,10 @@ export function blueprintEntity(
   const collision = toCollision(rb);
   const anchors = toAnchors(rb, x, y);
   const category = CLASS_CATEGORY[rb.class ?? 'building'] ?? 'building';
+  // The ENTITY footprint is the placed (orientation-rotated) extent — `collision.footprint`
+  // already carries the w/h swap for odd quarter-turns — so occupancy/sort use the real
+  // on-ground shape, not the canonical recipe's. (rb.footprint stays canonical.)
+  const placedFp = collision.footprint;
   return {
     id,
     kind: rb.preset ?? 'building',
@@ -53,9 +57,9 @@ export function blueprintEntity(
     properties: {
       category,
       blueprint: { rb, collision, anchors, ...(rb.connectome ? { connectome: rb.connectome } : {}) } satisfies StoredBlueprint,
-      footprint: { ...rb.footprint },
+      footprint: { ...placedFp },
       anchors,
-      sortYOffset: rb.footprint.h,
+      sortYOffset: placedFp.h,
       era: rb.era,
       poiId: extra.poiId,
       religiousSignificance: extra.religiousSignificance ?? (rb.category === 'religious' ? 'sacred' : 'neutral'),

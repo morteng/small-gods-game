@@ -22,7 +22,18 @@ interface ToolbarDeps {
   randomize: () => void;             // re-roll seeded params
   subjectInfo: () => string;         // "cottage · 3×2 · medieval · ruin" readout (HTML)
   keyStatus: () => string;           // OpenRouter key state (Render is paid)
+  setYaw: (deg: number) => void;     // snap the turntable to an absolute yaw (4-way orient)
+  getYaw: () => number;              // current turntable yaw in degrees
 }
+
+// The four placement orientations, labelled by the direction the building's (canonical
+// south) door faces after that quarter-turn — orientation o = a turntable yaw of o×90°.
+const FACE_SNAPS: { label: string; o: number; dir: string }[] = [
+  { label: 'S', o: 0, dir: 'south' },
+  { label: 'W', o: 1, dir: 'west' },
+  { label: 'N', o: 2, dir: 'north' },
+  { label: 'E', o: 3, dir: 'east' },
+];
 
 const moonLabel = (p: number): string =>
   p <= 0.03 ? 'new (dark)' : p >= 0.97 ? 'full' : `${Math.round(p * 100)}% ${p < 0.5 ? 'waxing' : 'gibbous'}`;
@@ -163,6 +174,13 @@ export function buildToolbar(host: HTMLElement, state: StudioState, deps: Toolba
     on: { click: () => { state.scaleMode = state.scaleMode === 'proper' ? 'game' : 'proper'; state.fit = true; } },
   });
 
+  // ── 4-way placement orientation snap (turntable to each cardinal) ──
+  const faceBtns = FACE_SNAPS.map(s => h('button', {
+    class: 'sg-btn', text: s.label, title: `Orient: door faces ${s.dir} (orientation ${s.o})`,
+    on: { click: () => deps.setYaw(s.o * 90) },
+  }));
+  const faceGroup = h('div', { class: 'sg-group' }, h('span', { class: 'sg-read', text: 'Face' }), ...faceBtns);
+
   // ── render + kebab ──
   const renderBtn = h('button', { class: 'sg-btn sg-btn-primary', text: '🎨 Render', title: 'Send to OpenRouter  R', on: { click: deps.openRender } });
   const kebab = h('button', { class: 'sg-icon-btn', text: '⋯', title: 'More actions' });
@@ -178,7 +196,7 @@ export function buildToolbar(host: HTMLElement, state: StudioState, deps: Toolba
     ));
   }, { align: 'right', width: 230 });
 
-  bar.append(sunBtn, sunReadout, dispBtn, h('span', { class: 'sg-vsep' }), zoomGroup, fitBtn, scaleBtn, h('span', { class: 'sg-vsep' }), renderBtn, kebab);
+  bar.append(sunBtn, sunReadout, dispBtn, h('span', { class: 'sg-vsep' }), faceGroup, h('span', { class: 'sg-vsep' }), zoomGroup, fitBtn, scaleBtn, h('span', { class: 'sg-vsep' }), renderBtn, kebab);
   host.appendChild(bar);
 
   // ── keyboard shortcuts (ignored while typing in a field) ──
@@ -213,6 +231,8 @@ export function buildToolbar(host: HTMLElement, state: StudioState, deps: Toolba
         sunIcon.textContent = '☀';
         sunReadout.textContent = `az ${state.az}° · el ${state.el}°`;
       }
+      const curO = ((Math.round(deps.getYaw() / 90) % 4) + 4) % 4;
+      faceBtns.forEach((b, i) => b.classList.toggle('is-on', i === curO));
       fitBtn.classList.toggle('is-on', state.fit);
       const proper = state.scaleMode === 'proper';
       scaleBtn.innerHTML = proper ? '📐 <span style="opacity:.7">Proper</span>' : '🎮 <span style="opacity:.7">Game</span>';

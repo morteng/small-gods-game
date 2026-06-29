@@ -73,7 +73,11 @@ describe('placeSettlement produces blueprint entities', () => {
     );
     expect(entities.length).toBeGreaterThan(0);
     for (const e of entities.filter(e => blueprintOf(e)?.rb.class === 'building')) {
-      const fp = blueprintOf(e)!.rb.footprint;
+      // Open structures (a market stall) have NO threshold door — the door-walkability
+      // invariant only applies to buildings that actually carve a door cell.
+      if ((blueprintOf(e)!.collision.doorCells.length ?? 0) === 0) continue;
+      // The PLACED extent (orientation-rotated) — matches the rotated blocked set + door cell.
+      const fp = blueprintOf(e)!.collision.footprint;
       const door = doorOf(e);
       const doorTile = tiles[e.y + door.y][e.x + door.x];
       expect(doorTile.walkable, `${e.id} door`).toBe(true);

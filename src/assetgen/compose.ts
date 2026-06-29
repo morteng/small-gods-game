@@ -46,7 +46,7 @@ export interface LinearWorldAnchors { wallEnds: Vec3[]; gates: Vec3[] }
  *  chimney/apex) in the blueprint-local tile frame with metric `z`; compose projects them
  *  through the SAME fit as the geometry into `StructureAnchors.tags` (the sprite-normalised
  *  downstream projection the 2026-06-13 anchor-tags spec wanted persisted in the SpritePack). */
-export interface StructureSpec { id?: string; size?: number; parts: Part[]; mountAnchors?: Anchor[] }
+export interface StructureSpec { id?: string; size?: number; parts: Part[]; mountAnchors?: Anchor[]; yaw?: number }
 /** Feature anchors normalised (0..1) against the sprite's opaque bbox, so they survive a repaint + crop. */
 export interface NormAnchor { x: number; y: number }
 export interface DoorAnchorN extends NormAnchor { main: boolean }

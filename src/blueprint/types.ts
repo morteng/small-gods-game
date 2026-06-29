@@ -111,6 +111,14 @@ export interface ResolvedBlueprint {
   footprint: { w: number; h: number };
   notes?: string;
   /**
+   * Quarter-turn placement orientation, 0..3 (90° CW each). The blueprint's `parts`/
+   * `footprint` stay CANONICAL (orientation 0); this field rotates the WHOLE asset at
+   * compile/compose time — geometry yaw, footprint dims, collision cells, door anchors —
+   * via `src/blueprint/orientation.ts`. Present ONLY when non-zero so a non-oriented asset
+   * keeps its existing art-cache key (`JSON.stringify(rb)`) byte-for-byte.
+   */
+  orientation?: import('./orientation').Orientation;
+  /**
    * The latent room-graph this asset resolved from (Slice 1). Attached
    * NON-ENUMERABLY by `resolveAsset` so it is available for interior/agent use
    * later WITHOUT entering `canonicalJson(rb)` (the art-cache key) — the exterior
