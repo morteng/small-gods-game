@@ -6,7 +6,7 @@ describe('content-version constants', () => {
     expect(ART_RECIPE_VERSION).toBe('v22');
   });
 
-  it('declares the current world content version (40: E3 threshold stoup)', () => {
-    expect(WORLD_CONTENT_VERSION).toBe(40);
+  it('declares the current world content version (41: 4-way building orientation)', () => {
+    expect(WORLD_CONTENT_VERSION).toBe(41);
   });
 });

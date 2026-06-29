@@ -106,7 +106,10 @@ export class ParametricBuildingSource {
     // prompt legend keys off) and the assetgen goldens stay untouched. The parametric
     // cache is in-memory + recomputed per session, so no ART_RECIPE_VERSION bump is
     // needed for returning players to pick up the texture.
-    this.compose = deps.compose ?? ((spec) => composeStructure(spec, undefined, { surfaceTexture: true }));
+    // `spec.yaw` carries the placement orientation (to-geometry maps rb.orientation → yaw);
+    // pass it through so an oriented building's geometry actually rotates. yaw-0/undefined is
+    // a compose no-op, so non-oriented buildings stay byte-identical.
+    this.compose = deps.compose ?? ((spec) => composeStructure(spec, undefined, { surfaceTexture: true, ...(spec.yaw ? { yaw: spec.yaw } : {}) }));
     this.toSprite = deps.toSprite ?? structureResultToPack;
     this.keepStages = deps.keepStages ?? false;
     this.onWarm = deps.onWarm;

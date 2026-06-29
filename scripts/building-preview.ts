@@ -19,6 +19,7 @@ import { composeStructure, type StructureResult } from '../src/assetgen/compose'
 import { toGeometry } from '../src/blueprint/compile/to-geometry';
 import { synthesizeBlueprint, BUILDING_BLUEPRINTS } from '../src/blueprint/presets/index';
 import { cutawayOf } from '../src/blueprint/cutaway';
+import type { Orientation } from '../src/blueprint/orientation';
 
 const OUT = '.dev-grabs';
 const MAPS = { grey: 'grey', albedo: 'grey', normal: 'normal', material: 'material' } as const;
@@ -48,20 +49,35 @@ async function main() {
   const map = (['albedo', 'normal', 'material'] as const).find((m) => flags.has(`--${m}`)) ?? 'grey';
   const wantClosed = !flags.has('--cutaway') || flags.has('--both');
   const wantCutaway = flags.has('--cutaway') || flags.has('--both');
+  // --orient=N (single) or --orient=all (the four placement orientations 0..3). Drives
+  // rb.orientation; toGeometry maps it to spec.yaw, which we thread to composeStructure —
+  // the same path the runtime parametric source uses.
+  const orientArg = argv.find((a) => a.startsWith('--orient'))?.split('=')[1];
+  const orientations: Orientation[] = orientArg === 'all'
+    ? [0, 1, 2, 3]
+    : orientArg != null ? [Math.max(0, Math.min(3, Number(orientArg) | 0)) as Orientation] : [0];
+  const compose = (rb: ReturnType<typeof synthesizeBlueprint>) => {
+    const spec = toGeometry(rb!);
+    return composeStructure(spec, undefined, spec.yaw ? { yaw: spec.yaw } : undefined);
+  };
 
   mkdirSync(OUT, { recursive: true });
   for (const preset of presets) {
-    const rb = synthesizeBlueprint(preset, [], 1);
-    if (!rb) { console.error(`unknown preset: ${preset}`); continue; }
-    if (wantClosed) {
-      const r = await composeStructure(toGeometry(rb));
-      writeFileSync(join(OUT, `${preset}-${map}.png`), toPng(pick(r, map), r.size));
-      console.log(`${preset} closed → .dev-grabs/${preset}-${map}.png (${r.size}px)`);
-    }
-    if (wantCutaway) {
-      const r = await composeStructure(toGeometry(cutawayOf(rb)));
-      writeFileSync(join(OUT, `${preset}-cutaway-${map}.png`), toPng(pick(r, map), r.size));
-      console.log(`${preset} cutaway → .dev-grabs/${preset}-cutaway-${map}.png (${r.size}px)`);
+    const base = synthesizeBlueprint(preset, [], 1);
+    if (!base) { console.error(`unknown preset: ${preset}`); continue; }
+    for (const o of orientations) {
+      const rb = o ? { ...base, orientation: o } : base;
+      const suffix = o ? `-o${o}` : '';
+      if (wantClosed) {
+        const r = await compose(rb);
+        writeFileSync(join(OUT, `${preset}${suffix}-${map}.png`), toPng(pick(r, map), r.size));
+        console.log(`${preset}${suffix} closed → .dev-grabs/${preset}${suffix}-${map}.png (${r.size}px)`);
+      }
+      if (wantCutaway) {
+        const r = await compose(o ? { ...cutawayOf(base), orientation: o } : cutawayOf(base));
+        writeFileSync(join(OUT, `${preset}${suffix}-cutaway-${map}.png`), toPng(pick(r, map), r.size));
+        console.log(`${preset}${suffix} cutaway → .dev-grabs/${preset}${suffix}-cutaway-${map}.png (${r.size}px)`);
+      }
     }
   }
 }

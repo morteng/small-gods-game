@@ -14,6 +14,7 @@ import { apertureToBox } from '../wall-geometry';
 import { STOREY } from '@/assetgen/geometry/building';
 import { mToTiles } from '@/render/scale-contract';
 import { toMountAnchors } from './to-mount-anchors';
+import { yawForOrientation } from '../orientation';
 
 /** Storey height (tiles) for a wall-bearing body/wing part. */
 function storeyTilesOf(part: ResolvedPart): number {
@@ -224,5 +225,10 @@ export function toGeometry(rb: ResolvedBlueprint, opts?: { skirt?: SkirtOpts }):
   // Mount sockets (sign/lamp/perch/smoke/…) derived from the SAME resolved geometry, in the
   // blueprint-local frame (origin 0,0 = footprint top-left) so they share the wings' tile
   // coords. composeStructure projects them onto the sprite as `anchors.tags`.
-  return { parts, mountAnchors: toMountAnchors(rb, 0, 0) };
+  // Placement orientation (0..3) becomes a turntable yaw the composer applies to every
+  // facet + anchor — geometry's half of the single-source-of-truth rotation (the footprint/
+  // collision/door-anchor half lives in to-collision/to-anchors). Omitted when canonical so
+  // the yaw-0 golden path is byte-unchanged.
+  const o = rb.orientation ?? 0;
+  return { parts, mountAnchors: toMountAnchors(rb, 0, 0), ...(o ? { yaw: yawForOrientation(o) } : {}) };
 }

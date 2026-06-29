@@ -820,6 +820,8 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
       const cfg = loadProviderConfig();
       return cfg.openrouterApiKey ? 'configured key' : (openrouterImageBaseUrl() ? 'dev proxy key' : 'NO KEY');
     },
+    setYaw: (deg: number) => setYaw((deg * Math.PI) / 180),
+    getYaw: () => (state.yaw * 180) / Math.PI,
   });
   frame();
 
@@ -1072,6 +1074,11 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
     async setYaw(deg: number): Promise<boolean> { setYaw((deg * Math.PI) / 180); return settleGeometry(); },
     /** Current turntable yaw in degrees. */
     yaw: (): number => Math.round((state.yaw * 180) / Math.PI),
+    /** Snap to one of the 4 placement orientations (0..3 = S/W/N/E door facing); a turn
+     *  of o×90° — the same geometry rotation the placer bakes into a building's blueprint. */
+    async setOrientation(o: number): Promise<boolean> { setYaw((((o % 4) + 4) % 4) * (Math.PI / 2)); return settleGeometry(); },
+    /** Current placement orientation (0..3) the turntable is snapped to. */
+    orientation: (): number => ((Math.round(state.yaw / (Math.PI / 2)) % 4) + 4) % 4,
     structResult: () => shownStruct,
     /** Headless A/B: generate the current subject with two models and return the
      *  gate metrics (cost/ms/border/IoU/verdict) — sprites omitted (not serialisable). */
