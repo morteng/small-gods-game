@@ -29,7 +29,7 @@ export type Part =
   | { prim: 'ellipsoid'; center: [number, number]; baseZ: number; radii: Vec3; material?: Mat; bore?: { radius: number; depth: number } }
   | { prim: 'arch'; at: Vec3; span: number; height: number; thickness: number; yaw?: number; material?: Mat; work?: string; style?: ArchStyle; ringDepth?: number; springZ?: number }
   | { prim: 'column'; center: [number, number]; baseZ?: number; shape?: ColumnShape; sides?: number; radius: number; topRadius?: number; height: number; base?: ColumnBand | null; capital?: ColumnBand | null; material?: Mat; work?: string }
-  | { prim: 'building'; wings: Wing[]; wallMat?: Mat; roofMat?: Mat; roofStyle?: RoofStyle; features?: BuildingFeatures; seed?: number; apertures?: ApertureBox[]; wallWork?: string; baseCourse?: number; cutaway?: boolean; interior?: { partitions: number[]; floorDrop: number[] } }
+  | { prim: 'building'; wings: Wing[]; wallMat?: Mat; roofMat?: Mat; roofStyle?: RoofStyle; features?: BuildingFeatures; seed?: number; apertures?: ApertureBox[]; wallWork?: string; baseCourse?: number; cutaway?: boolean; interior?: { partitions: number[]; floorDrop: number[]; screens?: boolean[] } }
   | { prim: 'flora'; limbs: Limb[]; leaves: Leaf[]; barkMat?: Mat; foliageMat?: Mat }
   | { prim: 'rock'; center: [number, number]; baseZ: number; radius: number; seed: number; jitter?: number; mat?: Mat; subdiv?: number }
   | { prim: 'linear'; run: BarrierRun }
