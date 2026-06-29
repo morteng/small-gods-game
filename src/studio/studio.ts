@@ -79,6 +79,7 @@ function flatMap(): GameMap {
     tiles, width: MAP_W, height: MAP_H, villages: [], seed: 1, success: true,
     worldSeed: null as unknown as GameMap['worldSeed'],
     stats: { iterations: 0, backtracks: 0 }, buildings: [],
+    flatHeight: true,   // clean inspection plane — no procedural peaks/snow
   } as GameMap;
 }
 

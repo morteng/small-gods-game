@@ -179,6 +179,12 @@ const climateCache = new Map<string, ClimateFields>();
  *  calls with matching `(seed, width, height, island)`; treat as read-only. */
 export function getClimateFields(map: GameMap): ClimateFields {
   const { seed, width, height } = map;
+  // Inspection ground (studio): uniform temperate climate — no cold cells, so the
+  // shader paints no snow on the flat plane (it composes snow from temperature).
+  if (map.flatHeight) {
+    const n = width * height;
+    return { moisture: new Float32Array(n).fill(0.5), temperature: new Float32Array(n).fill(0.7) };
+  }
   const island = styledIslandSpec(map.worldSeed);
   const climate = styledClimate(map.worldSeed);
   const key = `${seed}:${width}x${height}:${islandSignature(island)}:${climateSignature(climate)}`;
