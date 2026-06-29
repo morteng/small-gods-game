@@ -605,7 +605,7 @@ export async function buildingFacets(
   // the long axis) + a funnel floor (per-segment downward drop) + per-partition `screens`
   // (Law 4: the threshold into a sanctum is a pierced rood SCREEN, not a solid wall). Only
   // used in the cutaway; absent ⇒ the cutaway is a single open shell with a flat floor (I-2).
-  interior?: { partitions: number[]; floorDrop: number[]; screens?: boolean[] },
+  interior?: { partitions: number[]; floorDrop: number[]; screens?: boolean[]; levels?: number[] },
 ): Promise<{ facets: WorldFacet[]; anchors: BuildingAnchors }> {
   const { Manifold } = await getManifold();
   // Walls: union every storey box of every wing (upper storeys grown by jetty), then
@@ -674,11 +674,16 @@ export async function buildingFacets(
     const nStoreys = Math.max(...wings.map(w => w.storeys ?? 1));
     const tall = storeyH * nStoreys + 5;          // taller than any wall — clears the whole interior
     const FLOOR_T = 0.08, WALL_T = 0.3, SILL = 0.5;
+    // A below-grade cellar (a level:-1 zone) digs the cavity + near-wall cuts down to its floor
+    // so it reads in the dollhouse; without one, cellarZ = 0 and the bytes match I-3 exactly.
+    const cellarZ = Math.min(0, ...(interior?.levels ?? [0])) * storeyH;
+    const cavBot = Math.min(-2, cellarZ - 2);
+    const cutBot = cellarZ < 0 ? cellarZ : SILL; // ground sill normally; dig past it for a cellar
     // Hollow the solid massing: subtract an inset cavity (open all the way down so we add our
     // own floor) → a wall shell carrying the carved apertures. Then cut the two near walls.
-    const cavity = await solidBox([fx0 + WALL_T, fy0 + WALL_T, -2], [W - 2 * WALL_T, H - 2 * WALL_T, tall + 2]);
-    const eastCut = await solidBox([fx1 - WALL_T - 0.02, fy0 - 1, SILL], [WALL_T + 1.02, H + 2, tall]);
-    const southCut = await solidBox([fx0 - 1, fy1 - WALL_T - 0.02, SILL], [W + 2, WALL_T + 1.02, tall]);
+    const cavity = await solidBox([fx0 + WALL_T, fy0 + WALL_T, cavBot], [W - 2 * WALL_T, H - 2 * WALL_T, tall - cavBot]);
+    const eastCut = await solidBox([fx1 - WALL_T - 0.02, fy0 - 1, cutBot], [WALL_T + 1.02, H + 2, tall - cutBot]);
+    const southCut = await solidBox([fx0 - 1, fy1 - WALL_T - 0.02, cutBot], [W + 2, WALL_T + 1.02, tall - cutBot]);
     const shell = wallSolid.subtract(cavity).subtract(eastCut).subtract(southCut);
     const facets: WorldFacet[] = [...manifoldToFacets(shell.getMesh(), wallMat, wallWork)];
 
@@ -726,6 +731,13 @@ export async function buildingFacets(
       } else {
         facets.push(...manifoldToFacets((await partBox(cross0, crossLen, base, partH - base, at)).getMesh(), wallMat, wallWork));
       }
+    }
+    // Vertical floor plates (the stacked-storey half of I-3): one slab per non-ground level so a
+    // tower/keep reads as stacked rooms; a negative level is a below-grade cellar floor (the
+    // cavity + near-wall cuts above already dug down to meet it). Level 0 is the ground slab.
+    for (const lvl of interior?.levels ?? []) {
+      const plate = await solidBox([fx0 + WALL_T, fy0 + WALL_T, lvl * storeyH - FLOOR_T], [W - 2 * WALL_T, H - 2 * WALL_T, FLOOR_T]);
+      facets.push(...manifoldToFacets(plate.getMesh(), 'stone'));
     }
     return { facets, anchors: { vents: [] } };
   }

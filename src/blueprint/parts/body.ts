@@ -161,7 +161,7 @@ export const bodyPartType: PartType = {
     // Interior I-1: a cutaway body (roof off, floor exposed) — the interior-view geometry.
     const cutaway = !!(p.params.cutaway as number | boolean | undefined);
     // Interior I-3: the connectome-derived partition + funnel plan, only meaningful in a cutaway.
-    const interior = p.params.interior as { partitions: number[]; floorDrop: number[]; screens?: boolean[] } | undefined;
+    const interior = p.params.interior as { partitions: number[]; floorDrop: number[]; screens?: boolean[]; levels?: number[] } | undefined;
     return [{
       prim: 'building', wings,
       wallMat: wallMatOf(ctx), roofMat: roofMatOf(ctx), roofStyle: 'gable',

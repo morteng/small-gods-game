@@ -17,6 +17,12 @@ export interface InteriorPlan {
    *  sanctum of a worship procession is a pierced/latticed SCREEN (a rood screen — Law 4,
    *  Controlled Contact), not a solid wall. Every other partition is solid (false). */
   screens: boolean[];
+  /** Non-ground storey levels present in the connectome (the vertical-stack half of I-3),
+   *  sorted ascending — e.g. [1,2,3] for a tower/keep, or a negative for a below-grade
+   *  cellar (level:-1). The cutaway draws a floor plate per level (z = level × storeyHeight),
+   *  so a multi-storey building reads as stacked rooms and a cellar drops below grade. Level 0
+   *  is implicit (its floor is always the ground slab). Empty for a single-storey building. */
+  levels: number[];
 }
 
 // Zones that flank or precede the main spine rather than sit on it — excluded from the
@@ -30,11 +36,20 @@ const FUNNEL_DROP = 0.5;
 export function interiorPlan(rb: ResolvedBlueprint): InteriorPlan | undefined {
   const con = rb.connectome;
   if (!con?.zones?.length) return undefined;
+
+  // Vertical-stack half (I-3 / cellars): the non-ground storey levels — the cutaway draws a
+  // floor plate per level so a tower/keep reads as stacked rooms and a level:-1 zone drops a
+  // below-grade cellar. Computed from ALL zones, independent of the ground-floor spine.
+  const levels = [...new Set(con.zones.map((z) => z.level ?? 0))]
+    .filter((l) => l !== 0)
+    .sort((a, b) => a - b);
+
   // Ground-floor rooms on the main spine, in the connectome's entrance→deep order.
   const spine = con.zones.filter(
     (z) => (z.level ?? 0) === 0 && !OFF_SPINE.has(z.type) && z.fn !== 'circulation',
   );
-  if (spine.length < 2) return undefined; // single room ⇒ no partitions; cutaway stays an open shell
+  // Nothing to divide and nothing stacked ⇒ a single open shell (no plan).
+  if (spine.length < 2 && levels.length === 0) return undefined;
 
   const bayOf = (b?: number) => Math.max(1, b ?? 1);
   const totalBays = spine.reduce((s, z) => s + bayOf(z.bays), 0);
@@ -49,13 +64,15 @@ export function interiorPlan(rb: ResolvedBlueprint): InteriorPlan | undefined {
   // sinks monotonically toward the altar end. Other programmes keep a level floor.
   const worship =
     spine.filter((z) => z.fn === 'worship').length >= 2 || spine.some((z) => SANCTUM.has(z.type));
-  const last = spine.length - 1;
-  const floorDrop = spine.map((_, i) => (worship ? Number(((FUNNEL_DROP * i) / last).toFixed(3)) : 0));
+  const last = Math.max(1, spine.length - 1);
+  const floorDrop = spine.length
+    ? spine.map((_, i) => (worship ? Number(((FUNNEL_DROP * i) / last).toFixed(3)) : 0))
+    : [0];
 
   // Law 4 (Controlled Contact): in a worship procession the partition that crosses INTO a
   // sanctum room (nave→chancel) is the rood screen — a permeable lattice the laity see
   // through but cannot pass. Partition i sits after spine[i], so it screens spine[i+1].
   const screens = partitions.map((_, i) => worship && SANCTUM.has(spine[i + 1].type));
 
-  return { partitions, floorDrop, screens };
+  return { partitions, floorDrop, screens, levels };
 }
