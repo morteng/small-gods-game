@@ -6,11 +6,23 @@ import { toGeometry } from '@/blueprint/compile/to-geometry';
 
 beforeAll(() => ensureBuildingTypesRegistered());
 
-const NAMES = ['cottage','tavern','market_stall','temple_small','farm_barn','tower','castle_keep','dock','shrine','guard_post','yurt','longhouse','manor','parish-church'];
+// temple_small RETIRED (E3 slice 1) — it no longer has a hand preset; it expresses
+// generatively through the fold (see the 'temple_small is generative' test below).
+const NAMES = ['cottage','tavern','market_stall','farm_barn','tower','castle_keep','dock','shrine','guard_post','yurt','longhouse','manor','parish-church'];
 
 describe('blueprint presets', () => {
   it('defines all 11+ named presets', () => {
     for (const n of NAMES) expect(getBlueprintPreset(n)).toBeDefined();
+  });
+  it('temple_small is generative (no hand preset) yet resolves to a deep lofty arched cella', () => {
+    expect(getBlueprintPreset('temple_small')).toBeUndefined(); // retired (E3 slice 1)
+    const rb = synthesizeBlueprint('temple_small', [], 1)!;     // expresses via the fold
+    const body = rb.parts.find((p) => p.type === 'body')!;
+    expect(rb.footprint.h).toBeGreaterThan(rb.footprint.w);     // deep cella, gable fronts the door
+    expect(body.params.storeyM).toBe(4.5);                      // lofty sacred storey
+    const wins = body.features.filter((f) => f.type === 'window');
+    expect(wins.length).toBeGreaterThan(0);
+    expect(wins.every((w) => w.params.style === 'arched')).toBe(true);
   });
   it('every preset resolves + compiles to a non-empty StructureSpec', () => {
     for (const n of NAMES) {

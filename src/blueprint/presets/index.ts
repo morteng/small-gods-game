@@ -160,22 +160,14 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
     materials: { walls: 'timber', roof: 'thatch', ground: 'packed_dirt' },
     parts: { frame: { type: 'stall', size: { w: 2, h: 2 }, params: { counter: true } } },
   }),
-  // Temple: a classical rectangular cella (naos) — axial and bilaterally symmetric, NOT
-  // cruciform (cross/L plans are vernacular, not sacred; a small temple is a single tall
-  // hall). Deeper than wide so the gable roof throws a PEDIMENT over the entrance front;
-  // tall arched windows ranked symmetrically down the long flanks. NO smoke (no hearth).
-  temple_small: bp('temple_small', {
-    category: 'religious', era: 'classical', footprint: { w: 3, h: 4 },
-    materials: { walls: 'stone', roof: 'tile', ground: 'flagstone' },
-    parts: { body: {
-      // A classical rectangular cella (naos): deep gable throws a pediment over the
-      // entrance front, tall arched windows rank symmetrically down the long flanks —
-      // all DERIVED from the church-axial room graph (worship zones ⇒ bilateral flank
-      // glazing, the front kept clear for the pediment). See connectome/openings.ts.
-      type: 'body', size: { w: 3, h: 4 }, params: { plan: 'rect', levels: 1, storeyM: 4.5, roof: 'gable' },
-      tags: [GEN_OPENINGS_TAG],
-    } },
-  }),
+  // temple_small RETIRED (E3 slice 1): the hand preset is gone — a temple now EXPRESSES from
+  // its church-axial programme through the layered fold, like any building. The generative
+  // bridge (`from-building-type.ts`) gives it a DEEP stone cella (the axial nave fronts the
+  // door with a pediment, `deriveFootprint` church-axial case), the FORM layer the lofty
+  // sacred storey (storeyM 4.5), and the FABRIC layer the bilateral arched flank windows with
+  // the entrance front kept clear (connectome/openings sacred path). So temples now vary their
+  // footprint per instance instead of being one frozen 3×4 box — the procession's exterior is
+  // generative; the threshold/funnel/axis-mundi interior primitives are Slices 2–3.
   // Barn: one huge roof (1:2 plan), full-height cart door, NO windows — just thin
   // slit vents high on the wall, no smoke at all.
   farm_barn: bp('farm_barn', {
@@ -495,7 +487,14 @@ function attachConnectome(rb: ResolvedBlueprint, connectome: Connectome): void {
  *  is expanded and its smoke vent derived from the hearth (attached non-enumerably). */
 export function resolveAsset(req: AssetRequest): ResolvedBlueprint | undefined {
   ensureBuildingTypesRegistered();
-  const base = BUILDING_BLUEPRINTS[req.type];
+  // Mirror synthesizeBlueprint's resolution: a PINNED hand preset → flora species → the
+  // GENERATIVE catalogue bridge (a buildingType with no preset, e.g. the retired temple_small,
+  // expressed via the fold). The generative shell is seeded with the SAME name-derived seed
+  // synthesizeBlueprint uses (strHash === its reduce), so a bare request stays byte-identical
+  // to synthesizeBlueprint(type) and keeps the same art-cache key.
+  const base = BUILDING_BLUEPRINTS[req.type]
+    ?? floraSpeciesBlueprint(req.type)
+    ?? blueprintFromBuildingType(req.type, strHash(req.type));
   if (!base) return undefined;
   const patches: BlueprintPatch[] = [base];
   // Era restyles the type for the period (materials + window/vent palette).

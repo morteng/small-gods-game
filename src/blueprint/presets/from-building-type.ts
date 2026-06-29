@@ -43,7 +43,13 @@ function deriveFootprint(bt: BuildingTypeFields, seed: number): { w: number; h: 
   }
   const long = Math.min(6, Math.max(2, bays + 1));
   const short = Math.min(4, Math.max(2, Math.ceil((long * 2) / 3)));
-  return { w: long, h: short };
+  // A SACRED axial hall (temple/church/shrine) is DEEPER than wide — the nave runs back from
+  // the entrance, so the gable fronts the door and throws a pediment over it, the long flanks
+  // carrying the ranked windows. An axial BARN (church-axial topology but entered through a
+  // wide cart door / threshing through-passage) stays wide, and every other range too.
+  const sacredAxial = bt.topology === 'church-axial'
+    && bt.entrance.sizeClass !== 'cart' && !bt.entrance.through;
+  return sacredAxial ? { w: short, h: long } : { w: long, h: short };
 }
 
 /**
