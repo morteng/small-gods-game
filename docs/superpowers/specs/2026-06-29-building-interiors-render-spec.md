@@ -70,9 +70,30 @@ exists; only its projection-to-geometry and its reveal are missing.
   until the cutaway pack composes (same progressive-texturing path buildings already use), then
   `onWarm` rebuilds to the cutaway.
 
-**I-3 — E3 Funnel (Law 2): ordered-path ramps.** Add the ordered-path-with-attribute-ramps
-connectome primitive; project `width↓`/`floorZ↓` into the cutaway partition spacing + floor
-steps so the nave visibly narrows + the sanctum sinks. Funnel interior reads in the cutaway.
+**I-3 — Interior rooms + E3 Funnel (Law 2). ✅ SHIPPED (flag-gated).** Two findings reshaped
+this slice from the original plan:
+- **Buildings are SOLID massing, not hollow shells.** `buildingFacets` unions full-footprint
+  storey boxes; the I-1 cutaway just lopped the roof off a solid block, so any partition/floor
+  at z=0 was buried in solid rock + invisible. The cutaway now **hollows** the massing
+  (`wallSolid.subtract(insetCavity)`) into a wall shell AND **cuts the camera-facing walls**
+  (+x east / +y south — the iso camera sits at (1,1,1)) down to a sill, a dollhouse view you
+  can see into. This is confined to the `if (cutaway)` branch, so the closed path + assetgen
+  golden are byte-identical (verified).
+- **The connectome is LOST on autosave reload** (it's attached NON-ENUMERABLY, so JSON
+  serialization strips it). So `interiorPlan(rb)` returns undefined for save-rehydrated
+  buildings and the cutaway degrades to a single open room — interiors only show on freshly
+  generated worlds until a re-derive-on-load (see follow-ups). `cutawayOf` was also fixed to
+  re-attach the connectome to its clone (the `{...rb}` spread dropped it).
+
+What shipped: `src/blueprint/interior.ts` `interiorPlan(rb)` projects the connectome ROOMS
+(ground-floor spine, off-spine aisles/porches excluded) into `{partitions, floorDrop}` — bay-
+proportioned partition fractions + a monotonic floor sink toward the sanctum for worship
+processions (the funnel). `cutawayOf` bakes it into the body `interior` param; it flows
+body→compose→`buildingFacets`, which emits per-segment (sunken) floor slabs + partition walls
+in the hollow cavity. Verified live (manor → divided rooms; church/temple → funnel sink).
+Still flag-gated `?i2`, render-only (no version bump — parametric cutaway packs are in-memory).
+**Deferred:** `width↓` nave narrowing (needs interior screen walls — overlaps Law 4); interior
+lighting/darkening; re-derive connectome on load so reloaded worlds keep interiors.
 
 **I-4 — E3 Controlled Contact (Law 4): permeable portals.** Permeable/stateful `Portal`
 (screen/grille/fenestella) → a pierced/latticed partition prim in the cutaway, with a contact

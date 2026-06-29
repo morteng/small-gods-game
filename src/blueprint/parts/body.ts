@@ -125,6 +125,10 @@ export const bodyPartType: PartType = {
     /** Interior I-1: render this body as a CUTAWAY — roof omitted + floor exposed — the
      *  geometry the interior reveal swaps in on focus. false = normal closed building. */
     cutaway: { kind: 'bool', default: false },
+    /** Interior I-3: a connectome-derived `InteriorPlan` ({partitions, floorDrop}) — partition
+     *  walls + funnel floor drawn ONLY in the cutaway. Set by `cutawayOf`; absent on closed
+     *  bodies (no render change). `any` so the structured plan rides through unvalidated. */
+    interior: { kind: 'any' },
     roof: {
       kind: 'enum',
       values: [
@@ -156,12 +160,15 @@ export const bodyPartType: PartType = {
     const baseCourse = (p.params.baseCourse as number) || 0;
     // Interior I-1: a cutaway body (roof off, floor exposed) — the interior-view geometry.
     const cutaway = !!(p.params.cutaway as number | boolean | undefined);
+    // Interior I-3: the connectome-derived partition + funnel plan, only meaningful in a cutaway.
+    const interior = p.params.interior as { partitions: number[]; floorDrop: number[] } | undefined;
     return [{
       prim: 'building', wings,
       wallMat: wallMatOf(ctx), roofMat: roofMatOf(ctx), roofStyle: 'gable',
       wallWork: wallWorkOf(ctx), features: {}, seed: 0,
       ...(baseCourse > 0 ? { baseCourse } : {}),
       ...(cutaway ? { cutaway: true } : {}),
+      ...(cutaway && interior ? { interior } : {}),
     }];
   },
   toCollision(p) {

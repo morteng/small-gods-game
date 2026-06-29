@@ -601,6 +601,10 @@ export async function buildingFacets(
   // Interior epic I-1: a CUTAWAY — omit the roof + roof features and expose a floor slab, so
   // the inside is visible. The geometry foundation the interior reveal (I-2) swaps in on focus.
   cutaway = false,
+  // Interior epic I-3: a connectome-derived interior plan — partition walls (fractions along
+  // the long axis) + a funnel floor (per-segment downward drop). Only used in the cutaway;
+  // absent ⇒ the cutaway is a single open shell with a flat floor (I-2).
+  interior?: { partitions: number[]; floorDrop: number[] },
 ): Promise<{ facets: WorldFacet[]; anchors: BuildingAnchors }> {
   const { Manifold } = await getManifold();
   // Walls: union every storey box of every wing (upper storeys grown by jetty), then
@@ -652,19 +656,57 @@ export async function buildingFacets(
     wallFacets = manifoldToFacets(wallSolid.getMesh(), wallMat, wallWork);
   }
 
-  // Cutaway: walls + an exposed flagstone floor slab, NO roof/dormers/vents — the interior is
-  // open to view. Floor is a thin slab over the footprint bbox at the ground plane.
+  // Cutaway (dollhouse): the building's SOLID massing is hollowed into a wall shell, the
+  // roof/dormers/vents are dropped, and the camera-facing walls (+x east, +y south — the iso
+  // camera sits at (1,1,1)) are cut to a low sill so the interior is open to view. With an
+  // interior plan (I-3) the cavity is divided into rooms by partition walls along the LONG
+  // axis, and a worship procession's floor sinks toward the sanctum (the funnel); without
+  // one it's a single open room with a flat floor (I-2).
   if (cutaway) {
     let fx0 = Infinity, fy0 = Infinity, fx1 = -Infinity, fy1 = -Infinity;
     for (const w of wings) {
       if (w.x < fx0) fx0 = w.x; if (w.y < fy0) fy0 = w.y;
       if (w.x + w.w > fx1) fx1 = w.x + w.w; if (w.y + w.h > fy1) fy1 = w.y + w.h;
     }
-    const floor = await solidBox([fx0, fy0, 0], [fx1 - fx0, fy1 - fy0, 0.06]);
-    return {
-      facets: [...wallFacets, ...manifoldToFacets(floor.getMesh(), 'stone')],
-      anchors: { vents: [] },
-    };
+    const W = fx1 - fx0, H = fy1 - fy0;
+    const storeyH = wings[0]?.storeyHeight ?? STOREY;
+    const nStoreys = Math.max(...wings.map(w => w.storeys ?? 1));
+    const tall = storeyH * nStoreys + 5;          // taller than any wall — clears the whole interior
+    const FLOOR_T = 0.08, WALL_T = 0.3, SILL = 0.5;
+    // Hollow the solid massing: subtract an inset cavity (open all the way down so we add our
+    // own floor) → a wall shell carrying the carved apertures. Then cut the two near walls.
+    const cavity = await solidBox([fx0 + WALL_T, fy0 + WALL_T, -2], [W - 2 * WALL_T, H - 2 * WALL_T, tall + 2]);
+    const eastCut = await solidBox([fx1 - WALL_T - 0.02, fy0 - 1, SILL], [WALL_T + 1.02, H + 2, tall]);
+    const southCut = await solidBox([fx0 - 1, fy1 - WALL_T - 0.02, SILL], [W + 2, WALL_T + 1.02, tall]);
+    const shell = wallSolid.subtract(cavity).subtract(eastCut).subtract(southCut);
+    const facets: WorldFacet[] = [...manifoldToFacets(shell.getMesh(), wallMat, wallWork)];
+
+    const parts = interior?.partitions ?? [];
+    const drops = interior?.floorDrop ?? [0];
+    const alongX = W >= H;
+    const long0 = alongX ? fx0 : fy0, longLen = alongX ? W : H;
+    const partH = Math.min(storeyH * 0.66, 1.3);  // low enough to see over from the iso angle
+    const PT = 0.18;
+    // Floor: one slab per room segment, its top sunk by the segment's funnel drop.
+    const bounds = [0, ...parts, 1].map((f) => long0 + f * longLen);
+    for (let i = 0; i < bounds.length - 1; i++) {
+      const drop = drops[i] ?? 0;
+      const s0 = bounds[i], segLen = bounds[i + 1] - bounds[i];
+      const slab = alongX
+        ? await solidBox([s0, fy0, -drop - FLOOR_T], [segLen, H, FLOOR_T])
+        : await solidBox([fx0, s0, -drop - FLOOR_T], [W, segLen, FLOOR_T]);
+      facets.push(...manifoldToFacets(slab.getMesh(), 'stone'));
+    }
+    // Partition walls divide the cavity, rising from the LOWER of the two adjoining floors.
+    for (let i = 0; i < parts.length; i++) {
+      const at = long0 + parts[i] * longLen;
+      const base = -Math.max(drops[i] ?? 0, drops[i + 1] ?? 0) - FLOOR_T;
+      const wall = alongX
+        ? await solidBox([at - PT / 2, fy0 + WALL_T, base], [PT, H - 2 * WALL_T, partH - base])
+        : await solidBox([fx0 + WALL_T, at - PT / 2, base], [W - 2 * WALL_T, PT, partH - base]);
+      facets.push(...manifoldToFacets(wall.getMesh(), wallMat, wallWork));
+    }
+    return { facets, anchors: { vents: [] } };
   }
 
   const facets: WorldFacet[] = [
