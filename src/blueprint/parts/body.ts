@@ -122,6 +122,9 @@ export const bodyPartType: PartType = {
     /** L3b undercroft: height (tiles) of a stone base course at the wall foot, the rest in
      *  the wall material — the burgage townhouse's stone storey under timber. 0 = none. */
     baseCourse: { kind: 'number', min: 0, max: 2, default: 0 },
+    /** Interior I-1: render this body as a CUTAWAY — roof omitted + floor exposed — the
+     *  geometry the interior reveal swaps in on focus. false = normal closed building. */
+    cutaway: { kind: 'bool', default: false },
     roof: {
       kind: 'enum',
       values: [
@@ -151,11 +154,14 @@ export const bodyPartType: PartType = {
     // L3b: a stone undercroft base course (tiles) under the wall material, derived for bodies
     // with a sub-grade zone (see connectome/form) — the burgage townhouse's stone storey.
     const baseCourse = (p.params.baseCourse as number) || 0;
+    // Interior I-1: a cutaway body (roof off, floor exposed) — the interior-view geometry.
+    const cutaway = !!(p.params.cutaway as number | boolean | undefined);
     return [{
       prim: 'building', wings,
       wallMat: wallMatOf(ctx), roofMat: roofMatOf(ctx), roofStyle: 'gable',
       wallWork: wallWorkOf(ctx), features: {}, seed: 0,
       ...(baseCourse > 0 ? { baseCourse } : {}),
+      ...(cutaway ? { cutaway: true } : {}),
     }];
   },
   toCollision(p) {
