@@ -12,11 +12,14 @@
 // request (prompt, model, init image, body) for review BEFORE it is sent, then
 // runs the real img2img → chroma-key → register → quantize chain and appends
 // each step as a further stage.
-import type { Entity, GameMap, Tile, RenderContext } from '@/core/types';
+import type { Entity, GameMap, Tile, RenderContext, NpcInstance } from '@/core/types';
 import { World } from '@/world/world';
 import { createGpuRenderMap } from '@/render/gpu/gpu-renderer';
 import type { RenderFn } from '@/render/select-renderer';
 import { worldToScreen } from '@/render/iso/iso-projection';
+import { HUMAN_HEIGHT_M, METRES_PER_TILE } from '@/render/scale-contract';
+import { buildCharacterSpec } from '@/render/lpc';
+import { getOrGenerateSheet } from '@/render/lpc/spritesheet-cache';
 import { floorIsoZoom, quantizeToRungs, ISO_ZOOM_RUNGS, ISO_ZOOM_MIN, ISO_ZOOM_MAX } from '@/render/iso/iso-camera';
 import { createCamera, zoomAt } from '@/render/camera';
 import { attachControls } from '@/ui/controls';
@@ -65,6 +68,11 @@ const CENTER = { x: 12, y: 12 };
 // The studio is an inspection tool, so it zooms one rung PAST the game's 1:1 cap
 // (to 2× native) to scrutinise detail. Fit still snaps to ≤1:1 (pixel-perfect).
 const STUDIO_ZOOM_MAX = 2;
+// 'proper' scale anchor: the native sprite height (px) the fixed true-metric scale
+// is sized to fill the view at. Chosen to contain the tallest subjects (a spired
+// church/keep ≈ 900–1000 px) so every object shares ONE scale and none overflows —
+// smaller subjects then read honestly small. ~32 px/m, so this is ≈ 32 m of view.
+const PROPER_REF_PX = 1024;
 const STUDIO_ZOOM_RUNGS = [...ISO_ZOOM_RUNGS, STUDIO_ZOOM_MAX];
 const quantizeStudioZoom = (z: number, dir: -1 | 0 | 1 = 0): number =>
   quantizeToRungs(STUDIO_ZOOM_RUNGS, z, dir);
@@ -158,6 +166,19 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
   const ctx = canvas.getContext('2d')!;
 
   const map = flatMap();
+
+  // Scale reference: a real LPC NPC (1.7 m) standing one tile WEST of the subject's
+  // anchor (outside the +x/+y footprint, on the flat ground) so true size reads
+  // against an actual game character — a church towers over them, a cottage barely.
+  // The sheet warms once (async); the rAF loop shows the NPC the frame it lands.
+  const refNpc: NpcInstance = {
+    id: 'scale-ref', name: 'Scale', role: 'farmer', seed: 7,
+    tileX: CENTER.x + 4, tileY: CENTER.y + 1, direction: 'down', frame: 0, frameTimer: 0, animation: 'walk',
+  };
+  const refSheets = new Map<string, HTMLCanvasElement>();
+  void getOrGenerateSheet(buildCharacterSpec(refNpc.role, refNpc.seed))
+    .then((sheet) => { if (sheet) refSheets.set(refNpc.id, sheet); })
+    .catch(() => {});
   const world = new World(map);
   // Bake the geometry cast shadow with the studio's LIVE sun so the sun sliders
   // actually move it (the game uses the canonical sun). Caches clear on a sun
@@ -265,6 +286,7 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
     overlays: true,
     textured: true,
     fit: true,
+    scaleMode: 'proper',
     yaw: 0,
     skirt: null,
     dockH: DEFAULT_DOCK,
@@ -372,9 +394,13 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
     const foot = worldToScreen(CENTER.x, CENTER.y, 0, 0, 0);
     const pack = subjectPack();
     const pw = pack?.albedo?.width ?? 0, ph = pack?.albedo?.height ?? 0;
-    // Snap DOWN to a natural ladder rung (integer / 1-over-integer), ~16% margin
-    // on the constraining axis, so the whole subject fits at a 1:1 pixel scale.
-    const z = pw && ph ? Math.min((h * 0.84) / ph, (w * 0.84) / pw) : cam.zoom || 1;
+    // 'proper': a FIXED true-metric scale shared by every subject (sized to fit the
+    // tallest building, PROPER_REF_PX), so a church reads bigger than a cottage and a
+    // prop reads tiny — honest relative size. 'game': fit each subject to ~84% of the
+    // view (the convenient framing). Snap DOWN to a natural ladder rung either way.
+    const z = state.scaleMode === 'proper'
+      ? Math.min(h * 0.92, w * 0.92) / PROPER_REF_PX
+      : (pw && ph ? Math.min((h * 0.84) / ph, (w * 0.84) / pw) : cam.zoom || 1);
     cam.zoom = floorIsoZoom(Math.max(ISO_ZOOM_MIN, Math.min(ISO_ZOOM_MAX, z)));
     // Centre the subject's full vertical extent (foot-anchored billboard spans
     // [foot.sy − ph, foot.sy] → mid is foot.sy − ph/2), so short buildings and
@@ -450,7 +476,10 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
     if (state.fit) fitCamera();
     return {
       map, camera: cam, canvasWidth: w, canvasHeight: h,
-      npcs: [], npcSheets: new Map(),
+      // The scale-reference NPC, once its sheet is warm. Rendered by the scene's
+      // NPC pass at true metric, y-sorted beside the subject.
+      npcs: refSheets.has(refNpc.id) ? [refNpc] : [],
+      npcSheets: refSheets,
       world, lighting: state.lighting,
       resolveParametricBuildingArt: litSubjectPack,
       resolveParametricPlantArt: litSubjectPack,
@@ -517,6 +546,18 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
     ctx.stroke();
     ctx.fillStyle = 'rgba(255,80,80,0.9)';
     ctx.beginPath(); ctx.arc(c.sx, c.sy, 2.2 / z + 1, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+
+    // Scale legend (screen space): the units the grid + reference NPC encode + the mode.
+    const { h: vh } = viewport();
+    ctx.save();
+    ctx.font = '600 11px var(--font-mono)';
+    ctx.fillStyle = 'rgba(232,238,246,0.88)';
+    ctx.textAlign = 'left';
+    ctx.fillText(
+      `□ grid = ${METRES_PER_TILE} m · 🧍 NPC = ${HUMAN_HEIGHT_M} m · ${state.scaleMode === 'proper' ? 'TRUE scale' : 'fit (game)'}`,
+      12, vh - 12,
+    );
     ctx.restore();
   }
   // A compact sun-direction gizmo, tucked top-left (the toolbar carries the text
