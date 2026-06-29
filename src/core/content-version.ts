@@ -91,8 +91,13 @@
  * bridge gains a SACRED-AXIAL footprint rule (a temple/shrine cella is DEEPER than wide, the
  * nave fronting the door with a pediment; an axial barn stays wide). Temples now vary their
  * footprint per instance. See the shrine-procession spec.
+ * 'v21' — E3 axis-mundi spire: a WORSHIP building (temple/church/shrine — not a barn, told
+ * apart by its single entrance vs the barn's opposed cart doors) now crowns its ridge with a
+ * stone STEEPLE — a new `spire` ridge-feature kind (a slender shaft + a pointed conical cap),
+ * derived in connectomeToBlueprint. Shifts the geometry of every worship building; dwellings/
+ * barns are unchanged. See the shrine-procession spec.
  */
-export const ART_RECIPE_VERSION = 'v20';
+export const ART_RECIPE_VERSION = 'v21';
 
 /**
  * Bump when WORLDGEN / preset output changes (footprints, placement, heights).

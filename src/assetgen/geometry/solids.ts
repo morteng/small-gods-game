@@ -467,6 +467,8 @@ function ventProfile(kind: VentKind, v: VentFeature): { cw: number; protrude: nu
     case 'pipe':      return { cw: v.width ?? 0.16, protrude: v.height ?? 0.9, mat: 'metal' };
     case 'smokehole': return { cw: v.width ?? 0.35, protrude: v.height ?? 0.35, mat: 'timber' };
     case 'chimney':   return { cw: v.width ?? 0.30, protrude: v.height ?? 0.55, mat: 'brick' };
+    // A steeple: a slender stone shaft, rising tall above the ridge to its conical point.
+    case 'spire':     return { cw: v.width ?? 0.6, protrude: v.height ?? 2.4, mat: 'stone' };
   }
 }
 
@@ -505,6 +507,21 @@ async function ventSolid(
   // smoke-louvre is framed beside/over the ridge, never stabbed straight down through
   // the structural beam. The vent still rises past the ridge height.
   const ridge = ridgeAxisOf(w);
+
+  // A spire/steeple CROWNS the ridge — centred on it (no beside-the-beam offset), a slender
+  // stone shaft rising from the wall top past the ridge to a pointed conical cap. The
+  // axis-mundi vertical marker of a sacred building, placed at fraction `t` along the ridge
+  // (the sanctum end). Anchored at its tip for a future finial/cross.
+  if (kind === 'spire') {
+    const scx = ridge === 'x' ? top.x + v.t * top.w : top.x + top.w / 2;
+    const scy = ridge === 'x' ? top.y + top.h / 2 : top.y + v.t * top.h;
+    const shaftTop = wallTop + rise + protrude * 0.45;   // shaft clears the ridge
+    const capH = protrude * 0.55 + 0.4;                   // tall pointed cap
+    let solid = await solidBox([scx - cw / 2, scy - cw / 2, wallTop], [cw, cw, shaftTop - wallTop]);
+    solid = solid.add(await solidCone([scx, scy], shaftTop, 0, cw * 0.62, capH));
+    return { solid, anchor: [scx, scy, shaftTop + capH], mat };
+  }
+
   const halfSpan = crossSpan(top, ridge) / 2;
   // Across-ridge offset: clear the ridge line by the vent half-width + a gap, but stay
   // on the slope (cap to ~55% of the half-span).

@@ -44,7 +44,9 @@ export function ridgeAxisOf(w: Wing): RidgeAxis {
 // All four walls are addressable; only the +y ("south") and +x ("east") faces are
 // camera-facing in the 2:1 view.
 export type WallFace = 'north' | 'east' | 'south' | 'west';
-export type VentKind = 'chimney' | 'smokehole' | 'pipe';
+// 'spire' is a sacred ridge feature, not a smoke vent: a stone steeple crowning the ridge
+// (the axis-mundi marker of a temple/church). It reuses the ridge-feature plumbing.
+export type VentKind = 'chimney' | 'smokehole' | 'pipe' | 'spire';
 /** Where a vent sits: on the roof ridge (interior stack) or against an exterior wall. */
 export type VentPlacement = 'ridge' | 'wall';
 

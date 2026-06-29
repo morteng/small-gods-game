@@ -38,25 +38,28 @@ function hearthT(con: Connectome, hearthZoneId: string): number {
  * Returns `{}` when the building has no hearth/egress (most non-dwellings).
  */
 export function connectomeToBlueprint(con: Connectome, base: Blueprint): BlueprintPatch {
-  const egress = con.fixtures.find((f) => f.satisfies?.includes('smoke-egress'));
-  if (!egress) return {};
   const pid = bodyPartId(base);
   if (!pid) return {};
 
-  // placement 'wall' ⇒ a wall fireplace/chimney; anything else ⇒ a ridge smoke vent.
-  const placement = (egress.attrs?.placement as string | undefined) ?? 'ridge';
-  const kind = placement === 'wall' ? 'chimney' : 'smokehole';
-  const t = hearthT(con, egress.zoneId);
+  const features: Record<string, { type: string; params: Record<string, number | string> }> = {};
 
-  return {
-    parts: {
-      [pid]: {
-        type: 'body',
-        features: {
-          // stable id replaces any residual hand-authored vent of the same id
-          smoke: { type: 'vent', params: { kind, t } },
-        },
-      },
-    },
-  };
+  // The hearth's smoke vent: placement 'wall' ⇒ a wall fireplace/chimney; else a ridge vent.
+  const egress = con.fixtures.find((f) => f.satisfies?.includes('smoke-egress'));
+  if (egress) {
+    const placement = (egress.attrs?.placement as string | undefined) ?? 'ridge';
+    const kind = placement === 'wall' ? 'chimney' : 'smokehole';
+    // stable id replaces any residual hand-authored vent of the same id
+    features.smoke = { type: 'vent', params: { kind, t: hearthT(con, egress.zoneId) } };
+  }
+
+  // E3 axis-mundi: a building with WORSHIP zones crowns its ridge with a stone STEEPLE near
+  // the entrance front — the procession's vertical marker, a ridge `spire` feature. A BARN
+  // shares the church-axial nave (worship room) but is entered through OPPOSED cart doors (≥2
+  // exterior portals, a threshing through-passage); a true sacred cella has a single entrance,
+  // so the portal count cleanly tells a temple/church/shrine from a barn.
+  const worship = con.zones.some((z) => z.fn === 'worship');
+  const singleEntrance = con.portals.filter((p) => p.from === 'OUTSIDE').length < 2;
+  if (worship && singleEntrance) features.spire = { type: 'vent', params: { kind: 'spire', t: 0.3 } };
+
+  return Object.keys(features).length ? { parts: { [pid]: { type: 'body', features } } } : {};
 }

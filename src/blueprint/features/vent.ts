@@ -4,7 +4,7 @@ import type { FeatureType } from '../registry';
 export const ventFeatureType: FeatureType = {
   type: 'vent',
   paramSchema: {
-    kind: { kind: 'enum', values: ['chimney', 'smokehole', 'pipe'], default: 'chimney' },
+    kind: { kind: 'enum', values: ['chimney', 'smokehole', 'pipe', 'spire'], default: 'chimney' },
     placement: { kind: 'enum', values: ['ridge', 'wall'], default: 'ridge' },
     t: { kind: 'number', min: 0, max: 1, default: 0.5 },
     // -1 = the per-kind default (chimney 0.30 wide / 0.55 above ridge, etc.)
