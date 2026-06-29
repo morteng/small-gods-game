@@ -96,15 +96,19 @@
  * stone STEEPLE — a new `spire` ridge-feature kind (a slender shaft + a pointed conical cap),
  * derived in connectomeToBlueprint. Shifts the geometry of every worship building; dwellings/
  * barns are unchanged. See the shrine-procession spec.
+ * 'v22' — E3 threshold stoup (Law 1): a new `stoup` prop (a stone pedestal + bored basin,
+ * composed from raw prims — no new part renderer) — the holy-water cleansing basin co-placed
+ * at a sacred precinct's border. Additive (a new prop recipe; existing baked art unaffected).
  */
-export const ART_RECIPE_VERSION = 'v21';
+export const ART_RECIPE_VERSION = 'v22';
 
 /**
  * Bump when WORLDGEN / preset output changes (footprints, placement, heights).
  * An autosave stamped with a different value is discarded on load → a fresh
  * world is generated. Distinct from SAVE_VERSION (which guards the save *schema*).
  */
-export const WORLD_CONTENT_VERSION = 39;  // TEMPLE RETIRED → GENERATIVE (E3 slice 1): temple_small loses its hand preset and expresses via the fold — a deep stone cella (sacred-axial footprint rule) whose footprint VARIES per instance instead of a frozen 3×4 box. Shifts temple geometry/footprint in every temple/shrine POI ⇒ discard older autosaves. See prior notes below.
+export const WORLD_CONTENT_VERSION = 40;  // E3 THRESHOLD STOUP: temples/shrines now co-place a holy-water STOUP (cleansing fixture) at their site via the `requires:['cleansing']` token → `stoup` fixtureType → `stoup` prop (E2 fixture co-placement). A new entity at every worship POI ⇒ discard older autosaves. See prior notes below.
+// 39 = TEMPLE RETIRED → GENERATIVE (E3 slice 1): temple_small loses its hand preset and expresses via the fold — a deep stone cella (sacred-axial footprint rule) whose footprint VARIES per instance instead of a frozen 3×4 box. Shifts temple geometry/footprint in every temple/shrine POI ⇒ discard older autosaves. See prior notes below.
 // 38 = L3b UNDERCROFT + TOWNHOUSE ROSTER: cities now plat burgage TOWNHOUSES (jettied box-frame upper over a stone undercroft base course, L3b) alongside their trades — the city `buildings` roster gains `townhouse` ×3, so which buildings appear shifts. (Pairs with ART v19, the undercroft geometry.) ⇒ discard older autosaves. See prior notes below.
 // 37 = FOCI-VILLAGE FILL FIX: the fill spiral (`findPlacement`) is now occupancy-aware — it skips road/civic/claimed cells and returns the first genuinely free spot, instead of returning a road cell (dirt_road/stone_road are BUILDABLE_TERRAIN) that the caller then rejected. A road-dense foci village (church+manor) used to exhaust its placement attempts and stay nearly empty; now it fills its open ground (Oakshire 4→11 buildings with its full roster — manor + smithy/bakehouse/tavern). Shifts every settlement's building layout ⇒ discard older autosaves. See prior notes below.
 // 36 = VILLAGE DENSITY: village base buildingCount 3-8→5-10 so a village reads as a real cluster (manor + trades plat even at medium size; a large village bustles ~9-18 yet stays under a large city) instead of a 2-3-building hamlet. Shifts every village's building set ⇒ discard older autosaves. See prior notes below.

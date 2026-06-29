@@ -47,6 +47,24 @@ export const MEDIEVAL_FIXTURE_TYPES: FactEntry<FixtureTypeFields>[] = [
     visibility: 'data-only',
     tags: ['hearth', 'fire', 'stone'],
   },
+  // ── THRESHOLD (E3 shrine procession, Law 1) — satisfies 'cleansing' ──────────
+  // A STOUP is the holy-water basin at the ENTRANCE (distinct from the baptismal `font`
+  // inside): the worshipper is cleansed at the border crossing from common to holy ground.
+  {
+    id: 'stoup',
+    kind: 'fixtureType',
+    pack: 'medieval-europe',
+    applicability: { eras: ['classical', 'medieval', 'current'] },
+    lod: {
+      l0: 'A stone holy-water stoup at the sacred threshold.',
+      l1: ['stone pedestal', 'shallow basin', 'water for cleansing at the door'],
+      l2: 'A stoup of stone at the entrance of a sacred precinct: crossing from the common world into holy ground, the worshipper is cleansed at the border. The universal threshold fixture of shrine worship (Roman basin → Christian holy-water stoup), distinct from the baptismal font within.',
+    },
+    fields: { satisfies: ['cleansing'], placement: 'apron' },
+    provenance: ['https://en.wikipedia.org/wiki/Holy_water_font'],
+    visibility: 'geometry',
+    tags: ['sacred', 'threshold', 'water', 'stone'],
+  },
   {
     id: 'wall-fireplace',
     kind: 'fixtureType',
