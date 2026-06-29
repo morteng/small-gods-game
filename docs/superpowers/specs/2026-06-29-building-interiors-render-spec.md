@@ -92,8 +92,15 @@ processions (the funnel). `cutawayOf` bakes it into the body `interior` param; i
 body→compose→`buildingFacets`, which emits per-segment (sunken) floor slabs + partition walls
 in the hollow cavity. Verified live (manor → divided rooms; church/temple → funnel sink).
 Still flag-gated `?i2`, render-only (no version bump — parametric cutaway packs are in-memory).
+
+**Connectome persistence ✅ (follow-up shipped).** The connectome is now persisted as an
+enumerable sibling on `StoredBlueprint` (still outside `canonicalJson(rb)`, so no art-cache
+impact) and re-attached to `rb` non-enumerably by `blueprintOf` on access — so a save/load
+(snapshot `structuredClone`, which drops non-enumerable props just like JSON) no longer loses
+it, and reloaded worlds keep their interiors.
+
 **Deferred:** `width↓` nave narrowing (needs interior screen walls — overlaps Law 4); interior
-lighting/darkening; re-derive connectome on load so reloaded worlds keep interiors.
+lighting/darkening.
 
 **I-4 — E3 Controlled Contact (Law 4): permeable portals.** Permeable/stateful `Portal`
 (screen/grille/fenestella) → a pierced/latticed partition prim in the cutaway, with a contact

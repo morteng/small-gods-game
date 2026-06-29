@@ -5,6 +5,7 @@
 import { describe, it, expect } from 'vitest';
 import { synthesizeBlueprint } from '@/blueprint/presets';
 import { interiorPlan } from '@/blueprint/interior';
+import { blueprintEntity, blueprintOf } from '@/blueprint/entity';
 
 describe('interiorPlan (interior I-3)', () => {
   it('a single-room building (cottage) yields no plan — cutaway stays an open shell', () => {
@@ -34,9 +35,21 @@ describe('interiorPlan (interior I-3)', () => {
     expect(plan!.floorDrop.every((d) => d === 0)).toBe(true);
   });
 
-  it('is undefined when the blueprint carries no connectome (e.g. save-rehydrated)', () => {
+  it('is undefined when the blueprint carries no connectome (raw rb, no persisted sibling)', () => {
     const rb = synthesizeBlueprint('manor', [], 1)!;
     const stripped = JSON.parse(JSON.stringify(rb)); // serialization drops the non-enumerable graph
     expect(interiorPlan(stripped)).toBeUndefined();
+  });
+
+  it('persists the connectome across a save/load round-trip so reloaded worlds keep interiors', () => {
+    const e = blueprintEntity('m1', synthesizeBlueprint('manor', [], 1)!, 0, 0);
+    // A snapshot save/load: structuredClone (like JSON) drops the non-enumerable rb.connectome
+    // but keeps the enumerable StoredBlueprint.connectome sibling.
+    const reloaded = { ...e, properties: structuredClone(e.properties) };
+    expect((reloaded.properties as { blueprint: { rb: { connectome?: unknown } } }).blueprint.rb.connectome)
+      .toBeUndefined(); // dropped by the clone…
+    const sb = blueprintOf(reloaded)!; // …re-attached on access from the persisted sibling
+    expect(sb.rb.connectome).toBeDefined();
+    expect(interiorPlan(sb.rb)).toBeDefined(); // interiors work again after reload
   });
 });
