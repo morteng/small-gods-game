@@ -61,8 +61,10 @@ export const POI_ZONE_RULES: Record<string, ZoneRule> = {
   city: {
     radius: { min: 6, max: 10 },
     // E4: a town supports a denser spread of trades than a village — an inn for travellers
-    // plus smith, baker and brewer (all generative catalogue types via the fold bridge).
-    buildings: ['tavern', 'market_stall', 'cottage', 'inn', 'smithy', 'bakehouse', 'brewhouse'],
+    // plus smith, baker and brewer (all generative catalogue types via the fold bridge). Its
+    // dwellings are burgage TOWNHOUSES — a jettied box-frame upper over a stone undercroft
+    // (L3b), the urban upgrade of the cottage — clustered on the street with the trades.
+    buildings: ['townhouse', 'tavern', 'market_stall', 'townhouse', 'inn', 'smithy', 'townhouse', 'bakehouse', 'brewhouse'],
     buildingCount: { min: 5, max: 12 },
     decorations: ['lamp', 'bench'],
     internalRoads: true,
