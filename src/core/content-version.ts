@@ -71,8 +71,15 @@
  * cottage resolves to a shorter single-bay body, so its geometry shifts (see
  * assetgen-golden). Pairs with the placer threading a per-instance seed (a WORLD bump, since
  * the generative catalogue→geometry bridge grows the FOOTPRINT itself per instance).
+ * 'v18' — layered-connectome Layer 3b (bay-aware openings): a `gen-openings` body's WINDOWS now
+ * snap to the structural bay CENTRES — the frame's `bayModule` (metres/bay) divides the wall run
+ * into panels and a window lights one panel each (skipping the door's bay), instead of the old
+ * fixed fractional slots. So fenestration sits where a real timber-frame/masonry wall carries it
+ * (panels between posts/piers). Window COUNT is unchanged (still structure-gated by spacing/
+ * maxPerFace) — only positions move, so footprint/placement hold. Shifts the pane positions of
+ * any structure-annotated `gen-openings` body. See the layered-connectome-expression spec.
  */
-export const ART_RECIPE_VERSION = 'v17';
+export const ART_RECIPE_VERSION = 'v18';
 
 /**
  * Bump when WORLDGEN / preset output changes (footprints, placement, heights).

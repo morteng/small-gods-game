@@ -17,7 +17,7 @@
  */
 import type { Blueprint, BlueprintPatch, Era, Feature, WallFace } from '../types';
 import { STOREY } from '@/assetgen/geometry/building';
-import { mToTiles } from '@/render/scale-contract';
+import { mToTiles, METRES_PER_TILE } from '@/render/scale-contract';
 import { eraWindowStyle } from '../eras';
 import type { Connectome } from './types';
 
@@ -56,7 +56,8 @@ function perpFaces(front: WallFace): [WallFace, WallFace] {
 }
 
 /** Even window slots along a wall run, ordered by placement preference. With a door on
- *  the face the windows flank it; without one a lone window centres. */
+ *  the face the windows flank it; without one a lone window centres. Used when no frame is
+ *  annotated (no bay rhythm to follow) — see {@link bayWindowSlots} for the structural path. */
 function windowSlots(count: number, hasDoor: boolean, doorTs: number[]): number[] {
   const order = hasDoor ? FENESTRATION.slotsWithDoor : FENESTRATION.slotsNoDoor;
   const out: number[] = [];
@@ -66,6 +67,33 @@ function windowSlots(count: number, hasDoor: boolean, doorTs: number[]): number[
     out.push(t);
   }
   return out.sort((a, b) => a - b);
+}
+
+/**
+ * Window slots SNAPPED to the structural bay rhythm (Layer 3b): a real timber-frame or
+ * masonry wall is divided into bays by its posts/piers, and windows sit CENTRED in the
+ * panels between them — not at arbitrary fractions of the run. The frame's `bayModule`
+ * (metres per bay) divides the wall run into `bays` panels; we light one panel each,
+ * skipping any bay the door occupies, and pick `count` of them by the same preference the
+ * fixed slots used — a lone light centres, lights flanking a door push to the outer bays.
+ * So a wide box-frame range reads as evenly-rhythmed framed lights, a stout mass wall as a
+ * couple of deep-set openings, each aligned to where the wall can actually carry one.
+ */
+function bayWindowSlots(
+  count: number, runTiles: number, bayModuleM: number, hasDoor: boolean, doorTs: number[],
+): number[] {
+  const runM = runTiles * METRES_PER_TILE;
+  const bays = Math.max(1, Math.round(runM / bayModuleM));
+  const centres = Array.from({ length: bays }, (_, k) => (k + 0.5) / bays);
+  const free = centres.filter(
+    (c) => !doorTs.some((dt) => Math.abs(dt - c) < FENESTRATION.slotDoorClearance),
+  );
+  const pool = free.length ? free : centres;
+  // Door present ⇒ prefer the OUTER bays (flank the entrance); else prefer the CENTRE bay.
+  const ordered = [...pool].sort((a, b) =>
+    hasDoor ? Math.abs(b - 0.5) - Math.abs(a - 0.5) : Math.abs(a - 0.5) - Math.abs(b - 0.5),
+  );
+  return ordered.slice(0, count).sort((a, b) => a - b);
 }
 
 const clampN = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
@@ -139,7 +167,12 @@ export function connectomeOpenings(con: Connectome, base: Blueprint, era: Era | 
       const run = face === 'south' || face === 'north' ? size.w : size.h;
       const count = clampN(Math.round(run / spacing), 1, maxPerFace);
       const doorTs = doorTsByFace[face] ?? [];
-      const slots = windowSlots(count, doorTs.length > 0, doorTs);
+      // Bay-aware placement when the frame is annotated (the live expressBuilding path);
+      // the fixed-slot fallback covers connectomes with no structure (edge/test paths).
+      const bayModuleM = con.structure?.bayModule;
+      const slots = bayModuleM
+        ? bayWindowSlots(count, run, bayModuleM, doorTs.length > 0, doorTs)
+        : windowSlots(count, doorTs.length > 0, doorTs);
       slots.forEach((t, k) => {
         features[`win_${face[0]}${k}`] = {
           type: 'window',
