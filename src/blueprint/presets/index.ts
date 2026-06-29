@@ -15,6 +15,8 @@ import type { Connectome } from '../connectome/types';
 import { allFloraSpecies, getFloraSpecies } from '@/flora/flora-registry';
 import { stairFootprint } from '../parts/stair';
 import { deriveGenParams } from '@/flora/flora-species';
+import { mToTiles } from '@/render/scale-contract';
+import { BARRIER_DEFAULTS, type BarrierKind } from '@/world/barrier';
 
 const bp = (preset: string, b: Omit<Blueprint, 'version' | 'class' | 'preset'>): Blueprint =>
   ({ version: BLUEPRINT_VERSION, class: 'building', preset, ...b });
@@ -78,6 +80,39 @@ const stair = (
       widthM: opts.widthM ?? 2, construction: opts.construction ?? 0.5,
       railing: opts.railing ?? 'none', dir: opts.dir ?? 'south',
     } } },
+  };
+};
+
+/** A defensive line (class:'barrier') — wall / rampart / palisade / fence / hedge — rendered
+ *  through the SAME generate→sprite pipeline as buildings (PBR-lit, cast shadows). A straight
+ *  REPRESENTATIVE run (the studio/preview subject + the unit the world tiles real rings from);
+ *  its believable cross-section lives in assetgen/geometry/linear.ts. `gateWidthM`>0 cuts a
+ *  central gate so the opening reads. */
+const barrier = (
+  preset: string,
+  opts: {
+    kind: BarrierKind; lengthM?: number; heightM?: number; thicknessTiles?: number;
+    crenellated?: boolean; posts?: boolean; gateWidthM?: number; material?: string; wallMat?: string;
+  },
+): Blueprint => {
+  const lengthM = opts.lengthM ?? 24;
+  const thicknessTiles = opts.thicknessTiles ?? BARRIER_DEFAULTS[opts.kind].thickness;
+  return {
+    version: BLUEPRINT_VERSION, class: 'barrier', preset, category: 'fortification',
+    footprint: { w: Math.max(1, Math.round(mToTiles(lengthM))), h: Math.max(1, thicknessTiles) },
+    materials: { walls: opts.wallMat ?? opts.material ?? 'stone', roof: 'stone', ground: 'dirt' },
+    parts: {
+      line: {
+        type: 'barrier', at: { x: 0, y: 0 }, params: {
+          kind: opts.kind, lengthM, thicknessTiles,
+          ...(opts.heightM ? { heightM: opts.heightM } : {}),
+          ...(opts.crenellated != null ? { crenellated: opts.crenellated } : {}),
+          ...(opts.posts != null ? { posts: opts.posts } : {}),
+          ...(opts.gateWidthM ? { gateWidthM: opts.gateWidthM } : {}),
+          ...(opts.material ? { material: opts.material } : {}),
+        },
+      },
+    },
   };
 };
 
@@ -311,6 +346,18 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
   stair_wood:     stair('stair_wood',     { material: 'timber', riseM: 2.0, widthM: 1.6, construction: 0.5, railing: 'both' }),
   stair_stone:    stair('stair_stone',    { material: 'stone', riseM: 2.4, widthM: 2.0, construction: 0.6, railing: 'one' }),
   stair_grand:    stair('stair_grand',    { material: 'stone', riseM: 3.2, widthM: 5.0, construction: 1.0, railing: 'both' }),
+  // Defensive lines — "all kinds, the same way we support all kinds of buildings." ONE part
+  // type swept across the medieval enclosure spectrum (Wikipedia-grounded, see
+  // catalogue/packs/medieval-europe/barrier-types.ts): a crenellated town wall + a tall
+  // curtain (battered plinth, wall-walk, merlons + crenel gate), a timber palisade on its
+  // earthen bank, a drystone field wall, a paling fence, a living hedgerow, an earth rampart.
+  town_wall:     barrier('town_wall',     { kind: 'wall', material: 'stone', crenellated: true, thicknessTiles: 2, heightM: 6, lengthM: 26, gateWidthM: 3.5 }),
+  curtain_wall:  barrier('curtain_wall',  { kind: 'wall', material: 'stone', crenellated: true, thicknessTiles: 2, heightM: 8, lengthM: 24, gateWidthM: 3.5 }),
+  palisade:      barrier('palisade',      { kind: 'palisade', material: 'timber', posts: true, heightM: 3, lengthM: 22, gateWidthM: 3 }),
+  drystone_wall: barrier('drystone_wall', { kind: 'wall', material: 'stone', crenellated: false, thicknessTiles: 1, heightM: 1.3, lengthM: 20 }),
+  paling_fence:  barrier('paling_fence',  { kind: 'fence', material: 'timber', posts: true, heightM: 1.1, lengthM: 18 }),
+  hedgerow:      barrier('hedgerow',      { kind: 'hedge', material: 'hedge', heightM: 1.6, lengthM: 20 }),
+  earth_rampart: barrier('earth_rampart', { kind: 'rampart', material: 'earth', thicknessTiles: 2, heightM: 2.6, lengthM: 22 }),
   yurt: bp('yurt', {
     category: 'residential', era: 'primordial', footprint: { w: 3, h: 3 },
     materials: { walls: 'hide', roof: 'hide', ground: 'dirt' },

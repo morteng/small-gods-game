@@ -99,7 +99,14 @@ function makeEntity(kind: string): Entity {
       tags: ['vegetation'], properties: { category: 'vegetation' } } as Entity;
   }
   const rb = synthesizeBlueprint(kind);
-  if (rb) return blueprintEntity('subject', rb, CENTER.x, CENTER.y);
+  if (rb) {
+    const e = blueprintEntity('subject', rb, CENTER.x, CENTER.y);
+    // The studio is a single-subject inspector: render a barrier subject through the building
+    // sprite path (its live blueprint composes via resolveParametricBuildingArt), NOT the world's
+    // per-run barrierSlabs path which keys off properties.barrier (absent on a blueprint preset).
+    if (e.tags?.includes('barrier')) e.tags = e.tags.filter((t) => t !== 'barrier');
+    return e;
+  }
   return { id: 'subject', kind, x: CENTER.x, y: CENTER.y, properties: {} } as Entity;
 }
 
