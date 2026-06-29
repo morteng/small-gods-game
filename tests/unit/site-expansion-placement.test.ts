@@ -71,13 +71,15 @@ describe('site expansion (E2): auxiliaries co-placed with their deriving core', 
     expect(stA.length).toBe(2); // tavern + manor
   });
 
-  it('a settlement’s stables match its deriving cores (manor-only seed gains the manor’s)', async () => {
-    // Seed 1 platts a manor but NO tavern → exactly the manor's one stable.
+  it('a settlement’s stable count tracks its deriving cores, and the manor derives one', async () => {
+    // The contract is one stable per stabling core (tavern OR manor), whatever the seed
+    // platts. Seed 1 raises a manor (among others), so its stable must be present and the
+    // total must equal the deriving-core count — not a fixed number, which placement density
+    // would make brittle (a denser fill now also raises a tavern at this seed).
     const ids = await idsOf(1);
-    expect(ids.some((t) => t.includes('tavern'))).toBe(false);
     expect(ids.some((t) => t.includes('manor'))).toBe(true);
+    expect(derivingCores(ids)).toBeGreaterThanOrEqual(1);
     expect(ids.filter((t) => t.includes('stable')).length).toBe(derivingCores(ids));
-    expect(derivingCores(ids)).toBe(1);
   });
 });
 

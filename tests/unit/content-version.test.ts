@@ -6,7 +6,7 @@ describe('content-version constants', () => {
     expect(ART_RECIPE_VERSION).toBe('v18');
   });
 
-  it('declares the current world content version (36: village density)', () => {
-    expect(WORLD_CONTENT_VERSION).toBe(36);
+  it('declares the current world content version (37: foci-village fill fix)', () => {
+    expect(WORLD_CONTENT_VERSION).toBe(37);
   });
 });
