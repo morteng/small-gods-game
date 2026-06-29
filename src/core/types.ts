@@ -63,6 +63,10 @@ export interface GameMap {
    *  links between them. Re-derivable from world+roadGraph; persisted for overlay/authoring. */
   anchors?: import('@/world/anchors').Anchor[];
   anchorLinks?: import('@/world/anchor-rules').AnchorLink[];
+  /** Inspection ground: render a DEAD-FLAT heightfield (no seed noise → no peaks/
+   *  snow/rock) so a studied subject sits on a clean plane. Studio-only; real game
+   *  maps never set it, so the live terrain stays byte-identical. */
+  flatHeight?: boolean;
 }
 
 /** Village/settlement on the map */

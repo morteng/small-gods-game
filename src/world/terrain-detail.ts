@@ -88,6 +88,10 @@ function bilin(arr: Float32Array, W: number, H: number, fx: number, fy: number):
  * (the same space the coarse height buffer carries — post deformation, post curve).
  */
 export function makeDetailElevSampler(map: GameMap): (fx: number, fy: number) => number {
+  // Inspection ground (studio): the same dead-flat plane the coarse mesh uses
+  // (ELEVATION_SEA_LEVEL + 0.1), with NO analytic sub-tile relief — so detail
+  // patches don't reintroduce procedural bumps/spikes on the flat ground.
+  if (map.flatHeight) { const flat = ELEVATION_SEA_LEVEL + 0.1; return () => flat; }
   const W = map.width, H = map.height;
   const eroded = getHeightfield(
     map.seed, W, H, styledIslandSpec(map.worldSeed), map.worldSeed?.pois ?? null,

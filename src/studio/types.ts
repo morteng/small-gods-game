@@ -43,6 +43,11 @@ export interface StudioState {
   // massing render. Default ON: a fully-generated asset shows its game-ready art.
   textured: boolean;
   fit: boolean; // auto zoom-to-fit the subject (yields to any manual pan/zoom)
+  // Scale mode. 'proper' = a FIXED true-metric scale shared across every subject,
+  // so real size reads honestly (a church renders bigger than a cottage); 'game' =
+  // fit-to-fill each subject (the convenient framing, ≈ the in-game look). A 1.7 m
+  // human + the 2 m grid are drawn as the scale reference in both.
+  scaleMode: 'proper' | 'game';
   // Turntable yaw (radians) — orbits the view around the model (right-drag / Q·E),
   // snapped to 15° steps so each angle's geometry bake is cached & reused.
   yaw: number;

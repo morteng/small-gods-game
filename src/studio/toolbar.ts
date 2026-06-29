@@ -154,6 +154,14 @@ export function buildToolbar(host: HTMLElement, state: StudioState, deps: Toolba
     h('button', { class: 'sg-btn', text: '+', title: 'Zoom in  ]', on: { click: () => { deps.zoomIn(); state.fit = false; } } }),
   );
   const fitBtn = h('button', { class: 'sg-btn', html: '⤢ <span style="opacity:.7">Fit</span>', title: 'Fit subject to view  F', on: { click: () => { state.fit = true; } } });
+  // Scale mode: 'proper' = one fixed true-metric scale across every subject (a church
+  // reads bigger than a cottage, both measured against the 1.7 m reference NPC);
+  // 'game' = fit-to-fill each subject (the convenient ≈ in-game framing). Toggling
+  // re-frames (state.fit) so the new scale takes effect immediately.
+  const scaleBtn = h('button', {
+    class: 'sg-btn', title: 'Scale: true metric (proper) ⇄ in-game fit',
+    on: { click: () => { state.scaleMode = state.scaleMode === 'proper' ? 'game' : 'proper'; state.fit = true; } },
+  });
 
   // ── render + kebab ──
   const renderBtn = h('button', { class: 'sg-btn sg-btn-primary', text: '🎨 Render', title: 'Send to OpenRouter  R', on: { click: deps.openRender } });
@@ -170,7 +178,7 @@ export function buildToolbar(host: HTMLElement, state: StudioState, deps: Toolba
     ));
   }, { align: 'right', width: 230 });
 
-  bar.append(sunBtn, sunReadout, dispBtn, h('span', { class: 'sg-vsep' }), zoomGroup, fitBtn, h('span', { class: 'sg-vsep' }), renderBtn, kebab);
+  bar.append(sunBtn, sunReadout, dispBtn, h('span', { class: 'sg-vsep' }), zoomGroup, fitBtn, scaleBtn, h('span', { class: 'sg-vsep' }), renderBtn, kebab);
   host.appendChild(bar);
 
   // ── keyboard shortcuts (ignored while typing in a field) ──
@@ -206,6 +214,9 @@ export function buildToolbar(host: HTMLElement, state: StudioState, deps: Toolba
         sunReadout.textContent = `az ${state.az}° · el ${state.el}°`;
       }
       fitBtn.classList.toggle('is-on', state.fit);
+      const proper = state.scaleMode === 'proper';
+      scaleBtn.innerHTML = proper ? '📐 <span style="opacity:.7">Proper</span>' : '🎮 <span style="opacity:.7">Game</span>';
+      scaleBtn.classList.toggle('is-on', proper);
       syncSun();
     },
   };
