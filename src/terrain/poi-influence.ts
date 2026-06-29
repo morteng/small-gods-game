@@ -10,7 +10,7 @@
 
 import type { TerrainField, TerrainConfig, POI } from '@/core/types';
 import { generateTerrainFields } from './terrain-generator';
-import { fbm } from '@/core/noise';
+import { fbm, ridgeNoise } from '@/core/noise';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -52,6 +52,19 @@ interface FieldInfluence {
   crater?: number;
   /** Crater radius as a fraction of `radius` (default 0.22). Only with `crater`. */
   craterFrac?: number;
+  /**
+   * CRAG amplitude [0,1] (summit mode). Corrugates the raised mass with ridged
+   * noise so a massif breaks into spurs and gullies — a craggy horn — instead of a
+   * smooth radial dome (the "potato" tell: concentric gradient rings, zero
+   * ridgelines). On a crest the full lift survives; in a gully up to `crag` of it
+   * is shaved. Tapered to ZERO at the apex (the summit stays a clean point) and
+   * ramped in over the flanks, so the spurs radiate from the peak down to the
+   * foothill skirt. Only meaningful with `summit`.
+   */
+  crag?: number;
+  /** Crag ridge frequency as a multiple of `elevationScale` (default 3.5 → a
+   *  handful of spurs across a large massif). Only with `crag`. */
+  cragFreq?: number;
   /**
    * REGION-FILL target [0,1] (temperature/moisture only). When a climate-zone POI
    * stamps its `region`, a `target` makes the field LERP TOWARD this value
@@ -121,7 +134,7 @@ export const POI_INFLUENCES: Record<string, InfluenceSpec> = {
   // steepens the cone so a `huge` massif (radius ×2) reads as a HORN rising out of
   // a foothill skirt rather than a broad pancake smeared over 60+ tiles. The warp
   // breaks the rim into spurs.
-  mountain: { elevation: { summit: 0.99, radius: 12, peakProfile: 'horn', peakSharpness: 1.7 }, temperature: { delta: -0.20, radius: 16 }, warp: 0.45 },
+  mountain: { elevation: { summit: 0.99, radius: 18, peakProfile: 'horn', peakSharpness: 1.7, crag: 0.6, cragFreq: 3.5 }, temperature: { delta: -0.30, radius: 22 }, warp: 0.45 },
   // Forest: moisture boost pushes toward forest biomes. region-fill so an authored
   // forest BELT (e.g. Whispering Woods — a region with NO position, previously
   // skipped) actually moistens its whole extent into woodland; a moisture target of
@@ -139,7 +152,16 @@ export const POI_INFLUENCES: Record<string, InfluenceSpec> = {
   // Volcano: PEAK mode — a steep cinder cone with a summit crater, so it reads as a
   // volcano and not a smooth hill: sharp falloff (`peakSharpness`) for the cone
   // flanks + a `crater` bowl that dips the apex below its rim. Hot.
-  volcano:  { elevation: { summit: 0.96, radius: 10, peakSharpness: 2.8, crater: 0.18, craterFrac: 0.20 }, temperature: { delta: +0.25, radius: 16 }, warp: 0.40 },
+  //
+  // Summit kept WELL BELOW the great-mountain ceiling (0.80, not 0.96): a cinder cone
+  // is a few hundred metres, not an alpine massif. With the world's amplified relief a
+  // 0.96 apex towered taller than the Cloudwall AND, crossing 0.86, painted itself grey
+  // alpine Peak-rock with an altitude snow cap — reading as "a mountain on top of the
+  // volcano." 0.80 sits just under the altitude snowline (aboveSea ≈ 0.47) so it never
+  // snows, and renders as a compact dark rocky cone in the desert, distinctly smaller
+  // than the Cloudwall. (No dedicated volcanic biome yet — the apex is altitude-cooled,
+  // so a field-based classification can't tell it from cold alpine rock.)
+  volcano:  { elevation: { summit: 0.80, radius: 10, peakSharpness: 2.8, crater: 0.18, craterFrac: 0.20 }, temperature: { delta: +0.25, radius: 16 }, warp: 0.40 },
   // Glacier: PEAK mode to a high-but-not-summit ice dome (clears the ICE
   // threshold elev > 0.65); the strong cold delta makes it ice, not bare rock.
   glacier:  { elevation: { summit: 0.90, radius: 10 }, temperature: { delta: -0.55, radius: 14 }, warp: 0.45 },
@@ -175,7 +197,7 @@ export function applyPoiInfluences(
   pois:   POI[],
   config: TerrainConfig,
 ): void {
-  const { width, height, seed } = config;
+  const { width, height, seed, elevationScale = 0.02 } = config;
 
   for (const poi of pois) {
     const spec = POI_INFLUENCES[poi.type];
@@ -199,13 +221,13 @@ export function applyPoiInfluences(
       if (canRegion) {
         applyFieldInfluenceRegion(field, inf, region!, width, height, seed, warp);
       } else if (poi.position) {
-        applyFieldInfluence(field, inf, px, py, width, height, seed, scale, warp);
+        applyFieldInfluence(field, inf, px, py, width, height, seed, scale, warp, elevationScale);
       }
     };
 
     // Elevation is always a point feature (or skipped for a region-only POI).
     if (poi.position) {
-      applyFieldInfluence(fields.elevation, spec.elevation, px, py, width, height, seed, scale, warp);
+      applyFieldInfluence(fields.elevation, spec.elevation, px, py, width, height, seed, scale, warp, elevationScale);
     }
     stampClimate(fields.moisture,    spec.moisture);
     stampClimate(fields.temperature, spec.temperature);
@@ -284,6 +306,7 @@ function applyFieldInfluence(
   seed:    number,
   scale:   number,
   warp:    number,
+  elevationScale: number = 0.02,
 ): void {
   if (!spec) return;
   const delta = spec.delta ?? 0;
@@ -327,9 +350,23 @@ function applyFieldInfluence(
         const t = d / radius;                                   // 0 centre → 1 edge
         const prof = spec.peakProfile ?? 'dome';
         const k = spec.peakSharpness ?? (prof === 'horn' ? 1.5 : 1.6);
-        const w = prof === 'horn'
+        let w = prof === 'horn'
           ? Math.pow(1 - t, k)
           : Math.pow(Math.cos(t * (Math.PI / 2)), k);
+        // CRAG: corrugate the lift with ridged noise so the massif reads as a
+        // craggy horn with spurs/gullies, not a smooth radial dome (the "potato").
+        // ridgeNoise ≈ 1 on a crest, ≈ 0 in a trough. Crests keep full lift; a
+        // trough loses up to `crag` of it. Gated by a smoothstep WINDOW on `t`:
+        // the very apex tip (t<0.08) stays a clean point, then the crag ramps to
+        // full by t≈0.32 and holds across the whole visible massif and flanks — so
+        // the corrugation bites the brown core (the potato), not just the rim.
+        if (spec.crag && spec.crag > 0) {
+          const cf = (spec.cragFreq ?? 3.5) * elevationScale;
+          const rn = ridgeNoise(x * cf, y * cf, seed + 1717, 4); // 0..1, ~1 crest
+          const g = Math.max(0, Math.min(1, (t - 0.08) / 0.24)); // ramp 0.08→0.32
+          const gate = g * g * (3 - 2 * g);                      // smoothstep
+          w *= 1 - spec.crag * gate * (1 - rn);
+        }
         const cur = field[idx];
         let raised = cur + (summit - cur) * w;
         // Summit crater (volcano/caldera): subtract a parabolic bowl over the inner

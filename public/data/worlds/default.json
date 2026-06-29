@@ -6,15 +6,15 @@
   "era": "medieval",
   "island": true,
   "visualTheme": "early medieval island world, vibrant colors",
-  "style": { "overrides": { "terrainHeightGamma": 1.4, "mountainRelief": 60 } },
+  "style": { "overrides": { "terrainHeightGamma": 1.8, "mountainRelief": 95, "terrainVerticalExaggeration": 30 } },
   "pois": [
     {
       "id": "cloudwall_peaks",
       "type": "mountain",
       "name": "The Cloudwall",
-      "position": { "x": 44, "y": 36 },
+      "position": { "x": 38, "y": 30 },
       "size": "huge",
-      "region": { "x_min": 14, "x_max": 78, "y_min": 10, "y_max": 64 },
+      "region": { "x_min": 2, "x_max": 86, "y_min": 2, "y_max": 72 },
       "density": 0.6,
       "description": "A vast massif walling off the north-western shore, its grey spurs catching cloud and its single great horn rising sheer above the valley."
     },
