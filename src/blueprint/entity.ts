@@ -1,6 +1,7 @@
 // src/blueprint/entity.ts
 import type { Entity, ReligiousSignificance } from '@/core/types';
 import type { ResolvedBlueprint } from './types';
+import type { Connectome } from './connectome/types';
 import type { Anchor } from '@/world/anchors';
 import { toCollision } from './compile/to-collision';
 import { toAnchors } from './compile/to-anchors';
@@ -9,10 +10,23 @@ export interface StoredBlueprint {
   rb: ResolvedBlueprint;
   collision: { footprint: { w: number; h: number }; blocked: string[]; doorCells: string[] };
   anchors: Anchor[];
+  /** The latent room-graph. It rides on `rb` NON-ENUMERABLY (out of the art-cache key
+   *  `canonicalJson(rb)`), but that means JSON/`structuredClone` save+load drops it — so we
+   *  also persist it HERE, as an enumerable sibling of `rb` (still outside `canonicalJson(rb)`),
+   *  and re-attach it to `rb` on access. Lets reloaded worlds keep their interiors (I-3). */
+  connectome?: Connectome;
 }
 
 export function blueprintOf(e: Entity): StoredBlueprint | undefined {
-  return (e.properties as { blueprint?: StoredBlueprint } | undefined)?.blueprint;
+  const sb = (e.properties as { blueprint?: StoredBlueprint } | undefined)?.blueprint;
+  // Re-attach the persisted connectome to `rb` (non-enumerable, one-time) after a save/load
+  // stripped the original. No-op for live blueprints (rb.connectome already present).
+  if (sb && sb.connectome && !sb.rb.connectome) {
+    Object.defineProperty(sb.rb, 'connectome', {
+      value: sb.connectome, enumerable: false, writable: true, configurable: true,
+    });
+  }
+  return sb;
 }
 
 /** Entity category (and primary tag) by blueprint class. Buildings keep the legacy
@@ -38,7 +52,7 @@ export function blueprintEntity(
     tags: [category, rb.category ?? 'residential'],
     properties: {
       category,
-      blueprint: { rb, collision, anchors } satisfies StoredBlueprint,
+      blueprint: { rb, collision, anchors, ...(rb.connectome ? { connectome: rb.connectome } : {}) } satisfies StoredBlueprint,
       footprint: { ...rb.footprint },
       anchors,
       sortYOffset: rb.footprint.h,
