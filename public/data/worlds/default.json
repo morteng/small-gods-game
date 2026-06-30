@@ -154,6 +154,15 @@
       "npcs": [{"name": "Captain Hale", "role": "soldier"}]
     },
     {
+      "id": "dire_cliffs_east",
+      "type": "cliffs",
+      "name": "The Dire Cliffs",
+      "position": {"x": 224, "y": 88},
+      "coast": "east",
+      "size": "large",
+      "description": "A wall of sheer rock where the eastern shore rears up and plunges to the surf — seabirds wheel over the brink, and the waves break white on the stacks below."
+    },
+    {
       "id": "sunscorch_desert",
       "type": "desert",
       "name": "The Sunscorch",

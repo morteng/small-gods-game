@@ -27,6 +27,7 @@ export const POI_TYPES = [
   'glacier',
   'oasis',
   'plains',
+  'cliffs',
 ] as const;
 
 export const BIOMES = [
@@ -79,6 +80,7 @@ export const POI_VISUAL_STYLES: Record<string, string> = {
   tower: 'tall spire, wizard symbols, glowing windows, ravens, arcane energy',
   bridge: 'stone arches, flowing water below, worn path, travelers crossing',
   crossroads: 'signpost, worn paths, resting travelers, milestone markers',
+  cliffs: 'sheer rock faces plunging to the surf, seabird colonies, wind-bent grass on the brink, crashing waves',
 };
 
 /** Validate a world seed and return any errors */

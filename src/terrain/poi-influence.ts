@@ -36,6 +36,25 @@ interface FieldInfluence {
    */
   peakSharpness?: number;
   /**
+   * PLATEAU / MESA mode (elevation only) — the cliff/tableland maker. Unlike
+   * `summit` (a point cone that tapers to its apex), `plateau` raises a whole AREA
+   * to a FLAT top at this elevation: weight is 1 across the inner `plateauCore`
+   * fraction of the radius, then drops over a steep rim. Crucially it is GATED TO
+   * LAND — sea cells are never raised — so when the disc is anchored on a coast the
+   * existing waterline stays put and the raised tableland meets the water in a
+   * one-tile drop: a SHEER CLIFF FACE, not a cone whose base fills the sea into a
+   * gentle slope. That land-gate is the whole reason a cliff reads as a cliff. Keep
+   * `plateau` below the 19 m mountain line (≈0.69 at demo relief) to hold a green
+   * brink; the sheer face goes rocky on its own (steep slope ⇒ rock). `plateau ≤ 1`.
+   */
+  plateau?: number;
+  /** Fraction of the radius that stays at FULL plateau height before the rim drop
+   *  begins (default 0.5). Larger = a broader flat tableland, narrower rim. */
+  plateauCore?: number;
+  /** Rim-drop steepness exponent (plateau mode, default 1). Higher concentrates the
+   *  fall into a shorter band near the outer edge — a more abrupt escarpment. */
+  rimSharpness?: number;
+  /**
    * PEAK silhouette: `'dome'` (default) is a rounded `cos^k` top — right for ice
    * caps and for cinder cones that carry a crater rim; `'horn'` is a pointed
    * `(1−t)^k` apex with a non-zero summit slope, so a great mountain rises to a
@@ -111,6 +130,79 @@ const SIZE_SCALE: Record<string, number> = { small: 0.75, medium: 1.0, large: 1.
 /** Spatial frequency of the outline-warp noise (lower = broader bays/headlands). */
 const WARP_FREQ = 0.07;
 
+/** POI types whose landform must sit ON the coast — their influence centre snaps to
+ *  the nearest shoreline before stamping (see `snapToCoast`). A fixed coord can't
+ *  track the seed-varied coastline, so without this they land inland. */
+const COASTAL_SNAP: ReadonlySet<string> = new Set(['cliffs']);
+
+/** How far (tiles) to hunt for a shoreline before giving up and using the raw point.
+ *  Generous so a feature nominally placed in the offshore margin still finds its
+ *  shore (the coastline wobbles tens of tiles between terrain seeds). */
+const COAST_SNAP_RADIUS = 80;
+
+/**
+ * Snap (px,py) to the nearest LAND cell that borders open water (a true shoreline),
+ * searching outward in a bounded square spiral. Deterministic (fixed scan order, no
+ * RNG). Returns the original point if already coastal or no coast is within
+ * `COAST_SNAP_RADIUS`. This is what makes a coastal feature attach to the real coast
+ * instead of a fixed coordinate that the terrain seed may have left inland.
+ */
+function snapToCoast(
+  elevation: Float32Array, px: number, py: number, width: number, height: number, seaLevel: number,
+): { x: number; y: number } {
+  const inB = (x: number, y: number) => x >= 0 && y >= 0 && x < width && y < height;
+  const isSea = (x: number, y: number) => !inB(x, y) || elevation[y * width + x] < seaLevel;
+  const isShore = (x: number, y: number) => {
+    if (!inB(x, y) || elevation[y * width + x] < seaLevel) return false;   // must be land
+    return isSea(x - 1, y) || isSea(x + 1, y) || isSea(x, y - 1) || isSea(x, y + 1);
+  };
+  if (isShore(px, py)) return { x: px, y: py };
+  for (let r = 1; r <= COAST_SNAP_RADIUS; r++) {
+    // scan the ring at Chebyshev distance r; nearest-first by construction
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;   // ring only
+        if (isShore(px + dx, py + dy)) return { x: px + dx, y: py + dy };
+      }
+    }
+  }
+  return { x: px, y: py };
+}
+
+const COAST_DIRS: Record<string, [number, number]> = {
+  east: [1, 0], west: [-1, 0], north: [0, -1], south: [0, 1],
+};
+
+/**
+ * Resolve a coastal feature to the REAL shoreline along a compass direction. Walks
+ * the full grid line through (px,py) in `dir`, collecting every land cell whose
+ * neighbour one step further `dir` is open water (a coast that FACES that way), and
+ * returns the one nearest the nominal point. This is the seed-proof alternative to a
+ * fixed coordinate: "the cliffs on the EAST shore" lands on whatever the east shore
+ * actually is this world. Falls back to `snapToCoast` (nearest) if the line meets no
+ * such coast.
+ */
+function resolveCoastAnchor(
+  elevation: Float32Array, px: number, py: number, dir: string, width: number, height: number, seaLevel: number,
+): { x: number; y: number } {
+  const v = COAST_DIRS[dir];
+  if (!v) return snapToCoast(elevation, px, py, width, height, seaLevel);
+  const inB = (x: number, y: number) => x >= 0 && y >= 0 && x < width && y < height;
+  const isSea = (x: number, y: number) => !inB(x, y) || elevation[y * width + x] < seaLevel;
+  const span = Math.max(width, height);
+  let best: { x: number; y: number } | null = null;
+  let bestDist = Infinity;
+  for (let t = -span; t <= span; t++) {
+    const x = px + v[0] * t, y = py + v[1] * t;
+    if (!inB(x, y)) continue;
+    if (elevation[y * width + x] < seaLevel) continue;             // land only
+    if (!isSea(x + v[0], y + v[1])) continue;                       // facing the sea in `dir`
+    const d = Math.abs(t);
+    if (d < bestDist) { bestDist = d; best = { x, y }; }
+  }
+  return best ?? snapToCoast(elevation, px, py, width, height, seaLevel);
+}
+
 export interface AffectedRegion {
   x0: number; y0: number;
   x1: number; y1: number;
@@ -166,6 +258,18 @@ export const POI_INFLUENCES: Record<string, InfluenceSpec> = {
   // threshold elev > 0.65); the strong cold delta makes it ice, not bare rock.
   glacier:  { elevation: { summit: 0.90, radius: 10 }, temperature: { delta: -0.55, radius: 14 }, warp: 0.45 },
   oasis:    { moisture:  { delta: +0.70, radius:  8, target: 0.78 }, temperature: { delta: -0.05, radius:  6 }, warp: 0.35, regionFill: true },
+  // Cliffs: an AGENT-AUTHORABLE coastal feature — "the dire cliffs to the east".
+  // PLATEAU mode raises the WHOLE coastal AREA to a flat tableland (plateau 0.64 ≈
+  // 16 m above sea at demo relief, kept BELOW the 19 m mountain line so the brink
+  // stays a green clifftop). Because the plateau is GATED TO LAND, the existing
+  // waterline stays put and the tableland plunges to it in one tile — a sheer face
+  // whose slope blows past CLIFF_SLOPE_M, so the emergent coast classifier renders
+  // it as `Cliff` (rock plunging to the surf) with REAL height for drama. This is
+  // the fix for the old `summit` cone, which raised the sea too and read as a lone
+  // rocky hill at the shore. `warp` breaks the cliff line into bays and headlands;
+  // light `crag` ruggeds the brink. An agent/recipe drops a `cliffs` POI (+ a
+  // `coast` direction) on the shore it wants dramatised.
+  cliffs:   { elevation: { plateau: 0.64, radius: 14, plateauCore: 0.52, rimSharpness: 1.7, crag: 0.32, cragFreq: 4.0 }, temperature: { delta: -0.05, radius: 14 }, warp: 0.4 },
   // Settlement types — light terrain adjustments only
   village:  {},
   city:     {},
@@ -197,7 +301,7 @@ export function applyPoiInfluences(
   pois:   POI[],
   config: TerrainConfig,
 ): void {
-  const { width, height, seed, elevationScale = 0.02 } = config;
+  const { width, height, seed, elevationScale = 0.02, seaLevel = 0.35 } = config;
 
   for (const poi of pois) {
     const spec = POI_INFLUENCES[poi.type];
@@ -208,8 +312,21 @@ export function applyPoiInfluences(
     const canRegion = !!(spec.regionFill && region);
     if (!poi.position && !canRegion) continue;
 
-    const px = poi.position?.x ?? 0;
-    const py = poi.position?.y ?? 0;
+    let px = poi.position?.x ?? 0;
+    let py = poi.position?.y ?? 0;
+    // Coastal features attach to the REAL shoreline, not their nominal point: the
+    // terrain seed varies the coast each world, so a fixed coord can land inland (a
+    // hill by a river, not a sea cliff). Snap the centre to the nearest land cell that
+    // borders open water before raising the escarpment, so a `cliffs` POI reliably
+    // rears up out of the actual surf. No-op if the point is already coastal / no
+    // coast is within reach.
+    if (COASTAL_SNAP.has(poi.type) && poi.position) {
+      const dir = poi.coast;
+      const anchor = dir && dir !== 'nearest'
+        ? resolveCoastAnchor(fields.elevation, px, py, dir, width, height, seaLevel)
+        : snapToCoast(fields.elevation, px, py, width, height, seaLevel);
+      px = anchor.x; py = anchor.y;
+    }
     const scale = SIZE_SCALE[poi.size ?? 'medium'] ?? 1.0;
     const warp = spec.warp ?? 0;
 
@@ -221,13 +338,13 @@ export function applyPoiInfluences(
       if (canRegion) {
         applyFieldInfluenceRegion(field, inf, region!, width, height, seed, warp);
       } else if (poi.position) {
-        applyFieldInfluence(field, inf, px, py, width, height, seed, scale, warp, elevationScale);
+        applyFieldInfluence(field, inf, px, py, width, height, seed, scale, warp, elevationScale, seaLevel);
       }
     };
 
     // Elevation is always a point feature (or skipped for a region-only POI).
     if (poi.position) {
-      applyFieldInfluence(fields.elevation, spec.elevation, px, py, width, height, seed, scale, warp, elevationScale);
+      applyFieldInfluence(fields.elevation, spec.elevation, px, py, width, height, seed, scale, warp, elevationScale, seaLevel);
     }
     stampClimate(fields.moisture,    spec.moisture);
     stampClimate(fields.temperature, spec.temperature);
@@ -307,6 +424,7 @@ function applyFieldInfluence(
   scale:   number,
   warp:    number,
   elevationScale: number = 0.02,
+  seaLevel: number = 0.35,
 ): void {
   if (!spec) return;
   const delta = spec.delta ?? 0;
@@ -339,20 +457,34 @@ function applyFieldInfluence(
       if (d >= radius) continue;
       if (d < 0) d = 0;
       const idx = y * width + x;
-      if (summit !== undefined) {
-        // PEAK mode: raise toward the summit, weighted so the apex is concentrated
-        // near the centre instead of a flat mesa. Two profiles:
-        //   'dome' — cos^k, a rounded top (ice caps / cinder cones want a rim).
-        //   'horn' — (1−t)^k, a POINTED apex with non-zero slope at the summit, so
-        //            a great mountain reads as a sheer horn, not a pancake smeared
-        //            flat across its whole radius.
-        // A higher `peakSharpness` exponent steepens either profile.
+      if (summit !== undefined || spec.plateau !== undefined) {
+        // ELEVATION-RAISE modes — raise the ground TOWARD a target, weighted by a
+        // radial profile. Two families:
+        //   PLATEAU/MESA (`plateau`): a FLAT top out to `plateauCore`, then a steep
+        //     rim. Gated to land (sea cells skipped) so an anchored-on-coast disc
+        //     leaves the waterline put and the tableland plunges to it = a CLIFF.
+        //   PEAK (`summit`): a point cone — 'dome' (cos^k) or 'horn' ((1−t)^k apex).
         const t = d / radius;                                   // 0 centre → 1 edge
-        const prof = spec.peakProfile ?? 'dome';
-        const k = spec.peakSharpness ?? (prof === 'horn' ? 1.5 : 1.6);
-        let w = prof === 'horn'
-          ? Math.pow(1 - t, k)
-          : Math.pow(Math.cos(t * (Math.PI / 2)), k);
+        const isPlateau = spec.plateau !== undefined;
+        const target = isPlateau ? spec.plateau! : summit!;
+        let w: number;
+        if (isPlateau) {
+          const core = spec.plateauCore ?? 0.5;
+          if (t <= core) {
+            w = 1;
+          } else {
+            const u = (t - core) / (1 - core);                  // 0 at core → 1 at edge
+            const s = u * u * (3 - 2 * u);                      // smoothstep down
+            w = 1 - s;
+          }
+          w = Math.pow(w, spec.rimSharpness ?? 1);
+        } else {
+          const prof = spec.peakProfile ?? 'dome';
+          const k = spec.peakSharpness ?? (prof === 'horn' ? 1.5 : 1.6);
+          w = prof === 'horn'
+            ? Math.pow(1 - t, k)
+            : Math.pow(Math.cos(t * (Math.PI / 2)), k);
+        }
         // CRAG: corrugate the lift with ridged noise so the massif reads as a
         // craggy horn with spurs/gullies, not a smooth radial dome (the "potato").
         // ridgeNoise ≈ 1 on a crest, ≈ 0 in a trough. Crests keep full lift; a
@@ -368,13 +500,18 @@ function applyFieldInfluence(
           w *= 1 - spec.crag * gate * (1 - rn);
         }
         const cur = field[idx];
-        let raised = cur + (summit - cur) * w;
+        // PLATEAU keeps the coastline: never raise a sea cell. The tableland then
+        // meets the unchanged waterline in a one-tile drop = a sheer cliff face,
+        // instead of the sea filling up into a gentle cone base (the old "rocky
+        // hill at the shore" failure). Summit/peak mode raises freely as before.
+        if (isPlateau && cur < seaLevel) continue;
+        let raised = cur + (target - cur) * w;
         // Summit crater (volcano/caldera): subtract a parabolic bowl over the inner
         // `craterFrac`, deepest at the apex, zero at the rim — so the rim ring stands
         // proud of the dipped floor (a cinder-cone silhouette). The `> cur` guard
         // keeps the floor at base ground at worst; it never carves below it.
         const crater = spec.crater;
-        if (crater !== undefined && crater > 0) {
+        if (!isPlateau && crater !== undefined && crater > 0) {
           const cf = spec.craterFrac ?? 0.22;
           if (t < cf) { const u = t / cf; raised -= crater * (1 - u * u); }
         }

@@ -106,6 +106,14 @@ export interface POI {
   npcs?: NPC[];
   /** Overrides the world era for this settlement's buildings. */
   era?: Era;
+  /**
+   * TERRAIN ANCHOR for coastal/terrain-conditional features (e.g. `cliffs`). A
+   * fixed `position` can't track a seed-varied coastline — it lands inland. With a
+   * `coast` direction the feature is RESOLVED to the real shoreline at gen time:
+   * worldgen walks from the nominal point toward that edge and stamps the feature on
+   * the land cell that meets the sea. `'nearest'` snaps to the closest shore.
+   */
+  coast?: 'east' | 'west' | 'north' | 'south' | 'nearest';
 }
 
 /** NPC definition */
