@@ -79,6 +79,9 @@ describe('fort connectome diagnostics', () => {
     world.updateEntity(e.id, { x: centre.x, y: Math.round(centre.y + outer.r) });   // onto the south gate
     const hits = fortDiags(world as never, map as never, 'fort.gate-obstructed');
     expect(hits.length).toBeGreaterThan(0);
+    // A single building only PARTIALLY blocks the 3-wide opening, so the flood still routes
+    // around it — `ward-unreachable` stays quiet (no false positive on a partial obstruction).
+    expect(fortDiags(world as never, map as never, 'fort.ward-unreachable')).toHaveLength(0);
   });
 
   it('flags spoil imbalance when the ditch is removed from the ledger', async () => {
