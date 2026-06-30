@@ -12,6 +12,9 @@ export enum Biome {
   Beach              = 'beach',
   Mountain           = 'mountain',
   Peak               = 'peak',
+  // Coastal (the shoreline band, sub-typed by how steeply the land meets the sea)
+  Cliff              = 'cliff',        // steep rock plunging to the water — a headland
+  RockyShore         = 'rocky_shore',  // a boulder/shingle strand below sloping ground
   // Cold
   Ice                = 'ice',
   Tundra             = 'tundra',
@@ -40,6 +43,8 @@ export const BIOME_TILES: Record<Biome, Record<string, number>> = {
   [Biome.DeepOcean]:          { deep_water: 1.0 },
   [Biome.Ocean]:              { shallow_water: 0.4, deep_water: 0.6 },
   [Biome.Beach]:              { sand: 0.7, grass: 0.2, dirt: 0.1 },
+  [Biome.Cliff]:              { rocky: 0.7, mountain: 0.2, sand: 0.1 },
+  [Biome.RockyShore]:         { rocky: 0.5, sand: 0.3, dirt: 0.2 },
   [Biome.Mountain]:           { mountain: 0.5, rocky: 0.3, hills: 0.2 },
   [Biome.Peak]:               { mountain: 0.8, rocky: 0.2 },
   [Biome.Ice]:                { mountain: 0.5, rocky: 0.3, grass: 0.2 },
@@ -76,6 +81,17 @@ export const PEAK_HEIGHT_M     = 24;  // ≥ m above sea → bare summit
 /** A face this steep (m of rise per tile) can't hold soil → bare rock; promotes
  *  high-ish ground to Mountain even below the height line (canyon walls, scarps). */
 export const ROCK_SLOPE_M      = 6;
+/**
+ * COAST sub-typing by how steeply the land meets the sea (m of rise per tile at
+ * the waterline). A flat strand is a sandy Beach; where the ground tilts up it
+ * becomes a boulder/shingle RockyShore; a steep face plunging to the water is a
+ * Cliff. Thresholds are deliberately modest so even a low-relief island gets some
+ * rocky headlands among its bays — a genuinely mountainous coast (slope many
+ * m/tile) reads as continuous Cliff. Tuned against the demo island's coastal-slope
+ * spread (median ≈0.56, p90 ≈1.0, p99 ≈1.5 m/tile): ~75% beach / ~18% rocky / ~7%
+ * cliff there, scaling to mostly-cliff where mountains drop into the sea. */
+export const CLIFF_SLOPE_M = 1.2;   // ≥ → a rock cliff headland
+export const SHORE_SLOPE_M = 0.8;   // ≥ → a rocky/shingle shore
 
 /**
  * Classify a tile into a biome given its field values.
@@ -99,7 +115,14 @@ export function classifyBiome(
   // Water first — sea level lives in the normalised field, so this stays a fraction.
   if (elevation < seaLevel * 0.6) return Biome.DeepOcean;
   if (elevation < seaLevel)       return Biome.Ocean;
-  if (elevation < seaLevel + 0.04) return Biome.Beach;
+  // The shoreline band, sub-typed by how steeply the land rises from the water:
+  // a flat strand is a sandy Beach, a tilted one a RockyShore, a steep face a Cliff.
+  // slopeM defaults to 0 (legacy callers) → every coast stays Beach, unchanged.
+  if (elevation < seaLevel + 0.04) {
+    if (slopeM >= CLIFF_SLOPE_M) return Biome.Cliff;
+    if (slopeM >= SHORE_SLOPE_M) return Biome.RockyShore;
+    return Biome.Beach;
+  }
 
   // Upland by ABSOLUTE altitude + steepness. A steep face promotes to Mountain
   // once it's at least half-way to the height line, so river banks and gentle
