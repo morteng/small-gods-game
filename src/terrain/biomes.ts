@@ -50,7 +50,7 @@ export const BIOME_TILES: Record<Biome, Record<string, number>> = {
   [Biome.Ice]:                { mountain: 0.5, rocky: 0.3, grass: 0.2 },
   [Biome.Tundra]:             { rocky: 0.4, grass: 0.3, hills: 0.2, mountain: 0.1 },
   [Biome.BorealForest]:       { pine_forest: 0.5, forest: 0.2, grass: 0.2, rocky: 0.1 },
-  [Biome.TemperateGrassland]: { grass: 0.6, hills: 0.2, dirt: 0.1, scrubland: 0.1 },
+  [Biome.TemperateGrassland]: { grass: 0.5, meadow: 0.2, hills: 0.18, dirt: 0.07, scrubland: 0.05 },
   [Biome.TemperateForest]:    { forest: 0.4, dense_forest: 0.2, pine_forest: 0.15, glen: 0.1, grass: 0.15 },
   [Biome.Scrubland]:          { scrubland: 0.5, grass: 0.3, dirt: 0.2 },
   [Biome.TropicalGrassland]:  { grass: 0.6, scrubland: 0.2, dirt: 0.2 },

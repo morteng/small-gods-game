@@ -6,7 +6,7 @@ describe('content-version constants', () => {
     expect(ART_RECIPE_VERSION).toBe('v22');
   });
 
-  it('declares the current world content version (55: varied coasts)', () => {
-    expect(WORLD_CONTENT_VERSION).toBe(55);
+  it('declares the current world content version (56: verdant meadows)', () => {
+    expect(WORLD_CONTENT_VERSION).toBe(56);
   });
 });
