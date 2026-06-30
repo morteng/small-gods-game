@@ -64,6 +64,12 @@ export interface GameMap {
    *  re-derive them (placement consumes live RNG/occupancy). Persisted verbatim via
    *  SaveFile.map; the World entities are re-indexed from these on load. */
   barrierRuns?: import('@/world/barrier').PlacedBarrier[];
+  /** Earthworks committed by a placed defended complex (motte/ditch/rampart). Source of
+   *  truth for the terrain CARVE (`buildEarthworkDeformations`) the same way barrierRuns
+   *  feeds the foundation footing — derived from the connectome siting step, not
+   *  re-derivable from tiles. Worldgen leaves this empty (only complex placement / the
+   *  Site studio sets it), so the live world stays byte-identical. Persisted via SaveFile.map. */
+  earthworks?: import('@/blueprint/connectome/earthworks').Earthwork[];
   /** Derived anchor-snap layer: typed connection points on every feature + the matched
    *  links between them. Re-derivable from world+roadGraph; persisted for overlay/authoring. */
   anchors?: import('@/world/anchors').Anchor[];
