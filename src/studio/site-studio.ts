@@ -71,23 +71,35 @@ function isWater(map: GameMap, x: number, y: number): boolean {
  */
 function pickSeat(map: GameMap, lowGround: boolean): { x: number; y: number } {
   const W = map.width, H = map.height;
-  const INNER_R = 14;          // keep + bailey building ring — must be dry
+  const INNER_R = 18;          // keep + bailey ring (~r13) + building footprint reach — all dry
   const NEAR_R = 24;           // water within this (beyond the ring) = a riverside seat
   const margin = INNER_R + 2;
-  // Per-cell metrics over the inner disc (stride 2 for speed): land fraction + LOCAL RELIEF
-  // (max−min ground), so we can prefer FLAT ground — the keep shouldn't perch on a natural
-  // knoll, and a motte reads as deliberate earthwork only when it rises from flat land.
+  // Precompute per-cell water + height ONCE (O(W·H)); the disc scan then just indexes these,
+  // instead of recomputing heightMetresAt over an R² disc for every candidate (which made a
+  // per-cell footprint scan O(W·H·R²) and froze the studio).
+  const wet = new Uint8Array(W * H);
+  const hM = new Float32Array(W * H);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const i = y * W + x;
+    wet[i] = isWater(map, x, y) ? 1 : 0;
+    hM[i] = heightMetresAt(map, x, y);
+  }
+  // Per-cell metrics over the inner disc (every cell, so a 1-tile stream can't slip through):
+  // land fraction + LOCAL RELIEF (max−min ground) — prefer FLAT ground, since a motte reads as
+  // deliberate earthwork only when it rises from flat land.
   const disc = (cx: number, cy: number): { land: number; relief: number; h: number } => {
     let land = 0, total = 0, lo = Infinity, hi = -Infinity;
-    for (let dy = -INNER_R; dy <= INNER_R; dy += 2) for (let dx = -INNER_R; dx <= INNER_R; dx += 2) {
+    for (let dy = -INNER_R; dy <= INNER_R; dy++) for (let dx = -INNER_R; dx <= INNER_R; dx++) {
       if (dx * dx + dy * dy > INNER_R * INNER_R) continue;
+      const px = cx + dx, py = cy + dy;
+      if (px < 0 || py < 0 || px >= W || py >= H) { total++; continue; } // off-patch = not land
+      const i = py * W + px;
       total++;
-      if (isWater(map, cx + dx, cy + dy)) { land--; } // counted below
-      const hh = heightMetresAt(map, cx + dx, cy + dy);
+      const hh = hM[i];
       if (hh < lo) lo = hh; if (hh > hi) hi = hh;
-      if (!isWater(map, cx + dx, cy + dy)) land++;
+      if (!wet[i]) land++;
     }
-    return { land: total ? Math.max(0, land) / total : 0, relief: hi - lo, h: heightMetresAt(map, cx, cy) };
+    return { land: total ? land / total : 0, relief: hi - lo, h: hM[cy * W + cx] };
   };
   // 0 (no water within NEAR_R) … 1 (water right at the ring edge) — closer water = better moat.
   const riverside = (cx: number, cy: number): number => {
@@ -95,15 +107,18 @@ function pickSeat(map: GameMap, lowGround: boolean): { x: number; y: number } {
     for (let dy = -NEAR_R; dy <= NEAR_R; dy += 2) for (let dx = -NEAR_R; dx <= NEAR_R; dx += 2) {
       const d = Math.hypot(dx, dy);
       if (d <= INNER_R || d > NEAR_R) continue;
-      if (isWater(map, cx + dx, cy + dy)) { nearest = Math.min(nearest, d); }
+      const px = cx + dx, py = cy + dy;
+      if (px < 0 || py < 0 || px >= W || py >= H) continue;
+      if (wet[py * W + px]) nearest = Math.min(nearest, d);
     }
     return nearest === Infinity ? 0 : 1 - (nearest - INNER_R) / (NEAR_R - INNER_R);
   };
   // Normalise height to the patch's land range so "low" / "high" are meaningful.
   let hMin = Infinity, hMax = -Infinity;
   for (let y = margin; y < H - margin; y += 3) for (let x = margin; x < W - margin; x += 3) {
-    if (isWater(map, x, y)) continue;
-    const hh = heightMetresAt(map, x, y); if (hh < hMin) hMin = hh; if (hh > hMax) hMax = hh;
+    const i = y * W + x;
+    if (wet[i]) continue;
+    const hh = hM[i]; if (hh < hMin) hMin = hh; if (hh > hMax) hMax = hh;
   }
   const hSpan = Math.max(1e-3, hMax - hMin);
 
@@ -116,7 +131,7 @@ function pickSeat(map: GameMap, lowGround: boolean): { x: number; y: number } {
   let bestScore = -Infinity;
   let driest = { x: best.x, y: best.y }, driestLand = -1;
   for (let y = margin; y < H - margin; y++) for (let x = margin; x < W - margin; x++) {
-    if (isWater(map, x, y)) continue;                 // the keep itself must be dry
+    if (wet[y * W + x]) continue;                     // the keep itself must be dry
     const d = disc(x, y);
     if (d.land > driestLand) { driestLand = d.land; driest = { x, y }; }
     if (d.land < DRY_MIN) continue;                   // footprint must be essentially all land
