@@ -6,7 +6,7 @@ describe('content-version constants', () => {
     expect(ART_RECIPE_VERSION).toBe('v22');
   });
 
-  it('declares the current world content version (47: biome by absolute height+slope)', () => {
-    expect(WORLD_CONTENT_VERSION).toBe(47);
+  it('declares the current world content version (48: farm fields)', () => {
+    expect(WORLD_CONTENT_VERSION).toBe(48);
   });
 });

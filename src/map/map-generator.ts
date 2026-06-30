@@ -27,6 +27,7 @@ import { collectAnchors } from '@/world/anchor-collect';
 import { matchAnchors } from '@/world/anchor-rules';
 import { erodeElevation } from '@/terrain/erosion';
 import { placeSettlement } from '@/world/building-placer';
+import { stampFarmland } from '@/world/farmland';
 import { buildCrossingStructureEntities } from '@/world/connectome/crossing-structures';
 import { buildStairStructureEntities } from '@/world/connectome/stair-structures';
 import { buildEntranceStoopEntities } from '@/world/connectome/entrance-stoops';
@@ -516,6 +517,13 @@ export async function generateWithNoise(
   report('Applying settlement wear...');
   const worn = applyAllSettlementWear(settlementPlans, map, world, seed);
   if (worn > 0) report(`Trampled ${worn} tiles`);
+
+  // Tilled fields around farm buildings — the open soil a settlement's farms work, beyond the
+  // built-up core. Runs after settlement+roads+wear so it takes only the soil still free of
+  // buildings, roads and water (fields are walkable ground, so they never block placement).
+  report('Tilling farm fields...');
+  const tilled = stampFarmland(map, world);
+  if (tilled > 0) report(`Tilled ${tilled} field tiles`);
 
   // Reconcile vegetation against terrain/structures: roads and rivers clear
   // trees, and nothing vegetates on a building footprint. Runs last so it
