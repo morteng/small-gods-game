@@ -161,6 +161,14 @@ export class DeformationStore {
     // a spatial index is a noted perf follow-up, not needed for correctness.
     return this.defs.filter((d) => inBounds(d.bounds, tx, ty));
   }
+
+  /** Every deformation, in composition order (read-only). For consumers that must walk
+   *  the whole set — e.g. the detail-patch mask guaranteeing its coverage ⊇ every carve
+   *  footprint, so a pad/wall/levee away from a road or river still gets the fine mesh. */
+  list(): readonly Deformation[] {
+    this.ensureSorted();
+    return this.defs;
+  }
 }
 
 /**

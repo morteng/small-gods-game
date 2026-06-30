@@ -158,6 +158,13 @@ export interface DetailMaskOpts {
    *  (where the grade-cut transitions back to natural ground — the sharpest slope)
    *  get the fine mesh too. Defaults to 1. Set < 0 to opt out of road detail. */
   roadRadius?: number;
+  /** Tiles of margin stamped around every OTHER deformation footprint (settlement pads,
+   *  wall foundations, levees — anything in the world deformation store that the sampler
+   *  carves but the water/road passes don't already flag). Guarantees the detail patches
+   *  cover ⊇ every carve, so a wall footing or pad on a slope away from a road/river gets
+   *  the fine mesh instead of seaming on the coarse grid. Defaults to 1. Set < 0 to opt
+   *  out (e.g. parity tests that assert only the legacy water/road coverage). */
+  featureRadius?: number;
   /** Grade (rise/run) above which a cell counts as STEEP and gets the fine mesh. Slope
    *  detail is OPT-IN: defaults to `Infinity` (OFF) because on this noise-dominated
    *  terrain it floods or sprinkles rather than selecting real faces — see
@@ -190,6 +197,7 @@ export function computeDetailMask(map: GameMap, opts: DetailMaskOpts = {}): Uint
   const W = map.width, H = map.height;
   const bankRadius = opts.bankRadius ?? 2;
   const roadRadius = opts.roadRadius ?? 1;
+  const featureRadius = opts.featureRadius ?? 1;
   const waterType = opts.waterType ?? buildRenderWaterTypeMemo(map);
 
   const mask = new Uint8Array(W * H);
@@ -227,6 +235,29 @@ export function computeDetailMask(map: GameMap, opts: DetailMaskOpts = {}): Uint
       for (let y = y0; y <= y1; y++) {
         for (let x = x0; x <= x1; x++) {
           if (def.mask(x, y) > 0) dilate(x, y, roadRadius);
+        }
+      }
+    }
+  }
+
+  // 2b. Every OTHER deformation footprint — settlement pads, wall foundations, levees,
+  //     and any future producer in the shared store. The detail SAMPLER carves all of
+  //     them (it reads the whole composed store), so the MASK must cover them too or
+  //     their sub-tile relief seams against the coarse grid where no patch reaches. The
+  //     water + road passes already own river/road carves; this closes the gap for the
+  //     rest, deriving the reach from each brush's own footprint (its mask>0 cells). Skip
+  //     road:cut / river:incision (covered above, with their tuned shoulder/bank margins).
+  if (featureRadius >= 0) {
+    const store = getWorldDeformationStore(map);
+    for (const def of store.list()) {
+      if (def.source === 'road:cut' || def.source === 'river:incision') continue;
+      const x0 = Math.max(0, Math.floor(def.bounds.minX));
+      const y0 = Math.max(0, Math.floor(def.bounds.minY));
+      const x1 = Math.min(W - 1, Math.ceil(def.bounds.maxX));
+      const y1 = Math.min(H - 1, Math.ceil(def.bounds.maxY));
+      for (let y = y0; y <= y1; y++) {
+        for (let x = x0; x <= x1; x++) {
+          if (def.mask(x, y) > 0) dilate(x, y, featureRadius);
         }
       }
     }

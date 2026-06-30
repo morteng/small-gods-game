@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { generateWithNoise } from '@/map/map-generator';
 import type { GameMap } from '@/core/types';
 import type { RoadEdge } from '@/world/road-graph';
@@ -7,7 +8,7 @@ import { heightField } from '@/render/gpu/terrain-field';
 import { buildRenderWaterTypeMemo, clearRenderWaterTypeCache } from '@/render/gpu/render-water-mask';
 import { clearHeightfieldCache } from '@/world/heightfield';
 import { clearHydrologyCache } from '@/world/hydrology-store';
-import { clearRoadDeformationCache } from '@/world/road-deformation';
+import { clearRoadDeformationCache, getWorldDeformationStore } from '@/world/road-deformation';
 import {
   makeDetailElevSampler, computeDetailMask, coalescePatches, RECOMMENDED_SLOPE_GRADE,
 } from '@/world/terrain-detail';
@@ -134,6 +135,35 @@ describe('computeDetailMask', () => {
       if (wt[i] === WaterType.River) { riverCells++; if (mask[i]) riverFlagged++; }
     }
     if (riverCells > 0) expect(riverFlagged).toBe(riverCells); // every river cell flagged
+  });
+
+  // ── Coverage guarantee: the detail SAMPLER carves the WHOLE deformation store
+  //    (pads, wall foundations, levees), so the MASK must cover every one of them or
+  //    their sub-tile relief seams against the coarse grid. Exercised on the real
+  //    default world, which actually has settlements + walls. ──
+  it('covers EVERY pad/wall/levee carve cell — closes the coarse-grid seam gap', async () => {
+    const ws = JSON.parse(readFileSync('public/data/worlds/default.json', 'utf8'));
+    const { map } = await generateWithNoise(ws.size.width, ws.size.height, 12345, ws);
+    const W = map.width;
+    // The non-road/river carve cells the sampler renders but the legacy passes ignore.
+    const cells: Array<{ x: number; y: number }> = [];
+    for (const def of getWorldDeformationStore(map).list()) {
+      if (def.source === 'road:cut' || def.source === 'river:incision') continue;
+      const x0 = Math.max(0, Math.floor(def.bounds.minX)), y0 = Math.max(0, Math.floor(def.bounds.minY));
+      const x1 = Math.min(W - 1, Math.ceil(def.bounds.maxX)), y1 = Math.min(map.height - 1, Math.ceil(def.bounds.maxY));
+      for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) if (def.mask(x, y) > 0) cells.push({ x, y });
+    }
+    expect(cells.length).toBeGreaterThan(0);                 // this world has walls + pads
+
+    const maskNew = computeDetailMask(map);                  // feature pass ON (default)
+    const maskOld = computeDetailMask(map, { featureRadius: -1 }); // legacy water+road only
+    let uncoveredNew = 0, uncoveredOld = 0;
+    for (const { x, y } of cells) {
+      if (!maskNew[y * W + x]) uncoveredNew++;
+      if (!maskOld[y * W + x]) uncoveredOld++;
+    }
+    expect(uncoveredNew).toBe(0);                            // coverage ⊇ every carve
+    expect(uncoveredOld).toBeGreaterThan(0);                 // …and the gap was real
   });
 
   // ── Roads carve a corridor just like rivers; the fine mesh must follow it too. ──
