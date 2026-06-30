@@ -6,7 +6,7 @@ describe('content-version constants', () => {
     expect(ART_RECIPE_VERSION).toBe('v22');
   });
 
-  it('declares the current world content version (51: irrigation reach tune)', () => {
-    expect(WORLD_CONTENT_VERSION).toBe(51);
+  it('declares the current world content version (52: town-wall thickness)', () => {
+    expect(WORLD_CONTENT_VERSION).toBe(52);
   });
 });

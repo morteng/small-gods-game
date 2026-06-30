@@ -111,7 +111,11 @@ export const MEDIEVAL_BARRIER_TYPES: FactEntry<BarrierTypeFields>[] = [
       l2: 'A defensive curtain wall of mortared stone enclosing a town, crowned with a crenellated parapet and pierced by fortified gates where the roads enter. Beyond defence it proclaimed the status and independence of the community, and it incorporated rivers and coastline into its line where the terrain offered them.',
     },
     fields: {
-      barrierKind: 'wall', heightM: 6.0, thicknessTiles: 2, material: 'stone',
+      // ~2 m thick: a typical medieval town curtain (York ~2 m, Carcassonne ~2-3 m).
+      // 4 m (thicknessTiles 2) is Constantinople/fortress-grade and read as too massive
+      // for an ordinary town. The earthen `rampart` stays 2 tiles wide — earth banks
+      // ARE broad. Height stays 6 m (tall+thin reads as a proper wall, not a chunk).
+      barrierKind: 'wall', heightM: 6.0, thicknessTiles: 1, material: 'stone',
       crenellated: true, scale: 'settlement', minBuildings: 12, gateWidthTiles: 3.5,
       kind: 'wall', defensibility: 0.8, heightHint: 6,
     },
