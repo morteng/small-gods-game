@@ -28,6 +28,7 @@ export const POI_TYPES = [
   'oasis',
   'plains',
   'cliffs',
+  'sea_stacks',
 ] as const;
 
 export const BIOMES = [
@@ -81,6 +82,7 @@ export const POI_VISUAL_STYLES: Record<string, string> = {
   bridge: 'stone arches, flowing water below, worn path, travelers crossing',
   crossroads: 'signpost, worn paths, resting travelers, milestone markers',
   cliffs: 'sheer rock faces plunging to the surf, seabird colonies, wind-bent grass on the brink, crashing waves',
+  sea_stacks: 'bare rock pillars rising from the surf off a headland, white spray, wheeling gulls, isolated weathered stone',
 };
 
 /** Validate a world seed and return any errors */

@@ -36,7 +36,7 @@ function run(seed: number, withCliffs: boolean) {
   };
   const fields = generateTerrainFields(cfg);
   fields.elevation = erodeElevation(fields.elevation, W, H, { seed });
-  const usePois = withCliffs ? pois : pois.filter(p => p.type !== 'cliffs');
+  const usePois = withCliffs ? pois : pois.filter(p => p.type !== 'cliffs' && p.type !== 'sea_stacks');
   if (usePois.length) applyPoiInfluences(fields, usePois, cfg);
   const bm = classifyBiomes(fields, cfg);
   return { bm, elev: fields.elevation };
@@ -82,8 +82,18 @@ for (const seed of seeds) {
       if (e > topElev) { topElev = e; topBiome = on.bm.biomes[y * W + x]; }
     }
   const topM = ((topElev - SEA) * relief).toFixed(1);
+  // Sea stacks: cells that crossed sea→land (were ocean off, are rock now) — i.e.
+  // new islets the sea_stacks POI raised. Count + classify their biome.
+  let stackCells = 0, stackRock = 0;
+  for (let i = 0; i < on.elev.length; i++) {
+    if (off.elev[i] < SEA && on.elev[i] >= SEA) {
+      stackCells++;
+      const b = on.bm.biomes[i];
+      if (b === 'mountain' || b === 'peak' || b === 'cliff' || b === 'rocky_shore') stackRock++;
+    }
+  }
   console.log(
     `seed ${seed}: plateau@(${ax},${ay}) +${dMax.toFixed(3)} → top ${topM}m (${topBiome})` +
-    `  | sheer-face cells=${faceCells} (rocky ${faceRock})`,
+    `  | sheer-face cells=${faceCells} (rocky ${faceRock})  | sea-stack cells=${stackCells} (rocky ${stackRock})`,
   );
 }

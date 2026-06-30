@@ -163,6 +163,15 @@
       "description": "A wall of sheer rock where the eastern shore rears up and plunges to the surf — seabirds wheel over the brink, and the waves break white on the stacks below."
     },
     {
+      "id": "dire_cliffs_stacks",
+      "type": "sea_stacks",
+      "name": "The Drowned Sentinels",
+      "position": {"x": 226, "y": 96},
+      "coast": "east",
+      "size": "large",
+      "description": "A row of weathered rock pillars standing off the foot of the Dire Cliffs, where the headland once reached further into the sea before the waves gnawed it back."
+    },
+    {
       "id": "sunscorch_desert",
       "type": "desert",
       "name": "The Sunscorch",

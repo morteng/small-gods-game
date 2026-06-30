@@ -133,7 +133,7 @@ const WARP_FREQ = 0.07;
 /** POI types whose landform must sit ON the coast — their influence centre snaps to
  *  the nearest shoreline before stamping (see `snapToCoast`). A fixed coord can't
  *  track the seed-varied coastline, so without this they land inland. */
-const COASTAL_SNAP: ReadonlySet<string> = new Set(['cliffs']);
+const COASTAL_SNAP: ReadonlySet<string> = new Set(['cliffs', 'sea_stacks']);
 
 /** How far (tiles) to hunt for a shoreline before giving up and using the raw point.
  *  Generous so a feature nominally placed in the offshore margin still finds its
@@ -203,6 +203,75 @@ function resolveCoastAnchor(
   return best ?? snapToCoast(elevation, px, py, width, height, seaLevel);
 }
 
+/** Deterministic [0,1) hash of two ints (no Math.random — terrain gen must be
+ *  reproducible). xxhash-ish mix via Math.imul. */
+function hash01(a: number, b: number): number {
+  let h = Math.imul((a | 0) ^ 0x9e3779b9, 0x85ebca6b) ^ Math.imul((b | 0) + 0x165667b1, 0xc2b2ae35);
+  h ^= h >>> 15; h = Math.imul(h, 0x2c1b3c6d); h ^= h >>> 13;
+  return (h >>> 0) / 4294967296;
+}
+
+/** Unit vector from a shore land cell toward the open water beside it (averaged
+ *  over the 8 neighbours that are sea). Gives the SEAWARD direction so offshore
+ *  features (sea stacks) step out into the water, not back inland. */
+function seawardDir(
+  elev: Float32Array, x: number, y: number, width: number, height: number, seaLevel: number,
+): [number, number] {
+  let sx = 0, sy = 0;
+  for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]] as const) {
+    const nx = x + dx, ny = y + dy;
+    const isSea = nx < 0 || ny < 0 || nx >= width || ny >= height || elev[ny * width + nx] < seaLevel;
+    if (isSea) { sx += dx; sy += dy; }
+  }
+  const len = Math.hypot(sx, sy) || 1;
+  return [sx / len, sy / len];
+}
+
+/** Raise one small, sharp rocky islet (a sea stack) centred at (cx,cy). GATED TO
+ *  SEA — only cells currently below the waterline are lifted, so the stack rises
+ *  ISOLATED from the water rather than fusing into the shore. A tight horn apex +
+ *  steep flanks make the slope blow past ROCK_SLOPE_M, so it classifies as bare
+ *  rock poking from the surf. */
+function raiseIslet(
+  elev: Float32Array, cx: number, cy: number, width: number, height: number,
+  seaLevel: number, summit: number, radius: number,
+): void {
+  const x0 = Math.max(0, Math.floor(cx - radius)), x1 = Math.min(width - 1, Math.ceil(cx + radius));
+  const y0 = Math.max(0, Math.floor(cy - radius)), y1 = Math.min(height - 1, Math.ceil(cy + radius));
+  for (let y = y0; y <= y1; y++) {
+    for (let x = x0; x <= x1; x++) {
+      const idx = y * width + x;
+      if (elev[idx] >= seaLevel) continue;                 // sea-only → an isolated stack
+      const d = Math.hypot(x - cx, y - cy);
+      if (d >= radius) continue;
+      const w = Math.pow(1 - d / radius, 1.5);              // pointed horn apex
+      const raised = elev[idx] + (summit - elev[idx]) * w;
+      if (raised > elev[idx]) elev[idx] = raised > 1 ? 1 : raised;
+    }
+  }
+}
+
+/** Scatter a seeded cluster of sea stacks in the water just off a shore anchor.
+ *  Stepped seaward with lateral jitter so they read as a natural row of pillars
+ *  off a headland — the iconic companion to a cliff coast. Deterministic. */
+function placeSeaStacks(
+  elev: Float32Array, ax: number, ay: number, width: number, height: number,
+  seaLevel: number, seed: number, scale: number,
+): void {
+  const sw = seawardDir(elev, ax, ay, width, height, seaLevel);
+  const perp: [number, number] = [-sw[1], sw[0]];
+  const n = Math.round(3 + 2 * scale);                     // ~3 (small) … 5 (large)
+  for (let i = 0; i < n; i++) {
+    const fwd = 2.5 + i * 2.2 + hash01(seed + i, 11) * 2.5;       // step out into the surf
+    const lat = (hash01(seed + i, 23) - 0.5) * 9;                 // jitter along the shore
+    const cx = Math.round(ax + sw[0] * fwd + perp[0] * lat);
+    const cy = Math.round(ay + sw[1] * fwd + perp[1] * lat);
+    const summit = 0.40 + hash01(seed + i, 37) * 0.06;            // ~2.7–6 m above sea
+    const radius = 2.0 + hash01(seed + i, 53) * 1.5;             // small pillars
+    raiseIslet(elev, cx, cy, width, height, seaLevel, summit, radius);
+  }
+}
+
 export interface AffectedRegion {
   x0: number; y0: number;
   x1: number; y1: number;
@@ -270,6 +339,14 @@ export const POI_INFLUENCES: Record<string, InfluenceSpec> = {
   // light `crag` ruggeds the brink. An agent/recipe drops a `cliffs` POI (+ a
   // `coast` direction) on the shore it wants dramatised.
   cliffs:   { elevation: { plateau: 0.64, radius: 14, plateauCore: 0.52, rimSharpness: 1.7, crag: 0.32, cragFreq: 4.0 }, temperature: { delta: -0.05, radius: 14 }, warp: 0.4 },
+  // Sea stacks: an AGENT-AUTHORABLE offshore landform — a row of bare rock pillars
+  // rising from the surf just off a headland, the iconic companion to the cliffs.
+  // No standard field influence (the empty spec just keeps it out of the skip
+  // branch); the offshore islet cluster is placed bespoke in applyPoiInfluences via
+  // `placeSeaStacks` (coast-anchored, stepped seaward, sea-gated). `size` scales the
+  // count (~3 small … 5 large). Drop a `sea_stacks` POI (+ a `coast` direction) on
+  // the shore you want studded with stacks.
+  sea_stacks: {},
   // Settlement types — light terrain adjustments only
   village:  {},
   city:     {},
@@ -329,6 +406,14 @@ export function applyPoiInfluences(
     }
     const scale = SIZE_SCALE[poi.size ?? 'medium'] ?? 1.0;
     const warp = spec.warp ?? 0;
+
+    // Sea stacks are an OFFSHORE landform — a scattered cluster of islets in the
+    // water just past the shore anchor — not a single disc/peak at the point. Handle
+    // them bespoke (the standard elevation path would raise one blob on land).
+    if (poi.type === 'sea_stacks' && poi.position) {
+      placeSeaStacks(fields.elevation, px, py, width, height, seaLevel, seed, scale);
+      continue;
+    }
 
     // Climate (temperature/moisture) is AREAL — it fills the region. Landform
     // (elevation: peaks, dips) is LOCAL — it stays a point disc/peak even for a
