@@ -124,7 +124,21 @@ const rock = (preset: string, sizeM: number): Blueprint => ({
   parts: { mass: { type: 'rock', size: { w: 1, h: 1 }, params: { sizeM } } },
 });
 
+/** A natural LANDFORM mesh prop (a sea arch) — class `plant` so the render seam
+ *  routes it to the per-kind generative mesh source (and the loader pre-warms it),
+ *  exactly like a tree species. It's a parametric prop, not vegetation; the class
+ *  is purely the "warm one self-lit mesh per kind" routing tag. */
+const landform = (preset: string, type: string, footprint: { w: number; h: number }): Blueprint => ({
+  version: BLUEPRINT_VERSION, class: 'plant', preset,
+  category: 'flora', footprint,
+  materials: { walls: 'stone', roof: 'stone', ground: 'dirt' },
+  parts: { mass: { type, size: footprint, params: {} } },
+});
+
 export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
+  // Natural landform mesh prop — a weathered coastal rock arch (a real hole through
+  // rock, which the terrain heightfield can't do). Generated self-lit, no art.
+  sea_arch: landform('sea_arch', 'sea_arch', { w: 4, h: 3 }),
   // Peasant cottage: rectangular plan (1:1.5), door + one shuttered window on the
   // entry face, one on the gable, ridge smoke LOUVRE (no chimney — period default
   // for commoners; see docs/reference/medieval-building-reference.md).
