@@ -60,10 +60,24 @@ describe('chunkBarrierRun', () => {
     expect(elements).toBe(chunks + 4);
   });
 
-  it('a gate adds two flanking towers (a gatehouse)', () => {
+  it('a gate adds a gatehouse (two flanking towers) + a timber gate leaf', () => {
     const ungated = runElements(crenStoneRing()).length;
-    const gated = runElements(crenStoneRing([{ t: 7, width: 3 }])).length;
-    expect(gated).toBe(ungated + 2);
+    const gatedEls = runElements(crenStoneRing([{ t: 7, width: 3 }]));
+    expect(gatedEls.length).toBe(ungated + 3);                                // 2 towers + 1 leaf
+    expect(gatedEls.filter((e) => e.key.startsWith('gate:'))).toHaveLength(1);
+  });
+
+  it('a palisade gate gets a timber gate leaf but NO masonry towers', () => {
+    const palisade = (gates = [] as { t: number; width: number }[]): BarrierRun =>
+      ({ kind: 'palisade', path: [[0, 0], [10, 0]], ...BARRIER_DEFAULTS.palisade, gates });
+    const els = runElements(palisade([{ t: 5, width: 3 }]));
+    expect(els.filter((e) => e.key.startsWith('gate:'))).toHaveLength(1);     // closing gate
+    expect(els.filter((e) => e.key.startsWith('tower:'))).toHaveLength(0);    // timber: no drums
+  });
+
+  it('a fence / hedge gate gets NO gate leaf (only defensive runs close)', () => {
+    const fence: BarrierRun = { kind: 'fence', path: [[0, 0], [8, 0]], ...BARRIER_DEFAULTS.fence, gates: [{ t: 4, width: 2 }] };
+    expect(runElements(fence).filter((e) => e.key.startsWith('gate:'))).toHaveLength(0);
   });
 
   it('corner towers are ROUND drums; gate towers are SQUARE (distinct cached geometry)', () => {

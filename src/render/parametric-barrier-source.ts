@@ -18,7 +18,9 @@ import type { BarrierRun, BarrierGate } from '@/world/barrier';
 import { composeStructure, type StructureResult, type StructureSpec, type NormAnchor } from '@/assetgen/compose';
 import { structureResultToPack } from '@/render/parametric-building-source';
 import { towerSpec } from '@/assetgen/geometry/tower-spec';
+import { gateLeafSpec } from '@/assetgen/geometry/gate-spec';
 import type { Mat } from '@/assetgen/types';
+import type { BarrierKind } from '@/world/barrier';
 import type { SpritePack, BarrierPiece } from '@/render/iso/sprite-canvas';
 
 /** Chunk length along the path, in tiles — short enough that each piece y-sorts + foot-z lifts
@@ -166,10 +168,32 @@ function towerElements(run: BarrierRun): Element[] {
   return out;
 }
 
-/** All composable elements of a run, in draw-friendly order (curtain first, towers over). */
+/** Defensive enclosures get a closing timber gate in each opening; garden fences / hedges
+ *  keep a plain gap. The leaf is always timber even in a masonry wall (a wooden castle gate). */
+const GATE_LEAF_KINDS = new Set<BarrierKind>(['wall', 'palisade', 'rampart']);
+
+/** Timber gate-leaf elements: one closed double-leaf gate per opening of a defensive run. */
+function gateElements(run: BarrierRun): Element[] {
+  if (!GATE_LEAF_KINDS.has(run.kind)) return [];
+  const tag = `${r3(run.height)}:${r3(run.thickness)}`;
+  const out: Element[] = [];
+  for (const g of run.gates) {
+    if (g.width <= 0) continue;
+    const { p, dir } = frameAt(run.path, g.t);
+    const leaf = gateLeafSpec({ gateWidth: g.width, curtainHeight: run.height, dir });
+    out.push({
+      key: `gate:${tag}:${r3(g.width)}:${r3(dir[0])},${r3(dir[1])}`,
+      spec: () => ({ parts: leaf.parts, mountAnchors: leaf.mountAnchors }),
+      anchor: tagAnchor, refX: p[0], refY: p[1], sortX: p[0], sortY: p[1],
+    });
+  }
+  return out;
+}
+
+/** All composable elements of a run, in draw-friendly order (curtain first, gate + towers over). */
 export function runElements(run: BarrierRun): Element[] {
   if (!run.path || run.path.length < 2) return [];
-  return [...chunkElements(run), ...towerElements(run)];
+  return [...chunkElements(run), ...gateElements(run), ...towerElements(run)];
 }
 
 /** A composed element: the lit pack + the normalised position of its anchor point. */
