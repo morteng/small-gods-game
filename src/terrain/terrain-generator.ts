@@ -239,13 +239,52 @@ export function classifyBiomes(fields: TerrainField, config: TerrainConfig): Bio
   return { biomes, width, height };
 }
 
+/** Abramowitz & Stegun 7.1.26 error-function approximation (|err| ≤ 1.5e-7). */
+function erf(x: number): number {
+  const sign = x < 0 ? -1 : 1;
+  const ax = Math.abs(x);
+  const t = 1 / (1 + 0.3275911 * ax);
+  const y =
+    1 -
+    ((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t + 0.254829592) *
+      t *
+      Math.exp(-ax * ax);
+  return sign * y;
+}
+
+/**
+ * Flatten the tile-selection noise to a UNIFORM [0,1] value.
+ *
+ * `sampleBiomeTile` walks a CDF and so assumes a uniform input — but the source
+ * is `fbm(…, octaves:3)`, which is NOT uniform: summing octaves gives a roughly
+ * Gaussian spread (measured: μ≈0.500, σ≈0.085, range ≈[0.16,0.84], ~74% of values
+ * inside [0.4,0.6]). Fed raw, only the FIRST distribution band (and a sliver of
+ * the second) ever wins — every later tile starves far below its nominal weight
+ * (e.g. a `glen: 0.1` clearing rendered at ~0.01%), so BIOME_TILES weights were
+ * NOT honoured as fractions; entry ORDER decided everything.
+ *
+ * Φ — the Gaussian CDF with that σ — is the exact inverse-transform that maps the
+ * fbm spread back to uniform, so the weights become real area fractions. The remap
+ * is MONOTONIC, so it preserves the noise's spatial coherence (neighbouring cells
+ * keep their relative ordering → tile variants still cluster into patches rather
+ * than salt-and-pepper); only the value HISTOGRAM is flattened.
+ */
+const FBM3_MEAN = 0.5;
+const FBM3_STD = 0.085;
+export function uniformizeTileNoise(noiseValue: number): number {
+  // Φ(z) = ½(1 + erf(z/√2)), z = standardised fbm value.
+  const z = (noiseValue - FBM3_MEAN) / FBM3_STD;
+  return 0.5 * (1 + erf(z / Math.SQRT2));
+}
+
 /**
  * Sample a tile type from a biome's distribution using a spatially-coherent
- * noise value in [0, 1] instead of a random value.
- * Identical CDF walk to sampleBiomeTile — only the input source changes.
+ * noise value instead of a random value. The fbm noise is uniformised first
+ * (see `uniformizeTileNoise`) so the CDF walk honours BIOME_TILES weights as
+ * true area fractions while keeping tile variants spatially clustered.
  */
 export function sampleTileFromNoise(biome: Biome, noiseValue: number): string {
-  return sampleBiomeTile(biome, noiseValue);
+  return sampleBiomeTile(biome, uniformizeTileNoise(noiseValue));
 }
 
 /** Sample a tile type string for every cell from its biome's distribution. */

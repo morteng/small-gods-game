@@ -6,7 +6,7 @@ describe('content-version constants', () => {
     expect(ART_RECIPE_VERSION).toBe('v22');
   });
 
-  it('declares the current world content version (53: wall gate fix)', () => {
-    expect(WORLD_CONTENT_VERSION).toBe(53);
+  it('declares the current world content version (54: tile-variant weights honoured)', () => {
+    expect(WORLD_CONTENT_VERSION).toBe(54);
   });
 });
