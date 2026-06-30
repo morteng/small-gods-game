@@ -835,6 +835,12 @@ export function placeSettlement(
     for (const lot of plan.lots) for (const t of lot.tiles) bump(t.x, t.y);
     for (const rt of roadTiles) bump(rt.x, rt.y);
     for (const c of plan.civics) { bump(c.x, c.y); bump(c.x + c.w - 1, c.y + c.h - 1); }
+    // Include every building's VISUAL extent (roof overhang reaches past its lot tiles), so
+    // the ring sits clear OUTSIDE all buildings. Otherwise a perimeter building pokes past the
+    // bbox and `isBuilding` opens a building-wide gate around it — a 10–12 tile hole in the wall
+    // instead of a real gate. With the visual extent enclosed, gates appear only where roads or
+    // water cross the line (the genuine town-gate rule).
+    for (const cell of buildingVisual) { const ci = cell.indexOf(','); bump(+cell.slice(0, ci), +cell.slice(ci + 1)); }
 
     if (Number.isFinite(minX)) {
       const ring = deriveSettlementRing({
