@@ -137,6 +137,9 @@ export async function generateWithNoise(
     island: styledIslandSpec(worldSeed) ?? undefined,
     climate: styledClimate(worldSeed),
     shape: styledShapeSpec(worldSeed),
+    // Absolute relief (metres) so biome classification gates snow/rock on real
+    // altitude, not a fraction — a low-relief world won't snow-cap a 7 m bump.
+    reliefM: worldStyleOf(worldSeed ?? undefined).mountainRelief,
   };
 
   const fields = generateTerrainFields(config);

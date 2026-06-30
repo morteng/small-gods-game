@@ -90,12 +90,29 @@ describe('classifyBiome', () => {
     expect(classifyBiome(SEA + 0.01, 0.5, 0.5, SEA)).toBe(Biome.Beach);
   });
 
-  it('peak at high elevation', () => {
+  it('peak at high elevation (default relief: 0.9 ≈ 26 m above sea)', () => {
     expect(classifyBiome(0.9, 0.5, 0.5, SEA)).toBe(Biome.Peak);
   });
 
-  it('mountain band', () => {
+  it('mountain band (default relief: 0.80 ≈ 21.6 m above sea)', () => {
     expect(classifyBiome(0.80, 0.5, 0.5, SEA)).toBe(Biome.Mountain);
+  });
+
+  it('keys upland on ABSOLUTE metres, not the elevation fraction', () => {
+    // The SAME high fraction (0.9) on a LOW-relief world is only ~5 m above sea —
+    // a buildable hill, NOT an alpine mountain. (heightM = (0.9-0.35)*10 = 5.5 m.)
+    const lowRelief = (0.9 - SEA) * 10;
+    expect(classifyBiome(0.9, 0.5, 0.5, SEA, lowRelief)).not.toBe(Biome.Peak);
+    expect(classifyBiome(0.9, 0.5, 0.5, SEA, lowRelief)).not.toBe(Biome.Mountain);
+    // On a HIGH-relief world the same fraction is a real summit.
+    expect(classifyBiome(0.9, 0.5, 0.5, SEA, (0.9 - SEA) * 48)).toBe(Biome.Peak);
+  });
+
+  it('a steep face promotes elevated ground to rocky Mountain below the height line', () => {
+    // 14 m above sea (below the 19 m mountain line) but a steep 8 m/tile scarp → bare rock.
+    expect(classifyBiome(0.64, 0.5, 0.5, SEA, 14, 8)).toBe(Biome.Mountain);
+    // Same height, gentle slope → ordinary land, not rock.
+    expect(classifyBiome(0.64, 0.5, 0.5, SEA, 14, 0)).not.toBe(Biome.Mountain);
   });
 
   it('desert: hot + dry', () => {

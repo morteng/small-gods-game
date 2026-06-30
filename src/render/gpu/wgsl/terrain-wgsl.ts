@@ -456,7 +456,11 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   // cold/temperate latitude crowns white, but a hot-country summit (a desert cinder
   // cone, altitude-cooled to ~0.44 yet far from polar) stays bare. Without this gate
   // the snowline dusted the volcano and read as an alpine mountain dropped on the desert.
-  let wSnowAlt  = smoothstep(0.47, 0.58, aboveSea + jit * 0.03)
+  // Keyed on ABSOLUTE metres above sea (aboveSea·reliefM), NOT the [0,1] fraction — so a
+  // low-relief world never snow-caps a 7 m bump (the fraction crossed the line; metres don't).
+  // Calibrated to the old fraction at default relief 48 m (0.47→22.6 m, 0.58→27.8 m).
+  let metresAS  = aboveSea * G.uZParams.z;
+  let wSnowAlt  = smoothstep(22.5, 28.0, metresAS + jit * 1.5)
                 * smoothstep(0.45, 0.33, temp + jit * 0.04);
   let wSnow = max(wSnowCold, wSnowAlt) * smoothstep(0.42, 0.70, n.y);
   let sandBand = 0.05 + jit * 0.015;

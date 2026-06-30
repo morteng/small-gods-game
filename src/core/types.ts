@@ -371,6 +371,10 @@ export interface TerrainConfig {
   climate?: ClimateSpec;
   /** Authored terrain shape laid over the noise (studio scenarios). Off when undefined. */
   shape?: import('@/terrain/terrain-shape').TerrainShapeSpec;
+  /** Total relief (metres) for the elevation 0→1 span — `worldStyleOf().mountainRelief`.
+   *  Lets biome classification gate snow/rock on ABSOLUTE height, not a fraction.
+   *  Defaults to 48 (TERRAIN_RELIEF_M) when undefined. */
+  reliefM?: number;
 }
 
 export interface TerrainField {

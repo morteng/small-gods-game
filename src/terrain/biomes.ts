@@ -57,29 +57,61 @@ export const BIOME_TILES: Record<Biome, Record<string, number>> = {
 };
 
 /**
+ * Default total relief (metres) for the elevation `0→1` span. Mirrors
+ * `TERRAIN_RELIEF_M` in `src/world/heightfield.ts` — duplicated as a plain
+ * constant here only to break an import cycle (heightfield → terrain-generator →
+ * biomes). Used as the metre fallback when a caller passes no absolute height.
+ */
+const DEFAULT_RELIEF_M = 48;
+
+/**
+ * Upland is keyed on ABSOLUTE altitude (metres above sea) and STEEPNESS — not a
+ * fraction of the local relief. A fraction made a 6 m hill on a low-relief world
+ * read as an alpine mountain (grey rock + a shader snow cap) exactly like a real
+ * 25 m summit; metres fix that. Calibrated so a DEFAULT-relief (48 m) world keeps
+ * its old mountain/peak extent (old frac 0.76 ≈ 19.7 m, 0.86 ≈ 24.5 m).
+ */
+export const MOUNTAIN_HEIGHT_M = 19;  // ≥ m above sea → upland (rocky/mountain ground)
+export const PEAK_HEIGHT_M     = 24;  // ≥ m above sea → bare summit
+/** A face this steep (m of rise per tile) can't hold soil → bare rock; promotes
+ *  high-ish ground to Mountain even below the height line (canyon walls, scarps). */
+export const ROCK_SLOPE_M      = 6;
+
+/**
  * Classify a tile into a biome given its field values.
  *
  * @param elevation  [0, 1] — 0 = sea floor, 1 = highest peak
  * @param moisture   [0, 1] — 0 = desert dry, 1 = rain forest wet
  * @param temperature [0, 1] — 0 = polar, 1 = equatorial
  * @param seaLevel   elevation threshold below which ocean tiles appear
+ * @param heightM    absolute metres above sea (style-scaled). Defaults to the
+ *                   default-relief conversion of `elevation` for legacy callers.
+ * @param slopeM     local gradient magnitude in metres of rise per tile (0 if unknown)
  */
 export function classifyBiome(
   elevation: number,
   moisture: number,
   temperature: number,
   seaLevel: number,
+  heightM: number = (elevation - seaLevel) * DEFAULT_RELIEF_M,
+  slopeM: number = 0,
 ): Biome {
-  // Elevation-first: ocean, beach, mountain, peak
+  // Water first — sea level lives in the normalised field, so this stays a fraction.
   if (elevation < seaLevel * 0.6) return Biome.DeepOcean;
   if (elevation < seaLevel)       return Biome.Ocean;
   if (elevation < seaLevel + 0.04) return Biome.Beach;
-  if (elevation > 0.86)           return Biome.Peak;
-  if (elevation > 0.76)           return Biome.Mountain;
 
-  // Whittaker: temperature × moisture
+  // Upland by ABSOLUTE altitude + steepness. A steep face promotes to Mountain
+  // once it's at least half-way to the height line, so river banks and gentle
+  // lowland undulation stay green while real scarps go rocky.
+  const steep = slopeM >= ROCK_SLOPE_M && heightM >= MOUNTAIN_HEIGHT_M * 0.5;
+  if (heightM >= PEAK_HEIGHT_M)               return Biome.Peak;
+  if (heightM >= MOUNTAIN_HEIGHT_M || steep)  return Biome.Mountain;
+
+  // Whittaker: temperature × moisture. Ice keys on real altitude (metres), not a
+  // fraction, so only genuine cold high ground freezes.
   if (temperature < 0.15) {
-    return elevation > 0.65 ? Biome.Ice : Biome.Tundra;
+    return heightM >= MOUNTAIN_HEIGHT_M * 0.6 ? Biome.Ice : Biome.Tundra;
   }
   if (temperature < 0.35) {
     return moisture > 0.4 ? Biome.BorealForest : Biome.Tundra;

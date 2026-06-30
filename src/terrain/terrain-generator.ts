@@ -191,17 +191,50 @@ function computeWaterProximity(
   return result;
 }
 
+/** Default total relief (metres) for elevation 0→1 — mirrors TERRAIN_RELIEF_M. */
+const DEFAULT_RELIEF_M = 48;
+
+/**
+ * Absolute metres above sea + local slope (metres of rise per tile), the two
+ * physical quantities biome classification needs so snow/rock key on real
+ * altitude/steepness instead of a fraction of the local relief. Central
+ * differences on the elevation field, clamped at the edges.
+ */
+function siteMetrics(
+  elevation: ArrayLike<number>, x: number, y: number, width: number, height: number,
+  seaLevel: number, reliefM: number,
+): { heightM: number; slopeM: number } {
+  const idx = y * width + x;
+  const e = elevation[idx];
+  const xm = x > 0 ? elevation[idx - 1] : e;
+  const xp = x < width - 1 ? elevation[idx + 1] : e;
+  const ym = y > 0 ? elevation[idx - width] : e;
+  const yp = y < height - 1 ? elevation[idx + width] : e;
+  const gx = (xp - xm) * 0.5;   // elevation fraction per tile (x)
+  const gy = (yp - ym) * 0.5;   // elevation fraction per tile (y)
+  return {
+    heightM: (e - seaLevel) * reliefM,
+    slopeM: Math.hypot(gx, gy) * reliefM,
+  };
+}
+
 /** Classify every tile into a Biome using the three field values. */
 export function classifyBiomes(fields: TerrainField, config: TerrainConfig): BiomeMap {
-  const { width, height, seaLevel = 0.35 } = config;
+  const { width, height, seaLevel = 0.35, reliefM = DEFAULT_RELIEF_M } = config;
   const biomes: string[] = new Array(width * height);
-  for (let i = 0; i < biomes.length; i++) {
-    biomes[i] = classifyBiome(
-      fields.elevation[i],
-      fields.moisture[i],
-      fields.temperature[i],
-      seaLevel,
-    );
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const i = y * width + x;
+      const { heightM, slopeM } = siteMetrics(fields.elevation, x, y, width, height, seaLevel, reliefM);
+      biomes[i] = classifyBiome(
+        fields.elevation[i],
+        fields.moisture[i],
+        fields.temperature[i],
+        seaLevel,
+        heightM,
+        slopeM,
+      );
+    }
   }
   return { biomes, width, height };
 }
@@ -264,7 +297,7 @@ export function recomputeRegion(
   config:    TerrainConfig,
   x0: number, y0: number, x1: number, y1: number,
 ): void {
-  const { width, height, seaLevel = 0.35, seed } = config;
+  const { width, height, seaLevel = 0.35, reliefM = DEFAULT_RELIEF_M, seed } = config;
   const cx0 = Math.max(0, x0), cy0 = Math.max(0, y0);
   const cx1 = Math.min(width - 1, x1), cy1 = Math.min(height - 1, y1);
   const detailSeed = (seed * 9973 + 7919) | 0;
@@ -272,11 +305,14 @@ export function recomputeRegion(
   for (let y = cy0; y <= cy1; y++) {
     for (let x = cx0; x <= cx1; x++) {
       const idx = y * width + x;
+      const { heightM, slopeM } = siteMetrics(fields.elevation, x, y, width, height, seaLevel, reliefM);
       const biome = classifyBiome(
         fields.elevation[idx],
         fields.moisture[idx],
         fields.temperature[idx],
         seaLevel,
+        heightM,
+        slopeM,
       ) as Biome;
       biomeMap.biomes[idx] = biome;
       const noiseValue = fbm(x * 0.15, y * 0.15, { seed: detailSeed, octaves: 3 });
