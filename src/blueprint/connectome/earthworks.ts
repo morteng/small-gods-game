@@ -245,6 +245,17 @@ export function siteSelect(
 
 // ── Earthwork derivation: build only the gap the site doesn't already give ────────
 
+/**
+ * Minimum *artificial* prominence a motte heaps, as a fraction of the design's target
+ * motteHeight. A motte-and-bailey is DEFINED by its raised mound — on a slight natural
+ * rise the bare defensive deficit can be only a metre or two, which reads as no mound at
+ * all. So once a motte is built (the site isn't already a commanding natural hill), it
+ * heaps at LEAST this fraction of the design height, guaranteeing a believable mound while
+ * keeping "a hill needs less ADDED earth for the same final height." A genuinely tall hill
+ * (natural ≥ motteHeight) still builds NO motte — the hill IS the motte (ringwork case).
+ */
+export const MOTTE_PROMINENCE_FLOOR = 0.6;
+
 export interface EarthworkSpec {
   /** Final flat-top height the motte should reach (world units). */
   motteHeight: number;
@@ -280,8 +291,11 @@ export function deriveEarthworks(
   const { height: natural } = readAffordance(probe, site.x, site.y);
   const earthworks: Earthwork[] = [];
 
-  // 1. Motte — only the deficit the hill doesn't already provide.
-  const motteDeficit = Math.max(0, spec.motteHeight - natural);
+  // 1. Motte — the deficit the hill doesn't already provide, but floored to a minimum
+  //    artificial prominence so a built motte always reads as a real heaped mound. A hill
+  //    already as tall as the design wants (natural ≥ motteHeight) builds NO motte.
+  const deficit = Math.max(0, spec.motteHeight - natural);
+  const motteDeficit = deficit > 0 ? Math.max(spec.motteHeight * MOTTE_PROMINENCE_FLOOR, deficit) : 0;
   let fill = 0;
   if (motteDeficit > 0) {
     const vol = frustumVolume(spec.motteTopRadius, motteDeficit, spec.slope);

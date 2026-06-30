@@ -104,12 +104,21 @@ describe('deriveEarthworks — conservation of spoil', () => {
 
   it('on a hill the motte deficit shrinks — partial hill builds a smaller mound', () => {
     const flat = deriveEarthworks({ x: 0, y: 0 }, spec, probeOf({ '0,0': { height: 0 } }));
-    const onHill = deriveEarthworks({ x: 0, y: 0 }, spec, probeOf({ '0,0': { height: 5 } }));
+    // A modest 1 m rise: deficit 7 m, still above the prominence floor, so it shrinks to 7.
+    const onHill = deriveEarthworks({ x: 0, y: 0 }, spec, probeOf({ '0,0': { height: 1 } }));
     const flatMotte = flat.earthworks.find((e) => e.kind === 'motte')!;
     const hillMotte = onHill.earthworks.find((e) => e.kind === 'motte')!;
-    expect(hillMotte.height).toBeCloseTo(3, 5); // 8 wanted − 5 natural
+    expect(hillMotte.height).toBeCloseTo(7, 5); // 8 wanted − 1 natural, > floor (4.8)
     expect(hillMotte.volume).toBeLessThan(flatMotte.volume);
     expect(onHill.netVolume).toBeCloseTo(0, 5); // still conserved
+  });
+
+  it('floors the motte to a believable mound on a slight rise (prominence floor)', () => {
+    // 5 m plateau, 8 m design → bare deficit 3 m (too subtle). The floor heaps 0.6·8 = 4.8 m.
+    const onPlateau = deriveEarthworks({ x: 0, y: 0 }, spec, probeOf({ '0,0': { height: 5 } }));
+    const motte = onPlateau.earthworks.find((e) => e.kind === 'motte')!;
+    expect(motte.height).toBeCloseTo(8 * 0.6, 5); // floored, not the 3 m bare deficit
+    expect(onPlateau.netVolume).toBeCloseTo(0, 5); // ditch still balances the bigger fill
   });
 
   it('a hill tall enough builds NO motte (the hill IS the motte)', () => {
