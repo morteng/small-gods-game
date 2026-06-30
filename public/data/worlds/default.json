@@ -172,6 +172,24 @@
       "description": "A row of weathered rock pillars standing off the foot of the Dire Cliffs, where the headland once reached further into the sea before the waves gnawed it back."
     },
     {
+      "id": "smugglers_cove_west",
+      "type": "cove",
+      "name": "Smuggler's Cove",
+      "position": {"x": 70, "y": 110},
+      "coast": "west",
+      "size": "medium",
+      "description": "A sheltered crescent bitten into the western shore, its calm shallows hidden between two low arms of land — a quiet place for boats that would rather not be seen."
+    },
+    {
+      "id": "windward_head_south",
+      "type": "headland",
+      "name": "Windward Head",
+      "position": {"x": 150, "y": 150},
+      "coast": "south",
+      "size": "large",
+      "description": "A low green cape reaching out into the southern sea, its turf cropped close by the wind and its rocky toe washed by the swell."
+    },
+    {
       "id": "sunscorch_desert",
       "type": "desert",
       "name": "The Sunscorch",

@@ -133,7 +133,7 @@ const WARP_FREQ = 0.07;
 /** POI types whose landform must sit ON the coast — their influence centre snaps to
  *  the nearest shoreline before stamping (see `snapToCoast`). A fixed coord can't
  *  track the seed-varied coastline, so without this they land inland. */
-const COASTAL_SNAP: ReadonlySet<string> = new Set(['cliffs', 'sea_stacks']);
+const COASTAL_SNAP: ReadonlySet<string> = new Set(['cliffs', 'sea_stacks', 'cove', 'headland']);
 
 /** How far (tiles) to hunt for a shoreline before giving up and using the raw point.
  *  Generous so a feature nominally placed in the offshore margin still finds its
@@ -347,6 +347,18 @@ export const POI_INFLUENCES: Record<string, InfluenceSpec> = {
   // count (~3 small … 5 large). Drop a `sea_stacks` POI (+ a `coast` direction) on
   // the shore you want studded with stacks.
   sea_stacks: {},
+  // Cove: an AGENT-AUTHORABLE sheltered inlet — a rounded basin carved at the shore
+  // so the sea floods IN, biting a concave bay into the coastline with land arms to
+  // either side (where the dip falloff is weak). Reuses the negative-`delta` dip path
+  // + the coast anchor; `warp` makes the mouth irregular. A touch of moisture greens
+  // the sheltered shore. Drop a `cove` POI (+ `coast`) on the shore you want indented.
+  cove:     { elevation: { delta: -0.26, radius: 9 }, moisture: { delta: +0.12, radius: 11 }, warp: 0.5 },
+  // Headland: an AGENT-AUTHORABLE low green CAPE projecting into the sea — the gentle
+  // cousin of the dire cliffs. PLATEAU mode (land-gated) but lower and softer-rimmed
+  // (plateau 0.50 ≈ 8 m, a rounded brow, not a 16 m sheer wall), so it reads as a
+  // grassy promontory with a rocky toe rather than an alpine crag. Drop a `headland`
+  // POI (+ `coast`) on the shore you want to bulge out into a cape.
+  headland: { elevation: { plateau: 0.50, radius: 12, plateauCore: 0.42, rimSharpness: 1.1, crag: 0.22, cragFreq: 3.5 }, temperature: { delta: -0.03, radius: 12 }, warp: 0.5 },
   // Settlement types — light terrain adjustments only
   village:  {},
   city:     {},

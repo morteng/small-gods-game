@@ -29,6 +29,8 @@ export const POI_TYPES = [
   'plains',
   'cliffs',
   'sea_stacks',
+  'cove',
+  'headland',
 ] as const;
 
 export const BIOMES = [
@@ -83,6 +85,8 @@ export const POI_VISUAL_STYLES: Record<string, string> = {
   crossroads: 'signpost, worn paths, resting travelers, milestone markers',
   cliffs: 'sheer rock faces plunging to the surf, seabird colonies, wind-bent grass on the brink, crashing waves',
   sea_stacks: 'bare rock pillars rising from the surf off a headland, white spray, wheeling gulls, isolated weathered stone',
+  cove: 'a sheltered crescent bay, calm shallow water, a curve of pale sand, fishing boats drawn up, sheltering arms of land',
+  headland: 'a low green cape reaching into the sea, wind-cropped turf, a rocky toe at the waterline, a wide horizon',
 };
 
 /** Validate a world seed and return any errors */
