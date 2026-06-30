@@ -37,7 +37,8 @@ export interface StudioHandle { dispose(): void; }
 
 const HALF_W = ISO_TILE_W / 2;
 const HALF_H = ISO_TILE_H / 2;
-const PATCH = 56; // tiles square — big enough for the outer ditch + approach, small enough to read
+const PATCH = 96; // tiles square — a generous landmass so the fort (outer ring ⌀~40) sits IN a
+                  // landscape with room around it, not filling a tiny island.
 
 /** Iso screen extent (pre-camera) of a tile rect; fit the camera to it. */
 function fitTiles(cam: Camera, minTx: number, minTy: number, maxTx: number, maxTy: number, vw: number, vh: number, margin = 0.9): void {
@@ -71,36 +72,52 @@ function isWater(map: GameMap, x: number, y: number): boolean {
 function pickSeat(map: GameMap, lowGround: boolean): { x: number; y: number } {
   const W = map.width, H = map.height;
   const INNER_R = 14;          // keep + bailey building ring — must be dry
-  const NEAR_R = 22;           // water within this (beyond the ring) = a riverside seat
+  const NEAR_R = 24;           // water within this (beyond the ring) = a riverside seat
   const margin = INNER_R + 2;
-  const innerLandFraction = (cx: number, cy: number): number => {
-    let land = 0, total = 0;
-    for (let dy = -INNER_R; dy <= INNER_R; dy++) for (let dx = -INNER_R; dx <= INNER_R; dx++) {
+  // Per-cell metrics over the inner disc (stride 2 for speed): land fraction + LOCAL RELIEF
+  // (max−min ground), so we can prefer FLAT ground — the keep shouldn't perch on a natural
+  // knoll, and a motte reads as deliberate earthwork only when it rises from flat land.
+  const disc = (cx: number, cy: number): { land: number; relief: number; h: number } => {
+    let land = 0, total = 0, lo = Infinity, hi = -Infinity;
+    for (let dy = -INNER_R; dy <= INNER_R; dy += 2) for (let dx = -INNER_R; dx <= INNER_R; dx += 2) {
       if (dx * dx + dy * dy > INNER_R * INNER_R) continue;
-      total++; if (!isWater(map, cx + dx, cy + dy)) land++;
+      total++;
+      if (isWater(map, cx + dx, cy + dy)) { land--; } // counted below
+      const hh = heightMetresAt(map, cx + dx, cy + dy);
+      if (hh < lo) lo = hh; if (hh > hi) hi = hh;
+      if (!isWater(map, cx + dx, cy + dy)) land++;
     }
-    return total ? land / total : 0;
+    return { land: total ? Math.max(0, land) / total : 0, relief: hi - lo, h: heightMetresAt(map, cx, cy) };
   };
   // 0 (no water within NEAR_R) … 1 (water right at the ring edge) — closer water = better moat.
   const riverside = (cx: number, cy: number): number => {
     let nearest = Infinity;
-    for (let dy = -NEAR_R; dy <= NEAR_R; dy++) for (let dx = -NEAR_R; dx <= NEAR_R; dx++) {
+    for (let dy = -NEAR_R; dy <= NEAR_R; dy += 2) for (let dx = -NEAR_R; dx <= NEAR_R; dx += 2) {
       const d = Math.hypot(dx, dy);
       if (d <= INNER_R || d > NEAR_R) continue;
       if (isWater(map, cx + dx, cy + dy)) { nearest = Math.min(nearest, d); }
     }
     return nearest === Infinity ? 0 : 1 - (nearest - INNER_R) / (NEAR_R - INNER_R);
   };
+  // Normalise height to the patch's land range so "low" / "high" are meaningful.
+  let hMin = Infinity, hMax = -Infinity;
+  for (let y = margin; y < H - margin; y += 3) for (let x = margin; x < W - margin; x += 3) {
+    if (isWater(map, x, y)) continue;
+    const hh = heightMetresAt(map, x, y); if (hh < hMin) hMin = hh; if (hh > hMax) hMax = hh;
+  }
+  const hSpan = Math.max(1e-3, hMax - hMin);
+
   let best = { x: (W / 2) | 0, y: (H / 2) | 0 };
-  let bestScore = -Infinity, bestH = lowGround ? Infinity : -Infinity;
-  const EPS = 0.01;
+  let bestScore = -Infinity;
   for (let y = margin; y < H - margin; y++) for (let x = margin; x < W - margin; x++) {
     if (isWater(map, x, y)) continue;                 // the keep itself must be dry
-    const score = innerLandFraction(x, y) + 0.25 * riverside(x, y);
-    const hh = heightMetresAt(map, x, y);
-    const better = score > bestScore + EPS;
-    const tie = Math.abs(score - bestScore) <= EPS && (lowGround ? hh < bestH : hh > bestH);
-    if (better || tie) { bestScore = score; bestH = hh; best = { x, y }; }
+    const d = disc(x, y);
+    const flat = 1 - Math.min(1, d.relief / 6);       // 1 = dead flat over the footprint
+    const hNorm = (d.h - hMin) / hSpan;
+    const level = lowGround ? 1 - hNorm : hNorm;       // low ground → tall motte; else commanding
+    // Dry footprint dominates; then flat (clean mound, off natural knolls); then low/high; then riverside.
+    const score = d.land * 1.0 + flat * 0.6 + level * 0.5 + riverside(x, y) * 0.3;
+    if (score > bestScore) { bestScore = score; best = { x, y }; }
   }
   return best;
 }
@@ -221,7 +238,17 @@ export function mountSiteStudio(container: HTMLElement): StudioHandle {
     // ── regenerate ────────────────────────────────────────────────────────────────
     async function regenerate(refit = true): Promise<void> {
       const token = ++regenToken;
-      const ws: WorldSeed = { name: 'site-patch', size: { width: PATCH, height: PATCH }, biome: 'temperate', pois: [], connections: [], constraints: [] } as unknown as WorldSeed;
+      // A SITE-scale landscape, not a continent: gentle rolling lowland with a river, no
+      // alpine drama. `island:false` → a land chunk fills the frame (not a tiny isle); a warm,
+      // shallow-lapse climate → green hills, never snow-capped peaks on 2-storey bumps; low
+      // `mountainRelief` → the terrain is physically gentle so nothing reads as a mountain.
+      const ws: WorldSeed = {
+        name: 'site-patch', size: { width: PATCH, height: PATCH }, biome: 'temperate',
+        pois: [], connections: [], constraints: [],
+        island: false,
+        climate: { tempNorth: 0.6, tempSouth: 0.74, elevationLapse: 0.18 },
+        style: { mountainRelief: 16, coastDrama: 0.3 },
+      } as unknown as WorldSeed;
       const res = await generateWithNoise(PATCH, PATCH, gen.seed, ws);
       if (disposed || token !== regenToken) return;
       map = res.map; world = res.world;
