@@ -252,10 +252,19 @@ describe('generateTerrain', () => {
 
 describe('sampleTiles spatial coherence', () => {
   /**
-   * Measure average same-type neighbor count across all tiles.
-   * Random baseline for a 4-neighbour check with a distribution like
-   * TemperateGrassland (60% grass) gives ~2.4. Noise-based sampling
-   * should produce spatially coherent patches, giving > 2.5.
+   * Measure average same-type neighbor count across all tiles (4-neighbour).
+   * The point is to prove tiles form CLUSTERED PATCHES, not salt-and-pepper.
+   * The random-scatter floor for the current TemperateGrassland mix
+   * ({grass .5, meadow .2, hills .18, dirt .07, scrubland .05}) is
+   * 4·Σpᵢ² ≈ 1.3; spatially-coherent noise sampling sits far above it (~2.3).
+   *
+   * NB: this used to assert > 2.5, calibrated when the tile-pick fed RAW fbm
+   * into the CDF walk so a biome rendered as almost-pure grass (trivially
+   * coherent). Since `uniformizeTileNoise` made the weights real fractions, the
+   * palette is genuinely richer (meadow/hills/dirt/scrubland all present at
+   * weight) so patches are naturally a touch smaller — still strongly clustered
+   * (~2.3 vs the ~1.3 random floor), just no longer a monoculture. The monotonic
+   * remap preserves coherence; the bar moved because variety went UP by design.
    */
   function avgSameNeighborCount(tiles: string[][], width: number, height: number): number {
     let total = 0, count = 0;
@@ -275,16 +284,18 @@ describe('sampleTiles spatial coherence', () => {
     return total / count;
   }
 
-  it('produces spatially coherent patches (avg same-neighbour > 2.5)', () => {
+  it('produces spatially coherent patches (well above the random-scatter floor)', () => {
     // Force a single-biome map so we're measuring tile coherence, not biome boundaries
     const W = 64, H = 64;
     const config = { seed: 42, width: W, height: H, seaLevel: 0.0 };
-    const { biomeMap, tiles, fields } = generateTerrain(config);
+    const { biomeMap, fields } = generateTerrain(config);
     // Override all biomes to TemperateGrassland for a clean single-biome test
     biomeMap.biomes.fill(Biome.TemperateGrassland);
     const noiseTiles = sampleTiles(biomeMap, fields, config);
     const avg = avgSameNeighborCount(noiseTiles, W, H);
-    expect(avg).toBeGreaterThan(2.5);
+    // Random scatter ≈ 1.3 for this mix; clustered noise ≈ 2.3. Assert clearly
+    // clustered (≥ 2.0) — proves patches, robust to small distribution tweaks.
+    expect(avg).toBeGreaterThan(2.0);
   });
 
   it('is deterministic (same seed → same tiles)', () => {
