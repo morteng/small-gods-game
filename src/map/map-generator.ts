@@ -30,7 +30,7 @@ import { buildCrossingStructureEntities } from '@/world/connectome/crossing-stru
 import { buildStairStructureEntities } from '@/world/connectome/stair-structures';
 import { buildEntranceStoopEntities } from '@/world/connectome/entrance-stoops';
 import { buildAqueductStructureEntities } from '@/world/connectome/aqueduct-structures';
-import { buildWaterNetwork } from '@/terrain/river-network';
+import { buildWaterNetwork, referenceFlow, reachHalfWidths } from '@/terrain/river-network';
 import { REACH_CARVE } from '@/world/river-deformation';
 import { areaScaledRiverThreshold } from '@/terrain/hydrology';
 import { getHeightfield, ELEVATION_SEA_LEVEL } from '@/world/heightfield';
@@ -190,10 +190,15 @@ export async function generateWithNoise(
   // with what is on screen. This runs BEFORE settlements + roads (below) so they avoid
   // and bridge the full channel. The network is reused by the aqueduct pass later.
   const waterNet = buildWaterNetwork(hydrology, width, height, riverFlowThreshold);
+  const refFlow = referenceFlow(waterNet);
   for (const reach of waterNet.reaches) {
-    const r = Math.max(0.5, REACH_CARVE[reach.klass].halfWidth);
-    const r2 = r * r;
-    for (const p of reach.centerline) {
+    // Paint the channel at the SAME per-vertex width the carve uses (W ∝ √Q): thin at the
+    // spring, widening toward the mouth, stepping up at confluences. Using the per-class
+    // constant here painted a uniform-width ribbon the whole length — the river read flat.
+    const halfWidths = reachHalfWidths(reach, refFlow);
+    reach.centerline.forEach((p, i) => {
+      const r = Math.max(0.5, halfWidths[i] ?? REACH_CARVE[reach.klass].halfWidth);
+      const r2 = r * r;
       const x0 = Math.max(0, Math.floor(p.x - r)), x1 = Math.min(width - 1, Math.ceil(p.x + r));
       const y0 = Math.max(0, Math.floor(p.y - r)), y1 = Math.min(height - 1, Math.ceil(p.y + r));
       for (let cy = y0; cy <= y1; cy++) {
@@ -207,7 +212,7 @@ export async function generateWithNoise(
           t.walkable = false;
         }
       }
-    }
+    });
   }
 
   // Build World early so biome brushes and buildings can use it
