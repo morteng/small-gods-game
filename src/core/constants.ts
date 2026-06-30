@@ -35,6 +35,7 @@ export const TILE_COLORS: Record<string, string> = {
   castle_tower: '#37474F',
   ruins: '#8D6E63',
   farm_field: '#AED581',
+  irrigation_ditch: '#6FA8B0',
   orchard: '#7CB342',
   market: '#FFB74D',
   dock: '#8D6E63',

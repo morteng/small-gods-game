@@ -28,6 +28,7 @@ import { matchAnchors } from '@/world/anchor-rules';
 import { erodeElevation } from '@/terrain/erosion';
 import { placeSettlement } from '@/world/building-placer';
 import { stampFarmland } from '@/world/farmland';
+import { stampIrrigation } from '@/world/irrigation';
 import { buildCrossingStructureEntities } from '@/world/connectome/crossing-structures';
 import { buildStairStructureEntities } from '@/world/connectome/stair-structures';
 import { buildEntranceStoopEntities } from '@/world/connectome/entrance-stoops';
@@ -524,6 +525,12 @@ export async function generateWithNoise(
   report('Tilling farm fields...');
   const tilled = stampFarmland(map, world);
   if (tilled > 0) report(`Tilled ${tilled} field tiles`);
+
+  // Irrigation (G7): dig ditches from each field patch to its nearest water and flag the
+  // served fields `irrigated`. Runs right after farmland so the patches exist; pure tile pass.
+  report('Digging irrigation ditches...');
+  const dug = stampIrrigation(map, world);
+  if (dug > 0) report(`Dug ${dug} ditch tiles`);
 
   // Reconcile vegetation against terrain/structures: roads and rivers clear
   // trees, and nothing vegetates on a building footprint. Runs last so it

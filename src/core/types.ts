@@ -29,6 +29,9 @@ export interface Tile {
    *  comes purely from the shader surface channel — an overgrown road then fades
    *  back to this biome instead of a flat road-brown. Set once, at carve time. */
   baseType?: string;
+  /** True when a farm_field tile is reached by an irrigation ditch (G7) — a queryable
+   *  fertility signal (watered vs rain-fed), set deterministically at worldgen. */
+  irrigated?: boolean;
 }
 
 // TODO(building-cleanup): remove BuildingInstance + GameMap.buildings legacy mirror once nothing reads it.

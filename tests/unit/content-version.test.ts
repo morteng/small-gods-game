@@ -6,7 +6,7 @@ describe('content-version constants', () => {
     expect(ART_RECIPE_VERSION).toBe('v22');
   });
 
-  it('declares the current world content version (49: Verdant Vale relief rebalance)', () => {
-    expect(WORLD_CONTENT_VERSION).toBe(49);
+  it('declares the current world content version (50: G7 irrigation ditches)', () => {
+    expect(WORLD_CONTENT_VERSION).toBe(50);
   });
 });
