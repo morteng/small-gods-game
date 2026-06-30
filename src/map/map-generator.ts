@@ -15,6 +15,7 @@ import type { GameMap, WorldSeed, Tile, BuildingInstance, TerrainConfig, POI, Re
 import { WATER_TYPES } from '@/core/constants';
 import { generateTerrainFields, classifyBiomes, sampleTiles } from '@/terrain/terrain-generator';
 import { styledIslandSpec } from '@/terrain/island-mask';
+import { styledShapeSpec } from '@/terrain/terrain-shape';
 import { styledClimate } from '@/terrain/climate';
 import { applyPoiInfluences } from '@/terrain/poi-influence';
 import { generateHydrology } from '@/terrain/hydrology';
@@ -135,6 +136,7 @@ export async function generateWithNoise(
     continentWarp: 2.0,
     island: styledIslandSpec(worldSeed) ?? undefined,
     climate: styledClimate(worldSeed),
+    shape: styledShapeSpec(worldSeed),
   };
 
   const fields = generateTerrainFields(config);
@@ -378,7 +380,7 @@ export async function generateWithNoise(
     // Deck elevation: the renderer lifts terrain by `curveRenderElev(getHeightfield…)` (the
     // same base the terrain `heights` buffer is built from). Sample that exact source at the
     // banks so a bridge deck rides its bank height over the water rather than sinking.
-    const deckHf = getHeightfield(seed, width, height, styledIslandSpec(worldSeed) ?? null, worldSeed?.pois ?? null);
+    const deckHf = getHeightfield(seed, width, height, styledIslandSpec(worldSeed) ?? null, worldSeed?.pois ?? null, styledShapeSpec(worldSeed));
     const deckGamma = worldStyleOf(worldSeed ?? undefined).terrainHeightGamma;
     const deckElevAt = (x: number, y: number): number =>
       curveRenderElev(deckHf[y * width + x] ?? ELEVATION_SEA_LEVEL, ELEVATION_SEA_LEVEL, deckGamma);

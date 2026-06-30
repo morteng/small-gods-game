@@ -29,6 +29,7 @@ import { generateTerrainFields, makeBaseElevationSampler } from '@/terrain/terra
 import { erodeElevation } from '@/terrain/erosion';
 import { applyPoiInfluences, POI_INFLUENCES } from '@/terrain/poi-influence';
 import { islandSignature, styledIslandSpec, type IslandSpec } from '@/terrain/island-mask';
+import { styledShapeSpec, shapeSignature, type TerrainShapeSpec } from '@/terrain/terrain-shape';
 import { climateSignature, styledClimate, type ClimateSpec } from '@/terrain/climate';
 import { worldStyleOf } from '@/core/world-style';
 
@@ -75,6 +76,7 @@ function configFor(
   height: number,
   island: IslandSpec | null = null,
   climate: ClimateSpec | null = null,
+  shape: TerrainShapeSpec | null = null,
 ): TerrainConfig {
   const maxDim = Math.max(width, height);
   return {
@@ -88,6 +90,7 @@ function configFor(
     continentWarp: 2.0,
     island: island ?? undefined,
     climate: climate ?? undefined,
+    shape: shape ?? undefined,
   };
 }
 
@@ -103,8 +106,9 @@ export function computeHeightfield(
   height: number,
   island: IslandSpec | null = null,
   pois: POI[] | null = null,
+  shape: TerrainShapeSpec | null = null,
 ): Float32Array {
-  const cfg = configFor(seed, width, height, island);
+  const cfg = configFor(seed, width, height, island, null, shape);
   const fields = generateTerrainFields(cfg);
   // Mirror map-generator EXACTLY: generate → erode → apply POI influences, so
   // this field equals the one biomes were classified from (mountains have real
@@ -131,8 +135,9 @@ export function getHeightfield(
   height: number,
   island: IslandSpec | null = null,
   pois: POI[] | null = null,
+  shape: TerrainShapeSpec | null = null,
 ): Float32Array {
-  const key = `${seed}:${width}x${height}:${islandSignature(island)}:${poiHeightSignature(pois)}`;
+  const key = `${seed}:${width}x${height}:${islandSignature(island)}:${poiHeightSignature(pois)}:${shapeSignature(shape)}`;
   let hf = cache.get(key);
   if (hf) {
     // Refresh recency (Map preserves insertion order → re-insert = most recent).
@@ -140,7 +145,7 @@ export function getHeightfield(
     cache.set(key, hf);
     return hf;
   }
-  hf = computeHeightfield(seed, width, height, island, pois);
+  hf = computeHeightfield(seed, width, height, island, pois, shape);
   cache.set(key, hf);
   if (cache.size > CACHE_CAP) {
     const oldest = cache.keys().next().value;
@@ -187,14 +192,15 @@ export function getClimateFields(map: GameMap): ClimateFields {
   }
   const island = styledIslandSpec(map.worldSeed);
   const climate = styledClimate(map.worldSeed);
-  const key = `${seed}:${width}x${height}:${islandSignature(island)}:${climateSignature(climate)}`;
+  const shape = styledShapeSpec(map.worldSeed);
+  const key = `${seed}:${width}x${height}:${islandSignature(island)}:${climateSignature(climate)}:${shapeSignature(shape)}`;
   let c = climateCache.get(key);
   if (c) {
     climateCache.delete(key);
     climateCache.set(key, c);
     return c;
   }
-  const fields = generateTerrainFields(configFor(seed, width, height, island, climate));
+  const fields = generateTerrainFields(configFor(seed, width, height, island, climate, shape));
   c = { moisture: fields.moisture, temperature: fields.temperature };
   climateCache.set(key, c);
   if (climateCache.size > CACHE_CAP) {
@@ -213,13 +219,14 @@ export function getClimateFields(map: GameMap): ClimateFields {
  */
 export function baseElevationSamplerFor(map: GameMap): (x: number, y: number) => number {
   const island = styledIslandSpec(map.worldSeed);
-  return makeBaseElevationSampler(configFor(map.seed, map.width, map.height, island));
+  const shape = styledShapeSpec(map.worldSeed);
+  return makeBaseElevationSampler(configFor(map.seed, map.width, map.height, island, null, shape));
 }
 
 /** Normalised elevation `[0,1]` at a tile (edge-clamped to the map). */
 export function elevationAt(map: GameMap, tx: number, ty: number): number {
   const { seed, width, height } = map;
-  const hf = getHeightfield(seed, width, height, styledIslandSpec(map.worldSeed), map.worldSeed?.pois ?? null);
+  const hf = getHeightfield(seed, width, height, styledIslandSpec(map.worldSeed), map.worldSeed?.pois ?? null, styledShapeSpec(map.worldSeed));
   const cx = Math.max(0, Math.min(width - 1, tx | 0));
   const cy = Math.max(0, Math.min(height - 1, ty | 0));
   return hf[cy * width + cx];

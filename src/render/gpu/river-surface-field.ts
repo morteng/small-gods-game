@@ -31,6 +31,7 @@ import { buildRenderWaterType } from '@/render/gpu/render-water-mask';
 import { getHydrologyResult } from '@/world/hydrology-store';
 import { getHeightfield, ELEVATION_SEA_LEVEL } from '@/world/heightfield';
 import { styledIslandSpec } from '@/terrain/island-mask';
+import { styledShapeSpec } from '@/terrain/terrain-shape';
 
 /** Minimum metres the water surface sits below the lower bank (a contained channel). */
 const SURFACE_INSET_M = 0.5;
@@ -83,7 +84,7 @@ export function buildRiverSurfaceField(
   // carved and would drag the fill line down into a dry gorge as the carve deepens.
   // Injectable for tests; by default the curved base seed field.
   const base = baseHeights ?? curveHeightBuffer(
-    getHeightfield(map.seed, W, H, styledIslandSpec(map.worldSeed), map.worldSeed?.pois ?? null),
+    getHeightfield(map.seed, W, H, styledIslandSpec(map.worldSeed), map.worldSeed?.pois ?? null, styledShapeSpec(map.worldSeed)),
     ELEVATION_SEA_LEVEL, style.terrainHeightGamma,
   );
 

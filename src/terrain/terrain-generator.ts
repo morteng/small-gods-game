@@ -20,6 +20,7 @@ import { fbm, warpedNoise, ridgeNoise } from '@/core/noise';
 import type { TerrainConfig, TerrainField, BiomeMap } from '@/core/types';
 import { classifyBiome, sampleBiomeTile, Biome } from './biomes';
 import { shapeCoastElevation } from './island-mask';
+import { applyTerrainShape } from './terrain-shape';
 import { resolveClimate } from './climate';
 
 // ── Elevation shaping tunables (see generateTerrainFields) ──────────────────────
@@ -56,7 +57,7 @@ export function makeBaseElevationSampler(
 ): (x: number, y: number) => number {
   const {
     seed, width, height,
-    elevationScale = 0.02, continentWarp = 2.0, island,
+    elevationScale = 0.02, continentWarp = 2.0, island, shape,
   } = config;
   return (x: number, y: number): number => {
     const baseElev = continentWarp > 0
@@ -68,6 +69,11 @@ export function makeBaseElevationSampler(
     let elev = baseElev * BASE_WEIGHT + ridges * RIDGE_WEIGHT * mountainMask;
     if (island) {
       elev = shapeCoastElevation(elev, x, y, width, height, island, seed);
+    }
+    // Authored landform (studio scenarios) laid LAST, over coast/noise — a deliberate
+    // vale/knoll/plain. Absent ⇒ untouched, so live worlds stay byte-identical.
+    if (shape) {
+      elev = applyTerrainShape(elev, x, y, width, height, shape, seed);
     }
     return Math.max(0, Math.min(1, elev));
   };

@@ -13,12 +13,13 @@ import type { GameMap, HydrologyResult, TerrainField } from '@/core/types';
 import { generateHydrology } from '@/terrain/hydrology';
 import { getHeightfield, ELEVATION_SEA_LEVEL } from '@/world/heightfield';
 import { styledIslandSpec } from '@/terrain/island-mask';
+import { styledShapeSpec, shapeSignature } from '@/terrain/terrain-shape';
 
 const cache = new Map<string, HydrologyResult>();
 const CACHE_CAP = 4;
 
 function key(map: GameMap): string {
-  return `${map.seed}:${map.width}x${map.height}`;
+  return `${map.seed}:${map.width}x${map.height}:s${shapeSignature(styledShapeSpec(map.worldSeed))}`;
 }
 
 /** The world's water model — memoised. Deterministic from (seed, dims) + the seed heightfield. */
@@ -29,7 +30,7 @@ export function getHydrologyResult(map: GameMap): HydrologyResult {
 
   const elevation = getHeightfield(
     map.seed, map.width, map.height,
-    styledIslandSpec(map.worldSeed), map.worldSeed?.pois ?? null,
+    styledIslandSpec(map.worldSeed), map.worldSeed?.pois ?? null, styledShapeSpec(map.worldSeed),
   );
   // moisture/temperature are unread by generateHydrology; allocate zero-length-safe.
   const fields: TerrainField = {

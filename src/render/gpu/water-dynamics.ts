@@ -54,6 +54,7 @@ import { getHydrologyResult } from '@/world/hydrology-store';
 import { getLakeBodies } from '@/render/gpu/water-field';
 import { getHeightfield, ELEVATION_SEA_LEVEL } from '@/world/heightfield';
 import { styledIslandSpec } from '@/terrain/island-mask';
+import { styledShapeSpec } from '@/terrain/terrain-shape';
 import { styledClimate } from '@/terrain/climate';
 import type { WeatherStepper, WeatherSnapshot } from '@/sim/water/weather-stepper';
 
@@ -191,7 +192,7 @@ export class WaterDynamics implements WeatherStepper {
     // Elevation (same memoised heightfield hydrology/render use) + water mask.
     this.elev = getHeightfield(
       map.seed, this.W, this.H,
-      styledIslandSpec(map.worldSeed), map.worldSeed?.pois ?? null,
+      styledIslandSpec(map.worldSeed), map.worldSeed?.pois ?? null, styledShapeSpec(map.worldSeed),
     );
     this.isWater = new Uint8Array(cells);
     for (let i = 0; i < cells; i++) {

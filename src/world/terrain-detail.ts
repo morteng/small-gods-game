@@ -33,6 +33,7 @@ import {
   getHeightfield, baseElevationSamplerFor, ELEVATION_SEA_LEVEL,
 } from '@/world/heightfield';
 import { styledIslandSpec } from '@/terrain/island-mask';
+import { styledShapeSpec } from '@/terrain/terrain-shape';
 import {
   getWorldDeformationStore, buildRoadDeformations, getComposedHeightfield,
 } from '@/world/road-deformation';
@@ -94,7 +95,7 @@ export function makeDetailElevSampler(map: GameMap): (fx: number, fy: number) =>
   if (map.flatHeight) { const flat = ELEVATION_SEA_LEVEL + 0.1; return () => flat; }
   const W = map.width, H = map.height;
   const eroded = getHeightfield(
-    map.seed, W, H, styledIslandSpec(map.worldSeed), map.worldSeed?.pois ?? null,
+    map.seed, W, H, styledIslandSpec(map.worldSeed), map.worldSeed?.pois ?? null, styledShapeSpec(map.worldSeed),
   );
   const baseCont = baseElevationSamplerFor(map);
   const store = getWorldDeformationStore(map);

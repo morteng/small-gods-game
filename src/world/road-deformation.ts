@@ -32,6 +32,7 @@ import {
 } from '@/world/terrain-deformation';
 import { getHeightfield, ELEVATION_SEA_LEVEL, heightMetresAt } from '@/world/heightfield';
 import { styledIslandSpec } from '@/terrain/island-mask';
+import { styledShapeSpec, shapeSignature } from '@/terrain/terrain-shape';
 import { worldStyleOf } from '@/core/world-style';
 import { buildRiverDeformations } from '@/world/river-deformation';
 import { buildSettlementPadDeformations, settlementBuildCount } from '@/world/settlement-deformation';
@@ -426,7 +427,7 @@ function key(map: GameMap): string {
   // `rev` bumps when road-evolution mutates edge.dynamics; `b` is the built-lot count so
   // settlement foundation pads invalidate when live growth fills a lot. Both keep the
   // composed heightfield a pure, cache-correct function of the map's evolving state.
-  return `${map.seed}:${map.width}x${map.height}:r${map.roadGraph?.rev ?? 0}:b${settlementBuildCount(map)}:w${barrierFoundationCount(map)}:e${map.earthworks?.length ?? 0}`;
+  return `${map.seed}:${map.width}x${map.height}:r${map.roadGraph?.rev ?? 0}:b${settlementBuildCount(map)}:w${barrierFoundationCount(map)}:e${map.earthworks?.length ?? 0}:s${shapeSignature(styledShapeSpec(map.worldSeed))}`;
 }
 
 function evict(cache: Map<string, unknown>): void {
@@ -487,7 +488,7 @@ export function getComposedHeightfield(map: GameMap): Float32Array {
   // noise, so the subject sits clean with no procedural peaks/snow/rock around it.
   // The same flat field feeds entity foot-z lift, so the building stays flush.
   if (map.flatHeight) return new Float32Array(map.width * map.height).fill(ELEVATION_SEA_LEVEL + 0.1);
-  const base = getHeightfield(map.seed, map.width, map.height, styledIslandSpec(map.worldSeed), map.worldSeed?.pois ?? null);
+  const base = getHeightfield(map.seed, map.width, map.height, styledIslandSpec(map.worldSeed), map.worldSeed?.pois ?? null, styledShapeSpec(map.worldSeed));
   const store = getWorldDeformationStore(map);
   if (store.size === 0) return base; // parity by construction
 

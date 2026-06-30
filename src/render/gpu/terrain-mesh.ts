@@ -29,6 +29,7 @@ import { ISO_TILE_W, ISO_TILE_H } from '@/render/iso/iso-constants';
 import { effectiveTileType } from '@/render/layer-visibility';
 import { getHeightfield, ELEVATION_SEA_LEVEL } from '@/world/heightfield';
 import { styledIslandSpec } from '@/terrain/island-mask';
+import { styledShapeSpec } from '@/terrain/terrain-shape';
 import { worldStyleOf } from '@/core/world-style';
 import { litTileColorRGB } from '@/render/iso/terrain-shading';
 
@@ -82,7 +83,7 @@ export function buildTerrainMesh(
   const relief = worldStyleOf(map.worldSeed).mountainRelief; // S1; defaults to TERRAIN_RELIEF_M
   const halfW = ISO_TILE_W / 2;
   const halfH = ISO_TILE_H / 2;
-  const heightfield = getHeightfield(map.seed, map.width, map.height, styledIslandSpec(map.worldSeed), map.worldSeed?.pois ?? null);
+  const heightfield = getHeightfield(map.seed, map.width, map.height, styledIslandSpec(map.worldSeed), map.worldSeed?.pois ?? null, styledShapeSpec(map.worldSeed));
 
   const n = tileCount(map, bounds);
   const positions = new Float32Array(n * 4 * 2);

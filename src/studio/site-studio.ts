@@ -107,19 +107,27 @@ function pickSeat(map: GameMap, lowGround: boolean): { x: number; y: number } {
   }
   const hSpan = Math.max(1e-3, hMax - hMin);
 
+  // A DRY footprint is a HARD requirement, not a soft term: the keep + bailey ring must not
+  // straddle the river (in a vale the lowest ground IS the wet trough, so a soft land score
+  // let "low + riverside" pull the seat into the water). Among fully-dry seats, prefer flat,
+  // then low/high, then a riverside flank. Fall back to the DRIEST seat if none is fully dry.
+  const DRY_MIN = 0.98;
   let best = { x: (W / 2) | 0, y: (H / 2) | 0 };
   let bestScore = -Infinity;
+  let driest = { x: best.x, y: best.y }, driestLand = -1;
   for (let y = margin; y < H - margin; y++) for (let x = margin; x < W - margin; x++) {
     if (isWater(map, x, y)) continue;                 // the keep itself must be dry
     const d = disc(x, y);
+    if (d.land > driestLand) { driestLand = d.land; driest = { x, y }; }
+    if (d.land < DRY_MIN) continue;                   // footprint must be essentially all land
     const flat = 1 - Math.min(1, d.relief / 6);       // 1 = dead flat over the footprint
     const hNorm = (d.h - hMin) / hSpan;
     const level = lowGround ? 1 - hNorm : hNorm;       // low ground → tall motte; else commanding
-    // Dry footprint dominates; then flat (clean mound, off natural knolls); then low/high; then riverside.
-    const score = d.land * 1.0 + flat * 0.6 + level * 0.5 + riverside(x, y) * 0.3;
+    // flat clean mound first, then low/high, then a riverside flank (water just past the ring).
+    const score = flat * 0.6 + level * 0.5 + riverside(x, y) * 0.45;
     if (score > bestScore) { bestScore = score; best = { x, y }; }
   }
-  return best;
+  return bestScore > -Infinity ? best : driest;
 }
 
 export function mountSiteStudio(container: HTMLElement): StudioHandle {
@@ -157,7 +165,20 @@ export function mountSiteStudio(container: HTMLElement): StudioHandle {
       text: 'A defended complex on a terrain patch — earthworks, ring barriers, gates and buildings, with the connectome linter.' }));
 
     const archetypes = catalogue.all('complexType').map((e) => e.id);
-    const gen = { archetype: archetypes.includes('motte_and_bailey') ? 'motte_and_bailey' : (archetypes[0] ?? ''), seed: 0x5170, lowGround: true };
+    const gen = {
+      archetype: archetypes.includes('motte_and_bailey') ? 'motte_and_bailey' : (archetypes[0] ?? ''),
+      seed: 0x5170, lowGround: true,
+      terrain: 'vale' as 'vale' | 'knoll' | 'plain' | 'wild',
+    };
+    // Each scenario is purpose-built to exercise the terrain features a connectome subset
+    // interacts with: a river to flank + buildable terraces (vale), a natural hill the hill-
+    // IS-the-motte ringwork sits on (knoll), or flat ground for a pure earthwork (plain).
+    const TERRAINS: { id: typeof gen.terrain; label: string }[] = [
+      { id: 'vale', label: 'River vale (one growing river + terraces)' },
+      { id: 'knoll', label: 'Knoll (a natural hill — ringwork)' },
+      { id: 'plain', label: 'Flat plain (pure earthwork)' },
+      { id: 'wild', label: 'Wild (procedural noise patch)' },
+    ];
 
     const label = (t: string): HTMLElement => h('div', { class: 'sg-muted', style: 'font:600 10px var(--font-mono);letter-spacing:.06em;text-transform:uppercase;margin:10px 0 4px', text: t });
     const FIELD = 'width:100%;background:var(--bg-1);color:var(--ink-0);border:1px solid var(--line);border-radius:6px;padding:6px 8px;font:500 12px var(--font-mono)';
@@ -168,6 +189,13 @@ export function mountSiteStudio(container: HTMLElement): StudioHandle {
     sel.value = gen.archetype;
     sel.onchange = () => { gen.archetype = sel.value; void regenerate(); };
     panel.appendChild(sel);
+
+    panel.appendChild(label('Terrain'));
+    const terSel = h('select', { style: FIELD }) as HTMLSelectElement;
+    for (const t of TERRAINS) terSel.appendChild(h('option', { attrs: { value: t.id }, text: t.label }));
+    terSel.value = gen.terrain;
+    terSel.onchange = () => { gen.terrain = terSel.value as typeof gen.terrain; void regenerate(); };
+    panel.appendChild(terSel);
 
     panel.appendChild(label('Seed'));
     const seedRow = h('div', { style: 'display:flex;gap:6px' });
@@ -242,6 +270,9 @@ export function mountSiteStudio(container: HTMLElement): StudioHandle {
       // alpine drama. `island:false` → a land chunk fills the frame (not a tiny isle); a warm,
       // shallow-lapse climate → green hills, never snow-capped peaks on 2-storey bumps; low
       // `mountainRelief` → the terrain is physically gentle so nothing reads as a mountain.
+      // The TERRAIN scenario authors a deliberate landform (vale/knoll/plain) so each
+      // connectome subset can be studied against the features it interacts with; `wild`
+      // leaves the procedural noise unshaped.
       const ws: WorldSeed = {
         name: 'site-patch', size: { width: PATCH, height: PATCH }, biome: 'temperate',
         pois: [], connections: [], constraints: [],
@@ -252,6 +283,7 @@ export function mountSiteStudio(container: HTMLElement): StudioHandle {
         // `riverDensity` keeps the all-land patch from webbing over with rivers (it has no sea
         // to drain to, so the default threshold pools far too many channels here).
         style: { overrides: { mountainRelief: 16, coastDrama: 0.3, riverDensity: 0.45 } },
+        terrainShape: gen.terrain === 'wild' ? undefined : { kind: gen.terrain, strength: 0.9 },
       } as unknown as WorldSeed;
       const res = await generateWithNoise(PATCH, PATCH, gen.seed, ws);
       if (disposed || token !== regenToken) return;

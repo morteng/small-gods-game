@@ -20,6 +20,7 @@ import { worldStyleOf } from '@/core/world-style';
 import { heightField, curveHeightBuffer } from '@/render/gpu/terrain-field';
 import { getHeightfield, ELEVATION_SEA_LEVEL } from '@/world/heightfield';
 import { styledIslandSpec } from '@/terrain/island-mask';
+import { styledShapeSpec } from '@/terrain/terrain-shape';
 import { getWaterNetwork } from '@/world/water-network-store';
 import {
   binFeatureSegments, segDist, FEATURE_SEG_STRIDE, FEATURE_BUCKET_TILES,
@@ -108,7 +109,7 @@ export function buildRiverChannelGeometry(map: GameMap, net?: WaterNetwork): Riv
 
   const composed = heightField(map);
   const base = curveHeightBuffer(
-    getHeightfield(map.seed, W, H, styledIslandSpec(map.worldSeed), map.worldSeed?.pois ?? null),
+    getHeightfield(map.seed, W, H, styledIslandSpec(map.worldSeed), map.worldSeed?.pois ?? null, styledShapeSpec(map.worldSeed)),
     ELEVATION_SEA_LEVEL, style.terrainHeightGamma,
   );
 

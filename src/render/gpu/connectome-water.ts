@@ -18,6 +18,7 @@ import { buildRenderWaterType } from '@/render/gpu/render-water-mask';
 import { curveHeightBuffer } from '@/render/gpu/terrain-field';
 import { getHeightfield, ELEVATION_SEA_LEVEL } from '@/world/heightfield';
 import { styledIslandSpec } from '@/terrain/island-mask';
+import { styledShapeSpec } from '@/terrain/terrain-shape';
 import { worldStyleOf } from '@/core/world-style';
 
 /** Metres the placed-lake surface sits below its spill lip (a contained sheet). */
@@ -42,7 +43,7 @@ export function buildConnectomeWaterOverride(
   // The natural (uncarved) curved render grade — the bank reference for the fill, so a
   // placed lake fills to the SURROUNDING ground lip, not the carved basin floor.
   const base = curveHeightBuffer(
-    getHeightfield(map.seed, W, H, styledIslandSpec(map.worldSeed), map.worldSeed?.pois ?? null),
+    getHeightfield(map.seed, W, H, styledIslandSpec(map.worldSeed), map.worldSeed?.pois ?? null, styledShapeSpec(map.worldSeed)),
     ELEVATION_SEA_LEVEL, style.terrainHeightGamma,
   );
   const insetN = LAKE_LIP_INSET_M / style.mountainRelief;

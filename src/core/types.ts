@@ -159,6 +159,13 @@ export interface WorldSeed {
    * Resolved by `styledClimate` (see `src/terrain/climate.ts`).
    */
   climate?: ClimateName | Partial<ClimateSpec>;
+  /**
+   * Authored terrain SHAPE laid over the procedural noise — a deliberate landform
+   * (a river vale, a knoll, a flat plain) for studying a connectome subset against
+   * the terrain features it interacts with. Absent → pure procedural terrain.
+   * Resolved by `styledShapeSpec` (see `src/terrain/terrain-shape.ts`).
+   */
+  terrainShape?: import('@/terrain/terrain-shape').TerrainShapeSpec;
 }
 
 /** Camera state for pan/zoom */
@@ -362,6 +369,8 @@ export interface TerrainConfig {
   island?: IslandSpec;
   /** Resolved climate gradient. Defaults to `european` when undefined. */
   climate?: ClimateSpec;
+  /** Authored terrain shape laid over the noise (studio scenarios). Off when undefined. */
+  shape?: import('@/terrain/terrain-shape').TerrainShapeSpec;
 }
 
 export interface TerrainField {
