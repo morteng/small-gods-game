@@ -51,8 +51,9 @@ export interface PlaceComplexResult {
   plan: ComplexPlan;
   barriers: PlacedBarrier[];      // the ring runs committed (also set on map.barrierRuns)
   buildingIds: string[];
+  fixtureIds: string[];           // ward fixtures committed as civic props (the well)
   barrierIds: string[];
-  skippedBuildings: string[];     // buildingTypes that didn't resolve to a blueprint
+  skippedBuildings: string[];     // building/fixture types that didn't resolve to a blueprint
 }
 
 /** A closed regular-polygon ring path (tile coords) + the arc-length t of a south gate. */
@@ -142,6 +143,7 @@ export function placeComplexOnPatch(world: World, map: GameMap, opts: PlaceCompl
   const bailey = plan.buildings.filter((b) => !b.onCore);
   const core = plan.buildings.filter((b) => b.onCore);
   const buildingIds: string[] = [];
+  const fixtureIds: string[] = [];
   const skippedBuildings: string[] = [];
 
   // Canonical (orientation-0) door facing of a blueprint, from its main anchor.
@@ -186,5 +188,24 @@ export function placeComplexOnPatch(world: World, map: GameMap, opts: PlaceCompl
     drop(b.buildingType, bx, by, 100 + i, [centre.x - bx, centre.y - by]);
   });
 
-  return { placed, plan, barriers, buildingIds, barrierIds, skippedBuildings };
+  // Ward fixtures (the well): civic PROPS standing free in the open yard. The keep holds
+  // the motte centre and the bailey buildings ring the north arc, so the open ground is
+  // SOUTH toward the gate — the well stands there (siege water inside the walls). Props,
+  // not buildings, so they don't trip the building/enclosure invariants.
+  const yardR = Number.isFinite(innerR) ? innerR * 0.55 : outerR * 0.4;
+  plan.fixtures.forEach((fx, i) => {
+    const rb = synthesizeBlueprint(fx.type, [], seed + 700 + i * 53);
+    if (!rb) { skippedBuildings.push(fx.type); return; }
+    const spread = plan.fixtures.length > 1 ? (i - (plan.fixtures.length - 1) / 2) * 3 : 0;
+    const fxX = Math.round(centre.x + spread);
+    const fxY = Math.round(centre.y + yardR);
+    const id = `${complexTypeId}-fixture-${fx.type}-${i}`;
+    const e: Entity = blueprintEntity(id, rb, fxX, fxY, {});
+    e.properties!.civic = fx.type;
+    e.tags = [...new Set([...(e.tags ?? []), 'civic', 'fixture'])];
+    world.addEntity(e);
+    fixtureIds.push(id);
+  });
+
+  return { placed, plan, barriers, buildingIds, fixtureIds, barrierIds, skippedBuildings };
 }

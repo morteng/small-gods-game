@@ -32,7 +32,16 @@ describe('placeComplexOnPatch (motte-and-bailey)', () => {
     expect(res.barriers.length).toBe(2);
     expect(res.buildingIds.some((id) => id.includes('castle_keep'))).toBe(true);
     expect(res.buildingIds.length).toBeGreaterThanOrEqual(2);
-    expect(res.skippedBuildings).toHaveLength(0);          // every ward building synthesised
+    expect(res.skippedBuildings).toHaveLength(0);          // every ward building + fixture synthesised
+
+    // The ward well is committed as a civic PROP inside the inner ring (siege water).
+    expect(res.fixtureIds.length).toBeGreaterThan(0);
+    const well = (world.query({}) as Entity[]).find((e) => e.id === res.fixtureIds[0])!;
+    expect(well.tags).toContain('civic');
+    expect(well.tags).not.toContain('building');           // a prop — never a building footprint
+    const innerR = Math.min(...res.barriers.map((b) =>
+      b.run.path.reduce((s, [x, y]) => s + Math.hypot(x - centre.x, y - centre.y), 0) / b.run.path.length));
+    expect(Math.hypot(well.x - centre.x, well.y - centre.y)).toBeLessThan(innerR);
 
     // Entities are live in the world (render-ready).
     const ents = world.query({}) as Entity[];
