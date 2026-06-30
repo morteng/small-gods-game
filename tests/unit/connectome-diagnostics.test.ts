@@ -128,6 +128,8 @@ describe('connectome diagnostics', () => {
       'building.overlap', 'barrier.through-building', 'road.through-building',
       'building.on-water', 'road.redundant-parallel', 'road.parallel-corridor',
       'road.riverside-unbanked', 'junction.oversubscribed',
+      'fort.building-outside-enclosure', 'fort.gate-obstructed',
+      'fort.ward-unreachable', 'fort.spoil-imbalance',
     ]);
   });
 });

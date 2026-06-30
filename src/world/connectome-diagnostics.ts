@@ -18,6 +18,7 @@ import type { World } from '@/world/world';
 import { blueprintOf } from '@/blueprint/entity';
 import { WATER_TYPES } from '@/core/constants';
 import type { RoadEdge } from '@/world/road-graph';
+import { barrierFootprintTiles, type PlacedBarrier } from '@/world/barrier';
 
 export type DiagnosticSeverity = 'error' | 'warn' | 'info';
 
@@ -399,6 +400,223 @@ const riversideUnbankedRoad: DiagnosticRule = {
   },
 };
 
+// ── Fort / defended-complex rules ──────────────────────────────────────────────────
+//
+// A complex placed by `placeComplexOnPatch` writes `map.earthworks` (motte/ditch) AND
+// closed ring `BarrierRun`s with a gate. These rules read that geometry to check the
+// things ONLY a defended enclosure has: its buildings are actually inside the curtain,
+// the gateway is clear, the gate leads into a connected ward, and the spoil balances.
+// Every rule is gated on `map.earthworks?.length` — a fort signal absent from ordinary
+// settlements (they have croft barriers but no earthworks), so these no-op everywhere
+// the game/MCP/Fate lint today and only light up on a real complex.
+
+/** Even-odd point-in-polygon over a tile-space ring path. */
+function pointInPolygon(x: number, y: number, poly: [number, number][]): boolean {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [xi, yi] = poly[i], [xj, yj] = poly[j];
+    if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi || 1e-9) + xi) inside = !inside;
+  }
+  return inside;
+}
+
+const meanRadius = (poly: [number, number][], cx: number, cy: number): number => {
+  let s = 0; for (const [x, y] of poly) s += Math.hypot(x - cx, y - cy);
+  return poly.length ? s / poly.length : 0;
+};
+
+interface FortGeometry {
+  centre: { x: number; y: number };
+  outer: PlacedBarrier;          // outermost enclosing ring
+  rings: PlacedBarrier[];        // every ring that encloses the centre
+}
+
+/** Recover the fort enclosure from map state, or null if this world isn't a complex.
+ *  Fort = has earthworks AND ≥1 closed barrier ring that contains the motte/ward centre. */
+function fortGeometry(ctx: DiagnosticContext): FortGeometry | null {
+  const ews = ctx.map.earthworks;
+  if (!ews || !ews.length) return null;
+  const closed = (ctx.map.barrierRuns ?? []).filter((b) => {
+    const p = b.run.path;
+    return p.length >= 4 && Math.hypot(p[0][0] - p[p.length - 1][0], p[0][1] - p[p.length - 1][1]) < 1.5;
+  });
+  if (!closed.length) return null;
+  const motte = ews.find((e) => e.kind === 'motte' && e.centre)?.centre;
+  let centre = motte;
+  if (!centre) { // fall back to the mean of ring centroids
+    let sx = 0, sy = 0, n = 0;
+    for (const b of closed) for (const [x, y] of b.run.path) { sx += x; sy += y; n++; }
+    centre = n ? { x: sx / n, y: sy / n } : undefined;
+  }
+  if (!centre) return null;
+  const enclosing = closed.filter((b) => pointInPolygon(centre!.x, centre!.y, b.run.path));
+  if (!enclosing.length) return null;
+  const outer = enclosing.reduce((m, b) =>
+    meanRadius(b.run.path, centre!.x, centre!.y) > meanRadius(m.run.path, centre!.x, centre!.y) ? b : m);
+  return { centre, outer, rings: enclosing };
+}
+
+/** Solid cells of buildings that belong to the fort (centroid within `reach` of the
+ *  centre), so a distant settlement house never gets dragged into a fort rule. */
+function fortBuildingCells(world: World, centre: { x: number; y: number }, reach: number): Map<string, Set<string>> {
+  const out = new Map<string, Set<string>>();
+  for (const [id, cells] of buildingStructureCells(world)) {
+    if (!cells.size) continue;
+    let sx = 0, sy = 0;
+    for (const c of cells) { const i = c.indexOf(','); sx += +c.slice(0, i); sy += +c.slice(i + 1); }
+    if (Math.hypot(sx / cells.size - centre.x, sy / cells.size - centre.y) <= reach) out.set(id, cells);
+  }
+  return out;
+}
+
+/** WARN — a complex building stands (partly) OUTSIDE its outermost curtain. */
+const fortBuildingOutsideEnclosure: DiagnosticRule = {
+  id: 'fort.building-outside-enclosure',
+  severity: 'warn',
+  description: 'A complex building stands outside its defensive enclosure.',
+  evaluate(ctx) {
+    const fg = fortGeometry(ctx);
+    if (!fg) return [];
+    const poly = fg.outer.run.path;
+    const reach = meanRadius(poly, fg.centre.x, fg.centre.y) * 2;
+    const out: Diagnostic[] = [];
+    for (const [id, cells] of fortBuildingCells(ctx.world, fg.centre, reach)) {
+      const outside: { x: number; y: number }[] = [];
+      for (const c of cells) {
+        const i = c.indexOf(','); const x = +c.slice(0, i), y = +c.slice(i + 1);
+        if (!pointInPolygon(x, y, poly)) outside.push({ x, y });
+      }
+      if (outside.length) out.push({
+        rule: this.id, severity: this.severity,
+        message: `building ${id} has ${outside.length} cell(s) outside the enclosure`,
+        locus: { entities: [id], tiles: outside },
+        metrics: { cells: outside.length },
+      });
+    }
+    return out.sort((a, b) => a.locus.entities![0].localeCompare(b.locus.entities![0]));
+  },
+};
+
+/** WARN — a building blocks the gateway gap (the gate must stay passable). */
+const fortGateObstructed: DiagnosticRule = {
+  id: 'fort.gate-obstructed',
+  severity: 'warn',
+  description: 'A building footprint sits on a gate opening, blocking passage.',
+  evaluate(ctx) {
+    const fg = fortGeometry(ctx);
+    if (!fg) return [];
+    const reach = meanRadius(fg.outer.run.path, fg.centre.x, fg.centre.y) * 2;
+    const solid = new Set<string>();
+    for (const cells of fortBuildingCells(ctx.world, fg.centre, reach).values()) for (const c of cells) solid.add(c);
+    const out: Diagnostic[] = [];
+    for (const ring of fg.rings) {
+      if (!ring.run.gates.length) continue;
+      const hits = barrierFootprintTiles(ring.run).gate.filter(([x, y]) => solid.has(cellKey(x, y)));
+      if (hits.length) out.push({
+        rule: this.id, severity: this.severity,
+        message: `gate of ${ring.id} blocked by a building on ${hits.length} cell(s)`,
+        locus: { entities: [ring.id], tiles: hits.map(([x, y]) => ({ x, y })) },
+        metrics: { cells: hits.length },
+      });
+    }
+    return out.sort((a, b) => a.locus.entities![0].localeCompare(b.locus.entities![0]));
+  },
+};
+
+/** WARN — the gate doesn't actually lead into a connected ward: flood-filling from the
+ *  gate (through the open yard, around buildings + curtain) reaches too little of the
+ *  enclosed open ground. Catches a sealed gate or a ward a building has cut in two —
+ *  the "gate reachability / ward access-chain" check. */
+const fortWardUnreachable: DiagnosticRule = {
+  id: 'fort.ward-unreachable',
+  severity: 'warn',
+  description: 'The gate does not lead into a connected ward (sealed or fragmented).',
+  evaluate(ctx) {
+    const fg = fortGeometry(ctx);
+    if (!fg || !fg.outer.run.gates.length) return [];
+    const poly = fg.outer.run.path;
+    const reach = meanRadius(poly, fg.centre.x, fg.centre.y) * 2;
+    // Blocked = every fort curtain's blocking cells + fort building solids (gate gaps stay open).
+    const blocked = new Set<string>();
+    for (const ring of fg.rings) for (const [x, y] of barrierFootprintTiles(ring.run).blocking) blocked.add(cellKey(x, y));
+    for (const cells of fortBuildingCells(ctx.world, fg.centre, reach).values()) for (const c of cells) blocked.add(c);
+    // Bounding box of the outer ring (padded), the BFS arena.
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const [x, y] of poly) { minX = Math.min(minX, x); minY = Math.min(minY, y); maxX = Math.max(maxX, x); maxY = Math.max(maxY, y); }
+    minX = Math.floor(minX) - 1; minY = Math.floor(minY) - 1; maxX = Math.ceil(maxX) + 1; maxY = Math.ceil(maxY) + 1;
+    const inWard = (x: number, y: number): boolean => pointInPolygon(x, y, poly) && !blocked.has(cellKey(x, y));
+    let wardTotal = 0;
+    for (let y = minY; y <= maxY; y++) for (let x = minX; x <= maxX; x++) if (inWard(x, y)) wardTotal++;
+    if (wardTotal < 4) return [];   // degenerate ward — nothing meaningful to reach
+    // Seed the flood at the gate centre (an open gap cell), then BFS over open ward cells.
+    const { run } = fg.outer;
+    const { path, gates } = run;
+    let total = 0; for (let i = 1; i < path.length; i++) total += Math.hypot(path[i][0] - path[i - 1][0], path[i][1] - path[i - 1][1]);
+    const gate = gates[0];
+    let acc = 0, gx = path[0][0], gy = path[0][1];
+    for (let i = 1; i < path.length; i++) {
+      const len = Math.hypot(path[i][0] - path[i - 1][0], path[i][1] - path[i - 1][1]);
+      if (gate.t <= acc + len) { const u = (gate.t - acc) / (len || 1); gx = path[i - 1][0] + (path[i][0] - path[i - 1][0]) * u; gy = path[i - 1][1] + (path[i][1] - path[i - 1][1]) * u; break; }
+      acc += len;
+    }
+    // Step a couple of tiles inward from the gate to land inside the ward.
+    const inwardX = fg.centre.x - gx, inwardY = fg.centre.y - gy, mag = Math.hypot(inwardX, inwardY) || 1;
+    let seedX = Math.round(gx + (inwardX / mag) * 2), seedY = Math.round(gy + (inwardY / mag) * 2);
+    if (!inWard(seedX, seedY)) { seedX = Math.round(gx); seedY = Math.round(gy); }   // fall back to the gap itself
+    const seen = new Set<string>();
+    const queue: [number, number][] = [];
+    if (inWard(seedX, seedY) || (pointInPolygon(seedX, seedY, poly) === false && !blocked.has(cellKey(seedX, seedY)))) {
+      seen.add(cellKey(seedX, seedY)); queue.push([seedX, seedY]);
+    }
+    let reachedWard = 0;
+    while (queue.length) {
+      const [x, y] = queue.pop()!;
+      if (inWard(x, y)) reachedWard++;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as [number, number][]) {
+        const nx = x + dx, ny = y + dy;
+        if (nx < minX || ny < minY || nx > maxX || ny > maxY) continue;
+        const k = cellKey(nx, ny);
+        if (seen.has(k) || blocked.has(k)) continue;
+        if (!pointInPolygon(nx, ny, poly) && Math.hypot(nx - gx, ny - gy) > 3) continue; // stay in/near the ward
+        seen.add(k); queue.push([nx, ny]);
+      }
+    }
+    const fraction = reachedWard / wardTotal;
+    if (fraction >= 0.5) return [];
+    return [{
+      rule: this.id, severity: this.severity,
+      message: `gate reaches only ${(fraction * 100).toFixed(0)}% of the ward — sealed or fragmented`,
+      locus: { entities: [fg.outer.id], tiles: [{ x: Math.round(gx), y: Math.round(gy) }] },
+      metrics: { reachedFraction: Math.round(fraction * 100) / 100, wardCells: wardTotal },
+    }];
+  },
+};
+
+/** INFO — the cut-and-fill ledger is unbalanced (spoil should be conserved: a motte is
+ *  heaped from the earth its ditch removes). A healthy `placeComplexOnPatch` nets ~0. */
+const fortSpoilImbalance: DiagnosticRule = {
+  id: 'fort.spoil-imbalance',
+  severity: 'info',
+  description: 'Earthwork cut and fill volumes do not balance (spoil not conserved).',
+  evaluate(ctx) {
+    const ews = ctx.map.earthworks;
+    if (!ews || !ews.length) return [];
+    let fill = 0, cut = 0;
+    for (const e of ews) { if (e.volume > 0) fill += e.volume; else cut += -e.volume; }
+    const moved = fill + cut;
+    if (moved < 1e-6) return [];
+    const imbalance = Math.abs(fill - cut) / moved;
+    if (imbalance <= 0.15) return [];
+    const at = ews.find((e) => e.kind === 'motte' && e.centre)?.centre;
+    return [{
+      rule: this.id, severity: this.severity,
+      message: `earthwork spoil ${(imbalance * 100).toFixed(0)}% unbalanced (fill ${fill.toFixed(0)} vs cut ${cut.toFixed(0)})`,
+      locus: at ? { tiles: [{ x: Math.round(at.x), y: Math.round(at.y) }] } : {},
+      metrics: { fill: Math.round(fill), cut: Math.round(cut), imbalance: Math.round(imbalance * 100) / 100 },
+    }];
+  },
+};
+
 /** The registered rule set, run in order. */
 export const DEFAULT_RULES: DiagnosticRule[] = [
   buildingOverlap,
@@ -409,6 +627,10 @@ export const DEFAULT_RULES: DiagnosticRule[] = [
   parallelCorridorRoad,
   riversideUnbankedRoad,
   oversubscribedJunction,
+  fortBuildingOutsideEnclosure,
+  fortGateObstructed,
+  fortWardUnreachable,
+  fortSpoilImbalance,
 ];
 
 /** Run every rule against a world and grade the findings. Deterministic for a world. */
