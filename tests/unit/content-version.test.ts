@@ -6,7 +6,7 @@ describe('content-version constants', () => {
     expect(ART_RECIPE_VERSION).toBe('v22');
   });
 
-  it('declares the current world content version (48: farm fields)', () => {
-    expect(WORLD_CONTENT_VERSION).toBe(48);
+  it('declares the current world content version (49: Verdant Vale relief rebalance)', () => {
+    expect(WORLD_CONTENT_VERSION).toBe(49);
   });
 });

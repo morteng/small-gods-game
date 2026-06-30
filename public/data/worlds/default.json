@@ -7,7 +7,7 @@
   "island": true,
   "visualTheme": "early medieval island world, vibrant colors",
   "style": {
-    "overrides": {"terrainHeightGamma": 1.8, "mountainRelief": 95, "terrainVerticalExaggeration": 30}
+    "overrides": {"terrainHeightGamma": 1.8, "mountainRelief": 55, "terrainVerticalExaggeration": 30}
   },
   "pois": [
     {
