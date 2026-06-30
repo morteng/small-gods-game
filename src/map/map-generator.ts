@@ -32,7 +32,7 @@ import { buildEntranceStoopEntities } from '@/world/connectome/entrance-stoops';
 import { buildAqueductStructureEntities } from '@/world/connectome/aqueduct-structures';
 import { buildWaterNetwork } from '@/terrain/river-network';
 import { REACH_CARVE } from '@/world/river-deformation';
-import { DEFAULT_RIVER_FLOW_THRESHOLD } from '@/terrain/hydrology';
+import { areaScaledRiverThreshold } from '@/terrain/hydrology';
 import { getHeightfield, ELEVATION_SEA_LEVEL } from '@/world/heightfield';
 import { curveRenderElev } from '@/render/gpu/terrain-field';
 import { worldStyleOf } from '@/core/world-style';
@@ -159,9 +159,12 @@ export async function generateWithNoise(
     row.map((type, x) => ({ type, x, y, walkable: tileWalkable(type), state: 'realized' as const })),
   );
 
-  // Generate rivers from drainage basins
+  // Generate rivers from drainage basins. The flow threshold scales INVERSELY with the
+  // world's riverDensity style knob (>1 = more/finer rivers, <1 = fewer trunk rivers).
   report('Carving rivers...');
-  const hydrology = generateHydrology(fields, config);
+  const riverDensity = worldStyleOf(worldSeed ?? undefined).riverDensity || 1;
+  const riverFlowThreshold = areaScaledRiverThreshold(width * height) / riverDensity;
+  const hydrology = generateHydrology(fields, config, { riverFlowThreshold });
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       const idx = y * width + x;
@@ -186,7 +189,7 @@ export async function generateWithNoise(
   // downstream consumer — building placer, road walker, pathfinding, picking — agrees
   // with what is on screen. This runs BEFORE settlements + roads (below) so they avoid
   // and bridge the full channel. The network is reused by the aqueduct pass later.
-  const waterNet = buildWaterNetwork(hydrology, width, height, DEFAULT_RIVER_FLOW_THRESHOLD);
+  const waterNet = buildWaterNetwork(hydrology, width, height, riverFlowThreshold);
   for (const reach of waterNet.reaches) {
     const r = Math.max(0.5, REACH_CARVE[reach.klass].halfWidth);
     const r2 = r * r;

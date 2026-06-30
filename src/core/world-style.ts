@@ -67,6 +67,11 @@ export interface WorldStyle {
   poiSpacing: number;
   /** ×multiplier on growth pressure / buildings per settlement. (S2) */
   settlementDensity: number;
+  /** ×multiplier on river-network density: scales the flow threshold INVERSELY
+   *  (threshold = base / riverDensity), so `>1` = more/finer rivers, `<1` = fewer,
+   *  only-the-bigger rivers. `1` = today's tuned default. Consumed by
+   *  `map-generator` → `generateHydrology` / `buildWaterNetwork`. */
+  riverDensity: number;
   /** ×multiplier on tree/bush size. (consumer pending — flora Slice 2 not wired) */
   floraScale: number;
   /** ×multiplier on tree/bush count. (S2 / flora) */
@@ -113,6 +118,7 @@ export const STYLE_DEFAULTS: WorldStyle = {
   settlementSpacing: 1,
   poiSpacing: 1,
   settlementDensity: 1,
+  riverDensity: 1,
   floraScale: 1,
   floraDensity: 1,
   propScale: 1,

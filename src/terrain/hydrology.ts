@@ -17,7 +17,7 @@
 import type { TerrainField, TerrainConfig, HydrologyResult } from '@/core/types';
 import { WaterType } from '@/core/types';
 
-export const DEFAULT_RIVER_FLOW_THRESHOLD = 500;
+export const DEFAULT_RIVER_FLOW_THRESHOLD = 560;
 // The cell count the default threshold was tuned on (128×96). A FIXED threshold on a much
 // larger map promotes every minor gully to a river — a 384×272 island webs over. But the
 // scaling must be GENTLE: peak flow accumulates over upstream drainage LENGTH, not area, and
@@ -38,7 +38,7 @@ export function areaScaledRiverThreshold(totalCells: number): number {
 // ground" at full channel width the instant flow crosses the threshold. Only cells
 // whose drainage actually reaches a real river downstream are promoted, so isolated
 // gullies that never become a river are NOT turned into rivers.
-const HEADWATER_FLOW_FRACTION = 0.22;
+const HEADWATER_FLOW_FRACTION = 0.4;
 // Minimum filled depth (normalized elevation) for a cell to count as a lake.
 // Pit-fill raises flat runs by PIT_FILL_EPSILON per cell, so a long flat valley
 // accumulates a small W−elevation gap that is NOT a lake. A genuine basin is

@@ -247,7 +247,11 @@ export function mountSiteStudio(container: HTMLElement): StudioHandle {
         pois: [], connections: [], constraints: [],
         island: false,
         climate: { tempNorth: 0.6, tempSouth: 0.74, elevationLapse: 0.18 },
-        style: { mountainRelief: 16, coastDrama: 0.3 },
+        // Style knobs live under `overrides` — `worldStyleOf` reads a WorldStyleConfig, so a
+        // bare `{ mountainRelief }` is silently dropped. Low relief → gentle ground; a sparse
+        // `riverDensity` keeps the all-land patch from webbing over with rivers (it has no sea
+        // to drain to, so the default threshold pools far too many channels here).
+        style: { overrides: { mountainRelief: 16, coastDrama: 0.3, riverDensity: 0.45 } },
       } as unknown as WorldSeed;
       const res = await generateWithNoise(PATCH, PATCH, gen.seed, ws);
       if (disposed || token !== regenToken) return;
