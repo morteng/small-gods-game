@@ -30,7 +30,10 @@ import {
 } from '@/blueprint/connectome';
 import type { TerrainProbe } from '@/blueprint/connectome/types';
 import { synthesizeBlueprint } from '@/blueprint/presets';
+import type { ResolvedBlueprint } from '@/blueprint/types';
 import { blueprintEntity } from '@/blueprint/entity';
+import { toAnchors } from '@/blueprint/compile/to-anchors';
+import { orientationForFacing, type Orientation } from '@/blueprint/orientation';
 import { placeBarrier } from '@/world/place-barrier';
 import { barrierRunFromType } from '@/world/enclosure';
 import { BARRIER_DEFAULTS, type BarrierRun, type BarrierKind, type BarrierGate, type PlacedBarrier } from '@/world/barrier';
@@ -141,22 +144,46 @@ export function placeComplexOnPatch(world: World, map: GameMap, opts: PlaceCompl
   const buildingIds: string[] = [];
   const skippedBuildings: string[] = [];
 
-  const drop = (buildingType: string, x: number, y: number, idx: number): void => {
-    const rb = synthesizeBlueprint(buildingType, [], seed + idx * 101);
-    if (!rb) { skippedBuildings.push(buildingType); return; }
+  // Canonical (orientation-0) door facing of a blueprint, from its main anchor.
+  const canonicalFacing = (rb: ResolvedBlueprint): [number, number] => {
+    const anchors = toAnchors(rb, 0, 0);
+    const door = anchors.find((a) => a.main) ?? anchors[0];
+    return (door?.facing as [number, number]) ?? [0, 1];
+  };
+  // Nearest cardinal to a world vector (door facings are quarter-turns; a fort
+  // building fronts a single direction, not a diagonal). Zero → south (the gate).
+  const cardinal = (dx: number, dy: number): [number, number] =>
+    dx === 0 && dy === 0 ? [0, 1]
+      : Math.abs(dx) >= Math.abs(dy) ? [Math.sign(dx), 0] : [0, Math.sign(dy)];
+
+  // Drop a building, quarter-turning it so its door fronts `faceWorld` — the keep
+  // addresses the gate (due-south), bailey buildings turn their doors onto the ward
+  // (backs to the curtain), so the complex reads as an enclosure around its approach.
+  const drop = (buildingType: string, x: number, y: number, idx: number, faceWorld: [number, number]): void => {
+    const base = synthesizeBlueprint(buildingType, [], seed + idx * 101);
+    if (!base) { skippedBuildings.push(buildingType); return; }
+    const cf = canonicalFacing(base);
+    const df = cardinal(faceWorld[0], faceWorld[1]);
+    const o = orientationForFacing(cf[0], cf[1], df[0], df[1]) as Orientation;
+    const rb = o ? { ...base, orientation: o } : base;
     const id = `${complexTypeId}-${buildingType}-${idx}`;
     const e: Entity = blueprintEntity(id, rb, Math.round(x), Math.round(y));
     world.addEntity(e);
     buildingIds.push(id);
   };
 
-  core.forEach((b, i) => drop(b.buildingType, centre.x, centre.y, i));
+  // The keep on the motte fronts the gate (the ring's gate sits due-south, +y).
+  core.forEach((b, i) => drop(b.buildingType, centre.x, centre.y, i, [0, 1]));
   // North arc centred on -π/2 (up), spread ±120°, so they ring the bailey clear of the gate.
   const SPREAD = (2 * Math.PI) / 3; // ±120°
   bailey.forEach((b, i) => {
     const t = bailey.length > 1 ? i / (bailey.length - 1) - 0.5 : 0;
     const a = -Math.PI / 2 + 2 * SPREAD * t;
-    drop(b.buildingType, centre.x + baileyR * Math.cos(a), centre.y + baileyR * Math.sin(a), 100 + i);
+    const bx = centre.x + baileyR * Math.cos(a);
+    const by = centre.y + baileyR * Math.sin(a);
+    // Door faces the ward centre (inward) — the classic bailey: buildings back onto
+    // the curtain, doors onto the yard, which also turns them toward the gate.
+    drop(b.buildingType, bx, by, 100 + i, [centre.x - bx, centre.y - by]);
   });
 
   return { placed, plan, barriers, buildingIds, barrierIds, skippedBuildings };

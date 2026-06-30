@@ -46,4 +46,39 @@ describe('placeComplexOnPatch (motte-and-bailey)', () => {
     const riseM = (after[centre.y * W + centre.x] - before[centre.y * W + centre.x]) * relief;
     expect(riseM).toBeGreaterThan(0.5);
   });
+
+  it('orients the keep to front the gate and bailey buildings onto the ward', async () => {
+    const { map, world } = await generateWithNoise(64, 64, 7, seed);
+    const centre = { x: 32, y: 32 };
+    const res = placeComplexOnPatch(world, map, {
+      complexTypeId: 'motte_and_bailey', centre, seed: 7, era: 'medieval',
+    });
+
+    const ents = world.query({}) as Entity[];
+    type Anchor = { facing: [number, number]; main?: boolean };
+    const mainFacing = (id: string): [number, number] | null => {
+      const e = ents.find((x) => x.id === id);
+      const anchors = (e?.properties as { blueprint?: { anchors?: Anchor[] } } | undefined)
+        ?.blueprint?.anchors ?? [];
+      const a = anchors.find((an) => an.main) ?? anchors[0];
+      return a ? a.facing : null;
+    };
+
+    // The keep sits on the motte at centre and addresses the gate (due-south, +y).
+    const keepId = res.buildingIds.find((id) => id.includes('castle_keep'))!;
+    expect(keepId).toBeTruthy();
+    const keepFace = mainFacing(keepId)!;
+    expect(keepFace).toEqual([0, 1]);
+
+    // A bailey building (north arc, idx ≥ 100) fronts the ward — its door points
+    // back toward centre, so the dot of its facing with (centre − pos) is positive.
+    const baileyId = res.buildingIds.find((id) => !id.includes('castle_keep') &&
+      ents.some((e) => e.id === id && (e.y < centre.y)));
+    if (baileyId) {
+      const e = ents.find((x) => x.id === baileyId)!;
+      const inward: [number, number] = [centre.x - e.x, centre.y - e.y];
+      const f = mainFacing(baileyId);
+      if (f) expect(f[0] * inward[0] + f[1] * inward[1]).toBeGreaterThan(0);
+    }
+  });
 });
