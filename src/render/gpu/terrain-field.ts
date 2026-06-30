@@ -139,6 +139,10 @@ export function heightField(map: GameMap): Float32Array {
 
 /** Damp-earth fallback for a submerged bed when no dry neighbour is found nearby. */
 const WETBED_FALLBACK = '#5E4C3A';
+// Irrigated farm fields read a touch lusher/greener than rain-fed ones (`farm_field`
+// #AED581) so the G7 irrigation system is legible at a glance. Render-only; the
+// `irrigated` flag is set at worldgen and immutable at runtime, so the colour memo holds.
+const IRRIGATED_FIELD_COLOR = '#9CCC65';
 /** How far the carved bed is darkened vs the inherited bank colour (wet sheen). */
 const WETBED_DARKEN = 0.62;
 
@@ -213,7 +217,8 @@ export function packColorField(map: GameMap, devMode?: DevModeState, waterType?:
       // channel, so an overgrown road fades back to this ground instead of a flat
       // road-brown — and roads compose with snow/mud/wet like any other terrain.
       const colorType = tile ? (tile.baseType ?? tile.type) : undefined;
-      const hex = colorType ? (TILE_COLORS[effectiveTileType(colorType, devMode)] ?? '#444') : '#1a1a24';
+      let hex = colorType ? (TILE_COLORS[effectiveTileType(colorType, devMode)] ?? '#444') : '#1a1a24';
+      if (tile?.irrigated && tile.type === 'farm_field') hex = IRRIGATED_FIELD_COLOR;
       out[idx] = hexToAbgr(hex);
     }
   }

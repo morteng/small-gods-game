@@ -68,7 +68,7 @@ function fieldPatches(map: GameMap): { x: number; y: number }[][] {
  * order, so a given map always yields the same ditches.
  */
 export function stampIrrigation(map: GameMap, world: World, opts: { maxRoute?: number } = {}): number {
-  const maxRoute = opts.maxRoute ?? 10;
+  const maxRoute = opts.maxRoute ?? 18;
   const W = map.width;
   let stamped = 0;
 
