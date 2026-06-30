@@ -59,6 +59,11 @@ export interface GameMap {
   /** Inter-POI road graph (Roads Slice 0): polylines + bridges are the source of
    *  truth, tile carving is derived. Persisted verbatim via SaveFile.map. */
   roadGraph?: import('@/world/road-graph').RoadGraph;
+  /** Barriers committed by worldgen (settlement rings + croft enclosures). Source of
+   *  truth for the terrain FOUNDATION carve (`buildBarrierDeformations`), which can't
+   *  re-derive them (placement consumes live RNG/occupancy). Persisted verbatim via
+   *  SaveFile.map; the World entities are re-indexed from these on load. */
+  barrierRuns?: import('@/world/barrier').PlacedBarrier[];
   /** Derived anchor-snap layer: typed connection points on every feature + the matched
    *  links between them. Re-derivable from world+roadGraph; persisted for overlay/authoring. */
   anchors?: import('@/world/anchors').Anchor[];

@@ -32,6 +32,7 @@ import { toCollision } from '@/blueprint/compile/to-collision';
 import { toAnchors } from '@/blueprint/compile/to-anchors';
 import { orientationForFacing, rotateFootprint, rotateCell, type Orientation } from '@/blueprint/orientation';
 import { placeBarrier } from '@/world/place-barrier';
+import type { PlacedBarrier } from '@/world/barrier';
 import { isBuilding as isBuildingEntity, tileBlockedByBuilding } from '@/world/building-collision';
 import { OccupancyGrid, buildingSolidCells } from '@/world/occupancy-grid';
 import { buildingVisualCells } from '@/blueprint/footprint';
@@ -89,6 +90,9 @@ export interface SettlementResult {
   roadTiles: RoadTile[];
   /** The road graph + slots the layout was executed from (S1; growth slices extend it). */
   plan: SettlementPlan;
+  /** Barriers committed to the World here (croft enclosures + the settlement ring), captured
+   *  so the caller can persist them on the map for the terrain foundation carve. */
+  barriers: PlacedBarrier[];
 }
 
 /** Vegetation/ nature entity categories that should be removed when building. */
@@ -806,6 +810,7 @@ export function placeSettlement(
   // straight to the World (registry + indexes), so they are NOT added to
   // `result.entities` (which the map-generator re-indexes) — avoiding a double
   // index. Skipped for non-settlements (no lots) or when no world is bound.
+  const barriers: PlacedBarrier[] = [];
   if (world && plan.lots.length > 0 && placed > 0) {
     const ctx: EnclosureCtx = { era };
 
@@ -818,6 +823,7 @@ export function placeSettlement(
     // Per-croft enclosures (hedge/fence/wall) around each built lot.
     for (const { id, run } of deriveCroftEnclosures(plan.lots, poi.id, rng, ctx, isBuilding)) {
       placeBarrier(world, run, id);
+      barriers.push({ id, run });
     }
 
     // Settlement ring — bbox over the built area (lots + roads + market + civics).
@@ -840,11 +846,11 @@ export function placeSettlement(
         isBuilding,
         ctx,
       });
-      if (ring) placeBarrier(world, ring.run, ring.id);
+      if (ring) { placeBarrier(world, ring.run, ring.id); barriers.push({ id: ring.id, run: ring.run }); }
     }
   }
 
-  return { entities, roadTiles, plan };
+  return { entities, roadTiles, plan, barriers };
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

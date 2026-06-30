@@ -11,6 +11,11 @@ export interface BarrierRun {
   gates: BarrierGate[];
 }
 
+/** A barrier as committed by worldgen: its entity id + the run. Persisted on `GameMap`
+ *  (plain data → rides `structuredClone(map)` in the save) so the terrain foundation carve
+ *  is a pure function of the map, like settlement plans and the road graph. */
+export interface PlacedBarrier { id: string; run: BarrierRun }
+
 export const BARRIER_DEFAULTS: Record<BarrierKind, Omit<BarrierRun, 'kind' | 'path' | 'gates'>> = {
   wall:      { height: mToTiles(3.0), thickness: 1, material: 'stone',  crenellated: false }, // 3.0 m
   rampart:   { height: mToTiles(3.5), thickness: 2, material: 'stone',  crenellated: true },  // 3.5 m

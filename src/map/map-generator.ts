@@ -253,6 +253,7 @@ export async function generateWithNoise(
   const corridorReserved = corridorCells(worldSeed?.pois ?? [], worldSeed?.connections, { margin: 0 });
 
   const settlementPlans: SettlementPlan[] = [];
+  const barrierRuns: import('@/world/barrier').PlacedBarrier[] = [];
   if (worldSeed?.pois) {
     for (const poi of worldSeed.pois) {
       const zoneRule = getZoneRule(poi.type);
@@ -268,6 +269,7 @@ export async function generateWithNoise(
         mapStub,  // terrain-aware site selection (height is analytic from seed)
       );
       settlementPlans.push(result.plan);
+      barrierRuns.push(...result.barriers);
       villages.push({
         x: poi.position.x, y: poi.position.y, name: poi.name, type: poi.type,
         wards: result.plan.wards.map(w => ({ name: w.name, type: w.type })),
@@ -491,6 +493,7 @@ export async function generateWithNoise(
     stats: { iterations: 0, backtracks: 0 },
     buildings,
     settlementPlans,
+    barrierRuns,
     roadGraph,
   };
 
