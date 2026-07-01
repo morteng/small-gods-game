@@ -162,20 +162,34 @@ function towerElements(run: BarrierRun): Element[] {
   const mat = masonryMat(run);
   const base = { curtainHeight: run.height, curtainThickness: run.thickness, material: mat };
   const tag = `${r3(run.height)}:${r3(run.thickness)}:${mat}`;
-
-  const drum = towerSpec({ ...base, round: true });
-  const drumSpec = (): StructureSpec => ({ parts: drum.parts, mountAnchors: drum.mountAnchors });
-  const gate = towerSpec({ ...base, tall: true });        // square, taller — frames the gate
-  const gateSpec = (): StructureSpec => ({ parts: gate.parts, mountAnchors: gate.mountAnchors });
+  const c = run.centroid;
+  // Unit vector toward the town interior at (x,y) — the tower's doorway/loops orient to it.
+  const inwardAt = (x: number, y: number): [number, number] | undefined => {
+    if (!c) return undefined;
+    const ix = c[0] - x, iy = c[1] - y, m = Math.hypot(ix, iy) || 1;
+    return [ix / m, iy / m];
+  };
+  const q = (v?: [number, number]): string => v ? `${Math.round(v[0] * 4) / 4},${Math.round(v[1] * 4) / 4}` : 'solid';
   const mk = (key: string, spec: () => StructureSpec, x: number, y: number): Element =>
     ({ key, spec, anchor: tagAnchor, refX: x, refY: y, sortX: x, sortY: y });
 
-  const out: Element[] = cornerVertices(run.path).map(([x, y]) => mk(`tower:round:${tag}`, drumSpec, x, y));
+  const out: Element[] = [];
+  // Round drum at every corner — each faces its own inward diagonal, so a corner near one side of
+  // the ring keeps its door toward the town (each distinct orientation caches once).
+  for (const [x, y] of cornerVertices(run.path)) {
+    const inward = inwardAt(x, y);
+    const drum = towerSpec({ ...base, round: true, inward });
+    out.push(mk(`tower:round:${tag}:${q(inward)}`, () => ({ parts: drum.parts, mountAnchors: drum.mountAnchors }), x, y));
+  }
+  // Twin square gatehouse towers flanking each gate — both share the gate's inward orientation.
   for (const g of run.gates) {
     const { p, dir } = frameAt(run.path, g.t);
-    const off = g.width / 2 + gate.side * 0.45;           // flank the opening just outside it
-    out.push(mk(`tower:gate:${tag}`, gateSpec, p[0] - dir[0] * off, p[1] - dir[1] * off));
-    out.push(mk(`tower:gate:${tag}`, gateSpec, p[0] + dir[0] * off, p[1] + dir[1] * off));
+    const inward = inwardAt(p[0], p[1]);
+    const gate = towerSpec({ ...base, tall: true, inward });   // square, taller — frames the gate
+    const gateSpec = (): StructureSpec => ({ parts: gate.parts, mountAnchors: gate.mountAnchors });
+    const off = g.width / 2 + gate.side * 0.45;                // flank the opening just outside it
+    out.push(mk(`tower:gate:${tag}:${q(inward)}`, gateSpec, p[0] - dir[0] * off, p[1] - dir[1] * off));
+    out.push(mk(`tower:gate:${tag}:${q(inward)}`, gateSpec, p[0] + dir[0] * off, p[1] + dir[1] * off));
   }
   return out;
 }

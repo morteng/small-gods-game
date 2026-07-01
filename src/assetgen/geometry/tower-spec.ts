@@ -12,6 +12,7 @@
 // Pure prim emission; the source composes + caches it.
 import type { Part } from '@/assetgen/compose';
 import type { Mat } from '@/assetgen/types';
+import type { ApertureBox } from '@/assetgen/geometry/solids';
 import { mToTiles } from '@/render/scale-contract';
 import type { Anchor } from '@/world/anchors';
 
@@ -25,7 +26,33 @@ export interface TowerOpts {
   tall?: boolean;
   /** A round drum tower (the default corner/wall tower) rather than a square one. */
   round?: boolean;
+  /** Unit vector toward the town INTERIOR (from the ring centroid). The tower's entrance doorway
+   *  faces this way (you enter from inside); arrow-loops face the opposite (field) way. Absent →
+   *  a solid tower with no openings (legacy). */
+  inward?: [number, number];
 }
+
+const EPS = mToTiles(0.05);
+
+/** An arched DOORWAY niche recessed into the face the `inward` vector points at — the tower's
+ *  entrance. `half` is the distance from centre to that face. A deep dark recess reads as a way
+ *  in even though the massing behind stays solid (a true hollow interior needs the cutaway path). */
+function doorwayAperture(cx: number, cy: number, half: number, inward: [number, number]): ApertureBox {
+  const [ix, iy] = inward;
+  const useX = Math.abs(ix) >= Math.abs(iy);
+  const sgn = useX ? (ix >= 0 ? 1 : -1) : (iy >= 0 ? 1 : -1);
+  const dW = mToTiles(2.2), dH = mToTiles(3.2), depth = mToTiles(2.2);   // a big arched gate-tower door
+  const rise = mToTiles(0.7);
+  if (useX) {
+    const faceX = cx + sgn * half;
+    const atX = sgn > 0 ? faceX - depth : faceX - EPS;
+    return { at: [atX, cy - dW / 2, -EPS], size: [depth + EPS, dW, dH], arch: { axis: 'y', style: 'round', rise } };
+  }
+  const faceY = cy + sgn * half;
+  const atY = sgn > 0 ? faceY - depth : faceY - EPS;
+  return { at: [cx - dW / 2, atY, -EPS], size: [dW, depth + EPS, dH], arch: { axis: 'x', style: 'round', rise } };
+}
+
 
 export interface TowerSpec {
   parts: Part[];
@@ -83,11 +110,16 @@ function squareTower(opts: TowerOpts, cx: number, cy: number): TowerSpec {
   const h = side / 2;
   const at = (lx: number, ly: number): [number, number] => [cx + lx, cy + ly];
 
+  // Entrance doorway on the inner face if the tower knows which way it faces — the way in, so a
+  // tower reads as an enterable fighting tower (reached from the mural stairs + wall-walk).
+  const door = opts.inward ? doorwayAperture(cx, cy, h, opts.inward) : undefined;
+  const baseDoor = opts.inward ? doorwayAperture(cx, cy, h + flare / 2, opts.inward) : undefined;
+
   const parts: Part[] = [];
-  // Battered base (flared foot).
-  parts.push({ prim: 'box', at: [...at(-h - flare / 2, -h - flare / 2), 0], size: [side + flare, side + flare, baseH], material: mat });
-  // Main shaft.
-  parts.push({ prim: 'box', at: [...at(-h, -h), baseH * 0.6], size: [side, side, walkZ - baseH * 0.6], material: mat });
+  // Battered base (flared foot) — carry the doorway through it so the entrance reaches grade.
+  parts.push({ prim: 'box', at: [...at(-h - flare / 2, -h - flare / 2), 0], size: [side + flare, side + flare, baseH], material: mat, ...(baseDoor ? { apertures: [baseDoor] } : {}) });
+  // Main shaft — inner doorway.
+  parts.push({ prim: 'box', at: [...at(-h, -h), baseH * 0.6], size: [side, side, walkZ - baseH * 0.6], material: mat, ...(door ? { apertures: [door] } : {}) });
   // Corbelled machicolation band — overhangs the shaft just below the parapet.
   const cs = side + 2 * corbel, ch = h + corbel;
   parts.push({ prim: 'box', at: [...at(-ch, -ch), walkZ - corbelH], size: [cs, cs, corbelH], material: mat });
@@ -120,8 +152,9 @@ function roundTower(opts: TowerOpts, cx: number, cy: number): TowerSpec {
   const parts: Part[] = [];
   // Battered frustum foot (a tapered drum — wide at grade, narrowing to the shaft).
   parts.push({ prim: 'column', center, baseZ: 0, radius: r + flare, topRadius: r, height: baseH, material: mat });
-  // Cylindrical shaft.
-  parts.push({ prim: 'cylinder', center, baseZ: baseH * 0.7, radius: r, height: walkZ - baseH * 0.7, material: mat });
+  // Cylindrical shaft — an entrance doorway on the inner side (if oriented).
+  const door = opts.inward ? doorwayAperture(cx, cy, r, opts.inward) : undefined;
+  parts.push({ prim: 'cylinder', center, baseZ: baseH * 0.7, radius: r, height: walkZ - baseH * 0.7, material: mat, ...(door ? { apertures: [door] } : {}) });
   // Corbel ring (machicolation) overhanging just below the parapet.
   parts.push({ prim: 'cylinder', center, baseZ: walkZ - corbelH, radius: r + corbel, height: corbelH, material: mat });
   // Crenellated parapet wrapped around the corbel-widened ring.

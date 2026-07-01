@@ -80,6 +80,9 @@ async function main(): Promise<void> {
   // Straight wall with a centred arched gate — the arch crown must sit BELOW the parapet, with
   // masonry + merlons spanning over it (a real gateway), flanked by twin towers.
   composite(await placeRun({ kind: 'wall', path: [[0, 0], [12, 0]], ...wall, gates: [{ t: 6, width: 2.5 }] }), 'place-gate');
+  // Gate with a centroid → the flanking square towers orient: an arched DOORWAY on the inner
+  // (town) face + arrow-loop slits on the outer face. The inside faces the viewer here.
+  composite(await placeRun({ kind: 'wall', path: [[0, 0], [12, 0]], ...wall, centroid: [6, 7], gates: [{ t: 6, width: 2.5 }] }), 'place-gate-towers');
   // Unobstructed arch: a plain (uncrenellated → no towers/merlons) masonry wall, single gate.
   composite(await placeRun({ kind: 'wall', path: [[0, 0], [8, 0]], material: 'stone', height: 3, thickness: 1, crenellated: false, gates: [{ t: 4, width: 2.5 }] }), 'place-gate-plain');
   // Palisade with a timber gate — the leaf should fill the opening (no masonry arch/towers).
