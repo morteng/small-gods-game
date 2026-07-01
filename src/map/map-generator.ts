@@ -250,16 +250,11 @@ export async function generateWithNoise(
     if (!world.registry.has(e.id)) world.addEntity(e);
   }
 
-  // Coastal landmarks: a few sea arches on steep rocky shores — generative mesh
-  // landforms (a hole through rock the heightfield can't carve). Emergent from the
-  // biome map, sparse + deterministic; added before settlements so their footprints
-  // clear if a town ever seats atop one.
-  const settlementSeats = (worldSeed?.pois ?? [])
-    .filter(p => p.position && SETTLEMENT_TYPES.has(p.type))
-    .map(p => ({ x: p.position!.x, y: p.position!.y }));
-  for (const e of buildCoastalLandmarks(biomeMap.biomes, width, height, seed + 9157, settlementSeats)) {
-    if (!world.registry.has(e.id)) world.addEntity(e);
-  }
+  // Coastal landmarks (sea arch / cliff-face / cave / hoodoo) are SHELVED: the mesh
+  // landform pass read poorly in-world (billboards, seams), so it's disabled pending a
+  // rethink. The generators (`buildCoastalLandmarks`, the landform part types + presets)
+  // remain in the tree, unused, so re-enabling is a one-line change here.
+  void buildCoastalLandmarks; void SETTLEMENT_TYPES;
 
   // Connectome-placed mini-biomes: stamp distinctive ground (e.g. a temple's
   // sacred grove) keyed on POI type, BEFORE settlements and zone brushes so
