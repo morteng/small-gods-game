@@ -138,3 +138,67 @@ describe('deriveSettlementRing encloses the built bbox with gates at crossings',
     expect(ring).toBeNull();
   });
 });
+
+describe('terrain-traced settlement ring (diagonal walls)', () => {
+  // A blobby building cluster centred at (19,18), radius ~7.4 tiles.
+  const bset = new Set<string>();
+  for (let y = 12; y <= 24; y++) for (let x = 12; x <= 26; x++) {
+    if ((x - 19) ** 2 + (y - 18) ** 2 <= 55) bset.add(`${x},${y}`);
+  }
+  const isBuilding = (x: number, y: number) => bset.has(`${x},${y}`);
+  const bbox = { minX: 12, minY: 12, maxX: 26, maxY: 24 };
+
+  // Even-odd point-in-polygon on a closed ring path.
+  function inside(poly: [number, number][], x: number, y: number): boolean {
+    let c = false;
+    for (let i = 0, j = poly.length - 2; i < poly.length - 1; j = i++) {
+      const [xi, yi] = poly[i], [xj, yj] = poly[j];
+      if (((yi > y) !== (yj > y)) && (x < ((xj - xi) * (y - yi)) / (yj - yi) + xi)) c = !c;
+    }
+    return c;
+  }
+
+  it('traces a diagonal (non-rectangular) polygon that still encloses every building', () => {
+    const ring = deriveSettlementRing({
+      bbox, mapW: 60, mapH: 60, buildingCount: 30, poiId: 'traced',
+      isWater: () => false, isRoad: () => false, isBuilding, ctx: { era: 'medieval', wealth: 'wealthy' },
+    })!;
+    expect(ring).toBeTruthy();
+    const path = ring.run.path as [number, number][];
+    // A traced ring has more than a rectangle's 5 points but stays simplified (bounded towers).
+    expect(path.length).toBeGreaterThan(5);
+    expect(path.length - 1).toBeLessThanOrEqual(14);
+    // It is NOT axis-aligned: at least one segment runs on a true diagonal.
+    const hasDiagonal = path.slice(1).some((p, i) => {
+      const dx = p[0] - path[i][0], dy = p[1] - path[i][1];
+      return Math.abs(dx) > 0.5 && Math.abs(dy) > 0.5;
+    });
+    expect(hasDiagonal).toBe(true);
+    // Enclosure guarantee: no building cell lands outside the ring.
+    let breaches = 0;
+    for (const k of bset) { const [x, y] = k.split(',').map(Number); if (!inside(path, x, y)) breaches++; }
+    expect(breaches).toBe(0);
+  });
+
+  it('hugs a nearby waterline — the wall sits landward of the river', () => {
+    const ring = deriveSettlementRing({
+      bbox, mapW: 60, mapH: 60, buildingCount: 30, poiId: 'river',
+      isWater: (x) => x >= 29,                     // river/coast to the east
+      isRoad: (x, y) => y === 18 && x < 12,        // road approaching from the west
+      isBuilding, ctx: { era: 'medieval', wealth: 'wealthy' },
+    })!;
+    const path = ring.run.path as [number, number][];
+    // No ring vertex crosses into the water; the east edge tucks just landward of x=29.
+    const maxX = Math.max(...path.map((p) => p[0]));
+    expect(maxX).toBeLessThan(29);
+    expect(maxX).toBeGreaterThan(26);              // but it DID reach out to hug the bank
+  });
+
+  it('falls back to a rectangle when no building footprint is supplied', () => {
+    const ring = deriveSettlementRing({
+      bbox, mapW: 60, mapH: 60, buildingCount: 30, poiId: 'norect',
+      isWater: () => false, isRoad: () => false, ctx: { era: 'medieval', wealth: 'wealthy' },
+    })!;
+    expect(ring.run.path.length).toBe(5);          // the classic axis-aligned box
+  });
+});

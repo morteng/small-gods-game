@@ -107,6 +107,125 @@ function rectRing(minX: number, minY: number, maxX: number, maxY: number): Pt[] 
   ];
 }
 
+/** Perpendicular distance from p to the segment a→b (for polyline simplification). */
+function segDist(p: Pt, a: Pt, b: Pt): number {
+  const dx = b[0] - a[0], dy = b[1] - a[1];
+  const L2 = dx * dx + dy * dy;
+  if (L2 < 1e-9) return Math.hypot(p[0] - a[0], p[1] - a[1]);
+  const t = Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / L2));
+  return Math.hypot(p[0] - (a[0] + dx * t), p[1] - (a[1] + dy * t));
+}
+
+/** Ramer–Douglas–Peucker simplify of an OPEN polyline (endpoints kept). */
+function rdp(pts: Pt[], eps: number): Pt[] {
+  if (pts.length < 3) return pts.slice();
+  let maxD = 0, idx = 0;
+  for (let i = 1; i < pts.length - 1; i++) {
+    const d = segDist(pts[i], pts[0], pts[pts.length - 1]);
+    if (d > maxD) { maxD = d; idx = i; }
+  }
+  if (maxD <= eps) return [pts[0], pts[pts.length - 1]];
+  const left = rdp(pts.slice(0, idx + 1), eps);
+  const right = rdp(pts.slice(idx), eps);
+  return [...left.slice(0, -1), ...right];
+}
+
+/**
+ * Simplify a CLOSED radial ring (open list of N samples in angular order) to a low-vertex
+ * polygon, escalating epsilon until the vertex count is within `maxVerts` so tower/compose
+ * cost stays bounded. Returns an OPEN vertex list (the caller closes it).
+ */
+function simplifyRing(samples: Pt[], eps0: number, maxVerts: number): Pt[] {
+  // Treat the ring as an open path start..end..start-repeat so RDP can drop the seam vertex too.
+  let eps = eps0;
+  for (let iter = 0; iter < 8; iter++) {
+    const open = [...samples, samples[0]];
+    const s = rdp(open, eps);
+    const verts = s.slice(0, -1);                       // drop the repeated seam point
+    if (verts.length <= maxVerts || verts.length <= 4) return verts;
+    eps *= 1.5;
+  }
+  const open = [...samples, samples[0]];
+  return rdp(open, eps).slice(0, -1);
+}
+
+/**
+ * TERRAIN-TRACED settlement ring. Instead of an axis-aligned bounding box, trace a star-shaped
+ * polygon around the built cluster that FOLLOWS nearby terrain: each of N rays from the centre is
+ * pushed out just far enough to enclose the buildings in its sector (+margin), then — where a
+ * riverbank / lakeshore / coast lies close outside the town — PULLED back in to sit just landward
+ * of the waterline. The result hugs the water where water is near and rounds the cluster elsewhere;
+ * being star-shaped it can never self-intersect. Simplified to a handful of vertices so a corner
+ * drum tower lands only at a real turn. Returns null (→ rectangle fallback) when there are too few
+ * building cells to trace a meaningful shape.
+ */
+function traceRing(args: {
+  bbox: { minX: number; minY: number; maxX: number; maxY: number };
+  mapW: number; mapH: number; margin: number;
+  isWater: (x: number, y: number) => boolean;
+  isBuilding?: (x: number, y: number) => boolean;
+}): { path: Pt[]; centroid: Pt } | null {
+  const { bbox, mapW, mapH, margin, isWater, isBuilding } = args;
+  if (!isBuilding) return null;
+  // Gather building cells within the bbox + their centroid.
+  const cells: Pt[] = [];
+  let sx = 0, sy = 0;
+  for (let y = Math.max(0, bbox.minY); y <= Math.min(mapH - 1, bbox.maxY); y++) {
+    for (let x = Math.max(0, bbox.minX); x <= Math.min(mapW - 1, bbox.maxX); x++) {
+      if (isBuilding(x, y)) { cells.push([x, y]); sx += x; sy += y; }
+    }
+  }
+  if (cells.length < 6) return null;                    // too small — a rectangle is fine
+  const cx = sx / cells.length, cy = sy / cells.length;
+
+  const N = 96;
+  const core = new Array<number>(N).fill(0);            // town edge (no margin) per ray bucket
+  for (const [x, y] of cells) {
+    const a = Math.atan2(y - cy, x - cx);
+    const k = ((Math.round((a / (2 * Math.PI)) * N) % N) + N) % N;
+    const d = Math.hypot(x - cx, y - cy);
+    if (d > core[k]) core[k] = d;
+  }
+  // Windowed circular max so a ray falling BETWEEN two building bearings still encloses them,
+  // and a floor of the cluster's half-diagonal keeps the ring from denting into empty sectors.
+  const halfDiag = 0.5 * Math.hypot(bbox.maxX - bbox.minX, bbox.maxY - bbox.minY);
+  const floorR = 0.4 * halfDiag;
+  const coreS = new Array<number>(N);
+  for (let k = 0; k < N; k++) {
+    let m = 0;
+    for (let w = -2; w <= 2; w++) { const j = ((k + w) % N + N) % N; if (core[j] > m) m = core[j]; }
+    coreS[k] = Math.max(m, floorR);
+  }
+
+  const snapBand = margin + 3;                           // how far out we look for a bank to hug
+  const clampX = (v: number): number => Math.max(0, Math.min(mapW - 1, v));
+  const clampY = (v: number): number => Math.max(0, Math.min(mapH - 1, v));
+  const samples: Pt[] = [];
+  for (let k = 0; k < N; k++) {
+    const a = (k / N) * 2 * Math.PI, dx = Math.cos(a), dy = Math.sin(a);
+    const coreR = coreS[k];
+    let r = coreR + margin;
+    // Feature snap: if the land meets water just outside the town along this ray, tuck the wall
+    // to sit ~half a tile landward of that bank (never inside a building → clamped to coreR+).
+    for (let d = coreR + 0.5; d <= coreR + margin + snapBand; d += 0.5) {
+      if (isWater(Math.round(cx + dx * d), Math.round(cy + dy * d))) { r = Math.max(coreR + 0.6, d - 0.6); break; }
+    }
+    samples.push([clampX(cx + dx * r), clampY(cy + dy * r)]);
+  }
+
+  const verts = simplifyRing(samples, 1.2, 14);
+  if (verts.length < 3) return null;
+  const path: Pt[] = [...verts, [...verts[0]] as Pt];   // close the ring
+  return { path, centroid: [cx, cy] };
+}
+
+/** Total length of a polyline (tiles). */
+function pathLen(path: Pt[]): number {
+  let s = 0;
+  for (let i = 1; i < path.length; i++) s += Math.hypot(path[i][0] - path[i - 1][0], path[i][1] - path[i - 1][1]);
+  return s;
+}
+
 /**
  * Enclose each built burgage lot with a croft ring (hedge/fence/wall), gated on the
  * street side so the door stays reachable.
@@ -228,15 +347,20 @@ export function deriveSettlementRing(args: {
   const dx = maxX - minX, dy = maxY - minY;
   if (dx < 2 || dy < 2) return null;
 
-  const path = rectRing(minX, minY, maxX, maxY);
   const gateW = catalogue.get<BarrierTypeFields>('barrierType', typeId)?.fields.gateWidthTiles ?? 3;
-  const centroid: Pt = [(minX + maxX) / 2, (minY + maxY) / 2];
+
+  // TERRAIN-TRACED ring: a star-shaped polygon that hugs the built cluster and follows nearby
+  // waterlines (diagonal corners fall out of the existing angle-general renderer). Falls back to
+  // the axis-aligned bounding rectangle for tiny/degenerate clusters the tracer can't shape.
+  const traced = traceRing({ bbox: args.bbox, mapW: args.mapW, mapH: args.mapH, margin, isWater: args.isWater, isBuilding: args.isBuilding });
+  const path = traced?.path ?? rectRing(minX, minY, maxX, maxY);
+  const centroid: Pt = traced?.centroid ?? [(minX + maxX) / 2, (minY + maxY) / 2];
 
   // Walk the ring at slab midpoints (same as the croft rings — keeps the renderer in lockstep).
   // Distinguish WHY each opening exists so the defences read believably:
   //   • ROAD crossings → real GATES (gatehouse + timber leaf).
   //   • WATER / BUILDING crossings → plain GAPS (the line just opens; no gatehouse).
-  const total = 2 * dx + 2 * dy;
+  const total = pathLen(path);
   const roadGates = gatesWhereOpen(path, total, args.isRoad, gateW).map((g) => ({ ...g, kind: 'gate' as const }));
   const softOpen = (x: number, y: number): boolean => args.isWater(x, y) || (args.isBuilding?.(x, y) ?? false);
   const softGaps = gatesWhereOpen(path, total, softOpen, gateW).map((g) => ({ ...g, kind: 'gap' as const }));

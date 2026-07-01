@@ -6,7 +6,7 @@ describe('content-version constants', () => {
     expect(ART_RECIPE_VERSION).toBe('v23');
   });
 
-  it('declares the current world content version (72: roads lead to gates)', () => {
-    expect(WORLD_CONTENT_VERSION).toBe(72);
+  it('declares the current world content version (73: diagonal terrain-traced walls)', () => {
+    expect(WORLD_CONTENT_VERSION).toBe(73);
   });
 });

@@ -108,6 +108,17 @@ async function main(): Promise<void> {
   // HOARDED ring with a gate — the timber gallery should ring the wall and bridge OVER the gate
   // as a bretèche, all facing outward.
   composite(await placeRun({ kind: 'wall', path: [[0, 0], [16, 0], [16, 12], [0, 12], [0, 0]], material: 'stone', height: 3.5, thickness: 2, crenellated: true, centroid: [8, 6], hoarded: true, gates: [{ t: 8, width: 3 }] }), 'place-ring-hoarded');
+  // DIAGONAL (terrain-traced) town-wall ring — an octagon whose four 45° segments prove the
+  // angle-general pipeline: chunks abut cleanly along the diagonals, drum towers land at every
+  // corner, and the gate + its flanking towers sit on a diagonal edge.
+  {
+    const c = 11, R = 10, a = R * 0.41;
+    const oct: [number, number][] = [
+      [c - a, c - R], [c + a, c - R], [c + R, c - a], [c + R, c + a],
+      [c + a, c + R], [c - a, c + R], [c - R, c + a], [c - R, c - a], [c - a, c - R],
+    ];
+    composite(await placeRun({ kind: 'wall', path: oct, material: 'stone', height: 3.5, thickness: 2, crenellated: true, centroid: [c, c], gates: [{ t: 6, width: 3, kind: 'gate' }] }), 'place-ring-diagonal');
+  }
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });
