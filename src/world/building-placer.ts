@@ -43,7 +43,7 @@ import {
   type SettlementPlan, type Lot, type FrontageSlot,
 } from './settlement-plan';
 
-import { computeHomeParcel } from './settlement-parcels';
+import { computeSettlementParcels } from './settlement-parcels';
 
 /** Road tile types — door paths stop when they reach an existing road */
 const ROAD_TYPES = new Set(['dirt_road', 'stone_road', 'bridge']);
@@ -342,16 +342,21 @@ export function placeSettlement(
   const buildingCount = Math.max(1, Math.round(rng.int(zoneRule.buildingCount.min, zoneRule.buildingCount.max) * sizeScale));
   const radius = Math.round(rng.int(zoneRule.radius.min, zoneRule.radius.max) * Math.sqrt(sizeScale));
 
-  // Water-parcel gate: confine every lot to the settlement's HOME BANK — the land
-  // component reachable from the centre without crossing a river — so the cluster
-  // (and the wall that later encloses it) never straddles the water. Null when
-  // there's nothing to confine to (centre on water, or no water in reach): the
+  // Water-parcel model: the settlement's developable area, partitioned by water into
+  // the HOME BANK (the land component reachable from the centre without crossing a
+  // river), the adjacent banks, and the short crossings between them. Placement is
+  // confined to the home bank so the cluster (and the wall that later encloses it)
+  // never straddles the water; the wall reads the home bank as its authoritative
+  // boundary; growth (Slice 3) will annex an adjacent bank only via a crossing. Null
+  // when there's nothing to partition (centre on water, or no water in reach): the
   // placer then behaves exactly as before. See settlement-parcels.ts.
-  const homeParcel = computeHomeParcel(cx, cy, tiles, radius + 8);
+  const parcels = computeSettlementParcels(cx, cy, tiles, radius + 8);
+  const homeParcel = parcels?.home.cells ?? null;
 
   // 1. Plan: road graph + market widening + burgage lots + wards.
   const plan = planSettlement({ x: cx, y: cy }, zoneRule, tiles, connectedDirections, rng);
   plan.poiId = poi.id;
+  if (parcels) plan.parcels = parcels;   // persist the shared spatial model on the plan
   widenMarket(plan, tiles);
   subdivideLots(plan, tiles, worldSeed);
   assignWards(plan, radius, tiles, worldSeed);
@@ -867,6 +872,7 @@ export function placeSettlement(
         isWater: (x, y) => WATER_TYPES.has(tiles[y]?.[x]?.type ?? ''),
         isRoad: (x, y) => occ.is(x, y, 'road') || ROAD_TYPES.has(tiles[y]?.[x]?.type ?? ''),
         isBuilding,
+        parcel: homeParcel ?? undefined,
         ctx,
       });
       if (ring) { placeBarrier(world, ring.run, ring.id); barriers.push({ id: ring.id, run: ring.run }); }

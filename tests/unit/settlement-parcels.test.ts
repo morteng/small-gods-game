@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeHomeParcel } from '@/world/settlement-parcels';
+import { computeHomeParcel, computeSettlementParcels } from '@/world/settlement-parcels';
 import type { Tile } from '@/core/types';
 
 // Build a tile grid from an ASCII map: '.' land, '~' river/water.
@@ -65,5 +65,59 @@ describe('computeHomeParcel — home-bank flood fill', () => {
     expect(mask.has('7,1')).toBe(true);   // within reach
     expect(mask.has('8,1')).toBe(false);  // outside the reach box
     expect(mask.has('0,1')).toBe(false);  // far (west) bank, across the river
+  });
+});
+
+describe('computeSettlementParcels — the parcel graph', () => {
+  it('labels the far bank as an adjacent parcel and finds the crossing', () => {
+    // west bank (x 0–3), a 1-tile river at x=4, east bank (x 5–8). Centre on the west.
+    const tiles = grid([
+      '....~....',
+      '....~....',
+      '....~....',
+      '....~....',
+      '....~....',
+    ]);
+    const g = computeSettlementParcels(1, 2, tiles, 8)!;
+    expect(g).not.toBeNull();
+    expect(g.home.cells.has('1,2')).toBe(true);
+    expect(g.home.cells.has('5,2')).toBe(false);           // far bank is NOT home
+    expect(g.adjacent.length).toBe(1);                      // one bank across the water
+    expect(g.adjacent[0].cells.has('5,2')).toBe(true);
+    expect(g.crossings.length).toBe(1);
+    const c = g.crossings[0];
+    expect(c.from).toBe(0);                                 // home
+    expect(c.to).toBe(g.adjacent[0].id);
+    expect(c.span).toBe(1);                                 // one water tile to cross
+    expect(c.at.x).toBe(3);                                 // springs from the home riverbank
+    expect(c.to_at.x).toBe(5);                              // lands on the far bank
+  });
+
+  it('does not record a crossing when the channel is wider than a bridge can span', () => {
+    // a 7-tile-wide river (x 4–10) exceeds MAX_CROSSING_SPAN (6): banks stay unlinked.
+    const tiles = grid([
+      '....~~~~~~~....',
+      '....~~~~~~~....',
+      '....~~~~~~~....',
+    ]);
+    const g = computeSettlementParcels(1, 1, tiles, 14)!;
+    expect(g.adjacent.length).toBe(1);                      // the far bank still exists…
+    expect(g.crossings.length).toBe(0);                     // …but no crossing spans to it
+  });
+
+  it('returns null for a dry inland site (no water to partition)', () => {
+    const tiles = grid(['....', '....', '....']);
+    expect(computeSettlementParcels(1, 1, tiles, 8)).toBeNull();
+  });
+
+  it('home mask matches computeHomeParcel (same fill)', () => {
+    const tiles = grid([
+      '....~....',
+      '....~....',
+      '....~....',
+    ]);
+    const g = computeSettlementParcels(1, 1, tiles, 8)!;
+    const mask = computeHomeParcel(1, 1, tiles, 8)!;
+    expect([...g.home.cells].sort()).toEqual([...mask].sort());
   });
 });

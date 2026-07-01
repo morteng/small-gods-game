@@ -102,6 +102,11 @@ export interface SettlementPlan {
   civics: CivicSite[];
   /** Widened-main-street market tiles around the founding node. */
   market: { x: number; y: number }[];
+  /** The water-partitioned developable area (home bank + adjacent banks +
+   *  candidate crossings). Set at placement by `computeSettlementParcels`; the
+   *  shared spatial model placement, the wall, and (Slice 3) growth all read.
+   *  Undefined for dry inland sites with no reachable water. */
+  parcels?: import('@/world/settlement-parcels').SettlementParcels;
 }
 
 /** Per-preset siting preferences (grows into the S4 constraint catalogue). */
