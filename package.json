@@ -15,6 +15,8 @@
     "bus": "tsx tools/bus-cli.ts",
     "mcp": "tsx tools/mcp-server.ts",
     "lint:world": "tsx scripts/connectome-lint.ts",
+    "gallery": "tsx scripts/dev-gallery.ts",
+    "gallery:serve": "tsx scripts/dev-gallery.ts && python3 -m http.server 8848 --directory .dev-grabs",
     "tauri": "tauri",
     "build:electron": "tsc && VITE_BASE=/ vite build",
     "electron:dev": "SG_DEV_URL=http://localhost:3000 electron .",
