@@ -92,6 +92,12 @@ async function main(): Promise<void> {
   // Thin town wall (thickness 1, as worldgen builds it) — the case that used to collapse merlons
   // onto the centreline. With centroid set, crenellations must sit on the OUTER face all round.
   composite(await placeRun({ kind: 'wall', path: [[0, 0], [16, 0], [16, 12], [0, 12], [0, 0]], material: 'stone', height: 3, thickness: 1, crenellated: true, centroid: [8, 6], gates: [{ t: 8, width: 3 }] }), 'place-ring-thin');
+  // HOARDED straight wall — a timber gallery (hourd) cantilevered over the outer (field) face:
+  // support beams + overhanging plank floor + shooting breastwork + mono-pitch roof.
+  composite(await placeRun({ kind: 'wall', path: [[0, 0], [14, 0]], material: 'stone', height: 3.5, thickness: 2, crenellated: true, centroid: [7, 6], hoarded: true, gates: [] }), 'place-hoarding');
+  // HOARDED ring with a gate — the timber gallery should ring the wall and bridge OVER the gate
+  // as a bretèche, all facing outward.
+  composite(await placeRun({ kind: 'wall', path: [[0, 0], [16, 0], [16, 12], [0, 12], [0, 0]], material: 'stone', height: 3.5, thickness: 2, crenellated: true, centroid: [8, 6], hoarded: true, gates: [{ t: 8, width: 3 }] }), 'place-ring-hoarded');
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });

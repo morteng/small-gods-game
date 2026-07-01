@@ -156,7 +156,11 @@ function masonrySeg(M: ManifoldNS, run: BarrierRun, s: Seg): ManifoldT[] {
   const walkZ = H - parapetH;
   out.push(place(locBox(M, 0, s.len, th, plinthH * 0.4, walkZ - plinthH * 0.4), s));
 
-  if (run.crenellated) {
+  if (run.crenellated && run.hoarded) {
+    // A hoarded wall carries its defence in the TIMBER gallery built over the top (added by
+    // hoardingSeg), so the stone crown is just a flat wall-walk here — no stone merlons to
+    // clutter under the timber. The curtain already rises to walkZ above.
+  } else if (run.crenellated) {
     // Crenellated parapet + wall-walk. A defender stands on the walk (the curtain top at walkZ)
     // sheltered behind merlons that FACE THE FIELD. So the toothed parapet goes on the OUTER edge
     // only, with a low solid inner kerb (parados) closing the walk on the town side — never a
@@ -189,6 +193,60 @@ function masonrySeg(M: ManifoldNS, run: BarrierRun, s: Seg): ManifoldT[] {
     const copeH = mToTiles(0.3);
     out.push(place(locBox(M, 0, s.len, th + mToTiles(0.25), H - copeH, copeH), s));
   }
+  return out;
+}
+
+/**
+ * Timber HOARDING (hourd / brattice) — the wartime covered gallery cantilevered out over the
+ * OUTER face at parapet level: stubby support beams (putlogs) → an overhanging plank floor →
+ * a shooting breastwork at the lip → a mono-pitch shingle roof. Defenders in it drop stones /
+ * quicklime through the gap at their feet straight down the wall base a flush parapet can't reach.
+ * All timber; needs a known outward side (returns nothing otherwise) and a crenellated curtain.
+ */
+function hoardingSeg(M: ManifoldNS, run: BarrierRun, s: Seg): ManifoldT[] {
+  const outward = outwardSignFor(run, s);
+  if (outward === 0) return [];
+  const H = Math.max(mToTiles(1.0), run.height);
+  const th = Math.max(mToTiles(0.6), run.thickness);
+  const parapetH = run.crenellated ? Math.min(mToTiles(1.6), H * 0.4) : 0;
+  const walkZ = H - parapetH;
+  const out: ManifoldT[] = [];
+
+  const over = mToTiles(1.3);                       // how far the gallery juts past the wall face
+  const frontY = outward * (th / 2 + over);         // outer lip of the gallery (local y)
+
+  // Support beams (putlogs): stubby timbers from inside the wall out to the lip, just below the
+  // walk — the cantilever brackets that carry the floor. Spaced along the run.
+  const beamH = mToTiles(0.3), beamW = mToTiles(0.24);
+  const beamInner = outward * (th * 0.15);
+  const beamSpan = Math.abs(frontY) - Math.abs(beamInner);
+  const beamCenterY = (beamInner + frontY) / 2;
+  const bz = walkZ - beamH;
+  for (let d = mToTiles(0.35); d <= s.len - mToTiles(0.2); d += mToTiles(0.9)) {
+    out.push(place(locBox(M, d, beamW, beamSpan, bz, beamH, beamCenterY), s));
+  }
+
+  // Overhanging plank floor — slightly overlaps the wall top, extends out past the lip.
+  const ft = mToTiles(0.22);
+  const floorSpan = over + mToTiles(0.5);
+  const floorCenterY = outward * (th / 2 + over / 2 - mToTiles(0.05));
+  out.push(place(locBox(M, 0, s.len, floorSpan, walkZ, ft, floorCenterY), s));
+
+  // Shooting breastwork at the outer lip — the timber wall defenders stand behind.
+  const bwTh = mToTiles(0.28), bwH = mToTiles(1.05);
+  out.push(place(locBox(M, 0, s.len, bwTh, walkZ + ft, bwH, frontY), s));
+  // A back post row where the gallery meets the wall top (the inner support the roof springs from).
+  out.push(place(locBox(M, 0, s.len, mToTiles(0.2), walkZ + ft, bwH + mToTiles(0.4), outward * (th / 2)), s));
+
+  // Small mono-pitch shingle roof capping ONLY the overhang (the wall-walk behind stays open):
+  // high ridge at the wall side, eave dropping past the outer lip. Tilt sign flips with outward.
+  const roofTh = mToTiles(0.16);
+  const roofD = over + mToTiles(0.7);
+  const roof = M.cube([s.len, roofD, roofTh])
+    .translate([0, -roofD / 2, -roofTh / 2])
+    .rotate([-outward * 30, 0, 0])
+    .translate([0, outward * (th / 2 + over / 2), walkZ + ft + bwH + mToTiles(0.5)]);
+  out.push(place(roof, s));
   return out;
 }
 
@@ -336,7 +394,11 @@ export async function linearFacets(run: BarrierRun): Promise<LinearResult> {
 
   segs.forEach((s, i) => {
     switch (family) {
-      case 'masonry':  push(baseMat, masonryWork(run), masonrySeg(M, run, s)); break;
+      case 'masonry': {
+        push(baseMat, masonryWork(run), masonrySeg(M, run, s));
+        if (run.hoarded) push('timber', 'plank', hoardingSeg(M, run, s));   // wartime timber galleries
+        break;
+      }
       case 'palisade': { const r = palisadeSeg(M, run, s); push('timber', 'plank', r.timber); push('earth', undefined, r.earth); break; }
       case 'light':    push('timber', 'plank', lightSeg(M, run, s)); break;
       case 'living':   push('foliage', undefined, hedgeSeg(M, run, s, i)); break;

@@ -17,6 +17,10 @@ export interface BarrierRun {
    *  −1 ⇒ local −y). Set by `chunkBarrierRun` from `centroid`; read by the masonry cross-section
    *  so a chunk (which has lost the ring centre in its local frame) still knows which way is out. */
   outwardSign?: number;
+  /** Timber HOARDINGS (hourds/brattices): a wartime covered gallery cantilevered out over the
+   *  OUTER face at parapet level, so defenders drop stones/quicklime straight down the wall base
+   *  a flush parapet can't reach. Needs a known outward side + a crenellated masonry curtain. */
+  hoarded?: boolean;
 }
 
 /** A barrier as committed by worldgen: its entity id + the run. Persisted on `GameMap`

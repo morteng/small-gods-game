@@ -129,6 +129,7 @@ export function chunkBarrierRun(run: BarrierRun): BarrierChunk[] {
         height: run.height, thickness: run.thickness, material: run.material,
         crenellated: run.crenellated, posts: run.posts, gates,
         ...(outwardSign !== undefined ? { outwardSign } : {}),
+        ...(run.hoarded ? { hoarded: true } : {}),
       };
       out.push({
         key: JSON.stringify(localRun), localRun,
