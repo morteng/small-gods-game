@@ -43,6 +43,8 @@ import {
   type SettlementPlan, type Lot, type FrontageSlot,
 } from './settlement-plan';
 
+import { computeHomeParcel } from './settlement-parcels';
+
 /** Road tile types — door paths stop when they reach an existing road */
 const ROAD_TYPES = new Set(['dirt_road', 'stone_road', 'bridge']);
 
@@ -340,6 +342,13 @@ export function placeSettlement(
   const buildingCount = Math.max(1, Math.round(rng.int(zoneRule.buildingCount.min, zoneRule.buildingCount.max) * sizeScale));
   const radius = Math.round(rng.int(zoneRule.radius.min, zoneRule.radius.max) * Math.sqrt(sizeScale));
 
+  // Water-parcel gate: confine every lot to the settlement's HOME BANK — the land
+  // component reachable from the centre without crossing a river — so the cluster
+  // (and the wall that later encloses it) never straddles the water. Null when
+  // there's nothing to confine to (centre on water, or no water in reach): the
+  // placer then behaves exactly as before. See settlement-parcels.ts.
+  const homeParcel = computeHomeParcel(cx, cy, tiles, radius + 8);
+
   // 1. Plan: road graph + market widening + burgage lots + wards.
   const plan = planSettlement({ x: cx, y: cy }, zoneRule, tiles, connectedDirections, rng);
   plan.poiId = poi.id;
@@ -475,6 +484,14 @@ export function placeSettlement(
   const fitsAt = (x: number, y: number, w: number, h: number, nearWater?: number): boolean => {
     if (x < 0 || y < 0 || y + h > tiles.length || x + w > (tiles[0]?.length ?? 0)) return false;
     if (!footprintOnTerrain(x, y, w, h, tiles, terrainSet)) return false;
+    // Home-bank confinement: every footprint cell must sit on the centre's bank.
+    if (homeParcel) {
+      for (let dy = 0; dy < h; dy++) {
+        for (let dx = 0; dx < w; dx++) {
+          if (!homeParcel.has(`${x + dx},${y + dy}`)) return false;
+        }
+      }
+    }
     if (!canPlaceIgnoringNature(x, y, w, h, constraint.margin, registry)) return false;
     for (let dy = 0; dy < h; dy++) {
       for (let dx = 0; dx < w; dx++) {
