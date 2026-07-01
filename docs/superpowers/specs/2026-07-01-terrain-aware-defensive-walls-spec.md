@@ -1,6 +1,10 @@
 # Terrain-aware defensive walls — believable medieval fortification
 
-**Status:** spec + in-flight implementation (2026-07-01)
+**Status:** SHIPPED — slices A–E all merged (2026-07-01). See "Slice plan" below for what each delivered.
+Deferred follow-ups: a walk-in tower cutaway interior (floors + newel stair, like the building-interior
+system — the current towers give an authentic entrance doorway but not a visible inside); and
+non-water terrain integration (hills/ridges/steep drops — only water-fronted sides are auto-opened so far,
+since slope data isn't yet plumbed into `deriveSettlementRing`).
 **Motivation (user):** "defensive walls … must point the right way, outward all around;
 gates for the roads (perhaps only one gate); the wooden structures they had in conjunction
 with walls to help defenders; stairs for defenders to get up on walls, and inside towers.
