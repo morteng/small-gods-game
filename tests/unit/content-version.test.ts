@@ -6,7 +6,7 @@ describe('content-version constants', () => {
     expect(ART_RECIPE_VERSION).toBe('v22');
   });
 
-  it('declares the current world content version (56: verdant meadows)', () => {
-    expect(WORLD_CONTENT_VERSION).toBe(64);
+  it('declares the current world content version (71: guaranteed main gate)', () => {
+    expect(WORLD_CONTENT_VERSION).toBe(71);
   });
 });
