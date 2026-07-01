@@ -128,3 +128,15 @@ describe('chunkBarrierRun — outward orientation (parapet must face the field)'
     }
   });
 });
+
+describe('runElements — mural stairs (defenders must be able to reach the walk)', () => {
+  it('a crenellated stone ring WITH a centroid gets inner stair elements (gate + long walls)', () => {
+    const ring: BarrierRun = { kind: 'wall', path: RING, height: 3, thickness: 2, material: 'stone', crenellated: true, centroid: [7, 5], gates: [{ t: 7, width: 3 }] };
+    const stairs = runElements(ring).filter((e) => e.key.startsWith('stair:'));
+    expect(stairs.length).toBeGreaterThanOrEqual(2);      // ≥ one by the gate + long-wall mids
+  });
+  it('no stairs without a centroid (open run / unknown inside) or on a hedge', () => {
+    const noCentroid: BarrierRun = { kind: 'wall', path: RING, height: 3, thickness: 2, material: 'stone', crenellated: true, gates: [] };
+    expect(runElements(noCentroid).some((e) => e.key.startsWith('stair:'))).toBe(false);
+  });
+});

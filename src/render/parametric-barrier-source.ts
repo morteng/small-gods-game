@@ -19,6 +19,8 @@ import { composeStructure, type StructureResult, type StructureSpec, type NormAn
 import { structureResultToPack } from '@/render/parametric-building-source';
 import { towerSpec } from '@/assetgen/geometry/tower-spec';
 import { gateLeafSpec } from '@/assetgen/geometry/gate-spec';
+import { stairSpec } from '@/assetgen/geometry/stair-spec';
+import { mToTiles } from '@/render/scale-contract';
 import type { Mat } from '@/assetgen/types';
 import type { BarrierKind } from '@/world/barrier';
 import type { SpritePack, BarrierPiece } from '@/render/iso/sprite-canvas';
@@ -200,10 +202,54 @@ function gateElements(run: BarrierRun): Element[] {
   return out;
 }
 
+/** Only real defensive rings (a crenellated masonry curtain that knows its inside) get stairs. */
+function stairsEnabled(run: BarrierRun): boolean {
+  return !!run.crenellated && !!run.centroid && (run.material === 'stone' || run.material === 'brick');
+}
+
+/** Mural-stair elements: a stone flight up to the wall-walk on the INNER face — beside every gate
+ *  (clear of the passage) and at the midpoint of each long wall, so defenders can actually reach
+ *  the allure at intervals around the ring. */
+function stairElements(run: BarrierRun): Element[] {
+  if (!stairsEnabled(run)) return [];
+  const c = run.centroid!;
+  const H = run.height;
+  const parapetH = run.crenellated ? Math.min(mToTiles(1.6), H * 0.4) : 0;
+  const walkZ = H - parapetH;                              // the wall-walk the flight climbs to
+  const mat = masonryMat(run);
+  const tag = `${r3(H)}:${r3(run.thickness)}:${mat}`;
+
+  // Access points: beside each gate (offset along the wall, clear of the opening) + long-wall mids.
+  const spots: { p: Pt; dir: Pt }[] = [];
+  for (const g of run.gates) {
+    const { p, dir } = frameAt(run.path, g.t);
+    const off = g.width / 2 + mToTiles(1.8);
+    spots.push({ p: [p[0] - dir[0] * off, p[1] - dir[1] * off], dir });
+  }
+  let acc = 0;
+  for (let i = 1; i < run.path.length; i++) {
+    const a = run.path[i - 1], b = run.path[i];
+    const segLen = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    if (segLen >= 8) { const { p, dir } = frameAt(run.path, acc + segLen / 2); spots.push({ p, dir }); }
+    acc += segLen;
+  }
+
+  return spots.map((sp, k) => {
+    const inx = c[0] - sp.p[0], iny = c[1] - sp.p[1], m = Math.hypot(inx, iny) || 1;
+    const inward: Pt = [inx / m, iny / m];
+    const stair = stairSpec({ walkZ, dir: sp.dir, inward, thickness: run.thickness, material: mat });
+    return {
+      key: `stair:${tag}:${k}:${r3(sp.dir[0])},${r3(sp.dir[1])}`,
+      spec: () => ({ parts: stair.parts, mountAnchors: stair.mountAnchors }),
+      anchor: tagAnchor, refX: sp.p[0], refY: sp.p[1], sortX: sp.p[0], sortY: sp.p[1],
+    } as Element;
+  });
+}
+
 /** All composable elements of a run, in draw-friendly order (curtain first, gate + towers over). */
 export function runElements(run: BarrierRun): Element[] {
   if (!run.path || run.path.length < 2) return [];
-  return [...chunkElements(run), ...gateElements(run), ...towerElements(run)];
+  return [...chunkElements(run), ...stairElements(run), ...gateElements(run), ...towerElements(run)];
 }
 
 /** A composed element: the lit pack + the normalised position of its anchor point. */
