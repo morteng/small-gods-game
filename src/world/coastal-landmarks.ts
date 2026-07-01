@@ -23,6 +23,7 @@ const PLACE_PROB = 0.5;
 const MAX_ARCHES = 4;
 const MAX_CLIFF_FACES = 4;
 const MAX_CAVES = 3;
+const MAX_HOODOOS = 6;
 
 /** Decorrelated [0,1) hash (same mix as the vegetation/riparian placers). */
 function hash01(x: number, y: number, key: number): number {
@@ -87,9 +88,14 @@ export function buildCoastalLandmarks(
     7919);
   // Sea caves: rocky shore at the water (a `mountain` or `rocky_shore` cell bordering
   // sea with a bare-rock neighbour) — where the surf hollows a dark mouth into the
-  // rock. Placed LAST, so it takes rocky spots the arches/faces didn't claim.
+  // rock. Placed after arches/faces, so it takes rocky spots they didn't claim.
   scatter('cave_mouth', MAX_CAVES,
     (x, y) => { const b = at(x, y); return (b === 'mountain' || b === 'rocky_shore') && bordersSea(x, y) && N8.some(([dx, dy]) => isRock(x + dx, y + dy)); },
     5273);
+  // Hoodoos: the INLAND exception — balanced rocks dotting the rocky highlands (a
+  // `mountain` cell NOT at the water), where weathering leaves a capped pedestal.
+  scatter('hoodoo', MAX_HOODOOS,
+    (x, y) => at(x, y) === 'mountain' && !bordersSea(x, y),
+    3391);
   return out;
 }

@@ -111,6 +111,24 @@ function caveMouthSpec(seed = 1): StructureSpec {
   return { id: 'cave_mouth', parts };
 }
 
+/** A HOODOO / balanced rock — a slender rock pedestal capped by a far wider boulder
+ *  that overhangs it on every side (a mushroom rock). The overhang is the point: a
+ *  heightfield can't pinch a column narrower than its cap. Dots rocky highlands. */
+function hoodooSpec(seed = 1): StructureSpec {
+  const H = mToTiles(11);
+  const parts: Part[] = [];
+  // slender weathered pedestal (a tapering stack of small rocks on a thin cylinder)
+  parts.push({ prim: 'cylinder', center: [0, 0], baseZ: 0, radius: mToTiles(1.6), height: H * 0.66, material: 'stone' });
+  for (let i = 0; i < 3; i++) {
+    const z = (H * 0.6 / 3) * i;
+    parts.push({ prim: 'rock', center: [0, 0], baseZ: z, radius: mToTiles(2.2 - 0.2 * i) / 2, seed: seed * 19 + i, jitter: 0.4, mat: 'stone' });
+  }
+  // the wide overhanging cap — much broader than the neck, so it juts out all round
+  parts.push({ prim: 'rock', center: [0, 0], baseZ: H * 0.62, radius: mToTiles(5) / 2, seed: seed * 19 + 8, jitter: 0.55, mat: 'stone' });
+  parts.push({ prim: 'rock', center: [mToTiles(0.6), mToTiles(0.4)], baseZ: H * 0.82, radius: mToTiles(3.4) / 2, seed: seed * 19 + 9, jitter: 0.55, mat: 'stone' });
+  return { id: 'hoodoo', parts };
+}
+
 async function dump(name: string, spec: StructureSpec) {
   const r: StructureResult = await composeStructure(spec, undefined, undefined);
   writeFileSync(join(OUT, `${name}-grey.png`), toPng(r.grey, r.size));
@@ -122,6 +140,7 @@ async function main() {
   await dump('sea-arch', seaArchSpec(1));
   await dump('cliff-face', cliffFaceSpec(1));
   await dump('cave-mouth', caveMouthSpec(1));
+  await dump('hoodoo', hoodooSpec(1));
 }
 
 main();

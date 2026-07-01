@@ -172,3 +172,46 @@ export const caveMouthPartType: PartType = {
   toAnchors: () => [],
   toBrief: () => 'a cave mouth, a dark hollow bored into the rock',
 };
+
+/**
+ * A HOODOO / balanced rock — a slender weathered pedestal capped by a far wider
+ * boulder that overhangs it on every side (a mushroom rock). The overhang is the
+ * point: a heightfield can't pinch a column narrower than its cap. Dots rocky
+ * highlands. A thin cylinder neck roughened by rocks + a broad crag cap.
+ */
+export const hoodooPartType: PartType = {
+  type: 'hoodoo',
+  paramSchema: {
+    heightM: { kind: 'number', min: 4, max: 18, default: 11 },
+    capM:    { kind: 'number', min: 2, max: 10, default: 5 },   // cap diameter (the overhang)
+    seed:    { kind: 'number', default: 0 },
+  },
+  resolve: (part, ctx) => ({
+    params: {
+      heightM: 11, capM: 5,
+      ...(part.params ?? {}),
+      seed: (part.params?.seed as number | undefined) ?? (ctx.seed >>> 0),
+    },
+  }),
+  toPrims(p): Prim[] {
+    const seed = (p.params.seed as number) >>> 0;
+    const H = mToTiles(p.params.heightM as number);
+    const cap = mToTiles(p.params.capM as number);
+    const neckR = mToTiles(1.4);
+    const parts: Prim[] = [
+      { prim: 'cylinder', center: [0, 0], baseZ: 0, radius: neckR, height: H * 0.66, material: 'stone' },
+    ];
+    // rough the neck: rocks a touch WIDER than the cylinder so they break its surface
+    for (let i = 0; i < 3; i++) {
+      const z = (H * 0.6 / 3) * i;
+      parts.push({ prim: 'rock', center: [0, 0], baseZ: z, radius: mToTiles(3.4 - 0.4 * i) / 2, seed: seed * 19 + i, jitter: 0.45, mat: 'stone' });
+    }
+    // the wide overhanging cap — much broader than the neck, jutting out all round
+    parts.push({ prim: 'rock', center: [0, 0], baseZ: H * 0.62, radius: cap / 2, seed: seed * 19 + 8, jitter: 0.55, mat: 'stone' });
+    parts.push({ prim: 'rock', center: [mToTiles(0.6), mToTiles(0.4)], baseZ: H * 0.82, radius: cap * 0.68 / 2, seed: seed * 19 + 9, jitter: 0.55, mat: 'stone' });
+    return parts;
+  },
+  toCollision: (p) => footprintCells(p),
+  toAnchors: () => [],
+  toBrief: () => 'a hoodoo, a balanced rock on a slender weathered pedestal',
+};

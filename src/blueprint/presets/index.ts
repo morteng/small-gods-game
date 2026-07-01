@@ -142,6 +142,7 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
   sea_arch: landform('sea_arch', 'sea_arch', { w: 4, h: 3 }),
   cliff_face: landform('cliff_face', 'cliff_face', { w: 4, h: 3 }),
   cave_mouth: landform('cave_mouth', 'cave_mouth', { w: 4, h: 3 }),
+  hoodoo: landform('hoodoo', 'hoodoo', { w: 2, h: 2 }),
   // Peasant cottage: rectangular plan (1:1.5), door + one shuttered window on the
   // entry face, one on the gable, ridge smoke LOUVRE (no chimney — period default
   // for commoners; see docs/reference/medieval-building-reference.md).
