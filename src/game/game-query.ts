@@ -21,6 +21,7 @@ import { evaluateContracts, type ContractReport } from '@/world/connectome-contr
 import { isDurable } from '@/sim/believers';
 import { ALL_DOMAINS, DOMAIN_DEFS, aggregateDomain, isOminous } from '@/sim/belief-domains';
 import { getCapability } from '@/sim/command/registry';
+import { scoreAffordance } from '@/game/affordance/salience';
 import { calendarLabel, TICKS_PER_DAY, DAYS_PER_YEAR } from '@/core/calendar';
 import { PLAYER_SPIRIT_ID } from '@/sim/believers';
 import { POWER_REGEN_RATE, POWER_UNDERSTANDING_COEFF, POWER_DEVOTION_COEFF } from '@/sim/spirit-system';
@@ -354,8 +355,11 @@ export function createGameQuery(deps: GameQueryDeps): GameQuery {
     divineInbox(spiritId: SpiritId = PLAYER_SPIRIT_ID): InboxItem[] {
       const world = state.world;
       if (!world) return [];
-      const surfaced = state.surfacedInbox ?? new Set<string>();
+      const surfacedSet = state.surfacedInbox ?? new Set<string>();
       const items: InboxItem[] = [];
+      // Fate surfacing (B-E): a promoted item is flagged + boosted (scoreAffordance
+      // folds the +1 in). All salience runs through the shared `scoreAffordance`
+      // brain so the inbox (global lens) and hover (local lens, P3) never disagree.
 
       // ── prayers: NPCs actively pleading (worship), weighted by faith × need ──
       for (const e of world.query({ kind: 'npc' })) {
@@ -364,13 +368,15 @@ export function createGameQuery(deps: GameQueryDeps): GameQuery {
         const faith = p.beliefs[spiritId]?.faith ?? 0;
         if (faith <= 0) continue;
         const meaningDeficit = 1 - p.needs.meaning;
+        const id = `prayer:${e.id}`;
+        const surfaced = surfacedSet.has(id);
         items.push({
-          id: `prayer:${e.id}`,
+          id,
           kind: 'prayer',
           title: `${p.name} is praying`,
           detail: `A ${p.role} pleads for an answer.`,
-          salience: faith * (0.4 + 0.6 * meaningDeficit),
-          surfaced: false,
+          salience: scoreAffordance({ kind: 'prayer', faith, meaningDeficit, surfaced }),
+          surfaced,
           target: { kind: 'npc', npcId: e.id },
         });
       }
@@ -384,13 +390,15 @@ export function createGameQuery(deps: GameQueryDeps): GameQuery {
         }
         if (!worstType) continue;
         const poiName = state.worldSeed?.pois.find(pp => pp.id === poiId)?.name ?? poiId;
+        const id = `opp:${poiId}`;
+        const surfaced = surfacedSet.has(id);
         items.push({
-          id: `opp:${poiId}`,
+          id,
           kind: 'opportunity',
           title: `${worstType} grips ${poiName}`,
           detail: 'A sign now would be taken as your hand on the sky.',
-          salience: 0.5 + 0.5 * worst,
-          surfaced: false,
+          salience: scoreAffordance({ kind: 'opportunity', severity: worst, surfaced }),
+          surfaced,
           target: { kind: 'settlement', poiId },
         });
       }
@@ -403,21 +411,19 @@ export function createGameQuery(deps: GameQueryDeps): GameQuery {
           if ((npcProps(e).beliefs[s.id]?.faith ?? 0) >= 0.15) rivalBelievers++;
         }
         if (rivalBelievers === 0) continue;
+        const id = `threat:${s.id}`;
+        const surfaced = surfacedSet.has(id);
         items.push({
-          id: `threat:${s.id}`,
+          id,
           kind: 'threat',
           title: `${s.name} courts the faithful`,
           detail: `${rivalBelievers} soul(s) lean toward a rival.`,
-          salience: 0.4 + Math.min(0.5, rivalBelievers * 0.05),
-          surfaced: false,
+          salience: scoreAffordance({ kind: 'threat', rivalBelievers, surfaced }),
+          surfaced,
           target: { kind: 'none' },
         });
       }
 
-      // Fate surfacing (B-E): promoted items get flagged + boosted above the pack.
-      for (const it of items) {
-        if (surfaced.has(it.id)) { it.surfaced = true; it.salience += 1; }
-      }
       // Deterministic order: salience desc, then id asc as a stable tiebreak.
       items.sort((a, b) => (b.salience - a.salience) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
       return items;

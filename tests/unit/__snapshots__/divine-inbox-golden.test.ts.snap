@@ -1,0 +1,105 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`divineInbox — P0 golden (byte-identical across scoreAffordance extraction) > Fate surfacing boosts a promoted item to the top by +1 1`] = `
+[
+  {
+    "detail": "1 soul(s) lean toward a rival.",
+    "id": "threat:rival",
+    "kind": "threat",
+    "salience": 1.45,
+    "surfaced": true,
+    "target": {
+      "kind": "none",
+    },
+    "title": "Rival courts the faithful",
+  },
+  {
+    "detail": "A sign now would be taken as your hand on the sky.",
+    "id": "opp:vale",
+    "kind": "opportunity",
+    "salience": 0.95,
+    "surfaced": false,
+    "target": {
+      "kind": "settlement",
+      "poiId": "vale",
+    },
+    "title": "drought grips vale",
+  },
+  {
+    "detail": "A farmer pleads for an answer.",
+    "id": "prayer:pray-hi",
+    "kind": "prayer",
+    "salience": 0.6066514854313114,
+    "surfaced": false,
+    "target": {
+      "kind": "npc",
+      "npcId": "pray-hi",
+    },
+    "title": "Pip is praying",
+  },
+  {
+    "detail": "A farmer pleads for an answer.",
+    "id": "prayer:pray-lo",
+    "kind": "prayer",
+    "salience": 0.22358484362931216,
+    "surfaced": false,
+    "target": {
+      "kind": "npc",
+      "npcId": "pray-lo",
+    },
+    "title": "Pip is praying",
+  },
+]
+`;
+
+exports[`divineInbox — P0 golden (byte-identical across scoreAffordance extraction) > ranks prayers + opportunity + threat deterministically 1`] = `
+[
+  {
+    "detail": "A sign now would be taken as your hand on the sky.",
+    "id": "opp:vale",
+    "kind": "opportunity",
+    "salience": 0.95,
+    "surfaced": false,
+    "target": {
+      "kind": "settlement",
+      "poiId": "vale",
+    },
+    "title": "drought grips vale",
+  },
+  {
+    "detail": "A farmer pleads for an answer.",
+    "id": "prayer:pray-hi",
+    "kind": "prayer",
+    "salience": 0.6066514854313114,
+    "surfaced": false,
+    "target": {
+      "kind": "npc",
+      "npcId": "pray-hi",
+    },
+    "title": "Pip is praying",
+  },
+  {
+    "detail": "1 soul(s) lean toward a rival.",
+    "id": "threat:rival",
+    "kind": "threat",
+    "salience": 0.45,
+    "surfaced": false,
+    "target": {
+      "kind": "none",
+    },
+    "title": "Rival courts the faithful",
+  },
+  {
+    "detail": "A farmer pleads for an answer.",
+    "id": "prayer:pray-lo",
+    "kind": "prayer",
+    "salience": 0.22358484362931216,
+    "surfaced": false,
+    "target": {
+      "kind": "npc",
+      "npcId": "pray-lo",
+    },
+    "title": "Pip is praying",
+  },
+]
+`;
