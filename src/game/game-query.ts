@@ -19,9 +19,12 @@ import type { AppendedEvent } from '@/core/events';
 import { npcProps } from '@/world/npc-helpers';
 import { evaluateContracts, type ContractReport } from '@/world/connectome-contracts';
 import { isDurable } from '@/sim/believers';
-import { ALL_DOMAINS, DOMAIN_DEFS, aggregateDomain, isOminous } from '@/sim/belief-domains';
+import { ALL_DOMAINS, DOMAIN_DEFS, aggregateDomain, isOminous, getDomainBelief } from '@/sim/belief-domains';
 import { getCapability } from '@/sim/command/registry';
 import { scoreAffordance } from '@/game/affordance/salience';
+import { affordancesForTarget, type VerbUnlock } from '@/game/affordance/derive';
+import type { CommandCtx, CommandTarget } from '@/sim/command/types';
+import type { World } from '@/world/world';
 import { calendarLabel, TICKS_PER_DAY, DAYS_PER_YEAR } from '@/core/calendar';
 import { PLAYER_SPIRIT_ID } from '@/sim/believers';
 import { POWER_REGEN_RATE, POWER_UNDERSTANDING_COEFF, POWER_DEVOTION_COEFF } from '@/sim/spirit-system';
@@ -65,6 +68,26 @@ export interface NpcDetail extends NpcView {
   relationships: { npcId: string; type: string; trust: number }[];
   lineageId: EntityId;
   ageYears: number;
+}
+
+/** One labelled 0–1 bar in the inspector (a need, a belief scalar, a domain conviction). */
+export interface InspectorBar { label: string; value: number; }
+/** One affordance row in the inspector (the full vocabulary; locked verbs greyed). */
+export interface InspectorAffordance { verb: string; label: string; cost: number; unlocked: boolean; affordable: boolean; }
+
+/** The target-first inspector payload (spec §8): full legible state for any
+ *  selectable + what the target believes YOU command (the belief-loop feedback) +
+ *  the complete divine vocabulary applicable here. Plain data → MCP/UI bind directly. */
+export interface InspectorView {
+  kind: 'npc' | 'settlement';
+  title: string;
+  subtitle: string;
+  /** Live state bars (belief toward you, mood, needs), each 0–1. */
+  state: InspectorBar[];
+  /** What the target believes YOU command, per domain (0 = the thought never occurred). */
+  domains: InspectorBar[];
+  /** The full divine vocabulary for this target — locked/unaffordable verbs greyed. */
+  affordances: InspectorAffordance[];
 }
 
 export interface BeliefView {
@@ -153,6 +176,9 @@ export interface GameQuery {
   entities(opts?: QueryOpts): Entity[];
   npcs(filter?: QueryOpts): NpcView[];
   npc(id: EntityId): NpcDetail | null;
+  /** Target-first inspector: full state + domain-belief feedback + affordances for
+   *  a selected npc/settlement (default spirit = player). Null when unresolvable. */
+  inspect(target: CommandTarget, spiritId?: SpiritId): InspectorView | null;
   beliefState(spiritId?: SpiritId): BeliefView;
   settlement(poiId: string): SettlementView | null;
   events(sinceId?: number): AppendedEvent[];
@@ -180,6 +206,19 @@ export interface GameQueryDeps {
   rate?: () => number;
   /** Scrub/tick window (TimelineController). Omit → live, no scrub. */
   timeline?: { readonly isScrubbed: boolean; readonly currentTick: number; readonly maxTick: number };
+}
+
+/** The spirit's belief-unlock vector (a domain's verb is unlocked once its
+ *  aggregate conviction clears the threshold AND the capability is implemented).
+ *  The `this`-free core of `beliefPowers`, so `inspect`/`affordancesForTarget`
+ *  gate on the same signal the powers panel shows. */
+function beliefUnlocks(world: World | null, spiritId: SpiritId): VerbUnlock[] {
+  return ALL_DOMAINS.map((domain) => {
+    const def = DOMAIN_DEFS[domain];
+    const conviction = world ? aggregateDomain(world, spiritId, domain).conviction : 0;
+    const implemented = getCapability(def.verb)?.implemented ?? false;
+    return { verb: def.verb, unlocked: implemented && conviction >= def.unlockThreshold };
+  });
 }
 
 function durableBelieverCount(state: GameState, spiritId: SpiritId): number {
@@ -257,6 +296,57 @@ export function createGameQuery(deps: GameQueryDeps): GameQuery {
         lineageId: p.lineageId,
         ageYears: Math.max(0, (state.clock.now() - p.birthTick) / TICKS_PER_YEAR),
       };
+    },
+
+    inspect(target: CommandTarget, spiritId: SpiritId = PLAYER_SPIRIT_ID): InspectorView | null {
+      const world = state.world;
+      if (!world) return null;
+      const ctx: CommandCtx = { world, spirits: state.spirits, log: state.eventLog };
+      const affordances: InspectorAffordance[] =
+        affordancesForTarget(target, spiritId, ctx, beliefUnlocks(world, spiritId))
+          .map(a => ({ verb: a.verb, label: a.label, cost: a.preview.cost, unlocked: a.unlocked, affordable: a.preview.affordable }));
+
+      if (target.kind === 'npc') {
+        const e = world.query({ kind: 'npc' }).find(n => n.id === target.npcId);
+        if (!e) return null;
+        const p = npcProps(e);
+        const b = p.beliefs[spiritId] ?? { faith: 0, understanding: 0, devotion: 0 };
+        const ageYears = Math.max(0, (state.clock.now() - p.birthTick) / TICKS_PER_YEAR);
+        return {
+          kind: 'npc',
+          title: p.name,
+          subtitle: `${p.role} · age ${Math.floor(ageYears)} · ${p.activity}`,
+          state: [
+            { label: 'Faith', value: b.faith },
+            { label: 'Understanding', value: b.understanding },
+            { label: 'Devotion', value: b.devotion },
+            { label: 'Mood', value: p.mood },
+            { label: 'Safety', value: p.needs.safety },
+            { label: 'Prosperity', value: p.needs.prosperity },
+            { label: 'Community', value: p.needs.community },
+            { label: 'Meaning', value: p.needs.meaning },
+          ],
+          domains: ALL_DOMAINS.map(d => ({ label: DOMAIN_DEFS[d].label, value: getDomainBelief(p, spiritId, d) })),
+          affordances,
+        };
+      }
+
+      if (target.kind === 'settlement') {
+        const poi = state.worldSeed?.pois.find(pp => pp.id === target.poiId);
+        if (!poi) return null;
+        const souls = world.query({ kind: 'npc' }).filter(n => npcProps(n).homePoiId === target.poiId).length;
+        return {
+          kind: 'settlement',
+          title: poi.name ?? target.poiId,
+          subtitle: `${poi.type}${poi.importance ? ` · ${poi.importance}` : ''} · ${souls} souls`,
+          // no per-target scalars for a place; the congregation's convictions carry the state.
+          state: [],
+          // settlement-scale loop feedback: how convinced the whole congregation is.
+          domains: ALL_DOMAINS.map(d => ({ label: DOMAIN_DEFS[d].label, value: aggregateDomain(world, spiritId, d).conviction })),
+          affordances,
+        };
+      }
+      return null;
     },
 
     beliefState(spiritId: SpiritId = PLAYER_SPIRIT_ID): BeliefView {

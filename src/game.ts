@@ -9,7 +9,7 @@ import { attachControls, attachTimeKeys } from '@/ui/controls';
 import type { GameMap, WorldSeed, TerrainOptions } from '@/core/types';
 import { ART_RECIPE_VERSION } from '@/core/content-version';
 import { createDebugApi, type DebugApi } from '@/dev/debug-api';
-import { createGameQuery, type GameQuery, type InboxItem } from '@/game/game-query';
+import { createGameQuery, type GameQuery, type InboxItem, type InspectorView } from '@/game/game-query';
 import { causalSiteCardView } from '@/game/causal-site-view';
 import type { CommandVerb, CommandTarget, CommandTargetKind } from '@/sim/command/types';
 import { hoverChips } from '@/game/affordance/hover';
@@ -704,6 +704,15 @@ export class Game {
       getTargeting: () => this.interaction.targeting ? { label: this.interaction.targeting.label } : null,
       getHoverAffordances: () => this.hoverAffordances(),
       onHoverChip: (verb) => this.castHoverChip(verb),
+      // ── P3.8: the target-first inspector (reads the live selection) ──
+      getInspector: () => this.inspectorView(),
+      onInspectorCast: (verb) => this.castInspector(verb),
+      onCloseInspector: () => {
+        this.state.selectedNpcId = null;
+        this.state.selectedBuildingId = null;
+        this.state.pinnedNpcId = null;
+        this.requestRender();
+      },
       getInbox: () => this.query.divineInbox(),
       onInboxAct: (item) => this.actOnInbox(item),
       onInboxInvestigate: (item) => {
@@ -883,6 +892,43 @@ export class Game {
   /** Fire a hover-popover chip against the frozen hover target. */
   private castHoverChip(verb: string): void {
     const target = this.hoverFrozen;
+    if (!target) return;
+    this.bus.emit({ verb: verb as CommandVerb, source: PLAYER_SPIRIT_ID, target });
+    this.requestRender();
+  }
+
+  /** The target the inspector last resolved from the selection, so a CAST acts on
+   *  the inspected subject regardless of where the cursor is. */
+  private inspectorFrozen: CommandTarget | null = null;
+
+  /** The inspector payload for the current selection (spec §8, P3.8) — an NPC, else
+   *  the settlement a selected building belongs to. Null when nothing is selected
+   *  (a causal site has its own card). Freezes the target so CAST routes correctly. */
+  private inspectorView(): InspectorView | null {
+    const target = this.inspectorTarget();
+    if (!target) { this.inspectorFrozen = null; return null; }
+    this.inspectorFrozen = target;
+    return this.query.inspect(target, PLAYER_SPIRIT_ID);
+  }
+
+  /** Resolve the current selection to a command target: a selected NPC, else the
+   *  settlement of a selected building. */
+  private inspectorTarget(): CommandTarget | null {
+    const s = this.state;
+    if (s.selectedNpcId) return { kind: 'npc', npcId: s.selectedNpcId };
+    if (s.selectedBuildingId && s.world) {
+      const b = s.world.registry.get(s.selectedBuildingId);
+      if (b) {
+        const poiId = this.nearestPoiId(Math.floor(b.x), Math.floor(b.y));
+        if (poiId) return { kind: 'settlement', poiId };
+      }
+    }
+    return null;
+  }
+
+  /** Fire an inspector affordance against the frozen inspected target. */
+  private castInspector(verb: string): void {
+    const target = this.inspectorFrozen;
     if (!target) return;
     this.bus.emit({ verb: verb as CommandVerb, source: PLAYER_SPIRIT_ID, target });
     this.requestRender();

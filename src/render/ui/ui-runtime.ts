@@ -22,7 +22,7 @@ import type { UiDrawGroup } from '@/render/ui/ui-batcher';
 import { SettingsIsland } from '@/render/ui/ui-settings-island';
 import type { ProviderConfig } from '@/llm/provider-factory';
 import type { StorySession, Stage } from '@/story/story-session';
-import type { BeliefPowerView, InboxItem } from '@/game/game-query';
+import type { BeliefPowerView, InboxItem, InspectorView } from '@/game/game-query';
 import type { SiteCardView } from '@/game/causal-site-view';
 
 /** Bigger-font multipliers (× the integer DPR scale). The S1 demo drew at 1×s
@@ -62,6 +62,14 @@ export interface UiRuntimeHooks {
   getHoverAffordances?: () => { chips: HoverChipView[] } | null;
   /** Fire a hover-popover chip (the game acts on its frozen hover target). */
   onHoverChip?: (verb: string) => void;
+
+  // ── P3.8: the target-first inspector (zoom-in focus surface) ──
+  /** The inspector payload for the current selection, or null (no selection). */
+  getInspector?: () => InspectorView | null;
+  /** Cast a verb from the inspector's affordance list (acts on the selection). */
+  onInspectorCast?: (verb: string) => void;
+  /** Dismiss the inspector (clears the selection). */
+  onCloseInspector?: () => void;
   /** The triageable divine-inbox items, salience-ranked (default []). */
   getInbox?: () => InboxItem[];
   /** Triage: act on an item (route to the matching divine action). */
@@ -425,7 +433,12 @@ export class UiRuntime {
     const site = this.hooks.getSelectedSite?.() ?? null;
     if (site) this.drawSiteCard(c, w, s, site);
 
-    this.drawCameraCluster(c, w, h, s);
+    // ── P3.8 inspector: a right-docked panel for the current selection ──
+    const inspector = this.hooks.getInspector?.() ?? null;
+    const inspectorW = inspector ? this.drawInspector(c, w, h, s, inspector) : 0;
+
+    // camera cluster tucks left of the inspector so the two never overlap.
+    this.drawCameraCluster(c, w, h, s, inspectorW ? inspectorW + 16 * s : 0);
 
     // ── verb-first targeting: a top-centre reticle hint while aiming a cast ──
     const aim = this.hooks.getTargeting?.() ?? null;
@@ -519,6 +532,100 @@ export class UiRuntime {
     y += barH + 10 * s;
 
     c.label(view.status, innerX, y, fsBody, UI_PALETTE.textDim);
+  }
+
+  // ── P3.8 inspector: the target-first focus surface (zoom-in) ────────────────
+  // A right-docked panel for the current selection (npc / settlement): full legible
+  // state, what the target believes YOU command (the belief-loop feedback), and the
+  // complete divine vocabulary here — locked/unaffordable verbs greyed, castable
+  // ones fire on the selection. The WebGPU heir to legacy `npc-attention-panel.ts`.
+  // Returns the panel width (device px) so the camera cluster can tuck beside it.
+  private drawInspector(c: UiContext, w: number, h: number, s: number, view: InspectorView): number {
+    const pad = 16 * s;
+    const pw = 340 * s;
+    const px = w - pw - pad;
+    const top = pad;
+    const ph = h - pad * 2;
+    c.panel(px, top, pw, ph);
+    c.hotspot('ui.inspector', px, top, pw, ph); // eat clicks on the body (no deselect)
+
+    const fsName = 3 * s;
+    const fsBody = FS_BODY * s;
+    const lh = c.lineHeight(fsBody);
+    const innerX = px + 20 * s;
+    const innerW = pw - 40 * s;
+    const bottom = top + ph - pad;
+    let y = top + 20 * s;
+
+    // title + subtitle + close
+    c.label(view.title, innerX, y, fsName, UI_PALETTE.text);
+    const close = 22 * s;
+    if (c.button('ui.inspector.close', '✕', px + pw - close - 12 * s, top + 12 * s, close, close, { scale: fsBody })) {
+      this.hooks.onCloseInspector?.();
+    }
+    y += c.lineHeight(fsName) + 4 * s;
+    c.label(view.subtitle, innerX, y, fsBody, UI_PALETTE.textDim);
+    y += lh + 14 * s;
+
+    // The affordance block is the actionable payload, so reserve its height at the
+    // bottom first: state + domains then flow top-down into the remaining space and
+    // break before they'd collide with it (no scroll yet → content budgets, spec §11).
+    const bh = 30 * s;
+    const rowGap = 8 * s;
+    const acts = view.affordances;
+    const actsH = acts.length ? (10 * s + lh + 8 * s) + acts.length * (bh + rowGap) : 0;
+    const contentLimit = bottom - actsH;
+
+    // A compact single-line bar: label left, a fill track on the right of the row.
+    const barH = 7 * s;
+    const rowH = lh + 8 * s;
+    const bar = (label: string, value: number, accent: readonly [number, number, number, number]): void => {
+      c.label(label, innerX, y, fsBody, UI_PALETTE.textDim);
+      const trackW = innerW * 0.42;
+      const trackX = innerX + innerW - trackW;
+      const trackY = y + Math.round((lh - barH) / 2);
+      c.rect(trackX, trackY, trackW, barH, withAlpha(shade(UI_PALETTE.panelBg, -0.3), 0.9));
+      const fillW = Math.round(trackW * clamp01(value));
+      if (fillW > 0) c.rect(trackX, trackY, fillW, barH, accent);
+      y += rowH;
+    };
+
+    for (const b of view.state) {
+      if (y + rowH > contentLimit) break;
+      bar(b.label, b.value, UI_PALETTE.accent);
+    }
+
+    // what the target believes YOU command — the belief-loop feedback
+    if (view.domains.length && y + rowH * 2 <= contentLimit) {
+      y += 6 * s;
+      c.label('THEY BELIEVE YOU COMMAND', innerX, y, fsBody, UI_PALETTE.accent);
+      y += rowH;
+      for (const d of view.domains) {
+        if (y + rowH > contentLimit) break;
+        bar(d.label, d.value, [0.55, 0.7, 0.9, 1]); // storm-sky (a belief you hold over them)
+      }
+    }
+
+    // the full divine vocabulary — flows right after the state (reserved above so it
+    // always fits). Target-first: the panel IS the subject, so a button needs only
+    // the verb (the full `describe()` "whisper to <id>" would overflow the panel).
+    if (acts.length) {
+      let ay = y + 10 * s;
+      c.label('ACTS', innerX, ay, fsBody, UI_PALETTE.textDim);
+      ay += lh + 8 * s;
+      for (const a of acts) {
+        const castable = a.unlocked && a.affordable;
+        const cost = a.cost > 0 ? ` · ${a.cost}` : '';
+        const lock = a.unlocked ? '' : ' 🔒';
+        const label = `${a.verb.replace(/_/g, ' ').toUpperCase()}${cost}${lock}`;
+        if (c.button(`inspector.cast.${a.verb}`, label, innerX, ay, innerW, bh, { scale: fsBody, disabled: !castable })) {
+          this.hooks.onInspectorCast?.(a.verb);
+        }
+        ay += bh + rowGap;
+      }
+    }
+
+    return pw;
   }
 
   // ── skill panel: belief-granted powers, locked→unlocked with progress ──────
@@ -715,7 +822,7 @@ export class UiRuntime {
 
   /** Right-edge zoom controls (in/out/fit/1:1) — the GPU port of the legacy DOM
    *  `cameraControls`. Drawn only when the camera hooks are wired. */
-  private drawCameraCluster(c: UiContext, w: number, h: number, s: number): void {
+  private drawCameraCluster(c: UiContext, w: number, h: number, s: number, rightInset = 0): void {
     const { onZoomIn, onZoomOut, onFitView, onZoomActual } = this.hooks;
     if (!onZoomIn || !onZoomOut || !onFitView || !onZoomActual) return;
 
@@ -730,7 +837,7 @@ export class UiRuntime {
       ['cam.fit', 'FIT', onFitView],
       ['cam.one', '1:1', onZoomActual],
     ];
-    const bx = w - bw - pad;
+    const bx = w - bw - pad - rightInset;
     // vertically centred cluster on the right edge
     let by = Math.round((h - (bh * rows.length + gap * (rows.length - 1))) / 2);
     for (const [id, label, fn] of rows) {

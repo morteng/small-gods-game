@@ -252,3 +252,82 @@ describe('UiRuntime — hover popover', () => {
     expect(totalVerts(groups)).toBeGreaterThan(0); // menu still drew
   });
 });
+
+// ── inspector (P3.8): target-first panel with state, domains + affordance casts ──
+const INSPECTOR = {
+  kind: 'npc' as const,
+  title: 'Ada',
+  subtitle: 'farmer · age 34 · idle',
+  state: [{ label: 'Faith', value: 0.8 }, { label: 'Meaning', value: 0.4 }],
+  domains: [{ label: 'Storm & Lightning', value: 0.3 }],
+  affordances: [
+    { verb: 'whisper', label: 'whisper', cost: 1, unlocked: true, affordable: true },
+    { verb: 'smite', label: 'smite', cost: 8, unlocked: false, affordable: true }, // belief-locked
+  ],
+};
+
+describe('UiRuntime — inspector', () => {
+  it('draws nothing when there is no selection', () => {
+    const rt = new UiRuntime();
+    rt.configure({ getInspector: () => null });
+    rt.frame(W, H, DPR);
+    expect(rt.hitRegions().some((h) => h.id === 'ui.inspector')).toBe(false);
+    expect(rt.hitRegions().some((h) => h.id.startsWith('inspector.cast.'))).toBe(false);
+  });
+
+  it('renders the panel with a close button and one cast row per affordance', () => {
+    const rt = new UiRuntime();
+    rt.configure({ getInspector: () => INSPECTOR });
+    rt.frame(W, H, DPR);
+    expect(rt.hitRegions().some((h) => h.id === 'ui.inspector')).toBe(true);
+    expect(rt.hitRegions().some((h) => h.id === 'ui.inspector.close')).toBe(true);
+    const casts = rt.hitRegions().filter((h) => h.id.startsWith('inspector.cast.')).map((h) => h.id).sort();
+    expect(casts).toEqual(['inspector.cast.smite', 'inspector.cast.whisper']);
+  });
+
+  it('clicking a castable affordance fires onInspectorCast', () => {
+    const fired: string[] = [];
+    const rt = new UiRuntime();
+    rt.configure({ getInspector: () => INSPECTOR, onInspectorCast: (v) => fired.push(v) });
+    rt.frame(W, H, DPR);
+    const whisper = rt.hitRegions().find((h) => h.id === 'inspector.cast.whisper')!;
+    click(rt, ...center(whisper));
+    expect(fired).toEqual(['whisper']);
+  });
+
+  it('a belief-locked affordance is disabled and never fires', () => {
+    const fired: string[] = [];
+    const rt = new UiRuntime();
+    rt.configure({ getInspector: () => INSPECTOR, onInspectorCast: (v) => fired.push(v) });
+    rt.frame(W, H, DPR);
+    const smite = rt.hitRegions().find((h) => h.id === 'inspector.cast.smite')!;
+    click(rt, ...center(smite));
+    expect(fired).toEqual([]);
+  });
+
+  it('the close button dismisses the inspector', () => {
+    let closed = 0;
+    const rt = new UiRuntime();
+    rt.configure({ getInspector: () => INSPECTOR, onCloseInspector: () => closed++ });
+    rt.frame(W, H, DPR);
+    const close = rt.hitRegions().find((h) => h.id === 'ui.inspector.close')!;
+    click(rt, ...center(close));
+    expect(closed).toBe(1);
+  });
+
+  it('tucks the camera cluster left of the inspector so they never overlap', () => {
+    const cam = { onZoomIn: () => {}, onZoomOut: () => {}, onFitView: () => {}, onZoomActual: () => {} };
+    const bare = new UiRuntime();
+    bare.configure({ ...cam, getInspector: () => null });
+    bare.frame(W, H, DPR);
+    const camX0 = bare.hitRegions().find((h) => h.id === 'cam.in')!.x;
+
+    const withPanel = new UiRuntime();
+    withPanel.configure({ ...cam, getInspector: () => INSPECTOR });
+    withPanel.frame(W, H, DPR);
+    const inspector = withPanel.hitRegions().find((h) => h.id === 'ui.inspector')!;
+    const camX1 = withPanel.hitRegions().find((h) => h.id === 'cam.in')!;
+    expect(camX1.x).toBeLessThan(camX0);            // shifted left
+    expect(camX1.x + camX1.w).toBeLessThanOrEqual(inspector.x); // clear of the panel
+  });
+});
