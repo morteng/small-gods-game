@@ -14,6 +14,7 @@
     "test:ui": "vitest --ui",
     "bus": "tsx tools/bus-cli.ts",
     "mcp": "tsx tools/mcp-server.ts",
+    "lint:world": "tsx scripts/connectome-lint.ts",
     "tauri": "tauri",
     "build:electron": "tsc && VITE_BASE=/ vite build",
     "electron:dev": "SG_DEV_URL=http://localhost:3000 electron .",

@@ -17,7 +17,7 @@ import type { QueryOpts } from '@/world/world';
 import type { SpiritId } from '@/core/spirit';
 import type { AppendedEvent } from '@/core/events';
 import { npcProps } from '@/world/npc-helpers';
-import { evaluateConnectome, type DiagnosticReport } from '@/world/connectome-diagnostics';
+import { evaluateContracts, type ContractReport } from '@/world/connectome-contracts';
 import { isDurable } from '@/sim/believers';
 import { ALL_DOMAINS, DOMAIN_DEFS, aggregateDomain, isOminous } from '@/sim/belief-domains';
 import { getCapability } from '@/sim/command/registry';
@@ -161,7 +161,7 @@ export interface GameQuery {
   screenshot(): string;
   /** The connectome linter: structured diagnostics (rule breaks / smells / pressure
    *  points) over the generated world, for agents + the studio overlay. */
-  connectomeDiagnostics(): DiagnosticReport;
+  connectomeDiagnostics(): ContractReport;
 }
 
 export interface GameQueryDeps {
@@ -430,11 +430,15 @@ export function createGameQuery(deps: GameQueryDeps): GameQuery {
       return deps.canvas ? deps.canvas.toDataURL('image/png') : '';
     },
 
-    connectomeDiagnostics(): DiagnosticReport {
+    connectomeDiagnostics(): ContractReport {
       if (!state.world || !state.map) {
-        return { total: 0, counts: { error: 0, warn: 0, info: 0 }, byRule: {}, diagnostics: [] };
+        return {
+          total: 0, counts: { error: 0, warn: 0, info: 0 }, byRule: {}, diagnostics: [],
+          byLevel: { building: 0, site: 0, settlement: 0, world: 0 },
+          byKind: { invariant: 0, requirement: 0 }, unmet: [],
+        };
       }
-      return evaluateConnectome({ world: state.world, map: state.map });
+      return evaluateContracts({ world: state.world, map: state.map });
     },
   };
 }

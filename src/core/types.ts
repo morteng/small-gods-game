@@ -77,6 +77,10 @@ export interface GameMap {
    *  links between them. Re-derivable from world+roadGraph; persisted for overlay/authoring. */
   anchors?: import('@/world/anchors').Anchor[];
   anchorLinks?: import('@/world/anchor-rules').AnchorLink[];
+  /** Connectome CONTRACTS a recipe declared against this map (e.g. "this town gate must be
+   *  reached by a road"). Pure data → rides `structuredClone(map)` in the save; evaluated by
+   *  `evaluateContracts` (`@/world/connectome-contracts`) into a leveled report. */
+  contracts?: import('@/world/connectome-contracts').ContractSet;
   /** Inspection ground: render a DEAD-FLAT heightfield (no seed noise → no peaks/
    *  snow/rock) so a studied subject sits on a clean plane. Studio-only; real game
    *  maps never set it, so the live terrain stays byte-identical. */

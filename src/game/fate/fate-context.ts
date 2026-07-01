@@ -10,7 +10,7 @@ import type { GameState } from '@/core/state';
 import type { SimEvent } from '@/core/events';
 import type { ThreadId } from '@/sim/threads/thread-types';
 import { buildWorldSummary } from '@/llm/world-summary';
-import { evaluateConnectome } from '@/world/connectome-diagnostics';
+import { evaluateContracts } from '@/world/connectome-contracts';
 
 export interface FateFocus {
   event: SimEvent;
@@ -86,10 +86,12 @@ function describeSitesForFate(state: GameState): { text: string; siteIds: Set<st
 export function describeWorldQualityForFate(state: GameState): string {
   if (!state.world || !state.map) return '';
   let report;
-  try { report = evaluateConnectome({ world: state.world, map: state.map }); }
+  try { report = evaluateContracts({ world: state.world, map: state.map }); }
   catch { return ''; }
   if (report.total === 0) return '';
-  const top = report.diagnostics.slice(0, 6).map((d) => `- [${d.severity}] ${d.rule}: ${d.message}`);
+  // Unmet REQUIREMENTS carry a suggestedFix — the actionable half — so surface them first.
+  const ordered = [...report.unmet, ...report.diagnostics.filter((d) => !report.unmet.includes(d))];
+  const top = ordered.slice(0, 6).map((d) => `- [${d.severity}] ${d.rule}: ${d.message}`);
   return `World quality (${report.counts.error} error / ${report.counts.warn} warn / ${report.counts.info} info) — fixable via the command channel:\n${top.join('\n')}`;
 }
 
