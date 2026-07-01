@@ -172,7 +172,7 @@ Ordered so each phase is independently mergeable and the risky refactor is fence
 
 **P2 — Target vocabulary + real targeting.** 🟡 **P2a+P2b SHIPPED 2026-07-01; P2c (castPower/reticle) pending.**
 5. ✅ Grew `CommandTarget` (+`entity`,+`tile`) + `CommandTargetKind`. **Decision (user): verbs accept target SETS** — added `targetKinds?` to `CapabilityDef` + `acceptedTargetKinds()` (defaults `[targetKind]`, backward-compatible). `previewCommand` validates against the set + per-kind existence (`world.registry.get` for entity). `smite` widened to `['npc','entity','tile']`: `smiteLocation()` strikes a spot (no conversion; reinforces witnesses within `SMITE_WITNESS_RADIUS=6`); smite SimEvent `npcId` now optional +`x`/`y`. MCP `emit/preview_command` target schema widened too. +6 tests (`smite-targeting.test.ts`); full suite pending.
-6. ⬜ Replace `castPower` stub (`game.ts:805/938`) with resolved targets. Verb-first reticle (point footprint) via `InteractionState`/`onTileClick`. **← P2c, next.**
+6. ✅ **P2c SHIPPED 2026-07-01.** Replaced `castPower` stub → `InteractionState.targeting`; `castPower` fast-paths a selected NPC else enters verb-first aim; `resolveTargetedCast`+`resolveTargetAt` resolve the click to the most specific accepted target (npc→entity→settlement→tile), `nearestPoiId` for settlement casts; left-click resolves, right-click cancels; WebGPU top-centre "CHOOSE A TARGET" hint bar (`getTargeting` hook). Verified live via `__game`.
 
 **P3 — Surfaces.**
 7. Hover popover (dwell, top-3 chips, why-tags).
