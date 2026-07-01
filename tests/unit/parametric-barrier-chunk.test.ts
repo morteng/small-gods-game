@@ -95,3 +95,36 @@ describe('chunkBarrierRun', () => {
     expect(runElements(plainStone).length).toBe(chunkBarrierRun(plainStone).length);
   });
 });
+
+describe('chunkBarrierRun — outward orientation (parapet must face the field)', () => {
+  // A centred rectangular ring: every chunk should know which local-y is OUTWARD, and it must
+  // point AWAY from the ring centre (so the crenellated parapet lands on the field edge).
+  const ring: BarrierRun = { kind: 'wall', path: RING, height: 3, thickness: 2, material: 'stone', crenellated: true, centroid: [7, 5], gates: [] };
+
+  it('assigns an outwardSign to every chunk of a ring with a centroid', () => {
+    const chunks = chunkBarrierRun(ring);
+    expect(chunks.length).toBeGreaterThan(0);
+    for (const c of chunks) expect(Math.abs(c.localRun.outwardSign ?? 0)).toBe(1);
+  });
+
+  it('outwardSign points the local +y frame away from the ring centre on each side', () => {
+    for (const c of chunkBarrierRun(ring)) {
+      // Reconstruct the chunk bearing from its localised path, then the world dir of local +y.
+      const [ldx, ldy] = c.localRun.path[1];
+      const m = Math.hypot(ldx, ldy) || 1;
+      const dx = ldx / m, dy = ldy / m;
+      const sign = c.localRun.outwardSign ?? 0;
+      // world vector of the OUTWARD normal = sign * (−dy, dx)
+      const ox = sign * -dy, oy = sign * dx;
+      // chunk midpoint minus centre must have a POSITIVE dot with the outward normal.
+      const mx = c.refX + dx * 2, my = c.refY + dy * 2;   // ~mid of a 4-tile chunk
+      expect(ox * (mx - 7) + oy * (my - 5)).toBeGreaterThan(0);
+    }
+  });
+
+  it('leaves outwardSign undefined for an open run with no centroid (symmetric fallback)', () => {
+    for (const c of chunkBarrierRun(wall([[0, 0], [12, 0]]))) {
+      expect(c.localRun.outwardSign).toBeUndefined();
+    }
+  });
+});

@@ -245,6 +245,8 @@ export function deriveSettlementRing(args: {
 
   const run = barrierRunFromType(typeId, path, gates);
   if (!run) return null;
+  // Mark the ring centre so the geometry can face parapet/merlons/hoardings OUTWARD.
+  run.centroid = [(minX + maxX) / 2, (minY + maxY) / 2];
   return { id: `${args.poiId}_ring`, run };
 }
 

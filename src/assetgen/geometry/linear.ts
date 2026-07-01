@@ -119,6 +119,22 @@ function hash01(i: number): number {
   return x - Math.floor(x);
 }
 
+/**
+ * Which local-y is OUTWARD (toward the field, away from what the wall protects) for segment `s`?
+ * Returns +1 (local +y outward), −1 (local −y outward), or 0 (unknown → caller keeps the legacy
+ * symmetric parapet). `run.outwardSign` (precomputed per chunk) wins; else derive from the ring
+ * `centroid`; else 0. Local +y maps to world (−dy, dx), so the field side is whichever of ±y
+ * points away from the centre at this segment's midpoint. */
+function outwardSignFor(run: BarrierRun, s: Seg): number {
+  if (typeof run.outwardSign === 'number') return run.outwardSign;
+  if (!run.centroid) return 0;
+  const rad = s.angleDeg / RAD2DEG;
+  const dx = Math.cos(rad), dy = Math.sin(rad);
+  const mx = s.ax + dx * s.len / 2, my = s.ay + dy * s.len / 2;   // segment midpoint (world)
+  const dot = (-dy) * (mx - run.centroid[0]) + dx * (my - run.centroid[1]);
+  return dot >= 0 ? 1 : -1;
+}
+
 // ── Family builders: each returns the per-segment solids for its material groups ──────────
 
 /** Masonry curtain: battered plinth + curtain to the wall-walk + crenellated parapet (or a
@@ -141,19 +157,32 @@ function masonrySeg(M: ManifoldNS, run: BarrierRun, s: Seg): ManifoldT[] {
   out.push(place(locBox(M, 0, s.len, th, plinthH * 0.4, walkZ - plinthH * 0.4), s));
 
   if (run.crenellated) {
-    // Crenellated parapet on the field edge(s): a continuous knee-high base course (so no
-    // gap leaks light low down) + merlon teeth with crenel embrasures over it. Thick walls
-    // get a true wall-walk with a parapet on BOTH long edges; thin walls a single toothed coping.
+    // Crenellated parapet + wall-walk. A defender stands on the walk (the curtain top at walkZ)
+    // sheltered behind merlons that FACE THE FIELD. So the toothed parapet goes on the OUTER edge
+    // only, with a low solid inner kerb (parados) closing the walk on the town side — never a
+    // second fighting face. When orientation is unknown (open runs / legacy callers) fall back to
+    // the old symmetric parapet (both edges thick, single coping thin).
     const parapetTh = Math.max(mToTiles(0.45), th * 0.32);
-    const edges = th >= mToTiles(2.2) ? [(th - parapetTh) / 2, -(th - parapetTh) / 2] : [0];
     const baseCourseH = parapetH * 0.42;
     const period = mToTiles(1.5);                 // merlon + crenel pitch (~3 m)
     const merlonW = period * 0.56;                // merlon a touch wider than the crenel
-    for (const ey of edges) {
+    const outward = outwardSignFor(run, s);
+    const edgeCross = (th - parapetTh) / 2;       // parapet centre sits on a face, not the middle
+    const parapet = (ey: number): void => {
       out.push(place(locBox(M, 0, s.len, parapetTh, walkZ, baseCourseH, ey), s));      // base course
       for (let d = mToTiles(0.25); d + merlonW <= s.len + 1e-6; d += period) {
         out.push(place(locBox(M, d, merlonW, parapetTh, walkZ, parapetH, ey), s));     // merlon tooth
       }
+    };
+    if (outward !== 0) {
+      parapet(outward * edgeCross);                                                    // field-facing crenellations
+      if (th >= mToTiles(1.4)) {                                                        // room for a real walk → inner kerb
+        const kerbH = parapetH * 0.5, kerbTh = parapetTh * 0.8;
+        out.push(place(locBox(M, 0, s.len, kerbTh, walkZ, kerbH, -outward * edgeCross), s));
+      }
+    } else {
+      const edges = th >= mToTiles(2.2) ? [edgeCross, -edgeCross] : [0];
+      for (const ey of edges) parapet(ey);
     }
   } else {
     // Uncrenellated field wall: a saddleback coping cope, oversailing both faces to throw water.

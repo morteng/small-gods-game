@@ -9,6 +9,14 @@ export interface BarrierRun {
   height: number; thickness: number; material: string;
   crenellated?: boolean; posts?: boolean;
   gates: BarrierGate[];
+  /** Ring centre (tiles) — the "inside" the wall protects. Set on a closed defensive ring so
+   *  the geometry can face its parapet/merlons/hoardings OUTWARD (away from this point). Absent
+   *  on open runs / crofts → geometry falls back to a symmetric (both-edge) parapet. */
+  centroid?: [number, number];
+  /** Precomputed per-chunk outward sign in the segment-LOCAL frame (+1 ⇒ local +y is outward,
+   *  −1 ⇒ local −y). Set by `chunkBarrierRun` from `centroid`; read by the masonry cross-section
+   *  so a chunk (which has lost the ring centre in its local frame) still knows which way is out. */
+  outwardSign?: number;
 }
 
 /** A barrier as committed by worldgen: its entity id + the run. Persisted on `GameMap`

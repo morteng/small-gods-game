@@ -86,8 +86,12 @@ async function main(): Promise<void> {
   composite(await placeRun({ kind: 'palisade', path: [[0, 0], [10, 0]], ...BARRIER_DEFAULTS.palisade, gates: [{ t: 5, width: 3 }] }), 'place-gate-palisade');
   // L-corner — two legs meeting at a right angle; chunks must meet cleanly at the bend.
   composite(await placeRun({ kind: 'wall', path: [[0, 0], [10, 0], [10, 10]], ...wall, gates: [] }), 'place-corner');
-  // Rectangular town-wall ring with a gate on the south edge.
-  composite(await placeRun({ kind: 'wall', path: [[0, 0], [14, 0], [14, 10], [0, 10], [0, 0]], ...wall, gates: [{ t: 7, width: 3 }] }), 'place-ring');
+  // Rectangular town-wall ring with a gate on the south edge. `centroid` = ring centre, so the
+  // parapet/merlons face OUTWARD on every side (the whole point of the orientation fix).
+  composite(await placeRun({ kind: 'wall', path: [[0, 0], [14, 0], [14, 10], [0, 10], [0, 0]], ...wall, centroid: [7, 5], gates: [{ t: 7, width: 3 }] }), 'place-ring');
+  // Thin town wall (thickness 1, as worldgen builds it) — the case that used to collapse merlons
+  // onto the centreline. With centroid set, crenellations must sit on the OUTER face all round.
+  composite(await placeRun({ kind: 'wall', path: [[0, 0], [16, 0], [16, 12], [0, 12], [0, 0]], material: 'stone', height: 3, thickness: 1, crenellated: true, centroid: [8, 6], gates: [{ t: 8, width: 3 }] }), 'place-ring-thin');
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });

@@ -116,10 +116,19 @@ export function chunkBarrierRun(run: BarrierRun): BarrierChunk[] {
           gates.push({ t: r3(g.t - startDist), width: r3(g.width) });
         }
       }
+      // Which local-y is OUTWARD for this chunk? Local +y maps to world (−dy, dx) after the
+      // chunk is rotated to its true bearing; outward is the side away from the ring centre.
+      let outwardSign: number | undefined;
+      if (run.centroid) {
+        const mx = ax + dx * (s + cl / 2), my = ay + dy * (s + cl / 2);   // chunk midpoint (world)
+        const dot = (-dy) * (mx - run.centroid[0]) + dx * (my - run.centroid[1]);
+        outwardSign = dot >= 0 ? 1 : -1;
+      }
       const localRun: BarrierRun = {
         kind: run.kind, path: [[0, 0], [r3(dx * cl), r3(dy * cl)]],
         height: run.height, thickness: run.thickness, material: run.material,
         crenellated: run.crenellated, posts: run.posts, gates,
+        ...(outwardSign !== undefined ? { outwardSign } : {}),
       };
       out.push({
         key: JSON.stringify(localRun), localRun,
