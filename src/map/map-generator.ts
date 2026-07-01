@@ -40,7 +40,7 @@ import { getHeightfield, ELEVATION_SEA_LEVEL } from '@/world/heightfield';
 import { curveRenderElev } from '@/render/gpu/terrain-field';
 import { worldStyleOf } from '@/core/world-style';
 import { buildRiparianEntities } from '@/world/riparian-scatter';
-import { buildCoastalLandmarks } from '@/world/coastal-landmarks';
+import { buildCoastalLandmarks, SETTLEMENT_TYPES } from '@/world/coastal-landmarks';
 import { tileBlockedByBuilding } from '@/world/building-collision';
 import { reconcileBarriersWithBuildings } from '@/world/place-barrier';
 import type { SettlementPlan } from '@/world/settlement-plan';
@@ -254,7 +254,10 @@ export async function generateWithNoise(
   // landforms (a hole through rock the heightfield can't carve). Emergent from the
   // biome map, sparse + deterministic; added before settlements so their footprints
   // clear if a town ever seats atop one.
-  for (const e of buildCoastalLandmarks(biomeMap.biomes, width, height, seed + 9157)) {
+  const settlementSeats = (worldSeed?.pois ?? [])
+    .filter(p => p.position && SETTLEMENT_TYPES.has(p.type))
+    .map(p => ({ x: p.position!.x, y: p.position!.y }));
+  for (const e of buildCoastalLandmarks(biomeMap.biomes, width, height, seed + 9157, settlementSeats)) {
     if (!world.registry.has(e.id)) world.addEntity(e);
   }
 

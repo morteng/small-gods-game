@@ -37,12 +37,21 @@ const N8: ReadonlyArray<readonly [number, number]> = [
   [1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1],
 ];
 
+/** POI types that seat a building cluster — landmarks keep clear of these so a hoodoo
+ *  or cave doesn't sprout in the middle of a town. Used by the caller to select seats. */
+export const SETTLEMENT_TYPES: ReadonlySet<string> = new Set(['village', 'city', 'castle', 'port', 'farm', 'town', 'hamlet']);
+/** Keep-out radius (tiles) around a settlement seat. */
+const SETTLEMENT_CLEAR = 22;
+
 /**
- * Place sea-arch landmark entities on steep rocky coasts. `biomes` is the row-major
- * biome-name grid (as classified by {@link classifyBiomes}). Deterministic.
+ * Place natural-landform landmark entities on rocky terrain. `biomes` is the
+ * row-major biome-name grid (as classified by {@link classifyBiomes}). `settlements`
+ * are seat centres to keep clear of (so landmarks don't sprout inside a town).
+ * Deterministic.
  */
 export function buildCoastalLandmarks(
   biomes: string[], width: number, height: number, seed: number,
+  settlements: ReadonlyArray<{ x: number; y: number }> = [],
 ): Entity[] {
   const at = (x: number, y: number): string => biomes[y * width + x];
   const inB = (x: number, y: number): boolean => x >= 0 && y >= 0 && x < width && y < height;
@@ -52,6 +61,8 @@ export function buildCoastalLandmarks(
 
   const out: Entity[] = [];
   const placed: Array<[number, number]> = [];
+  const nearSettlement = (x: number, y: number): boolean =>
+    settlements.some(s => Math.hypot(s.x - x, s.y - y) < SETTLEMENT_CLEAR);
 
   /** Collect eligible cells, pick by hash priority (SPREAD around the coast, not a
    *  row-major cluster) with a shared min-spacing, up to `cap`, emitting `kind`. */
@@ -60,6 +71,7 @@ export function buildCoastalLandmarks(
     for (let y = 0; y < height; y++) {
       for (let x = 0; x < width; x++) {
         if (!eligible(x, y)) continue;
+        if (nearSettlement(x, y)) continue;          // no landmarks inside a town
         const pri = hash01(x, y, seed + key);
         if (pri > PLACE_PROB) continue;              // most eligible cells stay bare coast
         cands.push({ x, y, pri });
