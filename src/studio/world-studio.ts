@@ -60,8 +60,10 @@ import { DETAIL_PATCH_TILES } from '@/render/gpu/detail-field';
 import { ParametricBuildingSource } from '@/render/parametric-building-source';
 import { ParametricPlantSource } from '@/render/parametric-plant-source';
 import type { DevModeState, Entity } from '@/core/types';
-import { buildWorldBrowser, type InspectorModel, type CrumbLevel } from './world-browser';
+import { buildWorldBrowser, type InspectorModel, type CrumbLevel, type InspectorField, type InspectorAction } from './world-browser';
 import { type Focus, planForPoi, buildingsOf, planBounds, pickPoi, pickBuilding } from './world-picking';
+import { emptyEdits, hasEdits, countEdits, applyEditsToSeed, makeAddedPoi, type PoiEdits } from './world-node-edits';
+import { ERAS, type Era } from '@/core/era';
 
 const HALF_W = ISO_TILE_W / 2;
 const HALF_H = ISO_TILE_H / 2;
@@ -226,6 +228,19 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
   // (downstream) affected tiles. Cleared when another object is selected.
   let selectedWater: string | null = null;
 
+  // ── NODE EDIT (settlement POIs) ──────────────────────────────────────────────
+  // A pristine, final-coordinate snapshot of the generated world's seed (POIs already
+  // shifted by planWorldLayout). Node edits apply against THIS and regenerate in place
+  // via generateWithNoise — which reads worldSeed.pois directly and never re-runs the
+  // layout, so no re-centring jump. Refreshed on every fresh (seed/scale) regen.
+  let baseSeed: WorldSeed | null = null;
+  const poiEdits: PoiEdits = emptyEdits();
+  let nodeEdit = false;                 // drag-settlements mode (mirrors water edit)
+  let addNodeBrush = false;             // click land to drop a new settlement
+  let draggingPoi: string | null = null;
+  let livePoiPos: { id: string; x: number; y: number } | null = null;   // live drag overlay
+  let addedCounter = 0;
+
   // ── hover inspection + selection (DIR-C) — the feature under the cursor ────────
   type HoverHighlight =
     | { kind: 'tile'; tx: number; ty: number }
@@ -313,6 +328,12 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
     ws.size = layout.size;
     ws.pois = layout.pois;
     ws.connections = layout.connections;
+    // Snapshot the final-coordinate seed as the NODE-EDIT base, and clear any staged
+    // edits — a fresh (seed/scale) world starts from a clean slate. Edits then apply
+    // against this base via regenerateFromEdits() with no re-layout jump.
+    baseSeed = structuredClone(ws);
+    poiEdits.moved.clear(); poiEdits.params.clear(); poiEdits.removed.clear(); poiEdits.added.length = 0;
+    livePoiPos = null; draggingPoi = null;
     // generateWithNoise returns a world ALREADY populated with building + flora +
     // barrier entities (placeSettlement + biome brushes). Keep it — the entity pass
     // renders those buildings & trees, instead of discarding it for an empty World.
@@ -338,6 +359,35 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
     syncInspector();
     refreshDiagnostics();   // re-lint the freshly-generated world (#30)
     title.textContent = `World connectome — ${wsName} · ${backendLabel}`;
+  }
+
+  // Regenerate IN PLACE from the node-edit overlay: fold moved/retuned/added/removed
+  // POIs into the base seed and re-run generateWithNoise at the SAME size + seed (no
+  // planWorldLayout → stable coordinates, no camera refit). Used by drag-drop, param
+  // chips, add/remove — anything that mutates `poiEdits`.
+  async function regenerateFromEdits(): Promise<void> {
+    if (!baseSeed) { void regenerate(); return; }
+    const token = ++regenToken;
+    const n = countEdits(poiEdits);
+    title.textContent = `World connectome — ${wsName} · editing (${n} node ${n === 1 ? 'edit' : 'edits'})…`;
+    const editedWs = applyEditsToSeed(baseSeed, poiEdits);
+    const { map: m, world: w } = await generateWithNoise(baseSeed.size!.width, baseSeed.size!.height, gen.seed, editedWs);
+    if (token !== regenToken) return;
+    map = m; world = w;
+    waterDyn = new WaterDynamics(map);
+    floodWatch = buildFloodWatch(
+      (map.worldSeed?.pois ?? []).filter((p) => p.position)
+        .map((p) => ({ id: p.id, name: p.name ?? p.id, x: p.position!.x, y: p.position!.y, radius: 3 })),
+      map.width, map.height,
+    );
+    floodEventLog.length = 0;
+    visualMap = Autotiler.computeVisualMap(map);
+    // Keep the current focus/selection where it still resolves; refresh the inspector.
+    if (focus.level === 'settlement' && !planForPoi(map, focus.poiId)) { focus = { level: 'world' }; selectedPoi = null; }
+    browser.refreshControls();
+    syncInspector();
+    refreshDiagnostics();
+    title.textContent = `World connectome — ${wsName} · ${backendLabel}${hasEdits(poiEdits) ? ` · ${n} node ${n === 1 ? 'edit' : 'edits'}` : ''}`;
   }
 
   // ── drill navigation ────────────────────────────────────────────────────────
@@ -394,11 +444,58 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
       stampLake(Math.round(tx), Math.round(ty), lakeRadius);
       return;
     }
+    // Add-settlement brush: drop a NEW village node on the clicked land tile → regen.
+    if (addNodeBrush) {
+      const { tx, ty } = screenToTileLifted(map, sx, sy, cam);
+      const poi = makeAddedPoi(`added_${++addedCounter}`, 'village', Math.round(tx), Math.round(ty), 'medium', `New Village ${addedCounter}`);
+      poiEdits.added.push(poi);
+      void regenerateFromEdits();
+      return;
+    }
     // Otherwise: select whatever connectome object / building / tile is under the
     // cursor — uniform across all of them (resolveHit topmost-wins). Toggling the
     // same water node off clears it; clicking bare terrain clears the selection.
     if (waterEdit) return;   // edit mode owns the click (drag-to-move handled elsewhere)
     selectHit(resolveHit(sx, sy));
+  }
+
+  // ── node-edit helpers (params / actions / add / frame) ──────────────────────
+  const POI_SIZES = ['small', 'medium', 'large', 'huge'] as const;
+  function setParam(id: string, patch: { size?: POI['size']; era?: Era }): void {
+    poiEdits.params.set(id, { ...(poiEdits.params.get(id) ?? {}), ...patch });
+    void regenerateFromEdits();
+  }
+  /** Editable size + era chips for a settlement node. */
+  function poiFields(cur: POI): InspectorField[] {
+    const edit = poiEdits.params.get(cur.id);
+    const size = String(edit?.size ?? cur.size ?? 'medium');
+    const era = String(edit?.era ?? cur.era ?? '');
+    return [
+      { key: 'size', value: size, options: POI_SIZES.map((v) => ({ label: v, value: v })),
+        onChange: (v) => setParam(cur.id, { size: v as POI['size'] }) },
+      { key: 'era', value: era,
+        options: [{ label: 'world', value: '' }, ...ERAS.map((v) => ({ label: v, value: v }))],
+        onChange: (v) => setParam(cur.id, { era: v ? (v as Era) : undefined }) },
+    ];
+  }
+  /** Frame the camera on a node — its settlement footprint if built, else a box round it. */
+  function frameNode(poi: POI): void {
+    const plan = planForPoi(map, poi.id);
+    if (plan) { const b = planBounds(plan); fitTiles(cam, b.x - 4, b.y - 4, b.x + b.w + 4, b.y + b.h + 4, cssW, cssH, 0.8); }
+    else if (poi.position) { const { x, y } = poi.position; fitTiles(cam, x - 16, y - 16, x + 16, y + 16, cssW, cssH, 0.8); }
+  }
+  function removeNode(id: string): void {
+    poiEdits.removed.add(id);
+    poiEdits.added = poiEdits.added.filter((p) => p.id !== id);   // dropping a just-added node
+    if (focus.level === 'settlement' && focus.poiId === id) { focus = { level: 'world' }; }
+    if (selectedPoi?.id === id) selectedPoi = null;
+    void regenerateFromEdits();
+  }
+  function poiActions(poi: POI): InspectorAction[] {
+    return [
+      { label: '🎯 Frame', onClick: () => frameNode(poi) },
+      { label: '🗑 Remove', tone: 'danger', onClick: () => removeNode(poi.id) },
+    ];
   }
 
   // ── inspector model ───────────────────────────────────────────────────────
@@ -425,6 +522,8 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
           ['buildings', String(builds.length)],
           ['importance', poi?.importance ?? '—'],
         ],
+        fields: poi ? poiFields(poi) : undefined,
+        actions: poi ? poiActions(poi) : undefined,
         hint: builds.length ? 'click a building to drill in →' : 'no buildings placed in this settlement',
       };
     }
@@ -463,13 +562,26 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
     if (selectedPoi) {
       rows.push(['—', '—'], ['selected', selectedPoi.name ?? selectedPoi.type], ['poi type', selectedPoi.type], ['importance', selectedPoi.importance ?? '—']);
     }
+    const actions: InspectorAction[] = [];
+    if (selectedPoi) actions.push(...poiActions(selectedPoi));
+    if (hasEdits(poiEdits)) {
+      const n = countEdits(poiEdits);
+      actions.push({ label: `↺ Reset ${n} node ${n === 1 ? 'edit' : 'edits'}`, onClick: resetNodeEdits });
+    }
     return {
       breadcrumb: [{ label: wsName, level: 'world' }],
       title: wsName,
       subtitle: 'world overview',
       rows,
-      hint: 'click a settlement to drill in →',
+      fields: selectedPoi ? poiFields(selectedPoi) : undefined,
+      actions: actions.length ? actions : undefined,
+      hint: nodeEdit ? 'drag a settlement to move it' : addNodeBrush ? 'click land to add a settlement' : 'click a settlement to drill in →',
     };
+  }
+  function resetNodeEdits(): void {
+    poiEdits.moved.clear(); poiEdits.params.clear(); poiEdits.removed.clear(); poiEdits.added.length = 0;
+    livePoiPos = null; draggingPoi = null;
+    void regenerateFromEdits();
   }
 
   // ── left panel ──────────────────────────────────────────────────────────────
@@ -527,6 +639,17 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
   }));
   layersSec.appendChild(toggleRow('   ↳ show pressure (crowding)', true, (v) => { showPressure = v; }));
   layersSec.appendChild(toggleRow('⛰ Conform terrain to water (basins + outlets)', false, (v) => { conformTerrain = v; recarveFromEdits(); }));
+  // NODE EDIT: drag settlements to move them; a second toggle arms an add-settlement brush.
+  const addNodeToggle = toggleRow('   ↳ ＋ add settlement (click land)', false, (v) => {
+    addNodeBrush = v; canvas.style.cursor = v ? 'copy' : (nodeEdit ? 'crosshair' : 'default');
+  });
+  layersSec.appendChild(toggleRow('✥ Edit nodes — drag settlements', false, (v) => {
+    nodeEdit = v;
+    if (!v) { addNodeBrush = false; (addNodeToggle.querySelector('input') as HTMLInputElement).checked = false; }
+    canvas.style.cursor = v ? 'crosshair' : 'default';
+    syncInspector();
+  }));
+  layersSec.appendChild(addNodeToggle);
   menuBar.appendChild(dropdown('◴ Layers ▾', layersSec));
 
   // ── display: terrain render style ───────────────────────────────────────────
@@ -892,9 +1015,24 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
       const hit = pickWaterNode(editedWaterNet()!, e.clientX - r.left, e.clientY - r.top);
       if (hit) { draggingNode = hit; canvas.style.cursor = 'grabbing'; return; }
     }
+    // Node-edit mode: grab a settlement POI to drag it (not while the add-brush is armed).
+    if (nodeEdit && !addNodeBrush && map) {
+      const r = viewPane.getBoundingClientRect();
+      const poi = pickPoi(map, cam, e.clientX - r.left, e.clientY - r.top);
+      if (poi?.position) { draggingPoi = poi.id; livePoiPos = { id: poi.id, x: poi.position.x, y: poi.position.y }; canvas.style.cursor = 'grabbing'; return; }
+    }
     cam.dragging = true; cam.lastX = e.clientX; cam.lastY = e.clientY;
     downX = e.clientX; downY = e.clientY; moved = false;
     canvas.style.cursor = 'grabbing';
+  }, { signal });
+  window.addEventListener('mouseup', () => {
+    if (draggingPoi) {                        // finished a settlement drag → commit + regen
+      if (livePoiPos) poiEdits.moved.set(draggingPoi, { x: livePoiPos.x, y: livePoiPos.y });
+      draggingPoi = null; livePoiPos = null;
+      canvas.style.cursor = nodeEdit ? 'crosshair' : 'default';
+      void regenerateFromEdits();
+      return;
+    }
   }, { signal });
   window.addEventListener('mouseup', (e) => {
     if (draggingNode) {                       // finished a node drag
@@ -924,6 +1062,12 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
     if (draggingNode && map) {                 // live-move the grabbed node
       const { tx, ty } = screenToTileLifted(map, sx, sy, cam);
       nodeMoves.set(draggingNode, { x: tx - 0.5, y: ty - 0.5 });  // node coords (centre = x+0.5)
+      return;
+    }
+    if (draggingPoi && map) {                   // live-move the grabbed settlement (ghost marker)
+      const { tx, ty } = screenToTileLifted(map, sx, sy, cam);
+      livePoiPos = { id: draggingPoi, x: Math.round(tx), y: Math.round(ty) };
+      hoverPanel.style.display = 'none'; hover = null;
       return;
     }
     if (cam.dragging) {
@@ -1051,6 +1195,11 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
   }
 
   function drawFocus(): void {
+    // Dragging a settlement: a ghost marker follows the cursor until drop commits the move.
+    if (livePoiPos) {
+      tileDot(livePoiPos.x, livePoiPos.y, 11, 'rgba(255,194,75,0.4)', COLORS.accent);
+      strokeTilePath([{ x: livePoiPos.x - 3, y: livePoiPos.y - 3 }, { x: livePoiPos.x + 4, y: livePoiPos.y - 3 }, { x: livePoiPos.x + 4, y: livePoiPos.y + 4 }, { x: livePoiPos.x - 3, y: livePoiPos.y + 4 }, { x: livePoiPos.x - 3, y: livePoiPos.y - 3 }], COLORS.accent, 1.5);
+    }
     const f = focus;
     if (f.level === 'world') {
       if (selectedPoi?.position) tileDot(selectedPoi.position.x, selectedPoi.position.y, 9, 'rgba(255,194,75,0.25)', COLORS.accent);

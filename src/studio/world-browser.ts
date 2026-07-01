@@ -16,11 +16,31 @@ import { h } from './theme';
 
 export type CrumbLevel = 'world' | 'settlement' | 'building';
 
+/** An editable field in the node inspector — a labelled chip-select of options. */
+export interface InspectorField {
+  key: string;
+  value: string;
+  options: { label: string; value: string }[];
+  onChange: (value: string) => void;
+}
+
+/** An action button under the node inspector (Frame / Regenerate / Remove …). */
+export interface InspectorAction {
+  label: string;
+  onClick: () => void;
+  /** 'accent' = primary; 'danger' = destructive (remove). */
+  tone?: 'accent' | 'danger' | 'default';
+}
+
 export interface InspectorModel {
   breadcrumb: { label: string; level: CrumbLevel }[];
   title: string;
   subtitle?: string;
   rows: [string, string][];
+  /** Editable node params rendered as chip-selects below the rows. */
+  fields?: InspectorField[];
+  /** Action buttons rendered below the fields. */
+  actions?: InspectorAction[];
   /** Present only at the building level → renders the handoff button. */
   editTemplateId?: string;
   /** Optional hint line under the inspector (e.g. "click a settlement to drill"). */
@@ -144,6 +164,33 @@ export function buildWorldBrowser(host: HTMLElement, deps: WorldBrowserDeps): Wo
       );
     }
     inspector.append(table);
+
+    // editable node params — each a labelled row of selectable chips
+    if (m.fields?.length) {
+      const fieldsBox = h('div', { style: 'margin-top:12px;display:flex;flex-direction:column;gap:7px' });
+      for (const f of m.fields) {
+        const chips = f.options.map((o) => h('span', {
+          class: 'sg-chip', text: o.label,
+          style: o.value === f.value ? 'background:var(--bg-3);color:var(--accent)' : 'cursor:pointer',
+          on: { click: () => { if (o.value !== f.value) f.onChange(o.value); } },
+        }));
+        fieldsBox.append(h('div', { style: 'display:flex;flex-wrap:wrap;gap:4px;align-items:center' },
+          h('span', { class: 'sg-muted', style: 'color:var(--ink-2);min-width:64px', text: f.key }), ...chips));
+      }
+      inspector.append(fieldsBox);
+    }
+
+    // action buttons (Frame / Regenerate / Remove …)
+    if (m.actions?.length) {
+      const actionsBox = h('div', { style: 'margin-top:12px;display:flex;flex-wrap:wrap;gap:6px' });
+      for (const a of m.actions) {
+        const bg = a.tone === 'accent' ? 'background:var(--accent);color:var(--accent-ink);font-weight:700'
+          : a.tone === 'danger' ? 'background:var(--bg-2);color:var(--danger,#e06)' : '';
+        actionsBox.append(h('button', { class: 'sg-btn', style: `padding:5px 10px;${bg}`, text: a.label, on: { click: a.onClick } }));
+      }
+      inspector.append(actionsBox);
+    }
+
     if (m.editTemplateId) {
       inspector.append(h('button', {
         class: 'sg-btn', style: 'margin-top:12px;width:100%;padding:6px;background:var(--accent);color:var(--accent-ink);font-weight:700',
