@@ -226,6 +226,17 @@ function hoardingSeg(M: ManifoldNS, run: BarrierRun, s: Seg): ManifoldT[] {
     out.push(place(locBox(M, d, beamW, beamSpan, bz, beamH, beamCenterY), s));
   }
 
+  // Diagonal brace struts under the lip — the visible timber brackets that carry the overhang.
+  // Bayed with the putlogs so the gallery reads as bracketed carpentry, not a solid slab.
+  const strutT = mToTiles(0.18);
+  for (let d = mToTiles(0.35); d <= s.len - mToTiles(0.2); d += mToTiles(1.8)) {
+    const strut = M.cube([strutT, Math.abs(frontY) + mToTiles(0.2), mToTiles(0.9)])
+      .translate([0, 0, -mToTiles(0.45)])
+      .rotate([outward * 42, 0, 0])
+      .translate([d, outward * (th / 2 + over * 0.4), bz - mToTiles(0.1)]);
+    out.push(place(strut, s));
+  }
+
   // Overhanging plank floor — slightly overlaps the wall top, extends out past the lip.
   const ft = mToTiles(0.22);
   const floorSpan = over + mToTiles(0.5);
@@ -238,15 +249,20 @@ function hoardingSeg(M: ManifoldNS, run: BarrierRun, s: Seg): ManifoldT[] {
   // A back post row where the gallery meets the wall top (the inner support the roof springs from).
   out.push(place(locBox(M, 0, s.len, mToTiles(0.2), walkZ + ft, bwH + mToTiles(0.4), outward * (th / 2)), s));
 
-  // Small mono-pitch shingle roof capping ONLY the overhang (the wall-walk behind stays open):
-  // high ridge at the wall side, eave dropping past the outer lip. Tilt sign flips with outward.
+  // Mono-pitch shingle roof, BROKEN INTO BAYS (a gap between sections) so it reads as sectioned
+  // timber rather than one continuous plank. High ridge at the wall side, eave past the outer lip.
   const roofTh = mToTiles(0.16);
   const roofD = over + mToTiles(0.7);
-  const roof = M.cube([s.len, roofD, roofTh])
-    .translate([0, -roofD / 2, -roofTh / 2])
-    .rotate([-outward * 30, 0, 0])
-    .translate([0, outward * (th / 2 + over / 2), walkZ + ft + bwH + mToTiles(0.5)]);
-  out.push(place(roof, s));
+  const bay = mToTiles(2.2), gap = mToTiles(0.35);
+  for (let d = 0; d < s.len - 1e-6; d += bay) {
+    const bl = Math.min(bay - gap, s.len - d);
+    if (bl <= mToTiles(0.2)) continue;
+    const roof = M.cube([bl, roofD, roofTh])
+      .translate([0, -roofD / 2, -roofTh / 2])
+      .rotate([-outward * 30, 0, 0])
+      .translate([d, outward * (th / 2 + over / 2), walkZ + ft + bwH + mToTiles(0.5)]);
+    out.push(place(roof, s));
+  }
   return out;
 }
 
