@@ -21,6 +21,9 @@ import { applyPoiInfluences } from '@/terrain/poi-influence';
 import { generateHydrology } from '@/terrain/hydrology';
 import { buildRoadGraph } from '@/world/road-graph';
 import { mergeParallelRoads } from '@/world/connectome/merge-parallel-roads';
+import { gateApproachPlan, realGateAnchors } from '@/world/connectome/gate-approach';
+import { settlementRingContracts } from '@/world/connectome/wall-contracts';
+import { wireGateToRoad } from '@/world/wire-gate';
 import { corridorCells } from '@/world/road-corridors';
 import type { RoadGraph } from '@/world/road-graph';
 import { collectAnchors } from '@/world/anchor-collect';
@@ -352,8 +355,13 @@ export async function generateWithNoise(
     // (#26) un-carves only the terrain/water it itself covered. `rasterizeRoadGraph` shows the
     // carve is exactly the edge's POLYLINE cells, so the polyline IS the footprint to restore.
     const preRoad = tiles.map((row) => row.map((t) => ({ type: t.type, walkable: t.walkable })));
-    roadGraph = buildRoadGraph(worldSeed.connections, worldSeed.pois ?? [], tiles, fields, {
-      isObstacle: (x, y) => tileBlockedByBuilding(world, x, y) || greenTiles.has(`${x},${y}`),
+    // Make roads LEAD TO GATES: town rings become obstacles (so A* can't pierce a curtain except
+    // at an opening) and each ring endpoint's connection is threaded through its nearest real gate.
+    // Connections touching no ring are returned unchanged, so a ringless world routes identically.
+    const approach = gateApproachPlan(barrierRuns, worldSeed.connections, worldSeed.pois ?? []);
+    roadGraph = buildRoadGraph(approach.connections, worldSeed.pois ?? [], tiles, fields, {
+      isObstacle: (x, y) => tileBlockedByBuilding(world, x, y) || greenTiles.has(`${x},${y}`)
+        || approach.wallObstacles.has(`${x},${y}`),
     });
 
     // #26 — MERGE near-parallel duplicate road corridors. Connectivity-preserving: drops the
@@ -377,6 +385,20 @@ export async function generateWithNoise(
         }
       }
       roadGraph = mergedRoads;
+    }
+
+    // Orphan-gate fallback: a ring whose POI had no connection (or whose approach road was merged
+    // away) can be left with a gate no road reaches. Stitch each such real gate to the nearest road
+    // with a short dirt spur so a walled town is never gate-locked. Skips gates already road-adjacent
+    // so it's a no-op in the common case (the waypoint routing already reached them).
+    const spurMap = { tiles } as GameMap;
+    const isRoadType = (t?: string): boolean => t === 'dirt_road' || t === 'stone_road' || t === 'bridge';
+    for (const a of realGateAnchors(barrierRuns)) {
+      let near = false;
+      for (let dx = -2; dx <= 2 && !near; dx++) for (let dy = -2; dy <= 2 && !near; dy++) {
+        if (isRoadType(tiles[a.y + dy]?.[a.x + dx]?.type)) near = true;
+      }
+      if (!near) wireGateToRoad({ x: a.x, y: a.y } as import('@/world/anchors').Anchor, spurMap);
     }
 
     // River-crossing SITES (unified connectome, v0): where a road bridges water, compose a
@@ -553,6 +575,11 @@ export async function generateWithNoise(
   const { anchors, roads } = collectAnchors(world, roadGraph, width);
   map.anchors = anchors;
   map.anchorLinks = matchAnchors(anchors, { roads });
+
+  // Contract DECLARATIONS the walled-town recipe commits: each defensive ring asks the connectome
+  // for a landward gate reached by a road and a curtain crossed only at gates. `evaluateContracts`
+  // (lint:world / MCP / Fate) grades them into the leveled report.
+  map.contracts = { declarations: settlementRingContracts(barrierRuns) };
 
   return { map, world, biomeMap };
 }

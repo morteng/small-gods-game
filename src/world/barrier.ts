@@ -57,6 +57,12 @@ function pathLength(path: [number, number][]): number {
   return s;
 }
 
+/** World point (tiles) at a gate's centre — the opening's midpoint on the wall line.
+ *  Used to route an approach road THROUGH the gate and to test gate↔road connectivity. */
+export function gatePoint(run: BarrierRun, gate: BarrierGate): [number, number] {
+  return pointAt(run.path, gate.t);
+}
+
 /** Rasterize the polyline at `thickness` into tile cells, split blocking vs gate-gap. */
 export function barrierFootprintTiles(run: BarrierRun): { blocking: [number, number][]; gate: [number, number][] } {
   const cells = new Map<string, [number, number]>();
