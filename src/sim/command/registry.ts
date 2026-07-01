@@ -38,6 +38,19 @@ export interface CapabilityDef {
   /** Power cost; reuses the divine-actions.ts constants. */
   cost: number;
   targetKind: 'npc' | 'settlement' | 'none';
+  /**
+   * Reticle shape for verb-first targeting (agent-driven-UI). 'point' highlights
+   * one cell/entity; 'area' brushes a radius (stretch). Defaults to 'point' — read
+   * via `capFootprint`, never `def.footprint` directly.
+   */
+  footprint?: 'point' | 'area';
+  /**
+   * UI shape (agent-driven-UI). 'leaf' fires one Command on click; 'branch' expands
+   * to a UiSpec card of paths. Defaults to 'leaf' — read via `capShape`. Reserve
+   * branching for influence/speech verbs (whisper/dream/answer_prayer) where the
+   * chosen content changes the outcome; keep visceral verbs (smite) as leaves.
+   */
+  shape?: 'leaf' | 'branch';
   /** false ⇒ executor rejects with 'not_implemented'. */
   implemented: boolean;
   /** Read-only gate (cooldown, worship-state, …). Returns a reason or null. */
@@ -66,7 +79,7 @@ function targetLabel(cmd: Command): string {
 
 export const CAPABILITY_REGISTRY: Record<CommandVerb, CapabilityDef> = {
   whisper: {
-    verb: 'whisper', tier: 'divine', cost: WHISPER_COST, targetKind: 'npc', implemented: true,
+    verb: 'whisper', tier: 'divine', cost: WHISPER_COST, targetKind: 'npc', shape: 'branch', implemented: true,
     precondition(cmd, ctx) {
       const npc = npcOf(cmd, ctx);
       if (!npc) return 'invalid_target';
@@ -81,7 +94,7 @@ export const CAPABILITY_REGISTRY: Record<CommandVerb, CapabilityDef> = {
   },
 
   answer_prayer: {
-    verb: 'answer_prayer', tier: 'divine', cost: ANSWER_PRAYER_COST, targetKind: 'npc', implemented: true,
+    verb: 'answer_prayer', tier: 'divine', cost: ANSWER_PRAYER_COST, targetKind: 'npc', shape: 'branch', implemented: true,
     precondition(cmd, ctx) {
       const npc = npcOf(cmd, ctx);
       if (!npc) return 'invalid_target';
@@ -111,7 +124,7 @@ export const CAPABILITY_REGISTRY: Record<CommandVerb, CapabilityDef> = {
   },
 
   dream: {
-    verb: 'dream', tier: 'divine', cost: DREAM_COST, targetKind: 'npc', implemented: true,
+    verb: 'dream', tier: 'divine', cost: DREAM_COST, targetKind: 'npc', shape: 'branch', implemented: true,
     apply(cmd, ctx) {
       return dream(ctx.spirits.get(cmd.source)!, npcOf(cmd, ctx)!, ctx.log);
     },
@@ -264,6 +277,16 @@ export const CAPABILITY_REGISTRY: Record<CommandVerb, CapabilityDef> = {
 
 export function getCapability(verb: CommandVerb): CapabilityDef | undefined {
   return CAPABILITY_REGISTRY[verb];
+}
+
+/** Reticle shape, defaulted. Always read footprint through this, never `def.footprint`. */
+export function capFootprint(def: CapabilityDef): 'point' | 'area' {
+  return def.footprint ?? 'point';
+}
+
+/** UI shape (leaf/branch), defaulted. Always read shape through this, never `def.shape`. */
+export function capShape(def: CapabilityDef): 'leaf' | 'branch' {
+  return def.shape ?? 'leaf';
 }
 
 export function listCapabilities(): CapabilityDef[] {
