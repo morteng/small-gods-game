@@ -18,7 +18,8 @@ import type { BarrierRun, BarrierGate } from '@/world/barrier';
 import { composeStructure, type StructureResult, type StructureSpec, type NormAnchor } from '@/assetgen/compose';
 import { structureResultToPack } from '@/render/parametric-building-source';
 import { towerSpec } from '@/assetgen/geometry/tower-spec';
-import { gateLeafSpec } from '@/assetgen/geometry/gate-spec';
+import { gateLeafSpec, gateFrameSpec } from '@/assetgen/geometry/gate-spec';
+import { postSpec } from '@/assetgen/geometry/post-spec';
 import { stairSpec } from '@/assetgen/geometry/stair-spec';
 import { mToTiles } from '@/render/scale-contract';
 import type { Mat } from '@/assetgen/types';
@@ -199,6 +200,45 @@ function towerElements(run: BarrierRun): Element[] {
   return out;
 }
 
+/** A TIMBER defensive ring (a palisade) gets corner POSTS + gate FRAMES — the wooden analogue of
+ *  the masonry ring's drum towers + stone gatehouse. Masonry (towered) rings and un-centred croft
+ *  fences are excluded. */
+function postsEnabled(run: BarrierRun): boolean {
+  return !!run.centroid && !towersEnabled(run) && run.material === 'timber' && run.path.length >= 4;
+}
+
+/** Timber corner-post elements: a stout capped post covering each corner joint of a palisade ring. */
+function postElements(run: BarrierRun): Element[] {
+  if (!postsEnabled(run)) return [];
+  const tag = `${r3(run.height)}:${r3(run.thickness)}`;
+  return cornerVertices(run.path).map(([x, y]) => {
+    const post = postSpec({ curtainHeight: run.height, curtainThickness: run.thickness });
+    return {
+      key: `post:${tag}`,
+      spec: () => ({ parts: post.parts, mountAnchors: post.mountAnchors }),
+      anchor: tagAnchor, refX: x, refY: y, sortX: x, sortY: y,
+    } as Element;
+  });
+}
+
+/** Timber gate-frame elements: jamb posts + a lintel framing each real gate of a palisade ring. */
+function gateFrameElements(run: BarrierRun): Element[] {
+  if (!postsEnabled(run)) return [];
+  const tag = `${r3(run.height)}:${r3(run.thickness)}`;
+  const out: Element[] = [];
+  for (const g of run.gates) {
+    if (g.width <= 0 || !isRealGate(g)) continue;
+    const { p, dir } = frameAt(run.path, g.t);
+    const frame = gateFrameSpec({ gateWidth: g.width, curtainHeight: run.height, dir });
+    out.push({
+      key: `gateframe:${tag}:${r3(g.width)}:${r3(dir[0])},${r3(dir[1])}`,
+      spec: () => ({ parts: frame.parts, mountAnchors: frame.mountAnchors }),
+      anchor: tagAnchor, refX: p[0], refY: p[1], sortX: p[0], sortY: p[1],
+    });
+  }
+  return out;
+}
+
 /** Defensive enclosures get a closing timber gate in each opening; garden fences / hedges
  *  keep a plain gap. The leaf is always timber even in a masonry wall (a wooden castle gate). */
 const GATE_LEAF_KINDS = new Set<BarrierKind>(['wall', 'palisade', 'rampart']);
@@ -269,7 +309,11 @@ function stairElements(run: BarrierRun): Element[] {
 /** All composable elements of a run, in draw-friendly order (curtain first, gate + towers over). */
 export function runElements(run: BarrierRun): Element[] {
   if (!run.path || run.path.length < 2) return [];
-  return [...chunkElements(run), ...stairElements(run), ...gateElements(run), ...towerElements(run)];
+  return [
+    ...chunkElements(run), ...stairElements(run),
+    ...gateElements(run), ...gateFrameElements(run),
+    ...towerElements(run), ...postElements(run),
+  ];
 }
 
 /** A composed element: the lit pack + the normalised position of its anchor point. */

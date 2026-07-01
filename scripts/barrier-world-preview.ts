@@ -87,6 +87,10 @@ async function main(): Promise<void> {
   composite(await placeRun({ kind: 'wall', path: [[0, 0], [8, 0]], material: 'stone', height: 3, thickness: 1, crenellated: false, gates: [{ t: 4, width: 2.5 }] }), 'place-gate-plain');
   // Palisade with a timber gate — the leaf should fill the opening (no masonry arch/towers).
   composite(await placeRun({ kind: 'palisade', path: [[0, 0], [10, 0]], ...BARRIER_DEFAULTS.palisade, gates: [{ t: 5, width: 3 }] }), 'place-gate-palisade');
+  // Palisade RING — timber corner POSTS cap every corner joint + a framed timber gate on the south.
+  composite(await placeRun({ kind: 'palisade', path: [[0, 0], [12, 0], [12, 10], [0, 10], [0, 0]], ...BARRIER_DEFAULTS.palisade, centroid: [6, 5], gates: [{ t: 6, width: 3, kind: 'gate' }] }), 'place-ring-palisade');
+  // Palisade L-corner — the post must cover the bend where two stake runs meet.
+  composite(await placeRun({ kind: 'palisade', path: [[0, 0], [10, 0], [10, 10]], ...BARRIER_DEFAULTS.palisade, centroid: [8, 8], gates: [] }), 'place-corner-palisade');
   // L-corner — two legs meeting at a right angle; chunks must meet cleanly at the bend.
   composite(await placeRun({ kind: 'wall', path: [[0, 0], [10, 0], [10, 10]], ...wall, gates: [] }), 'place-corner');
   // Rectangular town-wall ring with a gate on the south edge. `centroid` = ring centre, so the

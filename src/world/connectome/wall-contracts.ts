@@ -89,8 +89,60 @@ export const gateRoadConnected: Contract = {
   },
 };
 
+// A defensive ring resolves its corners with masonry drum TOWERS (a crenellated stone/brick ring)
+// or timber corner POSTS (a palisade). A plain (non-crenellated) masonry ring would get neither.
+const isMasonry = (m: string): boolean => m === 'stone' || m === 'brick';
+const cornersResolved = (run: PlacedBarrier['run']): boolean =>
+  (!!run.crenellated && isMasonry(run.material)) || run.material === 'timber';
+
+/** INVARIANT — every defensive ring must RESOLVE its corners (towers or posts), so a wooden or
+ *  plain-stone ring never leaves a raw corner seam. */
+export const wallCornersResolved: Contract = {
+  id: 'wall.corners-resolved',
+  level: 'settlement',
+  kind: 'invariant',
+  severity: 'warn',
+  description: 'A defensive ring resolves every corner with a tower (masonry) or a post (timber).',
+  evaluate(ctx, scope) {
+    const b = ringOfScope(ctx.map.barrierRuns, scope.entities);
+    if (!b || !b.run.centroid || b.run.path.length < 4) return [];
+    if (cornersResolved(b.run)) return [];
+    return [{
+      rule: 'wall.corners-resolved', severity: 'warn',
+      message: `the ${b.run.kind} ring of ${scope.poi ?? b.id} (${b.run.material}${b.run.crenellated ? ', crenellated' : ''}) leaves its corners unresolved`,
+      locus: { entities: [b.id], pois: scope.poi ? [scope.poi] : [] },
+    }];
+  },
+};
+
+/** INVARIANT — every real gate is FRAMED (masonry gatehouse towers or a timber gate frame), so a
+ *  gate never reads as a bare gap between wall-ends. */
+export const gateFramed: Contract = {
+  id: 'gate.framed',
+  level: 'settlement',
+  kind: 'invariant',
+  severity: 'warn',
+  description: 'Every real gate is framed by gatehouse towers (masonry) or gateposts (timber).',
+  evaluate(ctx, scope) {
+    const b = ringOfScope(ctx.map.barrierRuns, scope.entities);
+    if (!b) return [];
+    const framed = (!!b.run.crenellated && isMasonry(b.run.material)) || b.run.material === 'timber';
+    if (framed) return [];
+    const realGates = b.run.gates.filter((g) => g.kind !== 'gap').length;
+    if (realGates === 0) return [];
+    return [{
+      rule: 'gate.framed', severity: 'warn',
+      message: `${realGates} gate(s) of ${scope.poi ?? b.id} are unframed (${b.run.material}${b.run.crenellated ? ', crenellated' : ''})`,
+      locus: { entities: [b.id], pois: scope.poi ? [scope.poi] : [] },
+      metrics: { gates: realGates },
+    }];
+  },
+};
+
 registerContract(wallCrossingOnlyAtGate);
 registerContract(gateRoadConnected);
+registerContract(wallCornersResolved);
+registerContract(gateFramed);
 
 /** Build the contract DECLARATIONS a walled-town recipe commits: for each defensive ring
  *  (centroid-bearing), one crossing invariant + one gate-connectivity requirement, scoped to the
@@ -103,6 +155,8 @@ export function settlementRingContracts(barrierRuns: PlacedBarrier[]): ContractD
     const scope = { poi, entities: [b.id] };
     decls.push({ contract: 'wall.crossing-only-at-gate', scope });
     decls.push({ contract: 'gate.road-connected', scope });
+    decls.push({ contract: 'wall.corners-resolved', scope });
+    decls.push({ contract: 'gate.framed', scope });
   }
   return decls;
 }

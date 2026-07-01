@@ -30,6 +30,31 @@ export interface GateOpts {
   material?: Mat;
 }
 
+/** A timber GATE FRAME for a palisade/timber ring — two heavy jamb posts flanking the opening
+ *  plus a lintel beam over it. The masonry ring frames its gate with stone gatehouse towers; a
+ *  wooden ring needs this so the gate reads as a built gateway, not a bare gap between stake-ends.
+ *  Built in the gate's own world frame; base mount anchor at the opening centre. */
+export function gateFrameSpec(opts: GateOpts, cx = 0, cy = 0): GateSpec {
+  const mat: Mat = opts.material ?? 'timber';
+  const [dx, dy] = opts.dir;
+  const yaw = (Math.atan2(dy, dx) * 180) / Math.PI;
+  const postW = mToTiles(0.7);                            // heavy squared jamb post
+  const postH = opts.curtainHeight + mToTiles(0.9);       // stands proud of the palisade
+  const half = opts.gateWidth / 2 + postW / 2;            // jamb centre, just outside the clear opening
+  const parts: Part[] = [];
+  const jamb = (sign: number): void => {
+    const jx = cx + dx * half * sign, jy = cy + dy * half * sign;
+    parts.push({ prim: 'box', at: [jx - postW / 2, jy - postW / 2, 0], size: [postW, postW, postH], material: mat, yaw});
+  };
+  jamb(-1); jamb(+1);
+  // Lintel beam across the top, spanning jamb-to-jamb along the wall direction.
+  const span = opts.gateWidth + postW * 2;
+  const beamH = mToTiles(0.5), beamT = mToTiles(0.5);
+  const lz = opts.curtainHeight + mToTiles(0.1);
+  parts.push({ prim: 'box', at: [cx - span / 2, cy - beamT / 2, lz], size: [span, beamT, beamH], material: mat, yaw});
+  return { parts, mountAnchors: [{ kind: 'lintel', x: cx, y: cy, facing: [0, 0], z: 0 }] };
+}
+
 /** Build the closed double-leaf gate centred at world (cx,cy), base at z=0. */
 export function gateLeafSpec(opts: GateOpts, cx = 0, cy = 0): GateSpec {
   const mat: Mat = opts.material ?? 'timber';
