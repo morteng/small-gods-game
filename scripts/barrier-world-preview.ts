@@ -98,6 +98,9 @@ async function main(): Promise<void> {
   // HOARDED straight wall — a timber gallery (hourd) cantilevered over the outer (field) face:
   // support beams + overhanging plank floor + shooting breastwork + mono-pitch roof.
   composite(await placeRun({ kind: 'wall', path: [[0, 0], [14, 0]], material: 'stone', height: 3.5, thickness: 2, crenellated: true, centroid: [7, 6], hoarded: true, gates: [] }), 'place-hoarding');
+  // WATERFRONT town: a real gatehouse (road) on the south, the whole EAST side opened as a GAP
+  // (a river/coast — the water is the wall). No gatehouse/leaf on the open side.
+  composite(await placeRun({ kind: 'wall', path: [[0, 0], [16, 0], [16, 12], [0, 12], [0, 0]], material: 'stone', height: 3.5, thickness: 2, crenellated: true, centroid: [8, 6], hoarded: true, gates: [{ t: 8, width: 3, kind: 'gate' }, { t: 22, width: 14, kind: 'gap' }] }), 'place-ring-waterfront');
   // HOARDED ring with a gate — the timber gallery should ring the wall and bridge OVER the gate
   // as a bretèche, all facing outward.
   composite(await placeRun({ kind: 'wall', path: [[0, 0], [16, 0], [16, 12], [0, 12], [0, 0]], material: 'stone', height: 3.5, thickness: 2, crenellated: true, centroid: [8, 6], hoarded: true, gates: [{ t: 8, width: 3 }] }), 'place-ring-hoarded');

@@ -49,6 +49,10 @@ function masonryMat(run: BarrierRun): Mat {
   return run.material === 'brick' ? 'brick' : 'stone';
 }
 
+/** A real GATE (road crossing) gets a gatehouse + timber leaf + a stair beside it; a GAP (the line
+ *  meeting water / a building / an open waterfront) is just an opening. Missing kind ⇒ gate (legacy). */
+const isRealGate = (g: BarrierGate): boolean => g.kind !== 'gap';
+
 /** Crenellated stone/brick rings get flanking towers; field walls / palisades / hedges don't. */
 function towersEnabled(run: BarrierRun): boolean {
   return !!run.crenellated && (run.material === 'stone' || run.material === 'brick');
@@ -181,8 +185,9 @@ function towerElements(run: BarrierRun): Element[] {
     const drum = towerSpec({ ...base, round: true, inward });
     out.push(mk(`tower:round:${tag}:${q(inward)}`, () => ({ parts: drum.parts, mountAnchors: drum.mountAnchors }), x, y));
   }
-  // Twin square gatehouse towers flanking each gate — both share the gate's inward orientation.
+  // Twin square gatehouse towers flanking each real gate — both share the gate's inward orientation.
   for (const g of run.gates) {
+    if (!isRealGate(g)) continue;                            // a gap opening gets no gatehouse
     const { p, dir } = frameAt(run.path, g.t);
     const inward = inwardAt(p[0], p[1]);
     const gate = towerSpec({ ...base, tall: true, inward });   // square, taller — frames the gate
@@ -204,7 +209,7 @@ function gateElements(run: BarrierRun): Element[] {
   const tag = `${r3(run.height)}:${r3(run.thickness)}`;
   const out: Element[] = [];
   for (const g of run.gates) {
-    if (g.width <= 0) continue;
+    if (g.width <= 0 || !isRealGate(g)) continue;           // a plain gap gets no closing leaf
     const { p, dir } = frameAt(run.path, g.t);
     const leaf = gateLeafSpec({ gateWidth: g.width, curtainHeight: run.height, dir });
     out.push({
@@ -236,6 +241,7 @@ function stairElements(run: BarrierRun): Element[] {
   // Access points: beside each gate (offset along the wall, clear of the opening) + long-wall mids.
   const spots: { p: Pt; dir: Pt }[] = [];
   for (const g of run.gates) {
+    if (!isRealGate(g)) continue;                            // no stair by a mere gap
     const { p, dir } = frameAt(run.path, g.t);
     const off = g.width / 2 + mToTiles(1.8);
     spots.push({ p: [p[0] - dir[0] * off, p[1] - dir[1] * off], dir });

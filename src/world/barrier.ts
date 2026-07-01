@@ -2,7 +2,11 @@
 import { mToTiles } from '@/render/scale-contract';
 
 export type BarrierKind = 'wall' | 'fence' | 'palisade' | 'rampart' | 'barricade' | 'hedge';
-export interface BarrierGate { t: number; width: number }   // t = tiles along the path
+/** An opening in the run at path-distance `t`, `width` tiles wide. `kind` distinguishes a real
+ *  GATE (a road crossing — gets a gatehouse + timber leaf) from a plain GAP (where the line meets
+ *  water / a building / an open waterfront side — just an opening, no gatehouse). Absent ⇒ 'gate'
+ *  (legacy). */
+export interface BarrierGate { t: number; width: number; kind?: 'gate' | 'gap' }
 export interface BarrierRun {
   kind: BarrierKind;
   path: [number, number][];

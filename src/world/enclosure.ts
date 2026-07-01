@@ -230,26 +230,63 @@ export function deriveSettlementRing(args: {
 
   const path = rectRing(minX, minY, maxX, maxY);
   const gateW = catalogue.get<BarrierTypeFields>('barrierType', typeId)?.fields.gateWidthTiles ?? 3;
+  const centroid: Pt = [(minX + maxX) / 2, (minY + maxY) / 2];
 
-  // Walk the ring; a perimeter tile that is a road, water, OR under a building's VISUAL
-  // extent becomes a gate/opening. Reuse the SAME slab-midpoint gating the croft rings use
-  // (gatesWhereOpen) instead of an integer-vertex merge: the vertex sampling this replaced
-  // drifted half a tile from where slabs actually land, so in a dense settlement a slab
-  // straddling a perimeter building's cell slipped through the seam and poked out under the
-  // silhouette (the INV4 C1 leak that surfaced once settlements scaled up). One robust gate
-  // path for both ring kinds.
+  // Walk the ring at slab midpoints (same as the croft rings — keeps the renderer in lockstep).
+  // Distinguish WHY each opening exists so the defences read believably:
+  //   • ROAD crossings → real GATES (gatehouse + timber leaf).
+  //   • WATER / BUILDING crossings → plain GAPS (the line just opens; no gatehouse).
   const total = 2 * dx + 2 * dy;
-  const isOpen = (x: number, y: number): boolean =>
-    args.isRoad(x, y) || args.isWater(x, y) || (args.isBuilding?.(x, y) ?? false);
-  const gates = gatesWhereOpen(path, total, isOpen, gateW);
+  const roadGates = gatesWhereOpen(path, total, args.isRoad, gateW).map((g) => ({ ...g, kind: 'gate' as const }));
+  const softOpen = (x: number, y: number): boolean => args.isWater(x, y) || (args.isBuilding?.(x, y) ?? false);
+  const softGaps = gatesWhereOpen(path, total, softOpen, gateW).map((g) => ({ ...g, kind: 'gap' as const }));
+  // TERRAIN AS DEFENCE: a whole ring side fronted by water (a river bend, a lakeshore, the coast)
+  // needs no wall — the water is the line. Open that side entirely, so the town is walled only on
+  // its approachable landward sides (the authentic waterfront town).
+  const waterGaps = waterFrontedSides(path, centroid, args.isWater).map((g) => ({ ...g, kind: 'gap' as const }));
+  const gates: BarrierGate[] = [...roadGates, ...softGaps, ...waterGaps];
 
   const run = barrierRunFromType(typeId, path, gates);
   if (!run) return null;
   // Mark the ring centre so the geometry can face parapet/merlons/hoardings OUTWARD.
-  run.centroid = [(minX + maxX) / 2, (minY + maxY) / 2];
+  run.centroid = centroid;
   // A crenellated masonry town wall carries timber hoardings — the wartime defensive galleries.
   if (run.crenellated && (run.material === 'stone' || run.material === 'brick')) run.hoarded = true;
   return { id: `${args.poiId}_ring`, run };
+}
+
+/**
+ * Classify each SIDE of a closed ring by what lies just OUTSIDE it, and return a full-side gap for
+ * every side fronted by water — a river bend, lakeshore or coast the wall would only duplicate.
+ * Samples a few points along each side, offset outward (away from `centroid`) by `outDist` tiles;
+ * a side that reads mostly water is opened entirely. This is how walls "use the terrain": you don't
+ * wall the river, you let it be the wall and fortify only the landward approaches.
+ */
+function waterFrontedSides(
+  path: Pt[], centroid: Pt, isWater: (x: number, y: number) => boolean,
+  sampleN = 5, outDist = 2.5, waterFrac = 0.6,
+): BarrierGate[] {
+  const gaps: BarrierGate[] = [];
+  let acc = 0;
+  for (let i = 1; i < path.length; i++) {
+    const [ax, ay] = path[i - 1], [bx, by] = path[i];
+    const segLen = Math.hypot(bx - ax, by - ay);
+    if (segLen > 1e-6) {
+      const dxu = (bx - ax) / segLen, dyu = (by - ay) / segLen;
+      let nx = -dyu, ny = dxu;                                   // a side normal
+      const mx = (ax + bx) / 2, my = (ay + by) / 2;             // side midpoint
+      if (nx * (mx - centroid[0]) + ny * (my - centroid[1]) < 0) { nx = -nx; ny = -ny; }   // point OUTWARD
+      let wet = 0;
+      for (let k = 1; k <= sampleN; k++) {
+        const t = k / (sampleN + 1);
+        const px = ax + (bx - ax) * t + nx * outDist, py = ay + (by - ay) * t + ny * outDist;
+        if (isWater(Math.round(px), Math.round(py))) wet++;
+      }
+      if (wet / sampleN >= waterFrac) gaps.push({ t: acc + segLen / 2, width: segLen + 2 });   // open the whole side
+    }
+    acc += segLen;
+  }
+  return gaps;
 }
 
 /** Map a path distance `t` (tiles) to a world point along the polyline. */
