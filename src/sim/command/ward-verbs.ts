@@ -8,9 +8,9 @@
 import type { Command, ApplyCtx, CommandCtx, RejectionReason } from './types';
 import type { SettlementPlan, Ward } from '@/world/settlement-plan';
 
-/** The seven valid ward district types (the `Ward['type']` union). */
+/** The valid ward district types (the `Ward['type']` union). */
 const WARD_TYPES: ReadonlySet<Ward['type']> = new Set<Ward['type']>([
-  'market', 'harbour', 'temple', 'gate', 'residential', 'craft',
+  'market', 'harbour', 'temple', 'gate', 'residential', 'craft', 'suburb',
 ]);
 
 function planFor(cmd: Command, ctx: CommandCtx): SettlementPlan | undefined {

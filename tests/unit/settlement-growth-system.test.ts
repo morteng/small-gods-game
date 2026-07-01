@@ -250,8 +250,12 @@ describe('SettlementGrowthSystem', () => {
     growSettlement(ctx, plan, 't0');
     expect(plan.annexed).toEqual([parcels.adjacent[0].id]);
     expect(plan.edges.some(e => e.kind === 'bridge')).toBe(true);
-    // The channel now carries a walkable bridge deck.
-    expect(tiles.some(row => row[28].type === 'bridge' && row[28].walkable)).toBe(true);
+    // The channel now carries a walkable bridge deck, with the river preserved
+    // underneath (baseType) so it renders as a span over water, not a causeway.
+    const deck = tiles.map(row => row[28]).find(t => t.type === 'bridge');
+    expect(deck).toBeTruthy();
+    expect(deck!.walkable).toBe(true);
+    expect(deck!.baseType).toBe('river');
     // Suburb burgage lots exist on the far (east) bank.
     expect(plan.lots.some(l => l.tiles.some(t => t.x > 28))).toBe(true);
 

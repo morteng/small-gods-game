@@ -298,7 +298,12 @@ export function growSettlement(
     carve(annex.road);
     for (const t of annex.bridge) {
       const tile = map.tiles[t.y]?.[t.x];
-      if (tile) { tile.type = 'bridge'; tile.walkable = true; }
+      if (tile) {
+        // Preserve the water under the deck (baseType) so the bridge renders as a
+        // span over visible water, not a dirt causeway. Set once, at carve time.
+        tile.baseType = tile.baseType ?? tile.type;
+        tile.type = 'bridge'; tile.walkable = true;
+      }
     }
     changed = true;
     if (tryPlace(ctx, plan, rb, presetName, facing, want, tag)) return true;

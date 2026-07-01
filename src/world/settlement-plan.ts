@@ -70,7 +70,7 @@ export interface Lot {
 export interface Ward {
   id: string;
   name: string;                    // "North Market", "Fisher Quarter"
-  type: 'market' | 'harbour' | 'temple' | 'gate' | 'residential' | 'craft';
+  type: 'market' | 'harbour' | 'temple' | 'gate' | 'residential' | 'craft' | 'suburb';
   seed: { x: number; y: number };
   tiles: { x: number; y: number }[];
 }
@@ -569,6 +569,22 @@ export function annexAcrossBridge(
     if (claim) lot.buildingId = claim;
   }
 
+  // Label the annexed bank a bridge-ward (the extramural suburb, the faubourg beyond
+  // the gate). Its tiles are the suburb street + every fresh burgage lot on the far
+  // bank; the name reads off the bearing to the crossing, like the worldgen wards.
+  const farKeys = far.cells;
+  const wardTiles: { x: number; y: number }[] = [...suburb];
+  for (const lot of plan.lots) {
+    for (const t of lot.tiles) if (farKeys.has(`${t.x},${t.y}`)) wardTiles.push(t);
+  }
+  plan.wards.push({
+    id: `ward:suburb:${crossing.to}`,
+    name: `${bearingName(bTile.x - cx, bTile.y - cy)} ${WARD_NOUNS.suburb}`,
+    type: 'suburb',
+    seed: { x: bTile.x, y: bTile.y },
+    tiles: wardTiles,
+  });
+
   plan.annexed = [...(plan.annexed ?? []), crossing.to];
   return { road, bridge };
 }
@@ -808,6 +824,7 @@ const WARD_NOUNS: Record<Ward['type'], string> = {
   gate: 'Gate Row',
   residential: 'Rows',
   craft: 'Crafts',
+  suburb: 'Bridge Ward',
 };
 
 /**

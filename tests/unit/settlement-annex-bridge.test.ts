@@ -56,6 +56,13 @@ describe('annexAcrossBridge — town → bridge → suburb', () => {
 
     // The far parcel is recorded as annexed.
     expect(plan.annexed).toContain(farId);
+
+    // A bridge-ward (the extramural suburb) was labelled over the far bank.
+    const suburbWard = plan.wards.find(w => w.type === 'suburb');
+    expect(suburbWard).toBeTruthy();
+    expect(suburbWard!.name).toMatch(/Bridge Ward$/);
+    expect(suburbWard!.tiles.every(t => t.x >= 6)).toBe(true);  // all on the east far bank
+    expect(suburbWard!.tiles.length).toBeGreaterThan(0);
   });
 
   it('annexes each adjacent bank only once', () => {
