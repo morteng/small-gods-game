@@ -101,6 +101,32 @@ describe('deriveSettlementRing encloses the built bbox with gates at crossings',
     expect(ring!.run.gates.length).toBeGreaterThanOrEqual(1);
   });
 
+  it('guarantees ONE main gate even when no road crosses the ring (never a sealed town)', () => {
+    const ring = deriveSettlementRing({
+      bbox: { minX: 5, minY: 5, maxX: 15, maxY: 15 },
+      mapW: 64, mapH: 64, buildingCount: 20, poiId: 'town2',
+      isWater: () => false,
+      isRoad: (x, y) => x === 10 && y === 25,   // a road well SOUTH of the ring, never crossing it
+      ctx,
+    });
+    const realGates = ring!.run.gates.filter((g) => g.kind !== 'gap');
+    expect(realGates.length).toBe(1);           // exactly one main gate, toward the road
+  });
+
+  it('opens a whole water-fronted side and keeps its gate off the water', () => {
+    const ring = deriveSettlementRing({
+      bbox: { minX: 5, minY: 5, maxX: 15, maxY: 15 },
+      mapW: 64, mapH: 64, buildingCount: 20, poiId: 'town3',
+      isWater: (x) => x >= 18,                    // sea to the EAST, just outside the east wall (x=17)
+      isRoad: () => false,
+      ctx,
+    });
+    const gaps = ring!.run.gates.filter((g) => g.kind === 'gap');
+    expect(gaps.length).toBeGreaterThanOrEqual(1);   // the east side opened to the water
+    const gates = ring!.run.gates.filter((g) => g.kind !== 'gap');
+    expect(gates.length).toBe(1);                     // still exactly one landward gate
+  });
+
   it('returns null for a hamlet', () => {
     const ring = deriveSettlementRing({
       bbox: { minX: 5, minY: 5, maxX: 9, maxY: 9 },

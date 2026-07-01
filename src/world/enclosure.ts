@@ -244,7 +244,13 @@ export function deriveSettlementRing(args: {
   // needs no wall — the water is the line. Open that side entirely, so the town is walled only on
   // its approachable landward sides (the authentic waterfront town).
   const waterGaps = waterFrontedSides(path, centroid, args.isWater).map((g) => ({ ...g, kind: 'gap' as const }));
-  const gates: BarrierGate[] = [...roadGates, ...softGaps, ...waterGaps];
+  // Every walled town needs a way IN. If no road actually crosses the ring (the road often just
+  // approaches it), place ONE main gate on the landward point nearest the road — the gatehouse the
+  // approach road runs up to. Never on a water side.
+  const mainGate = roadGates.length === 0
+    ? ensureMainGate(path, total, centroid, args.isRoad, args.isWater, gateW)
+    : [];
+  const gates: BarrierGate[] = [...roadGates, ...mainGate, ...softGaps, ...waterGaps];
 
   const run = barrierRunFromType(typeId, path, gates);
   if (!run) return null;
@@ -287,6 +293,54 @@ function waterFrontedSides(
     acc += segLen;
   }
   return gaps;
+}
+
+/**
+ * Guarantee ONE main gate on a walled ring that no road crosses. Walks the perimeter, and at each
+ * step looks OUTWARD for the nearest road cell (up to `reach` tiles) on a non-water stretch — the
+ * gate goes where the approach road comes closest to the wall. If no road is near, it falls back to
+ * the midpoint of the longest landward side, so a town is never sealed shut.
+ */
+function ensureMainGate(
+  path: Pt[], total: number, centroid: Pt,
+  isRoad: (x: number, y: number) => boolean, isWater: (x: number, y: number) => boolean,
+  gateW: number, reach = 10,
+): BarrierGate[] {
+  const outwardAt = (t: number): { p: Pt; n: Pt } => {
+    const p = pointOnPath(path, t);
+    const a = pointOnPath(path, Math.max(0, t - 0.5)), b = pointOnPath(path, Math.min(total, t + 0.5));
+    const dx = b[0] - a[0], dy = b[1] - a[1], m = Math.hypot(dx, dy) || 1;
+    let nx = -dy / m, ny = dx / m;
+    if (nx * (p[0] - centroid[0]) + ny * (p[1] - centroid[1]) < 0) { nx = -nx; ny = -ny; }
+    return { p, n: [nx, ny] };
+  };
+  let best = -1, bestDist = Infinity;
+  for (let t = 0.5; t < total; t += 1) {
+    const { p, n } = outwardAt(t);
+    if (isWater(Math.round(p[0] + n[0]), Math.round(p[1] + n[1]))) continue;   // not on a water side
+    for (let d = 2; d <= reach; d++) {
+      if (isRoad(Math.round(p[0] + n[0] * d), Math.round(p[1] + n[1] * d))) {
+        if (d < bestDist) { bestDist = d; best = t; }
+        break;
+      }
+    }
+  }
+  if (best < 0) {
+    // No road near — gate the longest landward side's midpoint so the town still has a way in.
+    let acc = 0, bestMid = total / 2, bestLen = -1;
+    for (let i = 1; i < path.length; i++) {
+      const [ax, ay] = path[i - 1], [bx, by] = path[i];
+      const len = Math.hypot(bx - ax, by - ay);
+      const mx = (ax + bx) / 2, my = (ay + by) / 2;
+      let nx = -(by - ay), ny = bx - ax; const mm = Math.hypot(nx, ny) || 1; nx /= mm; ny /= mm;
+      if (nx * (mx - centroid[0]) + ny * (my - centroid[1]) < 0) { nx = -nx; ny = -ny; }
+      const wet = isWater(Math.round(mx + nx * 2), Math.round(my + ny * 2));
+      if (!wet && len > bestLen) { bestLen = len; bestMid = acc + len / 2; }
+      acc += len;
+    }
+    best = bestMid;
+  }
+  return [{ t: best, width: gateW, kind: 'gate' }];
 }
 
 /** Map a path distance `t` (tiles) to a world point along the polyline. */
