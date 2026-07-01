@@ -12,6 +12,7 @@ import { createDebugApi, type DebugApi } from '@/dev/debug-api';
 import { createGameQuery, type GameQuery, type InboxItem } from '@/game/game-query';
 import { causalSiteCardView } from '@/game/causal-site-view';
 import type { CommandVerb, CommandTarget, CommandTargetKind } from '@/sim/command/types';
+import { hoverChips } from '@/game/affordance/hover';
 import { createGameBus, type GameBus } from '@/game/game-bus';
 import { getUiRuntime } from '@/render/ui/ui-runtime';
 import { bootMark, FpsMeter, type FpsStats } from '@/dev/profile';
@@ -701,6 +702,8 @@ export class Game {
       getBeliefPowers: () => this.query.beliefPowers(),
       onCastPower: (verb) => this.castPower(verb),
       getTargeting: () => this.interaction.targeting ? { label: this.interaction.targeting.label } : null,
+      getHoverAffordances: () => this.hoverAffordances(),
+      onHoverChip: (verb) => this.castHoverChip(verb),
       getInbox: () => this.query.divineInbox(),
       onInboxAct: (item) => this.actOnInbox(item),
       onInboxInvestigate: (item) => {
@@ -838,6 +841,51 @@ export class Game {
     const target = this.resolveTargetAt(x, y, cap.targetKinds);
     if (!target) return;
     this.bus.emit({ verb: aim.verb as CommandVerb, source: PLAYER_SPIRIT_ID, target });
+  }
+
+  /** The target the hover popover last froze onto, so a chip click acts on the tile
+   *  the cursor rested on — not a hover that drifted onto the popover itself. */
+  private hoverFrozen: CommandTarget | null = null;
+
+  /**
+   * Chips for whatever the cursor rests on — the hover popover's data (spec §5, P3).
+   * Resolves the most meaningful target under the hovered tile (an NPC, else the
+   * settlement a building belongs to), freezes it, and derives the top affordances
+   * through the shared salience brain. Null over empty ground or while aiming a cast.
+   */
+  private hoverAffordances(): { chips: ReturnType<typeof hoverChips> } | null {
+    if (this.interaction.targeting) return null;
+    const world = this.state.world;
+    const tile = this.interaction.hoverTile;
+    if (!world || !tile) { this.hoverFrozen = null; return null; }
+    const target = this.hoverTargetAt(tile.x, tile.y);
+    if (!target) { this.hoverFrozen = null; return null; }
+    this.hoverFrozen = target;
+    const ctx = { world, spirits: this.state.spirits, log: this.state.eventLog };
+    const chips = hoverChips(target, PLAYER_SPIRIT_ID, ctx, this.query.beliefPowers());
+    return chips.length ? { chips } : null;
+  }
+
+  /** The meaningful hover target under a tile: an NPC → else a building's settlement. */
+  private hoverTargetAt(x: number, y: number): CommandTarget | null {
+    const world = this.state.world;
+    if (!world) return null;
+    const npc = world.query({ kind: 'npc' }).find((e) => Math.floor(e.x) === x && Math.floor(e.y) === y);
+    if (npc) return { kind: 'npc', npcId: npc.id };
+    const building = world.registry.getAtTile(x, y).find((e) => e.tags?.includes('building'));
+    if (building) {
+      const poiId = this.nearestPoiId(x, y);
+      if (poiId) return { kind: 'settlement', poiId };
+    }
+    return null;
+  }
+
+  /** Fire a hover-popover chip against the frozen hover target. */
+  private castHoverChip(verb: string): void {
+    const target = this.hoverFrozen;
+    if (!target) return;
+    this.bus.emit({ verb: verb as CommandVerb, source: PLAYER_SPIRIT_ID, target });
+    this.requestRender();
   }
 
   /** Pick the most specific target under a tile that the verb accepts (npc → entity → settlement → tile). */

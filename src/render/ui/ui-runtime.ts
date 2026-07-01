@@ -57,6 +57,11 @@ export interface UiRuntimeHooks {
   onCastPower?: (verb: string) => void;
   /** Verb-first targeting in progress (reticle), or null — drives the aim hint bar. */
   getTargeting?: () => { label: string } | null;
+  /** Top ranked affordances for whatever the cursor rests on — queried ONCE per
+   *  dwell and frozen (the game resolves + freezes the target). Null ⇒ no popover. */
+  getHoverAffordances?: () => { chips: HoverChipView[] } | null;
+  /** Fire a hover-popover chip (the game acts on its frozen hover target). */
+  onHoverChip?: (verb: string) => void;
   /** The triageable divine-inbox items, salience-ranked (default []). */
   getInbox?: () => InboxItem[];
   /** Triage: act on an item (route to the matching divine action). */
@@ -87,6 +92,34 @@ type Section = 'settings' | null;
 /** A device-px rect (the DOM island's reserved region). */
 interface Rect { x: number; y: number; w: number; h: number }
 
+/** A hover-popover chip (game-derived; the runtime only draws + reports clicks). */
+export interface HoverChipView {
+  verb: string;
+  label: string;
+  cost: number;
+  unlocked: boolean;
+  affordable: boolean;
+  why: string | null;
+}
+
+/** A frozen hover popover: the chips + the cursor anchor + the last-drawn rect. */
+interface HoverPopover { ax: number; ay: number; chips: HoverChipView[]; rect: Rect }
+
+/** Dwell before the hover popover appears (ms) + the grace margin (device px) that
+ *  keeps it open as the cursor travels from the anchor onto the chips. */
+const HOVER_DWELL_MS = 120;
+const HOVER_GRACE_PX = 24;
+
+/** Injectable timer seam (real timers in the app; a manual clock in tests). */
+export interface UiTimers {
+  set: (fn: () => void, ms: number) => number;
+  clear: (id: number) => void;
+}
+const REAL_TIMERS: UiTimers = {
+  set: (fn, ms) => setTimeout(fn, ms) as unknown as number,
+  clear: (id) => clearTimeout(id),
+};
+
 export class UiRuntime {
   private ctx = new UiContext();
   private hooks: UiRuntimeHooks = {};
@@ -114,6 +147,16 @@ export class UiRuntime {
    *  drawMenu each frame (a local — avoids `this`-field narrowing pitfalls). */
   private island: SettingsIsland | null = null;
 
+  /** The frozen hover popover currently on screen (dwell → freeze), or null. */
+  private hover: HoverPopover | null = null;
+  /** Pending dwell timer id (armed on move, fires the popover), or null. */
+  private dwellId: number | null = null;
+  private readonly timers: UiTimers;
+
+  constructor(timers: UiTimers = REAL_TIMERS) {
+    this.timers = timers;
+  }
+
   configure(hooks: UiRuntimeHooks): void {
     this.hooks = { ...this.hooks, ...hooks };
   }
@@ -140,6 +183,7 @@ export class UiRuntime {
       return; // no eligible storylet / bad id — never crash the frame
     }
     if (session.done) return;
+    this.clearHover(); // the modal card supersedes any hover popover
     this.story = session;
     this.hooks.onStoryToggle?.(true);
     this.hooks.requestRender?.();
@@ -162,7 +206,49 @@ export class UiRuntime {
   pointerMove(px: number, py: number): void {
     this.ptr.x = px;
     this.ptr.y = py;
+    this.updateHover(px, py);
     this.hooks.requestRender?.();
+  }
+
+  /** Hover-popover lifecycle on move: a shown popover stays while the cursor is in
+   *  its grace zone; otherwise (re)arm the dwell timer. Suppressed while a modal
+   *  (menu / story card) owns the screen. */
+  private updateHover(px: number, py: number): void {
+    if (this.menuOpen || this.story) { this.clearHover(); return; }
+    if (this.hover) {
+      if (this.withinGrace(px, py)) return; // sticky — don't re-dwell under the card
+      this.hover = null;
+    }
+    if (this.dwellId != null) this.timers.clear(this.dwellId);
+    this.dwellId = this.timers.set(() => { this.dwellId = null; this.handleDwell(); }, HOVER_DWELL_MS);
+  }
+
+  /** Dwell elapsed: ask the game for the frozen target's chips; show if any. Public
+   *  so tests can fire the dwell deterministically without a real timer. */
+  handleDwell(): void {
+    if (this.menuOpen || this.story) return;
+    const hv = this.hooks.getHoverAffordances?.();
+    if (!hv || hv.chips.length === 0) return;
+    // rect is filled at draw time; the anchor freezes the target the game resolved.
+    this.hover = { ax: this.ptr.x, ay: this.ptr.y, chips: hv.chips, rect: { x: 0, y: 0, w: 0, h: 0 } };
+    this.hooks.requestRender?.();
+  }
+
+  private clearHover(): void {
+    if (this.dwellId != null) { this.timers.clear(this.dwellId); this.dwellId = null; }
+    this.hover = null;
+  }
+
+  /** Whether (px,py) is within the shown popover's rect or the anchor→card corridor
+   *  (plus a margin) — the grace zone that keeps the popover from flickering shut. */
+  private withinGrace(px: number, py: number): boolean {
+    const h = this.hover;
+    if (!h) return false;
+    const x0 = Math.min(h.rect.x, h.ax) - HOVER_GRACE_PX;
+    const y0 = Math.min(h.rect.y, h.ay) - HOVER_GRACE_PX;
+    const x1 = Math.max(h.rect.x + h.rect.w, h.ax) + HOVER_GRACE_PX;
+    const y1 = Math.max(h.rect.y + h.rect.h, h.ay) + HOVER_GRACE_PX;
+    return px >= x0 && px <= x1 && py >= y0 && py <= y1;
   }
   pointerDown(px: number, py: number): void {
     this.ptr.x = px;
@@ -184,6 +270,7 @@ export class UiRuntime {
   }
   private setMenu(open: boolean): void {
     if (open === this.menuOpen) return;
+    this.clearHover(); // a popover must never linger behind the modal menu
     this.menuOpen = open;
     this.section = open ? 'settings' : null;
     this.hooks.onMenuToggle?.(open);
@@ -352,6 +439,44 @@ export class UiRuntime {
       c.panel(tx, ty, tw, th);
       c.label(msg, tx + 16 * s, ty + (th - c.lineHeight(fs)) / 2, fs, UI_PALETTE.accent);
     }
+
+    // ── hover popover: top ranked affordance chips at the cursor (dwell → freeze) ──
+    if (this.hover && !aim) this.drawHover(c, w, h, s);
+  }
+
+  /** The frozen hover popover: a small stack of chip buttons anchored at the cursor.
+   *  A castable chip fires its verb; locked / unaffordable chips render disabled. */
+  private drawHover(c: UiContext, w: number, h: number, s: number): void {
+    const pop = this.hover!;
+    const fs = FS_BODY * s;
+    const pad = 10 * s;
+    const rowH = 26 * s;
+    const gap = 4 * s;
+    const labels = pop.chips.map((ch) => hoverChipLabel(ch));
+    let widest = 0;
+    for (const l of labels) widest = Math.max(widest, c.measure(l, fs));
+    const pw = Math.ceil(widest) + pad * 2;
+    const ph = pad * 2 + pop.chips.length * rowH + Math.max(0, pop.chips.length - 1) * gap;
+
+    // anchor lower-right of the cursor, clamped to stay on-screen
+    let x = pop.ax + 18 * s;
+    let y = pop.ay + 18 * s;
+    if (x + pw > w) x = Math.max(0, pop.ax - pw - 18 * s);
+    if (y + ph > h) y = Math.max(0, h - ph);
+    pop.rect = { x, y, w: pw, h: ph };
+
+    c.panel(x, y, pw, ph);
+    let ry = y + pad;
+    pop.chips.forEach((ch, i) => {
+      const castable = ch.unlocked && ch.affordable;
+      if (c.button(`hover.chip.${ch.verb}`, labels[i], x + pad, ry, pw - pad * 2, rowH,
+        { scale: fs, disabled: !castable })) {
+        this.hooks.onHoverChip?.(ch.verb);
+        this.clearHover();
+        this.hooks.requestRender?.();
+      }
+      ry += rowH + gap;
+    });
   }
 
   // ── W-I-d: the selected causal-site card (a focused ephemeral place) ────────
@@ -694,6 +819,14 @@ export class UiRuntime {
 
 function inRect(p: { x: number; y: number }, r: Rect): boolean {
   return p.x >= r.x && p.x < r.x + r.w && p.y >= r.y && p.y < r.y + r.h;
+}
+
+/** Chip caption: "WHISPER · 1  (praying)" with a lock glyph when belief-gated. */
+function hoverChipLabel(ch: HoverChipView): string {
+  const cost = ch.cost > 0 ? ` · ${ch.cost}` : '';
+  const why = ch.why ? `  (${ch.why})` : '';
+  const lock = ch.unlocked ? '' : ' 🔒';
+  return `${ch.label.toUpperCase()}${cost}${why}${lock}`;
 }
 
 /** Inbox kind → dot colour (surfaced items override with the accent). */

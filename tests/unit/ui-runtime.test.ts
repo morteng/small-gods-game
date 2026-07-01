@@ -157,3 +157,98 @@ describe('UiRuntime — HUD + pause menu', () => {
     expect(hiSolid).toBeGreaterThan(loSolid); // the power fill quad only exists when power>0
   });
 });
+
+// ── hover popover (P3): dwell → freeze → chip → fire ─────────────────────────────
+const CHIPS = [
+  { verb: 'answer_prayer', label: 'answer prayer', cost: 2, unlocked: true, affordable: true, why: 'praying' },
+  { verb: 'whisper', label: 'whisper', cost: 1, unlocked: true, affordable: true, why: null },
+  { verb: 'smite', label: 'smite', cost: 8, unlocked: false, affordable: true, why: null }, // belief-locked
+];
+/** A manual timer seam so dwell fires on demand (no real setTimeout in tests). */
+function manualTimers() {
+  let fn: (() => void) | null = null;
+  return {
+    timers: { set: (f: () => void) => { fn = f; return 1; }, clear: () => { fn = null; } },
+    fire: () => { const f = fn; fn = null; f?.(); },
+  };
+}
+
+describe('UiRuntime — hover popover', () => {
+  it('shows nothing until dwell elapses, then freezes the chips at the cursor', () => {
+    const rt = new UiRuntime(manualTimers().timers);
+    rt.configure({ getHoverAffordances: () => ({ chips: CHIPS }) });
+    rt.pointerMove(400, 400);
+    // before dwell: no popover chips drawn
+    rt.frame(W, H, DPR);
+    expect(rt.hitRegions().some((h) => h.id.startsWith('hover.chip.'))).toBe(false);
+    // dwell fires → popover appears
+    rt.handleDwell();
+    rt.frame(W, H, DPR);
+    const chipIds = rt.hitRegions().filter((h) => h.id.startsWith('hover.chip.')).map((h) => h.id).sort();
+    expect(chipIds).toEqual(['hover.chip.answer_prayer', 'hover.chip.smite', 'hover.chip.whisper']);
+  });
+
+  it('does not show a popover when the game reports no affordances', () => {
+    const rt = new UiRuntime(manualTimers().timers);
+    rt.configure({ getHoverAffordances: () => null });
+    rt.pointerMove(400, 400);
+    rt.handleDwell();
+    rt.frame(W, H, DPR);
+    expect(rt.hitRegions().some((h) => h.id.startsWith('hover.chip.'))).toBe(false);
+  });
+
+  it('clicking a castable chip fires its verb and dismisses the popover', () => {
+    const fired: string[] = [];
+    const rt = new UiRuntime(manualTimers().timers);
+    rt.configure({ getHoverAffordances: () => ({ chips: CHIPS }), onHoverChip: (v) => fired.push(v) });
+    rt.pointerMove(400, 400);
+    rt.handleDwell();
+    rt.frame(W, H, DPR);
+    const chip = rt.hitRegions().find((h) => h.id === 'hover.chip.answer_prayer')!;
+    click(rt, ...center(chip));
+    expect(fired).toEqual(['answer_prayer']);
+    // popover is gone on the next frame (the click frame already recorded its hits)
+    rt.frame(W, H, DPR);
+    expect(rt.hitRegions().some((h) => h.id.startsWith('hover.chip.'))).toBe(false);
+  });
+
+  it('a belief-locked chip is disabled and never fires', () => {
+    const fired: string[] = [];
+    const rt = new UiRuntime(manualTimers().timers);
+    rt.configure({ getHoverAffordances: () => ({ chips: CHIPS }), onHoverChip: (v) => fired.push(v) });
+    rt.pointerMove(400, 400);
+    rt.handleDwell();
+    rt.frame(W, H, DPR);
+    const chip = rt.hitRegions().find((h) => h.id === 'hover.chip.smite')!;
+    click(rt, ...center(chip));
+    expect(fired).toEqual([]); // disabled → no verb emitted
+  });
+
+  it('stays open while the cursor travels onto it, dismisses when it leaves (grace zone)', () => {
+    const rt = new UiRuntime(manualTimers().timers);
+    rt.configure({ getHoverAffordances: () => ({ chips: CHIPS }) });
+    rt.pointerMove(400, 400);
+    rt.handleDwell();
+    rt.frame(W, H, DPR);
+    const chip = rt.hitRegions().find((h) => h.id === 'hover.chip.whisper')!;
+    // move onto a chip → sticky (still drawn)
+    rt.pointerMove(...center(chip));
+    rt.frame(W, H, DPR);
+    expect(rt.hitRegions().some((h) => h.id.startsWith('hover.chip.'))).toBe(true);
+    // move far away → dismissed
+    rt.pointerMove(50, 50);
+    rt.frame(W, H, DPR);
+    expect(rt.hitRegions().some((h) => h.id.startsWith('hover.chip.'))).toBe(false);
+  });
+
+  it('opening the menu clears any hover popover', () => {
+    const rt = new UiRuntime(manualTimers().timers);
+    rt.configure({ getHoverAffordances: () => ({ chips: CHIPS }) });
+    rt.pointerMove(400, 400);
+    rt.handleDwell();
+    rt.toggleMenu(); // modal takes over
+    const groups = rt.frame(W, H, DPR);
+    expect(rt.hitRegions().some((h) => h.id.startsWith('hover.chip.'))).toBe(false);
+    expect(totalVerts(groups)).toBeGreaterThan(0); // menu still drew
+  });
+});

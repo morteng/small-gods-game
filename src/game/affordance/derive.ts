@@ -3,15 +3,16 @@
 // spirit's belief-granted unlocks, and the live context (cost/cooldown via the
 // preview gate). Pure and deterministic — the same computation the powers panel,
 // hover popover, and inspector all render (spec §2, §8).
-import type { Command, CommandCtx, CommandTarget, CommandVerb } from '@/sim/command/types';
+import type { Command, CommandCtx, CommandTarget } from '@/sim/command/types';
 import type { SpiritId } from '@/core/spirit';
 import { listCapabilities, capFootprint, capShape, acceptedTargetKinds } from '@/sim/command/registry';
 import { derivePreview } from '@/sim/command/preview';
 import type { CommandAffordance } from './types';
 
-/** Minimal belief-unlock view (structural; `BeliefPowerView[]` is assignable). */
+/** Minimal belief-unlock view (structural; `BeliefPowerView[]` is assignable —
+ *  `verb` is a plain string so the query's view drops in without a cast). */
 export interface VerbUnlock {
-  verb: CommandVerb;
+  verb: string;
   unlocked: boolean;
 }
 
