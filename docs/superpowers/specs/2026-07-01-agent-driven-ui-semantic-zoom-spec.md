@@ -166,13 +166,13 @@ Ordered so each phase is independently mergeable and the risky refactor is fence
 1. ✅ Golden test pinning `divineInbox` output (`tests/unit/divine-inbox-golden.test.ts` — snapshot over prayers + opportunity + threat + Fate-surfacing).
 2. ✅ Extracted `scoreAffordance` + `Situation` (`src/game/affordance/salience.ts`); refactored `divineInbox` (`game-query.ts:354`) to call it (Fate `+1` folded via `surfaced`). Golden byte-identical; `+5` direct scorer tests. Typecheck clean; game-bus/debug-api/belief-powers/game-query green.
 
-**P1 — Affordance + preview seam.**
-3. Add `footprint`/`shape` columns to `CapabilityDef`; `derivePreview` (`sim/command/preview.ts`).
-4. `CommandAffordance` derivation (`game/affordance/`), gated by `beliefPowers()` + `derivePreview`.
+**P1 — Affordance + preview seam. ✅ SHIPPED 2026-07-01.**
+3. ✅ `footprint`/`shape` columns on `CapabilityDef` (+`capFootprint`/`capShape` defaults; whisper/dream/answer_prayer → `branch`); `derivePreview` (`sim/command/preview.ts`) → `{cost, affordable, blockedReason}`.
+4. ✅ `affordancesForTarget` (`game/affordance/derive.ts` + `types.ts`), gated by belief-unlock + `derivePreview`; locked verbs included (greyed). +6 tests; all command-channel tests green.
 
-**P2 — Target vocabulary + real targeting.**
-5. Grow `CommandTarget` (+`entity`,+`tile`); update effect switches, schema, serializers, exhaustive-switch tests.
-6. Replace `castPower` stub (`game.ts:805/938`) with resolved targets. Verb-first reticle (point footprint) via `InteractionState`/`onTileClick`.
+**P2 — Target vocabulary + real targeting.** 🟡 **P2a+P2b SHIPPED 2026-07-01; P2c (castPower/reticle) pending.**
+5. ✅ Grew `CommandTarget` (+`entity`,+`tile`) + `CommandTargetKind`. **Decision (user): verbs accept target SETS** — added `targetKinds?` to `CapabilityDef` + `acceptedTargetKinds()` (defaults `[targetKind]`, backward-compatible). `previewCommand` validates against the set + per-kind existence (`world.registry.get` for entity). `smite` widened to `['npc','entity','tile']`: `smiteLocation()` strikes a spot (no conversion; reinforces witnesses within `SMITE_WITNESS_RADIUS=6`); smite SimEvent `npcId` now optional +`x`/`y`. MCP `emit/preview_command` target schema widened too. +6 tests (`smite-targeting.test.ts`); full suite pending.
+6. ⬜ Replace `castPower` stub (`game.ts:805/938`) with resolved targets. Verb-first reticle (point footprint) via `InteractionState`/`onTileClick`. **← P2c, next.**
 
 **P3 — Surfaces.**
 7. Hover popover (dwell, top-3 chips, why-tags).

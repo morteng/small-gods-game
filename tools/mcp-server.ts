@@ -129,14 +129,19 @@ server.registerTool('screenshot',
 // ── Write tools (require ?bridge=rw) ─────────────────────────────────────────
 
 const targetShape = {
-  targetKind: z.enum(['npc', 'settlement', 'none']).optional().describe('Defaults to none'),
+  targetKind: z.enum(['npc', 'entity', 'settlement', 'tile', 'none']).optional().describe('Defaults to none'),
   npcId: z.string().optional().describe('Required when targetKind is npc'),
+  entityId: z.string().optional().describe('Required when targetKind is entity (any World entity)'),
   poiId: z.string().optional().describe('Required when targetKind is settlement'),
+  x: z.number().optional().describe('Required when targetKind is tile'),
+  y: z.number().optional().describe('Required when targetKind is tile'),
 };
 
-function buildTarget(a: { targetKind?: string; npcId?: string; poiId?: string }): unknown {
+function buildTarget(a: { targetKind?: string; npcId?: string; entityId?: string; poiId?: string; x?: number; y?: number }): unknown {
   if (a.targetKind === 'npc') return { kind: 'npc', npcId: a.npcId };
+  if (a.targetKind === 'entity') return { kind: 'entity', id: a.entityId };
   if (a.targetKind === 'settlement') return { kind: 'settlement', poiId: a.poiId };
+  if (a.targetKind === 'tile') return { kind: 'tile', x: a.x, y: a.y };
   return { kind: 'none' };
 }
 

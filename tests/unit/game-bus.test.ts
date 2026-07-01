@@ -73,7 +73,7 @@ describe('game-bus', () => {
     const reg = listCapabilities();
     expect(caps).toHaveLength(reg.length);
     const whisper = caps.find(c => c.verb === 'whisper')!;
-    expect(whisper).toEqual({ verb: 'whisper', tier: 'divine', cost: 1, targetKind: 'npc', implemented: true });
+    expect(whisper).toEqual({ verb: 'whisper', tier: 'divine', cost: 1, targetKind: 'npc', targetKinds: ['npc'], implemented: true });
     // Pure data: no functions leak through (JSON-serializable).
     expect(() => JSON.stringify(caps)).not.toThrow();
     for (const c of caps) expect(Object.keys(c)).not.toContain('describe');

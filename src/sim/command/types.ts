@@ -28,8 +28,13 @@ export type CommandVerb =
 
 export type CommandTarget =
   | { kind: 'npc'; npcId: string }
+  | { kind: 'entity'; id: string }            // any World entity (flora/prop/animal)
   | { kind: 'settlement'; poiId: string }
+  | { kind: 'tile'; x: number; y: number }    // a point on the ground
   | { kind: 'none' };
+
+/** The discriminant of every CommandTarget — the vocabulary a verb can accept. */
+export type CommandTargetKind = CommandTarget['kind'];
 
 export interface Command {
   verb: CommandVerb;

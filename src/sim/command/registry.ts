@@ -11,12 +11,12 @@
 import type { Entity } from '@/core/types';
 import { getNpc, npcProps } from '@/world/npc-helpers';
 import {
-  whisper, omen, dream, miracle, answerPrayer, smite, summonStorm,
+  whisper, omen, dream, miracle, answerPrayer, smite, smiteLocation, summonStorm,
   WHISPER_COST, OMEN_COST, DREAM_COST, MIRACLE_COST, ANSWER_PRAYER_COST, SMITE_COST, SUMMON_STORM_COST,
 } from '@/sim/divine-actions';
 import { aggregateDomain, DOMAIN_DEFS } from '@/sim/belief-domains';
 import { mindProbeCost, probeMind } from '@/sim/mind-probe';
-import type { Command, CommandCtx, ApplyCtx, CommandVerb, RejectionReason } from './types';
+import type { Command, CommandCtx, ApplyCtx, CommandVerb, CommandTargetKind, RejectionReason } from './types';
 import {
   removePrecondition, removeApply,
   spawnPrecondition, spawnApply,
@@ -37,7 +37,14 @@ export interface CapabilityDef {
   tier: 'divine' | 'authoring' | 'editor';
   /** Power cost; reuses the divine-actions.ts constants. */
   cost: number;
-  targetKind: 'npc' | 'settlement' | 'none';
+  /** Primary target shape — the default for labels, castPower defaults, and the MCP view. */
+  targetKind: CommandTargetKind;
+  /**
+   * The FULL set of target shapes the verb accepts (agent-driven-UI P2). Defaults
+   * to `[targetKind]` — read via `acceptedTargetKinds`, never `def.targetKinds`.
+   * E.g. smite accepts a person, a thing, or a spot: `['npc','entity','tile']`.
+   */
+  targetKinds?: readonly CommandTargetKind[];
   /**
    * Reticle shape for verb-first targeting (agent-driven-UI). 'point' highlights
    * one cell/entity; 'area' brushes a radius (stretch). Defaults to 'point' — read
@@ -72,7 +79,9 @@ function npcOf(cmd: Command, ctx: CommandCtx): Entity | undefined {
 function targetLabel(cmd: Command): string {
   switch (cmd.target.kind) {
     case 'npc': return cmd.target.npcId;
+    case 'entity': return cmd.target.id;
     case 'settlement': return cmd.target.poiId;
+    case 'tile': return `(${cmd.target.x}, ${cmd.target.y})`;
     default: return 'world';
   }
 }
@@ -150,21 +159,30 @@ export const CAPABILITY_REGISTRY: Record<CommandVerb, CapabilityDef> = {
   },
 
   smite: {
-    verb: 'smite', tier: 'divine', cost: SMITE_COST, targetKind: 'npc', implemented: true,
+    verb: 'smite', tier: 'divine', cost: SMITE_COST, targetKind: 'npc',
+    targetKinds: ['npc', 'entity', 'tile'], implemented: true,
     precondition(cmd, ctx) {
-      const npc = npcOf(cmd, ctx);
-      if (!npc) return 'invalid_target';
+      // Target kind + existence are validated by previewCommand; here we only gate
+      // on power + the belief-CONTENT requirement (congregation must believe you
+      // command the storm), which holds for a strike on anyone or anything.
       const spirit = ctx.spirits.get(cmd.source);
       if (!spirit) return 'invalid_target';
       if (spirit.power < SMITE_COST) return 'insufficient_power';
-      // Belief-CONTENT gate: the congregation must believe you command the storm.
       const def = DOMAIN_DEFS.storm;
       const agg = aggregateDomain(ctx.world, cmd.source, 'storm');
       if (agg.conviction < def.unlockThreshold) return 'precondition_failed';
       return null;
     },
     apply(cmd, ctx) {
-      return smite(ctx.spirits.get(cmd.source)!, npcOf(cmd, ctx)!, ctx.world, ctx.log);
+      const sp = ctx.spirits.get(cmd.source)!;
+      const t = cmd.target;
+      if (t.kind === 'npc') return smite(sp, npcOf(cmd, ctx)!, ctx.world, ctx.log);
+      if (t.kind === 'tile') return smiteLocation(sp, t.x, t.y, ctx.world, ctx.log);
+      if (t.kind === 'entity') {
+        const e = ctx.world.registry.get(t.id);
+        return e ? smiteLocation(sp, e.x, e.y, ctx.world, ctx.log) : false;
+      }
+      return false;
     },
     describe: (cmd) => `call lightning down on ${targetLabel(cmd)}`,
   },
@@ -277,6 +295,11 @@ export const CAPABILITY_REGISTRY: Record<CommandVerb, CapabilityDef> = {
 
 export function getCapability(verb: CommandVerb): CapabilityDef | undefined {
   return CAPABILITY_REGISTRY[verb];
+}
+
+/** The full set of target shapes a verb accepts, defaulted to `[targetKind]`. */
+export function acceptedTargetKinds(def: CapabilityDef): readonly CommandTargetKind[] {
+  return def.targetKinds ?? [def.targetKind];
 }
 
 /** Reticle shape, defaulted. Always read footprint through this, never `def.footprint`. */

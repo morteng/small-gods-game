@@ -8,7 +8,7 @@
  * registered FIRST in the scheduler so queued commands apply at the top of a tick.
  */
 import type { System, SystemContext } from '@/core/scheduler';
-import { getCapability } from './registry';
+import { getCapability, acceptedTargetKinds } from './registry';
 import { getNpc } from '@/world/npc-helpers';
 import { SilentEventLog } from '@/core/events';
 import type { Command, CommandCtx, ApplyCtx, CommandResult, RejectionReason } from './types';
@@ -34,14 +34,10 @@ export function previewCommand(cmd: Command, ctx: CommandCtx): RejectionReason |
 
   if (!ctx.spirits.has(cmd.source)) return 'unknown_source';
 
-  // Target kind + existence.
-  if (def.targetKind === 'npc') {
-    if (cmd.target.kind !== 'npc' || !getNpc(ctx.world, cmd.target.npcId)) {
-      return 'invalid_target';
-    }
-  } else if (def.targetKind === 'settlement') {
-    if (cmd.target.kind !== 'settlement') return 'invalid_target';
-  }
+  // Target kind (must be one the verb accepts) + existence for referenced entities.
+  if (!acceptedTargetKinds(def).includes(cmd.target.kind)) return 'invalid_target';
+  if (cmd.target.kind === 'npc' && !getNpc(ctx.world, cmd.target.npcId)) return 'invalid_target';
+  if (cmd.target.kind === 'entity' && !ctx.world.registry.get(cmd.target.id)) return 'invalid_target';
 
   if (ctx.spirits.get(cmd.source)!.power < def.cost) return 'insufficient_power';
 

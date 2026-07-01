@@ -60,6 +60,7 @@ const SMITE_TARGET_SAFETY_DROP = 0.5;
 const SMITE_TARGET_STORM_SEED = 0.25;
 const SMITE_WITNESS_FAITH_BOOST = 0.12;
 const SMITE_WITNESS_STORM_SEED = 0.15;
+const SMITE_WITNESS_RADIUS = 6;        // tiles; a spot-strike is seen by those nearby
 
 // ─── Whisper (already exists in whisper.ts, reproduced here for completeness) ──
 
@@ -278,11 +279,28 @@ export function answerPrayer(spirit: Spirit, npc: Entity, log: EventLog): boolea
   return true;
 }
 
-// ─── Smite: call lightning down on one NPC (belief-content gated) ────────────
+// ─── Smite: call lightning down (belief-content gated) ──────────────────────
 // The headline dramatic action. Gated by the `storm` domain aggregate (the
-// congregation must believe you command the sky — see registry.ts). The strike
-// terrifies the target into belief, and every witness who sees the storm OBEY
-// has their storm-attribution reinforced — the loop's positive feedback.
+// congregation must believe you command the sky — see registry.ts). A strike on a
+// PERSON terrifies them into belief; a strike on a THING or a SPOT (entity/tile,
+// agent-driven-UI P2) has no soul to convert but still lands as raw spectacle.
+// Either way, every witness who sees the storm OBEY has their storm-attribution
+// reinforced — the loop's positive feedback.
+
+/** Reinforce storm-attribution in every NPC the strike's witnesses-predicate accepts. */
+function reinforceStormWitnesses(spirit: Spirit, world: World, accept: (e: Entity) => boolean): number {
+  let witnesses = 0;
+  forEachNpc(world, (e) => {
+    if (!accept(e)) return;
+    const b = npcProps(e).beliefs[spirit.id];
+    if (b) {
+      b.faith = clamp01(b.faith + SMITE_WITNESS_FAITH_BOOST * signResponse(b.understanding));
+      addDomainBelief(npcProps(e), spirit.id, 'storm', SMITE_WITNESS_STORM_SEED * signResponse(b.understanding));
+    }
+    witnesses++;
+  });
+  return witnesses;
+}
 
 export function smite(spirit: Spirit, npc: Entity, world: World, log: EventLog): boolean {
   if (spirit.power < SMITE_COST) return false;
@@ -308,25 +326,31 @@ export function smite(spirit: Spirit, npc: Entity, world: World, log: EventLog):
   addDomainBelief(tp, spirit.id, 'storm', SMITE_TARGET_STORM_SEED);
 
   // ── witnesses in the same settlement: the storm obeyed → reinforce ──
-  let witnesses = 0;
-  if (poiId) {
-    forEachNpc(world, (e) => {
-      if (e.id === npc.id) return;
-      const p = npcProps(e);
-      if (p.homePoiId !== poiId) return;
-      const b = p.beliefs[spirit.id];
-      if (b) {
-        b.faith = clamp01(b.faith + SMITE_WITNESS_FAITH_BOOST * signResponse(b.understanding));
-        addDomainBelief(p, spirit.id, 'storm', SMITE_WITNESS_STORM_SEED * signResponse(b.understanding));
-      }
-      witnesses++;
-    });
-  }
+  const witnesses = poiId
+    ? reinforceStormWitnesses(spirit, world, (e) => e.id !== npc.id && npcProps(e).homePoiId === poiId)
+    : 0;
 
   const appended = log.append({ type: 'smite', spiritId: spirit.id, npcId: npc.id, poiId, witnesses });
   tp.recentEventIds.push(appended.id);
   if (tp.recentEventIds.length > 8) tp.recentEventIds.shift();
 
+  return true;
+}
+
+/**
+ * Smite a SPOT rather than a soul (entity/tile targets). No conversion — there is
+ * no mind to terrify — but the storm still obeyed, so every NPC within
+ * `SMITE_WITNESS_RADIUS` tiles who sees it has their storm-attribution reinforced.
+ */
+export function smiteLocation(spirit: Spirit, x: number, y: number, world: World, log: EventLog): boolean {
+  if (spirit.power < SMITE_COST) return false;
+  spirit.power -= SMITE_COST;
+  const r2 = SMITE_WITNESS_RADIUS * SMITE_WITNESS_RADIUS;
+  const witnesses = reinforceStormWitnesses(spirit, world, (e) => {
+    const dx = e.x - x, dy = e.y - y;
+    return dx * dx + dy * dy <= r2;
+  });
+  log.append({ type: 'smite', spiritId: spirit.id, x, y, witnesses });
   return true;
 }
 

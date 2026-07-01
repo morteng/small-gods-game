@@ -11,12 +11,12 @@
  * plus the registry projected to plain data. See
  * docs/superpowers/specs/2026-06-15-command-query-bus-s0-spec.md.
  */
-import type { Command, CommandVerb, RejectionReason } from '@/sim/command/types';
+import type { Command, CommandVerb, CommandTargetKind, RejectionReason } from '@/sim/command/types';
 import type { CommandQueue } from '@/sim/command/command-queue';
 import type { GameState } from '@/core/state';
 import type { AppendedEvent } from '@/core/events';
 import { previewCommand } from '@/sim/command/command-system';
-import { listCapabilities } from '@/sim/command/registry';
+import { listCapabilities, acceptedTargetKinds } from '@/sim/command/registry';
 import type { GameQuery } from './game-query';
 
 /** The capability registry projected to plain, serializable data. The MCP tool
@@ -26,7 +26,10 @@ export interface CapabilityView {
   verb: CommandVerb;
   tier: 'divine' | 'authoring' | 'editor';
   cost: number;
-  targetKind: 'npc' | 'settlement' | 'none';
+  /** Primary target shape (default for labels/defaults). */
+  targetKind: CommandTargetKind;
+  /** Full set of accepted target shapes (⊇ {targetKind}); e.g. smite → npc/entity/tile. */
+  targetKinds: readonly CommandTargetKind[];
   implemented: boolean;
 }
 
@@ -65,6 +68,7 @@ export function createGameBus(deps: GameBusDeps): GameBus {
         tier: c.tier,
         cost: c.cost,
         targetKind: c.targetKind,
+        targetKinds: acceptedTargetKinds(c),
         implemented: c.implemented,
       }));
     },

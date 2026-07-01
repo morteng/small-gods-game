@@ -5,7 +5,7 @@
 // hover popover, and inspector all render (spec §2, §8).
 import type { Command, CommandCtx, CommandTarget, CommandVerb } from '@/sim/command/types';
 import type { SpiritId } from '@/core/spirit';
-import { listCapabilities, capFootprint, capShape } from '@/sim/command/registry';
+import { listCapabilities, capFootprint, capShape, acceptedTargetKinds } from '@/sim/command/registry';
 import { derivePreview } from '@/sim/command/preview';
 import type { CommandAffordance } from './types';
 
@@ -30,13 +30,13 @@ export function affordancesForTarget(
   const unlockByVerb = new Map(unlocks.map((u) => [u.verb, u.unlocked]));
   const out: CommandAffordance[] = [];
   for (const def of listCapabilities()) {
-    if (def.tier !== 'divine') continue;        // player surface = divine verbs only
-    if (def.targetKind !== target.kind) continue; // verb applies to this target shape
+    if (def.tier !== 'divine') continue;                       // player surface = divine verbs only
+    if (!acceptedTargetKinds(def).includes(target.kind)) continue; // verb applies to this target shape
     const cmd: Command = { verb: def.verb, source, target, seq: 0 };
     out.push({
       verb: def.verb,
       label: def.describe(cmd),
-      targetKind: def.targetKind,
+      targetKind: target.kind,
       footprint: capFootprint(def),
       shape: capShape(def),
       // gated verbs reflect belief-unlock; ungated verbs (whisper/omen/…) are open
