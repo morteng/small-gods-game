@@ -5,7 +5,9 @@ import { SimClock } from '@/core/clock';
 import { EventLog, type SimEvent } from '@/core/events';
 import { createRng } from '@/core/rng';
 import { initNpcProps } from '@/world/npc-helpers';
-import { SettlementGrowthSystem, DWELLING_CAPACITY, UPGRADE_CHAINS } from '@/sim/systems/settlement-growth-system';
+import { SettlementGrowthSystem, DWELLING_CAPACITY, UPGRADE_CHAINS, growSettlement } from '@/sim/systems/settlement-growth-system';
+import { computeSettlementParcels } from '@/world/settlement-parcels';
+import type { SettlementPlan } from '@/world/settlement-plan';
 import { placeSettlement } from '@/world/building-placer';
 import { reconcileSettlementTiles } from '@/world/settlement-reconcile';
 import { captureSnapshot, restoreSnapshot } from '@/core/snapshot';
@@ -216,6 +218,52 @@ describe('SettlementGrowthSystem', () => {
     for (let t = 0; t < 8000 && laneCount() <= laneEdgesBefore; t++) sys.tick({ ...ctx, now: t });
     // a perpendicular lane was branched off the saturated street graph
     expect(plan.edges.filter(e => e.kind === 'lane').length).toBeGreaterThan(laneEdgesBefore);
+  });
+
+  it('annexes a far bank across a bridge once the home bank saturates (town → bridge → suburb)', () => {
+    // A world split by a full-height river column at x=28: a west home bank, an east far bank,
+    // a one-tile channel between. The plan starts with NO home-bank lots, so growth exhausts
+    // every home avenue immediately and reaches the annexation step.
+    const tiles = grassTiles();
+    for (let y = 0; y < 48; y++) { const t = tiles[y][28]; t.type = 'river'; t.walkable = false; }
+    const poi: POI = { id: POI_ID, type: 'village', name: 'T', position: CENTER } as unknown as POI;
+    const map: GameMap = {
+      tiles, width: 48, height: 48, villages: [], seed: 1, success: true,
+      worldSeed: { pois: [poi] } as unknown as GameMap['worldSeed'],
+      stats: { iterations: 0, backtracks: 0 }, buildings: [],
+    } as GameMap;
+    const world = new World(map);
+    const parcels = computeSettlementParcels(CENTER.x, CENTER.y, tiles, 20)!;
+    expect(parcels.crossings.length).toBeGreaterThan(0);
+    const plan: SettlementPlan = {
+      poiId: POI_ID, center: { ...CENTER },
+      nodes: [{ id: 'n0', x: CENTER.x, y: CENTER.y, kind: 'founding' }],
+      edges: [], slots: [], lots: [], wards: [], civics: [], market: [], parcels,
+    };
+    map.settlementPlans = [plan];
+
+    const clock = new SimClock();
+    const log = new EventLog(clock);
+    const ctx = { world, spirits: new Map(), log, clock, rng: createRng(3), dt: 1000, now: 0 };
+
+    // First step reaches the annexation branch: bridge laid, far bank recorded, suburb lots seated.
+    growSettlement(ctx, plan, 't0');
+    expect(plan.annexed).toEqual([parcels.adjacent[0].id]);
+    expect(plan.edges.some(e => e.kind === 'bridge')).toBe(true);
+    // The channel now carries a walkable bridge deck, with the river preserved
+    // underneath (baseType) so it renders as a span over water, not a causeway.
+    const deck = tiles.map(row => row[28]).find(t => t.type === 'bridge');
+    expect(deck).toBeTruthy();
+    expect(deck!.walkable).toBe(true);
+    expect(deck!.baseType).toBe('river');
+    // Suburb burgage lots exist on the far (east) bank.
+    expect(plan.lots.some(l => l.tiles.some(t => t.x > 28))).toBe(true);
+
+    // Keep growing: dwellings now fill the far-bank suburb (varied presets → varied facings).
+    for (let i = 0; i < 40; i++) growSettlement(ctx, plan, `t${i + 1}`);
+    const farBuilt = plan.lots.filter(l => l.buildingId && l.tiles.some(t => t.x > 28));
+    expect(farBuilt.length).toBeGreaterThan(0);
+    for (const l of farBuilt) expect(world.registry.get(l.buildingId!)).toBeDefined();
   });
 
   it('is deterministic for identical worlds and seeds', () => {

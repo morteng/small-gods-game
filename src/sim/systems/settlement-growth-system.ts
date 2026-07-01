@@ -25,7 +25,7 @@ import { resolveSettlementEra, liftEraByUnderstanding } from '@/core/era';
 import { synthesizeBlueprint } from '@/blueprint/presets';
 import { blueprintEntity, blueprintOf } from '@/blueprint/entity';
 import { toAnchors } from '@/blueprint/compile/to-anchors';
-import { BUILDABLE_TERRAIN, extendThroughStreet, extendBackLane, frontageValue, type Lot, type SettlementPlan } from '@/world/settlement-plan';
+import { BUILDABLE_TERRAIN, extendThroughStreet, extendBackLane, annexAcrossBridge, frontageValue, type Lot, type SettlementPlan } from '@/world/settlement-plan';
 import { tryGetEntityKindDef } from '@/world/entity-kinds';
 
 /** One fire per in-game day, matching births/mortality cadence. */
@@ -287,8 +287,26 @@ export function growSettlement(
   // 4. Branch a back lane, retry on its fresh lots.
   if (carve(extendBackLane(plan, map.tiles, seed))) {
     changed = true;
-    tryPlace(ctx, plan, rb, presetName, facing, want, tag);
-    return true;
+    if (tryPlace(ctx, plan, rb, presetName, facing, want, tag)) return true;
+  }
+
+  // 5. Home bank saturated — bridge to an adjacent bank and annex a suburb
+  //    (town → bridge → suburb). Only fires when a parcel graph offers an
+  //    un-annexed crossing; the bridge deck is laid distinctly from the roads.
+  const annex = annexAcrossBridge(plan, map.tiles, seed);
+  if (annex) {
+    carve(annex.road);
+    for (const t of annex.bridge) {
+      const tile = map.tiles[t.y]?.[t.x];
+      if (tile) {
+        // Preserve the water under the deck (baseType) so the bridge renders as a
+        // span over visible water, not a dirt causeway. Set once, at carve time.
+        tile.baseType = tile.baseType ?? tile.type;
+        tile.type = 'bridge'; tile.walkable = true;
+      }
+    }
+    changed = true;
+    if (tryPlace(ctx, plan, rb, presetName, facing, want, tag)) return true;
   }
 
   return changed;

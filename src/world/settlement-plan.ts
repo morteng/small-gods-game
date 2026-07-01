@@ -34,7 +34,7 @@ export interface RoadEdge {
   a: string;                       // node ids
   b: string;
   tiles: { x: number; y: number }[];
-  kind: 'through' | 'lane';
+  kind: 'through' | 'lane' | 'bridge';
 }
 
 /** A buildable candidate beside one road tile. The building goes on `side`;
@@ -70,7 +70,7 @@ export interface Lot {
 export interface Ward {
   id: string;
   name: string;                    // "North Market", "Fisher Quarter"
-  type: 'market' | 'harbour' | 'temple' | 'gate' | 'residential' | 'craft';
+  type: 'market' | 'harbour' | 'temple' | 'gate' | 'residential' | 'craft' | 'suburb';
   seed: { x: number; y: number };
   tiles: { x: number; y: number }[];
 }
@@ -102,6 +102,15 @@ export interface SettlementPlan {
   civics: CivicSite[];
   /** Widened-main-street market tiles around the founding node. */
   market: { x: number; y: number }[];
+  /** The water-partitioned developable area (home bank + adjacent banks +
+   *  candidate crossings). Set at placement by `computeSettlementParcels`; the
+   *  shared spatial model placement, the wall, and (Slice 3) growth all read.
+   *  Undefined for dry inland sites with no reachable water. */
+  parcels?: import('@/world/settlement-parcels').SettlementParcels;
+  /** Adjacent parcel ids the settlement has ANNEXED (grown a bridge-suburb onto).
+   *  Growth annexes an adjacent bank only once — via `annexAcrossBridge` — the real
+   *  town → bridge → suburb sequence. Absent ⇒ home bank only. */
+  annexed?: number[];
 }
 
 /** Per-preset siting preferences (grows into the S4 constraint catalogue). */
@@ -467,6 +476,119 @@ export function extendBackLane(
   return null;
 }
 
+/** Tiles of home-bank approach behind the bridge head (visual road continuity). */
+const BRIDGE_STUB = 3;
+/** Length of the suburb's main street laid onto the annexed far bank. */
+const SUBURB_STREET = 5;
+
+/**
+ * Bridge-annexation growth (Slice 3): the endgame of the town → bridge → suburb
+ * sequence. When the home bank is saturated (ribbon + back-lane exhausted) and the
+ * settlement's parcel graph offers an un-annexed adjacent bank within a bridgeable
+ * span, lay a bridge across the shortest crossing and a suburb main street onto the
+ * far bank, then re-subdivide so the new burgage lots fall out — the normal growth
+ * loop fills them next. This is the ONLY way the settlement crosses water: no
+ * crossing, no far-bank buildings (the design's core rule made mechanical).
+ *
+ * Returns the tiles to carve — `road` (approach stub + suburb street) and `bridge`
+ * (the water span, laid as walkable bridge deck) — split so the caller types them
+ * distinctly. Null when there's no parcel graph, no un-annexed crossing, the node
+ * cap is hit, or the far landing can't seat a street. Deterministic: the crossing is
+ * chosen by (shortest span, then id); no rng.
+ */
+export function annexAcrossBridge(
+  plan: SettlementPlan, tiles: Tile[][], seed: number,
+): { road: { x: number; y: number }[]; bridge: { x: number; y: number }[] } | null {
+  if (!plan.parcels || plan.nodes.length >= MAX_PLAN_NODES) return null;
+  const annexed = new Set(plan.annexed ?? []);
+  const crossing = plan.parcels.crossings
+    .filter(c => !annexed.has(c.to))
+    .sort((a, b) => a.span - b.span || a.to - b.to)[0];
+  if (!crossing) return null;
+
+  const far = plan.parcels.adjacent.find(p => p.id === crossing.to);
+  if (!far) return null;
+  const home = plan.parcels.home.cells;
+  const dir = {
+    dx: Math.sign(crossing.to_at.x - crossing.at.x),
+    dy: Math.sign(crossing.to_at.y - crossing.at.y),
+  };
+  const rev = { dx: -dir.dx, dy: -dir.dy };
+
+  // Approach stub: a few home-bank tiles behind the bridge head, so the suburb
+  // reads road-connected to town (kept collinear with the span → the edge stays
+  // straight → lot siding is correct). Ordered home→head, ending at the bridge head.
+  const stub = walkTiles(crossing.at.x + rev.dx, crossing.at.y + rev.dy, rev, BRIDGE_STUB - 1, tiles)
+    .filter(t => home.has(`${t.x},${t.y}`))
+    .reverse();
+  const head = { x: crossing.at.x, y: crossing.at.y };
+
+  // Bridge deck: the water cells strictly between the banks.
+  const bridge: { x: number; y: number }[] = [];
+  for (let d = 1; d <= crossing.span; d++) {
+    bridge.push({ x: crossing.at.x + dir.dx * d, y: crossing.at.y + dir.dy * d });
+  }
+
+  // Suburb main street: from the far landing, collinear into the annexed bank.
+  const suburb = walkTiles(crossing.to_at.x, crossing.to_at.y, dir, SUBURB_STREET - 1, tiles)
+    .filter(t => far.cells.has(`${t.x},${t.y}`));
+  if (suburb.length < 2) return null;              // no room to seat a street → not worth a bridge
+
+  const road = [...stub, head, ...suburb];         // one straight cardinal run, home→far
+
+  // Attach to the road graph: a junction at the town end, an end node on the far bank.
+  const aId = `n${plan.nodes.length}bridgeA`;
+  const bId = `n${plan.nodes.length + 1}bridgeB`;
+  const aTile = road[0];
+  const bTile = suburb[suburb.length - 1];
+  plan.nodes.push({ id: aId, x: aTile.x, y: aTile.y, kind: 'junction' });
+  plan.nodes.push({ id: bId, x: bTile.x, y: bTile.y, kind: 'end' });
+  plan.edges.push({ a: aId, b: bId, tiles: [...road, ...bridge].sort(
+    (p, q) => (p.x - q.x) || (p.y - q.y)), kind: 'bridge' });
+
+  // Re-derive slots + lots for the grown graph; carry claims over by id
+  // (coordinate-keyed subdivision reproduces existing lots exactly).
+  const { x: cx, y: cy } = plan.center;
+  const claims = new Map(plan.lots.filter(l => l.buildingId).map(l => [l.id, l.buildingId!]));
+  plan.slots = [];
+  plan.edges.forEach((e, ei) => {
+    const d = e.tiles.length > 1
+      ? { dx: Math.sign(e.tiles[1].x - e.tiles[0].x), dy: Math.sign(e.tiles[1].y - e.tiles[0].y) }
+      : { dx: 1, dy: 0 };
+    const sides: [number, number][] = [[-d.dy, d.dx], [d.dy, -d.dx]];
+    for (const t of e.tiles) {
+      for (const side of sides) {
+        plan.slots.push({ roadX: t.x, roadY: t.y, side, edge: ei,
+          dist: Math.abs(t.x - cx) + Math.abs(t.y - cy) });
+      }
+    }
+  });
+  subdivideLots(plan, tiles, seed);
+  for (const lot of plan.lots) {
+    const claim = claims.get(lot.id);
+    if (claim) lot.buildingId = claim;
+  }
+
+  // Label the annexed bank a bridge-ward (the extramural suburb, the faubourg beyond
+  // the gate). Its tiles are the suburb street + every fresh burgage lot on the far
+  // bank; the name reads off the bearing to the crossing, like the worldgen wards.
+  const farKeys = far.cells;
+  const wardTiles: { x: number; y: number }[] = [...suburb];
+  for (const lot of plan.lots) {
+    for (const t of lot.tiles) if (farKeys.has(`${t.x},${t.y}`)) wardTiles.push(t);
+  }
+  plan.wards.push({
+    id: `ward:suburb:${crossing.to}`,
+    name: `${bearingName(bTile.x - cx, bTile.y - cy)} ${WARD_NOUNS.suburb}`,
+    type: 'suburb',
+    seed: { x: bTile.x, y: bTile.y },
+    tiles: wardTiles,
+  });
+
+  plan.annexed = [...(plan.annexed ?? []), crossing.to];
+  return { road, bridge };
+}
+
 // ─── Frontage value ─────────────────────────────────────────────────────────
 
 /**
@@ -702,6 +824,7 @@ const WARD_NOUNS: Record<Ward['type'], string> = {
   gate: 'Gate Row',
   residential: 'Rows',
   craft: 'Crafts',
+  suburb: 'Bridge Ward',
 };
 
 /**

@@ -334,6 +334,11 @@ export function deriveSettlementRing(args: {
   isRoad: (x: number, y: number) => boolean;
   /** A building structure cell — the ring opens (gates) rather than running through it. */
   isBuilding?: (x: number, y: number) => boolean;
+  /** The settlement's HOME-BANK cells (`"x,y"`). When supplied, "off the home bank"
+   *  (water OR the far bank) is the authoritative wall boundary — the ring opens
+   *  wherever it fronts anything that isn't our own land, instead of ray-sampling for
+   *  water. Absent ⇒ fall back to the water heuristic (byte-identical). */
+  parcel?: Set<string>;
   ctx: EnclosureCtx;
 }): EnclosureRun | null {
   const typeId = selectSettlementEnclosure(args.buildingCount, args.ctx);
@@ -356,23 +361,30 @@ export function deriveSettlementRing(args: {
   const path = traced?.path ?? rectRing(minX, minY, maxX, maxY);
   const centroid: Pt = traced?.centroid ?? [(minX + maxX) / 2, (minY + maxY) / 2];
 
+  // The authoritative "beyond our bank" test: with a home-parcel mask, a cell is off-bank
+  // if it isn't one of our land cells (water OR the far bank) — the wall stays on the home
+  // bank by construction. Without a mask, fall back to the raw water test (byte-identical).
+  const offBank = args.parcel
+    ? (x: number, y: number): boolean => !args.parcel!.has(`${x},${y}`)
+    : args.isWater;
+
   // Walk the ring at slab midpoints (same as the croft rings — keeps the renderer in lockstep).
   // Distinguish WHY each opening exists so the defences read believably:
   //   • ROAD crossings → real GATES (gatehouse + timber leaf).
-  //   • WATER / BUILDING crossings → plain GAPS (the line just opens; no gatehouse).
+  //   • OFF-BANK (water / far bank) / BUILDING crossings → plain GAPS (the line just opens).
   const total = pathLen(path);
   const roadGates = gatesWhereOpen(path, total, args.isRoad, gateW).map((g) => ({ ...g, kind: 'gate' as const }));
-  const softOpen = (x: number, y: number): boolean => args.isWater(x, y) || (args.isBuilding?.(x, y) ?? false);
+  const softOpen = (x: number, y: number): boolean => offBank(x, y) || (args.isBuilding?.(x, y) ?? false);
   const softGaps = gatesWhereOpen(path, total, softOpen, gateW).map((g) => ({ ...g, kind: 'gap' as const }));
-  // TERRAIN AS DEFENCE: a whole ring side fronted by water (a river bend, a lakeshore, the coast)
-  // needs no wall — the water is the line. Open that side entirely, so the town is walled only on
-  // its approachable landward sides (the authentic waterfront town).
-  const waterGaps = waterFrontedSides(path, centroid, args.isWater).map((g) => ({ ...g, kind: 'gap' as const }));
+  // TERRAIN AS DEFENCE: a whole ring side fronted by off-bank ground (a river bend, a lakeshore,
+  // the coast) needs no wall — the water is the line. Open that side entirely, so the town is
+  // walled only on its approachable landward sides (the authentic waterfront town).
+  const waterGaps = waterFrontedSides(path, centroid, offBank).map((g) => ({ ...g, kind: 'gap' as const }));
   // Every walled town needs a way IN. If no road actually crosses the ring (the road often just
   // approaches it), place ONE main gate on the landward point nearest the road — the gatehouse the
-  // approach road runs up to. Never on a water side.
+  // approach road runs up to. Never on a water/off-bank side.
   const mainGate = roadGates.length === 0
-    ? ensureMainGate(path, total, centroid, args.isRoad, args.isWater, gateW)
+    ? ensureMainGate(path, total, centroid, args.isRoad, offBank, gateW)
     : [];
   const gates: BarrierGate[] = [...roadGates, ...mainGate, ...softGaps, ...waterGaps];
 
