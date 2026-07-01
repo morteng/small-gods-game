@@ -103,3 +103,12 @@ for (const seed of seeds) {
     `  | sea_arches=${arches.length} @ ${arches.map(a => `(${a.x | 0},${a.y | 0})`).join(' ')} [${archNearCliff} near cliffs]`,
   );
 }
+
+// Landmark-kind breakdown across seeds (arches / cliff faces / caves).
+for (const seed of seeds) {
+  const on = run(seed, true);
+  const lm = buildCoastalLandmarks(on.bm.biomes, W, H, seed + 9157);
+  const by: Record<string, number> = {};
+  for (const e of lm) by[e.kind] = (by[e.kind] || 0) + 1;
+  console.log(`  seed ${seed}: ${JSON.stringify(by)}`);
+}

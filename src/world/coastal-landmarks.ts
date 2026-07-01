@@ -22,6 +22,7 @@ const PLACE_PROB = 0.5;
 /** Hard caps per world — landmarks are wonders, not wallpaper. */
 const MAX_ARCHES = 4;
 const MAX_CLIFF_FACES = 4;
+const MAX_CAVES = 3;
 
 /** Decorrelated [0,1) hash (same mix as the vegetation/riparian placers). */
 function hash01(x: number, y: number, key: number): number {
@@ -84,5 +85,11 @@ export function buildCoastalLandmarks(
   scatter('cliff_face', MAX_CLIFF_FACES,
     (x, y) => at(x, y) === 'cliff' && bordersSea(x, y),
     7919);
+  // Sea caves: rocky shore at the water (a `mountain` or `rocky_shore` cell bordering
+  // sea with a bare-rock neighbour) — where the surf hollows a dark mouth into the
+  // rock. Placed LAST, so it takes rocky spots the arches/faces didn't claim.
+  scatter('cave_mouth', MAX_CAVES,
+    (x, y) => { const b = at(x, y); return (b === 'mountain' || b === 'rocky_shore') && bordersSea(x, y) && N8.some(([dx, dy]) => isRock(x + dx, y + dy)); },
+    5273);
   return out;
 }

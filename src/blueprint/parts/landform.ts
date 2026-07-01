@@ -123,3 +123,52 @@ export const cliffFacePartType: PartType = {
   toAnchors: () => [],
   toBrief: () => 'an overhanging cliff face, rock leaning out over the surf',
 };
+
+/**
+ * A CAVE MOUTH — a rock hillock with a dark arched recess bored into its
+ * camera-facing (+y) front, partway in but not through: a cave, not a tunnel. The
+ * heightfield can't hollow ground; this is a mesh. The recess sits in shadow in the
+ * lit scene, reading as a dark cave entrance. Crags cloak the box but leave the mouth.
+ */
+export const caveMouthPartType: PartType = {
+  type: 'cave_mouth',
+  paramSchema: {
+    widthM:  { kind: 'number', min: 6, max: 26, default: 13 },
+    depthM:  { kind: 'number', min: 5, max: 20, default: 10 },
+    heightM: { kind: 'number', min: 4, max: 18, default: 9 },
+    seed:    { kind: 'number', default: 0 },
+  },
+  resolve: (part, ctx) => ({
+    params: {
+      widthM: 13, depthM: 10, heightM: 9,
+      ...(part.params ?? {}),
+      seed: (part.params?.seed as number | undefined) ?? (ctx.seed >>> 0),
+    },
+  }),
+  toPrims(p): Prim[] {
+    const seed = (p.params.seed as number) >>> 0;
+    const w = mToTiles(p.params.widthM as number);
+    const d = mToTiles(p.params.depthM as number);
+    const H = mToTiles(p.params.heightM as number);
+    const mouthW = Math.min(mToTiles(5.5), w * 0.45);
+    const mouthH = Math.min(mToTiles(5), H * 0.6);
+    const recess = Math.min(mToTiles(7), d * 0.7);
+    const parts: Prim[] = [
+      { prim: 'box', at: [0, 0, 0], size: [w, d, H], material: 'stone',
+        apertures: [{ at: [w / 2 - mouthW / 2, d - recess, 0], size: [mouthW, recess + 0.2, mouthH], arch: { axis: 'x', style: 'round', rise: mToTiles(2.4) } }] },
+    ];
+    for (let i = 0; i < 16; i++) {
+      const rx = w * (0.04 + 0.92 * h01(seed * 17 + i, 2));
+      const ry = d * (0.02 + 0.9 * h01(seed * 17 + i, 4));
+      const rz = H * (0.05 + 0.9 * h01(seed * 17 + i, 1));
+      const nearMouth = Math.abs(rx - w / 2) < mouthW * 0.75 && ry > d - recess * 1.05 && rz < mouthH * 1.15;
+      if (nearMouth) continue;                               // keep the cave open
+      const rr = mToTiles(4 + 3 * h01(seed * 17 + i, 3)) / 2;
+      parts.push({ prim: 'rock', center: [rx, ry], baseZ: rz, radius: rr, seed: seed * 17 + i, jitter: 0.6, mat: 'stone' });
+    }
+    return parts;
+  },
+  toCollision: (p) => footprintCells(p),
+  toAnchors: () => [],
+  toBrief: () => 'a cave mouth, a dark hollow bored into the rock',
+};

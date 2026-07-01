@@ -85,6 +85,32 @@ function cliffFaceSpec(seed = 1): StructureSpec {
   return { id: 'cliff_face', parts };
 }
 
+/** A CAVE MOUTH — a rock hillock with a dark arched recess bored into its seaward
+ *  face (partway in, not through: a cave, not a tunnel). The heightfield can't hollow
+ *  ground; this is a mesh. Crags cloak the box but leave the mouth clear. */
+function caveMouthSpec(seed = 1): StructureSpec {
+  const w = mToTiles(13), d = mToTiles(10), H = mToTiles(9);
+  const mouthW = mToTiles(5.5), mouthH = mToTiles(5), recess = mToTiles(7);
+  // Carve the +y face (the camera-facing FRONT, like a building's south door): the
+  // aperture box spans from (d − recess) to just past d, so a dark hollow recesses
+  // in from the front but stops short of the back → a cave, not a tunnel.
+  const parts: Part[] = [
+    { prim: 'box', at: [0, 0, 0], size: [w, d, H], material: 'stone',
+      apertures: [{ at: [w / 2 - mouthW / 2, d - recess, 0], size: [mouthW, recess + 0.2, mouthH], arch: { axis: 'x', style: 'round', rise: mToTiles(2.4) } }] },
+  ];
+  // Crag cloak — cloak the box into a rock hill, but keep the FRONT-CENTRE mouth clear.
+  for (let i = 0; i < 16; i++) {
+    const rx = w * (0.04 + 0.92 * h01(seed * 17 + i, 2));
+    const ry = d * (0.02 + 0.9 * h01(seed * 17 + i, 4));    // spread front-to-back
+    const rz = H * (0.05 + 0.9 * h01(seed * 17 + i, 1));
+    const nearMouth = Math.abs(rx - w / 2) < mouthW * 0.75 && ry > d - recess * 1.05 && rz < mouthH * 1.15;
+    if (nearMouth) continue;                                 // don't wall up the cave
+    const rr = mToTiles(4 + 3 * h01(seed * 17 + i, 3)) / 2;
+    parts.push({ prim: 'rock', center: [rx, ry], baseZ: rz, radius: rr, seed: seed * 17 + i, jitter: 0.6, mat: 'stone' });
+  }
+  return { id: 'cave_mouth', parts };
+}
+
 async function dump(name: string, spec: StructureSpec) {
   const r: StructureResult = await composeStructure(spec, undefined, undefined);
   writeFileSync(join(OUT, `${name}-grey.png`), toPng(r.grey, r.size));
@@ -95,6 +121,7 @@ async function main() {
   mkdirSync(OUT, { recursive: true });
   await dump('sea-arch', seaArchSpec(1));
   await dump('cliff-face', cliffFaceSpec(1));
+  await dump('cave-mouth', caveMouthSpec(1));
 }
 
 main();

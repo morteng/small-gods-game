@@ -7,6 +7,6 @@ describe('content-version constants', () => {
   });
 
   it('declares the current world content version (56: verdant meadows)', () => {
-    expect(WORLD_CONTENT_VERSION).toBe(61);
+    expect(WORLD_CONTENT_VERSION).toBe(62);
   });
 });
