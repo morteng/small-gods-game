@@ -40,6 +40,7 @@ import { getHeightfield, ELEVATION_SEA_LEVEL } from '@/world/heightfield';
 import { curveRenderElev } from '@/render/gpu/terrain-field';
 import { worldStyleOf } from '@/core/world-style';
 import { buildRiparianEntities } from '@/world/riparian-scatter';
+import { buildCoastalLandmarks } from '@/world/coastal-landmarks';
 import { tileBlockedByBuilding } from '@/world/building-collision';
 import { reconcileBarriersWithBuildings } from '@/world/place-barrier';
 import type { SettlementPlan } from '@/world/settlement-plan';
@@ -246,6 +247,14 @@ export async function generateWithNoise(
   // the rare id collision with a biome-brush entity on the same cell.
   report('Dressing riverbanks...');
   for (const e of buildRiparianEntities(hydrology, width, height, seed + 4242)) {
+    if (!world.registry.has(e.id)) world.addEntity(e);
+  }
+
+  // Coastal landmarks: a few sea arches on steep rocky shores — generative mesh
+  // landforms (a hole through rock the heightfield can't carve). Emergent from the
+  // biome map, sparse + deterministic; added before settlements so their footprints
+  // clear if a town ever seats atop one.
+  for (const e of buildCoastalLandmarks(biomeMap.biomes, width, height, seed + 9157)) {
     if (!world.registry.has(e.id)) world.addEntity(e);
   }
 

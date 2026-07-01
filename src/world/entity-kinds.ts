@@ -67,6 +67,11 @@ export const entityKinds: ReadonlyMap<string, EntityKindDef> = new Map<string, E
   ['stump',         def('stump',         'terrain-feature',  '#6a4a2a', 'circle', ['debris', 'forest'], 0.3)],
   ['log',           def('log',           'terrain-feature',  '#7a5a3a', 'square', ['debris', 'forest'], 0.3)],
   ['ore_vein',      def('ore_vein',      'terrain-feature',  '#5a5a8a', 'square', ['resource', 'rock'], 0.5)],
+  // Sea arch: a natural LANDFORM mesh prop. Category `vegetation` (not terrain-
+  // feature) so the render graph routes it to the per-kind generative mesh source
+  // — the `sea_arch` plant preset paints a real, self-lit rock ring with a hole
+  // through it (a landform the heightfield can't represent). Coastal monument.
+  ['sea_arch',      def('sea_arch',      'vegetation',       '#8a8a92', 'square', ['landform', 'coastal', 'monument'], 1.5)],
 
   // ─── Settlement props ─────────────────────────────────────────────────────
   ['well',          def('well',          'prop',             '#5a8aa8', 'circle', ['water-source', 'settlement'], 0.5)],

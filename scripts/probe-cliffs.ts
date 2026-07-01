@@ -13,6 +13,7 @@ import { styledIslandSpec } from '@/terrain/island-mask';
 import { styledShapeSpec } from '@/terrain/terrain-shape';
 import { worldStyleOf } from '@/core/world-style';
 import { planWorldLayout } from '@/world/poi-layout';
+import { buildCoastalLandmarks } from '@/world/coastal-landmarks';
 import type { WorldSeed, TerrainConfig } from '@/core/types';
 
 const ws = JSON.parse(readFileSync('public/data/worlds/default.json', 'utf8')) as WorldSeed;
@@ -94,8 +95,11 @@ for (const seed of seeds) {
     }
     if (off.elev[i] >= SEA && on.elev[i] < SEA) floodCells++;   // land→sea: the cove flooding in
   }
+  const arches = buildCoastalLandmarks(on.bm.biomes, W, H, seed);
+  const archNearCliff = arches.filter(a => Math.abs((a.x | 0) - ax) < 60 && Math.abs((a.y | 0) - ay) < 60).length;
   console.log(
     `seed ${seed}: plateau@(${ax},${ay}) +${dMax.toFixed(3)} → top ${topM}m (${topBiome})` +
-    `  | sheer-face=${faceCells}(rock ${faceRock})  sea→land=${stackCells}(rock ${stackRock})  cove flood land→sea=${floodCells}`,
+    `  | sheer-face=${faceCells}(rock ${faceRock})  cove flood=${floodCells}` +
+    `  | sea_arches=${arches.length} @ ${arches.map(a => `(${a.x | 0},${a.y | 0})`).join(' ')} [${archNearCliff} near cliffs]`,
   );
 }
