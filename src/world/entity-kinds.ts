@@ -72,6 +72,7 @@ export const entityKinds: ReadonlyMap<string, EntityKindDef> = new Map<string, E
   // — the `sea_arch` plant preset paints a real, self-lit rock ring with a hole
   // through it (a landform the heightfield can't represent). Coastal monument.
   ['sea_arch',      def('sea_arch',      'vegetation',       '#8a8a92', 'square', ['landform', 'coastal', 'monument'], 1.5)],
+  ['cliff_face',    def('cliff_face',    'vegetation',       '#8a8a92', 'square', ['landform', 'coastal', 'monument'], 1.5)],
 
   // ─── Settlement props ─────────────────────────────────────────────────────
   ['well',          def('well',          'prop',             '#5a8aa8', 'circle', ['water-source', 'settlement'], 0.5)],

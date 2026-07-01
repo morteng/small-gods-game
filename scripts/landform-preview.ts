@@ -44,13 +44,57 @@ function seaArchSpec(seed = 1): StructureSpec {
   return { id: 'sea_arch', parts };
 }
 
+function h01(a: number, b: number): number {
+  let h = Math.imul((a | 0) ^ 0x9e3779b9, 0x85ebca6b) ^ Math.imul((b | 0) + 0x165667b1, 0xc2b2ae35);
+  h ^= h >>> 15; h = Math.imul(h, 0x2c1b3c6d); h ^= h >>> 13;
+  return (h >>> 0) / 4294967296;
+}
+
+/** An OVERHANGING cliff face — a rock wall whose brow leans out PAST its base over
+ *  the water (an undercut the heightfield can't do). A corbel stack of slabs each
+ *  creeping seaward (+y) as it rises, roughened by crags. */
+function cliffFaceSpec(seed = 1): StructureSpec {
+  const w = mToTiles(11);        // width along the shore
+  const baseD = mToTiles(4);     // base depth (kept slim so crags read past the box)
+  const H = mToTiles(14);        // total height
+  const slabs = 3;               // fewer, bolder corbel steps
+  const overhang = mToTiles(6);  // how far the brow juts past the base
+  const parts: Part[] = [];
+  // Structural core: a short corbel stack gives the true undercut; kept narrow so the
+  // rock crags below cloak it into a natural face.
+  for (let i = 0; i < slabs; i++) {
+    const t = i / (slabs - 1);
+    const z = (H / slabs) * i;
+    const shift = overhang * (t * t);
+    const d = baseD + mToTiles(2) * t;
+    parts.push({ prim: 'box', at: [w * 0.12, shift, z], size: [w * 0.76, d, H / slabs + 0.4], material: 'stone' });
+  }
+  // Cragging: MANY big noise-boulders CLOAK the whole box into rock — spread across
+  // the full width, depth AND top, each nudged seaward with height so the overhang
+  // reads as rock leaning over the water, not a bare slab.
+  for (let i = 0; i < 20; i++) {
+    const rz = H * (0.04 + 0.92 * h01(seed * 13 + i, 1));
+    const t = rz / H;
+    const lean = overhang * (t * t);                          // the face's seaward creep at this height
+    const rx = w * (0.02 + 0.96 * h01(seed * 13 + i, 2));
+    // cover the full depth of the (leaning) body, front to back
+    const ry = lean * h01(seed * 13 + i, 5) + (baseD + mToTiles(1)) * h01(seed * 13 + i, 4) - mToTiles(0.5);
+    const rr = mToTiles(4 + 3.5 * h01(seed * 13 + i, 3)) / 2;
+    parts.push({ prim: 'rock', center: [rx, ry], baseZ: rz, radius: rr, seed: seed * 13 + i, jitter: 0.62, mat: 'stone' });
+  }
+  return { id: 'cliff_face', parts };
+}
+
+async function dump(name: string, spec: StructureSpec) {
+  const r: StructureResult = await composeStructure(spec, undefined, undefined);
+  writeFileSync(join(OUT, `${name}-grey.png`), toPng(r.grey, r.size));
+  console.log(`${name} → .dev-grabs/${name}-grey.png (${r.size}px), parts=${spec.parts.length}`);
+}
+
 async function main() {
   mkdirSync(OUT, { recursive: true });
-  const spec = seaArchSpec(1);
-  const r: StructureResult = await composeStructure(spec, undefined, undefined);
-  writeFileSync(join(OUT, 'sea-arch-grey.png'), toPng(r.grey, r.size));
-  writeFileSync(join(OUT, 'sea-arch-normal.png'), toPng(r.normal, r.size));
-  console.log(`sea_arch → .dev-grabs/sea-arch-grey.png + -normal.png (${r.size}px), parts=${spec.parts.length}`);
+  await dump('sea-arch', seaArchSpec(1));
+  await dump('cliff-face', cliffFaceSpec(1));
 }
 
 main();

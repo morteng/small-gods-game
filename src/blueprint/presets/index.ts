@@ -136,9 +136,11 @@ const landform = (preset: string, type: string, footprint: { w: number; h: numbe
 });
 
 export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
-  // Natural landform mesh prop — a weathered coastal rock arch (a real hole through
-  // rock, which the terrain heightfield can't do). Generated self-lit, no art.
+  // Natural landform mesh props — a rock arch (a real hole through rock) and an
+  // overhanging cliff face (rock leaning out over the water). Both are landforms the
+  // heightfield can't represent; generated self-lit, no art.
   sea_arch: landform('sea_arch', 'sea_arch', { w: 4, h: 3 }),
+  cliff_face: landform('cliff_face', 'cliff_face', { w: 4, h: 3 }),
   // Peasant cottage: rectangular plan (1:1.5), door + one shuttered window on the
   // entry face, one on the gable, ridge smoke LOUVRE (no chimney — period default
   // for commoners; see docs/reference/medieval-building-reference.md).
