@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { UiRuntime } from '@/render/ui/ui-runtime';
 import { UiPage, type UiDrawGroup } from '@/render/ui/ui-batcher';
 import type { UiHit } from '@/render/ui/ui-context';
+import type { UiSpec, UiSpecChoice } from '@/story/uispec';
 
 const W = 1280, H = 720, DPR = 2;
 
@@ -329,5 +330,74 @@ describe('UiRuntime — inspector', () => {
     const camX1 = withPanel.hitRegions().find((h) => h.id === 'cam.in')!;
     expect(camX1.x).toBeLessThan(camX0);            // shifted left
     expect(camX1.x + camX1.w).toBeLessThanOrEqual(inspector.x); // clear of the panel
+  });
+});
+
+// ── P4: the declarative UiSpec card (whisper card) ──
+const CARD_SPEC: UiSpec = {
+  title: 'Whisper to Ada',
+  body: [
+    { kind: 'npcLine', who: 'Ada', text: 'Something out there means us harm.' },
+    { kind: 'paragraph', text: 'Their surface thoughts lie open to your voice.' },
+    { kind: 'divider' },
+    { kind: 'beliefBar', label: 'Faith', value: 0.6 },
+  ],
+  choices: [
+    { text: 'Soothe their safety', hint: 'eases the deficit',
+      command: { verb: 'whisper', source: 'player', target: { kind: 'npc', npcId: 'n1' }, params: { slant: 'need:safety' }, seq: 0 } },
+    { text: 'Affirm you are near', hint: 'builds understanding',
+      command: { verb: 'whisper', source: 'player', target: { kind: 'npc', npcId: 'n1' }, params: { slant: 'affirm' }, seq: 0 } },
+  ],
+};
+
+describe('UiRuntime — whisper card (UiSpec)', () => {
+  it('presents a modal card: body + one button per choice', () => {
+    const rt = new UiRuntime();
+    rt.presentUiSpec(CARD_SPEC, () => {});
+    rt.frame(W, H, DPR);
+    expect(rt.hasCard()).toBe(true);
+    expect(rt.hitRegions().some((h) => h.id === 'card.body')).toBe(true);
+    const choices = rt.hitRegions().filter((h) => h.id.startsWith('card.choice.')).map((h) => h.id).sort();
+    expect(choices).toEqual(['card.choice.0', 'card.choice.1']);
+    expect(rt.consumesPointer(W / 2, H / 2)).toBe(true); // modal: eats world input
+  });
+
+  it('choosing an option fires onChoose with that choice and dismisses (pause→resume)', () => {
+    const picked: UiSpecChoice[] = [];
+    const toggles: boolean[] = [];
+    const rt = new UiRuntime();
+    rt.configure({ onStoryToggle: (a) => toggles.push(a) });
+    rt.presentUiSpec(CARD_SPEC, (c) => picked.push(c));
+    rt.frame(W, H, DPR);
+    const b0 = rt.hitRegions().find((h) => h.id === 'card.choice.0')!;
+    click(rt, ...center(b0));
+    expect(picked).toHaveLength(1);
+    expect(picked[0].command.params?.slant).toBe('need:safety');
+    expect(rt.hasCard()).toBe(false);
+    expect(toggles).toEqual([true, false]);
+  });
+
+  it('a backdrop click cancels the card with no choice emitted', () => {
+    const picked: UiSpecChoice[] = [];
+    const rt = new UiRuntime();
+    rt.presentUiSpec(CARD_SPEC, (c) => picked.push(c));
+    rt.frame(W, H, DPR);
+    click(rt, 8, 8); // top-left corner = outside the centred card
+    expect(picked).toEqual([]);
+    expect(rt.hasCard()).toBe(false);
+  });
+
+  it('presenting the card clears an open hover popover and suppresses new ones', () => {
+    const rt = new UiRuntime();
+    rt.configure({ getHoverAffordances: () => ({ chips: [{ verb: 'whisper', label: 'Whisper', cost: 1, unlocked: true, affordable: true, why: null }] }) });
+    rt.pointerMove(400, 400);
+    rt.handleDwell();
+    rt.frame(W, H, DPR);
+    expect(rt.hitRegions().some((h) => h.id.startsWith('hover.chip.'))).toBe(true);
+    rt.presentUiSpec(CARD_SPEC, () => {});
+    rt.handleDwell(); // suppressed while the card owns the screen
+    rt.frame(W, H, DPR);
+    expect(rt.hitRegions().some((h) => h.id.startsWith('hover.chip.'))).toBe(false);
+    expect(rt.hasCard()).toBe(true);
   });
 });

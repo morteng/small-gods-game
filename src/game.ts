@@ -13,6 +13,8 @@ import { createGameQuery, type GameQuery, type InboxItem, type InspectorView } f
 import { causalSiteCardView } from '@/game/causal-site-view';
 import type { CommandVerb, CommandTarget, CommandTargetKind } from '@/sim/command/types';
 import { hoverChips } from '@/game/affordance/hover';
+import { buildWhisperCard } from '@/game/affordance/whisper-card';
+import type { UiSpecChoice } from '@/story/uispec';
 import { createGameBus, type GameBus } from '@/game/game-bus';
 import { getUiRuntime } from '@/render/ui/ui-runtime';
 import { bootMark, FpsMeter, type FpsStats } from '@/dev/profile';
@@ -830,8 +832,7 @@ export class Game {
     if (!cap) return;
     // Fast path: an npc-capable verb with an NPC already selected fires immediately.
     if (cap.targetKinds.includes('npc') && this.state.selectedNpcId) {
-      this.bus.emit({ verb: verb as CommandVerb, source: PLAYER_SPIRIT_ID, target: { kind: 'npc', npcId: this.state.selectedNpcId } });
-      this.requestRender();
+      this.emitDivine(verb as CommandVerb, { kind: 'npc', npcId: this.state.selectedNpcId });
       return;
     }
     // Otherwise aim it: the next left-click on the world resolves the target.
@@ -849,7 +850,7 @@ export class Game {
     if (!cap) return;
     const target = this.resolveTargetAt(x, y, cap.targetKinds);
     if (!target) return;
-    this.bus.emit({ verb: aim.verb as CommandVerb, source: PLAYER_SPIRIT_ID, target });
+    this.emitDivine(aim.verb as CommandVerb, target);
   }
 
   /** The target the hover popover last froze onto, so a chip click acts on the tile
@@ -893,8 +894,63 @@ export class Game {
   private castHoverChip(verb: string): void {
     const target = this.hoverFrozen;
     if (!target) return;
-    this.bus.emit({ verb: verb as CommandVerb, source: PLAYER_SPIRIT_ID, target });
+    this.emitDivine(verb as CommandVerb, target);
+  }
+
+  /**
+   * The single divine-cast path shared by every player surface (hover / inspector /
+   * reticle / inbox / powers). BRANCH-shaped verbs open a card instead of firing:
+   * `whisper` becomes the whisper card (P4). Everything else emits its `Command` and
+   * fires any cast FX (the smite thunderbolt). One seam so all surfaces behave alike.
+   */
+  private emitDivine(verb: CommandVerb, target: CommandTarget): void {
+    if (verb === 'whisper' && this.presentWhisperCard(target)) return;
+    this.bus.emit({ verb, source: PLAYER_SPIRIT_ID, target });
+    this.fireCastFx(verb, target);
     this.requestRender();
+  }
+
+  /** Build + present the whisper card for an NPC target; false if it can't (non-NPC,
+   *  no world) so the caller falls back to a direct emit. */
+  private presentWhisperCard(target: CommandTarget): boolean {
+    const world = this.state.world;
+    if (!world || target.kind !== 'npc') return false;
+    const ctx = { world, spirits: this.state.spirits, log: this.state.eventLog };
+    const spec = buildWhisperCard(target, PLAYER_SPIRIT_ID, ctx);
+    if (!spec) return false;
+    getUiRuntime().presentUiSpec(spec, (choice) => this.onCardChoice(choice));
+    this.requestRender();
+    return true;
+  }
+
+  /** A whisper-card choice: emit its pre-paired command (carrying the whispered words
+   *  + steer) and fire any cast FX. The queue re-stamps `seq`. */
+  private onCardChoice(choice: UiSpecChoice): void {
+    const cmd = choice.command;
+    this.bus.emit({ verb: cmd.verb, source: cmd.source, target: cmd.target, params: cmd.params, payload: cmd.payload });
+    this.fireCastFx(cmd.verb, cmd.target);
+    this.requestRender();
+  }
+
+  /** Visual feedback for a cast — the smite thunderbolt at the resolved world tile.
+   *  (Other verbs' FX ride their own controller paths; smite had none until now.) */
+  private fireCastFx(verb: CommandVerb, target: CommandTarget): void {
+    if (verb !== 'smite') return;
+    const pos = this.targetWorldPos(target);
+    if (pos) this.ui.divineEffects.trigger('smite', pos.x, pos.y);
+  }
+
+  /** Resolve a command target to a world tile (for FX / camera framing), or null. */
+  private targetWorldPos(target: CommandTarget): { x: number; y: number } | null {
+    const world = this.state.world;
+    if (!world) return null;
+    switch (target.kind) {
+      case 'npc': { const e = getNpc(world, target.npcId); return e ? { x: e.x, y: e.y } : null; }
+      case 'entity': { const e = world.registry.get(target.id); return e ? { x: e.x, y: e.y } : null; }
+      case 'tile': return { x: target.x, y: target.y };
+      case 'settlement': return this.state.worldSeed?.pois.find((p) => p.id === target.poiId)?.position ?? null;
+      default: return null;
+    }
   }
 
   /** The target the inspector last resolved from the selection, so a CAST acts on
@@ -930,8 +986,7 @@ export class Game {
   private castInspector(verb: string): void {
     const target = this.inspectorFrozen;
     if (!target) return;
-    this.bus.emit({ verb: verb as CommandVerb, source: PLAYER_SPIRIT_ID, target });
-    this.requestRender();
+    this.emitDivine(verb as CommandVerb, target);
   }
 
   /** Pick the most specific target under a tile that the verb accepts (npc → entity → settlement → tile). */
@@ -970,14 +1025,13 @@ export class Game {
   /** Triage "Act": route an inbox item to the matching divine action. */
   private actOnInbox(item: InboxItem): void {
     if (item.target.kind === 'npc') {
-      // A prayer → answer it; any other npc-target → focus for now.
+      // A prayer → answer it; any other npc-target → a whisper (opens the whisper card).
       const verb: CommandVerb = item.kind === 'prayer' ? 'answer_prayer' : 'whisper';
-      this.bus.emit({ verb, source: PLAYER_SPIRIT_ID, target: { kind: 'npc', npcId: item.target.npcId } });
+      this.emitDivine(verb, { kind: 'npc', npcId: item.target.npcId });
     } else if (item.target.kind === 'settlement') {
       // An opportunity → show a sign over it (the claim that bootstraps belief).
-      this.bus.emit({ verb: 'omen', source: PLAYER_SPIRIT_ID, target: { kind: 'settlement', poiId: item.target.poiId } });
+      this.emitDivine('omen', { kind: 'settlement', poiId: item.target.poiId });
     }
-    this.requestRender();
   }
 
   // ── Camera ops (shared by the GPU HUD cluster and the legacy DOM controls) ──

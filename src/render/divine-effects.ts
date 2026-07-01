@@ -6,7 +6,7 @@
 import type { CanvasRenderingContext2D } from 'canvas';
 
 export interface Effect {
-  type: 'whisper' | 'omen' | 'miracle' | 'curse' | 'dream';
+  type: 'whisper' | 'omen' | 'miracle' | 'curse' | 'dream' | 'smite';
   x: number;
   y: number;
   startTime: number;
@@ -20,6 +20,8 @@ const EFFECT_CONFIG: Record<string, { duration: number; color: string; particleC
   miracle:  { duration: 2000, color: '#FF6B6B', particleCount: 25 },
   curse:    { duration: 1200, color: '#CE93D8', particleCount: 12 },
   dream:    { duration: 1000, color: '#B39DDB', particleCount: 10 },
+  // the thunderbolt: a hot white-blue strike + a scatter of sparks at the impact.
+  smite:    { duration: 900,  color: '#e8f4ff', particleCount: 18 },
 };
 
 export class DivineEffects {
@@ -132,6 +134,9 @@ export class DivineEffects {
         case 'dream':
           this.renderDream(ctx, effect.x, effect.y, progress, tileSize, effect.color);
           break;
+        case 'smite':
+          this.renderSmite(ctx, effect.x, effect.y, progress, tileSize, effect.color);
+          break;
       }
 
       ctx.restore();
@@ -199,6 +204,71 @@ export class DivineEffects {
       ctx.globalAlpha = (0.2 - progress) * 5 * 0.5;
       ctx.fillRect(cx - size, cy - size, size * 2, size * 2);
     }
+  }
+
+  /** The smite thunderbolt: a jagged bolt that strikes DOWN onto the tile, a white
+   *  ground-flash at the moment of impact, then a fading scorch ring. Deterministic
+   *  zigzag (fixed offsets) — no RNG on the render path. */
+  private renderSmite(
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    progress: number,
+    tileSize: number,
+    color: string,
+  ): void {
+    const cx = x * tileSize;
+    const cy = y * tileSize;
+
+    // The bolt draws in the first third, then fades out over the rest.
+    const boltAlpha = progress < 0.33 ? 1 : Math.max(0, 1 - (progress - 0.33) / 0.4);
+    if (boltAlpha > 0) {
+      const top = cy - tileSize * 6;
+      // fixed lateral zigzag offsets (× tileSize) from the sky down to the tile
+      const offsets = [0, 0.5, -0.35, 0.4, -0.25, 0.15, 0];
+      const build = () => {
+        ctx.beginPath();
+        ctx.moveTo(cx + offsets[0] * tileSize, top);
+        for (let i = 1; i < offsets.length; i++) {
+          const t = i / (offsets.length - 1);
+          ctx.lineTo(cx + offsets[i] * tileSize, top + (cy - top) * t);
+        }
+      };
+      // wide soft glow, then the hot white core
+      ctx.globalAlpha = boltAlpha * 0.5;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 6;
+      ctx.lineJoin = 'round';
+      build();
+      ctx.stroke();
+      ctx.globalAlpha = boltAlpha;
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 2;
+      build();
+      ctx.stroke();
+    }
+
+    // impact flash: a bright disc that blooms then dies in the opening moment
+    if (progress < 0.25) {
+      const f = 1 - progress / 0.25;
+      ctx.beginPath();
+      ctx.arc(cx, cy, tileSize * (0.4 + (1 - f) * 1.2), 0, Math.PI * 2);
+      ctx.fillStyle = '#ffffff';
+      ctx.globalAlpha = f * 0.7;
+      ctx.fill();
+    }
+
+    // scorch ring expanding out as the effect settles
+    const ringA = Math.max(0, 1 - progress);
+    if (ringA > 0) {
+      ctx.beginPath();
+      ctx.arc(cx, cy, tileSize * (0.3 + progress * 1.1), 0, Math.PI * 2);
+      ctx.strokeStyle = color;
+      ctx.globalAlpha = ringA * 0.6;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
   }
 
   private renderMiracle(

@@ -22,6 +22,7 @@ import type { UiDrawGroup } from '@/render/ui/ui-batcher';
 import { SettingsIsland } from '@/render/ui/ui-settings-island';
 import type { ProviderConfig } from '@/llm/provider-factory';
 import type { StorySession, Stage } from '@/story/story-session';
+import type { UiSpec, UiSpecBlock, UiSpecChoice } from '@/story/uispec';
 import type { BeliefPowerView, InboxItem, InspectorView } from '@/game/game-query';
 import type { SiteCardView } from '@/game/causal-site-view';
 
@@ -142,6 +143,10 @@ export class UiRuntime {
   /** The story card currently on screen (modal narrative beat), or null. */
   private story: StorySession | null = null;
 
+  /** A declarative UiSpec card on screen (the whisper card, P4), or null. Modal like
+   *  the story card; a chosen option calls `onChoose` then dismisses. */
+  private card: { spec: UiSpec; onChoose: (choice: UiSpecChoice) => void } | null = null;
+
   /** Open bottom-left side panel (powers / inbox), or null. Non-modal. */
   private panel: Panel = null;
   /** Inbox item ids the player has dismissed this session (local triage state). */
@@ -178,6 +183,32 @@ export class UiRuntime {
     return this.story !== null;
   }
 
+  /** Whether a declarative UiSpec card (whisper card) is currently on screen. */
+  hasCard(): boolean {
+    return this.card !== null;
+  }
+
+  /**
+   * Present a declarative `UiSpec` as a modal card (the whisper card, P4). A chosen
+   * option invokes `onChoose(choice)` — the game emits the choice's pre-paired
+   * `Command` — then the card dismisses. Supersedes any hover popover, pauses the
+   * sim (`onStoryToggle`), and is mutually exclusive with a running story session.
+   */
+  presentUiSpec(spec: UiSpec, onChoose: (choice: UiSpecChoice) => void): void {
+    this.clearHover();
+    this.story = null; // the card and the runner-driven story card never coexist
+    this.card = { spec, onChoose };
+    this.hooks.onStoryToggle?.(true);
+    this.hooks.requestRender?.();
+  }
+
+  private dismissCard(): void {
+    if (!this.card) return;
+    this.card = null;
+    this.hooks.onStoryToggle?.(false);
+    this.hooks.requestRender?.();
+  }
+
   /**
    * Present a storylet as a modal card. The runtime OWNS starting it (the caller
    * passes an un-started session + the storylet id to enter), so the first stage
@@ -192,6 +223,7 @@ export class UiRuntime {
     }
     if (session.done) return;
     this.clearHover(); // the modal card supersedes any hover popover
+    this.card = null;  // mutually exclusive with a declarative UiSpec card
     this.story = session;
     this.hooks.onStoryToggle?.(true);
     this.hooks.requestRender?.();
@@ -201,7 +233,7 @@ export class UiRuntime {
    *  an open story card are modal (eat everything); the HUD only eats taps on its
    *  own widgets. */
   consumesPointer(px: number, py: number): boolean {
-    if (this.menuOpen || this.story) return true;
+    if (this.menuOpen || this.story || this.card) return true;
     return this.lastHits.some((h) => px >= h.x && px < h.x + h.w && py >= h.y && py < h.y + h.h);
   }
 
@@ -222,7 +254,7 @@ export class UiRuntime {
    *  its grace zone; otherwise (re)arm the dwell timer. Suppressed while a modal
    *  (menu / story card) owns the screen. */
   private updateHover(px: number, py: number): void {
-    if (this.menuOpen || this.story) { this.clearHover(); return; }
+    if (this.menuOpen || this.story || this.card) { this.clearHover(); return; }
     if (this.hover) {
       if (this.withinGrace(px, py)) return; // sticky — don't re-dwell under the card
       this.hover = null;
@@ -234,7 +266,7 @@ export class UiRuntime {
   /** Dwell elapsed: ask the game for the frozen target's chips; show if any. Public
    *  so tests can fire the dwell deterministically without a real timer. */
   handleDwell(): void {
-    if (this.menuOpen || this.story) return;
+    if (this.menuOpen || this.story || this.card) return;
     const hv = this.hooks.getHoverAffordances?.();
     if (!hv || hv.chips.length === 0) return;
     // rect is filled at draw time; the anchor freezes the target the game resolved.
@@ -322,7 +354,8 @@ export class UiRuntime {
     };
     const key = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        this.toggleMenu();
+        if (this.card) this.dismissCard(); // Esc cancels the card before it reaches the menu
+        else this.toggleMenu();
         e.stopPropagation(); // pause menu owns Esc (supersedes time-bar dismiss)
         e.preventDefault();
       }
@@ -359,6 +392,9 @@ export class UiRuntime {
     if (this.menuOpen) {
       const clickAt = input.released ? { x: input.px, y: input.py } : null;
       r = this.drawMenu(c, wDev, hDev, s, clickAt);
+    } else if (this.card) {
+      const clickAt = input.released ? { x: input.px, y: input.py } : null;
+      this.renderUiSpec(c, wDev, hDev, s, this.card.spec, clickAt);
     } else if (this.story) {
       this.drawStory(c, wDev, hDev, s);
     } else {
@@ -818,6 +854,96 @@ export class UiRuntime {
     this.story = null;
     this.hooks.onStoryToggle?.(false);
     this.hooks.requestRender?.();
+  }
+
+  // ── the declarative UiSpec card (whisper card, P4): a centred modal that walks
+  //    the spec's body blocks and offers its choices. The renderer owns ALL layout;
+  //    the spec only carries content (spec §3). Content BUDGETS (no scroll yet):
+  //    the choice stack is bottom-reserved so it always fits; body flows into the
+  //    remainder and stops before it would collide. A pre-paired `Command` rides
+  //    each choice, so picking one just hands it back to the game to `bus.emit()`.
+  private renderUiSpec(c: UiContext, w: number, h: number, s: number, spec: UiSpec, clickAt: { x: number; y: number } | null): void {
+    // dim the world so the card reads as the focus
+    c.rect(0, 0, w, h, withAlpha([0, 0, 0, 1], 0.55));
+
+    const fsTitle = 3 * s;
+    const fsBody = FS_BODY * s;
+    const lh = c.lineHeight(fsBody);
+
+    // centred card
+    const cw = Math.min(w - 80 * s, 560 * s);
+    const cardH = Math.min(h - 80 * s, 520 * s);
+    const cx = Math.round((w - cw) / 2);
+    const cy = Math.round((h - cardH) / 2);
+    const cardRect: Rect = { x: cx, y: cy, w: cw, h: cardH };
+    c.panel(cx, cy, cw, cardH);
+    c.hotspot('card.body', cx, cy, cw, cardH); // eat clicks inside the card body
+
+    const innerX = cx + 28 * s;
+    const innerW = cw - 56 * s;
+    const bottom = cy + cardH - 22 * s;
+    let y = cy + 24 * s;
+
+    // title
+    c.label(spec.title, innerX, y, fsTitle, UI_PALETTE.text);
+    y += c.lineHeight(fsTitle) + 14 * s;
+
+    // reserve the choice stack at the bottom, then flow the body into the remainder
+    const bh = 32 * s;
+    const gap = 8 * s;
+    const n = spec.choices.length;
+    const stackH = n ? n * bh + (n - 1) * gap : 0;
+    const contentLimit = bottom - stackH - (n ? 14 * s : 0);
+
+    for (const b of spec.body) {
+      if (y >= contentLimit) break;
+      y = this.drawSpecBlock(c, b, innerX, y, innerW, fsBody, lh, s, contentLimit);
+    }
+
+    // choices — a bottom-anchored button stack; each hands its command back + closes
+    let by = bottom - stackH;
+    spec.choices.forEach((choice, i) => {
+      const label = choice.hint ? `${choice.text}  —  ${choice.hint}` : choice.text;
+      if (c.button(`card.choice.${i}`, label, innerX, by, innerW, bh, { scale: fsBody })) {
+        const onChoose = this.card?.onChoose;
+        this.dismissCard();
+        onChoose?.(choice);
+      }
+      by += bh + gap;
+    });
+
+    // a click on the dim backdrop (outside the card) cancels — no choice emitted
+    if (clickAt && !inRect(clickAt, cardRect)) this.dismissCard();
+  }
+
+  /** Walk one UiSpec body block; returns the y past it. */
+  private drawSpecBlock(c: UiContext, b: UiSpecBlock, x: number, y: number, w: number, fs: number, lh: number, s: number, limit: number): number {
+    switch (b.kind) {
+      case 'paragraph':
+        return this.drawWrapped(c, b.text, x, y, w, fs, UI_PALETTE.text) + 8 * s;
+      case 'npcLine': {
+        c.label(b.who.toUpperCase(), x, y, fs, UI_PALETTE.accent);
+        y += lh + 4 * s;
+        return this.drawWrapped(c, `“${b.text}”`, x, y, w, fs, UI_PALETTE.text) + 10 * s;
+      }
+      case 'omen':
+        return this.drawWrapped(c, `✦ ${b.text}`, x, y, w, fs, [0.55, 0.7, 0.9, 1]) + 8 * s;
+      case 'divider':
+        c.rect(x, y + 2 * s, w, Math.max(1, Math.round(s)), withAlpha(UI_PALETTE.textDim, 0.4));
+        return y + 10 * s;
+      case 'beliefBar': {
+        if (y + lh > limit) return y;
+        c.label(b.label, x, y, fs, UI_PALETTE.textDim);
+        const barH = 7 * s;
+        const trackW = w * 0.42;
+        const trackX = x + w - trackW;
+        const trackY = y + Math.round((lh - barH) / 2);
+        c.rect(trackX, trackY, trackW, barH, withAlpha(shade(UI_PALETTE.panelBg, -0.3), 0.9));
+        const fillW = Math.round(trackW * clamp01(b.value));
+        if (fillW > 0) c.rect(trackX, trackY, fillW, barH, UI_PALETTE.accent);
+        return y + lh + 8 * s;
+      }
+    }
   }
 
   /** Right-edge zoom controls (in/out/fit/1:1) — the GPU port of the legacy DOM
