@@ -55,6 +55,8 @@ export interface UiRuntimeHooks {
   getBeliefPowers?: () => BeliefPowerView[];
   /** Cast an unlocked power (the Game picks/uses the current target). */
   onCastPower?: (verb: string) => void;
+  /** Verb-first targeting in progress (reticle), or null — drives the aim hint bar. */
+  getTargeting?: () => { label: string } | null;
   /** The triageable divine-inbox items, salience-ranked (default []). */
   getInbox?: () => InboxItem[];
   /** Triage: act on an item (route to the matching divine action). */
@@ -337,6 +339,19 @@ export class UiRuntime {
     if (site) this.drawSiteCard(c, w, s, site);
 
     this.drawCameraCluster(c, w, h, s);
+
+    // ── verb-first targeting: a top-centre reticle hint while aiming a cast ──
+    const aim = this.hooks.getTargeting?.() ?? null;
+    if (aim) {
+      const fs = FS_BODY * s;
+      const msg = `◎ CHOOSE A TARGET — ${aim.label.toUpperCase()}   ·   right-click to cancel`;
+      const tw = Math.ceil(c.measure(msg, fs)) + 32 * s;
+      const th = 34 * s;
+      const tx = Math.round((w - tw) / 2);
+      const ty = 16 * s;
+      c.panel(tx, ty, tw, th);
+      c.label(msg, tx + 16 * s, ty + (th - c.lineHeight(fs)) / 2, fs, UI_PALETTE.accent);
+    }
   }
 
   // ── W-I-d: the selected causal-site card (a focused ephemeral place) ────────

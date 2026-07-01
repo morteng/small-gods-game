@@ -11,7 +11,7 @@ import { ART_RECIPE_VERSION } from '@/core/content-version';
 import { createDebugApi, type DebugApi } from '@/dev/debug-api';
 import { createGameQuery, type GameQuery, type InboxItem } from '@/game/game-query';
 import { causalSiteCardView } from '@/game/causal-site-view';
-import type { CommandVerb } from '@/sim/command/types';
+import type { CommandVerb, CommandTarget, CommandTargetKind } from '@/sim/command/types';
 import { createGameBus, type GameBus } from '@/game/game-bus';
 import { getUiRuntime } from '@/render/ui/ui-runtime';
 import { bootMark, FpsMeter, type FpsStats } from '@/dev/profile';
@@ -611,9 +611,19 @@ export class Game {
     this.cleanupControls = attachControls(this.canvas, this.state.camera, {
       // Canvas interactions mutate selection / cast divine actions → redraw even
       // while paused (divine effects keep animating via DivineEffects.isActive()).
-      onTileClick: (x, y) => { this.input.onTileClick(x, y); this.requestRender(); },
-      onTileRightClick: (x, y) => { void this.input.onTileRightClick(x, y); this.requestRender(); },
-      onRightClick: (sx, sy) => { void this.input.onRightClick(sx, sy); this.requestRender(); },
+      onTileClick: (x, y) => {
+        // A verb-first cast in progress? This click IS the target.
+        if (this.interaction.targeting) { this.resolveTargetedCast(x, y); this.requestRender(); return; }
+        this.input.onTileClick(x, y); this.requestRender();
+      },
+      onTileRightClick: (x, y) => {
+        if (this.interaction.targeting) { this.interaction.targeting = null; this.requestRender(); return; } // cancel aim
+        void this.input.onTileRightClick(x, y); this.requestRender();
+      },
+      onRightClick: (sx, sy) => {
+        if (this.interaction.targeting) { this.interaction.targeting = null; this.requestRender(); return; } // cancel aim
+        void this.input.onRightClick(sx, sy); this.requestRender();
+      },
       onTogglePause: () => this.togglePause(),
       onToggleLabels: () => { this.state.showLabels = !this.state.showLabels; this.requestRender(); },
       onTogglePoiMarkers: () => { this.state.showPoiMarkers = !this.state.showPoiMarkers; this.requestRender(); },
@@ -690,6 +700,7 @@ export class Game {
       // ── Track B: belief-granted powers + the divine inbox ──
       getBeliefPowers: () => this.query.beliefPowers(),
       onCastPower: (verb) => this.castPower(verb),
+      getTargeting: () => this.interaction.targeting ? { label: this.interaction.targeting.label } : null,
       getInbox: () => this.query.divineInbox(),
       onInboxAct: (item) => this.actOnInbox(item),
       onInboxInvestigate: (item) => {
@@ -796,25 +807,70 @@ export class Game {
   }
 
   /**
-   * Cast a belief-granted power (the skill panel's "CAST"). NPC-targeted verbs
-   * (smite) fire on the selected NPC, or — until a dedicated targeting UX lands —
-   * a deterministic default (the first NPC by id) so the loop is exercisable. The
-   * command still runs the full belief-gate at the tick boundary, so a not-yet-
-   * believed power is rejected even if the panel button were somehow pressed.
+   * Cast a belief-granted power (the skill panel's "CAST"). If a compatible NPC is
+   * already selected, an npc-verb fires on it at once (the fast path); otherwise we
+   * enter verb-first *targeting* — a reticle whose next map click resolves the
+   * target (`resolveTargetedCast`). The command still runs the full belief-gate at
+   * the tick boundary, so a not-yet-believed power is rejected regardless.
    */
   private castPower(verb: string): void {
     const cap = this.bus.capabilities().find(c => c.verb === verb);
     if (!cap) return;
-    if (cap.targetKind === 'npc') {
-      const npcId = this.state.selectedNpcId ?? this.query.npcs()[0]?.id;
-      if (!npcId) return;
-      this.bus.emit({ verb: verb as CommandVerb, source: PLAYER_SPIRIT_ID, target: { kind: 'npc', npcId } });
-    } else if (cap.targetKind === 'settlement') {
-      const poiId = this.state.worldSeed?.pois[0]?.id;
-      if (!poiId) return;
-      this.bus.emit({ verb: verb as CommandVerb, source: PLAYER_SPIRIT_ID, target: { kind: 'settlement', poiId } });
+    // Fast path: an npc-capable verb with an NPC already selected fires immediately.
+    if (cap.targetKinds.includes('npc') && this.state.selectedNpcId) {
+      this.bus.emit({ verb: verb as CommandVerb, source: PLAYER_SPIRIT_ID, target: { kind: 'npc', npcId: this.state.selectedNpcId } });
+      this.requestRender();
+      return;
     }
+    // Otherwise aim it: the next left-click on the world resolves the target.
+    const label = this.query.beliefPowers().find(p => p.verb === verb)?.label ?? verb;
+    this.interaction.targeting = { verb, label };
     this.requestRender();
+  }
+
+  /** Resolve an in-progress verb-first cast against the tile the player clicked. */
+  private resolveTargetedCast(x: number, y: number): void {
+    const aim = this.interaction.targeting;
+    this.interaction.targeting = null;   // one click resolves or misses; either way exit
+    if (!aim || !this.state.world) return;
+    const cap = this.bus.capabilities().find(c => c.verb === aim.verb);
+    if (!cap) return;
+    const target = this.resolveTargetAt(x, y, cap.targetKinds);
+    if (!target) return;
+    this.bus.emit({ verb: aim.verb as CommandVerb, source: PLAYER_SPIRIT_ID, target });
+  }
+
+  /** Pick the most specific target under a tile that the verb accepts (npc → entity → settlement → tile). */
+  private resolveTargetAt(x: number, y: number, kinds: readonly CommandTargetKind[]): CommandTarget | null {
+    const world = this.state.world;
+    if (!world) return null;
+    if (kinds.includes('npc')) {
+      const npc = world.query({ kind: 'npc' }).find(e => Math.floor(e.x) === x && Math.floor(e.y) === y);
+      if (npc) return { kind: 'npc', npcId: npc.id };
+    }
+    if (kinds.includes('entity')) {
+      const ent = world.registry.getAtTile(x, y).find(e => e.kind !== 'npc');
+      if (ent) return { kind: 'entity', id: ent.id };
+    }
+    if (kinds.includes('settlement')) {
+      const poiId = this.nearestPoiId(x, y);
+      if (poiId) return { kind: 'settlement', poiId };
+    }
+    if (kinds.includes('tile')) return { kind: 'tile', x, y };
+    return null;
+  }
+
+  /** The settlement whose centre is nearest the clicked tile (for settlement-scoped casts). */
+  private nearestPoiId(x: number, y: number): string | null {
+    let best: string | null = null;
+    let bestD = Infinity;
+    for (const poi of this.state.worldSeed?.pois ?? []) {
+      if (!poi.position) continue;
+      const dx = poi.position.x - x, dy = poi.position.y - y;
+      const d = dx * dx + dy * dy;
+      if (d < bestD) { bestD = d; best = poi.id; }
+    }
+    return best;
   }
 
   /** Triage "Act": route an inbox item to the matching divine action. */
