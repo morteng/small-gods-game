@@ -513,11 +513,29 @@ async function ventSolid(
   // axis-mundi vertical marker of a sacred building, placed at fraction `t` along the ridge
   // (the sanctum end). Anchored at its tip for a future finial/cross.
   if (kind === 'spire') {
-    const scx = ridge === 'x' ? top.x + v.t * top.w : top.x + top.w / 2;
-    const scy = ridge === 'x' ? top.y + top.h / 2 : top.y + v.t * top.h;
-    const shaftTop = wallTop + rise + protrude * 0.45;   // shaft clears the ridge
-    const capH = protrude * 0.55 + 0.4;                   // tall pointed cap
-    let solid = await solidBox([scx - cw / 2, scy - cw / 2, wallTop], [cw, cw, shaftTop - wallTop]);
+    // A wide shaft is a WEST TOWER (grounded from z=0, rising past the ridge to a broach spire);
+    // a thin one is a ridge flèche (from the eave). Centred on the ridge cross-axis, at `t` along
+    // it — and CLAMPED so the tower stays within the gable footprint, never poking past the wall.
+    const tower = cw >= 1.0;
+    const half = cw / 2;
+    // A west tower stands on the ENTRANCE GABLE: when the vent names a gable face (one
+    // perpendicular to the ridge), snap the along-position to that end (t≈0.85/0.15) so the
+    // tower is over the door, whichever way the ridge runs; else fall back to v.t.
+    const gableT = (pos: 'south' | 'north' | 'east' | 'west' | undefined): number => {
+      if (ridge === 'y' && pos === 'south') return 0.85;
+      if (ridge === 'y' && pos === 'north') return 0.15;
+      if (ridge === 'x' && pos === 'east') return 0.85;
+      if (ridge === 'x' && pos === 'west') return 0.15;
+      return v.t;
+    };
+    const tA = gableT(v.face);
+    const alongClamp = (o: number, run: number) => Math.min(o + run - half, Math.max(o + half, o + tA * run));
+    const scx = ridge === 'x' ? alongClamp(top.x, top.w) : top.x + top.w / 2;
+    const scy = ridge === 'x' ? top.y + top.h / 2 : alongClamp(top.y, top.h);
+    const baseZ = tower ? 0 : wallTop;
+    const shaftTop = wallTop + rise + protrude * (tower ? 0.7 : 0.45);   // clears the ridge
+    const capH = protrude * 0.6 + 0.4;                    // tall pointed broach cap
+    let solid = await solidBox([scx - half, scy - half, baseZ], [cw, cw, shaftTop - baseZ]);
     solid = solid.add(await solidCone([scx, scy], shaftTop, 0, cw * 0.62, capH));
     return { solid, anchor: [scx, scy, shaftTop + capH], mat };
   }

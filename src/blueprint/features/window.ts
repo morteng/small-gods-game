@@ -17,15 +17,16 @@ function windowSpec(f: ResolvedFeature): ApertureSpec {
   return {
     face: f.face ?? 'south', t: f.params.t as number, sill: f.params.sill as number,
     halfW: f.params.halfW as number, height: f.params.height as number, depth: WINDOW_RECESS,
-    // 'arched' style (declared since v10) now carves a real round head (K2).
-    ...(f.params.style === 'arched' ? { arch: 'round' as const } : {}),
+    // 'arched' carves a round head (K2); 'lancet' a tall Gothic POINTED head (church lights).
+    ...(f.params.style === 'lancet' ? { arch: 'pointed' as const }
+      : f.params.style === 'arched' ? { arch: 'round' as const } : {}),
   };
 }
 
 export const windowFeatureType: FeatureType = {
   type: 'window',
   paramSchema: {
-    style: { kind: 'enum', values: ['plain', 'shuttered', 'arched'], default: 'plain' },
+    style: { kind: 'enum', values: ['plain', 'shuttered', 'arched', 'lancet'], default: 'plain' },
     glazed: { kind: 'bool', default: true },
     t: { kind: 'number', min: 0, max: 1, default: 0.5 },
     width: { kind: 'number', min: -1, max: 2, default: -1 },

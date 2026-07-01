@@ -100,7 +100,7 @@
  * composed from raw prims — no new part renderer) — the holy-water cleansing basin co-placed
  * at a sacred precinct's border. Additive (a new prop recipe; existing baked art unaffected).
  */
-export const ART_RECIPE_VERSION = 'v22';
+export const ART_RECIPE_VERSION = 'v23';  // CHURCH: worship buildings now express a grounded WEST TOWER over the entrance gable (a square stone tower + broach spire, centred on the width — `to-blueprint.ts`/`solids.ts`), replacing the offset ridge flèche; and their windows are tall POINTED LANCETS (`window.ts` lancet style → pointed arch, `openings.ts` taller/narrower sacred lights). Church massing changed ⇒ invalidate cached church sprites.
 
 /**
  * Bump when WORLDGEN / preset output changes (footprints, placement, heights).

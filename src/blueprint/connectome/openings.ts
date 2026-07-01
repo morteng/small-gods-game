@@ -155,9 +155,13 @@ export function connectomeOpenings(con: Connectome, base: Blueprint, era: Era | 
     const front: WallFace = mainPortal?.face ?? 'south';
     const sacred =
       con.source?.topology === 'church-axial' || con.zones.some((z) => z.fn === 'worship');
-    // Sacred masonry keeps the ecclesiastical round/Gothic head whatever the era — a
-    // stone temple has arched lights even in a 'shuttered'-window period (K2).
-    const winStyle = sacred ? 'arched' : style;
+    // Sacred masonry gets tall, narrow, POINTED lancet lights whatever the era — the
+    // ecclesiastical window, not the modest domestic box (K2 + church expression).
+    const winStyle = sacred ? 'lancet' : style;
+    // A lancet is far taller and narrower than a house window: it reaches most of the storey
+    // and comes to a Gothic point, so the nave reads as a church, not a barn.
+    const sacredWinH = clampN(storeyTiles * 0.86, 1.2, 3.6);
+    const sacredHalfW = 0.14;
     const [flankA, flankB] = perpFaces(front);
     // A sacred building keeps its entrance front clear (the pediment/portico) and lights
     // the flanks symmetrically; a dwelling lights its front + the near flank.
@@ -177,7 +181,12 @@ export function connectomeOpenings(con: Connectome, base: Blueprint, era: Era | 
         features[`win_${face[0]}${k}`] = {
           type: 'window',
           face,
-          params: { style: winStyle, glazed, t, sill, height: winH, perStorey: true },
+          params: {
+            style: winStyle, glazed, t, sill,
+            height: sacred ? sacredWinH : winH,
+            ...(sacred ? { width: sacredHalfW } : {}),
+            perStorey: true,
+          },
         };
       });
     }

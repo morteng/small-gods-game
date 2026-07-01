@@ -134,8 +134,11 @@ export function apertureToBox(s: ApertureSpec, part: ResolvedPart): FaceBox {
   const d = s.depth, e = APERTURE_EPS, two = 2 * s.halfW;
   // The opening runs along x on south/north faces, along y on east/west. A round head
   // rises `halfW` above the opening top (radius = half the opening width).
+  // A round head rises `halfW` (a semicircle); a POINTED (lancet) head rises far higher so the
+  // crown comes to a real Gothic point rather than a shallow cap.
+  const archRise = s.arch === 'pointed' ? s.halfW * 2.4 : s.halfW;
   const arch = s.arch
-    ? { arch: { axis: (s.face === 'south' || s.face === 'north' ? 'x' : 'y') as 'x' | 'y', style: s.arch, rise: s.halfW } }
+    ? { arch: { axis: (s.face === 'south' || s.face === 'north' ? 'x' : 'y') as 'x' | 'y', style: s.arch, rise: archRise } }
     : {};
   switch (s.face) {
     case 'south': { const yp = outerCoord(part, 'south', c); return { at: [c - s.halfW, yp - d, s.sill], size: [two, d + e, s.height], ...arch }; }

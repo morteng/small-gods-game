@@ -11,7 +11,7 @@
  * egress placement from the connectome it was handed; no catalogue ids are
  * hard-coded (guard-checked).
  */
-import type { Blueprint, BlueprintPatch } from '../types';
+import type { Blueprint, BlueprintPatch, WallFace } from '../types';
 import type { Connectome } from './types';
 
 /** Find the id of the part the vent should sit on (the primary body, else the first part). */
@@ -33,6 +33,22 @@ function hearthT(con: Connectome, hearthZoneId: string): number {
   return 0.5;
 }
 
+/** Which gable end (t≈0.12 or 0.88 along the ridge) the entrance sits at — a west tower crowns
+ *  the ENTRANCE gable. Locates the single OUTSIDE portal's zone, finds its centre along the run,
+ *  and returns the nearer gable end so the tower stands over the door, not mid-nave. */
+function entranceGableT(con: Connectome): number {
+  const ext = con.portals.find((p) => p.from === 'OUTSIDE');
+  if (!ext) return 0.12;
+  const total = con.zones.reduce((s, z) => s + (z.bays ?? 1), 0) || 1;
+  let before = 0, centre = 0.5;
+  for (const z of con.zones) {
+    const bays = z.bays ?? 1;
+    if (z.id === ext.to) { centre = (before + bays / 2) / total; break; }
+    before += bays;
+  }
+  return centre < 0.5 ? 0.12 : 0.88;
+}
+
 /**
  * Build the patch the connectome implies for `base`. Slice 1: the smoke vent only.
  * Returns `{}` when the building has no hearth/egress (most non-dwellings).
@@ -41,7 +57,7 @@ export function connectomeToBlueprint(con: Connectome, base: Blueprint): Bluepri
   const pid = bodyPartId(base);
   if (!pid) return {};
 
-  const features: Record<string, { type: string; params: Record<string, number | string> }> = {};
+  const features: Record<string, { type: string; face?: WallFace; params: Record<string, number | string> }> = {};
 
   // The hearth's smoke vent: placement 'wall' ⇒ a wall fireplace/chimney; else a ridge vent.
   const egress = con.fixtures.find((f) => f.satisfies?.includes('smoke-egress'));
@@ -59,7 +75,19 @@ export function connectomeToBlueprint(con: Connectome, base: Blueprint): Bluepri
   // so the portal count cleanly tells a temple/church/shrine from a barn.
   const worship = con.zones.some((z) => z.fn === 'worship');
   const singleEntrance = con.portals.filter((p) => p.from === 'OUTSIDE').length < 2;
-  if (worship && singleEntrance) features.spire = { type: 'vent', params: { kind: 'spire', t: 0.3 } };
+  if (worship && singleEntrance) {
+    // A WEST TOWER: the steeple crowns the ENTRANCE GABLE (not mid-roof), centred on the
+    // building's width so it reads as a symmetric tower over the door — not a spike stuck on
+    // one roof slope. `width` makes it a square tower shaft rather than a thin flèche. Pass the
+    // entrance FACE so the geometry stands the tower on that gable (the door's end), whichever
+    // way the ridge runs; `t` is a fallback for connectomes with no faced entrance portal.
+    const entrance = con.portals.find((p) => p.from === 'OUTSIDE');
+    features.spire = {
+      type: 'vent',
+      ...(entrance?.face ? { face: entrance.face } : {}),
+      params: { kind: 'spire', t: entranceGableT(con), width: 1.5 },
+    };
+  }
 
   return Object.keys(features).length ? { parts: { [pid]: { type: 'body', features } } } : {};
 }

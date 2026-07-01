@@ -68,9 +68,9 @@ describe('connectomeOpenings', () => {
     const wins = Object.values(connectomeOpenings(c, base({ era: 'classical', materials: { walls: 'stone', roof: 'tile' } }), 'classical').parts!.body!.features!)
       .filter(f => f.type === 'window');
     expect(new Set(wins.map(w => w.face))).toEqual(new Set(['east', 'west'])); // flanks only, no south front
-    // Window style/glazing follow the era profile (eras.ts) — classical glass was rare,
-    // so arched-but-unglazed; this is the SAME source the era-restyle patch reads.
-    expect(wins.every(w => w.params!.style === 'arched' && w.params!.glazed === false)).toBe(true);
+    // Sacred lights are tall POINTED lancets whatever the era; glazing still follows the era
+    // profile (eras.ts) — classical glass was rare, so lancet-but-unglazed.
+    expect(wins.every(w => w.params!.style === 'lancet' && w.params!.glazed === false)).toBe(true);
   });
 
   it('the migrated cottage preset resolves to a generative south door + flanking windows', () => {
@@ -103,10 +103,10 @@ describe('connectomeOpenings', () => {
     expect(east.every(t => t === 0.25 || t === 0.75)).toBe(true);
   });
 
-  it('the migrated temple resolves to bilateral arched flank windows, front kept clear', () => {
+  it('the migrated temple resolves to bilateral lancet flank windows, front kept clear', () => {
     const rb = synthesizeBlueprint('temple_small')!;
     const wins = rb.parts.find(p => p.type === 'body')!.features.filter(f => f.type === 'window');
     expect(new Set(wins.map(w => w.face))).toEqual(new Set(['east', 'west']));
-    expect(wins.every(w => w.params.style === 'arched')).toBe(true);
+    expect(wins.every(w => w.params.style === 'lancet')).toBe(true);
   });
 });
