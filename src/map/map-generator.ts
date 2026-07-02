@@ -355,15 +355,34 @@ export async function generateWithNoise(
     }
     // Buildings are already placed: roads route AROUND their structure cells
     // (thread the streets) rather than carving through them.
-    // Snapshot the pre-(inter-POI-road) tile state — taken AFTER settlements (their streets
-    // are already carved, so they're preserved in the snapshot) — so a road merged away below
-    // (#26) un-carves only the terrain/water it itself covered. `rasterizeRoadGraph` shows the
-    // carve is exactly the edge's POLYLINE cells, so the polyline IS the footprint to restore.
-    const preRoad = tiles.map((row) => row.map((t) => ({ type: t.type, walkable: t.walkable })));
     // Make roads LEAD TO GATES: town rings become obstacles (so A* can't pierce a curtain except
     // at an opening) and each ring endpoint's connection is threaded through its nearest real gate.
     // Connections touching no ring are returned unchanged, so a ringless world routes identically.
     const approach = gateApproachPlan(barrierRuns, worldSeed.connections, worldSeed.pois ?? []);
+
+    // Interior-to-gate stitch: the barrier/enclosure pass sites a ring's gates independently of
+    // the settlement's OWN street layout, so the two can fall a tile or two short of each other
+    // (#28 — carve-connections connectivity bug). Stitch every real gate to the settlement's
+    // nearest interior road NOW, before the inter-POI approach road below claims the gate tile —
+    // once that road is carved, the gate reads as "already on a road" and a later BFS run from the
+    // gate would trivially find THAT same road first, never noticing the short interior gap on the
+    // other side. `wireGateToRoad` only carves cells that aren't already road, so a gate whose
+    // interior street already reaches it costs one bounded no-op search.
+    const gateStitchMap = { tiles } as GameMap;
+    for (const a of realGateAnchors(barrierRuns)) {
+      // Same obstacle set as the approach walker below: never through a curtain, never across
+      // a building footprint or a protected green.
+      wireGateToRoad({ x: a.x, y: a.y } as import('@/world/anchors').Anchor, gateStitchMap, 12,
+        (x, y) => tileBlockedByBuilding(world, x, y) || greenTiles.has(`${x},${y}`)
+          || approach.wallObstacles.has(`${x},${y}`));
+    }
+
+    // Snapshot the pre-(inter-POI-road) tile state — taken AFTER settlements AND the interior-gate
+    // stitch above (their streets are already carved, so they're preserved in the snapshot) — so a
+    // road merged away below (#26) un-carves only the terrain/water it itself covered.
+    // `rasterizeRoadGraph` shows the carve is exactly the edge's POLYLINE cells, so the polyline IS
+    // the footprint to restore.
+    const preRoad = tiles.map((row) => row.map((t) => ({ type: t.type, walkable: t.walkable })));
     roadGraph = buildRoadGraph(approach.connections, worldSeed.pois ?? [], tiles, fields, {
       isObstacle: (x, y) => tileBlockedByBuilding(world, x, y) || greenTiles.has(`${x},${y}`)
         || approach.wallObstacles.has(`${x},${y}`),
@@ -392,23 +411,21 @@ export async function generateWithNoise(
       roadGraph = mergedRoads;
     }
 
-    // Orphan-gate fallback: a ring whose POI had no connection (or whose approach road was merged
-    // away) can be left with a gate no road reaches. Stitch each such real gate to the nearest road
-    // with a short dirt spur so a walled town is never gate-locked. Skips gates already road-adjacent
-    // so it's a no-op in the common case (the waypoint routing already reached them).
+    // Orphan-gate fallback (post-merge): the interior-to-gate stitch above already closed the
+    // common gap, but a gate's APPROACH road can still vanish after this point — an unconnected
+    // POI never routed one, or #26's parallel-road merge just un-carved it. Re-run the same BFS
+    // spur so such a gate isn't left road-locked. Always calling (rather than a proximity
+    // pre-check) is deliberate: `wireGateToRoad` only carves cells that aren't already road, so a
+    // gate that's fine costs one bounded no-op search — see the interior-stitch comment above for
+    // why a "some road is nearby" heuristic under-connects.
     const spurMap = { tiles } as GameMap;
-    const isRoadType = (t?: string): boolean => t === 'dirt_road' || t === 'stone_road' || t === 'bridge';
     for (const a of realGateAnchors(barrierRuns)) {
-      let near = false;
-      for (let dx = -2; dx <= 2 && !near; dx++) for (let dy = -2; dy <= 2 && !near; dy++) {
-        if (isRoadType(tiles[a.y + dy]?.[a.x + dx]?.type)) near = true;
-      }
-      if (!near) {
-        // Spur routing honours the same obstacles as the approach walker: never through
-        // a curtain, never across water (wire-gate itself refuses WATER_TYPES).
-        wireGateToRoad({ x: a.x, y: a.y } as import('@/world/anchors').Anchor, spurMap, 12,
-          (x, y) => approach.wallObstacles.has(`${x},${y}`));
-      }
+      // Spur routing honours the same obstacles as the approach walker: never through
+      // a curtain, a building footprint or a green, never across water (wire-gate itself
+      // refuses WATER_TYPES).
+      wireGateToRoad({ x: a.x, y: a.y } as import('@/world/anchors').Anchor, spurMap, 12,
+        (x, y) => tileBlockedByBuilding(world, x, y) || greenTiles.has(`${x},${y}`)
+          || approach.wallObstacles.has(`${x},${y}`));
     }
 
     // River-crossing SITES (unified connectome, v0): where a road bridges water, compose a
