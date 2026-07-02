@@ -12,6 +12,8 @@ import { generateWithNoise } from '../src/map/map-generator';
 import { evaluateContracts, type ContractLevel } from '../src/world/connectome-contracts';
 import type { Diagnostic } from '../src/world/connectome-diagnostics';
 import type { WorldSeed } from '../src/core/types';
+import { validateWorldSeed } from '../src/core/schema';
+import { planWorldLayout } from '../src/world/poi-layout';
 
 const LEVELS: ContractLevel[] = ['world', 'settlement', 'site', 'building'];
 const SEV_TAG: Record<string, string> = { error: '✘', warn: '▲', info: '·' };
@@ -28,8 +30,28 @@ async function main(): Promise<void> {
   const ws = JSON.parse(readFileSync('public/data/worlds/default.json', 'utf8')) as WorldSeed;
 
   let failed = false;
+
+  // Schema validation first — a structurally broken seed makes every downstream
+  // finding suspect. Errors fail the lint; warnings print but pass.
+  const v = validateWorldSeed(ws);
+  if (v.errors.length) {
+    console.log(`SEED ERRORS (${v.errors.length}):`);
+    for (const e of v.errors) console.log(`    ✘ ${e}`);
+    failed = true;
+  }
+  if (v.warnings.length) {
+    console.log(`SEED WARNINGS (${v.warnings.length}):`);
+    for (const wmsg of v.warnings) console.log(`    ▲ ${wmsg}`);
+  }
+
+  // Lint the LAID-OUT world — island seeds grow the map and shift every POI via
+  // planWorldLayout in the live path (bootstrap-world), so linting the raw
+  // authored size would measure a world the player never sees.
+  const layout = planWorldLayout(ws);
+  const laidOut: WorldSeed = { ...ws, size: layout.size, pois: layout.pois, connections: layout.connections };
+
   for (const seed of useSeeds) {
-    const { map, world } = await generateWithNoise(ws.size.width, ws.size.height, seed, ws);
+    const { map, world } = await generateWithNoise(layout.size.width, layout.size.height, seed, laidOut);
     const report = evaluateContracts({ world, map });
     const decls = map.contracts?.declarations.length ?? 0;
 

@@ -10,10 +10,11 @@
 // is why the renderer can read `waterType` / `surfaceW` / `flowDir` without the
 // HydrologyResult travelling in the save.
 import type { GameMap, HydrologyResult, TerrainField } from '@/core/types';
-import { generateHydrology } from '@/terrain/hydrology';
+import { generateHydrology, buildVolcanoScorchMask } from '@/terrain/hydrology';
 import { getHeightfield, ELEVATION_SEA_LEVEL } from '@/world/heightfield';
 import { styledIslandSpec } from '@/terrain/island-mask';
 import { styledShapeSpec, shapeSignature } from '@/terrain/terrain-shape';
+import { worldStyleOf } from '@/core/world-style';
 
 const cache = new Map<string, HydrologyResult>();
 const CACHE_CAP = 4;
@@ -38,10 +39,15 @@ export function getHydrologyResult(map: GameMap): HydrologyResult {
     moisture: new Float32Array(elevation.length),
     temperature: new Float32Array(elevation.length),
   };
-  // Match map-generator: default river threshold, world sea level.
+  // Match map-generator: default river threshold, world sea level, and the SAME
+  // volcano scorch mask (dry craters) — else the rendered water diverges from
+  // the tiles (a phantom caldera lake over dry volcanic_rock).
+  const scorchMask = buildVolcanoScorchMask(
+    map.worldSeed?.pois, map.width, map.height, elevation, ELEVATION_SEA_LEVEL,
+    worldStyleOf(map.worldSeed ?? undefined).mountainRelief);
   const res = generateHydrology(fields, {
     seed: map.seed, width: map.width, height: map.height, seaLevel: ELEVATION_SEA_LEVEL,
-  });
+  }, { scorchMask });
 
   cache.set(k, res);
   if (cache.size > CACHE_CAP) {

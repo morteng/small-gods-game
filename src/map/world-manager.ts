@@ -10,6 +10,7 @@
 
 import type { WorldSeed } from '@/core/types';
 import { assetUrl } from '@/core/asset-url';
+import { validateWorldSeed } from '@/core/schema';
 
 /** Saved world metadata from localStorage */
 export interface SavedWorldEntry {
@@ -50,11 +51,12 @@ export const WorldManager = {
       }
       const worldSeed: WorldSeed = await response.json();
 
-      // Validate the world seed
-      const validation = this.validate(worldSeed);
-      if (!validation.valid) {
-        console.warn('World validation warnings:', validation.warnings);
-      }
+      // Validate the world seed — errors mean the seed will not express what the
+      // author wrote; warnings are dead fields / footguns. Loud, never fatal:
+      // the game still boots so a broken seed can be inspected in-world.
+      const v = validateWorldSeed(worldSeed);
+      if (v.errors.length) console.error(`World seed "${worldSeed.name}" errors:`, v.errors);
+      if (v.warnings.length) console.warn(`World seed "${worldSeed.name}" warnings:`, v.warnings);
 
       return worldSeed;
     } catch (error) {
@@ -167,10 +169,9 @@ export const WorldManager = {
       reader.onload = (e: ProgressEvent<FileReader>) => {
         try {
           const worldSeed: WorldSeed = JSON.parse(e.target!.result as string);
-          const validation = this.validate(worldSeed);
-          if (!validation.valid) {
-            console.warn('World validation warnings:', validation.warnings);
-          }
+          const v = validateWorldSeed(worldSeed);
+          if (v.errors.length) console.error(`World seed "${worldSeed.name}" errors:`, v.errors);
+          if (v.warnings.length) console.warn(`World seed "${worldSeed.name}" warnings:`, v.warnings);
           resolve(worldSeed);
         } catch (_error) {
           reject(new Error('Invalid JSON file'));
@@ -182,50 +183,12 @@ export const WorldManager = {
   },
 
   /**
-   * Validate a world seed
+   * Validate a world seed — delegates to the canonical schema validator
+   * (`validateWorldSeed`) so load-time checks and the offline lint agree.
    */
   validate(worldSeed: WorldSeed): ValidationResult {
-    const warnings: string[] = [];
-
-    // Check required fields
-    if (!worldSeed.name) {
-      warnings.push('Missing world name');
-    }
-    if (!worldSeed.size || !worldSeed.size.width || !worldSeed.size.height) {
-      warnings.push('Missing or invalid size');
-    }
-    if (!worldSeed.pois || !Array.isArray(worldSeed.pois)) {
-      warnings.push('Missing or invalid POIs array');
-    }
-
-    // Validate POIs
-    if (worldSeed.pois) {
-      worldSeed.pois.forEach((poi, index) => {
-        if (!poi.id) warnings.push(`POI ${index} missing id`);
-        if (!poi.type) warnings.push(`POI ${index} missing type`);
-        if (!poi.name) warnings.push(`POI ${index} missing name`);
-      });
-    }
-
-    // Validate connections
-    if (worldSeed.connections) {
-      const poiIds = new Set((worldSeed.pois || []).map(p => p.id));
-      worldSeed.connections.forEach((conn, index) => {
-        if (!conn.from) warnings.push(`Connection ${index} missing 'from'`);
-        if (!conn.to) warnings.push(`Connection ${index} missing 'to'`);
-        if (conn.from && !poiIds.has(conn.from)) {
-          warnings.push(`Connection ${index} references unknown POI '${conn.from}'`);
-        }
-        if (conn.to && !poiIds.has(conn.to)) {
-          warnings.push(`Connection ${index} references unknown POI '${conn.to}'`);
-        }
-      });
-    }
-
-    return {
-      valid: warnings.length === 0,
-      warnings
-    };
+    const v = validateWorldSeed(worldSeed);
+    return { valid: v.valid, warnings: [...v.errors, ...v.warnings] };
   },
 
   /**

@@ -28,6 +28,13 @@ interface FieldInfluence {
    */
   summit?: number;
   /**
+   * How much `size` grows the SUMMIT, not just the radius (summit mode only).
+   * `summitEff = summit + summitSizeBoost × (sizeScale − 1)` — so a `huge`
+   * volcano (scale 2) is genuinely TALLER, not merely wider, while `medium`
+   * seeds stay byte-identical. Clamped to 0.99.
+   */
+  summitSizeBoost?: number;
+  /**
    * PEAK falloff exponent (summit mode only). The summit weight is
    * `w = cos((d/r)·π/2)^peakSharpness`. The default `1.6` is a broad dome; higher
    * values concentrate the high ground near the centre and steepen the upper
@@ -72,6 +79,17 @@ interface FieldInfluence {
   /** Crater radius as a fraction of `radius` (default 0.22). Only with `crater`. */
   craterFrac?: number;
   /**
+   * SETTLEMENT GROUND-EASING (elevation only) — the inverse of `summit`: ground
+   * ABOVE this level is lerped DOWN toward it (cosine-weighted, warped edge),
+   * ground at or below it is untouched. The live game generates from a random
+   * seed (`Date.now()`), so noise sometimes rolls a mountain under an authored
+   * village — every tile unbuildable, the settlement silently empty. A gentle
+   * `cap` guarantees a livable pocket (a cleared shelf in the hillside) wherever
+   * people are authored to live, while low-ground worlds stay byte-identical.
+   * Keep caps under the 19 m mountain line (≈0.69 at demo relief).
+   */
+  cap?: number;
+  /**
    * CRAG amplitude [0,1] (summit mode). Corrugates the raised mass with ridged
    * noise so a massif breaks into spurs and gullies — a craggy horn — instead of a
    * smooth radial dome (the "potato" tell: concentric gradient rings, zero
@@ -91,8 +109,9 @@ interface FieldInfluence {
    * gradient + elevation lapse, so "this region IS a desert" actually holds: a
    * `temperature` target of 0.90 clears the desert biome's 0.80 threshold no matter
    * how cold the base latitude is. Additive `delta` can't guarantee a threshold
-   * (cold base + lapse ate the Sunscorch's +0.40 → it read as scrubland). The disc
-   * (point) path ignores `target` and still uses `delta`.
+   * (cold base + lapse ate the Sunscorch's +0.40 → it read as scrubland). The
+   * disc (point) path honours `target` the same way (lerp weighted by the cosine
+   * falloff), so a point volcano can guarantee a scorching summit.
    */
   target?: number;
 }
@@ -125,7 +144,7 @@ interface InfluenceSpec {
 
 /** Per-POI `size` → radius/influence multiplier. `medium` (and unset) = 1.0, so
  *  existing seeds are unchanged unless they ask to be bigger or smaller. */
-const SIZE_SCALE: Record<string, number> = { small: 0.75, medium: 1.0, large: 1.5, huge: 2.0 };
+export const SIZE_SCALE: Record<string, number> = { small: 0.75, medium: 1.0, large: 1.5, huge: 2.0 };
 
 /** Spatial frequency of the outline-warp noise (lower = broader bays/headlands). */
 const WARP_FREQ = 0.07;
@@ -312,17 +331,16 @@ export const POI_INFLUENCES: Record<string, InfluenceSpec> = {
   desert:   { moisture:  { delta: -0.55, radius: 14, target: 0.10 }, temperature: { delta: +0.40, radius: 12, target: 0.90 }, warp: 0.50, regionFill: true },
   // Volcano: PEAK mode — a steep cinder cone with a summit crater, so it reads as a
   // volcano and not a smooth hill: sharp falloff (`peakSharpness`) for the cone
-  // flanks + a `crater` bowl that dips the apex below its rim. Hot.
+  // flanks + a `crater` bowl that dips the apex below its rim.
   //
-  // Summit kept WELL BELOW the great-mountain ceiling (0.80, not 0.96): a cinder cone
-  // is a few hundred metres, not an alpine massif. With the world's amplified relief a
-  // 0.96 apex towered taller than the Cloudwall AND, crossing 0.86, painted itself grey
-  // alpine Peak-rock with an altitude snow cap — reading as "a mountain on top of the
-  // volcano." 0.80 sits just under the altitude snowline (aboveSea ≈ 0.47) so it never
-  // snows, and renders as a compact dark rocky cone in the desert, distinctly smaller
-  // than the Cloudwall. (No dedicated volcanic biome yet — the apex is altitude-cooled,
-  // so a field-based classification can't tell it from cold alpine rock.)
-  volcano:  { elevation: { summit: 0.80, radius: 10, peakSharpness: 2.8, crater: 0.18, craterFrac: 0.20 }, temperature: { delta: +0.25, radius: 16 }, warp: 0.40 },
+  // Identity comes from HEAT, not a height cap: the temperature lerps toward
+  // scorching (target 0.95) across the cone, and `classifyBiome` claims hot
+  // mountain-height ground as the VOLCANIC biome (dark basalt/ash) before the
+  // alpine Peak/snow branch can touch it — so the summit may now grow with `size`
+  // (summitSizeBoost: a `huge` volcano reaches 0.88 ≈ 29 m at demo relief, still
+  // under the 0.99 Cloudwall) without painting itself a snow cap. The moisture
+  // target ~0 parches the flanks so forest brushes leave the ash bare.
+  volcano:  { elevation: { summit: 0.80, summitSizeBoost: 0.08, radius: 14, peakSharpness: 2.8, crater: 0.18, craterFrac: 0.20 }, temperature: { delta: +0.45, radius: 18, target: 0.95 }, moisture: { delta: -0.5, radius: 16, target: 0.08 }, warp: 0.40 },
   // Glacier: PEAK mode to a high-but-not-summit ice dome (clears the ICE
   // threshold elev > 0.65); the strong cold delta makes it ice, not bare rock.
   glacier:  { elevation: { summit: 0.90, radius: 10 }, temperature: { delta: -0.55, radius: 14 }, warp: 0.45 },
@@ -359,13 +377,17 @@ export const POI_INFLUENCES: Record<string, InfluenceSpec> = {
   // grassy promontory with a rocky toe rather than an alpine crag. Drop a `headland`
   // POI (+ `coast`) on the shore you want to bulge out into a cape.
   headland: { elevation: { plateau: 0.50, radius: 12, plateauCore: 0.42, rimSharpness: 1.1, crag: 0.22, cragFreq: 3.5 }, temperature: { delta: -0.03, radius: 12 }, warp: 0.5 },
-  // Settlement types — light terrain adjustments only
-  village:  {},
-  city:     {},
-  castle:   {},
-  farm:     { moisture: { delta: +0.08, radius: 5 } },
-  temple:   {},
-  port:     { moisture: { delta: +0.20, radius: 8 } },
+  // Settlement types — GROUND-EASING (`cap`, lower-only): the live game rolls a
+  // random gen seed, so noise sometimes puts a mountain under an authored town and
+  // every tile is unbuildable (probe-world's `settlement.unbuilt`). A gentle cap
+  // guarantees a livable pocket; low-lying sites are untouched (cap never raises).
+  // Caps sit under the 19 m mountain line (0.69); tower/castle keep more of a rise.
+  village:  { elevation: { cap: 0.66, radius: 12 }, warp: 0.35 },
+  city:     { elevation: { cap: 0.66, radius: 16 }, warp: 0.35 },
+  castle:   { elevation: { cap: 0.68, radius: 8 },  warp: 0.3 },
+  farm:     { elevation: { cap: 0.62, radius: 12 }, moisture: { delta: +0.08, radius: 5 }, warp: 0.35 },
+  temple:   { elevation: { cap: 0.66, radius: 8 },  warp: 0.3 },
+  port:     { elevation: { cap: 0.62, radius: 8 },  moisture: { delta: +0.20, radius: 8 }, warp: 0.3 },
   // Plains/steppe: dry the ground enough to clear forest into open grassland over a
   // broad radius, slightly warmer (a wind-scoured steppe, not woodland). Only POIs
   // with a `position` exert influence, so a region-only meadow stays base noise.
@@ -373,11 +395,24 @@ export const POI_INFLUENCES: Record<string, InfluenceSpec> = {
   // forest), temp→0.52 (lifts spurious lowland tundra to grassland; can't melt the
   // parts that sit on actual mountain — elevation > 0.76 forces Mountain biome).
   plains:   { moisture: { delta: -0.30, radius: 15, target: 0.30 }, temperature: { delta: +0.10, radius: 15, target: 0.52 }, regionFill: true },
-  ruins:    {},
-  tower:    {},
-  mine:     {},
-  tavern:   {},
+  ruins:    { elevation: { cap: 0.70, radius: 5 }, warp: 0.3 },
+  tower:    { elevation: { cap: 0.70, radius: 5 }, warp: 0.3 },  // a watch site keeps its rise
+  mine:     { elevation: { cap: 0.68, radius: 5 }, warp: 0.3 },  // a worked terrace at the shaft mouth
+  tavern:   { elevation: { cap: 0.66, radius: 6 }, warp: 0.3 },
 };
+
+/** POI types whose `region` box exerts field influence (everything else treats
+ *  `region` as layout metadata only — the seed validator warns about that). */
+export const REGION_FILL_POI_TYPES: readonly string[] =
+  Object.entries(POI_INFLUENCES).filter(([, s]) => s.regionFill).map(([t]) => t);
+
+/** POI types that stamp NO terrain influence at all (settlements etc. — their
+ *  expression is buildings/zones, not fields). Used by the seed doctor to tell
+ *  "type is terrain-inert by design" from "type was skipped by a typo". */
+export const FIELD_INERT_POI_TYPES: readonly string[] =
+  Object.entries(POI_INFLUENCES)
+    .filter(([, s]) => !s.elevation && !s.moisture && !s.temperature)
+    .map(([t]) => t);
 
 // ─── Apply influences ─────────────────────────────────────────────────────────
 
@@ -441,7 +476,18 @@ export function applyPoiInfluences(
 
     // Elevation is always a point feature (or skipped for a region-only POI).
     if (poi.position) {
-      applyFieldInfluence(fields.elevation, spec.elevation, px, py, width, height, seed, scale, warp, elevationScale, seaLevel);
+      // Author-facing height: `size` can grow the summit (summitSizeBoost), and a
+      // per-POI `summitM` (metres above sea) overrides the type's height outright —
+      // the seed's ONE lever for "a taller volcano / a shorter mountain".
+      let elevSpec = spec.elevation;
+      if (elevSpec?.summit !== undefined) {
+        const relief = config.reliefM ?? 48;
+        let summit = elevSpec.summit + (elevSpec.summitSizeBoost ?? 0) * (scale - 1);
+        if (poi.summitM !== undefined) summit = seaLevel + poi.summitM / relief;
+        summit = Math.min(0.99, Math.max(seaLevel + 0.02, summit));
+        if (summit !== elevSpec.summit) elevSpec = { ...elevSpec, summit };
+      }
+      applyFieldInfluence(fields.elevation, elevSpec, px, py, width, height, seed, scale, warp, elevationScale, seaLevel);
     }
     stampClimate(fields.moisture,    spec.moisture);
     stampClimate(fields.temperature, spec.temperature);
@@ -613,10 +659,23 @@ function applyFieldInfluence(
           if (t < cf) { const u = t / cf; raised -= crater * (1 - u * u); }
         }
         if (raised > cur) field[idx] = raised > 1 ? 1 : raised;
+      } else if (spec.cap !== undefined) {
+        // GROUND-EASING: lower-only lerp toward `cap` — carve a livable pocket
+        // out of whatever the noise rolled, never raise or touch low ground.
+        const t = d / radius;
+        const w = Math.pow(Math.cos(t * (Math.PI / 2)), 1.6);
+        const cur = field[idx];
+        if (cur > spec.cap && cur >= seaLevel) {
+          field[idx] = cur + (spec.cap - cur) * w;
+        }
       } else {
-        // Cosine falloff: full influence at center, 0 at edge
+        // Cosine falloff: full influence at center, 0 at edge. `target` lerps
+        // toward an absolute value (threshold-guaranteeing, same as the region
+        // path); plain `delta` stays additive.
         const t = Math.cos((d / radius) * (Math.PI / 2));
-        field[idx] = Math.max(0, Math.min(1, field[idx] + delta * t));
+        const cur = field[idx];
+        const next = spec.target !== undefined ? cur + (spec.target - cur) * t : cur + delta * t;
+        field[idx] = Math.max(0, Math.min(1, next));
       }
     }
   }

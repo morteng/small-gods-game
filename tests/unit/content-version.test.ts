@@ -6,7 +6,7 @@ describe('content-version constants', () => {
     expect(ART_RECIPE_VERSION).toBe('v24');
   });
 
-  it('declares the current world content version (75: parcel graph + parcel-aware walls)', () => {
-    expect(WORLD_CONTENT_VERSION).toBe(75);
+  it('declares the current world content version (76: volcanic identity + world doctor + ground easing)', () => {
+    expect(WORLD_CONTENT_VERSION).toBe(76);
   });
 });

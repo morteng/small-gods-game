@@ -14,8 +14,10 @@
  * Operates on the existing TerrainField; does not modify it.
  */
 
-import type { TerrainField, TerrainConfig, HydrologyResult } from '@/core/types';
+import type { TerrainField, TerrainConfig, HydrologyResult, POI } from '@/core/types';
 import { WaterType } from '@/core/types';
+import { MOUNTAIN_HEIGHT_M } from './biomes';
+import { SIZE_SCALE, POI_INFLUENCES } from './poi-influence';
 
 export const DEFAULT_RIVER_FLOW_THRESHOLD = 560;
 // The cell count the default threshold was tuned on (128×96). A FIXED threshold on a much
@@ -62,6 +64,49 @@ export interface HydrologyOptions {
    * river or none).
    */
   riverFlowThreshold?: number;
+  /**
+   * Cells where standing water EVAPORATES (volcano heat) — see
+   * {@link buildVolcanoScorchMask}. Both the worldgen pass (map-generator) and
+   * the render-path recompute (hydrology-store) must pass the SAME mask or the
+   * rendered water diverges from the tiles.
+   */
+  scorchMask?: Uint8Array | null;
+}
+
+/**
+ * Cells too scorched by a volcano for standing water: within a volcano POI's
+ * heat radius (the influence spec's temperature disc, size-scaled) AND at
+ * mountain height (the crater/rim/upper cone — foothill ponds survive). Pure
+ * geometry over (pois, elevation), so every caller derives it identically
+ * without needing the POI-influenced temperature field.
+ */
+export function buildVolcanoScorchMask(
+  pois: POI[] | null | undefined,
+  width: number,
+  height: number,
+  elevation: Float32Array,
+  seaLevel: number,
+  reliefM: number,
+): Uint8Array | null {
+  const volcanoes = (pois ?? []).filter((p) => p.type === 'volcano' && p.position);
+  if (volcanoes.length === 0) return null;
+  const heatRadius = POI_INFLUENCES.volcano?.temperature?.radius ?? 18;
+  const mask = new Uint8Array(width * height);
+  for (const v of volcanoes) {
+    const r = heatRadius * (SIZE_SCALE[v.size ?? 'medium'] ?? 1);
+    const x0 = Math.max(0, Math.floor(v.position!.x - r));
+    const x1 = Math.min(width - 1, Math.ceil(v.position!.x + r));
+    const y0 = Math.max(0, Math.floor(v.position!.y - r));
+    const y1 = Math.min(height - 1, Math.ceil(v.position!.y + r));
+    for (let y = y0; y <= y1; y++) {
+      for (let x = x0; x <= x1; x++) {
+        if (Math.hypot(x - v.position!.x, y - v.position!.y) > r) continue;
+        const i = y * width + x;
+        if ((elevation[i] - seaLevel) * reliefM >= MOUNTAIN_HEIGHT_M) mask[i] = 1;
+      }
+    }
+  }
+  return mask;
 }
 
 /**
@@ -327,12 +372,19 @@ export function generateHydrology(
   const flowDirX = new Float32Array(total);
   const flowDirY = new Float32Array(total);
   const widthArr = new Float32Array(total);
+  const scorchMask = options.scorchMask;
   for (let i = 0; i < total; i++) {
     const belowSea = elevation[i] < seaLevel;
     const standingFill = W[i] - elevation[i] > LAKE_MIN_FILL;
+    // VOLCANIC DRY-OUT: a summit crater is a guaranteed closed basin, so pit-fill
+    // would pond a caldera lake in EVERY volcano. Cells under the scorch mask
+    // (see buildVolcanoScorchMask) evaporate standing water — the crater stays a
+    // dry ash bowl. A cool extinct caldera (no volcano POI) still ponds, so an
+    // authored crater lake remains possible.
+    const scorching = scorchMask != null && scorchMask[i] === 1;
     if (oceanMask[i]) {
       waterType[i] = WaterType.Ocean; waterMask[i] = 1; surfaceW[i] = seaLevel;
-    } else if (standingFill || belowSea) {
+    } else if ((standingFill || belowSea) && !scorching) {
       // inland filled basin, or an enclosed sub-sea depression
       waterType[i] = WaterType.Lake; waterMask[i] = 1;
       surfaceW[i] = standingFill ? W[i] : seaLevel;

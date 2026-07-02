@@ -114,6 +114,25 @@ server.registerTool('lint_world',
   { description: 'Run the connectome linter over the generated world: structured diagnostics (errors / warnings / pressure points) like a compiler. Catches building overlaps, roads or barriers through buildings, parallel roads between the same places, and oversubscribed junctions. Returns severity counts, per-rule tallies, and each finding with its locus (entities/edges/nodes/tiles), metrics, and any suggestedFix verb — the lint → fix → re-lint loop.' },
   () => run(() => client.query('connectomeDiagnostics')));
 
+server.registerTool('lint_seed',
+  { description: 'WORLD DOCTOR — offline evaluation of an authored world-seed JSON, no browser needed. Runs schema validation (typo\'d POI types, dead fields, out-of-range sizes), island layout (final coordinates), then full worldgen, and returns per-POI ground truth (position after layout, apex height in metres, biome, building count, crater ponding) plus complaints (severity + rule + suggestedFix): a POI drowned in the sea, a volcano reading as an alpine peak, a settlement that produced no buildings, a region biome that never took. THE feedback loop for authoring/editing world seeds: author → lint_seed → revise until PASS.',
+    inputSchema: {
+      seed: z.string().optional().describe('World-seed JSON as a string. Omit to lint the shipped default world.'),
+      genSeed: z.number().optional().describe('Terrain generation seed (default 12345). Try a couple of values — the live game rolls a random one.'),
+    } },
+  async ({ seed, genSeed }): Promise<ToolResult> => {
+    try {
+      // In-process — deliberately NOT via the bus: seeds are lintable before any
+      // game exists. Lazy import keeps server startup instant.
+      const { diagnoseWorldSeed } = await import('@/world/world-doctor');
+      const { readFileSync } = await import('node:fs');
+      const ws = seed ? JSON.parse(seed) : JSON.parse(readFileSync('public/data/worlds/default.json', 'utf8'));
+      return asText(await diagnoseWorldSeed(ws, genSeed ?? 12345));
+    } catch (e) {
+      return { content: [{ type: 'text', text: `error: ${(e as Error).message}` }], isError: true };
+    }
+  });
+
 server.registerTool('screenshot',
   { description: 'Capture the current game canvas as a PNG image.' },
   async (): Promise<ToolResult> => {

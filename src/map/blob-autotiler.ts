@@ -56,6 +56,8 @@ const TERRAIN_GROUPS: Record<string, string> = {
   rocky:        'rocky',
   cliffs:       'rocky',
   quarry:       'rocky',
+  volcanic_rock:'rocky',
+  ash:          'dirt',
   // Swamp group (renders like water for blob transitions)
   swamp:        'water',
 };
