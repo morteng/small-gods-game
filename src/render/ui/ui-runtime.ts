@@ -22,7 +22,8 @@ import type { UiDrawGroup } from '@/render/ui/ui-batcher';
 import { SettingsIsland } from '@/render/ui/ui-settings-island';
 import type { ProviderConfig } from '@/llm/provider-factory';
 import type { StorySession, Stage } from '@/story/story-session';
-import type { BeliefPowerView, InboxItem } from '@/game/game-query';
+import type { UiSpec, UiSpecBlock, UiSpecChoice } from '@/story/uispec';
+import type { BeliefPowerView, InboxItem, InspectorView } from '@/game/game-query';
 import type { SiteCardView } from '@/game/causal-site-view';
 
 /** Bigger-font multipliers (× the integer DPR scale). The S1 demo drew at 1×s
@@ -55,6 +56,21 @@ export interface UiRuntimeHooks {
   getBeliefPowers?: () => BeliefPowerView[];
   /** Cast an unlocked power (the Game picks/uses the current target). */
   onCastPower?: (verb: string) => void;
+  /** Verb-first targeting in progress (reticle), or null — drives the aim hint bar. */
+  getTargeting?: () => { label: string } | null;
+  /** Top ranked affordances for whatever the cursor rests on — queried ONCE per
+   *  dwell and frozen (the game resolves + freezes the target). Null ⇒ no popover. */
+  getHoverAffordances?: () => { chips: HoverChipView[] } | null;
+  /** Fire a hover-popover chip (the game acts on its frozen hover target). */
+  onHoverChip?: (verb: string) => void;
+
+  // ── P3.8: the target-first inspector (zoom-in focus surface) ──
+  /** The inspector payload for the current selection, or null (no selection). */
+  getInspector?: () => InspectorView | null;
+  /** Cast a verb from the inspector's affordance list (acts on the selection). */
+  onInspectorCast?: (verb: string) => void;
+  /** Dismiss the inspector (clears the selection). */
+  onCloseInspector?: () => void;
   /** The triageable divine-inbox items, salience-ranked (default []). */
   getInbox?: () => InboxItem[];
   /** Triage: act on an item (route to the matching divine action). */
@@ -85,6 +101,34 @@ type Section = 'settings' | null;
 /** A device-px rect (the DOM island's reserved region). */
 interface Rect { x: number; y: number; w: number; h: number }
 
+/** A hover-popover chip (game-derived; the runtime only draws + reports clicks). */
+export interface HoverChipView {
+  verb: string;
+  label: string;
+  cost: number;
+  unlocked: boolean;
+  affordable: boolean;
+  why: string | null;
+}
+
+/** A frozen hover popover: the chips + the cursor anchor + the last-drawn rect. */
+interface HoverPopover { ax: number; ay: number; chips: HoverChipView[]; rect: Rect }
+
+/** Dwell before the hover popover appears (ms) + the grace margin (device px) that
+ *  keeps it open as the cursor travels from the anchor onto the chips. */
+const HOVER_DWELL_MS = 120;
+const HOVER_GRACE_PX = 24;
+
+/** Injectable timer seam (real timers in the app; a manual clock in tests). */
+export interface UiTimers {
+  set: (fn: () => void, ms: number) => number;
+  clear: (id: number) => void;
+}
+const REAL_TIMERS: UiTimers = {
+  set: (fn, ms) => setTimeout(fn, ms) as unknown as number,
+  clear: (id) => clearTimeout(id),
+};
+
 export class UiRuntime {
   private ctx = new UiContext();
   private hooks: UiRuntimeHooks = {};
@@ -99,6 +143,10 @@ export class UiRuntime {
   /** The story card currently on screen (modal narrative beat), or null. */
   private story: StorySession | null = null;
 
+  /** A declarative UiSpec card on screen (the whisper card, P4), or null. Modal like
+   *  the story card; a chosen option calls `onChoose` then dismisses. */
+  private card: { spec: UiSpec; onChoose: (choice: UiSpecChoice) => void } | null = null;
+
   /** Open bottom-left side panel (powers / inbox), or null. Non-modal. */
   private panel: Panel = null;
   /** Inbox item ids the player has dismissed this session (local triage state). */
@@ -112,6 +160,16 @@ export class UiRuntime {
    *  drawMenu each frame (a local — avoids `this`-field narrowing pitfalls). */
   private island: SettingsIsland | null = null;
 
+  /** The frozen hover popover currently on screen (dwell → freeze), or null. */
+  private hover: HoverPopover | null = null;
+  /** Pending dwell timer id (armed on move, fires the popover), or null. */
+  private dwellId: number | null = null;
+  private readonly timers: UiTimers;
+
+  constructor(timers: UiTimers = REAL_TIMERS) {
+    this.timers = timers;
+  }
+
   configure(hooks: UiRuntimeHooks): void {
     this.hooks = { ...this.hooks, ...hooks };
   }
@@ -123,6 +181,32 @@ export class UiRuntime {
   /** Whether a story card is currently on screen. */
   hasStory(): boolean {
     return this.story !== null;
+  }
+
+  /** Whether a declarative UiSpec card (whisper card) is currently on screen. */
+  hasCard(): boolean {
+    return this.card !== null;
+  }
+
+  /**
+   * Present a declarative `UiSpec` as a modal card (the whisper card, P4). A chosen
+   * option invokes `onChoose(choice)` — the game emits the choice's pre-paired
+   * `Command` — then the card dismisses. Supersedes any hover popover, pauses the
+   * sim (`onStoryToggle`), and is mutually exclusive with a running story session.
+   */
+  presentUiSpec(spec: UiSpec, onChoose: (choice: UiSpecChoice) => void): void {
+    this.clearHover();
+    this.story = null; // the card and the runner-driven story card never coexist
+    this.card = { spec, onChoose };
+    this.hooks.onStoryToggle?.(true);
+    this.hooks.requestRender?.();
+  }
+
+  private dismissCard(): void {
+    if (!this.card) return;
+    this.card = null;
+    this.hooks.onStoryToggle?.(false);
+    this.hooks.requestRender?.();
   }
 
   /**
@@ -138,6 +222,8 @@ export class UiRuntime {
       return; // no eligible storylet / bad id — never crash the frame
     }
     if (session.done) return;
+    this.clearHover(); // the modal card supersedes any hover popover
+    this.card = null;  // mutually exclusive with a declarative UiSpec card
     this.story = session;
     this.hooks.onStoryToggle?.(true);
     this.hooks.requestRender?.();
@@ -147,7 +233,7 @@ export class UiRuntime {
    *  an open story card are modal (eat everything); the HUD only eats taps on its
    *  own widgets. */
   consumesPointer(px: number, py: number): boolean {
-    if (this.menuOpen || this.story) return true;
+    if (this.menuOpen || this.story || this.card) return true;
     return this.lastHits.some((h) => px >= h.x && px < h.x + h.w && py >= h.y && py < h.y + h.h);
   }
 
@@ -160,7 +246,49 @@ export class UiRuntime {
   pointerMove(px: number, py: number): void {
     this.ptr.x = px;
     this.ptr.y = py;
+    this.updateHover(px, py);
     this.hooks.requestRender?.();
+  }
+
+  /** Hover-popover lifecycle on move: a shown popover stays while the cursor is in
+   *  its grace zone; otherwise (re)arm the dwell timer. Suppressed while a modal
+   *  (menu / story card) owns the screen. */
+  private updateHover(px: number, py: number): void {
+    if (this.menuOpen || this.story || this.card) { this.clearHover(); return; }
+    if (this.hover) {
+      if (this.withinGrace(px, py)) return; // sticky — don't re-dwell under the card
+      this.hover = null;
+    }
+    if (this.dwellId != null) this.timers.clear(this.dwellId);
+    this.dwellId = this.timers.set(() => { this.dwellId = null; this.handleDwell(); }, HOVER_DWELL_MS);
+  }
+
+  /** Dwell elapsed: ask the game for the frozen target's chips; show if any. Public
+   *  so tests can fire the dwell deterministically without a real timer. */
+  handleDwell(): void {
+    if (this.menuOpen || this.story || this.card) return;
+    const hv = this.hooks.getHoverAffordances?.();
+    if (!hv || hv.chips.length === 0) return;
+    // rect is filled at draw time; the anchor freezes the target the game resolved.
+    this.hover = { ax: this.ptr.x, ay: this.ptr.y, chips: hv.chips, rect: { x: 0, y: 0, w: 0, h: 0 } };
+    this.hooks.requestRender?.();
+  }
+
+  private clearHover(): void {
+    if (this.dwellId != null) { this.timers.clear(this.dwellId); this.dwellId = null; }
+    this.hover = null;
+  }
+
+  /** Whether (px,py) is within the shown popover's rect or the anchor→card corridor
+   *  (plus a margin) — the grace zone that keeps the popover from flickering shut. */
+  private withinGrace(px: number, py: number): boolean {
+    const h = this.hover;
+    if (!h) return false;
+    const x0 = Math.min(h.rect.x, h.ax) - HOVER_GRACE_PX;
+    const y0 = Math.min(h.rect.y, h.ay) - HOVER_GRACE_PX;
+    const x1 = Math.max(h.rect.x + h.rect.w, h.ax) + HOVER_GRACE_PX;
+    const y1 = Math.max(h.rect.y + h.rect.h, h.ay) + HOVER_GRACE_PX;
+    return px >= x0 && px <= x1 && py >= y0 && py <= y1;
   }
   pointerDown(px: number, py: number): void {
     this.ptr.x = px;
@@ -182,6 +310,7 @@ export class UiRuntime {
   }
   private setMenu(open: boolean): void {
     if (open === this.menuOpen) return;
+    this.clearHover(); // a popover must never linger behind the modal menu
     this.menuOpen = open;
     this.section = open ? 'settings' : null;
     this.hooks.onMenuToggle?.(open);
@@ -225,7 +354,8 @@ export class UiRuntime {
     };
     const key = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        this.toggleMenu();
+        if (this.card) this.dismissCard(); // Esc cancels the card before it reaches the menu
+        else this.toggleMenu();
         e.stopPropagation(); // pause menu owns Esc (supersedes time-bar dismiss)
         e.preventDefault();
       }
@@ -262,6 +392,9 @@ export class UiRuntime {
     if (this.menuOpen) {
       const clickAt = input.released ? { x: input.px, y: input.py } : null;
       r = this.drawMenu(c, wDev, hDev, s, clickAt);
+    } else if (this.card) {
+      const clickAt = input.released ? { x: input.px, y: input.py } : null;
+      this.renderUiSpec(c, wDev, hDev, s, this.card.spec, clickAt);
     } else if (this.story) {
       this.drawStory(c, wDev, hDev, s);
     } else {
@@ -336,7 +469,63 @@ export class UiRuntime {
     const site = this.hooks.getSelectedSite?.() ?? null;
     if (site) this.drawSiteCard(c, w, s, site);
 
-    this.drawCameraCluster(c, w, h, s);
+    // ── P3.8 inspector: a right-docked panel for the current selection ──
+    const inspector = this.hooks.getInspector?.() ?? null;
+    const inspectorW = inspector ? this.drawInspector(c, w, h, s, inspector) : 0;
+
+    // camera cluster tucks left of the inspector so the two never overlap.
+    this.drawCameraCluster(c, w, h, s, inspectorW ? inspectorW + 16 * s : 0);
+
+    // ── verb-first targeting: a top-centre reticle hint while aiming a cast ──
+    const aim = this.hooks.getTargeting?.() ?? null;
+    if (aim) {
+      const fs = FS_BODY * s;
+      const msg = `◎ CHOOSE A TARGET — ${aim.label.toUpperCase()}   ·   right-click to cancel`;
+      const tw = Math.ceil(c.measure(msg, fs)) + 32 * s;
+      const th = 34 * s;
+      const tx = Math.round((w - tw) / 2);
+      const ty = 16 * s;
+      c.panel(tx, ty, tw, th);
+      c.label(msg, tx + 16 * s, ty + (th - c.lineHeight(fs)) / 2, fs, UI_PALETTE.accent);
+    }
+
+    // ── hover popover: top ranked affordance chips at the cursor (dwell → freeze) ──
+    if (this.hover && !aim) this.drawHover(c, w, h, s);
+  }
+
+  /** The frozen hover popover: a small stack of chip buttons anchored at the cursor.
+   *  A castable chip fires its verb; locked / unaffordable chips render disabled. */
+  private drawHover(c: UiContext, w: number, h: number, s: number): void {
+    const pop = this.hover!;
+    const fs = FS_BODY * s;
+    const pad = 10 * s;
+    const rowH = 26 * s;
+    const gap = 4 * s;
+    const labels = pop.chips.map((ch) => hoverChipLabel(ch));
+    let widest = 0;
+    for (const l of labels) widest = Math.max(widest, c.measure(l, fs));
+    const pw = Math.ceil(widest) + pad * 2;
+    const ph = pad * 2 + pop.chips.length * rowH + Math.max(0, pop.chips.length - 1) * gap;
+
+    // anchor lower-right of the cursor, clamped to stay on-screen
+    let x = pop.ax + 18 * s;
+    let y = pop.ay + 18 * s;
+    if (x + pw > w) x = Math.max(0, pop.ax - pw - 18 * s);
+    if (y + ph > h) y = Math.max(0, h - ph);
+    pop.rect = { x, y, w: pw, h: ph };
+
+    c.panel(x, y, pw, ph);
+    let ry = y + pad;
+    pop.chips.forEach((ch, i) => {
+      const castable = ch.unlocked && ch.affordable;
+      if (c.button(`hover.chip.${ch.verb}`, labels[i], x + pad, ry, pw - pad * 2, rowH,
+        { scale: fs, disabled: !castable })) {
+        this.hooks.onHoverChip?.(ch.verb);
+        this.clearHover();
+        this.hooks.requestRender?.();
+      }
+      ry += rowH + gap;
+    });
   }
 
   // ── W-I-d: the selected causal-site card (a focused ephemeral place) ────────
@@ -379,6 +568,100 @@ export class UiRuntime {
     y += barH + 10 * s;
 
     c.label(view.status, innerX, y, fsBody, UI_PALETTE.textDim);
+  }
+
+  // ── P3.8 inspector: the target-first focus surface (zoom-in) ────────────────
+  // A right-docked panel for the current selection (npc / settlement): full legible
+  // state, what the target believes YOU command (the belief-loop feedback), and the
+  // complete divine vocabulary here — locked/unaffordable verbs greyed, castable
+  // ones fire on the selection. The WebGPU heir to legacy `npc-attention-panel.ts`.
+  // Returns the panel width (device px) so the camera cluster can tuck beside it.
+  private drawInspector(c: UiContext, w: number, h: number, s: number, view: InspectorView): number {
+    const pad = 16 * s;
+    const pw = 340 * s;
+    const px = w - pw - pad;
+    const top = pad;
+    const ph = h - pad * 2;
+    c.panel(px, top, pw, ph);
+    c.hotspot('ui.inspector', px, top, pw, ph); // eat clicks on the body (no deselect)
+
+    const fsName = 3 * s;
+    const fsBody = FS_BODY * s;
+    const lh = c.lineHeight(fsBody);
+    const innerX = px + 20 * s;
+    const innerW = pw - 40 * s;
+    const bottom = top + ph - pad;
+    let y = top + 20 * s;
+
+    // title + subtitle + close
+    c.label(view.title, innerX, y, fsName, UI_PALETTE.text);
+    const close = 22 * s;
+    if (c.button('ui.inspector.close', '✕', px + pw - close - 12 * s, top + 12 * s, close, close, { scale: fsBody })) {
+      this.hooks.onCloseInspector?.();
+    }
+    y += c.lineHeight(fsName) + 4 * s;
+    c.label(view.subtitle, innerX, y, fsBody, UI_PALETTE.textDim);
+    y += lh + 14 * s;
+
+    // The affordance block is the actionable payload, so reserve its height at the
+    // bottom first: state + domains then flow top-down into the remaining space and
+    // break before they'd collide with it (no scroll yet → content budgets, spec §11).
+    const bh = 30 * s;
+    const rowGap = 8 * s;
+    const acts = view.affordances;
+    const actsH = acts.length ? (10 * s + lh + 8 * s) + acts.length * (bh + rowGap) : 0;
+    const contentLimit = bottom - actsH;
+
+    // A compact single-line bar: label left, a fill track on the right of the row.
+    const barH = 7 * s;
+    const rowH = lh + 8 * s;
+    const bar = (label: string, value: number, accent: readonly [number, number, number, number]): void => {
+      c.label(label, innerX, y, fsBody, UI_PALETTE.textDim);
+      const trackW = innerW * 0.42;
+      const trackX = innerX + innerW - trackW;
+      const trackY = y + Math.round((lh - barH) / 2);
+      c.rect(trackX, trackY, trackW, barH, withAlpha(shade(UI_PALETTE.panelBg, -0.3), 0.9));
+      const fillW = Math.round(trackW * clamp01(value));
+      if (fillW > 0) c.rect(trackX, trackY, fillW, barH, accent);
+      y += rowH;
+    };
+
+    for (const b of view.state) {
+      if (y + rowH > contentLimit) break;
+      bar(b.label, b.value, UI_PALETTE.accent);
+    }
+
+    // what the target believes YOU command — the belief-loop feedback
+    if (view.domains.length && y + rowH * 2 <= contentLimit) {
+      y += 6 * s;
+      c.label('THEY BELIEVE YOU COMMAND', innerX, y, fsBody, UI_PALETTE.accent);
+      y += rowH;
+      for (const d of view.domains) {
+        if (y + rowH > contentLimit) break;
+        bar(d.label, d.value, [0.55, 0.7, 0.9, 1]); // storm-sky (a belief you hold over them)
+      }
+    }
+
+    // the full divine vocabulary — flows right after the state (reserved above so it
+    // always fits). Target-first: the panel IS the subject, so a button needs only
+    // the verb (the full `describe()` "whisper to <id>" would overflow the panel).
+    if (acts.length) {
+      let ay = y + 10 * s;
+      c.label('ACTS', innerX, ay, fsBody, UI_PALETTE.textDim);
+      ay += lh + 8 * s;
+      for (const a of acts) {
+        const castable = a.unlocked && a.affordable;
+        const cost = a.cost > 0 ? ` · ${a.cost}` : '';
+        const lock = a.unlocked ? '' : ' 🔒';
+        const label = `${a.verb.replace(/_/g, ' ').toUpperCase()}${cost}${lock}`;
+        if (c.button(`inspector.cast.${a.verb}`, label, innerX, ay, innerW, bh, { scale: fsBody, disabled: !castable })) {
+          this.hooks.onInspectorCast?.(a.verb);
+        }
+        ay += bh + rowGap;
+      }
+    }
+
+    return pw;
   }
 
   // ── skill panel: belief-granted powers, locked→unlocked with progress ──────
@@ -573,9 +856,99 @@ export class UiRuntime {
     this.hooks.requestRender?.();
   }
 
+  // ── the declarative UiSpec card (whisper card, P4): a centred modal that walks
+  //    the spec's body blocks and offers its choices. The renderer owns ALL layout;
+  //    the spec only carries content (spec §3). Content BUDGETS (no scroll yet):
+  //    the choice stack is bottom-reserved so it always fits; body flows into the
+  //    remainder and stops before it would collide. A pre-paired `Command` rides
+  //    each choice, so picking one just hands it back to the game to `bus.emit()`.
+  private renderUiSpec(c: UiContext, w: number, h: number, s: number, spec: UiSpec, clickAt: { x: number; y: number } | null): void {
+    // dim the world so the card reads as the focus
+    c.rect(0, 0, w, h, withAlpha([0, 0, 0, 1], 0.55));
+
+    const fsTitle = 3 * s;
+    const fsBody = FS_BODY * s;
+    const lh = c.lineHeight(fsBody);
+
+    // centred card
+    const cw = Math.min(w - 80 * s, 560 * s);
+    const cardH = Math.min(h - 80 * s, 520 * s);
+    const cx = Math.round((w - cw) / 2);
+    const cy = Math.round((h - cardH) / 2);
+    const cardRect: Rect = { x: cx, y: cy, w: cw, h: cardH };
+    c.panel(cx, cy, cw, cardH);
+    c.hotspot('card.body', cx, cy, cw, cardH); // eat clicks inside the card body
+
+    const innerX = cx + 28 * s;
+    const innerW = cw - 56 * s;
+    const bottom = cy + cardH - 22 * s;
+    let y = cy + 24 * s;
+
+    // title
+    c.label(spec.title, innerX, y, fsTitle, UI_PALETTE.text);
+    y += c.lineHeight(fsTitle) + 14 * s;
+
+    // reserve the choice stack at the bottom, then flow the body into the remainder
+    const bh = 32 * s;
+    const gap = 8 * s;
+    const n = spec.choices.length;
+    const stackH = n ? n * bh + (n - 1) * gap : 0;
+    const contentLimit = bottom - stackH - (n ? 14 * s : 0);
+
+    for (const b of spec.body) {
+      if (y >= contentLimit) break;
+      y = this.drawSpecBlock(c, b, innerX, y, innerW, fsBody, lh, s, contentLimit);
+    }
+
+    // choices — a bottom-anchored button stack; each hands its command back + closes
+    let by = bottom - stackH;
+    spec.choices.forEach((choice, i) => {
+      const label = choice.hint ? `${choice.text}  —  ${choice.hint}` : choice.text;
+      if (c.button(`card.choice.${i}`, label, innerX, by, innerW, bh, { scale: fsBody })) {
+        const onChoose = this.card?.onChoose;
+        this.dismissCard();
+        onChoose?.(choice);
+      }
+      by += bh + gap;
+    });
+
+    // a click on the dim backdrop (outside the card) cancels — no choice emitted
+    if (clickAt && !inRect(clickAt, cardRect)) this.dismissCard();
+  }
+
+  /** Walk one UiSpec body block; returns the y past it. */
+  private drawSpecBlock(c: UiContext, b: UiSpecBlock, x: number, y: number, w: number, fs: number, lh: number, s: number, limit: number): number {
+    switch (b.kind) {
+      case 'paragraph':
+        return this.drawWrapped(c, b.text, x, y, w, fs, UI_PALETTE.text) + 8 * s;
+      case 'npcLine': {
+        c.label(b.who.toUpperCase(), x, y, fs, UI_PALETTE.accent);
+        y += lh + 4 * s;
+        return this.drawWrapped(c, `“${b.text}”`, x, y, w, fs, UI_PALETTE.text) + 10 * s;
+      }
+      case 'omen':
+        return this.drawWrapped(c, `✦ ${b.text}`, x, y, w, fs, [0.55, 0.7, 0.9, 1]) + 8 * s;
+      case 'divider':
+        c.rect(x, y + 2 * s, w, Math.max(1, Math.round(s)), withAlpha(UI_PALETTE.textDim, 0.4));
+        return y + 10 * s;
+      case 'beliefBar': {
+        if (y + lh > limit) return y;
+        c.label(b.label, x, y, fs, UI_PALETTE.textDim);
+        const barH = 7 * s;
+        const trackW = w * 0.42;
+        const trackX = x + w - trackW;
+        const trackY = y + Math.round((lh - barH) / 2);
+        c.rect(trackX, trackY, trackW, barH, withAlpha(shade(UI_PALETTE.panelBg, -0.3), 0.9));
+        const fillW = Math.round(trackW * clamp01(b.value));
+        if (fillW > 0) c.rect(trackX, trackY, fillW, barH, UI_PALETTE.accent);
+        return y + lh + 8 * s;
+      }
+    }
+  }
+
   /** Right-edge zoom controls (in/out/fit/1:1) — the GPU port of the legacy DOM
    *  `cameraControls`. Drawn only when the camera hooks are wired. */
-  private drawCameraCluster(c: UiContext, w: number, h: number, s: number): void {
+  private drawCameraCluster(c: UiContext, w: number, h: number, s: number, rightInset = 0): void {
     const { onZoomIn, onZoomOut, onFitView, onZoomActual } = this.hooks;
     if (!onZoomIn || !onZoomOut || !onFitView || !onZoomActual) return;
 
@@ -590,7 +963,7 @@ export class UiRuntime {
       ['cam.fit', 'FIT', onFitView],
       ['cam.one', '1:1', onZoomActual],
     ];
-    const bx = w - bw - pad;
+    const bx = w - bw - pad - rightInset;
     // vertically centred cluster on the right edge
     let by = Math.round((h - (bh * rows.length + gap * (rows.length - 1))) / 2);
     for (const [id, label, fn] of rows) {
@@ -679,6 +1052,14 @@ export class UiRuntime {
 
 function inRect(p: { x: number; y: number }, r: Rect): boolean {
   return p.x >= r.x && p.x < r.x + r.w && p.y >= r.y && p.y < r.y + r.h;
+}
+
+/** Chip caption: "WHISPER · 1  (praying)" with a lock glyph when belief-gated. */
+function hoverChipLabel(ch: HoverChipView): string {
+  const cost = ch.cost > 0 ? ` · ${ch.cost}` : '';
+  const why = ch.why ? `  (${ch.why})` : '';
+  const lock = ch.unlocked ? '' : ' 🔒';
+  return `${ch.label.toUpperCase()}${cost}${why}${lock}`;
 }
 
 /** Inbox kind → dot colour (surfaced items override with the accent). */

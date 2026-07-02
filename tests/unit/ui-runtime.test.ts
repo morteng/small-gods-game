@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { UiRuntime } from '@/render/ui/ui-runtime';
 import { UiPage, type UiDrawGroup } from '@/render/ui/ui-batcher';
 import type { UiHit } from '@/render/ui/ui-context';
+import type { UiSpec, UiSpecChoice } from '@/story/uispec';
 
 const W = 1280, H = 720, DPR = 2;
 
@@ -155,5 +156,248 @@ describe('UiRuntime — HUD + pause menu', () => {
     const loSolid = totalVerts(lo.frame(W, H, DPR).filter((g) => g.page === UiPage.Solid));
     const hiSolid = totalVerts(hi.frame(W, H, DPR).filter((g) => g.page === UiPage.Solid));
     expect(hiSolid).toBeGreaterThan(loSolid); // the power fill quad only exists when power>0
+  });
+});
+
+// ── hover popover (P3): dwell → freeze → chip → fire ─────────────────────────────
+const CHIPS = [
+  { verb: 'answer_prayer', label: 'answer prayer', cost: 2, unlocked: true, affordable: true, why: 'praying' },
+  { verb: 'whisper', label: 'whisper', cost: 1, unlocked: true, affordable: true, why: null },
+  { verb: 'smite', label: 'smite', cost: 8, unlocked: false, affordable: true, why: null }, // belief-locked
+];
+/** A manual timer seam so dwell fires on demand (no real setTimeout in tests). */
+function manualTimers() {
+  let fn: (() => void) | null = null;
+  return {
+    timers: { set: (f: () => void) => { fn = f; return 1; }, clear: () => { fn = null; } },
+    fire: () => { const f = fn; fn = null; f?.(); },
+  };
+}
+
+describe('UiRuntime — hover popover', () => {
+  it('shows nothing until dwell elapses, then freezes the chips at the cursor', () => {
+    const rt = new UiRuntime(manualTimers().timers);
+    rt.configure({ getHoverAffordances: () => ({ chips: CHIPS }) });
+    rt.pointerMove(400, 400);
+    // before dwell: no popover chips drawn
+    rt.frame(W, H, DPR);
+    expect(rt.hitRegions().some((h) => h.id.startsWith('hover.chip.'))).toBe(false);
+    // dwell fires → popover appears
+    rt.handleDwell();
+    rt.frame(W, H, DPR);
+    const chipIds = rt.hitRegions().filter((h) => h.id.startsWith('hover.chip.')).map((h) => h.id).sort();
+    expect(chipIds).toEqual(['hover.chip.answer_prayer', 'hover.chip.smite', 'hover.chip.whisper']);
+  });
+
+  it('does not show a popover when the game reports no affordances', () => {
+    const rt = new UiRuntime(manualTimers().timers);
+    rt.configure({ getHoverAffordances: () => null });
+    rt.pointerMove(400, 400);
+    rt.handleDwell();
+    rt.frame(W, H, DPR);
+    expect(rt.hitRegions().some((h) => h.id.startsWith('hover.chip.'))).toBe(false);
+  });
+
+  it('clicking a castable chip fires its verb and dismisses the popover', () => {
+    const fired: string[] = [];
+    const rt = new UiRuntime(manualTimers().timers);
+    rt.configure({ getHoverAffordances: () => ({ chips: CHIPS }), onHoverChip: (v) => fired.push(v) });
+    rt.pointerMove(400, 400);
+    rt.handleDwell();
+    rt.frame(W, H, DPR);
+    const chip = rt.hitRegions().find((h) => h.id === 'hover.chip.answer_prayer')!;
+    click(rt, ...center(chip));
+    expect(fired).toEqual(['answer_prayer']);
+    // popover is gone on the next frame (the click frame already recorded its hits)
+    rt.frame(W, H, DPR);
+    expect(rt.hitRegions().some((h) => h.id.startsWith('hover.chip.'))).toBe(false);
+  });
+
+  it('a belief-locked chip is disabled and never fires', () => {
+    const fired: string[] = [];
+    const rt = new UiRuntime(manualTimers().timers);
+    rt.configure({ getHoverAffordances: () => ({ chips: CHIPS }), onHoverChip: (v) => fired.push(v) });
+    rt.pointerMove(400, 400);
+    rt.handleDwell();
+    rt.frame(W, H, DPR);
+    const chip = rt.hitRegions().find((h) => h.id === 'hover.chip.smite')!;
+    click(rt, ...center(chip));
+    expect(fired).toEqual([]); // disabled → no verb emitted
+  });
+
+  it('stays open while the cursor travels onto it, dismisses when it leaves (grace zone)', () => {
+    const rt = new UiRuntime(manualTimers().timers);
+    rt.configure({ getHoverAffordances: () => ({ chips: CHIPS }) });
+    rt.pointerMove(400, 400);
+    rt.handleDwell();
+    rt.frame(W, H, DPR);
+    const chip = rt.hitRegions().find((h) => h.id === 'hover.chip.whisper')!;
+    // move onto a chip → sticky (still drawn)
+    rt.pointerMove(...center(chip));
+    rt.frame(W, H, DPR);
+    expect(rt.hitRegions().some((h) => h.id.startsWith('hover.chip.'))).toBe(true);
+    // move far away → dismissed
+    rt.pointerMove(50, 50);
+    rt.frame(W, H, DPR);
+    expect(rt.hitRegions().some((h) => h.id.startsWith('hover.chip.'))).toBe(false);
+  });
+
+  it('opening the menu clears any hover popover', () => {
+    const rt = new UiRuntime(manualTimers().timers);
+    rt.configure({ getHoverAffordances: () => ({ chips: CHIPS }) });
+    rt.pointerMove(400, 400);
+    rt.handleDwell();
+    rt.toggleMenu(); // modal takes over
+    const groups = rt.frame(W, H, DPR);
+    expect(rt.hitRegions().some((h) => h.id.startsWith('hover.chip.'))).toBe(false);
+    expect(totalVerts(groups)).toBeGreaterThan(0); // menu still drew
+  });
+});
+
+// ── inspector (P3.8): target-first panel with state, domains + affordance casts ──
+const INSPECTOR = {
+  kind: 'npc' as const,
+  title: 'Ada',
+  subtitle: 'farmer · age 34 · idle',
+  state: [{ label: 'Faith', value: 0.8 }, { label: 'Meaning', value: 0.4 }],
+  domains: [{ label: 'Storm & Lightning', value: 0.3 }],
+  affordances: [
+    { verb: 'whisper', label: 'whisper', cost: 1, unlocked: true, affordable: true },
+    { verb: 'smite', label: 'smite', cost: 8, unlocked: false, affordable: true }, // belief-locked
+  ],
+};
+
+describe('UiRuntime — inspector', () => {
+  it('draws nothing when there is no selection', () => {
+    const rt = new UiRuntime();
+    rt.configure({ getInspector: () => null });
+    rt.frame(W, H, DPR);
+    expect(rt.hitRegions().some((h) => h.id === 'ui.inspector')).toBe(false);
+    expect(rt.hitRegions().some((h) => h.id.startsWith('inspector.cast.'))).toBe(false);
+  });
+
+  it('renders the panel with a close button and one cast row per affordance', () => {
+    const rt = new UiRuntime();
+    rt.configure({ getInspector: () => INSPECTOR });
+    rt.frame(W, H, DPR);
+    expect(rt.hitRegions().some((h) => h.id === 'ui.inspector')).toBe(true);
+    expect(rt.hitRegions().some((h) => h.id === 'ui.inspector.close')).toBe(true);
+    const casts = rt.hitRegions().filter((h) => h.id.startsWith('inspector.cast.')).map((h) => h.id).sort();
+    expect(casts).toEqual(['inspector.cast.smite', 'inspector.cast.whisper']);
+  });
+
+  it('clicking a castable affordance fires onInspectorCast', () => {
+    const fired: string[] = [];
+    const rt = new UiRuntime();
+    rt.configure({ getInspector: () => INSPECTOR, onInspectorCast: (v) => fired.push(v) });
+    rt.frame(W, H, DPR);
+    const whisper = rt.hitRegions().find((h) => h.id === 'inspector.cast.whisper')!;
+    click(rt, ...center(whisper));
+    expect(fired).toEqual(['whisper']);
+  });
+
+  it('a belief-locked affordance is disabled and never fires', () => {
+    const fired: string[] = [];
+    const rt = new UiRuntime();
+    rt.configure({ getInspector: () => INSPECTOR, onInspectorCast: (v) => fired.push(v) });
+    rt.frame(W, H, DPR);
+    const smite = rt.hitRegions().find((h) => h.id === 'inspector.cast.smite')!;
+    click(rt, ...center(smite));
+    expect(fired).toEqual([]);
+  });
+
+  it('the close button dismisses the inspector', () => {
+    let closed = 0;
+    const rt = new UiRuntime();
+    rt.configure({ getInspector: () => INSPECTOR, onCloseInspector: () => closed++ });
+    rt.frame(W, H, DPR);
+    const close = rt.hitRegions().find((h) => h.id === 'ui.inspector.close')!;
+    click(rt, ...center(close));
+    expect(closed).toBe(1);
+  });
+
+  it('tucks the camera cluster left of the inspector so they never overlap', () => {
+    const cam = { onZoomIn: () => {}, onZoomOut: () => {}, onFitView: () => {}, onZoomActual: () => {} };
+    const bare = new UiRuntime();
+    bare.configure({ ...cam, getInspector: () => null });
+    bare.frame(W, H, DPR);
+    const camX0 = bare.hitRegions().find((h) => h.id === 'cam.in')!.x;
+
+    const withPanel = new UiRuntime();
+    withPanel.configure({ ...cam, getInspector: () => INSPECTOR });
+    withPanel.frame(W, H, DPR);
+    const inspector = withPanel.hitRegions().find((h) => h.id === 'ui.inspector')!;
+    const camX1 = withPanel.hitRegions().find((h) => h.id === 'cam.in')!;
+    expect(camX1.x).toBeLessThan(camX0);            // shifted left
+    expect(camX1.x + camX1.w).toBeLessThanOrEqual(inspector.x); // clear of the panel
+  });
+});
+
+// ── P4: the declarative UiSpec card (whisper card) ──
+const CARD_SPEC: UiSpec = {
+  title: 'Whisper to Ada',
+  body: [
+    { kind: 'npcLine', who: 'Ada', text: 'Something out there means us harm.' },
+    { kind: 'paragraph', text: 'Their surface thoughts lie open to your voice.' },
+    { kind: 'divider' },
+    { kind: 'beliefBar', label: 'Faith', value: 0.6 },
+  ],
+  choices: [
+    { text: 'Soothe their safety', hint: 'eases the deficit',
+      command: { verb: 'whisper', source: 'player', target: { kind: 'npc', npcId: 'n1' }, params: { slant: 'need:safety' }, seq: 0 } },
+    { text: 'Affirm you are near', hint: 'builds understanding',
+      command: { verb: 'whisper', source: 'player', target: { kind: 'npc', npcId: 'n1' }, params: { slant: 'affirm' }, seq: 0 } },
+  ],
+};
+
+describe('UiRuntime — whisper card (UiSpec)', () => {
+  it('presents a modal card: body + one button per choice', () => {
+    const rt = new UiRuntime();
+    rt.presentUiSpec(CARD_SPEC, () => {});
+    rt.frame(W, H, DPR);
+    expect(rt.hasCard()).toBe(true);
+    expect(rt.hitRegions().some((h) => h.id === 'card.body')).toBe(true);
+    const choices = rt.hitRegions().filter((h) => h.id.startsWith('card.choice.')).map((h) => h.id).sort();
+    expect(choices).toEqual(['card.choice.0', 'card.choice.1']);
+    expect(rt.consumesPointer(W / 2, H / 2)).toBe(true); // modal: eats world input
+  });
+
+  it('choosing an option fires onChoose with that choice and dismisses (pause→resume)', () => {
+    const picked: UiSpecChoice[] = [];
+    const toggles: boolean[] = [];
+    const rt = new UiRuntime();
+    rt.configure({ onStoryToggle: (a) => toggles.push(a) });
+    rt.presentUiSpec(CARD_SPEC, (c) => picked.push(c));
+    rt.frame(W, H, DPR);
+    const b0 = rt.hitRegions().find((h) => h.id === 'card.choice.0')!;
+    click(rt, ...center(b0));
+    expect(picked).toHaveLength(1);
+    expect(picked[0].command.params?.slant).toBe('need:safety');
+    expect(rt.hasCard()).toBe(false);
+    expect(toggles).toEqual([true, false]);
+  });
+
+  it('a backdrop click cancels the card with no choice emitted', () => {
+    const picked: UiSpecChoice[] = [];
+    const rt = new UiRuntime();
+    rt.presentUiSpec(CARD_SPEC, (c) => picked.push(c));
+    rt.frame(W, H, DPR);
+    click(rt, 8, 8); // top-left corner = outside the centred card
+    expect(picked).toEqual([]);
+    expect(rt.hasCard()).toBe(false);
+  });
+
+  it('presenting the card clears an open hover popover and suppresses new ones', () => {
+    const rt = new UiRuntime();
+    rt.configure({ getHoverAffordances: () => ({ chips: [{ verb: 'whisper', label: 'Whisper', cost: 1, unlocked: true, affordable: true, why: null }] }) });
+    rt.pointerMove(400, 400);
+    rt.handleDwell();
+    rt.frame(W, H, DPR);
+    expect(rt.hitRegions().some((h) => h.id.startsWith('hover.chip.'))).toBe(true);
+    rt.presentUiSpec(CARD_SPEC, () => {});
+    rt.handleDwell(); // suppressed while the card owns the screen
+    rt.frame(W, H, DPR);
+    expect(rt.hitRegions().some((h) => h.id.startsWith('hover.chip.'))).toBe(false);
+    expect(rt.hasCard()).toBe(true);
   });
 });

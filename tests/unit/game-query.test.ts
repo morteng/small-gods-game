@@ -34,6 +34,7 @@ function setup(): GameState {
   // A durable believer (faith>0.3 && devotion>0.4), home in poi1.
   state.world.addEntity(npc('n1', 'Ada', 1, 1, {
     beliefs: { player: { faith: 0.8, understanding: 0.5, devotion: 0.6 } },
+    domains: { player: { storm: 0.1 } }, // she half-suspects the angry-sky (below smite's unlock)
     homePoiId: 'poi1', lineageId: 'n1',
   }));
   // A non-believer (low faith).
@@ -134,5 +135,46 @@ describe('game-query', () => {
 
   it('screenshot is empty headless (no canvas)', () => {
     expect(q.screenshot()).toBe('');
+  });
+
+  // ── P3.8: the target-first inspector ──
+  describe('inspect', () => {
+    it('reads an NPC: state bars, domain-belief feedback, and the full vocabulary', () => {
+      const v = q.inspect({ kind: 'npc', npcId: 'n1' })!;
+      expect(v.kind).toBe('npc');
+      expect(v.title).toBe('Ada');
+      expect(v.subtitle).toContain('farmer');
+      // belief scalars ride the state bars
+      expect(v.state.find(b => b.label === 'Faith')!.value).toBeCloseTo(0.8);
+      expect(v.state.some(b => b.label === 'Meaning')).toBe(true);
+      // domain-belief feedback: what SHE believes YOU command
+      const storm = v.domains.find(d => d.label === 'Storm & Lightning')!;
+      expect(storm.value).toBeCloseTo(0.1);
+      // the full vocabulary: whisper open, smite present but belief-locked
+      const whisper = v.affordances.find(a => a.verb === 'whisper')!;
+      const smite = v.affordances.find(a => a.verb === 'smite')!;
+      expect(whisper.unlocked).toBe(true);
+      expect(smite.unlocked).toBe(false); // conviction below the storm threshold
+    });
+
+    it('reads a settlement: place verbs + the congregation-scale conviction', () => {
+      const v = q.inspect({ kind: 'settlement', poiId: 'poi1' })!;
+      expect(v.kind).toBe('settlement');
+      expect(v.title).toBe('Hollow');
+      expect(v.subtitle).toContain('souls');
+      expect(v.affordances.some(a => a.verb === 'omen')).toBe(true);
+      // aggregate conviction is the settlement's loop feedback (weighted, so < 0.1)
+      const storm = v.domains.find(d => d.label === 'Storm & Lightning')!;
+      expect(storm.value).toBeGreaterThan(0);
+      expect(storm.value).toBeLessThan(0.1);
+    });
+
+    it('returns null for an unresolvable target and is JSON-serializable', () => {
+      expect(q.inspect({ kind: 'npc', npcId: 'nope' })).toBeNull();
+      expect(q.inspect({ kind: 'settlement', poiId: 'absent' })).toBeNull();
+      expect(q.inspect({ kind: 'none' })).toBeNull();
+      const round = JSON.parse(JSON.stringify(q.inspect({ kind: 'npc', npcId: 'n1' })));
+      expect(round.title).toBe('Ada');
+    });
   });
 });

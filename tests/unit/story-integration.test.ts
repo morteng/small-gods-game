@@ -15,7 +15,7 @@ function fakeBus(verbs: string[], queryData: Record<string, unknown> = {}): {
 } {
   const emitted: Command[] = [];
   const caps: CapabilityView[] = verbs.map((verb) => ({
-    verb: verb as Command['verb'], tier: 'divine', cost: 1, targetKind: 'npc', implemented: true,
+    verb: verb as Command['verb'], tier: 'divine', cost: 1, targetKind: 'npc', targetKinds: ['npc'], implemented: true,
   }));
   const bus = {
     emit: (cmd: Omit<Command, 'seq'>) => emitted.push({ ...cmd, seq: emitted.length }),
