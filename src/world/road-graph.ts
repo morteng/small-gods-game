@@ -325,6 +325,12 @@ function applyEdge(tiles: Tile[][], edge: RoadEdge, width: number): void {
     } else if (WATER_TYPES.has(t.type)) {
       // Walker chose to stop at water (autoBridge=false); leave it untouched.
       continue;
+    } else if (t.type === 'bridge') {
+      // A later road reusing an earlier road's crossing walks over the already-stamped
+      // bridge deck. The walker never flagged it (the tile reads as road, not water), so
+      // stamping the plain surface here would UN-BRIDGE the crossing — a dirt ford over
+      // the channel. Bridges stay bridges.
+      continue;
     } else {
       preserveBaseType(t);
       t.type = roadTile;
@@ -374,6 +380,10 @@ export function applyRoadMask(tiles: Tile[][], mask: RoadMask): void {
       t.type = 'bridge';
       t.walkable = true;
     } else if (WATER_TYPES.has(t.type)) {
+      continue;
+    } else if (t.type === 'bridge') {
+      // Same rule as applyEdge: a later write over an earlier bridge deck must not
+      // downgrade it to a plain road (a dirt ford over the channel).
       continue;
     } else {
       preserveBaseType(t);

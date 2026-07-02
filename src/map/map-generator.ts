@@ -401,7 +401,12 @@ export async function generateWithNoise(
       for (let dx = -2; dx <= 2 && !near; dx++) for (let dy = -2; dy <= 2 && !near; dy++) {
         if (isRoadType(tiles[a.y + dy]?.[a.x + dx]?.type)) near = true;
       }
-      if (!near) wireGateToRoad({ x: a.x, y: a.y } as import('@/world/anchors').Anchor, spurMap);
+      if (!near) {
+        // Spur routing honours the same obstacles as the approach walker: never through
+        // a curtain, never across water (wire-gate itself refuses WATER_TYPES).
+        wireGateToRoad({ x: a.x, y: a.y } as import('@/world/anchors').Anchor, spurMap, 12,
+          (x, y) => approach.wallObstacles.has(`${x},${y}`));
+      }
     }
 
     // River-crossing SITES (unified connectome, v0): where a road bridges water, compose a

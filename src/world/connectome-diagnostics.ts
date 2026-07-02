@@ -371,6 +371,36 @@ const buildingOnWater: DiagnosticRule = {
   },
 };
 
+/** ERROR — a plain road tile OVERWROTE water: its preserved `baseType` is a water type but
+ *  its type is dirt/stone road, not `bridge` — a BRIDGELESS FORD. This is exact, not a
+ *  proximity heuristic (a causeway on a dry spit between two banks is legitimate): every
+ *  road stamp records what it covered via `preserveBaseType`, so a ford is precisely a
+ *  road whose underlay is water. Caught in the wild: a second road reusing an earlier
+ *  road's crossing used to stamp the shared bridge deck back to dirt (applyEdge). */
+const roadFordsWater: DiagnosticRule = {
+  id: 'road.on-water',
+  severity: 'error',
+  description: 'A road tile overwrote open water without a bridge (bridgeless ford).',
+  evaluate(ctx) {
+    const { tiles, width, height } = ctx.map;
+    const hits: { x: number; y: number }[] = [];
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const t = tiles[y]?.[x];
+        if (!t || (t.type !== 'dirt_road' && t.type !== 'stone_road')) continue;
+        if (t.baseType && WATER_TYPES.has(t.baseType)) hits.push({ x, y });
+      }
+    }
+    if (!hits.length) return [];
+    return [{
+      rule: this.id, severity: this.severity,
+      message: `road tiles ford open water at ${hits.length} cell(s) with no bridge`,
+      locus: { tiles: hits.slice(0, 24) },
+      metrics: { cells: hits.length },
+    }];
+  },
+};
+
 /** Distance (tiles) to the nearest WATER tile within a box of radius `maxR` of (x,y), or
  *  Infinity if none. A small local scan — cheap at worldgen-lint scale. */
 function nearestWaterDist(map: DiagnosticContext['map'], x: number, y: number, maxR: number): number {
@@ -647,6 +677,7 @@ export const DEFAULT_RULES: DiagnosticRule[] = [
   barrierOverWater,
   roadThroughBuilding,
   buildingOnWater,
+  roadFordsWater,
   redundantParallelRoad,
   parallelCorridorRoad,
   riversideUnbankedRoad,

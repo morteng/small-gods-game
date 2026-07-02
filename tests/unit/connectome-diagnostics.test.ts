@@ -144,12 +144,29 @@ describe('connectome diagnostics', () => {
     expect(evaluateConnectome(mkCtx(false)).byRule['barrier.over-water'] ?? 0).toBe(0);
   });
 
+  it('flags a bridgeless ford (road whose baseType is water), not a bridge or a causeway', () => {
+    const mk = (mid: { type: string; baseType?: string }): DiagnosticContext => {
+      const tiles = Array.from({ length: 8 }, (_, y) => Array.from({ length: 8 }, (_, x) =>
+        (y === 4 && x === 4 ? { ...mid } : { type: y === 4 ? 'river' : 'grass' })));
+      return {
+        world: { query: () => [] } as unknown as DiagnosticContext['world'],
+        map: { width: 8, height: 8, tiles, roadGraph: { nodes: [], edges: [] } } as unknown as DiagnosticContext['map'],
+      };
+    };
+    // A road stamped OVER water (baseType preserved as river) is a ford.
+    expect(evaluateConnectome(mk({ type: 'dirt_road', baseType: 'river' })).byRule['road.on-water']).toBe(1);
+    // A bridge over the same water is the sanctioned crossing.
+    expect(evaluateConnectome(mk({ type: 'bridge', baseType: 'river' })).byRule['road.on-water'] ?? 0).toBe(0);
+    // A road on a dry spit between waters (baseType grass — a causeway) is legitimate.
+    expect(evaluateConnectome(mk({ type: 'dirt_road', baseType: 'grass' })).byRule['road.on-water'] ?? 0).toBe(0);
+  });
+
   it('exposes a stable default rule set', () => {
     expect(DEFAULT_RULES.map((r) => r.id)).toEqual([
       'building.overlap', 'barrier.through-building', 'barrier.over-water',
-      'road.through-building', 'building.on-water', 'road.redundant-parallel',
-      'road.parallel-corridor', 'road.riverside-unbanked', 'junction.oversubscribed',
-      'fort.building-outside-enclosure', 'fort.gate-obstructed',
+      'road.through-building', 'building.on-water', 'road.on-water',
+      'road.redundant-parallel', 'road.parallel-corridor', 'road.riverside-unbanked',
+      'junction.oversubscribed', 'fort.building-outside-enclosure', 'fort.gate-obstructed',
       'fort.ward-unreachable', 'fort.spoil-imbalance',
     ]);
   });

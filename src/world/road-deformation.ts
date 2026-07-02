@@ -40,6 +40,8 @@ import { buildBarrierDeformations, barrierFoundationCount } from '@/world/barrie
 import { buildEarthworkDeformations } from '@/world/earthwork-deformation';
 import { getHydrologyResult } from '@/world/hydrology-store';
 import { smoothCenterline, type Pt } from '@/terrain/road-centerline';
+import { filletApproach } from '@/world/anchor-fillet';
+import { realGateProfiles, type GateApproachProfile } from '@/world/connectome/gate-approach';
 import { resolveSettlementEra, isEra, type Era } from '@/core/era';
 import {
   deriveRoadState,
@@ -203,6 +205,59 @@ export interface EdgeRoadProfile {
   x: RoadCrossSection;
 }
 
+// ── Gate-approach fillet: roads arrive SQUARE through town gates ────────────────────
+// The gate waypoint threading forces the route to the gate point but nothing aligns the
+// approach tangent to the gate axis, so the centerline kinks at the waypoint node. Here
+// (the shared seam BOTH the carve and the render ribbon read) any edge end that lands at
+// a real gate gets its tail re-shaped by the roads-article fillet so it arrives heading
+// straight through the opening. The integer cell polyline (tile mask, bridge indices) is
+// untouched — the fillet stays within the corridor width of the original tail.
+
+const gateProfileCache = new WeakMap<object, GateApproachProfile[]>();
+function gateProfilesFor(map: GameMap): GateApproachProfile[] {
+  const runs = map.barrierRuns;
+  if (!runs || runs.length === 0) return [];
+  let hit = gateProfileCache.get(runs);
+  if (!hit) { hit = realGateProfiles(runs); gateProfileCache.set(runs, hit); }
+  return hit;
+}
+
+/** A centerline end within this many tiles of a real gate point is a gate approach. */
+const GATE_SNAP_TILES = 1.6;
+
+/** Re-shape ONE end (the last point) of `line` to arrive square at gate `g`. */
+function filletEndOntoGate(line: Pt[], g: GateApproachProfile): Pt[] {
+  // Which side does this edge approach from? Probe ~2 tiles back along the line: outside
+  // (along +facing) arrives heading INTO the town (targetFacing = outward); an interior
+  // street reaching the gate from inside arrives heading OUT (targetFacing = inward).
+  let acc = 0, probe = line[0];
+  for (let i = line.length - 1; i > 0; i--) {
+    acc += Math.hypot(line[i].x - line[i - 1].x, line[i].y - line[i - 1].y);
+    if (acc >= 2) { probe = line[i - 1]; break; }
+  }
+  const side = (probe.x - g.x) * g.facing[0] + (probe.y - g.y) * g.facing[1];
+  const facing: [number, number] = side >= 0 ? g.facing : [-g.facing[0], -g.facing[1]];
+  return filletApproach(line, { x: g.x, y: g.y }, facing);
+}
+
+function filletOntoGates(centerline: Pt[], gates: GateApproachProfile[]): Pt[] {
+  if (gates.length === 0 || centerline.length < 2) return centerline;
+  const near = (p: Pt): GateApproachProfile | undefined => {
+    let best: GateApproachProfile | undefined, bestD = GATE_SNAP_TILES;
+    for (const g of gates) {
+      const d = Math.hypot(g.x - p.x, g.y - p.y);
+      if (d < bestD) { bestD = d; best = g; }
+    }
+    return best;
+  };
+  let line = centerline;
+  const tail = near(line[line.length - 1]);
+  if (tail) line = filletEndOntoGate(line, tail);
+  const head = near(line[0]);
+  if (head) line = filletEndOntoGate(line.slice().reverse(), head).reverse();
+  return line;
+}
+
 /** Derive one road edge's smoothed centerline + RoadState + cross-section, or null. */
 export function edgeRoadProfile(
   map: GameMap,
@@ -212,7 +267,7 @@ export function edgeRoadProfile(
   dynamicFor?: (edge: RoadEdge) => RoadDynamics | undefined,
 ): EdgeRoadProfile | null {
   if (edge.feature !== 'road' || edge.polyline.length < 2) return null;
-  const centerline = smoothCenterline(edge.polyline);
+  const centerline = filletOntoGates(smoothCenterline(edge.polyline), gateProfilesFor(map));
   if (centerline.length < 2) return null;
   const fromPoi = poiById.get(nodeById.get(edge.a)?.poiRef ?? '');
   const toPoi = poiById.get(nodeById.get(edge.b)?.poiRef ?? '');

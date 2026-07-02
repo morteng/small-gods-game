@@ -91,4 +91,41 @@ describe('wireGateToRoad', () => {
     }
     expect(carvedCount).toBe(0);
   });
+
+  it('never fords water: routes around a river instead of carving across it', () => {
+    const map = makeGrassMapWithRoad();
+    // A river across y=2 with one dry gap at x=6 — the straight line gate→road is wet.
+    for (let x = 0; x < 6; x++) { map.tiles[2][x].type = 'river'; map.tiles[2][x].walkable = false; }
+    const gate: Anchor = { kind: 'gate', x: 3, y: 4, facing: [0, -1], width: 1 };
+    const ok = wireGateToRoad(gate, map);
+    expect(ok).toBe(true);
+    // No river tile was overwritten; the spur threads the dry gap at x=6.
+    for (let x = 0; x < 6; x++) expect(map.tiles[2][x].type).toBe('river');
+    expect(ROAD_TYPES.has(map.tiles[2][6].type)).toBe(true);
+  });
+
+  it('declines (leaves the map unchanged) when water fully separates gate from road', () => {
+    const map = makeGrassMapWithRoad();
+    for (let x = 0; x < 7; x++) { map.tiles[2][x].type = 'river'; map.tiles[2][x].walkable = false; }
+    const gate: Anchor = { kind: 'gate', x: 3, y: 4, facing: [0, -1], width: 1 };
+    expect(wireGateToRoad(gate, map)).toBe(false);
+    for (let y = 1; y <= 4; y++) for (let x = 0; x < 7; x++) {
+      expect(ROAD_TYPES.has(map.tiles[y][x].type)).toBe(false);
+    }
+  });
+
+  it('never pierces blocked cells (a wall curtain), routing around them', () => {
+    const map = makeGrassMapWithRoad();
+    // A curtain across y=2 with an opening at x=5.
+    const curtain = new Set(['0,2', '1,2', '2,2', '3,2', '4,2', '6,2']);
+    const gate: Anchor = { kind: 'gate', x: 3, y: 4, facing: [0, -1], width: 1 };
+    const ok = wireGateToRoad(gate, map, 12, (x, y) => curtain.has(`${x},${y}`));
+    expect(ok).toBe(true);
+    // Nothing carved on curtain cells; the spur threads the opening at (5,2).
+    for (const c of curtain) {
+      const [x, y] = c.split(',').map(Number);
+      expect(ROAD_TYPES.has(map.tiles[y][x].type)).toBe(false);
+    }
+    expect(ROAD_TYPES.has(map.tiles[2][5].type)).toBe(true);
+  });
 });
