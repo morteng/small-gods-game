@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { UiRuntime } from '@/render/ui/ui-runtime';
-import { UiPage, type UiDrawGroup } from '@/render/ui/ui-batcher';
+import { UiRuntime, type AlertPinView } from '@/render/ui/ui-runtime';
+import { UiPage, UiSpace, type UiDrawGroup } from '@/render/ui/ui-batcher';
 import type { UiHit } from '@/render/ui/ui-context';
 import type { UiSpec, UiSpecChoice } from '@/story/uispec';
 
@@ -399,5 +399,98 @@ describe('UiRuntime — whisper card (UiSpec)', () => {
     rt.frame(W, H, DPR);
     expect(rt.hitRegions().some((h) => h.id.startsWith('hover.chip.'))).toBe(false);
     expect(rt.hasCard()).toBe(true);
+  });
+});
+
+// ── P5: the zoomed-out alert pins (inbox as world-anchored markers) ──
+const PINS: AlertPinView[] = [
+  { id: 'opp:vale', kind: 'opportunity', x: 400, y: 300, surfaced: false },
+  { id: 'prayer:n1', kind: 'prayer', x: 800, y: 500, surfaced: true },
+];
+
+describe('UiRuntime — alert pins (P5 zoom-out band)', () => {
+  it('draws no pins when the game reports the zoomed-in band (null)', () => {
+    const rt = new UiRuntime();
+    rt.configure({ getAlertPins: () => null });
+    rt.frame(W, H, DPR);
+    expect(rt.hitRegions().some((h) => h.id.startsWith('alert.'))).toBe(false);
+  });
+
+  it('renders one clickable pin per item with a hotspot at its centre', () => {
+    const rt = new UiRuntime();
+    rt.configure({ getAlertPins: () => PINS });
+    rt.frame(W, H, DPR);
+    const ids = rt.hitRegions().filter((h) => h.id.startsWith('alert.')).map((h) => h.id).sort();
+    expect(ids).toEqual(['alert.opp:vale', 'alert.prayer:n1']);
+    // the hotspot straddles the reported device-px centre
+    const hit = rt.hitRegions().find((h) => h.id === 'alert.opp:vale')!;
+    expect(hit.x).toBeLessThanOrEqual(400);
+    expect(hit.x + hit.w).toBeGreaterThanOrEqual(400);
+    expect(hit.y).toBeLessThanOrEqual(300);
+    expect(hit.y + hit.h).toBeGreaterThanOrEqual(300);
+  });
+
+  it('emits the pin markers into a UiSpace.World draw group', () => {
+    const rt = new UiRuntime();
+    rt.configure({ getAlertPins: () => PINS });
+    const groups = rt.frame(W, H, DPR);
+    const world = groups.filter((g) => g.space === UiSpace.World);
+    expect(world.length).toBeGreaterThan(0);
+    expect(totalVerts(world)).toBeGreaterThan(0);
+  });
+
+  it('a pin over the world is consumed by the UI (so a click does not deselect/pan)', () => {
+    const rt = new UiRuntime();
+    rt.configure({ getAlertPins: () => PINS });
+    rt.frame(W, H, DPR);
+    expect(rt.consumesPointer(400, 300)).toBe(true);   // over a pin
+    expect(rt.consumesPointer(40, 40)).toBe(false);     // empty world
+  });
+
+  it('clicking a pin fires onAlertPin with its id', () => {
+    const fired: string[] = [];
+    const rt = new UiRuntime();
+    rt.configure({ getAlertPins: () => PINS, onAlertPin: (id) => fired.push(id) });
+    rt.frame(W, H, DPR);
+    const hit = rt.hitRegions().find((h) => h.id === 'alert.prayer:n1')!;
+    click(rt, ...center(hit));
+    expect(fired).toEqual(['prayer:n1']);
+  });
+
+  it('a modal (menu) suppresses the pins entirely', () => {
+    const rt = new UiRuntime();
+    rt.configure({ getAlertPins: () => PINS });
+    rt.toggleMenu();
+    rt.frame(W, H, DPR);
+    expect(rt.hitRegions().some((h) => h.id.startsWith('alert.'))).toBe(false);
+  });
+
+  it('renders the selection-survives-zoom pin and reports its click', () => {
+    const fired: string[] = [];
+    const rt = new UiRuntime();
+    rt.configure({
+      getAlertPins: () => [{ id: 'selection', kind: 'selection', x: 600, y: 400, surfaced: false }],
+      onAlertPin: (id) => fired.push(id),
+    });
+    rt.frame(W, H, DPR);
+    const hit = rt.hitRegions().find((h) => h.id === 'alert.selection')!;
+    expect(hit).toBeTruthy();
+    click(rt, ...center(hit));
+    expect(fired).toEqual(['selection']);
+  });
+
+  it('overlapping pins fire ONE action per click — the topmost (selection > surfaced > plain)', () => {
+    const fired: string[] = [];
+    const rt = new UiRuntime();
+    rt.configure({
+      getAlertPins: () => [
+        { id: 'prayer:a', kind: 'prayer' as const, x: 600, y: 400, surfaced: false },
+        { id: 'opp:b', kind: 'opportunity' as const, x: 602, y: 401, surfaced: true }, // overlaps, surfaced → on top
+      ],
+      onAlertPin: (id) => fired.push(id),
+    });
+    rt.frame(W, H, DPR);
+    click(rt, 601, 400); // inside both hotspots
+    expect(fired).toEqual(['opp:b']); // exactly one action, the topmost pin
   });
 });

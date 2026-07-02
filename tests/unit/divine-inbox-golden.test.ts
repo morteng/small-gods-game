@@ -68,6 +68,40 @@ describe('divineInbox — P0 golden (byte-identical across scoreAffordance extra
   });
 });
 
+// ── P5: world anchors on inbox items (drive the zoomed-out alert pins) ──────────
+describe('divineInbox — P5 anchor derivation', () => {
+  it('derives npc / settlement anchors and omits the anchor for placeless threats', () => {
+    const world = makeWorld();
+    const state = createState();
+    state.world = world;
+    state.spirits.set('rival', rival('rival'));
+    const praying = addNpc(world, 'pray-hi', 11, { faith: 0.8, activity: 'worship' });
+    world.updateEntity(praying.id, { x: 3, y: 7 }); // dual-index safe position move
+    addNpc(world, 'apostate', 33, { faith: 0.1, rivalId: 'rival', rivalFaith: 0.6 });
+    world.activeEvents.set('vale', [activeEvent('drought', 'vale', 0.9)]);
+    state.worldSeed = {
+      name: 'w', size: { width: 10, height: 10 }, biome: 'temperate',
+      pois: [{ id: 'vale', type: 'village', name: 'Vale', position: { x: 5, y: 4 } }],
+      connections: [], constraints: [],
+    } as unknown as typeof state.worldSeed;
+
+    const inbox = createGameQuery({ state }).divineInbox();
+    const byId = new Map(inbox.map((it) => [it.id, it]));
+    expect(byId.get('prayer:pray-hi')?.anchor).toEqual({ x: 3, y: 7 });   // npc → entity pos
+    expect(byId.get('opp:vale')?.anchor).toEqual({ x: 5, y: 4 });         // settlement → poi pos
+    expect(byId.get('threat:rival')?.anchor).toBeUndefined();             // none → omitted
+  });
+
+  it('omits the anchor when a settlement poi has no resolvable position', () => {
+    const world = makeWorld();
+    const state = createState();
+    state.world = world;
+    world.activeEvents.set('vale', [activeEvent('drought', 'vale', 0.9)]);
+    const inbox = createGameQuery({ state }).divineInbox(); // no worldSeed at all
+    expect(inbox.find((it) => it.id === 'opp:vale')?.anchor).toBeUndefined();
+  });
+});
+
 // ── the extracted salience brain, directly (shared by inbox + hover P3) ─────────
 describe('scoreAffordance — the shared salience brain', () => {
   it('reproduces the inbox formulas per situation kind', () => {

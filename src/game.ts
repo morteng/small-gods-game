@@ -82,7 +82,10 @@ import { mountChrome, mountPastVeil, type ChromeHandle } from '@/ui/chrome';
 import { mountTimeChip, type TimeChipHandle } from '@/ui/panels/time-chip';
 import { mountTimeBar, type TimeBarHandle } from '@/ui/panels/time-bar';
 import type { RenderContextDeps } from '@/game/render-context';
-import { applyFollowCamera } from '@/game/camera-follow';
+import { applyFollowCamera, applyCameraFly } from '@/game/camera-follow';
+import { zoomBand, type ZoomBand } from '@/game/affordance/zoom-band';
+import { projectAlertPins, projectPinCentre, PIN_SELECTION_ID } from '@/game/affordance/alert-pins';
+import type { AlertPinView } from '@/render/ui/ui-runtime';
 import { LlmBackfillService } from '@/game/llm-backfill';
 import { FateBrainService } from '@/game/fate/fate-brain-service';
 import { FateTrigger } from '@/game/fate/fate-trigger';
@@ -93,6 +96,10 @@ import { createInteractionState } from '@/game/interaction-state';
 import { InteractionController } from '@/game/interaction-controller';
 
 const SESSION_CAP_USD = 2; // per-session live building-art spend cap
+
+/** P5 semantic zoom: the in-band zoom a zoomed-out alert-pin click flies to —
+ *  the 1/2 rung, the outermost rung that still reads as per-NPC chrome. */
+const ALERT_FLY_ZOOM = 0.5;
 
 export interface GameOptions {
   width?: number;
@@ -153,6 +160,9 @@ export class Game {
   /** Cinematic-camera state carried from onFrame → onRender (the cinematic camera owns the
    *  view while active, so the normal follow-camera is skipped that frame). */
   private lastCinematic = false;
+  /** P5 semantic-zoom: the last committed attention band (in/out), carried across
+   *  frames so `zoomBand`'s hysteresis can't flicker at the boundary rung. */
+  private zoomBandState: ZoomBand = 'in';
   /** Rendered-frame FPS meter (always sampling; cheap). Read via `__perf.fps()`. The
    *  on-screen FPS pill is drawn on the canvas in gpu-render-frame (dev-only); there
    *  is no DOM HUD on the game surface. */
@@ -647,7 +657,7 @@ export class Game {
         this.state.followNpc = !this.state.followNpc;
         this.requestRender();
       },
-      onUserCameraInput: () => { this.state.followNpc = false; this.requestRender(); },
+      onUserCameraInput: () => { this.state.followNpc = false; this.state.cameraFly = null; this.requestRender(); },
       // Lift-aware picking: bind the live world's terrain so a click/hover resolves the
       // tile actually drawn under the cursor on slopes (not its flat sea-level shadow).
       getPickEnv: () => (this.state.map ? isoEnvForMap(this.state.map) : null),
@@ -723,6 +733,9 @@ export class Game {
           this.requestRender();
         }
       },
+      // ── P5 semantic zoom: the zoomed-out inbox as world-anchored alert pins ──
+      getAlertPins: () => this.alertPins(),
+      onAlertPin: (id) => this.flyToInboxItem(id),
       // ── W-I-d: selected causal-site card ──
       getSelectedSite: () => {
         const id = this.state.selectedCausalSiteId;
@@ -865,6 +878,8 @@ export class Game {
    */
   private hoverAffordances(): { chips: ReturnType<typeof hoverChips> } | null {
     if (this.interaction.targeting) return null;
+    // P5: no per-NPC chrome in the zoomed-out band — the alert pins own that altitude.
+    if (this.currentBand() === 'out') { this.hoverFrozen = null; return null; }
     const world = this.state.world;
     const tile = this.interaction.hoverTile;
     if (!world || !tile) { this.hoverFrozen = null; return null; }
@@ -959,8 +974,12 @@ export class Game {
 
   /** The inspector payload for the current selection (spec §8, P3.8) — an NPC, else
    *  the settlement a selected building belongs to. Null when nothing is selected
-   *  (a causal site has its own card). Freezes the target so CAST routes correctly. */
+   *  (a causal site has its own card). Freezes the target so CAST routes correctly.
+   *  P5: the inspector is a zoomed-IN surface — it collapses in the out-band WITHOUT
+   *  clearing the selection (its subject renders as a distinct alert pin instead, and
+   *  zooming back in restores the panel). */
   private inspectorView(): InspectorView | null {
+    if (this.currentBand() === 'out') return null;
     const target = this.inspectorTarget();
     if (!target) { this.inspectorFrozen = null; return null; }
     this.inspectorFrozen = target;
@@ -1022,8 +1041,71 @@ export class Game {
     return best;
   }
 
-  /** Triage "Act": route an inbox item to the matching divine action. */
+  // ── P5 semantic zoom: two attention bands on the zoom ladder ────────────────
+  /** The current attention band, updated with hysteresis so the boundary rung
+   *  can't oscillate. Zoomed-in = per-NPC chrome; zoomed-out = alert pins. */
+  private currentBand(): ZoomBand {
+    this.zoomBandState = zoomBand(this.state.camera.zoom, this.zoomBandState);
+    return this.zoomBandState;
+  }
+
+  /** The zoomed-OUT inbox surface: the top-N salience-ranked inbox items that have a
+   *  world anchor, projected to on-screen device-px pin centres — plus a distinct
+   *  `selection` pin for the collapsed inspector's subject (selection survives zoom,
+   *  spec §6). Null in the zoomed-IN band (the hover/inspector/list surfaces own that
+   *  altitude). Recomputed every frame from the live camera so pins track pan/zoom
+   *  with no lag or swim. */
+  private alertPins(): AlertPinView[] | null {
+    if (this.currentBand() !== 'out') return null;
+    const cam = this.state.camera;
+    const dpr = devicePixelRatio;
+    const pins = projectAlertPins(this.query.divineInbox(), cam, dpr);
+    // Selection-survives-zoom: the inspector collapsed at this altitude, so its
+    // subject renders as a distinct pin; clicking it flies back in (which restores
+    // the inspector — the selection itself was never cleared).
+    const sel = this.inspectorTarget();
+    const pos = sel ? this.targetWorldPos(sel) : null;
+    if (pos) {
+      pins.unshift({
+        id: PIN_SELECTION_ID,
+        kind: 'selection',
+        ...projectPinCentre({ x: Math.floor(pos.x), y: Math.floor(pos.y) }, cam, dpr),
+        surfaced: false,
+      });
+    }
+    return pins;
+  }
+
+  /** Click a zoomed-out alert pin. The selection pin just flies home (the inspector
+   *  re-opens on arrival because the selection survived); an inbox pin routes through
+   *  the SAME `actOnInbox` path as the list's ACT (never strand an action). */
+  private flyToInboxItem(id: string): void {
+    if (id === PIN_SELECTION_ID) {
+      const sel = this.inspectorTarget();
+      const pos = sel ? this.targetWorldPos(sel) : null;
+      if (pos) this.flyTo(Math.floor(pos.x), Math.floor(pos.y));
+      this.requestRender();
+      return;
+    }
+    const item = this.query.divineInbox().find((it) => it.id === id);
+    if (item) this.actOnInbox(item);
+    this.requestRender();
+  }
+
+  /** Queue the P5 camera-fly toward a tile anchor. Lands at an in-band zoom when
+   *  starting zoomed out; keeps the player's zoom when already in-band. Presentation
+   *  only — cancelled by any user pan/zoom (`onUserCameraInput`). */
+  private flyTo(tx: number, ty: number): void {
+    const zoom = this.currentBand() === 'in' ? this.state.camera.zoom : ALERT_FLY_ZOOM;
+    this.state.cameraFly = { tx, ty, zoom };
+  }
+
+  /** Triage "Act": route an inbox item to the matching divine action, flying the
+   *  camera to its anchor first (pin click AND list ACT — the action must never
+   *  strand off-screen). The fly is pure presentation; the emitted Command stream
+   *  is exactly what it was before P5. */
   private actOnInbox(item: InboxItem): void {
+    if (item.anchor) this.flyTo(item.anchor.x, item.anchor.y);
     if (item.target.kind === 'npc') {
       // A prayer → answer it; any other npc-target → a whisper (opens the whisper card).
       const verb: CommandVerb = item.kind === 'prayer' ? 'answer_prayer' : 'whisper';
@@ -1292,15 +1374,22 @@ export class Game {
     // demote to 'ambient' so the driver renders at a reduced cadence (~20 fps) instead of
     // burning full-scene GPU at display rate on an otherwise idle watery world. (A hard
     // pause forces all of these false, so the driver renders one frame then rests.)
-    if (!!live || this.timeline.isScrubbed || this.ui.divineEffects.isActive() || this.lastCinematic) return true;
+    if (!!live || this.timeline.isScrubbed || this.ui.divineEffects.isActive() || this.lastCinematic || this.state.cameraFly) return true;
     return !paused && this.waterAnimating() ? 'ambient' : false;
   }
 
   /** The expensive scene render + UI refresh — only invoked when onFrame reported animating
    *  or a one-shot requestRender is pending. */
   private onRender(deltaMs: number): void {
-    // The cinematic camera owns the view while active; otherwise follow normally.
-    if (!this.lastCinematic) applyFollowCamera(this.state, this.viewport());
+    // Camera authority order: a cinematic owns the view; else an in-flight P5 fly
+    // (alert-pin click) tweens to the anchor; else the normal NPC follow.
+    if (this.lastCinematic) {
+      // cinematic owns it
+    } else if (this.state.cameraFly) {
+      applyCameraFly(this.state, this.viewport());
+    } else {
+      applyFollowCamera(this.state, this.viewport());
+    }
     // Keep the island from being panned/zoomed fully off-screen.
     if (this.state.map) {
       const vp = this.viewport();

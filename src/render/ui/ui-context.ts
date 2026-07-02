@@ -75,15 +75,17 @@ export class UiContext {
     this.batcher.border(x, y, w, h, 1, this.palette.panelBorder);
   }
 
-  /** Solid screen-space fill (e.g. the presence-orb placeholder, accents). */
-  rect(x: number, y: number, w: number, h: number, color: Rgba): void {
-    this.batcher.rect(x, y, w, h, color);
+  /** Solid fill (screen-space by default; pass `UiSpace.World` for a map-anchored
+   *  mark whose geometry the caller has already projected to device px). */
+  rect(x: number, y: number, w: number, h: number, color: Rgba, space: UiSpace = UiSpace.Screen): void {
+    this.batcher.rect(x, y, w, h, color, space);
   }
 
-  /** Draw a text run at (x, y); `color` defaults to primary text. */
-  label(text: string, x: number, y: number, scale = 1, color: Rgba = this.palette.text): void {
+  /** Draw a text run at (x, y); `color` defaults to primary text. `space` selects
+   *  the screen HUD (default) vs a world-anchored group (P5 alert-pin glyphs). */
+  label(text: string, x: number, y: number, scale = 1, color: Rgba = this.palette.text, space: UiSpace = UiSpace.Screen): void {
     for (const q of this.font.layout(text, x, y, scale)) {
-      this.batcher.quad(q.x, q.y, q.w, q.h, color, q.page, UiSpace.Screen, q.uv);
+      this.batcher.quad(q.x, q.y, q.w, q.h, color, q.page, space, q.uv);
     }
   }
 

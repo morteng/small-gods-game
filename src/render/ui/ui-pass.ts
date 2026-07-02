@@ -7,9 +7,12 @@
 // vertex buffer. `record()` uploads + draws each `UiDrawGroup` into an already-
 // open render pass (mirrors how `shape-geometry` draws inside the entity pass).
 //
-// S1 renders SCREEN-space groups only; `World`-space groups (zoom-tracking
-// labels) are skipped until the view-proj matrix lands in S3. Groups whose page
-// has no atlas registered are skipped (no font/skin atlas exists yet in S1).
+// Renders BOTH spaces. World-anchored groups (P5 semantic-zoom alert pins) are
+// CPU-projected to device px in the runtime — the immediate-mode UI is rebuilt
+// every frame from the live camera, so a pin tracks pan/zoom with no swim and
+// stays pixel-snapped — so both spaces share this viewport→NDC vertex path; World
+// groups just draw FIRST (beneath the screen HUD). Groups whose page has no atlas
+// registered are skipped (only Solid exists in the gray-box build).
 
 import { UI_WGSL } from '@/render/ui/wgsl/ui-wgsl';
 import {
@@ -114,9 +117,16 @@ export class UiPass {
     return this.vbuf;
   }
 
-  /** Upload + draw all (screen-space) groups into an open render pass. */
+  /** Upload + draw all groups into an open render pass. World-anchored groups
+   *  (already CPU-projected to device px) draw beneath the screen-space HUD. */
   record(pass: GPURenderPassEncoder, groups: readonly UiDrawGroup[], w: number, h: number): void {
-    const drawable = groups.filter((g) => g.space === UiSpace.Screen && this.atlases.has(g.page));
+    const hasAtlas = (g: UiDrawGroup) => this.atlases.has(g.page);
+    // Painter order = submission order: World first (under), then Screen (over).
+    // Filter (not sort) so each space keeps its own emission order.
+    const drawable = [
+      ...groups.filter((g) => g.space === UiSpace.World && hasAtlas(g)),
+      ...groups.filter((g) => g.space === UiSpace.Screen && hasAtlas(g)),
+    ];
     if (drawable.length === 0) return;
 
     this.device.queue.writeBuffer(this.globalsBuf, 0, new Float32Array([w, h, 0, 0]));

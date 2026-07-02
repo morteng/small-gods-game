@@ -26,6 +26,10 @@ exports[`divineInbox — P0 golden (byte-identical across scoreAffordance extrac
     "title": "drought grips vale",
   },
   {
+    "anchor": {
+      "x": 0,
+      "y": 0,
+    },
     "detail": "A farmer pleads for an answer.",
     "id": "prayer:pray-hi",
     "kind": "prayer",
@@ -38,6 +42,10 @@ exports[`divineInbox — P0 golden (byte-identical across scoreAffordance extrac
     "title": "Pip is praying",
   },
   {
+    "anchor": {
+      "x": 0,
+      "y": 0,
+    },
     "detail": "A farmer pleads for an answer.",
     "id": "prayer:pray-lo",
     "kind": "prayer",
@@ -67,6 +75,10 @@ exports[`divineInbox — P0 golden (byte-identical across scoreAffordance extrac
     "title": "drought grips vale",
   },
   {
+    "anchor": {
+      "x": 0,
+      "y": 0,
+    },
     "detail": "A farmer pleads for an answer.",
     "id": "prayer:pray-hi",
     "kind": "prayer",
@@ -90,6 +102,10 @@ exports[`divineInbox — P0 golden (byte-identical across scoreAffordance extrac
     "title": "Rival courts the faithful",
   },
   {
+    "anchor": {
+      "x": 0,
+      "y": 0,
+    },
     "detail": "A farmer pleads for an answer.",
     "id": "prayer:pray-lo",
     "kind": "prayer",
