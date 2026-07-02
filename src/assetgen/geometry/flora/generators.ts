@@ -113,9 +113,10 @@ function spaceColPreset(crown: CrownSilhouette): Partial<SpaceColParams> {
     // Spreading oak: broad dense dome over a SHORT-but-visible stout trunk.
     case 'spreading':
       return { envelope: 'spreading', trunkFrac: 0.3, crownWidth: 0.46, foliageRadius: 0.13, attractors: 220, step: 0.055, coverage: 90, pipeExp: 2.7 };
-    // Weeping willow: umbrella dome + a hanging curtain of blob chains.
+    // Weeping willow: umbrella dome + a dense fine skirt of thin strands (the
+    // strand blob is SMALL — the curtain reads from many overlapping strands).
     case 'weeping':
-      return { envelope: 'weeping', trunkFrac: 0.32, crownWidth: 0.42, foliageRadius: 0.12, attractors: 120, step: 0.055, coverage: 40, curtainBottom: 0.08, curtainBlobR: 0.065, pipeExp: 2.6 };
+      return { envelope: 'weeping', trunkFrac: 0.32, crownWidth: 0.42, foliageRadius: 0.105, attractors: 120, step: 0.055, coverage: 75, curtainBottom: 0.08, curtainBlobR: 0.034, pipeExp: 2.6 };
     // Irregular (hazel/yew): lumpy dome with a hint of stem below.
     case 'irregular':
       return { envelope: 'irregular', trunkFrac: 0.18, crownWidth: 0.42, foliageRadius: 0.12, attractors: 200, step: 0.055, coverage: 80 };

@@ -71,7 +71,9 @@ export function envelopeMaxR(env: Envelope, z: number): number {
     case 'conical':   return 1 - z;                                        // straight cone, tip up
     case 'columnar':  return 0.55 * (1 - 0.15 * Math.abs(z - 0.5) * 2);    // tall, near-cylinder
     case 'spreading': return Math.sqrt(Math.max(0, 1 - Math.pow((z - 0.5) / 0.6, 2))) * (1 - 0.15 * z); // broad dome, base tucked
-    case 'weeping':   return Math.sqrt(Math.max(0, 1 - Math.pow((z - 0.55) / 0.48, 2))); // dome that CLOSES at the top (no flat box)
+    case 'weeping':   // dome widest at ~0.45 with a decisively ROUNDED apex (no flat mesa)
+      return Math.sqrt(Math.max(0, 1 - Math.pow((z - 0.45) / 0.62, 2)))
+        * (z > 0.6 ? 1 - 0.45 * (z - 0.6) / 0.4 : 1);
     case 'irregular': return Math.sqrt(Math.max(0, 1 - Math.pow(z * 2 - 1, 2))) * 0.85; // lumpy sphere (sampler jitters)
     case 'rounded':
     default:          return Math.sqrt(Math.max(0, 1 - Math.pow(z * 2 - 1, 2)));        // sphere
@@ -252,39 +254,50 @@ export function growSpaceColonization(params: Partial<SpaceColParams>, rng: Rng)
       const r = p.foliageRadius * (1.15 - 0.3 * rimFrac) * (0.85 + 0.3 * rng.next());
       leaves.push({ at: n.p, r: Math.min(r, blobCap(lz)) });
     }
+    if (p.envelope === 'weeping') {
+      // Apex cap: the rounded weeping dome closes hard at the top, where grown
+      // tips are sparse — cap it explicitly so no bare branch shows through.
+      leaves.push({ at: [0, 0, crownBase + crownSpan * 0.86], r: p.foliageRadius * 1.15 });
+      const capR = envelopeMaxR(p.envelope, 0.75) * halfW * 0.45;
+      const phiC = rng.next() * Math.PI * 2;
+      for (let i = 0; i < 3; i++) {
+        const phi = phiC + (i / 3) * Math.PI * 2;
+        leaves.push({
+          at: [Math.cos(phi) * capR, Math.sin(phi) * capR, crownBase + crownSpan * (0.72 + rng.next() * 0.08)],
+          r: p.foliageRadius * (0.9 + 0.25 * rng.next()),
+        });
+      }
+    }
   }
 
-  // ── Weeping curtain: chains of blobs hang from high RIM tips down towards
-  // curtainBottom, drifting slightly outward — the willow's cascade IS its envelope.
-  // Interior tips drop NO chains (invisible inside the curtain), and the strand
-  // count is HARD-CAPPED, outermost tips first: ~2 dozen strands draw the whole
-  // cascade; more only multiplied hidden facets (the prewarm hot spot — weeping
-  // species ran 5× every other tree's leaf count).
+  // ── Weeping curtain: an envelope-authored SKIRT of many THIN strands seeded
+  // around the FULL rim circumference (not just at grown branch tips, which gave
+  // 4–6 chunky "tentacle legs" with daylight between them). Strand count follows
+  // rim circumference / blob size so adjacent strands overlap into a closed
+  // fringe; each strand anchors ON the dome shoulder (skirt and dome read as one
+  // mass) and drapes DOWN and slightly INWARD to a ragged hem — a curtain, not
+  // splayed legs. Deterministic; strand blobs are small so the whole skirt stays
+  // inside the species' facet budget.
   if (p.curtainBottom >= 0 && p.curtainBlobR > 0) {
-    const rimTips: Array<{ n: Node; rimFrac: number }> = [];
-    for (const n of crownNodes) {
-      if (n.children.length !== 0) continue;
-      const lz = (n.p[2] - crownBase) / crownSpan;
-      if (lz < 0.3) continue;
-      const radial = Math.hypot(n.p[0], n.p[1]);
-      const rimR = Math.max(envelopeMaxR(p.envelope, Math.min(Math.max(lz, 0), 1)) * halfW, 1e-6);
-      if (radial >= rimR * 0.55) rimTips.push({ n, rimFrac: radial / rimR });
-    }
-    rimTips.sort((a, b) => b.rimFrac - a.rimFrac);
-    for (const { n } of rimTips.slice(0, 30)) {
-      const radial = Math.hypot(n.p[0], n.p[1]);
-      const out: Vec3 = radial > 1e-6
-        ? [n.p[0] / radial, n.p[1] / radial, 0]
-        : [Math.cos(rng.next() * Math.PI * 2), Math.sin(rng.next() * Math.PI * 2), 0];
-      const stepLen = p.curtainBlobR * 1.7;
-      let at: Vec3 = [n.p[0], n.p[1], n.p[2]];
-      while (at[2] - stepLen > p.curtainBottom) {
-        at = [
-          at[0] + out[0] * stepLen * 0.18 + (rng.next() - 0.5) * stepLen * 0.3,
-          at[1] + out[1] * stepLen * 0.18 + (rng.next() - 0.5) * stepLen * 0.3,
-          at[2] - stepLen,
-        ];
-        leaves.push({ at, r: p.curtainBlobR * (1.0 + 0.4 * rng.next()) });
+    const rBlob = p.curtainBlobR;
+    const shoulderRim = envelopeMaxR(p.envelope, 0.7) * halfW;
+    const strands = Math.max(36, Math.min(80, Math.round((Math.PI * 2 * shoulderRim) / (rBlob * 1.3))));
+    const phi0 = rng.next() * Math.PI * 2;
+    for (let s = 0; s < strands; s++) {
+      const phi = phi0 + (s / strands) * Math.PI * 2 + (rng.next() - 0.5) * 0.08;
+      // Anchor on the shoulder band at/below the dome's widest point, just INSIDE
+      // the surface — the skirt hangs under the dome's brim, never outside it.
+      const lz0 = 0.42 + rng.next() * 0.25;
+      const r0 = envelopeMaxR(p.envelope, lz0) * halfW * (0.8 + rng.next() * 0.12);
+      let x = Math.cos(phi) * r0, y = Math.sin(phi) * r0;
+      let z = crownBase + lz0 * crownSpan;
+      const hem = p.curtainBottom + rng.next() * 0.09;  // ragged hem, not a straight cut
+      const stepLen = rBlob * 1.35;                      // links overlap along the strand
+      while (z - stepLen > hem) {
+        z -= stepLen;
+        x = x * 0.991 + (rng.next() - 0.5) * stepLen * 0.2;  // drape INWARD (gentle bell)
+        y = y * 0.991 + (rng.next() - 0.5) * stepLen * 0.2;
+        leaves.push({ at: [x, y, z], r: rBlob * (0.8 + 0.4 * rng.next()) });
       }
     }
   }
