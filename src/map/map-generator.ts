@@ -33,6 +33,7 @@ import { placeSettlement } from '@/world/building-placer';
 import { stampFarmland } from '@/world/farmland';
 import { stampIrrigation } from '@/world/irrigation';
 import { buildCrossingStructureEntities } from '@/world/connectome/crossing-structures';
+import { deriveBuiltJunctions } from '@/world/junction-artifacts';
 import { buildStairStructureEntities } from '@/world/connectome/stair-structures';
 import { buildEntranceStoopEntities } from '@/world/connectome/entrance-stoops';
 import { buildAqueductStructureEntities } from '@/world/connectome/aqueduct-structures';
@@ -429,6 +430,9 @@ export async function generateWithNoise(
       curveRenderElev(deckHf[y * width + x] ?? ELEVATION_SEA_LEVEL, ELEVATION_SEA_LEVEL, deckGamma);
     for (const e of buildCrossingStructureEntities(roadGraph, width, {
       deckElevAt,
+      // A wet bank anchor (a channel wider than the detected bridge run) snaps outward to dry
+      // ground so the deck seats its abutments on land, not in the river (bridge.seating).
+      isWater: (x, y) => WATER_TYPES.has(tiles[y]?.[x]?.type ?? ''),
       // Pier/arch height tracks the real bank-to-bed clearance (same raw heightfield + relief the
       // stair siter reads), so a deep gorge gets tall supports and a shallow brook short ones.
       elevAt: (x, y) => deckHf[Math.round(y) * width + Math.round(x)] ?? ELEVATION_SEA_LEVEL,
@@ -597,6 +601,12 @@ export async function generateWithNoise(
       },
     })) world.addEntity(e);
   }
+
+  // JUNCTION ARTIFACTS (world-compiler WP-C): record the typed objects that own every
+  // feature×feature overlap the builders just committed — Bridges over crossings, Gatehouse/
+  // WaterGate at each barrier opening — so the world carries its junctions as first-class data
+  // the claims ledger resolves against. Pure read of committed state; no placement change.
+  map.junctions = deriveBuiltJunctions(world, map);
 
   return { map, world, biomeMap };
 }

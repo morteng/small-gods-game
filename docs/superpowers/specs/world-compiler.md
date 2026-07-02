@@ -126,3 +126,29 @@ only genuine overlaps — none a matrix false positive:
   The most novel finding: crofts model informal openings as absent gates, so a path entering a
   croft reads as fording its wall. Candidate for WP-C (crofts want gate spans, or a croft-kind
   barrier disposition) — recorded here as SIGNAL, not loosened away.
+
+## Reconciliation landed (WP-C, `src/world/junction-artifacts.ts`, WCV 78)
+
+The `JunctionArtifact` union (Bridge / WaterGate / Gatehouse / RoadJunction; Stair/Ramp reserved)
+and `reconcile(ledger)` ship. `map.junctions` carries the artifacts the builders committed
+(`deriveBuiltJunctions`), consumed by the ledger as resolutions (additive — absent ⇒ byte-identical).
+The three producer-side fixes closed the true positives WP-A/WP-B found, at the SOURCE not the rule:
+
+- **road-x-barrier (crofts) → 0.** `deriveCroftEnclosures` now cuts a real gate span where a road
+  threads the ring (same `gatesWhereOpen` slab machinery as the settlement ring). Crofts stop
+  modelling their access as an absent gate. *(default world: 12345 1→0, 777 5→0.)*
+- **bridge.seating (re3) → 0.** A crossing bank anchor that lands on water snaps outward to dry
+  ground (`detectCrossings` `isWater`), so a deck seats both abutments on land. *(12345 1→0.)*
+- **bridge.tiles-vs-deck (190,233) → 0.** A non-road (river/wall) graph edge no longer records
+  bridge cells, so it can't stamp a deckless `bridge` tile the crossing detector never realizes
+  (`bridgeCells` is road-only). *(both seeds 1→0.)*
+- **barrier-x-building: currently CLEAN (0 on all three probe seeds)** — the terrain-features epic
+  fixed the known croft-clip / toll-on-wall cases. The reconciler maps the class to a **Gatehouse**
+  proposal for when it recurs; nothing speculative is placed today.
+
+Residual SIGNAL (not silenced): **road-x-water re8** (genSeed 12345, 1 cell) — a road polyline
+doglegs one cell through open river just outside its 1-tile bridge; the tiles are correct (no ford
+stamped) but the centerline disagrees with the raster. Left as a claims-ledger observation for a
+future polyline↔raster reconciliation. **building-x-water swamp_shrine** stays the tracked seed
+finding. road-x-road (info) is untouched — the RoadJunction artifact documents the seam without
+silencing the overlap.
