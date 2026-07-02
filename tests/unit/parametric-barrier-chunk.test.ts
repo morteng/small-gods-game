@@ -10,23 +10,33 @@ const crenStoneRing = (gates = [] as { t: number; width: number }[]): BarrierRun
   ({ kind: 'wall', path: RING, height: 3, thickness: 2, material: 'stone', crenellated: true, gates });
 
 describe('chunkBarrierRun', () => {
-  it('splits a straight run into ≤4-tile chunks that cover the whole length', () => {
+  it('splits a straight run into depth-bounded chunks that cover the whole length', () => {
+    // An axis-aligned wall runs 1 tile of iso-depth (|dx+dy|) per tile of length, so the
+    // 2-tile depth cap cuts it into 2-tile chunks: each carries ONE midpoint sort key, and
+    // a chunk spanning more depth than a building footprint mis-sorts against it.
     const chunks = chunkBarrierRun(wall([[0, 0], [12, 0]]));
-    expect(chunks.length).toBe(3);                       // 12 / 4
-    // First chunk starts at the run origin; chunks march along +x by CHUNK_TILES.
+    expect(chunks.length).toBe(6);                       // 12 / 2 (depth cap)
     expect(chunks[0].refX).toBe(0);
-    expect(chunks[1].refX).toBeCloseTo(4);
-    expect(chunks[2].refX).toBeCloseTo(8);
+    expect(chunks[1].refX).toBeCloseTo(2);
+    expect(chunks[2].refX).toBeCloseTo(4);
     // Each localised chunk runs from its own origin along +x for its length.
     expect(chunks[0].localRun.path[0]).toEqual([0, 0]);
-    expect(chunks[0].localRun.path[1][0]).toBeCloseTo(4);
+    expect(chunks[0].localRun.path[1][0]).toBeCloseTo(2);
+  });
+
+  it('a cross-depth (screen-horizontal) wall keeps full-length chunks', () => {
+    // dir (√2/2, −√2/2) has |dx+dy| = 0: the whole chunk sits at one iso depth, so the
+    // depth cap does not bite and chunks stay at the full CHUNK_TILES length.
+    const chunks = chunkBarrierRun(wall([[0, 8], [8, 0]]));
+    const lens = chunks.map((c) => Math.hypot(c.localRun.path[1][0], c.localRun.path[1][1]));
+    expect(Math.max(...lens)).toBeGreaterThan(3.9);
   });
 
   it('identical straight chunks share ONE cache key (so a long wall reuses one sprite)', () => {
     const chunks = chunkBarrierRun(wall([[0, 0], [16, 0]]));
-    const full = chunks.filter((c) => Math.hypot(c.localRun.path[1][0], c.localRun.path[1][1]) > 3.9);
-    expect(full.length).toBeGreaterThanOrEqual(3);
-    expect(new Set(full.map((c) => c.key)).size).toBe(1);   // all full 4-tile chunks → same key
+    const full = chunks.filter((c) => Math.hypot(c.localRun.path[1][0], c.localRun.path[1][1]) > 1.9);
+    expect(full.length).toBeGreaterThanOrEqual(6);
+    expect(new Set(full.map((c) => c.key)).size).toBe(1);   // all full chunks → same key
   });
 
   it('breaks chunks at polyline vertices (a corner is never inside one chunk)', () => {
