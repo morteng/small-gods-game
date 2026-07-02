@@ -71,7 +71,7 @@ import { WeatherSystem } from '@/sim/systems/weather-system';
 import { applySkip } from '@/sim/time-skip';
 import { identityOracle } from '@/world/oracle';
 import { bootstrapWorld } from '@/game/bootstrap-world';
-import { FrameLoop } from '@/game/frame-loop';
+import { FrameLoop, type FrameAnimating } from '@/game/frame-loop';
 import { PersistenceController } from '@/game/persistence-controller';
 import { clearSave } from '@/services/save-store';
 import { injectTokens } from '@/ui/inject-tokens';
@@ -1059,7 +1059,7 @@ export class Game {
    *  the FrameLoop driver knows whether to keep the continuous loop running. `paused` = hard
    *  pause: no sim advance, no presentation, no ambient water — the driver renders one pending
    *  frame then idles. */
-  private onFrame(_now: number, deltaMs: number, paused: boolean): boolean {
+  private onFrame(_now: number, deltaMs: number, paused: boolean): FrameAnimating {
     const live = !paused && this.scheduler.getRate() > 0 && this.state.world && !this.timeline.isScrubbed;
     // Presentation runs every frame (keeps the audio scheduler fed); ducks on scrub. Skipped
     // while hard-paused (audio is muted and the loop is about to idle).
@@ -1084,10 +1084,12 @@ export class Game {
     // The cinematic camera owns the view while active; stash it for onRender.
     this.lastCinematic = !paused && this.presentation.cameraActive();
     // Animating = anything that needs continuous redraw: live sim, a scrub, an in-flight
-    // divine effect, ambient water ripples, or the cinematic camera. (A hard pause forces
-    // all of these false, so the driver renders one frame then rests.)
-    return !!live || this.timeline.isScrubbed || this.ui.divineEffects.isActive()
-        || (!paused && this.waterAnimating()) || this.lastCinematic;
+    // divine effect, or the cinematic camera — all full-rate. Ambient water ripples alone
+    // demote to 'ambient' so the driver renders at a reduced cadence (~20 fps) instead of
+    // burning full-scene GPU at display rate on an otherwise idle watery world. (A hard
+    // pause forces all of these false, so the driver renders one frame then rests.)
+    if (!!live || this.timeline.isScrubbed || this.ui.divineEffects.isActive() || this.lastCinematic) return true;
+    return !paused && this.waterAnimating() ? 'ambient' : false;
   }
 
   /** The expensive scene render + UI refresh — only invoked when onFrame reported animating

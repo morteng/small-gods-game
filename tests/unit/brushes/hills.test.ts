@@ -30,7 +30,10 @@ describe('hills brush', () => {
     expect(out.length).toBeGreaterThan(0);
   });
   it('only emits allowed kinds', () => {
-    const allowed = new Set(['boulder', 'rock_pile', 'grass_tuft']);
+    // tussock-grass replaced the billboard-only grass_tuft; the grassland
+    // ground-cover pass adds meadow species on any grass/meadow tiles in range.
+    const allowed = new Set(['boulder', 'rock_pile', 'tussock-grass', 'oxeye-daisy',
+      'common-poppy', 'foxglove', 'common-hawthorn', 'gorse', 'field-stone']);
     const c = allHills(16, 16);
     for (const e of hillsBrush({ x: 0, y: 0, w: 16, h: 16 }, 3, c)) {
       expect(allowed.has(e.kind)).toBe(true);

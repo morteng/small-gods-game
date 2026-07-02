@@ -1,4 +1,5 @@
 import { placeVegetation } from './vegetation-placer';
+import { placeGrassCover } from './grassland';
 import { registerBrush } from '@/world/brushes';
 import { canopyOf, undergrowthOf } from '@/flora/biome-flora';
 import type { Entity, Region, BrushContext } from '@/core/types';
@@ -20,10 +21,12 @@ const FOREST_PARAMS: import('./vegetation-placer').VegetationParams = {
   maxPerTile: 2,
   clumpScale: 5,
   undergrowth: undergrowthOf('forest'),
+  openUndergrowth: 0.3,     // ferns/bramble also take the clearings, not only tree shade
 };
 
 export function forestBrush(region: Region, seed: number, ctx: BrushContext): Entity[] {
-  return placeVegetation(region, seed, ctx, FOREST_PARAMS);
+  // Grass/meadow/glen tiles inside forest regions get open meadow cover too.
+  return [...placeVegetation(region, seed, ctx, FOREST_PARAMS), ...placeGrassCover(region, seed, ctx)];
 }
 
 registerBrush(BRUSH, forestBrush);

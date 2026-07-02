@@ -59,14 +59,19 @@ export const entityKinds: ReadonlyMap<string, EntityKindDef> = new Map<string, E
   ['tundra_moss',   def('tundra_moss',   'vegetation',       '#7a7a5a', 'circle', ['vegetation', 'ground-cover'], 0.1)],
 
   // ─── Terrain features (rocks, geology) ────────────────────────────────────
-  ['boulder',       def('boulder',       'terrain-feature',  '#888888', 'circle', ['rock', 'obstacle'], 1)],
-  ['rock_pile',     def('rock_pile',     'terrain-feature',  '#777777', 'circle', ['rock'], 0.5)],
-  ['pebbles',       def('pebbles',       'terrain-feature',  '#999999', 'circle', ['rock', 'small'], 0.1)],
+  // Rocks with a generative preset use category `vegetation` — the sea_arch trick:
+  // the render graph only draws barrier/blueprint/vegetation entities, so as
+  // 'terrain-feature' every rock worldgen scattered was silently INVISIBLE. All
+  // placement/clearing consumers treat the two categories identically
+  // (NATURE_CATEGORIES), so this only turns their rendering on.
+  ['boulder',       def('boulder',       'vegetation',       '#888888', 'circle', ['rock', 'obstacle'], 1)],
+  ['rock_pile',     def('rock_pile',     'vegetation',       '#777777', 'circle', ['rock'], 0.5)],
+  ['pebbles',       def('pebbles',       'vegetation',       '#999999', 'circle', ['rock', 'small'], 0.1)],
   ['driftwood',     def('driftwood',     'terrain-feature',  '#a07a4a', 'square', ['debris', 'coastal'], 0.3)],
   ['shell',         def('shell',         'terrain-feature',  '#e8d8b0', 'circle', ['debris', 'coastal'], 0.1)],
   ['stump',         def('stump',         'terrain-feature',  '#6a4a2a', 'circle', ['debris', 'forest'], 0.3)],
   ['log',           def('log',           'terrain-feature',  '#7a5a3a', 'square', ['debris', 'forest'], 0.3)],
-  ['ore_vein',      def('ore_vein',      'terrain-feature',  '#5a5a8a', 'square', ['resource', 'rock'], 0.5)],
+  ['ore_vein',      def('ore_vein',      'vegetation',       '#5a5a8a', 'square', ['resource', 'rock'], 0.5)],
   // Sea arch: a natural LANDFORM mesh prop. Category `vegetation` (not terrain-
   // feature) so the render graph routes it to the per-kind generative mesh source
   // — the `sea_arch` plant preset paints a real, self-lit rock ring with a hole
@@ -109,9 +114,9 @@ export const entityKinds: ReadonlyMap<string, EntityKindDef> = new Map<string, E
   ['mine_cart',     def('mine_cart',     'prop',             '#5a4a3a', 'square', ['transport', 'quarry'], 0.5)],
   ['support_beam',  def('support_beam',  'prop',             '#6a4a2a', 'square', ['structure', 'quarry'], 1)],
 
-  // ─── Sacred grove props ───────────────────────────────────────────────────
-  ['standing_stone', def('standing_stone', 'terrain-feature', '#7a7a8a', 'square', ['monument', 'sacred'], 1.5)],
-  ['shrine_stone',  def('shrine_stone',  'terrain-feature',  '#9a8aa8', 'square', ['religious', 'sacred'], 0.5)],
+  // ─── Sacred grove props (category `vegetation` = the render-routing tag; see rocks) ──
+  ['standing_stone', def('standing_stone', 'vegetation',     '#7a7a8a', 'square', ['monument', 'sacred'], 1.5)],
+  ['shrine_stone',  def('shrine_stone',  'vegetation',       '#9a8aa8', 'square', ['religious', 'sacred'], 0.5)],
 ]);
 
 /** Memoised entity-kind defs DERIVED from the flora fact DB, so every species id
@@ -128,7 +133,9 @@ function floraKindDef(kind: string): EntityKindDef | null {
   if (sp) {
     const b = sp.botanical;
     if (b.habit === 'rock') {
-      d = def(kind, 'terrain-feature', '#888888', 'circle', ['rock', 'obstacle'], 1);
+      // `vegetation` is the render-graph routing tag (see the rocks section above) —
+      // as 'terrain-feature' rock species spawned but never drew.
+      d = def(kind, 'vegetation', '#888888', 'circle', ['rock', 'obstacle'], 1);
     } else {
       const recipe = deriveRecipe(b);
       const isTree = b.habit === 'tree';

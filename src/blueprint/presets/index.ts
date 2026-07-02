@@ -43,14 +43,14 @@ const recipeDefaults = (recipe: string): { generator: string; crownShape: string
     case 'pine': return { generator: 'spacecol', crownShape: 'conical' };
     case 'willow': return { generator: 'proctree', crownShape: 'weeping' };
     case 'shrub': return { generator: 'proctree', crownShape: 'irregular' };
-    case 'fern': case 'flower': return { generator: 'lsystem', crownShape: 'none' };
+    case 'fern': case 'flower': case 'grass': return { generator: 'lsystem', crownShape: 'none' };
     default: return { generator: 'proctree', crownShape: 'rounded' };
   }
 };
 
 const branched = (
   preset: string, recipe: string, heightM: number, trunkR = 0.16,
-  generator?: string, crownShape?: string,
+  generator?: string, crownShape?: string, petalTint?: number,
 ): Blueprint => {
   const d = recipeDefaults(recipe);
   return {
@@ -59,6 +59,7 @@ const branched = (
     materials: { walls: 'timber', roof: 'thatch', ground: 'grass' },
     parts: { trunk: { type: 'branch_plant', size: { w: 1, h: 1 }, params: {
       generator: generator ?? d.generator, recipe, crownShape: crownShape ?? d.crownShape, heightM, trunkR,
+      ...(petalTint ? { petalTint } : {}),
     } } },
   };
 };
@@ -116,12 +117,29 @@ const barrier = (
   };
 };
 
-/** A boulder/rock (class:'terrain_feature'); `sizeM` = diameter in metres. */
-const rock = (preset: string, sizeM: number): Blueprint => ({
-  version: BLUEPRINT_VERSION, class: 'terrain_feature', preset,
+/** A boulder/rock; `sizeM` = diameter in metres. Class `plant` — like the landforms
+ *  below, the class is purely the "warm one self-lit generative mesh per kind"
+ *  routing tag (isPlantPreset → ParametricPlantSource); as 'terrain_feature' rocks
+ *  spawned but NEVER rendered. Form knobs: `aspect` stretches vertically (standing
+ *  stones), `cluster` scatters N sub-boulders (rock piles), `jitter` roughens. */
+const rock = (
+  preset: string, sizeM: number,
+  opts: { aspect?: number; cluster?: number; jitter?: number } = {},
+): Blueprint => ({
+  version: BLUEPRINT_VERSION, class: 'plant', preset,
   category: 'flora', footprint: { w: 1, h: 1 },
   materials: { walls: 'stone', roof: 'stone', ground: 'dirt' },
-  parts: { mass: { type: 'rock', size: { w: 1, h: 1 }, params: { sizeM } } },
+  parts: {
+    mass: {
+      type: 'rock', size: { w: 1, h: 1 },
+      params: {
+        sizeM,
+        ...(opts.aspect != null ? { aspect: opts.aspect } : {}),
+        ...(opts.cluster != null ? { cluster: opts.cluster } : {}),
+        ...(opts.jitter != null ? { jitter: opts.jitter } : {}),
+      },
+    },
+  },
 });
 
 /** A natural LANDFORM mesh prop (a sea arch) — class `plant` so the render seam
@@ -362,6 +380,13 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
   wildflower: branched('wildflower', 'flower', 0.6, 0.02),
   boulder: rock('boulder', 2.5),
   rock_small: rock('rock_small', 1.0),
+  // The rest of the geology vocabulary worldgen already scatters (hills/quarry/
+  // sacred-grove brushes) — visible for the first time now rocks render at all.
+  rock_pile: rock('rock_pile', 1.6, { cluster: 4, jitter: 0.4 }),
+  pebbles: rock('pebbles', 0.55, { cluster: 3, jitter: 0.45 }),
+  standing_stone: rock('standing_stone', 1.1, { aspect: 3.2, jitter: 0.22 }),
+  shrine_stone: rock('shrine_stone', 0.9, { aspect: 1.8, jitter: 0.25 }),
+  ore_vein: rock('ore_vein', 1.5, { cluster: 2, jitter: 0.5 }),
   // Stairs — "all kinds, the same way we support all kinds of buildings." One part type,
   // swept by construction (rough scramble → cut stone → dressed) and material. Switchbacks
   // compose extra flights + a `landing` part in the same blueprint (see crossing/path siting).
@@ -486,15 +511,15 @@ export function plantPresetNames(): string[] {
   return [...hand, ...floraPlantIds()];
 }
 
-/** Lazily-built set of flora-DB species ids whose growth form is a plant (not rock) —
- *  these resolve to a branched Blueprint via {@link floraSpeciesBlueprint}. Memoised:
- *  the species DB is static, and the render seam queries this per vegetation entity. */
+/** Lazily-built set of ALL flora-DB species ids — plants AND rocks; both resolve to
+ *  a generative Blueprint via {@link floraSpeciesBlueprint} and render through the
+ *  same per-kind mesh source (the old plant-only filter left rock species spawned
+ *  but invisible). Memoised: the species DB is static, and the render seam queries
+ *  this per vegetation entity. */
 let _floraPlantIds: Set<string> | null = null;
 function floraPlantIds(): Set<string> {
   if (!_floraPlantIds) {
-    _floraPlantIds = new Set(
-      allFloraSpecies().filter((s) => deriveGenParams(s).kind === 'plant').map((s) => s.id),
-    );
+    _floraPlantIds = new Set(allFloraSpecies().map((s) => s.id));
   }
   return _floraPlantIds;
 }
@@ -507,8 +532,8 @@ function floraSpeciesBlueprint(name: string): Blueprint | undefined {
   if (!sp) return undefined;
   const g = deriveGenParams(sp);
   return g.kind === 'rock'
-    ? rock(name, g.sizeM ?? g.heightM)
-    : branched(name, g.recipe ?? 'shrub', g.heightM, g.trunkR, g.generator, g.crownShape);
+    ? rock(name, g.sizeM ?? g.heightM, { jitter: g.jitter })
+    : branched(name, g.recipe ?? 'shrub', g.heightM, g.trunkR, g.generator, g.crownShape, g.petalTint);
 }
 
 /** Resolve `name` (+ optional override patches) into a ResolvedBlueprint. Seed from name.

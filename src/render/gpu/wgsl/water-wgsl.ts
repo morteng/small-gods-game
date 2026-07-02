@@ -67,35 +67,22 @@ fn unpackRgb(rgba : u32) -> vec3<f32> {
   return vec3<f32>(f32(rgba & 0xFFu), f32((rgba >> 8u) & 0xFFu), f32((rgba >> 16u) & 0xFFu)) / 255.0;
 }
 
-// Cheap value noise (hash lattice + smooth interp) and a 3-octave fbm. Used to
-// break up the regularity of the sine motion so the open sea reads organic rather
-// than as a grid of glints. No textures, no neighbour buffer reads.
-fn hash2(p : vec2<f32>) -> f32 {
-  return fract(sin(dot(p, vec2<f32>(127.1, 311.7))) * 43758.5453);
-}
-fn vnoise(p : vec2<f32>) -> f32 {
-  let i = floor(p);
-  let f = fract(p);
-  let u = f * f * (3.0 - 2.0 * f);
-  let a = hash2(i);
-  let b = hash2(i + vec2<f32>(1.0, 0.0));
-  let c = hash2(i + vec2<f32>(0.0, 1.0));
-  let d = hash2(i + vec2<f32>(1.0, 1.0));
-  return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
-}
+// BAKED tiling noise atlas (noise-texture.ts) — one bilinear tap replaces the old
+// hash+sin lattice fbm (~8 transcendental chains per call, 3-6 calls per fragment on
+// the fill-bound water pass). Channels: R vnoise, G 2-octave fbm, B 3-octave fbm,
+// A independent-seed 2-octave fbm (decorrelated — caustics/glitter). All channels are
+// normalised to [0,1]; the old in-shader fbm topped out at 0.75, which silently
+// dead-zoned every smoothstep(0.82,…) glint threshold tuned against it.
+@group(0) @binding(10) var noiseTex : texture_2d<f32>;
+@group(0) @binding(11) var noiseSmp : sampler;
+const NOISE_INV_TILE = 1.0 / 64.0;   // 1 / NOISE_TILE_UNITS — keep in step with noise-texture.ts
 fn fbm(p : vec2<f32>) -> f32 {
-  // 2 octaves (was 3) — the swell phases are already warped by independent fbm taps in
-  // DIFFERENT directions, so the third octave's fine detail is lost in the warp anyway;
-  // dropping it is the cheapest per-fragment win on the quad/fill-bound water pass.
-  var v = 0.0;
-  var amp = 0.5;
-  var q = p;
-  for (var k = 0u; k < 2u; k = k + 1u) {
-    v = v + amp * vnoise(q);
-    q = q * 2.03 + vec2<f32>(11.7, 4.3);
-    amp = amp * 0.5;
-  }
-  return v;
+  return textureSampleLevel(noiseTex, noiseSmp, p * NOISE_INV_TILE, 0.0).g;
+}
+// The independent-seed channel — use for effects layered OVER fbm-warped motion so
+// sparkle/caustics don't correlate with the swell warp.
+fn fbm2b(p : vec2<f32>) -> f32 {
+  return textureSampleLevel(noiseTex, noiseSmp, p * NOISE_INV_TILE, 0.0).a;
 }
 fn rot2(v : vec2<f32>, a : f32) -> vec2<f32> {
   let c = cos(a); let s = sin(a);
@@ -184,6 +171,31 @@ fn blendNonzero4(a : vec3<f32>, b : vec3<f32>, c : vec3<f32>, d : vec3<f32>, tx 
   var d2 = d; if (dot(d2, d2) <= 0.0) { d2 = fb; }
   return mix(mix(a2, b2, tx), mix(c2, d2, tx), ty);
 }
+// Scalar twin of sampleWaterCol for the CLARITY field: bilinear with a dry-tap
+// fallback (dry cells hold 0). Reading clarity[ci] (the FLAT provoking-vertex cell)
+// made the depth ramp + opacity constant per TRIANGLE — pale wedges near shore
+// whenever the drag-LOD mesh coarsened and a triangle's provoking vertex was dry.
+fn sampleClarity(gx : f32, gy : f32) -> f32 {
+  let W = u32(G.uGrid.x);
+  let H = u32(G.uGrid.y);
+  let fx = clamp(gx, 0.0, f32(W) - 1.001);
+  let fy = clamp(gy, 0.0, f32(H) - 1.001);
+  let x0 = u32(fx); let y0 = u32(fy);
+  let x1 = min(x0 + 1u, W - 1u); let y1 = min(y0 + 1u, H - 1u);
+  let tx = fx - f32(x0); let ty = fy - f32(y0);
+  var a = clarity[y0 * W + x0]; var b = clarity[y0 * W + x1];
+  var c = clarity[y1 * W + x0]; var d = clarity[y1 * W + x1];
+  var fb = a;
+  if (fb <= 0.0) { fb = b; }
+  if (fb <= 0.0) { fb = c; }
+  if (fb <= 0.0) { fb = d; }
+  if (a <= 0.0) { a = fb; }
+  if (b <= 0.0) { b = fb; }
+  if (c <= 0.0) { c = fb; }
+  if (d <= 0.0) { d = fb; }
+  return mix(mix(a, b, tx), mix(c, d, tx), ty);
+}
+
 fn sampleWaterCol(gx : f32, gy : f32) -> WaterCol {
   let W = u32(G.uGrid.x);
   let H = u32(G.uGrid.y);
@@ -448,10 +460,14 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   let sdGrad = fwidth(sdEdge);
 
   // Depth tint (S4 biome shallow→deep), SMOOTH — clarity stretches the ramp so
-  // clear water shows its bed further down. Depth varies with the real bed, so the
-  // gradient hugs the coast instead of making regular stripes.
-  let clar = clarity[ci];
-  let tDeep = clamp(depthM / mix(1.2, 5.0, clar), 0.0, 1.0);
+  // clear water shows its bed further down. PER-CHANNEL Beer-Lambert absorption:
+  // red extinguishes first, then green, so shallows glow turquoise and depth
+  // saturates blue-first — a real water gradient, not a linear crossfade. Depth
+  // varies with the real bed, so the gradient hugs the coast.
+  let clar = sampleClarity(in.vGrid.x, in.vGrid.y);
+  let absorb = vec3<f32>(3.0, 1.3, 0.7);
+  let dNorm = depthM / mix(1.2, 5.0, clar);
+  let tDeep = vec3<f32>(1.0) - exp(-dNorm * absorb);
   // Smooth, per-fragment biome colour (LOD-independent, never black at a bank). See
   // sampleWaterCol — this replaced the flat per-vertex vCell colour that black-patched.
   let wcol = sampleWaterCol(in.vGrid.x, in.vGrid.y);
@@ -487,7 +503,7 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
     // backdrop exactly (no bright shelf at the map edge) and the sea reads uniform
     // out to the horizon. Near shore the real depth tint + shallows still show.
     let shoreDeep = smoothstep(5.0, 26.0, shore);
-    color = mix(wcol.shallow, wcol.deep, max(tDeep, shoreDeep))
+    color = mix(wcol.shallow, wcol.deep, max(tDeep, vec3<f32>(shoreDeep)))
           * (G.uAmbient.xyz + vec3<f32>(day * 0.85));
 
     // Coast normal (offshore) from the shore-distance gradient — windward coasts
@@ -501,15 +517,12 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
     // (flat) bed = a long shallow shelf → waves shoal: they grow taller, slow down,
     // and break into more foam over a wider band. A steep drop-off stays calmer.
     // This varies naturally around the island, so some shores get big majestic surf
-    // and others stay quiet.
-    let W = u32(G.uGrid.x);
-    let H = u32(G.uGrid.y);
-    let cx = ci % W;
-    let cy = ci / W;
-    let xl = max(cx, 1u) - 1u;        let xr = min(cx + 1u, W - 1u);
-    let yu = max(cy, 1u) - 1u;        let yd = min(cy + 1u, H - 1u);
-    let bgx = terrainH[cy * W + xr] - terrainH[cy * W + xl];
-    let bgy = terrainH[yd * W + cx] - terrainH[yu * W + cx];
+    // and others stay quiet. PER-FRAGMENT via the smooth bilinear sampler — the old
+    // central diff at ci (the FLAT provoking-vertex cell) made shoal constant per
+    // TRIANGLE, and everything keyed off it (the swash run-line especially) stepped
+    // in giant pale triangles whenever the drag-LOD mesh coarsened.
+    let bgx = sampleTerrainH(g.x + 1.0, g.y) - sampleTerrainH(g.x - 1.0, g.y);
+    let bgy = sampleTerrainH(g.x, g.y + 1.0) - sampleTerrainH(g.x, g.y - 1.0);
     let bedSlope = length(vec2<f32>(bgx, bgy)) * G.uZParams.z;   // ~m drop over 2 tiles
     let shoal = exp(-bedSlope * 2.2);                   // 1 on a flat shelf → 0 steep
 
@@ -541,8 +554,19 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
     let amp = mix(0.45, 1.0, exposure) * (0.7 + 0.6 * shoal);
     color += vec3<f32>(smoothstep(0.6, 0.97, crest) * (0.05 + 0.05 * nearShore) * amp);
 
-    // (Open-water specular glints removed — a per-fragment fbm tap whose subtle sparkle
-    // didn't justify its cost on the fill-bound water pass.)
+    // Sun-glitter: thresholded sparkle drifting along the swell. One decorrelated
+    // atlas tap (the old ALU version was cut for cost — and its 0.82 threshold was
+    // dead against the 0.75-max fbm anyway, so this is its first real appearance).
+    // Warm-white, day-gated, and stronger toward open water so shallows stay soft.
+    let gl = fbm2b(g * 0.7 - dir * (t * 0.5));
+    color += vec3<f32>(1.0, 0.97, 0.86)
+           * (smoothstep(0.88, 0.97, gl) * day * mix(0.06, 0.16, shoreDeep));
+
+    // Faint sky sheen on the open sea — the ortho stand-in for the Fresnel-bright
+    // far water: deep ocean leans a few percent toward the sky tone, which reads as
+    // a reflective surface without any reflection pass.
+    let sky = mix(vec3<f32>(0.09, 0.12, 0.20), vec3<f32>(0.52, 0.66, 0.80), day);
+    color = mix(color, sky, 0.10 * shoreDeep);
 
     // SWASH run-up: a slow waterline that advances up the shelf and pulls back. The
     // throw is larger on gentle/long beaches (shoal) so wide shallows get a long wash;
@@ -579,8 +603,8 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
                     + (fbm(g * 0.18 + vec2<f32>(t * 0.04, 0.0)) - 0.5) * 2.0;
     let ripple = sin(ripplePhase) * 0.5 + 0.5;
     color += vec3<f32>(smoothstep(0.6, 1.0, ripple) * 0.04);
-    let lakeGl = fbm(g * 0.55 + vec2<f32>(t * 0.05, -t * 0.04));
-    color += vec3<f32>(smoothstep(0.82, 0.97, lakeGl) * 0.04);
+    let lakeGl = fbm2b(g * 0.55 + vec2<f32>(t * 0.05, -t * 0.04));
+    color += vec3<f32>(smoothstep(0.84, 0.97, lakeGl) * 0.05 * day);
 
     // Shore foam: a soft lapping band right at the bank (slow "breathing" so the edge
     // feels alive) plus the thin waterline lip. Much quieter than ocean surf.
@@ -613,6 +637,20 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
     // Whitewater: more foam where it is steep and fast; plus the bank waterline lip.
     let white = smoothstep(0.7, 1.0, stream) * smoothstep(0.4, 1.6, drop);
     color = mix(color, vec3<f32>(0.92, 0.96, 0.98), max(lip * 0.7, white * 0.7));
+  }
+
+  // CAUSTICS — shared by all three body types. Two decorrelated scrolling noise
+  // sheets, min()-sharpened: the minima of two phase-shifted fields form thin bright
+  // filaments (the classic cheap caustic), drifting against each other so the net
+  // never reads static. Only in shallow, reasonably clear, day-lit water — exactly
+  // where the bed shows through the depth-keyed alpha, so the light appears to dance
+  // on the bed itself.
+  let cShallow = smoothstep(2.4, 0.3, depthM) * mix(0.3, 1.0, clar) * day;
+  if (cShallow > 0.004) {
+    let c1 = fbm2b(g * 0.85 + vec2<f32>(t * 0.11, -t * 0.09));
+    let c2 = fbm2b(g * 0.85 + vec2<f32>(29.0, 47.0) - vec2<f32>(t * 0.08, -t * 0.13));
+    let fil = smoothstep(0.50, 0.80, min(c1, c2) * 1.5);
+    color += vec3<f32>(0.10, 0.13, 0.12) * (fil * cShallow);
   }
 
   // Depth-keyed TRANSPARENCY so the bed shows through shallow water — riverbeds,

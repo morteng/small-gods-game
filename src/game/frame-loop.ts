@@ -9,11 +9,23 @@
 //     (so a capture/grab sees it) then STOPS — `rafId` goes null, the GPU idles — until the
 //     next `requestRender()` kicks a single on-demand frame.
 
+/** What the frame hook reports still moving:
+ *  - `true`      — full-rate animation (live sim, scrub, divine FX, cinematic camera):
+ *                  the loop reschedules AND renders every frame.
+ *  - `'ambient'` — only low-priority ambient motion (water ripples on an otherwise idle
+ *                  world): the loop keeps running but renders at a reduced cadence
+ *                  (AMBIENT_INTERVAL_MS), cutting idle GPU work ~3× with no visible cost —
+ *                  ripple time is wall-clock, so motion speed is unchanged, only the
+ *                  sample rate drops. Interaction stays instant: any requestRender()
+ *                  bypasses the throttle that frame.
+ *  - `false`     — nothing moving: render one pending frame, then idle completely. */
+export type FrameAnimating = boolean | 'ambient';
+
 export interface FrameLoopHooks {
   /** Advance one frame (sim + presentation). `paused` = hard-paused → render-only, no sim
-   *  advance. Return true if something is still animating (live sim, water ripples, divine
-   *  effects, scrub, cinematic camera) so the continuous loop should keep running. */
-  onFrame(now: number, deltaMs: number, paused: boolean): boolean;
+   *  advance. Return what is still animating (see FrameAnimating) so the continuous loop
+   *  knows whether to keep running and how often to render. */
+  onFrame(now: number, deltaMs: number, paused: boolean): FrameAnimating;
   /** Do the expensive scene render + UI refresh. Called when `onFrame` reported animating
    *  OR a one-shot `requestRender()` is pending. */
   onRender(deltaMs: number): void;
@@ -27,9 +39,14 @@ export interface FrameLoopEnv {
   now?: () => number;
 }
 
+/** Render cadence while only ambient water is animating: ≥45 ms between draws lands on
+ *  every 3rd frame of a 60 Hz rAF (~20 fps) — plenty for slow ripples/foam, ~⅓ the GPU. */
+export const AMBIENT_INTERVAL_MS = 45;
+
 export class FrameLoop {
   private rafId: number | null = null;
   private lastTime = 0;
+  private lastRenderAt = -Infinity;
   private needsRender = true;
   private hardPaused = false;
   private autoPaused = false;
@@ -77,8 +94,13 @@ export class FrameLoop {
     const deltaMs = Math.min(now - this.lastTime, 50);
     this.lastTime = now;
     const animating = this.hooks.onFrame(now, deltaMs, this.hardPaused);
-    if (animating || this.needsRender) {
+    // Ambient-only motion renders at a reduced cadence; an explicit requestRender()
+    // (interaction) bypasses the throttle so the view never feels laggy.
+    const throttled = animating === 'ambient' && !this.needsRender
+      && now - this.lastRenderAt < AMBIENT_INTERVAL_MS;
+    if ((animating && !throttled) || this.needsRender) {
       this.needsRender = false;
+      this.lastRenderAt = now;
       this.hooks.onRender(deltaMs);
     }
     // Reschedule only while animating; otherwise stop and wait for requestRender — this is

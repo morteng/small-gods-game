@@ -54,7 +54,11 @@ describe('vegetationItems', () => {
 
   it('ignores non-vegetation entities (empty list)', () => {
     expect(vegetationItems(ic(), entity('cottage'))).toEqual([]);
-    expect(vegetationItems(ic(), entity('boulder'))).toEqual([]);
+    expect(vegetationItems(ic(), entity('driftwood'))).toEqual([]);
     expect(vegetationItems(ic(), entity('unknown_kind'))).toEqual([]);
+  });
+
+  it('draws rocks (vegetation-category so the render graph picks them up)', () => {
+    expect(vegetationItems(ic(), entity('boulder')).length).toBeGreaterThan(0);
   });
 });

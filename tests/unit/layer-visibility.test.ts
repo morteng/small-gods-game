@@ -38,7 +38,9 @@ describe('entityLayer', () => {
     expect(entityLayer(entity('cottage'))).toBe('buildings');
     expect(entityLayer(entity('english-oak'))).toBe('vegetation');
     expect(entityLayer(entity('well'))).toBe('props');
-    expect(entityLayer(entity('boulder'))).toBe('terrainFeatures');
+    // Rocks are vegetation-category so the render graph draws them (WCV76 rock fix).
+    expect(entityLayer(entity('boulder'))).toBe('vegetation');
+    expect(entityLayer(entity('driftwood'))).toBe('terrainFeatures');
   });
 
   it('routes unknown kinds to props', () => {

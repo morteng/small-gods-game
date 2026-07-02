@@ -1,6 +1,7 @@
 import { noise } from '@/core/noise';
 import { defaultEntity } from '@/world/brush-helpers';
 import { registerBrush } from '@/world/brushes';
+import { placeGrassCover } from './grassland';
 import { canopyOf } from '@/flora/biome-flora';
 import type { Entity, Region, BrushContext } from '@/core/types';
 
@@ -35,6 +36,7 @@ export function sacredGroveBrush(region: Region, seed: number, ctx: BrushContext
       }
     }
   }
+  out.push(...placeGrassCover(region, seed, ctx));
   return out;
 }
 

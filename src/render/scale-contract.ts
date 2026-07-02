@@ -42,6 +42,9 @@ export const NATURE_HEIGHT_M: Record<string, number> = {
   boulder: 1.2, rock_pile: 0.7, pebbles: 0.2, ore_vein: 0.8,
   // monuments
   standing_stone: 3.0, shrine_stone: 1.2,
+  // natural landforms (mesh props; placement currently shelved in map-generator,
+  // but the kinds exist so the contract covers them)
+  sea_arch: 8.0, cliff_face: 10.0, cave_mouth: 6.0, hoodoo: 7.0,
 };
 /** Fallback for any nature kind missing from the table (logged once at use). */
 export const DEFAULT_NATURE_HEIGHT_M = 1.0;

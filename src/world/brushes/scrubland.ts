@@ -1,4 +1,5 @@
 import { placeVegetation } from './vegetation-placer';
+import { placeGrassCover } from './grassland';
 import { registerBrush } from '@/world/brushes';
 import { canopyOf, undergrowthOf } from '@/flora/biome-flora';
 import type { Entity, Region, BrushContext } from '@/core/types';
@@ -15,10 +16,12 @@ const SCRUBLAND_PARAMS: import('./vegetation-placer').VegetationParams = {
   offsetRange: [0.35, 0.35],
   // Pool undergrowth (heath flowers) plus scattered field-stone for scrub texture.
   undergrowth: [...undergrowthOf('scrubland'), ['field-stone', 1.0, 0.02]],
+  openUndergrowth: 0.5,     // heath flowers belong in the open, not only under bushes
 };
 
 export function scrublandBrush(region: Region, seed: number, ctx: BrushContext): Entity[] {
-  return placeVegetation(region, seed, ctx, SCRUBLAND_PARAMS);
+  // Grassland biomes route here; their grass/meadow tiles (the majority) get meadow cover.
+  return [...placeVegetation(region, seed, ctx, SCRUBLAND_PARAMS), ...placeGrassCover(region, seed, ctx)];
 }
 
 registerBrush(BRUSH, scrublandBrush);

@@ -41,6 +41,7 @@ import type { TerrainField } from '@/render/gpu/terrain-field';
 import { materialAtlas, buildMaterialAtlasMips } from '@/render/gpu/material-exemplar';
 import type { WaterField } from '@/render/gpu/water-field';
 import { WATER_GLOBALS_FLOATS } from '@/render/gpu/water-field';
+import { createNoiseTexture } from '@/render/gpu/noise-texture';
 import { UiPass } from '@/render/ui/ui-pass';
 import type { UiDrawGroup } from '@/render/ui/ui-batcher';
 
@@ -134,6 +135,9 @@ export class GpuScene {
   // terrain heights it borrows) reallocate.
   private waterPipeline: GPURenderPipeline;
   private waterGlobalsBuf: GPUBuffer;
+  /** Baked tiling-noise atlas (noise-texture.ts) bound into the water + backdrop passes. */
+  private noiseTexView: GPUTextureView;
+  private noiseSampler: GPUSampler;
   /** Infinite-ocean backdrop (fullscreen) — drawn before terrain so open sea fills
    *  the whole viewport past the map edge. Reuses the water globals uniform. */
   private oceanBackdropPipeline: GPURenderPipeline;
@@ -305,12 +309,22 @@ export class GpuScene {
     // grew to 144 bytes when uWindow (the viewport mesh-cull window) was appended.
     this.waterGlobalsBuf = device.createBuffer({ size: WATER_GLOBALS_FLOATS * 4, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 
+    // Baked tiling-noise atlas shared by the water + backdrop shaders (one texture
+    // tap replaces their per-fragment ALU fbm — see noise-texture.ts).
+    const noise = createNoiseTexture(device);
+    this.noiseTexView = noise.texture.createView();
+    this.noiseSampler = noise.sampler;
+
     // Infinite-ocean backdrop reuses the 112-byte water globals uniform for the
     // inverse projection + time.
     this.oceanBackdropPipeline = createOceanBackdropPipeline(device, gpu.format);
     this.oceanBackdropBind = device.createBindGroup({
       layout: this.oceanBackdropPipeline.getBindGroupLayout(0),
-      entries: [{ binding: 0, resource: { buffer: this.waterGlobalsBuf } }],
+      entries: [
+        { binding: 0, resource: { buffer: this.waterGlobalsBuf } },
+        { binding: 1, resource: this.noiseTexView },
+        { binding: 2, resource: this.noiseSampler },
+      ],
     });
 
     this.shadowPipeline = createShadowPipeline(device, gpu.format);
@@ -659,6 +673,8 @@ export class GpuScene {
           { binding: 7, resource: { buffer: this.waterClarityBuf! } },
           { binding: 8, resource: { buffer: this.waterShoreBuf! } },
           { binding: 9, resource: { buffer: this.waterChannelBuf! } },
+          { binding: 10, resource: this.noiseTexView },
+          { binding: 11, resource: this.noiseSampler },
         ],
       });
       this.waterBoundHeights = this.terrainHeightsBuf;

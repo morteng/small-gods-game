@@ -87,6 +87,23 @@ export const BIOME_FLORA: Readonly<Record<string, FloraPool>> = {
       ['lady-fern', 0.4, 0.05],
     ],
   },
+  /** Open grassland / meadow ground cover — 'grass'/'meadow'/'glen' TILES, which
+   *  make up 50-70% of grassland biomes and historically had NO flora brush at all
+   *  (the "why is there no grass or flowers" gap). Canopy here IS the ground cover:
+   *  tussocks + wildflowers, with the odd free-standing shrub. */
+  grassland: {
+    canopy: [
+      ['tussock-grass', 0.66],
+      ['oxeye-daisy', 0.14],
+      ['common-poppy', 0.08],
+      ['foxglove', 0.04],
+      ['common-hawthorn', 0.04],
+      ['gorse', 0.04],
+    ],
+    undergrowth: [
+      ['field-stone', 1.0, 0.012],
+    ],
+  },
   /** Riparian/wetland margins (swamp tiles, water-adjacent coastal). */
   wetland: {
     canopy: [

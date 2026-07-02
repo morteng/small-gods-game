@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { FrameLoop, type FrameLoopHooks } from '@/game/frame-loop';
+import { FrameLoop, AMBIENT_INTERVAL_MS, type FrameAnimating, type FrameLoopHooks } from '@/game/frame-loop';
 
 /** A controllable rAF: queued callbacks fire only when we call flush(), so tests drive the
  *  loop deterministically and can assert on whether the loop rescheduled (idled or not). */
@@ -25,14 +25,14 @@ function fakeClock() {
 
 function makeHooks(over: Partial<FrameLoopHooks> = {}) {
   const calls = { frame: 0, render: 0, pause: [] as boolean[] };
-  let animating = false;
+  let animating: FrameAnimating = false;
   const hooks: FrameLoopHooks = {
     onFrame: (_n, _d, _p) => { calls.frame++; return animating; },
     onRender: () => { calls.render++; },
     onPauseChange: (p) => { calls.pause.push(p); },
     ...over,
   };
-  return { hooks, calls, setAnimating: (v: boolean) => { animating = v; } };
+  return { hooks, calls, setAnimating: (v: FrameAnimating) => { animating = v; } };
 }
 
 describe('FrameLoop', () => {
@@ -83,6 +83,49 @@ describe('FrameLoop', () => {
     loop.requestRender();
     loop.requestRender();
     expect(clock.queued()).toBe(1);
+  });
+
+  it("'ambient' keeps the loop running but renders at the reduced cadence", () => {
+    const { hooks, calls, setAnimating } = makeHooks();
+    setAnimating('ambient');
+    const loop = new FrameLoop(hooks, clock);
+    loop.start();
+    clock.flush();                    // frame 1: first render (needsRender starts true)
+    expect(calls.render).toBe(1);
+    expect(clock.queued()).toBe(1);   // ambient ⇒ loop keeps running
+    clock.flush();                    // +16ms — inside the ambient interval → no render
+    clock.flush();                    // +32ms — still inside
+    expect(calls.frame).toBe(3);      // onFrame ran every frame (sim/audio stay fed)
+    expect(calls.render).toBe(1);     // but no extra draw yet
+    clock.flush();                    // +48ms ≥ AMBIENT_INTERVAL_MS → renders
+    expect(calls.render).toBe(2);
+    expect(clock.queued()).toBe(1);   // still looping
+    // Sanity: the constant this cadence is built on stays in the every-3rd-frame band.
+    expect(AMBIENT_INTERVAL_MS).toBeGreaterThan(32);
+    expect(AMBIENT_INTERVAL_MS).toBeLessThanOrEqual(48);
+  });
+
+  it('requestRender bypasses the ambient throttle (interaction stays instant)', () => {
+    const { hooks, calls, setAnimating } = makeHooks();
+    setAnimating('ambient');
+    const loop = new FrameLoop(hooks, clock);
+    loop.start();
+    clock.flush();                    // first render
+    expect(calls.render).toBe(1);
+    loop.requestRender();             // e.g. a pan/zoom/hover
+    clock.flush();                    // +16ms — throttled window, but needsRender wins
+    expect(calls.render).toBe(2);
+  });
+
+  it("full-rate animating (true) is never throttled", () => {
+    const { hooks, calls, setAnimating } = makeHooks();
+    setAnimating(true);
+    const loop = new FrameLoop(hooks, clock);
+    loop.start();
+    clock.flush();
+    clock.flush();
+    clock.flush();
+    expect(calls.render).toBe(3);     // every frame draws
   });
 
   it('setPaused(true) fires onPauseChange, draws one frame, then idles; resume restarts', () => {

@@ -466,6 +466,7 @@ export const FLORA_FACTS: FloraSpecies[] = [
       lifespanYears: { min: 2, max: 2 }, flexibility: 0.85, floweringMonths: [6, 7],
     },
     ecology: { biome: ['woodland clearing', 'heath', 'disturbed ground'], soil: 'acidic', moisture: 'mesic', nativeRange: ['temperate Europe'] },
+    generation: { petalTint: 0xB878B4 },   // pink-purple flower spike
     narrative: {
       keyFacts: [
         'Digitalis purpurea, the foxglove, is a toxic species of flowering plant native to and widespread throughout most of temperate Europe.',
@@ -483,9 +484,47 @@ export const FLORA_FACTS: FloraSpecies[] = [
       lifespanYears: { min: 1, max: 1 }, flexibility: 0.9, floweringMonths: [5, 8],
     },
     ecology: { biome: ['arable field', 'disturbed ground'], moisture: 'mesic', nativeRange: ['north Africa', 'temperate Eurasia'] },
+    generation: { petalTint: 0xC43C2C },   // scarlet corn-poppy bloom
     narrative: {
       keyFacts: ['Papaver rhoeas (common poppy, corn poppy, Flanders poppy) is an annual herbaceous flowering plant native to north Africa and temperate Eurasia, regarded as an agricultural weed.'],
       sources: ['Papaver rhoeas'],
+    },
+  },
+
+  {
+    id: 'oxeye-daisy',
+    identity: { commonName: 'Oxeye daisy', scientificName: 'Leucanthemum vulgare', family: 'Asteraceae', wikipediaTitle: 'Leucanthemum vulgare' },
+    botanical: {
+      habit: 'herb', matureHeight_m: { min: 0.3, max: 0.9 }, crownShape: 'irregular',
+      leafType: 'broadleaf', leafPhenology: 'none', trunkHabit: 'single',
+      lifespanYears: { min: 2, max: 10 }, flexibility: 0.85, floweringMonths: [5, 9],
+    },
+    ecology: { biome: ['meadow', 'grassland', 'verge'], moisture: 'mesic', nativeRange: ['Europe', 'temperate Asia'] },
+    generation: { petalTint: 0xEAE8DE },   // white ray florets
+    narrative: {
+      keyFacts: [
+        'Leucanthemum vulgare, the ox-eye daisy, is a widespread flowering plant native to Europe and the temperate regions of Asia, a typical grassland perennial wildflower.',
+        'It produces a solitary composite flower head with white ray florets around a yellow disc, borne on a long unbranched stem.',
+      ],
+      sources: ['Leucanthemum vulgare'],
+    },
+  },
+
+  // ─── Grasses (→ 'grass' recipe) ──────────────────────────────────────────────
+  {
+    id: 'tussock-grass',
+    identity: { commonName: 'Tufted hair-grass', scientificName: 'Deschampsia cespitosa', family: 'Poaceae', wikipediaTitle: 'Deschampsia cespitosa' },
+    botanical: {
+      habit: 'grass', matureHeight_m: { min: 0.3, max: 1.0 }, crownShape: 'tufted',
+      leafType: 'blade', leafPhenology: 'semi_evergreen', trunkHabit: 'multi',
+      lifespanYears: { min: 3, max: 20 }, flexibility: 1.0, floweringMonths: [6, 8],
+    },
+    ecology: { biome: ['grassland', 'meadow', 'moorland', 'woodland edge'], moisture: 'mesic', nativeRange: ['Europe', 'temperate Eurasia'] },
+    narrative: {
+      keyFacts: [
+        'Deschampsia cespitosa, tufted hairgrass or tussock grass, is a perennial tufted plant in the grass family found throughout Eurasia and North America, growing in dense tussocks.',
+      ],
+      sources: ['Deschampsia cespitosa'],
     },
   },
 

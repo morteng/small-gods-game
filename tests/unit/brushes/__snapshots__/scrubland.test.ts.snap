@@ -19,6 +19,36 @@ exports[`scrubland brush > produces a stable snapshot 1`] = `
     "y": 0.7307575695449486,
   },
   {
+    "id": "scrubland-heather-2-0",
+    "kind": "heather",
+    "properties": {
+      "offsetX": 0.8377451629843562,
+      "offsetY": 0.18932579061947763,
+      "scale": 0.6059733750298619,
+    },
+    "tags": [
+      "vegetation",
+      "shrub",
+    ],
+    "x": 2.837745162984356,
+    "y": 0.18932579061947763,
+  },
+  {
+    "id": "scrubland-common-poppy-2-0",
+    "kind": "common-poppy",
+    "properties": {
+      "offsetX": 0.8377451629843562,
+      "offsetY": 0.18932579061947763,
+      "scale": 0.6059733750298619,
+    },
+    "tags": [
+      "vegetation",
+      "herb",
+    ],
+    "x": 2.837745162984356,
+    "y": 0.18932579061947763,
+  },
+  {
     "id": "scrubland-common-hawthorn-3-0",
     "kind": "common-hawthorn",
     "properties": {
@@ -128,6 +158,21 @@ exports[`scrubland brush > produces a stable snapshot 1`] = `
     ],
     "x": 1.1519671856192872,
     "y": 1.3975841332226993,
+  },
+  {
+    "id": "scrubland-common-poppy-3-1",
+    "kind": "common-poppy",
+    "properties": {
+      "offsetX": 0.687498996919021,
+      "offsetY": 0.40104146297089754,
+      "scale": 0.6008967284113168,
+    },
+    "tags": [
+      "vegetation",
+      "herb",
+    ],
+    "x": 3.687498996919021,
+    "y": 1.4010414629708976,
   },
   {
     "id": "scrubland-common-hawthorn-6-1",
@@ -240,6 +285,21 @@ exports[`scrubland brush > produces a stable snapshot 1`] = `
     "y": 2.8274991274345664,
   },
   {
+    "id": "scrubland-foxglove-4-2",
+    "kind": "foxglove",
+    "properties": {
+      "offsetX": 0.5654215675313026,
+      "offsetY": 0.28592924976255746,
+      "scale": 0.969989228900522,
+    },
+    "tags": [
+      "vegetation",
+      "herb",
+    ],
+    "x": 4.565421567531303,
+    "y": 2.2859292497625576,
+  },
+  {
     "id": "scrubland-common-hawthorn-5-2",
     "kind": "common-hawthorn",
     "properties": {
@@ -316,6 +376,36 @@ exports[`scrubland brush > produces a stable snapshot 1`] = `
     ],
     "x": 3.348659416264854,
     "y": 3.176279785577208,
+  },
+  {
+    "id": "scrubland-foxglove-7-4",
+    "kind": "foxglove",
+    "properties": {
+      "offsetX": 0.8495553572662174,
+      "offsetY": 0.42687217076309025,
+      "scale": 0.8956122864969074,
+    },
+    "tags": [
+      "vegetation",
+      "herb",
+    ],
+    "x": 7.849555357266217,
+    "y": 4.42687217076309,
+  },
+  {
+    "id": "scrubland-heather-1-5",
+    "kind": "heather",
+    "properties": {
+      "offsetX": 0.62809428779874,
+      "offsetY": 0.3388211032608524,
+      "scale": 0.6803628257475793,
+    },
+    "tags": [
+      "vegetation",
+      "shrub",
+    ],
+    "x": 1.6280942877987399,
+    "y": 5.338821103260853,
   },
   {
     "id": "scrubland-common-broom-2-5",

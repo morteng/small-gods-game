@@ -13,6 +13,7 @@ import './farm';
 import './castle';
 import './dock';
 import './wilderness';
+import './grassland';
 
 const BIOME_TO_BRUSH: Record<string, string | null> = {
   deep_ocean:          null,
