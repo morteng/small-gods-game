@@ -78,8 +78,8 @@ Keyed by the two kinds; a shared cell held by two DIFFERENT features is judged:
 
 `src/world/claims-diagnostics.ts` exports `claimsUnresolvedRule` (`claims.unresolved`, error;
 road×road → info). It builds the ledger and reports conflicts as `Diagnostic`s in the
-connectome linter's shape. It is NOT registered in `DEFAULT_RULES` — the integrator wires it
-alongside WP-A so `connectome-diagnostics.ts` has one owner.
+connectome linter's shape. Registered in `DEFAULT_RULES` at integration (2026-07-02), so every
+linter consumer (`lint:world`, MCP `lint_world`, studio overlay) runs it.
 
 ## Junction-artifact taxonomy (WP-C)
 
