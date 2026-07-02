@@ -48,6 +48,10 @@ import type { UiDrawGroup } from '@/render/ui/ui-batcher';
  *  no rivers, so the bind group always satisfies the (auto) layout; the shader skips
  *  them via `segCount == 0`. */
 const EMPTY_WATER_U32 = new Uint32Array(1);
+/** Shared empty result for a dynamic draw list with no poly/circle items (the common
+ *  case — NPCs are image items), so the shape pass skips triangulation AND the
+ *  per-frame empty Float32Array alloc. Never mutated. */
+const NO_SHAPES = { vertices: new Float32Array(0), vertexCount: 0 } as const;
 
 /** Shared per-frame render state threaded through the per-pass helpers (so they
  *  don't each take a dozen params). `colorCleared` is mutated as passes draw — the
@@ -1063,9 +1067,11 @@ export class GpuScene {
     // Shape pass (poly/circle fills). The static layer is triangulated once into a
     // persistent buffer (ensureStaticShapeBundle); only the small dynamic set is
     // rebuilt this frame. Both are WORLD px — the camera xform rides in the shape
-    // globals (uXform), so neither re-triangulates on pan/zoom.
-    const dynShapes = entitiesOn
-      ? buildShapeVertices(dynLifted) : { vertices: new Float32Array(0), vertexCount: 0 };
+    // globals (uXform), so neither re-triangulates on pan/zoom. The usual dynamic
+    // layer is all image items (NPCs), so skip the triangulation (and its per-frame
+    // empty-array alloc) entirely unless a poly/circle is actually present.
+    const dynShapes = entitiesOn && dynLifted.some((it) => it.t !== 'image')
+      ? buildShapeVertices(dynLifted) : NO_SHAPES;
     const staticShapeCount = entitiesOn ? this.staticShapeCount : 0;
     if (staticShapeCount > 0 || dynShapes.vertexCount > 0) {
       const xf = xform ?? { sx: 1, sy: 1, ox: 0, oy: 0 };
