@@ -259,7 +259,16 @@ export function buildRoadGraph(
       const cells = isObstacle ? walked.filter(c => !isObstacle(c.x, c.y)) : walked;
       if (cells.length === 0) continue;
 
-      const bridgeCells = [...result.bridgeCells].sort((m, n) => m - n);
+      // Only a ROAD carries a bridge deck. The walker records every water cell on the
+      // final path as a `bridgeCell` regardless of feature, so a river/wall edge that
+      // happens to route through a foreign water cell (autoBridge is off for rivers, but
+      // bridgeCells are still logged) would stamp a stray `bridge` TILE via applyEdge —
+      // a deck the crossing detector (feature==='road' only) never realizes, i.e. a
+      // bridge tile with no bridge_deck entity over it (the tiles-vs-deck class). Rivers
+      // and walls don't bridge water: they merge with it / gap over it. So a non-road
+      // edge claims no bridge cells — keeping the tile stamp and the crossing detector in
+      // lockstep, and leaving that cell as its water/river tile.
+      const bridgeCells = feature === 'road' ? [...result.bridgeCells].sort((m, n) => m - n) : [];
       const edge: RoadEdge = {
         id: `re${edgeSeq++}`,
         a: nodeFor(a.x, a.y, i === 0).id,
