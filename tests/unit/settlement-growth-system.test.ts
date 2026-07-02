@@ -258,6 +258,11 @@ describe('SettlementGrowthSystem', () => {
     expect(deck!.baseType).toBe('river');
     // Suburb burgage lots exist on the far (east) bank.
     expect(plan.lots.some(l => l.tiles.some(t => t.x > 28))).toBe(true);
+    // The annexed bridge is REAL STRUCTURE, not bare tiles: the same parametric deck
+    // worldgen crossings get (buildCrossingSpanEntities) joined the world at the channel.
+    const spanDecks = [...world.query({ kind: 'bridge_deck' })];
+    expect(spanDecks.length).toBeGreaterThan(0);
+    expect(Math.abs(spanDecks[0].x - 28)).toBeLessThanOrEqual(3);   // seated at the crossing
 
     // Keep growing: dwellings now fill the far-bank suburb (varied presets → varied facings).
     for (let i = 0; i < 40; i++) growSettlement(ctx, plan, `t${i + 1}`);

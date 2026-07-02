@@ -43,8 +43,11 @@ const ROAD_RANK: Record<CrossingSpec['roadClass'], number> = { path: 0, track: 1
 const eraRank = (e: string) => ERA_RANK[e] ?? 1;
 const prosRank = (p: string) => PROSPERITY_RANK[p] ?? 1;
 
-/** Deck width in tiles by road class — what traffic the span must carry. */
-const DECK_WIDTH: Record<CrossingSpec['roadClass'], number> = { path: 0.5, track: 0.7, road: 1.0, highway: 1.4 };
+/** Deck width in tiles by road class — the FULL carriageway of that class (2 ×
+ *  `CLASS_HALF_WIDTH` in road-state.ts) plus ~0.4 t for the two parapets, so the deck
+ *  carries exactly the road that crosses it: the ribbon used to arrive wider than the
+ *  deck it fed onto (a 1.6 t road squeezing onto a 1.0 t deck read as a broken seam). */
+const DECK_WIDTH: Record<CrossingSpec['roadClass'], number> = { path: 1.1, track: 1.4, road: 2.0, highway: 2.6 };
 
 /**
  * Build the crossing sub-connectome for a spec. Pure: returns a fresh `WorldNode` tree whose

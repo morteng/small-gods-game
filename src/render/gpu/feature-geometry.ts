@@ -19,6 +19,7 @@
 // and its CPU mirror `roadPavednessAt`, byte-equivalent to the retired field.
 
 import type { GameMap } from '@/core/types';
+import { WATER_TYPES } from '@/core/constants';
 import { edgeRoadProfile } from '@/world/road-deformation';
 import type { SurfaceMaterial } from '@/world/road-state';
 
@@ -166,6 +167,11 @@ export function buildRoadFeatureGeometry(map: GameMap): RoadFeatureGeometry {
       const reach = half + 0.5;
       for (let k = 0; k + 1 < centerline.length; k++) {
         const a = centerline[k], b = centerline[k + 1];
+        // The ribbon STOPS AT THE BANKS: over a crossing the parametric deck entity IS the
+        // running surface — painting pavedness under it double-drew the span and smeared
+        // road colour down the carved channel walls beside the deck sprite.
+        const mt = map.tiles?.[Math.round((a.y + b.y) / 2)]?.[Math.round((a.x + b.x) / 2)]?.type ?? '';
+        if (mt === 'bridge' || WATER_TYPES.has(mt)) continue;
         segs.push({ ax: a.x, ay: a.y, bx: b.x, by: b.y, halfA: half, halfB: half, surfA: paved, surfB: paved, reach });
       }
     }

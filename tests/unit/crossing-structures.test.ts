@@ -84,9 +84,11 @@ describe('buildCrossingStructureEntities', () => {
     // A rotated slab ⇒ a (near-)square AABB, NOT the w×1 cardinal stub.
     expect(rb.footprint.w).toBe(rb.footprint.h);
     expect(rb.footprint.w).toBeGreaterThanOrEqual(3);
-    // The AABB centres on the ford midpoint (6,6), so the slab's two ends seat on the banks.
-    expect(deck.x + rb.footprint.w / 2).toBeCloseTo(6, 5);
-    expect(deck.y + rb.footprint.h / 2).toBeCloseTo(6, 5);
+    // The SLAB centres exactly on the ford midpoint (6,6) — the integer entity origin's
+    // rounding remainder flows into the part's local offset — so both ends seat on the banks.
+    const at = (part as unknown as { at?: { x: number; y: number } }).at ?? { x: 0, y: 0 };
+    expect(deck.x + at.x + rb.footprint.w / 2).toBeCloseTo(6, 5);
+    expect(deck.y + at.y + rb.footprint.h / 2).toBeCloseTo(6, 5);
   });
 
   it('pier/arch HEIGHT tracks the crossing depth — a deep gorge earns taller piers than a brook', () => {

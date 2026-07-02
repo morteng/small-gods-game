@@ -31,6 +31,33 @@ function ringForPoi(barrierRuns: PlacedBarrier[], poiId: string): PlacedBarrier 
   return barrierRuns.find((b) => b.id === `${poiId}_ring` && b.run.centroid);
 }
 
+export interface GateApproachProfile {
+  x: number; y: number;
+  /** Unit ring normal at the gate, pointing OUTWARD (away from the ring centroid). */
+  facing: [number, number];
+}
+
+/** Every real gate with its position + OUTWARD facing — the profile a road approach
+ *  fillets onto so it arrives square through the opening instead of at a kinked angle. */
+export function realGateProfiles(barrierRuns: PlacedBarrier[]): GateApproachProfile[] {
+  const out: GateApproachProfile[] = [];
+  for (const b of defensiveRings(barrierRuns)) {
+    const c = b.run.centroid!;
+    for (const g of b.run.gates) {
+      if (g.kind === 'gap') continue;
+      const [x, y] = gatePoint(b.run, g);
+      // Ring tangent at the gate from two nearby path points; normal oriented outward.
+      const [ax, ay] = gatePoint(b.run, { t: Math.max(0, g.t - 0.5), width: 0 });
+      const [bx, by] = gatePoint(b.run, { t: g.t + 0.5, width: 0 });
+      const dx = bx - ax, dy = by - ay, m = Math.hypot(dx, dy) || 1;
+      let nx = -dy / m, ny = dx / m;
+      if (nx * (x - c[0]) + ny * (y - c[1]) < 0) { nx = -nx; ny = -ny; }
+      out.push({ x, y, facing: [nx, ny] });
+    }
+  }
+  return out;
+}
+
 /** The real gate (kind !== 'gap') on a ring nearest a target point; deterministic tiebreak on t. */
 function nearestRealGate(b: PlacedBarrier, target: { x: number; y: number }): BarrierGate | undefined {
   let best: BarrierGate | undefined;

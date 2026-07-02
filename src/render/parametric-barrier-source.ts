@@ -29,6 +29,12 @@ import type { SpritePack, BarrierPiece } from '@/render/iso/sprite-canvas';
 /** Chunk length along the path, in tiles — short enough that each piece y-sorts + foot-z lifts
  *  at roughly one ground contact, long enough to keep the compose count low. */
 const CHUNK_TILES = 4;
+/** Max iso-DEPTH span (|Δ(x+y)| tiles) one chunk may cover. Each chunk carries a single
+ *  midpoint sort key, so a chunk running along the depth axis puts its whole length at one
+ *  depth — a building whose sort key falls inside that span draws wholly in front of or
+ *  behind the entire chunk ("buildings poke through walls"). Capping the depth span keeps
+ *  the ambiguity window under a building footprint; cross-depth walls keep full length. */
+const CHUNK_DEPTH_SPAN_MAX = 2;
 
 const r3 = (n: number): number => Math.round(n * 1000) / 1000;
 type Pt = [number, number];
@@ -114,8 +120,12 @@ export function chunkBarrierRun(run: BarrierRun): BarrierChunk[] {
     const segLen = Math.hypot(bx - ax, by - ay);
     if (segLen <= 1e-6) continue;
     const dx = (bx - ax) / segLen, dy = (by - ay) / segLen;
-    for (let s = 0; s < segLen - 1e-6; s += CHUNK_TILES) {
-      const cl = Math.min(CHUNK_TILES, segLen - s);
+    // Depth-aware chunk length: a segment running down the iso-depth axis (|dx+dy| high)
+    // is cut into shorter chunks so no chunk spans more depth than CHUNK_DEPTH_SPAN_MAX.
+    const depthRate = Math.abs(dx + dy);
+    const step = depthRate > 1e-6 ? Math.min(CHUNK_TILES, CHUNK_DEPTH_SPAN_MAX / depthRate) : CHUNK_TILES;
+    for (let s = 0; s < segLen - 1e-6; s += step) {
+      const cl = Math.min(step, segLen - s);
       const startDist = cum + s;
       const gates: BarrierGate[] = [];
       for (const g of run.gates) {

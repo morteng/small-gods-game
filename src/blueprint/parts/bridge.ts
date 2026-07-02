@@ -160,7 +160,9 @@ export const archSpanPartType: PartType = {
       material: mat,
     }];
   },
-  toCollision(p) { return [[p.at.x, p.at.y]]; },
+  // An arch is an OPENING under the deck — blocking its springing cell would wall off the
+  // very bridge tile traffic crosses on (deck and pier block nothing for the same reason).
+  toCollision: () => [],
   toAnchors: () => [],
   toBrief: () => 'arch',
 };

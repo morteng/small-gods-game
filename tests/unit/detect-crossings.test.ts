@@ -59,4 +59,26 @@ describe('detectCrossings', () => {
     expect(specs[0].era).toBe('early-medieval');
     expect(specs[0].prosperity).toBe('modest');
   });
+
+  // ── bank snapping (C-4a: bridge.seating) ────────────────────────────────────────────
+  it('snaps a WET bank anchor outward to dry land so the deck seats on the bank', () => {
+    // Road row 6, x=4..9; bridge at x=6,7. The far approach point x=8 is itself water (a channel
+    // wider than the detected run), the dry bank resumes at x=9.
+    const poly = [4, 5, 6, 7, 8, 9].map((x) => ({ x, y: 6 }));
+    const graph: RoadGraph = { nodes: [], edges: [edge('e', poly, { bridgeCells: [6 * W + 6, 6 * W + 7] })] };
+    const wet = new Set(['8,6']);                       // (8,6) is open water
+    const specs = detectCrossings(graph, W, { isWater: (x, y) => wet.has(`${x},${y}`) });
+    // near bank (x=5) is dry → unchanged; far bank snapped from wet (8,6) out to dry (9,6).
+    expect(specs[0].banks![0]).toEqual({ x: 5, y: 6 });
+    expect(specs[0].banks![1]).toEqual({ x: 9, y: 6 });
+  });
+
+  it('leaves dry bank anchors exactly where they were (no isWater ⇒ legacy behaviour)', () => {
+    const poly = [4, 5, 6, 7, 8].map((x) => ({ x, y: 6 }));
+    const graph: RoadGraph = { nodes: [], edges: [edge('e', poly, { bridgeCells: [6 * W + 6] })] };
+    const withWater = detectCrossings(graph, W, { isWater: () => false });   // all dry
+    const legacy = detectCrossings(graph, W);
+    expect(withWater[0].banks).toEqual(legacy[0].banks);
+    expect(legacy[0].banks).toEqual([{ x: 5, y: 6 }, { x: 7, y: 6 }]);
+  });
 });

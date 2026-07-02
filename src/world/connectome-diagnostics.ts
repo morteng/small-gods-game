@@ -18,7 +18,12 @@ import type { World } from '@/world/world';
 import { blueprintOf } from '@/blueprint/entity';
 import { WATER_TYPES } from '@/core/constants';
 import type { RoadEdge } from '@/world/road-graph';
-import { barrierFootprintTiles, type PlacedBarrier } from '@/world/barrier';
+import { barrierFootprintTiles, type PlacedBarrier, type BarrierRun, type BarrierGate } from '@/world/barrier';
+import { getWorldDeformationStore } from '@/world/road-deformation';
+import { heightAt, baseHeightAt, type DeformationStore } from '@/world/terrain-deformation';
+// Module cycle (claims-diagnostics → claims → this file's buildingStructureCells) is
+// eval-safe: every cross-import is referenced only inside function bodies.
+import { claimsUnresolvedRule } from '@/world/claims-diagnostics';
 
 export type DiagnosticSeverity = 'error' | 'warn' | 'info';
 
@@ -168,6 +173,108 @@ const barrierThroughBuilding: DiagnosticRule = {
         locus: { entities: [id], tiles: hits.map(([x, y]) => ({ x, y })) },
         metrics: { cells: hits.length },
       });
+    }
+    return out.sort((a, b) => a.locus.entities![0].localeCompare(b.locus.entities![0]));
+  },
+};
+
+/** Map a path distance `t` (tiles) to a world point along the polyline. Local dup of
+ *  `barrier.ts`'s private `pointAt` — this file reads geometry, it doesn't own it. */
+function barrierPointAt(path: [number, number][], t: number): [number, number] {
+  let acc = 0;
+  for (let i = 1; i < path.length; i++) {
+    const [ax, ay] = path[i - 1], [bx, by] = path[i];
+    const len = Math.hypot(bx - ax, by - ay);
+    if (t <= acc + len) { const u = (t - acc) / (len || 1); return [ax + (bx - ax) * u, ay + (by - ay) * u]; }
+    acc += len;
+  }
+  return path[path.length - 1];
+}
+function barrierPathLength(path: [number, number][]): number {
+  let s = 0;
+  for (let i = 1; i < path.length; i++) s += Math.hypot(path[i][0] - path[i - 1][0], path[i][1] - path[i - 1][1]);
+  return s;
+}
+
+/** Arc-length step (tiles) for dense wet-arc scanning along a barrier polyline — fine
+ *  enough to catch a wet stretch the coarse 0.34-tile cell rasterizer (`barrierFootprintTiles`)
+ *  can straddle between two sampled cells (a live probe found 6 such wet samples on
+ *  `oakshire_ring` the cell rule missed entirely). */
+const DENSE_WET_SAMPLE_STEP = 0.5;
+
+/** Is arc-length `t` inside a declared opening — gate (road crossing) or gap (water/building
+ *  interface)? Either is a real, designed opening in the line; only an UNDECLARED wet stretch
+ *  is the bug. */
+function withinGateSpan(t: number, gates: BarrierGate[]): boolean {
+  return gates.some((g) => t >= g.t - g.width / 2 && t <= g.t + g.width / 2);
+}
+
+interface WetArcSpan { tStart: number; tEnd: number; tiles: { x: number; y: number }[] }
+
+/** Dense-sample a barrier's polyline at `DENSE_WET_SAMPLE_STEP` and cluster contiguous
+ *  UNDECLARED wet arc-length runs into spans (start/end t + the tiles sampled along it). */
+function denseWetArcSpans(run: BarrierRun, tiles: GameMap['tiles']): WetArcSpan[] {
+  const total = barrierPathLength(run.path);
+  const spans: WetArcSpan[] = [];
+  let cur: { tStart: number; tEnd: number; cells: Map<string, [number, number]> } | null = null;
+  const flush = (): void => {
+    if (cur) spans.push({ tStart: cur.tStart, tEnd: cur.tEnd, tiles: [...cur.cells.values()].map(([x, y]) => ({ x, y })) });
+    cur = null;
+  };
+  for (let t = 0; t <= total + 1e-9; t += DENSE_WET_SAMPLE_STEP) {
+    const tt = Math.min(t, total);
+    const [px, py] = barrierPointAt(run.path, tt);
+    const cx = Math.round(px), cy = Math.round(py);
+    const wet = !withinGateSpan(tt, run.gates) && WATER_TYPES.has(tiles[cy]?.[cx]?.type ?? '');
+    if (wet) {
+      if (!cur) cur = { tStart: tt, tEnd: tt, cells: new Map() };
+      cur.tEnd = tt;
+      cur.cells.set(cellKey(cx, cy), [cx, cy]);
+    } else {
+      flush();
+    }
+  }
+  flush();
+  return spans;
+}
+
+/** ERROR — a barrier blocking cell stands in open water. Walls/hedges must open (gap)
+ *  over a channel, not wade it: the enclosure derivation gates every wet stretch, so a
+ *  hit here means a ring geometry change regressed the water guard.
+ *
+ *  Two independent checks, both kept: (1) the rasterized blocking-cell footprint (as
+ *  before — catches a whole wet cell the geometry claims), and (2) DENSE polyline
+ *  sampling of `map.barrierRuns` at ≤0.5-tile steps (A1) — the rasterizer steps at 0.34
+ *  tiles per cell and can still straddle a narrow wet stretch between two sampled cells;
+ *  dense sampling walks the actual line and reports the wet ARC SPAN (t-range + tiles),
+ *  which the cell check can't express. A sample inside a declared gate/gap span is not a
+ *  violation — that's the opening doing its job. */
+const barrierOverWater: DiagnosticRule = {
+  id: 'barrier.over-water',
+  severity: 'error',
+  description: 'A barrier run stands in open water instead of opening over it.',
+  evaluate(ctx) {
+    const tiles = ctx.map.tiles;
+    const out: Diagnostic[] = [];
+    for (const [id, fc] of barrierCellsByEntity(ctx.world)) {
+      const hits = fc.filter(([x, y]) => WATER_TYPES.has(tiles[y]?.[x]?.type ?? ''));
+      if (hits.length) out.push({
+        rule: this.id, severity: this.severity,
+        message: `barrier ${id} stands in water on ${hits.length} cell(s)`,
+        locus: { entities: [id], tiles: hits.map(([x, y]) => ({ x, y })) },
+        metrics: { cells: hits.length },
+      });
+    }
+    for (const { id, run } of ctx.map.barrierRuns ?? []) {
+      if (!run.path || run.path.length < 2) continue;
+      for (const span of denseWetArcSpans(run, tiles)) {
+        out.push({
+          rule: this.id, severity: this.severity,
+          message: `barrier ${id} polyline runs through open water from t=${span.tStart.toFixed(2)} to t=${span.tEnd.toFixed(2)} (${span.tiles.length} tile(s)) with no gate/gap declared`,
+          locus: { entities: [id], tiles: span.tiles.slice(0, 24) },
+          metrics: { tStart: Math.round(span.tStart * 100) / 100, tEnd: Math.round(span.tEnd * 100) / 100, cells: span.tiles.length },
+        });
+      }
     }
     return out.sort((a, b) => a.locus.entities![0].localeCompare(b.locus.entities![0]));
   },
@@ -345,6 +452,329 @@ const buildingOnWater: DiagnosticRule = {
       });
     }
     return out.sort((a, b) => (a.locus.entities?.[0] ?? '').localeCompare(b.locus.entities?.[0] ?? ''));
+  },
+};
+
+/** ERROR — a plain road tile OVERWROTE water: its preserved `baseType` is a water type but
+ *  its type is dirt/stone road, not `bridge` — a BRIDGELESS FORD. This is exact, not a
+ *  proximity heuristic (a causeway on a dry spit between two banks is legitimate): every
+ *  road stamp records what it covered via `preserveBaseType`, so a ford is precisely a
+ *  road whose underlay is water. Caught in the wild: a second road reusing an earlier
+ *  road's crossing used to stamp the shared bridge deck back to dirt (applyEdge). */
+const roadFordsWater: DiagnosticRule = {
+  id: 'road.on-water',
+  severity: 'error',
+  description: 'A road tile overwrote open water without a bridge (bridgeless ford).',
+  evaluate(ctx) {
+    const { tiles, width, height } = ctx.map;
+    const hits: { x: number; y: number }[] = [];
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const t = tiles[y]?.[x];
+        if (!t || (t.type !== 'dirt_road' && t.type !== 'stone_road')) continue;
+        if (t.baseType && WATER_TYPES.has(t.baseType)) hits.push({ x, y });
+      }
+    }
+    if (!hits.length) return [];
+    return [{
+      rule: this.id, severity: this.severity,
+      message: `road tiles ford open water at ${hits.length} cell(s) with no bridge`,
+      locus: { tiles: hits.slice(0, 24) },
+      metrics: { cells: hits.length },
+    }];
+  },
+};
+
+// ── Bridge / crossing rules ─────────────────────────────────────────────────────────
+//
+// A road×water crossing is represented TWICE today: as `bridge` TILES (the rendered
+// deck's footprint on the tile raster) and as `bridge_deck` ENTITIES (the grey-massing
+// structure — deck riding its bank elevation, piers reaching the bed). Nothing enforces
+// the two agree, so a geometry regression can silently produce a floating deck, a deck
+// that never reaches its bank, or a bridge tile with no superstructure over it. These
+// rules read both representations and cross-check them.
+
+/** A `bridge_deck` entity's placement, reduced to what these rules need: its AABB
+ *  footprint (origin + `blueprint.rb.footprint`, per the plan's own vocabulary) and its
+ *  two SPAN-AXIS end points — the bank-seating ends — derived from the deck part's real
+ *  yaw + length (not the AABB corners, which for a diagonal deck are corners of the
+ *  bounding square, not the slab's actual ends). Falls back to the AABB's own corners
+ *  when a deck lacks a `deck` part (never happens for `buildCrossingSpanEntities`
+ *  output, but keeps this pure against any future producer). */
+interface DeckFootprint {
+  id: string;
+  x0: number; y0: number; w: number; h: number;
+  /** The two footprint-native "ends" along the deck's long axis — the LEFT/RIGHT
+   *  columns for a horizontal-dominant deck, TOP/BOTTOM rows for a vertical-dominant
+   *  one. Deliberately kept to whole grid columns/rows of the AABB the deck actually
+   *  claims (never a point reconstructed off-grid from yaw+length): an early version
+   *  re-derived a single continuous endpoint from the deck's PADDED length (spanTiles+1,
+   *  see `crossing-structures.ts`'s `deckEntity`) and rounded it to a tile — on a
+   *  cardinal-axis deck whose fractional midpoint lands near a half-tile boundary this
+   *  routinely rounds to a cell one tile off the AABB, which a live probe showed
+   *  flagging 5/5 real crossings as "unseated" purely from rounding, not a real defect.
+   *  Whole-edge cells sidestep that: they're always exactly the deck's own claimed
+   *  ground, so a false positive would mean the deck's OWN footprint edge is wet. */
+  edgeA: [number, number][];
+  edgeB: [number, number][];
+}
+
+function bridgeDeckFootprints(world: World): DeckFootprint[] {
+  const out: DeckFootprint[] = [];
+  for (const e of world.query({ kind: 'bridge_deck' }) as Entity[]) {
+    const rb = (e.properties as {
+      blueprint?: { rb?: { footprint?: { w: number; h: number }; parts?: Array<{ type: string; params?: Record<string, unknown> }> } };
+    } | undefined)?.blueprint?.rb;
+    const fp = rb?.footprint;
+    if (!fp) continue;
+    const ox = Math.floor(e.x), oy = Math.floor(e.y);
+    // Long axis from the deck part's yaw when available (breaks the tie on a
+    // near-square AABB, e.g. a padded short span whose w and h coincide); otherwise
+    // whichever footprint dimension is larger.
+    const deckPart = rb?.parts?.find((p) => p.type === 'deck');
+    const yawDeg = Number(deckPart?.params?.yawDeg);
+    const rad = Number.isFinite(yawDeg) ? (yawDeg * Math.PI) / 180 : (fp.w >= fp.h ? 0 : Math.PI / 2);
+    const vertical = Math.abs(Math.sin(rad)) > Math.abs(Math.cos(rad));
+    const edgeA: [number, number][] = [];
+    const edgeB: [number, number][] = [];
+    if (vertical) {
+      for (let dx = 0; dx < fp.w; dx++) { edgeA.push([ox + dx, oy]); edgeB.push([ox + dx, oy + fp.h - 1]); }
+    } else {
+      for (let dy = 0; dy < fp.h; dy++) { edgeA.push([ox, oy + dy]); edgeB.push([ox + fp.w - 1, oy + dy]); }
+    }
+    out.push({ id: String(e.id), x0: ox, y0: oy, w: fp.w, h: fp.h, edgeA, edgeB });
+  }
+  return out.sort((a, b) => a.id.localeCompare(b.id));
+}
+
+/** Metres of carve depth that counts as a "channel" for the beneath-the-deck seating
+ *  check — well below the smallest authored river carve (~1 m, see content-version
+ *  notes) but comfortably above heightfield noise, so a channel the water tiles haven't
+ *  (yet) classified as literal water still reads as a legitimate crossing target. */
+const CARVED_CHANNEL_MIN_DEPTH_M = 0.4;
+
+/** A tile is a valid "under the bridge" surface — open water, or a carved channel that
+ *  hasn't (or shouldn't) become a water tile (e.g. a dry ford channel). */
+function isWetOrCarved(map: GameMap, store: DeformationStore, x: number, y: number): boolean {
+  const t = map.tiles[y]?.[x];
+  if (t && WATER_TYPES.has(t.type)) return true;
+  return baseHeightAt(map, x, y) - heightAt(map, store, x, y) >= CARVED_CHANNEL_MIN_DEPTH_M;
+}
+
+/** ERROR — a bridge deck doesn't actually seat on its crossing: nothing beneath its
+ *  footprint is water/channel (a deck floating over dry ground — a siting or elevation
+ *  bug), or one of its two span-axis ENDS (where the deck should meet its bank
+ *  abutment) is ENTIRELY open water (the whole edge stops short of the bank — a real
+ *  riverbank cutting diagonally across one cell of an end edge is normal and not
+ *  flagged; every cell of that edge being water is not). */
+const bridgeSeating: DiagnosticRule = {
+  id: 'bridge.seating',
+  severity: 'error',
+  description: 'A bridge deck does not seat correctly on its crossing (floating span or unseated end).',
+  evaluate(ctx) {
+    const decks = bridgeDeckFootprints(ctx.world);
+    if (!decks.length) return [];   // skip building the deformation store when there's nothing to check
+    const store = getWorldDeformationStore(ctx.map);
+    const out: Diagnostic[] = [];
+    for (const deck of decks) {
+      const cells: [number, number][] = [];
+      for (let dy = 0; dy < deck.h; dy++) for (let dx = 0; dx < deck.w; dx++) cells.push([deck.x0 + dx, deck.y0 + dy]);
+      if (!cells.some(([x, y]) => isWetOrCarved(ctx.map, store, x, y))) {
+        out.push({
+          rule: this.id, severity: this.severity,
+          message: `bridge deck ${deck.id} has no water/channel beneath its ${cells.length}-cell footprint — a floating span`,
+          locus: { entities: [deck.id], tiles: cells.slice(0, 24).map(([x, y]) => ({ x, y })) },
+          metrics: { cells: cells.length },
+        });
+      }
+      const isWet = ([x, y]: [number, number]): boolean => WATER_TYPES.has(ctx.map.tiles[y]?.[x]?.type ?? '');
+      const badEnds = [deck.edgeA, deck.edgeB].filter((edge) => edge.length > 0 && edge.every(isWet));
+      if (badEnds.length) out.push({
+        rule: this.id, severity: this.severity,
+        message: `bridge deck ${deck.id} has ${badEnds.length} span end(s) entirely in open water — an unseated abutment`,
+        locus: { entities: [deck.id], tiles: badEnds.flat().map(([x, y]) => ({ x, y })) },
+        metrics: { unseatedEnds: badEnds.length },
+      });
+    }
+    return out.sort((a, b) => a.locus.entities![0].localeCompare(b.locus.entities![0]));
+  },
+};
+
+/** Contiguous 4-connected runs of `bridge`-typed tiles, as cell lists. */
+function bridgeTileRuns(map: GameMap): [number, number][][] {
+  const { tiles, width, height } = map;
+  const seen = new Set<string>();
+  const runs: [number, number][][] = [];
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      if (tiles[y]?.[x]?.type !== 'bridge' || seen.has(cellKey(x, y))) continue;
+      const run: [number, number][] = [];
+      const stack: [number, number][] = [[x, y]];
+      seen.add(cellKey(x, y));
+      while (stack.length) {
+        const [cx, cy] = stack.pop()!;
+        run.push([cx, cy]);
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as [number, number][]) {
+          const nx = cx + dx, ny = cy + dy, nk = cellKey(nx, ny);
+          if (!seen.has(nk) && tiles[ny]?.[nx]?.type === 'bridge') { seen.add(nk); stack.push([nx, ny]); }
+        }
+      }
+      runs.push(run);
+    }
+  }
+  return runs;
+}
+
+/** ERROR — `bridge` tiles and `bridge_deck` entities disagree on where a crossing is:
+ *  tiles must intersect a deck footprint (else it's un-bridged tiles — the tiles-side of
+ *  the "unbridging" class the terrain-features epic fixed the other direction of), and a
+ *  deck must sit over ≥1 bridge tile (else it's a deck over plain ground/water with no
+ *  carved crossing beneath it — the tile-side never got stamped). */
+const bridgeTilesVsDeck: DiagnosticRule = {
+  id: 'bridge.tiles-vs-deck',
+  severity: 'error',
+  description: 'Bridge tiles and bridge_deck entities must agree on where a crossing is.',
+  evaluate(ctx) {
+    const decks = bridgeDeckFootprints(ctx.world).map((d) => {
+      const cells = new Set<string>();
+      for (let dy = 0; dy < d.h; dy++) for (let dx = 0; dx < d.w; dx++) cells.add(cellKey(d.x0 + dx, d.y0 + dy));
+      return { id: d.id, cells };
+    });
+    const out: Diagnostic[] = [];
+    for (const run of bridgeTileRuns(ctx.map)) {
+      const covered = decks.some((d) => run.some(([x, y]) => d.cells.has(cellKey(x, y))));
+      if (covered) continue;
+      const [cx, cy] = run[Math.floor(run.length / 2)];
+      out.push({
+        rule: this.id, severity: this.severity,
+        message: `bridge tile run of ${run.length} cell(s) near (${cx},${cy}) has no bridge_deck entity over it`,
+        locus: { tiles: run.slice(0, 24).map(([x, y]) => ({ x, y })) },
+        metrics: { cells: run.length },
+      });
+    }
+    for (const d of decks) {
+      const hasTile = [...d.cells].some((k) => {
+        const ci = k.indexOf(','); const x = Number(k.slice(0, ci)), y = Number(k.slice(ci + 1));
+        return ctx.map.tiles[y]?.[x]?.type === 'bridge';
+      });
+      if (hasTile) continue;
+      out.push({
+        rule: this.id, severity: this.severity,
+        message: `bridge deck ${d.id} sits over no bridge tile`,
+        locus: { entities: [d.id] },
+        metrics: { cells: d.cells.size },
+      });
+    }
+    return out.sort((a, b) => {
+      const ak = a.locus.entities?.[0] ?? `tile:${a.locus.tiles![0].y}:${a.locus.tiles![0].x}`;
+      const bk = b.locus.entities?.[0] ?? `tile:${b.locus.tiles![0].y}:${b.locus.tiles![0].x}`;
+      return ak.localeCompare(bk);
+    });
+  },
+};
+
+/** Metres of carve depth below which a hollow doesn't read as the "dark faceted pit"
+ *  render artifact — shallow grade cuts (road shoulders, gentle levee tapers) are
+ *  expected terrain sculpting, not a smell. */
+const DRY_PIT_MIN_DEPTH_M = 1.2;
+
+/** Isolation search radius (tiles) for the dry-pit rule below. A river's bank taper is a
+ *  legitimate, INTENDED carve that reaches well past the single tile the hydrology pass
+ *  classified as `river` — `river-deformation.ts`'s `BANK_FEATHER_MAX_TILES` alone is 3.0
+ *  tiles (deep reaches feather wider so the valley wall always contains the bed), on top
+ *  of the channel's own half-width. A live probe against the default world's two seeds
+ *  found EVERY initial hit (checked at a 1-tile radius) sourced to `river:incision` — the
+ *  ordinary feathered shoulder of a real, correctly-placed river the tile classifier
+ *  simply didn't paint that far out (a second, independent read of the SAME "hydrology
+ *  runs twice" divergence this codebase already tracks). Widening to cover the max bank
+ *  feather (+1 tile margin) cleared every one of those without hiding a genuinely
+ *  isolated pit — nothing in this world's earthworks (there are none) or road cuts needs
+ *  more than a couple of tiles of clearance either. */
+const DRY_PIT_ISOLATION_RADIUS_TILES = 4;
+
+/** WARN — a carved hollow (an earthwork ditch, a stray/orphaned channel deformation)
+ *  with nothing living in it: no water, no road, no bridge anywhere near it. In the
+ *  render this is the dark faceted pit — a hole cut into the terrain that never got a
+ *  reason to exist (a ditch whose ring drifted off its motte, a channel deformation left
+ *  behind by a removed river reach) — NOT the ordinary feathered bank of a real river or
+ *  road cut, which is why the isolation check reaches `DRY_PIT_ISOLATION_RADIUS_TILES`
+ *  tiles rather than just the adjacent ring. Depth is measured PURELY from the shared
+ *  deformation channel: `baseHeightAt` (seed terrain, no deformations) minus `heightAt`
+ *  composed over the SAME store the renderer/collision read (`getWorldDeformationStore`)
+ *  — both already in metres, so no unit conversion or heightfield-reconstruction is
+ *  needed (the alternative the plan floated, summing deformation contributions by hand,
+ *  is exactly what `heightAt` already does). */
+const dryPitCarve: DiagnosticRule = {
+  id: 'carve.dry-pit',
+  severity: 'warn',
+  description: 'A carved hollow has no water/road/bridge nearby — a dark, purposeless pit.',
+  evaluate(ctx) {
+    const { width, height, tiles } = ctx.map;
+    // No tile data ⇒ nothing to correlate a carve against (wet/road/isolated are all
+    // tile reads) — bail before touching the deformation store at all. Guards synthetic
+    // test/Fate-context maps that carry a `roadGraph` for OTHER rules but `tiles: []`
+    // and no real `seed`: without this, `getWorldDeformationStore` still builds a real
+    // (if meaningless) river network off an undefined-seed heightfield, and since every
+    // tile lookup against an empty array is "not water/road", ALL of it reads as
+    // isolated — a false-positive generator that has nothing to do with a real world.
+    if (!width || !height || !tiles?.length) return [];
+    const store = getWorldDeformationStore(ctx.map);
+    if (store.size === 0) return [];
+    const isWetOrRoad = (x: number, y: number): boolean => {
+      const t = tiles[y]?.[x]?.type;
+      return !!t && (WATER_TYPES.has(t) || ROAD_TILE_TYPES.has(t));
+    };
+    const R = DRY_PIT_ISOLATION_RADIUS_TILES;
+    const depthOf = new Map<string, number>();
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        if (isWetOrRoad(x, y)) continue;
+        const depth = baseHeightAt(ctx.map, x, y) - heightAt(ctx.map, store, x, y);
+        if (depth <= DRY_PIT_MIN_DEPTH_M) continue;
+        let isolated = true;
+        for (let dy = -R; dy <= R && isolated; dy++) {
+          for (let dx = -R; dx <= R && isolated; dx++) {
+            if (isWetOrRoad(x + dx, y + dy)) isolated = false;
+          }
+        }
+        if (isolated) depthOf.set(cellKey(x, y), depth);
+      }
+    }
+    if (!depthOf.size) return [];
+    // Cluster contiguous (4-connected) flagged cells into one diagnostic per pit.
+    const seen = new Set<string>();
+    const clusters: { cells: [number, number][]; maxDepth: number }[] = [];
+    for (const key of [...depthOf.keys()].sort()) {
+      if (seen.has(key)) continue;
+      const ci = key.indexOf(','); const sx = Number(key.slice(0, ci)), sy = Number(key.slice(ci + 1));
+      const stack: [number, number][] = [[sx, sy]];
+      seen.add(key);
+      const cells: [number, number][] = [];
+      let maxDepth = 0;
+      while (stack.length) {
+        const [cx, cy] = stack.pop()!;
+        cells.push([cx, cy]);
+        maxDepth = Math.max(maxDepth, depthOf.get(cellKey(cx, cy)) ?? 0);
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as [number, number][]) {
+          const nk = cellKey(cx + dx, cy + dy);
+          if (depthOf.has(nk) && !seen.has(nk)) { seen.add(nk); stack.push([cx + dx, cy + dy]); }
+        }
+      }
+      clusters.push({ cells, maxDepth });
+    }
+    return clusters
+      .map((c) => {
+        const cx = Math.round(c.cells.reduce((s, [x]) => s + x, 0) / c.cells.length);
+        const cy = Math.round(c.cells.reduce((s, [, y]) => s + y, 0) / c.cells.length);
+        return { cx, cy, cells: c.cells, maxDepth: c.maxDepth };
+      })
+      .sort((a, b) => (a.cy * width + a.cx) - (b.cy * width + b.cx))
+      .map((c) => ({
+        rule: dryPitCarve.id, severity: dryPitCarve.severity,
+        message: `dry carved pit at (${c.cx},${c.cy}) — ${c.cells.length} cell(s), max depth ${c.maxDepth.toFixed(1)}m, no water/road/bridge nearby`,
+        locus: { tiles: c.cells.slice(0, 24).map(([x, y]) => ({ x, y })) },
+        metrics: { cells: c.cells.length, maxDepthM: Math.round(c.maxDepth * 10) / 10, cx: c.cx, cy: c.cy },
+      }));
   },
 };
 
@@ -621,16 +1051,22 @@ const fortSpoilImbalance: DiagnosticRule = {
 export const DEFAULT_RULES: DiagnosticRule[] = [
   buildingOverlap,
   barrierThroughBuilding,
+  barrierOverWater,
   roadThroughBuilding,
   buildingOnWater,
+  roadFordsWater,
+  bridgeSeating,
+  bridgeTilesVsDeck,
   redundantParallelRoad,
   parallelCorridorRoad,
   riversideUnbankedRoad,
+  dryPitCarve,
   oversubscribedJunction,
   fortBuildingOutsideEnclosure,
   fortGateObstructed,
   fortWardUnreachable,
   fortSpoilImbalance,
+  claimsUnresolvedRule,
 ];
 
 /** Run every rule against a world and grade the findings. Deterministic for a world. */

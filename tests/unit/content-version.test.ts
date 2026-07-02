@@ -6,7 +6,7 @@ describe('content-version constants', () => {
     expect(ART_RECIPE_VERSION).toBe('v24');
   });
 
-  it('declares the current world content version (76: volcanic identity + world doctor + ground easing)', () => {
-    expect(WORLD_CONTENT_VERSION).toBe(76);
+  it('declares the current world content version (78: WP-C junction reconciliation — croft gates, deck seating, river-bridge fix)', () => {
+    expect(WORLD_CONTENT_VERSION).toBe(78);
   });
 });

@@ -164,7 +164,7 @@ describe('computeDetailMask', () => {
     }
     expect(uncoveredNew).toBe(0);                            // coverage ⊇ every carve
     expect(uncoveredOld).toBeGreaterThan(0);                 // …and the gap was real
-  });
+  }, 60_000);  // full default-world gen legitimately exceeds the 5 s default
 
   // ── Roads carve a corridor just like rivers; the fine mesh must follow it too. ──
   const W = 32, H = 32;

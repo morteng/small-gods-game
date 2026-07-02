@@ -33,12 +33,14 @@ import { placeSettlement } from '@/world/building-placer';
 import { stampFarmland } from '@/world/farmland';
 import { stampIrrigation } from '@/world/irrigation';
 import { buildCrossingStructureEntities } from '@/world/connectome/crossing-structures';
+import { deriveBuiltJunctions } from '@/world/junction-artifacts';
 import { buildStairStructureEntities } from '@/world/connectome/stair-structures';
 import { buildEntranceStoopEntities } from '@/world/connectome/entrance-stoops';
 import { buildAqueductStructureEntities } from '@/world/connectome/aqueduct-structures';
 import { buildWaterNetwork, referenceFlow, reachHalfWidths } from '@/terrain/river-network';
 import { REACH_CARVE } from '@/world/river-deformation';
-import { areaScaledRiverThreshold } from '@/terrain/hydrology';
+import { getComposedHeightfield } from '@/world/road-deformation';
+import { styledRiverFlowThreshold } from '@/terrain/hydrology';
 import { getHeightfield, ELEVATION_SEA_LEVEL } from '@/world/heightfield';
 import { curveRenderElev } from '@/render/gpu/terrain-field';
 import { worldStyleOf } from '@/core/world-style';
@@ -173,8 +175,7 @@ export async function generateWithNoise(
   // Generate rivers from drainage basins. The flow threshold scales INVERSELY with the
   // world's riverDensity style knob (>1 = more/finer rivers, <1 = fewer trunk rivers).
   report('Carving rivers...');
-  const riverDensity = worldStyleOf(worldSeed ?? undefined).riverDensity || 1;
-  const riverFlowThreshold = areaScaledRiverThreshold(width * height) / riverDensity;
+  const riverFlowThreshold = styledRiverFlowThreshold(worldSeed, width, height);
   // Volcano craters must stay dry (heat evaporates the pit-fill pond) — same mask
   // the render-path recompute (hydrology-store) derives, so tiles and water agree.
   const scorchMask = buildVolcanoScorchMask(
@@ -402,7 +403,12 @@ export async function generateWithNoise(
       for (let dx = -2; dx <= 2 && !near; dx++) for (let dy = -2; dy <= 2 && !near; dy++) {
         if (isRoadType(tiles[a.y + dy]?.[a.x + dx]?.type)) near = true;
       }
-      if (!near) wireGateToRoad({ x: a.x, y: a.y } as import('@/world/anchors').Anchor, spurMap);
+      if (!near) {
+        // Spur routing honours the same obstacles as the approach walker: never through
+        // a curtain, never across water (wire-gate itself refuses WATER_TYPES).
+        wireGateToRoad({ x: a.x, y: a.y } as import('@/world/anchors').Anchor, spurMap, 12,
+          (x, y) => approach.wallObstacles.has(`${x},${y}`));
+      }
     }
 
     // River-crossing SITES (unified connectome, v0): where a road bridges water, compose a
@@ -424,6 +430,9 @@ export async function generateWithNoise(
       curveRenderElev(deckHf[y * width + x] ?? ELEVATION_SEA_LEVEL, ELEVATION_SEA_LEVEL, deckGamma);
     for (const e of buildCrossingStructureEntities(roadGraph, width, {
       deckElevAt,
+      // A wet bank anchor (a channel wider than the detected bridge run) snaps outward to dry
+      // ground so the deck seats its abutments on land, not in the river (bridge.seating).
+      isWater: (x, y) => WATER_TYPES.has(tiles[y]?.[x]?.type ?? ''),
       // Pier/arch height tracks the real bank-to-bed clearance (same raw heightfield + relief the
       // stair siter reads), so a deep gorge gets tall supports and a shallow brook short ones.
       elevAt: (x, y) => deckHf[Math.round(y) * width + Math.round(x)] ?? ELEVATION_SEA_LEVEL,
@@ -435,23 +444,7 @@ export async function generateWithNoise(
       },
     })) world.addEntity(e);
 
-    // STAIR SITES (G3b): where a road's line climbs steeper than its class grade envelope,
-    // the connectome wants a stair flight (the envelope's named reconciliation structure).
-    // Stairs SIT on the road (don't block road tiles like the crossing aprons do) but must
-    // not stand in water or on a building. Grade is read in normalised heightfield space
-    // (deckHf) — the same space the envelope's maxGrade is measured in — and the flight rides
-    // the curved render elevation at its foot via liftElev.
-    report('Siting stairs...');
-    for (const e of buildStairStructureEntities(roadGraph, {
-      elevAt: (x, y) => deckHf[Math.round(y) * width + Math.round(x)] ?? ELEVATION_SEA_LEVEL,
-      reliefM: worldStyleOf(worldSeed ?? undefined).mountainRelief,
-      liftElevAt: deckElevAt,
-      cellBlocked: (x, y) => {
-        const t = tiles[y]?.[x];
-        if (!t) return true;
-        return tileBlockedByBuilding(world, x, y) || WATER_TYPES.has(t.type);
-      },
-    })) world.addEntity(e);
+    // (Road stair flights are sited AFTER map assembly below, on the COMPOSED heightfield.)
 
     // ENTRANCE STOOPS (outdoor-architectural stairs — the kit's entrance/site siting
     // authority): a building standing proud of the grade it faces (a hall on a hillside pad,
@@ -584,6 +577,36 @@ export async function generateWithNoise(
   // for a landward gate reached by a road and a curtain crossed only at gates. `evaluateContracts`
   // (lint:world / MCP / Fate) grades them into the leveled report.
   map.contracts = { declarations: settlementRingContracts(barrierRuns) };
+
+  // STAIR SITES (G3b): where a road's line climbs steeper than its class grade envelope,
+  // the connectome wants a stair flight (the envelope's named reconciliation structure).
+  // Sited AFTER map assembly so grade detection AND the foot lift read the COMPOSED
+  // heightfield (base ⊕ road cuts/embankments ⊕ river carve ⊕ wall footings) — the ground
+  // the renderer actually lifts entities by. Reading the raw field sited flights where the
+  // road's own cut had already eased the climb, and floated/sank them over carved corridors.
+  // A flight must not stand in water, on a building, or on a wall curtain (only openings).
+  if (roadGraph) {
+    report('Siting stairs...');
+    const composed = getComposedHeightfield(map);
+    const stairStyle = worldStyleOf(worldSeed ?? undefined);
+    const wallCells = gateApproachPlan(barrierRuns, [], worldSeed?.pois ?? []).wallObstacles;
+    for (const e of buildStairStructureEntities(roadGraph, {
+      elevAt: (x, y) => composed[Math.round(y) * width + Math.round(x)] ?? ELEVATION_SEA_LEVEL,
+      reliefM: stairStyle.mountainRelief,
+      liftElevAt: (x, y) => curveRenderElev(composed[y * width + x] ?? ELEVATION_SEA_LEVEL, ELEVATION_SEA_LEVEL, stairStyle.terrainHeightGamma),
+      cellBlocked: (x, y) => {
+        const t = tiles[y]?.[x];
+        if (!t) return true;
+        return tileBlockedByBuilding(world, x, y) || WATER_TYPES.has(t.type) || wallCells.has(`${x},${y}`);
+      },
+    })) world.addEntity(e);
+  }
+
+  // JUNCTION ARTIFACTS (world-compiler WP-C): record the typed objects that own every
+  // feature×feature overlap the builders just committed — Bridges over crossings, Gatehouse/
+  // WaterGate at each barrier opening — so the world carries its junctions as first-class data
+  // the claims ledger resolves against. Pure read of committed state; no placement change.
+  map.junctions = deriveBuiltJunctions(world, map);
 
   return { map, world, biomeMap };
 }

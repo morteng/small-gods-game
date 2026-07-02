@@ -16,6 +16,7 @@
 
 import type { TerrainField, TerrainConfig, HydrologyResult, POI } from '@/core/types';
 import { WaterType } from '@/core/types';
+import { worldStyleOf, type WorldStyleConfig } from '@/core/world-style';
 import { MOUNTAIN_HEIGHT_M } from './biomes';
 import { SIZE_SCALE, POI_INFLUENCES } from './poi-influence';
 
@@ -33,6 +34,19 @@ const RIVER_THRESHOLD_REF_CELLS = 128 * 96;
  *  map dimension (√cells), tracking drainage length rather than area. */
 export function areaScaledRiverThreshold(totalCells: number): number {
   return Math.max(DEFAULT_RIVER_FLOW_THRESHOLD, DEFAULT_RIVER_FLOW_THRESHOLD * Math.sqrt(totalCells / RIVER_THRESHOLD_REF_CELLS));
+}
+
+/** THE river-flow threshold a world actually uses: area-scaled by map size, divided by the
+ *  style's riverDensity knob (>1 = more/finer rivers). Every consumer that thresholds or
+ *  CLASSIFIES the water network — the tile raster, the valley carve, the render-path
+ *  network, the hydrology recompute — must derive its threshold here, or they disagree
+ *  about which channels exist and how deep/wide each one is (a fixed 560 on a large map
+ *  classified every reach `major_river` → every river carved the identical 6.5 m trench). */
+export function styledRiverFlowThreshold(
+  worldSeed: { style?: WorldStyleConfig } | null | undefined, width: number, height: number,
+): number {
+  const density = worldStyleOf(worldSeed ?? undefined).riverDensity || 1;
+  return areaScaledRiverThreshold(width * height) / density;
 }
 // Headwater taper: a river is extended UPSTREAM (as a thin source trickle) down to
 // this fraction of the river threshold, so a stream visibly ORIGINATES from a thin

@@ -22,8 +22,13 @@ import { blueprintOf } from '@/blueprint/entity';
 import { structureBox, type StructureBox } from '@/blueprint/footprint';
 import { isLayerHidden } from '@/render/layer-visibility';
 
+// Tie-break order at EQUAL iso-depth keys. Barrier sits ABOVE building deliberately:
+// rings stand outside every building's visual extent, so when a wall chunk and a building
+// tie on depth the building's front corner is at most ON the wall line — the wall is the
+// nearer object and must draw after it. (They used to share 4; the tie was insertion-order
+// arbitrary, one cause of buildings poking through walls.)
 const KIND_PRIORITY: Record<string, number> = {
-  river: 0, road: 1, deco: 2, vegetation: 3, barrier: 4, building: 4, npc: 5,
+  river: 0, road: 1, deco: 2, vegetation: 3, building: 4, barrier: 5, npc: 6,
 };
 
 /**
@@ -112,6 +117,9 @@ export function buildEntityDrawList(
             entries.push({
               id: cid, kind: 'barrier',
               tx: Math.floor(p.sortX), ty: Math.floor(p.sortY), z: 0,
+              // Unfloored midpoint: flooring cost up to a tile of depth precision per
+              // chunk, widening the window where a building mis-sorts against the wall.
+              sortTx: p.sortX, sortTy: p.sortY,
               kindPriority: KIND_PRIORITY.barrier,
             });
           });
@@ -125,6 +133,7 @@ export function buildEntityDrawList(
             entries.push({
               id: cid, kind: 'barrier',
               tx: Math.floor(sl.wx), ty: Math.floor(sl.wy), z: 0,
+              sortTx: sl.wx, sortTy: sl.wy,
               kindPriority: KIND_PRIORITY.barrier,
             });
           });
