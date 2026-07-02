@@ -133,19 +133,15 @@ export function deriveRecipe(b: Botanical): FloraRecipeName {
   }
 }
 
-/** True when the botanical facts read as a conifer (needle/scale, or a conical/
- *  columnar evergreen) — conifers route to the space-colonization cone generator. */
-function isConifer(b: Botanical): boolean {
-  if (b.leafType === 'needle' || b.leafType === 'scale') return true;
-  return b.leafPhenology === 'evergreen' && (b.crownShape === 'conical' || b.crownShape === 'columnar');
-}
-
-/** Pick the skeleton generator: small plants → L-system, conifers → space
- *  colonization (clean cones), all other woody plants → proctree branching. */
+/** Pick the skeleton generator: small plants → L-system; ALL trees → space
+ *  colonization, whose per-crown ENVELOPE (dome / cone / column / weeping curtain)
+ *  is the canopy-first authority — attractors sampled inside it, growth culled to
+ *  it, silhouette holes closed by its coverage pass. Shrubs keep proctree (a low
+ *  many-stemmed bush wants busy stems, not a single enveloped crown). */
 export function deriveGenerator(b: Botanical): FloraGenerator {
   if (b.habit === 'fern' || b.habit === 'herb' || b.habit === 'grass') return 'lsystem';
-  if (b.habit === 'tree' && isConifer(b)) return 'spacecol';
-  return 'proctree'; // broadleaf trees, shrubs, weeping forms
+  if (b.habit === 'tree') return 'spacecol';
+  return 'proctree'; // shrubs
 }
 
 /** Base limb radius (metres) for a plant. Uses measured trunk diameter when known,

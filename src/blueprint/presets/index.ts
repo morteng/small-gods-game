@@ -37,14 +37,15 @@ const prop = (preset: string, b: Omit<Blueprint, 'version' | 'class' | 'preset'>
  *  every instance of a species shares one cached sprite. See flora-branch.ts. */
 /** Sensible (generator, crownShape) for a hand-authored preset that only names a
  *  recipe — mirrors the species-path derivation so legacy presets pick the right
- *  generator (conifer → spacecol cone, willow → proctree weeping, etc.). */
+ *  generator (ALL trees → the canopy-first spacecol envelopes; shrubs → proctree;
+ *  ground cover → L-system). */
 const recipeDefaults = (recipe: string): { generator: string; crownShape: string } => {
   switch (recipe) {
     case 'pine': return { generator: 'spacecol', crownShape: 'conical' };
-    case 'willow': return { generator: 'proctree', crownShape: 'weeping' };
+    case 'willow': return { generator: 'spacecol', crownShape: 'weeping' };
     case 'shrub': return { generator: 'proctree', crownShape: 'irregular' };
     case 'fern': case 'flower': case 'grass': return { generator: 'lsystem', crownShape: 'none' };
-    default: return { generator: 'proctree', crownShape: 'rounded' };
+    default: return { generator: 'spacecol', crownShape: 'rounded' };
   }
 };
 

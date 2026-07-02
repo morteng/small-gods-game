@@ -6,18 +6,18 @@
 //
 //   'lsystem'  — turtle L-system recipes (recipes.ts). Small plants: fern, flower,
 //                grass, herb. Cheap, stylised, keeps the existing six recipes.
-//   'proctree' — recursive branch model (proctree.ts). Broadleaf trees + shrubs +
-//                weeping forms. Crown-shape tunes clump/drop/climb → distinct
-//                oak / beech / birch / willow silhouettes (the headline win).
-//   'spacecol' — space colonization (space-colonization.ts). Conifers, where an
-//                envelope (conical / columnar) gives the cleanest cone silhouette.
+//   'proctree' — recursive branch model (proctree.ts). Shrubs (low many-stemmed
+//                bushes, no crown envelope to speak of).
+//   'spacecol' — space colonization (space-colonization.ts). ALL trees: the crown
+//                envelope (dome / cone / column / weeping curtain) is the authority
+//                and a coverage pass closes the silhouette (canopy-first, WP-H).
 //
 // Determinism: every generator runs off the supplied seeded sfc32 Rng.
 import type { Rng } from '@/core/rng';
 import type { FloraSkeleton } from './turtle';
 import { buildFloraSkeleton, type FloraRecipeName } from './recipes';
 import { growProctree, type ProctreeParams } from './proctree';
-import { growSpaceColonization, type SpaceColParams, type Envelope } from './space-colonization';
+import { growSpaceColonization, type SpaceColParams } from './space-colonization';
 import { scale as vscale } from './vec3';
 
 export type FloraGenerator = 'lsystem' | 'proctree' | 'spacecol';
@@ -98,24 +98,30 @@ function proctreePreset(crown: CrownSilhouette, recipe: FloraRecipeName): Partia
   return pr;
 }
 
-/** Crown-shape → space-colonization parameters (conifer cones / columns). */
+/** Crown-shape → space-colonization parameters — the canopy-first per-species
+ *  tuning. `trunkFrac` is the bare-trunk fraction (pine HIGH, oak LOW); foliage is
+ *  fewer/LARGER blobs + a coverage pass (see space-colonization.ts). */
 function spaceColPreset(crown: CrownSilhouette): Partial<SpaceColParams> {
-  const envelope: Envelope =
-    crown === 'columnar' ? 'columnar'
-    : crown === 'spreading' ? 'spreading'
-    : crown === 'irregular' ? 'irregular'
-    : crown === 'conical' ? 'conical'
-    : 'rounded';
-  switch (envelope) {
-    // Conifers: many SMALL clumps over a dense skeleton → a needled cone, not a few lumps.
+  switch (crown) {
+    // Conifer cone: tall bare trunk (pine HIGH), a NARROW cone taller than wide —
+    // small clumps that shrink with the cone toward the tip.
     case 'conical':
-      return { envelope, trunkFrac: 0.12, crownWidth: 0.32, foliageRadius: 0.085, attractors: 320, step: 0.05 };
+      return { envelope: 'conical', trunkFrac: 0.45, crownWidth: 0.24, foliageRadius: 0.07, attractors: 300, step: 0.045, coverage: 90, pipeExp: 2.6 };
+    // Columnar broadleaf (birch): narrow tall crown over a slender visible trunk.
     case 'columnar':
-      return { envelope, trunkFrac: 0.1, crownWidth: 0.2, foliageRadius: 0.085, attractors: 300, step: 0.048 };
+      return { envelope: 'columnar', trunkFrac: 0.28, crownWidth: 0.2, foliageRadius: 0.09, attractors: 220, step: 0.05, coverage: 70, pipeExp: 2.6 };
+    // Spreading oak: broad dense dome over a SHORT-but-visible stout trunk.
     case 'spreading':
-      return { envelope, trunkFrac: 0.4, crownWidth: 0.5, foliageRadius: 0.12, attractors: 260 };
+      return { envelope: 'spreading', trunkFrac: 0.3, crownWidth: 0.46, foliageRadius: 0.13, attractors: 220, step: 0.055, coverage: 90, pipeExp: 2.7 };
+    // Weeping willow: umbrella dome + a hanging curtain of blob chains.
+    case 'weeping':
+      return { envelope: 'weeping', trunkFrac: 0.32, crownWidth: 0.42, foliageRadius: 0.12, attractors: 120, step: 0.055, coverage: 40, curtainBottom: 0.08, curtainBlobR: 0.065, pipeExp: 2.6 };
+    // Irregular (hazel/yew): lumpy dome with a hint of stem below.
+    case 'irregular':
+      return { envelope: 'irregular', trunkFrac: 0.18, crownWidth: 0.42, foliageRadius: 0.12, attractors: 200, step: 0.055, coverage: 80 };
+    // Rounded broadleaf (beech/ash): full dome over a modest bare trunk.
     default:
-      return { envelope, trunkFrac: 0.38, crownWidth: 0.42, foliageRadius: 0.12, attractors: 260 };
+      return { envelope: 'rounded', trunkFrac: 0.26, crownWidth: 0.42, foliageRadius: 0.13, attractors: 200, step: 0.055, coverage: 80, pipeExp: 2.6 };
   }
 }
 

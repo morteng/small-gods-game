@@ -2,7 +2,7 @@
 import { describe, it, expect } from 'vitest';
 import { createRng } from '@/core/rng';
 import { growProctree } from '@/assetgen/geometry/flora/proctree';
-import { growSpaceColonization } from '@/assetgen/geometry/flora/space-colonization';
+import { growSpaceColonization, envelopeMaxR, SPACECOL_DEFAULTS } from '@/assetgen/geometry/flora/space-colonization';
 import {
   buildFlora, FLORA_GENERATORS, CROWN_SILHOUETTES, type CrownSilhouette,
 } from '@/assetgen/geometry/flora/generators';
@@ -65,6 +65,50 @@ describe('space-colonization generator', () => {
     const a = growSpaceColonization({ envelope: 'rounded' }, createRng(4));
     const b = growSpaceColonization({ envelope: 'rounded' }, createRng(4));
     expect(a.limbs).toEqual(b.limbs);
+  });
+
+  it('no bare sticks: every branch stays inside the crown envelope (canopy-first)', () => {
+    const envs = ['rounded', 'spreading', 'conical', 'columnar', 'irregular', 'weeping'] as const;
+    for (const envelope of envs) {
+      const p = { ...SPACECOL_DEFAULTS, envelope };
+      const s = growSpaceColonization({ envelope }, createRng(13));
+      const crownBase = p.trunkFrac;
+      const crownSpan = 1 - crownBase;
+      for (const l of s.limbs) {
+        const pt = l.b;
+        if (pt[2] <= crownBase + 1e-9) continue; // trunk
+        const lz = Math.min(Math.max((pt[2] - crownBase) / crownSpan, 0), 1);
+        const allowed = envelopeMaxR(envelope, lz) * p.crownWidth * 1.1 + p.step * 0.5 + 1e-9;
+        expect(Math.hypot(pt[0], pt[1]), `${envelope} limb tip`).toBeLessThanOrEqual(allowed);
+      }
+    }
+  });
+
+  it('coverage: the crown silhouette has no holes (surface samples fall inside blobs)', () => {
+    const envs = ['rounded', 'spreading', 'conical', 'columnar'] as const;
+    for (const envelope of envs) {
+      const p = { ...SPACECOL_DEFAULTS, envelope };
+      const s = growSpaceColonization({ envelope }, createRng(21));
+      const crownBase = p.trunkFrac;
+      const crownSpan = 1 - crownBase;
+      // Probe the envelope surface on a fixed grid; each probe must sit inside
+      // (or very near) some foliage blob — the "no canopy holes" contract.
+      let misses = 0, probes = 0;
+      for (let zi = 1; zi < 9; zi++) {
+        const z = zi / 9;
+        const mr = envelopeMaxR(envelope, z) * p.crownWidth;
+        for (let k = 0; k < 8; k++) {
+          const phi = (k / 8) * Math.PI * 2;
+          const target = [Math.cos(phi) * mr, Math.sin(phi) * mr, crownBase + z * crownSpan] as const;
+          probes++;
+          const hit = s.leaves.some((lf) => Math.hypot(
+            target[0] - lf.at[0], target[1] - lf.at[1], target[2] - lf.at[2]) < lf.r * 1.35);
+          if (!hit) misses++;
+        }
+      }
+      // Allow a small broken-edge budget (blobs are jittered), never gaping holes.
+      expect(misses / probes, `${envelope} silhouette misses`).toBeLessThan(0.12);
+    }
   });
 });
 
