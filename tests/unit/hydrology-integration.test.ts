@@ -72,4 +72,16 @@ describe('Hydrology in generateWithNoise', () => {
     expect(big).toBeGreaterThan(DEFAULT_RIVER_FLOW_THRESHOLD * 2.5);
     expect(big).toBeLessThan(DEFAULT_RIVER_FLOW_THRESHOLD * 3.5);
   });
+
+  it('styledRiverFlowThreshold = area-scaled ÷ riverDensity — THE one threshold every consumer derives', async () => {
+    const { styledRiverFlowThreshold, areaScaledRiverThreshold } = await import('@/terrain/hydrology');
+    // No style → area-scaled unchanged. This is the value the tile raster, the valley
+    // carve, the render network AND the hydrology recompute must ALL classify against:
+    // a fixed constant in any one of them made every reach `major_river` on large maps
+    // (uniform max-depth trenches) or drew channels the tiles don't have.
+    expect(styledRiverFlowThreshold(null, 488, 352)).toBe(areaScaledRiverThreshold(488 * 352));
+    // riverDensity scales INVERSELY (>1 ⇒ lower threshold ⇒ more/finer rivers).
+    const dense = styledRiverFlowThreshold({ style: { overrides: { riverDensity: 2 } } }, 488, 352);
+    expect(dense).toBeCloseTo(areaScaledRiverThreshold(488 * 352) / 2, 6);
+  });
 });

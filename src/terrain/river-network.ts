@@ -261,9 +261,12 @@ export function reachMeander(order: number, springX: number, springY: number): M
 
 /** Channel half-width (tiles) at the reference flow — a brook. */
 export const RIVER_HALF_AT_REF = 0.5;
-/** Floor / ceiling on a channel's half-width (tiles). */
+/** Floor / ceiling on a channel's half-width (tiles). The ceiling matters: √Q saturates
+ *  at (MAX/AT_REF)² × refFlow, and 2.4 put that at ~23× the smallest channel — every
+ *  trunk river on a real map clamped to the identical width. 3.2 (≈13 m full width)
+ *  moves saturation to ~41× so majors keep differentiating. */
 export const RIVER_HALF_MIN = 0.32;
-export const RIVER_HALF_MAX = 2.4;
+export const RIVER_HALF_MAX = 3.2;
 
 /** The reference flow for a network: its smallest reach flow (≈ the channel threshold),
  *  so the width law scales per-world. Never 0 (degenerate networks fall back to 1). */

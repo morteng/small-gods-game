@@ -38,7 +38,7 @@ import { buildEntranceStoopEntities } from '@/world/connectome/entrance-stoops';
 import { buildAqueductStructureEntities } from '@/world/connectome/aqueduct-structures';
 import { buildWaterNetwork, referenceFlow, reachHalfWidths } from '@/terrain/river-network';
 import { REACH_CARVE } from '@/world/river-deformation';
-import { areaScaledRiverThreshold } from '@/terrain/hydrology';
+import { styledRiverFlowThreshold } from '@/terrain/hydrology';
 import { getHeightfield, ELEVATION_SEA_LEVEL } from '@/world/heightfield';
 import { curveRenderElev } from '@/render/gpu/terrain-field';
 import { worldStyleOf } from '@/core/world-style';
@@ -173,8 +173,7 @@ export async function generateWithNoise(
   // Generate rivers from drainage basins. The flow threshold scales INVERSELY with the
   // world's riverDensity style knob (>1 = more/finer rivers, <1 = fewer trunk rivers).
   report('Carving rivers...');
-  const riverDensity = worldStyleOf(worldSeed ?? undefined).riverDensity || 1;
-  const riverFlowThreshold = areaScaledRiverThreshold(width * height) / riverDensity;
+  const riverFlowThreshold = styledRiverFlowThreshold(worldSeed, width, height);
   // Volcano craters must stay dry (heat evaporates the pit-fill pond) — same mask
   // the render-path recompute (hydrology-store) derives, so tiles and water agree.
   const scorchMask = buildVolcanoScorchMask(

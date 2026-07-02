@@ -20,7 +20,7 @@
 import type { GameMap, HydrologyResult } from '@/core/types';
 import { DeformationStore, polylineDeformation, type Deformation } from '@/world/terrain-deformation';
 import { getHydrologyResult } from '@/world/hydrology-store';
-import { DEFAULT_RIVER_FLOW_THRESHOLD } from '@/terrain/hydrology';
+import { styledRiverFlowThreshold } from '@/terrain/hydrology';
 import {
   buildWaterNetwork, referenceFlow, reachHalfWidths, reachDepths,
   type ReachClass, type Pt, type WaterNetwork,
@@ -78,7 +78,10 @@ function chunkPolyline(pts: Pt[]): Pt[][] {
  */
 export function buildRiverDeformations(map: GameMap, hydro: HydrologyResult): Deformation[] {
   const { width: w, height: h } = map;
-  const net = buildWaterNetwork(hydro, w, h, DEFAULT_RIVER_FLOW_THRESHOLD);
+  // The SAME styled threshold map-generator thresholds the raster with — a fixed
+  // threshold here classified every reach `major_river` on large maps, so every
+  // river carved the identical max-depth trench regardless of its actual flow.
+  const net = buildWaterNetwork(hydro, w, h, styledRiverFlowThreshold(map.worldSeed, w, h));
   return buildRiverDeformationsFromNetwork(map, net);
 }
 

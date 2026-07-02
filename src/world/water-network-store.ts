@@ -6,7 +6,7 @@
 // never travels in the save.
 import type { GameMap } from '@/core/types';
 import { buildWaterNetwork, type WaterNetwork } from '@/terrain/river-network';
-import { DEFAULT_RIVER_FLOW_THRESHOLD } from '@/terrain/hydrology';
+import { styledRiverFlowThreshold } from '@/terrain/hydrology';
 import { getHydrologyResult } from '@/world/hydrology-store';
 import { waterNetworkToConnectome } from '@/world/connectome/water-nodes';
 import type { WorldNode } from '@/world/connectome/world-node';
@@ -24,7 +24,11 @@ export function getWaterNetwork(map: GameMap): WaterNetwork {
   const k = key(map);
   const hit = cache.get(k);
   if (hit) return hit;
-  const net = buildWaterNetwork(getHydrologyResult(map), map.width, map.height, DEFAULT_RIVER_FLOW_THRESHOLD);
+  // SAME styled threshold as the raster/carve — a fixed threshold here built a render
+  // network whose reaches (and their width/depth classes) disagreed with the tiles.
+  const net = buildWaterNetwork(
+    getHydrologyResult(map), map.width, map.height,
+    styledRiverFlowThreshold(map.worldSeed, map.width, map.height));
   cache.set(k, net);
   if (cache.size > CACHE_CAP) {
     const oldest = cache.keys().next().value;
