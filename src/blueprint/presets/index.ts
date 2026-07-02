@@ -149,6 +149,7 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
   cottage: bp('cottage', {
     category: 'residential', era: 'medieval', footprint: { w: 3, h: 3 },
     materials: { walls: 'wattle', roof: 'thatch', ground: 'packed_dirt' },
+    palette: { walls: 'limewash' },   // the white-washed cottage under golden thatch
     parts: { body: {
       type: 'body', at: { x: 0, y: 0 }, size: { w: 3, h: 2 },
       params: { plan: 'rect', levels: 1, levelInset: 0, roof: 'gable' },
@@ -165,6 +166,7 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
   tavern: bp('tavern', {
     category: 'commercial', era: 'medieval', footprint: { w: 3, h: 3 },
     materials: { walls: 'timber', roof: 'tile', ground: 'packed_dirt' },
+    palette: { walls: 'limewash' },   // washed timber frame — the inviting inn front
     parts: { body: {
       // Massing (a jettied two-storey range) is DERIVED from the box frame (gen-form): the
       // box frame stacks a storey and oversails it. The authored levels/jetty here are the
@@ -191,6 +193,7 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
   townhouse: bp('townhouse', {
     category: 'residential', era: 'medieval', footprint: { w: 3, h: 3 },
     materials: { walls: 'timber', roof: 'tile', ground: 'flagstone' },
+    palette: { walls: 'ochre' },      // ochre-washed burgage range — town-street colour
     parts: { body: {
       // Massing DERIVED from the box frame (gen-form) — a jettied two-storey burgage range.
       type: 'body', size: { w: 3, h: 2 },
@@ -289,6 +292,7 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
   shrine: bp('shrine', {
     category: 'religious', era: 'classical', footprint: { w: 2, h: 2 },
     materials: { walls: 'stone', roof: 'tile', ground: 'flagstone' },
+    palette: { walls: 'polychrome' }, // painted sacred stone (temple-blue decorative wash)
     parts: { body: { type: 'body', size: { w: 2, h: 2 }, params: { plan: 'rect', levels: 1, roof: 'gable' }, tags: [GEN_OPENINGS_TAG] } },
   }),
   // Guard post: a small hip-roofed timber cell; door + shuttered window derived.
@@ -304,6 +308,7 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
   watermill: bp('watermill', {
     category: 'craft', era: 'medieval', footprint: { w: 2, h: 2 },
     materials: { walls: 'timber', roof: 'wood', ground: 'flagstone' },
+    palette: { walls: 'tar' },        // pitch-sealed mill timber against the splash
     parts: { body: {
       // Door + windows DERIVED (gen-openings); the wheel-housing gap on the stream side
       // stays a hand-authored override — the hybrid: generative base + a custom detail.

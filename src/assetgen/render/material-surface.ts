@@ -528,7 +528,8 @@ export function prepareSurface(
   // Pick the bond/coursing pattern: explicit work → family default work → family pattern.
   const work = spec.work ?? DEFAULT_WORK[spec.material];
   const pattern = work ? WORK_PATTERNS[work] : PATTERNS[spec.material];
-  const finish = FINISHES[spec.finish ?? 'bare'];
+  // Unknown finish ids (a palette typo / future id) degrade to bare, never crash.
+  const finish = FINISHES[spec.finish ?? 'bare'] ?? FINISHES.bare;
   const tint = spec.tint;
   const inv = 1 / unitsPerMetre;
   const n0 = normal[0], n1 = normal[1], n2 = normal[2];

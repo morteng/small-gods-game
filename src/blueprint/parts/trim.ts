@@ -18,7 +18,7 @@ const LOWER_D = 0.30, UPPER_D = 0.18;  // projection from the wall plane
 const LOWER_H_FRAC = 0.55, UPPER_H_FRAC = 0.88;  // stage tops as fractions of eave height
 
 /** One two-stage buttress at wall position (x, y), projecting outward (ox, oy). */
-function buttress(x: number, y: number, ox: number, oy: number, eaveH: number, mat: Mat, work?: string): Prim[] {
+function buttress(x: number, y: number, ox: number, oy: number, eaveH: number, mat: Mat, work?: string, finish?: string): Prim[] {
   const stage = (d: number, hFrac: number): Prim => ({
     prim: 'box',
     at: [
@@ -27,7 +27,7 @@ function buttress(x: number, y: number, ox: number, oy: number, eaveH: number, m
       0,
     ],
     size: [ox === 0 ? BUTTRESS_W : d, oy === 0 ? BUTTRESS_W : d, eaveH * hFrac],
-    material: mat, ...(work ? { work } : {}),
+    material: mat, ...(work ? { work } : {}), ...(finish ? { finish } : {}),
   });
   return [stage(LOWER_D, LOWER_H_FRAC), stage(UPPER_D, UPPER_H_FRAC)];
 }
@@ -49,7 +49,7 @@ function facePlane(p: ResolvedPart, face: WallFace): { ox: number; oy: number; w
  * face has no windows; plus a pair of angle buttresses at each corner. Emitted on the
  * two LONG (eave) faces — where the roof thrust lands — and the corners brace both ways.
  */
-export function buttressPrims(p: ResolvedPart, mat: Mat, eaveH: number, work?: string): Prim[] {
+export function buttressPrims(p: ResolvedPart, mat: Mat, eaveH: number, work?: string, finish?: string): Prim[] {
   const { w, h } = p.size;
   const out: Prim[] = [];
   const longFaces: WallFace[] = w >= h ? ['south', 'north'] : ['east', 'west'];
@@ -70,7 +70,7 @@ export function buttressPrims(p: ResolvedPart, mat: Mat, eaveH: number, work?: s
     for (const t of lines) {
       const bx = alongX ? wallX + t * run : wallX;
       const by = alongX ? wallY : wallY + t * run;
-      out.push(...buttress(bx, by, ox, oy, eaveH, mat, work));
+      out.push(...buttress(bx, by, ox, oy, eaveH, mat, work, finish));
     }
   }
 
@@ -81,8 +81,8 @@ export function buttressPrims(p: ResolvedPart, mat: Mat, eaveH: number, work?: s
     [x, y, -1, -1], [x + w, y, 1, -1], [x, y + h, -1, 1], [x + w, y + h, 1, 1],
   ];
   for (const [cx, cy, sx, sy] of corners) {
-    out.push(...buttress(cx - sx * inset, cy, 0, sy, eaveH, mat, work));   // pier on the ±y face
-    out.push(...buttress(cx, cy - sy * inset, sx, 0, eaveH, mat, work));   // pier on the ±x face
+    out.push(...buttress(cx - sx * inset, cy, 0, sy, eaveH, mat, work, finish));   // pier on the ±y face
+    out.push(...buttress(cx, cy - sy * inset, sx, 0, eaveH, mat, work, finish));   // pier on the ±x face
   }
   return out;
 }
@@ -92,7 +92,7 @@ export function buttressPrims(p: ResolvedPart, mat: Mat, eaveH: number, work?: s
  * defensive-wall battlement builder), standing on a low continuous breast so the
  * crenels don't read as a gap-toothed floor from below.
  */
-export function parapetPrims(p: ResolvedPart, topZ: number, mat: Mat, work?: string): Prim[] {
+export function parapetPrims(p: ResolvedPart, topZ: number, mat: Mat, work?: string, finish?: string): Prim[] {
   // Sit a hair PROUD of the wall planes: a flush breast would be coplanar with the
   // body's wall faces and the flat-roof slab edge (z-fight).
   const o = 0.03;
@@ -100,12 +100,14 @@ export function parapetPrims(p: ResolvedPart, topZ: number, mat: Mat, work?: str
   const pt = mToTiles(0.4);          // parapet thickness
   const breastH = mToTiles(0.5), merlonH = mToTiles(1.3);
   const out: Prim[] = [];
-  // Low breast wall: four thin curbs around the rim.
+  // Low breast wall: four thin curbs around the rim (merlon teeth above stay bare —
+  // weathered battlements read as raw masonry even on a washed body).
+  const fin = { ...(work ? { work } : {}), ...(finish ? { finish } : {}) };
   out.push(
-    { prim: 'box', at: [x, y, topZ], size: [w, pt, breastH], material: mat, ...(work ? { work } : {}) },
-    { prim: 'box', at: [x, y + h - pt, topZ], size: [w, pt, breastH], material: mat, ...(work ? { work } : {}) },
-    { prim: 'box', at: [x, y + pt, topZ], size: [pt, h - 2 * pt, breastH], material: mat, ...(work ? { work } : {}) },
-    { prim: 'box', at: [x + w - pt, y + pt, topZ], size: [pt, h - 2 * pt, breastH], material: mat, ...(work ? { work } : {}) },
+    { prim: 'box', at: [x, y, topZ], size: [w, pt, breastH], material: mat, ...fin },
+    { prim: 'box', at: [x, y + h - pt, topZ], size: [w, pt, breastH], material: mat, ...fin },
+    { prim: 'box', at: [x, y + pt, topZ], size: [pt, h - 2 * pt, breastH], material: mat, ...fin },
+    { prim: 'box', at: [x + w - pt, y + pt, topZ], size: [pt, h - 2 * pt, breastH], material: mat, ...fin },
   );
   // Merlon teeth on the breast, all four edges.
   out.push(...merlonsAlongEdge('x', y, x, x + w, topZ + breastH, merlonH, pt, mat));

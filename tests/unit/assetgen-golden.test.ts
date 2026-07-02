@@ -38,15 +38,19 @@ describe('assetgen golden hashes', () => {
     // frame's `bayModule`) instead of fixed fractions, so the cottage's pane positions shift
     // — `size` holds (same footprint) but every channel hash moves with the relocated lights.
     // Intentional ⇒ ART_RECIPE_VERSION bumped to v18.
+    // v24 warmed MATERIAL_RGB (golden thatch, terracotta tile, de-blued stone): ONLY the
+    // albedo (`grey`) hash moves — normal/material/emissive are byte-identical, proof the
+    // change is pure palette.
     expect(fingerprint(r)).toEqual({
-      size: 322, grey: '2da29a4b', normal: 'ab16379e', material: 'e66ee5bd', emissive: 'a89c57d8',
+      size: 322, grey: 'ef747e9a', normal: 'ab16379e', material: 'e66ee5bd', emissive: 'a89c57d8',
     });
   });
 
   it('plain stone box primitive is bit-stable', async () => {
     const r = await composeStructure({ parts: [{ prim: 'box', at: [0, 0, 0], size: [2, 2, 2], material: 'stone' }] });
+    // v24 palette warm: stone de-blued ⇒ grey (albedo) hash only.
     expect(fingerprint(r)).toEqual({
-      size: 264, grey: '73bee633', normal: '103f0c0b', material: 'd829cbcb', emissive: 'a9c77405',
+      size: 264, grey: 'a4a2f8b2', normal: '103f0c0b', material: 'd829cbcb', emissive: 'a9c77405',
     });
   });
 });

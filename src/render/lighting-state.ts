@@ -8,9 +8,13 @@
  * the normal maps' SCREEN space (`normalRGB` in assetgen/render/projection.ts:
  * +x = screen-right, +y = screen-up, +z = toward the camera).
  *
- * Slice 4 will derive this from `state.clock` (day/night); for now it is a
- * fixed, gentle re-shading — the albedo already bakes upper-left FORM shading,
- * so v1 keeps contrast low (ambient-dominant) rather than double-shading hard.
+ * Contrast rationale (2026-07-02): the runtime parametric path (surfaceTexture, K0d)
+ * writes the Material+Finish engine's albedo with NO baked N·L term (rasterize.ts uses
+ * `s.albedo`, not the `brightness()`-shaded facet colour) — form comes ONLY from this
+ * relight. The old ambient-dominant config was tuned for img2img albedos that bake
+ * their own form shading and left surface-textured buildings reading flat; the sun now
+ * carries the form. Img2img/vendored sprites (which do bake shading) tolerate the
+ * extra contrast — their painted shading and this banding agree on the upper-left sun.
  */
 
 export type Vec3 = [number, number, number];
@@ -54,11 +58,12 @@ export const DEFAULT_LIGHTING: LightingState = {
   // buildings); items without a baked shadow (cached img2img buildings, NPCs)
   // fall back to the projected silhouette.
   shadowMode: 'geometry',
-  // Slightly cool ambient, slightly warm sun; flat camera-facing pixels land
-  // near 1.0 so the overall brightness stays close to the unlit sprite.
-  ambient: [0.7, 0.7, 0.74],
+  // Cool shade / warm sun with the sun carrying the FORM (see header): shade side
+  // ~0.55, full-sun peak ~1.18 (shade→lit ratio ≈ 2.1, was 1.57), mid-band pixels
+  // land ~0.86 so overall scene brightness barely moves.
+  ambient: [0.54, 0.55, 0.62],
   sunDir: DEFAULT_SUN_DIR,
-  sunColor: [0.4, 0.38, 0.33],
+  sunColor: [0.64, 0.58, 0.46],
   bands: 4,
 };
 

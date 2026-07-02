@@ -74,7 +74,11 @@ function roundPrims(p: ResolvedPart, ctx: CompileCtx): Prim[] {
   // would render a 2.5×-door-tall wall), and decouple the dome rise from radius so WIDE yurts
   // stay shallow instead of ballooning into a tall hemisphere.
   const wallH = Math.max(1, p.params.levels as number) * DOOR_HEIGHT_TILES * 1.15;
-  const out: Prim[] = [{ prim: 'cylinder', center: [cx, cy], baseZ: 0, radius: r, height: wallH, material: wallMatOf(ctx), work: wallWorkOf(ctx) }];
+  const out: Prim[] = [{
+    prim: 'cylinder', center: [cx, cy], baseZ: 0, radius: r, height: wallH,
+    material: wallMatOf(ctx), work: wallWorkOf(ctx),
+    ...(ctx.palette?.walls ? { finish: ctx.palette.walls } : {}),
+  }];
   const roof = p.params.roof as string;
   // A round body emits no `building` prim, so a smoke-vent feature can't ride a roof ridge.
   // Render it instead as the yurt's toono: a round hole bored straight through the dome apex.
@@ -173,6 +177,8 @@ export const bodyPartType: PartType = {
       prim: 'building', wings,
       wallMat: wallMatOf(ctx), roofMat: roofMatOf(ctx), roofStyle: 'gable',
       wallWork: wallWorkOf(ctx), features: {}, seed: 0,
+      ...(ctx.palette?.walls ? { wallFinish: ctx.palette.walls } : {}),
+      ...(ctx.palette?.roof ? { roofFinish: ctx.palette.roof } : {}),
       ...(baseCourse > 0 ? { baseCourse } : {}),
       ...(cutaway ? { cutaway: true } : {}),
       ...(cutaway && interior ? { interior } : {}),
@@ -182,9 +188,9 @@ export const bodyPartType: PartType = {
     const trims: Prim[] = [];
     if (!cutaway) {
       const eaveH = storeys * storeyTiles;
-      if (p.params.buttress && plan === 'rect') trims.push(...buttressPrims(p, wallMatOf(ctx), eaveH, wallWorkOf(ctx)));
+      if (p.params.buttress && plan === 'rect') trims.push(...buttressPrims(p, wallMatOf(ctx), eaveH, wallWorkOf(ctx), ctx.palette?.walls));
       if (p.params.parapet && ROOF_KIND[p.params.roof as string] === 'flat') {
-        trims.push(...parapetPrims(p, eaveH, wallMatOf(ctx), wallWorkOf(ctx)));
+        trims.push(...parapetPrims(p, eaveH, wallMatOf(ctx), wallWorkOf(ctx), ctx.palette?.walls));
       }
     }
     return [building, ...trims];

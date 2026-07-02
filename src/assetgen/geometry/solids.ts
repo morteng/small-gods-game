@@ -43,7 +43,7 @@ export function cylindricalProjector(center: [number, number], radius: number): 
   };
 }
 
-export function manifoldToFacets(mesh: Mesh, material: Mat, work?: string, projector?: FacetProjector): WorldFacet[] {
+export function manifoldToFacets(mesh: Mesh, material: Mat, work?: string, projector?: FacetProjector, finish?: string, tint?: RGB): WorldFacet[] {
   const c = MATERIAL_RGB[material];
   const { numProp, vertProperties: vp, triVerts: tv } = mesh;
   const pos = (i: number): Vec3 => [vp[i*numProp], vp[i*numProp+1], vp[i*numProp+2]];
@@ -53,7 +53,7 @@ export function manifoldToFacets(mesh: Mesh, material: Mat, work?: string, proje
     const n = cross(sub(b, a), sub(d, a));         // outward (manifold winding is CCW-outward)
     if (n[0] === 0 && n[1] === 0 && n[2] === 0) continue; // skip degenerate
     const frame = projector?.([(a[0]+b[0]+d[0])/3, (a[1]+b[1]+d[1])/3, (a[2]+b[2]+d[2])/3], n);
-    out.push({ pts: [a, b, d], normal: n, albedo: shadeRGB(c, brightness(n)), mat: material, work, frame });
+    out.push({ pts: [a, b, d], normal: n, albedo: shadeRGB(c, brightness(n)), mat: material, work, finish, tint, frame });
   }
   return out;
 }
@@ -827,7 +827,12 @@ export async function buildingFacets(
   // (Law 4: the threshold into a sanctum is a pierced rood SCREEN, not a solid wall). Only
   // used in the cutaway; absent ⇒ the cutaway is a single open shell with a flat floor (I-2).
   interior?: { partitions: number[]; floorDrop: number[]; screens?: boolean[]; levels?: number[] },
+  // Surface FINISHES (paint layer over the material): applied to the wall facets
+  // (limewash/ochre/…) and roof facets separately; a stone base course stays bare
+  // (the undercroft reads as raw masonry under a washed upper). Vents keep bare.
+  finishes?: { wall?: string; roof?: string; tint?: RGB },
 ): Promise<{ facets: WorldFacet[]; anchors: BuildingAnchors }> {
+  const wallFin = finishes?.wall, roofFin = finishes?.roof, finTint = finishes?.tint;
   const { Manifold } = await getManifold();
   // Walls: union every storey box of every wing (upper storeys grown by jetty), then
   // carve any openings (doors/windows) so they read as recesses, not proud boxes.
@@ -871,11 +876,11 @@ export async function buildingFacets(
     }
     const baseBox = await solidBox([minX - 1, minY - 1, 0], [maxX - minX + 2, maxY - minY + 2, baseCourse]);
     wallFacets = [
-      ...manifoldToFacets(wallSolid.intersect(baseBox).getMesh(), 'stone', wallWork),
-      ...manifoldToFacets(wallSolid.subtract(baseBox).getMesh(), wallMat, wallWork),
+      ...manifoldToFacets(wallSolid.intersect(baseBox).getMesh(), 'stone', wallWork),   // undercroft stays bare
+      ...manifoldToFacets(wallSolid.subtract(baseBox).getMesh(), wallMat, wallWork, undefined, wallFin, finTint),
     ];
   } else {
-    wallFacets = manifoldToFacets(wallSolid.getMesh(), wallMat, wallWork);
+    wallFacets = manifoldToFacets(wallSolid.getMesh(), wallMat, wallWork, undefined, wallFin, finTint);
   }
 
   // Cutaway (dollhouse): the building's SOLID massing is hollowed into a wall shell, the
@@ -910,7 +915,7 @@ export async function buildingFacets(
     const eastCut = await solidBox([fx1 - WALL_T - 0.02, fy0 - 1, cutBot], [WALL_T + 1.02, H + 2, tall - cutBot]);
     const southCut = await solidBox([fx0 - 1, fy1 - WALL_T - 0.02, cutBot], [W + 2, WALL_T + 1.02, tall - cutBot]);
     const shell = wallSolid.subtract(cavity).subtract(eastCut).subtract(southCut);
-    const facets: WorldFacet[] = [...manifoldToFacets(shell.getMesh(), wallMat, wallWork)];
+    const facets: WorldFacet[] = [...manifoldToFacets(shell.getMesh(), wallMat, wallWork, undefined, wallFin, finTint)];
 
     const parts = interior?.partitions ?? [];
     const drops = interior?.floorDrop ?? [0];
@@ -969,7 +974,7 @@ export async function buildingFacets(
 
   const facets: WorldFacet[] = [
     ...wallFacets,
-    ...manifoldToFacets(roof.getMesh(), roofMat),
+    ...manifoldToFacets(roof.getMesh(), roofMat, undefined, undefined, roofFin, finTint),
   ];
   const anchors: BuildingAnchors = { vents: [] };
 

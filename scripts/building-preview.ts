@@ -56,9 +56,15 @@ async function main() {
   const orientations: Orientation[] = orientArg === 'all'
     ? [0, 1, 2, 3]
     : orientArg != null ? [Math.max(0, Math.min(3, Number(orientArg) | 0)) as Orientation] : [0];
+  // --surface: run the analytic Material+Finish surface engine (the RUNTIME building look —
+  // coursed masonry, washes/finishes, micro-relief) instead of the flat grey-reference albedo.
+  const surface = flags.has('--surface');
   const compose = (rb: ReturnType<typeof synthesizeBlueprint>) => {
     const spec = toGeometry(rb!);
-    return composeStructure(spec, undefined, spec.yaw ? { yaw: spec.yaw } : undefined);
+    return composeStructure(spec, undefined, {
+      ...(spec.yaw ? { yaw: spec.yaw } : {}),
+      ...(surface ? { surfaceTexture: true } : {}),
+    });
   };
 
   mkdirSync(OUT, { recursive: true });

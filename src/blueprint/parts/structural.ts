@@ -36,9 +36,10 @@ export const towerPartType: PartType = {
     const h = Math.max(1, p.params.levels as number) * STOREY;
     const spireMul = (p.params.spire as number) || 1.2;
     const battlement = p.params.roof === 'flat' && !!p.params.parapet;
+    const wallFinish = ctx.palette?.walls ? { finish: ctx.palette.walls } : {};
     if (p.params.shape === 'round') {
       const r = Math.min(p.size.w, p.size.h) / 2, cx = p.at.x + p.size.w / 2, cy = p.at.y + p.size.h / 2;
-      const out: Prim[] = [{ prim: 'cylinder', center: [cx, cy], baseZ: 0, radius: r, height: h, material: wallMat, work: wallWork }];
+      const out: Prim[] = [{ prim: 'cylinder', center: [cx, cy], baseZ: 0, radius: r, height: h, material: wallMat, work: wallWork, ...wallFinish }];
       if (p.params.roof !== 'flat') out.push({ prim: 'cone', center: [cx, cy], baseZ: h, radius: r, height: r * spireMul, material: roofMat });
       else if (battlement) {
         // Corbel ring + merlon teeth wrapped around it — the drum-tower crown.
@@ -48,12 +49,12 @@ export const towerPartType: PartType = {
       }
       return out;
     }
-    const out: Prim[] = [{ prim: 'box', at: [p.at.x, p.at.y, 0], size: [p.size.w, p.size.h, h], material: wallMat, work: wallWork }];
+    const out: Prim[] = [{ prim: 'box', at: [p.at.x, p.at.y, 0], size: [p.size.w, p.size.h, h], material: wallMat, work: wallWork, ...wallFinish }];
     if (p.params.roof !== 'flat') {
       const cx = p.at.x + p.size.w / 2, cy = p.at.y + p.size.h / 2, r = Math.min(p.size.w, p.size.h) / 2;
       out.push({ prim: 'cone', center: [cx, cy], baseZ: h, radius: r, height: r * spireMul, material: roofMat });
     } else if (battlement) {
-      out.push(...parapetPrims(p, h, wallMat, wallWork));
+      out.push(...parapetPrims(p, h, wallMat, wallWork, ctx.palette?.walls));
     }
     return out;
   },
