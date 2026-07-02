@@ -73,6 +73,12 @@ export interface GameMap {
    *  re-derivable from tiles. Worldgen leaves this empty (only complex placement / the
    *  Site studio sets it), so the live world stays byte-identical. Persisted via SaveFile.map. */
   earthworks?: import('@/blueprint/connectome/earthworks').Earthwork[];
+  /** Junction ARTIFACTS the world's builders committed: the typed objects that OWN each
+   *  feature×feature overlap (Bridge over a crossing, Gatehouse/WaterGate at a barrier opening) —
+   *  the world-compiler's first-class resolutions. Derived from committed state at gen time
+   *  (`deriveBuiltJunctions`), consumed by the claims ledger as resolutions. Re-derivable from
+   *  world+map; persisted for overlay/authoring + the (WP-D) compile phase. */
+  junctions?: import('@/world/junction-artifacts').JunctionArtifact[];
   /** Derived anchor-snap layer: typed connection points on every feature + the matched
    *  links between them. Re-derivable from world+roadGraph; persisted for overlay/authoring. */
   anchors?: import('@/world/anchors').Anchor[];
