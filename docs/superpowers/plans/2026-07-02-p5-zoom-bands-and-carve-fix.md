@@ -109,6 +109,48 @@ a real worldgen bug, not a regression.
 
 ---
 
+## WP-H — better tree geometry: canopy-first crowns (Opus)
+
+**Problem (verified by offline renders 2026-07-02, `.dev-grabs/{english-oak,scots-pine,white-willow,silver-birch}-grey.png`):**
+every species shares one failure mode — foliage is tiny tip-tufts, so bare branch dominates and
+nothing reads as its species. Oak = flattened spider with canopy holes (should be a broad dense
+dome); scots pine = blob pile from the ground (should be tall bare trunk + conical crown); willow =
+bare skeleton with specks (should be a weeping cascade); birch = closest, but same tuft problem +
+an abrupt cylinder sleeve at the trunk base. The low-poly faceted STYLE is right (matches
+buildings) — keep it; fix the silhouettes.
+
+**Direction — the crown envelope is the authority:**
+1. Derive a species crown envelope (dome / cone / weeping / columnar / vase) from
+   `crownShape` + `heightM` + spread (`src/flora/flora-species.ts` `deriveGenParams`;
+   recipes in `src/assetgen/geometry/flora/recipes.ts`).
+2. Foliage = fewer, LARGER clustered blobs filling the envelope (anchored to branch endpoints,
+   radius scaling with branch depth), with a coverage pass so the envelope has no holes at
+   silhouette level. Branches that exit the envelope get culled or shortened — no bare sticks
+   poking out (willow excepted: its envelope IS the hanging curtain).
+3. Per-species bare-trunk fraction (crown base height): pine high, oak low, willow medium.
+   Fix the birch base sleeve (trunk should taper, not telescope).
+4. The space-colonization generator (`src/assetgen/geometry/flora/space-colonization.ts`) is
+   already in-tree — sampling its attractors INSIDE the envelope is the natural skeleton shaper.
+   Use it where it beats the L-system (broadleaf crowns); keep the L-system where it wins
+   (conifers, shrubs, ferns, flowers).
+
+### Mechanics
+- Sprites are memoized in-memory per session (`src/render/parametric-plant-source.ts`),
+  regenerated at load — NO cache-version bump needed; geometry changes show on reload.
+- All 26 species prewarm on the loading screen — keep total facet counts in the same ballpark
+  (measure prewarm before/after; no order-of-magnitude regressions).
+- **Dev loop:** `npx tsx scripts/building-preview.ts <species-id>` → `.dev-grabs/<id>-grey.png`
+  → LOOK at the image. Iterate per species. A visual render catches geometry bugs no assertion
+  does (house rule). Also check readability SMALL: in-game a tree is ~40–80 px, so downscale
+  mentally or render and squint — silhouette must read at that size.
+- Species to verify: english-oak, scots-pine, white-willow, silver-birch, common-hazel, plus one
+  shrub + one fern + one flower for non-regression (their recipes share code paths).
+- Determinism: seeded per species; no `Math.random` anywhere in generation.
+- Tests: `tests/unit/flora-{recipes,mesh,generators,lsystem,turtle}.test.ts`,
+  `flora-blueprint.test.ts`, `render-trees-slice2.test.ts` — update assertions deliberately
+  where behavior intentionally changed; add envelope-coverage/bare-stick unit checks if cheap.
+- NO paid generation: img2img flora stays OFF/frozen. Pure geometry.
+
 ## Integration protocol (integrator, not agents)
 
 1. Merge WP-G first (small), then WP-F, each `--no-ff` after review.
