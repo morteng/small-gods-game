@@ -29,6 +29,11 @@ export interface GameState {
   showPoiMarkers: boolean;
   pinnedNpcId: string | null;
   followNpc: boolean;
+  /** P5 semantic-zoom: an in-flight camera-fly tween toward a tile anchor at a
+   *  target zoom (set when the player clicks a zoomed-out alert pin). Presentation
+   *  only — never serialized, never touches the command stream; cleared by
+   *  `applyCameraFly` on arrival and by any user pan/zoom. */
+  cameraFly: { tx: number; ty: number; zoom: number } | null;
   spirits: Map<SpiritId, Spirit>;
   eventLog: EventLog;
   clock: SimClock;
@@ -97,6 +102,7 @@ export function createState(): GameState {
     showPoiMarkers: true,
     pinnedNpcId: null,
     followNpc: false,
+    cameraFly: null,
     spirits,
     eventLog,
     clock,

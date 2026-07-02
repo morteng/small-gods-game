@@ -16,3 +16,45 @@ export function applyFollowCamera(state: GameState, viewport: Viewport): void {
   cam.x += (targetX - cam.x) * 0.15;
   cam.y += (targetY - cam.y) * 0.15;
 }
+
+/** Per-frame ease factor for the P5 camera-fly (same 0.15 idiom as the follow cam;
+ *  converges in ~0.5 s at display rate). */
+const FLY_LERP = 0.15;
+/** Settle tolerances (world px / zoom units) — inside these we snap + clear so the
+ *  frame loop can idle again. */
+const FLY_POS_EPS = 0.5;
+const FLY_ZOOM_EPS = 0.002;
+
+/**
+ * P5 semantic-zoom: smoothly fly the camera to frame `state.cameraFly`'s tile
+ * anchor at its target zoom (set when a zoomed-out alert pin is clicked). Eases
+ * `{x, y, zoom}` together and self-terminates (clears `cameraFly`) on arrival.
+ * A no-op when no fly is queued; any user pan/zoom clears `cameraFly` upstream so
+ * the tween yields to the player at once. Presentation only — never emits a Command.
+ */
+export function applyCameraFly(state: GameState, viewport: Viewport): void {
+  const fly = state.cameraFly;
+  if (!fly) return;
+  const cam = state.camera;
+  // Ease zoom first — the framing offset below reads the current zoom, so blending
+  // it in-step keeps the anchor centred throughout the flight.
+  cam.zoom += (fly.zoom - cam.zoom) * FLY_LERP;
+  const viewW = viewport.width / cam.zoom;
+  const viewH = viewport.height / cam.zoom;
+  const targetX = (fly.tx + 0.5) * TILE_SIZE - viewW / 2;
+  const targetY = (fly.ty + 0.5) * TILE_SIZE - viewH / 2;
+  cam.x += (targetX - cam.x) * FLY_LERP;
+  cam.y += (targetY - cam.y) * FLY_LERP;
+  if (
+    Math.abs(fly.zoom - cam.zoom) < FLY_ZOOM_EPS &&
+    Math.abs(targetX - cam.x) < FLY_POS_EPS &&
+    Math.abs(targetY - cam.y) < FLY_POS_EPS
+  ) {
+    // Settle: snap the zoom, then re-derive the framing AT that final zoom (the
+    // eased targetX/Y above were computed at the not-quite-final zoom).
+    cam.zoom = fly.zoom;
+    cam.x = (fly.tx + 0.5) * TILE_SIZE - (viewport.width / cam.zoom) / 2;
+    cam.y = (fly.ty + 0.5) * TILE_SIZE - (viewport.height / cam.zoom) / 2;
+    state.cameraFly = null;
+  }
+}

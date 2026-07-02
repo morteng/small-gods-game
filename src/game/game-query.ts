@@ -164,6 +164,10 @@ export interface InboxItem {
   /** True when the director (Fate) has promoted this with intent (B-E). */
   surfaced: boolean;
   target: { kind: 'npc'; npcId: string } | { kind: 'settlement'; poiId: string } | { kind: 'none' };
+  /** World anchor in TILE coords (P5): the npc's position / the settlement's poi
+   *  position. Omitted for `none` targets (a rival threat has no place). Drives the
+   *  zoomed-out alert pins + the camera-fly framing; pure presentation. */
+  anchor?: { x: number; y: number };
 }
 
 export interface GameQuery {
@@ -468,6 +472,7 @@ export function createGameQuery(deps: GameQueryDeps): GameQuery {
           salience: scoreAffordance({ kind: 'prayer', faith, meaningDeficit, surfaced }),
           surfaced,
           target: { kind: 'npc', npcId: e.id },
+          anchor: { x: e.x, y: e.y },
         });
       }
 
@@ -479,7 +484,8 @@ export function createGameQuery(deps: GameQueryDeps): GameQuery {
           if (isOminous(ev.type) && ev.severity > worst) { worst = ev.severity; worstType = ev.type; }
         }
         if (!worstType) continue;
-        const poiName = state.worldSeed?.pois.find(pp => pp.id === poiId)?.name ?? poiId;
+        const poi = state.worldSeed?.pois.find(pp => pp.id === poiId);
+        const poiName = poi?.name ?? poiId;
         const id = `opp:${poiId}`;
         const surfaced = surfacedSet.has(id);
         items.push({
@@ -490,6 +496,7 @@ export function createGameQuery(deps: GameQueryDeps): GameQuery {
           salience: scoreAffordance({ kind: 'opportunity', severity: worst, surfaced }),
           surfaced,
           target: { kind: 'settlement', poiId },
+          ...(poi?.position ? { anchor: { x: poi.position.x, y: poi.position.y } } : {}),
         });
       }
 

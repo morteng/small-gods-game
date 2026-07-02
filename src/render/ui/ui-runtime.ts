@@ -18,12 +18,12 @@ import { uiScaleFor } from '@/render/ui/ui-layer';
 import { UI_PALETTE } from '@/render/ui/ui-palette';
 import { shade, withAlpha } from '@/render/ui/ui-color';
 import { clamp01 } from '@/core/math';
-import type { UiDrawGroup } from '@/render/ui/ui-batcher';
+import { UiSpace, type UiDrawGroup } from '@/render/ui/ui-batcher';
 import { SettingsIsland } from '@/render/ui/ui-settings-island';
 import type { ProviderConfig } from '@/llm/provider-factory';
 import type { StorySession, Stage } from '@/story/story-session';
 import type { UiSpec, UiSpecBlock, UiSpecChoice } from '@/story/uispec';
-import type { BeliefPowerView, InboxItem, InspectorView } from '@/game/game-query';
+import type { BeliefPowerView, InboxItem, InboxKind, InspectorView } from '@/game/game-query';
 import type { SiteCardView } from '@/game/causal-site-view';
 
 /** Bigger-font multipliers (× the integer DPR scale). The S1 demo drew at 1×s
@@ -78,6 +78,14 @@ export interface UiRuntimeHooks {
   /** Triage: investigate (focus the subject — mind page / backfill). */
   onInboxInvestigate?: (item: InboxItem) => void;
 
+  // ── P5 semantic zoom: the zoomed-out alert pins (inbox as world markers) ──
+  /** Top-N inbox items projected to on-screen DEVICE-px pin centres, or null when
+   *  the camera is in the zoomed-IN band (the game owns the band decision + the
+   *  world→screen projection so a pin stays pixel-snapped as the camera moves). */
+  getAlertPins?: () => AlertPinView[] | null;
+  /** Click a world alert pin: the game camera-flies to it, then acts on the item. */
+  onAlertPin?: (id: string) => void;
+
   // ── W-I-d: the selected CAUSAL SITE card (flood plain / drowned village) ──
   /** The card view for the currently-selected causal site, or null. The runtime
    *  draws nothing when this returns null (no selection). */
@@ -113,6 +121,21 @@ export interface HoverChipView {
 
 /** A frozen hover popover: the chips + the cursor anchor + the last-drawn rect. */
 interface HoverPopover { ax: number; ay: number; chips: HoverChipView[]; rect: Rect }
+
+/** A world-anchored alert pin (P5 zoomed-out surface). The game projects the inbox
+ *  item's world anchor to a DEVICE-px centre each frame; the runtime only draws the
+ *  marker + reports clicks. */
+export interface AlertPinView {
+  id: string;
+  /** Inbox kind, or `selection` — the collapsed inspector's subject rendered as a
+   *  distinct pin so the selection survives zooming out (spec §6). */
+  kind: InboxKind | 'selection';
+  /** Pin centre in device px (already world→screen projected + pixel-snapped). */
+  x: number;
+  y: number;
+  /** Fate-surfaced — ranks first + drawn on top with the accent tint. */
+  surfaced: boolean;
+}
 
 /** Dwell before the hover popover appears (ms) + the grace margin (device px) that
  *  keeps it open as the cursor travels from the anchor onto the chips. */
@@ -443,6 +466,10 @@ export class UiRuntime {
 
     if (clicked) this.setMenu(true);
 
+    // ── P5 semantic zoom: the zoomed-out inbox as world-anchored alert pins ──
+    // Drawn first so the bottom-strip / inspector chrome wins any overlap hit-test.
+    this.drawAlertPins(c, w, h, s);
+
     // ── Track B affordances: POWERS + INBOX toggles along the bottom strip ──
     const bh = 28 * s;
     const by = h - bh - pad;
@@ -526,6 +553,45 @@ export class UiRuntime {
       }
       ry += rowH + gap;
     });
+  }
+
+  // ── P5 semantic zoom: world-anchored alert pins (the zoomed-out inbox) ──────
+  // When the game reports the camera is in the zoomed-OUT band it hands back the
+  // top-N inbox items projected to device-px centres; each renders as a small
+  // kind-coded marker in `UiSpace.World` (so it draws beneath the HUD via the
+  // world pass) plus a screen-space hotspot for clicks. No per-NPC chrome out here
+  // (spec §6: aggregate visuals) — the pins ARE the surface. Null ⇒ zoomed-in band,
+  // nothing drawn (the hover/inspector/list surfaces own that altitude).
+  private drawAlertPins(c: UiContext, w: number, h: number, s: number): void {
+    const pins = this.hooks.getAlertPins?.() ?? null;
+    if (!pins || pins.length === 0) return;
+    const size = Math.max(12, Math.round(18 * s));
+    const half = Math.round(size / 2);
+    const fs = FS_BODY * s;
+    const t = Math.max(1, Math.round(2 * s));
+    // Draw order (bottom→top): plain, Fate-surfaced, then the selection pin.
+    const rank = (p: AlertPinView): number => (p.kind === 'selection' ? 2 : p.surfaced ? 1 : 0);
+    const ordered = [...pins].sort((a, b) => rank(a) - rank(b));
+    let clicked: string | null = null; // topmost clicked pin wins (one click = ONE action)
+    for (const p of ordered) {
+      const x = Math.round(p.x - half);
+      const y = Math.round(p.y - half);
+      if (x + size < 0 || y + size < 0 || x > w || y > h) continue; // off-screen cull
+      const tint = p.surfaced ? UI_PALETTE.accent : pinColor(p.kind);
+      // marker: dark backdrop + tinted ring, in WORLD space (renders via the world
+      // pass, and a runtime test can assert the pins land in UiSpace.World).
+      c.rect(x, y, size, size, withAlpha(shade(UI_PALETTE.panelBg, -0.3), 0.9), UiSpace.World);
+      c.batcher.border(x, y, size, size, t, tint, UiSpace.World);
+      const glyph = pinGlyph(p.kind);
+      const gw = c.measure(glyph, fs);
+      c.label(glyph, Math.round(x + (size - gw) / 2), Math.round(y + (size - c.lineHeight(fs)) / 2), fs, tint, UiSpace.World);
+      // click target in screen coords (== the projected device-px marker rect).
+      if (c.hotspot(`alert.${p.id}`, x, y, size, size)) clicked = p.id;
+    }
+    if (clicked) {
+      this.hooks.onAlertPin?.(clicked);
+      this.hooks.requestRender?.();
+    }
   }
 
   // ── W-I-d: the selected causal-site card (a focused ephemeral place) ────────
@@ -1060,6 +1126,26 @@ function hoverChipLabel(ch: HoverChipView): string {
   const why = ch.why ? `  (${ch.why})` : '';
   const lock = ch.unlocked ? '' : ' 🔒';
   return `${ch.label.toUpperCase()}${cost}${why}${lock}`;
+}
+
+/** Alert-pin kind glyph. The builtin pixel font only renders A–Z / 0–9 / punctuation
+ *  (symbol codepoints draw blank), so pins are kind-coded by a supported LETTER plus
+ *  colour rather than the ✉/☀/⚠ marks the spec sketched: P(rayer) / O(pportunity) /
+ *  X(=rival threat); `+` marks the surviving selection. */
+function pinGlyph(kind: AlertPinView['kind']): string {
+  switch (kind) {
+    case 'prayer': return 'P';
+    case 'opportunity': return 'O';
+    case 'threat': return 'X';
+    case 'selection': return '+';
+  }
+}
+
+/** Alert-pin ring tint: inbox kinds share the list's dot colours; the selection pin
+ *  is distinct (plain text-white, no urgency signal — it is YOUR focus, not news). */
+function pinColor(kind: AlertPinView['kind']): [number, number, number, number] {
+  if (kind === 'selection') return UI_PALETTE.text as [number, number, number, number];
+  return kindColor(kind);
 }
 
 /** Inbox kind → dot colour (surfaced items override with the accent). */
