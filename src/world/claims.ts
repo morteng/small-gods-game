@@ -375,5 +375,16 @@ export function buildClaimsFromWorld(world: World, map: GameMap): ClaimsLedger {
     }
   }
 
+  // Junction ARTIFACTS the world committed (WP-C `map.junctions`) — the first-class objects that
+  // OWN each overlap (Bridge / Gatehouse / WaterGate). Registered as resolutions IN ADDITION to
+  // the ad-hoc observational resolves above (matching is by (class, cell), so re-registering the
+  // same cell is idempotent — the report is unchanged when the artifacts mirror committed state).
+  // Absent (`map.junctions` unset, e.g. a synthetic test map) ⇒ byte-identical to the pure
+  // observational ledger. This is the seam by which "builders register their outputs" flows into
+  // the ledger without the observational population losing its purity.
+  for (const j of map.junctions ?? []) {
+    led.resolve(j.conflictClass, j.features[0] ?? j.id, j.features[1] ?? j.id, j.id, j.cells);
+  }
+
   return led;
 }

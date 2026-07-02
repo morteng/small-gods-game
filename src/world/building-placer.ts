@@ -845,7 +845,10 @@ export function placeSettlement(
     // Per-croft enclosures (hedge/fence/wall) around each built lot. Water-aware:
     // a riverside lot's hedge opens over the channel instead of standing in it.
     const isWaterTile = (x: number, y: number): boolean => WATER_TYPES.has(tiles[y]?.[x]?.type ?? '');
-    for (const { id, run } of deriveCroftEnclosures(plan.lots, poi.id, rng, ctx, isBuilding, isWaterTile)) {
+    // A road threading a croft ring opens a gate there (parity with the settlement ring's
+    // road-gate test), so a lane never fords the hedge — the road-x-barrier croft finding.
+    const isRoadTile = (x: number, y: number): boolean => occ.is(x, y, 'road') || ROAD_TYPES.has(tiles[y]?.[x]?.type ?? '');
+    for (const { id, run } of deriveCroftEnclosures(plan.lots, poi.id, rng, ctx, isBuilding, isWaterTile, isRoadTile)) {
       placeBarrier(world, run, id);
       barriers.push({ id, run });
     }

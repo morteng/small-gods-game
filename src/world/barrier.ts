@@ -63,6 +63,24 @@ export function gatePoint(run: BarrierRun, gate: BarrierGate): [number, number] 
   return pointAt(run.path, gate.t);
 }
 
+/** Tile cells spanned by ONE gate/gap opening (same rasterization the combined
+ *  `barrierFootprintTiles` gate pass uses, isolated to a single opening) — so a junction
+ *  artifact can OWN exactly the cells of its own gate span (a Gatehouse owns a `gate`, a
+ *  WaterGate a `gap`). Deterministic; cells sorted (y, then x). */
+export function gateFootprintTiles(run: BarrierRun, gate: BarrierGate): [number, number][] {
+  const r = Math.max(0, (run.thickness - 1) / 2);
+  const cells = new Map<string, [number, number]>();
+  const half = gate.width / 2;
+  for (let t = Math.max(0, gate.t - half); t <= gate.t + half; t += 0.34) {
+    const [px, py] = pointAt(run.path, t);
+    for (let dx = -r; dx <= r; dx++) for (let dy = -r; dy <= r; dy++) {
+      const cx = Math.round(px) + dx, cy = Math.round(py) + dy;
+      cells.set(`${cx},${cy}`, [cx, cy]);
+    }
+  }
+  return [...cells.values()].sort((a, b) => a[1] - b[1] || a[0] - b[0]);
+}
+
 /** Rasterize the polyline at `thickness` into tile cells, split blocking vs gate-gap. */
 export function barrierFootprintTiles(run: BarrierRun): { blocking: [number, number][]; gate: [number, number][] } {
   const cells = new Map<string, [number, number]>();

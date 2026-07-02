@@ -6,7 +6,7 @@ describe('content-version constants', () => {
     expect(ART_RECIPE_VERSION).toBe('v24');
   });
 
-  it('declares the current world content version (77: terrain-feature fix epic — river carve threshold parity)', () => {
-    expect(WORLD_CONTENT_VERSION).toBe(77);
+  it('declares the current world content version (78: WP-C junction reconciliation — croft gates, deck seating, river-bridge fix)', () => {
+    expect(WORLD_CONTENT_VERSION).toBe(78);
   });
 });

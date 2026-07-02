@@ -120,6 +120,31 @@ describe('buildRoadGraph', () => {
     expect(graph).toEqual({ nodes: [], edges: [] });
   });
 
+  // ── C-4b: only a ROAD carries bridge cells (a river/wall must not stamp a stray bridge tile) ──
+  it('records NO bridge cells on a non-road (river) edge — no stray bridge tile with no deck', () => {
+    const tiles = makeTiles(6, 1);
+    const fields = flatField(6, 1);
+    // A foreign water cell the river routes through. `autoBridge:true` lets the walker cross it
+    // (so `walkRoad` DOES log it as a water cell on the path) — the point is the river EDGE must
+    // still record no bridge cell, so applyEdge never stamps a deckless `bridge` tile there.
+    tiles[0][3].type = 'shallow_water';
+    const pois = [poi('src', 0, 0), poi('sea', 5, 0)];
+    const graph = buildRoadGraph([{ from: 'src', to: 'sea', type: 'river', autoBridge: true }], pois, tiles, fields);
+    expect(graph.edges[0].feature).toBe('river');
+    expect(graph.edges[0].bridgeCells).toEqual([]);          // never a bridge deck under a river
+    expect(tiles[0][3].type).not.toBe('bridge');             // the cell stays water/river, not bridge
+  });
+
+  it('a ROAD over the same water band DOES record bridge cells (the contrast — deck follows)', () => {
+    const tiles = makeTiles(6, 1);
+    const fields = flatField(6, 1);
+    tiles[0][3].type = 'shallow_water';
+    const pois = [poi('a', 0, 0), poi('b', 5, 0)];
+    const graph = buildRoadGraph([{ from: 'a', to: 'b', type: 'road' }], pois, tiles, fields);
+    expect(graph.edges[0].feature).toBe('road');
+    expect(graph.edges[0].bridgeCells).toContain(3);         // the road bridges → a deck is realized
+  });
+
   it('tiers a road by the more significant endpoint (Slice 4)', () => {
     const tiles = makeTiles(8, 1);
     const fields = flatField(8, 1);
