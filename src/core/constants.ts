@@ -48,6 +48,8 @@ export const TILE_COLORS: Record<string, string> = {
   bog: '#5D6B3A',
   sacred_grove: '#A8D8A8',
   quarry: '#8B7B6B',
+  volcanic_rock: '#3B322A',
+  ash: '#6E6660',
 };
 
 /**

@@ -29,6 +29,10 @@ export enum Biome {
   TropicalForest     = 'tropical_forest',
   // Hot / arid
   Desert             = 'desert',
+  // Volcanic: scorching-hot high ground — dark basalt and ash, never snow. Only a
+  // volcano POI's heat influence produces mountain-height cells this hot (the
+  // global lapse cools altitude), so this is field-classifiable volcano identity.
+  Volcanic           = 'volcanic',
   // Wet / lowland
   Swamp              = 'swamp',
   // Special
@@ -57,6 +61,7 @@ export const BIOME_TILES: Record<Biome, Record<string, number>> = {
   [Biome.Savanna]:            { grass: 0.5, scrubland: 0.3, dirt: 0.2 },
   [Biome.TropicalForest]:     { forest: 0.35, dense_forest: 0.35, grass: 0.3 },
   [Biome.Desert]:             { sand: 0.5, scrubland: 0.2, rocky: 0.15, dirt: 0.15 },
+  [Biome.Volcanic]:           { volcanic_rock: 0.55, ash: 0.3, rocky: 0.15 },
   [Biome.Swamp]:              { swamp: 0.4, shallow_water: 0.3, grass: 0.2, dirt: 0.1 },
   [Biome.SacredGrove]:        { sacred_grove: 0.5, forest: 0.3, grass: 0.2 },
 };
@@ -128,6 +133,10 @@ export function classifyBiome(
   // once it's at least half-way to the height line, so river banks and gentle
   // lowland undulation stay green while real scarps go rocky.
   const steep = slopeM >= ROCK_SLOPE_M && heightM >= MOUNTAIN_HEIGHT_M * 0.5;
+  // VOLCANIC claims scorching high ground BEFORE the alpine branch: the global
+  // lapse cools altitude, so mountain-height cells at temp ≥ 0.82 only exist where
+  // a volcano POI cooked the field — dark basalt/ash, never grey Peak or snow.
+  if (temperature >= 0.82 && heightM >= MOUNTAIN_HEIGHT_M) return Biome.Volcanic;
   if (heightM >= PEAK_HEIGHT_M)               return Biome.Peak;
   if (heightM >= MOUNTAIN_HEIGHT_M || steep)  return Biome.Mountain;
 

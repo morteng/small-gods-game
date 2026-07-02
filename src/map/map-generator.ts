@@ -18,7 +18,7 @@ import { styledIslandSpec } from '@/terrain/island-mask';
 import { styledShapeSpec } from '@/terrain/terrain-shape';
 import { styledClimate } from '@/terrain/climate';
 import { applyPoiInfluences } from '@/terrain/poi-influence';
-import { generateHydrology } from '@/terrain/hydrology';
+import { generateHydrology, buildVolcanoScorchMask } from '@/terrain/hydrology';
 import { buildRoadGraph } from '@/world/road-graph';
 import { mergeParallelRoads } from '@/world/connectome/merge-parallel-roads';
 import { gateApproachPlan, realGateAnchors } from '@/world/connectome/gate-approach';
@@ -98,7 +98,7 @@ const WALKABLE_TYPES: Record<string, boolean> = {
 /** Non-walkable tile types */
 const BLOCKING_TYPES = new Set([
   'deep_water', 'shallow_water', 'river', 'ocean',
-  'mountain', 'peak', 'rocky',
+  'mountain', 'peak', 'rocky', 'volcanic_rock',
 ]);
 
 function tileWalkable(type: string): boolean {
@@ -175,7 +175,11 @@ export async function generateWithNoise(
   report('Carving rivers...');
   const riverDensity = worldStyleOf(worldSeed ?? undefined).riverDensity || 1;
   const riverFlowThreshold = areaScaledRiverThreshold(width * height) / riverDensity;
-  const hydrology = generateHydrology(fields, config, { riverFlowThreshold });
+  // Volcano craters must stay dry (heat evaporates the pit-fill pond) — same mask
+  // the render-path recompute (hydrology-store) derives, so tiles and water agree.
+  const scorchMask = buildVolcanoScorchMask(
+    worldSeed?.pois, width, height, fields.elevation, config.seaLevel ?? 0.35, config.reliefM ?? 48);
+  const hydrology = generateHydrology(fields, config, { riverFlowThreshold, scorchMask });
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       const idx = y * width + x;

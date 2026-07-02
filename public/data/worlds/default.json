@@ -1,30 +1,41 @@
 {
   "name": "Verdant Vale",
   "description": "A broad island realm of every clime: misty western woods and a crystal lowland lake, treacherous southern swamps and a sun-scorched eastern desert with its smoking caldera, all walled to the north-west by a glacier-crowned massif and ringed by pale beaches. Rolling meadows feed a prosperous valley of farms, a market city and an old village; a wind-bitten northern steppe pastures a horse-nomad horde. Ancient ruins dot the land.",
-  "size": {"width": 230, "height": 163},
+  "size": {
+    "width": 230,
+    "height": 163
+  },
   "biome": "temperate",
   "era": "medieval",
   "island": true,
   "visualTheme": "early medieval island world, vibrant colors",
   "style": {
-    "overrides": {"terrainHeightGamma": 1.8, "mountainRelief": 55, "terrainVerticalExaggeration": 30}
+    "overrides": {
+      "terrainHeightGamma": 1.8,
+      "mountainRelief": 55,
+      "terrainVerticalExaggeration": 30
+    }
   },
   "pois": [
     {
       "id": "cloudwall_peaks",
       "type": "mountain",
       "name": "The Cloudwall",
-      "position": {"x": 46, "y": 36},
+      "position": {
+        "x": 46,
+        "y": 36
+      },
       "size": "huge",
-      "region": {"x_min": 2, "x_max": 103, "y_min": 2, "y_max": 86},
-      "density": 0.6,
       "description": "A vast massif walling off the north-western shore, its grey spurs catching cloud and its single great horn rising sheer above the valley."
     },
     {
       "id": "frostcrown_glacier",
       "type": "glacier",
       "name": "Frostcrown",
-      "position": {"x": 46, "y": 24},
+      "position": {
+        "x": 46,
+        "y": 24
+      },
       "size": "large",
       "description": "A blue-white ice cap clinging to the northern shoulder of the Cloudwall, never melting even in high summer."
     },
@@ -32,24 +43,39 @@
       "id": "ironvein_mine",
       "type": "mine",
       "name": "Ironvein",
-      "position": {"x": 89, "y": 70},
+      "position": {
+        "x": 89,
+        "y": 70
+      },
       "size": "small",
       "description": "A mineshaft at the southern foot of the Cloudwall, worked for iron and watched by a lone guard post.",
-      "npcs": [{"name": "Durik Stonehand", "role": "soldier"}]
+      "npcs": [
+        {
+          "name": "Durik Stonehand",
+          "role": "soldier"
+        }
+      ]
     },
     {
       "id": "whispering_woods",
       "type": "forest",
       "name": "Whispering Woods",
-      "region": {"x_min": 0, "x_max": 46, "y_min": 70, "y_max": 127},
-      "density": 0.45,
+      "region": {
+        "x_min": 0,
+        "x_max": 46,
+        "y_min": 70,
+        "y_max": 127
+      },
       "description": "Ancient woodland along the western shore, with scattered clearings and old, watchful trees."
     },
     {
       "id": "forest_ruins",
       "type": "ruins",
       "name": "Temple of the Moon",
-      "position": {"x": 26, "y": 101},
+      "position": {
+        "x": 26,
+        "y": 101
+      },
       "size": "medium",
       "era": "ancient",
       "description": "Overgrown ruins in the depths of the western woods."
@@ -58,106 +84,194 @@
       "id": "northern_steppe",
       "type": "plains",
       "name": "The Windward Steppe",
-      "position": {"x": 156, "y": 22},
-      "region": {"x_min": 125, "x_max": 226, "y_min": 0, "y_max": 41},
-      "density": 0.4,
+      "position": {
+        "x": 156,
+        "y": 22
+      },
+      "region": {
+        "x_min": 125,
+        "x_max": 226,
+        "y_min": 0,
+        "y_max": 41
+      },
       "description": "Open, wind-scoured grassland along the northern shore — summer pasture for the horse-nomads' herds."
     },
     {
       "id": "khar_ordu",
       "type": "village",
       "name": "Khar Ordu",
-      "position": {"x": 163, "y": 31},
+      "position": {
+        "x": 163,
+        "y": 31
+      },
       "size": "medium",
       "era": "primordial",
       "description": "The Black Horde — a ring of felt gers on the northern steppe, home to horse-nomads who follow their herds and bow to no lord of the valley.",
       "npcs": [
-        {"name": "Bayan Khan", "role": "noble"},
-        {"name": "Old Tengis the Sky-Reader", "role": "priest"},
-        {"name": "Subetai the Outrider", "role": "soldier"}
+        {
+          "name": "Bayan Khan",
+          "role": "noble"
+        },
+        {
+          "name": "Old Tengis the Sky-Reader",
+          "role": "priest"
+        },
+        {
+          "name": "Subetai the Outrider",
+          "role": "soldier"
+        }
       ]
     },
     {
       "id": "dawn_temple",
       "type": "temple",
       "name": "Temple of the Dawn",
-      "position": {"x": 125, "y": 38},
+      "position": {
+        "x": 125,
+        "y": 38
+      },
       "size": "medium",
       "description": "A serene stone temple on the northern grassland, said to catch the first light of every sunrise.",
       "npcs": [
-        {"name": "High Priestess Lyra", "role": "priest"},
-        {"name": "Novice Caelum", "role": "priest"}
+        {
+          "name": "High Priestess Lyra",
+          "role": "priest"
+        },
+        {
+          "name": "Novice Caelum",
+          "role": "priest"
+        }
       ]
     },
     {
       "id": "golden_meadows",
       "type": "plains",
       "name": "Golden Meadows",
-      "region": {"x_min": 65, "x_max": 156, "y_min": 55, "y_max": 115},
-      "density": 0.7,
+      "region": {
+        "x_min": 65,
+        "x_max": 156,
+        "y_min": 55,
+        "y_max": 115
+      },
       "description": "Rolling meadows perfect for farming, the green heart of the valley."
     },
     {
       "id": "oakshire",
       "type": "village",
       "name": "Oakshire",
-      "position": {"x": 103, "y": 79},
+      "position": {
+        "x": 103,
+        "y": 79
+      },
       "size": "large",
       "description": "A prosperous farming village clustered around its parish church and the lord's manor hall.",
       "npcs": [
-        {"name": "Elder Bramwell", "role": "elder"},
-        {"name": "Rosa the Baker", "role": "merchant"},
-        {"name": "Brother Aldric", "role": "priest"}
+        {
+          "name": "Elder Bramwell",
+          "role": "elder"
+        },
+        {
+          "name": "Rosa the Baker",
+          "role": "merchant"
+        },
+        {
+          "name": "Brother Aldric",
+          "role": "priest"
+        }
       ]
     },
     {
       "id": "crossroads_inn",
       "type": "tavern",
       "name": "The Wandering Minstrel",
-      "position": {"x": 132, "y": 67},
+      "position": {
+        "x": 132,
+        "y": 67
+      },
       "size": "small",
       "description": "A welcoming inn at the crossroads between village, city and temple.",
-      "npcs": [{"name": "Pip the Urchin", "role": "child"}, {"name": "Old Silas", "role": "beggar"}]
+      "npcs": [
+        {
+          "name": "Pip the Urchin",
+          "role": "child"
+        },
+        {
+          "name": "Old Silas",
+          "role": "beggar"
+        }
+      ]
     },
     {
       "id": "millbrook_farm",
       "type": "farm",
       "name": "Millbrook Farm",
-      "position": {"x": 82, "y": 103},
+      "position": {
+        "x": 82,
+        "y": 103
+      },
       "size": "medium",
       "description": "The largest farm in the valley, its barn and fields spread across the meadow's southern edge.",
       "npcs": [
-        {"name": "Tom Greenfield", "role": "farmer"},
-        {"name": "Marta Greenfield", "role": "farmer"}
+        {
+          "name": "Tom Greenfield",
+          "role": "farmer"
+        },
+        {
+          "name": "Marta Greenfield",
+          "role": "farmer"
+        }
       ]
     },
     {
       "id": "stonehaven_city",
       "type": "city",
       "name": "Stonehaven",
-      "position": {"x": 161, "y": 86},
+      "position": {
+        "x": 161,
+        "y": 86
+      },
       "size": "large",
       "description": "The valley's one true city — a press of townhouses, market squares and guild taverns on the eastern road, grown rich on the iron trade.",
       "npcs": [
-        {"name": "Mayor Corwin", "role": "noble"},
-        {"name": "Mistress Edda", "role": "merchant"},
-        {"name": "Watch-Captain Brand", "role": "soldier"}
+        {
+          "name": "Mayor Corwin",
+          "role": "noble"
+        },
+        {
+          "name": "Mistress Edda",
+          "role": "merchant"
+        },
+        {
+          "name": "Watch-Captain Brand",
+          "role": "soldier"
+        }
       ]
     },
     {
       "id": "old_watchtower",
       "type": "tower",
       "name": "The Old Watchtower",
-      "position": {"x": 202, "y": 67},
+      "position": {
+        "x": 215,
+        "y": 83
+      },
       "size": "small",
       "description": "An ancient tower on a coastal rise east of the city, set to watch the steppe road and the eastern sea.",
-      "npcs": [{"name": "Captain Hale", "role": "soldier"}]
+      "npcs": [
+        {
+          "name": "Captain Hale",
+          "role": "soldier"
+        }
+      ]
     },
     {
       "id": "dire_cliffs_east",
       "type": "cliffs",
       "name": "The Dire Cliffs",
-      "position": {"x": 224, "y": 88},
+      "position": {
+        "x": 224,
+        "y": 88
+      },
       "coast": "east",
       "size": "large",
       "description": "A wall of sheer rock where the eastern shore rears up and plunges to the surf — seabirds wheel over the brink, and the waves break white on the stacks below."
@@ -166,7 +280,10 @@
       "id": "dire_cliffs_stacks",
       "type": "sea_stacks",
       "name": "The Drowned Sentinels",
-      "position": {"x": 226, "y": 96},
+      "position": {
+        "x": 226,
+        "y": 96
+      },
       "coast": "east",
       "size": "large",
       "description": "A row of weathered rock pillars standing off the foot of the Dire Cliffs, where the headland once reached further into the sea before the waves gnawed it back."
@@ -175,7 +292,10 @@
       "id": "smugglers_cove_west",
       "type": "cove",
       "name": "Smuggler's Cove",
-      "position": {"x": 70, "y": 110},
+      "position": {
+        "x": 70,
+        "y": 110
+      },
       "coast": "west",
       "size": "medium",
       "description": "A sheltered crescent bitten into the western shore, its calm shallows hidden between two low arms of land — a quiet place for boats that would rather not be seen."
@@ -184,7 +304,10 @@
       "id": "windward_head_south",
       "type": "headland",
       "name": "Windward Head",
-      "position": {"x": 150, "y": 150},
+      "position": {
+        "x": 150,
+        "y": 150
+      },
       "coast": "south",
       "size": "large",
       "description": "A low green cape reaching out into the southern sea, its turf cropped close by the wind and its rocky toe washed by the swell."
@@ -193,17 +316,27 @@
       "id": "sunscorch_desert",
       "type": "desert",
       "name": "The Sunscorch",
-      "position": {"x": 197, "y": 118},
+      "position": {
+        "x": 197,
+        "y": 118
+      },
       "size": "large",
-      "region": {"x_min": 168, "x_max": 226, "y_min": 91, "y_max": 149},
-      "density": 0.3,
+      "region": {
+        "x_min": 168,
+        "x_max": 226,
+        "y_min": 91,
+        "y_max": 149
+      },
       "description": "A blistering waste of dunes and cracked hardpan on the hot eastern cape, where nothing grows but thorn and the air shimmers at noon."
     },
     {
       "id": "mirage_oasis",
       "type": "oasis",
       "name": "Mirage Spring",
-      "position": {"x": 180, "y": 125},
+      "position": {
+        "x": 180,
+        "y": 125
+      },
       "size": "small",
       "description": "A ring of palms and sweet water in the heart of the Sunscorch — the only mercy for leagues."
     },
@@ -211,15 +344,21 @@
       "id": "emberpeak_volcano",
       "type": "volcano",
       "name": "Emberpeak",
-      "position": {"x": 199, "y": 139},
-      "size": "medium",
-      "description": "A smoking cinder cone at the desert's southern edge, its black slopes glassy with old lava and its summit veined red at night."
+      "position": {
+        "x": 199,
+        "y": 139
+      },
+      "size": "huge",
+      "description": "A towering fire-mountain at the desert's southern edge — black basalt slopes bare of all green, a wide scree skirt, and a cratered summit that glows red against the night sky."
     },
     {
       "id": "crystal_lake",
       "type": "lake",
       "name": "Crystal Lake",
-      "position": {"x": 70, "y": 130},
+      "position": {
+        "x": 70,
+        "y": 130
+      },
       "size": "huge",
       "description": "A broad, pristine lake fed by mountain springs, draining south-west into the mire."
     },
@@ -227,7 +366,10 @@
       "id": "lakeside_dock",
       "type": "port",
       "name": "Fisher's Rest",
-      "position": {"x": 86, "y": 115},
+      "position": {
+        "x": 86,
+        "y": 115
+      },
       "size": "small",
       "description": "A small fishing dock on Crystal Lake's north-eastern shore."
     },
@@ -235,25 +377,47 @@
       "id": "ironkeep_castle",
       "type": "castle",
       "name": "Ironkeep",
-      "position": {"x": 120, "y": 115},
+      "position": {
+        "x": 120,
+        "y": 115
+      },
       "size": "medium",
       "description": "A weathered stone castle watching over the meadow-and-mire border.",
-      "npcs": [{"name": "Lord Garrick", "role": "noble"}, {"name": "Sergeant Vell", "role": "soldier"}]
+      "npcs": [
+        {
+          "name": "Lord Garrick",
+          "role": "noble"
+        },
+        {
+          "name": "Sergeant Vell",
+          "role": "soldier"
+        }
+      ]
     },
     {
       "id": "murkmire_swamp",
       "type": "swamp",
       "name": "Murkmire Swamp",
-      "position": {"x": 48, "y": 144},
-      "region": {"x_min": 19, "x_max": 79, "y_min": 125, "y_max": 161},
-      "density": 0.4,
+      "position": {
+        "x": 48,
+        "y": 144
+      },
+      "region": {
+        "x_min": 19,
+        "x_max": 79,
+        "y_min": 125,
+        "y_max": 161
+      },
       "description": "A marshy lowland of dead trees and black water, fed by the lake's overflow."
     },
     {
       "id": "swamp_shrine",
       "type": "ruins",
       "name": "The Sunken Shrine",
-      "position": {"x": 38, "y": 151},
+      "position": {
+        "x": 45,
+        "y": 144
+      },
       "size": "small",
       "era": "ancient",
       "description": "Ancient stones rising from the mire."
@@ -265,83 +429,232 @@
       "to": "millbrook_farm",
       "type": "road",
       "style": "dirt",
-      "waypoints": [{"x": 103, "y": 79}, {"x": 92, "y": 91}, {"x": 82, "y": 103}]
+      "waypoints": [
+        {
+          "x": 103,
+          "y": 79
+        },
+        {
+          "x": 92,
+          "y": 91
+        },
+        {
+          "x": 82,
+          "y": 103
+        }
+      ]
     },
     {
       "from": "oakshire",
       "to": "crossroads_inn",
       "type": "road",
       "style": "dirt",
-      "waypoints": [{"x": 103, "y": 79}, {"x": 118, "y": 73}, {"x": 132, "y": 67}]
+      "waypoints": [
+        {
+          "x": 103,
+          "y": 79
+        },
+        {
+          "x": 118,
+          "y": 73
+        },
+        {
+          "x": 132,
+          "y": 67
+        }
+      ]
     },
     {
       "from": "crossroads_inn",
       "to": "stonehaven_city",
       "type": "road",
       "style": "stone",
-      "waypoints": [{"x": 132, "y": 67}, {"x": 146, "y": 77}, {"x": 161, "y": 86}]
+      "waypoints": [
+        {
+          "x": 132,
+          "y": 67
+        },
+        {
+          "x": 146,
+          "y": 77
+        },
+        {
+          "x": 161,
+          "y": 86
+        }
+      ]
     },
     {
       "from": "stonehaven_city",
       "to": "old_watchtower",
       "type": "road",
       "style": "dirt",
-      "waypoints": [{"x": 161, "y": 86}, {"x": 181, "y": 77}, {"x": 202, "y": 67}]
+      "waypoints": [
+        {
+          "x": 161,
+          "y": 86
+        },
+        {
+          "x": 181,
+          "y": 77
+        },
+        {
+          "x": 215,
+          "y": 83
+        }
+      ]
     },
     {
       "from": "stonehaven_city",
       "to": "ironvein_mine",
       "type": "road",
       "style": "dirt",
-      "waypoints": [{"x": 161, "y": 86}, {"x": 114, "y": 74}, {"x": 67, "y": 65}]
+      "waypoints": [
+        {
+          "x": 161,
+          "y": 86
+        },
+        {
+          "x": 114,
+          "y": 74
+        },
+        {
+          "x": 67,
+          "y": 65
+        }
+      ]
     },
     {
       "from": "crossroads_inn",
       "to": "dawn_temple",
       "type": "road",
       "style": "stone",
-      "waypoints": [{"x": 132, "y": 67}, {"x": 128, "y": 53}, {"x": 125, "y": 38}]
+      "waypoints": [
+        {
+          "x": 132,
+          "y": 67
+        },
+        {
+          "x": 128,
+          "y": 53
+        },
+        {
+          "x": 125,
+          "y": 38
+        }
+      ]
     },
     {
       "from": "oakshire",
       "to": "forest_ruins",
       "type": "road",
       "style": "dirt",
-      "waypoints": [{"x": 103, "y": 79}, {"x": 65, "y": 90}, {"x": 26, "y": 101}]
+      "waypoints": [
+        {
+          "x": 103,
+          "y": 79
+        },
+        {
+          "x": 65,
+          "y": 90
+        },
+        {
+          "x": 26,
+          "y": 101
+        }
+      ]
     },
     {
       "from": "oakshire",
       "to": "ironkeep_castle",
       "type": "road",
       "style": "stone",
-      "waypoints": [{"x": 103, "y": 79}, {"x": 112, "y": 97}, {"x": 120, "y": 115}]
+      "waypoints": [
+        {
+          "x": 103,
+          "y": 79
+        },
+        {
+          "x": 112,
+          "y": 97
+        },
+        {
+          "x": 120,
+          "y": 115
+        }
+      ]
     },
     {
       "from": "ironkeep_castle",
       "to": "lakeside_dock",
       "type": "road",
       "style": "dirt",
-      "waypoints": [{"x": 120, "y": 115}, {"x": 103, "y": 115}, {"x": 86, "y": 115}]
+      "waypoints": [
+        {
+          "x": 120,
+          "y": 115
+        },
+        {
+          "x": 103,
+          "y": 115
+        },
+        {
+          "x": 86,
+          "y": 115
+        }
+      ]
     },
     {
       "from": "khar_ordu",
       "to": "dawn_temple",
       "type": "road",
       "style": "dirt",
-      "waypoints": [{"x": 163, "y": 31}, {"x": 144, "y": 35}, {"x": 125, "y": 38}]
+      "waypoints": [
+        {
+          "x": 163,
+          "y": 31
+        },
+        {
+          "x": 144,
+          "y": 35
+        },
+        {
+          "x": 125,
+          "y": 38
+        }
+      ]
     },
     {
       "from": "crystal_lake",
       "to": "murkmire_swamp",
       "type": "river",
-      "waypoints": [{"x": 70, "y": 130}, {"x": 59, "y": 137}, {"x": 48, "y": 144}]
+      "waypoints": [
+        {
+          "x": 70,
+          "y": 130
+        },
+        {
+          "x": 59,
+          "y": 137
+        },
+        {
+          "x": 48,
+          "y": 144
+        }
+      ]
     }
   ],
   "lore": {
     "history": "Verdant Vale was settled three centuries ago by refugees fleeing the Great Collapse, who raised Oakshire in the green valley and, later, Stonehaven on the eastern road. The horse-nomads of Khar Ordu came across the winter ice of the northern steppe, and never left.",
     "quests": [
-      {"name": "The Missing Shepherd", "difficulty": "easy"},
-      {"name": "Secrets of the Sunken Shrine", "difficulty": "hard"}
+      {
+        "name": "The Missing Shepherd",
+        "difficulty": "easy"
+      },
+      {
+        "name": "Secrets of the Sunken Shrine",
+        "difficulty": "hard"
+      }
     ],
     "rumors": [
       "Strange lights dance in the Murkmire Swamp at night",

@@ -118,6 +118,12 @@ export interface POI {
    * the land cell that meets the sea. `'nearest'` snaps to the closest shore.
    */
   coast?: 'east' | 'west' | 'north' | 'south' | 'nearest';
+  /**
+   * Author-facing summit height in METRES above sea, for peak types
+   * (mountain/volcano/glacier). Overrides the type's built-in summit outright;
+   * absent → the type default (optionally grown by `size` via summitSizeBoost).
+   */
+  summitM?: number;
 }
 
 /** NPC definition */
