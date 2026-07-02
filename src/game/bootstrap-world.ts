@@ -56,7 +56,15 @@ export async function bootstrapWorld(deps: BootstrapDeps): Promise<GameMap> {
   }
 
   const ws = deps.worldSeed || await WorldManager.loadDefault();
-  const seed = Date.now();
+  // Terrain gen seed: random per fresh world, overridable via `?genseed=N` so a dev (or
+  // an agent verifying worldgen) can load the SAME roll the offline probes/lint use.
+  const seed = (() => {
+    try {
+      const p = Number(new URLSearchParams(window.location.search).get('genseed'));
+      if (Number.isFinite(p) && p > 0) return p;
+    } catch { /* non-browser host */ }
+    return Date.now();
+  })();
 
   // W0/W3 (connectome-driven world layout): derive the map size from the content
   // (always big enough for every POI/region/waypoint) and, for island worlds,
