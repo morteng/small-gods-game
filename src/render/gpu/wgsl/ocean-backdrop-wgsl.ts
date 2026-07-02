@@ -41,29 +41,18 @@ const WAVE_DIR = vec2<f32>(0.80, 0.60);
 // sea just extends as far as needed.
 const DEEP = vec3<f32>(0.06, 0.27, 0.42);
 
-fn hash2(p : vec2<f32>) -> f32 {
-  return fract(sin(dot(p, vec2<f32>(127.1, 311.7))) * 43758.5453);
-}
-fn vnoise(p : vec2<f32>) -> f32 {
-  let i = floor(p);
-  let f = fract(p);
-  let u = f * f * (3.0 - 2.0 * f);
-  let a = hash2(i);
-  let b = hash2(i + vec2<f32>(1.0, 0.0));
-  let c = hash2(i + vec2<f32>(0.0, 1.0));
-  let d = hash2(i + vec2<f32>(1.0, 1.0));
-  return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
-}
+// The SAME baked noise atlas as water-wgsl (noise-texture.ts) — the swell warp taps
+// the G channel the in-map ocean uses, so the two fields are byte-identical at the
+// map boundary (the old duplicate ALU fbm here was 3-octave vs the water's 2 — a
+// subtle mismatch as well as redundant cost on a fullscreen pass).
+@group(0) @binding(1) var noiseTex : texture_2d<f32>;
+@group(0) @binding(2) var noiseSmp : sampler;
+const NOISE_INV_TILE = 1.0 / 64.0;   // 1 / NOISE_TILE_UNITS
 fn fbm(p : vec2<f32>) -> f32 {
-  var v = 0.0;
-  var amp = 0.5;
-  var q = p;
-  for (var k = 0u; k < 3u; k = k + 1u) {
-    v = v + amp * vnoise(q);
-    q = q * 2.03 + vec2<f32>(11.7, 4.3);
-    amp = amp * 0.5;
-  }
-  return v;
+  return textureSampleLevel(noiseTex, noiseSmp, p * NOISE_INV_TILE, 0.0).g;
+}
+fn fbm2b(p : vec2<f32>) -> f32 {
+  return textureSampleLevel(noiseTex, noiseSmp, p * NOISE_INV_TILE, 0.0).a;
 }
 fn rot2(v : vec2<f32>, a : f32) -> vec2<f32> {
   let c = cos(a); let s = sin(a);
@@ -104,9 +93,14 @@ fn fsMain(@builtin(position) fragCoord : vec4<f32>) -> @location(0) vec4<f32> {
   let crest = clamp((hA * 0.55 + hB * 0.32) * 0.5 + 0.5, 0.0, 1.0);
   color += vec3<f32>(smoothstep(0.6, 0.97, crest) * 0.05);
 
-  // Glints — irregular noise speckle drifting along the swell (no sine lattice).
-  let gl = fbm(g * 0.7 - dir * (t * 0.5));
-  color += vec3<f32>(smoothstep(0.82, 0.97, gl) * 0.045);
+  // Sun-glitter — the SAME tap + threshold as water-wgsl's far-ocean glitter
+  // (shoreDeep there is 1 out here), so sparkle density matches across the seam.
+  let gl = fbm2b(g * 0.7 - dir * (t * 0.5));
+  color += vec3<f32>(1.0, 0.97, 0.86) * (smoothstep(0.88, 0.97, gl) * day * 0.16);
+
+  // Sky sheen — mirrors water-wgsl's open-sea term (0.10 at full shoreDeep).
+  let sky = mix(vec3<f32>(0.09, 0.12, 0.20), vec3<f32>(0.52, 0.66, 0.80), day);
+  color = mix(color, sky, 0.10);
 
   return vec4<f32>(clamp(color, vec3<f32>(0.0), vec3<f32>(1.0)), 1.0);
 }
