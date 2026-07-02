@@ -21,6 +21,9 @@ import type { RoadEdge } from '@/world/road-graph';
 import { barrierFootprintTiles, type PlacedBarrier, type BarrierRun, type BarrierGate } from '@/world/barrier';
 import { getWorldDeformationStore } from '@/world/road-deformation';
 import { heightAt, baseHeightAt, type DeformationStore } from '@/world/terrain-deformation';
+// Module cycle (claims-diagnostics → claims → this file's buildingStructureCells) is
+// eval-safe: every cross-import is referenced only inside function bodies.
+import { claimsUnresolvedRule } from '@/world/claims-diagnostics';
 
 export type DiagnosticSeverity = 'error' | 'warn' | 'info';
 
@@ -1063,6 +1066,7 @@ export const DEFAULT_RULES: DiagnosticRule[] = [
   fortGateObstructed,
   fortWardUnreachable,
   fortSpoilImbalance,
+  claimsUnresolvedRule,
 ];
 
 /** Run every rule against a world and grade the findings. Deterministic for a world. */

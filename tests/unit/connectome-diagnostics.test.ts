@@ -171,6 +171,7 @@ describe('connectome diagnostics', () => {
       'carve.dry-pit',
       'junction.oversubscribed', 'fort.building-outside-enclosure', 'fort.gate-obstructed',
       'fort.ward-unreachable', 'fort.spoil-imbalance',
+      'claims.unresolved',
     ]);
   });
 

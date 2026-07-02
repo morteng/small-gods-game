@@ -297,8 +297,8 @@ describe('claims.unresolved diagnostic rule', () => {
     expect(ford.locus.tiles).toContainEqual({ x: 2, y: 0 });
   });
 
-  it('is not registered into DEFAULT_RULES (the integrator wires it)', async () => {
+  it('is registered into DEFAULT_RULES (wired at integration)', async () => {
     const { DEFAULT_RULES } = await import('@/world/connectome-diagnostics');
-    expect(DEFAULT_RULES.some((r) => r.id === 'claims.unresolved')).toBe(false);
+    expect(DEFAULT_RULES.some((r) => r.id === 'claims.unresolved')).toBe(true);
   });
 });
