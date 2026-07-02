@@ -233,6 +233,7 @@ function pathLen(path: Pt[]): number {
 export function deriveCroftEnclosures(
   lots: Lot[], poiId: string, rng: MinRng, ctx: EnclosureCtx,
   isBuilding?: (x: number, y: number) => boolean,
+  isWater?: (x: number, y: number) => boolean,
 ): EnclosureRun[] {
   const out: EnclosureRun[] = [];
   for (const lot of lots) {
@@ -264,8 +265,18 @@ export function deriveCroftEnclosures(
     // (the footprint reaches the lot edge). Open the ring (gate) wherever it
     // crosses a building structure cell, so no hedge/fence runs through a wall.
     const path = rectRing(minX, minY, maxX, maxY);
+    const total = 2 * dx + 2 * dy;
     const gates: BarrierGate[] = [{ t: gateT, width: gateW }];
-    if (isBuilding) gates.push(...gatesWhereOpen(path, 2 * dx + 2 * dy, isBuilding, gateW));
+    if (isBuilding) gates.push(...gatesWhereOpen(path, total, isBuilding, gateW));
+    // A riverside lot's rectangle can cross the channel — a hedge has no business
+    // standing in the water. Open the wet stretches; if the wet spans cover most of
+    // the ring the enclosure is noise, so skip it entirely.
+    if (isWater) {
+      const wetGaps = gatesWhereOpen(path, total, isWater, gateW).map((g) => ({ ...g, kind: 'gap' as const }));
+      const wetLen = wetGaps.reduce((s, g) => s + g.width, 0);
+      if (wetLen > 0.4 * total) continue;
+      gates.push(...wetGaps);
+    }
 
     const run = barrierRunFromType(typeId, path, gates);
     if (!run) continue;
@@ -354,19 +365,31 @@ export function deriveSettlementRing(args: {
 
   const gateW = catalogue.get<BarrierTypeFields>('barrierType', typeId)?.fields.gateWidthTiles ?? 3;
 
+  // The river's carved valley extends a feathered bank slope 1–3 tiles beyond the water
+  // tiles themselves. A wall standing on the last dry tile sits mid-slope and visually
+  // overhangs the channel, so the ring treats anything within ONE tile of water as wet:
+  // the tuck stands back from the bank EDGE and slabs that graze the bank open up.
+  const nearWater = (x: number, y: number): boolean => {
+    for (let oy = -1; oy <= 1; oy++) for (let ox = -1; ox <= 1; ox++) {
+      if (args.isWater(x + ox, y + oy)) return true;
+    }
+    return false;
+  };
+
   // TERRAIN-TRACED ring: a star-shaped polygon that hugs the built cluster and follows nearby
   // waterlines (diagonal corners fall out of the existing angle-general renderer). Falls back to
   // the axis-aligned bounding rectangle for tiny/degenerate clusters the tracer can't shape.
-  const traced = traceRing({ bbox: args.bbox, mapW: args.mapW, mapH: args.mapH, margin, isWater: args.isWater, isBuilding: args.isBuilding });
+  const traced = traceRing({ bbox: args.bbox, mapW: args.mapW, mapH: args.mapH, margin, isWater: nearWater, isBuilding: args.isBuilding });
   const path = traced?.path ?? rectRing(minX, minY, maxX, maxY);
   const centroid: Pt = traced?.centroid ?? [(minX + maxX) / 2, (minY + maxY) / 2];
 
   // The authoritative "beyond our bank" test: with a home-parcel mask, a cell is off-bank
   // if it isn't one of our land cells (water OR the far bank) — the wall stays on the home
-  // bank by construction. Without a mask, fall back to the raw water test (byte-identical).
+  // bank by construction. Without a mask, fall back to the water test. Either way the
+  // 1-tile water dilation applies: home-bank cells right at the waterline are still banks.
   const offBank = args.parcel
-    ? (x: number, y: number): boolean => !args.parcel!.has(`${x},${y}`)
-    : args.isWater;
+    ? (x: number, y: number): boolean => !args.parcel!.has(`${x},${y}`) || nearWater(x, y)
+    : nearWater;
 
   // Walk the ring at slab midpoints (same as the croft rings — keeps the renderer in lockstep).
   // Distinguish WHY each opening exists so the defences read believably:

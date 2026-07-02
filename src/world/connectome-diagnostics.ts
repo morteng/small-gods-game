@@ -173,6 +173,29 @@ const barrierThroughBuilding: DiagnosticRule = {
   },
 };
 
+/** ERROR — a barrier blocking cell stands in open water. Walls/hedges must open (gap)
+ *  over a channel, not wade it: the enclosure derivation gates every wet stretch, so a
+ *  hit here means a ring geometry change regressed the water guard. */
+const barrierOverWater: DiagnosticRule = {
+  id: 'barrier.over-water',
+  severity: 'error',
+  description: 'A barrier run stands in open water instead of opening over it.',
+  evaluate(ctx) {
+    const tiles = ctx.map.tiles;
+    const out: Diagnostic[] = [];
+    for (const [id, fc] of barrierCellsByEntity(ctx.world)) {
+      const hits = fc.filter(([x, y]) => WATER_TYPES.has(tiles[y]?.[x]?.type ?? ''));
+      if (hits.length) out.push({
+        rule: this.id, severity: this.severity,
+        message: `barrier ${id} stands in water on ${hits.length} cell(s)`,
+        locus: { entities: [id], tiles: hits.map(([x, y]) => ({ x, y })) },
+        metrics: { cells: hits.length },
+      });
+    }
+    return out.sort((a, b) => a.locus.entities![0].localeCompare(b.locus.entities![0]));
+  },
+};
+
 /** ERROR — a road tile sits on a building solid cell (INV3). */
 const roadThroughBuilding: DiagnosticRule = {
   id: 'road.through-building',
@@ -621,6 +644,7 @@ const fortSpoilImbalance: DiagnosticRule = {
 export const DEFAULT_RULES: DiagnosticRule[] = [
   buildingOverlap,
   barrierThroughBuilding,
+  barrierOverWater,
   roadThroughBuilding,
   buildingOnWater,
   redundantParallelRoad,

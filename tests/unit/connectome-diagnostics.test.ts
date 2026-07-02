@@ -123,11 +123,32 @@ describe('connectome diagnostics', () => {
     expect(evaluateConnectome(dry).byRule['road.riverside-unbanked'] ?? 0).toBe(0);
   });
 
+  it('flags a barrier standing in water (and not one on land)', () => {
+    const mkCtx = (wet: boolean): DiagnosticContext => {
+      const e = {
+        id: 'ring1', kind: 'barrier', x: 0, y: 0, tags: ['barrier'],
+        properties: { footprintCells: [[2, 2], [3, 2], [4, 2]] },
+      };
+      const tiles = Array.from({ length: 8 }, (_, y) => Array.from({ length: 8 }, (_, x) =>
+        ({ type: wet && x === 3 && y === 2 ? 'river' : 'grass' })));
+      return {
+        world: { query: (o: { tag?: string }) => (o?.tag === 'barrier' ? [e] : []) } as unknown as DiagnosticContext['world'],
+        map: { width: 8, height: 8, tiles, roadGraph: { nodes: [], edges: [] } } as unknown as DiagnosticContext['map'],
+      };
+    };
+    const wet = evaluateConnectome(mkCtx(true)).diagnostics.filter((d) => d.rule === 'barrier.over-water');
+    expect(wet).toHaveLength(1);
+    expect(wet[0].severity).toBe('error');
+    expect(wet[0].locus.entities).toEqual(['ring1']);
+    expect(wet[0].locus.tiles).toEqual([{ x: 3, y: 2 }]);
+    expect(evaluateConnectome(mkCtx(false)).byRule['barrier.over-water'] ?? 0).toBe(0);
+  });
+
   it('exposes a stable default rule set', () => {
     expect(DEFAULT_RULES.map((r) => r.id)).toEqual([
-      'building.overlap', 'barrier.through-building', 'road.through-building',
-      'building.on-water', 'road.redundant-parallel', 'road.parallel-corridor',
-      'road.riverside-unbanked', 'junction.oversubscribed',
+      'building.overlap', 'barrier.through-building', 'barrier.over-water',
+      'road.through-building', 'building.on-water', 'road.redundant-parallel',
+      'road.parallel-corridor', 'road.riverside-unbanked', 'junction.oversubscribed',
       'fort.building-outside-enclosure', 'fort.gate-obstructed',
       'fort.ward-unreachable', 'fort.spoil-imbalance',
     ]);

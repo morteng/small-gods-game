@@ -842,8 +842,10 @@ export function placeSettlement(
     // or a draw-only part cell (the residual fence-through-building leak). C1.
     const isBuilding = (x: number, y: number) => buildingVisual.has(`${x},${y}`);
 
-    // Per-croft enclosures (hedge/fence/wall) around each built lot.
-    for (const { id, run } of deriveCroftEnclosures(plan.lots, poi.id, rng, ctx, isBuilding)) {
+    // Per-croft enclosures (hedge/fence/wall) around each built lot. Water-aware:
+    // a riverside lot's hedge opens over the channel instead of standing in it.
+    const isWaterTile = (x: number, y: number): boolean => WATER_TYPES.has(tiles[y]?.[x]?.type ?? '');
+    for (const { id, run } of deriveCroftEnclosures(plan.lots, poi.id, rng, ctx, isBuilding, isWaterTile)) {
       placeBarrier(world, run, id);
       barriers.push({ id, run });
     }
@@ -869,7 +871,7 @@ export function placeSettlement(
         bbox: { minX, minY, maxX, maxY },
         mapW: tiles[0]?.length ?? 0, mapH: tiles.length,
         buildingCount: placed, poiId: poi.id,
-        isWater: (x, y) => WATER_TYPES.has(tiles[y]?.[x]?.type ?? ''),
+        isWater: isWaterTile,
         isRoad: (x, y) => occ.is(x, y, 'road') || ROAD_TYPES.has(tiles[y]?.[x]?.type ?? ''),
         isBuilding,
         parcel: homeParcel ?? undefined,
