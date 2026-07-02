@@ -55,6 +55,39 @@ describe('Water S2 — water field builder', () => {
     expect(Array.from(win.globals.subarray(32, 36))).toEqual([0, 0, 16, 12]);
   });
 
+  it('memoises the packed wet-cell list — same window ⇒ same reference; changed window/flood ⇒ re-pack', async () => {
+    clearHydrologyCache();
+    const { map } = await generateWithNoise(64, 64, 1, noPoiSeed);
+    // Stationary camera (same coarsened window twice): the SAME subarray view comes
+    // back — no CPU re-pack, and the stable reference is what lets the GPU upload
+    // guard (gpu-scene.uploadWaterFields) skip the per-frame writeBuffer.
+    const a = buildWaterField(map, opts)!;
+    const b = buildWaterField(map, opts)!;
+    expect(b.wetCells).toBe(a.wetCells);
+    expect(a.wetCells.length).toBeGreaterThan(0);
+    // Moved window: the signature changes ⇒ a fresh pack (new view, windowed subset).
+    const win = { minTx: 0, minTy: 0, maxTx: 15, maxTy: 11 };
+    const c = buildWaterField(map, { ...opts, window: win })!;
+    expect(c.wetCells).not.toBe(a.wetCells);
+    expect(c.wetCells.length).toBeLessThan(a.wetCells.length);
+    // Snapshot NOW — later re-packs reuse the same underlying buffer (views are
+    // consumed/uploaded the same frame they're built, so aliasing is by design).
+    const cContent = Array.from(c.wetCells);
+    // …and holding THAT window memoises again.
+    const c2 = buildWaterField(map, { ...opts, window: win })!;
+    expect(c2.wetCells).toBe(c.wetCells);
+    // An active FLOOD flips the pack to the dense window fallback (arbitrary land can
+    // be wet), so the signature MUST include it — same window, different list.
+    const flood = new Float32Array(64 * 64);
+    flood[32 * 64 + 32] = 1.5;
+    const f = buildWaterField(map, { ...opts, window: win, floodOffsetM: flood })!;
+    expect(f.wetCells).not.toBe(c.wetCells);
+    expect(f.wetCells.length).toBe(16 * 12);  // dense: every quad in the 16×12 window
+    // Receding fully re-packs back to the sparse set (content parity with pre-flood).
+    const g = buildWaterField(map, { ...opts, window: win })!;
+    expect(Array.from(g.wetCells)).toEqual(cContent);
+  });
+
   it('the water draw count is SUP-FREE — superSample never multiplies it (water never subdivides)', async () => {
     clearHydrologyCache();
     const { map } = await generateWithNoise(64, 64, 1, noPoiSeed);
