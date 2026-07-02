@@ -227,7 +227,7 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
     category: 'farm', era: 'medieval', footprint: { w: 4, h: 2 },
     materials: { walls: 'timber', roof: 'wood', ground: 'dirt' },
     parts: { body: {
-      type: 'body', size: { w: 4, h: 2 }, params: { plan: 'rect', levels: 1, storeyM: 3.2, roof: 'gable' },
+      type: 'body', size: { w: 4, h: 2 }, params: { plan: 'rect', levels: 1, storeyM: 3.2, roof: 'gambrel' },
       features: {
         door: { type: 'door', face: 'south', params: { main: true, t: 0.5, width: 0.4, height: 1.3 } },
         slit1: { type: 'window', face: 'south', params: { t: 0.15, width: 0.05, height: 0.3, sill: 1.1, glazed: false } },

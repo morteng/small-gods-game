@@ -12,9 +12,11 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import {
   GABLE_PITCH as GEO_GABLE, HIP_PITCH as GEO_HIP,
   SHED_SLOPE as GEO_SHED, CHIMNEY_PROTRUDE as GEO_PROTRUDE,
+  MANSARD_RISE_K as GEO_MANSARD, SALTBOX_RIDGE_T as GEO_SALTBOX,
 } from '@/assetgen/geometry/solids';
 import {
   GABLE_PITCH, HIP_PITCH, SHED_SLOPE, CHIMNEY_PROTRUDE,
+  MANSARD_RISE_K, SALTBOX_RIDGE_T,
 } from '@/blueprint/compile/to-mount-anchors';
 import { composeStructure } from '@/assetgen/compose';
 import { toGeometry } from '@/blueprint/compile/to-geometry';
@@ -40,6 +42,8 @@ describe('mount-anchor ↔ geometry parity', () => {
     expect(HIP_PITCH).toBe(GEO_HIP);
     expect(SHED_SLOPE).toBe(GEO_SHED);
     expect(CHIMNEY_PROTRUDE).toBe(GEO_PROTRUDE);
+    expect(MANSARD_RISE_K).toBe(GEO_MANSARD);
+    expect(SALTBOX_RIDGE_T).toBe(GEO_SALTBOX);
   });
 
   it('a projected chimney_top tag lands on the geometry vent anchor', async () => {

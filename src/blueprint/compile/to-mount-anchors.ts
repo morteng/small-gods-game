@@ -31,15 +31,21 @@ export const GABLE_PITCH = 1.5;     // rise per unit HALF-span (≈56°) — sol
 export const HIP_PITCH = 1.35;      // solids HIP_PITCH
 export const SHED_SLOPE = 0.5;      // mono-pitch rise per unit of FULL run — solids SHED_SLOPE
 export const CHIMNEY_PROTRUDE = 0.55; // tiles a ridge stack clears the slope — solids CHIMNEY_PROTRUDE
+export const MANSARD_RISE_K = 1.1;  // mansard rise per unit half-span — solids MANSARD_RISE_K
+export const SALTBOX_RIDGE_T = 0.35; // saltbox ridge fraction across the span — solids SALTBOX_RIDGE_T
 const VENT_CW = 0.30;               // chimney stack width (tiles) — solids ventProfile('chimney')
 
 /** Roof rise (TILES) above the wall top, mirroring solids `roofRise`: a gable/hip pitches
- *  over HALF the across-ridge span; a shed slopes over the FULL run; flat has none. */
+ *  over HALF the across-ridge span; a shed slopes over the FULL run; flat has none.
+ *  gambrel/cross_gable share the gable crest by construction; saltbox crests at
+ *  GABLE_PITCH · t · span; mansard at MANSARD_RISE_K · half-span. */
 function roofRiseTiles(part: ResolvedPart): number {
   const roof = (part.params.roof as string) ?? 'gable';
   if (roof === 'flat') return 0;
   const crossTiles = Math.min(part.size.w, part.size.h);   // span perpendicular to the ridge
   if (roof === 'shed' || roof === 'mono_pitch' || roof === 'lean_to') return SHED_SLOPE * crossTiles;
+  if (roof === 'saltbox') return GABLE_PITCH * SALTBOX_RIDGE_T * crossTiles;
+  if (roof === 'mansard') return MANSARD_RISE_K * (crossTiles / 2);
   const hip = roof === 'hip' || roof === 'pyramidal' || roof === 'half_hip';
   return (hip ? HIP_PITCH : GABLE_PITCH) * (crossTiles / 2);
 }

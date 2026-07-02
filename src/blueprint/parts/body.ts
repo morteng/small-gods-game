@@ -28,8 +28,9 @@ export const ROOF_MAT: Record<string, Mat> = {
   thatch: 'thatch', hide: 'thatch', wood: 'timber', tile: 'tile', slate: 'stone', none: 'tile',
 };
 export const ROOF_KIND: Record<string, RoofKind> = {
-  gable: 'gable', gambrel: 'gable', mansard: 'gable', saltbox: 'gable',
-  cross_gable: 'gable',
+  gable: 'gable',
+  // Real distinct silhouettes (solids.ts wingRoof builds each as its own geometry).
+  gambrel: 'gambrel', mansard: 'mansard', saltbox: 'saltbox', cross_gable: 'cross_gable',
   // Mono-pitch single-slope roofs (lean-to / shed / penthouse) — one plane, not a gable.
   lean_to: 'shed', shed: 'shed', mono_pitch: 'shed', penthouse: 'shed',
   jerkinhead: 'half_hip', half_hip: 'half_hip',
