@@ -9,6 +9,7 @@ import { STOREY } from '@/assetgen/geometry/building';
 import { DOOR_HEIGHT_TILES, mToTiles } from '@/render/scale-contract';
 import type { Part as Prim } from '@/assetgen/compose';
 import type { Anchor } from '@/world/anchors';
+import { buttressPrims, parapetPrims } from './trim';
 
 export type Plan = 'rect' | 'round' | 'L' | 'cross' | 'stepped';
 
@@ -28,8 +29,9 @@ export const ROOF_MAT: Record<string, Mat> = {
   thatch: 'thatch', hide: 'thatch', wood: 'timber', tile: 'tile', slate: 'stone', none: 'tile',
 };
 export const ROOF_KIND: Record<string, RoofKind> = {
-  gable: 'gable', gambrel: 'gable', mansard: 'gable', saltbox: 'gable',
-  cross_gable: 'gable',
+  gable: 'gable',
+  // Real distinct silhouettes (solids.ts wingRoof builds each as its own geometry).
+  gambrel: 'gambrel', mansard: 'mansard', saltbox: 'saltbox', cross_gable: 'cross_gable',
   // Mono-pitch single-slope roofs (lean-to / shed / penthouse) — one plane, not a gable.
   lean_to: 'shed', shed: 'shed', mono_pitch: 'shed', penthouse: 'shed',
   jerkinhead: 'half_hip', half_hip: 'half_hip',
@@ -72,7 +74,11 @@ function roundPrims(p: ResolvedPart, ctx: CompileCtx): Prim[] {
   // would render a 2.5×-door-tall wall), and decouple the dome rise from radius so WIDE yurts
   // stay shallow instead of ballooning into a tall hemisphere.
   const wallH = Math.max(1, p.params.levels as number) * DOOR_HEIGHT_TILES * 1.15;
-  const out: Prim[] = [{ prim: 'cylinder', center: [cx, cy], baseZ: 0, radius: r, height: wallH, material: wallMatOf(ctx), work: wallWorkOf(ctx) }];
+  const out: Prim[] = [{
+    prim: 'cylinder', center: [cx, cy], baseZ: 0, radius: r, height: wallH,
+    material: wallMatOf(ctx), work: wallWorkOf(ctx),
+    ...(ctx.palette?.walls ? { finish: ctx.palette.walls } : {}),
+  }];
   const roof = p.params.roof as string;
   // A round body emits no `building` prim, so a smoke-vent feature can't ride a roof ridge.
   // Render it instead as the yurt's toono: a round hole bored straight through the dome apex.
@@ -129,6 +135,11 @@ export const bodyPartType: PartType = {
      *  walls + funnel floor drawn ONLY in the cutaway. Set by `cutawayOf`; absent on closed
      *  bodies (no render change). `any` so the structured plan rides through unvalidated. */
     interior: { kind: 'any' },
+    /** Trim: two-stage stepped buttresses between the windows + at the corners (rect plan
+     *  only) — the masonry-span cue for churches/tithe barns. Set by the worship connectome. */
+    buttress: { kind: 'bool', default: false },
+    /** Trim: a crenellated parapet around a FLAT roof (keeps/watch towers). */
+    parapet: { kind: 'bool', default: false },
     roof: {
       kind: 'enum',
       values: [
@@ -162,14 +173,27 @@ export const bodyPartType: PartType = {
     const cutaway = !!(p.params.cutaway as number | boolean | undefined);
     // Interior I-3: the connectome-derived partition + funnel plan, only meaningful in a cutaway.
     const interior = p.params.interior as { partitions: number[]; floorDrop: number[]; screens?: boolean[]; levels?: number[] } | undefined;
-    return [{
+    const building: Prim = {
       prim: 'building', wings,
       wallMat: wallMatOf(ctx), roofMat: roofMatOf(ctx), roofStyle: 'gable',
       wallWork: wallWorkOf(ctx), features: {}, seed: 0,
+      ...(ctx.palette?.walls ? { wallFinish: ctx.palette.walls } : {}),
+      ...(ctx.palette?.roof ? { roofFinish: ctx.palette.roof } : {}),
       ...(baseCourse > 0 ? { baseCourse } : {}),
       ...(cutaway ? { cutaway: true } : {}),
       ...(cutaway && interior ? { interior } : {}),
-    }];
+    };
+    // Trim (skipped in the cutaway — interior view wants the bare shell): buttresses on a
+    // rect plan; a crenellated parapet only where the roof is genuinely flat.
+    const trims: Prim[] = [];
+    if (!cutaway) {
+      const eaveH = storeys * storeyTiles;
+      if (p.params.buttress && plan === 'rect') trims.push(...buttressPrims(p, wallMatOf(ctx), eaveH, wallWorkOf(ctx), ctx.palette?.walls));
+      if (p.params.parapet && ROOF_KIND[p.params.roof as string] === 'flat') {
+        trims.push(...parapetPrims(p, eaveH, wallMatOf(ctx), wallWorkOf(ctx), ctx.palette?.walls));
+      }
+    }
+    return [building, ...trims];
   },
   toCollision(p) {
     const cells: Array<[number, number]> = [];

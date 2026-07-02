@@ -100,7 +100,7 @@
  * composed from raw prims — no new part renderer) — the holy-water cleansing basin co-placed
  * at a sacred precinct's border. Additive (a new prop recipe; existing baked art unaffected).
  */
-export const ART_RECIPE_VERSION = 'v23';  // CHURCH: worship buildings now express a grounded WEST TOWER over the entrance gable (a square stone tower + broach spire, centred on the width — `to-blueprint.ts`/`solids.ts`), replacing the offset ridge flèche; and their windows are tall POINTED LANCETS (`window.ts` lancet style → pointed arch, `openings.ts` taller/narrower sacred lights). Church massing changed ⇒ invalidate cached church sprites.
+export const ART_RECIPE_VERSION = 'v24';  // ROOF VOCABULARY + ROUND TESSELLATION: gambrel/mansard/saltbox/cross_gable are REAL geometry in `solids.ts` (no longer collapsed to gable/hip — the barn is now gambrel), tympana recess under the slope boards (kills the raking-edge z-fight stipple), and round solids (cylinder/cone/ellipsoid) tessellate by radius (`roundSegments`, chord ≈ 0.12 tiles) instead of the flat 32 — towers/domes/wells stop reading polygonal. Plus ARCHITECTURAL TRIM (`blueprint/parts/trim.ts`): two-stage stepped BUTTRESSES between the windows + braced corners on worship bodies (connectome-derived), and crenellated PARAPETS (breast + merlons, reusing the defensive-wall battlement builders) on flat-roofed towers/keeps. Barn + round buildings + church/tower/keep massing changed ⇒ invalidate cached sprites. (v23 — CHURCH: grounded WEST TOWER + broach spire over the entrance gable, and tall pointed LANCET windows on worship buildings.)
 
 /**
  * Bump when WORLDGEN / preset output changes (footprints, placement, heights).

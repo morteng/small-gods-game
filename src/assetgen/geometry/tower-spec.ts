@@ -64,8 +64,9 @@ export interface TowerSpec {
   side: number;
 }
 
-/** Place merlon boxes along one top edge of the square (axis + fixed cross-offset). */
-function merlonsAlongEdge(
+/** Place merlon boxes along one top edge of the square (axis + fixed cross-offset).
+ *  Exported: building parapets (blueprint trim) reuse the same battlement teeth. */
+export function merlonsAlongEdge(
   axis: 'x' | 'y', fixedCross: number, from: number, to: number,
   z: number, mh: number, mt: number, mat: Mat,
 ): Part[] {
@@ -80,8 +81,9 @@ function merlonsAlongEdge(
 }
 
 /** Merlon teeth wrapped around a parapet RING of radius `rp`, each box yawed to face radially
- *  (yaw rotates a box about its own centre, so radial thickness `pt` × tangential width `mw`). */
-function merlonsAroundRing(cx: number, cy: number, rp: number, z: number, mh: number, pt: number, mat: Mat): Part[] {
+ *  (yaw rotates a box about its own centre, so radial thickness `pt` × tangential width `mw`).
+ *  Exported: round blueprint towers reuse the same ring battlements. */
+export function merlonsAroundRing(cx: number, cy: number, rp: number, z: number, mh: number, pt: number, mat: Mat): Part[] {
   const out: Part[] = [];
   const period = mToTiles(1.4);
   const n = Math.max(6, Math.round((2 * Math.PI * rp) / period));

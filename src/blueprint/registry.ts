@@ -14,6 +14,9 @@ export interface ResolveCtx {
 export interface CompileCtx {
   materials: Record<string, string>;
   footprint: { w: number; h: number };
+  /** Blueprint palette — `walls`/`roof` name a surface FINISH (limewash/ochre/tar/…)
+   *  the parts thread onto their prims; absent ⇒ bare material. */
+  palette?: { walls?: string; roof?: string; trim?: string };
 }
 
 /** A part type contributes geometry, blocked cells, anchors, and a brief phrase. */

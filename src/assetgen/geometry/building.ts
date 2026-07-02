@@ -5,7 +5,13 @@
 // seed-varied default so a bare `{ wings }` still renders a complete building.
 import { STOREY_TILES } from '@/render/scale-contract';
 
-export type RoofKind = 'gable' | 'hip' | 'half_hip' | 'pyramidal' | 'flat' | 'shed';
+export type RoofKind =
+  | 'gable' | 'hip' | 'half_hip' | 'pyramidal' | 'flat' | 'shed'
+  // Distinct silhouettes with real geometry (not collapsed to gable/hip):
+  // gambrel = two-pitch barn gable; mansard = steep four-sided lower band + shallow cap;
+  // saltbox = asymmetric gable, ridge off-centre with a long catslide toward the camera;
+  // cross_gable = a perpendicular gabled bay crossing the main ridge.
+  | 'gambrel' | 'mansard' | 'saltbox' | 'cross_gable';
 export type RoofStyle = 'gable' | 'hip' | 'half_hip';
 /** Which world axis a wing's roof ridge runs along. */
 export type RidgeAxis = 'x' | 'y';

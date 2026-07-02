@@ -144,7 +144,10 @@ function footprintRects(parts: Prim[]): Rect[] {
 }
 
 export function toGeometry(rb: ResolvedBlueprint, opts?: { skirt?: SkirtOpts }): StructureSpec {
-  const ctx: CompileCtx = { materials: rb.materials, footprint: rb.footprint };
+  const ctx: CompileCtx = {
+    materials: rb.materials, footprint: rb.footprint,
+    ...(rb.palette && Object.keys(rb.palette).length ? { palette: rb.palette } : {}),
+  };
 
   // No `size` is set: buildings render at a FIXED metric scale (composeStructure →
   // fixedFit), with the sprite canvas sized to the projected content. Pinning a `size`

@@ -4,7 +4,10 @@
 import type { PartType, CompileCtx } from '../registry';
 import type { Part as Prim } from '@/assetgen/compose';
 import { STOREY } from '@/assetgen/geometry/building';
+import { merlonsAroundRing } from '@/assetgen/geometry/tower-spec';
+import { mToTiles } from '@/render/scale-contract';
 import { WALL_MAT, WALL_WORK, ROOF_MAT } from './body';
+import { parapetPrims } from './trim';
 
 const cellsOf = (p: { at: { x: number; y: number }; size: { w: number; h: number } }): Array<[number, number]> => {
   const out: Array<[number, number]> = [];
@@ -21,6 +24,9 @@ export const towerPartType: PartType = {
     /** Spire/cap height as a multiple of the tower radius. The default (1.2) is the squat
      *  watchtower cap; a church west tower passes a far taller broach spire (~4). */
     spire: { kind: 'number', min: 0.5, max: 8, default: 1.2 },
+    /** Trim: a crenellated battlement around a FLAT top (corbel band + merlons — the same
+     *  teeth the defensive-wall towers wear). Ignored under a spire/cone cap. */
+    parapet: { kind: 'bool', default: false },
   },
   resolve: (part) => ({ params: { ...(part.params ?? {}) } }),
   toPrims(p, ctx: CompileCtx): Prim[] {
@@ -29,16 +35,26 @@ export const towerPartType: PartType = {
     const wallWork = WALL_WORK[ctx.materials.walls];
     const h = Math.max(1, p.params.levels as number) * STOREY;
     const spireMul = (p.params.spire as number) || 1.2;
+    const battlement = p.params.roof === 'flat' && !!p.params.parapet;
+    const wallFinish = ctx.palette?.walls ? { finish: ctx.palette.walls } : {};
     if (p.params.shape === 'round') {
       const r = Math.min(p.size.w, p.size.h) / 2, cx = p.at.x + p.size.w / 2, cy = p.at.y + p.size.h / 2;
-      const out: Prim[] = [{ prim: 'cylinder', center: [cx, cy], baseZ: 0, radius: r, height: h, material: wallMat, work: wallWork }];
+      const out: Prim[] = [{ prim: 'cylinder', center: [cx, cy], baseZ: 0, radius: r, height: h, material: wallMat, work: wallWork, ...wallFinish }];
       if (p.params.roof !== 'flat') out.push({ prim: 'cone', center: [cx, cy], baseZ: h, radius: r, height: r * spireMul, material: roofMat });
+      else if (battlement) {
+        // Corbel ring + merlon teeth wrapped around it — the drum-tower crown.
+        const corbel = mToTiles(0.32), corbelH = mToTiles(0.5);
+        out.push({ prim: 'cylinder', center: [cx, cy], baseZ: h - corbelH, radius: r + corbel, height: corbelH, material: wallMat, work: wallWork });
+        out.push(...merlonsAroundRing(cx, cy, r + corbel, h, mToTiles(1.3), mToTiles(0.4), wallMat));
+      }
       return out;
     }
-    const out: Prim[] = [{ prim: 'box', at: [p.at.x, p.at.y, 0], size: [p.size.w, p.size.h, h], material: wallMat, work: wallWork }];
+    const out: Prim[] = [{ prim: 'box', at: [p.at.x, p.at.y, 0], size: [p.size.w, p.size.h, h], material: wallMat, work: wallWork, ...wallFinish }];
     if (p.params.roof !== 'flat') {
       const cx = p.at.x + p.size.w / 2, cy = p.at.y + p.size.h / 2, r = Math.min(p.size.w, p.size.h) / 2;
       out.push({ prim: 'cone', center: [cx, cy], baseZ: h, radius: r, height: r * spireMul, material: roofMat });
+    } else if (battlement) {
+      out.push(...parapetPrims(p, h, wallMat, wallWork, ctx.palette?.walls));
     }
     return out;
   },

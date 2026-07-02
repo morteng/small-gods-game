@@ -22,7 +22,8 @@ describe('blueprint presets', () => {
     expect(body.params.storeyM).toBe(4.5);                      // lofty sacred storey
     const wins = body.features.filter((f) => f.type === 'window');
     expect(wins.length).toBeGreaterThan(0);
-    expect(wins.every((w) => w.params.style === 'arched')).toBe(true);
+    // v23: worship windows became pointed LANCETS (the sacred light style) — still arch-headed.
+    expect(wins.every((w) => w.params.style === 'lancet')).toBe(true);
   });
   it('every preset resolves + compiles to a non-empty StructureSpec', () => {
     for (const n of NAMES) {

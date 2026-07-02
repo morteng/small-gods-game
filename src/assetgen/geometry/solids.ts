@@ -43,7 +43,7 @@ export function cylindricalProjector(center: [number, number], radius: number): 
   };
 }
 
-export function manifoldToFacets(mesh: Mesh, material: Mat, work?: string, projector?: FacetProjector): WorldFacet[] {
+export function manifoldToFacets(mesh: Mesh, material: Mat, work?: string, projector?: FacetProjector, finish?: string, tint?: RGB): WorldFacet[] {
   const c = MATERIAL_RGB[material];
   const { numProp, vertProperties: vp, triVerts: tv } = mesh;
   const pos = (i: number): Vec3 => [vp[i*numProp], vp[i*numProp+1], vp[i*numProp+2]];
@@ -53,7 +53,7 @@ export function manifoldToFacets(mesh: Mesh, material: Mat, work?: string, proje
     const n = cross(sub(b, a), sub(d, a));         // outward (manifold winding is CCW-outward)
     if (n[0] === 0 && n[1] === 0 && n[2] === 0) continue; // skip degenerate
     const frame = projector?.([(a[0]+b[0]+d[0])/3, (a[1]+b[1]+d[1])/3, (a[2]+b[2]+d[2])/3], n);
-    out.push({ pts: [a, b, d], normal: n, albedo: shadeRGB(c, brightness(n)), mat: material, work, frame });
+    out.push({ pts: [a, b, d], normal: n, albedo: shadeRGB(c, brightness(n)), mat: material, work, finish, tint, frame });
   }
   return out;
 }
@@ -68,16 +68,24 @@ export async function solidBox(at: Vec3, size: Vec3): Promise<Manifold> {
   return Manifold.cube(size).translate(at);
 }
 
+/** Segments for a round solid of `radius` (tiles): chord ≈ 0.12 tiles (~2–3 px at art
+ *  scale) so towers/spires/domes stop reading polygonal under per-facet flat shading.
+ *  Clamped 24..96, multiple of 4. Deterministic in radius — golden-pinned. */
+export function roundSegments(radius: number): number {
+  return Math.max(24, Math.min(96, Math.ceil((2 * Math.PI * radius) / 0.12 / 4) * 4));
+}
+
 /** Vertical cylinder, base centred at (cx,cy,baseZ). */
 export async function solidCylinder(center: Vec2, baseZ: number, radius: number, height: number): Promise<Manifold> {
   const { Manifold } = await getManifold();
-  return Manifold.cylinder(height, radius, radius).translate([center[0], center[1], baseZ]);
+  return Manifold.cylinder(height, radius, radius, roundSegments(radius)).translate([center[0], center[1], baseZ]);
 }
 
 /** Cone/frustum, base centred at (cx,cy,baseZ); radiusBase at bottom → radiusTop at top. */
 export async function solidCone(center: Vec2, baseZ: number, radiusTop: number, radiusBase: number, height: number): Promise<Manifold> {
   const { Manifold } = await getManifold();
-  return Manifold.cylinder(height, radiusBase, radiusTop).translate([center[0], center[1], baseZ]);
+  const segs = roundSegments(Math.max(radiusBase, radiusTop));
+  return Manifold.cylinder(height, radiusBase, radiusTop, segs).translate([center[0], center[1], baseZ]);
 }
 
 /** Regular n-gon prism (n sides), base centred at (cx,cy,baseZ). */
@@ -89,7 +97,8 @@ export async function solidPrism(center: Vec2, baseZ: number, radius: number, he
 /** Ellipsoid centred at (cx,cy,baseZ+rz), radii [rx,ry,rz]. */
 export async function solidEllipsoid(center: Vec2, baseZ: number, radii: Vec3): Promise<Manifold> {
   const { Manifold } = await getManifold();
-  return Manifold.sphere(1).scale(radii).translate([center[0], center[1], baseZ + radii[2]]);
+  const segs = roundSegments(Math.max(radii[0], radii[1]));
+  return Manifold.sphere(1, segs).scale(radii).translate([center[0], center[1], baseZ + radii[2]]);
 }
 
 /** Post-and-lintel arch (two uprights + a spanning beam) as one unioned solid, spanning +x.
@@ -169,6 +178,20 @@ export const SHED_SLOPE = 0.5;
 /** Height a ridge chimney stack stands proud of the roof slope it pierces (cube-units;
  *  1 = 2 m). Matches `ventProfile('chimney').protrude`. */
 export const CHIMNEY_PROTRUDE = 0.55;
+// Two-pitch + asymmetric roof shape constants (exported: `to-mount-anchors.ts` mirrors
+// them without importing this heavy module — keep the copies in lockstep, guarded by
+// tests/unit/mount-anchor-geometry-parity.test.ts).
+/** Gambrel break knot: fraction of the half-span run / of the total rise. The lower barn
+ *  slope is steep (0.72R over 0.4·hs ≈ 2.7 pitch), the upper shallow; the ridge height
+ *  matches a plain gable so massing/anchors are unchanged at the crest. */
+export const GAMBREL_BREAK = { u: 0.4, z: 0.72 } as const;
+/** Mansard total rise per unit half-span (shallower crest than HIP_PITCH). */
+export const MANSARD_RISE_K = 1.1;
+/** Mansard break knot: the lower band climbs 0.8R over 0.28·hs (≈72°), the cap eases off. */
+export const MANSARD_BREAK = { u: 0.28, z: 0.8 } as const;
+/** Saltbox: the ridge sits at this fraction ACROSS the span (from the −cross side), so
+ *  the long catslide faces the +cross camera slope. Ridge rise = GABLE_PITCH · t · span. */
+export const SALTBOX_RIDGE_T = 0.35;
 
 /**
  * Eave (across the ridge) + verge (along it) overhang per roof material, in
@@ -201,9 +224,9 @@ function overhangOf(roofMat: Mat): RoofOverhang {
  *  the prism styles) else the building-wide style. */
 function wingRoofStyle(w: Wing, style: RoofStyle): RoofStyle {
   const k: RoofKind | undefined = w.roof;
-  if (k === 'gable') return 'gable';
+  if (k === 'gable' || k === 'gambrel' || k === 'saltbox' || k === 'cross_gable') return 'gable';
   if (k === 'half_hip') return 'half_hip';
-  if (k === 'hip' || k === 'pyramidal') return 'hip';
+  if (k === 'hip' || k === 'pyramidal' || k === 'mansard') return 'hip';
   return style;                                  // 'flat' → handled separately; else inherit
 }
 
@@ -250,20 +273,21 @@ async function gablePrism(rect: WingRect, ridge: RidgeAxis, pitch: number, b: nu
 const ROOF_SLAB_T = 0.14;
 
 /**
- * One sloped roof board as a thick parallelogram: the top surface runs from the eave
- * (uEave, 0) up to the ridge (uRidge, rise); the underside is that line offset by `t`
- * along the inward (downward) slope normal. Points are wound CCW (positive area) so
- * `Manifold.extrude` keeps it solid. Returned in (u, z) profile space.
+ * One sloped roof board as a thick parallelogram: the top surface runs from (u0, z0)
+ * to (u1, z1); the underside is that line offset by `t` along the inward (downward)
+ * slope normal. Points are wound CCW (positive area) so `Manifold.extrude` keeps it
+ * solid. Returned in (u, z) profile space. Two-pitch roofs (gambrel/mansard) chain
+ * these segment boards; the union at the break knot heals into one surface.
  */
-function slabProfile(uEave: number, uRidge: number, rise: number, t: number): [number, number][] {
-  const du = uRidge - uEave, len = Math.hypot(du, rise) || 1;
+function slabSeg(u0: number, z0: number, u1: number, z1: number, t: number): [number, number][] {
+  const du = u1 - u0, dz = z1 - z0, len = Math.hypot(du, dz) || 1;
   // inward normal (pointing down): perpendicular to the slope with negative z.
-  let nu = rise / len, nz = -du / len;
+  let nu = dz / len, nz = -du / len;
   if (nz > 0) { nu = -nu; nz = -nz; }
   const ou = nu * t, oz = nz * t;
-  const poly: [number, number][] = [[uEave, 0], [uEave + ou, oz], [uRidge + ou, rise + oz], [uRidge, rise]];
+  const poly: [number, number][] = [[u0, z0], [u0 + ou, z0 + oz], [u1 + ou, z1 + oz], [u1, z1]];
   // Manifold.extrude needs CCW (positive-area) polygons or it inverts the solid; a
-  // slope falling the other way (uRidge < uEave — the right-hand board) comes out CW,
+  // slope falling the other way (u1 < u0 — the right-hand board) comes out CW,
   // so reverse it. This was the bug that silently dropped one whole roof slope.
   let a = 0;
   for (let i = 0; i < poly.length; i++) {
@@ -271,6 +295,11 @@ function slabProfile(uEave: number, uRidge: number, rise: number, t: number): [n
     a += x0 * y1 - x1 * y0;
   }
   return a < 0 ? poly.reverse() : poly;
+}
+
+/** A single-pitch board from the eave (uEave, 0) to the ridge (uRidge, rise). */
+function slabProfile(uEave: number, uRidge: number, rise: number, t: number): [number, number][] {
+  return slabSeg(uEave, 0, uRidge, rise, t);
 }
 
 /** A gable roof as TWO thick slope slabs over the (eave+verge-grown) rect, meeting at
@@ -282,20 +311,33 @@ async function gableSlabs(grown: WingRect, ridge: RidgeAxis, rise: number, b: nu
   return left.add(right);
 }
 
-/** The triangular gable wall (tympanum) closing each ridge END, at the UNGROWN wall
- *  plane so the slope slabs overhang it as a true verge. Thin (`gw`) prisms in
- *  wall material, one per end. */
-async function gableEndWalls(top: WingRect, ridge: RidgeAxis, rise: number, wallTop: number, gw: number): Promise<Manifold> {
+/** Tympanum top-edge recess: the raking edges are CONSTRUCTIONALLY coplanar with the
+ *  slope boards' top planes (the sprocket re-pitch passes through the same knots), which
+ *  z-fights as a pale stipple along every verge. Scaling the wall profile's z tucks the
+ *  edge INSIDE the board's thickness (top − ~ROOF_SLAB_T) without opening a gap. */
+const TYMPANUM_RECESS = 0.92;
+
+/** The gable wall (tympanum) closing each ridge END, at the UNGROWN wall plane so
+ *  the slope slabs overhang it as a true verge. Thin (`gw`) prisms in wall material,
+ *  one per end. `profile` is the tympanum polygon in (u, z) — a triangle for a plain
+ *  gable, a pentagon for a gambrel, an off-peak triangle for a saltbox. */
+async function endWallsOfProfile(
+  top: WingRect, ridge: RidgeAxis, rawProfile: [number, number][], wallTop: number, gw: number,
+): Promise<Manifold> {
   const { Manifold } = await getManifold();
-  const span = ridge === 'x' ? top.h : top.w;
-  const tri: [number, number][] = [[0, 0], [span, 0], [span / 2, rise]];
+  const profile = rawProfile.map(([u, z]) => [u, z * TYMPANUM_RECESS] as [number, number]);
   const len = ridge === 'x' ? top.w : top.h;
   const endRectAt = (off: number): WingRect => ridge === 'x'
     ? { x: top.x + off, y: top.y, w: gw, h: top.h }
     : { x: top.x, y: top.y + off, w: top.w, h: gw };
-  const a = await extrudeAlongRidge(tri, endRectAt(0), ridge, wallTop);
-  const b = await extrudeAlongRidge(tri, endRectAt(len - gw), ridge, wallTop);
+  const a = await extrudeAlongRidge(profile, endRectAt(0), ridge, wallTop);
+  const b = await extrudeAlongRidge(profile, endRectAt(len - gw), ridge, wallTop);
   return Manifold.union([a, b]);
+}
+
+async function gableEndWalls(top: WingRect, ridge: RidgeAxis, rise: number, wallTop: number, gw: number): Promise<Manifold> {
+  const span = ridge === 'x' ? top.h : top.w;
+  return endWallsOfProfile(top, ridge, [[0, 0], [span, 0], [span / 2, rise]], wallTop, gw);
 }
 
 /** `rect` grown by `eave` across the ridge and `verge` along it. */
@@ -327,6 +369,13 @@ async function clipEaveInterior(roof: Manifold, wallRect: WingRect, wallTop: num
 /** A wing's roof, split into the roof-material solid + (gable styles only) the
  *  wall-material tympanum that closes each ridge end behind the projecting verge. */
 interface WingRoof { roof: Manifold; gableWalls?: Manifold }
+
+/** Sprocketed-eave drop + the re-pitch that keeps the ridge at the flush-roof height:
+ *  rise over the grown half-span = flush rise + drop. */
+function sprocketFor(pitch: number, halfSpan: number, eave: number): { drop: number; rePitch: number } {
+  const drop = Math.min(pitch * eave, MAX_EAVE_DROP);
+  return { drop, rePitch: (pitch * halfSpan + drop) / (halfSpan + eave) };
+}
 
 /**
  * A mono-pitch (shed / lean-to) roof: ONE sloped board over the whole footprint,
@@ -367,6 +416,135 @@ async function shedRoof(w: Wing, roofMat: Mat): Promise<WingRoof> {
 }
 
 /**
+ * A gambrel (barn) roof: each side is TWO chained slope boards — steep below the break
+ * knot, shallow above — meeting at the same ridge height a plain gable would reach.
+ * The tympanum closing each end is the matching pentagon.
+ */
+async function gambrelRoof(w: Wing, roofMat: Mat): Promise<WingRoof> {
+  const top = storeyRect(w, (w.storeys ?? 1) - 1);
+  const b = (w.storeys ?? 1) * (w.storeyHeight ?? STOREY);
+  const ridge = ridgeAxisOf(w);
+  const { eave, verge } = overhangOf(roofMat);
+  const span = crossSpan(top, ridge), hs = span / 2;
+  const R = GABLE_PITCH * hs;                       // ridge parity with a plain gable
+  const uB = GAMBREL_BREAK.u * hs, zB = GAMBREL_BREAK.z * R;
+  const drop = Math.min((zB / uB) * eave, MAX_EAVE_DROP);
+  const g = grownRect(top, ridge, eave, verge);
+  const gspan = crossSpan(g, ridge), gHalf = gspan / 2;
+  // Knots in grown coords, base at b − drop: the break/ridge stay at their world heights
+  // (b+zB / b+R) while the eave edge hangs `drop` below the wall top.
+  const uBk = eave + uB, zBk = drop + zB, zR = drop + R;
+  const base = b - drop;
+  const boards = [
+    slabSeg(0, 0, uBk, zBk, ROOF_SLAB_T), slabSeg(uBk, zBk, gHalf, zR, ROOF_SLAB_T),
+    slabSeg(gspan, 0, gspan - uBk, zBk, ROOF_SLAB_T), slabSeg(gspan - uBk, zBk, gHalf, zR, ROOF_SLAB_T),
+  ];
+  let roof: Manifold | undefined;
+  for (const p of boards) {
+    const m = await extrudeAlongRidge(p, g, ridge, base);
+    roof = roof ? roof.add(m) : m;
+  }
+  const pent: [number, number][] = [[0, 0], [span, 0], [span - uB, zB], [hs, R], [uB, zB]];
+  return { roof: roof!, gableWalls: await endWallsOfProfile(top, ridge, pent, b, 0.1) };
+}
+
+/**
+ * A saltbox roof: an asymmetric gable whose ridge sits at SALTBOX_RIDGE_T across the
+ * span — a short steep slope on the −cross side, a long shallow catslide sweeping
+ * toward the +cross (camera-facing) eave.
+ */
+async function saltboxRoof(w: Wing, roofMat: Mat): Promise<WingRoof> {
+  const top = storeyRect(w, (w.storeys ?? 1) - 1);
+  const b = (w.storeys ?? 1) * (w.storeyHeight ?? STOREY);
+  const ridge = ridgeAxisOf(w);
+  const { eave, verge } = overhangOf(roofMat);
+  const span = crossSpan(top, ridge);
+  const uR = SALTBOX_RIDGE_T * span;
+  const R = GABLE_PITCH * uR;                       // steep side carries the full gable pitch
+  // PER-SIDE sprocket drops: the shallow catslide must not inherit the steep side's
+  // eave drop, or its whole plane dives below the tympanum's raking edge (a visible
+  // wall stripe through the roof). Boards extrude at base b with negative eave knots.
+  const pitchCat = R / (span - uR);
+  const dropS = Math.min(GABLE_PITCH * eave, MAX_EAVE_DROP);
+  const dropC = Math.min(pitchCat * eave, MAX_EAVE_DROP);
+  const g = grownRect(top, ridge, eave, verge);
+  const gspan = crossSpan(g, ridge);
+  const uRk = eave + uR;
+  const short = await extrudeAlongRidge(slabSeg(0, -dropS, uRk, R, ROOF_SLAB_T), g, ridge, b);
+  const catslide = await extrudeAlongRidge(slabSeg(gspan, -dropC, uRk, R, ROOF_SLAB_T), g, ridge, b);
+  const tri: [number, number][] = [[0, 0], [span, 0], [uR, R]];
+  return { roof: short.add(catslide), gableWalls: await endWallsOfProfile(top, ridge, tri, b, 0.1) };
+}
+
+/**
+ * A mansard roof: a steep four-sided lower band up to the break, capped by a shallow
+ * hip — built as a solid (two prism intersections stacked) then shelled to a board
+ * thickness like the plain hip, so eaves read with depth all round.
+ */
+async function mansardRoof(w: Wing, roofMat: Mat): Promise<WingRoof> {
+  const top = storeyRect(w, (w.storeys ?? 1) - 1);
+  const b = (w.storeys ?? 1) * (w.storeyHeight ?? STOREY);
+  const { eave } = overhangOf(roofMat);
+  const hs = crossSpan(top, ridgeAxisOf(w)) / 2;
+  const R = MANSARD_RISE_K * hs;
+  const zB = MANSARD_BREAK.z * R, uB = MANSARD_BREAK.u * hs;
+  const drop = Math.min((zB / uB) * eave, MAX_EAVE_DROP);
+
+  // One mansard massing over `rect`: a steep band clipped at the break + the shallow cap
+  // over the inset rect. `p1 = breakZ / inset` puts the band's surface exactly at the
+  // break height a horizontal `inset` in from the rect edge, on all four sides.
+  const massing = async (rect: WingRect, base: number, breakZ: number, capRise: number, inset: number): Promise<Manifold> => {
+    const p1 = breakZ / inset;
+    const bandX = await gablePrism(rect, 'x', p1, base);
+    const bandY = await gablePrism(rect, 'y', p1, base);
+    const clip = await solidBox([rect.x - 1, rect.y - 1, base], [rect.w + 2, rect.h + 2, breakZ]);
+    const band = bandX.intersect(bandY).intersect(clip);
+    const gi: WingRect = { x: rect.x + inset, y: rect.y + inset, w: rect.w - 2 * inset, h: rect.h - 2 * inset };
+    const p2 = capRise / (Math.min(gi.w, gi.h) / 2);
+    const capX = await gablePrism(gi, 'x', p2, base + breakZ);
+    const capY = await gablePrism(gi, 'y', p2, base + breakZ);
+    return band.add(capX.intersect(capY));
+  };
+
+  const g: WingRect = { x: top.x - eave, y: top.y - eave, w: top.w + 2 * eave, h: top.h + 2 * eave };
+  const outer = await massing(g, b - drop, zB + drop, R - zB, uB + eave);
+  const gi: WingRect = { x: g.x + ROOF_SLAB_T, y: g.y + ROOF_SLAB_T, w: g.w - 2 * ROOF_SLAB_T, h: g.h - 2 * ROOF_SLAB_T };
+  const inner = await massing(gi, b - drop - 2 * ROOF_SLAB_T, zB + drop, R - zB, uB + eave);
+  const roof = await clipEaveInterior(outer.subtract(inner), top, b, drop);
+  return { roof };
+}
+
+/**
+ * A cross-gable roof: the plain gable plus a perpendicular gabled BAY crossing the
+ * ridge at mid-run — same pitch, so the two ridges meet at one height and the bay's
+ * tympana rise through the long eaves as camera-facing gable faces. Wings too square
+ * for a distinct bay (length < 1.6 × span) fall back to the plain gable.
+ */
+async function crossGableRoof(w: Wing, roofMat: Mat): Promise<WingRoof> {
+  const top = storeyRect(w, (w.storeys ?? 1) - 1);
+  const b = (w.storeys ?? 1) * (w.storeyHeight ?? STOREY);
+  const ridge = ridgeAxisOf(w);
+  const { eave, verge } = overhangOf(roofMat);
+  const span = crossSpan(top, ridge);
+  const { drop, rePitch } = sprocketFor(GABLE_PITCH, span / 2, eave);
+  const wallRise = GABLE_PITCH * (span / 2);
+  const g = grownRect(top, ridge, eave, verge);
+  const main = await gableSlabs(g, ridge, rePitch * (crossSpan(g, ridge) / 2), b - drop);
+  const mainWalls = await gableEndWalls(top, ridge, wallRise, b, 0.1);
+  const len = ridge === 'x' ? top.w : top.h;
+  if (len < span * 1.6) return { roof: main, gableWalls: mainWalls };
+  const c = ridge === 'x' ? top.x + top.w / 2 : top.y + top.h / 2;
+  const bay: WingRect = ridge === 'x'
+    ? { x: c - span / 2, y: top.y, w: span, h: top.h }
+    : { x: top.x, y: c - span / 2, w: top.w, h: span };
+  const crossRidge: RidgeAxis = ridge === 'x' ? 'y' : 'x';
+  const gBay = grownRect(bay, crossRidge, eave, verge);
+  const bayRoof = await gableSlabs(gBay, crossRidge, rePitch * (crossSpan(gBay, crossRidge) / 2), b - drop);
+  const bayWalls = await gableEndWalls(bay, crossRidge, wallRise, b, 0.1);
+  return { roof: main.add(bayRoof), gableWalls: mainWalls.add(bayWalls) };
+}
+
+/**
  * One wing's roof, modelled as individual sloped boards (real thickness, projecting
  * eaves + verges) rather than a solid wedge:
  *  - gable     = two thick slope slabs + recessed triangular gable walls (so the
@@ -381,16 +559,14 @@ async function wingRoof(w: Wing, style: RoofStyle, roofMat: Mat = 'tile'): Promi
   const b = (w.storeys ?? 1) * (w.storeyHeight ?? STOREY);
   if (w.roof === 'flat') return { roof: await solidBox([top.x, top.y, b], [top.w, top.h, 0.25]) };
   if (w.roof === 'shed') return shedRoof(w, roofMat);
+  if (w.roof === 'gambrel') return gambrelRoof(w, roofMat);
+  if (w.roof === 'saltbox') return saltboxRoof(w, roofMat);
+  if (w.roof === 'mansard') return mansardRoof(w, roofMat);
+  if (w.roof === 'cross_gable') return crossGableRoof(w, roofMat);
   const s = wingRoofStyle(w, style);
   const ridge = ridgeAxisOf(w);
   const { eave, verge } = overhangOf(roofMat);
-
-  // Sprocketed-eave drop + the re-pitch that keeps the ridge at the flush-roof
-  // height: rise over the grown half-span = flush rise + drop.
-  const sprocket = (pitch: number, halfSpan: number): { drop: number; rePitch: number } => {
-    const drop = Math.min(pitch * eave, MAX_EAVE_DROP);
-    return { drop, rePitch: (pitch * halfSpan + drop) / (halfSpan + eave) };
-  };
+  const sprocket = (pitch: number, halfSpan: number) => sprocketFor(pitch, halfSpan, eave);
   const wallRise = GABLE_PITCH * (crossSpan(top, ridge) / 2);   // ridge height above wall top
 
   if (s === 'gable') {
@@ -451,10 +627,37 @@ async function wingRoof(w: Wing, style: RoofStyle, roofMat: Mat = 'tile'): Promi
 function roofRise(w: Wing, style: RoofStyle): number {
   if (w.roof === 'flat') return 0.25;
   const top = storeyRect(w, (w.storeys ?? 1) - 1);
-  if (w.roof === 'shed') return SHED_SLOPE * crossSpan(top, ridgeAxisOf(w));
+  const span = crossSpan(top, ridgeAxisOf(w));
+  if (w.roof === 'shed') return SHED_SLOPE * span;
+  if (w.roof === 'saltbox') return GABLE_PITCH * SALTBOX_RIDGE_T * span;
+  if (w.roof === 'mansard') return MANSARD_RISE_K * (span / 2);
+  // gambrel/cross_gable share the gable ridge height by construction.
   const s = wingRoofStyle(w, style);
   const pitch = s === 'hip' ? HIP_PITCH : GABLE_PITCH;
-  return pitch * (crossSpan(top, ridgeAxisOf(w)) / 2);
+  return pitch * (span / 2);
+}
+
+/** Fraction ACROSS the span where a wing's ridge line sits (saltbox is asymmetric). */
+function ridgeCrossT(w: Wing): number {
+  return w.roof === 'saltbox' ? SALTBOX_RIDGE_T : 0.5;
+}
+
+/** Horizontal run from the RIDGE to the roof surface at height `z` above the wall top,
+ *  on the camera-facing (+cross) slope — piecewise for the two-pitch roofs, so a dormer
+ *  face lands ON the gambrel/mansard surface instead of the straight-line chord. */
+function runFromRidgeAtZ(w: Wing, style: RoofStyle, z: number): number {
+  const top = storeyRect(w, (w.storeys ?? 1) - 1);
+  const span = crossSpan(top, ridgeAxisOf(w));
+  const rise = roofRise(w, style);
+  const camRun = (1 - ridgeCrossT(w)) * span;
+  const zc = Math.max(0, Math.min(rise, z));
+  if (w.roof === 'gambrel' || w.roof === 'mansard') {
+    const brk = w.roof === 'gambrel' ? GAMBREL_BREAK : MANSARD_BREAK;
+    const uB = brk.u * camRun, zB = brk.z * rise;
+    const uFromEave = zc < zB ? uB * (zc / zB) : uB + (camRun - uB) * ((zc - zB) / (rise - zB || 1));
+    return camRun - uFromEave;
+  }
+  return (1 - zc / rise) * camRun;
 }
 
 // ── attachable feature solids (own material, sit proud so the z-buffer shows them) ──
@@ -530,8 +733,8 @@ async function ventSolid(
     };
     const tA = gableT(v.face);
     const alongClamp = (o: number, run: number) => Math.min(o + run - half, Math.max(o + half, o + tA * run));
-    const scx = ridge === 'x' ? alongClamp(top.x, top.w) : top.x + top.w / 2;
-    const scy = ridge === 'x' ? top.y + top.h / 2 : alongClamp(top.y, top.h);
+    const scx = ridge === 'x' ? alongClamp(top.x, top.w) : top.x + ridgeCrossT(w) * top.w;
+    const scy = ridge === 'x' ? top.y + ridgeCrossT(w) * top.h : alongClamp(top.y, top.h);
     const baseZ = tower ? 0 : wallTop;
     const shaftTop = wallTop + rise + protrude * (tower ? 0.7 : 0.45);   // clears the ridge
     const capH = protrude * 0.6 + 0.4;                    // tall pointed broach cap
@@ -540,14 +743,14 @@ async function ventSolid(
     return { solid, anchor: [scx, scy, shaftTop + capH], mat };
   }
 
-  const halfSpan = crossSpan(top, ridge) / 2;
+  const camRun = (1 - ridgeCrossT(w)) * crossSpan(top, ridge);   // ridge → camera-facing eave
   // Across-ridge offset: clear the ridge line by the vent half-width + a gap, but stay
-  // on the slope (cap to ~55% of the half-span).
-  const off = Math.min(cw / 2 + 0.08, halfSpan * 0.55);
+  // on the slope (cap to ~55% of the camera-side run).
+  const off = Math.min(cw / 2 + 0.08, camRun * 0.55);
   // Offset toward +cross (the camera-facing front slope: +y=south for an x-ridge,
   // +x=east for a y-ridge) so the visible side carries the stack.
-  const cx = ridge === 'x' ? top.x + v.t * top.w : top.x + top.w / 2 + off;
-  const cy = ridge === 'x' ? top.y + top.h / 2 + off : top.y + v.t * top.h;
+  const cx = ridge === 'x' ? top.x + v.t * top.w : top.x + ridgeCrossT(w) * top.w + off;
+  const cy = ridge === 'x' ? top.y + ridgeCrossT(w) * top.h + off : top.y + v.t * top.h;
   // Base from the wall top so the stack reads as masonry rising from inside and
   // visibly pierces the slope at the offset (the slope there is below the ridge).
   const baseZ = wallTop;
@@ -579,21 +782,21 @@ async function dormerSolids(
   const dw = d.width ?? 0.5;            // along the ridge
   const faceH = 0.42;
   const baseZ = wallTop + rise * 0.22;
-  // Front face sits where the slope passes baseZ, nudged 0.12 proud of the slope.
-  const halfSpan = crossSpan(top, ridge) / 2;
-  const fromRidge = (1 - (baseZ - wallTop) / rise) * halfSpan + 0.12;
+  // Front face sits where the slope passes baseZ, nudged 0.12 proud of the slope —
+  // piecewise-correct for two-pitch roofs (gambrel/mansard) and the saltbox catslide.
+  const fromRidge = runFromRidgeAtZ(w, style, baseZ - wallTop) + 0.12;
   const along = ridge === 'x' ? top.x + d.t * top.w : top.y + d.t * top.h;
 
   let at: Vec3, size: Vec3, capRect: WingRect;
   if (ridge === 'x') {
     // dormer faces the +y (south) slope
-    const ridgeY = top.y + top.h / 2;
+    const ridgeY = top.y + ridgeCrossT(w) * top.h;
     at = [along - dw / 2, ridgeY, baseZ];
     size = [dw, fromRidge, faceH];
     capRect = { x: along - dw / 2, y: ridgeY, w: dw, h: fromRidge };
   } else {
     // dormer faces the +x (east) slope
-    const ridgeX = top.x + top.w / 2;
+    const ridgeX = top.x + ridgeCrossT(w) * top.w;
     at = [ridgeX, along - dw / 2, baseZ];
     size = [fromRidge, dw, faceH];
     capRect = { x: ridgeX, y: along - dw / 2, w: fromRidge, h: dw };
@@ -624,7 +827,12 @@ export async function buildingFacets(
   // (Law 4: the threshold into a sanctum is a pierced rood SCREEN, not a solid wall). Only
   // used in the cutaway; absent ⇒ the cutaway is a single open shell with a flat floor (I-2).
   interior?: { partitions: number[]; floorDrop: number[]; screens?: boolean[]; levels?: number[] },
+  // Surface FINISHES (paint layer over the material): applied to the wall facets
+  // (limewash/ochre/…) and roof facets separately; a stone base course stays bare
+  // (the undercroft reads as raw masonry under a washed upper). Vents keep bare.
+  finishes?: { wall?: string; roof?: string; tint?: RGB },
 ): Promise<{ facets: WorldFacet[]; anchors: BuildingAnchors }> {
+  const wallFin = finishes?.wall, roofFin = finishes?.roof, finTint = finishes?.tint;
   const { Manifold } = await getManifold();
   // Walls: union every storey box of every wing (upper storeys grown by jetty), then
   // carve any openings (doors/windows) so they read as recesses, not proud boxes.
@@ -668,11 +876,11 @@ export async function buildingFacets(
     }
     const baseBox = await solidBox([minX - 1, minY - 1, 0], [maxX - minX + 2, maxY - minY + 2, baseCourse]);
     wallFacets = [
-      ...manifoldToFacets(wallSolid.intersect(baseBox).getMesh(), 'stone', wallWork),
-      ...manifoldToFacets(wallSolid.subtract(baseBox).getMesh(), wallMat, wallWork),
+      ...manifoldToFacets(wallSolid.intersect(baseBox).getMesh(), 'stone', wallWork),   // undercroft stays bare
+      ...manifoldToFacets(wallSolid.subtract(baseBox).getMesh(), wallMat, wallWork, undefined, wallFin, finTint),
     ];
   } else {
-    wallFacets = manifoldToFacets(wallSolid.getMesh(), wallMat, wallWork);
+    wallFacets = manifoldToFacets(wallSolid.getMesh(), wallMat, wallWork, undefined, wallFin, finTint);
   }
 
   // Cutaway (dollhouse): the building's SOLID massing is hollowed into a wall shell, the
@@ -707,7 +915,7 @@ export async function buildingFacets(
     const eastCut = await solidBox([fx1 - WALL_T - 0.02, fy0 - 1, cutBot], [WALL_T + 1.02, H + 2, tall - cutBot]);
     const southCut = await solidBox([fx0 - 1, fy1 - WALL_T - 0.02, cutBot], [W + 2, WALL_T + 1.02, tall - cutBot]);
     const shell = wallSolid.subtract(cavity).subtract(eastCut).subtract(southCut);
-    const facets: WorldFacet[] = [...manifoldToFacets(shell.getMesh(), wallMat, wallWork)];
+    const facets: WorldFacet[] = [...manifoldToFacets(shell.getMesh(), wallMat, wallWork, undefined, wallFin, finTint)];
 
     const parts = interior?.partitions ?? [];
     const drops = interior?.floorDrop ?? [0];
@@ -766,7 +974,7 @@ export async function buildingFacets(
 
   const facets: WorldFacet[] = [
     ...wallFacets,
-    ...manifoldToFacets(roof.getMesh(), roofMat),
+    ...manifoldToFacets(roof.getMesh(), roofMat, undefined, undefined, roofFin, finTint),
   ];
   const anchors: BuildingAnchors = { vents: [] };
 

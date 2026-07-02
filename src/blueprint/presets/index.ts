@@ -149,6 +149,7 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
   cottage: bp('cottage', {
     category: 'residential', era: 'medieval', footprint: { w: 3, h: 3 },
     materials: { walls: 'wattle', roof: 'thatch', ground: 'packed_dirt' },
+    palette: { walls: 'limewash' },   // the white-washed cottage under golden thatch
     parts: { body: {
       type: 'body', at: { x: 0, y: 0 }, size: { w: 3, h: 2 },
       params: { plan: 'rect', levels: 1, levelInset: 0, roof: 'gable' },
@@ -165,6 +166,7 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
   tavern: bp('tavern', {
     category: 'commercial', era: 'medieval', footprint: { w: 3, h: 3 },
     materials: { walls: 'timber', roof: 'tile', ground: 'packed_dirt' },
+    palette: { walls: 'limewash' },   // washed timber frame — the inviting inn front
     parts: { body: {
       // Massing (a jettied two-storey range) is DERIVED from the box frame (gen-form): the
       // box frame stacks a storey and oversails it. The authored levels/jetty here are the
@@ -191,6 +193,7 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
   townhouse: bp('townhouse', {
     category: 'residential', era: 'medieval', footprint: { w: 3, h: 3 },
     materials: { walls: 'timber', roof: 'tile', ground: 'flagstone' },
+    palette: { walls: 'ochre' },      // ochre-washed burgage range — town-street colour
     parts: { body: {
       // Massing DERIVED from the box frame (gen-form) — a jettied two-storey burgage range.
       type: 'body', size: { w: 3, h: 2 },
@@ -227,7 +230,7 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
     category: 'farm', era: 'medieval', footprint: { w: 4, h: 2 },
     materials: { walls: 'timber', roof: 'wood', ground: 'dirt' },
     parts: { body: {
-      type: 'body', size: { w: 4, h: 2 }, params: { plan: 'rect', levels: 1, storeyM: 3.2, roof: 'gable' },
+      type: 'body', size: { w: 4, h: 2 }, params: { plan: 'rect', levels: 1, storeyM: 3.2, roof: 'gambrel' },
       features: {
         door: { type: 'door', face: 'south', params: { main: true, t: 0.5, width: 0.4, height: 1.3 } },
         slit1: { type: 'window', face: 'south', params: { t: 0.15, width: 0.05, height: 0.3, sill: 1.1, glazed: false } },
@@ -240,7 +243,7 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
   tower: bp('tower', {
     category: 'military', era: 'medieval', footprint: { w: 2, h: 3 },
     materials: { walls: 'stone', roof: 'slate', ground: 'flagstone' },
-    parts: { body: { type: 'body', size: { w: 2, h: 3 }, params: { plan: 'rect', levels: 3, roof: 'flat' }, features: {
+    parts: { body: { type: 'body', size: { w: 2, h: 3 }, params: { plan: 'rect', levels: 3, roof: 'flat', parapet: true }, features: {
       door: { type: 'door', face: 'south', params: { t: 0.5 } },
       slit_s: { type: 'window', face: 'south', params: { t: 0.5, width: 0.05, height: 0.3, sill: 0.8, glazed: false } },
       win_s: { type: 'window', face: 'south', params: { style: 'arched', sill: 1.8 } },
@@ -258,7 +261,7 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
     parts: {
       bailey: {
         type: 'body', at: { x: 0, y: 0 }, size: { w: 3, h: 3 },
-        params: { plan: 'rect', levels: 1, storeyM: 3.0, roof: 'flat' },
+        params: { plan: 'rect', levels: 1, storeyM: 3.0, roof: 'flat', parapet: true },
         features: {
           door: { type: 'door', face: 'south', params: { main: true } },
           slit1: { type: 'window', face: 'south', params: { t: 0.25, width: 0.05, height: 0.3, sill: 0.8, glazed: false } },
@@ -267,7 +270,7 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
       },
       tower: {
         type: 'body', at: { x: 0, y: 0 }, size: { w: 2, h: 2 },
-        params: { plan: 'rect', levels: 3, roof: 'flat' },
+        params: { plan: 'rect', levels: 3, roof: 'flat', parapet: true },
         features: {
           // windows grow with height: slits low, arched pairs high (the "safe" faces)
           slit_s: { type: 'window', face: 'south', params: { t: 0.5, width: 0.05, height: 0.3, sill: 0.9, glazed: false } },
@@ -289,6 +292,7 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
   shrine: bp('shrine', {
     category: 'religious', era: 'classical', footprint: { w: 2, h: 2 },
     materials: { walls: 'stone', roof: 'tile', ground: 'flagstone' },
+    palette: { walls: 'polychrome' }, // painted sacred stone (temple-blue decorative wash)
     parts: { body: { type: 'body', size: { w: 2, h: 2 }, params: { plan: 'rect', levels: 1, roof: 'gable' }, tags: [GEN_OPENINGS_TAG] } },
   }),
   // Guard post: a small hip-roofed timber cell; door + shuttered window derived.
@@ -304,6 +308,7 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
   watermill: bp('watermill', {
     category: 'craft', era: 'medieval', footprint: { w: 2, h: 2 },
     materials: { walls: 'timber', roof: 'wood', ground: 'flagstone' },
+    palette: { walls: 'tar' },        // pitch-sealed mill timber against the splash
     parts: { body: {
       // Door + windows DERIVED (gen-openings); the wheel-housing gap on the stream side
       // stays a hand-authored override — the hybrid: generative base + a custom detail.

@@ -8,19 +8,22 @@ export type Mat =
   | 'stone' | 'timber' | 'plaster' | 'thatch' | 'tile'
   | 'foliage' | 'bark' | 'earth' | 'metal' | 'door' | 'brick' | 'glass';
 
-/** Base grey-reference albedo per material (the generative palette overrides later). */
+/** Base grey-reference albedo per material (the generative palette overrides later).
+ *  v24 warmed the palette: villages were near-monochrome (grey-brown tile, blue-cast
+ *  stone, muddy thatch). Values stay mutually DISTINCT — the img2img prompt legend
+ *  keys materials off these colours. */
 export const MATERIAL_RGB: Record<Mat, RGB> = {
-  stone:   [150, 150, 158],
+  stone:   [148, 147, 143], // warm limestone grey (was blue-cast [150,150,158])
   timber:  [120, 96, 64],
   plaster: [196, 188, 174],
-  thatch:  [150, 128, 82],
-  tile:    [120, 108, 96],
+  thatch:  [166, 138, 80],  // golden straw (was muddy [150,128,82])
+  tile:    [162, 96, 58],   // fired-clay TERRACOTTA (was grey-brown [120,108,96])
   foliage: [86, 124, 70],
   bark:    [92, 72, 52],
   earth:   [120, 100, 78],
   metal:   [140, 144, 150],
   door:    [92, 62, 40],   // dark door wood — distinct albedo so the model paints a door
-  brick:   [150, 78, 58],  // chimney brick — distinct from wall + roof
+  brick:   [138, 70, 54],  // chimney brick — deeper red than the terracotta tile roofs
   glass:   [44, 52, 64],   // dark cool glazing by day; the warm glow is its emissive (night)
 };
 

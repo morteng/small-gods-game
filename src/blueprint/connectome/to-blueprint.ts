@@ -75,6 +75,10 @@ export function connectomeToBlueprint(con: Connectome, base: Blueprint): Bluepri
   // so the portal count cleanly tells a temple/church/shrine from a barn.
   const worship = con.zones.some((z) => z.fn === 'worship');
   const singleEntrance = con.portals.filter((p) => p.from === 'OUTSIDE').length < 2;
+  // A masonry worship span carries its roof thrust on visible BUTTRESSES — two-stage
+  // stepped piers between the lancets + braced corners (body trim, `parts/trim.ts`).
+  // Param patch only; barns (opposed cart doors) stay clean-walled.
+  const buttress = worship && singleEntrance;
   if (worship && singleEntrance) {
     // A WEST TOWER: the steeple crowns the ENTRANCE GABLE (not mid-roof), centred on the
     // building's width so it reads as a symmetric tower over the door — not a spike stuck on
@@ -89,5 +93,13 @@ export function connectomeToBlueprint(con: Connectome, base: Blueprint): Bluepri
     };
   }
 
-  return Object.keys(features).length ? { parts: { [pid]: { type: 'body', features } } } : {};
+  if (!Object.keys(features).length && !buttress) return {};
+  return {
+    parts: {
+      [pid]: {
+        type: 'body', features,
+        ...(buttress ? { params: { buttress: true } } : {}),
+      },
+    },
+  };
 }
