@@ -15,7 +15,15 @@
  */
 
 import type { System, SystemContext } from '@/core/scheduler';
-import type { Entity, Tile } from '@/core/types';
+import type { Entity, Tile, GameMap } from '@/core/types';
+import { WATER_TYPES } from '@/core/constants';
+import { worldStyleOf } from '@/core/world-style';
+import { getHeightfield, ELEVATION_SEA_LEVEL } from '@/world/heightfield';
+import { styledIslandSpec } from '@/terrain/island-mask';
+import { styledShapeSpec } from '@/terrain/terrain-shape';
+import { curveRenderElev } from '@/render/gpu/terrain-field';
+import { buildCrossingSpanEntities } from '@/world/connectome/crossing-structures';
+import type { CrossingSpec } from '@/world/connectome/crossing-builder';
 import type { World } from '@/world/world';
 import type { Rng } from '@/core/rng';
 import type { EventLog } from '@/core/events';
@@ -305,11 +313,61 @@ export function growSettlement(
         tile.type = 'bridge'; tile.walkable = true;
       }
     }
+    // The SAME parametric structure worldgen crossings get — a deck riding its banks,
+    // piers/arches beneath — so an annexed town bridge is a real bridge, not bare tiles
+    // (this was the second, visually disjoint bridge system).
+    spawnAnnexBridgeStructure(ctx, plan, map, annex.bridge, era);
     changed = true;
     if (tryPlace(ctx, plan, rb, presetName, facing, want, tag)) return true;
   }
 
   return changed;
+}
+
+/**
+ * Realize an annexed town bridge as PARAMETRIC STRUCTURE — deck riding its banks,
+ * piers/arches beneath — via the same span seam worldgen crossings use
+ * (`buildCrossingSpanEntities`), so both bridge producers make the same bridge.
+ * Deterministic (heightfield + span geometry only); entities join the world like
+ * any other growth-placed building.
+ */
+function spawnAnnexBridgeStructure(
+  ctx: GrowthCtx, plan: SettlementPlan, map: GameMap,
+  bridge: { x: number; y: number }[], era: string,
+): void {
+  if (bridge.length === 0 || !plan.poiId) return;
+  const first = bridge[0], last = bridge[bridge.length - 1];
+  let ux = last.x - first.x, uy = last.y - first.y;
+  const m = Math.hypot(ux, uy);
+  if (m > 1e-6) { ux /= m; uy /= m; }
+  else {
+    // Single-cell span: take the axis whose BOTH neighbours are dry as the crossing direction.
+    const dry = (x: number, y: number): boolean => !WATER_TYPES.has(map.tiles[y]?.[x]?.type ?? '');
+    if (dry(first.x + 1, first.y) && dry(first.x - 1, first.y)) { ux = 1; uy = 0; }
+    else if (dry(first.x, first.y + 1) && dry(first.x, first.y - 1)) { ux = 0; uy = 1; }
+    else return;
+  }
+  const banks: [{ x: number; y: number }, { x: number; y: number }] = [
+    { x: Math.round(first.x - ux), y: Math.round(first.y - uy) },
+    { x: Math.round(last.x + ux), y: Math.round(last.y + uy) },
+  ];
+  const spec: CrossingSpec = {
+    id: `${plan.poiId}_annexbridge_${first.x}_${first.y}`,
+    waterRef: 'parcel_crossing', spanTiles: Math.max(1, m + 1),
+    roadClass: 'road', era, prosperity: 'modest', banks,
+  };
+  const { width, height } = map;
+  const hf = getHeightfield(map.seed, width, height,
+    styledIslandSpec(map.worldSeed) ?? null, map.worldSeed?.pois ?? null, styledShapeSpec(map.worldSeed));
+  const style = worldStyleOf(map.worldSeed ?? undefined);
+  for (const e of buildCrossingSpanEntities(spec, {
+    deckElevAt: (x, y) => curveRenderElev(hf[y * width + x] ?? ELEVATION_SEA_LEVEL, ELEVATION_SEA_LEVEL, style.terrainHeightGamma),
+    elevAt: (x, y) => hf[Math.round(y) * width + Math.round(x)] ?? ELEVATION_SEA_LEVEL,
+    reliefM: style.mountainRelief,
+  })) {
+    if (ctx.world.registry.get(e.id)) continue;          // idempotent across re-grows
+    ctx.world.addEntity(e);
+  }
 }
 
 /**

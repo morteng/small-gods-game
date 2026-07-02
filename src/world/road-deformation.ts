@@ -295,10 +295,28 @@ export function buildEdgeDeformation(
   const n = centerline.length;
   const grade = new Array<number>(n);
   const cumS = new Array<number>(n);
+  const overSpan = new Array<boolean>(n);
   cumS[0] = 0;
   for (let i = 0; i < n; i++) {
     grade[i] = heightMetresAt(map, Math.round(centerline[i].x), Math.round(centerline[i].y));
+    const tt = map.tiles?.[Math.round(centerline[i].y)]?.[Math.round(centerline[i].x)]?.type ?? '';
+    overSpan[i] = tt === 'bridge' || WATER_TYPES.has(tt);
     if (i > 0) cumS[i] = cumS[i - 1] + Math.hypot(centerline[i].x - centerline[i - 1].x, centerline[i].y - centerline[i - 1].y);
+  }
+  // THE APPROACH-DIVE FIX: a vertex over a crossing samples the carved channel (low), and
+  // the longitudinal smoothing dragged the flanking DRY approaches down toward the water —
+  // the road visibly plunged beside the deck. The road's true profile over a span is the
+  // DECK, which rides the higher bank: pin each wet run to max(bank, bank) before smoothing,
+  // so the approaches ramp UP to the deck (embankment fill builds the ramp) instead of diving.
+  for (let i = 0; i < n; i++) {
+    if (!overSpan[i]) continue;
+    let a = i; while (a > 0 && overSpan[a - 1]) a--;
+    let b = i; while (b + 1 < n && overSpan[b + 1]) b++;
+    const bankA = a > 0 ? grade[a - 1] : -Infinity;
+    const bankB = b + 1 < n ? grade[b + 1] : -Infinity;
+    const deckM = Math.max(bankA, bankB);
+    if (Number.isFinite(deckM)) for (let k = a; k <= b; k++) grade[k] = deckM;
+    i = b;
   }
   // Longitudinal smoothing window IS the cut-through lever (construction-driven).
   const halfWindow = Math.max(0, Math.round(x.gradeWindowTiles / 2));
