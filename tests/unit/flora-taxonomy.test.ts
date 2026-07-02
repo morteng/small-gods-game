@@ -9,10 +9,10 @@ const tree = (over: Partial<Botanical>): Botanical => ({
 });
 
 describe('flora generator derivation', () => {
-  it('routes conifers to space colonization, broadleaf to proctree, small plants to lsystem', () => {
+  it('routes ALL trees to space colonization (canopy-first), shrubs to proctree, small plants to lsystem', () => {
     expect(deriveGenerator(tree({ leafType: 'needle', leafPhenology: 'evergreen', crownShape: 'conical' }))).toBe('spacecol');
-    expect(deriveGenerator(tree({ crownShape: 'spreading' }))).toBe('proctree');
-    expect(deriveGenerator(tree({ crownShape: 'weeping' }))).toBe('proctree');
+    expect(deriveGenerator(tree({ crownShape: 'spreading' }))).toBe('spacecol');
+    expect(deriveGenerator(tree({ crownShape: 'weeping' }))).toBe('spacecol');
     expect(deriveGenerator({ ...tree({}), habit: 'shrub' })).toBe('proctree');
     expect(deriveGenerator({ ...tree({}), habit: 'fern' })).toBe('lsystem');
     expect(deriveGenerator({ ...tree({}), habit: 'grass' })).toBe('lsystem');
@@ -22,7 +22,7 @@ describe('flora generator derivation', () => {
     const oak = getFloraSpecies('english-oak')!;
     const g = deriveGenParams(oak);
     expect(g.kind).toBe('plant');
-    expect(g.generator).toBe('proctree');
+    expect(g.generator).toBe('spacecol');
     expect(g.crownShape).toBe(oak.botanical.crownShape);
   });
 });
