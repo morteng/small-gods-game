@@ -240,7 +240,7 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
   tower: bp('tower', {
     category: 'military', era: 'medieval', footprint: { w: 2, h: 3 },
     materials: { walls: 'stone', roof: 'slate', ground: 'flagstone' },
-    parts: { body: { type: 'body', size: { w: 2, h: 3 }, params: { plan: 'rect', levels: 3, roof: 'flat' }, features: {
+    parts: { body: { type: 'body', size: { w: 2, h: 3 }, params: { plan: 'rect', levels: 3, roof: 'flat', parapet: true }, features: {
       door: { type: 'door', face: 'south', params: { t: 0.5 } },
       slit_s: { type: 'window', face: 'south', params: { t: 0.5, width: 0.05, height: 0.3, sill: 0.8, glazed: false } },
       win_s: { type: 'window', face: 'south', params: { style: 'arched', sill: 1.8 } },
@@ -258,7 +258,7 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
     parts: {
       bailey: {
         type: 'body', at: { x: 0, y: 0 }, size: { w: 3, h: 3 },
-        params: { plan: 'rect', levels: 1, storeyM: 3.0, roof: 'flat' },
+        params: { plan: 'rect', levels: 1, storeyM: 3.0, roof: 'flat', parapet: true },
         features: {
           door: { type: 'door', face: 'south', params: { main: true } },
           slit1: { type: 'window', face: 'south', params: { t: 0.25, width: 0.05, height: 0.3, sill: 0.8, glazed: false } },
@@ -267,7 +267,7 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
       },
       tower: {
         type: 'body', at: { x: 0, y: 0 }, size: { w: 2, h: 2 },
-        params: { plan: 'rect', levels: 3, roof: 'flat' },
+        params: { plan: 'rect', levels: 3, roof: 'flat', parapet: true },
         features: {
           // windows grow with height: slits low, arched pairs high (the "safe" faces)
           slit_s: { type: 'window', face: 'south', params: { t: 0.5, width: 0.05, height: 0.3, sill: 0.9, glazed: false } },
