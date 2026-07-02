@@ -81,6 +81,25 @@ describe('deriveCroftEnclosures rings built lots with a street gate', () => {
     const empty = { ...lot, buildingId: undefined };
     expect(deriveCroftEnclosures([empty], 'poi1', seqRng([0.1]), ctx)).toHaveLength(0);
   });
+
+  // ── road-threaded crofts (C-3: road-x-barrier) ──────────────────────────────────────
+  it('opens a real GATE where a lane threads the croft ring (no fording the hedge)', () => {
+    // A road runs along the ring's WEST edge (x=2, the left side of the lot rectangle).
+    const isRoad = (x: number, _y: number): boolean => x === 2;
+    const withRoad = deriveCroftEnclosures([lot], 'poi1', seqRng([0.1]), ctx, undefined, undefined, isRoad);
+    const withoutRoad = deriveCroftEnclosures([lot], 'poi1', seqRng([0.1]), ctx);
+    // The road adds at least one gate span the un-roaded ring lacks…
+    expect(withRoad[0].run.gates.length).toBeGreaterThan(withoutRoad[0].run.gates.length);
+    // …and it is typed a real 'gate' (a gatehouse opening), not a plain gap.
+    const extra = withRoad[0].run.gates.filter((g) => g.kind === 'gate');
+    expect(extra.length).toBeGreaterThan(0);
+  });
+
+  it('is a no-op when no road crosses the ring (byte-identical to the no-isRoad path)', () => {
+    const noCross = deriveCroftEnclosures([lot], 'poi1', seqRng([0.1]), ctx, undefined, undefined, () => false);
+    const legacy = deriveCroftEnclosures([lot], 'poi1', seqRng([0.1]), ctx);
+    expect(noCross[0].run.gates).toEqual(legacy[0].run.gates);
+  });
 });
 
 describe('deriveSettlementRing encloses the built bbox with gates at crossings', () => {

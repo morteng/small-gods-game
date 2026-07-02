@@ -234,6 +234,7 @@ export function deriveCroftEnclosures(
   lots: Lot[], poiId: string, rng: MinRng, ctx: EnclosureCtx,
   isBuilding?: (x: number, y: number) => boolean,
   isWater?: (x: number, y: number) => boolean,
+  isRoad?: (x: number, y: number) => boolean,
 ): EnclosureRun[] {
   const out: EnclosureRun[] = [];
   for (const lot of lots) {
@@ -268,6 +269,12 @@ export function deriveCroftEnclosures(
     const total = 2 * dx + 2 * dy;
     const gates: BarrierGate[] = [{ t: gateT, width: gateW }];
     if (isBuilding) gates.push(...gatesWhereOpen(path, total, isBuilding, gateW));
+    // A lane threading the croft (its own access, or a through-road the informal ring
+    // straddles) must pass through a real GATE, not ford the hedge. Crofts modelled the
+    // opening as an ABSENT gate, so the path read as fording the wall — the `road-x-barrier`
+    // finding the claims ledger surfaced. Cut the span the same way the settlement ring does
+    // (same `gatesWhereOpen` slab machinery, no parallel mechanism).
+    if (isRoad) gates.push(...gatesWhereOpen(path, total, isRoad, gateW).map((g) => ({ ...g, kind: 'gate' as const })));
     // A riverside lot's rectangle can cross the channel — a hedge has no business
     // standing in the water. Open the wet stretches; if the wet spans cover most of
     // the ring the enclosure is noise, so skip it entirely.
