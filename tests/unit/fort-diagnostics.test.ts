@@ -33,12 +33,16 @@ const fortDiags = (world: never, map: never, rule?: string) =>
 describe('fort connectome diagnostics', () => {
   it('lints a healthy generated complex clean (no fort errors/warns)', async () => {
     // A few seeds — a freshly placed motte-and-bailey should never trip a fort rule.
+    // `fortDiags` runs the FULL default rule set (then filters to `fort.*`) three times
+    // over — a full `generateWithNoise(96,96)` + complex placement + lint per seed — so
+    // this needs more headroom than the 5s default, especially since WP-A's deeper
+    // linter (bridge/dry-pit rules) adds real per-seed lint time on top of world-gen.
     for (const s of [0x5170, 7, 1234]) {
       const { map, world } = await buildFort(s);
       const warns = fortDiags(world as never, map as never).filter((d) => d.severity !== 'info');
       expect(warns, `seed ${s} fort warnings: ${warns.map((d) => d.rule).join(',')}`).toHaveLength(0);
     }
-  });
+  }, 20000);
 
   it('stays silent on a world with no earthworks (ordinary settlement / synthetic map)', async () => {
     const { map, world } = await generateWithNoise(96, 96, 42, seed);
