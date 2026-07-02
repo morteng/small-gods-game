@@ -48,6 +48,10 @@ import type { UiDrawGroup } from '@/render/ui/ui-batcher';
  *  no rivers, so the bind group always satisfies the (auto) layout; the shader skips
  *  them via `segCount == 0`. */
 const EMPTY_WATER_U32 = new Uint32Array(1);
+/** Shared empty result for a dynamic draw list with no poly/circle items (the common
+ *  case — NPCs are image items), so the shape pass skips triangulation AND the
+ *  per-frame empty Float32Array alloc. Never mutated. */
+const NO_SHAPES = { vertices: new Float32Array(0), vertexCount: 0 } as const;
 
 /** Shared per-frame render state threaded through the per-pass helpers (so they
  *  don't each take a dozen params). `colorCleared` is mutated as passes draw — the
@@ -162,6 +166,7 @@ export class GpuScene {
   private lastWaterDeep: Uint32Array | null = null;
   private lastWaterShore: Float32Array | null = null;
   private lastWaterChannel: Uint32Array | null = null;
+  private lastWaterWet: Uint32Array | null = null;
   // (Ribbon pass retired 2026-06-25 — roads are carved+textured terrain; river/road
   //  ribbon meshes + the road-material atlas were removed as tech debt.)
   private depthTex: GPUTexture | null = null;
@@ -658,10 +663,13 @@ export class GpuScene {
       });
       this.waterBoundHeights = this.terrainHeightsBuf;
     }
-    // WET-CELL list — rewritten unconditionally: the visible wet set changes with the
-    // camera, so there's no stable reference to guard on. `wetCells` is a subarray view of
-    // a reused scratch (its byteOffset/byteLength scope the write to the live prefix).
-    device.queue.writeBuffer(this.waterWetBuf!, 0, water.wetCells as GPUAllowSharedBufferSource);
+    // WET-CELL list — the pack is memoised per (window, sub, flood) signature in
+    // water-field.ts, so a stationary camera hands back the SAME subarray view and the
+    // reference guard skips the re-upload; a moved window re-packs → new view → upload.
+    if (realloc || water.wetCells !== this.lastWaterWet) {
+      device.queue.writeBuffer(this.waterWetBuf!, 0, water.wetCells as GPUAllowSharedBufferSource);
+      this.lastWaterWet = water.wetCells;
+    }
     if (realloc || water.surfaceW !== this.lastWaterSurface) {
       device.queue.writeBuffer(this.waterSurfaceBuf, 0, water.surfaceW as GPUAllowSharedBufferSource);
       this.lastWaterSurface = water.surfaceW;
@@ -1059,9 +1067,11 @@ export class GpuScene {
     // Shape pass (poly/circle fills). The static layer is triangulated once into a
     // persistent buffer (ensureStaticShapeBundle); only the small dynamic set is
     // rebuilt this frame. Both are WORLD px — the camera xform rides in the shape
-    // globals (uXform), so neither re-triangulates on pan/zoom.
-    const dynShapes = entitiesOn
-      ? buildShapeVertices(dynLifted) : { vertices: new Float32Array(0), vertexCount: 0 };
+    // globals (uXform), so neither re-triangulates on pan/zoom. The usual dynamic
+    // layer is all image items (NPCs), so skip the triangulation (and its per-frame
+    // empty-array alloc) entirely unless a poly/circle is actually present.
+    const dynShapes = entitiesOn && dynLifted.some((it) => it.t !== 'image')
+      ? buildShapeVertices(dynLifted) : NO_SHAPES;
     const staticShapeCount = entitiesOn ? this.staticShapeCount : 0;
     if (staticShapeCount > 0 || dynShapes.vertexCount > 0) {
       const xf = xform ?? { sx: 1, sy: 1, ox: 0, oy: 0 };

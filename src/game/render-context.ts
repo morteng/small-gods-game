@@ -30,6 +30,10 @@ export interface RenderContextDeps {
   /** Interior I-2 reveal flag (`?interiorReveal`/`?i2`): when on, the SELECTED building
    *  renders cutaway (roof off). Off ⇒ the cutaway swap is fully inert (byte-identical render). */
   interiorReveal?: boolean;
+  /** Optional per-frame NPC entity list (ONE `world.query({kind:'npc'})` per frame,
+   *  shared with the frame renderer's HUD/minimap/tooltip consumers). Absent ⇒ this
+   *  builder issues its own query — identical result, one extra sweep. */
+  npcEntities?: readonly Entity[];
 }
 
 /** Dev eyeball override for the day/night emissive factor. Set `window.__nightFactor`
@@ -58,7 +62,7 @@ export function buildRenderContext(deps: RenderContextDeps): RenderContext {
     floodOffsetM: state.weather?.floodOffsetM(),
     canvasWidth: viewport.width,
     canvasHeight: viewport.height,
-    npcs: state.world ? state.world.query({ kind: 'npc' }).map(toRenderNpc) : [],
+    npcs: state.world ? (deps.npcEntities ?? state.world.query({ kind: 'npc' })).map(toRenderNpc) : [],
     npcSheets: sheets,
     visualMap: state.visualMap,
     blobMap: state.blobMap ?? null,

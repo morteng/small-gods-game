@@ -473,6 +473,18 @@ interface WaterStatic {
    *  `buildWaterField` emits a quad only for masked lattice cells, skipping the dry
    *  interior entirely. The shader's draw-gate still trims the river dilation exactly. */
   meshMask: Uint8Array;
+  // ── memoised packed wet-cell list ────────────────────────────────────────────────
+  // The pack depends only on the coarsened window (origin, quad counts, subsample),
+  // the flood dense-grid fallback flag, and the per-static meshMask (constant). A
+  // stationary camera therefore reuses the SAME subarray — the CPU double loop is
+  // skipped AND the stable reference lets the GPU upload guard skip the writeBuffer
+  // (mirrors the surface-array ping-pong idiom above).
+  packSig?: string;
+  /** Dedicated pack buffer (per static, NOT the old shared module scratch — two live
+   *  statics, e.g. game + studio, must not stomp each other's memoised prefix). */
+  packBuf?: Uint32Array;
+  /** The memoised subarray view handed out while the signature holds. */
+  packOut?: Uint32Array;
   /** null = world is bone dry (skip the pass). */
   dry: boolean;
 }
@@ -543,14 +555,6 @@ function dilateRiverColour(
       }
     }
   }
-}
-
-/** Reused scratch for the per-frame packed wet-cell list — grows monotonically, never
- *  per-frame allocated. The returned subarray is consumed (uploaded) the same frame. */
-let wetScratch = new Uint32Array(0);
-function wetScratchFor(n: number): Uint32Array {
-  if (wetScratch.length < n) wetScratch = new Uint32Array(n);
-  return wetScratch;
 }
 
 function waterStatic(map: GameMap, override?: ConnectomeWaterOverride): WaterStatic {
@@ -1024,28 +1028,42 @@ export function buildWaterField(map: GameMap, opts: BuildWaterFieldOpts): WaterF
   // (built from the static raster) doesn't cover — so fall back to the dense window grid
   // while flooding, keeping the (rare, transient) flood sheet visible. A lake rising stays
   // inside the mask (lakes are dilated `LAKE_FLOOD_RINGS` in the static), so it stays sparse.
-  const wetCells = wetScratchFor(quadsX * quadsY);
-  let nQuads = 0;
-  if (floodActive) {
-    for (let qy = 0; qy < quadsY; qy++) {
-      const cy = Math.min(winY0 + qy * sub, H - 1);
-      for (let qx = 0; qx < quadsX; qx++) {
-        const cx = Math.min(winX0 + qx * sub, W - 1);
-        wetCells[nQuads++] = (cx | (cy << 16)) >>> 0;
+  //
+  // MEMOISED on the pack's complete input signature — the coarsened window origin +
+  // quad counts + subsample + the flood fallback flag (meshMask/W/H are constant per
+  // static). A stationary camera reuses the same packed subarray: no CPU re-pack, and
+  // the stable reference lets the GPU upload guard skip the per-frame writeBuffer.
+  const packSig = `${winX0},${winY0},${quadsX},${quadsY},${sub},${floodActive ? 1 : 0}`;
+  let wetPacked = stat.packOut;
+  if (!wetPacked || stat.packSig !== packSig) {
+    const cap = quadsX * quadsY;
+    if (!stat.packBuf || stat.packBuf.length < cap) stat.packBuf = new Uint32Array(cap);
+    const wetCells = stat.packBuf;
+    let nQuads = 0;
+    if (floodActive) {
+      for (let qy = 0; qy < quadsY; qy++) {
+        const cy = Math.min(winY0 + qy * sub, H - 1);
+        for (let qx = 0; qx < quadsX; qx++) {
+          const cx = Math.min(winX0 + qx * sub, W - 1);
+          wetCells[nQuads++] = (cx | (cy << 16)) >>> 0;
+        }
+      }
+    } else {
+      const mask = stat.meshMask;
+      for (let qy = 0; qy < quadsY; qy++) {
+        const cy = Math.min(winY0 + qy * sub, H - 1);
+        const row = cy * W;
+        for (let qx = 0; qx < quadsX; qx++) {
+          const cx = Math.min(winX0 + qx * sub, W - 1);
+          if (mask[row + cx]) wetCells[nQuads++] = (cx | (cy << 16)) >>> 0;
+        }
       }
     }
-  } else {
-    const mask = stat.meshMask;
-    for (let qy = 0; qy < quadsY; qy++) {
-      const cy = Math.min(winY0 + qy * sub, H - 1);
-      const row = cy * W;
-      for (let qx = 0; qx < quadsX; qx++) {
-        const cx = Math.min(winX0 + qx * sub, W - 1);
-        if (mask[row + cx]) wetCells[nQuads++] = (cx | (cy << 16)) >>> 0;
-      }
-    }
+    wetPacked = wetCells.subarray(0, nQuads);
+    stat.packSig = packSig;
+    stat.packOut = wetPacked;
   }
-  const waterVertexCount = nQuads * 6;
+  const waterVertexCount = wetPacked.length * 6;
 
   return {
     surfaceW,
@@ -1058,7 +1076,7 @@ export function buildWaterField(map: GameMap, opts: BuildWaterFieldOpts): WaterF
     channel,
     wetCount: stat.wetCount,
     vertexCount: waterVertexCount,
-    wetCells: wetCells.subarray(0, nQuads),
+    wetCells: wetPacked,
     // uWater.w carries the GLOBAL water-level offset in NORMALISED elevation, so a
     // drought/flood shifts the lake plane + waterline in-shader. The river ribbon
     // reads the SAME value (`waterLevelNorm`) so lakes and rivers rise together.

@@ -10,7 +10,7 @@ import type { MinimapHandle } from '@/ui/minimap-panel';
 import type { SpiritHudHandle } from '@/ui/spirit-hud';
 import type { DivineEffects } from '@/render/divine-effects';
 import { buildRenderContext } from './render-context';
-import { getNpc, toRenderNpc, simStateFromEntity } from '@/world/npc-helpers';
+import { getNpc, simStateFromEntity } from '@/world/npc-helpers';
 import type { NpcAttentionPanelHandle } from '@/ui/npc-attention-panel';
 import type { BuildingInfoPanelHandle } from '@/ui/building-info-panel';
 import { findBuildingAtTile, buildingInfoOf } from '@/world/building-helpers';
@@ -22,7 +22,7 @@ import { formatDebugHud } from '@/ui/debug-hud';
 import { POWER_REGEN_RATE, POWER_UNDERSTANDING_COEFF, POWER_DEVOTION_COEFF } from '@/sim/spirit-system';
 import { countPlayerBelievers, countDurableBelievers } from '@/sim/believers';
 import { TILE_SIZE } from '@/core/constants';
-import type { NpcProperties } from '@/core/types';
+import type { Entity, NpcProperties } from '@/core/types';
 
 export interface FrameRendererUi {
   minimap: MinimapHandle;
@@ -71,7 +71,11 @@ export class FrameRenderer {
       const instantFps = 1000 / deltaMs;
       this.fpsEma = this.fpsEma * 0.9 + instantFps * 0.1;
     }
-    const rc = buildRenderContext(this.deps.getRenderDeps());
+    // ONE NPC sweep per frame — the render context, minimap, spirit HUD, regen
+    // estimate, tooltip and debug HUD below all reuse this list instead of each
+    // issuing their own full `world.query({kind:'npc'})`.
+    const npcEntities: readonly Entity[] = this.deps.state.world?.query({ kind: 'npc' }) ?? [];
+    const rc = buildRenderContext({ ...this.deps.getRenderDeps(), npcEntities });
     const renderMap = this.deps.renderMap();
     if (renderMap) renderMap(this.deps.ctx, rc);
 
@@ -83,10 +87,10 @@ export class FrameRenderer {
 
     // Update minimap when visible
     if (this.deps.ui.minimap && this.deps.ui.minimap.isVisible() && this.deps.state.map) {
-      const npcs = this.deps.state.world?.query({ kind: 'npc' }).map(toRenderNpc) ?? [];
+      // rc.npcs is the same per-frame NPC list already mapped through toRenderNpc.
       this.deps.ui.minimap.update(
         this.deps.state.map,
-        npcs,
+        rc.npcs,
         this.deps.state.camera,
         rc.canvasWidth,
         rc.canvasHeight,
@@ -101,7 +105,7 @@ export class FrameRenderer {
         .map(([, spirit]) => spirit);
 
       let totalFollowers = 0;
-      for (const npc of this.deps.state.world.query({ kind: 'npc' })) {
+      for (const npc of npcEntities) {
         const p = npc.properties as unknown as NpcProperties;
         if ((p.beliefs['player']?.faith ?? 0) > 0.3) totalFollowers++;
       }
@@ -185,11 +189,13 @@ export class FrameRenderer {
 
     this.updateBuildingPanel(rc.resolveBuildingArt);
 
-    const player = this.deps.state.spirits.get('player')!;
-    // Per-second regen estimate for HUD — mirrors SpiritSystem formula exactly
-    let totalContribution = 0;
-    if (this.deps.state.world) {
-      for (const e of this.deps.state.world.query({ kind: 'npc' })) {
+    // The WebGPU presence orb is the barebones power readout; the Canvas2D pill is
+    // legacy chrome (only under ?legacyui) — so the per-NPC regen estimate that
+    // feeds it (mirrors the SpiritSystem formula exactly) is only computed there.
+    if (this.deps.legacyChrome) {
+      const player = this.deps.state.spirits.get('player')!;
+      let totalContribution = 0;
+      for (const e of npcEntities) {
         const p = e.properties as unknown as NpcProperties;
         const b = p.beliefs['player'];
         if (b) {
@@ -199,20 +205,18 @@ export class FrameRenderer {
             (1 + POWER_DEVOTION_COEFF * b.devotion);
         }
       }
+      const regenPerSec = totalContribution * POWER_REGEN_RATE;
+      drawPowerHud(this.deps.ctx, player.power, regenPerSec);
     }
-    const regenPerSec = totalContribution * POWER_REGEN_RATE;
-    // The WebGPU presence orb is the barebones power readout; the Canvas2D pill is
-    // legacy chrome (only under ?legacyui).
-    if (this.deps.legacyChrome) drawPowerHud(this.deps.ctx, player.power, regenPerSec);
 
-    this.updateTooltip();
+    this.updateTooltip(npcEntities);
 
     if (this.deps.state.debug) {
       this.deps.ui.debugHud.textContent = formatDebugHud({
         fps: this.fpsEma,
         mouseTile: this.deps.interaction.hoverTile,
         entityCount: this.deps.state.world?.query({}).length ?? 0,
-        npcCount: this.deps.state.world?.query({ kind: 'npc' }).length ?? 0,
+        npcCount: npcEntities.length,
         paused: this.deps.isPaused(),
         zoom: this.deps.state.camera.zoom,
       });
@@ -250,7 +254,7 @@ export class FrameRenderer {
     this.deps.ui.buildingInfoPanel.show();
   }
 
-  private updateTooltip(): void {
+  private updateTooltip(npcEntities: readonly Entity[]): void {
     // The DOM hover tooltip is legacy chrome — suppressed in the barebones game
     // (dev mode keeps it for inspection).
     if (!this.deps.legacyChrome && !this.deps.dev.isEnabled()) {
@@ -278,8 +282,7 @@ export class FrameRenderer {
 
     // Normal mode: NPC tooltips take priority, then buildings.
     const { x, y } = this.deps.interaction.hoverTile;
-    const hovered = this.deps.state.world.query({ kind: 'npc' })
-      .find(e => Math.floor(e.x) === x && Math.floor(e.y) === y);
+    const hovered = npcEntities.find(e => Math.floor(e.x) === x && Math.floor(e.y) === y);
     if (hovered && hovered.id !== this.deps.state.selectedNpcId) {
       const p = hovered.properties as unknown as NpcProperties;
       this.showTooltip(formatNpcTooltip({ name: p.name, role: p.role, mood: p.mood }));
