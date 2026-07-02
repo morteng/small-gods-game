@@ -38,6 +38,7 @@ import { buildEntranceStoopEntities } from '@/world/connectome/entrance-stoops';
 import { buildAqueductStructureEntities } from '@/world/connectome/aqueduct-structures';
 import { buildWaterNetwork, referenceFlow, reachHalfWidths } from '@/terrain/river-network';
 import { REACH_CARVE } from '@/world/river-deformation';
+import { getComposedHeightfield } from '@/world/road-deformation';
 import { styledRiverFlowThreshold } from '@/terrain/hydrology';
 import { getHeightfield, ELEVATION_SEA_LEVEL } from '@/world/heightfield';
 import { curveRenderElev } from '@/render/gpu/terrain-field';
@@ -439,23 +440,7 @@ export async function generateWithNoise(
       },
     })) world.addEntity(e);
 
-    // STAIR SITES (G3b): where a road's line climbs steeper than its class grade envelope,
-    // the connectome wants a stair flight (the envelope's named reconciliation structure).
-    // Stairs SIT on the road (don't block road tiles like the crossing aprons do) but must
-    // not stand in water or on a building. Grade is read in normalised heightfield space
-    // (deckHf) — the same space the envelope's maxGrade is measured in — and the flight rides
-    // the curved render elevation at its foot via liftElev.
-    report('Siting stairs...');
-    for (const e of buildStairStructureEntities(roadGraph, {
-      elevAt: (x, y) => deckHf[Math.round(y) * width + Math.round(x)] ?? ELEVATION_SEA_LEVEL,
-      reliefM: worldStyleOf(worldSeed ?? undefined).mountainRelief,
-      liftElevAt: deckElevAt,
-      cellBlocked: (x, y) => {
-        const t = tiles[y]?.[x];
-        if (!t) return true;
-        return tileBlockedByBuilding(world, x, y) || WATER_TYPES.has(t.type);
-      },
-    })) world.addEntity(e);
+    // (Road stair flights are sited AFTER map assembly below, on the COMPOSED heightfield.)
 
     // ENTRANCE STOOPS (outdoor-architectural stairs — the kit's entrance/site siting
     // authority): a building standing proud of the grade it faces (a hall on a hillside pad,
@@ -588,6 +573,30 @@ export async function generateWithNoise(
   // for a landward gate reached by a road and a curtain crossed only at gates. `evaluateContracts`
   // (lint:world / MCP / Fate) grades them into the leveled report.
   map.contracts = { declarations: settlementRingContracts(barrierRuns) };
+
+  // STAIR SITES (G3b): where a road's line climbs steeper than its class grade envelope,
+  // the connectome wants a stair flight (the envelope's named reconciliation structure).
+  // Sited AFTER map assembly so grade detection AND the foot lift read the COMPOSED
+  // heightfield (base ⊕ road cuts/embankments ⊕ river carve ⊕ wall footings) — the ground
+  // the renderer actually lifts entities by. Reading the raw field sited flights where the
+  // road's own cut had already eased the climb, and floated/sank them over carved corridors.
+  // A flight must not stand in water, on a building, or on a wall curtain (only openings).
+  if (roadGraph) {
+    report('Siting stairs...');
+    const composed = getComposedHeightfield(map);
+    const stairStyle = worldStyleOf(worldSeed ?? undefined);
+    const wallCells = gateApproachPlan(barrierRuns, [], worldSeed?.pois ?? []).wallObstacles;
+    for (const e of buildStairStructureEntities(roadGraph, {
+      elevAt: (x, y) => composed[Math.round(y) * width + Math.round(x)] ?? ELEVATION_SEA_LEVEL,
+      reliefM: stairStyle.mountainRelief,
+      liftElevAt: (x, y) => curveRenderElev(composed[y * width + x] ?? ELEVATION_SEA_LEVEL, ELEVATION_SEA_LEVEL, stairStyle.terrainHeightGamma),
+      cellBlocked: (x, y) => {
+        const t = tiles[y]?.[x];
+        if (!t) return true;
+        return tileBlockedByBuilding(world, x, y) || WATER_TYPES.has(t.type) || wallCells.has(`${x},${y}`);
+      },
+    })) world.addEntity(e);
+  }
 
   return { map, world, biomeMap };
 }
