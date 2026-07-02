@@ -21,9 +21,9 @@ export interface FloraRecipe {
   jitterDeg: number;
 }
 
-export type FloraRecipeName = 'oak' | 'pine' | 'willow' | 'shrub' | 'fern' | 'flower';
+export type FloraRecipeName = 'oak' | 'pine' | 'willow' | 'shrub' | 'fern' | 'flower' | 'grass';
 export const FLORA_RECIPE_NAMES: readonly FloraRecipeName[] =
-  ['oak', 'pine', 'willow', 'shrub', 'fern', 'flower'];
+  ['oak', 'pine', 'willow', 'shrub', 'fern', 'flower', 'grass'];
 
 // Rules use single-char symbols; the turtle ignores non-command letters (A,B,X,…).
 export const FLORA_RECIPES: Record<FloraRecipeName, FloraRecipe> = {
@@ -58,10 +58,21 @@ export const FLORA_RECIPES: Record<FloraRecipeName, FloraRecipe> = {
     iterations: 4, angleDeg: 25, taper: 0.92, stepFalloff: 0.86, leafFrac: 0.05, jitterDeg: 6,
   },
   // Single flowering stalk: a stem topped by a leaf/petal whorl (the 'L').
+  // leafFrac 0.22 (was 0.4): the whorl reads as a flower HEAD on a visible stem
+  // rather than one balloon that swallowed the plant.
   flower: {
     axiom: 'F F F [+L][-L][&L][^L] L',
     rules: {},
-    iterations: 0, angleDeg: 60, taper: 0.95, stepFalloff: 1, leafFrac: 0.4, jitterDeg: 0,
+    iterations: 0, angleDeg: 60, taper: 0.95, stepFalloff: 1, leafFrac: 0.22, jitterDeg: 0,
+  },
+  // Grass tussock: a fan of thin blades pitching outward from the base then curving
+  // back up (& tips out, ^ recovers) — pure blades, no foliage blobs (leafFrac 0).
+  // The / roll between bracketed blades spreads the fan around the clump; the one
+  // stochastic rule varies blade count/length so no two tussocks read identical.
+  grass: {
+    axiom: '[&&B][/&&B][//&&B][///&&B][////&&B][/////&&B][///////&&B]',
+    rules: { B: [{ to: 'F^F^F', prob: 0.55 }, { to: 'F^F^F^F', prob: 0.3 }, { to: 'F^F', prob: 0.15 }] },
+    iterations: 1, angleDeg: 28, taper: 0.55, stepFalloff: 0.85, leafFrac: 0, jitterDeg: 16,
   },
 };
 
@@ -78,9 +89,12 @@ export interface BuildFloraOpts {
 export function buildFloraSkeleton(o: BuildFloraOpts): FloraSkeleton {
   const r = FLORA_RECIPES[o.recipe];
   const commands = expandLSystem(r.axiom, r.rules, r.iterations, o.rng);
+  // leafFrac 0 = a genuinely LEAFLESS recipe (grass blades): the turtle must get
+  // leafR 0 too, or every `]` pop still drops a leaf that the 0.04 floor below
+  // would then inflate into foliage blobs.
   const raw = runTurtle(commands, {
     angleDeg: r.angleDeg, step: 1, radius: 1, taper: r.taper, stepFalloff: r.stepFalloff,
-    leafR: 1, jitterDeg: r.jitterDeg, rng: o.rng,
+    leafR: r.leafFrac > 0 ? 1 : 0, jitterDeg: r.jitterDeg, rng: o.rng,
   });
 
   // Uniform scale so the tallest reached point equals heightTiles.

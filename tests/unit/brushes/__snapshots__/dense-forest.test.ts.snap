@@ -270,6 +270,21 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     "y": 1.878306868718937,
   },
   {
+    "id": "dense_forest-common-hazel-3-1",
+    "kind": "common-hazel",
+    "properties": {
+      "offsetX": 0.687498996919021,
+      "offsetY": 0.40104146297089754,
+      "scale": 0.6008967284113168,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+    ],
+    "x": 3.687498996919021,
+    "y": 1.4010414629708976,
+  },
+  {
     "id": "dense_forest-european-beech-5-1",
     "kind": "european-beech",
     "properties": {
@@ -522,6 +537,21 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     "y": 2.9696960458531976,
   },
   {
+    "id": "dense_forest-lady-fern-7-2",
+    "kind": "lady-fern",
+    "properties": {
+      "offsetX": 0.17886296741198748,
+      "offsetY": 0.8314998120767996,
+      "scale": 0.9881474792025984,
+    },
+    "tags": [
+      "vegetation",
+      "fern",
+    ],
+    "x": 7.1788629674119875,
+    "y": 2.8314998120767996,
+  },
+  {
     "id": "dense_forest-english-oak-0-3",
     "kind": "english-oak",
     "properties": {
@@ -696,6 +726,21 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     "y": 5.999786504078656,
   },
   {
+    "id": "dense_forest-bramble-1-5",
+    "kind": "bramble",
+    "properties": {
+      "offsetX": 0.62809428779874,
+      "offsetY": 0.3388211032608524,
+      "scale": 0.6803628257475793,
+    },
+    "tags": [
+      "vegetation",
+      "shrub",
+    ],
+    "x": 1.6280942877987399,
+    "y": 5.338821103260853,
+  },
+  {
     "id": "dense_forest-silver-birch-2-5",
     "kind": "silver-birch",
     "properties": {
@@ -773,6 +818,21 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     ],
     "x": 6.475208077812567,
     "y": 6.659907516790554,
+  },
+  {
+    "id": "dense_forest-lady-fern-0-7",
+    "kind": "lady-fern",
+    "properties": {
+      "offsetX": 0.7637366202892735,
+      "offsetY": 0.26801971020177007,
+      "scale": 0.8549689024686813,
+    },
+    "tags": [
+      "vegetation",
+      "fern",
+    ],
+    "x": 0.7637366202892735,
+    "y": 7.26801971020177,
   },
   {
     "id": "dense_forest-european-beech-1-7",
@@ -853,6 +913,21 @@ exports[`dense_forest brush > produces a stable snapshot 1`] = `
     ],
     "x": 5.4133908248040825,
     "y": 7.052283119875938,
+  },
+  {
+    "id": "dense_forest-lady-fern-6-7",
+    "kind": "lady-fern",
+    "properties": {
+      "offsetX": 0.6828410289483144,
+      "offsetY": 0.42293600232806056,
+      "scale": 0.8934414019808172,
+    },
+    "tags": [
+      "vegetation",
+      "fern",
+    ],
+    "x": 6.682841028948315,
+    "y": 7.42293600232806,
   },
 ]
 `;

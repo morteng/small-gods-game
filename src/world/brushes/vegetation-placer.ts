@@ -5,8 +5,8 @@ import type { Entity, Region, BrushContext } from '@/core/types';
 export interface VegetationParams {
   /** Brush name for entity ID generation */
   brush: string;
-  /** Tile type this brush applies to (e.g., 'forest', 'pine_forest') */
-  tileType: string;
+  /** Tile type(s) this brush applies to (e.g., 'forest', or ['grass','meadow']) */
+  tileType: string | string[];
   /** Primary tree/vegetation kinds with weights [kind, weight] */
   kinds: [string, number][];
   /** Base density (0-1): probability a tile gets a vegetation entity */
@@ -38,6 +38,13 @@ export interface VegetationParams {
   maxPerTile?: number;
   /** Secondary undergrowth kinds (placed at lower density) */
   undergrowth?: [string, number, number][]; // [kind, weight, density]
+  /**
+   * Fraction of each undergrowth density that also applies in cells with NO
+   * canopy (default 0 = the historic canopy-gated behaviour). Without it every
+   * fern/flower/bramble hid under a tree and ground cover never appeared in
+   * clearings or open ground.
+   */
+  openUndergrowth?: number;
 }
 
 /**
@@ -78,13 +85,14 @@ export function placeVegetation(
   const out: Entity[] = [];
   const yEnd = region.y + region.h;
   const xEnd = region.x + region.w;
-  
+
   const maxPerTile = Math.max(1, params.maxPerTile ?? 1);
+  const tileTypes = new Set(Array.isArray(params.tileType) ? params.tileType : [params.tileType]);
 
   for (let y = region.y; y < yEnd; y++) {
     for (let x = region.x; x < xEnd; x++) {
       const tile = ctx.tiles.tiles[y]?.[x];
-      if (!tile || tile.type !== params.tileType) continue;
+      if (!tile || !tileTypes.has(tile.type)) continue;
 
       // Smooth low-frequency clump field so trees gather into groves and leave
       // clearings instead of an even lattice. Mean-preserving (≈1 on average),
@@ -116,11 +124,14 @@ export function placeVegetation(
         }));
       }
 
-      // Undergrowth: at most one per cell, only where primary vegetation grew.
-      if (placedPrimary && params.undergrowth) {
+      // Undergrowth: at most one per cell. Historically canopy-gated; the
+      // `openUndergrowth` fraction lets a share grow in clearings/open cells so
+      // flowers/ferns exist somewhere the player can actually see them.
+      const ugScale = placedPrimary ? 1 : (params.openUndergrowth ?? 0);
+      if (ugScale > 0 && params.undergrowth) {
         for (const [ugKind, ugWeight, ugDensity] of params.undergrowth) {
           const ugRng = hash01(x, y, seed + 10 + ugKind.length);
-          if (ugRng < ugDensity) {
+          if (ugRng < ugDensity * ugScale) {
             const ugKindPicked = pickWeighted(ugRng, [[ugKind, ugWeight]]);
             const ugFx = cellFrac(hash01(x, y, seed + 20), 0.35);
             const ugFy = cellFrac(hash01(x, y, seed + 21), 0.35);

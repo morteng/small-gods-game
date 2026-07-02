@@ -30,8 +30,8 @@ export type Part =
   | { prim: 'arch'; at: Vec3; span: number; height: number; thickness: number; yaw?: number; material?: Mat; work?: string; style?: ArchStyle; ringDepth?: number; springZ?: number }
   | { prim: 'column'; center: [number, number]; baseZ?: number; shape?: ColumnShape; sides?: number; radius: number; topRadius?: number; height: number; base?: ColumnBand | null; capital?: ColumnBand | null; material?: Mat; work?: string }
   | { prim: 'building'; wings: Wing[]; wallMat?: Mat; roofMat?: Mat; roofStyle?: RoofStyle; features?: BuildingFeatures; seed?: number; apertures?: ApertureBox[]; wallWork?: string; wallFinish?: string; roofFinish?: string; finishTint?: RGB; baseCourse?: number; cutaway?: boolean; interior?: { partitions: number[]; floorDrop: number[]; screens?: boolean[]; levels?: number[] } }
-  | { prim: 'flora'; limbs: Limb[]; leaves: Leaf[]; barkMat?: Mat; foliageMat?: Mat }
-  | { prim: 'rock'; center: [number, number]; baseZ: number; radius: number; seed: number; jitter?: number; mat?: Mat; subdiv?: number }
+  | { prim: 'flora'; limbs: Limb[]; leaves: Leaf[]; barkMat?: Mat; foliageMat?: Mat; foliageTint?: RGB }
+  | { prim: 'rock'; center: [number, number]; baseZ: number; radius: number; seed: number; jitter?: number; aspect?: number; mat?: Mat; subdiv?: number }
   | { prim: 'linear'; run: BarrierRun }
   // A flat ground apron under (and around) a building footprint: a thin slab whose top
   // face sits flush with the ground plane (z=0, where walls start) and drops `thickness`
@@ -116,8 +116,8 @@ async function partFacets(p: Part): Promise<{ facets: WorldFacet[]; anchors?: Bu
     }
     case 'building':  return buildingFacets(p.wings, p.wallMat, p.roofMat, p.roofStyle, p.features, p.seed, p.apertures, p.wallWork, p.baseCourse, p.cutaway, p.interior,
       p.wallFinish || p.roofFinish || p.finishTint ? { wall: p.wallFinish, roof: p.roofFinish, tint: p.finishTint } : undefined);
-    case 'flora':     return { facets: [...tubeFacets(p.limbs, p.barkMat ?? 'bark'), ...blobFacets(p.leaves, p.foliageMat ?? 'foliage')] };
-    case 'rock':      return { facets: rockFacets({ center: p.center, baseZ: p.baseZ, radius: p.radius, seed: p.seed, jitter: p.jitter, mat: p.mat, subdiv: p.subdiv }) };
+    case 'flora':     return { facets: [...tubeFacets(p.limbs, p.barkMat ?? 'bark'), ...blobFacets(p.leaves, p.foliageMat ?? 'foliage', {}, p.foliageTint)] };
+    case 'rock':      return { facets: rockFacets({ center: p.center, baseZ: p.baseZ, radius: p.radius, seed: p.seed, jitter: p.jitter, aspect: p.aspect, mat: p.mat, subdiv: p.subdiv }) };
     case 'linear':    { const r = await linearFacets(p.run); return { facets: r.facets, linearAnchors: r.anchors }; }
     case 'skirt': {
       // Thickness ALWAYS goes DOWN: the slab spans z ∈ [−t, 0] so its top face is flush

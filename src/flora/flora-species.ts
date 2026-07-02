@@ -71,6 +71,9 @@ export interface FloraGenParams {
   trunkR?: number;            // plants only, metres (base limb radius)
   sizeM?: number;             // rocks only, diameter metres
   jitter?: number;            // rocks only, 0..0.7 surface noise
+  /** Flower-head colour, packed 0xRRGGBB (herbs) — tints the leaf-whorl blobs so a
+   *  poppy is red and a daisy white instead of foliage green. 0/absent = none. */
+  petalTint?: number;
 }
 
 /** Taxonomic identity. `genus`/`species` (the binomial parts) and `cultivar` are
@@ -115,8 +118,8 @@ const mid = (r: Range): number => (r.min + r.max) / 2;
 export function deriveRecipe(b: Botanical): FloraRecipeName {
   switch (b.habit) {
     case 'fern': return 'fern';
-    case 'herb':
-    case 'grass': return 'flower';
+    case 'herb': return 'flower';
+    case 'grass': return 'grass';
     case 'shrub': return 'shrub';
     case 'tree': {
       if (b.crownShape === 'weeping') return 'willow';

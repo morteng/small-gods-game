@@ -50,6 +50,51 @@ exports[`forest brush > produces a stable snapshot 1`] = `
     "y": 0.829653670778498,
   },
   {
+    "id": "forest-common-hazel-2-0",
+    "kind": "common-hazel",
+    "properties": {
+      "offsetX": 0.8377451629843562,
+      "offsetY": 0.18932579061947763,
+      "scale": 0.6059733750298619,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+    ],
+    "x": 2.837745162984356,
+    "y": 0.18932579061947763,
+  },
+  {
+    "id": "forest-bracken-2-0",
+    "kind": "bracken",
+    "properties": {
+      "offsetX": 0.8377451629843562,
+      "offsetY": 0.18932579061947763,
+      "scale": 0.6059733750298619,
+    },
+    "tags": [
+      "vegetation",
+      "fern",
+    ],
+    "x": 2.837745162984356,
+    "y": 0.18932579061947763,
+  },
+  {
+    "id": "forest-bramble-2-0",
+    "kind": "bramble",
+    "properties": {
+      "offsetX": 0.8377451629843562,
+      "offsetY": 0.18932579061947763,
+      "scale": 0.6059733750298619,
+    },
+    "tags": [
+      "vegetation",
+      "shrub",
+    ],
+    "x": 2.837745162984356,
+    "y": 0.18932579061947763,
+  },
+  {
     "id": "forest-small-leaved-lime-7-0",
     "kind": "small-leaved-lime",
     "properties": {
@@ -112,6 +157,21 @@ exports[`forest brush > produces a stable snapshot 1`] = `
     ],
     "x": 1.3657634623814374,
     "y": 1.878306868718937,
+  },
+  {
+    "id": "forest-common-hazel-3-1",
+    "kind": "common-hazel",
+    "properties": {
+      "offsetX": 0.687498996919021,
+      "offsetY": 0.40104146297089754,
+      "scale": 0.6008967284113168,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+    ],
+    "x": 3.687498996919021,
+    "y": 1.4010414629708976,
   },
   {
     "id": "forest-english-oak-6-1",
@@ -317,6 +377,36 @@ exports[`forest brush > produces a stable snapshot 1`] = `
     ],
     "x": 0.15350955538451672,
     "y": 4.5393947686534375,
+  },
+  {
+    "id": "forest-bracken-1-5",
+    "kind": "bracken",
+    "properties": {
+      "offsetX": 0.62809428779874,
+      "offsetY": 0.3388211032608524,
+      "scale": 0.6803628257475793,
+    },
+    "tags": [
+      "vegetation",
+      "fern",
+    ],
+    "x": 1.6280942877987399,
+    "y": 5.338821103260853,
+  },
+  {
+    "id": "forest-bramble-1-5",
+    "kind": "bramble",
+    "properties": {
+      "offsetX": 0.62809428779874,
+      "offsetY": 0.3388211032608524,
+      "scale": 0.6803628257475793,
+    },
+    "tags": [
+      "vegetation",
+      "shrub",
+    ],
+    "x": 1.6280942877987399,
+    "y": 5.338821103260853,
   },
   {
     "id": "forest-small-leaved-lime-2-5",

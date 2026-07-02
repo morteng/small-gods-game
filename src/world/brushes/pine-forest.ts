@@ -1,4 +1,5 @@
 import { placeVegetation } from './vegetation-placer';
+import { placeGrassCover } from './grassland';
 import { registerBrush } from '@/world/brushes';
 import { canopyOf, undergrowthOf } from '@/flora/biome-flora';
 import type { Entity, Region, BrushContext } from '@/core/types';
@@ -15,10 +16,11 @@ const PINE_FOREST_PARAMS: import('./vegetation-placer').VegetationParams = {
   offsetRange: [0.5, 0.5],
   maxPerTile: 2,
   undergrowth: undergrowthOf('pine_forest'),
+  openUndergrowth: 0.25,
 };
 
 export function pineForestBrush(region: Region, seed: number, ctx: BrushContext): Entity[] {
-  return placeVegetation(region, seed, ctx, PINE_FOREST_PARAMS);
+  return [...placeVegetation(region, seed, ctx, PINE_FOREST_PARAMS), ...placeGrassCover(region, seed, ctx)];
 }
 
 registerBrush(BRUSH, pineForestBrush);

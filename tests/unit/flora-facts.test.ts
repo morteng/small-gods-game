@@ -33,11 +33,12 @@ describe('deriveRecipe — botanical habit/crown/leaf → L-system recipe', () =
   it('rounded broadleaf tree → oak', () => {
     expect(deriveRecipe(bot({ habit: 'tree', crownShape: 'rounded' }))).toBe('oak');
   });
-  it('shrub → shrub, fern → fern, herb/grass → flower', () => {
+  it('shrub → shrub, fern → fern, herb → flower, grass → grass', () => {
     expect(deriveRecipe(bot({ habit: 'shrub' }))).toBe('shrub');
     expect(deriveRecipe(bot({ habit: 'fern' }))).toBe('fern');
     expect(deriveRecipe(bot({ habit: 'herb' }))).toBe('flower');
-    expect(deriveRecipe(bot({ habit: 'grass' }))).toBe('flower');
+    // grass got its own blade-tussock recipe (was collapsed onto 'flower').
+    expect(deriveRecipe(bot({ habit: 'grass' }))).toBe('grass');
   });
 });
 

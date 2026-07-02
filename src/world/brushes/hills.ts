@@ -1,6 +1,7 @@
 import { noise } from '@/core/noise';
 import { defaultEntity } from '@/world/brush-helpers';
 import { registerBrush } from '@/world/brushes';
+import { placeGrassCover } from './grassland';
 import type { Entity, Region, BrushContext } from '@/core/types';
 
 const BRUSH = 'hills';
@@ -19,10 +20,12 @@ export function hillsBrush(region: Region, seed: number, ctx: BrushContext): Ent
       } else if (r < 0.12) {
         out.push(defaultEntity(BRUSH, 'rock_pile', x + 0.5, y + 0.5));
       } else if (r < 0.27) {
-        out.push(defaultEntity(BRUSH, 'grass_tuft', x + 0.5, y + 0.5));
+        // A real species (grass recipe geometry) — 'grass_tuft' only had a flat billboard.
+        out.push(defaultEntity(BRUSH, 'tussock-grass', x + 0.5, y + 0.5));
       }
     }
   }
+  out.push(...placeGrassCover(region, seed, ctx));
   return out;
 }
 

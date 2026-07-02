@@ -5,7 +5,8 @@
 // per-face shading/material handling by handing it a minimal triangle-soup mesh
 // (it only reads numProp/vertProperties/triVerts), so flora sprites match the
 // building pipeline's look by construction.
-import type { Vec3, Mat, WorldFacet } from '@/assetgen/types';
+import type { Vec3, Mat, RGB, WorldFacet } from '@/assetgen/types';
+import { MATERIAL_RGB } from '@/assetgen/types';
 import type { Mesh } from 'manifold-3d';
 import { manifoldToFacets } from '@/assetgen/geometry/solids';
 import { add, scale, sub, normalize, cross } from './vec3';
@@ -109,8 +110,11 @@ export interface BlobOpts {
 
 /** Foliage clumps: noise-displaced octa-spheres (one per leaf), so a crown of them
  *  reads as bumpy organic foliage rather than a stack of smooth balls. Each clump's
- *  displacement is seeded from its position → deterministic, varied between clumps. */
-export function blobFacets(leaves: Leaf[], mat: Mat, opts: BlobOpts = {}): WorldFacet[] {
+ *  displacement is seeded from its position → deterministic, varied between clumps.
+ *  `tint` recolours the clumps (petal colour on flower heads) while PRESERVING the
+ *  facet shading: albedo is rescaled channel-wise from the material base, so lit and
+ *  shaded faces keep their ratio. */
+export function blobFacets(leaves: Leaf[], mat: Mat, opts: BlobOpts = {}, tint?: RGB): WorldFacet[] {
   const subdiv = opts.subdiv ?? 1;
   const jitter = opts.jitter ?? 0.35;
   const squash = opts.squash ?? 0.88;
@@ -126,7 +130,19 @@ export function blobFacets(leaves: Leaf[], mat: Mat, opts: BlobOpts = {}): World
     });
     for (const [a, b, c] of tris) m.tri(w[a], w[b], w[c]);
   }
-  return m.facets(mat);
+  const facets = m.facets(mat);
+  if (!tint) return facets;
+  const base = MATERIAL_RGB[mat];
+  const k: RGB = [tint[0] / Math.max(base[0], 1), tint[1] / Math.max(base[1], 1), tint[2] / Math.max(base[2], 1)];
+  return facets.map((f) => ({
+    ...f,
+    tint,
+    albedo: [
+      Math.min(255, Math.round(f.albedo[0] * k[0])),
+      Math.min(255, Math.round(f.albedo[1] * k[1])),
+      Math.min(255, Math.round(f.albedo[2] * k[2])),
+    ] as RGB,
+  }));
 }
 
 /** Cheap deterministic value-noise on a direction (hash of quantised dir + seed). */
@@ -141,17 +157,24 @@ export interface RockOpts {
   center: [number, number]; baseZ: number; radius: number; seed: number;
   /** Displacement amplitude as a fraction of radius (irregularity). */
   jitter?: number; mat?: Mat; subdiv?: number;
+  /** Vertical stretch (×Z, applied after the default squat squash). 1 = squat
+   *  boulder; ~3 reads as a standing stone / monolith. */
+  aspect?: number;
 }
 
 /** A noise-displaced octa-sphere boulder, resting with its base at `baseZ`. */
 export function rockFacets(o: RockOpts): WorldFacet[] {
   const jitter = o.jitter ?? 0.35;
+  const aspect = o.aspect ?? 1;
+  const zScale = 0.7 * aspect;
   const { verts, tris } = octaSphere(o.subdiv ?? 2);
-  const c: Vec3 = [o.center[0], o.center[1], o.baseZ + o.radius * 0.62];
+  const c: Vec3 = [o.center[0], o.center[1], o.baseZ + o.radius * (0.62 + 0.55 * Math.max(0, zScale - 0.7))];
   const disp = verts.map(v => {
     const f = 1 + (dirNoise(v, o.seed) - 0.5) * 2 * jitter;
-    // squash vertically so boulders sit low and wide, not ball-like
-    return [v[0] * f, v[1] * f, v[2] * f * 0.7] as Vec3;
+    // squash vertically so boulders sit low and wide, not ball-like; `aspect`
+    // stretches back up for monoliths (jitter still applies before the stretch,
+    // so a standing stone keeps rough shoulders but straight-ish sides)
+    return [v[0] * f, v[1] * f, v[2] * f * zScale] as Vec3;
   });
   const m = new MeshSoup();
   for (const [a, b, cc] of tris) {
