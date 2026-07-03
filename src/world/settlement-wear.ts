@@ -1,56 +1,66 @@
 /**
- * Settlement wear-mask ground (growth slice S2).
+ * Settlement wear — gen-time PREWARM of the desire-line trample grid.
  *
  * The settlement is a LAYER composited over the natural biome, not a biome
- * replacement: a wear field (multi-source BFS falloff from roads + market)
- * trampls high-wear soft ground to dirt and culls vegetation at mid wear,
- * with seeded per-tile dither so the edges stay organic — never disc-shaped.
- * Low-wear tiles keep their biome, so untouched ground pokes through between
- * the back lots and a pine-forest village reads differently from a scrubland
- * one.
+ * replacement: authored roads + the market seed the SAME `TrampleGrid` the live
+ * NPC-traffic systems feed (`@/sim/trample`). A multi-source BFS falloff from
+ * roads/market converts to accumulated wear, so a freshly-generated settlement
+ * already shows worn lanes — and that wear is PRIMED, so runtime footfall
+ * continues carving from where gen left off instead of starting from bare grass.
+ * Vegetation in the mid-wear band is culled (an entity op, kept here alongside
+ * the ground wear it belongs with).
  *
- * Explicit surfaces (roads, building footprints, water, farm fields) are
- * never touched — fields ARE replaced ground, the near-full-wear case.
+ * This is the gen-time entry point of ONE mechanism; the runtime entry point is
+ * `src/sim/systems/trample-system.ts`. Promotion / eligibility / original-tile
+ * bookkeeping all live on the grid — this file only seeds it.
+ *
+ * Explicit surfaces (roads, building footprints, water, farm fields) are never
+ * trampled — the grid's `isTrampleEligible` gate handles that; here we also skip
+ * the tended village green so the lush common reads against the worn lanes.
  */
 
 import type { Tile, GameMap } from '@/core/types';
 import type { World } from '@/world/world';
+import type { TrampleGrid } from '@/sim/trample';
+import { TRAMPLE } from '@/sim/trample';
 import type { SettlementPlan } from './settlement-plan';
 import { WATER_TYPES } from './settlement-plan';
 import { noise } from '@/core/noise';
 import { tryGetEntityKindDef } from './entity-kinds';
 
-/** Biome ground soft enough to trample to dirt. */
-const SOFT_GROUND = new Set(['grass', 'scrubland', 'hills', 'glen', 'sacred_grove', 'meadow']);
-
 /** Wear decays to zero this many tiles from the nearest road/market tile. */
 const WEAR_FALLOFF = 4;
-/** Above this (±dither): trampled dirt. */
-const TRAMPLE_THRESHOLD = 0.62;
-/** Above this (±dither): vegetation culled. */
+/** Above this normalized wear (±dither): vegetation culled. */
 const CULL_THRESHOLD = 0.32;
+/**
+ * Maps normalized wear [0..1] to grid accumulator units. Chosen so a tile at the
+ * old trample threshold (~0.62) seeds just past the grid's PROMOTE_HI — the
+ * generated dirt lanes match the previous wear pattern closely, then stay primed.
+ */
+const WEAR_TO_ACCUM = TRAMPLE.PROMOTE_HI / 0.62; // ≈ 194
 
 const VEGETATION_CATEGORIES = new Set(['vegetation', 'terrain-feature']);
 
 /**
- * Apply the wear mask for one settlement. Call AFTER the plan's road tiles
- * are carved into the grid and buildings are placed.
+ * Seed the trample grid for one settlement (and cull mid-wear vegetation). Call
+ * AFTER the plan's road tiles are carved and buildings are placed. Does NOT
+ * realise dirt — call `grid.settle(map)` once after seeding every settlement.
  */
-export function applySettlementWear(
+export function prewarmSettlementWear(
+  grid: TrampleGrid,
   plan: SettlementPlan,
   tiles: Tile[][],
   world: World | null | undefined,
   seed: number,
-): number {
+): void {
   const sources = [
     ...plan.edges.flatMap(e => e.tiles),
     ...plan.market,
   ];
-  if (sources.length === 0) return 0;
+  if (sources.length === 0) return;
 
-  // S3b — the village green is tended open ground: never trample it to dirt or
-  // cull its (already cleared) vegetation, so the lush common reads against the
-  // worn lanes around it.
+  // S3b — the village green is tended open ground: never seed wear on it, so the
+  // lush common reads against the worn lanes around it.
   const greenTiles = new Set<string>();
   for (const c of plan.civics) {
     if (c.type !== 'green') continue;
@@ -76,7 +86,6 @@ export function applySettlementWear(
     frontier = next;
   }
 
-  let changed = 0;
   for (const [key, d] of dist) {
     if (d === 0) continue;                       // the road itself
     if (greenTiles.has(key)) continue;           // S3b: the green stays tended
@@ -95,23 +104,33 @@ export function applySettlementWear(
         }
       }
     }
-    if (wear > TRAMPLE_THRESHOLD + jitter && SOFT_GROUND.has(t.type)) {
-      t.type = 'dirt';
-      t.walkable = true;
-      changed++;
-    }
+
+    // Seed wear on this tile. Eligibility (soft ground) is enforced by the grid
+    // at promotion time; seeding a road/farm tile is harmless (it can't promote).
+    const accum = Math.round((wear + jitter) * WEAR_TO_ACCUM);
+    if (accum > 0) grid.deposit(x, y, accum);
   }
-  return changed;
 }
 
-/** Apply wear for every settlement plan produced during worldgen. */
-export function applyAllSettlementWear(
+/**
+ * Prewarm every settlement plan into the grid, then realise the initial dirt
+ * lanes. Returns the number of tiles promoted to dirt at gen (for the gen report).
+ */
+export function prewarmAllSettlementWear(
+  grid: TrampleGrid,
   plans: SettlementPlan[],
   map: GameMap,
   world: World,
   seed: number,
 ): number {
-  let total = 0;
-  for (const plan of plans) total += applySettlementWear(plan, map.tiles, world, seed);
-  return total;
+  for (const plan of plans) prewarmSettlementWear(grid, plan, map.tiles, world, seed);
+  const before = countDirt(map);
+  grid.settle(map);
+  return countDirt(map) - before;
+}
+
+function countDirt(map: GameMap): number {
+  let n = 0;
+  for (const row of map.tiles) for (const t of row) if (t.type === 'dirt') n++;
+  return n;
 }

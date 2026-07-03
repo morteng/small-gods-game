@@ -3,7 +3,8 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import {
   planSettlement, subdivideLots, widenMarket, assignWards, WATER_TYPES,
 } from '@/world/settlement-plan';
-import { applySettlementWear } from '@/world/settlement-wear';
+import { prewarmAllSettlementWear } from '@/world/settlement-wear';
+import { TrampleGrid } from '@/sim/trample';
 import { placeSettlement } from '@/world/building-placer';
 import { getZoneRule } from '@/map/poi-zones';
 import { ensureBuildingTypesRegistered } from '@/blueprint/register-buildings';
@@ -202,11 +203,16 @@ describe('placeSettlement — lot claiming', () => {
   });
 });
 
-describe('applySettlementWear', () => {
+// Settlement wear is now the GEN-TIME PREWARM of the desire-line trample grid
+// (`@/sim/trample`): it seeds the accumulator around roads/markets and realises
+// the initial worn dirt lanes. Same tile outcomes as the old one-shot pass, now
+// as one entry point of the shared trample system.
+describe('settlement wear prewarm', () => {
   function wornVillage(seed = 9) {
     const tiles = grassTiles();
+    const map = emptyMap(tiles);
     const poi: POI = { id: 'v1', type: 'village', name: 'T', position: CENTER } as unknown as POI;
-    const world = new World(emptyMap(tiles));
+    const world = new World(map);
     const result = placeSettlement(
       poi, villageRule, tiles, world.registry, [{ dx: 1, dy: 0 }],
       new Random(seed), 'medieval', world, 42,
@@ -215,12 +221,13 @@ describe('applySettlementWear', () => {
       const t = tiles[rt.y]?.[rt.x];
       if (t) { t.type = rt.type; t.walkable = true; }
     }
-    return { tiles, world, plan: result.plan };
+    const grid = new TrampleGrid(map.width, map.height);
+    return { tiles, map, world, plan: result.plan, grid };
   }
 
   it('tramples soft ground beside roads to dirt, leaves the disc edge untouched', () => {
-    const { tiles, world, plan } = wornVillage();
-    const changed = applySettlementWear(plan, tiles, world, 42);
+    const { tiles, map, world, plan, grid } = wornVillage();
+    const changed = prewarmAllSettlementWear(grid, [plan], map, world, 42);
     expect(changed).toBeGreaterThan(0);
     // far corner untouched
     expect(tiles[2][2].type).toBe('grass');
@@ -228,13 +235,15 @@ describe('applySettlementWear', () => {
     const dirt = tiles.flat().filter(t => t.type === 'dirt');
     expect(dirt.length).toBe(changed);
     for (const d of dirt) expect(d.walkable).toBe(true);
+    // every promoted trail is tracked on the grid (so it can decay/revert later)
+    for (const d of dirt) expect(grid.isPromoted(d.x, d.y)).toBe(true);
   });
 
   it('never mutates roads, water, or building footprints', () => {
-    const { tiles, world, plan } = wornVillage();
+    const { tiles, map, world, plan, grid } = wornVillage();
     for (let x = 0; x < 48; x++) tiles[26][x].type = tiles[26][x].type === 'grass' ? 'river' : tiles[26][x].type;
     const before = tiles.map(row => row.map(t => `${t.type}|${t.walkable}`));
-    applySettlementWear(plan, tiles, world, 42);
+    prewarmAllSettlementWear(grid, [plan], map, world, 42);
     for (let y = 0; y < 48; y++) {
       for (let x = 0; x < 48; x++) {
         const [type, walkable] = before[y][x].split('|');
@@ -248,13 +257,14 @@ describe('applySettlementWear', () => {
   it('is deterministic for a fixed seed', () => {
     const a = wornVillage();
     const b = wornVillage();
-    applySettlementWear(a.plan, a.tiles, a.world, 42);
-    applySettlementWear(b.plan, b.tiles, b.world, 42);
+    prewarmAllSettlementWear(a.grid, [a.plan], a.map, a.world, 42);
+    prewarmAllSettlementWear(b.grid, [b.plan], b.map, b.world, 42);
     expect(b.tiles.map(r => r.map(t => t.type))).toEqual(a.tiles.map(r => r.map(t => t.type)));
+    expect(b.grid.serialize()).toEqual(a.grid.serialize());
   });
 
   it('culls vegetation in the mid-wear band', () => {
-    const { tiles, world, plan } = wornVillage();
+    const { tiles, map, world, plan, grid } = wornVillage();
     // plant a tree right beside a road tile
     const road = plan.edges[0].tiles[1];
     const spot = { x: road.x, y: road.y - 1 };
@@ -262,7 +272,7 @@ describe('applySettlementWear', () => {
       world.addEntity({
         id: 'tree1', kind: 'english-oak', x: spot.x, y: spot.y, tags: [], properties: {},
       } as never);
-      applySettlementWear(plan, tiles, world, 42);
+      prewarmAllSettlementWear(grid, [plan], map, world, 42);
       expect(world.registry.get('tree1')).toBeUndefined();
     }
   });

@@ -18,21 +18,29 @@ import { tileBlockedByBuilding } from '@/world/building-collision';
  * Cost multiplier for moving through a single tile.
  * Roads are fast, forests slow, water/mountains impassable.
  */
+/** Trampled desire-line ground: cheaper than grass so A* bundles traffic onto a
+ *  forming trail, but pricier than a built road so roads still dominate routing
+ *  (Helbing active-walker trail-attraction, without a trail out-competing a road). */
+export const TRAIL_COST = 0.8;
+
 export function tileCost(tile: Tile): number {
   const t = tile.type;
 
-  // Roads, bridges, dirt paths: fast
+  // Roads, bridges: fast. (`dirt_road`/`stone_road` are BUILT roads — road tier;
+  // bare `dirt` is a trampled trail and gets the intermediate trail tier below.)
   if (
     t === 'road' ||
     t.startsWith('road_') ||
     t.startsWith('dirt_road') ||
     t.startsWith('stone_road') ||
     t === 'bridge' ||
-    t.startsWith('bridge_') ||
-    t === 'dirt'
+    t.startsWith('bridge_')
   ) {
     return 0.5;
   }
+
+  // Trampled desire-line trail: between road (0.5) and grass (1.0).
+  if (t === 'dirt') return TRAIL_COST;
 
   // Forests: slow going
   if (t.includes('forest')) return 2.0;

@@ -75,7 +75,7 @@ export async function bootstrapWorld(deps: BootstrapDeps): Promise<GameMap> {
   ws.pois = layout.pois;
   ws.connections = layout.connections;
 
-  const { map, world, biomeMap } = await generateWithNoise(
+  const { map, world, biomeMap, trample } = await generateWithNoise(
     ws.size.width, ws.size.height, seed, ws,
     { onProgress: (msg) => console.log('[terrain]', msg) },
   );
@@ -84,6 +84,9 @@ export async function bootstrapWorld(deps: BootstrapDeps): Promise<GameMap> {
   state.worldSeed = ws;
   state.world = world;
   state.biomeMap = biomeMap;
+  // Desire-line trample grid, prewarmed from authored roads/markets; live NPC
+  // traffic keeps carving from here (fed by the trample systems in game.ts).
+  state.trample = trample;
   state.visualMap = Autotiler.computeVisualMap(map);
   state.blobMap = computeBlobMap(map.tiles, map.width, map.height);
   await assets.loadAll();

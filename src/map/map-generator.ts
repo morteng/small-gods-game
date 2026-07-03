@@ -50,7 +50,8 @@ import { tileBlockedByBuilding } from '@/world/building-collision';
 import { reconcileBarriersWithBuildings } from '@/world/place-barrier';
 import { reconcileBuildingsWithWater } from '@/world/building-water-reconcile';
 import type { SettlementPlan } from '@/world/settlement-plan';
-import { applyAllSettlementWear } from '@/world/settlement-wear';
+import { prewarmAllSettlementWear } from '@/world/settlement-wear';
+import { TrampleGrid } from '@/sim/trample';
 import { applyPoiGroundPatches } from '@/world/poi-ground-patches';
 import { blueprintOf } from '@/blueprint/entity';
 import { clearObstructedVegetation } from '@/world/vegetation-clear';
@@ -115,6 +116,9 @@ export interface NoiseGenResult {
   map:      GameMap;
   world:    World;
   biomeMap: BiomeMap;
+  /** Desire-line trample grid, prewarmed from authored roads/markets. The live
+   *  game stores it on `state.trample`; NPC traffic keeps carving from here. */
+  trample:  TrampleGrid;
 }
 
 // ─── Primary noise-based generator ───────────────────────────────────────────
@@ -572,11 +576,14 @@ export async function generateWithNoise(
     roadGraph,
   };
 
-  // Settlement wear: trample high-traffic ground to dirt + cull vegetation
-  // near roads, with seeded dither — the biome pokes through between lots.
-  // Runs after the POI brushes so flavour flora near streets gets culled too.
+  // Settlement wear: PREWARM the desire-line trample grid from authored
+  // roads/markets — realises the initial worn dirt lanes AND leaves the wear
+  // primed so live NPC traffic keeps carving from here (one system, two entry
+  // points: this gen prewarm + the runtime trample systems). Also culls flora in
+  // the mid-wear band. Runs after the POI brushes so flavour flora is caught too.
   report('Applying settlement wear...');
-  const worn = applyAllSettlementWear(settlementPlans, map, world, seed);
+  const trample = new TrampleGrid(width, height);
+  const worn = prewarmAllSettlementWear(trample, settlementPlans, map, world, seed);
   if (worn > 0) report(`Trampled ${worn} tiles`);
 
   // Tilled fields around farm buildings — the open soil a settlement's farms work, beyond the
@@ -642,7 +649,7 @@ export async function generateWithNoise(
   // the claims ledger resolves against. Pure read of committed state; no placement change.
   map.junctions = deriveBuiltJunctions(world, map);
 
-  return { map, world, biomeMap };
+  return { map, world, biomeMap, trample };
 }
 
 /**

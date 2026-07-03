@@ -6,8 +6,10 @@ import type { PlotThread } from '@/sim/threads/thread-types';
 import type { StagedBeat } from '@/sim/threads/staging-types';
 import type { WeatherSnapshot } from '@/sim/water/weather-stepper';
 import type { CausalSiteSnapshot } from '@/world/causal-site';
+import type { TrampleSnapshot } from '@/sim/trample';
 import { fromState } from '@/core/rng';
 import { World } from '@/world/world';
+import { TrampleGrid } from '@/sim/trample';
 import { reconcileSettlementTiles } from '@/world/settlement-reconcile';
 
 export interface Snapshot {
@@ -39,6 +41,9 @@ export interface Snapshot {
   /** W-I: live causal sites (ephemeral event-born places). Optional so pre-W-I saves
    *  + partial test states deserialize without it. */
   causalSites?: CausalSiteSnapshot;
+  /** Desire-line trample grid (sparse accumulator + promoted-trail originals).
+   *  Optional so pre-trample saves + partial test states deserialize without it. */
+  trample?: TrampleSnapshot;
 }
 
 export function captureSnapshot(state: GameState): Snapshot {
@@ -73,6 +78,7 @@ export function captureSnapshot(state: GameState): Snapshot {
     weather: state.weather?.serialize(),
     floodedPlaces: state.floodWatch?.floodedPlaceIds(),
     causalSites: state.causalSites?.serialize(),
+    trample: state.trample?.serialize(),
   };
 }
 
@@ -109,6 +115,22 @@ export function restoreSnapshot(state: GameState, snap: Snapshot): void {
   // re-derive both from the restored entities so scrub-back leaves no ghost
   // footprints and re-rolled growth can claim freed lots (S3).
   reconcileSettlementTiles(state.map, fresh);
+
+  // Desire-line trails also mutate tiles in place (dirt) after a snapshot, so a
+  // scrub-back must undo trails carved past the restore point. Rebuild the grid
+  // from the snapshot (authoritative) and reconcile the map against it, handing
+  // the PRE-restore grid so its extra trails can be reverted to real ground.
+  if (snap.trample) {
+    const prev = state.trample;
+    const restored = TrampleGrid.fromSnapshot(snap.trample);
+    restored.reconcileTiles(state.map, prev);
+    state.trample = restored;
+  } else if (state.trample) {
+    // Pre-trample snapshot restored over a live grid: undo every trail it carved.
+    const cleared = new TrampleGrid(state.map.width, state.map.height);
+    cleared.reconcileTiles(state.map, state.trample);
+    state.trample = cleared;
+  }
 
   // `?? []` tolerates pre-substrate snapshots (older saves) with no threads field;
   // optional chaining tolerates partial test states that omit the substrate stores.

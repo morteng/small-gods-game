@@ -11,6 +11,7 @@ import { StagingBuffer } from '@/sim/threads/staging-buffer';
 import type { WeatherStepper } from '@/sim/water/weather-stepper';
 import type { FloodWatch } from '@/world/flood-watch';
 import type { CausalSiteStore } from '@/world/causal-site';
+import type { TrampleGrid } from '@/sim/trample';
 
 export interface GameState {
   map: GameMap | null;
@@ -69,6 +70,11 @@ export interface GameState {
    *  Reconciled by `WeatherSystem` against the flood field each tick; its live sites
    *  are snapshotted. Null until a world is seeded. */
   causalSites: CausalSiteStore | null;
+  /** Emergent desire-line trample grid: NPC footfall accumulates here and wears
+   *  soft ground down to `dirt` trails (`@/sim/trample`). Prewarmed at gen from
+   *  authored roads/markets, fed at runtime by the trample systems, captured in
+   *  the snapshot. Null until a world is seeded / in headless states. */
+  trample: TrampleGrid | null;
 }
 
 export function createState(): GameState {
@@ -119,5 +125,6 @@ export function createState(): GameState {
     weather: null,
     floodWatch: null,
     causalSites: null,
+    trample: null,
   };
 }

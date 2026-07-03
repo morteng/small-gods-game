@@ -42,4 +42,27 @@ describe('bootstrap world generation', () => {
     const r2 = await generateWithNoise(64, 64, 42, testSeed);
     expect(r1.world.query({}).length).toBe(r2.world.query({}).length);
   });
+
+  it('prewarms the trample grid: gen ships worn dirt lanes tracked on the grid', async () => {
+    const result = await generateWithNoise(64, 64, 7, testSeed);
+    const dirt = result.map.tiles.flat().filter(t => t.type === 'dirt');
+    expect(dirt.length).toBeGreaterThan(0);          // settlement shows worn ground
+    const snap = result.trample.serialize();
+    expect(snap.promoted.length).toBeGreaterThan(0); // some of it is a tracked trail
+    // Grid↔map consistency: every cell the grid calls a trail IS dirt on the map,
+    // so the runtime decay/revert pass can act on it. (Authored dirt — market
+    // plazas, POI ground patches — is NOT tracked and is left untouched by trample.)
+    for (const [i] of snap.promoted) {
+      const x = i % result.map.width;
+      const y = (i - x) / result.map.width;
+      expect(result.map.tiles[y][x].type).toBe('dirt');
+      expect(result.trample.isPromoted(x, y)).toBe(true);
+    }
+  });
+
+  it('trample prewarm is deterministic (grid identical for a fixed seed)', async () => {
+    const a = await generateWithNoise(64, 64, 42, testSeed);
+    const b = await generateWithNoise(64, 64, 42, testSeed);
+    expect(a.trample.serialize()).toEqual(b.trample.serialize());
+  });
 });
