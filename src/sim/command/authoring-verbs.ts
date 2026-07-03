@@ -103,3 +103,50 @@ export function nudgeSeverityApply(cmd: Command, ctx: ApplyCtx): boolean {
   }
   return true;
 }
+
+// ── set_rival_stance ─────────────────────────────────────────────────────────
+// Fate's anti-snowball lever: coach a RIVAL spirit's personality by clamped deltas
+// (VISION §"the counter-loop" — Fate escalates against dominance, eases on collapse).
+// The rival id rides `payload.rivalId` (there is no spirit CommandTarget); each
+// listed field is nudged by a signed delta, per-call capped ±0.2 and clamped to
+// [0,1]. Pure mutation — no RNG. Never targets the player (precondition guards it).
+const STANCE_FIELDS = ['aggression', 'subtlety', 'territoriality', 'assertiveness', 'jealousy'] as const;
+const STANCE_MIN = 0.0;
+const STANCE_MAX = 1.0;
+const MAX_STANCE_DELTA = 0.2;   // per-call, per-field magnitude cap
+
+function stanceRivalId(cmd: Command): string | undefined {
+  const id = P(cmd).rivalId;
+  return typeof id === 'string' && id ? id : undefined;
+}
+
+export function setRivalStancePrecondition(cmd: Command, ctx: CommandCtx): RejectionReason | null {
+  const rivalId = stanceRivalId(cmd);
+  if (!rivalId) return 'invalid_target';
+  const spirit = ctx.spirits.get(rivalId);
+  if (!spirit) return 'invalid_target';
+  if (spirit.isPlayer || !spirit.ai?.personality) return 'invalid_target';   // rivals only
+  // At least one field must carry a finite delta, and no field may carry a bad one.
+  let any = false;
+  for (const f of STANCE_FIELDS) {
+    const d = P(cmd)[f];
+    if (d === undefined) continue;
+    if (typeof d !== 'number' || !Number.isFinite(d)) return 'invalid_payload';
+    any = true;
+  }
+  if (!any) return 'invalid_payload';
+  return null;
+}
+
+export function setRivalStanceApply(cmd: Command, ctx: ApplyCtx): boolean {
+  const rivalId = stanceRivalId(cmd)!;                       // validated in precondition
+  const pers = ctx.spirits.get(rivalId)?.ai?.personality;
+  if (!pers) return false;                                   // lost a race after the pre-gate
+  for (const f of STANCE_FIELDS) {
+    const raw = P(cmd)[f];
+    if (typeof raw !== 'number' || !Number.isFinite(raw)) continue;
+    const delta = Math.max(-MAX_STANCE_DELTA, Math.min(MAX_STANCE_DELTA, raw));
+    pers[f] = Math.round(Math.max(STANCE_MIN, Math.min(STANCE_MAX, pers[f] + delta)) * 100) / 100;
+  }
+  return true;
+}

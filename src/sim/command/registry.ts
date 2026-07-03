@@ -25,7 +25,10 @@ import {
   movePrecondition, moveApply,
   setClimatePrecondition, setClimateApply,
 } from './editor-verbs';
-import { injectNpcPrecondition, injectNpcApply, biasEventPrecondition, biasEventApply, nudgeSeverityPrecondition, nudgeSeverityApply } from './authoring-verbs';
+import {
+  injectNpcPrecondition, injectNpcApply, biasEventPrecondition, biasEventApply,
+  nudgeSeverityPrecondition, nudgeSeverityApply, setRivalStancePrecondition, setRivalStanceApply,
+} from './authoring-verbs';
 import { placeBuildingPrecondition, placeBuildingApply } from './building-verbs';
 import { growSettlementPrecondition, growSettlementApply } from './settlement-verbs';
 import {
@@ -227,6 +230,13 @@ export const CAPABILITY_REGISTRY: Record<CommandVerb, CapabilityDef> = {
     precondition: nudgeSeverityPrecondition,
     apply: nudgeSeverityApply,
     describe: (cmd) => `nudge severity of ${targetLabel(cmd)} event by ${cmd.payload?.delta ?? 0}`,
+  },
+  set_rival_stance: {
+    // Rival is named by payload.rivalId (no spirit CommandTarget); targetKind 'none'.
+    verb: 'set_rival_stance', tier: 'authoring', cost: 0, targetKind: 'none', implemented: true,
+    precondition: setRivalStancePrecondition,
+    apply: setRivalStanceApply,
+    describe: (cmd) => `coach rival ${cmd.payload?.rivalId ?? '?'} stance`,
   },
   place_building: {
     verb: 'place_building', tier: 'authoring', cost: 0, targetKind: 'settlement', implemented: true,

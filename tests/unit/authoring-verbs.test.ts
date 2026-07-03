@@ -142,3 +142,66 @@ describe('nudge_severity', () => {
     expect(res).toMatchObject({ status: 'rejected', reason: 'invalid_payload' });
   });
 });
+
+// ── set_rival_stance ─────────────────────────────────────────────────────────
+function rivalSpirit(overrides: Partial<import('@/sim/rival-spirit').RivalPersonality> = {}): Spirit {
+  return {
+    id: 'rival-1', name: 'Sablethorn', sigil: '◆', color: '#000', isPlayer: false, power: 10, manifestation: null,
+    ai: {
+      policy: 'expand', cooldowns: {}, settlements: ['poi1'],
+      personality: { aggression: 0.5, subtlety: 0.5, territoriality: 0.5, assertiveness: 0.5, jealousy: 0.5, ...overrides },
+    },
+  };
+}
+function playerSpirit(): Spirit {
+  return { id: 'player', name: 'You', sigil: '✦', color: '#fff', isPlayer: true, power: 20, manifestation: null };
+}
+function stanceCtx(spirits: Map<SpiritId, Spirit>): ApplyCtx {
+  return { world: new World(biasMap()), spirits, log: new EventLog(new SimClock()), rng: createRng(1), now: 0 };
+}
+function stanceCmd(payload: Record<string, unknown>): Command {
+  return { verb: 'set_rival_stance', source: 'fate', target: { kind: 'none' }, payload, seq: 0 };
+}
+
+describe('set_rival_stance', () => {
+  it('nudges the named rival\'s personality fields by signed deltas', () => {
+    const rival = rivalSpirit();
+    const res = executeCommand(stanceCmd({ rivalId: 'rival-1', aggression: 0.1, jealousy: -0.15 }), stanceCtx(new Map([['rival-1', rival]])));
+    expect(res.status).toBe('applied');
+    expect(rival.ai!.personality!.aggression).toBe(0.6);
+    expect(rival.ai!.personality!.jealousy).toBe(0.35);
+    expect(rival.ai!.personality!.subtlety).toBe(0.5);   // untouched
+  });
+
+  it('caps a per-call delta at ±0.2', () => {
+    const rival = rivalSpirit({ aggression: 0.5 });
+    executeCommand(stanceCmd({ rivalId: 'rival-1', aggression: 5 }), stanceCtx(new Map([['rival-1', rival]])));
+    expect(rival.ai!.personality!.aggression).toBe(0.7);   // 0.5 + capped 0.2, not 1.0
+  });
+
+  it('clamps a field to the [0,1] range', () => {
+    const rival = rivalSpirit({ aggression: 0.95 });
+    executeCommand(stanceCmd({ rivalId: 'rival-1', aggression: 0.2 }), stanceCtx(new Map([['rival-1', rival]])));
+    expect(rival.ai!.personality!.aggression).toBe(1.0);
+  });
+
+  it('rejects an unknown rivalId as invalid_target', () => {
+    const res = executeCommand(stanceCmd({ rivalId: 'ghost', aggression: 0.1 }), stanceCtx(new Map([['rival-1', rivalSpirit()]])));
+    expect(res).toMatchObject({ status: 'rejected', reason: 'invalid_target' });
+  });
+
+  it('refuses to coach the player (not a rival) with invalid_target', () => {
+    const res = executeCommand(stanceCmd({ rivalId: 'player', aggression: 0.1 }), stanceCtx(new Map([['player', playerSpirit()]])));
+    expect(res).toMatchObject({ status: 'rejected', reason: 'invalid_target' });
+  });
+
+  it('rejects a stance with no deltas as invalid_payload', () => {
+    const res = executeCommand(stanceCmd({ rivalId: 'rival-1' }), stanceCtx(new Map([['rival-1', rivalSpirit()]])));
+    expect(res).toMatchObject({ status: 'rejected', reason: 'invalid_payload' });
+  });
+
+  it('rejects a non-finite delta as invalid_payload', () => {
+    const res = executeCommand(stanceCmd({ rivalId: 'rival-1', aggression: 'lots' }), stanceCtx(new Map([['rival-1', rivalSpirit()]])));
+    expect(res).toMatchObject({ status: 'rejected', reason: 'invalid_payload' });
+  });
+});
