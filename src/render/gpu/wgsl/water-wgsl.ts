@@ -416,6 +416,12 @@ const WAVE_DIR = vec2<f32>(0.80, 0.60);
 // Lake ripple direction (unit, deliberately not the ocean's) — lakes get a faint
 // uniform breeze-ripple, never the shoreward swell rings.
 const LAKE_DIR = vec2<f32>(0.60, -0.80);
+// WP-M overview fill perf: shore distance (tiles) inside which ocean/lake fragments keep
+// the BICUBIC pixel-perfect waterline clip; deeper water reads BILINEAR (a quarter of the
+// storage bandwidth) since its large-positive depth never clips. Generous enough to cover
+// the whole waterline band even under the zoom-coarsened mesh (flat cell index can trail
+// the fragment by up to the subsample stride, ≤4), so the water/land boundary is untouched.
+const SHORE_CUBIC_TILES = 6.0;
 
 @fragment
 fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
@@ -431,13 +437,30 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   var surfLvl : f32;
   var sdEdge : f32 = -1.0;                  // analytic signed distance (rivers); <0 inside
   var flowV : vec2<f32> = vec2<f32>(0.0, 0.0);
+
+  // SHORE-GATED SAMPLING (WP-M — overview fill perf). The pixel-perfect waterline is a
+  // BICUBIC (16-tap ×2 = 32 storage reads) clip of surface − bed at the sub-cell zero
+  // crossing — but that crossing only exists within a few tiles of the bank. A DEEP-water
+  // ocean/lake fragment (shore distance ≥ SHORE_CUBIC_TILES) has a large-positive depth
+  // that never clips, so the exact contour there is irrelevant; a BILINEAR read (4-tap ×2
+  // = 8 reads) gives a visually identical depth/tint at a quarter of the bandwidth. This
+  // is the open-sea bulk of a watery overview — the fill-bound regime the water pass is
+  // bandwidth-limited in (~80 storage reads/frag; round-3 found the pass memory-bound on
+  // exactly these reads). shoreD reads 0 on land AND on the dry shore-dilation overhang
+  // cells, so the ENTIRE waterline band stays bicubic → zero visible change at the
+  // water/land boundary. Rivers (narrow, always near a bank) always keep bicubic.
+  let shoreCell = shoreD[ci];
+  let deepWater = (cellTyp == 1u || cellTyp == 2u) && shoreCell >= SHORE_CUBIC_TILES;
+
   if (cellTyp == 1u || cellTyp == 2u) {
     // PIXEL-PERFECT WATERLINE. The bed (terrainH) is bicubic, the surface bicubic, so
     // surface − bed crosses zero exactly where the terrain contour meets the water
     // plane — a C1 contour across tile seams. The one-ring shore dilation gives near-
     // bank dry cells a water plane so BOTH sides of the line are covered. Lakes ride the
-    // drought/flood-shifted surface; ocean stays at its datum.
-    surfLvl = cubicSurfaceW(in.vGrid.x, in.vGrid.y);
+    // drought/flood-shifted surface; ocean stays at its datum. Deep water skips to the
+    // cheap bilinear surface (identical where nothing clips).
+    if (deepWater) { surfLvl = sampleSurfaceW(in.vGrid.x, in.vGrid.y); }
+    else { surfLvl = cubicSurfaceW(in.vGrid.x, in.vGrid.y); }
     if (cellTyp == 2u) { surfLvl = surfLvl + G.uWater.w; }
   } else {
     // RIVER / dry-band → analytic channel. The signed distance is a smooth (cell-grid-
@@ -451,7 +474,11 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
     flowV = cg.flow;
   }
 
-  let rawDepthN = surfLvl - cubicTerrainH(in.vGrid.x, in.vGrid.y);
+  // Bed: bicubic near the bank (the waterline clip needs it), bilinear in deep water.
+  var bedN : f32;
+  if (deepWater) { bedN = sampleTerrainH(in.vGrid.x, in.vGrid.y); }
+  else { bedN = cubicTerrainH(in.vGrid.x, in.vGrid.y); }
+  let rawDepthN = surfLvl - bedN;
   if (rawDepthN <= 0.0) { discard; }
   let depthM = rawDepthN * G.uZParams.z;
   // Screen-space gradient of the analytic river distance, for the silhouette anti-alias
