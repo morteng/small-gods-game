@@ -45,6 +45,33 @@ describe('parseFateToolCalls — staged beats', () => {
     expect(beats[0].hard).toHaveLength(0);                 // no inject into a transient site
     expect(beats[0].soft).toMatchObject({ text: 'The drowned reeds whisper.' });
   });
+
+  it('attaches a storylet ref when it is in the validStoryletIds drift-guard set', () => {
+    const { beats } = parseFateToolCalls(
+      [armCall({ subjectPoiId: 'poi1', hard: 'none', storylet: 'parched-prayer' })],
+      { validPoiIds: new Set(['poi1']), now: 0, validStoryletIds: new Set(['parched-prayer']) },
+    );
+    expect(beats).toHaveLength(1);
+    expect(beats[0].storylet).toBe('parched-prayer');
+  });
+
+  it('drops an unrecognized storylet ref but still arms the beat', () => {
+    const { beats } = parseFateToolCalls(
+      [armCall({ subjectPoiId: 'poi1', hard: 'none', storylet: 'made-up-id' })],
+      { validPoiIds: new Set(['poi1']), now: 0, validStoryletIds: new Set(['parched-prayer']) },
+    );
+    expect(beats).toHaveLength(1);
+    expect(beats[0].storylet).toBeUndefined();
+  });
+
+  it('drops any storylet ref when the ctx carries no validStoryletIds set at all', () => {
+    const { beats } = parseFateToolCalls(
+      [armCall({ subjectPoiId: 'poi1', hard: 'none', storylet: 'parched-prayer' })],
+      ctx(),   // no validStoryletIds field
+    );
+    expect(beats).toHaveLength(1);
+    expect(beats[0].storylet).toBeUndefined();
+  });
 });
 
 describe('parseFateToolCalls — immediate commands', () => {

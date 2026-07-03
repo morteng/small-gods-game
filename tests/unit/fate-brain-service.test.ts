@@ -99,6 +99,34 @@ describe('FateBrainService', () => {
     expect(emitted).toHaveLength(1);
     expect(emitted[0]).toMatchObject({ verb: 'nudge_severity', source: 'fate', payload: { delta: 0.3 } });
   });
+
+  it('arms a beat carrying a storylet ref when it is in getValidStoryletIds', async () => {
+    const state = makeState();
+    const client = new LLMClient(new MockLLMProvider(0, {
+      cannedToolCalls: canned({ subjectPoiId: 'poi1', threadId: 1, hard: 'none', storylet: 'parched-prayer' }),
+    }));
+    const brain = new FateBrainService({
+      getState: () => state, getCapableClient: () => client, isScrubbed: () => false, emitCommand: () => {},
+      getValidStoryletIds: () => new Set(['parched-prayer']),
+    });
+    await brain.deliberate(focus());
+    const [beat] = state.staging.armedByTrigger('discovery');
+    expect(beat.storylet).toBe('parched-prayer');
+  });
+
+  it('drops a storylet ref not in getValidStoryletIds, still arming the beat', async () => {
+    const state = makeState();
+    const client = new LLMClient(new MockLLMProvider(0, {
+      cannedToolCalls: canned({ subjectPoiId: 'poi1', threadId: 1, hard: 'none', storylet: 'made-up' }),
+    }));
+    const brain = new FateBrainService({
+      getState: () => state, getCapableClient: () => client, isScrubbed: () => false, emitCommand: () => {},
+      getValidStoryletIds: () => new Set(['parched-prayer']),
+    });
+    await brain.deliberate(focus());
+    const [beat] = state.staging.armedByTrigger('discovery');
+    expect(beat.storylet).toBeUndefined();
+  });
 });
 
 function clientNudging(): LLMClient {
