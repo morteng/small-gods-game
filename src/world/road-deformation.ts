@@ -24,7 +24,11 @@
 // identically on load. Memoised per (seed, dims) like getHeightfield.
 import type { GameMap, POI } from '@/core/types';
 import { WATER_TYPES } from '@/core/constants';
-import type { RoadGraph, RoadEdge, RoadNode } from '@/world/road-graph';
+import {
+  ROAD_TILE_TYPES,
+  applyRoadMask,
+  type RoadGraph, type RoadEdge, type RoadNode, type RoadMask,
+} from '@/world/road-graph';
 import {
   DeformationStore,
   heightAt,
@@ -41,7 +45,8 @@ import { buildEarthworkDeformations } from '@/world/earthwork-deformation';
 import { getHydrologyResult } from '@/world/hydrology-store';
 import { smoothCenterline, type Pt } from '@/terrain/road-centerline';
 import { filletApproach } from '@/world/anchor-fillet';
-import { realGateProfiles, type GateApproachProfile } from '@/world/connectome/gate-approach';
+import { realGateProfiles, gateApproachPlan, type GateApproachProfile } from '@/world/connectome/gate-approach';
+import type { Anchor } from '@/world/anchors';
 import { resolveSettlementEra, isEra, type Era } from '@/core/era';
 import {
   deriveRoadState,
@@ -205,13 +210,20 @@ export interface EdgeRoadProfile {
   x: RoadCrossSection;
 }
 
-// ── Gate-approach fillet: roads arrive SQUARE through town gates ────────────────────
-// The gate waypoint threading forces the route to the gate point but nothing aligns the
-// approach tangent to the gate axis, so the centerline kinks at the waypoint node. Here
-// (the shared seam BOTH the carve and the render ribbon read) any edge end that lands at
-// a real gate gets its tail re-shaped by the roads-article fillet so it arrives heading
-// straight through the opening. The integer cell polyline (tile mask, bridge indices) is
-// untouched — the fillet stays within the corridor width of the original tail.
+// ── Approach fillets: roads arrive SQUARE at gates AND building-anchor doors ─────────
+// The gate waypoint threading (or the anchor-snap door↔road match) forces the route to a
+// target point but nothing aligns the approach tangent to the target's own axis, so the
+// centerline kinks at the waypoint node. Here (the shared seam BOTH the carve and the
+// render ribbon read) any edge end that lands at a real gate OR a matched building anchor
+// gets its tail re-shaped by the roads-article fillet so it arrives heading straight at
+// the opening/door. `filletApproach` pins the endpoint exactly at the target, so smoothing
+// can never detach the road from it. `reconcileFilletRaster` (below) then re-derives the
+// tile mask so the raster NPCs walk matches this smoothed ribbon.
+
+/** A road/street approach target: the point it must arrive at + the OUTWARD normal of the
+ *  thing it arrives at (a gate's wall normal, or a building door/frontage facing). Gate
+ *  profiles and building-anchor profiles share this shape. */
+type ApproachProfile = GateApproachProfile;
 
 const gateProfileCache = new WeakMap<object, GateApproachProfile[]>();
 function gateProfilesFor(map: GameMap): GateApproachProfile[] {
@@ -222,29 +234,67 @@ function gateProfilesFor(map: GameMap): GateApproachProfile[] {
   return hit;
 }
 
+/** A building-anchor arrival profile: a road EDGE's own endpoint matched (by the anchor-snap
+ *  layer) to a building door/frontage. Scoped per-edge (`edgeId`) since the anchor-snap
+ *  matcher can snap a door to ANY nearby road point, not only an edge's terminus — we only
+ *  want to fillet a genuine arrival (the matched road point sits at this edge's own end). */
+interface AnchorArrivalProfile extends ApproachProfile { edgeId: string }
+
+const anchorProfileCache = new WeakMap<object, AnchorArrivalProfile[]>();
+function allAnchorArrivalProfiles(map: GameMap): AnchorArrivalProfile[] {
+  const links = map.anchorLinks;
+  if (!links || links.length === 0) return [];
+  let hit = anchorProfileCache.get(links);
+  if (hit) return hit;
+  const anchorById = new Map<string, Anchor>();
+  for (const a of map.anchors ?? []) if (a.id) anchorById.set(a.id, a);
+  const out: AnchorArrivalProfile[] = [];
+  for (const link of links) {
+    if (link.relation !== 'connects') continue;
+    if (link.b.kind !== 'road' || !link.b.ownerId) continue;
+    if (link.a.kind !== 'door' && link.a.kind !== 'frontage') continue;
+    const src = link.a.id ? anchorById.get(link.a.id) : undefined;
+    if (!src) continue;
+    out.push({ x: link.b.x, y: link.b.y, facing: src.facing, edgeId: link.b.ownerId });
+  }
+  anchorProfileCache.set(links, out);
+  return out;
+}
+
+/** Building-anchor arrival profiles for ONE edge (WP-Q #2). */
+function buildingAnchorProfilesFor(map: GameMap, edgeId: string): AnchorArrivalProfile[] {
+  const all = allAnchorArrivalProfiles(map);
+  return all.length === 0 ? all : all.filter((p) => p.edgeId === edgeId);
+}
+
 /** A centerline end within this many tiles of a real gate point is a gate approach. */
 const GATE_SNAP_TILES = 1.6;
+/** A centerline end within this many tiles of a matched building anchor is that arrival —
+ *  slightly looser than `DEFAULT_RULES`' door/frontage `maxGap` (1.6) to tolerate rounding
+ *  between the anchor-snap match point and the edge's own endpoint. */
+const ANCHOR_SNAP_TILES = 1.8;
 
-/** Re-shape ONE end (the last point) of `line` to arrive square at gate `g`. */
-function filletEndOntoGate(line: Pt[], g: GateApproachProfile): Pt[] {
+/** Re-shape ONE end (the last point) of `line` to arrive square at approach target `p`. */
+function filletEndOntoProfile(line: Pt[], p: ApproachProfile): Pt[] {
   // Which side does this edge approach from? Probe ~2 tiles back along the line: outside
-  // (along +facing) arrives heading INTO the town (targetFacing = outward); an interior
-  // street reaching the gate from inside arrives heading OUT (targetFacing = inward).
+  // (along +facing) arrives heading INTO the target (targetFacing = outward); an interior
+  // street reaching the target from inside arrives heading OUT (targetFacing = inward).
   let acc = 0, probe = line[0];
   for (let i = line.length - 1; i > 0; i--) {
     acc += Math.hypot(line[i].x - line[i - 1].x, line[i].y - line[i - 1].y);
     if (acc >= 2) { probe = line[i - 1]; break; }
   }
-  const side = (probe.x - g.x) * g.facing[0] + (probe.y - g.y) * g.facing[1];
-  const facing: [number, number] = side >= 0 ? g.facing : [-g.facing[0], -g.facing[1]];
-  return filletApproach(line, { x: g.x, y: g.y }, facing);
+  const side = (probe.x - p.x) * p.facing[0] + (probe.y - p.y) * p.facing[1];
+  const facing: [number, number] = side >= 0 ? p.facing : [-p.facing[0], -p.facing[1]];
+  return filletApproach(line, { x: p.x, y: p.y }, facing);
 }
 
-function filletOntoGates(centerline: Pt[], gates: GateApproachProfile[]): Pt[] {
-  if (gates.length === 0 || centerline.length < 2) return centerline;
-  const near = (p: Pt): GateApproachProfile | undefined => {
-    let best: GateApproachProfile | undefined, bestD = GATE_SNAP_TILES;
-    for (const g of gates) {
+/** Fillet either end of `centerline` onto the nearest profile within `snapTiles`, if any. */
+function filletOntoProfiles(centerline: Pt[], profiles: ApproachProfile[], snapTiles: number): Pt[] {
+  if (profiles.length === 0 || centerline.length < 2) return centerline;
+  const near = (p: Pt): ApproachProfile | undefined => {
+    let best: ApproachProfile | undefined, bestD = snapTiles;
+    for (const g of profiles) {
       const d = Math.hypot(g.x - p.x, g.y - p.y);
       if (d < bestD) { bestD = d; best = g; }
     }
@@ -252,9 +302,9 @@ function filletOntoGates(centerline: Pt[], gates: GateApproachProfile[]): Pt[] {
   };
   let line = centerline;
   const tail = near(line[line.length - 1]);
-  if (tail) line = filletEndOntoGate(line, tail);
+  if (tail) line = filletEndOntoProfile(line, tail);
   const head = near(line[0]);
-  if (head) line = filletEndOntoGate(line.slice().reverse(), head).reverse();
+  if (head) line = filletEndOntoProfile(line.slice().reverse(), head).reverse();
   return line;
 }
 
@@ -267,7 +317,9 @@ export function edgeRoadProfile(
   dynamicFor?: (edge: RoadEdge) => RoadDynamics | undefined,
 ): EdgeRoadProfile | null {
   if (edge.feature !== 'road' || edge.polyline.length < 2) return null;
-  const centerline = filletOntoGates(smoothCenterline(edge.polyline), gateProfilesFor(map));
+  let centerline = filletOntoProfiles(smoothCenterline(edge.polyline), gateProfilesFor(map), GATE_SNAP_TILES);
+  const anchorProfiles = buildingAnchorProfilesFor(map, edge.id);
+  if (anchorProfiles.length) centerline = filletOntoProfiles(centerline, anchorProfiles, ANCHOR_SNAP_TILES);
   if (centerline.length < 2) return null;
   const fromPoi = poiById.get(nodeById.get(edge.a)?.poiRef ?? '');
   const toPoi = poiById.get(nodeById.get(edge.b)?.poiRef ?? '');
@@ -403,6 +455,232 @@ export function buildRoadDeformations(map: GameMap, graph: RoadGraph): Deformati
   return out;
 }
 
+// ── Fillet → raster reconciliation (WP-Q) ─────────────────────────────────────────
+//
+// `edgeRoadProfile` smooths + fillets the RENDER centerline, but the integer cell polyline
+// worldgen carved into `map.tiles` (what NPCs actually walk) stays the raw, kinked path — so
+// the smooth approach the player sees is not the surface NPCs walk. This reconciles the two:
+// for each road edge, re-sample the FILLETED centerline and compare it against the edge's own
+// (unchanged) `polyline` — the ground truth from gen. Only the fillet-reshaped TAILS (gate
+// approaches, building-anchor arrivals) diverge from the raw path; the vast majority of edges
+// have no fillet applied at all and this is a no-op.
+//
+// Hard constraints (Galin 2010 — a pipeline that smooths after routing must RE-VALIDATE
+// against the world): a candidate cell is never claimed if it's a curtain BLOCKING cell, open
+// water without an existing bridge deck, a building footprint, or a protected green precinct.
+// Where any cell in a divergent span fails, the WHOLE span falls back — the original (already
+// road) tiles for that span are left untouched, never partially carved. This is PURELY
+// ADDITIVE: `edge.polyline` (and `bridgeCells`) are never rewritten, so bridge bookkeeping and
+// the graph's own "walked path" stay exactly as gen produced them; `map.tiles` simply gains the
+// extra cells the smoothed ribbon needs. "Un-carving" stale cells is deliberately NOT attempted
+// — the plan's own guidance ("when in doubt leave them — a slightly wide road is better than a
+// broken one") makes a purely-additive reconciliation the conservative, defensible choice.
+
+/** Arc-length step (tiles) for sampling the filleted centerline when reconciling tiles. */
+const RECON_SAMPLE_STEP_TILES = 0.35;
+/**
+ * How far (tiles) a filleted sample may sit from the raw (carved) polyline before it counts
+ * as "diverged" and needs new tiles. NOTE this is a tile-GRID tolerance, not a corridor-width
+ * one: the carved tile MASK is a single-cell-wide path regardless of road class (only the
+ * continuous height/paint carve scales with `carriageHalf`), so the right yardstick is "would
+ * this land on a different integer cell than the raw path," not the carriageway's own width.
+ * Plain Catmull-Rom smoothing (no fillet) measures ~0 deviation on the fixtures this reconciles
+ * against; a gate/anchor fillet's reshaped arc measures well over a tile — comfortably above
+ * this margin — so the threshold cleanly separates "ordinary smoothing" from "a real fillet."
+ */
+const RECON_MATCH_MARGIN_TILES = 0.65;
+
+export interface FilletReconcileSpan {
+  edgeId: string;
+  /** Arc-length range along the edge's FILLETED centerline this span covers. A fillet built
+   *  from a fully-collapsed (straight, RDP-simplified) raw polyline can bulge in the MIDDLE
+   *  of the arc (a Hermite/arc curve pins both true endpoints exactly and departs from the
+   *  raw path only in between) — so a span is wherever the samples diverge, not necessarily
+   *  at either literal end. */
+  arcRange: [number, number];
+  /** True when new tiles were written; false when the span fell back (left the original
+   *  raw-polyline tiles in place because a candidate cell failed a hard constraint). */
+  written: boolean;
+  cellsWritten: number;
+}
+
+/** Sample a polyline at ~`step` arc-length spacing (endpoints included), paired with each
+ *  sample's own arc-length position along `pts` (for reporting divergent spans). */
+function denseSample(pts: ReadonlyArray<Pt>, step: number): { points: Pt[]; arcLens: number[] } {
+  if (pts.length < 2) return { points: pts.slice(), arcLens: pts.map(() => 0) };
+  const cumS = new Array<number>(pts.length);
+  cumS[0] = 0;
+  for (let i = 1; i < pts.length; i++) cumS[i] = cumS[i - 1] + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+  const total = cumS[pts.length - 1];
+  const points: Pt[] = [];
+  const arcLens: number[] = [];
+  for (let s = 0; s <= total; s += step) { points.push(pointAtArc(pts as Pt[], cumS, s)); arcLens.push(s); }
+  const last = pts[pts.length - 1];
+  if (points.length === 0 || Math.hypot(points[points.length - 1].x - last.x, points[points.length - 1].y - last.y) > 1e-6) {
+    points.push(last);
+    arcLens.push(total);
+  }
+  return { points, arcLens };
+}
+
+/** Round + dedupe consecutive identical cells. */
+function roundCells(pts: ReadonlyArray<Pt>): { x: number; y: number }[] {
+  const out: { x: number; y: number }[] = [];
+  for (const p of pts) {
+    const c = { x: Math.round(p.x), y: Math.round(p.y) };
+    const last = out[out.length - 1];
+    if (!last || last.x !== c.x || last.y !== c.y) out.push(c);
+  }
+  return out;
+}
+
+/** Insert an orthogonal corner between diagonally-adjacent cells so the reconciled span stays
+ *  4-connected (NPC walkability + road-connectivity both step 4-neighbour) — same rule as
+ *  `orthogonalize` in road-graph.ts, generalised to this reconciliation's own bad-cell test. */
+function fourConnectCells(
+  cells: ReadonlyArray<{ x: number; y: number }>,
+  isBad: (x: number, y: number) => boolean,
+): { x: number; y: number }[] {
+  if (cells.length < 2) return cells.slice();
+  const out: { x: number; y: number }[] = [cells[0]];
+  for (let i = 1; i < cells.length; i++) {
+    const p = cells[i - 1], c = cells[i];
+    if (p.x !== c.x && p.y !== c.y) {
+      const optA = { x: c.x, y: p.y };
+      const optB = { x: p.x, y: c.y };
+      out.push(!isBad(optA.x, optA.y) ? optA : !isBad(optB.x, optB.y) ? optB : optA);
+    }
+    out.push(c);
+  }
+  return out;
+}
+
+/** Every tile a settlement plan's `green` civic occupies — protected commons roads must
+ *  thread AROUND (mirrors the `greenTiles` set `map-generator.ts` builds pre-carve; here
+ *  re-derived from the persisted `settlementPlans` so this module never needs `world`). */
+function collectGreenTiles(map: GameMap): Set<string> {
+  const out = new Set<string>();
+  for (const plan of map.settlementPlans ?? []) {
+    for (const c of plan.civics) {
+      if (c.type !== 'green') continue;
+      for (let dy = 0; dy < c.h; dy++) for (let dx = 0; dx < c.w; dx++) out.add(`${c.x + dx},${c.y + dy}`);
+    }
+  }
+  return out;
+}
+
+/** Hard constraints a reconciled cell must pass: never a curtain blocking cell, never open
+ *  water without an existing bridge deck, never a protected green, never a building footprint
+ *  (approximated as "unwalkable and not already road/bridge" — buildings + walls stamp
+ *  `walkable = false` on their footprint at placement time; greens/roads/water are excluded
+ *  above/below so this catches exactly the remaining solid-obstacle case). */
+function blockedForReconcile(
+  map: GameMap, x: number, y: number, wallObstacles: ReadonlySet<string>, greenTiles: ReadonlySet<string>,
+): boolean {
+  const t = map.tiles[y]?.[x];
+  if (!t) return true;
+  const key = `${x},${y}`;
+  if (wallObstacles.has(key)) return true;
+  if (WATER_TYPES.has(t.type) && t.type !== 'bridge') return true;
+  if (greenTiles.has(key)) return true;
+  if (t.walkable === false && !ROAD_TILE_TYPES.has(t.type)) return true;
+  return false;
+}
+
+/**
+ * Reconcile ONE divergent span of an edge's filleted centerline against the tile grid. `sample`
+ * is the dense-sampled sub-run covering just that span (padded 1 sample into the matching
+ * neighbourhood on each side so the new cells stay 4-connected to the untouched raw tiles).
+ * Validates every candidate cell; on success, stamps them via `applyRoadMask` (reusing the
+ * exact tile-write rules `buildRoadGraph`/`rasterizeRoadGraph` already use — bridge/water
+ * preserved, base biome recorded). On failure, writes nothing (fall back to the original tiles).
+ */
+function reconcileSpan(
+  map: GameMap, edge: RoadEdge, sample: Pt[], arcRange: [number, number],
+  wallObstacles: ReadonlySet<string>, greenTiles: ReadonlySet<string>,
+): FilletReconcileSpan {
+  const isBad = (x: number, y: number): boolean => blockedForReconcile(map, x, y, wallObstacles, greenTiles);
+  const cells = fourConnectCells(roundCells(sample), isBad);
+  const safe = cells.length > 0 && cells.every((c) => !isBad(c.x, c.y));
+  if (!safe) return { edgeId: edge.id, arcRange, written: false, cellsWritten: 0 };
+  const mask: RoadMask = {
+    width: map.width,
+    height: map.height,
+    writes: cells.map((c) => ({ x: c.x, y: c.y, surface: edge.surface, bridge: false })),
+  };
+  applyRoadMask(map.tiles, mask);
+  return { edgeId: edge.id, arcRange, written: true, cellsWritten: cells.length };
+}
+
+/**
+ * Re-derive the road tile mask along every edge's FILLETED centerline so the raster NPCs walk
+ * matches the rendered ribbon (WP-Q #1). Purely additive: edges with no fillet divergence (the
+ * common case) are untouched; edges whose gate/anchor-arrival fillet moved the centerline off
+ * its raw walked path get the new cells stamped, falling back per-span wherever a candidate
+ * cell would violate a hard constraint. Safe to call more than once: divergence is measured
+ * against `edge.polyline` (never rewritten), so a repeat call re-identifies the same span, but
+ * `applyRoadMask` is itself idempotent (stamping an already-road tile is a no-op) — the TILE
+ * GRID never changes on a second pass, even though the returned span list isn't empty.
+ */
+export function reconcileFilletRaster(map: GameMap): FilletReconcileSpan[] {
+  const graph = map.roadGraph;
+  if (!graph || !map.tiles?.length) return [];
+  const nodeById = new Map(graph.nodes.map((nd) => [nd.id, nd]));
+  const poiById = new Map((map.worldSeed?.pois ?? []).map((p) => [p.id, p]));
+  const wallObstacles = gateApproachPlan(map.barrierRuns ?? [], [], map.worldSeed?.pois ?? []).wallObstacles;
+  const greenTiles = collectGreenTiles(map);
+
+  const results: FilletReconcileSpan[] = [];
+  for (const edge of graph.edges) {
+    if (edge.feature !== 'road' || edge.polyline.length < 2) continue;
+    const profile = edgeRoadProfile(map, edge, nodeById, poiById);
+    if (!profile || profile.centerline.length < 2) continue;
+
+    const raw = edge.polyline as Pt[];
+    const rawCumS = new Array<number>(raw.length);
+    rawCumS[0] = 0;
+    for (let i = 1; i < raw.length; i++) rawCumS[i] = rawCumS[i - 1] + Math.hypot(raw[i].x - raw[i - 1].x, raw[i].y - raw[i - 1].y);
+
+    const { points: sampled, arcLens } = denseSample(profile.centerline, RECON_SAMPLE_STEP_TILES);
+    const tol = RECON_MATCH_MARGIN_TILES;
+    const dists = sampled.map((p) => projectToPolyline(raw, rawCumS, p.x, p.y).d);
+
+    // Every contiguous run of divergent samples — a fillet reshapes a TAIL near a gate/anchor
+    // in the common case, but a fully-collapsed (straight) raw polyline can pin BOTH literal
+    // endpoints exactly and bulge only in the middle (a Hermite/arc property), so divergence
+    // isn't guaranteed to touch either end. Pad one matching sample on each side so the
+    // written cells stay 4-connected to the untouched raw tiles at the seam.
+    let i = 0;
+    while (i < dists.length) {
+      if (dists[i] <= tol) { i++; continue; }
+      let j = i;
+      while (j + 1 < dists.length && dists[j + 1] > tol) j++;
+      const from = Math.max(0, i - 1);
+      const to = Math.min(dists.length - 1, j + 1);
+      results.push(reconcileSpan(
+        map, edge, sampled.slice(from, to + 1), [arcLens[from], arcLens[to]], wallObstacles, greenTiles,
+      ));
+      i = j + 1;
+    }
+  }
+  return results;
+}
+
+/** Runs `reconcileFilletRaster` exactly once per distinct `RoadGraph` object — gated on
+ *  identity (a `WeakSet`), NOT on the string-keyed memoisation below. The deformation/feature
+ *  caches key on `(seed, dims, roadGraph.rev, …)`, which two independently-generated maps with
+ *  the SAME seed can collide on; if the tile mutation lived inside a memoised builder, the
+ *  second map's tiles would silently skip reconciliation on a cache hit — breaking the
+ *  "same seed twice ⇒ identical world" determinism guarantee. Gating on the graph OBJECT
+ *  sidesteps that: a fresh `generateWithNoise()` call always produces a fresh graph instance. */
+const filletReconciledGraphs = new WeakSet<RoadGraph>();
+export function ensureFilletReconciled(map: GameMap): void {
+  const graph = map.roadGraph;
+  if (!graph || filletReconciledGraphs.has(graph)) return;
+  filletReconciledGraphs.add(graph);
+  reconcileFilletRaster(map);
+}
+
 // ── Riverside levee (#24): roads alongside open water ride up on an embankment ──
 
 /** Full-height berm rise (metres) where a road runs alongside open water. ~1.5 m reads as a
@@ -515,6 +793,7 @@ function evict(cache: Map<string, unknown>): void {
  * has no road graph, so consumers compose to exact base-terrain parity.
  */
 export function getRoadDeformationStore(map: GameMap): DeformationStore {
+  ensureFilletReconciled(map); // gated on the graph OBJECT, independent of the cache key below
   const k = key(map);
   let store = storeCache.get(k);
   if (store) return store;
@@ -535,6 +814,7 @@ const worldStoreCache = new Map<string, DeformationStore>();
  * stays road-only for callers that want just roads.
  */
 export function getWorldDeformationStore(map: GameMap): DeformationStore {
+  ensureFilletReconciled(map); // gated on the graph OBJECT, independent of the cache key below
   const k = key(map);
   let store = worldStoreCache.get(k);
   if (store) return store;

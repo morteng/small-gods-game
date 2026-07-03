@@ -1,6 +1,6 @@
 // tests/unit/anchor-fillet.test.ts
 import { describe, it, expect } from 'vitest';
-import { filletPath, hermite, filletApproach } from '@/world/anchor-fillet';
+import { filletPath, hermite, filletApproach, type Vec } from '@/world/anchor-fillet';
 
 const dist = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.hypot(a.x - b.x, a.y - b.y);
 
@@ -56,6 +56,50 @@ describe('filletApproach', () => {
   it('returns the polyline unchanged when too short to graft', () => {
     const road = [{ x: 0, y: 0 }];
     expect(filletApproach(road, { x: 1, y: 1 }, [1, 0])).toEqual(road);
+  });
+});
+
+describe('filletPath — radius clamp (WP-Q #3)', () => {
+  // A shallow (~8.6°) turn over a moderate chord needs a large-radius arc (r = T/tan(θ/2)
+  // blows up as θ→0 for any fixed T>0) — StreetGen's "short segment forces an oversized loop"
+  // pitfall. Without a cap the fillet still finds a valid forward arc (bulges visibly off the
+  // chord); with a small `maxRadius` it should give up on the arc and arrive on the straight
+  // chord instead.
+  const p0 = { x: 0, y: 0 };
+  const p1 = { x: 10, y: 1 };
+  const t0: Vec = [1, 0];
+  const t1: Vec = [Math.cos(0.15), Math.sin(0.15)];
+
+  /** Perpendicular distance from q to the line through p0→p1. */
+  function distToChord(q: { x: number; y: number }): number {
+    const dx = p1.x - p0.x, dy = p1.y - p0.y, m = Math.hypot(dx, dy);
+    return Math.abs((q.x - p0.x) * dy - (q.y - p0.y) * dx) / m;
+  }
+
+  it('an unclamped shallow turn bulges off the straight chord', () => {
+    const wide = filletPath(p0, t0, p1, t1, { step: 0.5 });
+    const maxDev = Math.max(...wide.map(distToChord));
+    expect(maxDev).toBeGreaterThan(0.05);
+  });
+
+  it('a tight maxRadius skips the arc and arrives on the straight chord', () => {
+    const clamped = filletPath(p0, t0, p1, t1, { step: 0.5, maxRadius: 5 });
+    expect(dist(clamped[0], p0)).toBeLessThan(1e-6);
+    expect(dist(clamped[clamped.length - 1], p1)).toBeLessThan(1e-6);
+    const maxDev = Math.max(...clamped.map(distToChord));
+    expect(maxDev).toBeLessThan(1e-6);
+  });
+
+  it('filletApproach derives a radius cap from the available approach length', () => {
+    // A very short graft-back run (1 tile) feeding the same shallow turn should also clamp
+    // automatically (no explicit maxRadius passed) — the default ties the cap to the shorter
+    // incident run, so a short approach never hosts an oversized sweep.
+    const road = [{ x: -1, y: 0 }, p0];
+    const out = filletApproach(road, p1, [-t1[0], -t1[1]], { step: 0.5, graftBack: 1 });
+    const start = out[0], end = out[out.length - 1];
+    const dx = end.x - start.x, dy = end.y - start.y, m = Math.hypot(dx, dy);
+    const maxDev = Math.max(...out.map((q) => Math.abs((q.x - start.x) * dy - (q.y - start.y) * dx) / m));
+    expect(maxDev).toBeLessThan(1e-6);
   });
 });
 
