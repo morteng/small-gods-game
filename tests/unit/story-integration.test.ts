@@ -67,13 +67,12 @@ describe('bus story host', () => {
   });
 
   it('a storylet effect routed through the bus becomes a real command', () => {
-    const { bus, emitted } = fakeBus(['omen', 'whisper', 'grant_belief']);
+    const { bus, emitted } = fakeBus(['omen', 'whisper']);
     const host = createBusStoryHost(bus, { source: 'player' });
     const session = new StorySession(droughtOmenPack, { host, seed: 3 });
     session.start('parched-prayer');
     pumpToEnd(session, [0]); // omen branch
     expect(emitted.map((c) => c.verb)).toContain('omen');
-    expect(emitted.map((c) => c.verb)).toContain('grant_belief');
   });
 });
 

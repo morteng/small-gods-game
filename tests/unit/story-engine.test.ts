@@ -22,9 +22,9 @@ describe('storylet sample pack', () => {
     expect(tx.lines.length).toBeGreaterThan(0);
     expect(tx.visited).toContain('parched-prayer');
     expect(tx.visited).toContain('the-answer');
-    // last meaningful effect of the omen branch
+    // last meaningful effect of the omen branch (the pack's only registered verbs
+    // are omen/whisper — see tests/unit/story-pack-live-verbs.test.ts)
     expect(tx.effects.map((e) => e.verb)).toContain('omen');
-    expect(tx.effects.map((e) => e.verb)).toContain('grant_belief');
   });
 
   it('is deterministic: same seed + choices ⇒ identical transcript', () => {

@@ -118,7 +118,11 @@ export const droughtOmenPack: StoryPack = {
             },
           ],
         },
-        { t: 'do', effect: { verb: 'grant_belief', args: { subject: 'elder', amount: 1 } } },
+        // The faith reward lands via the `set elder.faith` nodes above. (A `do`
+        // effect here once used an unregistered verb — the whole pack was
+        // rejected by the live bus allowlist and NO storylet could ever load;
+        // effects must name verbs from the capability registry, guarded by
+        // tests/unit/story-pack-live-verbs.test.ts.)
         { t: 'end' },
       ],
     },
