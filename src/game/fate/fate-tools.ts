@@ -24,6 +24,12 @@ const MAX_NUDGE = 0.5;
  *  (presentation/cues) so a beat can only reference a cue that actually exists. */
 export const FATE_MUSIC_CUES = ['swell_miracle', 'dirge_death', 'fanfare_settlement'] as const;
 
+/** The RivalPersonality fields Fate may coach, and the per-call magnitude cap. A
+ *  small clamp keeps any single deliberation from maxing a rival (anti-snowball is
+ *  a nudge, not a switch); the verb's apply clamps the resulting field to [0,1]. */
+export const FATE_STANCE_FIELDS = ['aggression', 'subtlety', 'territoriality', 'assertiveness', 'jealousy'] as const;
+const MAX_STANCE_DELTA = 0.2;
+
 export const FATE_TOOLS: LLMTool[] = [
   {
     name: 'arm_staged_beat',
@@ -86,10 +92,35 @@ export const FATE_TOOLS: LLMTool[] = [
       required: ['subjectPoiId', 'eventType'],
     },
   },
+  {
+    name: 'set_rival_stance',
+    description:
+      "Coach a rival god's disposition by nudging its personality (each delta clamped to ±0.2; fields live " +
+      'in 0…1). ANTI-SNOWBALL, per the counter-loop: turn a rival UP (raise aggression / territoriality) when ' +
+      'the player is COASTING and its followers dwarf the rival, and DOWN when the player is DROWNING and ' +
+      "losing prayers — you keep the contest alive, you never crown a winner. Only name a rivalId from the " +
+      'Rivals list. Use at most one per deliberation.',
+    parameters: {
+      type: 'object',
+      properties: {
+        rivalId: { type: 'string', description: 'A rival god id from the Rivals list. Required.' },
+        aggression: { type: 'number', description: 'Delta to aggression, -0.2…0.2.' },
+        territoriality: { type: 'number', description: 'Delta to territoriality, -0.2…0.2.' },
+        assertiveness: { type: 'number', description: 'Delta to assertiveness, -0.2…0.2.' },
+        subtlety: { type: 'number', description: 'Delta to subtlety, -0.2…0.2.' },
+        jealousy: { type: 'number', description: 'Delta to jealousy, -0.2…0.2.' },
+      },
+      required: ['rivalId'],
+    },
+  },
 ];
 
 export interface FateToolCtx {
   validPoiIds: Set<string>;
+  /** The live rival spirit ids the set_rival_stance drift-guard validates against.
+   *  Optional so read-only/legacy callers need not supply it (an absent set drops
+   *  every set_rival_stance call, logged — the safe default). */
+  validRivalIds?: Set<string>;
   now: number;
   /** Drift guard for `arm_staged_beat`'s optional `storylet` ref — the loaded
    *  pack(s)' storylet ids. Omit (or empty) to disable storylet arming entirely. */
@@ -117,6 +148,9 @@ export function parseFateToolCalls(
       if (cmd) commands.push(cmd);
     } else if (c.name === 'force_next_event') {
       const cmd = parseForceEvent(c, ctx);
+      if (cmd) commands.push(cmd);
+    } else if (c.name === 'set_rival_stance') {
+      const cmd = parseSetRivalStance(c, ctx);
       if (cmd) commands.push(cmd);
     }
   }
@@ -178,4 +212,25 @@ function parseForceEvent(c: LLMToolCall, ctx: FateToolCtx): Omit<Command, 'seq'>
     console.warn('[fate] dropped force_next_event: bad eventType', a.eventType); return null;
   }
   return { verb: 'bias_event', source: 'fate', target: { kind: 'settlement', poiId }, payload: { eventType: a.eventType } };
+}
+
+/** WP-L: coach a rival's stance. Drift-guarded against live rival ids; each delta
+ *  is capped to ±0.2 here (the verb's apply independently re-caps + floor/ceiling
+ *  clamps, mirroring nudge_event_severity's defence-in-depth). A call with no finite
+ *  delta is dropped — there is nothing to coach. */
+function parseSetRivalStance(c: LLMToolCall, ctx: FateToolCtx): Omit<Command, 'seq'> | null {
+  const a = c.arguments as Record<string, unknown>;
+  const rivalId = typeof a.rivalId === 'string' ? a.rivalId : '';
+  if (!ctx.validRivalIds?.has(rivalId)) { console.warn('[fate] dropped set_rival_stance: unknown rivalId', rivalId); return null; }
+  const payload: Record<string, unknown> = { rivalId };
+  let any = false;
+  for (const f of FATE_STANCE_FIELDS) {
+    const v = a[f];
+    if (typeof v === 'number' && Number.isFinite(v)) {
+      payload[f] = Math.max(-MAX_STANCE_DELTA, Math.min(MAX_STANCE_DELTA, v));
+      any = true;
+    }
+  }
+  if (!any) { console.warn('[fate] dropped set_rival_stance: no finite deltas', rivalId); return null; }
+  return { verb: 'set_rival_stance', source: 'fate', target: { kind: 'none' }, payload };
 }

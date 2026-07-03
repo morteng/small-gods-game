@@ -13,13 +13,13 @@ const EDITOR_VERBS: CommandVerb[] = [
 const ALL_VERBS: CommandVerb[] = [
   'whisper', 'omen', 'dream', 'miracle', 'answer_prayer', 'probe_mind', 'smite', 'summon_storm',
   'bias_event', 'inject_npc', 'nudge_severity', 'place_building', 'grow_settlement',
-  'rename_ward', 'retype_ward',
+  'rename_ward', 'retype_ward', 'set_rival_stance',
   ...EDITOR_VERBS,
 ];
 
 describe('capability registry', () => {
-  it('declares all 21 verbs', () => {
-    expect(listCapabilities()).toHaveLength(21);
+  it('declares all 22 verbs', () => {
+    expect(listCapabilities()).toHaveLength(22);
     for (const v of ALL_VERBS) {
       expect(getCapability(v)).toBeDefined();
       expect(CAPABILITY_REGISTRY[v].verb).toBe(v);

@@ -5,12 +5,12 @@ import { FATE_TOOLS, parseFateToolCalls } from '@/game/fate/fate-tools';
 function armCall(args: Record<string, unknown>): LLMToolCall {
   return { id: 'c0', name: 'arm_staged_beat', arguments: args };
 }
-const ctx = () => ({ validPoiIds: new Set(['poi1', 'poi2']), now: 100 });
+const ctx = () => ({ validPoiIds: new Set(['poi1', 'poi2']), validRivalIds: new Set(['rival-1']), now: 100 });
 
 describe('FATE_TOOLS', () => {
-  it('exposes the staged + two immediate tools', () => {
+  it('exposes the staged + immediate + rival-coaching tools', () => {
     const names = FATE_TOOLS.map((t) => t.name).sort();
-    expect(names).toEqual(['arm_staged_beat', 'force_next_event', 'nudge_event_severity']);
+    expect(names).toEqual(['arm_staged_beat', 'force_next_event', 'nudge_event_severity', 'set_rival_stance']);
   });
 });
 
@@ -119,6 +119,33 @@ describe('parseFateToolCalls — immediate commands', () => {
       { id: 'a', name: 'nudge_event_severity', arguments: { subjectPoiId: 'causal:flood:0003', delta: 0.3 } },
       { id: 'b', name: 'force_next_event', arguments: { subjectPoiId: 'causal:flood:0003', eventType: 'plague' } },
     ], siteCtx);
+    expect(commands).toHaveLength(0);
+  });
+});
+
+describe('parseFateToolCalls — set_rival_stance', () => {
+  const stance = (args: Record<string, unknown>): LLMToolCall => ({ id: 's0', name: 'set_rival_stance', arguments: args });
+
+  it('builds a set_rival_stance command for a valid rival, capping each delta to ±0.2', () => {
+    const { commands } = parseFateToolCalls([stance({ rivalId: 'rival-1', aggression: 0.9, territoriality: -0.05 })], ctx());
+    expect(commands).toHaveLength(1);
+    expect(commands[0]).toMatchObject({ verb: 'set_rival_stance', source: 'fate', target: { kind: 'none' } });
+    expect(commands[0].payload).toEqual({ rivalId: 'rival-1', aggression: 0.2, territoriality: -0.05 });
+  });
+
+  it('drops a stance aimed at an unknown / ungrounded rivalId', () => {
+    const { commands } = parseFateToolCalls([stance({ rivalId: 'ghost', aggression: 0.1 })], ctx());
+    expect(commands).toHaveLength(0);
+  });
+
+  it('drops a stance carrying no finite deltas', () => {
+    const { commands } = parseFateToolCalls([stance({ rivalId: 'rival-1', aggression: 'lots' })], ctx());
+    expect(commands).toHaveLength(0);
+  });
+
+  it('drops every stance when the ctx supplies no validRivalIds set', () => {
+    const noRivals = { validPoiIds: new Set(['poi1']), now: 5 };
+    const { commands } = parseFateToolCalls([stance({ rivalId: 'rival-1', aggression: 0.1 })], noRivals);
     expect(commands).toHaveLength(0);
   });
 });

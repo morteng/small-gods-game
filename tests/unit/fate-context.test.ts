@@ -6,8 +6,10 @@ import { StagingBuffer } from '@/sim/threads/staging-buffer';
 import { initNpcProps } from '@/world/npc-helpers';
 import type { GameMap, Tile, Entity, ActiveEvent } from '@/core/types';
 import type { GameState } from '@/core/state';
-import { buildFateContext, describeThreadsForFate, type FateFocus } from '@/game/fate/fate-context';
+import { buildFateContext, describeThreadsForFate, describeRivalsForFate, type FateFocus } from '@/game/fate/fate-context';
 import { CausalSiteStore } from '@/world/causal-site';
+import { EventLog } from '@/core/events';
+import type { Spirit } from '@/core/spirit';
 
 function map(): GameMap {
   const tiles: Tile[][] = [];
@@ -59,6 +61,64 @@ describe('describeThreadsForFate active events', () => {
   it('marks a thread settlement with no active event', () => {
     const { text } = describeThreadsForFate(state());
     expect(text.toLowerCase()).toContain('no active event');
+  });
+});
+
+function rivalSpirit(): Spirit {
+  return {
+    id: 'rival-1', name: 'Sablethorn', sigil: '◆', color: '#000', isPlayer: false, power: 10,
+    manifestation: null,
+    ai: {
+      policy: 'expand', cooldowns: {}, settlements: ['poi1'],
+      personality: { aggression: 0.8, subtlety: 0.3, territoriality: 0.7, assertiveness: 0.5, jealousy: 0.4 },
+    },
+  };
+}
+function playerSpirit(): Spirit {
+  return { id: 'player', name: 'You', sigil: '✦', color: '#fff', isPlayer: true, power: 20, manifestation: null };
+}
+/** A state carrying a rival, a believer of each god, and a recent rival prayer-claim. */
+function rivalState(): GameState {
+  const world = new World(map());
+  // Player believer at poi1.
+  const believerP = resident('bp');
+  (believerP.properties as unknown as { beliefs: Record<string, { faith: number; understanding: number; devotion: number }> })
+    .beliefs.player.faith = 0.6;
+  world.addEntity(believerP);
+  // Rival believer at poi1 — its player faith is zeroed so it counts ONLY for the rival.
+  const believerR = resident('br');
+  const rp = believerR.properties as unknown as { beliefs: Record<string, { faith: number; understanding: number; devotion: number }> };
+  rp.beliefs.player.faith = 0;
+  rp.beliefs['rival-1'] = { faith: 0.5, understanding: 0.2, devotion: 0.2 };
+  world.addEntity(believerR);
+
+  const clock = new SimClock();
+  const eventLog = new EventLog(clock);
+  eventLog.append({ type: 'answer_prayer', spiritId: 'rival-1', npcId: 'br' });
+  const spirits = new Map<string, Spirit>([['player', playerSpirit()], ['rival-1', rivalSpirit()]]);
+  return {
+    world, plotThreads: new PlotThreadStore(), staging: new StagingBuffer(), clock, eventLog, spirits,
+    worldSeed: { name: 'Test', pois: [{ id: 'poi1', name: 'Northvale' }] },
+  } as unknown as GameState;
+}
+
+describe('describeRivalsForFate', () => {
+  it('digests each rival with follower counts, settlements, disposition, and recent claims', () => {
+    const { text, rivalIds } = describeRivalsForFate(rivalState());
+    expect(text).toContain('Sablethorn');
+    expect(text).toContain('rival-1');
+    expect(text).toContain('aggression 0.80');
+    expect(text).toContain('holds 1 settlement');
+    expect(text).toContain('1 recent prayer claim');
+    expect(text).toMatch(/1 follower\(s\) vs your 1/);   // one rival believer vs one player believer
+    expect([...rivalIds]).toEqual(['rival-1']);
+  });
+
+  it('returns empty text + no ids when there are no rivals', () => {
+    const s = state();                                   // no spirits map
+    const { text, rivalIds } = describeRivalsForFate(s);
+    expect(text).toBe('');
+    expect(rivalIds.size).toBe(0);
   });
 });
 

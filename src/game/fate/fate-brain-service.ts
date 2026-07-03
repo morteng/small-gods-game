@@ -43,13 +43,14 @@ export class FateBrainService {
     this.inFlight = true;
     try {
       const state = this.deps.getState();
-      const { system, user, validPoiIds } = buildFateContext(state, focus);
+      const { system, user, validPoiIds, validRivalIds } = buildFateContext(state, focus);
       const res = await client.generateWithTools(
         [{ role: 'system', content: system }, { role: 'user', content: user }],
         FATE_TOOLS,
       );
       const { beats, commands } = parseFateToolCalls(res.toolCalls, {
-        validPoiIds, now: state.clock.now(), validStoryletIds: this.deps.getValidStoryletIds?.(),
+        validPoiIds, validRivalIds, now: state.clock.now(),
+        validStoryletIds: this.deps.getValidStoryletIds?.(),
       });
       for (const b of beats) {
         const armed = state.staging.arm(b);
