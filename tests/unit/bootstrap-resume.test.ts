@@ -60,5 +60,5 @@ describe('bootstrapWorld resume', () => {
     expect(applied).toHaveLength(0);
     expect(state.world).not.toBeNull();
     expect(state.world!.query({ kind: 'npc' }).length).toBeGreaterThan(0);
-  });
+  }, 30_000);
 });

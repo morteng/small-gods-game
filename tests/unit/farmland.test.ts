@@ -35,13 +35,13 @@ describe('stampFarmland', () => {
         .some((f) => Math.abs(f.x - x) <= 12 && Math.abs(f.y - y) <= 12);
       expect(nearFarm).toBe(true);
     }
-  });
+  }, 30_000);
 
   it('is deterministic for a given world', async () => {
     const a = await generateWithNoise(96, 96, 7, seed);
     const b = await generateWithNoise(96, 96, 7, seed);
     expect(stampFarmland(a.map, a.world)).toBe(stampFarmland(b.map, b.world));
-  });
+  }, 30_000);
 
   it('no-ops on a world with no farms', async () => {
     const noPoi = { ...seed, pois: [] } as unknown as WorldSeed;

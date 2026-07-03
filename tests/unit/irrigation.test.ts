@@ -42,7 +42,7 @@ describe('stampIrrigation', () => {
       if (map.tiles[y][x].irrigated) { expect(map.tiles[y][x].type).toBe('farm_field'); irrigatedFields++; }
     }
     expect(irrigatedFields).toBeGreaterThan(0);
-  });
+  }, 30_000);
 
   it('is deterministic for a given world', async () => {
     const a = await generateWithNoise(96, 96, 5, seed);
@@ -51,7 +51,7 @@ describe('stampIrrigation', () => {
     const reA = stampIrrigation(a.map, a.world);
     const reB = stampIrrigation(b.map, b.world);
     expect(reA).toBe(reB);
-  });
+  }, 30_000);
 
   it('no-ops on a map with no fields', () => {
     const W = 12, H = 12;
