@@ -48,6 +48,7 @@ import { buildRiparianEntities } from '@/world/riparian-scatter';
 import { buildCoastalLandmarks, SETTLEMENT_TYPES } from '@/world/coastal-landmarks';
 import { tileBlockedByBuilding } from '@/world/building-collision';
 import { reconcileBarriersWithBuildings } from '@/world/place-barrier';
+import { reconcileBuildingsWithWater } from '@/world/building-water-reconcile';
 import type { SettlementPlan } from '@/world/settlement-plan';
 import { applyAllSettlementWear } from '@/world/settlement-wear';
 import { applyPoiGroundPatches } from '@/world/poi-ground-patches';
@@ -510,6 +511,22 @@ export async function generateWithNoise(
         },
       },
     )) world.addEntity(e);
+  }
+
+  // Every terrain-mutating carve above (rivers/roads/crossings) is done. A `river`/
+  // `wall` connection ignores building obstacles by design (see road-graph.ts) — a
+  // real river doesn't detour around a building — so an authored river reaching for
+  // a POI a building already occupies can retroactively flood part of its footprint
+  // (#22). Nudge any such building to the nearest dry, unoccupied, off-road ground
+  // before anything downstream (barriers, `buildings[]`) reads its position.
+  report('Reconciling buildings against water...');
+  const waterMoves = reconcileBuildingsWithWater(world, tiles);
+  if (waterMoves.length) {
+    const byId = new Map(waterMoves.map((m) => [m.id, m]));
+    for (const b of buildings) {
+      const move = byId.get(b.id);
+      if (move) { b.tileX = move.x; b.tileY = move.y; }
+    }
   }
 
   // All buildings are placed: a building is authoritative over its footprint, so

@@ -104,8 +104,12 @@ const NATURE_CATEGORIES = new Set(['vegetation', 'terrain-feature']);
  * Remove nature entities (trees, boulders, etc.) that overlap with the
  * given footprint rectangle. Also updates ground tiles to 'grass' (or the
  * specified tile type) under the building.
+ *
+ * Exported for `building-water-reconcile.ts`, which reuses it to clear + ground
+ * a building's DESTINATION footprint when nudging it off water post-carve —
+ * same "commit a footprint" primitive, just invoked outside the main layout loop.
  */
-function clearFootprint(
+export function clearFootprint(
   x: number, y: number, w: number, h: number,
   registry: EntityRegistry,
   world: World | null | undefined,
