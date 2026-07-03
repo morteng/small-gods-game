@@ -48,6 +48,12 @@ export const FATE_TOOLS: LLMTool[] = [
           type: 'string', enum: [...FATE_MUSIC_CUES],
           description: 'Optional: a short musical cue to swell when this beat is discovered.',
         },
+        storylet: {
+          type: 'string',
+          description:
+            'Optional: id of a loaded storylet to open as an interactive card on discovery ' +
+            '(from the storylets listed in context). Dropped silently if unrecognized.',
+        },
       },
       required: ['subjectPoiId', 'hard'],
     },
@@ -85,6 +91,9 @@ export const FATE_TOOLS: LLMTool[] = [
 export interface FateToolCtx {
   validPoiIds: Set<string>;
   now: number;
+  /** Drift guard for `arm_staged_beat`'s optional `storylet` ref — the loaded
+   *  pack(s)' storylet ids. Omit (or empty) to disable storylet arming entirely. */
+  validStoryletIds?: Set<string>;
 }
 
 export interface ParsedFateActions {
@@ -121,6 +130,7 @@ function isSiteId(id: string): boolean { return id.startsWith('causal:'); }
 function parseArmBeat(c: LLMToolCall, ctx: FateToolCtx): Omit<StagedBeat, 'id' | 'status'> | null {
   const a = c.arguments as {
     subjectPoiId?: unknown; threadId?: unknown; hard?: unknown; role?: unknown; soft?: unknown; musicCue?: unknown;
+    storylet?: unknown;
   };
   const poiId = typeof a.subjectPoiId === 'string' ? a.subjectPoiId : '';
   if (!ctx.validPoiIds.has(poiId)) { console.warn('[fate] dropped beat: unknown subjectPoiId', poiId); return null; }
@@ -141,6 +151,11 @@ function parseArmBeat(c: LLMToolCall, ctx: FateToolCtx): Omit<StagedBeat, 'id' |
   if (typeof a.threadId === 'number') beat.threadId = a.threadId;
   if (typeof a.soft === 'string' && a.soft.trim()) beat.soft = { kind: 'location_vibe', text: a.soft.trim() };
   if (typeof a.musicCue === 'string' && (FATE_MUSIC_CUES as readonly string[]).includes(a.musicCue)) beat.musicCue = a.musicCue;
+  // Drift guard: a hallucinated/stale storylet id is dropped (logged), the beat still arms.
+  if (typeof a.storylet === 'string' && a.storylet.trim()) {
+    if (ctx.validStoryletIds?.has(a.storylet)) beat.storylet = a.storylet;
+    else console.warn('[fate] dropped storylet ref: unknown storylet id', a.storylet);
+  }
   return beat;
 }
 

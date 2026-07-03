@@ -87,4 +87,54 @@ describe('Fate brain integration (prep → discover → materialize)', () => {
     expect(p.fateRole).toBe('preacher');
     expect(p.beliefs.player.faith).toBe(0);
   });
+
+  it('a beat armed with a storylet ref fires onStoryletBeat on discovery (arm → discover → surfaced)', async () => {
+    const clock = new SimClock();
+    const log = new EventLog(clock);
+    const world = new World(map());
+    const plotThreads = new PlotThreadStore();
+    const t = plotThreads.open('trial', { kind: 'settlement', poiId: 'poi1' }, 0);
+    plotThreads.advance(t.id, 'hardship', 1, 0);
+    const staging = new StagingBuffer();
+    const state = {
+      world, plotThreads, staging, clock,
+      worldSeed: { name: 'T', pois: [{ id: 'poi1', name: 'Northvale' }] },
+    } as unknown as GameState;
+
+    // 1. Brain arms a beat carrying a storylet ref, validated against the loaded pack.
+    const brain = new FateBrainService({
+      getState: () => state,
+      getCapableClient: () => new LLMClient(new MockLLMProvider(0, {
+        cannedToolCalls: [{ id: 'c0', name: 'arm_staged_beat',
+          arguments: { subjectPoiId: 'poi1', threadId: 1, hard: 'none', storylet: 'parched-prayer' } }],
+      })),
+      isScrubbed: () => false,
+      emitCommand: () => {},
+      getValidStoryletIds: () => new Set(['parched-prayer']),
+    });
+    const focus: FateFocus = { event: { type: 'thread_advanced', threadId: 1, phase: 'turning', weight: 'climax' }, threadId: 1 };
+    await brain.deliberate(focus);
+    const [armed] = staging.armedByTrigger('discovery');
+    expect(armed.storylet).toBe('parched-prayer');
+
+    // 2. Discovering the settlement fires the beat — the game layer's onStoryletBeat
+    //    callback is how a fired storylet ref actually surfaces to the player
+    //    (game.ts wires this to open an interactive StorySession card).
+    const discovery = new DiscoveryQueue();
+    const queue = new CommandQueue();
+    const surfaced: Array<{ storyletId: string; subject: unknown }> = [];
+    const sys = new StagingActivationSystem(
+      discovery, queue, () => staging, () => plotThreads,
+      undefined,
+      (subject, storyletId) => { surfaced.push({ subject, storyletId }); },
+    );
+    discovery.push({ subject: { kind: 'settlement', poiId: 'poi1' } });
+    const ctx: SystemContext = { world, spirits: new Map(), log, clock, rng: createRng(1), dt: 2000, now: 20 };
+    sys.tick(ctx);
+
+    expect(surfaced).toHaveLength(1);
+    expect(surfaced[0].storyletId).toBe('parched-prayer');
+    expect(surfaced[0].subject).toEqual({ kind: 'settlement', poiId: 'poi1' });
+    expect(staging.get(armed.id)!.status).toBe('fired');
+  });
 });

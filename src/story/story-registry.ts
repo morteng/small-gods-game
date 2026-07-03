@@ -43,6 +43,11 @@ export class StoryRegistry {
     return this.byStoryletId.has(storyletId);
   }
 
+  /** All registered storylet ids — the drift-guard set producers/Fate validate refs against. */
+  storyletIds(): Set<string> {
+    return new Set(this.byStoryletId.keys());
+  }
+
   /** All registered packs (e.g. for the reservoir / a pack picker). */
   all(): StoryPack[] {
     return [...this.byPackId.values()];

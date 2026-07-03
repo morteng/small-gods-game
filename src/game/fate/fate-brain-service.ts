@@ -23,6 +23,9 @@ export interface FateBrainDeps {
   emitCommand: (cmd: Omit<Command, 'seq'>) => void;
   /** Observability/test seam — fires for each armed beat. Intentionally unwired in game.ts. */
   onArmed?: (beat: StagedBeat) => void;
+  /** Loaded storylet ids — the drift-guard set `arm_staged_beat`'s optional `storylet`
+   *  ref is validated against. Omit to disable storylet arming from Fate entirely. */
+  getValidStoryletIds?: () => Set<string>;
 }
 
 export class FateBrainService {
@@ -45,7 +48,9 @@ export class FateBrainService {
         [{ role: 'system', content: system }, { role: 'user', content: user }],
         FATE_TOOLS,
       );
-      const { beats, commands } = parseFateToolCalls(res.toolCalls, { validPoiIds, now: state.clock.now() });
+      const { beats, commands } = parseFateToolCalls(res.toolCalls, {
+        validPoiIds, now: state.clock.now(), validStoryletIds: this.deps.getValidStoryletIds?.(),
+      });
       for (const b of beats) {
         const armed = state.staging.arm(b);
         if (b.threadId !== undefined) {

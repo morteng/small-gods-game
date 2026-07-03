@@ -324,6 +324,7 @@ export class Game {
       () => this.state.plotThreads,
       () => this.state.staging,
       () => this.llmClientCapable === null,   // stub runs only as the offline fallback
+      () => this.storyRegistry,               // lets the stub attach a storylet ref to staged beats
     ));
     this.scheduler.register(new StagingActivationSystem(
       this.discoveryQueue, this.commandQueue,
@@ -582,6 +583,7 @@ export class Game {
       getCapableClient: () => this.llmClientCapable,
       isScrubbed: () => this.timeline.isScrubbed,
       emitCommand: (cmd) => this.commandQueue.emit(cmd),
+      getValidStoryletIds: () => this.storyRegistry.storyletIds(),
     });
     const fateTrigger = new FateTrigger({
       clock: this.state.clock,

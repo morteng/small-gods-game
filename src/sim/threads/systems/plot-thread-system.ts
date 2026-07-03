@@ -14,10 +14,11 @@
  * re-deriving it. This mirrors the full-state-snapshot persistence model.
  */
 import type { System, SystemContext } from '@/core/scheduler';
+import type { StoryRegistry } from '@/story/story-registry';
 import type { PlotThreadStore } from '../thread-store';
 import type { StagingBuffer } from '../staging-buffer';
 import { RECOGNIZERS, type RecognizerCtx } from '../recognizers';
-import { STUB_PRODUCERS } from '../stub-producer';
+import { STUB_PRODUCERS, type ProducerCtx } from '../stub-producer';
 
 export class PlotThreadSystem implements System {
   readonly name = 'plot-thread';
@@ -34,11 +35,15 @@ export class PlotThreadSystem implements System {
    *                         `() => llmClientCapable === null` so the deterministic
    *                         stub producers run ONLY as the offline fallback — when
    *                         the Fate brain is active it owns staging (no double-arm).
+   * @param getStoryRegistry lazy getter for the loaded StoryPacks, so a producer
+   *                         can attach a `storylet` ref to the beats it stages.
+   *                         Optional — omit to keep prior hard/soft-only behaviour.
    */
   constructor(
     private readonly getStore: () => PlotThreadStore,
     private readonly getStaging?: () => StagingBuffer,
     private readonly isProducerActive: () => boolean = () => true,
+    private readonly getStoryRegistry?: () => StoryRegistry,
   ) {}
 
   tick(ctx: SystemContext): void {
@@ -61,7 +66,10 @@ export class PlotThreadSystem implements System {
     // staging store, which rides the snapshot.
     const staging = this.getStaging?.();
     if (staging && this.isProducerActive()) {
-      const pctx = { world: ctx.world, threads: store, staging, now: ctx.now };
+      const pctx: ProducerCtx = {
+        world: ctx.world, threads: store, staging, now: ctx.now, rng: ctx.rng,
+        storyRegistry: this.getStoryRegistry?.(),
+      };
       for (const produce of STUB_PRODUCERS) produce(pctx);
     }
   }

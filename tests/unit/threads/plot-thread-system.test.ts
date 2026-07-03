@@ -7,6 +7,8 @@ import { createRng } from '@/core/rng';
 import { PlotThreadStore } from '@/sim/threads/thread-store';
 import { StagingBuffer } from '@/sim/threads/staging-buffer';
 import { PlotThreadSystem } from '@/sim/threads/systems/plot-thread-system';
+import { StoryRegistry } from '@/story/story-registry';
+import { STORY_IR_VERSION } from '@/story/story-ir';
 import type { SystemContext } from '@/core/scheduler';
 import type { GameMap, Tile, NpcProperties } from '@/core/types';
 
@@ -93,5 +95,26 @@ describe('PlotThreadSystem producer gate', () => {
     const sys = new PlotThreadSystem(() => threads, () => staging); // no gate ⇒ default on
     sys.tick(gateCtx(log, clock));
     expect(staging.armedByTrigger('discovery').length).toBeGreaterThan(0);
+  });
+
+  it('forwards a loaded StoryRegistry into the stub producer, arming a storylet ref', () => {
+    const clock = new SimClock();
+    const log = new EventLog(clock);
+    const threads = new PlotThreadStore();
+    const staging = new StagingBuffer();
+    const t = threads.open('trial', { kind: 'settlement', poiId: 'p1' }, 0);
+    threads.advance(t.id, 'hardship', 1, 0);
+
+    const registry = new StoryRegistry();
+    expect(registry.register({
+      id: 'pack', version: STORY_IR_VERSION,
+      storylets: [{ id: 'entry', priority: 5, body: [{ t: 'end' }] }],
+    })).toEqual([]);
+
+    const sys = new PlotThreadSystem(() => threads, () => staging, () => true, () => registry);
+    sys.tick(gateCtx(log, clock));
+    const beats = staging.armedByTrigger('discovery');
+    expect(beats).toHaveLength(1);
+    expect(beats[0].storylet).toBe('entry');
   });
 });
