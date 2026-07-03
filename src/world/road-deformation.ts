@@ -46,6 +46,8 @@ import { getHydrologyResult } from '@/world/hydrology-store';
 import { smoothCenterline, type Pt } from '@/terrain/road-centerline';
 import { filletApproach } from '@/world/anchor-fillet';
 import { realGateProfiles, gateApproachPlan, type GateApproachProfile } from '@/world/connectome/gate-approach';
+import { tileBlockedByBuilding } from '@/world/building-collision';
+import type { World } from '@/world/world';
 import type { Anchor } from '@/world/anchors';
 import { resolveSettlementEra, isEra, type Era } from '@/core/era';
 import {
@@ -570,12 +572,15 @@ function collectGreenTiles(map: GameMap): Set<string> {
 }
 
 /** Hard constraints a reconciled cell must pass: never a curtain blocking cell, never open
- *  water without an existing bridge deck, never a protected green, never a building footprint
- *  (approximated as "unwalkable and not already road/bridge" — buildings + walls stamp
- *  `walkable = false` on their footprint at placement time; greens/roads/water are excluded
- *  above/below so this catches exactly the remaining solid-obstacle case). */
+ *  water without an existing bridge deck, never a protected green, never a building
+ *  structure cell. The building check is TWO-layered: `tileBlockedByBuilding(world, …)` is
+ *  the real authority (the registry tile index sees EVERY building, including entity-only
+ *  ones — crossing tolls/shrines, stoops — that never stamp `tile.walkable`; this was the
+ *  INV3 regression: a walkable-flag-only proxy missed them). The tile-walkable proxy is kept
+ *  as a second layer for callers with no `world` (isolated tests / tooling). */
 function blockedForReconcile(
-  map: GameMap, x: number, y: number, wallObstacles: ReadonlySet<string>, greenTiles: ReadonlySet<string>,
+  map: GameMap, x: number, y: number,
+  wallObstacles: ReadonlySet<string>, greenTiles: ReadonlySet<string>, world?: World,
 ): boolean {
   const t = map.tiles[y]?.[x];
   if (!t) return true;
@@ -584,6 +589,7 @@ function blockedForReconcile(
   if (WATER_TYPES.has(t.type) && t.type !== 'bridge') return true;
   if (greenTiles.has(key)) return true;
   if (t.walkable === false && !ROAD_TILE_TYPES.has(t.type)) return true;
+  if (world && tileBlockedByBuilding(world, x, y)) return true;
   return false;
 }
 
@@ -597,9 +603,9 @@ function blockedForReconcile(
  */
 function reconcileSpan(
   map: GameMap, edge: RoadEdge, sample: Pt[], arcRange: [number, number],
-  wallObstacles: ReadonlySet<string>, greenTiles: ReadonlySet<string>,
+  wallObstacles: ReadonlySet<string>, greenTiles: ReadonlySet<string>, world?: World,
 ): FilletReconcileSpan {
-  const isBad = (x: number, y: number): boolean => blockedForReconcile(map, x, y, wallObstacles, greenTiles);
+  const isBad = (x: number, y: number): boolean => blockedForReconcile(map, x, y, wallObstacles, greenTiles, world);
   const cells = fourConnectCells(roundCells(sample), isBad);
   const safe = cells.length > 0 && cells.every((c) => !isBad(c.x, c.y));
   if (!safe) return { edgeId: edge.id, arcRange, written: false, cellsWritten: 0 };
@@ -621,8 +627,18 @@ function reconcileSpan(
  * against `edge.polyline` (never rewritten), so a repeat call re-identifies the same span, but
  * `applyRoadMask` is itself idempotent (stamping an already-road tile is a no-op) — the TILE
  * GRID never changes on a second pass, even though the returned span list isn't empty.
+ *
+ * SEQUENCING (the INV3 lesson): this is an EXPLICIT worldgen pass, called once by
+ * `map-generator.ts` after ALL building placement is final (settlements, crossing ancillary
+ * structures, stoops, aqueducts, `reconcileBuildingsWithWater` nudges) and after the
+ * anchor-snap layer is derived (`map.anchorLinks` feeds the building-anchor fillets) — the
+ * same "final authority" pattern as `reconcileBuildingsWithWater`. It must NOT be triggered
+ * lazily from a deformation-store/feature-geometry getter: a mid-generation read would stamp
+ * road tiles BEFORE later structures validate their seats, and those structures (sited to
+ * avoid roads-at-that-time) would then sit on roads they never saw. Pass `world` so the
+ * blocked check consults the real building registry, not just tile flags.
  */
-export function reconcileFilletRaster(map: GameMap): FilletReconcileSpan[] {
+export function reconcileFilletRaster(map: GameMap, world?: World): FilletReconcileSpan[] {
   const graph = map.roadGraph;
   if (!graph || !map.tiles?.length) return [];
   const nodeById = new Map(graph.nodes.map((nd) => [nd.id, nd]));
@@ -658,27 +674,12 @@ export function reconcileFilletRaster(map: GameMap): FilletReconcileSpan[] {
       const from = Math.max(0, i - 1);
       const to = Math.min(dists.length - 1, j + 1);
       results.push(reconcileSpan(
-        map, edge, sampled.slice(from, to + 1), [arcLens[from], arcLens[to]], wallObstacles, greenTiles,
+        map, edge, sampled.slice(from, to + 1), [arcLens[from], arcLens[to]], wallObstacles, greenTiles, world,
       ));
       i = j + 1;
     }
   }
   return results;
-}
-
-/** Runs `reconcileFilletRaster` exactly once per distinct `RoadGraph` object — gated on
- *  identity (a `WeakSet`), NOT on the string-keyed memoisation below. The deformation/feature
- *  caches key on `(seed, dims, roadGraph.rev, …)`, which two independently-generated maps with
- *  the SAME seed can collide on; if the tile mutation lived inside a memoised builder, the
- *  second map's tiles would silently skip reconciliation on a cache hit — breaking the
- *  "same seed twice ⇒ identical world" determinism guarantee. Gating on the graph OBJECT
- *  sidesteps that: a fresh `generateWithNoise()` call always produces a fresh graph instance. */
-const filletReconciledGraphs = new WeakSet<RoadGraph>();
-export function ensureFilletReconciled(map: GameMap): void {
-  const graph = map.roadGraph;
-  if (!graph || filletReconciledGraphs.has(graph)) return;
-  filletReconciledGraphs.add(graph);
-  reconcileFilletRaster(map);
 }
 
 // ── Riverside levee (#24): roads alongside open water ride up on an embankment ──
@@ -793,7 +794,6 @@ function evict(cache: Map<string, unknown>): void {
  * has no road graph, so consumers compose to exact base-terrain parity.
  */
 export function getRoadDeformationStore(map: GameMap): DeformationStore {
-  ensureFilletReconciled(map); // gated on the graph OBJECT, independent of the cache key below
   const k = key(map);
   let store = storeCache.get(k);
   if (store) return store;
@@ -814,7 +814,6 @@ const worldStoreCache = new Map<string, DeformationStore>();
  * stays road-only for callers that want just roads.
  */
 export function getWorldDeformationStore(map: GameMap): DeformationStore {
-  ensureFilletReconciled(map); // gated on the graph OBJECT, independent of the cache key below
   const k = key(map);
   let store = worldStoreCache.get(k);
   if (store) return store;

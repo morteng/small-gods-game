@@ -39,7 +39,7 @@ import { buildEntranceStoopEntities } from '@/world/connectome/entrance-stoops';
 import { buildAqueductStructureEntities } from '@/world/connectome/aqueduct-structures';
 import { buildWaterNetwork, referenceFlow, reachHalfWidths } from '@/terrain/river-network';
 import { REACH_CARVE } from '@/world/river-deformation';
-import { getComposedHeightfield } from '@/world/road-deformation';
+import { getComposedHeightfield, reconcileFilletRaster } from '@/world/road-deformation';
 import { styledRiverFlowThreshold } from '@/terrain/hydrology';
 import { getHeightfield, ELEVATION_SEA_LEVEL } from '@/world/heightfield';
 import { curveRenderElev } from '@/render/gpu/terrain-field';
@@ -574,6 +574,30 @@ export async function generateWithNoise(
     roadGraph,
   };
 
+  // Anchor snap-fit layer: gather every feature's connection anchors and match them into
+  // links (door→road, gate→road, wall_end↔wall_end, …). Derived data only — no tile/geometry
+  // mutation. Runs here — every anchor-bearing entity (buildings incl. crossing ancillaries,
+  // barriers) is final by map assembly, and the fillet↔raster pass just below consumes
+  // `map.anchorLinks` for its building-anchor arrival fillets.
+  report('Matching feature anchors...');
+  const { anchors, roads } = collectAnchors(world, roadGraph, width);
+  map.anchors = anchors;
+  map.anchorLinks = matchAnchors(anchors, { roads });
+
+  // Fillet → raster reconciliation (WP-Q): re-derive road tiles along each edge's FILLETED
+  // centerline (gate approaches + building-anchor arrivals) so the tiles NPCs walk match the
+  // smoothed ribbon the renderer draws. An EXPLICIT final-authority pass, deliberately ONCE,
+  // HERE: after every building is placed and water-nudged (a lazy mid-generation trigger once
+  // stamped road tiles before crossing structures validated their seats — the INV3
+  // road-under-toll regression), after the anchor layer above (its links feed the fillets),
+  // and before wear/farmland/vegetation below so they see the final road mask (wear halos
+  // cover it, fields avoid it, obstructing flora over it is cleared). `world` is passed so
+  // the blocked check consults the real building registry, not just tile flags.
+  report('Reconciling fillet raster...');
+  const filletSpans = reconcileFilletRaster(map, world);
+  const filletWrites = filletSpans.reduce((a, s) => a + s.cellsWritten, 0);
+  if (filletWrites > 0) report(`Reconciled ${filletWrites} road tiles under filleted approaches`);
+
   // Settlement wear: PREWARM the desire-line trample grid from authored
   // roads/markets — realises the initial worn dirt lanes AND leaves the wear
   // primed so live NPC traffic keeps carving from here (one system, two entry
@@ -603,14 +627,6 @@ export async function generateWithNoise(
   report('Clearing obstructed vegetation...');
   const cleared = clearObstructedVegetation(world, map);
   if (cleared > 0) report(`Cleared ${cleared} obstructed nature entities`);
-
-  // Anchor snap-fit layer: gather every feature's connection anchors and match them into
-  // links (door→road, gate→road, wall_end↔wall_end, …). Derived data only — no tile/geometry
-  // mutation, so worldgen output and golden hashes are unchanged.
-  report('Matching feature anchors...');
-  const { anchors, roads } = collectAnchors(world, roadGraph, width);
-  map.anchors = anchors;
-  map.anchorLinks = matchAnchors(anchors, { roads });
 
   // Contract DECLARATIONS the walled-town recipe commits: each defensive ring asks the connectome
   // for a landward gate reached by a road and a curtain crossed only at gates. `evaluateContracts`

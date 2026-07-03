@@ -20,7 +20,7 @@
 
 import type { GameMap } from '@/core/types';
 import { WATER_TYPES } from '@/core/constants';
-import { edgeRoadProfile, ensureFilletReconciled } from '@/world/road-deformation';
+import { edgeRoadProfile } from '@/world/road-deformation';
 import type { SurfaceMaterial } from '@/world/road-state';
 
 /** Floats per segment in the packed buffer: ax,ay,bx,by,halfA,halfB,surfA,surfB
@@ -155,12 +155,11 @@ export function buildRoadFeatureGeometry(map: GameMap): RoadFeatureGeometry {
   const graph = map.roadGraph;
   const segs: FeatureSeg[] = [];
   if (graph) {
-    // Defense in depth: the live pipeline already reconciles fillet↔raster during worldgen
-    // (`getComposedHeightfield`/`getWorldDeformationStore` trigger it), but a caller that
-    // builds a road graph and asks for feature geometry WITHOUT ever touching the terrain
-    // deformation store (e.g. an isolated render test) should still see tiles that match this
-    // ribbon. Idempotent + gated on the graph object, so this is a no-op on the common path.
-    ensureFilletReconciled(map);
+    // NOTE: fillet↔raster reconciliation (`reconcileFilletRaster`) is an EXPLICIT worldgen
+    // pass in map-generator — deliberately NOT triggered from this getter. A lazy trigger
+    // here once stamped road tiles mid-generation, before crossing structures validated
+    // their seats, putting roads under buildings (the INV3 regression). A render-only read
+    // must never mutate tiles.
     const nodeById = new Map(graph.nodes.map((nd) => [nd.id, nd]));
     const poiById = new Map((map.worldSeed?.pois ?? []).map((p) => [p.id, p]));
     for (const edge of graph.edges) {

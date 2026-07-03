@@ -9,7 +9,8 @@ import { describe, it, expect } from 'vitest';
 import { edgeRoadProfile, reconcileFilletRaster } from '@/world/road-deformation';
 import { ROAD_TILE_TYPES, applyRoadMask, type RoadEdge, type RoadGraph } from '@/world/road-graph';
 import { gateApproachPlan } from '@/world/connectome/gate-approach';
-import type { GameMap, Tile } from '@/core/types';
+import type { GameMap, Tile, Entity } from '@/core/types';
+import type { World } from '@/world/world';
 import type { BarrierRun, PlacedBarrier } from '@/world/barrier';
 import type { Anchor } from '@/world/anchors';
 import type { AnchorLink } from '@/world/anchor-rules';
@@ -175,6 +176,57 @@ describe('reconcileFilletRaster — render/raster agreement (WP-Q #1)', () => {
       const [x, y] = key.split(',').map(Number);
       expect(ROAD_TILE_TYPES.has(map.tiles[y][x].type)).toBe(false);
     }
+  });
+
+  it('never stamps a road tile on an ENTITY-ONLY building structure cell (INV3 regression)', () => {
+    // The seed-777 INV3 failure: crossing ancillary structures (toll/shrine) are added via
+    // `world.addEntity(e)` and never stamp `tile.walkable = false`, so a tile-flag-only
+    // blocked check cannot see them. When a `world` is passed, `tileBlockedByBuilding` (the
+    // registry tile index) is the authority and any span crossing such a building must fall
+    // back — leaving the tiles untouched.
+
+    // Discover which cells the fillet writes on an unobstructed run of this exact fixture.
+    const probe = grassMap(24, 24, { barrierRuns: [townRing()] });
+    const probeEdge = approachEdge();
+    probe.roadGraph = graphOf(probeEdge);
+    carveEdge(probe, probeEdge);
+    const rawCells = new Set(probeEdge.polyline.map((c) => `${c.x},${c.y}`));
+    reconcileFilletRaster(probe);
+    const written: { x: number; y: number }[] = [];
+    for (let y = 0; y < probe.height; y++) {
+      for (let x = 0; x < probe.width; x++) {
+        if (ROAD_TILE_TYPES.has(probe.tiles[y][x].type) && !rawCells.has(`${x},${y}`)) written.push({ x, y });
+      }
+    }
+    expect(written.length).toBeGreaterThan(0);
+
+    // Fresh identical map; park a 1×1 entity-only building (a crossing toll: blueprint-backed,
+    // tags ['building'], but the TILE stays walkable grass) on one written cell.
+    const target = written[0];
+    const toll: Entity = {
+      id: 'crossing@e1#0/toll', kind: 'guard_post', x: target.x, y: target.y,
+      tags: ['building', 'military'],
+      properties: {
+        blueprint: { rb: {}, collision: { blocked: ['0,0'], doorCells: [] }, anchors: [] },
+      },
+    } as unknown as Entity;
+    const world = {
+      registry: {
+        getAtTile: (tx: number, ty: number): Entity[] =>
+          tx === target.x && ty === target.y ? [toll] : [],
+      },
+    } as unknown as World;
+
+    const map = grassMap(24, 24, { barrierRuns: [townRing()] });
+    const edge = approachEdge();
+    map.roadGraph = graphOf(edge);
+    carveEdge(map, edge);
+    expect(map.tiles[target.y][target.x].walkable).toBe(true); // entity-only: tile flag unset
+
+    const spans = reconcileFilletRaster(map, world);
+    // The span over the toll must have fallen back; its cell keeps its original tile.
+    expect(ROAD_TILE_TYPES.has(map.tiles[target.y][target.x].type)).toBe(false);
+    expect(spans.some((s) => !s.written)).toBe(true);
   });
 });
 
