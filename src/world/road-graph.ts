@@ -268,7 +268,21 @@ export function buildRoadGraph(
       // and walls don't bridge water: they merge with it / gap over it. So a non-road
       // edge claims no bridge cells — keeping the tile stamp and the crossing detector in
       // lockstep, and leaving that cell as its water/river tile.
-      const bridgeCells = feature === 'road' ? [...result.bridgeCells].sort((m, n) => m - n) : [];
+      //
+      // `orthogonalize` can insert a filler corner AFTER the walk already decided its
+      // `bridgeCells` — its own fallback picks the least-bad option even when both corner
+      // candidates are "bad" (water/obstacle), so a diagonal crossing can gain one water
+      // cell the walker never saw. For a bridging road that cell is exactly as bridged as
+      // its neighbours (the walker already committed to crossing here); leaving it a bare
+      // water tile just strands a 1-cell gap mid-deck (an un-resolvable road-x-water claim
+      // — no Bridge artifact covers a lone water tile with no bridge tile either side).
+      const routedBridgeCells = new Set(result.bridgeCells);
+      if (feature === 'road' && autoBridge) {
+        for (const c of cells) {
+          if (WATER_TYPES.has(tiles[c.y]?.[c.x]?.type ?? '')) routedBridgeCells.add(c.y * width + c.x);
+        }
+      }
+      const bridgeCells = feature === 'road' ? [...routedBridgeCells].sort((m, n) => m - n) : [];
       const edge: RoadEdge = {
         id: `re${edgeSeq++}`,
         a: nodeFor(a.x, a.y, i === 0).id,
