@@ -30,8 +30,10 @@ import { WATER_TYPES } from '@/core/constants';
 import { walkRoad } from '@/terrain/road-walker';
 import { gradeEnvelope } from '@/world/road-state';
 
-/** Carved road/bridge tile types — the reuse-affinity set (new roads bundle onto these). */
-const ROAD_TILE_TYPES = new Set(['dirt_road', 'stone_road', 'bridge']);
+/** Carved road/bridge tile types — the reuse-affinity set (new roads bundle onto these).
+ *  Exported so other road-graph-adjacent modules (e.g. the fillet↔raster reconciliation in
+ *  `road-deformation.ts`) can recognise "already road" without re-deriving the set. */
+export const ROAD_TILE_TYPES = new Set(['dirt_road', 'stone_road', 'bridge']);
 
 /** Road hierarchy — a type label on the edge (Slice 4 fills the tiers). */
 export type RoadClass = 'highway' | 'road' | 'track' | 'path';

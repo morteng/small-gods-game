@@ -40,6 +40,15 @@ export interface FilletOptions {
   step?: number;
   /** Min |det| of the ray system before treating the rays as parallel (default 1e-4). */
   parallelEps?: number;
+  /**
+   * Cap the arc radius (tiles). StreetGen's robustness lesson: a shallow (near-degenerate)
+   * turn angle forces the tangent geometry into an oversized, barely-curved sweep — the
+   * corridor is too short to host a "realistic" arc at that radius. Beyond this bound the
+   * fillet gives up on the arc and arrives on the straight chord instead: a visible kink at
+   * the graft point is a smaller visual lie than a wide, unplanned loop. Default: unbounded
+   * (existing raw `filletPath` callers are unaffected unless they opt in).
+   */
+  maxRadius?: number;
 }
 
 /**
@@ -81,6 +90,15 @@ export function filletPath(p0: Pt, t0: Vec, p1: Pt, t1: Vec, opts: FilletOptions
     const ex = Bt.x - At.x, ey = Bt.y - At.y;
     const k = (ex * -nB[1] - ey * -nB[0]) / cdet;
     const C = { x: At.x + k * nA[0], y: At.y + k * nA[1] };
+    const maxRadius = opts.maxRadius ?? Infinity;
+    if (Number.isFinite(maxRadius)) {
+      const r = Math.hypot(At.x - C.x, At.y - C.y);
+      if (r > maxRadius) {
+        // Degenerate (StreetGen pitfall): a shallow turn angle forced an oversized arc for
+        // this short a corridor. Skip the arc — arrive on the straight chord instead.
+        return resample([p0, p1], step);
+      }
+    }
     arc = sampleArc(C, At, Bt, step);
   }
 
@@ -92,6 +110,11 @@ export function filletPath(p0: Pt, t0: Vec, p1: Pt, t1: Vec, opts: FilletOptions
   pushUnique(path, p1);
   return path;
 }
+
+/** Radius clamp default: a multiple of the SHORTER incident run (graft-back distance
+ *  actually available, or the straight-line reach to the target). A short approach
+ *  shouldn't be asked to host an arc many times wider than the corridor it sits in. */
+const DEFAULT_MAX_RADIUS_FACTOR = 3;
 
 /**
  * Re-shape the TAIL of a road polyline so it arrives at `target` heading into `-targetFacing`
@@ -115,7 +138,9 @@ export function filletApproach(
   const next = poly[Math.min(gi + 1, poly.length - 1)];
   const tan = norm([next.x - graft.x, next.y - graft.y]);
   const arrive = norm([-targetFacing[0], -targetFacing[1]]); // road heads into the structure
-  const tail = filletPath(graft, tan, target, arrive, opts);
+  const chord = Math.hypot(target.x - graft.x, target.y - graft.y);
+  const maxRadius = opts.maxRadius ?? Math.max(1, Math.min(acc, chord) * DEFAULT_MAX_RADIUS_FACTOR);
+  const tail = filletPath(graft, tan, target, arrive, { ...opts, maxRadius });
   return [...poly.slice(0, gi), ...tail];
 }
 
