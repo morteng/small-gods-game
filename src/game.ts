@@ -199,7 +199,7 @@ export class Game {
   private llmClient!: LLMClient;
   private llmBackfill!: LlmBackfillService;
   private fateBrain!: FateBrainService;
-  private llmClientCapable: LLMClient | null = null;   // Tier-2 "key moments" — built, not yet called (Track 4 / Fate)
+  private llmClientCapable: LLMClient | null = null;   // Tier-2 "key moments" — consumed by the Fate brain (+ structured-output fallbacks)
   private costTracker = new CostTracker();
   private spendChip: SpendChipHandle | null = null;
   private assetLibrary!: AssetLibrary;
