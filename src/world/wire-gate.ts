@@ -36,16 +36,18 @@ function tileAt(map: GameMap, x: number, y: number): Tile | undefined {
  * @param map        The live GameMap whose tile grid will be mutated.
  * @param maxSearch  Chebyshev search radius for the BFS frontier (default 12).
  * @param isBlocked  Extra impassable cells (e.g. wall curtain blocking cells).
- * @returns          `true` if a road was reached and a path was carved;
- *                   `false` if no road is reachable within the search radius
- *                   (the map is left unchanged in that case).
+ * @returns          `{ reached, carved }` — `reached` is true when a road was found within the
+ *                   search radius; `carved` counts the tiles actually turned into road (0 when the
+ *                   gate already touched a road, so a caller can LOG a nonzero carve as a genuine
+ *                   degenerate-case repair). No road reachable ⇒ `{ reached: false, carved: 0 }`
+ *                   and the map is left unchanged.
  */
 export function wireGateToRoad(
   gate: Anchor,
   map: GameMap,
   maxSearch = 12,
   isBlocked?: (x: number, y: number) => boolean,
-): boolean {
+): { reached: boolean; carved: number } {
   const gx = Math.round(gate.x);
   const gy = Math.round(gate.y);
 
@@ -60,7 +62,7 @@ export function wireGateToRoad(
   // BFS from the gate cell. The gate opening itself is passable by construction (it is
   // excluded from the curtain's blocking cells); if a caller-blocked cell coincides
   // anyway, there is nothing safe to carve — decline.
-  if (!passable(gx, gy)) return false;
+  if (!passable(gx, gy)) return { reached: false, carved: 0 };
   const key = (x: number, y: number): number => (y + maxSearch - gy) * (2 * maxSearch + 1) + (x + maxSearch - gx);
   const cameFrom = new Map<number, number>();
   cameFrom.set(key(gx, gy), -1);
@@ -86,13 +88,14 @@ export function wireGateToRoad(
     }
     frontier = next;
   }
-  if (!goal) return false;
+  if (!goal) return { reached: false, carved: 0 };
 
   // Walk the parent chain back from the road, carving dirt over the non-road cells.
   const unkey = (k: number): { x: number; y: number } => ({
     x: (k % (2 * maxSearch + 1)) - maxSearch + gx,
     y: Math.floor(k / (2 * maxSearch + 1)) - maxSearch + gy,
   });
+  let carved = 0;
   let k = key(goal.x, goal.y);
   while (k !== -1) {
     const { x, y } = unkey(k);
@@ -101,9 +104,10 @@ export function wireGateToRoad(
     if (!t || ROAD_TYPES.has(t.type)) continue;          // don't overwrite existing road
     t.type = GATE_PATH_TYPE;
     t.walkable = true;
+    carved++;
   }
   const gateTile = tileAt(map, gx, gy);
   if (gateTile) gateTile.walkable = true;
 
-  return true;
+  return { reached: true, carved };
 }

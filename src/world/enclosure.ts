@@ -337,10 +337,12 @@ function gatesWhereOpen(
 }
 
 /**
- * Enclose the whole settlement with one defensive ring (palisade or town wall),
- * gated where the bounding ring crosses a road OR water — the "incorporate rivers
- * and roads into the line" rule. Returns `null` for settlements below the lowest
- * rung (hamlets), or when the ring would be degenerate.
+ * Enclose the whole settlement with one defensive ring (palisade or town wall). GATES are COMMITTED
+ * as portal nodes — one per inbound `connections` direction, on the landward ring point nearest that
+ * ray — BEFORE any road is carved (the Watabou pattern), so approach roads terminate AT gates by
+ * construction. Interior-road crossings also open the curtain (a lane must never ford the wall), and
+ * water / far-bank / building crossings open as plain GAPS ("incorporate rivers into the line").
+ * Returns `null` for settlements below the lowest rung (hamlets), or a degenerate ring.
  */
 export function deriveSettlementRing(args: {
   bbox: { minX: number; minY: number; maxX: number; maxY: number };
@@ -357,6 +359,13 @@ export function deriveSettlementRing(args: {
    *  wherever it fronts anything that isn't our own land, instead of ray-sampling for
    *  water. Absent ⇒ fall back to the water heuristic (byte-identical). */
   parcel?: Set<string>;
+  /** Unit rays toward each connected POI (from `computeConnectedDirections`). GATES are
+   *  COMMITTED here — one per distinct inbound direction, on the landward ring point nearest the
+   *  ray — BEFORE any approach road is carved, so roads terminate at gates by construction (the
+   *  Watabou portal-node pattern) instead of piercing the curtain wherever they happen to reach it.
+   *  Absent ⇒ gates fall back to interior-road crossings + the one-main-gate guarantee (legacy
+   *  behaviour, so every existing caller/test stays byte-identical). */
+  connections?: { dx: number; dy: number }[];
   ctx: EnclosureCtx;
 }): EnclosureRun | null {
   const typeId = selectSettlementEnclosure(args.buildingCount, args.ctx);
@@ -400,23 +409,40 @@ export function deriveSettlementRing(args: {
 
   // Walk the ring at slab midpoints (same as the croft rings — keeps the renderer in lockstep).
   // Distinguish WHY each opening exists so the defences read believably:
-  //   • ROAD crossings → real GATES (gatehouse + timber leaf).
+  //   • COMMITTED GATES → one authoritative portal node per inbound connection direction, sited
+  //     BEFORE any approach road is carved (the Watabou pattern) so roads terminate AT gates.
+  //   • interior-street CROSSINGS → also real GATES (a lane must never ford the curtain), deduped
+  //     against the committed gates so a street that already reaches one isn't double-opened.
   //   • OFF-BANK (water / far bank) / BUILDING crossings → plain GAPS (the line just opens).
   const total = pathLen(path);
-  const roadGates = gatesWhereOpen(path, total, args.isRoad, gateW).map((g) => ({ ...g, kind: 'gate' as const }));
+  // Interior-road crossings are MANDATORY openings — a settlement street physically crosses the ring
+  // there, so the curtain must open or a road would sit on a blocking cell (`wall.crossing-only-at-gate`).
+  // These are kept verbatim (never deduped away).
+  const roadCross = gatesWhereOpen(path, total, args.isRoad, gateW).map((g) => ({ ...g, kind: 'gate' as const }));
+  // Committed direction gates — one authoritative portal node per inbound connection bearing, ADDED
+  // only where no interior-street crossing already opens the ring (so a connection aligned with an
+  // existing street reuses that crossing rather than doubling up). These carry an interior connector
+  // at layout time so a fresh-bearing gate is still reachable from the town core.
+  const minSep = Math.max(gateW * 1.5, 3);
+  const circDist = (a: number, b: number): number => { const d = Math.abs(a - b); return Math.min(d, total - d); };
+  const realGates: BarrierGate[] = [...roadCross];
+  for (const g of commitDirectionGates(path, total, centroid, args.connections ?? [], offBank, gateW)) {
+    if (realGates.some((h) => circDist(h.t, g.t) < minSep)) continue;
+    realGates.push({ ...g, kind: 'gate' as const });
+  }
   const softOpen = (x: number, y: number): boolean => offBank(x, y) || (args.isBuilding?.(x, y) ?? false);
   const softGaps = gatesWhereOpen(path, total, softOpen, gateW).map((g) => ({ ...g, kind: 'gap' as const }));
   // TERRAIN AS DEFENCE: a whole ring side fronted by off-bank ground (a river bend, a lakeshore,
   // the coast) needs no wall — the water is the line. Open that side entirely, so the town is
   // walled only on its approachable landward sides (the authentic waterfront town).
   const waterGaps = waterFrontedSides(path, centroid, offBank).map((g) => ({ ...g, kind: 'gap' as const }));
-  // Every walled town needs a way IN. If no road actually crosses the ring (the road often just
-  // approaches it), place ONE main gate on the landward point nearest the road — the gatehouse the
-  // approach road runs up to. Never on a water/off-bank side.
-  const mainGate = roadGates.length === 0
-    ? ensureMainGate(path, total, centroid, args.isRoad, offBank, gateW)
+  // Every walled town needs a way IN. If neither a connection direction nor an interior street
+  // produced a gate (a ringless-connection island, or every inbound bearing fronted water), fall
+  // back to ONE gate on the longest landward side — never a sealed town.
+  const fallback = realGates.length === 0
+    ? fallbackLandwardGate(path, total, centroid, offBank, gateW)
     : [];
-  const gates: BarrierGate[] = [...roadGates, ...mainGate, ...softGaps, ...waterGaps];
+  const gates: BarrierGate[] = [...realGates, ...fallback, ...softGaps, ...waterGaps];
 
   const run = barrierRunFromType(typeId, path, gates);
   if (!run) return null;
@@ -462,51 +488,80 @@ function waterFrontedSides(
 }
 
 /**
- * Guarantee ONE main gate on a walled ring that no road crosses. Walks the perimeter, and at each
- * step looks OUTWARD for the nearest road cell (up to `reach` tiles) on a non-water stretch — the
- * gate goes where the approach road comes closest to the wall. If no road is near, it falls back to
- * the midpoint of the longest landward side, so a town is never sealed shut.
+ * COMMIT one gate per distinct inbound connection direction — the Watabou portal-node pattern.
+ * For each unit ray toward a connected POI, pick the LANDWARD ring point whose bearing from the
+ * town centre best matches the ray (the ring point "nearest the ray"), and open a gate there. This
+ * runs at ring-commit time, BEFORE any approach road exists, so the road graph threads THROUGH the
+ * committed gate rather than deriving the gate from wherever a road happens to reach the wall.
+ *
+ * Landward-only: a candidate whose short outward step lands off our bank (water / far bank) is
+ * skipped, so a gate never opens onto the river. A direction whose best landward alignment is worse
+ * than a small threshold (the POI lies across the water) yields no gate — that connection routes to
+ * the nearest committed gate instead. Deduped by ring spacing so two near-parallel connections share
+ * one gate. Deterministic (no rng): a fixed sub-tile walk + a stable arg order.
  */
-function ensureMainGate(
+function commitDirectionGates(
   path: Pt[], total: number, centroid: Pt,
-  isRoad: (x: number, y: number) => boolean, isWater: (x: number, y: number) => boolean,
-  gateW: number, reach = 10,
+  dirs: { dx: number; dy: number }[], offBank: (x: number, y: number) => boolean, gateW: number,
 ): BarrierGate[] {
-  const outwardAt = (t: number): { p: Pt; n: Pt } => {
-    const p = pointOnPath(path, t);
-    const a = pointOnPath(path, Math.max(0, t - 0.5)), b = pointOnPath(path, Math.min(total, t + 0.5));
-    const dx = b[0] - a[0], dy = b[1] - a[1], m = Math.hypot(dx, dy) || 1;
-    let nx = -dy / m, ny = dx / m;
-    if (nx * (p[0] - centroid[0]) + ny * (p[1] - centroid[1]) < 0) { nx = -nx; ny = -ny; }
-    return { p, n: [nx, ny] };
-  };
-  let best = -1, bestDist = Infinity;
-  for (let t = 0.5; t < total; t += 1) {
-    const { p, n } = outwardAt(t);
-    if (isWater(Math.round(p[0] + n[0]), Math.round(p[1] + n[1]))) continue;   // not on a water side
-    for (let d = 2; d <= reach; d++) {
-      if (isRoad(Math.round(p[0] + n[0] * d), Math.round(p[1] + n[1] * d))) {
-        if (d < bestDist) { bestDist = d; best = t; }
-        break;
-      }
+  if (dirs.length === 0) return [];
+  const step = 0.5;
+  const picks: BarrierGate[] = [];
+  for (const dir of dirs) {
+    const dl = Math.hypot(dir.dx, dir.dy) || 1;
+    const ux = dir.dx / dl, uy = dir.dy / dl;
+    let bestT = -1, bestDot = -Infinity;
+    for (let t = 0; t < total; t += step) {
+      const [px, py] = pointOnPath(path, t);
+      const bx = px - centroid[0], by = py - centroid[1];
+      const bm = Math.hypot(bx, by) || 1;
+      // Landward guard: the cell a short step OUTWARD (along the bearing) must be on our land.
+      if (offBank(Math.round(px + (bx / bm) * 1.5), Math.round(py + (by / bm) * 1.5))) continue;
+      const dot = (bx / bm) * ux + (by / bm) * uy;
+      if (dot > bestDot) { bestDot = dot; bestT = t; }
     }
+    // Only commit when the best landward point is at least loosely toward the POI (dot > ~0.15);
+    // otherwise the connection fronts water on this side and shares another gate.
+    if (bestT >= 0 && bestDot > 0.15) picks.push({ t: bestT, width: gateW });
   }
-  if (best < 0) {
-    // No road near — gate the longest landward side's midpoint so the town still has a way in.
-    let acc = 0, bestMid = total / 2, bestLen = -1;
-    for (let i = 1; i < path.length; i++) {
-      const [ax, ay] = path[i - 1], [bx, by] = path[i];
-      const len = Math.hypot(bx - ax, by - ay);
-      const mx = (ax + bx) / 2, my = (ay + by) / 2;
-      let nx = -(by - ay), ny = bx - ax; const mm = Math.hypot(nx, ny) || 1; nx /= mm; ny /= mm;
-      if (nx * (mx - centroid[0]) + ny * (my - centroid[1]) < 0) { nx = -nx; ny = -ny; }
-      const wet = isWater(Math.round(mx + nx * 2), Math.round(my + ny * 2));
-      if (!wet && len > bestLen) { bestLen = len; bestMid = acc + len / 2; }
-      acc += len;
-    }
-    best = bestMid;
+  return dedupeGatesBySpacing(picks, total, gateW);
+}
+
+/** Drop gates that sit within a min ring-spacing of an already-kept gate (circular distance on the
+ *  closed ring), keeping the earlier (higher-priority) one. Merges near-duplicate portal nodes. */
+function dedupeGatesBySpacing(gates: BarrierGate[], total: number, gateW: number): BarrierGate[] {
+  const minSep = Math.max(gateW * 1.5, 3);
+  const circDist = (a: number, b: number): number => { const d = Math.abs(a - b); return Math.min(d, total - d); };
+  const out: BarrierGate[] = [];
+  for (const g of gates) {
+    if (out.some((h) => circDist(h.t, g.t) < minSep)) continue;
+    out.push(g);
   }
-  return [{ t: best, width: gateW, kind: 'gate' }];
+  return out;
+}
+
+/**
+ * The one-way-in guarantee: gate the midpoint of the longest LANDWARD side, so a walled town whose
+ * connections all fronted water (or which has no connections at all) is never sealed shut. Absorbs
+ * the fallback half of the old `ensureMainGate`; the road-proximity half is obsoleted by the
+ * committed direction gates.
+ */
+function fallbackLandwardGate(
+  path: Pt[], total: number, centroid: Pt,
+  offBank: (x: number, y: number) => boolean, gateW: number,
+): BarrierGate[] {
+  let acc = 0, bestMid = total / 2, bestLen = -1;
+  for (let i = 1; i < path.length; i++) {
+    const [ax, ay] = path[i - 1], [bx, by] = path[i];
+    const len = Math.hypot(bx - ax, by - ay);
+    const mx = (ax + bx) / 2, my = (ay + by) / 2;
+    let nx = -(by - ay), ny = bx - ax; const mm = Math.hypot(nx, ny) || 1; nx /= mm; ny /= mm;
+    if (nx * (mx - centroid[0]) + ny * (my - centroid[1]) < 0) { nx = -nx; ny = -ny; }
+    const wet = offBank(Math.round(mx + nx * 2), Math.round(my + ny * 2));
+    if (!wet && len > bestLen) { bestLen = len; bestMid = acc + len / 2; }
+    acc += len;
+  }
+  return [{ t: bestMid, width: gateW, kind: 'gate' }];
 }
 
 /** Map a path distance `t` (tiles) to a world point along the polyline. */

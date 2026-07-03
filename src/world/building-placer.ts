@@ -32,7 +32,7 @@ import { toCollision } from '@/blueprint/compile/to-collision';
 import { toAnchors } from '@/blueprint/compile/to-anchors';
 import { orientationForFacing, rotateFootprint, rotateCell, type Orientation } from '@/blueprint/orientation';
 import { placeBarrier } from '@/world/place-barrier';
-import type { PlacedBarrier } from '@/world/barrier';
+import { barrierFootprintTiles, gatePoint, type PlacedBarrier } from '@/world/barrier';
 import { isBuilding as isBuildingEntity, tileBlockedByBuilding } from '@/world/building-collision';
 import { OccupancyGrid, buildingSolidCells } from '@/world/occupancy-grid';
 import { buildingVisualCells } from '@/blueprint/footprint';
@@ -879,12 +879,55 @@ export function placeSettlement(
         mapW: tiles[0]?.length ?? 0, mapH: tiles.length,
         buildingCount: placed, poiId: poi.id,
         isWater: isWaterTile,
-        isRoad: (x, y) => occ.is(x, y, 'road') || ROAD_TYPES.has(tiles[y]?.[x]?.type ?? ''),
+        isRoad: isRoadTile,
         isBuilding,
         parcel: homeParcel ?? undefined,
+        // GATES-FIRST: commit gates in the direction of each inbound connection, before any road is
+        // carved, so the approach road threads THROUGH the committed gate rather than deriving it.
+        connections: connectedDirections,
         ctx,
       });
-      if (ring) { placeBarrier(world, ring.run, ring.id); barriers.push({ id: ring.id, run: ring.run }); }
+      if (ring) {
+        placeBarrier(world, ring.run, ring.id);
+        barriers.push({ id: ring.id, run: ring.run });
+        // STREETS GROW FROM GATES: every committed gate gets an interior street connector at LAYOUT
+        // time (not a post-hoc stitch), so each gate is reachable from the town core BY CONSTRUCTION.
+        // BFS from the gate cell through open ground to the nearest already-planned street; the carved
+        // cells join roadTiles so the map-generator applies them. The obstacle model MATCHES the
+        // map-generator's orphan-gate stitch (solid buildings via the world registry, water, curtain,
+        // greens) so a cell the connector carves is never dropped at apply time and the stitch is left
+        // a no-op — it is now only degenerate-case repair (and logs if it ever fires).
+        const curtain = new Set<string>();
+        for (const [bx, by] of barrierFootprintTiles(ring.run).blocking) curtain.add(`${bx},${by}`);
+        const greenCells = new Set<string>();
+        for (const c of plan.civics) {
+          if (c.type !== 'green') continue;
+          for (let gy = 0; gy < c.h; gy++) for (let gx = 0; gx < c.w; gx++) greenCells.add(`${c.x + gx},${c.y + gy}`);
+        }
+        // The connector goal is a REAL street cell — this settlement's carved streets (roadTiles) or
+        // a road already on the grid. NOT `occ`'s 'road' claims, which also cover the phantom inter-POI
+        // trunk-corridor RESERVATIONS (kept clear of lots but never actually carved): a gate sitting on
+        // one of those reads "on a road" while its interior is unconnected, which is exactly what left
+        // the stitch carving after layout. Grows as connectors are carved so later gates can join them.
+        const streetCells = new Set<string>(roadTiles.map((rt) => `${rt.x},${rt.y}`));
+        const isStreet = (x: number, y: number): boolean =>
+          streetCells.has(`${x},${y}`) || ROAD_TYPES.has(tiles[y]?.[x]?.type ?? '');
+        const blockedForConnector = (x: number, y: number): boolean =>
+          tileBlockedByBuilding(world, x, y) || isWaterTile(x, y)
+          || curtain.has(`${x},${y}`) || greenCells.has(`${x},${y}`);
+        for (const g of ring.run.gates) {
+          if (g.kind === 'gap') continue;
+          const [gxf, gyf] = gatePoint(ring.run, g);
+          const carved = carveGateStreetConnector(Math.round(gxf), Math.round(gyf), isStreet, blockedForConnector);
+          for (const c of carved) {
+            const k = `${c.x},${c.y}`;
+            if (streetCells.has(k)) continue;
+            roadTiles.push({ x: c.x, y: c.y, type: roadType });
+            occ.claim(c.x, c.y, 'road');
+            streetCells.add(k);
+          }
+        }
+      }
     }
   }
 
@@ -892,6 +935,56 @@ export function placeSettlement(
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+/**
+ * Carve an interior street connector from a committed gate to the nearest already-planned road,
+ * so "streets grow from gates" is a layout-time guarantee (not a post-hoc stitch). A bounded
+ * 4-connected BFS from the gate cell expands through open ground only — never a building, water, or
+ * a curtain blocking cell — and stops at the first road cell it reaches. Returns the NON-road cells
+ * to carve (gate cell … up to but excluding the road), or `[]` when the gate is already on a road /
+ * is itself blocked / no road is reachable within budget (the degenerate case the map-generator
+ * stitch then reports). Deterministic: fixed neighbour order, BFS layering, no rng.
+ */
+function carveGateStreetConnector(
+  gx: number, gy: number,
+  isRoad: (x: number, y: number) => boolean,
+  blocked: (x: number, y: number) => boolean,
+  maxSearch = 14,
+): { x: number; y: number }[] {
+  if (blocked(gx, gy) || isRoad(gx, gy)) return [];
+  const key = (x: number, y: number): string => `${x},${y}`;
+  const cameFrom = new Map<string, string | null>();
+  cameFrom.set(key(gx, gy), null);
+  let frontier: { x: number; y: number }[] = [{ x: gx, y: gy }];
+  let goal: { x: number; y: number } | null = null;
+  while (frontier.length && !goal) {
+    const next: { x: number; y: number }[] = [];
+    for (const c of frontier) {
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+        const nx = c.x + dx, ny = c.y + dy;
+        if (Math.abs(nx - gx) > maxSearch || Math.abs(ny - gy) > maxSearch) continue;
+        const k = key(nx, ny);
+        if (cameFrom.has(k)) continue;
+        if (isRoad(nx, ny)) { cameFrom.set(k, key(c.x, c.y)); goal = { x: nx, y: ny }; break; }
+        if (blocked(nx, ny)) continue;
+        cameFrom.set(k, key(c.x, c.y));
+        next.push({ x: nx, y: ny });
+      }
+      if (goal) break;
+    }
+    frontier = next;
+  }
+  if (!goal) return [];
+  // Walk the parent chain from the road neighbour back to the gate; collect the non-road cells.
+  const out: { x: number; y: number }[] = [];
+  let k: string | null = cameFrom.get(key(goal.x, goal.y)) ?? null;   // start at the cell before the road
+  while (k) {
+    const ci = k.indexOf(',');
+    out.push({ x: +k.slice(0, ci), y: +k.slice(ci + 1) });
+    k = cameFrom.get(k) ?? null;
+  }
+  return out;
+}
 
 /** Generate the ring of positions at Manhattan distance r from (cx, cy) */
 function spiralRing(cx: number, cy: number, r: number): { x: number; y: number }[] {

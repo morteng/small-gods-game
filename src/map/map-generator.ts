@@ -361,21 +361,20 @@ export async function generateWithNoise(
     // Connections touching no ring are returned unchanged, so a ringless world routes identically.
     const approach = gateApproachPlan(barrierRuns, worldSeed.connections, worldSeed.pois ?? []);
 
-    // Interior-to-gate stitch: the barrier/enclosure pass sites a ring's gates independently of
-    // the settlement's OWN street layout, so the two can fall a tile or two short of each other
-    // (#28 — carve-connections connectivity bug). Stitch every real gate to the settlement's
-    // nearest interior road NOW, before the inter-POI approach road below claims the gate tile —
-    // once that road is carved, the gate reads as "already on a road" and a later BFS run from the
-    // gate would trivially find THAT same road first, never noticing the short interior gap on the
-    // other side. `wireGateToRoad` only carves cells that aren't already road, so a gate whose
-    // interior street already reaches it costs one bounded no-op search.
+    // Interior-to-gate stitch — DEGENERATE-CASE REPAIR ONLY. Gates are now committed portal nodes
+    // (`deriveSettlementRing` sites them by connection direction, before any road) and `placeSettlement`
+    // carves each gate's interior street connector at layout time, so on a healthy seed every gate
+    // already reaches an interior road and this pass is a bounded no-op. It stays as a safety net for
+    // the degenerate case where a gate's interior corridor was blocked at layout time, and LOGS if it
+    // ever has to carve — a nonzero carve here means the by-construction wiring missed and wants a look.
     const gateStitchMap = { tiles } as GameMap;
     for (const a of realGateAnchors(barrierRuns)) {
       // Same obstacle set as the approach walker below: never through a curtain, never across
       // a building footprint or a protected green.
-      wireGateToRoad({ x: a.x, y: a.y } as import('@/world/anchors').Anchor, gateStitchMap, 12,
+      const r = wireGateToRoad({ x: a.x, y: a.y } as import('@/world/anchors').Anchor, gateStitchMap, 12,
         (x, y) => tileBlockedByBuilding(world, x, y) || greenTiles.has(`${x},${y}`)
           || approach.wallObstacles.has(`${x},${y}`));
+      if (r.carved > 0) console.warn(`[worldgen] interior-gate stitch FIRED for ${a.runId} gate @ (${a.x},${a.y}) — carved ${r.carved} tile(s); layout-time connector missed`);
     }
 
     // Snapshot the pre-(inter-POI-road) tile state — taken AFTER settlements AND the interior-gate
@@ -412,21 +411,20 @@ export async function generateWithNoise(
       roadGraph = mergedRoads;
     }
 
-    // Orphan-gate fallback (post-merge): the interior-to-gate stitch above already closed the
-    // common gap, but a gate's APPROACH road can still vanish after this point — an unconnected
-    // POI never routed one, or #26's parallel-road merge just un-carved it. Re-run the same BFS
-    // spur so such a gate isn't left road-locked. Always calling (rather than a proximity
-    // pre-check) is deliberate: `wireGateToRoad` only carves cells that aren't already road, so a
-    // gate that's fine costs one bounded no-op search — see the interior-stitch comment above for
-    // why a "some road is nearby" heuristic under-connects.
+    // Orphan-gate fallback (post-merge) — DEGENERATE-CASE REPAIR ONLY. Committed gates are wired to
+    // interior streets at layout time and threaded by the approach road (gateApproachPlan), so a gate
+    // is normally road-connected on both faces before this runs. It stays only to catch a gate whose
+    // APPROACH road vanished after this point (an unconnected POI that never routed one, or #26's
+    // parallel-road merge un-carving it), and LOGS if it ever has to carve.
     const spurMap = { tiles } as GameMap;
     for (const a of realGateAnchors(barrierRuns)) {
       // Spur routing honours the same obstacles as the approach walker: never through
       // a curtain, a building footprint or a green, never across water (wire-gate itself
       // refuses WATER_TYPES).
-      wireGateToRoad({ x: a.x, y: a.y } as import('@/world/anchors').Anchor, spurMap, 12,
+      const r = wireGateToRoad({ x: a.x, y: a.y } as import('@/world/anchors').Anchor, spurMap, 12,
         (x, y) => tileBlockedByBuilding(world, x, y) || greenTiles.has(`${x},${y}`)
           || approach.wallObstacles.has(`${x},${y}`));
+      if (r.carved > 0) console.warn(`[worldgen] orphan-gate spur FIRED for ${a.runId} gate @ (${a.x},${a.y}) — carved ${r.carved} tile(s); approach road missing`);
     }
 
     // River-crossing SITES (unified connectome, v0): where a road bridges water, compose a
