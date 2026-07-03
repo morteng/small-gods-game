@@ -69,6 +69,7 @@ import { AbandonmentSystem } from '@/sim/systems/abandonment-system';
 import { MortalitySystem } from '@/sim/systems/mortality-system';
 import { SettlementGrowthSystem } from '@/sim/systems/settlement-growth-system';
 import { RoadEvolutionSystem } from '@/sim/systems/road-evolution-system';
+import { TrampleDepositSystem, TramplePromoteDecaySystem } from '@/sim/systems/trample-system';
 import { BirthSystem } from '@/sim/systems/birth-system';
 import { WeatherSystem } from '@/sim/systems/weather-system';
 import { applySkip } from '@/sim/time-skip';
@@ -294,6 +295,10 @@ export class Game {
       }
     }, this.authorLog, () => this.state.weather));
     this.scheduler.register(new NpcMovementSystem(() => this.state.map));
+    // Desire-line trample: deposit footfall (~3 Hz, gated to soft ground) + a
+    // low-Hz promote/decay pass that wears trails to dirt and fades them back.
+    this.scheduler.register(new TrampleDepositSystem(() => this.state.map, () => this.state.trample));
+    this.scheduler.register(new TramplePromoteDecaySystem(() => this.state.map, () => this.state.trample));
     // Order: settlement events affect needs → NpcSimSystem decays needs + recomputes mood
     // → activity system picks activities from needs → belief propagation → spirits
     this.scheduler.register(new SettlementEventSystem());

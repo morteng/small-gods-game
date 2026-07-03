@@ -34,7 +34,12 @@ describe('tileCost', () => {
     expect(tileCost({ type: 'dirt_road' } as Tile)).toBe(0.5);
     expect(tileCost({ type: 'stone_road_ew' } as Tile)).toBe(0.5);
     expect(tileCost({ type: 'bridge' } as Tile)).toBe(0.5);
-    expect(tileCost({ type: 'dirt' } as Tile)).toBe(0.5);
+  });
+
+  it('returns the trail tier (0.8) for a trampled dirt desire line', () => {
+    // Between road (0.5) and grass (1.0): A* bundles onto forming trails but a
+    // built road still out-competes a bare trail.
+    expect(tileCost({ type: 'dirt' } as Tile)).toBe(0.8);
   });
 
   it('returns 2.0 for forest tiles', () => {
