@@ -6,7 +6,7 @@ describe('content-version constants', () => {
     expect(ART_RECIPE_VERSION).toBe('v24');
   });
 
-  it('declares the current world content version (79: wet-seat reconciliation — buildings flooded by a post-placement river/wall carve are nudged to dry ground)', () => {
-    expect(WORLD_CONTENT_VERSION).toBe(79);
+  it('declares the current world content version (80: round 5 — gates-first commit, trample prewarm, fillet raster reconciliation)', () => {
+    expect(WORLD_CONTENT_VERSION).toBe(80);
   });
 });
