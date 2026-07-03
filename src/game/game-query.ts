@@ -28,6 +28,10 @@ import type { World } from '@/world/world';
 import { calendarLabel, TICKS_PER_DAY, DAYS_PER_YEAR } from '@/core/calendar';
 import { PLAYER_SPIRIT_ID } from '@/sim/believers';
 import { POWER_REGEN_RATE, POWER_UNDERSTANDING_COEFF, POWER_DEVOTION_COEFF } from '@/sim/spirit-system';
+import {
+  prayerAge, eligibleClaimants,
+  PRAYER_CLAIM_WARNING_TICKS, PRAYER_CLAIM_WINDOW_TICKS, CLAIM_NOTICE_HORIZON_TICKS,
+} from '@/sim/rival-claims';
 
 const TICKS_PER_YEAR = TICKS_PER_DAY * DAYS_PER_YEAR;
 
@@ -519,6 +523,63 @@ export function createGameQuery(deps: GameQueryDeps): GameQuery {
           surfaced,
           target: { kind: 'none' },
         });
+      }
+
+      // ── contested prayers: a plea aging toward a rival's grasp (Track 3) ──
+      // A worshipper whose plea has gone unanswered long enough that a funded rival
+      // in its settlement is poised to claim it — surfaced while there is STILL time
+      // to answer. (No claimant present ⇒ no threat, so it stays an ordinary prayer.)
+      const now = state.clock.now();
+      for (const e of world.query({ kind: 'npc' })) {
+        const p = npcProps(e);
+        if (p.activity !== 'worship') continue;
+        const age = prayerAge(p, now);
+        if (age < PRAYER_CLAIM_WARNING_TICKS) continue;
+        const claimants = eligibleClaimants(e, state.spirits);
+        if (claimants.length === 0) continue;
+        const faith = p.beliefs[spiritId]?.faith ?? 0;
+        const urgency = Math.min(1, age / PRAYER_CLAIM_WINDOW_TICKS);
+        const id = `contest:${e.id}`;
+        const surfaced = surfacedSet.has(id);
+        items.push({
+          id,
+          kind: 'threat',
+          title: `${p.name}'s prayer is slipping away`,
+          detail: `Answer now or a rival will — ${claimants.length} spirit(s) circle this plea.`,
+          salience: scoreAffordance({ kind: 'prayer_contested', faith, urgency, surfaced }),
+          surfaced,
+          target: { kind: 'npc', npcId: e.id },
+          anchor: { x: e.x, y: e.y },
+        });
+      }
+
+      // ── claimed prayers: a rival already answered one you left (Track 3) ──
+      // Read from the canonical event log (snapshot-safe): a recent `answer_prayer`
+      // whose spirit is a non-player rival IS the claim. Lingers one sim-day.
+      const recent = state.eventLog.range(now - CLAIM_NOTICE_HORIZON_TICKS, now + 1)
+        .filter(a => a.event.type === 'answer_prayer'
+          && a.event.spiritId !== spiritId
+          && !(state.spirits.get(a.event.spiritId)?.isPlayer ?? true));
+      if (recent.length > 0) {
+        const npcById = new Map(world.query({ kind: 'npc' }).map(n => [n.id, n]));
+        for (const a of recent) {
+          const ev = a.event as { type: 'answer_prayer'; spiritId: SpiritId; npcId: string };
+          const rival = state.spirits.get(ev.spiritId);
+          const npc = npcById.get(ev.npcId);
+          const faith = npc ? (npcProps(npc).beliefs[spiritId]?.faith ?? 0) : 0;
+          const id = `claimed:${a.id}`;
+          const surfaced = surfacedSet.has(id);
+          items.push({
+            id,
+            kind: 'threat',
+            title: `${rival?.name ?? 'A rival'} answered a prayer you ignored`,
+            detail: 'A plea you left unanswered was taken up by another — that soul now leans away.',
+            salience: scoreAffordance({ kind: 'prayer_claimed', faith, surfaced }),
+            surfaced,
+            target: npc ? { kind: 'npc', npcId: ev.npcId } : { kind: 'none' },
+            ...(npc ? { anchor: { x: npc.x, y: npc.y } } : {}),
+          });
+        }
       }
 
       // Deterministic order: salience desc, then id asc as a stable tiebreak.
