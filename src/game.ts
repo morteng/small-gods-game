@@ -9,7 +9,7 @@ import { attachControls, attachTimeKeys } from '@/ui/controls';
 import type { GameMap, WorldSeed, TerrainOptions } from '@/core/types';
 import { ART_RECIPE_VERSION } from '@/core/content-version';
 import { createDebugApi, type DebugApi } from '@/dev/debug-api';
-import { createGameQuery, type GameQuery, type InboxItem, type InspectorView } from '@/game/game-query';
+import { createGameQuery, type GameQuery, type InboxItem, type InspectorView, type BeliefView, type BeliefPowerView } from '@/game/game-query';
 import { causalSiteCardView } from '@/game/causal-site-view';
 import type { CommandVerb, CommandTarget, CommandTargetKind } from '@/sim/command/types';
 import { hoverChips } from '@/game/affordance/hover';
@@ -100,6 +100,11 @@ const SESSION_CAP_USD = 2; // per-session live building-art spend cap
 /** P5 semantic zoom: the in-band zoom a zoomed-out alert-pin click flies to —
  *  the 1/2 rung, the outermost rung that still reads as per-NPC chrome. */
 const ALERT_FLY_ZOOM = 0.5;
+
+/** How long the per-frame HUD sim-read memo (belief/powers/inbox) stays fresh.
+ *  Belief moves at sim-tick rate (~1 Hz), so ~150 ms (≈7 Hz) is imperceptible for
+ *  the readout yet collapses ~4–6 full congregation sweeps/frame to one. */
+const HUD_SIM_TTL_MS = 150;
 
 export interface GameOptions {
   width?: number;
@@ -676,7 +681,7 @@ export class Game {
     const ui = getUiRuntime();
     ui.configure({
       requestRender: this.requestRender,
-      getPower: () => Math.min(1, this.query.beliefState().power / 20),
+      getPower: () => Math.min(1, this.hudSim().belief.power / 20),
       onNewWorld: () => { void this.newWorld(); },
       onMenuToggle: (open) => {
         // pause while the menu is up; restore the PRIOR rate on close (don't
@@ -711,7 +716,7 @@ export class Game {
         this.requestRender();
       },
       // ── Track B: belief-granted powers + the divine inbox ──
-      getBeliefPowers: () => this.query.beliefPowers(),
+      getBeliefPowers: () => this.hudSim().powers,
       onCastPower: (verb) => this.castPower(verb),
       getTargeting: () => this.interaction.targeting ? { label: this.interaction.targeting.label } : null,
       getHoverAffordances: () => this.hoverAffordances(),
@@ -725,7 +730,7 @@ export class Game {
         this.state.pinnedNpcId = null;
         this.requestRender();
       },
-      getInbox: () => this.query.divineInbox(),
+      getInbox: () => this.hudSim().inbox,
       onInboxAct: (item) => this.actOnInbox(item),
       onInboxInvestigate: (item) => {
         if (item.target.kind === 'npc') {
@@ -921,6 +926,7 @@ export class Game {
   private emitDivine(verb: CommandVerb, target: CommandTarget): void {
     if (verb === 'whisper' && this.presentWhisperCard(target)) return;
     this.bus.emit({ verb, source: PLAYER_SPIRIT_ID, target });
+    this.invalidateHudSim(); // belief/inbox shift → refresh the HUD memo next frame
     this.fireCastFx(verb, target);
     this.requestRender();
   }
@@ -943,6 +949,7 @@ export class Game {
   private onCardChoice(choice: UiSpecChoice): void {
     const cmd = choice.command;
     this.bus.emit({ verb: cmd.verb, source: cmd.source, target: cmd.target, params: cmd.params, payload: cmd.payload });
+    this.invalidateHudSim(); // belief/inbox shift → refresh the HUD memo next frame
     this.fireCastFx(cmd.verb, cmd.target);
     this.requestRender();
   }
@@ -1059,7 +1066,7 @@ export class Game {
     if (this.currentBand() !== 'out') return null;
     const cam = this.state.camera;
     const dpr = devicePixelRatio;
-    const pins = projectAlertPins(this.query.divineInbox(), cam, dpr);
+    const pins = projectAlertPins(this.hudSim().inbox, cam, dpr);
     // Selection-survives-zoom: the inspector collapsed at this altitude, so its
     // subject renders as a distinct pin; clicking it flies back in (which restores
     // the inspector — the selection itself was never cleared).
@@ -1075,6 +1082,33 @@ export class Game {
     }
     return pins;
   }
+
+  // Sim-derived HUD reads (belief power, granted powers, divine inbox) come from
+  // full-congregation sweeps, yet the barebones UI reads them EVERY frame — the orb
+  // (beliefState), the POWERS pill (beliefPowers), the INBOX pill (divineInbox), AND
+  // the P5 alert-pins path (`alertPins` calls divineInbox AGAIN). That was ~4–6 full
+  // NPC/entity sweeps per frame at 60 Hz for values that only move at sim-tick rate.
+  // Memoise them behind a short wall-clock TTL so they recompute at most ~7×/s instead
+  // of 60×/s; user actions that shift belief bust the cache (see `emitDivine`) so the
+  // readout never lags a click. The raw `this.query.*` methods stay uncached (MCP/tests
+  // need live values); only this frame-path funnel is throttled.
+  private hudSimCache: { t: number; belief: BeliefView; powers: BeliefPowerView[]; inbox: InboxItem[] } | null = null;
+  private hudSim(): { belief: BeliefView; powers: BeliefPowerView[]; inbox: InboxItem[] } {
+    const now = performance.now();
+    const c = this.hudSimCache;
+    if (c && now - c.t < HUD_SIM_TTL_MS) return c;
+    const fresh = {
+      t: now,
+      belief: this.query.beliefState(),
+      powers: this.query.beliefPowers(),
+      inbox: this.query.divineInbox(),
+    };
+    this.hudSimCache = fresh;
+    return fresh;
+  }
+  /** Drop the HUD memo so the next read recomputes — called when a divine action
+   *  shifts belief, so the orb/powers/inbox reflect the change on the very next frame. */
+  private invalidateHudSim(): void { this.hudSimCache = null; }
 
   /** Click a zoomed-out alert pin. The selection pin just flies home (the inspector
    *  re-opens on arrival because the selection survived); an inbox pin routes through
