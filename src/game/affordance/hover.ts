@@ -63,9 +63,11 @@ export interface HoverChip {
 function preferredVerb(sit: Situation | null): CommandVerb | null {
   if (!sit) return null;
   switch (sit.kind) {
-    case 'prayer':      return 'answer_prayer';
-    case 'opportunity': return 'omen';
-    case 'threat':      return 'smite';
+    case 'prayer':           return 'answer_prayer';
+    case 'prayer_contested': return 'answer_prayer'; // still answerable — beat the rival to it
+    case 'prayer_claimed':   return null;            // already lost; nothing to do here
+    case 'opportunity':      return 'omen';
+    case 'threat':           return 'smite';
   }
 }
 

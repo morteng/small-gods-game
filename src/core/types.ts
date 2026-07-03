@@ -540,6 +540,11 @@ export interface NpcProperties {
   activityTargetY?: number;
   /** Ticks remaining for the current activity before the next activity tick re-evaluates. */
   activityDuration: number;
+  /** Sim tick at which the NPC's *current* unanswered plea began (Track-3 rival
+   *  claims). Set when a `worship` state is first observed and cleared the moment
+   *  the plea lifts, so `now - prayerSince` is the prayer's age. Optional → old
+   *  saves/snapshots read as "no standing plea"; rides the snapshot on properties. */
+  prayerSince?: number;
   // social graph
   relationships: Relationship[];
   // possession marker

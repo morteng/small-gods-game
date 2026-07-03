@@ -16,6 +16,9 @@ import type { CommandTarget, CommandVerb } from '@/sim/command/types';
 import { spiritToRivalView } from '@/sim/command/rival-adapter';
 import { decideRivalAction, type RivalAction } from '@/sim/rival-spirit';
 import { queryNpcs, npcProps } from '@/world/npc-helpers';
+import {
+  buildRivalSituation, updatePrayerLedger, findClaimablePrayers,
+} from '@/sim/rival-claims';
 import type { Rng } from '@/core/rng';
 import type { World } from '@/world/world';
 
@@ -54,6 +57,23 @@ export class RivalSystem implements System {
   constructor(private readonly queue: CommandQueue) {}
 
   tick(ctx: SystemContext): void {
+    // ── Track-3 headline: claim the prayers the player leaves unanswered ──
+    // Maintain the plea ledger (cheap, unconditional — the divine inbox reads
+    // `prayerSince` even when no rival ends up acting), then answer any plea aged
+    // past the claim window through the SHARED command queue. The belief shift
+    // toward the rival routes through the existing `answerPrayer` loop.
+    updatePrayerLedger(ctx.world, ctx.now);
+    for (const claim of findClaimablePrayers(ctx.world, ctx.spirits, ctx.now, ctx.rng)) {
+      this.queue.emit({
+        verb: 'answer_prayer',
+        source: claim.rivalId,
+        target: { kind: 'npc', npcId: claim.npcId },
+      });
+      const rival = ctx.spirits.get(claim.rivalId);
+      if (rival?.ai) rival.ai.lastActionTick = ctx.now; // claiming counts as this tick's act
+    }
+
+    // ── baseline strategy actions, now fed REAL situation data ──
     for (const spirit of ctx.spirits.values()) {
       if (spirit.isPlayer || !spirit.ai?.personality) continue;
 
@@ -63,10 +83,7 @@ export class RivalSystem implements System {
       const action = decideRivalAction(
         view,
         ctx.now,
-        { playerPower: ctx.spirits.get('player')?.power ?? 0,
-          playerFollowersInSettlement: {},
-          rivalFollowersInSettlement: {},
-          npcBeliefs: new Map() },
+        buildRivalSituation(ctx.world, ctx.spirits, spirit.id),
         () => ctx.rng.next(),
       );
       if (!action) continue;

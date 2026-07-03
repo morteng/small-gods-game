@@ -102,6 +102,82 @@ describe('divineInbox — P5 anchor derivation', () => {
   });
 });
 
+// ── Track-3: rival-claim threats surface in the inbox ──────────────────────────
+describe('divineInbox — rival prayer claims (Track 3)', () => {
+  function rivalWithAi(id: string, settlements: string[]): Spirit {
+    return {
+      id, name: 'Sablethorn', sigil: '◆', color: '#a0f', isPlayer: false, power: 50, manifestation: null,
+      ai: {
+        policy: 'coexist', cooldowns: {},
+        personality: { aggression: 0.3, subtlety: 0.5, territoriality: 0.5, assertiveness: 0.3, jealousy: 0.3 },
+        settlements, lastActionTick: 0, actionCooldown: 0,
+      },
+    };
+  }
+
+  it('surfaces a contested prayer (aging, claimant present) as a threat item', () => {
+    const world = makeWorld();
+    const state = createState();
+    state.world = world;
+    state.clock.setNow(200);
+    state.spirits.set('rival', rivalWithAi('rival', ['poi1']));
+    const e = addNpc(world, 'pleader', 11, { faith: 0.6, activity: 'worship' });
+    (e.properties as unknown as NpcProperties).homePoiId = 'poi1';
+    (e.properties as unknown as NpcProperties).prayerSince = 100; // age 100 ≥ warning (72)
+
+    const inbox = createGameQuery({ state }).divineInbox();
+    const item = inbox.find(i => i.id === 'contest:pleader');
+    expect(item).toBeDefined();
+    expect(item!.kind).toBe('threat');
+    expect(item!.target).toEqual({ kind: 'npc', npcId: 'pleader' });
+    expect(item!.anchor).toEqual({ x: 0, y: 0 });
+    // Contested outranks an ordinary prayer of the same faith.
+    expect(item!.salience).toBeGreaterThan(0.6);
+  });
+
+  it('does NOT contest when no rival holds the settlement', () => {
+    const world = makeWorld();
+    const state = createState();
+    state.world = world;
+    state.clock.setNow(200);
+    state.spirits.set('rival', rivalWithAi('rival', ['elsewhere']));
+    const e = addNpc(world, 'pleader', 11, { faith: 0.6, activity: 'worship' });
+    (e.properties as unknown as NpcProperties).homePoiId = 'poi1';
+    (e.properties as unknown as NpcProperties).prayerSince = 100;
+
+    const inbox = createGameQuery({ state }).divineInbox();
+    expect(inbox.find(i => i.id === 'contest:pleader')).toBeUndefined();
+    // It is still an ordinary prayer, though.
+    expect(inbox.find(i => i.id === 'prayer:pleader')).toBeDefined();
+  });
+
+  it('surfaces a recent rival claim (answer_prayer by a rival) as a threat item', () => {
+    const world = makeWorld();
+    const state = createState();
+    state.world = world;
+    state.clock.setNow(300);
+    state.spirits.set('rival', rivalWithAi('rival', ['poi1']));
+    const e = addNpc(world, 'taken', 11, { faith: 0.2 });
+    (e.properties as unknown as NpcProperties).homePoiId = 'poi1';
+    // The claim happened as a logged answer_prayer by the rival at tick 290.
+    state.clock.setNow(290);
+    const appended = state.eventLog.append({ type: 'answer_prayer', spiritId: 'rival', npcId: 'taken' });
+    state.clock.setNow(300);
+
+    const inbox = createGameQuery({ state }).divineInbox();
+    const item = inbox.find(i => i.id === `claimed:${appended.id}`);
+    expect(item).toBeDefined();
+    expect(item!.kind).toBe('threat');
+    expect(item!.target).toEqual({ kind: 'npc', npcId: 'taken' });
+    // A loss is the most salient threat there is.
+    expect(item!.salience).toBeGreaterThan(0.9);
+    // The player's own answers never surface as a claim.
+    state.eventLog.append({ type: 'answer_prayer', spiritId: 'player', npcId: 'taken' });
+    const inbox2 = createGameQuery({ state }).divineInbox();
+    expect(inbox2.filter(i => i.kind === 'threat' && i.id.startsWith('claimed:')).length).toBe(1);
+  });
+});
+
 // ── the extracted salience brain, directly (shared by inbox + hover P3) ─────────
 describe('scoreAffordance — the shared salience brain', () => {
   it('reproduces the inbox formulas per situation kind', () => {
