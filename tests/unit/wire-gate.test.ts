@@ -47,7 +47,8 @@ describe('wireGateToRoad', () => {
     const gate: Anchor = { kind: 'gate', x: 3, y: 4, facing: [0, -1], width: 1 };
     const ok = wireGateToRoad(gate, map);
 
-    expect(ok).toBe(true);
+    expect(ok.reached).toBe(true);
+    expect(ok.carved).toBeGreaterThan(0);
 
     // At least one intermediate tile (not on the road row y=0, not the gate row y=4)
     // must have been carved to a road type + walkable.
@@ -74,7 +75,8 @@ describe('wireGateToRoad', () => {
     const map = makeGrassMapNoRoad();
     const gate: Anchor = { kind: 'gate', x: 3, y: 3, facing: [0, 1], width: 1 };
     const ok = wireGateToRoad(gate, map, 4);
-    expect(ok).toBe(false);
+    expect(ok.reached).toBe(false);
+    expect(ok.carved).toBe(0);
   });
 
   it('does not carve anything when no road found', () => {
@@ -98,7 +100,7 @@ describe('wireGateToRoad', () => {
     for (let x = 0; x < 6; x++) { map.tiles[2][x].type = 'river'; map.tiles[2][x].walkable = false; }
     const gate: Anchor = { kind: 'gate', x: 3, y: 4, facing: [0, -1], width: 1 };
     const ok = wireGateToRoad(gate, map);
-    expect(ok).toBe(true);
+    expect(ok.reached).toBe(true);
     // No river tile was overwritten; the spur threads the dry gap at x=6.
     for (let x = 0; x < 6; x++) expect(map.tiles[2][x].type).toBe('river');
     expect(ROAD_TYPES.has(map.tiles[2][6].type)).toBe(true);
@@ -108,7 +110,7 @@ describe('wireGateToRoad', () => {
     const map = makeGrassMapWithRoad();
     for (let x = 0; x < 7; x++) { map.tiles[2][x].type = 'river'; map.tiles[2][x].walkable = false; }
     const gate: Anchor = { kind: 'gate', x: 3, y: 4, facing: [0, -1], width: 1 };
-    expect(wireGateToRoad(gate, map)).toBe(false);
+    expect(wireGateToRoad(gate, map).reached).toBe(false);
     for (let y = 1; y <= 4; y++) for (let x = 0; x < 7; x++) {
       expect(ROAD_TYPES.has(map.tiles[y][x].type)).toBe(false);
     }
@@ -120,7 +122,7 @@ describe('wireGateToRoad', () => {
     const curtain = new Set(['0,2', '1,2', '2,2', '3,2', '4,2', '6,2']);
     const gate: Anchor = { kind: 'gate', x: 3, y: 4, facing: [0, -1], width: 1 };
     const ok = wireGateToRoad(gate, map, 12, (x, y) => curtain.has(`${x},${y}`));
-    expect(ok).toBe(true);
+    expect(ok.reached).toBe(true);
     // Nothing carved on curtain cells; the spur threads the opening at (5,2).
     for (const c of curtain) {
       const [x, y] = c.split(',').map(Number);

@@ -4,6 +4,7 @@ import {
   deriveCroftEnclosures, deriveSettlementRing, type EnclosureCtx,
 } from '@/world/enclosure';
 import { loadDefaultPacks } from '@/catalogue';
+import { gatePoint } from '@/world/barrier';
 import type { Lot } from '@/world/settlement-plan';
 
 const ctx: EnclosureCtx = { era: 'medieval' };
@@ -144,6 +145,60 @@ describe('deriveSettlementRing encloses the built bbox with gates at crossings',
     expect(gaps.length).toBeGreaterThanOrEqual(1);   // the east side opened to the water
     const gates = ring!.run.gates.filter((g) => g.kind !== 'gap');
     expect(gates.length).toBe(1);                     // still exactly one landward gate
+  });
+
+  // ── gates-first: committed direction gates (Watabou portal nodes) ──────────────────
+  it('commits a gate toward each inbound connection direction, before any road exists', () => {
+    // No road crosses the ring at all — gates come purely from the connection directions.
+    const ring = deriveSettlementRing({
+      bbox: { minX: 20, minY: 20, maxX: 34, maxY: 34 },
+      mapW: 80, mapH: 80, buildingCount: 20, poiId: 'portal',
+      isWater: () => false,
+      isRoad: () => false,                       // NO road crossing — gates are direction-committed
+      connections: [{ dx: 1, dy: 0 }, { dx: 0, dy: -1 }],   // east + north neighbours
+      ctx,
+    })!;
+    const gates = ring.run.gates.filter((g) => g.kind !== 'gap');
+    // Two distinct inbound directions → two committed gates (no road needed to derive them).
+    expect(gates.length).toBe(2);
+    const c = ring.run.centroid!;
+    // One gate opens on the EAST bearing, one on the NORTH bearing.
+    const bearings = gates.map((g) => {
+      const [gx, gy] = gatePoint(ring.run, g);
+      return { ex: gx - c[0], ey: gy - c[1] };
+    });
+    expect(bearings.some((b) => b.ex > 3 && Math.abs(b.ey) < 4)).toBe(true);   // east gate
+    expect(bearings.some((b) => b.ey < -3 && Math.abs(b.ex) < 4)).toBe(true);  // north gate
+  });
+
+  it('never opens a committed gate onto water (a POI across the river shares a landward gate)', () => {
+    const ring = deriveSettlementRing({
+      bbox: { minX: 20, minY: 20, maxX: 34, maxY: 34 },
+      mapW: 80, mapH: 80, buildingCount: 20, poiId: 'riverport',
+      isWater: (x) => x >= 37,                    // river to the EAST just outside the wall
+      isRoad: () => false,
+      connections: [{ dx: 1, dy: 0 }],            // the only neighbour is EAST, across the water
+      ctx,
+    })!;
+    const gates = ring.run.gates.filter((g) => g.kind !== 'gap');
+    // Still exactly one landward gate (guarantee), and it is NOT on the wet east side.
+    expect(gates.length).toBe(1);
+    const [gx] = gatePoint(ring.run, gates[0]);
+    expect(gx).toBeLessThan(36);
+  });
+
+  it('deduplicates a direction gate that coincides with an interior-street crossing', () => {
+    const ring = deriveSettlementRing({
+      bbox: { minX: 20, minY: 20, maxX: 34, maxY: 34 },
+      mapW: 80, mapH: 80, buildingCount: 20, poiId: 'aligned',
+      isWater: () => false,
+      isRoad: (x, y) => y <= 19 && x >= 26 && x <= 28,   // a street pokes north through the ring
+      connections: [{ dx: 0, dy: -1 }],                   // and the neighbour is also NORTH
+      ctx,
+    })!;
+    const gates = ring.run.gates.filter((g) => g.kind !== 'gap');
+    // The northbound street crossing and the north connection resolve to ONE gate, not two abutting.
+    expect(gates.length).toBe(1);
   });
 
   it('returns null for a hamlet', () => {
