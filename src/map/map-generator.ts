@@ -23,6 +23,7 @@ import { buildRoadGraph } from '@/world/road-graph';
 import { mergeParallelRoads } from '@/world/connectome/merge-parallel-roads';
 import { gateApproachPlan, realGateAnchors } from '@/world/connectome/gate-approach';
 import { settlementRingContracts } from '@/world/connectome/wall-contracts';
+import { defenseRingContracts } from '@/world/connectome/defense-contracts';
 import { wireGateToRoad } from '@/world/wire-gate';
 import { corridorCells } from '@/world/road-corridors';
 import type { RoadGraph } from '@/world/road-graph';
@@ -637,9 +638,12 @@ export async function generateWithNoise(
   if (cleared > 0) report(`Cleared ${cleared} obstructed nature entities`);
 
   // Contract DECLARATIONS the walled-town recipe commits: each defensive ring asks the connectome
-  // for a landward gate reached by a road and a curtain crossed only at gates. `evaluateContracts`
+  // for a landward gate reached by a road and a curtain crossed only at gates, PLUS (round 6,
+  // WP-T) a raider's-eye check that the circuit is actually closed. `evaluateContracts`
   // (lint:world / MCP / Fate) grades them into the leveled report.
-  map.contracts = { declarations: settlementRingContracts(barrierRuns) };
+  map.contracts = {
+    declarations: [...settlementRingContracts(barrierRuns), ...defenseRingContracts(barrierRuns)],
+  };
 
   // STAIR SITES (G3b): where a road's line climbs steeper than its class grade envelope,
   // the connectome wants a stair flight (the envelope's named reconciliation structure).
