@@ -7,10 +7,9 @@ import type { BeatId } from '@/sim/threads/staging-types';
 export type SimEvent =
   | { type: 'world_seeded';       worldSeed: WorldSeed; substrateSeed: number }
   | { type: 'spirit_birth';       spiritId: SpiritId; name: string; isPlayer: boolean }
-  | { type: 'spirit_manifest';    spiritId: SpiritId; form: 'avatar'; at: { x: number; y: number } }
-  | { type: 'spirit_possess';     spiritId: SpiritId; npcId: EntityId }
-  | { type: 'spirit_unmanifest';  spiritId: SpiritId; reason: 'voluntary' | 'killed' | 'unhost' }
-  | { type: 'spirit_gaze_shift';  spiritId: SpiritId; fromNpcId?: EntityId; toNpcId: EntityId }
+  // NOTE (2026-07-04, WP-C): the manifestation/possession family (spirit_manifest,
+  // spirit_possess, spirit_unmanifest, spirit_gaze_shift) and entity_emerged were
+  // deleted — zero emit sites and zero consumers (guard: tests/unit/sim-event-boundary.test.ts).
   | { type: 'npc_spawn';          npcId: EntityId; role: NpcRole; poiId: string }
   | { type: 'whisper';            spiritId: SpiritId; npcId: EntityId }
   | { type: 'omen';               spiritId: SpiritId; poiId: string; severity: number }
@@ -35,7 +34,6 @@ export type SimEvent =
   | { type: 'power_depleted';     spiritId: SpiritId }
   | { type: 'region_realized';    region: Region; cause: 'belief_spread' | 'miracle' | 'cradle_start' }
   | { type: 'tile_collapsed';     x: number; y: number; becameType: string; by: 'wfc' | 'oracle' }
-  | { type: 'entity_emerged';     entityId: EntityId; kind: string; x: number; y: number }
   | { type: 'settlement_grown';   poiId: string; entityId: EntityId; preset: string; lotId: string }
   | { type: 'settlement_upgraded'; poiId: string; entityId: EntityId; from: string; to: string; lotId: string }
   | { type: 'settlement_begin';   poiId: string; eventType: SettlementEventType; severity: number; durationTicks: number }
