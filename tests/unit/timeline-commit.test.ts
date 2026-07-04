@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { createState } from '@/core/state';
-import { TimelineController } from '@/core/timeline';
+import { TimelineController, MAX_DISCARDED_FUTURES } from '@/core/timeline';
 import { Scheduler } from '@/core/scheduler';
 import { NpcMovementSystem } from '@/sim/systems/npc-movement-system';
 import { NpcSimSystem } from '@/sim/systems/npc-sim-system';
@@ -94,6 +94,26 @@ describe('TimelineController.commit', () => {
     expect(futures.length).toBe(1);
     expect(futures[0].parentTick).toBe(midTick);
     expect(futures[0].rerolled).toBe(false);
+  });
+
+  it('discarded futures are capped (oldest dropped first) so commit-heavy sessions never leak', () => {
+    const state = createState();
+    attachWorld(state);
+    const sched = new Scheduler(); // no systems needed — commits only
+    const tl = new TimelineController({ state, scheduler: sched });
+
+    const total = MAX_DISCARDED_FUTURES + 8;
+    for (let i = 0; i < total; i++) {
+      tickFor(state, sched, tl, 3);
+      tl.jumpTo(state.clock.now() - 1);
+      tl.commit({ reroll: false });
+    }
+    const futures = tl.getDiscardedFutures();
+    expect(futures.length).toBe(MAX_DISCARDED_FUTURES);
+    // The most recent tails are the ones retained.
+    for (let i = 1; i < futures.length; i++) {
+      expect(futures[i].parentTick).toBeGreaterThanOrEqual(futures[i - 1].parentTick);
+    }
   });
 
   it('appends a timeline_commit event at the cutoff tick when committing without reroll', () => {

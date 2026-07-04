@@ -9,7 +9,7 @@ function fakeSave(tick: number): SaveFile {
   return {
     version: 1, contentVersion: 1, savedAt: 1000, worldSeed: { name: 'w' } as any, map: { width: 1, height: 1 } as any,
     biomeMap: null,
-    snapshot: { tick, eventId: 0, rng: [1, 2, 3, 4] as any, entities: [], activeEvents: [], spirits: [] },
+    snapshot: { tick, rng: [1, 2, 3, 4] as any, entities: [], activeEvents: [], spirits: [] },
     events: [], view: {} as any,
   };
 }

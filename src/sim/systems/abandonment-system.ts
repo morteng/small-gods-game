@@ -1,4 +1,5 @@
 import type { System, SystemContext } from '@/core/scheduler';
+import type { SerializableSystem } from '@/core/system-state';
 import { forEachNpc, npcProps, rememberEvent } from '@/world/npc-helpers';
 import { PLAYER_SPIRIT_ID, BELIEVER_THRESHOLD, LAPSED_FLOOR } from '@/sim/believers';
 
@@ -13,12 +14,44 @@ const GRACE_TICKS = 10; // consecutive floored ticks before we call it a lapse
  *
  *  "Ever believed" is learned by observation: faith decays gradually, so the system
  *  sees a believer above the threshold before it bleeds to the floor. */
-export class AbandonmentSystem implements System {
+export class AbandonmentSystem implements System, SerializableSystem {
   readonly name = 'abandonment';
   readonly tickHz = 1;
   private everBelieved = new Set<string>();
   private lapsed = new Map<string, number>();
   private announced = new Set<string>();
+
+  /** WP-D scrub-ghost pattern: all three fields are HISTORY (who ever believed,
+   *  grace counters, lapses already announced) — not derivable from current
+   *  faith values, so serialize them. Without this, a scrub-back keeps
+   *  `announced` from the discarded future (suppressing a believer_lost that
+   *  should re-fire) and keeps `everBelieved` for conversions that no longer
+   *  happened (firing a lapse for a soul that never believed). */
+  serialize(): unknown {
+    return {
+      everBelieved: [...this.everBelieved],
+      lapsed: [...this.lapsed],
+      announced: [...this.announced],
+    };
+  }
+
+  hydrate(state: unknown): void {
+    const s = state as
+      | { everBelieved?: unknown; lapsed?: unknown; announced?: unknown }
+      | undefined;
+    this.everBelieved = new Set(Array.isArray(s?.everBelieved)
+      ? s.everBelieved.filter((v): v is string => typeof v === 'string') : []);
+    this.announced = new Set(Array.isArray(s?.announced)
+      ? s.announced.filter((v): v is string => typeof v === 'string') : []);
+    this.lapsed = new Map();
+    if (Array.isArray(s?.lapsed)) {
+      for (const entry of s.lapsed) {
+        if (Array.isArray(entry) && typeof entry[0] === 'string' && typeof entry[1] === 'number') {
+          this.lapsed.set(entry[0], entry[1]);
+        }
+      }
+    }
+  }
 
   tick(ctx: SystemContext): void {
     forEachNpc(ctx.world, (e) => {

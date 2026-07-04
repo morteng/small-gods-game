@@ -71,6 +71,18 @@ export class FateTrigger {
     return subscribe((e) => this.onEvent(e));
   }
 
+  /** WP-D scrub-ghost pattern (onRestore reset, not serialize): claim pressure
+   *  and the cooldown anchor are throttle state, not sim truth — after a
+   *  timeline scrub/commit the clock may sit BEFORE `lastTick` (a discarded
+   *  future), which would wedge the cooldown gate shut for real time. Reset
+   *  both; the documented worst case ("Fate may deliberate one cycle sooner")
+   *  is harmless. Called from the game's timeline `onRestore` hook — this class
+   *  lives in src/game/, outside the sim-side SystemStateRegistry seam. */
+  reset(): void {
+    this.lastTick = -Infinity;
+    this.claimTicks = [];
+  }
+
   onEvent(e: AppendedEvent): void {
     const ev = e.event;
     const now = this.deps.clock.now();

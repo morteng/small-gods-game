@@ -200,6 +200,7 @@ export class Game {
   private llmClient!: LLMClient;
   private llmBackfill!: LlmBackfillService;
   private fateBrain!: FateBrainService;
+  private fateTrigger!: FateTrigger;
   private llmClientCapable: LLMClient | null = null;   // Tier-2 "key moments" — consumed by the Fate brain (+ structured-output fallbacks)
   private costTracker = new CostTracker();
   private spendChip: SpendChipHandle | null = null;
@@ -301,9 +302,18 @@ export class Game {
     this.scheduler.register(new TramplePromoteDecaySystem(() => this.state.map, () => this.state.trample));
     // Order: settlement events affect needs → NpcSimSystem decays needs + recomputes mood
     // → activity system picks activities from needs → belief propagation → spirits
-    this.scheduler.register(new SettlementEventSystem());
-    this.scheduler.register(new NpcSimSystem());
-    this.scheduler.register(new AbandonmentSystem());
+    // These three carry internal sim state (cooldowns / edge sides / lapse
+    // history) — register them with the snapshot seam too (WP-D scrub-ghost
+    // pattern) so scrub/commit/save-load restores that state with the world.
+    const settlementEvents = new SettlementEventSystem();
+    const npcSim = new NpcSimSystem();
+    const abandonment = new AbandonmentSystem();
+    this.scheduler.register(settlementEvents);
+    this.scheduler.register(npcSim);
+    this.scheduler.register(abandonment);
+    this.state.systemState.register(settlementEvents);
+    this.state.systemState.register(npcSim);
+    this.state.systemState.register(abandonment);
     this.scheduler.register(new NpcActivitySystem());
     this.scheduler.register(new BeliefPropagationSystem());
     // Belief CONTENT (Track B): propagate + decay what they think you can DO.
@@ -362,6 +372,10 @@ export class Game {
         this.discoveryQueue.clear();
         this.lastDiscoveredNpcId = null;
         this.attentionStore.clearAll();
+        // WP-D: Fate's wake throttle is game-side (outside the snapshot seam);
+        // a scrub can put the clock BEFORE its lastTick, wedging the cooldown
+        // gate shut. Reset — worst case Fate deliberates one cycle sooner.
+        this.fateTrigger?.reset();
       },
       authorLog: this.authorLog,
     });
@@ -590,13 +604,13 @@ export class Game {
       emitCommand: (cmd) => this.commandQueue.emit(cmd),
       getValidStoryletIds: () => this.storyRegistry.storyletIds(),
     });
-    const fateTrigger = new FateTrigger({
+    this.fateTrigger = new FateTrigger({
       clock: this.state.clock,
       cooldownTicks: 480,                       // ~5 game-days between deliberations
       isReady: () => this.fateBrain.isReady(),
       onTrigger: (focus) => { void this.fateBrain.deliberate(focus); },
     });
-    fateTrigger.attach((fn) => this.state.eventLog.subscribe(fn));
+    this.fateTrigger.attach((fn) => this.state.eventLog.subscribe(fn));
 
     this.divine = new DivineActionsController({ state: this.state, queue: this.commandQueue, divineEffects: this.ui.divineEffects });
 

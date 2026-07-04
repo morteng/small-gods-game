@@ -28,6 +28,10 @@ interface DiscardedTail {
 
 const SIM_STEP_MS = 1000 / 60;
 
+/** Bound on retained discarded-future tails (Spec C consumers read recent ones;
+ *  unbounded growth was a slow leak on commit-heavy sessions). Oldest drop first. */
+export const MAX_DISCARDED_FUTURES = 32;
+
 export class TimelineController {
   private readonly state: GameState;
   private readonly scheduler: Scheduler;
@@ -108,6 +112,9 @@ export class TimelineController {
       events: tail,
       rerolled: opts.reroll,
     });
+    if (this.discardedFutures.length > MAX_DISCARDED_FUTURES) {
+      this.discardedFutures.splice(0, this.discardedFutures.length - MAX_DISCARDED_FUTURES);
+    }
     this.state.eventLog.truncateAfter(cutoff);
     this.store.truncateAfter(cutoff);
     this.authorLog?.truncateAfter(cutoff);

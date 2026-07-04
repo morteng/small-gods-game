@@ -11,6 +11,7 @@
  */
 
 import type { System, SystemContext } from '@/core/scheduler';
+import type { SerializableSystem } from '@/core/system-state';
 import { forEachNpc, npcProps } from '@/world/npc-helpers';
 import { clamp01 } from '@/sim/npc-sim';
 import { Random } from '@/core/noise';
@@ -61,7 +62,7 @@ const ALL_EVENT_TYPES = Object.keys(EVENT_CONFIGS) as SettlementEventType[];
 
 // ── System ───────────────────────────────────────────────────────────────────
 
-export class SettlementEventSystem implements System {
+export class SettlementEventSystem implements System, SerializableSystem {
   readonly name = 'settlement_event';
   readonly tickHz = 1;
 
@@ -72,6 +73,24 @@ export class SettlementEventSystem implements System {
    * at which the POI is eligible for that event type again.
    */
   private cooldowns = new Map<string, number>();
+
+  /** WP-D scrub-ghost pattern: cooldown deadlines are sim truth (they suppress
+   *  event rolls) but are NOT derivable from world state — serialize them.
+   *  `this.rng` is excluded: it is reseeded from ctx.rng every tick. */
+  serialize(): unknown {
+    return { cooldowns: [...this.cooldowns] };
+  }
+
+  hydrate(state: unknown): void {
+    this.cooldowns.clear();
+    const cd = (state as { cooldowns?: unknown } | undefined)?.cooldowns;
+    if (!Array.isArray(cd)) return; // undefined / old save / foreign shape → reset
+    for (const entry of cd) {
+      if (Array.isArray(entry) && typeof entry[0] === 'string' && typeof entry[1] === 'number') {
+        this.cooldowns.set(entry[0], entry[1]);
+      }
+    }
+  }
 
   tick(ctx: SystemContext): void {
     // Reseed for determinism
