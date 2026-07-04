@@ -1133,12 +1133,26 @@ export class Game {
     this.requestRender();
   }
 
-  /** Queue the P5 camera-fly toward a tile anchor. Lands at an in-band zoom when
-   *  starting zoomed out; keeps the player's zoom when already in-band. Presentation
-   *  only — cancelled by any user pan/zoom (`onUserCameraInput`). */
-  private flyTo(tx: number, ty: number): void {
+  /** Queue the P5 camera-fly toward a tile anchor — `flyTo(tx, ty)` or `flyTo({x, y})`.
+   *  Lands at an in-band zoom when starting zoomed out; keeps the player's zoom when
+   *  already in-band. Presentation only — cancelled by any user pan/zoom
+   *  (`onUserCameraInput`). Non-finite / off-map targets are dropped: a bad call must
+   *  never write NaN into `cameraFly` (the ease would poison `camera.x/y` for the rest
+   *  of the session). */
+  private flyTo(txOrPos: number | { x: number; y: number }, ty?: number): void {
+    const tx = typeof txOrPos === 'object' ? txOrPos.x : txOrPos;
+    const tyv = typeof txOrPos === 'object' ? txOrPos.y : ty;
+    const map = this.state.map;
+    if (
+      typeof tx !== 'number' || typeof tyv !== 'number' ||
+      !Number.isFinite(tx) || !Number.isFinite(tyv) ||
+      (map && (tx < 0 || tyv < 0 || tx >= map.width || tyv >= map.height))
+    ) {
+      console.warn(`[camera] flyTo dropped invalid target (${String(tx)}, ${String(tyv)})`);
+      return;
+    }
     const zoom = this.currentBand() === 'in' ? this.state.camera.zoom : ALERT_FLY_ZOOM;
-    this.state.cameraFly = { tx, ty, zoom };
+    this.state.cameraFly = { tx, ty: tyv, zoom };
   }
 
   /** Triage "Act": route an inbox item to the matching divine action, flying the

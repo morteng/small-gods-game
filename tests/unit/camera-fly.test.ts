@@ -48,6 +48,30 @@ describe('applyCameraFly — P5 alert-pin camera-fly tween', () => {
     }
   });
 
+  it('drops a non-finite fly instead of easing NaN into the camera', () => {
+    const state = createState();
+    state.camera.x = 100; state.camera.y = 100; state.camera.zoom = 1;
+    state.cameraFly = { tx: NaN, ty: 25, zoom: 0.5 };
+    applyCameraFly(state, VP);
+    expect(state.cameraFly).toBeNull();            // dropped, not eased
+    expect(state.camera.x).toBe(100);              // camera untouched
+    expect(state.camera.y).toBe(100);
+    expect(state.camera.zoom).toBe(1);
+  });
+
+  it('self-heals a NaN-poisoned camera by snapping to the fly target', () => {
+    const state = createState();
+    state.camera.x = NaN; state.camera.y = NaN; state.camera.zoom = 1;
+    const tx = 40, ty = 25, zoom = 0.5;
+    state.cameraFly = { tx, ty, zoom };
+    applyCameraFly(state, VP);
+    expect(state.cameraFly).toBeNull();            // settled in one step
+    expect(state.camera.zoom).toBe(zoom);
+    const viewW = VP.width / zoom, viewH = VP.height / zoom;
+    expect(state.camera.x).toBeCloseTo((tx + 0.5) * TILE_SIZE - viewW / 2, 6);
+    expect(state.camera.y).toBeCloseTo((ty + 0.5) * TILE_SIZE - viewH / 2, 6);
+  });
+
   it('cancelling the fly (cameraFly=null) stops the tween immediately', () => {
     const state = createState();
     state.camera.x = 0; state.camera.y = 0; state.camera.zoom = 1;

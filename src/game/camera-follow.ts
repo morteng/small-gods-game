@@ -36,6 +36,21 @@ export function applyCameraFly(state: GameState, viewport: Viewport): void {
   const fly = state.cameraFly;
   if (!fly) return;
   const cam = state.camera;
+  // A non-finite fly can never settle (every NaN comparison is false) and its ease
+  // writes NaN into the camera — drop it outright.
+  if (!Number.isFinite(fly.tx) || !Number.isFinite(fly.ty) || !Number.isFinite(fly.zoom)) {
+    state.cameraFly = null;
+    return;
+  }
+  // Self-heal a poisoned camera (NaN never un-eases): snap straight to the target
+  // framing instead of easing from nowhere.
+  if (!Number.isFinite(cam.x) || !Number.isFinite(cam.y) || !Number.isFinite(cam.zoom)) {
+    cam.zoom = fly.zoom;
+    cam.x = (fly.tx + 0.5) * TILE_SIZE - (viewport.width / cam.zoom) / 2;
+    cam.y = (fly.ty + 0.5) * TILE_SIZE - (viewport.height / cam.zoom) / 2;
+    state.cameraFly = null;
+    return;
+  }
   // Ease zoom first — the framing offset below reads the current zoom, so blending
   // it in-step keeps the anchor centred throughout the flight.
   cam.zoom += (fly.zoom - cam.zoom) * FLY_LERP;
