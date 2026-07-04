@@ -1,15 +1,16 @@
-// src/studio/solar.ts
-// A lightweight solar-position model so the studio sun can be driven by time of
+// src/render/solar.ts (moved from src/studio/solar.ts — now shared by the
+// runtime day/night cycle, src/render/day-night.ts, AND the studio sun panel)
+// A lightweight solar-position model so a sun can be driven by time of
 // day + day of year (season) instead of raw azimuth/elevation. It's textbook
 // horizontal-coordinate astronomy (declination + hour-angle → an East/North/Up
 // sun vector) — good enough for art: believable sunrise→noon→sunset arcs and
 // seasonal arc-height changes. Elevation additionally drives a golden-hour →
 // noon → night colour/intensity ramp for the lit WebGL layer.
 //
-// Pure + Node-safe (no DOM); the only studio-specific choice is AZ_OFFSET, which
-// rotates true azimuth into the studio's sunDir convention so the sun visibly
+// Pure + Node-safe (no DOM); the only scene-specific choice is AZ_OFFSET, which
+// rotates true azimuth into the iso sunDir convention so the sun visibly
 // crosses the iso scene (tuned by eye, cardinal accuracy is irrelevant here).
-import type { Vec3 } from '@/render/lighting-state';
+import { normalizeVec3, type Vec3 } from '@/render/lighting-state';
 import { clamp, lerp } from '@/core/math';
 
 const D2R = Math.PI / 180, R2D = 180 / Math.PI;
@@ -20,6 +21,15 @@ const lerp3 = (a: Vec3, b: Vec3, t: number): Vec3 => [lerp(a[0], b[0], t), lerp(
 const AZ_OFFSET = -90;
 
 export interface SolarAngles { az: number; el: number }   // degrees; el<0 ⇒ below horizon
+
+/** Screen-space (normal-map frame: +x right, +y up, +z toward camera) light
+ *  direction from az/el degrees in the AZ_OFFSET convention above (az 0 =
+ *  behind/top, 90 = screen-left). Shared by the studio sun controls and any
+ *  runtime consumer that wants the raw astronomical direction. */
+export function sunDirFromAngles(az: number, el: number): Vec3 {
+  const a = (az * Math.PI) / 180, e = (el * Math.PI) / 180;
+  return normalizeVec3([-Math.sin(a) * Math.cos(e), Math.sin(e), Math.cos(a) * Math.cos(e)]);
+}
 
 /** Sun azimuth/elevation for an hour (0..24), year fraction (0..1, 0 = spring
  *  equinox, 0.25 = summer solstice), and latitude (deg, N hemisphere). */

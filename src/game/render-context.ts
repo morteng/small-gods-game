@@ -10,7 +10,8 @@ import type { GeneratedBuildingArtSource } from '@/render/generated-building-art
 import type { GeneratedFloraArtSource } from '@/render/generated-flora-art-source';
 import type { Viewport } from './viewport';
 import { toRenderNpc } from '@/world/npc-helpers';
-import { DEFAULT_LIGHTING, LIGHTING_OFF } from '@/render/lighting-state';
+import { LIGHTING_OFF, type LightingState } from '@/render/lighting-state';
+import { dayNightLightingForTick } from '@/render/day-night';
 
 export interface RenderContextDeps {
   state: GameState;
@@ -42,6 +43,15 @@ export interface RenderContextDeps {
 function nightFactorOverride(): number | null {
   const v = (globalThis as { __nightFactor?: unknown }).__nightFactor;
   return typeof v === 'number' && isFinite(v) ? Math.max(0, Math.min(1, v)) : null;
+}
+
+/** Live day/night lighting for the frame — a memoized pure function of the sim
+ *  clock (deterministic + scrub-safe; see src/render/day-night.ts). The dev
+ *  `__nightFactor` override only forks a new object while it's set. */
+function liveLighting(tick: number): LightingState {
+  const lit = dayNightLightingForTick(tick);
+  const ov = nightFactorOverride();
+  return ov === null ? lit : { ...lit, nightFactor: ov };
 }
 
 /** Single source of truth for the per-frame RenderContext.
@@ -128,15 +138,13 @@ export function buildRenderContext(deps: RenderContextDeps): RenderContext {
       src.warm(entity); // fire-and-forget; never blocks the frame
       return null;
     },
-    // Window lighting: the emissive (lit-window) glow is DISABLED for now — driving it off the
-    // raw sim clock made every window blink on/off as time advanced, with no relation to whether
-    // anyone's home. It should be wired to real occupancy + time-of-day (a building knows its
-    // residents + their schedules) before it comes back. Until then nightFactor is 0 (no glow);
-    // `__nightFactor` (dev) still overrides for eyeballing the pane emissive. Re-enable via
-    // `nightFactorForTick(state.clock.now())` once an occupancy signal gates it.
-    lighting: devMode.lighting === 'off'
-      ? LIGHTING_OFF
-      : { ...DEFAULT_LIGHTING, nightFactor: nightFactorOverride() ?? 0 },
+    // Day/night (WP-E): lighting is a pure function of the sim clock — dawn/dusk
+    // colour ramps, a clamped readable night, and the uNight window glow, on a
+    // visual solar day of SOLAR_DAY_CALENDAR_DAYS calendar days (the raw 4-second
+    // calendar day strobed — that killed the first wiring). Occupancy-gated
+    // per-building glow remains future work; for now every emissive pane follows
+    // the sky. `__nightFactor` (dev) still overrides the emissive factor.
+    lighting: devMode.lighting === 'off' ? LIGHTING_OFF : liveLighting(state.clock.now()),
     devMode,
     // Folds into the static draw-cache key so the building layer rebuilds once the
     // async parametric massing packs finish composing (otherwise the first snapshot —

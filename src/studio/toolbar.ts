@@ -8,7 +8,7 @@
 import type { ShadowMode } from '@/render/lighting-state';
 import type { StudioState } from './types';
 import { h, popover } from './theme';
-import { celestial, clockLabel, seasonLabel } from './solar';
+import { celestial, clockLabel, seasonLabel } from '@/render/solar';
 
 interface ToolbarDeps {
   invalidate: () => void;            // bust geometry/shadow caches (sun moved)

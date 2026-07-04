@@ -47,10 +47,13 @@ export interface ShadowBatch {
 
 type ImageItem = DrawItem & { t: 'image' };
 
-/** Ground displacement per screen px of height, derived from the sun direction. */
+/** Ground displacement per screen px of height, derived from the SHADOW sun
+ *  direction (`shadowDir ?? sunDir` — the day/night cycle pins shadows to the
+ *  canonical sun while the shading direction sweeps). */
 function sunLean(lighting: LightingState): { leanX: number; dropY: number; mag: number } {
-  const [sx, , sz] = lighting.sunDir;
-  const sy = lighting.sunDir[1];
+  const dir = lighting.shadowDir ?? lighting.sunDir;
+  const [sx, , sz] = dir;
+  const sy = dir[1];
   const up = Math.max(0.2, sy);
   const damp = 0.8;
   const leanX = (-sx / up) * damp;          // screen-x per height px
