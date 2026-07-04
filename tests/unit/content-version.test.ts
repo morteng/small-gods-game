@@ -6,7 +6,7 @@ describe('content-version constants', () => {
     expect(ART_RECIPE_VERSION).toBe('v24');
   });
 
-  it('declares the current world content version (80: round 5 — gates-first commit, trample prewarm, fillet raster reconciliation)', () => {
-    expect(WORLD_CONTENT_VERSION).toBe(80);
+  it('declares the current world content version (81: round 6 — terrain-seeking rings, coverage towers + ditch, barrier mass/join fixes, ground-blend pads/wear, defense lint)', () => {
+    expect(WORLD_CONTENT_VERSION).toBe(81);
   });
 });

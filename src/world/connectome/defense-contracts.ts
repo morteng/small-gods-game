@@ -205,10 +205,12 @@ function gateApproachPath(map: GameMap, world: World, run: BarrierRun, gate: Bar
   return res ? res.path : null;
 }
 
-/** Tower positions for a ring: prefers real WP-S placement (entities tagged 'tower'); falls back
- *  to a geometric proxy — a tower at every ring-corner vertex + a flanking pair per real gate,
- *  mirroring today's render-time-only artifact (`parametric-barrier-source.ts`'s `towerElements`). */
+/** Tower positions for a ring: prefers the coverage-placement pass's authoritative `run.towers`
+ *  (WP-S — persisted plain data, exactly what the renderer draws), then any entities tagged
+ *  'tower', and only then a geometric proxy — a tower at every ring-corner vertex + a flanking
+ *  pair per real gate, mirroring the legacy render-time artifact. */
 function ringTowerPositions(world: World, run: BarrierRun): { x: number; y: number }[] {
+  if (run.towers?.length) return run.towers.map((t) => ({ x: t.x, y: t.y }));
   const placed = world.query({ tag: 'tower' }).map((e) => ({ x: e.x, y: e.y }));
   if (placed.length) return placed;
 
