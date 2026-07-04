@@ -1,6 +1,6 @@
 import type { System, SystemContext } from '@/core/scheduler';
 import { tickNpcEntity } from '@/sim/npc-sim';
-import { forEachNpc, npcProps } from '@/world/npc-helpers';
+import { forEachNpc, npcProps, rememberEvent } from '@/world/npc-helpers';
 
 const BELIEF_HIGH = 0.6;
 const BELIEF_LOW = 0.3;
@@ -48,14 +48,17 @@ export class NpcSimSystem implements System {
         const prev = preBeliefSides[key];
         const cur = beliefSide(b.faith);
         if (prev !== cur && cur !== 'mid') {
-          ctx.log.append({ type: 'belief_cross', npcId: e.id, spiritId: sid, kind: cur, faith: b.faith });
+          const appended = ctx.log.append({ type: 'belief_cross', npcId: e.id, spiritId: sid, kind: cur, faith: b.faith });
+          // Their own faith turning is a memory they carry (WP-C).
+          rememberEvent(props, appended.id);
         }
         this.beliefSides.set(key, cur);
       }
 
       const mc = moodSide(props.mood);
       if (preMoodSide !== mc && mc !== 'mid') {
-        ctx.log.append({ type: 'mood_cross', npcId: e.id, kind: mc, mood: props.mood });
+        const appended = ctx.log.append({ type: 'mood_cross', npcId: e.id, kind: mc, mood: props.mood });
+        rememberEvent(props, appended.id);
       }
       this.moodSides.set(e.id, mc);
     });

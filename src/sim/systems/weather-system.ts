@@ -17,6 +17,7 @@ import type { WeatherStepper } from '@/sim/water/weather-stepper';
 import type { FloodWatch } from '@/world/flood-watch';
 import type { CausalSiteStore } from '@/world/causal-site';
 import { seedFloodBelief, seedSiteBelief } from '@/sim/divine-actions';
+import { forEachNpc, npcProps, rememberEvent } from '@/world/npc-helpers';
 
 /** Whose flood-power gets the credit when waters rise (the protagonist god). */
 const ATTRIBUTION_SPIRIT = 'player';
@@ -49,9 +50,14 @@ export class WeatherSystem implements System {
     if (watch) {
       for (const ev of watch.poll(floodM)) {
         if (ev.type === 'flooded') {
-          ctx.log.append({
+          const appended = ctx.log.append({
             type: 'place_flooded', poiId: ev.placeId, name: ev.name,
             depthM: ev.depthM, coverage: ev.coverage,
+          });
+          // Your home going under water is about as memorable as a life gets —
+          // stamp every resident's memory ring (WP-C).
+          forEachNpc(ctx.world, (e) => {
+            if (npcProps(e).homePoiId === ev.placeId) rememberEvent(npcProps(e), appended.id);
           });
           // Attribution at the act site: the waters rising at a settlement seed its
           // believers' `flood` belief domain — which unlocks (and reinforces) summon_storm.

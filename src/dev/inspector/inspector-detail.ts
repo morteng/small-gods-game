@@ -121,7 +121,7 @@ function renderNpcSections(host: HTMLElement, e: Entity, deps: DetailDeps): void
   if (rels.length) card(host, rels.map(r => [r.type, `${r.npcId} (trust ${pct(r.trust)})`])); else muted(host, 'No relationships.');
 
   title(host, 'Recent events');
-  const events = getRecentEventDescriptions(p, deps.eventLog);
+  const events = getRecentEventDescriptions(p, deps.eventLog, undefined, e.id);
   if (events.length) card(host, events.map(ev => ['•', ev])); else muted(host, 'No remembered events.');
 }
 

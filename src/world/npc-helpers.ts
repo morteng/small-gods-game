@@ -24,6 +24,21 @@ export function forEachNpc(world: World, fn: (e: Entity) => void): void {
   for (const e of queryNpcs(world)) fn(e);
 }
 
+/** Size of the per-NPC memory ring (`recentEventIds`) — the LLM narration window. */
+export const RECENT_EVENT_CAP = 8;
+
+/**
+ * Push an event id into an NPC's memory ring (`recentEventIds`), evicting the
+ * oldest past `RECENT_EVENT_CAP`. The ONE writer every emit site shares (WP-C).
+ * Ids ≤ 0 are skipped: `SilentEventLog.append` (replay) returns id 0, and letting
+ * those zeros in would evict real memories with unresolvable ids.
+ */
+export function rememberEvent(props: NpcProperties, eventId: number): void {
+  if (eventId <= 0) return;
+  props.recentEventIds.push(eventId);
+  if (props.recentEventIds.length > RECENT_EVENT_CAP) props.recentEventIds.shift();
+}
+
 /**
  * A settlement's aggregate "enlightenment" 0..1: the mean, over its resident NPCs, of each
  * resident's STRONGEST understanding across all the gods they believe in. A people who deeply
@@ -78,8 +93,10 @@ const ROLE_PIETY_BONUS: Record<NpcRole, number> = {
   soldier: -0.1, noble: 0, child: 0.05, beggar: 0.1,
 };
 
-/** Human label for a sim event as seen from an NPC's perspective. */
-function describeSimEvent(event: SimEvent): string {
+/** Human label for a sim event as seen from an NPC's perspective. `selfId` (when
+ *  known) disambiguates first-person events from witnessed ones — the same ring
+ *  entry reads differently in the subject's memory vs a relation's. */
+function describeSimEvent(event: SimEvent, selfId?: EntityId): string {
   switch (event.type) {
     case 'whisper':       return '💬 Whisper received';
     case 'dream':         return '🌙 Dream sent';
@@ -88,8 +105,16 @@ function describeSimEvent(event: SimEvent): string {
     case 'answer_prayer': return '🙏 Prayer answered';
     case 'mind_probed':   return '🧠 Mind probed';
     case 'believer_lost': return '💔 Faith lapsed';
-    case 'npc_death':     return `💀 Died (${event.cause})`;
-    case 'npc_birth':     return '👶 Born';
+    case 'smite':         return selfId !== undefined && event.npcId === selfId
+      ? '⚡ Struck by the heavens'
+      : '⚡ Lightning strike witnessed';
+    case 'place_flooded': return `🌊 The waters rose over ${event.name}`;
+    case 'npc_death':     return selfId === undefined || event.npcId === selfId
+      ? `💀 Died (${event.cause})`
+      : `💀 A death close to home (${event.cause})`;
+    case 'npc_birth':     return selfId === undefined || event.npcId === selfId
+      ? '👶 Born'
+      : '👶 A child born to kin';
     case 'belief_cross':  return `📈 Belief ${event.kind} (${Math.round(event.faith * 100)}%)`;
     case 'mood_cross':    return `🙂 Mood ${event.kind}`;
     default:              return event.type;
@@ -99,17 +124,19 @@ function describeSimEvent(event: SimEvent): string {
 /**
  * Resolve an NPC's recentEventIds against the event log, newest first.
  * Unknown ids are skipped. Cap defaults to the same 8 the writers retain.
+ * Pass the NPC's own entity id as `selfId` for first-person vs witnessed phrasing.
  */
 export function getRecentEventDescriptions(
   props: NpcProperties,
   eventLog: EventLog,
-  cap = 8,
+  cap = RECENT_EVENT_CAP,
+  selfId?: EntityId,
 ): string[] {
   const out: string[] = [];
   const ids = props.recentEventIds ?? [];
   for (let i = ids.length - 1; i >= 0 && out.length < cap; i--) {
     const found = eventLog.getById(ids[i]);
-    if (found) out.push(describeSimEvent(found.event));
+    if (found) out.push(describeSimEvent(found.event, selfId));
   }
   return out;
 }

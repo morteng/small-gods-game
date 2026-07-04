@@ -12,7 +12,7 @@
 
 import type { Entity, NpcProperties } from '@/core/types';
 import type { SpiritId } from '@/core/spirit';
-import { npcProps } from '@/world/npc-helpers';
+import { npcProps, rememberEvent } from '@/world/npc-helpers';
 import type { EventLog } from '@/core/events';
 import { clamp01 } from '@/core/math';
 
@@ -98,11 +98,7 @@ export function applyLLMWriteback(
           system: 'llm',
           message: eventText,
         });
-        props.recentEventIds.push(appended.id);
-        // Keep ring buffer at max 8
-        if (props.recentEventIds.length > 8) {
-          props.recentEventIds.shift();
-        }
+        rememberEvent(props, appended.id);
         result.changedFields.push('recentEventIds');
       } catch (e) {
         result.errors.push(`Failed to append event: ${e}`);

@@ -1,7 +1,7 @@
 import type { Spirit, SpiritId } from '@/core/spirit';
 import type { Entity, SettlementEventType, NpcActivity } from '@/core/types';
 import type { EventLog } from '@/core/events';
-import { npcProps, forEachNpc } from '@/world/npc-helpers';
+import { npcProps, forEachNpc, rememberEvent } from '@/world/npc-helpers';
 import { clamp01, signResponse } from '@/sim/npc-sim';
 import type { World } from '@/world/world';
 import { addDomainBelief, isOminous } from '@/sim/belief-domains';
@@ -87,8 +87,7 @@ export function whisper(spirit: Spirit, npc: Entity, log: EventLog, conversation
   p.whisperCooldown = WHISPER_COOLDOWN;
 
   const appended = log.append({ type: 'whisper', spiritId: spirit.id, npcId: npc.id });
-  p.recentEventIds.push(appended.id);
-  if (p.recentEventIds.length > 8) p.recentEventIds.shift();
+  rememberEvent(p, appended.id);
 
   return true;
 }
@@ -109,7 +108,7 @@ export function omen(spirit: Spirit, poiId: string, world: World, log: EventLog)
     }
   }
 
-  let affected = 0;
+  const witnesses: Entity[] = [];
   forEachNpc(world, (e) => {
     const p = npcProps(e);
     if (p.homePoiId !== poiId) return;
@@ -120,7 +119,7 @@ export function omen(spirit: Spirit, poiId: string, world: World, log: EventLog)
       addDomainBelief(p, spirit.id, 'storm',
         OMEN_STORM_SEED * signResponse(existing.understanding) * (1 + ominousSeverity));
     }
-    affected++;
+    witnesses.push(e);
   });
 
   // Boost active event severity if there's one running
@@ -134,8 +133,10 @@ export function omen(spirit: Spirit, poiId: string, world: World, log: EventLog)
     type: 'omen',
     spiritId: spirit.id,
     poiId,
-    severity: affected > 0 ? Math.min(1, affected / 10) : 0.1,
+    severity: witnesses.length > 0 ? Math.min(1, witnesses.length / 10) : 0.1,
   });
+  // Every resident saw the sign — it enters their memory rings (WP-C).
+  for (const e of witnesses) rememberEvent(npcProps(e), appended.id);
 
   return true;
 }
@@ -172,8 +173,7 @@ export function dream(spirit: Spirit, npc: Entity, log: EventLog): boolean {
   }
 
   const appended = log.append({ type: 'dream', spiritId: spirit.id, npcId: npc.id });
-  p.recentEventIds.push(appended.id);
-  if (p.recentEventIds.length > 8) p.recentEventIds.shift();
+  rememberEvent(p, appended.id);
 
   return true;
 }
@@ -207,7 +207,7 @@ export function miracle(
     }
   }
 
-  let affected = 0;
+  const witnesses: Entity[] = [];
   forEachNpc(world, (e) => {
     const p = npcProps(e);
     if (p.homePoiId !== poiId) return;
@@ -227,7 +227,7 @@ export function miracle(
         devotion: 0,
       };
     }
-    affected++;
+    witnesses.push(e);
   });
 
   const appended = log.append({
@@ -237,6 +237,8 @@ export function miracle(
     needType,
     amount: MIRACLE_NEED_BOOST,
   });
+  // The whole settlement lived through the wonder — it enters their rings (WP-C).
+  for (const e of witnesses) rememberEvent(npcProps(e), appended.id);
 
   return true;
 }
@@ -273,8 +275,7 @@ export function answerPrayer(spirit: Spirit, npc: Entity, log: EventLog): boolea
   p.activityDuration = 0;
 
   const appended = log.append({ type: 'answer_prayer', spiritId: spirit.id, npcId: npc.id });
-  p.recentEventIds.push(appended.id);
-  if (p.recentEventIds.length > 8) p.recentEventIds.shift();
+  rememberEvent(p, appended.id);
 
   return true;
 }
@@ -287,9 +288,10 @@ export function answerPrayer(spirit: Spirit, npc: Entity, log: EventLog): boolea
 // Either way, every witness who sees the storm OBEY has their storm-attribution
 // reinforced — the loop's positive feedback.
 
-/** Reinforce storm-attribution in every NPC the strike's witnesses-predicate accepts. */
-function reinforceStormWitnesses(spirit: Spirit, world: World, accept: (e: Entity) => boolean): number {
-  let witnesses = 0;
+/** Reinforce storm-attribution in every NPC the strike's witnesses-predicate accepts.
+ *  Returns the accepted witnesses so the caller can stamp their memory rings. */
+function reinforceStormWitnesses(spirit: Spirit, world: World, accept: (e: Entity) => boolean): Entity[] {
+  const witnesses: Entity[] = [];
   forEachNpc(world, (e) => {
     if (!accept(e)) return;
     const b = npcProps(e).beliefs[spirit.id];
@@ -297,7 +299,7 @@ function reinforceStormWitnesses(spirit: Spirit, world: World, accept: (e: Entit
       b.faith = clamp01(b.faith + SMITE_WITNESS_FAITH_BOOST * signResponse(b.understanding));
       addDomainBelief(npcProps(e), spirit.id, 'storm', SMITE_WITNESS_STORM_SEED * signResponse(b.understanding));
     }
-    witnesses++;
+    witnesses.push(e);
   });
   return witnesses;
 }
@@ -328,11 +330,12 @@ export function smite(spirit: Spirit, npc: Entity, world: World, log: EventLog):
   // ── witnesses in the same settlement: the storm obeyed → reinforce ──
   const witnesses = poiId
     ? reinforceStormWitnesses(spirit, world, (e) => e.id !== npc.id && npcProps(e).homePoiId === poiId)
-    : 0;
+    : [];
 
-  const appended = log.append({ type: 'smite', spiritId: spirit.id, npcId: npc.id, poiId, witnesses });
-  tp.recentEventIds.push(appended.id);
-  if (tp.recentEventIds.length > 8) tp.recentEventIds.shift();
+  const appended = log.append({ type: 'smite', spiritId: spirit.id, npcId: npc.id, poiId, witnesses: witnesses.length });
+  rememberEvent(tp, appended.id);
+  // The strike is seared into every witness's memory too (WP-C).
+  for (const e of witnesses) rememberEvent(npcProps(e), appended.id);
 
   return true;
 }
@@ -350,7 +353,8 @@ export function smiteLocation(spirit: Spirit, x: number, y: number, world: World
     const dx = e.x - x, dy = e.y - y;
     return dx * dx + dy * dy <= r2;
   });
-  log.append({ type: 'smite', spiritId: spirit.id, x, y, witnesses });
+  const appended = log.append({ type: 'smite', spiritId: spirit.id, x, y, witnesses: witnesses.length });
+  for (const e of witnesses) rememberEvent(npcProps(e), appended.id);
   return true;
 }
 

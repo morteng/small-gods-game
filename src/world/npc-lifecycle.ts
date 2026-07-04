@@ -3,7 +3,7 @@ import type { World } from '@/world/world';
 import type { EventLog } from '@/core/events';
 import type { Rng } from '@/core/rng';
 import type { SynthChild } from '@/sim/turnover';
-import { initNpcProps, npcProps, queryNpcs, NPC_KIND, REMAINS_KIND } from '@/world/npc-helpers';
+import { initNpcProps, npcProps, queryNpcs, rememberEvent, NPC_KIND, REMAINS_KIND } from '@/world/npc-helpers';
 import { recordBurial } from '@/world/civic';
 import { clamp01 } from '@/core/math';
 
@@ -33,7 +33,15 @@ export function killNpc(
   // Tally the burial against the home settlement's graveyard (no-op if none) —
   // works identically for live mortality and the closed-form time-skip.
   recordBurial(world, p.homePoiId);
-  log.append({ type: 'npc_death', npcId: entity.id, lineageId: p.lineageId, cause });
+  const appended = log.append({ type: 'npc_death', npcId: entity.id, lineageId: p.lineageId, cause });
+  // The death enters the memory rings of everyone bound to the deceased by a
+  // relationship edge (the people who would plausibly know — WP-C). The remains
+  // keep it too, so lineage narration can read the soul's own end.
+  rememberEvent(p, appended.id);
+  for (const r of p.relationships) {
+    const rel = world.registry.get(r.npcId);
+    if (rel && rel.kind === NPC_KIND) rememberEvent(npcProps(rel), appended.id);
+  }
 }
 
 /**
@@ -94,7 +102,12 @@ export function birthNpc(
     id, kind: 'npc', x: parents[0].x, y: parents[0].y,
     properties: props as unknown as Record<string, unknown>,
   });
-  log.append({ type: 'npc_birth', npcId: id, parentIds: props.parentIds, lineageId: props.lineageId });
+  const appended = log.append({ type: 'npc_birth', npcId: id, parentIds: props.parentIds, lineageId: props.lineageId });
+  // The child's first memory, and one each living parent carries (WP-C).
+  rememberEvent(props, appended.id);
+  for (const pe of parents) {
+    if (pe.kind === NPC_KIND) rememberEvent(npcProps(pe), appended.id);
+  }
   return world.registry.get(id)!;
 }
 
@@ -131,6 +144,8 @@ export function materializeSynthChild(
   do { id = `npc-b${birthTick}-${rng.nextInt(0x7fffffff)}`; } while (world.registry.get(id));
 
   world.addEntity({ id, kind: NPC_KIND, x, y, properties: props as unknown as Record<string, unknown> });
-  log.append({ type: 'npc_birth', npcId: id, parentIds: props.parentIds, lineageId: props.lineageId });
+  const appended = log.append({ type: 'npc_birth', npcId: id, parentIds: props.parentIds, lineageId: props.lineageId });
+  // Synth parents are projections (possibly never entities) — only the child remembers.
+  rememberEvent(props, appended.id);
   return world.registry.get(id)!;
 }
