@@ -30,9 +30,28 @@ export interface TowerOpts {
    *  faces this way (you enter from inside); arrow-loops face the opposite (field) way. Absent →
    *  a solid tower with no openings (legacy). */
   inward?: [number, number];
+  /** Masonry coursing (`ashlar`/`coursed_rubble`/…) the tower paints with — match it to the curtain
+   *  it flanks so a wall and its towers read as ONE build (not crazy-paving beside coursed ashlar).
+   *  Absent → bare stone (legacy). */
+  work?: string;
+}
+
+/** Tag every part that carries no coursing yet with the tower's `work`, so drum shafts, corbels
+ *  and merlons all match the curtain (the merlon helpers emit bare boxes). Mutates + returns. */
+function withWork(parts: Part[], work?: string): Part[] {
+  if (work) for (const p of parts) if (!('work' in p) || (p as { work?: string }).work === undefined) (p as { work?: string }).work = work;
+  return parts;
 }
 
 const EPS = mToTiles(0.05);
+
+/** Merlon + crenel pitch (tiles), SHARED by the curtain (`linear.ts`), the mural towers here and
+ *  building parapets (`blueprint/parts/`), so battlements read as ONE construction across a wall,
+ *  its towers and a keep. 1.0 tile = 2 m; chosen to divide the curtain's chunk length so merlons
+ *  tile seamlessly across chunk seams (see `masonrySeg`). */
+export const MERLON_PERIOD_TILES = mToTiles(2.0);
+/** Merlon tooth width as a fraction of the pitch (a touch wider than the crenel gap). */
+export const MERLON_WIDTH_FRAC = 0.56;
 
 /** An arched DOORWAY niche recessed into the face the `inward` vector points at — the tower's
  *  entrance. `half` is the distance from centre to that face. A deep dark recess reads as a way
@@ -71,7 +90,7 @@ export function merlonsAlongEdge(
   z: number, mh: number, mt: number, mat: Mat,
 ): Part[] {
   const out: Part[] = [];
-  const period = mToTiles(1.4), mw = period * 0.55;
+  const period = MERLON_PERIOD_TILES, mw = period * MERLON_WIDTH_FRAC;
   for (let d = from; d + mw <= to + 1e-6; d += period) {
     out.push(axis === 'x'
       ? { prim: 'box', at: [d, fixedCross, z], size: [mw, mt, mh], material: mat }
@@ -85,7 +104,7 @@ export function merlonsAlongEdge(
  *  Exported: round blueprint towers reuse the same ring battlements. */
 export function merlonsAroundRing(cx: number, cy: number, rp: number, z: number, mh: number, pt: number, mat: Mat): Part[] {
   const out: Part[] = [];
-  const period = mToTiles(1.4);
+  const period = MERLON_PERIOD_TILES;
   const n = Math.max(6, Math.round((2 * Math.PI * rp) / period));
   const mw = ((2 * Math.PI * rp) / n) * 0.56;          // tangential chord, a touch under the pitch
   const ringR = rp - pt / 2;                            // box centre sits on the ring mid-thickness
@@ -133,13 +152,16 @@ function squareTower(opts: TowerOpts, cx: number, cy: number): TowerSpec {
   parts.push(...merlonsAlongEdge('y', cx + lo, cy - ch, cy + ch, walkZ, parapetH, pt, mat));   // west edge
   parts.push(...merlonsAlongEdge('y', cx + hi, cy - ch, cy + ch, walkZ, parapetH, pt, mat));   // east edge
 
-  return { parts, mountAnchors: [{ kind: 'lintel', x: cx, y: cy, facing: [0, 0], z: 0 }], side };
+  return { parts: withWork(parts, opts.work), mountAnchors: [{ kind: 'lintel', x: cx, y: cy, facing: [0, 0], z: 0 }], side };
 }
 
 /** Round drum tower centred at world (cx,cy), base at z=0. */
 function roundTower(opts: TowerOpts, cx: number, cy: number): TowerSpec {
   const mat = opts.material;
-  const dia = Math.max(mToTiles(2.4), opts.curtainThickness + mToTiles(opts.tall ? 1.4 : 2.0));
+  // A corner drum must be fat enough to BURY the two square-cut curtain end-faces that meet at its
+  // vertex (incl. the battered plinth flare) — at a diagonal corner the ends splay, so the drum is
+  // sized generously past the curtain thickness and visibly projects beyond the wall line.
+  const dia = Math.max(mToTiles(3.0), opts.curtainThickness + mToTiles(opts.tall ? 1.4 : 3.2));
   const r = dia / 2;
   const rise = mToTiles(opts.tall ? 3.6 : 2.2);
   const towerH = opts.curtainHeight + rise;
@@ -162,7 +184,7 @@ function roundTower(opts: TowerOpts, cx: number, cy: number): TowerSpec {
   // Crenellated parapet wrapped around the corbel-widened ring.
   parts.push(...merlonsAroundRing(cx, cy, r + corbel, walkZ, parapetH, mToTiles(0.4), mat));
 
-  return { parts, mountAnchors: [{ kind: 'lintel', x: cx, y: cy, facing: [0, 0], z: 0 }], side: dia };
+  return { parts: withWork(parts, opts.work), mountAnchors: [{ kind: 'lintel', x: cx, y: cy, facing: [0, 0], z: 0 }], side: dia };
 }
 
 /** Build a tower (round drum by default; square when `round` is false) centred at (cx,cy). */

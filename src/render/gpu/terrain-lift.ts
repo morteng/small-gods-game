@@ -78,9 +78,16 @@ function liftItem(it: DrawItem, field: TerrainLiftField): DrawItem {
       const dz = liftPxFromElev(it.liftElev, seaLevel, reliefM, zPxPerM);
       return dz === 0 ? it : { ...it, dy: it.dy - dz };
     }
-    const footLift = it.shadow?.footLift ?? (it.maps ? it.dw / 4 : 0);
-    const footX = it.dx + it.dw / 2;
-    const footY = it.dy + it.dh - footLift;
+    // An explicit foot point (linear barrier pieces) samples at the true grade anchor; otherwise
+    // derive the footprint-diamond contact from the sprite bbox (the building convention).
+    let footX: number, footY: number;
+    if (it.foot) {
+      footX = it.foot.sx; footY = it.foot.sy;
+    } else {
+      const footLift = it.shadow?.footLift ?? (it.maps ? it.dw / 4 : 0);
+      footX = it.dx + it.dw / 2;
+      footY = it.dy + it.dh - footLift;
+    }
     const dz = liftAt(field, footX, footY);
     return dz === 0 ? it : { ...it, dy: it.dy - dz };
   }

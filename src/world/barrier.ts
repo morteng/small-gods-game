@@ -25,6 +25,11 @@ export interface BarrierRun {
    *  OUTER face at parapet level, so defenders drop stones/quicklime straight down the wall base
    *  a flush parapet can't reach. Needs a known outward side + a crenellated masonry curtain. */
   hoarded?: boolean;
+  /** Global path-distance (tiles) of this chunk's start, set by `chunkBarrierRun`. The masonry
+   *  cross-section phases its merlon rhythm off this so crenellations run CONTINUOUS across the
+   *  seams between chunks of one wall (each chunk is a local run starting at its own origin, so
+   *  without a global phase the merlon pattern restarts — and a ~half-crenel gap opens — per seam). */
+  merlonPhase?: number;
 }
 
 /** A barrier as committed by worldgen: its entity id + the run. Persisted on `GameMap`
