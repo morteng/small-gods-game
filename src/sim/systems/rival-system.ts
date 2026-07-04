@@ -1,14 +1,14 @@
 /**
- * RivalSystem — drives rival spirits to act ("activate, don't perfect").
+ * RivalSystem — drives rival spirits to act.
  *
- * Each tick it asks every rival (a non-player Spirit with an `ai` profile) to
- * decide an action via the existing `decideRivalAction` sketch, maps it to a real
- * registry verb, picks a deterministic target with `ctx.rng`, and emits a command
- * onto the shared channel — the SAME gate the player uses. Rivals therefore spend
- * power and shift NPC belief toward themselves.
- *
- * Real strategy quality, target heuristics, learning, and reconciling the sketched
- * RivalAction power costs with the canonical divine-action costs are Track 3.
+ * Each tick it asks every off-cooldown rival (a non-player Spirit with an `ai`
+ * profile) to decide via `decideRivalAction`, feeding it a real `RivalSituation`
+ * (per-settlement follower counts + deltas vs a cooldown-cadence baseline,
+ * unanswered-prayer pressure, own power). The strategy chooses both the action
+ * AND the target settlement from that data; this system resolves the concrete
+ * command target, maps the action to a registry verb, and emits onto the shared
+ * channel — the SAME gate the player uses. Rivals therefore spend power and
+ * shift NPC belief toward themselves.
  */
 import type { System, SystemContext } from '@/core/scheduler';
 import type { CommandQueue } from '@/sim/command/command-queue';
@@ -50,6 +50,29 @@ function pickSettlementTarget(settlements: string[], rng: Rng): CommandTarget | 
   return { kind: 'settlement', poiId: settlements[rng.nextInt(settlements.length)] };
 }
 
+/** Resolve the decided action to a command target. The STRATEGY chose the
+ *  settlement (that's the situation-driven part); for npc-shaped verbs the system
+ *  only resolves *which soul within it*. Falls back to the old own-territory
+ *  pickers when the strategy left the target open or the settlement is empty. */
+function resolveTarget(
+  world: World,
+  action: RivalAction,
+  verb: CommandVerb,
+  settlements: string[],
+  rng: Rng,
+): CommandTarget | null {
+  if (verb === 'whisper') {
+    if (action.targetNpcId) return { kind: 'npc', npcId: action.targetNpcId };
+    if (action.targetSettlementId) {
+      const pool = queryNpcs(world).filter(e => npcProps(e).homePoiId === action.targetSettlementId);
+      if (pool.length > 0) return { kind: 'npc', npcId: pool[rng.nextInt(pool.length)].id };
+    }
+    return pickNpcTarget(world, settlements, rng);
+  }
+  if (action.targetSettlementId) return { kind: 'settlement', poiId: action.targetSettlementId };
+  return pickSettlementTarget(settlements, rng);
+}
+
 export class RivalSystem implements System {
   readonly name = 'rival-system';
   readonly tickHz = 0.5; // decide roughly every 2 sim seconds; action cooldowns gate further
@@ -73,30 +96,38 @@ export class RivalSystem implements System {
       if (rival?.ai) rival.ai.lastActionTick = ctx.now; // claiming counts as this tick's act
     }
 
-    // ── baseline strategy actions, now fed REAL situation data ──
+    // ── strategy actions: situation-driven target AND action choice ──
     for (const spirit of ctx.spirits.values()) {
       if (spirit.isPlayer || !spirit.ai?.personality) continue;
+      const ai = spirit.ai;
+
+      // Cooldown-gate BEFORE the situation sweep — a rival that cannot act this
+      // tick must not cost an NPC pass.
+      if (ctx.now - (ai.lastActionTick ?? 0) < (ai.actionCooldown ?? 0)) continue;
 
       const view = spiritToRivalView(spirit);
       if (!view) continue;
 
-      const action = decideRivalAction(
-        view,
-        ctx.now,
-        buildRivalSituation(ctx.world, ctx.spirits, spirit.id),
-        () => ctx.rng.next(),
-      );
+      const situation = buildRivalSituation(ctx.world, ctx.spirits, spirit.id, {
+        now: ctx.now,
+        baseline: ai.followerBaseline,
+      });
+      // Refresh the trend baseline at cooldown cadence so deltas span at least
+      // one decision window (refreshing every tick would zero them out).
+      if (ai.baselineTick === undefined || ctx.now - ai.baselineTick >= (ai.actionCooldown ?? 0)) {
+        ai.followerBaseline = { ...situation.rivalFollowersInSettlement };
+        ai.baselineTick = ctx.now;
+      }
+
+      const action = decideRivalAction(view, ctx.now, situation, () => ctx.rng.next());
       if (!action) continue;
 
       const verb = mapVerb(action.type);
-      const settlements = spirit.ai.settlements ?? [];
-      const target = verb === 'whisper'
-        ? pickNpcTarget(ctx.world, settlements, ctx.rng)
-        : pickSettlementTarget(settlements, ctx.rng);
+      const target = resolveTarget(ctx.world, action, verb, ai.settlements ?? [], ctx.rng);
       if (!target) continue;
 
       this.queue.emit({ verb, source: spirit.id, target });
-      spirit.ai.lastActionTick = ctx.now;
+      ai.lastActionTick = ctx.now;
     }
   }
 }

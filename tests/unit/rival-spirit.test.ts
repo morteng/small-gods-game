@@ -15,6 +15,7 @@ import {
   coexistStrategy,
 } from '@/sim/rival-spirit';
 import type { SpiritBelief } from '@/core/types';
+import type { RivalSituation } from '@/sim/rival-claims';
 
 // Simple seeded RNG for tests
 function createTestRng(seed: number): () => number {
@@ -22,6 +23,18 @@ function createTestRng(seed: number): () => number {
   return () => {
     s = (s * 16807 + 0) % 2147483647;
     return (s - 1) / 2147483646;
+  };
+}
+
+function situation(patch: Partial<RivalSituation> = {}): RivalSituation {
+  return {
+    playerPower: 5,
+    playerFollowersInSettlement: {},
+    rivalFollowersInSettlement: {},
+    rivalFollowerDelta: {},
+    prayerPressureInSettlement: {},
+    npcBeliefs: new Map(),
+    ...patch,
   };
 }
 
@@ -103,15 +116,8 @@ describe('Rival Strategy Decisions', () => {
   });
 
   it('should decide expand actions when aggressive', () => {
-    const context = {
-      playerPower: 5,
-      playerFollowersInSettlement: {},
-      rivalFollowersInSettlement: {},
-      npcBeliefs: new Map(),
-    };
-
-    // Use a low rng value to trigger the "miracle" branch (rng < 0.4)
-    const action = decideRivalAction(rival, 200, context, () => 0.1);
+    // Use a low rng value to trigger the "miracle" branch
+    const action = decideRivalAction(rival, 200, situation(), () => 0.1);
     expect(action).not.toBeNull();
     expect(action!.rivalId).toBe(rival.id);
     expect(action!.powerCost).toBeGreaterThan(0);
@@ -121,32 +127,16 @@ describe('Rival Strategy Decisions', () => {
     rival.lastActionTick = 100;
     rival.actionCooldown = 50;
 
-    const context = {
-      playerPower: 5,
-      playerFollowersInSettlement: {},
-      rivalFollowersInSettlement: {},
-      npcBeliefs: new Map(),
-    };
-
     // Tick 120 is within cooldown (100 + 50 = 150)
-    const action = decideRivalAction(rival, 120, context, () => 0.5);
+    const action = decideRivalAction(rival, 120, situation(), () => 0.5);
     expect(action).toBeNull();
   });
 
   it('should not act if not enough power', () => {
-    rival.power = 1; // Not enough for miracle (cost 3)
-    rival.strategy = 'expand';
+    rival.power = 1; // Not enough for a miracle
 
-    const context = {
-      playerPower: 5,
-      playerFollowersInSettlement: {},
-      rivalFollowersInSettlement: {},
-      npcBeliefs: new Map(),
-    };
-
-    // Use rng = 0.1 to get miracle branch (cost 3, but we only have 1 power)
-    // Then try whisper branch (rng = 0.5, cost 1, we have 1 power)
-    const action = expandStrategy(rival, 0.5, context);
+    // The miracle branch is unaffordable; the whisper fallback (cost 1) is not.
+    const action = expandStrategy(rival, situation(), () => 0.5);
     if (action) {
       expect(action.powerCost).toBeLessThanOrEqual(rival.power);
     }
@@ -169,34 +159,34 @@ describe('Strategy Functions', () => {
     actionCooldown: 100,
   };
 
-  const mockContext = {
-    playerPower: 5,
-    playerFollowersInSettlement: {},
-    rivalFollowersInSettlement: {},
-    npcBeliefs: new Map(),
-  };
-
   it('expand strategy should prefer miracles and whispers', () => {
-    const action = expandStrategy(mockRival, 0.3, mockContext);
+    const action = expandStrategy(mockRival, situation(), () => 0.3);
     expect(action).not.toBeNull();
     expect(['miracle', 'whisper']).toContain(action!.type);
   });
 
   it('defend strategy should prefer proselytize', () => {
-    const action = defendStrategy(mockRival, 0.2, mockContext);
+    const action = defendStrategy(mockRival, situation(), () => 0.2);
     expect(action).not.toBeNull();
     expect(action!.type).toBe('proselytize');
   });
 
   it('undermine strategy should use discredit or curse', () => {
-    const action = undermineStrategy(mockRival, 0.1, mockContext);
+    // Undermining needs a player stronghold to strike.
+    const sit = situation({ playerFollowersInSettlement: { 'village-1': 4 } });
+    const action = undermineStrategy(mockRival, sit, () => 0.1);
     expect(action).not.toBeNull();
     expect(['discredit', 'curse']).toContain(action!.type);
     expect(action!.targetSpiritId).toBe('player');
+    expect(action!.targetSettlementId).toBe('village-1');
+  });
+
+  it('undermine strategy stands down when the player holds nothing', () => {
+    expect(undermineStrategy(mockRival, situation(), () => 0)).toBeNull();
   });
 
   it('coexist strategy should use gentle whispers', () => {
-    const action = coexistStrategy(mockRival, 0.1, mockContext);
+    const action = coexistStrategy(mockRival, situation(), () => 0.1);
     if (action) {
       expect(action.type).toBe('whisper');
       expect(action.effect.faithModifier).toBeLessThan(0.05);
