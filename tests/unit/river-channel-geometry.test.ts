@@ -1,4 +1,7 @@
 import { describe, it, expect } from 'vitest';
+
+// Full-worldgen tests ride the edge of the 5s default under suite load — explicit budget.
+const WORLDGEN_TIMEOUT = 30_000;
 import { generateWithNoise } from '@/map/map-generator';
 import type { WorldSeed } from '@/core/types';
 import { clearHydrologyCache } from '@/world/hydrology-store';
@@ -36,7 +39,7 @@ describe('river-channel-geometry — connectome → analytic SDF geometry (S1)',
       expect(geo.bucketOffset[i + 1]).toBeGreaterThanOrEqual(geo.bucketOffset[i]);
     }
     expect(geo.bucketOffset[geo.bucketOffset.length - 1]).toBe(geo.bucketSegs.length);
-  });
+  }, WORLDGEN_TIMEOUT);
 
   it('a point ON the centreline is inside the channel (sd < 0)', async () => {
     const geo = buildRiverChannelGeometry(await world());
@@ -45,7 +48,7 @@ describe('river-channel-geometry — connectome → analytic SDF geometry (S1)',
     expect(q).not.toBeNull();
     expect(q!.dist).toBeLessThan(q!.half);   // within half-width
     expect(q!.sd).toBeLessThan(0);
-  });
+  }, WORLDGEN_TIMEOUT);
 
   it('the fill surface sits above the bed at a channel point', async () => {
     const map = await world();
@@ -55,7 +58,7 @@ describe('river-channel-geometry — connectome → analytic SDF geometry (S1)',
     const q = channelAt(geo, mid.x, mid.y)!;
     const bed = h[Math.round(mid.y) * map.width + Math.round(mid.x)];
     expect(q.surf).toBeGreaterThan(bed);
-  });
+  }, WORLDGEN_TIMEOUT);
 
   it('a point far from every segment reads dry (null or sd > 0)', async () => {
     const geo = buildRiverChannelGeometry(await world());
@@ -68,7 +71,7 @@ describe('river-channel-geometry — connectome → analytic SDF geometry (S1)',
       }
     }
     expect(foundDry).toBe(true);
-  });
+  }, WORLDGEN_TIMEOUT);
 
   it('is deterministic — same world ⇒ identical segments + buckets', async () => {
     const a = buildRiverChannelGeometry(await world());
@@ -76,5 +79,5 @@ describe('river-channel-geometry — connectome → analytic SDF geometry (S1)',
     expect(Array.from(a.segments)).toEqual(Array.from(b.segments));
     expect(Array.from(a.bucketSegs)).toEqual(Array.from(b.bucketSegs));
     expect(Array.from(a.bucketOffset)).toEqual(Array.from(b.bucketOffset));
-  });
+  }, WORLDGEN_TIMEOUT);
 });
