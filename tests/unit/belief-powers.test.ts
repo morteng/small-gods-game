@@ -68,6 +68,41 @@ describe('belief-domains (B-A)', () => {
     expect(isDomainUnlocked(world, 'player', 'storm')).toBe(true);
   });
 
+  // ── R7 WP-B: conviction locality ───────────────────────────────────────────
+  // Seeding is per-settlement (omens/smites land on ONE town), so the unlock
+  // signal is the BEST congregation, not a world-wide mean that dilutes a
+  // devout town out of its own power once believers spread.
+  it('a devout town unlocks smite even when believers spread across other settlements', () => {
+    const world = makeWorld();
+    for (let i = 0; i < 5; i++) addNpc(world, { poi: 'devout', faith: 1, devotion: 1, storm: 1 });
+    // 20 faith-bearers elsewhere who have never seen a storm: under the old
+    // world-wide mean these diluted conviction to ~0.45 < bar 0.5.
+    for (let i = 0; i < 20; i++) addNpc(world, { poi: `far${i % 4}`, faith: 0.5, devotion: 0.2, storm: 0 });
+    expect(aggregateDomain(world, 'player', 'storm').conviction).toBeCloseTo(1, 6);
+    expect(isDomainUnlocked(world, 'player', 'storm')).toBe(true);
+  });
+
+  it('the same convinced believers spread thin across towns do NOT unlock', () => {
+    const world = makeWorld();
+    // Five believers each carrying storm 0.3 live in five DIFFERENT settlements
+    // among unconvinced neighbours → every congregation's mean stays low.
+    for (let i = 0; i < 5; i++) {
+      addNpc(world, { poi: `town${i}`, faith: 1, devotion: 1, storm: 0.3 });
+      for (let j = 0; j < 4; j++) addNpc(world, { poi: `town${i}`, faith: 0.8, devotion: 0.5, storm: 0 });
+    }
+    expect(aggregateDomain(world, 'player', 'storm').conviction).toBeLessThan(DOMAIN_DEFS.storm.unlockThreshold);
+    expect(isDomainUnlocked(world, 'player', 'storm')).toBe(false);
+  });
+
+  it('settlement-less believers form their own congregation (the roadless bucket)', () => {
+    const world = makeWorld();
+    // A big diluting city of unconvinced believers…
+    for (let i = 0; i < 10; i++) addNpc(world, { poi: 'city', faith: 0.8, devotion: 0.5, storm: 0 });
+    // …and a devout wandering band with no homePoiId at all.
+    for (let i = 0; i < 3; i++) addNpc(world, { faith: 1, devotion: 1, storm: 1 });
+    expect(isDomainUnlocked(world, 'player', 'storm')).toBe(true);
+  });
+
   it('a half-convinced congregation sits below the unlock bar', () => {
     const world = makeWorld();
     addNpc(world, { faith: 0.8, devotion: 0.5, storm: 0.2 });
