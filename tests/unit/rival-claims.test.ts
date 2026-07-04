@@ -67,6 +67,25 @@ describe('buildRivalSituation', () => {
     expect(sit.npcBeliefs.get('b')?.faith).toBeCloseTo(0.5);
     expect(sit.npcBeliefs.get('c')?.faith).toBeCloseTo(0.9);
     expect(sit.npcBeliefs.has('a')).toBe(false); // 'a' holds no rival belief
+    // No baseline / no `now` supplied ⇒ trend + pressure read empty.
+    expect(sit.rivalFollowerDelta).toEqual({});
+    expect(sit.prayerPressureInSettlement).toEqual({});
+  });
+
+  it('reports follower deltas against a baseline and prayer pressure past the warning line', () => {
+    const world = new World(tinyMap());
+    world.addEntity(npc('a', 'poi1', { beliefs: { 'rival-1': { faith: 0.8, understanding: 0.2, devotion: 0.2 } } }));
+    // Aged plea (past the warning line) and a fresh one (below it).
+    world.addEntity(npc('b', 'poi1', { activity: 'worship', prayerSince: 0 }));
+    world.addEntity(npc('c', 'poi2', { activity: 'worship', prayerSince: 90 }));
+    const spirits = new Map<SpiritId, Spirit>([['player', player()], ['rival-1', rival('rival-1', 10, ['poi1'])]]);
+
+    const sit = buildRivalSituation(world, spirits, 'rival-1', {
+      now: 100,
+      baseline: { poi1: 3, poi2: 0 },   // had 3 in poi1 a window ago, now 1
+    });
+    expect(sit.rivalFollowerDelta).toEqual({ poi1: -2 });   // zero-delta poi2 omitted
+    expect(sit.prayerPressureInSettlement).toEqual({ poi1: 1 }); // c's plea is only 10 ticks old
   });
 });
 

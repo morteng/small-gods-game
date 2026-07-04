@@ -28,5 +28,9 @@ export interface Spirit {
     settlements?: string[];          // claimed POI ids
     lastActionTick?: number;
     actionCooldown?: number;
+    /** Per-settlement follower counts at the last baseline refresh — the trend
+     *  anchor `RivalSystem` diffs against to detect "losing ground". */
+    followerBaseline?: Record<string, number>;
+    baselineTick?: number;
   };
 }

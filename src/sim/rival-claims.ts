@@ -55,22 +55,41 @@ export interface RivalSituation {
   playerFollowersInSettlement: Record<string, number>;
   /** Practising believers toward THIS rival, per home POI. */
   rivalFollowersInSettlement: Record<string, number>;
+  /** Change in the rival's per-settlement follower counts vs the caller-supplied
+   *  baseline (one cooldown window ago). Negative = losing ground there. Only
+   *  non-zero entries are recorded; empty when no baseline was supplied. */
+  rivalFollowerDelta: Record<string, number>;
+  /** Standing pleas old enough to be at risk (age ≥ PRAYER_CLAIM_WARNING_TICKS),
+   *  per home POI — the "unanswered-prayer pressure" opportunists read. */
+  prayerPressureInSettlement: Record<string, number>;
   /** The rival's own belief record for every NPC that holds one — what the rival
    *  "knows" about each soul it has any purchase on. */
   npcBeliefs: Map<string, SpiritBelief>;
 }
 
-/** Build the decider's situation from the world in ONE pass (0.5 Hz, aggregate —
- *  no per-frame work). Everything is a plain count/record so it snapshots trivially
- *  and the decider stays deterministic. */
+export interface RivalSituationOptions {
+  /** Current sim tick — needed to age standing pleas. Omitted ⇒ pressure reads 0. */
+  now?: number;
+  /** The rival's per-settlement follower counts as of the last baseline refresh
+   *  (see `RivalSystem`); omitted ⇒ all deltas read 0. */
+  baseline?: Record<string, number>;
+  playerId?: SpiritId;
+}
+
+/** Build the decider's situation from the world in ONE pass (only for rivals off
+ *  cooldown — no per-frame work). Everything is a plain count/record so it
+ *  snapshots trivially and the decider stays deterministic. */
 export function buildRivalSituation(
   world: World,
   spirits: Map<SpiritId, Spirit>,
   rivalId: SpiritId,
-  playerId: SpiritId = PLAYER_SPIRIT_ID,
+  opts: RivalSituationOptions = {},
 ): RivalSituation {
+  const playerId = opts.playerId ?? PLAYER_SPIRIT_ID;
+  const now = opts.now ?? 0;
   const playerFollowersInSettlement: Record<string, number> = {};
   const rivalFollowersInSettlement: Record<string, number> = {};
+  const prayerPressureInSettlement: Record<string, number> = {};
   const npcBeliefs = new Map<string, SpiritBelief>();
   forEachNpc(world, (e) => {
     const p = npcProps(e);
@@ -86,11 +105,24 @@ export function buildRivalSituation(
         rivalFollowersInSettlement[poi] = (rivalFollowersInSettlement[poi] ?? 0) + 1;
       }
     }
+    if (p.prayerSince !== undefined && prayerAge(p, now) >= PRAYER_CLAIM_WARNING_TICKS) {
+      prayerPressureInSettlement[poi] = (prayerPressureInSettlement[poi] ?? 0) + 1;
+    }
   });
+  const rivalFollowerDelta: Record<string, number> = {};
+  const baseline = opts.baseline;
+  if (baseline) {   // no baseline ⇒ no trend information, NOT "everything is growth"
+    for (const k of new Set([...Object.keys(rivalFollowersInSettlement), ...Object.keys(baseline)])) {
+      const d = (rivalFollowersInSettlement[k] ?? 0) - (baseline[k] ?? 0);
+      if (d !== 0) rivalFollowerDelta[k] = d;
+    }
+  }
   return {
     playerPower: spirits.get(playerId)?.power ?? 0,
     playerFollowersInSettlement,
     rivalFollowersInSettlement,
+    rivalFollowerDelta,
+    prayerPressureInSettlement,
     npcBeliefs,
   };
 }
