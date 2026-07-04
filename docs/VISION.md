@@ -131,11 +131,11 @@ plague (safety), lost sheep and drought (prosperity), reunion with loved ones
 spirit.power regen  ∝  Σ_believers ( faith × understanding × devotion )
 ```
 
-This is the formula the docs always claimed and the code never implemented
-(current code is `Σ faith × 0.02`). Wiring it makes the central truth *true in
-the math*: **quantity of believers ≠ power.** A million fearful nominal
-believers (the Om-as-tortoise failure) is weaker than a hundred who *understand*
-and are *devoted*.
+This is the formula the docs always claimed; it is now implemented (`src/sim/spirit-system.ts`:
+`power regen ∝ Σ faith × (1 + 2·understanding) × (1 + 2·devotion) × 0.02`), making
+the central truth *true in the math*: **quantity of believers ≠ power.** A
+million fearful nominal believers (the Om-as-tortoise failure) is weaker than a
+hundred who *understand* and are *devoted*.
 
 **Two registers of belief** (folding in the retired `BeliefState` enums):
 - *Fearful / transactional* — high faith, low understanding/devotion. Spikes in
@@ -287,7 +287,7 @@ tracks the right shapes but leaves the loops open. Closing them is the work:
 
 | # | Open loop (current state) | Close it by |
 |---|---|---|
-| 1 | `understanding` & `devotion` are written but **read by nothing**; power = `Σ faith × 0.02`. | Implement `power ∝ Σ (faith × understanding × devotion)` (§3). |
+| 1 | ✅ **Closed.** `understanding` & `devotion` are now power multipliers: `src/sim/spirit-system.ts` computes `power regen ∝ Σ faith × (1 + 2·understanding) × (1 + 2·devotion) × POWER_REGEN_RATE(0.02)`. | — |
 | 2 | Activities don't satisfy needs — mortals have no self-agency. | On activity completion, restore the matching need (worship→meaning, socialize→community, work→prosperity). Tenet 9. |
 | 3 | Rival spirits are **inert scaffolding** (`rival-spirit.ts` never ticks). | Wire a `RivalSystem`: rivals regen power, claim unanswered prayers, whisper competitively. |
 | 4 | LLM writeback (`state-writeback.ts`) exists but is **never called**. | Feed narration deltas back into sim state on each inference. Narration must never contradict Fate's numbers — it *interprets* them. |

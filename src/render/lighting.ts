@@ -5,9 +5,12 @@
  * Decision (2026-06-06): sun is **upper-left**. Generated sprites bake FORM
  * shading lit from the upper-left (kept transparent, no baked cast shadow).
  *
- * Renderer-drawn shadows are OFF for now (user, 2026-06-07): nothing draws a
- * programmatic contact/cast shadow. Sun direction still governs generated-art
- * lighting so every sprite is lit consistently.
+ * Renderer-drawn shadows shipped: `gpu-scene.ts` runs a projected cast-shadow
+ * pass (stencil-union — each entity silhouette draws once per pixel via a
+ * dedicated stencil target, so overlapping shadows don't double-darken) and
+ * `DEFAULT_LIGHTING.shadowMode` (`render/lighting-state.ts`) defaults to
+ * `'geometry'`. Sun direction governs both that pass and generated-art
+ * lighting so every sprite and shadow agree.
  *
  * Consumed by:
  *   - src/assetgen/compilers/pixflux-compiler.ts  → SUN_PROMPT in the prompt

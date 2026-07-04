@@ -81,10 +81,10 @@ orbit.
 
 ## The gameplay gap (what this roadmap closes)
 
-Belief is modeled and now *partly* consumed (Track 1 loops + belief-powers), but
-**rivals are inert, Fate is unbuilt, and there is no progression / win-state.**
-The narration layer animates focus but there's no conversation UI and no Book.
-Closing those loops is the work below.
+Belief is modeled and now *partly* consumed (Track 1 loops + belief-powers).
+Rival spirits and Fate now have live cores (Track 3/4 — see below), but
+**there is no progression / win-state.** The narration layer animates focus but
+there's no conversation UI and no Book. Closing those loops is the work below.
 
 ## Models (current reality)
 
@@ -122,35 +122,39 @@ never contradicts its numbers.** Remaining:
 - Interaction memory (compress + store; `createInteractionSummary()` is partial).
 - Deepen NPC focus/inspector integration.
 
-## Track 3 — Rival spirits (Phase 10)  — ⬜
+## Track 3 — Rival spirits (Phase 10)  — ✅ **core shipped**
 
-Wire the inert `rival-spirit.ts` scaffolding into a live `RivalSystem`.
+Live `RivalSystem` (0.5 Hz) decides from real per-settlement follower data
+(`buildRivalSituation`) and **claims prayers left unanswered past
+`PRAYER_CLAIM_WINDOW_TICKS`** (120 ticks = half a sim-day, `src/sim/rival-claims.ts`)
+via the shared `answer_prayer` command path (defection — VISION §3/§4); contested
++ lost pleas surface as inbox threats → alert pins. Fate coaches rival stances
+(`set_rival_stance`, anti-snowball). Remaining:
 
-- Rivals regen power, act on personality+situation, and **claim the prayers you
-  don't answer** (defection — VISION §3/§4).
-- **Player-modelling lives here** (rivals learn your strategy), *not* in Fate.
+- Rival power-economics tuning.
+- Rival-vs-rival contention depth (inter-faction conflict, proselytizing,
+  disputes, eventually holy wars).
 - Spirit↔player intersection → LLM-narrated rival encounters (a rival speaks
   through a devoted follower).
-- Inter-faction conflict (proselytizing, disputes, eventually holy wars).
 
-## Track 4 — Fate, the DM agent (Phase 11)  — ⬜
+## Track 4 — Fate, the DM agent (Phase 11)  — ✅ **shipped, deepening**
 
 The background orchestrator. **Fate is impersonal & reactive** — it amplifies and
 escalates what the sim produces; never petitioned, never models the player
-(VISION §2.1). Build as a low-frequency `FateSystem` emitting commands on the same
-command/query bus as the player and rivals. **Model: the capable tier**
-(`DEFAULT_CAPABLE_MODEL`) via `Game.llmClientCapable`; cadence on game-day /
-significant change, so cost/latency is acceptable.
+(VISION §2.1). LIVE: event-driven `FateBrainService` (`src/game/fate/`, async —
+off the sim tick) on the **capable tier** (`DEFAULT_CAPABLE_MODEL`) via
+`Game.llmClientCapable`; wakes on significant story-thread events + sustained
+rival claim pressure (≥2 claims/sim-day window), cooldown-throttled. 4
+constrained, drift-guarded tools (`src/game/fate/fate-tools.ts`): `arm_staged_beat`
+(optionally with a validated `storylet` ref → interactive card on discovery),
+`nudge_event_severity`, `force_next_event`, `set_rival_stance` (anti-snowball
+coaching, deltas capped ±0.2 both sides of the LLM boundary — VISION §4). Remaining:
 
-- World-state summarizer → compact prompt.
-- Plot-thread tracker (setup→active→climax→resolve); escalation ladder.
-- **Fate resists ascension** — the bigger a god gets, the harder Fate pushes back
-  (built-in anti-snowball — VISION §4).
-- Anti-grinding detection; new-NPC injection (preacher/skeptic/refugee) as
-  *escalation*, not arbitrary plot.
+- Pacing/plot intelligence beyond single-beat reactions (plot-thread tracker,
+  escalation ladder, anti-grinding detection).
+- Owns the **LLM era-authoring half** of the D2 time-skip loop (not yet wired).
 - "Defying Fate has a price": time-scrub/re-roll must cost belief or invite
   escalation (VISION tenet 10).
-- Owns the **LLM era-authoring half** of the D2 time-skip loop.
 
 ## Track 5 — Progression & win-state  — ⬜
 
@@ -165,29 +169,26 @@ The arc's spine (VISION §5/§7).
   beatable by intimacy.
 - Unlocks **devotion costly-acts gating** (the deferred Track 1 remnant).
 
-## Track 6 — The arc surfaces  — 🟡 **first pieces shipped**
+## Track 6 — The arc surfaces  — 🟡 **major pieces shipped**
 
 The player-facing payoff. **Shipped:** belief-powers skill panel + divine inbox,
-the storylet card. **Brainstormed:** the Presentation Director (adaptive score,
-cinematic camera, SFX/voice — observes the sim, off the command bus); the
-divine-action interaction UI / semantic-zoom front-end (below). Remaining:
+the storylet card, and — ✅ **v1 complete, P0–P5 merged** — the **divine-action
+interaction UI + semantic zoom** ⭐, the front-end of the belief-powers/inbox loop.
+One model: every act is a `Command{verb,target}`; one `CommandAffordance` (leaf =
+smite-with-thunderbolt fires; branch = whisper expands to a card of paths) gated
+by `previewCommand`; one shared `scoreAffordance` salience brain so hover surfaces
+the most likely actions given the situation. **Semantic zoom is the spine**
+(`src/game/affordance/zoom-band.ts`: hysteresis band-switch at zoom 0.40–0.45) —
+zoomed-out = aggregate/place-targets/inbox-as-map-alerts, zoomed-in = per-NPC
+inspector + whisper. The **whisper card is the first declarative `UiSpec`**
+(`src/game/affordance/whisper-card.ts`) — Fate/sim emit a closed, typed structured
+spec the **WebGPU** UI renders (`src/render/ui/ui-runtime.ts`), structure
+sim-owned/deterministic + prose LLM-enriched. **Brainstormed:** the Presentation
+Director (adaptive score, cinematic camera, SFX/voice — observes the sim, off the
+command bus). Remaining:
 
-- **Divine-action interaction UI + semantic zoom** ⭐ — the front-end of the
-  shipped belief-powers/inbox loop (its deferred *"targeting UX"*). One model: every
-  act is a `Command{verb,target}`; one `CommandAffordance` (leaf = smite-with-
-  thunderbolt fires; branch = whisper expands to a card of paths) gated by
-  `previewCommand`; one shared `scoreAffordance` salience brain so **hover surfaces
-  the most likely actions given the situation**. **Semantic zoom is the spine** —
-  zoomed-out = aggregate/place-targets/inbox-as-map-alerts, zoomed-in = per-NPC
-  inspector + whisper (zoom = attention = the backfill trigger). Grows
-  `CommandTarget` to entity/tile/area ("lightning on a bush", "rain on a farm").
-  The **whisper card is the first declarative `UiSpec`** — Fate/sim emit a closed,
-  typed structured spec the **WebGPU** UI renders (the 2026 *agent-driven UI*
-  pattern, declarative not open-ended; **no DOM**), structure sim-owned/
-  deterministic + prose LLM-enriched. Wires the built-but-uncalled
-  `Game.llmClientCapable` + `FateBrainDeps.onArmed`. Also Track 2's conversation-UI
-  vehicle and Track 4's Fate-card surface. *Brainstorm:*
-  `docs/superpowers/specs/2026-06-28-agent-driven-ui-semantic-zoom-brainstorm.md`.
+- **Semantic-zoom stretch goals** — area targets ("lightning on a bush", "rain on
+  a farm"), Fate-authored `UiSpec` via `onArmed`, crossfade between zoom bands.
 - **Spec E — The Book of [Spirit Name]** (emergent divine identity, naming ritual,
   chapter detection). The strongest expression of VISION §6.
 - **Act 0 stone-age tutorial / Drifting Spirit opening** — first believer; an
@@ -253,15 +254,15 @@ frozen until funded), Time-Debug snapshot/inject stubs.
 ## Suggested sequencing
 
 ```
-Track 1 (belief loops) ✅ ──┬──►  Track 3 (rivals)  ──┐
-                            │                          ├──►  Track 5 (progression & win)
-Track 2 (LLM backfill) 🟢 ──┘──►  Track 4 (Fate)   ───┘
-                                                       └──►  Track 6 (Book, tutorial, branching)
-Engine & world epics — parallel, continuous           Track 7 — opportunistic, any time
+Track 1 (belief loops) ✅ ──┬──►  Track 3 (rivals)  ✅ ──┐
+                            │                            ├──►  Track 5 (progression & win)
+Track 2 (LLM backfill) 🟢 ──┘──►  Track 4 (Fate)   ✅ ───┘
+                                                         └──►  Track 6 (Book, tutorial, branching)
+Engine & world epics — parallel, continuous             Track 7 — opportunistic, any time
 ```
 
-Track 1 is done. **Track 2's conversation UI** and **Track 3 (rivals)** are the
-highest-leverage gameplay moves next: rivals make belief contested, and a
-conversation surface makes the LLM layer felt. Track 4 (Fate) is the big system
-that ties pacing together; Track 5 makes it a game with a win; Track 6 is the
-payoff. The engine epics run continuously alongside.
+Track 1 is done; Track 3 (rivals) and Track 4 (Fate) both have live cores.
+**Track 2's conversation UI** is the last core LLM surface, and deepening rivals
+(power-economics, contention) and Fate (pacing/plot intelligence) are the
+highest-leverage gameplay moves next. Track 5 makes it a game with a win; Track 6
+is the payoff. The engine epics run continuously alongside.
