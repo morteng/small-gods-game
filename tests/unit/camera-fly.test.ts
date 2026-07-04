@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { applyCameraFly } from '@/game/camera-follow';
 import { createState } from '@/core/state';
-import { TILE_SIZE } from '@/core/constants';
+import { worldToScreen } from '@/render/iso/iso-projection';
 
 const VP = { width: 800, height: 600 };
 
@@ -28,17 +28,18 @@ describe('applyCameraFly — P5 alert-pin camera-fly tween', () => {
     expect(state.cameraFly).toBeNull();          // self-terminated
     expect(steps).toBeLessThan(200);             // converges quickly (~0.5 s @ 60 fps)
     expect(state.camera.zoom).toBeCloseTo(zoom, 6);
-    // camera framed so the anchor tile centre sits at the viewport centre
-    const viewW = VP.width / zoom, viewH = VP.height / zoom;
-    expect(state.camera.x).toBeCloseTo((tx + 0.5) * TILE_SIZE - viewW / 2, 6);
-    expect(state.camera.y).toBeCloseTo((ty + 0.5) * TILE_SIZE - viewH / 2, 6);
+    // camera framed so the anchor tile centre sits at the viewport centre —
+    // in ISO-SCREEN space (the space the renderer pans; see gpu-render-frame).
+    const p = worldToScreen(tx + 0.5, ty + 0.5, 0, 0, 0);
+    expect(state.camera.x).toBeCloseTo(p.sx - VP.width / zoom / 2, 6);
+    expect(state.camera.y).toBeCloseTo(p.sy - VP.height / zoom / 2, 6);
   });
 
   it('moves monotonically toward the target (no overshoot)', () => {
     const state = createState();
     state.camera.x = 0; state.camera.y = 0; state.camera.zoom = 1;
     state.cameraFly = { tx: 100, ty: 0, zoom: 1 }; // same zoom → pure pan in +x
-    const targetX = (100 + 0.5) * TILE_SIZE - VP.width / 2;
+    const targetX = worldToScreen(100 + 0.5, 0.5, 0, 0, 0).sx - VP.width / 2;
     let prev = state.camera.x;
     for (let i = 0; i < 5; i++) {
       applyCameraFly(state, VP);
@@ -67,9 +68,9 @@ describe('applyCameraFly — P5 alert-pin camera-fly tween', () => {
     applyCameraFly(state, VP);
     expect(state.cameraFly).toBeNull();            // settled in one step
     expect(state.camera.zoom).toBe(zoom);
-    const viewW = VP.width / zoom, viewH = VP.height / zoom;
-    expect(state.camera.x).toBeCloseTo((tx + 0.5) * TILE_SIZE - viewW / 2, 6);
-    expect(state.camera.y).toBeCloseTo((ty + 0.5) * TILE_SIZE - viewH / 2, 6);
+    const p = worldToScreen(tx + 0.5, ty + 0.5, 0, 0, 0);
+    expect(state.camera.x).toBeCloseTo(p.sx - VP.width / zoom / 2, 6);
+    expect(state.camera.y).toBeCloseTo(p.sy - VP.height / zoom / 2, 6);
   });
 
   it('cancelling the fly (cameraFly=null) stops the tween immediately', () => {

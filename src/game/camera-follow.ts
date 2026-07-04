@@ -1,7 +1,24 @@
 import type { GameState } from '@/core/state';
 import type { Viewport } from './viewport';
 import { getNpc } from '@/world/npc-helpers';
-import { TILE_SIZE } from '@/core/constants';
+import { worldToScreen } from '@/render/iso/iso-projection';
+
+/**
+ * The camera pans in ISO-SCREEN space: the renderer draws tile (tx,ty) at
+ * `worldToScreen(tx,ty,…) − camera.x/y` (gpu-render-frame passes
+ * `originX: -camera.x`). Centering a tile therefore means projecting it through
+ * the SAME iso transform — never `tile × TILE_SIZE` (that flat mapping is a
+ * different space entirely and points the camera at open ocean; the z-lift is
+ * deliberately 0 here: centre-on-ground is within half a tile of the lifted
+ * sprite and needs no heightfield read).
+ */
+function cameraTargetFor(tx: number, ty: number, zoom: number, viewport: Viewport): { x: number; y: number } {
+  const p = worldToScreen(tx + 0.5, ty + 0.5, 0, 0, 0);
+  return {
+    x: p.sx - viewport.width / zoom / 2,
+    y: p.sy - viewport.height / zoom / 2,
+  };
+}
 
 /** Smoothly track the followed NPC. Mutates state.camera; clears followNpc if the npc vanished. */
 export function applyFollowCamera(state: GameState, viewport: Viewport): void {
@@ -9,12 +26,9 @@ export function applyFollowCamera(state: GameState, viewport: Viewport): void {
   const e = getNpc(state.world, state.selectedNpcId);
   if (!e) { state.followNpc = false; return; }
   const cam = state.camera;
-  const viewW = viewport.width / cam.zoom;
-  const viewH = viewport.height / cam.zoom;
-  const targetX = (e.x + 0.5) * TILE_SIZE - viewW / 2;
-  const targetY = (e.y + 0.5) * TILE_SIZE - viewH / 2;
-  cam.x += (targetX - cam.x) * 0.15;
-  cam.y += (targetY - cam.y) * 0.15;
+  const target = cameraTargetFor(e.x, e.y, cam.zoom, viewport);
+  cam.x += (target.x - cam.x) * 0.15;
+  cam.y += (target.y - cam.y) * 0.15;
 }
 
 /** Per-frame ease factor for the P5 camera-fly (same 0.15 idiom as the follow cam;
@@ -46,30 +60,29 @@ export function applyCameraFly(state: GameState, viewport: Viewport): void {
   // framing instead of easing from nowhere.
   if (!Number.isFinite(cam.x) || !Number.isFinite(cam.y) || !Number.isFinite(cam.zoom)) {
     cam.zoom = fly.zoom;
-    cam.x = (fly.tx + 0.5) * TILE_SIZE - (viewport.width / cam.zoom) / 2;
-    cam.y = (fly.ty + 0.5) * TILE_SIZE - (viewport.height / cam.zoom) / 2;
+    const snap = cameraTargetFor(fly.tx, fly.ty, cam.zoom, viewport);
+    cam.x = snap.x;
+    cam.y = snap.y;
     state.cameraFly = null;
     return;
   }
   // Ease zoom first — the framing offset below reads the current zoom, so blending
   // it in-step keeps the anchor centred throughout the flight.
   cam.zoom += (fly.zoom - cam.zoom) * FLY_LERP;
-  const viewW = viewport.width / cam.zoom;
-  const viewH = viewport.height / cam.zoom;
-  const targetX = (fly.tx + 0.5) * TILE_SIZE - viewW / 2;
-  const targetY = (fly.ty + 0.5) * TILE_SIZE - viewH / 2;
-  cam.x += (targetX - cam.x) * FLY_LERP;
-  cam.y += (targetY - cam.y) * FLY_LERP;
+  const target = cameraTargetFor(fly.tx, fly.ty, cam.zoom, viewport);
+  cam.x += (target.x - cam.x) * FLY_LERP;
+  cam.y += (target.y - cam.y) * FLY_LERP;
   if (
     Math.abs(fly.zoom - cam.zoom) < FLY_ZOOM_EPS &&
-    Math.abs(targetX - cam.x) < FLY_POS_EPS &&
-    Math.abs(targetY - cam.y) < FLY_POS_EPS
+    Math.abs(target.x - cam.x) < FLY_POS_EPS &&
+    Math.abs(target.y - cam.y) < FLY_POS_EPS
   ) {
     // Settle: snap the zoom, then re-derive the framing AT that final zoom (the
-    // eased targetX/Y above were computed at the not-quite-final zoom).
+    // eased target above was computed at the not-quite-final zoom).
     cam.zoom = fly.zoom;
-    cam.x = (fly.tx + 0.5) * TILE_SIZE - (viewport.width / cam.zoom) / 2;
-    cam.y = (fly.ty + 0.5) * TILE_SIZE - (viewport.height / cam.zoom) / 2;
+    const snap = cameraTargetFor(fly.tx, fly.ty, cam.zoom, viewport);
+    cam.x = snap.x;
+    cam.y = snap.y;
     state.cameraFly = null;
   }
 }
