@@ -1,9 +1,9 @@
 # Round 6 — Defensive Structures That Mean It (2026-07-03)
 
-**Status: AUTHORED, NOT LAUNCHED. Launches after Round 5 integrates** (WP-P gates-first is a
-prerequisite — this plan assumes gates are committed authoritative objects on the ring, produced
-BEFORE roads/streets). Agents branch from post-round-5 main; the integrator fills in the base SHA
-at launch.
+**Status: LAUNCHED 2026-07-04, base SHA `86c84ee` (post-round-5 main).** (WP-P gates-first was the
+prerequisite — gates are committed authoritative objects on the ring, produced BEFORE roads/streets.)
+A parallel investigation into barrier 3D-mass/join geometry defects (user report) ran alongside and
+its findings were commissioned as **WP-U** (below), added at launch time.
 
 Goal: turn settlement defenses from *enclosure geometry* into *fortification*. Today the ring
 answers only "what polygon contains the buildings?" — the rung is picked by building count alone
@@ -40,7 +40,7 @@ coherent design; delete or demote what you obsolete.
 - Report back: files touched, mechanism summary, test results, deviations, seams left for the
   integrator.
 
-## Merge order: WP-R → WP-S → WP-T
+## Merge order: WP-R → WP-S → WP-U → WP-V → WP-T
 
 WP-T's new contracts validate what R and S build; it merges last and must be green against their
 combined output. WP-S consumes WP-R's ring metadata (see coordination notes) but is developed in
@@ -177,6 +177,56 @@ error fires; tower removed ⇒ `gate-observed` warn fires); runtime cost of the 
 **Files (expected):** new `src/world/connectome/defense-contracts.ts` + registration,
 tests, possibly a small shared hostile-walkability helper. **Do not touch:** enclosure.ts
 (WP-R/S own it), tower placement, deformation writers.
+
+---
+
+## WP-U — Barrier 3D-mass & join fixes  [model: opus] (added at launch, 2026-07-04)
+
+Commissioned from a rendered forensics audit (evidence: session scratchpad `barrier-geometry-audit/`;
+harness: `scripts/barrier-world-preview.ts`). Fix layer is `parametric-barrier-source.ts` +
+`assetgen/geometry/` specs + `render/iso` lift — files no other round-6 WP touches.
+
+1. **D1 (blocker):** mural stairs placed on every ≥8-tile ring segment render as rubble stubs /
+   floating columns — remove from rings except (at most) one readable flight at the main gate.
+2. **D2:** gatehouse tower crowding + gate leaf floating above grade (confirm mount math first).
+3. **D3:** square-cut curtain chunk end-faces poke past drum towers at diagonal vertices — oversize
+   drums / extend chunks into the vertex.
+4. **D4:** merlon phase restarts per 4-tile chunk (non-integer period ⇒ seam notch) and towers use a
+   different pitch — phase off global path-distance, unify the period.
+5. **D5:** towers/stairs paint uncoursed `stone` vs curtain's coursed masonry — unify `work`.
+6. **D6 (verify-first):** barrier sprites use the building `dw/4` foot-lift convention ⇒ adjacent
+   pieces lift differently on slopes (seam base mismatch). Confirm on sloped render before fixing;
+   matters because WP-R makes walls hug slopes.
+
+Accepted as-is: outward-only parapet (no merlons on viewer-facing walls).
+Goldens: geometry changes re-pin `assetgen-golden.test.ts` hashes; integrator owns the
+`ART_RECIPE_VERSION` bump decision. **Do not touch:** enclosure.ts, terrain-deformation.ts,
+connectome/ (WP-R/S/T own those). Integrator reconciles the combined gate visual (WP-S flanking
+pairs + WP-U gatehouse spacing) after both merge.
+
+---
+
+## WP-V — Ground-blend: foundation pads + doorstep/perimeter wear  [model: opus] (added at launch, 2026-07-04)
+
+Commissioned from a terrain-blend audit (user ask: placed objects should shape the terrain
+under/around them so they look built-there). Audit verdict: the deformation-pad and wear machinery
+both exist but under-fire — pads level to footprint MEAN (no-op on flat sites) and cover burgage
+lots only; wear radiates only from roads + market. The sprite ground-apron the user remembered
+(`skirt`/`skirtFade`, compose.ts) is REAL but studio-only, and stays parked behind the reseed
+freeze; the terrain-side texture apron (feature-SDF surface variant for plinths, promised in
+feature-geometry.ts's header) is a future standalone WP.
+
+1. **Pad settle-in + skirt:** `buildSettlementPadDeformations` levels to mean **minus ~8–15 cm**
+   with a wider ~1–2 tile outward feather; coverage extends to civic sites/market/all footprints.
+   Sprites follow automatically (mesh + foot-z read the same composed heightfield).
+2. **Wear sources:** extend `prewarmSettlementWear` (no new system) with doorstep blobs at door
+   anchors + light perimeter rings on high-traffic types; expresses through `grid.deposit()` →
+   dirt-cap promote path.
+
+Deferred by design: wall-foot wear (needs round 6's FINAL ring — post-merge follow-up), sprite
+apron (reseed freeze), texture apron (standalone WP). **Do not touch:** enclosure.ts,
+terrain-deformation.ts, connectome/, parametric-barrier-source.ts. Merges after WP-S (both touch
+settlement-wear.ts; WP-V keeps edits scoped to the prewarm deposit sources).
 
 ---
 

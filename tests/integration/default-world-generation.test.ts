@@ -61,5 +61,5 @@ describe('default world generation — end-to-end placement', () => {
     expect(placedPresets, 'yurt must be placed (khar_ordu primordial village)').toContain('yurt');
     expect(placedPresets, 'guard_post must be placed (ironvein_mine)').toContain('guard_post');
     expect(placedPresets, 'shrine must be placed (ancient ruins POI)').toContain('shrine');
-  }, 30_000);
+  }, 120_000); // full default-world gen measured ~54s at WCV80 base, ~58s at WCV81, on a quiet box — 30s was already blown pre-round-6
 });
