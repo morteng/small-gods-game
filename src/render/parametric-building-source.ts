@@ -9,10 +9,15 @@ import { blueprintOf } from '@/blueprint/entity';
 import { cutawayOf } from '@/blueprint/cutaway';
 import type { ResolvedBlueprint } from '@/blueprint/types';
 import { toGeometry } from '@/blueprint/compile/to-geometry';
-import { greyToSpriteCanvas, rgbaToCanvas, cropRgba, type SpritePack } from '@/render/iso/sprite-canvas';
+import { greyToSpriteCanvas, rgbaToCanvas, cropRgba, hasEmissivePixels, type SpritePack } from '@/render/iso/sprite-canvas';
 import { composeStructure, type StructureSpec, type StructureResult } from '@/assetgen/compose';
 import { ensureBuildingTypesRegistered } from '@/blueprint/register-buildings';
 import { scheduleCompose } from '@/render/compose-scheduler';
+import { canonicalJson } from '@/render/generated-art-cache';
+import {
+  parametricSpriteKey, readParametricSprite, writeParametricSprite,
+  payloadFromResult, packFromPayload, type CachedSpritePayload,
+} from '@/render/parametric-sprite-cache';
 
 export interface ParametricSourceDeps {
   toSpec?: (rb: ResolvedBlueprint) => StructureSpec | null;
@@ -27,14 +32,10 @@ export interface ParametricSourceDeps {
    *  otherwise a pack that lands while nothing is animating shows its flatblock until the
    *  next camera move ([[gotcha-buildings-flatblock-static-cache]]). */
   onWarm?: () => void;
-}
-
-/** True if an emissive RGBA buffer has any self-illuminated (non-black) pixel. */
-function hasEmissive(buf: Uint8ClampedArray): boolean {
-  for (let i = 0; i < buf.length; i += 4) {
-    if (buf[i] > 0 || buf[i + 1] > 0 || buf[i + 2] > 0) return true;
-  }
-  return false;
+  /** Test seam: rebuild a SpritePack from a persisted cache payload (defaults to
+   *  `packFromPayload`). jsdom has no canvas, so tests inject a fake to exercise
+   *  the IDB-hit path. */
+  packFromCache?: (p: CachedSpritePayload) => SpritePack | null;
 }
 
 /** Crop the grey render + its co-registered normal/material maps to one pack. */
@@ -50,7 +51,7 @@ export function structureResultToPack(r: StructureResult): SpritePack | null {
   };
   // Emissive (lit window panes) — only crop+attach when there's actual glow, so
   // the vast majority of window-less sprites never upload a black texture.
-  if (hasEmissive(r.emissive)) {
+  if (hasEmissivePixels(r.emissive)) {
     pack.emissive = greyToSpriteCanvas(r.emissive, r.size, r.bbox) ?? undefined;
   }
   // Geometry-baked ground shadow. Offset is stored relative to the albedo crop's
@@ -93,6 +94,11 @@ export class ParametricBuildingSource {
   private readonly toSprite: NonNullable<ParametricSourceDeps['toSprite']>;
   private readonly keepStages: boolean;
   private readonly onWarm?: () => void;
+  private readonly packFromCache: NonNullable<ParametricSourceDeps['packFromCache']>;
+  /** Persist composed packs in IDB (content-addressed on the compose spec) so the
+   *  deterministic compose CPU is paid once per ART_RECIPE_VERSION, not per boot.
+   *  OFF when keepStages: the studio wants fresh composes with every stage buffer. */
+  private readonly persist: boolean;
 
   constructor(deps: ParametricSourceDeps = {}) {
     // Entities restored from an autosave carry an already-RESOLVED blueprint, so this
@@ -114,6 +120,8 @@ export class ParametricBuildingSource {
     this.toSprite = deps.toSprite ?? structureResultToPack;
     this.keepStages = deps.keepStages ?? false;
     this.onWarm = deps.onWarm;
+    this.packFromCache = deps.packFromCache ?? packFromPayload;
+    this.persist = !this.keepStages;
   }
 
   /** Sync read of an already-generated sprite pack (null if absent / unsupported / failed).
@@ -151,24 +159,48 @@ export class ParametricBuildingSource {
     }
     if (!spec) { this.cache.set(k, null); return; }
     this.inflight.add(k);
+    // Content-addressed persistent key: hashes the COMPOSE INPUT (the spec, yaw
+    // included), so any preset/param/recipe change misses automatically.
+    const idbKey = this.persist ? parametricSpriteKey('bld', canonicalJson(spec)) : null;
     // Through the shared compose queue: N first-frame warms must not fuse into one
     // main-thread-blocking long task (see compose-scheduler.ts). Buildings take the
     // front lane — the player watches towns, not the wall-chunk backlog.
-    scheduleCompose(() => this.compose(spec!), { priority: 'front' })
-      .then((r) => { if (this.keepStages) this.stages.set(k, r); this.cache.set(k, this.toSprite(r)); })
-      .catch((err) => {
-        if (!this.warned.has(k)) { console.warn('[parametric-building] generation failed', err); this.warned.add(k); }
-        this.cache.set(k, null);
+    const composePath = (): Promise<void> =>
+      scheduleCompose(() => this.compose(spec!), { priority: 'front' })
+        .then((r) => {
+          if (this.keepStages) this.stages.set(k, r);
+          this.cache.set(k, this.toSprite(r));
+          // Write-behind persist: never blocks sprite availability, swallows failure.
+          if (idbKey) {
+            const payload = payloadFromResult(r);
+            if (payload) void writeParametricSprite(idbKey, payload);
+          }
+        })
+        .catch((err) => {
+          if (!this.warned.has(k)) { console.warn('[parametric-building] generation failed', err); this.warned.add(k); }
+          this.cache.set(k, null);
+        });
+    const settle = (): void => {
+      // Bump per-pack (NOT only when the whole batch drains): each composed pack changes
+      // the cache key so the static draw list rebuilds and that building textures the next
+      // frame, incrementally — waiting for the last of N packs froze the earlier ones as
+      // flatblocks. Then kick a render so an idle/paused loop actually draws it.
+      this.inflight.delete(k);
+      this.rev++;
+      this.onWarm?.();
+    };
+    if (!idbKey) { void composePath().finally(settle); return; }
+    // Persisted-sprite fast path: a hit rebuilds the pack from raw cached buffers
+    // (byte-exact vs a fresh compose) with NO compose job; any miss / decode
+    // failure / wedged IDB degrades to composing.
+    readParametricSprite(idbKey)
+      .then((payload) => {
+        const pack = payload ? this.packFromCache(payload) : null;
+        if (pack) { this.cache.set(k, pack); return; }
+        return composePath();
       })
-      .finally(() => {
-        // Bump per-pack (NOT only when the whole batch drains): each composed pack changes
-        // the cache key so the static draw list rebuilds and that building textures the next
-        // frame, incrementally — waiting for the last of N packs froze the earlier ones as
-        // flatblocks. Then kick a render so an idle/paused loop actually draws it.
-        this.inflight.delete(k);
-        this.rev++;
-        this.onWarm?.();
-      });
+      .catch(() => composePath())
+      .finally(settle);
   }
 
   /** Monotonic counter bumped when an async warm batch settles. Fold into a draw

@@ -13,6 +13,11 @@ import { type SpritePack } from '@/render/iso/sprite-canvas';
 import { composeStructure, type StructureSpec, type StructureResult } from '@/assetgen/compose';
 import { structureResultToPack } from '@/render/parametric-building-source';
 import { scheduleCompose } from '@/render/compose-scheduler';
+import { canonicalJson } from '@/render/generated-art-cache';
+import {
+  parametricSpriteKey, readParametricSprite, writeParametricSprite,
+  payloadFromResult, packFromPayload, type CachedSpritePayload,
+} from '@/render/parametric-sprite-cache';
 
 export interface ParametricPlantDeps {
   toSpec?: (rb: ResolvedBlueprint) => StructureSpec | null;
@@ -21,6 +26,9 @@ export interface ParametricPlantDeps {
   /** Retain each species' full StructureResult for debug inspection (Render
    *  Studio); off in-game so per-species map buffers aren't held worldwide. */
   keepStages?: boolean;
+  /** Test seam: rebuild a SpritePack from a persisted cache payload (defaults to
+   *  `packFromPayload`; jsdom has no canvas, so tests inject a fake). */
+  packFromCache?: (p: CachedSpritePayload) => SpritePack | null;
 }
 
 export class ParametricPlantSource {
@@ -32,12 +40,19 @@ export class ParametricPlantSource {
   private readonly compose: NonNullable<ParametricPlantDeps['compose']>;
   private readonly toSprite: NonNullable<ParametricPlantDeps['toSprite']>;
   private readonly keepStages: boolean;
+  private readonly packFromCache: NonNullable<ParametricPlantDeps['packFromCache']>;
+  /** Persist composed packs in IDB (content-addressed on the compose spec) so the
+   *  deterministic compose CPU is paid once per ART_RECIPE_VERSION, not per boot.
+   *  OFF when keepStages: the studio wants fresh composes with every stage buffer. */
+  private readonly persist: boolean;
 
   constructor(deps: ParametricPlantDeps = {}) {
     this.toSpec = deps.toSpec ?? ((rb) => toGeometry(rb));
     this.compose = deps.compose ?? composeStructure;
     this.toSprite = deps.toSprite ?? structureResultToPack;
     this.keepStages = deps.keepStages ?? false;
+    this.packFromCache = deps.packFromCache ?? packFromPayload;
+    this.persist = !this.keepStages;
   }
 
   /** Sync read of an already-generated sprite pack for a species kind (null if absent). */
@@ -69,12 +84,36 @@ export class ParametricPlantSource {
       return Promise.resolve();
     }
     if (!spec) { this.cache.set(kind, null); return Promise.resolve(); }
-    const p = scheduleCompose(() => this.compose(spec))
-      .then((r) => { if (this.keepStages) this.stages.set(kind, r); this.cache.set(kind, this.toSprite(r)); })
+    // Content-addressed persistent key over the compose input, so a preset/param
+    // change misses automatically (never keyed on the species name).
+    const idbKey = this.persist ? parametricSpriteKey('plt', canonicalJson(spec)) : null;
+    const composePath = (): Promise<void> => scheduleCompose(() => this.compose(spec!))
+      .then((r) => {
+        if (this.keepStages) this.stages.set(kind, r);
+        this.cache.set(kind, this.toSprite(r));
+        // Write-behind persist: never blocks sprite availability, swallows failure.
+        if (idbKey) {
+          const payload = payloadFromResult(r);
+          if (payload) void writeParametricSprite(idbKey, payload);
+        }
+      })
       .catch((err) => {
         if (!this.warned.has(kind)) { console.warn('[parametric-plant] generation failed', err); this.warned.add(kind); }
         this.cache.set(kind, null);
-      })
+      });
+    // Persisted-sprite fast path: hit → rebuild the pack from raw cached buffers
+    // (byte-exact vs a fresh compose), NO compose job; miss/decode failure/wedged
+    // IDB degrades to composing. The returned promise still settles only once the
+    // pack is cached, so prewarmAll keeps its loading-screen contract.
+    const p = (idbKey
+      ? readParametricSprite(idbKey)
+          .then((payload) => {
+            const pack = payload ? this.packFromCache(payload) : null;
+            if (pack) { this.cache.set(kind, pack); return; }
+            return composePath();
+          })
+          .catch(() => composePath())
+      : composePath())
       .finally(() => { this.inflight.delete(kind); });
     this.inflight.set(kind, p);
     return p;

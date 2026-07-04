@@ -15,9 +15,13 @@
 // Any failure caches null → the caller falls back to the flat-quad `barrierSlabs`. Never throws.
 import type { Entity } from '@/core/types';
 import type { BarrierRun, BarrierGate } from '@/world/barrier';
-import { composeStructure, type StructureResult, type StructureSpec, type NormAnchor } from '@/assetgen/compose';
+import { composeStructure, type StructureResult, type StructureSpec, type StructureAnchors, type NormAnchor } from '@/assetgen/compose';
 import { structureResultToPack } from '@/render/parametric-building-source';
 import { scheduleCompose } from '@/render/compose-scheduler';
+import {
+  parametricSpriteKey, readParametricSprite, writeParametricSprite,
+  payloadFromResult, packFromPayload, type CachedSpritePayload,
+} from '@/render/parametric-sprite-cache';
 import { towerSpec } from '@/assetgen/geometry/tower-spec';
 import { gateLeafSpec, gateFrameSpec } from '@/assetgen/geometry/gate-spec';
 import { postSpec } from '@/assetgen/geometry/post-spec';
@@ -47,13 +51,15 @@ type Pt = [number, number];
 interface Element {
   key: string;
   spec: () => StructureSpec;
-  anchor: (r: StructureResult) => NormAnchor | undefined;
+  /** Reads only `anchors` — a persisted-cache hit rebuilds placement from the
+   *  stored StructureAnchors without a full StructureResult. */
+  anchor: (r: { anchors: StructureAnchors }) => NormAnchor | undefined;
   refX: number; refY: number;    // world point the anchor maps onto
   sortX: number; sortY: number;  // y-sort tile
 }
 
-const wallEndAnchor = (r: StructureResult): NormAnchor | undefined => r.anchors.wallEnds?.[0];
-const tagAnchor = (r: StructureResult): NormAnchor | undefined => r.anchors.tags?.[0];
+const wallEndAnchor = (r: { anchors: StructureAnchors }): NormAnchor | undefined => r.anchors.wallEnds?.[0];
+const tagAnchor = (r: { anchors: StructureAnchors }): NormAnchor | undefined => r.anchors.tags?.[0];
 
 function masonryMat(run: BarrierRun): Mat {
   return run.material === 'brick' ? 'brick' : 'stone';
@@ -345,6 +351,9 @@ interface ComposedEl { pack: SpritePack; ax: number; ay: number }
 export interface ParametricBarrierDeps {
   compose?: (spec: StructureSpec) => Promise<StructureResult>;
   onWarm?: () => void;
+  /** Test seam: rebuild a SpritePack from a persisted cache payload (defaults to
+   *  `packFromPayload`; jsdom has no canvas, so tests inject a fake). */
+  packFromCache?: (p: CachedSpritePayload) => SpritePack | null;
 }
 
 export class ParametricBarrierSource {
@@ -354,10 +363,12 @@ export class ParametricBarrierSource {
   private rev = 0;
   private readonly compose: NonNullable<ParametricBarrierDeps['compose']>;
   private readonly onWarm?: () => void;
+  private readonly packFromCache: NonNullable<ParametricBarrierDeps['packFromCache']>;
 
   constructor(deps: ParametricBarrierDeps = {}) {
     this.compose = deps.compose ?? ((spec) => composeStructure(spec, undefined, { surfaceTexture: true }));
     this.onWarm = deps.onWarm;
+    this.packFromCache = deps.packFromCache ?? packFromPayload;
   }
 
   private runOf(e: Entity): BarrierRun | null {
@@ -392,20 +403,42 @@ export class ParametricBarrierSource {
     for (const el of runElements(run)) {
       if (this.cache.has(el.key) || this.inflight.has(el.key)) continue;
       this.inflight.add(el.key);
+      // Persistent key = the element's content key (`el.key` is already the
+      // in-memory dedup authority: chunk keys embed the full localised run —
+      // merlon phase, gates, coursing, outward sign —; tower/gate/stair keys the
+      // same quantised identity the session cache dedups on) + ART_RECIPE_VERSION.
+      const idbKey = parametricSpriteKey('bar', el.key);
       // Through the shared compose queue (compose-scheduler.ts): a wall ring warms
       // dozens of segments at once — unqueued they fuse into one giant long task.
       // el.spec() is built inside the job so the geometry work is spread too.
-      scheduleCompose(() => this.compose(el.spec()))
-        .then((res) => {
-          const pack = structureResultToPack(res);
-          const a = el.anchor(res);
-          if (pack && a) this.cache.set(el.key, { pack, ax: a.x, ay: a.y });
-          else this.cache.set(el.key, null);
+      const composePath = (): Promise<void> =>
+        scheduleCompose(() => this.compose(el.spec()))
+          .then((res) => {
+            const pack = structureResultToPack(res);
+            const a = el.anchor(res);
+            if (pack && a) {
+              this.cache.set(el.key, { pack, ax: a.x, ay: a.y });
+              // Write-behind persist (anchors ride along in the payload).
+              const payload = payloadFromResult(res);
+              if (payload) void writeParametricSprite(idbKey, payload);
+            } else this.cache.set(el.key, null);
+          })
+          .catch((err) => {
+            if (!this.warned.has(el.key)) { console.warn('[parametric-barrier] compose failed', err); this.warned.add(el.key); }
+            this.cache.set(el.key, null);
+          });
+      // Persisted-sprite fast path: hit → rebuild pack + placement anchor from the
+      // stored payload, NO compose job; anything else degrades to composing.
+      readParametricSprite(idbKey)
+        .then((payload) => {
+          if (payload) {
+            const pack = this.packFromCache(payload);
+            const a = el.anchor({ anchors: payload.anchors });
+            if (pack && a) { this.cache.set(el.key, { pack, ax: a.x, ay: a.y }); return; }
+          }
+          return composePath();
         })
-        .catch((err) => {
-          if (!this.warned.has(el.key)) { console.warn('[parametric-barrier] compose failed', err); this.warned.add(el.key); }
-          this.cache.set(el.key, null);
-        })
+        .catch(() => composePath())
         .finally(() => { this.inflight.delete(el.key); this.rev++; this.onWarm?.(); });
     }
   }
