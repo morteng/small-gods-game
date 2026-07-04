@@ -19,12 +19,14 @@
  * the tended village green so the lush common reads against the worn lanes.
  */
 
-import type { Tile, GameMap } from '@/core/types';
+import type { Tile, GameMap, Entity } from '@/core/types';
 import type { World } from '@/world/world';
 import type { TrampleGrid } from '@/sim/trample';
 import { TRAMPLE } from '@/sim/trample';
+import type { Anchor } from '@/world/anchors';
 import type { SettlementPlan } from './settlement-plan';
 import { WATER_TYPES } from './settlement-plan';
+import { isBuilding } from './building-collision';
 import { noise } from '@/core/noise';
 import { tryGetEntityKindDef } from './entity-kinds';
 
@@ -110,6 +112,127 @@ export function prewarmSettlementWear(
     const accum = Math.round((wear + jitter) * WEAR_TO_ACCUM);
     if (accum > 0) grid.deposit(x, y, accum);
   }
+
+  // Building-anchored wear: the doorsteps mortals actually cross and the trodden
+  // ground round busy premises — seeded from the placed buildings, above and
+  // beyond the road/market halo. Kept a self-contained deposit source so it reads
+  // (and merges) independently of the BFS/cull pass above.
+  if (world) depositBuildingWear(grid, plan, tiles, world, greenTiles);
+}
+
+// ── Building-anchored deposit sources (doorsteps + busy perimeters) ─────────────
+
+/** Doorstep of a BUSY building (temple/church, market, mill, well, tavern): the tile
+ *  mortals cross and its immediate neighbours, seeded PAST PROMOTE_HI (120) so gen
+ *  realises a worn threshold — where that tile is soft ground, not already a road. */
+const DOORSTEP_BUSY_CORE = 165;
+const DOORSTEP_BUSY_ADJ = 128;
+/** Doorstep of an ordinary dwelling: seeded BELOW PROMOTE_HI, so gen leaves it primed
+ *  (not yet dirt) — runtime footfall finishes the job, or it stays grass if the house
+ *  is quiet. */
+const DOORSTEP_ORDINARY_CORE = 74;
+const DOORSTEP_ORDINARY_ADJ = 42;
+/** A light one-tile ring of trodden ground round a busy building — primed, rarely
+ *  promoted at gen, so the premises read lived-in once traffic starts. */
+const PERIMETER_BUSY = 56;
+
+/** Building kinds (blueprint preset) with enough footfall to wear a real doorstep +
+ *  perimeter at gen: the market, mill, well, and houses of worship / drink. Matched on
+ *  the preset name so era packs' variants ("village-church", "market_stall") fall in. */
+const BUSY_KIND = /church|chapel|minster|temple|shrine|market|stall|tavern|inn|mill|well|forge|smith/i;
+
+function isBusyKind(kind: string): boolean {
+  return BUSY_KIND.test(kind);
+}
+
+/** The ground tile a door opens onto: step one full tile out from the anchor's wall-face
+ *  point along its outward facing (the anchor x/y already carries the half-tile offset). */
+function doorstepTile(a: Anchor): { x: number; y: number } {
+  return { x: Math.floor(a.x + a.facing[0] * 0.5), y: Math.floor(a.y + a.facing[1] * 0.5) };
+}
+
+/** The main door anchor of a placed structure (world-space, stored at placement), or null. */
+function mainDoorAnchor(e: Entity): Anchor | null {
+  const anchors = (e.properties as { anchors?: Anchor[] } | undefined)?.anchors;
+  if (!anchors || anchors.length === 0) return null;
+  return anchors.find(a => a.kind === 'door' && a.main)
+    ?? anchors.find(a => a.kind === 'door')
+    ?? null;
+}
+
+/**
+ * Deposit doorstep + busy-perimeter wear from every placed building of this settlement.
+ * Iterated in id order for determinism; deposits commute + saturate, so the trample grid
+ * is byte-stable regardless. Everything flows through `grid.deposit()` → the shared
+ * PROMOTE_HI / settle() path, so it caps at `dirt` (never road-class) and stays primed.
+ *
+ * Returns diagnostics (buildings seen, doorsteps seeded, door-anchor fallbacks) for the
+ * gen report — the counts that let a tuner see busy doorsteps promoting while quiet ones
+ * only prime.
+ */
+export function depositBuildingWear(
+  grid: TrampleGrid,
+  plan: SettlementPlan,
+  tiles: Tile[][],
+  world: World,
+  skip: ReadonlySet<string>,
+): { buildings: number; doorsteps: number; doorFallback: number; perimeter: number } {
+  const stats = { buildings: 0, doorsteps: 0, doorFallback: 0, perimeter: 0 };
+  if (!plan.poiId) return stats;
+
+  // This settlement's placed structures — buildings AND civic props (well/graveyard),
+  // which `isBuilding` (category-gated) misses but that carry real doorstep traffic.
+  const owned = world.registry.all().filter(e => {
+    if ((e.properties as { poiId?: string } | undefined)?.poiId !== plan.poiId) return false;
+    if (isBuilding(e)) return true;
+    return (e.tags ?? []).includes('civic') || (e.tags ?? []).includes('fixture');
+  });
+  owned.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+
+  const inBoundsSoft = (x: number, y: number): boolean => {
+    const t = tiles[y]?.[x];
+    return !!t && !WATER_TYPES.has(t.type) && !skip.has(`${x},${y}`);
+  };
+  const deposit = (x: number, y: number, amt: number): void => {
+    if (amt > 0 && inBoundsSoft(x, y)) grid.deposit(x, y, amt);
+  };
+
+  for (const e of owned) {
+    stats.buildings++;
+    const busy = isBusyKind(e.kind);
+    const ox = Math.floor(e.x), oy = Math.floor(e.y);
+    const fp = (e.properties as { footprint?: { w: number; h: number } } | undefined)?.footprint;
+    const w = fp?.w ?? 1, h = fp?.h ?? 1;
+
+    // (a) Doorstep blob at the main door's outward tile (+ its 4-neighbours). A structure
+    // with no resolvable door (a well, a graveyard) has no threshold — it gets perimeter
+    // wear only; counted as a fallback.
+    const door = mainDoorAnchor(e);
+    const core = busy ? DOORSTEP_BUSY_CORE : DOORSTEP_ORDINARY_CORE;
+    const adj = busy ? DOORSTEP_BUSY_ADJ : DOORSTEP_ORDINARY_ADJ;
+    if (door) {
+      const s = doorstepTile(door);
+      deposit(s.x, s.y, core);
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) deposit(s.x + dx, s.y + dy, adj);
+      stats.doorsteps++;
+    } else {
+      stats.doorFallback++;
+    }
+
+    // (b) Busy premises: a light ring of trodden ground one tile off the footprint.
+    if (busy) {
+      for (let dx = -1; dx <= w; dx++) {
+        deposit(ox + dx, oy - 1, PERIMETER_BUSY);
+        deposit(ox + dx, oy + h, PERIMETER_BUSY);
+      }
+      for (let dy = 0; dy < h; dy++) {
+        deposit(ox - 1, oy + dy, PERIMETER_BUSY);
+        deposit(ox + w, oy + dy, PERIMETER_BUSY);
+      }
+      stats.perimeter++;
+    }
+  }
+  return stats;
 }
 
 /**
