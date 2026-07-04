@@ -136,10 +136,17 @@ export async function generateWithNoise(
   worldSeed: WorldSeed | null,
   options: { onProgress?: (msg: string) => void } = {},
 ): Promise<NoiseGenResult> {
-  const report = options.onProgress ?? (() => {});
+  // Progress reports YIELD a macrotask: generateWithNoise is otherwise one long
+  // synchronous block (~25s+), during which the loading bar physically cannot
+  // repaint. The yield (~1ms each, ~30 total) lets the DOM paint each phase label.
+  const notify = options.onProgress ?? (() => {});
+  const report = async (msg: string): Promise<void> => {
+    notify(msg);
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  };
   const maxDim = Math.max(width, height);
 
-  report('Generating terrain fields...');
+  await report('Generating terrain fields...');
   const config: TerrainConfig = {
     seed,
     width,
@@ -160,28 +167,28 @@ export async function generateWithNoise(
   const fields = generateTerrainFields(config);
 
   // Apply hydraulic erosion to soften peaks and deposit valleys.
-  report('Eroding terrain...');
+  await report('Eroding terrain...');
   fields.elevation = erodeElevation(fields.elevation, width, height, { seed });
 
   // Apply POI influences on the noise fields before biome classification
   if (worldSeed?.pois?.length) {
-    report('Applying POI terrain influences...');
+    await report('Applying POI terrain influences...');
     applyPoiInfluences(fields, worldSeed.pois, config);
   }
 
-  report('Classifying biomes...');
+  await report('Classifying biomes...');
   const biomeMap  = classifyBiomes(fields, config);
   const tileTypes = sampleTiles(biomeMap, fields, config);
 
   // Convert to Tile[][]
-  report('Building tile grid...');
+  await report('Building tile grid...');
   const tiles: Tile[][] = tileTypes.map((row, y) =>
     row.map((type, x) => ({ type, x, y, walkable: tileWalkable(type), state: 'realized' as const })),
   );
 
   // Generate rivers from drainage basins. The flow threshold scales INVERSELY with the
   // world's riverDensity style knob (>1 = more/finer rivers, <1 = fewer trunk rivers).
-  report('Carving rivers...');
+  await report('Carving rivers...');
   const riverFlowThreshold = styledRiverFlowThreshold(worldSeed, width, height);
   // Volcano craters must stay dry (heat evaporates the pit-fill pond) — same mask
   // the render-path recompute (hydrology-store) derives, so tiles and water agree.
@@ -249,7 +256,7 @@ export async function generateWithNoise(
 
   // Run biome-based brush passes FIRST to populate vegetation / rocks / etc.
   // Buildings placed next will clear nature entities from their footprints.
-  report('Running biome brushes...');
+  await report('Running biome brushes...');
   for (const region of biomeRegions(biomeMap)) {
     const brushName = brushForBiome(region.biome);
     if (!brushName) continue;
@@ -260,7 +267,7 @@ export async function generateWithNoise(
   // the banks) ON TOP of the base vegetation, driven off the hydrology raster so it
   // tracks rivers + lakes but not the sea. In-bounds by construction; guard against
   // the rare id collision with a biome-brush entity on the same cell.
-  report('Dressing riverbanks...');
+  await report('Dressing riverbanks...');
   for (const e of buildRiparianEntities(hydrology, width, height, seed + 4242)) {
     if (!world.registry.has(e.id)) world.addEntity(e);
   }
@@ -278,7 +285,7 @@ export async function generateWithNoise(
 
   // Place settlements for each POI (AFTER biome brushes so buildings
   // can clear nature entities that overlap with their footprints)
-  report('Placing settlements...');
+  await report('Placing settlements...');
   const buildings: BuildingInstance[] = [];
   const villages: GameMap['villages'] = [];
   const rng = new Random((seed * 6271 + 9999) | 0);
@@ -349,7 +356,7 @@ export async function generateWithNoise(
   // is derived from it. `buildRoadGraph` carves the tiles as it walks (parity).
   let roadGraph: RoadGraph | undefined;
   if (worldSeed?.connections) {
-    report('Carving road connections...');
+    await report('Carving road connections...');
     // Village greens are protected open commons — inter-POI roads thread AROUND
     // them (just like building footprints), else a road hub like the parish
     // village carves straight across its own green.
@@ -438,7 +445,7 @@ export async function generateWithNoise(
     // shops/gatehouse) as grey-massing building entities, sized by era × prosperity × road
     // class. Span/piers stay on the road ribbon's interim deck for now. Added BEFORE the
     // static draw cache is built so they render without invalidation.
-    report('Siting river crossings...');
+    await report('Siting river crossings...');
     // Ancillary structures route AROUND settlement buildings, carved roads and water (a
     // crossing beside a town must not stamp its toll/shrine onto existing buildings — that
     // was the source of the spatial-invariant INV1/INV3 errors at crossing sites).
@@ -472,7 +479,7 @@ export async function generateWithNoise(
     // authority): a building standing proud of the grade it faces (a hall on a hillside pad,
     // a temple on a rise) gets a perron from grade up to its door, read from the SAME
     // normalised grade the road stairs use. Flush sites — most buildings — get none.
-    report('Setting entrance steps...');
+    await report('Setting entrance steps...');
     for (const e of buildEntranceStoopEntities(world.query({ tag: 'building' }), {
       elevAt: (x, y) => deckHf[Math.round(y) * width + Math.round(x)] ?? ELEVATION_SEA_LEVEL,
       reliefM: worldStyleOf(worldSeed ?? undefined).mountainRelief,
@@ -492,7 +499,7 @@ export async function generateWithNoise(
     // from road×river: the planner routes the least-trench+arch feasible line and the realizer
     // massings each segment. The channel deck rides its water line via the G4 `liftElev` primitive
     // (same render-elev space as the bridge decks above); surface/cut runs foot-sample to ground.
-    report('Raising aqueducts...');
+    await report('Raising aqueducts...');
     const reliefM = worldStyleOf(worldSeed ?? undefined).mountainRelief;
     const aqSettlements = villages.map((v) => ({ id: `town:${v.name ?? `${v.x}_${v.y}`}`, x: v.x, y: v.y }));
     // A town already within WET_RADIUS of usable water needs no aqueduct; only genuinely dry/inland
@@ -523,7 +530,7 @@ export async function generateWithNoise(
   // a POI a building already occupies can retroactively flood part of its footprint
   // (#22). Nudge any such building to the nearest dry, unoccupied, off-road ground
   // before anything downstream (barriers, `buildings[]`) reads its position.
-  report('Reconciling buildings against water...');
+  await report('Reconciling buildings against water...');
   const waterMoves = reconcileBuildingsWithWater(world, tiles);
   if (waterMoves.length) {
     const byId = new Map(waterMoves.map((m) => [m.id, m]));
@@ -540,7 +547,7 @@ export async function generateWithNoise(
 
   // Run POI-zone brush passes for additional flavour entities around each POI
   // These run after buildings so they don't place trees on top of structures.
-  report('Running POI zone brushes...');
+  await report('Running POI zone brushes...');
   if (worldSeed?.pois) {
     for (const poi of worldSeed.pois) {
       if (!poi.position) continue;
@@ -581,7 +588,7 @@ export async function generateWithNoise(
   // mutation. Runs here — every anchor-bearing entity (buildings incl. crossing ancillaries,
   // barriers) is final by map assembly, and the fillet↔raster pass just below consumes
   // `map.anchorLinks` for its building-anchor arrival fillets.
-  report('Matching feature anchors...');
+  await report('Matching feature anchors...');
   const { anchors, roads } = collectAnchors(world, roadGraph, width);
   map.anchors = anchors;
   map.anchorLinks = matchAnchors(anchors, { roads });
@@ -595,47 +602,47 @@ export async function generateWithNoise(
   // and before wear/farmland/vegetation below so they see the final road mask (wear halos
   // cover it, fields avoid it, obstructing flora over it is cleared). `world` is passed so
   // the blocked check consults the real building registry, not just tile flags.
-  report('Reconciling fillet raster...');
+  await report('Reconciling fillet raster...');
   const filletSpans = reconcileFilletRaster(map, world);
   const filletWrites = filletSpans.reduce((a, s) => a + s.cellsWritten, 0);
-  if (filletWrites > 0) report(`Reconciled ${filletWrites} road tiles under filleted approaches`);
+  if (filletWrites > 0) await report(`Reconciled ${filletWrites} road tiles under filleted approaches`);
 
   // Settlement wear: PREWARM the desire-line trample grid from authored
   // roads/markets — realises the initial worn dirt lanes AND leaves the wear
   // primed so live NPC traffic keeps carving from here (one system, two entry
   // points: this gen prewarm + the runtime trample systems). Also culls flora in
   // the mid-wear band. Runs after the POI brushes so flavour flora is caught too.
-  report('Applying settlement wear...');
+  await report('Applying settlement wear...');
   const trample = new TrampleGrid(width, height);
   const worn = prewarmAllSettlementWear(trample, settlementPlans, map, world, seed);
-  if (worn > 0) report(`Trampled ${worn} tiles`);
+  if (worn > 0) await report(`Trampled ${worn} tiles`);
 
   // Tilled fields around farm buildings — the open soil a settlement's farms work, beyond the
   // built-up core. Runs after settlement+roads+wear so it takes only the soil still free of
   // buildings, roads and water (fields are walkable ground, so they never block placement).
-  report('Tilling farm fields...');
+  await report('Tilling farm fields...');
   const tilled = stampFarmland(map, world);
-  if (tilled > 0) report(`Tilled ${tilled} field tiles`);
+  if (tilled > 0) await report(`Tilled ${tilled} field tiles`);
 
   // Irrigation (G7): dig ditches from each field patch to its nearest water and flag the
   // served fields `irrigated`. Runs right after farmland so the patches exist; pure tile pass.
-  report('Digging irrigation ditches...');
+  await report('Digging irrigation ditches...');
   const dug = stampIrrigation(map, world);
-  if (dug > 0) report(`Dug ${dug} ditch tiles`);
+  if (dug > 0) await report(`Dug ${dug} ditch tiles`);
 
   // Killing field (WP-S): clear sightline-blocking trees/scrub in a band outside each town wall on
   // its landward (`open`) legs — the defended glacis. Runs after farmland so the field exemption
   // sees the tilled soil; reuses the settlement-wear vegetation cull. Grass (a tile) stays.
-  report('Clearing killing fields...');
+  await report('Clearing killing fields...');
   const razed = clearKillingFields(map, world);
-  if (razed > 0) report(`Cleared ${razed} nature entities from killing fields`);
+  if (razed > 0) await report(`Cleared ${razed} nature entities from killing fields`);
 
   // Reconcile vegetation against terrain/structures: roads and rivers clear
   // trees, and nothing vegetates on a building footprint. Runs last so it
   // catches flora dropped by every prior pass regardless of their order.
-  report('Clearing obstructed vegetation...');
+  await report('Clearing obstructed vegetation...');
   const cleared = clearObstructedVegetation(world, map);
-  if (cleared > 0) report(`Cleared ${cleared} obstructed nature entities`);
+  if (cleared > 0) await report(`Cleared ${cleared} obstructed nature entities`);
 
   // Contract DECLARATIONS the walled-town recipe commits: each defensive ring asks the connectome
   // for a landward gate reached by a road and a curtain crossed only at gates, PLUS (round 6,
@@ -653,7 +660,7 @@ export async function generateWithNoise(
   // road's own cut had already eased the climb, and floated/sank them over carved corridors.
   // A flight must not stand in water, on a building, or on a wall curtain (only openings).
   if (roadGraph) {
-    report('Siting stairs...');
+    await report('Siting stairs...');
     const composed = getComposedHeightfield(map);
     const stairStyle = worldStyleOf(worldSeed ?? undefined);
     const wallCells = gateApproachPlan(barrierRuns, [], worldSeed?.pois ?? []).wallObstacles;
@@ -673,6 +680,7 @@ export async function generateWithNoise(
   // feature×feature overlap the builders just committed — Bridges over crossings, Gatehouse/
   // WaterGate at each barrier opening — so the world carries its junctions as first-class data
   // the claims ledger resolves against. Pure read of committed state; no placement change.
+  await report('Recording junctions...');
   map.junctions = deriveBuiltJunctions(world, map);
 
   return { map, world, biomeMap, trample };

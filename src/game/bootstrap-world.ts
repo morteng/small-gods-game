@@ -28,6 +28,9 @@ export interface BootstrapDeps {
   decorationImages: DecorationImageCache;
   getViewport: () => Viewport;
   worldSeed?: WorldSeed;
+  /** Phase announcements for the loading screen (worldgen sub-phases, restore steps).
+   *  Messages ending in '...' are phase starts; others are stat lines. */
+  onProgress?: (message: string) => void;
   /** Fired after the world is ready, before the caller starts the loop. */
   onReady?: () => void;
   /** Injectable for tests; defaults to the IndexedDB save-store reader. */
@@ -36,16 +39,23 @@ export interface BootstrapDeps {
   applySave?: (state: GameState, save: SaveFile) => boolean;
 }
 
+/** Yield one macrotask so a just-updated progress label can actually paint before
+ *  the next synchronous block (visualMap/blobMap/seedWorld) grabs the thread. */
+const yieldToPaint = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
+
 export async function bootstrapWorld(deps: BootstrapDeps): Promise<GameMap> {
   const { state, assets, sheets, decorationImages, getViewport } = deps;
+  const progress = deps.onProgress ?? (() => {});
 
   // Resume branch: if a valid autosave exists, rehydrate it and skip the whole
   // generate/seed path. The saved world already has its entities, spirits,
   // rivals, clock, event history, and camera.
   const readSaveFn = deps.readSave ?? readSaveDefault;
   const applySaveFn = deps.applySave ?? applySaveFile;
+  progress('Looking for a saved world...');
   const saved = await readSaveFn();
   if (saved && applySaveFn(state, saved)) {
+    progress('Waking your saved world...');
     await assets.loadAll();
     state.generatedDecorations = loadDecorations(state.worldSeed?.name ?? '');
     void decorationImages.preload(state.generatedDecorations.map(d => d.assetId));
@@ -77,7 +87,7 @@ export async function bootstrapWorld(deps: BootstrapDeps): Promise<GameMap> {
 
   const { map, world, biomeMap, trample } = await generateWithNoise(
     ws.size.width, ws.size.height, seed, ws,
-    { onProgress: (msg) => console.log('[terrain]', msg) },
+    { onProgress: (msg) => { console.log('[terrain]', msg); progress(msg); } },
   );
 
   state.map = map;
@@ -87,6 +97,8 @@ export async function bootstrapWorld(deps: BootstrapDeps): Promise<GameMap> {
   // Desire-line trample grid, prewarmed from authored roads/markets; live NPC
   // traffic keeps carving from here (fed by the trample systems in game.ts).
   state.trample = trample;
+  progress('Preparing the view...');
+  await yieldToPaint();
   state.visualMap = Autotiler.computeVisualMap(map);
   state.blobMap = computeBlobMap(map.tiles, map.width, map.height);
   await assets.loadAll();
@@ -103,6 +115,8 @@ export async function bootstrapWorld(deps: BootstrapDeps): Promise<GameMap> {
     vp.height,
   );
 
+  progress('Peopling the world...');
+  await yieldToPaint();
   seedWorld({
     world: state.world!,
     log: state.eventLog,

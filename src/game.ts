@@ -94,6 +94,7 @@ import { DevModeController } from '@/game/dev-mode-controller';
 import { FrameRenderer } from '@/game/frame-renderer';
 import { PresentationDirector } from '@/presentation/presentation-director';
 import { createInteractionState } from '@/game/interaction-state';
+import { createBootProgressMapper } from '@/ui/boot-progress';
 import { InteractionController } from '@/game/interaction-controller';
 
 const SESSION_CAP_USD = 2; // per-session live building-art spend cap
@@ -1357,13 +1358,23 @@ export class Game {
     this.buildingArtResolver = new ArtResolver(this.assetLibrary, 'pixel-art', 'building', ART_RECIPE_VERSION);
     bootMark('art-library');
     loading.setProgress(0.5, 'Growing the forest…');
-    await this.parametricPlantSource.prewarmAll(); // species sprites ready before frame 1 — no placeholder flash
+    // species sprites ready before frame 1 — no placeholder flash; ticks the bar per species
+    await this.parametricPlantSource.prewarmAll((done, total) => {
+      loading.setProgress(0.5 + 0.1 * (done / total), `Growing the forest… ${done}/${total}`);
+    });
     bootMark('flora-prewarm');
     loading.setProgress(0.6, 'Generating the world…');
+    // Worldgen phase announcements land on the bar's 0.6..0.97 band (asymptotic —
+    // phase count varies per world); stat lines stay console-only.
+    const worldgenProgress = createBootProgressMapper(0.6, 0.97);
     const map = await bootstrapWorld({
       state: this.state, assets: this.assets, sheets: this.sheets,
       decorationImages: this.decorationImages, getViewport: () => this.viewport(),
       worldSeed,
+      onProgress: (msg) => {
+        const update = worldgenProgress.next(msg);
+        if (update) loading.setProgress(update.fraction, update.label);
+      },
       onReady: () => {
         bootMark('worldgen');
         this.ui.loadingScreen.setProgress(1, 'Entering the world…');
