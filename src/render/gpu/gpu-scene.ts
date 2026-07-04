@@ -198,6 +198,8 @@ export class GpuScene {
   /** Per-batch bind group cache, keyed by the albedo source (batch identity). */
   private bindCache = new WeakMap<CanvasImageSource, GPUBindGroup>();
   private texCache = new WeakMap<CanvasImageSource, GPUTexture>();
+  /** One-shot warn flag for transient texture-upload failures (see uploadTexture). */
+  private uploadWarned = false;
   /** Raw material-map textures, keyed by RawMap identity (not a CanvasImageSource). */
   private rawTexCache = new WeakMap<object, GPUTexture>();
   /** Persistent, grow-on-demand vertex/instance buffers (one per stream), reused
@@ -387,12 +389,24 @@ export class GpuScene {
       size: [Math.max(1, w), Math.max(1, h), 1], format: 'rgba8unorm',
       usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT,
     });
-    this.device.queue.copyExternalImageToTexture(
-      // draw-list sources are canvases/images (never SVG); narrow for the GPU API.
-      { source: src as GPUCopyExternalImageSource, flipY: false },
-      { texture: tex, premultipliedAlpha: premultiply },
-      [Math.max(1, w), Math.max(1, h), 1],
-    );
+    // A source with no pixels yet (an image that hasn't finished decoding, a
+    // canvas whose backing was transiently unavailable) must NOT kill the frame
+    // loop: `copyExternalImageToTexture` throws on such sources, and an uncaught
+    // throw here permanently stops rAF (observed once composes/sheet loads were
+    // spread across live frames instead of finishing before frame 1). Render a
+    // transparent texture this frame and DON'T cache, so the next frame retries.
+    if (w <= 0 || h <= 0) return tex;
+    try {
+      this.device.queue.copyExternalImageToTexture(
+        // draw-list sources are canvases/images (never SVG); narrow for the GPU API.
+        { source: src as GPUCopyExternalImageSource, flipY: false },
+        { texture: tex, premultipliedAlpha: premultiply },
+        [w, h, 1],
+      );
+    } catch (err) {
+      if (!this.uploadWarned) { console.warn('[gpu-scene] texture upload failed (will retry next frame)', err); this.uploadWarned = true; }
+      return tex;
+    }
     this.texCache.set(src, tex);
     return tex;
   }
@@ -422,6 +436,9 @@ export class GpuScene {
     const cached = this.bindCache.get(b.texture);
     if (cached) return cached;
     const albedo = this.uploadTexture(b.texture, true);
+    // Failed/pending upload (not in texCache) → build the bind for THIS frame but
+    // don't memoize it, so the retry next frame isn't masked by a stale bind.
+    const settled = this.texCache.has(b.texture);
     const normal = b.normal ? this.uploadTexture(b.normal, false) : this.flatNormal;
     const material = b.materialData
       ? this.uploadRawTexture(b.materialData)
@@ -439,7 +456,7 @@ export class GpuScene {
         { binding: 4, resource: emissive.createView() },
       ],
     });
-    this.bindCache.set(b.texture, bind);
+    if (settled) this.bindCache.set(b.texture, bind);
     return bind;
   }
 
@@ -456,7 +473,8 @@ export class GpuScene {
         { binding: 1, resource: tex.createView() },
       ],
     });
-    this.shadowBindCache.set(texture, bind);
+    // As in batchBind: only memoize once the underlying upload actually landed.
+    if (this.texCache.has(texture)) this.shadowBindCache.set(texture, bind);
     return bind;
   }
 
