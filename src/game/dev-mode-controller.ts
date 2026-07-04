@@ -4,6 +4,7 @@ import type { Scheduler } from '@/core/scheduler';
 import type { Viewport } from './viewport';
 import type { RenderContextDeps } from './render-context';
 import { createDevMode, toggleDevMode } from '@/dev/DevMode';
+import { bumpTilesRev } from '@/core/tile-rev';
 import { hitTest } from '@/dev/hit-tester';
 import { mountInspector, type InspectorHandle } from '@/dev/inspector/Inspector';
 import { mountTimeDebugPanel, type TimeDebugPanelHandle } from '@/dev/TimeDebugPanel';
@@ -416,6 +417,7 @@ export class DevModeController {
       tile.type = tileType;
       // Update walkable based on common tile types
       tile.walkable = !['water', 'mountain'].includes(tileType);
+      bumpTilesRev(map);
       console.log(`[dev] Painted tile (${x}, ${y}): ${oldType} → ${tileType}`);
     } else {
       console.warn(`[dev] Tile (${x}, ${y}) out of bounds`);

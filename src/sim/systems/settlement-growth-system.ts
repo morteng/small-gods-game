@@ -17,6 +17,7 @@
 import type { System, SystemContext } from '@/core/scheduler';
 import type { Entity, Tile, GameMap } from '@/core/types';
 import { WATER_TYPES } from '@/core/constants';
+import { bumpTilesRev } from '@/core/tile-rev';
 import { worldStyleOf } from '@/core/world-style';
 import { getHeightfield, ELEVATION_SEA_LEVEL } from '@/world/heightfield';
 import { styledIslandSpec } from '@/terrain/island-mask';
@@ -160,6 +161,7 @@ function stampFootprint(world: World, e: Entity): void {
       if (t) {
         t.type = 'grass';
         t.walkable = doorCells.has(`${dx},${dy}`);
+        bumpTilesRev(world.tiles);
       }
     }
   }
@@ -278,6 +280,7 @@ export function growSettlement(
       const tile = map.tiles[t.y]?.[t.x];
       if (tile) { tile.type = roadType; tile.walkable = true; }
     }
+    bumpTilesRev(map);
     return true;
   };
 
@@ -313,6 +316,7 @@ export function growSettlement(
         tile.type = 'bridge'; tile.walkable = true;
       }
     }
+    bumpTilesRev(map);
     // The SAME parametric structure worldgen crossings get — a deck riding its banks,
     // piers/arches beneath — so an annexed town bridge is a real bridge, not bare tiles
     // (this was the second, visually disjoint bridge system).
