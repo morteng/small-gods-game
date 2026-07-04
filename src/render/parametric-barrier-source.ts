@@ -17,6 +17,7 @@ import type { Entity } from '@/core/types';
 import type { BarrierRun, BarrierGate } from '@/world/barrier';
 import { composeStructure, type StructureResult, type StructureSpec, type NormAnchor } from '@/assetgen/compose';
 import { structureResultToPack } from '@/render/parametric-building-source';
+import { scheduleCompose } from '@/render/compose-scheduler';
 import { towerSpec } from '@/assetgen/geometry/tower-spec';
 import { gateLeafSpec, gateFrameSpec } from '@/assetgen/geometry/gate-spec';
 import { postSpec } from '@/assetgen/geometry/post-spec';
@@ -391,7 +392,10 @@ export class ParametricBarrierSource {
     for (const el of runElements(run)) {
       if (this.cache.has(el.key) || this.inflight.has(el.key)) continue;
       this.inflight.add(el.key);
-      this.compose(el.spec())
+      // Through the shared compose queue (compose-scheduler.ts): a wall ring warms
+      // dozens of segments at once — unqueued they fuse into one giant long task.
+      // el.spec() is built inside the job so the geometry work is spread too.
+      scheduleCompose(() => this.compose(el.spec()))
         .then((res) => {
           const pack = structureResultToPack(res);
           const a = el.anchor(res);

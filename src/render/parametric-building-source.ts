@@ -12,6 +12,7 @@ import { toGeometry } from '@/blueprint/compile/to-geometry';
 import { greyToSpriteCanvas, rgbaToCanvas, cropRgba, type SpritePack } from '@/render/iso/sprite-canvas';
 import { composeStructure, type StructureSpec, type StructureResult } from '@/assetgen/compose';
 import { ensureBuildingTypesRegistered } from '@/blueprint/register-buildings';
+import { scheduleCompose } from '@/render/compose-scheduler';
 
 export interface ParametricSourceDeps {
   toSpec?: (rb: ResolvedBlueprint) => StructureSpec | null;
@@ -150,7 +151,9 @@ export class ParametricBuildingSource {
     }
     if (!spec) { this.cache.set(k, null); return; }
     this.inflight.add(k);
-    this.compose(spec)
+    // Through the shared compose queue: N first-frame warms must not fuse into one
+    // main-thread-blocking long task (see compose-scheduler.ts).
+    scheduleCompose(() => this.compose(spec!))
       .then((r) => { if (this.keepStages) this.stages.set(k, r); this.cache.set(k, this.toSprite(r)); })
       .catch((err) => {
         if (!this.warned.has(k)) { console.warn('[parametric-building] generation failed', err); this.warned.add(k); }

@@ -12,6 +12,7 @@ import { toGeometry } from '@/blueprint/compile/to-geometry';
 import { type SpritePack } from '@/render/iso/sprite-canvas';
 import { composeStructure, type StructureSpec, type StructureResult } from '@/assetgen/compose';
 import { structureResultToPack } from '@/render/parametric-building-source';
+import { scheduleCompose } from '@/render/compose-scheduler';
 
 export interface ParametricPlantDeps {
   toSpec?: (rb: ResolvedBlueprint) => StructureSpec | null;
@@ -68,7 +69,7 @@ export class ParametricPlantSource {
       return Promise.resolve();
     }
     if (!spec) { this.cache.set(kind, null); return Promise.resolve(); }
-    const p = this.compose(spec)
+    const p = scheduleCompose(() => this.compose(spec))
       .then((r) => { if (this.keepStages) this.stages.set(kind, r); this.cache.set(kind, this.toSprite(r)); })
       .catch((err) => {
         if (!this.warned.has(kind)) { console.warn('[parametric-plant] generation failed', err); this.warned.add(kind); }
@@ -81,9 +82,14 @@ export class ParametricPlantSource {
 
   /** Warm every plant species up front (handful of `composeStructure` calls). Awaited
    *  at the loading screen so in-game trees render their real sprite from frame one —
-   *  no placeholder→billboard→sprite flash. */
-  prewarmAll(): Promise<void> {
-    return Promise.all(plantPresetNames().map((k) => this.warm(k))).then(() => undefined);
+   *  no placeholder→billboard→sprite flash. `onProgress` fires as each species settles
+   *  (done/total) so the loading bar can tick through the ~13s this takes. */
+  prewarmAll(onProgress?: (done: number, total: number) => void): Promise<void> {
+    const kinds = plantPresetNames();
+    let done = 0;
+    return Promise.all(kinds.map((k) => this.warm(k).then(() => {
+      onProgress?.(++done, kinds.length);
+    }))).then(() => undefined);
   }
 
   /** Clear on world reset. */
