@@ -37,6 +37,7 @@ import { isBuilding as isBuildingEntity, tileBlockedByBuilding } from '@/world/b
 import { OccupancyGrid, buildingSolidCells } from '@/world/occupancy-grid';
 import { buildingVisualCells } from '@/blueprint/footprint';
 import { deriveCroftEnclosures, deriveSettlementRing, type EnclosureCtx } from '@/world/enclosure';
+import { heightMetresAt } from '@/world/heightfield';
 import {
   planSettlement, orderedSlotsFor, subdivideLots, widenMarket, assignWards, planCivics,
   WATER_TYPES, BUILDABLE_TERRAIN, SITE_RULES,
@@ -885,6 +886,10 @@ export function placeSettlement(
         // GATES-FIRST: commit gates in the direction of each inbound connection, before any road is
         // carved, so the approach road threads THROUGH the committed gate rather than deriving it.
         connections: connectedDirections,
+        // TERRAIN-SEEKING (WP-R): the analytic seed heightfield lets the ring climb to the high line /
+        // break of slope and classify each side's nature-defends. Absent a map (legacy/test paths) the
+        // ring stays distance-based and every side classifies open/water only (byte-identical).
+        heightAt: map ? (x, y) => heightMetresAt(map, x, y) : undefined,
         ctx,
       });
       if (ring) {
