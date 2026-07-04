@@ -154,7 +154,16 @@ export interface BeliefPowerView {
   believers: number;
 }
 
-export type InboxKind = 'prayer' | 'opportunity' | 'threat';
+export type InboxKind = 'prayer' | 'opportunity' | 'threat' | 'tiding';
+
+// ── WP-C: faith/mood turning points as transient inbox "tidings" ────────────
+/** How long a belief/mood crossing stays in the inbox (half a sim-day). Items are
+ *  derived from the event log inside this sliding window, so they auto-expire —
+ *  no stored inbox state, same pattern as the rival-claim notices. */
+export const CROSSING_NOTICE_HORIZON_TICKS = TICKS_PER_DAY / 2;
+/** Concurrent tiding-item cap: crossings are coalesced per settlement and then at
+ *  most this many buckets surface, so news can never drown threats or pleas. */
+export const MAX_TIDING_ITEMS = 3;
 
 /** One triageable item in the divine inbox. Deterministic id so the UI can carry
  *  ignore/surface state across frames. The target routes the "Act" verb. */
@@ -580,6 +589,63 @@ export function createGameQuery(deps: GameQueryDeps): GameQuery {
             ...(npc ? { anchor: { x: npc.x, y: npc.y } } : {}),
           });
         }
+      }
+
+      // ── tidings: faith/mood turning points (belief_cross / mood_cross), WP-C ──
+      // These fire in the sim on every threshold crossing but used to surface only
+      // in the ?legacyui glyph strip — the shipped chrome never showed them. Derived
+      // from the log inside a sliding half-day window (auto-expiring, transient),
+      // coalesced per settlement, capped, and scored strictly below the threat floor.
+      const crossings = state.eventLog.range(now - CROSSING_NOTICE_HORIZON_TICKS, now + 1)
+        .filter(a => (a.event.type === 'belief_cross' && a.event.spiritId === spiritId)
+                  || a.event.type === 'mood_cross');
+      if (crossings.length > 0) {
+        type Bucket = { key: string; poiId?: string; npcId?: string; risen: number; fallen: number; mood: number };
+        const npcs = new Map(world.query({ kind: 'npc' }).map(n => [n.id, n]));
+        const buckets = new Map<string, Bucket>();
+        for (const a of crossings) {
+          const ev = a.event as { type: 'belief_cross' | 'mood_cross'; npcId: string; kind: 'high' | 'low' };
+          const npc = npcs.get(ev.npcId);
+          const home = npc ? npcProps(npc).homePoiId : undefined;
+          const key = home ?? `npc:${ev.npcId}`;
+          let b = buckets.get(key);
+          if (!b) { b = { key, poiId: home, npcId: home ? undefined : ev.npcId, risen: 0, fallen: 0, mood: 0 }; buckets.set(key, b); }
+          if (ev.type === 'mood_cross') b.mood++;
+          else if (ev.kind === 'high') b.risen++;
+          else b.fallen++;
+        }
+        const tidings: InboxItem[] = [];
+        for (const b of buckets.values()) {
+          const poi = b.poiId ? state.worldSeed?.pois.find(pp => pp.id === b.poiId) : undefined;
+          const npc = b.npcId ? npcs.get(b.npcId) : undefined;
+          const name = poi?.name ?? (npc ? npcProps(npc).name : b.key);
+          const title =
+            b.risen > 0 && b.fallen === 0 ? `Faith rises in ${name}` :
+            b.fallen > 0 && b.risen === 0 ? `Faith falters in ${name}` :
+            b.risen > 0 ? `Faith stirs in ${name}` : `Spirits shift in ${name}`;
+          const parts: string[] = [];
+          if (b.risen > 0) parts.push(`${b.risen} soul(s) crossed into belief`);
+          if (b.fallen > 0) parts.push(`${b.fallen} fell away`);
+          if (b.mood > 0) parts.push(`${b.mood} mood(s) turned`);
+          const count = b.risen + b.fallen + b.mood;
+          const id = `cross:${b.key}`;
+          const surfaced = surfacedSet.has(id);
+          tidings.push({
+            id,
+            kind: 'tiding',
+            title,
+            detail: parts.join('; ') + '.',
+            salience: scoreAffordance({ kind: 'tiding', count, surfaced }),
+            surfaced,
+            target: b.poiId ? { kind: 'settlement', poiId: b.poiId }
+              : npc ? { kind: 'npc', npcId: npc.id } : { kind: 'none' },
+            ...(poi?.position ? { anchor: { x: poi.position.x, y: poi.position.y } }
+              : npc ? { anchor: { x: npc.x, y: npc.y } } : {}),
+          });
+        }
+        // Cap the news: keep only the most salient buckets (stable id tiebreak).
+        tidings.sort((a, b) => (b.salience - a.salience) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+        items.push(...tidings.slice(0, MAX_TIDING_ITEMS));
       }
 
       // Deterministic order: salience desc, then id asc as a stable tiebreak.

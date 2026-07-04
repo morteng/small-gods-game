@@ -494,3 +494,44 @@ describe('UiRuntime — alert pins (P5 zoom-out band)', () => {
     expect(fired).toEqual(['opp:b']); // exactly one action, the topmost pin
   });
 });
+
+// ── WP-C: tidings (faith/mood turning points) render in the shipped chrome ──
+describe('UiRuntime — tiding inbox items + pins (WP-C)', () => {
+  const TIDING = {
+    id: 'cross:vale',
+    kind: 'tiding' as const,
+    title: 'Faith rises in Vale',
+    detail: '2 soul(s) crossed into belief.',
+    salience: 0.2,
+    surfaced: false,
+    target: { kind: 'settlement' as const, poiId: 'vale' },
+    anchor: { x: 5, y: 4 },
+  };
+
+  it('a tiding item renders in the inbox panel with the full triage row', () => {
+    const rt = new UiRuntime();
+    rt.configure({ getInbox: () => [TIDING] });
+    rt.frame(W, H, DPR);
+    const inboxBtn = rt.hitRegions().find((h) => h.id === 'ui.inbox')!;
+    click(rt, ...center(inboxBtn)); // open the inbox panel
+    const ids = rt.hitRegions().map((h) => h.id);
+    expect(ids).toContain('inbox.act.cross:vale');
+    expect(ids).toContain('inbox.look.cross:vale');
+    expect(ids).toContain('inbox.ignore.cross:vale');
+  });
+
+  it('a tiding pin renders as a world marker and reports its click', () => {
+    const fired: string[] = [];
+    const rt = new UiRuntime();
+    rt.configure({
+      getAlertPins: () => [{ id: 'cross:vale', kind: 'tiding' as const, x: 500, y: 350, surfaced: false }],
+      onAlertPin: (id) => fired.push(id),
+    });
+    const groups = rt.frame(W, H, DPR);
+    expect(groups.filter((g) => g.space === UiSpace.World).length).toBeGreaterThan(0);
+    const hit = rt.hitRegions().find((h) => h.id === 'alert.cross:vale')!;
+    expect(hit).toBeTruthy();
+    click(rt, ...center(hit));
+    expect(fired).toEqual(['cross:vale']);
+  });
+});
