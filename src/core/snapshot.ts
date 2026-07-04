@@ -15,8 +15,6 @@ import { reconcileSettlementTiles } from '@/world/settlement-reconcile';
 export interface Snapshot {
   /** Sim tick count at capture time. */
   tick: number;
-  /** Number of events in the log at capture time. */
-  eventId: number;
   /** Serialized RNG state. */
   rng: RngState;
   /** Deep-cloned copies of every world entity. */
@@ -44,6 +42,15 @@ export interface Snapshot {
   /** Desire-line trample grid (sparse accumulator + promoted-trail originals).
    *  Optional so pre-trample saves + partial test states deserialize without it. */
   trample?: TrampleSnapshot;
+  /** WP-D scrub-ghost pattern: internal tick-system state keyed by system name
+   *  (`SettlementEventSystem` cooldowns, `NpcSimSystem` edge sides,
+   *  `AbandonmentSystem` believed/lapsed history). Optional — an absent field
+   *  (old save / hand-built snapshot) resets every registered system cleanly. */
+  systems?: Record<string, unknown>;
+  /** Inland water-level offset (metres). A render parameter today; snapshotted
+   *  as insurance so the value survives scrub/save once the climate seam drives
+   *  it. Optional — absent field restores to 0 (the neutral datum). */
+  waterLevelM?: number;
 }
 
 export function captureSnapshot(state: GameState): Snapshot {
@@ -65,7 +72,6 @@ export function captureSnapshot(state: GameState): Snapshot {
   for (const [poiId, type] of state.world.forcedEvents) forcedEvents.push([poiId, type]);
   return {
     tick: state.clock.now(),
-    eventId: state.eventLog.size(),
     rng: state.rng.getState(),
     entities,
     activeEvents,
@@ -79,6 +85,8 @@ export function captureSnapshot(state: GameState): Snapshot {
     floodedPlaces: state.floodWatch?.floodedPlaceIds(),
     causalSites: state.causalSites?.serialize(),
     trample: state.trample?.serialize(),
+    systems: state.systemState?.serialize(),
+    waterLevelM: state.waterLevelM,
   };
 }
 
@@ -143,6 +151,16 @@ export function restoreSnapshot(state: GameState, snap: Snapshot): void {
   state.floodWatch?.hydrateFlooded(snap.floodedPlaces ?? []);
   // W-I: restore live causal sites (or clear them for a pre-W-I snapshot).
   state.causalSites?.hydrate(snap.causalSites ?? { sites: [], nextId: 0 });
+
+  // WP-D scrub-ghost pattern: restore internal tick-system state (cooldowns,
+  // edge-detection sides, believed/lapsed history) so a committed scrubbed
+  // timeline can't inherit eligibility state from the discarded future. Absent
+  // field (old save) → every registered system resets to its initial state.
+  state.systemState?.hydrate(snap.systems);
+
+  // Insurance: the inland water-level offset survives scrub/save (latent until
+  // the climate seam drives it). Absent field → the neutral datum.
+  state.waterLevelM = snap.waterLevelM ?? 0;
 }
 
 export interface SnapshotStoreOptions {

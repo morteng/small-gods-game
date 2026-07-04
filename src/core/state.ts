@@ -8,6 +8,7 @@ import { createCamera } from '@/render/camera';
 import { createRng, type Rng } from '@/core/rng';
 import { PlotThreadStore } from '@/sim/threads/thread-store';
 import { StagingBuffer } from '@/sim/threads/staging-buffer';
+import { SystemStateRegistry } from '@/core/system-state';
 import type { WeatherStepper } from '@/sim/water/weather-stepper';
 import type { FloodWatch } from '@/world/flood-watch';
 import type { CausalSiteStore } from '@/world/causal-site';
@@ -44,6 +45,11 @@ export interface GameState {
   terrainFields: TerrainField | null;
   biomeMap: BiomeMap | null;
   generatedDecorations: GeneratedDecoration[];
+  /** WP-D scrub-ghost pattern: tick systems with internal sim state (cooldowns,
+   *  edge-detection sides, ever-believed history) register here so snapshots
+   *  capture + restore that state alongside entities/spirits. See
+   *  `@/core/system-state`. */
+  systemState: SystemStateRegistry;
   /** Narrative substrate: recognized/tracked plot threads (serialized in snapshots). */
   plotThreads: PlotThreadStore;
   /** Narrative substrate: armed, dormant staged beats (serialized in snapshots). */
@@ -118,6 +124,7 @@ export function createState(): GameState {
     terrainFields: null,
     biomeMap: null,
     generatedDecorations: [],
+    systemState: new SystemStateRegistry(),
     plotThreads: new PlotThreadStore(),
     staging: new StagingBuffer(),
     surfacedInbox: new Set<string>(),

@@ -127,3 +127,27 @@ describe('FateTrigger — rival pressure', () => {
     expect(h.fired).toHaveLength(0);
   });
 });
+
+describe('FateTrigger — reset (WP-D scrub-ghost)', () => {
+  it('reset clears accumulated claim pressure from a discarded future', () => {
+    const h = harness({ rivalClaimThreshold: 2, rivalClaimWindowTicks: 1000 });
+    h.trig.onEvent(appended(rivalClaim('n1')));   // 1 claim banked
+    h.trig.reset();                               // timeline restore
+    h.trig.onEvent(appended(rivalClaim('n2')));   // only 1 in-window → no fire
+    expect(h.fired).toHaveLength(0);
+    h.trig.onEvent(appended(rivalClaim('n3')));   // 2 → fires
+    expect(h.fired).toHaveLength(1);
+  });
+
+  it('reset unwedges the cooldown gate after a scrub puts the clock before lastTick', () => {
+    const h = harness({ now: 1000, cooldown: 480 });
+    h.trig.onEvent(appended(opened));             // fires, lastTick = 1000
+    expect(h.fired).toHaveLength(1);
+    h.setNow(200);                                // scrubbed back before lastTick
+    h.trig.onEvent(appended(opened));             // 200 - 1000 < 480 → wedged shut
+    expect(h.fired).toHaveLength(1);
+    h.trig.reset();
+    h.trig.onEvent(appended(opened));             // gate reopened
+    expect(h.fired).toHaveLength(2);
+  });
+});
