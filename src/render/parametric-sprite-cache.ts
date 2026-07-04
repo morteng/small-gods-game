@@ -28,6 +28,7 @@
 // IDB gotcha in CLAUDE.md; mirrors src/render/generated-art-cache.ts).
 import { ART_RECIPE_VERSION } from '@/core/content-version';
 import { withIdbTimeout } from '@/services/idb-guard';
+import { readVendoredSprite } from '@/render/vendored-sprite-bundle';
 import type { StructureResult, StructureAnchors } from '@/assetgen/compose';
 import { cropRgba, rgbaToCanvas, hasEmissivePixels, type SpritePack } from '@/render/iso/sprite-canvas';
 
@@ -83,6 +84,9 @@ export const spriteCacheStats = {
   bytesRead: 0,
   bytesWritten: 0,
   errors: 0,
+  /** IDB misses served by the static vendored bundle (WP-H) instead of composing. */
+  vendoredHits: 0,
+  vendoredBytes: 0,
 };
 if (typeof globalThis !== 'undefined') {
   (globalThis as Record<string, unknown>).__spriteCacheStats = spriteCacheStats;
@@ -285,6 +289,7 @@ export function _resetParametricSpriteDbForTesting(): void {
   _housekept = false;
   spriteCacheStats.hits = 0; spriteCacheStats.misses = 0; spriteCacheStats.writes = 0;
   spriteCacheStats.bytesRead = 0; spriteCacheStats.bytesWritten = 0; spriteCacheStats.errors = 0;
+  spriteCacheStats.vendoredHits = 0; spriteCacheStats.vendoredBytes = 0;
 }
 
 function hasIdb(): boolean { return typeof indexedDB !== 'undefined' && indexedDB !== null; }
@@ -354,6 +359,38 @@ interface PendingRead { key: string; resolve: (p: CachedSpritePayload | null) =>
 const pendingReads: PendingRead[] = [];
 let readPumping = false;
 
+// ── vendored tier (WP-H): IDB miss → static bundle fetch → compose ──────────
+//
+// An IDB miss consults the pregenerated bundle under
+// `public/data/parametric-sprites/<ART_RECIPE_VERSION>/` before the caller
+// composes. A vendored hit is decoded (same codec — the blobs ARE the WP-G
+// record format) and written THROUGH to IDB so the network is paid once ever;
+// any failure (no bundle, missing key, corrupt bytes) resolves null and the
+// caller composes, exactly as before this tier existed. Fired without awaiting
+// inside the read pump so N misses fetch concurrently (the bundle module caps
+// shard-fetch concurrency itself). The studio's keepStages paths never call
+// readParametricSprite, so they skip this tier the same way they skip IDB.
+function resolveViaVendored(pr: PendingRead): void {
+  void (async () => {
+    try {
+      const rec = await readVendoredSprite(pr.key);
+      if (rec) {
+        const payload = await decodeSpritePayload(rec);
+        if (payload) {
+          spriteCacheStats.vendoredHits++;
+          spriteCacheStats.vendoredBytes += rec.buf.byteLength;
+          // Write-through (fire-and-forget; no-ops without IDB, swallows failure).
+          void writeParametricSprite(pr.key, payload);
+          pr.resolve(payload);
+          return;
+        }
+      }
+    } catch { /* degrade to composing */ }
+    spriteCacheStats.misses++;
+    pr.resolve(null);
+  })();
+}
+
 async function pumpReads(): Promise<void> {
   readPumping = true;
   // Yield one macrotask before the first splice so a synchronous warm burst
@@ -376,15 +413,17 @@ async function pumpReads(): Promise<void> {
         tx.onerror = () => reject(tx.error);
       }), 'read');
     } catch {
+      // Wedged/absent IDB: the vendored tier can still serve the sprite (its
+      // write-through simply degrades too).
       spriteCacheStats.errors += batch.length;
-      for (const b of batch) b.resolve(null);
+      for (const b of batch) resolveViaVendored(b);
       continue;
     }
     for (let i = 0; i < batch.length; i++) {
       const rec = recs[i];
-      if (!rec || rec.recipeVersion !== ART_RECIPE_VERSION) { spriteCacheStats.misses++; batch[i].resolve(null); continue; }
+      if (!rec || rec.recipeVersion !== ART_RECIPE_VERSION) { resolveViaVendored(batch[i]); continue; }
       const payload = await decodeSpritePayload(rec);
-      if (!payload) { spriteCacheStats.misses++; batch[i].resolve(null); continue; }
+      if (!payload) { resolveViaVendored(batch[i]); continue; }
       spriteCacheStats.hits++;
       spriteCacheStats.bytesRead += rec.buf.byteLength;
       batch[i].resolve(payload);
@@ -398,8 +437,10 @@ async function pumpReads(): Promise<void> {
  * absent-or-wedged IDB — the caller composes instead. Never rejects.
  */
 export function readParametricSprite(key: string): Promise<CachedSpritePayload | null> {
-  if (!hasIdb()) return Promise.resolve(null);
   return new Promise((resolve) => {
+    // No IDB at all (private-mode edge / stripped context): the vendored tier
+    // can still serve the sprite; its IDB write-through no-ops.
+    if (!hasIdb()) { resolveViaVendored({ key, resolve }); return; }
     pendingReads.push({ key, resolve });
     if (!readPumping) void pumpReads();
   });
