@@ -39,7 +39,25 @@ const CULL_THRESHOLD = 0.32;
  */
 const WEAR_TO_ACCUM = TRAMPLE.PROMOTE_HI / 0.62; // ≈ 194
 
-const VEGETATION_CATEGORIES = new Set(['vegetation', 'terrain-feature']);
+export const VEGETATION_CATEGORIES = new Set(['vegetation', 'terrain-feature']);
+
+/**
+ * Remove every sightline-blocking vegetation / terrain-feature entity on a tile (the shared cull
+ * used by both settlement-wear and the WP-S killing field). Grass is a TILE, not an entity, so it
+ * survives. Returns the number of entities culled.
+ */
+export function cullVegetationEntities(world: World, x: number, y: number): number {
+  let n = 0;
+  for (const e of world.registry.getAtTile(x, y)) {
+    const def = tryGetEntityKindDef(e.kind);
+    if (def && VEGETATION_CATEGORIES.has(def.category)) {
+      world.registry.remove(e.id);
+      world.removeEntity(e.id);
+      n++;
+    }
+  }
+  return n;
+}
 
 /**
  * Seed the trample grid for one settlement (and cull mid-wear vegetation). Call
@@ -95,15 +113,7 @@ export function prewarmSettlementWear(
     const wear = 1 - d / WEAR_FALLOFF;
     const jitter = (noise(x, y, seed + 509) - 0.5) * 0.3;
 
-    if (wear > CULL_THRESHOLD + jitter && world) {
-      for (const e of world.registry.getAtTile(x, y)) {
-        const def = tryGetEntityKindDef(e.kind);
-        if (def && VEGETATION_CATEGORIES.has(def.category)) {
-          world.registry.remove(e.id);
-          world.removeEntity(e.id);
-        }
-      }
-    }
+    if (wear > CULL_THRESHOLD + jitter && world) cullVegetationEntities(world, x, y);
 
     // Seed wear on this tile. Eligibility (soft ground) is enforced by the grid
     // at promotion time; seeding a road/farm tile is harmless (it can't promote).

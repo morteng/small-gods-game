@@ -189,14 +189,28 @@ function towerElements(run: BarrierRun): Element[] {
     ({ key, spec, anchor: tagAnchor, refX: x, refY: y, sortX: x, sortY: y });
 
   const out: Element[] = [];
-  // Round drum at every corner — each faces its own inward diagonal, so a corner near one side of
-  // the ring keeps its door toward the town (each distinct orientation caches once).
+  // WP-S coverage placement is authoritative when present: a round DRUM at each salient/fill tower, a
+  // square gatehouse tower at each gate flanker (its position already offset clear of the leaf span).
+  if (run.towers && run.towers.length) {
+    for (const t of run.towers) {
+      const inward = inwardAt(t.x, t.y);
+      if (t.role === 'gate') {
+        const gate = towerSpec({ ...base, tall: true, inward });   // square, taller — frames the gate
+        out.push(mk(`tower:gate:${tag}:${q(inward)}`, () => ({ parts: gate.parts, mountAnchors: gate.mountAnchors }), t.x, t.y));
+      } else {
+        const drum = towerSpec({ ...base, round: true, inward });
+        out.push(mk(`tower:round:${tag}:${q(inward)}`, () => ({ parts: drum.parts, mountAnchors: drum.mountAnchors }), t.x, t.y));
+      }
+    }
+    return out;
+  }
+  // Legacy derivation (runs without WP-S placement, e.g. hand-built runs / crofts): a round drum at
+  // every RDP corner + twin square gatehouse towers flanking each real gate.
   for (const [x, y] of cornerVertices(run.path)) {
     const inward = inwardAt(x, y);
     const drum = towerSpec({ ...base, round: true, inward });
     out.push(mk(`tower:round:${tag}:${q(inward)}`, () => ({ parts: drum.parts, mountAnchors: drum.mountAnchors }), x, y));
   }
-  // Twin square gatehouse towers flanking each real gate — both share the gate's inward orientation.
   for (const g of run.gates) {
     if (!isRealGate(g)) continue;                            // a gap opening gets no gatehouse
     const { p, dir } = frameAt(run.path, g.t);

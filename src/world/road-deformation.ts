@@ -41,6 +41,7 @@ import { worldStyleOf } from '@/core/world-style';
 import { buildRiverDeformations } from '@/world/river-deformation';
 import { buildSettlementPadDeformations, settlementBuildCount } from '@/world/settlement-deformation';
 import { buildBarrierDeformations, barrierFoundationCount } from '@/world/barrier-deformation';
+import { buildDitchDeformations, ditchWallCount } from '@/world/ditch-deformation';
 import { buildEarthworkDeformations } from '@/world/earthwork-deformation';
 import { getHydrologyResult } from '@/world/hydrology-store';
 import { smoothCenterline, type Pt } from '@/terrain/road-centerline';
@@ -779,7 +780,7 @@ function key(map: GameMap): string {
   // `rev` bumps when road-evolution mutates edge.dynamics; `b` is the built-lot count so
   // settlement foundation pads invalidate when live growth fills a lot. Both keep the
   // composed heightfield a pure, cache-correct function of the map's evolving state.
-  return `${map.seed}:${map.width}x${map.height}:r${map.roadGraph?.rev ?? 0}:b${settlementBuildCount(map)}:w${barrierFoundationCount(map)}:e${map.earthworks?.length ?? 0}:s${shapeSignature(styledShapeSpec(map.worldSeed))}`;
+  return `${map.seed}:${map.width}x${map.height}:r${map.roadGraph?.rev ?? 0}:b${settlementBuildCount(map)}:w${barrierFoundationCount(map)}:d${ditchWallCount(map)}:e${map.earthworks?.length ?? 0}:s${shapeSignature(styledShapeSpec(map.worldSeed))}`;
 }
 
 function evict(cache: Map<string, unknown>): void {
@@ -822,6 +823,7 @@ export function getWorldDeformationStore(map: GameMap): DeformationStore {
   store.add(...buildRiverDeformations(map, getHydrologyResult(map)));
   store.add(...buildSettlementPadDeformations(map));
   store.add(...buildBarrierDeformations(map)); // walls: stepped foundation footing under the curtain
+  store.add(...buildDitchDeformations(map)); // WP-S: shallow dry ditch outside the town wall (causeways at gates)
   store.add(...buildEarthworkDeformations(map.earthworks ?? [])); // motte/ditch/rampart of a placed complex
   store.add(...buildLeveeDeformations(map)); // #24: riverside roads ride up on an embankment
   worldStoreCache.set(k, store);

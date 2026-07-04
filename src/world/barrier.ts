@@ -7,12 +7,47 @@ export type BarrierKind = 'wall' | 'fence' | 'palisade' | 'rampart' | 'barricade
  *  water / a building / an open waterfront side — just an opening, no gatehouse). Absent ⇒ 'gate'
  *  (legacy). */
 export interface BarrierGate { t: number; width: number; kind?: 'gate' | 'gap' }
+
+/**
+ * What nature already does for a ring SEGMENT (the leg `path[i]→path[i+1]`), classified by what
+ * lies immediately OUTSIDE it. This is the WP-R↔WP-S interface (Round 6): WP-R's terrain-seeking
+ * trace CLASSIFIES each segment; WP-S's coverage-tower/ditch/killing-field passes CONSUME it. Absent
+ * ⇒ every segment is treated as `'open'` (the standalone default), so a run without WP-R metadata
+ * still places towers and a ditch on every landward face.
+ *   • open  — a buildable landward approach; wants a tower within bowshot + a ditch + a killing field.
+ *   • water — a river bend / lakeshore / coast fronts this leg (the water is the wall): no ditch, no
+ *             killing field, tower spacing unbounded.
+ *   • steep — a cliff edge / sharp outward drop defends this leg: keep the curtain, but relax tower
+ *             spacing (2×) and skip the ditch.
+ */
+export type RingDefends = 'open' | 'water' | 'steep';
+export interface RingSegment {
+  /** Index of the segment's start vertex on `path` (segment = path[i]→path[i+1]). */
+  i: number;
+  defends: RingDefends;
+}
+
+/** A defensive tower committed by the coverage-placement pass (WP-S). `role` records WHY it is
+ *  there — a gate FLANKER (paired, framing a gate), a SALIENT (a convex ring corner overlooking two
+ *  wall faces), or a FILL tower (keeping an open run within bowshot). The renderer draws square
+ *  gatehouse towers for `'gate'` and round drums for `'salient'`/`'fill'`; WP-T's `gate-observed`
+ *  lint reads these positions. */
+export type TowerRole = 'gate' | 'salient' | 'fill';
+export interface TowerPlacement { x: number; y: number; role: TowerRole }
+
 export interface BarrierRun {
   kind: BarrierKind;
   path: [number, number][];
   height: number; thickness: number; material: string;
   crenellated?: boolean; posts?: boolean;
   gates: BarrierGate[];
+  /** Per-segment nature-defends classification (WP-R). Parallel to path legs, not necessarily
+   *  one-per-leg (only classified legs need an entry); read via `defendsForSegment`. */
+  segments?: RingSegment[];
+  /** Authoritative defensive-tower positions from the coverage-placement pass (WP-S). When present,
+   *  the barrier renderer places towers HERE instead of at RDP corners; absent ⇒ legacy corner-tower
+   *  derivation. Persisted plain data on `map.barrierRuns`. */
+  towers?: TowerPlacement[];
   /** Ring centre (tiles) — the "inside" the wall protects. Set on a closed defensive ring so
    *  the geometry can face its parapet/merlons/hoardings OUTWARD (away from this point). Absent
    *  on open runs / crofts → geometry falls back to a symmetric (both-edge) parapet. */
@@ -40,6 +75,24 @@ export const BARRIER_DEFAULTS: Record<BarrierKind, Omit<BarrierRun, 'kind' | 'pa
   barricade: { height: mToTiles(1.4), thickness: 1, material: 'timber' },                     // 1.4 m
   hedge:     { height: mToTiles(1.5), thickness: 1, material: 'hedge' },                       // 1.5 m living
 };
+
+/** The nature-defends class of ring leg `i` (`path[i]→path[i+1]`). Defaults to `'open'` when the run
+ *  carries no WP-R metadata, so a standalone run defends every landward leg by construction. */
+export function defendsForSegment(run: BarrierRun, i: number): RingDefends {
+  return run.segments?.find((s) => s.i === i)?.defends ?? 'open';
+}
+
+/** Which path leg contains path-distance `t` → its start-vertex index `i` (leg = path[i]→path[i+1]). */
+export function segmentIndexAt(path: [number, number][], t: number): number {
+  let acc = 0;
+  for (let i = 1; i < path.length; i++) {
+    const [ax, ay] = path[i - 1], [bx, by] = path[i];
+    const len = Math.hypot(bx - ax, by - ay);
+    if (t <= acc + len) return i - 1;
+    acc += len;
+  }
+  return Math.max(0, path.length - 2);
+}
 
 /** Map a path distance `t` (tiles) to a world point along the polyline. */
 function pointAt(path: [number, number][], t: number): [number, number] {
