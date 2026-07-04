@@ -61,7 +61,7 @@ import { buildBottomPanel } from './bottom-panel';
 import { buildDock } from './stage-dock';
 import { openMetadataPanel, makeLiveButton } from './render-request-panel';
 import { injectStudioTheme, COLORS, h } from './theme';
-import { celestial, solarLight } from './solar';
+import { celestial, solarLight, sunDirFromAngles } from '@/render/solar';
 import { type StudioState, type Stage, type AbResult, AB_MODELS, AB_MIN_BORDER, AB_MIN_IOU } from './types';
 
 const MAP_W = 24, MAP_H = 24;
@@ -111,10 +111,7 @@ function makeEntity(kind: string): Entity {
   return { id: 'subject', kind, x: CENTER.x, y: CENTER.y, properties: {} } as Entity;
 }
 
-function sunDir(az: number, el: number): Vec3 {
-  const a = (az * Math.PI) / 180, e = (el * Math.PI) / 180;
-  return normalizeVec3([-Math.sin(a) * Math.cos(e), Math.sin(e), Math.cos(a) * Math.cos(e)]);
-}
+const sunDir = sunDirFromAngles; // shared az/el → screen-space dir (render/solar.ts)
 
 /** One paid render's metrics + harvested images (PNG data-URIs). Returned by the
  *  programmatic harvest interface (window.__studio.render) so a dev loop can run a
