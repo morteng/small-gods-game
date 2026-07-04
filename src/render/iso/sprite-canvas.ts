@@ -61,6 +61,14 @@ export interface BarrierPiece {
   sortX: number; sortY: number;       // y-sort anchor tile (the chunk's midpoint)
 }
 
+/** True if an emissive RGBA buffer has any self-illuminated (non-black) pixel. */
+export function hasEmissivePixels(buf: Uint8ClampedArray): boolean {
+  for (let i = 0; i < buf.length; i += 4) {
+    if (buf[i] > 0 || buf[i + 1] > 0 || buf[i + 2] > 0) return true;
+  }
+  return false;
+}
+
 /** Build a tight canvas from a w×h RGBA buffer (e.g. the baked ground shadow). */
 export function rgbaToCanvas(data: Uint8ClampedArray, w: number, h: number): SpriteCanvas | null {
   const c = makeCanvas(w, h);
