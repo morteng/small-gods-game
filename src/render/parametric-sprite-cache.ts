@@ -333,35 +333,65 @@ async function housekeep(db: IDBDatabase): Promise<void> {
   } catch { /* best-effort housekeeping only */ }
 }
 
-async function doRead(key: string): Promise<CachedSpritePayload | null> {
-  try {
-    const db = await openDb();
-    const rec = await withIdbTimeout(new Promise<SpriteRecord | undefined>((resolve, reject) => {
-      const tx = db.transaction(DB_STORE, 'readonly');
-      const req = tx.objectStore(DB_STORE).get(key);
-      req.onsuccess = () => resolve(req.result as SpriteRecord | undefined);
-      req.onerror = () => reject(req.error);
-    }), 'read');
-    if (!rec || rec.recipeVersion !== ART_RECIPE_VERSION) { spriteCacheStats.misses++; return null; }
-    const payload = await decodeSpritePayload(rec);
-    if (!payload) { spriteCacheStats.misses++; return null; }
-    spriteCacheStats.hits++;
-    spriteCacheStats.bytesRead += rec.buf.byteLength;
-    return payload;
-  } catch {
-    spriteCacheStats.errors++;
-    return null;
-  }
-}
+// Reads are MICRO-BATCHED: a warm boot fires ~400 reads in one burst, and both
+// naive shapes fail under that load —
+//   • fully concurrent: hundreds of get-transactions racing 4s withIdbTimeout
+//     timers starve each other's event delivery past the deadline (measured
+//     live: 166/393 warm reads "timed out" → needless composes);
+//   • strictly serial, one txn per get: ~55ms of per-transaction overhead each
+//     (measured idle) → a 2-minute warm drain.
+// Batching N gets into ONE readonly transaction amortizes the txn overhead to
+// ~nothing, keeps at most one txn in flight (deadline starts when the batch
+// RUNS, so the guard stays honest), and decodes sequentially so inflate work
+// spreads instead of bursting.
+// 16 keeps a batch's txn under the 4s guard even on a saturated main thread
+// (measured worst case: 32 gets ≈ 5.4s on a tab rendering the full map; halving
+// the batch halves it). A timed-out batch degrades to composing — correct but
+// wasteful, so stay under the deadline.
+const READ_BATCH_MAX = 16;
 
-// Reads are SERIALIZED too (same starvation as writes, other direction): a warm
-// boot fires ~400 reads in one burst; hundreds of concurrent get-transactions +
-// inflates racing 4s withIdbTimeout timers starve each other past the deadline
-// (measured live: 166/393 warm reads "timed out" → needless composes). One
-// in-flight read keeps each txn's deadline honest — it starts when the read
-// RUNS, not when it queues — and spreads the inflate/deserialize work instead
-// of bursting it. Serial cost is trivial (~few ms/read) next to a 330ms compose.
-let readChain: Promise<unknown> = Promise.resolve();
+interface PendingRead { key: string; resolve: (p: CachedSpritePayload | null) => void }
+const pendingReads: PendingRead[] = [];
+let readPumping = false;
+
+async function pumpReads(): Promise<void> {
+  readPumping = true;
+  // Yield one macrotask before the first splice so a synchronous warm burst
+  // (every visible entity in one frame) lands in full batches, not a batch of 1.
+  await new Promise<void>((r) => setTimeout(r, 0));
+  while (pendingReads.length) {
+    const batch = pendingReads.splice(0, READ_BATCH_MAX);
+    let recs: Array<SpriteRecord | undefined>;
+    try {
+      const db = await openDb();
+      recs = await withIdbTimeout(new Promise<Array<SpriteRecord | undefined>>((resolve, reject) => {
+        const tx = db.transaction(DB_STORE, 'readonly');
+        const store = tx.objectStore(DB_STORE);
+        const out = new Array<SpriteRecord | undefined>(batch.length);
+        batch.forEach((b, i) => {
+          const req = store.get(b.key);
+          req.onsuccess = () => { out[i] = req.result as SpriteRecord | undefined; };
+        });
+        tx.oncomplete = () => resolve(out);
+        tx.onerror = () => reject(tx.error);
+      }), 'read');
+    } catch {
+      spriteCacheStats.errors += batch.length;
+      for (const b of batch) b.resolve(null);
+      continue;
+    }
+    for (let i = 0; i < batch.length; i++) {
+      const rec = recs[i];
+      if (!rec || rec.recipeVersion !== ART_RECIPE_VERSION) { spriteCacheStats.misses++; batch[i].resolve(null); continue; }
+      const payload = await decodeSpritePayload(rec);
+      if (!payload) { spriteCacheStats.misses++; batch[i].resolve(null); continue; }
+      spriteCacheStats.hits++;
+      spriteCacheStats.bytesRead += rec.buf.byteLength;
+      batch[i].resolve(payload);
+    }
+  }
+  readPumping = false;
+}
 
 /**
  * Read a cached sprite payload. Null on miss / stale version / corruption /
@@ -369,9 +399,10 @@ let readChain: Promise<unknown> = Promise.resolve();
  */
 export function readParametricSprite(key: string): Promise<CachedSpritePayload | null> {
   if (!hasIdb()) return Promise.resolve(null);
-  const p = readChain.then(() => doRead(key));
-  readChain = p; // doRead never rejects, so the chain never breaks
-  return p;
+  return new Promise((resolve) => {
+    pendingReads.push({ key, resolve });
+    if (!readPumping) void pumpReads();
+  });
 }
 
 async function doWrite(key: string, payload: CachedSpritePayload): Promise<void> {
