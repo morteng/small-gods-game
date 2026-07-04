@@ -47,6 +47,21 @@ describe('compose-scheduler', () => {
     expect(order.indexOf('timer')).toBeLessThan(order.indexOf('job2'));
   });
 
+  it("drains the 'front' lane before queued 'back' jobs (buildings before wall chunks)", async () => {
+    const order: string[] = [];
+    // Hold the pump on a slow back job so the rest queue up behind it.
+    const gate = scheduleCompose(async () => { await sleep(10); order.push('back-running'); });
+    void scheduleCompose(async () => { order.push('back1'); });
+    void scheduleCompose(async () => { order.push('back2'); });
+    const front = scheduleCompose(async () => { order.push('front1'); }, { priority: 'front' });
+    await gate;
+    await front;
+    await sleep(15);
+    expect(order.indexOf('front1')).toBeGreaterThan(order.indexOf('back-running'));
+    expect(order.indexOf('front1')).toBeLessThan(order.indexOf('back1'));
+    expect(order.indexOf('back1')).toBeLessThan(order.indexOf('back2'));
+  });
+
   it('tracks pending jobs', async () => {
     const before = composeQueuePending();
     const p = scheduleCompose(async () => { await sleep(5); });
