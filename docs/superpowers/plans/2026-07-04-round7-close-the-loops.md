@@ -11,7 +11,7 @@ player*. Round 7 closes the P0 gameplay loops so the sim is honest (rivals actua
 levers actually move things, belief economics actually work) and lights the single
 highest-visible-payoff dark feature (day/night + window glow).
 
-**Merge order: WP-A → WP-B → WP-C → WP-D → WP-E.**
+**Merge order: WP-A → WP-B → WP-C → WP-D → WP-E → WP-F.**
 (A is isolated in rival code; B and C both touch `divine-actions.ts` — C rebases over B; D
 serializes system state that C may extend — D rebases over C; E is renderer-side, near-isolated.)
 
@@ -116,6 +116,24 @@ zero callers.
 - Pure function of the clock (deterministic, scrub-safe); no per-frame allocation; WebGPU only.
   Default ON, no settings toggle required.
 - Verify visually (offline render or browser + forced clock), not just by uniform values.
+
+## WP-F — Loading performance + honest progress (user-commissioned mid-round)
+
+Direct user complaint: "loading is terribly slow and the progress bar seems stuck a lot", with LPC
+called out. Measure-first commission.
+
+- **Profile the boot path** (cold fresh-world boot + warm autosave restore): worldgen sub-phases,
+  LPC sheet generation storm, building-art source, GPU init, first frame — real browser numbers.
+- **LPC sheet pipeline** (`src/render/lpc/spritesheet-cache.ts` → `canvas/renderer.js` compositing
+  item PNGs from `public/sprites/lpc/spritesheets/` per unique CharacterSpec at boot): shared
+  decode cache for underlying item images, concurrency limit + main-thread yielding, defer
+  off-screen NPCs' sheets to on-demand with graceful placeholder, release intermediates — the
+  measured-payoff subset, not all four blindly.
+- **Progress honesty**: thread real onProgress from the starved phases (worldgen already emits
+  messages that die in `console.log`; asset preload loops report nothing) into the visible
+  progress bar — it must advance or re-label at least every couple of seconds of a normal boot.
+- Before/after boot timing on the same scenario is the acceptance evidence. Findings feed the
+  parallel mobile-crash investigation (decoded LPC memory is a jetsam suspect there).
 
 ---
 
