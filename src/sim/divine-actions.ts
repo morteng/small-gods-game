@@ -5,6 +5,7 @@ import { npcProps, forEachNpc } from '@/world/npc-helpers';
 import { clamp01, signResponse } from '@/sim/npc-sim';
 import type { World } from '@/world/world';
 import { addDomainBelief, isOminous } from '@/sim/belief-domains';
+import { isWaterTile } from '@/world/land-snap';
 import type { WeatherStepper } from '@/sim/water/weather-stepper';
 import type { CausalSite } from '@/world/causal-site';
 
@@ -51,6 +52,14 @@ const ANSWER_UNDERSTANDING_BOOST = 0.04; // a heard prayer teaches a little of y
 // An omen is a sign in the sky; over a suffering settlement it reads as wrath →
 // believers start to attribute the storm to you (the coincidence bootstrap).
 const OMEN_STORM_SEED = 0.05;          // per believing witness, ×signResponse
+// Flood bootstrap (R7 WP-B): the flood domain used to be seeded ONLY by floods,
+// and floods came ONLY from summon_storm itself — circular, so summon_storm was
+// unreachable on a fresh world. Mirror the storm bootstrap: a wrathful sign seen
+// where the waters loom reads as the deluge's master, seeding flood-attribution
+// through the same ungated omen path (a god's vocabulary = what its believers
+// think it can do). seedFloodBelief/seedSiteBelief remain the reinforcement loop.
+const OMEN_FLOOD_SEED = 0.05;          // per water-adjacent believing witness, ×signResponse
+const OMEN_WATER_RADIUS = 4;           // tiles; how near the waters must be for the sign to read as flood
 // A smite is unambiguous — the storm OBEYED. Strong reinforcement for witnesses,
 // and the target felt it directly.
 const SMITE_TARGET_FEAR_FAITH = 0.35;  // fear converts (×signResponse on existing belief)
@@ -95,6 +104,18 @@ export function whisper(spirit: Spirit, npc: Entity, log: EventLog, conversation
 
 // ─── Omen: area effect on a settlement, visible to all NPCs ─────────────────
 
+/** True when any water tile lies within Chebyshev radius `r` of (x,y).
+ *  Deterministic tile-scan; out-of-bounds reads are simply not water. */
+function nearWater(world: World, x: number, y: number, r: number): boolean {
+  const cx = Math.round(x), cy = Math.round(y);
+  for (let dy = -r; dy <= r; dy++) {
+    for (let dx = -r; dx <= r; dx++) {
+      if (isWaterTile(world.tiles, cx + dx, cy + dy)) return true;
+    }
+  }
+  return false;
+}
+
 export function omen(spirit: Spirit, poiId: string, world: World, log: EventLog): boolean {
   if (spirit.power < OMEN_COST) return false;
   spirit.power -= OMEN_COST;
@@ -117,8 +138,13 @@ export function omen(spirit: Spirit, poiId: string, world: World, log: EventLog)
     if (existing) {
       existing.faith = clamp01(existing.faith + OMEN_FAITH_BOOST * signResponse(existing.understanding));
       // Attribution: a believer who grasps signs reads this one as the angry sky.
-      addDomainBelief(p, spirit.id, 'storm',
-        OMEN_STORM_SEED * signResponse(existing.understanding) * (1 + ominousSeverity));
+      const seed = signResponse(existing.understanding) * (1 + ominousSeverity);
+      addDomainBelief(p, spirit.id, 'storm', OMEN_STORM_SEED * seed);
+      // …and where the waters loom, the same sign also reads as the deluge —
+      // the flood domain's ungated bootstrap (see OMEN_FLOOD_SEED above).
+      if (nearWater(world, e.x, e.y, OMEN_WATER_RADIUS)) {
+        addDomainBelief(p, spirit.id, 'flood', OMEN_FLOOD_SEED * seed);
+      }
     }
     affected++;
   });
