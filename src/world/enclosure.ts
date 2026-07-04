@@ -15,7 +15,8 @@
 // built lot; settlement scale → one ring around the built area, the rung
 // (none / palisade / town wall) chosen by settlement size + wealth + era.
 
-import type { BarrierRun, BarrierKind, BarrierGate } from '@/world/barrier';
+import type { BarrierRun, BarrierKind, BarrierGate, RingSegment, NatureDefends } from '@/world/barrier';
+import { barrierFootprintTiles } from '@/world/barrier';
 import type { Lot } from '@/world/settlement-plan';
 import type { Era } from '@/core/era';
 import { catalogue, type BarrierTypeFields } from '@/catalogue';
@@ -149,14 +150,69 @@ function simplifyRing(samples: Pt[], eps0: number, maxVerts: number): Pt[] {
   return rdp(open, eps).slice(0, -1);
 }
 
+/** A read-only terrain-height sampler in METRES above sea (water negative). The wall tracer
+ *  reads it to seek the high line / break of slope; absent ⇒ the tracer is purely distance-based
+ *  (byte-identical to the pre-terrain ring). Backed by `heightMetresAt` at the call site. */
+export type HeightAt = (x: number, y: number) => number;
+
+// ── Terrain-seeking ray-length tuning (metres / tiles) ─────────────────────────
+/** Bounded outward slack (tiles) a ray may spend seeking better ground past the building floor. */
+const TERRAIN_SLACK_TILES = 4;
+/** Sub-tile ray step (tiles) — the candidate-radius resolution AND the smoothing grain. */
+const RAY_STEP = 0.5;
+/** Break-of-slope sampling span (tiles) either side of a candidate wall point. */
+const SLOPE_STEP_TILES = 2;
+// Cost weights (per metre, except distance per tile). Flat ground ⇒ the distance penalty wins and
+// the ray stays at the building floor (so inland towns barely move); a real break of slope / high
+// line a few tiles out earns enough to spend the slack.
+const W_HIGH = 0.5;      // prefer a locally HIGH wall footing
+const W_BREAK = 0.6;     // prefer outward drop ≥ inward drop (the break of slope)
+const W_UPSLOPE = 1.0;   // penalize a wall BELOW its outward approach (enemy stands above it)
+const W_DIST = 0.3;      // per extra tile of radius — keeps the ring tight on flat ground
+/** Outward drop (metres per tile) at/above which a ring side counts as `steep` (cliff-defended). */
+const STEEP_DROP_M_PER_TILE = 1.5;
+
+/**
+ * Cost-based ray length: from the building-clearance floor `baseR` outward through a bounded slack,
+ * pick the radius whose wall footing reads most defensible — high ground, at the break of slope
+ * (outward drop ≥ inward drop), never below its outward approach. Pure + deterministic (fixed step,
+ * strict-improvement tie-break keeps the SHORTEST radius). Never returns below `baseR`, so building
+ * enclosure is untouched; terrain preference only spends the outward slack.
+ */
+function chooseTerrainRadius(
+  cx: number, cy: number, dx: number, dy: number, baseR: number, heightAt: HeightAt,
+  isWater: (x: number, y: number) => boolean,
+): number {
+  let bestR = baseR, bestScore = -Infinity;
+  for (let d = baseR; d <= baseR + TERRAIN_SLACK_TILES + 1e-9; d += RAY_STEP) {
+    // Never spend slack toward water: `heightAt` reads NEGATIVE over water, so a wall point on the
+    // last dry tile before a bank shows a huge outward "drop" and would falsely read as the break of
+    // slope — pulling the curtain onto the waterline (its rasterized blocking cell then clips water).
+    // Stop at the first wet crossing; the existing water tuck (in `traceRing`) refines the bank stand-off.
+    if (isWater(Math.round(cx + dx * d), Math.round(cy + dy * d))) break;
+    const hWall = heightAt(cx + dx * d, cy + dy * d);
+    const hOut = heightAt(cx + dx * (d + SLOPE_STEP_TILES), cy + dy * (d + SLOPE_STEP_TILES));
+    const hIn = heightAt(cx + dx * (d - SLOPE_STEP_TILES), cy + dy * (d - SLOPE_STEP_TILES));
+    const outwardDrop = hWall - hOut;                    // >0 ⇒ ground falls away outside (good)
+    const inwardDrop = hWall - hIn;                      // >0 ⇒ ground falls toward the town
+    const breakOfSlope = outwardDrop - inwardDrop;       // >0 ⇒ steeper outside than inside
+    const upslope = Math.max(0, hOut - hWall);           // >0 ⇒ approach commands the wall (worst)
+    const score = W_HIGH * hWall + W_BREAK * breakOfSlope - W_UPSLOPE * upslope - W_DIST * (d - baseR);
+    if (score > bestScore + 1e-9) { bestScore = score; bestR = d; }
+  }
+  return bestR;
+}
+
 /**
  * TERRAIN-TRACED settlement ring. Instead of an axis-aligned bounding box, trace a star-shaped
  * polygon around the built cluster that FOLLOWS nearby terrain: each of N rays from the centre is
- * pushed out just far enough to enclose the buildings in its sector (+margin), then — where a
- * riverbank / lakeshore / coast lies close outside the town — PULLED back in to sit just landward
- * of the waterline. The result hugs the water where water is near and rounds the cluster elsewhere;
- * being star-shaped it can never self-intersect. Simplified to a handful of vertices so a corner
- * drum tower lands only at a real turn. Returns null (→ rectangle fallback) when there are too few
+ * pushed out just far enough to enclose the buildings in its sector (+margin), then — with a
+ * heightfield in hand — SEEKS the local high line / break of slope within a bounded outward slack,
+ * and finally — where a riverbank / lakeshore / coast lies close outside the town — is PULLED back
+ * in to sit just landward of the waterline. The result climbs to the defensible line where relief
+ * offers one, hugs the water where water is near, and rounds the cluster on flat ground; being
+ * star-shaped it can never self-intersect. Simplified to a handful of vertices so a corner drum
+ * tower lands only at a real turn. Returns null (→ rectangle fallback) when there are too few
  * building cells to trace a meaningful shape.
  */
 function traceRing(args: {
@@ -164,8 +220,11 @@ function traceRing(args: {
   mapW: number; mapH: number; margin: number;
   isWater: (x: number, y: number) => boolean;
   isBuilding?: (x: number, y: number) => boolean;
+  /** Optional heightfield (metres). Present ⇒ rays seek the high line/break of slope within a
+   *  bounded slack; absent ⇒ purely distance-based (byte-identical to the pre-terrain ring). */
+  heightAt?: HeightAt;
 }): { path: Pt[]; centroid: Pt } | null {
-  const { bbox, mapW, mapH, margin, isWater, isBuilding } = args;
+  const { bbox, mapW, mapH, margin, isWater, isBuilding, heightAt } = args;
   if (!isBuilding) return null;
   // Gather building cells within the bbox + their centroid.
   const cells: Pt[] = [];
@@ -200,14 +259,37 @@ function traceRing(args: {
   const snapBand = margin + 3;                           // how far out we look for a bank to hug
   const clampX = (v: number): number => Math.max(0, Math.min(mapW - 1, v));
   const clampY = (v: number): number => Math.max(0, Math.min(mapH - 1, v));
-  const samples: Pt[] = [];
+
+  // Per-ray radius: the building-clearance floor `coreR + margin`, then (with a heightfield) the
+  // terrain-preferred radius within the outward slack. The windowed circular-max already applied to
+  // `coreS` keeps building enclosure the hard constraint — terrain only spends slack OUTWARD.
+  const dirs: Pt[] = [];
+  const rawR = new Array<number>(N);
   for (let k = 0; k < N; k++) {
     const a = (k / N) * 2 * Math.PI, dx = Math.cos(a), dy = Math.sin(a);
+    dirs.push([dx, dy]);
+    const baseR = coreS[k] + margin;
+    rawR[k] = heightAt ? chooseTerrainRadius(cx, cy, dx, dy, baseR, heightAt, isWater) : baseR;
+  }
+  // Light windowed smoothing (±1) of the terrain-chosen radii so a single spiky ray doesn't stamp a
+  // false corner, clamped UP to each ray's own floor so smoothing can never break enclosure. On the
+  // no-heightfield path every `rawR[k]` already equals its floor, so this is a no-op (byte-identical).
+  const smoothR = new Array<number>(N);
+  for (let k = 0; k < N; k++) {
+    const floor = coreS[k] + margin;
+    if (!heightAt) { smoothR[k] = floor; continue; }
+    const a = rawR[((k - 1) % N + N) % N], b = rawR[k], c = rawR[(k + 1) % N];
+    smoothR[k] = Math.max(floor, (a + b + c) / 3);
+  }
+
+  const samples: Pt[] = [];
+  for (let k = 0; k < N; k++) {
+    const [dx, dy] = dirs[k];
     const coreR = coreS[k];
-    let r = coreR + margin;
+    let r = smoothR[k];
     // Feature snap: if the land meets water just outside the town along this ray, tuck the wall
     // to sit ~half a tile landward of that bank (never inside a building → clamped to coreR+).
-    for (let d = coreR + 0.5; d <= coreR + margin + snapBand; d += 0.5) {
+    for (let d = coreR + 0.5; d <= r + snapBand; d += 0.5) {
       if (isWater(Math.round(cx + dx * d), Math.round(cy + dy * d))) { r = Math.max(coreR + 0.6, d - 0.6); break; }
     }
     samples.push([clampX(cx + dx * r), clampY(cy + dy * r)]);
@@ -366,6 +448,11 @@ export function deriveSettlementRing(args: {
    *  Absent ⇒ gates fall back to interior-road crossings + the one-main-gate guarantee (legacy
    *  behaviour, so every existing caller/test stays byte-identical). */
   connections?: { dx: number; dy: number }[];
+  /** Optional terrain heightfield (metres above sea, water negative). When supplied the ring
+   *  SEEKS the high line / break of slope (spending a bounded outward slack past the building
+   *  floor) and classifies each side's nature-defends (`open`/`water`/`steep`). Absent ⇒
+   *  distance-based ring + `steep` never fires (byte-identical to the pre-terrain behaviour). */
+  heightAt?: HeightAt;
   ctx: EnclosureCtx;
 }): EnclosureRun | null {
   const typeId = selectSettlementEnclosure(args.buildingCount, args.ctx);
@@ -379,7 +466,17 @@ export function deriveSettlementRing(args: {
   const dx = maxX - minX, dy = maxY - minY;
   if (dx < 2 || dy < 2) return null;
 
-  const gateW = catalogue.get<BarrierTypeFields>('barrierType', typeId)?.fields.gateWidthTiles ?? 3;
+  const fact = catalogue.get<BarrierTypeFields>('barrierType', typeId)?.fields;
+  const gateW = fact?.gateWidthTiles ?? 3;
+  // TERRAIN-SEEKING is gated to substantial MASONRY curtains (stone/brick town walls) — the rung
+  // where fortification actually seeks the high line / break of slope, and where WP-S sites its
+  // ditch. A timber village PALISADE just rings the huts on the ground they occupy, so it stays
+  // distance-based (its ring path is byte-identical to the pre-terrain behaviour). Segment
+  // nature-defends metadata is still classified for every rung — it's inert geometry-wise and both
+  // WP-S/WP-T may read it. Growing a small palisade's ring by even a tile can pinch the inter-POI
+  // corridor between two close settlements (a real connectivity break), so we don't.
+  const seekTerrain = fact?.material === 'stone' || fact?.material === 'brick';
+  const traceHeightAt = seekTerrain ? args.heightAt : undefined;
 
   // The river's carved valley extends a feathered bank slope 1–3 tiles beyond the water
   // tiles themselves. A wall standing on the last dry tile sits mid-slope and visually
@@ -395,7 +492,7 @@ export function deriveSettlementRing(args: {
   // TERRAIN-TRACED ring: a star-shaped polygon that hugs the built cluster and follows nearby
   // waterlines (diagonal corners fall out of the existing angle-general renderer). Falls back to
   // the axis-aligned bounding rectangle for tiny/degenerate clusters the tracer can't shape.
-  const traced = traceRing({ bbox: args.bbox, mapW: args.mapW, mapH: args.mapH, margin, isWater: nearWater, isBuilding: args.isBuilding });
+  const traced = traceRing({ bbox: args.bbox, mapW: args.mapW, mapH: args.mapH, margin, isWater: nearWater, isBuilding: args.isBuilding, heightAt: traceHeightAt });
   const path = traced?.path ?? rectRing(minX, minY, maxX, maxY);
   const centroid: Pt = traced?.centroid ?? [(minX + maxX) / 2, (minY + maxY) / 2];
 
@@ -448,6 +545,16 @@ export function deriveSettlementRing(args: {
   if (!run) return null;
   // Mark the ring centre so the geometry can face parapet/merlons/hoardings OUTWARD.
   run.centroid = centroid;
+  // NATURE-DEFENDS classification (WP-R): tag each ring SIDE by what lies just outside it, so WP-S
+  // can relax tower spacing on terrain-defended runs and WP-T can exempt them from approach checks.
+  run.segments = classifyRingSegments(path, centroid, offBank, args.heightAt);
+  // WATERTIGHT WATER GAPS: the star-ray tracer (esp. with terrain-seeking nudging a vertex) can
+  // leave an RDP CHORD skimming a thin water inlet, so a blocking cell lands in water that the
+  // slab-resolution `softGaps`/`waterFrontedSides` sampling phase-missed (the classic footprint-vs-
+  // slab mismatch). Rasterize the actual blocking footprint and open a plain GAP over any cell that
+  // literally stands off-bank — "no wall in the water", enforced against the true footprint. A ring
+  // with no wet blocking cells (the common case) is left byte-identical.
+  sealWetBlocking(run, offBank, gateW);
   // A crenellated masonry town wall carries timber hoardings — the wartime defensive galleries.
   if (run.crenellated && (run.material === 'stone' || run.material === 'brick')) run.hoarded = true;
   return { id: `${args.poiId}_ring`, run };
@@ -485,6 +592,89 @@ function waterFrontedSides(
     acc += segLen;
   }
   return gaps;
+}
+
+/**
+ * Open a plain GAP over any barrier BLOCKING cell that stands off-bank (in water / on the far bank),
+ * enforced against the TRUE rasterized footprint rather than the slab-resolution gap sampling. The
+ * star-ray tracer can leave an RDP chord skimming a thin water inlet whose wet cell the `softGaps`
+ * slab-midpoint pass phase-misses; this seals it deterministically at the SAME 0.34-tile resolution
+ * `barrierFootprintTiles` rasterizes at, so the sealed spans exactly cover the offending cells. A ring
+ * with no wet blocking cells is untouched (no gap added), so already-clean rings stay byte-identical.
+ */
+function sealWetBlocking(run: BarrierRun, offBank: (x: number, y: number) => boolean, gateW: number): void {
+  const wet = barrierFootprintTiles(run).blocking.filter(([x, y]) => offBank(x, y));
+  if (wet.length === 0) return;
+  const wetKeys = new Set(wet.map(([x, y]) => `${x},${y}`));
+  const r = Math.max(0, (run.thickness - 1) / 2);
+  const total = pathLen(run.path);
+  // Collect the path-distances whose rasterized cell is one of the wet blocking cells (mirrors the
+  // 0.34 walk in `barrierFootprintTiles`), then merge contiguous samples into gap spans.
+  const wetTs: number[] = [];
+  for (let t = 0; t <= total; t += 0.34) {
+    const [px, py] = pointOnPath(run.path, t);
+    let hit = false;
+    for (let dx = -r; dx <= r && !hit; dx++) for (let dy = -r; dy <= r && !hit; dy++) {
+      if (wetKeys.has(`${Math.round(px) + dx},${Math.round(py) + dy}`)) hit = true;
+    }
+    if (hit) wetTs.push(t);
+  }
+  if (wetTs.length === 0) return;
+  let s = wetTs[0], p = wetTs[0];
+  const spans: [number, number][] = [];
+  for (let i = 1; i < wetTs.length; i++) {
+    if (wetTs[i] - p <= 0.5) p = wetTs[i];
+    else { spans.push([s, p]); s = p = wetTs[i]; }
+  }
+  spans.push([s, p]);
+  for (const [a, b] of spans) run.gates.push({ t: (a + b) / 2, width: Math.max(gateW, (b - a) + 1), kind: 'gap' });
+}
+
+/**
+ * NATURE-DEFENDS: classify every SIDE of a closed ring by what lies immediately OUTSIDE it, so the
+ * defences can spend stone where nature doesn't already. `segments[i]` describes the side
+ * `path[i] → path[i + 1]`, so `segments.length === path.length - 1` (one per polygon edge). Samples
+ * a few points along each side, offset OUTWARD (away from `centroid`):
+ *   • `water`  — the side fronts off-bank ground (river bend / lakeshore / coast): the water is the
+ *                wall (mirrors `waterFrontedSides`' outward `offBank` fraction, so a side that opened
+ *                a water GAP classifies `water`).
+ *   • `steep`  — the ground falls away outside at/above `STEEP_DROP_M_PER_TILE` (a cliff edge / sharp
+ *                drop the wall crowns): needs a heightfield; never fires without one.
+ *   • `open`   — everything else: a buildable landward approach, the primary front.
+ * Precedence water > steep > open (water defends even a cliff-topped bank). Deterministic; pure.
+ */
+function classifyRingSegments(
+  path: Pt[], centroid: Pt, offBank: (x: number, y: number) => boolean, heightAt?: HeightAt,
+  sampleN = 5, outDist = 2.5, waterFrac = 0.6, steepFrac = 0.5,
+): RingSegment[] {
+  const segs: RingSegment[] = [];
+  for (let i = 1; i < path.length; i++) {
+    const [ax, ay] = path[i - 1], [bx, by] = path[i];
+    const segLen = Math.hypot(bx - ax, by - ay);
+    let defends: NatureDefends = 'open';
+    if (segLen > 1e-6) {
+      const dxu = (bx - ax) / segLen, dyu = (by - ay) / segLen;
+      let nx = -dyu, ny = dxu;                                    // a side normal
+      const mx = (ax + bx) / 2, my = (ay + by) / 2;
+      if (nx * (mx - centroid[0]) + ny * (my - centroid[1]) < 0) { nx = -nx; ny = -ny; }   // OUTWARD
+      let wet = 0, steep = 0;
+      for (let k = 1; k <= sampleN; k++) {
+        const t = k / (sampleN + 1);
+        const px = ax + (bx - ax) * t, py = ay + (by - ay) * t;
+        if (offBank(Math.round(px + nx * outDist), Math.round(py + ny * outDist))) { wet++; continue; }
+        if (heightAt) {
+          // Outward drop from just outside the wall to a step further out (metres per tile).
+          const hWall = heightAt(px + nx * 0.5, py + ny * 0.5);
+          const hOut = heightAt(px + nx * (0.5 + SLOPE_STEP_TILES), py + ny * (0.5 + SLOPE_STEP_TILES));
+          if ((hWall - hOut) / SLOPE_STEP_TILES >= STEEP_DROP_M_PER_TILE) steep++;
+        }
+      }
+      if (wet / sampleN >= waterFrac) defends = 'water';
+      else if (steep / sampleN >= steepFrac) defends = 'steep';
+    }
+    segs.push({ defends });
+  }
+  return segs;
 }
 
 /**

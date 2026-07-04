@@ -7,6 +7,23 @@ export type BarrierKind = 'wall' | 'fence' | 'palisade' | 'rampart' | 'barricade
  *  water / a building / an open waterfront side — just an opening, no gatehouse). Absent ⇒ 'gate'
  *  (legacy). */
 export interface BarrierGate { t: number; width: number; kind?: 'gate' | 'gap' }
+
+/** What natural feature lies immediately OUTSIDE a ring side — the "nature-defends"
+ *  classification (WP-R). A curtain along an `open` side is the primary approach and gets
+ *  the full defensive treatment; `water` (river bend / lakeshore / coast) and `steep`
+ *  (cliff edge / sharp outward drop) sides are already defended by the terrain, so tower
+ *  spacing may relax there (WP-S) and the hostile-approach lint may exempt them (WP-T). */
+export type NatureDefends = 'open' | 'water' | 'steep';
+
+/** Per-SIDE metadata on a closed defensive ring: `segments[i]` describes the ring side that
+ *  runs `run.path[i] → run.path[i + 1]` (so `segments.length === run.path.length - 1`, one
+ *  entry per polygon edge, the seam edge included). Emitted by `deriveSettlementRing`; the
+ *  stable interface WP-S (tower coverage) and WP-T (hostile-approach lint) both read. */
+export interface RingSegment {
+  /** What lies immediately outside this side (`water` wins over `steep` wins over `open`). */
+  defends: NatureDefends;
+}
+
 export interface BarrierRun {
   kind: BarrierKind;
   path: [number, number][];
@@ -25,6 +42,11 @@ export interface BarrierRun {
    *  OUTER face at parapet level, so defenders drop stones/quicklime straight down the wall base
    *  a flush parapet can't reach. Needs a known outward side + a crenellated masonry curtain. */
   hoarded?: boolean;
+  /** Nature-defends classification per ring SIDE (WP-R): `segments[i]` describes the side
+   *  `path[i] → path[i + 1]`. Set on a closed defensive ring so WP-S can relax tower spacing
+   *  and WP-T can exempt terrain-defended runs from approach checks. Absent on open runs /
+   *  crofts. See {@link RingSegment}. */
+  segments?: RingSegment[];
 }
 
 /** A barrier as committed by worldgen: its entity id + the run. Persisted on `GameMap`

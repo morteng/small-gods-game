@@ -276,3 +276,87 @@ describe('terrain-traced settlement ring (diagonal walls)', () => {
     expect(ring.run.path.length).toBe(5);          // the classic axis-aligned box
   });
 });
+
+// ── WP-R: terrain-seeking ring + nature-defends segments ─────────────────────────────
+describe('terrain-seeking ring (WP-R): high-line preference + nature-defends metadata', () => {
+  // A blobby building cluster centred at (19,18), radius ~7.4 tiles (30+ cells → town-wall rung).
+  const bset = new Set<string>();
+  for (let y = 12; y <= 24; y++) for (let x = 12; x <= 26; x++) {
+    if ((x - 19) ** 2 + (y - 18) ** 2 <= 55) bset.add(`${x},${y}`);
+  }
+  const isBuilding = (x: number, y: number) => bset.has(`${x},${y}`);
+  const bbox = { minX: 12, minY: 12, maxX: 26, maxY: 24 };
+  const townCtx: EnclosureCtx = { era: 'medieval', wealth: 'wealthy' };
+
+  // Even-odd point-in-polygon on a closed ring path.
+  function inside(poly: [number, number][], x: number, y: number): boolean {
+    let c = false;
+    for (let i = 0, j = poly.length - 2; i < poly.length - 1; j = i++) {
+      const [xi, yi] = poly[i], [xj, yj] = poly[j];
+      if (((yi > y) !== (yj > y)) && (x < ((xj - xi) * (y - yi)) / (yj - yi) + xi)) c = !c;
+    }
+    return c;
+  }
+
+  // A north–south ridge crest at x=31 (metres above sea, water negative). East of the town this is
+  // the local high line; the terrain-seeking ring should climb toward it within its bounded slack.
+  const ridgeEast = (x: number, _y: number): number => Math.max(0, 6 - Math.abs(x - 31));
+
+  const mk = (heightAt: ((x: number, y: number) => number) | undefined, poiId: string, buildingCount = 30) =>
+    deriveSettlementRing({
+      bbox, mapW: 60, mapH: 60, buildingCount, poiId,
+      isWater: () => false, isRoad: () => false, isBuilding, heightAt, ctx: townCtx,
+    })!;
+
+  it('a masonry town wall reaches OUT toward the high line (vs the distance-only ring)', () => {
+    const withT = mk(ridgeEast, 'seek');
+    const noT = mk(undefined, 'noseek');
+    expect(withT.run.kind).toBe('wall');
+    const maxXwith = Math.max(...withT.run.path.map((p) => p[0]));
+    const maxXno = Math.max(...noT.run.path.map((p) => p[0]));
+    expect(maxXwith).toBeGreaterThan(maxXno);        // the east curtain climbed toward the ridge
+  });
+
+  it('never violates building enclosure while seeking terrain', () => {
+    const path = mk(ridgeEast, 'enclose').run.path as [number, number][];
+    let breaches = 0;
+    for (const k of bset) { const [x, y] = k.split(',').map(Number); if (!inside(path, x, y)) breaches++; }
+    expect(breaches).toBe(0);
+  });
+
+  it('emits one nature-defends segment per ring side, present and stable across re-gen', () => {
+    const r1 = mk(ridgeEast, 'stable');
+    const r2 = mk(ridgeEast, 'stable');             // identical inputs ⇒ byte-identical output
+    expect(r1.run.segments).toBeDefined();
+    expect(r1.run.segments!.length).toBe(r1.run.path.length - 1);   // one per polygon edge
+    for (const s of r1.run.segments!) expect(['open', 'water', 'steep']).toContain(s.defends);
+    expect(r1.run.path).toEqual(r2.run.path);        // deterministic geometry
+    expect(r1.run.segments).toEqual(r2.run.segments); // deterministic metadata
+  });
+
+  it('classifies a side above a sharp outward drop as `steep` (cliff-defended)', () => {
+    // High ground on/inside the town (y ≤ 28), a sharp drop to sea level beyond it: the SOUTH
+    // curtain crowns the cliff edge, so at least one side reads `steep`.
+    const cliffSouth = (_x: number, y: number): number => (y <= 28 ? 8 : 0);
+    const segs = mk(cliffSouth, 'cliff').run.segments!;
+    expect(segs.some((s) => s.defends === 'steep')).toBe(true);
+  });
+
+  it('classifies a water-fronted side as `water` (unchanged gap behaviour)', () => {
+    const ring = deriveSettlementRing({
+      bbox, mapW: 60, mapH: 60, buildingCount: 30, poiId: 'wet',
+      isWater: (x) => x >= 29,                        // river/coast to the east
+      isRoad: () => false, isBuilding, ctx: townCtx,
+    })!;
+    expect(ring.run.segments!.some((s) => s.defends === 'water')).toBe(true);
+  });
+
+  it('leaves a timber PALISADE distance-based (terrain never moves its ring) but still classifies it', () => {
+    const withT = mk(ridgeEast, 'palisade-seek', 10);   // 10 buildings → village palisade rung
+    const noT = mk(undefined, 'palisade-noseek', 10);
+    expect(withT.run.kind).toBe('palisade');
+    expect(withT.run.path).toEqual(noT.run.path);       // terrain preference is gated off for palisades
+    expect(withT.run.segments).toBeDefined();           // nature-defends metadata is still emitted
+    expect(withT.run.segments!.length).toBe(withT.run.path.length - 1);
+  });
+});
