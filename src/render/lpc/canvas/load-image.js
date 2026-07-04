@@ -3,10 +3,12 @@
 // a GitHub Pages project subpath ('/small-gods-game/'). BASE_URL always ends in '/'.
 const LPC_BASE_URL = (import.meta.env.BASE_URL ?? '/') + 'sprites/lpc/';
 
-let loadedImages = {};
+// src → Promise<HTMLImageElement>. Caching the PROMISE (not the settled image)
+// dedupes IN-FLIGHT loads too: at boot many spritesheets compose concurrently and
+// share the same body/hair/clothes PNGs — without this each sheet re-fetched and
+// re-decoded the same file (the "LPC loading storm").
+let imagePromises = {};
 let knownMissing = new Set();
-let imagesToLoad = 0;
-let imagesLoaded = 0;
 
 /**
  * Derive a variantless fallback URL.
@@ -23,15 +25,14 @@ function variantlessFallback(src) {
 
 /**
  * Load an image, with variantless fallback for layers whose per-variant files
- * were removed from upstream LPC.
+ * were removed from upstream LPC. Concurrent + repeat calls for the same `src`
+ * share one load (and one decoded image).
  */
 export function loadImage(src) {
-  return new Promise((resolve, reject) => {
-    if (loadedImages[src]) {
-      resolve(loadedImages[src]);
-      return;
-    }
+  const cached = imagePromises[src];
+  if (cached) return cached;
 
+  const promise = new Promise((resolve, reject) => {
     const profiler = window.profiler;
     if (profiler) profiler.mark(`image-load:${src}:start`);
 
@@ -45,8 +46,6 @@ export function loadImage(src) {
     const tryLoad = (url, isFallback) => {
       const img = new Image();
       img.onload = () => {
-        loadedImages[src] = img;
-        imagesLoaded++;
         if (profiler) {
           profiler.mark(`image-load:${src}:end`);
           profiler.measure(`image-load:${src}`, `image-load:${src}:start`, `image-load:${src}:end`);
@@ -60,7 +59,6 @@ export function loadImage(src) {
           return;
         }
         knownMissing.add(url);
-        imagesLoaded++;
         // Silent failure: the LPC compositor tolerates missing layers.
         // Surface in window.DEBUG mode only.
         if (window.DEBUG) console.warn(`Failed to load image: ${src}`);
@@ -75,8 +73,25 @@ export function loadImage(src) {
     } else {
       tryLoad(primaryUrl, false);
     }
-    imagesToLoad++;
   });
+
+  // Cache rejections too (the file is permanently missing — retrying can't help),
+  // but pre-attach a catch so a cached rejection is never an unhandled rejection.
+  promise.catch(() => {});
+  imagePromises[src] = promise;
+  return promise;
+}
+
+/**
+ * Release every cached decoded item image. The composed spritesheets keep their
+ * own settled cache (spritesheet-cache.ts); the underlying body/hair/clothes
+ * PNGs are only needed while sheets are being composed, and holding hundreds of
+ * decoded frames costs real memory (a dominant contributor on mobile). Called
+ * when the sheet queue drains; a later NPC birth simply re-fetches from the
+ * HTTP cache. `knownMissing` survives (it's tiny and saves 404 round-trips).
+ */
+export function clearImageCache() {
+  imagePromises = {};
 }
 
 /**
