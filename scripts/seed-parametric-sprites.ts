@@ -49,7 +49,15 @@ const OUT_BASE = 'public/data/parametric-sprites';
  *  runtime tier's 6-way concurrency cap; one-file-per-pack (~400 requests) would
  *  serialize into dozens of RTT rounds. */
 const SHARD_TARGET_BYTES = 4 * 1024 * 1024;
-const DEFAULT_SEEDS = [12345, 777];
+/** ONE seeded world by default — measured 2026-07-05 (v24): building blueprints
+ *  are PER-INSTANCE seeded (building-placer L2b `instSeed()`), so bld/bar keys
+ *  are largely world-specific: default.json@777 added +200 bld / +234 bar keys
+ *  (~55 MB) over @12345 with ~zero value for the Date.now()-seeded worlds real
+ *  first visits generate. 12345 (the canonical lint/dev/e2e pin) + the 48
+ *  world-independent plant species ≈ 34 MB and fully covers pinned-seed boots;
+ *  random-seed boots get plants + the recurring barrier subset and compose the
+ *  rest, as before. Pass --seeds=… to widen deliberately (budget ~60 MB). */
+const DEFAULT_SEEDS = [12345];
 const DEFAULT_WORLDS = ['public/data/worlds/default.json'];
 
 interface Job {
