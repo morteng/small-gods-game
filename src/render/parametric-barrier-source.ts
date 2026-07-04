@@ -21,6 +21,8 @@ import { towerSpec } from '@/assetgen/geometry/tower-spec';
 import { gateLeafSpec, gateFrameSpec } from '@/assetgen/geometry/gate-spec';
 import { postSpec } from '@/assetgen/geometry/post-spec';
 import { stairSpec } from '@/assetgen/geometry/stair-spec';
+import { masonryWork } from '@/assetgen/geometry/linear';
+import { MERLON_PERIOD_TILES } from '@/assetgen/geometry/tower-spec';
 import { mToTiles } from '@/render/scale-contract';
 import type { Mat } from '@/assetgen/types';
 import type { BarrierKind } from '@/world/barrier';
@@ -147,6 +149,9 @@ export function chunkBarrierRun(run: BarrierRun): BarrierChunk[] {
         crenellated: run.crenellated, posts: run.posts, gates,
         ...(outwardSign !== undefined ? { outwardSign } : {}),
         ...(run.hoarded ? { hoarded: true } : {}),
+        // Global path-distance quantized to the merlon pitch → continuous crenellation across
+        // seams, while identical straight chunks (starts a multiple of the pitch) keep ONE key.
+        merlonPhase: r3(((startDist % MERLON_PERIOD_TILES) + MERLON_PERIOD_TILES) % MERLON_PERIOD_TILES),
       };
       out.push({
         key: JSON.stringify(localRun), localRun,
@@ -175,8 +180,9 @@ function chunkElements(run: BarrierRun): Element[] {
 function towerElements(run: BarrierRun): Element[] {
   if (!towersEnabled(run)) return [];
   const mat = masonryMat(run);
-  const base = { curtainHeight: run.height, curtainThickness: run.thickness, material: mat };
-  const tag = `${r3(run.height)}:${r3(run.thickness)}:${mat}`;
+  const work = masonryWork(run);   // towers course to MATCH the curtain (no crazy-paving beside ashlar)
+  const base = { curtainHeight: run.height, curtainThickness: run.thickness, material: mat, work };
+  const tag = `${r3(run.height)}:${r3(run.thickness)}:${mat}:${work}`;
   const c = run.centroid;
   // Unit vector toward the town interior at (x,y) — the tower's doorway/loops orient to it.
   const inwardAt = (x: number, y: number): [number, number] | undefined => {
@@ -217,7 +223,10 @@ function towerElements(run: BarrierRun): Element[] {
     const inward = inwardAt(p[0], p[1]);
     const gate = towerSpec({ ...base, tall: true, inward });   // square, taller — frames the gate
     const gateSpec = (): StructureSpec => ({ parts: gate.parts, mountAnchors: gate.mountAnchors });
-    const off = g.width / 2 + gate.side * 0.45;                // flank the opening just outside it
+    // FRAME the opening: seat each tower fully OUTSIDE the clear passage (its inner face clears the
+    // gate edge by a jamb gap) instead of piling onto it. `side*0.45 < side/2` used to overlap the
+    // opening; `g.width/2 + side/2 + gap` puts the inner face a jamb's width beyond the passage.
+    const off = g.width / 2 + gate.side / 2 + mToTiles(0.6);
     out.push(mk(`tower:gate:${tag}:${q(inward)}`, gateSpec, p[0] - dir[0] * off, p[1] - dir[1] * off));
     out.push(mk(`tower:gate:${tag}:${q(inward)}`, gateSpec, p[0] + dir[0] * off, p[1] + dir[1] * off));
   }
@@ -290,44 +299,33 @@ function stairsEnabled(run: BarrierRun): boolean {
   return !!run.crenellated && !!run.centroid && (run.material === 'stone' || run.material === 'brick');
 }
 
-/** Mural-stair elements: a stone flight up to the wall-walk on the INNER face — beside every gate
- *  (clear of the passage) and at the midpoint of each long wall, so defenders can actually reach
- *  the allure at intervals around the ring. */
+/** Mural-stair elements: ONE clean coursed flight up to the wall-walk on the INNER face, beside the
+ *  main gate. (The old per-long-segment + per-gate flights placed ~8–14 tiny inward stubs per ring
+ *  that read as rubble cairns / detached columns at game zoom — clean walls beat rubble, so we keep
+ *  a single readable flight at the gate the player enters by.) */
 function stairElements(run: BarrierRun): Element[] {
   if (!stairsEnabled(run)) return [];
+  const gate = run.gates.find(isRealGate);                  // the main (first real) gate
+  if (!gate) return [];
   const c = run.centroid!;
   const H = run.height;
   const parapetH = run.crenellated ? Math.min(mToTiles(1.6), H * 0.4) : 0;
-  const walkZ = H - parapetH;                              // the wall-walk the flight climbs to
+  const walkZ = H - parapetH;                               // the wall-walk the flight climbs to
   const mat = masonryMat(run);
-  const tag = `${r3(H)}:${r3(run.thickness)}:${mat}`;
+  const work = masonryWork(run);                            // course to MATCH the curtain
+  const tag = `${r3(H)}:${r3(run.thickness)}:${mat}:${work}`;
 
-  // Access points: beside each gate (offset along the wall, clear of the opening) + long-wall mids.
-  const spots: { p: Pt; dir: Pt }[] = [];
-  for (const g of run.gates) {
-    if (!isRealGate(g)) continue;                            // no stair by a mere gap
-    const { p, dir } = frameAt(run.path, g.t);
-    const off = g.width / 2 + mToTiles(1.8);
-    spots.push({ p: [p[0] - dir[0] * off, p[1] - dir[1] * off], dir });
-  }
-  let acc = 0;
-  for (let i = 1; i < run.path.length; i++) {
-    const a = run.path[i - 1], b = run.path[i];
-    const segLen = Math.hypot(b[0] - a[0], b[1] - a[1]);
-    if (segLen >= 8) { const { p, dir } = frameAt(run.path, acc + segLen / 2); spots.push({ p, dir }); }
-    acc += segLen;
-  }
-
-  return spots.map((sp, k) => {
-    const inx = c[0] - sp.p[0], iny = c[1] - sp.p[1], m = Math.hypot(inx, iny) || 1;
-    const inward: Pt = [inx / m, iny / m];
-    const stair = stairSpec({ walkZ, dir: sp.dir, inward, thickness: run.thickness, material: mat });
-    return {
-      key: `stair:${tag}:${k}:${r3(sp.dir[0])},${r3(sp.dir[1])}`,
-      spec: () => ({ parts: stair.parts, mountAnchors: stair.mountAnchors }),
-      anchor: tagAnchor, refX: sp.p[0], refY: sp.p[1], sortX: sp.p[0], sortY: sp.p[1],
-    } as Element;
-  });
+  const { p, dir } = frameAt(run.path, gate.t);
+  const off = gate.width / 2 + mToTiles(2.4);               // sit clear of the passage + gatehouse
+  const sp: Pt = [p[0] - dir[0] * off, p[1] - dir[1] * off];
+  const inx = c[0] - sp[0], iny = c[1] - sp[1], m = Math.hypot(inx, iny) || 1;
+  const inward: Pt = [inx / m, iny / m];
+  const stair = stairSpec({ walkZ, dir, inward, thickness: run.thickness, material: mat, work });
+  return [{
+    key: `stair:${tag}:${r3(dir[0])},${r3(dir[1])}`,
+    spec: () => ({ parts: stair.parts, mountAnchors: stair.mountAnchors }),
+    anchor: tagAnchor, refX: sp[0], refY: sp[1], sortX: sp[0], sortY: sp[1],
+  }];
 }
 
 /** All composable elements of a run, in draw-friendly order (curtain first, gate + towers over). */

@@ -69,12 +69,17 @@ export function gateLeafSpec(opts: GateOpts, cx = 0, cy = 0): GateSpec {
   // Centre offset of each leaf ALONG the wall (world space): half a leaf out from the reveal.
   const off = leafW / 2 + reveal / 2;
   const ux = dx, uy = dy;                                // along-wall unit
+  // The masonry gate cut opens the passage from ~0.6 m BELOW grade (a buried sill), so a leaf that
+  // started at z=0 left a dark void under it. Foot the leaf at that sill so it fills the opening to
+  // the ground (in-world the terrain occludes the below-grade lip; the harness shows it grounded).
+  const footZ = -mToTiles(0.6);
+  const slabH = clearH - footZ;                          // leaf spans the sill up to the arch spring
 
   const parts: Part[] = [];
   const leaf = (sign: number): void => {
     const lx = cx + ux * off * sign, ly = cy + uy * off * sign;   // this leaf's world centre
     // Plank slab.
-    parts.push({ prim: 'box', at: [lx - leafW / 2, ly - t / 2, 0], size: [leafW, t, clearH], material: mat, yaw, work: 'plank' });
+    parts.push({ prim: 'box', at: [lx - leafW / 2, ly - t / 2, footZ], size: [leafW, t, slabH], material: mat, yaw, work: 'plank' });
     // Two horizontal ledger bands (proud of the planks) — the cross-bracing of a board gate.
     const bandH = mToTiles(0.22), bandT = t + mToTiles(0.1);
     for (const fz of [0.28, 0.72]) {

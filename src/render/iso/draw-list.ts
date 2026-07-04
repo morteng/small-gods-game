@@ -51,6 +51,14 @@ export type DrawItem =
        * stand FROM the ground up to the deck, keep normal foot sampling (omit this).
        */
       liftElev?: number;
+      /**
+       * Explicit ground-contact point (world-screen px, pre-camera) the terrain-lift pre-pass
+       * samples terrain at — overrides the derived `(dx+dw/2, dy+dh−footLift)` foot. A linear
+       * barrier piece has no footprint-diamond to anchor on, so it passes its true grade anchor
+       * (`worldToScreen(refX,refY)`): co-anchored pieces (a curtain chunk + its flanking tower)
+       * then lift by the SAME sampled height and their seam can't split on a slope.
+       */
+      foot?: { sx: number; sy: number };
     }
   | { t: 'poly'; points: Array<{ x: number; y: number }>; color: string }
   | { t: 'circle'; cx: number; cy: number; r: number; color: string };

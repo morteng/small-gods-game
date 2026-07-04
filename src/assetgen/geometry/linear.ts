@@ -27,6 +27,7 @@ import type { Manifold } from 'manifold-3d';
 import { getManifold } from '@/assetgen/geometry/manifold-runtime';
 import { manifoldToFacets } from '@/assetgen/geometry/solids';
 import { mToTiles } from '@/render/scale-contract';
+import { MERLON_PERIOD_TILES, MERLON_WIDTH_FRAC } from '@/assetgen/geometry/tower-spec';
 import type { BarrierRun } from '@/world/barrier';
 
 export interface LinearResult {
@@ -91,8 +92,9 @@ function familyOf(run: BarrierRun): Family {
 }
 
 /** Default masonry coursing for a material — fine ashlar for brick, rubble for stone. A
- *  drystone field wall (thin, uncrenellated) reads as `dry_stone`; a town wall as ashlar. */
-function masonryWork(run: BarrierRun): string {
+ *  drystone field wall (thin, uncrenellated) reads as `dry_stone`; a town wall as ashlar.
+ *  Exported so a run's TOWERS and STAIRS paint the SAME coursing as its curtain. */
+export function masonryWork(run: BarrierRun): string {
   if (run.material === 'brick') return 'running';
   if (!run.crenellated && run.thickness <= 1) return 'dry_stone';
   return run.crenellated ? 'ashlar' : 'coursed_rubble';
@@ -168,13 +170,20 @@ function masonrySeg(M: ManifoldNS, run: BarrierRun, s: Seg): ManifoldT[] {
     // the old symmetric parapet (both edges thick, single coping thin).
     const parapetTh = Math.max(mToTiles(0.45), th * 0.32);
     const baseCourseH = parapetH * 0.42;
-    const period = mToTiles(1.5);                 // merlon + crenel pitch (~3 m)
-    const merlonW = period * 0.56;                // merlon a touch wider than the crenel
+    const period = MERLON_PERIOD_TILES;           // shared curtain/tower/parapet merlon pitch
+    const merlonW = period * MERLON_WIDTH_FRAC;   // merlon a touch wider than the crenel
     const outward = outwardSignFor(run, s);
     const edgeCross = (th - parapetTh) / 2;       // parapet centre sits on a face, not the middle
+    // Phase the teeth off the chunk's GLOBAL path-distance so the crenellation runs CONTINUOUS
+    // across chunk seams: merlons live on a global grid at positions ≡ `margin` (mod period); the
+    // chunk (a local run starting at 0) shifts that grid back by its start phase. `MERLON_PERIOD_TILES`
+    // divides the chunk length, so an axis wall's chunks all share phase 0 (one cached sprite).
+    const margin = mToTiles(0.25);
+    const phase = (((run.merlonPhase ?? 0) % period) + period) % period;
+    const d0 = (((margin - phase) % period) + period) % period;
     const parapet = (ey: number): void => {
       out.push(place(locBox(M, 0, s.len, parapetTh, walkZ, baseCourseH, ey), s));      // base course
-      for (let d = mToTiles(0.25); d + merlonW <= s.len + 1e-6; d += period) {
+      for (let d = d0; d + merlonW <= s.len + 1e-6; d += period) {
         out.push(place(locBox(M, d, merlonW, parapetTh, walkZ, parapetH, ey), s));     // merlon tooth
       }
     };

@@ -36,6 +36,9 @@ export function barrierPieceItem(o: { originX: number; originY: number }, piece:
     dx: Math.round(s.sx - piece.anchorNX * w),
     dy: Math.round(s.sy - piece.anchorNY * h),
     dw: w, dh: h,
+    // Terrain foot-z: sample at the piece's true grade anchor (a wall has no footprint diamond, so
+    // the building `dw/4` convention samples an off-anchor tile and splits seams on slopes). D6.
+    foot: { sx: s.sx, sy: s.sy },
   };
   if (pack.normal || pack.material || pack.materialData || pack.emissive) {
     item.maps = {
