@@ -106,9 +106,12 @@ export function addDomainBelief(
 
 export interface DomainAggregate {
   domain: BeliefDomain;
-  /** Faith×devotion-weighted mean of domain belief over faith-bearers, 0–1.
-   *  This is the unlock signal: "how convinced is the congregation, on the whole,
-   *  that you command this?" */
+  /** The BEST single congregation's faith×devotion-weighted mean of domain
+   *  belief, 0–1. Congregations are per-settlement (`homePoiId`); this is the
+   *  unlock signal: "is there a congregation, somewhere, convinced you command
+   *  this?" — a fully-convinced town unlocks the power even while believers
+   *  elsewhere have never seen your storms (R7 WP-B: a world-wide mean diluted
+   *  the devout town to nothing once faith spread across settlements). */
   conviction: number;
   /** Count of NPCs holding this domain belief above a visible floor. */
   reach: number;
@@ -125,9 +128,23 @@ function aggregateWeight(faith: number, devotion: number): number {
 /** The floor at which an NPC visibly "holds" a domain belief (for `reach`). */
 export const DOMAIN_REACH_FLOOR = 0.1;
 
-/** Aggregate a spirit's conviction for one domain across the living congregation. */
+/** Bucket key for faith-bearers with no home settlement. Settlement-less NPCs
+ *  (wanderers, the freshly displaced) form their OWN congregation — "the
+ *  roadless" — rather than diluting a town's or being invisible to unlocks.
+ *  (Deliberate: nothing is ever deleted; a devout wandering band still counts.) */
+const NOMAD_CONGREGATION = '__nomads';
+
+/**
+ * Aggregate a spirit's conviction for one domain. Conviction is computed
+ * PER CONGREGATION (per `homePoiId`; settlement-less NPCs pool under
+ * {@link NOMAD_CONGREGATION}) and the aggregate reports the best congregation —
+ * seeding is local (omens, smites, floods land on one settlement), so the
+ * unlock test must be local too. `reach`/`believers` stay world-wide counts
+ * (they are informational, not the gate).
+ */
 export function aggregateDomain(world: World, spiritId: SpiritId, domain: BeliefDomain): DomainAggregate {
-  let wSum = 0, wDomSum = 0, reach = 0, believers = 0;
+  const buckets = new Map<string, { wSum: number; wDomSum: number }>();
+  let reach = 0, believers = 0;
   forEachNpc(world, (e: Entity) => {
     const p = npcProps(e);
     const b = p.beliefs[spiritId];
@@ -135,16 +152,18 @@ export function aggregateDomain(world: World, spiritId: SpiritId, domain: Belief
     believers++;
     const w = aggregateWeight(b.faith, b.devotion);
     const dom = getDomainBelief(p, spiritId, domain);
-    wSum += w;
-    wDomSum += w * dom;
+    const key = p.homePoiId ?? NOMAD_CONGREGATION;
+    let bucket = buckets.get(key);
+    if (!bucket) { bucket = { wSum: 0, wDomSum: 0 }; buckets.set(key, bucket); }
+    bucket.wSum += w;
+    bucket.wDomSum += w * dom;
     if (dom >= DOMAIN_REACH_FLOOR) reach++;
   });
-  return {
-    domain,
-    conviction: wSum > 0 ? wDomSum / wSum : 0,
-    reach,
-    believers,
-  };
+  let conviction = 0;
+  for (const b of buckets.values()) {
+    if (b.wSum > 0) conviction = Math.max(conviction, b.wDomSum / b.wSum);
+  }
+  return { domain, conviction, reach, believers };
 }
 
 /** Is a domain's capability unlocked for this spirit right now? */

@@ -12,10 +12,15 @@
  *  4. Unreciprocated belief (neighbor believes, NPC doesn't) is seeded with
  *     a tiny faith starting value.
  *  5. Threshold: neighbor's faith must be > 0.3 for the edge to matter.
+ *  6. COMMUNION (deterministic, R7 WP-B): every tick, faith an NPC already
+ *     holds is reinforced in proportion to the believing neighbourhood around
+ *     it, so a congregation of ~5+ self-sustains against baseline decay while
+ *     an isolated believer still withers. Arithmetic at COMMUNION_RATE below.
  */
 
 import type { Entity } from '@/core/types';
 import { npcProps, forEachNpc } from '@/world/npc-helpers';
+import { trustWeightedBeliefConnections } from '@/sim/social-graph';
 import { Random } from '@/core/noise';
 import type { System, SystemContext } from '@/core/scheduler';
 
@@ -37,6 +42,36 @@ const MIN_SOCIABILITY = 0.1;
 /** Starting faith when a new spirit belief is seeded via social graph */
 const SEED_FAITH = 0.05;
 
+// ── Communion (R7 WP-B): congregation self-sustenance ─────────────────────────
+// The stochastic socialization above transfers an EXPECTED ~0.00045 faith/tick
+// (0.2 socialize chance × trust 0.5 × faith 0.6 × (1−skep 0.5) × 0.015) — less
+// than the baseline decay of FAITH_DECAY_BASE(0.002)×skepticism ≈ 0.001/tick
+// (npc-sim.ts), and it does NOT scale with congregation size (one random
+// neighbour per event). So organic faith always withered; conversion was
+// divine-action-only. Communion is the deterministic counterpart: living among
+// the faithful sustains faith, scaling with how much believing neighbourhood
+// surrounds you, saturating so dense graphs can't run away.
+//
+//   inflow/tick = COMMUNION_RATE × sociability × (1 − skepticism/2)
+//                 × min(1, S) × (1 − faith),
+//   where S = Σ over neighbours with faith > 0.3 of trust × neighbourFaith
+//   (trustWeightedBeliefConnections — the congregation term).
+//
+// Equilibrium arithmetic for the median NPC (sociability .5, skepticism .5,
+// trust ~.5), balancing against decay = 0.002 × 0.5 = 0.001/tick:
+//   inflow = 0.006 × .5 × .75 × min(1,S) × (1−f) = 0.00225 × min(1,S) × (1−f)
+//   • saturated congregation (S ≥ 1): 0.00225(1−f*) = 0.001 → f* ≈ 0.556 —
+//     a congregation holds faith ~0.56 with ZERO divine input.
+//   • saturation needs S = (N−1)×0.5×f ≥ 1 at f≈0.556 → N ≥ ~4.6:
+//     FIVE-plus mutual believers self-sustain.
+//   • below saturation: inflow ≤ 0.00225×0.5(N−1)×f(1−f) ≤ 0.00225×0.5(N−1)×0.25
+//     < 0.001 for N ≤ 4 → a pair or trio withers (slowly), and once faith drops
+//     under the 0.3 influence threshold both channels cut out entirely.
+//   • a LONE believer has S = 0 → pure decay → faith → 0. Isolation kills gods.
+// Generative: the same formula scales with any congregation size/trust — no
+// per-world hand-tuning.
+const COMMUNION_RATE = 0.006;
+
 export class BeliefPropagationSystem implements System {
   readonly name = 'belief_propagation';
   readonly tickHz = 1;
@@ -51,7 +86,27 @@ export class BeliefPropagationSystem implements System {
     this.rng = new Random(ctx.rng.next() * 0x7fffffff);
 
     for (const e of byId.values()) {
+      this.communeFrom(e, byId);
       this.propagateBeliefFrom(e, byId);
+    }
+  }
+
+  /** Deterministic communion inflow — see the COMMUNION_RATE block above.
+   *  Only reinforces beliefs the NPC already holds (seeding stays with the
+   *  stochastic socialization path), so contagion remains contact-limited. */
+  private communeFrom(e: Entity, all: Map<string, Entity>): void {
+    const props = npcProps(e);
+    const soc = props.personality.sociability;
+    if (soc <= 0 || props.relationships.length === 0) return;
+    const openness = 1 - 0.5 * props.personality.skepticism;
+    for (const [spiritId, belief] of Object.entries(props.beliefs)) {
+      const s = trustWeightedBeliefConnections(e, all, spiritId);
+      if (s <= 0) continue;
+      const delta = COMMUNION_RATE * soc * openness * Math.min(1, s) * (1 - belief.faith);
+      if (delta <= 0) continue;
+      belief.faith = Math.min(1, belief.faith + delta);
+      belief.understanding = Math.min(1, belief.understanding + delta * UNDERSTANDING_FRAC);
+      belief.devotion = Math.min(1, belief.devotion + delta * DEVOTION_FRAC);
     }
   }
 
