@@ -153,3 +153,20 @@ Fate authoring verbs as Fate tools + fateRole + inbox spotlight (Track C — nex
 FateDirector/StoryAgent + parsePack ingest (wants conversation UI); visual polish batch (tavern
 dormers, church notch, keep chimney, manor windows); scarcityMod dynamics; branch cards for
 answer_prayer/dream; rival power-economics depth beyond what WP-A needs.
+
+---
+
+## WP-H (post-round fast-follow, user-approved 2026-07-04): vendored parametric sprite bundle
+
+WP-G proved the compose key space is world-independent (warm cache hit 100% on a fresh gen seed:
+~390 content-addressed packs cover any generated world). Ship those packs as static assets on GH
+Pages so a FIRST visit skips the ~53s compose CPU / ~88s drain too. $0 — pure procedural compose
+at author time; NOT the frozen paid img2img reseed.
+
+- `scripts/seed-parametric-sprites.ts` (tsx, offline like `building-preview.ts`): compose across
+  several seeds, serialize with WP-G's exact encoder, emit `public/data/parametric-sprites/v{ART_RECIPE_VERSION}/`
+  (manifest + blobs).
+- Runtime tier: memory → IDB → **vendored fetch (same-origin)** → compose fallback; fetched packs
+  write through to IDB. Coverage gaps degrade to today's behavior.
+- Version-pin test: manifest version must equal `ART_RECIPE_VERSION` (stale bundle = red).
+- Watch repo weight: ~46 MB per art version in `public/`; move to a Release asset if bumps get frequent.
