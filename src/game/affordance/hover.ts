@@ -68,6 +68,7 @@ function preferredVerb(sit: Situation | null): CommandVerb | null {
     case 'prayer_claimed':   return null;            // already lost; nothing to do here
     case 'opportunity':      return 'omen';
     case 'threat':           return 'smite';
+    case 'tiding':           return null;            // news, not a call to act (WP-C)
   }
 }
 

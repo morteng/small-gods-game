@@ -22,7 +22,12 @@ export type Situation =
   //  a plea aging toward a rival's grasp (still answerable) …
   | { kind: 'prayer_contested'; faith: number; urgency: number; surfaced?: boolean }
   //  … and one already lost — a rival answered a prayer you ignored.
-  | { kind: 'prayer_claimed'; faith: number; surfaced?: boolean };
+  | { kind: 'prayer_claimed'; faith: number; surfaced?: boolean }
+  // WP-C: a faith/mood turning point (belief_cross / mood_cross), coalesced per
+  // settlement. NEWS, not a call to act — scored strictly below every threat floor
+  // (0.4) so tidings can never drown out threats or pleas. `count` = crossings folded
+  // into the item.
+  | { kind: 'tiding'; count: number; surfaced?: boolean };
 
 /**
  * Score how salient acting on a situation is right now (higher = more urgent).
@@ -38,6 +43,9 @@ export function scoreAffordance(sit: Situation): number {
     // as the claim window closes; a plea already lost ranks highest — a soul slipped.
     case 'prayer_contested': base = 0.7 + 0.25 * Math.min(1, sit.urgency) + 0.05 * sit.faith; break;
     case 'prayer_claimed':   base = 0.95 + 0.05 * sit.faith; break;
+    // Low-priority news: 0.1 floor, +0.05 per coalesced crossing, hard-capped at
+    // 0.35 — always below the 0.4 threat floor.
+    case 'tiding':           base = 0.1 + Math.min(0.25, 0.05 * sit.count); break;
   }
   return sit.surfaced ? base + FATE_SURFACE_BOOST : base;
 }

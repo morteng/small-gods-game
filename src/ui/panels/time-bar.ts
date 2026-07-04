@@ -114,7 +114,6 @@ function buildMainRow(deps: TimeBarDeps, cleanups: Array<() => void>): HTMLEleme
     whisper:         { type: 'whisper',     color: 'var(--w-dusk)' },
     belief_cross:    { type: 'beliefRise',  color: 'var(--w-sun)'  },
     region_realized: { type: 'realize',     color: 'var(--time)'   },
-    spirit_manifest: { type: 'rival',       color: 'var(--danger)' },
     mood_cross:      { type: 'mood',        color: 'var(--ink-3)'  },
   };
 

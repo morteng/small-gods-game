@@ -54,7 +54,7 @@ export class LlmBackfillService {
     const context: NpcPromptContext = {
       npc: npcEntity,
       world: state.world,
-      recentEvents: getRecentEventDescriptions(props, state.eventLog),
+      recentEvents: getRecentEventDescriptions(props, state.eventLog, undefined, npcEntity.id),
       previousInteractions: selectMemoriesForPrompt(props.memories ?? [], 6),
       nearbyNpcNames: getNearbyNpcNames(state.world, npcEntity, 3),
       activeEvents: getActiveEventsForPoi(state.world, props.homePoiId),

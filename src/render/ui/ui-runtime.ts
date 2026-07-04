@@ -784,7 +784,7 @@ export class UiRuntime {
     }
   }
 
-  // ── divine inbox: triageable prayers / opportunities / threats ─────────────
+  // ── divine inbox: triageable prayers / opportunities / threats / tidings ───
   private drawInbox(c: UiContext, _w: number, _h: number, s: number, items: InboxItem[], bottom: number): void {
     const pad = 16 * s;
     const pw = 400 * s;
@@ -1137,6 +1137,7 @@ function pinGlyph(kind: AlertPinView['kind']): string {
     case 'prayer': return 'P';
     case 'opportunity': return 'O';
     case 'threat': return 'X';
+    case 'tiding': return 'T';
     case 'selection': return '+';
   }
 }
@@ -1154,6 +1155,7 @@ function kindColor(kind: InboxItem['kind']): [number, number, number, number] {
     case 'prayer': return UI_PALETTE.accent as [number, number, number, number];
     case 'opportunity': return [0.55, 0.7, 0.9, 1]; // storm-sky
     case 'threat': return [0.85, 0.32, 0.27, 1];    // rival red
+    case 'tiding': return [0.5, 0.75, 0.5, 1];      // faith-turn green (low-key news)
   }
 }
 

@@ -1,5 +1,5 @@
 import type { System, SystemContext } from '@/core/scheduler';
-import { forEachNpc, npcProps } from '@/world/npc-helpers';
+import { forEachNpc, npcProps, rememberEvent } from '@/world/npc-helpers';
 import { PLAYER_SPIRIT_ID, BELIEVER_THRESHOLD, LAPSED_FLOOR } from '@/sim/believers';
 
 const GRACE_TICKS = 10; // consecutive floored ticks before we call it a lapse
@@ -39,7 +39,9 @@ export class AbandonmentSystem implements System {
         this.lapsed.set(e.id, n);
         if (n >= GRACE_TICKS && !this.announced.has(e.id)) {
           this.announced.add(e.id);
-          ctx.log.append({ type: 'believer_lost', npcId: e.id });
+          const appended = ctx.log.append({ type: 'believer_lost', npcId: e.id });
+          // Losing one's faith is a memory the lapsed soul carries (WP-C).
+          rememberEvent(npcProps(e), appended.id);
         }
       } else {
         // Declining but not yet floored — reset the grace counter.
