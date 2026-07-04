@@ -157,10 +157,13 @@ export interface BeliefPowerView {
 export type InboxKind = 'prayer' | 'opportunity' | 'threat' | 'tiding';
 
 // ── WP-C: faith/mood turning points as transient inbox "tidings" ────────────
-/** How long a belief/mood crossing stays in the inbox (half a sim-day). Items are
- *  derived from the event log inside this sliding window, so they auto-expire —
- *  no stored inbox state, same pattern as the rival-claim notices. */
-export const CROSSING_NOTICE_HORIZON_TICKS = TICKS_PER_DAY / 2;
+/** How long a belief/mood crossing stays in the inbox. Items are derived from the
+ *  event log inside this sliding window, so they auto-expire — no stored inbox
+ *  state, same pattern as the rival-claim notices. Sized in REAL time, not sim
+ *  time: a sim-day is 240 ticks ≈ 4 wall-clock seconds at rate 1 (the WP-E
+ *  discovery), so the original half-day window made tidings humanly invisible
+ *  (~2s). 7.5 sim-days ≈ 30 real seconds of visibility at play speed. */
+export const CROSSING_NOTICE_HORIZON_TICKS = TICKS_PER_DAY * 7.5;
 /** Concurrent tiding-item cap: crossings are coalesced per settlement and then at
  *  most this many buckets surface, so news can never drown threats or pleas. */
 export const MAX_TIDING_ITEMS = 3;
