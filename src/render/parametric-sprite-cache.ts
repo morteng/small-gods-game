@@ -333,12 +333,7 @@ async function housekeep(db: IDBDatabase): Promise<void> {
   } catch { /* best-effort housekeeping only */ }
 }
 
-/**
- * Read a cached sprite payload. Null on miss / stale version / corruption /
- * absent-or-wedged IDB — the caller composes instead. Never rejects.
- */
-export async function readParametricSprite(key: string): Promise<CachedSpritePayload | null> {
-  if (!hasIdb()) return null;
+async function doRead(key: string): Promise<CachedSpritePayload | null> {
   try {
     const db = await openDb();
     const rec = await withIdbTimeout(new Promise<SpriteRecord | undefined>((resolve, reject) => {
@@ -359,12 +354,27 @@ export async function readParametricSprite(key: string): Promise<CachedSpritePay
   }
 }
 
+// Reads are SERIALIZED too (same starvation as writes, other direction): a warm
+// boot fires ~400 reads in one burst; hundreds of concurrent get-transactions +
+// inflates racing 4s withIdbTimeout timers starve each other past the deadline
+// (measured live: 166/393 warm reads "timed out" → needless composes). One
+// in-flight read keeps each txn's deadline honest — it starts when the read
+// RUNS, not when it queues — and spreads the inflate/deserialize work instead
+// of bursting it. Serial cost is trivial (~few ms/read) next to a 330ms compose.
+let readChain: Promise<unknown> = Promise.resolve();
+
 /**
- * Write-behind persist of a freshly composed sprite. Fire-and-forget: never
- * blocks sprite availability, swallows every failure.
+ * Read a cached sprite payload. Null on miss / stale version / corruption /
+ * absent-or-wedged IDB — the caller composes instead. Never rejects.
  */
-export async function writeParametricSprite(key: string, payload: CachedSpritePayload): Promise<void> {
-  if (!hasIdb()) return;
+export function readParametricSprite(key: string): Promise<CachedSpritePayload | null> {
+  if (!hasIdb()) return Promise.resolve(null);
+  const p = readChain.then(() => doRead(key));
+  readChain = p; // doRead never rejects, so the chain never breaks
+  return p;
+}
+
+async function doWrite(key: string, payload: CachedSpritePayload): Promise<void> {
   try {
     const body = await encodeSpritePayload(payload);
     const db = await openDb();
@@ -381,6 +391,27 @@ export async function writeParametricSprite(key: string, payload: CachedSpritePa
   } catch {
     spriteCacheStats.errors++;
   }
+}
+
+// Writes are SERIALIZED through one chain: a cold boot fires ~400 write-behinds
+// while the compose backlog is still hogging the main thread, and hundreds of
+// CONCURRENT put-transactions all racing 4s withIdbTimeout timers starve each
+// other's oncomplete delivery past the deadline (measured live: 382/392 writes
+// "timed out" yet committed anyway). One in-flight txn at a time keeps event
+// delivery prompt and the guard honest; a rejected/wedged write never breaks
+// the chain for later ones.
+let writeChain: Promise<void> = Promise.resolve();
+
+/**
+ * Write-behind persist of a freshly composed sprite. Fire-and-forget: never
+ * blocks sprite availability, swallows every failure. The returned promise
+ * settles when THIS write has been processed (tests await it).
+ */
+export function writeParametricSprite(key: string, payload: CachedSpritePayload): Promise<void> {
+  if (!hasIdb()) return Promise.resolve();
+  const p = writeChain.then(() => doWrite(key, payload));
+  writeChain = p;
+  return p;
 }
 
 /** Drop everything (dev tooling / tests). */
