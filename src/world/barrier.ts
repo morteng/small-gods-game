@@ -8,21 +8,37 @@ export type BarrierKind = 'wall' | 'fence' | 'palisade' | 'rampart' | 'barricade
  *  (legacy). */
 export interface BarrierGate { t: number; width: number; kind?: 'gate' | 'gap' }
 
-/** What natural feature lies immediately OUTSIDE a ring side — the "nature-defends"
- *  classification (WP-R). A curtain along an `open` side is the primary approach and gets
- *  the full defensive treatment; `water` (river bend / lakeshore / coast) and `steep`
- *  (cliff edge / sharp outward drop) sides are already defended by the terrain, so tower
- *  spacing may relax there (WP-S) and the hostile-approach lint may exempt them (WP-T). */
+/**
+ * What nature already does for a ring SIDE (the leg `path[i]→path[i+1]`), classified by what
+ * lies immediately OUTSIDE it — the WP-R↔WP-S↔WP-T interface (Round 6). WP-R's terrain-seeking
+ * trace CLASSIFIES each side (`water` wins over `steep` wins over `open`); WP-S's coverage-tower /
+ * ditch / killing-field passes and WP-T's hostile-approach lint CONSUME it via `defendsForSegment`.
+ *   • open  — a buildable landward approach: wants a tower within bowshot + a ditch + a killing field.
+ *   • water — a river bend / lakeshore / coast fronts this leg (the water is the wall): no ditch,
+ *             no killing field, tower spacing unbounded.
+ *   • steep — a cliff edge / sharp outward drop defends this leg: keep the curtain, relax tower
+ *             spacing (2×), skip the ditch.
+ */
 export type NatureDefends = 'open' | 'water' | 'steep';
+/** Alias kept for the coverage/ditch/killing-field consumers — the same union. */
+export type RingDefends = NatureDefends;
 
 /** Per-SIDE metadata on a closed defensive ring: `segments[i]` describes the ring side that
- *  runs `run.path[i] → run.path[i + 1]` (so `segments.length === run.path.length - 1`, one
- *  entry per polygon edge, the seam edge included). Emitted by `deriveSettlementRing`; the
- *  stable interface WP-S (tower coverage) and WP-T (hostile-approach lint) both read. */
+ *  runs `run.path[i] → run.path[i + 1]` (DENSE: `segments.length === run.path.length - 1`, one
+ *  entry per polygon edge, the seam edge included). Emitted by `deriveSettlementRing` (WP-R);
+ *  read via `defendsForSegment` (default `'open'` when metadata is absent). */
 export interface RingSegment {
   /** What lies immediately outside this side (`water` wins over `steep` wins over `open`). */
   defends: NatureDefends;
 }
+
+/** A defensive tower committed by the coverage-placement pass (WP-S). `role` records WHY it is
+ *  there — a gate FLANKER (paired, framing a gate), a SALIENT (a convex ring corner overlooking two
+ *  wall faces), or a FILL tower (keeping an open run within bowshot). The renderer draws square
+ *  gatehouse towers for `'gate'` and round drums for `'salient'`/`'fill'`; WP-T's `gate-observed`
+ *  lint reads these positions. */
+export type TowerRole = 'gate' | 'salient' | 'fill';
+export interface TowerPlacement { x: number; y: number; role: TowerRole }
 
 export interface BarrierRun {
   kind: BarrierKind;
@@ -30,6 +46,10 @@ export interface BarrierRun {
   height: number; thickness: number; material: string;
   crenellated?: boolean; posts?: boolean;
   gates: BarrierGate[];
+  /** Authoritative defensive-tower positions from the coverage-placement pass (WP-S). When present,
+   *  the barrier renderer places towers HERE instead of at RDP corners; absent ⇒ legacy corner-tower
+   *  derivation. Persisted plain data on `map.barrierRuns`. */
+  towers?: TowerPlacement[];
   /** Ring centre (tiles) — the "inside" the wall protects. Set on a closed defensive ring so
    *  the geometry can face its parapet/merlons/hoardings OUTWARD (away from this point). Absent
    *  on open runs / crofts → geometry falls back to a symmetric (both-edge) parapet. */
@@ -62,6 +82,24 @@ export const BARRIER_DEFAULTS: Record<BarrierKind, Omit<BarrierRun, 'kind' | 'pa
   barricade: { height: mToTiles(1.4), thickness: 1, material: 'timber' },                     // 1.4 m
   hedge:     { height: mToTiles(1.5), thickness: 1, material: 'hedge' },                       // 1.5 m living
 };
+
+/** The nature-defends class of ring leg `i` (`path[i]→path[i+1]`). Defaults to `'open'` when the run
+ *  carries no WP-R metadata, so a standalone run defends every landward leg by construction. */
+export function defendsForSegment(run: BarrierRun, i: number): RingDefends {
+  return run.segments?.[i]?.defends ?? 'open';
+}
+
+/** Which path leg contains path-distance `t` → its start-vertex index `i` (leg = path[i]→path[i+1]). */
+export function segmentIndexAt(path: [number, number][], t: number): number {
+  let acc = 0;
+  for (let i = 1; i < path.length; i++) {
+    const [ax, ay] = path[i - 1], [bx, by] = path[i];
+    const len = Math.hypot(bx - ax, by - ay);
+    if (t <= acc + len) return i - 1;
+    acc += len;
+  }
+  return Math.max(0, path.length - 2);
+}
 
 /** Map a path distance `t` (tiles) to a world point along the polyline. */
 function pointAt(path: [number, number][], t: number): [number, number] {

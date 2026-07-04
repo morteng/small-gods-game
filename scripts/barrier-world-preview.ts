@@ -15,6 +15,7 @@ import { composeStructure } from '../src/assetgen/compose';
 import { runElements } from '../src/render/parametric-barrier-source';
 import { worldToScreen } from '../src/render/iso/iso-projection';
 import { BARRIER_DEFAULTS, type BarrierRun } from '../src/world/barrier';
+import { placeCoverageTowers } from '../src/world/enclosure';
 
 const OUT = '.dev-grabs';
 
@@ -118,6 +119,19 @@ async function main(): Promise<void> {
       [c + a, c + R], [c - a, c + R], [c - R, c + a], [c - R, c - a], [c - a, c - R],
     ];
     composite(await placeRun({ kind: 'wall', path: oct, material: 'stone', height: 3.5, thickness: 2, crenellated: true, centroid: [c, c], gates: [{ t: 6, width: 3, kind: 'gate' }] }), 'place-ring-diagonal');
+  }
+  // WP-S COVERAGE TOWERS — a big town-wall ring whose long sides exceed max tower spacing, so the
+  // placement pass adds a gate flanking PAIR, salient drums at the corners, and FILL drums along the
+  // long runs (no open run > 24 tiles). Proves the renderer draws from `run.towers`.
+  {
+    const cov: BarrierRun = {
+      kind: 'wall', path: [[0, 0], [60, 0], [60, 40], [0, 40], [0, 0]],
+      material: 'stone', height: 3.5, thickness: 2, crenellated: true, centroid: [30, 20],
+      gates: [{ t: 30, width: 3, kind: 'gate' }],
+    };
+    cov.towers = placeCoverageTowers(cov);
+    console.log(`coverage towers: ${cov.towers.length} (gate=${cov.towers.filter(t => t.role === 'gate').length}, salient=${cov.towers.filter(t => t.role === 'salient').length}, fill=${cov.towers.filter(t => t.role === 'fill').length})`);
+    composite(await placeRun(cov), 'place-ring-coverage');
   }
 }
 

@@ -15,8 +15,8 @@
 // built lot; settlement scale → one ring around the built area, the rung
 // (none / palisade / town wall) chosen by settlement size + wealth + era.
 
-import type { BarrierRun, BarrierKind, BarrierGate, RingSegment, NatureDefends } from '@/world/barrier';
-import { barrierFootprintTiles } from '@/world/barrier';
+import type { BarrierRun, BarrierKind, BarrierGate, RingSegment, NatureDefends, TowerPlacement, RingDefends } from '@/world/barrier';
+import { barrierFootprintTiles, defendsForSegment, segmentIndexAt } from '@/world/barrier';
 import type { Lot } from '@/world/settlement-plan';
 import type { Era } from '@/core/era';
 import { catalogue, type BarrierTypeFields } from '@/catalogue';
@@ -557,7 +557,198 @@ export function deriveSettlementRing(args: {
   sealWetBlocking(run, offBank, gateW);
   // A crenellated masonry town wall carries timber hoardings — the wartime defensive galleries.
   if (run.crenellated && (run.material === 'stone' || run.material === 'brick')) run.hoarded = true;
+  // COVERAGE-DRIVEN TOWERS (WP-S): commit authoritative tower positions on the committed ring —
+  // gate flanking pairs, salient corners, and fill towers keeping every open run within bowshot —
+  // instead of leaving towers to fall out of RDP line-simplification. Consumes WP-R's per-segment
+  // `defends` metadata (defaults to 'open' when absent). Persisted on the run for the renderer + lint.
+  run.towers = placeCoverageTowers(run);
   return { id: `${args.poiId}_ring`, run };
+}
+
+// ── WP-S: coverage-driven tower placement ───────────────────────────────────────────────────────
+//
+// A ring's towers are a DEFENSIVE decision, not an artifact of line simplification. Priority order:
+//   1. Gate FLANKERS — each committed gate gets a pair, one just outside each end of its leaf span
+//      (the gatehouse is the strongest point of the circuit). Town-wall AND palisade rungs.
+//   2. SALIENTS — convex ring corners (a real turn) overlook two wall faces; masonry rung only.
+//   3. FILL — no `open` wall run exceeds the max tower spacing; `steep` relaxes to 2×, `water`
+//      (the water is the wall) is skipped. Masonry rung only.
+// Deduplicated by priority with a minimum spacing, deterministic ordering. Pure (no rng).
+
+/** Max centre-to-centre tower spacing on an `open` run (tiles ≈ 48 m — effective bowshot at 1t=2m). */
+const MAX_TOWER_SPACING = 24;
+/** `steep` (cliff-edge) runs relax spacing this much — a tower still anchors the line, sparsely. */
+const STEEP_SPACING_MULT = 2;
+/** Two committed towers closer than this (tiles) collapse to one (priority wins). */
+const TOWER_MIN_SEP = 6;
+/** A ring vertex whose leg-to-leg turn is sharper than this (dot below) is a SALIENT worth a tower.
+ *  ~0.9 ≈ a 26° turn — real corners, not the sub-degree jitter RDP leaves on a near-straight run. */
+const SALIENT_DOT = 0.9;
+/** A gate flanker sits this far (tiles) beyond each end of the leaf span, clear of the opening. */
+const GATE_FLANK_MARGIN = 1.3;
+
+/** True only for a crenellated masonry ring — the rung that carries mural drum towers + salients +
+ *  fill. A timber palisade gets gate flankers only (simple gate towers at most, historically). */
+function masonryRung(run: BarrierRun): boolean {
+  return !!run.crenellated && (run.material === 'stone' || run.material === 'brick');
+}
+
+/** Point + along-unit direction at path distance `t`. */
+function frameOnPath(path: Pt[], t: number): { p: Pt; dir: Pt } {
+  let acc = 0;
+  for (let i = 1; i < path.length; i++) {
+    const [ax, ay] = path[i - 1], [bx, by] = path[i];
+    const len = Math.hypot(bx - ax, by - ay);
+    if (len < 1e-9) continue;
+    if (t <= acc + len) {
+      const u = (t - acc) / len;
+      return { p: [ax + (bx - ax) * u, ay + (by - ay) * u], dir: [(bx - ax) / len, (by - ay) / len] };
+    }
+    acc += len;
+  }
+  const a = path[path.length - 2] ?? path[0], b = path[path.length - 1];
+  const len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+  return { p: b, dir: [(b[0] - a[0]) / len, (b[1] - a[1]) / len] };
+}
+
+/** Convex ring vertices sharp enough to warrant a salient tower (interior turn > ~26°). Closed rings
+ *  only; deterministic vertex order. A star-shaped traced ring is convex, so every real turn qualifies. */
+function salientVertices(path: Pt[]): Pt[] {
+  const pts = path.filter((p, i) => i === 0 || p[0] !== path[i - 1][0] || p[1] !== path[i - 1][1]);
+  const n = pts.length;
+  if (n < 3) return [];
+  const closed = Math.hypot(pts[0][0] - pts[n - 1][0], pts[0][1] - pts[n - 1][1]) < 1e-6;
+  const verts = closed ? pts.slice(0, -1) : pts;
+  const m = verts.length;
+  if (m < 3) return [];
+  const out: Pt[] = [];
+  for (let i = 0; i < m; i++) {
+    if (!closed && (i === 0 || i === m - 1)) continue;      // open-path endpoints: no tower
+    const a = verts[(i - 1 + m) % m], b = verts[i], c = verts[(i + 1) % m];
+    const d1x = b[0] - a[0], d1y = b[1] - a[1], m1 = Math.hypot(d1x, d1y) || 1;
+    const d2x = c[0] - b[0], d2y = c[1] - b[1], m2 = Math.hypot(d2x, d2y) || 1;
+    const dot = (d1x / m1) * (d2x / m2) + (d1y / m1) * (d2y / m2);
+    if (dot < SALIENT_DOT) out.push(b);
+  }
+  return out;
+}
+
+/** The spacing limit (tiles) that applies to the ring leg at distance `t` — `Infinity` on a water
+ *  leg (no wall to flank), 2× on a steep leg, the base spacing on an open leg. */
+function spacingLimitAt(run: BarrierRun, t: number, total: number): number {
+  const i = segmentIndexAt(run.path, ((t % total) + total) % total);
+  const d: RingDefends = defendsForSegment(run, i);
+  if (d === 'water') return Infinity;
+  if (d === 'steep') return MAX_TOWER_SPACING * STEEP_SPACING_MULT;
+  return MAX_TOWER_SPACING;
+}
+
+/** True where a gate/gap opening covers path-distance `t` — no fill tower stands in an opening. */
+function inOpeningAt(run: BarrierRun, t: number, total: number): boolean {
+  const tc = ((t % total) + total) % total;
+  const circ = (a: number, b: number): number => { const dd = Math.abs(a - b); return Math.min(dd, total - dd); };
+  return run.gates.some((g) => circ(g.t, tc) <= g.width / 2 + 0.5);
+}
+
+/**
+ * Commit the ring's defensive towers. Returns positions the renderer + lint read; empty for a
+ * non-defensive run (a hedge/fence has no towers). Deterministic.
+ */
+export function placeCoverageTowers(run: BarrierRun): TowerPlacement[] {
+  if (run.path.length < 2) return [];
+  const defensive = run.kind === 'wall' || run.kind === 'palisade' || run.kind === 'rampart';
+  if (!defensive) return [];
+  const total = pathLen(run.path);
+  if (total < 1e-6) return [];
+  const masonry = masonryRung(run);
+
+  // Anchor towers carry a path-distance `t` for fill spacing + dedup; the emitted placement keeps x/y.
+  interface Anchor { x: number; y: number; role: TowerPlacement['role']; t: number }
+  const circ = (a: number, b: number): number => { const dd = Math.abs(a - b); return Math.min(dd, total - dd); };
+
+  // 1. Gate FLANKERS — a pair just outside each real gate's leaf span (both rungs). ALWAYS kept: the
+  //    pair straddles the gate, so its two towers are intentionally closer than TOWER_MIN_SEP and must
+  //    survive dedup (gate pair is the highest priority).
+  const kept: Anchor[] = [];
+  for (const g of run.gates) {
+    if (g.kind === 'gap') continue;                          // a plain gap (water/building) gets no gatehouse
+    const off = g.width / 2 + GATE_FLANK_MARGIN;
+    for (const s of [-1, 1] as const) {
+      const t = ((g.t + s * off) % total + total) % total;
+      const { p } = frameOnPath(run.path, t);
+      kept.push({ x: p[0], y: p[1], role: 'gate', t });
+    }
+  }
+
+  // 2. SALIENTS — convex corners (masonry rung only); kept unless within min-spacing of a gate pair or
+  //    an already-kept salient (gate > salient). Deterministic order (around the ring).
+  if (masonry) {
+    const salients: Anchor[] = [];
+    for (const [x, y] of salientVertices(run.path)) {
+      // Recover the corner's path-distance for spacing/dedup (nearest sample on the ring).
+      let bestT = 0, bestD = Infinity;
+      for (let t = 0; t < total; t += 0.5) {
+        const { p } = frameOnPath(run.path, t);
+        const dd = Math.hypot(p[0] - x, p[1] - y);
+        if (dd < bestD) { bestD = dd; bestT = t; }
+      }
+      salients.push({ x, y, role: 'salient', t: bestT });
+    }
+    salients.sort((a, b) => a.t - b.t);
+    for (const a of salients) {
+      if (kept.some((k) => circ(k.t, a.t) < TOWER_MIN_SEP)) continue;
+      kept.push(a);
+    }
+  }
+
+  // 3. FILL — masonry rung only: subdivide each gap between consecutive kept anchors so no open run
+  //    exceeds its spacing limit. Skip fills that would land in an opening or on a water leg.
+  const fills: Anchor[] = [];
+  if (masonry) {
+    const ring = [...kept].sort((a, b) => a.t - b.t);
+    const nA = ring.length;
+    // With no anchors at all (a gateless steep/water-heavy ring), seed one pass around the whole ring.
+    const bounds: { t0: number; t1: number }[] = [];
+    if (nA === 0) {
+      bounds.push({ t0: 0, t1: total });
+    } else {
+      for (let i = 0; i < nA; i++) {
+        const t0 = ring[i].t;
+        const t1 = i + 1 < nA ? ring[i + 1].t : ring[0].t + total;
+        bounds.push({ t0, t1 });
+      }
+    }
+    for (const { t0, t1 } of bounds) {
+      const L = t1 - t0;
+      if (L < 1e-6) continue;
+      // Limit for this gap = the STRICTEST (smallest) limit along it, so an open sub-stretch is
+      // never left unflanked because the gap also grazes a steep/water leg.
+      let limit = Infinity;
+      for (let t = t0 + 0.5; t < t1; t += Math.max(0.5, L / 12)) {
+        limit = Math.min(limit, spacingLimitAt(run, t, total));
+      }
+      if (!Number.isFinite(limit)) continue;                 // wholly water — the water is the wall
+      const n = Math.max(0, Math.ceil(L / limit) - 1);
+      for (let k = 1; k <= n; k++) {
+        const t = t0 + (k * L) / (n + 1);
+        const tc = ((t % total) + total) % total;
+        if (inOpeningAt(run, tc, total)) continue;           // don't tower in a gateway
+        if (!Number.isFinite(spacingLimitAt(run, tc, total))) continue;  // don't tower on water
+        const { p } = frameOnPath(run.path, tc);
+        fills.push({ x: p[0], y: p[1], role: 'fill', t: tc });
+      }
+    }
+  }
+
+  // Final dedup across fills against kept anchors (a fill near a salient/gate collapses away).
+  const all = [...kept];
+  for (const f of fills) {
+    if (all.some((k) => circ(k.t, f.t) < TOWER_MIN_SEP)) continue;
+    all.push(f);
+  }
+  // Deterministic emit order: around the ring by path-distance.
+  all.sort((a, b) => a.t - b.t);
+  return all.map(({ x, y, role }) => ({ x, y, role }));
 }
 
 /**

@@ -329,6 +329,60 @@ export function footprintLevelDeformation(
   };
 }
 
+/**
+ * A CARVE over an arbitrary CELL SET (a defensive ditch band, a quarry) — cuts the ground down by
+ * `amount` metres, full inside the footprint and feathering to 0 over `feather` tiles beyond its
+ * edge. The blobby-footprint analogue of the annular ditch brush: a ditch that hugs a diagonal
+ * curtain and breaks at causeways is a real cell set, not a circle. Op 'carve' (never raises).
+ *
+ * Bakes a bounded Euclidean distance-to-footprint field once over the footprint's padded AABB so
+ * the per-tile `mask` is an O(1) lookup (mirrors `footprintLevelDeformation`).
+ */
+export function footprintCarveDeformation(
+  o: BrushBase & { cells: Iterable<number>; gridWidth: number; amount: number; feather?: number },
+): Deformation {
+  const feather = o.feather ?? 1;
+  const cells = [...o.cells];
+  const inSet = new Set(cells);
+  const fx = cells.map((c) => c % o.gridWidth);
+  const fy = cells.map((c) => (c / o.gridWidth) | 0);
+  const margin = Math.ceil(feather) + 1;
+  const bx0 = Math.min(...fx) - margin;
+  const by0 = Math.min(...fy) - margin;
+  const bw = Math.max(...fx) + margin - bx0 + 1;
+  const bh = Math.max(...fy) + margin - by0 + 1;
+  const dist = new Float32Array(bw * bh);
+  for (let y = 0; y < bh; y++) {
+    for (let x = 0; x < bw; x++) {
+      const gx = bx0 + x, gy = by0 + y;
+      if (inSet.has(gy * o.gridWidth + gx)) { dist[y * bw + x] = 0; continue; }
+      let best = Infinity;
+      for (let i = 0; i < cells.length; i++) {
+        const d = Math.hypot(gx - fx[i], gy - fy[i]);
+        if (d < best) best = d;
+      }
+      dist[y * bw + x] = best;
+    }
+  }
+  return {
+    id: o.id,
+    source: o.source,
+    op: 'carve',
+    priority: o.priority ?? 72,
+    amount: o.amount,
+    bounds: { minX: bx0, minY: by0, maxX: bx0 + bw - 1, maxY: by0 + bh - 1 },
+    mask(tx, ty) {
+      const x = Math.round(tx) - bx0;
+      const y = Math.round(ty) - by0;
+      if (x < 0 || y < 0 || x >= bw || y >= bh) return 0;
+      const d = dist[y * bw + x];
+      if (d <= 0) return 1;
+      if (d >= feather) return 0;
+      return clamp01(1 - d / feather);
+    },
+  };
+}
+
 /** Squared distance from point to a segment (for the polyline brush). */
 function distToSegment(px: number, py: number, ax: number, ay: number, bx: number, by: number): number {
   const dx = bx - ax;

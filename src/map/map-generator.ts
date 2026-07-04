@@ -51,6 +51,7 @@ import { reconcileBarriersWithBuildings } from '@/world/place-barrier';
 import { reconcileBuildingsWithWater } from '@/world/building-water-reconcile';
 import type { SettlementPlan } from '@/world/settlement-plan';
 import { prewarmAllSettlementWear } from '@/world/settlement-wear';
+import { clearKillingFields } from '@/world/killing-field';
 import { TrampleGrid } from '@/sim/trample';
 import { applyPoiGroundPatches } from '@/world/poi-ground-patches';
 import { blueprintOf } from '@/blueprint/entity';
@@ -620,6 +621,13 @@ export async function generateWithNoise(
   report('Digging irrigation ditches...');
   const dug = stampIrrigation(map, world);
   if (dug > 0) report(`Dug ${dug} ditch tiles`);
+
+  // Killing field (WP-S): clear sightline-blocking trees/scrub in a band outside each town wall on
+  // its landward (`open`) legs — the defended glacis. Runs after farmland so the field exemption
+  // sees the tilled soil; reuses the settlement-wear vegetation cull. Grass (a tile) stays.
+  report('Clearing killing fields...');
+  const razed = clearKillingFields(map, world);
+  if (razed > 0) report(`Cleared ${razed} nature entities from killing fields`);
 
   // Reconcile vegetation against terrain/structures: roads and rivers clear
   // trees, and nothing vegetates on a building footprint. Runs last so it
