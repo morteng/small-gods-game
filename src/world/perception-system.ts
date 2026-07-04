@@ -1,5 +1,6 @@
 import type { System, SystemContext } from '@/core/scheduler';
 import type { GameMap, Region, Tile } from '@/core/types';
+import { bumpTilesRev } from '@/core/tile-rev';
 import { forEachNpc, npcProps } from '@/world/npc-helpers';
 import type { Oracle } from '@/world/oracle';
 
@@ -79,6 +80,7 @@ export class PerceptionSystem implements System {
     }
     ordered.sort((a, b) => (a.y - b.y) || (a.x - b.x));
 
+    if (ordered.length > 0) bumpTilesRev(map);
     for (const t of ordered) {
       const substrate = this.getSubstrate ? this.getSubstrate(t.x, t.y) : t.type;
       const decided = this.oracle.realizeTile(t.x, t.y, substrate);

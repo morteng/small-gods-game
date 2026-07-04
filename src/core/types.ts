@@ -56,6 +56,12 @@ export interface GameMap {
   worldSeed: WorldSeed | null;
   stats: { iterations: number; backtracks: number };
   buildings: BuildingInstance[];
+  /** Monotonic revision of runtime in-place tile mutations (trample trails,
+   *  settlement-growth stamping, perception realize, dev brush). Renderer
+   *  color memos fold it into their key — every post-gen `tile.type` write
+   *  must go through / be followed by `bumpTilesRev` (core/tile-rev.ts) or
+   *  the GPU keeps painting the old ground until reload. */
+  tilesRev?: number;
   /** Settlement plans from worldgen (S2/S3): road graph, lots, wards. Live
    *  growth consumes free lots; persisted verbatim via SaveFile.map. */
   settlementPlans?: import('@/world/settlement-plan').SettlementPlan[];

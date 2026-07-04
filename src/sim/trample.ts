@@ -28,6 +28,7 @@
  */
 
 import type { GameMap, Tile } from '@/core/types';
+import { bumpTilesRev } from '@/core/tile-rev';
 
 /** Tuning constants (RimWorld "Desire Paths" shape). */
 export const TRAMPLE = {
@@ -122,6 +123,7 @@ export class TrampleGrid {
    * active cells — never the whole grid.
    */
   promoteDecay(map: GameMap): void {
+    let changed = false;
     // Snapshot keys first: the pass mutates `accum` (delete on decay-to-zero).
     for (const i of Array.from(this.accum.keys())) {
       const wear = this.accum.get(i)!;
@@ -134,8 +136,10 @@ export class TrampleGrid {
         this.promoted.set(i, tile!.type);
         tile!.type = 'dirt';
         tile!.walkable = true;
+        changed = true;
       } else if (isDirt && wear < TRAMPLE.REVERT_LO) {
         this.revertCell(i, map);
+        changed = true;
       }
 
       const decayed = Math.floor(wear * TRAMPLE.DECAY_FACTOR);
@@ -145,6 +149,7 @@ export class TrampleGrid {
         this.accum.set(i, decayed);
       }
     }
+    if (changed) bumpTilesRev(map);
   }
 
   /**
@@ -154,6 +159,7 @@ export class TrampleGrid {
    * stays primed for runtime traffic to continue from.
    */
   settle(map: GameMap): void {
+    let changed = false;
     for (const [i, wear] of this.accum) {
       if (this.promoted.has(i) || wear < TRAMPLE.PROMOTE_HI) continue;
       const x = i % this.width;
@@ -163,7 +169,9 @@ export class TrampleGrid {
       this.promoted.set(i, tile!.type);
       tile!.type = 'dirt';
       tile!.walkable = true;
+      changed = true;
     }
+    if (changed) bumpTilesRev(map);
   }
 
   /** Revert one promoted cell's tile back to its stored original ground. */
@@ -216,6 +224,7 @@ export class TrampleGrid {
    * promoted but this grid did not can be reverted to their real ground.
    */
   reconcileTiles(map: GameMap, prev?: TrampleGrid | null): void {
+    let changed = false;
     // Undo trails the previous grid carved that this one doesn't have.
     if (prev) {
       for (const [i, orig] of prev.promoted) {
@@ -226,6 +235,7 @@ export class TrampleGrid {
         if (tile && tile.type === 'dirt') {
           tile.type = orig;
           tile.walkable = true;
+          changed = true;
         }
       }
     }
@@ -236,9 +246,11 @@ export class TrampleGrid {
       const y = (i - x) / this.width;
       const tile = map.tiles[y]?.[x];
       if (tile && (tile.type === 'dirt' || isTrampleEligible(tile))) {
+        if (tile.type !== 'dirt') changed = true;
         tile.type = 'dirt';
         tile.walkable = true;
       }
     }
+    if (changed) bumpTilesRev(map);
   }
 }

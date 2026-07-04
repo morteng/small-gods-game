@@ -231,13 +231,16 @@ export function packColorField(map: GameMap, devMode?: DevModeState, waterType?:
  * GPU upload (and the 12k-cell rebuild) is skipped on a static world. The layer
  * key folds in the only `devMode` fields that change the colour (tile-type
  * overrides), so a dev toggle still rebuilds. Invalidated when the map object
- * changes (new world) — the per-tile `type` is otherwise immutable at runtime.
+ * changes (new world) OR when `map.tilesRev` moves — tile types are NOT
+ * immutable at runtime (trample trails, settlement-growth stamping, perception
+ * realize, dev brush all mutate in place; each bumps the rev via
+ * `bumpTilesRev`). Without the rev in the key those mutations never repaint.
  */
 let colorMemo: { map: GameMap; key: string; colors: Uint32Array } | null = null;
 export function packColorFieldMemo(map: GameMap, devMode?: DevModeState, renderWaterType?: Uint8Array, waterVersion = 0): Uint32Array {
   const key = `${map.width}x${map.height}|` +
     RENDER_LAYERS.map((l) => (devMode?.[layerFlag(l)] === false ? '0' : '1')).join('') +
-    `|w${renderWaterType ? waterVersion : 'base'}`;
+    `|w${renderWaterType ? waterVersion : 'base'}|t${map.tilesRev ?? 0}`;
   if (colorMemo && colorMemo.map === map && colorMemo.key === key) return colorMemo.colors;
   // The RENDER waterType (ocean + lakes from hydrology, rivers re-stamped along the
   // smooth connectome centrelines) lets us paint LAKE basins + bendy river beds as
