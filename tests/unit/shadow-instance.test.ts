@@ -87,6 +87,20 @@ describe('shadow-instance — cast-shadow parallelograms', () => {
     expect(batch.instances[0].cTop[0]).not.toBe(batch.instances[0].cBot[0]);
   });
 
+  it('shadowDir (day/night pin) overrides sunDir for the silhouette lean', () => {
+    const it = img();
+    const canonical = lighting(); // sunDir = (-0.5, 0.65, 0.58)
+    // Sweep the shading sun far east — with shadowDir pinned to the canonical
+    // direction, the cast shadow must be byte-identical to the canonical one.
+    const swept = lighting({ sunDir: [0.9, 0.3, 0.3], shadowDir: [-0.5, 0.65, 0.58] });
+    const [a] = buildShadowBatches([it], canonical);
+    const [b] = buildShadowBatches([it], swept);
+    expect(b.instances[0]).toEqual(a.instances[0]);
+    // Without the pin, the swept sun leans the shadow the other way.
+    const [c] = buildShadowBatches([it], lighting({ sunDir: [0.9, 0.3, 0.3] }));
+    expect(c.instances[0].cTop[0]).not.toBeCloseTo(a.instances[0].cTop[0]);
+  });
+
   it('batches by source texture', () => {
     const shared = tex();
     const a = img({ src: shared, dx: 0 });

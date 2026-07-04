@@ -748,7 +748,11 @@ export class GpuScene {
    *  (new array identity) or the sun moves (signature change). The camera transform
    *  is applied by the shader (uXform), so pan/zoom never re-packs these. */
   private ensureStaticShadowBundle(lifted: readonly DrawItem[], lighting: LightingState): void {
-    const sig = `${+lighting.enabled}|${lighting.shadowMode ?? 'silhouette'}|${lighting.sunDir.join(',')}`;
+    // Keyed on the SHADOW direction (shadowDir ?? sunDir): the day/night cycle
+    // sweeps sunDir per lighting step but pins shadowDir, so the bundle never
+    // re-bakes on the clock — only on a real sun-convention change.
+    const shadowSun = lighting.shadowDir ?? lighting.sunDir;
+    const sig = `${+lighting.enabled}|${lighting.shadowMode ?? 'silhouette'}|${shadowSun.join(',')}`;
     if (this.staticShadowSrc === lifted && this.staticShadowSig === sig) return;
     for (const e of this.staticShadowBundle) e.buf.destroy();
     this.staticShadowBundle = [];

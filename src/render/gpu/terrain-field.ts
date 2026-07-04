@@ -32,9 +32,11 @@ import { worldStyleOf } from '@/core/world-style';
  * Canonical tile-space sun direction (x=east, y=up, z=south) — TOWARD the light,
  * from the upper north-west, so slopes shade legibly. The shader normalises it.
  * Unlike the entity sprites' screen-space `lighting.sunDir`, terrain normals are
- * tile-space, so terrain needs its own direction; a real day/night sweep (T3)
- * will rotate this. Intensity (ambient + sun strength + bands) still tracks the
- * live lighting so dusk/dawn dim the ground with the sprites.
+ * tile-space, so terrain needs its own direction. The day/night cycle (WP-E)
+ * deliberately does NOT rotate it — slope shading stays legible at every hour
+ * (same reasoning as the pinned `shadowDir`); the day/night feel comes from
+ * intensity + colour (ambient + sun strength + bands track the live lighting,
+ * so dusk warms and night dims the ground with the sprites).
  */
 export const TERRAIN_SUN_DIR: [number, number, number] = [-1, 1.6, -1];
 

@@ -35,6 +35,12 @@ export interface LightingState {
   ambient: Vec3;
   /** Direction TOWARD the sun in normal-map screen space, normalized. */
   sunDir: Vec3;
+  /** Direction used for CAST SHADOWS (silhouette lean + the static shadow
+   *  bundle's bake key). Absent ⇒ `sunDir`. The day/night cycle pins this to the
+   *  canonical sun while `sunDir` sweeps: geometry-mode shadows are pre-baked to
+   *  the canonical sun at gen time and cannot move, and a moving direction would
+   *  re-bake the L2 static shadow bundle continuously. */
+  shadowDir?: Vec3;
   /** Sun (directional diffuse) colour, 0..1 per channel. */
   sunColor: Vec3;
   /** Diffuse quantization band count (≥1). */
