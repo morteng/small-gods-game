@@ -9,6 +9,7 @@
 import type { NpcRole, SettlementEventType } from '@/core/types';
 import type { Command, ApplyCtx, CommandCtx, RejectionReason } from './types';
 import { initNpcProps } from '@/world/npc-helpers';
+import { strategyForPersonality } from '@/sim/rival-spirit';
 import { resolveCenter, findPlacement } from './editor-verbs';
 
 const P = (cmd: Command): Record<string, unknown> => cmd.payload ?? {};
@@ -140,13 +141,17 @@ export function setRivalStancePrecondition(cmd: Command, ctx: CommandCtx): Rejec
 
 export function setRivalStanceApply(cmd: Command, ctx: ApplyCtx): boolean {
   const rivalId = stanceRivalId(cmd)!;                       // validated in precondition
-  const pers = ctx.spirits.get(rivalId)?.ai?.personality;
-  if (!pers) return false;                                   // lost a race after the pre-gate
+  const ai = ctx.spirits.get(rivalId)?.ai;
+  const pers = ai?.personality;
+  if (!ai || !pers) return false;                            // lost a race after the pre-gate
   for (const f of STANCE_FIELDS) {
     const raw = P(cmd)[f];
     if (typeof raw !== 'number' || !Number.isFinite(raw)) continue;
     const delta = Math.max(-MAX_STANCE_DELTA, Math.min(MAX_STANCE_DELTA, raw));
     pers[f] = Math.round(Math.max(STANCE_MIN, Math.min(STANCE_MAX, pers[f] + delta)) * 100) / 100;
   }
+  // Decisions derive strategy live from personality; refresh the stored label so
+  // prompts/UI/snapshots stay truthful too.
+  ai.policy = strategyForPersonality(pers);
   return true;
 }

@@ -3,6 +3,9 @@
  */
 import type { SpiritId } from '@/core/spirit';
 import type { SpiritBelief } from '@/core/types';
+import type { RivalSituation } from '@/sim/rival-claims';
+import { PLAYER_SPIRIT_ID } from '@/sim/believers';
+import { WHISPER_COST, OMEN_COST, MIRACLE_COST } from '@/sim/divine-actions';
 
 export type RivalStrategy = 'expand' | 'defend' | 'undermine' | 'coexist';
 
@@ -58,17 +61,12 @@ export function createRivalSpirit(
     ...options.personality,
   };
 
-  let strategy: RivalStrategy = 'coexist';
-  if (personality.aggression > 0.7) strategy = 'expand';
-  else if (personality.aggression > 0.4 && personality.subtlety < 0.4) strategy = 'undermine';
-  else if (personality.territoriality > 0.7) strategy = 'defend';
-
   return {
     id,
     name,
     title: options.title,
     personality,
-    strategy,
+    strategy: strategyForPersonality(personality),
     power: 5 + Math.floor(rng() * 10),
     maxPower: 20,
     followers: [],
@@ -138,73 +136,166 @@ export function generateRivalSpirits(
   return rivals;
 }
 
+/** The personality → strategy decision tree. Called LIVE on every decision (and
+ *  to refresh the stored `ai.policy` label after `set_rival_stance`), so Fate's
+ *  coaching deltas change behaviour from the very next decision. */
+export function strategyForPersonality(p: RivalPersonality): RivalStrategy {
+  if (p.aggression > 0.7) return 'expand';
+  if (p.aggression > 0.4 && p.subtlety < 0.4) return 'undermine';
+  if (p.territoriality > 0.7) return 'defend';
+  return 'coexist';
+}
+
+/** Deterministic best-settlement pick: highest score wins, ties break toward the
+ *  lexicographically-first id. `-Infinity` disqualifies a candidate outright, and
+ *  '' (settlement-less NPCs) is never a target. */
+function pickSettlement(candidates: Iterable<string>, score: (id: string) => number): string | null {
+  let best: string | null = null;
+  let bestScore = Number.NEGATIVE_INFINITY;
+  for (const id of [...candidates].sort()) {
+    if (!id) continue;
+    const s = score(id);
+    if (s === Number.NEGATIVE_INFINITY) continue;
+    if (best === null || s > bestScore) { best = id; bestScore = s; }
+  }
+  return best;
+}
+
+/** Every settlement this rival can see: its holdings plus anywhere either god
+ *  has counted believers. */
+function knownSettlements(rival: RivalSpirit, sit: RivalSituation): Set<string> {
+  return new Set([
+    ...rival.settlements,
+    ...Object.keys(sit.playerFollowersInSettlement),
+    ...Object.keys(sit.rivalFollowersInSettlement),
+  ]);
+}
+
+/** The rival's own turf: holdings plus anywhere it has believers. */
+function ownSettlements(rival: RivalSpirit, sit: RivalSituation): Set<string> {
+  return new Set([...rival.settlements, ...Object.keys(sit.rivalFollowersInSettlement)]);
+}
+
 export function decideRivalAction(
   rival: RivalSpirit,
   currentTick: number,
-  context: {
-    playerPower: number;
-    playerFollowersInSettlement: Record<string, number>;
-    rivalFollowersInSettlement: Record<string, number>;
-    npcBeliefs: Map<string, SpiritBelief>;
-  },
+  situation: RivalSituation,
   rng: () => number,
 ): RivalAction | null {
   if (currentTick - rival.lastActionTick < rival.actionCooldown) return null;
-  switch (rival.strategy) {
-    case 'expand': return expandStrategy(rival, rng(), context);
-    case 'defend': return defendStrategy(rival, rng(), context);
-    case 'undermine': return undermineStrategy(rival, rng(), context);
-    case 'coexist': return coexistStrategy(rival, rng(), context);
+  // Strategy derives live from personality, NOT the cached `strategy`/`ai.policy`
+  // field — a set_rival_stance nudge must bite on the next decision.
+  switch (strategyForPersonality(rival.personality)) {
+    case 'expand': return expandStrategy(rival, situation, rng);
+    case 'defend': return defendStrategy(rival, situation, rng);
+    case 'undermine': return undermineStrategy(rival, situation, rng);
+    case 'coexist': return coexistStrategy(rival, situation, rng);
     default: return null;
   }
 }
 
+/** EXPAND (aggressive growth) — press where the player is WEAKEST: target the
+ *  known settlement with the fewest player believers. Big spends (miracle) scale
+ *  with aggression; the cheap whisper fallback scales with assertiveness.
+ *  Power gates use the CANONICAL verb costs so a rival never wastes its cooldown
+ *  proposing a command the executor will reject as unaffordable. */
 export function expandStrategy(
   rival: RivalSpirit,
-  rng: number,
-  _context: { playerPower: number; playerFollowersInSettlement: Record<string, number>; rivalFollowersInSettlement: Record<string, number>; npcBeliefs: Map<string, SpiritBelief> },
+  situation: RivalSituation,
+  rng: () => number,
 ): RivalAction | null {
-  if (rng < 0.4 && rival.power >= 3) {
-    return { type: 'miracle', rivalId: rival.id, powerCost: 3, effect: { faithModifier: 0.1 }, description: `${rival.name} performs a minor miracle`, tick: 0 };
+  const target = pickSettlement(
+    knownSettlements(rival, situation),
+    id => -(situation.playerFollowersInSettlement[id] ?? 0),
+  );
+  if (!target) return null;
+  const p = rival.personality;
+  if (rival.power >= MIRACLE_COST && rng() < 0.2 + 0.5 * p.aggression) {
+    return { type: 'miracle', rivalId: rival.id, targetSettlementId: target, powerCost: MIRACLE_COST, effect: { faithModifier: 0.1 }, description: `${rival.name} performs a minor miracle`, tick: 0 };
   }
-  if (rng < 0.7) {
-    return { type: 'whisper', rivalId: rival.id, powerCost: 1, effect: { faithModifier: 0.05 }, description: `${rival.name} whispers encouragement`, tick: 0 };
+  if (rival.power >= WHISPER_COST && rng() < 0.4 + 0.4 * p.assertiveness) {
+    return { type: 'whisper', rivalId: rival.id, targetSettlementId: target, powerCost: WHISPER_COST, effect: { faithModifier: 0.05 }, description: `${rival.name} whispers encouragement`, tick: 0 };
   }
   return null;
 }
 
+/** DEFEND (territorial consolidation) — shore up where ground is being LOST
+ *  (most negative follower delta since the last baseline), else where the player
+ *  has pushed deepest into held turf, else the largest own congregation. Acts
+ *  urgently when actually losing, at a territoriality-scaled rate otherwise. */
 export function defendStrategy(
   rival: RivalSpirit,
-  rng: number,
-  _context: { playerPower: number; playerFollowersInSettlement: Record<string, number>; rivalFollowersInSettlement: Record<string, number>; npcBeliefs: Map<string, SpiritBelief> },
+  situation: RivalSituation,
+  rng: () => number,
 ): RivalAction | null {
-  if (rng < 0.5 && rival.power >= 1) {
-    return { type: 'proselytize', rivalId: rival.id, powerCost: 1, effect: { faithModifier: 0.03 }, description: `${rival.name} strengthens followers`, tick: 0 };
+  if (rival.power < WHISPER_COST) return null;
+  const own = ownSettlements(rival, situation);
+  const losing = pickSettlement(own, id => {
+    const d = situation.rivalFollowerDelta[id] ?? 0;
+    return d < 0 ? -d : Number.NEGATIVE_INFINITY;    // deepest loss wins
+  });
+  const invaded = pickSettlement(own, id => {
+    const n = situation.playerFollowersInSettlement[id] ?? 0;
+    return n > 0 ? n : Number.NEGATIVE_INFINITY;
+  });
+  const anchor = pickSettlement(own, id => situation.rivalFollowersInSettlement[id] ?? 0);
+  const target = losing ?? invaded ?? anchor;
+  if (!target) return null;
+  if (rng() < (losing ? 0.75 : 0.3 + 0.4 * rival.personality.territoriality)) {
+    return { type: 'proselytize', rivalId: rival.id, targetSettlementId: target, powerCost: WHISPER_COST, effect: { faithModifier: 0.03 }, description: `${rival.name} strengthens followers`, tick: 0 };
   }
   return null;
 }
 
+/** UNDERMINE (jealous sabotage) — strike where the PLAYER is STRONGEST: discredit
+ *  (jealousy-scaled) or curse (aggression-scaled) the player's biggest
+ *  congregation. Nothing of the player's anywhere ⇒ nothing worth undermining. */
 export function undermineStrategy(
   rival: RivalSpirit,
-  rng: number,
-  _context: { playerPower: number; playerFollowersInSettlement: Record<string, number>; rivalFollowersInSettlement: Record<string, number>; npcBeliefs: Map<string, SpiritBelief> },
+  situation: RivalSituation,
+  rng: () => number,
 ): RivalAction | null {
-  if (rng < 0.3 && rival.power >= 3) {
-    return { type: 'discredit', rivalId: rival.id, targetSpiritId: 'player', powerCost: 3, effect: { faithModifier: -0.08 }, description: `${rival.name} spreads doubt`, tick: 0 };
+  const stronghold = pickSettlement(
+    Object.keys(situation.playerFollowersInSettlement),
+    id => {
+      const n = situation.playerFollowersInSettlement[id];
+      return n > 0 ? n : Number.NEGATIVE_INFINITY;
+    },
+  );
+  if (!stronghold || rival.power < OMEN_COST) return null;
+  const p = rival.personality;
+  if (rng() < 0.2 + 0.5 * p.jealousy) {
+    return { type: 'discredit', rivalId: rival.id, targetSpiritId: PLAYER_SPIRIT_ID, targetSettlementId: stronghold, powerCost: OMEN_COST, effect: { faithModifier: -0.08 }, description: `${rival.name} spreads doubt`, tick: 0 };
   }
-  if (rng < 0.6 && rival.power >= 2) {
-    return { type: 'curse', rivalId: rival.id, powerCost: 2, effect: { moodModifier: -0.1 }, description: `${rival.name} sends a blight`, tick: 0 };
+  if (rng() < 0.3 + 0.3 * p.aggression) {
+    return { type: 'curse', rivalId: rival.id, targetSettlementId: stronghold, powerCost: OMEN_COST, effect: { moodModifier: -0.1 }, description: `${rival.name} sends a blight`, tick: 0 };
   }
   return null;
 }
 
+/** COEXIST (cautious opportunism) — minister where unanswered-prayer pressure is
+ *  highest on its own turf (souls the resident gods neglect), subtlety-scaled;
+ *  otherwise only the occasional gentle word to its largest congregation. */
 export function coexistStrategy(
   rival: RivalSpirit,
-  rng: number,
-  _context: { playerPower: number; playerFollowersInSettlement: Record<string, number>; rivalFollowersInSettlement: Record<string, number>; npcBeliefs: Map<string, SpiritBelief> },
+  situation: RivalSituation,
+  rng: () => number,
 ): RivalAction | null {
-  if (rng < 0.3 && rival.power >= 1) {
-    return { type: 'whisper', rivalId: rival.id, powerCost: 1, effect: { faithModifier: 0.02 }, description: `${rival.name} offers guidance`, tick: 0 };
+  if (rival.power < WHISPER_COST) return null;
+  const own = ownSettlements(rival, situation);
+  const pressed = pickSettlement(own, id => {
+    const n = situation.prayerPressureInSettlement[id] ?? 0;
+    return n > 0 ? n : Number.NEGATIVE_INFINITY;
+  });
+  if (pressed) {
+    if (rng() < 0.4 + 0.4 * rival.personality.subtlety) {
+      return { type: 'whisper', rivalId: rival.id, targetSettlementId: pressed, powerCost: WHISPER_COST, effect: { faithModifier: 0.03 }, description: `${rival.name} comforts the unheard`, tick: 0 };
+    }
+    return null;
+  }
+  const anchor = pickSettlement(own, id => situation.rivalFollowersInSettlement[id] ?? 0);
+  if (anchor && rng() < 0.15) {
+    return { type: 'whisper', rivalId: rival.id, targetSettlementId: anchor, powerCost: WHISPER_COST, effect: { faithModifier: 0.02 }, description: `${rival.name} offers guidance`, tick: 0 };
   }
   return null;
 }
