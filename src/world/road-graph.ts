@@ -23,7 +23,10 @@
 // the network worldgen already produces. NO junction splitting (edges stay
 // whole), a single road `class`, and includes seed-authored rivers/walls so the
 // rasterizer wholly owns `carveConnections`. Hierarchy tiering, hydrology-
-// generated rivers, routing, rendering, and Portal unification are later slices.
+// generated rivers, and routing/rendering deepening are later slices. Portal
+// unification SHIPPED: `road-connectome.ts` (`roadGraphToConnectome`) projects
+// this graph onto the same scale-free Zone/Portal primitives the building
+// connectome uses — settlements/junctions are Zones, roads are Portals.
 
 import type { Connection, POI, Tile, TerrainField } from '@/core/types';
 import { WATER_TYPES } from '@/core/constants';

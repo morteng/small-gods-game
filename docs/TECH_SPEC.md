@@ -111,7 +111,7 @@ A vocal skeptic can erode faith the same way.
 ```
 power regen ∝ Σ_believers (faith × understanding × devotion)
 ```
-- This is the canonical formula. **Known open loop:** current CODE regenerates with `Σ faith × 0.02` (`POWER_REGEN_RATE = 0.02` in `src/sim/spirit-system.ts`); `understanding` and `devotion` are written but read by nothing. Wiring the full product is VISION.md §9 item 1.
+- This is the canonical formula, and it is **implemented**: `src/sim/spirit-system.ts` computes `power regen ∝ Σ faith × (1 + 2·understanding) × (1 + 2·devotion) × POWER_REGEN_RATE(0.02)` — `understanding` and `devotion` are real power multipliers, not dead fields (VISION.md §9 item 1, closed).
 - Quantity of believers ≠ power: a hundred who *understand* and are *devoted* outweigh a million fearful nominal believers.
 - Actions drain power (checked before execution)
 - Player must maintain positive flow — spend too much and you fade
@@ -263,57 +263,15 @@ interface DMState {
 
 ## 3. System Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                           User Interface                             │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐ │
-│  │ Map Viewer  │  │ Map Editor  │  │ POI Editor  │  │ Road Editor │ │
-│  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘ │
-└─────────┼────────────────┼────────────────┼────────────────┼────────┘
-          │                │                │                │
-          ▼                ▼                ▼                ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                         Rendering Pipeline                           │
-│  ┌─────────────────────────────────────────────────────────────────┐│
-│  │ View Modes: Base │ Base+Decos │ Segmap │ Rendered              ││
-│  └─────────────────────────────────────────────────────────────────┘│
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐ │
-│  │  Autotiler  │→ │TileRenderer │→ │DecoRenderer │→ │ Compositor  │ │
-│  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘ │
-└─────────────────────────────────────────────────────────────────────┘
-          │
-          ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                        AI Rendering Pipeline                         │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐ │
-│  │ Base Image  │+ │ Decorations │+ │   Segmap    │→ │  FLUX AI    │ │
-│  └─────────────┘  └─────────────┘  └─────────────┘  └──────┬──────┘ │
-│                                                            │        │
-│                                      ┌─────────────┐       │        │
-│                                      │  Birefnet   │←──────┘        │
-│                                      │ (BG Remove) │                │
-│                                      └──────┬──────┘                │
-│                                             ▼                       │
-│                                    Transparent Tile PNG             │
-└─────────────────────────────────────────────────────────────────────┘
-          │
-          ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                        Generation Engine                             │
-│         ┌─────────────┐    ┌─────────────┐    ┌─────────────┐       │
-│         │ WFC Engine  │ →  │ POI Placer  │ →  │ Road Carver │       │
-│         └─────────────┘    └─────────────┘    └─────────────┘       │
-└─────────────────────────────────────────────────────────────────────┘
-          │
-          ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                        Data Layer                                    │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐ │
-│  │ WorldSeed   │  │   Chunks    │  │    POIs     │  │ Connections │ │
-│  │   (JSON)    │  │  (Cached)   │  │  (Indexed)  │  │  (Indexed)  │ │
-│  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘ │
-└─────────────────────────────────────────────────────────────────────┘
-```
+> **Superseded.** The diagram originally here (UI editors → Kenney/FLUX/Birefnet
+> AI-rendering pipeline → WFC generation engine) was never built; see
+> [`docs/archive/tech-spec-2026-05-generation-api-sections.md`](archive/tech-spec-2026-05-generation-api-sections.md)
+> for the original text and what shipped instead. The real architecture is the
+> one in `CLAUDE.md` § Architecture: `game.ts` coordinator over `src/game/`
+> collaborators, a WebGPU-only renderer (`src/render/gpu/`), noise-based +
+> connectome-driven world generation (`src/terrain/`, `src/world/connectome/`),
+> and the parametric blueprint→manifold→OpenRouter img2img building pipeline
+> (`src/assetgen/`). No server; this is a client-only Vite/TypeScript app.
 
 ---
 
@@ -361,6 +319,16 @@ type BiomeType =
 ```
 
 ### 3.2 Point of Interest (POI)
+
+> **Note:** the interface below is the original 2026-05-29 design and
+> materially disagrees with the shipped type. Defer to code:
+> `POI` in `src/core/types.ts` — `type` is a plain `string` (not the closed
+> `POIType` union below), almost every field is optional, `position` itself is
+> optional, and there is no `radius`/`visualStyle`/`decorations`/`items`/
+> `secrets`/`terrainInfluence` (those belonged to the never-built WFC/AI-tile
+> pipeline — see [the archive note](#3-system-architecture) above). The shipped
+> `POI` instead carries `coast` (seed-proof shoreline anchoring) and `summitM`
+> (authored peak height), which postdate this doc.
 
 ```typescript
 interface POI {
@@ -645,199 +613,49 @@ interface DivineAction {
 
 ## 4. Generation Pipeline
 
-### 4.1 Chunk Generation Flow
-
-```
-1. Request chunk at (cx, cy)
-           │
-           ▼
-2. Check if chunk exists in cache
-           │
-    ┌──────┴──────┐
-    │ Yes         │ No
-    ▼             ▼
-3. Return    4. Get neighboring chunks (for edge constraints)
-   cached           │
-                    ▼
-           5. Initialize WFC grid with:
-              - Edge constraints from neighbors
-              - POI terrain influence
-              - Biome weights
-                    │
-                    ▼
-           6. Run WFC solver
-                    │
-                    ▼
-           7. Apply POI-specific tiles
-              (buildings on village POIs, etc.)
-                    │
-                    ▼
-           8. Carve roads/rivers through chunk
-              (using Connection data)
-                    │
-                    ▼
-           9. Place decorations
-              (respecting placement rules)
-                    │
-                    ▼
-          10. Cache chunk
-                    │
-                    ▼
-          11. Return chunk
-```
-
-### 4.2 WFC Constraint System
-
-```typescript
-interface TileConstraint {
-  tile: string;
-
-  // Adjacency rules (which tiles can be neighbors)
-  north: string[];
-  south: string[];
-  east: string[];
-  west: string[];
-
-  // Weight modifiers
-  baseWeight: number;            // Default probability
-  biomeWeights: Record<BiomeType, number>;
-  poiInfluence: Record<POIType, number>;
-}
-```
-
-### 4.3 Road Auto-Bridge Logic
-
-When a road crosses water:
-
-1. Detect water tile intersection during road carving
-2. Check if bridge is possible (water width ≤ 3 tiles)
-3. Place bridge tiles with correct orientation (NS or EW)
-4. If water too wide, route around or fail with warning
+> **Superseded.** The chunked-on-demand WFC generation flow originally
+> documented here (4.1 Chunk Generation Flow, 4.2 WFC Constraint System, 4.3
+> Road Auto-Bridge Logic) was never built — the game generates a whole world
+> up front, not per-chunk on demand. Original text archived at
+> [`docs/archive/tech-spec-2026-05-generation-api-sections.md`](archive/tech-spec-2026-05-generation-api-sections.md).
+> The real pipeline: noise-based terrain (`terrain/terrain-generator.ts`:
+> fractal noise → biomes → tiles) plus connectome/settlement-driven layout
+> (`src/world/connectome/`); roads/rivers carve through one analytic
+> feature-SDF (`render/gpu/feature-geometry.ts`) with bridges as a generative
+> site (river-crossing epic), not a chunk-boundary auto-bridge check. WFC
+> primitives (`src/wfc/`) are retained but **dormant**
+> (`generateWithWFC` is bypassed).
 
 ---
 
 ## 5. Rendering Pipeline
 
-### 5.1 View Modes
-
-| Mode | Description | Use Case |
-|------|-------------|----------|
-| Base | Kenney tiles only | Debug, tile inspection |
-| Base + Decos | Kenney + decoration sprites | Full preview |
-| Segmap | ADE20K segmentation colors | AI input preview |
-| Rendered | AI-generated tiles | Final quality |
-
-### 5.2 AI Tile Generation Flow
-
-```
-1. Prepare base canvas (512x512, transparent)
-           │
-           ▼
-2. Draw Kenney tile centered at (256, 333)
-           │
-           ▼
-3. Draw decorations on top (using DecorationRenderer)
-           │
-           ▼
-4. Prepare segmap canvas (512x512, ADE20K sea background)
-           │
-           ▼
-5. Draw tile segmentation diamond
-           │
-           ▼
-6. Draw decoration segmentation shapes
-           │
-           ▼
-7. Build prompt from:
-   - Tile type description
-   - Decoration descriptions
-   - World biome/style
-           │
-           ▼
-8. Send to FLUX API:
-   - image_url: base canvas
-   - easycontrols[0]: segmap (optional)
-   - prompt: generated prompt
-           │
-           ▼
-9. Receive AI result image
-           │
-           ▼
-10. Send to Birefnet for background removal
-           │
-           ▼
-11. Save transparent PNG to cache
-           │
-           ▼
-12. Update renderedTileCache
-```
-
-### 5.3 Tile Caching Strategy
-
-```typescript
-interface TileCache {
-  // In-memory cache (LRU)
-  memory: Map<string, ImageBitmap>;  // key: `${layer}:${tileId}_v${variant}`
-  maxMemorySize: number;             // Default: 500 tiles
-
-  // Disk cache (persistent)
-  diskPath: string;                  // /tiles/rendered/{style}/
-  format: 'png';
-
-  // Cache key format
-  getKey(style: string, tileId: string, variant: number): string;
-}
-```
+> **Superseded.** The Kenney-tiles + FLUX/Birefnet/ADE20K AI-tile-rendering
+> flow originally documented here (5.1 View Modes, 5.2 AI Tile Generation
+> Flow, 5.3 Tile Caching Strategy) was never built — zero references to
+> Birefnet, ADE20K, or fal.ai/FLUX tile rendering exist in `src/`. Original
+> text archived at
+> [`docs/archive/tech-spec-2026-05-generation-api-sections.md`](archive/tech-spec-2026-05-generation-api-sections.md).
+> The real renderer is **WebGPU-only** (`CLAUDE.md` § Rendering): a
+> buffer-driven GPU heightfield terrain, a y-sorted instanced entity pass, and
+> banded lighting with projected cast shadows — no tile-caching layer, no
+> segmentation-map AI conditioning. Buildings are `SpritePack`s produced by the
+> blueprint→manifold→OpenRouter-img2img pipeline (`src/assetgen/`), cached in
+> IndexedDB / a vendored library, not a Kenney+FLUX render loop.
 
 ---
 
 ## 6. Editor Features
 
-### 6.1 Map Navigation
-
-- **Pan**: Drag to pan, scroll wheel
-- **Zoom**: +/- buttons, pinch gesture, scroll + modifier
-- **Minimap**: Click to jump, viewport indicator
-
-### 6.2 Tile Selection
-
-- Click tile to select
-- Show tile info panel:
-  - Position (x, y)
-  - Type (semantic + visual variant)
-  - Decorations list
-  - POI reference (if any)
-  - AI render status
-
-### 6.3 POI Editor
-
-- **Add POI**: Click location, select type, fill details
-- **Edit POI**: Select POI marker, edit in panel
-- **Delete POI**: Select + delete key
-- **Move POI**: Drag POI marker
-- **Resize POI**: Drag radius handle
-
-### 6.4 Road Editor
-
-- **Add Road**:
-  1. Enter road mode
-  2. Click start point (POI or coordinate)
-  3. Click waypoints (optional)
-  4. Click end point
-  5. Configure style, width, auto-bridge
-
-- **Edit Road**:
-  - Select road to show waypoints
-  - Drag waypoints to adjust
-  - Add/remove waypoints
-
-- **Auto-Bridge**: Toggle per-road, visual indicator on water crossings
-
-### 6.5 Decoration Editor (Future)
-
-- Manual decoration placement
-- Decoration brush for area filling
-- Clear decorations from selection
+> **Superseded.** The POI/Road editor with drag handles originally documented
+> here (6.1–6.5: map nav, tile selection, POI editor, road editor, decoration
+> editor) was never built. Original text archived at
+> [`docs/archive/tech-spec-2026-05-generation-api-sections.md`](archive/tech-spec-2026-05-generation-api-sections.md).
+> World/POI editing today lives in the dev **Studio** (`?studio=world`):
+> `src/studio/world-node-edits.ts` exposes move/add/remove/retune POI edits
+> that fold back into a `WorldSeed` for regeneration (schema-aware live param
+> editing, per `CLAUDE.md` § Studio) — there is no live drag-handle POI marker
+> or road-waypoint editor as described below.
 
 ---
 
@@ -886,29 +704,14 @@ IndexedDB (future):
 
 ## 9. API Endpoints
 
-### 9.1 Server Endpoints
-
-```
-GET  /api/tiles/available       # List available tile types
-POST /api/tiles/save-rendered   # Save AI-rendered tile
-GET  /tiles/kenney/{id}.png     # Kenney tile images
-GET  /tiles/rendered/{style}/{id}_v{n}.png  # Rendered tiles
-
-POST /api/fal/{endpoint}        # Proxy to fal.ai
-  - fal-ai/flux-general/image-to-image
-  - fal-ai/birefnet
-```
-
-### 9.2 Future Endpoints
-
-```
-POST /api/worlds                # Create world
-GET  /api/worlds/{id}           # Get world
-PUT  /api/worlds/{id}           # Update world
-DELETE /api/worlds/{id}         # Delete world
-
-GET  /api/worlds/{id}/chunks/{cx},{cy}  # Get generated chunk
-```
+> **Superseded.** The REST API originally documented here (9.1 Server
+> Endpoints, 9.2 Future Endpoints) was never built — this is a **client-only**
+> Vite/TypeScript app with no server. Original text archived at
+> [`docs/archive/tech-spec-2026-05-generation-api-sections.md`](archive/tech-spec-2026-05-generation-api-sections.md).
+> The real out-of-process control surface (dev-only) is the `GameBus`
+> WebSocket bridge (`?bridge`/`?bridge=rw`, a Vite plugin on `/__bus`) driven
+> by a CLI (`tools/bus-cli.ts`) or a stdio MCP server (`tools/mcp-server.ts`,
+> 16 tools) — see `CLAUDE.md` § Development.
 
 ---
 
