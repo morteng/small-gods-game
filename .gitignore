@@ -57,3 +57,6 @@ tmp/
 
 # Dev-only canvas grabs (grab-sink plugin)
 .dev-grabs/
+
+# TTI diagnostic reference images (generated; persistent on disk, not in git)
+reference-library/
