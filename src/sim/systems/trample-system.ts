@@ -43,8 +43,10 @@ export class TrampleDepositSystem implements System {
       // worn to a `dirt` trail keeps taking wear so continued traffic SUSTAINS it
       // (without this, a busy trail would decay and revert — re-introducing the
       // flicker the hysteresis prevents). Footfall on roads/plazas/water leaves
-      // no wear — roads are already the wanted path.
-      if (isTrampleEligible(map.tiles[ty]?.[tx]) || grid.isPromoted(tx, ty)) grid.deposit(tx, ty);
+      // no wear — roads are already the wanted path. The 8-neighbour SPILL
+      // (×SPILL_FACTOR, eligible cells only) widens busy trunk trails to 2–3
+      // tiles while side paths stay single-file.
+      if (isTrampleEligible(map.tiles[ty]?.[tx]) || grid.isPromoted(tx, ty)) grid.depositWithSpill(map, tx, ty);
     });
   }
 }
