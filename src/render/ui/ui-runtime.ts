@@ -25,6 +25,9 @@ import type { StorySession, Stage } from '@/story/story-session';
 import type { UiSpec, UiSpecBlock, UiSpecChoice } from '@/story/uispec';
 import type { BeliefPowerView, InboxItem, InboxKind, InspectorView } from '@/game/game-query';
 import type { SiteCardView } from '@/game/causal-site-view';
+import type { Command } from '@/sim/command/types';
+import { PLAYER_SPIRIT_ID } from '@/sim/believers';
+import { TICKS_PER_HOUR } from '@/core/calendar';
 
 /** Bigger-font multipliers (× the integer DPR scale). The S1 demo drew at 1×s
  *  which read tiny; the HUD/menu want chunky, legible pixel text. */
@@ -99,7 +102,41 @@ export interface UiRuntimeHooks {
   onZoomOut?: () => void;
   onFitView?: () => void;
   onZoomActual?: () => void;
+
+  // ── Round 9 WP-B: time transport (fastforward + jump-to-next-event) ──
+  /** Snapshot of the sim clock's transport state. The cluster renders nothing
+   *  (gray-box) until this is wired. */
+  timeStatus?: () => TimeStatus;
+  /** Dispatch a transport command (rate change / pause toggle / seek / cancel). */
+  onTimeCommand?: (cmd: TimeCommand) => void;
 }
+
+// ── Round 9: time transport (fastforward + jump-to-next-event) ──────────────
+// The host (game.ts) owns the sim clock; the runtime only renders a snapshot
+// + relays clicks as commands. `TimeController` (WP-A, `src/game/time-controller.ts`)
+// is the eventual source of truth for `requestedRate`/`effectiveRate`/`seeking`;
+// until it lands the host falls back to `scheduler.getRate()` (see game.ts).
+
+/** A snapshot of the sim clock's transport state, prebuilt by the host each frame. */
+export interface TimeStatus {
+  requestedRate: number;
+  effectiveRate: number;
+  /** Rate-ladder presets (measured, not guessed — never hardcoded by the UI). */
+  ladder: number[];
+  /** Soft pause = rate 0 (distinct from the hard pause the space key drives). */
+  paused: boolean;
+  /** Calendar date + solar time, prebuilt by the host (`calendarLabel`). */
+  clockLabel: string;
+  /** Non-null while a "jump to next event" seek is in flight. */
+  seeking: null | { elapsedTicks: number; horizonTicks: number };
+}
+
+/** A transport command the HUD can dispatch — relayed verbatim to the host. */
+export type TimeCommand =
+  | { kind: 'set_rate'; rate: number }
+  | { kind: 'toggle_pause' }
+  | { kind: 'skip_to_next_event' }
+  | { kind: 'cancel_seek' };
 
 /** Which bottom-left side panel is open (mutually exclusive; below menu/story). */
 type Panel = 'powers' | 'inbox' | null;
@@ -250,6 +287,29 @@ export class UiRuntime {
     this.story = session;
     this.hooks.onStoryToggle?.(true);
     this.hooks.requestRender?.();
+  }
+
+  /**
+   * Present the "while you watched the sands…" landing summary after a
+   * `skip_to_next_event` seek lands (Round 9 WP-B). Rides the SAME declarative
+   * UiSpec surface as the whisper card (`presentUiSpec`/`renderUiSpec`) rather
+   * than a bespoke renderer — title + body paragraph + elapsed-span line, one
+   * dismiss choice. The choice carries an inert placeholder `Command` (never
+   * emitted — this card is purely informational) purely to satisfy
+   * `UiSpecChoice`'s typed field; dismissing just closes the card.
+   */
+  showTimeLandingCard(card: { title: string; body: string; elapsedLabel: string; quiet: boolean }): void {
+    // A quiet landing renders as a plain paragraph; an eventful one borrows the
+    // `omen` block's accent tint so the triggering event reads as notable.
+    const bodyBlock: UiSpecBlock = card.quiet
+      ? { kind: 'paragraph', text: card.body }
+      : { kind: 'omen', text: card.body };
+    const spec: UiSpec = {
+      title: card.title,
+      body: [bodyBlock, { kind: 'paragraph', text: card.elapsedLabel }],
+      choices: [{ text: 'Continue', command: TIME_LANDING_DISMISS_COMMAND }],
+    };
+    this.presentUiSpec(spec, () => {});
   }
 
   /** Whether a pointer at (px,py device) should be eaten by the UI. The menu and
@@ -499,6 +559,9 @@ export class UiRuntime {
     // ── P3.8 inspector: a right-docked panel for the current selection ──
     const inspector = this.hooks.getInspector?.() ?? null;
     const inspectorW = inspector ? this.drawInspector(c, w, h, s, inspector) : 0;
+
+    // ── Round 9 WP-B: time transport cluster (top-right; tucks left of the inspector) ──
+    this.drawTimeCluster(c, w, h, s, inspectorW ? inspectorW + 16 * s : 0);
 
     // camera cluster tucks left of the inspector so the two never overlap.
     this.drawCameraCluster(c, w, h, s, inspectorW ? inspectorW + 16 * s : 0);
@@ -1012,6 +1075,83 @@ export class UiRuntime {
     }
   }
 
+  // ── Round 9 WP-B: the WebGPU transport cluster (clock + pause + rate ladder
+  //    + jump-to-next-event) — the WebGPU heir to the legacy DOM time-chip.
+  //    Top-right, tucked left of the inspector when one is docked. Drawn only
+  //    when `timeStatus` is wired (gray-box until then, like the camera cluster). ─
+
+  /** Any transport input cancels an in-flight seek FIRST (per the round-9 plan:
+   *  "transport input cancels seek"), then relays the actual command. */
+  private dispatchTimeCommand(cmd: TimeCommand, seeking: boolean): void {
+    if (seeking && cmd.kind !== 'cancel_seek') this.hooks.onTimeCommand?.({ kind: 'cancel_seek' });
+    this.hooks.onTimeCommand?.(cmd);
+    this.hooks.requestRender?.();
+  }
+
+  private drawTimeCluster(c: UiContext, w: number, _h: number, s: number, rightInset = 0): void {
+    const status = this.hooks.timeStatus?.();
+    if (!status) return;
+    const seeking = status.seeking !== null;
+    const fs = FS_BODY * s;
+    const pad = 16 * s;
+    const rowH = 26 * s;
+    const gap = 6 * s;
+    const right = w - pad - rightInset;
+    let y = pad;
+
+    // clock chip: calendar/solar label + an effective-rate badge (⏸ paused, or
+    // ≈N× when the CPU can't sustain the requested rate).
+    const badge = timeRateBadge(status);
+    const clockText = badge ? `${status.clockLabel}   ${badge}` : status.clockLabel;
+    const chipW = Math.ceil(c.measure(clockText, fs)) + 20 * s;
+    c.panel(right - chipW, y, chipW, rowH);
+    c.label(clockText, right - chipW + 10 * s, y + (rowH - c.lineHeight(fs)) / 2, fs,
+      status.paused ? UI_PALETTE.accent : UI_PALETTE.text);
+    y += rowH + gap;
+
+    // soft-pause toggle — always live (cancels an active seek first, per the
+    // dispatch rule above), so it stays a reliable "stop" even mid-seek.
+    const pauseLabel = status.paused ? '▶ RESUME' : '⏸ PAUSE';
+    const pauseW = Math.ceil(c.measure(pauseLabel, fs)) + 20 * s;
+    if (c.button('ui.time.pause', pauseLabel, right - pauseW, y, pauseW, rowH, { scale: fs })) {
+      this.dispatchTimeCommand({ kind: 'toggle_pause' }, seeking);
+    }
+    y += rowH + gap;
+
+    if (status.seeking) {
+      // seeking: the ladder is replaced by a progress line + cancel.
+      const cancelLabel = '✕ CANCEL';
+      const cancelW = Math.ceil(c.measure(cancelLabel, fs)) + 20 * s;
+      if (c.button('ui.time.cancel', cancelLabel, right - cancelW, y, cancelW, rowH, { scale: fs })) {
+        this.dispatchTimeCommand({ kind: 'cancel_seek' }, false);
+      }
+      const elapsed = `⏳ ${formatElapsedTicks(status.seeking.elapsedTicks)}`;
+      const elapsedW = Math.ceil(c.measure(elapsed, fs));
+      c.label(elapsed, right - cancelW - 10 * s - elapsedW, y + (rowH - c.lineHeight(fs)) / 2, fs, UI_PALETTE.textDim);
+    } else {
+      // rate ladder (rendered FROM the hook — never hardcoded) + ⏭ next-event.
+      const skipLabel = '⏭';
+      const skipW = Math.ceil(c.measure(skipLabel, fs)) + 20 * s;
+      let x = right - skipW;
+      if (c.button('ui.time.skip', skipLabel, x, y, skipW, rowH, { scale: fs })) {
+        this.dispatchTimeCommand({ kind: 'skip_to_next_event' }, false);
+      }
+      x -= gap;
+      for (let i = status.ladder.length - 1; i >= 0; i--) {
+        const rate = status.ladder[i];
+        const label = `${rate}×`;
+        const bw = Math.ceil(c.measure(label, fs)) + 16 * s;
+        x -= bw;
+        const active = rate === status.requestedRate;
+        if (c.button(`ui.time.rate.${rate}`, label, x, y, bw, rowH, { scale: fs })) {
+          this.dispatchTimeCommand({ kind: 'set_rate', rate }, false);
+        }
+        if (active) c.batcher.border(x, y, bw, rowH, Math.max(1, Math.round(2 * s)), UI_PALETTE.accent);
+        x -= gap;
+      }
+    }
+  }
+
   /** Right-edge zoom controls (in/out/fit/1:1) — the GPU port of the legacy DOM
    *  `cameraControls`. Drawn only when the camera hooks are wired. */
   private drawCameraCluster(c: UiContext, w: number, h: number, s: number, rightInset = 0): void {
@@ -1118,6 +1258,40 @@ export class UiRuntime {
 
 function inRect(p: { x: number; y: number }, r: Rect): boolean {
   return p.x >= r.x && p.x < r.x + r.w && p.y >= r.y && p.y < r.y + r.h;
+}
+
+/** Round 9 WP-B time transport: an inert placeholder `Command` for the landing
+ *  card's sole "Continue" choice. `showTimeLandingCard`'s own `onChoose` never
+ *  reads it (the card is purely informational — dismissing emits nothing); it
+ *  exists only to satisfy `UiSpecChoice.command`'s type so the card can reuse
+ *  the whisper-card's `presentUiSpec`/`renderUiSpec` machinery verbatim. */
+const TIME_LANDING_DISMISS_COMMAND: Command = {
+  verb: 'whisper',
+  source: PLAYER_SPIRIT_ID,
+  target: { kind: 'none' },
+  seq: -1,
+};
+
+/** Effective-rate badge for the clock chip: `⏸` when soft-paused, `≈N×` when
+ *  the CPU can't sustain the requested rate (>10% behind), else nothing (the
+ *  requested and effective rates already agree — no badge needed). */
+function timeRateBadge(status: TimeStatus): string | null {
+  if (status.paused) return '⏸';
+  const { requestedRate: req, effectiveRate: eff } = status;
+  if (req > 0 && Math.abs(eff - req) / req > 0.1) {
+    const rounded = eff >= 10 ? Math.round(eff) : Math.round(eff * 10) / 10;
+    return `≈${rounded}×`;
+  }
+  return null;
+}
+
+/** "3h 20m" / "45m" elapsed-span label for the seek progress line, derived
+ *  from raw ticks via the calendar's tick-per-hour constant. */
+function formatElapsedTicks(ticks: number): string {
+  const totalMinutes = Math.floor(ticks / (TICKS_PER_HOUR / 60));
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
 /** Chip caption: "WHISPER · 1  (praying)" with a lock glyph when belief-gated. */

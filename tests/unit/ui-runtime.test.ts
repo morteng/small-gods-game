@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { UiRuntime, type AlertPinView } from '@/render/ui/ui-runtime';
+import { UiRuntime, type AlertPinView, type TimeStatus, type TimeCommand } from '@/render/ui/ui-runtime';
 import { UiPage, UiSpace, type UiDrawGroup } from '@/render/ui/ui-batcher';
 import type { UiHit } from '@/render/ui/ui-context';
 import type { UiSpec, UiSpecChoice } from '@/story/uispec';
@@ -533,5 +533,147 @@ describe('UiRuntime — tiding inbox items + pins (WP-C)', () => {
     expect(hit).toBeTruthy();
     click(rt, ...center(hit));
     expect(fired).toEqual(['cross:vale']);
+  });
+});
+
+// ── Round 9 WP-B: the WebGPU time transport cluster ──────────────────────
+function baseTimeStatus(overrides: Partial<TimeStatus> = {}): TimeStatus {
+  return {
+    requestedRate: 1,
+    effectiveRate: 1,
+    ladder: [1, 8, 60],
+    paused: false,
+    clockLabel: 'Y1 spring · 3/96 · 14:00',
+    seeking: null,
+    ...overrides,
+  };
+}
+
+describe('UiRuntime — time transport cluster (Round 9 WP-B)', () => {
+  it('renders nothing when timeStatus is unwired (gray-box)', () => {
+    const rt = new UiRuntime();
+    rt.frame(W, H, DPR);
+    expect(rt.hitRegions().some((h) => h.id.startsWith('ui.time.'))).toBe(false);
+  });
+
+  it('renders the rate ladder FROM the hook data — not hardcoded', () => {
+    const rt = new UiRuntime();
+    rt.configure({ timeStatus: () => baseTimeStatus({ ladder: [2, 5, 30] }) });
+    rt.frame(W, H, DPR);
+    const ids = rt.hitRegions().map((h) => h.id);
+    expect(ids).toContain('ui.time.rate.2');
+    expect(ids).toContain('ui.time.rate.5');
+    expect(ids).toContain('ui.time.rate.30');
+    expect(ids).not.toContain('ui.time.rate.1'); // the default ladder isn't baked in
+    expect(ids).toContain('ui.time.skip');
+    expect(ids).toContain('ui.time.pause');
+  });
+
+  it('clicking a rate button dispatches set_rate with that rate', () => {
+    const sent: TimeCommand[] = [];
+    const rt = new UiRuntime();
+    rt.configure({ timeStatus: () => baseTimeStatus({ ladder: [1, 8, 60] }), onTimeCommand: (c) => sent.push(c) });
+    rt.frame(W, H, DPR);
+    const btn = rt.hitRegions().find((h) => h.id === 'ui.time.rate.8')!;
+    click(rt, ...center(btn));
+    expect(sent).toEqual([{ kind: 'set_rate', rate: 8 }]);
+  });
+
+  it('the pause toggle dispatches toggle_pause', () => {
+    const sent: TimeCommand[] = [];
+    const rt = new UiRuntime();
+    rt.configure({ timeStatus: () => baseTimeStatus(), onTimeCommand: (c) => sent.push(c) });
+    rt.frame(W, H, DPR);
+    const btn = rt.hitRegions().find((h) => h.id === 'ui.time.pause')!;
+    click(rt, ...center(btn));
+    expect(sent).toEqual([{ kind: 'toggle_pause' }]);
+  });
+
+  it('the ⏭ skip button dispatches skip_to_next_event', () => {
+    const sent: TimeCommand[] = [];
+    const rt = new UiRuntime();
+    rt.configure({ timeStatus: () => baseTimeStatus(), onTimeCommand: (c) => sent.push(c) });
+    rt.frame(W, H, DPR);
+    const btn = rt.hitRegions().find((h) => h.id === 'ui.time.skip')!;
+    click(rt, ...center(btn));
+    expect(sent).toEqual([{ kind: 'skip_to_next_event' }]);
+  });
+
+  it('while seeking, the ladder + skip are replaced by a cancel affordance', () => {
+    const rt = new UiRuntime();
+    rt.configure({ timeStatus: () => baseTimeStatus({ seeking: { elapsedTicks: 12345, horizonTicks: 999999 } }) });
+    rt.frame(W, H, DPR);
+    const ids = rt.hitRegions().map((h) => h.id);
+    expect(ids).not.toContain('ui.time.rate.1');
+    expect(ids).not.toContain('ui.time.skip');
+    expect(ids).toContain('ui.time.cancel');
+    expect(ids).toContain('ui.time.pause'); // pause stays a live transport control throughout
+  });
+
+  it('cancel dispatches cancel_seek', () => {
+    const sent: TimeCommand[] = [];
+    const rt = new UiRuntime();
+    rt.configure({
+      timeStatus: () => baseTimeStatus({ seeking: { elapsedTicks: 0, horizonTicks: 100 } }),
+      onTimeCommand: (c) => sent.push(c),
+    });
+    rt.frame(W, H, DPR);
+    const btn = rt.hitRegions().find((h) => h.id === 'ui.time.cancel')!;
+    click(rt, ...center(btn));
+    expect(sent).toEqual([{ kind: 'cancel_seek' }]);
+  });
+
+  it('a transport press during an active seek sends cancel_seek FIRST, then the pressed command', () => {
+    const sent: TimeCommand[] = [];
+    const rt = new UiRuntime();
+    rt.configure({
+      timeStatus: () => baseTimeStatus({ seeking: { elapsedTicks: 500, horizonTicks: 100000 } }),
+      onTimeCommand: (c) => sent.push(c),
+    });
+    rt.frame(W, H, DPR);
+    const pause = rt.hitRegions().find((h) => h.id === 'ui.time.pause')!;
+    click(rt, ...center(pause));
+    expect(sent).toEqual([{ kind: 'cancel_seek' }, { kind: 'toggle_pause' }]);
+  });
+});
+
+// ── Round 9 WP-B: the time landing card (rides the UiSpec/whisper-card surface) ──
+describe('UiRuntime — time landing card (Round 9 WP-B)', () => {
+  it('shows a dismissible modal card built from the landing summary', () => {
+    const rt = new UiRuntime();
+    rt.showTimeLandingCard({
+      title: 'While you watched the sands…',
+      body: 'A prayer went unanswered in Verdant Vale.',
+      elapsedLabel: '3h 20m passed',
+      quiet: false,
+    });
+    rt.frame(W, H, DPR);
+    expect(rt.hasCard()).toBe(true);
+    expect(rt.hitRegions().some((h) => h.id === 'card.body')).toBe(true);
+    expect(rt.hitRegions().some((h) => h.id === 'card.choice.0')).toBe(true);
+  });
+
+  it('a quiet landing still shows a factual card', () => {
+    const rt = new UiRuntime();
+    rt.showTimeLandingCard({ title: 'A quiet day', body: 'A quiet day passed.', elapsedLabel: '24h passed', quiet: true });
+    rt.frame(W, H, DPR);
+    expect(rt.hasCard()).toBe(true);
+  });
+
+  it('the Continue choice dismisses the card without requiring a real command', () => {
+    const rt = new UiRuntime();
+    rt.showTimeLandingCard({ title: 'Landing', body: 'Something happened.', elapsedLabel: '1h passed', quiet: false });
+    rt.frame(W, H, DPR);
+    const btn = rt.hitRegions().find((h) => h.id === 'card.choice.0')!;
+    click(rt, ...center(btn));
+    expect(rt.hasCard()).toBe(false);
+  });
+
+  it('a backdrop click dismisses the landing card like the whisper card', () => {
+    const rt = new UiRuntime();
+    rt.showTimeLandingCard({ title: 'Landing', body: 'Something happened.', elapsedLabel: '1h passed', quiet: false });
+    rt.frame(W, H, DPR);
+    click(rt, 8, 8); // outside the centred card
+    expect(rt.hasCard()).toBe(false);
   });
 });

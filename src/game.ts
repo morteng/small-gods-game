@@ -96,8 +96,15 @@ import { PresentationDirector } from '@/presentation/presentation-director';
 import { createInteractionState } from '@/game/interaction-state';
 import { createBootProgressMapper } from '@/ui/boot-progress';
 import { InteractionController } from '@/game/interaction-controller';
+import { calendarLabel } from '@/core/calendar';
 
 const SESSION_CAP_USD = 2; // per-session live building-art spend cap
+
+/** Round 9 WP-B: pre-integration fallback rate ladder for the WebGPU transport
+ *  cluster. WP-A's `TimeController` (parallel worktree, not present here) will
+ *  own the real, bench-measured ladder (`scripts/bench-sim-rate.ts`); the
+ *  integrator should source `timeStatus().ladder` from it instead once wired. */
+const FALLBACK_RATE_LADDER = [1, 8, 60];
 
 /** P5 semantic zoom: the in-band zoom a zoomed-out alert-pin click flies to —
  *  the 1/2 rung, the outermost rung that still reads as per-NPC chrome. */
@@ -264,7 +271,9 @@ export class Game {
   private assets = new AssetManager();
   private chrome!: ChromeHandle;
   private veil!: ReturnType<typeof mountPastVeil>;
-  private timeChip!: TimeChipHandle;
+  /** Legacy DOM chip — superseded by the WebGPU clock chip (Round 9 WP-B);
+   *  only mounted under `?legacyui` (barebones renders the clock via the HUD). */
+  private timeChip: TimeChipHandle | null = null;
   private timeBar: TimeBarHandle | null = null;
   private detachTimeKeys: (() => void) | null = null;
   private renderMap: RenderFn | null = null;
@@ -458,12 +467,17 @@ export class Game {
     // deterministic path; turning it off leaves the game bit-identical.
     this.presentation = new PresentationDirector(this.state, { viewport: () => this.viewport() });
     this.presentation.attach();
-    this.timeChip = mountTimeChip(this.chrome.anchorTopRight, {
-      clock: this.state.clock,
-      getRate: () => this.scheduler.getRate(),
-      isPaused: () => this.scheduler.getRate() === 0,
-      onClick: () => this.toggleTimeBar(),
-    });
+    // The DOM chip is legacy chrome — barebones (default) renders the clock via
+    // the WebGPU HUD's transport cluster instead (Round 9 WP-B); `?legacyui`
+    // keeps the DOM chip since that chrome path never mounts the WebGPU HUD.
+    if (!this.barebones) {
+      this.timeChip = mountTimeChip(this.chrome.anchorTopRight, {
+        clock: this.state.clock,
+        getRate: () => this.scheduler.getRate(),
+        isPaused: () => this.scheduler.getRate() === 0,
+        onClick: () => this.toggleTimeBar(),
+      });
+    }
 
     this.detachTimeKeys = attachTimeKeys(window, {
       onToggleTimeBar: () => this.toggleTimeBar(),
@@ -781,6 +795,45 @@ export class Game {
       onZoomOut: () => this.cameraZoomOut(),
       onFitView: () => this.cameraFitView(),
       onZoomActual: () => this.cameraZoomActual(),
+      // ── Round 9 WP-B: time transport (fastforward + jump-to-next-event) ──
+      // WP-A lands `TimeController` (src/game/time-controller.ts) in a parallel
+      // worktree — it does not exist here. Wired defensively so this branch
+      // compiles + behaves sanely standalone (scheduler-only fallback, no seek);
+      // the integrator reconciles once `this.timeController` is real.
+      timeStatus: () => {
+        const tc = (this as any).timeController; // WP-A lands timeController; integrator reconciles
+        const requestedRate = tc ? tc.getRequestedRate() : this.scheduler.getRate();
+        const effectiveRate = tc ? tc.getEffectiveRate() : requestedRate;
+        return {
+          requestedRate,
+          effectiveRate,
+          ladder: FALLBACK_RATE_LADDER,
+          paused: requestedRate === 0,
+          clockLabel: calendarLabel(this.state.clock.now()),
+          seeking: tc ? tc.seekStatus() : null,
+        };
+      },
+      onTimeCommand: (cmd) => {
+        const tc = (this as any).timeController; // WP-A lands timeController; integrator reconciles
+        if (tc) {
+          switch (cmd.kind) {
+            case 'set_rate': tc.cancelSeek(); tc.setRate(cmd.rate); break;
+            case 'toggle_pause': tc.cancelSeek(); tc.setRate(tc.getRequestedRate() === 0 ? 1 : 0); break;
+            case 'skip_to_next_event': tc.requestSeek(); break;
+            case 'cancel_seek': tc.cancelSeek(); break;
+          }
+        } else {
+          // Scheduler-only fallback — no seek engine without a TimeController.
+          switch (cmd.kind) {
+            case 'set_rate': this.scheduler.setRate(cmd.rate); break;
+            case 'toggle_pause': this.scheduler.setRate(this.scheduler.getRate() === 0 ? 1 : 0); break;
+            case 'skip_to_next_event':
+            case 'cancel_seek':
+              break;
+          }
+        }
+        this.requestRender();
+      },
     });
     this.cleanupUi = ui.attach(this.canvas);
 
@@ -790,8 +843,8 @@ export class Game {
     // gated by `legacyChrome` at their render sites.
     if (this.barebones) {
       this.ui.suppressLegacyChrome();
-      // The top-right anchor holds only the legacy time chip (time stays reachable
-      // via the T key / time bar). The top-left anchor is empty but hide it too.
+      // The DOM time chip never mounts here in barebones (see above); hide the
+      // anchor anyway (idempotent) — the top-left anchor is empty but hide it too.
       this.chrome.anchorTopRight.style.display = 'none';
       this.chrome.anchorTopLeft.style.display = 'none';
     }
@@ -1245,7 +1298,7 @@ export class Game {
         applySkip(this.state.world, this.state.clock, this.state.rng, this.state.eventLog, years, this.state.trample);
         this.timeline.commitSkip();
         // Immediate chrome refresh (the era_skipped chip self-appends via the event log).
-        this.timeChip.refresh();
+        this.timeChip?.refresh();
         this.timeBar?.refresh();
         this.requestRender();  // the world jumped — redraw even if paused
       },
@@ -1480,7 +1533,7 @@ export class Game {
     const r0 = performance.now();
     this.renderer.render(deltaMs);
     this.fps.frame(performance.now() - r0);
-    this.timeChip.refresh();
+    this.timeChip?.refresh();
     this.refreshPauseBanner();
     this.timeBar?.refresh();
     this.dev.updateTimeDebug();
@@ -1533,7 +1586,7 @@ export class Game {
     this.decorationImages.destroy();
     this.detachTimeKeys?.();
     this.timeBar?.dispose();
-    this.timeChip.dispose();
+    this.timeChip?.dispose();
     this.veil.dispose();
     this.chrome.dispose();
     this.dev.destroy();
