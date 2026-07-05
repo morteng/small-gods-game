@@ -507,6 +507,20 @@ export interface FilletReconcileSpan {
   cellsWritten: number;
 }
 
+/** One divergent span of an edge's filleted centerline, PLANNED but not applied: the candidate
+ *  ribbon cells plus any that fail a hard constraint. `badCells.length > 0` ⇒ the span falls
+ *  back (nothing written) — which is exactly what the `roads.ribbon-legal` lint contract reports:
+ *  the smoothed ribbon the player sees would cross ground the router never approved. */
+export interface FilletReconcilePlanSpan {
+  edgeId: string;
+  arcRange: [number, number];
+  /** The 4-connected candidate cells the smoothed ribbon needs (rounded, deduped). */
+  cells: { x: number; y: number }[];
+  /** The subset of `cells` failing a hard constraint (curtain / water-sans-bridge / building /
+   *  protected green). Empty ⇒ the span is applied by `reconcileFilletRaster`. */
+  badCells: { x: number; y: number }[];
+}
+
 /** Sample a polyline at ~`step` arc-length spacing (endpoints included), paired with each
  *  sample's own arc-length position along `pts` (for reporting divergent spans). */
 function denseSample(pts: ReadonlyArray<Pt>, step: number): { points: Pt[]; arcLens: number[] } {
@@ -595,28 +609,20 @@ function blockedForReconcile(
 }
 
 /**
- * Reconcile ONE divergent span of an edge's filleted centerline against the tile grid. `sample`
- * is the dense-sampled sub-run covering just that span (padded 1 sample into the matching
+ * PLAN the reconciliation of ONE divergent span of an edge's filleted centerline. `sample` is
+ * the dense-sampled sub-run covering just that span (padded 1 sample into the matching
  * neighbourhood on each side so the new cells stay 4-connected to the untouched raw tiles).
- * Validates every candidate cell; on success, stamps them via `applyRoadMask` (reusing the
- * exact tile-write rules `buildRoadGraph`/`rasterizeRoadGraph` already use — bridge/water
- * preserved, base biome recorded). On failure, writes nothing (fall back to the original tiles).
+ * Pure read: returns the candidate cells + the subset failing a hard constraint; nothing is
+ * written here. An empty `cells` list counts its own emptiness as illegal (nothing to stamp).
  */
-function reconcileSpan(
+function planSpan(
   map: GameMap, edge: RoadEdge, sample: Pt[], arcRange: [number, number],
   wallObstacles: ReadonlySet<string>, greenTiles: ReadonlySet<string>, world?: World,
-): FilletReconcileSpan {
+): FilletReconcilePlanSpan {
   const isBad = (x: number, y: number): boolean => blockedForReconcile(map, x, y, wallObstacles, greenTiles, world);
   const cells = fourConnectCells(roundCells(sample), isBad);
-  const safe = cells.length > 0 && cells.every((c) => !isBad(c.x, c.y));
-  if (!safe) return { edgeId: edge.id, arcRange, written: false, cellsWritten: 0 };
-  const mask: RoadMask = {
-    width: map.width,
-    height: map.height,
-    writes: cells.map((c) => ({ x: c.x, y: c.y, surface: edge.surface, bridge: false })),
-  };
-  applyRoadMask(map.tiles, mask);
-  return { edgeId: edge.id, arcRange, written: true, cellsWritten: cells.length };
+  const badCells = cells.filter((c) => isBad(c.x, c.y));
+  return { edgeId: edge.id, arcRange, cells, badCells };
 }
 
 /**
@@ -640,6 +646,33 @@ function reconcileSpan(
  * blocked check consults the real building registry, not just tile flags.
  */
 export function reconcileFilletRaster(map: GameMap, world?: World): FilletReconcileSpan[] {
+  return planFilletReconcile(map, world).map((span) => {
+    const legal = span.cells.length > 0 && span.badCells.length === 0;
+    if (!legal) return { edgeId: span.edgeId, arcRange: span.arcRange, written: false, cellsWritten: 0 };
+    const mask: RoadMask = {
+      width: map.width,
+      height: map.height,
+      writes: span.cells.map((c) => ({ x: c.x, y: c.y, surface: surfaceOfEdge(map, span.edgeId), bridge: false })),
+    };
+    applyRoadMask(map.tiles, mask);
+    return { edgeId: span.edgeId, arcRange: span.arcRange, written: true, cellsWritten: span.cells.length };
+  });
+}
+
+/** The surface of a graph edge by id (planned spans carry only the id). */
+function surfaceOfEdge(map: GameMap, edgeId: string): RoadEdge['surface'] {
+  return map.roadGraph?.edges.find((e) => e.id === edgeId)?.surface ?? 'dirt';
+}
+
+/**
+ * PURE planning half of the fillet↔raster reconciliation — every divergent span of every road
+ * edge's filleted centerline, with its candidate ribbon cells and any hard-constraint violations.
+ * Reads only committed map/world state (no tile writes), so it doubles as the evaluator for the
+ * `roads.ribbon-legal` lint contract: a span with `badCells` means the smoothed ribbon the player
+ * sees crosses ground the router never approved AND the reconciliation had to fall back — the
+ * Galin "re-validate after smoothing" bug class, surfaced instead of silently shipped.
+ */
+export function planFilletReconcile(map: GameMap, world?: World): FilletReconcilePlanSpan[] {
   const graph = map.roadGraph;
   if (!graph || !map.tiles?.length) return [];
   const nodeById = new Map(graph.nodes.map((nd) => [nd.id, nd]));
@@ -647,7 +680,7 @@ export function reconcileFilletRaster(map: GameMap, world?: World): FilletReconc
   const wallObstacles = gateApproachPlan(map.barrierRuns ?? [], [], map.worldSeed?.pois ?? []).wallObstacles;
   const greenTiles = collectGreenTiles(map);
 
-  const results: FilletReconcileSpan[] = [];
+  const results: FilletReconcilePlanSpan[] = [];
   for (const edge of graph.edges) {
     if (edge.feature !== 'road' || edge.polyline.length < 2) continue;
     const profile = edgeRoadProfile(map, edge, nodeById, poiById);
@@ -674,7 +707,7 @@ export function reconcileFilletRaster(map: GameMap, world?: World): FilletReconc
       while (j + 1 < dists.length && dists[j + 1] > tol) j++;
       const from = Math.max(0, i - 1);
       const to = Math.min(dists.length - 1, j + 1);
-      results.push(reconcileSpan(
+      results.push(planSpan(
         map, edge, sampled.slice(from, to + 1), [arcLens[from], arcLens[to]], wallObstacles, greenTiles, world,
       ));
       i = j + 1;
