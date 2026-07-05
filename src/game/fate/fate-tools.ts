@@ -13,8 +13,22 @@ import type { LLMTool, LLMToolCall } from '@/llm/llm-client';
 import type { Command } from '@/sim/command/types';
 import type { StagedBeat } from '@/sim/threads/staging-types';
 import type { SettlementEventType } from '@/core/types';
+import { authorBlueprint } from '@/blueprint/authoring';
+import { BUILDING_BLUEPRINTS } from '@/blueprint/presets';
+import type { Descriptors, Wealth, Quality, Condition } from '@/blueprint/types';
 
 export const FATE_ROLES = ['preacher', 'skeptic', 'refugee'] as const;
+
+/** The building presets Fate may raise — the shipped building vocabulary, read from
+ *  the registry so the tool enum can NEVER drift from what actually resolves. */
+export const FATE_BUILDING_PRESETS: readonly string[] = Object.entries(BUILDING_BLUEPRINTS)
+  .filter(([, b]) => b.class === 'building')
+  .map(([k]) => k);
+/** Descriptor vocabularies for the optional restyle knobs (runtime mirrors of the
+ *  Wealth/Quality/Condition types — validated so only known values ride through). */
+const FATE_WEALTH: readonly Wealth[] = ['destitute', 'poor', 'modest', 'comfortable', 'rich', 'opulent'];
+const FATE_QUALITY: readonly Quality[] = ['crude', 'plain', 'fine', 'ornate'];
+const FATE_CONDITION: readonly Condition[] = ['pristine', 'lived_in', 'worn', 'dilapidated'];
 
 export const FATE_EVENT_TYPES: readonly SettlementEventType[] = [
   'drought', 'festival', 'dispute', 'plague', 'raiders', 'trading_caravan', 'stranger_arrives', 'harvest_blessing',
@@ -113,6 +127,28 @@ export const FATE_TOOLS: LLMTool[] = [
       required: ['rivalId'],
     },
   },
+  {
+    name: 'author_building',
+    description:
+      'Raise a NEW building in a settlement the unfolding story already touches — a shrine after a miracle, ' +
+      'a tavern as a village swells. Name a preset from the building vocabulary and the settlement; it is ' +
+      'placed on a clear plot near the centre. Optional descriptors restyle it (a rich, ornate manor; a worn ' +
+      'cottage). GROUNDED ONLY: the settlement must be one listed in the active threads, and the building must ' +
+      'read as a natural mark of what just happened. A malformed structure is rejected automatically. Prefer ' +
+      'modest, fitting buildings; a lasting building is a heavy hand — use it rarely.',
+    parameters: {
+      type: 'object',
+      properties: {
+        subjectPoiId: { type: 'string', description: 'A settlement id from the listed active threads. Required.' },
+        preset: { type: 'string', enum: [...FATE_BUILDING_PRESETS], description: 'Which building to raise. Required.' },
+        wealth: { type: 'string', enum: [...FATE_WEALTH], description: 'Optional: how prosperous it looks.' },
+        quality: { type: 'string', enum: [...FATE_QUALITY], description: 'Optional: craftsmanship.' },
+        condition: { type: 'string', enum: [...FATE_CONDITION], description: 'Optional: condition when built.' },
+        style: { type: 'string', description: 'Optional: a short style hint (open vocabulary).' },
+      },
+      required: ['subjectPoiId', 'preset'],
+    },
+  },
 ];
 
 export interface FateToolCtx {
@@ -151,6 +187,9 @@ export function parseFateToolCalls(
       if (cmd) commands.push(cmd);
     } else if (c.name === 'set_rival_stance') {
       const cmd = parseSetRivalStance(c, ctx);
+      if (cmd) commands.push(cmd);
+    } else if (c.name === 'author_building') {
+      const cmd = parseAuthorBuilding(c, ctx);
       if (cmd) commands.push(cmd);
     }
   }
@@ -233,4 +272,38 @@ function parseSetRivalStance(c: LLMToolCall, ctx: FateToolCtx): Omit<Command, 's
   }
   if (!any) { console.warn('[fate] dropped set_rival_stance: no finite deltas', rivalId); return null; }
   return { verb: 'set_rival_stance', source: 'fate', target: { kind: 'none' }, payload };
+}
+
+/**
+ * Author a new building for a grounded settlement. This is the runtime endpoint of the
+ * building-authoring harness: the model names a preset (+ optional restyle descriptors),
+ * and `authorBlueprint` RESOLVES AND LINTS it before anything is placed. A building that
+ * fails to resolve or carries an error-severity lint is dropped HERE — a runtime agent
+ * physically cannot stamp a broken structure. On success the *already-resolved* blueprint
+ * rides through in the command payload, so `place_building` stamps exactly what was gated
+ * (no re-resolution, no drift). Drift-guarded to a real settlement (never a causal site).
+ */
+function parseAuthorBuilding(c: LLMToolCall, ctx: FateToolCtx): Omit<Command, 'seq'> | null {
+  const a = c.arguments as Record<string, unknown>;
+  const poiId = typeof a.subjectPoiId === 'string' ? a.subjectPoiId : '';
+  if (!ctx.validPoiIds.has(poiId)) { console.warn('[fate] dropped author_building: unknown subjectPoiId', poiId); return null; }
+  if (isSiteId(poiId)) { console.warn('[fate] dropped author_building: a causal site cannot hold a building', poiId); return null; }
+  const preset = typeof a.preset === 'string' ? a.preset : '';
+  if (!FATE_BUILDING_PRESETS.includes(preset)) { console.warn('[fate] dropped author_building: unknown preset', preset); return null; }
+
+  // Only known descriptor-enum values ride through (an unknown one is ignored, not passed on).
+  const descriptors: Descriptors = {};
+  if (typeof a.wealth === 'string' && (FATE_WEALTH as readonly string[]).includes(a.wealth)) descriptors.wealth = a.wealth as Wealth;
+  if (typeof a.quality === 'string' && (FATE_QUALITY as readonly string[]).includes(a.quality)) descriptors.quality = a.quality as Quality;
+  if (typeof a.condition === 'string' && (FATE_CONDITION as readonly string[]).includes(a.condition)) descriptors.condition = a.condition as Condition;
+  if (typeof a.style === 'string' && a.style.trim()) descriptors.style = a.style.trim();
+  const hasDesc = Object.keys(descriptors).length > 0;
+
+  // THE GATE. Pure + deterministic; safe to run inline off the sim tick.
+  const verdict = authorBlueprint(hasDesc ? { preset, descriptors } : { preset });
+  if (!verdict.ok || !verdict.rb) {
+    console.warn('[fate] dropped author_building: failed the authoring gate —', verdict.summary);
+    return null;
+  }
+  return { verb: 'place_building', source: 'fate', target: { kind: 'settlement', poiId }, payload: { resolved: verdict.rb } };
 }

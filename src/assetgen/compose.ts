@@ -53,6 +53,12 @@ export interface DoorAnchorN extends NormAnchor { main: boolean }
 /** A mount socket projected onto the sprite: normalised x/y (opaque-bbox 0..1) plus the role
  *  and the `accepts` tokens + metric `z` carried over for a decoration/fauna pass to read. */
 export interface MountAnchorN extends NormAnchor { kind: MountAnchorKind; z: number; accepts?: string[] }
+/** A world-space point (geometry tile frame: x/y tiles, z cube-units) tagged with an id,
+ *  handed to compose so the SAME fit+yaw+bbox-normalisation that places the sprite also
+ *  reports where the point lands — used by the authoring montage to stamp Set-of-Mark part
+ *  labels at pixel-accurate positions. Additive: absent ⇒ no `labels`, goldens untouched. */
+export interface LabelPoint { id: string; x: number; y: number; z: number }
+export interface LabelN extends NormAnchor { id: string }
 /** `doors` is retained for shape-compat but is always empty now: doors became carved
  *  openings (Blueprint layer) and their pathing anchors live in the world-space `toAnchors`
  *  compiler, not in the sprite-space structure anchors. `tags` = the projected mount sockets. */
@@ -68,6 +74,9 @@ export interface StructureResult {
   size: number; meta: StructureMeta; bbox: BBox; anchors: StructureAnchors;
   /** Geometry-projected ground cast shadow (baked from the same facets), or null. */
   shadow?: GroundShadow | null;
+  /** Present ONLY when `opts.labelPoints` was passed — each point normalised (0..1) to the
+   *  opaque bbox through the SAME fit/yaw as the sprite. For the authoring montage overlay. */
+  labels?: LabelN[];
 }
 
 /** Build one part's solid(s) → facets, plus any world-space anchors (buildings only). */
@@ -147,6 +156,10 @@ export interface ComposeOpts {
    *  by the surface engine at their world position (kills the flat grey-massing look,
    *  freeze-safe procedural). Default off so goldens stay pinned until K0d flips the default. */
   surfaceTexture?: boolean;
+  /** World-space points (geometry tile frame) to project onto the sprite alongside the
+   *  geometry, returned as `result.labels`. Additive — absent ⇒ no `labels`, output byte-
+   *  identical. Used by the authoring montage to place Set-of-Mark part labels. */
+  labelPoints?: LabelPoint[];
 }
 
 /** Geometry world units per metre — feature wavelengths are authored in metres. */
@@ -304,5 +317,11 @@ export async function composeStructure(spec: StructureSpec, shadowSun?: [number,
     }));
   }
 
-  return { grey, normal, material: maps.material, emissive: maps.emissive, size, meta: { bbox, anchors, depthRange }, bbox, anchors, shadow };
+  // Authoring-montage label points: project each through the SAME fit+yaw+bbox-norm as the
+  // sprite so an overlay marker lands exactly on the part. Absent unless a caller asked.
+  const labels: LabelN[] | undefined = opts?.labelPoints?.length
+    ? opts.labelPoints.map((p): LabelN => ({ id: p.id, ...norm([p.x, p.y, p.z]) }))
+    : undefined;
+
+  return { grey, normal, material: maps.material, emissive: maps.emissive, size, meta: { bbox, anchors, depthRange }, bbox, anchors, shadow, ...(labels ? { labels } : {}) };
 }
