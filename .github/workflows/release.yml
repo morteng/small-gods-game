@@ -1,13 +1,18 @@
 name: Release (Linux desktop)
 
-# Tag-triggered ONLY. This is the only extra Actions usage we add — it runs on a
-# `v*` tag (a rare event), never on push. Cut a release locally with
-# `npm run release` then `git push --follow-tags` (see docs/RELEASING.md).
+# MANUAL FALLBACK ONLY (workflow_dispatch). The primary release path builds the
+# AppImage on the shared `ci-eph` Hetzner box and publishes from the Mac via
+# `scripts/release-desktop.sh` — so tagged releases cost ZERO Actions minutes
+# (infra Phase 1, Option A). This workflow is kept as a break-glass path for when
+# the Mac/ci-eph is unavailable: trigger it by hand from the Actions tab against a
+# `v*` tag. It is NOT tag-triggered, so it never double-publishes alongside the
+# local build. See docs/RELEASING.md.
 on:
-  push:
-    tags:
-      - 'v*'
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing v* tag to build and release (e.g. v0.2.0)'
+        required: true
 
 permissions:
   contents: write # create the GitHub Release and upload the AppImage
@@ -17,6 +22,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }} # build the exact tag chosen in the dispatch form
 
       - uses: actions/setup-node@v4
         with:
@@ -34,6 +41,7 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ inputs.tag }} # not tag-triggered, so name the Release explicitly
           files: |
             release/*.AppImage
             release/latest-linux.yml
@@ -47,8 +55,10 @@ jobs:
         env:
           BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
           ITCH_TARGET: ${{ vars.ITCH_TARGET }}
+          TAG: ${{ inputs.tag }}
         run: |
           curl -sL -o butler.zip https://broth.itch.zone/butler/linux-amd64/LATEST/archive/default
           unzip -q butler.zip
           chmod +x butler
-          ./butler push release/*.AppImage "$ITCH_TARGET" --userversion "${GITHUB_REF_NAME#v}"
+          ./butler push release/*.AppImage "$ITCH_TARGET" --userversion "${TAG#v}"
+        # TAG comes from the dispatch input (no GITHUB_REF_NAME on manual runs).

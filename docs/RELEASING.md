@@ -5,7 +5,7 @@ Two delivery surfaces, deliberately kept cheap on CI:
 | Surface | What | How it ships |
 | --- | --- | --- |
 | **Web (dev build)** | The live WebGPU game | GitHub Pages, auto-deploys on every push to `main` (`deploy.yml`) — unchanged |
-| **Linux desktop** | Electron AppImage bundling Chromium+Dawn → **guaranteed WebGPU** even for users whose browser/system lacks it | Built once per `v*` tag (`release.yml`), uploaded to a GitHub Release + itch.io |
+| **Linux desktop** | Electron AppImage bundling Chromium+Dawn → **guaranteed WebGPU** even for users whose browser/system lacks it | Built on the shared `ci-eph` box, published from the Mac via `scripts/release-desktop.sh` (zero Actions minutes) — GitHub Release + itch.io |
 
 > **Why Electron, not the `src-tauri/` scaffold?** Tauri uses the system webview
 > (webkit2gtk on Linux), which doesn't ship WebGPU on stock distros — so it can't reach
@@ -33,14 +33,30 @@ npm run release -- --release-as 0.2.0
 #   first ever tag (keep 0.1.0, just tag + changelog):
 npm run release -- --first-release
 
-# 2. Push the commit AND the tag. The tag is what triggers the build.
+# 2. Push the commit AND the tag.
 git push --follow-tags origin main
+
+# 3. Build the desktop AppImage on ci-eph and publish it from here (no Actions):
+./scripts/release-desktop.sh    # tag = v<package.json version>; --tag=vX.Y.Z to override
 ```
 
-Pushing the `v*` tag fires `release.yml` on `ubuntu-latest`: it runs `npm run dist:linux`
-(`tsc` → `vite build` with `VITE_BASE=/` → `electron-builder --linux AppImage`), attaches
-`release/small-gods-<version>-x64.AppImage` **and `release/latest-linux.yml`** to a GitHub
-Release, and — once itch is wired — pushes the AppImage to itch.io.
+`release-desktop.sh` builds the AppImage **on the shared `ci-eph` Hetzner box**
+(`ci-on-server.sh --run="npm run dist:linux" --out=release`, `electron-builder
+--publish never` → no token on the box), fetches `release/small-gods-<version>-x64.AppImage`
+**and `release/latest-linux.yml`** back to the Mac, then creates/updates the GitHub
+Release for the tag and uploads both with your local `gh` auth. Zero Actions minutes,
+and the publish token never leaves your machine.
+
+> **Why off Actions?** Same reason as CI (infra Phase 1, Option A): heavy builds run on
+> the shared ephemeral box, not on paid runners. `git push --follow-tags` no longer
+> triggers a build — the release is a deliberate, local `./scripts/release-desktop.sh` step.
+
+### Break-glass: build on Actions instead
+
+If the Mac or `ci-eph` is unavailable, `release.yml` is kept as a **manual** fallback:
+open the repo's **Actions → Release (Linux desktop) → Run workflow**, enter the `v*` tag,
+and it builds+publishes on `ubuntu-latest` exactly as `release-desktop.sh` would. It is
+**not** tag-triggered, so it never double-publishes alongside the local path.
 
 ## Self-update (desktop)
 
