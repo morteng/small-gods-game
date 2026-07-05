@@ -84,6 +84,30 @@ Files: `river-network.ts` (`reachMeander`, `smoothCenterline`) + a small per-rea
 Deterministic (same hash-seeded phase). Everything downstream (tiles/carve/SDF/mask) consumes
 centerlines unchanged. This is the highest leverage-per-line worldgen change.
 
+> **SHIPPED 2026-07-05 (WCV 86).** Done as written, with two corrections from building it:
+> - **Slope source:** `reachValleySlope` reads the `hydro.surfaceW` water-surface raster (already
+>   on every reach cell) rather than re-sampling bed elevation — same gradient, no new plumbing. A
+>   second centerline pass runs it once the per-world reference flow (√Q width) is known.
+> - **Sinuosity ratio was inverted in the spec.** `K = S_v / S_channel` makes *steep* reaches the
+>   curvy ones. Shipped as `K = clamp(S꜀ / S_v, 1.05, 2.5)` — flatter valley ⇒ curvier, which is
+>   what "steep runs straight, lowland wanders" actually requires.
+> - `MEANDER_SLOPE_K = 0.16` calibrated on 6 probe seeds (median ~59 % of reaches meander,
+>   38–100 % by terrain relief; K p50 1.3–2.3, p90 pinned at the 2.5 ceiling).
+> - **Confinement clamp DEFERRED** (its own follow-up): it needs a perpendicular land-elevation
+>   probe, but `buildWaterNetwork` only receives `hydro` (surfaceW is water-only, −1 on land).
+>   Threading a heightfield through all three call sites (map-generator / river-deformation /
+>   water-network-store) risks breaking the centerline agreement they currently share.
+> - **Downstream coupling the spec missed — "everything consumes centerlines unchanged" is FALSE.**
+>   Bridge deck **seating** and croft **gate derivation** are position-sensitive: moving a channel
+>   under a crossing put a deck abutment in open water / a road across a gateless wall (3 `lint:world`
+>   errors on seed 12345 with a 9-tile cap). Two guards fix it without touching those passes:
+>   (a) a reach shorter than one wavelength runs straight (`MEANDER_MIN_LEN_WAVELENGTHS = 1` — short
+>   connector reaches are where crossings sit); (b) amplitude capped at `min(3·fullW, **2.75 tiles**)`,
+>   the historically-safe belt band (pre-R1 was 2.8). Kept conservative because the live game rolls
+>   random gen seeds the 2-seed lint can't all cover — a barely-passing edge value would break unseen
+>   seeds. **Unlocking bigger belts is a follow-up:** confinement clamp + making bridge-seating /
+>   croft-gate derivation adapt to a meandered (angled/wider) crossing.
+
 *Later upgrade (own slice, only if meander HISTORY wanted as narrative terrain):* Paris et al.
 SIGGRAPH Asia 2023 kinematic migration (MIT code, runs at our grid size, terrain-gradient falloff
 makes it confinement-aware for free, oxbow cutoffs at 1×W) — ~800 LOC port, 3–5 days.

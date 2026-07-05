@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { generateHydrology } from '@/terrain/hydrology';
 import {
   buildWaterNetwork, summarizeNetwork, smoothCenterline, classifyReach, classifyLake,
+  reachValleySlope, reachMeander, MEANDER_SLOPE_K, MEANDER_SLOPE_Q_EXP, MEANDER_AMP_CAP_TILES,
 } from '@/terrain/river-network';
 import { WaterType, type TerrainField } from '@/core/types';
 
@@ -133,5 +134,79 @@ describe('water connectome — river network extraction', () => {
     expect(sm[sm.length - 1].x).toBeCloseTo(3.5, 5);
     expect(sm[sm.length - 1].y).toBeCloseTo(1.5, 5);
     expect(sm.length).toBeGreaterThan(control.length);   // genuinely subdivided
+  });
+});
+
+describe('gradient-aware meanders (rivers R1)', () => {
+  const W = 20;
+  // A horizontal reach along row 0 (cells 0..len-1), with a water surface that descends
+  // by `slopePerTile` each step. surfaceW < 0 is the dry-land sentinel.
+  function horizReach(len: number, slopePerTile: number): { cells: number[]; surf: Float32Array } {
+    const surf = new Float32Array(W * W).fill(-1);
+    const cells: number[] = [];
+    for (let x = 0; x < len; x++) { cells.push(x); surf[x] = 5.0 - x * slopePerTile; }
+    return { cells, surf };
+  }
+  // Critical slope at a given flow — the meander/straight boundary.
+  const crit = (flow: number): number => MEANDER_SLOPE_K * Math.pow(Math.max(flow, 1), MEANDER_SLOPE_Q_EXP);
+
+  it('reachValleySlope = surface drop over D8 path length (tiles)', () => {
+    const { cells, surf } = horizReach(5, 0.1);   // drop 0.4 over 4 tiles
+    expect(reachValleySlope(cells, surf, W)).toBeCloseTo(0.1, 6);
+    // A dry-sentinel endpoint yields no usable gradient.
+    surf[cells[cells.length - 1]] = -1;
+    expect(reachValleySlope(cells, surf, W)).toBe(0);
+  });
+
+  const LONG = 1000;   // a reach long enough to host a meander (past the min-length gate)
+
+  it('a STEEP reach (S_v ≥ S꜀) runs straight — no injected meander', () => {
+    const flow = 2500;
+    const steep = crit(flow) * 2;                 // well above threshold
+    const cfg = reachMeander(flow, 1, steep, LONG, 3, 7);
+    expect(cfg.amp).toBe(0);
+  });
+
+  it('a SHORT reach (< one wavelength) runs straight — bridges/gates sit here', () => {
+    const flow = 2500, gentle = crit(flow) / 1.6;
+    // fullW = 2 ⇒ wavelength ≈ 22 tiles; a 10-tile connector reach has no room to bend.
+    const shortCfg = reachMeander(flow, 1, gentle, 10, 3, 7);
+    const longCfg = reachMeander(flow, 1, gentle, LONG, 3, 7);
+    expect(shortCfg.amp).toBe(0);
+    expect(longCfg.amp).toBeGreaterThan(0);       // same reach, only length differs
+  });
+
+  it('a GENTLE reach (S_v < S꜀) meanders, and flatter ⇒ larger amplitude', () => {
+    const flow = 2500;
+    const c = crit(flow);
+    // A thin channel (halfWidth 0.4 ⇒ small wavelength) keeps both amplitudes below the
+    // caps, so K genuinely drives the amplitude. K stays < 1.61 (above which the width
+    // cap binds and both would pin equal).
+    const mild = reachMeander(flow, 0.4, c / 1.2, LONG, 3, 7);   // K ≈ 1.2
+    const flat = reachMeander(flow, 0.4, c / 1.5, LONG, 3, 7);   // K ≈ 1.5 (flatter)
+    expect(mild.amp).toBeGreaterThan(0);
+    expect(flat.amp).toBeGreaterThan(mild.amp);          // flatter valley → curvier
+  });
+
+  it('wavelength scales with channel width (λ ≈ 11 × full width)', () => {
+    const flow = 2500, slope = crit(flow) / 1.5;
+    const thin = reachMeander(flow, 1, slope, LONG, 3, 7);     // fullW = 2
+    const wide = reachMeander(flow, 2, slope, LONG, 3, 7);      // fullW = 4 (same spring ⇒ same jitter)
+    expect(wide.wavelength).toBeCloseTo(2 * thin.wavelength, 5);
+  });
+
+  it('amplitude is bounded by the absolute tile cap (no confinement clamp yet)', () => {
+    // A very flat, very wide reach would otherwise wander arbitrarily far.
+    const cfg = reachMeander(9000, 3.2, 1e-6, LONG, 3, 7);
+    expect(cfg.amp).toBeLessThanOrEqual(MEANDER_AMP_CAP_TILES + 1e-9);
+    expect(cfg.amp).toBeGreaterThan(0);
+  });
+
+  it('is deterministic — same inputs re-derive an identical config', () => {
+    const a = reachMeander(2500, 1.4, 0.002, LONG, 11, 13);
+    const b = reachMeander(2500, 1.4, 0.002, LONG, 11, 13);
+    expect(a).toEqual(b);
+    // The exponent is the Leopold–Wolman threshold slope exponent.
+    expect(MEANDER_SLOPE_Q_EXP).toBeCloseTo(-0.44, 6);
   });
 });

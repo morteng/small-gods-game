@@ -238,15 +238,88 @@ export function meanderPolyline(pts: Pt[], cfg: MeanderConfig): Pt[] {
   return out;
 }
 
-/** Meander shape for a reach of channel Strahler `order`, jittered + sized off the
- *  spring cell (deterministic). Bigger channels meander broader + longer-wavelength. */
-export function reachMeander(order: number, springX: number, springY: number): MeanderConfig {
-  const wHalf = 0.4 + 0.45 * Math.min(order, 4);         // ~channel half-width proxy (tiles)
-  const j1 = hash01(springX, springY), j2 = hash01(springY * 3, springX * 5);
-  const wavelength = Math.max(8, 24 * wHalf * (0.85 + 0.3 * j1));
-  const amp = Math.min(2.8, (wavelength / 9) * (0.8 + 0.4 * j2));
+/**
+ * Down-VALLEY slope of a reach: the fall in water-surface elevation from its upstream
+ * end to its downstream end over the raw D8 path length (tiles). This is the gradient
+ * the channel MUST descend; meandering is how a river lengthens itself to soften it.
+ * `surfaceW` is the hydrology water-surface raster (normalized elevation units, −1 on
+ * dry land); a dry-sentinel endpoint means no usable gradient (return 0 → straight).
+ * Units are normalized-elev-per-tile — the meander constants are calibrated in these
+ * same units, so the absolute vertical scale is absorbed. Pure.
+ */
+export function reachValleySlope(cells: number[], surfaceW: Float32Array, W: number): number {
+  const n = cells.length;
+  if (n < 2) return 0;
+  const z0 = surfaceW[cells[0]], z1 = surfaceW[cells[n - 1]];
+  if (!(z0 >= 0) || !(z1 >= 0)) return 0;                 // dry sentinel ⇒ no gradient
+  let len = 0;
+  for (let i = 1; i < n; i++) {
+    const a = cells[i - 1], b = cells[i];
+    const dx = (b % W) - (a % W), dy = ((b / W) | 0) - ((a / W) | 0);
+    len += Math.hypot(dx, dy);
+  }
+  return len > 0 ? Math.max(0, z0 - z1) / len : 0;
+}
+
+// ── Meander planform (gradient-driven; rivers R1) ──────────────────────────────────
+// A channel does not meander by whim — it lengthens itself to spend a fixed slope. The
+// Leopold–Wolman threshold S꜀ = k·Q^−0.44 separates the straight/steep regime (bedrock
+// & mountain streams, S_v ≥ S꜀) from the sinuous alluvial regime (S_v < S꜀); the
+// flatter the valley sits below that line, the curvier the river. We size the wave from
+// geomorphology, not vibes:
+//   • gate: reach steeper than S꜀ gets NO injected meander (Chaikin smoothing only).
+//   • sinuosity K = clamp(S꜀ / S_v, 1.05, MAX) — flatter valley ⇒ higher sinuosity.
+//     (The spec sketched K = S_v/S_channel; that ratio is inverted — it would make
+//     steep reaches the curvy ones. S꜀/S_v is the physically correct reading and the
+//     one that yields "steep runs straight, lowland wanders".)
+//   • wavelength λ ≈ 11 · full channel width (Leopold's meander-length scaling), off
+//     the REAL hydraulic width (√Q), not the old order proxy.
+//   • amplitude from Williams (1986) belt-width fit A/λ ≈ 0.9743·ln K + 0.0803, halved
+//     (Williams A is peak-to-peak; meanderPolyline's amp is peak-to-centerline), then
+//     an absolute cap in channel widths so a trunk can't wander off its corridor (the
+//     confinement clamp — perpendicular valley-floor probing — is a later slice).
+
+/** Leopold–Wolman threshold coefficient, in (normalized-elev/tile)·Q^0.44 units. Below
+ *  S꜀ = k·Q^−0.44 a reach meanders; above it runs straight. Calibrated on the probe
+ *  seeds so headwaters/steep reaches straighten and lowland trunks wander. */
+export const MEANDER_SLOPE_K = 0.16;
+export const MEANDER_SLOPE_Q_EXP = -0.44;   // Leopold–Wolman threshold exponent
+export const MEANDER_SINUOSITY_MAX = 2.5;
+export const MEANDER_WAVELENGTH_WIDTHS = 11; // λ ≈ 11 × full channel width (Leopold)
+export const MEANDER_AMP_CAP_WIDTHS = 3;     // belt scales with channel width…
+export const MEANDER_AMP_CAP_TILES = 2.75;   // …but never past this (no confinement clamp yet)
+/** A reach must be at least this many wavelengths long to host a meander. Below it the
+ *  reach is a short junction-to-junction connector (the very reaches roads bridge and
+ *  croft walls gate) — a real river bridges/crosses at STRAIGHT narrow reaches, and a
+ *  sub-wavelength reach has no room to develop a bend anyway. Straightening these keeps
+ *  crossings/gate-seating on the un-displaced channel (bridge/croft reconciliation is
+ *  position-sensitive — moving a short crossing reach unseats its deck). */
+export const MEANDER_MIN_LEN_WAVELENGTHS = 1;
+
+/**
+ * Gradient-driven meander shape for a reach. `flow` is the flow-accumulation proxy for
+ * discharge Q, `halfWidth` the channel half-width (tiles) at the reach mouth,
+ * `valleySlope` the down-valley gradient from `reachValleySlope`, and `reachLen` the
+ * reach's raw arc length (tiles). Steep, gradient-unknown, or TOO-SHORT reaches return a
+ * zero-amplitude (straight) config. Deterministic: the spring cell seeds the phase + a
+ * hair of wavelength jitter so parallel reaches don't lock.
+ */
+export function reachMeander(
+  flow: number, halfWidth: number, valleySlope: number, reachLen: number,
+  springX: number, springY: number,
+): MeanderConfig {
   const phase = hash01(springX + 7, springY + 13) * Math.PI * 2;
-  return { amp, wavelength, phase, skew: 0.18 };
+  const straight: MeanderConfig = { amp: 0, wavelength: 1, phase, skew: 0 };
+  const critical = MEANDER_SLOPE_K * Math.pow(Math.max(flow, 1), MEANDER_SLOPE_Q_EXP);
+  if (valleySlope <= 0 || valleySlope >= critical) return straight;  // steep ⇒ straight
+  const K = Math.min(MEANDER_SINUOSITY_MAX, Math.max(1.05, critical / valleySlope));
+  const fullW = Math.max(2 * halfWidth, 1);
+  const wavelength = MEANDER_WAVELENGTH_WIDTHS * fullW;
+  if (reachLen < MEANDER_MIN_LEN_WAVELENGTHS * wavelength) return straight;  // no room ⇒ straight
+  const ampWilliams = 0.5 * wavelength * (0.9743 * Math.log(K) + 0.0803);
+  const amp = Math.min(MEANDER_AMP_CAP_WIDTHS * fullW, MEANDER_AMP_CAP_TILES, ampWilliams);
+  const j = hash01(springX, springY);
+  return { amp, wavelength: wavelength * (0.9 + 0.2 * j), phase, skew: 0.18 };
 }
 
 // ── Channel width by flow (downstream hydraulic geometry) ──────────────────────────
@@ -461,6 +534,7 @@ export function buildWaterNetwork(hydro: HydrologyResult, W: number, H: number, 
   // A reach is the maximal chain of channel cells between two nodes. Springs / outlets /
   // confluences all START a downstream reach; mouths / inlets only END one.
   const reaches: WaterReach[] = [];
+  const controls: Pt[][] = [];   // raw control polylines, parallel to reaches (2nd pass)
   const startsReach = (id: string): boolean => {
     const k = byId.get(id)!.kind;
     return k === 'spring' || k === 'lake_outlet' || k === 'confluence';
@@ -494,6 +568,7 @@ export function buildWaterNetwork(hydro: HydrologyResult, W: number, H: number, 
     const flow = flowField[cells[cells.length - 1]] ?? 0;
     const flowUp = flowField[cells[0]] ?? flow;
     const control: Pt[] = cells.map((c) => ({ x: (c % W) + 0.5, y: ((c / W) | 0) + 0.5 }));
+    controls.push(control);
     reaches.push({
       id: `wr:${node.cell}-${cells[cells.length - 1]}`,
       from: node.id,
@@ -504,9 +579,27 @@ export function buildWaterNetwork(hydro: HydrologyResult, W: number, H: number, 
       flowUp,
       klass: classifyReach(order, flow, threshold),
       lakeFed: node.kind === 'lake_outlet',
-      centerline: smoothCenterline(control, CENTERLINE_SPACING,
-        reachMeander(order, node.cell % W, (node.cell / W) | 0)),
+      centerline: [],   // filled in the 2nd pass once refFlow (min reach flow) is known
     });
+  }
+
+  // ── Second pass: meander each centerline. Meander SIZING needs the per-world
+  // reference flow (min reach flow ⇒ hydraulic width via √Q) and each reach's down-
+  // valley slope (gradient gate + sinuosity), neither of which is known until every
+  // reach exists — hence a second pass over the finished `reaches`. Deterministic. ──
+  let minFlow = Infinity;
+  for (const r of reaches) if (r.flow < minFlow) minFlow = r.flow;
+  const refFlowLocal = Number.isFinite(minFlow) && minFlow > 0 ? minFlow : 1;  // === referenceFlow()
+  for (let ri = 0; ri < reaches.length; ri++) {
+    const reach = reaches[ri];
+    const ctrl = controls[ri];
+    const sx = reach.cells[0] % W, sy = (reach.cells[0] / W) | 0;
+    const slope = reachValleySlope(reach.cells, hydro.surfaceW, W);
+    const half = halfWidthFromFlow(reach.flow, refFlowLocal);
+    let reachLen = 0;
+    for (let k = 1; k < ctrl.length; k++) reachLen += Math.hypot(ctrl[k].x - ctrl[k - 1].x, ctrl[k].y - ctrl[k - 1].y);
+    reach.centerline = smoothCenterline(ctrl, CENTERLINE_SPACING,
+      reachMeander(reach.flow, half, slope, reachLen, sx, sy));
   }
 
   const lakes = detectLakeBodies(hydro, W, H, nodeAtCell);

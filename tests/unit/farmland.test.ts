@@ -16,7 +16,11 @@ const ROAD = new Set(['dirt_road', 'stone_road', 'bridge']);
 describe('stampFarmland', () => {
   it('paints farm_field around farm buildings, never over water/roads/buildings', async () => {
     // generateWithNoise now stamps farmland as a gen phase, so the world ships with fields.
-    const { map, world } = await generateWithNoise(96, 96, 42, seed);
+    // Seed 23 puts the village on farmable ground (2 farms / ~32 fields). We avoid the old
+    // seed 42: it drops the large village onto a river floodplain (seat ~90% under water),
+    // a degenerate world whose farm count teeters on the exact river path — it flips 0↔3 on
+    // any river-geometry change and tested flood luck, not the farm-placement invariants below.
+    const { map, world } = await generateWithNoise(96, 96, 23, seed);
     expect((world.query({ tag: 'farm' }) as Entity[]).length).toBeGreaterThan(0);
     const fields: { x: number; y: number }[] = [];
     for (let y = 0; y < map.height; y++) for (let x = 0; x < map.width; x++) {
