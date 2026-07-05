@@ -46,7 +46,9 @@ describe('BirthSystem', () => {
     npcProps(a).beliefs['player'] = { faith: 0.8, understanding: 0.6, devotion: 0.2 };
     const { ctx, births } = ctxFor(world, 5, 0);
     const sys = new BirthSystem();
-    for (let t = 0; t < 3000 && births.length === 0; t++) sys.tick({ ...ctx, now: t });
+    // Each fire is one game-HOUR under 1:1 realtime (per-check chance ≈
+    // BIRTH_RATE_PER_PAIR/24), so give the pair several game-years of checks.
+    for (let t = 0; t < 100_000 && births.length === 0; t++) sys.tick({ ...ctx, now: t });
     expect(births.length).toBeGreaterThan(0);
     const child = world.registry.get(births[0])!;
     const cp = npcProps(child);

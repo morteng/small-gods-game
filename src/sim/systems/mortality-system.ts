@@ -1,6 +1,6 @@
 import type { System, SystemContext } from '@/core/scheduler';
 import type { Entity } from '@/core/types';
-import { DAYS_PER_YEAR } from '@/core/calendar';
+import { DAYS_PER_YEAR, GAME_HOUR_HZ } from '@/core/calendar';
 import { queryNpcs, npcProps } from '@/world/npc-helpers';
 import { killNpc } from '@/world/npc-lifecycle';
 import { ageInYears, annualMortality } from '@/sim/mortality';
@@ -9,14 +9,18 @@ import { ageInYears, annualMortality } from '@/sim/mortality';
 export const CRADLE_MORTALITY_FLOOR = 4;
 
 /**
- * 0.25 Hz → one fire per 4000 sim-ms = 240 ticks = one in-game day (TICKS_PER_DAY).
- * We treat each fire as one day, converting the annual hazard to a per-day chance.
+ * One fire per GAME HOUR. Under 1:1 realtime a day is 24 real hours; the old
+ * 0.25 Hz cadence (one fire per 4 s = one COMPRESSED day) would check 21,600×
+ * per day, which both churns the rng stream and pushes the per-check hazard
+ * below sfc32's ~2.3e-10 float resolution. Hourly checks keep the per-day
+ * hazard exact (per-hour derivation below) with clean probability resolution.
  */
-export const MORTALITY_TICK_HZ = 0.25;
+export const MORTALITY_TICK_HZ = GAME_HOUR_HZ;
 
-/** Per-day death chance derived from the annual hazard (1 of DAYS_PER_YEAR fires/yr). */
-function perDayMortality(age: number): number {
-  return 1 - Math.pow(1 - annualMortality(age), 1 / DAYS_PER_YEAR);
+/** Per-HOUR death chance derived from the annual hazard (DAYS_PER_YEAR × 24
+ *  checks per year) — preserves the per-day/per-year mortality meaning. */
+function perHourMortality(age: number): number {
+  return 1 - Math.pow(1 - annualMortality(age), 1 / (DAYS_PER_YEAR * 24));
 }
 
 export class MortalitySystem implements System {
@@ -32,7 +36,7 @@ export class MortalitySystem implements System {
     const victims: Entity[] = [];
     for (const e of ordered) {
       const age = ageInYears(npcProps(e).birthTick, ctx.now);
-      if (ctx.rng.next() < perDayMortality(age)) victims.push(e);
+      if (ctx.rng.next() < perHourMortality(age)) victims.push(e);
     }
     for (const e of victims) killNpc(ctx.world, e, ctx.now, 'old_age', ctx.log);
   }

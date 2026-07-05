@@ -607,7 +607,7 @@ export class Game {
     });
     this.fateTrigger = new FateTrigger({
       clock: this.state.clock,
-      cooldownTicks: 480,                       // ~5 game-days between deliberations
+      cooldownTicks: 480,                       // ≥8 real seconds between deliberations — an LLM-call throttle (real-time intent), NOT fiction pacing
       isReady: () => this.fateBrain.isReady(),
       onTrigger: (focus) => { void this.fateBrain.deliberate(focus); },
     });

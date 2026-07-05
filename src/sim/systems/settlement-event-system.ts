@@ -1,10 +1,12 @@
 /**
  * SettlementEventSystem — per-POI event rolling, lifecycle, and need effects.
  *
- * Runs at 1 Hz. Each tick:
+ * Runs at 1 Hz (per sim-second). Each fire:
  *   1. Applies active event need modifiers to NPCs in affected POIs
- *   2. Rolls dice for new events per POI (weighted by probability)
- *   3. Advances event timers and expires finished events
+ *   2. Rolls dice for new events per POI (per-day chances split across
+ *      86,400 one-per-second checks)
+ *   3. Advances event timers (by the 60-tick fire period) and expires
+ *      finished events
  *
  * Registration order matters: this system should run AFTER NpcSimSystem so
  * that base need decay happens first, then event modifiers layer on top.
@@ -16,31 +18,42 @@ import { forEachNpc, npcProps } from '@/world/npc-helpers';
 import { clamp01 } from '@/sim/npc-sim';
 import { Random } from '@/core/noise';
 import type { NpcNeeds, SettlementEventType, ActiveEvent } from '@/core/types';
-
-const TICKS_PER_DAY = 240;
+import { TICKS_PER_DAY } from '@/core/calendar';
 
 // ── Event configuration ──────────────────────────────────────────────────────
+//
+// 1:1-REALTIME RE-DERIVATION. Under the compressed clock this table mixed
+// units (per-fire chances, durations counted in 1 Hz fires but named "ticks"):
+// the EXPERIENCED behavior was "some event on most POIs, rotating every few
+// real minutes", which as fiction was incoherent. Re-authored in honest
+// fiction units — chances per DAY, durations/cooldowns in DAYS — targeting
+// "a settlement sees an event most days; disasters every few weeks".
 
 interface EventConfig {
-  /** Base per-tick roll probability per POI (no modifier). */
-  baseChance: number;
-  /** Min/max event duration in ticks. */
-  minDuration: number;
-  maxDuration: number;
-  /** Cooldown ticks before the same event type can re-fire on the same POI. */
-  cooldownTicks: number;
+  /** Chance per POI per DAY that this event begins (no modifier). */
+  chancePerDay: number;
+  /** Min/max event duration in days. */
+  minDays: number;
+  maxDays: number;
+  /** Cooldown days (from event END) before the same type re-fires on the POI. */
+  cooldownDays: number;
 }
 
 const EVENT_CONFIGS: Record<SettlementEventType, EventConfig> = {
-  drought:           { baseChance: 0.002,  minDuration: 120, maxDuration: 480, cooldownTicks: TICKS_PER_DAY * 4 },
-  festival:          { baseChance: 0.003,  minDuration: 30,  maxDuration: 90,  cooldownTicks: TICKS_PER_DAY * 2 },
-  dispute:           { baseChance: 0.004,  minDuration: 30,  maxDuration: 120, cooldownTicks: TICKS_PER_DAY * 2 },
-  plague:            { baseChance: 0.001,  minDuration: 120, maxDuration: 480, cooldownTicks: TICKS_PER_DAY * 6 },
-  raiders:           { baseChance: 0.0015, minDuration: 60,  maxDuration: 180, cooldownTicks: TICKS_PER_DAY * 3 },
-  trading_caravan:   { baseChance: 0.003,  minDuration: 60,  maxDuration: 180, cooldownTicks: TICKS_PER_DAY * 2 },
-  stranger_arrives:  { baseChance: 0.005,  minDuration: 30,  maxDuration: 90,  cooldownTicks: TICKS_PER_DAY },
-  harvest_blessing:  { baseChance: 0.002,  minDuration: 60,  maxDuration: 180, cooldownTicks: TICKS_PER_DAY * 3 },
+  drought:           { chancePerDay: 0.05, minDays: 3,    maxDays: 10, cooldownDays: 12 },
+  festival:          { chancePerDay: 0.12, minDays: 0.25, maxDays: 1,  cooldownDays: 3 },
+  dispute:           { chancePerDay: 0.15, minDays: 1,    maxDays: 3,  cooldownDays: 3 },
+  plague:            { chancePerDay: 0.02, minDays: 4,    maxDays: 12, cooldownDays: 24 },
+  raiders:           { chancePerDay: 0.06, minDays: 0.25, maxDays: 1,  cooldownDays: 6 },
+  trading_caravan:   { chancePerDay: 0.12, minDays: 1,    maxDays: 3,  cooldownDays: 4 },
+  stranger_arrives:  { chancePerDay: 0.20, minDays: 1,    maxDays: 3,  cooldownDays: 2 },
+  harvest_blessing:  { chancePerDay: 0.08, minDays: 2,    maxDays: 7,  cooldownDays: 6 },
 };
+
+/** The system fires at 1 Hz (sim-seconds) → checks per day for the roll. */
+const CHECKS_PER_DAY = 86_400;
+/** Ticks between 1 Hz fires — event timers advance by this per fire. */
+const FIRE_TICKS = 60;
 
 /**
  * Per-tick need deltas — each scaled by event.severity.
@@ -90,6 +103,11 @@ export class SettlementEventSystem implements System, SerializableSystem {
         this.cooldowns.set(entry[0], entry[1]);
       }
     }
+  }
+
+  /** Duration draw in TICKS from the config's day range (uniform). */
+  private rollDurationTicks(cfg: EventConfig): number {
+    return Math.round((cfg.minDays + this.rng.next() * (cfg.maxDays - cfg.minDays)) * TICKS_PER_DAY);
   }
 
   tick(ctx: SystemContext): void {
@@ -143,7 +161,7 @@ export class SettlementEventSystem implements System, SerializableSystem {
       const remaining: ActiveEvent[] = [];
 
       for (const event of events) {
-        event.ticksElapsed++;
+        event.ticksElapsed += FIRE_TICKS;
 
         if (event.ticksElapsed >= event.durationTicks) {
           // Event expired
@@ -151,7 +169,7 @@ export class SettlementEventSystem implements System, SerializableSystem {
           // Set cooldown so the same type can't re-fire immediately
           const cfg = EVENT_CONFIGS[event.type];
           const key = `${poiId}:${event.type}`;
-          this.cooldowns.set(key, ctx.clock.now() + cfg.cooldownTicks);
+          this.cooldowns.set(key, ctx.clock.now() + cfg.cooldownDays * TICKS_PER_DAY);
         } else {
           remaining.push(event);
         }
@@ -185,8 +203,7 @@ export class SettlementEventSystem implements System, SerializableSystem {
       if (forced) {
         const cfg = EVENT_CONFIGS[forced];
         const severity = 0.3 + this.rng.next() * 0.4; // 0.3–0.7, same band as natural
-        const duration = cfg.minDuration +
-          Math.floor(this.rng.next() * (cfg.maxDuration - cfg.minDuration + 1));
+        const duration = this.rollDurationTicks(cfg);
         ctx.world.activeEvents.set(poiId, [{
           type: forced,
           poiId,
@@ -212,10 +229,9 @@ export class SettlementEventSystem implements System, SerializableSystem {
         const scarcityMod = 1 + (totalActive < 3 ? 0.3 : 0);
         const roll = this.rng.next();
 
-        if (roll < cfg.baseChance * scarcityMod) {
+        if (roll < (cfg.chancePerDay / CHECKS_PER_DAY) * scarcityMod) {
           const severity = 0.3 + this.rng.next() * 0.4; // 0.3–0.7
-          const duration = cfg.minDuration +
-            Math.floor(this.rng.next() * (cfg.maxDuration - cfg.minDuration + 1));
+          const duration = this.rollDurationTicks(cfg);
 
           ctx.world.activeEvents.set(poiId, [{
             type: eventType,

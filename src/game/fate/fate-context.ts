@@ -13,6 +13,7 @@ import { buildWorldSummary } from '@/llm/world-summary';
 import { evaluateContracts } from '@/world/connectome-contracts';
 import { PLAYER_SPIRIT_ID } from '@/sim/believers';
 import { buildRivalSituation } from '@/sim/rival-claims';
+import { TICKS_PER_DAY } from '@/core/calendar';
 
 export interface FateFocus {
   event: SimEvent;
@@ -81,8 +82,9 @@ function sumFollowers(rec: Record<string, number>): number {
   return n;
 }
 
-/** How far back (ticks) the rivals digest counts recent prayer claims. */
-const RIVAL_CLAIM_LOOKBACK_TICKS = 480;
+/** How far back the rivals digest counts recent prayer claims — two days
+ *  (the fiction intent of the old 480-tick/2-compressed-day lookback). */
+const RIVAL_CLAIM_LOOKBACK_TICKS = 2 * TICKS_PER_DAY;
 /** Bound on how many rivals the digest enumerates (it rides an LLM prompt). */
 const MAX_RIVALS_IN_DIGEST = 6;
 

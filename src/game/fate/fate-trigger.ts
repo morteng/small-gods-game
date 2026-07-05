@@ -17,6 +17,7 @@
  */
 import type { AppendedEvent, SimEvent } from '@/core/events';
 import type { SimClock } from '@/core/clock';
+import { TICKS_PER_DAY } from '@/core/calendar';
 import { PLAYER_SPIRIT_ID } from '@/sim/believers';
 import type { FateFocus } from './fate-context';
 
@@ -64,7 +65,10 @@ export class FateTrigger {
   constructor(private readonly deps: FateTriggerDeps) {}
 
   private get rivalClaimThreshold(): number { return this.deps.rivalClaimThreshold ?? 2; }
-  private get rivalClaimWindowTicks(): number { return this.deps.rivalClaimWindowTicks ?? 240; }
+  /** Sustained-pressure window: ≥threshold claims within ONE DAY. Claims are
+   *  themselves day-gated (a plea must age half a day to be claimable), so a
+   *  sub-day window would never accumulate two under 1:1 realtime. */
+  private get rivalClaimWindowTicks(): number { return this.deps.rivalClaimWindowTicks ?? TICKS_PER_DAY; }
 
   /** Wire to an EventLog: `attach((fn) => eventLog.subscribe(fn))`. Returns unsubscribe. */
   attach(subscribe: (fn: (e: AppendedEvent) => void) => () => void): () => void {

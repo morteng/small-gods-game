@@ -9,7 +9,7 @@ import { RivalSystem } from '@/sim/systems/rival-system';
 import { createRng, type Rng } from '@/core/rng';
 import {
   buildRivalSituation, updatePrayerLedger, prayerAge, eligibleClaimants,
-  findClaimablePrayers, PRAYER_CLAIM_WINDOW_TICKS,
+  findClaimablePrayers, PRAYER_CLAIM_WINDOW_TICKS, PRAYER_CLAIM_WARNING_TICKS,
 } from '@/sim/rival-claims';
 import type { Entity, GameMap, NpcProperties } from '@/core/types';
 import type { Spirit, SpiritId } from '@/core/spirit';
@@ -74,14 +74,15 @@ describe('buildRivalSituation', () => {
 
   it('reports follower deltas against a baseline and prayer pressure past the warning line', () => {
     const world = new World(tinyMap());
+    const now = PRAYER_CLAIM_WARNING_TICKS + 100;
     world.addEntity(npc('a', 'poi1', { beliefs: { 'rival-1': { faith: 0.8, understanding: 0.2, devotion: 0.2 } } }));
     // Aged plea (past the warning line) and a fresh one (below it).
     world.addEntity(npc('b', 'poi1', { activity: 'worship', prayerSince: 0 }));
-    world.addEntity(npc('c', 'poi2', { activity: 'worship', prayerSince: 90 }));
+    world.addEntity(npc('c', 'poi2', { activity: 'worship', prayerSince: now - 10 }));
     const spirits = new Map<SpiritId, Spirit>([['player', player()], ['rival-1', rival('rival-1', 10, ['poi1'])]]);
 
     const sit = buildRivalSituation(world, spirits, 'rival-1', {
-      now: 100,
+      now,
       baseline: { poi1: 3, poi2: 0 },   // had 3 in poi1 a window ago, now 1
     });
     expect(sit.rivalFollowerDelta).toEqual({ poi1: -2 });   // zero-delta poi2 omitted

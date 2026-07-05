@@ -4,6 +4,7 @@ import { initNpcProps, npcProps } from '@/world/npc-helpers';
 import { World } from '@/world/world';
 import { createRng } from '@/core/rng';
 import { SilentEventLog } from '@/core/events';
+import { tickAtSolarHour } from '@/core/calendar';
 import type { Entity, GameMap, Tile, NpcActivity } from '@/core/types';
 
 function makeMap(w = 20, h = 20): GameMap {
@@ -44,25 +45,25 @@ describe('NpcActivitySystem', () => {
     system = new NpcActivitySystem();
   });
 
-  it('sets sleep activity at night (tick 180-239)', () => {
+  it('sets sleep activity at night (solar 21:00–06:00)', () => {
     const map = makeMap();
     const world = new World(map);
     const e = makeNpc(world, 'alice', 'farmer');
 
-    // Night tick
-    system.tick(createContext(world, 200));
+    // Night: 23:00 solar
+    system.tick(createContext(world, tickAtSolarHour(23)));
     const props = npcProps(e);
     expect(props.activity).toBe('sleep');
     expect(props.activityTargetX).toBe(10);
     expect(props.activityTargetY).toBe(10);
   });
 
-  it('sets sleep activity also at late night (tick 230)', () => {
+  it('sets sleep activity also in the small hours (02:00 solar)', () => {
     const map = makeMap();
     const world = new World(map);
     const e = makeNpc(world, 'alice', 'farmer');
 
-    system.tick(createContext(world, 230));
+    system.tick(createContext(world, tickAtSolarHour(2)));
     expect(npcProps(e).activity).toBe('sleep');
   });
 

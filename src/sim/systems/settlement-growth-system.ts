@@ -16,6 +16,7 @@
 
 import type { System, SystemContext } from '@/core/scheduler';
 import type { Entity, Tile, GameMap } from '@/core/types';
+import { GAME_HOUR_HZ, perCheckFromPerDay } from '@/core/calendar';
 import { WATER_TYPES } from '@/core/constants';
 import { bumpTilesRev } from '@/core/tile-rev';
 import { worldStyleOf } from '@/core/world-style';
@@ -37,10 +38,15 @@ import { toAnchors } from '@/blueprint/compile/to-anchors';
 import { BUILDABLE_TERRAIN, extendThroughStreet, extendBackLane, annexAcrossBridge, frontageValue, type Lot, type SettlementPlan } from '@/world/settlement-plan';
 import { tryGetEntityKindDef } from '@/world/entity-kinds';
 
-/** One fire per in-game day, matching births/mortality cadence. */
-export const GROWTH_TICK_HZ = 0.25;
-/** Per-fire chance an over-capacity settlement actually builds (≈ days–weeks). */
+/** One fire per GAME HOUR, matching births/mortality cadence (day-keyed
+ *  lifecycle systems check hourly under 1:1 realtime — see MortalitySystem). */
+export const GROWTH_TICK_HZ = GAME_HOUR_HZ;
+/** Per-DAY chance an over-capacity settlement actually builds (≈ days–weeks).
+ *  Tuned per-day under the old compressed clock (one fire = one day); the
+ *  per-day meaning is preserved via the hourly per-check derivation below. */
 export const GROWTH_CHANCE = 0.15;
+/** Per-hour chance preserving the per-day GROWTH_CHANCE (24 checks per day). */
+const GROWTH_CHANCE_PER_CHECK = perCheckFromPerDay(GROWTH_CHANCE, 24);
 
 /**
  * Residents a dwelling preset houses. Open registry — the same agent seam
@@ -185,7 +191,7 @@ export class SettlementGrowthSystem implements System {
     for (const plan of sorted) {
       const pop = residents.get(plan.poiId!) ?? 0;
       if (pop === 0 || pop <= (capacity.get(plan.poiId!) ?? 0)) continue;
-      if (ctx.rng.next() >= GROWTH_CHANCE) continue;
+      if (ctx.rng.next() >= GROWTH_CHANCE_PER_CHECK) continue;
       growSettlement(ctx, plan);
     }
   }

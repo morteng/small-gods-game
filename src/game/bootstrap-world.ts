@@ -20,6 +20,7 @@ import { buildFloodWatch } from '@/world/flood-watch';
 import { CausalSiteStore } from '@/world/causal-site';
 import { readSave as readSaveDefault } from '@/services/save-store';
 import { applySaveFile, type SaveFile } from '@/core/save-file';
+import { solarAnchorTickForDate, tickAtSolarHour } from '@/core/calendar';
 
 export interface BootstrapDeps {
   state: GameState;
@@ -75,6 +76,23 @@ export async function bootstrapWorld(deps: BootstrapDeps): Promise<GameMap> {
     } catch { /* non-browser host */ }
     return Date.now();
   })();
+
+  // TRUE-1:1 wall-clock anchor: stamp the clock's STARTING tick from the
+  // player's local time so game solar time matches the real clock (boot at
+  // 21:30 → the world is in evening). Generated exactly once, here, before
+  // anything reads the clock (seeded-NPC birthTicks, the timeline baseline);
+  // from then on everything is a pure deterministic function of the tick, and
+  // the anchor persists as ordinary save/snapshot tick state. Overridable via
+  // `?solarhour=H` (dev/e2e determinism); non-browser hosts (tests, scripts)
+  // keep the fixed tick-0 = 09:00 fallback (SOLAR_START_HOUR).
+  const anchorTick = (() => {
+    try {
+      const p = new URLSearchParams(window.location.search).get('solarhour');
+      if (p !== null && Number.isFinite(Number(p))) return tickAtSolarHour(Number(p));
+      return solarAnchorTickForDate(new Date());
+    } catch { return 0; /* non-browser host */ }
+  })();
+  if (anchorTick > 0) state.clock.setNow(anchorTick);
 
   // W0/W3 (connectome-driven world layout): derive the map size from the content
   // (always big enough for every POI/region/waypoint) and, for island worlds,
