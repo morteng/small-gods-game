@@ -9,8 +9,9 @@ import { WALL_MAT, WALL_WORK, ROOF_MAT, ROOF_KIND } from './body';
 export const wingPartType: PartType = {
   type: 'wing',
   paramSchema: {
-    levels: { kind: 'number', min: 1, max: 8, default: 1 },
-    roof: { kind: 'enum', values: ['flat', 'gable', 'hip', 'pyramidal', 'lean_to', 'shed', 'mono_pitch', 'conical', 'domed'], default: 'gable' },
+    levels: { kind: 'number', min: 1, max: 8, default: 1, doc: 'storeys for this additive wing' },
+    roof: { kind: 'enum', values: ['flat', 'gable', 'hip', 'pyramidal', 'lean_to', 'shed', 'mono_pitch', 'conical', 'domed'], default: 'gable',
+      doc: 'roof silhouette for this wing' },
   },
   resolve: (part) => ({ params: { ...(part.params ?? {}) } }),
   toPrims(p, ctx: CompileCtx): Prim[] {

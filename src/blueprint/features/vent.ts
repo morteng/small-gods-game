@@ -4,12 +4,13 @@ import type { FeatureType } from '../registry';
 export const ventFeatureType: FeatureType = {
   type: 'vent',
   paramSchema: {
-    kind: { kind: 'enum', values: ['chimney', 'smokehole', 'pipe', 'spire'], default: 'chimney' },
-    placement: { kind: 'enum', values: ['ridge', 'wall'], default: 'ridge' },
-    t: { kind: 'number', min: 0, max: 1, default: 0.5 },
-    // -1 = the per-kind default (chimney 0.30 wide / 0.55 above ridge, etc.)
-    width: { kind: 'number', min: -1, max: 1, default: -1 },
-    height: { kind: 'number', min: -1, max: 2, default: -1 },
+    kind: { kind: 'enum', values: ['chimney', 'smokehole', 'pipe', 'spire'], default: 'chimney',
+      doc: 'stack type: brick chimney, low capped smokehole, thin metal pipe, or a stone steeple (spire)' },
+    placement: { kind: 'enum', values: ['ridge', 'wall'], default: 'ridge',
+      doc: 'ride the roof ridge (interior stack) or climb an exterior wall (fireplace stack)' },
+    t: { kind: 'number', min: 0, max: 1, default: 0.5, doc: 'fraction along the ridge/wall (0..1) where the stack sits' },
+    width: { kind: 'number', min: -1, max: 1, default: -1, doc: 'stack width (tiles); -1 = the per-kind default' },
+    height: { kind: 'number', min: -1, max: 2, default: -1, doc: 'height above the ridge/eave (tiles); -1 = the per-kind default' },
   },
   resolve: (f) => ({ params: { ...{ kind: 'chimney', placement: 'ridge', t: 0.5, width: -1, height: -1 }, ...(f.params ?? {}) } }),
   toBrief: (f) => `${f.params.kind as string} vent`,

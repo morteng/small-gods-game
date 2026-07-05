@@ -26,22 +26,19 @@ function doorSpec(f: ResolvedFeature): ApertureSpec {
 export const doorFeatureType: FeatureType = {
   type: 'door',
   paramSchema: {
-    main: { kind: 'bool', default: false },
-    arched: { kind: 'bool', default: false },   // round-headed doorway (K2)
-    // width/height: half-width along the wall (tiles) and height (height-units).
-    // Defaulted from the scale contract in resolve() when left unset (-1 sentinel).
-    width: { kind: 'number', min: -1, max: 2, default: -1 },
-    height: { kind: 'number', min: -1, max: 4, default: -1 },
-    t: { kind: 'number', min: 0, max: 1, default: 0.5 },          // centre along the wall run
-    hinge: { kind: 'enum', values: ['left', 'right'], default: 'left' },
-    swing: { kind: 'enum', values: ['in', 'out', 'slide'], default: 'in' },
-    locked: { kind: 'bool', default: false },
-    open: { kind: 'number', min: 0, max: 1, default: 0 },         // 0 shut … 1 wide open (state)
-    // Hardware — modelled as data now, rendered when zoom/scale justifies it.
-    handle: { kind: 'bool', default: true },
-    lock: { kind: 'bool', default: false },
-    bell: { kind: 'bool', default: false },
-    knocker: { kind: 'bool', default: false },
+    main: { kind: 'bool', default: false, doc: 'the primary entrance (drives the main pathing anchor)' },
+    arched: { kind: 'bool', default: false, doc: 'round-headed doorway' },
+    width: { kind: 'number', min: -1, max: 2, default: -1, doc: 'half-width along the wall (tiles); -1 = scale default' },
+    height: { kind: 'number', min: -1, max: 4, default: -1, doc: 'door height (tiles); -1 = scale default' },
+    t: { kind: 'number', min: 0, max: 1, default: 0.5, doc: 'centre along the wall run (0..1)' },
+    hinge: { kind: 'enum', values: ['left', 'right'], default: 'left', doc: 'hinge side' },
+    swing: { kind: 'enum', values: ['in', 'out', 'slide'], default: 'in', doc: 'how the leaf opens' },
+    locked: { kind: 'bool', default: false, doc: 'starts locked (state)' },
+    open: { kind: 'number', min: 0, max: 1, default: 0, doc: '0 shut … 1 wide open (state)' },
+    handle: { kind: 'bool', default: true, doc: 'has a handle (hardware, shown at close zoom)' },
+    lock: { kind: 'bool', default: false, doc: 'has a visible lock' },
+    bell: { kind: 'bool', default: false, doc: 'has a bell' },
+    knocker: { kind: 'bool', default: false, doc: 'has a knocker' },
   },
   resolve: (f) => {
     const p = f.params ?? {};

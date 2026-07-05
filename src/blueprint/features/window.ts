@@ -26,17 +26,16 @@ function windowSpec(f: ResolvedFeature): ApertureSpec {
 export const windowFeatureType: FeatureType = {
   type: 'window',
   paramSchema: {
-    style: { kind: 'enum', values: ['plain', 'shuttered', 'arched', 'lancet'], default: 'plain' },
-    glazed: { kind: 'bool', default: true },
-    t: { kind: 'number', min: 0, max: 1, default: 0.5 },
-    width: { kind: 'number', min: -1, max: 2, default: -1 },
-    height: { kind: 'number', min: -1, max: 4, default: -1 },
-    sill: { kind: 'number', min: 0, max: 3, default: WINDOW_SILL },
-    // Opt-in vertical RANK: when true, this ground-storey window repeats at every upper
-    // storey's sill, so adding a floor automatically adds its windows. Default false so
-    // hand-tuned per-level fenestration (towers, keeps) is left exactly as authored. See
-    // to-geometry's expandStoreyOpenings.
-    perStorey: { kind: 'bool', default: false },
+    style: { kind: 'enum', values: ['plain', 'shuttered', 'arched', 'lancet'], default: 'plain',
+      doc: 'opening shape: square, shuttered, round-arched, or tall narrow lancet' },
+    glazed: { kind: 'bool', default: true, doc: 'glazed (wealthier) vs open/shuttered (crude)' },
+    t: { kind: 'number', min: 0, max: 1, default: 0.5, doc: 'centre along the wall run (0..1)' },
+    width: { kind: 'number', min: -1, max: 2, default: -1, doc: 'half-width along the wall (tiles); -1 = default' },
+    height: { kind: 'number', min: -1, max: 4, default: -1,
+      doc: 'opening height (tiles); -1 = default. Clamped under the eave — an over-tall value fires an eave-breach lint' },
+    sill: { kind: 'number', min: 0, max: 3, default: WINDOW_SILL, doc: 'height of the sill above the floor (tiles)' },
+    perStorey: { kind: 'bool', default: false,
+      doc: 'repeat this window at every upper storey sill (adding a floor adds its windows); false = author each level' },
   },
   resolve: (f) => {
     const p = f.params ?? {};

@@ -118,28 +118,22 @@ function steppedPrims(p: ResolvedPart, ctx: CompileCtx): Prim[] {
 export const bodyPartType: PartType = {
   type: 'body',
   paramSchema: {
-    plan: { kind: 'enum', values: ['rect', 'round', 'L', 'cross', 'stepped'], default: 'rect' },
-    levels: { kind: 'number', min: 1, max: 8, default: 1 },
-    levelInset: { kind: 'number', min: 0, max: 3, default: 0 },
-    storeyM: { kind: 'number', min: 0.5, max: 12, default: -1 },  // -1 = use the standard metric storey
-    /** Tiles each upper storey oversails the one below toward the street (+x/+y) —
-     *  the jettied townhouse cue. 0.12 ≈ a 24 cm jetty per storey. */
-    jetty: { kind: 'number', min: 0, max: 0.3, default: 0 },
-    /** L3b undercroft: height (tiles) of a stone base course at the wall foot, the rest in
-     *  the wall material — the burgage townhouse's stone storey under timber. 0 = none. */
-    baseCourse: { kind: 'number', min: 0, max: 2, default: 0 },
-    /** Interior I-1: render this body as a CUTAWAY — roof omitted + floor exposed — the
-     *  geometry the interior reveal swaps in on focus. false = normal closed building. */
-    cutaway: { kind: 'bool', default: false },
-    /** Interior I-3: a connectome-derived `InteriorPlan` ({partitions, floorDrop}) — partition
-     *  walls + funnel floor drawn ONLY in the cutaway. Set by `cutawayOf`; absent on closed
-     *  bodies (no render change). `any` so the structured plan rides through unvalidated. */
-    interior: { kind: 'any' },
-    /** Trim: two-stage stepped buttresses between the windows + at the corners (rect plan
-     *  only) — the masonry-span cue for churches/tithe barns. Set by the worship connectome. */
-    buttress: { kind: 'bool', default: false },
-    /** Trim: a crenellated parapet around a FLAT roof (keeps/watch towers). */
-    parapet: { kind: 'bool', default: false },
+    plan: { kind: 'enum', values: ['rect', 'round', 'L', 'cross', 'stepped'], default: 'rect',
+      doc: 'footprint shape: rect box, round (cylinder+cap, e.g. yurt), L/cross multi-wing, or stepped ziggurat tiers' },
+    levels: { kind: 'number', min: 1, max: 8, default: 1, doc: 'number of storeys (wall height = levels × storey)' },
+    levelInset: { kind: 'number', min: 0, max: 3, default: 0, doc: 'stepped plan only: tiles each tier insets from the one below' },
+    storeyM: { kind: 'number', min: 0.5, max: 12, default: -1, doc: 'metres per storey; -1 = the standard 2.7 m storey' },
+    jetty: { kind: 'number', min: 0, max: 0.3, default: 0,
+      doc: 'tiles each upper storey oversails toward the street (+x/+y) — the jettied townhouse cue; 0.12 ≈ 24 cm/storey' },
+    baseCourse: { kind: 'number', min: 0, max: 2, default: 0,
+      doc: 'height (tiles) of a stone base course at the wall foot (burgage undercroft under timber); 0 = none' },
+    cutaway: { kind: 'bool', default: false,
+      doc: 'render roof-off + floor exposed (the interior-reveal geometry); false = closed building' },
+    interior: { kind: 'any',
+      doc: 'connectome-derived InteriorPlan {partitions, floorDrop} drawn only in a cutaway; set by cutawayOf' },
+    buttress: { kind: 'bool', default: false,
+      doc: 'stepped buttresses between windows + at corners (rect plan) — the masonry-span cue for churches/tithe barns' },
+    parapet: { kind: 'bool', default: false, doc: 'crenellated parapet around a FLAT roof (keeps/watch towers)' },
     roof: {
       kind: 'enum',
       values: [
@@ -149,6 +143,7 @@ export const bodyPartType: PartType = {
         'tented', 'jerkinhead', 'cross_gable',
       ],
       default: 'gable',
+      doc: 'roof silhouette; a dormer/gabled-dormer feature needs a pitched roof (not flat)',
     },
   },
   resolve: (part: Part, _ctx: ResolveCtx) => ({ params: { ...(part.params ?? {}) } }),

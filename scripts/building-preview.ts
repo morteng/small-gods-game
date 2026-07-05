@@ -22,6 +22,8 @@ import { cutawayOf } from '../src/blueprint/cutaway';
 import type { Orientation } from '../src/blueprint/orientation';
 import { renderBlueprintMontage } from '../src/assetgen/blueprint-montage';
 import { lintBlueprint, summarizeLint } from '../src/blueprint/lint';
+import { formatCatalogue } from '../src/blueprint/describe-registry';
+import { ensureBuildingTypesRegistered } from '../src/blueprint/register-buildings';
 
 const OUT = '.dev-grabs';
 const MAPS = { grey: 'grey', albedo: 'grey', normal: 'normal', material: 'material' } as const;
@@ -57,6 +59,13 @@ async function main() {
   const argv = process.argv.slice(2);
   if (argv.includes('--list')) {
     console.log(Object.keys(BUILDING_BLUEPRINTS).sort().join('\n'));
+    return;
+  }
+  // --catalogue: the machine-readable authoring capability catalogue (part/feature knobs,
+  // ranges, defaults, docs) — what an LLM reads before authoring a blueprint.
+  if (argv.includes('--catalogue') || argv.includes('--catalog')) {
+    ensureBuildingTypesRegistered();
+    console.log(formatCatalogue());
     return;
   }
   const flags = new Set(argv.filter((a) => a.startsWith('--')));
