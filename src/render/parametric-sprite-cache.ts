@@ -387,8 +387,16 @@ function resolveViaVendored(pr: PendingRead): void {
       }
     } catch { /* degrade to composing */ }
     spriteCacheStats.misses++;
+    // Diagnostics: which keys the whole cache stack (IDB + vendored bundle)
+    // could not serve — these are exactly what still composes on this client.
+    // Feeds vendored-bundle coverage tuning (scripts/seed-parametric-sprites.ts).
+    if (missedKeys.length < 200) missedKeys.push(pr.key);
     pr.resolve(null);
   })();
+}
+const missedKeys: string[] = [];
+if (typeof globalThis !== 'undefined') {
+  (globalThis as Record<string, unknown>).__spriteCacheMissedKeys = missedKeys;
 }
 
 async function pumpReads(): Promise<void> {

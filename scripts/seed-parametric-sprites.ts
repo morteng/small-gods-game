@@ -15,11 +15,13 @@
 // The runtime vendored tier (`src/render/vendored-sprite-bundle.ts`) fetches
 // these same-origin, so a FIRST-visit client skips the ~53s compose backlog.
 //
-// Run:
+// Run (needs a dev server for the Chromium plant-key pass — see below):
+//   npx vite --port 3033 &
 //   npx tsx scripts/seed-parametric-sprites.ts                # default worlds+seeds
 //   npx tsx scripts/seed-parametric-sprites.ts --plan         # print, write nothing
 //   npx tsx scripts/seed-parametric-sprites.ts --seeds=12345,777,42
 //   npx tsx scripts/seed-parametric-sprites.ts path/to/world.json --seeds=777
+//   npx tsx scripts/seed-parametric-sprites.ts --node-plants  # no browser/server
 //
 // DETERMINISTIC by construction: worldgen is seeded, compose is deterministic
 // per spec, keys sort lexicographically, shards fill greedily in key order and
@@ -129,6 +131,58 @@ function collectPlantJobs(jobs: Map<string, Job>): number {
   return n;
 }
 
+/**
+ * Plant jobs keyed by CHROMIUM-derived spec JSON (the default; --node-plants
+ * opts out). WHY: plant crown geometry runs transcendental math (sin/cos/pow),
+ * and V8's transcendentals differ between Node and Chromium builds — measured
+ * v24: 28/48 plant specs canonicalize differently in Chromium than in Node 22,
+ * so Node-keyed plt packs MISS at runtime for the (Chromium-dominated, WebGPU-
+ * gated) real clients. Building/barrier params are plain arithmetic (IEEE-
+ * deterministic) and match across engines. So we derive the plt key material
+ * inside a headless Chromium against the dev server: vite serves /src modules
+ * directly, and the page needs no WebGPU (no flags → the game aborts to its
+ * honest overlay; we only import three modules). The compose still runs here
+ * in Node on the parsed spec — pixels don't need engine parity, keys do.
+ * Non-Chromium engines with different transcendentals miss and compose — the
+ * pre-bundle behavior. The durable fix (rounding spec floats at generation)
+ * changes key semantics — WP-G's call, reported, not made here.
+ */
+async function collectPlantJobsViaChromium(jobs: Map<string, Job>, baseUrl: string): Promise<number> {
+  const { chromium } = await import('playwright');
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage();
+    await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
+    const specs = await page.evaluate(async () => {
+      const presets = await import('/src/blueprint/presets/index.ts');
+      const geo = await import('/src/blueprint/compile/to-geometry.ts');
+      const art = await import('/src/render/generated-art-cache.ts');
+      const out: Array<{ kind: string; specJson: string }> = [];
+      for (const kind of presets.plantPresetNames()) {
+        const rb = presets.synthesizeBlueprint(kind);
+        if (!rb) continue;
+        try {
+          const spec = geo.toGeometry(rb);
+          if (spec) out.push({ kind, specJson: art.canonicalJson(spec) });
+        } catch { /* skip — composes at runtime as before */ }
+      }
+      return out;
+    });
+    let n = 0;
+    for (const { kind, specJson } of specs) {
+      const key = parametricSpriteKey('plt', specJson);
+      if (!jobs.has(key)) {
+        jobs.set(key, { key, ns: 'plt', spec: JSON.parse(specJson) as StructureSpec, from: `plant:${kind} (chromium)` });
+        n++;
+      }
+    }
+    console.log(`plant key material derived in ${browser.browserType().name()} ${browser.version()}`);
+    return n;
+  } finally {
+    await browser.close();
+  }
+}
+
 interface ManifestPack { s: number; o: number; l: number; enc: 'deflate-raw' | 'raw'; meta: string }
 
 async function main(): Promise<void> {
@@ -141,8 +195,26 @@ async function main(): Promise<void> {
 
   ensureBuildingTypesRegistered();
   const jobs = new Map<string, Job>();
-  const plt = collectPlantJobs(jobs);
-  console.log(`plants: ${plt} species specs`);
+  // Plants: Chromium-keyed by default (see collectPlantJobsViaChromium).
+  // --node-plants keys them in this Node process instead (no browser/server
+  // needed, but plt keys will only match clients whose V8 transcendentals
+  // match this Node's). --dev-server=URL points at a running vite.
+  const nodePlants = argv.includes('--node-plants');
+  const devServer = argv.find((a) => a.startsWith('--dev-server='))?.slice('--dev-server='.length)
+    ?? 'http://localhost:3033';
+  let plt: number;
+  if (nodePlants) {
+    plt = collectPlantJobs(jobs);
+  } else {
+    try {
+      plt = await collectPlantJobsViaChromium(jobs, devServer);
+    } catch (err) {
+      console.error(`Chromium plant-key derivation failed (${(err as Error).message}).`);
+      console.error(`Start a dev server (npx vite --port 3033) or pass --dev-server=URL / --node-plants.`);
+      process.exit(1);
+    }
+  }
+  console.log(`plants: ${plt} species specs${nodePlants ? ' (node-keyed)' : ''}`);
   for (const wp of worlds) {
     if (!existsSync(wp)) { console.error(`world seed not found: ${wp}`); process.exit(1); }
     for (const gs of genSeeds) {
