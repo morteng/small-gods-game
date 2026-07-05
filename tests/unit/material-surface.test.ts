@@ -140,10 +140,12 @@ describe('material-surface — sampleSurface', () => {
 describe('material-surface — surface works (bond/coursing taxonomy)', () => {
   const STONEWORKS: SurfaceWork[] = ['ashlar', 'coursed_rubble', 'random_rubble', 'cobble', 'dry_stone', 'flint'];
 
+  const TIMBERWORKS: SurfaceWork[] = ['plank', 'plank_v', 'stave', 'board_batten'];
+
   it('every work stays in gamut with valid roughness/ao + unit normal, across orientations', () => {
     for (const work of SURFACE_WORKS) {
       const material: Mat = work === 'running' || work === 'flemish' ? 'brick'
-        : work === 'plank' || work === 'board_batten' ? 'timber' : 'stone';
+        : TIMBERWORKS.includes(work) ? 'timber' : 'stone';
       for (const [pos, n] of [
         [[1.3, 0.4, 2.1], [1, 0, 0]],
         [[0.7, 2.9, 1.4], [0, 1, 0]],
@@ -184,6 +186,67 @@ describe('material-surface — surface works (bond/coursing taxonomy)', () => {
     const a = sampleSurface({ material: 'stone', work: 'ashlar' }, [2.1, 0.3, 1.7], [1, 0, 0]);
     const b = sampleSurface({ material: 'stone', work: 'ashlar' }, [2.1, 0.3, 1.7], [1, 0, 0]);
     expect(a).toEqual(b);
+  });
+
+  it('every SURFACE_WORKS id resolves to a pattern (finite in-gamut sample, no missing entry)', () => {
+    // A work absent from WORK_PATTERNS would throw when the sampler calls pattern(u,v).
+    for (const work of SURFACE_WORKS) {
+      const s = sampleSurface({ material: 'timber', work }, [0.7, 0, 1.3], [0, 1, 0]);
+      expect(s.albedo.every(Number.isFinite), `${work} finite`).toBe(true);
+      expect(inGamut(s.albedo), `${work} gamut`).toBe(true);
+    }
+  });
+});
+
+describe('material-surface — timber grain orientation (wall plank fix)', () => {
+  // On a wall facet with normal +y the surface frame is u = worldX (along the wall), v = worldZ
+  // (up). Averaging luminance over one axis marginalises grain/knots/butt-joints and leaves the
+  // board-SEAM signal, which runs across the board width — so the axis it survives on tells the
+  // board orientation.
+  const N01: Vec3 = [0, 1, 0];
+  const lum = (c: RGB) => 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2];
+  const at = (work: SurfaceWork, u: number, v: number) =>
+    sampleSurface({ material: 'timber', work }, [u, 0, v], N01).albedo;
+  const avgOverV = (work: SurfaceWork, u: number) => {
+    let s = 0; const N = 64; for (let i = 0; i < N; i++) s += lum(at(work, u, 0.05 + i * 0.037)); return s / N;
+  };
+  const avgOverU = (work: SurfaceWork, v: number) => {
+    let s = 0; const N = 64; for (let i = 0; i < N; i++) s += lum(at(work, 0.05 + i * 0.041, v)); return s / N;
+  };
+
+  it('plank_v seams run VERTICALLY: tone varies across u (board edges) but is stable along v', () => {
+    // Seam at u ≡ 0 (mod 0.16 m) is darker than mid-board; a vertical seam survives v-averaging.
+    const uSwing = avgOverV('plank_v', 0.08) - avgOverV('plank_v', 0.0);   // mid − seam
+    expect(uSwing).toBeGreaterThan(3);
+    // No HORIZONTAL seam ⇒ the column-averaged tone barely moves with height.
+    const vs = [0.3, 0.9, 1.5, 2.1, 2.7].map((v) => avgOverU('plank_v', v));
+    const vSwing = Math.max(...vs) - Math.min(...vs);
+    expect(vSwing).toBeLessThan(uSwing);
+  });
+
+  it('plank seams run HORIZONTALLY (the opposite orientation): tone varies along v, not across u', () => {
+    const vSwing = avgOverU('plank', 0.09) - avgOverU('plank', 0.0);       // mid − seam, period 0.18
+    expect(vSwing).toBeGreaterThan(3);
+    const us = [0.3, 0.9, 1.5, 2.1, 2.7].map((u) => avgOverV('plank', u));
+    const uSwing = Math.max(...us) - Math.min(...us);
+    expect(uSwing).toBeLessThan(vSwing);
+  });
+
+  it('stave gives each timber its OWN tone (adjacent columns differ, not clones)', () => {
+    // Sample the crown of consecutive 0.42 m staves (same barrel position ⇒ only the per-column
+    // tone hash varies), averaged over height to strip grain/rings.
+    const W = 0.42;
+    const crowns = Array.from({ length: 6 }, (_, c) => avgOverV('stave', (c + 0.5) * W));
+    expect(Math.max(...crowns) - Math.min(...crowns)).toBeGreaterThan(4);
+    expect(Math.abs(crowns[0] - crowns[1])).toBeGreaterThan(0.5);          // neighbours are not equal
+  });
+
+  it('plank_v and stave are deterministic (same u,v → same sample)', () => {
+    for (const work of ['plank_v', 'stave'] as SurfaceWork[]) {
+      const a = sampleSurface({ material: 'timber', work }, [1.1, 0.4, 2.2], N01);
+      const b = sampleSurface({ material: 'timber', work }, [1.1, 0.4, 2.2], N01);
+      expect(a).toEqual(b);
+    }
   });
 });
 

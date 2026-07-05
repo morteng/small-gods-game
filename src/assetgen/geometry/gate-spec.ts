@@ -78,8 +78,8 @@ export function gateLeafSpec(opts: GateOpts, cx = 0, cy = 0): GateSpec {
   const parts: Part[] = [];
   const leaf = (sign: number): void => {
     const lx = cx + ux * off * sign, ly = cy + uy * off * sign;   // this leaf's world centre
-    // Plank slab.
-    parts.push({ prim: 'box', at: [lx - leafW / 2, ly - t / 2, footZ], size: [leafW, t, slabH], material: mat, yaw, work: 'plank' });
+    // Plank slab — VERTICAL boards (a medieval gate is upright boarding under horizontal ledgers).
+    parts.push({ prim: 'box', at: [lx - leafW / 2, ly - t / 2, footZ], size: [leafW, t, slabH], material: mat, yaw, work: 'plank_v' });
     // Two horizontal ledger bands (proud of the planks) — the cross-bracing of a board gate.
     const bandH = mToTiles(0.22), bandT = t + mToTiles(0.1);
     for (const fz of [0.28, 0.72]) {
