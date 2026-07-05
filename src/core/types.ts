@@ -54,7 +54,15 @@ export interface GameMap {
   seed: number;
   success: boolean;
   worldSeed: WorldSeed | null;
-  stats: { iterations: number; backtracks: number };
+  stats: {
+    iterations: number;
+    backtracks: number;
+    /** Gate-stitch REPAIRS that actually carved during gen (interior-gate stitch / orphan-gate
+     *  spur). Gates are committed portal nodes with commit-time half-edge repair, so on a healthy
+     *  seed this is EMPTY — a nonzero entry means the by-construction wiring missed and wants a
+     *  look (`scripts/stitch-sweep.ts` sweeps seeds and fails on any firing). */
+    gateStitches?: { phase: 'interior' | 'orphan'; runId: string; x: number; y: number; carved: number }[];
+  };
   buildings: BuildingInstance[];
   /** Monotonic revision of runtime in-place tile mutations (trample trails,
    *  settlement-growth stamping, perception realize, dev brush). Renderer

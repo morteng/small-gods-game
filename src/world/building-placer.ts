@@ -875,12 +875,43 @@ export function placeSettlement(
     for (const cell of buildingVisual) { const ci = cell.indexOf(','); bump(+cell.slice(0, ci), +cell.slice(ci + 1)); }
 
     if (Number.isFinite(minX)) {
+      // GATE HALF-EDGE context (synthesis 2.1) — built BEFORE the ring so `deriveSettlementRing`
+      // can verify each committed gate owns both half-edges and slide a failing gate at commit
+      // time (the Watabou repair), instead of leaving it for the post-hoc stitch.
+      // The connector/repair goal is a REAL street cell — this settlement's carved streets
+      // (roadTiles) or a road already on the grid. NOT `occ`'s 'road' claims, which also cover the
+      // phantom inter-POI trunk-corridor RESERVATIONS (kept clear of lots but never actually
+      // carved): a gate sitting on one of those reads "on a road" while its interior is
+      // unconnected, which is exactly what left the stitch carving after layout. Grows as
+      // connectors are carved so later gates can join them.
+      const greenCells = new Set<string>();
+      for (const c of plan.civics) {
+        if (c.type !== 'green') continue;
+        for (let gy = 0; gy < c.h; gy++) for (let gx = 0; gx < c.w; gx++) greenCells.add(`${c.x + gx},${c.y + gy}`);
+      }
+      const streetCells = new Set<string>(roadTiles.map((rt) => `${rt.x},${rt.y}`));
+      const isStreet = (x: number, y: number): boolean =>
+        streetCells.has(`${x},${y}`) || ROAD_TYPES.has(tiles[y]?.[x]?.type ?? '');
+      // Ground a connector/approach can never use — off-map, a registry building (entity-only
+      // buildings never set `tile.walkable`), water, a protected green. The curtain is NOT here:
+      // the half-edge repair derives it per candidate gate position, and the connector carve
+      // below adds the final curtain explicitly.
+      const blockedGround = (x: number, y: number): boolean =>
+        !tiles[y]?.[x] || tileBlockedByBuilding(world, x, y) || isWaterTile(x, y)
+        || greenCells.has(`${x},${y}`);
       const ring = deriveSettlementRing({
         bbox: { minX, minY, maxX, maxY },
         mapW: tiles[0]?.length ?? 0, mapH: tiles.length,
         buildingCount: placed, poiId: poi.id,
         isWater: isWaterTile,
-        isRoad: isRoadTile,
+        // Road-crossing gates open where a REAL street crosses the ring — this settlement's
+        // carved street tiles or a road already on the grid. NOT the occupancy-claim
+        // `isRoadTile`, whose 'road' claims include phantom inter-POI trunk-corridor
+        // RESERVATIONS that were never carved: those committed gates onto bare hills (or open
+        // river!) that no street ever reached — the unrepaired-gate/stitch tail on random
+        // seeds. Croft rings (below) keep the occupancy test: a lane threading a hedge is
+        // planned around the lot either way.
+        isRoad: isStreet,
         isBuilding,
         parcel: homeParcel ?? undefined,
         // GATES-FIRST: commit gates in the direction of each inbound connection, before any road is
@@ -890,6 +921,7 @@ export function placeSettlement(
         // break of slope and classify each side's nature-defends. Absent a map (legacy/test paths) the
         // ring stays distance-based and every side classifies open/water only (byte-identical).
         heightAt: map ? (x, y) => heightMetresAt(map, x, y) : undefined,
+        halfEdge: { isStreet, blocked: blockedGround },
         ctx,
       });
       if (ring) {
@@ -904,33 +936,36 @@ export function placeSettlement(
         // a no-op — it is now only degenerate-case repair (and logs if it ever fires).
         const curtain = new Set<string>();
         for (const [bx, by] of barrierFootprintTiles(ring.run).blocking) curtain.add(`${bx},${by}`);
-        const greenCells = new Set<string>();
-        for (const c of plan.civics) {
-          if (c.type !== 'green') continue;
-          for (let gy = 0; gy < c.h; gy++) for (let gx = 0; gx < c.w; gx++) greenCells.add(`${c.x + gx},${c.y + gy}`);
-        }
-        // The connector goal is a REAL street cell — this settlement's carved streets (roadTiles) or
-        // a road already on the grid. NOT `occ`'s 'road' claims, which also cover the phantom inter-POI
-        // trunk-corridor RESERVATIONS (kept clear of lots but never actually carved): a gate sitting on
-        // one of those reads "on a road" while its interior is unconnected, which is exactly what left
-        // the stitch carving after layout. Grows as connectors are carved so later gates can join them.
-        const streetCells = new Set<string>(roadTiles.map((rt) => `${rt.x},${rt.y}`));
-        const isStreet = (x: number, y: number): boolean =>
-          streetCells.has(`${x},${y}`) || ROAD_TYPES.has(tiles[y]?.[x]?.type ?? '');
         const blockedForConnector = (x: number, y: number): boolean =>
-          tileBlockedByBuilding(world, x, y) || isWaterTile(x, y)
-          || curtain.has(`${x},${y}`) || greenCells.has(`${x},${y}`);
-        for (const g of ring.run.gates) {
-          if (g.kind === 'gap') continue;
-          const [gxf, gyf] = gatePoint(ring.run, g);
-          const carved = carveGateStreetConnector(Math.round(gxf), Math.round(gyf), isStreet, blockedForConnector);
-          for (const c of carved) {
-            const k = `${c.x},${c.y}`;
-            if (streetCells.has(k)) continue;
-            roadTiles.push({ x: c.x, y: c.y, type: roadType });
-            occ.claim(c.x, c.y, 'road');
-            streetCells.add(k);
+          blockedGround(x, y) || curtain.has(`${x},${y}`);
+        // FIXED-POINT connector pass: a gate processed early can miss because the street it
+        // will join is another gate's connector that hasn't been carved yet (observed: the
+        // first gate of a big ring 20+ tiles from the core, reachable only via a later gate's
+        // connector). Retry misses while the street set keeps growing; each retried BFS is
+        // bounded, gates are finitely many, and streetCells only grows — terminates.
+        let pending = ring.run.gates.filter((g) => g.kind !== 'gap');
+        for (let pass = 0; pass < 4 && pending.length > 0; pass++) {
+          const missed: typeof pending = [];
+          let progressed = false;
+          for (const g of pending) {
+            const [gxf, gyf] = gatePoint(ring.run, g);
+            const gx = Math.round(gxf), gy = Math.round(gyf);
+            const carved = carveGateStreetConnector(gx, gy, isStreet, blockedForConnector);
+            // Connected iff the gate cell has a street on a 4-neighbour (or is being joined now).
+            const joined = carved.length > 0
+              || [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => isStreet(gx + dx, gy + dy));
+            if (!joined) { missed.push(g); continue; }
+            progressed = progressed || carved.length > 0;
+            for (const c of carved) {
+              const k = `${c.x},${c.y}`;
+              if (streetCells.has(k)) continue;
+              roadTiles.push({ x: c.x, y: c.y, type: roadType });
+              occ.claim(c.x, c.y, 'road');
+              streetCells.add(k);
+            }
           }
+          if (!progressed) break;                        // no street growth → retries can't help
+          pending = missed;
         }
       }
     }
@@ -949,14 +984,21 @@ export function placeSettlement(
  * to carve (gate cell … up to but excluding the road), or `[]` when the gate is already on a road /
  * is itself blocked / no road is reachable within budget (the degenerate case the map-generator
  * stitch then reports). Deterministic: fixed neighbour order, BFS layering, no rng.
+ * Budget matches the half-edge repair's interior BFS (`repairGateHalfEdges`, default 24), so a
+ * gate the repair verified/slid ALWAYS carves its connector here — the stitch stays a no-op.
  */
 function carveGateStreetConnector(
   gx: number, gy: number,
   isRoad: (x: number, y: number) => boolean,
   blocked: (x: number, y: number) => boolean,
-  maxSearch = 14,
+  maxSearch = 24,
 ): { x: number; y: number }[] {
-  if (blocked(gx, gy) || isRoad(gx, gy)) return [];
+  // A gate cell already ON a street is NOT proof of connection: a street that touches the
+  // opening only diagonally (or an orphaned street cell under the gate) leaves a 4-connected
+  // walkability pinch the post-hoc stitch used to repair. So the goal is always a street cell
+  // OTHER than the gate's own (the BFS below only goal-tests neighbours); a gate with a healthy
+  // 4-adjacent street finds it at depth 1 and carves nothing new.
+  if (blocked(gx, gy) && !isRoad(gx, gy)) return [];
   const key = (x: number, y: number): string => `${x},${y}`;
   const cameFrom = new Map<string, string | null>();
   cameFrom.set(key(gx, gy), null);
