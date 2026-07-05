@@ -113,18 +113,27 @@ export function artBillboardItem(
  */
 export function plantSpriteItemFromPack(
   o: { originX: number; originY: number }, pack: import('./sprite-canvas').SpritePack, x: number, y: number,
+  buryFrac = 0,
 ): DrawItem {
   const { sx, sy } = worldToScreen(x, y, 0, o.originX, o.originY);
   const src = pack.albedo;
   const w = src.width, h = src.height;
+  // BURY (R5): sink the sprite into the ground by cropping the bottom `buryPx` rows and
+  // seating the CROPPED base at the ground line (sy). The painter-order entity pass has
+  // no per-pixel terrain clip, so we can't just push the sprite down (it'd float lower) —
+  // instead we don't draw the buried rows and the terrain painted behind shows through.
+  // Foot (dy+dh) stays at sy, so foot-z lift + the cast shadow anchor are unaffected.
+  const buryPx = Math.max(0, Math.min(h - 1, Math.round(h * Math.max(0, Math.min(0.4, buryFrac)))));
+  const visH = h - buryPx;
   const item: DrawItem = {
     t: 'image', src,
-    dx: Math.round(sx) - Math.round(w / 2), dy: Math.round(sy) - h,
-    dw: w, dh: h,
+    dx: Math.round(sx) - Math.round(w / 2), dy: Math.round(sy) - visH,
+    dw: w, dh: visH,
     // Foot-anchored billboard: the sprite bottom IS the ground contact, so the
     // cast shadow anchors there (footLift 0), NOT lifted dw/4 like a building.
     shadow: { footLift: 0 },
   };
+  if (buryPx > 0) item.frame = { sx: 0, sy: 0, sw: w, sh: visH };   // keep the TOP visH rows
   if (pack.shadow) {
     item.shadowSprite = { src: pack.shadow.canvas, dx: pack.shadow.dx, dy: pack.shadow.dy };
   }
@@ -137,6 +146,30 @@ export function plantSpriteItemFromPack(
     };
   }
   return item;
+}
+
+/** Bury depth range for rocks (fraction of sprite height sunk below the ground line). */
+const ROCK_BURY_MIN = 0.10;
+const ROCK_BURY_RANGE = 0.10;   // → 10–20 % seeded per instance
+
+/** Deterministic [0,1) hash of a world position — seeds the per-rock bury so it's stable
+ *  frame-to-frame (a flickering bury depth would read as the rock bobbing). */
+function posHash01(x: number, y: number): number {
+  let h = Math.imul((Math.trunc(x * 97) * 374761393) ^ (Math.trunc(y * 71) * 668265263), 1274126177) >>> 0;
+  h ^= h >>> 15; h = Math.imul(h, 2246822519) >>> 0; h ^= h >>> 13;
+  return (h >>> 0) / 4294967296;
+}
+
+/**
+ * Bury fraction for a foot-anchored nature sprite — ROCKS sit 10–20 % of their height
+ * below the ground line (seeded per position); everything else (trees, ground cover)
+ * gets 0 here (a root-flare knob for trees is a separate pass). A rock is any nature
+ * kind tagged `rock` (see `entity-kinds.ts`).
+ */
+export function natureBuryFrac(kind: string, x: number, y: number): number {
+  const def = tryGetEntityKindDef(kind);
+  if (!def?.defaultTags.includes('rock')) return 0;
+  return ROCK_BURY_MIN + ROCK_BURY_RANGE * posHash01(x, y);
 }
 
 const TRUNK_COLOR = '#5a4030';

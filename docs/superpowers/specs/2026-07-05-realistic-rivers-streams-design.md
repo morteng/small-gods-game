@@ -197,6 +197,22 @@ Two halves, both reusing round-6/7 vocabulary (matches flora doc §G7 `partialBu
   albedo darkening/wetness ring at the contact line can ride the same SDF the settle pad defines
   (cheap shader term, same trick as doorstep wear).
 
+> **Geometry sink SHIPPED 2026-07-05 (no WCV bump — render-time only).** Done with one correction:
+> the spec assumed a per-pixel terrain clip that DOESN'T exist — the entity pass (`lit-wgsl`) is
+> painter-order (y-sort depth), so pushing a sprite down would make it FLOAT lower, not sink. The
+> working mechanism is a **crop**: draw only the top `h−buryPx` rows and seat the cropped base at
+> the ground line (`plantSpriteItemFromPack` in `iso-sprites.ts`); the terrain painted behind shows
+> where the base was, so the rock reads as emerging from the ground. Foot (`dy+dh`) stays at the
+> ground line, so foot-z lift + the cast-shadow anchor are untouched; the shared instance UV crops
+> the co-registered normal/material maps with the albedo. Per-instance 10–20 % seeded by position
+> (`natureBuryFrac`, stable frame-to-frame); applies to any nature kind tagged `rock`. Live-verified
+> in-browser (rocks seated, not floating; no console errors). Trees' root-flare knob NOT done.
+>
+> **Ground blend DEFERRED** (its own follow-up): the settle pad touches the shared deformation
+> heightfield (worldgen output → WCV bump + its own cascade check, cf. R1) and the wetness ring is a
+> shader term — a bigger, separate change than the render-only sink. The sink alone already delivers
+> "rocks sunk into the ground."
+
 ### R6 — Water render polish (independent, biggest visual delta per line) — ~2 days
 
 1. **Bank edge fade + wet band:** fade water alpha and boost foam as channel-SDF → 0; darken
