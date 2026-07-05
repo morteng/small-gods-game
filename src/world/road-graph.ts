@@ -73,6 +73,13 @@ export interface RoadEdge {
    *  tick. Absent = a new, kept road. Persisted verbatim with the graph and consumed by the
    *  carve + surface channel via `edge.dynamics` (see {@link edgeRoadProfile}). */
   dynamics?: import('@/world/road-state').RoadDynamics;
+  /** Set by `reconcileFilletRaster` when this edge's gate/anchor approach fillet could not be
+   *  legalized onto the tile grid (a divergent span's candidate cells hit water-sans-bridge /
+   *  curtain / building / green). Galin's re-validate verdict: the SMOOTHING is discarded, not
+   *  partially applied — `edgeRoadProfile` then skips the fillet so the render ribbon, terrain
+   *  carve and tile mask all follow the plain smoothed polyline the router approved
+   *  (`roads.ribbon-legal` holds by construction). Persisted with the graph. */
+  filletRejected?: boolean;
 }
 
 export interface RoadGraph {

@@ -320,9 +320,14 @@ export function edgeRoadProfile(
   dynamicFor?: (edge: RoadEdge) => RoadDynamics | undefined,
 ): EdgeRoadProfile | null {
   if (edge.feature !== 'road' || edge.polyline.length < 2) return null;
-  let centerline = filletOntoProfiles(smoothCenterline(edge.polyline), gateProfilesFor(map), GATE_SNAP_TILES);
-  const anchorProfiles = buildingAnchorProfilesFor(map, edge.id);
-  if (anchorProfiles.length) centerline = filletOntoProfiles(centerline, anchorProfiles, ANCHOR_SNAP_TILES);
+  let centerline = smoothCenterline(edge.polyline);
+  // A rejected fillet (reconciliation found its ribbon cells illegal) stays rejected: the
+  // plain smoothed polyline tracks the router-approved raw path within the reconcile margin.
+  if (!edge.filletRejected) {
+    centerline = filletOntoProfiles(centerline, gateProfilesFor(map), GATE_SNAP_TILES);
+    const anchorProfiles = buildingAnchorProfilesFor(map, edge.id);
+    if (anchorProfiles.length) centerline = filletOntoProfiles(centerline, anchorProfiles, ANCHOR_SNAP_TILES);
+  }
   if (centerline.length < 2) return null;
   const fromPoi = poiById.get(nodeById.get(edge.a)?.poiRef ?? '');
   const toPoi = poiById.get(nodeById.get(edge.b)?.poiRef ?? '');
@@ -646,9 +651,27 @@ function planSpan(
  * blocked check consults the real building registry, not just tile flags.
  */
 export function reconcileFilletRaster(map: GameMap, world?: World): FilletReconcileSpan[] {
-  return planFilletReconcile(map, world).map((span) => {
-    const legal = span.cells.length > 0 && span.badCells.length === 0;
-    if (!legal) return { edgeId: span.edgeId, arcRange: span.arcRange, written: false, cellsWritten: 0 };
+  const plans = planFilletReconcile(map, world);
+  // GALIN'S VERDICT (re-validate after smoothing): an edge with ANY illegal span gets its
+  // fillet REJECTED outright — never partially applied. `edgeRoadProfile` then re-derives the
+  // plain smoothed centerline for that edge, so the render ribbon, the terrain carve and the
+  // tile mask all follow the path the router approved (`roads.ribbon-legal` holds by
+  // construction). Residual divergence on a rejected edge is pure Catmull-Rom corner-cutting
+  // (sub-tile, fillet-free) — the lint contract reports it as a warn, not an error.
+  const badEdges = new Set(plans.filter((s) => s.cells.length === 0 || s.badCells.length > 0).map((s) => s.edgeId));
+  if (badEdges.size > 0 && map.roadGraph) {
+    for (const e of map.roadGraph.edges) {
+      if (!badEdges.has(e.id) || e.filletRejected) continue;
+      e.filletRejected = true;
+      console.warn(`[worldgen] fillet REJECTED for road ${e.id} — smoothed ribbon crossed illegal ground; edge keeps its plain centerline`);
+    }
+    // Deformation/surface caches key on the graph rev — the carve must re-derive fillet-free.
+    map.roadGraph.rev = (map.roadGraph.rev ?? 0) + 1;
+  }
+  return plans.map((span) => {
+    if (badEdges.has(span.edgeId)) {
+      return { edgeId: span.edgeId, arcRange: span.arcRange, written: false, cellsWritten: 0 };
+    }
     const mask: RoadMask = {
       width: map.width,
       height: map.height,

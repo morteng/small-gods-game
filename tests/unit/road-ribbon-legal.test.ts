@@ -81,13 +81,13 @@ describe('roads.ribbon-legal', () => {
     expect(roadsRibbonLegal.evaluate(ctxOf(map), {})).toHaveLength(0);
   });
 
-  it('errors when a divergent span falls back onto illegal ground (water under the ribbon)', () => {
+  it('gen self-heals an illegal fillet: the edge is REJECTED and the contract holds error-free', () => {
     const map = grassMap(24, 24, { barrierRuns: [townRing()] });
     const edge = approachEdge();
     map.roadGraph = graphOf(edge);
     carveEdge(map, edge);
-    // Find where the fillet actually diverges, then flood one of its candidate cells that is
-    // NOT on the raw carve — the reconciliation must fall back and the contract must fire.
+    // Flood one fillet candidate cell that is NOT on the raw carve — the reconciliation must
+    // reject the fillet outright (Galin: discard the smoothing, never partially apply it).
     const plans = planFilletReconcile(map);
     expect(plans.length).toBeGreaterThan(0);
     const raw = new Set(edge.polyline.map((c) => `${c.x},${c.y}`));
@@ -98,10 +98,38 @@ describe('roads.ribbon-legal', () => {
     };
     const spans = reconcileFilletRaster(map);
     expect(spans.some((s) => !s.written)).toBe(true);
+    expect(edge.filletRejected).toBe(true);
+    // Post-repair, the profile follows the plain smoothed polyline — no ERROR-grade findings
+    // (any residue is warn-grade smoothing corner-cutting the carve legally avoids).
     const findings = roadsRibbonLegal.evaluate(ctxOf(map), {});
-    expect(findings.length).toBeGreaterThan(0);
-    expect(findings[0].severity).toBe('error');
-    expect(findings[0].locus.tiles?.length).toBeGreaterThan(0);
+    expect(findings.filter((d) => d.severity === 'error')).toHaveLength(0);
+  });
+
+  it('errors when a LIVE reconciled road cell is violated (curtain later stamped over the ribbon)', () => {
+    const map = grassMap(24, 24, { barrierRuns: [townRing()] });
+    const edge = approachEdge();
+    map.roadGraph = graphOf(edge);
+    carveEdge(map, edge);
+    const spans = reconcileFilletRaster(map);
+    expect(spans.some((s) => s.written)).toBe(true);
+    // A written ribbon cell — road-class, not on the raw polyline.
+    const raw = new Set(edge.polyline.map((c) => `${c.x},${c.y}`));
+    const cell = planFilletReconcile(map).flatMap((p) => p.cells).find((c) => !raw.has(`${c.x},${c.y}`))!;
+    expect(cell).toBeDefined();
+    // A defensive ring committed straight across that live road cell (no gate there).
+    map.barrierRuns!.push({
+      id: 'rogue_ring',
+      run: {
+        kind: 'wall',
+        path: [[cell.x - 1, cell.y], [cell.x + 2, cell.y], [cell.x + 2, cell.y + 3], [cell.x - 1, cell.y + 3], [cell.x - 1, cell.y]],
+        height: 3, thickness: 1, material: 'stone', crenellated: true,
+        gates: [], centroid: [cell.x + 0.5, cell.y + 1.5],
+      },
+    });
+    const findings = roadsRibbonLegal.evaluate(ctxOf(map), {});
+    const errors = findings.filter((d) => d.severity === 'error');
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors[0].locus.tiles?.length).toBeGreaterThan(0);
   });
 
   it('smoothing endpoints stay pinned to the gate — the ribbon can never detach from it', () => {
