@@ -120,11 +120,14 @@ REMOTE_EXIT="$REMOTE_DIR/ci-exit.code"
 REMOTE_WRAPPER="$REMOTE_DIR/.ci-runner.sh"
 
 # Detached runner: survives client SSH drops; exit code lands in a sentinel
-# file. flock serializes our own runs; pikkolo CI has its own lock + stack.
+# file. Shared server-wide lock (/tmp/hetzner-ci.lock) so only one heavy CI
+# runner uses the 4-vCPU box at a time ACROSS projects (pikkolo + small-gods),
+# not just small-gods branches. -w 2400 so a queued run outwaits the other
+# project's full run instead of flock timing out and faking a failure.
 WRAPPER_SRC=$(cat <<RUNNER_WRAPPER
 #!/usr/bin/env bash
 cd "$REMOTE_DIR" || { echo 97 > "$REMOTE_EXIT"; exit 97; }
-flock -w 600 /tmp/smallgods-ci.lock \
+flock -w 2400 /tmp/hetzner-ci.lock \
   timeout $RUNNER_TIMEOUT docker run --rm --name smallgods-ci-runner \
     -v $REMOTE_DIR:/app -w /app --cpus=$CPUS -m 4g \
     -e CI=1 \
