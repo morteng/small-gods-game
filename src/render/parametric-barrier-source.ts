@@ -28,7 +28,6 @@ import { gateLeafSpec, gateFrameSpec } from '@/assetgen/geometry/gate-spec';
 import { postSpec } from '@/assetgen/geometry/post-spec';
 import { stairSpec } from '@/assetgen/geometry/stair-spec';
 import { masonryWork } from '@/assetgen/geometry/linear';
-import { MERLON_PERIOD_TILES } from '@/assetgen/geometry/tower-spec';
 import { mToTiles } from '@/render/scale-contract';
 import type { Mat } from '@/assetgen/types';
 import type { BarrierKind } from '@/world/barrier';
@@ -119,63 +118,269 @@ export interface BarrierChunk {
   refX: number; refY: number; sortX: number; sortY: number;
 }
 
-/** Split a run's polyline into per-segment, length-bounded, localised chunks (cache-reusable). */
+// ── Canonical piece grid (WP-W2) ───────────────────────────────────────────────────────────
+// A canonical wall edge (WP-W1 rings + snapped connection/croft walls) is cut into a FINITE
+// vocabulary of pieces so identical pieces across worlds share ONE composed sprite (and can be
+// pre-generated / img2img-styled): a cardinal piece = 2 tiles (delta (±2,0)/(0,±2)); a diagonal
+// piece = ONE (±1,±1) step = √2. Both respect CHUNK_DEPTH_SPAN_MAX = 2. A non-canonical (free-
+// angle) edge — only legacy hand-built runs — falls back to the old continuous cutter (`free:` key).
+
+/** The 8 canonical unit deltas, indexed by 45° octant from +x (matches wall-connections.ts). */
+const CANONICAL_DIRS: Pt[] = [
+  [1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1], [0, -1], [1, -1],
+];
+/** Cardinal render piece: 2 along-axis tiles. */
+const CARDINAL_CUT = 2;
+/** Diagonal render piece: ONE (±1,±1) step = √2 tiles. */
+const DIAG_CUT = Math.SQRT2;
+/** A GATE slot is a full WP-W1 gate piece: 2 tiles cardinal / 2 diagonal steps (2√2). */
+const CARDINAL_SLOT = 2;
+const DIAG_SLOT = 2 * Math.SQRT2;
+/** cos(0.5°): edges whose bearing is within 0.5° of a canonical direction are cut on the grid;
+ *  anything more off-axis falls to the legacy free-angle chunker. */
+const CANON_DOT = Math.cos(0.5 * Math.PI / 180);
+/** Normalized-bearing integer step deltas (E, NE, N, NW) — cardinal steps are unit, diagonal one (±1,±1). */
+const BEARING_STEP: Pt[] = [[1, 0], [1, 1], [0, 1], [-1, 1]];
+
+interface EdgeClass {
+  oct: number; canonical: boolean; cls: 'card' | 'diag'; reversed: boolean;
+  bearing: 0 | 1 | 2 | 3; worldUnit: Pt; cutLen: number; slotLen: number;
+}
+
+/** Classify an edge delta: octant, whether it is (near-)canonical, cardinal/diagonal, and — for
+ *  the OUTPUT normalization that halves the sprite set — whether it points into the back half
+ *  {W,SW,S,SE} (⇒ emit reversed from the far endpoint at bearing oct%4 ∈ {E,NE,N,NW}). */
+function classifyEdge(dx: number, dy: number): EdgeClass {
+  const L = Math.hypot(dx, dy) || 1;
+  const oct = ((Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) % 8) + 8) % 8;
+  const cu = CANONICAL_DIRS[oct]; const cl = Math.hypot(cu[0], cu[1]) || 1;
+  const canonical = (dx / L) * (cu[0] / cl) + (dy / L) * (cu[1] / cl) >= CANON_DOT;
+  const cls = oct % 2 === 1 ? 'diag' : 'card';
+  return {
+    oct, canonical, cls, reversed: oct >= 4, bearing: (oct % 4) as 0 | 1 | 2 | 3,
+    worldUnit: [cu[0] / cl, cu[1] / cl], cutLen: cls === 'diag' ? DIAG_CUT : CARDINAL_CUT,
+    slotLen: cls === 'diag' ? DIAG_SLOT : CARDINAL_SLOT,
+  };
+}
+
+/** Deterministic 0|1|2 from a world tile position — the living (hedge) piece variant seed. No RNG. */
+const posHash3 = (x: number, y: number): 0 | 1 | 2 => {
+  const h = (Math.round(x) * 73856093) ^ (Math.round(y) * 19349663);
+  return (((h % 3) + 3) % 3) as 0 | 1 | 2;
+};
+
+/** The finite piece-key fields. `pieceRunFromKey` is its inverse, so a key ALWAYS reconstructs the
+ *  exact localised run it named (and re-cutting that run reproduces the key) — the W3 enumeration hook. */
+export interface PieceKey {
+  kind: BarrierKind; material: string; work: string;   // masonryWork(run), explicit
+  h: number; th: number;                                // r3(height), r3(thickness)
+  bearing: 0 | 1 | 2 | 3;                               // normalized octant (E, NE, N, NW)
+  cls: 'card' | 'diag';
+  len: 'full' | `rem${number}`;                         // diagonals always 'full'
+  out: -1 | 0 | 1;                                       // outward sign (0 = symmetric / no centroid)
+  role: 'curtain' | 'gate'; gw?: 1 | 2; gi?: 0 | 1 | 2 | 3;
+  cren?: 1; hoard?: 1; posts?: 1;
+  variant?: 0 | 1 | 2;                                   // living-family only, position-hashed
+}
+
+/** Serialize a PieceKey to a stable string (the cache/dedup key). No JSON braces, fixed field order.
+ *  e.g. `piece:wall:stone:ashlar:1.5x2:b1:diag:full:o1:curtain:cren,hoard`. */
+function pieceKeyStr(k: PieceKey): string {
+  const seg: string[] = ['piece', k.kind, k.material, k.work, `${r3(k.h)}x${r3(k.th)}`,
+    `b${k.bearing}`, k.cls, k.len, `o${k.out}`, k.role];
+  if (k.role === 'gate') seg.push(`g${k.gw}i${k.gi}`);
+  const flags: string[] = [];
+  if (k.cren) flags.push('cren');
+  if (k.hoard) flags.push('hoard');
+  if (k.posts) flags.push('posts');
+  if (flags.length) seg.push(flags.join(','));
+  if (k.variant !== undefined) seg.push(`v${k.variant}`);
+  return seg.join(':');
+}
+
+/** Rebuild the localised BarrierRun a PieceKey names — the single source of truth for `el.spec()`,
+ *  so key ⇄ spec can never diverge (and the W3 seeder can enumerate the vocabulary directly). */
+export function pieceRunFromKey(k: PieceKey): BarrierRun {
+  const NB = BEARING_STEP[k.bearing];
+  const isDiag = k.cls === 'diag';
+  const stepUnit = isDiag ? Math.SQRT2 : 1;               // along-tiles per integer step delta
+  const along = k.len === 'full' ? (isDiag ? DIAG_CUT : CARDINAL_CUT) : parseFloat(k.len.slice(3));
+  const mul = along / stepUnit;
+  const path: Pt[] = [[0, 0], [r3(NB[0] * mul), r3(NB[1] * mul)]];
+  const cutLen = isDiag ? DIAG_CUT : CARDINAL_CUT;
+  const slotLen = isDiag ? DIAG_SLOT : CARDINAL_SLOT;
+  const gates: BarrierGate[] = [];
+  if (k.role === 'gate') {
+    const W = (k.gw ?? 1) * slotLen;
+    // Opening centre in this fragment's local frame; gateCut spans the WHOLE opening so each
+    // fragment renders its slice of one arch.
+    gates.push({ t: r3(W / 2 - (k.gi ?? 0) * cutLen), width: r3(W), kind: 'gate' });
+  }
+  return {
+    kind: k.kind, path, height: k.h, thickness: k.th, material: k.material, gates,
+    ...(k.cren ? { crenellated: true } : {}),
+    ...(k.posts ? { posts: true } : {}),
+    ...(k.hoard ? { hoarded: true } : {}),
+    ...(k.out !== 0 ? { outwardSign: k.out } : {}),
+    ...(k.variant !== undefined ? { variant: k.variant } : {}),
+  };
+}
+
+/** Legacy free-angle chunker for a single non-canonical edge (hand-built runs only). Byte-identical
+ *  to the pre-WP-W2 continuous cutter minus the retired `merlonPhase` (merlons self-tile now). */
+function pushFreeEdge(out: BarrierChunk[], run: BarrierRun, a: Pt, b: Pt, cum: number): void {
+  const segLen = Math.hypot(b[0] - a[0], b[1] - a[1]);
+  if (segLen <= 1e-6) return;
+  const dx = (b[0] - a[0]) / segLen, dy = (b[1] - a[1]) / segLen;
+  const depthRate = Math.abs(dx + dy);
+  const step = depthRate > 1e-6 ? Math.min(CHUNK_TILES, CHUNK_DEPTH_SPAN_MAX / depthRate) : CHUNK_TILES;
+  for (let s = 0; s < segLen - 1e-6; s += step) {
+    const cl = Math.min(step, segLen - s);
+    const startDist = cum + s;
+    const gates: BarrierGate[] = [];
+    for (const g of run.gates) {
+      if (g.t + g.width / 2 > startDist && g.t - g.width / 2 < startDist + cl) {
+        gates.push({ t: r3(g.t - startDist), width: r3(g.width), ...(g.kind ? { kind: g.kind } : {}) });
+      }
+    }
+    let outwardSign: number | undefined;
+    if (run.centroid) {
+      const mx = a[0] + dx * (s + cl / 2), my = a[1] + dy * (s + cl / 2);
+      const dot = (-dy) * (mx - run.centroid[0]) + dx * (my - run.centroid[1]);
+      outwardSign = dot >= 0 ? 1 : -1;
+    }
+    const localRun: BarrierRun = {
+      kind: run.kind, path: [[0, 0], [r3(dx * cl), r3(dy * cl)]],
+      height: run.height, thickness: run.thickness, material: run.material,
+      crenellated: run.crenellated, posts: run.posts, gates,
+      ...(outwardSign !== undefined ? { outwardSign } : {}),
+      ...(run.hoarded ? { hoarded: true } : {}),
+    };
+    out.push({
+      key: `free:${JSON.stringify(localRun)}`, localRun,
+      refX: a[0] + dx * s, refY: a[1] + dy * s,
+      sortX: a[0] + dx * (s + cl / 2), sortY: a[1] + dy * (s + cl / 2),
+    });
+  }
+}
+
+/** Cut a run's polyline into canonical pieces (curtain + gate fragments) drawn from a FINITE
+ *  vocabulary (WP-W2). Each piece localises to its own frame + placement; real gates REPLACE the
+ *  curtain pieces under their slot span with gate fragments (one arch spans the whole opening);
+ *  gaps DROP the pieces their span covers. Non-canonical edges fall back to `pushFreeEdge`. */
 export function chunkBarrierRun(run: BarrierRun): BarrierChunk[] {
   const path = run.path;
   if (!path || path.length < 2) return [];
   const out: BarrierChunk[] = [];
+  const cx = run.centroid?.[0], cy = run.centroid?.[1];
+  const living = run.material === 'hedge';
+  const baseKey = {
+    kind: run.kind, material: run.material, work: masonryWork(run),
+    h: r3(run.height), th: r3(run.thickness),
+    ...(run.crenellated ? { cren: 1 as const } : {}),
+    ...(run.hoarded ? { hoard: 1 as const } : {}),
+    ...(run.posts ? { posts: 1 as const } : {}),
+  };
+  // Gaps drop pieces by GLOBAL midpoint; real gates replace pieces on the edge they sit on.
+  const gapSpans: [number, number][] = [];
+  for (const g of run.gates) if (g.kind === 'gap') gapSpans.push([g.t - g.width / 2, g.t + g.width / 2]);
+
   let cum = 0;
   for (let i = 1; i < path.length; i++) {
-    const [ax, ay] = path[i - 1], [bx, by] = path[i];
-    const segLen = Math.hypot(bx - ax, by - ay);
-    if (segLen <= 1e-6) continue;
-    const dx = (bx - ax) / segLen, dy = (by - ay) / segLen;
-    // Depth-aware chunk length: a segment running down the iso-depth axis (|dx+dy| high)
-    // is cut into shorter chunks so no chunk spans more depth than CHUNK_DEPTH_SPAN_MAX.
-    const depthRate = Math.abs(dx + dy);
-    const step = depthRate > 1e-6 ? Math.min(CHUNK_TILES, CHUNK_DEPTH_SPAN_MAX / depthRate) : CHUNK_TILES;
-    for (let s = 0; s < segLen - 1e-6; s += step) {
-      const cl = Math.min(step, segLen - s);
-      const startDist = cum + s;
-      const gates: BarrierGate[] = [];
-      for (const g of run.gates) {
-        if (g.t + g.width / 2 > startDist && g.t - g.width / 2 < startDist + cl) {
-          gates.push({ t: r3(g.t - startDist), width: r3(g.width) });
+    const a = path[i - 1], b = path[i];
+    const L = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    if (L <= 1e-6) continue;
+    const ec = classifyEdge(b[0] - a[0], b[1] - a[1]);
+    if (!ec.canonical) { pushFreeEdge(out, run, a, b, cum); cum += L; continue; }
+
+    // Real-gate opening spans on THIS edge (edge-local). Slots (gw) derive from the pre-snapped
+    // width; the centre re-snaps onto piece boundaries (defensive — WP-W1 gates are already
+    // snapped, so this is a no-op there) EXCEPT when the width is wider than the edge itself, the
+    // reconstructed-fragment case (pieceRunFromKey), where the span is used verbatim so the key
+    // round-trips.
+    const openings: { openStart: number; openEnd: number; gw: 1 | 2; nPO: number }[] = [];
+    for (const g of run.gates) {
+      if (g.kind === 'gap') continue;
+      if (g.t < cum - 1e-6 || g.t > cum + L + 1e-6) continue;   // centre off this edge
+      const tc = g.t - cum;
+      const gw = Math.max(1, Math.min(2, Math.round((g.width || ec.slotLen) / ec.slotLen))) as 1 | 2;
+      const W = gw * ec.slotLen;
+      const nPO = Math.max(1, Math.round(W / ec.cutLen));
+      let openStart: number;
+      if (W <= L + 1e-6) {
+        const nPiecesEdge = Math.max(1, Math.round(L / ec.cutLen));
+        const startIdx = Math.max(0, Math.min(nPiecesEdge - nPO, Math.round((tc - W / 2) / ec.cutLen)));
+        openStart = startIdx * ec.cutLen;
+      } else {
+        openStart = tc - W / 2;
+      }
+      openings.push({ openStart, openEnd: openStart + W, gw, nPO });
+    }
+
+    let s = 0;
+    while (s < L - 1e-6) {
+      const along = Math.min(ec.cutLen, L - s);
+      const isRem = along < ec.cutLen - 1e-6;
+      const gMid = cum + s + along / 2;                             // global midpoint (gaps)
+      const ws: Pt = [a[0] + ec.worldUnit[0] * s, a[1] + ec.worldUnit[1] * s];
+      const we: Pt = [a[0] + ec.worldUnit[0] * (s + along), a[1] + ec.worldUnit[1] * (s + along)];
+      const wm: Pt = [(ws[0] + we[0]) / 2, (ws[1] + we[1]) / 2];
+      // Gap → drop this piece.
+      if (gapSpans.some(([g0, g1]) => gMid > g0 + 1e-6 && gMid < g1 - 1e-6)) { s += along; continue; }
+      // Gate fragment? (only full pieces sit inside a whole-slot opening)
+      let gate: { gw: 1 | 2; gi: 0 | 1 | 2 | 3; t: number; width: number } | undefined;
+      if (!isRem) {
+        const pm = s + along / 2;
+        for (const op of openings) {
+          if (pm > op.openStart + 1e-6 && pm < op.openEnd - 1e-6) {
+            const giEdge = Math.round((s - op.openStart) / ec.cutLen);
+            const gi = (ec.reversed ? op.nPO - 1 - giEdge : giEdge) as 0 | 1 | 2 | 3;
+            const W = op.gw * ec.slotLen;
+            gate = { gw: op.gw, gi, t: r3(W / 2 - gi * ec.cutLen), width: r3(W) };
+            break;
+          }
         }
       }
-      // Which local-y is OUTWARD for this chunk? Local +y maps to world (−dy, dx) after the
-      // chunk is rotated to its true bearing; outward is the side away from the ring centre.
-      let outwardSign: number | undefined;
-      if (run.centroid) {
-        const mx = ax + dx * (s + cl / 2), my = ay + dy * (s + cl / 2);   // chunk midpoint (world)
-        const dot = (-dy) * (mx - run.centroid[0]) + dx * (my - run.centroid[1]);
-        outwardSign = dot >= 0 ? 1 : -1;
+      // Outward sign in the FINAL (normalized) local frame: local +y maps to world (−fdy, fdx).
+      const fdir: Pt = ec.reversed ? [-ec.worldUnit[0], -ec.worldUnit[1]] : ec.worldUnit;
+      let outSign: -1 | 0 | 1 = 0;
+      if (cx !== undefined && cy !== undefined) {
+        const dot = (-fdir[1]) * (wm[0] - cx) + fdir[0] * (wm[1] - cy);
+        outSign = dot >= 0 ? 1 : -1;
+      } else if (typeof run.outwardSign === 'number') {
+        outSign = run.outwardSign >= 0 ? 1 : -1;
       }
-      const localRun: BarrierRun = {
-        kind: run.kind, path: [[0, 0], [r3(dx * cl), r3(dy * cl)]],
-        height: run.height, thickness: run.thickness, material: run.material,
-        crenellated: run.crenellated, posts: run.posts, gates,
-        ...(outwardSign !== undefined ? { outwardSign } : {}),
-        ...(run.hoarded ? { hoarded: true } : {}),
-        // Global path-distance quantized to the merlon pitch → continuous crenellation across
-        // seams, while identical straight chunks (starts a multiple of the pitch) keep ONE key.
-        merlonPhase: r3(((startDist % MERLON_PERIOD_TILES) + MERLON_PERIOD_TILES) % MERLON_PERIOD_TILES),
+      const len: PieceKey['len'] = isRem ? (`rem${r3(along)}` as `rem${number}`) : 'full';
+      const pk: PieceKey = {
+        kind: baseKey.kind, material: baseKey.material, work: baseKey.work, h: baseKey.h, th: baseKey.th,
+        bearing: ec.bearing, cls: ec.cls, len, out: outSign,
+        role: gate ? 'gate' : 'curtain',
+        ...(gate ? { gw: gate.gw, gi: gate.gi } : {}),
+        ...('cren' in baseKey ? { cren: baseKey.cren } : {}),
+        ...('hoard' in baseKey ? { hoard: baseKey.hoard } : {}),
+        ...('posts' in baseKey ? { posts: baseKey.posts } : {}),
+        // Living pieces get a position-hashed variant for organic variety; a RECONSTRUCTED run
+        // (pieceRunFromKey, single piece at the origin) already carries its variant — honor it so
+        // the key round-trips instead of re-hashing position (0,0).
+        ...(living ? { variant: (typeof run.variant === 'number' ? run.variant : posHash3(ws[0], ws[1])) as 0 | 1 | 2 } : {}),
       };
       out.push({
-        key: JSON.stringify(localRun), localRun,
-        refX: ax + dx * s, refY: ay + dy * s,
-        sortX: ax + dx * (s + cl / 2), sortY: ay + dy * (s + cl / 2),
+        key: pieceKeyStr(pk), localRun: pieceRunFromKey(pk),
+        refX: ec.reversed ? we[0] : ws[0], refY: ec.reversed ? we[1] : ws[1],
+        sortX: wm[0], sortY: wm[1],
       });
+      s += along;
     }
-    cum += segLen;
+    cum += L;
   }
   return out;
 }
 
-/** Curtain-chunk elements (compose-ready). */
+/** Curtain + gate-fragment piece elements (compose-ready). The piece key IS the element key: it is
+ *  finite (a `piece:…` grammar), so identical pieces across worlds dedup to one composed sprite. */
 function chunkElements(run: BarrierRun): Element[] {
   return chunkBarrierRun(run).map((c) => ({
-    key: `chunk:${c.key}`,
+    key: c.key,
     spec: () => ({ parts: [{ prim: 'linear', run: c.localRun }] }),
     anchor: wallEndAnchor,
     refX: c.refX, refY: c.refY, sortX: c.sortX, sortY: c.sortY,
@@ -198,9 +403,20 @@ function towerElements(run: BarrierRun): Element[] {
     const ix = c[0] - x, iy = c[1] - y, m = Math.hypot(ix, iy) || 1;
     return [ix / m, iy / m];
   };
-  const q = (v?: [number, number]): string => v ? `${Math.round(v[0] * 4) / 4},${Math.round(v[1] * 4) / 4}` : 'solid';
+  // OCTANT-snap the inward orientation (WP-W2): a tower's doorway/loops face one of the 8 canonical
+  // directions, so tower keys collapse from ~28 continuous inward values to 8 — the finite vocabulary.
+  const octOf = (v: [number, number]): number => ((Math.round(Math.atan2(v[1], v[0]) / (Math.PI / 4)) % 8) + 8) % 8;
+  const octUnit = (v: [number, number]): [number, number] => {
+    const [ux, uy] = CANONICAL_DIRS[octOf(v)]; const m = Math.hypot(ux, uy) || 1; return [ux / m, uy / m];
+  };
+  const q = (v?: [number, number]): string => v ? `o${octOf(v)}` : 'solid';
   const mk = (key: string, spec: () => StructureSpec, x: number, y: number): Element =>
     ({ key, spec, anchor: tagAnchor, refX: x, refY: y, sortX: x, sortY: y });
+  const drumAt = (x: number, y: number): Element => {
+    const inward = inwardAt(x, y);
+    const drum = towerSpec({ ...base, round: true, inward: inward ? octUnit(inward) : undefined });
+    return mk(`tower:round:${tag}:${q(inward)}`, () => ({ parts: drum.parts, mountAnchors: drum.mountAnchors }), x, y);
+  };
 
   const out: Element[] = [];
   // WP-S coverage placement is authoritative when present: a round DRUM at each salient/fill tower, a
@@ -209,22 +425,24 @@ function towerElements(run: BarrierRun): Element[] {
     for (const t of run.towers) {
       const inward = inwardAt(t.x, t.y);
       if (t.role === 'gate') {
-        const gate = towerSpec({ ...base, tall: true, inward });   // square, taller — frames the gate
+        const gate = towerSpec({ ...base, tall: true, inward: inward ? octUnit(inward) : undefined });   // square, taller — frames the gate
         out.push(mk(`tower:gate:${tag}:${q(inward)}`, () => ({ parts: gate.parts, mountAnchors: gate.mountAnchors }), t.x, t.y));
       } else {
-        const drum = towerSpec({ ...base, round: true, inward });
-        out.push(mk(`tower:round:${tag}:${q(inward)}`, () => ({ parts: drum.parts, mountAnchors: drum.mountAnchors }), t.x, t.y));
+        out.push(drumAt(t.x, t.y));
       }
+    }
+    // CORNER COVERAGE (WP-W2, render-side only): the coverage pass sites towers by bowshot, not by
+    // ring geometry, so a turning vertex can be left with a square-cut curtain joint bared. Cap any
+    // uncovered corner with an extra drum (reuses the existing `tower:round:` vocabulary — no new key).
+    for (const [x, y] of cornerVertices(run.path)) {
+      if (run.towers.some((t) => Math.hypot(t.x - x, t.y - y) <= 2)) continue;
+      out.push(drumAt(x, y));
     }
     return out;
   }
   // Legacy derivation (runs without WP-S placement, e.g. hand-built runs / crofts): a round drum at
-  // every RDP corner + twin square gatehouse towers flanking each real gate.
-  for (const [x, y] of cornerVertices(run.path)) {
-    const inward = inwardAt(x, y);
-    const drum = towerSpec({ ...base, round: true, inward });
-    out.push(mk(`tower:round:${tag}:${q(inward)}`, () => ({ parts: drum.parts, mountAnchors: drum.mountAnchors }), x, y));
-  }
+  // every corner + twin square gatehouse towers flanking each real gate.
+  for (const [x, y] of cornerVertices(run.path)) out.push(drumAt(x, y));
   for (const g of run.gates) {
     if (!isRealGate(g)) continue;                            // a gap opening gets no gatehouse
     const { p, dir } = frameAt(run.path, g.t);

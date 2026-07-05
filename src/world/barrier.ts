@@ -67,11 +67,11 @@ export interface BarrierRun {
    *  and WP-T can exempt terrain-defended runs from approach checks. Absent on open runs /
    *  crofts. See {@link RingSegment}. */
   segments?: RingSegment[];
-  /** Global path-distance (tiles) of this chunk's start, set by `chunkBarrierRun`. The masonry
-   *  cross-section phases its merlon rhythm off this so crenellations run CONTINUOUS across the
-   *  seams between chunks of one wall (each chunk is a local run starting at its own origin, so
-   *  without a global phase the merlon pattern restarts — and a ~half-crenel gap opens — per seam). */
-  merlonPhase?: number;
+  /** Position-hashed geometry variant (0|1|2), set by the render piece cutter for LIVING (hedge)
+   *  pieces so identical hedge pieces at different world positions get a little organic variety
+   *  (fed into `hedgeSeg`'s jitter seed) instead of tiling one silhouette. Absent on non-living
+   *  runs. Part of the finite piece-key vocabulary (WP-W2). */
+  variant?: number;
 }
 
 /** A barrier as committed by worldgen: its entity id + the run. Persisted on `GameMap`

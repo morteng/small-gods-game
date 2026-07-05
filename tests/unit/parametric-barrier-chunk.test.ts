@@ -10,33 +10,40 @@ const crenStoneRing = (gates = [] as { t: number; width: number }[]): BarrierRun
   ({ kind: 'wall', path: RING, height: 3, thickness: 2, material: 'stone', crenellated: true, gates });
 
 describe('chunkBarrierRun', () => {
-  it('splits a straight run into depth-bounded chunks that cover the whole length', () => {
-    // An axis-aligned wall runs 1 tile of iso-depth (|dx+dy|) per tile of length, so the
-    // 2-tile depth cap cuts it into 2-tile chunks: each carries ONE midpoint sort key, and
-    // a chunk spanning more depth than a building footprint mis-sorts against it.
+  it('splits a straight run into 2-tile cardinal pieces that cover the whole length', () => {
+    // WP-W2: a canonical cardinal edge is cut into fixed 2-tile pieces (delta exactly [2,0]) —
+    // a finite vocabulary, so identical pieces across worlds dedup to one composed sprite. The
+    // 2-tile length also holds CHUNK_DEPTH_SPAN_MAX = 2 (each piece carries ONE midpoint key).
     const chunks = chunkBarrierRun(wall([[0, 0], [12, 0]]));
-    expect(chunks.length).toBe(6);                       // 12 / 2 (depth cap)
+    expect(chunks.length).toBe(6);                       // 12 / 2
     expect(chunks[0].refX).toBe(0);
     expect(chunks[1].refX).toBeCloseTo(2);
     expect(chunks[2].refX).toBeCloseTo(4);
-    // Each localised chunk runs from its own origin along +x for its length.
+    // Each localised piece runs from its own origin along +x for exactly one cardinal piece.
     expect(chunks[0].localRun.path[0]).toEqual([0, 0]);
-    expect(chunks[0].localRun.path[1][0]).toBeCloseTo(2);
+    expect(chunks[0].localRun.path[1]).toEqual([2, 0]);   // exact integer delta — no float noise
   });
 
-  it('a cross-depth (screen-horizontal) wall keeps full-length chunks', () => {
-    // dir (√2/2, −√2/2) has |dx+dy| = 0: the whole chunk sits at one iso depth, so the
-    // depth cap does not bite and chunks stay at the full CHUNK_TILES length.
+  it('a diagonal wall is cut into √2 diagonal pieces that all share ONE key', () => {
+    // Inverted by WP-W2: a canonical diagonal edge is cut into ONE-STEP (±1,±1) pieces of length
+    // √2 (each holds |Δ(x+y)| ≤ 2), NOT full-length chunks. [[0,8],[8,0]] (bearing SE, length 8√2)
+    // → 8 identical pieces, orientation-normalized to the NW bearing so they all share one key.
     const chunks = chunkBarrierRun(wall([[0, 8], [8, 0]]));
-    const lens = chunks.map((c) => Math.hypot(c.localRun.path[1][0], c.localRun.path[1][1]));
-    expect(Math.max(...lens)).toBeGreaterThan(3.9);
+    expect(chunks.length).toBe(8);
+    for (const c of chunks) {
+      expect(Math.hypot(c.localRun.path[1][0], c.localRun.path[1][1])).toBeCloseTo(Math.SQRT2, 6);
+    }
+    expect(new Set(chunks.map((c) => c.key)).size).toBe(1);   // ALL one key
   });
 
-  it('identical straight chunks share ONE cache key (so a long wall reuses one sprite)', () => {
+  it('identical straight pieces share ONE cache key, matching the finite `piece:` grammar', () => {
     const chunks = chunkBarrierRun(wall([[0, 0], [16, 0]]));
-    const full = chunks.filter((c) => Math.hypot(c.localRun.path[1][0], c.localRun.path[1][1]) > 1.9);
-    expect(full.length).toBeGreaterThanOrEqual(6);
-    expect(new Set(full.map((c) => c.key)).size).toBe(1);   // all full chunks → same key
+    expect(chunks.length).toBe(8);                          // 16 / 2 cardinal pieces
+    expect(new Set(chunks.map((c) => c.key)).size).toBe(1); // all pieces → same key
+    for (const c of chunks) {
+      expect(c.key).toMatch(/^piece:/);                    // finite grammar, not a JSON blob
+      expect(c.key).not.toContain('{');
+    }
   });
 
   it('breaks chunks at polyline vertices (a corner is never inside one chunk)', () => {
@@ -48,15 +55,43 @@ describe('chunkBarrierRun', () => {
     }
   });
 
-  it('rebases a gate onto the chunk it falls in (chunk-local distance)', () => {
-    const chunks = chunkBarrierRun(wall([[0, 0], [12, 0]], [{ t: 6, width: 2 }]));
-    const gated = chunks.filter((c) => c.localRun.gates.length > 0);
-    expect(gated.length).toBeGreaterThan(0);
-    // The gate at run-distance 6 lands in the chunk starting at 4 → local t ≈ 2.
-    const g = gated[0].localRun.gates[0];
-    expect(g.t).toBeGreaterThanOrEqual(0);
-    expect(g.t).toBeLessThanOrEqual(4);
-    expect(g.width).toBeCloseTo(2);
+  it('a real gate REPLACES whole curtain pieces with gate fragments on a slot boundary', () => {
+    // WP-W2: the gate snaps to whole piece slots, and the piece(s) under its span become GATE
+    // FRAGMENTS (role gate) instead of curtain — no boolean gate-clipping inside a curtain key.
+    const ungated = chunkBarrierRun(wall([[0, 0], [12, 0]]));
+    const gated = chunkBarrierRun(wall([[0, 0], [12, 0]], [{ t: 6, width: 2 }]));
+    const gates = gated.filter((c) => c.localRun.gates.length > 0);
+    expect(gates).toHaveLength(1);                              // exactly one gate piece (1 slot)
+    expect(gates[0].key).toContain(':gate:');                  // role gate in the key
+    // The gate piece sits on a piece boundary (its refX is an even tile = a slot boundary).
+    expect(gates[0].refX % 2).toBeCloseTo(0, 6);
+    // The curtain pieces are byte-identical to the ungated wall's (gates drop out of curtain keys).
+    const curtainKeys = (cs: typeof gated) => cs.filter((c) => c.localRun.gates.length === 0).map((c) => c.key);
+    expect(new Set(curtainKeys(gated))).toEqual(new Set(curtainKeys(ungated).slice(0, 1)));
+    // No curtain piece survives under the gate span [5,7]: every piece there is a gate fragment.
+    for (const c of gated) {
+      const mid = c.sortX;
+      if (mid > 5 && mid < 7) expect(c.localRun.gates.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('a croft-style odd cardinal side emits full pieces + one remainder piece', () => {
+    // A 3-tile side = one full 2-tile piece + a 1-tile remainder (crofts keep sub-piece sides).
+    const chunks = chunkBarrierRun(wall([[0, 0], [3, 0]]));
+    expect(chunks).toHaveLength(2);
+    const lens = chunks.map((c) => c.localRun.path[1][0]).sort((a, b) => a - b);
+    expect(lens).toEqual([1, 2]);
+    expect(chunks.some((c) => c.key.includes(':rem1:'))).toBe(true);   // the remainder piece
+    expect(chunks.some((c) => c.key.includes(':full:'))).toBe(true);   // the full piece
+  });
+
+  it('a GAP opening DROPS the pieces under its span (no gate fragment, no curtain)', () => {
+    const solid = chunkBarrierRun(wall([[0, 0], [12, 0]]));                       // 6 pieces
+    const gap: BarrierRun = { kind: 'wall', path: [[0, 0], [12, 0]], ...BARRIER_DEFAULTS.wall, gates: [{ t: 6, width: 4, kind: 'gap' }] };
+    const dropped = chunkBarrierRun(gap);
+    expect(dropped.length).toBeLessThan(solid.length);               // the gap removed pieces
+    expect(dropped.every((c) => c.localRun.gates.length === 0)).toBe(true);  // no gate fragments
+    for (const c of dropped) expect(c.sortX > 4 && c.sortX < 8).toBe(false);  // none under the gap span
   });
 
   it('a degenerate run (one point) yields no chunks', () => {
@@ -104,6 +139,22 @@ describe('chunkBarrierRun', () => {
     const plainStone: BarrierRun = { kind: 'wall', path: RING, height: 1.3, thickness: 1, material: 'stone', crenellated: false, gates: [] };
     expect(runElements(plainStone).length).toBe(chunkBarrierRun(plainStone).length);
   });
+
+  it('WP-S coverage towers WITH a bare corner get an extra coverage drum (render-side)', () => {
+    // run.towers is coverage-sited by bowshot, not ring geometry, so a turning vertex can be left
+    // uncovered — WP-W2 caps any such corner with an extra drum (same `tower:round:` vocabulary).
+    const base = { kind: 'wall' as const, path: RING, height: 3, thickness: 2, material: 'stone', crenellated: true, centroid: [7, 5] as [number, number], gates: [] };
+    // Cover 3 of the 4 corners; leave (0,10) bare.
+    const covered: BarrierRun = { ...base, towers: [
+      { x: 0, y: 0, role: 'salient' }, { x: 14, y: 0, role: 'salient' }, { x: 14, y: 10, role: 'salient' },
+    ] };
+    const towerEls = runElements(covered).filter((e) => e.key.startsWith('tower:'));
+    // 3 committed + 1 coverage drum at the bare corner = 4 round drums.
+    expect(towerEls).toHaveLength(4);
+    expect(towerEls.every((e) => e.key.startsWith('tower:round:'))).toBe(true);
+    const drumAtBareCorner = runElements(covered).find((e) => e.key.startsWith('tower:round:') && Math.hypot(e.refX - 0, e.refY - 10) < 1e-6);
+    expect(drumAtBareCorner).toBeTruthy();
+  });
 });
 
 describe('chunkBarrierRun — outward orientation (parapet must face the field)', () => {
@@ -119,16 +170,27 @@ describe('chunkBarrierRun — outward orientation (parapet must face the field)'
 
   it('outwardSign points the local +y frame away from the ring centre on each side', () => {
     for (const c of chunkBarrierRun(ring)) {
-      // Reconstruct the chunk bearing from its localised path, then the world dir of local +y.
+      // Reconstruct the (possibly reversed/normalized) piece bearing from its localised path,
+      // then the world dir of local +y. refX/refY is the piece's local origin (its far endpoint
+      // when the edge was orientation-normalized), so the world midpoint is refX + dir*len/2.
       const [ldx, ldy] = c.localRun.path[1];
-      const m = Math.hypot(ldx, ldy) || 1;
-      const dx = ldx / m, dy = ldy / m;
+      const len = Math.hypot(ldx, ldy) || 1;
+      const dx = ldx / len, dy = ldy / len;
       const sign = c.localRun.outwardSign ?? 0;
-      // world vector of the OUTWARD normal = sign * (−dy, dx)
-      const ox = sign * -dy, oy = sign * dx;
-      // chunk midpoint minus centre must have a POSITIVE dot with the outward normal.
-      const mx = c.refX + dx * 2, my = c.refY + dy * 2;   // ~mid of a 4-tile chunk
+      expect(Math.abs(sign)).toBe(1);                     // every piece knows its outward side
+      const ox = sign * -dy, oy = sign * dx;              // world vector of the OUTWARD normal
+      const mx = c.refX + dx * (len / 2), my = c.refY + dy * (len / 2);   // world midpoint
       expect(ox * (mx - 7) + oy * (my - 5)).toBeGreaterThan(0);
+    }
+  });
+
+  it('normalizes back-half bearings to the E/NE/N/NW half so the sprite set halves', () => {
+    // Every piece's localised bearing must be one of the 4 forward octants (E,NE,N,NW): a
+    // south/west edge is emitted reversed from its far endpoint (with outwardSign flipped).
+    for (const c of chunkBarrierRun(ring)) {
+      const [dx, dy] = c.localRun.path[1];
+      const oct = ((Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) % 8) + 8) % 8;
+      expect(oct).toBeLessThanOrEqual(3);
     }
   });
 

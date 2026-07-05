@@ -41,6 +41,14 @@ type ManifoldNS = Awaited<ReturnType<typeof getManifold>>['Manifold'];
 
 const RAD2DEG = 180 / Math.PI;
 
+/** Snap a near-canonical bearing to an exact 45° multiple so a piece composed from a canonical
+ *  wall edge (WP-W2) rotates to a clean axis/diagonal (no sub-degree float noise in the rotate),
+ *  while a genuinely free-angle legacy run keeps its exact bearing. */
+function snapAngle45(deg: number): number {
+  const snapped = Math.round(deg / 45) * 45;
+  return Math.abs(deg - snapped) < 0.5 ? snapped : deg;
+}
+
 /** Per-segment geometry derived from a consecutive path pair (local +x = along the run). */
 interface Seg { ax: number; ay: number; len: number; angleDeg: number }
 
@@ -50,7 +58,7 @@ function segments(path: [number, number][]): Seg[] {
     const [ax, ay] = path[i - 1], [bx, by] = path[i];
     const len = Math.hypot(bx - ax, by - ay);
     if (len <= 0) continue;
-    segs.push({ ax, ay, len, angleDeg: Math.atan2(by - ay, bx - ax) * RAD2DEG });
+    segs.push({ ax, ay, len, angleDeg: snapAngle45(Math.atan2(by - ay, bx - ax) * RAD2DEG) });
   }
   return segs;
 }
@@ -61,7 +69,7 @@ function pointAt(path: [number, number][], t: number): { p: [number, number]; an
   for (let i = 1; i < path.length; i++) {
     const [ax, ay] = path[i - 1], [bx, by] = path[i];
     const len = Math.hypot(bx - ax, by - ay);
-    const angleDeg = Math.atan2(by - ay, bx - ax) * RAD2DEG;
+    const angleDeg = snapAngle45(Math.atan2(by - ay, bx - ax) * RAD2DEG);
     if (t <= acc + len) {
       const u = (t - acc) / (len || 1);
       return { p: [ax + (bx - ax) * u, ay + (by - ay) * u], angleDeg };
@@ -70,7 +78,7 @@ function pointAt(path: [number, number][], t: number): { p: [number, number]; an
   }
   const [ax, ay] = path[path.length - 2] ?? path[0];
   const [bx, by] = path[path.length - 1];
-  return { p: [bx, by], angleDeg: Math.atan2(by - ay, bx - ax) * RAD2DEG };
+  return { p: [bx, by], angleDeg: snapAngle45(Math.atan2(by - ay, bx - ax) * RAD2DEG) };
 }
 
 const MATERIAL_MAP: Record<string, Mat> = {
@@ -170,21 +178,20 @@ function masonrySeg(M: ManifoldNS, run: BarrierRun, s: Seg): ManifoldT[] {
     // the old symmetric parapet (both edges thick, single coping thin).
     const parapetTh = Math.max(mToTiles(0.45), th * 0.32);
     const baseCourseH = parapetH * 0.42;
-    const period = MERLON_PERIOD_TILES;           // shared curtain/tower/parapet merlon pitch
-    const merlonW = period * MERLON_WIDTH_FRAC;   // merlon a touch wider than the crenel
     const outward = outwardSignFor(run, s);
     const edgeCross = (th - parapetTh) / 2;       // parapet centre sits on a face, not the middle
-    // Phase the teeth off the chunk's GLOBAL path-distance so the crenellation runs CONTINUOUS
-    // across chunk seams: merlons live on a global grid at positions ≡ `margin` (mod period); the
-    // chunk (a local run starting at 0) shifts that grid back by its start phase. `MERLON_PERIOD_TILES`
-    // divides the chunk length, so an axis wall's chunks all share phase 0 (one cached sprite).
-    const margin = mToTiles(0.25);
-    const phase = (((run.merlonPhase ?? 0) % period) + period) % period;
-    const d0 = (((margin - phase) % period) + period) % period;
+    // SELF-TILING symmetric merlons (WP-W2): lay a WHOLE number of merlon periods across this
+    // segment, teeth centred at (k+0.5)·period. The layout is symmetric under x→len−x (which
+    // legalizes the render cutter's orientation normalization) and continuous across piece seams
+    // (each canonical piece carries whole periods — a 2-tile cardinal piece keeps 2 teeth, a √2
+    // diagonal piece 1). No global merlonPhase needed: seam continuity is now STRUCTURAL.
     const parapet = (ey: number): void => {
       out.push(place(locBox(M, 0, s.len, parapetTh, walkZ, baseCourseH, ey), s));      // base course
-      for (let d = d0; d + merlonW <= s.len + 1e-6; d += period) {
-        out.push(place(locBox(M, d, merlonW, parapetTh, walkZ, parapetH, ey), s));     // merlon tooth
+      const n = Math.max(1, Math.round(s.len / MERLON_PERIOD_TILES));
+      const period = s.len / n;
+      const merlonW = period * MERLON_WIDTH_FRAC;   // merlon a touch wider than the crenel
+      for (let k = 0; k < n; k++) {
+        out.push(place(locBox(M, (k + 0.5) * period - merlonW / 2, merlonW, parapetTh, walkZ, parapetH, ey), s));
       }
     };
     if (outward !== 0) {
@@ -354,13 +361,14 @@ function hedgeSeg(M: ManifoldNS, run: BarrierRun, s: Seg, segIdx: number): Manif
   const step = s.len / n;
   // A continuous lower body so the hedge reads dense, not as separate bushes.
   out.push(place(locBox(M, 0, s.len, th * 0.85, 0, H * 0.6), s));
+  const vseed = (run.variant ?? 0) * 911;            // position-hashed variant (WP-W2) → organic variety
   for (let i = 0; i <= n; i++) {
     const d = Math.min(s.len, i * step);
-    const j = hash01(segIdx * 131 + i);
+    const j = hash01(segIdx * 131 + i + vseed);
     const r = 0.85 + j * 0.4;                        // organic size jitter
     const blob = M.sphere(1, 16)
       .scale([pitch * 0.7 * r, th * 0.55 * r, H * 0.5 * r])
-      .translate([d, 0, H * (0.55 + (hash01(i + 7) - 0.5) * 0.12)]);
+      .translate([d, 0, H * (0.55 + (hash01(i + 7 + vseed) - 0.5) * 0.12)]);
     out.push(place(blob, s));
   }
   return out;
