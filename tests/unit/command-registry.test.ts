@@ -10,19 +10,34 @@ const EDITOR_VERBS: CommandVerb[] = [
   'author_place_object', 'author_move_entity', 'author_set_climate',
 ];
 
+// R9: meta-tier time-control verbs — declared in the registry (so the bus/story
+// allowlist accepts them) but handled off-sim by TimeController (no `apply`).
+const META_VERBS: CommandVerb[] = ['set_time_rate', 'skip_to_next_event', 'cancel_seek'];
+
 const ALL_VERBS: CommandVerb[] = [
   'whisper', 'omen', 'dream', 'miracle', 'answer_prayer', 'probe_mind', 'smite', 'summon_storm',
   'bias_event', 'inject_npc', 'nudge_severity', 'place_building', 'grow_settlement',
   'rename_ward', 'retype_ward', 'set_rival_stance',
   ...EDITOR_VERBS,
+  ...META_VERBS,
 ];
 
 describe('capability registry', () => {
-  it('declares all 22 verbs', () => {
-    expect(listCapabilities()).toHaveLength(22);
+  it('declares all 25 verbs', () => {
+    expect(listCapabilities()).toHaveLength(25);
     for (const v of ALL_VERBS) {
       expect(getCapability(v)).toBeDefined();
       expect(CAPABILITY_REGISTRY[v].verb).toBe(v);
+    }
+  });
+
+  it('declares the meta verbs as apply-less, cost-0, meta-tier', () => {
+    for (const v of META_VERBS) {
+      const def = CAPABILITY_REGISTRY[v];
+      expect(def.tier).toBe('meta');
+      expect(def.cost).toBe(0);
+      expect(def.implemented).toBe(true);
+      expect(def.apply).toBeUndefined();   // routed to TimeController, never applied in-sim
     }
   });
 

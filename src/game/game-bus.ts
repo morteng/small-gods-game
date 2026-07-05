@@ -16,7 +16,7 @@ import type { CommandQueue } from '@/sim/command/command-queue';
 import type { GameState } from '@/core/state';
 import type { AppendedEvent } from '@/core/events';
 import { previewCommand } from '@/sim/command/command-system';
-import { listCapabilities, acceptedTargetKinds } from '@/sim/command/registry';
+import { listCapabilities, acceptedTargetKinds, isMetaVerb } from '@/sim/command/registry';
 import type { GameQuery } from './game-query';
 
 /** The capability registry projected to plain, serializable data. The MCP tool
@@ -24,7 +24,7 @@ import type { GameQuery } from './game-query';
  *  — one source of truth for the verb vocabulary. */
 export interface CapabilityView {
   verb: CommandVerb;
-  tier: 'divine' | 'authoring' | 'editor';
+  tier: 'divine' | 'authoring' | 'editor' | 'meta';
   cost: number;
   /** Primary target shape (default for labels/defaults). */
   targetKind: CommandTargetKind;
@@ -51,12 +51,20 @@ export interface GameBusDeps {
   queue: CommandQueue;
   state: GameState;
   query: GameQuery;
+  /** R9: meta verbs (time controls) are intercepted here and routed to
+   *  TimeController on the game side — NEVER enqueued to the sim command queue, so
+   *  they stay out of the event log / snapshot / replay. Any caller (MCP, Fate,
+   *  story host, the UI) gets time control for free through the same `emit`. */
+  onMeta?: (cmd: Omit<Command, 'seq'>) => void;
 }
 
 export function createGameBus(deps: GameBusDeps): GameBus {
-  const { queue, state, query } = deps;
+  const { queue, state, query, onMeta } = deps;
   return {
-    emit(cmd) { queue.emit(cmd); },
+    emit(cmd) {
+      if (isMetaVerb(cmd.verb)) { onMeta?.(cmd); return; }   // meta: route off-sim, never enqueue
+      queue.emit(cmd);
+    },
 
     preview(cmd) {
       return previewCommand(cmd, { world: state.world!, spirits: state.spirits, log: state.eventLog });

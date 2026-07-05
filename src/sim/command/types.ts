@@ -24,7 +24,11 @@ export type CommandVerb =
   | 'rename_ward' | 'retype_ward' | 'set_rival_stance'
   // editor tier — god-mode world authoring (the Create panel; cost 0, no spirit)
   | 'author_spawn_npc' | 'author_remove_entity' | 'author_modify_npc'
-  | 'author_place_object' | 'author_move_entity' | 'author_set_climate';
+  | 'author_place_object' | 'author_move_entity' | 'author_set_climate'
+  // meta tier (R9 time controls) — change HOW FAST the sim advances, not sim
+  // state. Intercepted on the GAME side (never enqueued), so they never enter the
+  // sim tick / event log / snapshot / replay. See registry.ts + game-bus onMeta.
+  | 'set_time_rate' | 'skip_to_next_event' | 'cancel_seek';
 
 export type CommandTarget =
   | { kind: 'npc'; npcId: string }
