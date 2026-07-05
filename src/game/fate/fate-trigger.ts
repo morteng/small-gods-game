@@ -28,7 +28,7 @@ export interface FateTriggerDeps {
   onTrigger: (focus: FateFocus) => void;
   /** How many rival prayer-claims within the window wake Fate. Default 2. */
   rivalClaimThreshold?: number;
-  /** The sliding window (ticks) over which rival claims accumulate. Default 240
+  /** The sliding window (ticks) over which rival claims accumulate. Default one day
    *  (one sim-day) — shorter than a typical cooldown, so pressure lapses cleanly. */
   rivalClaimWindowTicks?: number;
 }

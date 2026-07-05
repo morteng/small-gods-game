@@ -15,6 +15,7 @@ import {
   type RivalPersonality,
 } from '@/sim/rival-spirit';
 import type { RivalSituation } from '@/sim/rival-claims';
+import { PRAYER_CLAIM_WARNING_TICKS } from '@/sim/rival-claims';
 import { executeCommand } from '@/sim/command/command-system';
 import { RivalSystem } from '@/sim/systems/rival-system';
 import { CommandQueue } from '@/sim/command/command-queue';
@@ -250,7 +251,8 @@ describe('RivalSystem wires situations into decisions', () => {
 
     const queue = new CommandQueue();
     const forceAct: Rng = { next: () => 0.1, nextInt: () => 0 } as unknown as Rng;
-    new RivalSystem(queue).tick(sysCtx(world, spirits, forceAct, 100));
+    // Plea age (now − prayerSince) past the warning line, inside the claim window.
+    new RivalSystem(queue).tick(sysCtx(world, spirits, forceAct, PRAYER_CLAIM_WARNING_TICKS + 100));
 
     const cmds = queue.drain();
     expect(cmds).toHaveLength(1);
