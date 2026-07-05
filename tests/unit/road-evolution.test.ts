@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { RoadGraph, RoadEdge } from '@/world/road-graph';
 import type { GameMap } from '@/core/types';
+import { TICKS_PER_DAY, DAYS_PER_YEAR } from '@/core/calendar';
 import {
   stepRoadDynamics,
   repairRoad,
@@ -10,7 +11,9 @@ import {
   freshDynamics,
 } from '@/world/road-evolution';
 
-const TICKS_PER_YEAR = 240 * 96;
+// Derive from the calendar (1:1 realtime) — a hardcoded 240×96 silently
+// desyncs from the source constant.
+const TICKS_PER_YEAR = TICKS_PER_DAY * DAYS_PER_YEAR;
 
 function edge(id: string, partial: Partial<RoadEdge> = {}): RoadEdge {
   return {
