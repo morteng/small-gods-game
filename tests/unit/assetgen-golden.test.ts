@@ -41,8 +41,11 @@ describe('assetgen golden hashes', () => {
     // v24 warmed MATERIAL_RGB (golden thatch, terracotta tile, de-blued stone): ONLY the
     // albedo (`grey`) hash moves — normal/material/emissive are byte-identical, proof the
     // change is pure palette.
+    // v27 window/door trim: openings now carry a stone sill + head lintel + a timber mullion
+    // grid (windows) and a stone threshold + metal handle (doors), so a cottage window reads
+    // as a real window instead of a blank hole. New geometry ⇒ every channel hash moves.
     expect(fingerprint(r)).toEqual({
-      size: 322, grey: 'ef747e9a', normal: 'ab16379e', material: 'e66ee5bd', emissive: 'a89c57d8',
+      size: 322, grey: 'ca6686a5', normal: 'c693de28', material: '679eb58f', emissive: 'aaf2f98d',
     });
   });
 

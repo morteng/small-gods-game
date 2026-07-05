@@ -4,11 +4,12 @@
 // now — they drive Fate narration, sim, and interaction; the rendered geometry is a thin
 // flush leaf set into a carved recess (no protrusion).
 import type { FeatureType } from '../registry';
-import type { ResolvedFeature } from '../types';
+import type { ResolvedFeature, ResolvedPart } from '../types';
 import type { ApertureSpec } from './opening';
 import type { Part as Prim } from '@/assetgen/compose';
+import type { Mat } from '@/assetgen/types';
 import { DOOR_HEIGHT_TILES, DOOR_WIDTH_TILES } from '@/render/scale-contract';
-import { leafBox } from '../wall-geometry';
+import { leafBox, faceSpanBox, alongCentre, type FaceSpan } from '../wall-geometry';
 
 const MAIN_SCALE = 1.18;   // a main entrance: modestly grander, still human-relative
 const DOOR_RECESS = 0.3;   // recess (niche) depth — a door, not a see-through portal
@@ -68,7 +69,50 @@ export const doorFeatureType: FeatureType = {
   threshold: true,
   aperture: (f): ApertureSpec => doorSpec(f),
   filler: (f, host): Prim[] => {
-    const leaf = leafBox(doorSpec(f), host);
-    return [{ prim: 'box', at: leaf.at, size: leaf.size, material: 'door', ...(leaf.yaw !== undefined ? { yaw: leaf.yaw } : {}) }];
+    const s = doorSpec(f);
+    const leaf = leafBox(s, host);
+    return [
+      { prim: 'box', at: leaf.at, size: leaf.size, material: 'door', ...(leaf.yaw !== undefined ? { yaw: leaf.yaw } : {}) },
+      ...doorTrim(f, s, host),
+    ];
   },
 };
+
+// ── door trim ───────────────────────────────────────────────────────────────────────────
+// A stone threshold step plus the modelled hardware (handle, and optionally lock/knocker/
+// bell) rendered as small proud prims — so a door reads as a door, and its data-modelled
+// hardware is actually visible. Flat wall faces only; a round body keeps the bare leaf.
+function box(host: ResolvedPart, face: ApertureSpec['face'], sp: FaceSpan, material: Mat): Prim {
+  const b = faceSpanBox(host, face, sp);
+  return { prim: 'box', at: b.at, size: b.size, material };
+}
+
+function doorTrim(f: ResolvedFeature, s: ApertureSpec, host: ResolvedPart): Prim[] {
+  if (host.params?.plan === 'round') return [];
+  const p = f.params;
+  const c = alongCentre(host, s);
+  const a0 = c - s.halfW, a1 = c + s.halfW;
+  const out: Prim[] = [
+    // stone threshold: a low step across the doorway, projecting proud of the wall
+    box(host, s.face, { a0: a0 - 0.05, a1: a1 + 0.05, z0: 0, z1: 0.09, o0: -0.06, o1: 0.16 }, 'stone'),
+  ];
+  // Handle: a small knob on the latch (hinge-opposite) side, at waist height.
+  if (p.handle !== false) {
+    const hz = s.sill + s.height * 0.46;
+    const ha = p.hinge === 'left' ? a1 - 0.07 : a0 + 0.07;   // opposite the hinge
+    out.push(box(host, s.face, { a0: ha - 0.045, a1: ha + 0.045, z0: hz - 0.05, z1: hz + 0.05, o0: 0, o1: 0.09 }, 'metal'));
+    // Lock plate just below the handle.
+    if (p.lock === true) out.push(box(host, s.face, { a0: ha - 0.05, a1: ha + 0.05, z0: hz - 0.20, z1: hz - 0.10, o0: 0, o1: 0.06 }, 'metal'));
+  }
+  // Knocker: centred on the upper leaf. Bell: high on the latch side.
+  if (p.knocker === true) {
+    const kz = s.sill + s.height * 0.72;
+    out.push(box(host, s.face, { a0: c - 0.05, a1: c + 0.05, z0: kz - 0.05, z1: kz + 0.05, o0: 0, o1: 0.07 }, 'metal'));
+  }
+  if (p.bell === true) {
+    const bz = s.sill + s.height * 0.82;
+    const ba = p.hinge === 'left' ? a1 + 0.02 : a0 - 0.02;
+    out.push(box(host, s.face, { a0: ba - 0.04, a1: ba + 0.04, z0: bz - 0.05, z1: bz + 0.05, o0: 0, o1: 0.07 }, 'metal'));
+  }
+  return out;
+}

@@ -33,6 +33,13 @@ const WEALTH_OFFSET: Record<Wealth, number> = {
 };
 const wealthRank = (w: Wealth): number => WEALTH_LEVELS.indexOf(w);
 
+// Wealth → glazing grid [lightsWide, lightsHigh]. Poorer dwellings glaze a single crude
+// light; richer ones subdivide into more, smaller leaded panes (a period wealth signal).
+// Only applied to a glazed window — an unglazed/shuttered opening stays a single hole.
+const WEALTH_LIGHTS: Record<Wealth, [number, number]> = {
+  destitute: [1, 1], poor: [1, 2], modest: [2, 2], comfortable: [2, 2], rich: [2, 3], opulent: [3, 3],
+};
+
 /** Build the patch a set of descriptors implies for `base`. Pure; deterministic. */
 export function descriptorPatch(base: Blueprint, d: Descriptors): BlueprintPatch {
   const patch: BlueprintPatch = { descriptors: d };
@@ -68,6 +75,12 @@ export function descriptorPatch(base: Blueprint, d: Descriptors): BlueprintPatch
       if (crude) wp.glazed = false;
       else if (glazed) wp.glazed = true;
       if (ornate) wp.style = 'arched';
+      // Wealth subdivides a glazed light into a finer pane grid (leaded lights read richer).
+      // Skip when the window is (or is being made) unglazed — bars need glass behind them.
+      if (d.wealth && !(crude || (f.params?.glazed === false && !glazed))) {
+        const [lw, lh] = WEALTH_LIGHTS[d.wealth];
+        wp.lightsWide = lw; wp.lightsHigh = lh;
+      }
       // Feature merge is wholesale (mergePart replaces by id), so carry the
       // original feature + overlay the param overrides.
       if (Object.keys(wp).length) feats[fid] = { ...f, params: { ...f.params, ...wp } };

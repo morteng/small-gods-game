@@ -43,13 +43,15 @@ describe('door opening hooks', () => {
     expect(ap.height).toBeGreaterThanOrEqual(0.85);   // DOOR_HEIGHT_TILES = 1.0
   });
 
-  it('filler is a door-material leaf prim', () => {
+  it('filler is a door leaf plus trim (stone threshold + metal handle)', () => {
     const rb = resolveBlueprint([bp], 0);
     const part = rb.parts[0];
     const door = part.features.find(f => f.type === 'door')!;
     const prims = getFeatureType('door')!.filler!(door, part, { materials: rb.materials, footprint: rb.footprint });
-    expect(prims).toHaveLength(1);
-    expect(prims[0]).toMatchObject({ prim: 'box', material: 'door' });
+    expect(prims[0]).toMatchObject({ prim: 'box', material: 'door' });   // the leaf leads
+    const mats = prims.map(p => (p.prim === 'box' ? p.material : undefined));
+    expect(mats).toContain('stone');   // threshold step
+    expect(mats).toContain('metal');   // handle (default on)
   });
 
   it('resolves rich semantics with defaults', () => {
@@ -77,13 +79,15 @@ describe('window opening hooks', () => {
     expect(ft.threshold).toBe(false);
   });
 
-  it('filler is a recessed pane prim raised to the sill', () => {
+  it('filler is a recessed glass pane raised to the sill, plus stone-sill + mullion trim', () => {
     const rb = resolveBlueprint([bp], 0);
     const part = rb.parts[0];
     const win = part.features.find(f => f.type === 'window')!;
     const prims = getFeatureType('window')!.filler!(win, part, { materials: rb.materials, footprint: rb.footprint });
-    expect(prims).toHaveLength(1);
-    expect(prims[0]).toMatchObject({ prim: 'box' });
+    expect(prims[0]).toMatchObject({ prim: 'box', material: 'glass' });   // the pane leads
     if (prims[0].prim === 'box') expect(prims[0].at[2]).toBeGreaterThan(0);   // raised off the ground
+    const mats = prims.map(p => (p.prim === 'box' ? p.material : undefined));
+    expect(mats).toContain('stone');    // projecting sill
+    expect(mats).toContain('timber');   // glazing bar (default 2×2 grid)
   });
 });

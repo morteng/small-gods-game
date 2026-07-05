@@ -80,9 +80,32 @@ export function faceCell(part: ResolvedPart, face: WallFace, t = 0.5): [number, 
 
 /** Continuous coordinate along the wall run for the opening centre: interpolates along x
  *  for south/north walls, along y for east/west walls, by the opening's fraction `s.t`. */
-function alongCentre(part: ResolvedPart, s: ApertureSpec): number {
+export function alongCentre(part: ResolvedPart, s: ApertureSpec): number {
   const { x, y } = part.at, { w, h } = part.size;
   return (s.face === 'south' || s.face === 'north') ? x + s.t * w : y + s.t * h;
+}
+
+/** A trim span on a flat wall face, in absolute structure coords except `o0/o1`, which are
+ *  signed offsets from the OUTER wall plane along the outward normal (+ = proud of the wall,
+ *  − = set into it). Lets openings place sills/lintels/mullions/handles face-agnostically. */
+export interface FaceSpan {
+  a0: number; a1: number;   // interval along the wall run
+  z0: number; z1: number;   // vertical interval
+  o0: number; o1: number;   // depth interval, offset from the outer plane (out = +)
+}
+
+/** Absolute-space box for a `FaceSpan` on a flat wall face. Along = x on south/north, y on
+ *  east/west; the constant (depth) axis rides the outer wall plane at the span centre.
+ *  Round bodies aren't handled — callers skip trim on `plan:'round'`. */
+export function faceSpanBox(part: ResolvedPart, face: WallFace, sp: FaceSpan): FaceBox {
+  const horiz = face === 'south' || face === 'north';
+  const outward = face === 'south' || face === 'east' ? 1 : -1;
+  const op = outerCoord(part, face, (sp.a0 + sp.a1) / 2);
+  const k0 = op + outward * sp.o0, k1 = op + outward * sp.o1;
+  const kmin = Math.min(k0, k1), kmax = Math.max(k0, k1);
+  return horiz
+    ? { at: [sp.a0, kmin, sp.z0], size: [sp.a1 - sp.a0, kmax - kmin, sp.z1 - sp.z0] }
+    : { at: [kmin, sp.a0, sp.z0], size: [kmax - kmin, sp.a1 - sp.a0, sp.z1 - sp.z0] };
 }
 
 /**
