@@ -11,11 +11,12 @@ import { ART_RECIPE_VERSION } from '@/core/content-version';
 import { createDebugApi, type DebugApi } from '@/dev/debug-api';
 import { createGameQuery, type GameQuery, type InboxItem, type InspectorView, type BeliefView, type BeliefPowerView } from '@/game/game-query';
 import { causalSiteCardView } from '@/game/causal-site-view';
-import type { CommandVerb, CommandTarget, CommandTargetKind } from '@/sim/command/types';
+import type { Command, CommandVerb, CommandTarget, CommandTargetKind } from '@/sim/command/types';
 import { hoverChips } from '@/game/affordance/hover';
 import { buildWhisperCard } from '@/game/affordance/whisper-card';
 import type { UiSpecChoice } from '@/story/uispec';
 import { createGameBus, type GameBus } from '@/game/game-bus';
+import { TimeController } from '@/game/time-controller';
 import { getUiRuntime } from '@/render/ui/ui-runtime';
 import { bootMark, FpsMeter, type FpsStats } from '@/dev/profile';
 import { advanceNpcFrames } from '@/render/npc-animator';
@@ -134,6 +135,9 @@ export class Game {
   private ctx: CanvasRenderingContext2D;
   private state: GameState;
   private scheduler: Scheduler;
+  /** R9: budgeted fastforward + "jump to next event" seek engine. Wraps the
+   *  scheduler; the frame loop advances the sim through THIS, not scheduler.tick. */
+  private timeController!: TimeController;
   private commandQueue = new CommandQueue();
   private discoveryQueue = new DiscoveryQueue();
   /** Last NPC fed to the discovery queue, so we push a signal only on a switch. */
@@ -279,6 +283,16 @@ export class Game {
     this.state = createState();
 
     this.scheduler = new Scheduler();
+    // R9: TimeController owns the requested rate + seek state and advances the
+    // scheduler in budgeted slices (fastforward without freezing the frame). It
+    // wraps the scheduler; the rate ≤ 1 path is byte-identical to a direct
+    // scheduler.tick, so replay/scrub are unaffected.
+    this.timeController = new TimeController({
+      scheduler: this.scheduler,
+      clock: this.state.clock,
+      eventLog: this.state.eventLog,
+      state: this.state,
+    });
     // Command executor runs FIRST: queued player/rival/Fate commands apply at the
     // top of the tick, before the sim systems compute this tick's state.
     this.scheduler.register(new CommandExecutorSystem(this.commandQueue, (r) => {
@@ -436,7 +450,12 @@ export class Game {
       rate: () => this.scheduler.getRate(),
       timeline: this.timeline,
     });
-    this.bus = createGameBus({ queue: this.commandQueue, state: this.state, query: this.query });
+    this.bus = createGameBus({
+      queue: this.commandQueue, state: this.state, query: this.query,
+      // R9: meta verbs (time controls) route to TimeController, never onto the sim
+      // queue — so MCP/Fate/story-host/UI all drive time through the same verbs.
+      onMeta: (cmd) => this.handleMetaCommand(cmd),
+    });
 
     // Story packs are validated against the bus's actual capability set on load,
     // so an authored `do` can only invoke registered, sandboxed verbs. The drought
@@ -1219,6 +1238,56 @@ export class Game {
     this.frameLoop.toggle();
   }
 
+  /**
+   * R9: route a meta (time-control) command to the TimeController. Called from the
+   * bus `onMeta` seam (MCP / Fate / story host) and, via `dispatchTimeCommand`,
+   * from the WebGPU UI's time hooks (WP-B). Meta commands NEVER touch the sim
+   * queue / event log / snapshot / replay — they only change how fast time flows.
+   * Params are read tolerantly from `params` or `payload` (bus callers differ).
+   */
+  private handleMetaCommand(cmd: Pick<Command, 'verb' | 'params' | 'payload'>): void {
+    const num = (k: string): number | undefined => {
+      const v = cmd.params?.[k] ?? (cmd.payload?.[k] as number | string | undefined);
+      const n = typeof v === 'string' ? Number(v) : v;
+      return typeof n === 'number' && Number.isFinite(n) ? n : undefined;
+    };
+    switch (cmd.verb) {
+      case 'set_time_rate': {
+        const rate = num('rate');
+        if (rate !== undefined) { this.timeController.setRate(rate); this.requestRender(); }
+        break;
+      }
+      case 'skip_to_next_event':
+        this.timeController.requestSeek({ horizonHours: num('horizonHours') });
+        this.requestRender();
+        break;
+      case 'cancel_seek':
+        this.timeController.cancelSeek();
+        this.requestRender();
+        break;
+    }
+  }
+
+  /** Public seam for the WebGPU UI (WP-B) to drive time controls through the same
+   *  meta-verb path the bus uses. Keeps all time dispatch funnelling through one
+   *  handler. */
+  dispatchTimeCommand(cmd: Pick<Command, 'verb' | 'params' | 'payload'>): void {
+    this.handleMetaCommand(cmd);
+  }
+
+  /** Read-only time status for the UI transport cluster (WP-B consumes via hooks). */
+  timeStatus(): {
+    requestedRate: number;
+    effectiveRate: number;
+    seek: null | { elapsedTicks: number; horizonTicks: number };
+  } {
+    return {
+      requestedRate: this.timeController.getRequestedRate(),
+      effectiveRate: this.timeController.getEffectiveRate(),
+      seek: this.timeController.seekStatus(),
+    };
+  }
+
   private refreshPauseBanner(): void {
     // Barebones shows pause via the WebGPU menu's "behind glass" dim — the DOM
     // banner is legacy chrome and stays hidden.
@@ -1440,7 +1509,10 @@ export class Game {
         this.lastDiscoveredNpcId = this.state.selectedNpcId;
         this.discoveryQueue.push({ subject: { kind: 'npc', npcId: this.state.selectedNpcId } });
       }
-      this.scheduler.tick(deltaMs, {
+      // R9: advance through TimeController (budgeted slices) instead of a raw
+      // scheduler.tick. Rate ≤ 1 (incl. seek's pinned rate 1) is a single
+      // tick(deltaMs) call — byte-identical to the old direct call.
+      this.timeController.advance(deltaMs, {
         world: this.state.world!,
         spirits: this.state.spirits,
         log: this.state.eventLog,

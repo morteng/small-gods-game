@@ -19,6 +19,11 @@ import type { AppendedEvent, SimEvent } from '@/core/events';
 import type { SimClock } from '@/core/clock';
 import { TICKS_PER_DAY } from '@/core/calendar';
 import { PLAYER_SPIRIT_ID } from '@/sim/believers';
+// R9: the story-significance predicate is now SHARED with the seek engine's
+// interest filter (single source of truth — see interest-predicate.ts). Fate's
+// firing behavior is unchanged: this is byte-for-byte the same test it used to
+// carry inline (guard: tests/unit/fate-trigger.test.ts).
+import { isStorySignificant as isSignificant } from '@/game/interest-predicate';
 import type { FateFocus } from './fate-context';
 
 export interface FateTriggerDeps {
@@ -31,18 +36,6 @@ export interface FateTriggerDeps {
   /** The sliding window (ticks) over which rival claims accumulate. Default one day
    *  (one sim-day) — shorter than a typical cooldown, so pressure lapses cleanly. */
   rivalClaimWindowTicks?: number;
-}
-
-function isSignificant(ev: SimEvent): boolean {
-  if (ev.type === 'thread_opened' || ev.type === 'thread_resolved') return true;
-  if (ev.type === 'thread_advanced') return ev.weight === 'climax';
-  // W-H: a settlement going under water is a dramatic beat — wake Fate to respond
-  // (a tale of divine wrath, a refugee, a rival's counter-claim…).
-  if (ev.type === 'place_flooded') return true;
-  // W-I: the waters making a NEW place (a drowned plain) is likewise beat-worthy —
-  // wake Fate so it can prime atmosphere there before it fades.
-  if (ev.type === 'site_born') return true;
-  return false;
 }
 
 /** A rival (non-player) claiming a prayer via the shared `answer_prayer` path. */

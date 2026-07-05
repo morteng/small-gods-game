@@ -37,7 +37,7 @@ import {
 
 export interface CapabilityDef {
   verb: CommandVerb;
-  tier: 'divine' | 'authoring' | 'editor';
+  tier: 'divine' | 'authoring' | 'editor' | 'meta';
   /** Power cost; reuses the divine-actions.ts constants. */
   cost: number;
   /** Primary target shape — the default for labels, castPower defaults, and the MCP view. */
@@ -301,7 +301,38 @@ export const CAPABILITY_REGISTRY: Record<CommandVerb, CapabilityDef> = {
     apply: setClimateApply,
     describe: (cmd) => `set the world climate to ${cmd.payload?.climate ?? '?'}`,
   },
+
+  // ── Meta tier (R9 time controls) — declared here so the verbs are part of the
+  // canonical vocabulary (the bus allowlist / story-pack verb gate reads
+  // Object.keys(CAPABILITY_REGISTRY)), but they carry NO `apply`. They are META:
+  // they change how fast the sim advances, not sim state. The GAME intercepts them
+  // at the dispatch boundary (createGameBus `onMeta`, and the WebGPU UI's time
+  // hooks) and routes them straight to TimeController, so they NEVER reach the
+  // CommandExecutorSystem, the event log, the snapshot, or replay. If one ever
+  // leaked to the queue, `previewCommand`'s `!def.apply` check rejects it
+  // `not_implemented` (a rejection is never logged as a story beat) — belt and
+  // suspenders, it can never mutate sim state. This mirrors how pause/rate has
+  // always been kept out of the deterministic stream.
+  set_time_rate: {
+    verb: 'set_time_rate', tier: 'meta', cost: 0, targetKind: 'none', implemented: true,
+    describe: (cmd) => `set time rate to ${cmd.params?.rate ?? cmd.payload?.rate ?? '?'}×`,
+  },
+  skip_to_next_event: {
+    verb: 'skip_to_next_event', tier: 'meta', cost: 0, targetKind: 'none', implemented: true,
+    describe: (cmd) => `skip ahead to the next event (horizon ${cmd.params?.horizonHours ?? cmd.payload?.horizonHours ?? 24}h)`,
+  },
+  cancel_seek: {
+    verb: 'cancel_seek', tier: 'meta', cost: 0, targetKind: 'none', implemented: true,
+    describe: () => 'stop skipping ahead',
+  },
 };
+
+/** True for verbs that change HOW FAST the sim advances, not sim state. These are
+ *  routed to TimeController on the game side and must NEVER be enqueued to the
+ *  sim command queue (kept out of the event log / snapshot / replay). */
+export function isMetaVerb(verb: CommandVerb): boolean {
+  return CAPABILITY_REGISTRY[verb]?.tier === 'meta';
+}
 
 export function getCapability(verb: CommandVerb): CapabilityDef | undefined {
   return CAPABILITY_REGISTRY[verb];
