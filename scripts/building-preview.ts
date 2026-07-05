@@ -20,6 +20,8 @@ import { toGeometry } from '../src/blueprint/compile/to-geometry';
 import { synthesizeBlueprint, BUILDING_BLUEPRINTS } from '../src/blueprint/presets/index';
 import { cutawayOf } from '../src/blueprint/cutaway';
 import type { Orientation } from '../src/blueprint/orientation';
+import { renderBlueprintMontage } from '../src/assetgen/blueprint-montage';
+import { lintBlueprint, summarizeLint } from '../src/blueprint/lint';
 
 const OUT = '.dev-grabs';
 const MAPS = { grey: 'grey', albedo: 'grey', normal: 'normal', material: 'material' } as const;
@@ -28,6 +30,23 @@ function toPng(buf: Uint8ClampedArray, size: number): Buffer {
   const png = new PNG({ width: size, height: size });
   png.data = Buffer.from(buf.buffer, buf.byteOffset, buf.byteLength);
   return PNG.sync.write(png);
+}
+
+/** Rectangular PNG (the montage sheet is W×H, not square). */
+function toPngWH(buf: Uint8ClampedArray, width: number, height: number): Buffer {
+  const png = new PNG({ width, height });
+  png.data = Buffer.from(buf.buffer, buf.byteOffset, buf.byteLength);
+  return PNG.sync.write(png);
+}
+
+/** Print a lint report for a resolved blueprint. */
+function printLint(preset: string, rb: Parameters<typeof lintBlueprint>[0]): void {
+  const lints = lintBlueprint(rb);
+  console.log(`${preset} lint: ${summarizeLint(lints)}`);
+  for (const l of lints) {
+    const tag = l.severity === 'error' ? 'ERR ' : l.severity === 'warn' ? 'warn' : 'note';
+    console.log(`    [${tag}] ${l.code}: ${l.message}`);
+  }
 }
 
 function pick(r: StructureResult, map: keyof typeof MAPS): Uint8ClampedArray {
@@ -59,6 +78,11 @@ async function main() {
   // --surface: run the analytic Material+Finish surface engine (the RUNTIME building look —
   // coursed masonry, washes/finishes, micro-relief) instead of the flat grey-reference albedo.
   const surface = flags.has('--surface');
+  // --views: a labelled multi-yaw montage (the visual-critique sheet). --lint: the
+  // deterministic report. Either one is its own mode; both imply skipping the default
+  // per-orientation closed/cutaway dump.
+  const wantViews = flags.has('--views');
+  const wantLint = flags.has('--lint');
   const compose = (rb: ReturnType<typeof synthesizeBlueprint>) => {
     const spec = toGeometry(rb!);
     return composeStructure(spec, undefined, {
@@ -71,6 +95,20 @@ async function main() {
   for (const preset of presets) {
     const base = synthesizeBlueprint(preset, [], 1);
     if (!base) { console.error(`unknown preset: ${preset}`); continue; }
+
+    if (wantViews || wantLint) {
+      if (wantViews) {
+        const m = await renderBlueprintMontage(base);
+        const file = join(OUT, `${preset}-views.png`);
+        writeFileSync(file, toPngWH(m.rgba, m.width, m.height));
+        console.log(`${preset} montage → .dev-grabs/${preset}-views.png (${m.width}×${m.height}, ${m.yaws.length} yaws)`);
+        console.log('  marks:');
+        for (const e of m.legend) console.log(`    ${e.mark} = ${e.id} (${e.type})`);
+      }
+      if (wantLint) printLint(preset, base);
+      continue;   // views/lint are their own modes; skip the default orient dump
+    }
+
     for (const o of orientations) {
       const rb = o ? { ...base, orientation: o } : base;
       const suffix = o ? `-o${o}` : '';
