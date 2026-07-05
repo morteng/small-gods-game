@@ -36,6 +36,7 @@ import { blueprintEntity, blueprintOf } from '@/blueprint/entity';
 import { toAnchors } from '@/blueprint/compile/to-anchors';
 import { BUILDABLE_TERRAIN, extendThroughStreet, extendBackLane, annexAcrossBridge, frontageValue, type Lot, type SettlementPlan } from '@/world/settlement-plan';
 import { tryGetEntityKindDef } from '@/world/entity-kinds';
+import { TRAMPLE, type TrampleGrid } from '@/sim/trample';
 
 /** One fire per in-game day, matching births/mortality cadence. */
 export const GROWTH_TICK_HZ = 0.25;
@@ -85,6 +86,11 @@ export interface GrowthCtx {
   rng: Rng;
   now: number;
   log: EventLog;
+  /** Desire-line trample grid (SOCIAL GRAVITY, synthesis 2.3): when present, free lots beside a
+   *  promoted trail / high-wear cell get a scoring bonus, so the town grows along the desire
+   *  lines its believers carved (Foundation's worn-path siting). Optional — absent (skip /
+   *  command callers not yet wired) growth scores exactly as before. */
+  trample?: TrampleGrid | null;
 }
 
 /** Living residents per POI (NPCs that claim a `homePoiId`). */
@@ -171,6 +177,10 @@ export class SettlementGrowthSystem implements System {
   readonly name = 'settlement-growth';
   readonly tickHz = GROWTH_TICK_HZ;
 
+  /** `getTrample` feeds SOCIAL GRAVITY (synthesis 2.3): live growth prefers lots beside the
+   *  desire lines NPC traffic carved. Optional so existing constructions stay valid. */
+  constructor(private readonly getTrample?: () => TrampleGrid | null) {}
+
   tick(ctx: SystemContext): void {
     const plans = ctx.world.tiles.settlementPlans;
     if (!plans?.length) return;
@@ -182,11 +192,15 @@ export class SettlementGrowthSystem implements System {
       .filter(p => p.poiId && p.lots.length > 0)
       .sort((a, b) => (a.poiId! < b.poiId! ? -1 : a.poiId! > b.poiId! ? 1 : 0));
 
+    const gctx: GrowthCtx = {
+      world: ctx.world, rng: ctx.rng, now: ctx.now, log: ctx.log,
+      trample: this.getTrample?.() ?? null,
+    };
     for (const plan of sorted) {
       const pop = residents.get(plan.poiId!) ?? 0;
       if (pop === 0 || pop <= (capacity.get(plan.poiId!) ?? 0)) continue;
       if (ctx.rng.next() >= GROWTH_CHANCE) continue;
-      growSettlement(ctx, plan);
+      growSettlement(gctx, plan);
     }
   }
 }
@@ -202,7 +216,7 @@ const SKIP_GROWTH_CAP = 4000;
  * converged to. Fully deterministic given `rng`. Returns the total grow steps.
  */
 export function growSettlementsOnSkip(
-  world: World, rng: Rng, now: number, log: EventLog,
+  world: World, rng: Rng, now: number, log: EventLog, trample?: TrampleGrid | null,
 ): number {
   const plans = world.tiles.settlementPlans;
   if (!plans?.length) return 0;
@@ -212,7 +226,7 @@ export function growSettlementsOnSkip(
     .filter(p => p.poiId && p.lots.length > 0)
     .sort((a, b) => (a.poiId! < b.poiId! ? -1 : a.poiId! > b.poiId! ? 1 : 0));
 
-  const ctx: GrowthCtx = { world, rng, now, log };
+  const ctx: GrowthCtx = { world, rng, now, log, trample };
   let steps = 0;
   for (const plan of sorted) {
     const pop = residents.get(plan.poiId!) ?? 0;
@@ -426,6 +440,28 @@ function tryUpgrade(ctx: GrowthCtx, plan: SettlementPlan, tag: string): boolean 
   return false;
 }
 
+/** Scoring bonus a free lot earns when it sits within `TRAIL_GRAVITY_RADIUS` of a promoted
+ *  desire-line cell or a high-wear (≥ REVERT_LO) cell — Foundation's "social gravity": housing
+ *  sites along the worn paths that shaped the town. Kept below the infill-first class gap (100)
+ *  so gravity re-orders lots WITHIN a class, never across it. */
+export const TRAIL_GRAVITY_BONUS = 0.5;
+export const TRAIL_GRAVITY_RADIUS = 2;
+
+/** The trail-adjacency bonus for one lot (0 when no grid / no nearby trail). Pure. */
+export function trailGravityBonus(trample: TrampleGrid | null | undefined, lot: Lot): number {
+  if (!trample) return 0;
+  const r = TRAIL_GRAVITY_RADIUS;
+  for (const t of lot.tiles) {
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        const x = t.x + dx, y = t.y + dy;
+        if (trample.isPromoted(x, y) || trample.wearAt(x, y) >= TRAMPLE.REVERT_LO) return TRAIL_GRAVITY_BONUS;
+      }
+    }
+  }
+  return 0;
+}
+
 /** Place the dwelling on the best fitting free lot. Returns true on success. */
 function tryPlace(
   ctx: GrowthCtx, plan: SettlementPlan, rb: ReturnType<typeof synthesizeBlueprint> & {},
@@ -438,10 +474,14 @@ function tryPlace(
       claimed.some(c => c.frontage.some(cf => l.frontage.some(lf =>
         Math.max(Math.abs(cf.x - lf.x), Math.abs(cf.y - lf.y)) <= 2)));
     // Infill-first (claimed neighbour ≤2 tiles), then by frontage value
-    // (prime/central lots before the rim — the medieval value gradient).
+    // (prime/central lots before the rim — the medieval value gradient), pulled
+    // toward promoted desire lines by the social-gravity bonus (within a class).
     const free = plan.lots
       .filter(l => !l.buildingId && l.side[0] === want[0] && l.side[1] === want[1])
-      .map(l => ({ l, k: (nearClaimed(l) ? 0 : 100) + (1 - frontageValue(plan, l)) }))
+      .map(l => ({
+        l,
+        k: (nearClaimed(l) ? 0 : 100) + (1 - frontageValue(plan, l)) - trailGravityBonus(ctx.trample, l),
+      }))
       .sort((a, b) => a.k - b.k)
       .map(({ l }) => l);
 
