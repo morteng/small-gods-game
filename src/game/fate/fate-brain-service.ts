@@ -9,11 +9,13 @@
  * deterministic stageStrangerOnHardship stub as the authoring intelligence.
  */
 import type { GameState } from '@/core/state';
-import type { LLMClient } from '@/llm/llm-client';
+import type { LLMClient, LLMMessage } from '@/llm/llm-client';
 import type { Command } from '@/sim/command/types';
 import type { StagedBeat } from '@/sim/threads/staging-types';
 import { buildFateContext, type FateFocus } from './fate-context';
-import { FATE_TOOLS, parseFateToolCalls } from './fate-tools';
+import {
+  FATE_TOOLS, parseFateToolCalls, authoringRetryPrompt, AUTHOR_BUILDING_TOOL, type FateToolCtx,
+} from './fate-tools';
 
 export interface FateBrainDeps {
   getState: () => GameState;
@@ -44,14 +46,13 @@ export class FateBrainService {
     try {
       const state = this.deps.getState();
       const { system, user, validPoiIds, validRivalIds } = buildFateContext(state, focus);
-      const res = await client.generateWithTools(
-        [{ role: 'system', content: system }, { role: 'user', content: user }],
-        FATE_TOOLS,
-      );
-      const { beats, commands } = parseFateToolCalls(res.toolCalls, {
+      const messages: LLMMessage[] = [{ role: 'system', content: system }, { role: 'user', content: user }];
+      const toolCtx: FateToolCtx = {
         validPoiIds, validRivalIds, now: state.clock.now(),
         validStoryletIds: this.deps.getValidStoryletIds?.(),
-      });
+      };
+      const res = await client.generateWithTools(messages, FATE_TOOLS);
+      const { beats, commands, authoringRejections } = parseFateToolCalls(res.toolCalls, toolCtx);
       for (const b of beats) {
         const armed = state.staging.arm(b);
         if (b.threadId !== undefined) {
@@ -61,6 +62,22 @@ export class FateBrainService {
         this.deps.onArmed?.(armed);
       }
       for (const c of commands) this.deps.emitCommand(c);
+
+      // Self-correction: if a building failed the structural gate AND we didn't already place
+      // one this deliberation (Fate raises at most one), run ONE bounded retry that feeds the
+      // lints back. Scoped to the authoring tool so the follow-up can't duplicate other actions.
+      const placedBuilding = commands.some((c) => c.verb === 'place_building');
+      if (!placedBuilding && authoringRejections.length > 0) {
+        const retryMessages: LLMMessage[] = [
+          ...messages,
+          { role: 'assistant', content: res.content || '(attempted author_building)' },
+          { role: 'user', content: authoringRetryPrompt(authoringRejections) },
+        ];
+        const retry = await client.generateWithTools(retryMessages, [AUTHOR_BUILDING_TOOL]);
+        const corrected = parseFateToolCalls(retry.toolCalls, toolCtx);
+        for (const c of corrected.commands) this.deps.emitCommand(c);
+        if (corrected.commands.length) console.info('[fate] author_building passed the gate on self-correction retry');
+      }
     } catch (err) {
       console.warn('[fate] deliberation failed:', err);   // never swallow — log, arm nothing
     } finally {

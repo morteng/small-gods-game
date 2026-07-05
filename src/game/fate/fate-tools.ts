@@ -15,6 +15,7 @@ import type { StagedBeat } from '@/sim/threads/staging-types';
 import type { SettlementEventType } from '@/core/types';
 import { authorBlueprint } from '@/blueprint/authoring';
 import { BUILDING_BLUEPRINTS } from '@/blueprint/presets';
+import type { BlueprintLint } from '@/blueprint/lint';
 import type { Descriptors, Wealth, Quality, Condition } from '@/blueprint/types';
 
 export const FATE_ROLES = ['preacher', 'skeptic', 'refugee'] as const;
@@ -151,6 +152,29 @@ export const FATE_TOOLS: LLMTool[] = [
   },
 ];
 
+/** The single authoring tool, for the SCOPED self-correction retry — passing only this
+ *  to the follow-up turn means the model can re-attempt the building but physically cannot
+ *  re-emit a beat/nudge/stance (so the retry never duplicates turn-1 actions). */
+export const AUTHOR_BUILDING_TOOL: LLMTool = FATE_TOOLS.find((t) => t.name === 'author_building')!;
+
+/** Build the corrective user turn for one bounded self-correction pass: each rejected
+ *  building + its error-severity lints (or the resolve-failure summary), and a request to
+ *  re-attempt ONLY those buildings or call nothing. Pure/deterministic — unit-testable. */
+export function authoringRetryPrompt(rejections: AuthoringRejection[]): string {
+  const lines = rejections.map((r) => {
+    const errs = r.lints.filter((l) => l.severity === 'error').map((l) => l.message);
+    const why = errs.length ? errs.join('; ') : r.summary;
+    return `- author_building "${r.preset}" at ${r.subjectPoiId} was REJECTED: ${why}`;
+  });
+  return (
+    'The structural gate rejected the building(s) you tried to raise:\n' +
+    lines.join('\n') +
+    '\n\nCall author_building once more with corrected descriptors or a simpler, well-formed preset so it ' +
+    'passes the gate — or call no tool if you cannot make it fit. Address ONLY the building(s) listed above; ' +
+    'do not repeat any other action.'
+  );
+}
+
 export interface FateToolCtx {
   validPoiIds: Set<string>;
   /** The live rival spirit ids the set_rival_stance drift-guard validates against.
@@ -163,9 +187,25 @@ export interface FateToolCtx {
   validStoryletIds?: Set<string>;
 }
 
+/** An `author_building` call that resolved+linted to a REJECT (malformed geometry) —
+ *  carried out of the parser so the brain service can feed the lints back for a bounded
+ *  self-correction retry. Only actual gate failures land here; a hallucinated target or
+ *  preset (dropped by the drift guards) is not a fixable-geometry case and never appears. */
+export interface AuthoringRejection {
+  callId: string;
+  subjectPoiId: string;
+  preset: string;
+  /** authorBlueprint's one-line status (a resolve failure or "N errors"). */
+  summary: string;
+  /** The structural lints — the error-severity ones are the actionable feedback. */
+  lints: BlueprintLint[];
+}
+
 export interface ParsedFateActions {
   beats: Array<Omit<StagedBeat, 'id' | 'status'>>;
   commands: Array<Omit<Command, 'seq'>>;
+  /** author_building calls that failed the gate (empty when none) — see AuthoringRejection. */
+  authoringRejections: AuthoringRejection[];
 }
 
 /** Validate the model's tool calls into armable beats + immediate commands; drop anything ungrounded. */
@@ -175,6 +215,7 @@ export function parseFateToolCalls(
 ): ParsedFateActions {
   const beats: ParsedFateActions['beats'] = [];
   const commands: ParsedFateActions['commands'] = [];
+  const authoringRejections: AuthoringRejection[] = [];
   for (const c of calls ?? []) {
     if (c.name === 'arm_staged_beat') {
       const beat = parseArmBeat(c, ctx);
@@ -189,11 +230,11 @@ export function parseFateToolCalls(
       const cmd = parseSetRivalStance(c, ctx);
       if (cmd) commands.push(cmd);
     } else if (c.name === 'author_building') {
-      const cmd = parseAuthorBuilding(c, ctx);
+      const cmd = parseAuthorBuilding(c, ctx, authoringRejections);
       if (cmd) commands.push(cmd);
     }
   }
-  return { beats, commands };
+  return { beats, commands, authoringRejections };
 }
 
 /** W-I: causal-site ids are poiId-compatible but name an ephemeral place, not a
@@ -283,9 +324,14 @@ function parseSetRivalStance(c: LLMToolCall, ctx: FateToolCtx): Omit<Command, 's
  * rides through in the command payload, so `place_building` stamps exactly what was gated
  * (no re-resolution, no drift). Drift-guarded to a real settlement (never a causal site).
  */
-function parseAuthorBuilding(c: LLMToolCall, ctx: FateToolCtx): Omit<Command, 'seq'> | null {
+function parseAuthorBuilding(
+  c: LLMToolCall, ctx: FateToolCtx, rejections?: AuthoringRejection[],
+): Omit<Command, 'seq'> | null {
   const a = c.arguments as Record<string, unknown>;
   const poiId = typeof a.subjectPoiId === 'string' ? a.subjectPoiId : '';
+  // The drift-guard drops below are HALLUCINATIONS (bad target / unknown type), not fixable
+  // geometry — they never enter `rejections`, so the self-correction retry only re-tries the
+  // buildings the model got structurally wrong (where lint feedback is actionable).
   if (!ctx.validPoiIds.has(poiId)) { console.warn('[fate] dropped author_building: unknown subjectPoiId', poiId); return null; }
   if (isSiteId(poiId)) { console.warn('[fate] dropped author_building: a causal site cannot hold a building', poiId); return null; }
   const preset = typeof a.preset === 'string' ? a.preset : '';
@@ -303,6 +349,7 @@ function parseAuthorBuilding(c: LLMToolCall, ctx: FateToolCtx): Omit<Command, 's
   const verdict = authorBlueprint(hasDesc ? { preset, descriptors } : { preset });
   if (!verdict.ok || !verdict.rb) {
     console.warn('[fate] dropped author_building: failed the authoring gate —', verdict.summary);
+    rejections?.push({ callId: c.id, subjectPoiId: poiId, preset, summary: verdict.summary, lints: verdict.lints });
     return null;
   }
   return { verb: 'place_building', source: 'fate', target: { kind: 'settlement', poiId }, payload: { resolved: verdict.rb } };

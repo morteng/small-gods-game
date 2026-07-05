@@ -33,7 +33,7 @@ describe('parseFateToolCalls — staged beats', () => {
   });
 
   it('tolerates undefined calls', () => {
-    expect(parseFateToolCalls(undefined, ctx())).toEqual({ beats: [], commands: [] });
+    expect(parseFateToolCalls(undefined, ctx())).toEqual({ beats: [], commands: [], authoringRejections: [] });
   });
 
   it('W-I: arms a SOFT-only site beat for a causal subjectPoiId, dropping any inject_npc', () => {
