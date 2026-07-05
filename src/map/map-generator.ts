@@ -24,6 +24,10 @@ import { mergeParallelRoads } from '@/world/connectome/merge-parallel-roads';
 import { gateApproachPlan, realGateAnchors } from '@/world/connectome/gate-approach';
 import { settlementRingContracts } from '@/world/connectome/wall-contracts';
 import { defenseRingContracts } from '@/world/connectome/defense-contracts';
+// Registers `roads.ribbon-legal` (world-level invariant — `evaluateContracts` runs every
+// world-level invariant globally, so this import wires it into the default recipe's lint;
+// declaring it per-ring as well would double-report).
+import '@/world/connectome/road-contracts';
 import { wireGateToRoad } from '@/world/wire-gate';
 import { corridorCells } from '@/world/road-corridors';
 import type { RoadGraph } from '@/world/road-graph';
@@ -354,6 +358,9 @@ export async function generateWithNoise(
   // Apply inter-POI connection roads AFTER settlements so they take priority.
   // The road GRAPH is the source of truth (polylines + bridges); the tile carve
   // is derived from it. `buildRoadGraph` carves the tiles as it walks (parity).
+  // Gate-stitch firings are RECORDED on `map.stats.gateStitches` so the multi-seed
+  // sweep harness (scripts/stitch-sweep.ts) can assert zero without log scraping.
+  const gateStitches: NonNullable<GameMap['stats']['gateStitches']> = [];
   let roadGraph: RoadGraph | undefined;
   if (worldSeed?.connections) {
     await report('Carving road connections...');
@@ -387,7 +394,10 @@ export async function generateWithNoise(
       const r = wireGateToRoad({ x: a.x, y: a.y } as import('@/world/anchors').Anchor, gateStitchMap, 12,
         (x, y) => tileBlockedByBuilding(world, x, y) || greenTiles.has(`${x},${y}`)
           || approach.wallObstacles.has(`${x},${y}`));
-      if (r.carved > 0) console.warn(`[worldgen] interior-gate stitch FIRED for ${a.runId} gate @ (${a.x},${a.y}) — carved ${r.carved} tile(s); layout-time connector missed`);
+      if (r.carved > 0) {
+        gateStitches.push({ phase: 'interior', runId: a.runId, x: a.x, y: a.y, carved: r.carved });
+        console.warn(`[worldgen] interior-gate stitch FIRED for ${a.runId} gate @ (${a.x},${a.y}) — carved ${r.carved} tile(s); layout-time connector missed`);
+      }
     }
 
     // Snapshot the pre-(inter-POI-road) tile state — taken AFTER settlements AND the interior-gate
@@ -437,7 +447,10 @@ export async function generateWithNoise(
       const r = wireGateToRoad({ x: a.x, y: a.y } as import('@/world/anchors').Anchor, spurMap, 12,
         (x, y) => tileBlockedByBuilding(world, x, y) || greenTiles.has(`${x},${y}`)
           || approach.wallObstacles.has(`${x},${y}`));
-      if (r.carved > 0) console.warn(`[worldgen] orphan-gate spur FIRED for ${a.runId} gate @ (${a.x},${a.y}) — carved ${r.carved} tile(s); approach road missing`);
+      if (r.carved > 0) {
+        gateStitches.push({ phase: 'orphan', runId: a.runId, x: a.x, y: a.y, carved: r.carved });
+        console.warn(`[worldgen] orphan-gate spur FIRED for ${a.runId} gate @ (${a.x},${a.y}) — carved ${r.carved} tile(s); approach road missing`);
+      }
     }
 
     // River-crossing SITES (unified connectome, v0): where a road bridges water, compose a
@@ -576,7 +589,7 @@ export async function generateWithNoise(
     seed,
     success: true,
     worldSeed: worldSeed ?? null,
-    stats: { iterations: 0, backtracks: 0 },
+    stats: { iterations: 0, backtracks: 0, gateStitches },
     buildings,
     settlementPlans,
     barrierRuns,

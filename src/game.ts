@@ -324,7 +324,9 @@ export class Game {
     this.scheduler.register(new RivalSystem(this.commandQueue));
     this.scheduler.register(new MortalitySystem());
     this.scheduler.register(new BirthSystem());
-    this.scheduler.register(new SettlementGrowthSystem());
+    // Social gravity (roads round 8): live growth reads the trample grid so new
+    // housing prefers lots along the desire lines believers actually walk.
+    this.scheduler.register(new SettlementGrowthSystem(() => this.state.trample));
     this.scheduler.register(new RoadEvolutionSystem());
     // W-G: deterministic water/atmosphere tick — steps the stepper installed on world
     // seed + polls the flood watch, writing place_flooded/receded into the event log.
@@ -1240,7 +1242,7 @@ export class Game {
         if (!this.state.world) return;
         // Skips are committed one-way boundaries; never run while scrubbing the past.
         if (this.timeline.isScrubbed) this.timeline.returnToLive();
-        applySkip(this.state.world, this.state.clock, this.state.rng, this.state.eventLog, years);
+        applySkip(this.state.world, this.state.clock, this.state.rng, this.state.eventLog, years, this.state.trample);
         this.timeline.commitSkip();
         // Immediate chrome refresh (the era_skipped chip self-appends via the event log).
         this.timeChip.refresh();

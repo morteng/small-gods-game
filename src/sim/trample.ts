@@ -32,8 +32,14 @@ import { bumpTilesRev } from '@/core/tile-rev';
 
 /** Tuning constants (RimWorld "Desire Paths" shape). */
 export const TRAMPLE = {
-  /** Wear added per throttled agent-pass over a tile. ~10 passes to promote. */
-  DEPOSIT_AMOUNT: 12,
+  /** Wear added per throttled agent-pass over a tile. ~5 passes to promote.
+   *  Round-8 visibility tuning: 12 → 24. At the live cadence (deposit 3 Hz, decay 0.25 Hz →
+   *  12 deposit passes per decay pass, ×0.9 geometric decay) a cell crossed `k` times per
+   *  decay period equilibrates at ≈ 9·D·k wear; D=12 needed k ≥ 1.11 crossings/period to hold
+   *  PROMOTE_HI and the live world settled at ~a dozen promoted cells (round-5 note: "too
+   *  subtle"). D=24 promotes at k ≥ 0.56 — the same desire lines, roughly twice the reach —
+   *  measured in `tests/unit/trample-equilibrium.test.ts`. */
+  DEPOSIT_AMOUNT: 24,
   /** Promote soft ground to `dirt` at/above this wear. */
   PROMOTE_HI: 120,
   /** Revert a trail to its original ground below this wear (HI-LO = hysteresis gap). */
@@ -43,6 +49,10 @@ export const TRAMPLE = {
   /** Saturation cap — a trail can't deepen forever (Uint16 headroom, kept modest
    *  so an abandoned trail fades in a sane number of passes). */
   SATURATION_CAP: 255,
+  /** Neighbour SPILL (RimWorld Desire Paths): each runtime deposit also drops this fraction
+   *  into the 8 surrounding cells (eligible ground only), so a busy trunk trail widens to
+   *  2–3 tiles organically while a side path walked single-file stays one tile wide. */
+  SPILL_FACTOR: 0.2,
 } as const;
 
 /**
@@ -114,6 +124,28 @@ export class TrampleGrid {
     const i = this.idx(x, y);
     const next = Math.min(TRAMPLE.SATURATION_CAP, (this.accum.get(i) ?? 0) + amount);
     this.accum.set(i, next);
+  }
+
+  /**
+   * Runtime footfall deposit WITH 8-neighbour spill (RimWorld Desire Paths): the full quantum
+   * lands on the walked tile, and `SPILL_FACTOR` of it bleeds into each surrounding cell that is
+   * itself trample-eligible (soft ground, or an already-promoted trail it helps sustain). A busy
+   * trunk route's flanking cells then cross PROMOTE_HI from spill alone and the trail widens to
+   * 2–3 tiles, while a side path walked single-file never spills enough to widen — trail WIDTH
+   * from traffic volume. Opt-out terrains (roads, water, farmland, footprints) never take spill,
+   * so a trail can't bleed across a field boundary. Deterministic (pure integer arithmetic).
+   */
+  depositWithSpill(map: GameMap, x: number, y: number, amount: number = TRAMPLE.DEPOSIT_AMOUNT): void {
+    this.deposit(x, y, amount);
+    const spill = Math.round(amount * TRAMPLE.SPILL_FACTOR);
+    if (spill <= 0) return;
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        if (dx === 0 && dy === 0) continue;
+        const nx = x + dx, ny = y + dy;
+        if (isTrampleEligible(map.tiles[ny]?.[nx]) || this.isPromoted(nx, ny)) this.deposit(nx, ny, spill);
+      }
+    }
   }
 
   /**

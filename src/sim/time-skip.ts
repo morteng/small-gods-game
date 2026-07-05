@@ -10,6 +10,7 @@ import { countPlayerBelievers } from '@/sim/believers';
 import { growSettlementsOnSkip, residentsByPoi } from '@/sim/systems/settlement-growth-system';
 import { advanceRoadEvolution, connectomeEvolveOptions } from '@/world/road-evolution';
 import { getClimateFields } from '@/world/heightfield';
+import type { TrampleGrid } from '@/sim/trample';
 
 export interface SkipSummary {
   fromTick: number;
@@ -35,6 +36,7 @@ export interface SkipSummary {
  */
 export function applySkip(
   world: World, clock: SimClock, rng: Rng, log: EventLog, years: number,
+  trample?: TrampleGrid | null,
 ): SkipSummary | null {
   if (years <= 0) return null;
 
@@ -56,7 +58,8 @@ export function applySkip(
   // Catch settlement housing up to the post-skip population — the live growth
   // system can't tick during a closed-form jump, so grow deterministically to
   // the end-state it would have converged to (S5).
-  growSettlementsOnSkip(world, rng, fromTick, log);
+  // Trample grid rides along so skip growth honours the same social gravity as live growth.
+  growSettlementsOnSkip(world, rng, fromTick, log, trample);
 
   const toTick = fromTick + years * TICKS_PER_YEAR;
   clock.setNow(toTick);

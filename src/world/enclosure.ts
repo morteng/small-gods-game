@@ -16,7 +16,7 @@
 // (none / palisade / town wall) chosen by settlement size + wealth + era.
 
 import type { BarrierRun, BarrierKind, BarrierGate, RingSegment, NatureDefends, TowerPlacement, RingDefends } from '@/world/barrier';
-import { barrierFootprintTiles, defendsForSegment, segmentIndexAt } from '@/world/barrier';
+import { barrierFootprintTiles, defendsForSegment, segmentIndexAt, gatePoint } from '@/world/barrier';
 import type { Lot } from '@/world/settlement-plan';
 import type { Era } from '@/core/era';
 import { catalogue, type BarrierTypeFields } from '@/catalogue';
@@ -453,6 +453,15 @@ export function deriveSettlementRing(args: {
    *  floor) and classifies each side's nature-defends (`open`/`water`/`steep`). Absent ⇒
    *  distance-based ring + `steep` never fires (byte-identical to the pre-terrain behaviour). */
   heightAt?: HeightAt;
+  /** GATE HALF-EDGE checks (the Watabou commit-time repair, synthesis 2.1): when supplied, every
+   *  committed real gate is verified to own BOTH half-edges — a walkable interior corridor to a
+   *  REAL street cell, and a routable approach cell outside — and a failing gate is MOVED along
+   *  the ring at commit time (before towers flank it) rather than left for the post-hoc stitch.
+   *  `isStreet` must target REAL carved street cells (never occupancy 'road' reservations —
+   *  phantom trunk corridors read "on a road" while the interior is unconnected). `blocked` is
+   *  the connector/approach obstacle set (registry buildings, water, greens, off-map) WITHOUT
+   *  the curtain — the repair derives the curtain itself per candidate gate position. */
+  halfEdge?: Pick<GateHalfEdgeChecks, 'isStreet' | 'blocked'>;
   ctx: EnclosureCtx;
 }): EnclosureRun | null {
   const typeId = selectSettlementEnclosure(args.buildingCount, args.ctx);
@@ -557,6 +566,14 @@ export function deriveSettlementRing(args: {
   sealWetBlocking(run, offBank, gateW);
   // A crenellated masonry town wall carries timber hoardings — the wartime defensive galleries.
   if (run.crenellated && (run.material === 'stone' || run.material === 'brick')) run.hoarded = true;
+  // GATE HALF-EDGE REPAIR (Watabou, synthesis 2.1): verify each committed real gate owns BOTH
+  // half-edges — an interior corridor that can reach a REAL street, and a routable approach cell
+  // outside — and slide a failing gate along the ring NOW, in the same commit step, so the
+  // layout-time connector always succeeds and the post-hoc stitch stays a no-op. Runs BEFORE
+  // tower placement so gate flankers straddle the FINAL gate positions.
+  if (args.halfEdge) {
+    repairGateHalfEdges(run, { ...args.halfEdge, offBank, heightAt: args.heightAt });
+  }
   // COVERAGE-DRIVEN TOWERS (WP-S): commit authoritative tower positions on the committed ring —
   // gate flanking pairs, salient corners, and fill towers keeping every open run within bowshot —
   // instead of leaving towers to fall out of RDP line-simplification. Consumes WP-R's per-segment
@@ -917,6 +934,151 @@ function dedupeGatesBySpacing(gates: BarrierGate[], total: number, gateW: number
   for (const g of gates) {
     if (out.some((h) => circDist(h.t, g.t) < minSep)) continue;
     out.push(g);
+  }
+  return out;
+}
+
+// ── Gate half-edge verification & commit-time repair (synthesis 2.1) ───────────────────────────
+//
+// Watabou's TownGeneratorOS never stitches because a degenerate gate (no viable edge on one side)
+// is repaired AT GATE-COMMIT TIME by editing geometry — never by post-hoc road repair. This is our
+// version: a committed gate must own BOTH half-edges,
+//   (a) INTERIOR — a walkable corridor from the gate cell to a REAL street cell (bounded BFS
+//       through open ground; the curtain's own blocking cells are obstacles, the gate opening is
+//       open by construction), and
+//   (b) EXTERIOR — a routable approach cell just outside (in-bounds, not water/building/green,
+//       not off our bank, not a cliff-grade drop when a heightfield is supplied).
+// A gate failing either check SLIDES along the ring (±1-tile steps, deterministic order, spacing
+// respected against the other real gates) to the nearest position where both hold. Only when no
+// candidate within the slide budget passes is the gate left in place — the logged map-generator
+// stitch then remains as the last-resort repair for that genuinely degenerate ring.
+
+export interface GateHalfEdgeChecks {
+  /** REAL street cell — this settlement's carved street tiles or an existing road tile on the
+   *  grid. NEVER occupancy 'road' claims (phantom trunk-corridor reservations). */
+  isStreet(x: number, y: number): boolean;
+  /** Ground a connector/approach can never use: off-map, a registry building (entity-only
+   *  buildings never set `tile.walkable` — use the registry), water, a protected green. The
+   *  CURTAIN is deliberately not included — the repair derives it per candidate position. */
+  blocked(x: number, y: number): boolean;
+  /** Off our bank (water / far bank) — the landward guard for slid candidates. */
+  offBank(x: number, y: number): boolean;
+  /** Optional terrain heightfield (metres) — enables the exterior cliff-grade check. */
+  heightAt?: HeightAt;
+  /** Interior BFS budget (Chebyshev tiles from the gate). Matches/exceeds the connector carve. */
+  maxSearch?: number;
+  /** Max ring-distance (tiles) a failing gate may slide each way. */
+  maxSlide?: number;
+}
+
+/** Outward probe distances (tiles) for the exterior half-edge check. */
+const EXT_PROBE_TILES = [1.5, 2.5] as const;
+
+/** True when a 4-connected BFS from (gx,gy) through open ground reaches a REAL street cell
+ *  OTHER than the gate's own. The start cell being a street is deliberately NOT sufficient: a
+ *  street that touches the gate only diagonally (or an orphaned single street cell under the
+ *  opening) reads "on a street" while the 4-connected network never actually arrives — exactly
+ *  the case that left the post-hoc stitch carving after layout. */
+function interiorReachesStreet(
+  gx: number, gy: number,
+  isStreet: (x: number, y: number) => boolean,
+  blockedAll: (x: number, y: number) => boolean,
+  maxSearch: number,
+): boolean {
+  if (blockedAll(gx, gy) && !isStreet(gx, gy)) return false;
+  const seen = new Set<string>([`${gx},${gy}`]);
+  let frontier: { x: number; y: number }[] = [{ x: gx, y: gy }];
+  while (frontier.length) {
+    const next: { x: number; y: number }[] = [];
+    for (const c of frontier) {
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+        const nx = c.x + dx, ny = c.y + dy;
+        if (Math.abs(nx - gx) > maxSearch || Math.abs(ny - gy) > maxSearch) continue;
+        const k = `${nx},${ny}`;
+        if (seen.has(k)) continue;
+        seen.add(k);
+        if (isStreet(nx, ny)) return true;
+        if (blockedAll(nx, ny)) continue;
+        next.push({ x: nx, y: ny });
+      }
+    }
+    frontier = next;
+  }
+  return false;
+}
+
+/**
+ * Verify + repair every REAL gate's two half-edges on a committed ring, sliding failing gates
+ * along the ring in the same commit step (mutates `g.t` in place). Deterministic: fixed candidate
+ * order (+1, −1, +2, −2, … tiles), fixed BFS neighbour order, no rng. Returns counts for
+ * diagnostics/tests. Callers re-run tower placement after this (flankers key on gate `t`).
+ */
+export function repairGateHalfEdges(
+  run: BarrierRun,
+  checks: GateHalfEdgeChecks,
+): { verified: number; moved: number; unrepaired: number } {
+  const out = { verified: 0, moved: 0, unrepaired: 0 };
+  if (!run.centroid || run.path.length < 3) return out;
+  const total = pathLen(run.path);
+  if (total < 1e-6) return out;
+  const [cx, cy] = run.centroid;
+  const maxSearch = checks.maxSearch ?? 24;
+  const maxSlide = Math.min(checks.maxSlide ?? 20, Math.floor(total / 2) - 1);
+  const circDist = (a: number, b: number): number => { const d = Math.abs(a - b); return Math.min(d, total - d); };
+
+  /** Both half-edges hold for gate `g` AT ITS CURRENT `t` (footprint recomputed so the curtain
+   *  opening tracks the candidate position). */
+  const gateOk = (g: BarrierGate): boolean => {
+    const [gxf, gyf] = gatePoint(run, g);
+    const gx = Math.round(gxf), gy = Math.round(gyf);
+    // Outward bearing from the ring centre (same frame commitDirectionGates sited the gate in).
+    const bx = gxf - cx, by = gyf - cy;
+    const bm = Math.hypot(bx, by) || 1;
+    const ux = bx / bm, uy = by / bm;
+    // (b) EXTERIOR — a routable approach cell outside: on our bank, not blocked ground.
+    for (const d of EXT_PROBE_TILES) {
+      const px = Math.round(gxf + ux * d), py = Math.round(gyf + uy * d);
+      if (checks.blocked(px, py) || checks.offBank(px, py)) return false;
+    }
+    // Cliff-grade approach: the ground just outside must not fall away (or tower up) at a grade
+    // the approach road could never take — the same threshold that classifies a side `steep`.
+    if (checks.heightAt) {
+      const h0 = checks.heightAt(gxf + ux * 0.5, gyf + uy * 0.5);
+      const h1 = checks.heightAt(gxf + ux * (0.5 + SLOPE_STEP_TILES), gyf + uy * (0.5 + SLOPE_STEP_TILES));
+      if (Math.abs(h0 - h1) / SLOPE_STEP_TILES >= STEEP_DROP_M_PER_TILE) return false;
+    }
+    // (a) INTERIOR — the curtain (with THIS gate's opening where it now stands) blocks the BFS.
+    const blocking = new Set(barrierFootprintTiles(run).blocking.map(([x, y]) => `${x},${y}`));
+    const blockedAll = (x: number, y: number): boolean => checks.blocked(x, y) || blocking.has(`${x},${y}`);
+    return interiorReachesStreet(gx, gy, checks.isStreet, blockedAll, maxSearch);
+  };
+
+  for (const g of run.gates) {
+    if (g.kind === 'gap') continue;
+    if (gateOk(g)) { out.verified++; continue; }
+    const t0 = g.t;
+    let repaired = false;
+    for (let k = 1; k <= maxSlide && !repaired; k++) {
+      for (const s of [1, -1] as const) {
+        const cand = ((t0 + s * k) % total + total) % total;
+        // Keep spacing against the OTHER real gates (a slid gate must not merge into a neighbour).
+        const minSep = Math.max(g.width * 1.5, 3);
+        if (run.gates.some((h) => h !== g && h.kind !== 'gap' && circDist(h.t, cand) < minSep)) continue;
+        // Landward guard (same 1.5-tile outward step commitDirectionGates uses).
+        const [px, py] = gatePoint(run, { t: cand, width: 0 });
+        const obx = px - cx, oby = py - cy;
+        const obm = Math.hypot(obx, oby) || 1;
+        if (checks.offBank(Math.round(px + (obx / obm) * 1.5), Math.round(py + (oby / obm) * 1.5))) continue;
+        g.t = cand;
+        if (gateOk(g)) { repaired = true; break; }
+      }
+    }
+    if (repaired) {
+      out.moved++;
+    } else {
+      g.t = t0;                                            // leave in place — the stitch's case
+      out.unrepaired++;
+    }
   }
   return out;
 }
