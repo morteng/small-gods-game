@@ -13,6 +13,7 @@ import { greyToSpriteCanvas, rgbaToCanvas, cropRgba, hasEmissivePixels, type Spr
 import { composeStructure, type StructureSpec, type StructureResult } from '@/assetgen/compose';
 import { ensureBuildingTypesRegistered } from '@/blueprint/register-buildings';
 import { scheduleCompose } from '@/render/compose-scheduler';
+import { composePayload } from '@/render/compose-offthread';
 import { canonicalJson } from '@/render/generated-art-cache';
 import {
   parametricSpriteKey, readParametricSprite, writeParametricSprite,
@@ -99,6 +100,11 @@ export class ParametricBuildingSource {
    *  deterministic compose CPU is paid once per ART_RECIPE_VERSION, not per boot.
    *  OFF when keepStages: the studio wants fresh composes with every stage buffer. */
   private readonly persist: boolean;
+  /** Offload compose to the worker pool. Only when the DEFAULT compose is used (an
+   *  injected/closure compose can't cross the worker boundary) AND not retaining stage
+   *  buffers (the worker returns only the cache payload). Injected-compose tests + the
+   *  studio keep the byte-identical inline path. */
+  private readonly offthread: boolean;
 
   constructor(deps: ParametricSourceDeps = {}) {
     // Entities restored from an autosave carry an already-RESOLVED blueprint, so this
@@ -122,6 +128,7 @@ export class ParametricBuildingSource {
     this.onWarm = deps.onWarm;
     this.packFromCache = deps.packFromCache ?? packFromPayload;
     this.persist = !this.keepStages;
+    this.offthread = deps.compose === undefined && !this.keepStages;
   }
 
   /** Sync read of an already-generated sprite pack (null if absent / unsupported / failed).
@@ -162,10 +169,23 @@ export class ParametricBuildingSource {
     // Content-addressed persistent key: hashes the COMPOSE INPUT (the spec, yaw
     // included), so any preset/param/recipe change misses automatically.
     const idbKey = this.persist ? parametricSpriteKey('bld', canonicalJson(spec)) : null;
-    // Through the shared compose queue: N first-frame warms must not fuse into one
-    // main-thread-blocking long task (see compose-scheduler.ts). Buildings take the
-    // front lane — the player watches towns, not the wall-chunk backlog.
-    const composePath = (): Promise<void> =>
+    // Off-thread path (production default): the worker pool composes in parallel and
+    // returns the finished cache payload, which rebuilds a pixel-identical pack on the
+    // main thread (WP-A). Buildings take the front lane — the player watches towns.
+    const composeOffthread = (): Promise<void> =>
+      composePayload(spec!, { surfaceTexture: true, ...(spec!.yaw ? { yaw: spec!.yaw } : {}) }, { priority: 'front' })
+        .then((payload) => {
+          this.cache.set(k, payload ? this.packFromCache(payload) : null);
+          // Write-behind persist: never blocks sprite availability, swallows failure.
+          if (idbKey && payload) void writeParametricSprite(idbKey, payload);
+        })
+        .catch((err) => {
+          if (!this.warned.has(k)) { console.warn('[parametric-building] generation failed', err); this.warned.add(k); }
+          this.cache.set(k, null);
+        });
+    // Inline path (injected compose / studio keepStages): byte-identical to pre-WP-A —
+    // through the shared main-thread queue (see compose-scheduler.ts), retaining stages.
+    const composeInline = (): Promise<void> =>
       scheduleCompose(() => this.compose(spec!), { priority: 'front' })
         .then((r) => {
           if (this.keepStages) this.stages.set(k, r);
@@ -180,6 +200,7 @@ export class ParametricBuildingSource {
           if (!this.warned.has(k)) { console.warn('[parametric-building] generation failed', err); this.warned.add(k); }
           this.cache.set(k, null);
         });
+    const composePath = this.offthread ? composeOffthread : composeInline;
     const settle = (): void => {
       // Bump per-pack (NOT only when the whole batch drains): each composed pack changes
       // the cache key so the static draw list rebuilds and that building textures the next

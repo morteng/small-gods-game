@@ -13,6 +13,7 @@ import { type SpritePack } from '@/render/iso/sprite-canvas';
 import { composeStructure, type StructureSpec, type StructureResult } from '@/assetgen/compose';
 import { structureResultToPack } from '@/render/parametric-building-source';
 import { scheduleCompose } from '@/render/compose-scheduler';
+import { composePayload } from '@/render/compose-offthread';
 import { canonicalJson } from '@/render/generated-art-cache';
 import {
   parametricSpriteKey, readParametricSprite, writeParametricSprite,
@@ -45,6 +46,10 @@ export class ParametricPlantSource {
    *  deterministic compose CPU is paid once per ART_RECIPE_VERSION, not per boot.
    *  OFF when keepStages: the studio wants fresh composes with every stage buffer. */
   private readonly persist: boolean;
+  /** Offload compose to the worker pool — only when the DEFAULT compose is used (an
+   *  injected/closure compose can't cross the worker boundary) AND not retaining stage
+   *  buffers. Injected-compose tests + the studio keep the byte-identical inline path. */
+  private readonly offthread: boolean;
 
   constructor(deps: ParametricPlantDeps = {}) {
     this.toSpec = deps.toSpec ?? ((rb) => toGeometry(rb));
@@ -53,6 +58,7 @@ export class ParametricPlantSource {
     this.keepStages = deps.keepStages ?? false;
     this.packFromCache = deps.packFromCache ?? packFromPayload;
     this.persist = !this.keepStages;
+    this.offthread = deps.compose === undefined && !this.keepStages;
   }
 
   /** Sync read of an already-generated sprite pack for a species kind (null if absent). */
@@ -87,7 +93,21 @@ export class ParametricPlantSource {
     // Content-addressed persistent key over the compose input, so a preset/param
     // change misses automatically (never keyed on the species name).
     const idbKey = this.persist ? parametricSpriteKey('plt', canonicalJson(spec)) : null;
-    const composePath = (): Promise<void> => scheduleCompose(() => this.compose(spec!))
+    // Off-thread path (production default): the worker pool composes the species and
+    // returns its cache payload, which rebuilds a pixel-identical pack on the main
+    // thread (WP-A). Plants stay in the back lane (buildings texture first).
+    const composeOffthread = (): Promise<void> => composePayload(spec!)
+      .then((payload) => {
+        this.cache.set(kind, payload ? this.packFromCache(payload) : null);
+        // Write-behind persist: never blocks sprite availability, swallows failure.
+        if (idbKey && payload) void writeParametricSprite(idbKey, payload);
+      })
+      .catch((err) => {
+        if (!this.warned.has(kind)) { console.warn('[parametric-plant] generation failed', err); this.warned.add(kind); }
+        this.cache.set(kind, null);
+      });
+    // Inline path (injected compose / studio keepStages): byte-identical to pre-WP-A.
+    const composeInline = (): Promise<void> => scheduleCompose(() => this.compose(spec!))
       .then((r) => {
         if (this.keepStages) this.stages.set(kind, r);
         this.cache.set(kind, this.toSprite(r));
@@ -101,6 +121,7 @@ export class ParametricPlantSource {
         if (!this.warned.has(kind)) { console.warn('[parametric-plant] generation failed', err); this.warned.add(kind); }
         this.cache.set(kind, null);
       });
+    const composePath = this.offthread ? composeOffthread : composeInline;
     // Persisted-sprite fast path: hit → rebuild the pack from raw cached buffers
     // (byte-exact vs a fresh compose), NO compose job; miss/decode failure/wedged
     // IDB degrades to composing. The returned promise still settles only once the
