@@ -211,15 +211,18 @@ function masonrySeg(M: ManifoldNS, run: BarrierRun, s: Seg): ManifoldT[] {
  * a shooting breastwork at the lip → a mono-pitch shingle roof. Defenders in it drop stones /
  * quicklime through the gap at their feet straight down the wall base a flush parapet can't reach.
  * All timber; needs a known outward side (returns nothing otherwise) and a crenellated curtain.
+ * Splits the shooting BREASTWORK (upright boards → `plank_v`) from the along-member FRAME
+ * (putlogs/braces/floor/roof → `plank`, horizontal grain) so each reads with the right grain.
  */
-function hoardingSeg(M: ManifoldNS, run: BarrierRun, s: Seg): ManifoldT[] {
+function hoardingSeg(M: ManifoldNS, run: BarrierRun, s: Seg): { frame: ManifoldT[]; breast: ManifoldT[] } {
   const outward = outwardSignFor(run, s);
-  if (outward === 0) return [];
+  if (outward === 0) return { frame: [], breast: [] };
   const H = Math.max(mToTiles(1.0), run.height);
   const th = Math.max(mToTiles(0.6), run.thickness);
   const parapetH = run.crenellated ? Math.min(mToTiles(1.6), H * 0.4) : 0;
   const walkZ = H - parapetH;
   const out: ManifoldT[] = [];
+  const breast: ManifoldT[] = [];
 
   const over = mToTiles(1.3);                       // how far the gallery juts past the wall face
   const frontY = outward * (th / 2 + over);         // outer lip of the gallery (local y)
@@ -252,9 +255,10 @@ function hoardingSeg(M: ManifoldNS, run: BarrierRun, s: Seg): ManifoldT[] {
   const floorCenterY = outward * (th / 2 + over / 2 - mToTiles(0.05));
   out.push(place(locBox(M, 0, s.len, floorSpan, walkZ, ft, floorCenterY), s));
 
-  // Shooting breastwork at the outer lip — the timber wall defenders stand behind.
+  // Shooting breastwork at the outer lip — the timber wall defenders stand behind. Upright
+  // boards (its own group so it paints `plank_v`, not the frame's horizontal grain).
   const bwTh = mToTiles(0.28), bwH = mToTiles(1.05);
-  out.push(place(locBox(M, 0, s.len, bwTh, walkZ + ft, bwH, frontY), s));
+  breast.push(place(locBox(M, 0, s.len, bwTh, walkZ + ft, bwH, frontY), s));
   // A back post row where the gallery meets the wall top (the inner support the roof springs from).
   out.push(place(locBox(M, 0, s.len, mToTiles(0.2), walkZ + ft, bwH + mToTiles(0.4), outward * (th / 2)), s));
 
@@ -272,15 +276,18 @@ function hoardingSeg(M: ManifoldNS, run: BarrierRun, s: Seg): ManifoldT[] {
       .translate([d, outward * (th / 2 + over / 2), walkZ + ft + bwH + mToTiles(0.5)]);
     out.push(place(roof, s));
   }
-  return out;
+  return { frame: out, breast };
 }
 
 /** Timber palisade: close-set pointed stakes + two lashing rails, on a low earthen bank.
- *  Returns [timberSolids, earthSolids] so the bank paints as earth, the stockade as timber. */
-function palisadeSeg(M: ManifoldNS, run: BarrierRun, s: Seg): { timber: ManifoldT[]; earth: ManifoldT[] } {
+ *  The upright staves paint with the `stave` work (vertical round logs); the two horizontal
+ *  lashing rails are along-member timbers, so they keep `plank` (horizontal grain). Returns the
+ *  three groups so the bank paints as earth, the stockade as staves, the rails as plank. */
+function palisadeSeg(M: ManifoldNS, run: BarrierRun, s: Seg): { staves: ManifoldT[]; rails: ManifoldT[]; earth: ManifoldT[] } {
   const H = Math.max(mToTiles(1.4), run.height);
   const th = Math.max(mToTiles(0.5), run.thickness);
-  const timber: ManifoldT[] = [];
+  const staves: ManifoldT[] = [];
+  const rails: ManifoldT[] = [];
   const earth: ManifoldT[] = [];
 
   // Low earthen bank the stakes are driven into (the rampart crest).
@@ -296,17 +303,17 @@ function palisadeSeg(M: ManifoldNS, run: BarrierRun, s: Seg): { timber: Manifold
   const step = s.len / n;
   for (let i = 0; i <= n; i++) {
     const d = Math.min(s.len, i * step);
-    timber.push(place(locBox(M, d - pw / 2, pw, pw, bankH * 0.6, shaftH), s));          // shaft
+    staves.push(place(locBox(M, d - pw / 2, pw, pw, bankH * 0.6, shaftH), s));          // shaft
     // Pointed cap: a 4-sided cone (pyramid) from the shaft width to a point.
     const cap = M.cylinder(capH, pw * 0.62, 0.0, 4).rotate([0, 0, 45]).translate([d, 0, bankH * 0.6 + shaftH]);
-    timber.push(place(cap, s));
+    staves.push(place(cap, s));
   }
   // Two horizontal lashing rails tying the stakes together.
   const railT = mToTiles(0.14);
   for (const rz of [shaftH * 0.35, shaftH * 0.78]) {
-    timber.push(place(locBox(M, 0, s.len, pw * 0.6, bankH * 0.6 + rz, railT, th * 0.2), s));
+    rails.push(place(locBox(M, 0, s.len, pw * 0.6, bankH * 0.6 + rz, railT, th * 0.2), s));
   }
-  return { timber, earth };
+  return { staves, rails, earth };
 }
 
 /** Light fence (paling / barricade): square posts + one or two thin rails, open between. */
@@ -421,10 +428,20 @@ export async function linearFacets(run: BarrierRun): Promise<LinearResult> {
     switch (family) {
       case 'masonry': {
         push(baseMat, masonryWork(run), masonrySeg(M, run, s));
-        if (run.hoarded) push('timber', 'plank', hoardingSeg(M, run, s));   // wartime timber galleries
+        if (run.hoarded) {                                                   // wartime timber galleries
+          const h = hoardingSeg(M, run, s);
+          push('timber', 'plank', h.frame);                                 // putlogs/floor/braces/roof — horizontal grain
+          push('timber', 'plank_v', h.breast);                              // upright shooting breastwork
+        }
         break;
       }
-      case 'palisade': { const r = palisadeSeg(M, run, s); push('timber', 'plank', r.timber); push('earth', undefined, r.earth); break; }
+      case 'palisade': {
+        const r = palisadeSeg(M, run, s);
+        push('timber', 'stave', r.staves);                                  // upright round logs
+        push('timber', 'plank', r.rails);                                   // horizontal lashing rails
+        push('earth', undefined, r.earth);
+        break;
+      }
       case 'light':    push('timber', 'plank', lightSeg(M, run, s)); break;
       case 'living':   push('foliage', undefined, hedgeSeg(M, run, s, i)); break;
       case 'earthbank': {

@@ -49,12 +49,12 @@ export type SurfaceWork =
   | 'ashlar' | 'coursed_rubble' | 'random_rubble' | 'cobble' | 'dry_stone' | 'flint'
   // brick family
   | 'running' | 'flemish'
-  // timber family
-  | 'plank' | 'board_batten';
+  // timber family — plank (horizontal boards) vs plank_v (vertical boards) vs stave (palisade logs)
+  | 'plank' | 'plank_v' | 'stave' | 'board_batten';
 
 export const SURFACE_WORKS: readonly SurfaceWork[] = [
   'ashlar', 'coursed_rubble', 'random_rubble', 'cobble', 'dry_stone', 'flint',
-  'running', 'flemish', 'plank', 'board_batten',
+  'running', 'flemish', 'plank', 'plank_v', 'stave', 'board_batten',
 ] as const;
 
 /** Resolved surface tag for one facet (from `Blueprint.materials` + `Palette` in K0c). */
@@ -318,30 +318,84 @@ const flemishBond: Pattern = (u, v) => {
 };
 
 // ── Timber works (family 'timber') ───────────────────────────────────────────────────────
-/** Plank: directional grain (stretched along u) + plank seams across v. Family default. */
-const plankTimber: Pattern = (u, v) => {
-  const grain = fbm(u * 1.2, v * 9, 3);                    // tight across-grain, loose along
-  const ring = 0.5 + 0.5 * Math.sin((v * 7 + grain * 1.5) * Math.PI * 2);
-  const plank = 1 - Math.min(1, (Math.abs((v / 0.18) % 1 - 0.5) * 0.18) / 0.01);
+// A board field is direction-neutral: `along` runs down a board's LENGTH (grain + staggered
+// butt joints), `across` runs across its WIDTH (which board + the seam grooves between them).
+// The caller decides which surface axis feeds each, so ONE implementation serves horizontal
+// planks (along=u) and vertical boarding (along=v). Per-board hashed tone + a warm/cool tint is
+// the biggest realism win (identical boards read fake); butt joints break the fake 8 m run;
+// sparse knots distort the grain. `period` = board width (metres). Deterministic; no allocation.
+function boardField(along: number, across: number, period: number): Micro {
+  const board = Math.floor(across / period);
+  const fa = across / period - board;                     // 0..1 across the board
+  const seamDist = Math.min(fa, 1 - fa) * period;         // metres to the nearest board edge
+  const seam = 1 - Math.min(1, seamDist / 0.012);         // 1 deep in the seam groove
+  const bh = hash2(board, 0);                             // per-board identity
+  const warm = hash2(board, 71) - 0.5;                    // per-board warm(+)/cool(−) shift
+  const grain = fbm(along * 1.2, across * 9, 3);          // loose along, tight across the grain
+  const ring = 0.5 + 0.5 * Math.sin((across * 7 + grain * 1.5 + bh * 6) * Math.PI * 2);
+  // Staggered butt joints: each board ends every ~1.8 m at a per-board hashed phase.
+  const jointPeriod = 1.8;
+  const ja = along + bh * jointPeriod;
+  const jf = ja / jointPeriod - Math.floor(ja / jointPeriod);
+  const butt = 1 - Math.min(1, (Math.min(jf, 1 - jf) * jointPeriod) / 0.01);
+  const groove = Math.max(seam, butt);
+  // Sparse knots (~1 per 3 m²): a cell owns one only if its hash passes the sparsity gate.
+  const k = cellular(along, across, 1.2);
+  const knot = (k.hash < 0.45 ? 1 : 0) * (1 - Math.min(1, k.dist / 0.05));
   return {
-    tone: 0.14 * (grain - 0.5) + 0.08 * (ring - 0.5) - 0.35 * plank,
-    tint: ZERO_TINT,
-    height: 0.4 * ring + 0.4 * (1 - plank),
+    tone: (bh - 0.5) * 0.12 + 0.10 * (grain - 0.5) + 0.06 * (ring - 0.5) - 0.36 * groove - 0.22 * knot,
+    tint: [warm * 6, warm * 1.5, -warm * 5],
+    height: 0.38 * ring + 0.4 * (1 - groove) + 0.12 * knot,
+    rough: 1,
+  };
+}
+
+/** Plank: sawn boards laid HORIZONTALLY (seams across v, grain along u). Family default. */
+const plankTimber: Pattern = (u, v) => boardField(u, v, 0.18);
+
+/** Plank_v: sawn boards laid VERTICALLY (seams across u, grain along v) — a medieval gate leaf,
+ *  a hoarding's shooting breastwork: upright boards, horizontal ledgers banded over them. */
+const plankVertical: Pattern = (u, v) => boardField(v, u, 0.16);
+
+/** Stave: a palisade of close-set round timbers standing on end. Vertical columns ~pw wide
+ *  (matches `palisadeSeg`'s stake width mToTiles(0.42) → 0.42 m), each stave its OWN tone, a
+ *  barrel of tone+height rounding across its face so it reads as an individual log, and vertical
+ *  grain. Sparse knots; no butt joints (a driven stake is one whole log). Deterministic. */
+const stave: Pattern = (u, v) => {
+  const W = 0.42;                                          // stave width ≈ palisade pw (0.42 m)
+  const col = Math.floor(u / W);
+  const fu = u / W - col;                                  // 0..1 across the stave
+  const round = 1 - (2 * fu - 1) * (2 * fu - 1);           // 1 at the crown → 0 at the edges
+  const seam = 1 - Math.min(1, (Math.min(fu, 1 - fu) * W) / 0.02);
+  const ch = hash2(col, 0);                                // per-stave identity
+  const warm = hash2(col, 71) - 0.5;
+  const grain = fbm(u * 10, v * 1.1, 3);                   // tight across, long vertical grain
+  const ring = 0.5 + 0.5 * Math.sin((v * 6 + ch * 6 + grain) * Math.PI * 2);
+  const k = cellular(v, u, 1.8);                           // sparser knots than sawn board
+  const knot = (k.hash < 0.3 ? 1 : 0) * (1 - Math.min(1, k.dist / 0.05));
+  return {
+    tone: (ch - 0.5) * 0.16 + 0.12 * (round - 0.5) + 0.08 * (grain - 0.5) + 0.05 * (ring - 0.5) - 0.40 * seam - 0.20 * knot,
+    tint: [warm * 8, warm * 2, -warm * 5],
+    height: 0.5 * round + 0.15 * ring - 0.4 * seam + 0.1 * knot,
     rough: 1,
   };
 };
 
-/** Board-and-batten: wide vertical boards with a raised narrow batten over every seam. */
+/** Board-and-batten: wide VERTICAL boards (grain along v) with a raised narrow batten over
+ *  every seam. Per-board hashed tone + sparse knots ride the realism pass. */
 const boardBatten: Pattern = (u, v) => {
   const boardW = 0.26;
   const col = Math.floor(u / boardW);
   const fu = u / boardW - col;
   const onBatten = fu < 0.09 || fu > 0.91;                 // raised batten straddling the seam
-  const grain = fbm(u * 1.4, v * 8, 3);
+  const bh = hash2(col, 0);
+  const grain = fbm(u * 8, v * 1.4, 3);                    // tight across, long vertical grain
+  const k = cellular(v, u, 1.3);
+  const knot = (k.hash < 0.4 ? 1 : 0) * (1 - Math.min(1, k.dist / 0.05));
   return {
-    tone: 0.12 * (grain - 0.5) + (onBatten ? 0.05 : -0.04),
-    tint: ZERO_TINT,
-    height: onBatten ? 0.75 : 0.3 * grain,
+    tone: (bh - 0.5) * 0.10 + 0.12 * (grain - 0.5) + (onBatten ? 0.05 : -0.04) - 0.20 * knot,
+    tint: [(bh - 0.5) * 5, 0, -(bh - 0.5) * 4],
+    height: onBatten ? 0.75 : 0.3 * grain + 0.1 * knot,
     rough: 1,
   };
 };
@@ -351,7 +405,7 @@ const WORK_PATTERNS: Record<SurfaceWork, Pattern> = {
   ashlar, coursed_rubble: coursedRubble, random_rubble: randomRubble,
   cobble, dry_stone: dryStone, flint,
   running: runningBond, flemish: flemishBond,
-  plank: plankTimber, board_batten: boardBatten,
+  plank: plankTimber, plank_v: plankVertical, stave, board_batten: boardBatten,
 };
 
 /** Default work per material family (used when SurfaceSpec.work is absent). */
