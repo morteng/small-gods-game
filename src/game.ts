@@ -160,6 +160,8 @@ export class Game {
   private menuPrevRate = 1;
   /** Sim rate captured when a story card opened, restored when it dismisses. */
   private storyPrevRate = 1;
+  /** Guards the modal rate-stash against double-present / double-dismiss. */
+  private storyModalActive = false;
   /** Loaded story packs; a fired beat's `storylet` ref is looked up here. */
   private storyRegistry = new StoryRegistry();
   private cleanupTokens: (() => void) | null = null;
@@ -776,7 +778,12 @@ export class Game {
       onSaveLlmConfig: (cfg) => this.applyLlmConfig(cfg),
       // A story card is modal narrative — pause the sim while it's up, restore the
       // prior rate (could be 2×/4×/8× or an existing pause) when it dismisses.
+      // Idempotent on repeat toggles: presenting a card OVER an open card would
+      // otherwise re-stash the already-zeroed rate and wedge the game paused on
+      // dismiss (R9 landing cards made this collision likely).
       onStoryToggle: (active) => {
+        if (active === this.storyModalActive) return;
+        this.storyModalActive = active;
         if (active) {
           this.storyPrevRate = this.scheduler.getRate();
           this.scheduler.setRate(0);

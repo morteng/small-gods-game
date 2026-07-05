@@ -27,8 +27,6 @@ describe('interest-predicate — seek filter', () => {
       { type: 'settlement_upgraded', poiId: 'p', entityId: 'e', from: 'a', to: 'b', lotId: 'l' },
       { type: 'npc_death', npcId: 'n', lineageId: 'n', cause: 'age' },
       { type: 'npc_birth', npcId: 'n', parentIds: [], lineageId: 'n' },
-      { type: 'belief_cross', npcId: 'n', spiritId: PLAYER_SPIRIT_ID, kind: 'high', faith: 0.9 },
-      { type: 'mood_cross', npcId: 'n', kind: 'low', mood: 0.1 },
       { type: 'power_depleted', spiritId: PLAYER_SPIRIT_ID },
       { type: 'summon_storm', spiritId: PLAYER_SPIRIT_ID, poiId: 'p', depthM: 1, cells: 1 },
       { type: 'smite', spiritId: PLAYER_SPIRIT_ID, witnesses: 3 },
@@ -48,6 +46,10 @@ describe('interest-predicate — seek filter', () => {
       { type: 'npc_spawn', npcId: 'n', role: 'farmer' as never, poiId: 'p' },
       { type: 'region_realized', region: {} as never, cause: 'belief_spread' },
       { type: 'system_error', system: 's', message: 'm' },
+      // Tidings band — fires every few game-seconds live; a seek would land
+      // instantly if these counted (measured in the R9 integration smoke).
+      { type: 'belief_cross', npcId: 'n', spiritId: PLAYER_SPIRIT_ID, kind: 'high', faith: 0.9 },
+      { type: 'mood_cross', npcId: 'n', kind: 'low', mood: 0.1 },
     ];
     for (const ev of no) expect(isInterestingEvent(ev), ev.type).toBe(false);
   });

@@ -59,6 +59,11 @@ const G: Record<string, string[]> = {
   '.': ['     ', '     ', '     ', '     ', '     ', '     ', '  #  '],
   ':': ['     ', '  #  ', '     ', '     ', '     ', '  #  ', '     '],
   '·': ['     ', '     ', '     ', '  #  ', '     ', '     ', '     '],
+  // Icon glyphs used by the WebGPU chrome (unknown chars render BLANK, so every
+  // label glyph must exist here). ✕ = close, ⏭ = skip-to-next (▶|), ⏳ = elapsed.
+  '✕': ['     ', '#   #', ' # # ', '  #  ', ' # # ', '#   #', '     '],
+  '⏭': ['#   #', '##  #', '### #', '#####', '### #', '##  #', '#   #'],
+  '⏳': ['#####', ' ### ', '  #  ', '  #  ', ' ### ', '#####', '     '],
 };
 
 const EMPTY_UV: UvRect = { u0: 0, v0: 0, u1: 0, v1: 0 };

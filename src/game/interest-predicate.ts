@@ -51,6 +51,12 @@ function isRivalClaim(ev: SimEvent): boolean {
  * DESIGN we currently accept ALL births/deaths: a death's NPC is often already
  * gone from the world by the time the event fires, so a belief lookup would be
  * unreliable and costly. The task explicitly allows "all deaths/births" here.
+ *
+ * `belief_cross`/`mood_cross` are deliberately EXCLUDED: they are the low-salience
+ * tidings band (0.1–0.35) and fire every few game-seconds in a live world —
+ * measured in the R9 integration smoke, they landed every seek within ~75 ticks,
+ * making the skip button a no-op. They still appear in the landing summary's
+ * passedCounts and in `describeInterest` (for coalesced headlines).
  */
 export function isInterestingEvent(ev: SimEvent, _state?: GameState): boolean {
   if (isStorySignificant(ev)) return true;
@@ -63,8 +69,6 @@ export function isInterestingEvent(ev: SimEvent, _state?: GameState): boolean {
     case 'settlement_upgraded':
     case 'npc_death':
     case 'npc_birth':
-    case 'belief_cross':
-    case 'mood_cross':
     case 'power_depleted':
     case 'summon_storm':
     case 'smite':
