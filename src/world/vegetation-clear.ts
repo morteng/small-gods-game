@@ -46,6 +46,14 @@ export const TREELINE_ELEV = 0.72;
 /** Entity categories considered "nature" and therefore clearable. */
 const NATURE_CATEGORIES = new Set(['vegetation', 'terrain-feature']);
 
+/**
+ * Tag on entities the riparian pass DELIBERATELY placed in/beside the water margin
+ * (`WATER_PLACED_TAG` in `riparian-scatter.ts`). A boulder standing in a river is the
+ * whole point of that pass, so the corridor sweep must not treat it as an obstruction
+ * — it stays put in the river/road corridor but is still cleared under a building.
+ */
+const WATER_PLACED_TAG = 'waterPlaced';
+
 /** Tile types that must be clear of vegetation. */
 export function isRoadOrRiver(type: string): boolean {
   return (
@@ -165,13 +173,21 @@ export function clearObstructedVegetation(world: World, map: GameMap): number {
     const ty = Math.floor(e.y);
     const r = clearRadiusFor(e);
 
-    const inCorridor =
-      nearRoadOrRiverTile(map, e.x, e.y, r) || nearCorridor(corridors, e.x, e.y, r);
+    // Riparian rocks are placed IN the water margin on purpose; the corridor sweep
+    // (which clears the river/road corridor) must leave them, or it deletes the very
+    // boulders that make a river read as a rocky channel. They stay clearable under a
+    // building footprint below.
+    const waterPlaced = e.tags?.includes(WATER_PLACED_TAG) ?? false;
+
+    const inCorridor = !waterPlaced &&
+      (nearRoadOrRiverTile(map, e.x, e.y, r) || nearCorridor(corridors, e.x, e.y, r));
     const onBuilding = world.registry
       .getAtTile(tx, ty)
       .some((b) => b.id !== e.id && isBuilding(b));
     // Above the treeline the ground is bare rock/snow — nothing vegetates there.
-    const aboveTreeline = elevationAt(map, tx, ty) > TREELINE_ELEV;
+    // (Water-placed margin rocks sit at waterline, well below it, so this never fires
+    //  for them — but exempt explicitly so the intent survives a treeline change.)
+    const aboveTreeline = !waterPlaced && elevationAt(map, tx, ty) > TREELINE_ELEV;
 
     if (inCorridor || onBuilding || aboveTreeline) toRemove.push(e.id);
   }

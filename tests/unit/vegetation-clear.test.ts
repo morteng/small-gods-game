@@ -36,6 +36,11 @@ function cottage(id: string, x: number, y: number, w = 3, h = 3): Entity {
     properties: { category: 'building', footprint: { w, h } },
   } as Entity;
 }
+/** A riparian rock — `granite-boulder` resolves to a clearable `vegetation` def; the
+ *  `waterPlaced` tag (optional) is what the riparian pass stamps to exempt it. */
+function boulder(id: string, x: number, y: number, tags: string[] = ['vegetation', 'rock']): Entity {
+  return { id, kind: 'granite-boulder', x, y, tags, properties: {} } as Entity;
+}
 
 /** A one-edge road graph whose polyline runs through the given points. */
 function roadGraphLine(pts: { x: number; y: number }[]): RoadGraph {
@@ -109,6 +114,34 @@ describe('clearObstructedVegetation — road-graph centerline', () => {
     expect(removed).toBe(1);
     expect(world.registry.get('on-line')).toBeUndefined();
     expect(world.registry.get('off-line')).toBeDefined();
+  });
+});
+
+describe('clearObstructedVegetation — waterPlaced exemption (rivers slice 2)', () => {
+  it('keeps a waterPlaced rock in the river but clears an untagged one', () => {
+    const map = makeMap(14, 14);
+    map.tiles[6][6].type = 'river';
+    const world = new World(map);
+    world.addEntity(boulder('riparian', 6, 6, ['vegetation', 'rock', 'waterPlaced']));
+    world.addEntity(boulder('stray', 6, 6, ['vegetation', 'rock'])); // same cell, no tag
+
+    const removed = clearObstructedVegetation(world, map);
+
+    expect(removed).toBe(1);
+    expect(world.registry.get('riparian')).toBeDefined();   // the point of a river
+    expect(world.registry.get('stray')).toBeUndefined();     // ordinary nature, cleared
+  });
+
+  it('still clears a waterPlaced rock that ends up under a building footprint', () => {
+    const map = makeMap(12, 12);
+    const world = new World(map);
+    world.addEntity(cottage('c', 2, 2)); // footprint (2,2)..(4,4)
+    world.addEntity(boulder('under-building', 3, 3, ['vegetation', 'rock', 'waterPlaced']));
+
+    const removed = clearObstructedVegetation(world, map);
+
+    expect(removed).toBe(1);
+    expect(world.registry.get('under-building')).toBeUndefined();
   });
 });
 

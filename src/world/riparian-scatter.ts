@@ -23,6 +23,13 @@ import type { Entity, HydrologyResult } from '@/core/types';
 
 const BRUSH = 'riparian';
 
+/** Tag marking an entity as DELIBERATELY placed in/beside the water margin. The
+ *  end-of-gen `clearObstructedVegetation` sweep clears nature entities out of the
+ *  road/river corridor; without this exemption it deletes the very boulders the
+ *  riparian pass just placed in the river (the rock IS the point). Tagged entities
+ *  stay put in the corridor but remain clearable under a building footprint. */
+export const WATER_PLACED_TAG = 'waterPlaced';
+
 /** Riparian canopy (willows/poplars/birch) — real species ids from the wetland pool.
  *  (The `water-biome.ts` `bankFlora` field carries descriptive labels — "willow",
  *  "reed" — not species ids, so we read the curated pool instead.) */
@@ -75,7 +82,7 @@ function place(out: Entity[], kind: string, cx: number, cy: number, s: number, s
   const fx = frac(hash01(cx, cy, s + 3));
   const fy = frac(hash01(cx, cy, s + 4));
   const scale = scaleLo + hash01(cx, cy, s + 5) * (scaleHi - scaleLo);
-  out.push(defaultEntity(BRUSH, kind, cx + fx, cy + fy, { offsetX: fx, offsetY: fy, scale, rotation: 0 }));
+  out.push(defaultEntity(BRUSH, kind, cx + fx, cy + fy, { offsetX: fx, offsetY: fy, scale, rotation: 0 }, [WATER_PLACED_TAG]));
 }
 
 /**
