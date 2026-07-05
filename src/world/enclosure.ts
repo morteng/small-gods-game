@@ -99,55 +99,150 @@ export function selectCroftEnclosure(rng: MinRng, ctx: EnclosureCtx): string | n
   return types[Math.floor(rng.next() * types.length)].id;
 }
 
-// ── Geometry helpers ─────────────────────────────────────────────────────────
+// ── Canonical piece grid (WP-W1) ───────────────────────────────────────────────
+//
+// Walls are dialed back to an 8-bearing piece vocabulary (4 cardinal + 4 diagonal). A ring is a
+// closed simple polygon whose every edge runs in one of the 8 canonical directions, with vertices
+// on integer tile coordinates and lengths on the piece grid:
+//   • CARDINAL piece = 2 tiles along-axis (`CHUNK_DEPTH_SPAN_MAX = 2`), so a cardinal edge is an
+//     even number of tiles.
+//   • DIAGONAL piece = 2 tile-steps of (±1, ±1), so a diagonal edge has Δ = (±2k, ±2k).
+// This makes the wall-chunk vocabulary finite (pre-generatable / img2img-styleable, WP-W2+).
 
-/** Closed rectangle ring path (5 points) tracing the tile-corner boundary. */
+/** Cardinal piece length (tiles along the wall). Cardinal edges are integer multiples of this. */
+const CARDINAL_PIECE_TILES = 2;
+/** One diagonal tile-step (1,1) — length √2 tiles. */
+const DIAG_STEP_TILES = Math.SQRT2;
+/** Diagonal piece length (tiles along the wall) = 2 diagonal steps. Diagonal edges are multiples. */
+const DIAG_PIECE_TILES = 2 * DIAG_STEP_TILES;
+
+/** Round OUTWARD to an even integer (up). Used for a max support so the snapped octagon only grows. */
+const roundUpEven = (n: number): number => { const c = Math.ceil(n - 1e-9); return c % 2 === 0 ? c : c + 1; };
+/** Round OUTWARD to an even integer (down). Used for a min support so the snapped octagon only grows. */
+const roundDownEven = (n: number): number => { const f = Math.floor(n + 1e-9); return f % 2 === 0 ? f : f - 1; };
+
+/** The piece length (tiles along the wall) for an edge whose delta is (dx, dy). */
+function pieceLenForDelta(dx: number, dy: number): number {
+  return (Math.abs(dx) > 1e-6 && Math.abs(dy) > 1e-6) ? DIAG_PIECE_TILES : CARDINAL_PIECE_TILES;
+}
+
+/** Closed rectangle ring path (5 points) tracing the tile-corner boundary. Pure — callers snap the
+ *  corners to the piece grid as their placement allows (the settlement fallback grows outward, a
+ *  croft ring pulls inward). */
 function rectRing(minX: number, minY: number, maxX: number, maxY: number): Pt[] {
   return [
     [minX, minY], [maxX, minY], [maxX, maxY], [minX, maxY], [minX, minY],
   ];
 }
 
-/** Perpendicular distance from p to the segment a→b (for polyline simplification). */
-function segDist(p: Pt, a: Pt, b: Pt): number {
-  const dx = b[0] - a[0], dy = b[1] - a[1];
-  const L2 = dx * dx + dy * dy;
-  if (L2 < 1e-9) return Math.hypot(p[0] - a[0], p[1] - a[1]);
-  const t = Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / L2));
-  return Math.hypot(p[0] - (a[0] + dx * t), p[1] - (a[1] + dy * t));
+/** Grow a rectangle's far corner OUTWARD so each side is a whole number of cardinal pieces (even
+ *  tiles), keeping the origin — the settlement-ring fallback (has a margin, so growing is safe). */
+function rectRingEvenOut(minX: number, minY: number, maxX: number, maxY: number): Pt[] {
+  const up = (span: number): number => { const c = Math.max(CARDINAL_PIECE_TILES, Math.ceil(span)); return c % 2 === 0 ? c : c + 1; };
+  return rectRing(minX, minY, minX + up(maxX - minX), minY + up(maxY - minY));
 }
 
-/** Ramer–Douglas–Peucker simplify of an OPEN polyline (endpoints kept). */
-function rdp(pts: Pt[], eps: number): Pt[] {
-  if (pts.length < 3) return pts.slice();
-  let maxD = 0, idx = 0;
-  for (let i = 1; i < pts.length - 1; i++) {
-    const d = segDist(pts[i], pts[0], pts[pts.length - 1]);
-    if (d > maxD) { maxD = d; idx = i; }
+/** Clip a convex polygon by the half-plane `a·x + b·y ≤ c` (Sutherland–Hodgman). */
+function clipHalfPlane(poly: Pt[], a: number, b: number, c: number): Pt[] {
+  const out: Pt[] = [];
+  const n = poly.length;
+  for (let i = 0; i < n; i++) {
+    const cur = poly[i], nxt = poly[(i + 1) % n];
+    const dc = a * cur[0] + b * cur[1] - c;
+    const dn = a * nxt[0] + b * nxt[1] - c;
+    const curIn = dc <= 1e-9, nxtIn = dn <= 1e-9;
+    if (curIn) out.push(cur);
+    if (curIn !== nxtIn) {
+      const t = dc / (dc - dn);
+      out.push([cur[0] + (nxt[0] - cur[0]) * t, cur[1] + (nxt[1] - cur[1]) * t]);
+    }
   }
-  if (maxD <= eps) return [pts[0], pts[pts.length - 1]];
-  const left = rdp(pts.slice(0, idx + 1), eps);
-  const right = rdp(pts.slice(idx), eps);
-  return [...left.slice(0, -1), ...right];
+  return out;
+}
+
+/** Drop consecutive-duplicate + collinear vertices from a CLOSED (unclosed list) polygon. */
+function dropCollinearClosed(pts: Pt[]): Pt[] {
+  const dedup: Pt[] = [];
+  for (const p of pts) { const q = dedup[dedup.length - 1]; if (!q || q[0] !== p[0] || q[1] !== p[1]) dedup.push(p); }
+  if (dedup.length > 1) { const a = dedup[0], b = dedup[dedup.length - 1]; if (a[0] === b[0] && a[1] === b[1]) dedup.pop(); }
+  const n = dedup.length;
+  if (n < 3) return dedup;
+  const out: Pt[] = [];
+  for (let i = 0; i < n; i++) {
+    const a = dedup[(i - 1 + n) % n], b = dedup[i], c = dedup[(i + 1) % n];
+    const cross = (b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0]);
+    if (Math.abs(cross) > 1e-9) out.push(b);
+  }
+  return out.length >= 3 ? out : dedup;
 }
 
 /**
- * Simplify a CLOSED radial ring (open list of N samples in angular order) to a low-vertex
- * polygon, escalating epsilon until the vertex count is within `maxVerts` so tower/compose
- * cost stays bounded. Returns an OPEN vertex list (the caller closes it).
+ * CANONICAL ring (WP-W1): fit a closed simple polygon around the terrain-sought sample envelope
+ * whose every edge is one of the 8 canonical bearings on the piece grid. The polygon is the
+ * intersection of 8 half-planes — the 4 cardinal + 4 diagonal support lines of `samples`, each
+ * rounded OUTWARD to an EVEN integer. Rounding all 8 constants to even integers makes every vertex
+ * integer AND every edge length a whole number of pieces (cardinal edges even tiles; diagonal edges
+ * Δ = (±2k, ±2k)); rounding outward means the octagon only ever GROWS past the samples, so it can
+ * never dent inside the building-clearance floor the samples already respect (enclosure is a
+ * postcondition of "contains every sample"). Convex ⇒ simple by construction. Returns an OPEN→closed
+ * path, or null for a degenerate envelope (caller uses the rectangle fallback).
  */
-function simplifyRing(samples: Pt[], eps0: number, maxVerts: number): Pt[] {
-  // Treat the ring as an open path start..end..start-repeat so RDP can drop the seam vertex too.
-  let eps = eps0;
-  for (let iter = 0; iter < 8; iter++) {
-    const open = [...samples, samples[0]];
-    const s = rdp(open, eps);
-    const verts = s.slice(0, -1);                       // drop the repeated seam point
-    if (verts.length <= maxVerts || verts.length <= 4) return verts;
-    eps *= 1.5;
+function canonicalRing(samples: Pt[]): Pt[] | null {
+  if (samples.length < 3) return null;
+  let maxX = -Infinity, minX = Infinity, maxY = -Infinity, minY = Infinity;
+  let maxU = -Infinity, minU = Infinity, maxV = -Infinity, minV = Infinity;
+  for (const [x, y] of samples) {
+    if (x > maxX) maxX = x; if (x < minX) minX = x;
+    if (y > maxY) maxY = y; if (y < minY) minY = y;
+    const u = x + y, v = x - y;
+    if (u > maxU) maxU = u; if (u < minU) minU = u;
+    if (v > maxV) maxV = v; if (v < minV) minV = v;
   }
-  const open = [...samples, samples[0]];
-  return rdp(open, eps).slice(0, -1);
+  const X1 = roundUpEven(maxX), X0 = roundDownEven(minX), Y1 = roundUpEven(maxY), Y0 = roundDownEven(minY);
+  const U1 = roundUpEven(maxU), U0 = roundDownEven(minU), V1 = roundUpEven(maxV), V0 = roundDownEven(minV);
+  if (X1 - X0 < CARDINAL_PIECE_TILES || Y1 - Y0 < CARDINAL_PIECE_TILES) return null;
+  // Cardinal box, then clip by the four diagonal half-planes (x+y ≤ U1, ≥ U0, x−y ≤ V1, ≥ V0).
+  let poly: Pt[] = [[X0, Y0], [X1, Y0], [X1, Y1], [X0, Y1]];
+  poly = clipHalfPlane(poly, 1, 1, U1);
+  poly = clipHalfPlane(poly, -1, -1, -U0);
+  poly = clipHalfPlane(poly, 1, -1, V1);
+  poly = clipHalfPlane(poly, -1, 1, -V0);
+  if (poly.length < 3) return null;
+  // Vertices are provably integer (all 8 constants even) — round to clear float noise, then merge
+  // duplicate / collinear points so each edge is a maximal canonical segment.
+  const snapped: Pt[] = poly.map(([x, y]) => [Math.round(x), Math.round(y)]);
+  const clean = dropCollinearClosed(snapped);
+  if (clean.length < 3) return null;
+  return [...clean, [...clean[0]] as Pt];
+}
+
+/**
+ * Snap a single opening (gate/gap) onto the piece grid of the edge it sits on: choose 1 or 2 whole
+ * piece slots (nearest to the requested width) and centre the span on a piece boundary, so a gate
+ * exactly REPLACES whole curtain pieces (the finite-vocabulary requirement — WP-W2 cuts gate pieces
+ * on these boundaries). Deterministic; keeps the gate's `kind`.
+ */
+function snapGateToPieces(path: Pt[], gate: BarrierGate): BarrierGate {
+  const total = pathLen(path);
+  if (total < 1e-6) return gate;
+  const t = ((gate.t % total) + total) % total;
+  let acc = 0, edgeStart = 0, edgeLen = 0, pl = CARDINAL_PIECE_TILES, found = false;
+  for (let i = 1; i < path.length; i++) {
+    const [ax, ay] = path[i - 1], [bx, by] = path[i];
+    const len = Math.hypot(bx - ax, by - ay);
+    if (len <= 1e-9) continue;
+    if (t <= acc + len + 1e-9) { edgeStart = acc; edgeLen = len; pl = pieceLenForDelta(bx - ax, by - ay); found = true; break; }
+    acc += len;
+  }
+  if (!found || edgeLen < 1e-9) return gate;
+  const nPieces = Math.max(1, Math.round(edgeLen / pl));
+  let nSlots = Math.max(1, Math.min(2, Math.round((gate.width || pl) / pl)));
+  nSlots = Math.min(nSlots, nPieces);
+  const width = nSlots * pl;
+  const local = Math.max(0, Math.min(edgeLen, t - edgeStart));
+  let slot = Math.round((local - width / 2) / pl);
+  slot = Math.max(0, Math.min(nPieces - nSlots, slot));
+  return { ...gate, t: edgeStart + slot * pl + width / 2, width };
 }
 
 /** A read-only terrain-height sampler in METRES above sea (water negative). The wall tracer
@@ -210,10 +305,10 @@ function chooseTerrainRadius(
  * heightfield in hand — SEEKS the local high line / break of slope within a bounded outward slack,
  * and finally — where a riverbank / lakeshore / coast lies close outside the town — is PULLED back
  * in to sit just landward of the waterline. The result climbs to the defensible line where relief
- * offers one, hugs the water where water is near, and rounds the cluster on flat ground; being
- * star-shaped it can never self-intersect. Simplified to a handful of vertices so a corner drum
- * tower lands only at a real turn. Returns null (→ rectangle fallback) when there are too few
- * building cells to trace a meaningful shape.
+ * offers one, hugs the water where water is near, and rounds the cluster on flat ground. The star
+ * envelope is then re-emitted as a CANONICAL polygon (`canonicalRing`) — every edge one of the 8
+ * bearings on the piece grid (WP-W1) — which is convex and so can never self-intersect. Returns
+ * null (→ rectangle fallback) when there are too few building cells to trace a meaningful shape.
  */
 function traceRing(args: {
   bbox: { minX: number; minY: number; maxX: number; maxY: number };
@@ -295,9 +390,8 @@ function traceRing(args: {
     samples.push([clampX(cx + dx * r), clampY(cy + dy * r)]);
   }
 
-  const verts = simplifyRing(samples, 1.2, 14);
-  if (verts.length < 3) return null;
-  const path: Pt[] = [...verts, [...verts[0]] as Pt];   // close the ring
+  const path = canonicalRing(samples);
+  if (!path) return null;
   return { path, centroid: [cx, cy] };
 }
 
@@ -326,8 +420,17 @@ export function deriveCroftEnclosures(
       if (t.x < minX) minX = t.x; if (t.x > maxX) maxX = t.x;
       if (t.y < minY) minY = t.y; if (t.y > maxY) maxY = t.y;
     }
+    if (maxX - minX < 1 || maxY - minY < 1) continue; // too small/thin to enclose
+    // PIECE-GRID SNAP (WP-W1): snap each croft side to a whole number of cardinal pieces (even
+    // tiles) by pulling the far corner INWARD to the nearest even span — never OUTWARD, which would
+    // grow the ring into a neighbouring lot/building (that regressed the barrier-x-building claims).
+    // The origin stays put; vertices stay integer (cardinal-only ring). A side too short to hold one
+    // piece keeps its exact span (WP-W2's cutter emits the remainder). Gates are NOT re-snapped: a
+    // croft gate must stay exactly on the road/building crossing that opened it.
+    const evenIn = (span: number): number => { const f = Math.floor(span); return f % 2 === 0 ? f : f - 1; };
+    if (evenIn(maxX - minX) >= CARDINAL_PIECE_TILES) maxX = minX + evenIn(maxX - minX);
+    if (evenIn(maxY - minY) >= CARDINAL_PIECE_TILES) maxY = minY + evenIn(maxY - minY);
     const dx = maxX - minX, dy = maxY - minY;
-    if (dx < 1 || dy < 1) continue; // too small/thin to enclose
 
     const typeId = selectCroftEnclosure(rng, ctx);
     if (!typeId) continue;
@@ -502,7 +605,7 @@ export function deriveSettlementRing(args: {
   // waterlines (diagonal corners fall out of the existing angle-general renderer). Falls back to
   // the axis-aligned bounding rectangle for tiny/degenerate clusters the tracer can't shape.
   const traced = traceRing({ bbox: args.bbox, mapW: args.mapW, mapH: args.mapH, margin, isWater: nearWater, isBuilding: args.isBuilding, heightAt: traceHeightAt });
-  const path = traced?.path ?? rectRing(minX, minY, maxX, maxY);
+  const path = traced?.path ?? rectRingEvenOut(minX, minY, maxX, maxY);
   const centroid: Pt = traced?.centroid ?? [(minX + maxX) / 2, (minY + maxY) / 2];
 
   // The authoritative "beyond our bank" test: with a home-parcel mask, a cell is off-bank
@@ -548,7 +651,13 @@ export function deriveSettlementRing(args: {
   const fallback = realGates.length === 0
     ? fallbackLandwardGate(path, total, centroid, offBank, gateW)
     : [];
-  const gates: BarrierGate[] = [...realGates, ...fallback, ...softGaps, ...waterGaps];
+  // PIECE-GRID SNAP (WP-W1): every REAL gate lands on whole piece slot(s) so it replaces curtain
+  // pieces exactly (the finite-vocabulary requirement). Snap-then-dedupe (two gates can snap onto
+  // the same slot). GAPS (water/building openings) are absence-of-piece, so they are left unsnapped.
+  const realSnapped = dedupeGatesBySpacing(
+    [...realGates, ...fallback].map((g) => snapGateToPieces(path, g)), total, gateW,
+  );
+  const gates: BarrierGate[] = [...realSnapped, ...softGaps, ...waterGaps];
 
   const run = barrierRunFromType(typeId, path, gates);
   if (!run) return null;
@@ -1056,11 +1165,14 @@ export function repairGateHalfEdges(
   for (const g of run.gates) {
     if (g.kind === 'gap') continue;
     if (gateOk(g)) { out.verified++; continue; }
-    const t0 = g.t;
+    const t0 = g.t, w0 = g.width;
     let repaired = false;
+    // Slide in whole-piece steps (WP-W1): a slid gate must stay on the piece grid, so each candidate
+    // is re-snapped to its edge's slots. `CARDINAL_PIECE_TILES` is the finest slide quantum.
     for (let k = 1; k <= maxSlide && !repaired; k++) {
       for (const s of [1, -1] as const) {
-        const cand = ((t0 + s * k) % total + total) % total;
+        const snapped = snapGateToPieces(run.path, { ...g, t: ((t0 + s * k * CARDINAL_PIECE_TILES) % total + total) % total });
+        const cand = snapped.t;
         // Keep spacing against the OTHER real gates (a slid gate must not merge into a neighbour).
         const minSep = Math.max(g.width * 1.5, 3);
         if (run.gates.some((h) => h !== g && h.kind !== 'gap' && circDist(h.t, cand) < minSep)) continue;
@@ -1069,14 +1181,14 @@ export function repairGateHalfEdges(
         const obx = px - cx, oby = py - cy;
         const obm = Math.hypot(obx, oby) || 1;
         if (checks.offBank(Math.round(px + (obx / obm) * 1.5), Math.round(py + (oby / obm) * 1.5))) continue;
-        g.t = cand;
+        g.t = cand; g.width = snapped.width;
         if (gateOk(g)) { repaired = true; break; }
       }
     }
     if (repaired) {
       out.moved++;
     } else {
-      g.t = t0;                                            // leave in place — the stitch's case
+      g.t = t0; g.width = w0;                               // leave in place — the stitch's case
       out.unrepaired++;
     }
   }

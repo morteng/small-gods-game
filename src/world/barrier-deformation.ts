@@ -49,19 +49,22 @@ function meanBase(map: GameMap, a: { x: number; y: number }, b: { x: number; y: 
   return (heightMetresAt(map, a.x, a.y) + heightMetresAt(map, m.x, m.y) + heightMetresAt(map, b.x, b.y)) / 3;
 }
 
-/** Split a run path into ~SPAN_TILES world-space spans (2 points each). */
+/** Split a run path into SPAN_TILES world-space spans (2 points each), PHASE-0 aligned to each
+ *  edge's start. `SPAN_TILES` (4) is two 2-tile canonical pieces (WP-W1), so every span cut lands on
+ *  a piece boundary — each 2-tile piece lands wholly on one level step (real curtain coursing) — and
+ *  a short remainder closes out an edge that isn't a multiple of the span. */
 function spans(path: [number, number][]): [{ x: number; y: number }, { x: number; y: number }][] {
   const out: [{ x: number; y: number }, { x: number; y: number }][] = [];
   for (let i = 1; i < path.length; i++) {
     const [ax, ay] = path[i - 1], [bx, by] = path[i];
     const len = Math.hypot(bx - ax, by - ay);
     if (len <= 1e-6) continue;
-    const n = Math.max(1, Math.ceil(len / SPAN_TILES));
-    for (let k = 0; k < n; k++) {
-      const t0 = k / n, t1 = (k + 1) / n;
+    const ux = (bx - ax) / len, uy = (by - ay) / len;
+    for (let s = 0; s < len - 1e-6; s += SPAN_TILES) {
+      const e = Math.min(s + SPAN_TILES, len);
       out.push([
-        { x: ax + (bx - ax) * t0, y: ay + (by - ay) * t0 },
-        { x: ax + (bx - ax) * t1, y: ay + (by - ay) * t1 },
+        { x: ax + ux * s, y: ay + uy * s },
+        { x: ax + ux * e, y: ay + uy * e },
       ]);
     }
   }
