@@ -42,8 +42,6 @@ const KNOWN_GENERIC_ONLY: Record<string, string> = {
   authored_move:   'Create-panel audit trail; generic feeds only',
   authored_climate:'Create-panel audit trail; generic feeds only',
   tile_collapsed:  'oracle/WFC realization trace; generic feeds only',
-  settlement_upgraded: 'growth audit trail (settlement_grown has the consumers)',
-  summon_storm:    'divine-act receipt; its CONSEQUENCE (place_flooded) has the consumers',
   system_error:    'diagnostic channel (LLM writeback etc.); generic feeds only',
 };
 
