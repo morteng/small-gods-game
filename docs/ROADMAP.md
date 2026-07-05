@@ -1,8 +1,15 @@
 # Small Gods — Roadmap
 
-**Version**: 2.0.0
+**Version**: 2.1.0
 **Status**: Canonical — the single forward plan
-**Last Updated**: 2026-06-21
+**Last Updated**: 2026-07-05
+
+> **Near-term execution queue (next several weeks):**
+> [`docs/superpowers/plans/2026-07-05-handoff-multiweek-plan.md`](superpowers/plans/2026-07-05-handoff-multiweek-plan.md)
+> — pre-decided, model-routed (Opus/Sonnet) task queue: round-9 time controls, the
+> realistic-rivers epic (waterfalls/ponds/dams/rocks —
+> [spec](superpowers/specs/2026-07-05-realistic-rivers-streams-design.md)), then
+> conversation UI / rival economics / Fate pacing. Start there.
 
 > This is the **one** go-forward plan. It supersedes the old `IMPLEMENTATION.md`
 > and `MVP_ROADMAP.md` (both archived). It is anchored on
