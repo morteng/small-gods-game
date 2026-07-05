@@ -8,9 +8,11 @@ function armCall(args: Record<string, unknown>): LLMToolCall {
 const ctx = () => ({ validPoiIds: new Set(['poi1', 'poi2']), validRivalIds: new Set(['rival-1']), now: 100 });
 
 describe('FATE_TOOLS', () => {
-  it('exposes the staged + immediate + rival-coaching tools', () => {
+  it('exposes the staged + immediate + rival-coaching + authoring tools', () => {
     const names = FATE_TOOLS.map((t) => t.name).sort();
-    expect(names).toEqual(['arm_staged_beat', 'force_next_event', 'nudge_event_severity', 'set_rival_stance']);
+    expect(names).toEqual([
+      'arm_staged_beat', 'author_building', 'force_next_event', 'nudge_event_severity', 'set_rival_stance',
+    ]);
   });
 });
 

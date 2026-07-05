@@ -14,8 +14,15 @@ import { resolveCenter } from './editor-verbs';
 
 const P = (cmd: Command): Record<string, unknown> => cmd.payload ?? {};
 
-/** Resolve a blueprint from `{ preset, overrides }` or a raw `{ blueprint }`. */
+/** Resolve a blueprint from a pre-resolved `{ resolved }`, `{ preset, overrides }`, or a raw `{ blueprint }`. */
 function resolveBp(p: Record<string, unknown>): ResolvedBlueprint | undefined {
+  // A pre-resolved blueprint (e.g. from the `authorBlueprint` gate the Fate author-building
+  // tool runs) is placed VERBATIM — what was linted is exactly what is stamped, with no
+  // re-resolution and thus no chance of drift between the gated verdict and the placed asset.
+  // Discriminated from a raw Blueprint by its resolved `parts` being an array, not a record.
+  if (p.resolved && typeof p.resolved === 'object' && Array.isArray((p.resolved as ResolvedBlueprint).parts)) {
+    return p.resolved as ResolvedBlueprint;
+  }
   if (p.blueprint && typeof p.blueprint === 'object') {
     return resolveBlueprint([p.blueprint as Blueprint], 0);
   }
