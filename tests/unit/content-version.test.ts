@@ -6,7 +6,7 @@ describe('content-version constants', () => {
     expect(ART_RECIPE_VERSION).toBe('v24');
   });
 
-  it('declares the current world content version (81: round 6 — terrain-seeking rings, coverage towers + ditch, barrier mass/join fixes, ground-blend pads/wear, defense lint)', () => {
-    expect(WORLD_CONTENT_VERSION).toBe(81);
+  it('declares the current world content version (82: round 8 — roads adoption: gate half-edge repair, ribbon-legal fillet rejection, trample spill, social gravity)', () => {
+    expect(WORLD_CONTENT_VERSION).toBe(82);
   });
 });
