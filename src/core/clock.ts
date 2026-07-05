@@ -15,10 +15,13 @@ export class SimClock {
   advance(realMs: number): void {
     if (realMs <= 0) return;
     this.accumMs += realMs;
-    while (this.accumMs >= this.msPerTick) {
-      this.accumMs -= this.msPerTick;
-      this.ticks++;
-    }
+    if (this.accumMs < this.msPerTick) return;
+    // O(1) — division/modulo, not a subtract loop: a future fast-forward can
+    // feed a huge dt (a 21600× rate would otherwise spin ~1.3M iterations per
+    // frame). Same accumulator semantics: consume whole ticks, keep remainder.
+    const n = Math.floor(this.accumMs / this.msPerTick);
+    this.ticks += n;
+    this.accumMs -= n * this.msPerTick;
   }
 
   now(): number {

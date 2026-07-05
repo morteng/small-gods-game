@@ -6,6 +6,7 @@ import { createState } from '@/core/state';
 import type { Entity, GameMap, NpcProperties, ActiveEvent } from '@/core/types';
 import type { Spirit } from '@/core/spirit';
 import { scoreAffordance, FATE_SURFACE_BOOST } from '@/game/affordance/salience';
+import { PRAYER_CLAIM_WARNING_TICKS } from '@/sim/rival-claims';
 
 // ── deterministic scaffolding (fixed seeds → stable needs/personality) ─────────
 // This is the P0 GOLDEN for `divineInbox`. It pins the exact salience-ranked output
@@ -119,11 +120,11 @@ describe('divineInbox — rival prayer claims (Track 3)', () => {
     const world = makeWorld();
     const state = createState();
     state.world = world;
-    state.clock.setNow(200);
+    state.clock.setNow(PRAYER_CLAIM_WARNING_TICKS + 200); // plea age clears the warning line
     state.spirits.set('rival', rivalWithAi('rival', ['poi1']));
     const e = addNpc(world, 'pleader', 11, { faith: 0.6, activity: 'worship' });
     (e.properties as unknown as NpcProperties).homePoiId = 'poi1';
-    (e.properties as unknown as NpcProperties).prayerSince = 100; // age 100 ≥ warning (72)
+    (e.properties as unknown as NpcProperties).prayerSince = 100; // age ≥ warning, still < claim window
 
     const inbox = createGameQuery({ state }).divineInbox();
     const item = inbox.find(i => i.id === 'contest:pleader');

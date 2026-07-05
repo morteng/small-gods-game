@@ -1,14 +1,16 @@
 /**
  * NpcActivitySystem — time-of-day and needs-driven activity state machine.
  *
- * Runs at 1 Hz. Each tick: re-evaluates the current activity based on
+ * Runs at 1 Hz. Each fire: re-evaluates the current activity based on
  * time-of-day, lowest need, and role/personality, then sets a target tile
  * for the 60 Hz movement system to follow.
  *
- * A day is 240 ticks. Night = ticks 180-239.
+ * Time-of-day comes from the SOLAR clock (1:1 realtime — a day is 24 real
+ * hours). Night = 21:00–06:00: everybody heads home and sleeps, matching the
+ * lit day/night cycle (lamps come on around dusk, `nightFactorForTick`).
  *
- * Activity duration is stochastic (3-12 ticks) so NPCs don't all switch
- * simultaneously, creating organic-looking crowd behavior.
+ * Activity duration is stochastic (3-12 fires ≈ seconds) so NPCs don't all
+ * switch simultaneously, creating organic-looking crowd behavior.
  */
 
 import type { Entity, NpcActivity, NpcNeeds } from '@/core/types';
@@ -16,10 +18,11 @@ import { npcProps, forEachNpc } from '@/world/npc-helpers';
 import { Random } from '@/core/noise';
 import type { System, SystemContext } from '@/core/scheduler';
 import { clamp01 } from '@/sim/npc-sim';
+import { solarHourForTick } from '@/core/calendar';
 
-const TICKS_PER_DAY = 240;
-const NIGHT_START = 180;
-const DAY_END = TICKS_PER_DAY;
+/** Sleep window (solar hours): from NIGHT_START_HOUR to NIGHT_END_HOUR. */
+export const NIGHT_START_HOUR = 21;
+export const NIGHT_END_HOUR = 6;
 
 /**
  * Roles with designated "work" buildings in the world.
@@ -57,12 +60,12 @@ export class NpcActivitySystem implements System {
 
   tick(ctx: SystemContext): void {
     this.rng = new Random(ctx.rng.next() * 0x7fffffff);
-    const tickOfDay = ctx.clock.now() % TICKS_PER_DAY;
+    const solarHour = solarHourForTick(ctx.clock.now());
 
-    forEachNpc(ctx.world, (e) => this.tickNpcActivity(e, tickOfDay));
+    forEachNpc(ctx.world, (e) => this.tickNpcActivity(e, solarHour));
   }
 
-  private tickNpcActivity(e: Entity, timeOfDay: number): void {
+  private tickNpcActivity(e: Entity, solarHour: number): void {
     const props = npcProps(e);
 
     // If the current activity hasn't expired yet, don't re-evaluate
@@ -81,7 +84,7 @@ export class NpcActivitySystem implements System {
     }
 
     // Determine new activity and target
-    const isNight = timeOfDay >= NIGHT_START && timeOfDay < DAY_END;
+    const isNight = solarHour >= NIGHT_START_HOUR || solarHour < NIGHT_END_HOUR;
 
     let activity: NpcActivity;
     let targetX: number | undefined;

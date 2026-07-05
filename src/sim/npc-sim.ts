@@ -7,12 +7,19 @@ import { clamp01 } from '@/core/math';
 // modules importing `clamp01` from this file keep working unchanged.
 export { clamp01 };
 
+// 1:1-REALTIME NOTE: the belief/need economy below is deliberately REAL-TIME
+// tuned (rates are per 1 Hz fire = per real second at rate 1), NOT day-keyed.
+// It's the live gameplay loop — whispers visibly move faith, meaning decays
+// fast enough to drive prayers while you watch. Under the honest 24 h day this
+// means belief moves a lot over a real day of ambient play; that is the
+// intended idle-game direction. (Day-keyed lifecycle — mortality/births/
+// growth/claims — runs on fiction days instead; see those systems.)
 export const SIM_TICK_MS = 1000;
 const FAITH_DECAY_BASE = 0.002;
 const NEED_FAITH_BOOST = 0.001;
 const COMFORT_THRESHOLD = 0.6;   // avg needs above this → secularization pressure
-const COMFORT_DECAY = 0.004;     // max extra faith decay from comfort, per tick
-const ABANDON_DECAY = 0.006;     // extra faith decay while praying unanswered, per tick
+const COMFORT_DECAY = 0.004;     // max extra faith decay from comfort, per fire
+const ABANDON_DECAY = 0.006;     // extra faith decay while praying unanswered, per fire
 const MEANING_DECAY = 0.004;     // the divine need decays fast enough to drive prayers
 
 const ROLE_PIETY_BONUS: Record<NpcRole, number> = {

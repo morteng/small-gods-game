@@ -13,6 +13,7 @@
 import type { World } from '@/world/world';
 import type { Spirit, SpiritId } from '@/core/spirit';
 import type { EventLog, AppendedEvent } from '@/core/events';
+import { TICKS_PER_DAY } from '@/core/calendar';
 import type { Rng } from '@/core/rng';
 import type { Entity, SettlementEventType } from '@/core/types';
 import { queryNpcs, npcProps, lineageMembers, NPC_KIND } from '@/world/npc-helpers';
@@ -37,8 +38,11 @@ const HARDSHIP: ReadonlySet<SettlementEventType> = new Set<SettlementEventType>(
   'drought', 'plague', 'raiders', 'dispute',
 ]);
 
-/** A loss thread with no meaning given within this many ticks is abandoned. */
-export const LOSS_ABANDON_TICKS = 4000;
+/** A loss thread with no meaning given within this window is abandoned — a
+ *  FORTNIGHT of grief. Re-derived for 1:1 realtime: the old raw 4000 ticks was
+ *  ~17 compressed days (~67 real seconds); the fiction intent — the mourner
+ *  waits days-to-weeks for meaning before turning away — now runs honestly. */
+export const LOSS_ABANDON_TICKS = 14 * TICKS_PER_DAY;
 
 // ── emit helpers ──────────────────────────────────────────────────────────────
 

@@ -7,8 +7,12 @@ import { computeBlobMap } from '@/map/blob-autotiler';
 import { WORLD_CONTENT_VERSION } from '@/core/content-version';
 
 /** Bump when the SaveFile shape changes incompatibly. `applySaveFile` discards
- *  any save whose version differs (caller boots fresh). No migration in v1. */
-export const SAVE_VERSION = 1;
+ *  any save whose version differs (caller boots fresh). No migration.
+ *  v2: TRUE-1:1 REALTIME — TICKS_PER_DAY went 240 → 5,184,000, so a v1 save's
+ *  tick counts (clock, birthTicks, cooldowns, event timestamps) would
+ *  reinterpret wildly (a 30-year-old NPC would read as minutes old). Old
+ *  autosaves degrade to a fresh world rather than a corrupted-feeling one. */
+export const SAVE_VERSION = 2;
 
 export interface SaveView {
   camera: Camera;

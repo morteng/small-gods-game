@@ -6,8 +6,15 @@
  *
  *  - `TrampleDepositSystem` (~3 Hz ≈ one deposit per agent per ~20 ticks): each
  *    fire drops a wear quantum at every NPC's current tile, gated to soft ground.
- *  - `TramplePromoteDecaySystem` (0.25 Hz, one pass per in-game day): promotes
- *    worn ground to `dirt`, decays wear, reverts faded trails.
+ *  - `TramplePromoteDecaySystem` (0.25 Hz, one pass per 4 s): promotes worn
+ *    ground to `dirt`, decays wear, reverts faded trails.
+ *
+ * 1:1-REALTIME NOTE: both cadences and the grid's per-pass magnitudes are
+ * REAL-TIME tuned as a deposit-vs-decay equilibrium (trails emerge from live
+ * traffic during play and fade over real hours-to-days). Re-keying decay to
+ * fiction days while deposits track real NPC footfall would shift the
+ * equilibrium ~250,000:1 toward wear — so the pair deliberately keeps its
+ * real-time balance.
  *
  * Both read the live map + grid via closures (like `NpcMovementSystem` /
  * `WeatherSystem`), since neither rides on `SystemContext`.
@@ -20,7 +27,7 @@ import { isTrampleEligible, type TrampleGrid } from '@/sim/trample';
 
 /** Deposit fires ~every 20 ticks (one wear quantum per agent per ~20 ticks). */
 export const TRAMPLE_DEPOSIT_HZ = 3;
-/** Promote/decay fires once per in-game day (240 ticks), like Mortality's cadence. */
+/** Promote/decay fires every 4 s (real-time equilibrium — see header note). */
 export const TRAMPLE_DECAY_HZ = 0.25;
 
 export class TrampleDepositSystem implements System {

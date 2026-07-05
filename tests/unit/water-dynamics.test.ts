@@ -198,10 +198,12 @@ describe('WaterDynamics — emergent atmosphere (W-C)', () => {
     const { map } = await generateWithNoise(96, 96, 3, seed);
     const wd = new WaterDynamics(map);
     const p: WeatherParams = { ...DEFAULT_WEATHER, autoWeather: true, diurnalAmp: 0.15, windSpeed: 0, evapRate: 0 };
-    // Sample temp across a full day (240 × 0.1s = 24s = DAY_SEC) and check the swing.
+    // Sample temp across a full day (240 × 360s = 86,400s = DAY_SEC — the
+    // diurnal period is a real 24 h under 1:1 realtime). Temperature is set
+    // directly from the phase (no relaxation), so the large dt is exact.
     let lo = Infinity, hi = -Infinity;
     for (let s = 0; s < 240; s++) {
-      wd.step(0.1, p);
+      wd.step(360, p);
       const t = wd.temp[0];
       if (t < lo) lo = t; if (t > hi) hi = t;
     }

@@ -3,16 +3,23 @@ import type { Entity } from '@/core/types';
 import { queryNpcs, npcProps } from '@/world/npc-helpers';
 import { birthNpc } from '@/world/npc-lifecycle';
 import { ageInYears } from '@/sim/mortality';
+import { GAME_HOUR_HZ, perCheckFromPerDay } from '@/core/calendar';
 
 export const FERTILE_MIN_AGE = 18;
 export const FERTILE_MAX_AGE = 45;
 /** Soft cap on living NPCs per POI; births stop once a POI reaches it. */
 export const POP_CAP_PER_POI = 24;
-/** Per-pair per-fire (≈ per-day) birth chance. Tunable baseline. */
+/** Per-pair per-DAY birth chance. Tunable baseline. (Under the old compressed
+ *  clock this was per-fire = per-day; the per-day meaning is the tuned intent
+ *  and is what `turnover.ts` annualizes for the closed-form skip.) */
 export const BIRTH_RATE_PER_PAIR = 0.003;
 
-/** 0.25 Hz → one fire per in-game day, matching MortalitySystem's cadence. */
-export const BIRTH_TICK_HZ = 0.25;
+/** One fire per GAME HOUR, matching MortalitySystem's cadence (see its note on
+ *  why day-keyed lifecycle systems check hourly under 1:1 realtime). */
+export const BIRTH_TICK_HZ = GAME_HOUR_HZ;
+
+/** Per-hour chance preserving the per-day rate (24 checks per day). */
+const BIRTH_RATE_PER_PAIR_PER_CHECK = perCheckFromPerDay(BIRTH_RATE_PER_PAIR, 24);
 
 export class BirthSystem implements System {
   readonly name = 'births';
@@ -45,7 +52,7 @@ export class BirthSystem implements System {
         .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 
       for (let i = 0; i + 1 < fertile.length && headroom > 0; i += 2) {
-        if (ctx.rng.next() < BIRTH_RATE_PER_PAIR) {
+        if (ctx.rng.next() < BIRTH_RATE_PER_PAIR_PER_CHECK) {
           birthNpc(ctx.world, [fertile[i], fertile[i + 1]], ctx.now, ctx.rng, ctx.log);
           headroom--;
         }

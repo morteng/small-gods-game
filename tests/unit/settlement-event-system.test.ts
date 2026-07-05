@@ -150,19 +150,19 @@ describe('SettlementEventSystem', () => {
       type: 'drought',
       poiId: 'village_1',
       severity: 0.5,
-      durationTicks: 3,
+      durationTicks: 180, // three 1 Hz fires (each fire advances the timer 60 ticks)
       ticksElapsed: 0,
     }]);
 
-    // Tick 3 times: after 3rd tick, ticksElapsed (3) >= durationTicks (3) → expire
+    // Fire 3 times: after the 3rd fire, ticksElapsed (180) >= durationTicks (180) → expire
     const ctx = createContext(world, 0);
-    system.tick(ctx); // ticksElapsed becomes 1
+    system.tick(ctx); // ticksElapsed becomes 60
     expect(world.activeEvents.has('village_1')).toBe(true);
 
-    system.tick(ctx); // ticksElapsed becomes 2
+    system.tick(ctx); // ticksElapsed becomes 120
     expect(world.activeEvents.has('village_1')).toBe(true);
 
-    system.tick(ctx); // ticksElapsed becomes 3 → expires
+    system.tick(ctx); // ticksElapsed becomes 180 → expires
     expect(world.activeEvents.has('village_1')).toBe(false);
   });
 
@@ -176,7 +176,7 @@ describe('SettlementEventSystem', () => {
       type: 'drought',
       poiId: 'village_1',
       severity: 0.5,
-      durationTicks: 3,
+      durationTicks: 180, // three 1 Hz fires
       ticksElapsed: 0,
     }]);
 
@@ -206,10 +206,12 @@ describe('SettlementEventSystem', () => {
     makeNpc(world, 'ivy', 'farmer');
 
     const ctx = createContext(world, 0);
-    // Seed 42 with default rng: run many ticks and check that at least one
-    // event was rolled for village_1
+    // Per-check probabilities are per-DAY chances split across 86,400 one-per-
+    // second checks (1:1 realtime), so a single check is ~1e-5 across all
+    // types — give the roll a few game-days of fires (expected first event
+    // ≈ 80k fires; 1M fires makes a miss astronomically unlikely).
     let eventCreated = false;
-    for (let t = 0; t < 500; t++) {
+    for (let t = 0; t < 1_000_000; t++) {
       ctx.clock.now = () => t;
       system.tick(ctx);
       if (world.activeEvents.has('village_1')) {

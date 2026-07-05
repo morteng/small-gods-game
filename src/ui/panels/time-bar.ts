@@ -2,6 +2,7 @@ import type { TimelineController } from '@/core/timeline';
 import type { Scheduler } from '@/core/scheduler';
 import type { EventLog } from '@/core/events';
 import type { SimClock } from '@/core/clock';
+import { TICKS_PER_HOUR } from '@/core/calendar';
 import { mountTimeHistory, type TimeHistoryHandle } from '@/ui/panels/time-history';
 
 export interface TimeBarDeps {
@@ -164,7 +165,9 @@ function buildMainRow(deps: TimeBarDeps, cleanups: Array<() => void>): HTMLEleme
   handle.addEventListener('click', (e) => { e.stopPropagation(); });
 
   track.addEventListener('keydown', (e) => {
-    const step = e.shiftKey ? 50 : 1;
+    // 1:1 realtime: single ticks are 16.7 ms — arrow-scrub in minutes (hours
+    // with Shift) so the keys move visible amounts of the 24 h day.
+    const step = e.shiftKey ? TICKS_PER_HOUR : TICKS_PER_HOUR / 60;
     if (e.key === 'ArrowLeft')  deps.timeline.jumpTo(Math.max(0, deps.timeline.currentTick - step));
     if (e.key === 'ArrowRight') deps.timeline.jumpTo(Math.min(deps.timeline.maxTick, deps.timeline.currentTick + step));
     if (e.key === 'Home')       deps.timeline.jumpTo(0);

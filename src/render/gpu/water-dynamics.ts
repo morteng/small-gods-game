@@ -120,7 +120,11 @@ export const DEFAULT_WEATHER: WeatherParams = {
 };
 
 /** Seconds of real time per in-world day (studio-fast, for a visible diurnal cycle). */
-const DAY_SEC = 24;
+/** Diurnal humidity/cloud period — a real 24-HOUR day under 1:1 realtime.
+ *  (Was 24 s: a whole "day" of moisture breathing per 24 compressed-clock
+ *  seconds. Not phase-anchored to the solar clock — the slow swing is
+ *  ambience, not astronomy.) */
+const DAY_SEC = 86_400;
 
 export class WaterDynamics implements WeatherStepper {
   readonly W: number;

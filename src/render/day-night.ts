@@ -7,13 +7,13 @@
 // while the step is unchanged.
 //
 // Design (the day curve):
-//  - The VISUAL solar day spans SOLAR_DAY_CALENDAR_DAYS calendar days (~4 real
-//    minutes at rate 1) — see the rationale in `src/core/calendar.ts`.
-//  - The solar model (`render/solar.ts`, lat 45°, fixed equinox — the 96-day
-//    calendar YEAR is shorter than one visual solar day, so seasonal declination
-//    would sweep nonsense within a single day) gives the sun's ELEVATION, which
-//    drives the colour ramp: cool clamped night → warm dawn → the exact shipped
-//    DEFAULT_LIGHTING at full day → golden dusk → night.
+//  - The solar day IS the calendar day: 24 real hours at rate 1 (1:1 realtime,
+//    wall-clock-anchored at gen) — see `src/core/calendar.ts`.
+//  - The solar model (`render/solar.ts`, lat 45°, fixed equinox — seasonal
+//    declination is future work now that the year is honestly longer than the
+//    day) gives the sun's ELEVATION, which drives the colour ramp: cool clamped
+//    night → warm dawn → the exact shipped DEFAULT_LIGHTING at full day →
+//    golden dusk → night.
 //  - READABILITY CLAMP: NIGHT_AMBIENT/NIGHT_SUN are the floor (~68% of the day
 //    ambient luminance, moon-blue) — the game stays fully playable at midnight;
 //    stylized god-game night, not simulation darkness.
@@ -37,8 +37,9 @@ import { nightFactorForTick, solarHourForTick } from '@/core/calendar';
 import { solarPosition } from './solar';
 import { smoothstep, lerp } from '@/core/math';
 
-/** Lighting recomputes once per this many ticks (0.5 s at rate 1 — ~480 steps
- *  per visual day). Uniform-only cost; nothing rebakes on a step change. */
+/** Lighting recomputes once per this many ticks (0.5 s at rate 1 — the sun
+ *  moves imperceptibly per step across the 24 h day). Uniform-only cost;
+ *  nothing rebakes on a step change. */
 export const LIGHT_STEP_TICKS = 30;
 
 const LAT_DEG = 45;

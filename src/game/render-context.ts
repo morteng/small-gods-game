@@ -139,11 +139,11 @@ export function buildRenderContext(deps: RenderContextDeps): RenderContext {
       return null;
     },
     // Day/night (WP-E): lighting is a pure function of the sim clock — dawn/dusk
-    // colour ramps, a clamped readable night, and the uNight window glow, on a
-    // visual solar day of SOLAR_DAY_CALENDAR_DAYS calendar days (the raw 4-second
-    // calendar day strobed — that killed the first wiring). Occupancy-gated
-    // per-building glow remains future work; for now every emissive pane follows
-    // the sky. `__nightFactor` (dev) still overrides the emissive factor.
+    // colour ramps, a clamped readable night, and the uNight window glow, on the
+    // true 24-hour solar day (1:1 realtime; the old 60-day visual decoupling
+    // existed only because the compressed 4-second calendar day strobed).
+    // Occupancy-gated per-building glow remains future work; for now every
+    // emissive pane follows the sky. `__nightFactor` (dev) still overrides.
     lighting: devMode.lighting === 'off' ? LIGHTING_OFF : liveLighting(state.clock.now()),
     devMode,
     // Folds into the static draw-cache key so the building layer rebuilds once the

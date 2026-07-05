@@ -22,11 +22,11 @@ describe('calendar', () => {
     expect(result.season).toBe('summer');
   });
 
-  describe('solar day (visual day/night cycle)', () => {
-    it('spans many calendar days and boots mid-morning', () => {
-      expect(TICKS_PER_SOLAR_DAY % TICKS_PER_DAY).toBe(0);
-      expect(TICKS_PER_SOLAR_DAY / TICKS_PER_DAY).toBeGreaterThanOrEqual(30); // no 4-second strobe day
-      expect(solarHourForTick(0)).toBeCloseTo(SOLAR_START_HOUR, 6);
+  describe('solar day (day/night cycle)', () => {
+    it('IS the calendar day (1:1 realtime) and boots mid-morning without an anchor', () => {
+      expect(TICKS_PER_SOLAR_DAY).toBe(TICKS_PER_DAY);           // one coherent clock
+      expect(TICKS_PER_DAY).toBe(86_400 * 60);                   // 24 real hours at 60 ticks/s
+      expect(solarHourForTick(0)).toBeCloseTo(SOLAR_START_HOUR, 6); // fixed-hour fallback
     });
     it('tickAtSolarHour inverts solarHourForTick', () => {
       for (const h of [0, 3, 6, 9, 12, 15, 18, 21]) {
@@ -53,15 +53,18 @@ describe('calendar', () => {
     });
     it('ramps monotonically midnight→noon and noon→midnight, within 0..1', () => {
       const half = TICKS_PER_SOLAR_DAY / 2;
+      // Timescale-aware step (~240 samples per half-day) — a fixed 60-tick step
+      // would be 86,400 iterations over the true 24 h solar day.
+      const step = TICKS_PER_SOLAR_DAY / 480;
       let prev = nightFactorForTick(midnight);
-      for (let t = midnight; t <= midnight + half; t += 60) {
+      for (let t = midnight; t <= midnight + half; t += step) {
         const n = nightFactorForTick(t);
         expect(n).toBeGreaterThanOrEqual(0);
         expect(n).toBeLessThanOrEqual(1);
         expect(n).toBeLessThanOrEqual(prev + 1e-9); // falling toward noon
         prev = n;
       }
-      for (let t = midnight + half; t <= midnight + TICKS_PER_SOLAR_DAY; t += 60) {
+      for (let t = midnight + half; t <= midnight + TICKS_PER_SOLAR_DAY; t += step) {
         const n = nightFactorForTick(t);
         expect(n).toBeGreaterThanOrEqual(prev - 1e-9); // rising toward midnight
         prev = n;

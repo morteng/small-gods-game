@@ -66,10 +66,16 @@ describe('scrub-ghost: SettlementEventSystem cooldowns', () => {
 
     const snap = captureSnapshot(state); // no cooldowns yet
 
-    // Discarded future: force a festival, run it to expiry → cooldown arms.
+    // Discarded future: force a festival, then fast-forward its timer to the
+    // brink (a festival now honestly lasts 0.25–1 fiction DAY — running it to
+    // expiry fire-by-fire would take ~86k fires) and let one fire expire it →
+    // cooldown arms.
     state.world!.forcedEvents.set('poi1', 'festival');
+    tickAt(state, sys, 1); // materializes the forced festival
+    const active = state.world!.activeEvents.get('poi1')![0];
+    active.ticksElapsed = active.durationTicks; // next fire crosses the threshold
     let ended = false;
-    for (let t = 1; t <= 200 && !ended; t++) {
+    for (let t = 2; t <= 5 && !ended; t++) {
       tickAt(state, sys, t);
       ended = eventsOfType(state, 'settlement_end').length > 0;
     }
@@ -93,15 +99,25 @@ describe('scrub-ghost: SettlementEventSystem cooldowns', () => {
       'trading_caravan', 'stranger_arrives', 'harvest_blessing'];
     sys.hydrate({ cooldowns: types.map(t => [`poi1:${t}`, 1e9]) });
 
+    // Under 1:1 realtime a natural roll lands ~once per game-day (~86k 1 Hz
+    // fires), so demonstrate suppression over a modest span + the ghost map
+    // surviving, then show restore clears the map and rolls CAN fire again
+    // (early-break bounded by a few game-days of fires).
     const N = 2000;
     for (let t = 1; t <= N; t++) tickAt(state, sys, t);
     expect(eventsOfType(state, 'settlement_begin')).toHaveLength(0); // wedged shut
+    expect((sys.serialize() as { cooldowns: unknown[] }).cooldowns.length).toBe(types.length);
 
-    // Restore (clock + rng + cooldowns rewound) and replay the same span:
-    // with the ghost cooldowns gone, the same rng stream now produces events.
+    // Restore (clock + rng + cooldowns rewound): with the ghost cooldowns
+    // gone, the rng stream now produces an event within a few game-days.
     restoreSnapshot(state, snap);
-    for (let t = 1; t <= N; t++) tickAt(state, sys, t);
-    expect(eventsOfType(state, 'settlement_begin').length).toBeGreaterThan(0);
+    expect((sys.serialize() as { cooldowns: unknown[] }).cooldowns).toEqual([]);
+    let began = false;
+    for (let t = 1; t <= 1_000_000 && !began; t++) {
+      tickAt(state, sys, t);
+      began = eventsOfType(state, 'settlement_begin').length > 0;
+    }
+    expect(began).toBe(true);
   });
 });
 

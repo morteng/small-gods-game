@@ -8,7 +8,7 @@
  * tests/unit/presentation-no-sim-import.test.ts.
  */
 import type { GameState } from '@/core/state';
-import { formatCalendarTick, TICKS_PER_DAY, type Season } from '@/core/calendar';
+import { formatCalendarTick, solarHourForTick, type Season } from '@/core/calendar';
 import { queryNpcs, npcProps } from '@/world/npc-helpers';
 import type { SimEvent } from '@/core/events';
 import { clamp01 } from '@/core/math';
@@ -86,7 +86,9 @@ export function computeMood(state: GameState): MoodVector {
 
   const tick = state.clock.now();
   const cal = formatCalendarTick(tick);
-  const timeOfDay = ((tick % TICKS_PER_DAY) + TICKS_PER_DAY) % TICKS_PER_DAY / TICKS_PER_DAY;
+  // Solar phase (0 = midnight), same authority as the day/night lighting —
+  // under 1:1 realtime the calendar day and the solar day are one clock.
+  const timeOfDay = solarHourForTick(tick) / 24;
 
   return { tension, reverence, liveliness, timeOfDay, season: cal.season };
 }

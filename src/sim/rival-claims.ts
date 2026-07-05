@@ -32,20 +32,23 @@ import type { Rng } from '@/core/rng';
 import { forEachNpc, npcProps } from '@/world/npc-helpers';
 import { BELIEVER_THRESHOLD, PLAYER_SPIRIT_ID } from '@/sim/believers';
 import { ANSWER_PRAYER_COST } from '@/sim/divine-actions';
+import { TICKS_PER_DAY } from '@/core/calendar';
 
-/** A plea unanswered for this many sim-ticks becomes claimable by a rival.
- *  240 ticks = one sim-day (see `calendar.ts`), so this is HALF A DAY (~12
- *  sim-hours): long enough that an attentive god answering within a few
- *  sim-hours keeps the follower, short enough that neglect has real teeth. */
-export const PRAYER_CLAIM_WINDOW_TICKS = 120;
+/** A plea unanswered for this long becomes claimable by a rival — HALF A DAY
+ *  (~12 hours, and under 1:1 realtime that IS ~12 real hours): long enough
+ *  that an attentive god answering within a few hours keeps the follower,
+ *  short enough that neglect has real teeth. The half-day fiction intent is
+ *  unchanged from the compressed-clock era (it was 120 of the old 240-tick
+ *  day); only the tick denomination moved. */
+export const PRAYER_CLAIM_WINDOW_TICKS = TICKS_PER_DAY / 2;
 
 /** A plea older than this (0.6 × the window) is "contested" — surfaced to the
  *  player as a threat while there is still time to answer before the loss. */
-export const PRAYER_CLAIM_WARNING_TICKS = 72;
+export const PRAYER_CLAIM_WARNING_TICKS = PRAYER_CLAIM_WINDOW_TICKS * 0.6;
 
 /** How long a successful rival claim lingers in the divine inbox as a "you were
- *  beaten to it" notice — one sim-day. */
-export const CLAIM_NOTICE_HORIZON_TICKS = 240;
+ *  beaten to it" notice — one day. */
+export const CLAIM_NOTICE_HORIZON_TICKS = TICKS_PER_DAY;
 
 // ── 1. situation data ────────────────────────────────────────────────────────
 

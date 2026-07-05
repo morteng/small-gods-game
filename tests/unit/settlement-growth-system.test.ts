@@ -278,7 +278,9 @@ describe('SettlementGrowthSystem', () => {
       for (let i = 0; i < cap + 8; i++) addNpc(world, `npc${i}`);
       const { ctx, grown } = ctxFor(world, 7);
       const sys = new SettlementGrowthSystem();
-      for (let t = 0; t < 800; t++) sys.tick({ ...ctx, now: t });
+      // Fires are one game-HOUR each under 1:1 realtime (per-check chance
+      // ≈ GROWTH_CHANCE/24), so give it ~8 game-months of checks.
+      for (let t = 0; t < 6000; t++) sys.tick({ ...ctx, now: t });
       return grown.map(g => {
         const e = g as Extract<SimEvent, { type: 'settlement_grown' }>;
         return `${e.entityId}:${e.preset}:${e.lotId}`;
