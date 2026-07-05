@@ -29,7 +29,7 @@ async function ensureConnected(): Promise<void> {
   connected = true;
 }
 
-type ToolResult = { content: { type: 'text'; text: string }[] | { type: 'image'; data: string; mimeType: string }[]; isError?: boolean };
+type ToolResult = { content: ({ type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string })[]; isError?: boolean };
 
 function asText(v: unknown): ToolResult {
   return { content: [{ type: 'text', text: JSON.stringify(v, null, 2) }] };
@@ -178,6 +178,77 @@ server.registerTool('emit_command',
       params: z.record(z.string(), z.union([z.string(), z.number()])).optional(),
     } },
   (a) => run(() => client.emit({ verb: a.verb, source: a.source ?? 'player', target: buildTarget(a), params: a.params, seq: 0 })));
+
+// ── Building-authoring tools (pure geometry — no live game / bus needed) ─────────
+// These run the blueprint pipeline in-process: an agent can read what's authorable,
+// resolve+lint a spec, and see it from multiple angles WITHOUT a game open. The same
+// path the in-game Fate author-building tool will use, exposed for the honing loop.
+import { formatCatalogue } from '@/blueprint/describe-registry';
+import { authorBlueprint } from '@/blueprint/authoring';
+import { renderBlueprintMontage } from '@/assetgen/blueprint-montage';
+import type { Blueprint, Descriptors } from '@/blueprint/types';
+import { PNG } from 'pngjs';
+
+const descriptorsShape = {
+  wealth: z.enum(['destitute', 'poor', 'modest', 'comfortable', 'rich', 'opulent']).optional(),
+  quality: z.enum(['crude', 'plain', 'fine', 'ornate']).optional(),
+  style: z.string().optional(),
+  condition: z.enum(['pristine', 'lived_in', 'worn', 'dilapidated']).optional(),
+};
+const pickDescriptors = (a: Record<string, unknown>): Descriptors | undefined => {
+  const d: Descriptors = {};
+  if (a.wealth) d.wealth = a.wealth as Descriptors['wealth'];
+  if (a.quality) d.quality = a.quality as Descriptors['quality'];
+  if (a.style) d.style = a.style as string;
+  if (a.condition) d.condition = a.condition as Descriptors['condition'];
+  return Object.keys(d).length ? d : undefined;
+};
+
+server.registerTool('building_catalogue',
+  { description: 'The authorable building capability catalogue: every part/feature type with its param kinds, ranges, enums, defaults, and docs. Read this before authoring a blueprint. Pure — no running game needed.' },
+  (): ToolResult => {
+    try { return { content: [{ type: 'text', text: formatCatalogue() }] }; }
+    catch (e) { return asError(e); }
+  });
+
+server.registerTool('lint_blueprint',
+  { description: 'Resolve + lint a building (preset name or a full blueprint JSON) and return the commit/reject verdict + structured diagnostics (eave breaches, dropped openings, out-of-footprint parts, part overlaps). ok=false means do not commit. Pure — no running game needed.',
+    inputSchema: {
+      preset: z.string().optional().describe('a preset name, e.g. cottage/parish-church'),
+      blueprint: z.record(z.string(), z.any()).optional().describe('a full Blueprint JSON (instead of preset)'),
+      seed: z.number().optional(),
+      ...descriptorsShape,
+    } },
+  (a): ToolResult => {
+    try {
+      const r = authorBlueprint({ preset: a.preset, blueprint: a.blueprint as Blueprint | undefined, descriptors: pickDescriptors(a), seed: a.seed });
+      return asText({ ok: r.ok, summary: r.summary, lints: r.lints });
+    } catch (e) { return asError(e); }
+  });
+
+server.registerTool('render_building_views',
+  { description: 'Render a building (preset name or a full blueprint JSON) as a multi-angle turntable montage (4 corners) with numbered Set-of-Mark part labels, returned as a PNG. Read the marks legend in the text block to map each number to its blueprint part. Pure — no running game needed.',
+    inputSchema: {
+      preset: z.string().optional(),
+      blueprint: z.record(z.string(), z.any()).optional(),
+      seed: z.number().optional(),
+      ...descriptorsShape,
+    } },
+  async (a): Promise<ToolResult> => {
+    try {
+      const r = authorBlueprint({ preset: a.preset, blueprint: a.blueprint as Blueprint | undefined, descriptors: pickDescriptors(a), seed: a.seed });
+      if (!r.rb) return { content: [{ type: 'text', text: `cannot render: ${r.summary}` }], isError: true };
+      const m = await renderBlueprintMontage(r.rb);
+      const png = new PNG({ width: m.width, height: m.height });
+      png.data = Buffer.from(m.rgba.buffer, m.rgba.byteOffset, m.rgba.byteLength);
+      const b64 = PNG.sync.write(png).toString('base64');
+      const legend = m.legend.map(e => `${e.mark} = ${e.id} (${e.type})`).join('\n');
+      return { content: [
+        { type: 'text', text: `lint: ${r.summary}\nyaws: ${m.yaws.length} (corners)\nmarks:\n${legend}` },
+        { type: 'image', data: b64, mimeType: 'image/png' },
+      ] };
+    } catch (e) { return asError(e); }
+  });
 
 // ── Boot ─────────────────────────────────────────────────────────────────────
 
