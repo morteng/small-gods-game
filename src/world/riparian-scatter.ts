@@ -40,13 +40,30 @@ const COBBLE = 'field-stone';
 const BOULDER = 'granite-boulder';
 
 // ── Tuning (densities are per-cell placement probabilities) ──────────────────
-/** Boulders IN the shallow water margin. A boulder (1–3 m) is tall enough to breach
- *  the depth-shaded surface and read as a rock in the river; a low cobble would just
- *  sit submerged, so the in-water stone is the boulder. Bigger rivers get more — the
- *  density scales with flow accumulation up to a cap. */
-const WATER_BOULDER_DENSITY = 0.07;
-const WATER_BOULDER_FLOW_BONUS = 0.06;   // extra density at/above the flow cap
-const BOULDER_FLOW_CAP = 400;
+/** Boulders IN the shallow water margin, placed by a RIFFLE SCORE rather than a
+ *  uniform density: real rivers cluster boulders on riffles, constrictions and
+ *  cascade reaches (steep, energetic, shallow water) and keep pools (flat, deep,
+ *  slow) clear. We score each margin cell by `slope × flowFactor` — the depth term
+ *  of the physical `slope × flow ÷ depth` is folded into flow via hydraulic geometry
+ *  (channel depth ∝ Q^0.4, so slope × flow ÷ depth ∝ slope × flow^~0.6, i.e. flow
+ *  enters as a gentle, saturating multiplier, not linearly). Slope is the dominant
+ *  signal; flow only modulates magnitude.
+ *
+ *  Slope reference: the water-surface slope on trunk rivers runs p50≈0, p90≈0.010,
+ *  cascades up to ~0.044 (measured, 24-seed placement domain). REF maps a p90 reach
+ *  to ~0.8 and clamps cascades to 1. */
+const RIFFLE_REF_SLOPE = 0.012;
+/** Flow saturates the multiplier; cap set near the p90 trunk discharge so a brook
+ *  reads sparser than a river without the term pinning to 1 everywhere (the old cap
+ *  of 400 sat below p10, so every cell maxed out → uniform scatter). */
+const BOULDER_FLOW_CAP = 2000;
+/** Flow never fully zeroes a steep reach — a bouldery mountain brook is bouldery even
+ *  at low discharge; flow only scales between this floor and 1. */
+const RIFFLE_FLOW_FLOOR = 0.45;
+/** Ambient in-water boulder density on a calm reach (a lone rock even in slack water)
+ *  + the riffle-scored addition at a full cascade. */
+const WATER_BOULDER_MIN = 0.012;
+const WATER_BOULDER_RIFFLE = 0.26;
 /** Bank trees on the immediate bank (land touching fresh water) and the set-back ring. */
 const BANK_TREE_DENSITY_1 = 0.26;
 const BANK_TREE_DENSITY_2 = 0.10;
@@ -68,6 +85,27 @@ function hash01(x: number, y: number, key: number): number {
 /** Cell-fraction position: centre (0.5) jittered across the cell, clamped in-tile. */
 function frac(rng: number): number {
   return 0.5 + (rng - 0.5) * 0.9; // ±0.45 → stays inside the cell
+}
+
+const N8 = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
+
+/** Local water-surface slope: steepest descent of `surfaceW` to any WET N8 neighbour
+ *  (normalized-elev units per tile). This is the energy grade a riffle rides — a
+ *  descending river reach reads high, a flat lake/pool reads ~0. Dry cells (surfaceW
+ *  < 0) return 0. Deterministic, pure. */
+function waterSurfaceSlope(surf: Float32Array, x: number, y: number, width: number, height: number): number {
+  const z = surf[y * width + x];
+  if (z < 0) return 0;
+  let maxDrop = 0;
+  for (const [dx, dy] of N8) {
+    const nx = x + dx, ny = y + dy;
+    if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+    const nz = surf[ny * width + nx];
+    if (nz < 0) continue; // dry neighbour — no water-surface gradient
+    const drop = (z - nz) / (dx && dy ? Math.SQRT2 : 1);
+    if (drop > maxDrop) maxDrop = drop;
+  }
+  return maxDrop;
 }
 
 function pickWeighted(rng: number, kinds: [string, number][]): string {
@@ -96,6 +134,7 @@ export function buildRiparianEntities(
 ): Entity[] {
   const wt = hydro.waterType;
   const flow = hydro.flowField;
+  const surf = hydro.surfaceW;
   const out: Entity[] = [];
   const idx = (x: number, y: number): number => y * width + x;
   const inB = (x: number, y: number): boolean => x >= 0 && y >= 0 && x < width && y < height;
@@ -136,10 +175,20 @@ export function buildRiparianEntities(
         }
         if (!landNb) continue;
         // A boulder (1–3 m) breaches the depth-shaded water and reads as a rock in the
-        // river; density scales with discharge so trunks are bouldery, brooks sparse.
+        // river. RIFFLE SCORE: steep, energetic reaches (riffles/cascades) cluster
+        // boulders; flat deep pools stay clear. Slope dominates; flow (∝ discharge, a
+        // depth proxy via hydraulic geometry) is a saturating multiplier that never
+        // zeroes a steep brook.
+        const slopeF = Math.min(1, waterSurfaceSlope(surf, x, y, width, height) / RIFFLE_REF_SLOPE);
         const flowF = Math.min(1, flow[i] / BOULDER_FLOW_CAP);
-        const boulderD = WATER_BOULDER_DENSITY + WATER_BOULDER_FLOW_BONUS * flowF;
-        if (hash01(x, y, s + 2) < boulderD) place(out, BOULDER, x, y, s + 50, 0.75, 1.2);
+        const riffle = slopeF * (RIFFLE_FLOW_FLOOR + (1 - RIFFLE_FLOW_FLOOR) * flowF);
+        const boulderD = WATER_BOULDER_MIN + WATER_BOULDER_RIFFLE * riffle;
+        if (hash01(x, y, s + 2) < boulderD) {
+          // Size ∝ discharge (the trunk-river width barely varies here, so flow is the
+          // honest size signal): brooks get cobbly boulders, rivers get big ones.
+          const lo = 0.65 + 0.4 * flowF;
+          place(out, BOULDER, x, y, s + 50, lo, lo + 0.45);
+        }
       } else if (wt[i] === WaterType.Dry && dist[i] >= 1 && dist[i] <= BANK_RINGS) {
         // The bank: willows/poplars on the immediate edge, sparser set back; loose
         // cobbles + the odd boulder on the exposed near shore.

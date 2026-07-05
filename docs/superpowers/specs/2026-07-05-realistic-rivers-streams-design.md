@@ -145,6 +145,18 @@ Mechanism — **per-pool flat water** (the load-bearing trick; Dwarf Fortress ge
   overlaps the channel (rock-local SDF term → V-wake smeared downstream by the advected noise —
   a few lines once R6's foam band exists).
 
+> **Reality check 2026-07-05 (shipped R4 placement, deferred wakes):** the eraser fix
+> (`waterPlaced` tag) and riffle-scored placement landed (`riparian-scatter.ts`:
+> `slope × flow^~0.6` via `waterSurfaceSlope`, calibrated `RIFFLE_REF_SLOPE 0.012` on the
+> 24-seed placement domain — ~85% of in-water boulders now sit on the top ~25% steepest cells;
+> pools clear). **Wakes turned out NOT to be "a few lines":** the water pass (`water-wgsl.ts`)
+> is a purely analytic channel SDF with no awareness of scattered rock entities — foam keys only
+> to the SDF + depth. A rock-local wake needs boulder positions fed INTO the water shader (a
+> rock-SDF texture or per-instance channel), which is a genuine render-pipeline addition, not a
+> shader-local edit. Deferred to its own slice (bundle with R6-style water work). Constrictions
+> and bank-bar riffle-biasing also deferred (width is near-constant on current worlds, so
+> constriction detection has little signal; bank rocks stay uniform for now).
+
 ### R5 — Rocks seated in the ground (all rocks, everywhere) — ~1 day
 
 Two halves, both reusing round-6/7 vocabulary (matches flora doc §G7 `partialBury`):
