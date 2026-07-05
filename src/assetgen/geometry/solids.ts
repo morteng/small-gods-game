@@ -642,24 +642,6 @@ function ridgeCrossT(w: Wing): number {
   return w.roof === 'saltbox' ? SALTBOX_RIDGE_T : 0.5;
 }
 
-/** Horizontal run from the RIDGE to the roof surface at height `z` above the wall top,
- *  on the camera-facing (+cross) slope — piecewise for the two-pitch roofs, so a dormer
- *  face lands ON the gambrel/mansard surface instead of the straight-line chord. */
-function runFromRidgeAtZ(w: Wing, style: RoofStyle, z: number): number {
-  const top = storeyRect(w, (w.storeys ?? 1) - 1);
-  const span = crossSpan(top, ridgeAxisOf(w));
-  const rise = roofRise(w, style);
-  const camRun = (1 - ridgeCrossT(w)) * span;
-  const zc = Math.max(0, Math.min(rise, z));
-  if (w.roof === 'gambrel' || w.roof === 'mansard') {
-    const brk = w.roof === 'gambrel' ? GAMBREL_BREAK : MANSARD_BREAK;
-    const uB = brk.u * camRun, zB = brk.z * rise;
-    const uFromEave = zc < zB ? uB * (zc / zB) : uB + (camRun - uB) * ((zc - zB) / (rise - zB || 1));
-    return camRun - uFromEave;
-  }
-  return (1 - zc / rise) * camRun;
-}
-
 // ── attachable feature solids (own material, sit proud so the z-buffer shows them) ──
 
 /** The width-units thickness + above-ridge protrusion + material for each vent kind.
@@ -766,10 +748,17 @@ async function ventSolid(
 }
 
 /**
- * A gabled dormer riding a wing's roof slope at fraction `t` along the ridge:
- * a wall-material face box buried back into the roof, capped by a mini gable
- * prism (roof material) whose ridge runs perpendicular to the main ridge. The
+ * A front-gabled ("doghouse") dormer riding a wing's roof slope at fraction `t`
+ * along the ridge: a compact wall-material body that pokes PROUD of the slope,
+ * capped by a mini gable prism (roof material) whose ridge runs down-slope. The
  * img2img pass paints the dormer's window; geometry only supplies the massing.
+ *
+ * The body is sized so its VISIBLE face is a constant height whatever the pitch:
+ * a steeper roof gets a DEEPER footprint (the slope climbs `rise·dep/run`), and
+ * the body base sinks well below the slope so the dormer always fuses into the
+ * roof solid. The old model was a fixed-z horizontal slab spanning ridge→eave —
+ * on a steep roof it buried at the ridge and FLOATED a void over the eave, which
+ * read as an L-shaped pit punched into the roof rather than a raised dormer.
  */
 async function dormerSolids(
   w: Wing, d: DormerFeature, style: RoofStyle,
@@ -779,30 +768,38 @@ async function dormerSolids(
   const rise = roofRise(w, style);
   if (w.roof === 'flat' || rise <= 0.5) return null;
   const ridge = ridgeAxisOf(w);
-  const dw = d.width ?? 0.5;            // along the ridge
-  const faceH = 0.42;
-  const baseZ = wallTop + rise * 0.22;
-  // Front face sits where the slope passes baseZ, nudged 0.12 proud of the slope —
-  // piecewise-correct for two-pitch roofs (gambrel/mansard) and the saltbox catslide.
-  const fromRidge = runFromRidgeAtZ(w, style, baseZ - wallTop) + 0.12;
+  const span = ridge === 'x' ? top.h : top.w;          // across-ridge span
+  const camRun = (1 - ridgeCrossT(w)) * span;          // ridge → eave, camera slope
+  const dw = d.width ?? 0.5;                            // width along the ridge
+
+  const faceH = 0.6;                                    // visible window-wall height
+  // Footprint depth: enough that the slope climbs ~faceH across it, so the back edge
+  // buries flush while the front pokes proud. Clamped so it can't span the whole slope.
+  const dep = Math.min(0.9 * camRun, (faceH * camRun) / rise);
+  const uFront = Math.min(camRun - 0.06, 0.5 * camRun + dep / 2);   // run-from-ridge, front
+  const uBack = Math.max(0.06, uFront - dep);
+  const zAt = (u: number) => wallTop + rise * (1 - u / camRun);     // slope height at run u
+  const zFront = zAt(uFront);
+  const baseZ = zFront - 0.8;                           // sink the body below the slope — no void
+  const capBase = zFront + faceH;                       // gable sits on the body's flat top
   const along = ridge === 'x' ? top.x + d.t * top.w : top.y + d.t * top.h;
 
   let at: Vec3, size: Vec3, capRect: WingRect;
   if (ridge === 'x') {
-    // dormer faces the +y (south) slope
-    const ridgeY = top.y + ridgeCrossT(w) * top.h;
-    at = [along - dw / 2, ridgeY, baseZ];
-    size = [dw, fromRidge, faceH];
-    capRect = { x: along - dw / 2, y: ridgeY, w: dw, h: fromRidge };
+    // dormer faces the +y (south) slope; footprint runs down-slope in +y
+    const yBack = top.y + ridgeCrossT(w) * top.h + uBack;
+    at = [along - dw / 2, yBack, baseZ];
+    size = [dw, uFront - uBack, capBase - baseZ];
+    capRect = { x: along - dw / 2, y: yBack, w: dw, h: uFront - uBack };
   } else {
-    // dormer faces the +x (east) slope
-    const ridgeX = top.x + ridgeCrossT(w) * top.w;
-    at = [ridgeX, along - dw / 2, baseZ];
-    size = [fromRidge, dw, faceH];
-    capRect = { x: ridgeX, y: along - dw / 2, w: fromRidge, h: dw };
+    // dormer faces the +x (east) slope; footprint runs down-slope in +x
+    const xBack = top.x + ridgeCrossT(w) * top.w + uBack;
+    at = [xBack, along - dw / 2, baseZ];
+    size = [uFront - uBack, dw, capBase - baseZ];
+    capRect = { x: xBack, y: along - dw / 2, w: uFront - uBack, h: dw };
   }
   const box = await solidBox(at, size);
-  const cap = await gablePrism(capRect, ridge === 'x' ? 'y' : 'x', GABLE_PITCH * 0.8, baseZ + faceH);
+  const cap = await gablePrism(capRect, ridge === 'x' ? 'y' : 'x', GABLE_PITCH * 0.8, capBase);
   return { box, cap };
 }
 
