@@ -37,11 +37,16 @@ import { AdaptiveResolution } from '@/render/gpu/adaptive-resolution';
 import { computeView, installRenderProfiler, frameTrace, type LastFrame } from '@/render/gpu/render-profiler';
 import { getUiRuntime } from '@/render/ui/ui-runtime';
 
-/** The canvas perf pill (fps + art-pixel scale) is DEV-only — it's the single FPS
- *  readout (the DOM `sg-fps` HUD was retired; no DOM chrome on the game surface). */
+/** The canvas perf pill (fps + art-pixel scale) is the single FPS readout (the DOM
+ *  `sg-fps` HUD was retired; no DOM chrome on the game surface). ALWAYS ON in a dev
+ *  build (`import.meta.env.DEV` — i.e. `npm run dev`), so we always see the frame rate
+ *  while developing; the deployed PRODUCTION build stays clean (env.DEV false), with
+ *  `?dev` as an explicit override there. */
 function perfHudRequested(): boolean {
-  try { return new URLSearchParams(window.location.search).has('dev'); }
-  catch { return false; }
+  try {
+    if (import.meta.env?.DEV) return true;
+    return new URLSearchParams(window.location.search).has('dev');
+  } catch { return false; }
 }
 
 /** `?connectome` shows the whole-world graph overlay (POIs, roads, settlements). */
