@@ -12,6 +12,17 @@
 #   ./scripts/ci-on-server.sh --clean         # remove remote CI dir + exit
 #   ./scripts/ci-on-server.sh --history       # recent run history
 #
+# Heavy asset / geometry generation on the box (the Pages deploy stays on the
+# free GitHub Actions workflow — this is only for jobs too big for a 2-core
+# Actions runner):
+#   ./scripts/ci-on-server.sh --run="npx tsx scripts/building-preview.ts cottage --both"
+#   ./scripts/ci-on-server.sh --run="npx tsx scripts/barrier-world-preview.ts" --out=.dev-grabs
+#   ./scripts/ci-on-server.sh --run="node scripts/generate-painted-map.js ..." --env=.env.assets
+#     --run="CMD"   run ANY command in the node container on ci-eph
+#     --out=DIR     tar this output dir back to the Mac after success (default .dev-grabs)
+#     --env=FILE    KEY=VAL file injected into the container (FAL_KEY, REPLICATE_*);
+#                   written 0600 on the box and deleted right after the run
+#
 # The box has 4 shared vCPUs and runs pikkolo production — the CPU cap leaves
 # headroom (raise to 4 at your own risk). node_modules persists on the server
 # between runs, keyed on the package-lock hash, so only the first run (or a dep
@@ -50,23 +61,37 @@ CPUS=3
 MODE="test"
 CLEAN_ONLY=false
 HISTORY_ONLY=false
+RUN_CUSTOM=""
+OUT_DIR=""
+ENV_FILE=""
 
 for arg in "$@"; do
   case $arg in
     --files=*)   TEST_FILES="${arg#*=}" ;;
     --build)     MODE="build" ;;
+    --run=*)     MODE="run"; RUN_CUSTOM="${arg#*=}" ;;
+    --out=*)     OUT_DIR="${arg#*=}" ;;
+    --env=*)     ENV_FILE="${arg#*=}" ;;
     --workers=*) WORKERS="${arg#*=}" ;;
     --cpus=*)    CPUS="${arg#*=}" ;;
     --clean)     CLEAN_ONLY=true ;;
     --history)   HISTORY_ONLY=true ;;
-    -h|--help)   head -20 "$0" | tail -17; exit 0 ;;
+    -h|--help)   sed -n '6,30p' "$0"; exit 0 ;;
     *)           fail "Unknown flag: $arg" ;;
   esac
 done
 
+# --run needs a command; default its retrieval dir to the preview scratch dir.
+if [ "$MODE" = "run" ]; then
+  [ -n "$RUN_CUSTOM" ] || fail "--run requires a command, e.g. --run=\"npx tsx scripts/building-preview.ts cottage\""
+  [ -n "$OUT_DIR" ] || OUT_DIR=".dev-grabs"
+fi
+[ -n "$ENV_FILE" ] && [ ! -f "$ENV_FILE" ] && fail "--env file not found: $ENV_FILE"
+
 # ── Route CI to the shared ephemeral ci-eph box ─────────────────────────────
-# small-gods has NO prod dependencies (vitest / vite build in a node container),
-# so ALL runs go to the shared `ci-eph` box that pikkolo + small-gods queue on
+# small-gods has NO prod dependencies (tests, vite build, and asset/geometry
+# generation all run in a node container), so ALL runs go to the shared
+# `ci-eph` box that pikkolo + small-gods queue on
 # via /tmp/hetzner-ci.lock — keeping the 8 GB prod box free. A Mac-side reaper
 # (in the pikkolo repo) tears the box down when it's idle + unlocked. Override
 # with CI_RUNNER=prod. Util modes (--clean/--history) attach to the box only if
@@ -137,6 +162,8 @@ fi
 # ── Build the runner command ────────────────────────────────────────────────
 if [ "$MODE" = "build" ]; then
   RUN_CMD="npm run build"
+elif [ "$MODE" = "run" ]; then
+  RUN_CMD="$RUN_CUSTOM"
 elif [ -n "$TEST_FILES" ]; then
   RUN_CMD="npx vitest run --maxWorkers=$WORKERS $TEST_FILES"
 else
@@ -146,21 +173,36 @@ fi
 REMOTE_LOG="$REMOTE_DIR/ci.log"
 REMOTE_EXIT="$REMOTE_DIR/ci-exit.code"
 REMOTE_WRAPPER="$REMOTE_DIR/.ci-runner.sh"
+REMOTE_CMD="$REMOTE_DIR/.ci-cmd.sh"    # the command runs from a FILE so &&/quotes/pipes survive
+REMOTE_ENV="$REMOTE_DIR/.ci.env"       # optional secrets (--env); deleted by the wrapper after the run
+ENV_ARG=""
+[ -n "$ENV_FILE" ] && ENV_ARG="--env-file /app/.ci.env"
+
+# Ship the command as a file (never interpolate it into the wrapper — a `&&`
+# would otherwise break OUT of the docker run) plus any secrets env-file.
+printf '%s\n' "$RUN_CMD" | ssh_run "cat > '$REMOTE_CMD'"
+if [ -n "$ENV_FILE" ]; then
+  # umask 077 so the secrets file lands 0600 on the shared box.
+  ssh_run "umask 077; cat > '$REMOTE_ENV'" < "$ENV_FILE"
+fi
 
 # Detached runner: survives client SSH drops; exit code lands in a sentinel
 # file. Shared server-wide lock (/tmp/hetzner-ci.lock) so only one heavy CI
 # runner uses the 4-vCPU box at a time ACROSS projects (pikkolo + small-gods),
 # not just small-gods branches. -w 2400 so a queued run outwaits the other
-# project's full run instead of flock timing out and faking a failure.
+# project's full run instead of flock timing out and faking a failure. The
+# secrets env-file is removed the instant the container exits, pass or fail.
 WRAPPER_SRC=$(cat <<RUNNER_WRAPPER
 #!/usr/bin/env bash
 cd "$REMOTE_DIR" || { echo 97 > "$REMOTE_EXIT"; exit 97; }
 flock -w 2400 /tmp/hetzner-ci.lock \
   timeout $RUNNER_TIMEOUT docker run --rm --name smallgods-ci-runner \
     -v $REMOTE_DIR:/app -w /app --cpus=$CPUS -m 4g \
-    -e CI=1 \
-    $NODE_IMAGE $RUN_CMD > "$REMOTE_LOG" 2>&1
-echo \$? > "$REMOTE_EXIT"
+    -e CI=1 ${ENV_ARG} \
+    $NODE_IMAGE bash /app/.ci-cmd.sh > "$REMOTE_LOG" 2>&1
+ec=\$?
+rm -f "$REMOTE_ENV"
+echo \$ec > "$REMOTE_EXIT"
 RUNNER_WRAPPER
 )
 
@@ -215,6 +257,25 @@ if [ -z "$CI_EXIT" ]; then
   CI_EXIT=124
 fi
 [ "$CI_EXIT" -eq 124 ] && warn "Runner timed out (${RUNNER_TIMEOUT}s cap)"
+
+# ── Retrieve generated output (--run) ───────────────────────────────────────
+# Ephemeral box is reaped, so anything a generation job produced has to come
+# back here. tar the output dir over one ssh; extract into the local repo
+# (overwrites the local copy of that dir — .dev-grabs is scratch; a committed
+# asset dir you then review + commit).
+if [ "$CI_EXIT" -eq 0 ] && [ "$MODE" = "run" ] && [ -n "$OUT_DIR" ]; then
+  if ssh_run "test -d '$REMOTE_DIR/$OUT_DIR'"; then
+    log "Fetching $OUT_DIR from ci-eph..."
+    # shellcheck disable=SC2086
+    if ssh $SSH_OPTS "$SSH_HOST" "cd '$REMOTE_DIR' && tar c '$OUT_DIR' | zstd -T0 -1" | zstd -d | tar x; then
+      ok "Fetched $OUT_DIR → $(pwd)/$OUT_DIR"
+    else
+      warn "Failed to fetch $OUT_DIR from the box"
+    fi
+  else
+    warn "No $OUT_DIR/ on the box — the job produced nothing to fetch"
+  fi
+fi
 
 # ── History + result ────────────────────────────────────────────────────────
 COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
