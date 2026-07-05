@@ -151,6 +151,16 @@ async function runMatrix(
     { label: 'px2 -entities', opts: build(2, { entities: false }) },
     { label: 'px2 -terrain&water', opts: build(2, { terrain: false }) },
     { label: 'px2 bare (clear+blit+ui)', opts: build(2, { terrain: false, water: false, shadows: false, entities: false }) },
+    // px1 ablation row — the adaptive ladder's steady-state target is TRUE 1:1
+    // (px1), so pass attribution at px2 alone under-reports fill-bound passes 4×.
+    { label: 'px1 -water', opts: build(1, { water: false }) },
+    { label: 'px1 -shadows', opts: build(1, { shadows: false }) },
+    { label: 'px1 -entities', opts: build(1, { entities: false }) },
+    { label: 'px1 bare (clear+blit+ui)', opts: build(1, { terrain: false, water: false, shadows: false, entities: false }) },
+    // Drift sentinel — px2 baseline re-measured LAST. On a contended machine the
+    // ambient load drifts across the run; if this disagrees with 'px2 (all)' by
+    // more than the noise floor, the whole run's ablation deltas are suspect.
+    { label: 'px2 (all) recheck', opts: build(2) },
   ];
   return scene.profile(variants, frames, warmup);
 }
