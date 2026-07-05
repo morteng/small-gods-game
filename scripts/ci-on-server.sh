@@ -64,6 +64,34 @@ for arg in "$@"; do
   esac
 done
 
+# ── Route CI to the shared ephemeral ci-eph box ─────────────────────────────
+# small-gods has NO prod dependencies (vitest / vite build in a node container),
+# so ALL runs go to the shared `ci-eph` box that pikkolo + small-gods queue on
+# via /tmp/hetzner-ci.lock — keeping the 8 GB prod box free. A Mac-side reaper
+# (in the pikkolo repo) tears the box down when it's idle + unlocked. Override
+# with CI_RUNNER=prod. Util modes (--clean/--history) attach to the box only if
+# it already exists; they never spin one up.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CI_RUNNER="${CI_RUNNER:-auto}"
+if [ "$CI_RUNNER" != prod ]; then
+  # shellcheck source=./_hcloud_ephemeral.sh
+  source "$SCRIPT_DIR/_hcloud_ephemeral.sh"
+  if $CLEAN_ONLY || $HISTORY_ONLY; then
+    _eph_ip=$(hcloud server ip "$EPH_NAME" 2>/dev/null || true)
+    if [ -n "$_eph_ip" ]; then
+      SSH_HOST="root@$_eph_ip"
+      SSH_OPTS="$SSH_OPTS -o UserKnownHostsFile=/dev/null"
+    fi
+  elif eph_ensure; then
+    SSH_HOST="root@$EPH_IP"
+    # Ephemeral IPs get reused across boxes → skip host-key pinning for them.
+    SSH_OPTS="$SSH_OPTS -o UserKnownHostsFile=/dev/null"
+    ok "CI on shared ci-eph box ($EPH_IP) — prod untouched"
+  else
+    warn "ci-eph unavailable — falling back to $SSH_HOST for CI"
+  fi
+fi
+
 # ── Pre-flight ──────────────────────────────────────────────────────────────
 log "Checking SSH connectivity..."
 ssh_run "echo connected" > /dev/null || fail "Cannot reach $SSH_HOST"
