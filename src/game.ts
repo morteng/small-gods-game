@@ -16,7 +16,8 @@ import { hoverChips } from '@/game/affordance/hover';
 import { buildWhisperCard } from '@/game/affordance/whisper-card';
 import type { UiSpecChoice } from '@/story/uispec';
 import { createGameBus, type GameBus } from '@/game/game-bus';
-import { TimeController } from '@/game/time-controller';
+import { TimeController, TIME_RATE_LADDER } from '@/game/time-controller';
+import { describeInterest } from '@/game/interest-predicate';
 import { getUiRuntime } from '@/render/ui/ui-runtime';
 import { bootMark, FpsMeter, type FpsStats } from '@/dev/profile';
 import { advanceNpcFrames } from '@/render/npc-animator';
@@ -97,15 +98,9 @@ import { PresentationDirector } from '@/presentation/presentation-director';
 import { createInteractionState } from '@/game/interaction-state';
 import { createBootProgressMapper } from '@/ui/boot-progress';
 import { InteractionController } from '@/game/interaction-controller';
-import { calendarLabel } from '@/core/calendar';
+import { calendarLabel, TICKS_PER_HOUR } from '@/core/calendar';
 
 const SESSION_CAP_USD = 2; // per-session live building-art spend cap
-
-/** Round 9 WP-B: pre-integration fallback rate ladder for the WebGPU transport
- *  cluster. WP-A's `TimeController` (parallel worktree, not present here) will
- *  own the real, bench-measured ladder (`scripts/bench-sim-rate.ts`); the
- *  integrator should source `timeStatus().ladder` from it instead once wired. */
-const FALLBACK_RATE_LADDER = [1, 8, 60];
 
 /** P5 semantic zoom: the in-band zoom a zoomed-out alert-pin click flies to —
  *  the 1/2 rung, the outermost rung that still reads as per-NPC chrome. */
@@ -145,6 +140,8 @@ export class Game {
   /** R9: budgeted fastforward + "jump to next event" seek engine. Wraps the
    *  scheduler; the frame loop advances the sim through THIS, not scheduler.tick. */
   private timeController!: TimeController;
+  /** R9: set by a user/host `cancel_seek` so the landing card is skipped. */
+  private suppressLandingCard = false;
   private commandQueue = new CommandQueue();
   private discoveryQueue = new DiscoveryQueue();
   /** Last NPC fed to the discovery queue, so we push a signal only on a switch. */
@@ -301,6 +298,24 @@ export class Game {
       clock: this.state.clock,
       eventLog: this.state.eventLog,
       state: this.state,
+    });
+    // Seek landings surface as a UiSpec card ("what happened while you were
+    // away") — except user-initiated cancels, which land silently.
+    this.timeController.onLanded((summary) => {
+      const cancelled = this.suppressLandingCard;
+      this.suppressLandingCard = false;
+      this.requestRender();
+      if (cancelled) return;
+      const hours = summary.elapsedTicks / TICKS_PER_HOUR;
+      const elapsedLabel =
+        hours >= 1
+          ? `${Math.floor(hours)}h ${Math.round((hours % 1) * 60)}m passed`
+          : `${Math.max(1, Math.round(hours * 60))}m passed`;
+      getUiRuntime().showTimeLandingCard(
+        summary.quiet || !summary.trigger
+          ? { title: 'A quiet stretch', body: 'Nothing of note stirred the world.', elapsedLabel, quiet: true }
+          : { title: 'Something stirs', body: describeInterest(summary.trigger.event).label, elapsedLabel, quiet: false },
+      );
     });
     // Command executor runs FIRST: queued player/rival/Fate commands apply at the
     // top of the tick, before the sim systems compute this tick's state.
@@ -814,44 +829,38 @@ export class Game {
       onZoomOut: () => this.cameraZoomOut(),
       onFitView: () => this.cameraFitView(),
       onZoomActual: () => this.cameraZoomActual(),
-      // ── Round 9 WP-B: time transport (fastforward + jump-to-next-event) ──
-      // WP-A lands `TimeController` (src/game/time-controller.ts) in a parallel
-      // worktree — it does not exist here. Wired defensively so this branch
-      // compiles + behaves sanely standalone (scheduler-only fallback, no seek);
-      // the integrator reconciles once `this.timeController` is real.
+      // ── Round 9: time transport (fastforward + jump-to-next-event) ──
+      // All dispatch funnels through the meta-verb path (`dispatchTimeCommand`)
+      // so the UI, MCP, Fate, and story hosts drive time identically.
       timeStatus: () => {
-        const tc = (this as any).timeController; // WP-A lands timeController; integrator reconciles
-        const requestedRate = tc ? tc.getRequestedRate() : this.scheduler.getRate();
-        const effectiveRate = tc ? tc.getEffectiveRate() : requestedRate;
+        const requestedRate = this.timeController.getRequestedRate();
         return {
           requestedRate,
-          effectiveRate,
-          ladder: FALLBACK_RATE_LADDER,
+          effectiveRate: this.timeController.getEffectiveRate(),
+          ladder: [...TIME_RATE_LADDER],
           paused: requestedRate === 0,
           clockLabel: calendarLabel(this.state.clock.now()),
-          seeking: tc ? tc.seekStatus() : null,
+          seeking: this.timeController.seekStatus(),
         };
       },
       onTimeCommand: (cmd) => {
-        const tc = (this as any).timeController; // WP-A lands timeController; integrator reconciles
-        if (tc) {
-          switch (cmd.kind) {
-            case 'set_rate': tc.cancelSeek(); tc.setRate(cmd.rate); break;
-            case 'toggle_pause': tc.cancelSeek(); tc.setRate(tc.getRequestedRate() === 0 ? 1 : 0); break;
-            case 'skip_to_next_event': tc.requestSeek(); break;
-            case 'cancel_seek': tc.cancelSeek(); break;
-          }
-        } else {
-          // Scheduler-only fallback — no seek engine without a TimeController.
-          switch (cmd.kind) {
-            case 'set_rate': this.scheduler.setRate(cmd.rate); break;
-            case 'toggle_pause': this.scheduler.setRate(this.scheduler.getRate() === 0 ? 1 : 0); break;
-            case 'skip_to_next_event':
-            case 'cancel_seek':
-              break;
-          }
+        switch (cmd.kind) {
+          case 'set_rate':
+            this.dispatchTimeCommand({ verb: 'set_time_rate', params: { rate: cmd.rate } });
+            break;
+          case 'toggle_pause':
+            this.dispatchTimeCommand({
+              verb: 'set_time_rate',
+              params: { rate: this.timeController.getRequestedRate() === 0 ? 1 : 0 },
+            });
+            break;
+          case 'skip_to_next_event':
+            this.dispatchTimeCommand({ verb: 'skip_to_next_event', params: {} });
+            break;
+          case 'cancel_seek':
+            this.dispatchTimeCommand({ verb: 'cancel_seek', params: {} });
+            break;
         }
-        this.requestRender();
       },
     });
     this.cleanupUi = ui.attach(this.canvas);
@@ -1315,6 +1324,8 @@ export class Game {
         this.requestRender();
         break;
       case 'cancel_seek':
+        // User/host-initiated cancel: land silently (no "quiet stretch" card).
+        this.suppressLandingCard = true;
         this.timeController.cancelSeek();
         this.requestRender();
         break;
