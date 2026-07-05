@@ -423,6 +423,21 @@ const LAKE_DIR = vec2<f32>(0.60, -0.80);
 // the fragment by up to the subsample stride, ≤4), so the water/land boundary is untouched.
 const SHORE_CUBIC_TILES = 6.0;
 
+// ── RIVER MOTION + FOAM (R6 render polish) ────────────────────────────────────────
+// Foam tone for river whitewater, bank rim and waterline lip (one colour → one read).
+const RIVER_FOAM = vec3<f32>(0.92, 0.96, 0.98);
+// Valve dual-phase flow advection: reset rate (cycles/s at unit flow speed) and the
+// distance (in streak along-units) a single phase translates the noise downstream before
+// it resets. Two phases run ½ cycle apart and are triangle-crossfaded, so the reset jump
+// is always hidden behind the other (mid-travel) phase → clean marching flow, no smear.
+const RIVER_FLOW_HZ = 0.10;
+const RIVER_TRAVEL  = 6.0;
+// Bank-foam reach (tiles) inward from the analytic channel edge (sd = 0): the soft "wet"
+// waterline that melts the hard vector cutout into a lapping foam rim.
+const RIVER_RIM_TILES = 0.55;
+// Tiles inward over which the water colour deepens toward the channel centre (thalweg read).
+const RIVER_DEEP_TILES = 2.5;
+
 @fragment
 fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   let ci = in.vCell;
@@ -642,8 +657,11 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   } else {
     // ---- RIVER ----------------------------------------------------------------
     // Streaks advected ALONG the ANALYTIC flow vector (the centreline tangent at the
-    // nearest point); speed + whitewater scale with the local bed slope (height drop to
-    // the downstream cell).
+    // nearest point). R6: motion via VALVE DUAL-PHASE flow advection (Vlachos 2010) —
+    // two noise samples translated downstream, phase-offset ½ cycle, triangle-crossfaded,
+    // so the streaks visibly MARCH downstream and bend around meanders WITHOUT the smear
+    // a single ever-scrolling sample shows where the per-fragment flow basis rotates. Speed
+    // + whitewater still scale with the local bed slope (height drop to the downstream cell).
     let fv = flowV;
     let W = u32(G.uGrid.x);
     let H = u32(G.uGrid.y);
@@ -654,16 +672,39 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
     let drop = max(terrainH[ci] - terrainH[dcy * W + dcx], 0.0) * G.uZParams.z; // m over ~1 tile
     let speed = 0.6 + clamp(drop * 0.7, 0.0, 2.4);      // steep reaches run fast
 
-    // Coordinates along / across the flow → streaks stretched downstream, scrolling
-    // at the slope-derived speed. fbm keeps the streaks broken up, not a sine comb.
-    let along = dot(g, fv);
+    // Streak coordinate: stretched ALONG flow (×1.4), tight ACROSS (×2.6) → downstream lines.
+    let along  = dot(g, fv);
     let across = dot(g, vec2<f32>(-fv.y, fv.x));
-    let stream = fbm(vec2<f32>(along * 1.4 - t * speed * 2.0, across * 2.6));
-    color += vec3<f32>((stream - 0.5) * 0.10);
+    let uv = vec2<f32>(along * 1.4, across * 2.6);
+    // Dual-phase advection: each phase translates the sample downstream by RIVER_TRAVEL
+    // along-units then resets; the two phases are ½ cycle apart and cross-faded by a
+    // triangle weight, so the reset discontinuity is always masked by the other phase.
+    let cyc = t * speed * RIVER_FLOW_HZ;
+    let ph1 = fract(cyc);
+    let ph2 = fract(cyc + 0.5);
+    let s1 = fbm(uv - vec2<f32>(ph1 * RIVER_TRAVEL, 0.0));
+    let s2 = fbm(uv - vec2<f32>(ph2 * RIVER_TRAVEL, 0.0));
+    let stream = mix(s1, s2, abs(1.0 - 2.0 * ph1));
+    color += vec3<f32>((stream - 0.5) * 0.10);          // visible flowing texture
 
-    // Whitewater: more foam where it is steep and fast; plus the bank waterline lip.
-    let white = smoothstep(0.7, 1.0, stream) * smoothstep(0.4, 1.6, drop);
-    color = mix(color, vec3<f32>(0.92, 0.96, 0.98), max(lip * 0.7, white * 0.7));
+    // CROSS-CHANNEL DEPTH READ. -sdEdge is the tiles-inward from the analytic bank; deepen
+    // the colour toward the channel centre so the river reads as a body of water with a
+    // thalweg, not a flat pale strip. Keyed to the SDF (not the shallow uniform carve), so
+    // even a 1 m brook gets a legible light-margin → dark-centre gradient.
+    let crossDeep = smoothstep(0.0, RIVER_DEEP_TILES, -sdEdge);
+    color = mix(color, wcol.deep * (G.uAmbient.xyz + vec3<f32>(day * 0.85)), crossDeep * 0.45);
+
+    // FOAM — RESTRAINED. The old river foamed off absolute depth (the lip term), but a brook is
+    // shallow across its WHOLE width, so depth-foam whitened the entire channel — the
+    // "painted white ribbon" tell. Foam is now keyed to the analytic BANK DISTANCE: a THIN
+    // bright rim right at the edge (-sdEdge → 0), shimmered by the moving noise so it laps.
+    // Whitewater is reserved for reaches that genuinely DROP (steep). Together they read as
+    // a bank line + rapids, never a solid white surface.
+    let bankRim = smoothstep(RIVER_RIM_TILES, 0.0, -sdEdge)
+                * (0.55 + 0.45 * smoothstep(0.35, 0.85, stream));
+    let whitewater = smoothstep(0.66, 1.0, stream) * smoothstep(0.7, 2.0, drop);
+    let foam = max(bankRim * 0.34, whitewater * 0.75);
+    color = mix(color, RIVER_FOAM, clamp(foam, 0.0, 1.0));
   }
 
   // CAUSTICS — shared by all three body types. Two decorrelated scrolling noise
