@@ -213,7 +213,33 @@ describe('deriveSettlementRing encloses the built bbox with gates at crossings',
   });
 });
 
-describe('terrain-traced settlement ring (diagonal walls)', () => {
+// ── WP-W1: canonical 8-bearing ring contract ─────────────────────────────────────────
+// Assert a ring path is a closed, simple, convex polygon whose every edge runs in one of the 8
+// canonical directions on the piece grid (cardinal edges even tiles; diagonal edges Δ = (±2k, ±2k)),
+// with integer vertices.
+function assertCanonical(path: [number, number][]): void {
+  expect(path.length).toBeGreaterThanOrEqual(5);          // ≥4 edges + closing repeat
+  expect(path[0]).toEqual(path[path.length - 1]);          // closed
+  let sign = 0;
+  for (let i = 1; i < path.length; i++) {
+    const [ax, ay] = path[i - 1], [bx, by] = path[i];
+    expect(Number.isInteger(ax) && Number.isInteger(ay)).toBe(true);
+    const dx = bx - ax, dy = by - ay;
+    const cardinal = (dx === 0) !== (dy === 0);
+    const diagonal = dx !== 0 && Math.abs(dx) === Math.abs(dy);
+    expect(cardinal || diagonal).toBe(true);               // canonical bearing
+    if (cardinal) expect(Math.abs(dx + dy) % 2).toBe(0);   // even tiles (whole cardinal pieces)
+    else expect(Math.abs(dx) % 2).toBe(0);                 // Δ = (±2k, ±2k) (whole diagonal pieces)
+    // Convexity (⇒ simple): consecutive edges never reverse turn direction.
+    if (i < path.length - 1) {
+      const [cx, cy] = path[i + 1];
+      const cross = dx * (cy - by) - dy * (cx - bx);
+      if (Math.abs(cross) > 1e-9) { const s = Math.sign(cross); if (sign === 0) sign = s; else expect(s).toBe(sign); }
+    }
+  }
+}
+
+describe('terrain-traced settlement ring (canonical 8-bearing walls)', () => {
   // A blobby building cluster centred at (19,18), radius ~7.4 tiles.
   const bset = new Set<string>();
   for (let y = 12; y <= 24; y++) for (let x = 12; x <= 26; x++) {
@@ -232,26 +258,90 @@ describe('terrain-traced settlement ring (diagonal walls)', () => {
     return c;
   }
 
-  it('traces a diagonal (non-rectangular) polygon that still encloses every building', () => {
+  it('traces a canonical (non-rectangular) polygon that still encloses every building', () => {
     const ring = deriveSettlementRing({
       bbox, mapW: 60, mapH: 60, buildingCount: 30, poiId: 'traced',
       isWater: () => false, isRoad: () => false, isBuilding, ctx: { era: 'medieval', wealth: 'wealthy' },
     })!;
     expect(ring).toBeTruthy();
     const path = ring.run.path as [number, number][];
-    // A traced ring has more than a rectangle's 5 points but stays simplified (bounded towers).
+    // A canonical ring has more than a rectangle's 5 points but stays bounded (≤8 edges + close).
     expect(path.length).toBeGreaterThan(5);
     expect(path.length - 1).toBeLessThanOrEqual(14);
-    // It is NOT axis-aligned: at least one segment runs on a true diagonal.
+    // Every edge is on a canonical bearing + the piece grid; the ring is closed, simple, convex.
+    assertCanonical(path);
+    // It is genuinely 8-directional: at least one segment runs on a true (45°) diagonal.
     const hasDiagonal = path.slice(1).some((p, i) => {
       const dx = p[0] - path[i][0], dy = p[1] - path[i][1];
-      return Math.abs(dx) > 0.5 && Math.abs(dy) > 0.5;
+      return dx !== 0 && Math.abs(dx) === Math.abs(dy);
     });
     expect(hasDiagonal).toBe(true);
     // Enclosure guarantee: no building cell lands outside the ring.
     let breaches = 0;
     for (const k of bset) { const [x, y] = k.split(',').map(Number); if (!inside(path, x, y)) breaches++; }
     expect(breaches).toBe(0);
+  });
+
+  it('is deterministic — same inputs give a byte-identical canonical ring', () => {
+    const mk = () => deriveSettlementRing({
+      bbox, mapW: 60, mapH: 60, buildingCount: 30, poiId: 'det',
+      isWater: () => false, isRoad: () => false, isBuilding, ctx: { era: 'medieval', wealth: 'wealthy' },
+    })!;
+    expect(mk().run.path).toEqual(mk().run.path);
+  });
+
+  it('encloses buildings + stays canonical across several cluster seeds', () => {
+    for (const [cx0, cy0, r2] of [[24, 22, 40], [30, 30, 70], [18, 26, 30], [40, 20, 55]] as const) {
+      const cells = new Set<string>();
+      for (let y = cy0 - 10; y <= cy0 + 10; y++) for (let x = cx0 - 10; x <= cx0 + 10; x++) {
+        if ((x - cx0) ** 2 + (y - cy0) ** 2 <= r2) cells.add(`${x},${y}`);
+      }
+      let mnx = Infinity, mny = Infinity, mxx = -Infinity, mxy = -Infinity;
+      for (const k of cells) { const [x, y] = k.split(',').map(Number); mnx = Math.min(mnx, x); mny = Math.min(mny, y); mxx = Math.max(mxx, x); mxy = Math.max(mxy, y); }
+      const ring = deriveSettlementRing({
+        bbox: { minX: mnx, minY: mny, maxX: mxx, maxY: mxy },
+        mapW: 80, mapH: 80, buildingCount: 30, poiId: `seed_${cx0}_${cy0}`,
+        isWater: () => false, isRoad: () => false,
+        isBuilding: (x, y) => cells.has(`${x},${y}`), ctx: { era: 'medieval', wealth: 'wealthy' },
+      })!;
+      const path = ring.run.path as [number, number][];
+      assertCanonical(path);
+      let breaches = 0;
+      for (const k of cells) { const [x, y] = k.split(',').map(Number); if (!inside(path, x, y)) breaches++; }
+      expect(breaches).toBe(0);
+    }
+  });
+
+  it('snaps every real gate onto whole piece slots (1 or 2 pieces on its edge)', () => {
+    const ring = deriveSettlementRing({
+      bbox, mapW: 60, mapH: 60, buildingCount: 30, poiId: 'gateslot',
+      isWater: () => false, isRoad: () => false, isBuilding,
+      connections: [{ dx: 1, dy: 0 }, { dx: 0, dy: -1 }, { dx: -1, dy: 1 }],
+      ctx: { era: 'medieval', wealth: 'wealthy' },
+    })!;
+    const path = ring.run.path as [number, number][];
+    // Cumulative edge starts + per-edge piece length.
+    const edges: { start: number; len: number; piece: number }[] = [];
+    let acc = 0;
+    for (let i = 1; i < path.length; i++) {
+      const dx = path[i][0] - path[i - 1][0], dy = path[i][1] - path[i - 1][1];
+      const len = Math.hypot(dx, dy);
+      if (len < 1e-9) continue;
+      const piece = (dx !== 0 && dy !== 0) ? 2 * Math.SQRT2 : 2;
+      edges.push({ start: acc, len, piece });
+      acc += len;
+    }
+    for (const g of ring.run.gates.filter((x) => x.kind !== 'gap')) {
+      const e = edges.find((ed) => g.t >= ed.start - 1e-6 && g.t <= ed.start + ed.len + 1e-6)!;
+      expect(e).toBeTruthy();
+      const local = g.t - e.start;                 // gate centre offset along its edge
+      const halfSlots = g.width / e.piece;         // width in pieces (1 or 2)
+      expect(Math.abs(Math.round(halfSlots) - halfSlots)).toBeLessThan(1e-6);   // whole pieces
+      expect([1, 2]).toContain(Math.round(halfSlots));
+      // The span [local - w/2, local + w/2] starts on a piece boundary.
+      const slotStart = (local - g.width / 2) / e.piece;
+      expect(Math.abs(Math.round(slotStart) - slotStart)).toBeLessThan(1e-6);
+    }
   });
 
   it('hugs a nearby waterline — the wall sits landward of the river', () => {
