@@ -15,6 +15,7 @@ import { STOREY } from '@/assetgen/geometry/building';
 import { mToTiles } from '@/render/scale-contract';
 import { toMountAnchors } from './to-mount-anchors';
 import { yawForOrientation } from '../orientation';
+import { emitDiagnostic, type GeometryDiagnostic } from './diagnostics';
 
 /** Storey height (tiles) for a wall-bearing body/wing part. */
 function storeyTilesOf(part: ResolvedPart): number {
@@ -27,11 +28,18 @@ const EAVE_HEADROOM = 0.1;   // keep an opening's head this far (tiles) below th
 /** Self-check: clamp a window so it can't poke through the eave/roof. Returns the (possibly
  *  reduced) height for an opening at `sill` on a wall whose eave is at `eaveTop` (tiles), and
  *  warns when it had to correct an authored value so the issue surfaces instead of rendering. */
-function fitHeightUnderEave(sill: number, height: number, eaveTop: number, label: string): number {
+function fitHeightUnderEave(
+  sill: number, height: number, eaveTop: number, label: string,
+  part: string, feature: string, sink?: GeometryDiagnostic[],
+): number {
   const max = eaveTop - EAVE_HEADROOM - sill;
   if (height <= max) return height;
   const clamped = Math.max(0.2, max);
-  console.warn(`[toGeometry] ${label}: window height ${height.toFixed(2)} breaches the eave (sill ${sill.toFixed(2)} + height > ${eaveTop.toFixed(2)}) — clamped to ${clamped.toFixed(2)}`);
+  emitDiagnostic(sink, {
+    code: 'eave-breach', severity: 'warn', part, feature,
+    message: `${label}: window height ${height.toFixed(2)} breaches the eave (sill ${sill.toFixed(2)} + height > ${eaveTop.toFixed(2)}) — clamped to ${clamped.toFixed(2)}`,
+    detail: { sill: +sill.toFixed(3), height: +height.toFixed(3), eaveTop: +eaveTop.toFixed(3), clamped: +clamped.toFixed(3) },
+  });
   return clamped;
 }
 
@@ -42,7 +50,7 @@ function fitHeightUnderEave(sill: number, height: number, eaveTop: number, label
  *     storey adds its windows automatically.
  * Doors, vents, dormers and non-ranked windows pass through (doors clamp, never rank).
  */
-function expandStoreyOpenings(part: ResolvedPart): ResolvedPart['features'] {
+function expandStoreyOpenings(part: ResolvedPart, sink?: GeometryDiagnostic[]): ResolvedPart['features'] {
   const levels = Math.max(1, (part.params?.levels as number) ?? 1);
   const plan = part.params?.plan;
   // Round/stepped bodies own their own height envelope; leave their openings untouched.
@@ -53,7 +61,7 @@ function expandStoreyOpenings(part: ResolvedPart): ResolvedPart['features'] {
     if (f.type !== 'window') { out.push(f); continue; }
     const baseSill = (f.params.sill as number) ?? 0;
     const rawH = (f.params.height as number) ?? 0;
-    const height = fitHeightUnderEave(baseSill, rawH, eaveTop, `${part.type}.${f.id}`);
+    const height = fitHeightUnderEave(baseSill, rawH, eaveTop, `${part.type}.${f.id}`, part.id, f.id, sink);
     const ranked = f.params.perStorey !== false && levels > 1;
     const floors = ranked ? levels : 1;
     for (let s = 0; s < floors; s++) {
@@ -143,7 +151,8 @@ function footprintRects(parts: Prim[]): Rect[] {
   return rects;
 }
 
-export function toGeometry(rb: ResolvedBlueprint, opts?: { skirt?: SkirtOpts }): StructureSpec {
+export function toGeometry(rb: ResolvedBlueprint, opts?: { skirt?: SkirtOpts; diagnostics?: GeometryDiagnostic[] }): StructureSpec {
+  const sink = opts?.diagnostics;
   const ctx: CompileCtx = {
     materials: rb.materials, footprint: rb.footprint,
     ...(rb.palette && Object.keys(rb.palette).length ? { palette: rb.palette } : {}),
@@ -163,7 +172,7 @@ export function toGeometry(rb: ResolvedBlueprint, opts?: { skirt?: SkirtOpts }):
 
   for (const rawPart of rb.parts) {
     // Rank perStorey windows up the floors before compiling openings (and below, for vents).
-    const part: ResolvedPart = { ...rawPart, features: expandStoreyOpenings(rawPart) };
+    const part: ResolvedPart = { ...rawPart, features: expandStoreyOpenings(rawPart, sink) };
     const pt = getPartType(part.type);
     const prims = pt.toPrims(part, ctx);
     const { apertures, fillers: partFillers } = compileOpenings(part, ctx);
@@ -192,7 +201,11 @@ export function toGeometry(rb: ResolvedBlueprint, opts?: { skirt?: SkirtOpts }):
     if (!openingsAttached && apertures.length) {
       // The part declared openings but emitted no wall-bearing prim to carve them into —
       // surface it so a future part type doesn't silently drop its doors/windows.
-      console.warn(`[toGeometry] part "${part.type}" has ${apertures.length} opening(s) but no wall-bearing prim; apertures dropped`);
+      emitDiagnostic(sink, {
+        code: 'apertures-dropped', severity: 'error', part: part.id,
+        message: `part "${part.type}" has ${apertures.length} opening(s) but no wall-bearing prim; apertures dropped`,
+        detail: { partType: part.type, count: apertures.length },
+      });
     }
   }
 
