@@ -18,6 +18,7 @@ import type { BarrierRun, BarrierGate } from '@/world/barrier';
 import { composeStructure, type StructureResult, type StructureSpec, type StructureAnchors, type NormAnchor } from '@/assetgen/compose';
 import { structureResultToPack } from '@/render/parametric-building-source';
 import { scheduleCompose } from '@/render/compose-scheduler';
+import { composePayload } from '@/render/compose-offthread';
 import {
   parametricSpriteKey, readParametricSprite, writeParametricSprite,
   payloadFromResult, packFromPayload, type CachedSpritePayload,
@@ -364,11 +365,16 @@ export class ParametricBarrierSource {
   private readonly compose: NonNullable<ParametricBarrierDeps['compose']>;
   private readonly onWarm?: () => void;
   private readonly packFromCache: NonNullable<ParametricBarrierDeps['packFromCache']>;
+  /** Offload compose to the worker pool — only when the DEFAULT compose is used (an
+   *  injected compose can't cross the worker boundary). Injected-compose tests keep the
+   *  byte-identical inline path. */
+  private readonly offthread: boolean;
 
   constructor(deps: ParametricBarrierDeps = {}) {
     this.compose = deps.compose ?? ((spec) => composeStructure(spec, undefined, { surfaceTexture: true }));
     this.onWarm = deps.onWarm;
     this.packFromCache = deps.packFromCache ?? packFromPayload;
+    this.offthread = deps.compose === undefined;
   }
 
   private runOf(e: Entity): BarrierRun | null {
@@ -408,10 +414,31 @@ export class ParametricBarrierSource {
       // merlon phase, gates, coursing, outward sign —; tower/gate/stair keys the
       // same quantised identity the session cache dedups on) + ART_RECIPE_VERSION.
       const idbKey = parametricSpriteKey('bar', el.key);
-      // Through the shared compose queue (compose-scheduler.ts): a wall ring warms
-      // dozens of segments at once — unqueued they fuse into one giant long task.
-      // el.spec() is built inside the job so the geometry work is spread too.
-      const composePath = (): Promise<void> =>
+      // Off-thread path (production default): the worker pool composes the element and
+      // returns its cache payload, which rebuilds a pixel-identical pack + placement
+      // anchor on the main thread (WP-A) — a wall ring's dozens of segments compose in
+      // parallel instead of fusing into one main-thread long task.
+      const composeOffthread = (): Promise<void> =>
+        composePayload(el.spec(), { surfaceTexture: true })
+          .then((payload) => {
+            if (payload) {
+              const pack = this.packFromCache(payload);
+              const a = el.anchor({ anchors: payload.anchors });
+              if (pack && a) {
+                this.cache.set(el.key, { pack, ax: a.x, ay: a.y });
+                void writeParametricSprite(idbKey, payload);
+                return;
+              }
+            }
+            this.cache.set(el.key, null);
+          })
+          .catch((err) => {
+            if (!this.warned.has(el.key)) { console.warn('[parametric-barrier] compose failed', err); this.warned.add(el.key); }
+            this.cache.set(el.key, null);
+          });
+      // Inline path (injected compose): byte-identical to pre-WP-A — through the shared
+      // main-thread queue (compose-scheduler.ts). el.spec() is built inside the job.
+      const composeInline = (): Promise<void> =>
         scheduleCompose(() => this.compose(el.spec()))
           .then((res) => {
             const pack = structureResultToPack(res);
@@ -427,6 +454,7 @@ export class ParametricBarrierSource {
             if (!this.warned.has(el.key)) { console.warn('[parametric-barrier] compose failed', err); this.warned.add(el.key); }
             this.cache.set(el.key, null);
           });
+      const composePath = this.offthread ? composeOffthread : composeInline;
       // Persisted-sprite fast path: hit → rebuild pack + placement anchor from the
       // stored payload, NO compose job; anything else degrades to composing.
       readParametricSprite(idbKey)
