@@ -42,8 +42,10 @@ export async function composeToPayload(
  * post the payload zero-copy; harmless to compute on any payload.
  */
 export function payloadTransferables(p: CachedSpritePayload): ArrayBuffer[] {
-  const out: ArrayBuffer[] = [p.grey.buffer, p.normal.buffer, p.material.buffer];
-  if (p.emissive) out.push(p.emissive.buffer);
-  if (p.shadow) out.push(p.shadow.data.buffer);
+  // `.buffer` is typed ArrayBufferLike; every crop is a plain (non-shared) ArrayBuffer.
+  const buf = (u: Uint8ClampedArray): ArrayBuffer => u.buffer as ArrayBuffer;
+  const out: ArrayBuffer[] = [buf(p.grey), buf(p.normal), buf(p.material)];
+  if (p.emissive) out.push(buf(p.emissive));
+  if (p.shadow) out.push(buf(p.shadow.data));
   return out;
 }
