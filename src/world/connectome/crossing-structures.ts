@@ -18,6 +18,7 @@ import type { RoadGraph } from '@/world/road-graph';
 import { synthesizeBlueprint } from '@/blueprint/presets';
 import { ensureBuildingTypesRegistered } from '@/blueprint/register-buildings';
 import { blueprintEntity } from '@/blueprint/entity';
+import { wheelWaterOrientation } from '@/blueprint/wheel-orientation';
 import { toCollision } from '@/blueprint/compile/to-collision';
 import { resolveBlueprint } from '@/blueprint/resolve';
 import { BLUEPRINT_VERSION, type Blueprint } from '@/blueprint/types';
@@ -319,7 +320,14 @@ export function buildCrossingStructureEntities(
       }
       if (!chosen) continue; // un-placeable beside the settlement — drop rather than overlap
       for (const [cx, cy] of solidCells(collision, chosen.x, chosen.y)) claimed.add(`${cx},${cy}`);
-      out.push(blueprintEntity(p.nodeId, rb, chosen.x, chosen.y, { poiId: spec.id }));
+      // A crossing watermill sits waterward of the near bank — turn it so its wheel faces the
+      // stream it serves (square footprint ⇒ the solid cells claimed above are unchanged).
+      let placed = rb;
+      if (preset === 'watermill' && opts.isWater) {
+        const o = wheelWaterOrientation(rb, chosen.x, chosen.y, opts.isWater);
+        if (o) placed = { ...rb, orientation: o };
+      }
+      out.push(blueprintEntity(p.nodeId, placed, chosen.x, chosen.y, { poiId: spec.id }));
     }
   }
   return out;

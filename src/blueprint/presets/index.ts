@@ -324,8 +324,8 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
   // CIVIC_RULES.mill reservation; timber over a stone base, a tall cart door, a
   // wall vent reading as the wheel-housing gap, and its defining feature — a big
   // vertical WATERWHEEL on the stream (west) side, dipping into the millrace. The
-  // wheel, not height, is the silhouette. World placement should set the wheel `face`
-  // from the actual flow side; the preset defaults it to the hand-authored west flank.
+  // wheel, not height, is the silhouette. The preset authors the wheel on the west flank;
+  // placement rotates the WHOLE mill so that flank faces the real stream (wheelWaterOrientation).
   watermill: bp('watermill', {
     category: 'craft', era: 'medieval', footprint: { w: 2, h: 2 },
     materials: { walls: 'timber', roof: 'wood', ground: 'flagstone' },

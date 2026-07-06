@@ -31,6 +31,7 @@ import { blueprintEntity } from '@/blueprint/entity';
 import { toCollision } from '@/blueprint/compile/to-collision';
 import { toAnchors } from '@/blueprint/compile/to-anchors';
 import { orientationForFacing, rotateFootprint, rotateCell, type Orientation } from '@/blueprint/orientation';
+import { wheelWaterOrientation } from '@/blueprint/wheel-orientation';
 import { placeBarrier } from '@/world/place-barrier';
 import { barrierFootprintTiles, gatePoint, type PlacedBarrier } from '@/world/barrier';
 import { isBuilding as isBuildingEntity, tileBlockedByBuilding } from '@/world/building-collision';
@@ -374,9 +375,9 @@ export function placeSettlement(
   // Civic precincts (S5): reserve every civic tile against building placement —
   // props don't block via canPlaceIgnoringNature, so the fallback spiral would
   // otherwise drop a cottage on the well — and emit the well + graveyard as
-  // standing props. The mill stays a reservation only (a working watermill is a
-  // building, deferred to a later slice); any agent-registered civic without a
-  // known entity kind likewise reserves ground without yet emitting a prop.
+  // standing props. The mill emits as a working watermill building, oriented so its
+  // waterwheel dips into the adjacent stream (see the civic loop below); any
+  // agent-registered civic without a known entity kind reserves ground without a prop.
   // Only real settlements (with burgage lots) get civics — a lake / zero-count
   // POI stays empty.
   // S1: ONE settlement-local occupancy authority. Every producer (roads, civics,
@@ -440,8 +441,17 @@ export function placeSettlement(
       // (no rng). The mill is a workplace; well/graveyard are civic props.
       const presetName = CIVIC_PRESETS[c.type];
       if (!presetName) continue;   // agent-registered precinct with no art: ground only
-      const rb = synthesizeBlueprint(presetName, [], instSeed());
+      let rb = synthesizeBlueprint(presetName, [], instSeed());
       if (!rb) continue;
+      // The watermill's wheel must dip into the actual stream, not a hand-authored flank:
+      // rotate the WHOLE asset so its wheel face — and the wheel-housing vent with it — points
+      // at the nearest water, turning the door landward (the door→road pattern, applied to
+      // wheel→water). The 2×2 footprint is square, so the reservation + occupancy claims below
+      // are untouched by the turn.
+      if (c.type === 'mill') {
+        const o = wheelWaterOrientation(rb, c.x, c.y, (x, y) => WATER_TYPES.has(tiles[y]?.[x]?.type ?? ''));
+        if (o) rb = { ...rb, orientation: o };
+      }
       const civic = blueprintEntity(`${poi.id}_civic_${c.type}`, rb, c.x, c.y, { poiId: poi.id });
       civic.properties!.civic = c.type;
       const civicTags = c.type === 'mill' ? ['settlement', 'civic', 'workplace'] : ['settlement', 'civic'];
