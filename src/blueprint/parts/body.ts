@@ -219,7 +219,7 @@ export const bodyPartType: PartType = {
       if (p.params.parapet && ROOF_KIND[p.params.roof as string] === 'flat') {
         trims.push(...parapetPrims(p, eaveH, wallMatOf(ctx), wallWorkOf(ctx), ctx.palette?.walls));
       }
-      if (framed) trims.push(...framePrims(wings, baseCourse, frameOpenings(p)));
+      if (framed) trims.push(...framePrims(wings, baseCourse, frameOpenings(p), jetty));
     }
     return [building, ...trims];
   },

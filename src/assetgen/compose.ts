@@ -1,7 +1,7 @@
 // src/assetgen/compose.ts
 import type { Vec3, RGB, Mat, WorldFacet } from '@/assetgen/types';
 import {
-  solidBox, solidBoxYawed, solidCylinder, solidCone, solidPrism, solidEllipsoid,
+  solidBox, solidBoxYawed, solidBoxRot, solidCylinder, solidCone, solidPrism, solidEllipsoid,
   manifoldToFacets, buildingFacets, carveApertures, boreCylinder, cylindricalProjector,
 } from '@/assetgen/geometry/solids';
 import type { ApertureBox } from '@/assetgen/geometry/solids';
@@ -22,7 +22,7 @@ import { mToTiles } from '@/render/scale-contract';
 import type { Anchor, MountAnchorKind } from '@/world/anchors';
 
 export type Part =
-  | { prim: 'box'; at: Vec3; size: Vec3; material?: Mat; work?: string; finish?: string; tint?: RGB; apertures?: ApertureBox[]; yaw?: number }
+  | { prim: 'box'; at: Vec3; size: Vec3; material?: Mat; work?: string; finish?: string; tint?: RGB; apertures?: ApertureBox[]; yaw?: number; rot?: Vec3 }
   | { prim: 'cylinder'; center: [number, number]; baseZ: number; radius: number; height: number; material?: Mat; work?: string; finish?: string; tint?: RGB; apertures?: ApertureBox[] }
   | { prim: 'cone'; center: [number, number]; baseZ: number; radius: number; height: number; material?: Mat; finish?: string; tint?: RGB }
   | { prim: 'prism'; center: [number, number]; baseZ: number; radius: number; height: number; sides: number; material?: Mat; work?: string; finish?: string; tint?: RGB }
@@ -83,7 +83,7 @@ export interface StructureResult {
 async function partFacets(p: Part): Promise<{ facets: WorldFacet[]; anchors?: BuildingAnchors; linearAnchors?: LinearWorldAnchors }> {
   switch (p.prim) {
     case 'box': {
-      let s = await solidBoxYawed(p.at, p.size, p.yaw);
+      let s = p.rot ? await solidBoxRot(p.at, p.size, p.rot) : await solidBoxYawed(p.at, p.size, p.yaw);
       s = await carveApertures(s, p.apertures);
       return { facets: manifoldToFacets(s.getMesh(), p.material ?? 'stone', p.work, undefined, p.finish, p.tint) };
     }

@@ -154,6 +154,17 @@ export async function carveApertures(solid: Manifold, apertures: ApertureBox[] =
 
 export { solidBoxYawed };
 
+/** A solid box rotated by Euler `rot` (degrees, X/Y/Z) about its own centre — lets a member
+ *  tilt WITHIN a wall plane (a diagonal brace): rot about Y tilts a south/north-face box in
+ *  its x–z plane, rot about X tilts an east/west-face box in its y–z plane. rot≈0 is a no-op
+ *  (returns the plain box), so any box without `rot` is byte-identical to before. */
+export async function solidBoxRot(at: Vec3, size: Vec3, rot?: Vec3): Promise<Manifold> {
+  const box = await solidBox(at, size);
+  if (!rot || (!rot[0] && !rot[1] && !rot[2])) return box;
+  const c: Vec3 = [at[0] + size[0] / 2, at[1] + size[1] / 2, at[2] + size[2] / 2];
+  return box.translate([-c[0], -c[1], -c[2]]).rotate(rot).translate([c[0], c[1], c[2]]);
+}
+
 /** Bore a round vertical well of `depth` straight down from `topZ` at `center`, radius `radius`.
  *  Used for round roof oculi (the yurt's open toono). Pokes slightly past `topZ` for a clean lip. */
 export async function boreCylinder(solid: Manifold, center: Vec2, topZ: number, radius: number, depth: number): Promise<Manifold> {
