@@ -86,6 +86,9 @@ export interface CivicSite {
   type: string;                    // 'well' | 'graveyard' | 'mill' | agent-added
   x: number; y: number;            // footprint origin
   w: number; h: number;
+  /** For a mill seated flush against a stream: the flank the wheel faces (the water side), so
+   *  the executor orients the wheel INTO that exact bank instead of re-guessing nearest water. */
+  waterFace?: 'north' | 'south' | 'east' | 'west';
 }
 
 export interface SettlementPlan {
@@ -649,7 +652,47 @@ function waterWithin(x: number, y: number, w: number, h: number, tiles: Tile[][]
  * only where water is in range. Each footprint must sit on buildable ground,
  * off existing roads/market/lots/other civics. Writes `plan.civics`.
  */
-export function planCivics(plan: SettlementPlan, tiles: Tile[][], seed: number, greenSize = 0): CivicSite[] {
+/** A hydrology-tagged watermill site near this settlement (bank cell + the flank facing the
+ *  river). See `world/mill-site-store.ts`. */
+export interface MillSiteHint { x: number; y: number; face: 'north' | 'south' | 'east' | 'west'; }
+
+/** Mill placement inputs for the civic pass: the tagged sites near this settlement (nearest
+ *  first) plus the "does this cell RENDER as water" predicate (the same source the tags were
+ *  derived from), so the seated footprint's wheel dips into water the player actually sees. */
+export interface MillPlacement { hints: MillSiteHint[]; isWater: (x: number, y: number) => boolean; }
+
+/** The cell the WHEEL actually dips into — just beyond the CENTRE of `face` (the point
+ *  `waterwheelPartType` hangs the wheel, so this matches where it renders) — is water. */
+function wheelCellWet(x: number, y: number, w: number, h: number, face: MillSiteHint['face'], isWater: (x: number, y: number) => boolean): boolean {
+  const cx = x + w / 2, cy = y + h / 2;
+  const [fx, fy] = face === 'west' ? [-1, 0] : face === 'east' ? [1, 0] : face === 'north' ? [0, -1] : [0, 1];
+  const wx = Math.floor(cx + fx * (w / 2 + 0.5));
+  const wy = Math.floor(cy + fy * (h / 2 + 0.5));
+  return isWater(wx, wy);
+}
+
+/** Seat a mill footprint so its wheel-face edge sits on the tagged bank cell and the wheel dips
+ *  into the river beyond it. Tries the two footprints that put the bank cell on that edge, slid
+ *  ±1 along the bank; returns the first that fits dry buildable ground with a wet wheel cell. */
+function millFootprintForHint(
+  hint: MillSiteHint, w: number, h: number, isWater: (x: number, y: number) => boolean,
+  fits: (x: number, y: number, w: number, h: number) => boolean,
+): CivicSite | null {
+  const { x: hx, y: hy, face } = hint;
+  const origins: Array<[number, number]> = [];
+  for (const s of [0, -1, 1]) {
+    if (face === 'west') origins.push([hx, hy + s], [hx, hy - 1 + s]);
+    else if (face === 'east') origins.push([hx - w + 1, hy + s], [hx - w + 1, hy - 1 + s]);
+    else if (face === 'north') origins.push([hx + s, hy], [hx - 1 + s, hy]);
+    else origins.push([hx + s, hy - h + 1], [hx - 1 + s, hy - h + 1]);   // south
+  }
+  for (const [ox, oy] of origins) {
+    if (fits(ox, oy, w, h) && wheelCellWet(ox, oy, w, h, face, isWater)) return { type: 'mill', x: ox, y: oy, w, h, waterFace: face };
+  }
+  return null;
+}
+
+export function planCivics(plan: SettlementPlan, tiles: Tile[][], seed: number, greenSize = 0, mill?: MillPlacement): CivicSite[] {
   void seed; // reserved for future dithered siting
   const { x: cx, y: cy } = plan.center;
 
@@ -744,9 +787,18 @@ export function planCivics(plan: SettlementPlan, tiles: Tile[][], seed: number, 
           }
         }
       }
+    } else if (type === 'mill' && mill !== undefined) {
+      // 'water' (mill), real gen: a working mill must sit FLUSH against a flowing stream so its
+      // wheel dips into real, rendered water. Seat the footprint on the nearest tagged wheel-scale
+      // river bank that admits a clean 2×2; try them nearest-first. FLUSH-OR-NOTHING — a settlement
+      // off any such stream simply gets no watermill (better than a wheel turning on dry grass).
+      for (const hint of mill.hints) {
+        best = millFootprintForHint(hint, w, h, mill.isWater, fits);
+        if (best) break;
+      }
     } else {
-      // 'water': closest buildable footprint to the centre that still touches
-      // water within range — no water in range ⇒ no mill (mills need a stream).
+      // 'water', map-less fallback (legacy/test callers with no hydrology tags): the closest
+      // buildable footprint merely NEAR any water — no water in range ⇒ no mill.
       let bestD = Infinity;
       for (let y = cy - extent; y <= cy + extent; y++) {
         for (let x = cx - extent; x <= cx + extent; x++) {

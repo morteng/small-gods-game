@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { synthesizeBlueprint } from '@/blueprint/presets';
 import { ensureBuildingTypesRegistered } from '@/blueprint/register-buildings';
-import { wheelWaterOrientation } from '@/blueprint/wheel-orientation';
+import { wheelWaterOrientation, wheelOrientationForFace } from '@/blueprint/wheel-orientation';
 import { rotateFacing } from '@/blueprint/orientation';
 
 // The watermill authors its wheel on the WEST flank; wheelWaterOrientation should rotate the
@@ -49,5 +49,20 @@ describe('wheelWaterOrientation', () => {
     const cottage = synthesizeBlueprint('cottage');
     expect(cottage).toBeTruthy();
     expect(wheelWaterOrientation(cottage!, 10, 10, () => true)).toBeNull();
+  });
+
+  // wheelOrientationForFace — deterministic turn to a KNOWN water flank (a tagged mill site).
+  describe('wheelOrientationForFace', () => {
+    it('turns the west wheel to each known flank', () => {
+      expect(wheelOrientationForFace(mill(), 'east')).toBe(2);
+      expect(wheelOrientationForFace(mill(), 'south')).toBe(3);
+      expect(wheelOrientationForFace(mill(), 'north')).toBe(1);
+    });
+    it('no-ops (null) when the wheel already faces that flank (west)', () => {
+      expect(wheelOrientationForFace(mill(), 'west')).toBeNull();
+    });
+    it('returns null for a blueprint with no waterwheel', () => {
+      expect(wheelOrientationForFace(synthesizeBlueprint('cottage')!, 'east')).toBeNull();
+    });
   });
 });

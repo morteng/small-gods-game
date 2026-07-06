@@ -321,20 +321,25 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
     parts: { body: { type: 'body', size: { w: 2, h: 2 }, params: { plan: 'rect', levels: 1, storeyM: 3.2, roof: 'hip' }, tags: [GEN_OPENINGS_TAG] } },
   }),
   // Watermill: a working civic building beside the stream (S6). 2×2 to match the
-  // CIVIC_RULES.mill reservation; timber over a stone base, a tall cart door, a
-  // wall vent reading as the wheel-housing gap, and its defining feature — a big
-  // vertical WATERWHEEL on the stream (west) side, dipping into the millrace. The
-  // wheel, not height, is the silhouette. The preset authors the wheel on the west flank;
-  // placement rotates the WHOLE mill so that flank faces the real stream (wheelWaterOrientation).
+  // CIVIC_RULES.mill reservation. A wet mill is built STONE up to (at least) the wheel-storey —
+  // the load-bearing, splash-battered lower half — with a timber upper floor over it (the
+  // universal water-mill anatomy: stone wheel-pit + ground storey, weatherboard loft). So it's
+  // a 2-storey body, walls timber but a FULL-STOREY stone `baseCourse` (the undercroft reads
+  // as masonry, the loft as boarding). Its defining feature is the big vertical WATERWHEEL on
+  // the stream (west) side, dipping into the millrace. The preset authors the wheel on the west
+  // flank; placement rotates the WHOLE mill so that flank faces the real stream, carves the race
+  // + wheel-pit, and sinks the wheel into the water (wheelWaterOrientation + the mill-race carve).
   watermill: bp('watermill', {
     category: 'craft', era: 'medieval', footprint: { w: 2, h: 2 },
     materials: { walls: 'timber', roof: 'wood', ground: 'flagstone' },
-    palette: { walls: 'tar' },        // pitch-sealed mill timber against the splash
+    palette: { walls: 'tar' },        // pitch-sealed weatherboard loft against the splash
     parts: {
       body: {
         // Door + windows DERIVED (gen-openings); the wheel-housing gap on the stream side
         // stays a hand-authored override — the hybrid: generative base + a custom detail.
-        type: 'body', size: { w: 2, h: 2 }, params: { plan: 'rect', levels: 1, storeyM: 3.2, roof: 'gable' },
+        // levels 2 + a full-storey (1.35 tile) stone baseCourse ⇒ stone ground floor, timber loft.
+        type: 'body', size: { w: 2, h: 2 },
+        params: { plan: 'rect', levels: 2, roof: 'gable', baseCourse: 1.35 },
         tags: [GEN_OPENINGS_TAG],
         features: {
           vent_w: { type: 'window', face: 'west', params: { t: 0.5, width: 0.1, height: 0.5, sill: 0.4, glazed: false } },
@@ -342,7 +347,7 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
       },
       wheel: {
         type: 'waterwheel', at: { x: 0, y: 0 }, size: { w: 2, h: 2 },
-        params: { face: 'west', radius: 1.3 },
+        params: { face: 'west', radius: 1.3, submerge: 0.38 },
       },
     },
   }),

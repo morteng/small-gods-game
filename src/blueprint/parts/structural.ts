@@ -109,6 +109,8 @@ export const waterwheelPartType: PartType = {
     radius: { kind: 'number', min: 0.8, max: 4, default: 1.3 },
     spokes: { kind: 'number', min: 4, max: 16, default: 8 },
     paddles: { kind: 'number', min: 6, max: 24, default: 12 },
+    submerge: { kind: 'number', min: 0, max: 1.5, default: 0.1,
+      doc: 'tiles the wheel bottom sinks below the ground/waterline (dips into the millrace)' },
   },
   resolve: (part) => ({ params: { ...(part.params ?? {}) } }),
   toPrims(p): Prim[] {
@@ -117,9 +119,13 @@ export const waterwheelPartType: PartType = {
     const width = Math.max(0.4, radius * 0.5);
     const spokes = (p.params.spokes as number) ?? 8;
     const paddles = (p.params.paddles as number) ?? 12;
+    const submerge = (p.params.submerge as number) ?? 0.1;
     const { x, y } = p.at, { w, h } = p.size;
     const gap = width / 2 + 0.1;              // stand the wheel just clear of the wall
-    const cz = radius * 0.92;                 // hub height so the wheel's bottom dips to ~ground/water
+    // Hub height sets how deep the bottom arc dips below z=0 (the ground / water surface): the
+    // wheel's lowest point sits at cz − radius, so cz = radius − submerge puts it `submerge`
+    // tiles under the waterline — the paddles catch the race while the axle stays dry.
+    const cz = radius - submerge;
     // Axle axis = the axis of the face normal (east/west ⇒ x; south/north ⇒ y); the wheel plane is
     // parallel to the wall. Hub centred on the wall run, hanging outside it.
     let cx: number, cy: number, axis: 'x' | 'y';

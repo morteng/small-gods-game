@@ -31,7 +31,7 @@ import { blueprintEntity } from '@/blueprint/entity';
 import { toCollision } from '@/blueprint/compile/to-collision';
 import { toAnchors } from '@/blueprint/compile/to-anchors';
 import { orientationForFacing, rotateFootprint, rotateCell, type Orientation } from '@/blueprint/orientation';
-import { wheelWaterOrientation } from '@/blueprint/wheel-orientation';
+import { wheelWaterOrientation, wheelOrientationForFace } from '@/blueprint/wheel-orientation';
 import { placeBarrier } from '@/world/place-barrier';
 import { barrierFootprintTiles, gatePoint, type PlacedBarrier } from '@/world/barrier';
 import { isBuilding as isBuildingEntity, tileBlockedByBuilding } from '@/world/building-collision';
@@ -42,8 +42,10 @@ import { heightMetresAt } from '@/world/heightfield';
 import {
   planSettlement, orderedSlotsFor, subdivideLots, widenMarket, assignWards, planCivics,
   WATER_TYPES, BUILDABLE_TERRAIN, SITE_RULES,
-  type SettlementPlan, type Lot, type FrontageSlot,
+  type SettlementPlan, type Lot, type FrontageSlot, type MillPlacement,
 } from './settlement-plan';
+import { getMillSites, millSitesNear } from './mill-site-store';
+import { buildRenderWaterTypeMemo } from '@/render/gpu/render-water-mask';
 
 import { computeSettlementParcels } from './settlement-parcels';
 
@@ -370,7 +372,21 @@ export function placeSettlement(
   // a central open green; a hamlet stays dense. Bigger settlements get a bigger
   // common. The green is a connectome-placed "mini biome" of tended meadow.
   const greenSize = buildingCount >= 4 ? (buildingCount >= 12 ? 4 : 3) : 0;
-  planCivics(plan, tiles, worldSeed, greenSize);
+  // A watermill needs a flowing stream at its wheel: the hydrology tags wheel-scale river banks
+  // (getMillSites, keyed to the RENDER water). Hand planCivics the tags near this settlement
+  // (nearest first) + the render-water predicate so it can seat the mill flush against water the
+  // player sees — trying several, since not every bank cell admits a clean 2×2. No map
+  // (legacy/test callers) ⇒ planCivics keeps its tile-scan fallback.
+  let mill: MillPlacement | undefined;
+  if (map) {
+    const renderWT = buildRenderWaterTypeMemo(map);
+    const isWater = (x: number, y: number): boolean =>
+      x >= 0 && y >= 0 && x < map.width && y < map.height && renderWT[y * map.width + x] !== 0;
+    const hints = millSitesNear(getMillSites(map), cx, cy, radius + 12)
+      .map(s => ({ x: s.x, y: s.y, face: s.waterFace }));
+    mill = { hints, isWater };
+  }
+  planCivics(plan, tiles, worldSeed, greenSize, mill);
 
   // Civic precincts (S5): reserve every civic tile against building placement —
   // props don't block via canPlaceIgnoringNature, so the fallback spiral would
@@ -443,13 +459,16 @@ export function placeSettlement(
       if (!presetName) continue;   // agent-registered precinct with no art: ground only
       let rb = synthesizeBlueprint(presetName, [], instSeed());
       if (!rb) continue;
-      // The watermill's wheel must dip into the actual stream, not a hand-authored flank:
-      // rotate the WHOLE asset so its wheel face — and the wheel-housing vent with it — points
-      // at the nearest water, turning the door landward (the door→road pattern, applied to
-      // wheel→water). The 2×2 footprint is square, so the reservation + occupancy claims below
-      // are untouched by the turn.
+      // The watermill's wheel must dip into the actual stream, not a hand-authored flank: rotate
+      // the WHOLE asset so its wheel face — and the wheel-housing vent with it — points at the
+      // water, turning the door landward (the door→road pattern, applied to wheel→water). A mill
+      // seated on a tagged bank carries the resolved `waterFace`, so orient into exactly that
+      // flank; otherwise (map-less fallback) scan for the nearest water. Square 2×2 ⇒ the
+      // reservation + occupancy claims below are untouched by the turn.
       if (c.type === 'mill') {
-        const o = wheelWaterOrientation(rb, c.x, c.y, (x, y) => WATER_TYPES.has(tiles[y]?.[x]?.type ?? ''));
+        const o = c.waterFace
+          ? wheelOrientationForFace(rb, c.waterFace)
+          : wheelWaterOrientation(rb, c.x, c.y, (x, y) => WATER_TYPES.has(tiles[y]?.[x]?.type ?? ''));
         if (o) rb = { ...rb, orientation: o };
       }
       const civic = blueprintEntity(`${poi.id}_civic_${c.type}`, rb, c.x, c.y, { poiId: poi.id });

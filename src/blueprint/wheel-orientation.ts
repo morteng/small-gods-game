@@ -53,3 +53,18 @@ export function wheelWaterOrientation(
   const o = orientationForFacing(canon[0], canon[1], best[0], best[1]);
   return o === 0 ? null : o;   // present ONLY when non-zero (keeps the art-cache key stable)
 }
+
+/**
+ * The orientation that turns the wheel to a KNOWN water flank (`face`). Use when placement has
+ * already resolved which side the stream is on (a tagged mill site) — deterministic, no scan, so
+ * the wheel dips into exactly the bank the footprint was seated against. Null when there's no
+ * waterwheel or the wheel already faces `face` at orientation 0.
+ */
+export function wheelOrientationForFace(rb: ResolvedBlueprint, face: WallFace): Orientation | null {
+  const wheel = rb.parts.find(p => p.type === 'waterwheel');
+  if (!wheel) return null;
+  const canon = FACE_VEC[(wheel.params.face as WallFace) ?? 'west'] ?? FACE_VEC.west;
+  const t = FACE_VEC[face];
+  const o = orientationForFacing(canon[0], canon[1], t[0], t[1]);
+  return o === 0 ? null : o;
+}
