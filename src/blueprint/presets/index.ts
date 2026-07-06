@@ -443,22 +443,20 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
   }),
   // Parish church (S2): the village's SACRED focus. A tall gabled stone NAVE lit by
   // arched windows ranked down its flanks (church-axial gen-openings keeps the entrance
-  // front clear), with a square WEST TOWER carrying a broach spire that rises clear above
-  // the ridge. No hearth, no smoke. Distinct from temple_small (a single classical cella)
-  // and shrine (a single cell); matches the primed `parish-church` buildingType.
+  // front clear). Its WEST TOWER + broach spire is GENERATIVE, not hand-placed: the
+  // church-axial connectome (worship zone + single entrance) crowns the entrance gable with
+  // a centred square west tower carrying a 4-sided broach spire (`to-blueprint.ts` spire
+  // feature → `solids.ts` spire vent), and braces the masonry span on stepped buttresses.
+  // No hearth, no smoke. Distinct from temple_small (a single classical cella) and shrine
+  // (a single cell); matches the primed `parish-church` buildingType.
   'parish-church': bp('parish-church', {
     category: 'religious', era: 'medieval', footprint: { w: 3, h: 6 },
     materials: { walls: 'stone', roof: 'slate', ground: 'flagstone' },
     parts: {
       nave: {
-        type: 'body', at: { x: 0, y: 2 }, size: { w: 3, h: 4 },
+        type: 'body', at: { x: 0, y: 0 }, size: { w: 3, h: 6 },
         params: { plan: 'rect', levels: 1, storeyM: 6.0, roof: 'gable' },
         tags: [GEN_OPENINGS_TAG],
-      },
-      // West tower + tall broach spire (the `tower` structural part's first real consumer).
-      tower: {
-        type: 'tower', at: { x: 0, y: 0 }, size: { w: 2, h: 2 },
-        params: { levels: 5, shape: 'square', roof: 'pyramidal', spire: 4 },
       },
     },
   }),

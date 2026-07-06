@@ -13,9 +13,9 @@ import { mToTiles } from '@/render/scale-contract';
 
 /** Buttress proportions (tiles; 1 tile = 2 m). A two-stage pier: the lower stage is
  *  deeper, the upper sets back — the classic weathered offset. */
-const BUTTRESS_W = 0.24;          // width along the wall
-const LOWER_D = 0.30, UPPER_D = 0.18;  // projection from the wall plane
-const LOWER_H_FRAC = 0.55, UPPER_H_FRAC = 0.88;  // stage tops as fractions of eave height
+const BUTTRESS_W = 0.42;          // width along the wall — a chunky stone pier, not a thin stick
+const LOWER_D = 0.46, UPPER_D = 0.28;  // bold projection from the wall plane (weathered set-off)
+const LOWER_H_FRAC = 0.62, UPPER_H_FRAC = 0.9;  // stage tops as fractions of eave height (tall piers)
 
 /** One two-stage buttress at wall position (x, y), projecting outward (ox, oy). */
 function buttress(x: number, y: number, ox: number, oy: number, eaveH: number, mat: Mat, work?: string, finish?: string): Prim[] {

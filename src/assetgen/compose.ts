@@ -1,7 +1,7 @@
 // src/assetgen/compose.ts
 import type { Vec3, RGB, Mat, WorldFacet } from '@/assetgen/types';
 import {
-  solidBox, solidBoxYawed, solidBoxRot, solidCylinder, solidCone, solidPrism, solidEllipsoid,
+  solidBox, solidBoxYawed, solidBoxRot, solidCylinder, solidCone, solidPrism, solidPyramid, solidEllipsoid,
   manifoldToFacets, buildingFacets, carveApertures, boreCylinder, cylindricalProjector,
 } from '@/assetgen/geometry/solids';
 import type { ApertureBox } from '@/assetgen/geometry/solids';
@@ -26,6 +26,7 @@ export type Part =
   | { prim: 'cylinder'; center: [number, number]; baseZ: number; radius: number; height: number; material?: Mat; work?: string; finish?: string; tint?: RGB; apertures?: ApertureBox[] }
   | { prim: 'cone'; center: [number, number]; baseZ: number; radius: number; height: number; material?: Mat; finish?: string; tint?: RGB }
   | { prim: 'prism'; center: [number, number]; baseZ: number; radius: number; height: number; sides: number; material?: Mat; work?: string; finish?: string; tint?: RGB }
+  | { prim: 'pyramid'; center: [number, number]; baseZ: number; halfW: number; halfH: number; height: number; material?: Mat; work?: string; finish?: string; tint?: RGB }
   | { prim: 'ellipsoid'; center: [number, number]; baseZ: number; radii: Vec3; material?: Mat; bore?: { radius: number; depth: number } }
   | { prim: 'arch'; at: Vec3; span: number; height: number; thickness: number; yaw?: number; material?: Mat; work?: string; style?: ArchStyle; ringDepth?: number; springZ?: number }
   | { prim: 'column'; center: [number, number]; baseZ?: number; shape?: ColumnShape; sides?: number; radius: number; topRadius?: number; height: number; base?: ColumnBand | null; capital?: ColumnBand | null; material?: Mat; work?: string }
@@ -94,6 +95,7 @@ async function partFacets(p: Part): Promise<{ facets: WorldFacet[]; anchors?: Bu
     }
     case 'cone':      return { facets: manifoldToFacets((await solidCone(p.center, p.baseZ, 0, p.radius, p.height)).getMesh(), p.material ?? 'foliage', undefined, cylindricalProjector(p.center, p.radius), p.finish, p.tint) };
     case 'prism':     return { facets: manifoldToFacets((await solidPrism(p.center, p.baseZ, p.radius, p.height, p.sides)).getMesh(), p.material ?? 'stone', p.work, cylindricalProjector(p.center, p.radius), p.finish, p.tint) };
+    case 'pyramid':   return { facets: manifoldToFacets((await solidPyramid(p.center, p.baseZ, p.halfW, p.halfH, p.height)).getMesh(), p.material ?? 'stone', p.work, undefined, p.finish, p.tint) };
     case 'ellipsoid': {
       let s = await solidEllipsoid(p.center, p.baseZ, p.radii);
       if (p.bore) s = await boreCylinder(s, p.center, p.baseZ + 2 * p.radii[2], p.bore.radius, p.bore.depth);

@@ -94,6 +94,21 @@ export async function solidPrism(center: Vec2, baseZ: number, radius: number, he
   return Manifold.cylinder(height, radius, radius, sides).translate([center[0], center[1], baseZ]);
 }
 
+/** Rectangular pyramid over an axis-aligned footprint: a `2·halfW × 2·halfH` base centred at
+ *  (cx,cy,baseZ), tapering to an apex at (cx,cy,baseZ+height). A true 4-sided taper (NOT a round
+ *  cone) — the correct spire/roof for a SQUARE tower, whose four base edges meet the square wall
+ *  top flush (a cone leaves the corners exposed). Built from a unit 4-gon cone rotated 45° so its
+ *  base vertices land on the axis-aligned corners, then scaled to the footprint. */
+export async function solidPyramid(center: Vec2, baseZ: number, halfW: number, halfH: number, height: number): Promise<Manifold> {
+  const { Manifold } = await getManifold();
+  // cylinder(h, rBase, rTop=0, 4) → square-base pyramid; base verts at radius √½ sit at angles
+  // 0/90/180/270, so a 45° spin lands them on (±½,±½) — the unit square. Scale to [w,h,height].
+  return Manifold.cylinder(1, Math.SQRT1_2, 0, 4)
+    .rotate([0, 0, 45])
+    .scale([2 * halfW, 2 * halfH, height])
+    .translate([center[0], center[1], baseZ]);
+}
+
 /** Ellipsoid centred at (cx,cy,baseZ+rz), radii [rx,ry,rz]. */
 export async function solidEllipsoid(center: Vec2, baseZ: number, radii: Vec3): Promise<Manifold> {
   const { Manifold } = await getManifold();
@@ -734,7 +749,9 @@ async function ventSolid(
     const shaftTop = wallTop + rise + protrude * (tower ? 0.7 : 0.45);   // clears the ridge
     const capH = protrude * 0.6 + 0.4;                    // tall pointed broach cap
     let solid = await solidBox([scx - half, scy - half, baseZ], [cw, cw, shaftTop - baseZ]);
-    solid = solid.add(await solidCone([scx, scy], shaftTop, 0, cw * 0.62, capH));
+    // A 4-sided PYRAMID broach spire covering the square shaft top — flush to the walls (a
+    // round cone would leave the four corners of a masonry tower poking up as a bucket rim).
+    solid = solid.add(await solidPyramid([scx, scy], shaftTop, half, half, capH));
     return { solid, anchor: [scx, scy, shaftTop + capH], mat };
   }
 

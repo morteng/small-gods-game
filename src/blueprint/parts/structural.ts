@@ -52,7 +52,14 @@ export const towerPartType: PartType = {
     const out: Prim[] = [{ prim: 'box', at: [p.at.x, p.at.y, 0], size: [p.size.w, p.size.h, h], material: wallMat, work: wallWork, ...wallFinish }];
     if (p.params.roof !== 'flat') {
       const cx = p.at.x + p.size.w / 2, cy = p.at.y + p.size.h / 2, r = Math.min(p.size.w, p.size.h) / 2;
-      out.push({ prim: 'cone', center: [cx, cy], baseZ: h, radius: r, height: r * spireMul, material: roofMat });
+      // A SQUARE tower wants a 4-sided PYRAMID that covers the whole top (base edges flush with
+      // the walls); a bare `cone` leaves the four corners poking up as a bucket-collar. Only an
+      // explicit `conical` roof gets a round cone. Both spring from z=h; height = r·spire.
+      if (p.params.roof === 'conical') {
+        out.push({ prim: 'cone', center: [cx, cy], baseZ: h, radius: r, height: r * spireMul, material: roofMat });
+      } else {
+        out.push({ prim: 'pyramid', center: [cx, cy], baseZ: h, halfW: p.size.w / 2, halfH: p.size.h / 2, height: r * spireMul, material: roofMat });
+      }
     } else if (battlement) {
       out.push(...parapetPrims(p, h, wallMat, wallWork, ctx.palette?.walls));
     }
