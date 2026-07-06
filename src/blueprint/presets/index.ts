@@ -322,21 +322,29 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
   }),
   // Watermill: a working civic building beside the stream (S6). 2×2 to match the
   // CIVIC_RULES.mill reservation; timber over a stone base, a tall cart door, a
-  // wall vent reading as the wheel-housing gap. No upper storey — the wheel, not
-  // height, is the silhouette (the wheel itself awaits the separable-parts slice).
+  // wall vent reading as the wheel-housing gap, and its defining feature — a big
+  // vertical WATERWHEEL on the stream (west) side, dipping into the millrace. The
+  // wheel, not height, is the silhouette. World placement should set the wheel `face`
+  // from the actual flow side; the preset defaults it to the hand-authored west flank.
   watermill: bp('watermill', {
     category: 'craft', era: 'medieval', footprint: { w: 2, h: 2 },
     materials: { walls: 'timber', roof: 'wood', ground: 'flagstone' },
     palette: { walls: 'tar' },        // pitch-sealed mill timber against the splash
-    parts: { body: {
-      // Door + windows DERIVED (gen-openings); the wheel-housing gap on the stream side
-      // stays a hand-authored override — the hybrid: generative base + a custom detail.
-      type: 'body', size: { w: 2, h: 2 }, params: { plan: 'rect', levels: 1, storeyM: 3.2, roof: 'gable' },
-      tags: [GEN_OPENINGS_TAG],
-      features: {
-        vent_w: { type: 'window', face: 'west', params: { t: 0.5, width: 0.1, height: 0.5, sill: 0.4, glazed: false } },
+    parts: {
+      body: {
+        // Door + windows DERIVED (gen-openings); the wheel-housing gap on the stream side
+        // stays a hand-authored override — the hybrid: generative base + a custom detail.
+        type: 'body', size: { w: 2, h: 2 }, params: { plan: 'rect', levels: 1, storeyM: 3.2, roof: 'gable' },
+        tags: [GEN_OPENINGS_TAG],
+        features: {
+          vent_w: { type: 'window', face: 'west', params: { t: 0.5, width: 0.1, height: 0.5, sill: 0.4, glazed: false } },
+        },
       },
-    } },
+      wheel: {
+        type: 'waterwheel', at: { x: 0, y: 0 }, size: { w: 2, h: 2 },
+        params: { face: 'west', radius: 1.3 },
+      },
+    },
   }),
   // Civic props (NOT buildings — class:'prop'). The same generate→sprite pipeline:
   // a stone well on the green, a graveyard on the settlement rim (sacred).

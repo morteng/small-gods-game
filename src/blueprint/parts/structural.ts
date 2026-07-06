@@ -2,6 +2,7 @@
 // Additive structural parts: tower, porch, chimney. Each emits standalone prims the
 // geometry compiler unions alongside the body's building prim.
 import type { PartType, CompileCtx } from '../registry';
+import type { WallFace } from '../types';
 import type { Part as Prim } from '@/assetgen/compose';
 import { STOREY } from '@/assetgen/geometry/building';
 import { merlonsAroundRing } from '@/assetgen/geometry/tower-spec';
@@ -94,4 +95,43 @@ export const chimneyPartType: PartType = {
   toCollision: () => [],         // a chimney rides the roof; it blocks no ground cell
   toAnchors: () => [],
   toBrief: () => 'chimney',
+};
+
+// A working WATERWHEEL mounted on one wall of the mill, hanging OUTSIDE it so its lower arc dips
+// into the millrace. `face` is the stream side (the wall touching the water); world placement
+// should set it from the actual flow (per-tile flowDir) — the preset default is a sensible side.
+// The wheel plane sits parallel to that wall; the axle runs into the building. Static silhouette
+// only (a spinning wheel is a render-time overlay, not baked into the sprite).
+export const waterwheelPartType: PartType = {
+  type: 'waterwheel',
+  paramSchema: {
+    face: { kind: 'enum', values: ['south', 'north', 'east', 'west'], default: 'south' },
+    radius: { kind: 'number', min: 0.8, max: 4, default: 1.3 },
+    spokes: { kind: 'number', min: 4, max: 16, default: 8 },
+    paddles: { kind: 'number', min: 6, max: 24, default: 12 },
+  },
+  resolve: (part) => ({ params: { ...(part.params ?? {}) } }),
+  toPrims(p): Prim[] {
+    const face = (p.params.face as WallFace) ?? 'south';
+    const radius = (p.params.radius as number) ?? 1.3;
+    const width = Math.max(0.4, radius * 0.5);
+    const spokes = (p.params.spokes as number) ?? 8;
+    const paddles = (p.params.paddles as number) ?? 12;
+    const { x, y } = p.at, { w, h } = p.size;
+    const gap = width / 2 + 0.1;              // stand the wheel just clear of the wall
+    const cz = radius * 0.92;                 // hub height so the wheel's bottom dips to ~ground/water
+    // Axle axis = the axis of the face normal (east/west ⇒ x; south/north ⇒ y); the wheel plane is
+    // parallel to the wall. Hub centred on the wall run, hanging outside it.
+    let cx: number, cy: number, axis: 'x' | 'y';
+    switch (face) {
+      case 'north': cx = x + w / 2; cy = y - gap;     axis = 'y'; break;
+      case 'east':  cx = x + w + gap; cy = y + h / 2; axis = 'x'; break;
+      case 'west':  cx = x - gap;     cy = y + h / 2; axis = 'x'; break;
+      default:      cx = x + w / 2; cy = y + h + gap; axis = 'y'; break;   // south
+    }
+    return [{ prim: 'waterwheel', center: [cx, cy, cz], radius, width, axis, spokes, paddles, material: 'timber' }];
+  },
+  toCollision: () => [],
+  toAnchors: () => [],
+  toBrief: () => 'waterwheel',
 };

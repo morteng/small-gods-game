@@ -109,6 +109,66 @@ export async function solidPyramid(center: Vec2, baseZ: number, halfW: number, h
     .translate([center[0], center[1], baseZ]);
 }
 
+/** A vertical WATERWHEEL as one unioned timber solid, hub centred at `center`. It turns about a
+ *  horizontal axle along `axis` ('x' ⇒ the wheel faces east/west, its plane the y–z plane; 'y' ⇒
+ *  faces north/south). Two outer RIMS (annuli) joined by radial SPOKES to a central HUB + axle
+ *  stub, with PADDLE boards around the circumference. `radius`/`width` in tiles. Built canonically
+ *  with the axle along X, then turned to `axis` and moved to `center`. Rotation for a spinning
+ *  wheel is a RENDER-time concern (a per-frame overlay) — this is the static silhouette. */
+export async function solidWaterwheel(
+  center: Vec3, radius: number, width: number, axis: 'x' | 'y', spokes = 8, paddles = 12,
+): Promise<Manifold> {
+  const { Manifold } = await getManifold();
+  const segs = roundSegments(radius);
+  const rimD = Math.max(0.12, radius * 0.16);   // rim band radial depth
+  const rimT = Math.max(0.07, width * 0.16);    // each rim ring's axial thickness
+  const hubR = Math.max(0.14, radius * 0.18);
+  const half = width / 2;
+  const parts: Manifold[] = [];
+
+  // A thin ring (annulus) lying in the y–z plane at axial position x: a disk minus its core.
+  const ring = (x: number, outer: number, inner: number, thick: number): Manifold => {
+    const disk = Manifold.cylinder(thick, outer, outer, segs, true).rotate([0, 90, 0]).translate([x, 0, 0]);
+    const hole = Manifold.cylinder(thick + 0.2, inner, inner, segs, true).rotate([0, 90, 0]).translate([x, 0, 0]);
+    return disk.subtract(hole);
+  };
+
+  parts.push(ring(-half, radius, radius - rimD, rimT));   // the two outer rims
+  parts.push(ring(half, radius, radius - rimD, rimT));
+  parts.push(Manifold.cylinder(width * 0.55, hubR, hubR, segs, true).rotate([0, 90, 0]));            // hub boss
+  parts.push(Manifold.cylinder(width + hubR * 2, hubR * 0.45, hubR * 0.45, segs, true).rotate([0, 90, 0])); // axle stub
+
+  // Radial spokes hub→rim, one set in each rim plane.
+  const spokeThk = Math.max(0.05, hubR * 0.4), spokeW = Math.max(0.06, hubR * 0.5);
+  const spokeLen = radius - hubR * 0.5;
+  for (let i = 0; i < spokes; i++) {
+    const deg = (360 / spokes) * i;
+    for (const x of [-half, half]) {
+      parts.push(
+        Manifold.cube([spokeThk, spokeW, spokeLen], true)
+          .translate([0, 0, hubR * 0.5 + spokeLen / 2])   // base at the hub, tip at the rim
+          .rotate([deg, 0, 0])
+          .translate([x, 0, 0]),
+      );
+    }
+  }
+
+  // Paddle boards around the rim, spanning the full width, offset half a step from the spokes.
+  const padDepth = rimD * 1.6, padThk = Math.max(0.06, radius * 0.05);
+  for (let j = 0; j < paddles; j++) {
+    const deg = (360 / paddles) * (j + 0.5);
+    parts.push(
+      Manifold.cube([width * 1.02, padThk, padDepth], true)
+        .translate([0, 0, radius - padDepth * 0.35])
+        .rotate([deg, 0, 0]),
+    );
+  }
+
+  let wheel = Manifold.union(parts);
+  if (axis === 'y') wheel = wheel.rotate([0, 0, 90]);   // turn the axle from x to y
+  return wheel.translate(center);
+}
+
 /** Ellipsoid centred at (cx,cy,baseZ+rz), radii [rx,ry,rz]. */
 export async function solidEllipsoid(center: Vec2, baseZ: number, radii: Vec3): Promise<Manifold> {
   const { Manifold } = await getManifold();
@@ -726,11 +786,19 @@ async function ventSolid(
   // axis-mundi vertical marker of a sacred building, placed at fraction `t` along the ridge
   // (the sanctum end). Anchored at its tip for a future finial/cross.
   if (kind === 'spire') {
-    // A wide shaft is a WEST TOWER (grounded from z=0, rising past the ridge to a broach spire);
-    // a thin one is a ridge flèche (from the eave). Centred on the ridge cross-axis, at `t` along
-    // it — and CLAMPED so the tower stays within the gable footprint, never poking past the wall.
-    const tower = cw >= 1.0;
-    const half = cw / 2;
+    // Size the steeple to the building it crowns — NOT a fixed width. A long nave carries a
+    // grounded WEST TOWER (from z=0, rising past the ridge to a broach spire); a short cell (a
+    // wayside shrine) gets a slender ridge FLÈCHE from the ridge, never a fat tower swallowing
+    // the whole footprint. The shaft is a fraction of the GABLE cross-span, and `v.width` (from
+    // the connectome) is only an UPPER bound. Centred on the ridge cross-axis, at `t` along it —
+    // CLAMPED so the shaft stays within the gable footprint, never poking past the wall.
+    const crossSpan = ridge === 'x' ? top.h : top.w;   // gable width (⊥ the ridge)
+    const alongSpan = ridge === 'x' ? top.w : top.h;   // nave length (∥ the ridge)
+    const tower = alongSpan >= 4.5;                     // long enough to carry an end tower
+    const cwEff = tower
+      ? Math.max(0.9, Math.min(cw, crossSpan * 0.55))  // west tower: a real mass, ≤ 55% of the gable
+      : Math.min(cw, Math.max(0.4, crossSpan * 0.28)); // flèche: a slim marker spike
+    const half = cwEff / 2;
     // A west tower stands on the ENTRANCE GABLE: when the vent names a gable face (one
     // perpendicular to the ridge), snap the along-position to that end (t≈0.85/0.15) so the
     // tower is over the door, whichever way the ridge runs; else fall back to v.t.
@@ -747,8 +815,8 @@ async function ventSolid(
     const scy = ridge === 'x' ? top.y + ridgeCrossT(w) * top.h : alongClamp(top.y, top.h);
     const baseZ = tower ? 0 : wallTop;
     const shaftTop = wallTop + rise + protrude * (tower ? 0.7 : 0.45);   // clears the ridge
-    const capH = protrude * 0.6 + 0.4;                    // tall pointed broach cap
-    let solid = await solidBox([scx - half, scy - half, baseZ], [cw, cw, shaftTop - baseZ]);
+    const capH = protrude * (tower ? 0.6 : 0.5) + 0.4;    // tall pointed broach cap
+    let solid = await solidBox([scx - half, scy - half, baseZ], [cwEff, cwEff, shaftTop - baseZ]);
     // A 4-sided PYRAMID broach spire covering the square shaft top — flush to the walls (a
     // round cone would leave the four corners of a masonry tower poking up as a bucket rim).
     solid = solid.add(await solidPyramid([scx, scy], shaftTop, half, half, capH));

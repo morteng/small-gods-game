@@ -215,7 +215,12 @@ export const bodyPartType: PartType = {
     const trims: Prim[] = [];
     if (!cutaway) {
       const eaveH = storeys * storeyTiles;
-      if (p.params.buttress && plan === 'rect') trims.push(...buttressPrims(p, wallMatOf(ctx), eaveH, wallWorkOf(ctx), ctx.palette?.walls));
+      // Buttresses brace a real masonry SPAN — a long nave/tithe-barn. A small cell (a 2×2
+      // wayside shrine) needs none, and chunky piers on tiny walls read as clutter, so gate
+      // them to a footprint long enough to carry them (matches the west-tower size gate).
+      if (p.params.buttress && plan === 'rect' && Math.max(p.size.w, p.size.h) >= 4) {
+        trims.push(...buttressPrims(p, wallMatOf(ctx), eaveH, wallWorkOf(ctx), ctx.palette?.walls));
+      }
       if (p.params.parapet && ROOF_KIND[p.params.roof as string] === 'flat') {
         trims.push(...parapetPrims(p, eaveH, wallMatOf(ctx), wallWorkOf(ctx), ctx.palette?.walls));
       }
