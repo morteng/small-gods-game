@@ -99,8 +99,8 @@ function doorTrim(f: ResolvedFeature, s: ApertureSpec, host: ResolvedPart): Prim
   // Handle: a small knob on the latch (hinge-opposite) side, at waist height.
   if (p.handle !== false) {
     const hz = s.sill + s.height * 0.46;
-    const ha = p.hinge === 'left' ? a1 - 0.07 : a0 + 0.07;   // opposite the hinge
-    out.push(box(host, s.face, { a0: ha - 0.045, a1: ha + 0.045, z0: hz - 0.05, z1: hz + 0.05, o0: 0, o1: 0.09 }, 'metal'));
+    const ha = p.hinge === 'left' ? a1 - 0.06 : a0 + 0.06;   // opposite the hinge
+    out.push(box(host, s.face, { a0: ha - 0.026, a1: ha + 0.026, z0: hz - 0.03, z1: hz + 0.03, o0: 0, o1: 0.055 }, 'metal'));
     // Lock plate just below the handle.
     if (p.lock === true) out.push(box(host, s.face, { a0: ha - 0.05, a1: ha + 0.05, z0: hz - 0.20, z1: hz - 0.10, o0: 0, o1: 0.06 }, 'metal'));
   }

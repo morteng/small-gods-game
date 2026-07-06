@@ -26,7 +26,10 @@ import type { ResolvedBlueprint } from '../src/blueprint/types';
 import type { Mat } from '../src/assetgen/types';
 
 const REF = 'reference-library/tti';
-const TTI_MODEL = process.env.TTI_MODEL ?? BUILDING_IMAGE_MODEL;   // same model as img2img
+// Same model as the img2img pipeline by default (cheap klein). A pricier model
+// (google/gemini-2.5-flash-image) was ~marginal for our purpose, so override only when
+// wanted: TTI_MODEL=google/gemini-2.5-flash-image npx tsx scripts/tti-probe.ts …
+const TTI_MODEL = process.env.TTI_MODEL ?? BUILDING_IMAGE_MODEL;
 
 /** OPENROUTER_API_KEY from the env, else parsed out of a gitignored .env (never logged). */
 function apiKey(): string | undefined {
@@ -97,15 +100,19 @@ async function generateTti(apiKey: string, prompt: string, model: string): Promi
 async function main() {
   const argv = process.argv.slice(2);
   const go = argv.includes('--go');
+  // --prompt="…" overrides the auto-derived prompt (a hand-authored TARGET reference);
+  // --name=slug names the output folder for a custom prompt. Otherwise the preset drives both.
+  const override = argv.find(a => a.startsWith('--prompt='))?.slice('--prompt='.length);
+  const nameArg = argv.find(a => a.startsWith('--name='))?.slice('--name='.length);
   const presets = argv.filter(a => !a.startsWith('--'));
-  if (!presets.length) { console.error('usage: tti-probe.ts <preset…> [--go]'); process.exit(1); }
+  if (!presets.length) { console.error('usage: tti-probe.ts <preset…> [--go] [--prompt="…" --name=slug]'); process.exit(1); }
 
   for (const preset of presets) {
     const rb = synthesizeBlueprint(preset, [], 1);
     if (!rb) { console.error(`unknown preset: ${preset}`); continue; }
-    const dir = join(REF, preset);
+    const dir = join(REF, nameArg ?? preset);
     mkdirSync(dir, { recursive: true });
-    const prompt = ttiPrompt(rb);
+    const prompt = override ?? ttiPrompt(rb);
     console.log(`\n=== ${preset} — TTI prompt (${prompt.length} chars) ===\n${prompt}\n`);
     writeFileSync(join(dir, 'prompt.txt'), `model: ${TTI_MODEL}\n\n${prompt}\n`);
 

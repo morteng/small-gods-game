@@ -29,6 +29,9 @@ export interface Wing {
   /** Jetty: tiles each storey above the ground oversails the one below, toward the
    *  camera (the +x/+y street faces) — the classic jettied upper floor. Default 0. */
   jetty?: number;
+  /** Roof pitch override (ridge rise = pitch · half-span); falls back to the global
+   *  GABLE_PITCH. A lower value gives a shallower, less-tall gable. */
+  pitch?: number;
 }
 
 /** Cube-units of height per storey. One cube-unit = one tile = METRES_PER_TILE m. */

@@ -44,8 +44,10 @@ describe('assetgen golden hashes', () => {
     // v27 window/door trim: openings now carry a stone sill + head lintel + a timber mullion
     // grid (windows) and a stone threshold + metal handle (doors), so a cottage window reads
     // as a real window instead of a blank hole. New geometry ⇒ every channel hash moves.
+    // v27 (cont.) trim retune: window sills + door knob project half as far (SILL_PROUD/handle
+    // shrunk) — the cottage's projecting trim moves on all channels again.
     expect(fingerprint(r)).toEqual({
-      size: 322, grey: 'ca6686a5', normal: 'c693de28', material: '679eb58f', emissive: 'aaf2f98d',
+      size: 322, grey: 'b6c61dc4', normal: '64880444', material: '9c8b4ed3', emissive: 'e487ed02',
     });
   });
 

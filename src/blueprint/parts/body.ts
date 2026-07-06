@@ -4,12 +4,13 @@
 import type { Part, ResolvedPart } from '../types';
 import type { PartType, CompileCtx, ResolveCtx } from '../registry';
 import type { Mat } from '@/assetgen/types';
-import type { Wing, RoofKind } from '@/assetgen/geometry/building';
+import type { Wing, RoofKind, WallFace } from '@/assetgen/geometry/building';
 import { STOREY } from '@/assetgen/geometry/building';
 import { DOOR_HEIGHT_TILES, mToTiles } from '@/render/scale-contract';
 import type { Part as Prim } from '@/assetgen/compose';
 import type { Anchor } from '@/world/anchors';
 import { buttressPrims, parapetPrims } from './trim';
+import { framePrims, type FrameOpening } from './frame';
 
 export type Plan = 'rect' | 'round' | 'L' | 'cross' | 'stepped';
 
@@ -64,6 +65,26 @@ export function bodyWings(p: ResolvedPart): Array<{ x: number; y: number; w: num
     default:
       return [{ x: 0, y: 0, w, h }];
   }
+}
+
+/** The door/window openings on a rect body, in absolute part coords, so the timber frame can
+ *  break its rails/studs around them. Features arrive already resolved (halfW/height/sill
+ *  filled) and perStorey-expanded, so upper-floor windows are included. */
+function frameOpenings(p: ResolvedPart): FrameOpening[] {
+  const out: FrameOpening[] = [];
+  for (const f of p.features) {
+    if (f.type !== 'window' && f.type !== 'door') continue;
+    const face = (f.face ?? 'south') as WallFace;
+    const halfW = f.params.halfW as number;
+    const height = f.params.height as number;
+    if (!(halfW > 0) || !(height > 0)) continue;
+    const sill = (f.params.sill as number) ?? 0;   // a door has no sill param → sits on the ground
+    const t = (f.params.t as number) ?? 0.5;
+    const horiz = face === 'south' || face === 'north';
+    const c = horiz ? p.at.x + t * p.size.w : p.at.y + t * p.size.h;
+    out.push({ face, a0: c - halfW, a1: c + halfW, z0: sill, z1: sill + height });
+  }
+  return out;
 }
 
 function roundPrims(p: ResolvedPart, ctx: CompileCtx): Prim[] {
@@ -125,8 +146,12 @@ export const bodyPartType: PartType = {
     storeyM: { kind: 'number', min: 0.5, max: 12, default: -1, doc: 'metres per storey; -1 = the standard 2.7 m storey' },
     jetty: { kind: 'number', min: 0, max: 0.3, default: 0,
       doc: 'tiles each upper storey oversails toward the street (+x/+y) — the jettied townhouse cue; 0.12 ≈ 24 cm/storey' },
+    roofPitch: { kind: 'number', min: 0, max: 3, default: -1,
+      doc: 'gable pitch (ridge rise = pitch × half-span); -1 = the standard steep 1.5. Lower = shallower/less-tall roof (≈1.0 is a 45° roof)' },
     baseCourse: { kind: 'number', min: 0, max: 2, default: 0,
-      doc: 'height (tiles) of a stone base course at the wall foot (burgage undercroft under timber); 0 = none' },
+      doc: 'height (tiles) of a stone base course at the wall foot (burgage undercroft under timber, or a shallow plinth); 0 = none' },
+    frame: { kind: 'bool', default: false,
+      doc: 'exposed timber frame (half-timbering): render posts/rails/studs as raised timber over plaster infill panels (rect plan). The infill wall switches to plaster.' },
     cutaway: { kind: 'bool', default: false,
       doc: 'render roof-off + floor exposed (the interior-reveal geometry); false = closed building' },
     interior: { kind: 'any',
@@ -155,23 +180,30 @@ export const bodyPartType: PartType = {
     const storeyM = p.params.storeyM as number;
     const storeyTiles = storeyM > 0 ? mToTiles(storeyM) : STOREY;
     const jetty = (p.params.jetty as number) || 0;
+    const roofPitch = (p.params.roofPitch as number) ?? -1;
     const wings: Wing[] = bodyWings(p).map(r => ({
       x: r.x + p.at.x, y: r.y + p.at.y, w: r.w, h: r.h, storeys,
       storeyHeight: storeyTiles,
       roof: ROOF_KIND[p.params.roof as string] ?? 'gable',
       ...(jetty > 0 ? { jetty } : {}),
+      ...(roofPitch > 0 ? { pitch: roofPitch } : {}),
     }));
     // L3b: a stone undercroft base course (tiles) under the wall material, derived for bodies
     // with a sub-grade zone (see connectome/form) — the burgage townhouse's stone storey.
     const baseCourse = (p.params.baseCourse as number) || 0;
     // Interior I-1: a cutaway body (roof off, floor exposed) — the interior-view geometry.
     const cutaway = !!(p.params.cutaway as number | boolean | undefined);
+    // Exposed timber frame (half-timbering): the infill wall becomes PLASTER (cream panels)
+    // and the structural frame is rendered as raised timber trim over it. Rect plan only.
+    const framed = !cutaway && !!(p.params.frame) && plan === 'rect';
+    const wallMat = framed ? 'plaster' : wallMatOf(ctx);
+    const wallWork = framed ? undefined : wallWorkOf(ctx);
     // Interior I-3: the connectome-derived partition + funnel plan, only meaningful in a cutaway.
     const interior = p.params.interior as { partitions: number[]; floorDrop: number[]; screens?: boolean[]; levels?: number[] } | undefined;
     const building: Prim = {
       prim: 'building', wings,
-      wallMat: wallMatOf(ctx), roofMat: roofMatOf(ctx), roofStyle: 'gable',
-      wallWork: wallWorkOf(ctx), features: {}, seed: 0,
+      wallMat, roofMat: roofMatOf(ctx), roofStyle: 'gable',
+      wallWork, features: {}, seed: 0,
       ...(ctx.palette?.walls ? { wallFinish: ctx.palette.walls } : {}),
       ...(ctx.palette?.roof ? { roofFinish: ctx.palette.roof } : {}),
       ...(baseCourse > 0 ? { baseCourse } : {}),
@@ -187,6 +219,7 @@ export const bodyPartType: PartType = {
       if (p.params.parapet && ROOF_KIND[p.params.roof as string] === 'flat') {
         trims.push(...parapetPrims(p, eaveH, wallMatOf(ctx), wallWorkOf(ctx), ctx.palette?.walls));
       }
+      if (framed) trims.push(...framePrims(wings, baseCourse, frameOpenings(p)));
     }
     return [building, ...trims];
   },

@@ -171,6 +171,8 @@ export async function boreCylinder(solid: Manifold, center: Vec2, topZ: number, 
 // ridge/gable/chimney sockets at the SAME heights the geometry actually builds — keep the
 // two in lockstep (a divergence put the sprite tags below the real ridge, 2026-06-25).
 export const GABLE_PITCH = 1.5, HIP_PITCH = 1.35;
+/** A wing's gable pitch: its per-wing override, else the global default. */
+const pitchOf = (w: Wing): number => w.pitch ?? GABLE_PITCH;
 // Mono-pitch (shed / lean-to) slope: rise per unit of across-ridge RUN. A shallower
 // single plane than a gable's per-side slope — reads clearly as one-way without
 // towering. The high side stands `SHED_SLOPE · span` above the low eave.
@@ -567,10 +569,10 @@ async function wingRoof(w: Wing, style: RoofStyle, roofMat: Mat = 'tile'): Promi
   const ridge = ridgeAxisOf(w);
   const { eave, verge } = overhangOf(roofMat);
   const sprocket = (pitch: number, halfSpan: number) => sprocketFor(pitch, halfSpan, eave);
-  const wallRise = GABLE_PITCH * (crossSpan(top, ridge) / 2);   // ridge height above wall top
+  const wallRise = pitchOf(w) * (crossSpan(top, ridge) / 2);   // ridge height above wall top
 
   if (s === 'gable') {
-    const { drop, rePitch } = sprocket(GABLE_PITCH, crossSpan(top, ridge) / 2);
+    const { drop, rePitch } = sprocket(pitchOf(w), crossSpan(top, ridge) / 2);
     const g = grownRect(top, ridge, eave, verge);
     const rise = rePitch * (crossSpan(g, ridge) / 2);
     const roof = await gableSlabs(g, ridge, rise, b - drop);
@@ -633,7 +635,7 @@ function roofRise(w: Wing, style: RoofStyle): number {
   if (w.roof === 'mansard') return MANSARD_RISE_K * (span / 2);
   // gambrel/cross_gable share the gable ridge height by construction.
   const s = wingRoofStyle(w, style);
-  const pitch = s === 'hip' ? HIP_PITCH : GABLE_PITCH;
+  const pitch = s === 'hip' ? HIP_PITCH : pitchOf(w);
   return pitch * (span / 2);
 }
 

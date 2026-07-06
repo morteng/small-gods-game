@@ -190,7 +190,7 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
       // Massing (a jettied two-storey range) is DERIVED from the box frame (gen-form): the
       // box frame stacks a storey and oversails it. The authored levels/jetty here are the
       // fallback if gen-form is ever removed; the derived values take over at resolve.
-      type: 'body', size: { w: 3, h: 2 }, params: { plan: 'rect', levels: 2, roof: 'gable', jetty: 0.12 },
+      type: 'body', size: { w: 3, h: 2 }, params: { plan: 'rect', levels: 2, roof: 'gable', jetty: 0.12, baseCourse: 0.4, frame: true, roofPitch: 1.05 },
       tags: [GEN_FORM_TAG],
       features: {
         door: { type: 'door', face: 'south', params: { main: true, t: 0.5 } },

@@ -84,7 +84,8 @@ export const windowFeatureType: FeatureType = {
 // glazing bars over the pane) so a window READS as a window, not a blank dark hole. Flat
 // wall faces only — a round body's openings keep the bare recessed pane.
 const SILL_OVERHANG = 0.08;   // sill/lintel run this much wider than the opening, each side
-const SILL_PROUD = 0.13;      // how far the ledge projects out past the wall plane
+const SILL_PROUD = 0.065;     // how far the ledge projects out past the wall plane (a shallow ledge)
+const LINTEL_PROUD = 0.05;    // the head lintel projects a touch less than the sill
 const BAR_HALF = 0.028;       // half-thickness of a glazing bar
 
 function box(host: ResolvedPart, face: ApertureSpec['face'], sp: FaceSpan, material: Mat): Prim {
@@ -114,7 +115,7 @@ function windowTrim(s: ApertureSpec, host: ResolvedPart, lightsWide: number, lig
   }
   // A square head gets a stone lintel; an arched/lancet head keeps its carved curve clean.
   if (!s.arch) {
-    out.push(box(host, s.face, { a0: a0 - SILL_OVERHANG, a1: a1 + SILL_OVERHANG, z0: zTop - 0.03, z1: zTop + 0.10, o0: -0.06, o1: 0.10 }, 'stone'));
+    out.push(box(host, s.face, { a0: a0 - SILL_OVERHANG, a1: a1 + SILL_OVERHANG, z0: zTop - 0.03, z1: zTop + 0.08, o0: -0.06, o1: LINTEL_PROUD }, 'stone'));
   }
   return out;
 }
