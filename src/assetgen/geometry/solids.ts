@@ -775,7 +775,7 @@ async function ventSolid(
  */
 async function dormerSolids(
   w: Wing, d: DormerFeature, style: RoofStyle,
-): Promise<{ box: Manifold; cap: Manifold } | null> {
+): Promise<{ box: Manifold; cap: Manifold; recess: Manifold; glass: Manifold; bars: Manifold[] } | null> {
   const top = storeyRect(w, (w.storeys ?? 1) - 1);
   const wallTop = (w.storeys ?? 1) * (w.storeyHeight ?? STOREY);
   const rise = roofRise(w, style);
@@ -813,7 +813,31 @@ async function dormerSolids(
   }
   const box = await solidBox(at, size);
   const cap = await gablePrism(capRect, ridge === 'x' ? 'y' : 'x', GABLE_PITCH * 0.8, capBase);
-  return { box, cap };
+
+  // A recessed window on the dormer's camera-facing front face — REAL geometry, matching the
+  // wall windows: a dark glazed pane set into a shallow recess with a timber mullion cross.
+  // (The img2img pass that used to paint the dormer light is frozen, so it must be modelled.)
+  const winH = faceH * 0.6, winHalf = dw * 0.3;              // fits under the gable cap, inset from the sides
+  const zSill = zFront + faceH * 0.22, zMid = zSill + winH / 2;
+  const WREC = 0.13, GLASS_T = 0.04, BAR = 0.025, BO = 0.05; // recess depth, pane thickness, bar half-width/proud
+  let recess: Manifold, glass: Manifold;
+  const bars: Manifold[] = [];
+  if (ridge === 'x') {
+    const yF = at[1] + size[1];                             // +y (south) front face
+    recess = await solidBox([along - winHalf, yF - WREC, zSill], [2 * winHalf, WREC + 0.03, winH]);
+    glass = await solidBox([along - winHalf, yF - WREC, zSill], [2 * winHalf, GLASS_T, winH]);
+    const bz = yF - WREC + GLASS_T;                         // bars sit just proud of the glass
+    bars.push(await solidBox([along - BAR, bz, zSill], [2 * BAR, BO, winH]));                    // mullion
+    bars.push(await solidBox([along - winHalf, bz, zMid - BAR], [2 * winHalf, BO, 2 * BAR]));    // transom
+  } else {
+    const xF = at[0] + size[0];                             // +x (east) front face
+    recess = await solidBox([xF - WREC, along - winHalf, zSill], [WREC + 0.03, 2 * winHalf, winH]);
+    glass = await solidBox([xF - WREC, along - winHalf, zSill], [GLASS_T, 2 * winHalf, winH]);
+    const bz = xF - WREC + GLASS_T;
+    bars.push(await solidBox([bz, along - BAR, zSill], [BO, 2 * BAR, winH]));
+    bars.push(await solidBox([bz, along - winHalf, zMid - BAR], [BO, 2 * winHalf, 2 * BAR]));
+  }
+  return { box, cap, recess, glass, bars };
 }
 
 export async function buildingFacets(
@@ -865,15 +889,18 @@ export async function buildingFacets(
 
   const { vents, dormers } = resolveFeatures(wings, features, seed);
   const dormerBoxes: Manifold[] = [];
+  const dormerRecess: Manifold[] = [], dormerGlass: Manifold[] = [], dormerBars: Manifold[] = [];
   for (const d of dormers) {
     const w = wings[d.wing] ?? wings[0];
     const c = await dormerSolids(w, d, roofStyle);
     if (!c) continue;
     dormerBoxes.push(c.box);
     roof = roof.add(c.cap);
+    if (!cutaway) { dormerRecess.push(c.recess); dormerGlass.push(c.glass); dormerBars.push(...c.bars); }
   }
 
-  const wallSolid = dormerBoxes.length ? walls.add(Manifold.union(dormerBoxes)) : walls;
+  let wallSolid = dormerBoxes.length ? walls.add(Manifold.union(dormerBoxes)) : walls;
+  if (dormerRecess.length) wallSolid = wallSolid.subtract(Manifold.union(dormerRecess));
   // Split the wall into a stone undercroft band + the upper wall material when asked; else
   // one material. The boolean clips the band to the actual wall solid, so an oversized base
   // box is safe (the ground storey is un-jettied, so a wings-bbox cover is exact at z=0).
@@ -892,6 +919,9 @@ export async function buildingFacets(
   } else {
     wallFacets = manifoldToFacets(wallSolid.getMesh(), wallMat, wallWork, undefined, wallFin, finTint);
   }
+  // Dormer window glazing + mullions (recesses already carved into the wall solid above).
+  if (dormerGlass.length) wallFacets.push(...manifoldToFacets(Manifold.union(dormerGlass).getMesh(), 'glass'));
+  if (dormerBars.length) wallFacets.push(...manifoldToFacets(Manifold.union(dormerBars).getMesh(), 'timber'));
 
   // Cutaway (dollhouse): the building's SOLID massing is hollowed into a wall shell, the
   // roof/dormers/vents are dropped, and the camera-facing walls (+x east, +y south — the iso
