@@ -6,7 +6,7 @@ describe('content-version constants', () => {
     expect(ART_RECIPE_VERSION).toBe('v30');
   });
 
-  it('declares the current world content version (87: watermill flush-to-stream siting)', () => {
-    expect(WORLD_CONTENT_VERSION).toBe(87);
+  it('declares the current world content version (88: trade-building identities)', () => {
+    expect(WORLD_CONTENT_VERSION).toBe(88);
   });
 });

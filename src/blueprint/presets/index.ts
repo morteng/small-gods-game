@@ -505,6 +505,84 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
       },
     } },
   }),
+  // Smithy: a blacksmith's forge (catalogue `smithy` — "open forge front, tall flue,
+  // soot-blackened"). A low stone workshop with a full-width stone forge bench across its
+  // OPEN south front, crowned by a broad brick flue that rises well above the ridge — the
+  // iconic smithy silhouette. Fire-risk ⇒ stone walls. Was a generic one-door rect body.
+  smithy: bp('smithy', {
+    category: 'commercial', era: 'medieval', footprint: { w: 3, h: 3 },
+    materials: { walls: 'stone', roof: 'tile', ground: 'packed_dirt' },
+    parts: {
+      body: {
+        type: 'body', at: { x: 0, y: 0 }, size: { w: 3, h: 2 },
+        params: { plan: 'rect', levels: 1, roof: 'gable' },
+        features: {
+          door: { type: 'door', face: 'south', params: { main: true, t: 0.5, width: 0.5 } },
+          win_e: { type: 'window', face: 'east', params: { style: 'shuttered', t: 0.5, glazed: false } },
+        },
+      },
+      forge: { type: 'furnace', at: { x: 0, y: 2 }, size: { w: 3, h: 1 }, params: { kind: 'forge' } },
+    },
+  }),
+  // Bakehouse: a communal bake-oven (catalogue `bakehouse` — "domed bread oven, fire-risk
+  // stone walls, flue stack"). A stone cell with a domed masonry bread oven bulging from its
+  // east gable, a slim flue rising off the dome.
+  bakehouse: bp('bakehouse', {
+    category: 'commercial', era: 'medieval', footprint: { w: 4, h: 2 },
+    materials: { walls: 'stone', roof: 'tile', ground: 'flagstone' },
+    parts: {
+      body: {
+        type: 'body', at: { x: 0, y: 0 }, size: { w: 2, h: 2 },
+        params: { plan: 'rect', levels: 1, roof: 'gable' },
+        features: {
+          door: { type: 'door', face: 'south', params: { main: true, t: 0.5 } },
+          win_w: { type: 'window', face: 'west', params: { style: 'shuttered', t: 0.5 } },
+        },
+      },
+      oven: { type: 'furnace', at: { x: 2, y: 0 }, size: { w: 2, h: 2 }, params: { kind: 'oven' } },
+    },
+  }),
+  // Brewhouse: a village brewery (catalogue `brewhouse` — "copper and mash-tun, steam louver,
+  // malt store"). A timber hall beside a tall oast-style kiln (drum + conical cap + cowl) that
+  // vents the mash steam — the brewery's tell.
+  brewhouse: bp('brewhouse', {
+    category: 'commercial', era: 'medieval', footprint: { w: 4, h: 3 },
+    materials: { walls: 'timber', roof: 'tile', ground: 'flagstone' },
+    parts: {
+      body: {
+        type: 'body', at: { x: 0, y: 0 }, size: { w: 2, h: 3 },
+        params: { plan: 'rect', levels: 1, roof: 'gable' },
+        features: {
+          door: { type: 'door', face: 'south', params: { main: true, t: 0.5 } },
+          win_w: { type: 'window', face: 'west', params: { style: 'shuttered', t: 0.5 } },
+        },
+      },
+      kiln: { type: 'furnace', at: { x: 2, y: 1 }, size: { w: 2, h: 2 }, params: { kind: 'kiln' } },
+    },
+  }),
+  // Inn: a larger cousin of the tavern — a two-storey jettied range over a stone ground floor,
+  // ridge stacks + dormers. Bigger footprint than the tavern (a wayfarers' house, not a
+  // village alehouse). Massing DERIVED from the box frame (gen-form).
+  inn: bp('inn', {
+    category: 'commercial', era: 'medieval', footprint: { w: 4, h: 3 },
+    materials: { walls: 'timber', roof: 'tile', ground: 'flagstone' },
+    palette: { walls: 'limewash' },
+    parts: { body: {
+      type: 'body', size: { w: 4, h: 3 },
+      params: { plan: 'rect', levels: 2, roof: 'gable', jetty: 0.12, baseCourse: 0.4, roofPitch: 1.05 },
+      tags: [GEN_FORM_TAG],
+      features: {
+        door: { type: 'door', face: 'south', params: { main: true, t: 0.5 } },
+        win_s: { type: 'window', face: 'south', params: { style: 'shuttered', t: 0.2, perStorey: true } },
+        win_s2: { type: 'window', face: 'south', params: { style: 'shuttered', t: 0.8, perStorey: true } },
+        win_e: { type: 'window', face: 'east', params: { style: 'shuttered', t: 0.5, perStorey: true } },
+        smoke: { type: 'vent', params: { kind: 'chimney', t: 0.15 } },
+        smoke2: { type: 'vent', params: { kind: 'chimney', t: 0.85 } },
+        dormer1: { type: 'dormer', params: { t: 0.3 } },
+        dormer2: { type: 'dormer', params: { t: 0.7 } },
+      },
+    } },
+  }),
 };
 
 export function getBlueprintPreset(name: string): Blueprint | undefined { return BUILDING_BLUEPRINTS[name]; }
