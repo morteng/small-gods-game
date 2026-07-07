@@ -794,6 +794,7 @@ export class Game {
         this.refreshPauseBanner();
         this.requestRender();
       },
+      onCardFreeText: (text) => this.sendCardFreeText(text),
       // ── Track B: belief-granted powers + the divine inbox ──
       getBeliefPowers: () => this.hudSim().powers,
       onCastPower: (verb) => this.castPower(verb),
@@ -1051,10 +1052,15 @@ export class Game {
     // keepOpen: the whisper card is a LIVING conversation (C1) — choosing a path
     // whispers and re-presents the card instead of dismissing, and the sim keeps
     // running so the whisper's belief floor lands on a tick while the card is up.
+    this.conversationNpcId = target.kind === 'npc' ? target.npcId : null;
     getUiRuntime().presentUiSpec(spec, (choice) => this.onCardChoice(choice), { keepOpen: true });
     this.requestRender();
     return true;
   }
+
+  /** The NPC the open conversation card addresses — the free-text island's target
+   *  (the typed words carry no target of their own, unlike a canned path's command). */
+  private conversationNpcId: string | null = null;
 
   /** Build the whisper/conversation card spec for an NPC target's current situation,
    *  or null if the target isn't a resolvable NPC. Deterministic (`buildWhisperCard`);
@@ -1084,35 +1090,49 @@ export class Game {
    *  exchange stays live. Non-NPC / textless choices fall back to a one-shot emit. */
   private onCardChoice(choice: UiSpecChoice): void {
     const cmd = choice.command;
-    const world = this.state.world;
     const text = typeof cmd.payload?.text === 'string' ? cmd.payload.text : '';
-    if (world && cmd.target.kind === 'npc' && text) {
-      const npcId = cmd.target.npcId;
-      const npc = getNpc(world, npcId);
-      if (npc) {
-        void sendWhisper(npc, text, {
-          queue: this.commandQueue,
-          llm: this.llmClient,
-          store: this.attentionStore,
-          playerSpiritId: PLAYER_SPIRIT_ID,
-          now: () => this.state.clock.now(),
-        }).then(() => {
-          // Reply landed (or degraded): rebuild so the NPC's words + the moved bars show.
-          this.invalidateHudSim();
-          this.refreshConversationCard(npcId);
-        });
-        // sendWhisper appends the provisional turn synchronously (before its first
-        // await), so the pending "…" turn is already in the transcript — show it now.
-        this.invalidateHudSim();
-        this.refreshConversationCard(npcId);
-        return;
-      }
-    }
+    if (cmd.target.kind === 'npc' && text && this.whisperTo(cmd.target.npcId, text)) return;
     // Fallback: emit the pre-paired command directly (one-shot).
     this.bus.emit({ verb: cmd.verb, source: cmd.source, target: cmd.target, params: cmd.params, payload: cmd.payload });
     this.invalidateHudSim();
     this.fireCastFx(cmd.verb, cmd.target);
     this.requestRender();
+  }
+
+  /** Free-text whisper from the conversation card's DOM island (C4). Routes the raw
+   *  typed words to the addressed NPC through the SAME `sendWhisper` path a canned
+   *  path uses (no slant — spec §7.4: raw text is enough). No-op if the card has
+   *  closed or its target is gone. */
+  private sendCardFreeText(text: string): void {
+    const npcId = this.conversationNpcId;
+    if (!npcId || !getUiRuntime().hasCard()) return;
+    this.whisperTo(npcId, text);
+  }
+
+  /** Run one conversational whisper turn to `npcId`: the deterministic floor + LLM
+   *  reply + transcript (`sendWhisper`), rebuilding the open card from the fresh
+   *  situation both immediately (the provisional "…" turn) and on resolution (the
+   *  NPC's words + moved bars). Returns false if the NPC can't be resolved. */
+  private whisperTo(npcId: string, text: string): boolean {
+    const world = this.state.world;
+    const npc = world ? getNpc(world, npcId) : null;
+    if (!npc) return false;
+    void sendWhisper(npc, text, {
+      queue: this.commandQueue,
+      llm: this.llmClient,
+      store: this.attentionStore,
+      playerSpiritId: PLAYER_SPIRIT_ID,
+      now: () => this.state.clock.now(),
+    }).then(() => {
+      // Reply landed (or degraded): rebuild so the NPC's words + the moved bars show.
+      this.invalidateHudSim();
+      this.refreshConversationCard(npcId);
+    });
+    // sendWhisper appends the provisional turn synchronously (before its first
+    // await), so the pending "…" turn is already in the transcript — show it now.
+    this.invalidateHudSim();
+    this.refreshConversationCard(npcId);
+    return true;
   }
 
   /** Visual feedback for a cast — the smite thunderbolt at the resolved world tile.

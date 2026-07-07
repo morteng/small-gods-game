@@ -453,6 +453,76 @@ describe('UiRuntime — conversation card (keepOpen)', () => {
     expect(rt.hasCard()).toBe(false);
     expect(toggles).toEqual([]); // never paused → never a stray resume
   });
+
+  // ── Conversation UI C4: the free-text input row + DOM island ──
+  it('a keepOpen (conversation) card reserves a free-text input row; a one-shot card does not', () => {
+    const rt = new UiRuntime();
+    rt.presentUiSpec(CARD_SPEC, () => {}, { keepOpen: true });
+    rt.frame(W, H, DPR);
+    expect(rt.hitRegions().some((h) => h.id === 'card.input')).toBe(true);
+
+    rt.presentUiSpec(CARD_SPEC, () => {}); // one-shot info card — no input row
+    rt.frame(W, H, DPR);
+    expect(rt.hitRegions().some((h) => h.id === 'card.input')).toBe(false);
+  });
+});
+
+// C4 needs the DOM island, which `attach` mounts into the canvas' parent.
+function mountedCanvas(): { canvas: HTMLCanvasElement; container: HTMLElement } {
+  const container = document.createElement('div');
+  const canvas = document.createElement('canvas');
+  canvas.width = W;
+  canvas.height = H;
+  container.appendChild(canvas);
+  document.body.appendChild(container);
+  return { canvas, container };
+}
+const whisperField = (c: HTMLElement) => c.querySelector('input[aria-label="Whisper free text"]') as HTMLInputElement | null;
+
+describe('UiRuntime — conversation free-text island (C4)', () => {
+  it('shows the field over a conversation card and hides it otherwise', () => {
+    const { canvas, container } = mountedCanvas();
+    const rt = new UiRuntime();
+    const teardown = rt.attach(canvas);
+
+    const field = whisperField(container)!;
+    expect(field).toBeTruthy();
+    expect(field.parentElement!.style.display).toBe('none'); // hidden with no card
+
+    rt.presentUiSpec(CARD_SPEC, () => {}, { keepOpen: true });
+    rt.frame(W, H, DPR);
+    expect(field.parentElement!.style.display).toBe('flex'); // shown over the card
+    expect(parseInt(field.parentElement!.style.width)).toBeGreaterThan(0); // positioned
+
+    rt.presentUiSpec(CARD_SPEC, () => {}); // one-shot info card
+    rt.frame(W, H, DPR);
+    expect(field.parentElement!.style.display).toBe('none'); // hidden again
+
+    teardown();
+    expect(whisperField(container)).toBeNull(); // island destroyed on teardown
+  });
+
+  it('Enter submits the trimmed text to onCardFreeText and clears the field', () => {
+    const { canvas, container } = mountedCanvas();
+    const sent: string[] = [];
+    const rt = new UiRuntime();
+    rt.configure({ onCardFreeText: (t) => sent.push(t) });
+    const teardown = rt.attach(canvas);
+    rt.presentUiSpec(CARD_SPEC, () => {}, { keepOpen: true });
+    rt.frame(W, H, DPR);
+
+    const field = whisperField(container)!;
+    field.value = '  be brave, Ada  ';
+    field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    expect(sent).toEqual(['be brave, Ada']); // trimmed
+    expect(field.value).toBe(''); // cleared for the next line
+
+    // whitespace-only submit is a no-op
+    field.value = '   ';
+    field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    expect(sent).toEqual(['be brave, Ada']);
+    teardown();
+  });
 });
 
 // ── P5: the zoomed-out alert pins (inbox as world-anchored markers) ──

@@ -20,6 +20,7 @@ import { shade, withAlpha } from '@/render/ui/ui-color';
 import { clamp01 } from '@/core/math';
 import { UiSpace, type UiDrawGroup } from '@/render/ui/ui-batcher';
 import { SettingsIsland } from '@/render/ui/ui-settings-island';
+import { WhisperInputIsland } from '@/render/ui/ui-whisper-island';
 import type { ProviderConfig } from '@/llm/provider-factory';
 import type { StorySession, Stage } from '@/story/story-session';
 import type { UiSpec, UiSpecBlock, UiSpecChoice } from '@/story/uispec';
@@ -53,6 +54,9 @@ export interface UiRuntimeHooks {
   onSaveLlmConfig?: (cfg: ProviderConfig) => void;
   /** A story card opened/closed — the game pauses the sim while one is up. */
   onStoryToggle?: (active: boolean) => void;
+  /** Free-text whisper submitted from the conversation card's DOM input island. The
+   *  game routes it through the same `sendWhisper` path the canned paths use. */
+  onCardFreeText?: (text: string) => void;
 
   // ── Track B: belief-granted powers + the divine inbox ──
   /** The belief-granted powers to render in the skill panel (default []). */
@@ -227,6 +231,10 @@ export class UiRuntime {
   /** DOM input island (provider/model/key). Its target region is returned by
    *  drawMenu each frame (a local — avoids `this`-field narrowing pitfalls). */
   private island: SettingsIsland | null = null;
+
+  /** DOM input island for the conversation card's free-text field. Its target region
+   *  is returned by `renderUiSpec` each frame (only for `keepOpen` conversation cards). */
+  private whisperIsland: WhisperInputIsland | null = null;
 
   /** The frozen hover popover currently on screen (dwell → freeze), or null. */
   private hover: HoverPopover | null = null;
@@ -439,6 +447,9 @@ export class UiRuntime {
     if (container && !this.island) {
       this.island = new SettingsIsland(container, (cfg) => this.hooks.onSaveLlmConfig?.(cfg));
     }
+    if (container && !this.whisperIsland) {
+      this.whisperIsland = new WhisperInputIsland(container, (text) => this.hooks.onCardFreeText?.(text));
+    }
     const toDevice = (e: PointerEvent): [number, number] => {
       const r = canvas.getBoundingClientRect();
       const sx = ((e.clientX - r.left) / Math.max(1, r.width)) * canvas.width;
@@ -481,6 +492,8 @@ export class UiRuntime {
       window.removeEventListener('keydown', key, true);
       this.island?.destroy();
       this.island = null;
+      this.whisperIsland?.destroy();
+      this.whisperIsland = null;
     };
   }
 
@@ -497,13 +510,14 @@ export class UiRuntime {
     c.begin(input);
 
     const s = uiScaleFor(dpr);
-    let r: Rect | null = null;
+    let r: Rect | null = null; // settings island target (menu)
+    let whisperRect: Rect | null = null; // whisper input island target (conversation card)
     if (this.menuOpen) {
       const clickAt = input.released ? { x: input.px, y: input.py } : null;
       r = this.drawMenu(c, wDev, hDev, s, clickAt);
     } else if (this.card) {
       const clickAt = input.released ? { x: input.px, y: input.py } : null;
-      this.renderUiSpec(c, wDev, hDev, s, this.card.spec, clickAt);
+      whisperRect = this.renderUiSpec(c, wDev, hDev, s, this.card.spec, clickAt);
     } else if (this.story) {
       this.drawStory(c, wDev, hDev, s);
     } else {
@@ -513,13 +527,23 @@ export class UiRuntime {
     const { hits } = c.end();
     this.lastHits = hits;
 
-    // Position/show the DOM input island over the GPU settings panel (device→css px).
+    // Position/show the DOM input islands over their GPU targets (device→css px):
+    // the provider form over the settings panel, the free-text field over the
+    // conversation card's input row. Each hides when its target isn't on screen.
     if (this.island) {
       if (r) {
         this.island.layout({ x: r.x / dpr, y: r.y / dpr, w: r.w / dpr, h: r.h / dpr });
         this.island.show();
       } else {
         this.island.hide();
+      }
+    }
+    if (this.whisperIsland) {
+      if (whisperRect) {
+        this.whisperIsland.layout({ x: whisperRect.x / dpr, y: whisperRect.y / dpr, w: whisperRect.w / dpr, h: whisperRect.h / dpr });
+        this.whisperIsland.show();
+      } else {
+        this.whisperIsland.hide();
       }
     }
     return c.batcher.flush();
@@ -1017,7 +1041,7 @@ export class UiRuntime {
   //    the choice stack is bottom-reserved so it always fits; body flows into the
   //    remainder and stops before it would collide. A pre-paired `Command` rides
   //    each choice, so picking one just hands it back to the game to `bus.emit()`.
-  private renderUiSpec(c: UiContext, w: number, h: number, s: number, spec: UiSpec, clickAt: { x: number; y: number } | null): void {
+  private renderUiSpec(c: UiContext, w: number, h: number, s: number, spec: UiSpec, clickAt: { x: number; y: number } | null): Rect | null {
     // dim the world so the card reads as the focus
     c.rect(0, 0, w, h, withAlpha([0, 0, 0, 1], 0.55));
 
@@ -1043,20 +1067,26 @@ export class UiRuntime {
     c.label(spec.title, innerX, y, fsTitle, UI_PALETTE.text);
     y += c.lineHeight(fsTitle) + 14 * s;
 
-    // reserve the choice stack at the bottom, then flow the body into the remainder
+    // A conversation card (keepOpen) reserves a free-text input ROW below the choices
+    // — the DOM whisper island floats over `inputRect` (C4). One-shot/info cards don't.
+    const conversation = this.card?.keepOpen ?? false;
+    const inputH = conversation ? 34 * s : 0;
+    const inputGap = conversation ? 12 * s : 0;
+
+    // reserve the choice stack + input row at the bottom, then flow the body into the rest
     const bh = 32 * s;
     const gap = 8 * s;
     const n = spec.choices.length;
     const stackH = n ? n * bh + (n - 1) * gap : 0;
-    const contentLimit = bottom - stackH - (n ? 14 * s : 0);
+    const contentLimit = bottom - inputH - inputGap - stackH - (n ? 14 * s : 0);
 
     for (const b of spec.body) {
       if (y >= contentLimit) break;
       y = this.drawSpecBlock(c, b, innerX, y, innerW, fsBody, lh, s, contentLimit);
     }
 
-    // choices — a bottom-anchored button stack; each hands its command back + closes
-    let by = bottom - stackH;
+    // choices — a button stack anchored above the input row; each hands its command back
+    let by = bottom - inputH - inputGap - stackH;
     spec.choices.forEach((choice, i) => {
       const label = choice.hint ? `${choice.text}  —  ${choice.hint}` : choice.text;
       if (c.button(`card.choice.${i}`, label, innerX, by, innerW, bh, { scale: fsBody })) {
@@ -1074,8 +1104,20 @@ export class UiRuntime {
       by += bh + gap;
     });
 
+    // the free-text input row (conversation only): a gray-box field the DOM island
+    // floats its <input> over. Drawn even in Node/tests so the row reads without the DOM.
+    let inputRect: Rect | null = null;
+    if (conversation) {
+      const iy = bottom - inputH;
+      c.rect(innerX, iy, innerW, inputH, withAlpha(shade(UI_PALETTE.panelBg, -0.3), 0.6));
+      c.batcher.border(innerX, iy, innerW, inputH, Math.max(1, Math.round(s)), withAlpha(UI_PALETTE.textDim, 0.4));
+      c.hotspot('card.input', innerX, iy, innerW, inputH); // eat clicks; the DOM input types
+      inputRect = { x: innerX, y: iy, w: innerW, h: inputH };
+    }
+
     // a click on the dim backdrop (outside the card) cancels — no choice emitted
     if (clickAt && !inRect(clickAt, cardRect)) this.dismissCard();
+    return inputRect;
   }
 
   /** Walk one UiSpec body block; returns the y past it. */
