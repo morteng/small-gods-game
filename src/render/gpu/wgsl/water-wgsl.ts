@@ -16,9 +16,10 @@
 //     a large slow swell + noisy glints (no sin-lattice grid).
 //   - LAKE: calm — a gentle directional ripple + soft noise glints, NO concentric
 //     shoreward swell (which read as a "wave generator in the middle") and no surf.
-//   - RIVER: streaks advected ALONG the per-cell flow vector; scroll speed and
-//     whitewater scale with the local bed slope (terrainH drop to the downstream
-//     cell), so steep reaches run fast and foam up.
+//   - RIVER: streaks advected ALONG the analytic flow vector; scroll speed and
+//     whitewater scale with the REACH GRADIENT (the smooth water-surface fall per
+//     tile from the channel geometry), so a pool-riffle reach stays calm, a step-pool
+//     reach breaks into foam patches, and a cascade runs near-continuous whitewater.
 // Lighting is banded to match terrain + sprites. Drawn AFTER terrain, sharing its
 // depth buffer (greater-equal, no depth write) so nearer terrain still occludes
 // water. The waterline stays crisp (per-pixel terrain clip), but the body is
@@ -270,11 +271,11 @@ fn cubicSurfaceW(gx : f32, gy : f32) -> f32 {
 // SIGNED distance sd = dist - halfWidth is the smooth silhouette (sd < 0 inside); surf
 // is the bank-referenced fill, flow the downstream unit tangent. hit=false when the
 // world has no rivers (segCount 0) or no segment registers into this bucket.
-struct Chan { hit : bool, sd : f32, surf : f32, flow : vec2<f32> };
+struct Chan { hit : bool, sd : f32, surf : f32, flow : vec2<f32>, slopeM : f32 };
 fn segF(i : u32) -> f32 { return bitcast<f32>(channel[i]); }
 fn channelAt(gx : f32, gy : f32) -> Chan {
   var r : Chan;
-  r.hit = false; r.sd = 1e9; r.surf = -1.0; r.flow = vec2<f32>(0.0, 0.0);
+  r.hit = false; r.sd = 1e9; r.surf = -1.0; r.flow = vec2<f32>(0.0, 0.0); r.slopeM = 0.0;
   let segCount = u32(G.uChannel.w);
   if (segCount == 0u) { return r; }
   let bt  = G.uChannel.x;
@@ -292,6 +293,7 @@ fn channelAt(gx : f32, gy : f32) -> Chan {
   var bestHalf = 0.0;
   var bestSurf = -1.0;
   var bestFlow = vec2<f32>(0.0, 0.0);
+  var bestSlopeN = 0.0;                            // surface fall per tile along the reach (norm elev)
   for (var p = start; p < end; p = p + 1u) {
     let o = segBase + channel[offLen + p] * 8u;   // bucketSegs[p] → segment word offset
     let ax = segF(o);      let ay = segF(o + 1u);
@@ -305,9 +307,14 @@ fn channelAt(gx : f32, gy : f32) -> Chan {
     if (d < best) {
       best = d;
       bestHalf = mix(segF(o + 4u), segF(o + 5u), t);
-      bestSurf = mix(segF(o + 6u), segF(o + 7u), t);
+      let surfA = segF(o + 6u); let surfB = segF(o + 7u);
+      bestSurf = mix(surfA, surfB, t);
       let fl = max(sqrt(len2), 1e-4);
       bestFlow = vec2<f32>(dx / fl, dy / fl);
+      // Reach GRADIENT: the water-surface fall (surfA→surfB, upstream→downstream) over the
+      // segment's length. This is the smooth centreline slope the rapids read — far truer
+      // than the coarse cell-grid bed drop, which staircases and misses sustained gradient.
+      bestSlopeN = max(surfA - surfB, 0.0) / fl;
     }
   }
   if (best >= 1e9) { return r; }
@@ -315,6 +322,7 @@ fn channelAt(gx : f32, gy : f32) -> Chan {
   r.sd = best - bestHalf;
   r.surf = bestSurf;
   r.flow = bestFlow;
+  r.slopeM = bestSlopeN * G.uZParams.z;           // → metres of fall per tile
   return r;
 }
 
@@ -452,6 +460,7 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   var surfLvl : f32;
   var sdEdge : f32 = -1.0;                  // analytic signed distance (rivers); <0 inside
   var flowV : vec2<f32> = vec2<f32>(0.0, 0.0);
+  var reachSlopeM : f32 = 0.0;              // rivers: water-surface fall (m) per tile along the reach
 
   // SHORE-GATED SAMPLING (WP-M — overview fill perf). The pixel-perfect waterline is a
   // BICUBIC (16-tap ×2 = 32 storage reads) clip of surface − bed at the sub-cell zero
@@ -487,6 +496,7 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
     surfLvl = cg.surf + G.uWater.w;
     sdEdge = cg.sd;
     flowV = cg.flow;
+    reachSlopeM = cg.slopeM;
   }
 
   // Bed: bicubic near the bank (the waterline clip needs it), bilinear in deep water.
@@ -679,17 +689,17 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
     // nearest point). R6: motion via VALVE DUAL-PHASE flow advection (Vlachos 2010) —
     // two noise samples translated downstream, phase-offset ½ cycle, triangle-crossfaded,
     // so the streaks visibly MARCH downstream and bend around meanders WITHOUT the smear
-    // a single ever-scrolling sample shows where the per-fragment flow basis rotates. Speed
-    // + whitewater still scale with the local bed slope (height drop to the downstream cell).
+    // a single ever-scrolling sample shows where the per-fragment flow basis rotates.
+    // RAPIDS from the REACH GRADIENT: reachSlopeM is the water-surface fall per tile (m)
+    // along the smooth centreline — the geomorphic reach type made visible. It replaces the
+    // old coarse cell-grid bed drop (terrainH[ci] − downstream cell), which staircased on
+    // the raster and never captured a reach's SUSTAINED slope, so a long steady cascade
+    // barely foamed. Off the smooth surface, a pool-riffle reach is near-flat (calm), a
+    // step-pool reach (~0.1 m/tile) breaks into foam patches, a cascade (≳0.3 m/tile) runs
+    // near-continuous whitewater — and speed rises with it, so steep water visibly races.
     let fv = flowV;
-    let W = u32(G.uGrid.x);
-    let H = u32(G.uGrid.y);
-    let cx = ci % W;
-    let cy = ci / W;
-    let dcx = u32(clamp(i32(cx) + i32(round(fv.x)), 0, i32(W) - 1));
-    let dcy = u32(clamp(i32(cy) + i32(round(fv.y)), 0, i32(H) - 1));
-    let drop = max(terrainH[ci] - terrainH[dcy * W + dcx], 0.0) * G.uZParams.z; // m over ~1 tile
-    let speed = 0.6 + clamp(drop * 0.7, 0.0, 2.4);      // steep reaches run fast
+    let sl = reachSlopeM;
+    let speed = 0.6 + clamp(sl * 4.5, 0.0, 2.4);        // steep reaches run fast
 
     // Streak coordinate: stretched ALONG flow (×1.4), tight ACROSS (×2.6) → downstream lines.
     let along  = dot(g, fv);
@@ -721,7 +731,14 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
     // a bank line + rapids, never a solid white surface.
     let bankRim = smoothstep(RIVER_RIM_TILES, 0.0, -sdEdge)
                 * (0.55 + 0.45 * smoothstep(0.35, 0.85, stream));
-    let whitewater = smoothstep(0.66, 1.0, stream) * smoothstep(0.7, 2.0, drop);
+    // Whitewater onset at the step-pool gradient (~0.08 m/tile ≈ 4 %) → full cascade
+    // (~0.34 m/tile ≈ 17 %). churn scales the amount AND widens the noise gate: a
+    // step-pool reach only whitens on the noise CRESTS (scattered breaking foam), a cascade
+    // whitens across most of the surface (a churning sheet). Below step-pool it stays 0 —
+    // lowland pool-riffle water reads as a calm, dark, flowing body.
+    let churn = smoothstep(0.08, 0.34, sl);
+    let crestGate = mix(smoothstep(0.62, 1.0, stream), smoothstep(0.2, 0.9, stream), churn);
+    let whitewater = churn * crestGate;
     let foam = max(bankRim * 0.34, whitewater * 0.75);
     color = mix(color, RIVER_FOAM, clamp(foam, 0.0, 1.0));
   }

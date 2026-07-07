@@ -167,12 +167,12 @@ export function buildRiverChannelGeometry(map: GameMap, net?: WaterNetwork): Riv
  */
 export function channelAt(
   geo: RiverChannelGeometry, x: number, y: number,
-): { sd: number; dist: number; half: number; surf: number; flowX: number; flowY: number } | null {
+): { sd: number; dist: number; half: number; surf: number; flowX: number; flowY: number; slope: number } | null {
   const bx = Math.min(geo.nbx - 1, Math.max(0, Math.floor(x / geo.bucketTiles)));
   const by = Math.min(geo.nby - 1, Math.max(0, Math.floor(y / geo.bucketTiles)));
   const b = by * geo.nbx + bx;
   const s = geo.segments;
-  let best = Infinity, half = 0, surf = -1, flowX = 0, flowY = 0;
+  let best = Infinity, half = 0, surf = -1, flowX = 0, flowY = 0, slope = 0;
   for (let p = geo.bucketOffset[b]; p < geo.bucketOffset[b + 1]; p++) {
     const o = geo.bucketSegs[p] * SEG_STRIDE;
     const ax = s[o], ay = s[o + 1], bx2 = s[o + 2], by2 = s[o + 3];
@@ -180,13 +180,18 @@ export function channelAt(
     if (d < best) {
       best = d;
       half = s[o + 4] * (1 - t) + s[o + 5] * t;
-      surf = s[o + 6] * (1 - t) + s[o + 7] * t;
+      const surfA = s[o + 6], surfB = s[o + 7];
+      surf = surfA * (1 - t) + surfB * t;
       const dx = bx2 - ax, dy = by2 - ay;
       const fl = Math.hypot(dx, dy) || 1; flowX = dx / fl; flowY = dy / fl;
+      // Reach gradient: water-surface fall (surfA→surfB, upstream→downstream) per tile, in
+      // normalised elevation units. The shader's twin scales this by relief to metres; the
+      // whitewater read keys off it. Non-negative (local reversals from smoothing clamp to 0).
+      slope = Math.max(surfA - surfB, 0) / fl;
     }
   }
   if (!isFinite(best)) return null;
-  return { sd: best - half, dist: best, half, surf, flowX, flowY };
+  return { sd: best - half, dist: best, half, surf, flowX, flowY, slope };
 }
 
 // ── Memoise per (seed, dims), like the sibling render-water stores ──
