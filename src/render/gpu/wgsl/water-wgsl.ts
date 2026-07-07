@@ -500,6 +500,10 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   // below. fwidth MUST be evaluated in UNIFORM control flow, so compute it here at the
   // fragment top level (ocean/lake hold sdEdge = -1, a constant → gradient 0, unused).
   let sdGrad = fwidth(sdEdge);
+  // Screen-space gradient of depth — the OCEAN/LAKE waterline feather (R6). Their edge is
+  // the depth zero-crossing, not an analytic SDF, so we key the last-pixel alpha ramp off
+  // this instead of sdGrad. Same uniform-flow requirement → computed here beside sdGrad.
+  let depthGrad = fwidth(depthM);
 
   // Depth tint (S4 biome shallow→deep), SMOOTH — clarity stretches the ramp so
   // clear water shows its bed further down. PER-CHANNEL Beer-Lambert absorption:
@@ -514,6 +518,21 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   // sampleWaterCol — this replaced the flat per-vertex vCell colour that black-patched.
   let wcol = sampleWaterCol(in.vGrid.x, in.vGrid.y);
   var color = mix(wcol.shallow, wcol.deep, tDeep);
+
+  // WET-SHORE MARGIN (R6) — STILL BODIES (lake). The shallowest water takes the pale
+  // shallow-biome tint, which against a dark bank (mud/rock) reads as a bright rim with a
+  // hard contrast step — the "painted cutout" tell. A real waterline is DARKER at the very
+  // edge (wet sediment, grazing view, less sky). Damp the shallowest ~0.4 m toward a muted
+  // tone so the rim sits closer to the bank's value; the land→water transition softens
+  // without touching the geometry, and the shelf still lightens just a little further out.
+  // Scoped to typ != river: OCEAN reassigns colour from its own shoal shelf below (so this
+  // is effectively lake-only), and a shallow BROOK is shallow across its WHOLE width — a
+  // depth-keyed darkening would mud the entire channel, not just its bank. Rivers get their
+  // bank read from the analytic-SDF rim (bankRim) instead.
+  if (typ != 3u) {
+    let wetMargin = smoothstep(0.42, 0.0, depthM);
+    color = color * (1.0 - 0.24 * wetMargin);
+  }
 
   // Flat ambient+sun (water is smooth-shaded; only terrain/sprites get crisp bands).
   let day = G.uAmbient.w;
@@ -735,6 +754,15 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   // the derivative is well-defined. Ocean/lake keep their depth/foam alpha unchanged.
   if (typ == 3u) {
     let aa = clamp(-sdEdge / max(sdGrad, 1e-4), 0.0, 1.0);
+    wAlpha = wAlpha * aa;
+  } else {
+    // OCEAN / LAKE waterline feather. The depth-keyed alpha had a hard floor (0.28) that
+    // it dropped to zero across a single pixel at the shore — a jagged vector staircase
+    // where land meets water (rivers already feathered via their SDF; ocean/lake didn't).
+    // Ramp the last pixel of coverage by the screen-space depth gradient (the depth-field
+    // twin of the SDF AA), so the boundary resolves as a clean sub-pixel edge. Foam near
+    // the lip rides the same alpha, so the surf line softens into the shore too.
+    let aa = clamp(depthM / max(depthGrad, 1e-4), 0.0, 1.0);
     wAlpha = wAlpha * aa;
   }
   let outC = clamp(color, vec3<f32>(0.0), vec3<f32>(1.0));
