@@ -428,3 +428,55 @@ export function applyRoadMask(tiles: Tile[][], mask: RoadMask): void {
     }
   }
 }
+
+/**
+ * Close DIAGONAL-only gaps in the finished road tile mask so the whole network is 4-connected —
+ * the property `orthogonalize` guarantees WITHIN one edge, extended ACROSS road sources. An
+ * inter-POI approach road, a settlement's own streets, and a gate spur are carved independently;
+ * where two of them meet, their termini can land diagonally adjacent (a road anchor a tile off the
+ * street it joins), leaving a corner-only touch. A 4-neighbour flood (NPC walkability + the
+ * road-connectivity contract) then reads the two as DISCONNECTED even though they visually touch.
+ *
+ * For each diagonally-adjacent road pair with NEITHER shared orthogonal cell already a road, stamp
+ * one shared orthogonal filler as `dirt_road` — preferring a walkable land cell, never water, an
+ * existing bridge, or a caller-flagged obstacle (building / wall / protected green). Collect then
+ * apply so the scan sees a stable mask. Returns the number of fillers stamped (normally 0–a few).
+ */
+export function repairRoadDiagonalGaps(
+  tiles: Tile[][],
+  width: number,
+  height: number,
+  isBlocked?: (x: number, y: number) => boolean,
+): number {
+  const isRoad = (x: number, y: number): boolean => ROAD_TILE_TYPES.has(tiles[y]?.[x]?.type ?? '');
+  const fillable = (x: number, y: number): boolean => {
+    const t = tiles[y]?.[x];
+    if (!t) return false;
+    if (ROAD_TILE_TYPES.has(t.type) || WATER_TYPES.has(t.type)) return false;
+    return !(isBlocked?.(x, y) ?? false);
+  };
+  const toStamp = new Set<string>();
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      if (!isRoad(x, y)) continue;
+      // Check the two forward diagonals so every diagonal pair is visited exactly once.
+      for (const [dx, dy] of [[1, 1], [1, -1]] as const) {
+        const ox = x + dx, oy = y + dy;
+        if (!isRoad(ox, oy)) continue;
+        if (isRoad(ox, y) || isRoad(x, oy)) continue;      // already 4-connected through a shared road cell
+        if (fillable(ox, y)) toStamp.add(`${ox},${y}`);
+        else if (fillable(x, oy)) toStamp.add(`${x},${oy}`);
+      }
+    }
+  }
+  for (const k of toStamp) {
+    const ci = k.indexOf(',');
+    const x = Number(k.slice(0, ci)), y = Number(k.slice(ci + 1));
+    const t = tiles[y]?.[x];
+    if (!t) continue;
+    preserveBaseType(t);
+    t.type = 'dirt_road';
+    t.walkable = true;
+  }
+  return toStamp.size;
+}

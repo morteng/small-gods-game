@@ -19,7 +19,7 @@ import { styledShapeSpec } from '@/terrain/terrain-shape';
 import { styledClimate } from '@/terrain/climate';
 import { applyPoiInfluences } from '@/terrain/poi-influence';
 import { generateHydrology, buildVolcanoScorchMask } from '@/terrain/hydrology';
-import { buildRoadGraph } from '@/world/road-graph';
+import { buildRoadGraph, repairRoadDiagonalGaps } from '@/world/road-graph';
 import { mergeParallelRoads } from '@/world/connectome/merge-parallel-roads';
 import { gateApproachPlan, realGateAnchors } from '@/world/connectome/gate-approach';
 import { settlementRingContracts } from '@/world/connectome/wall-contracts';
@@ -467,6 +467,15 @@ export async function generateWithNoise(
         console.warn(`[worldgen] orphan-gate spur FIRED for ${a.runId} gate @ (${a.x},${a.y}) — carved ${r.carved} tile(s); approach road missing`);
       }
     }
+
+    // 4-CONNECTIVITY REPAIR — with every road source now carved (settlement streets, the inter-POI
+    // approach graph, gate stitches/spurs), close any DIAGONAL-only junction between them so the
+    // network is 4-connected. Two independently-carved roads (an approach anchored a tile off the
+    // street it joins) can touch only at a corner; a 4-neighbour flood (NPC walkability + the
+    // road-connectivity contract) reads that as a break. Stamps a single land filler per gap,
+    // never over water/buildings/walls/greens (the walker's own obstacle set).
+    repairRoadDiagonalGaps(tiles, width, height,
+      (x, y) => tileBlockedByBuilding(world, x, y) || greenTiles.has(`${x},${y}`) || approach.wallObstacles.has(`${x},${y}`));
 
     // River-crossing SITES (unified connectome, v0): where a road bridges water, compose a
     // crossing sub-connectome and realize its ancillary structures (toll/guard/shrine/mill/

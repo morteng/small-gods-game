@@ -4,6 +4,7 @@ import {
   buildRoadGraph,
   rasterizeRoadGraph,
   applyRoadMask,
+  repairRoadDiagonalGaps,
   type RoadGraph,
 } from '@/world/road-graph';
 
@@ -285,5 +286,51 @@ describe('graph is the truth — derived carve reproduces worldgen byte-for-byte
     applyRoadMask(fresh, rasterizeRoadGraph(restored, w, h));
 
     expect(snapshot(fresh)).toEqual(snapshot(tiles));
+  });
+});
+
+describe('repairRoadDiagonalGaps', () => {
+  const ROAD = new Set(['dirt_road', 'stone_road', 'bridge']);
+  /** 4-neighbour road flood from a start cell → set of "x,y". */
+  function flood(tiles: Tile[][], sx: number, sy: number): Set<string> {
+    const seen = new Set<string>(), q = [[sx, sy]];
+    while (q.length) {
+      const [x, y] = q.shift()!;
+      const k = `${x},${y}`;
+      if (seen.has(k) || !ROAD.has(tiles[y]?.[x]?.type ?? '')) continue;
+      seen.add(k);
+      q.push([x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]);
+    }
+    return seen;
+  }
+
+  it('4-connects two road segments that meet only diagonally', () => {
+    // Two road stubs touching corner-to-corner: (2,2) and (3,3). A 4-flood from (2,2) can't reach (3,3).
+    const t = makeTiles(6, 6);
+    t[2][2].type = 'dirt_road';
+    t[3][3].type = 'dirt_road';
+    expect(flood(t, 2, 2).has('3,3')).toBe(false);
+    const stamped = repairRoadDiagonalGaps(t, 6, 6);
+    expect(stamped).toBe(1);                       // one filler closes the corner
+    expect(flood(t, 2, 2).has('3,3')).toBe(true);  // now 4-connected
+  });
+
+  it('never fills over water, buildings/obstacles — leaves a genuinely blocked corner alone', () => {
+    const t = makeTiles(6, 6);
+    t[2][2].type = 'dirt_road';
+    t[3][3].type = 'dirt_road';
+    // Both shared orthogonal fillers are blocked: one water, one caller-flagged obstacle.
+    t[2][3].type = 'shallow_water'; t[2][3].walkable = false;   // (3,2)
+    const stamped = repairRoadDiagonalGaps(t, 6, 6, (x, y) => x === 2 && y === 3); // block (2,3)
+    expect(stamped).toBe(0);
+    expect(flood(t, 2, 2).has('3,3')).toBe(false);
+  });
+
+  it('is a no-op when the pair is already 4-connected through a shared road cell', () => {
+    const t = makeTiles(6, 6);
+    t[2][2].type = 'dirt_road';
+    t[3][3].type = 'dirt_road';
+    t[2][3].type = 'dirt_road';   // (3,2) already bridges the corner
+    expect(repairRoadDiagonalGaps(t, 6, 6)).toBe(0);
   });
 });
