@@ -203,9 +203,17 @@ export class UiRuntime {
   /** The story card currently on screen (modal narrative beat), or null. */
   private story: StorySession | null = null;
 
-  /** A declarative UiSpec card on screen (the whisper card, P4), or null. Modal like
-   *  the story card; a chosen option calls `onChoose` then dismisses. */
-  private card: { spec: UiSpec; onChoose: (choice: UiSpecChoice) => void } | null = null;
+  /** A declarative UiSpec card on screen (the whisper card, P4), or null. Modal for
+   *  INPUT like the story card. A chosen option calls `onChoose`; a one-shot card then
+   *  dismisses, a `keepOpen` card (the conversation card) stays and is re-presented by
+   *  the game via `updateOpenCard`. `keepOpen` cards deliberately do NOT pause the sim:
+   *  a whisper is applied on a tick (the deterministic belief floor), so time must keep
+   *  running for a multi-turn exchange to land its effects live. */
+  private card: {
+    spec: UiSpec;
+    onChoose: (choice: UiSpecChoice) => void;
+    keepOpen: boolean;
+  } | null = null;
 
   /** Open bottom-left side panel (powers / inbox), or null. Non-modal. */
   private panel: Panel = null;
@@ -251,21 +259,39 @@ export class UiRuntime {
   /**
    * Present a declarative `UiSpec` as a modal card (the whisper card, P4). A chosen
    * option invokes `onChoose(choice)` — the game emits the choice's pre-paired
-   * `Command` — then the card dismisses. Supersedes any hover popover, pauses the
-   * sim (`onStoryToggle`), and is mutually exclusive with a running story session.
+   * `Command`. A one-shot card then dismisses; a `keepOpen` card (the conversation
+   * card) stays open and the game re-presents an updated spec via `updateOpenCard`.
+   * Supersedes any hover popover and is mutually exclusive with a running story
+   * session. A one-shot card pauses the sim (`onStoryToggle`); a `keepOpen` card does
+   * NOT — the whisper floor applies on a tick, so a conversation needs time to run.
    */
-  presentUiSpec(spec: UiSpec, onChoose: (choice: UiSpecChoice) => void): void {
+  presentUiSpec(
+    spec: UiSpec,
+    onChoose: (choice: UiSpecChoice) => void,
+    opts?: { keepOpen?: boolean },
+  ): void {
     this.clearHover();
     this.story = null; // the card and the runner-driven story card never coexist
-    this.card = { spec, onChoose };
-    this.hooks.onStoryToggle?.(true);
+    const keepOpen = opts?.keepOpen ?? false;
+    this.card = { spec, onChoose, keepOpen };
+    if (!keepOpen) this.hooks.onStoryToggle?.(true);
+    this.hooks.requestRender?.();
+  }
+
+  /** Swap the spec of the currently-open card in place (immediate-mode: next frame
+   *  redraws). The game calls this after an async whisper reply resolves, so the
+   *  conversation card grows a turn without dismissing. No-op if no card is open. */
+  updateOpenCard(spec: UiSpec): void {
+    if (!this.card) return;
+    this.card = { ...this.card, spec };
     this.hooks.requestRender?.();
   }
 
   private dismissCard(): void {
     if (!this.card) return;
+    const wasPausing = !this.card.keepOpen;
     this.card = null;
-    this.hooks.onStoryToggle?.(false);
+    if (wasPausing) this.hooks.onStoryToggle?.(false);
     this.hooks.requestRender?.();
   }
 
@@ -1034,9 +1060,16 @@ export class UiRuntime {
     spec.choices.forEach((choice, i) => {
       const label = choice.hint ? `${choice.text}  —  ${choice.hint}` : choice.text;
       if (c.button(`card.choice.${i}`, label, innerX, by, innerW, bh, { scale: fsBody })) {
-        const onChoose = this.card?.onChoose;
-        this.dismissCard();
-        onChoose?.(choice);
+        const card = this.card;
+        if (card?.keepOpen) {
+          // Conversation card: keep it open; the game emits the whisper and re-presents
+          // an updated spec via `updateOpenCard` when the reply lands.
+          card.onChoose(choice);
+        } else {
+          const onChoose = card?.onChoose;
+          this.dismissCard();
+          onChoose?.(choice);
+        }
       }
       by += bh + gap;
     });

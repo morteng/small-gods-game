@@ -14,7 +14,7 @@ import { causalSiteCardView } from '@/game/causal-site-view';
 import type { Command, CommandVerb, CommandTarget, CommandTargetKind } from '@/sim/command/types';
 import { hoverChips } from '@/game/affordance/hover';
 import { buildWhisperCard } from '@/game/affordance/whisper-card';
-import type { UiSpecChoice } from '@/story/uispec';
+import type { UiSpec, UiSpecChoice } from '@/story/uispec';
 import { createGameBus, type GameBus } from '@/game/game-bus';
 import { TimeController, TIME_RATE_LADDER } from '@/game/time-controller';
 import { describeInterest } from '@/game/interest-predicate';
@@ -1046,22 +1046,60 @@ export class Game {
   /** Build + present the whisper card for an NPC target; false if it can't (non-NPC,
    *  no world) so the caller falls back to a direct emit. */
   private presentWhisperCard(target: CommandTarget): boolean {
-    const world = this.state.world;
-    if (!world || target.kind !== 'npc') return false;
-    const ctx = { world, spirits: this.state.spirits, log: this.state.eventLog };
-    const spec = buildWhisperCard(target, PLAYER_SPIRIT_ID, ctx);
+    const spec = this.buildConversationSpec(target);
     if (!spec) return false;
-    getUiRuntime().presentUiSpec(spec, (choice) => this.onCardChoice(choice));
+    // keepOpen: the whisper card is a LIVING conversation (C1) — choosing a path
+    // whispers and re-presents the card instead of dismissing, and the sim keeps
+    // running so the whisper's belief floor lands on a tick while the card is up.
+    getUiRuntime().presentUiSpec(spec, (choice) => this.onCardChoice(choice), { keepOpen: true });
     this.requestRender();
     return true;
   }
 
-  /** A whisper-card choice: emit its pre-paired command (carrying the whispered words
-   *  + steer) and fire any cast FX. The queue re-stamps `seq`. */
+  /** Build the whisper/conversation card spec for an NPC target's current situation,
+   *  or null if the target isn't a resolvable NPC. Deterministic (`buildWhisperCard`);
+   *  re-run each turn so the belief bars + paths reflect the latest state. */
+  private buildConversationSpec(target: CommandTarget): UiSpec | null {
+    const world = this.state.world;
+    if (!world || target.kind !== 'npc') return null;
+    const ctx = { world, spirits: this.state.spirits, log: this.state.eventLog };
+    return buildWhisperCard(target, PLAYER_SPIRIT_ID, ctx);
+  }
+
+  /** A whisper-card choice. For an NPC target carrying whispered words, run the full
+   *  conversational whisper (`sendWhisper`: deterministic floor + LLM reply + transcript)
+   *  and, when it resolves, rebuild the card from the fresh situation/belief so the
+   *  exchange stays live. Non-NPC / textless choices fall back to a one-shot emit. */
   private onCardChoice(choice: UiSpecChoice): void {
     const cmd = choice.command;
+    const world = this.state.world;
+    const text = typeof cmd.payload?.text === 'string' ? cmd.payload.text : '';
+    if (world && cmd.target.kind === 'npc' && text) {
+      const npcId = cmd.target.npcId;
+      const npc = getNpc(world, npcId);
+      if (npc) {
+        void sendWhisper(npc, text, {
+          queue: this.commandQueue,
+          llm: this.llmClient,
+          store: this.attentionStore,
+          playerSpiritId: PLAYER_SPIRIT_ID,
+          now: () => this.state.clock.now(),
+        }).then(() => {
+          this.invalidateHudSim();
+          const rt = getUiRuntime();
+          if (!rt.hasCard()) return; // player closed the conversation mid-reply
+          const next = this.buildConversationSpec({ kind: 'npc', npcId });
+          if (next) rt.updateOpenCard(next);
+          this.requestRender();
+        });
+        this.invalidateHudSim(); // provisional: reflect the floor on the next HUD memo
+        this.requestRender();
+        return;
+      }
+    }
+    // Fallback: emit the pre-paired command directly (one-shot).
     this.bus.emit({ verb: cmd.verb, source: cmd.source, target: cmd.target, params: cmd.params, payload: cmd.payload });
-    this.invalidateHudSim(); // belief/inbox shift → refresh the HUD memo next frame
+    this.invalidateHudSim();
     this.fireCastFx(cmd.verb, cmd.target);
     this.requestRender();
   }

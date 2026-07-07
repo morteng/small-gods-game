@@ -402,6 +402,59 @@ describe('UiRuntime — whisper card (UiSpec)', () => {
   });
 });
 
+// ── Conversation UI C1: the re-presentable (keepOpen) card ──
+const CARD_SPEC_2: UiSpec = {
+  title: 'Whisper to Ada',
+  body: [{ kind: 'npcLine', who: 'Ada', text: '…does it? I had not thought of it that way.' }],
+  choices: [
+    { text: 'Press further', hint: 'deepens', command: { verb: 'whisper', source: 'player', target: { kind: 'npc', npcId: 'n1' }, params: { slant: 'affirm' }, seq: 0 } },
+  ],
+};
+
+describe('UiRuntime — conversation card (keepOpen)', () => {
+  it('a keepOpen card stays open after a choice and does NOT pause the sim', () => {
+    const picked: UiSpecChoice[] = [];
+    const toggles: boolean[] = [];
+    const rt = new UiRuntime();
+    rt.configure({ onStoryToggle: (a) => toggles.push(a) });
+    rt.presentUiSpec(CARD_SPEC, (c) => picked.push(c), { keepOpen: true });
+    rt.frame(W, H, DPR);
+    const b0 = rt.hitRegions().find((h) => h.id === 'card.choice.0')!;
+    click(rt, ...center(b0));
+    expect(picked).toHaveLength(1);          // onChoose fired
+    expect(rt.hasCard()).toBe(true);         // …but the card stayed open
+    expect(toggles).toEqual([]);             // …and the sim never paused
+  });
+
+  it('updateOpenCard swaps the rendered spec in place', () => {
+    const rt = new UiRuntime();
+    rt.presentUiSpec(CARD_SPEC, () => {}, { keepOpen: true });
+    rt.frame(W, H, DPR);
+    expect(rt.hitRegions().filter((h) => h.id.startsWith('card.choice.'))).toHaveLength(2);
+    rt.updateOpenCard(CARD_SPEC_2);
+    rt.frame(W, H, DPR);
+    expect(rt.hitRegions().filter((h) => h.id.startsWith('card.choice.'))).toHaveLength(1);
+    expect(rt.hasCard()).toBe(true);
+  });
+
+  it('updateOpenCard is a no-op when no card is open', () => {
+    const rt = new UiRuntime();
+    rt.updateOpenCard(CARD_SPEC_2);
+    expect(rt.hasCard()).toBe(false);
+  });
+
+  it('a backdrop click still closes a keepOpen card (no lingering pause toggle)', () => {
+    const toggles: boolean[] = [];
+    const rt = new UiRuntime();
+    rt.configure({ onStoryToggle: (a) => toggles.push(a) });
+    rt.presentUiSpec(CARD_SPEC, () => {}, { keepOpen: true });
+    rt.frame(W, H, DPR);
+    click(rt, 8, 8); // outside the centred card
+    expect(rt.hasCard()).toBe(false);
+    expect(toggles).toEqual([]); // never paused → never a stray resume
+  });
+});
+
 // ── P5: the zoomed-out alert pins (inbox as world-anchored markers) ──
 const PINS: AlertPinView[] = [
   { id: 'opp:vale', kind: 'opportunity', x: 400, y: 300, surfaced: false },
