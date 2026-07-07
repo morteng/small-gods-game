@@ -291,7 +291,7 @@ export function buildCrossingStructureEntities(
   ensureBuildingTypesRegistered();   // inline deck/pier blueprints resolve directly (a bare
                                      // footbridge never calls synthesizeBlueprint to trigger it)
   const defaults = opts.defaults ?? { era: 'late-medieval', prosperity: 'modest' };
-  const specs = detectCrossings(graph, width, { siteParamsAt: opts.siteParamsAt, defaults, isWater: opts.isWater });
+  const specs = detectCrossings(graph, width, { siteParamsAt: opts.siteParamsAt, defaults, isWater: opts.isWater, bridgeAt: opts.bridgeAt });
   const out: Entity[] = [];
   // Cells claimed by crossing buildings placed earlier in THIS batch — they aren't in the
   // world yet, so the caller's `cellBlocked` can't see them; this stops two crossing

@@ -6,7 +6,7 @@ describe('content-version constants', () => {
     expect(ART_RECIPE_VERSION).toBe('v30');
   });
 
-  it('declares the current world content version (88: trade-building identities)', () => {
-    expect(WORLD_CONTENT_VERSION).toBe(88);
+  it('declares the current world content version (89: bridges/stairs seat on visible water + de-pile)', () => {
+    expect(WORLD_CONTENT_VERSION).toBe(89);
   });
 });

@@ -46,6 +46,12 @@ const MIN_RISE_M = 1.5;        // one storey — below this it's a step, not a f
  *  between (G3c). */
 const MAX_FLIGHT_RUN_TILES = 4;
 const MIN_TREADS = 3;
+/** Two flights from DIFFERENT roads closer than this (Chebyshev tiles) read as a pile-up, not two
+ *  staircases — several roads climbing the same riverbank near a crossing each spawned their own
+ *  flight, jamming a knot of steps into a few tiles. The first-placed (deterministic graph order)
+ *  wins; a later road's flight within the radius is dropped (the road's own carve still climbs).
+ *  Stacked flights on the SAME road are exempt — a continuous climb is one staircase. */
+const MIN_CROSS_EDGE_SPACING = 3;
 
 export interface StairStructureOptions {
   /** Normalised [0,1] heightfield elevation at a tile — the SAME space the grade envelope's
@@ -118,6 +124,11 @@ export function buildStairStructureEntities(
   ensureBuildingTypesRegistered();   // inline stair_flight blueprint resolves directly
   const out: Entity[] = [];
   const usedTiles = new Set<string>();
+  // Feet already placed, with their owning edge — a later road's flight too close to an EARLIER
+  // road's flight is a pile-up and gets dropped (stacked flights on the same road are exempt).
+  const placedFeet: { x: number; y: number; edge: string }[] = [];
+  const tooCrowded = (fx: number, fy: number, edgeId: string): boolean =>
+    placedFeet.some((p) => p.edge !== edgeId && Math.max(Math.abs(p.x - fx), Math.abs(p.y - fy)) < MIN_CROSS_EDGE_SPACING);
   for (const edge of graph.edges) {
     if (edge.feature !== 'road') continue;
     const poly = edge.polyline;
@@ -137,8 +148,9 @@ export function buildStairStructureEntities(
       if (seg.runTiles < MIN_RUN_TILES || seg.riseM < MIN_RISE_M || actualGrade <= classGrade) return;
       const fx = seg.from.x, fy = seg.from.y;   // foot = the segment's lower end (already integer)
       const key = `${fx},${fy}`;
-      if (usedTiles.has(key) || opts.cellBlocked?.(fx, fy)) return;
+      if (usedTiles.has(key) || opts.cellBlocked?.(fx, fy) || tooCrowded(fx, fy, edge.id)) return;
       usedTiles.add(key);
+      placedFeet.push({ x: fx, y: fy, edge: edge.id });
       const liftElev = opts.liftElevAt?.(fx, fy);
       out.push(stairEntity(`${edge.id}:stair:${idx}`, edge.class, seg, liftElev));
     });

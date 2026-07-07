@@ -34,6 +34,15 @@ export interface DetectOptions {
    *  class WP-A detects). A dry bank is left exactly where it was (byte-identical), so
    *  only genuinely wet anchors move — the conservative fix. Absent ⇒ legacy behaviour. */
   isWater?: (x: number, y: number) => boolean;
+  /** Is a tile part of the VISIBLE water channel the crossing must span? When supplied, each
+   *  raster crossing run is EXTENDED along the road to absorb contiguous render-wet cells, so the
+   *  deck covers the full drawn ribbon (the walker bridges the thin raster line; the widened /
+   *  meandered ribbon spills a tile or two past it, leaving the old deck to span dry ground beside
+   *  the water). The run STILL seeds from `edge.bridgeCells` — so tangential contact between a
+   *  bankside road and the wide ribbon does NOT invent a spurious crossing; only where the walker
+   *  chose to bridge does one appear, now grown to the visible width. Banks then flank the extended
+   *  run, landing on render-dry ground by construction. Absent ⇒ legacy (byte-identical). */
+  bridgeAt?: (x: number, y: number) => boolean;
 }
 
 const DEFAULT_SITE: CrossingSiteParams = { era: 'early-medieval', prosperity: 'modest' };
@@ -42,6 +51,12 @@ const DEFAULT_SITE: CrossingSiteParams = { era: 'early-medieval', prosperity: 'm
  *  place. A bank is normally 0–1 tiles off the water edge; a river wider than the detector's
  *  bridge run resumes dry land within a couple of tiles, so a small reach suffices. */
 const BANK_SNAP_MAX_TILES = 4;
+
+/** How far (polyline steps ≈ tiles) a raster crossing run may EXTEND over contiguous render-wet
+ *  road cells to cover the drawn ribbon. Bounds the growth to a river's WIDTH — the widest reach
+ *  half-width is ~2.2 tiles (a ~5-tile band), so a few steps past the walker's thin bridged cell
+ *  reaches dry ground; a larger cap would let a bankside road grow one crossing down the shore. */
+const MAX_RUN_EXTEND = 5;
 
 /** Push a bank anchor that sits on water outward (along `awayDir`, unit-ish) until it clears
  *  the water, so the deck end seats on dry land. No-op when the anchor is already dry. */
@@ -75,14 +90,28 @@ export function detectCrossings(graph: RoadGraph | undefined, width: number, opt
     const bridge = new Set(edge.bridgeCells);
     const pts = edge.polyline;
     const cellOf = (p: { x: number; y: number }) => Math.floor(p.y) * width + Math.floor(p.x);
+    // The run SEEDS from the walker's raster bridge cells (crossing intent + count), then extends
+    // over contiguous render-wet road cells so the deck spans the full visible ribbon.
     const onBridge = pts.map((p) => bridge.has(cellOf(p)));
+    const onRender = opts.bridgeAt ? pts.map((p) => opts.bridgeAt!(Math.floor(p.x), Math.floor(p.y))) : null;
 
     let i = 0, run = 0;
     while (i < pts.length) {
       if (!onBridge[i]) { i++; continue; }
-      const s = i;
+      let s = i;
       while (i < pts.length && onBridge[i]) i++;
-      const e = i - 1;                                   // run = polyline points [s..e]
+      let e = i - 1;                                     // raster run = polyline points [s..e]
+      if (onRender) {
+        // Grow the run along the road to the edge of the drawn ribbon so the deck covers it, and
+        // both banks (just past the extended run) land on render-dry ground. BOUNDED to the width
+        // of a river (a few tiles) — without the cap a road that hugs a wide riverbank sits in the
+        // render ribbon for a long stretch, growing one monstrous crossing spanning dozens of tiles.
+        let ext = 0;
+        while (s > 0 && onRender[s - 1] && ext < MAX_RUN_EXTEND) { s--; ext++; }
+        ext = 0;
+        while (e < pts.length - 1 && onRender[e + 1] && ext < MAX_RUN_EXTEND) { e++; ext++; }
+        i = Math.max(i, e + 1);                          // don't re-scan cells the extension consumed
+      }
       const mid = pts[(s + e) >> 1];
       const site = resolve(Math.floor(mid.x), Math.floor(mid.y));
       let near = { x: pts[Math.max(0, s - 1)].x, y: pts[Math.max(0, s - 1)].y };

@@ -225,6 +225,14 @@ export async function generateWithNoise(
   // and bridge the full channel. The network is reused by the aqueduct pass later.
   const waterNet = buildWaterNetwork(hydrology, width, height, riverFlowThreshold);
   const refFlow = referenceFlow(waterNet);
+  // The AUTHORITATIVE "visible river" mask: every cell the render ribbon (and this raster
+  // widening) covers, captured BEFORE roads/bridges/buildings overwrite river tiles at the
+  // crossings. `tiles[..].type` is unreliable as a "is there water here" signal once roads
+  // carve 'bridge'/'dirt_road' over the channel and R1 meanders shift the ribbon off the thin
+  // raster line — the crossing/stair siters that read the raster then snap banks onto polluted
+  // ground and miss the water the player sees. They read THIS mask instead (mill-site WCV-87
+  // pattern: consumers that must match the drawn water read the connectome, not the tile grid).
+  const renderRiver = new Uint8Array(width * height);
   for (const reach of waterNet.reaches) {
     // Paint the channel at the SAME per-vertex width the carve uses (W ∝ √Q): thin at the
     // spring, widening toward the mouth, stepping up at confluences. Using the per-class
@@ -240,6 +248,7 @@ export async function generateWithNoise(
         for (let cx = x0; cx <= x1; cx++) {
           const dx = cx + 0.5 - p.x;
           if (dx * dx + dy * dy > r2) continue;
+          renderRiver[cy * width + cx] = 1;             // record the visible channel (kept, not overwritten)
           const t = tiles[cy]?.[cx];
           if (!t || WATER_TYPES.has(t.type)) continue;  // never overwrite ocean/lake/existing water
           t.type = 'river';
@@ -248,6 +257,12 @@ export async function generateWithNoise(
       }
     });
   }
+  // "Is there water the player can SEE at this cell?" — the render river ribbon (immune to the
+  // road/bridge overwrites that pollute the tile raster) UNION the standing water (ocean/lake)
+  // the tile grid still carries. This is the water signal the span siters seat against.
+  const renderWaterAt = (x: number, y: number): boolean =>
+    (x >= 0 && y >= 0 && x < width && y < height && renderRiver[y * width + x] === 1) ||
+    WATER_TYPES.has(tiles[y]?.[x]?.type ?? '');
 
   // Build World early so biome brushes and buildings can use it
   const mapStub: GameMap = {
@@ -472,9 +487,16 @@ export async function generateWithNoise(
       curveRenderElev(deckHf[y * width + x] ?? ELEVATION_SEA_LEVEL, ELEVATION_SEA_LEVEL, deckGamma);
     for (const e of buildCrossingStructureEntities(roadGraph, width, {
       deckElevAt,
-      // A wet bank anchor (a channel wider than the detected bridge run) snaps outward to dry
-      // ground so the deck seats its abutments on land, not in the river (bridge.seating).
-      isWater: (x, y) => WATER_TYPES.has(tiles[y]?.[x]?.type ?? ''),
+      // A wet bank anchor (a channel wider than the detected bridge run, OR a meander that shifted
+      // the visible ribbon off the thin raster line) snaps outward to dry ground so the deck seats
+      // its abutments on land and spans the water the player SEES — read from the render-river mask,
+      // not the tile grid (roads carve 'bridge'/'dirt_road' over the channel, hiding it from a
+      // raster read exactly at the crossing).
+      isWater: renderWaterAt,
+      // Locate the crossing on the VISIBLE channel, not the walker's thin raster line — a meander
+      // can shift the drawn ribbon a tile off the raster cell the walker bridged, leaving the deck
+      // to span dry ground beside the water. Detecting on the render mask puts it where water is.
+      bridgeAt: renderWaterAt,
       // Pier/arch height tracks the real bank-to-bed clearance (same raw heightfield + relief the
       // stair siter reads), so a deep gorge gets tall supports and a shallow brook short ones.
       elevAt: (x, y) => deckHf[Math.round(y) * width + Math.round(x)] ?? ELEVATION_SEA_LEVEL,
@@ -482,7 +504,7 @@ export async function generateWithNoise(
       cellBlocked: (x, y) => {
         const t = tiles[y]?.[x];
         if (!t) return true; // off-map → unusable
-        return tileBlockedByBuilding(world, x, y) || ROAD_TILES.has(t.type) || WATER_TYPES.has(t.type);
+        return tileBlockedByBuilding(world, x, y) || ROAD_TILES.has(t.type) || renderWaterAt(x, y);
       },
     })) world.addEntity(e);
 
@@ -500,8 +522,8 @@ export async function generateWithNoise(
       cellBlocked: (x, y) => {
         const t = tiles[y]?.[x];
         if (!t) return true;
-        // A stoop foots OUTSIDE its own door — keep it off water, roads and other buildings.
-        return tileBlockedByBuilding(world, x, y) || ROAD_TILES.has(t.type) || WATER_TYPES.has(t.type);
+        // A stoop foots OUTSIDE its own door — keep it off VISIBLE water, roads and other buildings.
+        return tileBlockedByBuilding(world, x, y) || ROAD_TILES.has(t.type) || renderWaterAt(x, y);
       },
     })) world.addEntity(e);
 
@@ -684,7 +706,9 @@ export async function generateWithNoise(
       cellBlocked: (x, y) => {
         const t = tiles[y]?.[x];
         if (!t) return true;
-        return tileBlockedByBuilding(world, x, y) || WATER_TYPES.has(t.type) || wallCells.has(`${x},${y}`);
+        // Keep a flight off the VISIBLE water (render-river mask), not just raster water — a
+        // meandered ribbon or a road-overwritten channel cell still reads as water on screen.
+        return tileBlockedByBuilding(world, x, y) || renderWaterAt(x, y) || wallCells.has(`${x},${y}`);
       },
     })) world.addEntity(e);
   }
