@@ -25,6 +25,8 @@ import type { Command } from '@/sim/command/types';
 export type UiSpecBlock =
   | { kind: 'paragraph'; text: string }
   | { kind: 'npcLine'; who: string; text: string }
+  /** A line the player (the god) whispered — the transcript's own-voice turn. */
+  | { kind: 'playerLine'; text: string }
   | { kind: 'omen'; text: string }
   | { kind: 'divider' }
   | { kind: 'beliefBar'; label: string; value: number };
@@ -105,6 +107,8 @@ function clampBlock(b: UiSpecBlock): UiSpecBlock {
         who: clampStr(b.who, UISPEC_BUDGETS.whoChars),
         text: clampStr(b.text, UISPEC_BUDGETS.blockChars),
       };
+    case 'playerLine':
+      return { kind: 'playerLine', text: clampStr(b.text, UISPEC_BUDGETS.blockChars) };
     case 'omen':
       return { kind: 'omen', text: clampStr(b.text, UISPEC_BUDGETS.blockChars) };
     case 'divider':

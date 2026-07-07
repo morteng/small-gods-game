@@ -1088,6 +1088,12 @@ export class UiRuntime {
         y += lh + 4 * s;
         return this.drawWrapped(c, `“${b.text}”`, x, y, w, fs, UI_PALETTE.text) + 10 * s;
       }
+      case 'playerLine': {
+        // The god's own whisper — labelled YOU, muted, to read as the reply-to side.
+        c.label('YOU', x, y, fs, UI_PALETTE.textDim);
+        y += lh + 4 * s;
+        return this.drawWrapped(c, `“${b.text}”`, x, y, w, fs, UI_PALETTE.textDim) + 10 * s;
+      }
       case 'omen':
         return this.drawWrapped(c, `✦ ${b.text}`, x, y, w, fs, [0.55, 0.7, 0.9, 1]) + 8 * s;
       case 'divider':

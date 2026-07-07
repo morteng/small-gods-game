@@ -44,6 +44,16 @@ describe('validateUiSpec — no-scroll budgets', () => {
     expect(v.choices).toHaveLength(UISPEC_BUDGETS.choices);
   });
 
+  it('clamps a playerLine block text to the block-char budget', () => {
+    const v = validateUiSpec({
+      title: 't',
+      body: [{ kind: 'playerLine', text: longStr(500) }],
+      choices: [],
+    });
+    expect(v.body[0].kind).toBe('playerLine');
+    expect((v.body[0] as { text: string }).text.length).toBe(UISPEC_BUDGETS.blockChars);
+  });
+
   it('clamps belief-bar values into 0–1', () => {
     const v = validateUiSpec({
       title: 't',

@@ -25,6 +25,11 @@ import { getNpc, npcProps } from '@/world/npc-helpers';
 import { getDomainBelief, isOminous, ALL_DOMAINS, DOMAIN_EPSILON } from '@/sim/belief-domains';
 import type { UiSpec, UiSpecBlock, UiSpecChoice } from '@/story/uispec';
 import { validateUiSpec } from '@/story/uispec';
+import type { WhisperTurn } from '@/llm/npc-attention-store';
+
+/** How many recent turns the card shows inline (no scroll yet — C3 unlocks history).
+ *  Sized so 2 belief bars + 2 turns (playerLine+npcLine each) fit the 6-block budget. */
+const CARD_TURN_TAIL = 2;
 
 type NeedKey = keyof NpcNeeds;
 
@@ -117,7 +122,12 @@ function whisperCommand(target: CommandTarget, source: SpiritId, slant: string, 
  * ominous event grips their home) and/or affirm-the-domain (if they already lean toward
  * a power you hold); a generic affirmation backfills to guarantee a real choice.
  */
-export function buildWhisperCard(target: CommandTarget, source: SpiritId, ctx: CommandCtx): UiSpec | null {
+export function buildWhisperCard(
+  target: CommandTarget,
+  source: SpiritId,
+  ctx: CommandCtx,
+  transcript?: readonly WhisperTurn[],
+): UiSpec | null {
   if (target.kind !== 'npc') return null;
   const e = getNpc(ctx.world, target.npcId);
   if (!e) return null;
@@ -128,17 +138,29 @@ export function buildWhisperCard(target: CommandTarget, source: SpiritId, ctx: C
   const domain = dominantDomain(p, source);
   const belief = p.beliefs[source] ?? { faith: 0, understanding: 0, devotion: 0 };
 
-  // ── body: what they feel → the opening → (the omen) → belief bars ──
+  // ── body ──
+  // A conversation underway (C2): pinned belief bars (the feedback instrument) over
+  // the last few turns of the transcript. No conversation yet: the situational opener
+  // (what they feel + the door into their mind + any omen).
   const body: UiSpecBlock[] = [
-    { kind: 'npcLine', who: p.name, text: NEED_FEELING[need] },
-    { kind: 'paragraph', text: framing(p) },
+    { kind: 'beliefBar', label: 'Faith', value: belief.faith },
+    { kind: 'beliefBar', label: NEED_LABEL[need], value: p.needs[need] },
   ];
-  if (event) {
-    body.push({ kind: 'omen', text: `A ${event} torments them; they search the sky for a reason.` });
+  if (transcript && transcript.length > 0) {
+    for (const t of transcript.slice(-CARD_TURN_TAIL)) {
+      body.push({ kind: 'playerLine', text: t.whisper });
+      // Empty dialogue = the reply hasn't landed (pending) or was degraded (no LLM) —
+      // an ellipsis reads as the whisper falling into their mind without words.
+      body.push({ kind: 'npcLine', who: p.name, text: t.dialogue || '…' });
+    }
+  } else {
+    body.push({ kind: 'divider' });
+    body.push({ kind: 'npcLine', who: p.name, text: NEED_FEELING[need] });
+    body.push({ kind: 'paragraph', text: framing(p) });
+    if (event) {
+      body.push({ kind: 'omen', text: `A ${event} torments them; they search the sky for a reason.` });
+    }
   }
-  body.push({ kind: 'divider' });
-  body.push({ kind: 'beliefBar', label: 'Faith', value: belief.faith });
-  body.push({ kind: 'beliefBar', label: NEED_LABEL[need], value: p.needs[need] });
 
   // ── paths: soothe-the-need, then omen / domain, capped at 3 ──
   const choices: UiSpecChoice[] = [

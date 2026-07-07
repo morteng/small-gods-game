@@ -1063,7 +1063,19 @@ export class Game {
     const world = this.state.world;
     if (!world || target.kind !== 'npc') return null;
     const ctx = { world, spirits: this.state.spirits, log: this.state.eventLog };
-    return buildWhisperCard(target, PLAYER_SPIRIT_ID, ctx);
+    const transcript = this.attentionStore.getTranscript(target.npcId);
+    return buildWhisperCard(target, PLAYER_SPIRIT_ID, ctx, transcript);
+  }
+
+  /** Rebuild the open conversation card from the latest situation + transcript. No-op
+   *  if the player has closed the card. Used both for the provisional (pending) turn
+   *  and the resolved reply. */
+  private refreshConversationCard(npcId: string): void {
+    const rt = getUiRuntime();
+    if (!rt.hasCard()) return;
+    const spec = this.buildConversationSpec({ kind: 'npc', npcId });
+    if (spec) rt.updateOpenCard(spec);
+    this.requestRender();
   }
 
   /** A whisper-card choice. For an NPC target carrying whispered words, run the full
@@ -1085,15 +1097,14 @@ export class Game {
           playerSpiritId: PLAYER_SPIRIT_ID,
           now: () => this.state.clock.now(),
         }).then(() => {
+          // Reply landed (or degraded): rebuild so the NPC's words + the moved bars show.
           this.invalidateHudSim();
-          const rt = getUiRuntime();
-          if (!rt.hasCard()) return; // player closed the conversation mid-reply
-          const next = this.buildConversationSpec({ kind: 'npc', npcId });
-          if (next) rt.updateOpenCard(next);
-          this.requestRender();
+          this.refreshConversationCard(npcId);
         });
-        this.invalidateHudSim(); // provisional: reflect the floor on the next HUD memo
-        this.requestRender();
+        // sendWhisper appends the provisional turn synchronously (before its first
+        // await), so the pending "…" turn is already in the transcript — show it now.
+        this.invalidateHudSim();
+        this.refreshConversationCard(npcId);
         return;
       }
     }

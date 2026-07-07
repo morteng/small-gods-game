@@ -86,6 +86,45 @@ describe('buildWhisperCard', () => {
     expect(card.choices.some((c) => c.command.params?.slant === 'domain:storm')).toBe(true);
   });
 
+  it('with no transcript, shows the situational opener (npcLine feeling + framing)', () => {
+    const world = makeWorld({ needs: { safety: 0.15, prosperity: 0.8, community: 0.8, meaning: 0.8 } });
+    const card = buildWhisperCard(N1, 'player', ctxOf(world), [])!;
+    // opener present, no player line yet
+    expect(card.body.some((b) => b.kind === 'npcLine')).toBe(true);
+    expect(card.body.some((b) => b.kind === 'playerLine')).toBe(false);
+    // belief bars pinned first
+    expect(card.body[0].kind).toBe('beliefBar');
+  });
+
+  it('with a transcript, renders the recent turns as playerLine + npcLine pairs', () => {
+    const world = makeWorld({ beliefs: { player: { faith: 0.5, understanding: 0.3, devotion: 0.2 } } });
+    const transcript = [
+      { whisper: 'You are watched over.', dialogue: 'I feel less alone.', tick: 1 },
+      { whisper: 'Hold fast.', dialogue: '', tick: 2 }, // pending (no reply yet)
+    ];
+    const card = buildWhisperCard(N1, 'player', ctxOf(world), transcript)!;
+    const player = card.body.filter((b) => b.kind === 'playerLine');
+    const npc = card.body.filter((b) => b.kind === 'npcLine');
+    expect(player).toHaveLength(2);
+    expect(player.map((b) => (b as { text: string }).text)).toEqual(['You are watched over.', 'Hold fast.']);
+    // the pending turn (empty dialogue) renders as an ellipsis
+    expect((npc[npc.length - 1] as { text: string }).text).toBe('…');
+    // no situational opener/framing once a conversation is underway
+    expect(card.body.some((b) => b.kind === 'paragraph')).toBe(false);
+  });
+
+  it('shows only the last two turns inline (fits the no-scroll budget)', () => {
+    const world = makeWorld({});
+    const transcript = [
+      { whisper: 'one', dialogue: 'a', tick: 1 },
+      { whisper: 'two', dialogue: 'b', tick: 2 },
+      { whisper: 'three', dialogue: 'c', tick: 3 },
+    ];
+    const card = buildWhisperCard(N1, 'player', ctxOf(world), transcript)!;
+    const player = card.body.filter((b) => b.kind === 'playerLine').map((b) => (b as { text: string }).text);
+    expect(player).toEqual(['two', 'three']); // oldest ('one') dropped
+  });
+
   it('caps at 3 paths and is deterministic (same state ⇒ identical spec)', () => {
     const build = () => {
       const world = makeWorld({
