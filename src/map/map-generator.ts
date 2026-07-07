@@ -510,6 +510,9 @@ export async function generateWithNoise(
       // stair siter reads), so a deep gorge gets tall supports and a shallow brook short ones.
       elevAt: (x, y) => deckHf[Math.round(y) * width + Math.round(x)] ?? ELEVATION_SEA_LEVEL,
       reliefM: worldStyleOf(worldSeed ?? undefined).mountainRelief,
+      // The terrain's compressed vertical — the bridge object sizes its supports in this space so
+      // they span the real bank-to-bed screen gap (else true-metric supports render ~1.6× too tall).
+      zPxPerM: worldStyleOf(worldSeed ?? undefined).terrainVerticalExaggeration,
       cellBlocked: (x, y) => {
         const t = tiles[y]?.[x];
         if (!t) return true; // off-map → unusable

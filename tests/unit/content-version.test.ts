@@ -7,6 +7,6 @@ describe('content-version constants', () => {
   });
 
   it('declares the current world content version (90: road network 4-connectivity repair)', () => {
-    expect(WORLD_CONTENT_VERSION).toBe(90);
+    expect(WORLD_CONTENT_VERSION).toBe(91);
   });
 });

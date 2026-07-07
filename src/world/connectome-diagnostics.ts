@@ -521,7 +521,7 @@ interface DeckFootprint {
 
 function bridgeDeckFootprints(world: World): DeckFootprint[] {
   const out: DeckFootprint[] = [];
-  for (const e of world.query({ kind: 'bridge_deck' }) as Entity[]) {
+  for (const e of world.query({ kind: 'bridge' }) as Entity[]) {
     const rb = (e.properties as {
       blueprint?: { rb?: { footprint?: { w: number; h: number }; parts?: Array<{ type: string; params?: Record<string, unknown> }> } };
     } | undefined)?.blueprint?.rb;
@@ -625,15 +625,15 @@ function bridgeTileRuns(map: GameMap): [number, number][][] {
   return runs;
 }
 
-/** ERROR — `bridge` tiles and `bridge_deck` entities disagree on where a crossing is:
- *  tiles must intersect a deck footprint (else it's un-bridged tiles — the tiles-side of
- *  the "unbridging" class the terrain-features epic fixed the other direction of), and a
- *  deck must sit over ≥1 bridge tile (else it's a deck over plain ground/water with no
+/** ERROR — `bridge` tiles and `bridge` OBJECTS disagree on where a crossing is: tiles must
+ *  intersect a bridge object's footprint (else it's un-bridged tiles — the tiles-side of the
+ *  "unbridging" class the terrain-features epic fixed the other direction of), and a bridge
+ *  object must sit over ≥1 bridge tile (else it's a deck over plain ground/water with no
  *  carved crossing beneath it — the tile-side never got stamped). */
 const bridgeTilesVsDeck: DiagnosticRule = {
   id: 'bridge.tiles-vs-deck',
   severity: 'error',
-  description: 'Bridge tiles and bridge_deck entities must agree on where a crossing is.',
+  description: 'Bridge tiles and bridge objects must agree on where a crossing is.',
   evaluate(ctx) {
     const decks = bridgeDeckFootprints(ctx.world).map((d) => {
       const cells = new Set<string>();
@@ -647,7 +647,7 @@ const bridgeTilesVsDeck: DiagnosticRule = {
       const [cx, cy] = run[Math.floor(run.length / 2)];
       out.push({
         rule: this.id, severity: this.severity,
-        message: `bridge tile run of ${run.length} cell(s) near (${cx},${cy}) has no bridge_deck entity over it`,
+        message: `bridge tile run of ${run.length} cell(s) near (${cx},${cy}) has no bridge object over it`,
         locus: { tiles: run.slice(0, 24).map(([x, y]) => ({ x, y })) },
         metrics: { cells: run.length },
       });

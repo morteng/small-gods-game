@@ -260,7 +260,7 @@ describe('SettlementGrowthSystem', () => {
     expect(plan.lots.some(l => l.tiles.some(t => t.x > 28))).toBe(true);
     // The annexed bridge is REAL STRUCTURE, not bare tiles: the same parametric deck
     // worldgen crossings get (buildCrossingSpanEntities) joined the world at the channel.
-    const spanDecks = [...world.query({ kind: 'bridge_deck' })];
+    const spanDecks = [...world.query({ kind: 'bridge' })];
     expect(spanDecks.length).toBeGreaterThan(0);
     expect(Math.abs(spanDecks[0].x - 28)).toBeLessThanOrEqual(3);   // seated at the crossing
 

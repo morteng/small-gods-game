@@ -16,6 +16,13 @@ import { WALL_MAT } from './body';
 
 type Dir = 'ns' | 'ew';
 
+/** Base segment count a cambered (hump-backed) deck is built from; the actual count scales up
+ *  with the hump so each step stays sub-perceptible (a steep short hump needs more segments than
+ *  a shallow long one). A flat deck (camberM≈0) collapses to ONE slab, byte-identical. */
+const DECK_CAMBER_SEGMENTS = 12;
+/** Max per-step top rise (m) before we add segments — keeps the stair-stepping under the eye. */
+const DECK_CAMBER_STEP_M = 0.12;
+
 function matOf(ctx: CompileCtx): Mat {
   return WALL_MAT[ctx.materials.walls] ?? 'stone';
 }
@@ -51,6 +58,13 @@ export const deckPartType: PartType = {
     lengthM: { kind: 'number', min: 0.5, max: 60, default: 4 },
     widthM: { kind: 'number', min: 0.5, max: 20, default: 3 },
     thicknessM: { kind: 'number', min: 0.1, max: 3, default: 0.6 },
+    // Deck-underside height above the part's z datum (m). 0 ⇒ foots at the datum (the historic
+    // behaviour — the crossing pipeline lifts the whole entity via liftElev). A whole-bridge
+    // OBJECT sets this to the arch-crown / pier-top height so the deck rides ON the supports
+    // instead of plugging them. `any` (not number) so an unset caller stays byte-identical.
+    baseZM: { kind: 'any', doc: 'deck-underside height above the part z datum (m); overrides nothing when unset' },
+    // Hump: extra crown rise at mid-span (m), parabolic to 0 at the abutments. 0 ⇒ flat slab.
+    camberM: { kind: 'any', doc: 'hump-back crown rise at mid-span (m); 0/unset ⇒ flat deck' },
     dir: { kind: 'enum', values: ['ns', 'ew'], default: 'ns' },
     // TRUE span bearing in degrees (CCW from +x). Overrides `dir`; lets a deck go diagonal. `any`
     // (not `number`) so it stays UNSET when a caller passes only `dir` — a number default would be
@@ -64,20 +78,40 @@ export const deckPartType: PartType = {
     const len = mToTiles((p.params.lengthM as number) ?? 4);   // along the span (local +x)
     const wid = mToTiles((p.params.widthM as number) ?? 3);    // across the road (local +y)
     const thick = mToTiles((p.params.thicknessM as number) ?? 0.6);
+    const baseZ = mToTiles((p.params.baseZM as number) ?? 0);  // deck underside above the datum
+    const camber = mToTiles((p.params.camberM as number) ?? 0); // hump crown rise at mid-span
     const yaw = deckYaw(p.params);
     // The deck is centred on the part box, so a yawed slab stays inside the footprint AABB the
-    // crossing sizes for it. Local frame: long axis +x (len), width +y (wid), top at z=thick.
+    // crossing sizes for it. Local frame: long axis +x (len), width +y (wid).
     const cx = p.at.x + (p.size?.w ?? len) / 2, cy = p.at.y + (p.size?.h ?? wid) / 2;
-    const out: Prim[] = [yawedBox(cx, cy, len, wid, 0, thick, yaw, mat)];
-    if ((p.params.parapet as string) === 'both') {
-      const pH = mToTiles(0.9), pT = mToTiles(0.25);
-      // The two parapets line the long edges: local cross-offset ±(wid−pT)/2 from the centreline,
-      // each a full-length box yawed to match the slab. Rotating the offset by the SAME yaw seats
-      // them on the slab edges at any bearing (cardinal or diagonal).
-      const off = (wid - pT) / 2;
-      for (const s of [-1, 1]) {
-        const [ox, oy] = rotXY(0, s * off, yaw);
-        out.push(yawedBox(cx + ox, cy + oy, len, pT, thick, pH, yaw, mat));
+    const parapet = (p.params.parapet as string) === 'both';
+    const pH = mToTiles(0.9), pT = mToTiles(0.25);
+    const off = (wid - pT) / 2;   // parapet cross-offset from the centreline
+    // A flat deck is ONE slab (segs=1, byte-identical to the historic single box). A cambered
+    // deck is a short run of segments whose tops follow a shallow parabola (crown = camber at
+    // mid-span, 0 at the abutments), so a hump-backed bridge reads without a curved-slab prim.
+    // Scale segment count with the hump so each step's top rise stays under DECK_CAMBER_STEP_M —
+    // the peak slope of the parabola is ~2·camber/(len/2), so steps ≈ camber·4/segs near the ends.
+    const camberM = (p.params.camberM as number) ?? 0;
+    const segs = camber > 1e-3
+      ? Math.min(48, Math.max(DECK_CAMBER_SEGMENTS, Math.ceil((camberM * 4) / DECK_CAMBER_STEP_M)))
+      : 1;
+    const segLen = len / segs;
+    const out: Prim[] = [];
+    for (let i = 0; i < segs; i++) {
+      const u = -len / 2 + (i + 0.5) * segLen;   // segment centre offset along the span
+      const t = (2 * u) / len;                   // −1 … +1
+      const z0 = baseZ + camber * (1 - t * t);   // parabolic hump top
+      const [dx, dy] = rotXY(u, 0, yaw);
+      out.push(yawedBox(cx + dx, cy + dy, segLen, wid, z0, thick, yaw, mat));
+      if (parapet) {
+        // The two parapets line the long edges: local cross-offset ±off from the centreline,
+        // each riding the same segment top; rotating the offset by the SAME yaw seats them on
+        // the slab edges at any bearing (cardinal or diagonal).
+        for (const s of [-1, 1]) {
+          const [ox, oy] = rotXY(u, s * off, yaw);
+          out.push(yawedBox(cx + ox, cy + oy, segLen, pT, z0 + thick, pH, yaw, mat));
+        }
       }
     }
     return out;

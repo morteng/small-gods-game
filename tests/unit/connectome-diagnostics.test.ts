@@ -257,7 +257,7 @@ describe('connectome diagnostics', () => {
    *  axis-aligned 3×1 deck spanning x=4..6 at y=5 (yaw 0°, length 3 tiles = 6 m). */
   function deckEntity(id: string, ox: number, oy: number, w = 3, h = 1, yawDeg = 0): Entity {
     return {
-      id, kind: 'bridge_deck', x: ox, y: oy, tags: ['prop', 'infrastructure'],
+      id, kind: 'bridge', x: ox, y: oy, tags: ['prop', 'infrastructure'],
       properties: {
         blueprint: { rb: { footprint: { w, h }, parts: [{ type: 'deck', at: { x: 0, y: 0 }, params: { yawDeg, lengthM: w * 2 } }] } },
       },
@@ -266,7 +266,7 @@ describe('connectome diagnostics', () => {
   function bridgeCtx(opts: { tiles: string[][]; decks: Entity[] }): DiagnosticContext {
     const tiles = opts.tiles.map((row) => row.map((type) => ({ type })));
     return {
-      world: { query: (o: { kind?: string }) => (o?.kind === 'bridge_deck' ? opts.decks : []) } as unknown as DiagnosticContext['world'],
+      world: { query: (o: { kind?: string }) => (o?.kind === 'bridge' ? opts.decks : []) } as unknown as DiagnosticContext['world'],
       map: { seed: 1, width: tiles[0].length, height: tiles.length, worldSeed: null, tiles, roadGraph: { nodes: [], edges: [] } } as unknown as DiagnosticContext['map'],
     };
   }
@@ -320,7 +320,7 @@ describe('connectome diagnostics', () => {
     const tiles = Array.from({ length: 10 }, (_, y) => row(GRID_W, (x) => (y === 5 && x >= 4 && x <= 6 ? 'bridge' : 'grass')));
     const ctx = bridgeCtx({ tiles, decks: [] }); // no deck entities at all
     const hits = evaluateConnectome(ctx).diagnostics.filter((d) => d.rule === 'bridge.tiles-vs-deck');
-    expect(hits.some((d) => d.message.includes('has no bridge_deck entity over it'))).toBe(true);
+    expect(hits.some((d) => d.message.includes('has no bridge object over it'))).toBe(true);
   });
 
   it('flags a bridge_deck entity sitting over no bridge tile', () => {

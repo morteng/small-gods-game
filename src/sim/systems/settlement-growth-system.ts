@@ -386,8 +386,8 @@ function spawnAnnexBridgeStructure(
   const style = worldStyleOf(map.worldSeed ?? undefined);
   for (const e of buildCrossingSpanEntities(spec, {
     deckElevAt: (x, y) => curveRenderElev(hf[y * width + x] ?? ELEVATION_SEA_LEVEL, ELEVATION_SEA_LEVEL, style.terrainHeightGamma),
-    elevAt: (x, y) => hf[Math.round(y) * width + Math.round(x)] ?? ELEVATION_SEA_LEVEL,
     reliefM: style.mountainRelief,
+    zPxPerM: style.terrainVerticalExaggeration,
   })) {
     if (ctx.world.registry.get(e.id)) continue;          // idempotent across re-grows
     ctx.world.addEntity(e);

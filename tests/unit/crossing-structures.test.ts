@@ -15,18 +15,23 @@ describe('buildCrossingStructureEntities', () => {
     return { nodes: [], edges: [edge('e', poly, { class: 'highway', bridgeCells: cells })] };
   };
 
-  it('spawns grey-massing structures (deck + piers + ancillary buildings) for a wide rich crossing', () => {
+  // A crossing renders as ONE coherent bridge OBJECT (kind 'bridge') whose parts (deck + arch
+  // bays / piles) compose in its own space — not a scatter of separately-lifted entities.
+  type BPart = { type: string; params: Record<string, unknown>; at?: { x: number; y: number } };
+  const bridgeOf = (ents: ReturnType<typeof buildCrossingStructureEntities>) => ents.find((e) => e.kind === 'bridge');
+  const partsOf = (e: NonNullable<ReturnType<typeof bridgeOf>>): BPart[] =>
+    (e.properties as { blueprint: { rb: { parts: BPart[] } } }).blueprint.rb.parts;
+
+  it('spawns ONE bridge object (deck + arch bays) plus ancillary buildings for a wide rich crossing', () => {
     const ents = buildCrossingStructureEntities(wideRich(), W, { defaults: { era: 'late-medieval', prosperity: 'rich' } });
-    const kinds = new Set(ents.map((e) => e.kind));
-    // The span itself now renders: a deck + supporting piers (wide span earns piers, G5).
-    expect(kinds.has('bridge_deck')).toBe(true);
-    expect(ents.some((e) => e.kind === 'bridge_pier')).toBe(true);
-    // Piers sit on DISTINCT tiles (short-span collapse is deduped).
-    const pierTiles = ents.filter((e) => e.kind === 'bridge_pier').map((e) => `${e.x},${e.y}`);
-    expect(new Set(pierTiles).size).toBe(pierTiles.length);
-    // A wealthy late-medieval highway crossing is a masonry ARCHED bridge — arch bays now render.
-    expect(ents.some((e) => e.kind === 'bridge_arch')).toBe(true);
+    const bridge = bridgeOf(ents);
+    expect(bridge).toBeDefined();
+    const parts = partsOf(bridge!);
+    // The span is one object: a deck riding the crowns of a filled-spandrel masonry arcade.
+    expect(parts.some((p) => p.type === 'deck')).toBe(true);
+    expect(parts.filter((p) => p.type === 'arch_span').length).toBeGreaterThanOrEqual(1);
     // toll/guard/shrine/shop×2/gatehouse/mill → grey-massing ancillary buildings.
+    const kinds = new Set(ents.map((e) => e.kind));
     const buildings = ents.filter((e) => (e.properties as any).category === 'building');
     expect(buildings.length).toBeGreaterThanOrEqual(5);
     expect(kinds.has('shrine')).toBe(true);
@@ -34,37 +39,35 @@ describe('buildCrossingStructureEntities', () => {
     expect(ents.every((e) => Number.isInteger(e.x) && Number.isInteger(e.y))).toBe(true);
   });
 
-  it('a narrow brook crossing rests on its banks — a clean deck, no interior piers', () => {
+  it('a humble brook crossing is a plain deck object — no ancillary buildings', () => {
     const poly = [4, 5, 6, 7].map((x) => ({ x, y: 4 }));
     const graph: RoadGraph = { nodes: [], edges: [edge('e', poly, { class: 'path', bridgeCells: [4 * W + 5] })] };
     const ents = buildCrossingStructureEntities(graph, W, { defaults: { era: 'stone-age', prosperity: 'poor' } });
-    expect(ents.filter((e) => e.kind === 'bridge_deck')).toHaveLength(1);
-    // Span < 3 tiles ⇒ no interior piers (no stacked clutter).
-    expect(ents.filter((e) => e.kind === 'bridge_pier')).toHaveLength(0);
+    const bridge = bridgeOf(ents);
+    expect(bridge).toBeDefined();
+    expect(partsOf(bridge!).some((p) => p.type === 'deck')).toBe(true);
     expect(ents.some((e) => (e.properties as any).category === 'building')).toBe(false);
   });
 
-  it('deck rides its bank elevation (liftElev); piers stay grounded (foot-sampled)', () => {
+  it('the whole bridge object is lifted ONCE to the bed elevation (deck rides the crowns above it)', () => {
     const ents = buildCrossingStructureEntities(wideRich(), W, {
       defaults: { era: 'late-medieval', prosperity: 'rich' },
-      deckElevAt: () => 0.42,
+      deckElevAt: () => 0.42, reliefM: 48, zPxPerM: 20,
     });
-    const deck = ents.find((e) => e.kind === 'bridge_deck')!;
-    expect((deck.properties as any).liftElev).toBe(0.42);
-    const pier = ents.find((e) => e.kind === 'bridge_pier')!;
-    expect((pier.properties as any).liftElev).toBeUndefined();
+    const bridge = bridgeOf(ents)!;
+    // Flat elevation ⇒ bed == bank == 0.42; the object lifts to it and the deck rides on top.
+    expect((bridge.properties as any).liftElev).toBe(0.42);
   });
 
-  it('a multi-tile masonry span marches a row of arches between its piers', () => {
-    // A wide late-medieval road over a 6-tile river → an arched stone bridge. The builder sizes
-    // arches at ~one per 3 tiles, so a ~6-tile span earns ≥2 arch bays sitting between the piers.
+  it('a multi-tile masonry span composes a row of arch bays in ONE object', () => {
+    // A wide late-medieval road over a ~6-tile river → a filled-spandrel arch bridge; the builder
+    // sizes one arch per ~3.5 tiles, so the span earns ≥2 arch bays, distinct along the bearing.
     const ents = buildCrossingStructureEntities(wideRich(), W, { defaults: { era: 'late-medieval', prosperity: 'rich' } });
-    const arches = ents.filter((e) => e.kind === 'bridge_arch');
+    const arches = partsOf(bridgeOf(ents)!).filter((p) => p.type === 'arch_span');
     expect(arches.length).toBeGreaterThanOrEqual(2);
-    // Arches march along the span (distinct tiles), not stacked on one.
-    expect(new Set(arches.map((e) => `${e.x},${e.y}`)).size).toBe(arches.length);
-    // An arch billboards from the bed like a pier — no liftElev.
-    expect(arches.every((e) => (e.properties as any).liftElev === undefined)).toBe(true);
+    // Arch bays march along the span (distinct springing origins), not stacked on one.
+    const at = arches.map((p) => `${(p.at ?? { x: 0 }).x?.toFixed(1)},${(p.at ?? { y: 0 }).y?.toFixed(1)}`);
+    expect(new Set(at).size).toBe(arches.length);
   });
 
   it('a DIAGONAL crossing gets ONE straight diagonal deck whose AABB centres on the ford', () => {
@@ -74,10 +77,9 @@ describe('buildCrossingStructureEntities', () => {
     const poly = [3, 4, 5, 6, 7, 8, 9].map((d) => ({ x: d, y: d }));
     const graph: RoadGraph = { nodes: [], edges: [edge('e', poly, { class: 'road', bridgeCells: [6 * W + 6] })] };
     const ents = buildCrossingStructureEntities(graph, W, { defaults: { era: 'late-medieval', prosperity: 'modest' } });
-    const decks = ents.filter((e) => e.kind === 'bridge_deck');
-    expect(decks).toHaveLength(1);
-    const deck = decks[0];
-    const rb = (deck.properties as { blueprint: { rb: { footprint: { w: number; h: number }; parts: Array<{ type: string; params: Record<string, unknown> }> } } }).blueprint.rb;
+    const bridge = bridgeOf(ents);
+    expect(bridge).toBeDefined();
+    const rb = (bridge!.properties as { blueprint: { rb: { footprint: { w: number; h: number }; parts: BPart[] } } }).blueprint.rb;
     const part = rb.parts.find((p) => p.type === 'deck')!;
     // The deck carries the true 45° bank→bank bearing (not axis-snapped).
     expect(Math.abs(Number(part.params.yawDeg) - 45)).toBeLessThan(2);
@@ -86,26 +88,25 @@ describe('buildCrossingStructureEntities', () => {
     expect(rb.footprint.w).toBeGreaterThanOrEqual(3);
     // The SLAB centres exactly on the ford midpoint (6,6) — the integer entity origin's
     // rounding remainder flows into the part's local offset — so both ends seat on the banks.
-    const at = (part as unknown as { at?: { x: number; y: number } }).at ?? { x: 0, y: 0 };
-    expect(deck.x + at.x + rb.footprint.w / 2).toBeCloseTo(6, 5);
-    expect(deck.y + at.y + rb.footprint.h / 2).toBeCloseTo(6, 5);
+    const at = part.at ?? { x: 0, y: 0 };
+    expect(bridge!.x + at.x + rb.footprint.w / 2).toBeCloseTo(6, 5);
+    expect(bridge!.y + at.y + rb.footprint.h / 2).toBeCloseTo(6, 5);
   });
 
-  it('pier/arch HEIGHT tracks the crossing depth — a deep gorge earns taller piers than a brook', () => {
+  it('the deck rides at the crossing CLEARANCE — a deep gorge lifts it higher than a brook', () => {
     // Same wide crossing, two elevation profiles: deep (banks far above the carved bed) vs shallow.
-    // The clearance (bank − bed)·relief drives pier height, so deep > shallow.
-    const pierH = (bankNorm: number, bedNorm: number): number => {
+    // The compressed bank−bed clearance drives the deck's baseZM, so deep > shallow.
+    const clearance = (bankNorm: number, bedNorm: number): number => {
       const elevAt = (x: number) => (x <= 7 || x >= 14 ? bankNorm : bedNorm); // banks flank the span
       const ents = buildCrossingStructureEntities(wideRich(), W, {
         defaults: { era: 'late-medieval', prosperity: 'rich' },
-        elevAt: (x) => elevAt(x), reliefM: 60,
+        deckElevAt: (x) => elevAt(x), reliefM: 60, zPxPerM: 20,
       });
-      const pier = ents.find((e) => e.kind === 'bridge_pier')!;
-      const rb = (pier.properties as { blueprint: { rb: { parts: Array<{ type: string; params: Record<string, unknown> }> } } }).blueprint.rb;
-      return Number(rb.parts.find((p) => p.type === 'pier')!.params.heightM);
+      const deck = partsOf(bridgeOf(ents)!).find((p) => p.type === 'deck')!;
+      return Number(deck.params.baseZM);
     };
-    const deep = pierH(0.85, 0.15);   // ~42 m drop
-    const shallow = pierH(0.30, 0.25); // ~3 m drop
+    const deep = clearance(0.85, 0.15);   // big drop
+    const shallow = clearance(0.30, 0.25); // small drop
     expect(deep).toBeGreaterThan(shallow);
   });
 
