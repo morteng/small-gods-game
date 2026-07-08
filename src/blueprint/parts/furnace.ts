@@ -33,15 +33,23 @@ export const furnacePartType: PartType = {
     const r = Math.max(0.5, Math.min(w, h) / 2);
 
     if (kind === 'oven') {
-      // Communal bakehouse: a beehive bread oven — a stone drum under a TALL smooth dome so it
-      // reads as a dome, not a capped cylinder; a slim flue stub just pokes the apex.
-      const drumH = mToTiles(1.2);
-      const domeH = mToTiles(1.7);
+      // Communal bakehouse: a stone beehive bread oven BULGING from the gable — a low stone drum
+      // topped by a smooth HEMISPHERICAL dome (widest at its base, sat flush on the drum so it
+      // reads as a dome, never a capped cylinder or a flat drum), with a slim flue off the crown.
+      // The dome hugs the furnace cell's -x edge (the body wall) so it reads as a bulge on the
+      // gable, not a detached silo. Its lower hemisphere is buried inside the drum → nothing dips
+      // below z=0 (an underground bulge would extend the sprite silhouette below the wall foot).
+      const rDome = Math.min(0.85, Math.max(0.5, Math.min(w, h) / 2));
+      const dcx = x + rDome, dcy = cy;
+      const rz = mToTiles(1.4);   // dome vertical radius; drum height = rz so the equator sits flush
+      // Tall square stone flue stack rising from behind the dome (toward the rear gable), well
+      // clear of the crown — the bakehouse's read from a distance, like the reference's chimney.
+      const fw = 0.5, fx = dcx - fw / 2, fy = dcy - rDome * 0.55 - fw / 2;
+      const fTop = STOREY + mToTiles(1.4);
       return [
-        { prim: 'cylinder', center: [cx, cy], baseZ: 0, radius: r, height: drumH, material: 'stone' },
-        { prim: 'cone', center: [cx, cy], baseZ: drumH, radius: r, height: domeH, material: 'stone' },
-        // thin flue: rises through the dome and pokes a touch above its tip (a stub, not a cube).
-        { prim: 'box', at: [cx - 0.125, cy - 0.125, drumH], size: [0.25, 0.25, domeH + mToTiles(0.3)], material: 'brick' },
+        { prim: 'cylinder', center: [dcx, dcy], baseZ: 0, radius: rDome, height: rz, material: 'stone' },
+        { prim: 'ellipsoid', center: [dcx, dcy], baseZ: 0, radii: [rDome, rDome, rz], material: 'stone' },
+        { prim: 'box', at: [fx, fy, 0], size: [fw, fw, fTop], material: 'stone' },
       ];
     }
 
@@ -70,5 +78,13 @@ export const furnacePartType: PartType = {
   },
   toCollision: (p) => cellsOf(p),
   toAnchors: () => [],
-  toBrief: (p) => `${p.params.kind ?? 'forge'} furnace`,
+  // A geometry-true phrase for the image prompt — the furnace IS the craft building's tell, so it
+  // must be named for the model (an "oven furnace" tag draws nothing). Kept free of the words the
+  // prompt-truth guard bans for absent features (no "chimney" — a flue is not a chimney).
+  toBrief: (p) => {
+    const kind = (p.params.kind as string) ?? 'forge';
+    if (kind === 'oven') return 'a domed masonry bread oven with a slim flue, bulging from one gable';
+    if (kind === 'kiln') return 'an oast kiln — a stone drum under a tall conical cap with a timber cowl';
+    return 'an open forge hearth under a tall brick flue';
+  },
 };

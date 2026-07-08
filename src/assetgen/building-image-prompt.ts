@@ -232,6 +232,15 @@ export function geometryDescription(rb: ResolvedBlueprint, opts: { generalized?:
   for (const v of vents) clauses.push(gen ? ventPhraseGeneralized(v.kind, era) : ventPhrase(v.kind, v.count, era));
   if (windows) clauses.push(gen ? 'windows' : plural(windows, 'visible window'));
   if (dormers) clauses.push(gen ? 'roof dormers' : plural(dormers, 'roof dormer'));
+  // Non-body structural parts carry the craft identity — a bakehouse's bread oven, a smithy's
+  // forge, a brewhouse's oast kiln. They're PARTS (not features), so the feature loops above miss
+  // them; describe each by its brief so the model actually draws the building's tell.
+  const STRUCTURAL_PARTS = new Set(['furnace']);
+  const partCtx = { materials: rb.materials, footprint: rb.footprint };
+  for (const p of rb.parts) {
+    if (!STRUCTURAL_PARTS.has(p.type)) continue;
+    try { const brief = getPartType(p.type).toBrief(p, partCtx); if (brief) clauses.push(brief); } catch { /* skip unbriefable part */ }
+  }
   if (doorFace) clauses.push(`a ${gen ? 'wooden door' : `single wooden door on ${FACE_ISO[doorFace]}`}`);
 
   return gen
