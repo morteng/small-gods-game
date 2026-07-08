@@ -52,9 +52,10 @@ const DECK_WIDTH_T: Record<CrossingSpec['roadClass'], number> = { path: 1.1, tra
 const ERA_RANK_B: Record<string, number> = { 'stone-age': 0, neolithic: 0, iron: 1, 'early-medieval': 2, medieval: 2, 'late-medieval': 3, renaissance: 3 };
 const PROS_RANK_B: Record<string, number> = { destitute: 0, poor: 0, modest: 1, comfortable: 1, rich: 2, opulent: 3 };
 const ROAD_RANK_B: Record<CrossingSpec['roadClass'], number> = { path: 0, track: 1, road: 2, highway: 3 };
-/** Masonry ring-depth above the intrados crown (m) — arch.ts default 0.35 cube = 0.7 m. A deck
- *  sat at `riseM + this` rides the crown with no gap. */
-const ARCH_RING_M = 0.7;
+/** Masonry ring-depth above the intrados crown (m) — a proud archivolt (up from the arch prim's
+ *  0.7 m default) so the voussoir ring reads as substantial masonry, matching the TTI reference.
+ *  Passed to each arch AND used to seat the deck (`riseM + this` = crown), so the two stay in sync. */
+const ARCH_RING_M = 0.9;
 /** One masonry arch per this many tiles of clear span (a packhorse over a brook = 1). */
 const TILES_PER_ARCH = 3.5;
 
@@ -121,6 +122,22 @@ export function buildBridgeObject(spec: CrossingSpec, opts: SpanEntityOptions = 
       },
     },
   };
+
+  // Abutments — a battered masonry end-block at each bank grounds the span (P1 TTI finding: without
+  // them the deck ends flush at the footprint edge and reads as a floating slab). They sit at the
+  // clear-span ends, in the +1-tile footprint margin, from the bed up to the deck underside.
+  const abutWidthM = widthT * METRES_PER_TILE + 1.0;   // wider than the deck, as masonry abutments are
+  const abutDepthT = 0.75, abutWidthT = abutWidthM / METRES_PER_TILE;
+  for (const e of [-1, 1] as const) {
+    const ex = cxL + e * (spanLen / 2) * cs, ey = cyL + e * (spanLen / 2) * sn;
+    const boxW = Math.max(1, Math.ceil(abutDepthT * ac + abutWidthT * as));
+    const boxH = Math.max(1, Math.ceil(abutDepthT * as + abutWidthT * ac));
+    parts[`abut${e < 0 ? 0 : 1}`] = {
+      type: 'abutment', at: { x: ex - boxW / 2, y: ey - boxH / 2 }, size: { w: boxW, h: boxH },
+      params: { heightM: clearZM, widthM: abutWidthM, depthM: abutDepthT * METRES_PER_TILE, batter: 0.2, yawDeg },
+    };
+  }
+
   if (stone) {
     // Filled-spandrel arcade: N abutting arch bays springing from the bed to the deck crown.
     const bays = Math.max(1, Math.min(8, Math.round(spanLen / TILES_PER_ARCH)));
@@ -135,7 +152,7 @@ export function buildBridgeObject(spec: CrossingSpec, opts: SpanEntityOptions = 
       const ayy = py - (bayT / 2) * sn - (widthT / 2) * cs;
       parts[`arch${i + 1}`] = {
         type: 'arch_span', at: { x: axx, y: ayy }, size: { w: Math.max(1, Math.ceil(bayT)), h: Math.max(1, Math.ceil(widthT)) },
-        params: { spanM: bayT * METRES_PER_TILE, riseM, thicknessM: widthT * METRES_PER_TILE, yawDeg, style: archStyle },
+        params: { spanM: bayT * METRES_PER_TILE, riseM, thicknessM: widthT * METRES_PER_TILE, yawDeg, style: archStyle, ringDepthM: ARCH_RING_M },
       };
     }
   } else {

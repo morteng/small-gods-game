@@ -39,6 +39,17 @@ describe('buildCrossingStructureEntities', () => {
     expect(ents.every((e) => Number.isInteger(e.x) && Number.isInteger(e.y))).toBe(true);
   });
 
+  it('grounds the span on a battered abutment at each bank end', () => {
+    // The TTI reference finding: a span must land on masonry end-blocks, not end flush at the
+    // footprint edge as a floating slab. Every bridge object carries exactly two `abutment` parts.
+    const ents = buildCrossingStructureEntities(wideRich(), W, { defaults: { era: 'late-medieval', prosperity: 'rich' } });
+    const abut = partsOf(bridgeOf(ents)!).filter((p) => p.type === 'abutment');
+    expect(abut.length).toBe(2);
+    // The two sit at opposite ends of the span (distinct origins), each battered (foot flare > 0).
+    expect(new Set(abut.map((a) => `${a.at?.x},${a.at?.y}`)).size).toBe(2);
+    expect(abut.every((a) => Number(a.params.batter) > 0)).toBe(true);
+  });
+
   it('a humble brook crossing is a plain deck object — no ancillary buildings', () => {
     const poly = [4, 5, 6, 7].map((x) => ({ x, y: 4 }));
     const graph: RoadGraph = { nodes: [], edges: [edge('e', poly, { class: 'path', bridgeCells: [4 * W + 5] })] };

@@ -174,6 +174,11 @@ export const archSpanPartType: PartType = {
     // Arch head profile. Default `round` — a real curved ring, replacing the historic
     // square portal. `flat` keeps the post-and-lintel portal for any caller that wants it.
     style: { kind: 'enum', values: ['round', 'segmental', 'pointed', 'horseshoe', 'flat'], default: 'round' },
+    // Masonry ring depth above the intrados crown (m) — the voussoir band's substance. Unset ⇒
+    // the arch prim's own default (0.35 cube = 0.7 m). A bridge sets this to make the arch ring
+    // read as a proud archivolt; the caller must seat the deck at riseM + THIS so the crown still
+    // meets the underside. `any` so an unset caller stays byte-identical.
+    ringDepthM: { kind: 'any', doc: 'masonry ring depth above the intrados crown (m); unset ⇒ arch default 0.7 m' },
   },
   resolve: (part: Part, _ctx: ResolveCtx) => ({ params: { ...(part.params ?? {}) } }),
   toPrims(p, ctx): Prim[] {
@@ -183,6 +188,7 @@ export const archSpanPartType: PartType = {
     const yaw = p.params.yawDeg !== undefined && p.params.yawDeg !== null
       ? Number(p.params.yawDeg)
       : (((p.params.dir as Dir) ?? 'ew') === 'ns' ? 90 : 0);
+    const ringM = p.params.ringDepthM as number | undefined | null;
     return [{
       prim: 'arch',
       at: [p.at.x, p.at.y, 0],
@@ -191,6 +197,8 @@ export const archSpanPartType: PartType = {
       thickness: mToTiles((p.params.thicknessM as number) ?? 1),
       yaw,
       style: (p.params.style as ArchStyle) ?? 'round',
+      // Pass ringDepth only when the caller opts in — omitted ⇒ the arch prim's own default.
+      ...(ringM !== undefined && ringM !== null ? { ringDepth: mToTiles(ringM) } : {}),
       material: mat,
     }];
   },
@@ -199,4 +207,54 @@ export const archSpanPartType: PartType = {
   toCollision: () => [],
   toAnchors: () => [],
   toBrief: () => 'arch',
+};
+
+/** An abutment — the battered masonry end-block that grounds the span on its bank. Sits at a
+ *  deck END, from the bed (datum) up to the deck underside, wider than the deck and flaring at the
+ *  foot (the `batter`). Without it a composed span ends flush at the footprint edge and reads as
+ *  a floating slab; the abutment gives the img2img pass masonry to land on the bank. Built as a
+ *  short vertical stack of yawed boxes that taper from a wide foot to a deck-width top (a stepped
+ *  batter — the same trick the cambered deck uses to avoid a curved-solid prim). */
+const ABUT_STEP_M = 0.8;   // one batter step per ~this much height
+export const abutmentPartType: PartType = {
+  type: 'abutment',
+  paramSchema: {
+    heightM: { kind: 'number', min: 0.3, max: 20, default: 3 },   // bed → deck underside
+    widthM: { kind: 'number', min: 0.5, max: 20, default: 3 },    // across the road (deck width)
+    depthM: { kind: 'number', min: 0.3, max: 8, default: 1.5 },   // along the span (into the bank)
+    /** Foot flare, 0 = straight, 0.3 = foot 30% wider than the top. */
+    batter: { kind: 'number', min: 0, max: 0.6, default: 0.15 },
+    dir: { kind: 'enum', values: ['ns', 'ew'], default: 'ew' },
+    // TRUE span bearing °, CCW from +x; overrides `dir`. `any` so an unset caller keeps the dir bearing.
+    yawDeg: { kind: 'any', doc: 'true bank→bank bearing °, CCW from +x; overrides dir' },
+  },
+  resolve: (part: Part) => ({ params: { ...(part.params ?? {}) } }),
+  toPrims(p, ctx): Prim[] {
+    const mat = matOf(ctx);
+    const dep = mToTiles((p.params.depthM as number) ?? 1.5);   // along the span (local +x)
+    const wid = mToTiles((p.params.widthM as number) ?? 3);     // across the road (local +y)
+    const h = mToTiles((p.params.heightM as number) ?? 3);
+    const batter = (p.params.batter as number) ?? 0.15;
+    const heightM = (p.params.heightM as number) ?? 3;
+    // `dir` (ew → 0°, ns → 90°) unless an explicit yawDeg carries the true bearing (as deck/arch do).
+    const yaw = p.params.yawDeg !== undefined && p.params.yawDeg !== null
+      ? Number(p.params.yawDeg)
+      : (((p.params.dir as Dir) ?? 'ew') === 'ns' ? 90 : 0);
+    const cx = p.at.x + (p.size?.w ?? dep) / 2, cy = p.at.y + (p.size?.h ?? wid) / 2;
+    const steps = Math.max(2, Math.min(6, Math.ceil(heightM / ABUT_STEP_M)));
+    const stepH = h / steps;
+    const out: Prim[] = [];
+    for (let i = 0; i < steps; i++) {
+      const f = i / (steps - 1);             // 0 at the foot … 1 at the top
+      const flare = 1 + batter * (1 - f);    // foot (1+batter) tapering to 1 at the top (deck width)
+      // The stack centres on (cx,cy); a straight (unyawed) block leaves yaw 0 so it stays a plain box.
+      out.push(yawedBox(cx, cy, dep * flare, wid * flare, i * stepH, stepH * 1.02, yaw, mat));
+    }
+    return out;
+  },
+  // Blocks no cell — the approach road terminates ON the span (deck/pier/arch do the same); the
+  // abutment is the masonry mass under the deck end, not an obstacle in the road's path.
+  toCollision: () => [],
+  toAnchors: () => [],
+  toBrief: () => 'abutment',
 };

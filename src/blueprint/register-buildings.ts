@@ -11,7 +11,7 @@ import { stallPartType, tentPartType } from './parts/lightweight';
 import { branchPlantPartType, rockPartType } from './parts/flora-branch';
 import { seaArchPartType, cliffFacePartType, caveMouthPartType, hoodooPartType } from './parts/landform';
 import { stairFlightPartType, landingPartType } from './parts/stair';
-import { deckPartType, pierPartType, archSpanPartType } from './parts/bridge';
+import { deckPartType, pierPartType, archSpanPartType, abutmentPartType } from './parts/bridge';
 import { columnPartType } from './parts/column';
 import { railingPartType } from './parts/railing';
 import { channelPartType } from './parts/channel';
@@ -23,6 +23,6 @@ import { dormerFeatureType } from './features/dormer';
 
 export function ensureBuildingTypesRegistered(): void {
   if (listPartTypes().some(pt => pt.type === 'body')) return;   // already registered
-  for (const pt of [bodyPartType, wingPartType, towerPartType, porchPartType, chimneyPartType, waterwheelPartType, furnacePartType, primPartType, wellPartType, graveyardPartType, stallPartType, tentPartType, branchPlantPartType, rockPartType, stairFlightPartType, landingPartType, deckPartType, pierPartType, archSpanPartType, columnPartType, railingPartType, channelPartType, barrierPartType, seaArchPartType, cliffFacePartType, caveMouthPartType, hoodooPartType]) registerPartType(pt);
+  for (const pt of [bodyPartType, wingPartType, towerPartType, porchPartType, chimneyPartType, waterwheelPartType, furnacePartType, primPartType, wellPartType, graveyardPartType, stallPartType, tentPartType, branchPlantPartType, rockPartType, stairFlightPartType, landingPartType, deckPartType, pierPartType, archSpanPartType, abutmentPartType, columnPartType, railingPartType, channelPartType, barrierPartType, seaArchPartType, cliffFacePartType, caveMouthPartType, hoodooPartType]) registerPartType(pt);
   for (const ft of [doorFeatureType, ventFeatureType, windowFeatureType, dormerFeatureType]) registerFeatureType(ft);
 }

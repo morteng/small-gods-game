@@ -6,7 +6,7 @@ describe('content-version constants', () => {
     expect(ART_RECIPE_VERSION).toBe('v30');
   });
 
-  it('declares the current world content version (90: road network 4-connectivity repair)', () => {
-    expect(WORLD_CONTENT_VERSION).toBe(91);
+  it('declares the current world content version (92: bridge abutments + proud arch ring)', () => {
+    expect(WORLD_CONTENT_VERSION).toBe(92);
   });
 });

@@ -42,10 +42,23 @@ interface BridgeRecipe {
   build(): Record<string, Part>;
 }
 
-/** Masonry ring-depth above the intrados crown, in metres (arch.ts default 0.35 cube = 0.7 m).
- *  The arch's spandrel is solid to `riseM + ARCH_RING_M`, so a deck sat at that height rides the
- *  crown with no gap. */
-const ARCH_RING_M = 0.7;
+/** Masonry ring-depth above the intrados crown, in metres — a proud archivolt (matches
+ *  crossing-structures.ts ARCH_RING_M). The arch's spandrel is solid to `riseM + ARCH_RING_M`, so a
+ *  deck sat at that height rides the crown with no gap. */
+const ARCH_RING_M = 0.9;
+
+/** Add a battered masonry end-block at each end of an ew span (x = xLo..xHi, centred on cy tiles),
+ *  from the datum up to `topM` (the deck underside), wider than the deck. Mutates `parts`. */
+function addAbutments(parts: Record<string, Part>, xLo: number, xHi: number, cyT: number, roadTiles: number, topM: number): void {
+  const abutWidthM = roadTiles * M + 1.0, abutDepthT = 0.75;
+  const boxW = Math.max(1, Math.ceil(abutDepthT)), boxH = Math.max(1, Math.ceil(abutWidthM / M));
+  for (const [key, cxT] of [['abut0', xLo], ['abut1', xHi]] as const) {
+    parts[key] = {
+      type: 'abutment', at: { x: cxT - boxW / 2, y: cyT - boxH / 2 }, size: { w: boxW, h: boxH },
+      params: { heightM: topM, widthM: abutWidthM, depthM: abutDepthT * M, batter: 0.2, dir: 'ew' },
+    };
+  }
+}
 
 /** Assemble a straight ew filled-spandrel arch bridge as ONE object: N abutting arch bays form
  *  a solid spandrel wall punched with openings, and a parapeted, optionally hump-backed deck
@@ -70,9 +83,10 @@ function archBridge(opts: {
   for (let i = 0; i < bays; i++) {    // arches abut edge-to-edge → continuous spandrel wall
     parts[`arch${i + 1}`] = {
       type: 'arch_span', at: { x: 0.5 + i * bay, y: y0 }, size: { w: Math.ceil(bay), h: roadTiles },
-      params: { spanM: bay * M, riseM, thicknessM: roadTiles * M, dir: 'ew', style },
+      params: { spanM: bay * M, riseM, thicknessM: roadTiles * M, dir: 'ew', style, ringDepthM: ARCH_RING_M },
     };
   }
+  addAbutments(parts, 0.5, 0.5 + spanTiles, y0 + roadTiles / 2, roadTiles, deckBaseZM);
   return parts;
 }
 
@@ -101,6 +115,7 @@ const RECIPES: Record<string, BridgeRecipe> = {
         deck: { type: 'deck', at: { x: 0.5, y: y0 }, size: { w: spanTiles, h: roadTiles }, params: { lengthM: spanTiles * M, widthM: roadTiles * M, thicknessM: 0.4, dir: 'ew', parapet: 'none', baseZM: pierH } },
       };
       for (let i = 1; i <= 3; i++) parts[`pier${i}`] = { type: 'pier', at: { x: i * 2 - 0.5, y: y0 }, size: { w: 1, h: 1 }, params: { heightM: pierH, widthM: 0.6, batter: 0.05 } };
+      addAbutments(parts, 0.5, 0.5 + spanTiles, y0 + roadTiles / 2, roadTiles, pierH);
       return parts;
     },
   },
