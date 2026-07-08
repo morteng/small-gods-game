@@ -39,7 +39,7 @@ import type { SpritePack } from '@/render/iso/sprite-canvas';
 import { greyToSpriteCanvas, greyToDataUri, rgbaToCanvas, type SpriteCanvas } from '@/render/iso/sprite-canvas';
 import { initManifoldWasm } from '@/assetgen/geometry/manifold-wasm-browser';
 // img2img generation pipeline (the real paid path, surfaced step-by-step).
-import { buildingImagePrompt } from '@/assetgen/building-image-prompt';
+import { buildingImagePrompt, ttiReferencePrompt } from '@/assetgen/building-image-prompt';
 import { compositeOverChroma, chromaKeyMagenta } from '@/render/chroma-key';
 import { generateBuildingImage, BuildingImageError, BUILDING_IMAGE_MODEL, defaultModalitiesFor } from '@/llm/openrouter-image-client';
 import { loadProviderConfig, openrouterImageBaseUrl } from '@/llm/provider-factory';
@@ -59,6 +59,8 @@ import { buildTree } from './blueprint-tree';
 import { buildToolbar } from './toolbar';
 import { buildBottomPanel } from './bottom-panel';
 import { buildDock } from './stage-dock';
+import { createRefLib } from './reflib';
+import { buildReferencePanel } from './reference-panel';
 import { openMetadataPanel, makeLiveButton } from './render-request-panel';
 import { injectStudioTheme, COLORS, h } from './theme';
 import { celestial, solarLight, sunDirFromAngles } from '@/render/solar';
@@ -648,6 +650,34 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
   // ── bottom dock: Pipeline (compose/gen stages) + A/B Compare tabs ────────
   const bottom = buildBottomPanel(dock);
   const dockUi = buildDock(bottom.pipelineBody);
+  // TTI reference-library loader (dev-only /__reflib): each subject that has a text-to-image
+  // reference gets it shown in the Reference dock tab — a manual eval tool (our sprite vs ref).
+  const refLib = createRefLib();
+  // Our best current sprite for the eval: the finished/painted one (session render → game-source
+  // library), else the grey massing final-crop. The massing crop is memoised on the struct identity.
+  let ourMassingFor: StructureResult | null = null;
+  let ourMassingCanvas: SpriteCanvas | null = null;
+  const ourSprite = (): SpriteCanvas | null => {
+    const fin = finishedSubject() ?? (genBuilding.peek(subject)?.albedo ?? null);
+    if (fin) return fin;
+    const r = stagesSubject();
+    if (!r) return null;
+    if (r !== ourMassingFor) { ourMassingFor = r; ourMassingCanvas = greyToSpriteCanvas(r.grey, r.size, r.bbox); }
+    return ourMassingCanvas;
+  };
+  const refBridgeRw = new URLSearchParams(location.search).get('bridge') === 'rw';
+  const refPanel = buildReferencePanel(bottom.refBody, {
+    references: () => refLib.referencesFor(state.kind),
+    ourSprite,
+    onInspect: (c, label) => { state.view = { canvas: c, label }; },
+    kind: () => state.kind,
+    defaultPrompt: () => (liveRb ? ttiReferencePrompt(liveRb) : ''),
+    models: AB_MODELS,
+    defaultModel: 'black-forest-labs/flux.2-pro',
+    allowWrite: () => refBridgeRw,
+    base: refLib.base,
+    onRegenDone: (slug) => refLib.invalidate(slug),
+  });
   buildAbSection(bottom.abBody, {
     models: AB_MODELS,
     defaultA: BUILDING_IMAGE_MODEL, defaultB: 'google/gemini-2.5-flash-image',
@@ -717,6 +747,7 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
       liveBtn.hide();
     }
     syncStages();
+    refPanel.update();   // Reference dock tab: our sprite vs the TTI target (memoised internally)
     toolbar.refresh();
     raf = requestAnimationFrame(frame);
   }
@@ -856,7 +887,7 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
     get kind(): string { return state.kind; },
     /** Switch subject; resolves once its geometry is warm + drawn. */
     async setKind(kind: string): Promise<boolean> {
-      if (!BUILDING_BLUEPRINTS[kind] && !isPlantPreset(kind)) throw new Error(`unknown kind "${kind}"`);
+      if (!BUILDING_BLUEPRINTS[kind] && !isBridgePreset(kind) && !isPlantPreset(kind)) throw new Error(`unknown kind "${kind}"`);
       setSubject(kind);
       return settleGeometry();
     },
