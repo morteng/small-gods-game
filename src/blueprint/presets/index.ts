@@ -11,6 +11,7 @@ import { GEN_OPENINGS_TAG } from '../connectome/openings';
 import { GEN_FORM_TAG } from '../connectome/form';
 import { expressBuilding } from './express';
 import { blueprintFromBuildingType } from './from-building-type';
+import { bridgeBlueprintByName } from './bridges';
 import type { Connectome } from '../connectome/types';
 import { allFloraSpecies, getFloraSpecies } from '@/flora/flora-registry';
 import { stairFootprint } from '../parts/stair';
@@ -587,6 +588,10 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
 
 export function getBlueprintPreset(name: string): Blueprint | undefined { return BUILDING_BLUEPRINTS[name]; }
 
+// Bridges are parametric props assembled from one recipe (see ./bridges). Re-exported here so
+// callers reach every selectable subject (buildings + bridges + plants) through this one barrel.
+export { bridgePresetNames, isBridgePreset } from './bridges';
+
 /** True if `name` is a tree/plant preset (class:'plant') — the render layer uses this
  *  to route a vegetation entity to the generative species-keyed sprite vs the billboard. */
 export function isPlantPreset(name: string): boolean {
@@ -633,9 +638,11 @@ function floraSpeciesBlueprint(name: string): Blueprint | undefined {
 export function synthesizeBlueprint(name: string, patches: BlueprintPatch[] = [], seed?: number): ResolvedBlueprint | undefined {
   ensureBuildingTypesRegistered();
   const s = seed ?? [...name].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7);
-  // Resolution order: a PINNED hand preset → a flora species → the GENERATIVE catalogue
-  // bridge (a buildingType programme with no preset, expressed via the layered fold).
-  const base = BUILDING_BLUEPRINTS[name] ?? floraSpeciesBlueprint(name) ?? blueprintFromBuildingType(name, s);
+  // Resolution order: a PINNED hand preset → a parametric BRIDGE (bridge-*) → a flora
+  // species → the GENERATIVE catalogue bridge (a buildingType programme with no preset,
+  // expressed via the layered fold).
+  const base = BUILDING_BLUEPRINTS[name] ?? bridgeBlueprintByName(name)
+    ?? floraSpeciesBlueprint(name) ?? blueprintFromBuildingType(name, s);
   if (!base) return undefined;
   let connectome: Connectome | undefined;
   let pre: BlueprintPatch[] = [];  // derived DEFAULTS, before the caller's override patches

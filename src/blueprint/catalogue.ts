@@ -7,6 +7,7 @@
 // docs/superpowers/specs/2026-06-14-asset-catalogue-variant-lifecycle-design.md).
 import type { EntityClass, Era, Descriptors } from './types';
 import { BUILDING_BLUEPRINTS } from './presets';
+import { BRIDGE_RECIPES, bridgeBlueprint } from './presets/bridges';
 import { WEALTH_LEVELS, QUALITY_LEVELS, CONDITION_LEVELS } from './descriptors';
 import { allFloraSpecies } from '@/flora/flora-registry';
 import { deriveGenParams, taxon } from '@/flora/flora-species';
@@ -47,6 +48,17 @@ export function assetCatalogue(): CatalogueEntry[] {
         ? { wealth: WEALTH_LEVELS, quality: QUALITY_LEVELS, condition: CONDITION_LEVELS }
         : {},
       defaults: bp.descriptors,
+    });
+  }
+  // Bridges — parametric props assembled from one recipe (see presets/bridges). Surface them
+  // as `infrastructure` props so the studio picker + agents can select a specific bridge form.
+  for (const [short, recipe] of Object.entries(BRIDGE_RECIPES)) {
+    const type = `bridge-${short}`;
+    const bp = bridgeBlueprint(recipe, type);
+    const tags = [...new Set(['bridge', 'infrastructure', recipe.walls, ...Object.values(bp.materials ?? {})].filter(Boolean) as string[])];
+    out.push({
+      type, class: bp.class, category: bp.category ?? 'infrastructure',
+      footprint: bp.footprint, tags, descriptorAxes: {},
     });
   }
   // Flora-DB species (english-oak, scots-pine, the cultivars…) are blueprints too,

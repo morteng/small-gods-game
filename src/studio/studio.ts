@@ -28,7 +28,7 @@ import { structureResultToPack } from '@/render/parametric-building-source';
 import { GeneratedBuildingArtSource } from '@/render/generated-building-art-source';
 import { composeStructure, type StructureResult } from '@/assetgen/compose';
 import { ensureBuildingTypesRegistered } from '@/blueprint/register-buildings';
-import { BUILDING_BLUEPRINTS, synthesizeBlueprint, resolveAsset, isPlantPreset } from '@/blueprint/presets';
+import { BUILDING_BLUEPRINTS, synthesizeBlueprint, resolveAsset, isPlantPreset, isBridgePreset } from '@/blueprint/presets';
 import { assetCatalogue } from '@/blueprint/catalogue';
 import type { ResolvedBlueprint, Descriptors, Era } from '@/blueprint/types';
 import { blueprintEntity } from '@/blueprint/entity';
@@ -287,7 +287,7 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
   const initial = (opts.initialKind && opts.initialKind !== '1') ? opts.initialKind : 'english-oak';
 
   const state: StudioState = {
-    kind: (BUILDING_BLUEPRINTS[initial] || isPlantPreset(initial)) ? initial : 'english-oak',
+    kind: (BUILDING_BLUEPRINTS[initial] || isBridgePreset(initial) || isPlantPreset(initial)) ? initial : 'english-oak',
     lighting: { ...DEFAULT_LIGHTING, shadowMode: 'geometry' },
     az: 41, el: 40,
     sunMode: 'solar',
@@ -850,7 +850,7 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
     return !!peekSubject();
   }
   const studioDebug = {
-    /** All available subject presets (buildings + hand plants + flora-DB species). */
+    /** All available subject presets (buildings + hand plants + flora-DB species + bridges). */
     kinds: (): string[] => assetCatalogue().map((e) => e.type).sort(),
     /** The current subject kind. */
     get kind(): string { return state.kind; },
