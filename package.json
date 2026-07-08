@@ -6,6 +6,9 @@
   "main": "electron/main.cjs",
   "scripts": {
     "dev": "vite",
+    "verify:sprites": "tsx scripts/verify-sprite-bundle.ts",
+    "prebuild": "tsx scripts/verify-sprite-bundle.ts",
+    "prebuild:electron": "tsx scripts/verify-sprite-bundle.ts",
     "build": "tsc && vite build",
     "build:dev": "tsc && vite build --mode devtools",
     "preview": "vite preview",
