@@ -25,6 +25,7 @@ import { createCamera, zoomAt } from '@/render/camera';
 import { attachControls } from '@/ui/controls';
 import { DEFAULT_LIGHTING, normalizeVec3, type Vec3 } from '@/render/lighting-state';
 import { structureResultToPack } from '@/render/parametric-building-source';
+import { GeneratedBuildingArtSource } from '@/render/generated-building-art-source';
 import { composeStructure, type StructureResult } from '@/assetgen/compose';
 import { ensureBuildingTypesRegistered } from '@/blueprint/register-buildings';
 import { BUILDING_BLUEPRINTS, synthesizeBlueprint, resolveAsset, isPlantPreset } from '@/blueprint/presets';
@@ -43,8 +44,6 @@ import { compositeOverChroma, chromaKeyMagenta } from '@/render/chroma-key';
 import { generateBuildingImage, BuildingImageError, BUILDING_IMAGE_MODEL, defaultModalitiesFor } from '@/llm/openrouter-image-client';
 import { loadProviderConfig, openrouterImageBaseUrl } from '@/llm/provider-factory';
 import { decodePngToRaster, rasterToSpriteCanvas } from '@/render/sprite-codec';
-import { canonicalJson, generatedArtKey } from '@/render/generated-art-cache';
-import { assetUrl } from '@/core/asset-url';
 import {
   type Raster, cropRaster, borderKeyedFraction, registerAlbedo, quantizePalette,
 } from '@/render/sprite-postprocess';
@@ -223,36 +222,23 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
   const peekSubject = (): SpritePack | null => (liveRb ? (subjPacks.get(rbKey(liveRb)) ?? null) : null);
   const stagesSubject = (): StructureResult | null => (liveRb ? (subjStages.get(rbKey(liveRb)) ?? null) : null);
 
-  // The FINISHED img2img sprite from the seeded library (if one exists for this
-  // exact blueprint), loaded with NO API call so the pipeline strip can show the
-  // real painted art alongside the geometry channels. `undefined` = not looked up
-  // yet, `null` = looked up, none in the library.
+  // Shipped/cached img2img sprites render through the SAME runtime source the game
+  // uses — GeneratedBuildingArtSource (IDB → vendored building-sprites library, with
+  // the black/material-map fix + preset fallback) — wired as resolveGeneratedBuildingArt
+  // below, NOT a studio reimplementation of the manifest load. Read-only here
+  // (enabled:false): paid generation stays in the reviewed executeRender flow (a thin
+  // layer over the shared generate + postprocess primitives), whose result lands in
+  // `subjFinished` and wins the lit view via litSubjectPack's albedo-swap.
+  const genBuilding = new GeneratedBuildingArtSource({
+    enabled: () => false,           // the studio never PAYS through this source
+    canSpend: () => false,
+    model: () => BUILDING_IMAGE_MODEL,
+    generate: async () => { throw new Error('studio genBuilding is read-only'); },
+  });
+  // A finished sprite produced by THIS session's paid render (executeRender), keyed by
+  // blueprint — swapped onto the massing pack's co-registered maps for the lit view.
+  // Library/IDB art comes from genBuilding above, not here.
   const subjFinished = new Map<string, SpriteCanvas | null>();
-  let baseManifest: Promise<Record<string, { file: string }> | null> | null = null;
-  function warmFinished(): void {
-    if (!liveRb) return;
-    const rb = liveRb, k = rbKey(rb);
-    if (subjFinished.has(k)) return;
-    subjFinished.set(k, null);   // mark in-flight; replaced on success
-    (async () => {
-      baseManifest ??= (async () => {
-        try {
-          const resp = await fetch(assetUrl('asset-library/building-sprites/manifest.json'));
-          if (!resp.ok) return null;
-          const json = await resp.json() as { entries?: Record<string, { file: string }> };
-          return json.entries ?? null;
-        } catch { return null; }
-      })();
-      const entries = await baseManifest;
-      const artKey = generatedArtKey(canonicalJson(rb), BUILDING_IMAGE_MODEL, rb.footprint);
-      const entry = entries?.[artKey];
-      if (!entry) return;
-      const resp = await fetch(assetUrl(`asset-library/building-sprites/${entry.file}`));
-      if (!resp.ok) return;
-      const raster = await decodePngToRaster(await resp.blob());
-      if (raster) subjFinished.set(k, rasterToSpriteCanvas(raster));
-    })().catch((err) => { console.warn('[studio] finished-sprite load failed:', err); });
-  }
   const finishedSubject = (): SpriteCanvas | null => (liveRb ? (subjFinished.get(rbKey(liveRb)) ?? null) : null);
 
   // The pack the LIVE 3D view renders. Geometry massing by default; when a finished
@@ -264,9 +250,8 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
   function litSubjectPack(): SpritePack | null {
     const massing = peekSubject();
     if (!massing) { warmSubject(); return null; }
-    warmFinished();
     if (!state.textured) return massing;
-    const fin = finishedSubject();
+    const fin = finishedSubject();   // this session's paid render; library/IDB art → genBuilding
     if (fin && fin.width === massing.albedo.width && fin.height === massing.albedo.height) {
       return { ...massing, albedo: fin };
     }
@@ -497,18 +482,35 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
       state.lighting.sunColor = l.sunColor;
     }
     if (state.fit) fitCamera();
+    // Keep the scale-reference NPC just off the subject's SOUTH-EAST corner so it always
+    // y-sorts IN FRONT of the building's billboard — a fixed offset falls inside a deep
+    // footprint (e.g. the 3×6 church) and the tall sprite then draws over the NPC.
+    const fp = liveRb?.footprint;
+    refNpc.tileX = CENTER.x + (fp ? fp.w : 1);
+    refNpc.tileY = CENTER.y + (fp ? fp.h : 1);
     return {
       map, camera: cam, canvasWidth: w, canvasHeight: h,
       // The scale-reference NPC, once its sheet is warm. Rendered by the scene's
-      // NPC pass at true metric, y-sorted beside the subject.
+      // NPC pass at true metric, y-sorted in front of the subject.
       npcs: refSheets.has(refNpc.id) ? [refNpc] : [],
       npcSheets: refSheets,
       world, lighting: state.lighting,
       resolveParametricBuildingArt: litSubjectPack,
       resolveParametricPlantArt: litSubjectPack,
-      // Bust the scene's static-draw-list cache when the subject changes (see
-      // subjectArtRev) — the studio's constant map would otherwise freeze the layer.
-      buildingArtRev: subjectArtRev(),
+      // Shipped/cached img2img sprites render through the game's GeneratedBuildingArtSource
+      // (identical path + the black/material-map fix + preset fallback the live game uses).
+      // A fresh SESSION paid render (finishedSubject) wins instead via the parametric
+      // albedo-swap in litSubjectPack, so a just-generated sprite overrides the library.
+      resolveGeneratedBuildingArt: (e: Entity) => {
+        if (!state.textured || finishedSubject()) return null;
+        const s = genBuilding.peek(e);
+        if (s) return s;
+        genBuilding.warm(e);   // fire-and-forget; free IDB/library read, never blocks
+        return null;
+      },
+      // Bust the scene's static-draw-list cache when the subject changes (subjectArtRev)
+      // AND when the game source resolves a sprite (genBuilding.version()).
+      buildingArtRev: subjectArtRev() + genBuilding.version(),
       studioNoChrome: true,   // bare scene; the studio draws its own overlays/HUD
     } as unknown as RenderContext;
   }
@@ -671,16 +673,18 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
   let shownGenLen = -1;
   let shownFinished: SpriteCanvas | null = null;
   function syncStages(): void {
-    warmFinished();
+    genBuilding.warm(subject);   // library/IDB art via the game source (free reads)
     const r = stagesSubject();
-    const finished = finishedSubject();
+    // This session's paid render wins; else the shipped library sprite (game source).
+    const sessionFin = finishedSubject();
+    const finished = sessionFin ?? (genBuilding.peek(subject)?.albedo ?? null);
     if (r === shownStruct && genStages.length === shownGenLen && finished === shownFinished) return;
     shownStruct = r; shownGenLen = genStages.length; shownFinished = finished;
     if (!r) { dockUi.message('generating…'); return; }
-    // The seeded library's finished sprite (free, no API) when one exists for this
-    // blueprint — shown as the '★' stage so finished art is visible without paying.
+    // The finished sprite (free, no API) when one exists for this blueprint — shown as the
+    // '★' stage so finished art is visible without paying.
     const libStage: Stage[] = finished
-      ? [{ label: '★ seeded sprite (finished)', canvas: finished, sub: 'from library' }]
+      ? [{ label: '★ seeded sprite (finished)', canvas: finished, sub: sessionFin ? 'this session' : 'from library (game source)' }]
       : [];
     const tiles = [...composeStages(r), ...libStage, ...genStages];
     dockUi.render(
