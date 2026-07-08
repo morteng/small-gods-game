@@ -47,6 +47,7 @@ import { decodePngToRaster, rasterToSpriteCanvas } from '@/render/sprite-codec';
 import {
   type Raster, cropRaster, borderKeyedFraction, registerAlbedo, quantizePalette,
 } from '@/render/sprite-postprocess';
+import { setActiveStudioController, type StudioController } from './studio-bridge';
 import { buildAccordion } from './accordion';
 import { buildObjectBrowser } from './object-browser';
 import { mountWorldStudio } from './world-studio';
@@ -1099,6 +1100,9 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
     stop: () => cancelAnimationFrame(raf),
   });
   (window as unknown as { __studio?: unknown }).__studio = studioDebug;
+  // Publish this control surface so the studio↔bus bridge (?studio…&bridge) can drive
+  // it out-of-process (CLI / MCP: studio_select / studio_render / screenshot).
+  setActiveStudioController(studioDebug as unknown as StudioController);
   // eslint-disable-next-line no-console
   console.log('[studio] mounted —', state.kind);
 
@@ -1108,6 +1112,7 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
       cancelAnimationFrame(raf);
       studioRO?.disconnect();
       if (onOrbitKey) window.removeEventListener('keydown', onOrbitKey);
+      setActiveStudioController(null);
     },
   };
 }

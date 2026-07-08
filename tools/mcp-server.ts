@@ -145,6 +145,48 @@ server.registerTool('screenshot',
     } catch (e) { return asError(e); }
   });
 
+// ── Studio tools (drive a ?studio…&bridge tab: the Object studio is the peer) ─
+// These reach the running Object studio via the studio↔bus bridge (src/studio/
+// studio-bridge.ts). They are inert unless the connected tab was opened with
+// ?studio=<kind>&bridge (read) / &bridge=rw (also allows the paid render).
+
+/** A studio verb that returns a PNG data-URI → an MCP image result. */
+async function runImage(fn: () => Promise<unknown>): Promise<ToolResult> {
+  try {
+    await ensureConnected();
+    const url = (await fn()) as string;
+    const m = /^data:(image\/\w+);base64,(.+)$/.exec(url || '');
+    if (!m) return { content: [{ type: 'text', text: '(no image — is a ?studio…&bridge tab connected?)' }] };
+    return { content: [{ type: 'image', data: m[2], mimeType: m[1] }] };
+  } catch (e) { return asError(e); }
+}
+
+server.registerTool('studio_kinds',
+  { description: 'Object studio: all selectable subject presets (buildings, props, plants). Needs a ?studio…&bridge tab.' },
+  () => run(() => client.query('studio_kinds')));
+
+server.registerTool('studio_state',
+  { description: 'Object studio: the current subject kind.' },
+  () => run(() => client.query('studio_state')));
+
+server.registerTool('studio_select',
+  { description: 'Object studio: select a subject preset and return a PNG of the rendered view.',
+    inputSchema: { kind: z.string().describe('A preset name from studio_kinds, e.g. "cottage"') } },
+  ({ kind }) => runImage(() => client.query('studio_select', kind)));
+
+server.registerTool('studio_render',
+  { description: 'Object studio: render the current (or named) subject and return a PNG. Free — grey massing or the shipped img2img sprite (game source).',
+    inputSchema: {
+      kind: z.string().optional().describe('Optional preset to switch to first'),
+      textured: z.boolean().optional().describe('true = the img2img sprite, false = grey massing'),
+    } },
+  ({ kind, textured }) => runImage(() => client.query('studio_render', kind, textured)));
+
+server.registerTool('studio_render_paid',
+  { description: 'Object studio: run ONE PAID img2img render of the current (or named) subject and return its gate metrics. COSTS MONEY. Requires ?bridge=rw.',
+    inputSchema: { kind: z.string().optional().describe('Optional preset to switch to first') } },
+  ({ kind }) => run(() => client.query('studio_render_paid', kind)));
+
 // ── Write tools (require ?bridge=rw) ─────────────────────────────────────────
 
 const targetShape = {

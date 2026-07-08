@@ -9,6 +9,17 @@ if (container && __DEV_TOOLS__ && new URLSearchParams(location.search).has('stud
   // Studio (?studio=…): the unified Object/Gallery/Zoo/World authoring shell, reusing
   // the real render path. Dev-only.
   void import('./studio/studio').then(({ mountStudio }) => mountStudio(container));
+
+  // Studio bus bridge (dev only): with ?studio…&bridge / &bridge=rw, carry the active
+  // Object-studio control surface out to the dev broker so a CLI / MCP server can pick
+  // objects, render, and screenshot it (studio_select / studio_render / screenshot).
+  void Promise.all([
+    import('./dev/bus-bridge-client'),
+    import('./studio/studio-bridge'),
+  ]).then(([{ readBridgeFlag, startBridgeClient }, { makeStudioBus }]) => {
+    const flag = readBridgeFlag(location.search);
+    if (flag) startBridgeClient({ bus: makeStudioBus(flag.allowWrite), allowWrite: flag.allowWrite });
+  });
 } else if (container) {
   const game = new Game(container);
   game.generateWorld().then(() => {
