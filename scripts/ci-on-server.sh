@@ -127,6 +127,17 @@ log "Checking SSH connectivity..."
 ssh_run "echo connected" > /dev/null || fail "Cannot reach $SSH_HOST"
 ok "SSH reachable"
 
+# Clamp the docker --cpus ceiling (and vitest workers) to the box's ACTUAL vCPUs. The ephemeral
+# box falls back to a smaller type when the 16-vCPU one is unavailable (cx53→cx43→cx33), and
+# docker HARD-REJECTS --cpus greater than the host core count — it is NOT a soft ceiling. Without
+# this, every run fails "range of CPUs is from 0.01 to N" the moment the big type is out of stock.
+REMOTE_CPUS=$(ssh_run "nproc" 2>/dev/null | tr -dc '0-9')
+if [ -n "$REMOTE_CPUS" ] && [ "$REMOTE_CPUS" -gt 0 ] && [ "$CPUS" -gt "$REMOTE_CPUS" ]; then
+  warn "Box has ${REMOTE_CPUS} vCPUs but --cpus=${CPUS} requested — clamping to ${REMOTE_CPUS} (16-vCPU type likely unavailable)"
+  CPUS=$REMOTE_CPUS
+  [ "$WORKERS" -gt "$REMOTE_CPUS" ] && WORKERS=$REMOTE_CPUS
+fi
+
 if $CLEAN_ONLY; then
   ssh_run "docker rm -f smallgods-ci-runner 2>/dev/null; rm -rf /tmp/smallgods-ci-*" || true
   ok "Remote CI dirs removed"
