@@ -265,15 +265,19 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
     // (river-crossings-generative-sites), like buildings/trees. Rivers render through the
     // per-cell water pass.
 
+    // Studio mode renders the bare scene (terrain + entities) — no game HUD/minimap
+    // and no built-in iso/connectome overlays; the studio owns its own 2D overlay.
+    const studio = !!(rc as { studioNoChrome?: boolean }).studioNoChrome;
+
     // Flotsam/fauna (S6): step + emit cosmetic circles on the water surface.
     // Appended after the entity list so they composite over the water; the
     // renderer doesn't terrain-lift `circle` items, so they keep their surface z.
+    // SKIPPED in the studio: a wandering fish/bird swarm makes no sense hovering
+    // beside a single object under inspection (it read as random moving dots).
     let dynamicItems: readonly DrawItem[] = npcItems;
-    if (water) dynamicItems = [...npcItems, ...flotsam.items(map, timeSec)];
+    if (water && !studio) dynamicItems = [...npcItems, ...flotsam.items(map, timeSec)];
 
-    // Studio mode renders the bare scene (terrain + entities) — no game HUD/minimap
-    // and no built-in iso/connectome overlays; the studio owns its own 2D overlay.
-    const chrome = !(rc as { studioNoChrome?: boolean }).studioNoChrome;
+    const chrome = !studio;
     const uiGroups = chrome ? ui.frame(target.width, target.height, dpr) : [];
     const tFields = performance.now();
 

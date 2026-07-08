@@ -72,8 +72,9 @@ class SmokeField {
   get count(): number { return this.puffs.length; }
 }
 
-/** Puffs/sec the hearth emits at each temperature (cold demands a fire → smoke; hot has none yet). */
-const SMOKE_RATE: Record<Temp, number> = { cold: 12, mild: 2.2, hot: 0 };
+/** Puffs/sec the hearth emits at each temperature. The DEFAULT (mild) is a NO-fire, no-smoke
+ *  resting state — only ❄️ cold lights the hearth. (hot has no effect yet — a future heat shimmer.) */
+const SMOKE_RATE: Record<Temp, number> = { cold: 12, mild: 0, hot: 0 };
 
 export interface AmbientDials {
   readonly state: AmbientState;
@@ -90,7 +91,7 @@ interface Dial<T extends string> { key: string; label: string; states: { v: T; i
 const TEMP_DIAL: Dial<Temp> = {
   key: 'temp', label: 'Temperature',
   states: [
-    { v: 'mild', icon: '🌤', hint: 'Mild — a low hearth' },
+    { v: 'mild', icon: '🌤', hint: 'Mild — no fire (resting)' },
     { v: 'cold', icon: '❄️', hint: 'Cold — a hearth fire is lit → chimney smoke' },
     { v: 'hot', icon: '🔥', hint: 'Hot — no fire' },
   ],
