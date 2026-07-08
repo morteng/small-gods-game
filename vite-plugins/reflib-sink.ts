@@ -1,5 +1,5 @@
 import type { Plugin } from 'vite';
-import { readdirSync, existsSync, statSync, createReadStream, mkdirSync, writeFileSync, appendFileSync } from 'node:fs';
+import { readdirSync, existsSync, statSync, createReadStream, mkdirSync, writeFileSync, appendFileSync, readFileSync, rmSync } from 'node:fs';
 import { resolve, join, extname } from 'node:path';
 import { apiKey, generateTti } from '../scripts/tti-generate';
 
@@ -60,6 +60,7 @@ async function regen(
  *   POST /__reflib/<slug>     → REGENERATE: body { prompt, model, confirm:true } runs a paid TTI
  *                               call (SPENDS MONEY) and writes model-tti.png + prompt.txt + a
  *                               manifest row into <slug>/. Local-only; requires confirm:true.
+ *   DELETE /__reflib/<slug>   → remove the reference dir + its manifest rows (free, local-only).
  *
  * `apply:'serve'` keeps it out of production builds entirely.
  */
@@ -86,7 +87,23 @@ export function reflibSinkPlugin(): Plugin {
           req.on('end', () => { void regen(slug, Buffer.concat(chunks).toString('utf8'), root, res, json); });
           return;
         }
-        if (req.method !== 'GET') { res.statusCode = 405; res.end('GET/POST only'); return; }
+        // DELETE /__reflib/<slug> → remove the reference dir + its manifest rows (free, local-only).
+        if (req.method === 'DELETE') {
+          const slug = safeSegment(parts[0] ?? '');
+          if (!slug || parts.length !== 1) { res.statusCode = 400; return res.end('DELETE /__reflib/<slug>'); }
+          const dir = join(root, slug);
+          if (!existsSync(dir)) { res.statusCode = 404; return res.end('no such reference'); }
+          try {
+            rmSync(dir, { recursive: true, force: true });
+            const mf = join(root, 'manifest.tsv');
+            if (existsSync(mf)) {
+              const kept = readFileSync(mf, 'utf8').split('\n').filter((l) => l && l.split('\t')[0] !== slug);
+              writeFileSync(mf, kept.length ? `${kept.join('\n')}\n` : '');
+            }
+            return json({ ok: true, slug });
+          } catch (e) { res.statusCode = 500; return res.end(`delete failed: ${String((e as Error).message ?? e)}`); }
+        }
+        if (req.method !== 'GET') { res.statusCode = 405; res.end('GET/POST/DELETE only'); return; }
 
         // Index: every slug dir that holds a model-tti.png (the reference-bearing subjects).
         if (parts.length === 0) {
@@ -99,6 +116,16 @@ export function reflibSinkPlugin(): Plugin {
 
         const slug = safeSegment(parts[0]);
         if (!slug) { res.statusCode = 400; return res.end('bad slug'); }
+        // A single segment that is a FILE at the root (e.g. manifest.tsv) → serve it directly,
+        // before we assume the segment names a reference DIRECTORY (else manifest.tsv 404s).
+        if (parts.length === 1) {
+          const rootFile = join(root, slug);
+          if (existsSync(rootFile) && statSync(rootFile).isFile()) {
+            res.setHeader('Content-Type', MIME[extname(slug).toLowerCase()] ?? 'application/octet-stream');
+            res.setHeader('Cache-Control', 'no-cache');
+            return createReadStream(rootFile).pipe(res);
+          }
+        }
         const dir = join(root, slug);
         if (!existsSync(dir) || !statSync(dir).isDirectory()) { res.statusCode = 404; return res.end('no such reference'); }
 

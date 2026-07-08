@@ -648,7 +648,17 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
   stageOverlay.addEventListener('dblclick', () => { if (state.view) { stageNav.zoom = 0; stageNav.panX = 0; stageNav.panY = 0; } });
 
   // ── bottom dock: Pipeline (compose/gen stages) + A/B Compare tabs ────────
-  const bottom = buildBottomPanel(dock);
+  // The Reference tab is much taller than the stage strip (thumbnails + prompt + controls), so on
+  // its first reveal auto-grow the dock to fit its content (grow-only — never fights a manual drag).
+  const bottom = buildBottomPanel(dock, (which) => {
+    if (which !== 'ref') return;
+    requestAnimationFrame(() => {
+      const maxH = container.getBoundingClientRect().height * MAX_DOCK_FRAC;
+      const need = bottom.tabsEl.offsetHeight + bottom.refBody.scrollHeight + 10;
+      const target = Math.max(state.dockH, Math.min(maxH, need));
+      if (target > state.dockH + 1) { state.dockH = target; dock.style.height = `${target}px`; resize(); }
+    });
+  });
   const dockUi = buildDock(bottom.pipelineBody);
   // TTI reference-library loader (dev-only /__reflib): each subject that has a text-to-image
   // reference gets it shown in the Reference dock tab — a manual eval tool (our sprite vs ref).
@@ -677,6 +687,7 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
     allowWrite: () => refBridgeRw,
     base: refLib.base,
     onRegenDone: (slug) => refLib.invalidate(slug),
+    onDeleteDone: (slug) => refLib.remove(slug),
   });
   buildAbSection(bottom.abBody, {
     models: AB_MODELS,

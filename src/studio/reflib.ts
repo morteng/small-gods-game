@@ -44,6 +44,8 @@ export interface RefLib {
   /** Drop a slug's cached image (and add it to the index) so the next call reloads it — used after
    *  a regen writes a new model-tti.png. */
   invalidate(slug: string): void;
+  /** Drop a slug entirely — from the index and the image cache — after it's deleted on disk. */
+  remove(slug: string): void;
   /** The reflib endpoint base (for the panel's prompt/manifest/regen fetches). */
   readonly base: string;
 }
@@ -121,6 +123,11 @@ export function createRefLib(base = '/__reflib'): RefLib {
       images.delete(slug);
       imageLoading.delete(slug);
       if (slugs) slugs.add(slug);   // a regen may have created a brand-new variant slug
+    },
+    remove(slug: string): void {
+      images.delete(slug);
+      imageLoading.delete(slug);
+      if (slugs) slugs.delete(slug);
     },
   };
 }
