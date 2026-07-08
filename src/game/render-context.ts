@@ -149,7 +149,8 @@ export function buildRenderContext(deps: RenderContextDeps): RenderContext {
     // Folds into the static draw-cache key so the building layer rebuilds once the
     // async parametric massing packs finish composing (otherwise the first snapshot —
     // taken before compose lands — freezes flatblock fallbacks forever).
-    buildingArtRev: parametricBuildingSource.version() + (parametricBarrierSource?.version() ?? 0),
+    buildingArtRev: parametricBuildingSource.version() + (parametricBarrierSource?.version() ?? 0)
+      + (generatedBuildingArtSource?.version() ?? 0),
     cutawayBuildingId,
   };
 }

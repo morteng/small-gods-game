@@ -12,7 +12,7 @@
 import type { Entity } from '@/core/types';
 import { blueprintOf } from '@/blueprint/entity';
 import type { ResolvedBlueprint } from '@/blueprint/types';
-import type { SpriteCanvas, SpritePack } from '@/render/iso/sprite-canvas';
+import type { RawMap, SpriteCanvas, SpritePack } from '@/render/iso/sprite-canvas';
 import { composeStructure } from '@/assetgen/compose';
 import { toGeometry } from '@/blueprint/compile/to-geometry';
 import { greyToDataUri } from '@/render/iso/sprite-canvas';
@@ -37,6 +37,10 @@ export const MIN_SILHOUETTE_IOU = 0.7;
 export const QUANT_COLORS = 64;
 /** Paid generation attempts per building before giving up for the session. */
 const MAX_ATTEMPTS = 2;
+/** Shared 1×1 neutral material for generated sprites: G=255 ⇒ AO 1, A=0 ⇒ dielectric
+ *  (matches gpu-scene's own neutralMaterial). One reference ⇒ one GPU upload, reused
+ *  across every building. See toPack() for why the per-building material is dropped. */
+const NEUTRAL_MATERIAL: RawMap = { data: new Uint8ClampedArray([0, 255, 0, 0]), w: 1, h: 1 };
 /** Concurrent paid generations — first sight of a settlement must not fire one request per building (429s, spend spikes). */
 const MAX_CONCURRENT_GENERATIONS = 2;
 
@@ -53,6 +57,9 @@ export interface ProducedPack {
 /** One vendored-library manifest row (see scripts/seed-building-art.ts). */
 interface BaseManifestEntry {
   file: string; targetWidth: number;
+  /** Bare preset this row was seeded from — the fallback match key for in-world
+   *  variants (which carry extra parts/materials → a different exact key). */
+  preset?: string;
   normal?: string; material?: string; emissive?: string;
 }
 
@@ -76,8 +83,9 @@ export interface GeneratedSourceDeps {
   encodeRaster?: (r: Raster) => Promise<Blob | null>;
   rasterToSprite?: (r: Raster) => SpriteCanvas | null;
   cacheGet?: (key: string) => Promise<CachedArt | null>;
-  /** Vendored no-key base library (public/asset-library/building-sprites/) — consulted after IDB, before paying. */
-  baseGet?: (key: string) => Promise<CachedArt | null>;
+  /** Vendored no-key base library (public/asset-library/building-sprites/) — consulted after IDB, before paying.
+   *  `preset` lets an in-world variant reuse its bare preset's shipped sprite when the exact key misses. */
+  baseGet?: (key: string, preset?: string) => Promise<CachedArt | null>;
   cachePut?: (key: string, blob: Blob, meta: {
     model: string; prompt: string; targetWidth: number;
     normal?: Blob; material?: Blob; emissive?: Blob; anchors?: string;
@@ -95,6 +103,17 @@ export class GeneratedBuildingArtSource {
   private readonly inflight = new Set<string>();
   private readonly warned = new Set<string>();
   private readonly d: Required<GeneratedSourceDeps>;
+  // Bumped each time a building GAINS art (an async cache/base/paid resolve). The
+  // render-context folds this into `buildingArtRev` so the building draw cache
+  // invalidates and warmed img2img sprites actually repaint (else they sit resolved
+  // but unpainted until some other invalidation happens to fire). Null resolves —
+  // the grey-fallback case — don't bump: nothing new to paint.
+  private ver = 0;
+  version(): number { return this.ver; }
+  private resolve(key: string, pack: SpritePack | null): void {
+    this.cache.set(key, pack);
+    if (pack) this.ver++;
+  }
 
   constructor(deps: GeneratedSourceDeps) {
     this.d = {
@@ -124,7 +143,7 @@ export class GeneratedBuildingArtSource {
       encodeRaster: (r) => rasterToPngBlob(r),
       rasterToSprite: (r) => rasterToSpriteCanvas(r),
       cacheGet: (k) => readGeneratedArt(k),
-      baseGet: (k) => this.fetchFromBaseLibrary(k),
+      baseGet: (k, preset) => this.fetchFromBaseLibrary(k, preset),
       cachePut: (k, b, m) => writeGeneratedArt(k, b, m),
       cacheFailed: (k) => isGeneratedArtFailed(k),
       recordFailure: (k) => writeGeneratedArtFailure(k, deps.model()),
@@ -155,7 +174,10 @@ export class GeneratedBuildingArtSource {
     const rb = this.rbOf(e); if (!rb) return;
     const key = this.keyOf(rb);            // memoized; no stringify on the frame path
     if (this.cache.has(key) || this.inflight.has(key)) return;
-    if (!this.d.enabled()) { return; } // not cached: re-evaluate if toggled on later
+    // Do NOT gate on enabled() here. Reading FREE art (IDB cache + the vendored
+    // base library) must always run — otherwise the shipped img2img sprites never
+    // load while paid gen is off, and every building falls back to grey massing.
+    // enabled() gates only the PAID produce() step, inside run().
     this.inflight.add(key);
     void this.run(rb, key).finally(() => this.inflight.delete(key));
   }
@@ -165,7 +187,11 @@ export class GeneratedBuildingArtSource {
   // derivation), so keyless players get real art without paying. Fetched lazily,
   // once; any failure degrades to "no base library".
   private baseManifest: Promise<Record<string, BaseManifestEntry> | null> | null = null;
-  private async fetchFromBaseLibrary(key: string): Promise<CachedArt | null> {
+  // preset → first manifest entry seeded from it. Built once alongside the manifest,
+  // it lets an in-world building (whose exact key embeds variant parts/materials and so
+  // never matches the bare-preset seed key) reuse its preset's shipped sprite for free.
+  private basePresetIndex: Map<string, BaseManifestEntry> | null = null;
+  private async fetchFromBaseLibrary(key: string, preset?: string): Promise<CachedArt | null> {
     if (typeof fetch === 'undefined') return null;
     try {
       this.baseManifest ??= (async () => {
@@ -176,7 +202,16 @@ export class GeneratedBuildingArtSource {
         return json.entries ?? null;
       })().catch(() => null);
       const entries = await this.baseManifest;
-      const entry = entries?.[key];
+      if (!entries) return null;
+      // Exact key (a bare preset, or an IDB-seeded variant), else preset fallback so
+      // variants render their preset's art instead of dropping to grey massing.
+      let entry: BaseManifestEntry | undefined = entries[key];
+      if (!entry && preset) {
+        this.basePresetIndex ??= new Map(
+          Object.values(entries).filter(e => e.preset).map(e => [e.preset as string, e]),
+        );
+        entry = this.basePresetIndex.get(preset);
+      }
       if (!entry) return null;
       const { assetUrl } = await import('@/core/asset-url');
       const file = async (name: string | undefined): Promise<Blob | undefined> => {
@@ -188,11 +223,13 @@ export class GeneratedBuildingArtSource {
       };
       const blob = await file(entry.file);
       if (!blob) return null;
-      // Companion maps (seeded alongside the albedo) feed the lit WebGL path;
-      // a missing map just degrades that building to unlit rendering.
+      // Only the NORMAL companion is fetched: it feeds the lit path and survives a
+      // canvas decode (its silhouette is opaque). The seeded material PNG is a data
+      // map (alpha 0) that a 2D canvas can't decode without zeroing its RGB, so it's
+      // deliberately skipped — toPack() substitutes a neutral material instead.
       return {
         blob, targetWidth: entry.targetWidth,
-        normal: await file(entry.normal), material: await file(entry.material),
+        normal: await file(entry.normal),
       };
     } catch { return null; }
   }
@@ -255,14 +292,24 @@ export class GeneratedBuildingArtSource {
     return (r && this.d.rasterToSprite(r)) ?? undefined;
   }
 
-  /** Assemble a SpritePack from the albedo raster + optional companion blobs. */
-  private async toPack(albedo: Raster, normal?: Blob, material?: Blob): Promise<SpritePack | null> {
+  /** Assemble a SpritePack from the albedo raster + the companion NORMAL blob.
+   *  The material map is deliberately NOT carried as a decoded canvas: it is a
+   *  DATA map (A=metallic, RGB=AO/roughness where A≈0) and a 2D-canvas backing
+   *  store is premultiplied, so decoding an alpha-0 material PNG silently zeroes
+   *  its RGB → AO 0 → the whole sprite lit BLACK. (Both the shipped base library
+   *  and produce()'s PNG-encoded material hit this.) Instead we pair the real
+   *  normal with a shared NEUTRAL material (AO 1, dielectric): the img2img albedo
+   *  is painted flat/shadeless by contract, so the geometry normals + sun supply
+   *  the form, which is the whole point — a uniform AO loses only baked occlusion
+   *  nuance, never the lighting. `materialData` (a RawMap) also flips the draw
+   *  list's `lit` flag on, without which the sprite would render unlit/flat. */
+  private toPack(albedo: Raster, normal?: SpriteCanvas): SpritePack | null {
     const sprite = this.d.rasterToSprite(albedo);
     if (!sprite) return null;
     return {
       albedo: sprite,
-      normal: await this.decodeMap(normal),
-      material: await this.decodeMap(material),
+      normal,
+      materialData: normal ? NEUTRAL_MATERIAL : undefined,
     };
   }
 
@@ -270,10 +317,11 @@ export class GeneratedBuildingArtSource {
     try {
       // IDB first (paid results), then the vendored base library — both hold the
       // already-processed sprite at final resolution plus its companion maps.
-      const hit = await this.d.cacheGet(key) ?? await this.d.baseGet(key);
+      const hit = await this.d.cacheGet(key) ?? await this.d.baseGet(key, rb.preset);
       if (hit) {
         const r = await this.d.decodeImage(hit.blob);
-        this.cache.set(key, r ? await this.toPack(r, hit.normal, hit.material) : null);
+        const normal = await this.decodeMap(hit.normal);
+        this.resolve(key, r ? this.toPack(r, normal) : null);
         return;
       }
       // Known-bad at this recipe+model: a prior session generated this blueprint
@@ -281,11 +329,13 @@ export class GeneratedBuildingArtSource {
       // every load (the old regenerate-every-load leak). Self-heals on a recipe
       // bump or model switch — the key changes, so this marker no longer matches.
       if (await this.d.cacheFailed(key)) { this.cache.set(key, null); return; }
-      // Over budget: cache null so we DON'T re-enter run() (and re-read IDB) every
-      // frame for this building. Session spend only ever rises, so retrying within
-      // the session is pointless; a reload clears this in-mem cache and resets the
-      // session counter, so genuinely-uncached buildings regenerate then.
-      if (!this.d.canSpend()) { this.cache.set(key, null); return; }
+      // Paid generation disabled OR over budget: cache null so we DON'T re-enter
+      // run() (and re-read IDB) every frame for this building. Free cached/vendored
+      // art was already consulted above; only the PAID produce() path is gated here.
+      // Session spend only ever rises, so retrying within the session is pointless;
+      // a reload clears this in-mem cache (and, if paid gen was toggled on, lets
+      // genuinely-uncached buildings regenerate then).
+      if (!this.d.enabled() || !this.d.canSpend()) { this.cache.set(key, null); return; }
       const prompt = this.d.prompt(rb);    // computed lazily — only when actually generating
       const pack = await this.d.produce(rb);
       let sprite: Raster | null = null;
@@ -305,7 +355,8 @@ export class GeneratedBuildingArtSource {
           normal: pack.normal, material: pack.material, emissive: pack.emissive, anchors: pack.anchors,
         });
       }
-      this.cache.set(key, await this.toPack(sprite, pack.normal, pack.material));
+      const normal = await this.decodeMap(pack.normal);
+      this.resolve(key, this.toPack(sprite, normal));
     } catch (err) {
       if (!this.warned.has(key)) { console.warn('[generated-building] generation failed', err); this.warned.add(key); }
       this.cache.set(key, null);

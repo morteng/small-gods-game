@@ -127,7 +127,8 @@ export class GeneratedFloraArtSource {
     if (!r) return;
     this.keyByKind.set(kind, r.key);
     if (this.cache.has(r.key) || this.inflight.has(r.key)) return;
-    if (!this.d.enabled()) return;
+    // Do NOT gate on enabled() here — free art (IDB + vendored base library) must
+    // always load; enabled() gates only the PAID produce() step, inside run().
     this.inflight.add(r.key);
     void this.run(r.rb, r.key).finally(() => this.inflight.delete(r.key));
   }
@@ -231,7 +232,8 @@ export class GeneratedFloraArtSource {
         return;
       }
       if (await this.d.cacheFailed(key)) { this.cache.set(key, null); return; }
-      if (!this.d.canSpend()) { this.cache.set(key, null); return; }
+      // Free art was consulted above; gate only the PAID produce() path here.
+      if (!this.d.enabled() || !this.d.canSpend()) { this.cache.set(key, null); return; }
       const prompt = this.d.prompt(rb);
       const pack = await this.d.produce(rb);
       let sprite: Raster | null = null;

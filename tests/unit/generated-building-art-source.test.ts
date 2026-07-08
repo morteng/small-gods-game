@@ -89,36 +89,60 @@ describe('GeneratedBuildingArtSource', () => {
     expect(cachePut).not.toHaveBeenCalled(); // static library stays the source of truth
   });
 
-  it('decodes companion normal/material blobs from a cache hit into the pack', async () => {
+  it('serves free vendored/IDB art even when paid gen is DISABLED (the freeze must not hide shipped sprites)', async () => {
+    // Regression: warm() must consult the free base library regardless of enabled().
+    // enabled() gates only PAID generation; a shipped img2img sprite must still load
+    // while the reseed freeze is on, or every building falls back to grey massing.
+    const baseGet = vi.fn(async () => ({ blob: new Blob(), targetWidth: 256 }));
+    const { src, generate } = makeSource({ enabled: () => false, cacheGet: async () => null, baseGet });
+    const e = entity('cottage'); src.warm(e);
+    await vi.waitFor(() => expect(src.peek(e)?.albedo).toBe(SPRITE));
+    expect(baseGet).toHaveBeenCalledTimes(1);
+    expect(generate).not.toHaveBeenCalled(); // free art served; nothing paid
+  });
+
+  it('passes the blueprint preset to baseGet so in-world variants reuse their preset sprite', async () => {
+    // Regression: an in-world building's exact key embeds variant parts/materials and
+    // misses the bare-preset seed key. fetchFromBaseLibrary falls back to the preset,
+    // so warm() must forward rb.preset as the 2nd baseGet arg (else no fallback possible).
+    const baseGet = vi.fn(async () => ({ blob: new Blob(), targetWidth: 256 }));
+    const { src } = makeSource({ cacheGet: async () => null, baseGet });
+    const e = entity('cottage'); src.warm(e);
+    await vi.waitFor(() => expect(src.peek(e)?.albedo).toBe(SPRITE));
+    expect(baseGet).toHaveBeenCalledWith(expect.any(String), 'cottage');
+  });
+
+  it('decodes the normal into a canvas + pairs a NEUTRAL material (never the material canvas)', async () => {
+    // The material map is a DATA map (alpha 0) that a 2D canvas decode zeroes → AO 0 →
+    // sprite lit BLACK. So the source drops the per-building material entirely and pairs
+    // the real normal with a shared neutral materialData (which also flips `lit` on).
     const NORMAL = {} as unknown as HTMLCanvasElement;
-    const MATERIAL = {} as unknown as HTMLCanvasElement;
     const normalBlob = new Blob([new Uint8Array([2])]);
-    const materialBlob = new Blob([new Uint8Array([3])]);
-    // decodeImage notes which blob it saw so the next rasterToSprite call can
-    // hand back the matching canvas stand-in (decode→sprite runs sequentially).
-    let last: HTMLCanvasElement = SPRITE;
+    // Tag each decoded raster with the canvas it maps to so rasterToSprite is
+    // order-independent (albedo is decoded first but rasterized last now).
     const { src } = makeSource({
-      cacheGet: async () => ({ blob: new Blob(), targetWidth: 256, normal: normalBlob, material: materialBlob }),
-      decodeImage: async (b: Blob) => {
-        last = b === normalBlob ? NORMAL : b === materialBlob ? MATERIAL : SPRITE;
-        return goodLlm();
-      },
-      rasterToSprite: () => last,
+      cacheGet: async () => ({ blob: new Blob(), targetWidth: 256, normal: normalBlob }),
+      decodeImage: async (b: Blob) => ({ ...goodLlm(), __c: b === normalBlob ? NORMAL : SPRITE }),
+      rasterToSprite: (r: { __c?: HTMLCanvasElement }) => r.__c ?? SPRITE,
     });
     const e = entity('cottage'); src.warm(e);
     await vi.waitFor(() => expect(src.peek(e)).not.toBeNull());
     const pack = src.peek(e)!;
     expect(pack.albedo).toBe(SPRITE);
     expect(pack.normal).toBe(NORMAL);
-    expect(pack.material).toBe(MATERIAL);
+    expect(pack.material).toBeUndefined();            // never the (black-inducing) material canvas
+    expect(pack.materialData).toBeDefined();          // neutral material ⇒ lit path on
+    expect(pack.materialData!.data[1]).toBe(255);     // G=255 ⇒ AO 1
+    expect(pack.materialData!.data[3]).toBe(0);       // A=0   ⇒ dielectric
   });
 
-  it('a hit without companion maps yields an unlit pack (albedo only)', async () => {
+  it('a hit without a normal yields an unlit pack (albedo only, no neutral material)', async () => {
     const { src } = makeSource({ cacheGet: async () => ({ blob: new Blob(), targetWidth: 256 }) });
     const e = entity('cottage'); src.warm(e);
     await vi.waitFor(() => expect(src.peek(e)).not.toBeNull());
     expect(src.peek(e)!.normal).toBeUndefined();
     expect(src.peek(e)!.material).toBeUndefined();
+    expect(src.peek(e)!.materialData).toBeUndefined(); // no normal ⇒ nothing to light with
   });
 
   it('does not generate when disabled or over budget → peek stays null', async () => {
