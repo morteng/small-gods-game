@@ -98,8 +98,10 @@ function windowTrim(s: ApertureSpec, host: ResolvedPart, lightsWide: number, lig
   const c = alongCentre(host, s);
   const a0 = c - s.halfW, a1 = c + s.halfW;
   const zTop = s.sill + s.height;
-  // Glazing bars sit at the pane, straddling the wall plane so they read a hair proud.
-  const barO: [number, number] = [-0.06, 0.02];
+  // Glazing bars sit at the pane, straddling the wall plane and standing PROUD enough to
+  // catch the sun and cast a shadow line — otherwise a dark timber bar on dark glass
+  // vanishes and the divided light reads as one blank pane.
+  const barO: [number, number] = [-0.06, 0.06];
   const out: Prim[] = [
     // stone sill: a ledge under the opening, projecting out
     box(host, s.face, { a0: a0 - SILL_OVERHANG, a1: a1 + SILL_OVERHANG, z0: s.sill - 0.11, z1: s.sill + 0.03, o0: -0.06, o1: SILL_PROUD }, 'stone'),

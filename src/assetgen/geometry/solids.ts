@@ -825,12 +825,15 @@ async function ventSolid(
     return { solid, anchor: [scx, scy, shaftTop + capH], mat };
   }
 
-  const camRun = (1 - ridgeCrossT(w)) * crossSpan(top, ridge);   // ridge → camera-facing eave
+  // Which slope the stack pierces: 'front' (camera-facing +cross, default) or 'back'
+  // (the far −cross slope — some real chimneys rise from the rear pitch). A tall stack
+  // clears the ridge either way, so the back-slope choice still reads against the sky.
+  const back = v.side === 'back';
+  const slopeRun = back ? ridgeCrossT(w) : 1 - ridgeCrossT(w);
+  const camRun = slopeRun * crossSpan(top, ridge);               // ridge → chosen eave
   // Across-ridge offset: clear the ridge line by the vent half-width + a gap, but stay
-  // on the slope (cap to ~55% of the camera-side run).
-  const off = Math.min(cw / 2 + 0.08, camRun * 0.55);
-  // Offset toward +cross (the camera-facing front slope: +y=south for an x-ridge,
-  // +x=east for a y-ridge) so the visible side carries the stack.
+  // on the slope (cap to ~55% of the chosen-side run). Signed toward the chosen slope.
+  const off = Math.min(cw / 2 + 0.08, camRun * 0.55) * (back ? -1 : 1);
   const cx = ridge === 'x' ? top.x + v.t * top.w : top.x + ridgeCrossT(w) * top.w + off;
   const cy = ridge === 'x' ? top.y + ridgeCrossT(w) * top.h + off : top.y + v.t * top.h;
   // Base from the wall top so the stack reads as masonry rising from inside and

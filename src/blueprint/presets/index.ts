@@ -199,7 +199,7 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
         // flue: one climbs the west gable end from the ground (the kitchen fire), the other
         // is a broad ridge stack toward the east end.
         smoke: { type: 'vent', face: 'west', params: { kind: 'chimney', placement: 'wall', t: 0.5, material: 'stone', width: 0.55, height: 0.72 } },
-        smoke2: { type: 'vent', params: { kind: 'chimney', t: 0.82, material: 'stone', width: 0.5, height: 0.7 } },
+        smoke2: { type: 'vent', params: { kind: 'chimney', placement: 'ridge', side: 'back', t: 0.82, material: 'stone', width: 0.5, height: 0.7 } },
         // Ground-floor fenestration RANKED up the storeys (perStorey) — the upper floor is
         // generated from these, not hand-listed. Add a storey ⇒ another row of windows.
         win_s: { type: 'window', face: 'south', params: { style: 'shuttered', t: 0.16, perStorey: true } },

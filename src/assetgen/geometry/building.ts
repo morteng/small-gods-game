@@ -74,6 +74,10 @@ export interface VentFeature {
   placement?: VentPlacement;
   /** For `placement:'wall'`: which exterior wall the stack rides (default 'south'). */
   face?: WallFace;
+  /** For `placement:'ridge'`: which roof slope the stack pierces — 'front' (default, the
+   *  camera-facing +y/+x slope) or 'back' (the far −y/−x slope). A tall stack clears the
+   *  ridge and reads against the sky from either side. */
+  side?: 'front' | 'back';
   width?: number;
   height?: number;
   /** Override the per-kind default material (e.g. a stone hearth stack instead of brick). */

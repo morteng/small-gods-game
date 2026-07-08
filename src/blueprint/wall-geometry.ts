@@ -3,6 +3,7 @@
 // Converts a part-local ApertureSpec (face/t/sill/halfW/height/depth) into absolute
 // structure-space boxes: the carved aperture (a recess) and the flush filler leaf.
 import type { ApertureBox } from '@/assetgen/geometry/solids';
+import { STOREY_TILES, mToTiles } from '@/render/scale-contract';
 import type { ResolvedPart, WallFace } from './types';
 import type { ApertureSpec } from './features/opening';
 import { bodyWings, type Plan } from './parts/body';
@@ -100,7 +101,10 @@ export interface FaceSpan {
 export function faceSpanBox(part: ResolvedPart, face: WallFace, sp: FaceSpan): FaceBox {
   const horiz = face === 'south' || face === 'north';
   const outward = face === 'south' || face === 'east' ? 1 : -1;
-  const op = outerCoord(part, face, (sp.a0 + sp.a1) / 2);
+  // Window/door trim on a jettied upper storey rides the oversailed wall face too (keyed on
+  // the span's base height), so sills/lintels/glazing bars track the recess, not the ground plane.
+  const j = outward > 0 ? storeyJettyOffset(part, sp.z0) : 0;
+  const op = outerCoord(part, face, (sp.a0 + sp.a1) / 2) + j;
   const k0 = op + outward * sp.o0, k1 = op + outward * sp.o1;
   const kmin = Math.min(k0, k1), kmax = Math.max(k0, k1);
   return horiz
@@ -149,6 +153,24 @@ function roundLeaf(part: ResolvedPart, s: ApertureSpec): FaceBox {
   return { at: [ox - s.halfW, oy - LEAF_THICKNESS / 2, s.sill], size: [2 * s.halfW, LEAF_THICKNESS, s.height], yaw };
 }
 
+/**
+ * How far an opening at height `sill` rides OUTWARD from the ground-floor wall plane
+ * because its storey oversails (the box-frame jetty). `storeyRect` grows each upper
+ * storey by `jetty·s` toward +y/+x, so a south/east opening on storey s>0 must carve the
+ * JETTIED wall face, not the ground plane below it — otherwise the recess misses the
+ * outer skin and the window never shows (the visible bug on 2-storey taverns/townhouses).
+ * North/west faces don't move (the base rect's x,y are unchanged), so callers apply this
+ * only on the +y (south) / +x (east) outer coordinate.
+ */
+function storeyJettyOffset(part: ResolvedPart, sill: number): number {
+  const jetty = (part.params?.jetty as number) ?? 0;
+  if (jetty <= 0) return 0;
+  const storeyM = (part.params?.storeyM as number) ?? -1;
+  const sh = storeyM > 0 ? mToTiles(storeyM) : STOREY_TILES;
+  const storey = Math.floor(sill / sh + 1e-6);
+  return jetty * storey;
+}
+
 /** The aperture box (subtracted from the wall) for this opening, in absolute structure space.
  *  It is a recess of depth `s.depth` into the wall, poking `APERTURE_EPS` past the outer plane. */
 export function apertureToBox(s: ApertureSpec, part: ResolvedPart): FaceBox {
@@ -163,10 +185,11 @@ export function apertureToBox(s: ApertureSpec, part: ResolvedPart): FaceBox {
   const arch = s.arch
     ? { arch: { axis: (s.face === 'south' || s.face === 'north' ? 'x' : 'y') as 'x' | 'y', style: s.arch, rise: archRise } }
     : {};
+  const j = storeyJettyOffset(part, s.sill);   // upper storeys oversail toward +y/+x
   switch (s.face) {
-    case 'south': { const yp = outerCoord(part, 'south', c); return { at: [c - s.halfW, yp - d, s.sill], size: [two, d + e, s.height], ...arch }; }
+    case 'south': { const yp = outerCoord(part, 'south', c) + j; return { at: [c - s.halfW, yp - d, s.sill], size: [two, d + e, s.height], ...arch }; }
     case 'north': { const yp = outerCoord(part, 'north', c); return { at: [c - s.halfW, yp - e, s.sill], size: [two, d + e, s.height], ...arch }; }
-    case 'east':  { const xp = outerCoord(part, 'east',  c); return { at: [xp - d, c - s.halfW, s.sill], size: [d + e, two, s.height], ...arch }; }
+    case 'east':  { const xp = outerCoord(part, 'east',  c) + j; return { at: [xp - d, c - s.halfW, s.sill], size: [d + e, two, s.height], ...arch }; }
     case 'west':  { const xp = outerCoord(part, 'west',  c); return { at: [xp - e, c - s.halfW, s.sill], size: [d + e, two, s.height], ...arch }; }
   }
 }
@@ -177,10 +200,11 @@ export function leafBox(s: ApertureSpec, part: ResolvedPart): FaceBox {
   if (part.params?.plan === 'round') return roundLeaf(part, s);
   const c = alongCentre(part, s);
   const i = LEAF_INSET, th = LEAF_THICKNESS, two = 2 * s.halfW;
+  const j = storeyJettyOffset(part, s.sill);   // ride the jettied wall face, same as the recess
   switch (s.face) {
-    case 'south': { const yp = outerCoord(part, 'south', c); return { at: [c - s.halfW, yp - i - th, s.sill], size: [two, th, s.height] }; }
+    case 'south': { const yp = outerCoord(part, 'south', c) + j; return { at: [c - s.halfW, yp - i - th, s.sill], size: [two, th, s.height] }; }
     case 'north': { const yp = outerCoord(part, 'north', c); return { at: [c - s.halfW, yp + i,      s.sill], size: [two, th, s.height] }; }
-    case 'east':  { const xp = outerCoord(part, 'east',  c); return { at: [xp - i - th, c - s.halfW, s.sill], size: [th, two, s.height] }; }
+    case 'east':  { const xp = outerCoord(part, 'east',  c) + j; return { at: [xp - i - th, c - s.halfW, s.sill], size: [th, two, s.height] }; }
     case 'west':  { const xp = outerCoord(part, 'west',  c); return { at: [xp + i,      c - s.halfW, s.sill], size: [th, two, s.height] }; }
   }
 }

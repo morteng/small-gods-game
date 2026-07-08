@@ -50,6 +50,12 @@ function fitHeightUnderEave(
  *     storey adds its windows automatically.
  * Doors, vents, dormers and non-ranked windows pass through (doors clamp, never rank).
  */
+// Per-storey light shrink for ranked (perStorey) windows: each floor up carries a shorter,
+// slightly narrower light than the one below — the half-timbered read where the upper
+// windows sit clear of the eave lip rather than crashing into the roof line.
+const UPPER_STOREY_LIGHT_SHRINK = 0.8;    // height factor per floor above the ground
+const UPPER_STOREY_LIGHT_NARROW = 0.92;   // half-width factor per floor above the ground
+
 function expandStoreyOpenings(part: ResolvedPart, sink?: GeometryDiagnostic[]): ResolvedPart['features'] {
   const levels = Math.max(1, (part.params?.levels as number) ?? 1);
   const plan = part.params?.plan;
@@ -61,13 +67,19 @@ function expandStoreyOpenings(part: ResolvedPart, sink?: GeometryDiagnostic[]): 
     if (f.type !== 'window') { out.push(f); continue; }
     const baseSill = (f.params.sill as number) ?? 0;
     const rawH = (f.params.height as number) ?? 0;
-    const height = fitHeightUnderEave(baseSill, rawH, eaveTop, `${part.type}.${f.id}`, part.id, f.id, sink);
     const ranked = f.params.perStorey !== false && levels > 1;
     const floors = ranked ? levels : 1;
+    const baseHalfW = (f.params.halfW as number) ?? 0;
     for (let s = 0; s < floors; s++) {
+      // Upper storeys carry SMALLER lights than the ground floor — shorter (and a touch
+      // narrower) each floor up, so they sit clear of the eave lip instead of crashing into
+      // the roof line (the real half-timbered read; matches the tavern reference).
+      const scale = s === 0 ? 1 : Math.pow(UPPER_STOREY_LIGHT_SHRINK, s);
+      const height = fitHeightUnderEave(baseSill, rawH * scale, eaveTop, `${part.type}.${f.id}`, part.id, f.id, sink);
+      const halfW = baseHalfW * (s === 0 ? 1 : Math.pow(UPPER_STOREY_LIGHT_NARROW, s));
       const sill = baseSill + s * sh;
       if (sill + height > eaveTop) continue;   // upper-floor copy wouldn't fit — skip it
-      const params = { ...f.params, sill, height };
+      const params = { ...f.params, sill, height, halfW };
       out.push(s === 0 ? { ...f, params } : { ...f, id: `${f.id}_l${s}`, params });
     }
   }
@@ -79,11 +91,13 @@ function ventOf(f: ResolvedPart['features'][number], wingIdx: number): VentFeatu
   const width = f.params.width as number | undefined;
   const height = f.params.height as number | undefined;
   const material = f.params.material as string | undefined;
+  const side = f.params.side as string | undefined;
   return {
     wing: wingIdx, t: f.params.t as number,
     kind: f.params.kind as VentFeature['kind'],
     placement: f.params.placement as VentFeature['placement'],
     ...(f.face ? { face: f.face } : {}),
+    ...(side === 'back' ? { side: 'back' as const } : {}),
     ...(width !== undefined && width >= 0 ? { width } : {}),
     ...(height !== undefined && height >= 0 ? { height } : {}),
     ...(material && material !== 'default' ? { mat: material as VentFeature['mat'] } : {}),
