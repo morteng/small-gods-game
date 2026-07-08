@@ -12,7 +12,35 @@ actually looks). Use both every iteration. Everything here is browserless, deter
 **money-free** (no img2img/paid gen — buildings render as grey massing by design; judge the
 massing, not the skin).
 
-## The loop
+## Two halves: gather a reference, then match it
+
+This skill has a **money-free fix loop** (below) and an optional **paid reference-gathering
+probe**. When you don't know what a building type *should* look like, gather a reference FIRST;
+otherwise skip straight to the loop.
+
+### Reference-gathering (paid, opt-in — `scripts/tti-probe.ts`)
+
+`tti-probe.ts` feeds our own geometry-true description (reused from `building-image-prompt.ts`,
+MINUS the img2img scaffolding) to a **pure text-to-image** model with NO init massing — so you
+see what our *words* describe vs what our *geometry* builds, and where the model adds architecture
+we don't model.
+
+```
+npx tsx scripts/tti-probe.ts parish-church                     # PRINT the TTI prompt only (FREE)
+OPENROUTER_API_KEY=… npx tsx scripts/tti-probe.ts parish-church --go   # generate (~$0.01/img)
+npx tsx scripts/tti-probe.ts parish-church --name=slug --prompt="…broach spire…" --go  # hand-authored TARGET
+```
+
+- Output lands in `reference-library/tti/<preset|slug>/`: `model-tti.png` (what the model imagines)
+  beside `ours-massing.png` (our 3D grey massing) + `prompt.txt`; cost logged to `manifest.tsv`.
+  `reference-library/` is **gitignored** — paid grabs stay local.
+- **`--go` SPENDS MONEY. Never run it autonomously** — the reseed freeze ("do not spend money yet")
+  is in force. Print the prompt for free, and only generate with an explicit go-ahead per batch.
+- Distil the finding into a hand-written **`STUDY.md`** in the folder: "what the model draws that
+  we get wrong" → an ordered fix list. That STUDY, not the PNG, is the durable artifact you code
+  against (see `parish-church-classic/STUDY.md`, `watermill-wheel/STUDY.md` for the format).
+
+## The fix loop (money-free)
 
 1. **Read what's authorable** — the capability catalogue (part/feature knobs, ranges, defaults):
    ```
