@@ -87,6 +87,17 @@ function ventPhrase(kind: string, count: number, era: string): string {
   }
 }
 
+/** A GENERALIZED vent clause (TTI): names the feature's identity/material without a hard count,
+ *  so the model is free to choose how many. `has` = at least one is present. */
+function ventPhraseGeneralized(kind: string, era: string): string {
+  switch (kind) {
+    case 'chimney': return `${era === 'current' ? 'brick' : 'stone'} chimneys rising from the roof`;
+    case 'pipe':    return `slim metal flue-pipes on the roof`;
+    case 'smokehole':
+    default:        return `a timber smoke-louver on the ridge (a slatted vent, not a chimney)`;
+  }
+}
+
 /** Visible vents grouped by their real kind, in a stable order. */
 function visibleVents(rb: ResolvedBlueprint): Array<{ kind: string; count: number }> {
   const counts = new Map<string, number>();
@@ -181,12 +192,16 @@ function walledMaterialClause(spec: StructureSpec): string {
  *  walled building states plan/storeys/roof-pitch + visible vents/windows/dormers/door
  *  (each by its real identity); an open frame (stall/tent/prop) states it has NO walls
  *  and lists its real parts. Exported for the truth tests. */
-export function geometryDescription(rb: ResolvedBlueprint): string {
+export function geometryDescription(rb: ResolvedBlueprint, opts: { generalized?: boolean } = {}): string {
   if (rb.class !== 'building' && rb.class !== 'prop') return '';
+  const gen = opts.generalized === true;
   const spec = toGeometry(rb);
 
   if (!isWalledBuilding(spec)) {
     const comp = partPhrases(rb).join('; ');
+    // Generalized (TTI): state the open form + its parts, without the img2img "paint only the
+    // reference" repaint instruction (there is no reference image in a text-to-image call).
+    if (gen) return `It is an OPEN structure with no enclosing walls — ${comp}.`;
     return `It is an OPEN structure with no enclosing walls — ${comp}. Paint only the ` +
       `frame, canopy and counter visible in the reference; keep it fully open and add ` +
       `nothing the reference does not show.`;
@@ -207,12 +222,42 @@ export function geometryDescription(rb: ResolvedBlueprint): string {
   const vents = visibleVents(rb);
 
   const clauses: string[] = [`a ${plan} ${plural(levels, 'storey')} structure with ${roofPhrase(roof)}`];
-  for (const v of vents) clauses.push(ventPhrase(v.kind, v.count, era));
-  if (windows) clauses.push(plural(windows, 'visible window'));
-  if (dormers) clauses.push(plural(dormers, 'roof dormer'));
-  if (doorFace) clauses.push(`a single wooden door on ${FACE_ISO[doorFace]}`);
+  // Generalized (TTI): keep identity-defining structure (plan/storeys/roof + which features are
+  // PRESENT) but drop the exact counts of incidental features, so the model chooses how many
+  // chimneys/windows/dormers to draw. Faithful (img2img) keeps the exact counts to match our massing.
+  for (const v of vents) clauses.push(gen ? ventPhraseGeneralized(v.kind, era) : ventPhrase(v.kind, v.count, era));
+  if (windows) clauses.push(gen ? 'windows' : plural(windows, 'visible window'));
+  if (dormers) clauses.push(gen ? 'roof dormers' : plural(dormers, 'roof dormer'));
+  if (doorFace) clauses.push(`a ${gen ? 'wooden door' : `single wooden door on ${FACE_ISO[doorFace]}`}`);
 
-  return `It is ${clauses.join(', ')}. Draw only these visible elements and leave the hidden rear walls bare.`;
+  return gen
+    ? `It is ${clauses.join(', ')}.`
+    : `It is ${clauses.join(', ')}. Draw only these visible elements and leave the hidden rear walls bare.`;
+}
+
+/** Wall/roof materials off the compiled building prim (for the TTI subject clause). */
+function walledMaterials(rb: ResolvedBlueprint): { wall?: Mat; roof?: Mat } {
+  const b = toGeometry(rb).parts.find((p) => p.prim === 'building');
+  return b && b.prim === 'building' ? { wall: b.wallMat, roof: b.roofMat } : {};
+}
+
+/** The pure TEXT-TO-IMAGE reference prompt for a subject: real subject + GENERALIZED geometry
+ *  (identity kept, incidental counts dropped) in the target pixel-art style, with NO img2img
+ *  scaffolding (no repaint/chroma/colour-legend clauses). The single source used by the studio's
+ *  reference regen and the tti-probe CLI. */
+export function ttiReferencePrompt(rb: ResolvedBlueprint): string {
+  const desc = descriptorPhrase(rb.descriptors);
+  const era = rb.era ?? 'medieval';
+  const noun = (rb.preset ?? rb.category ?? 'building').replace(/_(small|large|tiny|big)$/, '').replace(/_/g, ' ');
+  const { wall, roof } = walledMaterials(rb);
+  const mat = [wall ? `${wall} walls` : '', roof ? `a ${roof} roof` : ''].filter(Boolean).join(' and ');
+  const subject = `${desc ? desc + ' ' : ''}${era} ${noun}${mat ? ` with ${mat}` : ''}`;
+  const geom = geometryDescription(rb, { generalized: true });
+  return [
+    `A crisp 2D isometric pixel-art game sprite (2:1 perspective) of a ${subject}.`,
+    geom,
+    `Even ambient lighting, plain background, no ground shadow.`,
+  ].filter(Boolean).join(' ');
 }
 
 /** Map an OpenRouter image model id to its prompt family. */
