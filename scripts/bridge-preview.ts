@@ -10,15 +10,19 @@
 //   npx tsx scripts/bridge-preview.ts --list
 //
 // Deterministic, browserless, money-free grey massing — judge the massing, not the skin.
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync, appendFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { PNG } from 'pngjs';
 import { BLUEPRINT_VERSION, type Blueprint } from '../src/blueprint/types';
 import { resolveBlueprint } from '../src/blueprint/resolve';
 import { renderBlueprintMontage } from '../src/assetgen/blueprint-montage';
+import { toGeometry } from '../src/blueprint/compile/to-geometry';
+import { composeStructure } from '../src/assetgen/compose';
 import { lintBlueprint, summarizeLint } from '../src/blueprint/lint';
 import { ensureBuildingTypesRegistered } from '../src/blueprint/register-buildings';
 import { METRES_PER_TILE } from '../src/render/scale-contract';
+// Reuse the ONE TTI call path (no duplicate OpenRouter client) — see scripts/tti-probe.ts.
+import { apiKey, generateTti, TTI_MODEL, REF } from './tti-probe';
 
 const OUT = '.dev-grabs';
 const M = METRES_PER_TILE; // 2 m per tile
@@ -32,6 +36,9 @@ type Part = NonNullable<Blueprint['parts']>[string];
 interface BridgeRecipe {
   desc: string;
   walls: string;
+  /** Geometry-true subject clause for the TTI probe — mirrors what `build()` actually assembles
+   *  (arch count, hump, parapet, piers, material). Absent ⇒ falls back to `desc`. */
+  ttiSubject?: string;
   build(): Record<string, Part>;
 }
 
@@ -74,12 +81,18 @@ const RECIPES: Record<string, BridgeRecipe> = {
   'stone-arch': {
     desc: 'dressed-stone 3-arch road bridge (filled spandrel, hump-backed, parapets)',
     walls: 'stone',
+    ttiSubject: 'medieval dressed-stone road bridge with THREE segmental arches spanning a river, ' +
+      'a gently hump-backed deck carried on a solid filled-spandrel wall, low stone parapets along ' +
+      'both edges, and pointed cutwater piers between the arches; grey ashlar masonry',
     build: () => archBridge({ spanTiles: 12, roadTiles: 2, bays: 3, riseM: 3, style: 'segmental', parapet: true, camberM: 0.8 }),
   },
   // Timber trestle: a plank deck on driven piles, near-vertical, no masonry arch.
   'timber-trestle': {
     desc: 'timber trestle footbridge (driven piles, plank deck)',
     walls: 'timber',
+    ttiSubject: 'medieval timber trestle footbridge, a flat plank deck carried on three bents of ' +
+      'driven vertical timber piles, no masonry and no arches, sitting low over the water; ' +
+      'weathered brown wood',
     build: () => {
       const spanTiles = 8, roadTiles = 1, y0 = 1, pierH = 3;
       const parts: Record<string, Part> = {
@@ -111,6 +124,9 @@ const RECIPES: Record<string, BridgeRecipe> = {
   'packhorse': {
     desc: 'single-arch stone packhorse bridge (no interior piers)',
     walls: 'stone',
+    ttiSubject: 'narrow single-arch stone packhorse bridge over a brook, one round arch, a steep ' +
+      'strongly hump-backed cobbled deck only a single file wide, low stone parapets, ' +
+      'no interior piers; grey fieldstone',
     build: () => archBridge({ spanTiles: 5, roadTiles: 1, bays: 1, riseM: 2.5, style: 'round', parapet: true, camberM: 1.0 }),
   },
 };
@@ -137,6 +153,54 @@ function toPngWH(buf: Uint8ClampedArray, width: number, height: number): Buffer 
   return PNG.sync.write(png);
 }
 
+/** A pure TEXT-TO-IMAGE prompt for a bridge: our geometry-true subject in the target pixel-art
+ *  style, NO reference/repaint/chroma clauses (the img2img scaffolding). Mirrors tti-probe's
+ *  ttiPrompt() so both families read the same way. */
+function bridgeTtiPrompt(recipe: BridgeRecipe): string {
+  const subject = recipe.ttiSubject ?? recipe.desc;
+  return [
+    `A crisp 2D isometric pixel-art game sprite (2:1 perspective) of a ${subject}.`,
+    `Even ambient lighting, plain background, no ground shadow.`,
+    `The bridge alone — no people, no animals, no carts.`,
+  ].join(' ');
+}
+
+/** Compose ONE grey iso massing view of the bridge (matches the building library's
+ *  ours-massing.png format — a single square compose, not the 4-yaw montage). */
+async function bridgeMassing(recipe: BridgeRecipe): Promise<{ grey: Uint8ClampedArray; size: number }> {
+  const rb = resolveBlueprint([bridgeBlueprint(recipe)], 1);
+  const r = await composeStructure(toGeometry(rb));
+  return { grey: r.grey, size: r.size };
+}
+
+/** The TTI reference-probe for bridges — the bridge analog of `tti-probe.ts <preset>`. Writes
+ *  reference-library/tti/bridge-<name>/ {prompt.txt, ours-massing.png[, model-tti.png]}. `--go`
+ *  SPENDS MONEY (~$0.01/img). */
+async function ttiProbe(name: string, recipe: BridgeRecipe, go: boolean): Promise<void> {
+  const slug = `bridge-${name}`;
+  const dir = join(REF, slug);
+  mkdirSync(dir, { recursive: true });
+  const prompt = bridgeTtiPrompt(recipe);
+  console.log(`\n=== ${slug} — TTI prompt (${prompt.length} chars) ===\n${prompt}\n`);
+  writeFileSync(join(dir, 'prompt.txt'), `model: ${TTI_MODEL}\n\n${prompt}\n`);
+
+  const { grey, size } = await bridgeMassing(recipe);
+  writeFileSync(join(dir, 'ours-massing.png'), toPngWH(grey, size, size));
+  console.log(`  our massing → ${join(dir, 'ours-massing.png')} (${size}px)`);
+
+  if (!go) { console.log('  (print-only; pass --go to generate — SPENDS ~$0.01)'); return; }
+  const key = apiKey();
+  if (!key) { console.error('  OPENROUTER_API_KEY not set — cannot generate'); return; }
+  try {
+    const { buf, cost } = await generateTti(key, prompt, TTI_MODEL);
+    writeFileSync(join(dir, 'model-tti.png'), buf);
+    appendFileSync(join(REF, 'manifest.tsv'), `${slug}\t${TTI_MODEL}\t${cost.toFixed(4)}\n`);
+    console.log(`  TTI result → ${join(dir, 'model-tti.png')}  (cost $${cost.toFixed(4)})`);
+  } catch (err) {
+    console.error(`  TTI failed: ${(err as Error).message}`);
+  }
+}
+
 async function main() {
   ensureBuildingTypesRegistered();
   const argv = process.argv.slice(2);
@@ -146,14 +210,18 @@ async function main() {
   }
   const flags = new Set(argv.filter((a) => a.startsWith('--')));
   const names = argv.filter((a) => !a.startsWith('--'));
-  if (!names.length) { console.error('usage: bridge-preview.ts <recipe…> [--views|--lint]  (see --list)'); process.exit(1); }
-  const wantViews = flags.has('--views') || !flags.has('--lint');
-  const wantLint = flags.has('--lint') || !flags.has('--views');
+  if (!names.length) { console.error('usage: bridge-preview.ts <recipe…> [--views|--lint|--tti [--go]]  (see --list)'); process.exit(1); }
+  // --tti = the reference-library probe (pure text→image vs our massing). --go SPENDS MONEY.
+  const wantTti = flags.has('--tti');
+  const go = flags.has('--go');
+  const wantViews = !wantTti && (flags.has('--views') || !flags.has('--lint'));
+  const wantLint = !wantTti && (flags.has('--lint') || !flags.has('--views'));
 
   mkdirSync(OUT, { recursive: true });
   for (const name of names) {
     const recipe = RECIPES[name];
     if (!recipe) { console.error(`unknown recipe: ${name} (try --list)`); continue; }
+    if (wantTti) { await ttiProbe(name, recipe, go); continue; }
     const rb = resolveBlueprint([bridgeBlueprint(recipe)], 1);
     if (wantLint) {
       const lints = lintBlueprint(rb);

@@ -14,6 +14,7 @@
 // Output lands in reference-library/tti/<preset>/ with the prompt saved beside each image.
 import { mkdirSync, writeFileSync, appendFileSync, readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { PNG } from 'pngjs';
 import { synthesizeBlueprint } from '../src/blueprint/presets/index';
 import { toGeometry } from '../src/blueprint/compile/to-geometry';
@@ -25,14 +26,14 @@ import type { Part } from '../src/assetgen/compose';
 import type { ResolvedBlueprint } from '../src/blueprint/types';
 import type { Mat } from '../src/assetgen/types';
 
-const REF = 'reference-library/tti';
+export const REF = 'reference-library/tti';
 // Same model as the img2img pipeline by default (cheap klein). A pricier model
 // (google/gemini-2.5-flash-image) was ~marginal for our purpose, so override only when
 // wanted: TTI_MODEL=google/gemini-2.5-flash-image npx tsx scripts/tti-probe.ts …
-const TTI_MODEL = process.env.TTI_MODEL ?? BUILDING_IMAGE_MODEL;
+export const TTI_MODEL = process.env.TTI_MODEL ?? BUILDING_IMAGE_MODEL;
 
 /** OPENROUTER_API_KEY from the env, else parsed out of a gitignored .env (never logged). */
-function apiKey(): string | undefined {
+export function apiKey(): string | undefined {
   if (process.env.OPENROUTER_API_KEY) return process.env.OPENROUTER_API_KEY;
   if (existsSync('.env')) {
     const m = /^OPENROUTER_API_KEY=(.+)$/m.exec(readFileSync('.env', 'utf8'));
@@ -72,7 +73,7 @@ function ttiPrompt(rb: ResolvedBlueprint): string {
 
 /** Direct text-only OpenRouter image call (no init image) — the img2img client always
  *  attaches an image part, so TTI needs its own tiny request. */
-async function generateTti(apiKey: string, prompt: string, model: string): Promise<{ buf: Buffer; cost: number }> {
+export async function generateTti(apiKey: string, prompt: string, model: string): Promise<{ buf: Buffer; cost: number }> {
   const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -135,4 +136,5 @@ async function main() {
   }
 }
 
-main();
+// Only run the CLI when executed directly — bridge-preview.ts imports generateTti/apiKey.
+if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) main();
