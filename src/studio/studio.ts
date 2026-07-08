@@ -61,6 +61,7 @@ import { buildBottomPanel } from './bottom-panel';
 import { buildDock } from './stage-dock';
 import { createRefLib } from './reflib';
 import { buildReferencePanel } from './reference-panel';
+import { buildAmbientDials } from './ambient-dials';
 import { openMetadataPanel, makeLiveButton } from './render-request-panel';
 import { injectStudioTheme, COLORS, h } from './theme';
 import { celestial, solarLight, sunDirFromAngles } from '@/render/solar';
@@ -701,6 +702,22 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
     onView: (c, label) => { state.view = { canvas: c, label }; },
   });
   const liveBtn = makeLiveButton(viewPane, () => { state.view = null; });
+  // Ambient dials (centre-top over the view): preview emergent environment effects on the subject
+  // — COLD lights a hearth fire → smoke rises from the building's baked chimney-vent anchors.
+  const ambient = buildAmbientDials(viewPane);
+  /** The subject's chimney-vent anchors projected into world-screen space (smoke emission points).
+   *  Vent anchors are normalised (0..1) against the sprite's opaque bbox; the foot-anchored sprite
+   *  spans [foot.sy−ph, foot.sy] and is centred at foot.sx (width pw), so this maps them 1:1. */
+  function ventScreenPoints(): { x: number; y: number }[] {
+    const struct = stagesSubject();
+    const pack = subjectPack();
+    const vents = struct?.anchors?.vents;
+    if (!struct || !pack?.albedo || !vents?.length) return [];
+    const foot = worldToScreen(CENTER.x, CENTER.y, 0, 0, 0);
+    const pw = pack.albedo.width, ph = pack.albedo.height;
+    const left = foot.sx - pw / 2, top = foot.sy - ph;
+    return vents.map((v) => ({ x: left + v.x * pw, y: top + v.y * ph }));
+  }
   function composeStages(r: StructureResult): Stage[] {
     return [
       { label: '1 · albedo (material-colour init)', canvas: rgbaToCanvas(r.grey, r.size, r.size) },
@@ -737,8 +754,12 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
   }
 
   let raf = 0;
+  let lastFrameMs = 0;
   function frame(): void {
     if (disposed) return;
+    const tNow = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+    const dtMs = lastFrameMs ? tNow - lastFrameMs : 16.7;
+    lastFrameMs = tNow;
     if (state.view) {
       // Stage-buffer inspection: hide the GPU scene so the (opaque) stage view owns
       // the pane.
@@ -756,6 +777,17 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
       drawOverlays(rc.camera);
       drawHud();
       liveBtn.hide();
+      // Ambient effects (smoke etc.) — stepped by wall-clock, drawn in the same world-screen space
+      // as the overlays (so the plume tracks the chimney under pan/zoom), on top of the scene.
+      if (ambient.active) {
+        ambient.step(ventScreenPoints(), dtMs);
+        const camv = rc.camera, z = camv.zoom;
+        ctx.save();
+        ctx.scale(z, z);
+        ctx.translate(Math.round(-camv.x * z) / z, Math.round(-camv.y * z) / z);
+        ambient.draw(ctx);
+        ctx.restore();
+      }
     }
     syncStages();
     refPanel.update();   // Reference dock tab: our sprite vs the TTI target (memoised internally)
