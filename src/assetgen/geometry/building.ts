@@ -4,6 +4,7 @@
 // agent (LLM producer / Fate); anything left unset falls back to a deterministic,
 // seed-varied default so a bare `{ wings }` still renders a complete building.
 import { STOREY_TILES } from '@/render/scale-contract';
+import type { Mat } from '@/assetgen/types';
 
 export type RoofKind =
   | 'gable' | 'hip' | 'half_hip' | 'pyramidal' | 'flat' | 'shed'
@@ -75,6 +76,8 @@ export interface VentFeature {
   face?: WallFace;
   width?: number;
   height?: number;
+  /** Override the per-kind default material (e.g. a stone hearth stack instead of brick). */
+  mat?: Mat;
 }
 /**
  * A gabled dormer on a wing's camera-facing roof slope at fraction `t` along the

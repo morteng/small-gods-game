@@ -736,12 +736,14 @@ function ridgeCrossT(w: Wing): number {
  *  Medieval stacks are 0.6–1 m square rising ~1 m past the ridge; a smokehole is a
  *  timber ridge louvre, not a masonry stub. (1 unit = 2 m.) */
 function ventProfile(kind: VentKind, v: VentFeature): { cw: number; protrude: number; mat: Mat } {
+  // A per-feature `mat` overrides the kind default (e.g. a stone tavern hearth stack).
+  const withMat = (p: { cw: number; protrude: number; mat: Mat }) => (v.mat ? { ...p, mat: v.mat } : p);
   switch (kind) {
-    case 'pipe':      return { cw: v.width ?? 0.16, protrude: v.height ?? 0.9, mat: 'metal' };
-    case 'smokehole': return { cw: v.width ?? 0.35, protrude: v.height ?? 0.35, mat: 'timber' };
-    case 'chimney':   return { cw: v.width ?? 0.30, protrude: v.height ?? 0.55, mat: 'brick' };
+    case 'pipe':      return withMat({ cw: v.width ?? 0.16, protrude: v.height ?? 0.9, mat: 'metal' });
+    case 'smokehole': return withMat({ cw: v.width ?? 0.35, protrude: v.height ?? 0.35, mat: 'timber' });
+    case 'chimney':   return withMat({ cw: v.width ?? 0.30, protrude: v.height ?? 0.55, mat: 'brick' });
     // A steeple: a slender stone shaft, rising tall above the ridge to its conical point.
-    case 'spire':     return { cw: v.width ?? 0.6, protrude: v.height ?? 2.4, mat: 'stone' };
+    case 'spire':     return withMat({ cw: v.width ?? 0.6, protrude: v.height ?? 2.4, mat: 'stone' });
   }
 }
 

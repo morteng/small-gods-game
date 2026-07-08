@@ -78,6 +78,7 @@ function expandStoreyOpenings(part: ResolvedPart, sink?: GeometryDiagnostic[]): 
 function ventOf(f: ResolvedPart['features'][number], wingIdx: number): VentFeature {
   const width = f.params.width as number | undefined;
   const height = f.params.height as number | undefined;
+  const material = f.params.material as string | undefined;
   return {
     wing: wingIdx, t: f.params.t as number,
     kind: f.params.kind as VentFeature['kind'],
@@ -85,6 +86,7 @@ function ventOf(f: ResolvedPart['features'][number], wingIdx: number): VentFeatu
     ...(f.face ? { face: f.face } : {}),
     ...(width !== undefined && width >= 0 ? { width } : {}),
     ...(height !== undefined && height >= 0 ? { height } : {}),
+    ...(material && material !== 'default' ? { mat: material as VentFeature['mat'] } : {}),
   };
 }
 

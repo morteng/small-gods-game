@@ -102,7 +102,11 @@ function ventPhraseGeneralized(kind: string, era: string): string {
 function visibleVents(rb: ResolvedBlueprint): Array<{ kind: string; count: number }> {
   const counts = new Map<string, number>();
   for (const p of rb.parts) for (const f of p.features) {
-    if (f.type !== 'vent' || !isVisibleFace(f.face)) continue;
+    if (f.type !== 'vent') continue;
+    // A wall-placement stack climbs from the ground PAST the ridge, so it reads against the
+    // sky from any angle — count it visible even on a back gable (unlike a face-bound opening).
+    const wallStack = f.params.placement === 'wall';
+    if (!wallStack && !isVisibleFace(f.face)) continue;
     const kind = (f.params.kind as string) ?? 'smokehole';
     counts.set(kind, (counts.get(kind) ?? 0) + 1);
   }
