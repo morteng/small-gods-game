@@ -85,25 +85,31 @@ async function loadManifest(): Promise<Manifest> {
   catch { return { model: BUILDING_IMAGE_MODEL, entries: {} }; }
 }
 
-async function seed(preset: string, manifest: Manifest): Promise<number> {
+/** The outcome of one seed job — returned (never inferred from manifest size,
+ *  which is racy under the concurrent worker pool in main()). `seeded` = a new
+ *  sprite was written this run; `skipped` = already present / no such preset /
+ *  plan mode; `failed` = generation failed after all retries (retryable). */
+type SeedOutcome = { cost: number; status: 'seeded' | 'skipped' | 'failed' };
+
+async function seed(preset: string, manifest: Manifest): Promise<SeedOutcome> {
   const rb = synthesizeBlueprint(preset);
-  if (!rb) { console.warn(`(skip ${preset}: no preset)`); return 0; }
+  if (!rb) { console.warn(`(skip ${preset}: no preset)`); return { cost: 0, status: 'skipped' }; }
   return seedResolved(preset, rb, manifest);
 }
 
 /** Seed ONE planned variant (era/descriptor/stage cut) — same pipeline, records
  *  the variant axes on the manifest row so the library is queryable. The base /
  *  default cut collapses onto the bare preset key (no duplicate sprite). */
-async function seedVariant(v: PlannedVariant, manifest: Manifest): Promise<number> {
+async function seedVariant(v: PlannedVariant, manifest: Manifest): Promise<SeedOutcome> {
   const rb = resolveAsset(v.request);
-  if (!rb) { console.warn(`(skip ${v.label}: unknown type)`); return 0; }
+  if (!rb) { console.warn(`(skip ${v.label}: unknown type)`); return { cost: 0, status: 'skipped' }; }
   return seedResolved(v.type, rb, manifest, v);
 }
 
-async function seedResolved(preset: string, rb: ResolvedBlueprint, manifest: Manifest, variant?: PlannedVariant): Promise<number> {
+async function seedResolved(preset: string, rb: ResolvedBlueprint, manifest: Manifest, variant?: PlannedVariant): Promise<SeedOutcome> {
   const key = generatedArtKey(canonicalJson(rb), BUILDING_IMAGE_MODEL, rb.footprint);
   const label = variant?.label ?? preset;
-  if (!force && manifest.entries[key]) { console.log(`${label}: already seeded (${key})`); return 0; }
+  if (!force && manifest.entries[key]) { console.log(`${label}: already seeded (${key})`); return { cost: 0, status: 'skipped' }; }
 
   const r = await composeStructure(toGeometry(rb));
   const bb = {
@@ -116,7 +122,7 @@ async function seedResolved(preset: string, rb: ResolvedBlueprint, manifest: Man
   const prompt = buildingImagePrompt(rb, BUILDING_IMAGE_MODEL);
   if (plan) {
     console.log(`${label}: key ${key} · mask ${mask.w}×${mask.h} · init ${Math.round(initDataUri.length / 1024)}kB\n  prompt: ${prompt}`);
-    return 0;
+    return { cost: 0, status: 'skipped' };
   }
 
   let cost = 0;
@@ -168,10 +174,10 @@ async function seedResolved(preset: string, rb: ResolvedBlueprint, manifest: Man
     await writeMap(entry.emissive!, r.emissive);
     manifest.entries[key] = entry;
     console.log(`${preset}: seeded ${entry.file} (${sprite.w}×${sprite.h}, IoU ${reg.iou.toFixed(2)}, $${cost.toFixed(4)})`);
-    return cost;
+    return { cost, status: 'seeded' };
   }
   console.error(`${preset}: FAILED after ${MAX_ATTEMPTS} attempts — not seeded`);
-  return cost;
+  return { cost, status: 'failed' };
 }
 
 /** Rebuild a preset's manifest row from a PNG already on disk (NO API). The
@@ -222,7 +228,7 @@ async function main() {
   // Build the job list: bare presets, or — in matrix mode — the default variant DB
   // (poor/rich/ruined cuts per building + every plant stage), restricted to any
   // types named on the CLI. Each job carries a label + a thunk that seeds it.
-  type Job = { label: string; run: () => Promise<number> };
+  type Job = { label: string; run: () => Promise<SeedOutcome> };
   let jobs: Job[];
   if (matrix) {
     const want = new Set(wanted);
@@ -237,33 +243,59 @@ async function main() {
   let total = 0;
   const failed: string[] = [];
   const before = Object.keys(manifest.entries).length;
-  let aborted: BuildingImageError | null = null;
-  let stoppedAt: string | null = null;
-  for (const job of jobs) {
-    const had = Object.keys(manifest.entries).length;
-    try {
-      total += await job.run();
-    } catch (err) {
-      // Fatal (spend limit / bad key): stop now — every later job would fail
-      // too. Work done so far is already persisted (incremental write below).
-      if (err instanceof BuildingImageError && err.fatal) { aborted = err; stoppedAt = job.label; break; }
-      throw err;
+  // Held in an object (not bare `let`) so the type survives the worker-closure
+  // boundary — TS control-flow can't see a closure's assignment to an outer
+  // `let`, and would collapse it to `never` at the guard below.
+  const abort: { err: BuildingImageError | null; at: string | null } = { err: null, at: null };
+
+  // Serialize manifest writes behind a promise chain: at most one write in
+  // flight, each a COMPLETE in-memory snapshot. JS is single-threaded, so
+  // JSON.stringify captures the shared manifest atomically between awaits;
+  // chaining the writes means two workers can never interleave a half-written
+  // file. Crash-safe — every persisted file is a superset of prior work.
+  let writeChain: Promise<void> = Promise.resolve();
+  const persist = (): Promise<void> =>
+    (writeChain = writeChain.then(() => writeFile(MANIFEST, JSON.stringify(manifest, null, 2) + '\n')));
+
+  // Bounded worker pool over the job list. img2img is network-bound, so
+  // overlapping calls is a real wall-time win (esp. --matrix). CONCURRENCY
+  // multiplies the SPEND RATE (N calls burn budget N× faster), NOT the total —
+  // default a conservative 4, tunable via SEED_CONCURRENCY; if OpenRouter 429s,
+  // dial it down. --plan stays serial so the dry run prints in order. A fatal
+  // error (spend limit / bad key) sets `aborted`, which stops workers from
+  // pulling new jobs; in-flight jobs drain.
+  const CONCURRENCY = plan ? 1 : Math.max(1, Number(process.env.SEED_CONCURRENCY) || 4);
+  let cursor = 0;
+  async function worker(): Promise<void> {
+    while (cursor < jobs.length && !abort.err) {
+      const job = jobs[cursor++];
+      try {
+        const { cost, status } = await job.run();
+        total += cost;
+        if (plan) continue;
+        if (status === 'seeded') await persist();      // crash-safe incremental write
+        else if (status === 'failed') failed.push(job.label);
+      } catch (err) {
+        // Fatal (spend limit / bad key): every later job would fail too — stop
+        // scheduling. Work done so far is already persisted by prior workers.
+        if (err instanceof BuildingImageError && err.fatal) { abort.err = err; abort.at = job.label; return; }
+        throw err;
+      }
     }
-    if (plan) continue;
-    // Persist after every job so a crash mid-batch keeps all prior work (the
-    // old end-of-run write orphaned every PNG when one gen threw).
-    if (Object.keys(manifest.entries).length > had) await writeFile(MANIFEST, JSON.stringify(manifest, null, 2) + '\n');
-    else failed.push(job.label);
   }
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, jobs.length) }, worker));
+  await writeChain;   // flush the last queued incremental write
+
   if (plan) { console.log('(plan mode — nothing written, nothing spent)'); return; }
-  await writeFile(MANIFEST, JSON.stringify(manifest, null, 2) + '\n');
+  await persist();    // final full snapshot (also persists the recipe-version prune above)
+  await writeChain;
   const added = Object.keys(manifest.entries).length - before;
   console.log(`Done. ${Object.keys(manifest.entries).length} sprites in the library (+${added} this run), $${total.toFixed(4)} spent.`);
   if (failed.length) console.error(`Skipped (gen failed, retryable): ${failed.join(', ')}`);
-  if (aborted) {
-    console.error(`\n⛔ ABORTED at "${stoppedAt}" — ${aborted.hint}.`);
-    console.error(`   ${aborted.message}`);
-    console.error(`   Fix it here: ${aborted.helpUrl}`);
+  if (abort.err) {
+    console.error(`\n⛔ ABORTED at "${abort.at}" — ${abort.err.hint}.`);
+    console.error(`   ${abort.err.message}`);
+    console.error(`   Fix it here: ${abort.err.helpUrl}`);
     console.error(`   Then resume (already-seeded variants are skipped): npx tsx scripts/seed-building-art.ts${matrix ? ' --matrix' : ''}`);
     process.exitCode = 1;
   }

@@ -7,8 +7,8 @@
 #   ./scripts/ci-on-server.sh                 # full vitest suite
 #   ./scripts/ci-on-server.sh --files="tests/unit/foo.test.ts tests/unit/bar.test.ts"
 #   ./scripts/ci-on-server.sh --build         # tsc + vite build instead of tests
-#   ./scripts/ci-on-server.sh --workers=N     # vitest maxWorkers (default 3)
-#   ./scripts/ci-on-server.sh --cpus=N        # docker CPU cap (default 3)
+#   ./scripts/ci-on-server.sh --workers=N     # vitest maxWorkers (default 8)
+#   ./scripts/ci-on-server.sh --cpus=N        # docker CPU cap (default 11)
 #   ./scripts/ci-on-server.sh --clean         # remove remote CI dir + exit
 #   ./scripts/ci-on-server.sh --history       # recent run history
 #
@@ -23,11 +23,16 @@
 #     --env=FILE    KEY=VAL file injected into the container (FAL_KEY, REPLICATE_*);
 #                   written 0600 on the box and deleted right after the run
 #
-# The box has 4 shared vCPUs and runs pikkolo production — the CPU cap leaves
-# headroom (raise to 4 at your own risk). node_modules persists on the server
-# between runs, keyed on the package-lock hash, so only the first run (or a dep
-# change) pays npm ci. The runner is DETACHED on the server: a dropped SSH
-# connection doesn't kill the run; the client reconnects and keeps streaming.
+# CI runs on the DEDICATED ephemeral ci-eph box (currently cx53: 16 vCPU / 32 GB),
+# not the pikkolo prod box. The box serialises project runners with flock
+# (/tmp/hetzner-ci.lock), so only ONE project's runner runs at a time — sizing
+# the container at 11 CPUs can't collide with pikkolo's 11 (they never overlap).
+# --cpus is a CEILING, not a reservation: if the ephemeral box ever falls back to
+# a smaller flavour (cx43 8-vCPU / cx33 4-vCPU) the cap simply degrades to the
+# box's real core count. node_modules persists on the server between runs, keyed
+# on the package-lock hash, so only the first run (or a dep change) pays npm ci.
+# The runner is DETACHED on the server: a dropped SSH connection doesn't kill the
+# run; the client reconnects and keeps streaming.
 
 set -euo pipefail
 
@@ -56,8 +61,8 @@ ssh_run() {
 
 # ── Parse flags ─────────────────────────────────────────────────────────────
 TEST_FILES=""
-WORKERS=3
-CPUS=3
+WORKERS=8
+CPUS=11
 MODE="test"
 CLEAN_ONLY=false
 HISTORY_ONLY=false
@@ -76,7 +81,7 @@ for arg in "$@"; do
     --cpus=*)    CPUS="${arg#*=}" ;;
     --clean)     CLEAN_ONLY=true ;;
     --history)   HISTORY_ONLY=true ;;
-    -h|--help)   sed -n '6,30p' "$0"; exit 0 ;;
+    -h|--help)   sed -n '6,24p' "$0"; exit 0 ;;
     *)           fail "Unknown flag: $arg" ;;
   esac
 done
@@ -149,7 +154,7 @@ REMOTE_HASH=$(ssh_run "cat $REMOTE_HASH_FILE 2>/dev/null" || echo "none")
 T_START=$SECONDS
 if [ "$LOCAL_HASH" != "$REMOTE_HASH" ]; then
   log "Dependencies changed — running npm ci in container (first run takes a few minutes)..."
-  ssh_run "docker run --rm -v $REMOTE_DIR:/app -w /app --cpus=$CPUS -m 4g $NODE_IMAGE npm ci --no-audit --no-fund" \
+  ssh_run "docker run --rm -v $REMOTE_DIR:/app -w /app --cpus=$CPUS -m 10g $NODE_IMAGE npm ci --no-audit --no-fund" \
     || fail "npm ci failed"
   ssh_run "echo '$LOCAL_HASH' > $REMOTE_HASH_FILE"
   T_DEPS=$((SECONDS - T_START))
@@ -188,7 +193,7 @@ fi
 
 # Detached runner: survives client SSH drops; exit code lands in a sentinel
 # file. Shared server-wide lock (/tmp/hetzner-ci.lock) so only one heavy CI
-# runner uses the 4-vCPU box at a time ACROSS projects (pikkolo + small-gods),
+# runner uses the ci-eph box at a time ACROSS projects (pikkolo + small-gods),
 # not just small-gods branches. -w 2400 so a queued run outwaits the other
 # project's full run instead of flock timing out and faking a failure. The
 # secrets env-file is removed the instant the container exits, pass or fail.
@@ -197,7 +202,7 @@ WRAPPER_SRC=$(cat <<RUNNER_WRAPPER
 cd "$REMOTE_DIR" || { echo 97 > "$REMOTE_EXIT"; exit 97; }
 flock -w 2400 /tmp/hetzner-ci.lock \
   timeout $RUNNER_TIMEOUT docker run --rm --name smallgods-ci-runner \
-    -v $REMOTE_DIR:/app -w /app --cpus=$CPUS -m 4g \
+    -v $REMOTE_DIR:/app -w /app --cpus=$CPUS -m 10g \
     -e CI=1 ${ENV_ARG} \
     $NODE_IMAGE bash /app/.ci-cmd.sh > "$REMOTE_LOG" 2>&1
 ec=\$?
