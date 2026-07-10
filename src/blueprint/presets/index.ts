@@ -205,10 +205,12 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
         smoke2: { type: 'vent', params: { kind: 'chimney', placement: 'ridge', side: 'back', t: 0.82, material: 'stone', width: 0.5, height: 0.7 } },
         // Ground-floor fenestration RANKED up the storeys (perStorey) — the upper floor is
         // generated from these, not hand-listed. Add a storey ⇒ another row of windows.
-        win_s: { type: 'window', face: 'south', params: { style: 'shuttered', t: 0.14, perStorey: true } },
-        win_s2: { type: 'window', face: 'south', params: { style: 'shuttered', t: 0.32, perStorey: true } },
-        win_s3: { type: 'window', face: 'south', params: { style: 'shuttered', t: 0.84, perStorey: true } },
-        win_e: { type: 'window', face: 'east', params: { style: 'shuttered', t: 0.4, perStorey: true } },
+        // Big near-square taproom lights on the ground floor (the tavern-2 reference read:
+        // ~1.2 m glazed openings, clearly larger than the upper rank, which auto-shrinks).
+        win_s: { type: 'window', face: 'south', params: { style: 'shuttered', t: 0.14, width: 0.3, height: 0.65, perStorey: true } },
+        win_s2: { type: 'window', face: 'south', params: { style: 'shuttered', t: 0.32, width: 0.3, height: 0.65, perStorey: true } },
+        win_s3: { type: 'window', face: 'south', params: { style: 'shuttered', t: 0.84, width: 0.3, height: 0.65, perStorey: true } },
+        win_e: { type: 'window', face: 'east', params: { style: 'shuttered', t: 0.4, width: 0.3, height: 0.65, perStorey: true } },
         dormer1: { type: 'dormer', params: { t: 0.3 } },
         dormer2: { type: 'dormer', params: { t: 0.7 } },
       },
@@ -514,22 +516,34 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
     } },
   }),
   // Smithy: a blacksmith's forge (catalogue `smithy` — "open forge front, tall flue,
-  // soot-blackened"). A low stone workshop with a full-width stone forge bench across its
-  // OPEN south front, crowned by a broad brick flue that rises well above the ridge — the
-  // iconic smithy silhouette. Fire-risk ⇒ stone walls. Was a generic one-door rect body.
+  // soot-blackened"). Re-massed to the smithy-2 reference (mirrored so both tells face
+  // the default SE camera): a deep single-storey stone range entered through the GABLE
+  // end (cart door + flanking lights — the 2:3 frontage:depth read), the forge as a
+  // chimney BREAST on the long south wall toward the rear — open hearth mouth under a
+  // brick stack that clears the ridge — and a gableted timber ridge louver (the
+  // reference's long slatted run is paint). Fire-risk ⇒ stone walls.
   smithy: bp('smithy', {
     category: 'commercial', era: 'medieval', footprint: { w: 3, h: 3 },
     materials: { walls: 'stone', roof: 'tile', ground: 'packed_dirt' },
     parts: {
       body: {
         type: 'body', at: { x: 0, y: 0 }, size: { w: 3, h: 2 },
-        params: { plan: 'rect', levels: 1, roof: 'gable' },
+        params: { plan: 'rect', levels: 1, roof: 'gable', roofPitch: 1.0 },
         features: {
-          door: { type: 'door', face: 'south', params: { main: true, t: 0.5, width: 0.5 } },
-          win_e: { type: 'window', face: 'east', params: { style: 'shuttered', t: 0.5, glazed: false } },
+          door: { type: 'door', face: 'east', params: { main: true, t: 0.5, width: 0.5 } },
+          win_e: { type: 'window', face: 'east', params: { t: 0.18, width: 0.18 } },
+          win_e2: { type: 'window', face: 'east', params: { t: 0.82, width: 0.18 } },
+          // Workshop lights on the long south front, east of the forge breast.
+          win_s: { type: 'window', face: 'south', params: { t: 0.55, width: 0.25 } },
+          win_s2: { type: 'window', face: 'south', params: { t: 0.82, width: 0.25 } },
+          // Gableted timber ridge louver. The vent solid is square-plan (cw both ways +
+          // gable cap), so keep it ≤0.5 — wider reads as a second dormer.
+          louver: { type: 'vent', params: { kind: 'smokehole', t: 0.5, width: 0.5, height: 0.25 } },
         },
       },
-      forge: { type: 'furnace', at: { x: 0, y: 2 }, size: { w: 3, h: 1 }, params: { kind: 'forge' } },
+      // Rear (west) end of the south wall, mouth opening south — mirrors the reference's
+      // long-wall hearth offset away from the door.
+      forge: { type: 'furnace', at: { x: 0, y: 2 }, size: { w: 1, h: 1 }, params: { kind: 'forge', mouth: 'south' } },
     },
   }),
   // Bakehouse: a communal bake-oven (catalogue `bakehouse` — "domed bread oven, fire-risk

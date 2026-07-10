@@ -24,6 +24,9 @@ export const furnacePartType: PartType = {
     /** forge — a smithy hearth under a broad brick flue; oven — a domed masonry bread oven +
      *  flue stack; kiln — a brewhouse oast: a drum under a conical cap with a timber cowl. */
     kind: { kind: 'enum', values: ['forge', 'oven', 'kiln'], default: 'forge' },
+    /** forge only: which way the open hearth mouth faces (the back wall sits opposite,
+     *  against the body). Pick the direction away from the body it abuts. */
+    mouth: { kind: 'enum', values: ['north', 'south', 'east', 'west'], default: 'east' },
   },
   resolve: (part) => ({ params: { ...(part.params ?? {}) } }),
   toPrims(p): Prim[] {
@@ -75,14 +78,36 @@ export const furnacePartType: PartType = {
       ];
     }
 
-    // Smithy forge (default): a squat stone hearth mass under a broad brick flue/hood that rises
-    // well through the roof — the "tall flue" the catalogue names as the smithy's read.
-    const hearthH = mToTiles(1.5);
-    const flueTop = STOREY + mToTiles(2.4);
-    const fw = Math.min(w, 1.0), fh = Math.min(h, 1.0);
+    // Smithy forge (default): a chimney BREAST with an OPEN hearth mouth — the smithy-2
+    // reference read (a wall-mounted breast whose arch faces out, near the rear of the
+    // range). Stone cheeks + a back wall against the body frame a mouth opening `mouth`-
+    // ward; a brick breast spans the mouth to the eaves and carries a narrower brick
+    // stack past the ridge, finished with a corbelled cap plate. The old full-cell
+    // "bench slab + centred flue" read as an empty terrace with a detached brick box —
+    // the mouth is what makes it a forge in grey.
+    const mouth = (p.params.mouth as string) ?? 'east';
+    const cheekT = 0.18;                     // 0.36 m masonry cheeks framing the mouth
+    const backT = 0.2;                       // back wall against the body
+    const mouthH = mToTiles(1.7);            // hearth opening height (paint rounds the arch)
+    const breastTop = STOREY;                // masonry breast up to the eaves line
+    const flueTop = STOREY + mToTiles(2.4);  // stack clears the ridge
+    const capT = mToTiles(0.25);
+    const sw = w * 0.7, sh = h * 0.7;        // stack narrower than the breast
+    const alongX = mouth === 'east' || mouth === 'west';   // mouth axis runs along x
+    const cheeks: Prim[] = alongX
+      ? [{ prim: 'box', at: [x, y, 0], size: [w, cheekT, mouthH], material: 'stone' },
+         { prim: 'box', at: [x, y + h - cheekT, 0], size: [w, cheekT, mouthH], material: 'stone' }]
+      : [{ prim: 'box', at: [x, y, 0], size: [cheekT, h, mouthH], material: 'stone' },
+         { prim: 'box', at: [x + w - cheekT, y, 0], size: [cheekT, h, mouthH], material: 'stone' }];
+    const back: Prim = mouth === 'east' ? { prim: 'box', at: [x, y, 0], size: [backT, h, mouthH], material: 'stone' }
+      : mouth === 'west' ? { prim: 'box', at: [x + w - backT, y, 0], size: [backT, h, mouthH], material: 'stone' }
+      : mouth === 'south' ? { prim: 'box', at: [x, y, 0], size: [w, backT, mouthH], material: 'stone' }
+      : { prim: 'box', at: [x, y + h - backT, 0], size: [w, backT, mouthH], material: 'stone' };
     return [
-      { prim: 'box', at: [x, y, 0], size: [w, h, hearthH], material: 'stone' },
-      { prim: 'box', at: [cx - fw / 2, cy - fh / 2, hearthH], size: [fw, fh, flueTop - hearthH], material: 'brick' },
+      ...cheeks, back,
+      { prim: 'box', at: [x, y, mouthH], size: [w, h, breastTop - mouthH], material: 'brick' },
+      { prim: 'box', at: [cx - sw / 2, cy - sh / 2, breastTop], size: [sw, sh, flueTop - breastTop], material: 'brick' },
+      { prim: 'box', at: [cx - sw / 2 - 0.06, cy - sh / 2 - 0.06, flueTop], size: [sw + 0.12, sh + 0.12, capT], material: 'brick' },
     ];
   },
   toCollision: (p) => cellsOf(p),
