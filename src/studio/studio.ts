@@ -216,10 +216,13 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
     const rb = liveRb, k = rbKey(rb);
     if (subjPacks.has(k) || subjInflight.has(k)) return;
     subjInflight.add(k);
+    // `pickIds` (BOTH the geometry stamp + the compose buffer) is studio-only: the live view's
+    // click-to-select / hover chip read the resulting per-pixel pick buffer. Costs ~2 bytes/px
+    // here; the runtime/game compose paths never pass it (their sprite-cache keys stay stable).
     composeStructure(
-      toGeometry(rb, state.skirt ? { skirt: { margin: state.skirt.margin } } : undefined),
+      toGeometry(rb, { pickIds: true, ...(state.skirt ? { skirt: { margin: state.skirt.margin } } : {}) }),
       liveSun(),
-      { ...(state.skirt ? { skirtFade: state.skirt.fade } : null), ...(state.yaw ? { yaw: state.yaw } : null) },
+      { pickIds: true, ...(state.skirt ? { skirtFade: state.skirt.fade } : null), ...(state.yaw ? { yaw: state.yaw } : null) },
     )
       .then((r) => { subjStages.set(k, r); subjPacks.set(k, structureResultToPack(r)); })
       .catch((err) => { console.warn('[studio] compose failed', err); subjPacks.set(k, null); })
@@ -353,6 +356,9 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
   let lastRender: RenderResult | null = null;
   // Assigned once the node-tree panel is built; called on subject/param change.
   let rebuildTree: () => void = () => {};
+  // Assigned alongside rebuildTree: expands/scrolls/flashes a blueprint tree node by
+  // PICK key (`<partId>` or `<partId>/<featureId>`) — the sprite click-to-select sink.
+  let treeSelect: (pickKey: string) => void = () => {};
   // Assigned once the object browser is built; re-highlights the current kind.
   let browserRefresh: () => void = () => {};
   // The variant currently applied to the subject (era + descriptors); reset when
@@ -822,6 +828,134 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
     const left = foot.sx - pw / 2, top = foot.sy - ph;
     return vents.map((v) => ({ x: left + v.x * pw, y: top + v.y * ph }));
   }
+
+  // ── click-to-select pick channel (hover chip + click → blueprint tree) ──────
+  // warmSubject composes with `pickIds: true`, so every studio StructureResult carries a
+  // per-pixel provenance buffer (uncropped, size²). The subject is drawn foot-anchored at
+  // CENTER exactly like ventScreenPoints above: the CROPPED pack spans
+  // [foot.sx − pw/2, foot.sx + pw/2] × [foot.sy − ph, foot.sy] in world-screen space, and the
+  // UNCROPPED pick buffer's origin sits a further (−bbox.x, −bbox.y) up-left of that. Both
+  // directions of the mapping below reuse this ONE frame so hover/click/outline stay aligned.
+  // Yaw needs no special-casing: compose bakes the turntable into the sprite, so the mapping
+  // is always just this 2D draw rect.
+  interface PickBox { x0: number; y0: number; x1: number; y1: number }
+  /** Per-key pixel bboxes for the hover outline, scanned ONCE per composed struct (keyed on
+   *  the StructureResult identity — invalidate() drops the struct, the WeakMap follows). */
+  const pickBoxCache = new WeakMap<StructureResult, Map<string, PickBox>>();
+  function pickBoxesFor(struct: StructureResult): Map<string, PickBox> | null {
+    if (!struct.pick) return null;
+    let m = pickBoxCache.get(struct);
+    if (m) return m;
+    m = new Map<string, PickBox>();
+    const { data, table, width, height } = struct.pick;
+    for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+      const id = data[y * width + x];
+      if (!id) continue;
+      const key = table[id - 1];
+      const bb = m.get(key);
+      if (!bb) m.set(key, { x0: x, y0: y, x1: x, y1: y });
+      else {
+        if (x < bb.x0) bb.x0 = x; if (x > bb.x1) bb.x1 = x;
+        if (y < bb.y0) bb.y0 = y; if (y > bb.y1) bb.y1 = y;
+      }
+    }
+    pickBoxCache.set(struct, m);
+    return m;
+  }
+  /** The UNCROPPED pick buffer's top-left in world-screen space (and the pack dims), or null
+   *  until the composed struct + pack are warm. greyToSpriteCanvas crops at Math.round(bbox),
+   *  so the same rounding keeps the two frames pixel-aligned. */
+  function pickFrame(): { left: number; top: number; struct: StructureResult } | null {
+    const struct = stagesSubject();
+    const pack = subjectPack();
+    if (!struct?.pick || !pack?.albedo) return null;
+    const foot = worldToScreen(CENTER.x, CENTER.y, 0, 0, 0);
+    return {
+      left: foot.sx - pack.albedo.width / 2 - Math.round(struct.bbox.x),
+      top: foot.sy - pack.albedo.height - Math.round(struct.bbox.y),
+      struct,
+    };
+  }
+  /** Pick key under a client-space point in the LIVE view, or null. Inverts the overlay
+   *  camera transform (screen = (world − cam)·zoom — see drawOverlays) then indexes the
+   *  pick buffer; the sub-pixel origin snap (≤1/zoom px) is irrelevant at pick granularity. */
+  function pickKeyAt(clientX: number, clientY: number): string | null {
+    if (state.view) return null;                 // stage inspection showing, not the live scene
+    const f = pickFrame();
+    if (!f) return null;
+    const r = viewPane.getBoundingClientRect();
+    const wx = (clientX - r.left) / cam.zoom + cam.x;
+    const wy = (clientY - r.top) / cam.zoom + cam.y;
+    const px = Math.floor(wx - f.left), py = Math.floor(wy - f.top);
+    const { data, table, width, height } = f.struct.pick!;
+    if (px < 0 || py < 0 || px >= width || py >= height) return null;
+    const id = data[py * width + px];
+    return id ? table[id - 1] : null;
+  }
+  // Hover chip: a small cursor-tracking DOM label (house pattern: absolute chip over the
+  // view pane, like ambient-dials) naming the feature under the cursor, e.g. 'body/win_s'.
+  const pickChip = h('div', {
+    style: 'position:absolute;z-index:8;display:none;pointer-events:none;'
+      + 'font:500 11px/1 var(--font-mono);color:var(--accent);background:rgba(14,15,20,.88);'
+      + 'border:1px solid var(--accent-dim);border-radius:4px;padding:3px 7px;white-space:nowrap',
+  });
+  viewPane.appendChild(pickChip);
+  let hoverPickKey: string | null = null;
+  function setPickHover(key: string | null, e?: MouseEvent): void {
+    hoverPickKey = key;
+    if (!key || !e) {
+      pickChip.style.display = 'none';
+      if (!orbiting) canvas.style.cursor = '';
+      return;
+    }
+    const r = viewPane.getBoundingClientRect();
+    pickChip.textContent = key;
+    pickChip.style.left = `${Math.round(e.clientX - r.left + 14)}px`;
+    pickChip.style.top = `${Math.round(e.clientY - r.top + 12)}px`;
+    pickChip.style.display = 'block';
+    canvas.style.cursor = 'pointer';
+  }
+  canvas.addEventListener('mousemove', (e) => {
+    if (disposed || orbiting) return;
+    // A held left button is attachControls' pan drag — mute the hover so the chip doesn't
+    // chase a panning camera (and the cursor stays the pan affordance, not 'pointer').
+    if (e.buttons & 1) { setPickHover(null); return; }
+    setPickHover(pickKeyAt(e.clientX, e.clientY), e);
+  });
+  canvas.addEventListener('mouseleave', () => setPickHover(null));
+  // CLICK (no drag) selects in the blueprint tree. attachControls owns left-DRAG for the
+  // camera pan, so disambiguate by travel: ≤3 px between down and up reads as a click —
+  // listeners only, no preventDefault/stopPropagation, so the pan keeps working untouched.
+  let pickDown: { x: number; y: number } | null = null;
+  canvas.addEventListener('mousedown', (e) => { if (e.button === 0) pickDown = { x: e.clientX, y: e.clientY }; });
+  canvas.addEventListener('mouseup', (e) => {
+    if (disposed || e.button !== 0 || !pickDown) return;
+    const moved = Math.hypot(e.clientX - pickDown.x, e.clientY - pickDown.y);
+    pickDown = null;
+    if (moved > 3) return;                        // it was a pan, not a click
+    const key = pickKeyAt(e.clientX, e.clientY);
+    if (key) treeSelect(key);
+  });
+  /** Outline the hovered feature's pixel bbox on the 2D overlay (same world-screen camera
+   *  transform as drawOverlays, so it tracks the sprite under pan/zoom). Per-frame cost is
+   *  one cached Map lookup — the bbox scan ran once per compose in pickBoxesFor. */
+  function drawPickHover(camv: { x: number; y: number; zoom: number }): void {
+    if (!hoverPickKey || state.view) return;
+    const f = pickFrame();
+    if (!f) return;
+    const bb = pickBoxesFor(f.struct)?.get(hoverPickKey);
+    if (!bb) return;
+    const z = camv.zoom;
+    ctx.save();
+    ctx.scale(z, z);
+    ctx.translate(Math.round(-camv.x * z) / z, Math.round(-camv.y * z) / z);
+    ctx.strokeStyle = COLORS.accent;
+    ctx.lineWidth = 1.5 / z;
+    // ±1 px breathing room so a 1-px-thin feature (a mullion) still shows a visible ring.
+    ctx.strokeRect(f.left + bb.x0 - 1, f.top + bb.y0 - 1, bb.x1 - bb.x0 + 3, bb.y1 - bb.y0 + 3);
+    ctx.restore();
+  }
+
   function composeStages(r: StructureResult): Stage[] {
     return [
       { label: '1 · albedo (material-colour init)', canvas: rgbaToCanvas(r.grey, r.size, r.size) },
@@ -887,6 +1021,7 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
       const rc = renderContext();
       if (renderMap) renderMap(ctx, rc);
       drawOverlays(rc.camera);
+      drawPickHover(rc.camera);   // click-to-select hover outline (world-screen space)
       drawHud();
       liveBtn.hide();
       // Ambient effects (smoke etc.) — stepped by wall-clock, drawn in the same world-screen space
@@ -993,6 +1128,7 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
       build: (body) => {
         const treeUi = buildTree(body, { getRb: () => liveRb, onEdit: onValueEdited });
         rebuildTree = treeUi.render;
+        treeSelect = treeUi.select;   // sprite pick-click → tree expand/scroll/flash
         rebuildTree();
       },
     },

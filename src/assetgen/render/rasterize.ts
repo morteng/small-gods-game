@@ -65,18 +65,38 @@ export interface RasterMaps {
   emissive: Uint8ClampedArray; // RGB(A)
   depthRaw: Float32Array;      // view-depth per pixel (−Inf where empty)
   size: number;
+  /** OPT-IN per-pixel provenance (see `pickIds` below). `data[i]` = 0 (no pick) or 1+index
+   *  into `table` (the facet `src` strings, interned in first-seen order). Present only when
+   *  the caller asked — every default caller gets the exact same struct as before. */
+  pick?: { data: Uint16Array; table: string[] };
 }
 
-export function rasterizeMaps(facets: ScreenFacet[], size: number, surface?: SurfaceTexOpts): RasterMaps {
+// `pickIds` mirrors how `surface` is optional: absent ⇒ zero new allocations, zero writes,
+// byte-identical output (the golden-hash contract). When set, each z-test-WINNING pixel also
+// records which facet `src` owns it — the same visibility rule as every colour buffer, so the
+// pick pixel is exactly the pixel you see. Facets with no `src` still CLEAR the pixel to 0
+// (a nearer untagged surface must occlude a farther tagged one, or picks would bleed through).
+export function rasterizeMaps(facets: ScreenFacet[], size: number, surface?: SurfaceTexOpts, pickIds?: boolean): RasterMaps {
   const n = size * size;
   const albedo = new Uint8ClampedArray(n * 4);
   const normal = new Uint8ClampedArray(n * 4);
   const material = new Uint8ClampedArray(n * 4);
   const emissive = new Uint8ClampedArray(n * 4);
   const zbuf = new Float32Array(n); zbuf.fill(-Infinity);
+  // Uint16 caps the table at 65535 distinct ids — orders of magnitude past any blueprint's
+  // part+feature count, and 2 bytes/px keeps a 1k² pick buffer at 2 MB.
+  const pick = pickIds ? { data: new Uint16Array(n), table: [] as string[] } : undefined;
+  const intern = pick ? new Map<string, number>() : undefined;
 
   for (const f of facets) {
     const nrm = normalRGB(f.normal);
+    // Intern this facet's pick id once (0 = untagged); hoisted out of the pixel loop.
+    let pid = 0;
+    if (pick && intern && f.src) {
+      const got = intern.get(f.src);
+      if (got !== undefined) pid = got;
+      else { pick.table.push(f.src); pid = pick.table.length; intern.set(f.src, pid); }
+    }
     const pbr = materialPbr(f.mat);
     const plane = f.depths ? depthPlane(f.pts, f.depths) : null;
     const [A, B, C] = plane ?? [0, 0, f.depth];
@@ -122,6 +142,9 @@ export function rasterizeMaps(facets: ScreenFacet[], size: number, surface?: Sur
           const zi = y * size + x;
           if (d < zbuf[zi]) continue;
           zbuf[zi] = d;
+          // Pick write shares the z-win exactly (visible pixel == pick pixel). Unconditional
+          // (pid may be 0): an untagged winner must overwrite a farther tagged facet.
+          if (pick) pick.data[zi] = pid;
           const o = zi * 4;
           if (sampler && pw) {
             const wpos: Vec3 = [
@@ -150,7 +173,7 @@ export function rasterizeMaps(facets: ScreenFacet[], size: number, surface?: Sur
       }
     }
   }
-  return { albedo, normal, material, emissive, depthRaw: zbuf, size };
+  return { albedo, normal, material, emissive, depthRaw: zbuf, size, ...(pick ? { pick } : {}) };
 }
 
 /**

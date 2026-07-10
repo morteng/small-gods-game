@@ -51,6 +51,12 @@ export type SurfaceFrame =
 export interface WorldFacet {
   pts: Vec3[]; normal: Vec3; albedo: RGB; mat: Mat;
   work?: string; finish?: string; tint?: RGB; frame?: SurfaceFrame;
+  /** OPT-IN pick provenance (studio click-to-select): a stable blueprint id, format
+   *  `<partId>` (a whole part — walls/roof/a standalone prim) or `<partId>/<featureId>`
+   *  (a specific opening / vent). Absent on every default render — it is stamped only when
+   *  a caller threads it through compose, and it is read ONLY into the opt-in pick buffer,
+   *  never into albedo/normal/material/emissive, so the golden hashes stay byte-identical. */
+  src?: string;
 }
 
 /** A projected, depth-keyed polygon ready to rasterise. `worldPts` (the pre-projection
@@ -60,4 +66,6 @@ export interface WorldFacet {
 export interface ScreenFacet {
   pts: Pt[]; normal: Vec3; albedo: RGB; depth: number; depths?: number[]; mat: Mat;
   worldPts?: Vec3[]; work?: string; finish?: string; tint?: RGB; frame?: SurfaceFrame;
+  /** Opt-in pick provenance carried through from {@link WorldFacet.src} (see there). */
+  src?: string;
 }
