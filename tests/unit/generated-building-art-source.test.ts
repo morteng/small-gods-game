@@ -216,6 +216,123 @@ describe('GeneratedBuildingArtSource', () => {
   });
 });
 
+describe('GeneratedBuildingArtSource emissive + provenance', () => {
+  // Tagged-raster trick (same as the normal-map test above): decodeImage marks each
+  // raster with the canvas its source blob should map to, so rasterToSprite proves
+  // WHICH blob each pack slot was decoded from, order-independently.
+  const NORMAL = {} as unknown as HTMLCanvasElement;
+  const EMISSIVE = {} as unknown as HTMLCanvasElement;
+  const normalBlob = new Blob([new Uint8Array([2])]);
+  const emissiveBlob = new Blob([new Uint8Array([3])]);
+  const tagged = {
+    decodeImage: async (b: Blob) =>
+      ({ ...goodLlm(), __c: b === emissiveBlob ? EMISSIVE : b === normalBlob ? NORMAL : SPRITE }),
+    rasterToSprite: (r: { __c?: HTMLCanvasElement }) => r.__c ?? SPRITE,
+  };
+
+  it('decodes + attaches the cached emissive companion onto the pack', async () => {
+    // Regression: the emissive blob was fetched + cached but never decoded, so painted
+    // sprites had no emissive map and their windows could never glow at night.
+    const { src } = makeSource({
+      cacheGet: async () => ({ blob: new Blob(), targetWidth: 256, normal: normalBlob, emissive: emissiveBlob }),
+      ...tagged,
+    });
+    const e = entity('cottage'); src.warm(e);
+    await vi.waitFor(() => expect(src.peek(e)).not.toBeNull());
+    const pack = src.peek(e)!;
+    expect(pack.albedo).toBe(SPRITE);
+    expect(pack.normal).toBe(NORMAL);
+    expect(pack.emissive).toBe(EMISSIVE);
+  });
+
+  it('tolerates a hit without an emissive (older cached records)', async () => {
+    const { src } = makeSource({
+      cacheGet: async () => ({ blob: new Blob(), targetWidth: 256, normal: normalBlob }),
+      ...tagged,
+    });
+    const e = entity('cottage'); src.warm(e);
+    await vi.waitFor(() => expect(src.peek(e)).not.toBeNull());
+    expect(src.peek(e)!.emissive).toBeUndefined();   // absent map ⇒ no glow, never a throw
+  });
+
+  it('attaches the freshly-produced emissive on the paid path too', async () => {
+    const { src } = makeSource({
+      produce: async () => ({
+        initDataUri: 'data:image/png;base64,AA', mask: mask4(),
+        normal: normalBlob, emissive: emissiveBlob, anchors: '{"vents":[]}',
+      }),
+      ...tagged,
+    });
+    const e = entity('cottage'); src.warm(e);
+    await vi.waitFor(() => expect(src.peek(e)).not.toBeNull());
+    expect(src.peek(e)!.emissive).toBe(EMISSIVE);
+  });
+
+  it('peekMeta is null before anything resolves and after a null (grey-fallback) resolve', async () => {
+    const { src } = makeSource({ canSpend: () => false, cacheGet: async () => null });
+    const e = entity('cottage');
+    expect(src.peekMeta(e)).toBeNull();          // nothing resolved yet
+    src.warm(e); await Promise.resolve(); await Promise.resolve();
+    expect(src.peekMeta(e)).toBeNull();          // resolved to null (no art) ⇒ no provenance
+  });
+
+  it('peekMeta reports exact for an IDB hit (content-addressed ⇒ never stale)', async () => {
+    const { src } = makeSource({ cacheGet: async () => ({ blob: new Blob(), targetWidth: 256 }) });
+    const e = entity('cottage'); src.warm(e);
+    await vi.waitFor(() => expect(src.peek(e)).not.toBeNull());
+    expect(src.peekMeta(e)).toEqual({ resolved: 'exact' });
+  });
+
+  it('peekMeta propagates a preset-fallback provenance from the base library', async () => {
+    const baseGet = vi.fn(async () => ({ blob: new Blob(), targetWidth: 256, provenance: 'preset-fallback' as const }));
+    const { src } = makeSource({ cacheGet: async () => null, baseGet });
+    const e = entity('cottage'); src.warm(e);
+    await vi.waitFor(() => expect(src.peek(e)).not.toBeNull());
+    expect(src.peekMeta(e)).toEqual({ resolved: 'preset-fallback' });
+  });
+
+  it('peekMeta reports exact for a freshly-generated sprite', async () => {
+    const { src } = makeSource();
+    const e = entity('cottage'); src.warm(e);
+    await vi.waitFor(() => expect(src.peek(e)).not.toBeNull());
+    expect(src.peekMeta(e)).toEqual({ resolved: 'exact' });
+  });
+
+  it('the REAL base library tags a preset-name fallback and fetches the emissive', async () => {
+    // Drives the default fetchFromBaseLibrary (no baseGet override) against a stubbed
+    // fetch: the manifest has NO entry at the exact content key, only one seeded from
+    // the bare preset name — so the hit must come back tagged preset-fallback, with
+    // normal + emissive companion blobs fetched alongside the albedo.
+    const files: Record<string, Blob> = {
+      'c.png': new Blob([new Uint8Array([1])]),
+      'c.normal.png': normalBlob,
+      'c.emissive.png': emissiveBlob,
+    };
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (String(url).includes('manifest.json')) {
+        return { ok: true, json: async () => ({ entries: {
+          'some-other-exact-key': {
+            file: 'c.png', targetWidth: 256, preset: 'cottage',
+            normal: 'c.normal.png', emissive: 'c.emissive.png',
+          },
+        } }) };
+      }
+      const name = String(url).split('/').pop()!;
+      return { ok: !!files[name], blob: async () => files[name] };
+    }));
+    try {
+      const { src } = makeSource({ enabled: () => false, cacheGet: async () => null, ...tagged });
+      const e = entity('cottage'); src.warm(e);
+      await vi.waitFor(() => expect(src.peek(e)).not.toBeNull());
+      expect(src.peek(e)!.normal).toBe(NORMAL);
+      expect(src.peek(e)!.emissive).toBe(EMISSIVE);
+      expect(src.peekMeta(e)).toEqual({ resolved: 'preset-fallback' });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
 describe('GeneratedBuildingArtSource validation gate', () => {
   it('persists the PROCESSED sprite (not the raw LLM blob) with the companion pack', async () => {
     const normal = new Blob([new Uint8Array([2])]);

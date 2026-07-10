@@ -66,7 +66,7 @@ import { buildTimeScrubber } from './time-scrubber';
 import { compassBearings, celestialPlot } from './sky-hud';
 import { openMetadataPanel, makeLiveButton } from './render-request-panel';
 import { injectStudioTheme, COLORS, h } from './theme';
-import { celestial, solarLight, sunDirFromAngles, AZ_OFFSET } from '@/render/solar';
+import { celestial, solarLight, sunDirFromAngles, AZ_OFFSET, studioNightFactor } from '@/render/solar';
 import { type StudioState, type Stage, type AbResult, AB_MODELS, AB_MIN_BORDER, AB_MIN_IOU } from './types';
 
 const MAP_W = 24, MAP_H = 24;
@@ -262,6 +262,34 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
       return { ...massing, albedo: fin };
     }
     return massing;
+  }
+
+  // Why the textured sprite the LIVE view is serving may be STALE — i.e. painted
+  // against geometry other than what's on screen — or null when it's trustworthy.
+  // Two independent signals:
+  //  - provenance: the game source resolved it via the vendored library's
+  //    PRESET-NAME fallback (no hash/version check — the art was seeded for the
+  //    bare preset and may predate any geometry edit since). Exact IDB/manifest
+  //    hits can never be stale: their key bakes ART_RECIPE_VERSION + a blueprint
+  //    hash, so a match ⇒ same geometry.
+  //  - dims: the same cheap bbox guard litSubjectPack applies to session renders,
+  //    extended to library/IDB packs — a painted crop whose dimensions disagree
+  //    with the current massing crop was registered onto a different silhouette.
+  // Session renders are exempt (composed against the live blueprint just now).
+  // Cheap enough for the frame loop: two memoized map lookups + a dims compare.
+  function texturedSpriteWarning(): string | null {
+    if (!state.textured || finishedSubject()) return null;
+    const pack = genBuilding.peek(subject);
+    if (!pack) return null;   // grey massing / still warming — nothing painted to doubt
+    if (genBuilding.peekMeta(subject)?.resolved === 'preset-fallback') {
+      return '⚠ painted sprite predates geometry edits (preset match — not verified)';
+    }
+    const massing = peekSubject();
+    if (massing && (pack.albedo.width !== massing.albedo.width
+      || pack.albedo.height !== massing.albedo.height)) {
+      return '⚠ painted sprite size disagrees with current geometry';
+    }
+    return null;
   }
   const invalidate = (): void => { subjPacks.clear(); subjStages.clear(); subjInflight.clear(); subjFinished.clear(); };
 
@@ -487,6 +515,12 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
       state.lighting.ambient = l.ambient;
       state.lighting.sunColor = l.sunColor;
     }
+    // `uNight` (shader emissive gate — lit window panes) was never set here, so
+    // painted sprites' windows never glowed in the studio even at midnight on
+    // the Sky slider. Solar mode reads the SAME runtime authority the live game
+    // uses (solar hour → tick → `nightFactorForTick`); manual az/el mode has no
+    // tick, so it derives an equivalent ramp from elevation (see `studioNightFactor`).
+    state.lighting.nightFactor = studioNightFactor(state.sunMode, state.hour, state.el);
     if (state.fit) fitCamera();
     // Keep the scale-reference NPC just off the subject's SOUTH-EAST corner so it always
     // y-sorts IN FRONT of the building's billboard — a fixed offset falls inside a deep
@@ -734,6 +768,28 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
     onView: (c, label) => { state.view = { canvas: c, label }; },
   });
   const liveBtn = makeLiveButton(viewPane, () => { state.view = null; });
+  // Stale-sprite warning chip (bottom-left over the view, same house style as the
+  // ambient-dial bar): shown while the LIVE view serves a painted sprite that is
+  // NOT verified against the on-screen geometry (see texturedSpriteWarning).
+  // Re-evaluated every frame, so it appears/disappears reactively as the user
+  // edits geometry or toggles the Textured display option.
+  const staleBadge = h('div', {
+    style: 'position:absolute;left:10px;bottom:10px;z-index:6;display:none;'
+      + 'padding:4px 10px;border-radius:8px;font-size:12px;color:#e8b45a;'
+      + 'background:rgba(16,18,24,0.72);border:1px solid var(--line);'
+      + 'backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);box-shadow:0 2px 10px rgba(0,0,0,0.35)',
+  });
+  viewPane.appendChild(staleBadge);
+  function updateStaleBadge(): void {
+    // Only meaningful over the live 3D view — stage-buffer inspection hides it.
+    const warn = state.view ? null : texturedSpriteWarning();
+    if (warn) {
+      if (staleBadge.textContent !== warn) staleBadge.textContent = warn;
+      staleBadge.style.display = 'block';
+    } else {
+      staleBadge.style.display = 'none';
+    }
+  }
   // Ambient dials (centre-top over the view): preview emergent environment effects on the subject
   // — COLD lights a hearth fire → smoke rises from the building's baked chimney-vent anchors.
   const ambient = buildAmbientDials(viewPane);
@@ -789,9 +845,17 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
     shownStruct = r; shownGenLen = genStages.length; shownFinished = finished;
     if (!r) { dockUi.message('generating…'); return; }
     // The finished sprite (free, no API) when one exists for this blueprint — shown as the
-    // '★' stage so finished art is visible without paying.
+    // '★' stage so finished art is visible without paying. A library sprite resolved via
+    // the PRESET-NAME fallback carries no hash/version check (unlike an exact key, which
+    // bakes ART_RECIPE_VERSION + a blueprint hash), so it may have been painted against
+    // old geometry — say so instead of presenting it as trustworthy.
+    const presetFallback = !sessionFin
+      && genBuilding.peekMeta(subject)?.resolved === 'preset-fallback';
     const libStage: Stage[] = finished
-      ? [{ label: '★ seeded sprite (finished)', canvas: finished, sub: sessionFin ? 'this session' : 'from library (game source)' }]
+      ? [{ label: '★ seeded sprite (finished)', canvas: finished,
+          sub: sessionFin ? 'this session'
+            : presetFallback ? 'library · preset match — NOT verified against current geometry'
+            : 'from library (game source)' }]
       : [];
     const tiles = [...composeStages(r), ...libStage, ...genStages];
     dockUi.render(
@@ -838,6 +902,7 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
       }
     }
     syncStages();
+    updateStaleBadge();  // reactive: follows geometry edits + the Textured toggle
     refPanel.update();   // Reference dock tab: our sprite vs the TTI target (memoised internally)
     toolbar.refresh();
     scrubber.refresh();  // moves the handle when the popover changes time; hides with overlays

@@ -11,7 +11,8 @@
 // rotates true azimuth into the iso sunDir convention so the sun visibly
 // crosses the iso scene (tuned by eye, cardinal accuracy is irrelevant here).
 import { normalizeVec3, type Vec3 } from '@/render/lighting-state';
-import { clamp, lerp } from '@/core/math';
+import { clamp, lerp, smoothstep } from '@/core/math';
+import { nightFactorForTick, tickAtSolarHour } from '@/core/calendar';
 
 const D2R = Math.PI / 180, R2D = 180 / Math.PI;
 const lerp3 = (a: Vec3, b: Vec3, t: number): Vec3 => [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)];
@@ -93,6 +94,20 @@ export function celestial(hour: number, yearFrac: number, latDeg: number, moonPh
     sunColor: lerp3([0.02, 0.03, 0.06], [0.17, 0.21, 0.36], lit),
     body: 'moon',
   };
+}
+
+/** Studio equivalent of `nightFactorForTick` (the shader `uNight` — lit window
+ *  panes) for the two ways the studio can drive the sun. In solar mode this
+ *  IS the runtime authority (solar hour → tick → `nightFactorForTick`), so a
+ *  studio subject glows on the same schedule a live building would. In manual
+ *  az/el mode there's no tick to read, so the ramp is derived from elevation
+ *  with the SAME shape `day-night.ts` uses for its ambient/sunColor day-ness
+ *  term (`smoothstep(-5, 25, el)`) — 0 well below the horizon, 1 well above —
+ *  so dragging the elevation slider down also lights windows, mirroring what
+ *  the runtime curve would do at that sun height. Pure, cheap, frame-safe. */
+export function studioNightFactor(sunMode: 'solar' | 'manual', hour: number, el: number): number {
+  if (sunMode === 'solar') return nightFactorForTick(tickAtSolarHour(hour));
+  return 1 - smoothstep(-5, 25, el);
 }
 
 const SEASONS = ['spring', 'summer', 'autumn', 'winter'] as const;
