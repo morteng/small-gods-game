@@ -54,15 +54,24 @@ export const furnacePartType: PartType = {
     }
 
     if (kind === 'kiln') {
-      // Brewhouse oast / steam louver: a tall stone drum under a POINTED conical tiled cap — the
-      // oast silhouette — with a small timber cowl stub at the very tip.
-      const drumH = mToTiles(2.2);
-      const capH = mToTiles(3.0);
+      // Brewhouse oast / steam louver: a round stone drum under a pointed conical tiled
+      // cap — the oast silhouette — with a small timber cowl box at the tip. Proportions
+      // anchored to the reference: drum ≈ body wall height, cap ≈ 80% of drum (shorter,
+      // not taller), cap overhangs the drum (eaves), drum+cap ≈ main roof ridge height.
+      // The cowl is a single small box on the cone tip — at grey-massing scale thin posts
+      // and a peaked cap read as a disconnected floating block, so we keep it simple;
+      // the img2img pass paints the swivel vent + gable roof detail.
+      const drumH = STOREY;                     // ≈ wall height (2.7 m)
+      const capH = drumH * 0.8;                 // ref: cap ~80% of drum
+      const capR = r * 1.15;                    // visible eaves overhang past the drum
+      const cowlW = mToTiles(0.5);              // small boxy vent
+      const cowlH = mToTiles(0.3);             // squat box (not a tall stack)
+      const cowlZ = drumH + capH - mToTiles(0.1); // nestled into the cone tip
       return [
         { prim: 'cylinder', center: [cx, cy], baseZ: 0, radius: r, height: drumH, material: 'stone' },
-        { prim: 'cone', center: [cx, cy], baseZ: drumH, radius: r, height: capH, material: 'tile' },
-        // cowl: a slim timber stub poking just past the cone tip (the oast's swivel vent).
-        { prim: 'box', at: [cx - 0.15, cy - 0.15, drumH + capH * 0.88], size: [0.3, 0.3, mToTiles(0.8)], material: 'timber' },
+        { prim: 'cone', center: [cx, cy], baseZ: drumH, radius: capR, height: capH, material: 'tile' },
+        // boxy timber cowl nestled at the cone tip.
+        { prim: 'box', at: [cx - cowlW / 2, cy - cowlW / 2, cowlZ], size: [cowlW, cowlW, cowlH], material: 'timber' },
       ];
     }
 
@@ -84,7 +93,7 @@ export const furnacePartType: PartType = {
   toBrief: (p) => {
     const kind = (p.params.kind as string) ?? 'forge';
     if (kind === 'oven') return 'a domed masonry bread oven with a slim flue, bulging from one gable';
-    if (kind === 'kiln') return 'an oast kiln — a stone drum under a tall conical cap with a timber cowl';
+    if (kind === 'kiln') return 'an oast kiln — a stone drum under a conical cap with a timber cowl';
     return 'an open forge hearth under a tall brick flue';
   },
 };

@@ -184,14 +184,17 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
   // Inn: a cooking building — TWO ridge stacks, jettied upper storey, two dormers,
   // windows denser upstairs than down (tavern read: more glass than a house).
   tavern: bp('tavern', {
-    category: 'commercial', era: 'medieval', footprint: { w: 3, h: 3 },
+    // A long 2:1 range on a 4-wide lot (the tavern-2 reference read): wider base +
+    // shallower pitch per the 2026-07-08 direction — the compositor's refs come back
+    // broader and ~3.5° flatter than our old steep, square massing.
+    category: 'commercial', era: 'medieval', footprint: { w: 4, h: 3 },
     materials: { walls: 'timber', roof: 'tile', ground: 'packed_dirt' },
     palette: { walls: 'limewash' },   // washed timber frame — the inviting inn front
     parts: { body: {
       // Massing (a jettied two-storey range) is DERIVED from the box frame (gen-form): the
       // box frame stacks a storey and oversails it. The authored levels/jetty here are the
       // fallback if gen-form is ever removed; the derived values take over at resolve.
-      type: 'body', size: { w: 3, h: 2 }, params: { plan: 'rect', levels: 2, roof: 'gable', jetty: 0.12, baseCourse: 0.4, roofPitch: 1.35 },
+      type: 'body', size: { w: 4, h: 2 }, params: { plan: 'rect', levels: 2, roof: 'gable', jetty: 0.12, baseCourse: 0.5, roofPitch: 1.05 },
       tags: [GEN_FORM_TAG],
       features: {
         door: { type: 'door', face: 'south', params: { main: true, t: 0.5 } },
@@ -202,8 +205,9 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
         smoke2: { type: 'vent', params: { kind: 'chimney', placement: 'ridge', side: 'back', t: 0.82, material: 'stone', width: 0.5, height: 0.7 } },
         // Ground-floor fenestration RANKED up the storeys (perStorey) — the upper floor is
         // generated from these, not hand-listed. Add a storey ⇒ another row of windows.
-        win_s: { type: 'window', face: 'south', params: { style: 'shuttered', t: 0.16, perStorey: true } },
-        win_s2: { type: 'window', face: 'south', params: { style: 'shuttered', t: 0.84, perStorey: true } },
+        win_s: { type: 'window', face: 'south', params: { style: 'shuttered', t: 0.14, perStorey: true } },
+        win_s2: { type: 'window', face: 'south', params: { style: 'shuttered', t: 0.32, perStorey: true } },
+        win_s3: { type: 'window', face: 'south', params: { style: 'shuttered', t: 0.84, perStorey: true } },
         win_e: { type: 'window', face: 'east', params: { style: 'shuttered', t: 0.4, perStorey: true } },
         dormer1: { type: 'dormer', params: { t: 0.3 } },
         dormer2: { type: 'dormer', params: { t: 0.7 } },
@@ -550,18 +554,17 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
   // malt store"). A timber hall beside a tall oast-style kiln (drum + conical cap + cowl) that
   // vents the mash steam — the brewery's tell.
   brewhouse: bp('brewhouse', {
-    category: 'commercial', era: 'medieval', footprint: { w: 4, h: 3 },
+    category: 'commercial', era: 'medieval', footprint: { w: 5, h: 2 },
     materials: { walls: 'timber', roof: 'tile', ground: 'flagstone' },
     parts: {
       body: {
-        type: 'body', at: { x: 0, y: 0 }, size: { w: 2, h: 3 },
-        params: { plan: 'rect', levels: 1, roof: 'gable' },
+        type: 'body', at: { x: 0, y: 0 }, size: { w: 3, h: 2 },
+        params: { plan: 'rect', levels: 1, roof: 'gable', roofPitch: 1.0 },
         features: {
           door: { type: 'door', face: 'south', params: { main: true, t: 0.5 } },
-          win_w: { type: 'window', face: 'west', params: { style: 'shuttered', t: 0.5 } },
         },
       },
-      kiln: { type: 'furnace', at: { x: 2, y: 1 }, size: { w: 2, h: 2 }, params: { kind: 'kiln' } },
+      kiln: { type: 'furnace', at: { x: 3, y: 0 }, size: { w: 2, h: 2 }, params: { kind: 'kiln' } },
     },
   }),
   // Inn: a larger cousin of the tavern — a two-storey jettied range over a stone ground floor,
