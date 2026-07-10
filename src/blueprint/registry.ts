@@ -17,6 +17,13 @@ export interface CompileCtx {
   /** Blueprint palette — `walls`/`roof` name a surface FINISH (limewash/ochre/tar/…)
    *  the parts thread onto their prims; absent ⇒ bare material. */
   palette?: { walls?: string; roof?: string; trim?: string };
+  /** EPHEMERAL compose-time feature interaction state, keyed by the studio pick key
+   *  (`<partId>/<featureId>`, storey suffix stripped — the SAME id the pick channel stamps).
+   *  Studio-only (`toGeometry(rb, { featureStates })`): a door whose key has `open > 0` emits
+   *  its leaf SWUNG open. Deliberately NOT a blueprint param — a param would land in
+   *  `params`/`canonicalJson(rb)` and move EVERY building's parametric-sprite-cache key +
+   *  generated-art exact key. Absent (the runtime/seeder default) ⇒ geometry byte-identical. */
+  featureStates?: Record<string, { open?: number }>;
 }
 
 /** A part type contributes geometry, blocked cells, anchors, and a brief phrase. */
