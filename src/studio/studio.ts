@@ -206,11 +206,23 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
   const subjPacks = new Map<string, SpritePack | null>();
   const subjStages = new Map<string, StructureResult>();
   const subjInflight = new Set<string>();
+  // EPHEMERAL door-open TEST state, keyed by the pick key (`<partId>/<featureId>`): clicking a
+  // door on the sprite toggles its `open` 0↔1 here (NOT a blueprint param — that would move
+  // canonicalJson(rb) and bust the sprite cache), threaded into toGeometry so the leaf swings.
+  // Reset whenever the subject is replaced (setSubject / randomize) so a stale open door doesn't
+  // ride onto a new subject. Empty ⇒ absent from the compile args ⇒ geometry byte-identical.
+  let featureStates: Record<string, { open?: number }> = {};
+  const openFeatureStates = (): Record<string, { open?: number }> | undefined => {
+    for (const v of Object.values(featureStates)) if ((v.open ?? 0) > 0) return featureStates;
+    return undefined;   // no door open → omit entirely so the cache key + geometry stay canonical
+  };
   // The skirt is a geometry option, so it belongs in the cache key (toggling it must
-  // re-compose). Keyed alongside the blueprint JSON.
+  // re-compose). Keyed alongside the blueprint JSON. Open-door state folds in too (toggling a
+  // door recomposes; toggling it back hits the cached closed pose).
   const rbKey = (rb: ResolvedBlueprint): string => JSON.stringify(rb)
     + (state.skirt ? `|skirt:${state.skirt.margin}:${state.skirt.fade}` : '')
-    + (state.yaw ? `|yaw:${state.yaw.toFixed(4)}` : '');
+    + (state.yaw ? `|yaw:${state.yaw.toFixed(4)}` : '')
+    + (openFeatureStates() ? `|fs:${JSON.stringify(featureStates)}` : '');
   function warmSubject(): void {
     if (!liveRb) return;
     const rb = liveRb, k = rbKey(rb);
@@ -219,8 +231,10 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
     // `pickIds` (BOTH the geometry stamp + the compose buffer) is studio-only: the live view's
     // click-to-select / hover chip read the resulting per-pixel pick buffer. Costs ~2 bytes/px
     // here; the runtime/game compose paths never pass it (their sprite-cache keys stay stable).
+    // `featureStates` is likewise studio-only + omitted unless a door is actually open.
+    const fs = openFeatureStates();
     composeStructure(
-      toGeometry(rb, { pickIds: true, ...(state.skirt ? { skirt: { margin: state.skirt.margin } } : {}) }),
+      toGeometry(rb, { pickIds: true, ...(fs ? { featureStates: fs } : {}), ...(state.skirt ? { skirt: { margin: state.skirt.margin } } : {}) }),
       liveSun(),
       { pickIds: true, ...(state.skirt ? { skirtFade: state.skirt.fade } : null), ...(state.yaw ? { yaw: state.yaw } : null) },
     )
@@ -372,6 +386,7 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
     liveEra = undefined;
     liveDescriptors = {};
     liveStage = undefined;
+    featureStates = {};   // a stale open-door pose must not ride onto a different subject
     liveRb = synthesizeBlueprint(kind) ?? null;
     invalidate();
     genStages = [];
@@ -895,6 +910,15 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
     const id = data[py * width + px];
     return id ? table[id - 1] : null;
   }
+  /** True when the pick key (`<partId>/<featureId>`) names a DOOR in liveRb — the only feature
+   *  the click-to-open test toggles. Splits the key, resolves the part + feature. */
+  function isDoorAt(key: string | null): boolean {
+    if (!key || !liveRb) return false;
+    const slash = key.indexOf('/');
+    if (slash < 0) return false;
+    const part = liveRb.parts.find((p) => p.id === key.slice(0, slash));
+    return part?.features.find((f) => f.id === key.slice(slash + 1))?.type === 'door';
+  }
   // Hover chip: a small cursor-tracking DOM label (house pattern: absolute chip over the
   // view pane, like ambient-dials) naming the feature under the cursor, e.g. 'body/win_s'.
   const pickChip = h('div', {
@@ -912,7 +936,10 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
       return;
     }
     const r = viewPane.getBoundingClientRect();
-    pickChip.textContent = key;
+    // Discoverability (project rule: buttons/affordances over hidden shortcuts): a door's chip
+    // spells out the click affordance, and flips label by its current pose.
+    const doorHint = isDoorAt(key) ? ((featureStates[key]?.open ?? 0) > 0 ? ' · click to shut' : ' · click to open') : '';
+    pickChip.textContent = key + doorHint;
     pickChip.style.left = `${Math.round(e.clientX - r.left + 14)}px`;
     pickChip.style.top = `${Math.round(e.clientY - r.top + 12)}px`;
     pickChip.style.display = 'block';
@@ -937,7 +964,18 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
     pickDown = null;
     if (moved > 3) return;                        // it was a pan, not a click
     const key = pickKeyAt(e.clientX, e.clientY);
-    if (key) treeSelect(key);
+    if (!key) return;
+    // A DOOR under the click swings its leaf open (click again to shut) — interactive testing of
+    // the object. Selection and testing COMPOSE: we toggle the pose AND still select the node.
+    if (isDoorAt(key)) {
+      const open = (featureStates[key]?.open ?? 0) > 0 ? 0 : 1;
+      featureStates = { ...featureStates, [key]: { open } };
+      // Chip label flips immediately (hover key unchanged); recompose to the new pose — toggling
+      // back re-hits the cached closed pose (rbKey folds featureStates in).
+      if (hoverPickKey === key) setPickHover(key, e);
+      warmSubject();
+    }
+    treeSelect(key);
   });
   /** Outline the hovered feature's pixel bbox on the 2D overlay (same world-screen camera
    *  transform as drawOverlays, so it tracks the sprite under pan/zoom). Per-frame cost is
@@ -1080,6 +1118,7 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
   // — a real, visible variation. Studio-only dev tooling, so Math.random is fine.
   function randomizeSubject(): void {
     if (!liveRb) return;
+    featureStates = {};   // a re-rolled subject starts with every door shut
     for (const part of liveRb.parts) {
       let schema: ParamSchema;
       try { schema = getPartType(part.type).paramSchema; } catch { continue; }

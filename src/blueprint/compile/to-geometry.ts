@@ -196,12 +196,20 @@ export function toGeometry(rb: ResolvedBlueprint, opts?: {
    *  per-pixel pick buffer. MUST stay off on the runtime/seeder paths — the parametric sprite
    *  cache keys on this spec's canonical JSON (see the pick-provenance comment above). */
   pickIds?: boolean;
+  /** EPHEMERAL door-open (and future interaction) state, keyed by the pick key the pick
+   *  channel uses (`<partId>/<featureId>`). Threaded into `CompileCtx` so an opening's
+   *  `filler` hook can emit its leaf SWUNG when `open > 0`. Studio-only: NOT a blueprint
+   *  param (that would move `canonicalJson(rb)` and bust the sprite cache) — an ephemeral
+   *  compose arg, exactly like `pickIds`. Absent OR containing no open door ⇒ the spec is
+   *  byte-identical to the default path (the door filler only diverges when `open > 0`). */
+  featureStates?: Record<string, { open?: number }>;
 }): StructureSpec {
   const sink = opts?.diagnostics;
   const pickIds = opts?.pickIds === true;
   const ctx: CompileCtx = {
     materials: rb.materials, footprint: rb.footprint,
     ...(rb.palette && Object.keys(rb.palette).length ? { palette: rb.palette } : {}),
+    ...(opts?.featureStates ? { featureStates: opts.featureStates } : {}),
   };
 
   // No `size` is set: buildings render at a FIXED metric scale (composeStructure →
