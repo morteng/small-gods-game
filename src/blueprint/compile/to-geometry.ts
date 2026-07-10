@@ -86,14 +86,28 @@ function expandStoreyOpenings(part: ResolvedPart, sink?: GeometryDiagnostic[]): 
   return out;
 }
 
-/** A vent feature on a wing-part → an assetgen VentFeature on wing `wingIdx`. */
-function ventOf(f: ResolvedPart['features'][number], wingIdx: number): VentFeature {
+// ── pick provenance (studio click-to-select) ────────────────────────────────────────
+// Every pickable atom carries a stable id threaded from the blueprint down to the pixel:
+// `<partId>` for a whole part (walls/roof/a standalone prim) or `<partId>/<featureId>` for an
+// individual opening/vent. `expandStoreyOpenings` mints per-storey feature ids (`win_s_l1`);
+// STRIP that suffix so an upper-storey window still selects the AUTHORED `win_s` node.
+// STRICTLY OPT-IN (`toGeometry(rb, { pickIds: true })`, studio-only): the runtime parametric
+// sprite cache keys on `canonicalJson(toGeometry(rb))`, so stamping ids by default would move
+// EVERY cached pack's key and force a full warm-boot recompose. Absent ⇒ spec byte-identical.
+const stripStorey = (id: string): string => id.replace(/_l\d+$/, '');
+const featureKey = (partId: string, featureId: string): string => `${partId}/${stripStorey(featureId)}`;
+
+/** A vent feature on a wing-part → an assetgen VentFeature on wing `wingIdx`. `pickPartId`
+ *  (set only under `opts.pickIds`) threads the pick key onto the vent so a click on the
+ *  chimney selects THAT feature; absent ⇒ no id field, vent byte-identical. */
+function ventOf(f: ResolvedPart['features'][number], wingIdx: number, pickPartId?: string): VentFeature {
   const width = f.params.width as number | undefined;
   const height = f.params.height as number | undefined;
   const material = f.params.material as string | undefined;
   const side = f.params.side as string | undefined;
   return {
     wing: wingIdx, t: f.params.t as number,
+    ...(pickPartId ? { id: featureKey(pickPartId, f.id) } : {}),
     kind: f.params.kind as VentFeature['kind'],
     placement: f.params.placement as VentFeature['placement'],
     ...(f.face ? { face: f.face } : {}),
@@ -113,15 +127,23 @@ function dormerOf(f: ResolvedPart['features'][number], wingIdx: number): DormerF
   };
 }
 
-/** Compile a part's openings → carve boxes (for its wall prim) + filler prims (added back). */
-function compileOpenings(part: ResolvedPart, ctx: CompileCtx): { apertures: ApertureBox[]; fillers: Prim[] } {
+/** Compile a part's openings → carve boxes (for its wall prim) + filler prims (added back).
+ *  Under `pickIds`, each filler prim (window sill/lintel/mullions/pane, door leaf/trim) is
+ *  stamped with its feature's pick key (`<partId>/<featureId>`, storey suffix stripped) so a
+ *  click on the visible furniture selects the AUTHORED feature node. Opt-in metadata only —
+ *  the aperture holes themselves carve the wall and need nothing (their pixels ARE wall =
+ *  the part key), and without `pickIds` every filler prim is byte-identical (cache-key safe). */
+function compileOpenings(part: ResolvedPart, ctx: CompileCtx, pickIds: boolean): { apertures: ApertureBox[]; fillers: Prim[] } {
   const apertures: ApertureBox[] = [];
   const fillers: Prim[] = [];
   for (const f of part.features) {
     const ft = getFeatureType(f.type);
     if (!isOpening(ft)) continue;
     apertures.push(apertureToBox(ft.aperture(f, part, ctx), part));
-    if (ft.filler) fillers.push(...ft.filler(f, part, ctx));
+    if (!ft.filler) continue;
+    const prims = ft.filler(f, part, ctx);
+    // `srcId` may already be set by an exotic filler builder — keep the more specific tag.
+    fillers.push(...(pickIds ? prims.map((p) => ({ ...p, srcId: p.srcId ?? featureKey(part.id, f.id) })) : prims));
   }
   return { apertures, fillers };
 }
@@ -167,8 +189,16 @@ function footprintRects(parts: Prim[]): Rect[] {
   return rects;
 }
 
-export function toGeometry(rb: ResolvedBlueprint, opts?: { skirt?: SkirtOpts; diagnostics?: GeometryDiagnostic[] }): StructureSpec {
+export function toGeometry(rb: ResolvedBlueprint, opts?: {
+  skirt?: SkirtOpts; diagnostics?: GeometryDiagnostic[];
+  /** OPT-IN pick provenance (studio click-to-select): stamp every emitted prim/vent with its
+   *  blueprint part/feature id (`srcId`) so `composeStructure({ pickIds })` can build the
+   *  per-pixel pick buffer. MUST stay off on the runtime/seeder paths — the parametric sprite
+   *  cache keys on this spec's canonical JSON (see the pick-provenance comment above). */
+  pickIds?: boolean;
+}): StructureSpec {
   const sink = opts?.diagnostics;
+  const pickIds = opts?.pickIds === true;
   const ctx: CompileCtx = {
     materials: rb.materials, footprint: rb.footprint,
     ...(rb.palette && Object.keys(rb.palette).length ? { palette: rb.palette } : {}),
@@ -191,18 +221,22 @@ export function toGeometry(rb: ResolvedBlueprint, opts?: { skirt?: SkirtOpts; di
     const part: ResolvedPart = { ...rawPart, features: expandStoreyOpenings(rawPart, sink) };
     const pt = getPartType(part.type);
     const prims = pt.toPrims(part, ctx);
-    const { apertures, fillers: partFillers } = compileOpenings(part, ctx);
+    const { apertures, fillers: partFillers } = compileOpenings(part, ctx, pickIds);
     fillers.push(...partFillers);
 
     // A part's openings carve its FIRST wall-bearing prim (building/cylinder/box).
     let openingsAttached = false;
     for (const prim of prims) {
       if (prim.prim === 'building') {
-        if (!building) building = { ...prim, wings: [...prim.wings], features: {}, apertures: [], seed: 0 };
+        // Under pickIds, the merged building prim keeps the FIRST wing-bearing part's id as
+        // its pick key: CSG unions all wings' walls/roof into one solid, erasing finer
+        // identity — clicking any wall/roof pixel selects the body part (accepted for v1;
+        // vents/openings carry their own finer keys which win via the `??=` stamp in compose).
+        if (!building) building = { ...prim, wings: [...prim.wings], features: {}, apertures: [], seed: 0, ...(pickIds ? { srcId: part.id } : {}) };
         else building.wings.push(...prim.wings);
         const wingIdx = building.wings.length - prim.wings.length;
         for (const f of part.features) {
-          if (f.type === 'vent') vents.push(ventOf(f, wingIdx));
+          if (f.type === 'vent') vents.push(ventOf(f, wingIdx, pickIds ? part.id : undefined));
           if (f.type === 'dormer') dormers.push(dormerOf(f, wingIdx));
         }
         if (!openingsAttached) { buildingApertures.push(...apertures); openingsAttached = true; }
@@ -211,7 +245,8 @@ export function toGeometry(rb: ResolvedBlueprint, opts?: { skirt?: SkirtOpts; di
           (prim as Extract<Prim, { prim: 'box' | 'cylinder' }>).apertures = apertures;
           openingsAttached = true;
         }
-        others.push(prim);
+        // Standalone prims (furnace/stairs/posts/tower/porch/…) pick as their whole part.
+        others.push(pickIds && !prim.srcId ? { ...prim, srcId: part.id } : prim);
       }
     }
     if (!openingsAttached && apertures.length) {

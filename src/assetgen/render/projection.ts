@@ -44,7 +44,9 @@ export function projectFacets(facets: WorldFacet[], s: ProjScale): ScreenFacet[]
     const depth = depths.reduce((a, d) => a + d, 0) / depths.length;
     // Carry the world positions (vertex-aligned with `pts`) so the rasterizer can
     // interpolate world xyz per pixel for analytic surface texturing (K0b).
-    out.push({ pts, normal: f.normal, albedo: f.albedo, depth, depths, mat: f.mat, worldPts: f.pts, work: f.work, finish: f.finish, tint: f.tint, frame: f.frame });
+    // `src` is the opt-in pick provenance (absent on default renders) — thread it through so
+    // the rasterizer can write the pick buffer; it never influences any pixel colour channel.
+    out.push({ pts, normal: f.normal, albedo: f.albedo, depth, depths, mat: f.mat, worldPts: f.pts, work: f.work, finish: f.finish, tint: f.tint, frame: f.frame, src: f.src });
   }
   return out;
 }

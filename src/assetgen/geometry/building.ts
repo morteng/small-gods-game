@@ -70,6 +70,10 @@ export type VentPlacement = 'ridge' | 'wall';
 export interface VentFeature {
   wing: number;
   t: number;
+  /** OPT-IN pick provenance (studio click-to-select): the vent's `<partId>/<featureId>` key,
+   *  set by the blueprint compiler. Absent on raw assetgen specs / seeded default vents, so it
+   *  never affects geometry — it is only forwarded into the opt-in pick buffer. */
+  id?: string;
   kind?: VentKind;
   placement?: VentPlacement;
   /** For `placement:'wall'`: which exterior wall the stack rides (default 'south'). */

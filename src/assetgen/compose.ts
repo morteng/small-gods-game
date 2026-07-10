@@ -21,7 +21,13 @@ import { composeGroundShadow, type GroundShadow } from '@/assetgen/render/ground
 import { mToTiles } from '@/render/scale-contract';
 import type { Anchor, MountAnchorKind } from '@/world/anchors';
 
-export type Part =
+// `srcId` (intersected onto every variant below) is the OPT-IN pick provenance: the blueprint
+// part/feature id this prim came from (`<partId>` or `<partId>/<featureId>`). composeStructure
+// stamps it onto the prim's facets (`f.src ??= srcId` — deeper, more specific tags win) so the
+// opt-in pick buffer can map a pixel back to its blueprint node. Absent everywhere by default;
+// it never influences geometry or any colour channel, so the golden hashes are untouched.
+export type Part = PartVariant & { srcId?: string };
+type PartVariant =
   | { prim: 'box'; at: Vec3; size: Vec3; material?: Mat; work?: string; finish?: string; tint?: RGB; apertures?: ApertureBox[]; yaw?: number; rot?: Vec3 }
   | { prim: 'cylinder'; center: [number, number]; baseZ: number; radius: number; height: number; material?: Mat; work?: string; finish?: string; tint?: RGB; apertures?: ApertureBox[] }
   | { prim: 'cone'; center: [number, number]; baseZ: number; radius: number; height: number; material?: Mat; finish?: string; tint?: RGB }
@@ -79,6 +85,14 @@ export interface StructureResult {
   /** Present ONLY when `opts.labelPoints` was passed — each point normalised (0..1) to the
    *  opaque bbox through the SAME fit/yaw as the sprite. For the authoring montage overlay. */
   labels?: LabelN[];
+  /** Present ONLY when `opts.pickIds` was passed: a per-pixel provenance buffer over the FULL
+   *  UNCROPPED compose canvas (width = height = `size` — the same frame `grey`/`normal`/… use;
+   *  the opaque-bbox crop happens downstream in structureResultToPack, so a consumer maps a
+   *  cropped-sprite pixel back by adding `bbox.x/y`). `data[y*width+x]` is 0 for "no pick"
+   *  (empty / untagged pixels) else `1 + index` into `table`, whose entries are the blueprint
+   *  pick keys (`<partId>` or `<partId>/<featureId>`). Written under the SAME per-pixel z-test
+   *  as every other channel, so the pick pixel is exactly the visible pixel. */
+  pick?: { data: Uint16Array; table: string[]; width: number; height: number };
 }
 
 /** Build one part's solid(s) → facets, plus any world-space anchors (buildings only). */
@@ -164,6 +178,11 @@ export interface ComposeOpts {
    *  geometry, returned as `result.labels`. Additive — absent ⇒ no `labels`, output byte-
    *  identical. Used by the authoring montage to place Set-of-Mark part labels. */
   labelPoints?: LabelPoint[];
+  /** Emit a per-pixel PICK buffer (`result.pick`) mapping each visible pixel to the blueprint
+   *  part/feature (`Part.srcId` → facet `src` → interned id) that owns it — the studio's
+   *  click-to-select channel. Additive exactly like `labelPoints`: absent ⇒ no `pick`, every
+   *  other buffer byte-identical (the pick write shares the z-test but touches no colour). */
+  pickIds?: boolean;
 }
 
 /** Geometry world units per metre — feature wavelengths are authored in metres. */
@@ -237,6 +256,14 @@ function makeYawRotor(facets: WorldFacet[], yaw?: number): ((p: Vec3, vector?: b
  *  softens a ground-apron's outer edge. */
 export async function composeStructure(spec: StructureSpec, shadowSun?: [number, number, number], opts?: ComposeOpts): Promise<StructureResult> {
   const parts = await Promise.all(spec.parts.map(partFacets));
+  // Pick provenance: stamp each part's srcId onto its facets. `??=` so a finer tag a deeper
+  // layer already set (e.g. a vent's own `<partId>/<featureId>` from buildingFacets) WINS over
+  // the enclosing part's blanket id. Pure metadata — no colour channel ever reads `src`, so a
+  // srcId-less spec (every default caller, incl. the goldens) composes byte-identically.
+  spec.parts.forEach((p, i) => {
+    if (!p.srcId) return;
+    for (const f of parts[i].facets) f.src ??= p.srcId;
+  });
   const facets = parts.flatMap(p => p.facets);
   // Turntable: rotate every facet (point + normal) about the model's vertical axis
   // through its world-XY centre. Equivalent to orbiting the fixed camera. Anchors
@@ -267,7 +294,9 @@ export async function composeStructure(spec: StructureSpec, shadowSun?: [number,
   if (spec.size != null) { size = spec.size; fit = computeFit(facets, size); }
   else { const f = fixedFit(facets); fit = f.fit; size = f.size; }
   const screen = projectFacets(facets, fit);
-  const maps = rasterizeMaps(screen, size, opts?.surfaceTexture ? { unitsPerMetre: SURFACE_UNITS_PER_M } : undefined);
+  // pickIds threads through to the rasterizer's opt-in pick channel (same z-test winner as
+  // every colour buffer). The skirt-fade re-rasters below stay pick-free (coverage masks only).
+  const maps = rasterizeMaps(screen, size, opts?.surfaceTexture ? { unitsPerMetre: SURFACE_UNITS_PER_M } : undefined, opts?.pickIds);
   const depthRange = writeNormalisedDepth(maps) ?? undefined;
   const opaque = new Float32Array(size * size);
   for (let i = 0; i < opaque.length; i++) opaque[i] = maps.albedo[i * 4 + 3] === 255 ? 1 : 0;
@@ -327,5 +356,11 @@ export async function composeStructure(spec: StructureSpec, shadowSun?: [number,
     ? opts.labelPoints.map((p): LabelN => ({ id: p.id, ...norm([p.x, p.y, p.z]) }))
     : undefined;
 
-  return { grey, normal, material: maps.material, emissive: maps.emissive, size, meta: { bbox, anchors, depthRange }, bbox, anchors, shadow, ...(labels ? { labels } : {}) };
+  // The pick buffer stays in the UNCROPPED size×size frame (identical to grey/normal/…);
+  // record its dims so a consumer of the bbox-cropped sprite can add bbox.x/y back.
+  return {
+    grey, normal, material: maps.material, emissive: maps.emissive, size, meta: { bbox, anchors, depthRange }, bbox, anchors, shadow,
+    ...(labels ? { labels } : {}),
+    ...(maps.pick ? { pick: { data: maps.pick.data, table: maps.pick.table, width: size, height: size } } : {}),
+  };
 }

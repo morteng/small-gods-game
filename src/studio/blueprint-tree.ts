@@ -2,6 +2,12 @@
 // Node-tree inspector (browseable + editable live blueprint). The section title
 // + Randomize button live on the accordion header now (no duplicate heading); this
 // renders only the summary line and the editable tree.
+//
+// CLICK-TO-SELECT: every collapsible header carries a `data-node` attribute
+// (`part:<id>` / `feature:<partId>/<featureId>`) and the returned handle exposes
+// `select(pickKey)` — the studio's sprite pick-click calls it with the pick buffer's
+// key (`<partId>` or `<partId>/<featureId>`), and the tree expands the ancestor part,
+// expands the feature node, scrolls it into view and flash-highlights it.
 import type { ResolvedBlueprint, ResolvedPart, ResolvedFeature } from '@/blueprint/types';
 import type { ParamSchema, ParamSpec } from '@/blueprint/param-schema';
 import { getPartType, getFeatureType } from '@/blueprint/registry';
@@ -14,7 +20,7 @@ interface TreeDeps {
 function partSchema(type: string): ParamSchema | undefined {
   try { return getPartType(type).paramSchema; } catch { return undefined; }
 }
-export function buildTree(host: HTMLElement, deps: TreeDeps): { render: () => void } {
+export function buildTree(host: HTMLElement, deps: TreeDeps): { render: () => void; select: (pickKey: string) => void } {
   const css = {
     head: 'position:sticky;top:0;z-index:1;background:var(--bg-1);padding:7px 10px;border-bottom:1px solid var(--line)',
     summary: 'font:400 10px/1.5 var(--font-mono);color:var(--info);white-space:normal;word-break:break-word',
@@ -101,7 +107,13 @@ export function buildTree(host: HTMLElement, deps: TreeDeps): { render: () => vo
     return box;
   }
 
-  function collapsible(label: string, openByDefault: boolean): { el: HTMLElement; body: HTMLElement } {
+  // Selectable-node registry (click-to-select): rebuilt on every render(); maps a
+  // `data-node` key (`part:<id>` / `feature:<partId>/<featureId>`) to its header +
+  // a programmatic expander, so `select()` can open/scroll/flash without re-rendering
+  // (a re-render would collapse every other node — same rationale as onValueEdited).
+  const nodeReg = new Map<string, { head: HTMLElement; open: () => void }>();
+
+  function collapsible(label: string, openByDefault: boolean, nodeKey?: string): { el: HTMLElement; body: HTMLElement; head: HTMLElement; open: () => void } {
     const el = document.createElement('div'); el.style.cssText = css.node;
     const head = document.createElement('div'); head.style.cssText = css.nodeHead;
     const body = document.createElement('div'); body.style.display = openByDefault ? 'block' : 'none';
@@ -110,20 +122,23 @@ export function buildTree(host: HTMLElement, deps: TreeDeps): { render: () => vo
     head.onclick = () => { body.style.display = body.style.display === 'none' ? 'block' : 'none'; setLabel(); };
     setLabel();
     el.append(head, body);
-    return { el, body };
+    // Programmatic expand (idempotent) for select(): open WITHOUT toggling shut.
+    const open = (): void => { if (body.style.display === 'none') { body.style.display = 'block'; setLabel(); } };
+    if (nodeKey) { head.setAttribute('data-node', nodeKey); nodeReg.set(nodeKey, { head, open }); }
+    return { el, body, head, open };
   }
 
-  function featureNode(f: ResolvedFeature): HTMLElement {
+  function featureNode(f: ResolvedFeature, partId: string): HTMLElement {
     const face = f.face ? ` · ${f.face}` : '';
     const kind = typeof f.params.kind === 'string' ? ` (${f.params.kind})` : '';
-    const { el, body } = collapsible(`◦ ${f.type}${kind}${face}`, false);
+    const { el, body } = collapsible(`◦ ${f.type}${kind}${face}`, false, `feature:${partId}/${f.id}`);
     body.appendChild(paramBlock(f.params, getFeatureType(f.type)?.paramSchema));
     return el;
   }
 
   function partNode(p: ResolvedPart): HTMLElement {
     const mat = p.material ? ` · ${p.material}` : '';
-    const { el, body } = collapsible(`▪ ${p.id} [${p.type}]${mat}`, false);
+    const { el, body } = collapsible(`▪ ${p.id} [${p.type}]${mat}`, false, `part:${p.id}`);
     const meta = document.createElement('div'); meta.style.cssText = css.meta;
     meta.textContent = `at (${p.at.x},${p.at.y})  size ${p.size.w}×${p.size.h}`;
     body.appendChild(meta);
@@ -131,13 +146,40 @@ export function buildTree(host: HTMLElement, deps: TreeDeps): { render: () => vo
     body.appendChild(paramBlock(p.params, partSchema(p.type)));
     if (p.features.length) {
       body.appendChild(sect(`features (${p.features.length})`));
-      for (const f of p.features) body.appendChild(featureNode(f));
+      for (const f of p.features) body.appendChild(featureNode(f, p.id));
     }
     return el;
   }
 
+  // Brief flash highlight on the selected header — the house amber accent fading out
+  // (fast in, slow out) so the eye lands on the node without a permanent selected state.
+  function flash(el: HTMLElement): void {
+    el.style.borderRadius = '3px';
+    el.style.transition = 'background-color .12s ease-out';
+    el.style.backgroundColor = 'rgba(255,194,75,.38)';   // --accent @ 38%
+    window.setTimeout(() => {
+      el.style.transition = 'background-color .9s ease-in';
+      el.style.backgroundColor = '';
+    }, 450);
+  }
+
+  /** Select a node by PICK key (`<partId>` or `<partId>/<featureId>`): expand the
+   *  ancestor part (and the feature node), scroll it into view, flash-highlight. */
+  function select(pickKey: string): void {
+    const slash = pickKey.indexOf('/');
+    const partId = slash === -1 ? pickKey : pickKey.slice(0, slash);
+    const part = nodeReg.get(`part:${partId}`);
+    part?.open();
+    const target = (slash === -1 ? part : nodeReg.get(`feature:${pickKey}`)) ?? part;
+    if (!target) return;
+    target.open();
+    target.head.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    flash(target.head);
+  }
+
   function render(): void {
     host.innerHTML = '';
+    nodeReg.clear();          // stale registrations would select detached DOM
     const rb = deps.getRb();
     const head = document.createElement('div'); head.style.cssText = css.head;
 
@@ -177,5 +219,5 @@ export function buildTree(host: HTMLElement, deps: TreeDeps): { render: () => vo
     host.appendChild(body);
   }
 
-  return { render };
+  return { render, select };
 }

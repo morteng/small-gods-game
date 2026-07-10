@@ -43,7 +43,10 @@ export function cylindricalProjector(center: [number, number], radius: number): 
   };
 }
 
-export function manifoldToFacets(mesh: Mesh, material: Mat, work?: string, projector?: FacetProjector, finish?: string, tint?: RGB): WorldFacet[] {
+// `srcId` (last arg) is the OPT-IN pick provenance stamped on every emitted facet — used
+// where a mesh is a self-contained pickable unit (e.g. one vent stack). Absent everywhere on
+// the default path, so it never perturbs a colour channel or the golden hashes.
+export function manifoldToFacets(mesh: Mesh, material: Mat, work?: string, projector?: FacetProjector, finish?: string, tint?: RGB, srcId?: string): WorldFacet[] {
   const c = MATERIAL_RGB[material];
   const { numProp, vertProperties: vp, triVerts: tv } = mesh;
   const pos = (i: number): Vec3 => [vp[i*numProp], vp[i*numProp+1], vp[i*numProp+2]];
@@ -53,7 +56,7 @@ export function manifoldToFacets(mesh: Mesh, material: Mat, work?: string, proje
     const n = cross(sub(b, a), sub(d, a));         // outward (manifold winding is CCW-outward)
     if (n[0] === 0 && n[1] === 0 && n[2] === 0) continue; // skip degenerate
     const frame = projector?.([(a[0]+b[0]+d[0])/3, (a[1]+b[1]+d[1])/3, (a[2]+b[2]+d[2])/3], n);
-    out.push({ pts: [a, b, d], normal: n, albedo: shadeRGB(c, brightness(n)), mat: material, work, finish, tint, frame });
+    out.push({ pts: [a, b, d], normal: n, albedo: shadeRGB(c, brightness(n)), mat: material, work, finish, tint, frame, ...(srcId ? { src: srcId } : {}) });
   }
   return out;
 }
@@ -1111,7 +1114,10 @@ export async function buildingFacets(
   for (const v of vents) {
     const w = wings[v.wing] ?? wings[0];
     const c = await ventSolid(w, v, roofStyle);
-    facets.push(...manifoldToFacets(c.solid.getMesh(), c.mat));
+    // Stamp the vent's own pick id (opt-in; `v.id` set by the blueprint compiler) so a click
+    // on a chimney selects THAT vent feature rather than the enclosing body part. The `??=`
+    // guard in compose then leaves this finer tag intact under the body's part-wide stamp.
+    facets.push(...manifoldToFacets(c.solid.getMesh(), c.mat, undefined, undefined, undefined, undefined, v.id));
     anchors.vents.push(c.anchor);
   }
   return { facets, anchors };
