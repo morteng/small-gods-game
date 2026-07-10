@@ -23,7 +23,7 @@ import { getOrGenerateSheet } from '@/render/lpc/spritesheet-cache';
 import { floorIsoZoom, quantizeToRungs, ISO_ZOOM_RUNGS, ISO_ZOOM_MIN, ISO_ZOOM_MAX } from '@/render/iso/iso-camera';
 import { createCamera, zoomAt } from '@/render/camera';
 import { attachControls } from '@/ui/controls';
-import { DEFAULT_LIGHTING, normalizeVec3, type Vec3 } from '@/render/lighting-state';
+import { DEFAULT_LIGHTING } from '@/render/lighting-state';
 import { structureResultToPack } from '@/render/parametric-building-source';
 import { GeneratedBuildingArtSource } from '@/render/generated-building-art-source';
 import { composeStructure, type StructureResult } from '@/assetgen/compose';
@@ -62,9 +62,11 @@ import { buildDock } from './stage-dock';
 import { createRefLib } from './reflib';
 import { buildReferencePanel } from './reference-panel';
 import { buildAmbientDials } from './ambient-dials';
+import { buildTimeScrubber } from './time-scrubber';
+import { compassBearings, celestialPlot } from './sky-hud';
 import { openMetadataPanel, makeLiveButton } from './render-request-panel';
 import { injectStudioTheme, COLORS, h } from './theme';
-import { celestial, solarLight, sunDirFromAngles } from '@/render/solar';
+import { celestial, solarLight, sunDirFromAngles, AZ_OFFSET } from '@/render/solar';
 import { type StudioState, type Stage, type AbResult, AB_MODELS, AB_MIN_BORDER, AB_MIN_IOU } from './types';
 
 const MAP_W = 24, MAP_H = 24;
@@ -592,26 +594,56 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
     );
     ctx.restore();
   }
-  // A compact sun-direction gizmo, tucked top-left (the toolbar carries the text
-  // status now). Drawn only in the live 3D view.
+  // A compact COMPASS ROSE, tucked top-left (the toolbar carries the text status now).
+  // Drawn only in the live 3D view. The N/E/S/W labels sit at the SCREEN directions of the
+  // world-compass faces folded through BOTH the turntable yaw AND the iso projection (all
+  // from sky-hud.compassBearings — no hardcoded angles), so at yaw 0 the S label points at
+  // the model's south (front) face and the ring counter-rotates as you orbit. The sky body
+  // (sun by day / moon by night) plots at its TRUE azimuth with elevation as distance from
+  // centre (rim = horizon, centre = zenith). Cheap — runs every frame.
   function drawHud(): void {
     if (!state.overlays) return;
-    const d = sunDir(state.az, state.el);
     const gx = 44, gy = 44, R = 26;
     ctx.save();
+    // backdrop + ring
     ctx.fillStyle = 'rgba(12,13,17,0.55)';
     ctx.beginPath(); ctx.arc(gx, gy, R + 6, 0, Math.PI * 2); ctx.fill();
     ctx.strokeStyle = 'rgba(255,255,255,0.22)'; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.arc(gx, gy, R, 0, Math.PI * 2); ctx.stroke();
-    ctx.strokeStyle = COLORS.accent; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.moveTo(gx, gy); ctx.lineTo(gx + d[0] * R, gy - d[1] * R); ctx.stroke();
-    ctx.fillStyle = COLORS.accent; ctx.beginPath(); ctx.arc(gx + d[0] * R, gy - d[1] * R, 3, 0, Math.PI * 2); ctx.fill();
+
+    // cardinal ticks + labels (N highlighted in the accent so orientation reads at a glance)
+    ctx.font = '700 10px var(--font-mono)';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    for (const b of compassBearings(state.yaw)) {
+      ctx.strokeStyle = 'rgba(255,255,255,0.28)'; ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(gx + b.sx * (R - 3), gy + b.sy * (R - 3));
+      ctx.lineTo(gx + b.sx * R, gy + b.sy * R);
+      ctx.stroke();
+      ctx.fillStyle = b.label === 'N' ? COLORS.accent : 'rgba(232,238,246,0.85)';
+      ctx.fillText(b.label, gx + b.sx * (R - 9), gy + b.sy * (R - 9));
+    }
+
+    // sky body: sun (accent) by day, moon (pale) by night. Azimuth on the rose, elevation
+    // as distance from centre. Recover the TRUE compass azimuth from the studio's (eyeballed
+    // AZ_OFFSET) az so the plot is cardinally honest; manual mode has no moon.
+    const body = state.sunMode === 'solar'
+      ? celestial(state.hour, state.yearFrac, state.lat, state.moonPhase).body : 'sun';
+    const trueAz = (((state.az - AZ_OFFSET) % 360) + 360) % 360;
+    const p = celestialPlot(trueAz, state.el, state.yaw);
+    const px = gx + p.x * R, py = gy + p.y * R;
+    const dim = body === 'moon';
+    ctx.strokeStyle = dim ? 'rgba(205,214,230,0.55)' : COLORS.accent; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(gx, gy); ctx.lineTo(px, py); ctx.stroke();
+    ctx.fillStyle = dim ? '#cdd6e6' : COLORS.accent;
+    ctx.beginPath(); ctx.arc(px, py, dim ? 2.6 : 3, 0, Math.PI * 2); ctx.fill();
+
     // turntable yaw readout (only when rotated off the canonical view)
     if (state.yaw) {
       const deg = Math.round((state.yaw * 180) / Math.PI);
       ctx.fillStyle = 'rgba(232,238,246,0.9)';
       ctx.font = '600 11px var(--font-mono)';
-      ctx.textAlign = 'center';
+      ctx.textBaseline = 'alphabetic';
       ctx.fillText(`⟳ ${deg}°`, gx, gy + R + 18);
     }
     ctx.restore();
@@ -705,6 +737,22 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
   // Ambient dials (centre-top over the view): preview emergent environment effects on the subject
   // — COLD lights a hearth fire → smoke rises from the building's baked chimney-vent anchors.
   const ambient = buildAmbientDials(viewPane);
+  // Time-of-day scrubber (bottom-centre over the view): the promoted 90%-case sun control. Drags
+  // go through the SAME solar seam the toolbar popover uses (recomputeSun) — cheap live path while
+  // dragging, cast-shadow re-bake on release — and a drag flips manual→solar. Two-way sync with the
+  // popover is by the per-frame refresh() below (both read the one owned state).
+  const scrubber = buildTimeScrubber(viewPane, {
+    getHour: () => state.hour,
+    getYearFrac: () => state.yearFrac,
+    getLat: () => state.lat,
+    getMoonPhase: () => state.moonPhase,
+    // Same gate as the HUD: overlays on AND the live 3D view (in stage inspection the
+    // z-9 stage overlay would sit over the bar and swallow its pointer events anyway).
+    visible: () => state.overlays && !state.view,
+    onScrubStart: () => { if (state.sunMode === 'manual') state.sunMode = 'solar'; },
+    onInput: (hour) => { state.hour = hour; recomputeSun(false); },
+    onCommit: (hour) => { state.hour = hour; recomputeSun(true); },
+  });
   /** The subject's chimney-vent anchors projected into world-screen space (smoke emission points).
    *  Vent anchors are normalised (0..1) against the sprite's opaque bbox; the foot-anchored sprite
    *  spans [foot.sy−ph, foot.sy] and is centred at foot.sx (width pw), so this maps them 1:1. */
@@ -792,6 +840,7 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
     syncStages();
     refPanel.update();   // Reference dock tab: our sprite vs the TTI target (memoised internally)
     toolbar.refresh();
+    scrubber.refresh();  // moves the handle when the popover changes time; hides with overlays
     raf = requestAnimationFrame(frame);
   }
 

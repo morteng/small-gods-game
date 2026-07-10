@@ -17,8 +17,10 @@ const D2R = Math.PI / 180, R2D = 180 / Math.PI;
 const lerp3 = (a: Vec3, b: Vec3, t: number): Vec3 => [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)];
 
 /** Rotates true compass azimuth into the studio's sunDir frame (0 = behind/top,
- *  90 = screen-left). Chosen by eye so dawn lights from one side, dusk the other. */
-const AZ_OFFSET = -90;
+ *  90 = screen-left). Chosen by eye so dawn lights from one side, dusk the other.
+ *  Exported so the studio compass rose can recover the TRUE azimuth for a cardinally
+ *  correct sky-body plot: trueAz = ((studioAz − AZ_OFFSET) % 360 + 360) % 360. */
+export const AZ_OFFSET = -90;
 
 export interface SolarAngles { az: number; el: number }   // degrees; el<0 ⇒ below horizon
 
