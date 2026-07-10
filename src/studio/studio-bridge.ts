@@ -36,6 +36,10 @@ export interface StudioController {
   rb(): unknown;
   /** The exact img2img prompt for the current subject. */
   prompt(): string;
+  /** One PAID text-to-image REFERENCE regen of the current (or named) subject, written
+   *  into the studio's reference library via the /__reflib dev sink. COSTS MONEY.
+   *  Derives the TTI prompt from the resolved blueprint unless `prompt` is given. */
+  regenReference?(kind?: string, slug?: string, model?: string, prompt?: string): Promise<unknown>;
   /** One PAID img2img render of the current (or named) subject. COSTS MONEY. */
   renderPaid?(kind?: string): Promise<unknown>;
 }
@@ -73,6 +77,17 @@ export function makeStudioBus(
       const c = need();
       if (!c.renderPaid) throw new Error('renderPaid is unavailable on this studio');
       return c.renderPaid(kind == null ? undefined : String(kind));
+    },
+    studio_regen_reference: async (kind?: unknown, slug?: unknown, model?: unknown, prompt?: unknown) => {
+      if (!allowWrite) throw new Error('reference regen requires ?bridge=rw (it SPENDS money)');
+      const c = need();
+      if (!c.regenReference) throw new Error('regenReference is unavailable on this studio');
+      return c.regenReference(
+        kind == null ? undefined : String(kind),
+        slug == null ? undefined : String(slug),
+        model == null ? undefined : String(model),
+        prompt == null ? undefined : String(prompt),
+      );
     },
   };
   return {

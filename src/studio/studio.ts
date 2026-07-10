@@ -969,6 +969,27 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
       if (!init) throw new Error('no canvas for init image');
       return executeRender(rb, BUILDING_IMAGE_MODEL, init.initDataUri, init.mask);
     },
+    /** Run ONE paid text-to-image REFERENCE regen of the current (or named) subject,
+     *  written into the studio's reference library (reference-library/tti/<slug>/) via
+     *  the /__reflib dev sink — the same endpoint the Reference panel's Regen button
+     *  uses. Derives the TTI prompt from the resolved blueprint unless `prompt` is
+     *  given; defaults the model to FLUX.2 Pro. COSTS MONEY (~$0.03). */
+    async regenReference(kind?: string, slug?: string, model?: string, prompt?: string): Promise<unknown> {
+      if (kind && kind !== state.kind) await studioDebug.setKind(kind);
+      const rb = liveRb;
+      if (!rb) throw new Error(`no blueprint for "${state.kind}"`);
+      const ttiPrompt = prompt ?? ttiReferencePrompt(rb);
+      const useSlug = slug ?? state.kind;
+      const useModel = model ?? 'black-forest-labs/flux.2-pro';
+      const res = await fetch(`${refLib.base}/${encodeURIComponent(useSlug)}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: ttiPrompt, model: useModel, confirm: true }),
+      });
+      if (!res.ok) throw new Error(`regen failed (${res.status}): ${await res.text()}`);
+      const json = await res.json();
+      refLib.invalidate(useSlug);   // reload the new reference image into the panel
+      return json;
+    },
     /** The most recent paid render's metrics + harvested images, or null. */
     last: (): RenderResult | null => lastRender,
     /** The init image (magenta-backed geometry silhouette) FLUX is asked to match —

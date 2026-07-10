@@ -26,6 +26,7 @@ import { toGeometry } from '@/blueprint/compile/to-geometry';
 import type { StructureSpec } from '@/assetgen/compose';
 import { MATERIAL_RGB, type Mat } from '@/assetgen/types';
 import { CHROMA_RGB } from '@/render/chroma-key';
+import { METRES_PER_TILE } from '@/render/scale-contract';
 
 export type ImageModelFamily = 'gemini' | 'openai' | 'flux' | 'generic';
 
@@ -192,6 +193,67 @@ function walledMaterialClause(spec: StructureSpec): string {
   return parts.join(' and ');
 }
 
+// ── Scale anchoring ──────────────────────────────────────────────────────────
+// The TTI reference prompt used to carry NO size information — "a 1 storey bakehouse
+// with a gable roof" — so the model drew what IT thinks a bakehouse looks like: a
+// generous multi-bay guildhall with a cupola and half-timbering, far bigger than
+// our reality. Anchoring the prompt to the TOTAL asset footprint (body + additive
+// parts like the bakehouse's oven — they ARE the silhouette, so excluding them
+// would shrink the perceived scale) kills that drift: a scale-class word models
+// understand, a bay count, and the real metre footprint. Feature counts stay
+// generalized (the "reveal what words draw" signal is preserved); only SCALE is pinned.
+const BAY_WORDS = ['single-bay', 'two-bay', 'three-bay', 'four-bay'];
+
+/** Storeys from the body part (additive parts don't add floors); footprint is the
+ *  TOTAL asset footprint (body + every attached part — the full silhouette). */
+function buildFootprint(rb: ResolvedBlueprint): { w: number; h: number; levels: number } {
+  const body = rb.parts.find(p => p.type === 'body');
+  const levels = body ? Math.max(1, (body.params.levels as number) ?? 1) : 1;
+  return { w: rb.footprint.w, h: rb.footprint.h, levels };
+}
+
+/** A class-aware scale-anchoring phrase. Buildings get evocative scale-class words
+ *  models internalize (cottage/house/hall/keep) + a structural bay count; props get
+ *  neutral size words (a well has no bays, a cave mouth is not a hall). Plants skip
+ *  (their footprint is the planting tile, not the canopy) and barriers skip (linear).
+ *  Every phrase carries the real metre footprint — the honest anchor. */
+function scaleDescription(rb: ResolvedBlueprint): string {
+  const bf = buildFootprint(rb);
+  const wm = bf.w * METRES_PER_TILE, hm = bf.h * METRES_PER_TILE;
+  const areaM2 = wm * hm;
+  const longTiles = Math.max(bf.w, bf.h);
+
+  if (rb.class === 'building') {
+    let scale: string;
+    if (bf.levels >= 3)        scale = areaM2 <= 20 ? 'tower-scale' : 'keep-scale';
+    else if (areaM2 <= 6)      scale = 'tiny hut-scale';
+    else if (areaM2 <= 20)     scale = 'small cottage-scale';
+    else if (areaM2 <= 40)     scale = 'modest house-scale';
+    else if (areaM2 <= 80)     scale = 'large hall-scale';
+    else                       scale = 'grand-scale';
+    const bays = Math.max(1, Math.round(longTiles / 2));
+    const bayWord = BAY_WORDS[bays - 1] ?? `${bays}-bay`;
+    return `${scale} ${bayWord} (${wm}×${hm} m footprint)`;
+  }
+
+  if (rb.class === 'prop' || (rb.class === 'plant' && areaM2 > 4)) {
+    // Neutral size word for non-building subjects (wells, stairs, caves, stalls, sea arches).
+    // Real plants (1×1 trunk tile ≈ 4 m²) skip — their footprint is the planting tile, not the
+    // canopy; a scale word there would mislead (an oak is not "small ~2×2 m"). Larger terrain
+    // features misclassified as 'plant' (cave_mouth, cliff_face at 8×6 m) DO get anchored.
+    // No bay count — props don't have structural bays.
+    let scale: string;
+    if (areaM2 <= 4)       scale = 'small';
+    else if (areaM2 <= 20)  scale = 'medium';
+    else if (areaM2 <= 50)  scale = 'large';
+    else                    scale = 'massive';
+    return `${scale} (~${wm}×${hm} m)`;
+  }
+
+  // Plants (footprint = planting tile) and barriers (linear) skip scale anchoring.
+  return '';
+}
+
 /** Deterministic, geometry-TRUE sentence of ONLY what the render angle shows. A
  *  walled building states plan/storeys/roof-pitch + visible vents/windows/dormers/door
  *  (each by its real identity); an open frame (stall/tent/prop) states it has NO walls
@@ -203,10 +265,12 @@ export function geometryDescription(rb: ResolvedBlueprint, opts: { generalized?:
 
   if (!isWalledBuilding(spec)) {
     const comp = partPhrases(rb).join('; ');
+    const scale = scaleDescription(rb);
+    const sc = scale ? ` (${scale})` : '';
     // Generalized (TTI): state the open form + its parts, without the img2img "paint only the
     // reference" repaint instruction (there is no reference image in a text-to-image call).
-    if (gen) return `It is an OPEN structure with no enclosing walls — ${comp}.`;
-    return `It is an OPEN structure with no enclosing walls — ${comp}. Paint only the ` +
+    if (gen) return `It is an OPEN structure${sc} with no enclosing walls — ${comp}.`;
+    return `It is an OPEN structure${sc} with no enclosing walls — ${comp}. Paint only the ` +
       `frame, canopy and counter visible in the reference; keep it fully open and add ` +
       `nothing the reference does not show.`;
   }
@@ -225,7 +289,8 @@ export function geometryDescription(rb: ResolvedBlueprint, opts: { generalized?:
   const dormers = countVisible(rb, 'dormer');
   const vents = visibleVents(rb);
 
-  const clauses: string[] = [`a ${plan} ${plural(levels, 'storey')} structure with ${roofPhrase(roof)}`];
+  const scale = scaleDescription(rb);
+  const clauses: string[] = [`a ${scale} ${plan} ${plural(levels, 'storey')} structure with ${roofPhrase(roof)}`];
   // Generalized (TTI): keep identity-defining structure (plan/storeys/roof + which features are
   // PRESENT) but drop the exact counts of incidental features, so the model chooses how many
   // chimneys/windows/dormers to draw. Faithful (img2img) keeps the exact counts to match our massing.

@@ -187,6 +187,16 @@ server.registerTool('studio_render_paid',
     inputSchema: { kind: z.string().optional().describe('Optional preset to switch to first') } },
   ({ kind }) => run(() => client.query('studio_render_paid', kind)));
 
+server.registerTool('studio_regen_reference',
+  { description: 'Object studio: run ONE PAID text-to-image REFERENCE regen of the current (or named) subject, written into the studio reference library (reference-library/tti/<slug>/) via the /__reflib dev sink — the same path the Reference panel Regen button uses. Derives the scale-anchored TTI prompt from the resolved blueprint unless `prompt` is given; defaults the model to FLUX.2 Pro (~$0.03). COSTS MONEY. Requires ?bridge=rw.',
+    inputSchema: {
+      kind: z.string().optional().describe('Optional preset to switch to first (defaults to the current studio subject)'),
+      slug: z.string().optional().describe('Reference-library slug to write (defaults to the subject kind). Use a variant like "bakehouse-4" to keep prior references.'),
+      model: z.string().optional().describe('OpenRouter TTI model id (defaults to black-forest-labs/flux.2-pro)'),
+      prompt: z.string().optional().describe('Override the derived TTI prompt (defaults to the scale-anchored ttiReferencePrompt for the subject)'),
+    } },
+  (a) => run(() => client.query('studio_regen_reference', a.kind, a.slug, a.model, a.prompt)));
+
 // ── Write tools (require ?bridge=rw) ─────────────────────────────────────────
 
 const targetShape = {

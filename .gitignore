@@ -60,3 +60,6 @@ tmp/
 
 # TTI diagnostic reference images (generated; persistent on disk, not in git)
 reference-library/
+
+# Claude Code live session memory (symlinked from ~/.claude cache, never commit)
+MEMORY.md

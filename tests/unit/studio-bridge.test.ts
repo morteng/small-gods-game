@@ -15,6 +15,7 @@ function mockController(): StudioController & { calls: string[] } {
     setTextured: (on) => { calls.push(`textured:${on}`); },
     rb: () => ({ preset: 'cottage' }),
     prompt: () => 'a cottage',
+    regenReference: async (k, slug, m, p) => { calls.push(`regen:${k ?? ''}:${slug ?? ''}:${m ?? ''}:${p ?? ''}`); return { ok: true, slug: slug ?? k ?? 'cottage', cost: 0.03 }; },
     renderPaid: async (k) => { calls.push(`paid:${k ?? ''}`); return { ok: true }; },
   };
 }
@@ -50,6 +51,14 @@ describe('studio bridge', () => {
     setActiveStudioController(mockController());
     await expect(q(makeStudioBus(false), 'studio_render_paid', [])).rejects.toThrow(/bridge=rw/);
     expect(await q(makeStudioBus(true), 'studio_render_paid', ['cottage'], true)).toEqual({ ok: true });
+  });
+
+  it('the paid reference regen is gated on ?bridge=rw and forwards slug/model/prompt', async () => {
+    const c = mockController(); setActiveStudioController(c);
+    await expect(q(makeStudioBus(false), 'studio_regen_reference', [])).rejects.toThrow(/bridge=rw/);
+    const res = await q(makeStudioBus(true), 'studio_regen_reference', ['bakehouse', 'bakehouse-4', 'black-forest-labs/flux.2-pro', 'a prompt'], true);
+    expect(res).toEqual({ ok: true, slug: 'bakehouse-4', cost: 0.03 });
+    expect(c.calls).toContain('regen:bakehouse:bakehouse-4:black-forest-labs/flux.2-pro:a prompt');
   });
 
   it('throws a helpful error when no studio is active', async () => {
