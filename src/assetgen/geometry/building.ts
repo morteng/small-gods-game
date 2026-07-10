@@ -105,8 +105,19 @@ export interface BuildingFeatures { vents?: VentFeature[]; dormers?: DormerFeatu
 
 export interface ResolvedFeatures { vents: VentFeature[]; dormers: DormerFeature[] }
 
+/** One chimney/vent anchor: world-space position (tile x,y; z up) plus an OPTIONAL
+ *  pick-provenance id — the SAME `<partId>/<featureId>` string `VentFeature.id` carries,
+ *  forwarded verbatim (never reformatted), so a downstream consumer can address ONE vent
+ *  rather than the whole set (the studio's per-vent hearth control reads this to know which
+ *  chimney a click landed on). `id` is only ever present when the vent itself carries one,
+ *  which happens ONLY when the blueprint was compiled with `pickIds: true` (studio-only —
+ *  see `ventOf` in `blueprint/compile/to-geometry.ts`); the runtime/game compose path never
+ *  sets it. Purely additive: any consumer that only reads `.pos` is unaffected, and nothing
+ *  upstream of this point (the sprite-cache key is `toGeometry`'s pre-anchors OUTPUT) changes
+ *  shape on the runtime path. */
+export interface VentAnchor { pos: [number, number, number]; id?: string }
 /** World-space anchor points (tile x,y; z up) for runtime overlays. */
-export interface BuildingAnchors { vents: [number, number, number][] }
+export interface BuildingAnchors { vents: VentAnchor[] }
 
 /** Deterministic seed from a string (FNV-1a) — used to vary default placement. */
 export function hashStr(s: string): number {

@@ -106,7 +106,7 @@ describe('buildingFacets (manifold)', () => {
     expect(brick.length).toBeGreaterThan(0);
     expect(anchors.vents).toHaveLength(1);
     // the recorded smoke anchor is above the wing's wall top + roof rise
-    expect(anchors.vents[0][2]).toBeGreaterThan(1.35 + 1.5 * (2 / 2));   // wallTop (STOREY=1.35) + gable rise of the h=2 nave
+    expect(anchors.vents[0].pos[2]).toBeGreaterThan(1.35 + 1.5 * (2 / 2));   // wallTop (STOREY=1.35) + gable rise of the h=2 nave
   });
 
   it('shed (mono-pitch) roof is a single slope: high ridge line at ONE edge, low at the other', async () => {

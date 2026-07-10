@@ -1118,7 +1118,11 @@ export async function buildingFacets(
     // on a chimney selects THAT vent feature rather than the enclosing body part. The `??=`
     // guard in compose then leaves this finer tag intact under the body's part-wide stamp.
     facets.push(...manifoldToFacets(c.solid.getMesh(), c.mat, undefined, undefined, undefined, undefined, v.id));
-    anchors.vents.push(c.anchor);
+    // Carry the SAME id onto the anchor entry (not just the mesh pick-stamp above) — the
+    // studio's per-vent hearth control needs to know WHICH vent a given anchor point is
+    // without re-deriving a key from the pick buffer. `v.id` is undefined outside pickIds
+    // compiles, so this is a no-op tuple-wrap on the runtime path (see VentAnchor's doc).
+    anchors.vents.push({ pos: c.anchor, id: v.id });
   }
   return { facets, anchors };
 }
