@@ -779,8 +779,11 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
   // NOT verified against the on-screen geometry (see texturedSpriteWarning).
   // Re-evaluated every frame, so it appears/disappears reactively as the user
   // edits geometry or toggles the Textured display option.
+  // Top-centre under the ambient dials — bottom-left collided with the centred time
+  // scrubber (long warning text slid beneath its panel and truncated).
   const staleBadge = h('div', {
-    style: 'position:absolute;left:10px;bottom:10px;z-index:6;display:none;'
+    style: 'position:absolute;left:50%;transform:translateX(-50%);top:52px;z-index:6;display:none;'
+      + 'max-width:min(72%,640px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'
       + 'padding:4px 10px;border-radius:8px;font-size:12px;color:#e8b45a;'
       + 'background:rgba(16,18,24,0.72);border:1px solid var(--line);'
       + 'backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);box-shadow:0 2px 10px rgba(0,0,0,0.35)',
