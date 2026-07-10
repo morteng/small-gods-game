@@ -19,7 +19,7 @@ import { styledShapeSpec } from '@/terrain/terrain-shape';
 import { styledClimate } from '@/terrain/climate';
 import { applyPoiInfluences } from '@/terrain/poi-influence';
 import { generateHydrology, buildVolcanoScorchMask } from '@/terrain/hydrology';
-import { buildRoadGraph, repairRoadDiagonalGaps } from '@/world/road-graph';
+import { buildRoadGraph, repairRoadDiagonalGaps, repairConnectionSplits } from '@/world/road-graph';
 import { mergeParallelRoads } from '@/world/connectome/merge-parallel-roads';
 import { gateApproachPlan, realGateAnchors } from '@/world/connectome/gate-approach';
 import { settlementRingContracts } from '@/world/connectome/wall-contracts';
@@ -475,6 +475,15 @@ export async function generateWithNoise(
     // road-connectivity contract) reads that as a break. Stamps a single land filler per gap,
     // never over water/buildings/walls/greens (the walker's own obstacle set).
     repairRoadDiagonalGaps(tiles, width, height,
+      (x, y) => tileBlockedByBuilding(world, x, y) || greenTiles.has(`${x},${y}`) || approach.wallObstacles.has(`${x},${y}`));
+
+    // CONNECTION-SPLIT REPAIR — the end-to-end invariant the passes above each assume: every
+    // seed-declared road connection is ONE 4-connected component. The inter-POI walker can end
+    // up riding a settlement's interior street; if a later layout change re-routes that street
+    // (e.g. a preset's door face moved), the network silently splits into two islands even
+    // though every pass "succeeded". Normally a no-op; carves a minimal legal land connector
+    // between the closest cells of the split components and WARNS when it fires.
+    repairConnectionSplits(tiles, width, height, approach.connections, worldSeed.pois ?? [],
       (x, y) => tileBlockedByBuilding(world, x, y) || greenTiles.has(`${x},${y}`) || approach.wallObstacles.has(`${x},${y}`));
 
     // River-crossing SITES (unified connectome, v0): where a road bridges water, compose a

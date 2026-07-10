@@ -7,6 +7,6 @@ describe('content-version constants', () => {
   });
 
   it('declares the current world content version (92: bridge abutments + proud arch ring)', () => {
-    expect(WORLD_CONTENT_VERSION).toBe(92);
+    expect(WORLD_CONTENT_VERSION).toBe(93);
   });
 });

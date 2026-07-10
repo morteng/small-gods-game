@@ -480,3 +480,126 @@ export function repairRoadDiagonalGaps(
   }
   return toStamp.size;
 }
+
+/**
+ * DEGENERATE-CASE REPAIR: guarantee every seed-declared road connection is ONE 4-connected
+ * road component. The inter-POI walker, settlement streets and gate spurs are carved by
+ * separate passes whose interplay is seed-sensitive — a village-interior re-route (e.g. a
+ * building preset changing its door face) can leave the A→B network split into two islands
+ * even though every individual pass succeeded. Like the gate stitches, this runs LAST, is
+ * normally a no-op, and LOGS when it has to carve: flood 4-connected road tiles from the
+ * road cell nearest `from`; if the component never comes within reach of `to`, BFS a legal
+ * land path (never water / bridge-less channels / caller-flagged obstacles) between the two
+ * closest component cells and stamp it `dirt_road`. Returns total cells carved.
+ */
+export function repairConnectionSplits(
+  tiles: Tile[][],
+  width: number,
+  height: number,
+  connections: Connection[] | undefined,
+  pois: POI[],
+  isBlocked?: (x: number, y: number) => boolean,
+): number {
+  if (!connections?.length) return 0;
+  const isRoad = (x: number, y: number): boolean => ROAD_TILE_TYPES.has(tiles[y]?.[x]?.type ?? '');
+  // A repair path may ride existing roads freely and cross any legal land cell.
+  const passable = (x: number, y: number): boolean => {
+    const t = tiles[y]?.[x];
+    if (!t) return false;
+    if (ROAD_TILE_TYPES.has(t.type)) return true;
+    if (WATER_TYPES.has(t.type)) return false;
+    return !(isBlocked?.(x, y) ?? false);
+  };
+  const nearestRoad = (cx: number, cy: number, maxR = 6): { x: number; y: number } | null => {
+    for (let r = 0; r <= maxR; r++)
+      for (let dy = -r; dy <= r; dy++)
+        for (let dx = -r; dx <= r; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+          if (isRoad(cx + dx, cy + dy)) return { x: cx + dx, y: cy + dy };
+        }
+    return null;
+  };
+  const flood = (start: { x: number; y: number }): Set<number> => {
+    const seen = new Set<number>();
+    const queue = [start.y * width + start.x];
+    while (queue.length) {
+      const k = queue.pop()!;
+      if (seen.has(k)) continue;
+      const x = k % width, y = (k - x) / width;
+      if (!isRoad(x, y)) continue;
+      seen.add(k);
+      if (x + 1 < width) queue.push(k + 1);
+      if (x > 0) queue.push(k - 1);
+      if (y + 1 < height) queue.push(k + width);
+      if (y > 0) queue.push(k - width);
+    }
+    return seen;
+  };
+
+  const poiById = new Map(pois.map((p) => [p.id, p]));
+  let totalCarved = 0;
+  for (const conn of connections) {
+    if (conn.type !== 'road') continue;
+    const a = poiById.get(conn.from)?.position, b = poiById.get(conn.to)?.position;
+    if (!a || !b) continue;
+    const seedA = nearestRoad(a.x, a.y), seedB = nearestRoad(b.x, b.y);
+    if (!seedA || !seedB) continue;                      // no road near a POI — not a split, a miss
+    const compA = flood(seedA);
+    // Connected = the A-component reaches within 3 tiles of POI b (the contract's read).
+    let reached = false;
+    for (let dy = -3; dy <= 3 && !reached; dy++)
+      for (let dx = -3; dx <= 3 && !reached; dx++) {
+        const x = b.x + dx, y = b.y + dy;
+        if (x >= 0 && y >= 0 && x < width && y < height && compA.has(y * width + x)) reached = true;
+      }
+    if (reached) continue;
+    const compB = flood(seedB);
+    if (!compB.size || compB.has(seedA.y * width + seedA.x)) continue;
+    // Closest pair of cells across the two components (manhattan).
+    let best: { ax: number; ay: number; bx: number; by: number; d: number } | null = null;
+    for (const ka of compA) {
+      const ax = ka % width, ay = (ka - ax) / width;
+      for (const kb of compB) {
+        const bx = kb % width, by = (kb - bx) / width;
+        const d = Math.abs(ax - bx) + Math.abs(ay - by);
+        if (!best || d < best.d) best = { ax, ay, bx, by, d };
+      }
+    }
+    if (!best) continue;
+    // BFS shortest legal path A-cell → B-cell (4-connected over passable).
+    const prev = new Map<number, number>();
+    const startK = best.ay * width + best.ax, goalK = best.by * width + best.bx;
+    const q = [startK]; prev.set(startK, -1);
+    let found = false;
+    for (let qi = 0; qi < q.length && !found; qi++) {
+      const k = q[qi];
+      const x = k % width, y = (k - x) / width;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+        const nx = x + dx, ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+        const nk = ny * width + nx;
+        if (prev.has(nk) || !passable(nx, ny)) continue;
+        prev.set(nk, k);
+        if (nk === goalK) { found = true; break; }
+        q.push(nk);
+      }
+    }
+    if (!found) {
+      console.warn(`[worldgen] connection repair FAILED for ${conn.from}→${conn.to} — components split with no legal land path`);
+      continue;
+    }
+    let carved = 0;
+    for (let k = goalK; k !== -1; k = prev.get(k)!) {
+      const x = k % width, y = (k - x) / width;
+      const t = tiles[y]?.[x];
+      if (!t || ROAD_TILE_TYPES.has(t.type)) continue;
+      preserveBaseType(t);
+      t.type = 'dirt_road';
+      t.walkable = true;
+      carved++;
+    }
+    totalCarved += carved;
+    console.warn(`[worldgen] connection repair FIRED for ${conn.from}→${conn.to} — carved ${carved} tile(s); road network was split into islands`);
+  }
+  return totalCarved;
+}
