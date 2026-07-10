@@ -63,10 +63,19 @@ interface BaseManifestEntry {
   normal?: string; material?: string; emissive?: string;
 }
 
-/** A cache/base-library hit: the processed albedo + optional companion PBR maps. */
+/** A cache/base-library hit: the processed albedo + optional companion PBR maps.
+ *  `emissive` is RGB self-illumination (lit window panes) — unlike `material` it is
+ *  NOT a data map (no alpha=0 premultiply hazard), so it decodes through a plain
+ *  canvas exactly like `normal`. `provenance` distinguishes an exact content-addressed
+ *  hit (IDB, or the manifest's exact key — either bakes ART_RECIPE_VERSION + a
+ *  blueprint hash, so it can never be stale) from the manifest's preset-name
+ *  fallback (art seeded for the BARE preset, reused by a variant sight-unseen —
+ *  may predate the variant's or even the bare preset's current geometry). Omitted
+ *  ⇒ 'exact' (the common IDB path, which never sets this field explicitly). */
 export interface CachedArt {
   blob: Blob; targetWidth: number;
-  normal?: Blob; material?: Blob;
+  normal?: Blob; material?: Blob; emissive?: Blob;
+  provenance?: 'exact' | 'preset-fallback';
 }
 
 export interface GeneratedSourceDeps {
@@ -102,6 +111,9 @@ export class GeneratedBuildingArtSource {
   private readonly cache = new Map<string, SpritePack | null>();
   private readonly inflight = new Set<string>();
   private readonly warned = new Set<string>();
+  // Resolution provenance per cache key (see `peekMeta`) — set alongside `cache`
+  // whenever a non-null pack resolves; never consulted for null (grey-fallback) keys.
+  private readonly provenance = new Map<string, 'exact' | 'preset-fallback'>();
   private readonly d: Required<GeneratedSourceDeps>;
   // Bumped each time a building GAINS art (an async cache/base/paid resolve). The
   // render-context folds this into `buildingArtRev` so the building draw cache
@@ -203,14 +215,21 @@ export class GeneratedBuildingArtSource {
       })().catch(() => null);
       const entries = await this.baseManifest;
       if (!entries) return null;
-      // Exact key (a bare preset, or an IDB-seeded variant), else preset fallback so
-      // variants render their preset's art instead of dropping to grey massing.
+      // Exact key (a bare preset, or an IDB-seeded variant) is verified against the
+      // CURRENT geometry by construction — the key bakes ART_RECIPE_VERSION plus a
+      // hash of the canonical blueprint, so a match can never be stale. Failing that,
+      // fall back to whatever was seeded for the BARE preset name, so a variant
+      // renders SOMETHING instead of dropping to grey massing — but that art may
+      // have been painted against different (possibly since-edited) geometry, so the
+      // fallback is tagged 'preset-fallback' for callers that want to warn about it.
       let entry: BaseManifestEntry | undefined = entries[key];
+      let provenance: 'exact' | 'preset-fallback' = 'exact';
       if (!entry && preset) {
         this.basePresetIndex ??= new Map(
           Object.values(entries).filter(e => e.preset).map(e => [e.preset as string, e]),
         );
         entry = this.basePresetIndex.get(preset);
+        provenance = 'preset-fallback';
       }
       if (!entry) return null;
       const { assetUrl } = await import('@/core/asset-url');
@@ -223,13 +242,15 @@ export class GeneratedBuildingArtSource {
       };
       const blob = await file(entry.file);
       if (!blob) return null;
-      // Only the NORMAL companion is fetched: it feeds the lit path and survives a
-      // canvas decode (its silhouette is opaque). The seeded material PNG is a data
-      // map (alpha 0) that a 2D canvas can't decode without zeroing its RGB, so it's
-      // deliberately skipped — toPack() substitutes a neutral material instead.
+      // NORMAL + EMISSIVE are fetched: both are plain RGB maps that survive a canvas
+      // decode (opaque silhouette, no premultiply hazard). The seeded MATERIAL PNG is
+      // a data map (alpha 0) that a 2D canvas can't decode without zeroing its RGB, so
+      // it's deliberately skipped — toPack() substitutes a neutral material instead.
       return {
         blob, targetWidth: entry.targetWidth,
         normal: await file(entry.normal),
+        emissive: await file(entry.emissive),
+        provenance,
       };
     } catch { return null; }
   }
@@ -292,8 +313,8 @@ export class GeneratedBuildingArtSource {
     return (r && this.d.rasterToSprite(r)) ?? undefined;
   }
 
-  /** Assemble a SpritePack from the albedo raster + the companion NORMAL blob.
-   *  The material map is deliberately NOT carried as a decoded canvas: it is a
+  /** Assemble a SpritePack from the albedo raster + the companion NORMAL/EMISSIVE
+   *  blobs. The material map is deliberately NOT carried as a decoded canvas: it is a
    *  DATA map (A=metallic, RGB=AO/roughness where A≈0) and a 2D-canvas backing
    *  store is premultiplied, so decoding an alpha-0 material PNG silently zeroes
    *  its RGB → AO 0 → the whole sprite lit BLACK. (Both the shipped base library
@@ -302,14 +323,18 @@ export class GeneratedBuildingArtSource {
    *  is painted flat/shadeless by contract, so the geometry normals + sun supply
    *  the form, which is the whole point — a uniform AO loses only baked occlusion
    *  nuance, never the lighting. `materialData` (a RawMap) also flips the draw
-   *  list's `lit` flag on, without which the sprite would render unlit/flat. */
-  private toPack(albedo: Raster, normal?: SpriteCanvas): SpritePack | null {
+   *  list's `lit` flag on, without which the sprite would render unlit/flat.
+   *  `emissive` has no such hazard (plain RGB, not a data map) — it decodes and
+   *  attaches straight through, so painted sprites glow their lit windows at night
+   *  exactly like a parametric massing pack. */
+  private toPack(albedo: Raster, normal?: SpriteCanvas, emissive?: SpriteCanvas): SpritePack | null {
     const sprite = this.d.rasterToSprite(albedo);
     if (!sprite) return null;
     return {
       albedo: sprite,
       normal,
       materialData: normal ? NEUTRAL_MATERIAL : undefined,
+      emissive,
     };
   }
 
@@ -321,7 +346,11 @@ export class GeneratedBuildingArtSource {
       if (hit) {
         const r = await this.d.decodeImage(hit.blob);
         const normal = await this.decodeMap(hit.normal);
-        this.resolve(key, r ? this.toPack(r, normal) : null);
+        const emissive = await this.decodeMap(hit.emissive);
+        // IDB hits never set `provenance` (content-addressed by construction ⇒
+        // always 'exact'); the base library stamps it explicitly (see fetchFromBaseLibrary).
+        this.provenance.set(key, hit.provenance ?? 'exact');
+        this.resolve(key, r ? this.toPack(r, normal, emissive) : null);
         return;
       }
       // Known-bad at this recipe+model: a prior session generated this blueprint
@@ -356,12 +385,27 @@ export class GeneratedBuildingArtSource {
         });
       }
       const normal = await this.decodeMap(pack.normal);
-      this.resolve(key, this.toPack(sprite, normal));
+      const emissive = await this.decodeMap(pack.emissive);
+      this.provenance.set(key, 'exact');   // freshly generated for THIS exact blueprint
+      this.resolve(key, this.toPack(sprite, normal, emissive));
     } catch (err) {
       if (!this.warned.has(key)) { console.warn('[generated-building] generation failed', err); this.warned.add(key); }
       this.cache.set(key, null);
     }
   }
 
-  clear(): void { this.cache.clear(); this.inflight.clear(); this.warned.clear(); }
+  /** How the pack currently cached for `e` was resolved — 'exact' (IDB, or the
+   *  manifest's exact content-addressed key: can never be stale) vs
+   *  'preset-fallback' (the manifest's preset-name match: painted for the BARE
+   *  preset, reused sight-unseen by a variant — may predate the current geometry).
+   *  Null when nothing has resolved yet, or the resolve was a grey-massing miss.
+   *  Read by callers (the studio) that want to warn about an unverified sprite. */
+  peekMeta(e: Entity): { resolved: 'exact' | 'preset-fallback' } | null {
+    const rb = this.rbOf(e); if (!rb) return null;
+    const key = this.keyOf(rb);
+    if (!this.cache.get(key)) return null;
+    return { resolved: this.provenance.get(key) ?? 'exact' };
+  }
+
+  clear(): void { this.cache.clear(); this.inflight.clear(); this.warned.clear(); this.provenance.clear(); }
 }
