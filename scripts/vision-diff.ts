@@ -184,6 +184,8 @@ async function main() {
   const diff = await chat(ITER_MODEL, [{ type: 'text', text:
 `You are a 3D geometry engineer. Below are two specs of the SAME intended building (a medieval ${subject}): the REFERENCE (what we want to match) and OUR GEOMETRY (what we currently build). Produce a concrete, ordered, code-actionable list of geometry changes to make OUR build match the reference better. Each item: WHAT to change, FROM current → TO target, and WHY (which reference feature it fixes). Prioritise by visual impact. Only list REAL differences. If something already matches, omit it.
 
+IMPORTANT SCOPE: our build is GREY MASSING — a later paint pass adds ALL materials, colours, textures and small surface details (timber framing pattern, tile/thatch texture, ridge caps, lanterns, hinges, signage). List ONLY changes to 3D FORM: proportions, silhouette, part placement/size, opening positions/sizes. NEVER list material, colour, texture or painted-detail items.
+
 REFERENCE SPEC:
 ${refText}
 

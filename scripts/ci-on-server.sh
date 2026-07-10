@@ -151,6 +151,13 @@ if $HISTORY_ONLY; then
 fi
 
 # ── Upload source ───────────────────────────────────────────────────────────
+# GOTCHA: the archive is `git archive HEAD` — CI tests the last LOCAL COMMIT, never the
+# working tree. Commit before running CI; a dirty-tree run silently validates old code.
+DIRTY=""
+if ! git diff-index --quiet HEAD -- 2>/dev/null; then
+  DIRTY=" (HEAD only — working tree is DIRTY, uncommitted changes NOT tested)"
+  warn "working tree is DIRTY — CI tests HEAD ($(git rev-parse --short HEAD)); commit first to test your changes"
+fi
 T_START=$SECONDS
 log "Uploading source archive..."
 # shellcheck disable=SC2086
@@ -301,7 +308,7 @@ ssh_run "echo \"\$(date -u +%Y-%m-%dT%H:%M:%SZ) $RESULT run=${T_RUN}s upload=${T
 echo ""
 echo "  upload ${T_UPLOAD}s · deps ${T_DEPS}s · $MODE ${T_RUN}s"
 if [ "$CI_EXIT" -eq 0 ]; then
-  ok "Server CI passed"
+  ok "Server CI passed${DIRTY}"
 else
   fail "Server CI failed (exit $CI_EXIT)"
 fi
