@@ -43,7 +43,10 @@ function makePayload(withExtras = true): CachedSpritePayload {
   const p: CachedSpritePayload = {
     w, h,
     grey: noiseBuf(px, 1), normal: noiseBuf(px, 3), material,
-    anchors: { doors: [], vents: [], wallEnds: [{ x: 0.25, y: 1 }] },
+    // One vent with a pick-provenance id (per-vent hearth control, studio-only) exercises the
+    // optional `id` field through the generic anchors round-trip below (`toEqual`) alongside
+    // one WITHOUT an id, so both the with- and without-id shapes survive the codec.
+    anchors: { doors: [], vents: [{ x: 0.4, y: 0.1, id: 'body/smoke' }, { x: 0.6, y: 0.1 }], wallEnds: [{ x: 0.25, y: 1 }] },
   };
   if (withExtras) {
     p.emissive = noiseBuf(px, 11);
@@ -60,7 +63,7 @@ function fakeStructureResult(): StructureResult {
   return {
     grey: noiseBuf(px, 17), normal: noiseBuf(px, 19), material,
     emissive: noiseBuf(px, 23), size, bbox,
-    anchors: { doors: [], vents: [], wallEnds: [{ x: 0.25, y: 1 }] },
+    anchors: { doors: [], vents: [{ x: 0.4, y: 0.1, id: 'body/smoke' }], wallEnds: [{ x: 0.25, y: 1 }] },
     meta: { bbox, anchors: { doors: [], vents: [] } },
     shadow: { data: noiseBuf(2 * 2 * 4, 29), w: 2, h: 2, ox: 1.5, oy: 2.5 },
   };

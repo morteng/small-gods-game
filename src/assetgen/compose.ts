@@ -61,6 +61,13 @@ export interface DoorAnchorN extends NormAnchor { main: boolean }
 /** A mount socket projected onto the sprite: normalised x/y (opaque-bbox 0..1) plus the role
  *  and the `accepts` tokens + metric `z` carried over for a decoration/fauna pass to read. */
 export interface MountAnchorN extends NormAnchor { kind: MountAnchorKind; z: number; accepts?: string[] }
+/** A vent (chimney/pipe/smokehole) anchor projected onto the sprite: normalised x/y plus the
+ *  SAME optional pick-provenance id `BuildingAnchors.vents` entries carry (see that type's
+ *  doc) — forwarded through `norm()` unchanged, never reformatted. Absent outside a pickIds
+ *  compile (studio-only), so a plain `{x,y}` (no `id` key at all, since `JSON.stringify` and
+ *  `toEqual` both treat a missing key and an `undefined`-valued one as equivalent) is exactly
+ *  what the runtime/game path — and every existing goldens/cache round-trip — already sees. */
+export interface VentAnchorN extends NormAnchor { id?: string }
 /** A world-space point (geometry tile frame: x/y tiles, z cube-units) tagged with an id,
  *  handed to compose so the SAME fit+yaw+bbox-normalisation that places the sprite also
  *  reports where the point lands — used by the authoring montage to stamp Set-of-Mark part
@@ -70,7 +77,7 @@ export interface LabelN extends NormAnchor { id: string }
 /** `doors` is retained for shape-compat but is always empty now: doors became carved
  *  openings (Blueprint layer) and their pathing anchors live in the world-space `toAnchors`
  *  compiler, not in the sprite-space structure anchors. `tags` = the projected mount sockets. */
-export interface StructureAnchors { doors: DoorAnchorN[]; vents: NormAnchor[]; wallEnds?: NormAnchor[]; gates?: NormAnchor[]; tags?: MountAnchorN[] }
+export interface StructureAnchors { doors: DoorAnchorN[]; vents: VentAnchorN[]; wallEnds?: NormAnchor[]; gates?: NormAnchor[]; tags?: MountAnchorN[] }
 export interface StructureMeta {
   bbox: BBox; anchors: StructureAnchors;
   /** Raw view-depth span the per-sprite depth channel was normalised over (absent if the render is empty). */
@@ -333,7 +340,10 @@ export async function composeStructure(spec: StructureSpec, shadowSun?: [number,
   const anchors: StructureAnchors = { doors: [], vents: [] };
   for (const part of parts) {
     if (part.anchors) {
-      for (const v of part.anchors.vents) anchors.vents.push(norm(v));
+      // Carry the vent's own pick-provenance id (if any) alongside its normalised position.
+      // The `v.id ?` guard means a runtime compile (no pickIds ⇒ every `v.id` undefined) pushes
+      // a bare `{x,y}` — byte-identical to the pre-id shape, so goldens/cache stay untouched.
+      for (const v of part.anchors.vents) anchors.vents.push({ ...norm(v.pos), ...(v.id ? { id: v.id } : {}) });
     }
     if (part.linearAnchors) {
       (anchors.wallEnds ??= []).push(...part.linearAnchors.wallEnds.map(norm));

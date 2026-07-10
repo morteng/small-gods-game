@@ -388,6 +388,10 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
     liveStage = undefined;
     featureStates = {};   // a stale open-door pose must not ride onto a different subject
     liveRb = synthesizeBlueprint(kind) ?? null;
+    // A new subject's vent ids (`<partId>/<featureId>`) belong to a DIFFERENT blueprint — any
+    // held-over per-vent hearth override would either dangle (id no longer exists) or, worse,
+    // silently collide with an unrelated vent that happens to share a part/feature id.
+    hearthOverrides.clear();
     invalidate();
     genStages = [];
     state.view = null;
@@ -833,10 +837,17 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
     onInput: (hour) => { state.hour = hour; recomputeSun(false); },
     onCommit: (hour) => { state.hour = hour; recomputeSun(true); },
   });
-  /** The subject's chimney-vent anchors projected into world-screen space (smoke emission points).
-   *  Vent anchors are normalised (0..1) against the sprite's opaque bbox; the foot-anchored sprite
-   *  spans [foot.sy−ph, foot.sy] and is centred at foot.sx (width pw), so this maps them 1:1. */
-  function ventScreenPoints(): { x: number; y: number }[] {
+  /** The subject's chimney-vent anchors projected into world-screen space (smoke emission points),
+   *  each carrying its pick-provenance id (`<partId>/<featureId>`) if it has one. Vent anchors are
+   *  normalised (0..1) against the sprite's opaque bbox; the foot-anchored sprite spans
+   *  [foot.sy−ph, foot.sy] and is centred at foot.sx (width pw), so this maps them 1:1.
+   *
+   *  This `id` is the SAME string `pickKeyAt` resolves for a click on that vent's own facets
+   *  (both trace back to `VentFeature.id`, stamped once by the blueprint compiler and forwarded
+   *  verbatim through `BuildingAnchors.vents`/`StructureAnchors.vents` — see those types' docs) —
+   *  so the click handler and the hearth-lit filter below can never drift apart on key format;
+   *  there is exactly one string, read from two places. */
+  function ventScreenPoints(): { x: number; y: number; id?: string }[] {
     const struct = stagesSubject();
     const pack = subjectPack();
     const vents = struct?.anchors?.vents;
@@ -844,7 +855,28 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
     const foot = worldToScreen(CENTER.x, CENTER.y, 0, 0, 0);
     const pw = pack.albedo.width, ph = pack.albedo.height;
     const left = foot.sx - pw / 2, top = foot.sy - ph;
-    return vents.map((v) => ({ x: left + v.x * pw, y: top + v.y * ph }));
+    return vents.map((v) => ({ x: left + v.x * pw, y: top + v.y * ph, id: v.id }));
+  }
+
+  // ── per-vent hearth control ──────────────────────────────────────────────
+  // The ambient dial's Temperature knob (above) is the GLOBAL default: cold ⇒ every hearth lit,
+  // mild/hot ⇒ none. A click on ONE chimney/vent overrides that default for just that vent — so
+  // you can light a single hearth while the world stays mild, or snuff one out of an otherwise
+  // fully-lit building. `true` = forced lit, `false` = forced snuffed, no entry = follow the dial.
+  // Keyed by the same pick key `ventScreenPoints` attaches to each vent (see its doc above).
+  const hearthOverrides = new Map<string, boolean>();
+  /** Effective lit state for one vent: an override wins outright; otherwise follow the dial
+   *  (cold ⇒ lit, mild/hot ⇒ unlit). A vent with no id (compose ran without pickIds, which never
+   *  happens in the studio today — see warmSubject) can't be individually overridden, so it just
+   *  follows the dial. */
+  function isVentLit(id: string | undefined): boolean {
+    const override = id != null ? hearthOverrides.get(id) : undefined;
+    return override ?? (ambient.state.temp === 'cold');
+  }
+  /** The subset of vent screen points that are ACTUALLY lit right now (dial default with
+   *  per-vent overrides applied) — the only points the smoke field should emit from. */
+  function litVentScreenPoints(): { x: number; y: number }[] {
+    return ventScreenPoints().filter((v) => isVentLit(v.id));
   }
 
   // ── click-to-select pick channel (hover chip + click → blueprint tree) ──────
@@ -936,10 +968,15 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
       return;
     }
     const r = viewPane.getBoundingClientRect();
-    // Discoverability (project rule: buttons/affordances over hidden shortcuts): a door's chip
-    // spells out the click affordance, and flips label by its current pose.
-    const doorHint = isDoorAt(key) ? ((featureStates[key]?.open ?? 0) > 0 ? ' · click to shut' : ' · click to open') : '';
-    pickChip.textContent = key + doorHint;
+    // Discoverability (project rule: buttons/affordances over hidden shortcuts): doors and vents
+    // spell out their click affordance on the chip, label flipping with the current state. The
+    // vent check goes through `ventScreenPoints` — the one place `id` gets attached, so this
+    // lookup can't disagree with what the click handler below treats as "a vent".
+    const isVent = ventScreenPoints().some((v) => v.id === key);
+    const hint = isDoorAt(key)
+      ? ((featureStates[key]?.open ?? 0) > 0 ? ' · click to shut' : ' · click to open')
+      : isVent ? ` · click to ${isVentLit(key) ? 'snuff' : 'light'}` : '';
+    pickChip.textContent = key + hint;
     pickChip.style.left = `${Math.round(e.clientX - r.left + 14)}px`;
     pickChip.style.top = `${Math.round(e.clientY - r.top + 12)}px`;
     pickChip.style.display = 'block';
@@ -965,15 +1002,18 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
     if (moved > 3) return;                        // it was a pan, not a click
     const key = pickKeyAt(e.clientX, e.clientY);
     if (!key) return;
-    // A DOOR under the click swings its leaf open (click again to shut) — interactive testing of
-    // the object. Selection and testing COMPOSE: we toggle the pose AND still select the node.
+    // Interactive testing COMPOSES with selection: a DOOR swings its leaf open/shut (recompose;
+    // toggling back re-hits the cached closed pose — rbKey folds featureStates in), a VENT
+    // toggles ITS hearth over the global temperature dial (hearthOverrides block above), and
+    // either way the node still selects in the tree.
     if (isDoorAt(key)) {
       const open = (featureStates[key]?.open ?? 0) > 0 ? 0 : 1;
       featureStates = { ...featureStates, [key]: { open } };
-      // Chip label flips immediately (hover key unchanged); recompose to the new pose — toggling
-      // back re-hits the cached closed pose (rbKey folds featureStates in).
-      if (hoverPickKey === key) setPickHover(key, e);
+      if (hoverPickKey === key) setPickHover(key, e);   // chip label flips immediately
       warmSubject();
+    } else if (ventScreenPoints().some((v) => v.id === key)) {
+      hearthOverrides.set(key, !isVentLit(key));
+      if (hoverPickKey === key) setPickHover(key, e);
     }
     treeSelect(key);
   });
@@ -1067,8 +1107,13 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
       liveBtn.hide();
       // Ambient effects (smoke etc.) — stepped by wall-clock, drawn in the same world-screen space
       // as the overlays (so the plume tracks the chimney under pan/zoom), on top of the scene.
-      if (ambient.active) {
-        ambient.step(ventScreenPoints(), dtMs);
+      // Only the LIT vents (dial default ∪ per-vent overrides) feed the smoke field, and the loop
+      // must run whenever EITHER the dial itself is active (ambient.active — also covers residual
+      // puffs fading out after the dial/an override just turned off) OR a per-vent override has
+      // lit a hearth while the dial reads mild/hot (litVents non-empty but ambient.active false).
+      const litVents = litVentScreenPoints();
+      if (ambient.active || litVents.length > 0) {
+        ambient.step(litVents, dtMs);
         const camv = rc.camera, z = camv.zoom;
         ctx.save();
         ctx.scale(z, z);
@@ -1136,6 +1181,9 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
         }
       }
     }
+    // Re-rolled params can move/add/remove vents (roof style, wing count, …) so a held-over
+    // override could now point at a different chimney than the one the user actually toggled.
+    hearthOverrides.clear();
     onBlueprintReplaced();
   }
 
