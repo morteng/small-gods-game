@@ -71,7 +71,7 @@ async function main() {
   const flags = new Set(argv.filter((a) => a.startsWith('--')));
   const presets = argv.filter((a) => !a.startsWith('--'));
   if (!presets.length) {
-    console.error('usage: building-preview.ts <preset…> [--cutaway|--both] [--albedo|--normal|--material] [--list]');
+    console.error('usage: building-preview.ts <preset…> [--lint] [--views] [--cutaway|--both] [--albedo|--normal|--material] [--orient=N|all] [--surface]\n       building-preview.ts --list | --catalogue');
     process.exit(1);
   }
   const map = (['albedo', 'normal', 'material'] as const).find((m) => flags.has(`--${m}`)) ?? 'grey';

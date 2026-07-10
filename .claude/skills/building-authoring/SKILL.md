@@ -40,6 +40,25 @@ npx tsx scripts/tti-probe.ts parish-church --name=slug --prompt="…broach spire
   we get wrong" → an ordered fix list. That STUDY, not the PNG, is the durable artifact you code
   against (see `parish-church-classic/STUDY.md`, `watermill-wheel/STUDY.md` for the format).
 
+### Vision diff (cheap, per-iteration — `scripts/vision-diff.ts`)
+
+Once a reference exists, `vision-diff.ts` turns "does our geometry match it?" into a
+code-actionable list: a vision model reads the reference once (Pro, **cached** as
+`ref-spec.md` beside the PNG), a cheap model (Flash) reads a fresh grey render of the
+CURRENT geometry, and a third call emits an ordered FROM → TO geometry diff.
+
+```
+npx tsx scripts/vision-diff.ts tavern                        # ref auto-picked (newest tavern* grab)
+npx tsx scripts/vision-diff.ts tavern --ref=tavern-2         # pin the reference slug
+npx tsx scripts/vision-diff.ts brewhouse --focus="oast kiln drum, cowl"   # demand detail on named features
+npx tsx scripts/vision-diff.ts tavern --check                # Flash read of OUR render only
+```
+
+First run vs a reference ~$0.01; repeats reuse the cached ref spec (~$0.003). Report lands in
+`.dev-grabs/<preset>-vision-diff.md`. This is a *chat/vision* read — it never generates images.
+Treat the diff as a hypothesis: verify each claim on the montage before coding it
+(vision models miscount small features; trust them on proportions, pitch, massing).
+
 ## The fix loop (money-free)
 
 1. **Read what's authorable** — the capability catalogue (part/feature knobs, ranges, defaults):
@@ -96,7 +115,6 @@ The pipeline is exposed as pure compute tools on the `small-gods` MCP server:
 
 ## Known open defects to practise on
 
-- `tavern` — dormers render as **sunken pits** (`solids.ts:783` dormer proportions).
 - `parish-church` — **tower/nave roof notch** (tower `w:2` vs nave `w:3`, both `x:0`).
 - `castle_keep` — chimney-cube on a flat roof; `manor` — corner-straddling windows.
 
