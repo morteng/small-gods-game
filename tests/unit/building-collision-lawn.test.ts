@@ -14,11 +14,13 @@ function emptyMap(): GameMap {
 describe('building collision with a structure sub-rect (lawn)', () => {
   it('keeps structure cells solid except the door (tavern)', () => {
     const w = new World(emptyMap());
-    // tavern (v6): 3x2 body on a 3x3 plot, door on the body's south wall → cell (1,1).
+    // tavern: 4x2 body on a 4x3 plot (the tavern-2 reference re-mass), door at t 0.5 on
+    // the body's south wall → cell (2,1).
     const rb = synthesizeBlueprint('tavern')!;
     w.addEntity(blueprintEntity('t1', rb, 5, 5));
     expect(tileBlockedByBuilding(w, 5, 5)).toBe(true);    // a wall cell
-    expect(tileBlockedByBuilding(w, 6, 6)).toBe(false);   // door (south-centre of the body)
+    expect(tileBlockedByBuilding(w, 6, 6)).toBe(true);    // south wall beside the door
+    expect(tileBlockedByBuilding(w, 7, 6)).toBe(false);   // door (south-centre of the body)
     expect(tileBlockedByBuilding(w, 6, 7)).toBe(false);   // yard strip below the body
   });
 
