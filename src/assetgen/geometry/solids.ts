@@ -750,6 +750,31 @@ function ventProfile(kind: VentKind, v: VentFeature): { cw: number; protrude: nu
   }
 }
 
+/** Crown-lip band height for a hollow chimney (cube-units; 1 = 2 m). The lip lives
+ *  WITHIN the existing protrusion — the caller drops the stack body to `topZ − CHIMNEY_CROWN_H`
+ *  so the vent anchor/topZ and CHIMNEY_PROTRUDE are unchanged. */
+const CHIMNEY_CROWN_H = 0.08;
+
+/**
+ * Give a masonry chimney stack a HOLLOW top so the img2img init shows the model an open
+ * flue mouth (a dark recessed square in the G-buffer normal/AO) rather than a capped pillar.
+ * The stack body must already terminate at `topZ − CHIMNEY_CROWN_H`. This adds a crown lip
+ * (a slab `1.2·cw` square, `CHIMNEY_CROWN_H` tall, same material) spanning up to `topZ`, then
+ * subtracts a flue recess (`0.52·cw` square, `CHIMNEY_FLUE_DEPTH` deep) from the top. The
+ * subtraction pokes `eps` ABOVE the crown so the boolean is clean and the top face reads as an
+ * open square mouth. Chimney-ONLY — pipes/smokeholes/spires keep their capped tops.
+ */
+async function hollowChimneyTop(stack: Manifold, center: Vec2, topZ: number, cw: number): Promise<Manifold> {
+  const [cx, cy] = center;
+  const crownW = cw * 1.2;          // lip overhangs the stack slightly, like a real chimney cap
+  const flueW = cw * 0.52;          // open mouth, square
+  const flueDepth = 0.15;           // ~0.3 m deep recess
+  const eps = 0.02;                 // recess clears the crown top for a clean subtraction
+  const crown = await solidBox([cx - crownW / 2, cy - crownW / 2, topZ - CHIMNEY_CROWN_H], [crownW, crownW, CHIMNEY_CROWN_H]);
+  const flue = await solidBox([cx - flueW / 2, cy - flueW / 2, topZ - flueDepth], [flueW, flueW, flueDepth + eps]);
+  return stack.add(crown).subtract(flue);
+}
+
 /**
  * A smoke vent as its own solid + top anchor (the emission point).
  *  - ridge: a stack rising from the roof slope, clearing the ridge.
@@ -775,6 +800,15 @@ async function ventSolid(
     else if (face === 'north') { x0 = along - half; y0 = top.y - proud; sx = cw; sy = proud; ax = along; ay = top.y - half; }
     else if (face === 'east') { x0 = top.x + top.w; y0 = along - half; sx = proud; sy = cw; ax = top.x + top.w + half; ay = along; }
     else { x0 = top.x - proud; y0 = along - half; sx = proud; sy = cw; ax = top.x - half; ay = along; }
+    // A masonry chimney gets a hollow crowned flue; a metal pipe stays a plain capped box.
+    // Crown/flue are governed by the SHORTER footprint dim (proud) so they never overspill,
+    // and centred on the FOOTPRINT centre (≠ the emission anchor, which hugs the wall plane).
+    if (kind === 'chimney') {
+      const gov = Math.min(sx, sy);
+      const body = await solidBox([x0, y0, 0], [sx, sy, topZ - CHIMNEY_CROWN_H]);
+      const solid = await hollowChimneyTop(body, [x0 + sx / 2, y0 + sy / 2], topZ, gov);
+      return { solid, anchor: [ax, ay, topZ], mat };
+    }
     return { solid: await solidBox([x0, y0, 0], [sx, sy, topZ]), anchor: [ax, ay, topZ], mat };
   }
 
@@ -842,7 +876,11 @@ async function ventSolid(
   // Base from the wall top so the stack reads as masonry rising from inside and
   // visibly pierces the slope at the offset (the slope there is below the ridge).
   const baseZ = wallTop;
-  let solid = await solidBox([cx - cw / 2, cy - cw / 2, baseZ], [cw, cw, topZ - baseZ]);
+  // A masonry chimney's body stops a crown-lip short of topZ so the crowned + hollowed top
+  // sits WITHIN the existing protrusion (anchor/topZ unchanged); other kinds run full height.
+  const bodyTop = kind === 'chimney' ? topZ - CHIMNEY_CROWN_H : topZ;
+  let solid = await solidBox([cx - cw / 2, cy - cw / 2, baseZ], [cw, cw, bodyTop - baseZ]);
+  if (kind === 'chimney') solid = await hollowChimneyTop(solid, [cx, cy], topZ, cw);
   if (kind === 'smokehole') {
     // Ridge louvre: the timber box gets its own little gable cap so it reads as a
     // smoke louvre/gablet rather than a stub. Cap ridge runs along the main ridge.
