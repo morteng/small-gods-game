@@ -21,8 +21,9 @@ import { h } from './theme';
 
 export type Temp = 'cold' | 'mild' | 'hot';
 export type Wind = 'calm' | 'breeze' | 'gust';
+export type Birds = 'none' | 'birds';
 
-export interface AmbientState { temp: Temp; wind: Wind }
+export interface AmbientState { temp: Temp; wind: Wind; birds: Birds }
 
 /** A rising smoke puff, in the studio's world-screen (pre-camera-zoom) space — same units the vent
  *  anchors project into, so puffs track the chimney under pan/zoom. */
@@ -115,6 +116,16 @@ const WIND_DIAL: Dial<Wind> = {
     { v: 'gust', icon: '🌪️', hint: 'Gale — the plume tears sideways' },
   ],
 };
+// Birds is a HANDS-OFF dial: it only owns the on/off state (the accent-underline marks 'birds' as
+// the non-default), while the BirdField itself lives in the studio (it needs the per-frame perch
+// sockets). At 'birds' a few settle on the roof perches and scatter in a gale (see BirdField).
+const BIRD_DIAL: Dial<Birds> = {
+  key: 'birds', label: 'Birds',
+  states: [
+    { v: 'none', icon: '🌳', hint: 'Still — no birds about' },
+    { v: 'birds', icon: '🐦', hint: 'Birds — a few alight on the roof perches (they scatter in a gale)' },
+  ],
+};
 
 /**
  * Mount the ambient dial bar (centre-top over the view) and return the live ambient controller.
@@ -122,7 +133,7 @@ const WIND_DIAL: Dial<Wind> = {
  */
 export function buildAmbientDials(viewPane: HTMLElement): AmbientDials {
   const smoke = new SmokeField();
-  const state: AmbientState = { temp: 'mild', wind: 'calm' };
+  const state: AmbientState = { temp: 'mild', wind: 'calm', birds: 'none' };
 
   const bar = h('div', {
     style: 'position:absolute;top:10px;left:50%;transform:translateX(-50%);z-index:6;display:flex;gap:6px;'
@@ -152,6 +163,8 @@ export function buildAmbientDials(viewPane: HTMLElement): AmbientDials {
   bar.append(
     mkDial(TEMP_DIAL, () => state.temp, (v) => { state.temp = v; if (SMOKE_RATE[v] === 0) smoke.clear(); }),
     mkDial(WIND_DIAL, () => state.wind, (v) => { state.wind = v; }),
+    // Birds: pure state toggle — the studio owns the BirdField and drains it when this flips to 'none'.
+    mkDial(BIRD_DIAL, () => state.birds, (v) => { state.birds = v; }),
   );
   viewPane.appendChild(bar);
 

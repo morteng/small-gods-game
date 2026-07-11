@@ -62,6 +62,7 @@ import { buildDock } from './stage-dock';
 import { createRefLib } from './reflib';
 import { buildReferencePanel } from './reference-panel';
 import { buildAmbientDials } from './ambient-dials';
+import { BirdField } from './bird-field';
 import { buildTimeScrubber } from './time-scrubber';
 import { compassBearings, lightPlot, effectiveLightAz, angleDelta } from './sky-hud';
 import { buildingSpriteItem } from '@/render/iso/iso-building';
@@ -878,6 +879,9 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
   // Ambient dials (centre-top over the view): preview emergent environment effects on the subject
   // — COLD lights a hearth fire → smoke rises from the building's baked chimney-vent anchors.
   const ambient = buildAmbientDials(viewPane);
+  // The BirdField lives here (not in the dial bar) because it needs the per-frame perch sockets
+  // (`tagScreenPoints('perch')`); the Birds dial only owns the on/off state it reads below.
+  const birds = new BirdField();
   // Time-of-day scrubber (bottom-centre over the view): the promoted 90%-case sun control. Drags
   // go through the SAME solar seam the toolbar popover uses (recomputeSun) — cheap live path while
   // dragging, cast-shadow re-bake on release — and a drag flips manual→solar. Two-way sync with the
@@ -913,6 +917,20 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
     const rect = subjectDrawRect(pw, ph);
     if (!rect) return [];
     return vents.map((v) => ({ x: rect.left + v.x * pw, y: rect.top + v.y * ph, id: v.id }));
+  }
+  /** Mount-socket anchors (`anchors.tags` — the lintel/eave/ridge/gable/chimney sockets baked
+   *  by toMountAnchors) that accept `token`, projected into world-screen space exactly like
+   *  ventScreenPoints above (same normalised-anchor → subjectDrawRect mapping). */
+  function tagScreenPoints(token: string): { x: number; y: number; kind: string; z: number }[] {
+    const struct = stagesSubject();
+    const pack = subjectPack();
+    const tags = struct?.anchors?.tags;
+    if (!struct || !pack?.albedo || !tags?.length) return [];
+    const pw = pack.albedo.width, ph = pack.albedo.height;
+    const rect = subjectDrawRect(pw, ph);
+    if (!rect) return [];
+    return tags.filter((t) => t.accepts?.includes(token))
+      .map((t) => ({ x: rect.left + t.x * pw, y: rect.top + t.y * ph, kind: t.kind, z: t.z }));
   }
   /** The EXACT world-screen rect the renderer draws the subject's pack at — the same
    *  structureBox + buildingSpriteItem pair the entity draw list runs (front-tip anchor,
@@ -1230,6 +1248,19 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
         ctx.scale(z, z);
         ctx.translate(Math.round(-camv.x * z) / z, Math.round(-camv.y * z) / z);
         ambient.draw(ctx);
+        ctx.restore();
+      }
+      // Birds (ambient dial): a few settle on the baked roof/gable/chimney perch sockets and flush
+      // in a gale. Keep stepping while any bird is still airborne after the dial turns off so the
+      // flock DRAINS (BirdField flips everyone to leaving on !on) rather than popping out of view.
+      const birdsOn = ambient.state.birds === 'birds';
+      if (birdsOn || birds.count > 0) {
+        birds.step(tagScreenPoints('perch'), dtMs, ambient.state.wind, birdsOn);
+        const camv = rc.camera, z = camv.zoom;
+        ctx.save();
+        ctx.scale(z, z);
+        ctx.translate(Math.round(-camv.x * z) / z, Math.round(-camv.y * z) / z);
+        birds.draw(ctx);
         ctx.restore();
       }
     }
