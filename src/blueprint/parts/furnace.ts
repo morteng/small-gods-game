@@ -52,7 +52,9 @@ export const furnacePartType: PartType = {
       return [
         { prim: 'cylinder', center: [dcx, dcy], baseZ: 0, radius: rDome, height: rz, material: 'stone' },
         { prim: 'ellipsoid', center: [dcx, dcy], baseZ: 0, radii: [rDome, rDome, rz], material: 'stone' },
-        { prim: 'box', at: [fx, fy, 0], size: [fw, fw, fTop], material: 'stone' },
+        // `flueTop`: crown lip + open flue mouth (same treatment as chimney vents) — the
+        // stack keeps its declared height, so the silhouette/read is unchanged bar the top.
+        { prim: 'box', at: [fx, fy, 0], size: [fw, fw, fTop], material: 'stone', flueTop: true },
       ];
     }
 
@@ -70,11 +72,16 @@ export const furnacePartType: PartType = {
       const cowlW = mToTiles(0.5);              // small boxy vent
       const cowlH = mToTiles(0.3);             // squat box (not a tall stack)
       const cowlZ = drumH + capH - mToTiles(0.1); // nestled into the cone tip
+      // The cowl is a VENT — give its top face a shallow open mouth (a plain aperture, no
+      // crown: a masonry crown lip on a squat timber cowl would read mushroom-y, and the
+      // full 0.15 flue recess would punch clean through the 0.15-tall box into the cone).
+      const vw = cowlW * 0.52, vd = 0.06, eps = 0.02;
       return [
         { prim: 'cylinder', center: [cx, cy], baseZ: 0, radius: r, height: drumH, material: 'stone' },
         { prim: 'cone', center: [cx, cy], baseZ: drumH, radius: capR, height: capH, material: 'tile' },
-        // boxy timber cowl nestled at the cone tip.
-        { prim: 'box', at: [cx - cowlW / 2, cy - cowlW / 2, cowlZ], size: [cowlW, cowlW, cowlH], material: 'timber' },
+        // boxy timber cowl nestled at the cone tip, its vent mouth open to the sky.
+        { prim: 'box', at: [cx - cowlW / 2, cy - cowlW / 2, cowlZ], size: [cowlW, cowlW, cowlH], material: 'timber',
+          apertures: [{ at: [cx - vw / 2, cy - vw / 2, cowlZ + cowlH - vd], size: [vw, vw, vd + eps] }] },
       ];
     }
 
@@ -103,11 +110,13 @@ export const furnacePartType: PartType = {
       : mouth === 'west' ? { prim: 'box', at: [x + w - backT, y, 0], size: [backT, h, mouthH], material: 'stone' }
       : mouth === 'south' ? { prim: 'box', at: [x, y, 0], size: [w, backT, mouthH], material: 'stone' }
       : { prim: 'box', at: [x, y + h - backT, 0], size: [w, backT, mouthH], material: 'stone' };
+    // The stack runs to the OLD cap-plate top (flueTop + capT) and `flueTop: true` gives it
+    // the shared crown-lip + open-flue-mouth treatment — the crown replaces the hand-placed
+    // corbelled cap plate at the same silhouette height, now with a hollow mouth.
     return [
       ...cheeks, back,
       { prim: 'box', at: [x, y, mouthH], size: [w, h, breastTop - mouthH], material: 'brick' },
-      { prim: 'box', at: [cx - sw / 2, cy - sh / 2, breastTop], size: [sw, sh, flueTop - breastTop], material: 'brick' },
-      { prim: 'box', at: [cx - sw / 2 - 0.06, cy - sh / 2 - 0.06, flueTop], size: [sw + 0.12, sh + 0.12, capT], material: 'brick' },
+      { prim: 'box', at: [cx - sw / 2, cy - sh / 2, breastTop], size: [sw, sh, flueTop + capT - breastTop], material: 'brick', flueTop: true },
     ];
   },
   toCollision: (p) => cellsOf(p),

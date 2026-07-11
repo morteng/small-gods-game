@@ -750,28 +750,31 @@ function ventProfile(kind: VentKind, v: VentFeature): { cw: number; protrude: nu
   }
 }
 
-/** Crown-lip band height for a hollow chimney (cube-units; 1 = 2 m). The lip lives
+/** Crown-lip band height for a hollow chimney/flue top (cube-units; 1 = 2 m). The lip lives
  *  WITHIN the existing protrusion — the caller drops the stack body to `topZ − CHIMNEY_CROWN_H`
- *  so the vent anchor/topZ and CHIMNEY_PROTRUDE are unchanged. */
-const CHIMNEY_CROWN_H = 0.08;
+ *  so the vent anchor/topZ and CHIMNEY_PROTRUDE are unchanged. Exported for the `flueTop`
+ *  box-prim option in `compose.ts` (furnace flue stacks share the treatment). */
+export const CHIMNEY_CROWN_H = 0.08;
 
 /**
- * Give a masonry chimney stack a HOLLOW top so the img2img init shows the model an open
+ * Give a masonry chimney/flue stack a HOLLOW top so the img2img init shows the model an open
  * flue mouth (a dark recessed square in the G-buffer normal/AO) rather than a capped pillar.
  * The stack body must already terminate at `topZ − CHIMNEY_CROWN_H`. This adds a crown lip
- * (a slab `1.2·cw` square, `CHIMNEY_CROWN_H` tall, same material) spanning up to `topZ`, then
- * subtracts a flue recess (`0.52·cw` square, `CHIMNEY_FLUE_DEPTH` deep) from the top. The
+ * (a slab `1.2·footprint`, `CHIMNEY_CROWN_H` tall, same material) spanning up to `topZ`, then
+ * subtracts a flue recess (`0.52·footprint`, 0.15 units/~0.3 m deep) from the top. The
  * subtraction pokes `eps` ABOVE the crown so the boolean is clean and the top face reads as an
- * open square mouth. Chimney-ONLY — pipes/smokeholes/spires keep their capped tops.
+ * open mouth. `fw`/`fh` are the stack's footprint extents (fh defaults to fw for the square
+ * vent stacks); a rectangular furnace flue keeps its aspect in crown + mouth. Masonry stacks
+ * ONLY — pipes/smokeholes/spires keep their capped tops.
  */
-async function hollowChimneyTop(stack: Manifold, center: Vec2, topZ: number, cw: number): Promise<Manifold> {
+export async function hollowChimneyTop(stack: Manifold, center: Vec2, topZ: number, fw: number, fh: number = fw): Promise<Manifold> {
   const [cx, cy] = center;
-  const crownW = cw * 1.2;          // lip overhangs the stack slightly, like a real chimney cap
-  const flueW = cw * 0.52;          // open mouth, square
+  const crownW = fw * 1.2, crownH2 = fh * 1.2;  // lip overhangs the stack slightly, like a real chimney cap
+  const flueW = fw * 0.52, flueH = fh * 0.52;   // open mouth
   const flueDepth = 0.15;           // ~0.3 m deep recess
   const eps = 0.02;                 // recess clears the crown top for a clean subtraction
-  const crown = await solidBox([cx - crownW / 2, cy - crownW / 2, topZ - CHIMNEY_CROWN_H], [crownW, crownW, CHIMNEY_CROWN_H]);
-  const flue = await solidBox([cx - flueW / 2, cy - flueW / 2, topZ - flueDepth], [flueW, flueW, flueDepth + eps]);
+  const crown = await solidBox([cx - crownW / 2, cy - crownH2 / 2, topZ - CHIMNEY_CROWN_H], [crownW, crownH2, CHIMNEY_CROWN_H]);
+  const flue = await solidBox([cx - flueW / 2, cy - flueH / 2, topZ - flueDepth], [flueW, flueH, flueDepth + eps]);
   return stack.add(crown).subtract(flue);
 }
 

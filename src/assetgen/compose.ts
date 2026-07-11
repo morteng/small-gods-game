@@ -3,8 +3,10 @@ import type { Vec3, RGB, Mat, WorldFacet } from '@/assetgen/types';
 import {
   solidBox, solidBoxYawed, solidBoxRot, solidCylinder, solidCone, solidPrism, solidPyramid, solidWaterwheel, solidEllipsoid,
   manifoldToFacets, buildingFacets, carveApertures, boreCylinder, cylindricalProjector,
+  hollowChimneyTop, CHIMNEY_CROWN_H,
 } from '@/assetgen/geometry/solids';
 import type { ApertureBox } from '@/assetgen/geometry/solids';
+import type { Manifold } from 'manifold-3d';
 import { solidArchCurved, archVoussoirProjector, type ArchStyle } from '@/assetgen/geometry/arch';
 import { solidColumn, columnProjector, type ColumnShape, type ColumnBand } from '@/assetgen/geometry/column';
 import type { Wing, RoofStyle, BuildingFeatures, BuildingAnchors } from '@/assetgen/geometry/building';
@@ -28,7 +30,7 @@ import type { Anchor, MountAnchorKind } from '@/world/anchors';
 // it never influences geometry or any colour channel, so the golden hashes are untouched.
 export type Part = PartVariant & { srcId?: string };
 type PartVariant =
-  | { prim: 'box'; at: Vec3; size: Vec3; material?: Mat; work?: string; finish?: string; tint?: RGB; apertures?: ApertureBox[]; yaw?: number; rot?: Vec3 }
+  | { prim: 'box'; at: Vec3; size: Vec3; material?: Mat; work?: string; finish?: string; tint?: RGB; apertures?: ApertureBox[]; yaw?: number; rot?: Vec3; flueTop?: boolean }
   | { prim: 'cylinder'; center: [number, number]; baseZ: number; radius: number; height: number; material?: Mat; work?: string; finish?: string; tint?: RGB; apertures?: ApertureBox[] }
   | { prim: 'cone'; center: [number, number]; baseZ: number; radius: number; height: number; material?: Mat; finish?: string; tint?: RGB }
   | { prim: 'prism'; center: [number, number]; baseZ: number; radius: number; height: number; sides: number; material?: Mat; work?: string; finish?: string; tint?: RGB }
@@ -106,7 +108,20 @@ export interface StructureResult {
 async function partFacets(p: Part): Promise<{ facets: WorldFacet[]; anchors?: BuildingAnchors; linearAnchors?: LinearWorldAnchors }> {
   switch (p.prim) {
     case 'box': {
-      let s = p.rot ? await solidBoxRot(p.at, p.size, p.rot) : await solidBoxYawed(p.at, p.size, p.yaw);
+      // `flueTop`: an axis-aligned masonry flue stack gets the shared hollow-chimney top —
+      // body stops a crown-lip short of the declared top, then `hollowChimneyTop` adds the
+      // crown + subtracts the open flue mouth, spanning back up to the SAME topZ (the prim's
+      // declared height / silhouette is unchanged). Plain boxes only (no yaw/rot — the
+      // furnace stacks that opt in are axis-aligned).
+      let s: Manifold;
+      if (p.flueTop && !p.rot && !p.yaw) {
+        const body = await solidBox(p.at, [p.size[0], p.size[1], p.size[2] - CHIMNEY_CROWN_H]);
+        s = await hollowChimneyTop(
+          body, [p.at[0] + p.size[0] / 2, p.at[1] + p.size[1] / 2], p.at[2] + p.size[2], p.size[0], p.size[1],
+        );
+      } else {
+        s = p.rot ? await solidBoxRot(p.at, p.size, p.rot) : await solidBoxYawed(p.at, p.size, p.yaw);
+      }
       s = await carveApertures(s, p.apertures);
       return { facets: manifoldToFacets(s.getMesh(), p.material ?? 'stone', p.work, undefined, p.finish, p.tint) };
     }
