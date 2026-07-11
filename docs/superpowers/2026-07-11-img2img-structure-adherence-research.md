@@ -84,3 +84,35 @@ has zero hosted inference).
 
 Full-matrix cost at the new prices: Qwen ≈ $13.5 / flux-general ≈ $34 for ~450 sprites —
 vs ~$6 today, but with the 20%-drift tax removed.
+
+## Pilot RESULTS (2026-07-11, `scripts/pilot-structure-adherence.ts --provider=replicate`)
+
+fal account balance was exhausted (403s, $0) → ran on Replicate (`qwen/qwen-image-edit-2511`
+model endpoint; `xlabs-ai/flux-dev-controlnet` version endpoint, canny from the init,
+`image_to_image_strength` 0.3). <$5 Replicate credit throttles creates to 6/min — the script
+paces + honours `retry_after`. Outputs: `.dev-grabs/pilot-adherence/`.
+
+| preset    | flux-cn IoU | qwen-edit IoU |
+|-----------|------------|---------------|
+| tavern    | 0.898      | **0.994**     |
+| bakehouse | 0.880      | **0.993**     |
+| smithy    | 0.988      | **0.994**     |
+| cottage   | 0.897      | **0.974**     |
+
+(Baseline: FLUX.2 Klein 0.80 on the tavern. Gate today 0.70.)
+
+**Qwen-Image-Edit-2511 wins decisively on BOTH axes** — near-perfect silhouettes AND the
+richest paint (crisp timber framing, brick, tiles; it even painted chimney flues hollow
+unprompted). flux-cn locks structure but barely repaints at i2i 0.3 (init-like, flat) —
+not worth further tuning while qwen exists. Eyeball notes for the adoption pass: bakehouse
+domed oven misread as dark metal + a glassy patch (prompt needs a "clay/stone bread oven
+with dark arched mouth, no glass" clause → qwen-family prompt in `buildingImagePrompt`);
+cottage thatch reads sparse (ask for dense combed courses); tile scale varies between
+buildings (style-consistency work: prescriptive texture-scale language or a style
+reference image — qwen accepts multiple input images).
+
+**Adoption plan:** seeder + runtime client for qwen-edit (Replicate or fal once topped up;
+model id already keys the art cache), raise `MIN_SILHOUETTE_IOU` to 0.9, qwen-family
+prompt preamble; batch with the v31 hollow-flue geometry (`feat/hollow-flue-chimneys`) and
+the Oklab quantizer (`feat/oklab-quantize`) → ONE ART bump → funded reseed
+(52 base ≈ $1.6; 431-variant matrix ≈ $13 at $0.03/img).
