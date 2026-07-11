@@ -21,8 +21,9 @@ import { h } from './theme';
 
 export type Temp = 'cold' | 'mild' | 'hot';
 export type Wind = 'calm' | 'breeze' | 'gust';
+export type Lanterns = 'unlit' | 'lit';
 
-export interface AmbientState { temp: Temp; wind: Wind }
+export interface AmbientState { temp: Temp; wind: Wind; lanterns: Lanterns }
 
 /** A rising smoke puff, in the studio's world-screen (pre-camera-zoom) space — same units the vent
  *  anchors project into, so puffs track the chimney under pan/zoom. */
@@ -115,6 +116,13 @@ const WIND_DIAL: Dial<Wind> = {
     { v: 'gust', icon: '🌪️', hint: 'Gale — the plume tears sideways' },
   ],
 };
+const LANTERN_DIAL: Dial<Lanterns> = {
+  key: 'lanterns', label: 'Lanterns',
+  states: [
+    { v: 'unlit', icon: '🌑', hint: 'Unlit — lamp sockets bare' },
+    { v: 'lit', icon: '🏮', hint: 'Lit — warm glow at the lamp mounts, blooms with the dark' },
+  ],
+};
 
 /**
  * Mount the ambient dial bar (centre-top over the view) and return the live ambient controller.
@@ -122,7 +130,7 @@ const WIND_DIAL: Dial<Wind> = {
  */
 export function buildAmbientDials(viewPane: HTMLElement): AmbientDials {
   const smoke = new SmokeField();
-  const state: AmbientState = { temp: 'mild', wind: 'calm' };
+  const state: AmbientState = { temp: 'mild', wind: 'calm', lanterns: 'unlit' };
 
   const bar = h('div', {
     style: 'position:absolute;top:10px;left:50%;transform:translateX(-50%);z-index:6;display:flex;gap:6px;'
@@ -152,6 +160,7 @@ export function buildAmbientDials(viewPane: HTMLElement): AmbientDials {
   bar.append(
     mkDial(TEMP_DIAL, () => state.temp, (v) => { state.temp = v; if (SMOKE_RATE[v] === 0) smoke.clear(); }),
     mkDial(WIND_DIAL, () => state.wind, (v) => { state.wind = v; }),
+    mkDial(LANTERN_DIAL, () => state.lanterns, (v) => { state.lanterns = v; }),
   );
   viewPane.appendChild(bar);
 

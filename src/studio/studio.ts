@@ -62,6 +62,7 @@ import { buildDock } from './stage-dock';
 import { createRefLib } from './reflib';
 import { buildReferencePanel } from './reference-panel';
 import { buildAmbientDials } from './ambient-dials';
+import { LanternField } from './lantern-field';
 import { buildTimeScrubber } from './time-scrubber';
 import { compassBearings, lightPlot, effectiveLightAz, angleDelta } from './sky-hud';
 import { buildingSpriteItem } from '@/render/iso/iso-building';
@@ -878,6 +879,10 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
   // Ambient dials (centre-top over the view): preview emergent environment effects on the subject
   // — COLD lights a hearth fire → smoke rises from the building's baked chimney-vent anchors.
   const ambient = buildAmbientDials(viewPane);
+  // Lanterns effect field: driven by the LANTERNS dial (ambient.state.lanterns) but owned here
+  // rather than inside ambient-dials.ts, since its points come from `tagScreenPoints('lamp')` —
+  // a studio.ts-only projection (mount-socket tags, not vent anchors) — not from the dial itself.
+  const lanterns = new LanternField();
   // Time-of-day scrubber (bottom-centre over the view): the promoted 90%-case sun control. Drags
   // go through the SAME solar seam the toolbar popover uses (recomputeSun) — cheap live path while
   // dragging, cast-shadow re-bake on release — and a drag flips manual→solar. Two-way sync with the
@@ -913,6 +918,20 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
     const rect = subjectDrawRect(pw, ph);
     if (!rect) return [];
     return vents.map((v) => ({ x: rect.left + v.x * pw, y: rect.top + v.y * ph, id: v.id }));
+  }
+  /** Mount-socket anchors (`anchors.tags` — the lintel/eave/ridge/gable/chimney sockets baked
+   *  by toMountAnchors) that accept `token`, projected into world-screen space exactly like
+   *  ventScreenPoints above (same normalised-anchor → subjectDrawRect mapping). */
+  function tagScreenPoints(token: string): { x: number; y: number; kind: string; z: number }[] {
+    const struct = stagesSubject();
+    const pack = subjectPack();
+    const tags = struct?.anchors?.tags;
+    if (!struct || !pack?.albedo || !tags?.length) return [];
+    const pw = pack.albedo.width, ph = pack.albedo.height;
+    const rect = subjectDrawRect(pw, ph);
+    if (!rect) return [];
+    return tags.filter((t) => t.accepts?.includes(token))
+      .map((t) => ({ x: rect.left + t.x * pw, y: rect.top + t.y * ph, kind: t.kind, z: t.z }));
   }
   /** The EXACT world-screen rect the renderer draws the subject's pack at — the same
    *  structureBox + buildingSpriteItem pair the entity draw list runs (front-tip anchor,
@@ -1230,6 +1249,20 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
         ctx.scale(z, z);
         ctx.translate(Math.round(-camv.x * z) / z, Math.round(-camv.y * z) / z);
         ambient.draw(ctx);
+        ctx.restore();
+      }
+      // Lantern glow: skip the tag-point projection entirely when the dial is unlit (precedent:
+      // smoke's `active` fast-path above). Points are recomputed every frame from the SAME
+      // normalised-anchor → subjectDrawRect mapping ventScreenPoints uses, so pan/zoom/re-roll
+      // track for free; a null subjectDrawRect (plants, stale art) yields [] and the field idles.
+      if (ambient.state.lanterns === 'lit') {
+        const lampPoints = tagScreenPoints('lamp');
+        lanterns.step(lampPoints, dtMs, state.lighting.nightFactor ?? 0);
+        const camv = rc.camera, z = camv.zoom;
+        ctx.save();
+        ctx.scale(z, z);
+        ctx.translate(Math.round(-camv.x * z) / z, Math.round(-camv.y * z) / z);
+        lanterns.draw(ctx);
         ctx.restore();
       }
     }
