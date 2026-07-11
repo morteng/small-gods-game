@@ -22,8 +22,9 @@ import { h } from './theme';
 export type Temp = 'cold' | 'mild' | 'hot';
 export type Wind = 'calm' | 'breeze' | 'gust';
 export type Lanterns = 'unlit' | 'lit';
+export type Birds = 'none' | 'birds';
 
-export interface AmbientState { temp: Temp; wind: Wind; lanterns: Lanterns }
+export interface AmbientState { temp: Temp; wind: Wind; lanterns: Lanterns; birds: Birds }
 
 /** A rising smoke puff, in the studio's world-screen (pre-camera-zoom) space — same units the vent
  *  anchors project into, so puffs track the chimney under pan/zoom. */
@@ -123,6 +124,17 @@ const LANTERN_DIAL: Dial<Lanterns> = {
     { v: 'lit', icon: '🏮', hint: 'Lit — warm glow at the lamp mounts, blooms with the dark' },
   ],
 };
+// Lanterns + Birds are HANDS-OFF dials: they only own the on/off state (the accent-underline marks
+// the non-default), while the effect fields themselves live in the studio (they need the per-frame
+// lamp/perch mount-sockets from `tagScreenPoints`). At 'birds' a few settle on the roof perches and
+// scatter in a gale (see BirdField); at 'lit' the lamp mounts glow with the dark (see LanternField).
+const BIRD_DIAL: Dial<Birds> = {
+  key: 'birds', label: 'Birds',
+  states: [
+    { v: 'none', icon: '🌳', hint: 'Still — no birds about' },
+    { v: 'birds', icon: '🐦', hint: 'Birds — a few alight on the roof perches (they scatter in a gale)' },
+  ],
+};
 
 /**
  * Mount the ambient dial bar (centre-top over the view) and return the live ambient controller.
@@ -130,7 +142,7 @@ const LANTERN_DIAL: Dial<Lanterns> = {
  */
 export function buildAmbientDials(viewPane: HTMLElement): AmbientDials {
   const smoke = new SmokeField();
-  const state: AmbientState = { temp: 'mild', wind: 'calm', lanterns: 'unlit' };
+  const state: AmbientState = { temp: 'mild', wind: 'calm', lanterns: 'unlit', birds: 'none' };
 
   const bar = h('div', {
     style: 'position:absolute;top:10px;left:50%;transform:translateX(-50%);z-index:6;display:flex;gap:6px;'
@@ -161,6 +173,8 @@ export function buildAmbientDials(viewPane: HTMLElement): AmbientDials {
     mkDial(TEMP_DIAL, () => state.temp, (v) => { state.temp = v; if (SMOKE_RATE[v] === 0) smoke.clear(); }),
     mkDial(WIND_DIAL, () => state.wind, (v) => { state.wind = v; }),
     mkDial(LANTERN_DIAL, () => state.lanterns, (v) => { state.lanterns = v; }),
+    // Birds: pure state toggle — the studio owns the BirdField and drains it when this flips to 'none'.
+    mkDial(BIRD_DIAL, () => state.birds, (v) => { state.birds = v; }),
   );
   viewPane.appendChild(bar);
 

@@ -63,6 +63,7 @@ import { createRefLib } from './reflib';
 import { buildReferencePanel } from './reference-panel';
 import { buildAmbientDials } from './ambient-dials';
 import { LanternField } from './lantern-field';
+import { BirdField } from './bird-field';
 import { buildTimeScrubber } from './time-scrubber';
 import { compassBearings, lightPlot, effectiveLightAz, angleDelta } from './sky-hud';
 import { buildingSpriteItem } from '@/render/iso/iso-building';
@@ -879,10 +880,11 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
   // Ambient dials (centre-top over the view): preview emergent environment effects on the subject
   // — COLD lights a hearth fire → smoke rises from the building's baked chimney-vent anchors.
   const ambient = buildAmbientDials(viewPane);
-  // Lanterns effect field: driven by the LANTERNS dial (ambient.state.lanterns) but owned here
-  // rather than inside ambient-dials.ts, since its points come from `tagScreenPoints('lamp')` —
-  // a studio.ts-only projection (mount-socket tags, not vent anchors) — not from the dial itself.
+  // The Lantern/Bird effect fields live here (not in the dial bar) because they need the per-frame
+  // lamp/perch mount-sockets (`tagScreenPoints`) — a studio.ts-only projection; the dials only own
+  // the on/off state the frame loop reads below.
   const lanterns = new LanternField();
+  const birds = new BirdField();
   // Time-of-day scrubber (bottom-centre over the view): the promoted 90%-case sun control. Drags
   // go through the SAME solar seam the toolbar popover uses (recomputeSun) — cheap live path while
   // dragging, cast-shadow re-bake on release — and a drag flips manual→solar. Two-way sync with the
@@ -1263,6 +1265,19 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
         ctx.scale(z, z);
         ctx.translate(Math.round(-camv.x * z) / z, Math.round(-camv.y * z) / z);
         lanterns.draw(ctx);
+        ctx.restore();
+      }
+      // Birds (ambient dial): a few settle on the baked roof/gable/chimney perch sockets and flush
+      // in a gale. Keep stepping while any bird is still airborne after the dial turns off so the
+      // flock DRAINS (BirdField flips everyone to leaving on !on) rather than popping out of view.
+      const birdsOn = ambient.state.birds === 'birds';
+      if (birdsOn || birds.count > 0) {
+        birds.step(tagScreenPoints('perch'), dtMs, ambient.state.wind, birdsOn);
+        const camv = rc.camera, z = camv.zoom;
+        ctx.save();
+        ctx.scale(z, z);
+        ctx.translate(Math.round(-camv.x * z) / z, Math.round(-camv.y * z) / z);
+        birds.draw(ctx);
         ctx.restore();
       }
     }
