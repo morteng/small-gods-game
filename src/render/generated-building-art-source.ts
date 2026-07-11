@@ -122,6 +122,20 @@ export class GeneratedBuildingArtSource {
   // the grey-fallback case — don't bump: nothing new to paint.
   private ver = 0;
   version(): number { return this.ver; }
+  /** Drop every resolved pack AND the vendored-library manifest memo, then bump the art
+   *  revision — freshly seeded art (scripts/seed-building-art.ts writes new manifest rows
+   *  while the page is open) gets re-fetched IN PLACE on the next warm, no reload. The
+   *  studio's ↻-art affordance is the caller; the game never needs this (its library is
+   *  fixed for the session). */
+  refresh(): void {
+    this.cache.clear();
+    this.inflight.clear();
+    this.warned.clear();
+    this.provenance.clear();
+    this.baseManifest = null;
+    this.basePresetIndex = null;
+    this.ver++;
+  }
   private resolve(key: string, pack: SpritePack | null): void {
     this.cache.set(key, pack);
     if (pack) this.ver++;

@@ -6,12 +6,24 @@ import type { SpriteCanvas } from '@/render/iso/sprite-canvas';
 import type { Stage } from './types';
 import { h } from './theme';
 
-export function buildDock(dock: HTMLElement): {
+export function buildDock(dock: HTMLElement, opts?: {
+  /** Persistent action button at the right of the head row (survives every render/message). */
+  action?: { label: string; hint: string; onClick: () => void };
+}): {
   render: (header: string, tiles: Stage[], onClick: (s: Stage) => void) => void;
   message: (m: string) => void;
 } {
   dock.style.cssText += ';display:flex;flex-direction:column;min-height:0';
-  const head = h('div', { class: 'sg-muted', style: 'font-size:10px;padding:6px 11px 4px' });
+  const headText = h('span');
+  const head = h('div', { class: 'sg-muted', style: 'font-size:10px;padding:6px 11px 4px;display:flex;align-items:center;gap:8px' }, headText);
+  if (opts?.action) {
+    const a = opts.action;
+    head.appendChild(h('button', {
+      class: 'sg-btn', text: a.label, title: a.hint,
+      style: 'margin-left:auto;font-size:10px;padding:1px 7px;line-height:1.4',
+      on: { click: a.onClick },
+    }));
+  }
   const strip = h('div', { style: 'flex:1 1 auto;display:flex;gap:10px;overflow-x:auto;align-items:center;padding:0 11px 8px' });
   dock.append(head, strip);
 
@@ -32,10 +44,10 @@ export function buildDock(dock: HTMLElement): {
     return cv;
   };
 
-  function message(m: string): void { head.textContent = m; strip.innerHTML = ''; }
+  function message(m: string): void { headText.textContent = m; strip.innerHTML = ''; }
 
   function render(header: string, tiles: Stage[], onClick: (s: Stage) => void): void {
-    head.textContent = `${header}  ·  click a stage to inspect`;
+    headText.textContent = `${header}  ·  click a stage to inspect`;
     strip.innerHTML = '';
     for (const t of tiles) {
       const cap = h('div', { class: 'sg-muted', style: 'margin-top:4px;white-space:nowrap;font-size:10px', text: t.sub ? `${t.label}  ·  ${t.sub}` : t.label });

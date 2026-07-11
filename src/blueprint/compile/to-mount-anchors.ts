@@ -47,7 +47,18 @@ function roofRiseTiles(part: ResolvedPart): number {
   if (roof === 'saltbox') return GABLE_PITCH * SALTBOX_RIDGE_T * crossTiles;
   if (roof === 'mansard') return MANSARD_RISE_K * (crossTiles / 2);
   const hip = roof === 'hip' || roof === 'pyramidal' || roof === 'half_hip';
-  return (hip ? HIP_PITCH : GABLE_PITCH) * (crossTiles / 2);
+  return (hip ? HIP_PITCH : effectiveGablePitch(part)) * (crossTiles / 2);
+}
+
+/** The gable family's per-part pitch override (body `roofPitch` → wing `pitch`; solids
+ *  `pitchOf(w) = w.pitch ?? GABLE_PITCH`). The v30 shallower-pitch presets AUTHOR this
+ *  (tavern roofPitch 1.05), and the mirror must honour it or every roof socket floats
+ *  ~0.45·half-span above the real ridge — perched birds hung in mid-air, 2026-07-11.
+ *  NOTE the mirror still ignores jetty oversail (roof spans the jettied outline, a few
+ *  px of extra rise on jettied presets) — accepted tolerance, same as before. */
+function effectiveGablePitch(part: ResolvedPart): number {
+  const p = part.params.roofPitch as number | undefined;
+  return typeof p === 'number' && p > 0 ? p : GABLE_PITCH;
 }
 
 /** Eave (wall-top) and ridge (crest) height in METRES for a body-like part. */

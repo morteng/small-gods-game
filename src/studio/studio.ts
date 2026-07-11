@@ -810,7 +810,14 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
       if (target > state.dockH + 1) { state.dockH = target; dock.style.height = `${target}px`; resize(); }
     });
   });
-  const dockUi = buildDock(bottom.pipelineBody);
+  const dockUi = buildDock(bottom.pipelineBody, {
+    // Re-fetch painted art IN PLACE after an out-of-process reseed (seed-building-art.ts
+    // writes new manifest rows while the tab is open) — the studio must never need a
+    // page reload to see fresh content. Drops the art source's manifest memo + packs
+    // (genBuilding.refresh bumps its version, which buildingArtRev folds in) and the
+    // studio's own compose/pack caches; the frame loop lazily re-warms everything.
+    action: { label: '↻ art', hint: 'Re-fetch painted sprites from the library / IDB (after a reseed) — no reload needed', onClick: () => { genBuilding.refresh(); invalidate(); } },
+  });
   // TTI reference-library loader (dev-only /__reflib): each subject that has a text-to-image
   // reference gets it shown in the Reference dock tab — a manual eval tool (our sprite vs ref).
   const refLib = createRefLib();
@@ -1272,7 +1279,18 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
       // flock DRAINS (BirdField flips everyone to leaving on !on) rather than popping out of view.
       const birdsOn = ambient.state.birds === 'birds';
       if (birdsOn || birds.count > 0) {
-        birds.step(tagScreenPoints('perch'), dtMs, ambient.state.wind, birdsOn);
+        // Perch sockets, with chimney tops SNAPPED onto the nearest vent anchor: the vents are
+        // the geometry-projected stack mouths (pixel-true, the verified smoke emitters), while
+        // to-mount-anchors mirrors the stack layout analytically and has drifted a tile or two
+        // on the re-massed trade presets — a bird must stand ON the cap, not hover beside it.
+        const ventPts = ventScreenPoints();
+        const perchPts = tagScreenPoints('perch').map((p) => {
+          if (p.kind !== 'chimney_top' || !ventPts.length) return p;
+          let best = ventPts[0], bd = Infinity;
+          for (const v of ventPts) { const d = (v.x - p.x) ** 2 + (v.y - p.y) ** 2; if (d < bd) { bd = d; best = v; } }
+          return { ...p, x: best.x, y: best.y };
+        });
+        birds.step(perchPts, dtMs, ambient.state.wind, birdsOn);
         const camv = rc.camera, z = camv.zoom;
         ctx.save();
         ctx.scale(z, z);
