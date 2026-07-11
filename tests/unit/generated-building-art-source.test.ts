@@ -373,11 +373,15 @@ describe('GeneratedBuildingArtSource validation gate', () => {
     expect(cachePut).not.toHaveBeenCalled();
   });
 
-  it('tolerates moderate silhouette deviation (IoU 0.75 passes the relaxed gate)', async () => {
-    const { src, cachePut } = makeSource({ decodeImage: async () => lShapeLlm() });
+  it('rejects moderate silhouette deviation (IoU 0.75 fails the tightened 0.9 gate)', async () => {
+    // Under the FLUX-era 0.7 gate this L-shape (IoU 0.75) was welcomed as
+    // "artistic deviation"; with qwen-edit reliably delivering 0.97+, the gate
+    // is 0.9 and a carved-away corner is real drift — reject, never persist.
+    const { src, generate, cachePut } = makeSource({ decodeImage: async () => lShapeLlm() });
     const e = entity('cottage'); src.warm(e);
-    await vi.waitFor(() => expect(src.peek(e)?.albedo).toBe(SPRITE));
-    expect(cachePut).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(generate).toHaveBeenCalledTimes(2));
+    expect(src.peek(e)).toBeNull();
+    expect(cachePut).not.toHaveBeenCalled();
   });
 
   it('a failed first attempt that succeeds on retry is persisted', async () => {

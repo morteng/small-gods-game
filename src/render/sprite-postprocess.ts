@@ -312,9 +312,11 @@ export function registerAlbedo(
 }
 
 // ---------------------------------------------------------------------------
-// Oklab k-means quantizer + ordered dither (additive, NOT wired into the
-// pipeline yet — see docs/superpowers/2026-07-11-img2img-structure-adherence-
-// research.md). quantizePalette above buckets in raw sRGB, which distorts
+// Oklab k-means quantizer + ordered dither — THE building img2img pipeline's
+// quantize pass since the qwen-edit adoption (generated-building-art-source,
+// seed-building-art, the studio's paid-render preview); see docs/superpowers/
+// 2026-07-11-img2img-structure-adherence-research.md. quantizePalette above
+// remains for flora + old callers. It buckets in raw sRGB, which distorts
 // perceptual distance (sRGB is not uniform — a step in blue reads far louder
 // than the same step in green) and its callers do no dithering at all, so
 // smooth gradients band. This quantizer clusters in Oklab (perceptually
@@ -378,8 +380,8 @@ function bayerOffset(x: number, y: number): number {
 
 /**
  * Perceptual (Oklab) k-means palette reduction with an optional ordered
- * (Bayer 4x4) dither, as an alternative to {@link quantizePalette} above.
- * NOT wired into any caller — see the file-level comment. Fully transparent
+ * (Bayer 4x4) dither, replacing {@link quantizePalette} in the building
+ * img2img pipeline (see the file-level comment). Fully transparent
  * pixels are untouched and alpha is preserved exactly; the input raster is
  * never mutated.
  *

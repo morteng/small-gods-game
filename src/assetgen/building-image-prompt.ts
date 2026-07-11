@@ -28,7 +28,7 @@ import { MATERIAL_RGB, type Mat } from '@/assetgen/types';
 import { CHROMA_RGB } from '@/render/chroma-key';
 import { METRES_PER_TILE } from '@/render/scale-contract';
 
-export type ImageModelFamily = 'gemini' | 'openai' | 'flux' | 'generic';
+export type ImageModelFamily = 'gemini' | 'openai' | 'flux' | 'qwen' | 'generic';
 
 // Iso-3q screen direction each wall face presents (2:1 projection: +y→lower-left,
 // +x→lower-right). South is the canonical front, lower-left — what the player sees.
@@ -342,6 +342,7 @@ export function ttiReferencePrompt(rb: ResolvedBlueprint): string {
 export function imageModelFamily(model: string): ImageModelFamily {
   const m = model.toLowerCase();
   if (m.includes('gemini')) return 'gemini';            // check first: gemini ids also contain "-image"
+  if (m.includes('qwen')) return 'qwen';                // before flux: qwen edit ids may reference other stacks
   if (m.includes('gpt') || m.startsWith('openai/')) return 'openai';
   if (m.includes('flux') || m.includes('black-forest')) return 'flux';
   return 'generic';
@@ -405,13 +406,38 @@ const FLAT_ALBEDO =
   `shadows, no strong directional sun and no darkened sides; the game engine adds the lighting.`;
 
 // The edit verb per family. FLUX/OpenAI take an i2i "repaint the reference" instruction;
-// gemini phrases it as "redraw the attached reference".
+// gemini phrases it as "redraw the attached reference"; qwen (an instruction-editing
+// model) takes the same repaint verb as FLUX — the pilot's winning prompt WAS the flux
+// prompt plus the ADHERENCE clause below.
 const EDIT_VERB: Record<ImageModelFamily, string> = {
   flux: 'Repaint the attached colour-coded massing render as',
   openai: 'Repaint the attached colour-coded reference as',
   gemini: 'Using the attached colour-coded massing render as the structural reference, redraw it as',
+  qwen: 'Repaint the attached colour-coded massing render as',
   generic: 'Redraw the attached colour-coded reference as',
 };
+
+// Qwen-Image-Edit is an INSTRUCTION-editing model: it follows an explicit "change only
+// this, keep that" edit contract far more literally than a diffusion i2i pass. This exact
+// sentence is the pilot-validated adherence clause (IoU 0.974–0.994 vs 0.80 baseline,
+// docs/superpowers/2026-07-11-img2img-structure-adherence-research.md) — appended as the
+// FINAL clause of the qwen prompt. Do not reword without re-measuring.
+const QWEN_ADHERENCE =
+  'Repaint surfaces only: keep the exact silhouette, roof pitch, eave lines and outline ' +
+  'of the input image unchanged, and keep the background pure magenta.';
+
+/** Qwen-only texture hints, each EARNED by a material actually present in this asset's
+ *  compiled geometry (pilot eyeball findings: sparse thatch; tile/brick texture-element
+ *  scale drifting between buildings — the real footprint is already stated by
+ *  scaleDescription, so the hint pins texture elements to it). */
+function qwenMaterialHints(mats: Mat[]): string {
+  const bits: string[] = [];
+  if (mats.includes('thatch')) bits.push('Render thatch as dense, tightly combed straw courses.');
+  if (mats.includes('tile') || mats.includes('brick')) {
+    bits.push('Keep roof tiles and bricks at true real-world scale for the stated footprint (tiles a hand-span across).');
+  }
+  return bits.join(' ');
+}
 
 /**
  * The img2img prompt for `rb` targeting `model`. Subject-first, an EDIT instruction
@@ -423,7 +449,8 @@ export function buildingImagePrompt(rb: ResolvedBlueprint, model: string): strin
   const family = imageModelFamily(model);
   const subject = describeSubject(rb);
   const geom = geometryDescription(rb);
-  const legend = referenceKey(presentMaterials(spec));
+  const mats = presentMaterials(spec);
+  const legend = referenceKey(mats);
   const custom = customization(rb);
 
   // The silhouette-adherence clause is subject-appropriate: a walled building must
@@ -438,15 +465,19 @@ export function buildingImagePrompt(rb: ResolvedBlueprint, model: string): strin
 
   // Subject leads (word order is weighted); then the edit verb + output style with the
   // single preservation clause; the real geometry; the colour map; customisation; one
-  // short richness cue; the background contract. No generic filler.
+  // short richness cue; the background contract. No generic filler. Qwen (instruction-
+  // editing) additionally gets material-earned texture hints and, as the FINAL clause,
+  // the pilot-validated adherence sentence.
   return [
     `${subject} — ${EDIT_VERB[family]} a crisp 2D isometric pixel-art game sprite ` +
       `(2:1 perspective). ${within}`,
     geom,
     legend,
     `Place each material in its reference region, then render rich textures and period weathering.`,
+    family === 'qwen' ? qwenMaterialHints(mats) : '',
     custom,
     FLAT_ALBEDO,
     BACKGROUND,
+    family === 'qwen' ? QWEN_ADHERENCE : '',
   ].filter(Boolean).join(' ');
 }

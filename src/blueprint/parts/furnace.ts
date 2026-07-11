@@ -126,7 +126,7 @@ export const furnacePartType: PartType = {
   // prompt-truth guard bans for absent features (no "chimney" — a flue is not a chimney).
   toBrief: (p) => {
     const kind = (p.params.kind as string) ?? 'forge';
-    if (kind === 'oven') return 'a domed masonry bread oven with a slim flue, bulging from one gable';
+    if (kind === 'oven') return 'a domed bread oven of bare clay and stone with a dark arched mouth and a slim flue, bulging from one gable';
     if (kind === 'kiln') return 'an oast kiln — a stone drum under a conical cap with a timber cowl';
     return 'an open forge hearth under a tall brick flue';
   },

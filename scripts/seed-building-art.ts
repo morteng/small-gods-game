@@ -1,11 +1,15 @@
 /**
  * Seed the vendored building-sprite base library through the SAME pipeline the
- * game uses at runtime (geometry init → OpenRouter img2img → chroma-key →
+ * game uses at runtime (geometry init → img2img paint model → chroma-key →
  * validate → register → quantize), so keyless players get real art and the
  * IndexedDB runtime cache only ever fills gaps (novel/patched blueprints).
  *
- *   OPENROUTER_API_KEY=… npx tsx scripts/seed-building-art.ts [preset…]
+ *   REPLICATE_API_TOKEN=… npx tsx scripts/seed-building-art.ts [preset…]
  *   npx tsx scripts/seed-building-art.ts --plan        # no key: print key/prompt per preset, no API calls
+ *
+ * The default model (BUILDING_IMAGE_MODEL) is qwen-image-edit-2511 on Replicate
+ * — REPLICATE_API_TOKEN is required; OPENROUTER_API_KEY only matters for a
+ * non-qwen model override.
  *
  * Key identity matches the runtime exactly: worldgen synthesizes blueprints with
  * no patches and a name-derived seed (building-placer.ts), and the cache key is
@@ -29,12 +33,13 @@ import { buildingImagePrompt } from '../src/assetgen/building-image-prompt';
 import { compositeOverChroma, chromaKeyMagenta } from '../src/render/chroma-key';
 import { canonicalJson, generatedArtKey } from '../src/render/generated-art-cache';
 import {
-  type Raster, cropRaster, borderKeyedFraction, registerAlbedo, quantizePalette,
+  type Raster, cropRaster, borderKeyedFraction, registerAlbedo, quantizePaletteOklab,
 } from '../src/render/sprite-postprocess';
 import {
   MIN_BORDER_KEYED, MIN_SILHOUETTE_IOU, QUANT_COLORS,
 } from '../src/render/generated-building-art-source';
-import { generateBuildingImage, BuildingImageError, BUILDING_IMAGE_MODEL } from '../src/llm/openrouter-image-client';
+import { BuildingImageError } from '../src/llm/openrouter-image-client';
+import { generateBuildingImageAuto, isReplicateImageModel, BUILDING_IMAGE_MODEL } from '../src/llm/building-image';
 import { ART_RECIPE_VERSION } from '../src/core/content-version';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -55,8 +60,19 @@ interface Manifest { recipeVersion?: string; model: string; entries: Record<stri
 const safeName = (key: string) => key.replace(/[^a-zA-Z0-9._-]/g, '_');
 
 const plan = process.argv.includes('--plan');
+// The default model is Replicate-hosted (qwen) → REPLICATE_API_TOKEN pays; an
+// OpenRouter key is only consulted for non-qwen model overrides. --plan and
+// --relink stay $0 / key-free.
+const modelIsReplicate = isReplicateImageModel(BUILDING_IMAGE_MODEL);
 const apiKey = process.env.OPENROUTER_API_KEY;
-if (!apiKey && !plan && !process.argv.includes('--relink')) { console.error('OPENROUTER_API_KEY not set. Aborting.'); process.exit(1); }
+const replicateToken = process.env.REPLICATE_API_TOKEN;
+if (!plan && !process.argv.includes('--relink')) {
+  if (modelIsReplicate && !replicateToken) {
+    console.error(`REPLICATE_API_TOKEN not set (${BUILDING_IMAGE_MODEL} is Replicate-hosted). Aborting.`);
+    process.exit(1);
+  }
+  if (!modelIsReplicate && !apiKey) { console.error('OPENROUTER_API_KEY not set. Aborting.'); process.exit(1); }
+}
 
 const force = process.argv.includes('--force');
 // Rebuild manifest rows from PNGs already on disk — NO API calls. Salvages sprites
@@ -130,9 +146,12 @@ async function seedResolved(preset: string, rb: ResolvedBlueprint, manifest: Man
     // The model intermittently returns a text-only response (no image), which
     // throws; treat it as a failed attempt and retry rather than aborting the
     // whole batch (the same goes for transient network errors).
-    let res: Awaited<ReturnType<typeof generateBuildingImage>>;
+    let res: Awaited<ReturnType<typeof generateBuildingImageAuto>>;
     try {
-      res = await generateBuildingImage({ apiKey: apiKey! }, { initImageDataUri: initDataUri, prompt });
+      res = await generateBuildingImageAuto(
+        { openrouter: { apiKey: apiKey ?? '' }, replicate: { apiToken: replicateToken } },
+        { initImageDataUri: initDataUri, prompt, model: BUILDING_IMAGE_MODEL },
+      );
     } catch (err) {
       // A spend-limit / bad-key failure will hit every subsequent call too — abort
       // the whole batch (caught in main) rather than burning attempts and quota.
@@ -148,7 +167,8 @@ async function seedResolved(preset: string, rb: ResolvedBlueprint, manifest: Man
     const reg = registerAlbedo(raw, mask);
     if (!reg) { console.warn(`${preset}: attempt ${attempt} — nothing survived keying`); continue; }
     if (reg.iou < MIN_SILHOUETTE_IOU) { console.warn(`${preset}: attempt ${attempt} — silhouette IoU ${reg.iou.toFixed(2)} < ${MIN_SILHOUETTE_IOU}`); continue; }
-    const sprite = quantizePalette(reg.sprite, QUANT_COLORS);
+    // Same perceptual quantize as the runtime source (Oklab + Bayer dither).
+    const sprite = quantizePaletteOklab(reg.sprite, QUANT_COLORS, { dither: 'bayer4' });
 
     const base = safeName(key);
     const entry: ManifestEntry = {
@@ -260,11 +280,14 @@ async function main() {
   // Bounded worker pool over the job list. img2img is network-bound, so
   // overlapping calls is a real wall-time win (esp. --matrix). CONCURRENCY
   // multiplies the SPEND RATE (N calls burn budget N× faster), NOT the total —
-  // default a conservative 4, tunable via SEED_CONCURRENCY; if OpenRouter 429s,
-  // dial it down. --plan stays serial so the dry run prints in order. A fatal
+  // tunable via SEED_CONCURRENCY; if the provider 429s, dial it down. For a
+  // Replicate model the default is 1: the client's proactive create pacing
+  // (11s between creates on low-credit accounts) serializes requests anyway,
+  // so extra workers would only queue behind the pacer. OpenRouter keeps the
+  // conservative 4. --plan stays serial so the dry run prints in order. A fatal
   // error (spend limit / bad key) sets `aborted`, which stops workers from
   // pulling new jobs; in-flight jobs drain.
-  const CONCURRENCY = plan ? 1 : Math.max(1, Number(process.env.SEED_CONCURRENCY) || 4);
+  const CONCURRENCY = plan ? 1 : Math.max(1, Number(process.env.SEED_CONCURRENCY) || (modelIsReplicate ? 1 : 4));
   let cursor = 0;
   async function worker(): Promise<void> {
     while (cursor < jobs.length && !abort.err) {

@@ -1,14 +1,15 @@
 import { defineConfig, loadEnv } from 'vite';
 import { resolve } from 'path';
 import { promoteAssetPlugin } from './vite-plugins/promote-asset';
-import { llmProxyPlugin } from './vite-plugins/llm-proxy';
+import { llmProxyPlugin, replicateProxyPlugin } from './vite-plugins/llm-proxy';
 import { busBridgePlugin } from './vite-plugins/bus-bridge';
 import { grabSinkPlugin } from './vite-plugins/grab-sink';
 import { reflibSinkPlugin } from './vite-plugins/reflib-sink';
 
 export default defineConfig(({ command, mode }) => {
-  // Load the (non-VITE_-prefixed) OpenRouter key for the dev LLM proxy. Handed
-  // only to the dev-server middleware — never bundled into client code.
+  // Load the (non-VITE_-prefixed) OpenRouter key + Replicate token for the dev
+  // proxies. Handed only to the dev-server middleware — never bundled into
+  // client code.
   const env = loadEnv(mode, process.cwd(), '');
   // Dev-tools gate. The dev server always has them; a production build includes
   // them only under `--mode devtools` (npm run build:dev). A plain `vite build`
@@ -22,7 +23,7 @@ export default defineConfig(({ command, mode }) => {
     // server and tests run at '/'. Only the production build gets the subpath.
     // Override with VITE_BASE (e.g. a custom domain or renamed repo).
     base: command === 'build' ? (process.env.VITE_BASE ?? '/small-gods-game/') : '/',
-    plugins: [promoteAssetPlugin(), llmProxyPlugin(env.OPENROUTER_API_KEY), busBridgePlugin(), grabSinkPlugin(), reflibSinkPlugin()],
+    plugins: [promoteAssetPlugin(), llmProxyPlugin(env.OPENROUTER_API_KEY), replicateProxyPlugin(env.REPLICATE_API_TOKEN), busBridgePlugin(), grabSinkPlugin(), reflibSinkPlugin()],
     server: { port: 3000 },
     build: {
       outDir: 'dist',
