@@ -310,3 +310,192 @@ export function registerAlbedo(
   }
   return { sprite, iou };
 }
+
+// ---------------------------------------------------------------------------
+// Oklab k-means quantizer + ordered dither (additive, NOT wired into the
+// pipeline yet — see docs/superpowers/2026-07-11-img2img-structure-adherence-
+// research.md). quantizePalette above buckets in raw sRGB, which distorts
+// perceptual distance (sRGB is not uniform — a step in blue reads far louder
+// than the same step in green) and its callers do no dithering at all, so
+// smooth gradients band. This quantizer clusters in Oklab (perceptually
+// closer to uniform) and offers an ORDERED (Bayer) dither instead of
+// error-diffusion: diffusion drags quantization error sideways across a row,
+// which smears the renderer's banded-lighting edges; a fixed 4x4 threshold
+// tile does not.
+// ---------------------------------------------------------------------------
+
+/**
+ * sRGB [0,255] -> Oklab, per Björn Ottosson's reference matrices
+ * (https://bottosson.github.io/posts/oklab/). Returns [L, a, b] where L is
+ * roughly perceptual lightness in [0,1] and a/b are the opponent axes.
+ */
+function rgbToOklab(r: number, g: number, b: number): [number, number, number] {
+  const toLinear = (c: number) => {
+    const cs = c / 255;
+    return cs <= 0.04045 ? cs / 12.92 : ((cs + 0.055) / 1.055) ** 2.4;
+  };
+  const lr = toLinear(r), lg = toLinear(g), lb = toLinear(b);
+  const l = 0.4122214708 * lr + 0.5363325363 * lg + 0.0514459929 * lb;
+  const m = 0.2119034982 * lr + 0.6806995451 * lg + 0.1073969566 * lb;
+  const s = 0.0883024619 * lr + 0.2817188376 * lg + 0.6299787005 * lb;
+  const l_ = Math.cbrt(l), m_ = Math.cbrt(m), s_ = Math.cbrt(s);
+  return [
+    0.2104542553 * l_ + 0.7936177850 * m_ - 0.0040720468 * s_,
+    1.9779984951 * l_ - 2.4285922050 * m_ + 0.4505937099 * s_,
+    0.0259040371 * l_ + 0.7827717662 * m_ - 0.8086757660 * s_,
+  ];
+}
+
+/** Inverse of {@link rgbToOklab}, clamped + rounded back to sRGB [0,255] ints. */
+function oklabToRgb(L: number, a: number, bb: number): [number, number, number] {
+  const l_ = L + 0.3963377774 * a + 0.2158037573 * bb;
+  const m_ = L - 0.1055613458 * a - 0.0638541728 * bb;
+  const s_ = L - 0.0894841775 * a - 1.2914855480 * bb;
+  const l = l_ ** 3, m = m_ ** 3, s = s_ ** 3;
+  const lr = 4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s;
+  const lg = -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s;
+  const lb = -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s;
+  const toSrgb = (c: number) => {
+    const cs = c <= 0.0031308 ? c * 12.92 : 1.055 * Math.max(c, 0) ** (1 / 2.4) - 0.055;
+    return Math.max(0, Math.min(255, Math.round(cs * 255)));
+  };
+  return [toSrgb(lr), toSrgb(lg), toSrgb(lb)];
+}
+
+// Standard 4x4 Bayer threshold tile (values 0..15 spread for maximal
+// dispersion). Indexed [y&3][x&3] so it tiles seamlessly across any sprite.
+const BAYER4: readonly (readonly number[])[] = [
+  [0, 8, 2, 10],
+  [12, 4, 14, 6],
+  [3, 11, 1, 9],
+  [15, 7, 13, 5],
+];
+
+/** Bayer threshold normalized to [-0.5, 0.5). */
+function bayerOffset(x: number, y: number): number {
+  return (BAYER4[y & 3][x & 3] + 0.5) / 16 - 0.5;
+}
+
+/**
+ * Perceptual (Oklab) k-means palette reduction with an optional ordered
+ * (Bayer 4x4) dither, as an alternative to {@link quantizePalette} above.
+ * NOT wired into any caller — see the file-level comment. Fully transparent
+ * pixels are untouched and alpha is preserved exactly; the input raster is
+ * never mutated.
+ *
+ * Determinism: k-means needs a seed, and this codebase forbids `Math.random`
+ * anywhere sim-adjacent and prizes determinism everywhere, so initial
+ * centroids are chosen by a fixed stratified sample over OPAQUE pixels
+ * sorted by Oklab lightness (no RNG) rather than randomly seeded — same
+ * input always produces byte-identical output.
+ *
+ * Dithering (`dither: 'bayer4'`) perturbs each pixel's Oklab L by a fixed
+ * 4x4 threshold tile BEFORE the nearest-palette lookup (never stored), so
+ * neighbouring pixels straddling a palette boundary alternate between the
+ * two nearest colours instead of banding. The perturbation amplitude is set
+ * to roughly HALF the mean gap between adjacent (lightness-sorted) palette
+ * entries: large enough that a pixel sitting between two palette lights
+ * actually dithers between them, small enough that it can only ever hop to
+ * its immediate neighbour, never skip a whole palette band into a
+ * perceptually wrong colour.
+ */
+export function quantizePaletteOklab(
+  sprite: Raster,
+  colors: number,
+  opts: { dither?: 'none' | 'bayer4' } = {},
+): Raster {
+  const dither = opts.dither ?? 'none';
+  const out: Raster = { data: new Uint8ClampedArray(sprite.data), w: sprite.w, h: sprite.h };
+
+  // Distinct opaque colours, keyed exactly (not bucketed) — row-major scan
+  // order, so downstream ordering (and thus k-means) is deterministic.
+  const distinctMap = new Map<number, { r: number; g: number; b: number; n: number }>();
+  for (let i = 0; i < sprite.w * sprite.h; i++) {
+    if (sprite.data[i * 4 + 3] < ALPHA_MIN) continue;
+    const cr = sprite.data[i * 4], cg = sprite.data[i * 4 + 1], cb = sprite.data[i * 4 + 2];
+    const key = (cr << 16) | (cg << 8) | cb;
+    const e = distinctMap.get(key);
+    if (e) e.n++; else distinctMap.set(key, { r: cr, g: cg, b: cb, n: 1 });
+  }
+  if (distinctMap.size === 0 || colors <= 0) return out;
+
+  interface Pt { r: number; g: number; b: number; n: number; L: number; a: number; bb: number }
+  const distinct: Pt[] = [...distinctMap.values()].map((e) => {
+    const [L, a, bb] = rgbToOklab(e.r, e.g, e.b);
+    return { ...e, L, a, bb };
+  });
+
+  let paletteRgb: [number, number, number][];
+  let paletteLab: [number, number, number][];
+
+  if (distinct.length <= colors) {
+    // Fewer distinct colours than the budget — every colour IS a centroid.
+    paletteRgb = distinct.map((p) => [p.r, p.g, p.b]);
+    paletteLab = distinct.map((p) => [p.L, p.a, p.bb]);
+  } else {
+    // Deterministic init: stratified sample over lightness-sorted points
+    // (no RNG — see the doc comment above).
+    const byLum = [...distinct].sort((p, q) => p.L - q.L);
+    const centroids: [number, number, number][] = [];
+    for (let i = 0; i < colors; i++) {
+      const idx = Math.min(byLum.length - 1, Math.floor(((i + 0.5) * byLum.length) / colors));
+      centroids.push([byLum[idx].L, byLum[idx].a, byLum[idx].bb]);
+    }
+    const assign = new Int32Array(distinct.length).fill(-1);
+    for (let iter = 0; iter < 30; iter++) {
+      let changed = false;
+      for (let i = 0; i < distinct.length; i++) {
+        const p = distinct[i];
+        let best = 0, bestD = Infinity;
+        for (let c = 0; c < centroids.length; c++) {
+          const cc = centroids[c];
+          const dL = p.L - cc[0], da = p.a - cc[1], db = p.bb - cc[2];
+          const d = dL * dL + da * da + db * db;
+          if (d < bestD) { bestD = d; best = c; }
+        }
+        if (assign[i] !== best) { assign[i] = best; changed = true; }
+      }
+      const sums = centroids.map(() => ({ L: 0, a: 0, b: 0, n: 0 }));
+      for (let i = 0; i < distinct.length; i++) {
+        const p = distinct[i], s = sums[assign[i]];
+        s.L += p.L * p.n; s.a += p.a * p.n; s.b += p.bb * p.n; s.n += p.n;
+      }
+      for (let c = 0; c < centroids.length; c++) {
+        if (sums[c].n > 0) centroids[c] = [sums[c].L / sums[c].n, sums[c].a / sums[c].n, sums[c].b / sums[c].n];
+      }
+      if (!changed) break;
+    }
+    paletteLab = centroids;
+    paletteRgb = centroids.map(([L, a, bb]) => oklabToRgb(L, a, bb));
+  }
+
+  let ditherAmp = 0;
+  if (dither === 'bayer4' && paletteLab.length > 1) {
+    const ls = paletteLab.map((p) => p[0]).sort((a, b) => a - b);
+    let gapSum = 0;
+    for (let i = 1; i < ls.length; i++) gapSum += ls[i] - ls[i - 1];
+    ditherAmp = gapSum / (ls.length - 1) / 2;
+  }
+
+  const okCache = new Map<number, [number, number, number]>();
+  for (const p of distinct) okCache.set((p.r << 16) | (p.g << 8) | p.b, [p.L, p.a, p.bb]);
+
+  for (let y = 0; y < sprite.h; y++) for (let x = 0; x < sprite.w; x++) {
+    const i = y * sprite.w + x, o = i * 4;
+    if (out.data[o + 3] < ALPHA_MIN) continue;
+    const key = (out.data[o] << 16) | (out.data[o + 1] << 8) | out.data[o + 2];
+    const lab = okCache.get(key)!;
+    const L = dither === 'bayer4' && ditherAmp > 0 ? lab[0] + bayerOffset(x, y) * ditherAmp : lab[0];
+    let best = 0, bestD = Infinity;
+    for (let c = 0; c < paletteLab.length; c++) {
+      const cc = paletteLab[c];
+      const dL = L - cc[0], da = lab[1] - cc[1], db = lab[2] - cc[2];
+      const d = dL * dL + da * da + db * db;
+      if (d < bestD) { bestD = d; best = c; }
+    }
+    out.data[o] = paletteRgb[best][0];
+    out.data[o + 1] = paletteRgb[best][1];
+    out.data[o + 2] = paletteRgb[best][2];
+  }
+  return out;
+}
