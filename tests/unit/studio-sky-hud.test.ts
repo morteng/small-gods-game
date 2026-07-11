@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   compassBearings, celestialPlot, scrubFraction, scrubHour, DAY_GRADIENT, dayGradientCss,
+  effectiveLightAz, angleDelta,
 } from '@/studio/sky-hud';
 import { worldToScreen } from '@/render/iso/iso-projection';
 import { clockLabel } from '@/render/solar';
@@ -66,6 +67,63 @@ describe('sky-hud celestial plot', () => {
     const s = celestialPlot(180, 30, PI2);
     const bS = find(compassBearings(PI2), 'S');
     expect(s.angleRad).toBeCloseTo(bS.angleRad, 6);
+  });
+});
+
+describe('sky-hud world-anchored sun (effectiveLightAz)', () => {
+  const R2D = 180 / Math.PI;
+
+  it('folding yaw into the azimuth is identical to celestialPlot folding it into the rose', () => {
+    // The studio lights the sprite at effectiveLightAz(az, yaw) and plots the dot at
+    // celestialPlot(az, ·, yaw); the two must resolve to the SAME screen bearing at every
+    // yaw, else the sun dot and the cast shadow drift apart as you orbit.
+    for (const az of [0, 90, 180, 270, 37]) {
+      for (const yaw of [0, Math.PI / 2, Math.PI, Math.PI / 4, -1.3]) {
+        const folded = celestialPlot(az, 30, yaw);          // dot: yaw folded by the rotor
+        const shifted = celestialPlot(effectiveLightAz(az, yaw), 30, 0);  // light: yaw folded into az
+        expect(shifted.angleRad).toBeCloseTo(folded.angleRad, 6);
+        expect(shifted.x).toBeCloseTo(folded.x, 6);
+        expect(shifted.y).toBeCloseTo(folded.y, 6);
+      }
+    }
+  });
+
+  it('a due-south world sun lights the model south face at every yaw', () => {
+    // az 180 (world S) must land on the model S bearing for any orbit — the light az the
+    // studio feeds sunDirFromAngles (effectiveLightAz) reproduces exactly that bearing.
+    for (const yaw of [0, Math.PI / 2, Math.PI, 1.1]) {
+      const bS = find(compassBearings(yaw), 'S');
+      const lit = celestialPlot(effectiveLightAz(180, yaw), 20, 0);
+      expect(lit.angleRad).toBeCloseTo(bS.angleRad, 6);
+    }
+  });
+
+  it('yaw 0 is a no-op and the fold is offset-invariant (works on studio az too)', () => {
+    expect(effectiveLightAz(90, 0)).toBeCloseTo(90, 6);
+    expect(effectiveLightAz(350, Math.PI / 2)).toBeCloseTo((350 + 90) % 360, 6);
+    // AZ_OFFSET-shifted studio az and true az fold by the same +yaw degrees, so the
+    // difference between two azimuths is preserved by the fold (offset-invariant).
+    const yaw = Math.PI / 3;
+    expect(((effectiveLightAz(90, yaw) - effectiveLightAz(180, yaw)) % 360 + 360) % 360)
+      .toBeCloseTo(((90 - 180) % 360 + 360) % 360, 6);
+    // adding a full turn of yaw returns the same azimuth
+    expect(effectiveLightAz(45, Math.PI * 2)).toBeCloseTo(45, 6);
+    // the shift magnitude is exactly the yaw in degrees
+    expect(effectiveLightAz(0, 1)).toBeCloseTo((R2D) % 360, 6);
+  });
+});
+
+describe('sky-hud rose-drag angle (angleDelta)', () => {
+  it('returns the signed shortest delta and crosses the ±π seam cleanly', () => {
+    expect(angleDelta(0, 1)).toBeCloseTo(1, 9);
+    expect(angleDelta(1, 0)).toBeCloseTo(-1, 9);
+    // seam: 170° → −170° is a +20° step, not −340°
+    const d = angleDelta((170 * Math.PI) / 180, (-170 * Math.PI) / 180);
+    expect((d * 180) / Math.PI).toBeCloseTo(20, 6);
+    // accumulating deltas around a full turn sums to ~2π with no jumps
+    let acc = 0, prev = 0;
+    for (let i = 1; i <= 360; i++) { const a = (i * Math.PI) / 180; acc += angleDelta(prev, a); prev = a; }
+    expect(acc).toBeCloseTo(Math.PI * 2, 6);
   });
 });
 
