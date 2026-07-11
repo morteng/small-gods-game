@@ -63,7 +63,7 @@ import { createRefLib } from './reflib';
 import { buildReferencePanel } from './reference-panel';
 import { buildAmbientDials } from './ambient-dials';
 import { buildTimeScrubber } from './time-scrubber';
-import { compassBearings, celestialPlot } from './sky-hud';
+import { compassBearings, celestialPlot, effectiveLightAz, angleDelta } from './sky-hud';
 import { openMetadataPanel, makeLiveButton } from './render-request-panel';
 import { injectStudioTheme, COLORS, h } from './theme';
 import { celestial, solarLight, sunDirFromAngles, AZ_OFFSET, studioNightFactor } from '@/render/solar';
@@ -194,7 +194,13 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
   // actually move it (the game uses the canonical sun). Caches clear on a sun
   // change so the next warm() recomputes. keepStages retains every compose buffer
   // per asset for the stage strip (no manual capture).
-  const liveSun = (): [number, number, number] => sunDir(state.az, state.el);
+  // WORLD-anchored: fold the turntable yaw into the light azimuth so the sun stays fixed
+  // to the WORLD compass as you orbit — the rose dot (celestialPlot folds yaw) and the cast
+  // shadow (baked from this sun) then agree at every yaw, and the model reads as lit from its
+  // true south/east/etc. Each yaw's geometry bake reads liveSun() at compose time and is
+  // cached under a yaw-keyed rbKey, so every angle bakes with ITS OWN effective sun once and
+  // orbiting never recomposes (resolution (a): the yaw-dependent sun rides the existing cache).
+  const liveSun = (): [number, number, number] => sunDir(effectiveLightAz(state.az, state.yaw), state.el);
 
   // ── unified subject source ────────────────────────────────────────────────
   // The studio holds ONE live ResolvedBlueprint (`liveRb`); the node-tree editor
@@ -525,9 +531,50 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
   };
   window.addEventListener('keydown', onOrbitKey);
 
+  // ── compass rose drag-to-orbit ───────────────────────────────────────────────
+  // The rose (drawHud, centre (44,44) in view-pane px, radius R=26) is a live DIAL: press
+  // inside it and drag to spin the turntable, the grabbed bearing tracking the cursor's angle
+  // about the centre (snapped through setYaw, so the per-yaw bakes stay cached). It takes
+  // precedence over BOTH the camera pan and the pick-channel click — a CAPTURE-phase mousedown
+  // on viewPane fires before the canvas' own listeners and swallows the press when it lands on
+  // the rose, so neither attachControls (pan) nor the pick handler (click) ever sees it. HUD
+  // hidden (overlays off) or a stage view showing ⇒ no dial (roseHitInfo returns null).
+  const ROSE = { cx: 44, cy: 44, r: 26 };   // MUST match drawHud's gx / gy / R
+  function roseHit(clientX: number, clientY: number): { dx: number; dy: number } | null {
+    if (!state.overlays || state.view) return null;
+    const r = viewPane.getBoundingClientRect();
+    const dx = clientX - r.left - ROSE.cx, dy = clientY - r.top - ROSE.cy;
+    return Math.hypot(dx, dy) <= ROSE.r + 6 ? { dx, dy } : null;
+  }
+  let roseHover = false, roseDragging = false, roseRawYaw = 0, roseLastAng = 0;
+  viewPane.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return;
+    const hit = roseHit(e.clientX, e.clientY);
+    if (!hit) return;
+    e.preventDefault(); e.stopPropagation();   // beat the pan-start + the pick-down on canvas
+    roseDragging = true; roseRawYaw = state.yaw; roseLastAng = Math.atan2(hit.dy, hit.dx);
+    canvas.style.cursor = 'grabbing';
+  }, true);   // CAPTURE — runs ahead of canvas' attachControls / pick mousedown listeners
+  window.addEventListener('mousemove', (e) => {
+    if (disposed || !roseDragging) return;
+    const r = viewPane.getBoundingClientRect();
+    const ang = Math.atan2(e.clientY - r.top - ROSE.cy, e.clientX - r.left - ROSE.cx);
+    roseRawYaw += angleDelta(roseLastAng, ang);   // accumulate raw; setYaw snaps for display
+    roseLastAng = ang;
+    setYaw(roseRawYaw);
+  });
+  window.addEventListener('mouseup', (e) => {
+    if (disposed || e.button !== 0 || !roseDragging) return;
+    roseDragging = false;
+    canvas.style.cursor = roseHover ? 'grab' : '';
+  });
+
   function renderContext(): RenderContext {
     const { w, h } = viewport();
-    state.lighting.sunDir = sunDir(state.az, state.el);
+    // World-anchored sun: fold the turntable yaw into the light az so the per-frame sprite
+    // lighting (a free uniform) rotates WITH the model, matching the yaw-keyed shadow bake
+    // (liveSun) and the rose dot. Instant during an orbit scrub — no recompose.
+    state.lighting.sunDir = sunDir(effectiveLightAz(state.az, state.yaw), state.el);
     // Light colour tracks the sky: in solar mode the full day/night ramp
     // (golden-hour → noon → moonlit night); in manual mode just the elevation
     // ramp (no moon — manual is for inspecting a fixed sun angle).
@@ -667,7 +714,10 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
     // backdrop + ring
     ctx.fillStyle = 'rgba(12,13,17,0.55)';
     ctx.beginPath(); ctx.arc(gx, gy, R + 6, 0, Math.PI * 2); ctx.fill();
-    ctx.strokeStyle = 'rgba(255,255,255,0.22)'; ctx.lineWidth = 1;
+    // Brighten the ring while hovered/dragged so the rose reads as an interactive dial.
+    const active = roseHover || roseDragging;
+    ctx.strokeStyle = active ? 'rgba(255,255,255,0.55)' : 'rgba(255,255,255,0.22)';
+    ctx.lineWidth = active ? 1.5 : 1;
     ctx.beginPath(); ctx.arc(gx, gy, R, 0, Math.PI * 2); ctx.stroke();
 
     // cardinal ticks + labels (N highlighted in the accent so orientation reads at a glance)
@@ -990,6 +1040,16 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
     setPickHover(pickKeyAt(e.clientX, e.clientY), e);
   });
   canvas.addEventListener('mouseleave', () => setPickHover(null));
+  // Rose affordance: a grab cursor + ring highlight (drawHud reads roseHover) while the pointer
+  // is over the compass, so it reads as an interactive dial. Registered AFTER the pick-channel
+  // mousemove so it WINS the cursor and clears any pick chip the pointer raises over the rose.
+  canvas.addEventListener('mousemove', (e) => {
+    if (disposed || roseDragging) return;
+    const over = !!roseHit(e.clientX, e.clientY);
+    roseHover = over;
+    if (over) { setPickHover(null); canvas.style.cursor = 'grab'; }
+  });
+  canvas.addEventListener('mouseleave', () => { roseHover = false; });
   // CLICK (no drag) selects in the blueprint tree. attachControls owns left-DRAG for the
   // camera pan, so disambiguate by travel: ≤3 px between down and up reads as a click —
   // listeners only, no preventDefault/stopPropagation, so the pan keeps working untouched.

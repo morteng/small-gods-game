@@ -77,6 +77,29 @@ export function celestialPlot(azDeg: number, elDeg: number, yaw = 0): SkyPlot {
   return { x: (sx / len) * radius, y: (sy / len) * radius, radius, angleRad: Math.atan2(sy, sx) };
 }
 
+/** Fold the turntable yaw into a compass azimuth — the WORLD-anchored sun.
+ *  celestialPlot folds yaw by rotating the sky body's tile vector `rotYaw(tile(az), yaw)`,
+ *  and that rotation is *exactly* an azimuth shift: rotYaw([sin az, −cos az], θ) =
+ *  [sin(az+θ), −cos(az+θ)] = tile(az+θ). So anchoring the studio sun to the world (so the
+ *  rose dot and the cast shadow stay locked as you orbit) is just adding the yaw, in
+ *  degrees, to the azimuth. Pure addition ⇒ offset-invariant: feed it a TRUE compass
+ *  azimuth or the studio's AZ_OFFSET-shifted `az` and the +yaw fold is identical, so the
+ *  light (via sunDirFromAngles) tracks the dot (via celestialPlot) at every yaw.
+ *  Returns a normalised 0..360 azimuth. */
+export function effectiveLightAz(azDeg: number, yaw: number): number {
+  const a = azDeg + (yaw * 180) / Math.PI;
+  return ((a % 360) + 360) % 360;
+}
+
+/** Signed shortest angular delta a→b in (−π, π]. Accumulates a rose-drag orbit smoothly
+ *  across the atan2 ±π seam (spin the dial past due-north without a 2π jolt). */
+export function angleDelta(a: number, b: number): number {
+  let d = (b - a) % (Math.PI * 2);
+  if (d > Math.PI) d -= Math.PI * 2;
+  if (d <= -Math.PI) d += Math.PI * 2;
+  return d;
+}
+
 // ── time-scrubber helpers ─────────────────────────────────────────────────────
 /** Fraction 0..1 along a 24h scrub track for an hour-of-day (clamped to the day). */
 export function scrubFraction(hour: number): number {
