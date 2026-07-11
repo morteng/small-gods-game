@@ -71,11 +71,14 @@ export const doorFeatureType: FeatureType = {
   filler: (f, host, ctx): Prim[] => {
     const s = doorSpec(f);
     const leaf = leafBox(s, host);
-    // Studio door-open TEST affordance: when this door's pick key is marked open (ephemeral
-    // `featureStates`, never a blueprint param), swing the leaf on its hinge. `open` absent/0 ⇒
-    // the leaf prim below is EXACTLY today's (the `?? {}` yaw spread), so the default compile
-    // path — and the golden hashes — are byte-identical.
-    const open = (ctx as CompileCtx | undefined)?.featureStates?.[`${host.id}/${f.id}`]?.open ?? 0;
+    // The blueprint `open` param drives the swing by default (author it in the tree — a
+    // door can simply BE open). The studio's ephemeral `featureStates` (click-to-open test
+    // affordance, never a blueprint param) OVERRIDES it when present — including an explicit
+    // `{open: 0}`, which shuts a param-opened door (`??` only falls through on null/undefined,
+    // never on 0). `open` absent/0 either way ⇒ the leaf prim below is EXACTLY today's (the
+    // `?? {}` yaw spread), so the default compile path — and the golden hashes — are byte-identical.
+    const open = (ctx as CompileCtx | undefined)?.featureStates?.[`${host.id}/${f.id}`]?.open
+      ?? (f.params.open as number) ?? 0;
     const swung = open > 0 && host.params?.plan !== 'round'
       ? swingLeaf(leaf, s, (f.params.hinge as string) ?? 'left', open)
       : null;

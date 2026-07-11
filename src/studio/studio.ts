@@ -212,9 +212,14 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
   // Reset whenever the subject is replaced (setSubject / randomize) so a stale open door doesn't
   // ride onto a new subject. Empty ⇒ absent from the compile args ⇒ geometry byte-identical.
   let featureStates: Record<string, { open?: number }> = {};
+  // "Meaningful" here means an entry that actually changes the render vs. the door's OWN
+  // tree-authored `open` param — not just "open > 0". A door can already be open via its
+  // param, so shutting it is expressed as an override `{open: 0}` that must survive (it's
+  // the only way to close a param-opened door); a click that lands back on the param's own
+  // value collapses out, re-hitting the param-driven cache entry (see effectiveDoorOpen).
   const openFeatureStates = (): Record<string, { open?: number }> | undefined => {
-    for (const v of Object.values(featureStates)) if ((v.open ?? 0) > 0) return featureStates;
-    return undefined;   // no door open → omit entirely so the cache key + geometry stay canonical
+    for (const [key, v] of Object.entries(featureStates)) if ((v.open ?? 0) !== doorParamOpen(key)) return featureStates;
+    return undefined;   // every entry agrees with its door's own param → omit, geometry stays canonical
   };
   // The skirt is a geometry option, so it belongs in the cache key (toggling it must
   // re-compose). Keyed alongside the blueprint JSON. Open-door state folds in too (toggling a
@@ -951,6 +956,23 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
     const part = liveRb.parts.find((p) => p.id === key.slice(0, slash));
     return part?.features.find((f) => f.id === key.slice(slash + 1))?.type === 'door';
   }
+  /** The door's tree-authored `open` param (0 if the key isn't a door or liveRb lacks it) —
+   *  the fallback source of truth once no ephemeral click has touched this door yet. */
+  function doorParamOpen(key: string): number {
+    if (!liveRb) return 0;
+    const slash = key.indexOf('/');
+    if (slash < 0) return 0;
+    const part = liveRb.parts.find((p) => p.id === key.slice(0, slash));
+    const feat = part?.features.find((f) => f.id === key.slice(slash + 1));
+    return feat?.type === 'door' ? ((feat.params.open as number) ?? 0) : 0;
+  }
+  /** Effective open state for a door pick key: an ephemeral `featureStates` entry (including an
+   *  explicit `{open: 0}`) OVERRIDES the tree-authored `open` param; absent, the param drives —
+   *  mirrors the filler hook's `??` precedence in `door.ts` so the chip/click agree with the render. */
+  function effectiveDoorOpen(key: string): number {
+    const fs = featureStates[key]?.open;
+    return fs !== undefined ? fs : doorParamOpen(key);
+  }
   // Hover chip: a small cursor-tracking DOM label (house pattern: absolute chip over the
   // view pane, like ambient-dials) naming the feature under the cursor, e.g. 'body/win_s'.
   const pickChip = h('div', {
@@ -974,7 +996,7 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
     // lookup can't disagree with what the click handler below treats as "a vent".
     const isVent = ventScreenPoints().some((v) => v.id === key);
     const hint = isDoorAt(key)
-      ? ((featureStates[key]?.open ?? 0) > 0 ? ' · click to shut' : ' · click to open')
+      ? (effectiveDoorOpen(key) > 0 ? ' · click to shut' : ' · click to open')
       : isVent ? ` · click to ${isVentLit(key) ? 'snuff' : 'light'}` : '';
     pickChip.textContent = key + hint;
     pickChip.style.left = `${Math.round(e.clientX - r.left + 14)}px`;
@@ -1007,7 +1029,7 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
     // toggles ITS hearth over the global temperature dial (hearthOverrides block above), and
     // either way the node still selects in the tree.
     if (isDoorAt(key)) {
-      const open = (featureStates[key]?.open ?? 0) > 0 ? 0 : 1;
+      const open = effectiveDoorOpen(key) > 0 ? 0 : 1;
       featureStates = { ...featureStates, [key]: { open } };
       if (hoverPickKey === key) setPickHover(key, e);   // chip label flips immediately
       warmSubject();

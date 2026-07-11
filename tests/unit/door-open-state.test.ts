@@ -80,4 +80,50 @@ describe('door-open ephemeral state (studio click-to-test)', () => {
     const base = JSON.stringify(toGeometry(rb));
     expect(JSON.stringify(toGeometry(rb, { featureStates: { [windowKey]: { open: 1 } } }))).toBe(base);
   });
+
+  // The blueprint `open` PARAM (tree-authored — e.g. a door meant to read as ajar by default)
+  // drives the very same swing, with `featureStates` (studio click-to-test) overriding it.
+  describe('the `open` blueprint param drives the swing directly', () => {
+    /** Deep-clone `rb` with the door feature's resolved `open` param set. */
+    function withDoorParamOpen(value: number): ResolvedBlueprint {
+      const clone: ResolvedBlueprint = JSON.parse(JSON.stringify(rb));
+      const body = clone.parts.find((p) => p.features.some((f) => f.type === 'door'))!;
+      const door = body.features.find((f) => f.type === 'door')!;
+      door.params.open = value;
+      return clone;
+    }
+
+    it('param absent/0 with no featureStates ⇒ byte-identical to the default (closed) pose', () => {
+      const base = JSON.stringify(toGeometry(rb));
+      expect(JSON.stringify(toGeometry(withDoorParamOpen(0)))).toBe(base);
+    });
+
+    it('param open:1, no featureStates ⇒ the leaf swings (param alone drives it)', () => {
+      const paramOpenRb = withDoorParamOpen(1);
+      const closed = doorLeaf(toGeometry(rb, { pickIds: true }), doorKey);
+      const opened = doorLeaf(toGeometry(paramOpenRb, { pickIds: true }), doorKey);
+      expect(closed!.yaw ?? 0).toBe(0);
+      expect(Math.abs(opened!.yaw ?? 0)).toBeGreaterThan(1);
+      expect(opened!.at[0] !== closed!.at[0] || opened!.at[1] !== closed!.at[1]).toBe(true);
+    });
+
+    it('featureStates {open:0} SHUTS a param-opened door (ephemeral override wins)', () => {
+      const paramOpenRb = withDoorParamOpen(1);
+      const shutClosedByOverride = JSON.stringify(
+        toGeometry(paramOpenRb, { featureStates: { [doorKey]: { open: 0 } } }),
+      );
+      // Identical to a door that was never opened at all (param 0, no featureStates).
+      const trulyDefault = JSON.stringify(toGeometry(rb));
+      expect(shutClosedByOverride).toBe(trulyDefault);
+    });
+
+    it('featureStates open:1 on top of param open:1 is a no-op (already open)', () => {
+      const paramOpenRb = withDoorParamOpen(1);
+      const withoutFs = JSON.stringify(toGeometry(paramOpenRb, { pickIds: true }));
+      const withFs = JSON.stringify(
+        toGeometry(paramOpenRb, { pickIds: true, featureStates: { [doorKey]: { open: 1 } } }),
+      );
+      expect(withFs).toBe(withoutFs);
+    });
+  });
 });
