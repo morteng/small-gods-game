@@ -1,10 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import {
   compassBearings, celestialPlot, scrubFraction, scrubHour, DAY_GRADIENT, dayGradientCss,
-  effectiveLightAz, angleDelta,
+  effectiveLightAz, angleDelta, lightPlot,
 } from '@/studio/sky-hud';
+import { groundOffset } from '@/assetgen/render/ground-shadow';
 import { worldToScreen } from '@/render/iso/iso-projection';
-import { clockLabel } from '@/render/solar';
+import { clockLabel, sunDirFromAngles, AZ_OFFSET } from '@/render/solar';
 
 // Expected screen bearing for a world tile-space direction, derived through the REAL iso
 // projection (not a hardcoded magic angle) — this is the contract the rose must satisfy.
@@ -153,4 +154,28 @@ describe('sky-hud scrub helpers', () => {
     expect(css).toContain('0.0%');
     expect(css).toContain('100.0%');
   });
+});
+
+describe('sky-hud light plot (dot from the actual light vector)', () => {
+  it('the dot sits exactly opposite the baked shadow slide, at any az/el/yaw fold', () => {
+    for (const az of [0, 45, 163, 253, 300]) {
+      for (const el of [10, 47, 80]) {
+        const sun = sunDirFromAngles(az, el);
+        const p = lightPlot(sun);
+        const { gx, gy } = groundOffset([sun[0], sun[1], sun[2]]);
+        const shadowAng = Math.atan2(gy, gx);
+        // opposite: dot angle − shadow angle ≡ π
+        const d = Math.abs(angleDelta(shadowAng, p.angleRad));
+        expect(d).toBeCloseTo(Math.PI, 6);
+      }
+    }
+  });
+  it('elevation maps to radius: horizon → rim, zenith → centre', () => {
+    expect(lightPlot(sunDirFromAngles(90, 0)).radius).toBeCloseTo(1, 3);
+    expect(lightPlot(sunDirFromAngles(90, 90)).radius).toBeCloseTo(0, 3);
+    expect(lightPlot(sunDirFromAngles(90, 45)).radius).toBeCloseTo(0.5, 3);
+  });
+  // NOTE deliberately NO cross-check against celestialPlot: the studio light frame is the
+  // eyeballed AZ_OFFSET convention ("cardinal accuracy is irrelevant" — solar.ts) and diverges
+  // from the tile frame by up to ~60°. The dot's contract is opposite-the-shadow, tested above.
 });

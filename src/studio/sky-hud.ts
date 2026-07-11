@@ -23,6 +23,7 @@
 //      sun (TRUE azimuth 180°) always lands on the S label, at every yaw. Elevation is the
 //      radius: el = 90° (zenith) → centre, el = 0° (horizon) → rim.
 import { worldToScreen } from '@/render/iso/iso-projection';
+import { groundOffset } from '@/assetgen/render/ground-shadow';
 
 export type Cardinal = 'N' | 'E' | 'S' | 'W';
 
@@ -89,6 +90,24 @@ export function celestialPlot(azDeg: number, elDeg: number, yaw = 0): SkyPlot {
 export function effectiveLightAz(azDeg: number, yaw: number): number {
   const a = azDeg + (yaw * 180) / Math.PI;
   return ((a % 360) + 360) % 360;
+}
+
+/** Plot the sky body from the LIGHT VECTOR itself — the screen-frame sun direction that
+ *  actually lights the scene (liveSun / lighting.sunDir). The dot's bearing is derived
+ *  through the SAME ground mapping the baked cast shadow uses (groundOffset: the shadow
+ *  slides along (−sx, −sz·0.5) per height px, y-down), pointed the OPPOSITE way — so the
+ *  dot sits exactly opposite the rendered shadow at every yaw and in manual mode, BY
+ *  CONSTRUCTION. celestialPlot folds yaw through the tile-rotor ellipse while the light
+ *  folds through the screen-frame circle; those two distortion curves differ by up to
+ *  ~20° across a revolution, which is why the dot plots from the vector, not the az. */
+export function lightPlot(sun: readonly [number, number, number]): SkyPlot {
+  const { gx, gy } = groundOffset([sun[0], sun[1], sun[2]]);
+  const len = Math.hypot(gx, gy);
+  const elDeg = (Math.asin(Math.min(1, Math.max(-1, sun[1]))) * 180) / Math.PI;
+  const radius = 1 - Math.min(90, Math.max(0, elDeg)) / 90;
+  if (len < 1e-6) return { x: 0, y: 0, radius, angleRad: 0 };   // zenith: centre of the rose
+  const dx = -gx / len, dy = -gy / len;                          // opposite the shadow slide
+  return { x: dx * radius, y: dy * radius, radius, angleRad: Math.atan2(dy, dx) };
 }
 
 /** Signed shortest angular delta a→b in (−π, π]. Accumulates a rose-drag orbit smoothly

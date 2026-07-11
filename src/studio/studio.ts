@@ -63,10 +63,13 @@ import { createRefLib } from './reflib';
 import { buildReferencePanel } from './reference-panel';
 import { buildAmbientDials } from './ambient-dials';
 import { buildTimeScrubber } from './time-scrubber';
-import { compassBearings, celestialPlot, effectiveLightAz, angleDelta } from './sky-hud';
+import { compassBearings, lightPlot, effectiveLightAz, angleDelta } from './sky-hud';
+import { buildingSpriteItem } from '@/render/iso/iso-building';
+import { isoEnvForMap } from '@/render/iso/iso-env';
+import { structureBox } from '@/blueprint/footprint';
 import { openMetadataPanel, makeLiveButton } from './render-request-panel';
 import { injectStudioTheme, COLORS, h } from './theme';
-import { celestial, solarLight, sunDirFromAngles, AZ_OFFSET, studioNightFactor } from '@/render/solar';
+import { celestial, solarLight, sunDirFromAngles, studioNightFactor } from '@/render/solar';
 import { type StudioState, type Stage, type AbResult, AB_MODELS, AB_MIN_BORDER, AB_MIN_IOU } from './types';
 
 const MAP_W = 24, MAP_H = 24;
@@ -195,7 +198,7 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
   // change so the next warm() recomputes. keepStages retains every compose buffer
   // per asset for the stage strip (no manual capture).
   // WORLD-anchored: fold the turntable yaw into the light azimuth so the sun stays fixed
-  // to the WORLD compass as you orbit — the rose dot (celestialPlot folds yaw) and the cast
+  // to the WORLD compass as you orbit — the rose dot (lightPlot on this vector) and the cast
   // shadow (baked from this sun) then agree at every yaw, and the model reads as lit from its
   // true south/east/etc. Each yaw's geometry bake reads liveSun() at compose time and is
   // cached under a yaw-keyed rbKey, so every angle bakes with ITS OWN effective sun once and
@@ -738,13 +741,12 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
       ctx.fillText(b.label, gx + b.sx * (R - 9), gy + b.sy * (R - 9));
     }
 
-    // sky body: sun (accent) by day, moon (pale) by night. Azimuth on the rose, elevation
-    // as distance from centre. Recover the TRUE compass azimuth from the studio's (eyeballed
-    // AZ_OFFSET) az so the plot is cardinally honest; manual mode has no moon.
+    // sky body: sun (accent) by day, moon (pale) by night. Plotted from the ACTUAL light
+    // vector (already yaw-folded by liveSun) through the same ground mapping the baked
+    // shadow uses — so the dot sits exactly opposite the rendered shadow at every yaw.
     const body = state.sunMode === 'solar'
       ? celestial(state.hour, state.yearFrac, state.lat, state.moonPhase).body : 'sun';
-    const trueAz = (((state.az - AZ_OFFSET) % 360) + 360) % 360;
-    const p = celestialPlot(trueAz, state.el, state.yaw);
+    const p = lightPlot(liveSun());
     const px = gx + p.x * R, py = gy + p.y * R;
     const dim = body === 'moon';
     ctx.strokeStyle = dim ? 'rgba(205,214,230,0.55)' : COLORS.accent; ctx.lineWidth = 2;
@@ -907,10 +909,30 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
     const pack = subjectPack();
     const vents = struct?.anchors?.vents;
     if (!struct || !pack?.albedo || !vents?.length) return [];
-    const foot = worldToScreen(CENTER.x, CENTER.y, 0, 0, 0);
     const pw = pack.albedo.width, ph = pack.albedo.height;
-    const left = foot.sx - pw / 2, top = foot.sy - ph;
-    return vents.map((v) => ({ x: left + v.x * pw, y: top + v.y * ph, id: v.id }));
+    const rect = subjectDrawRect(pw, ph);
+    if (!rect) return [];
+    return vents.map((v) => ({ x: rect.left + v.x * pw, y: rect.top + v.y * ph, id: v.id }));
+  }
+  /** The EXACT world-screen rect the renderer draws the subject's pack at — the same
+   *  structureBox + buildingSpriteItem pair the entity draw list runs (front-tip anchor,
+   *  footprint-centre x) PLUS the terrain foot-z lift the GPU scene applies (isoEnvForMap
+   *  is the documented CPU mirror; the studio's flat plane sits ABOVE sea level, so the
+   *  lift is a real, nonzero constant). NOT a re-derived foot formula: an assumed anchor
+   *  drifted the pick outlines/vent anchors ~40px off the drawn sprite (the round-2
+   *  off-target bug the user hit). */
+  function subjectDrawRect(pw: number, ph: number): { left: number; top: number } | null {
+    if (!liveRb) return null;                     // plants: no blueprint, no features to pick
+    const s = structureBox(liveRb);
+    const item = buildingSpriteItem(
+      { originX: 0, originY: 0 }, subjectPack()!.albedo as unknown as CanvasImageSource,
+      pw, ph, { centerX: pw / 2, bottom: ph },
+      CENTER.x + s.dx, CENTER.y + s.dy, { w: s.w, h: s.h },
+    );
+    if (item.t !== 'image') return null;
+    const env = isoEnvForMap(map);
+    const dz = (env.elevAt(CENTER.x + s.dx + s.w - 1, CENTER.y + s.dy + s.h - 1) - env.seaLevel) * env.k;
+    return { left: item.dx, top: item.dy - dz };
   }
 
   // ── per-vent hearth control ──────────────────────────────────────────────
@@ -967,17 +989,24 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
     pickBoxCache.set(struct, m);
     return m;
   }
-  /** The UNCROPPED pick buffer's top-left in world-screen space (and the pack dims), or null
-   *  until the composed struct + pack are warm. greyToSpriteCanvas crops at Math.round(bbox),
-   *  so the same rounding keeps the two frames pixel-aligned. */
+  /** The UNCROPPED pick buffer's top-left in world-screen space, or null until the composed
+   *  struct + pack are warm. Anchored from the STRUCT's crop (greyToSpriteCanvas crops at
+   *  Math.round(bbox), same rounding here) — never the drawn pack's dims: pick data lives in
+   *  the compose frame, and a co-registered pack (composed grey, or painted art registered
+   *  onto the current geometry) shares those dims by construction. A pack with OTHER dims is
+   *  stale art (the amber badge case) — its pixels don't correspond to the pick data at all,
+   *  so pick goes dark rather than outline features that aren't where they appear. */
   function pickFrame(): { left: number; top: number; struct: StructureResult } | null {
     const struct = stagesSubject();
     const pack = subjectPack();
     if (!struct?.pick || !pack?.albedo) return null;
-    const foot = worldToScreen(CENTER.x, CENTER.y, 0, 0, 0);
+    const cropW = Math.round(struct.bbox.w), cropH = Math.round(struct.bbox.h);
+    if (pack.albedo.width !== cropW || pack.albedo.height !== cropH) return null;
+    const rect = subjectDrawRect(cropW, cropH);
+    if (!rect) return null;
     return {
-      left: foot.sx - pack.albedo.width / 2 - Math.round(struct.bbox.x),
-      top: foot.sy - pack.albedo.height - Math.round(struct.bbox.y),
+      left: rect.left - Math.round(struct.bbox.x),
+      top: rect.top - Math.round(struct.bbox.y),
       struct,
     };
   }
