@@ -432,6 +432,15 @@
       "normal": "v30_black-forest-labs_flux.2-klein-4b_4x3_1u6v29h.normal.png",
       "material": "v30_black-forest-labs_flux.2-klein-4b_4x3_1u6v29h.material.png",
       "emissive": "v30_black-forest-labs_flux.2-klein-4b_4x3_1u6v29h.emissive.png"
+    },
+    "v30:black-forest-labs/flux.2-klein-4b:4x3:c9eyrw": {
+      "file": "v30_black-forest-labs_flux.2-klein-4b_4x3_c9eyrw.png",
+      "targetWidth": 441,
+      "preset": "tavern",
+      "anchors": "{\"doors\":[],\"vents\":[{\"x\":0.1585033877366254,\"y\":0.020471081703071714},{\"x\":0.7401632516822036,\"y\":0.2526252572919367}],\"tags\":[{\"x\":0.4269841133602082,\"y\":0.760342602045684,\"kind\":\"lintel\",\"z\":2,\"accepts\":[\"sign\",\"lamp\"]},{\"x\":0.4995464716368522,\"y\":0.21901497891934574,\"kind\":\"roof_ridge\",\"z\":8.4,\"accepts\":[\"perch\",\"vane\",\"finial\"]},{\"x\":0.2818593968069202,\"y\":0.1162312530092815,\"kind\":\"gable_peak\",\"z\":8.4,\"accepts\":[\"perch\",\"finial\",\"banner\"]},{\"x\":0.7172335464667842,\"y\":0.32179870482941,\"kind\":\"gable_peak\",\"z\":8.4,\"accepts\":[\"perch\",\"finial\",\"banner\"]},{\"x\":0.18752833104728303,\"y\":-0.003683093885793445,\"kind\":\"chimney_top\",\"z\":9.5,\"accepts\":[\"smoke\",\"perch\"]},{\"x\":0.6519274240178046,\"y\":0.2471091973347633,\"kind\":\"chimney_top\",\"z\":9.5,\"accepts\":[\"smoke\",\"perch\"]},{\"x\":0.6446711881901401,\"y\":0.35605994679943137,\"kind\":\"eave\",\"z\":5.4,\"accepts\":[\"lamp\",\"bracket\",\"perch\"]},{\"x\":0.35442175508356416,\"y\":0.49310491467951706,\"kind\":\"eave\",\"z\":5.4,\"accepts\":[\"lamp\",\"bracket\",\"perch\"]}]}",
+      "normal": "v30_black-forest-labs_flux.2-klein-4b_4x3_c9eyrw.normal.png",
+      "material": "v30_black-forest-labs_flux.2-klein-4b_4x3_c9eyrw.material.png",
+      "emissive": "v30_black-forest-labs_flux.2-klein-4b_4x3_c9eyrw.emissive.png"
     }
   },
   "recipeVersion": "v30"
