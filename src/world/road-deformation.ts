@@ -837,7 +837,10 @@ function key(map: GameMap): string {
   // `rev` bumps when road-evolution mutates edge.dynamics; `b` is the built-lot count so
   // settlement foundation pads invalidate when live growth fills a lot. Both keep the
   // composed heightfield a pure, cache-correct function of the map's evolving state.
-  return `${map.seed}:${map.width}x${map.height}:r${map.roadGraph?.rev ?? 0}:b${settlementBuildCount(map)}:w${barrierFoundationCount(map)}:d${ditchWallCount(map)}:e${map.earthworks?.length ?? 0}:s${shapeSignature(styledShapeSpec(map.worldSeed))}`;
+  // `p` distinguishes a map that declares its riparian scatter (boulder pads compose)
+  // from a same-seed map that doesn't (gen-time stub, studio ground) — without it an
+  // empty world's stub store could be served for the final map, dropping the pads.
+  return `${map.seed}:${map.width}x${map.height}:r${map.roadGraph?.rev ?? 0}:b${settlementBuildCount(map)}:w${barrierFoundationCount(map)}:d${ditchWallCount(map)}:e${map.earthworks?.length ?? 0}:s${shapeSignature(styledShapeSpec(map.worldSeed))}:p${map.riparianSeed ?? 'n'}`;
 }
 
 function evict(cache: Map<string, unknown>): void {

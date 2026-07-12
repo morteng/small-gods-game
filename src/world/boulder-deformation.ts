@@ -12,8 +12,8 @@
 // Determinism & save-safety: pads must be a PURE function of `map` (the composed
 // heightfield re-derives on load), but the boulders are entities. They are, however,
 // themselves a pure function of (hydrology, seed) — so this builder RE-DERIVES the
-// riparian scatter with exactly the generator's inputs (`map.seed + RIPARIAN_SEED_SALT`,
-// see map-generator.ts) and pads what the generator placed. Two knowing divergences,
+// riparian scatter with exactly the generator's inputs (`map.riparianSeed`, the map's
+// own declaration that the pass ran — see map-generator.ts). Two knowing divergences,
 // both visually nil at a 0.08 m dip: the generator's registry id-collision guard can
 // skip an entity we pad, and a bank boulder cleared under a building footprint keeps
 // its pad (the building's own pad, priority 25, rules that ground anyway).
@@ -34,9 +34,6 @@ import { heightMetresAt } from '@/world/heightfield';
 import { getHydrologyResult } from '@/world/hydrology-store';
 import { buildRiparianEntities } from '@/world/riparian-scatter';
 
-/** The generator's riparian seed offset (map-generator.ts passes `seed + 4242`) — the
- *  re-derivation must match it byte-for-byte or the pads land under nothing. */
-export const RIPARIAN_SEED_SALT = 4242;
 
 /** Only boulders at or above this entity scale get a pad. granite-boulder's mature
  *  height runs 1–3 m (flora-facts nominal ~2 m at scale 1), so 0.75 ≈ the spec's
@@ -94,13 +91,16 @@ export function boulderPadDeformationsFor(
 
 /**
  * Pure: a world → the mini settle pads its big dry-land riparian boulders imply.
- * Empty when the map has no fresh water (the scatter is empty) or no seeded terrain.
+ * Gated on `map.riparianSeed` — the generator's declaration that the scatter RAN and
+ * with what identity. A map without it (test stubs, studio grounds, non-noise gen
+ * paths) never placed riparian entities, so re-deriving them would invent pads under
+ * nothing; those maps get none, by construction. Also empty when the map has no
+ * fresh water (the scatter itself is empty).
  */
 export function buildBoulderPadDeformations(map: GameMap): Deformation[] {
-  // Studio inspection ground is a synthetic flat plane — no hydrology, no scatter.
-  if (map.flatHeight) return [];
+  if (map.riparianSeed === undefined || map.flatHeight) return [];
   return boulderPadDeformationsFor(
-    getHydrologyResult(map), map.width, map.height, map.seed + RIPARIAN_SEED_SALT,
+    getHydrologyResult(map), map.width, map.height, map.riparianSeed,
     (tx, ty) => heightMetresAt(map, tx, ty),
   );
 }

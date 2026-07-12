@@ -213,9 +213,12 @@ describe('computeDetailMask', () => {
     const { map } = await generateWithNoise(96, 96, 3, { ...seed, size: { width: 96, height: 96 } });
     const W = map.width, H = map.height;
     const dryNoWater = new Uint8Array(W * H);
-    // Water + roads both suppressed → the ONLY thing that could flag is slope.
-    const dflt = computeDetailMask(map, { waterType: dryNoWater, roadRadius: -1 });
-    const off = computeDetailMask(map, { waterType: dryNoWater, roadRadius: -1, slopeGrade: Infinity });
+    // Water + roads + deformation features all suppressed → the ONLY thing that could
+    // flag is slope. (featureRadius must be off too: a generated world legitimately
+    // carries deformation footprints — R5 boulder settle pads — that the feature pass
+    // correctly flags.)
+    const dflt = computeDetailMask(map, { waterType: dryNoWater, roadRadius: -1, featureRadius: -1 });
+    const off = computeDetailMask(map, { waterType: dryNoWater, roadRadius: -1, featureRadius: -1, slopeGrade: Infinity });
     expect(Array.from(dflt)).toEqual(Array.from(off));   // default === explicitly-off
     expect(off.some((v) => v === 1)).toBe(false);        // nothing flagged
   });

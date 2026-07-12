@@ -640,6 +640,7 @@ export async function generateWithNoise(
     settlementPlans,
     barrierRuns,
     roadGraph,
+    riparianSeed: seed + 4242, // scatter identity — see the riparian pass above
   };
 
   // Anchor snap-fit layer: gather every feature's connection anchors and match them into

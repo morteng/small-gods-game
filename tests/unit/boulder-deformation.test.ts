@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
-  boulderPadDeformationsFor, BOULDER_PAD_MIN_SCALE,
+  boulderPadDeformationsFor, buildBoulderPadDeformations, BOULDER_PAD_MIN_SCALE,
 } from '@/world/boulder-deformation';
+import type { GameMap } from '@/core/types';
 import { buildRiparianEntities } from '@/world/riparian-scatter';
 import { applyOp } from '@/world/terrain-deformation';
 import { WaterType, type HydrologyResult } from '@/core/types';
@@ -74,5 +75,12 @@ describe('boulder-deformation — R5 mini settle pads', () => {
   it('is deterministic — same raster + seed re-derives identical pads', () => {
     const again = boulderPadDeformationsFor(hydro, W, H, SEED, ground);
     expect(again.map((p) => `${p.id}:${p.target}`)).toEqual(pads.map((p) => `${p.id}:${p.target}`));
+  });
+
+  it('a map that never declared a riparian scatter gets NO pads', () => {
+    // Bare stub (terrain-detail-style): no riparianSeed → the builder must not invent
+    // hydrology-derived pads under entities that were never placed.
+    const stub = { seed: 1234, width: 32, height: 32 } as unknown as GameMap;
+    expect(buildBoulderPadDeformations(stub)).toEqual([]);
   });
 });
