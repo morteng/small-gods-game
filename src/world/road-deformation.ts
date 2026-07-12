@@ -40,6 +40,7 @@ import { styledShapeSpec, shapeSignature } from '@/terrain/terrain-shape';
 import { worldStyleOf } from '@/core/world-style';
 import { buildRiverDeformations } from '@/world/river-deformation';
 import { buildSettlementPadDeformations, settlementBuildCount } from '@/world/settlement-deformation';
+import { buildBoulderPadDeformations } from '@/world/boulder-deformation';
 import { buildBarrierDeformations, barrierFoundationCount } from '@/world/barrier-deformation';
 import { buildDitchDeformations, ditchWallCount } from '@/world/ditch-deformation';
 import { buildEarthworkDeformations } from '@/world/earthwork-deformation';
@@ -878,6 +879,7 @@ export function getWorldDeformationStore(map: GameMap): DeformationStore {
   if (map.roadGraph) store.add(...buildRoadDeformations(map, map.roadGraph));
   store.add(...buildRiverDeformations(map, getHydrologyResult(map)));
   store.add(...buildSettlementPadDeformations(map));
+  store.add(...buildBoulderPadDeformations(map)); // R5: big bank boulders settle into grade
   store.add(...buildBarrierDeformations(map)); // walls: stepped foundation footing under the curtain
   store.add(...buildDitchDeformations(map)); // WP-S: shallow dry ditch outside the town wall (causeways at gates)
   store.add(...buildEarthworkDeformations(map.earthworks ?? [])); // motte/ditch/rampart of a placed complex

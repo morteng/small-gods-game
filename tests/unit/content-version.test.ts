@@ -6,7 +6,7 @@ describe('content-version constants', () => {
     expect(ART_RECIPE_VERSION).toBe('v31');
   });
 
-  it('declares the current world content version (92: bridge abutments + proud arch ring)', () => {
-    expect(WORLD_CONTENT_VERSION).toBe(93);
+  it('declares the current world content version (94: rivers R5 ground-blend — boulder settle pads + contact dirt)', () => {
+    expect(WORLD_CONTENT_VERSION).toBe(94);
   });
 });
