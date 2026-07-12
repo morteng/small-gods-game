@@ -105,6 +105,12 @@ export interface GameMap {
    *  snow/rock) so a studied subject sits on a clean plane. Studio-only; real game
    *  maps never set it, so the live terrain stays byte-identical. */
   flatHeight?: boolean;
+  /** The seed `generateWithNoise` fed the riparian scatter — the map DECLARING that the
+   *  scatter ran and with what identity, so map-pure consumers (boulder settle pads,
+   *  `buildBoulderPadDeformations`) can re-derive the exact entity set. Absent on maps
+   *  that never ran the pass (test stubs, studio grounds) → no pads, by construction.
+   *  Persisted via SaveFile.map like roadGraph. */
+  riparianSeed?: number;
 }
 
 /** Village/settlement on the map */

@@ -12,6 +12,7 @@
 import { WFCEngine } from '@/wfc';
 import { Random, fractalNoise } from '@/core/noise';
 import type { GameMap, WorldSeed, Tile, BuildingInstance, TerrainConfig, POI, Region, BiomeMap } from '@/core/types';
+import { WaterType } from '@/core/types';
 import { WATER_TYPES } from '@/core/constants';
 import { generateTerrainFields, classifyBiomes, sampleTiles } from '@/terrain/terrain-generator';
 import { styledIslandSpec } from '@/terrain/island-mask';
@@ -50,6 +51,8 @@ import { getHeightfield, ELEVATION_SEA_LEVEL } from '@/world/heightfield';
 import { curveRenderElev } from '@/render/gpu/terrain-field';
 import { worldStyleOf } from '@/core/world-style';
 import { buildRiparianEntities } from '@/world/riparian-scatter';
+import { BOULDER_PAD_MIN_SCALE } from '@/world/boulder-deformation';
+import { isTrampleEligible } from '@/sim/trample';
 import { buildCoastalLandmarks, SETTLEMENT_TYPES } from '@/world/coastal-landmarks';
 import { tileBlockedByBuilding } from '@/world/building-collision';
 import { reconcileBarriersWithBuildings } from '@/world/place-barrier';
@@ -637,6 +640,7 @@ export async function generateWithNoise(
     settlementPlans,
     barrierRuns,
     roadGraph,
+    riparianSeed: seed + 4242, // scatter identity — see the riparian pass above
   };
 
   // Anchor snap-fit layer: gather every feature's connection anchors and match them into
@@ -699,6 +703,28 @@ export async function generateWithNoise(
   await report('Clearing obstructed vegetation...');
   const cleared = clearObstructedVegetation(world, map);
   if (cleared > 0) await report(`Cleared ${cleared} obstructed nature entities`);
+
+  // R5 ground-blend, contact ring: a BIG boulder lodged on dry soft ground kills the
+  // grass under it — swap the contact tile to dirt. Permanent gen-time tile (NOT
+  // trample wear, which decays and would revert an untrafficked ring); the blob
+  // autotiler feathers the patch and the rock sprite covers most of it, so what shows
+  // is a bare fringe at the contact line. Runs AFTER every entity-clearing pass so
+  // only rocks that SURVIVED to the final world mark the ground (an early stamp left
+  // orphan dirt diamonds where a settlement later cleared the rock). Same size gate as
+  // the settle pads (boulder-deformation.ts); the pads themselves may still cover a
+  // cleared rock, but a 0.08 m dip alone is invisible where the dirt is not.
+  let ringed = 0;
+  for (const e of world.registry.all()) {
+    if (e.kind !== 'granite-boulder') continue;
+    if (((e.properties as { scale?: number } | undefined)?.scale ?? 1) < BOULDER_PAD_MIN_SCALE) continue;
+    const tx = Math.floor(e.x), ty = Math.floor(e.y);
+    const t = tiles[ty]?.[tx];
+    if (t && hydrology.waterType[ty * width + tx] === WaterType.Dry && isTrampleEligible(t)) {
+      t.type = 'dirt';
+      ringed++;
+    }
+  }
+  if (ringed > 0) await report(`Grounded ${ringed} boulders on bare contact tiles`);
 
   // Contract DECLARATIONS the walled-town recipe commits: each defensive ring asks the connectome
   // for a landward gate reached by a road and a curtain crossed only at gates, PLUS (round 6,
