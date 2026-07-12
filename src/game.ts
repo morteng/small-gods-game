@@ -25,7 +25,10 @@ import { isLayerHidden } from '@/render/layer-visibility';
 import { getHydrologyResult } from '@/world/hydrology-store';
 // divine-actions functions now invoked via DivineActionsController
 import { LLMClient } from "@/llm/llm-client";
-import { createProvider, loadProviderConfig, openrouterImageBaseUrl, type ProviderConfig } from '@/llm/provider-factory';
+import {
+  createProvider, loadProviderConfig, openrouterImageBaseUrl,
+  replicateImageBaseUrl, replicateDeliveryBaseUrl, type ProviderConfig,
+} from '@/llm/provider-factory';
 import { CostTracker } from '@/llm/cost-tracker';
 import { mountSpendChip, type SpendChipHandle } from '@/ui/spend-chip';
 import { NpcAttentionStore } from '@/llm/npc-attention-store';
@@ -43,7 +46,7 @@ import { ParametricBarrierSource } from '@/render/parametric-barrier-source';
 import { ParametricPlantSource } from '@/render/parametric-plant-source';
 import { GeneratedBuildingArtSource } from '@/render/generated-building-art-source';
 import { GeneratedFloraArtSource } from '@/render/generated-flora-art-source';
-import { generateBuildingImage, BUILDING_IMAGE_MODEL } from '@/llm/openrouter-image-client';
+import { generateBuildingImageAuto, BUILDING_IMAGE_MODEL } from '@/llm/building-image';
 import { initManifoldWasm } from '@/assetgen/geometry/manifold-wasm-browser';
 import { AssetManager } from '@/render/asset-manager';
 import { Scheduler } from '@/core/scheduler';
@@ -239,9 +242,13 @@ export class Game {
     model: () => BUILDING_IMAGE_MODEL,
     generate: async (initImageDataUri, prompt) => {
       const cfg = loadProviderConfig();
-      const res = await generateBuildingImage(
-        { apiKey: cfg.openrouterApiKey ?? '', baseUrl: openrouterImageBaseUrl(),
-          siteName: cfg.openrouterSiteName },
+      // Auto dispatch: qwen/* → Replicate (dev proxy injects the token; prod has
+      // neither proxy nor key → typed error → grey-massing fallback), everything
+      // else → OpenRouter. Both providers wired once here.
+      const res = await generateBuildingImageAuto(
+        { openrouter: { apiKey: cfg.openrouterApiKey ?? '', baseUrl: openrouterImageBaseUrl(),
+            siteName: cfg.openrouterSiteName },
+          replicate: { baseUrl: replicateImageBaseUrl(), deliveryBaseUrl: replicateDeliveryBaseUrl() } },
         { initImageDataUri, prompt, model: BUILDING_IMAGE_MODEL },
       );
       this.costTracker.record({ cost: res.costUsd, cacheStatus: 'MISS' });
@@ -259,9 +266,10 @@ export class Game {
     model: () => BUILDING_IMAGE_MODEL,
     generate: async (initImageDataUri, prompt) => {
       const cfg = loadProviderConfig();
-      const res = await generateBuildingImage(
-        { apiKey: cfg.openrouterApiKey ?? '', baseUrl: openrouterImageBaseUrl(),
-          siteName: cfg.openrouterSiteName },
+      const res = await generateBuildingImageAuto(
+        { openrouter: { apiKey: cfg.openrouterApiKey ?? '', baseUrl: openrouterImageBaseUrl(),
+            siteName: cfg.openrouterSiteName },
+          replicate: { baseUrl: replicateImageBaseUrl(), deliveryBaseUrl: replicateDeliveryBaseUrl() } },
         { initImageDataUri, prompt, model: BUILDING_IMAGE_MODEL },
       );
       this.costTracker.record({ cost: res.costUsd, cacheStatus: 'MISS' });

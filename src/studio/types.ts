@@ -4,17 +4,20 @@ import type { LightingState } from '@/render/lighting-state';
 import type { SpriteCanvas } from '@/render/iso/sprite-canvas';
 
 // Candidate img2img models for the A/B eval. Approx per-image cost at our ≤1 MP
-// sprite size (OpenRouter pricing, 2026-06). The prompt + output modalities are
-// adapted per model automatically (buildingImagePrompt / defaultModalitiesFor).
+// sprite size (qwen on Replicate; the rest OpenRouter, pricing 2026-06/07). The
+// provider + prompt + output modalities are adapted per model automatically
+// (generateBuildingImageAuto / buildingImagePrompt / defaultModalitiesFor).
 export const AB_MODELS: { id: string; label: string }[] = [
+  { id: 'qwen/qwen-image-edit-2511', label: 'Qwen Image Edit 2511 (Replicate, ~$0.03)' },
   { id: 'google/gemini-2.5-flash-image', label: 'Gemini 2.5 Flash Image (~$0.039)' },
   { id: 'black-forest-labs/flux.2-klein-4b', label: 'FLUX.2 Klein 4B (~$0.014)' },
   { id: 'black-forest-labs/flux.2-pro', label: 'FLUX.2 Pro (~$0.03)' },
   { id: 'black-forest-labs/flux.2-flex', label: 'FLUX.2 Flex (~$0.06)' },
 ];
 
-/** Gate thresholds (mirror generated-building-art-source) for the A/B verdict. */
-export const AB_MIN_BORDER = 0.6, AB_MIN_IOU = 0.7;
+/** Gate thresholds for the A/B verdict — THE runtime gates, re-exported so the
+ *  harness's "rejected in-game" claim can never drift from the real pipeline. */
+export { MIN_BORDER_KEYED as AB_MIN_BORDER, MIN_SILHOUETTE_IOU as AB_MIN_IOU } from '@/render/generated-building-art-source';
 
 export interface AbResult {
   model: string; ok: boolean; error?: string;

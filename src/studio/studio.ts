@@ -25,7 +25,7 @@ import { createCamera, zoomAt } from '@/render/camera';
 import { attachControls } from '@/ui/controls';
 import { DEFAULT_LIGHTING } from '@/render/lighting-state';
 import { structureResultToPack } from '@/render/parametric-building-source';
-import { GeneratedBuildingArtSource } from '@/render/generated-building-art-source';
+import { GeneratedBuildingArtSource, MIN_BORDER_KEYED, MIN_SILHOUETTE_IOU } from '@/render/generated-building-art-source';
 import { composeStructure, type StructureResult } from '@/assetgen/compose';
 import { ensureBuildingTypesRegistered } from '@/blueprint/register-buildings';
 import { BUILDING_BLUEPRINTS, synthesizeBlueprint, resolveAsset, isPlantPreset, isBridgePreset } from '@/blueprint/presets';
@@ -41,11 +41,14 @@ import { initManifoldWasm } from '@/assetgen/geometry/manifold-wasm-browser';
 // img2img generation pipeline (the real paid path, surfaced step-by-step).
 import { buildingImagePrompt, ttiReferencePrompt } from '@/assetgen/building-image-prompt';
 import { compositeOverChroma, chromaKeyMagenta } from '@/render/chroma-key';
-import { generateBuildingImage, BuildingImageError, BUILDING_IMAGE_MODEL, defaultModalitiesFor } from '@/llm/openrouter-image-client';
-import { loadProviderConfig, openrouterImageBaseUrl } from '@/llm/provider-factory';
+import { BuildingImageError, defaultModalitiesFor } from '@/llm/openrouter-image-client';
+import { generateBuildingImageAuto, isReplicateImageModel, BUILDING_IMAGE_MODEL } from '@/llm/building-image';
+import {
+  loadProviderConfig, openrouterImageBaseUrl, replicateImageBaseUrl, replicateDeliveryBaseUrl,
+} from '@/llm/provider-factory';
 import { decodePngToRaster, rasterToSpriteCanvas } from '@/render/sprite-codec';
 import {
-  type Raster, cropRaster, borderKeyedFraction, registerAlbedo, quantizePalette,
+  type Raster, cropRaster, borderKeyedFraction, registerAlbedo, quantizePaletteOklab,
 } from '@/render/sprite-postprocess';
 import { setActiveStudioController, type StudioController } from './studio-bridge';
 import { buildAccordion } from './accordion';
@@ -850,10 +853,9 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
   buildAbSection(bottom.abBody, {
     models: AB_MODELS,
     defaultA: BUILDING_IMAGE_MODEL, defaultB: 'google/gemini-2.5-flash-image',
-    keyStatus: () => {
-      const cfg = loadProviderConfig();
-      return cfg.openrouterApiKey ? 'configured key' : (openrouterImageBaseUrl() ? 'dev proxy key (env)' : 'NO KEY — will fail');
-    },
+    // The A/B pair can straddle providers (qwen → Replicate, the rest →
+    // OpenRouter), so report both credentials.
+    keyStatus: () => `replicate: ${imageKeyStatus(BUILDING_IMAGE_MODEL)} · openrouter: ${imageKeyStatus('google/gemini-2.5-flash-image')}`,
     getKind: () => state.kind,
     run: runAbPair,
     onView: (c, label) => { state.view = { canvas: c, label }; },
@@ -1417,10 +1419,7 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
       const variant = axes.length ? ` · <span style="color:var(--info)">${axes.join(' · ')}</span>` : '';
       return `<b>${state.kind}</b>${fp ? ` · ${fp.w}×${fp.h}` : ''}${variant}`;
     },
-    keyStatus: () => {
-      const cfg = loadProviderConfig();
-      return cfg.openrouterApiKey ? 'configured key' : (openrouterImageBaseUrl() ? 'dev proxy key' : 'NO KEY');
-    },
+    keyStatus: () => imageKeyStatus(BUILDING_IMAGE_MODEL),
     setYaw: (deg: number) => setYaw((deg * Math.PI) / 180),
     getYaw: () => (state.yaw * 180) / Math.PI,
   });
@@ -1555,15 +1554,28 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
   // — when it passes the gates — register the finished sprite as this blueprint's
   // textured albedo (so the lit view shows it on grass). Pure of any UI; the metadata
   // panel and the programmatic harvest interface both call it. `status` is optional.
+  // Which credential the paid render will actually use for `model` — replicate
+  // models auth via the dev proxy's REPLICATE_API_TOKEN, openrouter ones via the
+  // configured key (or the proxy's env key). Function declaration → hoisted, so
+  // earlier UI wiring (toolbar) can reference it.
+  function imageKeyStatus(model: string): string {
+    if (isReplicateImageModel(model)) {
+      return replicateImageBaseUrl() ? 'dev proxy token (env)' : 'NO TOKEN — will fail (Replicate needs the dev proxy)';
+    }
+    const cfg = loadProviderConfig();
+    return cfg.openrouterApiKey ? 'configured key' : (openrouterImageBaseUrl() ? 'dev proxy key (env)' : 'NO KEY — will fail');
+  }
+
   async function executeRender(
     rb: ResolvedBlueprint, model: string, initDataUri: string, mask: Raster,
     status?: (s: string) => void,
   ): Promise<RenderResult> {
     const prompt = buildingImagePrompt(rb, model);
     const cfg = loadProviderConfig();
-    status?.('sending to OpenRouter…');
-    const res = await generateBuildingImage(
-      { apiKey: cfg.openrouterApiKey ?? '', baseUrl: openrouterImageBaseUrl(), siteName: cfg.openrouterSiteName },
+    status?.(`sending to ${isReplicateImageModel(model) ? 'Replicate' : 'OpenRouter'}…`);
+    const res = await generateBuildingImageAuto(
+      { openrouter: { apiKey: cfg.openrouterApiKey ?? '', baseUrl: openrouterImageBaseUrl(), siteName: cfg.openrouterSiteName },
+        replicate: { baseUrl: replicateImageBaseUrl(), deliveryBaseUrl: replicateDeliveryBaseUrl() } },
       { initImageDataUri: initDataUri, prompt, model },
     );
     status?.(`returned (${(res.costUsd ?? 0).toFixed(4)} USD) — post-processing…`);
@@ -1575,9 +1587,9 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
     const border = borderKeyedFraction(raw);
     const reg = registerAlbedo(raw, mask);
     const regC = reg ? rasterToSpriteCanvas(reg.sprite) : null;
-    const finalC = reg ? rasterToSpriteCanvas(quantizePalette(reg.sprite, 64)) : null;
+    const finalC = reg ? rasterToSpriteCanvas(quantizePaletteOklab(reg.sprite, 64, { dither: 'bayer4' })) : null;
     const iou = reg ? reg.iou : 0;
-    const ok = !!reg && iou >= 0.7 && border >= 0.6;
+    const ok = !!reg && iou >= MIN_SILHOUETTE_IOU && border >= MIN_BORDER_KEYED;
     genStages = [
       { label: '7 · img2img raw', canvas: rawC, sub: `${(res.costUsd ?? 0).toFixed(4)} USD` },
       { label: '8 · chroma-keyed', canvas: keyedC, sub: `border ${border.toFixed(2)}` },
@@ -1587,8 +1599,8 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
     if (finalC && ok) subjFinished.set(rbKey(rb), finalC);
     state.view = null;   // drop to live 3D so the textured result is lit on grass
     const verdict = !reg ? 'registration failed'
-      : iou < 0.7 ? `IoU ${iou.toFixed(2)} < 0.70 (would be rejected in-game)`
-      : border < 0.6 ? `border ${border.toFixed(2)} < 0.60 (would be rejected in-game)`
+      : iou < MIN_SILHOUETTE_IOU ? `IoU ${iou.toFixed(2)} < ${MIN_SILHOUETTE_IOU} (would be rejected in-game)`
+      : border < MIN_BORDER_KEYED ? `border ${border.toFixed(2)} < ${MIN_BORDER_KEYED} (would be rejected in-game)`
       : `OK — IoU ${iou.toFixed(2)}, border ${border.toFixed(2)}`;
     const result: RenderResult = {
       kind: state.kind, model, ok, costUsd: res.costUsd ?? 0, border, iou, verdict,
@@ -1606,19 +1618,23 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
     const model = BUILDING_IMAGE_MODEL;
     const init = await buildInit(rb);
     if (!init) { alert('No canvas for init image.'); return; }
-    const cfg = loadProviderConfig();
     const prompt = buildingImagePrompt(rb, model);
-    const body = {
-      model, modalities: defaultModalitiesFor(model),
-      messages: [{ role: 'user', content: [
-        { type: 'text', text: prompt },
-        { type: 'image_url', image_url: { url: `‹init PNG ${init.struct.size}², ${Math.round(init.initDataUri.length / 1024)} KB data-uri›` } },
-      ] }],
-    };
+    const initPlaceholder = `‹init PNG ${init.struct.size}², ${Math.round(init.initDataUri.length / 1024)} KB data-uri›`;
+    // Review body mirrors the request each provider actually sends: Replicate's
+    // predictions input shape vs OpenRouter's image chat-completions message.
+    const body = isReplicateImageModel(model)
+      ? { input: { prompt, image: [initPlaceholder], aspect_ratio: 'match_input_image', output_format: 'png', disable_safety_checker: true } }
+      : {
+          model, modalities: defaultModalitiesFor(model),
+          messages: [{ role: 'user', content: [
+            { type: 'text', text: prompt },
+            { type: 'image_url', image_url: { url: initPlaceholder } },
+          ] }],
+        };
     openMetadataPanel(viewPane, {
       kind: state.kind, model, prompt, initDataUri: init.initDataUri, size: init.struct.size, bbox: init.bb,
       anchors: init.struct.anchors, body,
-      keyStatus: cfg.openrouterApiKey ? 'configured key' : (openrouterImageBaseUrl() ? 'dev proxy key (env)' : 'NO KEY — will fail'),
+      keyStatus: imageKeyStatus(model),
       onSend: async (status, finishOk) => {
         try {
           const r = await executeRender(rb, model, init.initDataUri, init.mask, status);
@@ -1644,8 +1660,9 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
     const base: AbResult = { model, ok: false, costUsd: 0, ms: 0, border: 0, iou: 0, raw: null, final: null, verdict: '' };
     const t0 = performance.now();
     try {
-      const res = await generateBuildingImage(
-        { apiKey: cfg.openrouterApiKey ?? '', baseUrl: openrouterImageBaseUrl(), siteName: cfg.openrouterSiteName },
+      const res = await generateBuildingImageAuto(
+        { openrouter: { apiKey: cfg.openrouterApiKey ?? '', baseUrl: openrouterImageBaseUrl(), siteName: cfg.openrouterSiteName },
+          replicate: { baseUrl: replicateImageBaseUrl(), deliveryBaseUrl: replicateDeliveryBaseUrl() } },
         { initImageDataUri: initDataUri, prompt, model },
       );
       base.ms = performance.now() - t0;
@@ -1657,7 +1674,7 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
       base.border = borderKeyedFraction(raw);
       const reg = registerAlbedo(raw, mask);
       base.iou = reg ? reg.iou : 0;
-      base.final = reg ? rasterToSpriteCanvas(quantizePalette(reg.sprite, 64)) : null;
+      base.final = reg ? rasterToSpriteCanvas(quantizePaletteOklab(reg.sprite, 64, { dither: 'bayer4' })) : null;
       base.ok = !!reg && base.border >= AB_MIN_BORDER && base.iou >= AB_MIN_IOU;
       base.verdict = !reg ? 'registration failed'
         : base.iou < AB_MIN_IOU ? `IoU ${base.iou.toFixed(2)} < ${AB_MIN_IOU} (rejected in-game)`

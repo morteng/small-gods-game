@@ -1,7 +1,8 @@
 // Runtime source of img2img-generated building sprites. Mirrors
 // ParametricBuildingSource's peek/warm contract: peek() is the sync frame read,
 // warm() kicks generation off the frame path (≤ once per cache key). Pipeline:
-// blueprint → magenta-backed init → OpenRouter img2img → chroma-key → VALIDATE
+// blueprint → magenta-backed init → img2img paint model (Replicate qwen-edit /
+// OpenRouter, via generateBuildingImageAuto) → chroma-key → VALIDATE
 // (border keyed + silhouette IoU vs the geometry mask) → register onto the
 // geometry grid (geometry alpha is authoritative; the LLM contributes colour
 // only) → palette quantize → persist the PROCESSED sprite + companion PBR maps.
@@ -23,16 +24,18 @@ import {
   isGeneratedArtFailed, writeGeneratedArtFailure,
 } from '@/render/generated-art-cache';
 import {
-  type Raster, cropRaster, borderKeyedFraction, registerAlbedo, quantizePalette,
+  type Raster, cropRaster, borderKeyedFraction, registerAlbedo, quantizePaletteOklab,
 } from '@/render/sprite-postprocess';
 import { decodePngToRaster, rasterToSpriteCanvas, rasterToPngBlob } from '@/render/sprite-codec';
 
 /** Minimum fraction of the LLM image's border ring that must key out (did the model obey the chroma background?). */
 export const MIN_BORDER_KEYED = 0.6;
 /** Minimum silhouette agreement (alpha IoU after crop+scale normalisation) vs the geometry mask.
- *  Relaxed from 0.8: registration now degrades gracefully (negotiation band keeps the result
- *  on-grid), so moderate artistic deviation is welcome rather than wasted as a paid retry. */
-export const MIN_SILHOUETTE_IOU = 0.7;
+ *  Raised from 0.7 with the qwen-image-edit-2511 adoption (2026-07 pilot: IoU 0.974–0.994 on
+ *  the same presets where FLUX.2 Klein managed ~0.80): the paint model now reliably preserves
+ *  the input silhouette, so 0.9 rejects real geometry drift instead of welcoming it as
+ *  "artistic deviation". */
+export const MIN_SILHOUETTE_IOU = 0.9;
 /** Palette size for the final quantize pass (look cohesion + clean banding later). */
 export const QUANT_COLORS = 64;
 /** Paid generation attempts per building before giving up for the session. */
@@ -317,7 +320,9 @@ export class GeneratedBuildingArtSource {
       this.note(key, `attempt ${n}: silhouette IoU ${reg.iou.toFixed(2)} < ${MIN_SILHOUETTE_IOU}`);
       return null;
     }
-    return quantizePalette(reg.sprite, QUANT_COLORS);
+    // Perceptual (Oklab) quantize + ordered dither — kills the sRGB banding the
+    // old raw-RGB bucketing left on smooth roof/wall gradients.
+    return quantizePaletteOklab(reg.sprite, QUANT_COLORS, { dither: 'bayer4' });
   }
 
   /** Decode an optional companion-map PNG into a canvas; failures degrade to "no map". */

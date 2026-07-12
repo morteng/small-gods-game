@@ -14,6 +14,12 @@ describe('imageModelFamily', () => {
     expect(imageModelFamily(OPENAI)).toBe('openai');
     expect(imageModelFamily(FLUX)).toBe('flux');
     expect(imageModelFamily('black-forest-labs/flux.2-pro')).toBe('flux');
+    expect(imageModelFamily('qwen/qwen-image-edit-2511')).toBe('qwen');
+    expect(imageModelFamily('Qwen/Qwen-Image-Edit')).toBe('qwen');
+    // qwen is checked BEFORE flux (an edit id referencing both stacks is qwen)…
+    expect(imageModelFamily('acme/qwen-flux-edit')).toBe('qwen');
+    // …but the gemini check stays first.
+    expect(imageModelFamily('google/gemini-qwen-image')).toBe('gemini');
     expect(imageModelFamily('something/else')).toBe('generic');
   });
 });

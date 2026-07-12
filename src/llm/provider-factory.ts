@@ -50,6 +50,19 @@ export function openrouterImageBaseUrl(): string | undefined {
   return useDevLlmProxy() ? '/api/llm/openrouter/api/v1' : undefined;
 }
 
+/** Base URL for the Replicate predictions API: dev proxy (which injects
+ *  REPLICATE_API_TOKEN from .env) when available, else direct — where a browser
+ *  with no token gets a typed auth error and the grey-massing fallback holds. */
+export function replicateImageBaseUrl(): string | undefined {
+  return useDevLlmProxy() ? '/api/img/replicate' : undefined;
+}
+
+/** Base URL for replicate.delivery output images (binary passthrough in dev —
+ *  the delivery host has no CORS headers for us either). */
+export function replicateDeliveryBaseUrl(): string | undefined {
+  return useDevLlmProxy() ? '/api/img/replicate-delivery' : undefined;
+}
+
 /**
  * Create an LLM provider from config.
  */
