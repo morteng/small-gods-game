@@ -1,447 +1,420 @@
 {
-  "model": "black-forest-labs/flux.2-klein-4b",
+  "model": "qwen/qwen-image-edit-2511",
   "entries": {
-    "v30:black-forest-labs/flux.2-klein-4b:4x3:k0rvtg": {
-      "file": "v30_black-forest-labs_flux.2-klein-4b_4x3_k0rvtg.png",
+    "v31:qwen/qwen-image-edit-2511:4x3:c9eyrw": {
+      "file": "v31_qwen_qwen-image-edit-2511_4x3_c9eyrw.png",
+      "targetWidth": 442,
+      "preset": "tavern",
+      "anchors": "{\"doors\":[],\"vents\":[{\"x\":0.15814478278699504,\"y\":0.01749355389836524},{\"x\":0.73848867418971,\"y\":0.25014591441338657}],\"tags\":[{\"x\":0.42601808595441587,\"y\":0.7589527813661764,\"kind\":\"lintel\",\"z\":2,\"accepts\":[\"sign\",\"lamp\"]},{\"x\":0.4984162759996647,\"y\":0.2782660860872064,\"kind\":\"roof_ridge\",\"z\":7.5,\"accepts\":[\"perch\",\"vane\",\"finial\"]},{\"x\":0.2812217058639181,\"y\":0.17526179424171284,\"kind\":\"gable_peak\",\"z\":7.5,\"accepts\":[\"perch\",\"finial\",\"banner\"]},{\"x\":0.7156108461354114,\"y\":0.38127037793269997,\"kind\":\"gable_peak\",\"z\":7.5,\"accepts\":[\"perch\",\"finial\",\"banner\"]},{\"x\":0.1871040588050946,\"y\":0.055090120421970354,\"kind\":\"chimney_top\",\"z\":8.6,\"accepts\":[\"smoke\",\"perch\"]},{\"x\":0.6504524750946873,\"y\":0.30642059252497467,\"kind\":\"chimney_top\",\"z\":8.6,\"accepts\":[\"smoke\",\"perch\"]},{\"x\":0.6432126560901624,\"y\":0.35380256677390165,\"kind\":\"eave\",\"z\":5.4,\"accepts\":[\"lamp\",\"bracket\",\"perch\"]},{\"x\":0.353619895909167,\"y\":0.49114162256789307,\"kind\":\"eave\",\"z\":5.4,\"accepts\":[\"lamp\",\"bracket\",\"perch\"]}]}",
+      "normal": "v31_qwen_qwen-image-edit-2511_4x3_c9eyrw.normal.png",
+      "material": "v31_qwen_qwen-image-edit-2511_4x3_c9eyrw.material.png",
+      "emissive": "v31_qwen_qwen-image-edit-2511_4x3_c9eyrw.emissive.png"
+    },
+    "v31:qwen/qwen-image-edit-2511:4x3:k0rvtg": {
+      "file": "v31_qwen_qwen-image-edit-2511_4x3_k0rvtg.png",
       "targetWidth": 662,
       "preset": "sea_arch",
       "anchors": "{\"doors\":[],\"vents\":[]}",
-      "normal": "v30_black-forest-labs_flux.2-klein-4b_4x3_k0rvtg.normal.png",
-      "material": "v30_black-forest-labs_flux.2-klein-4b_4x3_k0rvtg.material.png",
-      "emissive": "v30_black-forest-labs_flux.2-klein-4b_4x3_k0rvtg.emissive.png"
+      "normal": "v31_qwen_qwen-image-edit-2511_4x3_k0rvtg.normal.png",
+      "material": "v31_qwen_qwen-image-edit-2511_4x3_k0rvtg.material.png",
+      "emissive": "v31_qwen_qwen-image-edit-2511_4x3_k0rvtg.emissive.png"
     },
-    "v30:black-forest-labs/flux.2-klein-4b:4x3:1j48pn4": {
-      "file": "v30_black-forest-labs_flux.2-klein-4b_4x3_1j48pn4.png",
+    "v31:qwen/qwen-image-edit-2511:4x3:1j48pn4": {
+      "file": "v31_qwen_qwen-image-edit-2511_4x3_1j48pn4.png",
       "targetWidth": 830,
       "preset": "cliff_face",
       "anchors": "{\"doors\":[],\"vents\":[]}",
-      "normal": "v30_black-forest-labs_flux.2-klein-4b_4x3_1j48pn4.normal.png",
-      "material": "v30_black-forest-labs_flux.2-klein-4b_4x3_1j48pn4.material.png",
-      "emissive": "v30_black-forest-labs_flux.2-klein-4b_4x3_1j48pn4.emissive.png"
+      "normal": "v31_qwen_qwen-image-edit-2511_4x3_1j48pn4.normal.png",
+      "material": "v31_qwen_qwen-image-edit-2511_4x3_1j48pn4.material.png",
+      "emissive": "v31_qwen_qwen-image-edit-2511_4x3_1j48pn4.emissive.png"
     },
-    "v30:black-forest-labs/flux.2-klein-4b:4x3:1w0z2ym": {
-      "file": "v30_black-forest-labs_flux.2-klein-4b_4x3_1w0z2ym.png",
+    "v31:qwen/qwen-image-edit-2511:4x3:1w0z2ym": {
+      "file": "v31_qwen_qwen-image-edit-2511_4x3_1w0z2ym.png",
       "targetWidth": 817,
       "preset": "cave_mouth",
       "anchors": "{\"doors\":[],\"vents\":[]}",
-      "normal": "v30_black-forest-labs_flux.2-klein-4b_4x3_1w0z2ym.normal.png",
-      "material": "v30_black-forest-labs_flux.2-klein-4b_4x3_1w0z2ym.material.png",
-      "emissive": "v30_black-forest-labs_flux.2-klein-4b_4x3_1w0z2ym.emissive.png"
+      "normal": "v31_qwen_qwen-image-edit-2511_4x3_1w0z2ym.normal.png",
+      "material": "v31_qwen_qwen-image-edit-2511_4x3_1w0z2ym.material.png",
+      "emissive": "v31_qwen_qwen-image-edit-2511_4x3_1w0z2ym.emissive.png"
     },
-    "v30:black-forest-labs/flux.2-klein-4b:2x2:p3m80j": {
-      "file": "v30_black-forest-labs_flux.2-klein-4b_2x2_p3m80j.png",
+    "v31:qwen/qwen-image-edit-2511:2x2:p3m80j": {
+      "file": "v31_qwen_qwen-image-edit-2511_2x2_p3m80j.png",
       "targetWidth": 301,
       "preset": "hoodoo",
       "anchors": "{\"doors\":[],\"vents\":[]}",
-      "normal": "v30_black-forest-labs_flux.2-klein-4b_2x2_p3m80j.normal.png",
-      "material": "v30_black-forest-labs_flux.2-klein-4b_2x2_p3m80j.material.png",
-      "emissive": "v30_black-forest-labs_flux.2-klein-4b_2x2_p3m80j.emissive.png"
+      "normal": "v31_qwen_qwen-image-edit-2511_2x2_p3m80j.normal.png",
+      "material": "v31_qwen_qwen-image-edit-2511_2x2_p3m80j.material.png",
+      "emissive": "v31_qwen_qwen-image-edit-2511_2x2_p3m80j.emissive.png"
     },
-    "v30:black-forest-labs/flux.2-klein-4b:3x3:rhn52l": {
-      "file": "v30_black-forest-labs_flux.2-klein-4b_3x3_rhn52l.png",
+    "v31:qwen/qwen-image-edit-2511:3x3:119le23": {
+      "file": "v31_qwen_qwen-image-edit-2511_3x3_119le23.png",
       "targetWidth": 313,
       "preset": "cottage",
       "anchors": "{\"doors\":[],\"vents\":[{\"x\":0.4456229946636164,\"y\":0.07618372468982058}],\"tags\":[{\"x\":0.39552714801824895,\"y\":0.7144876116156157,\"kind\":\"lintel\",\"z\":2,\"accepts\":[\"sign\",\"lamp\"]},{\"x\":0.49776356974348857,\"y\":0.12650174589123403,\"kind\":\"roof_ridge\",\"z\":5.7,\"accepts\":[\"perch\",\"vane\",\"finial\"]},{\"x\":0.39552714801824895,\"y\":0.0699646434177358,\"kind\":\"gable_peak\",\"z\":5.7,\"accepts\":[\"perch\",\"finial\",\"banner\"]},{\"x\":0.5999999914687282,\"y\":0.18303884836473228,\"kind\":\"gable_peak\",\"z\":5.7,\"accepts\":[\"perch\",\"finial\",\"banner\"]},{\"x\":0.45073481574987834,\"y\":0.0281271875873471,\"kind\":\"chimney_top\",\"z\":6.800000000000001,\"accepts\":[\"smoke\",\"perch\"]},{\"x\":0.7022364131939678,\"y\":0.35265015578522696,\"kind\":\"eave\",\"z\":2.7,\"accepts\":[\"lamp\",\"bracket\",\"perch\"]},{\"x\":0.2932907262930093,\"y\":0.57879856567922,\"kind\":\"eave\",\"z\":2.7,\"accepts\":[\"lamp\",\"bracket\",\"perch\"]}]}",
-      "normal": "v30_black-forest-labs_flux.2-klein-4b_3x3_rhn52l.normal.png",
-      "material": "v30_black-forest-labs_flux.2-klein-4b_3x3_rhn52l.material.png",
-      "emissive": "v30_black-forest-labs_flux.2-klein-4b_3x3_rhn52l.emissive.png"
+      "normal": "v31_qwen_qwen-image-edit-2511_3x3_119le23.normal.png",
+      "material": "v31_qwen_qwen-image-edit-2511_3x3_119le23.material.png",
+      "emissive": "v31_qwen_qwen-image-edit-2511_3x3_119le23.emissive.png"
     },
-    "v30:black-forest-labs/flux.2-klein-4b:3x3:1i16j9t": {
-      "file": "v30_black-forest-labs_flux.2-klein-4b_3x3_1i16j9t.png",
-      "targetWidth": 377,
-      "preset": "tavern",
-      "anchors": "{\"doors\":[],\"vents\":[{\"x\":0.2558938832675114,\"y\":0.021772129483766157},{\"x\":0.6623023713311719,\"y\":0.21571643328123452}],\"tags\":[{\"x\":0.3283819469279889,\"y\":0.7164151674584497,\"kind\":\"lintel\",\"z\":2,\"accepts\":[\"sign\",\"lamp\"]},{\"x\":0.4981432201375379,\"y\":0.11692149657237376,\"kind\":\"roof_ridge\",\"z\":8.4,\"accepts\":[\"perch\",\"vane\",\"finial\"]},{\"x\":0.3283819469279889,\"y\":0.035908838344525656,\"kind\":\"gable_peak\",\"z\":8.4,\"accepts\":[\"perch\",\"finial\",\"banner\"]},{\"x\":0.667904493347087,\"y\":0.19793415480022186,\"kind\":\"gable_peak\",\"z\":8.4,\"accepts\":[\"perch\",\"finial\",\"banner\"]},{\"x\":0.2655702758404557,\"y\":-0.04591394646560091,\"kind\":\"chimney_top\",\"z\":9.5,\"accepts\":[\"smoke\",\"perch\"]},{\"x\":0.6526259787582276,\"y\":0.1387949142938928,\"kind\":\"chimney_top\",\"z\":9.5,\"accepts\":[\"smoke\",\"perch\"]},{\"x\":0.667904493347087,\"y\":0.27894681302806995,\"kind\":\"eave\",\"z\":5.4,\"accepts\":[\"lamp\",\"bracket\",\"perch\"]},{\"x\":0.3283819469279889,\"y\":0.4409721294837662,\"kind\":\"eave\",\"z\":5.4,\"accepts\":[\"lamp\",\"bracket\",\"perch\"]}]}",
-      "normal": "v30_black-forest-labs_flux.2-klein-4b_3x3_1i16j9t.normal.png",
-      "material": "v30_black-forest-labs_flux.2-klein-4b_3x3_1i16j9t.material.png",
-      "emissive": "v30_black-forest-labs_flux.2-klein-4b_3x3_1i16j9t.emissive.png"
-    },
-    "v30:black-forest-labs/flux.2-klein-4b:3x3:tf2kus": {
-      "file": "v30_black-forest-labs_flux.2-klein-4b_3x3_tf2kus.png",
+    "v31:qwen/qwen-image-edit-2511:3x3:74lclu": {
+      "file": "v31_qwen_qwen-image-edit-2511_3x3_74lclu.png",
       "targetWidth": 377,
       "preset": "townhouse",
       "anchors": "{\"doors\":[],\"vents\":[{\"x\":0.6475861909598191,\"y\":0.14861385772723965}],\"tags\":[{\"x\":0.1599469336653894,\"y\":0.6430693032717941,\"kind\":\"lintel\",\"z\":2,\"accepts\":[\"sign\",\"lamp\"]},{\"x\":0.49946948008448755,\"y\":0.13613861020248713,\"kind\":\"roof_ridge\",\"z\":8.4,\"accepts\":[\"perch\",\"vane\",\"finial\"]},{\"x\":0.32970820687493846,\"y\":0.056930689410407916,\"kind\":\"gable_peak\",\"z\":8.4,\"accepts\":[\"perch\",\"finial\",\"banner\"]},{\"x\":0.6692307532940366,\"y\":0.21534653099456633,\"kind\":\"gable_peak\",\"z\":8.4,\"accepts\":[\"perch\",\"finial\",\"banner\"]},{\"x\":0.6386737241163178,\"y\":0.15039603594506135,\"kind\":\"chimney_top\",\"z\":9.5,\"accepts\":[\"smoke\",\"perch\"]},{\"x\":0.6692307532940366,\"y\":0.2945544517866455,\"kind\":\"eave\",\"z\":5.4,\"accepts\":[\"lamp\",\"bracket\",\"perch\"]},{\"x\":0.32970820687493846,\"y\":0.45297029337080397,\"kind\":\"eave\",\"z\":5.4,\"accepts\":[\"lamp\",\"bracket\",\"perch\"]}]}",
-      "normal": "v30_black-forest-labs_flux.2-klein-4b_3x3_tf2kus.normal.png",
-      "material": "v30_black-forest-labs_flux.2-klein-4b_3x3_tf2kus.material.png",
-      "emissive": "v30_black-forest-labs_flux.2-klein-4b_3x3_tf2kus.emissive.png"
+      "normal": "v31_qwen_qwen-image-edit-2511_3x3_74lclu.normal.png",
+      "material": "v31_qwen_qwen-image-edit-2511_3x3_74lclu.material.png",
+      "emissive": "v31_qwen_qwen-image-edit-2511_3x3_74lclu.emissive.png"
     },
-    "v30:black-forest-labs/flux.2-klein-4b:2x2:1chxgza": {
-      "file": "v30_black-forest-labs_flux.2-klein-4b_2x2_1chxgza.png",
+    "v31:qwen/qwen-image-edit-2511:2x2:1chxgza": {
+      "file": "v31_qwen_qwen-image-edit-2511_2x2_1chxgza.png",
       "targetWidth": 210,
       "preset": "market_stall",
       "anchors": "{\"doors\":[],\"vents\":[]}",
-      "normal": "v30_black-forest-labs_flux.2-klein-4b_2x2_1chxgza.normal.png",
-      "material": "v30_black-forest-labs_flux.2-klein-4b_2x2_1chxgza.material.png",
-      "emissive": "v30_black-forest-labs_flux.2-klein-4b_2x2_1chxgza.emissive.png"
+      "normal": "v31_qwen_qwen-image-edit-2511_2x2_1chxgza.normal.png",
+      "material": "v31_qwen_qwen-image-edit-2511_2x2_1chxgza.material.png",
+      "emissive": "v31_qwen_qwen-image-edit-2511_2x2_1chxgza.emissive.png"
     },
-    "v30:black-forest-labs/flux.2-klein-4b:4x2:1s3pzdo": {
-      "file": "v30_black-forest-labs_flux.2-klein-4b_4x2_1s3pzdo.png",
+    "v31:qwen/qwen-image-edit-2511:4x2:1s3pzdo": {
+      "file": "v31_qwen_qwen-image-edit-2511_4x2_1s3pzdo.png",
       "targetWidth": 429,
       "preset": "farm_barn",
       "anchors": "{\"doors\":[],\"vents\":[],\"tags\":[{\"x\":0.4243356653582522,\"y\":0.6885082701951759,\"kind\":\"lintel\",\"z\":2,\"accepts\":[\"sign\",\"lamp\"]},{\"x\":0.4989277399503268,\"y\":0.1846408668802588,\"kind\":\"roof_ridge\",\"z\":6.2,\"accepts\":[\"perch\",\"vane\",\"finial\"]},{\"x\":0.275151516174103,\"y\":0.05204418179738586,\"kind\":\"gable_peak\",\"z\":6.2,\"accepts\":[\"perch\",\"finial\",\"banner\"]},{\"x\":0.7227039637265505,\"y\":0.3172375519631317,\"kind\":\"gable_peak\",\"z\":6.2,\"accepts\":[\"perch\",\"finial\",\"banner\"]},{\"x\":0.6481118891344759,\"y\":0.361436446990756,\"kind\":\"eave\",\"z\":3.2,\"accepts\":[\"lamp\",\"bracket\",\"perch\"]},{\"x\":0.3497435907661776,\"y\":0.5382320271012533,\"kind\":\"eave\",\"z\":3.2,\"accepts\":[\"lamp\",\"bracket\",\"perch\"]}]}",
-      "normal": "v30_black-forest-labs_flux.2-klein-4b_4x2_1s3pzdo.normal.png",
-      "material": "v30_black-forest-labs_flux.2-klein-4b_4x2_1s3pzdo.material.png",
-      "emissive": "v30_black-forest-labs_flux.2-klein-4b_4x2_1s3pzdo.emissive.png"
+      "normal": "v31_qwen_qwen-image-edit-2511_4x2_1s3pzdo.normal.png",
+      "material": "v31_qwen_qwen-image-edit-2511_4x2_1s3pzdo.material.png",
+      "emissive": "v31_qwen_qwen-image-edit-2511_4x2_1s3pzdo.emissive.png"
     },
-    "v30:black-forest-labs/flux.2-klein-4b:2x3:1hatuyo": {
-      "file": "v30_black-forest-labs_flux.2-klein-4b_2x3_1hatuyo.png",
+    "v31:qwen/qwen-image-edit-2511:2x3:1hatuyo": {
+      "file": "v31_qwen_qwen-image-edit-2511_2x3_1hatuyo.png",
       "targetWidth": 328,
       "preset": "tower",
       "anchors": "{\"doors\":[],\"vents\":[],\"tags\":[{\"x\":0.3028658479452133,\"y\":0.8320501835775176,\"kind\":\"lintel\",\"z\":2,\"accepts\":[\"sign\",\"lamp\"]}]}",
-      "normal": "v30_black-forest-labs_flux.2-klein-4b_2x3_1hatuyo.normal.png",
-      "material": "v30_black-forest-labs_flux.2-klein-4b_2x3_1hatuyo.material.png",
-      "emissive": "v30_black-forest-labs_flux.2-klein-4b_2x3_1hatuyo.emissive.png"
+      "normal": "v31_qwen_qwen-image-edit-2511_2x3_1hatuyo.normal.png",
+      "material": "v31_qwen_qwen-image-edit-2511_2x3_1hatuyo.material.png",
+      "emissive": "v31_qwen_qwen-image-edit-2511_2x3_1hatuyo.emissive.png"
     },
-    "v30:black-forest-labs/flux.2-klein-4b:3x3:15aiaib": {
-      "file": "v30_black-forest-labs_flux.2-klein-4b_3x3_15aiaib.png",
+    "v31:qwen/qwen-image-edit-2511:3x3:aacbe9": {
+      "file": "v31_qwen_qwen-image-edit-2511_3x3_aacbe9.png",
       "targetWidth": 392,
       "preset": "castle_keep",
       "anchors": "{\"doors\":[],\"vents\":[{\"x\":0.40035713807660706,\"y\":0.15866664264716346}],\"tags\":[{\"x\":0.253418362566403,\"y\":0.7798431132353988,\"kind\":\"lintel\",\"z\":2,\"accepts\":[\"sign\",\"lamp\"]}]}",
-      "normal": "v30_black-forest-labs_flux.2-klein-4b_3x3_15aiaib.normal.png",
-      "material": "v30_black-forest-labs_flux.2-klein-4b_3x3_15aiaib.material.png",
-      "emissive": "v30_black-forest-labs_flux.2-klein-4b_3x3_15aiaib.emissive.png"
+      "normal": "v31_qwen_qwen-image-edit-2511_3x3_aacbe9.normal.png",
+      "material": "v31_qwen_qwen-image-edit-2511_3x3_aacbe9.material.png",
+      "emissive": "v31_qwen_qwen-image-edit-2511_3x3_aacbe9.emissive.png"
     },
-    "v30:black-forest-labs/flux.2-klein-4b:2x3:mrqhqs": {
-      "file": "v30_black-forest-labs_flux.2-klein-4b_2x3_mrqhqs.png",
+    "v31:qwen/qwen-image-edit-2511:2x3:mrqhqs": {
+      "file": "v31_qwen_qwen-image-edit-2511_2x3_mrqhqs.png",
       "targetWidth": 321,
       "preset": "dock",
       "anchors": "{\"doors\":[],\"vents\":[],\"tags\":[{\"x\":0.897196261682243,\"y\":0.10619289741903393,\"kind\":\"lintel\",\"z\":2,\"accepts\":[\"sign\",\"lamp\"]}]}",
-      "normal": "v30_black-forest-labs_flux.2-klein-4b_2x3_mrqhqs.normal.png",
-      "material": "v30_black-forest-labs_flux.2-klein-4b_2x3_mrqhqs.material.png",
-      "emissive": "v30_black-forest-labs_flux.2-klein-4b_2x3_mrqhqs.emissive.png"
+      "normal": "v31_qwen_qwen-image-edit-2511_2x3_mrqhqs.normal.png",
+      "material": "v31_qwen_qwen-image-edit-2511_2x3_mrqhqs.material.png",
+      "emissive": "v31_qwen_qwen-image-edit-2511_2x3_mrqhqs.emissive.png"
     },
-    "v30:black-forest-labs/flux.2-klein-4b:2x2:h31mh7": {
-      "file": "v30_black-forest-labs_flux.2-klein-4b_2x2_h31mh7.png",
+    "v31:qwen/qwen-image-edit-2511:2x2:1wncaea": {
+      "file": "v31_qwen_qwen-image-edit-2511_2x2_1wncaea.png",
+      "targetWidth": 293,
+      "preset": "shrine",
+      "anchors": "{\"doors\":[],\"vents\":[{\"x\":0.6562457445294376,\"y\":-0.0025380393091191983}],\"tags\":[{\"x\":0.38976110289121246,\"y\":0.796649777949764,\"kind\":\"lintel\",\"z\":2,\"accepts\":[\"sign\",\"lamp\"]},{\"x\":0.49897611995605884,\"y\":0.3743147525690534,\"kind\":\"roof_ridge\",\"z\":5.7,\"accepts\":[\"perch\",\"vane\",\"finial\"]},{\"x\":0.38976110289121246,\"y\":0.3337056155132158,\"kind\":\"gable_peak\",\"z\":5.7,\"accepts\":[\"perch\",\"finial\",\"banner\"]},{\"x\":0.6081911370209052,\"y\":0.4149238896248909,\"kind\":\"gable_peak\",\"z\":5.7,\"accepts\":[\"perch\",\"finial\",\"banner\"]},{\"x\":0.6147440380447962,\"y\":0.3653807424167691,\"kind\":\"chimney_top\",\"z\":6.800000000000001,\"accepts\":[\"smoke\",\"perch\"]},{\"x\":0.7174061540857517,\"y\":0.5367513007924036,\"kind\":\"eave\",\"z\":2.7,\"accepts\":[\"lamp\",\"bracket\",\"perch\"]},{\"x\":0.28054608582636603,\"y\":0.6991878490157539,\"kind\":\"eave\",\"z\":2.7,\"accepts\":[\"lamp\",\"bracket\",\"perch\"]}]}",
+      "normal": "v31_qwen_qwen-image-edit-2511_2x2_1wncaea.normal.png",
+      "material": "v31_qwen_qwen-image-edit-2511_2x2_1wncaea.material.png",
+      "emissive": "v31_qwen_qwen-image-edit-2511_2x2_1wncaea.emissive.png"
+    },
+    "v31:qwen/qwen-image-edit-2511:2x2:h31mh7": {
+      "file": "v31_qwen_qwen-image-edit-2511_2x2_h31mh7.png",
       "targetWidth": 317,
       "preset": "guard_post",
       "anchors": "{\"doors\":[],\"vents\":[],\"tags\":[{\"x\":0.3965930607792707,\"y\":0.6810276800464735,\"kind\":\"lintel\",\"z\":2,\"accepts\":[\"sign\",\"lamp\"]},{\"x\":0.4975394330190183,\"y\":-0.001976272522696438,\"kind\":\"roof_ridge\",\"z\":5.9,\"accepts\":[\"perch\",\"vane\",\"finial\"]},{\"x\":0.3965930607792707,\"y\":-0.06521737924206403,\"kind\":\"gable_peak\",\"z\":5.9,\"accepts\":[\"perch\",\"finial\",\"banner\"]},{\"x\":0.5984858052587659,\"y\":0.06126483419667115,\"kind\":\"gable_peak\",\"z\":5.9,\"accepts\":[\"perch\",\"finial\",\"banner\"]},{\"x\":0.6994321774985136,\"y\":0.2130434903231534,\"kind\":\"eave\",\"z\":3.2,\"accepts\":[\"lamp\",\"bracket\",\"perch\"]},{\"x\":0.29564668853952303,\"y\":0.46600791720062373,\"kind\":\"eave\",\"z\":3.2,\"accepts\":[\"lamp\",\"bracket\",\"perch\"]}]}",
-      "normal": "v30_black-forest-labs_flux.2-klein-4b_2x2_h31mh7.normal.png",
-      "material": "v30_black-forest-labs_flux.2-klein-4b_2x2_h31mh7.material.png",
-      "emissive": "v30_black-forest-labs_flux.2-klein-4b_2x2_h31mh7.emissive.png"
+      "normal": "v31_qwen_qwen-image-edit-2511_2x2_h31mh7.normal.png",
+      "material": "v31_qwen_qwen-image-edit-2511_2x2_h31mh7.material.png",
+      "emissive": "v31_qwen_qwen-image-edit-2511_2x2_h31mh7.emissive.png"
     },
-    "v30:black-forest-labs/flux.2-klein-4b:2x2:djpkqt": {
-      "file": "v30_black-forest-labs_flux.2-klein-4b_2x2_djpkqt.png",
+    "v31:qwen/qwen-image-edit-2511:2x2:djpkqt": {
+      "file": "v31_qwen_qwen-image-edit-2511_2x2_djpkqt.png",
       "targetWidth": 349,
       "preset": "watermill",
       "anchors": "{\"doors\":[],\"vents\":[],\"tags\":[{\"x\":0.47429225233017885,\"y\":0.7153900489739492,\"kind\":\"lintel\",\"z\":2,\"accepts\":[\"sign\",\"lamp\"]},{\"x\":0.5659827967427863,\"y\":0.12531912698813363,\"kind\":\"roof_ridge\",\"z\":5.7,\"accepts\":[\"perch\",\"vane\",\"finial\"]},{\"x\":0.47429225233017885,\"y\":0.06858153833565135,\"kind\":\"gable_peak\",\"z\":5.7,\"accepts\":[\"perch\",\"finial\",\"banner\"]},{\"x\":0.6576733411553938,\"y\":0.1820567156406159,\"kind\":\"gable_peak\",\"z\":5.7,\"accepts\":[\"perch\",\"finial\",\"banner\"]},{\"x\":0.7493638855680012,\"y\":0.3522694815980627,\"kind\":\"eave\",\"z\":2.7,\"accepts\":[\"lamp\",\"bracket\",\"perch\"]},{\"x\":0.3826017079175714,\"y\":0.5792198362079918,\"kind\":\"eave\",\"z\":2.7,\"accepts\":[\"lamp\",\"bracket\",\"perch\"]}]}",
-      "normal": "v30_black-forest-labs_flux.2-klein-4b_2x2_djpkqt.normal.png",
-      "material": "v30_black-forest-labs_flux.2-klein-4b_2x2_djpkqt.material.png",
-      "emissive": "v30_black-forest-labs_flux.2-klein-4b_2x2_djpkqt.emissive.png"
+      "normal": "v31_qwen_qwen-image-edit-2511_2x2_djpkqt.normal.png",
+      "material": "v31_qwen_qwen-image-edit-2511_2x2_djpkqt.material.png",
+      "emissive": "v31_qwen_qwen-image-edit-2511_2x2_djpkqt.emissive.png"
     },
-    "v30:black-forest-labs/flux.2-klein-4b:1x1:t73zn4": {
-      "file": "v30_black-forest-labs_flux.2-klein-4b_1x1_t73zn4.png",
-      "targetWidth": 94,
-      "preset": "well",
+    "v31:qwen/qwen-image-edit-2511:1x1:nlki6o": {
+      "file": "v31_qwen_qwen-image-edit-2511_1x1_nlki6o.png",
+      "targetWidth": 54,
+      "preset": "stoup",
       "anchors": "{\"doors\":[],\"vents\":[]}",
-      "normal": "v30_black-forest-labs_flux.2-klein-4b_1x1_t73zn4.normal.png",
-      "material": "v30_black-forest-labs_flux.2-klein-4b_1x1_t73zn4.material.png",
-      "emissive": "v30_black-forest-labs_flux.2-klein-4b_1x1_t73zn4.emissive.png"
+      "normal": "v31_qwen_qwen-image-edit-2511_1x1_nlki6o.normal.png",
+      "material": "v31_qwen_qwen-image-edit-2511_1x1_nlki6o.material.png",
+      "emissive": "v31_qwen_qwen-image-edit-2511_1x1_nlki6o.emissive.png"
     },
-    "v30:black-forest-labs/flux.2-klein-4b:2x2:gm46ye": {
-      "file": "v30_black-forest-labs_flux.2-klein-4b_2x2_gm46ye.png",
-      "targetWidth": 110,
-      "preset": "graveyard",
-      "anchors": "{\"doors\":[],\"vents\":[]}",
-      "normal": "v30_black-forest-labs_flux.2-klein-4b_2x2_gm46ye.normal.png",
-      "material": "v30_black-forest-labs_flux.2-klein-4b_2x2_gm46ye.material.png",
-      "emissive": "v30_black-forest-labs_flux.2-klein-4b_2x2_gm46ye.emissive.png"
-    },
-    "v30:black-forest-labs/flux.2-klein-4b:2x2:3besc9": {
-      "file": "v30_black-forest-labs_flux.2-klein-4b_2x2_3besc9.png",
+    "v31:qwen/qwen-image-edit-2511:2x2:3besc9": {
+      "file": "v31_qwen_qwen-image-edit-2511_2x2_3besc9.png",
       "targetWidth": 180,
       "preset": "bell_tent",
       "anchors": "{\"doors\":[],\"vents\":[]}",
-      "normal": "v30_black-forest-labs_flux.2-klein-4b_2x2_3besc9.normal.png",
-      "material": "v30_black-forest-labs_flux.2-klein-4b_2x2_3besc9.material.png",
-      "emissive": "v30_black-forest-labs_flux.2-klein-4b_2x2_3besc9.emissive.png"
+      "normal": "v31_qwen_qwen-image-edit-2511_2x2_3besc9.normal.png",
+      "material": "v31_qwen_qwen-image-edit-2511_2x2_3besc9.material.png",
+      "emissive": "v31_qwen_qwen-image-edit-2511_2x2_3besc9.emissive.png"
     },
-    "v30:black-forest-labs/flux.2-klein-4b:1x1:9u1hsy": {
-      "file": "v30_black-forest-labs_flux.2-klein-4b_1x1_9u1hsy.png",
+    "v31:qwen/qwen-image-edit-2511:1x1:9u1hsy": {
+      "file": "v31_qwen_qwen-image-edit-2511_1x1_9u1hsy.png",
       "targetWidth": 253,
       "preset": "oak_branched",
       "anchors": "{\"doors\":[],\"vents\":[]}",
-      "normal": "v30_black-forest-labs_flux.2-klein-4b_1x1_9u1hsy.normal.png",
-      "material": "v30_black-forest-labs_flux.2-klein-4b_1x1_9u1hsy.material.png",
-      "emissive": "v30_black-forest-labs_flux.2-klein-4b_1x1_9u1hsy.emissive.png"
+      "normal": "v31_qwen_qwen-image-edit-2511_1x1_9u1hsy.normal.png",
+      "material": "v31_qwen_qwen-image-edit-2511_1x1_9u1hsy.material.png",
+      "emissive": "v31_qwen_qwen-image-edit-2511_1x1_9u1hsy.emissive.png"
     },
-    "v30:black-forest-labs/flux.2-klein-4b:1x1:1kfwnus": {
-      "file": "v30_black-forest-labs_flux.2-klein-4b_1x1_1kfwnus.png",
+    "v31:qwen/qwen-image-edit-2511:1x1:1kfwnus": {
+      "file": "v31_qwen_qwen-image-edit-2511_1x1_1kfwnus.png",
       "targetWidth": 138,
       "preset": "pine_branched",
       "anchors": "{\"doors\":[],\"vents\":[]}",
-      "normal": "v30_black-forest-labs_flux.2-klein-4b_1x1_1kfwnus.normal.png",
-      "material": "v30_black-forest-labs_flux.2-klein-4b_1x1_1kfwnus.material.png",
-      "emissive": "v30_black-forest-labs_flux.2-klein-4b_1x1_1kfwnus.emissive.png"
+      "normal": "v31_qwen_qwen-image-edit-2511_1x1_1kfwnus.normal.png",
+      "material": "v31_qwen_qwen-image-edit-2511_1x1_1kfwnus.material.png",
+      "emissive": "v31_qwen_qwen-image-edit-2511_1x1_1kfwnus.emissive.png"
     },
-    "v30:black-forest-labs/flux.2-klein-4b:1x1:vukxec": {
-      "file": "v30_black-forest-labs_flux.2-klein-4b_1x1_vukxec.png",
+    "v31:qwen/qwen-image-edit-2511:1x1:vukxec": {
+      "file": "v31_qwen_qwen-image-edit-2511_1x1_vukxec.png",
       "targetWidth": 196,
       "preset": "willow_tree",
       "anchors": "{\"doors\":[],\"vents\":[]}",
-      "normal": "v30_black-forest-labs_flux.2-klein-4b_1x1_vukxec.normal.png",
-      "material": "v30_black-forest-labs_flux.2-klein-4b_1x1_vukxec.material.png",
-      "emissive": "v30_black-forest-labs_flux.2-klein-4b_1x1_vukxec.emissive.png"
+      "normal": "v31_qwen_qwen-image-edit-2511_1x1_vukxec.normal.png",
+      "material": "v31_qwen_qwen-image-edit-2511_1x1_vukxec.material.png",
+      "emissive": "v31_qwen_qwen-image-edit-2511_1x1_vukxec.emissive.png"
     },
-    "v30:black-forest-labs/flux.2-klein-4b:1x1:10itnfp": {
-      "file": "v30_black-forest-labs_flux.2-klein-4b_1x1_10itnfp.png",
+    "v31:qwen/qwen-image-edit-2511:1x1:10itnfp": {
+      "file": "v31_qwen_qwen-image-edit-2511_1x1_10itnfp.png",
       "targetWidth": 43,
       "preset": "shrub_bush",
       "anchors": "{\"doors\":[],\"vents\":[]}",
-      "normal": "v30_black-forest-labs_flux.2-klein-4b_1x1_10itnfp.normal.png",
-      "material": "v30_black-forest-labs_flux.2-klein-4b_1x1_10itnfp.material.png",
-      "emissive": "v30_black-forest-labs_flux.2-klein-4b_1x1_10itnfp.emissive.png"
+      "normal": "v31_qwen_qwen-image-edit-2511_1x1_10itnfp.normal.png",
+      "material": "v31_qwen_qwen-image-edit-2511_1x1_10itnfp.material.png",
+      "emissive": "v31_qwen_qwen-image-edit-2511_1x1_10itnfp.emissive.png"
     },
-    "v30:black-forest-labs/flux.2-klein-4b:1x1:why7fm": {
-      "file": "v30_black-forest-labs_flux.2-klein-4b_1x1_why7fm.png",
+    "v31:qwen/qwen-image-edit-2511:1x1:why7fm": {
+      "file": "v31_qwen_qwen-image-edit-2511_1x1_why7fm.png",
       "targetWidth": 16,
       "preset": "bracken_fern",
       "anchors": "{\"doors\":[],\"vents\":[]}",
-      "normal": "v30_black-forest-labs_flux.2-klein-4b_1x1_why7fm.normal.png",
-      "material": "v30_black-forest-labs_flux.2-klein-4b_1x1_why7fm.material.png",
-      "emissive": "v30_black-forest-labs_flux.2-klein-4b_1x1_why7fm.emissive.png"
+      "normal": "v31_qwen_qwen-image-edit-2511_1x1_why7fm.normal.png",
+      "material": "v31_qwen_qwen-image-edit-2511_1x1_why7fm.material.png",
+      "emissive": "v31_qwen_qwen-image-edit-2511_1x1_why7fm.emissive.png"
     },
-    "v30:black-forest-labs/flux.2-klein-4b:1x1:9wnduy": {
-      "file": "v30_black-forest-labs_flux.2-klein-4b_1x1_9wnduy.png",
+    "v31:qwen/qwen-image-edit-2511:1x1:9wnduy": {
+      "file": "v31_qwen_qwen-image-edit-2511_1x1_9wnduy.png",
       "targetWidth": 75,
       "preset": "boulder",
       "anchors": "{\"doors\":[],\"vents\":[]}",
-      "normal": "v30_black-forest-labs_flux.2-klein-4b_1x1_9wnduy.normal.png",
-      "material": "v30_black-forest-labs_flux.2-klein-4b_1x1_9wnduy.material.png",
-      "emissive": "v30_black-forest-labs_flux.2-klein-4b_1x1_9wnduy.emissive.png"
+      "normal": "v31_qwen_qwen-image-edit-2511_1x1_9wnduy.normal.png",
+      "material": "v31_qwen_qwen-image-edit-2511_1x1_9wnduy.material.png",
+      "emissive": "v31_qwen_qwen-image-edit-2511_1x1_9wnduy.emissive.png"
     },
-    "v30:black-forest-labs/flux.2-klein-4b:1x1:179zpz4": {
-      "file": "v30_black-forest-labs_flux.2-klein-4b_1x1_179zpz4.png",
+    "v31:qwen/qwen-image-edit-2511:1x1:179zpz4": {
+      "file": "v31_qwen_qwen-image-edit-2511_1x1_179zpz4.png",
       "targetWidth": 30,
       "preset": "rock_small",
       "anchors": "{\"doors\":[],\"vents\":[]}",
-      "normal": "v30_black-forest-labs_flux.2-klein-4b_1x1_179zpz4.normal.png",
-      "material": "v30_black-forest-labs_flux.2-klein-4b_1x1_179zpz4.material.png",
-      "emissive": "v30_black-forest-labs_flux.2-klein-4b_1x1_179zpz4.emissive.png"
+      "normal": "v31_qwen_qwen-image-edit-2511_1x1_179zpz4.normal.png",
+      "material": "v31_qwen_qwen-image-edit-2511_1x1_179zpz4.material.png",
+      "emissive": "v31_qwen_qwen-image-edit-2511_1x1_179zpz4.emissive.png"
     },
-    "v30:black-forest-labs/flux.2-klein-4b:1x1:frf9gk": {
-      "file": "v30_black-forest-labs_flux.2-klein-4b_1x1_frf9gk.png",
+    "v31:qwen/qwen-image-edit-2511:1x1:frf9gk": {
+      "file": "v31_qwen_qwen-image-edit-2511_1x1_frf9gk.png",
       "targetWidth": 56,
       "preset": "rock_pile",
       "anchors": "{\"doors\":[],\"vents\":[]}",
-      "normal": "v30_black-forest-labs_flux.2-klein-4b_1x1_frf9gk.normal.png",
-      "material": "v30_black-forest-labs_flux.2-klein-4b_1x1_frf9gk.material.png",
-      "emissive": "v30_black-forest-labs_flux.2-klein-4b_1x1_frf9gk.emissive.png"
+      "normal": "v31_qwen_qwen-image-edit-2511_1x1_frf9gk.normal.png",
+      "material": "v31_qwen_qwen-image-edit-2511_1x1_frf9gk.material.png",
+      "emissive": "v31_qwen_qwen-image-edit-2511_1x1_frf9gk.emissive.png"
     },
-    "v30:black-forest-labs/flux.2-klein-4b:1x1:mwup68": {
-      "file": "v30_black-forest-labs_flux.2-klein-4b_1x1_mwup68.png",
+    "v31:qwen/qwen-image-edit-2511:1x1:mwup68": {
+      "file": "v31_qwen_qwen-image-edit-2511_1x1_mwup68.png",
       "targetWidth": 19,
       "preset": "pebbles",
       "anchors": "{\"doors\":[],\"vents\":[]}",
-      "normal": "v30_black-forest-labs_flux.2-klein-4b_1x1_mwup68.normal.png",
-      "material": "v30_black-forest-labs_flux.2-klein-4b_1x1_mwup68.material.png",
-      "emissive": "v30_black-forest-labs_flux.2-klein-4b_1x1_mwup68.emissive.png"
+      "normal": "v31_qwen_qwen-image-edit-2511_1x1_mwup68.normal.png",
+      "material": "v31_qwen_qwen-image-edit-2511_1x1_mwup68.material.png",
+      "emissive": "v31_qwen_qwen-image-edit-2511_1x1_mwup68.emissive.png"
     },
-    "v30:black-forest-labs/flux.2-klein-4b:1x1:hl1c6u": {
-      "file": "v30_black-forest-labs_flux.2-klein-4b_1x1_hl1c6u.png",
+    "v31:qwen/qwen-image-edit-2511:1x1:hl1c6u": {
+      "file": "v31_qwen_qwen-image-edit-2511_1x1_hl1c6u.png",
       "targetWidth": 31,
       "preset": "standing_stone",
       "anchors": "{\"doors\":[],\"vents\":[]}",
-      "normal": "v30_black-forest-labs_flux.2-klein-4b_1x1_hl1c6u.normal.png",
-      "material": "v30_black-forest-labs_flux.2-klein-4b_1x1_hl1c6u.material.png",
-      "emissive": "v30_black-forest-labs_flux.2-klein-4b_1x1_hl1c6u.emissive.png"
+      "normal": "v31_qwen_qwen-image-edit-2511_1x1_hl1c6u.normal.png",
+      "material": "v31_qwen_qwen-image-edit-2511_1x1_hl1c6u.material.png",
+      "emissive": "v31_qwen_qwen-image-edit-2511_1x1_hl1c6u.emissive.png"
     },
-    "v30:black-forest-labs/flux.2-klein-4b:1x1:15zqp6d": {
-      "file": "v30_black-forest-labs_flux.2-klein-4b_1x1_15zqp6d.png",
+    "v31:qwen/qwen-image-edit-2511:1x1:15zqp6d": {
+      "file": "v31_qwen_qwen-image-edit-2511_1x1_15zqp6d.png",
       "targetWidth": 25,
       "preset": "shrine_stone",
       "anchors": "{\"doors\":[],\"vents\":[]}",
-      "normal": "v30_black-forest-labs_flux.2-klein-4b_1x1_15zqp6d.normal.png",
-      "material": "v30_black-forest-labs_flux.2-klein-4b_1x1_15zqp6d.material.png",
-      "emissive": "v30_black-forest-labs_flux.2-klein-4b_1x1_15zqp6d.emissive.png"
+      "normal": "v31_qwen_qwen-image-edit-2511_1x1_15zqp6d.normal.png",
+      "material": "v31_qwen_qwen-image-edit-2511_1x1_15zqp6d.material.png",
+      "emissive": "v31_qwen_qwen-image-edit-2511_1x1_15zqp6d.emissive.png"
     },
-    "v30:black-forest-labs/flux.2-klein-4b:1x1:6lsq0x": {
-      "file": "v30_black-forest-labs_flux.2-klein-4b_1x1_6lsq0x.png",
+    "v31:qwen/qwen-image-edit-2511:1x1:6lsq0x": {
+      "file": "v31_qwen_qwen-image-edit-2511_1x1_6lsq0x.png",
       "targetWidth": 55,
       "preset": "ore_vein",
       "anchors": "{\"doors\":[],\"vents\":[]}",
-      "normal": "v30_black-forest-labs_flux.2-klein-4b_1x1_6lsq0x.normal.png",
-      "material": "v30_black-forest-labs_flux.2-klein-4b_1x1_6lsq0x.material.png",
-      "emissive": "v30_black-forest-labs_flux.2-klein-4b_1x1_6lsq0x.emissive.png"
+      "normal": "v31_qwen_qwen-image-edit-2511_1x1_6lsq0x.normal.png",
+      "material": "v31_qwen_qwen-image-edit-2511_1x1_6lsq0x.material.png",
+      "emissive": "v31_qwen_qwen-image-edit-2511_1x1_6lsq0x.emissive.png"
     },
-    "v30:black-forest-labs/flux.2-klein-4b:1x1:9z42qu": {
-      "file": "v30_black-forest-labs_flux.2-klein-4b_1x1_9z42qu.png",
-      "targetWidth": 87,
-      "preset": "stair_scramble",
-      "anchors": "{\"doors\":[],\"vents\":[]}",
-      "normal": "v30_black-forest-labs_flux.2-klein-4b_1x1_9z42qu.normal.png",
-      "material": "v30_black-forest-labs_flux.2-klein-4b_1x1_9z42qu.material.png",
-      "emissive": "v30_black-forest-labs_flux.2-klein-4b_1x1_9z42qu.emissive.png"
-    },
-    "v30:black-forest-labs/flux.2-klein-4b:1x2:vvg2hq": {
-      "file": "v30_black-forest-labs_flux.2-klein-4b_1x2_vvg2hq.png",
+    "v31:qwen/qwen-image-edit-2511:1x2:vvg2hq": {
+      "file": "v31_qwen_qwen-image-edit-2511_1x2_vvg2hq.png",
       "targetWidth": 187,
       "preset": "stair_stone",
       "anchors": "{\"doors\":[],\"vents\":[]}",
-      "normal": "v30_black-forest-labs_flux.2-klein-4b_1x2_vvg2hq.normal.png",
-      "material": "v30_black-forest-labs_flux.2-klein-4b_1x2_vvg2hq.material.png",
-      "emissive": "v30_black-forest-labs_flux.2-klein-4b_1x2_vvg2hq.emissive.png"
+      "normal": "v31_qwen_qwen-image-edit-2511_1x2_vvg2hq.normal.png",
+      "material": "v31_qwen_qwen-image-edit-2511_1x2_vvg2hq.material.png",
+      "emissive": "v31_qwen_qwen-image-edit-2511_1x2_vvg2hq.emissive.png"
     },
-    "v30:black-forest-labs/flux.2-klein-4b:3x4:1kynf9v": {
-      "file": "v30_black-forest-labs_flux.2-klein-4b_3x4_1kynf9v.png",
+    "v31:qwen/qwen-image-edit-2511:3x4:1kynf9v": {
+      "file": "v31_qwen_qwen-image-edit-2511_3x4_1kynf9v.png",
       "targetWidth": 416,
       "preset": "stair_grand",
       "anchors": "{\"doors\":[],\"vents\":[]}",
-      "normal": "v30_black-forest-labs_flux.2-klein-4b_3x4_1kynf9v.normal.png",
-      "material": "v30_black-forest-labs_flux.2-klein-4b_3x4_1kynf9v.material.png",
-      "emissive": "v30_black-forest-labs_flux.2-klein-4b_3x4_1kynf9v.emissive.png"
+      "normal": "v31_qwen_qwen-image-edit-2511_3x4_1kynf9v.normal.png",
+      "material": "v31_qwen_qwen-image-edit-2511_3x4_1kynf9v.material.png",
+      "emissive": "v31_qwen_qwen-image-edit-2511_3x4_1kynf9v.emissive.png"
     },
-    "v30:black-forest-labs/flux.2-klein-4b:13x2:1kqb1jo": {
-      "file": "v30_black-forest-labs_flux.2-klein-4b_13x2_1kqb1jo.png",
+    "v31:qwen/qwen-image-edit-2511:13x2:1kqb1jo": {
+      "file": "v31_qwen_qwen-image-edit-2511_13x2_1kqb1jo.png",
       "targetWidth": 996,
       "preset": "town_wall",
       "anchors": "{\"doors\":[],\"vents\":[],\"wallEnds\":[{\"x\":0.08192770931136656,\"y\":0.32089153051730607},{\"x\":0.917269074773214,\"y\":0.9390193165499955}],\"gates\":[{\"x\":0.49959839204229023,\"y\":0.48731054983379934}]}",
-      "normal": "v30_black-forest-labs_flux.2-klein-4b_13x2_1kqb1jo.normal.png",
-      "material": "v30_black-forest-labs_flux.2-klein-4b_13x2_1kqb1jo.material.png",
-      "emissive": "v30_black-forest-labs_flux.2-klein-4b_13x2_1kqb1jo.emissive.png"
+      "normal": "v31_qwen_qwen-image-edit-2511_13x2_1kqb1jo.normal.png",
+      "material": "v31_qwen_qwen-image-edit-2511_13x2_1kqb1jo.material.png",
+      "emissive": "v31_qwen_qwen-image-edit-2511_13x2_1kqb1jo.emissive.png"
     },
-    "v30:black-forest-labs/flux.2-klein-4b:12x2:1n4c5fk": {
-      "file": "v30_black-forest-labs_flux.2-klein-4b_12x2_1n4c5fk.png",
+    "v31:qwen/qwen-image-edit-2511:12x2:1n4c5fk": {
+      "file": "v31_qwen_qwen-image-edit-2511_12x2_1n4c5fk.png",
       "targetWidth": 932,
       "preset": "curtain_wall",
       "anchors": "{\"doors\":[],\"vents\":[],\"wallEnds\":[{\"x\":0.08755364643146041,\"y\":0.3971063830328326},{\"x\":0.9115879811954088,\"y\":0.9417872340966623}],\"gates\":[{\"x\":0.49957081381343466,\"y\":0.48788652487680423}]}",
-      "normal": "v30_black-forest-labs_flux.2-klein-4b_12x2_1n4c5fk.normal.png",
-      "material": "v30_black-forest-labs_flux.2-klein-4b_12x2_1n4c5fk.material.png",
-      "emissive": "v30_black-forest-labs_flux.2-klein-4b_12x2_1n4c5fk.emissive.png"
+      "normal": "v31_qwen_qwen-image-edit-2511_12x2_1n4c5fk.normal.png",
+      "material": "v31_qwen_qwen-image-edit-2511_12x2_1n4c5fk.material.png",
+      "emissive": "v31_qwen_qwen-image-edit-2511_12x2_1n4c5fk.emissive.png"
     },
-    "v30:black-forest-labs/flux.2-klein-4b:11x1:dlib86": {
-      "file": "v30_black-forest-labs_flux.2-klein-4b_11x1_dlib86.png",
+    "v31:qwen/qwen-image-edit-2511:11x1:dlib86": {
+      "file": "v31_qwen_qwen-image-edit-2511_11x1_dlib86.png",
       "targetWidth": 797,
       "preset": "palisade",
       "anchors": "{\"doors\":[],\"vents\":[],\"wallEnds\":[{\"x\":0.05821832060963476,\"y\":0.2240495918210873},{\"x\":0.9415307421905632,\"y\":0.9513223190938146}],\"gates\":[{\"x\":0.499874531400099,\"y\":0.4885124017384427}]}",
-      "normal": "v30_black-forest-labs_flux.2-klein-4b_11x1_dlib86.normal.png",
-      "material": "v30_black-forest-labs_flux.2-klein-4b_11x1_dlib86.material.png",
-      "emissive": "v30_black-forest-labs_flux.2-klein-4b_11x1_dlib86.emissive.png"
+      "normal": "v31_qwen_qwen-image-edit-2511_11x1_dlib86.normal.png",
+      "material": "v31_qwen_qwen-image-edit-2511_11x1_dlib86.material.png",
+      "emissive": "v31_qwen_qwen-image-edit-2511_11x1_dlib86.emissive.png"
     },
-    "v30:black-forest-labs/flux.2-klein-4b:10x1:8afn6e": {
-      "file": "v30_black-forest-labs_flux.2-klein-4b_10x1_8afn6e.png",
+    "v31:qwen/qwen-image-edit-2511:10x1:8afn6e": {
+      "file": "v31_qwen_qwen-image-edit-2511_10x1_8afn6e.png",
       "targetWidth": 740,
       "preset": "drystone_wall",
       "anchors": "{\"doors\":[],\"vents\":[],\"wallEnds\":[{\"x\":0.0670270249650285,\"y\":0.1462871249359433},{\"x\":0.9318918898298933,\"y\":0.9383663328567354}],\"gates\":[]}",
-      "normal": "v30_black-forest-labs_flux.2-klein-4b_10x1_8afn6e.normal.png",
-      "material": "v30_black-forest-labs_flux.2-klein-4b_10x1_8afn6e.material.png",
-      "emissive": "v30_black-forest-labs_flux.2-klein-4b_10x1_8afn6e.emissive.png"
+      "normal": "v31_qwen_qwen-image-edit-2511_10x1_8afn6e.normal.png",
+      "material": "v31_qwen_qwen-image-edit-2511_10x1_8afn6e.material.png",
+      "emissive": "v31_qwen_qwen-image-edit-2511_10x1_8afn6e.emissive.png"
     },
-    "v30:black-forest-labs/flux.2-klein-4b:9x1:s4vh4p": {
-      "file": "v30_black-forest-labs_flux.2-klein-4b_9x1_s4vh4p.png",
-      "targetWidth": 587,
-      "preset": "paling_fence",
-      "anchors": "{\"doors\":[],\"vents\":[],\"wallEnds\":[{\"x\":0.008722316670458401,\"y\":0.11672726977955211},{\"x\":0.9899829640299133,\"y\":0.9894545425068249}],\"gates\":[]}",
-      "normal": "v30_black-forest-labs_flux.2-klein-4b_9x1_s4vh4p.normal.png",
-      "material": "v30_black-forest-labs_flux.2-klein-4b_9x1_s4vh4p.material.png",
-      "emissive": "v30_black-forest-labs_flux.2-klein-4b_9x1_s4vh4p.emissive.png"
-    },
-    "v30:black-forest-labs/flux.2-klein-4b:10x1:fhomt8": {
-      "file": "v30_black-forest-labs_flux.2-klein-4b_10x1_fhomt8.png",
+    "v31:qwen/qwen-image-edit-2511:10x1:fhomt8": {
+      "file": "v31_qwen_qwen-image-edit-2511_10x1_fhomt8.png",
       "targetWidth": 734,
       "preset": "hedgerow",
       "anchors": "{\"doors\":[],\"vents\":[],\"wallEnds\":[{\"x\":0.05474917310460062,\"y\":0.14056304157996663},{\"x\":0.9266837780092327,\"y\":0.9568895721922115}],\"gates\":[]}",
-      "normal": "v30_black-forest-labs_flux.2-klein-4b_10x1_fhomt8.normal.png",
-      "material": "v30_black-forest-labs_flux.2-klein-4b_10x1_fhomt8.material.png",
-      "emissive": "v30_black-forest-labs_flux.2-klein-4b_10x1_fhomt8.emissive.png"
+      "normal": "v31_qwen_qwen-image-edit-2511_10x1_fhomt8.normal.png",
+      "material": "v31_qwen_qwen-image-edit-2511_10x1_fhomt8.material.png",
+      "emissive": "v31_qwen_qwen-image-edit-2511_10x1_fhomt8.emissive.png"
     },
-    "v30:black-forest-labs/flux.2-klein-4b:11x2:1o0g1nl": {
-      "file": "v30_black-forest-labs_flux.2-klein-4b_11x2_1o0g1nl.png",
+    "v31:qwen/qwen-image-edit-2511:11x2:1o0g1nl": {
+      "file": "v31_qwen_qwen-image-edit-2511_11x2_1o0g1nl.png",
       "targetWidth": 877,
       "preset": "earth_rampart",
       "anchors": "{\"doors\":[],\"vents\":[],\"wallEnds\":[{\"x\":0.09851767562814015,\"y\":0.22392156264361213},{\"x\":0.9012542776805916,\"y\":0.9141176410749847}],\"gates\":[]}",
-      "normal": "v30_black-forest-labs_flux.2-klein-4b_11x2_1o0g1nl.normal.png",
-      "material": "v30_black-forest-labs_flux.2-klein-4b_11x2_1o0g1nl.material.png",
-      "emissive": "v30_black-forest-labs_flux.2-klein-4b_11x2_1o0g1nl.emissive.png"
+      "normal": "v31_qwen_qwen-image-edit-2511_11x2_1o0g1nl.normal.png",
+      "material": "v31_qwen_qwen-image-edit-2511_11x2_1o0g1nl.material.png",
+      "emissive": "v31_qwen_qwen-image-edit-2511_11x2_1o0g1nl.emissive.png"
     },
-    "v30:black-forest-labs/flux.2-klein-4b:3x3:1iufvas": {
-      "file": "v30_black-forest-labs_flux.2-klein-4b_3x3_1iufvas.png",
+    "v31:qwen/qwen-image-edit-2511:3x3:1k6cx9u": {
+      "file": "v31_qwen_qwen-image-edit-2511_3x3_1k6cx9u.png",
       "targetWidth": 272,
       "preset": "yurt",
       "anchors": "{\"doors\":[],\"vents\":[],\"tags\":[{\"x\":0.1461930134717156,\"y\":0.6740988064916897,\"kind\":\"lintel\",\"z\":2,\"accepts\":[\"sign\",\"lamp\"]},{\"x\":0.49913418994230385,\"y\":-0.15370042130753803,\"kind\":\"roof_apex\",\"z\":7.2,\"accepts\":[\"perch\",\"finial\",\"vane\"]}]}",
-      "normal": "v30_black-forest-labs_flux.2-klein-4b_3x3_1iufvas.normal.png",
-      "material": "v30_black-forest-labs_flux.2-klein-4b_3x3_1iufvas.material.png",
-      "emissive": "v30_black-forest-labs_flux.2-klein-4b_3x3_1iufvas.emissive.png"
+      "normal": "v31_qwen_qwen-image-edit-2511_3x3_1k6cx9u.normal.png",
+      "material": "v31_qwen_qwen-image-edit-2511_3x3_1k6cx9u.material.png",
+      "emissive": "v31_qwen_qwen-image-edit-2511_3x3_1k6cx9u.emissive.png"
     },
-    "v30:black-forest-labs/flux.2-klein-4b:5x3:vuoe0v": {
-      "file": "v30_black-forest-labs_flux.2-klein-4b_5x3_vuoe0v.png",
+    "v31:qwen/qwen-image-edit-2511:5x3:13ulxfh": {
+      "file": "v31_qwen_qwen-image-edit-2511_5x3_13ulxfh.png",
       "targetWidth": 550,
       "preset": "manor",
       "anchors": "{\"doors\":[],\"vents\":[{\"x\":0.44269091481295497,\"y\":0.08824858766042136}],\"tags\":[{\"x\":0.20763636935840954,\"y\":0.6679849341764288,\"kind\":\"lintel\",\"z\":2,\"accepts\":[\"sign\",\"lamp\"]},{\"x\":0.5567272784493186,\"y\":0.48719397372445145,\"kind\":\"lintel\",\"z\":2,\"accepts\":[\"sign\",\"lamp\"]},{\"x\":0.49854546026750046,\"y\":0.1557438795624929,\"kind\":\"roof_ridge\",\"z\":10,\"accepts\":[\"perch\",\"vane\",\"finial\"]},{\"x\":0.26581818754022773,\"y\":0.03521657259450794,\"kind\":\"gable_peak\",\"z\":10,\"accepts\":[\"perch\",\"finial\",\"banner\"]},{\"x\":0.7312727329947731,\"y\":0.27627118653047783,\"kind\":\"gable_peak\",\"z\":10,\"accepts\":[\"perch\",\"finial\",\"banner\"]},{\"x\":0.44269091481295497,\"y\":0.08824858766042136,\"kind\":\"chimney_top\",\"z\":11.1,\"accepts\":[\"smoke\",\"perch\"]},{\"x\":0.673090914812955,\"y\":0.33653484001447026,\"kind\":\"eave\",\"z\":5.5,\"accepts\":[\"lamp\",\"bracket\",\"perch\"]},{\"x\":0.3240000057220459,\"y\":0.5173258004664477,\"kind\":\"eave\",\"z\":5.5,\"accepts\":[\"lamp\",\"bracket\",\"perch\"]},{\"x\":0.673090914812955,\"y\":0.3425612053628695,\"kind\":\"roof_ridge\",\"z\":8.4,\"accepts\":[\"perch\",\"vane\",\"finial\"]},{\"x\":0.7894545511765914,\"y\":0.282297551878877,\"kind\":\"gable_peak\",\"z\":8.4,\"accepts\":[\"perch\",\"finial\",\"banner\"]},{\"x\":0.5567272784493186,\"y\":0.402824858846862,\"kind\":\"gable_peak\",\"z\":8.4,\"accepts\":[\"perch\",\"finial\",\"banner\"]},{\"x\":0.5567272784493186,\"y\":0.4630885123308544,\"kind\":\"eave\",\"z\":5.4,\"accepts\":[\"lamp\",\"bracket\",\"perch\"]},{\"x\":0.7894545511765914,\"y\":0.5836158192988393,\"kind\":\"eave\",\"z\":5.4,\"accepts\":[\"lamp\",\"bracket\",\"perch\"]}]}",
-      "normal": "v30_black-forest-labs_flux.2-klein-4b_5x3_vuoe0v.normal.png",
-      "material": "v30_black-forest-labs_flux.2-klein-4b_5x3_vuoe0v.material.png",
-      "emissive": "v30_black-forest-labs_flux.2-klein-4b_5x3_vuoe0v.emissive.png"
+      "normal": "v31_qwen_qwen-image-edit-2511_5x3_13ulxfh.normal.png",
+      "material": "v31_qwen_qwen-image-edit-2511_5x3_13ulxfh.material.png",
+      "emissive": "v31_qwen_qwen-image-edit-2511_5x3_13ulxfh.emissive.png"
     },
-    "v30:black-forest-labs/flux.2-klein-4b:3x6:9e7qzm": {
-      "file": "v30_black-forest-labs_flux.2-klein-4b_3x6_9e7qzm.png",
+    "v31:qwen/qwen-image-edit-2511:3x6:15b8334": {
+      "file": "v31_qwen_qwen-image-edit-2511_3x6_15b8334.png",
       "targetWidth": 633,
       "preset": "parish-church",
       "anchors": "{\"doors\":[],\"vents\":[{\"x\":0.72998420611377,\"y\":-0.0012625904275913545}],\"tags\":[{\"x\":0.297251188736203,\"y\":0.6783333691683683,\"kind\":\"lintel\",\"z\":2,\"accepts\":[\"sign\",\"lamp\"]},{\"x\":0.4994628790995521,\"y\":0.37530306613806524,\"kind\":\"roof_ridge\",\"z\":10.5,\"accepts\":[\"perch\",\"vane\",\"finial\"]},{\"x\":0.7522274920537385,\"y\":0.2742929651279642,\"kind\":\"gable_peak\",\"z\":10.5,\"accepts\":[\"perch\",\"finial\",\"banner\"]},{\"x\":0.2466982661453657,\"y\":0.47631316714816624,\"kind\":\"gable_peak\",\"z\":10.5,\"accepts\":[\"perch\",\"finial\",\"banner\"]},{\"x\":0.7532385505055552,\"y\":0.248030338865338,\"kind\":\"chimney_top\",\"z\":11.6,\"accepts\":[\"smoke\",\"perch\"]},{\"x\":0.34780411132704026,\"y\":0.49651518735018646,\"kind\":\"eave\",\"z\":6,\"accepts\":[\"lamp\",\"bracket\",\"perch\"]},{\"x\":0.651121646872064,\"y\":0.6177273085623076,\"kind\":\"eave\",\"z\":6,\"accepts\":[\"lamp\",\"bracket\",\"perch\"]}]}",
-      "normal": "v30_black-forest-labs_flux.2-klein-4b_3x6_9e7qzm.normal.png",
-      "material": "v30_black-forest-labs_flux.2-klein-4b_3x6_9e7qzm.material.png",
-      "emissive": "v30_black-forest-labs_flux.2-klein-4b_3x6_9e7qzm.emissive.png"
+      "normal": "v31_qwen_qwen-image-edit-2511_3x6_15b8334.normal.png",
+      "material": "v31_qwen_qwen-image-edit-2511_3x6_15b8334.material.png",
+      "emissive": "v31_qwen_qwen-image-edit-2511_3x6_15b8334.emissive.png"
     },
-    "v30:black-forest-labs/flux.2-klein-4b:4x2:mp16fh": {
-      "file": "v30_black-forest-labs_flux.2-klein-4b_4x2_mp16fh.png",
+    "v31:qwen/qwen-image-edit-2511:4x2:n19yyz": {
+      "file": "v31_qwen_qwen-image-edit-2511_4x2_n19yyz.png",
       "targetWidth": 441,
       "preset": "longhouse",
       "anchors": "{\"doors\":[],\"vents\":[{\"x\":0.3627210823802992,\"y\":0.05713959392319376}],\"tags\":[{\"x\":0.28072561752769143,\"y\":0.5881937249773248,\"kind\":\"lintel\",\"z\":2,\"accepts\":[\"sign\",\"lamp\"]},{\"x\":0.5709750506342673,\"y\":0.4058575426411425,\"kind\":\"lintel\",\"z\":2,\"accepts\":[\"sign\",\"lamp\"]},{\"x\":0.49841269235762337,\"y\":0.18705412383772366,\"kind\":\"roof_ridge\",\"z\":5.9,\"accepts\":[\"perch\",\"vane\",\"finial\"]},{\"x\":0.28072561752769143,\"y\":0.050301987085586905,\"kind\":\"gable_peak\",\"z\":5.9,\"accepts\":[\"perch\",\"finial\",\"banner\"]},{\"x\":0.7160997671875554,\"y\":0.3238062605898604,\"kind\":\"gable_peak\",\"z\":5.9,\"accepts\":[\"perch\",\"finial\",\"banner\"]},{\"x\":0.3663492002941313,\"y\":0.045743582527182365,\"kind\":\"chimney_top\",\"z\":7,\"accepts\":[\"smoke\",\"perch\"]},{\"x\":0.6435374089109114,\"y\":0.34203987882347864,\"kind\":\"eave\",\"z\":3.2,\"accepts\":[\"lamp\",\"bracket\",\"perch\"]},{\"x\":0.3532879758043354,\"y\":0.524376061159661,\"kind\":\"eave\",\"z\":3.2,\"accepts\":[\"lamp\",\"bracket\",\"perch\"]}]}",
-      "normal": "v30_black-forest-labs_flux.2-klein-4b_4x2_mp16fh.normal.png",
-      "material": "v30_black-forest-labs_flux.2-klein-4b_4x2_mp16fh.material.png",
-      "emissive": "v30_black-forest-labs_flux.2-klein-4b_4x2_mp16fh.emissive.png"
+      "normal": "v31_qwen_qwen-image-edit-2511_4x2_n19yyz.normal.png",
+      "material": "v31_qwen_qwen-image-edit-2511_4x2_n19yyz.material.png",
+      "emissive": "v31_qwen_qwen-image-edit-2511_4x2_n19yyz.emissive.png"
     },
-    "v30:black-forest-labs/flux.2-klein-4b:3x2:q5sk4f": {
-      "file": "v30_black-forest-labs_flux.2-klein-4b_3x2_q5sk4f.png",
+    "v31:qwen/qwen-image-edit-2511:3x2:q5sk4f": {
+      "file": "v31_qwen_qwen-image-edit-2511_3x2_q5sk4f.png",
       "targetWidth": 377,
       "preset": "stable",
       "anchors": "{\"doors\":[],\"vents\":[],\"tags\":[{\"x\":0.32838195578172924,\"y\":0.6474842965228003,\"kind\":\"lintel\",\"z\":2,\"accepts\":[\"sign\",\"lamp\"]},{\"x\":0.4981432289912783,\"y\":0.16446542859827198,\"kind\":\"roof_ridge\",\"z\":5.8,\"accepts\":[\"perch\",\"vane\",\"finial\"]},{\"x\":0.32838195578172924,\"y\":0.06383649778066193,\"kind\":\"gable_peak\",\"z\":5.8,\"accepts\":[\"perch\",\"finial\",\"banner\"]},{\"x\":0.6679045022008273,\"y\":0.26509435941588205,\"kind\":\"gable_peak\",\"z\":5.8,\"accepts\":[\"perch\",\"finial\",\"banner\"]},{\"x\":0.6679045022008273,\"y\":0.3657232902334921,\"kind\":\"eave\",\"z\":2.8,\"accepts\":[\"lamp\",\"bracket\",\"perch\"]},{\"x\":0.32838195578172924,\"y\":0.5669811518687122,\"kind\":\"eave\",\"z\":2.8,\"accepts\":[\"lamp\",\"bracket\",\"perch\"]}]}",
-      "normal": "v30_black-forest-labs_flux.2-klein-4b_3x2_q5sk4f.normal.png",
-      "material": "v30_black-forest-labs_flux.2-klein-4b_3x2_q5sk4f.material.png",
-      "emissive": "v30_black-forest-labs_flux.2-klein-4b_3x2_q5sk4f.emissive.png"
+      "normal": "v31_qwen_qwen-image-edit-2511_3x2_q5sk4f.normal.png",
+      "material": "v31_qwen_qwen-image-edit-2511_3x2_q5sk4f.material.png",
+      "emissive": "v31_qwen_qwen-image-edit-2511_3x2_q5sk4f.emissive.png"
     },
-    "v30:black-forest-labs/flux.2-klein-4b:3x3:1gq22nk": {
-      "file": "v30_black-forest-labs_flux.2-klein-4b_3x3_1gq22nk.png",
-      "targetWidth": 403,
+    "v31:qwen/qwen-image-edit-2511:3x3:1ph4ubo": {
+      "file": "v31_qwen_qwen-image-edit-2511_3x3_1ph4ubo.png",
+      "targetWidth": 404,
       "preset": "smithy",
-      "anchors": "{\"doors\":[],\"vents\":[{\"x\":0.3962282878411911,\"y\":0.056815861602005094}],\"tags\":[{\"x\":0.3970223325062035,\"y\":0.5912067964461978,\"kind\":\"lintel\",\"z\":2,\"accepts\":[\"sign\",\"lamp\"]},{\"x\":0.5558312655086849,\"y\":0.16514447350002212,\"kind\":\"roof_ridge\",\"z\":5.7,\"accepts\":[\"perch\",\"vane\",\"finial\"]},{\"x\":0.3970223325062035,\"y\":0.07449291542636773,\"kind\":\"gable_peak\",\"z\":5.7,\"accepts\":[\"perch\",\"finial\",\"banner\"]},{\"x\":0.7146401985111662,\"y\":0.25579603157367653,\"kind\":\"gable_peak\",\"z\":5.7,\"accepts\":[\"perch\",\"finial\",\"banner\"]},{\"x\":0.4001985111662531,\"y\":0.018288949420701993,\"kind\":\"chimney_top\",\"z\":6.800000000000001,\"accepts\":[\"smoke\",\"perch\"]},{\"x\":0.7146401985111662,\"y\":0.3464475896473309,\"kind\":\"eave\",\"z\":2.7,\"accepts\":[\"lamp\",\"bracket\",\"perch\"]},{\"x\":0.3970223325062035,\"y\":0.5277507057946397,\"kind\":\"eave\",\"z\":2.7,\"accepts\":[\"lamp\",\"bracket\",\"perch\"]}]}",
-      "normal": "v30_black-forest-labs_flux.2-klein-4b_3x3_1gq22nk.normal.png",
-      "material": "v30_black-forest-labs_flux.2-klein-4b_3x3_1gq22nk.material.png",
-      "emissive": "v30_black-forest-labs_flux.2-klein-4b_3x3_1gq22nk.emissive.png"
+      "anchors": "{\"doors\":[],\"vents\":[{\"x\":0.5021782178217822,\"y\":0.15928823467675476}],\"tags\":[{\"x\":0.7128712871287128,\"y\":0.7138789820077156,\"kind\":\"lintel\",\"z\":2,\"accepts\":[\"sign\",\"lamp\"]},{\"x\":0.5544554455445545,\"y\":0.17864766528173695,\"kind\":\"roof_ridge\",\"z\":4.7,\"accepts\":[\"perch\",\"vane\",\"finial\"]},{\"x\":0.39603960396039606,\"y\":0.0647686617230181,\"kind\":\"gable_peak\",\"z\":4.7,\"accepts\":[\"perch\",\"finial\",\"banner\"]},{\"x\":0.7128712871287128,\"y\":0.2925266688404558,\"kind\":\"gable_peak\",\"z\":4.7,\"accepts\":[\"perch\",\"finial\",\"banner\"]},{\"x\":0.518019801980198,\"y\":0.07957293218565148,\"kind\":\"chimney_top\",\"z\":5.800000000000001,\"accepts\":[\"smoke\",\"perch\"]},{\"x\":0.7128712871287128,\"y\":0.2925266688404558,\"kind\":\"eave\",\"z\":2.7,\"accepts\":[\"lamp\",\"bracket\",\"perch\"]},{\"x\":0.39603960396039606,\"y\":0.5202846759578935,\"kind\":\"eave\",\"z\":2.7,\"accepts\":[\"lamp\",\"bracket\",\"perch\"]}]}",
+      "normal": "v31_qwen_qwen-image-edit-2511_3x3_1ph4ubo.normal.png",
+      "material": "v31_qwen_qwen-image-edit-2511_3x3_1ph4ubo.material.png",
+      "emissive": "v31_qwen_qwen-image-edit-2511_3x3_1ph4ubo.emissive.png"
     },
-    "v30:black-forest-labs/flux.2-klein-4b:4x2:1em78xx": {
-      "file": "v30_black-forest-labs_flux.2-klein-4b_4x2_1em78xx.png",
-      "targetWidth": 365,
+    "v31:qwen/qwen-image-edit-2511:4x2:dsg3ez": {
+      "file": "v31_qwen_qwen-image-edit-2511_4x2_dsg3ez.png",
+      "targetWidth": 342,
       "preset": "bakehouse",
-      "anchors": "{\"doors\":[],\"vents\":[{\"x\":0.3558356250606171,\"y\":0.06286238270797492}],\"tags\":[{\"x\":0.3128767209510281,\"y\":0.6152782848486478,\"kind\":\"lintel\",\"z\":2,\"accepts\":[\"sign\",\"lamp\"]},{\"x\":0.4005479538277404,\"y\":0.10640978331959573,\"kind\":\"roof_ridge\",\"z\":5.7,\"accepts\":[\"perch\",\"vane\",\"finial\"]},{\"x\":0.3128767209510281,\"y\":0.05748011971103305,\"kind\":\"gable_peak\",\"z\":5.7,\"accepts\":[\"perch\",\"finial\",\"banner\"]},{\"x\":0.48821918670445275,\"y\":0.15533944692815843,\"kind\":\"gable_peak\",\"z\":5.7,\"accepts\":[\"perch\",\"finial\",\"banner\"]},{\"x\":0.36021918670445274,\"y\":0.021272168640696646,\"kind\":\"chimney_top\",\"z\":6.800000000000001,\"accepts\":[\"smoke\",\"perch\"]},{\"x\":0.575890419581165,\"y\":0.3021284377538465,\"kind\":\"eave\",\"z\":2.7,\"accepts\":[\"lamp\",\"bracket\",\"perch\"]},{\"x\":0.22520548807431573,\"y\":0.49784709218809725,\"kind\":\"eave\",\"z\":2.7,\"accepts\":[\"lamp\",\"bracket\",\"perch\"]}]}",
-      "normal": "v30_black-forest-labs_flux.2-klein-4b_4x2_1em78xx.normal.png",
-      "material": "v30_black-forest-labs_flux.2-klein-4b_4x2_1em78xx.material.png",
-      "emissive": "v30_black-forest-labs_flux.2-klein-4b_4x2_1em78xx.emissive.png"
+      "anchors": "{\"doors\":[],\"vents\":[{\"x\":0.37976609107346565,\"y\":0.0652571401444692}],\"tags\":[{\"x\":0.33391813785709135,\"y\":0.6387174576047867,\"kind\":\"lintel\",\"z\":2,\"accepts\":[\"sign\",\"lamp\"]},{\"x\":0.42748538931907964,\"y\":0.11046348935081843,\"kind\":\"roof_ridge\",\"z\":5.7,\"accepts\":[\"perch\",\"vane\",\"finial\"]},{\"x\":0.33391813785709135,\"y\":0.05966983855716764,\"kind\":\"gable_peak\",\"z\":5.7,\"accepts\":[\"perch\",\"finial\",\"banner\"]},{\"x\":0.5210526407810679,\"y\":0.16125714014446924,\"kind\":\"gable_peak\",\"z\":5.7,\"accepts\":[\"perch\",\"finial\",\"banner\"]},{\"x\":0.38444445364656504,\"y\":0.02208253696986604,\"kind\":\"chimney_top\",\"z\":6.800000000000001,\"accepts\":[\"smoke\",\"perch\"]},{\"x\":0.6146198922430562,\"y\":0.31363809252542163,\"kind\":\"eave\",\"z\":2.7,\"accepts\":[\"lamp\",\"bracket\",\"perch\"]},{\"x\":0.24035088639510305,\"y\":0.5168126957000247,\"kind\":\"eave\",\"z\":2.7,\"accepts\":[\"lamp\",\"bracket\",\"perch\"]}]}",
+      "normal": "v31_qwen_qwen-image-edit-2511_4x2_dsg3ez.normal.png",
+      "material": "v31_qwen_qwen-image-edit-2511_4x2_dsg3ez.material.png",
+      "emissive": "v31_qwen_qwen-image-edit-2511_4x2_dsg3ez.emissive.png"
     },
-    "v30:black-forest-labs/flux.2-klein-4b:4x3:h6ma0b": {
-      "file": "v30_black-forest-labs_flux.2-klein-4b_4x3_h6ma0b.png",
-      "targetWidth": 365,
+    "v31:qwen/qwen-image-edit-2511:5x2:186qcmj": {
+      "file": "v31_qwen_qwen-image-edit-2511_5x2_186qcmj.png",
+      "targetWidth": 443,
       "preset": "brewhouse",
-      "anchors": "{\"doors\":[],\"vents\":[{\"x\":0.5329314906499157,\"y\":0.10155987171077459}],\"tags\":[{\"x\":0.31287669612936775,\"y\":0.6493036043013038,\"kind\":\"lintel\",\"z\":2,\"accepts\":[\"sign\",\"lamp\"]},{\"x\":0.4882191618827924,\"y\":0.1412256098723345,\"kind\":\"roof_ridge\",\"z\":5.7,\"accepts\":[\"perch\",\"vane\",\"finial\"]},{\"x\":0.6635616276362171,\"y\":0.05208911962163812,\"kind\":\"gable_peak\",\"z\":5.7,\"accepts\":[\"perch\",\"finial\",\"banner\"]},{\"x\":0.31287669612936775,\"y\":0.23036210012303088,\"kind\":\"gable_peak\",\"z\":5.7,\"accepts\":[\"perch\",\"finial\",\"banner\"]},{\"x\":0.52854792900608,\"y\":0.06367686335422865,\"kind\":\"chimney_top\",\"z\":6.800000000000001,\"accepts\":[\"smoke\",\"perch\"]},{\"x\":0.31287669612936775,\"y\":0.31949859037372724,\"kind\":\"eave\",\"z\":2.7,\"accepts\":[\"lamp\",\"bracket\",\"perch\"]},{\"x\":0.6635616276362171,\"y\":0.49777157087512003,\"kind\":\"eave\",\"z\":2.7,\"accepts\":[\"lamp\",\"bracket\",\"perch\"]}]}",
-      "normal": "v30_black-forest-labs_flux.2-klein-4b_4x3_h6ma0b.normal.png",
-      "material": "v30_black-forest-labs_flux.2-klein-4b_4x3_h6ma0b.material.png",
-      "emissive": "v30_black-forest-labs_flux.2-klein-4b_4x3_h6ma0b.emissive.png"
+      "anchors": "{\"doors\":[],\"vents\":[{\"x\":0.3654176143275965,\"y\":0.11149845242864855}],\"tags\":[{\"x\":0.2577878174878674,\"y\":0.5171253637436333,\"kind\":\"lintel\",\"z\":2,\"accepts\":[\"sign\",\"lamp\"]},{\"x\":0.4022573434472353,\"y\":0.15504585304026938,\"kind\":\"roof_ridge\",\"z\":4.7,\"accepts\":[\"perch\",\"vane\",\"finial\"]},{\"x\":0.2577878174878674,\"y\":0.05718652582314399,\"kind\":\"gable_peak\",\"z\":4.7,\"accepts\":[\"perch\",\"finial\",\"banner\"]},{\"x\":0.5467268694066033,\"y\":0.2529051802573948,\"kind\":\"gable_peak\",\"z\":4.7,\"accepts\":[\"perch\",\"finial\",\"banner\"]},{\"x\":0.3690293524765807,\"y\":0.06990823836137024,\"kind\":\"chimney_top\",\"z\":5.800000000000001,\"accepts\":[\"smoke\",\"perch\"]},{\"x\":0.5467268694066033,\"y\":0.2529051802573948,\"kind\":\"eave\",\"z\":2.7,\"accepts\":[\"lamp\",\"bracket\",\"perch\"]},{\"x\":0.2577878174878674,\"y\":0.4486238346916455,\"kind\":\"eave\",\"z\":2.7,\"accepts\":[\"lamp\",\"bracket\",\"perch\"]}]}",
+      "normal": "v31_qwen_qwen-image-edit-2511_5x2_186qcmj.normal.png",
+      "material": "v31_qwen_qwen-image-edit-2511_5x2_186qcmj.material.png",
+      "emissive": "v31_qwen_qwen-image-edit-2511_5x2_186qcmj.emissive.png"
     },
-    "v30:black-forest-labs/flux.2-klein-4b:4x3:1u6v29h": {
-      "file": "v30_black-forest-labs_flux.2-klein-4b_4x3_1u6v29h.png",
+    "v31:qwen/qwen-image-edit-2511:4x3:1l6egs1": {
+      "file": "v31_qwen_qwen-image-edit-2511_4x3_1l6egs1.png",
       "targetWidth": 486,
       "preset": "inn",
-      "anchors": "{\"doors\":[],\"vents\":[{\"x\":0.28370371017927004,\"y\":0.02388449581276392},{\"x\":0.652427990014661,\"y\":0.2590550994873046}],\"tags\":[{\"x\":0.366666673142233,\"y\":0.705879246468932,\"kind\":\"lintel\",\"z\":2,\"accepts\":[\"sign\",\"lamp\"]},{\"x\":0.4983539159405869,\"y\":0.10115483702011308,\"kind\":\"roof_ridge\",\"z\":7.2,\"accepts\":[\"perch\",\"vane\",\"finial\"]},{\"x\":0.30082305174305607,\"y\":-0.024829414948390867,\"kind\":\"gable_peak\",\"z\":7.2,\"accepts\":[\"perch\",\"finial\",\"banner\"]},{\"x\":0.6958847801381178,\"y\":0.227139088988617,\"kind\":\"gable_peak\",\"z\":7.2,\"accepts\":[\"perch\",\"finial\",\"banner\"]},{\"x\":0.28370371017927004,\"y\":-0.0895013309588896,\"kind\":\"chimney_top\",\"z\":8.3,\"accepts\":[\"smoke\",\"perch\"]},{\"x\":0.652427990014661,\"y\":0.14566927271565108,\"kind\":\"chimney_top\",\"z\":8.3,\"accepts\":[\"smoke\",\"perch\"]},{\"x\":0.6958847801381178,\"y\":0.35312334095712095,\"kind\":\"eave\",\"z\":2.7,\"accepts\":[\"lamp\",\"bracket\",\"perch\"]},{\"x\":0.30082305174305607,\"y\":0.6050918448941289,\"kind\":\"eave\",\"z\":2.7,\"accepts\":[\"lamp\",\"bracket\",\"perch\"]}]}",
-      "normal": "v30_black-forest-labs_flux.2-klein-4b_4x3_1u6v29h.normal.png",
-      "material": "v30_black-forest-labs_flux.2-klein-4b_4x3_1u6v29h.material.png",
-      "emissive": "v30_black-forest-labs_flux.2-klein-4b_4x3_1u6v29h.emissive.png"
-    },
-    "v30:black-forest-labs/flux.2-klein-4b:4x3:c9eyrw": {
-      "file": "v30_black-forest-labs_flux.2-klein-4b_4x3_c9eyrw.png",
-      "targetWidth": 441,
-      "preset": "tavern",
-      "anchors": "{\"doors\":[],\"vents\":[{\"x\":0.1585033877366254,\"y\":0.020471081703071714},{\"x\":0.7401632516822036,\"y\":0.2526252572919367}],\"tags\":[{\"x\":0.4269841133602082,\"y\":0.760342602045684,\"kind\":\"lintel\",\"z\":2,\"accepts\":[\"sign\",\"lamp\"]},{\"x\":0.4995464716368522,\"y\":0.21901497891934574,\"kind\":\"roof_ridge\",\"z\":8.4,\"accepts\":[\"perch\",\"vane\",\"finial\"]},{\"x\":0.2818593968069202,\"y\":0.1162312530092815,\"kind\":\"gable_peak\",\"z\":8.4,\"accepts\":[\"perch\",\"finial\",\"banner\"]},{\"x\":0.7172335464667842,\"y\":0.32179870482941,\"kind\":\"gable_peak\",\"z\":8.4,\"accepts\":[\"perch\",\"finial\",\"banner\"]},{\"x\":0.18752833104728303,\"y\":-0.003683093885793445,\"kind\":\"chimney_top\",\"z\":9.5,\"accepts\":[\"smoke\",\"perch\"]},{\"x\":0.6519274240178046,\"y\":0.2471091973347633,\"kind\":\"chimney_top\",\"z\":9.5,\"accepts\":[\"smoke\",\"perch\"]},{\"x\":0.6446711881901401,\"y\":0.35605994679943137,\"kind\":\"eave\",\"z\":5.4,\"accepts\":[\"lamp\",\"bracket\",\"perch\"]},{\"x\":0.35442175508356416,\"y\":0.49310491467951706,\"kind\":\"eave\",\"z\":5.4,\"accepts\":[\"lamp\",\"bracket\",\"perch\"]}]}",
-      "normal": "v30_black-forest-labs_flux.2-klein-4b_4x3_c9eyrw.normal.png",
-      "material": "v30_black-forest-labs_flux.2-klein-4b_4x3_c9eyrw.material.png",
-      "emissive": "v30_black-forest-labs_flux.2-klein-4b_4x3_c9eyrw.emissive.png"
+      "anchors": "{\"doors\":[],\"vents\":[{\"x\":0.28370371017927004,\"y\":0.02877283509655339},{\"x\":0.652427990014661,\"y\":0.2627153938432897}],\"tags\":[{\"x\":0.366666673142233,\"y\":0.7072062554620887,\"kind\":\"lintel\",\"z\":2,\"accepts\":[\"sign\",\"lamp\"]},{\"x\":0.4983539159405869,\"y\":0.21843340950908607,\"kind\":\"roof_ridge\",\"z\":5.8500000000000005,\"accepts\":[\"perch\",\"vane\",\"finial\"]},{\"x\":0.30082305174305607,\"y\":0.09310703875190592,\"kind\":\"gable_peak\",\"z\":5.8500000000000005,\"accepts\":[\"perch\",\"finial\",\"banner\"]},{\"x\":0.6958847801381178,\"y\":0.34375978026626625,\"kind\":\"gable_peak\",\"z\":5.8500000000000005,\"accepts\":[\"perch\",\"finial\",\"banner\"]},{\"x\":0.28370371017927004,\"y\":0.02877283509655339,\"kind\":\"chimney_top\",\"z\":6.950000000000001,\"accepts\":[\"smoke\",\"perch\"]},{\"x\":0.652427990014661,\"y\":0.2627153938432897,\"kind\":\"chimney_top\",\"z\":6.950000000000001,\"accepts\":[\"smoke\",\"perch\"]},{\"x\":0.6958847801381178,\"y\":0.35629241734198425,\"kind\":\"eave\",\"z\":2.7,\"accepts\":[\"lamp\",\"bracket\",\"perch\"]},{\"x\":0.30082305174305607,\"y\":0.6069451588563447,\"kind\":\"eave\",\"z\":2.7,\"accepts\":[\"lamp\",\"bracket\",\"perch\"]}]}",
+      "normal": "v31_qwen_qwen-image-edit-2511_4x3_1l6egs1.normal.png",
+      "material": "v31_qwen_qwen-image-edit-2511_4x3_1l6egs1.material.png",
+      "emissive": "v31_qwen_qwen-image-edit-2511_4x3_1l6egs1.emissive.png"
     }
   },
-  "recipeVersion": "v30"
+  "recipeVersion": "v31"
 }
