@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createState } from '@/core/state';
 import { World } from '@/world/world';
-import { SAVE_VERSION, toSaveFile, applySaveFile } from '@/core/save-file';
+import { SAVE_VERSION, toSaveFile, toSaveFileLive, applySaveFile } from '@/core/save-file';
 import { WORLD_CONTENT_VERSION } from '@/core/content-version';
 import type { GameMap, Tile, BiomeMap } from '@/core/types';
 
@@ -89,6 +89,32 @@ describe('save-file', () => {
     const before = fresh.clock.now();
     expect(applySaveFile(fresh, save)).toBe(false);
     expect(fresh.clock.now()).toBe(before);
+  });
+});
+
+describe('save-file — live (single-clone) autosave path', () => {
+  it('toSaveFileLive aliases live state instead of deep-cloning it', () => {
+    const state = seededState();
+    const save = toSaveFileLive(state, 1);
+    // Aliasing IS the contract — the IDB put()'s synchronous structured clone
+    // is the one deep copy per save (was two: toSaveFile's + put()'s).
+    expect(save.map).toBe(state.map);
+    const liveNpc = state.world!.query({ kind: 'npc' })[0];
+    expect(save.snapshot.entities[0]).toBe(liveNpc);
+    expect(save.snapshot.entities[0].properties).toBe(liveNpc.properties);
+  });
+
+  it('toSaveFileLive round-trips through applySaveFile identically to toSaveFile', () => {
+    const save = toSaveFileLive(seededState(), 1);
+    const fresh = createState();
+    expect(applySaveFile(fresh, save)).toBe(true);
+    expect(fresh.clock.now()).toBe(123);
+    expect(fresh.world!.query({ kind: 'npc' })).toHaveLength(1);
+    expect(fresh.eventLog.size()).toBe(save.events.length);
+    // applySaveFile deep-copies on the way IN, so the restored state never
+    // aliases the save (nor, transitively, the source state).
+    expect(fresh.map).not.toBe(save.map);
+    expect(fresh.world!.query({ kind: 'npc' })[0]).not.toBe(save.snapshot.entities[0]);
   });
 });
 

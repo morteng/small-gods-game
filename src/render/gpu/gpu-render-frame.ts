@@ -160,6 +160,7 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
     // is re-emitted cheaply every frame and appended (it draws over static — exact
     // depth interleave is a follow-up).
     const staticList: DrawItem[] = staticCache.get(rc, map, ic);
+    const tStaticList = performance.now();
     const npcItems = buildEntityDrawList(rc, bounds, ic, { only: 'npcs' });
     const tDrawList = performance.now();
 
@@ -264,6 +265,7 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
           riverChannel: rc.riverChannel,
         })
       : null;
+    const tWaterField = performance.now();
 
     // RIBBONS RETIRED (2026-06-25): roads are no longer drawn as ribbons (the road/river
     // ribbon pass was removed as tech debt). A road IS the terrain — carved by
@@ -317,12 +319,24 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
     // Live-frame phase breakdown (free when the trace is off).
     frameTrace.record({
       drawList: tDrawList - tPhase0,
+      // Sub-phases of drawList, so a trace attributes it: a static-cache HIT is
+      // ~0 — non-zero drawStatic means the cache rebuilt during the trace.
+      drawStatic: tStaticList - tPhase0,
+      drawNpcs: tDrawList - tStaticList,
       terrain: tTerrain - tDrawList,
       water: tFields - tTerrain,
+      // Sub-phases of water: the field build proper vs flotsam + the immediate-
+      // mode UI frame build (bundled into this phase's window historically).
+      waterField: tWaterField - tTerrain,
+      uiFlotsam: tFields - tWaterField,
       render: tRender - tFields,
       composite: tComposite - tRender,
       overlay: tOverlay - tComposite,
       total: tOverlay - tPhase0,
+      // Real wall time since the previous renderMap call: dt − total = per-frame
+      // main-thread/GPU time the phases above don't cover (sim tick, UI runtime,
+      // frame-renderer sweeps, vsync/GPU backpressure).
+      dt: frameDt,
     });
 
     // FPS + art-pixel-scale readout (top-right), smoothed so it doesn't jitter.

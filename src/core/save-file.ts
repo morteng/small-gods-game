@@ -1,7 +1,7 @@
 import type { GameState } from '@/core/state';
 import type { GameMap, BiomeMap, Camera, EntityId, WorldSeed } from '@/core/types';
 import type { AppendedEvent } from '@/core/events';
-import { captureSnapshot, restoreSnapshot, type Snapshot } from '@/core/snapshot';
+import { captureSnapshot, captureSnapshotLive, restoreSnapshot, type Snapshot } from '@/core/snapshot';
 import { Autotiler } from '@/map/autotiler';
 import { computeBlobMap } from '@/map/blob-autotiler';
 import { WORLD_CONTENT_VERSION } from '@/core/content-version';
@@ -45,6 +45,25 @@ export interface SaveFile {
 }
 
 export function toSaveFile(state: GameState, savedAt: number): SaveFile {
+  return buildSaveFile(state, savedAt, true);
+}
+
+/**
+ * SaveFile that ALIASES live state (map, snapshot entities, event objects)
+ * instead of deep-cloning — the autosave path uses it because IndexedDB's
+ * `put()` structured-clones the value synchronously at call time anyway, so the
+ * deep copies here were paid twice per save (~171k tiles + ~12k entities on a
+ * real world = hundreds of ms of main-thread stall, twice).
+ *
+ * CONTRACT (same as `captureSnapshotLive`): only coherent within the CURRENT
+ * task — hand it to a synchronous consumer (IDB `put`) before yielding to the
+ * event loop; never hold it across an await or a frame.
+ */
+export function toSaveFileLive(state: GameState, savedAt: number): SaveFile {
+  return buildSaveFile(state, savedAt, false);
+}
+
+function buildSaveFile(state: GameState, savedAt: number, deep: boolean): SaveFile {
   if (!state.world || !state.map) {
     throw new Error('toSaveFile: world/map not initialized');
   }
@@ -52,11 +71,13 @@ export function toSaveFile(state: GameState, savedAt: number): SaveFile {
     version: SAVE_VERSION,
     contentVersion: WORLD_CONTENT_VERSION,
     savedAt,
-    worldSeed: state.worldSeed ? structuredClone(state.worldSeed) : null,
-    map: structuredClone(state.map),
-    biomeMap: state.biomeMap ? structuredClone(state.biomeMap) : null,
-    snapshot: captureSnapshot(state),
-    events: structuredClone(state.eventLog.since(0)),
+    worldSeed: deep && state.worldSeed ? structuredClone(state.worldSeed) : state.worldSeed,
+    map: deep ? structuredClone(state.map) : state.map,
+    biomeMap: deep && state.biomeMap ? structuredClone(state.biomeMap) : state.biomeMap,
+    snapshot: deep ? captureSnapshot(state) : captureSnapshotLive(state),
+    // `since(0)` returns a fresh array; in live mode the EVENT objects stay
+    // aliased (append-only + immutable once appended, so safe under the contract).
+    events: deep ? structuredClone(state.eventLog.since(0)) : state.eventLog.since(0),
     view: {
       camera: { ...state.camera },
       selectedNpcId: state.selectedNpcId,

@@ -79,13 +79,24 @@ function openDb(): Promise<IDBDatabase> {
   }), 'open');
 }
 
-export async function writeSave(save: SaveFile, slot: string = DEFAULT_SLOT): Promise<void> {
+/**
+ * Persist a save under `slot`. Accepts either a ready SaveFile or a FACTORY —
+ * pass a factory building a live-reference save (`toSaveFileLive`) so the
+ * expensive deep copy is paid ONCE: the factory runs synchronously right before
+ * `put()`, and `put()` structured-clones its argument synchronously in the same
+ * task, so the captured state is atomic even though the save aliases live
+ * objects (no sim tick can interleave).
+ */
+export async function writeSave(
+  save: SaveFile | (() => SaveFile), slot: string = DEFAULT_SLOT,
+): Promise<void> {
   if (!hasIdb() || wedged) return;
   try {
     const db = await openDb();
     await withIdbTimeout(new Promise<void>((resolve, reject) => {
       const tx = db.transaction(DB_STORE, 'readwrite');
-      tx.objectStore(DB_STORE).put({ key: slot, save } satisfies StoredSave);
+      const value = typeof save === 'function' ? save() : save;
+      tx.objectStore(DB_STORE).put({ key: slot, save: value } satisfies StoredSave);
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     }), 'write');

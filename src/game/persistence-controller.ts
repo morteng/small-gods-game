@@ -1,6 +1,6 @@
 import type { GameState } from '@/core/state';
 import type { TimelineController } from '@/core/timeline';
-import { toSaveFile, type SaveFile } from '@/core/save-file';
+import { toSaveFileLive, type SaveFile } from '@/core/save-file';
 import { writeSave } from '@/services/save-store';
 
 export interface PersistenceDeps {
@@ -9,10 +9,17 @@ export interface PersistenceDeps {
   timeline: Pick<TimelineController, 'isScrubbed'>;
   /** Wall clock (injected so the sim stays Date.now-free and tests are deterministic). */
   now: () => number;
-  /** Coalesce window for autosaves. Default 3000 ms. */
+  /** Coalesce window for autosaves. Default 30 s (REAL time) — a save serializes
+   *  the whole world on the main thread (hundreds of ms on a real map), so the
+   *  cadence is a smoothness dial: at the old 3 s every play session hitched
+   *  ~25% of its main-thread time into autosaves (profiled 2026-07-13). At 1:1
+   *  realtime a crash loses ≤30 s of slow-moving world — nothing; tab hide /
+   *  unload still flush immediately. */
   throttleMs?: number;
-  /** Injectable for tests; defaults to the IndexedDB save-store writer. */
-  write?: (save: SaveFile) => Promise<void>;
+  /** Injectable for tests; defaults to the IndexedDB save-store writer. Receives
+   *  a FACTORY: the writer must invoke it synchronously with its own persist step
+   *  (see `writeSave`) because the built SaveFile aliases live state. */
+  write?: (makeSave: () => SaveFile) => Promise<void>;
 }
 
 /**
@@ -26,7 +33,7 @@ export class PersistenceController {
   private readonly timeline: Pick<TimelineController, 'isScrubbed'>;
   private readonly now: () => number;
   private readonly throttleMs: number;
-  private readonly write: (save: SaveFile) => Promise<void>;
+  private readonly write: (makeSave: () => SaveFile) => Promise<void>;
 
   private dirty = false;
   private timer: ReturnType<typeof setTimeout> | null = null;
@@ -41,7 +48,7 @@ export class PersistenceController {
     this.state = deps.state;
     this.timeline = deps.timeline;
     this.now = deps.now;
-    this.throttleMs = deps.throttleMs ?? 3000;
+    this.throttleMs = deps.throttleMs ?? 30_000;
     this.write = deps.write ?? writeSave;
   }
 
@@ -72,7 +79,10 @@ export class PersistenceController {
     if (this.timeline.isScrubbed) return;
     if (!this.state.world || !this.state.map) return;
     this.dirty = false;
-    await this.write(toSaveFile(this.state, this.now()));
+    // Live-reference save: the writer invokes the factory synchronously with its
+    // IDB put (put's structured clone captures the state atomically), so the
+    // world is deep-copied ONCE per save instead of twice.
+    await this.write(() => toSaveFileLive(this.state, this.now()));
   }
 
   destroy(): void {

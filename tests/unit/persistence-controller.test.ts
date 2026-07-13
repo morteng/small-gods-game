@@ -25,7 +25,9 @@ function mkController(over: Partial<ConstructorParameters<typeof PersistenceCont
     timeline: { isScrubbed: false } as any,
     now: () => 0,
     throttleMs: 1000,
-    write: async (s) => { writes.push(s); },
+    // The controller hands the writer a FACTORY (live-reference save); invoke it
+    // like the real writer does, synchronously with the persist step.
+    write: async (makeSave) => { writes.push(makeSave()); },
     ...over,
   });
   return { ctrl, writes, state };
@@ -88,6 +90,33 @@ describe('PersistenceController', () => {
     state.eventLog.append({ type: 'power_depleted', spiritId: 'player' });
     await ctrl.flush();
     expect(writes.length).toBe(1);
+    ctrl.destroy();
+  });
+
+  it('defaults the coalesce window to 30 s (a save stalls the main thread — cadence is a smoothness dial)', async () => {
+    vi.useFakeTimers();
+    const { ctrl, writes } = mkController({ throttleMs: undefined });
+    ctrl.start();
+    ctrl.markDirty();
+    await vi.advanceTimersByTimeAsync(29_000);
+    expect(writes.length).toBe(0);
+    await vi.advanceTimersByTimeAsync(1_100);
+    expect(writes.length).toBe(1);
+    ctrl.destroy();
+    vi.useRealTimers();
+  });
+
+  it('the built save aliases live state (single-clone contract): the writer must persist synchronously', async () => {
+    const { ctrl, state } = mkController();
+    ctrl.start();
+    ctrl.markDirty();
+    let aliased = false;
+    (ctrl as any).write = async (makeSave: () => SaveFile) => {
+      const save = makeSave();
+      aliased = save.map === state.map;
+    };
+    await ctrl.flush();
+    expect(aliased).toBe(true);
     ctrl.destroy();
   });
 });

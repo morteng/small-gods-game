@@ -38,6 +38,18 @@ describe('save-store', () => {
     await writeSave(fakeSave(2));
     expect((await readSave())?.snapshot.tick).toBe(2);
   });
+
+  it('accepts a save FACTORY and captures its live references at put() time', async () => {
+    // The live-save path: the factory builds a save that aliases mutable state;
+    // put()'s synchronous structured clone must freeze the put-time values, so
+    // mutations AFTER writeSave resolves never leak into the stored save.
+    const live = fakeSave(5);
+    let calls = 0;
+    await writeSave(() => { calls++; return live; });
+    live.snapshot.tick = 999;
+    expect(calls).toBe(1);
+    expect((await readSave())?.snapshot.tick).toBe(5);
+  });
 });
 
 describe('save-store circuit breaker (wedged store)', () => {

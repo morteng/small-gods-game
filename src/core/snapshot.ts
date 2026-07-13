@@ -54,19 +54,37 @@ export interface Snapshot {
 }
 
 export function captureSnapshot(state: GameState): Snapshot {
+  return buildSnapshot(state, true);
+}
+
+/**
+ * Snapshot that ALIASES live state (entities, spirits, active events) instead of
+ * deep-cloning it. ~Half the cost of `captureSnapshot` on a big world — the
+ * autosave path uses it because IndexedDB's `put()` structured-clones the value
+ * synchronously anyway, so the deep copy here was paid twice.
+ *
+ * CONTRACT: the returned object is only coherent within the CURRENT task. Hand
+ * it to a synchronous consumer (an IDB `put`, a `postMessage`) before yielding
+ * to the event loop; never store it (the sim keeps mutating the aliased
+ * objects — that's what `captureSnapshot` is for, e.g. the timeline ring).
+ */
+export function captureSnapshotLive(state: GameState): Snapshot {
+  return buildSnapshot(state, false);
+}
+
+function buildSnapshot(state: GameState, deep: boolean): Snapshot {
   if (!state.world) {
     throw new Error('captureSnapshot: state.world is null — call after world seed');
   }
-  const entities: Entity[] = state.world.query({}).map(e => ({
-    ...e,
-    properties: structuredClone(e.properties),
-  }));
-  const spirits = Array.from(state.spirits.values()).map(s => structuredClone(s));
+  const entities: Entity[] = deep
+    ? state.world.query({}).map(e => ({ ...e, properties: structuredClone(e.properties) }))
+    : state.world.query({});
+  const spirits = deep
+    ? Array.from(state.spirits.values()).map(s => structuredClone(s))
+    : Array.from(state.spirits.values());
   const activeEvents: [string, ActiveEvent[]][] = [];
-  if (state.world) {
-    for (const [poiId, events] of state.world.activeEvents) {
-      activeEvents.push([poiId, structuredClone(events)]);
-    }
+  for (const [poiId, events] of state.world.activeEvents) {
+    activeEvents.push([poiId, deep ? structuredClone(events) : events]);
   }
   const forcedEvents: [string, SettlementEventType][] = [];
   for (const [poiId, type] of state.world.forcedEvents) forcedEvents.push([poiId, type]);
