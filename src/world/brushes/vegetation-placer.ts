@@ -89,6 +89,15 @@ export function placeVegetation(
   const maxPerTile = Math.max(1, params.maxPerTile ?? 1);
   const tileTypes = new Set(Array.isArray(params.tileType) ? params.tileType : [params.tileType]);
 
+  // World-style flora dial: `floraDensity` (world-style.ts) scales the brush's
+  // authored base density AND its open-ground undergrowth share (capped so the
+  // fraction stays a probability). Absent style (direct calls / legacy ctx) = 1,
+  // i.e. today's behaviour. Purely a threshold change — the hash rolls are
+  // untouched, so determinism per (x, y, seed) is preserved.
+  const floraDensity = ctx.style?.floraDensity ?? 1;
+  const density = params.density * floraDensity;
+  const openUndergrowth = Math.min(1, (params.openUndergrowth ?? 0) * floraDensity);
+
   for (let y = region.y; y < yEnd; y++) {
     for (let x = region.x; x < xEnd; x++) {
       const tile = ctx.tiles.tiles[y]?.[x];
@@ -99,7 +108,7 @@ export function placeVegetation(
       // so total density is unchanged — only its spatial distribution clusters.
       const clumpScale = params.clumpScale ?? 5;
       const clump = clumpScale > 0 ? smoothNoise(x, y, seed + 30, clumpScale) * 2 : 1;
-      const perSlot = (params.density * clump) / maxPerTile;
+      const perSlot = (density * clump) / maxPerTile;
 
       // Each cell rolls maxPerTile independent sub-slots, each scattered across
       // the whole cell — so placement is decorrelated from the tile lattice
@@ -127,7 +136,7 @@ export function placeVegetation(
       // Undergrowth: at most one per cell. Historically canopy-gated; the
       // `openUndergrowth` fraction lets a share grow in clearings/open cells so
       // flowers/ferns exist somewhere the player can actually see them.
-      const ugScale = placedPrimary ? 1 : (params.openUndergrowth ?? 0);
+      const ugScale = placedPrimary ? 1 : openUndergrowth;
       if (ugScale > 0 && params.undergrowth) {
         for (const [ugKind, ugWeight, ugDensity] of params.undergrowth) {
           const ugRng = hash01(x, y, seed + 10 + ugKind.length);

@@ -17,7 +17,7 @@ const GRASSLAND_PARAMS: import('./vegetation-placer').VegetationParams = {
   brush: BRUSH,
   tileType: ['grass', 'meadow', 'glen'],
   kinds: canopyOf('grassland'),
-  density: 0.11,
+  density: 0.18,          // raised 0.11→0.18 (WCV 95): open ground read bare
   maxPerTile: 2,            // tussocks clump — two small plants in one cell reads natural
   clumpScale: 4,            // tight drifts: flower patches, not an even sprinkle
   scaleRange: [0.75, 1.25],

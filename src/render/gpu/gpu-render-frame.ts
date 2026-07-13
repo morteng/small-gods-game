@@ -61,6 +61,13 @@ function detailDisabled(): boolean {
   catch { return false; }
 }
 
+/** `?groundtex=off` disables the per-biome colour ground texture (Slice 2) — the
+ *  terrain falls back to the pre-Slice-2 grayscale grain (A/B comparison escape). */
+export function groundTexDisabled(): boolean {
+  try { return new URLSearchParams(window.location.search).get('groundtex') === 'off'; }
+  catch { return false; }
+}
+
 /**
  * P-E — fixed art-pixel-size override (CSS px per art texel). `?px=N` PINS the
  * resolution (disables adaptation, for A/B and preference); absent ⇒ null, i.e.
@@ -88,6 +95,7 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
   const atlas = createNullAtlas();
   const showConnectome = connectomeRequested();
   const fixedPx = artPixelOverride();
+  const groundTex = !groundTexDisabled();   // Slice-2 colour ground texture (uFlags.x)
   const adaptive = new AdaptiveResolution();
   let lastFrameStart = 0;
   let fpsEma = 0;
@@ -202,6 +210,7 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
           xform, lighting, devMode: rc.devMode,
           terrainMode: rc.devMode?.terrainMode,
           superSample: superSampleEff, maxQuads: meshMaxQuads, window: terrainWindow,
+          groundTex,
           // DIR-A: author-placed lakes paint their beds damp too (studio editing).
           connectomeWater: rc.connectomeWater,
         });

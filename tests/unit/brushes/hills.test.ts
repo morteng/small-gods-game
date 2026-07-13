@@ -22,7 +22,9 @@ describe('hills brush', () => {
     expect(hillsBrush({ x: 0, y: 0, w: 8, h: 8 }, 42, c)).toMatchSnapshot();
   });
   it('emits zero on non-hills tiles', () => {
-    expect(hillsBrush({ x: 0, y: 0, w: 2, h: 2 }, 1, ctx([['grass','grass'],['grass','grass']]))).toEqual([]);
+    // 'dirt' — a tile NO sub-brush covers (these brushes deliberately grass-cover
+    // 'grass'/'meadow'/'glen' tiles via placeGrassCover, so grass is not foreign).
+    expect(hillsBrush({ x: 0, y: 0, w: 2, h: 2 }, 1, ctx([['dirt','dirt'],['dirt','dirt']]))).toEqual([]);
   });
   it('also fires on mountain tile type', () => {
     const c = ctx(Array.from({ length: 8 }, () => Array(8).fill('mountain')));

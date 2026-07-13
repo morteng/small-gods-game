@@ -91,6 +91,10 @@ export interface TerrainGlobalsInput {
    *  to the un-culled mesh). Only the terrain PASS packer (`packTerrainPassGlobals`)
    *  writes it; the shared `packTerrainGlobals` (water path) ignores it. */
   window?: [number, number, number, number];
+  /** Per-biome colour ground texture enable (Slice 2), packed into `uFlags.x` by the
+   *  terrain PASS packer. 1 (default) = climate-blended colour swatches modulate the
+   *  biome colour; 0 (`?groundtex=off`) = the pre-Slice-2 grayscale grain. */
+  groundTex?: number;
 }
 
 /** Pack the terrain Globals uniform (std140-ish; vec2 pairs share 16-byte slots). */
@@ -106,17 +110,19 @@ export function packTerrainGlobals(g: TerrainGlobalsInput): Float32Array {
   return b;
 }
 
-/** Terrain PASS uniform (T5 viewport-cull) — the shared 24-float terrain globals plus a
- *  7th vec4 `uWindow` (the visible-tile mesh window). Only the terrain pass draws a culled
- *  mesh, so only it carries the window; water keeps the unchanged 24-float `packTerrainGlobals`
- *  + its own window slot. 28 floats / 112 bytes; the detail pass shares the buffer and reads
- *  the first 96 bytes (its struct stops at `uAmbient`). */
-export const TERRAIN_PASS_GLOBALS_FLOATS = TERRAIN_GLOBALS_FLOATS + 4;
+/** Terrain PASS uniform (T5 viewport-cull + Slice-2 flags) — the shared 24-float terrain
+ *  globals plus a 7th vec4 `uWindow` (the visible-tile mesh window) and an 8th vec4
+ *  `uFlags` (x = ground colour-texture enable; yzw reserved). Only the terrain pass
+ *  carries these; water keeps the unchanged 24-float `packTerrainGlobals` + its own
+ *  window slot. 32 floats / 128 bytes; the detail pass shares the buffer (its vertex
+ *  struct stops at `uAmbient`; its fragment is the terrain module's, full struct). */
+export const TERRAIN_PASS_GLOBALS_FLOATS = TERRAIN_GLOBALS_FLOATS + 8;
 
 export function packTerrainPassGlobals(g: TerrainGlobalsInput): Float32Array {
   const b = new Float32Array(TERRAIN_PASS_GLOBALS_FLOATS);
   b.set(packTerrainGlobals(g), 0);
   const w = g.window ?? [0, 0, g.grid[0], g.grid[1]];
   b[24] = w[0]; b[25] = w[1]; b[26] = w[2]; b[27] = w[3]; // uWindow: oxTile, oyTile, spanW, spanH
+  b[28] = g.groundTex ?? 1;                               // uFlags.x: ground colour texture (1 = on)
   return b;
 }

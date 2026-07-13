@@ -132,9 +132,15 @@ async function runMatrix(
       { mapW: map.width, mapH: map.height },
     );
     const window = { minTx: b.minTx - 2, minTy: b.minTy - 2, maxTx: b.maxTx + 2, maxTy: b.maxTy + 2 };
+    // Mirror the live frame's `?groundtex=off` escape (gpu-render-frame.groundTexDisabled —
+    // re-read locally: that module imports THIS one, so importing back would cycle). Without
+    // it the bench always profiled the new colour-texture path, making the A/B dishonest.
+    let groundTex = true;
+    try { groundTex = new URLSearchParams(globalThis.location?.search ?? '').get('groundtex') !== 'off'; }
+    catch { /* no window (tests) — default on, like the live frame */ }
     const terrain = isLayerHidden('terrain', rc.devMode)
       ? null
-      : buildTerrainField(map, { viewport: [lowW, lowH], xform, lighting, devMode: rc.devMode, superSample, maxQuads, window });
+      : buildTerrainField(map, { viewport: [lowW, lowH], xform, lighting, devMode: rc.devMode, superSample, maxQuads, window, groundTex });
     const water = (terrain && !isLayerHidden('rivers', rc.devMode))
       ? buildWaterField(map, { viewport: [lowW, lowH], xform, lighting, timeSec: 0, superSample, maxQuads, window })
       : null;

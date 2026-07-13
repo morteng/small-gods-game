@@ -300,8 +300,10 @@ export class GpuScene {
     // the terrain FRAGMENT module (same shading over a denser mesh).
     const { pipeline: terrainPipeline, module: terrainModule } = createTerrainPipeline(device, gpu.format);
     this.terrainPipeline = terrainPipeline;
-    // 28 floats (112 bytes): the 24 shared terrain globals + a 7th vec4 `uWindow` (T5
-    // viewport cull). The detail pass shares this buffer and reads only the first 96 bytes.
+    // 32 floats (128 bytes): the 24 shared terrain globals + a 7th vec4 `uWindow` (T5
+    // viewport cull) + an 8th vec4 `uFlags` (Slice-2 ground colour texture). The detail
+    // pass shares this buffer (its vertex struct reads only the first 96 bytes; its
+    // fragment is the terrain module's, which reads the full struct).
     this.terrainGlobalsBuf = device.createBuffer({ size: TERRAIN_PASS_GLOBALS_FLOATS * 4, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 
     this.detailPatchPipeline = createDetailPatchPipeline(device, gpu.format, terrainModule);

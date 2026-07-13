@@ -29,6 +29,7 @@ struct TGlobals {
   uSun      : vec4<f32>,   // tile-space sun dir xyz, bands
   uAmbient  : vec4<f32>,   // ambient rgb, sun strength
   uWindow   : vec4<f32>,   // viewport-cull mesh window: oxTile, oyTile, spanW, spanH (tiles)
+  uFlags    : vec4<f32>,   // x: ground colour-texture enable (1; \`?groundtex=off\` ⇒ 0); yzw reserved
 };
 
 @group(0) @binding(0) var<uniform> G : TGlobals;
@@ -53,6 +54,21 @@ const MAT_TILES : f32 = 2.5;
 
 fn matSample(layer : i32, uv : vec2<f32>) -> vec3<f32> {
   return textureSample(matAtlas, matSamp, uv, layer).rgb;
+}
+
+// Mean-normalised COLOUR detail of one exemplar layer (Slice 2 ground texture):
+// the swatch sample divided by the swatch's own overall mean — the 1×1 top mip,
+// which for these toroidal swatches IS the exact mean. The result averages to
+// vec3(1), so multiplying a biome colour by it adds the swatch's local grain +
+// chroma variation WITHOUT shifting the average hue: the per-cell biome colour
+// field stays the authority (volcanic, farmland, wear and dev tints all survive).
+// Explicit-LOD sampling only (no derivative builtin), so callers may gate it
+// behind NON-uniform branches — the zoom fade skips it entirely at overview.
+fn matDetail(layer : i32, uv : vec2<f32>, lod : f32) -> vec3<f32> {
+  let maxLod = f32(textureNumLevels(matAtlas) - 1u);
+  let s = textureSampleLevel(matAtlas, matSamp, uv, layer, min(lod, maxLod)).rgb;
+  let m = textureSampleLevel(matAtlas, matSamp, uv, layer, maxLod).rgb;
+  return s / max(m, vec3<f32>(1e-3));
 }
 
 fn cellIdx(cx : u32, cy : u32) -> u32 { return cy * u32(G.uGrid.x) + cx; }
@@ -439,11 +455,48 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
       mix(gravelA, cobbleA, smoothstep(0.45, 0.78, road)),   // gravel → cobble
       upper);
   }
-  // Texture the biome ground by MODULATING its per-cell hue with the grass exemplar's
-  // detail (luminance / mean) — keeps every biome's colour, adds grain without needing a
-  // per-biome swatch. Roads override it where paved.
-  let groundDetail = clamp(dot(matSample(0, muv), vec3<f32>(0.3333)) / 0.5, 0.72, 1.28);
-  let base = mix(biome * groundDetail, roadAlb, roadMix);
+  // ── Per-biome COLOUR ground texture (Slice 2 of the material-exemplar epic) ──
+  // Open ground samples the exemplar atlas as full COLOUR: climate picks the ground
+  // CHARACTER (whose grain — grass on moist temperate ground, dirt as it dries, sand
+  // in hot drylands; snow/mud/rock still overlay via their own weights below), while
+  // the BIOME COLOUR FIELD STAYS THE HUE AUTHORITY — each swatch is normalised by its
+  // own mean (matDetail), so what multiplies the biome colour is only the swatch's
+  // LOCAL deviation with mean ≈ 1: a green field stays exactly as green on average.
+  // Band-limited: texFade decays the texture to today's flat biome colour as a texel
+  // shrinks past the pixel footprint (mips keep the in-between alias-free), and the
+  // whole block is SKIPPED at overview (explicit-LOD samples make the non-uniform
+  // branch legal) so the fill-bound px1 path pays ~nothing. Uniform-flag branch:
+  // \`?groundtex=off\` (uFlags.x = 0) restores the pre-Slice-2 grayscale grain for A/B.
+  var ground = biome;
+  if (G.uFlags.x > 0.5) {
+    // Atlas texels per screen pixel at this fragment (footprint in texel units).
+    let texSize = f32(textureDimensions(matAtlas).x);
+    let fwTexels = max(fwTiles.x, fwTiles.y) / MAT_TILES * texSize;
+    // Full colour texture while a texel covers ≥ a pixel (gameplay zoom); gone by
+    // ~4 texels/px (overview) — both the aesthetic (no fizz) and the perf guard.
+    let texFade = smoothstep(4.0, 1.0, fwTexels);
+    if (texFade > 0.0) {
+      let lod = clamp(log2(max(fwTexels, 1e-3)), 0.0, 16.0);
+      // Climate → ground-character weights, thresholds jittered (jit) so borders
+      // wander off the cell grid. Mirrors the overlay weights below in spirit.
+      let dry = 1.0 - moist;
+      let wSandG = smoothstep(0.55, 0.80, temp + jit * 0.08) * smoothstep(0.55, 0.85, dry + jit * 0.10);
+      let wDirtG = smoothstep(0.45, 0.80, dry + jit * 0.12) * (1.0 - wSandG);
+      let wGrassG = max(1.0 - wSandG - wDirtG, 0.0);
+      let det = matDetail(0, muv, lod) * wGrassG    // grass
+              + matDetail(1, muv, lod) * wDirtG     // dirt
+              + matDetail(3, muv, lod) * wSandG;    // sand
+      // Conservative clamp (≈ the old ±28% grain) — an outlier texel can never
+      // blow out or crush the authored biome colour.
+      let detC = clamp(det, vec3<f32>(0.72), vec3<f32>(1.35));
+      ground = biome * mix(vec3<f32>(1.0), detC, texFade);
+    }
+  } else {
+    // Pre-Slice-2 look: grass exemplar's grayscale detail (luminance / mean) only.
+    let groundDetail = clamp(dot(matSample(0, muv), vec3<f32>(0.3333)) / 0.5, 0.72, 1.28);
+    ground = biome * groundDetail;
+  }
+  let base = mix(ground, roadAlb, roadMix);
 
   // Material WEIGHTS — each becomes a height-blend layer below.
   let wRock = smoothstep(0.42, 0.78, slope + jit * 0.18);                 // steep faces

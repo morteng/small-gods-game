@@ -34,7 +34,9 @@ describe('dense_forest brush', () => {
   });
 
   it('emits zero on non-dense_forest tiles', () => {
-    const c = ctx([['grass', 'grass'], ['grass', 'grass']]);
+    // 'dirt' — a tile NO sub-brush covers (these brushes deliberately grass-cover
+    // 'grass'/'meadow'/'glen' tiles via placeGrassCover, so grass is not foreign).
+    const c = ctx([['dirt', 'dirt'], ['dirt', 'dirt']]);
     expect(denseForestBrush({ x: 0, y: 0, w: 2, h: 2 }, 1, c)).toEqual([]);
   });
 
