@@ -34,11 +34,10 @@ const KNOWN_UNEMITTED: string[] = [];
 const KNOWN_GENERIC_ONLY: Record<string, string> = {
   world_seeded:    'genesis marker — anchors the log; read by generic feeds only',
   spirit_birth:    'genesis marker for spirits; generic feeds only',
-  npc_spawn:       'population audit trail; generic feeds only',
-  authored_spawn:  'Create-panel audit trail (command channel); generic feeds only',
-  authored_remove: 'Create-panel audit trail; generic feeds only',
+  // npc_spawn / authored_spawn / authored_remove / authored_place moved out
+  // 2026-07-13: the cohort ledger (cohort-system.ts) reads them as lifecycle
+  // flow explanations — a real consumer.
   authored_modify: 'Create-panel audit trail; generic feeds only',
-  authored_place:  'Create-panel audit trail; generic feeds only',
   authored_move:   'Create-panel audit trail; generic feeds only',
   authored_climate:'Create-panel audit trail; generic feeds only',
   tile_collapsed:  'oracle/WFC realization trace; generic feeds only',
