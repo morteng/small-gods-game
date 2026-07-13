@@ -39,6 +39,12 @@ describe('BuiltinPixelFont', () => {
     expect(f.layout('a', 0, 0, 1)).toEqual(f.layout('A', 0, 0, 1));
   });
 
+  it('renders the ellipsis glyph (button clip marker) as real pixels', () => {
+    // '…' backs the button primitive's label clip — it must be a mapped glyph,
+    // not a blank cell, or clipped labels would end in nothing.
+    expect(f.layout('…', 0, 0, 1)).toHaveLength(3); // three dots on the baseline
+  });
+
   it('skips spaces and unknown glyphs but still advances the cursor', () => {
     expect(f.layout(' ', 0, 0, 1)).toHaveLength(0);
     expect(f.layout('~', 0, 0, 1)).toHaveLength(0); // unmapped

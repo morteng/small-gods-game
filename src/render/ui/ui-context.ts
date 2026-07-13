@@ -92,7 +92,8 @@ export class UiContext {
   /**
    * A clickable button. Returns true on the frame the click completes (pointer
    * released while hot). Inert when `disabled` or when the input snapshot is
-   * empty. Records a hit region for S2's router regardless.
+   * empty. Records a hit region for S2's router regardless. Labels wider than
+   * the button are ellipsis-clipped (`…`) so text never overflows the border.
    */
   button(id: string, label: string, x: number, y: number, w: number, h: number, opts: ButtonOpts = {}): boolean {
     const scale = opts.scale ?? 1;
@@ -108,10 +109,12 @@ export class UiContext {
     this.batcher.rect(x, y, w, h, bg);
     this.batcher.border(x, y, w, h, 1, p.buttonBorder);
 
-    // centre the label within the button
-    const tw = this.font.measure(label, scale);
+    // centre the label within the button; clip to the inner width first
+    const padX = Math.ceil(4 * scale); // breathing room inside the 1px border
+    const text = this.ellipsize(label, scale, w - 2 * padX);
+    const tw = this.font.measure(text, scale);
     const th = this.font.lineHeight(scale);
-    this.label(label, Math.round(x + (w - tw) / 2), Math.round(y + (h - th) / 2), scale, fg);
+    this.label(text, Math.round(x + Math.max(padX, (w - tw) / 2)), Math.round(y + (h - th) / 2), scale, fg);
 
     this.hits.push({ id, x, y, w, h });
     return hot && !disabled && this.input.released;
@@ -142,6 +145,18 @@ export class UiContext {
   /** Pixel width of a text run at the given scale (for wrapping / centring). */
   measure(text: string, scale: number): number {
     return this.font.measure(text, scale);
+  }
+
+  /** Clip a run to `maxW` px, appending `…` when it doesn't fit (card choice
+   *  labels can exceed their button — the primitive owns the clip so every
+   *  button stays inside its border). Returns the text unchanged when it fits. */
+  ellipsize(text: string, scale: number, maxW: number): string {
+    if (this.font.measure(text, scale) <= maxW) return text;
+    for (let n = text.length - 1; n > 0; n--) {
+      const clipped = `${text.slice(0, n).trimEnd()}…`;
+      if (this.font.measure(clipped, scale) <= maxW) return clipped;
+    }
+    return '…';
   }
 
   /** End the frame; returns the hit regions claimed (for the input router). */

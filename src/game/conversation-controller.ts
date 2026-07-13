@@ -19,7 +19,8 @@ export interface ConversationDeps {
   state: GameState;
   queue: CommandQueue;
   attentionStore: NpcAttentionStore;
-  /** The LIVE chat-tier client (applyLlmConfig rebuilds it — read through, never captured). */
+  /** The LIVE client for conversation turns — the game passes capable-tier with
+   *  chat-tier fallback (applyLlmConfig rebuilds them — read through, never captured). */
   llm: () => LLMClient;
   /** Fallback for a non-NPC / textless card choice: emit the pre-paired command
    *  (one-shot) with the coordinator's cast FX + HUD invalidation. */

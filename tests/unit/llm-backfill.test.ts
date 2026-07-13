@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { parseLLMJson, getNearbyNpcNames, getActiveEventsForPoi } from '@/game/llm-backfill';
+import { parseLLMJson, getNearbyNpcNames, getActiveEventsForPoi, LlmBackfillService } from '@/game/llm-backfill';
 import { World } from '@/world/world';
-import { initNpcProps } from '@/world/npc-helpers';
-import type { GameMap, Tile } from '@/core/types';
+import { initNpcProps, npcProps } from '@/world/npc-helpers';
+import { createState } from '@/core/state';
+import { LLMClient, type LLMProvider } from '@/llm/llm-client';
+import type { GameMap, Tile, Entity } from '@/core/types';
 
 function makeMap(w = 10, h = 10): GameMap {
   const tiles: Tile[][] = [];
@@ -30,6 +32,33 @@ describe('getNearbyNpcNames', () => {
     const b = { id: 'b', kind: 'npc', x: 6, y: 5, properties: initNpcProps('Bo', 'farmer', 2) as any, tags: [] };
     world.addEntity(a); world.addEntity(b);
     expect(getNearbyNpcNames(world, a as any, 3)).toEqual(['Bo']);
+  });
+});
+
+// C5: the barebones game never mounts the legacy DOM narration card, so the
+// service runs with llmDisplay:null — the writeback (memory + belief) must
+// still land; only the DOM presentation is skipped.
+describe('trigger with llmDisplay: null (barebones)', () => {
+  it('applies the writeback without a display handle', async () => {
+    const state = createState();
+    state.map = makeMap(5, 5);
+    state.world = new World(state.map);
+    const npc: Entity = { id: 'n1', kind: 'npc', x: 2, y: 2, tags: [], properties: initNpcProps('Aelith', 'farmer', 1) as any };
+    state.world.addEntity(npc);
+
+    const provider: LLMProvider = {
+      isAvailable: () => true,
+      async generate() {
+        return { content: JSON.stringify({ dialogue: 'I feel watched', belief_delta: { faith: 0.1 } }), latencyMs: 0 };
+      },
+    } as unknown as LLMProvider;
+
+    const faithBefore = npcProps(npc).beliefs['player']?.faith ?? 0;
+    const svc = new LlmBackfillService({ state, llmDisplay: null, client: new LLMClient(provider) });
+    await svc.trigger(npc);
+
+    expect(npcProps(npc).memories ?? []).toHaveLength(1); // interaction memory recorded
+    expect(npcProps(npc).beliefs['player']?.faith ?? 0).toBeGreaterThan(faithBefore); // belief delta applied
   });
 });
 

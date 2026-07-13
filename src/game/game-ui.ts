@@ -40,14 +40,22 @@ export interface GameUiCallbacks {
  * (world gen, rival selection, camera, settings mutation) are injected via the
  * GameUiCallbacks bag; self-contained callbacks (logging, localStorage) stay here.
  */
+export interface GameUiOptions {
+  /** When false (the default barebones game), the legacy DOM whisper chrome —
+   *  the NPC attention panel (+ its host div) and the LLM narration card — is
+   *  never MOUNTED (C5); the WebGPU conversation card is the only whisper
+   *  surface. `?legacyui` (true) mounts them exactly as before. */
+  legacyChrome?: boolean;
+}
+
 export class GameUi {
   readonly pausedBanner: HTMLDivElement;
   readonly debugHud: HTMLDivElement;
-  readonly npcInfoPanel: HTMLDivElement;
-  readonly npcAttentionPanel: NpcAttentionPanelHandle;
+  readonly npcInfoPanel: HTMLDivElement | null;
+  readonly npcAttentionPanel: NpcAttentionPanelHandle | null;
   readonly buildingInfoPanel: BuildingInfoPanelHandle;
   readonly tooltip: HTMLDivElement;
-  readonly llmDisplay: LlmDisplayHandle;
+  readonly llmDisplay: LlmDisplayHandle | null;
   readonly unifiedSettings: SettingsHandle;
   readonly loadingScreen: LoadingScreenHandle;
   readonly tutorial: TutorialHandle;
@@ -61,7 +69,8 @@ export class GameUi {
   readonly placementModal: DecorationPlacementModalHandle;
   readonly cameraControls: CameraControlsHandle;
 
-  constructor(container: HTMLElement, cb: GameUiCallbacks) {
+  constructor(container: HTMLElement, cb: GameUiCallbacks, opts: GameUiOptions = {}) {
+    const legacyChrome = opts.legacyChrome ?? true;
     this.pausedBanner = document.createElement('div');
     this.pausedBanner.textContent = 'PAUSED';
     this.pausedBanner.style.cssText = [
@@ -88,32 +97,42 @@ export class GameUi {
     ].join(';');
     container.appendChild(this.debugHud);
 
-    this.npcInfoPanel = document.createElement('div');
-    this.npcInfoPanel.className = 'sg-scroll';
-    this.npcInfoPanel.style.cssText = [
-      'position:absolute', 'top:14px', 'right:14px', 'width:400px',
-      'max-height:calc(100% - 28px)', 'overflow-y:auto',
-      'padding:16px 18px', 'background:var(--shade)',
-      'backdrop-filter:blur(10px)', '-webkit-backdrop-filter:blur(10px)',
-      'border:1px solid var(--line)', 'border-radius:var(--r-4)',
-      'box-shadow:var(--lift-2)',
-      'color:var(--ink)', 'pointer-events:auto', 'display:none', 'z-index:21',
-      'box-sizing:border-box',
-    ].join(';');
-    container.appendChild(this.npcInfoPanel);
-    this.npcAttentionPanel = mountNpcAttentionPanel(this.npcInfoPanel, {
-      onWhisperSend: cb.onWhisperSend,
-      onMindOpen: cb.onMindOpen,
-      onMindCrossNav: cb.onMindCrossNav,
-    });
-    this.buildingInfoPanel = mountBuildingInfoPanel(container, { onClose: cb.onCloseBuilding });
+    // Legacy DOM whisper chrome (C5): the attention panel + LLM narration card
+    // only exist under ?legacyui. The barebones game never mounts them — the
+    // WebGPU conversation card (ui-runtime) is the whisper surface.
+    if (legacyChrome) {
+      this.npcInfoPanel = document.createElement('div');
+      this.npcInfoPanel.className = 'sg-scroll';
+      this.npcInfoPanel.style.cssText = [
+        'position:absolute', 'top:14px', 'right:14px', 'width:400px',
+        'max-height:calc(100% - 28px)', 'overflow-y:auto',
+        'padding:16px 18px', 'background:var(--shade)',
+        'backdrop-filter:blur(10px)', '-webkit-backdrop-filter:blur(10px)',
+        'border:1px solid var(--line)', 'border-radius:var(--r-4)',
+        'box-shadow:var(--lift-2)',
+        'color:var(--ink)', 'pointer-events:auto', 'display:none', 'z-index:21',
+        'box-sizing:border-box',
+      ].join(';');
+      container.appendChild(this.npcInfoPanel);
+      this.npcAttentionPanel = mountNpcAttentionPanel(this.npcInfoPanel, {
+        onWhisperSend: cb.onWhisperSend,
+        onMindOpen: cb.onMindOpen,
+        onMindCrossNav: cb.onMindCrossNav,
+      });
 
-    // LLM display (shows dialogue/narration from LLM backfill)
-    this.llmDisplay = createLlmDisplay(container, {
-      onClose: () => {
-        // Optional: do something when LLM display is closed
-      },
-    });
+      // LLM display (shows dialogue/narration from LLM backfill — triggered only
+      // from the attention panel, so it's the same legacy chrome unit)
+      this.llmDisplay = createLlmDisplay(container, {
+        onClose: () => {
+          // Optional: do something when LLM display is closed
+        },
+      });
+    } else {
+      this.npcInfoPanel = null;
+      this.npcAttentionPanel = null;
+      this.llmDisplay = null;
+    }
+    this.buildingInfoPanel = mountBuildingInfoPanel(container, { onClose: cb.onCloseBuilding });
 
     this.tooltip = document.createElement('div');
     this.tooltip.style.cssText = [
@@ -210,16 +229,18 @@ export class GameUi {
   /**
    * Barebones cleanup: the WebGPU HUD + pause menu are the only chrome, so tear
    * down every persistent legacy DOM panel here (one place — DRY). The on-demand
-   * panels (NPC/building info, tooltip, power pill) are suppressed at their render
-   * sites via `legacyChrome`; this handles the always-mounted ones. The narration
-   * card (`llmDisplay`), summonable minimap, and decoration modal stay — they're
-   * still the only surface for their content until a WebGPU equivalent exists.
+   * panels (building info, tooltip, power pill) are suppressed at their render
+   * sites via `legacyChrome`; this handles the always-mounted ones. The whisper
+   * chrome (attention panel + narration card) never mounts in barebones (C5 —
+   * see the constructor). The summonable minimap and decoration modal stay —
+   * they're still the only surface for their content until a WebGPU equivalent
+   * exists.
    */
   suppressLegacyChrome(): void {
     this.pausedBanner.style.display = 'none';
     this.debugHud.style.display = 'none';
     this.spiritHud.hide();
-    this.npcInfoPanel.style.display = 'none';
+    if (this.npcInfoPanel) this.npcInfoPanel.style.display = 'none';
     this.tooltip.style.display = 'none';
     this.buildingInfoPanel.hide();
     this.rivalPanel.hide();
@@ -230,9 +251,9 @@ export class GameUi {
   destroy(): void {
     this.pausedBanner.remove();
     this.debugHud.remove();
-    this.npcAttentionPanel.destroy();
+    this.npcAttentionPanel?.destroy();
     this.buildingInfoPanel.destroy();
-    this.npcInfoPanel.remove();
+    this.npcInfoPanel?.remove();
     this.tooltip.remove();
     this.bottomLeftBar.remove();
     this.loadingScreen.destroy();
@@ -243,6 +264,6 @@ export class GameUi {
     this.tutorial.destroy();
     this.unifiedSettings.destroy();
     this.placementModal.destroy();
-    this.llmDisplay.destroy();
+    this.llmDisplay?.destroy();
   }
 }
