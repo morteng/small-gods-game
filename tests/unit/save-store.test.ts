@@ -3,7 +3,10 @@ import 'fake-indexeddb/auto';
 import { IDBFactory } from 'fake-indexeddb';
 import { writeSave, readSave, clearSave, _resetSaveDbForTesting } from '@/services/save-store';
 import { IDB_TIMEOUT_MS } from '@/services/idb-guard';
-import type { SaveFile } from '@/core/save-file';
+import { toSaveFileLive, applySaveFile, type SaveFile } from '@/core/save-file';
+import { createState } from '@/core/state';
+import { World } from '@/world/world';
+import type { GameMap, Tile } from '@/core/types';
 
 function fakeSave(tick: number): SaveFile {
   return {
@@ -49,6 +52,30 @@ describe('save-store', () => {
     live.snapshot.tick = 999;
     expect(calls).toBe(1);
     expect((await readSave())?.snapshot.tick).toBe(5);
+  });
+
+  it('a real live save (encoded tiles) is atomic: post-write mutations never leak', async () => {
+    const tiles: Tile[][] = [[{ type: 'grass', x: 0, y: 0, walkable: true, state: 'realized' }]];
+    const map: GameMap = {
+      tiles, width: 1, height: 1, villages: [], seed: 1, success: true,
+      worldSeed: null, stats: { iterations: 0, backtracks: 0 }, buildings: [],
+    };
+    const state = createState();
+    state.map = map;
+    state.world = new World(map);
+
+    await writeSave(() => toSaveFileLive(state, 1000));
+    // Mutate live state AFTER the write resolved — both the encoded grid and
+    // the aliased-then-cloned map fields must be frozen at put() time.
+    map.tiles[0][0].type = 'MUTATED';
+    map.villages.push({ x: 0, y: 0, type: 'hamlet' });
+
+    const got = await readSave();
+    expect(got).not.toBeNull();
+    const fresh = createState();
+    expect(applySaveFile(fresh, got!)).toBe(true);
+    expect(fresh.map!.tiles[0][0].type).toBe('grass');
+    expect(fresh.map!.villages).toHaveLength(0);
   });
 });
 

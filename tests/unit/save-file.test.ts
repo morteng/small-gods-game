@@ -17,6 +17,11 @@ function miniMap(): GameMap {
     for (let x = 0; x < w; x++) row.push(tile(x, y));
     tiles.push(row);
   }
+  // exercise the codec's optional-field paths through the real save round-trip
+  tiles[1][1] = {
+    type: 'road', x: 1, y: 1, walkable: true, state: 'realized',
+    baseType: 'grass', irrigated: true, realizedAt: 42,
+  };
   return {
     tiles, width: w, height: h, villages: [], seed: 1, success: true,
     worldSeed: null, stats: { iterations: 0, backtracks: 0 }, buildings: [],
@@ -90,22 +95,51 @@ describe('save-file', () => {
     expect(applySaveFile(fresh, save)).toBe(false);
     expect(fresh.clock.now()).toBe(before);
   });
+
+  it('rejects a pre-codec v2 save (version gate fires before the map is touched)', () => {
+    // A v2 save's map.tiles is Tile[][], not EncodedTiles — the version check
+    // must reject it without ever reaching the decoder.
+    const save = toSaveFile(seededState(), 1);
+    save.version = 2;
+    (save.map as unknown as GameMap).tiles = [[tile(0, 0)]]; // old shape
+    const fresh = createState();
+    expect(applySaveFile(fresh, save)).toBe(false);
+    expect(fresh.map).toBeNull();
+  });
 });
 
 describe('save-file — live (single-clone) autosave path', () => {
   it('toSaveFileLive aliases live state instead of deep-cloning it', () => {
     const state = seededState();
     const save = toSaveFileLive(state, 1);
-    // Aliasing IS the contract — the IDB put()'s synchronous structured clone
-    // is the one deep copy per save (was two: toSaveFile's + put()'s).
-    expect(save.map).toBe(state.map);
+    // Aliasing IS the contract for everything but tiles — the IDB put()'s
+    // synchronous structured clone is the one deep copy per save.
+    expect(save.map.villages).toBe(state.map!.villages);
+    expect(save.map.buildings).toBe(state.map!.buildings);
     const liveNpc = state.world!.query({ kind: 'npc' })[0];
     expect(save.snapshot.entities[0]).toBe(liveNpc);
     expect(save.snapshot.entities[0].properties).toBe(liveNpc.properties);
   });
 
+  it('encodes tiles synchronously into the compact codec (never aliases the grid)', () => {
+    const state = seededState();
+    const save = toSaveFileLive(state, 1);
+    // Tiles are the exception to the aliasing contract: the factory ENCODES
+    // them (typed arrays) so put()'s clone never walks the 171k-object grid,
+    // and the encoded form is stable even after the live world mutates.
+    expect(save.map.tiles.typeOrd).toBeInstanceOf(Uint16Array);
+    expect(save.map.tiles.flags).toBeInstanceOf(Uint8Array);
+    expect(save.map.tiles.width).toBe(2);
+    expect(save.map.tiles.height).toBe(2);
+    state.map!.tiles[0][0].type = 'MUTATED';
+    const fresh = createState();
+    expect(applySaveFile(fresh, save)).toBe(true);
+    expect(fresh.map!.tiles[0][0].type).toBe('grass');
+  });
+
   it('toSaveFileLive round-trips through applySaveFile identically to toSaveFile', () => {
-    const save = toSaveFileLive(seededState(), 1);
+    const state = seededState();
+    const save = toSaveFileLive(state, 1);
     const fresh = createState();
     expect(applySaveFile(fresh, save)).toBe(true);
     expect(fresh.clock.now()).toBe(123);
@@ -113,8 +147,11 @@ describe('save-file — live (single-clone) autosave path', () => {
     expect(fresh.eventLog.size()).toBe(save.events.length);
     // applySaveFile deep-copies on the way IN, so the restored state never
     // aliases the save (nor, transitively, the source state).
-    expect(fresh.map).not.toBe(save.map);
+    expect(fresh.map).not.toBe(state.map);
+    expect(fresh.map!.villages).not.toBe(save.map.villages);
     expect(fresh.world!.query({ kind: 'npc' })[0]).not.toBe(save.snapshot.entities[0]);
+    // and the decoded tiles deep-equal the source grid
+    expect(fresh.map!.tiles).toEqual(state.map!.tiles);
   });
 });
 
