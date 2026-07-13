@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { StaticDrawListCache, drawCacheKey } from '@/render/gpu/static-draw-list-cache';
+import { StaticDrawListCache, drawCacheKey, ART_REV_REBUILD_COOLDOWN_MS } from '@/render/gpu/static-draw-list-cache';
 import type { RenderContext, GameMap } from '@/core/types';
 import type { DrawItem } from '@/render/iso/draw-list';
 import type { IsoItemCtx } from '@/render/iso/iso-sprites';
@@ -92,6 +92,53 @@ describe('StaticDrawListCache', () => {
     cache.get(makeRc(map), map, IC);
     cache.invalidate();
     cache.get(makeRc(map), map, IC);
+    expect(builds).toBe(2);
+  });
+});
+
+describe('StaticDrawListCache — art-rev debounce (boot pack-storm)', () => {
+  const rcRev = (map: GameMap, rev: number): RenderContext =>
+    ({ map, buildingArtRev: rev } as RenderContext);
+
+  it('coalesces a burst of per-pack rev bumps into one deferred rebuild', () => {
+    let builds = 0;
+    const cache = new StaticDrawListCache(() => { builds++; return []; });
+    const map = makeMap();
+    cache.get(rcRev(map, 0), map, IC, 0);
+    // 10 packs settle within the cooldown — every call serves the stale list.
+    for (let i = 1; i <= 10; i++) cache.get(rcRev(map, i), map, IC, i * 20);
+    expect(builds).toBe(1);
+    // First frame past the cooldown picks up ALL ten packs in one rebuild.
+    cache.get(rcRev(map, 10), map, IC, ART_REV_REBUILD_COOLDOWN_MS + 1);
+    expect(builds).toBe(2);
+  });
+
+  it('an unchanged rev never rebuilds, even past the cooldown', () => {
+    let builds = 0;
+    const cache = new StaticDrawListCache(() => { builds++; return []; });
+    const map = makeMap();
+    cache.get(rcRev(map, 3), map, IC, 0);
+    cache.get(rcRev(map, 3), map, IC, ART_REV_REBUILD_COOLDOWN_MS * 5);
+    expect(builds).toBe(1);
+  });
+
+  it('a real world-key change rebuilds immediately, ignoring the cooldown', () => {
+    let builds = 0;
+    const cache = new StaticDrawListCache(() => { builds++; return []; });
+    const a = makeMap({ seed: 1 });
+    const b = makeMap({ seed: 2 });
+    cache.get(rcRev(a, 0), a, IC, 0);
+    cache.get(rcRev(b, 1), b, IC, 10);  // mid-cooldown, but the MAP changed
+    expect(builds).toBe(2);
+  });
+
+  it('invalidate() bypasses the debounce', () => {
+    let builds = 0;
+    const cache = new StaticDrawListCache(() => { builds++; return []; });
+    const map = makeMap();
+    cache.get(rcRev(map, 0), map, IC, 0);
+    cache.invalidate();
+    cache.get(rcRev(map, 0), map, IC, 10); // mid-cooldown
     expect(builds).toBe(2);
   });
 });
