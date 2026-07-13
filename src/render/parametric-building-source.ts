@@ -228,6 +228,11 @@ export class ParametricBuildingSource {
    *  cache key so the static list rebuilds once newly-composed packs are ready. */
   version(): number { return this.rev; }
 
+  /** Warms still in flight (IDB read or compose). The boot gate sums this across
+   *  sources — compose-queue depth alone misses warm-cache boots, where every
+   *  pack is an IDB read and the queue never fills. */
+  pending(): number { return this.inflight.size; }
+
   /** Clear on world reset. */
   clear(): void { this.cache.clear(); this.stages.clear(); this.inflight.clear(); this.warned.clear(); this.rev++; }
 }

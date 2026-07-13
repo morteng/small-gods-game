@@ -110,6 +110,20 @@ describe('ParametricBuildingSource', () => {
     expect(onWarm).toHaveBeenCalledTimes(2);
   });
 
+  it('pending counts in-flight warms and drains to zero — the boot gate reads it', async () => {
+    // Compose held open by a manual latch so pending is observable mid-flight.
+    let release!: () => void;
+    const latch = new Promise<void>((r) => { release = r; });
+    const src = new ParametricBuildingSource({ compose: () => latch.then(() => fakeResult), toSprite: () => fakeSprite });
+    expect(src.pending()).toBe(0);
+    src.warm(blueprintEntity('a', synthesizeBlueprint('cottage')!, 0, 0));
+    src.warm(blueprintEntity('b', synthesizeBlueprint('tavern')!, 0, 0));
+    expect(src.pending()).toBe(2);
+    release();
+    await flush();
+    expect(src.pending()).toBe(0);
+  });
+
   // Interior I-2 (focus reveal): the cutaway variant is a SEPARATE cache entry keyed off the
   // cutaway-patched blueprint, so the closed and open sprites never collide.
   describe('cutaway view (interior I-2)', () => {

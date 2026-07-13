@@ -1,4 +1,6 @@
 import { createState, type GameState } from '@/core/state';
+import { waitForArtSettled } from '@/game/art-settle-gate';
+import { composeQueuePending } from '@/render/compose-scheduler';
 import { selectRenderer, type RenderFn } from '@/render/select-renderer';
 import { zoomAt } from '@/render/camera';
 import { quantizeIsoZoom } from '@/render/iso/iso-camera';
@@ -1596,11 +1598,14 @@ export class Game {
       },
       onReady: () => {
         bootMark('worldgen');
-        this.ui.loadingScreen.setProgress(1, 'Entering the world…');
-        this.ui.loadingScreen.hide();
         if (!this.barebones) this.ui.spiritHud.show(); // barebones: orb replaces it
         this.dev.updateInspector();
         this.persistence.start();
+        // The fade waits for the building art to settle (composes drained + art
+        // rev quiet) so the player never sees grey massing pop into textured
+        // buildings — fire-and-forget: the frame loop starts beneath the overlay
+        // and drives the demand-loads the gate is watching.
+        void this.holdLoadingUntilArtSettled();
       },
     });
     this.startLoop();
@@ -1608,6 +1613,53 @@ export class Game {
     // so a backgrounded game never burns CPU/GPU on this machine.
     if (typeof document !== 'undefined') document.addEventListener('visibilitychange', this.onVisibilityChange);
     return map;
+  }
+
+  /** Hold the loading overlay past worldgen-ready until the building art has
+   *  settled, so the world fades in fully textured (never grey massing). The
+   *  gate itself (signals + quiet window) lives in `art-settle-gate.ts`. No
+   *  time cap: readiness is signal-driven and the pending counts structurally
+   *  drain (warm failures cache null; IDB reads are timeboxed by idb-guard). */
+  private async holdLoadingUntilArtSettled(): Promise<void> {
+    const loading = this.ui.loadingScreen;
+    loading.setProgress(0.98, 'Raising the buildings…');
+    // Prewarm EVERY building/barrier, not just the spawn viewport's: the frame
+    // path only warms visible entities, so without this the gate's signals go
+    // quiet while off-screen towns are still bare massing and the first pan
+    // shows grey boxes. Sources dedupe by blueprint identity — this costs one
+    // IDB read / library fetch per UNIQUE building, not per entity. Warming
+    // here (not via the frame loop) also keeps the loads flowing in a hidden tab.
+    const world = this.state.world;
+    if (world) {
+      for (const e of world.query({ tag: 'building' })) {
+        this.parametricBuildingSource.warm(e);
+        this.generatedBuildingArtSource.warm(e);
+        this.buildingArtResolver.warm(e);
+      }
+      for (const e of world.query({ kind: 'barrier' })) this.parametricBarrierSource.warm(e);
+    }
+    await waitForArtSettled({
+      // Compose-queue depth alone misses warm-cache boots (every pack is an IDB
+      // read, the queue never fills) — sum the sources' in-flight warms too.
+      pendingComposes: () =>
+        composeQueuePending()
+        + this.parametricBuildingSource.pending()
+        + this.parametricBarrierSource.pending()
+        + this.generatedBuildingArtSource.pending(),
+      // Mirror the draw-cache's buildingArtRev exactly (render-context.ts) — the
+      // generated (painted) source repaints buildings too.
+      artRev: () =>
+        this.parametricBuildingSource.version()
+        + this.parametricBarrierSource.version()
+        + this.generatedBuildingArtSource.version(),
+      onProgress: (pending) => {
+        if (pending > 0) loading.setProgress(0.98, `Raising the buildings… ${pending} left`);
+      },
+    });
+    console.info('[boot] art gate: settled');
+    bootMark('art-settled');
+    loading.setProgress(1, 'Entering the world…');
+    loading.hide();
   }
 
   /** Abandon the current world: stop autosaving, clear the slot, reload fresh.
