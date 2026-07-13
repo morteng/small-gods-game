@@ -562,6 +562,8 @@ export class GpuScene {
           { binding: 6, resource: { buffer: this.terrainFeatureBuf } },
           { binding: 7, resource: this.matAtlasView },
           { binding: 8, resource: this.matSampler },
+          { binding: 9, resource: this.noiseTexView },
+          { binding: 10, resource: this.noiseSampler },
         ],
       });
       realloc = true;
@@ -626,6 +628,8 @@ export class GpuScene {
           { binding: 6, resource: { buffer: this.terrainFeatureBuf } },
           { binding: 7, resource: this.matAtlasView },
           { binding: 8, resource: this.matSampler },
+          { binding: 9, resource: this.noiseTexView },
+          { binding: 10, resource: this.noiseSampler },
         ],
       });
       this.detailBoundHeights = this.terrainHeightsBuf;

@@ -47,6 +47,14 @@ struct TGlobals {
 // road_dirt6 road_gravel7 road_cobble8). Sampled with a REPEAT sampler at tile-space UV.
 @group(0) @binding(7) var matAtlas : texture_2d_array<f32>;
 @group(0) @binding(8) var matSamp  : sampler;
+// BAKED tiling noise atlas (noise-texture.ts, shared with the water + backdrop passes).
+// R = single-octave value noise — the terrain jitter channel. One bilinear tap replaces
+// the old in-shader hash21+sin lattice vnoise (4 transcendental hashes + bilinear mix
+// per call, paid by EVERY terrain fragment for the threshold wander) — on the fill-bound
+// overview the texture units are idle while ALU is the bottleneck.
+@group(0) @binding(9) var noiseTex : texture_2d<f32>;
+@group(0) @binding(10) var noiseSmp : sampler;
+const NOISE_INV_TILE = 1.0 / 64.0;   // 1 / NOISE_TILE_UNITS — keep in step with noise-texture.ts
 
 // How many world tiles one exemplar repeat spans (1 tile = 2 m). ~2.5 tiles → a 64px
 // swatch over ~5 m reads chunky-but-legible under the banded sun.
@@ -157,21 +165,13 @@ fn roadPaved(fx : f32, fy : f32) -> f32 {
   return best;
 }
 
-// Cheap value noise for jittering material thresholds so edges wander (kills the
-// flat contour rings / square biome borders that betray procedural terrain).
-fn hash21(p : vec2<f32>) -> f32 {
-  let h = dot(p, vec2<f32>(127.1, 311.7));
-  return fract(sin(h) * 43758.5453123);
-}
+// Value noise for jittering material thresholds so edges wander (kills the flat
+// contour rings / square biome borders that betray procedural terrain). Now a single
+// baked-atlas tap (explicit LOD so callers may sit in non-uniform flow); same [0,1]
+// range and lattice frequency as the old in-shader hash21+sin version — the wander
+// is a different (but statistically identical) realization.
 fn vnoise(p : vec2<f32>) -> f32 {
-  let i = floor(p);
-  let f = fract(p);
-  let u = f * f * (3.0 - 2.0 * f);
-  let a = hash21(i);
-  let b = hash21(i + vec2<f32>(1.0, 0.0));
-  let c = hash21(i + vec2<f32>(0.0, 1.0));
-  let d = hash21(i + vec2<f32>(1.0, 1.0));
-  return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+  return textureSampleLevel(noiseTex, noiseSmp, p * NOISE_INV_TILE, 0.0).r;
 }
 
 // ── Analytic road materials (Step 2) ─────────────────────────────────────────
@@ -180,7 +180,7 @@ fn vnoise(p : vec2<f32>) -> f32 {
 // units (no fixed-px resolution ceiling, no tiling seam ever) and the high-freq
 // detail BAND-LIMITS against the pixel footprint (fwTiles) so it fades to a
 // flat tone as you zoom out instead of shimmering ("octaves read as faceting").
-// An integer bit-hash (not sin-based hash21) keeps the cell field artefact-free
+// An integer bit-hash (not a sin-based lattice hash) keeps the cell field artefact-free
 // at the large coordinates these sub-tile cell grids reach.
 fn hashI(p : vec2<i32>) -> f32 {
   var n = (u32(p.x) * 1597334677u) ^ (u32(p.y) * 3812015801u);

@@ -430,6 +430,11 @@ const LAKE_DIR = vec2<f32>(0.60, -0.80);
 // the whole waterline band even under the zoom-coarsened mesh (flat cell index can trail
 // the fragment by up to the subsample stride, ≤4), so the water/land boundary is untouched.
 const SHORE_CUBIC_TILES = 6.0;
+// T1.2 fill perf: shore distance (tiles) beyond which the ocean's per-fragment
+// gradient fields (coast normal → exposure, bed slope → shoal) stop being sampled
+// and blend to their mid value — see the coastal-gated block in the ocean branch.
+// Larger than every gradient consumer's reach (breakLine 3, swash ≤5.6, chop ~e^-shore/7.7).
+const COASTAL_GRAD_TILES = 14.0;
 
 // ── RIVER MOTION + FOAM (R6 render polish) ────────────────────────────────────────
 // Foam tone for river whitewater, bank rim and waterline lip (one colour → one read).
@@ -577,25 +582,43 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
     color = mix(wcol.shallow, wcol.deep, max(tDeep, vec3<f32>(shoreDeep)))
           * (G.uAmbient.xyz + vec3<f32>(day * 0.85));
 
-    // Coast normal (offshore) from the shore-distance gradient — windward coasts
-    // (facing the swell) get rougher water + harder breakers than lee shores.
-    let sgx = sampleShore(g.x + 1.0, g.y) - sampleShore(g.x - 1.0, g.y);
-    let sgy = sampleShore(g.x, g.y + 1.0) - sampleShore(g.x, g.y - 1.0);
-    let coastN = normalize(vec2<f32>(sgx, sgy) + vec2<f32>(1e-4, 0.0));
-    let exposure = clamp(-dot(coastN, WAVE_DIR), 0.0, 1.0);
+    // COASTAL-GATED GRADIENT FIELDS (T1.2 overview fill perf). exposure (coast normal
+    // vs the swell) and shoal (seabed slope) each need a central-difference over a
+    // bilinear field — 4 sampleShore + 4 sampleTerrainH = 32 extra storage reads per
+    // fragment on a pass that round-3 measured MEMORY-bound. But every consumer is
+    // shore-local: breakLine dies by 3 tiles, the swash sheet by ~5.6, shore chop
+    // rides nearShore, and only the crest-amp modulation reaches further (mildly).
+    // So the open-sea bulk — most of a watery overview — pays those reads for a
+    // near-constant answer. Blend both to their mid value across a 4-tile band ending
+    // at COASTAL_GRAD_TILES and skip the 8 gradient taps entirely on deep fragments
+    // (storage reads carry no derivative requirement, so the non-uniform branch is
+    // legal). The mix() to the SAME constant the deep path uses keeps the seam C0.
+    var exposure = 0.5;
+    var shoal = 0.5;
+    let coastal = smoothstep(COASTAL_GRAD_TILES, COASTAL_GRAD_TILES - 4.0, shore);
+    if (coastal > 0.0) {
+      // Coast normal (offshore) from the shore-distance gradient — windward coasts
+      // (facing the swell) get rougher water + harder breakers than lee shores.
+      let sgx = sampleShore(g.x + 1.0, g.y) - sampleShore(g.x - 1.0, g.y);
+      let sgy = sampleShore(g.x, g.y + 1.0) - sampleShore(g.x, g.y - 1.0);
+      let coastN = normalize(vec2<f32>(sgx, sgy) + vec2<f32>(1e-4, 0.0));
+      let exposureF = clamp(-dot(coastN, WAVE_DIR), 0.0, 1.0);
 
-    // BATHYMETRY: read the seabed slope from the terrain-height gradient. A GENTLE
-    // (flat) bed = a long shallow shelf → waves shoal: they grow taller, slow down,
-    // and break into more foam over a wider band. A steep drop-off stays calmer.
-    // This varies naturally around the island, so some shores get big majestic surf
-    // and others stay quiet. PER-FRAGMENT via the smooth bilinear sampler — the old
-    // central diff at ci (the FLAT provoking-vertex cell) made shoal constant per
-    // TRIANGLE, and everything keyed off it (the swash run-line especially) stepped
-    // in giant pale triangles whenever the drag-LOD mesh coarsened.
-    let bgx = sampleTerrainH(g.x + 1.0, g.y) - sampleTerrainH(g.x - 1.0, g.y);
-    let bgy = sampleTerrainH(g.x, g.y + 1.0) - sampleTerrainH(g.x, g.y - 1.0);
-    let bedSlope = length(vec2<f32>(bgx, bgy)) * G.uZParams.z;   // ~m drop over 2 tiles
-    let shoal = exp(-bedSlope * 2.2);                   // 1 on a flat shelf → 0 steep
+      // BATHYMETRY: read the seabed slope from the terrain-height gradient. A GENTLE
+      // (flat) bed = a long shallow shelf → waves shoal: they grow taller, slow down,
+      // and break into more foam over a wider band. A steep drop-off stays calmer.
+      // This varies naturally around the island, so some shores get big majestic surf
+      // and others stay quiet. PER-FRAGMENT via the smooth bilinear sampler — the old
+      // central diff at ci (the FLAT provoking-vertex cell) made shoal constant per
+      // TRIANGLE, and everything keyed off it (the swash run-line especially) stepped
+      // in giant pale triangles whenever the drag-LOD mesh coarsened.
+      let bgx = sampleTerrainH(g.x + 1.0, g.y) - sampleTerrainH(g.x - 1.0, g.y);
+      let bgy = sampleTerrainH(g.x, g.y + 1.0) - sampleTerrainH(g.x, g.y - 1.0);
+      let bedSlope = length(vec2<f32>(bgx, bgy)) * G.uZParams.z;   // ~m drop over 2 tiles
+      let shoalF = exp(-bedSlope * 2.2);                // 1 on a flat shelf → 0 steep
+      exposure = mix(0.5, exposureF, coastal);
+      shoal = mix(0.5, shoalF, coastal);
+    }
 
     // Per-location wobbled swell direction: a slow large-scale fbm bends WAVE_DIR by
     // up to ~±0.35 rad → directional SPREAD, not a single global vector.
