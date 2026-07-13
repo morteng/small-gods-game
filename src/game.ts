@@ -459,7 +459,7 @@ export class Game {
             playerSpirit: this.state.spirits.get('player')!,
             playerSpiritId: 'player',
           }).then((page) => {
-            if (page) this.ui.npcAttentionPanel.showMindPage(['surface'], page);
+            if (page) this.ui.npcAttentionPanel?.showMindPage(['surface'], page);
           });
         });
       },
@@ -476,7 +476,7 @@ export class Game {
           playerSpirit: this.state.spirits.get('player')!,
           playerSpiritId: 'player',
         }).then((page) => {
-          this.ui.npcAttentionPanel.showMindPage(
+          this.ui.npcAttentionPanel?.showMindPage(
             path,
             page ?? { prose: 'Not enough power to drill deeper.', links: [], depth },
           );
@@ -509,7 +509,9 @@ export class Game {
         }
       },
       onCloseBuilding: () => { this.state.selectedBuildingId = null; this.requestRender(); },
-    });
+    // C5: barebones never mounts the legacy whisper chrome (attention panel +
+    // narration card) — the WebGPU conversation card is the whisper surface.
+    }, { legacyChrome: !this.barebones });
 
     this.spendChip = mountSpendChip(this.ui.bottomLeftBar, this.costTracker);
     this.spendChip.setVisible(providerConfig.type === 'openrouter');
@@ -541,7 +543,10 @@ export class Game {
 
     this.conversation = new ConversationController({
       state: this.state, queue: this.commandQueue, attentionStore: this.attentionStore,
-      llm: () => this.llmClient,
+      // A conversation is a focused key moment: prefer the capable tier when the
+      // provider configures one, falling back to the chat tier (the mind-page
+      // pattern). applyLlmConfig rebuilds both clients live — read through.
+      llm: () => this.llmClientCapable ?? this.llmClient,
       // Fallback: emit the pre-paired command directly (one-shot).
       emitFallback: (choice) => {
         const cmd = choice.command;

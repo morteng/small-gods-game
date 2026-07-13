@@ -28,8 +28,9 @@ export interface FrameRendererUi {
   minimap: MinimapHandle;
   spiritHud: SpiritHudHandle;
   divineEffects: DivineEffects;
-  npcInfoPanel: HTMLDivElement;
-  npcAttentionPanel: NpcAttentionPanelHandle;
+  /** null in the barebones game — the legacy whisper chrome never mounts (C5). */
+  npcInfoPanel: HTMLDivElement | null;
+  npcAttentionPanel: NpcAttentionPanelHandle | null;
   buildingInfoPanel: BuildingInfoPanelHandle;
   tooltip: HTMLDivElement;
   debugHud: HTMLDivElement;
@@ -151,8 +152,9 @@ export class FrameRenderer {
 
         // The floating Canvas2D selection overlay (whisper/omen/miracle buttons)
         // is gone — divine actions move into the WebGPU divine panel. Only the
-        // legacy DOM attention panel remains, behind ?legacyui.
-        if (this.deps.legacyChrome) {
+        // legacy DOM attention panel remains, behind ?legacyui (it never mounts
+        // in barebones — C5 — hence the null guard).
+        if (this.deps.legacyChrome && this.deps.ui.npcAttentionPanel && this.deps.ui.npcInfoPanel) {
           const now = performance.now();
           const pinned = this.deps.state.pinnedNpcId === sim.npcId;
           const switched = this.renderedNpcId !== sim.npcId;
@@ -183,7 +185,7 @@ export class FrameRenderer {
         }
       }
     } else {
-      this.deps.ui.npcInfoPanel.style.display = 'none';
+      if (this.deps.ui.npcInfoPanel) this.deps.ui.npcInfoPanel.style.display = 'none';
       this.renderedNpcId = null;
     }
 

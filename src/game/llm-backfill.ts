@@ -28,7 +28,9 @@ export function getActiveEventsForPoi(world: World, poiId?: string): SettlementE
 
 export interface LlmBackfillDeps {
   state: GameState;
-  llmDisplay: LlmDisplayHandle;
+  /** Legacy DOM narration card — null in the barebones game (C5: never mounted).
+   *  The writeback still applies; only the DOM presentation is skipped. */
+  llmDisplay: LlmDisplayHandle | null;
   client?: LLMClient;            // defaults to new LLMClient(new MockLLMProvider(100))
   onWriteback?: () => void;      // called after writeback so caller can refresh UI
 }
@@ -72,9 +74,11 @@ export class LlmBackfillService {
         summary: distillInteraction(props.name, parsed, player.name),
         salience: computeSalience('backfill', parsed.belief_delta, parsed.mood_delta),
       });
-      if (writeback.narration && writeback.dialogue) llmDisplay.showBoth(props.name, writeback.dialogue, writeback.narration);
-      else if (writeback.dialogue) llmDisplay.showDialogue(props.name, writeback.dialogue);
-      else if (writeback.narration) llmDisplay.showNarration(writeback.narration);
+      if (llmDisplay) {
+        if (writeback.narration && writeback.dialogue) llmDisplay.showBoth(props.name, writeback.dialogue, writeback.narration);
+        else if (writeback.dialogue) llmDisplay.showDialogue(props.name, writeback.dialogue);
+        else if (writeback.narration) llmDisplay.showNarration(writeback.narration);
+      }
       this.deps.onWriteback?.();
     } catch (err) {
       console.error('[LLM] Backfill failed:', err);
