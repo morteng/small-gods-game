@@ -48,13 +48,25 @@ export async function bootstrapWorld(deps: BootstrapDeps): Promise<GameMap> {
   const { state, assets, sheets, decorationImages, getViewport } = deps;
   const progress = deps.onProgress ?? (() => {});
 
+  // Terrain gen seed override: `?genseed=N` exists so a dev (or an agent verifying
+  // worldgen) loads the SAME roll the offline probes/lint use. Parsed BEFORE the
+  // resume branch — an explicit genseed must force a fresh deterministic gen, or an
+  // existing autosave silently wins and the param does nothing (user-reported).
+  const genseedOverride = ((): number | null => {
+    try {
+      const p = Number(new URLSearchParams(window.location.search).get('genseed'));
+      if (Number.isFinite(p) && p > 0) return p;
+    } catch { /* non-browser host */ }
+    return null;
+  })();
+
   // Resume branch: if a valid autosave exists, rehydrate it and skip the whole
   // generate/seed path. The saved world already has its entities, spirits,
   // rivals, clock, event history, and camera.
   const readSaveFn = deps.readSave ?? readSaveDefault;
   const applySaveFn = deps.applySave ?? applySaveFile;
-  progress('Looking for a saved world...');
-  const saved = await readSaveFn();
+  progress(genseedOverride !== null ? 'Fresh world (genseed override)...' : 'Looking for a saved world...');
+  const saved = genseedOverride !== null ? null : await readSaveFn();
   if (saved && applySaveFn(state, saved)) {
     progress('Waking your saved world...');
     await assets.loadAll();
