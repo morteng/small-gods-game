@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { waitForArtSettled, ART_SETTLE_QUIET_MS, ART_SETTLE_MAX_WAIT_MS } from '@/game/art-settle-gate';
+import { waitForArtSettled, ART_SETTLE_QUIET_MS } from '@/game/art-settle-gate';
 
 // Deterministic harness: virtual clock advanced by the injected wait(), so the
 // polling loop runs to completion synchronously with no real timers.
@@ -33,7 +33,7 @@ describe('waitForArtSettled', () => {
     expect(outcome).toBe('settled');
     // Can't settle before the last rev change (t=1000) + quiet window.
     expect(h.time()).toBeGreaterThanOrEqual(1000 + ART_SETTLE_QUIET_MS);
-    expect(h.time()).toBeLessThan(ART_SETTLE_MAX_WAIT_MS);
+    expect(h.time()).toBeLessThan(5000);
   });
 
   it('an already-settled boot (warm cache, nothing pending) fades after one quiet window', async () => {
@@ -43,15 +43,17 @@ describe('waitForArtSettled', () => {
     expect(h.time()).toBeLessThanOrEqual(ART_SETTLE_QUIET_MS + 100);
   });
 
-  it('a never-settling stream hits the hard timeout instead of trapping the player', async () => {
+  it('an opt-in maxWaitMs bounds a never-settling stream (default is unbounded)', async () => {
+    // Production passes NO cap (readiness is signal-driven; the pending count
+    // structurally drains) — the bound exists for tests/embedders that want one.
     const h = harness({
       composes: () => 1,                       // wedged compose
       rev: (t) => Math.floor(t / 100),         // rev never quiets either
     });
-    const outcome = await h.run();
+    const outcome = await h.run({ maxWaitMs: 25_000 });
     expect(outcome).toBe('timeout');
-    expect(h.time()).toBeGreaterThanOrEqual(ART_SETTLE_MAX_WAIT_MS);
-    expect(h.time()).toBeLessThan(ART_SETTLE_MAX_WAIT_MS + 200);
+    expect(h.time()).toBeGreaterThanOrEqual(25_000);
+    expect(h.time()).toBeLessThan(25_200);
   });
 
   it('quiet rev alone is not enough while composes are pending', async () => {

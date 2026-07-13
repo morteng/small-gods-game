@@ -16,9 +16,14 @@
 // The caller must PREWARM every building/barrier before gating (Game does) —
 // the frame path only warms viewport entities, so without the prewarm these
 // signals go quiet while off-screen towns are still bare grey massing.
-// A hard `maxWaitMs` bounds the hold so a wedged source (or a hidden tab, whose
-// paused frame loop stops driving demand-loads) can never trap the player on the
-// overlay — on timeout we fade anyway and buildings finish streaming in-world.
+//
+// There is deliberately NO default time cap (user rule: show the game when
+// everything is ready — wall-clock budgets are machine-dependent and a capped
+// fade shows exactly the grey boxes this gate exists to prevent). Wedge-proofing
+// lives in the signals, not a timer: every warm drains its in-flight count via
+// `finally` (failures cache null), IDB reads are timeboxed by idb-guard, so the
+// pending count structurally reaches zero. `maxWaitMs` remains as an opt-in
+// bound for tests/embedders.
 //
 // Clock + sleep are injectable so the polling logic is unit-testable without
 // timers.
@@ -26,12 +31,6 @@
 /** Rev must hold still this long to count as settled — matches the draw-cache
  *  debounce's notion of "the pack stream has gone quiet". */
 export const ART_SETTLE_QUIET_MS = 600;
-/** Never hold the loading screen longer than this past worldgen-ready. Sized for
- *  a COLD boot: a fresh world composes tens of new variant packs (~53s compose
- *  CPU total, parallelised across the worker pool — live-measured ~25s+ wall on
- *  an M1), and fading mid-stream shows exactly the grey boxes this gate exists
- *  to prevent. Warm boots (IDB sprite cache) settle in ~1–2s regardless. */
-export const ART_SETTLE_MAX_WAIT_MS = 60_000;
 /** Poll cadence — coarse is fine; this races nothing. */
 export const ART_SETTLE_POLL_MS = 200;
 
@@ -43,6 +42,7 @@ export interface ArtSettleGateOpts {
   /** Called each poll with the current pending-compose count (progress label). */
   onProgress?(pending: number): void;
   quietMs?: number;
+  /** Opt-in hard bound (tests/embedders). Default: none — readiness is signal-driven. */
   maxWaitMs?: number;
   pollMs?: number;
   /** Injectable clock/sleep for tests. */
@@ -50,11 +50,11 @@ export interface ArtSettleGateOpts {
   wait?(ms: number): Promise<void>;
 }
 
-/** Resolves 'settled' when composes drained AND the rev has been quiet, or
- *  'timeout' at the hard bound. Never rejects. */
+/** Resolves 'settled' when composes drained AND the rev has been quiet — or
+ *  'timeout' if the caller opted into a `maxWaitMs` bound. Never rejects. */
 export async function waitForArtSettled(opts: ArtSettleGateOpts): Promise<'settled' | 'timeout'> {
   const quietMs = opts.quietMs ?? ART_SETTLE_QUIET_MS;
-  const maxWaitMs = opts.maxWaitMs ?? ART_SETTLE_MAX_WAIT_MS;
+  const maxWaitMs = opts.maxWaitMs ?? Infinity;
   const pollMs = opts.pollMs ?? ART_SETTLE_POLL_MS;
   const now = opts.now ?? (() => (typeof performance !== 'undefined' ? performance.now() : Date.now()));
   const wait = opts.wait ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));

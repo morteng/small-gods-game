@@ -1617,9 +1617,9 @@ export class Game {
 
   /** Hold the loading overlay past worldgen-ready until the building art has
    *  settled, so the world fades in fully textured (never grey massing). The
-   *  gate itself (signals, quiet window, hard timeout) lives in
-   *  `art-settle-gate.ts`; a hidden tab or wedged source hits the timeout and
-   *  fades anyway. */
+   *  gate itself (signals + quiet window) lives in `art-settle-gate.ts`. No
+   *  time cap: readiness is signal-driven and the pending counts structurally
+   *  drain (warm failures cache null; IDB reads are timeboxed by idb-guard). */
   private async holdLoadingUntilArtSettled(): Promise<void> {
     const loading = this.ui.loadingScreen;
     loading.setProgress(0.98, 'Raising the buildings…');
@@ -1638,7 +1638,7 @@ export class Game {
       }
       for (const e of world.query({ kind: 'barrier' })) this.parametricBarrierSource.warm(e);
     }
-    const outcome = await waitForArtSettled({
+    await waitForArtSettled({
       // Compose-queue depth alone misses warm-cache boots (every pack is an IDB
       // read, the queue never fills) — sum the sources' in-flight warms too.
       pendingComposes: () =>
@@ -1656,10 +1656,8 @@ export class Game {
         if (pending > 0) loading.setProgress(0.98, `Raising the buildings… ${pending} left`);
       },
     });
-    // 'timeout' means the player may see art stream in — log it so a live probe
-    // (and a bug report console dump) can tell a settled fade from a capped one.
-    console.info(`[boot] art gate: ${outcome}`);
-    bootMark(`art-${outcome}`);
+    console.info('[boot] art gate: settled');
+    bootMark('art-settled');
     loading.setProgress(1, 'Entering the world…');
     loading.hide();
   }
