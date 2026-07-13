@@ -35,6 +35,21 @@ exports[`pine_forest brush > produces a stable snapshot 1`] = `
     "y": 0.829653670778498,
   },
   {
+    "id": "pine_forest-heather-2-0",
+    "kind": "heather",
+    "properties": {
+      "offsetX": 0.8377451629843562,
+      "offsetY": 0.18932579061947763,
+      "scale": 0.6059733750298619,
+    },
+    "tags": [
+      "vegetation",
+      "shrub",
+    ],
+    "x": 2.837745162984356,
+    "y": 0.18932579061947763,
+  },
+  {
     "id": "pine_forest-scots-pine-4-0",
     "kind": "scots-pine",
     "properties": {

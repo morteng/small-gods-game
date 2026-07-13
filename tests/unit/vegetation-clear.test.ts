@@ -87,7 +87,7 @@ describe('clearObstructedVegetation — tile proximity', () => {
     map.tiles[5][5].type = 'dirt_road';
     const world = new World(map);
     // Both sit 1.58 tiles from the road cell centre — inside the tree radius
-    // (2.2) but outside the undergrowth radius (1.2).
+    // (2.2) but outside the undergrowth radius (0.9).
     world.addEntity(tree('canopy', 5, 7));
     world.addEntity(shrub('low', 6, 7));
 

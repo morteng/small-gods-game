@@ -16,7 +16,7 @@ const PINE_FOREST_PARAMS: import('./vegetation-placer').VegetationParams = {
   offsetRange: [0.5, 0.5],
   maxPerTile: 2,
   undergrowth: undergrowthOf('pine_forest'),
-  openUndergrowth: 0.25,
+  openUndergrowth: 0.35,    // juniper/heather in the open too — pine floors read bare at 0.25
 };
 
 export function pineForestBrush(region: Region, seed: number, ctx: BrushContext): Entity[] {

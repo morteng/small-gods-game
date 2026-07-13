@@ -2,6 +2,7 @@ import type { Entity, EntityId, Region, GameMap, Tile, WorldReadOnly, BrushConte
 import { EntityRegistry } from './entity-registry';
 import { SpatialIndex, KindIndex, TagIndex } from './indexes';
 import { getBrush } from './brushes';
+import { worldStyleOf } from '@/core/world-style';
 
 export interface QueryOpts {
   region?: Region;
@@ -109,7 +110,11 @@ export class World {
    *  accumulates out-of-bounds + duplicate drops for the caller to flush. */
   applyBrush(brushName: string, region: Region, seed: number): EntityId[] {
     const fn = getBrush(brushName);
-    const ctx: BrushContext = { world: this.asReadOnly(), tiles: this.tiles };
+    const ctx: BrushContext = {
+      world: this.asReadOnly(),
+      tiles: this.tiles,
+      style: worldStyleOf(this.tiles.worldSeed),
+    };
     const produced = fn(region, seed, ctx);
     const ids: EntityId[] = [];
     const mapW = this.tiles.width;
