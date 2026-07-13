@@ -124,3 +124,39 @@ describe('PerceptionSystem understanding reach', () => {
     expect(countHigh).toBeGreaterThan(countLow);
   });
 });
+
+describe('PerceptionSystem — batched terrain repaint (tilesRev)', () => {
+  const ctx = (s: ReturnType<typeof setup>, now: number) => ({
+    world: s.world, log: s.log, clock: new SimClock(), spirits: new Map(),
+    rng: createRng(0), dt: 500, now,
+  });
+
+  it('a big first reveal bumps tilesRev immediately; a per-tick trickle does NOT', () => {
+    const s = setup(0.5);
+    const sys = new PerceptionSystem(identityOracle, () => s.map);
+    sys.tick(ctx(s, 1));
+    const revAfterReveal = s.map.tilesRev ?? 0;
+    expect(revAfterReveal).toBeGreaterThan(0);   // initial disc paints at once
+
+    // Trickle: move the NPC one tile per tick — a few edge tiles realize each
+    // time, but the repaint must coalesce instead of bumping at 2 Hz (each bump
+    // is a full-map packColorField repaint, profiled 130–600 ms).
+    for (let i = 1; i <= 3; i++) {
+      s.world.updateEntity(s.e.id, { x: 10 + i, y: 10 });
+      sys.tick(ctx(s, 1 + i * 30));              // 0.5 s apart, inside the deadline
+    }
+    expect(s.map.tilesRev ?? 0).toBe(revAfterReveal);
+  });
+
+  it('a stopped trickle still flushes its repaint once the deadline passes', () => {
+    const s = setup(0.5);
+    const sys = new PerceptionSystem(identityOracle, () => s.map);
+    sys.tick(ctx(s, 1));
+    const revAfterReveal = s.map.tilesRev ?? 0;
+    s.world.updateEntity(s.e.id, { x: 11, y: 10 });
+    sys.tick(ctx(s, 31));                        // trickle realize, deferred
+    expect(s.map.tilesRev ?? 0).toBe(revAfterReveal);
+    sys.tick(ctx(s, 31 + 8 * 60 + 1));           // deadline passed, nothing new realizes
+    expect(s.map.tilesRev ?? 0).toBeGreaterThan(revAfterReveal);
+  });
+});

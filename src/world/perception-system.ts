@@ -28,9 +28,24 @@ export function cohortPerceptionReach(stats: CohortBeliefStats): number {
     + Math.floor(Math.log2(1 + stats.believerCount));
 }
 
+/** Repaint batching for the trickle case (CDP-profiled 2026-07-13): a wandering
+ *  NPC realizes a few edge tiles on nearly EVERY 2 Hz perception tick, and each
+ *  `bumpTilesRev` triggers a FULL-map `packColorField` repaint (~130–600 ms) —
+ *  ~10% of all main-thread time at a steady camera. Realization itself stays
+ *  immediate (tile.type/state/events unchanged — determinism untouched; tilesRev
+ *  is render-only); only the REPAINT is deferred: a big reveal (≥ the tile
+ *  threshold, e.g. a settlement disc or a miracle) repaints this tick, a trickle
+ *  coalesces until the deadline. Worst case a freshly-realized rim keeps its
+ *  void colour for a few seconds. */
+export const REPAINT_NOW_TILES = 64;
+export const REPAINT_DEADLINE_TICKS = 8 * 60;   // 8 real seconds at 60 ticks/s
+
 export class PerceptionSystem implements System {
   readonly name = 'perception';
   readonly tickHz = 2;
+
+  private pendingRepaint = 0;
+  private lastRepaintTick = -Infinity;
 
   constructor(
     private readonly oracle: Oracle,
@@ -47,6 +62,14 @@ export class PerceptionSystem implements System {
     // Fall back to world.tiles when no explicit map provider is set
     const map = this.getMap() ?? ctx.world.tiles;
     if (!map) return;
+
+    // Flush a deferred repaint whose deadline passed even if nothing new realizes
+    // this tick — a trickle that STOPS must still paint its last few tiles.
+    if (this.pendingRepaint > 0 && ctx.now - this.lastRepaintTick >= REPAINT_DEADLINE_TICKS) {
+      bumpTilesRev(map);
+      this.pendingRepaint = 0;
+      this.lastRepaintTick = ctx.now;
+    }
 
     // Collect believer points with their reach
     const reaches: Array<{ x: number; y: number; r: number }> = [];
@@ -117,7 +140,15 @@ export class PerceptionSystem implements System {
     }
     ordered.sort((a, b) => (a.y - b.y) || (a.x - b.x));
 
-    if (ordered.length > 0) bumpTilesRev(map);
+    // Batched repaint (see REPAINT_NOW_TILES doc): realize NOW, repaint now only
+    // for big reveals; trickle reveals coalesce into one bump per deadline window.
+    this.pendingRepaint += ordered.length;
+    if (this.pendingRepaint >= REPAINT_NOW_TILES
+      || ctx.now - this.lastRepaintTick >= REPAINT_DEADLINE_TICKS) {
+      bumpTilesRev(map);
+      this.pendingRepaint = 0;
+      this.lastRepaintTick = ctx.now;
+    }
     for (const t of ordered) {
       const substrate = this.getSubstrate ? this.getSubstrate(t.x, t.y) : t.type;
       const decided = this.oracle.realizeTile(t.x, t.y, substrate);
