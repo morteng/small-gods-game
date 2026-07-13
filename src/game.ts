@@ -1,7 +1,5 @@
 import { createState, type GameState } from '@/core/state';
-import { waitForArtSettled } from '@/game/art-settle-gate';
-import { composeQueuePending } from '@/render/compose-scheduler';
-import { selectRenderer, type RenderFn } from '@/render/select-renderer';
+import type { RenderFn } from '@/render/select-renderer';
 import { zoomAt } from '@/render/camera';
 import { quantizeIsoZoom } from '@/render/iso/iso-camera';
 import { isoEnvForMap } from '@/render/iso/iso-env';
@@ -9,28 +7,24 @@ import { fitCameraToMap, clampCameraToMap } from '@/render/fit-camera';
 import { focusCameraOnTile } from '@/render/focus-camera';
 import { attachControls, attachTimeKeys } from '@/ui/controls';
 import type { GameMap, WorldSeed, TerrainOptions } from '@/core/types';
-import { ART_RECIPE_VERSION } from '@/core/content-version';
 import { createDebugApi, type DebugApi } from '@/dev/debug-api';
 import { createGameQuery, type GameQuery, type InboxItem, type InspectorView, type BeliefView, type BeliefPowerView } from '@/game/game-query';
 import { causalSiteCardView } from '@/game/causal-site-view';
 import type { Command, CommandVerb, CommandTarget, CommandTargetKind } from '@/sim/command/types';
 import { hoverChips } from '@/game/affordance/hover';
-import { buildWhisperCard } from '@/game/affordance/whisper-card';
-import type { UiSpec, UiSpecChoice } from '@/story/uispec';
+import { ConversationController } from '@/game/conversation-controller';
 import { createGameBus, type GameBus } from '@/game/game-bus';
 import { TimeController, TIME_RATE_LADDER } from '@/game/time-controller';
 import { describeInterest } from '@/game/interest-predicate';
 import { getUiRuntime } from '@/render/ui/ui-runtime';
-import { bootMark, FpsMeter, type FpsStats } from '@/dev/profile';
+import { FpsMeter, type FpsStats } from '@/dev/profile';
 import { advanceNpcFrames } from '@/render/npc-animator';
 import { isLayerHidden } from '@/render/layer-visibility';
 import { getHydrologyResult } from '@/world/hydrology-store';
 // divine-actions functions now invoked via DivineActionsController
-import { LLMClient } from "@/llm/llm-client";
-import {
-  createProvider, loadProviderConfig, openrouterImageBaseUrl,
-  replicateImageBaseUrl, replicateDeliveryBaseUrl, type ProviderConfig,
-} from '@/llm/provider-factory';
+import type { LLMClient } from "@/llm/llm-client";
+import type { ProviderConfig } from '@/llm/provider-factory';
+import { bootLlmClients, buildChatClient, buildCapableClient, paidArtGenOptions } from '@/game/llm-runtime';
 import { CostTracker } from '@/llm/cost-tracker';
 import { mountSpendChip, type SpendChipHandle } from '@/ui/spend-chip';
 import { NpcAttentionStore } from '@/llm/npc-attention-store';
@@ -40,48 +34,26 @@ import { openMindPage, pathKey } from '@/game/mind-orchestrator';
 import { DivineActionsController } from '@/game/divine-actions-controller';
 import { GameUi } from '@/game/game-ui';
 import { ArtImageCache } from '@/render/decoration-image-cache';
-import { loadBaseLibrary } from '@/services/base-library-loader';
-import { AssetLibrary } from '@/services/asset-library';
-import { ArtResolver } from '@/render/art-resolver';
+import type { AssetLibrary } from '@/services/asset-library';
+import type { ArtResolver } from '@/render/art-resolver';
 import { ParametricBuildingSource } from '@/render/parametric-building-source';
 import { ParametricBarrierSource } from '@/render/parametric-barrier-source';
 import { ParametricPlantSource } from '@/render/parametric-plant-source';
 import { GeneratedBuildingArtSource } from '@/render/generated-building-art-source';
 import { GeneratedFloraArtSource } from '@/render/generated-flora-art-source';
-import { generateBuildingImageAuto, BUILDING_IMAGE_MODEL } from '@/llm/building-image';
-import { initManifoldWasm } from '@/assetgen/geometry/manifold-wasm-browser';
 import { AssetManager } from '@/render/asset-manager';
 import { Scheduler } from '@/core/scheduler';
 import { TimelineController } from '@/core/timeline';
 import { CommandQueue } from '@/sim/command/command-queue';
 import { DiscoveryQueue } from '@/sim/threads/discovery-queue';
 import type { ThreadSubject } from '@/sim/threads/thread-types';
-import { StagingActivationSystem } from '@/sim/threads/systems/staging-activation-system';
 import { StoryRegistry, StorySession, createBusStoryHost, busAllowedVerbs } from '@/story';
 import { droughtOmenPack } from '@/story/samples/the-drought-omen';
 import { PLAYER_SPIRIT_ID } from '@/sim/believers';
-import { CommandExecutorSystem } from '@/sim/command/command-system';
 import { AuthorCommandLog } from '@/sim/command/author-command-log';
-import { RivalSystem } from '@/sim/systems/rival-system';
-import { NpcMovementSystem } from '@/sim/systems/npc-movement-system';
-import { NpcSimSystem } from '@/sim/systems/npc-sim-system';
-import { BeliefPropagationSystem } from '@/sim/systems/belief-propagation-system';
-import { NpcActivitySystem } from '@/sim/systems/npc-activity-system';
-import { SettlementEventSystem } from '@/sim/systems/settlement-event-system';
-import { SpiritSystem } from '@/sim/spirit-system';
-import { BeliefContentSystem } from '@/sim/systems/belief-content-system';
-import { PerceptionSystem } from '@/world/perception-system';
-import { PlotThreadSystem } from '@/sim/threads/systems/plot-thread-system';
-import { AbandonmentSystem } from '@/sim/systems/abandonment-system';
-import { MortalitySystem } from '@/sim/systems/mortality-system';
-import { SettlementGrowthSystem } from '@/sim/systems/settlement-growth-system';
-import { RoadEvolutionSystem } from '@/sim/systems/road-evolution-system';
-import { TrampleDepositSystem, TramplePromoteDecaySystem } from '@/sim/systems/trample-system';
-import { BirthSystem } from '@/sim/systems/birth-system';
-import { WeatherSystem } from '@/sim/systems/weather-system';
+import { registerSimSystems } from '@/game/sim-systems';
 import { applySkip } from '@/sim/time-skip';
-import { identityOracle } from '@/world/oracle';
-import { bootstrapWorld } from '@/game/bootstrap-world';
+import { runBootSequence } from '@/game/boot-sequence';
 import { FrameLoop, type FrameAnimating } from '@/game/frame-loop';
 import { PersistenceController } from '@/game/persistence-controller';
 import { clearSave } from '@/services/save-store';
@@ -101,11 +73,8 @@ import { DevModeController } from '@/game/dev-mode-controller';
 import { FrameRenderer } from '@/game/frame-renderer';
 import { PresentationDirector } from '@/presentation/presentation-director';
 import { createInteractionState } from '@/game/interaction-state';
-import { createBootProgressMapper } from '@/ui/boot-progress';
 import { InteractionController } from '@/game/interaction-controller';
 import { calendarLabel, TICKS_PER_HOUR } from '@/core/calendar';
-
-const SESSION_CAP_USD = 2; // per-session live building-art spend cap
 
 /** P5 semantic zoom: the in-band zoom a zoomed-out alert-pin click flies to —
  *  the 1/2 rung, the outermost rung that still reads as per-NPC chrome. */
@@ -203,6 +172,8 @@ export class Game {
   private waterAnimMapRef: GameMap | null = null;
   private waterAnimHasWater = false;
   private divine!: DivineActionsController;
+  /** The living whisper/conversation card (C1/C2/C4) — see conversation-controller.ts. */
+  private conversation!: ConversationController;
   private ui!: GameUi;
   /** The barebones game (WebGPU UI only). `?legacyui` flips back to the old
    *  DOM/Canvas2D chrome. Single source of truth for chrome suppression. */
@@ -238,46 +209,19 @@ export class Game {
   // parametric model. The negative-cache (generated-art-cache.ts) means even when
   // re-enabled a gate-failing building is paid for once, not every load.
   private liveBuildingArtEnabled = false; // setting `liveBuildingArt`, default OFF
-  private readonly generatedBuildingArtSource = new GeneratedBuildingArtSource({
-    enabled: () => this.liveBuildingArtEnabled,
-    canSpend: () => this.costTracker.snapshot().sessionUsd < SESSION_CAP_USD,
-    model: () => BUILDING_IMAGE_MODEL,
-    generate: async (initImageDataUri, prompt) => {
-      const cfg = loadProviderConfig();
-      // Auto dispatch: qwen/* → Replicate (dev proxy injects the token; prod has
-      // neither proxy nor key → typed error → grey-massing fallback), everything
-      // else → OpenRouter. Both providers wired once here.
-      const res = await generateBuildingImageAuto(
-        { openrouter: { apiKey: cfg.openrouterApiKey ?? '', baseUrl: openrouterImageBaseUrl(),
-            siteName: cfg.openrouterSiteName },
-          replicate: { baseUrl: replicateImageBaseUrl(), deliveryBaseUrl: replicateDeliveryBaseUrl() } },
-        { initImageDataUri, prompt, model: BUILDING_IMAGE_MODEL },
-      );
-      this.costTracker.record({ cost: res.costUsd, cacheStatus: 'MISS' });
-      return res.blob;
-    },
-  });
+  // Spend gate + auto-dispatching generate call live in llm-runtime.ts
+  // (paidArtGenOptions) — one wiring shared by both paid sources.
+  private readonly generatedBuildingArtSource = new GeneratedBuildingArtSource(
+    paidArtGenOptions({ enabled: () => this.liveBuildingArtEnabled, costTracker: this.costTracker }),
+  );
   // img2img flora sprites — same pipeline + gating as buildings, default OFF (the
   // `liveFloraArt` setting). With no key + an unseeded library it always misses and
   // the renderer shows grey parametric massing; a funded seed (scripts/seed-flora-art.ts)
   // + the flag turns it on. Reuses BUILDING_IMAGE_MODEL so keys match the seed run.
   private liveFloraArtEnabled = false; // setting `liveFloraArt`, default OFF
-  private readonly generatedFloraArtSource = new GeneratedFloraArtSource({
-    enabled: () => this.liveFloraArtEnabled,
-    canSpend: () => this.costTracker.snapshot().sessionUsd < SESSION_CAP_USD,
-    model: () => BUILDING_IMAGE_MODEL,
-    generate: async (initImageDataUri, prompt) => {
-      const cfg = loadProviderConfig();
-      const res = await generateBuildingImageAuto(
-        { openrouter: { apiKey: cfg.openrouterApiKey ?? '', baseUrl: openrouterImageBaseUrl(),
-            siteName: cfg.openrouterSiteName },
-          replicate: { baseUrl: replicateImageBaseUrl(), deliveryBaseUrl: replicateDeliveryBaseUrl() } },
-        { initImageDataUri, prompt, model: BUILDING_IMAGE_MODEL },
-      );
-      this.costTracker.record({ cost: res.costUsd, cacheStatus: 'MISS' });
-      return res.blob;
-    },
-  });
+  private readonly generatedFloraArtSource = new GeneratedFloraArtSource(
+    paidArtGenOptions({ enabled: () => this.liveFloraArtEnabled, costTracker: this.costTracker }),
+  );
   private decorationImages = new ArtImageCache((id) => this.assetLibrary.resolveBlob(id));
   /** Resolved spritesheets keyed by NPC id */
   private sheets = new Map<string, HTMLCanvasElement>();
@@ -329,88 +273,20 @@ export class Game {
           : { title: 'Something stirs', body: describeInterest(summary.trigger.event).label, elapsedLabel, quiet: false },
       );
     });
-    // Command executor runs FIRST: queued player/rival/Fate commands apply at the
-    // top of the tick, before the sim systems compute this tick's state.
-    this.scheduler.register(new CommandExecutorSystem(this.commandQueue, (r) => {
-      if (r.status === 'rejected' && r.source === 'player') {
-        // Seam for a player-facing rejection toast (Fate/UI cycle). Common
-        // rejections (insufficient power / cooldown) are already pre-suppressed at
-        // emit by the controller's previewCommand gate, so this is rare.
-        console.debug('[command] player command rejected:', r.verb, r.reason);
-      }
-      // A god-mode climate re-zone changed worldSeed.climate; the renderer's
-      // getClimateFields re-derives on its next read (cache key folds in the
-      // climate signature) — just force a redraw so the new band shows at once.
-      if (r.status === 'applied' && r.verb === 'author_set_climate') {
-        this.renderer.forceInfoRefresh();
-        this.requestRender();
-      }
-    }, this.authorLog, () => this.state.weather));
-    this.scheduler.register(new NpcMovementSystem(() => this.state.map));
-    // Desire-line trample: deposit footfall (~3 Hz, gated to soft ground) + a
-    // low-Hz promote/decay pass that wears trails to dirt and fades them back.
-    this.scheduler.register(new TrampleDepositSystem(() => this.state.map, () => this.state.trample));
-    this.scheduler.register(new TramplePromoteDecaySystem(() => this.state.map, () => this.state.trample));
-    // Order: settlement events affect needs → NpcSimSystem decays needs + recomputes mood
-    // → activity system picks activities from needs → belief propagation → spirits
-    // These three carry internal sim state (cooldowns / edge sides / lapse
-    // history) — register them with the snapshot seam too (WP-D scrub-ghost
-    // pattern) so scrub/commit/save-load restores that state with the world.
-    const settlementEvents = new SettlementEventSystem();
-    const npcSim = new NpcSimSystem();
-    const abandonment = new AbandonmentSystem();
-    this.scheduler.register(settlementEvents);
-    this.scheduler.register(npcSim);
-    this.scheduler.register(abandonment);
-    this.state.systemState.register(settlementEvents);
-    this.state.systemState.register(npcSim);
-    this.state.systemState.register(abandonment);
-    this.scheduler.register(new NpcActivitySystem());
-    this.scheduler.register(new BeliefPropagationSystem());
-    // Belief CONTENT (Track B): propagate + decay what they think you can DO.
-    // After propagation (faith spread) so content rides the same social graph.
-    this.scheduler.register(new BeliefContentSystem());
-    this.scheduler.register(new SpiritSystem());
-    this.scheduler.register(new RivalSystem(this.commandQueue));
-    this.scheduler.register(new MortalitySystem());
-    this.scheduler.register(new BirthSystem());
-    // Social gravity (roads round 8): live growth reads the trample grid so new
-    // housing prefers lots along the desire lines believers actually walk.
-    this.scheduler.register(new SettlementGrowthSystem(() => this.state.trample));
-    this.scheduler.register(new RoadEvolutionSystem());
-    // W-G: deterministic water/atmosphere tick — steps the stepper installed on world
-    // seed + polls the flood watch, writing place_flooded/receded into the event log.
-    this.scheduler.register(new WeatherSystem(
-      () => this.state.weather,
-      () => this.state.floodWatch,
-      () => this.state.causalSites,
-    ));
-    this.scheduler.register(new PerceptionSystem(identityOracle, () => this.state.map));
-    // Narrative substrate: recognizers + stub producers run LAST so they see this
-    // frame's events; activation fires armed beats (its commands apply next tick).
-    this.scheduler.register(new PlotThreadSystem(
-      () => this.state.plotThreads,
-      () => this.state.staging,
-      () => this.llmClientCapable === null,   // stub runs only as the offline fallback
-      () => this.storyRegistry,               // lets the stub attach a storylet ref to staged beats
-    ));
-    this.scheduler.register(new StagingActivationSystem(
-      this.discoveryQueue, this.commandQueue,
-      () => this.state.staging, () => this.state.plotThreads,
-      (subject, soft) => {
-        // Prime soft narration where the player will find it: an NPC's mind page.
-        if (subject.kind === 'npc') {
-          this.attentionStore.putPage(subject.npcId, pathKey(['staged']), { prose: soft.text, links: [], depth: 0 });
-        }
-      },
-      // A fired beat carrying a storylet ref opens it as an interactive card.
-      (subject, storyletId) => {
+    // The scheduler's tick-system roster (order is load-bearing) lives in
+    // sim-systems.ts; game.ts supplies only the coordinator-side seams.
+    registerSimSystems({
+      state: this.state, scheduler: this.scheduler,
+      commandQueue: this.commandQueue, discoveryQueue: this.discoveryQueue,
+      attentionStore: this.attentionStore, authorLog: this.authorLog,
+      storyRegistry: this.storyRegistry,
+      fateOffline: () => this.llmClientCapable === null,
+      onClimateApplied: () => { this.renderer.forceInfoRefresh(); this.requestRender(); },
+      onBeatFired: (subject, storyletId) => {
         this.cuePresentationBeat(subject);
         return this.playStorylet(storyletId);
       },
-      // W-I: reap beats armed at a causal site once it has faded.
-      () => this.state.causalSites,
-    ));
+    });
 
     this.timeline = new TimelineController({
       state: this.state,
@@ -442,25 +318,11 @@ export class Game {
     });
 
 
-    // ── LLM Client (uses provider factory) ──────────
-    const providerConfig = loadProviderConfig();
-    let provider;
-    try {
-      provider = createProvider(providerConfig);
-    } catch (err) {
-      console.warn('[llm] stored provider config invalid, falling back to mock:', err);
-      provider = createProvider({ type: 'mock' });
-    }
-    this.llmClient = new LLMClient(provider, (r) => this.costTracker.record(r));
-    // Build the capable (Tier-2) client at boot too — otherwise a returning,
-    // already-onboarded user whose stored config has a capable model boots with
-    // llmClientCapable === null and the Create panel stays dead until they
-    // re-save LLM settings. (applyLlmConfig rebuilds both on live config change.)
-    try {
-      this.llmClientCapable = this.buildCapableClient(providerConfig);
-    } catch (err) {
-      console.warn('[llm] capable client not built at boot:', err);
-    }
+    // ── LLM Clients (both tiers, from the stored provider config) ──────────
+    const llm = bootLlmClients(this.costTracker);
+    const providerConfig = llm.config;
+    this.llmClient = llm.client;
+    this.llmClientCapable = llm.capable;
     // Scene canvas (bottom): the WebGPU swap chain renders straight to it — no
     // offscreen canvas, no per-frame drawImage copy. It is the interactive layer.
     this.canvas = document.createElement('canvas');
@@ -677,6 +539,21 @@ export class Game {
 
     this.divine = new DivineActionsController({ state: this.state, queue: this.commandQueue, divineEffects: this.ui.divineEffects });
 
+    this.conversation = new ConversationController({
+      state: this.state, queue: this.commandQueue, attentionStore: this.attentionStore,
+      llm: () => this.llmClient,
+      // Fallback: emit the pre-paired command directly (one-shot).
+      emitFallback: (choice) => {
+        const cmd = choice.command;
+        this.bus.emit({ verb: cmd.verb, source: cmd.source, target: cmd.target, params: cmd.params, payload: cmd.payload });
+        this.invalidateHudSim();
+        this.fireCastFx(cmd.verb, cmd.target);
+        this.requestRender();
+      },
+      invalidateHudSim: () => this.invalidateHudSim(),
+      requestRender: this.requestRender,
+    });
+
     this.dev = new DevModeController({
       container: this.container, state: this.state, scheduler: this.scheduler,
       getViewport: () => this.viewport(), getRenderDeps: () => this.renderDeps(),
@@ -804,7 +681,7 @@ export class Game {
         this.refreshPauseBanner();
         this.requestRender();
       },
-      onCardFreeText: (text) => this.sendCardFreeText(text),
+      onCardFreeText: (text) => this.conversation.sendFreeText(text),
       // ── Track B: belief-granted powers + the divine inbox ──
       getBeliefPowers: () => this.hudSim().powers,
       onCastPower: (verb) => this.castPower(verb),
@@ -896,22 +773,12 @@ export class Game {
     }
   }
 
-  /** The Tier-2 "capable" client, or null when no capable model is configured. */
-  private buildCapableClient(config: ProviderConfig): LLMClient | null {
-    return config.openrouterModelCapable
-      ? new LLMClient(createProvider({
-          ...config,
-          openrouterModel: config.openrouterModelCapable,
-          openrouterCostQualityTradeoff: config.openrouterCostQualityTradeoffCapable,
-        }), (r) => this.costTracker.record(r))
-      : null;
-  }
-
+  /** Rebuild both client tiers in place from a just-saved config (no reload). */
   private applyLlmConfig(config: ProviderConfig): void {
     try {
-      this.llmClient = new LLMClient(createProvider(config), (r) => this.costTracker.record(r));
+      this.llmClient = buildChatClient(config, this.costTracker);
       this.llmBackfill.setClient(this.llmClient);
-      this.llmClientCapable = this.buildCapableClient(config);
+      this.llmClientCapable = buildCapableClient(config, this.costTracker);
       this.spendChip?.setVisible(config.type === 'openrouter');
     } catch (err) {
       console.warn('[llm] config not applied:', err);
@@ -1047,102 +914,11 @@ export class Game {
    * fires any cast FX (the smite thunderbolt). One seam so all surfaces behave alike.
    */
   private emitDivine(verb: CommandVerb, target: CommandTarget): void {
-    if (verb === 'whisper' && this.presentWhisperCard(target)) return;
+    if (verb === 'whisper' && this.conversation.present(target)) return;
     this.bus.emit({ verb, source: PLAYER_SPIRIT_ID, target });
     this.invalidateHudSim(); // belief/inbox shift → refresh the HUD memo next frame
     this.fireCastFx(verb, target);
     this.requestRender();
-  }
-
-  /** Build + present the whisper card for an NPC target; false if it can't (non-NPC,
-   *  no world) so the caller falls back to a direct emit. */
-  private presentWhisperCard(target: CommandTarget): boolean {
-    const spec = this.buildConversationSpec(target);
-    if (!spec) return false;
-    // keepOpen: the whisper card is a LIVING conversation (C1) — choosing a path
-    // whispers and re-presents the card instead of dismissing, and the sim keeps
-    // running so the whisper's belief floor lands on a tick while the card is up.
-    this.conversationNpcId = target.kind === 'npc' ? target.npcId : null;
-    getUiRuntime().presentUiSpec(spec, (choice) => this.onCardChoice(choice), { keepOpen: true });
-    this.requestRender();
-    return true;
-  }
-
-  /** The NPC the open conversation card addresses — the free-text island's target
-   *  (the typed words carry no target of their own, unlike a canned path's command). */
-  private conversationNpcId: string | null = null;
-
-  /** Build the whisper/conversation card spec for an NPC target's current situation,
-   *  or null if the target isn't a resolvable NPC. Deterministic (`buildWhisperCard`);
-   *  re-run each turn so the belief bars + paths reflect the latest state. */
-  private buildConversationSpec(target: CommandTarget): UiSpec | null {
-    const world = this.state.world;
-    if (!world || target.kind !== 'npc') return null;
-    const ctx = { world, spirits: this.state.spirits, log: this.state.eventLog };
-    const transcript = this.attentionStore.getTranscript(target.npcId);
-    return buildWhisperCard(target, PLAYER_SPIRIT_ID, ctx, transcript);
-  }
-
-  /** Rebuild the open conversation card from the latest situation + transcript. No-op
-   *  if the player has closed the card. Used both for the provisional (pending) turn
-   *  and the resolved reply. */
-  private refreshConversationCard(npcId: string): void {
-    const rt = getUiRuntime();
-    if (!rt.hasCard()) return;
-    const spec = this.buildConversationSpec({ kind: 'npc', npcId });
-    if (spec) rt.updateOpenCard(spec);
-    this.requestRender();
-  }
-
-  /** A whisper-card choice. For an NPC target carrying whispered words, run the full
-   *  conversational whisper (`sendWhisper`: deterministic floor + LLM reply + transcript)
-   *  and, when it resolves, rebuild the card from the fresh situation/belief so the
-   *  exchange stays live. Non-NPC / textless choices fall back to a one-shot emit. */
-  private onCardChoice(choice: UiSpecChoice): void {
-    const cmd = choice.command;
-    const text = typeof cmd.payload?.text === 'string' ? cmd.payload.text : '';
-    if (cmd.target.kind === 'npc' && text && this.whisperTo(cmd.target.npcId, text)) return;
-    // Fallback: emit the pre-paired command directly (one-shot).
-    this.bus.emit({ verb: cmd.verb, source: cmd.source, target: cmd.target, params: cmd.params, payload: cmd.payload });
-    this.invalidateHudSim();
-    this.fireCastFx(cmd.verb, cmd.target);
-    this.requestRender();
-  }
-
-  /** Free-text whisper from the conversation card's DOM island (C4). Routes the raw
-   *  typed words to the addressed NPC through the SAME `sendWhisper` path a canned
-   *  path uses (no slant — spec §7.4: raw text is enough). No-op if the card has
-   *  closed or its target is gone. */
-  private sendCardFreeText(text: string): void {
-    const npcId = this.conversationNpcId;
-    if (!npcId || !getUiRuntime().hasCard()) return;
-    this.whisperTo(npcId, text);
-  }
-
-  /** Run one conversational whisper turn to `npcId`: the deterministic floor + LLM
-   *  reply + transcript (`sendWhisper`), rebuilding the open card from the fresh
-   *  situation both immediately (the provisional "…" turn) and on resolution (the
-   *  NPC's words + moved bars). Returns false if the NPC can't be resolved. */
-  private whisperTo(npcId: string, text: string): boolean {
-    const world = this.state.world;
-    const npc = world ? getNpc(world, npcId) : null;
-    if (!npc) return false;
-    void sendWhisper(npc, text, {
-      queue: this.commandQueue,
-      llm: this.llmClient,
-      store: this.attentionStore,
-      playerSpiritId: PLAYER_SPIRIT_ID,
-      now: () => this.state.clock.now(),
-    }).then(() => {
-      // Reply landed (or degraded): rebuild so the NPC's words + the moved bars show.
-      this.invalidateHudSim();
-      this.refreshConversationCard(npcId);
-    });
-    // sendWhisper appends the provisional turn synchronously (before its first
-    // await), so the pending "…" turn is already in the transcript — show it now.
-    this.invalidateHudSim();
-    this.refreshConversationCard(npcId);
-    return true;
   }
 
   /** Visual feedback for a cast — the smite thunderbolt at the resolved world tile.
@@ -1563,103 +1339,34 @@ export class Game {
   }
 
   async generateWorld(worldSeed?: WorldSeed, _terrainOptions?: Partial<TerrainOptions>): Promise<GameMap> {
-    const loading = this.ui.loadingScreen;
-    loading.show();
-    bootMark('start');
-    loading.setProgress(0.08, 'Summoning the engine…');
-    initManifoldWasm();
-    bootMark('engine');
-    loading.setProgress(0.22, 'Preparing the canvas…');
-    this.renderMap = await selectRenderer(this.canvas);
-    bootMark('renderer');
-    loading.setProgress(0.38, 'Loading the art library…');
-    const baseLibrary = await loadBaseLibrary();
-    this.assetLibrary = new AssetLibrary(baseLibrary);
-    this.artResolver = new ArtResolver(this.assetLibrary, 'pixel-art');
-    this.buildingArtResolver = new ArtResolver(this.assetLibrary, 'pixel-art', 'building', ART_RECIPE_VERSION);
-    bootMark('art-library');
-    loading.setProgress(0.5, 'Growing the forest…');
-    // species sprites ready before frame 1 — no placeholder flash; ticks the bar per species
-    await this.parametricPlantSource.prewarmAll((done, total) => {
-      loading.setProgress(0.5 + 0.1 * (done / total), `Growing the forest… ${done}/${total}`);
-    });
-    bootMark('flora-prewarm');
-    loading.setProgress(0.6, 'Generating the world…');
-    // Worldgen phase announcements land on the bar's 0.6..0.97 band (asymptotic —
-    // phase count varies per world); stat lines stay console-only.
-    const worldgenProgress = createBootProgressMapper(0.6, 0.97);
-    const map = await bootstrapWorld({
-      state: this.state, assets: this.assets, sheets: this.sheets,
+    // The orchestration (engine → renderer → art library → flora prewarm →
+    // worldgen → art-settle hold) lives in boot-sequence.ts; the Game supplies
+    // the surfaces it fills in and the world-ready chrome wiring.
+    const map = await runBootSequence({
+      canvas: this.canvas, state: this.state, loading: this.ui.loadingScreen,
+      assets: this.assets, sheets: this.sheets,
       decorationImages: this.decorationImages, getViewport: () => this.viewport(),
-      worldSeed,
-      onProgress: (msg) => {
-        const update = worldgenProgress.next(msg);
-        if (update) loading.setProgress(update.fraction, update.label);
+      parametricPlantSource: this.parametricPlantSource,
+      parametricBuildingSource: this.parametricBuildingSource,
+      parametricBarrierSource: this.parametricBarrierSource,
+      generatedBuildingArtSource: this.generatedBuildingArtSource,
+      setRenderMap: (fn) => { this.renderMap = fn; },
+      setArt: (art) => {
+        this.assetLibrary = art.assetLibrary;
+        this.artResolver = art.artResolver;
+        this.buildingArtResolver = art.buildingArtResolver;
       },
-      onReady: () => {
-        bootMark('worldgen');
+      onWorldReady: () => {
         if (!this.barebones) this.ui.spiritHud.show(); // barebones: orb replaces it
         this.dev.updateInspector();
         this.persistence.start();
-        // The fade waits for the building art to settle (composes drained + art
-        // rev quiet) so the player never sees grey massing pop into textured
-        // buildings — fire-and-forget: the frame loop starts beneath the overlay
-        // and drives the demand-loads the gate is watching.
-        void this.holdLoadingUntilArtSettled();
       },
-    });
+    }, worldSeed);
     this.startLoop();
     // Auto-pause when the tab is hidden (the loop + audio fully idle; resumes on return) —
     // so a backgrounded game never burns CPU/GPU on this machine.
     if (typeof document !== 'undefined') document.addEventListener('visibilitychange', this.onVisibilityChange);
     return map;
-  }
-
-  /** Hold the loading overlay past worldgen-ready until the building art has
-   *  settled, so the world fades in fully textured (never grey massing). The
-   *  gate itself (signals + quiet window) lives in `art-settle-gate.ts`. No
-   *  time cap: readiness is signal-driven and the pending counts structurally
-   *  drain (warm failures cache null; IDB reads are timeboxed by idb-guard). */
-  private async holdLoadingUntilArtSettled(): Promise<void> {
-    const loading = this.ui.loadingScreen;
-    loading.setProgress(0.98, 'Raising the buildings…');
-    // Prewarm EVERY building/barrier, not just the spawn viewport's: the frame
-    // path only warms visible entities, so without this the gate's signals go
-    // quiet while off-screen towns are still bare massing and the first pan
-    // shows grey boxes. Sources dedupe by blueprint identity — this costs one
-    // IDB read / library fetch per UNIQUE building, not per entity. Warming
-    // here (not via the frame loop) also keeps the loads flowing in a hidden tab.
-    const world = this.state.world;
-    if (world) {
-      for (const e of world.query({ tag: 'building' })) {
-        this.parametricBuildingSource.warm(e);
-        this.generatedBuildingArtSource.warm(e);
-        this.buildingArtResolver.warm(e);
-      }
-      for (const e of world.query({ kind: 'barrier' })) this.parametricBarrierSource.warm(e);
-    }
-    await waitForArtSettled({
-      // Compose-queue depth alone misses warm-cache boots (every pack is an IDB
-      // read, the queue never fills) — sum the sources' in-flight warms too.
-      pendingComposes: () =>
-        composeQueuePending()
-        + this.parametricBuildingSource.pending()
-        + this.parametricBarrierSource.pending()
-        + this.generatedBuildingArtSource.pending(),
-      // Mirror the draw-cache's buildingArtRev exactly (render-context.ts) — the
-      // generated (painted) source repaints buildings too.
-      artRev: () =>
-        this.parametricBuildingSource.version()
-        + this.parametricBarrierSource.version()
-        + this.generatedBuildingArtSource.version(),
-      onProgress: (pending) => {
-        if (pending > 0) loading.setProgress(0.98, `Raising the buildings… ${pending} left`);
-      },
-    });
-    console.info('[boot] art gate: settled');
-    bootMark('art-settled');
-    loading.setProgress(1, 'Entering the world…');
-    loading.hide();
   }
 
   /** Abandon the current world: stop autosaving, clear the slot, reload fresh.
