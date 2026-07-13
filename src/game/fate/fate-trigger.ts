@@ -38,9 +38,13 @@ export interface FateTriggerDeps {
   rivalClaimWindowTicks?: number;
 }
 
-/** A rival (non-player) claiming a prayer via the shared `answer_prayer` path. */
+/** A rival (non-player) claiming a prayer via the shared `answer_prayer` path.
+ *  STATISTICAL claims are exempt (two-tier population, user ruling 2026-07-13):
+ *  Fate paces on NAMED-tier pressure — what the player actually sees. P2's
+ *  cohort-plea claims (an order of magnitude more numerous) mark their events
+ *  `statistical: true` and must never re-tune Fate's wake cadence. */
 function isRivalClaim(ev: SimEvent): boolean {
-  return ev.type === 'answer_prayer' && ev.spiritId !== PLAYER_SPIRIT_ID;
+  return ev.type === 'answer_prayer' && ev.spiritId !== PLAYER_SPIRIT_ID && ev.statistical !== true;
 }
 
 function threadIdOf(ev: SimEvent): number | undefined {

@@ -2,6 +2,7 @@ import type { System, SystemContext } from '@/core/scheduler';
 import type { GameMap, Region, Tile } from '@/core/types';
 import { bumpTilesRev } from '@/core/tile-rev';
 import { forEachNpc, npcProps } from '@/world/npc-helpers';
+import { dominantCohortBelief, type CohortBeliefStats, type SettlementCohorts } from '@/sim/cohorts';
 import type { Oracle } from '@/world/oracle';
 
 export const BASE_RADIUS = 3;
@@ -14,6 +15,19 @@ export function perceptionReach(faith: number, understanding: number): number {
   return BASE_RADIUS + Math.floor(faith * FAITH_BONUS + understanding * UNDERSTANDING_BONUS);
 }
 
+/**
+ * Tile-realization radius for a settlement's STATISTICAL population (P1, user
+ * ruling 2026-07-13: aggregate cohort belief realizes tiles too, not just named
+ * believers). The named formula applied at the settlement's population MEANS
+ * (a devout minority dilutes into the crowd), plus a crowd term that grows
+ * logarithmically with the aggregate believer count — 500 statistical faithful
+ * open a visibly wider footprint than 5, without a big town realizing the map.
+ */
+export function cohortPerceptionReach(stats: CohortBeliefStats): number {
+  return perceptionReach(stats.meanFaith, stats.meanUnderstanding)
+    + Math.floor(Math.log2(1 + stats.believerCount));
+}
+
 export class PerceptionSystem implements System {
   readonly name = 'perception';
   readonly tickHz = 2;
@@ -23,6 +37,10 @@ export class PerceptionSystem implements System {
     private readonly getMap: () => GameMap | null,
     /** If provided, the substrate type for (x, y). Defaults to current tile.type. */
     private readonly getSubstrate?: (x: number, y: number) => string,
+    /** P1 (two-tier population): the statistical tier — each settlement with
+     *  aggregate believers contributes a reach disc at its POI anchor. Absent
+     *  getter ⇒ pre-P1 behavior (named believers only). */
+    private readonly getCohorts?: () => ReadonlyMap<string, SettlementCohorts> | null | undefined,
   ) {}
 
   tick(ctx: SystemContext): void {
@@ -45,6 +63,25 @@ export class PerceptionSystem implements System {
       const r = perceptionReach(domFaith, domUnderstanding);
       reaches.push({ x: Math.floor(e.x), y: Math.floor(e.y), r });
     });
+
+    // Statistical tier (P1, ruling 2): a settlement's aggregate believers open
+    // a reach disc at its authored POI anchor. Sorted poiId order so the
+    // realized set (and its event order) is replay-stable.
+    const cohorts = this.getCohorts?.();
+    const pois = map.worldSeed?.pois;
+    if (cohorts && pois) {
+      for (const poiId of [...cohorts.keys()].sort()) {
+        const stats = dominantCohortBelief(cohorts.get(poiId)!);
+        if (!stats) continue;
+        const poi = pois.find(p => p.id === poiId);
+        if (!poi?.position) continue;
+        reaches.push({
+          x: Math.floor(poi.position.x),
+          y: Math.floor(poi.position.y),
+          r: cohortPerceptionReach(stats),
+        });
+      }
+    }
 
     if (reaches.length === 0) return;
 

@@ -21,6 +21,7 @@ import {
 } from '@/sim/rival-claims';
 import type { Rng } from '@/core/rng';
 import type { World } from '@/world/world';
+import type { SettlementCohorts } from '@/sim/cohorts';
 
 /** Map a sketched rival action type onto a real divine command verb. */
 function mapVerb(type: RivalAction['type']): CommandVerb {
@@ -77,7 +78,13 @@ export class RivalSystem implements System {
   readonly name = 'rival-system';
   readonly tickHz = 0.5; // decide roughly every 2 sim seconds; action cooldowns gate further
 
-  constructor(private readonly queue: CommandQueue) {}
+  /** `getCohorts` (P1, two-tier population): the statistical tier — when wired,
+   *  `buildRivalSituation` folds aggregate cohort believers into the follower
+   *  counts so rival strategy weighs the whole population, not just named souls. */
+  constructor(
+    private readonly queue: CommandQueue,
+    private readonly getCohorts?: () => ReadonlyMap<string, SettlementCohorts> | null | undefined,
+  ) {}
 
   tick(ctx: SystemContext): void {
     // ── Track-3 headline: claim the prayers the player leaves unanswered ──
@@ -111,6 +118,7 @@ export class RivalSystem implements System {
       const situation = buildRivalSituation(ctx.world, ctx.spirits, spirit.id, {
         now: ctx.now,
         baseline: ai.followerBaseline,
+        cohorts: this.getCohorts?.(),
       });
       // Refresh the trend baseline at cooldown cadence so deltas span at least
       // one decision window (refreshing every tick would zero them out).

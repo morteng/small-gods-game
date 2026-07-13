@@ -1,5 +1,8 @@
 import type { World } from '@/world/world';
 import type { SpiritBelief, NpcNeeds, NpcActivity } from '@/core/types';
+// Type-only (erased at runtime): cohorts.ts value-imports this module, so a
+// value import here would create a live circular-eval hazard.
+import type { SettlementCohorts } from '@/sim/cohorts';
 import { forEachNpc, npcProps } from '@/world/npc-helpers';
 
 export const PLAYER_SPIRIT_ID = 'player';
@@ -17,23 +20,46 @@ export function isDurable(b: SpiritBelief | undefined): boolean {
   return !!b && b.faith > 0.3 && b.devotion > 0.4;
 }
 
-/** NPCs who actively practice your cult (faith ≥ the believer line). Lapsed
- *  ex-believers linger in the world at near-zero faith but no longer count. */
-export function countPlayerBelievers(world: World): number {
+/** Souls who actively practice your cult (faith ≥ the believer line). Lapsed
+ *  ex-believers linger in the world at near-zero faith but no longer count.
+ *  P1 (two-tier population): pass the statistical tier to count BOTH tiers —
+ *  named entities plus each settlement's aggregate `believerCount` (the tiers
+ *  are disjoint by construction, so this never double-counts a soul). */
+export function countPlayerBelievers(
+  world: World,
+  cohorts?: ReadonlyMap<string, SettlementCohorts> | null,
+): number {
   let n = 0;
   forEachNpc(world, (e) => {
     const b = npcProps(e).beliefs[PLAYER_SPIRIT_ID];
     if (b && b.faith >= BELIEVER_THRESHOLD) n++;
   });
+  if (cohorts) {
+    for (const poiId of [...cohorts.keys()].sort()) {
+      for (const band of cohorts.get(poiId)!.bands) {
+        n += band.belief[PLAYER_SPIRIT_ID]?.believerCount ?? 0;
+      }
+    }
+  }
   return n;
 }
 
-/** NPCs who are durable believers in the player. */
-export function countDurableBelievers(world: World): number {
+/** Souls who are durable believers in the player (both tiers, see above). */
+export function countDurableBelievers(
+  world: World,
+  cohorts?: ReadonlyMap<string, SettlementCohorts> | null,
+): number {
   let n = 0;
   forEachNpc(world, (e) => {
     if (isDurable(npcProps(e).beliefs[PLAYER_SPIRIT_ID])) n++;
   });
+  if (cohorts) {
+    for (const poiId of [...cohorts.keys()].sort()) {
+      for (const band of cohorts.get(poiId)!.bands) {
+        n += band.belief[PLAYER_SPIRIT_ID]?.durableCount ?? 0;
+      }
+    }
+  }
   return n;
 }
 

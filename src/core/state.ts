@@ -13,6 +13,7 @@ import type { WeatherStepper } from '@/sim/water/weather-stepper';
 import type { FloodWatch } from '@/world/flood-watch';
 import type { CausalSiteStore } from '@/world/causal-site';
 import type { TrampleGrid } from '@/sim/trample';
+import type { SettlementCohorts } from '@/sim/cohorts';
 
 export interface GameState {
   map: GameMap | null;
@@ -81,6 +82,15 @@ export interface GameState {
    *  authored roads/markets, fed at runtime by the trample systems, captured in
    *  the snapshot. Null until a world is seeded / in headless states. */
   trample: TrampleGrid | null;
+  /** Two-tier population (P1): the STATISTICAL tier — per-settlement age-band
+   *  cohorts of souls beyond the named residents, keyed by poiId. Seeded at
+   *  worldgen (`seedStatisticalCohorts`), captured in the snapshot, read by the
+   *  belief economy (SpiritSystem/believer counts/rival situation/perception/
+   *  growth + birth throttle). Mutated ONLY through `@/sim/cohorts` transfer
+   *  fns (P1 has no flows — CohortSystem audits the counts stay constant).
+   *  The NAMED tier lives in World entities; a soul is never in both. Empty
+   *  until a world is seeded (old saves restore empty — no statistical tier). */
+  cohorts: Map<string, SettlementCohorts>;
 }
 
 export function createState(): GameState {
@@ -133,5 +143,6 @@ export function createState(): GameState {
     floodWatch: null,
     causalSites: null,
     trample: null,
+    cohorts: new Map(),
   };
 }

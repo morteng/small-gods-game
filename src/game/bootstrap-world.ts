@@ -8,6 +8,7 @@ import { generateWithNoise } from '@/map/map-generator';
 import { Autotiler } from '@/map/autotiler';
 import { computeBlobMap } from '@/map/blob-autotiler';
 import { seedWorld } from '@/world/seed-world';
+import { seedStatisticalCohorts } from '@/sim/cohorts';
 import { planWorldLayout } from '@/world/poi-layout';
 import { generateRivalSpirits } from '@/sim/rival-spirit';
 import { rivalToSpirit } from '@/sim/command/rival-adapter';
@@ -158,6 +159,11 @@ export async function bootstrapWorld(deps: BootstrapDeps): Promise<GameMap> {
     oracle: identityOracle,
   });
   instantiateRivals(state, ws);
+  // Two-tier population (P1): seed each inhabited settlement's STATISTICAL tier
+  // (fiction population beyond the named residents). After rival instantiation
+  // so heathen settlements can lean toward the rival that holds them; before
+  // the first sim tick so CohortSystem's conservation baseline includes it.
+  state.cohorts = seedStatisticalCohorts(state.world!, ws, state.spirits, state.clock.now());
   installWeather(state, map);   // W-G: deterministic water stepper + flood watch
   kickOffSheets(state, sheets);
   state.generatedDecorations = loadDecorations(ws.name);

@@ -22,27 +22,44 @@ export interface CohortLedgerCounters {
 }
 
 /**
- * Two-tier population P0 — SHADOW BOOKKEEPING. Once per game hour (the day-keyed
- * lifecycle cadence of MortalitySystem/BirthSystem), census the living named
- * population into per-settlement age-band cohorts and audit conservation of
- * souls: per-bucket totals may evolve ONLY by births − deaths ± migration
- * (removals ledgered separately), and every structural flow must be explained
- * by a lifecycle event (npc_birth/npc_death/npc_spawn/authored_*). A code path
- * that mints or vanishes souls outside those seams trips a `system_error` —
- * the executable form of the epic's "houses never create people" invariant.
+ * Two-tier population P0+P1 — the conservation auditor. Once per game hour (the
+ * day-keyed lifecycle cadence of MortalitySystem/BirthSystem):
  *
- * ZERO gameplay effect: reads the world + event log, writes only its own state
- * (and the diagnostic event on violation). No rng. Later slices (P1+) grow this
- * into the live statistical tier the belief economy reads.
+ * P0 (shadow ledger): census the living named population into per-settlement
+ * age-band cohorts and audit conservation of souls: per-bucket totals may
+ * evolve ONLY by births − deaths ± migration (removals ledgered separately),
+ * and every structural flow must be explained by a lifecycle event
+ * (npc_birth/npc_death/npc_spawn/authored_*). A code path that mints or
+ * vanishes souls outside those seams trips a `system_error` — the executable
+ * form of the epic's "houses never create people" invariant.
+ *
+ * P1 (statistical-tier audit): the live statistical tier (`GameState.cohorts`,
+ * read by the belief economy) has NO demographic flows yet — materialization,
+ * fold-back, cohort births/deaths and migration are P2/P3. So its per-
+ * settlement soul counts must be CONSTANT between checks; any change is a
+ * conservation violation (something minted or vanished statistical souls
+ * outside the ledgered seams) → `system_error` + adopt-as-baseline self-heal.
+ *
+ * ZERO gameplay effect: reads the world + event log + the statistical tier,
+ * writes only its own state (and the diagnostic event on violation). No rng.
  */
 export class CohortSystem implements System, SerializableSystem {
   readonly name = 'cohorts';
   readonly tickHz = GAME_HOUR_HZ;
 
+  /** `getStatistical` (P1): the live statistical tier to audit. Absent ⇒ P0
+   *  shadow-ledger behavior only. */
+  constructor(
+    private readonly getStatistical?: () => ReadonlyMap<string, SettlementCohorts> | null | undefined,
+  ) {}
+
   /** null = uninitialized → the next tick censuses a fresh baseline. */
   private cohorts: Map<string, SettlementCohorts> | null = null;
   /** Living named soul → bucket at the last check (the structural-diff basis). */
   private known = new Map<EntityId, string>();
+  /** Statistical-tier per-settlement soul counts at the last check (P1 audit
+   *  baseline); null = uninitialized → adopt on the next tick. */
+  private statBaseline: Map<string, number> | null = null;
   /** Event-log watermark for the flow-explanation cross-check. */
   private cursor = 0;
   private counters: CohortLedgerCounters = {
@@ -60,6 +77,9 @@ export class CohortSystem implements System, SerializableSystem {
         ? [...this.cohorts.keys()].sort().map(k => structuredClone(this.cohorts!.get(k)!))
         : null,
       known: [...this.known.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)),
+      statBaseline: this.statBaseline
+        ? [...this.statBaseline.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1))
+        : null,
       cursor: this.cursor,
       counters: { ...this.counters },
     };
@@ -68,10 +88,12 @@ export class CohortSystem implements System, SerializableSystem {
   hydrate(state: unknown): void {
     this.cohorts = null;
     this.known = new Map();
+    this.statBaseline = null;
     this.cursor = 0;
     this.counters = { births: 0, deaths: 0, migrations: 0, removals: 0, violations: 0 };
     const s = state as {
-      cohorts?: unknown; known?: unknown; cursor?: unknown; counters?: unknown;
+      cohorts?: unknown; known?: unknown; statBaseline?: unknown;
+      cursor?: unknown; counters?: unknown;
     } | undefined;
     if (!s) return;
     if (Array.isArray(s.cohorts)) {
@@ -86,6 +108,14 @@ export class CohortSystem implements System, SerializableSystem {
       for (const entry of s.known) {
         if (Array.isArray(entry) && typeof entry[0] === 'string' && typeof entry[1] === 'string') {
           this.known.set(entry[0], entry[1]);
+        }
+      }
+    }
+    if (Array.isArray(s.statBaseline)) {
+      this.statBaseline = new Map();
+      for (const entry of s.statBaseline) {
+        if (Array.isArray(entry) && typeof entry[0] === 'string' && typeof entry[1] === 'number') {
+          this.statBaseline.set(entry[0], entry[1]);
         }
       }
     }
@@ -121,6 +151,7 @@ export class CohortSystem implements System, SerializableSystem {
       // Initialize by census (world gen / save load / post-reset baseline).
       this.cohorts = census;
       this.known = living;
+      this.auditStatisticalTier(ctx);
       return;
     }
 
@@ -195,6 +226,33 @@ export class CohortSystem implements System, SerializableSystem {
     // aging drift between bands, belief sums) — self-healing after a violation.
     this.cohorts = census;
     this.known = living;
+
+    this.auditStatisticalTier(ctx);
+  }
+
+  /** P1: the statistical tier has no demographic flows yet, so its per-
+   *  settlement soul counts must be constant between checks. Belief sums are
+   *  NOT audited (P2's materialize/fold and drift will move them legitimately);
+   *  counts are the conservation quantity. */
+  private auditStatisticalTier(ctx: SystemContext): void {
+    const stat = this.getStatistical?.();
+    if (!stat) { this.statBaseline = null; return; }
+    const counts = new Map<string, number>();
+    for (const poiId of [...stat.keys()].sort()) {
+      counts.set(poiId, cohortPopulation(stat.get(poiId)!));
+    }
+    if (this.statBaseline !== null) {
+      const buckets = new Set([...this.statBaseline.keys(), ...counts.keys()]);
+      for (const poi of [...buckets].sort()) {
+        const before = this.statBaseline.get(poi) ?? 0;
+        const after = counts.get(poi) ?? 0;
+        if (before !== after) {
+          this.violate(ctx, `statistical tier '${poi}' went ${before} → ${after} souls with no ledgered cohort flow (P1: statistical counts are constant)`);
+        }
+      }
+    }
+    // Adopt (initial baseline / self-heal after a violation).
+    this.statBaseline = counts;
   }
 
   private violate(ctx: SystemContext, detail: string): void {

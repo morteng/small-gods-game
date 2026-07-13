@@ -122,7 +122,12 @@ export function describeRivalsForFate(state: GameState): { text: string; rivalId
   const lines: string[] = [];
   for (const r of rivals) {
     rivalIds.add(r.id);
-    const sit = buildRivalSituation(world, state.spirits, r.id, { playerId: PLAYER_SPIRIT_ID });
+    // P1 (two-tier population): Fate's digest counts BOTH tiers — statistical
+    // believers weigh follower balance like named ones.
+    const sit = buildRivalSituation(world, state.spirits, r.id, {
+      playerId: PLAYER_SPIRIT_ID,
+      cohorts: state.cohorts,
+    });
     const rivalFollowers = sumFollowers(sit.rivalFollowersInSettlement);
     const playerFollowers = sumFollowers(sit.playerFollowersInSettlement);
     const held = r.ai?.settlements ?? [];

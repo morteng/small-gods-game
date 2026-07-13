@@ -38,6 +38,7 @@ import { toAnchors } from '@/blueprint/compile/to-anchors';
 import { BUILDABLE_TERRAIN, extendThroughStreet, extendBackLane, annexAcrossBridge, frontageValue, type Lot, type SettlementPlan } from '@/world/settlement-plan';
 import { tryGetEntityKindDef } from '@/world/entity-kinds';
 import { TRAMPLE, type TrampleGrid } from '@/sim/trample';
+import { cohortPopulation, type SettlementCohorts } from '@/sim/cohorts';
 
 /** One fire per GAME HOUR, matching births/mortality cadence (day-keyed
  *  lifecycle systems check hourly under 1:1 realtime — see MortalitySystem). */
@@ -99,12 +100,26 @@ export interface GrowthCtx {
   trample?: TrampleGrid | null;
 }
 
-/** Living residents per POI (NPCs that claim a `homePoiId`). */
-export function residentsByPoi(world: World): Map<string, number> {
+/** Living residents per POI (NPCs that claim a `homePoiId`). P1 (two-tier
+ *  population, spec §5.2): pass the statistical tier and each settlement's
+ *  cohort souls join the count — growth responds to people who exist
+ *  statistically (houses for real aggregate souls, never souls from houses).
+ *  The skip path (`growSettlementsOnSkip`) and road evolution stay named-only
+ *  until P3 integrates cohorts into the time-skip. */
+export function residentsByPoi(
+  world: World,
+  cohorts?: ReadonlyMap<string, SettlementCohorts> | null,
+): Map<string, number> {
   const residents = new Map<string, number>();
   for (const e of queryNpcs(world)) {
     const poi = npcProps(e).homePoiId;
     if (poi) residents.set(poi, (residents.get(poi) ?? 0) + 1);
+  }
+  if (cohorts) {
+    for (const poiId of [...cohorts.keys()].sort()) {
+      const n = cohortPopulation(cohorts.get(poiId)!);
+      if (n > 0) residents.set(poiId, (residents.get(poiId) ?? 0) + n);
+    }
   }
   return residents;
 }
@@ -184,14 +199,19 @@ export class SettlementGrowthSystem implements System {
   readonly tickHz = GROWTH_TICK_HZ;
 
   /** `getTrample` feeds SOCIAL GRAVITY (synthesis 2.3): live growth prefers lots beside the
-   *  desire lines NPC traffic carved. Optional so existing constructions stay valid. */
-  constructor(private readonly getTrample?: () => TrampleGrid | null) {}
+   *  desire lines NPC traffic carved. `getCohorts` (P1, two-tier population): the statistical
+   *  tier joins the resident count, so towns build homes for their fiction population.
+   *  Both optional so existing constructions stay valid. */
+  constructor(
+    private readonly getTrample?: () => TrampleGrid | null,
+    private readonly getCohorts?: () => ReadonlyMap<string, SettlementCohorts> | null | undefined,
+  ) {}
 
   tick(ctx: SystemContext): void {
     const plans = ctx.world.tiles.settlementPlans;
     if (!plans?.length) return;
 
-    const residents = residentsByPoi(ctx.world);
+    const residents = residentsByPoi(ctx.world, this.getCohorts?.());
     const capacity = housingCapacityByPoi(ctx.world);
 
     const sorted = [...plans]
