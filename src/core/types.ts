@@ -6,7 +6,7 @@ import type { SpritePack, BarrierPiece } from '@/render/iso/sprite-canvas';
 import type { LightingState } from '@/render/lighting-state';
 import type { IslandSpec } from '@/terrain/island-mask';
 import type { ClimateName, ClimateSpec } from '@/terrain/climate';
-import type { WorldStyleConfig } from '@/core/world-style';
+import type { WorldStyle, WorldStyleConfig } from '@/core/world-style';
 import type { NpcAnimation } from '@/core/npc-animation';
 
 export type { Era } from '@/core/era';
@@ -653,6 +653,13 @@ export interface WorldReadOnly {
 export interface BrushContext {
   world: WorldReadOnly;
   tiles: GameMap;
+  /**
+   * Resolved world style (Tone & Scale) for the map being painted — the seam
+   * through which style knobs (e.g. `floraDensity`) reach brushes. Populated by
+   * `World.applyBrush` from `tiles.worldSeed.style`; absent (direct brush calls,
+   * legacy contexts) means neutral defaults — consumers fall back per-knob.
+   */
+  style?: WorldStyle;
 }
 
 // ─── PixelLab integration (user-supplied API key) ─────────────────────────────

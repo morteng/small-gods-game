@@ -21,7 +21,7 @@ const FOREST_PARAMS: import('./vegetation-placer').VegetationParams = {
   maxPerTile: 2,
   clumpScale: 5,
   undergrowth: undergrowthOf('forest'),
-  openUndergrowth: 0.3,     // ferns/bramble also take the clearings, not only tree shade
+  openUndergrowth: 0.35,    // ferns/bramble also take the clearings, not only tree shade
 };
 
 export function forestBrush(region: Region, seed: number, ctx: BrushContext): Entity[] {

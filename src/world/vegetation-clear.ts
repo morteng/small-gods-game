@@ -73,7 +73,7 @@ export function isRoadOrRiver(type: string): boolean {
  * real clearing without carving a bald motorway.
  */
 export const TREE_CLEAR_RADIUS = 2.2;
-export const UNDERGROWTH_CLEAR_RADIUS = 1.2;
+export const UNDERGROWTH_CLEAR_RADIUS = 0.9;
 /** Back-compat alias (older callers / tests referenced the single radius). */
 export const CORRIDOR_CLEAR_RADIUS = UNDERGROWTH_CLEAR_RADIUS;
 

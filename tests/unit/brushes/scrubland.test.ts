@@ -27,7 +27,9 @@ describe('scrubland brush', () => {
     expect(scrublandBrush({ x: 0, y: 0, w: 8, h: 8 }, 42, c)).toMatchSnapshot();
   });
   it('emits zero on non-scrubland tiles', () => {
-    expect(scrublandBrush({ x: 0, y: 0, w: 2, h: 2 }, 1, ctx([['grass','grass'],['grass','grass']]))).toEqual([]);
+    // 'dirt' — a tile NO sub-brush covers (these brushes deliberately grass-cover
+    // 'grass'/'meadow'/'glen' tiles via placeGrassCover, so grass is not foreign).
+    expect(scrublandBrush({ x: 0, y: 0, w: 2, h: 2 }, 1, ctx([['dirt','dirt'],['dirt','dirt']]))).toEqual([]);
   });
   it('only emits the scrubland pool species', () => {
     const c = allScrub(16, 16);

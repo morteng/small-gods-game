@@ -93,9 +93,9 @@ export const BIOME_FLORA: Readonly<Record<string, FloraPool>> = {
    *  tussocks + wildflowers, with the odd free-standing shrub. */
   grassland: {
     canopy: [
-      ['tussock-grass', 0.66],
-      ['oxeye-daisy', 0.14],
-      ['common-poppy', 0.08],
+      ['tussock-grass', 0.61],
+      ['oxeye-daisy', 0.17],
+      ['common-poppy', 0.10],
       ['foxglove', 0.04],
       ['common-hawthorn', 0.04],
       ['gorse', 0.04],
