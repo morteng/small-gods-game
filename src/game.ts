@@ -78,6 +78,7 @@ import { SettlementGrowthSystem } from '@/sim/systems/settlement-growth-system';
 import { RoadEvolutionSystem } from '@/sim/systems/road-evolution-system';
 import { TrampleDepositSystem, TramplePromoteDecaySystem } from '@/sim/systems/trample-system';
 import { BirthSystem } from '@/sim/systems/birth-system';
+import { CohortSystem } from '@/sim/systems/cohort-system';
 import { WeatherSystem } from '@/sim/systems/weather-system';
 import { applySkip } from '@/sim/time-skip';
 import { identityOracle } from '@/world/oracle';
@@ -374,6 +375,12 @@ export class Game {
     this.scheduler.register(new RivalSystem(this.commandQueue));
     this.scheduler.register(new MortalitySystem());
     this.scheduler.register(new BirthSystem());
+    // Two-tier population P0: shadow cohort ledger — observes the named tier
+    // hourly + audits conservation of souls. Stateful (baseline census + flow
+    // counters), so it joins the WP-D snapshot seam; zero gameplay reads.
+    const cohorts = new CohortSystem();
+    this.scheduler.register(cohorts);
+    this.state.systemState.register(cohorts);
     // Social gravity (roads round 8): live growth reads the trample grid so new
     // housing prefers lots along the desire lines believers actually walk.
     this.scheduler.register(new SettlementGrowthSystem(() => this.state.trample));
