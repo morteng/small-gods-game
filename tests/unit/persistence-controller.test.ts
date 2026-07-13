@@ -106,17 +106,25 @@ describe('PersistenceController', () => {
     vi.useRealTimers();
   });
 
-  it('the built save aliases live state (single-clone contract): the writer must persist synchronously', async () => {
+  it('the built save aliases live state and encodes tiles synchronously (single-clone contract)', async () => {
     const { ctrl, state } = mkController();
     ctrl.start();
     ctrl.markDirty();
     let aliased = false;
+    let tilesEncoded = false;
     (ctrl as any).write = async (makeSave: () => SaveFile) => {
       const save = makeSave();
-      aliased = save.map === state.map;
+      // Non-tile map fields still alias live state — the writer must persist
+      // synchronously with the factory call (put()'s clone is the one copy).
+      aliased = save.map.villages === state.map!.villages;
+      // Tiles are the exception: the factory ENCODES them into the compact
+      // typed-array codec, so put()'s clone never walks the tile objects.
+      tilesEncoded = save.map.tiles.typeOrd instanceof Uint16Array
+        && !Array.isArray(save.map.tiles);
     };
     await ctrl.flush();
     expect(aliased).toBe(true);
+    expect(tilesEncoded).toBe(true);
     ctrl.destroy();
   });
 });

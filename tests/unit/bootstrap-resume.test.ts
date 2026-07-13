@@ -4,6 +4,7 @@ import { createState } from '@/core/state';
 import { World } from '@/world/world';
 import type { GameMap, Tile, WorldSeed } from '@/core/types';
 import type { SaveFile } from '@/core/save-file';
+import { encodeTiles, decodeTiles } from '@/core/tile-codec';
 import '@/world/brushes/index';
 
 function miniMap(): GameMap {
@@ -12,8 +13,11 @@ function miniMap(): GameMap {
 }
 
 function fakeSave(): SaveFile {
+  const m = miniMap();
+  const { tiles, ...mapRest } = m;
   return {
-    version: 1, contentVersion: 1, savedAt: 1, worldSeed: { name: 'resumed' } as any, map: miniMap(), biomeMap: null,
+    version: 1, contentVersion: 1, savedAt: 1, worldSeed: { name: 'resumed' } as any,
+    map: { ...mapRest, tiles: encodeTiles(tiles, m.width, m.height) }, biomeMap: null,
     snapshot: { tick: 77, rng: [1, 2, 3, 4] as any, entities: [], activeEvents: [], spirits: [] },
     events: [],
     view: { camera: { x: 0, y: 0, zoom: 1, dragging: false, lastX: 0, lastY: 0 }, selectedNpcId: null, pinnedNpcId: null, followNpc: false, cameraLock: { mode: 'free' }, debug: false, showLabels: true, showPoiMarkers: true },
@@ -41,7 +45,14 @@ describe('bootstrapWorld resume', () => {
       state, assets: stubAssets, sheets: new Map(), decorationImages: stubDecorationImages,
       getViewport,
       readSave: async () => fakeSave(),
-      applySave: (s, save) => { applied.push(save); s.map = save.map; s.world = new World(save.map); s.clock.setNow(save.snapshot.tick); return true; },
+      applySave: (s, save) => {
+        applied.push(save);
+        const { tiles, ...mapRest } = save.map;
+        s.map = { ...mapRest, tiles: decodeTiles(tiles) };
+        s.world = new World(s.map);
+        s.clock.setNow(save.snapshot.tick);
+        return true;
+      },
     });
     expect(applied).toHaveLength(1);
     expect(state.clock.now()).toBe(77);
