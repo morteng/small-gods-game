@@ -396,14 +396,17 @@ export class WaterDynamics implements WeatherStepper {
    *  actions ⇒ same fields, so scrub/replay reproduce the flood. */
   stepTick(dtMs: number): void { this.step(dtMs / 1000, this.params); }
 
-  /** Capture the evolving fields for the snapshot (plain arrays). */
+  /** Capture the evolving fields for the snapshot. Per-cell fields are typed-array
+   *  COPIES (.slice() memcpy) — `Array.from` boxed ~700k numbers per capture and
+   *  captures fire on every autosave + every 50-event timeline snapshot (see the
+   *  WeatherSnapshot doc). bodyOffsetM stays a plain array (per body, tiny). */
   serialize(): WeatherSnapshot {
     return {
       bodyOffsetM: Array.from(this.bodyOffsetM),
-      floodM: Array.from(this.floodM),
-      humidity: Array.from(this.humidity),
-      cloud: Array.from(this.cloud),
-      temp: Array.from(this.temp),
+      floodM: this.floodM.slice(),
+      humidity: this.humidity.slice(),
+      cloud: this.cloud.slice(),
+      temp: this.temp.slice(),
       timeOfDaySec: this.timeOfDaySec,
     };
   }
@@ -411,7 +414,7 @@ export class WaterDynamics implements WeatherStepper {
   /** Restore the fields from a snapshot. Array lengths are tolerated defensively:
    *  a snapshot from a different map size is ignored per-field (keeps current). */
   hydrate(snap: WeatherSnapshot): void {
-    const setIf = (dst: Float32Array, src: number[] | undefined): void => {
+    const setIf = (dst: Float32Array, src: Float32Array | number[] | undefined): void => {
       if (src && src.length === dst.length) dst.set(src);
     };
     setIf(this.bodyOffsetM, snap.bodyOffsetM);

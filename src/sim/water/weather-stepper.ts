@@ -15,21 +15,28 @@
 // scrub / commit / replay reproduce the exact flood state — the prerequisite for a
 // flood driving a Fate beat without the timeline diverging.
 
-/** The serializable physical state of the water/atmosphere fields (plain arrays so a
- *  snapshot is structured-clone + JSON friendly). Tunable params are NOT here — they
- *  are exogenous config re-applied by the game, like the command queue / surfaced
- *  inbox; only DERIVED sim state is snapshotted. */
+/** The serializable physical state of the water/atmosphere fields. Tunable params
+ *  are NOT here — they are exogenous config re-applied by the game, like the command
+ *  queue / surfaced inbox; only DERIVED sim state is snapshotted.
+ *
+ *  The PER-CELL fields are typed-array copies, NOT plain number[] (profiled
+ *  2026-07-13): `Array.from` on four ~171k-cell Float32Arrays boxed ~700k numbers
+ *  per capture — and captures are FREQUENT (every autosave AND every 50-event
+ *  timeline snapshot, which tile-realization storms fire in bursts). A .slice()
+ *  memcpy + structured clone of a typed array is near-free; nothing JSON-serializes
+ *  a Snapshot (verified — only WorldSeed goes through JSON). `number[]` stays
+ *  accepted for hydration compat with older captures/stubs. */
 export interface WeatherSnapshot {
-  /** Per-lake-body level offset (metres), indexed by render lake body. */
+  /** Per-lake-body level offset (metres), indexed by render lake body (tiny). */
   bodyOffsetM: number[];
   /** Per-cell standing-water depth (metres above terrain), row-major. */
-  floodM: number[];
+  floodM: Float32Array | number[];
   /** Per-cell air humidity 0..1, row-major. */
-  humidity: number[];
+  humidity: Float32Array | number[];
   /** Per-cell cloud water 0..1, row-major. */
-  cloud: number[];
+  cloud: Float32Array | number[];
   /** Per-cell live air temperature 0..1, row-major. */
-  temp: number[];
+  temp: Float32Array | number[];
   /** Time-of-day accumulator (seconds), for the diurnal cycle. */
   timeOfDaySec: number;
 }
