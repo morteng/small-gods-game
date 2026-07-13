@@ -31,6 +31,7 @@ import type { Entity, NpcProperties, SpiritBelief } from '@/core/types';
 import type { Rng } from '@/core/rng';
 import { forEachNpc, npcProps } from '@/world/npc-helpers';
 import { BELIEVER_THRESHOLD, PLAYER_SPIRIT_ID } from '@/sim/believers';
+import { cohortBelievers, type SettlementCohorts } from '@/sim/cohorts';
 import { ANSWER_PRAYER_COST } from '@/sim/divine-actions';
 import { TICKS_PER_DAY } from '@/core/calendar';
 
@@ -77,6 +78,12 @@ export interface RivalSituationOptions {
    *  (see `RivalSystem`); omitted ⇒ all deltas read 0. */
   baseline?: Record<string, number>;
   playerId?: SpiritId;
+  /** P1 (two-tier population): the STATISTICAL tier. When present, per-settlement
+   *  follower counts include each settlement's aggregate believers — the rival
+   *  decider sees the true balance of souls, named or not. Statistical PLEAS
+   *  (and rival claims against them) are P2; in P1 the statistical tier only
+   *  weighs the follower counts. */
+  cohorts?: ReadonlyMap<string, SettlementCohorts> | null;
 }
 
 /** Build the decider's situation from the world in ONE pass (only for rivals off
@@ -112,6 +119,17 @@ export function buildRivalSituation(
       prayerPressureInSettlement[poi] = (prayerPressureInSettlement[poi] ?? 0) + 1;
     }
   });
+  // Statistical tier (P1): each settlement's aggregate believers join the same
+  // per-POI counts the named pass built (sorted fold — replay-stable).
+  if (opts.cohorts) {
+    for (const poiId of [...opts.cohorts.keys()].sort()) {
+      const sc = opts.cohorts.get(poiId)!;
+      const pn = cohortBelievers(sc, playerId);
+      if (pn > 0) playerFollowersInSettlement[poiId] = (playerFollowersInSettlement[poiId] ?? 0) + pn;
+      const rn = cohortBelievers(sc, rivalId);
+      if (rn > 0) rivalFollowersInSettlement[poiId] = (rivalFollowersInSettlement[poiId] ?? 0) + rn;
+    }
+  }
   const rivalFollowerDelta: Record<string, number> = {};
   const baseline = opts.baseline;
   if (baseline) {   // no baseline ⇒ no trend information, NOT "everything is growth"

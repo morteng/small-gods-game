@@ -113,8 +113,9 @@ export class FrameRenderer {
 
       this.deps.ui.spiritHud.update(player, rivals as any[], totalFollowers);
       this.deps.ui.spiritHud.setBelieverStats(
-        countPlayerBelievers(this.deps.state.world),
-        countDurableBelievers(this.deps.state.world),
+        // P1 (two-tier population): believer readouts count both tiers.
+        countPlayerBelievers(this.deps.state.world, this.deps.state.cohorts),
+        countDurableBelievers(this.deps.state.world, this.deps.state.cohorts),
         4,
       );
     }

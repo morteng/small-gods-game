@@ -7,6 +7,7 @@ import type { StagedBeat } from '@/sim/threads/staging-types';
 import type { WeatherSnapshot } from '@/sim/water/weather-stepper';
 import type { CausalSiteSnapshot } from '@/world/causal-site';
 import type { TrampleSnapshot } from '@/sim/trample';
+import type { SettlementCohorts } from '@/sim/cohorts';
 import { fromState } from '@/core/rng';
 import { World } from '@/world/world';
 import { TrampleGrid } from '@/sim/trample';
@@ -51,6 +52,10 @@ export interface Snapshot {
    *  as insurance so the value survives scrub/save once the climate seam drives
    *  it. Optional — absent field restores to 0 (the neutral datum). */
   waterLevelM?: number;
+  /** Two-tier population (P1): the STATISTICAL cohort tier, sorted by poiId.
+   *  Optional — pre-P1 saves and hand-built test snapshots restore to an empty
+   *  tier (those worlds never had statistical souls). */
+  statCohorts?: SettlementCohorts[];
 }
 
 export function captureSnapshot(state: GameState): Snapshot {
@@ -105,6 +110,10 @@ function buildSnapshot(state: GameState, deep: boolean): Snapshot {
     trample: state.trample?.serialize(),
     systems: state.systemState?.serialize(),
     waterLevelM: state.waterLevelM,
+    statCohorts: state.cohorts
+      ? [...state.cohorts.keys()].sort()
+          .map(k => (deep ? structuredClone(state.cohorts.get(k)!) : state.cohorts.get(k)!))
+      : undefined,
   };
 }
 
@@ -179,6 +188,13 @@ export function restoreSnapshot(state: GameState, snap: Snapshot): void {
   // Insurance: the inland water-level offset survives scrub/save (latent until
   // the climate seam drives it). Absent field → the neutral datum.
   state.waterLevelM = snap.waterLevelM ?? 0;
+
+  // Two-tier population (P1): the snapshot is authoritative for the statistical
+  // tier (counts are constant in P1, but restore exactly anyway so P2's flows
+  // inherit correct semantics). Absent field (pre-P1 save) → empty tier.
+  state.cohorts = new Map(
+    (snap.statCohorts ?? []).map(sc => [sc.poiId, structuredClone(sc)] as const),
+  );
 }
 
 export interface SnapshotStoreOptions {

@@ -24,7 +24,7 @@ import { PerceptionSystem } from '@/world/perception-system';
 import { PlotThreadSystem } from '@/sim/threads/systems/plot-thread-system';
 import { AbandonmentSystem } from '@/sim/systems/abandonment-system';
 import { MortalitySystem } from '@/sim/systems/mortality-system';
-import { SettlementGrowthSystem } from '@/sim/systems/settlement-growth-system';
+import { SettlementGrowthSystem, housingCapacityByPoi } from '@/sim/systems/settlement-growth-system';
 import { RoadEvolutionSystem } from '@/sim/systems/road-evolution-system';
 import { TrampleDepositSystem, TramplePromoteDecaySystem } from '@/sim/systems/trample-system';
 import { BirthSystem } from '@/sim/systems/birth-system';
@@ -94,19 +94,28 @@ export function registerSimSystems(deps: SimSystemsDeps): void {
   // Belief CONTENT (Track B): propagate + decay what they think you can DO.
   // After propagation (faith spread) so content rides the same social graph.
   scheduler.register(new BeliefContentSystem());
-  scheduler.register(new SpiritSystem());
-  scheduler.register(new RivalSystem(commandQueue));
+  // Two-tier population P1: the belief economy reads the STATISTICAL tier
+  // (state.cohorts) — power regen, rival situation, birth throttle, growth,
+  // perception all take the same getter.
+  const getCohorts = () => state.cohorts;
+  scheduler.register(new SpiritSystem(getCohorts));
+  scheduler.register(new RivalSystem(commandQueue, getCohorts));
   scheduler.register(new MortalitySystem());
-  scheduler.register(new BirthSystem());
-  // Two-tier population P0: shadow cohort ledger — observes the named tier
-  // hourly + audits conservation of souls. Stateful (baseline census + flow
-  // counters), so it joins the WP-D snapshot seam; zero gameplay reads.
-  const cohorts = new CohortSystem();
+  scheduler.register(new BirthSystem({
+    cohorts: getCohorts,
+    housingCapacity: housingCapacityByPoi,   // §5.2: housing gates births (slack × capacity)
+  }));
+  // Two-tier population P0+P1: shadow cohort ledger — observes the named tier
+  // hourly + audits conservation of souls, and (P1) audits that the statistical
+  // tier's counts never change outside ledgered flows. Stateful (baseline
+  // census + flow counters), so it joins the WP-D snapshot seam.
+  const cohorts = new CohortSystem(getCohorts);
   scheduler.register(cohorts);
   state.systemState.register(cohorts);
   // Social gravity (roads round 8): live growth reads the trample grid so new
   // housing prefers lots along the desire lines believers actually walk.
-  scheduler.register(new SettlementGrowthSystem(() => state.trample));
+  // P1: growth also counts statistical souls — towns house their fiction pop.
+  scheduler.register(new SettlementGrowthSystem(() => state.trample, getCohorts));
   scheduler.register(new RoadEvolutionSystem());
   // W-G: deterministic water/atmosphere tick — steps the stepper installed on world
   // seed + polls the flood watch, writing place_flooded/receded into the event log.
@@ -115,7 +124,8 @@ export function registerSimSystems(deps: SimSystemsDeps): void {
     () => state.floodWatch,
     () => state.causalSites,
   ));
-  scheduler.register(new PerceptionSystem(identityOracle, () => state.map));
+  // P1 (ruling 2): aggregate cohort belief realizes tiles too, not just named believers.
+  scheduler.register(new PerceptionSystem(identityOracle, () => state.map, undefined, getCohorts));
   // Narrative substrate: recognizers + stub producers run LAST so they see this
   // frame's events; activation fires armed beats (its commands apply next tick).
   scheduler.register(new PlotThreadSystem(

@@ -15,7 +15,11 @@ export type SimEvent =
   | { type: 'omen';               spiritId: SpiritId; poiId: string; severity: number }
   | { type: 'dream';              spiritId: SpiritId; npcId: EntityId }
   | { type: 'miracle';            spiritId: SpiritId; poiId: string; needType: string; amount: number }
-  | { type: 'answer_prayer';      spiritId: SpiritId; npcId: EntityId }
+  // `statistical` (two-tier population, user ruling 2026-07-13): P2's cohort-plea
+  // claim variant will mark its answers true so Fate's rival-pressure trigger can
+  // EXEMPT statistical claims — Fate paces on named-tier pressure (what the
+  // player sees). Named-tier answers leave it unset.
+  | { type: 'answer_prayer';      spiritId: SpiritId; npcId: EntityId; statistical?: boolean }
   | { type: 'smite';              spiritId: SpiritId; npcId?: EntityId; poiId?: string; x?: number; y?: number; witnesses: number }
   | { type: 'mind_probed';        spiritId: SpiritId; npcId: EntityId; depth: number }
   | { type: 'believer_lost';      npcId: EntityId }
