@@ -1,4 +1,6 @@
 import { createState, type GameState } from '@/core/state';
+import { waitForArtSettled } from '@/game/art-settle-gate';
+import { composeQueuePending } from '@/render/compose-scheduler';
 import { selectRenderer, type RenderFn } from '@/render/select-renderer';
 import { zoomAt } from '@/render/camera';
 import { quantizeIsoZoom } from '@/render/iso/iso-camera';
@@ -1596,11 +1598,14 @@ export class Game {
       },
       onReady: () => {
         bootMark('worldgen');
-        this.ui.loadingScreen.setProgress(1, 'Entering the world…');
-        this.ui.loadingScreen.hide();
         if (!this.barebones) this.ui.spiritHud.show(); // barebones: orb replaces it
         this.dev.updateInspector();
         this.persistence.start();
+        // The fade waits for the building art to settle (composes drained + art
+        // rev quiet) so the player never sees grey massing pop into textured
+        // buildings — fire-and-forget: the frame loop starts beneath the overlay
+        // and drives the demand-loads the gate is watching.
+        void this.holdLoadingUntilArtSettled();
       },
     });
     this.startLoop();
@@ -1608,6 +1613,26 @@ export class Game {
     // so a backgrounded game never burns CPU/GPU on this machine.
     if (typeof document !== 'undefined') document.addEventListener('visibilitychange', this.onVisibilityChange);
     return map;
+  }
+
+  /** Hold the loading overlay past worldgen-ready until the building art has
+   *  settled, so the world fades in fully textured (never grey massing). The
+   *  gate itself (signals, quiet window, hard timeout) lives in
+   *  `art-settle-gate.ts`; a hidden tab or wedged source hits the timeout and
+   *  fades anyway. */
+  private async holdLoadingUntilArtSettled(): Promise<void> {
+    const loading = this.ui.loadingScreen;
+    loading.setProgress(0.98, 'Raising the buildings…');
+    await waitForArtSettled({
+      pendingComposes: composeQueuePending,
+      artRev: () => this.parametricBuildingSource.version() + this.parametricBarrierSource.version(),
+      onProgress: (pending) => {
+        if (pending > 0) loading.setProgress(0.98, `Raising the buildings… ${pending} left`);
+      },
+    });
+    bootMark('art-settled');
+    loading.setProgress(1, 'Entering the world…');
+    loading.hide();
   }
 
   /** Abandon the current world: stop autosaving, clear the slot, reload fresh.
