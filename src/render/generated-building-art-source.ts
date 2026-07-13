@@ -125,6 +125,8 @@ export class GeneratedBuildingArtSource {
   // the grey-fallback case — don't bump: nothing new to paint.
   private ver = 0;
   version(): number { return this.ver; }
+  /** Warms still in flight (IDB read / vendored-library fetch) — summed by the boot gate. */
+  pending(): number { return this.inflight.size; }
   /** Drop every resolved pack AND the vendored-library manifest memo, then bump the art
    *  revision — freshly seeded art (scripts/seed-building-art.ts writes new manifest rows
    *  while the page is open) gets re-fetched IN PLACE on the next warm, no reload. The

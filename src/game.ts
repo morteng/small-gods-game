@@ -1623,9 +1623,35 @@ export class Game {
   private async holdLoadingUntilArtSettled(): Promise<void> {
     const loading = this.ui.loadingScreen;
     loading.setProgress(0.98, 'Raising the buildings…');
+    // Prewarm EVERY building/barrier, not just the spawn viewport's: the frame
+    // path only warms visible entities, so without this the gate's signals go
+    // quiet while off-screen towns are still bare massing and the first pan
+    // shows grey boxes. Sources dedupe by blueprint identity — this costs one
+    // IDB read / library fetch per UNIQUE building, not per entity. Warming
+    // here (not via the frame loop) also keeps the loads flowing in a hidden tab.
+    const world = this.state.world;
+    if (world) {
+      for (const e of world.query({ tag: 'building' })) {
+        this.parametricBuildingSource.warm(e);
+        this.generatedBuildingArtSource.warm(e);
+        this.buildingArtResolver.warm(e);
+      }
+      for (const e of world.query({ kind: 'barrier' })) this.parametricBarrierSource.warm(e);
+    }
     await waitForArtSettled({
-      pendingComposes: composeQueuePending,
-      artRev: () => this.parametricBuildingSource.version() + this.parametricBarrierSource.version(),
+      // Compose-queue depth alone misses warm-cache boots (every pack is an IDB
+      // read, the queue never fills) — sum the sources' in-flight warms too.
+      pendingComposes: () =>
+        composeQueuePending()
+        + this.parametricBuildingSource.pending()
+        + this.parametricBarrierSource.pending()
+        + this.generatedBuildingArtSource.pending(),
+      // Mirror the draw-cache's buildingArtRev exactly (render-context.ts) — the
+      // generated (painted) source repaints buildings too.
+      artRev: () =>
+        this.parametricBuildingSource.version()
+        + this.parametricBarrierSource.version()
+        + this.generatedBuildingArtSource.version(),
       onProgress: (pending) => {
         if (pending > 0) loading.setProgress(0.98, `Raising the buildings… ${pending} left`);
       },

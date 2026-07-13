@@ -8,9 +8,14 @@
 // textured buildings piecemeal (user rule 2026-07-13: the player never sees grey
 // boxes). "Settled" is observed through two live signals rather than a completion
 // event (the art sources have none — packs resolve independently):
-//   1. the compose queue is empty (`composeQueuePending() === 0`), and
+//   1. no pending work — compose-queue depth PLUS the art sources' in-flight
+//      warm counts (`pending()`). The queue alone misses warm-cache boots,
+//      where every pack is an IDB read and the compose queue never fills; and
 //   2. the art revision (sum of the sources' `version()` counters, the same
 //      signal the draw-cache debounce watches) has been QUIET for `quietMs`.
+// The caller must PREWARM every building/barrier before gating (Game does) —
+// the frame path only warms viewport entities, so without the prewarm these
+// signals go quiet while off-screen towns are still bare grey massing.
 // A hard `maxWaitMs` bounds the hold so a wedged source (or a hidden tab, whose
 // paused frame loop stops driving demand-loads) can never trap the player on the
 // overlay — on timeout we fade anyway and buildings finish streaming in-world.

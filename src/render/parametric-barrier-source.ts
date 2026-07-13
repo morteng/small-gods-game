@@ -692,6 +692,9 @@ export class ParametricBarrierSource {
   /** Monotonic counter bumped when an async warm settles — fold into the static draw-cache key. */
   version(): number { return this.rev; }
 
+  /** Warms still in flight (IDB read or compose) — summed by the boot gate. */
+  pending(): number { return this.inflight.size; }
+
   /** Clear on world reset. */
   clear(): void { this.cache.clear(); this.inflight.clear(); this.warned.clear(); this.rev++; }
 }
