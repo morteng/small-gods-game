@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { StaticDrawListCache, drawCacheKey, ART_REV_REBUILD_COOLDOWN_MS } from '@/render/gpu/static-draw-list-cache';
+import { StaticDrawListCache, drawCacheKey, ART_REV_QUIET_MS, ART_REV_MAX_LATENCY_MS } from '@/render/gpu/static-draw-list-cache';
 import type { RenderContext, GameMap } from '@/core/types';
 import type { DrawItem } from '@/render/iso/draw-list';
 import type { IsoItemCtx } from '@/render/iso/iso-sprites';
@@ -100,35 +100,55 @@ describe('StaticDrawListCache — art-rev debounce (boot pack-storm)', () => {
   const rcRev = (map: GameMap, rev: number): RenderContext =>
     ({ map, buildingArtRev: rev } as RenderContext);
 
-  it('coalesces a burst of per-pack rev bumps into one deferred rebuild', () => {
+  it('defers rebuilds while the rev streams, then one trailing rebuild after quiet', () => {
     let builds = 0;
     const cache = new StaticDrawListCache(() => { builds++; return []; });
     const map = makeMap();
     cache.get(rcRev(map, 0), map, IC, 0);
-    // 10 packs settle within the cooldown — every call serves the stale list.
-    for (let i = 1; i <= 10; i++) cache.get(rcRev(map, i), map, IC, i * 20);
+    // 10 packs settle 50 ms apart — the stream never goes quiet, no rebuild.
+    let t = 0;
+    for (let i = 1; i <= 10; i++) { t = i * 50; cache.get(rcRev(map, i), map, IC, t); }
     expect(builds).toBe(1);
-    // First frame past the cooldown picks up ALL ten packs in one rebuild.
-    cache.get(rcRev(map, 10), map, IC, ART_REV_REBUILD_COOLDOWN_MS + 1);
+    // Frames keep coming but the rev holds still: quiet window elapses → ONE
+    // rebuild picks up all ten packs.
+    cache.get(rcRev(map, 10), map, IC, t + ART_REV_QUIET_MS - 1);
+    expect(builds).toBe(1);
+    cache.get(rcRev(map, 10), map, IC, t + ART_REV_QUIET_MS + 1);
     expect(builds).toBe(2);
   });
 
-  it('an unchanged rev never rebuilds, even past the cooldown', () => {
+  it('a stream that never quiets still textures via the max-latency bound', () => {
+    let builds = 0;
+    const cache = new StaticDrawListCache(() => { builds++; return []; });
+    const map = makeMap();
+    cache.get(rcRev(map, 0), map, IC, 0);
+    // Packs every 100 ms forever — quiet never happens; the bound forces pickup.
+    let builtAt = -1;
+    for (let i = 1; i <= 60; i++) {
+      cache.get(rcRev(map, i), map, IC, i * 100);
+      if (builds === 2 && builtAt < 0) builtAt = i * 100;
+    }
+    expect(builds).toBeGreaterThanOrEqual(2);
+    expect(builtAt).toBeGreaterThanOrEqual(ART_REV_MAX_LATENCY_MS);
+    expect(builtAt).toBeLessThanOrEqual(ART_REV_MAX_LATENCY_MS + 200);
+  });
+
+  it('an unchanged rev never rebuilds, no matter how much time passes', () => {
     let builds = 0;
     const cache = new StaticDrawListCache(() => { builds++; return []; });
     const map = makeMap();
     cache.get(rcRev(map, 3), map, IC, 0);
-    cache.get(rcRev(map, 3), map, IC, ART_REV_REBUILD_COOLDOWN_MS * 5);
+    cache.get(rcRev(map, 3), map, IC, ART_REV_MAX_LATENCY_MS * 5);
     expect(builds).toBe(1);
   });
 
-  it('a real world-key change rebuilds immediately, ignoring the cooldown', () => {
+  it('a real world-key change rebuilds immediately, ignoring the debounce', () => {
     let builds = 0;
     const cache = new StaticDrawListCache(() => { builds++; return []; });
     const a = makeMap({ seed: 1 });
     const b = makeMap({ seed: 2 });
     cache.get(rcRev(a, 0), a, IC, 0);
-    cache.get(rcRev(b, 1), b, IC, 10);  // mid-cooldown, but the MAP changed
+    cache.get(rcRev(b, 1), b, IC, 10);  // mid-stream, but the MAP changed
     expect(builds).toBe(2);
   });
 
@@ -138,7 +158,7 @@ describe('StaticDrawListCache — art-rev debounce (boot pack-storm)', () => {
     const map = makeMap();
     cache.get(rcRev(map, 0), map, IC, 0);
     cache.invalidate();
-    cache.get(rcRev(map, 0), map, IC, 10); // mid-cooldown
+    cache.get(rcRev(map, 0), map, IC, 10); // immediately after
     expect(builds).toBe(2);
   });
 });
