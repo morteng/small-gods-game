@@ -67,9 +67,12 @@ export function buildRenderContext(deps: RenderContextDeps): RenderContext {
     camera: state.camera,
     waterLevelM: state.waterLevelM,
     // W-G: localized lake level + per-cell flood from the live water stepper, so a
-    // flood/drought shows in the running game (not just the studio).
+    // flood/drought shows in the running game (not just the studio). The flood field
+    // is gated on hasFlood() (O(1)): handing the ~171k-cell all-zero array to the
+    // frame made buildWaterField's activity scan cost 4–7 ms EVERY frame on a dry
+    // world (profiled 2026-07-13). The lake array is per-BODY (tiny) — no gate needed.
     lakeOffsetM: state.weather?.lakeOffsetM?.(),
-    floodOffsetM: state.weather?.floodOffsetM(),
+    floodOffsetM: state.weather?.hasFlood() ? state.weather.floodOffsetM() : undefined,
     canvasWidth: viewport.width,
     canvasHeight: viewport.height,
     npcs: state.world ? (deps.npcEntities ?? state.world.query({ kind: 'npc' })).map(toRenderNpc) : [],

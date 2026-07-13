@@ -105,6 +105,27 @@ describe('WaterDynamics — localized water level', () => {
     expect(wd.maxFloodM()).toBeLessThan(peak);
   });
 
+  it('hasFlood() is an O(1) activity flag: false → true on flood → false once fully evaporated', async () => {
+    // The render path gates floodOffsetM() on this — handing the ~per-cell all-zero
+    // array to the frame made buildWaterField scan it EVERY frame (4–7 ms steady-camera
+    // CPU, profiled 2026-07-13). The flag must track the full lifecycle.
+    const { map } = await generateWithNoise(96, 96, 3, seed);
+    const wd = new WaterDynamics(map);
+    expect(wd.hasFlood()).toBe(false);
+    wd.floodArea(48, 48, 6, 3);
+    expect(wd.hasFlood()).toBe(true);
+    const dry: WeatherParams = { ...DEFAULT_WEATHER, evapMmPerSec: 5000 };
+    for (let s = 0; s < 200 && wd.hasFlood(); s++) wd.step(0.1, dry);
+    expect(wd.maxFloodM()).toBe(0);
+    expect(wd.hasFlood()).toBe(false);              // counter drained with the water
+    // hydrate() re-derives the flag from the snapshot fields.
+    const wet = new WaterDynamics(map);
+    wet.floodArea(48, 48, 6, 3);
+    const fresh = new WaterDynamics(map);
+    fresh.hydrate(wet.serialize());
+    expect(fresh.hasFlood()).toBe(true);
+  });
+
   it('flood depth never lowers existing standing water (max, not overwrite)', async () => {
     const { map } = await generateWithNoise(96, 96, 3, seed);
     const wd = new WaterDynamics(map);

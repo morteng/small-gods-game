@@ -39,6 +39,7 @@ class StubWeather implements WeatherStepper {
   hydrate(): void {}
   reset(): void {}
   floodOffsetM(): Float32Array { return new Float32Array(0); }
+  hasFlood(): boolean { return false; }
   lakeOffsetM(): Float32Array { return new Float32Array(0); }
   floodPoi(poiId: string, _r: number, depthM: number): number { this.floodedPoi = poiId; this.floodedDepth = depthM; return 42; }
 }

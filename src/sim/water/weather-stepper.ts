@@ -44,6 +44,13 @@ export interface WeatherStepper {
   hydrate(snap: WeatherSnapshot): void;
   /** Per-cell standing-water depth (metres) — the flood field FloodWatch reads. */
   floodOffsetM(): Float32Array;
+  /** Any standing flood water anywhere? O(1) (maintained incrementally by the stepper).
+   *  The render path MUST check this before handing `floodOffsetM()` to the frame:
+   *  the flood array is per-cell (~171k floats on the default world), and the
+   *  renderer's activity scan over an all-zero array cost 4–7 ms EVERY frame at a
+   *  steady camera (profiled 2026-07-13) — the array should never reach the frame
+   *  when there is no flood. */
+  hasFlood(): boolean;
   /** Per-lake-body level offset (metres) — the renderer bakes it into the lake surface. */
   lakeOffsetM(): Float32Array;
   /** Flood the ground around a named POI (the `summon_storm` effect): lay `depthM`

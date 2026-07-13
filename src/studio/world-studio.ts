@@ -1318,7 +1318,9 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
       world, lighting, visualMap: visualMap ?? undefined,
       devMode: dev as DevModeState,   // terrain/roads/rivers/buildings/vegetation toggles
       lakeOffsetM: waterDyn?.lakeOffsetM(),   // localized lake level (climate W-B)
-      floodOffsetM: waterDyn?.floodOffsetM(), // per-cell standing water (W-E flood)
+      // Per-cell standing water (W-E flood) — gated on hasFlood() (O(1)) so a dry
+      // studio never pays the renderer's per-frame full-grid activity scan.
+      floodOffsetM: waterDyn?.hasFlood() ? waterDyn.floodOffsetM() : undefined,
       connectomeWater: connectomeWaterOverride(), // DIR-A author-placed lakes as real water
       riverChannel: riverChannelGeo(),            // analytic river silhouette from the live net
 

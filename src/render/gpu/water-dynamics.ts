@@ -374,6 +374,11 @@ export class WaterDynamics implements WeatherStepper {
   /** Per-cell standing-water depth (metres) handed to `buildWaterField({ floodOffsetM })`. */
   floodOffsetM(): Float32Array { return this.floodM; }
 
+  /** Any standing flood water anywhere? O(1) via the incrementally-maintained count —
+   *  the render path gates `floodOffsetM()` on this so the per-frame activity scan of
+   *  a 171k-cell all-zero array never happens on a dry world (see WeatherStepper). */
+  hasFlood(): boolean { return this.floodCount > 0; }
+
   /** Flood the ground around a POI (the `summon_storm` effect). Returns cells flooded. */
   floodPoi(poiId: string, radius: number, depthM: number): number {
     const pos = this.poiPos.get(poiId);
