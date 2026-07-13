@@ -1638,7 +1638,7 @@ export class Game {
       }
       for (const e of world.query({ kind: 'barrier' })) this.parametricBarrierSource.warm(e);
     }
-    await waitForArtSettled({
+    const outcome = await waitForArtSettled({
       // Compose-queue depth alone misses warm-cache boots (every pack is an IDB
       // read, the queue never fills) — sum the sources' in-flight warms too.
       pendingComposes: () =>
@@ -1656,7 +1656,10 @@ export class Game {
         if (pending > 0) loading.setProgress(0.98, `Raising the buildings… ${pending} left`);
       },
     });
-    bootMark('art-settled');
+    // 'timeout' means the player may see art stream in — log it so a live probe
+    // (and a bug report console dump) can tell a settled fade from a capped one.
+    console.info(`[boot] art gate: ${outcome}`);
+    bootMark(`art-${outcome}`);
     loading.setProgress(1, 'Entering the world…');
     loading.hide();
   }

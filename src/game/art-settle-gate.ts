@@ -26,8 +26,12 @@
 /** Rev must hold still this long to count as settled — matches the draw-cache
  *  debounce's notion of "the pack stream has gone quiet". */
 export const ART_SETTLE_QUIET_MS = 600;
-/** Never hold the loading screen longer than this past worldgen-ready. */
-export const ART_SETTLE_MAX_WAIT_MS = 25_000;
+/** Never hold the loading screen longer than this past worldgen-ready. Sized for
+ *  a COLD boot: a fresh world composes tens of new variant packs (~53s compose
+ *  CPU total, parallelised across the worker pool — live-measured ~25s+ wall on
+ *  an M1), and fading mid-stream shows exactly the grey boxes this gate exists
+ *  to prevent. Warm boots (IDB sprite cache) settle in ~1–2s regardless. */
+export const ART_SETTLE_MAX_WAIT_MS = 60_000;
 /** Poll cadence — coarse is fine; this races nothing. */
 export const ART_SETTLE_POLL_MS = 200;
 
