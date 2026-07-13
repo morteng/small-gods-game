@@ -420,6 +420,9 @@ export interface BuildTerrainFieldOpts {
   /** Viewport-cull rect in TILE coords (inclusive) — the mesh emits only quads inside
    *  it (plus a down-screen lift margin for tall peaks). Absent ⇒ whole-map mesh. */
   window?: TerrainWindow;
+  /** Per-biome colour ground texture (Slice 2). Default ON; `false` (`?groundtex=off`)
+   *  restores the pre-Slice-2 grayscale grain for A/B comparison. */
+  groundTex?: boolean;
   /** OPT-IN connectome-projected water (studio editing) — its render waterType paints
    *  author-placed lake beds damp too. Absent → derived from the map (raster path). */
   connectomeWater?: ConnectomeWaterOverride;
@@ -478,6 +481,8 @@ export function terrainGlobalsFor(
     /** Lattice-snapped cull window `[oxTile, oyTile, spanW, spanH]` (from `terrainGrid`).
      *  Absent ⇒ whole-map (the packer defaults to `[0,0,W,H]`). */
     window?: [number, number, number, number];
+    /** Ground colour-texture enable (Slice 2). Default ON; `false` ⇒ grayscale grain. */
+    groundTex?: boolean;
   },
 ): TerrainGlobalsInput {
   // S1 style knobs: vertical exaggeration + relief metres. Default to
@@ -499,6 +504,7 @@ export function terrainGlobalsFor(
     terrainMode: opts.terrainMode ?? 0,
     terrainSuper: Math.max(1, Math.floor(opts.superSample ?? 1)),
     window: opts.window,
+    groundTex: opts.groundTex === false ? 0 : 1,
   };
 }
 
@@ -541,6 +547,7 @@ export function buildTerrainField(map: GameMap, opts: BuildTerrainFieldOpts): Te
   const globals = terrainGlobalsFor(map, {
     viewport: opts.viewport, xform: opts.xform, lighting: opts.lighting, subsample: grid.subsample,
     terrainMode: opts.terrainMode, superSample: opts.superSample, window: grid.window,
+    groundTex: opts.groundTex,
   });
   const climate = getClimateFields(map);
   const cw = opts.connectomeWater;
