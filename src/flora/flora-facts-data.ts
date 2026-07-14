@@ -527,6 +527,144 @@ export const FLORA_FACTS: FloraSpecies[] = [
       sources: ['Deschampsia cespitosa'],
     },
   },
+  {
+    id: 'esparto-grass',
+    identity: { commonName: 'Esparto grass', scientificName: 'Macrochloa tenacissima', family: 'Poaceae', wikipediaTitle: 'Esparto' },
+    botanical: {
+      habit: 'grass', matureHeight_m: { min: 0.4, max: 1.0 }, crownShape: 'tufted',
+      leafType: 'blade', leafPhenology: 'evergreen', trunkHabit: 'multi',
+      lifespanYears: { min: 5, max: 30 }, flexibility: 0.9, floweringMonths: [5, 7],
+    },
+    ecology: { biome: ['semi-desert', 'steppe', 'dry grassland'], soil: 'dry sandy/rocky', moisture: 'dry', nativeRange: ['north-west Africa', 'southern Iberia'] },
+    narrative: {
+      keyFacts: ['Esparto, halfah grass or needle grass (Macrochloa tenacissima) is a perennial grass of north-west Africa and southern Europe, forming dense tough tussocks on arid ground and long used for cordage, paper and baskets.'],
+      sources: ['Esparto'],
+    },
+  },
+  {
+    id: 'marram-grass',
+    identity: { commonName: 'Marram grass', scientificName: 'Ammophila arenaria', family: 'Poaceae', wikipediaTitle: 'Ammophila arenaria' },
+    botanical: {
+      habit: 'grass', matureHeight_m: { min: 0.6, max: 1.2 }, crownShape: 'tufted',
+      leafType: 'blade', leafPhenology: 'evergreen', trunkHabit: 'multi',
+      lifespanYears: { min: 5, max: 25 }, flexibility: 0.95, floweringMonths: [7, 9],
+    },
+    ecology: { biome: ['coastal dune', 'beach'], soil: 'shifting sand', moisture: 'dry', nativeRange: ['coasts of Europe', 'North Africa'] },
+    narrative: {
+      keyFacts: ['Ammophila arenaria, marram grass or European beachgrass, is a perennial grass that builds and stabilises coastal sand dunes, its deep rhizomes binding the shifting sand.'],
+      sources: ['Ammophila arenaria'],
+    },
+  },
+  {
+    id: 'common-reed',
+    identity: { commonName: 'Common reed', scientificName: 'Phragmites australis', family: 'Poaceae', wikipediaTitle: 'Phragmites australis' },
+    botanical: {
+      habit: 'grass', matureHeight_m: { min: 2.0, max: 4.0 }, crownShape: 'tufted',
+      leafType: 'blade', leafPhenology: 'deciduous', trunkHabit: 'multi',
+      lifespanYears: { min: 5, max: 30 }, flexibility: 0.85, floweringMonths: [8, 10],
+    },
+    ecology: { biome: ['reedbed', 'marsh', 'riverbank', 'wetland'], moisture: 'wet', nativeRange: ['cosmopolitan wetlands (Eurasia, Africa, Americas)'] },
+    narrative: {
+      keyFacts: ['Phragmites australis, the common reed, is a broadly distributed wetland grass that grows in dense stands (reedbeds) up to several metres tall along the margins of lakes, rivers and marshes.'],
+      sources: ['Phragmites australis'],
+    },
+  },
+  {
+    id: 'carex-sedge',
+    identity: { commonName: 'Tussock sedge', scientificName: 'Carex paniculata', family: 'Cyperaceae', wikipediaTitle: 'Carex paniculata' },
+    botanical: {
+      habit: 'grass', matureHeight_m: { min: 0.5, max: 1.5 }, crownShape: 'tufted',
+      leafType: 'blade', leafPhenology: 'semi_evergreen', trunkHabit: 'multi',
+      lifespanYears: { min: 5, max: 30 }, flexibility: 0.9, floweringMonths: [5, 7],
+    },
+    ecology: { biome: ['fen', 'marsh', 'wet meadow', 'riverbank'], moisture: 'wet', nativeRange: ['Europe', 'western Asia', 'North Africa'] },
+    narrative: {
+      keyFacts: ['Carex paniculata, the greater tussock-sedge, is a species of sedge that forms large dense tussocks in fens, marshes and wet woodland across Europe.'],
+      sources: ['Carex paniculata'],
+    },
+  },
+
+  // ─── Arid / wetland shrubs & herbs (biome-ecology expansion) ────────────────
+  {
+    id: 'tamarisk',
+    identity: { commonName: 'Tamarisk', scientificName: 'Tamarix gallica', family: 'Tamaricaceae', wikipediaTitle: 'Tamarix' },
+    botanical: {
+      habit: 'shrub', matureHeight_m: { min: 2, max: 5 }, crownShape: 'irregular',
+      leafType: 'scale', leafPhenology: 'deciduous', trunkHabit: 'multi',
+      lifespanYears: { min: 50, max: 100 }, barkTexture: 'reddish, feathery sprays',
+      flexibility: 0.6, floweringMonths: [4, 8], fruitingMonths: [7, 9],
+    },
+    ecology: { biome: ['desert', 'oasis', 'saline flat', 'dry wash'], soil: 'saline/sandy', moisture: 'dry', nativeRange: ['Eurasia', 'Africa'] },
+    narrative: {
+      keyFacts: ['Tamarix (tamarisk, salt cedar) is a genus of deciduous shrubs and small trees of the drylands of Eurasia and Africa, with slender branches, feathery scale-like foliage and a deep root system tolerant of saline, arid ground.'],
+      sources: ['Tamarix'],
+    },
+  },
+  {
+    id: 'white-wormwood',
+    identity: { commonName: 'White wormwood', scientificName: 'Artemisia herba-alba', family: 'Asteraceae', wikipediaTitle: 'Artemisia herba-alba' },
+    botanical: {
+      habit: 'shrub', matureHeight_m: { min: 0.2, max: 0.6 }, crownShape: 'tufted',
+      leafType: 'scale', leafPhenology: 'evergreen', trunkHabit: 'multi',
+      lifespanYears: { min: 5, max: 20 }, barkTexture: 'silvery-grey woolly foliage',
+      flexibility: 0.4, floweringMonths: [8, 10],
+    },
+    ecology: { biome: ['desert', 'semi-desert', 'steppe'], soil: 'dry stony', moisture: 'dry', nativeRange: ['North Africa', 'the Near East', 'south-west Asia'] },
+    // petalTint recolours the whole foliage whorl (flora-branch → foliageTint), so a
+    // shrub reads grey-green rather than forest-green — the wormwood's defining look.
+    generation: { petalTint: 0xB8BCA8 },   // grey-green aromatic dwarf shrub
+    narrative: {
+      keyFacts: ['Artemisia herba-alba, white wormwood, is a low aromatic grey-leaved shrub of the daisy family growing on the arid steppes and deserts of North Africa and the Near East.'],
+      sources: ['Artemisia herba-alba'],
+    },
+  },
+  {
+    id: 'cotton-thistle',
+    identity: { commonName: 'Cotton thistle', scientificName: 'Onopordum acanthium', family: 'Asteraceae', wikipediaTitle: 'Onopordum acanthium' },
+    botanical: {
+      habit: 'herb', matureHeight_m: { min: 0.5, max: 2.5 }, crownShape: 'columnar',
+      leafType: 'broadleaf', leafPhenology: 'none', trunkHabit: 'single',
+      lifespanYears: { min: 2, max: 2 }, flexibility: 0.5, floweringMonths: [6, 8],
+    },
+    ecology: { biome: ['dry grassland', 'disturbed ground', 'semi-desert'], soil: 'dry sandy', moisture: 'dry', nativeRange: ['Europe', 'western Asia'] },
+    generation: { petalTint: 0x9E6FB0 },   // purple thistle head
+    narrative: {
+      keyFacts: ['Onopordum acanthium, the cotton or Scotch thistle, is a robust biennial thistle with spiny winged stems, cottony grey foliage and purple flower heads, thriving on dry, disturbed and stony ground.'],
+      sources: ['Onopordum acanthium'],
+    },
+  },
+  {
+    id: 'bulrush',
+    identity: { commonName: 'Bulrush', scientificName: 'Typha latifolia', family: 'Typhaceae', wikipediaTitle: 'Typha latifolia' },
+    botanical: {
+      habit: 'herb', matureHeight_m: { min: 1.5, max: 3.0 }, crownShape: 'columnar',
+      leafType: 'blade', leafPhenology: 'deciduous', trunkHabit: 'single',
+      lifespanYears: { min: 3, max: 15 }, flexibility: 0.8, floweringMonths: [6, 8],
+    },
+    ecology: { biome: ['marsh', 'pond margin', 'riverbank', 'wetland'], moisture: 'wet', nativeRange: ['Northern Hemisphere wetlands'] },
+    generation: { petalTint: 0x6B4A2E },   // brown cigar-shaped seed head
+    narrative: {
+      keyFacts: ['Typha latifolia, bulrush, common cattail or reedmace, is a tall emergent marsh plant of ponds and slow water across the Northern Hemisphere, bearing a distinctive dense brown cylindrical flower/seed spike.'],
+      sources: ['Typha latifolia'],
+    },
+  },
+
+  // ─── Wetland tree (riparian canopy) ─────────────────────────────────────────
+  {
+    id: 'common-alder',
+    identity: { commonName: 'Common alder', scientificName: 'Alnus glutinosa', family: 'Betulaceae', wikipediaTitle: 'Alnus glutinosa' },
+    botanical: {
+      habit: 'tree', matureHeight_m: { min: 20, max: 30 }, crownShape: 'conical',
+      leafType: 'broadleaf', leafPhenology: 'deciduous', trunkHabit: 'single',
+      lifespanYears: { min: 60, max: 160 }, barkTexture: 'fissured dark grey-brown',
+      coppices: true, flexibility: 0.25, floweringMonths: [2, 4], fruitingMonths: [9, 11],
+    },
+    ecology: { biome: ['riverbank', 'wet woodland', 'fen carr', 'floodplain'], moisture: 'wet', nativeRange: ['Europe', 'south-west Asia', 'North Africa'] },
+    narrative: {
+      keyFacts: ['Alnus glutinosa, the common or black alder, is a deciduous tree of the birch family thriving in wet ground along rivers, ponds and marshes, fixing nitrogen through root nodules and bearing small woody cone-like fruits.'],
+      sources: ['Alnus glutinosa'],
+    },
+  },
 
   // ─── Rocks (→ rock prim) ───────────────────────────────────────────────────
   {

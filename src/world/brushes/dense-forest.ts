@@ -17,6 +17,12 @@ const DENSE_FOREST_PARAMS: import('./vegetation-placer').VegetationParams = {
   maxPerTile: 2,
   undergrowth: undergrowthOf('dense_forest'),
   openUndergrowth: 0.75,      // raised 0.25→0.75 (density pass): ferns/bramble/hazel fill clearings too
+  // TREELINE: broadleaf thins toward the upper forest fringe (see forest.ts).
+  altitude: {
+    'english-oak': { maxHeightM: 15, bandM: 6 },
+    'european-beech': { maxHeightM: 15, bandM: 6 },
+    'silver-birch': { maxHeightM: 19, bandM: 5 },
+  },
 };
 
 export function denseForestBrush(region: Region, seed: number, ctx: BrushContext): Entity[] {

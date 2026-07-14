@@ -30,18 +30,35 @@ describe('coastal brush', () => {
     expect(coastalBrush({ x: 0, y: 0, w: 2, h: 2 }, 1, c)).toEqual([]);
   });
 
-  it('only emits driftwood, shell, gorse', () => {
+  it('only emits driftwood, shell, marram-grass, gorse', () => {
     const c = ctx(Array.from({ length: 16 }, () => Array(16).fill('sand')));
-    const allowed = new Set(['driftwood', 'shell', 'gorse']);
+    const allowed = new Set(['driftwood', 'shell', 'marram-grass', 'gorse']);
     for (const e of coastalBrush({ x: 0, y: 0, w: 16, h: 16 }, 3, c)) {
       expect(allowed.has(e.kind)).toBe(true);
     }
   });
 
-  it('the waterline shrub (gorse) only appears adjacent to water tiles', () => {
-    // Inland sand block, NO water anywhere
-    const c = ctx(Array.from({ length: 8 }, () => Array(8).fill('sand')));
-    const out = coastalBrush({ x: 0, y: 0, w: 8, h: 8 }, 9, c);
-    expect(out.some(e => e.kind === 'gorse')).toBe(false);
+  it('MARRAM binds the foredune — the waterline grass only appears adjacent to water', () => {
+    // Inland sand block, NO water anywhere → no dune grass.
+    const dry = ctx(Array.from({ length: 8 }, () => Array(8).fill('sand')));
+    expect(coastalBrush({ x: 0, y: 0, w: 8, h: 8 }, 9, dry).some(e => e.kind === 'marram-grass')).toBe(false);
+
+    // A sand strip fronting water → marram appears, and only on the water-adjacent row.
+    const rows: string[][] = [];
+    for (let y = 0; y < 8; y++) rows.push(Array(8).fill(y < 6 ? 'sand' : 'shallow_water'));
+    const out = coastalBrush({ x: 0, y: 0, w: 8, h: 8 }, 9, ctx(rows));
+    const marram = out.filter(e => e.kind === 'marram-grass');
+    expect(marram.length).toBeGreaterThan(0);
+    expect(marram.every(e => Math.floor(e.y) === 5)).toBe(true);   // the row touching water
+  });
+
+  it('GORSE is demoted to the dune BACK-slope — never at the tideline', () => {
+    const rows: string[][] = [];
+    for (let y = 0; y < 12; y++) rows.push(Array(12).fill(y < 10 ? 'sand' : 'shallow_water'));
+    const out = coastalBrush({ x: 0, y: 0, w: 12, h: 12 }, 4, ctx(rows));
+    const gorse = out.filter(e => e.kind === 'gorse');
+    expect(gorse.length).toBeGreaterThan(0);
+    // Row 9 is the water-adjacent foredune: gorse must not sit there (marram does).
+    expect(gorse.every(e => Math.floor(e.y) < 9)).toBe(true);
   });
 });

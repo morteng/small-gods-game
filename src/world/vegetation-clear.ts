@@ -36,10 +36,18 @@ import { isBuilding } from '@/world/building-collision';
 import { elevationAt } from '@/world/heightfield';
 
 /**
- * Treeline: normalised elevation above which no vegetation grows — the high ground
- * is bare rock and snow (the Mountain biome begins at 0.76). Forests that a biome
- * brush draped over a massif get culled above this so a peak reads as a rocky crag,
- * not a tree-covered mound, and trees stop poking through the summit.
+ * Treeline: normalised elevation above which no TREE grows — the high ground carries
+ * no forest. Forests that a biome brush draped over a massif get culled above this so
+ * a peak reads as a rocky crag, not a tree-covered mound, and trees stop poking
+ * through the summit.
+ *
+ * It culls TREES ONLY (the `tree` tag). It used to cull every nature entity, which
+ * deleted the rocks, tussock and dwarf shrubs that make a crag read AS a crag — the
+ * alpine ground above ~17.8 m came out completely bare, and the hills brush's whole
+ * output on mountain/peak was thrown away right after it was placed (see WCV 97). The
+ * smooth, per-species thinning of the canopy as it climbs toward its ceiling now lives
+ * at PLACEMENT time (`VegetationParams.altitude`, vegetation-placer.ts); this stays as
+ * the hard backstop that guarantees no tree survives on a bare summit.
  */
 export const TREELINE_ELEV = 0.72;
 
@@ -184,10 +192,13 @@ export function clearObstructedVegetation(world: World, map: GameMap): number {
     const onBuilding = world.registry
       .getAtTile(tx, ty)
       .some((b) => b.id !== e.id && isBuilding(b));
-    // Above the treeline the ground is bare rock/snow — nothing vegetates there.
-    // (Water-placed margin rocks sit at waterline, well below it, so this never fires
-    //  for them — but exempt explicitly so the intent survives a treeline change.)
-    const aboveTreeline = !waterPlaced && elevationAt(map, tx, ty) > TREELINE_ELEV;
+    // Above the treeline no TREE grows — but rocks, tussock and the alpine dwarf shrubs
+    // do, and they are what make a summit read as a rocky crag rather than a bald dome.
+    // Culling them here (as this used to) threw away the hills brush's entire mountain/
+    // peak output the moment it was placed. (Water-placed margin rocks sit at the
+    // waterline, well below it — exempted explicitly so the intent survives a retune.)
+    const isTree = e.tags?.includes('tree') ?? false;
+    const aboveTreeline = !waterPlaced && isTree && elevationAt(map, tx, ty) > TREELINE_ELEV;
 
     if (inCorridor || onBuilding || aboveTreeline) toRemove.push(e.id);
   }

@@ -30,20 +30,47 @@ const BRUSH = 'riparian';
  *  stay put in the corridor but remain clearable under a building footprint. */
 export const WATER_PLACED_TAG = 'waterPlaced';
 
-/** Riparian canopy (willows/poplars/birch) — real species ids from the wetland pool.
- *  (The `water-biome.ts` `bankFlora` field carries descriptive labels — "willow",
- *  "reed" — not species ids, so we read the curated pool instead.) */
-const BANK_FLORA: [string, number][] = canopyOf('wetland');
-/** Ground-layer bank cover (heather today) — the wetland pool's undergrowth species.
- *  The obvious species for this role is `reeds` (`world/entity-kinds.ts`, tagged
- *  `water-adjacent`), but it's a hand-authored placeholder never wired into the
- *  parametric plant pipeline (`isPlantPreset('reeds')` is false — not a flora-DB
- *  species, not a hand plant preset — so it has NO composed sprite and would render
- *  as the bare fallback billboard, a flat colour triangle, next to real willows). We
- *  reuse the curated `wetland` undergrowth pool instead, the same real, parametrically-
- *  rendered species already used for forest/scrubland ground cover. `reeds` still
- *  needs art before it can carry this role. */
-const BANK_UNDERGROWTH: [string, number, number][] = undergrowthOf('wetland');
+/** A bank's assemblage is a FUNCTION of the adjacent dry-land biome (threaded in as
+ *  `biomes`): a temperate river gets willows/alder, a desert wash tamarisk/esparto, a
+ *  swamp reed/bulrush/sedge, a mountain brook sparse downy-birch over more boulders.
+ *  All species ids resolve to parametric flora sprites (`common-reed` etc. are real
+ *  flora-DB species now — the old `reeds` placeholder that had no composed sprite is
+ *  retired). `treeScale`/`boulderScale` modulate the immediate-bank tree + cobble/
+ *  boulder densities so a dry wash reads stony and a fen reads leafy-and-reedy. */
+interface BankAssemblage {
+  flora: [string, number][];
+  undergrowth: [string, number, number][];
+  treeScale: number;
+}
+/** Default (temperate / forest / grassland) — the original willow recipe + alder. */
+const BANK_TEMPERATE: BankAssemblage = {
+  flora: canopyOf('wetland'), undergrowth: undergrowthOf('wetland'), treeScale: 1,
+};
+const BANK_DESERT: BankAssemblage = {
+  flora: [['tamarisk', 0.6], ['esparto-grass', 0.4]],
+  undergrowth: [['esparto-grass', 0.6, 0.18], ['white-wormwood', 0.4, 0.1]],
+  treeScale: 0.6,   // a dry wash carries only a thin gallery of tamarisk
+};
+const BANK_SWAMP: BankAssemblage = {
+  flora: [['common-alder', 0.5], ['white-willow', 0.3], ['downy-birch', 0.2]],
+  undergrowth: undergrowthOf('swamp'),   // reed/bulrush/sedge heavy
+  treeScale: 1.1,                        // fen carr: leafy and reedy
+};
+const BANK_MOUNTAIN: BankAssemblage = {
+  flora: [['downy-birch', 1.0]],
+  undergrowth: [['heather', 1.0, 0.1]],
+  treeScale: 0.5,   // a mountain brook is sparse birch over stone (the stone is riffle-scored)
+};
+
+/** Resolve the bank assemblage from the adjacent dry-land biome name. */
+function bankAssemblageFor(biome: string | undefined): BankAssemblage {
+  switch (biome) {
+    case 'desert':                              return BANK_DESERT;
+    case 'swamp':                               return BANK_SWAMP;
+    case 'mountain': case 'peak': case 'ice': case 'tundra': return BANK_MOUNTAIN;
+    default:                                    return BANK_TEMPERATE;
+  }
+}
 /** In-/at-water stones (→ `rock` prim). Cobble is the common river-margin stone; the
  *  boulder is the rarer feature reserved for cells carrying real discharge. */
 const COBBLE = 'field-stone';
@@ -162,6 +189,7 @@ function place(out: Entity[], kind: string, cx: number, cy: number, s: number, s
  */
 export function buildRiparianEntities(
   hydro: HydrologyResult, width: number, height: number, seed: number,
+  biomes: string[] | null = null,
 ): Entity[] {
   const wt = hydro.waterType;
   const flow = hydro.flowField;
@@ -241,24 +269,35 @@ export function buildRiparianEntities(
           place(out, BOULDER, x, y, s + 50, lo, lo + 0.45);
         }
       } else if (wt[i] === WaterType.Dry && dist[i] >= 1 && dist[i] <= BANK_RINGS) {
-        // The bank: willows/poplars on the immediate edge, sparser set back; loose
-        // cobbles + the odd boulder on the exposed near shore.
-        const treeDensity = dist[i] === 1 ? BANK_TREE_DENSITY_1 : BANK_TREE_DENSITY_2;
+        // The bank assemblage is chosen from THIS cell's own (dry-land) biome: willows/
+        // alder on a temperate river, tamarisk on a desert wash, reeds in a swamp, sparse
+        // birch + boulders on a mountain brook. Trees on the immediate edge, sparser set
+        // back; loose cobbles + the odd boulder on the exposed near shore.
+        const asm = bankAssemblageFor(biomes?.[i]);
+        const treeDensity = (dist[i] === 1 ? BANK_TREE_DENSITY_1 : BANK_TREE_DENSITY_2) * asm.treeScale;
         if (hash01(x, y, s + 1) < treeDensity) {
-          place(out, pickWeighted(hash01(x, y, s + 6), BANK_FLORA), x, y, s, 0.85, 1.15);
-        } else if (dist[i] === 1 && hash01(x, y, s + 2) < BANK_COBBLE_DENSITY) {
+          place(out, pickWeighted(hash01(x, y, s + 6), asm.flora), x, y, s, 0.85, 1.15);
+        }
+        // INVARIANT — the STONE rolls stay a pure function of (hydrology, seed): they are
+        // rolled INDEPENDENTLY of the biome-dependent tree roll above (never chained off
+        // it) and carry no biome scale. `boulder-deformation.ts` re-derives this scatter
+        // WITHOUT the biome map to settle each big bank boulder into its own level pad, so
+        // the two derivations must agree on the boulder set exactly. (Bouldery mountain
+        // reaches come from the in-water RIFFLE score, which is terrain-driven already.)
+        if (dist[i] === 1 && hash01(x, y, s + 2) < BANK_COBBLE_DENSITY) {
           place(out, COBBLE, x, y, s + 70, 0.45, 0.8);
-        } else if (dist[i] === 1 && hash01(x, y, s + 8) < BANK_BOULDER_DENSITY) {
+        }
+        if (dist[i] === 1 && hash01(x, y, s + 8) < BANK_BOULDER_DENSITY) {
           place(out, BOULDER, x, y, s + 90, 0.6, 1.0);
         }
         // Ground-layer bank cover: rolled INDEPENDENTLY of the tree/cobble/boulder pick
-        // above (see BANK_UNDERGROWTH) so a cell can carry both a willow AND a heather
-        // clump — the immediate margin reads dense and lush, the set-back ring sparser.
-        if (BANK_UNDERGROWTH.length > 0) {
+        // above so a cell can carry both a willow AND a reed/heather clump — the immediate
+        // margin reads dense and lush, the set-back ring sparser.
+        if (asm.undergrowth.length > 0) {
           const groundDensity = dist[i] === 1 ? BANK_GROUND_DENSITY_1 : BANK_GROUND_DENSITY_2;
           const gRng = hash01(x, y, s + 12);
           if (gRng < groundDensity) {
-            const kind = pickWeighted(hash01(x, y, s + 13), BANK_UNDERGROWTH.map(([k, w]) => [k, w] as [string, number]));
+            const kind = pickWeighted(hash01(x, y, s + 13), asm.undergrowth.map(([k, w]) => [k, w] as [string, number]));
             place(out, kind, x, y, s + 110, 0.55, 0.85);
           }
         }
