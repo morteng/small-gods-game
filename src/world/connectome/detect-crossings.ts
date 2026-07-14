@@ -199,6 +199,12 @@ export function detectCrossings(graph: RoadGraph | undefined, width: number, opt
     const onRender = opts.bridgeAt ? pts.map((p) => opts.bridgeAt!(Math.floor(p.x), Math.floor(p.y))) : null;
 
     let i = 0, run = 0;
+    // Openings already emitted on THIS edge. Two raster runs a few tiles apart (a braided channel,
+    // or the walker bridging the same water twice at a bend) both scan the SAME visible channel —
+    // `banksOnRibbon` pads its scan window ±RIBBON_SCAN_PAD_TILES — and resolve to the SAME opening.
+    // Emitting both stacked two identical decks on one crossing (z-fighting slabs). The opening IS
+    // the crossing's identity: one opening, one spec.
+    const seenOpenings = new Set<string>();
     while (i < pts.length) {
       if (!onBridge[i]) { i++; continue; }
       let s = i;
@@ -248,6 +254,11 @@ export function detectCrossings(graph: RoadGraph | undefined, width: number, opt
           axis = [rx / rl, ry / rl];
           spanTiles = Math.max(1, Math.round(len));
         }
+      }
+      if (bankCells) {
+        const k = `${bankCells[0]}|${bankCells[1]}`;
+        if (seenOpenings.has(k)) continue;   // same opening as an earlier run — one crossing, not two
+        seenOpenings.add(k);
       }
       // Legacy / no render-water signal: seat both abutments on land by snapping each raw bank
       // outward from the crossing midpoint (the pre-ribbon behaviour, byte-identical).

@@ -26,7 +26,9 @@ import { METRES_PER_TILE, PX_PER_METRE } from '@/render/scale-contract';
 import { detectCrossings, type CrossingSiteParams, type DetectOptions } from './detect-crossings';
 import { buildCrossing, type CrossingSpec } from './crossing-builder';
 import { realizeCrossing } from './realize-crossing';
+import { edgeIdOf } from './crossing-openings';
 import { bridgeClassFor, archStylesFor, type BridgeClass } from './buildability-envelope';
+import type { SurfaceMaterial } from '@/world/road-state';
 
 /** Crossing structure kind → an existing building preset to grey-mass it with (until a
  *  dedicated bridge/booth blueprint family lands). Closest-available shapes for v0. */
@@ -56,6 +58,14 @@ const ROAD_RANK_B: Record<CrossingSpec['roadClass'], number> = { path: 0, track:
  *  0.7 m default) so the voussoir ring reads as substantial masonry, matching the TTI reference.
  *  Passed to each arch AND used to seat the deck (`riseM + this` = crown), so the two stay in sync. */
 const ARCH_RING_M = 0.9;
+/** Ceiling on a span's bank→bed clearance (m). This is the BUILDABLE ENVELOPE of the parts the
+ *  bridge is made of — `abutment.heightM` and `arch_span.riseM` (+ ARCH_RING_M) both top out at
+ *  20 m — so it is exactly as tall as a bridge can be composed, and no taller. It used to be 12,
+ *  which is BELOW that envelope for no reason: a crossing deeper than 12 m had its deck clamped
+ *  short of its own bank and buried in the hillside, the same failure the raw-heightfield sampling
+ *  produced. (No crossing on the probe seeds comes near either figure — the deepest real clearance
+ *  is ~2 m — so this only removes a latent trap in mountain terrain.) */
+const MAX_CLEARANCE_M = 20;
 /** One masonry arch per this many tiles of clear span (a packhorse over a brook = 1). */
 const TILES_PER_ARCH = 3.5;
 
@@ -72,17 +82,27 @@ function clearanceMetresForScreen(dropNorm: number, reliefM: number, zPxPerM: nu
  */
 export function buildBridgeObject(spec: CrossingSpec, opts: SpanEntityOptions = {}): Entity | undefined {
   ensureBuildingTypesRegistered();
-  const banks = spec.banks;
+  // The deck seats on the SHARED OPENING when the detector could seat one (`bankCells` — the two
+  // cells the drawn ribbon last stands on either side of the VISIBLE channel), and falls back to
+  // the raw walker banks when it declined. The fallback is NOT a nicety: those crossings are real
+  // road×water claims the world must resolve (`claims.unresolved` / `road.on-water`), so refusing
+  // to bridge them leaves the road fording open water. What the fallback CANNOT do is promise the
+  // deck lands on the drawn ribbon — `banksOnRibbon` declines precisely when the drawn road does
+  // not cross dry-to-dry there, which on both probe seeds is always a road NODE sited IN the water
+  // (the ribbon ends mid-channel). Those spans are seated as well as the raw line allows and
+  // reported by the caller; the real repair is upstream, in where the road router puts its nodes.
+  const banks = spec.bankCells
+    ? [{ x: spec.bankCells[0][0], y: spec.bankCells[0][1] }, { x: spec.bankCells[1][0], y: spec.bankCells[1][1] }] as const
+    : spec.banks;
   if (!banks) return undefined;
   const [b0, b1] = banks;
   const mid = { x: (b0.x + b1.x) / 2, y: (b0.y + b1.y) / 2 };
   const spanLen = Math.hypot(b1.x - b0.x, b1.y - b0.y);   // clear span, tiles
   if (spanLen < 0.5) return undefined;
-  // The deck lies along the THREADED ROAD, not along the chord of two raster-snapped points. The
-  // banks used to be snapped outward independently (each up to 4 tiles, along its own away-from-
-  // midpoint direction), so their chord could sit tens of degrees off the road that crosses there
-  // — the deck read as a diagonal slab under a perpendicular road. `spec.axis` is the smoothed
-  // centreline's own secant across the channel; falls back to the bank chord for legacy callers.
+  // The deck lies along the THREADED ROAD: `spec.axis` is the smoothed centreline's own secant
+  // across the channel, not the chord of two independently-snapped raster points (which a bend
+  // rotated into a diagonal slab under a perpendicular road). Only a declined crossing (no axis)
+  // falls back to that chord.
   const yawDeg = spec.axis
     ? (Math.atan2(spec.axis[1], spec.axis[0]) * 180) / Math.PI
     : (Math.atan2(b1.y - b0.y, b1.x - b0.x) * 180) / Math.PI;
@@ -103,7 +123,7 @@ export function buildBridgeObject(spec: CrossingSpec, opts: SpanEntityOptions = 
   if (de) {
     const bankRE = Math.max(de(Math.round(b0.x), Math.round(b0.y)), de(Math.round(b1.x), Math.round(b1.y)));
     const bedRE = de(Math.round(mid.x), Math.round(mid.y));
-    clearZM = Math.min(12, Math.max(1.2, clearanceMetresForScreen(bankRE - bedRE, reliefM, zPxPerM) + 0.6));
+    clearZM = Math.min(MAX_CLEARANCE_M, Math.max(1.2, clearanceMetresForScreen(bankRE - bedRE, reliefM, zPxPerM) + 0.6));
     liftElev = bedRE;
   } else {
     clearZM = Math.min(8, Math.max(1.2, spanLen * 0.5 * (zPxPerM / PX_PER_METRE)));
@@ -120,12 +140,21 @@ export function buildBridgeObject(spec: CrossingSpec, opts: SpanEntityOptions = 
   const ox = Math.round(mid.x - fpW / 2), oy = Math.round(mid.y - fpH / 2);
   const cxL = mid.x - ox, cyL = mid.y - oy;   // crossing midpoint in footprint-local tiles
 
+  // THE DECK CARRIES THE ROAD. The terrain pavedness pass deliberately stops the painted ribbon at
+  // the banks (over the span the ground under the deck is the carved CHANNEL BED — painting cobble
+  // on it smears road colour down the channel walls, under the water plane, metres below the deck).
+  // So the running surface across the water has to be ON the deck, or the road simply STOPS at the
+  // river and a bare stone slab crosses it — which is exactly what shipped. The roadway course is
+  // the SAME `RoadState.surfaceMaterial` the ribbon paints with (resolved by the caller from
+  // `edgeRoadProfile`), so the cobble that arrives at the bank is the cobble that crosses.
+  const roadway = opts.roadSurfaceFor?.(edgeIdOf(spec.id));
   const parts: Record<string, NonNullable<Blueprint['parts']>[string]> = {
     deck: {
       type: 'deck', at: { x: cxL - fpW / 2, y: cyL - fpH / 2 }, size: { w: fpW, h: fpH },
       params: {
         lengthM: lengthT * METRES_PER_TILE, widthM: widthT * METRES_PER_TILE, thicknessM: 0.6,
         yawDeg, parapet: widthT >= 1 ? 'both' : 'none', baseZM: clearZM, camberM,
+        ...(roadway ? { roadway } : {}),
       },
     },
   };
@@ -193,8 +222,19 @@ export function buildBridgeObject(spec: CrossingSpec, opts: SpanEntityOptions = 
 /** Elevation context for the bridge object — deck rides the banks, supports reach the bed. */
 export interface SpanEntityOptions {
   /** Normalised terrain elevation (renderer lift space) at a tile — bank & bed sampled so the
-   *  deck seats on the banks and the supports span the real clearance. Omitted ⇒ span-proxy. */
+   *  deck seats on the banks and the supports span the real clearance. Omitted ⇒ span-proxy.
+   *
+   *  MUST sample the COMPOSED heightfield (base ⊕ river incision ⊕ road cuts — `heightField`, the
+   *  field the renderer actually lifts terrain by). Sampled from the RAW seed heightfield this
+   *  reads a bank-to-bed drop of ~ZERO, because the river channel is a DEFORMATION and simply
+   *  isn't in the raw field: every clearance collapsed onto the 1.2 m floor and decks landed
+   *  anywhere from 42 px below their bank to 57 px above it. */
   deckElevAt?: (x: number, y: number) => number;
+  /** The running surface the road carries across this span, by road-edge id — the SAME
+   *  `RoadState.surfaceMaterial` the painted ribbon uses (`edgeRoadProfile(...).state`). The deck
+   *  lays it as its roadway course, so the road that arrives at the bank is the road that crosses.
+   *  Omitted ⇒ a bare structural deck (the pre-roadway look). */
+  roadSurfaceFor?: (edgeId: string) => SurfaceMaterial | undefined;
   /** Metres per normalised elevation unit (`worldStyle.mountainRelief`). */
   reliefM?: number;
   /** Terrain vertical exaggeration (`worldStyle.terrainVerticalExaggeration`) — reconciles the
@@ -213,9 +253,17 @@ export function buildCrossingSpanEntities(spec: CrossingSpec, opts: SpanEntityOp
   return e ? [e] : [];
 }
 
-export interface CrossingStructureOptions extends DetectOptions {
+export interface CrossingStructureOptions extends DetectOptions, SpanEntityOptions {
   /** Site params when the detector has no resolver — defaults to a modest late-medieval site. */
   defaults?: CrossingSiteParams;
+  /** Pre-detected specs — pass them when the caller has already run `detectCrossings` and wants
+   *  the SAME crossings realized (worldgen sites the ancillaries early, on the road-carved tiles,
+   *  but must defer the SPAN until the composed heightfield is final). Omitted ⇒ detect here. */
+  specs?: CrossingSpec[];
+  /** Build the span (the bridge object) too. Default true. Worldgen sets false and builds the
+   *  spans itself once the terrain is final — a deck's whole geometry is a function of the
+   *  bank→bed clearance, which isn't knowable until the river carve is composed in. */
+  withSpan?: boolean;
   /** Normalised terrain elevation (renderer lift space) at a tile — used to ride a bridge
    *  deck on its bank height over the water. Omitted ⇒ decks foot-sample (sink) — callers
    *  that want correct deck height must supply a sampler matching the terrain `heights` buffer. */
@@ -290,7 +338,8 @@ export function buildCrossingStructureEntities(
   ensureBuildingTypesRegistered();   // inline deck/pier blueprints resolve directly (a bare
                                      // footbridge never calls synthesizeBlueprint to trigger it)
   const defaults = opts.defaults ?? { era: 'late-medieval', prosperity: 'modest' };
-  const specs = detectCrossings(graph, width, { siteParamsAt: opts.siteParamsAt, defaults, isWater: opts.isWater, bridgeAt: opts.bridgeAt });
+  const specs = opts.specs
+    ?? detectCrossings(graph, width, { siteParamsAt: opts.siteParamsAt, defaults, isWater: opts.isWater, bridgeAt: opts.bridgeAt });
   const out: Entity[] = [];
   // Cells claimed by crossing buildings placed earlier in THIS batch — they aren't in the
   // world yet, so the caller's `cellBlocked` can't see them; this stops two crossing
@@ -300,8 +349,10 @@ export function buildCrossingStructureEntities(
     const placements = realizeCrossing(buildCrossing(spec));
     // The span itself is ONE coherent bridge object (same seam annexed town bridges use);
     // the ancillary buildings (toll/mill/gatehouse) are placed from the realized placements below.
-    const bridge = buildBridgeObject(spec, opts);
-    if (bridge) out.push(bridge);
+    if (opts.withSpan !== false) {
+      const bridge = buildBridgeObject(spec, opts);
+      if (bridge) out.push(bridge);
+    }
     for (const p of placements) {
       if (p.category !== 'building') continue;
       const preset = PRESET_FOR[p.kind] ?? FALLBACK_PRESET;

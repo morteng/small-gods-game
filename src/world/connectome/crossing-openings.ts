@@ -34,8 +34,10 @@ export interface CrossingOpening {
 
 const cache = new WeakMap<object, CrossingOpening[]>();
 
-/** The edge id a crossing spec belongs to (`crossing@<edgeId>#<n>`). */
-function edgeIdOf(specId: string): string {
+/** The edge id a crossing spec belongs to (`crossing@<edgeId>#<n>`). Exported so the deck siter
+ *  reads the crossing's road from the SAME parse — a bridge's running surface must be the surface
+ *  of the road it carries, and that road is named in the spec id. */
+export function edgeIdOf(specId: string): string {
   const at = specId.indexOf('@');
   const hash = specId.lastIndexOf('#');
   return at >= 0 && hash > at ? specId.slice(at + 1, hash) : '';

@@ -38,7 +38,9 @@ import { erodeElevation } from '@/terrain/erosion';
 import { placeSettlement } from '@/world/building-placer';
 import { stampFarmland } from '@/world/farmland';
 import { stampIrrigation } from '@/world/irrigation';
-import { buildCrossingStructureEntities } from '@/world/connectome/crossing-structures';
+import { buildCrossingStructureEntities, buildBridgeObject } from '@/world/connectome/crossing-structures';
+import { detectCrossings } from '@/world/connectome/detect-crossings';
+import type { CrossingSpec } from '@/world/connectome/crossing-builder';
 import { buildRoadOccupancyMaskUncached } from '@/world/road-occupancy-mask';
 import { deriveBuiltJunctions } from '@/world/junction-artifacts';
 import { collectStairPorts, placeStairsFromLinks } from '@/world/connectome/stair-structures';
@@ -53,7 +55,7 @@ import { buildWaterNetwork, referenceFlow, reachHalfWidths } from '@/terrain/riv
  */
 const EMIT_AQUEDUCTS = false;
 import { REACH_CARVE } from '@/world/river-deformation';
-import { getComposedHeightfield, reconcileFilletRaster } from '@/world/road-deformation';
+import { getComposedHeightfield, reconcileFilletRaster, edgeRoadProfile } from '@/world/road-deformation';
 import { getRenderWaterMask } from '@/world/render-water';
 import { styledRiverFlowThreshold } from '@/terrain/hydrology';
 import { getHeightfield, ELEVATION_SEA_LEVEL } from '@/world/heightfield';
@@ -395,6 +397,9 @@ export async function generateWithNoise(
   // sweep harness (scripts/stitch-sweep.ts) can assert zero without log scraping.
   const gateStitches: NonNullable<GameMap['stats']['gateStitches']> = [];
   let roadGraph: RoadGraph | undefined;
+  // The road×water crossings, detected once in the road pass and realized in two stages (ancillary
+  // structures there, spans after the composed heightfield is final — see the crossing pass below).
+  let crossingSpecs: CrossingSpec[] = [];
   if (worldSeed?.connections) {
     await report('Carving road connections...');
     // Village greens are protected open commons — inter-POI roads thread AROUND
@@ -531,7 +536,18 @@ export async function generateWithNoise(
     // would poison the final map's identically-keyed cache slot the renderer reads.
     const crossingRoadRibbon = buildRoadOccupancyMaskUncached(
       { tiles, width, height, seed, worldSeed, roadGraph, barrierRuns } as GameMap);
+    // Detect ONCE and realize in two stages. The ancillary structures (toll/guard/mill) need the
+    // road-carved tiles that exist HERE; the SPAN needs the COMPOSED heightfield (base ⊕ river
+    // incision ⊕ road cuts), which is only final after the fillet↔raster reconciliation below —
+    // and a deck's entire geometry is a function of the bank→bed clearance it reads there. So the
+    // spans are built later, from these same specs (`buildCrossingSpans`, after the reconcile).
+    crossingSpecs = detectCrossings(roadGraph, width, {
+      isWater: renderWaterAt, bridgeAt: renderWaterAt,
+      defaults: { era: 'late-medieval', prosperity: 'modest' },
+    });
     for (const e of buildCrossingStructureEntities(roadGraph, width, {
+      specs: crossingSpecs,
+      withSpan: false,
       deckElevAt,
       // A wet bank anchor (a channel wider than the detected bridge run, OR a meander that shifted
       // the visible ribbon off the thin raster line) snaps outward to dry ground so the deck seats
@@ -717,6 +733,51 @@ export async function generateWithNoise(
   const filletSpans = reconcileFilletRaster(map, world);
   const filletWrites = filletSpans.reduce((a, s) => a + s.cellsWritten, 0);
   if (filletWrites > 0) await report(`Reconciled ${filletWrites} road tiles under filleted approaches`);
+
+  // BRIDGE SPANS — built HERE, on the FINAL terrain. A deck's whole geometry is its bank→bed
+  // clearance: the arches spring from the bed, the deck rides their crowns, the abutments land on
+  // the banks. That clearance lives in the COMPOSED heightfield (base ⊕ river incision ⊕ road cuts
+  // — what the renderer lifts terrain by), NOT in the raw seed heightfield, which has no channel in
+  // it at all: sampled raw, every bank→bed drop read ~0, every clearance collapsed onto the 1.2 m
+  // floor, and decks landed 42 px BELOW their bank (buried) to 57 px ABOVE it (floating). The
+  // reconcile above bumps `roadGraph.rev`, so the composed field is correctly re-derived here.
+  if (roadGraph && crossingSpecs.length) {
+    await report('Raising bridge spans...');
+    const spanComposed = getComposedHeightfield(map);
+    const spanStyle = worldStyleOf(worldSeed ?? undefined);
+    const spanElevAt = (x: number, y: number): number =>
+      curveRenderElev(spanComposed[Math.round(y) * width + Math.round(x)] ?? ELEVATION_SEA_LEVEL,
+        ELEVATION_SEA_LEVEL, spanStyle.terrainHeightGamma);
+    // The deck's roadway is the road's OWN surface — read from the same `edgeRoadProfile` the
+    // painted ribbon derives its pavedness from, so cobble arriving at the bank crosses as cobble.
+    const spanNodeById = new Map(roadGraph.nodes.map((n) => [n.id, n]));
+    const spanPoiById = new Map((worldSeed?.pois ?? []).map((p) => [p.id, p]));
+    let spans = 0;
+    for (const spec of crossingSpecs) {
+      const e = buildBridgeObject(spec, {
+        deckElevAt: spanElevAt,
+        reliefM: spanStyle.mountainRelief,
+        zPxPerM: spanStyle.terrainVerticalExaggeration,
+        roadSurfaceFor: (edgeId) => {
+          const edge = roadGraph!.edges.find((x) => x.id === edgeId);
+          return edge ? edgeRoadProfile(map, edge, spanNodeById, spanPoiById)?.state.surfaceMaterial : undefined;
+        },
+      });
+      if (e) { world.addEntity(e); spans++; }
+    }
+    // A crossing whose ribbon could not be seated still gets a deck — the road really does cross
+    // water there and the world must resolve that claim — but it is seated from the RAW walker
+    // line, so it is NOT guaranteed to sit on the drawn ribbon. On both probe seeds every one of
+    // these is a road NODE sited in render water (the ribbon ends mid-channel, so no far bank
+    // exists to seat against). Name them: the repair belongs upstream, in road-node siting, and
+    // silence here is what let a 20-tile span down a road running into the sea look intentional.
+    const declined = crossingSpecs.filter((s) => !s.bankCells).length;
+    if (declined > 0) {
+      console.warn(`[worldgen] ${declined}/${crossingSpecs.length} crossing(s) have NO ribbon-seated opening — their decks `
+        + `fall back to the raw walker line and may not sit on the drawn road (a road NODE sited in the water)`);
+    }
+    if (spans > 0) await report(`Raised ${spans} bridge span${spans === 1 ? '' : 's'}`);
+  }
 
   // Settlement wear: PREWARM the desire-line trample grid from authored
   // roads/markets — realises the initial worn dirt lanes AND leaves the wear

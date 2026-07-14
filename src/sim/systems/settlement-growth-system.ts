@@ -20,9 +20,8 @@ import { GAME_HOUR_HZ, perCheckFromPerDay } from '@/core/calendar';
 import { WATER_TYPES } from '@/core/constants';
 import { bumpTilesRev } from '@/core/tile-rev';
 import { worldStyleOf } from '@/core/world-style';
-import { getHeightfield, ELEVATION_SEA_LEVEL } from '@/world/heightfield';
-import { styledIslandSpec } from '@/terrain/island-mask';
-import { styledShapeSpec } from '@/terrain/terrain-shape';
+import { ELEVATION_SEA_LEVEL } from '@/world/heightfield';
+import { getComposedHeightfield } from '@/world/road-deformation';
 import { curveRenderElev } from '@/render/gpu/terrain-field';
 import { buildCrossingSpanEntities } from '@/world/connectome/crossing-structures';
 import type { CrossingSpec } from '@/world/connectome/crossing-builder';
@@ -409,11 +408,18 @@ function spawnAnnexBridgeStructure(
     id: `${plan.poiId}_annexbridge_${first.x}_${first.y}`,
     waterRef: 'parcel_crossing', spanTiles: Math.max(1, m + 1),
     roadClass: 'road', era, prosperity: 'modest', banks,
+    // The annex KNOWS its opening exactly — the parcel's own bridge run, flanked by the two dry
+    // cells either side along the crossing axis. Declaring it (rather than leaving the deck siter
+    // to re-derive one) is what lets `buildBridgeObject` demand a shared opening of every producer.
+    bankCells: [[banks[0].x, banks[0].y], [banks[1].x, banks[1].y]],
+    axis: [ux, uy],
   };
   const { width, height } = map;
-  const hf = getHeightfield(map.seed, width, height,
-    styledIslandSpec(map.worldSeed) ?? null, map.worldSeed?.pois ?? null, styledShapeSpec(map.worldSeed));
   const style = worldStyleOf(map.worldSeed ?? undefined);
+  // The COMPOSED heightfield (base ⊕ river incision ⊕ road cuts) — the ground the renderer lifts
+  // terrain by. The raw seed field carries no channel, so a deck sized against it reads a bank→bed
+  // drop of ~0 and lands on the clearance floor instead of on its banks.
+  const hf = getComposedHeightfield(map);
   for (const e of buildCrossingSpanEntities(spec, {
     deckElevAt: (x, y) => curveRenderElev(hf[y * width + x] ?? ELEVATION_SEA_LEVEL, ELEVATION_SEA_LEVEL, style.terrainHeightGamma),
     reliefM: style.mountainRelief,
