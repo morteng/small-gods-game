@@ -70,6 +70,11 @@ export const DEFAULT_RULES: readonly SnapRule[] = [
   // look at each other along the climb) + `requireSamePair` (only the same run's two ports) +
   // maxGap ≥ the run cap (MAX_FLIGHT_RUN_TILES) pins each foot to its own head.
   { a: 'stair_anchor', b: 'stair_anchor', maxGap: 4.5, facing: 'oppose', relation: 'spans', requireSamePair: true },
+  // A gate opening's inner + outer ports (place-barrier emits the pair 1 tile either side of the
+  // shared opening cell, along the outward ring normal). `oppose` (outer faces out, inner faces
+  // in) + `requireSamePair` pins each opening's two ports to each other; maxGap covers the exact
+  // 2-tile separation with rounding slack.
+  { a: 'gate_anchor', b: 'gate_anchor', maxGap: 2.5, facing: 'oppose', relation: 'spans', requireSamePair: true },
 ];
 
 const COS_TOL = 0.25; // ~75° cone — generous; placement already roughly aligns these.

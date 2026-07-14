@@ -33,7 +33,7 @@ import { toAnchors } from '@/blueprint/compile/to-anchors';
 import { orientationForFacing, rotateFootprint, rotateCell, type Orientation } from '@/blueprint/orientation';
 import { wheelWaterOrientation, wheelOrientationForFace } from '@/blueprint/wheel-orientation';
 import { placeBarrier } from '@/world/place-barrier';
-import { barrierFootprintTiles, gatePoint, type PlacedBarrier } from '@/world/barrier';
+import { barrierFootprintTiles, gateOpeningCell, type PlacedBarrier } from '@/world/barrier';
 import { isBuilding as isBuildingEntity, tileBlockedByBuilding } from '@/world/building-collision';
 import { OccupancyGrid, buildingSolidCells } from '@/world/occupancy-grid';
 import { buildingVisualCells } from '@/blueprint/footprint';
@@ -1033,8 +1033,9 @@ export function placeSettlement(
           const missed: typeof pending = [];
           let progressed = false;
           for (const g of pending) {
-            const [gxf, gyf] = gatePoint(ring.run, g);
-            const gx = Math.round(gxf), gy = Math.round(gyf);
+            // THE shared opening cell — the same cell the approach waypoint / contract /
+            // stitch read, so the connector grows the street from where they will look.
+            const [gx, gy] = gateOpeningCell(ring.run, g);
             const carved = carveGateStreetConnector(gx, gy, isStreet, blockedForConnector);
             // Connected iff the gate cell has a street on a 4-neighbour (or is being joined now).
             const joined = carved.length > 0

@@ -21,6 +21,7 @@
 import type { GameMap } from '@/core/types';
 import { WATER_TYPES } from '@/core/constants';
 import { edgeRoadProfile } from '@/world/road-deformation';
+import { getRenderWaterMask } from '@/world/render-water';
 import type { SurfaceMaterial } from '@/world/road-state';
 
 /** Floats per segment in the packed buffer: ax,ay,bx,by,halfA,halfB,surfA,surfB
@@ -164,6 +165,11 @@ export function buildRoadFeatureGeometry(map: GameMap): RoadFeatureGeometry {
     // must never mutate tiles.
     const nodeById = new Map(graph.nodes.map((nd) => [nd.id, nd]));
     const poiById = new Map((map.worldSeed?.pois ?? []).map((p) => [p.id, p]));
+    // The water the player SEES — NOT the tile raster. Roads carve 'bridge'/'dirt_road' straight
+    // over the channel and the drawn river meanders up to a tile off the D8 line the tiles were
+    // classified from, so a tile-only test kept painting cobble across open water at exactly the
+    // crossing (the "road runs over the river" bug). The road yields to the VISIBLE channel.
+    const wet = getRenderWaterMask(map);
     for (const edge of graph.edges) {
       const profile = edgeRoadProfile(map, edge, nodeById, poiById);
       if (!profile) continue;
@@ -177,8 +183,9 @@ export function buildRoadFeatureGeometry(map: GameMap): RoadFeatureGeometry {
         // The ribbon STOPS AT THE BANKS: over a crossing the parametric deck entity IS the
         // running surface — painting pavedness under it double-drew the span and smeared
         // road colour down the carved channel walls beside the deck sprite.
-        const mt = map.tiles?.[Math.round((a.y + b.y) / 2)]?.[Math.round((a.x + b.x) / 2)]?.type ?? '';
-        if (mt === 'bridge' || WATER_TYPES.has(mt)) continue;
+        const mx = Math.round((a.x + b.x) / 2), my = Math.round((a.y + b.y) / 2);
+        const mt = map.tiles?.[my]?.[mx]?.type ?? '';
+        if (mt === 'bridge' || WATER_TYPES.has(mt) || wet(mx, my)) continue;
         segs.push({ ax: a.x, ay: a.y, bx: b.x, by: b.y, halfA: half, halfB: half, surfA: paved, surfB: paved, reach });
       }
     }

@@ -33,6 +33,16 @@ export interface CrossingSpec {
   biome?: string;
   /** Optional bank anchors [near, far] for placement. */
   banks?: [{ x: number; y: number }, { x: number; y: number }];
+  /** THE shared opening: the two integer bank CELLS where the SMOOTHED road ribbon last stands on
+   *  dry ground either side of the visible channel. Rounded ONCE (in `detectCrossings`) and shared
+   *  by the deck siting, the ribbon pin (`pinBankOpenings`), the raster reconciliation and the
+   *  `bridge.seating` lint — the crossing analogue of a gate's `gateOpeningCell`. Absent when the
+   *  detector had no render-water signal (legacy callers) ⇒ consumers fall back to `banks`. */
+  bankCells?: [[number, number], [number, number]];
+  /** Unit direction of the THREADED road (the smoothed centreline's secant) across the crossing,
+   *  bank-a → bank-b. The deck's yaw comes from THIS, not from the chord of two independently
+   *  snapped raster points — that chord is what rotated the deck diagonally off the road. */
+  axis?: [number, number];
 }
 
 // Ordinal ranks for the open-vocabulary params (unknown → a sensible middle/low).
@@ -124,6 +134,9 @@ export function buildCrossing(spec: CrossingSpec): WorldNode {
       era: spec.era, prosperity: spec.prosperity,
       ...(spec.style ? { style: spec.style } : {}),
       ...(spec.biome ? { biome: spec.biome } : {}),
+      // The threaded road's direction across the water — `realizeCrossing` lays the deck, piers
+      // and apron structures out along THIS rather than re-deriving a chord from the bank anchors.
+      ...(spec.axis ? { axisX: spec.axis[0], axisY: spec.axis[1] } : {}),
       importance,
     },
     relations: [{ kind: 'spans', to: spec.waterRef }],

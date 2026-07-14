@@ -1,7 +1,7 @@
 // src/world/place-barrier.ts
 import type { World } from '@/world/world';
 import type { Entity, EntityId } from '@/core/types';
-import { barrierFootprintTiles, type BarrierRun } from '@/world/barrier';
+import { barrierFootprintTiles, gateOpeningCell, type BarrierRun } from '@/world/barrier';
 import { tileBlockedByBuilding } from '@/world/building-collision';
 import { blueprintOf } from '@/blueprint/entity';
 import { buildingVisualCells } from '@/blueprint/footprint';
@@ -74,15 +74,33 @@ export function placeBarrier(world: World, run: BarrierRun, id?: string): Entity
     anchors.push({ kind: 'wall_end', x: path[last][0], y: path[last][1], facing: [fex, fey] });
   }
 
-  // Gate anchors: world point at distance g.t, facing perpendicular to the local segment.
+  const finalId = id ?? `barrier_${run.kind}_${Math.round(cx)}_${Math.round(cy)}_${run.path.length}`;
+
+  // Gate anchors — REAL gates only (a `kind:'gap'` waterfront/building opening is absence of
+  // wall, not a portal; emitting anchors for gaps made the links untrustworthy). Facing is the
+  // ring normal ORIENTED OUTWARD when the run declares its inside (`centroid`) — the raw
+  // `[-uy, ux]` pointed inward for half the gates, so the `facing:'toward'` gate→road rule
+  // silently dropped them. Each gate also emits a `gate_anchor` inner+outer port PAIR (the
+  // stair-anchor pattern: shared `pair` key + `requireSamePair` rule) 1 tile either side of THE
+  // shared opening cell (`gateOpeningCell`), so a road threading the opening is a graph match.
   for (const g of run.gates) {
+    if (g.kind === 'gap') continue;
     const [gx, gy] = pointAt(path, g.t);
     const [a, b] = segmentAt(path, g.t);
     const [ux, uy] = unit(a[0], a[1], b[0], b[1]); // along-segment unit
-    anchors.push({ kind: 'gate', x: gx, y: gy, facing: [-uy, ux], width: g.width });
+    let nx = -uy, ny = ux;                          // a ring normal
+    if (run.centroid) {
+      const [rcx, rcy] = run.centroid;
+      if (nx * (gx - rcx) + ny * (gy - rcy) < 0) { nx = -nx; ny = -ny; }   // OUTWARD
+    }
+    anchors.push({ kind: 'gate', x: gx, y: gy, facing: [nx, ny], width: g.width, ownerId: finalId });
+    const [ox, oy] = gateOpeningCell(run, g);
+    const pair = `${finalId}:gate:${g.t}`;
+    anchors.push({ kind: 'gate_anchor', x: ox + nx, y: oy + ny, facing: [nx, ny], width: g.width,
+      ownerId: finalId, id: `${pair}:outer`, pair, tags: ['outer'] });
+    anchors.push({ kind: 'gate_anchor', x: ox - nx, y: oy - ny, facing: [-nx, -ny], width: g.width,
+      ownerId: finalId, id: `${pair}:inner`, pair, tags: ['inner'] });
   }
-
-  const finalId = id ?? `barrier_${run.kind}_${Math.round(cx)}_${Math.round(cy)}_${run.path.length}`;
 
   const entity: Entity = {
     id: finalId,

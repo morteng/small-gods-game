@@ -48,6 +48,7 @@ import { getHydrologyResult } from '@/world/hydrology-store';
 import { smoothCenterline, type Pt } from '@/terrain/road-centerline';
 import { filletApproach } from '@/world/anchor-fillet';
 import { realGateProfiles, gateApproachPlan, type GateApproachProfile } from '@/world/connectome/gate-approach';
+import { crossingOpeningsForEdge, deckCellKeys, type CrossingOpening } from '@/world/connectome/crossing-openings';
 import { tileBlockedByBuilding } from '@/world/building-collision';
 import type { World } from '@/world/world';
 import type { Anchor } from '@/world/anchors';
@@ -227,7 +228,7 @@ export interface EdgeRoadProfile {
 /** A road/street approach target: the point it must arrive at + the OUTWARD normal of the
  *  thing it arrives at (a gate's wall normal, or a building door/frontage facing). Gate
  *  profiles and building-anchor profiles share this shape. */
-type ApproachProfile = GateApproachProfile;
+type ApproachProfile = Pick<GateApproachProfile, 'x' | 'y' | 'facing'>;
 
 const gateProfileCache = new WeakMap<object, GateApproachProfile[]>();
 function gateProfilesFor(map: GameMap): GateApproachProfile[] {
@@ -293,6 +294,121 @@ function filletEndOntoProfile(line: Pt[], p: ApproachProfile): Pt[] {
   return filletApproach(line, { x: p.x, y: p.y }, facing);
 }
 
+/**
+ * Pin a THROUGH-road onto each gate opening it crosses (WP: gate tile-exactness). The end
+ * fillets above only re-shape a centerline whose ENDPOINT lands at a gate — an edge that
+ * passes through an opening mid-polyline (a connection between two other POIs that A*
+ * threaded through this town's wall) kept its fractional crossing, so the ribbon could shave
+ * the curtain beside the opening. For each gate profile the line genuinely CROSSES (points
+ * either side of the wall plane near the gate — a road merely running alongside the wall is
+ * left alone), splice the exact opening cell into the polyline at the crossing, so the
+ * centerline passes through the shared `gateOpeningCell` cell-exactly. Skips profiles already
+ * owned by an end fillet (either endpoint within `snapTiles`). Deterministic; pure.
+ */
+function pinThroughOpenings(line: Pt[], profiles: GateApproachProfile[], snapTiles: number): Pt[] {
+  if (profiles.length === 0 || line.length < 2) return line;
+  let out = line;
+  for (const g of profiles) {
+    const endD = Math.min(
+      Math.hypot(out[0].x - g.x, out[0].y - g.y),
+      Math.hypot(out[out.length - 1].x - g.x, out[out.length - 1].y - g.y),
+    );
+    if (endD <= snapTiles) continue;                       // an end fillet owns this gate
+    // The pin window spans the opening (half its width) plus the end-fillet slack.
+    const window = Math.max(snapTiles, g.width / 2 + 0.5);
+    // Nearest point on the polyline to the opening cell.
+    let bestD = Infinity, bestI = -1, bestT = 0;
+    for (let i = 0; i < out.length - 1; i++) {
+      const ax = out[i].x, ay = out[i].y, dx = out[i + 1].x - ax, dy = out[i + 1].y - ay;
+      const len2 = dx * dx + dy * dy;
+      const t = len2 > 0 ? Math.max(0, Math.min(1, ((g.x - ax) * dx + (g.y - ay) * dy) / len2)) : 0;
+      const d = Math.hypot(g.x - (ax + dx * t), g.y - (ay + dy * t));
+      if (d < bestD) { bestD = d; bestI = i; bestT = t; }
+    }
+    if (bestI < 0 || bestD > window) continue;
+    // CROSSING test: ~2 tiles up/down the line from the nearest point must sit on OPPOSITE
+    // sides of the wall plane (the gate's outward normal). A road alongside the wall doesn't.
+    const side = (p: Pt): number => (p.x - g.x) * g.facing[0] + (p.y - g.y) * g.facing[1];
+    let before = out[bestI], acc = bestT > 0 ? Math.hypot(out[bestI + 1].x - out[bestI].x, out[bestI + 1].y - out[bestI].y) * bestT : 0;
+    for (let i = bestI; i > 0 && acc < 2; i--) { acc += Math.hypot(out[i].x - out[i - 1].x, out[i].y - out[i - 1].y); before = out[i - 1]; }
+    let after = out[bestI + 1];
+    acc = Math.hypot(out[bestI + 1].x - out[bestI].x, out[bestI + 1].y - out[bestI].y) * (1 - bestT);
+    for (let i = bestI + 1; i < out.length - 1 && acc < 2; i++) { acc += Math.hypot(out[i + 1].x - out[i].x, out[i + 1].y - out[i].y); after = out[i + 1]; }
+    if (side(before) * side(after) >= 0) continue;         // alongside, not through
+    out = [...out.slice(0, bestI + 1), { x: g.x, y: g.y }, ...out.slice(bestI + 1)];
+  }
+  return out;
+}
+
+/** Index of the vertex of `line` nearest `p`. */
+function nearestIndex(line: ReadonlyArray<Pt>, p: Pt): number {
+  let best = Infinity, bi = 0;
+  for (let i = 0; i < line.length; i++) {
+    const d = (line[i].x - p.x) ** 2 + (line[i].y - p.y) ** 2;
+    if (d < best) { best = d; bi = i; }
+  }
+  return bi;
+}
+
+/**
+ * Pin the smoothed ribbon through each river crossing's SHARED OPENING (the bridge/road exactness
+ * WP). The fillets above only reshape a centerline's ENDS — a gate approach, a building door — but
+ * a river crossing is MID-SPAN, so nothing ever re-pinned the ribbon to the deck: at a bend the
+ * Catmull-Rom corner-cut slid the drawn road a tile sideways off the bridge, and the road painted
+ * cobble across the open channel the deck no longer covered.
+ *
+ * For each crossing on this edge the ribbon now: arrives square at the near bank cell ALONG THE
+ * DECK AXIS, runs STRAIGHT across on the deck line (a bridge is a straight object, and so is the
+ * road on it), and departs square from the far bank. Both approaches use the SAME line→arc fillet
+ * a gate approach uses (`filletEndOntoProfile` → `filletApproach`, which pins its endpoint exactly
+ * and leaves the graft on the incoming tangent), so the pin is C1 at the graft and arrives
+ * collinear with the deck — no kink. The bank cells come from `getCrossingOpenings`, the same ONE
+ * rounding the deck seats on, so ribbon and bridge cannot drift apart again.
+ */
+function pinBankOpenings(line: Pt[], openings: CrossingOpening[]): Pt[] {
+  if (openings.length === 0 || line.length < 2) return line;
+  let out = line;
+  for (const op of openings) {
+    if (out.length < 2) break;
+    const A: Pt = { x: op.a[0], y: op.a[1] };
+    const B: Pt = { x: op.b[0], y: op.b[1] };
+    // Keep the ribbon's own order: whichever bank the line reaches first is the near one.
+    const iA = nearestIndex(out, A), iB = nearestIndex(out, B);
+    const [i0, p0, i1, p1] = iA <= iB ? [iA, A, iB, B] as const : [iB, B, iA, A] as const;
+    if (i1 <= i0) continue;                                   // both banks collapse to one vertex
+    const dx = p1.x - p0.x, dy = p1.y - p0.y;
+    const len = Math.hypot(dx, dy);
+    if (len < 0.5) continue;
+    const axis: [number, number] = [dx / len, dy / len];      // the deck's direction
+    const head = out.slice(0, i0 + 1);
+    const tail = out.slice(i1);
+    // `filletEndOntoProfile` probes which side the road approaches from and orients the facing
+    // itself, so passing the deck axis works for both ends (the tail is filleted reversed).
+    const pinnedHead = head.length >= 2
+      ? filletEndOntoProfile(head, { x: p0.x, y: p0.y, facing: axis })
+      : [...head, p0];
+    const pinnedTail = tail.length >= 2
+      ? filletEndOntoProfile(tail.slice().reverse(), { x: p1.x, y: p1.y, facing: axis }).reverse()
+      : [p1, ...tail];
+    // The deck run: straight, resampled at ~1 tile so the carve/raster sample it densely enough.
+    const deck: Pt[] = [];
+    const steps = Math.max(1, Math.ceil(len));
+    for (let k = 1; k < steps; k++) deck.push({ x: p0.x + dx * (k / steps), y: p0.y + dy * (k / steps) });
+    out = dedupePts([...pinnedHead, ...deck, ...pinnedTail]);
+  }
+  return out;
+}
+
+/** Drop consecutive coincident points (the fillet joins can land on each other). */
+function dedupePts(pts: Pt[]): Pt[] {
+  const out: Pt[] = [];
+  for (const p of pts) {
+    const last = out[out.length - 1];
+    if (!last || Math.hypot(last.x - p.x, last.y - p.y) > 1e-6) out.push(p);
+  }
+  return out;
+}
+
 /** Fillet either end of `centerline` onto the nearest profile within `snapTiles`, if any. */
 function filletOntoProfiles(centerline: Pt[], profiles: ApproachProfile[], snapTiles: number): Pt[] {
   if (profiles.length === 0 || centerline.length < 2) return centerline;
@@ -324,10 +440,18 @@ export function edgeRoadProfile(
   let centerline = smoothCenterline(edge.polyline);
   // A rejected fillet (reconciliation found its ribbon cells illegal) stays rejected: the
   // plain smoothed polyline tracks the router-approved raw path within the reconcile margin.
+  // NOTE the crossing openings are derived from this SAME plain smoothed line, so a rejected
+  // edge's ribbon still threads its deck — the pin below only has to survive the gate fillets.
   if (!edge.filletRejected) {
-    centerline = filletOntoProfiles(centerline, gateProfilesFor(map), GATE_SNAP_TILES);
+    const gateProfiles = gateProfilesFor(map);
+    centerline = filletOntoProfiles(centerline, gateProfiles, GATE_SNAP_TILES);
+    // A THROUGH-road (the gate mid-polyline, not at an end) is pinned onto the opening cell too.
+    centerline = pinThroughOpenings(centerline, gateProfiles, GATE_SNAP_TILES);
     const anchorProfiles = buildingAnchorProfilesFor(map, edge.id);
     if (anchorProfiles.length) centerline = filletOntoProfiles(centerline, anchorProfiles, ANCHOR_SNAP_TILES);
+    // MID-SPAN: pin the ribbon through each river crossing's shared bank opening, so the drawn
+    // road threads the very cells the deck seats on (the gate fillet, applied to a crossing).
+    centerline = pinBankOpenings(centerline, crossingOpeningsForEdge(map, edge.id));
   }
   if (centerline.length < 2) return null;
   const fromPoi = poiById.get(nodeById.get(edge.a)?.poiRef ?? '');
@@ -605,15 +729,20 @@ function collectGreenTiles(map: GameMap): Set<string> {
  *  as a second layer for callers with no `world` (isolated tests / tooling). */
 function blockedForReconcile(
   map: GameMap, x: number, y: number,
-  wallObstacles: ReadonlySet<string>, greenTiles: ReadonlySet<string>, world?: World,
+  wallObstacles: ReadonlySet<string>, greenTiles: ReadonlySet<string>, deckCells: ReadonlySet<string>,
+  world?: World,
 ): boolean {
   const t = map.tiles[y]?.[x];
   if (!t) return true;
   const key = `${x},${y}`;
   if (wallObstacles.has(key)) return true;
-  if (WATER_TYPES.has(t.type) && t.type !== 'bridge') return true;
+  // A cell on a crossing's DECK LINE is legal water: the bridge carries the road over it (the
+  // reconciliation stamps it `bridge` below). Without this the ribbon — now pinned through the
+  // shared bank opening, i.e. deliberately routed onto the deck — would fail its own hard
+  // constraint and reject the fillet, snapping the drawn road back off the bridge.
+  if (WATER_TYPES.has(t.type) && t.type !== 'bridge' && !deckCells.has(key)) return true;
   if (greenTiles.has(key)) return true;
-  if (t.walkable === false && !ROAD_TILE_TYPES.has(t.type)) return true;
+  if (t.walkable === false && !ROAD_TILE_TYPES.has(t.type) && !deckCells.has(key)) return true;
   if (world && tileBlockedByBuilding(world, x, y)) return true;
   return false;
 }
@@ -627,9 +756,10 @@ function blockedForReconcile(
  */
 function planSpan(
   map: GameMap, edge: RoadEdge, sample: Pt[], arcRange: [number, number],
-  wallObstacles: ReadonlySet<string>, greenTiles: ReadonlySet<string>, world?: World,
+  wallObstacles: ReadonlySet<string>, greenTiles: ReadonlySet<string>, deckCells: ReadonlySet<string>,
+  world?: World,
 ): FilletReconcilePlanSpan {
-  const isBad = (x: number, y: number): boolean => blockedForReconcile(map, x, y, wallObstacles, greenTiles, world);
+  const isBad = (x: number, y: number): boolean => blockedForReconcile(map, x, y, wallObstacles, greenTiles, deckCells, world);
   const cells = fourConnectCells(roundCells(sample), isBad);
   const badCells = cells.filter((c) => isBad(c.x, c.y));
   return { edgeId: edge.id, arcRange, cells, badCells };
@@ -657,6 +787,7 @@ function planSpan(
  */
 export function reconcileFilletRaster(map: GameMap, world?: World): FilletReconcileSpan[] {
   const plans = planFilletReconcile(map, world);
+  const deckCells = deckCellKeys(map);   // ribbon cells ON a deck are stamped `bridge`, not road
   // GALIN'S VERDICT (re-validate after smoothing): an edge with ANY illegal span gets its
   // fillet REJECTED outright — never partially applied. `edgeRoadProfile` then re-derives the
   // plain smoothed centerline for that edge, so the render ribbon, the terrain carve and the
@@ -680,7 +811,14 @@ export function reconcileFilletRaster(map: GameMap, world?: World): FilletReconc
     const mask: RoadMask = {
       width: map.width,
       height: map.height,
-      writes: span.cells.map((c) => ({ x: c.x, y: c.y, surface: surfaceOfEdge(map, span.edgeId), bridge: false })),
+      // A cell the pinned ribbon crosses ON a deck line becomes a `bridge` tile — the raster then
+      // says what the deck says (`bridge.tiles-vs-deck`), NPCs walk the span, and a plain-road
+      // write over water (which `applyRoadMask` would silently drop) never happens at a crossing.
+      writes: span.cells.map((c) => ({
+        x: c.x, y: c.y,
+        surface: surfaceOfEdge(map, span.edgeId),
+        bridge: deckCells.has(`${c.x},${c.y}`),
+      })),
     };
     applyRoadMask(map.tiles, mask);
     return { edgeId: span.edgeId, arcRange: span.arcRange, written: true, cellsWritten: span.cells.length };
@@ -707,6 +845,7 @@ export function planFilletReconcile(map: GameMap, world?: World): FilletReconcil
   const poiById = new Map((map.worldSeed?.pois ?? []).map((p) => [p.id, p]));
   const wallObstacles = gateApproachPlan(map.barrierRuns ?? [], [], map.worldSeed?.pois ?? []).wallObstacles;
   const greenTiles = collectGreenTiles(map);
+  const deckCells = deckCellKeys(map);   // the crossings' deck lines — legal water for the ribbon
 
   const results: FilletReconcilePlanSpan[] = [];
   for (const edge of graph.edges) {
@@ -736,7 +875,7 @@ export function planFilletReconcile(map: GameMap, world?: World): FilletReconcil
       const from = Math.max(0, i - 1);
       const to = Math.min(dists.length - 1, j + 1);
       results.push(planSpan(
-        map, edge, sampled.slice(from, to + 1), [arcLens[from], arcLens[to]], wallObstacles, greenTiles, world,
+        map, edge, sampled.slice(from, to + 1), [arcLens[from], arcLens[to]], wallObstacles, greenTiles, deckCells, world,
       ));
       i = j + 1;
     }

@@ -6,7 +6,7 @@ describe('content-version constants', () => {
     expect(ART_RECIPE_VERSION).toBe('v32');
   });
 
-  it('declares the current world content version (96: anchor-driven stairs)', () => {
-    expect(WORLD_CONTENT_VERSION).toBe(96);
+  it('declares the current world content version (97: gate/wall tile-exactness)', () => {
+    expect(WORLD_CONTENT_VERSION).toBe(97);
   });
 });

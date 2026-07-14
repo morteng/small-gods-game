@@ -128,6 +128,31 @@ export function gatePoint(run: BarrierRun, gate: BarrierGate): [number, number] 
   return pointAt(run.path, gate.t);
 }
 
+/**
+ * THE integer opening-centre cell of a gate — the ONE cell every consumer of "where is this
+ * gate on the tile grid" must share (the A* gate waypoint, the approach fillet target, the
+ * `gate.road-connected` contract, the stitch/spur anchors, the gate_anchor port pair).
+ * Rounding the fractional `gatePoint` independently in each consumer let them disagree by a
+ * cell; deriving it ONCE here kills that class of drift. Guaranteed to be a member of the
+ * gate's own `gateFootprintTiles` set (the rare case where the rounded centre falls outside
+ * the sampled footprint snaps to the nearest footprint cell, deterministic tiebreak by the
+ * footprint's sorted order).
+ */
+export function gateOpeningCell(run: BarrierRun, gate: BarrierGate): [number, number] {
+  const [px, py] = pointAt(run.path, gate.t);
+  const rx = Math.round(px), ry = Math.round(py);
+  const cells = gateFootprintTiles(run, gate);
+  if (cells.length === 0) return [rx, ry];
+  let best = cells[0];
+  let bd = Infinity;
+  for (const [cx, cy] of cells) {
+    if (cx === rx && cy === ry) return [rx, ry];
+    const d = (cx - px) ** 2 + (cy - py) ** 2;
+    if (d < bd) { bd = d; best = [cx, cy]; }
+  }
+  return best;
+}
+
 /** Tile cells spanned by ONE gate/gap opening (same rasterization the combined
  *  `barrierFootprintTiles` gate pass uses, isolated to a single opening) — so a junction
  *  artifact can OWN exactly the cells of its own gate span (a Gatehouse owns a `gate`, a

@@ -13,7 +13,7 @@
 import type { Diagnostic } from '@/world/connectome-diagnostics';
 import type { Contract, ContractDeclaration } from '@/world/connectome-contracts';
 import { registerContract } from '@/world/connectome-contracts';
-import { barrierFootprintTiles, gatePoint, type PlacedBarrier } from '@/world/barrier';
+import { barrierFootprintTiles, gateFootprintTiles, gateOpeningCell, type PlacedBarrier } from '@/world/barrier';
 
 const ROAD_TYPES = new Set(['dirt_road', 'stone_road', 'bridge']);
 
@@ -52,24 +52,27 @@ export const wallCrossingOnlyAtGate: Contract = {
   },
 };
 
-/** REQUIREMENT — every real gate must be reached by a road within `reach` tiles. Unmet → the
- *  actionable half, carrying a `wire_gate` suggestedFix. */
+/** REQUIREMENT — every real gate must have a road THROUGH its opening: a rasterized road tile
+ *  inside the gate's own opening cell set (`gateFootprintTiles`), not merely nearby. PASSAGE,
+ *  not proximity — the old Chebyshev-box test passed a road running 3 tiles BESIDE the wall
+ *  while the ribbon never threaded the opening. `params.reach` (tiles, default 0 = exact) is an
+ *  escape hatch: reach > 0 additionally accepts a road within that Chebyshev distance of the
+ *  opening cell. Unmet → the actionable half, carrying a `wire_gate` suggestedFix. */
 export const gateRoadConnected: Contract = {
   id: 'gate.road-connected',
   level: 'settlement',
   kind: 'requirement',
   severity: 'error',
-  description: 'Every town gate must be reached by a road.',
+  description: 'Every town gate must have a road tile inside its own opening cells.',
   evaluate(ctx, scope, params) {
     const b = ringOfScope(ctx.map.barrierRuns, scope.entities);
     if (!b) return [];
-    const reach = Math.max(1, Math.round(Number(params?.reach ?? 3)));
+    const reach = Math.max(0, Math.round(Number(params?.reach ?? 0)));
     const out: Diagnostic[] = [];
     for (const g of b.run.gates) {
       if (g.kind === 'gap') continue;
-      const [gxf, gyf] = gatePoint(b.run, g);
-      const gx = Math.round(gxf), gy = Math.round(gyf);
-      let connected = false;
+      const [gx, gy] = gateOpeningCell(b.run, g);
+      let connected = gateFootprintTiles(b.run, g).some(([x, y]) => isRoadTile(ctx.map, x, y));
       for (let dx = -reach; dx <= reach && !connected; dx++) {
         for (let dy = -reach; dy <= reach && !connected; dy++) {
           if (isRoadTile(ctx.map, gx + dx, gy + dy)) connected = true;
@@ -78,7 +81,7 @@ export const gateRoadConnected: Contract = {
       if (!connected) {
         out.push({
           rule: 'gate.road-connected', severity: 'error',
-          message: `gate of ${scope.poi ?? b.id} at (${gx},${gy}) is not reached by any road`,
+          message: `gate of ${scope.poi ?? b.id} at (${gx},${gy}) has no road through its opening`,
           locus: { entities: [b.id], pois: scope.poi ? [scope.poi] : [], tiles: [{ x: gx, y: gy }] },
           metrics: { reach },
           suggestedFix: { verb: 'wire_gate', args: { ring: b.id, gateT: g.t } },

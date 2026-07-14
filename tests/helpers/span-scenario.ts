@@ -22,6 +22,7 @@ import { collectStairPorts, placeStairsFromLinks } from '@/world/connectome/stai
 import { matchAnchors, type AnchorLink } from '@/world/anchor-rules';
 import type { Anchor } from '@/world/anchors';
 import { detectCrossings } from '@/world/connectome/detect-crossings';
+import { smoothCenterline } from '@/terrain/road-centerline';
 import type { CrossingSpec } from '@/world/connectome/crossing-builder';
 
 export interface Pt { x: number; y: number; }
@@ -171,6 +172,39 @@ export interface CheckOptions {
 }
 
 /**
+ * The road the player actually SEES: the RAW cell polyline is only the walker's staircase — every
+ * ribbon the game draws (and the terrain it carves) is `smoothCenterline(polyline)`. Judging deck
+ * coverage against the raw polyline was this harness's blind spot: at a BEND the Catmull-Rom
+ * corner-cut slides the drawn road up to a tile sideways off the walked cells, so a deck sited on
+ * the raw path sits beside the ribbon and the ribbon crosses open water — and the harness, looking
+ * only at the raw cells, saw nothing wrong. Judge the RIBBON.
+ */
+export function ribbonCells(edge: { polyline: Pt[] }): Pt[] {
+  const sm = smoothCenterline(edge.polyline);
+  const out: Pt[] = [];
+  const seen = new Set<string>();
+  const push = (x: number, y: number): void => {
+    const k = `${x},${y}`;
+    if (seen.has(k)) return;
+    seen.add(k);
+    out.push({ x, y });
+  };
+  if (sm.length === 1) { push(Math.round(sm[0].x), Math.round(sm[0].y)); return out; }
+  // RASTERIZE the ribbon, don't merely round its VERTICES: `smoothCenterline` RDP-collapses a
+  // straight run to its two endpoints, so a vertex-only read would report a road crossing the
+  // river as touching just two cells — and miss the channel entirely.
+  for (let i = 0; i + 1 < sm.length; i++) {
+    const a = sm[i], b = sm[i + 1];
+    const steps = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / 0.25));
+    for (let k = 0; k <= steps; k++) {
+      const t = k / steps;
+      push(Math.round(a.x + (b.x - a.x) * t), Math.round(a.y + (b.y - a.y) * t));
+    }
+  }
+  return out;
+}
+
+/**
  * Interrogate a scenario result against render-water invariants and return every violation.
  * Empty array = the crossings & stairs read correctly to the player.
  */
@@ -178,9 +212,10 @@ export function checkScenario(sc: SpanScenario, res: ScenarioResult, opts: Check
   const v: Violation[] = [];
   const wet = sc.renderWater;
 
-  // Per road: the render-wet cells the traveller must be carried over.
+  // Per road: the render-wet cells the traveller must be carried over — measured on the SMOOTHED
+  // ribbon (what is drawn), not the raw walked polyline.
   for (const edge of res.graph.edges) {
-    const poly = edge.polyline;
+    const poly = ribbonCells(edge);
     const wetRoad = poly.filter((p) => wet(p.x, p.y));
     if (wetRoad.length === 0) continue; // road never touches visible water — no crossing needed
     // Find the crossing(s) belonging to this edge.

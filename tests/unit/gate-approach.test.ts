@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { gateApproachPlan, realGateAnchors } from '@/world/connectome/gate-approach';
+import { gateApproachPlan, realGateAnchors, realGateProfiles } from '@/world/connectome/gate-approach';
 import { evaluateContracts } from '@/world/connectome-contracts';
 import '@/world/connectome/wall-contracts';   // side-effect: register the wall/gate contracts
+import { gateFootprintTiles, gateOpeningCell } from '@/world/barrier';
 import type { BarrierRun, PlacedBarrier } from '@/world/barrier';
 import type { Connection, POI } from '@/core/types';
 import type { DiagnosticContext } from '@/world/connectome-diagnostics';
@@ -75,5 +76,51 @@ describe('wall/gate contracts', () => {
     expect(report.byRule['gate.road-connected']).toBe(1);
     expect(report.unmet.map((d) => d.rule)).toContain('gate.road-connected');
     expect(report.unmet[0].suggestedFix?.verb).toBe('wire_gate');
+  });
+
+  it('PASSAGE, not proximity: a road 3 tiles beside the gate (never through the opening) FAILS', () => {
+    // (3,3) is 3 tiles inside the gate at (3,0) — the old 7×7 Chebyshev box passed this.
+    const report = evaluateContracts(ctxWith([[3, 3], [4, 3]]), { declarations: decls });
+    expect(report.byRule['gate.road-connected']).toBe(1);
+    expect(report.unmet.map((d) => d.rule)).toContain('gate.road-connected');
+  });
+
+  it('params.reach is the escape hatch: reach 3 re-admits the nearby road', () => {
+    const reachDecls = [{
+      contract: 'gate.road-connected',
+      scope: { poi: 'poi:town', entities: ['poi:town_ring'] },
+      params: { reach: 3 },
+    }];
+    const report = evaluateContracts(ctxWith([[3, 3]]), { declarations: reachDecls });
+    expect(report.byRule['gate.road-connected'] ?? 0).toBe(0);
+  });
+});
+
+describe('gateOpeningCell — one shared cell for every consumer', () => {
+  it('is a member of the gate\'s own footprint cell set, fractional t included', () => {
+    for (const t of [3, 3.4, 8.7, 14.5]) {
+      const g = { t, width: 2, kind: 'gate' as const };
+      const cell = gateOpeningCell(ring, g);
+      const cells = gateFootprintTiles(ring, g);
+      expect(cells.some(([x, y]) => x === cell[0] && y === cell[1])).toBe(true);
+    }
+  });
+
+  it('the approach waypoint, the stitch anchor, the fillet profile and the contract locus all read the SAME cell', () => {
+    const [ox, oy] = gateOpeningCell(ring, ring.gates[0]);
+    // A* gate waypoint.
+    const conns: Connection[] = [{ from: 'poi:town', to: 'poi:far' } as Connection];
+    const plan = gateApproachPlan([placed], conns, [poi('poi:town', 3, 3), poi('poi:far', 20, 3)]);
+    expect(plan.connections[0].waypoints![0]).toEqual({ x: ox, y: oy });
+    // Stitch/spur anchor (wireGateToRoad's input).
+    const anchor = realGateAnchors([placed])[0];
+    expect([anchor.x, anchor.y]).toEqual([ox, oy]);
+    // Approach-fillet profile target.
+    const profile = realGateProfiles([placed])[0];
+    expect([profile.x, profile.y]).toEqual([ox, oy]);
+    // Contract locus (the reported gate cell on a failing gate).
+    const report = evaluateContracts(ctxWith([]), { declarations: decls });
+    const diag = report.unmet.find((d) => d.rule === 'gate.road-connected')!;
+    expect(diag.locus?.tiles?.[0]).toEqual({ x: ox, y: oy });
   });
 });

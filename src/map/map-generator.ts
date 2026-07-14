@@ -47,6 +47,7 @@ import { buildAqueductStructureEntities } from '@/world/connectome/aqueduct-stru
 import { buildWaterNetwork, referenceFlow, reachHalfWidths } from '@/terrain/river-network';
 import { REACH_CARVE } from '@/world/river-deformation';
 import { getComposedHeightfield, reconcileFilletRaster } from '@/world/road-deformation';
+import { getRenderWaterMask } from '@/world/render-water';
 import { styledRiverFlowThreshold } from '@/terrain/hydrology';
 import { getHeightfield, ELEVATION_SEA_LEVEL } from '@/world/heightfield';
 import { curveRenderElev } from '@/render/gpu/terrain-field';
@@ -229,14 +230,14 @@ export async function generateWithNoise(
   // and bridge the full channel. The network is reused by the aqueduct pass later.
   const waterNet = buildWaterNetwork(hydrology, width, height, riverFlowThreshold);
   const refFlow = referenceFlow(waterNet);
-  // The AUTHORITATIVE "visible river" mask: every cell the render ribbon (and this raster
-  // widening) covers, captured BEFORE roads/bridges/buildings overwrite river tiles at the
-  // crossings. `tiles[..].type` is unreliable as a "is there water here" signal once roads
-  // carve 'bridge'/'dirt_road' over the channel and R1 meanders shift the ribbon off the thin
-  // raster line — the crossing/stair siters that read the raster then snap banks onto polluted
-  // ground and miss the water the player sees. They read THIS mask instead (mill-site WCV-87
-  // pattern: consumers that must match the drawn water read the connectome, not the tile grid).
-  const renderRiver = new Uint8Array(width * height);
+  // Widen the raster river to the VISIBLE channel: stamp every tile the render ribbon covers, so
+  // the tiles agree with what the shader paints wherever roads haven't yet carved over them.
+  // NOTE this pass only stamps TILES — it no longer keeps a private `renderRiver` mask alongside.
+  // It used to, and worldgen sited river crossings against that copy while the renderer painted
+  // `buildRenderWaterType`; two derivations of "where is the water" is two chances to disagree,
+  // and they did (a bank worldgen called dry stood in the drawn river). "Is there water the player
+  // can SEE here" is now ONE function, `getRenderWaterMask` (below) — the same one the renderer,
+  // the ribbon pin and the lint read.
   for (const reach of waterNet.reaches) {
     // Paint the channel at the SAME per-vertex width the carve uses (W ∝ √Q): thin at the
     // spring, widening toward the mouth, stepping up at confluences. Using the per-class
@@ -252,7 +253,6 @@ export async function generateWithNoise(
         for (let cx = x0; cx <= x1; cx++) {
           const dx = cx + 0.5 - p.x;
           if (dx * dx + dy * dy > r2) continue;
-          renderRiver[cy * width + cx] = 1;             // record the visible channel (kept, not overwritten)
           const t = tiles[cy]?.[cx];
           if (!t || WATER_TYPES.has(t.type)) continue;  // never overwrite ocean/lake/existing water
           t.type = 'river';
@@ -261,12 +261,19 @@ export async function generateWithNoise(
       }
     });
   }
-  // "Is there water the player can SEE at this cell?" — the render river ribbon (immune to the
-  // road/bridge overwrites that pollute the tile raster) UNION the standing water (ocean/lake)
-  // the tile grid still carries. This is the water signal the span siters seat against.
-  const renderWaterAt = (x: number, y: number): boolean =>
-    (x >= 0 && y >= 0 && x < width && y < height && renderRiver[y * width + x] === 1) ||
-    WATER_TYPES.has(tiles[y]?.[x]?.type ?? '');
+  // "Is there water the player can SEE at this cell?" — ONE truth, `getRenderWaterMask`: the same
+  // predicate the RENDERER paints from (`buildRenderWaterType`), the ribbon pin reads, and the
+  // `bridge.seating` lint judges on. It used to be a private closure over the `renderRiver` mask
+  // stamped just above; that mask is built from the same reaches, but a second derivation is a
+  // second chance to disagree — and it did: a bank the generator seated as dry sat in the water
+  // the renderer drew, so the deck's abutment stood in the river and only the LINT could see it.
+  // Deriving it from the map (memoised on seed+dims, immune to the road/bridge tile overwrites)
+  // means worldgen, the renderer and the linter cannot drift apart again.
+  let renderWaterMask: ((x: number, y: number) => boolean) | null = null;
+  const renderWaterAt = (x: number, y: number): boolean => {
+    renderWaterMask ??= getRenderWaterMask(mapStub);   // lazy: mapStub is built just below
+    return renderWaterMask(x, y);
+  };
 
   // Build World early so biome brushes and buildings can use it
   const mapStub: GameMap = {

@@ -16,11 +16,13 @@
 // (none / palisade / town wall) chosen by settlement size + wealth + era.
 
 import type { BarrierRun, BarrierKind, BarrierGate, RingSegment, NatureDefends, TowerPlacement, RingDefends } from '@/world/barrier';
-import { barrierFootprintTiles, defendsForSegment, segmentIndexAt, gatePoint } from '@/world/barrier';
+import { barrierFootprintTiles, defendsForSegment, segmentIndexAt, gatePoint, gateOpeningCell } from '@/world/barrier';
 import type { Lot } from '@/world/settlement-plan';
 import type { Era } from '@/core/era';
 import { catalogue, type BarrierTypeFields } from '@/catalogue';
 import { mToTiles } from '@/render/scale-contract';
+import { maxCarriageHalfWidth } from '@/world/road-state';
+import { SHOULDER_LIP_TILES } from '@/render/gpu/feature-geometry';
 
 /** Minimal seeded RNG seam — both `core/rng` Rng and `core/noise` Random satisfy it. */
 export interface MinRng { next(): number }
@@ -216,6 +218,11 @@ function canonicalRing(samples: Pt[]): Pt[] | null {
   return [...clean, [...clean[0]] as Pt];
 }
 
+/** The widest rendered road ribbon that can approach a gate (full width, tiles): a highway's
+ *  worst-case carriage half (`maxCarriageHalfWidth`, construction ceiling baked in) plus the
+ *  renderer's shoulder lip, both sides — the same width authority placement/occupancy use. */
+const MIN_GATE_OPENING_TILES = 2 * (maxCarriageHalfWidth('highway') + SHOULDER_LIP_TILES);
+
 /**
  * Snap a single opening (gate/gap) onto the piece grid of the edge it sits on: choose 1 or 2 whole
  * piece slots (nearest to the requested width) and centre the span on a piece boundary, so a gate
@@ -237,6 +244,13 @@ function snapGateToPieces(path: Pt[], gate: BarrierGate): BarrierGate {
   if (!found || edgeLen < 1e-9) return gate;
   const nPieces = Math.max(1, Math.round(edgeLen / pl));
   let nSlots = Math.max(1, Math.min(2, Math.round((gate.width || pl) / pl)));
+  // OPENING ≥ RIBBON: the widest rendered approach ribbon (a highway at its construction
+  // ceiling + the renderer's shoulder lip, both sides) must fit THROUGH the opening — a
+  // narrower gate leaves the ribbon's shoulders painted over the curtain beside it. Gates are
+  // committed before roads exist (the portal-node pattern), so the approaching class is
+  // unknowable here and the worst case is the floor. In practice this lifts a DIAGONAL gate's
+  // 1 slot (2.83 tiles) to 2; cardinal gates (gateW 3–3.5 → 2 slots = 4 tiles) already clear it.
+  nSlots = Math.max(nSlots, Math.ceil(MIN_GATE_OPENING_TILES / pl));
   nSlots = Math.min(nSlots, nPieces);
   const width = nSlots * pl;
   const local = Math.max(0, Math.min(edgeLen, t - edgeStart));
@@ -1139,7 +1153,10 @@ export function repairGateHalfEdges(
    *  opening tracks the candidate position). */
   const gateOk = (g: BarrierGate): boolean => {
     const [gxf, gyf] = gatePoint(run, g);
-    const gx = Math.round(gxf), gy = Math.round(gyf);
+    // THE shared opening cell (gateOpeningCell) — the same cell the approach waypoint, the
+    // contract and the stitch anchor read, so the interior corridor verified here starts
+    // exactly where they will look.
+    const [gx, gy] = gateOpeningCell(run, g);
     // Outward bearing from the ring centre (same frame commitDirectionGates sited the gate in).
     const bx = gxf - cx, by = gyf - cy;
     const bm = Math.hypot(bx, by) || 1;

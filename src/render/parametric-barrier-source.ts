@@ -301,7 +301,13 @@ export function chunkBarrierRun(run: BarrierRun): BarrierChunk[] {
     const openings: { openStart: number; openEnd: number; gw: 1 | 2; nPO: number }[] = [];
     for (const g of run.gates) {
       if (g.kind === 'gap') continue;
-      if (g.t < cum - 1e-6 || g.t > cum + L + 1e-6) continue;   // centre off this edge
+      // A gate belongs to the edge carrying its CENTRE — except a reconstructed single-piece
+      // fragment (pieceRunFromKey), whose opening SPAN covers its whole 1-piece edge while the
+      // centre sits off it (a 2-slot DIAGONAL gate's outer fragments, gi 0/3: |t| > cutLen).
+      // Without the span-covers case those fragments re-cut as curtain and the key round-trip
+      // (the W3 enumeration invariant) breaks.
+      const spanCovers = g.t - g.width / 2 < cum + 1e-6 && g.t + g.width / 2 > cum + L - 1e-6;
+      if ((g.t < cum - 1e-6 || g.t > cum + L + 1e-6) && !spanCovers) continue;
       const tc = g.t - cum;
       const gw = Math.max(1, Math.min(2, Math.round((g.width || ec.slotLen) / ec.slotLen))) as 1 | 2;
       const W = gw * ec.slotLen;

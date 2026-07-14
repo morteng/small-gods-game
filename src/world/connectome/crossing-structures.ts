@@ -78,7 +78,14 @@ export function buildBridgeObject(spec: CrossingSpec, opts: SpanEntityOptions = 
   const mid = { x: (b0.x + b1.x) / 2, y: (b0.y + b1.y) / 2 };
   const spanLen = Math.hypot(b1.x - b0.x, b1.y - b0.y);   // clear span, tiles
   if (spanLen < 0.5) return undefined;
-  const yawDeg = (Math.atan2(b1.y - b0.y, b1.x - b0.x) * 180) / Math.PI;
+  // The deck lies along the THREADED ROAD, not along the chord of two raster-snapped points. The
+  // banks used to be snapped outward independently (each up to 4 tiles, along its own away-from-
+  // midpoint direction), so their chord could sit tens of degrees off the road that crosses there
+  // — the deck read as a diagonal slab under a perpendicular road. `spec.axis` is the smoothed
+  // centreline's own secant across the channel; falls back to the bank chord for legacy callers.
+  const yawDeg = spec.axis
+    ? (Math.atan2(spec.axis[1], spec.axis[0]) * 180) / Math.PI
+    : (Math.atan2(b1.y - b0.y, b1.x - b0.x) * 180) / Math.PI;
   const a = (yawDeg * Math.PI) / 180, cs = Math.cos(a), sn = Math.sin(a);
 
   // Material class (same envelope the connectome builder gates on) → walls + arch style.
@@ -175,6 +182,11 @@ export function buildBridgeObject(spec: CrossingSpec, opts: SpanEntityOptions = 
   const rb = resolveBlueprint([bp], 0);
   const e = blueprintEntity(spec.id + '-bridge', rb, ox, oy, { poiId: spec.id });
   if (liftElev !== undefined) (e.properties as Record<string, unknown>).liftElev = liftElev;
+  // Carry the SHARED OPENING onto the deck entity: the two bank cells this span seats its
+  // abutments on. `bridge.seating` reads these directly rather than re-deriving a proxy from the
+  // footprint AABB — the AABB's end ROW of a diagonal deck reaches well past the real abutment
+  // (into the channel), which is precisely the kind of second derivation this WP exists to kill.
+  if (spec.bankCells) (e.properties as Record<string, unknown>).bankCells = spec.bankCells;
   return e;
 }
 

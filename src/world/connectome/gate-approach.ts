@@ -16,7 +16,7 @@
 // world routes exactly as before. Deterministic: nearest-gate uses distance then gate.t.
 
 import type { Connection, POI } from '@/core/types';
-import { barrierFootprintTiles, gatePoint, type BarrierGate, type PlacedBarrier } from '@/world/barrier';
+import { barrierFootprintTiles, gateOpeningCell, gatePoint, type BarrierGate, type PlacedBarrier } from '@/world/barrier';
 
 const cellKey = (x: number, y: number): string => `${x},${y}`;
 const roundPt = (p: { x: number; y: number }) => ({ x: Math.round(p.x), y: Math.round(p.y) });
@@ -32,12 +32,15 @@ function ringForPoi(barrierRuns: PlacedBarrier[], poiId: string): PlacedBarrier 
 }
 
 export interface GateApproachProfile {
+  /** THE gate opening cell (`gateOpeningCell` — integer, inside the opening's footprint set). */
   x: number; y: number;
   /** Unit ring normal at the gate, pointing OUTWARD (away from the ring centroid). */
   facing: [number, number];
+  /** The opening's span (tiles) along the wall — sizes the through-road pin window. */
+  width: number;
 }
 
-/** Every real gate with its position + OUTWARD facing — the profile a road approach
+/** Every real gate with its opening cell + OUTWARD facing — the profile a road approach
  *  fillets onto so it arrives square through the opening instead of at a kinked angle. */
 export function realGateProfiles(barrierRuns: PlacedBarrier[]): GateApproachProfile[] {
   const out: GateApproachProfile[] = [];
@@ -45,14 +48,14 @@ export function realGateProfiles(barrierRuns: PlacedBarrier[]): GateApproachProf
     const c = b.run.centroid!;
     for (const g of b.run.gates) {
       if (g.kind === 'gap') continue;
-      const [x, y] = gatePoint(b.run, g);
+      const [x, y] = gateOpeningCell(b.run, g);
       // Ring tangent at the gate from two nearby path points; normal oriented outward.
       const [ax, ay] = gatePoint(b.run, { t: Math.max(0, g.t - 0.5), width: 0 });
       const [bx, by] = gatePoint(b.run, { t: g.t + 0.5, width: 0 });
       const dx = bx - ax, dy = by - ay, m = Math.hypot(dx, dy) || 1;
       let nx = -dy / m, ny = dx / m;
       if (nx * (x - c[0]) + ny * (y - c[1]) < 0) { nx = -nx; ny = -ny; }
-      out.push({ x, y, facing: [nx, ny] });
+      out.push({ x, y, facing: [nx, ny], width: g.width });
     }
   }
   return out;
@@ -109,11 +112,11 @@ export function gateApproachPlan(
     // that share a gate from doubling up into parallel corridors along the same interior run.
     if (ringFrom) {
       const g = nearestRealGate(ringFrom, base[base.length - 1]);
-      if (g) { const [x, y] = gatePoint(ringFrom.run, g); pts[0] = { x, y }; }
+      if (g) { const [x, y] = gateOpeningCell(ringFrom.run, g); pts[0] = { x, y }; }
     }
     if (ringTo) {
       const g = nearestRealGate(ringTo, base[0]);
-      if (g) { const [x, y] = gatePoint(ringTo.run, g); pts[pts.length - 1] = { x, y }; }
+      if (g) { const [x, y] = gateOpeningCell(ringTo.run, g); pts[pts.length - 1] = { x, y }; }
     }
     return { ...conn, waypoints: pts.map(roundPt) };
   });
@@ -121,8 +124,9 @@ export function gateApproachPlan(
   return { wallObstacles, connections: rewritten };
 }
 
-/** Every real gate on every defensive ring, with its integer anchor — for the orphan-gate
- *  fallback (`wireGateToRoad`) when routing left a gate unreached. */
+/** Every real gate on every defensive ring, with its opening cell (`gateOpeningCell` — the
+ *  shared integer anchor) — for the orphan-gate fallback (`wireGateToRoad`) when routing left
+ *  a gate unreached. */
 export function realGateAnchors(
   barrierRuns: PlacedBarrier[],
 ): { runId: string; poiId: string; x: number; y: number; t: number }[] {
@@ -131,8 +135,8 @@ export function realGateAnchors(
     const poiId = b.id.endsWith('_ring') ? b.id.slice(0, -'_ring'.length) : b.id;
     for (const g of b.run.gates) {
       if (g.kind === 'gap') continue;
-      const [x, y] = gatePoint(b.run, g);
-      out.push({ runId: b.id, poiId, x: Math.round(x), y: Math.round(y), t: g.t });
+      const [x, y] = gateOpeningCell(b.run, g);
+      out.push({ runId: b.id, poiId, x, y, t: g.t });
     }
   }
   return out;

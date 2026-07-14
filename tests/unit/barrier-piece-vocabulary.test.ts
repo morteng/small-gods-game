@@ -70,9 +70,12 @@ describe('WP-W2 — finite barrier piece vocabulary', () => {
   });
 
   it('stays under a small distinct-key budget per seed (pre-generatable)', () => {
+    // 30 → 36 with the gate/wall tile-exactness round (WCV 97): gate openings floor at the
+    // rendered ribbon width, so a DIAGONAL gate is 2 slots = 4 fragments (g2i0..g2i3) instead
+    // of 1 slot = 2 — a few more distinct keys, still finite + enumerable.
     for (const seed of [0, 1] as const) {
       const distinct = new Set(keysOf(seedRuns(seed)));
-      expect(distinct.size, `seed ${seed}: ${distinct.size} distinct keys`).toBeLessThanOrEqual(30);
+      expect(distinct.size, `seed ${seed}: ${distinct.size} distinct keys`).toBeLessThanOrEqual(36);
     }
   });
 

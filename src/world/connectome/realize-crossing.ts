@@ -55,7 +55,13 @@ export function realizeCrossing(crossing: WorldNode): Placement[] {
   }
   if (!near || !far) return [];
 
-  const axis = unit(sub(far, near));            // span direction (near → far)
+  // Span direction = the THREADED ROAD's own axis when the detector seated this crossing on the
+  // smoothed ribbon (`params.axisX/Y`). The bank-chord fallback is what a legacy (raster-sited)
+  // crossing gets — and is exactly what rotated a deck diagonally off the road it carries.
+  const ax = Number(tree.params.axisX), ay = Number(tree.params.axisY);
+  const axis = Number.isFinite(ax) && Number.isFinite(ay) && Math.hypot(ax, ay) > 1e-6
+    ? unit({ x: ax, y: ay })
+    : unit(sub(far, near));                     // span direction (near → far)
   const perp = { x: -axis.y, y: axis.x };       // across the road
   const mid = lerp(near, far, 0.5);
   const out: Placement[] = [];

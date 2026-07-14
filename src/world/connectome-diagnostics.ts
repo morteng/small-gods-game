@@ -21,6 +21,7 @@ import type { RoadEdge } from '@/world/road-graph';
 import { barrierFootprintTiles, type PlacedBarrier, type BarrierRun, type BarrierGate } from '@/world/barrier';
 import { getWorldDeformationStore } from '@/world/road-deformation';
 import { heightAt, baseHeightAt, type DeformationStore } from '@/world/terrain-deformation';
+import { getRenderWaterMask } from '@/world/render-water';
 // Module cycle (claims-diagnostics → claims → this file's buildingStructureCells) is
 // eval-safe: every cross-import is referenced only inside function bodies.
 import { claimsUnresolvedRule } from '@/world/claims-diagnostics';
@@ -517,16 +518,23 @@ interface DeckFootprint {
    *  ground, so a false positive would mean the deck's OWN footprint edge is wet. */
   edgeA: [number, number][];
   edgeB: [number, number][];
+  /** The crossing's SHARED OPENING — the two bank cells this deck seats its abutments on, carried
+   *  straight off the entity (`buildBridgeObject`). Exact; the edgeA/edgeB rows are only a proxy
+   *  for legacy decks that carry no opening. */
+  bankCells?: [number, number][];
 }
 
 function bridgeDeckFootprints(world: World): DeckFootprint[] {
   const out: DeckFootprint[] = [];
   for (const e of world.query({ kind: 'bridge' }) as Entity[]) {
-    const rb = (e.properties as {
+    const props = e.properties as {
       blueprint?: { rb?: { footprint?: { w: number; h: number }; parts?: Array<{ type: string; params?: Record<string, unknown> }> } };
-    } | undefined)?.blueprint?.rb;
+      bankCells?: [number, number][];
+    } | undefined;
+    const rb = props?.blueprint?.rb;
     const fp = rb?.footprint;
     if (!fp) continue;
+    const bankCells = props?.bankCells;
     const ox = Math.floor(e.x), oy = Math.floor(e.y);
     // Long axis from the deck part's yaw when available (breaks the tie on a
     // near-square AABB, e.g. a padded short span whose w and h coincide); otherwise
@@ -542,7 +550,7 @@ function bridgeDeckFootprints(world: World): DeckFootprint[] {
     } else {
       for (let dy = 0; dy < fp.h; dy++) { edgeA.push([ox, oy + dy]); edgeB.push([ox + fp.w - 1, oy + dy]); }
     }
-    out.push({ id: String(e.id), x0: ox, y0: oy, w: fp.w, h: fp.h, edgeA, edgeB });
+    out.push({ id: String(e.id), x0: ox, y0: oy, w: fp.w, h: fp.h, edgeA, edgeB, ...(bankCells ? { bankCells } : {}) });
   }
   return out.sort((a, b) => a.id.localeCompare(b.id));
 }
@@ -553,11 +561,12 @@ function bridgeDeckFootprints(world: World): DeckFootprint[] {
  *  (yet) classified as literal water still reads as a legitimate crossing target. */
 const CARVED_CHANNEL_MIN_DEPTH_M = 0.4;
 
-/** A tile is a valid "under the bridge" surface — open water, or a carved channel that
- *  hasn't (or shouldn't) become a water tile (e.g. a dry ford channel). */
+/** A tile is a valid "under the bridge" surface — open water (as the player SEES it), or a carved
+ *  channel that hasn't (or shouldn't) become a water tile (e.g. a dry ford channel). */
 function isWetOrCarved(map: GameMap, store: DeformationStore, x: number, y: number): boolean {
   const t = map.tiles[y]?.[x];
   if (t && WATER_TYPES.has(t.type)) return true;
+  if (getRenderWaterMask(map)(x, y)) return true;
   return baseHeightAt(map, x, y) - heightAt(map, store, x, y) >= CARVED_CHANNEL_MIN_DEPTH_M;
 }
 
@@ -587,8 +596,22 @@ const bridgeSeating: DiagnosticRule = {
           metrics: { cells: cells.length },
         });
       }
-      const isWet = ([x, y]: [number, number]): boolean => WATER_TYPES.has(ctx.map.tiles[y]?.[x]?.type ?? '');
-      const badEnds = [deck.edgeA, deck.edgeB].filter((edge) => edge.length > 0 && edge.every(isWet));
+      // Judge the abutments against the water the player SEES (the same render-water truth the
+      // banks are now seated on), not the tile raster — the raster is exactly what lied here: a
+      // road carves 'bridge'/'dirt_road' over the channel, so a deck end marooned in the visible
+      // river read as "dry" on tiles, and a bank seated a tile off the meandered ribbon read as
+      // "wet". Judging both sides of the fix on one truth is what makes this rule a real proof.
+      const wet = getRenderWaterMask(ctx.map);
+      const isWet = ([x, y]: [number, number]): boolean =>
+        WATER_TYPES.has(ctx.map.tiles[y]?.[x]?.type ?? '') || wet(x, y);
+      // A span that carries its SHARED OPENING is judged on the opening itself: each abutment
+      // must seat on its own bank cell, dry. Only a legacy deck (no opening — a raster-sited or
+      // hand-built one) falls back to the footprint-edge proxy, and then on tile water only,
+      // since the AABB edge of a diagonal deck overreaches the real abutment into the channel.
+      const badEnds = deck.bankCells
+        ? deck.bankCells.filter(isWet).map((c) => [c])
+        : [deck.edgeA, deck.edgeB].filter((edge) => edge.length > 0
+          && edge.every(([x, y]) => WATER_TYPES.has(ctx.map.tiles[y]?.[x]?.type ?? '')));
       if (badEnds.length) out.push({
         rule: this.id, severity: this.severity,
         message: `bridge deck ${deck.id} has ${badEnds.length} span end(s) entirely in open water — an unseated abutment`,

@@ -20,7 +20,7 @@
 // anchor here is now canonical, and a sprite-normalised projection is a downstream lookup.
 export type ConnectionAnchorKind =
   | 'door' | 'gate' | 'road' | 'wall_end' | 'water_edge' | 'frontage' | 'service' | 'bank'
-  | 'stair_anchor';
+  | 'stair_anchor' | 'gate_anchor';
 /** Where on a structure something can attach — a lintel over a door, the roof ridge, a
  *  gable peak, a chimney top, the eaves line, or a cone/dome apex. */
 export type MountAnchorKind =
