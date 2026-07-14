@@ -39,6 +39,7 @@ import { placeSettlement } from '@/world/building-placer';
 import { stampFarmland } from '@/world/farmland';
 import { stampIrrigation } from '@/world/irrigation';
 import { buildCrossingStructureEntities } from '@/world/connectome/crossing-structures';
+import { buildRoadOccupancyMaskUncached } from '@/world/road-occupancy-mask';
 import { deriveBuiltJunctions } from '@/world/junction-artifacts';
 import { collectStairPorts, placeStairsFromLinks } from '@/world/connectome/stair-structures';
 import { buildEntranceStoopEntities } from '@/world/connectome/entrance-stoops';
@@ -506,6 +507,16 @@ export async function generateWithNoise(
     const deckGamma = worldStyleOf(worldSeed ?? undefined).terrainHeightGamma;
     const deckElevAt = (x: number, y: number): number =>
       curveRenderElev(deckHf[y * width + x] ?? ELEVATION_SEA_LEVEL, ELEVATION_SEA_LEVEL, deckGamma);
+    // WIDTH-AWARE road avoidance: the bare ROAD_TILES tile test only sees the 1-cell walked
+    // centerline, but the renderer paints an analytic ribbon up to ~1.44 tiles beyond it
+    // (`maxCarriageHalfWidth`) — tolls/shrines nudged "clear" by tile type alone still sat
+    // inside the painted road (the `buildings.off-roads-ribbon` residuals). The mask samples
+    // the SAME ribbon over a partial map view of everything the geometry reads at this point
+    // (roadGraph + barriers for gate fillets + tiles for the banks-stop rule). UNCACHED on
+    // purpose: anchor links / fillet reconciliation haven't run yet, so a memoized entry here
+    // would poison the final map's identically-keyed cache slot the renderer reads.
+    const crossingRoadRibbon = buildRoadOccupancyMaskUncached(
+      { tiles, width, height, seed, worldSeed, roadGraph, barrierRuns } as GameMap);
     for (const e of buildCrossingStructureEntities(roadGraph, width, {
       deckElevAt,
       // A wet bank anchor (a channel wider than the detected bridge run, OR a meander that shifted
@@ -528,7 +539,8 @@ export async function generateWithNoise(
       cellBlocked: (x, y) => {
         const t = tiles[y]?.[x];
         if (!t) return true; // off-map → unusable
-        return tileBlockedByBuilding(world, x, y) || ROAD_TILES.has(t.type) || renderWaterAt(x, y);
+        return tileBlockedByBuilding(world, x, y) || ROAD_TILES.has(t.type)
+          || crossingRoadRibbon.has(x, y) || renderWaterAt(x, y);
       },
     })) world.addEntity(e);
 

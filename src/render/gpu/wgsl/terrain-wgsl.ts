@@ -361,7 +361,7 @@ fn vsMain(@builtin(vertex_index) vid : u32) -> VSOut {
   // y=up, z=south. Flat ground gives (0,1,0). Both terms sample at a FIXED
   // ±1-tile spacing regardless of LOD, so the normal — and every material
   // threshold derived from it (rock/snow smoothsteps) — is a pure function of
-  // world position. Scaling the up-term by `sub` flattened normals at coarse
+  // world position. Scaling the up-term by \`sub\` flattened normals at coarse
   // LODs and made snow coverage blink across zoom levels.
   var normal = vec3<f32>(0.0, 1.0, 0.0);
   if (fx > 0.5 && fx < f32(W - 1u) - 0.5 && fy > 0.5 && fy < f32(H - 1u) - 0.5) {
