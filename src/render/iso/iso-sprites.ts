@@ -114,6 +114,7 @@ export function artBillboardItem(
 export function plantSpriteItemFromPack(
   o: { originX: number; originY: number }, pack: import('./sprite-canvas').SpritePack, x: number, y: number,
   buryFrac = 0,
+  noShadow = false,
 ): DrawItem {
   const { sx, sy } = worldToScreen(x, y, 0, o.originX, o.originY);
   const src = pack.albedo;
@@ -133,6 +134,9 @@ export function plantSpriteItemFromPack(
     // cast shadow anchors there (footLift 0), NOT lifted dw/4 like a building.
     shadow: { footLift: 0 },
   };
+  // Ground-cover habits (grass/herb/fern) skip the cast-shadow pass — see
+  // `isGroundCoverKind` / DrawItem.noShadow.
+  if (noShadow) item.noShadow = true;
   if (buryPx > 0) item.frame = { sx: 0, sy: 0, sw: w, sh: visH };   // keep the TOP visH rows
   if (pack.shadow) {
     item.shadowSprite = { src: pack.shadow.canvas, dx: pack.shadow.dx, dy: pack.shadow.dy };
@@ -170,6 +174,19 @@ export function natureBuryFrac(kind: string, x: number, y: number): number {
   const def = tryGetEntityKindDef(kind);
   if (!def?.defaultTags.includes('rock')) return 0;
   return ROCK_BURY_MIN + ROCK_BURY_RANGE * posHash01(x, y);
+}
+
+/**
+ * True for ground-cover flora habits (grass tussocks, herbs, ferns) — the
+ * `plantSpriteItemFromPack` billboard for these skips the cast-shadow pass
+ * (`DrawItem.noShadow`): a shadow batch entry per blade would balloon the
+ * shadow instance count as ground-cover density rises, and a tuft this small
+ * shouldn't read a visible silhouette shadow anyway.
+ */
+export function isGroundCoverKind(kind: string): boolean {
+  const def = tryGetEntityKindDef(kind);
+  if (!def) return false;
+  return def.defaultTags.includes('grass') || def.defaultTags.includes('herb') || def.defaultTags.includes('fern');
 }
 
 const TRUNK_COLOR = '#5a4030';

@@ -104,6 +104,7 @@ export function buildShadowBatches(
   for (const raw of items) {
     if (raw.t !== 'image') continue;
     const it = raw as ImageItem;
+    if (it.noShadow) continue;
 
     // geometry: prefer the baked ground shadow (axis-aligned rect); other modes
     // and items without a baked shadow take the projected silhouette below.

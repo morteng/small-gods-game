@@ -3,6 +3,21 @@
 exports[`scrubland brush > produces a stable snapshot 1`] = `
 [
   {
+    "id": "scrubland-common-poppy-0-0",
+    "kind": "common-poppy",
+    "properties": {
+      "offsetX": 0.6237520201131701,
+      "offsetY": 0.3053742504445836,
+      "scale": 0.6119831680320204,
+    },
+    "tags": [
+      "vegetation",
+      "herb",
+    ],
+    "x": 0.6237520201131701,
+    "y": 0.3053742504445836,
+  },
+  {
     "id": "scrubland-blackthorn-1-0",
     "kind": "blackthorn",
     "properties": {
@@ -144,6 +159,22 @@ exports[`scrubland brush > produces a stable snapshot 1`] = `
     "y": 0.38863462961744516,
   },
   {
+    "id": "scrubland-common-hawthorn-0-1",
+    "kind": "common-hawthorn",
+    "properties": {
+      "offsetX": 0.4339658327866346,
+      "offsetY": 0.6828908934490755,
+      "rotation": -0,
+      "scale": 0.9188201914541423,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+    ],
+    "x": 0.4339658327866346,
+    "y": 1.6828908934490756,
+  },
+  {
     "id": "scrubland-common-broom-1-1",
     "kind": "common-broom",
     "properties": {
@@ -173,6 +204,22 @@ exports[`scrubland brush > produces a stable snapshot 1`] = `
     ],
     "x": 3.687498996919021,
     "y": 1.4010414629708976,
+  },
+  {
+    "id": "scrubland-gorse-5-1",
+    "kind": "gorse",
+    "properties": {
+      "offsetX": 0.18709315205924215,
+      "offsetY": 0.775915466551669,
+      "rotation": 0,
+      "scale": 1.044749509356916,
+    },
+    "tags": [
+      "vegetation",
+      "shrub",
+    ],
+    "x": 5.1870931520592425,
+    "y": 1.775915466551669,
   },
   {
     "id": "scrubland-common-hawthorn-6-1",
@@ -347,6 +394,21 @@ exports[`scrubland brush > produces a stable snapshot 1`] = `
     "y": 3.299344433704391,
   },
   {
+    "id": "scrubland-heather-1-3",
+    "kind": "heather",
+    "properties": {
+      "offsetX": 0.6030912332236766,
+      "offsetY": 0.21989787132479255,
+      "scale": 0.7760054030455649,
+    },
+    "tags": [
+      "vegetation",
+      "shrub",
+    ],
+    "x": 1.6030912332236766,
+    "y": 3.2198978713247923,
+  },
+  {
     "id": "scrubland-foxglove-1-3",
     "kind": "foxglove",
     "properties": {
@@ -376,6 +438,53 @@ exports[`scrubland brush > produces a stable snapshot 1`] = `
     ],
     "x": 3.348659416264854,
     "y": 3.176279785577208,
+  },
+  {
+    "id": "scrubland-common-hawthorn-5-3",
+    "kind": "common-hawthorn",
+    "properties": {
+      "offsetX": 0.402129368390888,
+      "offsetY": 0.279944280302152,
+      "rotation": -0,
+      "scale": 1.0949945581145584,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+    ],
+    "x": 5.402129368390888,
+    "y": 3.279944280302152,
+  },
+  {
+    "id": "scrubland-blackthorn-6-3",
+    "kind": "blackthorn",
+    "properties": {
+      "offsetX": 0.5807526815449819,
+      "offsetY": 0.33887938754633073,
+      "rotation": -0,
+      "scale": 0.8598688235506415,
+    },
+    "tags": [
+      "vegetation",
+      "shrub",
+    ],
+    "x": 6.580752681544982,
+    "y": 3.3388793875463305,
+  },
+  {
+    "id": "scrubland-heather-0-4",
+    "kind": "heather",
+    "properties": {
+      "offsetX": 0.6700181352440268,
+      "offsetY": 0.19463131176307802,
+      "scale": 0.7011853120289743,
+    },
+    "tags": [
+      "vegetation",
+      "shrub",
+    ],
+    "x": 0.6700181352440268,
+    "y": 4.194631311763078,
   },
   {
     "id": "scrubland-foxglove-7-4",
@@ -440,6 +549,21 @@ exports[`scrubland brush > produces a stable snapshot 1`] = `
     "y": 5.366299716173671,
   },
   {
+    "id": "scrubland-common-poppy-5-5",
+    "kind": "common-poppy",
+    "properties": {
+      "offsetX": 0.6192974958568811,
+      "offsetY": 0.544726297678426,
+      "scale": 0.612695272359997,
+    },
+    "tags": [
+      "vegetation",
+      "herb",
+    ],
+    "x": 5.619297495856881,
+    "y": 5.544726297678426,
+  },
+  {
     "id": "scrubland-gorse-4-7",
     "kind": "gorse",
     "properties": {
@@ -454,6 +578,22 @@ exports[`scrubland brush > produces a stable snapshot 1`] = `
     ],
     "x": 4.58573505806271,
     "y": 7.4940048976568505,
+  },
+  {
+    "id": "scrubland-common-broom-5-7",
+    "kind": "common-broom",
+    "properties": {
+      "offsetX": 0.42814863545354453,
+      "offsetY": 0.6942614120198414,
+      "rotation": -0,
+      "scale": 0.8414667321369053,
+    },
+    "tags": [
+      "vegetation",
+      "shrub",
+    ],
+    "x": 5.428148635453544,
+    "y": 7.694261412019841,
   },
 ]
 `;

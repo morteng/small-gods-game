@@ -35,6 +35,22 @@ exports[`pine_forest brush > produces a stable snapshot 1`] = `
     "y": 0.829653670778498,
   },
   {
+    "id": "pine_forest-scots-pine-2-0",
+    "kind": "scots-pine",
+    "properties": {
+      "offsetX": 0.22547213942743838,
+      "offsetY": 0.6010450881440192,
+      "rotation": -0,
+      "scale": 1.1453760200878604,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+    ],
+    "x": 2.2254721394274384,
+    "y": 0.6010450881440192,
+  },
+  {
     "id": "pine_forest-heather-2-0",
     "kind": "heather",
     "properties": {
@@ -48,6 +64,22 @@ exports[`pine_forest brush > produces a stable snapshot 1`] = `
     ],
     "x": 2.837745162984356,
     "y": 0.18932579061947763,
+  },
+  {
+    "id": "pine_forest-scots-pine-3-0",
+    "kind": "scots-pine",
+    "properties": {
+      "offsetX": 0.81328304996714,
+      "offsetY": 0.11834466084837914,
+      "rotation": 0,
+      "scale": 0.9202432399149983,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+    ],
+    "x": 3.81328304996714,
+    "y": 0.11834466084837914,
   },
   {
     "id": "pine_forest-scots-pine-4-0",
@@ -110,6 +142,38 @@ exports[`pine_forest brush > produces a stable snapshot 1`] = `
     ],
     "x": 5.684299909509718,
     "y": 0.8000500919297338,
+  },
+  {
+    "id": "pine_forest-scots-pine-6-0",
+    "kind": "scots-pine",
+    "properties": {
+      "offsetX": 0.5058474738616496,
+      "offsetY": 0.6566831525415182,
+      "rotation": 0,
+      "scale": 1.0830561333801596,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+    ],
+    "x": 6.50584747386165,
+    "y": 0.6566831525415182,
+  },
+  {
+    "id": "pine_forest-scots-pine-7-0",
+    "kind": "scots-pine",
+    "properties": {
+      "offsetX": 0.522320045158267,
+      "offsetY": 0.3409066137392074,
+      "rotation": 0,
+      "scale": 1.0284477836685255,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+    ],
+    "x": 7.522320045158267,
+    "y": 0.3409066137392074,
   },
   {
     "id": "pine_forest-norway-spruce-7-0",
@@ -176,6 +240,21 @@ exports[`pine_forest brush > produces a stable snapshot 1`] = `
     "y": 1.878306868718937,
   },
   {
+    "id": "pine_forest-common-juniper-4-1",
+    "kind": "common-juniper",
+    "properties": {
+      "offsetX": 0.3116699391510338,
+      "offsetY": 0.3619270015973598,
+      "scale": 0.6290585946291685,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+    ],
+    "x": 4.311669939151034,
+    "y": 1.3619270015973597,
+  },
+  {
     "id": "pine_forest-scots-pine-6-1",
     "kind": "scots-pine",
     "properties": {
@@ -221,6 +300,22 @@ exports[`pine_forest brush > produces a stable snapshot 1`] = `
     ],
     "x": 6.588106032670476,
     "y": 1.5869791446952148,
+  },
+  {
+    "id": "pine_forest-norway-spruce-7-1",
+    "kind": "norway-spruce",
+    "properties": {
+      "offsetX": 0.379950359929353,
+      "offsetY": 0.9661216426175088,
+      "rotation": 0,
+      "scale": 0.8742707756580784,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+    ],
+    "x": 7.379950359929353,
+    "y": 1.9661216426175088,
   },
   {
     "id": "pine_forest-norway-spruce-0-2",
@@ -303,6 +398,22 @@ exports[`pine_forest brush > produces a stable snapshot 1`] = `
     "y": 2.3814063011668622,
   },
   {
+    "id": "pine_forest-scots-pine-5-2",
+    "kind": "scots-pine",
+    "properties": {
+      "offsetX": 0.4027511030435562,
+      "offsetY": 0.3154732114635408,
+      "rotation": -0,
+      "scale": 1.071380120050162,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+    ],
+    "x": 5.402751103043556,
+    "y": 2.315473211463541,
+  },
+  {
     "id": "pine_forest-norway-spruce-5-2",
     "kind": "norway-spruce",
     "properties": {
@@ -333,6 +444,22 @@ exports[`pine_forest brush > produces a stable snapshot 1`] = `
     ],
     "x": 6.899844246916473,
     "y": 2.9696960458531976,
+  },
+  {
+    "id": "pine_forest-scots-pine-0-3",
+    "kind": "scots-pine",
+    "properties": {
+      "offsetX": 0.9187032352201641,
+      "offsetY": 0.8100342662073672,
+      "rotation": -0,
+      "scale": 0.8672520113410428,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+    ],
+    "x": 0.9187032352201641,
+    "y": 3.810034266207367,
   },
   {
     "id": "pine_forest-scots-pine-1-3",
@@ -367,6 +494,21 @@ exports[`pine_forest brush > produces a stable snapshot 1`] = `
     "y": 3.912234533112496,
   },
   {
+    "id": "pine_forest-heather-1-3",
+    "kind": "heather",
+    "properties": {
+      "offsetX": 0.6030912332236766,
+      "offsetY": 0.21989787132479255,
+      "scale": 0.7760054030455649,
+    },
+    "tags": [
+      "vegetation",
+      "shrub",
+    ],
+    "x": 1.6030912332236766,
+    "y": 3.2198978713247923,
+  },
+  {
     "id": "pine_forest-silver-birch-3-3",
     "kind": "silver-birch",
     "properties": {
@@ -399,6 +541,22 @@ exports[`pine_forest brush > produces a stable snapshot 1`] = `
     "y": 3.37887929007411,
   },
   {
+    "id": "pine_forest-silver-birch-6-3",
+    "kind": "silver-birch",
+    "properties": {
+      "offsetX": 0.049971539760008454,
+      "offsetY": 0.038875788915902376,
+      "rotation": -0,
+      "scale": 1.0923029153374955,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+    ],
+    "x": 6.0499715397600085,
+    "y": 3.0388757889159024,
+  },
+  {
     "id": "pine_forest-norway-spruce-0-4",
     "kind": "norway-spruce",
     "properties": {
@@ -413,6 +571,37 @@ exports[`pine_forest brush > produces a stable snapshot 1`] = `
     ],
     "x": 0.15350955538451672,
     "y": 4.5393947686534375,
+  },
+  {
+    "id": "pine_forest-heather-0-4",
+    "kind": "heather",
+    "properties": {
+      "offsetX": 0.6700181352440268,
+      "offsetY": 0.19463131176307802,
+      "scale": 0.7011853120289743,
+    },
+    "tags": [
+      "vegetation",
+      "shrub",
+    ],
+    "x": 0.6700181352440268,
+    "y": 4.194631311763078,
+  },
+  {
+    "id": "pine_forest-norway-spruce-1-4",
+    "kind": "norway-spruce",
+    "properties": {
+      "offsetX": 0.009173821425065398,
+      "offsetY": 0.3945559181738645,
+      "rotation": -0,
+      "scale": 1.0564988587750122,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+    ],
+    "x": 1.0091738214250654,
+    "y": 4.3945559181738645,
   },
   {
     "id": "pine_forest-scots-pine-0-5",
@@ -460,6 +649,37 @@ exports[`pine_forest brush > produces a stable snapshot 1`] = `
     ],
     "x": 2.3362624200526625,
     "y": 5.926930409157649,
+  },
+  {
+    "id": "pine_forest-common-juniper-3-5",
+    "kind": "common-juniper",
+    "properties": {
+      "offsetX": 0.6149925458710641,
+      "offsetY": 0.20969058950431646,
+      "scale": 0.8186919844709337,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+    ],
+    "x": 3.614992545871064,
+    "y": 5.209690589504317,
+  },
+  {
+    "id": "pine_forest-scots-pine-4-5",
+    "kind": "scots-pine",
+    "properties": {
+      "offsetX": 0.41052188840694726,
+      "offsetY": 0.05906938179396093,
+      "rotation": 0,
+      "scale": 0.8513705400750041,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+    ],
+    "x": 4.410521888406947,
+    "y": 5.059069381793961,
   },
   {
     "id": "pine_forest-scots-pine-5-5",
@@ -524,6 +744,37 @@ exports[`pine_forest brush > produces a stable snapshot 1`] = `
     ],
     "x": 3.380968638230115,
     "y": 7.408841246273369,
+  },
+  {
+    "id": "pine_forest-norway-spruce-4-7",
+    "kind": "norway-spruce",
+    "properties": {
+      "offsetX": 0.6224786543752998,
+      "offsetY": 0.491435568081215,
+      "rotation": -0,
+      "scale": 1.0403352637542411,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+    ],
+    "x": 4.6224786543753,
+    "y": 7.491435568081215,
+  },
+  {
+    "id": "pine_forest-common-juniper-4-7",
+    "kind": "common-juniper",
+    "properties": {
+      "offsetX": 0.3761269801761955,
+      "offsetY": 0.5672466618474573,
+      "scale": 0.7690803274512291,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+    ],
+    "x": 4.3761269801761955,
+    "y": 7.567246661847458,
   },
   {
     "id": "pine_forest-norway-spruce-5-7",

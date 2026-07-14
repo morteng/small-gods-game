@@ -59,6 +59,14 @@ export type DrawItem =
        * then lift by the SAME sampled height and their seam can't split on a slope.
        */
       foot?: { sx: number; sy: number };
+      /**
+       * Skip this item in the cast-shadow pass entirely. Ground-cover habits
+       * (grass/herb/fern tufts) are too small to read a silhouette shadow and
+       * their instance count dwarfs everything else once density rises — a
+       * shadow batch entry per blade would balloon the shadow pass for no
+       * visible gain.
+       */
+      noShadow?: boolean;
     }
   | { t: 'poly'; points: Array<{ x: number; y: number }>; color: string }
   | { t: 'circle'; cx: number; cy: number; r: number; color: string };

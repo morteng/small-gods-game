@@ -37,11 +37,13 @@ describe('scrubland brush', () => {
       expect(ALLOWED.has(e.kind)).toBe(true);
     }
   });
-  it('produces ~20% vegetation density', () => {
+  it('produces ~25% vegetation density', () => {
+    // Recomputed after the grass/bush density pass (density 0.20→0.25): canopy
+    // count on a 20×20 all-scrubland region ranged 87-130 across 8 seeds.
     const c = allScrub(20, 20);
     const out = scrublandBrush({ x: 0, y: 0, w: 20, h: 20 }, 11, c);
     const veg = out.filter(e => CANOPY.has(e.kind));
-    expect(veg.length).toBeGreaterThan(40);
-    expect(veg.length).toBeLessThan(120);
+    expect(veg.length).toBeGreaterThan(70);
+    expect(veg.length).toBeLessThan(150);
   });
 });

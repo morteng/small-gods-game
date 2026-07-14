@@ -31,9 +31,9 @@ export const BIOME_FLORA: Readonly<Record<string, FloraPool>> = {
       ['silver-birch', 0.08],
     ],
     undergrowth: [
-      ['common-hazel', 0.4, 0.05],
-      ['bracken', 0.35, 0.05],
-      ['bramble', 0.25, 0.04],
+      ['common-hazel', 0.4, 0.09],   // raised 0.05→0.09 (~1.75x, density pass)
+      ['bracken', 0.35, 0.09],       // raised 0.05→0.09 (~1.75x, density pass)
+      ['bramble', 0.25, 0.07],       // raised 0.04→0.07 (~1.75x, density pass)
     ],
   },
   dense_forest: {
@@ -43,9 +43,9 @@ export const BIOME_FLORA: Readonly<Record<string, FloraPool>> = {
       ['silver-birch', 0.25],
     ],
     undergrowth: [
-      ['lady-fern', 0.4, 0.1],
-      ['bramble', 0.3, 0.08],
-      ['common-hazel', 0.3, 0.06],
+      ['lady-fern', 0.4, 0.18],      // raised 0.1→0.18 (~1.75x, density pass)
+      ['bramble', 0.3, 0.14],        // raised 0.08→0.14 (~1.75x, density pass)
+      ['common-hazel', 0.3, 0.11],   // raised 0.06→0.11 (~1.75x, density pass)
     ],
   },
   pine_forest: {
@@ -55,8 +55,8 @@ export const BIOME_FLORA: Readonly<Record<string, FloraPool>> = {
       ['silver-birch', 0.1],
     ],
     undergrowth: [
-      ['common-juniper', 0.5, 0.05],
-      ['heather', 0.5, 0.04],
+      ['common-juniper', 0.5, 0.09],   // raised 0.05→0.09 (~1.75x, density pass)
+      ['heather', 0.5, 0.07],          // raised 0.04→0.07 (~1.75x, density pass)
     ],
   },
   scrubland: {
@@ -68,9 +68,9 @@ export const BIOME_FLORA: Readonly<Record<string, FloraPool>> = {
       ['elder', 0.1],
     ],
     undergrowth: [
-      ['heather', 0.5, 0.05],
-      ['foxglove', 0.3, 0.03],
-      ['common-poppy', 0.2, 0.03],
+      ['heather', 0.5, 0.09],         // raised 0.05→0.09 (~1.75x, density pass)
+      ['foxglove', 0.3, 0.05],        // raised 0.03→0.05 (~1.75x, density pass)
+      ['common-poppy', 0.2, 0.05],    // raised 0.03→0.05 (~1.75x, density pass)
     ],
   },
   sacred_grove: {
@@ -83,8 +83,8 @@ export const BIOME_FLORA: Readonly<Record<string, FloraPool>> = {
       ['lombardy-poplar', 0.08],
     ],
     undergrowth: [
-      ['foxglove', 0.6, 0.06],
-      ['lady-fern', 0.4, 0.05],
+      ['foxglove', 0.6, 0.11],        // raised 0.06→0.11 (~1.75x, density pass)
+      ['lady-fern', 0.4, 0.09],       // raised 0.05→0.09 (~1.75x, density pass)
     ],
   },
   /** Open grassland / meadow ground cover — 'grass'/'meadow'/'glen' TILES, which
@@ -114,7 +114,7 @@ export const BIOME_FLORA: Readonly<Record<string, FloraPool>> = {
       ['weeping-ash', 0.1],
     ],
     undergrowth: [
-      ['heather', 1.0, 0.04],
+      ['heather', 1.0, 0.07],         // raised 0.04→0.07 (~1.75x, density pass)
     ],
   },
 };
