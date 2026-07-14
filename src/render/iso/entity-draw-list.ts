@@ -13,6 +13,7 @@ import type { DrawItem } from './draw-list';
 import type { IsoItemCtx } from './iso-sprites';
 import { npcItems, vegetationItems, artBillboardItem, plantSpriteItemFromPack, natureBuryFrac } from './iso-sprites';
 import { isPlantPreset } from '@/blueprint/presets';
+import { floraVariantBucket, FLORA_VARIANTS } from '@/render/flora-variant';
 import {
   buildingSpriteItemFromImage, buildingSpriteItemFromPack, flatBlockItems, pickBuildingSource,
 } from './iso-building';
@@ -240,7 +241,9 @@ export function buildEntityDrawList(
         // Generative species-keyed tree sprite (PBR-lit, cast shadow) when the
         // kind has a plant blueprint preset and its sprite is warm; the flat
         // billboard is the keyless fallback (and stays for ground cover).
-        const pack = isPlantPreset(v.kind) ? rc.resolveParametricPlantArt?.(v.kind) ?? null : null;
+        const pack = isPlantPreset(v.kind)
+          ? rc.resolveParametricPlantArt?.(v.kind, floraVariantBucket(v.id, FLORA_VARIANTS)) ?? null
+          : null;
         if (pack) {
           items.push(plantSpriteItemFromPack(ic, pack, v.x, v.y, natureBuryFrac(v.kind, v.x, v.y)));
         } else {

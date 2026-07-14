@@ -28,6 +28,7 @@ const stubParametricSource: ParametricBuildingSource = {
 const stubPlantSource: ParametricPlantSource = {
   peek: () => null,
   warm: () => {},
+  version: () => 0,
 } as unknown as ParametricPlantSource;
 
 describe('buildRenderContext', () => {

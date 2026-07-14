@@ -19,6 +19,13 @@ import {
 // not a forester's survey. (Was in the retired blob `parts/flora.ts`.)
 export const TREE_GAME_SCALE = 0.34;
 
+/** Resolve the effective flora/rock generator seed. `validateParams` fills the schema
+ *  default (0) whenever the caller passed none, so a 0 here means "unset" ⇒ derive from
+ *  the blueprint seed (`ctxSeed`); any explicit non-zero seed is honoured verbatim.
+ *  (Fixes the latent bug where every flora instance was pinned to createRng(0).) */
+const floraSeed = (paramSeed: number | undefined, ctxSeed: number): number =>
+  (paramSeed && paramSeed !== 0) ? (paramSeed >>> 0) : (ctxSeed >>> 0);
+
 const footprintCells = (p: { at: { x: number; y: number }; size: { w: number; h: number } }): Array<[number, number]> => {
   const cells: Array<[number, number]> = [];
   for (let i = 0; i < p.size.w; i++) for (let j = 0; j < p.size.h; j++) cells.push([p.at.x + i, p.at.y + j]);
@@ -63,7 +70,11 @@ export const branchPlantPartType: PartType = {
       generator: 'proctree', recipe: 'oak', crownShape: 'rounded', heightM: 10, trunkR: 0.16, petalTint: 0,
       ...(part.params ?? {}),
       // Bake the blueprint seed in so toPrims (which has no ctx.seed) is deterministic.
-      seed: (part.params?.seed as number | undefined) ?? (ctx.seed >>> 0),
+      // A 0 param-seed is the schema-default SENTINEL (validateParams fills it before we
+      // see it, which used to defeat the `?? ctx.seed` fallback and pin every instance to
+      // seed 0) — so 0 ⇒ derive from the blueprint seed, letting per-variant seeds vary
+      // the silhouette. An explicit non-zero seed still wins.
+      seed: floraSeed(part.params?.seed as number | undefined, ctx.seed),
     },
   }),
   toPrims(p): Prim[] {
@@ -87,10 +98,34 @@ export const branchPlantPartType: PartType = {
     const foliageTint = tintNum > 0
       ? [(tintNum >> 16) & 0xff, (tintNum >> 8) & 0xff, tintNum & 0xff] as [number, number, number]
       : undefined;
+    // Crown-radial normal target (ez-tree "lush" trick — see flora/mesh.ts): the crown
+    // origin the foliage facets re-aim their normals toward so the clump-field shades as
+    // ONE rounded volume. Conifer cones shade around the trunk AXIS at each facet's
+    // height; weeping crowns drape from an APEX at the crown top; every other crown is a
+    // point volume at the leaf centroid.
+    let crownCenter: [number, number, number] | undefined;
+    let crownMode: 'point' | 'axis' | 'apex' | undefined;
+    if (leaves.length > 0) {
+      if (crownShape === 'conical') {
+        crownMode = 'axis';
+        crownCenter = [cx, cy, 0];
+      } else if (crownShape === 'weeping') {
+        crownMode = 'apex';
+        let topZ = -Infinity;
+        for (const lf of leaves) if (lf.at[2] > topZ) topZ = lf.at[2];
+        crownCenter = [cx, cy, topZ];
+      } else {
+        crownMode = 'point';
+        let sx = 0, sy = 0, sz = 0;
+        for (const lf of leaves) { sx += lf.at[0]; sy += lf.at[1]; sz += lf.at[2]; }
+        crownCenter = [sx / leaves.length, sy / leaves.length, sz / leaves.length];
+      }
+    }
     return [{
       prim: 'flora', limbs, leaves,
       ...(herbaceous ? { barkMat: 'foliage' as const } : {}),
       ...(foliageTint ? { foliageTint } : {}),
+      ...(crownCenter ? { crownCenter, crownMode } : {}),
     }];
   },
   toCollision: (p) => footprintCells(p),
@@ -118,7 +153,9 @@ export const rockPartType: PartType = {
     params: {
       sizeM: 1.5, jitter: 0.35, aspect: 1, cluster: 1,
       ...(part.params ?? {}),
-      seed: (part.params?.seed as number | undefined) ?? (ctx.seed >>> 0),
+      // 0 = schema-default sentinel ⇒ derive from the blueprint seed (same latent-bug
+      // fix as branch_plant), so rock variants actually vary their arrangement.
+      seed: floraSeed(part.params?.seed as number | undefined, ctx.seed),
     },
   }),
   toPrims(p): Prim[] {

@@ -8,7 +8,7 @@
 import type { Vec3, Mat, RGB, WorldFacet } from '@/assetgen/types';
 import { MATERIAL_RGB } from '@/assetgen/types';
 import type { Mesh } from 'manifold-3d';
-import { manifoldToFacets } from '@/assetgen/geometry/solids';
+import { manifoldToFacets, brightness, shadeRGB } from '@/assetgen/geometry/solids';
 import { add, scale, sub, normalize, cross } from './vec3';
 import type { Limb, Leaf } from './turtle';
 
@@ -98,6 +98,9 @@ function octaSphere(subdiv: number): { verts: Vec3[]; tris: [number, number, num
   return { verts, tris };
 }
 
+/** How the crown-radial re-aim measures "outward" (see {@link BlobOpts.crownCenter}). */
+export type CrownMode = 'point' | 'axis' | 'apex';
+
 export interface BlobOpts {
   /** Octa-sphere subdivisions (1 = 32 tris, 2 = 128). Higher = rounder clumps. */
   subdiv?: number;
@@ -106,6 +109,38 @@ export interface BlobOpts {
   jitter?: number;
   /** Vertical squash (×Z) so canopy clumps sit as flattened lobes, not balloons. */
   squash?: number;
+  /** Crown-radial normal re-aim (the ez-tree "lush" trick). When set, every foliage
+   *  facet's flat normal is nudged toward the outward crown radial (and its shade
+   *  recomputed to match), so thousands of leaf facets read as ONE rounded canopy
+   *  volume under the banded sun rather than a boiling field of independent blobs.
+   *  `crownCenter` is the crown volume origin in the SAME (prim) coordinates as the
+   *  leaves. Absent ⇒ untouched per-facet normals (the pre-2026-07 flat-blob look). */
+  crownCenter?: Vec3;
+  /** Radial measure: 'point' = outward from `crownCenter`; 'axis' = horizontal outward
+   *  from the vertical axis through `crownCenter` at each facet's height (conifers —
+   *  cone crowns shade around their trunk axis); 'apex' = outward/down from an apex
+   *  (place `crownCenter` at the crown TOP — weeping curtains drape from it). Default
+   *  'point'. */
+  crownMode?: CrownMode;
+  /** Blend weight faceNormal → radial (0 = untouched, 1 = fully radial). ~0.7 keeps a
+   *  little facet texture while the volume dominates. Default 0.7. */
+  radialK?: number;
+}
+
+/** Re-aim one facet's normal toward the crown radial and recompute its slope shade
+ *  with the SAME brightness law as every other facet, so the canopy lights as one mass. */
+function reaimToCrown(f: WorldFacet, mat: Mat, cc: Vec3, mode: CrownMode, k: number): WorldFacet {
+  const [a, b, c] = f.pts;
+  const px = (a[0] + b[0] + c[0]) / 3, py = (a[1] + b[1] + c[1]) / 3, pz = (a[2] + b[2] + c[2]) / 3;
+  const target: Vec3 = mode === 'axis' ? [px - cc[0], py - cc[1], 0] : [px - cc[0], py - cc[1], pz - cc[2]];
+  const tl = Math.hypot(target[0], target[1], target[2]);
+  if (tl < 1e-6) return f; // facet sits on the crown centre/axis — nothing to re-aim toward
+  const tn: Vec3 = [target[0] / tl, target[1] / tl, target[2] / tl];
+  const fn = normalize(f.normal);
+  const bx = fn[0] * (1 - k) + tn[0] * k, by = fn[1] * (1 - k) + tn[1] * k, bz = fn[2] * (1 - k) + tn[2] * k;
+  const bl = Math.hypot(bx, by, bz) || 1;
+  const nn: Vec3 = [bx / bl, by / bl, bz / bl];
+  return { ...f, normal: nn, albedo: shadeRGB(MATERIAL_RGB[mat], brightness(nn)) };
 }
 
 /** Foliage clumps: noise-displaced octa-spheres (one per leaf), so a crown of them
@@ -130,7 +165,11 @@ export function blobFacets(leaves: Leaf[], mat: Mat, opts: BlobOpts = {}, tint?:
     });
     for (const [a, b, c] of tris) m.tri(w[a], w[b], w[c]);
   }
-  const facets = m.facets(mat);
+  const raw = m.facets(mat);
+  // Crown-radial re-aim: shade the whole clump-field as one rounded volume (opt-in).
+  const facets = opts.crownCenter
+    ? raw.map((f) => reaimToCrown(f, mat, opts.crownCenter!, opts.crownMode ?? 'point', opts.radialK ?? 0.7))
+    : raw;
   if (!tint) return facets;
   const base = MATERIAL_RGB[mat];
   const k: RGB = [tint[0] / Math.max(base[0], 1), tint[1] / Math.max(base[1], 1), tint[2] / Math.max(base[2], 1)];

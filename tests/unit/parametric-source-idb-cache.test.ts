@@ -177,9 +177,11 @@ describe('ParametricPlantSource × sprite cache', () => {
   const kind = plantPresetNames()[0];
 
   it('cold: composes + persists; warm (fresh source): IDB hit, NO compose; prewarm promise still settles', async () => {
+    // Inject a FIXED spec so all variants share one content-addressed key — exercise a
+    // single variant (variant 0) to keep the cold→persist→warm-hit assertions clean.
     const compose1 = vi.fn(async () => realResult());
     const src1 = new ParametricPlantSource({ toSpec: () => spec, compose: compose1, toSprite: () => fakeSprite });
-    await src1.warm(kind);
+    await src1.warmVariant(kind, 0);
     expect(src1.peek(kind)).toBe(fakeSprite);
     expect(compose1).toHaveBeenCalledTimes(1);
     const idbKey = parametricSpriteKey('plt', canonicalJson(spec));
@@ -187,7 +189,7 @@ describe('ParametricPlantSource × sprite cache', () => {
 
     const compose2 = vi.fn(async () => realResult());
     const src2 = new ParametricPlantSource({ toSpec: () => spec, compose: compose2, toSprite: () => fakeSprite, packFromCache: () => cachedSprite });
-    await src2.warm(kind); // must resolve only once the pack is cached (prewarmAll contract)
+    await src2.warmVariant(kind, 0); // must resolve only once the pack is cached (prewarmAll contract)
     expect(src2.peek(kind)).toBe(cachedSprite);
     expect(compose2).not.toHaveBeenCalled();
   });

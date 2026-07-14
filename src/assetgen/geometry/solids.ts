@@ -16,11 +16,13 @@ const sub = (a: Vec3, b: Vec3): Vec3 => [a[0]-b[0], a[1]-b[1], a[2]-b[2]];
 const cross = (u: Vec3, v: Vec3): Vec3 =>
   [u[1]*v[2]-u[2]*v[1], u[2]*v[0]-u[0]*v[2], u[0]*v[1]-u[1]*v[0]];
 const norm = (v: Vec3): Vec3 => { const l = Math.hypot(v[0],v[1],v[2]) || 1; return [v[0]/l, v[1]/l, v[2]/l]; };
-const shadeRGB = (c: RGB, f: number): RGB =>
+export const shadeRGB = (c: RGB, f: number): RGB =>
   [Math.round(c[0]*f), Math.round(c[1]*f), Math.round(c[2]*f)];
 
-/** Slope shade for the GREY reference: top brightest, +x brighter than +y, undersides dim. */
-function brightness(n: Vec3): number {
+/** Slope shade for the GREY reference: top brightest, +x brighter than +y, undersides dim.
+ *  Exported so flora foliage can recompute its shade after re-aiming leaf-facet normals to
+ *  the crown-radial (see flora/mesh.ts) with the IDENTICAL slope law as every other facet. */
+export function brightness(n: Vec3): number {
   const u = norm(n);
   const k = u[0]*0.30 + u[1]*0.18 + u[2]*0.85;
   return Math.max(0.42, Math.min(1, 0.6 + 0.4 * k));
