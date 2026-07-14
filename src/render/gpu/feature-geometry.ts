@@ -111,8 +111,10 @@ const PAVEDNESS: Record<SurfaceMaterial, number> = { dirt: 0.2, gravel: 0.45, co
 
 /** Carriageway shoulder lip beyond the carriage half-width (tiles) — where pavedness
  *  fades out. Kept narrow so the paved surface hugs the carriageway instead of
- *  bleeding a wide apron into the verge. */
-const SHOULDER_LIP_TILES = 0.18;
+ *  bleeding a wide apron into the verge. Exported: placement/occupancy code
+ *  (`road-occupancy-mask.ts`, `building-placer.ts`) reads the SAME lip so its
+ *  worst-case ribbon reach never drifts from what actually gets painted. */
+export const SHOULDER_LIP_TILES = 0.18;
 /** Pavedness holds full inside this fraction of the half-width, then feathers to 0. */
 const ROAD_CORE_FRACTION = 0.7;
 

@@ -37,6 +37,7 @@ import { blueprintEntity, blueprintOf } from '@/blueprint/entity';
 import { toAnchors } from '@/blueprint/compile/to-anchors';
 import { BUILDABLE_TERRAIN, extendThroughStreet, extendBackLane, annexAcrossBridge, frontageValue, type Lot, type SettlementPlan } from '@/world/settlement-plan';
 import { tryGetEntityKindDef } from '@/world/entity-kinds';
+import { buildRoadOccupancyMask } from '@/world/road-occupancy-mask';
 import { TRAMPLE, type TrampleGrid } from '@/sim/trample';
 import { cohortPopulation, type SettlementCohorts } from '@/sim/cohorts';
 
@@ -139,25 +140,34 @@ export function housingCapacityByPoi(world: World): Map<string, number> {
 const NATURE_CATEGORIES = new Set(['vegetation', 'terrain-feature']);
 
 /** Roads carved after planning (inter-POI connectors, door paths) cross lots —
- *  growth must never build over them. */
+ *  growth must never build over them. Cheap short-circuit BEFORE the width-aware
+ *  ribbon test below (`buildRoadOccupancyMask`): a live road/bridge tile is always
+ *  disqualifying and this dodges the analytic distance math for the common case. */
 const ROAD_TYPES = new Set(['dirt_road', 'stone_road', 'bridge']);
 
 /** Terrain growth may CLEAR inside its own lot (medieval assarting): worldgen
  *  won't seed buildings here, but a growing settlement fells its forest edge. */
 const CLEARABLE_TERRAIN = new Set(['forest', 'dense_forest', 'pine_forest', 'dead_forest', 'meadow']);
 
-/** Footprint cells are buildable (or clearable), inside the lot, off-road,
- *  and free of blocking entities. */
+/** Footprint cells are buildable (or clearable), inside the lot, off the RENDERED
+ *  road ribbon (not just the bare centerline tile-grid — `buildRoadOccupancyMask`
+ *  tests the same analytic width the GPU terrain pass paints, so growth can't plant
+ *  a dwelling half-under a highway's shoulder), and free of blocking entities. */
 function fitsInLot(
   world: World, lotSet: Set<string>, x: number, y: number, w: number, h: number,
 ): boolean {
   const tiles = world.tiles.tiles;
+  // `map.roadGraph` exists by growth time (worldgen commits it before any live
+  // system ticks), so the ribbon mask is always meaningful here — unlike
+  // `building-placer.ts`, which places BEFORE the graph exists.
+  const roadMask = buildRoadOccupancyMask(world.tiles);
   for (let dy = 0; dy < h; dy++) {
     for (let dx = 0; dx < w; dx++) {
       const tx = x + dx, ty = y + dy;
       if (!lotSet.has(`${tx},${ty}`)) return false;
       const t: Tile | undefined = tiles[ty]?.[tx];
       if (!t || ROAD_TYPES.has(t.type)) return false;
+      if (roadMask.has(tx, ty)) return false;
       if (!BUILDABLE_TERRAIN.has(t.type) && !CLEARABLE_TERRAIN.has(t.type)) return false;
       if (t.walkable === false && !CLEARABLE_TERRAIN.has(t.type)) return false;
       const blocking = world.registry.getAtTile(tx, ty).some(e => {

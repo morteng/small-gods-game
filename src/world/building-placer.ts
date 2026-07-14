@@ -46,11 +46,50 @@ import {
 } from './settlement-plan';
 import { getMillSites, millSitesNear } from './mill-site-store';
 import { buildRenderWaterTypeMemo } from '@/render/gpu/render-water-mask';
+import { maxCarriageHalfWidth } from '@/world/road-state';
+import { SHOULDER_LIP_TILES } from '@/render/gpu/feature-geometry';
+import type { RoadClass } from '@/world/road-graph';
 
 import { computeSettlementParcels } from './settlement-parcels';
 
 /** Road tile types — door paths stop when they reach an existing road */
 const ROAD_TYPES = new Set(['dirt_road', 'stone_road', 'bridge']);
+
+/**
+ * Reserve OCCUPANCY (not tile type — the carved road-TILE grid is untouched, so the
+ * live centerline rendering is unchanged) for an internal connector's (door→centre lane,
+ * gate→street lane) WORST-CASE rendered width (`maxCarriageHalfWidth` + the renderer's
+ * shoulder lip), perpendicular to its local direction, so a building committed HERE
+ * (gen-time, before `map.roadGraph` exists — see `road-occupancy-mask.ts`'s note) never
+ * lands where the analytic ribbon (`render/gpu/feature-geometry.ts`) later paints pavement
+ * — SHOULD this connector ever be absorbed into an inter-POI road-graph edge (the same
+ * reuse-affinity `road-graph.ts` gives already-carved road cells). Deliberately NOT applied
+ * to `plan.edges` (the settlement's own frontage streets) — see the comment at their claim
+ * site: a dwelling's door sits at depth EXACTLY 1 from its street by design, and any nonzero
+ * dilation there would claim that very frontage row. Cells span ±0.5 tile from their own
+ * centre by construction (the centerline claim the caller already made), so only the EXCESS
+ * reach beyond that needs its own claim.
+ */
+function claimRibbonOccupancy(
+  cells: { x: number; y: number }[], roadClass: RoadClass, occ: OccupancyGrid,
+): void {
+  const half = maxCarriageHalfWidth(roadClass) + SHOULDER_LIP_TILES;
+  const extra = Math.ceil(half - 0.5);
+  if (extra <= 0) return;
+  for (let i = 0; i < cells.length; i++) {
+    const c = cells[i];
+    const prev = cells[i - 1] ?? c;
+    const next = cells[i + 1] ?? c;
+    const dx = next.x - prev.x, dy = next.y - prev.y;
+    const len = Math.hypot(dx, dy);
+    if (len === 0) continue;   // an isolated cell has no local direction to take a perpendicular of
+    const px = -dy / len, py = dx / len;
+    for (let s = -extra; s <= extra; s++) {
+      if (s === 0) continue;   // the centerline cell — already claimed by the caller
+      occ.claim(Math.round(c.x + px * s), Math.round(c.y + py * s), 'road');
+    }
+  }
+}
 
 /**
  * A preset's terrain disposition, derived from its site rule (generative, not
@@ -492,6 +531,18 @@ export function placeSettlement(
     ...plan.market.map(m => ({ x: m.x, y: m.y, type: roadType })),
   ];
   for (const rt of roadTiles) occ.claim(rt.x, rt.y, 'road');
+  // NOT width-dilated (deliberately): `subdivideLots` seats every burgage lot's frontage
+  // row at depth EXACTLY 1 from its road edge's own centerline (`settlement-plan.ts`) — a
+  // dwelling fronting its street by design, not a bug. Even at `Math.ceil` the narrowest
+  // class's worst-case reach still exceeds the raster's ±0.5-tile self-coverage, so ANY
+  // non-zero dilation here claims that exact frontage row and silences frontage placement
+  // outright (measured: 0 street-fronting doors across 12 seeds). The genuine risk this
+  // investigation found — an INTER-POI `road-graph.ts` edge later routing/rendering too
+  // close to a building — is guarded at its own source instead: `road-graph.ts` widens its
+  // building-avoidance test by the edge's own `maxCarriageHalfWidth`, and the
+  // `buildings.off-roads-ribbon` world contract catches any residual overlap post-hoc (a lint
+  // finding an agent/Fate can resolve) rather than this module silently refusing to grow a
+  // street-fronted town at all.
 
   // Lot lookup: unclaimed lot owning a given frontage slot, with a tile set
   // for footprint-containment checks.
@@ -610,6 +661,7 @@ export function placeSettlement(
     // centre (links the churchyard/manor green to the street).
     if (zoneRule.internalRoads && !viaSlot) {
       const path = bresenhamLine(origin.tileX + doorLx + facing[0], origin.tileY + doorLy + facing[1], cx, cy);
+      const carvedPts: { x: number; y: number }[] = [];
       for (let pi = 0; pi < Math.min(8, path.length); pi++) {
         const pt = path[pi];
         const t = tiles[pt.y]?.[pt.x];
@@ -619,8 +671,12 @@ export function placeSettlement(
         const hitRoad = occ.is(pt.x, pt.y, 'road') || ROAD_TYPES.has(t.type);
         roadTiles.push({ x: pt.x, y: pt.y, type: roadType });
         occ.claim(pt.x, pt.y, 'road');
+        carvedPts.push(pt);
         if (hitRoad) break;
       }
+      // A door→centre connector is a narrow footpath ('path' class) — width-aware
+      // reservation so a lot beside it doesn't build into the connector's shoulder.
+      claimRibbonOccupancy(carvedPts, 'path', occ);
     }
     // Entrance clearance: keep the ground directly in front of the main door OPEN so
     // nothing parks on the doorstep (the "cottage in front of the church" bug). A focus
@@ -992,6 +1048,9 @@ export function placeSettlement(
               occ.claim(c.x, c.y, 'road');
               streetCells.add(k);
             }
+            // A gate-to-street connector reads as a back lane ('track' class) — width-aware
+            // reservation, same rationale as the door→centre connector above.
+            claimRibbonOccupancy(carved, 'track', occ);
           }
           if (!progressed) break;                        // no street growth → retries can't help
           pending = missed;
