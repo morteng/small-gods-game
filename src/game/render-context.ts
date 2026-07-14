@@ -117,16 +117,19 @@ export function buildRenderContext(deps: RenderContextDeps): RenderContext {
           return null;
         }
       : undefined,
-    resolveParametricPlantArt: (kind: string) => {
+    resolveParametricPlantArt: (kind: string, variant = 0) => {
       // Prefer the img2img-refined flora sprite (IDB cache / vendored library /
       // paid gen when enabled); fall back to the grey parametric massing on a miss.
-      // Both warm fire-and-forget so the frame never blocks.
+      // Both warm fire-and-forget so the frame never blocks. The refined source is
+      // kind-only (one painted sprite per species); variants live in the parametric
+      // massing, which peek() serves per-variant (falling back to variant 0 until the
+      // requested one composes) and warm() bakes all of lazily.
       if (generatedFloraArtSource) {
         const g = generatedFloraArtSource.peek(kind);
         if (g) return g;
         generatedFloraArtSource.warm(kind);
       }
-      const s = parametricPlantSource.peek(kind);
+      const s = parametricPlantSource.peek(kind, variant);
       if (s) return s;
       parametricPlantSource.warm(kind); // fire-and-forget; never blocks the frame
       return null;
@@ -153,7 +156,7 @@ export function buildRenderContext(deps: RenderContextDeps): RenderContext {
     // async parametric massing packs finish composing (otherwise the first snapshot —
     // taken before compose lands — freezes flatblock fallbacks forever).
     buildingArtRev: parametricBuildingSource.version() + (parametricBarrierSource?.version() ?? 0)
-      + (generatedBuildingArtSource?.version() ?? 0),
+      + (generatedBuildingArtSource?.version() ?? 0) + parametricPlantSource.version(),
     cutawayBuildingId,
   };
 }

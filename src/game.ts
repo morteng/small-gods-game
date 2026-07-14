@@ -201,7 +201,9 @@ export class Game {
   // Walls/barriers ride the same generate→sprite pipeline as buildings (lit SpritePack per run
   // chunk), replacing the flat-quad barrierSlabs. onWarm re-renders an idle loop as packs land.
   private readonly parametricBarrierSource = new ParametricBarrierSource({ onWarm: () => this.requestRender() });
-  private readonly parametricPlantSource = new ParametricPlantSource();
+  // onWarm re-renders an idle loop as lazily-warmed flora VARIANTS land (variant 0 is
+  // prewarmed at boot; the extra seeded silhouettes compose off the loading path).
+  private readonly parametricPlantSource = new ParametricPlantSource({ onWarm: () => this.requestRender() });
   // Paid building-art generation is OFF by default while the renderer + connectome
   // (roads, etc.) stabilise and the FLUX img2img settings are retuned — re-enable
   // via the `liveBuildingArt` setting once generation is worth paying for again.

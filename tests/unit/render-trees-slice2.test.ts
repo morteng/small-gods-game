@@ -8,6 +8,7 @@ import { blueprintEntity } from '@/blueprint/entity';
 import { toGeometry } from '@/blueprint/compile/to-geometry';
 import { plantSpriteItemFromPack } from '@/render/iso/iso-sprites';
 import { ParametricPlantSource } from '@/render/parametric-plant-source';
+import { FLORA_VARIANTS } from '@/render/flora-variant';
 import type { SpritePack } from '@/render/iso/sprite-canvas';
 
 beforeAll(() => ensureBuildingTypesRegistered());
@@ -58,7 +59,7 @@ describe('flora presets (class:plant)', () => {
 describe('ParametricPlantSource (species-keyed)', () => {
   const fakePack = (): SpritePack => ({ albedo: { width: 40, height: 90 } as unknown as HTMLCanvasElement });
 
-  it('peek misses before warm, hits after; one compose per species', async () => {
+  it('peek misses before warm, hits after; one compose per (species, variant)', async () => {
     let composes = 0;
     let resolve!: () => void;
     const gate = new Promise<void>(r => { resolve = r; });
@@ -68,11 +69,13 @@ describe('ParametricPlantSource (species-keyed)', () => {
     });
     expect(src.peek('oak_branched')).toBeNull();
     src.warm('oak_branched');
-    src.warm('oak_branched'); // de-duped while inflight
+    src.warm('oak_branched'); // de-duped per (kind, variant) while inflight
     resolve();
     await new Promise(r => setTimeout(r, 0));
-    expect(src.peek('oak_branched')).not.toBeNull();
-    expect(composes).toBe(1);
+    expect(src.peek('oak_branched')).not.toBeNull();         // variant 0
+    expect(src.peek('oak_branched', FLORA_VARIANTS - 1)).not.toBeNull(); // last variant
+    // warm() bakes every variant once — de-dup keeps a repeat warm from doubling it.
+    expect(composes).toBe(FLORA_VARIANTS);
   });
 
   it('a non-plant kind caches null and never composes', async () => {

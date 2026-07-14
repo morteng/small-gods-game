@@ -292,9 +292,10 @@ export interface RenderContext {
    *  the building layer rebuilds when the focused building changes. */
   cutawayBuildingId?: string | null;
   /** A runtime-generated parametric TREE sprite pack, keyed by species kind (not
-   *  entity — trees are many and carry no blueprint), or null to fall back to the
-   *  flat billboard. */
-  resolveParametricPlantArt?: (kind: string) => SpritePack | null;
+   *  entity — trees are many and carry no blueprint) plus a per-instance `variant`
+   *  bucket (0-based; several seeded silhouettes per species), or null to fall back
+   *  to the flat billboard. A not-yet-composed variant degrades to variant 0. */
+  resolveParametricPlantArt?: (kind: string, variant?: number) => SpritePack | null;
   /** Global lighting for the WebGL entity layer (PBR Slice 3); absent = unlit. */
   lighting?: LightingState;
   /** Dev mode state — when present and enabled, renderer draws highlights. */

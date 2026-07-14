@@ -26,6 +26,32 @@ describe('flora mesh builders', () => {
     expect(f.every(x => x.mat === 'foliage')).toBe(true);
   });
 
+  it('blobFacets crown-radial re-aim points normals outward from the crown centre', () => {
+    // A clump offset +X from the crown centre: with the re-aim on, its facet normals
+    // should lean +X (outward) on average vs the untouched control.
+    const leaves = [{ at: [2, 0, 0] as [number, number, number], r: 0.5 }];
+    const flat = blobFacets(leaves, 'foliage', { subdiv: 1, jitter: 0 });
+    const crown = blobFacets(leaves, 'foliage', { subdiv: 1, jitter: 0, crownCenter: [0, 0, 0], crownMode: 'point', radialK: 0.7 });
+    const meanNX = (fs: typeof flat): number =>
+      fs.reduce((a, f) => { const l = Math.hypot(...f.normal) || 1; return a + f.normal[0] / l; }, 0) / fs.length;
+    expect(crown).toHaveLength(flat.length);
+    expect(meanNX(crown)).toBeGreaterThan(meanNX(flat)); // biased outward (+X)
+    for (const f of crown) expect(f.normal.every(finite)).toBe(true);
+  });
+
+  it('blobFacets axis mode re-aims horizontally (no Z component from the radial)', () => {
+    // A leaf offset +X and +Z from the axis at (0,0): axis mode measures outward from
+    // the vertical axis at the facet height, so the radial target has no Z — the
+    // resulting normals stay flatter in Z than point mode toward an origin below.
+    const leaves = [{ at: [2, 0, 3] as [number, number, number], r: 0.5 }];
+    const axis = blobFacets(leaves, 'foliage', { subdiv: 1, jitter: 0, crownCenter: [0, 0, 0], crownMode: 'axis', radialK: 1 });
+    // radialK=1 fully radial; axis radial is purely horizontal ⇒ every facet normal Z ≈ 0.
+    for (const f of axis) {
+      const l = Math.hypot(...f.normal) || 1;
+      expect(Math.abs(f.normal[2] / l)).toBeLessThan(1e-6);
+    }
+  });
+
   it('rockFacets is non-empty and deterministic per seed, varies by seed', () => {
     const a = rockFacets({ center: [0, 0], baseZ: 0, radius: 1, seed: 7 });
     const b = rockFacets({ center: [0, 0], baseZ: 0, radius: 1, seed: 7 });
