@@ -439,7 +439,11 @@ export function buildEdgeDeformation(
       const localReach = featherStart + batter;
       if (d >= localReach) return 0;
       if (d <= featherStart) return x.cutStrength;
-      return x.cutStrength * clamp01(1 - (d - featherStart) / batter);
+      // Smoothstep (not linear) falloff: C1 at both featherStart and localReach — the
+      // linear ramp's slope KINKS (0 → −cutStrength/batter) at featherStart produced a
+      // shading rim that traced every road edge under banded lighting.
+      const t = clamp01((d - featherStart) / batter);
+      return x.cutStrength * (1 - t * t * (3 - 2 * t));
     },
     targetAt(tx, ty) {
       const { d, s } = projectToPolyline(centerline, cumS, tx, ty);

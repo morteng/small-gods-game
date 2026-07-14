@@ -128,9 +128,14 @@ fn sampleColorBi(b : BiCell) -> vec3<f32> {
 // take the MAX of paved·fade over its segments (fade = 1 inside the core, → 0 at the
 // half-width). Byte-equivalent to roadPavednessAt() in feature-geometry.ts.
 fn rfF(i : u32) -> f32 { return bitcast<f32>(roadFeat[i]); }
-fn roadPaved(fx : f32, fy : f32) -> f32 {
+// Returns .x = pavedness (max paved·fade over this bucket's segments) and .y = inside
+// depth in TILES = max(half − d) over the covering segments ≈ distance to the road's
+// OUTER boundary (deep inside a wide road / overlap = large; at the edge → 0). The edge
+// outline (fsMain) band-limits .y against fwidth for a crisp, colour-defined kerb line
+// that does NOT depend on terrain shading. Byte-equivalent .x to roadPavednessAt().
+fn roadPavedEdge(fx : f32, fy : f32) -> vec2<f32> {
   let segCount = roadFeat[3];
-  if (segCount == 0u) { return 0.0; }
+  if (segCount == 0u) { return vec2<f32>(0.0, 0.0); }
   let bt  = f32(roadFeat[0]);
   let nbx = roadFeat[1];
   let nby = roadFeat[2];
@@ -144,6 +149,7 @@ fn roadPaved(fx : f32, fy : f32) -> f32 {
   let start = roadFeat[offBase + b];
   let end   = roadFeat[offBase + b + 1u];
   var best = 0.0;
+  var depth = 0.0;
   for (var p = start; p < end; p = p + 1u) {
     let o = segBase + roadFeat[refBase + p] * 8u;
     let ax = rfF(o); let ay = rfF(o + 1u);
@@ -160,10 +166,12 @@ fn roadPaved(fx : f32, fy : f32) -> f32 {
       let fade = select((half - d) / max(half - core, 1e-4), 1.0, d <= core);
       let paved = mix(rfF(o + 6u), rfF(o + 7u), t);
       best = max(best, paved * fade);
+      depth = max(depth, half - d);   // distance inside this segment's boundary
     }
   }
-  return best;
+  return vec2<f32>(best, depth);
 }
+fn roadPaved(fx : f32, fy : f32) -> f32 { return roadPavedEdge(fx, fy).x; }
 
 // Value noise for jittering material thresholds so edges wander (kills the flat
 // contour rings / square biome borders that betray procedural terrain). Now a single
@@ -426,7 +434,9 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   // builtin running in non-uniform flow.
   let fwTiles = fwidth(in.vGrid);
 
-  let road = roadPaved(in.vGrid.x, in.vGrid.y);
+  let roadFE = roadPavedEdge(in.vGrid.x, in.vGrid.y);
+  let road = roadFE.x;              // pavedness (dirt 0.2 · gravel 0.45 · cobble 0.75 · paved 1.0)
+  let roadEdgeDepth = roadFE.y;    // tiles inside the road's outer boundary
   // Road surface = the full packed-dirt → gravel → cobble exemplar spectrum (real
   // sett/grain texture), driven by pavedness. feature-geometry.ts encodes the road
   // TIER into this scalar at the material anchors (dirt 0.2 · gravel 0.45 · cobble 0.75 ·
@@ -443,7 +453,10 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   // with pavedness: a dirt track blends ~0.35 (grass shows through, a packed-earth desire
   // path), gravel rises, cobble/paved go fully opaque. A narrow edge smoothstep keeps the
   // sub-tile boundary soft for every tier.
-  let roadMix = smoothstep(0.0, 0.08, road) * mix(0.35, 1.0, smoothstep(0.20, 0.75, road));
+  // TUNING KNOB (roadMix dirt-tier floor): 0.45 = a dirt track blends ~45% of its
+  // packed-earth swatch over grass. Raised from 0.35 once the deformation shading-rim
+  // was removed (road-deformation.ts smoothstep falloff) — final value is a live visual pass.
+  let roadMix = smoothstep(0.0, 0.08, road) * mix(0.45, 1.0, smoothstep(0.20, 0.75, road));
   let dirtA = matSample(6, muv);
   var roadAlb = dirtA;
   if (roadMix > 0.0) {
@@ -454,6 +467,14 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
       mix(dirtA,   gravelA, smoothstep(0.20, 0.45, road)),   // dirt → gravel
       mix(gravelA, cobbleA, smoothstep(0.45, 0.78, road)),   // gravel → cobble
       upper);
+    // Authored kerb outline — a crisp, COLOUR-defined road edge (not terrain shading).
+    // Same fwidth band-limiting as analyticCobble's grout: darken a ~1px inner rim where
+    // the fragment sits within one pixel of the road's outer boundary (roadEdgeDepth→0),
+    // so every tier (bare dirt included) reads as a real surface with a defined edge.
+    // TUNING KNOB (edge-darken factor 0.85): lower = darker/heavier kerb line.
+    let edgeAA = max(max(fwTiles.x, fwTiles.y), 1e-4);
+    let edgeLine = 1.0 - smoothstep(0.0, edgeAA, roadEdgeDepth);
+    roadAlb = roadAlb * mix(1.0, 0.85, edgeLine);
   }
   // ── Per-biome COLOUR ground texture (Slice 2 of the material-exemplar epic) ──
   // Open ground samples the exemplar atlas as full COLOUR: climate picks the ground

@@ -90,6 +90,39 @@ describe('construction drives how hard the road cuts', () => {
   });
 });
 
+describe('the corridor falloff is smooth (C1) — no shading-rim kink', () => {
+  it('mask decays monotonically with no slope jump at the feather boundary', () => {
+    // Straight E–W road at y=16; sample the mask along the perpendicular (y) at x=13.
+    const def = buildRoadDeformations(mapWith(), {
+      nodes: [],
+      edges: [roadEdge('e1', STRAIGHT, { class: 'road', surface: 'dirt' })],
+    })[0];
+    const x = 13;
+    const dt = 0.02;
+    const vals: number[] = [];
+    for (let ty = 16; ty <= 22; ty += dt) vals.push(def.mask(x, ty));
+
+    // Monotonic non-increasing moving away from the centerline (plateau → falloff → 0).
+    for (let i = 1; i < vals.length; i++) {
+      expect(vals[i]).toBeLessThanOrEqual(vals[i - 1] + 1e-9);
+    }
+
+    // Finite-difference slopes. A LINEAR falloff steps the slope 0 → full in a single
+    // sample at featherStart (the C1 kink that traced a shading rim under banded light);
+    // the smoothstep ramp changes the slope gradually, so the largest single-step slope
+    // jump stays a small fraction of the peak slope.
+    const slopes = vals.slice(1).map((v, i) => (v - vals[i]) / dt);
+    let peak = 0;
+    let maxJump = 0;
+    for (const s of slopes) peak = Math.max(peak, Math.abs(s));
+    for (let i = 1; i < slopes.length; i++) {
+      maxJump = Math.max(maxJump, Math.abs(slopes[i] - slopes[i - 1]));
+    }
+    expect(peak).toBeGreaterThan(0);            // there IS a falloff region
+    expect(maxJump).toBeLessThan(peak * 0.5);   // ... but no single-step slope jump (C1-ish)
+  });
+});
+
 describe('composed heightfield', () => {
   it('is byte-identical (same instance) to base when there is no road graph', () => {
     const map = mapWith();
