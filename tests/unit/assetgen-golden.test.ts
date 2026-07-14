@@ -46,8 +46,13 @@ describe('assetgen golden hashes', () => {
     // as a real window instead of a blank hole. New geometry ⇒ every channel hash moves.
     // v27 (cont.) trim retune: window sills + door knob project half as far (SILL_PROUD/handle
     // shrunk) — the cottage's projecting trim moves on all channels again.
+    // v32 window trim THINNED (user: frames/crosses read oversized at 1:1): glazing bars drop
+    // to ~1 px native (BAR_HALF 0.028→0.008) and go shallow (proud span 0.12→0.035 — depth
+    // reads as width in the dimetric view), sills/lintels slim to ~16/14 cm with half the
+    // overhang. The cottage's windows recompose ⇒ every channel hash moves; the stone-box
+    // fixture (no openings) holds.
     expect(fingerprint(r)).toEqual({
-      size: 322, grey: 'b6c61dc4', normal: '64880444', material: '9c8b4ed3', emissive: 'e487ed02',
+      size: 322, grey: '9e75d1b9', normal: '538ba0d3', material: 'bb842e63', emissive: '9571f256',
     });
   });
 

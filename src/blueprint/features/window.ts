@@ -83,10 +83,18 @@ export const windowFeatureType: FeatureType = {
 // A sill + head lintel (stone, projecting proud of the wall) and a mullion cross (timber
 // glazing bars over the pane) so a window READS as a window, not a blank dark hole. Flat
 // wall faces only — a round body's openings keep the bare recessed pane.
-const SILL_OVERHANG = 0.08;   // sill/lintel run this much wider than the opening, each side
-const SILL_PROUD = 0.065;     // how far the ledge projects out past the wall plane (a shallow ledge)
-const LINTEL_PROUD = 0.05;    // the head lintel projects a touch less than the sill
-const BAR_HALF = 0.028;       // half-thickness of a glazing bar
+// Proportions in tiles (1 tile = 2 m; the fixed compose fit is 64 px/tile, so 0.0156 tiles
+// ≈ 1 px native). Sized to read at 1:1 zoom without going chunky: a real muntin is ~2–3 cm,
+// so the bar is held at ~1 px native (a metric-exact bar would be sub-pixel and alias away —
+// this IS the deliberate min-thickness floor); frames (sill/lintel) at a plausible ~8–16 cm.
+const SILL_OVERHANG = 0.04;   // sill/lintel run this much wider than the opening, each side (~8 cm)
+const SILL_PROUD = 0.05;      // how far the ledge projects out past the wall plane (a shallow ledge)
+const LINTEL_PROUD = 0.04;    // the head lintel projects a touch less than the sill
+const BAR_HALF = 0.008;       // half-thickness of a glazing bar (full ≈ 3.2 cm ≈ 1 px native)
+/** A pane must hold at least this much clear glass (tiles ≈ 3 px native) for its glazing bars
+ *  to read as a grid — below it the bars are dropped on that axis (an undivided light beats a
+ *  fat or aliasing cross on a tiny window). */
+const MIN_PANE = 0.05;
 
 function box(host: ResolvedPart, face: ApertureSpec['face'], sp: FaceSpan, material: Mat): Prim {
   const b = faceSpanBox(host, face, sp);
@@ -98,26 +106,31 @@ function windowTrim(s: ApertureSpec, host: ResolvedPart, lightsWide: number, lig
   const c = alongCentre(host, s);
   const a0 = c - s.halfW, a1 = c + s.halfW;
   const zTop = s.sill + s.height;
-  // Glazing bars sit at the pane, straddling the wall plane and standing PROUD enough to
+  // Glazing bars sit at the pane, straddling the wall plane and standing a touch PROUD to
   // catch the sun and cast a shadow line — otherwise a dark timber bar on dark glass
-  // vanishes and the divided light reads as one blank pane.
-  const barO: [number, number] = [-0.06, 0.06];
+  // vanishes and the divided light reads as one blank pane. Kept SHALLOW (~7 cm deep): in the
+  // dimetric view a bar's SIDE face projects ~64 px/tile horizontally, so depth reads as
+  // width — a deep bar looks fat regardless of its face thickness.
+  const barO: [number, number] = [-0.02, 0.015];
+  // A pane too small to hold a 1-px grid drops its bars on that axis (never a fat cross).
+  const lw = (2 * s.halfW) / lightsWide < MIN_PANE ? 1 : lightsWide;
+  const lh = s.height / lightsHigh < MIN_PANE ? 1 : lightsHigh;
   const out: Prim[] = [
-    // stone sill: a ledge under the opening, projecting out
-    box(host, s.face, { a0: a0 - SILL_OVERHANG, a1: a1 + SILL_OVERHANG, z0: s.sill - 0.11, z1: s.sill + 0.03, o0: -0.06, o1: SILL_PROUD }, 'stone'),
+    // stone sill: a ledge under the opening, projecting out (~16 cm tall)
+    box(host, s.face, { a0: a0 - SILL_OVERHANG, a1: a1 + SILL_OVERHANG, z0: s.sill - 0.06, z1: s.sill + 0.02, o0: -0.06, o1: SILL_PROUD }, 'stone'),
   ];
   // Mullions (vertical) + transoms (horizontal) evenly divide the light into a pane grid.
-  for (let i = 1; i < lightsWide; i++) {
-    const a = a0 + (a1 - a0) * (i / lightsWide);
+  for (let i = 1; i < lw; i++) {
+    const a = a0 + (a1 - a0) * (i / lw);
     out.push(box(host, s.face, { a0: a - BAR_HALF, a1: a + BAR_HALF, z0: s.sill, z1: zTop, o0: barO[0], o1: barO[1] }, 'timber'));
   }
-  for (let j = 1; j < lightsHigh; j++) {
-    const z = s.sill + s.height * (j / lightsHigh);
+  for (let j = 1; j < lh; j++) {
+    const z = s.sill + s.height * (j / lh);
     out.push(box(host, s.face, { a0, a1, z0: z - BAR_HALF, z1: z + BAR_HALF, o0: barO[0], o1: barO[1] }, 'timber'));
   }
   // A square head gets a stone lintel; an arched/lancet head keeps its carved curve clean.
   if (!s.arch) {
-    out.push(box(host, s.face, { a0: a0 - SILL_OVERHANG, a1: a1 + SILL_OVERHANG, z0: zTop - 0.03, z1: zTop + 0.08, o0: -0.06, o1: LINTEL_PROUD }, 'stone'));
+    out.push(box(host, s.face, { a0: a0 - SILL_OVERHANG, a1: a1 + SILL_OVERHANG, z0: zTop - 0.02, z1: zTop + 0.05, o0: -0.06, o1: LINTEL_PROUD }, 'stone'));
   }
   return out;
 }

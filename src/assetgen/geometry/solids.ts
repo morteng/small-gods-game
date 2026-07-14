@@ -953,7 +953,9 @@ async function dormerSolids(
   // (The img2img pass that used to paint the dormer light is frozen, so it must be modelled.)
   const winH = faceH * 0.6, winHalf = dw * 0.3;              // fits under the gable cap, inset from the sides
   const zSill = zFront + faceH * 0.22, zMid = zSill + winH / 2;
-  const WREC = 0.13, GLASS_T = 0.04, BAR = 0.025, BO = 0.05; // recess depth, pane thickness, bar half-width/proud
+  // recess depth, pane thickness, bar half-width/proud. BAR matches the wall-window glazing
+  // bars (full ≈ 3.2 cm ≈ 1 px native at the 64 px/tile fit) — fine bars, not a fat cross.
+  const WREC = 0.13, GLASS_T = 0.04, BAR = 0.008, BO = 0.03;
   let recess: Manifold, glass: Manifold;
   const bars: Manifold[] = [];
   if (ridge === 'x') {
