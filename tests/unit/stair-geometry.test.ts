@@ -15,6 +15,9 @@ beforeAll(() => ensureBuildingTypesRegistered());
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const boxes = (spec: { parts: any[] }): any[] => spec.parts.filter((p) => p.prim === 'box');
 const cyls = (spec: { parts: any[] }): any[] => spec.parts.filter((p) => p.prim === 'cylinder');
+/** The tread boxes only (srcId 'flight') — the flight also emits nosing lips, side cheeks and
+ *  foot/head blocks tagged 'flight/…', which mass the stair but are not steps. */
+const steps = (spec: { parts: any[] }): any[] => spec.parts.filter((p) => p.prim === 'box' && p.srcId === 'flight');
 
 describe('stairTreads (pure tread breakdown)', () => {
   it('derives tread count from rise and the construction-driven riser', () => {
@@ -57,17 +60,25 @@ describe('stair presets resolve & compile', () => {
     const spec = toGeometry(rb);
     expect(spec.parts.some(p => p.prim === 'building')).toBe(false);
     const { treads } = stairTreads({ riseM: 2.4, construction: 0.6 });
-    expect(boxes(spec).length).toBe(treads);
-    // Steps rise monotonically: each box is taller than the previous.
-    const heights = boxes(spec).map((b) => b.size[2]);
+    expect(steps(spec).length).toBe(treads);
+    // The flight also masses itself with nosing + cheeks + foot/head blocks (more boxes than steps).
+    expect(boxes(spec).length).toBeGreaterThan(treads);
+    // Steps rise monotonically: each step block is taller than the previous.
+    const heights = steps(spec).map((b) => b.size[2]);
     for (let i = 1; i < heights.length; i++) expect(heights[i]).toBeGreaterThan(heights[i - 1]);
   });
 
-  it('railing adds balustrade posts; none has zero', () => {
-    const grand = toGeometry(synthesizeBlueprint('stair_grand')!);   // railing: both
-    const scramble = toGeometry(synthesizeBlueprint('stair_scramble')!); // railing: none
-    expect(cyls(grand).length).toBeGreaterThan(0);
+  it('a stone flight rails with a coursed parapet cheek; a timber flight with balustrade posts', () => {
+    const grand = toGeometry(synthesizeBlueprint('stair_grand')!);    // stone, railing: both
+    const wood = toGeometry(synthesizeBlueprint('stair_wood')!);      // timber, railing: both
+    const scramble = toGeometry(synthesizeBlueprint('stair_scramble')!); // stone, railing: none
+    // Masonry railings are raised parapet cheeks (no posts); timber railings are upright balusters.
+    expect(grand.parts.some((p) => p.srcId === 'flight/rail')).toBe(true);
+    expect(cyls(grand).length).toBe(0);
+    expect(cyls(wood).length).toBeGreaterThan(0);
+    // A rough scramble has no railing and no cheeks at all.
     expect(cyls(scramble).length).toBe(0);
+    expect(scramble.parts.some((p) => String(p.srcId ?? '').startsWith('flight/cheek'))).toBe(false);
   });
 
   it('material spectrum: timber vs stone flights differ in material', () => {
