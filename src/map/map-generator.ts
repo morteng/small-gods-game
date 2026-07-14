@@ -45,6 +45,13 @@ import { collectStairPorts, placeStairsFromLinks } from '@/world/connectome/stai
 import { buildEntranceStoopEntities } from '@/world/connectome/entrance-stoops';
 import { buildAqueductStructureEntities } from '@/world/connectome/aqueduct-structures';
 import { buildWaterNetwork, referenceFlow, reachHalfWidths } from '@/terrain/river-network';
+
+/**
+ * Aqueducts are OFF (user call): what we generate doesn't read as an aqueduct yet — better to ship
+ * none than bad ones. The pipeline (aqueduct-{sources,route,profile,placement,structures}) stays
+ * live and tested; this is the single switch that re-enables emission once the geometry earns it.
+ */
+const EMIT_AQUEDUCTS = false;
 import { REACH_CARVE } from '@/world/river-deformation';
 import { getComposedHeightfield, reconcileFilletRaster } from '@/world/road-deformation';
 import { getRenderWaterMask } from '@/world/render-water';
@@ -577,29 +584,36 @@ export async function generateWithNoise(
     // from road×river: the planner routes the least-trench+arch feasible line and the realizer
     // massings each segment. The channel deck rides its water line via the G4 `liftElev` primitive
     // (same render-elev space as the bridge decks above); surface/cut runs foot-sample to ground.
-    await report('Raising aqueducts...');
-    const reliefM = worldStyleOf(worldSeed ?? undefined).mountainRelief;
-    const aqSettlements = villages.map((v) => ({ id: `town:${v.name ?? `${v.x}_${v.y}`}`, x: v.x, y: v.y }));
-    // A town already within WET_RADIUS of usable water needs no aqueduct; only genuinely dry/inland
-    // towns demand one (and the head + distance + feasibility gates then decide which actually get
-    // a buildable line). This is the emergent trigger — water scarcity, not authored placement.
-    const WET_RADIUS_TILES = 5;
-    const isWaterTile = (x: number, y: number) => WATER_TYPES.has(tiles[y]?.[x]?.type ?? '');
-    for (const e of buildAqueductStructureEntities(
-      waterNet,
-      aqSettlements,
-      {
-        elevAt: (x, y) => deckHf[Math.round(y) * width + Math.round(x)] ?? ELEVATION_SEA_LEVEL,
-        reliefM, width, height,
-        liftForWaterM: (m) => curveRenderElev(m / reliefM, ELEVATION_SEA_LEVEL, deckGamma),
-        needsAqueduct: (s) => nearestWaterDist(s.x, s.y, isWaterTile, WET_RADIUS_TILES) > WET_RADIUS_TILES,
-        blocked: (x, y) => {
-          const t = tiles[y]?.[x];
-          if (!t) return true;
-          return tileBlockedByBuilding(world, x, y) || WATER_TYPES.has(t.type);
+    //
+    // DISABLED (user, WCV 97): the aqueducts we generate don't yet read as aqueducts — the massing
+    // and the way they meet the ground aren't good enough to ship, so we'd rather show none than
+    // show bad ones. The whole pipeline (sources → route → profile → placement → structures) is
+    // intact and tested behind this flag; flip it back on when the geometry is worth looking at.
+    if (EMIT_AQUEDUCTS) {
+      await report('Raising aqueducts...');
+      const reliefM = worldStyleOf(worldSeed ?? undefined).mountainRelief;
+      const aqSettlements = villages.map((v) => ({ id: `town:${v.name ?? `${v.x}_${v.y}`}`, x: v.x, y: v.y }));
+      // A town already within WET_RADIUS of usable water needs no aqueduct; only genuinely dry/inland
+      // towns demand one (and the head + distance + feasibility gates then decide which actually get
+      // a buildable line). This is the emergent trigger — water scarcity, not authored placement.
+      const WET_RADIUS_TILES = 5;
+      const isWaterTile = (x: number, y: number) => WATER_TYPES.has(tiles[y]?.[x]?.type ?? '');
+      for (const e of buildAqueductStructureEntities(
+        waterNet,
+        aqSettlements,
+        {
+          elevAt: (x, y) => deckHf[Math.round(y) * width + Math.round(x)] ?? ELEVATION_SEA_LEVEL,
+          reliefM, width, height,
+          liftForWaterM: (m) => curveRenderElev(m / reliefM, ELEVATION_SEA_LEVEL, deckGamma),
+          needsAqueduct: (s) => nearestWaterDist(s.x, s.y, isWaterTile, WET_RADIUS_TILES) > WET_RADIUS_TILES,
+          blocked: (x, y) => {
+            const t = tiles[y]?.[x];
+            if (!t) return true;
+            return tileBlockedByBuilding(world, x, y) || WATER_TYPES.has(t.type);
+          },
         },
-      },
-    )) world.addEntity(e);
+      )) world.addEntity(e);
+    }
   }
 
   // Every terrain-mutating carve above (rivers/roads/crossings) is done. A `river`/
