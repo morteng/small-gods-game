@@ -14,7 +14,7 @@
 
 import type { GameMap } from '@/core/types';
 import {
-  getRoadFeatureGeometry, segDist, FEATURE_SEG_STRIDE,
+  getRoadFeatureGeometry, buildRoadFeatureGeometry, segDist, FEATURE_SEG_STRIDE,
   type RoadFeatureGeometry,
 } from '@/render/gpu/feature-geometry';
 
@@ -58,6 +58,26 @@ export function buildRoadOccupancyMask(
   map: GameMap, clearanceTiles: number = DEFAULT_ROAD_CLEARANCE_TILES,
 ): RoadOccupancyMask {
   const geo = getRoadFeatureGeometry(map);
+  return {
+    has(x: number, y: number): boolean {
+      return isOccupiedAt(geo, x, y, clearanceTiles);
+    },
+  };
+}
+
+/**
+ * As `buildRoadOccupancyMask`, but derives the ribbon geometry DIRECTLY (no memo). For
+ * MID-WORLDGEN callers (crossing-structure siting in `map-generator.ts`) that only have a
+ * partial map view: the memo keys on `seed:dims:roadGraph.rev`, so a cached entry built
+ * BEFORE the anchor-link / fillet-reconciliation passes would collide with — and poison —
+ * the final map's entry the renderer reads. The ribbon here misses only the later anchor
+ * fillets (sub-tile reshaping near doors); the default half-tile clearance absorbs that
+ * drift, and the `buildings.off-roads-ribbon` contract re-checks against the FINAL ribbon.
+ */
+export function buildRoadOccupancyMaskUncached(
+  map: GameMap, clearanceTiles: number = DEFAULT_ROAD_CLEARANCE_TILES,
+): RoadOccupancyMask {
+  const geo = buildRoadFeatureGeometry(map);
   return {
     has(x: number, y: number): boolean {
       return isOccupiedAt(geo, x, y, clearanceTiles);
