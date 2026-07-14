@@ -24,7 +24,7 @@ import { structureResultToPack } from '@/render/parametric-building-source';
 import { scheduleCompose } from '@/render/compose-scheduler';
 import { composePayload } from '@/render/compose-offthread';
 import { canonicalJson } from '@/render/generated-art-cache';
-import { FLORA_VARIANTS, floraVariantSeed } from '@/render/flora-variant';
+import { FLORA_VARIANTS, FLORA_BARE_VARIANT, floraVariantSeed } from '@/render/flora-variant';
 import {
   parametricSpriteKey, readParametricSprite, writeParametricSprite,
   payloadFromResult, packFromPayload, type CachedSpritePayload,
@@ -125,8 +125,18 @@ export class ParametricPlantSource {
     const settle = (pack: SpritePack | null): void => { arr[variant] = pack; this.rev++; this.onWarm?.(); };
 
     if (!isPlantPreset(kind)) { settle(null); return Promise.resolve(); }
-    const rb = synthesizeBlueprint(kind, [], floraVariantSeed(kind, variant));
+    // The BARE slot (alpine fidelity) re-composes the VARIANT-0 skeleton with its
+    // leaves dropped: same seed (0), the branch_plant parts flagged bare. Species
+    // without a branch_plant part (rocks, landforms) compose identically to variant
+    // 0 there — harmless, and the draw list only requests bare for deciduous kinds.
+    const bare = variant === FLORA_BARE_VARIANT;
+    const rb = synthesizeBlueprint(kind, [], floraVariantSeed(kind, bare ? 0 : variant));
     if (!rb) { settle(null); return Promise.resolve(); }
+    if (bare) {
+      for (const part of rb.parts) {
+        if (part.type === 'branch_plant') part.params = { ...part.params, bare: 1 };
+      }
+    }
     let spec: StructureSpec | null;
     try {
       spec = this.toSpec(rb);

@@ -6,7 +6,7 @@ import {
 import type { InstanceAttrs } from '@/render/gpu/instance-batch';
 
 const inst = (over: Partial<InstanceAttrs> = {}): InstanceAttrs => ({
-  dx: 1, dy: 2, dw: 3, dh: 4, u0: 0, v0: 0, u1: 1, v1: 1, depth: 0.5, ...over,
+  dx: 1, dy: 2, dw: 3, dh: 4, u0: 0, v0: 0, u1: 1, v1: 1, depth: 0.5, whiten: 0, mirror: 0, ...over,
 });
 
 describe('R2c — instance/globals buffer packing', () => {
@@ -15,23 +15,32 @@ describe('R2c — instance/globals buffer packing', () => {
     expect(Array.from(QUAD_STRIP)).toEqual([0, 0, 1, 0, 0, 1, 1, 1]);
   });
 
-  it('stride is 9 floats / 36 bytes', () => {
-    expect(INSTANCE_FLOATS).toBe(9);
-    expect(INSTANCE_STRIDE).toBe(36);
+  it('stride is 11 floats / 44 bytes (iRect 4 + iUV 4 + iDepth 1 + iMisc 2)', () => {
+    expect(INSTANCE_FLOATS).toBe(11);
+    expect(INSTANCE_STRIDE).toBe(44);
   });
 
   it('packs instances interleaved in the documented field order', () => {
-    const buf = packInstances([inst({ dx: 10, dy: 20, dw: 30, dh: 40, u0: 0.125, v0: 0.25, u1: 0.75, v1: 0.5, depth: 0.25 })]);
-    expect(buf).toHaveLength(9);
-    expect(Array.from(buf)).toEqual([10, 20, 30, 40, 0.125, 0.25, 0.75, 0.5, 0.25]);
+    const buf = packInstances([inst({
+      dx: 10, dy: 20, dw: 30, dh: 40, u0: 0.125, v0: 0.25, u1: 0.75, v1: 0.5, depth: 0.25,
+      whiten: 0.5, mirror: 1,
+    })]);
+    expect(buf).toHaveLength(11);
+    expect(Array.from(buf)).toEqual([10, 20, 30, 40, 0.125, 0.25, 0.75, 0.5, 0.25, 0.5, 1]);
   });
 
   it('packs N instances contiguously', () => {
     const buf = packInstances([inst({ dx: 1 }), inst({ dx: 2 }), inst({ dx: 3 })]);
-    expect(buf).toHaveLength(27);
+    expect(buf).toHaveLength(33);
     expect(buf[0]).toBe(1);
-    expect(buf[9]).toBe(2);
-    expect(buf[18]).toBe(3);
+    expect(buf[11]).toBe(2);
+    expect(buf[22]).toBe(3);
+  });
+
+  it('an unwhitened, unmirrored instance packs zeros in the iMisc slot (identity)', () => {
+    const buf = packInstances([inst()]);
+    expect(buf[9]).toBe(0);   // whiten
+    expect(buf[10]).toBe(0);  // mirror
   });
 
   it('Globals is 16 floats with vec3 padding and clamped bands', () => {

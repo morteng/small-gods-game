@@ -49,6 +49,7 @@ export function createSpritePipeline(device: GPUDevice, format: GPUTextureFormat
             { shaderLocation: 1, offset: 0, format: 'float32x4' },  // iRect
             { shaderLocation: 2, offset: 16, format: 'float32x4' }, // iUV
             { shaderLocation: 3, offset: 32, format: 'float32' },   // iDepth
+            { shaderLocation: 4, offset: 36, format: 'float32x2' }, // iMisc (whiten, mirror)
           ],
         },
       ],

@@ -7,7 +7,8 @@
 //   loc 1  iRect  vec4  dx, dy, dw, dh        (offset 0,  16 bytes)
 //   loc 2  iUV    vec4  u0, v0, u1, v1        (offset 16, 16 bytes)
 //   loc 3  iDepth f32   depth                 (offset 32,  4 bytes)
-//                                              stride = 36 bytes (9 floats)
+//   loc 4  iMisc  vec2  whiten, mirror        (offset 36,  8 bytes)
+//                                              stride = 44 bytes (11 floats)
 //
 // The unit quad (loc 0) is a static 4-vertex triangle-strip.
 
@@ -17,8 +18,8 @@ import type { InstanceAttrs } from '@/render/gpu/instance-batch';
 export const QUAD_STRIP = new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]);
 export const QUAD_VERTEX_COUNT = 4;
 
-/** Floats per instance (iRect 4 + iUV 4 + iDepth 1). */
-export const INSTANCE_FLOATS = 9;
+/** Floats per instance (iRect 4 + iUV 4 + iDepth 1 + iMisc 2). */
+export const INSTANCE_FLOATS = 11;
 /** Instance vertex-buffer stride in bytes. */
 export const INSTANCE_STRIDE = INSTANCE_FLOATS * 4;
 
@@ -37,6 +38,8 @@ export function packInstances(instances: readonly InstanceAttrs[]): Float32Array
     buf[o + 6] = it.u1;
     buf[o + 7] = it.v1;
     buf[o + 8] = it.depth;
+    buf[o + 9] = it.whiten;
+    buf[o + 10] = it.mirror;
   }
   return buf;
 }

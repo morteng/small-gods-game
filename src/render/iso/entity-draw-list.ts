@@ -13,7 +13,8 @@ import type { DrawItem } from './draw-list';
 import type { IsoItemCtx } from './iso-sprites';
 import { npcItems, vegetationItems, artBillboardItem, plantSpriteItemFromPack, natureBuryFrac, isGroundCoverKind } from './iso-sprites';
 import { isPlantPreset } from '@/blueprint/presets';
-import { floraVariantBucket, FLORA_VARIANTS } from '@/render/flora-variant';
+import { snowAmount01 } from '@/render/snow-mask';
+import { floraVariantForSnow } from '@/render/flora-phenology';
 import {
   buildingSpriteItemFromImage, buildingSpriteItemFromPack, flatBlockItems, pickBuildingSource,
 } from './iso-building';
@@ -241,11 +242,17 @@ export function buildEntityDrawList(
         // Generative species-keyed tree sprite (PBR-lit, cast shadow) when the
         // kind has a plant blueprint preset and its sprite is warm; the flat
         // billboard is the keyless fallback (and stays for ground cover).
-        const pack = isPlantPreset(v.kind)
-          ? rc.resolveParametricPlantArt?.(v.kind, floraVariantBucket(v.id, FLORA_VARIANTS)) ?? null
+        // Alpine fidelity: the CPU snow mask (the terrain shader's snow decision,
+        // mirrored) drives both the per-instance whiten and — for deciduous
+        // species — the bare-crown variant swap. Static per world (altitude/cold
+        // mask only; a seasonal term would fold in inside floraVariantForSnow).
+        const isPlant = isPlantPreset(v.kind);
+        const snow = isPlant ? snowAmount01(rc.map, v.x, v.y) : 0;
+        const pack = isPlant
+          ? rc.resolveParametricPlantArt?.(v.kind, floraVariantForSnow(v.kind, v.id, snow)) ?? null
           : null;
         if (pack) {
-          items.push(plantSpriteItemFromPack(ic, pack, v.x, v.y, natureBuryFrac(v.kind, v.x, v.y), isGroundCoverKind(v.kind)));
+          items.push(plantSpriteItemFromPack(ic, pack, v.x, v.y, natureBuryFrac(v.kind, v.x, v.y), isGroundCoverKind(v.kind), snow));
         } else {
           const art = rc.resolveEntityArt?.(v) ?? null;
           if (art) items.push(artBillboardItem(ic, art, v.x, v.y));

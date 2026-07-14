@@ -29,6 +29,11 @@ export interface InstanceAttrs {
   v1: number;
   /** Painter-order depth in (0,1), monotonically increasing with list index. */
   depth: number;
+  /** Snow whiten 0..1 (DrawItem.whiten; 0 = untouched albedo). */
+  whiten: number;
+  /** 1 when the instance is horizontally mirrored (UVs already swapped here; the
+   *  shader also negates the sampled normal's x), else 0. */
+  mirror: number;
 }
 
 /** One instanced draw: a texture (+ optional PBR maps) and its instances. */
@@ -108,7 +113,13 @@ export function buildInstanceBatches(items: readonly DrawItem[]): {
       u1 = (it.frame.sx + it.frame.sw) / w;
       v1 = (it.frame.sy + it.frame.sh) / h;
     }
-    batch.instances.push({ dx: it.dx, dy: it.dy, dw: it.dw, dh: it.dh, u0, v0, u1, v1, depth });
+    // Horizontal mirror = the UV rect flipped in u; the shader gets the flag too
+    // (it must negate the sampled normal's x so lighting matches the flip).
+    if (it.mirror) { const t = u0; u0 = u1; u1 = t; }
+    batch.instances.push({
+      dx: it.dx, dy: it.dy, dw: it.dw, dh: it.dh, u0, v0, u1, v1, depth,
+      whiten: it.whiten ?? 0, mirror: it.mirror ? 1 : 0,
+    });
   });
 
   return { batches, passthrough };

@@ -66,13 +66,16 @@ function footLift(it: ImageItem): number {
   return it.shadow?.footLift ?? (it.maps ? it.dw / 4 : 0);
 }
 
-/** UV sub-rect for an item's frame (whole image when no frame). */
+/** UV sub-rect for an item's frame (whole image when no frame). A mirrored item
+ *  (DrawItem.mirror) gets its u-range swapped so the silhouette matches the flip. */
 function frameUV(it: ImageItem): [number, number, number, number] {
   const { w, h } = srcSize(it.src);
+  let uv: [number, number, number, number] = [0, 0, 1, 1];
   if (it.frame && w > 0 && h > 0) {
-    return [it.frame.sx / w, it.frame.sy / h, (it.frame.sx + it.frame.sw) / w, (it.frame.sy + it.frame.sh) / h];
+    uv = [it.frame.sx / w, it.frame.sy / h, (it.frame.sx + it.frame.sw) / w, (it.frame.sy + it.frame.sh) / h];
   }
-  return [0, 0, 1, 1];
+  if (it.mirror) { const t = uv[0]; uv[0] = uv[2]; uv[2] = t; }
+  return uv;
 }
 
 /**
@@ -110,12 +113,14 @@ export function buildShadowBatches(
     // and items without a baked shadow take the projected silhouette below.
     if (mode === 'geometry' && it.shadowSprite) {
       const { w, h } = srcSize(it.shadowSprite.src);
-      const x0 = it.dx + it.dw / 2 + it.shadowSprite.dx;
+      // A mirrored sprite mirrors its baked ground shadow about the foot centre:
+      // the offset reflects and the blit u-flips.
+      const x0 = it.dx + it.dw / 2 + (it.mirror ? -(it.shadowSprite.dx + w) : it.shadowSprite.dx);
       const y0 = it.dy + it.dh + it.shadowSprite.dy;
       push(it.shadowSprite.src, {
         cTop: [x0, y0, x0 + w, y0],
         cBot: [x0, y0 + h, x0 + w, y0 + h],
-        uv: [0, 0, 1, 1],
+        uv: it.mirror ? [1, 0, 0, 1] : [0, 0, 1, 1],
       });
       continue;
     }

@@ -123,8 +123,24 @@ describe('R2b — WGSL parity with the reference', () => {
     expect(LIT_WGSL).toContain('floor(ndl * G.uBands + 0.5) / G.uBands'); // diffuse banding
     expect(LIT_WGSL).toContain('let gloss = 1.0 - rough;');      // specular gate
     expect(LIT_WGSL).toContain('floor(specRaw * G.uBands + 0.5) / G.uBands'); // spec banding
-    expect(LIT_WGSL).toContain('mix(vec3<f32>(1.0, 1.0, 1.0), albedo.rgb, metal)'); // metal tint
-    expect(LIT_WGSL).toContain('albedo.rgb * diffuse');          // premultiplied output
+    // `alb` is albedo.rgb AFTER the optional snow whiten (identity at whiten 0, which is
+    // why the reference math above — which knows nothing of snow — still holds).
+    expect(LIT_WGSL).toContain('mix(vec3<f32>(1.0, 1.0, 1.0), alb, metal)'); // metal tint
+    expect(LIT_WGSL).toContain('alb * diffuse');                 // premultiplied output
     expect(LIT_WGSL).toContain('if (albedo.a < 0.5) { discard; }'); // hard cutout
+  });
+
+  it('the snow whiten is IDENTITY at 0 and only touches UP-FACING texels (alpine fidelity)', () => {
+    // Gated on whiten > 0, so an unsnowed world's pixels take the byte-identical old path.
+    expect(LIT_WGSL).toContain('if (vMisc.x > 0.0) {');
+    // Weighted by the up-facing term, and mixed BEFORE the banded diffuse (so entity snow
+    // quantizes into the same bands as everything else).
+    expect(LIT_WGSL).toContain('let topFacing = clamp(n.y * 0.5 + 0.5, 0.0, 1.0);');
+    expect(LIT_WGSL).toContain('vMisc.x * topFacing');
+  });
+
+  it('a mirrored instance negates the sampled normal\'s x (lighting follows the flip)', () => {
+    expect(LIT_WGSL).toContain('if (vMisc.y > 0.5) {');
+    expect(LIT_WGSL).toContain('n = vec3<f32>(-n.x, n.y, n.z);');
   });
 });

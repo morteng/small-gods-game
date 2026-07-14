@@ -13,6 +13,13 @@
  *  composed lazily off the loading path — see ParametricPlantSource). */
 export const FLORA_VARIANTS = 3;
 
+/** The BARE-crown variant slot (alpine fidelity): the variant-0 skeleton composed
+ *  with its leaves dropped (+ slightly extended twig tips). Sits one past the seeded
+ *  silhouette buckets so `floraVariantBucket` can never land on it — the draw list
+ *  selects it explicitly for deciduous species standing in the snow mask. Composed
+ *  lazily like variants 1..V-1; until it settles, peek() serves variant 0. */
+export const FLORA_BARE_VARIANT = FLORA_VARIANTS;
+
 /** Fold a species name into a seed (the same law `synthesizeBlueprint` uses for its
  *  seedless default). Used to spread the non-zero variants apart by species. */
 function hashKind(name: string): number {
