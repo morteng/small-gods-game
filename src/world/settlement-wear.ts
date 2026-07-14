@@ -29,6 +29,7 @@ import { WATER_TYPES } from './settlement-plan';
 import { isBuilding } from './building-collision';
 import { noise } from '@/core/noise';
 import { tryGetEntityKindDef } from './entity-kinds';
+import { WATER_PLACED_TAG } from './riparian-scatter';
 
 /** Wear decays to zero this many tiles from the nearest road/market tile. */
 const WEAR_FALLOFF = 4;
@@ -46,17 +47,22 @@ export const VEGETATION_CATEGORIES = new Set(['vegetation', 'terrain-feature']);
 /**
  * Remove every sightline-blocking vegetation / terrain-feature entity on a tile (the shared cull
  * used by both settlement-wear and the WP-S killing field). Grass is a TILE, not an entity, so it
- * survives. Returns the number of entities culled.
+ * survives. Riparian rocks/bank flora (`riparian-scatter.ts`, tagged `waterPlaced`) are exempt —
+ * they're placed IN the water margin on purpose, exactly like the corridor sweep's exemption in
+ * `vegetation-clear.ts`; without it a settlement or town wall within `WEAR_FALLOFF`/
+ * `KILL_FIELD_REACH` of a river silently deletes the boulders the riparian pass just placed
+ * (this was a real gap — those two OLDER passes run before the corridor sweep and never checked
+ * the tag). Returns the number of entities culled.
  */
 export function cullVegetationEntities(world: World, x: number, y: number): number {
   let n = 0;
   for (const e of world.registry.getAtTile(x, y)) {
     const def = tryGetEntityKindDef(e.kind);
-    if (def && VEGETATION_CATEGORIES.has(def.category)) {
-      world.registry.remove(e.id);
-      world.removeEntity(e.id);
-      n++;
-    }
+    if (!def || !VEGETATION_CATEGORIES.has(def.category)) continue;
+    if (e.tags?.includes(WATER_PLACED_TAG)) continue;
+    world.registry.remove(e.id);
+    world.removeEntity(e.id);
+    n++;
   }
   return n;
 }

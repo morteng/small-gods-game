@@ -39,6 +39,63 @@ function countInWaterBoulders(ents: ReturnType<typeof buildRiparianEntities>): n
   return ents.filter((e) => e.kind === 'granite-boulder' && Math.floor(e.x) === 1).length;
 }
 
+/**
+ * Build a synthetic hydrology raster: a WIDE river band [1, 1+bandWidth) flanked by dry
+ * land, so the band has real margin columns (x=1 and x=bandWidth) AND real interior
+ * columns with no land neighbour in between. `channelHalfWidth` is stamped uniformly
+ * onto `hydro.width` for every river cell — the per-cell Leopold–Maddock estimate the
+ * interior-eligibility gate reads, independent of the raster's own geometric width.
+ */
+function riverBand(
+  width: number, height: number, bandWidth: number, slopePerTile: number, flow: number, channelHalfWidth: number,
+): HydrologyResult {
+  const n = width * height;
+  const waterType = new Uint8Array(n).fill(WaterType.Dry);
+  const surfaceW = new Float32Array(n).fill(-1);
+  const flowField = new Float32Array(n);
+  const riverMask = new Uint8Array(n);
+  const waterMask = new Uint8Array(n);
+  const widthArr = new Float32Array(n);
+  // Leave the top/bottom row dry so the band doesn't touch the MAP EDGE — the margin
+  // gate (`landNb`) also treats the map edge as land, which would otherwise misclassify
+  // a couple of true interior cells at y=0/y=height-1 as margin.
+  for (let y = 1; y < height - 1; y++) {
+    for (let rx = 1; rx <= bandWidth; rx++) {
+      const i = y * width + rx;
+      waterType[i] = WaterType.River;
+      waterMask[i] = 1;
+      riverMask[i] = 1;
+      flowField[i] = flow;
+      surfaceW[i] = 4.0 - y * slopePerTile;
+      widthArr[i] = channelHalfWidth;
+    }
+  }
+  return {
+    riverMask, flowField,
+    drainTo: new Int32Array(n).fill(-1),
+    surfaceW, waterMask, waterType,
+    flowDirX: new Float32Array(n), flowDirY: new Float32Array(n),
+    strahler: new Uint8Array(n), width: widthArr,
+  };
+}
+
+/**
+ * Interior boulders = granite-boulder entities that are NOT margin cells in either axis:
+ * not on the band's two outer columns (adjacent to the dry banks), AND not within a few
+ * rows of the band's dry top/bottom cap (`riverBand` stops one row short of the map edge,
+ * so the row right next to that cap is ALSO a `landNb` margin cell — a real river reach
+ * has no such vertical cap, this is purely a finite-fixture artifact to exclude).
+ */
+function countInteriorBoulders(ents: ReturnType<typeof buildRiparianEntities>, bandWidth: number, height: number): number {
+  return ents.filter((e) => {
+    if (e.kind !== 'granite-boulder') return false;
+    const tx = Math.floor(e.x), ty = Math.floor(e.y);
+    if (tx <= 1 || tx >= bandWidth) return false;
+    if (ty <= 3 || ty >= height - 4) return false;
+    return true;
+  }).length;
+}
+
 describe('riparian-scatter — riffle-scored in-water boulders', () => {
   const W = 3, H = 160, FLOW = 2000, SEED = 4242;
 
@@ -65,5 +122,47 @@ describe('riparian-scatter — riffle-scored in-water boulders', () => {
     const b = buildRiparianEntities(riverColumn(W, H, 0.02, FLOW), W, H, SEED);
     expect(a.map((e) => `${e.kind}@${e.x.toFixed(3)},${e.y.toFixed(3)}`))
       .toEqual(b.map((e) => `${e.kind}@${e.x.toFixed(3)},${e.y.toFixed(3)}`));
+  });
+});
+
+describe('riparian-scatter — interior boulders scale by local channel half-width', () => {
+  const BAND_W = 9, MAP_W = 12, H = 80, FLOW = 2000, SEED = 777;
+
+  it('a wide, genuinely wide-channel cascade gets interior boulders, not just margin ones', () => {
+    const ents = buildRiparianEntities(riverBand(MAP_W, H, BAND_W, 0.02, FLOW, 3.5), MAP_W, H, SEED);
+    expect(countInteriorBoulders(ents, BAND_W, H)).toBeGreaterThan(0);
+  });
+
+  it('a wide RASTER band with a NARROW hydrology half-width stays interior-clear (no rock wall)', () => {
+    // Same geometric band width + same cascade slope as above, but the hydrology says this
+    // reach is only brook-wide (half-width well under INTERIOR_WIDTH_MIN) — interior
+    // eligibility must key off the half-width, not the raster's own cell span.
+    const ents = buildRiparianEntities(riverBand(MAP_W, H, BAND_W, 0.02, FLOW, 0.5), MAP_W, H, SEED);
+    expect(countInteriorBoulders(ents, BAND_W, H)).toBe(0);
+  });
+
+  it('a wide, calm (flat) reach stays interior-clear even at full channel half-width', () => {
+    // High half-width, but no riffle (slope 0) — the calm-pool gate still applies to the
+    // interior, matching the margin gate's documented intent.
+    const ents = buildRiparianEntities(riverBand(MAP_W, H, BAND_W, 0.0, FLOW, 3.5), MAP_W, H, SEED);
+    expect(countInteriorBoulders(ents, BAND_W, H)).toBe(0);
+  });
+});
+
+describe('riparian-scatter — lush bank ground cover (wetland undergrowth, dead-code reeds substitute)', () => {
+  const W = 5, H = 80, FLOW = 800, SEED = 99;
+
+  it('places ground-layer entities from the wetland undergrowth pool on the bank rings, tagged waterPlaced', () => {
+    const ents = buildRiparianEntities(riverColumn(W, H, 0.0, FLOW), W, H, SEED);
+    const ground = ents.filter((e) => e.kind === 'heather');
+    expect(ground.length).toBeGreaterThan(0);
+    expect(ground.every((e) => e.tags?.includes('waterPlaced'))).toBe(true);
+    // Confined to the bank rings (dist 1-2 either side of the river column at x=1).
+    expect(ground.every((e) => Math.floor(e.x) >= 0 && Math.floor(e.x) <= 3)).toBe(true);
+  });
+
+  it('never places the art-less `reeds` kind (no parametric sprite — see BANK_UNDERGROWTH comment)', () => {
+    const ents = buildRiparianEntities(riverColumn(W, H, 0.02, FLOW), W, H, SEED);
+    expect(ents.some((e) => e.kind === 'reeds')).toBe(false);
   });
 });

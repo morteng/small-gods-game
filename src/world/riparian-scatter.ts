@@ -17,7 +17,7 @@
 // deterministic from (hydrology, seed): the same world re-scatters identically.
 
 import { defaultEntity } from '@/world/brush-helpers';
-import { canopyOf } from '@/flora/biome-flora';
+import { canopyOf, undergrowthOf } from '@/flora/biome-flora';
 import { WaterType } from '@/core/types';
 import type { Entity, HydrologyResult } from '@/core/types';
 
@@ -34,6 +34,16 @@ export const WATER_PLACED_TAG = 'waterPlaced';
  *  (The `water-biome.ts` `bankFlora` field carries descriptive labels — "willow",
  *  "reed" — not species ids, so we read the curated pool instead.) */
 const BANK_FLORA: [string, number][] = canopyOf('wetland');
+/** Ground-layer bank cover (heather today) — the wetland pool's undergrowth species.
+ *  The obvious species for this role is `reeds` (`world/entity-kinds.ts`, tagged
+ *  `water-adjacent`), but it's a hand-authored placeholder never wired into the
+ *  parametric plant pipeline (`isPlantPreset('reeds')` is false — not a flora-DB
+ *  species, not a hand plant preset — so it has NO composed sprite and would render
+ *  as the bare fallback billboard, a flat colour triangle, next to real willows). We
+ *  reuse the curated `wetland` undergrowth pool instead, the same real, parametrically-
+ *  rendered species already used for forest/scrubland ground cover. `reeds` still
+ *  needs art before it can carry this role. */
+const BANK_UNDERGROWTH: [string, number, number][] = undergrowthOf('wetland');
 /** In-/at-water stones (→ `rock` prim). Cobble is the common river-margin stone; the
  *  boulder is the rarer feature reserved for cells carrying real discharge. */
 const COBBLE = 'field-stone';
@@ -61,15 +71,36 @@ const BOULDER_FLOW_CAP = 2000;
  *  at low discharge; flow only scales between this floor and 1. */
 const RIFFLE_FLOW_FLOOR = 0.45;
 /** Ambient in-water boulder density on a calm reach (a lone rock even in slack water)
- *  + the riffle-scored addition at a full cascade. */
-const WATER_BOULDER_MIN = 0.012;
+ *  + the riffle-scored addition at a full cascade. Modestly above the old 0.012 floor
+ *  so most margin reaches carry at least the odd visible stone, not just cascades. */
+const WATER_BOULDER_MIN = 0.02;
 const WATER_BOULDER_RIFFLE = 0.26;
+/** Interior (mid-channel, no land neighbour) boulders: riffle must clear this before
+ *  ANY interior scatter is considered — keeps flat, deep pools clear (the intent the
+ *  landNb margin gate originally protected). */
+const INTERIOR_RIFFLE_MIN = 0.45;
+/** Interior eligibility is scaled by the hydrology's per-cell channel HALF-WIDTH
+ *  (`hydro.width`, tiles — Leopold–Maddock W ∝ √flow, see `terrain/river-network.ts`),
+ *  not a flat cell count: below this half-width a channel has no true interior at all
+ *  (a brook's least width, `RIVER_HALF_MIN` in river-network.ts, is 0.32 — well under
+ *  this), so a narrow brook never grows a mid-channel rock band regardless of riffle. */
+const INTERIOR_WIDTH_MIN = 1.2;
+/** Half-width (tiles) at/above which interior density scales to full strength — near
+ *  the network's practical width ceiling (`RIVER_HALF_MAX` 3.2), so only the widest
+ *  trunk reaches ever reach the full riffle-scored interior density. */
+const INTERIOR_WIDTH_FULL = 3.0;
 /** Bank trees on the immediate bank (land touching fresh water) and the set-back ring. */
 const BANK_TREE_DENSITY_1 = 0.26;
 const BANK_TREE_DENSITY_2 = 0.10;
 /** Loose cobbles + the odd boulder on the dry shore (the exposed gravel bank). */
 const BANK_COBBLE_DENSITY = 0.10;
 const BANK_BOULDER_DENSITY = 0.03;
+/** Ground-layer bank cover (see `BANK_UNDERGROWTH`) — dense on the immediate wet
+ *  margin so the bank reads lush, sparser on the set-back ring. Rolled INDEPENDENTLY
+ *  of the tree/cobble/boulder roll below (a cell can carry a willow AND heather),
+ *  mirroring the forest brush's canopy+undergrowth convention. */
+const BANK_GROUND_DENSITY_1 = 0.45;
+const BANK_GROUND_DENSITY_2 = 0.18;
 /** How far (tiles) the bank flora reaches back from the water. */
 const BANK_RINGS = 2;
 
@@ -167,22 +198,42 @@ export function buildRiparianEntities(
       const s = seed + i * 7;
       if (isFresh(i)) {
         // A water cell on the SHALLOW MARGIN (touching land or the map edge) gets the
-        // stones; mid-channel cells stay clear so the open water still reads as water.
+        // full riffle-scored density; mid-channel (interior) cells are gated further
+        // below so the open water still mostly reads as water.
         let landNb = false;
         for (const [dx, dy] of N4) {
           const nx = x + dx, ny = y + dy;
           if (!inB(nx, ny) || wt[idx(nx, ny)] === WaterType.Dry) { landNb = true; break; }
         }
-        if (!landNb) continue;
-        // A boulder (1–3 m) breaches the depth-shaded water and reads as a rock in the
-        // river. RIFFLE SCORE: steep, energetic reaches (riffles/cascades) cluster
-        // boulders; flat deep pools stay clear. Slope dominates; flow (∝ discharge, a
-        // depth proxy via hydraulic geometry) is a saturating multiplier that never
-        // zeroes a steep brook.
+        // RIFFLE SCORE: steep, energetic reaches (riffles/cascades) cluster boulders;
+        // flat deep pools stay clear. Slope dominates; flow (∝ discharge, a depth proxy
+        // via hydraulic geometry) is a saturating multiplier that never zeroes a steep
+        // brook.
         const slopeF = Math.min(1, waterSurfaceSlope(surf, x, y, width, height) / RIFFLE_REF_SLOPE);
         const flowF = Math.min(1, flow[i] / BOULDER_FLOW_CAP);
         const riffle = slopeF * (RIFFLE_FLOW_FLOOR + (1 - RIFFLE_FLOW_FLOOR) * flowF);
-        const boulderD = WATER_BOULDER_MIN + WATER_BOULDER_RIFFLE * riffle;
+
+        // Interior (mid-channel) cells: only a strong riffle/cascade earns ANY interior
+        // scatter (calm mid-channel pools stay clear, the margin gate's original
+        // intent), and even then only as far as the LOCAL CHANNEL HALF-WIDTH reaches —
+        // `hydro.width` is the same per-cell Leopold–Maddock estimate (W ∝ √flow) the
+        // river geometry itself uses, so a narrow brook (half-width near the network
+        // floor) never grows an interior band regardless of riffle, while a wide trunk
+        // river's centreline scales up to full riffle-scored density.
+        let interiorScale = 1;
+        if (!landNb) {
+          if (riffle < INTERIOR_RIFFLE_MIN) continue;
+          const halfWidth = hydro.width[i] ?? 0;
+          interiorScale = Math.min(1, Math.max(0,
+            (halfWidth - INTERIOR_WIDTH_MIN) / (INTERIOR_WIDTH_FULL - INTERIOR_WIDTH_MIN)));
+          if (interiorScale <= 0) continue;
+        }
+
+        // A boulder (1–3 m) breaches the depth-shaded water and reads as a rock in the
+        // river. `interiorScale` scales the WHOLE density (ambient floor included) for a
+        // mid-channel cell — a narrow reach must stay fully clear, not just lose its
+        // riffle bonus, or the ambient floor alone paints a faint rock wall.
+        const boulderD = (WATER_BOULDER_MIN + WATER_BOULDER_RIFFLE * riffle) * interiorScale;
         if (hash01(x, y, s + 2) < boulderD) {
           // Size ∝ discharge (the trunk-river width barely varies here, so flow is the
           // honest size signal): brooks get cobbly boulders, rivers get big ones.
@@ -199,6 +250,17 @@ export function buildRiparianEntities(
           place(out, COBBLE, x, y, s + 70, 0.45, 0.8);
         } else if (dist[i] === 1 && hash01(x, y, s + 8) < BANK_BOULDER_DENSITY) {
           place(out, BOULDER, x, y, s + 90, 0.6, 1.0);
+        }
+        // Ground-layer bank cover: rolled INDEPENDENTLY of the tree/cobble/boulder pick
+        // above (see BANK_UNDERGROWTH) so a cell can carry both a willow AND a heather
+        // clump — the immediate margin reads dense and lush, the set-back ring sparser.
+        if (BANK_UNDERGROWTH.length > 0) {
+          const groundDensity = dist[i] === 1 ? BANK_GROUND_DENSITY_1 : BANK_GROUND_DENSITY_2;
+          const gRng = hash01(x, y, s + 12);
+          if (gRng < groundDensity) {
+            const kind = pickWeighted(hash01(x, y, s + 13), BANK_UNDERGROWTH.map(([k, w]) => [k, w] as [string, number]));
+            place(out, kind, x, y, s + 110, 0.55, 0.85);
+          }
         }
       }
     }
