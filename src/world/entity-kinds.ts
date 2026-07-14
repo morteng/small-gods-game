@@ -1,6 +1,7 @@
 import type { SpriteRef } from '@/core/types';
 import { getFloraSpecies } from '@/flora/flora-registry';
 import { deriveRecipe } from '@/flora/flora-species';
+import { NATURE_HEIGHT_M, DEFAULT_NATURE_HEIGHT_M } from '@/render/scale-contract';
 
 export interface EntityKindDef {
   id: string;
@@ -164,4 +165,26 @@ export function getEntityKindDef(kind: string): EntityKindDef {
 /** Returns null on unknown kinds — render code uses this for fallback drawing. */
 export function tryGetEntityKindDef(kind: string): EntityKindDef | null {
   return entityKinds.get(kind) ?? floraKindDef(kind);
+}
+
+/**
+ * The ROCK family — the population that settles INTO the ground (settle pad +
+ * sprite bury + terrain contact blend). One predicate so world-side pads
+ * (`rock-deformation.ts`) and the render-side bury/blend (`iso/iso-sprites.ts`)
+ * cannot disagree about what a rock is.
+ *
+ * `standing_stone` joins by NAME, not by tag: it is catalogued as a monument
+ * (tags `monument`/`sacred`, which other systems key on) but it is a menhir —
+ * stone SET INTO the earth, the very thing that must not look dropped on it.
+ */
+export function isRockKind(kind: string): boolean {
+  if (kind === 'standing_stone') return true;
+  return tryGetEntityKindDef(kind)?.defaultTags.includes('rock') ?? false;
+}
+
+/** Real-entity size of a nature kind in metres: the catalogue height × the entity's
+ *  per-instance scale multiplier. The one place the pad/bury/blend sizing reads
+ *  "how big is this rock" (kinds absent from the table take the default). */
+export function natureSizeM(kind: string, scale = 1): number {
+  return (NATURE_HEIGHT_M[kind] ?? DEFAULT_NATURE_HEIGHT_M) * (Number.isFinite(scale) ? scale : 1);
 }

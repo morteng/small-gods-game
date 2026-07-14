@@ -11,7 +11,7 @@ import { WorldRenderGraph } from '@/render/graph/world-render-graph';
 import type { RenderCategory } from '@/render/graph/render-graph';
 import type { DrawItem } from './draw-list';
 import type { IsoItemCtx } from './iso-sprites';
-import { npcItems, vegetationItems, artBillboardItem, plantSpriteItemFromPack, natureBuryFrac, isGroundCoverKind } from './iso-sprites';
+import { npcItems, vegetationItems, artBillboardItem, plantSpriteItemFromPack, natureBuryFrac, isGroundCoverKind, natureContact } from './iso-sprites';
 import { isPlantPreset } from '@/blueprint/presets';
 import { snowAmount01 } from '@/render/snow-mask';
 import { floraVariantForSnow } from '@/render/flora-phenology';
@@ -252,7 +252,15 @@ export function buildEntityDrawList(
           ? rc.resolveParametricPlantArt?.(v.kind, floraVariantForSnow(v.kind, v.id, snow)) ?? null
           : null;
         if (pack) {
-          items.push(plantSpriteItemFromPack(ic, pack, v.x, v.y, natureBuryFrac(v.kind, v.x, v.y), isGroundCoverKind(v.kind), snow));
+          // Ground-settling: the sprite sinks below the surface line by a size-scaled
+          // bury crop, and its foot mixes toward the local ground/snow tone so it reads
+          // as lodged in the ground rather than resting on it.
+          const scale = (v.properties as { scale?: number } | undefined)?.scale ?? 1;
+          items.push(plantSpriteItemFromPack(
+            ic, pack, v.x, v.y,
+            natureBuryFrac(v.kind, v.x, v.y, scale), isGroundCoverKind(v.kind), snow,
+            natureContact(rc.map, v.kind, v.x, v.y, snow),
+          ));
         } else {
           const art = rc.resolveEntityArt?.(v) ?? null;
           if (art) items.push(artBillboardItem(ic, art, v.x, v.y));

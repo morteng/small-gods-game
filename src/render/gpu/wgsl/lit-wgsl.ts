@@ -47,7 +47,9 @@ struct Globals {
 struct VSOut {
   @builtin(position) pos : vec4<f32>,
   @location(0) vUV : vec2<f32>,
-  @location(1) vMisc : vec2<f32>,    // x: snow whiten 0..1, y: mirror flag 0/1
+  @location(1) vMisc : vec4<f32>,    // x: snow whiten 0..1, y: mirror flag 0/1, z: contact strength, w: contact band
+  @location(2) vGround : vec3<f32>,  // ground colour the foot blends toward (snow-mixed CPU-side)
+  @location(3) vFoot : f32,          // 0 at the sprite top, 1 at the FOOT (quad corner.y)
 };
 
 @vertex
@@ -56,7 +58,8 @@ fn vsMain(
   @location(1) iRect  : vec4<f32>,   // dx, dy, dw, dh  (WORLD px)
   @location(2) iUV    : vec4<f32>,   // u0, v0, u1, v1
   @location(3) iDepth : f32,         // painter-order depth, 0..1
-  @location(4) iMisc  : vec2<f32>,   // whiten, mirror (per-instance; see instance-buffer.ts)
+  @location(4) iMisc  : vec4<f32>,   // whiten, mirror, contact, contactBand (see instance-buffer.ts)
+  @location(5) iGround : vec3<f32>,  // contact target colour
 ) -> VSOut {
   // Instances are packed in WORLD px (camera-independent, so the static layer can
   // be packed once); the camera world→device affine is applied here in the VS.
@@ -71,11 +74,18 @@ fn vsMain(
   out.pos = vec4<f32>(ndc, iDepth, 1.0);
   out.vUV = mix(iUV.xy, iUV.zw, corner);
   out.vMisc = iMisc;
+  out.vGround = iGround;
+  out.vFoot = corner.y;   // the quad's bottom edge IS the ground contact (foot-anchored)
   return out;
 }
 
 @fragment
-fn fsMain(@location(0) vUV : vec2<f32>, @location(1) vMisc : vec2<f32>) -> @location(0) vec4<f32> {
+fn fsMain(
+  @location(0) vUV : vec2<f32>,
+  @location(1) vMisc : vec4<f32>,
+  @location(2) vGround : vec3<f32>,
+  @location(3) vFoot : f32,
+) -> @location(0) vec4<f32> {
   let albedo = textureSample(uAlbedo, uSampler, vUV);
   if (albedo.a < 0.5) { discard; }   // hard pixel-art cutout, not soft AA
 
@@ -101,6 +111,20 @@ fn fsMain(@location(0) vUV : vec2<f32>, @location(1) vMisc : vec2<f32>) -> @loca
   if (vMisc.x > 0.0) {
     let topFacing = clamp(n.y * 0.5 + 0.5, 0.0, 1.0);
     alb = mix(alb, vec3<f32>(0.94, 0.95, 0.97), vMisc.x * topFacing);
+  }
+
+  // GROUND CONTACT (rock/cover settling): a rock's bury crop sinks it below the surface
+  // LINE, but the cut is a hard silhouette edge — soil and snow do not stop dead at a
+  // rock's outline, they BANK against it. So over the bottom vMisc.w of the drawn sprite
+  // we mix toward vGround (the local terrain colour, already snow-mixed CPU-side by the
+  // same snow mask the whiten reads), strongest at the foot and squared so it falls away
+  // fast — drift/soil accumulation, not a wash up the whole rock. Mixed BEFORE the banded
+  // diffuse, like the whiten, so the blended foot quantizes into the same bands as
+  // everything else. At contact strength 0 this is exact identity (byte-identical output).
+  if (vMisc.z > 0.0) {
+    let band = max(vMisc.w, 0.0001);
+    let t = clamp((vFoot - (1.0 - band)) / band, 0.0, 1.0);
+    alb = mix(alb, vGround, vMisc.z * t * t);
   }
 
   let mat = textureSample(uMaterialMap, uSampler, vUV);

@@ -41,6 +41,7 @@ import { worldStyleOf } from '@/core/world-style';
 import { buildRiverDeformations } from '@/world/river-deformation';
 import { buildSettlementPadDeformations, settlementBuildCount } from '@/world/settlement-deformation';
 import { buildBoulderPadDeformations } from '@/world/boulder-deformation';
+import { buildRockPadDeformations } from '@/world/rock-deformation';
 import { buildBarrierDeformations, barrierFoundationCount } from '@/world/barrier-deformation';
 import { buildDitchDeformations, ditchWallCount } from '@/world/ditch-deformation';
 import { buildEarthworkDeformations } from '@/world/earthwork-deformation';
@@ -983,7 +984,9 @@ function key(map: GameMap): string {
   // `p` distinguishes a map that declares its riparian scatter (boulder pads compose)
   // from a same-seed map that doesn't (gen-time stub, studio ground) — without it an
   // empty world's stub store could be served for the final map, dropping the pads.
-  return `${map.seed}:${map.width}x${map.height}:r${map.roadGraph?.rev ?? 0}:b${settlementBuildCount(map)}:w${barrierFoundationCount(map)}:d${ditchWallCount(map)}:e${map.earthworks?.length ?? 0}:s${shapeSignature(styledShapeSpec(map.worldSeed))}:p${map.riparianSeed ?? 'n'}`;
+  // `k` is the declared rock-pad count — the same reason `p` is here: a mid-generation
+  // stub map (no pads yet) must not have its store served back for the final map.
+  return `${map.seed}:${map.width}x${map.height}:r${map.roadGraph?.rev ?? 0}:b${settlementBuildCount(map)}:w${barrierFoundationCount(map)}:d${ditchWallCount(map)}:e${map.earthworks?.length ?? 0}:s${shapeSignature(styledShapeSpec(map.worldSeed))}:p${map.riparianSeed ?? 'n'}:k${map.rockPads?.length ?? 'n'}`;
 }
 
 function evict(cache: Map<string, unknown>): void {
@@ -1026,6 +1029,7 @@ export function getWorldDeformationStore(map: GameMap): DeformationStore {
   store.add(...buildRiverDeformations(map, getHydrologyResult(map)));
   store.add(...buildSettlementPadDeformations(map));
   store.add(...buildBoulderPadDeformations(map)); // R5: big bank boulders settle into grade
+  store.add(...buildRockPadDeformations(map)); // scattered upland rocks settle into grade
   store.add(...buildBarrierDeformations(map)); // walls: stepped foundation footing under the curtain
   store.add(...buildDitchDeformations(map)); // WP-S: shallow dry ditch outside the town wall (causeways at gates)
   store.add(...buildEarthworkDeformations(map.earthworks ?? [])); // motte/ditch/rampart of a placed complex

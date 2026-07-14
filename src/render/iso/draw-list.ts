@@ -81,6 +81,14 @@ export type DrawItem =
        * visible gain.
        */
       noShadow?: boolean;
+      /**
+       * Terrain CONTACT BLEND (rock/cover settling): near the FOOT of the sprite the
+       * lit shader mixes the albedo toward `(r,g,b)` — the local ground colour, already
+       * snow-mixed CPU-side (`render/ground-contact.ts`) — falling off to nothing `band`
+       * of the drawn height up. So soil (and snow drift) banks against the base instead
+       * of stopping dead at the silhouette. Absent / strength 0 = byte-identical output.
+       */
+      contact?: { r: number; g: number; b: number; strength: number; band: number };
     }
   | { t: 'poly'; points: Array<{ x: number; y: number }>; color: string }
   | { t: 'circle'; cx: number; cy: number; r: number; color: string };

@@ -46,10 +46,13 @@ describe('plantSpriteItemFromPack — rock bury (R5)', () => {
     expect(sunk.dy).toBeGreaterThan(whole.dy);
   });
 
-  it('natureBuryFrac: rocks sink 10–20 %, other flora 0, and it is deterministic', () => {
+  it('natureBuryFrac: rocks sink by a SIZE-SCALED fraction, other flora 0, deterministic', () => {
+    // Size-scaled since WCV 98 (a flat 10–20 % left the big upland boulders reading as
+    // floating): a pebble barely marks the ground, a boulder is properly lodged.
     const b = natureBuryFrac('boulder', 12, 7);
     expect(b).toBeGreaterThanOrEqual(0.10);
-    expect(b).toBeLessThanOrEqual(0.20);
+    expect(b).toBeLessThanOrEqual(0.30);
+    expect(natureBuryFrac('pebbles', 12, 7)).toBeLessThan(b);
     expect(natureBuryFrac('boulder', 12, 7)).toBe(b);   // stable per position
     expect(natureBuryFrac('english-oak', 12, 7)).toBe(0);   // a tree does not bury here
   });
