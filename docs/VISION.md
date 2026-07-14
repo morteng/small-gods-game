@@ -1,8 +1,19 @@
 # Small Gods — Vision & Cosmology
 
-**Version**: 1.0.0
+**Version**: 1.1.0
 **Status**: Canonical — core design tenet
-**Last Updated**: 2026-05-31
+**Last Updated**: 2026-07-14
+
+> **1.1.0 — what changed.** (a) **Fate is now PROACTIVE** (§2.1, §2.1.1): it takes
+> initiative, plans arcs ahead, and weaves several at once — bounded by four new
+> constraints (sim-currency, portents-before-beats, dispositions-not-scripts,
+> latency) that take over the job the retired "reactive" rule was doing. This
+> resolves a standing contradiction: §2.1 already called Fate a storyteller moving
+> mortals as game pieces, which is not a thing a purely reactive agent does.
+> (b) Two new **open loops** (§9, rows 11–12) record a gap found by reading the
+> code against the tenets: needs reach belief only as a *scalar mean*, and prayer
+> fires only on `meaning` — so three of the four needs cannot currently produce a
+> prayer, and the sim cannot tell one kind of suffering from another.
 
 > This is the **read-this-first** design document. It defines the cosmology, the
 > belief model, the core gameplay loop, and the start-to-end arc that every other
@@ -59,12 +70,57 @@ This duality is the point: Fate genuinely is trying to tell a good story, and a
 good story contains the flood, the failed hunt, the death. So Fate *reads as*
 malevolent and uncaring from inside, while actually being the author.
 
-> **Design rule — Fate is impersonal and reactive.** Fate amplifies and escalates
-> what the simulation is already producing; it does not inject arbitrary plot
-> devices, and it is never addressed or bargained with from in-world. Player
-> "modelling" belongs to **rival spirits** (who learn your strategy), not to Fate.
+> **Design rule — Fate is PROACTIVE, but sim-bound.** *(Amended 2026-07-14; see
+> §2.1.1. This supersedes the former "Fate is impersonal and reactive" rule, which
+> contradicted the board-game framing directly above it: a storyteller who moves
+> mortals as game pieces toward drama is, by definition, not merely reacting.)*
+> Fate takes **initiative**. It holds long-range intentions, plans arcs ahead of
+> the events that serve them, and weaves several at once. What it may **never** do
+> is inject a plot device from nowhere: every step it takes must be a **legal
+> mutation of the simulation**. Fate is a chess player who thinks twelve moves
+> ahead and may only make legal moves. It remains **unpetitionable** — never
+> addressed or bargained with from in-world (§8, tenet 7). Player *"modelling"*
+> still belongs to **rival spirits** (who learn your strategy), not to Fate: Fate
+> plots against the *story*, not against the *player*.
 
-**Fate may prepare the stage.** Fate is still reactive: any content it stages must (a) **amplify or escalate an existing sim condition** (a recognized plot thread), never an arbitrary plot device, and (b) be **latent until discovered** — it materializes only when the player's attention reaches its subject. Fate sets out grounded possibilities; the sim and the player's attention decide which become real. (This is the attention/realization cosmology of §2.3 applied to narrative.)
+### 2.1.1 What keeps a proactive Fate honest
+
+The retired "reactive" rule was doing a real job: it guaranteed drama was
+**earned** — grown out of the world rather than dropped onto it. An author with
+unlimited licence produces incoherent plot, and the player stops mattering. That
+job does not disappear; it is now done by four constraints, which move the
+discipline from *when Fate may act* to **what Fate may spend, and how a beat is
+allowed to land**:
+
+1. **Fate plans in intentions, and pays in sim-currency.** An **arc** is a set of
+   conditions Fate *wants to become true*, plus **pressures** it applies to get
+   there — never events it simply fires. Fate does not decree *"the lord dies on
+   pilgrimage."* Fate decides *"I want him far from home, and his heir a child,"*
+   then nudges: his piety rises, a rumour of pilgrimage spreads on the social
+   graph, the odds of a fever on the road tick up. Every individual step is
+   something the sim could have produced on its own. **The plan is authorial; the
+   execution is pressure. The sim remains truth.**
+2. **Portents are the interface — foreshadow before you land.** A beat may not
+   arrive un-heralded: Fate must first plant **omens** (a comet, a dream, a
+   chronicler's dread, a bird against the wind). This is historically exact — the
+   chroniclers always report the star before the fall — and mechanically it is
+   what makes a proactive Fate *fair*. **A Fate you cannot read is a tyrant; a
+   Fate you can read is a worthy opponent**, and learning to read it is a real
+   player skill.
+3. **Arcs are dispositions, not scripts.** Fate is not committed to its plan. If
+   the player disrupts an arc, Fate **re-plans** — it never forces the beat
+   through. A thwarted Fate is the point; an unthwartable one is a rail.
+4. **Latency and discovery stand (§2.3).** Staged content remains **latent until
+   discovered** — it materializes only when the player's attention reaches its
+   subject. Fate sets out grounded possibilities; the sim and the player's
+   attention decide which become real.
+
+**Weaving.** Fate holds a small set of **live arcs** at once, drawn from an arc
+library of story *shapes* (*the strongman who dies far from home leaving a child
+heir*; *the exile at a foreign court who returns as king*). Arcs share the same
+mortals and the same weather: one drought can serve the famine arc and the tyrant
+arc together. Fate prefers the pressure that **advances the most live arcs at
+once** — which is how plot braids, rather than queuing.
 
 ### 2.2 Gods — the intervenors
 
@@ -297,6 +353,8 @@ tracks the right shapes but leaves the loops open. Closing them is the work:
 | 8 | Stories/Credence subsystem described in docs but never built. | **Retired.** Fold fidelity into `understanding`, credence into personality `skepticism` (§3). |
 | 9 | Realization framed (in some docs) as belief *creating* reality. | Reframe as **sphere of attention** (§2.3): the world exists under Fate regardless. |
 | 10 | Vestigial adapters (`toRenderNpc`, `simStateFromEntity`, `NpcInstance`, `NpcSimState`). | Remove per the existing render-refactor track. |
+| 11 | **Needs reach belief only as a SCALAR MEAN — so the engine cannot tell one kind of suffering from another.** `computeMood()` averages the four needs, and `tickNpcEntity` reads only that average (comfort decay above 0.6, desperation boost below 0.4). A pressure that drains `prosperity` and supplies `safety` in equal measure is a **literal no-op** on faith. Tenet 1 says belief is born from need — but the code cannot see *which* need. | Give need a **direction**, not just a magnitude. |
+| 12 | **Poverty cannot produce a prayer.** `worship` fires **only** on `meaning < 0.3` (`npc-activity-system.ts`) — low `community` even pre-empts it, and low `safety`/`prosperity` have no branch at all. Meanwhile `work` self-restores `prosperity` (+0.3) and `sleep` self-restores `safety`. So prayer is a *meaning-clock*, not a cry of need — and since `worship` is the sole channel `answer_prayer` feeds and rivals claim, **the entire belief economy is fed by one need out of four.** | Make `worship` fire on the **lowest** need. Then give a prayer a **subject** (`prayerNeed`), so `answer_prayer` restores the right need, rivals can domain-match their claims (unblocking Track 3's stated deferral), and the chronicler can narrate *what was asked for*. |
 
 > These are design directives, not an implementation plan. Each gets its own
 > brainstorm → spec → plan when scheduled.
@@ -308,8 +366,11 @@ tracks the right shapes but leaves the loops open. Closing them is the work:
 This document is canonical for **cosmology, belief, Fate, progression, and the
 arc.** The others defer to it as follows:
 
-- **`TECH_SPEC.md`** — Fate = the DM agent *is* impersonal/reactive (no
-  player-modelling in Fate); belief power uses the §3 formula.
+- **`TECH_SPEC.md`** — Fate = the DM agent is **proactive but sim-bound** (§2.1.1:
+  it plans arcs and takes initiative, but may only spend legal sim mutations, must
+  foreshadow before it lands a beat, and re-plans rather than forcing). It is still
+  **impersonal**: no player-modelling in Fate — that belongs to rival spirits. Fate
+  plots against the *story*, not the *player*. Belief power uses the §3 formula.
 - **`DATA_MODELS.md`** — one belief model (`faith/understanding/devotion` +
   4 needs); the computed sim is Fate's layer, belief is the interpretation layer.
 - **`STORY_MECHANICS.md` / `STORY_CREDENCE.md`** — Stories/Credence retired as a

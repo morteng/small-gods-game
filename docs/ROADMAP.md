@@ -146,22 +146,36 @@ via the shared `answer_prayer` command path (defection — VISION §3/§4); cont
 
 ## Track 4 — Fate, the DM agent (Phase 11)  — ✅ **shipped, deepening**
 
-The background orchestrator. **Fate is impersonal & reactive** — it amplifies and
-escalates what the sim produces; never petitioned, never models the player
-(VISION §2.1). LIVE: event-driven `FateBrainService` (`src/game/fate/`, async —
-off the sim tick) on the **capable tier** (`DEFAULT_CAPABLE_MODEL`) via
-`Game.llmClientCapable`; wakes on significant story-thread events + sustained
-rival claim pressure (≥2 claims/sim-day window), cooldown-throttled. 4
-constrained, drift-guarded tools (`src/game/fate/fate-tools.ts`): `arm_staged_beat`
-(optionally with a validated `storylet` ref → interactive card on discovery),
-`nudge_event_severity`, `force_next_event`, `set_rival_stance` (anti-snowball
-coaching, deltas capped ±0.2 both sides of the LLM boundary — VISION §4). Remaining:
+The background orchestrator. **Fate is PROACTIVE but sim-bound** — as of VISION
+1.1.0 (§2.1, §2.1.1) it takes initiative, plans arcs ahead, and weaves several at
+once, but may only spend **legal sim mutations**, must **foreshadow before it lands
+a beat**, and **re-plans rather than forcing**. It is still impersonal: never
+petitioned, never models the player (that is rival spirits). *Fate plots against the
+story, not the player.*
 
-- Pacing/plot intelligence beyond single-beat reactions (plot-thread tracker,
-  escalation ladder, anti-grinding detection).
-- Owns the **LLM era-authoring half** of the D2 time-skip loop (not yet wired).
+LIVE: event-driven `FateBrainService` (`src/game/fate/`, async — off the sim tick)
+on the **capable tier** (`DEFAULT_CAPABLE_MODEL`) via `Game.llmClientCapable`; wakes
+on significant story-thread events + sustained rival claim pressure (≥2
+claims/sim-day window), cooldown-throttled. **5** constrained, drift-guarded tools
+(`src/game/fate/fate-tools.ts`): `arm_staged_beat` (optionally with a validated
+`storylet` ref → interactive card on discovery), `nudge_event_severity`,
+`force_next_event`, `set_rival_stance` (anti-snowball coaching, deltas capped ±0.2
+both sides of the LLM boundary — VISION §4), `author_building` (structural lint gate
++ one bounded self-correction retry).
+
+**NEXT — 📋 [spec: Proactive Fate — arcs, portents, weaving](superpowers/specs/2026-07-14-proactive-fate-arcs-portents.md).**
+The gap is architectural, not a prompt: `FateBrainService.deliberate()` is
+**stateless** (arms one beat, forgets), and `FateTrigger` only wakes on an incoming
+event (**no heartbeat** ⇒ no initiative). Fate needs **memory**, **a pulse**, and **a
+vocabulary for intent**. Slices F1 (arc state, snapshot-backed, scrub-aware) and F2
+(the pulse) *are* the whole architectural change; F3–F6 are content on top. **This
+single spec closes both remaining Track-4 items below.**
+
+- ~~Pacing/plot intelligence beyond single-beat reactions~~ → **arcs + weaving (F3/F5).**
+- ~~Owns the LLM era-authoring half of the D2 time-skip loop~~ → **F6.**
 - "Defying Fate has a price": time-scrub/re-roll must cost belief or invite
-  escalation (VISION tenet 10).
+  escalation (VISION tenet 10). *(Sharpened by F1: arc state scrubs WITH the
+  timeline — rewinding the world rewinds Fate's plan.)*
 
 ## Track 5 — Progression & win-state  — ⬜
 
@@ -205,6 +219,45 @@ command bus). Remaining:
   `TimelineController.getDiscardedFutures()` is the hook).
 - **Generated imagery** (NPC portraits, vistas, chapter scenes, god portrait) —
   gated by the art-reseed freeze.
+
+## Track 8 — Mortal power: the lord, the castle, the knights  — 📋 **spec'd**
+
+📋 **[spec](superpowers/specs/2026-07-14-mortal-power-lord-castle-knights.md)** ·
+🧠 **[brainstorm](superpowers/2026-07-14-mortal-power-and-proactive-fate-brainstorm.md)**
+
+**Thesis: oppression manufactures need, and need is what a small god feeds on — so a
+castle is a belief engine.** A lord doesn't *add* need, he **changes which need is
+unmet** (supplies `safety`, drains `prosperity`/`meaning`). **The trap:** topple him
+and you remove the fear that feeds you. This turns VISION's already-canonical
+"comfort kills belief" counter-loop into **a choice with a face on it**, and supplies
+Track 4's arc library. Cost: **$0** (sim, prompt, parametric geometry — the paid
+img2img gate stays OFF).
+
+**⚠ M0 IS A PREREQUISITE FOR MOST OF THIS ROADMAP, not just Track 8.** The belief
+engine **cannot see** any of it today (VISION §9 rows 11–12, verified in code):
+`computeMood()` is the **flat mean** of the four needs, so draining `prosperity` and
+supplying `safety` in equal measure is a **literal no-op on faith**; and `worship`
+fires **only** on `meaning < 0.3`, so **a starving peasant cannot pray** — meaning
+the entire belief economy runs on **one need out of four**. M0 (worship fires on the
+*lowest* need; a prayer gets a *subject*) is ~10 lines for the decisive half, and it
+**also unblocks Track 3's stated rival domain-matching deferral** as a side effect.
+
+- **M0 — need gets a direction** ⭐ *(do this first, independent of everything)*
+- **M1 — the chronicler's voice** — a monastic-register narrator. *A narrator who
+  explains everything by sin and portent **cannot contradict the sim**, because he
+  isn't making causal claims about it — he annotates outcomes.* Cheapest
+  atmosphere-per-token in the game; strictly read-only over the event log.
+- **M2 — epithets** — deed-derived, conferred, contested (*victory renames you*).
+- **M3 — the lord** — a `noble` NPC (role exists). **Never** gets a `beliefs[]`
+  entry — he competes for *allegiance*, not *belief* (that would invent a fifth
+  category of god). He can fight you **by proxy** by endowing a rival's shrine.
+- **M4 — the castle** — `placeComplexOnPatch` **already plants a motte-and-bailey on
+  an empty hilltop** and the game never calls it. ⚠ Blocked on **runtime POI
+  creation** (there is none) — needs its own spike.
+- **M5 — knights** — `soldier` NPCs, **not** a new entity kind.
+- **M6 — the Peace of God** — relics paraded into a field; armed men bound by oath
+  before a crowd. **Spends `devotion`, not power** — finally giving devotion a job
+  the player can feel, and denying the move to a god who only bought cheap fear.
 
 ## Track 7 — Backlog (opportunistic)
 
