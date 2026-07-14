@@ -3,6 +3,36 @@
 exports[`sacred_grove brush > produces a stable snapshot 1`] = `
 [
   {
+    "id": "sacred_grove-english-oak-0-0",
+    "kind": "english-oak",
+    "properties": {
+      "offsetX": -0.12623241840686295,
+      "offsetY": 0.027926883184316974,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+      "sacred",
+    ],
+    "x": 0.873767581593137,
+    "y": 0.027926883184316974,
+  },
+  {
+    "id": "sacred_grove-english-oak-1-0",
+    "kind": "english-oak",
+    "properties": {
+      "offsetX": -0.13963501452917002,
+      "offsetY": 0.014524287062009922,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+      "sacred",
+    ],
+    "x": 1.86036498547083,
+    "y": 0.014524287062009922,
+  },
+  {
     "id": "sacred_grove-fastigiate-oak-3-0",
     "kind": "fastigiate-oak",
     "properties": {
@@ -216,6 +246,36 @@ exports[`sacred_grove brush > produces a stable snapshot 1`] = `
     "y": 2.5,
   },
   {
+    "id": "sacred_grove-english-oak-0-3",
+    "kind": "english-oak",
+    "properties": {
+      "offsetX": -0.1262382030376411,
+      "offsetY": 0.027921080672145392,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+      "sacred",
+    ],
+    "x": 0.8737617969623589,
+    "y": 3.0279210806721455,
+  },
+  {
+    "id": "sacred_grove-english-oak-1-3",
+    "kind": "english-oak",
+    "properties": {
+      "offsetX": -0.13964080810064486,
+      "offsetY": 0.014518547134715386,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+      "sacred",
+    ],
+    "x": 1.8603591918993552,
+    "y": 3.0145185471347156,
+  },
+  {
     "id": "sacred_grove-fastigiate-oak-3-3",
     "kind": "fastigiate-oak",
     "properties": {
@@ -427,6 +487,36 @@ exports[`sacred_grove brush > produces a stable snapshot 1`] = `
     ],
     "x": 7.5,
     "y": 5.5,
+  },
+  {
+    "id": "sacred_grove-english-oak-0-6",
+    "kind": "english-oak",
+    "properties": {
+      "offsetX": -0.1262439250835422,
+      "offsetY": 0.027915430151818053,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+      "sacred",
+    ],
+    "x": 0.8737560749164578,
+    "y": 6.027915430151818,
+  },
+  {
+    "id": "sacred_grove-english-oak-1-6",
+    "kind": "english-oak",
+    "properties": {
+      "offsetX": -0.13964653014654596,
+      "offsetY": 0.014512825088814284,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+      "sacred",
+    ],
+    "x": 1.860353469853454,
+    "y": 6.014512825088814,
   },
   {
     "id": "sacred_grove-fastigiate-oak-3-6",

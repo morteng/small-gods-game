@@ -60,11 +60,15 @@ describe('forest brush', () => {
     }
   });
 
-  it('density ~0.35 on full-forest region produces ~30% density', () => {
+  it('density ~0.30 (canopy) + wide-open undergrowth on full-forest region', () => {
+    // Recomputed after the grass/bush density pass (density 0.24→0.30,
+    // openUndergrowth 0.35→0.8): total (canopy+undergrowth) count on a 20×20
+    // all-forest region ranged 188-249 across 8 seeds; 150-300 leaves margin
+    // both ways without going infinite.
     const c = allForest(20, 20);
     const out = forestBrush({ x: 0, y: 0, w: 20, h: 20 }, 13, c);
-    expect(out.length).toBeGreaterThan(80);
-    expect(out.length).toBeLessThan(200);
+    expect(out.length).toBeGreaterThan(150);
+    expect(out.length).toBeLessThan(300);
   });
 
   it('different seeds produce different output', () => {

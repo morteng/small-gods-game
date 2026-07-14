@@ -95,6 +95,67 @@ exports[`forest brush > produces a stable snapshot 1`] = `
     "y": 0.18932579061947763,
   },
   {
+    "id": "forest-european-beech-4-0",
+    "kind": "european-beech",
+    "properties": {
+      "offsetX": 0.12359766359440982,
+      "offsetY": 0.8837197874672711,
+      "rotation": -0,
+      "scale": 1.1399185221409425,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+    ],
+    "x": 4.12359766359441,
+    "y": 0.8837197874672711,
+  },
+  {
+    "id": "forest-bracken-4-0",
+    "kind": "bracken",
+    "properties": {
+      "offsetX": 0.6714043079642579,
+      "offsetY": 0.7561470811720937,
+      "scale": 0.8826908156275749,
+    },
+    "tags": [
+      "vegetation",
+      "fern",
+    ],
+    "x": 4.6714043079642575,
+    "y": 0.7561470811720937,
+  },
+  {
+    "id": "forest-bramble-4-0",
+    "kind": "bramble",
+    "properties": {
+      "offsetX": 0.6714043079642579,
+      "offsetY": 0.7561470811720937,
+      "scale": 0.8826908156275749,
+    },
+    "tags": [
+      "vegetation",
+      "shrub",
+    ],
+    "x": 4.6714043079642575,
+    "y": 0.7561470811720937,
+  },
+  {
+    "id": "forest-common-hazel-5-0",
+    "kind": "common-hazel",
+    "properties": {
+      "offsetX": 0.49266813178546726,
+      "offsetY": 0.22572878517676148,
+      "scale": 0.6226120823062956,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+    ],
+    "x": 5.492668131785467,
+    "y": 0.22572878517676148,
+  },
+  {
     "id": "forest-small-leaved-lime-7-0",
     "kind": "small-leaved-lime",
     "properties": {
@@ -315,6 +376,53 @@ exports[`forest brush > produces a stable snapshot 1`] = `
     "y": 2.967855896335095,
   },
   {
+    "id": "forest-silver-birch-3-2",
+    "kind": "silver-birch",
+    "properties": {
+      "offsetX": 0.3882316229864955,
+      "offsetY": 0.38140630116686225,
+      "rotation": -0,
+      "scale": 1.0051254466874524,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+    ],
+    "x": 3.3882316229864955,
+    "y": 2.3814063011668622,
+  },
+  {
+    "id": "forest-common-hazel-5-2",
+    "kind": "common-hazel",
+    "properties": {
+      "offsetX": 0.743879528180696,
+      "offsetY": 0.3968728512059897,
+      "scale": 0.6081575670279562,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+    ],
+    "x": 5.743879528180696,
+    "y": 2.39687285120599,
+  },
+  {
+    "id": "forest-small-leaved-lime-6-2",
+    "kind": "small-leaved-lime",
+    "properties": {
+      "offsetX": 0.8998442469164729,
+      "offsetY": 0.9696960458531976,
+      "rotation": 0,
+      "scale": 0.9589314162498339,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+    ],
+    "x": 6.899844246916473,
+    "y": 2.9696960458531976,
+  },
+  {
     "id": "forest-european-beech-1-3",
     "kind": "european-beech",
     "properties": {
@@ -347,6 +455,36 @@ exports[`forest brush > produces a stable snapshot 1`] = `
     "y": 3.912234533112496,
   },
   {
+    "id": "forest-bracken-1-3",
+    "kind": "bracken",
+    "properties": {
+      "offsetX": 0.6030912332236766,
+      "offsetY": 0.21989787132479255,
+      "scale": 0.7760054030455649,
+    },
+    "tags": [
+      "vegetation",
+      "fern",
+    ],
+    "x": 1.6030912332236766,
+    "y": 3.2198978713247923,
+  },
+  {
+    "id": "forest-bramble-1-3",
+    "kind": "bramble",
+    "properties": {
+      "offsetX": 0.6030912332236766,
+      "offsetY": 0.21989787132479255,
+      "scale": 0.7760054030455649,
+    },
+    "tags": [
+      "vegetation",
+      "shrub",
+    ],
+    "x": 1.6030912332236766,
+    "y": 3.2198978713247923,
+  },
+  {
     "id": "forest-small-leaved-lime-3-3",
     "kind": "small-leaved-lime",
     "properties": {
@@ -363,6 +501,22 @@ exports[`forest brush > produces a stable snapshot 1`] = `
     "y": 3.0375425508245826,
   },
   {
+    "id": "forest-english-oak-3-3",
+    "kind": "english-oak",
+    "properties": {
+      "offsetX": 0.3757879042532295,
+      "offsetY": 0.37887929007411003,
+      "rotation": -0,
+      "scale": 0.9674037616234272,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+    ],
+    "x": 3.3757879042532295,
+    "y": 3.37887929007411,
+  },
+  {
     "id": "forest-european-ash-0-4",
     "kind": "european-ash",
     "properties": {
@@ -377,6 +531,52 @@ exports[`forest brush > produces a stable snapshot 1`] = `
     ],
     "x": 0.15350955538451672,
     "y": 4.5393947686534375,
+  },
+  {
+    "id": "forest-bracken-0-4",
+    "kind": "bracken",
+    "properties": {
+      "offsetX": 0.6700181352440268,
+      "offsetY": 0.19463131176307802,
+      "scale": 0.7011853120289743,
+    },
+    "tags": [
+      "vegetation",
+      "fern",
+    ],
+    "x": 0.6700181352440268,
+    "y": 4.194631311763078,
+  },
+  {
+    "id": "forest-bramble-0-4",
+    "kind": "bramble",
+    "properties": {
+      "offsetX": 0.6700181352440268,
+      "offsetY": 0.19463131176307802,
+      "scale": 0.7011853120289743,
+    },
+    "tags": [
+      "vegetation",
+      "shrub",
+    ],
+    "x": 0.6700181352440268,
+    "y": 4.194631311763078,
+  },
+  {
+    "id": "forest-english-oak-0-5",
+    "kind": "english-oak",
+    "properties": {
+      "offsetX": 0.5082228407263756,
+      "offsetY": 0.9997865040786564,
+      "rotation": -0,
+      "scale": 1.1269419136224315,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+    ],
+    "x": 0.5082228407263756,
+    "y": 5.999786504078656,
   },
   {
     "id": "forest-bracken-1-5",
@@ -486,6 +686,22 @@ exports[`forest brush > produces a stable snapshot 1`] = `
     ],
     "x": 1.5275878091342747,
     "y": 7.917833250015974,
+  },
+  {
+    "id": "forest-european-ash-5-7",
+    "kind": "european-ash",
+    "properties": {
+      "offsetX": 0.4133908248040825,
+      "offsetY": 0.0522831198759377,
+      "rotation": 0,
+      "scale": 1.1311842944007366,
+    },
+    "tags": [
+      "vegetation",
+      "tree",
+    ],
+    "x": 5.4133908248040825,
+    "y": 7.052283119875938,
   },
 ]
 `;

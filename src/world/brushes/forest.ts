@@ -10,7 +10,7 @@ const FOREST_PARAMS: import('./vegetation-placer').VegetationParams = {
   brush: BRUSH,
   tileType: 'forest',
   kinds: canopyOf('forest'),
-  density: 0.24,
+  density: 0.30,             // raised 0.24→0.30 (~25%, density pass)
   // `scale` is a per-instance VARIETY multiplier on the kind's metric height
   // (not an absolute size) — a tight ±15% band. We don't rotate vegetation
   // (tilted trees read as wrong); variety comes from this band + full-cell
@@ -21,7 +21,7 @@ const FOREST_PARAMS: import('./vegetation-placer').VegetationParams = {
   maxPerTile: 2,
   clumpScale: 5,
   undergrowth: undergrowthOf('forest'),
-  openUndergrowth: 0.35,    // ferns/bramble also take the clearings, not only tree shade
+  openUndergrowth: 0.8,     // raised 0.35→0.8 (density pass): ferns/bramble fill clearings, not only tree shade
 };
 
 export function forestBrush(region: Region, seed: number, ctx: BrushContext): Entity[] {

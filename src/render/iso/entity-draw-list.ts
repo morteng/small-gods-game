@@ -11,7 +11,7 @@ import { WorldRenderGraph } from '@/render/graph/world-render-graph';
 import type { RenderCategory } from '@/render/graph/render-graph';
 import type { DrawItem } from './draw-list';
 import type { IsoItemCtx } from './iso-sprites';
-import { npcItems, vegetationItems, artBillboardItem, plantSpriteItemFromPack, natureBuryFrac } from './iso-sprites';
+import { npcItems, vegetationItems, artBillboardItem, plantSpriteItemFromPack, natureBuryFrac, isGroundCoverKind } from './iso-sprites';
 import { isPlantPreset } from '@/blueprint/presets';
 import {
   buildingSpriteItemFromImage, buildingSpriteItemFromPack, flatBlockItems, pickBuildingSource,
@@ -242,7 +242,7 @@ export function buildEntityDrawList(
         // billboard is the keyless fallback (and stays for ground cover).
         const pack = isPlantPreset(v.kind) ? rc.resolveParametricPlantArt?.(v.kind) ?? null : null;
         if (pack) {
-          items.push(plantSpriteItemFromPack(ic, pack, v.x, v.y, natureBuryFrac(v.kind, v.x, v.y)));
+          items.push(plantSpriteItemFromPack(ic, pack, v.x, v.y, natureBuryFrac(v.kind, v.x, v.y), isGroundCoverKind(v.kind)));
         } else {
           const art = rc.resolveEntityArt?.(v) ?? null;
           if (art) items.push(artBillboardItem(ic, art, v.x, v.y));

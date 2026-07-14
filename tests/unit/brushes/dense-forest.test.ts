@@ -55,11 +55,13 @@ describe('dense_forest brush', () => {
     }
   });
 
-  it('tree density ~0.42 produces ~40-50% tile coverage', () => {
+  it('tree density ~0.53 produces higher tile coverage', () => {
+    // Recomputed after the grass/bush density pass (density 0.42→0.53): canopy
+    // count on a 20×20 all-dense_forest region ranged 212-270 across 8 seeds.
     const c = allDense(20, 20);  // 400 tiles
     const out = denseForestBrush({ x: 0, y: 0, w: 20, h: 20 }, 11, c);
     const trees = out.filter(e => CANOPY.has(e.kind));
-    expect(trees.length).toBeGreaterThan(120);
-    expect(trees.length).toBeLessThan(260);
+    expect(trees.length).toBeGreaterThan(180);
+    expect(trees.length).toBeLessThan(300);
   });
 });

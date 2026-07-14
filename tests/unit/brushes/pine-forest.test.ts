@@ -36,11 +36,13 @@ describe('pine_forest brush', () => {
       expect(ALLOWED.has(e.kind)).toBe(true);
     }
   });
-  it('produces ~32% tree density', () => {
+  it('produces ~40% tree density', () => {
+    // Recomputed after the grass/bush density pass (density 0.32→0.40): canopy
+    // count on a 20×20 all-pine_forest region ranged 148-203 across 8 seeds.
     const c = allPine(20, 20);
     const out = pineForestBrush({ x: 0, y: 0, w: 20, h: 20 }, 11, c);
     const trees = out.filter(e => CANOPY.has(e.kind));
-    expect(trees.length).toBeGreaterThan(90);
-    expect(trees.length).toBeLessThan(200);
+    expect(trees.length).toBeGreaterThan(120);
+    expect(trees.length).toBeLessThan(230);
   });
 });
