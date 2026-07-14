@@ -1,6 +1,7 @@
 import { noise, smoothNoise } from '@/core/noise';
 import { defaultEntity } from '@/world/brush-helpers';
 import { getHeightfield, ELEVATION_SEA_LEVEL } from '@/world/heightfield';
+import { siteMetrics } from '@/terrain/terrain-generator';
 import { styledIslandSpec } from '@/terrain/island-mask';
 import { styledShapeSpec } from '@/terrain/terrain-shape';
 import { worldStyleOf } from '@/core/world-style';
@@ -12,6 +13,25 @@ import type { Entity, Region, BrushContext } from '@/core/types';
  *  instead of stopping at a hard contour. `bandM` defaults to 15% of `maxHeightM`. */
 export interface AltitudeBand {
   maxHeightM: number;
+  bandM?: number;
+}
+
+/**
+ * A species' STEEPNESS ceiling, in metres of rise per tile — the same `slopeM` measure
+ * `classifyBiome` reads (`siteMetrics`, terrain-generator.ts: central differences on the
+ * elevation field × relief), so "steep" means one thing in this codebase.
+ *
+ * The lever exists because nothing stops a scatter from gluing a boulder to a cliff FACE.
+ * Physically a loose rock cannot rest above the angle of repose (~35°, and one tile is 2 m,
+ * so 35° ≈ 1.4 m of rise per tile) — it sheds downhill into the talus at the foot. Rooted
+ * plants hold a steeper slope than a loose stone does, so they carry a looser band. Like
+ * {@link AltitudeBand} the ramp is SMOOTH: acceptance fades to 0 across the top of the band
+ * rather than stopping at a contour, so no visible line appears where rocks run out.
+ */
+export interface SlopeBand {
+  /** Steepest ground the kind ever sits on (m rise / tile). Acceptance is 0 at/above. */
+  maxSlopeM: number;
+  /** Width of the thinning band below the ceiling (default 40 % of it). */
   bandM?: number;
 }
 
@@ -67,15 +87,32 @@ export interface VegetationParams {
    * seed-deterministic, so placement stays pure.
    */
   altitude?: Record<string, AltitudeBand>;
+  /**
+   * Per-kind STEEPNESS bands (see {@link SlopeBand}): a kind listed here thins out as
+   * the ground steepens and never sits on a cliff face. Rocks want this (a boulder does
+   * not rest above the angle of repose); so does ground cover (tussock on a vertical
+   * face reads as glued on). Read off the same seed-deterministic heightfield the
+   * treeline uses, so placement stays pure.
+   */
+  slope?: Record<string, SlopeBand>;
+}
+
+/** Smooth acceptance in [0,1]: 1 below the band, ramping linearly to 0 at `max`. */
+function bandAccept(value: number, max: number, band: number): number {
+  const lo = max - Math.max(0.01, band);
+  if (value <= lo) return 1;
+  if (value >= max) return 0;
+  return (max - value) / (max - lo);
 }
 
 /** Smooth treeline acceptance in [0,1] for a cell height against a species band. */
 function altitudeAccept(heightM: number, band: AltitudeBand): number {
-  const bandM = band.bandM ?? band.maxHeightM * 0.15;
-  const lo = band.maxHeightM - Math.max(0.01, bandM);
-  if (heightM <= lo) return 1;
-  if (heightM >= band.maxHeightM) return 0;
-  return (band.maxHeightM - heightM) / (band.maxHeightM - lo);
+  return bandAccept(heightM, band.maxHeightM, band.bandM ?? band.maxHeightM * 0.15);
+}
+
+/** Smooth steepness acceptance in [0,1] for a cell slope against a species band. */
+function slopeAccept(slopeM: number, band: SlopeBand): number {
+  return bandAccept(slopeM, band.maxSlopeM, band.bandM ?? band.maxSlopeM * 0.4);
 }
 
 /**
@@ -129,17 +166,22 @@ export function placeVegetation(
   const density = params.density * floraDensity;
   const openUndergrowth = Math.min(1, (params.openUndergrowth ?? 0) * floraDensity);
 
-  // TREELINE: fetch the seed-deterministic base heightfield ONCE (memoised) so a
-  // per-species altitude ceiling can thin canopy toward the treeline. Skipped when
-  // no band is declared (zero cost) or on the flat studio ground (no real relief).
+  // TREELINE + SLOPE GATE: fetch the seed-deterministic base heightfield ONCE (memoised)
+  // so a per-species altitude ceiling can thin canopy toward the treeline and a per-species
+  // steepness ceiling can keep rocks/cover off cliff faces. Skipped when neither band is
+  // declared (zero cost) or on the flat studio ground (no real relief).
   const m = ctx.tiles;
-  const useAltitude = !!params.altitude && !m.flatHeight;
-  const heightField = useAltitude
+  const useField = (!!params.altitude || !!params.slope) && !m.flatHeight;
+  const heightField = useField
     ? getHeightfield(m.seed, m.width, m.height, styledIslandSpec(m.worldSeed), m.worldSeed?.pois ?? null, styledShapeSpec(m.worldSeed))
     : null;
-  const reliefM = useAltitude ? worldStyleOf(m.worldSeed).mountainRelief : 0;
+  const reliefM = useField ? worldStyleOf(m.worldSeed).mountainRelief : 0;
   const heightMAt = (x: number, y: number): number =>
     heightField ? (heightField[y * m.width + x] - ELEVATION_SEA_LEVEL) * reliefM : 0;
+  // ONE slope definition, shared with biome classification (`siteMetrics`) — a second
+  // one would be a second chance to disagree about what "steep" is.
+  const slopeMAt = (x: number, y: number): number =>
+    heightField ? siteMetrics(heightField, x, y, m.width, m.height, ELEVATION_SEA_LEVEL, reliefM).slopeM : 0;
 
   for (let y = region.y; y < yEnd; y++) {
     for (let x = region.x; x < xEnd; x++) {
@@ -169,6 +211,12 @@ export function placeVegetation(
           const accept = altitudeAccept(heightMAt(x, y), band);
           if (accept < 1 && hash01(x, y, s + 8) >= accept) continue;
         }
+        // Steepness: a rock cannot rest on a cliff face; cover cannot root on one.
+        const sBand = params.slope?.[kind];
+        if (sBand) {
+          const accept = slopeAccept(slopeMAt(x, y), sBand);
+          if (accept < 1 && hash01(x, y, s + 9) >= accept) continue;
+        }
         placedPrimary = true;
 
         const fx = cellFrac(hash01(x, y, s + 3), params.offsetRange[0]);
@@ -191,6 +239,13 @@ export function placeVegetation(
       if (ugScale > 0 && params.undergrowth) {
         for (const [ugKind, ugWeight, ugDensity] of params.undergrowth) {
           const ugRng = hash01(x, y, seed + 10 + ugKind.length);
+          // The undergrowth layer takes the same steepness gate as the canopy: a dwarf
+          // shrub on a vertical face reads exactly as glued-on as a boulder does.
+          const ugSlope = params.slope?.[ugKind];
+          if (ugSlope) {
+            const accept = slopeAccept(slopeMAt(x, y), ugSlope);
+            if (accept < 1 && hash01(x, y, seed + 23) >= accept) continue;
+          }
           if (ugRng < ugDensity * ugScale) {
             const ugKindPicked = pickWeighted(ugRng, [[ugKind, ugWeight]]);
             const ugFx = cellFrac(hash01(x, y, seed + 20), 0.35);

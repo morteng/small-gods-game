@@ -269,38 +269,6 @@ exports[`hills brush > produces a stable snapshot 1`] = `
     "y": 0.4322927570901811,
   },
   {
-    "id": "hills-tussock-grass-6-0",
-    "kind": "tussock-grass",
-    "properties": {
-      "offsetX": 0.5058474738616496,
-      "offsetY": 0.6566831525415182,
-      "rotation": 0,
-      "scale": 1.0884268889669328,
-    },
-    "tags": [
-      "vegetation",
-      "grass",
-    ],
-    "x": 6.50584747386165,
-    "y": 0.6566831525415182,
-  },
-  {
-    "id": "hills-boulder-6-0",
-    "kind": "boulder",
-    "properties": {
-      "offsetX": 0.4984982975292951,
-      "offsetY": 0.9479713151231408,
-      "rotation": -0,
-      "scale": 1.1016518616117537,
-    },
-    "tags": [
-      "rock",
-      "obstacle",
-    ],
-    "x": 6.498498297529295,
-    "y": 0.9479713151231408,
-  },
-  {
     "id": "hills-tussock-grass-7-0",
     "kind": "tussock-grass",
     "properties": {
@@ -520,37 +488,6 @@ exports[`hills brush > produces a stable snapshot 1`] = `
     "y": 1.3619270015973597,
   },
   {
-    "id": "hills-tussock-grass-5-1",
-    "kind": "tussock-grass",
-    "properties": {
-      "offsetX": 0.052990217227488756,
-      "offsetY": 0.8941649522166699,
-      "rotation": 0,
-      "scale": 1.005936886696145,
-    },
-    "tags": [
-      "vegetation",
-      "grass",
-    ],
-    "x": 5.052990217227489,
-    "y": 1.89416495221667,
-  },
-  {
-    "id": "hills-rock_pile-5-1",
-    "kind": "rock_pile",
-    "properties": {
-      "offsetX": 0.19722623121924698,
-      "offsetY": 0.48920828057453036,
-      "rotation": -0,
-      "scale": 0.7703818965703249,
-    },
-    "tags": [
-      "rock",
-    ],
-    "x": 5.197226231219247,
-    "y": 1.4892082805745304,
-  },
-  {
     "id": "hills-tussock-grass-6-1",
     "kind": "tussock-grass",
     "properties": {
@@ -567,37 +504,6 @@ exports[`hills brush > produces a stable snapshot 1`] = `
     "y": 1.0780632176902145,
   },
   {
-    "id": "hills-rock_pile-6-1",
-    "kind": "rock_pile",
-    "properties": {
-      "offsetX": 0.8580866537522525,
-      "offsetY": 0.5919338562525809,
-      "rotation": -0,
-      "scale": 1.195652317884378,
-    },
-    "tags": [
-      "rock",
-    ],
-    "x": 6.8580866537522525,
-    "y": 1.5919338562525809,
-  },
-  {
-    "id": "hills-tussock-grass-6-1",
-    "kind": "tussock-grass",
-    "properties": {
-      "offsetX": 0.11066501447930932,
-      "offsetY": 0.46318135573528707,
-      "rotation": -0,
-      "scale": 0.7032402226934209,
-    },
-    "tags": [
-      "vegetation",
-      "grass",
-    ],
-    "x": 6.110665014479309,
-    "y": 1.463181355735287,
-  },
-  {
     "id": "hills-heather-6-1",
     "kind": "heather",
     "properties": {
@@ -611,51 +517,6 @@ exports[`hills brush > produces a stable snapshot 1`] = `
     ],
     "x": 6.588106032670476,
     "y": 1.5869791446952148,
-  },
-  {
-    "id": "hills-rock_pile-7-1",
-    "kind": "rock_pile",
-    "properties": {
-      "offsetX": 0.379950359929353,
-      "offsetY": 0.9661216426175088,
-      "rotation": 0,
-      "scale": 0.7404512927634641,
-    },
-    "tags": [
-      "rock",
-    ],
-    "x": 7.379950359929353,
-    "y": 1.9661216426175088,
-  },
-  {
-    "id": "hills-rock_pile-0-2",
-    "kind": "rock_pile",
-    "properties": {
-      "offsetX": 0.9843170016538352,
-      "offsetY": 0.7516073901206255,
-      "rotation": -0,
-      "scale": 0.7378151168115437,
-    },
-    "tags": [
-      "rock",
-    ],
-    "x": 0.9843170016538352,
-    "y": 2.7516073901206255,
-  },
-  {
-    "id": "hills-common-juniper-0-2",
-    "kind": "common-juniper",
-    "properties": {
-      "offsetX": 0.835535735101439,
-      "offsetY": 0.5428569820942357,
-      "scale": 0.8599376820027829,
-    },
-    "tags": [
-      "vegetation",
-      "tree",
-    ],
-    "x": 0.835535735101439,
-    "y": 2.5428569820942357,
   },
   {
     "id": "hills-tussock-grass-1-2",
@@ -737,86 +598,6 @@ exports[`hills brush > produces a stable snapshot 1`] = `
     "y": 2.3814063011668622,
   },
   {
-    "id": "hills-tussock-grass-5-2",
-    "kind": "tussock-grass",
-    "properties": {
-      "offsetX": 0.4027511030435562,
-      "offsetY": 0.3154732114635408,
-      "rotation": -0,
-      "scale": 1.06896686675027,
-    },
-    "tags": [
-      "vegetation",
-      "grass",
-    ],
-    "x": 5.402751103043556,
-    "y": 2.315473211463541,
-  },
-  {
-    "id": "hills-tussock-grass-5-2",
-    "kind": "tussock-grass",
-    "properties": {
-      "offsetX": 0.24904925771988928,
-      "offsetY": 0.6203536738175899,
-      "rotation": 0,
-      "scale": 1.1790787482634186,
-    },
-    "tags": [
-      "vegetation",
-      "grass",
-    ],
-    "x": 5.249049257719889,
-    "y": 2.62035367381759,
-  },
-  {
-    "id": "hills-tussock-grass-5-2",
-    "kind": "tussock-grass",
-    "properties": {
-      "offsetX": 0.23943181266076863,
-      "offsetY": 0.07937652571126819,
-      "rotation": 0,
-      "scale": 0.882763973949477,
-    },
-    "tags": [
-      "vegetation",
-      "grass",
-    ],
-    "x": 5.239431812660769,
-    "y": 2.079376525711268,
-  },
-  {
-    "id": "hills-pebbles-6-2",
-    "kind": "pebbles",
-    "properties": {
-      "offsetX": 0.8998442469164729,
-      "offsetY": 0.9696960458531976,
-      "rotation": 0,
-      "scale": 0.88155236041639,
-    },
-    "tags": [
-      "rock",
-      "small",
-    ],
-    "x": 6.899844246916473,
-    "y": 2.9696960458531976,
-  },
-  {
-    "id": "hills-heather-6-2",
-    "kind": "heather",
-    "properties": {
-      "offsetX": 0.6042966034729034,
-      "offsetY": 0.9424825259484351,
-      "rotation": -0,
-      "scale": 0.9391175189986825,
-    },
-    "tags": [
-      "vegetation",
-      "shrub",
-    ],
-    "x": 6.604296603472903,
-    "y": 2.942482525948435,
-  },
-  {
     "id": "hills-heather-7-2",
     "kind": "heather",
     "properties": {
@@ -830,53 +611,6 @@ exports[`hills brush > produces a stable snapshot 1`] = `
     ],
     "x": 7.1788629674119875,
     "y": 2.8314998120767996,
-  },
-  {
-    "id": "hills-tussock-grass-1-3",
-    "kind": "tussock-grass",
-    "properties": {
-      "offsetX": 0.7691060681827366,
-      "offsetY": 0.21334919100627303,
-      "rotation": -0,
-      "scale": 1.1655336750438436,
-    },
-    "tags": [
-      "vegetation",
-      "grass",
-    ],
-    "x": 1.7691060681827366,
-    "y": 3.213349191006273,
-  },
-  {
-    "id": "hills-tussock-grass-1-3",
-    "kind": "tussock-grass",
-    "properties": {
-      "offsetX": 0.5467641400173306,
-      "offsetY": 0.9122345331124961,
-      "rotation": 0,
-      "scale": 0.956993071292527,
-    },
-    "tags": [
-      "vegetation",
-      "grass",
-    ],
-    "x": 1.5467641400173306,
-    "y": 3.912234533112496,
-  },
-  {
-    "id": "hills-heather-1-3",
-    "kind": "heather",
-    "properties": {
-      "offsetX": 0.6030912332236766,
-      "offsetY": 0.21989787132479255,
-      "scale": 0.7760054030455649,
-    },
-    "tags": [
-      "vegetation",
-      "shrub",
-    ],
-    "x": 1.6030912332236766,
-    "y": 3.2198978713247923,
   },
   {
     "id": "hills-heather-3-3",
@@ -924,52 +658,6 @@ exports[`hills brush > produces a stable snapshot 1`] = `
     ],
     "x": 5.243031376763247,
     "y": 3.371079348330386,
-  },
-  {
-    "id": "hills-rock_pile-0-4",
-    "kind": "rock_pile",
-    "properties": {
-      "offsetX": 0.15350955538451672,
-      "offsetY": 0.5393947686534375,
-      "rotation": 0,
-      "scale": 0.7021216965978965,
-    },
-    "tags": [
-      "rock",
-    ],
-    "x": 0.15350955538451672,
-    "y": 4.5393947686534375,
-  },
-  {
-    "id": "hills-tussock-grass-0-4",
-    "kind": "tussock-grass",
-    "properties": {
-      "offsetX": 0.6105308516416699,
-      "offsetY": 0.8102587696630508,
-      "rotation": -0,
-      "scale": 0.8408604568568989,
-    },
-    "tags": [
-      "vegetation",
-      "grass",
-    ],
-    "x": 0.6105308516416699,
-    "y": 4.810258769663051,
-  },
-  {
-    "id": "hills-heather-0-4",
-    "kind": "heather",
-    "properties": {
-      "offsetX": 0.6700181352440268,
-      "offsetY": 0.19463131176307802,
-      "scale": 0.7011853120289743,
-    },
-    "tags": [
-      "vegetation",
-      "shrub",
-    ],
-    "x": 0.6700181352440268,
-    "y": 4.194631311763078,
   },
   {
     "id": "hills-pebbles-1-4",
@@ -1272,22 +960,6 @@ exports[`hills brush > produces a stable snapshot 1`] = `
     "y": 6.058396941283718,
   },
   {
-    "id": "hills-tussock-grass-6-6",
-    "kind": "tussock-grass",
-    "properties": {
-      "offsetX": 0.47520807781256735,
-      "offsetY": 0.6599075167905539,
-      "rotation": -0,
-      "scale": 1.1434804702177643,
-    },
-    "tags": [
-      "vegetation",
-      "grass",
-    ],
-    "x": 6.475208077812567,
-    "y": 6.659907516790554,
-  },
-  {
     "id": "hills-tussock-grass-0-7",
     "kind": "tussock-grass",
     "properties": {
@@ -1397,68 +1069,6 @@ exports[`hills brush > produces a stable snapshot 1`] = `
     ],
     "x": 4.3761269801761955,
     "y": 7.567246661847458,
-  },
-  {
-    "id": "hills-boulder-5-7",
-    "kind": "boulder",
-    "properties": {
-      "offsetX": 0.39735519350506365,
-      "offsetY": 0.7775163028854877,
-      "rotation": -0,
-      "scale": 0.7518334151711314,
-    },
-    "tags": [
-      "rock",
-      "obstacle",
-    ],
-    "x": 5.397355193505064,
-    "y": 7.777516302885488,
-  },
-  {
-    "id": "hills-rock_pile-5-7",
-    "kind": "rock_pile",
-    "properties": {
-      "offsetX": 0.4133908248040825,
-      "offsetY": 0.0522831198759377,
-      "rotation": 0,
-      "scale": 1.1686404906678944,
-    },
-    "tags": [
-      "rock",
-    ],
-    "x": 5.4133908248040825,
-    "y": 7.052283119875938,
-  },
-  {
-    "id": "hills-heather-5-7",
-    "kind": "heather",
-    "properties": {
-      "offsetX": 0.7054329036734999,
-      "offsetY": 0.4408242481993511,
-      "scale": 0.6761164707131684,
-    },
-    "tags": [
-      "vegetation",
-      "shrub",
-    ],
-    "x": 5.7054329036735,
-    "y": 7.440824248199351,
-  },
-  {
-    "id": "hills-tussock-grass-6-7",
-    "kind": "tussock-grass",
-    "properties": {
-      "offsetX": 0.6801179945468903,
-      "offsetY": 0.14750021044164896,
-      "rotation": 0,
-      "scale": 1.1923802751582115,
-    },
-    "tags": [
-      "vegetation",
-      "grass",
-    ],
-    "x": 6.68011799454689,
-    "y": 7.147500210441649,
   },
   {
     "id": "hills-heather-7-7",

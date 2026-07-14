@@ -6,7 +6,8 @@ import {
 import type { InstanceAttrs } from '@/render/gpu/instance-batch';
 
 const inst = (over: Partial<InstanceAttrs> = {}): InstanceAttrs => ({
-  dx: 1, dy: 2, dw: 3, dh: 4, u0: 0, v0: 0, u1: 1, v1: 1, depth: 0.5, whiten: 0, mirror: 0, ...over,
+  dx: 1, dy: 2, dw: 3, dh: 4, u0: 0, v0: 0, u1: 1, v1: 1, depth: 0.5, whiten: 0, mirror: 0,
+  contact: 0, contactBand: 0, groundR: 0, groundG: 0, groundB: 0, ...over,
 });
 
 describe('R2c — instance/globals buffer packing', () => {
@@ -15,32 +16,38 @@ describe('R2c — instance/globals buffer packing', () => {
     expect(Array.from(QUAD_STRIP)).toEqual([0, 0, 1, 0, 0, 1, 1, 1]);
   });
 
-  it('stride is 11 floats / 44 bytes (iRect 4 + iUV 4 + iDepth 1 + iMisc 2)', () => {
-    expect(INSTANCE_FLOATS).toBe(11);
-    expect(INSTANCE_STRIDE).toBe(44);
+  it('stride is 16 floats / 64 bytes (iRect 4 + iUV 4 + iDepth 1 + iMisc 4 + iGround 3)', () => {
+    expect(INSTANCE_FLOATS).toBe(16);
+    expect(INSTANCE_STRIDE).toBe(64);
   });
 
   it('packs instances interleaved in the documented field order', () => {
     const buf = packInstances([inst({
       dx: 10, dy: 20, dw: 30, dh: 40, u0: 0.125, v0: 0.25, u1: 0.75, v1: 0.5, depth: 0.25,
-      whiten: 0.5, mirror: 1,
+      whiten: 0.5, mirror: 1, contact: 0.75, contactBand: 0.25, groundR: 0.5, groundG: 0.25, groundB: 0.125,
     })]);
-    expect(buf).toHaveLength(11);
-    expect(Array.from(buf)).toEqual([10, 20, 30, 40, 0.125, 0.25, 0.75, 0.5, 0.25, 0.5, 1]);
+    expect(buf).toHaveLength(16);
+    expect(Array.from(buf)).toEqual([
+      10, 20, 30, 40, 0.125, 0.25, 0.75, 0.5, 0.25,
+      0.5, 1, 0.75, 0.25, 0.5, 0.25, 0.125,
+    ]);
   });
 
   it('packs N instances contiguously', () => {
     const buf = packInstances([inst({ dx: 1 }), inst({ dx: 2 }), inst({ dx: 3 })]);
-    expect(buf).toHaveLength(33);
+    expect(buf).toHaveLength(48);
     expect(buf[0]).toBe(1);
-    expect(buf[11]).toBe(2);
-    expect(buf[22]).toBe(3);
+    expect(buf[16]).toBe(2);
+    expect(buf[32]).toBe(3);
   });
 
-  it('an unwhitened, unmirrored instance packs zeros in the iMisc slot (identity)', () => {
+  it('an unwhitened, unmirrored, unblended instance packs zeros in iMisc + iGround (identity)', () => {
     const buf = packInstances([inst()]);
-    expect(buf[9]).toBe(0);   // whiten
-    expect(buf[10]).toBe(0);  // mirror
+    expect(buf[9]).toBe(0);    // whiten
+    expect(buf[10]).toBe(0);   // mirror
+    expect(buf[11]).toBe(0);   // contact strength — 0 ⇒ the shader takes the identity path
+    expect(buf[12]).toBe(0);   // contact band
+    expect(Array.from(buf.slice(13, 16))).toEqual([0, 0, 0]); // ground colour
   });
 
   it('Globals is 16 floats with vec3 padding and clamped bands', () => {

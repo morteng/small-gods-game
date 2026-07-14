@@ -4,11 +4,12 @@
 // pipeline uploads. The per-instance float layout here MUST match the
 // @location attribute slots in `wgsl/lit-wgsl.ts`:
 //
-//   loc 1  iRect  vec4  dx, dy, dw, dh        (offset 0,  16 bytes)
-//   loc 2  iUV    vec4  u0, v0, u1, v1        (offset 16, 16 bytes)
-//   loc 3  iDepth f32   depth                 (offset 32,  4 bytes)
-//   loc 4  iMisc  vec2  whiten, mirror        (offset 36,  8 bytes)
-//                                              stride = 44 bytes (11 floats)
+//   loc 1  iRect   vec4  dx, dy, dw, dh                        (offset 0,  16 bytes)
+//   loc 2  iUV     vec4  u0, v0, u1, v1                        (offset 16, 16 bytes)
+//   loc 3  iDepth  f32   depth                                 (offset 32,  4 bytes)
+//   loc 4  iMisc   vec4  whiten, mirror, contact, contactBand  (offset 36, 16 bytes)
+//   loc 5  iGround vec3  ground r, g, b (contact target)       (offset 52, 12 bytes)
+//                                                               stride = 64 bytes (16 floats)
 //
 // The unit quad (loc 0) is a static 4-vertex triangle-strip.
 
@@ -18,8 +19,8 @@ import type { InstanceAttrs } from '@/render/gpu/instance-batch';
 export const QUAD_STRIP = new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]);
 export const QUAD_VERTEX_COUNT = 4;
 
-/** Floats per instance (iRect 4 + iUV 4 + iDepth 1 + iMisc 2). */
-export const INSTANCE_FLOATS = 11;
+/** Floats per instance (iRect 4 + iUV 4 + iDepth 1 + iMisc 4 + iGround 3). */
+export const INSTANCE_FLOATS = 16;
 /** Instance vertex-buffer stride in bytes. */
 export const INSTANCE_STRIDE = INSTANCE_FLOATS * 4;
 
@@ -40,6 +41,11 @@ export function packInstances(instances: readonly InstanceAttrs[]): Float32Array
     buf[o + 8] = it.depth;
     buf[o + 9] = it.whiten;
     buf[o + 10] = it.mirror;
+    buf[o + 11] = it.contact;
+    buf[o + 12] = it.contactBand;
+    buf[o + 13] = it.groundR;
+    buf[o + 14] = it.groundG;
+    buf[o + 15] = it.groundB;
   }
   return buf;
 }

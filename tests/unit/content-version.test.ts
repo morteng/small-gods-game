@@ -6,7 +6,7 @@ describe('content-version constants', () => {
     expect(ART_RECIPE_VERSION).toBe('v33');
   });
 
-  it('declares the current world content version (97: gate/bridge tile-exactness + biome ecology)', () => {
-    expect(WORLD_CONTENT_VERSION).toBe(97);
+  it('declares the current world content version (98: ground-holds-it — water habitat, slope gate, rock settle pads)', () => {
+    expect(WORLD_CONTENT_VERSION).toBe(98);
   });
 });

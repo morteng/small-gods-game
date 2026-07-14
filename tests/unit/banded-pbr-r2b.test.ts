@@ -143,4 +143,18 @@ describe('R2b — WGSL parity with the reference', () => {
     expect(LIT_WGSL).toContain('if (vMisc.y > 0.5) {');
     expect(LIT_WGSL).toContain('n = vec3<f32>(-n.x, n.y, n.z);');
   });
+
+  it('the ground CONTACT blend is IDENTITY at strength 0 and only reaches the FOOT', () => {
+    // Gated on contact > 0 (iMisc.z), so every sprite that declares no contact — every
+    // building, NPC and tree — takes the byte-identical old path.
+    expect(LIT_WGSL).toContain('if (vMisc.z > 0.0) {');
+    // Weight rises toward the foot (vFoot = the quad's corner.y, 1 at the ground line),
+    // over the bottom `band` (iMisc.w) of the drawn sprite, squared so it falls away fast.
+    expect(LIT_WGSL).toContain('let t = clamp((vFoot - (1.0 - band)) / band, 0.0, 1.0);');
+    expect(LIT_WGSL).toContain('alb = mix(alb, vGround, vMisc.z * t * t);');
+    // The per-instance vertex layout the pipeline descriptor must match.
+    expect(LIT_WGSL).toContain('@location(4) iMisc  : vec4<f32>');
+    expect(LIT_WGSL).toContain('@location(5) iGround : vec3<f32>');
+    expect(LIT_WGSL).toContain('out.vFoot = corner.y;');
+  });
 });

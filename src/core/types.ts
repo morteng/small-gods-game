@@ -111,6 +111,14 @@ export interface GameMap {
    *  that never ran the pass (test stubs, studio grounds) → no pads, by construction.
    *  Persisted via SaveFile.map like roadGraph. */
   riparianSeed?: number;
+  /** Rock SETTLE PADS the generator committed: flat (x, y, sizeM) triples, one per rock
+   *  big enough to dish the ground it rests in (`world/rock-deformation.ts`). Unlike the
+   *  riparian scatter, the biome-brush scatter is NOT re-derivable from the map (it was
+   *  gated by biome-region bboxes and ran on the pre-road tile grid), so the map declares
+   *  the pads THEMSELVES — the same "maps declare derived-entity identity" contract as
+   *  `riparianSeed`, taken to its exact form. Source of truth for the pad carve; persisted
+   *  verbatim via SaveFile.map. */
+  rockPads?: number[];
 }
 
 /** Village/settlement on the map */

@@ -34,6 +34,8 @@ import type { RoadGraph } from '@/world/road-graph';
 import { tryGetEntityKindDef } from '@/world/entity-kinds';
 import { isBuilding } from '@/world/building-collision';
 import { elevationAt } from '@/world/heightfield';
+import { getRenderWaterMask } from '@/world/render-water';
+import { canStandAt } from '@/world/water-habitat';
 
 /**
  * Treeline: normalised elevation above which no TREE grows — the high ground carries
@@ -164,14 +166,20 @@ function nearCorridor(corridors: Corridor[], x: number, y: number, r: number): b
 }
 
 /**
- * Remove vegetation / terrain-feature entities sitting on a building footprint or
+ * Remove vegetation / terrain-feature entities sitting on a building footprint,
  * within the road/river corridor — both the rasterized CELLS and the road graph's
- * swept CENTERLINES, with a canopy-aware radius (see {@link TREE_CLEAR_RADIUS}).
- * Returns the number removed.
+ * swept CENTERLINES, with a canopy-aware radius (see {@link TREE_CLEAR_RADIUS}) —
+ * or standing in the water the player can SEE (`water-habitat.ts`). Returns the
+ * number removed.
  */
 export function clearObstructedVegetation(world: World, map: GameMap): number {
   const toRemove: EntityId[] = [];
   const corridors = corridorsFromGraph(map.roadGraph);
+  // WATER HABITAT: the tile grid is not the drawn water (lakes are never stamped into
+  // the raster at all, and the river ribbon meanders off the D8 line), so EVERY brush —
+  // each of which gates on `tile.type` — seeds land flora into visible water. This is
+  // the one sweep that reads what is actually drawn, so it is where the rule is enforced.
+  const isWater = getRenderWaterMask(map);
 
   for (const e of world.query({})) {
     const def = tryGetEntityKindDef(e.kind);
@@ -199,8 +207,13 @@ export function clearObstructedVegetation(world: World, map: GameMap): number {
     // waterline, well below it — exempted explicitly so the intent survives a retune.)
     const isTree = e.tags?.includes('tree') ?? false;
     const aboveTreeline = !waterPlaced && isTree && elevationAt(map, tx, ty) > TREELINE_ELEV;
+    // Standing in the drawn water on ground that can't hold it. The water-placed tag
+    // exempts only a ROCK the riparian pass MEANT to put in the channel (habitat
+    // 'in-water'); a riparian BANK tree carries the same tag and a willow belongs on the
+    // bank, and a hills-brush boulder in a mountain tarn was never deliberate at all.
+    const inWater = !canStandAt(map, e.kind, e.tags ?? [], tx, ty, isWater);
 
-    if (inCorridor || onBuilding || aboveTreeline) toRemove.push(e.id);
+    if (inCorridor || onBuilding || aboveTreeline || inWater) toRemove.push(e.id);
   }
 
   for (const id of toRemove) world.removeEntity(id);

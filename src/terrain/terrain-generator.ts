@@ -200,7 +200,7 @@ const DEFAULT_RELIEF_M = 48;
  * altitude/steepness instead of a fraction of the local relief. Central
  * differences on the elevation field, clamped at the edges.
  */
-function siteMetrics(
+export function siteMetrics(
   elevation: ArrayLike<number>, x: number, y: number, width: number, height: number,
   seaLevel: number, reliefM: number,
 ): { heightM: number; slopeM: number } {

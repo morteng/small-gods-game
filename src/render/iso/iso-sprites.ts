@@ -1,7 +1,8 @@
 import { worldToScreen } from './iso-projection';
 import type { IsoAtlas } from './iso-atlas';
-import type { NpcInstance, Entity } from '@/core/types';
-import { tryGetEntityKindDef } from '@/world/entity-kinds';
+import type { NpcInstance, Entity, GameMap } from '@/core/types';
+import { tryGetEntityKindDef, isRockKind, natureSizeM } from '@/world/entity-kinds';
+import { groundContactColor, contactBlendFor } from '@/render/ground-contact';
 import { getSpriteCoords } from '@/render/npc-animator';
 import { NATURE_HEIGHT_M, DEFAULT_NATURE_HEIGHT_M, mToPx } from '@/render/scale-contract';
 import { npcBillboard } from './npc-billboard';
@@ -116,6 +117,7 @@ export function plantSpriteItemFromPack(
   buryFrac = 0,
   noShadow = false,
   whiten = 0,
+  contact?: ContactBlend,
 ): DrawItem {
   const { sx, sy } = worldToScreen(x, y, 0, o.originX, o.originY);
   const src = pack.albedo;
@@ -144,6 +146,11 @@ export function plantSpriteItemFromPack(
   if (plantMirror(x, y)) item.mirror = true;
   // Alpine whiten (snow-mask driven) — the lit shader settles snow on up-facing texels.
   if (whiten > 0) item.whiten = Math.min(1, whiten);
+  // GROUND CONTACT: the terrain's local ground tone (snow where the ground is snowed)
+  // bled into the FOOT of the sprite, so soil/drift banks against the base instead of
+  // stopping dead at the silhouette. The band is expressed against the DRAWN (post-bury)
+  // height, which is what the shader interpolates over.
+  if (contact && contact.strength > 0) item.contact = contact;
   if (buryPx > 0) item.frame = { sx: 0, sy: 0, sw: w, sh: visH };   // keep the TOP visH rows
   if (pack.shadow) {
     item.shadowSprite = { src: pack.shadow.canvas, dx: pack.shadow.dx, dy: pack.shadow.dy };
@@ -159,9 +166,19 @@ export function plantSpriteItemFromPack(
   return item;
 }
 
-/** Bury depth range for rocks (fraction of sprite height sunk below the ground line). */
-const ROCK_BURY_MIN = 0.10;
-const ROCK_BURY_RANGE = 0.10;   // → 10–20 % seeded per instance
+/**
+ * Bury depth for rocks (fraction of sprite height sunk below the ground line), SIZE-SCALED.
+ * The flat 10–20 % this used to apply was tuned for the riverbank cobbles and left the big
+ * upland boulders reading as if they rested ON the ground ("floating on top of the snow").
+ * A big rock is buried by more of itself: the base ramps from BURY_SMALL at a pebble to
+ * BURY_BIG at a menhir, plus a seeded ± so a scree field doesn't sink in lockstep.
+ * (Kept under the 0.4 cap `plantSpriteItemFromPack` clamps to.)
+ */
+const ROCK_BURY_SMALL = 0.10;   // ≤ ~0.3 m — a cobble barely marks the ground
+const ROCK_BURY_BIG = 0.24;     // ≥ ~2 m   — a boulder is properly lodged
+const ROCK_BURY_JITTER = 0.05;  // seeded per instance, on top of the size term
+const ROCK_BURY_SMALL_M = 0.3;
+const ROCK_BURY_BIG_M = 2.0;
 
 /** Deterministic [0,1) hash of a world position — seeds the per-rock bury so it's stable
  *  frame-to-frame (a flickering bury depth would read as the rock bobbing). */
@@ -179,15 +196,50 @@ export function plantMirror(x: number, y: number): boolean {
 }
 
 /**
- * Bury fraction for a foot-anchored nature sprite — ROCKS sit 10–20 % of their height
- * below the ground line (seeded per position); everything else (trees, ground cover)
- * gets 0 here (a root-flare knob for trees is a separate pass). A rock is any nature
- * kind tagged `rock` (see `entity-kinds.ts`).
+ * Bury fraction for a foot-anchored nature sprite — ROCKS sink into the ground by a
+ * size-scaled fraction of their height (seeded per position); everything else (trees,
+ * ground cover) gets 0 here (a root-flare knob for trees is a separate pass). The rock
+ * family is `isRockKind` (entity-kinds.ts) — shared with the world-side settle pads, so
+ * the sprite that sinks and the ground that dishes are the same population.
  */
-export function natureBuryFrac(kind: string, x: number, y: number): number {
-  const def = tryGetEntityKindDef(kind);
-  if (!def?.defaultTags.includes('rock')) return 0;
-  return ROCK_BURY_MIN + ROCK_BURY_RANGE * posHash01(x, y);
+export function natureBuryFrac(kind: string, x: number, y: number, scale = 1): number {
+  if (!isRockKind(kind)) return 0;
+  const sizeM = natureSizeM(kind, scale);
+  const t = Math.min(1, Math.max(0, (sizeM - ROCK_BURY_SMALL_M) / (ROCK_BURY_BIG_M - ROCK_BURY_SMALL_M)));
+  return ROCK_BURY_SMALL + (ROCK_BURY_BIG - ROCK_BURY_SMALL) * t + ROCK_BURY_JITTER * posHash01(x, y);
+}
+
+/** Per-instance terrain contact blend (see `render/ground-contact.ts`). */
+export interface ContactBlend {
+  /** Local ground colour at the foot (0..1), already mixed toward snow by the snow mask. */
+  r: number; g: number; b: number;
+  /** How hard the foot mixes toward it (0 = identity / byte-identical output). */
+  strength: number;
+  /** Fraction of the DRAWN sprite height the blend fades out over, from the foot up. */
+  band: number;
+}
+
+/**
+ * The contact blend for a nature instance, or undefined for kinds that get none.
+ * ENABLED FOR: rocks (the ask — they must read as lodged) and low GROUND COVER
+ * (grass/herb/fern tufts and dwarf shrubs — a tuft that meets the ground on a hard
+ * silhouette edge floats exactly like a rock does). NOT trees: a trunk needs a root
+ * flare / litter ring, which is modelled geometry, not a colour smear up the bark.
+ */
+export function natureContact(map: GameMap, kind: string, x: number, y: number, snow: number): ContactBlend | undefined {
+  const cls = isRockKind(kind) ? 'rock' : isContactCoverKind(kind) ? 'cover' : null;
+  if (!cls) return undefined;
+  const [r, g, b] = groundContactColor(map, Math.floor(x), Math.floor(y));
+  const { strength, band } = contactBlendFor(cls, snow);
+  return { r, g, b, strength, band };
+}
+
+/** Low cover that meets the ground directly: the shadow-skipping ground-cover habits
+ *  plus dwarf shrubs (heather/gorse/juniper — they carpet the ground, they don't stand
+ *  over it on a trunk). */
+function isContactCoverKind(kind: string): boolean {
+  if (isGroundCoverKind(kind)) return true;
+  return tryGetEntityKindDef(kind)?.defaultTags.includes('shrub') ?? false;
 }
 
 /**

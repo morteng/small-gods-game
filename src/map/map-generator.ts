@@ -54,6 +54,7 @@ import { curveRenderElev } from '@/render/gpu/terrain-field';
 import { worldStyleOf } from '@/core/world-style';
 import { buildRiparianEntities } from '@/world/riparian-scatter';
 import { BOULDER_PAD_MIN_SCALE } from '@/world/boulder-deformation';
+import { collectRockPads, padWorthyRock, ROCK_PAD_STRIDE } from '@/world/rock-deformation';
 import { isTrampleEligible } from '@/sim/trample';
 import { buildCoastalLandmarks, SETTLEMENT_TYPES } from '@/world/coastal-landmarks';
 import { tileBlockedByBuilding } from '@/world/building-collision';
@@ -762,6 +763,31 @@ export async function generateWithNoise(
     }
   }
   if (ringed > 0) await report(`Grounded ${ringed} boulders on bare contact tiles`);
+
+  // ROCK SETTLE PADS — the map DECLARES them (see rock-deformation.ts: the biome-brush
+  // scatter is NOT re-derivable from the map, so a seed is not enough; the pads themselves
+  // are the declaration). Harvested HERE, from the rocks that survived every clearing pass
+  // above, for exactly the reason the contact ring is: an earlier harvest would dish the
+  // ground under rocks a settlement later cleared. The declaration feeds the composed
+  // heightfield through `getWorldDeformationStore` (whose cache key reads `rockPads`).
+  const survivingRocks = world.registry.all();
+  map.rockPads = collectRockPads(survivingRocks);
+  // ...and the same contact ring the bank boulders get: a big rock lodged on soft dry
+  // ground kills the grass under it. The sprite covers most of the patch; what shows is
+  // the bare fringe at the contact line.
+  let rockRings = 0;
+  for (const e of survivingRocks) {
+    if (!padWorthyRock(e)) continue;
+    const tx = Math.floor(e.x), ty = Math.floor(e.y);
+    const t = tiles[ty]?.[tx];
+    if (t && hydrology.waterType[ty * width + tx] === WaterType.Dry && isTrampleEligible(t)) {
+      t.type = 'dirt';
+      rockRings++;
+    }
+  }
+  if (map.rockPads.length > 0) {
+    await report(`Settled ${map.rockPads.length / ROCK_PAD_STRIDE} rocks into grade (${rockRings} contact rings)`);
+  }
 
   // Contract DECLARATIONS the walled-town recipe commits: each defensive ring asks the connectome
   // for a landward gate reached by a road and a curtain crossed only at gates, PLUS (round 6,

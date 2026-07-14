@@ -34,6 +34,14 @@ export interface InstanceAttrs {
   /** 1 when the instance is horizontally mirrored (UVs already swapped here; the
    *  shader also negates the sampled normal's x), else 0. */
   mirror: number;
+  /** Terrain contact-blend strength 0..1 at the FOOT (DrawItem.contact; 0 = identity). */
+  contact: number;
+  /** Fraction of the drawn height the contact blend fades out over, from the foot up. */
+  contactBand: number;
+  /** The ground colour the foot blends toward (0..1), snow-mixed CPU-side. */
+  groundR: number;
+  groundG: number;
+  groundB: number;
 }
 
 /** One instanced draw: a texture (+ optional PBR maps) and its instances. */
@@ -116,9 +124,12 @@ export function buildInstanceBatches(items: readonly DrawItem[]): {
     // Horizontal mirror = the UV rect flipped in u; the shader gets the flag too
     // (it must negate the sampled normal's x so lighting matches the flip).
     if (it.mirror) { const t = u0; u0 = u1; u1 = t; }
+    const c = it.contact;
     batch.instances.push({
       dx: it.dx, dy: it.dy, dw: it.dw, dh: it.dh, u0, v0, u1, v1, depth,
       whiten: it.whiten ?? 0, mirror: it.mirror ? 1 : 0,
+      contact: c?.strength ?? 0, contactBand: c?.band ?? 0,
+      groundR: c?.r ?? 0, groundG: c?.g ?? 0, groundB: c?.b ?? 0,
     });
   });
 
