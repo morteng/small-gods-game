@@ -75,4 +75,41 @@ describe('span-scenario harness — stairs foot on the road, climb, and do not p
     // …and the cross-edge spacing rule keeps parallel roads' flights from jamming together.
     expect(checkScenario(sc, res).filter((x) => x.code.startsWith('S-'))).toEqual([]);
   });
+
+  it('every emitted flight foots AND heads on a road tile, and no stair port is orphaned', () => {
+    const sc = steepBank();
+    const res = runScenario(sc, { siteWater: 'render' });
+    expect(res.stairEntities.length).toBeGreaterThan(0);
+    expect(res.stairPorts.length).toBeGreaterThan(0);
+    const roadCells = new Set<string>();
+    for (const e of res.graph.edges) for (const p of e.polyline) roadCells.add(`${p.x},${p.y}`);
+    // (1) both ends of every flight sit on a road cell (anchor-driven connection guarantee).
+    for (const e of res.stairEntities) {
+      const { stairFoot, stairHead } = e.properties as { stairFoot: { x: number; y: number }; stairHead: { x: number; y: number } };
+      expect(roadCells.has(`${stairFoot.x},${stairFoot.y}`)).toBe(true);
+      expect(roadCells.has(`${stairHead.x},${stairHead.y}`)).toBe(true);
+    }
+    // (3) every port the grade scan emitted was consumed by exactly one flight (no orphans).
+    const consumed = new Set<string>();
+    for (const e of res.stairEntities) for (const id of (e.properties as { stairPorts: string[] }).stairPorts) consumed.add(id);
+    for (const p of res.stairPorts) expect(consumed.has(p.id!)).toBe(true);
+    // checkScenario surfaces off-road / head-off-road / orphan as S-* codes — none may remain.
+    expect(checkScenario(sc, res).filter((x) => x.code.startsWith('S-'))).toEqual([]);
+  });
+
+  it('(2) a noise bump on an otherwise-gentle road fires NO stair (net gradient, not local grade)', () => {
+    // A flat road (net gradient 0, well below the road class grade) with a single interior
+    // elevation SPIKE at a chunk boundary (x=6). The old per-rounded-segment local grade fired a
+    // stair on the spike; the median-smoothed NET endpoint gradient is ~0, so nothing is emitted.
+    const sc: SpanScenario = {
+      width: 20, height: 12, reliefM: 40,
+      elevAt: (x) => (x === 6 ? 0.06 : 0),
+      rasterWater: () => false,
+      renderWater: () => false,
+      roads: [{ class: 'road', polyline: Array.from({ length: 11 }, (_, i) => ({ x: 2 + i, y: 5 })) }],
+    };
+    const res = runScenario(sc, { siteWater: 'render' });
+    expect(res.stairPorts).toEqual([]);
+    expect(res.stairEntities).toEqual([]);
+  });
 });

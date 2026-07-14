@@ -38,6 +38,10 @@ export interface SnapRule {
   maxGap: number;
   facing: FacingMode;
   relation: LinkRelation;
+  /** Anchor↔anchor only: link two anchors ONLY if they carry the same non-empty `pair` key
+   *  (a stair flight's foot + head). Prevents two distinct runs whose boundary ports sit on the
+   *  same tile from cross-matching under `oppose`+gap alone. Ignored for `b: 'road'` rules. */
+  requireSamePair?: boolean;
 }
 
 export interface AnchorEndpoint {
@@ -62,6 +66,10 @@ export const DEFAULT_RULES: readonly SnapRule[] = [
   { a: 'gate',     b: 'road', maxGap: 2.0, facing: 'toward', relation: 'connects' },
   { a: 'service',  b: 'road', maxGap: 2.2, facing: 'toward', relation: 'serves'   },
   { a: 'wall_end', b: 'wall_end', maxGap: 1.0, facing: 'any', relation: 'connects' },
+  // A stair flight's foot + head ports, emitted as a pair by the road-grade scan. `oppose` (they
+  // look at each other along the climb) + `requireSamePair` (only the same run's two ports) +
+  // maxGap ≥ the run cap (MAX_FLIGHT_RUN_TILES) pins each foot to its own head.
+  { a: 'stair_anchor', b: 'stair_anchor', maxGap: 4.5, facing: 'oppose', relation: 'spans', requireSamePair: true },
 ];
 
 const COS_TOL = 0.25; // ~75° cone — generous; placement already roughly aligns these.
@@ -174,8 +182,9 @@ export function matchAnchors(anchors: ReadonlyArray<Anchor>, opts: MatchOptions 
     for (const a of as) {
       for (const b of bs) {
         if (a === b) continue;
-        // Same-kind rules (wall_end↔wall_end): avoid the mirror pair by ordering on key.
+        // Same-kind rules (wall_end↔wall_end, stair↔stair): avoid the mirror pair by ordering on key.
         if (rule.a === rule.b && endpointKey(toEndpoint(a)) >= endpointKey(toEndpoint(b))) continue;
+        if (rule.requireSamePair && (a.pair === undefined || a.pair !== b.pair)) continue;
         const gap = Math.hypot(a.x - b.x, a.y - b.y);
         if (gap > rule.maxGap) continue;
         if (rule.facing === 'oppose' && dot(a.facing[0], a.facing[1], b.facing[0], b.facing[1]) > -COS_TOL) continue;

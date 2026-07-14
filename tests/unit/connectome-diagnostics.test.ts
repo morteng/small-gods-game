@@ -166,7 +166,7 @@ describe('connectome diagnostics', () => {
     expect(DEFAULT_RULES.map((r) => r.id)).toEqual([
       'building.overlap', 'barrier.through-building', 'barrier.over-water',
       'road.through-building', 'building.on-water', 'road.on-water',
-      'bridge.seating', 'bridge.tiles-vs-deck',
+      'bridge.seating', 'bridge.tiles-vs-deck', 'stair.connected',
       'road.redundant-parallel', 'road.parallel-corridor', 'road.riverside-unbanked',
       'carve.dry-pit',
       'junction.oversubscribed', 'fort.building-outside-enclosure', 'fort.gate-obstructed',
@@ -335,5 +335,57 @@ describe('connectome diagnostics', () => {
     const ctx = bridgeCtx({ tiles, decks: [deckEntity('deck1', 4, 5)] });
     const hits = evaluateConnectome(ctx).diagnostics.filter((d) => d.rule === 'bridge.tiles-vs-deck');
     expect(hits).toHaveLength(0);
+  });
+});
+
+// ── stair.connected ────────────────────────────────────────────────────────────────
+// Anchor-driven stairs: every placed flight must connect to the road at both ends, and
+// every emitted stair_anchor port must be consumed by exactly one flight (orphan = error).
+describe('stair.connected diagnostic', () => {
+  // A 10×10 world with a single north-south road down column x=3.
+  const roadTiles = () => Array.from({ length: 10 }, (_, y) =>
+    Array.from({ length: 10 }, (_, x) => ({ type: x === 3 ? 'dirt_road' : 'grass' })));
+
+  /** A stair_flight entity carrying the lint's read fields. */
+  const flight = (id: string, foot: { x: number; y: number }, head: { x: number; y: number }, ports: string[]): Entity =>
+    ({ id, kind: 'stair_flight', x: foot.x, y: foot.y, tags: [], properties: { stairFoot: foot, stairHead: head, stairPorts: ports } }) as unknown as Entity;
+
+  const port = (id: string, x: number, y: number) => ({ kind: 'stair_anchor' as const, x, y, facing: [0, 1] as [number, number], id, pair: id.replace(/:(foot|head)$/, '') });
+
+  const stairCtx = (flights: Entity[], anchors: unknown[]): DiagnosticContext => ({
+    world: { query: (q: { kind?: string }) => (q?.kind === 'stair_flight' ? flights : []) } as unknown as DiagnosticContext['world'],
+    map: { width: 10, height: 10, tiles: roadTiles(), roadGraph: { nodes: [], edges: [] }, anchors } as unknown as DiagnosticContext['map'],
+  });
+
+  it('passes when every flight connects at both ends and every port is consumed', () => {
+    const ctx = stairCtx(
+      [flight('e:stair:0:0', { x: 3, y: 2 }, { x: 3, y: 4 }, ['e:stair:0:foot', 'e:stair:0:head'])],
+      [port('e:stair:0:foot', 3, 2), port('e:stair:0:head', 3, 4)],
+    );
+    expect(evaluateConnectome(ctx).byRule['stair.connected'] ?? 0).toBe(0);
+  });
+
+  it('flags an orphan port that no flight consumes', () => {
+    const ctx = stairCtx(
+      [flight('e:stair:0:0', { x: 3, y: 2 }, { x: 3, y: 4 }, ['e:stair:0:foot', 'e:stair:0:head'])],
+      // An extra run's ports were emitted but the match/placement dropped them.
+      [port('e:stair:0:foot', 3, 2), port('e:stair:0:head', 3, 4), port('e:stair:1:foot', 3, 6), port('e:stair:1:head', 3, 8)],
+    );
+    const hits = evaluateConnectome(ctx).diagnostics.filter((d) => d.rule === 'stair.connected');
+    expect(hits).toHaveLength(2);
+    expect(hits.every((d) => d.severity === 'error')).toBe(true);
+    expect(hits.map((d) => d.message).join(' ')).toContain('e:stair:1:foot');
+  });
+
+  it('flags a flight whose end floats off the road (unanchored)', () => {
+    const ctx = stairCtx(
+      // Head at (8,8) is far from the column-3 road — an unanchored end.
+      [flight('e:stair:0:0', { x: 3, y: 2 }, { x: 8, y: 8 }, ['e:stair:0:foot', 'e:stair:0:head'])],
+      [port('e:stair:0:foot', 3, 2), port('e:stair:0:head', 8, 8)],
+    );
+    const hits = evaluateConnectome(ctx).diagnostics.filter((d) => d.rule === 'stair.connected');
+    expect(hits).toHaveLength(1);
+    expect(hits[0].message).toContain('more than 1 tile from any road');
+    expect(hits[0].metrics?.unanchoredEnds).toBe(1);
   });
 });

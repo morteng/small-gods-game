@@ -673,6 +673,64 @@ const bridgeTilesVsDeck: DiagnosticRule = {
   },
 };
 
+// ── Stair rules ──────────────────────────────────────────────────────────────────
+//
+// Stairs are anchor-driven (stair-structures.ts): the road-grade scan emits `stair_anchor`
+// port PAIRS, `matchAnchors` pairs foot↔head, and placement instantiates a flight structure
+// between each matched pair. This rule cross-checks BOTH representations — every placed flight
+// must actually connect to the road at both ends, and every emitted port must be consumed —
+// so a detection/match regression can't ship a stair floating off the connectome.
+
+/** A cell is within 1 tile (Chebyshev) of a road-carrying tile. */
+function nearRoad(roads: Set<string>, x: number, y: number): boolean {
+  for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (roads.has(cellKey(x + dx, y + dy))) return true;
+  return false;
+}
+
+/** ERROR — a stair flight doesn't connect to the road at both ends, or a `stair_anchor` port was
+ *  emitted but never consumed by a flight (an orphan). A road stair's foot AND head must each sit
+ *  within 1 tile of a road tile (the flight bridges a grade IN the road line, so both ends anchor
+ *  back to it); and every port the grade scan emitted (`map.anchors`) must be built into exactly
+ *  one flight structure — a leftover port means the match/placement dropped a detected run. */
+const stairConnected: DiagnosticRule = {
+  id: 'stair.connected',
+  severity: 'error',
+  description: 'A stair flight must connect to the road at both ends, and no stair port may be left unconsumed.',
+  evaluate(ctx) {
+    const out: Diagnostic[] = [];
+    const roads = roadTileCells(ctx.map);
+    const flights = (ctx.world.query({ kind: 'stair_flight' }) as Entity[])
+      .filter((e) => (e.properties as { stairPorts?: unknown } | undefined)?.stairPorts !== undefined)
+      .sort((a, b) => String(a.id).localeCompare(String(b.id)));
+    const consumed = new Set<string>();
+    for (const e of flights) {
+      const p = e.properties as { stairFoot?: { x: number; y: number }; stairHead?: { x: number; y: number }; stairPorts?: string[] };
+      for (const id of p.stairPorts ?? []) consumed.add(id);
+      const foot = p.stairFoot, head = p.stairHead;
+      const bad: { x: number; y: number }[] = [];
+      if (foot && !nearRoad(roads, foot.x, foot.y)) bad.push(foot);
+      if (head && !nearRoad(roads, head.x, head.y)) bad.push(head);
+      if (bad.length) out.push({
+        rule: this.id, severity: this.severity,
+        message: `stair flight ${e.id} has ${bad.length} end(s) more than 1 tile from any road`,
+        locus: { entities: [String(e.id)], tiles: bad },
+        metrics: { unanchoredEnds: bad.length },
+      });
+    }
+    // Orphan ports: every emitted stair_anchor port must be consumed by exactly one flight.
+    const orphans = (ctx.map.anchors ?? [])
+      .filter((a) => a.kind === 'stair_anchor' && a.id !== undefined && !consumed.has(a.id))
+      .sort((a, b) => (a.id ?? '').localeCompare(b.id ?? ''));
+    for (const a of orphans) out.push({
+      rule: this.id, severity: this.severity,
+      message: `stair port ${a.id} was emitted but no flight consumes it (orphan)`,
+      locus: { tiles: [{ x: Math.round(a.x), y: Math.round(a.y) }] },
+      metrics: { orphanPort: 1 },
+    });
+    return out;
+  },
+};
+
 /** Metres of carve depth below which a hollow doesn't read as the "dark faceted pit"
  *  render artifact — shallow grade cuts (road shoulders, gentle levee tapers) are
  *  expected terrain sculpting, not a smell. */
@@ -1057,6 +1115,7 @@ export const DEFAULT_RULES: DiagnosticRule[] = [
   roadFordsWater,
   bridgeSeating,
   bridgeTilesVsDeck,
+  stairConnected,
   redundantParallelRoad,
   parallelCorridorRoad,
   riversideUnbankedRoad,

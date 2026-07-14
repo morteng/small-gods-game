@@ -1,26 +1,39 @@
 // src/world/connectome/stair-structures.ts
 //
-// G3b — STAIRS pop out of the connectome. Where a road's walked line exceeds its class
-// grade envelope (road-state.ts `GradeEnvelope`), the terrain is too steep for that road to
-// climb comfortably — exactly the signal the envelope comment names as wanting "a
-// reconciliation structure (embankment, stairs, a switchback)". This module realizes the
-// STAIRS half: it scans each road edge's polyline for over-grade runs and sites a parametric
-// `stair_flight` entity on each, climbing toward the higher end, sized by the run's rise and
-// finished by road class (a footpath gets a rough scramble, a highway a dressed flight) —
-// the same construction sweep `deriveRoadState` uses for road surfaces.
+// G3b — STAIRS pop out of the connectome, ANCHOR-DRIVEN. Where a road's walked line climbs
+// steeper than its class grade envelope (road-state.ts `GradeEnvelope`), the terrain is too
+// steep for that road to roll comfortably — the envelope comment's named "reconciliation
+// structure (embankment, stairs, a switchback)". This module realizes the STAIRS half in two
+// separated stages, so placement is a graph match rather than a blind local heuristic:
 //
-// Pure + deterministic (returns `Entity[]`, inline blueprints seed identically); the caller
-// adds them at world-build time, beside the river crossings, before the static draw cache.
+//   1. DETECTION (`collectStairPorts`) scans each road edge's polyline for over-grade RUNS and
+//      emits a typed `stair_anchor` port PAIR (foot + head) per run. A run earns ports ONLY when
+//      (a) BOTH endpoint tiles are confirmed road, and (b) the run's NET endpoint-to-endpoint
+//      gradient on a SMOOTHED profile (not per-rounded-segment local grade) exceeds the class
+//      grade — so a noise bump mid-slope no longer fires a stair connected to nothing, while the
+//      emergent "stairs where the road climbs" behavior is preserved (the generator decides WHERE
+//      ports exist). The ports flow through `anchor-collect` and are paired by `matchAnchors`.
+//   2. PLACEMENT (`placeStairsFromLinks`) instantiates a flight strictly BETWEEN each matched
+//      foot/head pair, driving `sampleSpanSegments` so EACH stacked segment lifts to its OWN
+//      terrain height — killing the single-`liftElev` floating-head artifact of the old one-entity
+//      -per-run scheme.
+//
+// `buildStairStructureEntities` composes both stages (detection → match → placement) for the
+// synthetic harness + unit tests; the live world (map-generator) runs detection into the GLOBAL
+// anchor set and placement off `map.anchorLinks`. Pure + deterministic throughout (seeded
+// blueprints, deterministic matcher); `Math.random`-free.
 
 import type { Entity } from '@/core/types';
 import type { RoadGraph, RoadClass } from '@/world/road-graph';
+import type { Anchor } from '@/world/anchors';
+import { matchAnchors, type AnchorLink } from '@/world/anchor-rules';
 import { ensureBuildingTypesRegistered } from '@/blueprint/register-buildings';
 import { blueprintEntity } from '@/blueprint/entity';
 import { resolveBlueprint } from '@/blueprint/resolve';
 import { stairFootprint, stairTreads } from '@/blueprint/parts/stair';
 import { BLUEPRINT_VERSION, type Blueprint } from '@/blueprint/types';
 import { METRES_PER_TILE } from '@/render/scale-contract';
-import { type SpanSegment, sampleSpanSegments } from './road-span';
+import { type SpanSegment, type SpanPoint, sampleSpanSegments, densifyToUnitSteps, cardinalOf } from './road-span';
 
 /** Stair construction + material + running width AND the ACTUAL surface grade (rise/run) above
  *  which that class wants steps instead of a rolled surface. NOTE this is the real walkability
@@ -40,32 +53,144 @@ const CLASS_STAIR: Record<RoadClass, { construction: number; material: string; w
  *  below it the road's own carve handles the grade and a flight would just be clutter. */
 const MIN_RUN_TILES = 2;
 const MIN_RISE_M = 1.5;        // one storey — below this it's a step, not a flight
-/** A single flight spans at most this much ground run. A long steep climb (the connectome can
- *  route a road 30 tiles up a 50% slope) must NOT become one 40 m staircase shooting off into the
- *  air — it chunks into stacked ≤4-tile flights, each riding its own terrain, with implied landings
- *  between (G3c). */
+/** A detected run (one port PAIR) spans at most this much ground run — the snap rule's `maxGap`
+ *  is sized to it. A long steep climb chunks into consecutive capped runs (stacked port pairs),
+ *  each riding its own terrain, with implied landings between (G3c). */
 const MAX_FLIGHT_RUN_TILES = 4;
+/** Placement sub-stacks each matched foot→head pair into pieces at most this long, so EACH piece
+ *  seats on its own terrain (the engine has one scalar `liftElev` per entity, so a longer single
+ *  flight floats its head). Finer than `MAX_FLIGHT_RUN_TILES` on purpose. */
+const STAIR_STACK_SEG_TILES = 2;
 const MIN_TREADS = 3;
-/** Two flights from DIFFERENT roads closer than this (Chebyshev tiles) read as a pile-up, not two
- *  staircases — several roads climbing the same riverbank near a crossing each spawned their own
- *  flight, jamming a knot of steps into a few tiles. The first-placed (deterministic graph order)
- *  wins; a later road's flight within the radius is dropped (the road's own carve still climbs).
- *  Stacked flights on the SAME road are exempt — a continuous climb is one staircase. */
+/** Two runs from DIFFERENT roads whose feet are closer than this (Chebyshev tiles) read as a
+ *  pile-up, not two staircases — parallel roads climbing the same riverbank near a crossing each
+ *  spawned a flight, jamming a knot of steps into a few tiles. The first-detected (deterministic
+ *  graph order) wins; a later road's run within the radius emits NO ports (so no orphan). Runs on
+ *  the SAME road are exempt — a continuous climb is one staircase. */
 const MIN_CROSS_EDGE_SPACING = 3;
+/** Half-window (tiles along the path) of the elevation smoother that kills single-tile noise
+ *  bumps before the net-gradient test reads the run endpoints. */
+const SMOOTH_HALF = 1;
 
-export interface StairStructureOptions {
+/** Cardinal (or 'diag') classification of a unit step a→b. */
+function stepKind(a: SpanPoint, b: SpanPoint): 'north' | 'south' | 'east' | 'west' | 'diag' {
+  const dx = b.x - a.x, dy = b.y - a.y;
+  if (dx !== 0 && dy !== 0) return 'diag';
+  return cardinalOf(dx, dy);
+}
+
+/** Unit vector a→b, or [0,0] if degenerate. */
+function unit(ax: number, ay: number, bx: number, by: number): [number, number] {
+  const dx = bx - ax, dy = by - ay;
+  const m = Math.hypot(dx, dy);
+  return m === 0 ? [0, 0] : [dx / m, dy / m];
+}
+
+export interface StairPortOptions {
   /** Normalised [0,1] heightfield elevation at a tile — the SAME space the grade envelope's
    *  `maxGrade` is measured in (per-step `|Δelev| / horiz`). Required. */
   elevAt: (x: number, y: number) => number;
-  /** Metres of relief per normalised elevation unit (`worldStyle.mountainRelief`) — converts a
-   *  run's normalised lift into the stair's metric rise. */
+  /** Metres of relief per normalised elevation unit (`worldStyle.mountainRelief`). */
   reliefM: number;
-  /** Render-space (curved) elevation at a tile, to seat the flight's foot on the terrain the
-   *  way decks ride their banks (G4 liftElev). Omitted ⇒ the flight foot-samples (sinks). */
-  liftElevAt?: (x: number, y: number) => number;
-  /** A cell a stair may NOT occupy (water, an existing building). Over-grade runs that land on
-   *  a blocked tile are skipped. */
+  /** A cell confirmed to carry a road (a `dirt_road`/`stone_road` tile in the live mask). A port
+   *  emits ONLY where BOTH its endpoints are confirmed road — the false-positive killer for a
+   *  polyline point that rounds off the stamped road. Omitted ⇒ every densified polyline cell of
+   *  the edge counts as road (synthetic harness / unit tests with no tile mask). */
+  isRoadTile?: (x: number, y: number) => boolean;
+  /** A cell a stair may NOT foot/head on (water, an existing building, a wall curtain). */
   cellBlocked?: (x: number, y: number) => boolean;
+}
+
+/**
+ * Scan every ROAD edge for over-grade runs and emit a `stair_anchor` port pair (foot + head) per
+ * qualifying run. Detection is pure terrain × class — stairs emerge wherever the connectome routes
+ * a road up too steep a cardinal run — but a run earns ports ONLY when both endpoints are confirmed
+ * road AND its NET smoothed endpoint-to-endpoint gradient beats the class grade, so a noise bump no
+ * longer fabricates a disconnected flight. Deterministic given the same graph + fields.
+ */
+export function collectStairPorts(graph: RoadGraph | undefined, opts: StairPortOptions): Anchor[] {
+  if (!graph) return [];
+  const out: Anchor[] = [];
+  const usedTiles = new Set<string>();
+  // Feet already claimed, with their owning edge — a later road's run too close to an EARLIER
+  // road's foot is a pile-up and emits no ports (same-road stacked runs are exempt).
+  const placedFeet: { x: number; y: number; edge: string }[] = [];
+  const tooCrowded = (fx: number, fy: number, edgeId: string): boolean =>
+    placedFeet.some((p) => p.edge !== edgeId && Math.max(Math.abs(p.x - fx), Math.abs(p.y - fy)) < MIN_CROSS_EDGE_SPACING);
+
+  for (const edge of graph.edges) {
+    if (edge.feature !== 'road') continue;
+    const poly = edge.polyline;
+    if (poly.length < MIN_RUN_TILES + 1) continue;
+    const classGrade = CLASS_STAIR[edge.class].grade;
+
+    // Densify to the unit-step lattice (the SAME lattice placement stacks on), then build the raw
+    // + smoothed elevation profile the net-gradient test reads.
+    const verts: SpanPoint[] = [];
+    for (const p of poly) {
+      const q = { x: Math.round(p.x), y: Math.round(p.y) };
+      const last = verts[verts.length - 1];
+      if (!last || last.x !== q.x || last.y !== q.y) verts.push(q);
+    }
+    if (verts.length < 2) continue;
+    const pts = densifyToUnitSteps(verts);
+    const raw = pts.map((p) => opts.elevAt(p.x, p.y));
+    // MEDIAN smoother (window ±SMOOTH_HALF, out-of-range indices substituted by the centre sample).
+    // A median REJECTS a single-tile noise spike (the false-positive source) while preserving a
+    // linear ramp EXACTLY — including at the path ends, where a mean would bias the endpoint inward
+    // and under-measure a legitimately steep terminal run.
+    const smooth = raw.map((_, i) => {
+      const win: number[] = [];
+      for (let k = i - SMOOTH_HALF; k <= i + SMOOTH_HALF; k++) win.push(raw[k] ?? raw[i]);
+      win.sort((a, b) => a - b);
+      return win[(win.length - 1) >> 1];
+    });
+    // Default on-road predicate: membership in THIS edge's densified cells (endpoints are on the
+    // edge by construction, so the check is a no-op absent a real tile mask). The live world hands
+    // in `isRoadTile` reading the stamped mask, which rejects a point that drifted off the road.
+    const edgeCells = new Set(pts.map((p) => `${p.x},${p.y}`));
+    const onRoad = (p: SpanPoint): boolean =>
+      opts.isRoadTile ? opts.isRoadTile(p.x, p.y) : edgeCells.has(`${p.x},${p.y}`);
+
+    // Chunk into maximal same-cardinal runs capped at MAX_FLIGHT_RUN_TILES; a diagonal step never
+    // bears a run (its head can't land on the road, so no floating stair).
+    let i = 0, chunkIdx = 0;
+    while (i < pts.length - 1) {
+      const kind = stepKind(pts[i], pts[i + 1]);
+      if (kind === 'diag') { i += 1; continue; }
+      let j = i;
+      while (j + 1 < pts.length && j - i < MAX_FLIGHT_RUN_TILES && stepKind(pts[j], pts[j + 1]) === kind) j++;
+      const runTiles = j - i;
+      // Orient foot (lower) → head (higher) on the SMOOTHED profile; net gradient reads endpoints.
+      const [footI, headI] = smooth[i] <= smooth[j] ? [i, j] : [j, i];
+      const foot = pts[footI], head = pts[headI];
+      const riseM = (smooth[headI] - smooth[footI]) * opts.reliefM;
+      const grade = runTiles > 0 ? riseM / (runTiles * METRES_PER_TILE) : 0;
+      const footKey = `${foot.x},${foot.y}`;
+      // A flight foots+heads on confirmed road, and NO cell along its span is blocked — a stair
+      // must not span water (that stretch is a crossing) or a building; the placement sub-stacking
+      // would otherwise seat an intermediate piece on the obstacle.
+      let spanClear = true;
+      for (let k = i; k <= j && spanClear; k++) if (opts.cellBlocked?.(pts[k].x, pts[k].y)) spanClear = false;
+      if (
+        runTiles >= MIN_RUN_TILES && riseM >= MIN_RISE_M && grade > classGrade
+        && onRoad(foot) && onRoad(head) && spanClear
+        && !usedTiles.has(footKey) && !tooCrowded(foot.x, foot.y, edge.id)
+      ) {
+        usedTiles.add(footKey);
+        placedFeet.push({ x: foot.x, y: foot.y, edge: edge.id });
+        const pairKey = `${edge.id}:stair:${chunkIdx}`;
+        const fFace = unit(foot.x, foot.y, head.x, head.y);   // foot looks uphill toward the head
+        out.push({ kind: 'stair_anchor', x: foot.x, y: foot.y, facing: fFace, width: runTiles,
+          ownerId: edge.id, id: `${pairKey}:foot`, pair: pairKey, tags: ['grade'] });
+        out.push({ kind: 'stair_anchor', x: head.x, y: head.y, facing: [-fFace[0], -fFace[1]], width: runTiles,
+          ownerId: edge.id, id: `${pairKey}:head`, pair: pairKey, tags: ['grade'] });
+      }
+      chunkIdx += 1;
+      i = j;
+    }
+  }
+  return out;
 }
 
 function stairEntity(
@@ -73,6 +198,7 @@ function stairEntity(
   cls: RoadClass,
   seg: SpanSegment,
   liftElev: number | undefined,
+  ports: [string, string],
 ): Entity {
   // The segment is oriented from(foot)→to(head); the flight foots at `from` and climbs the
   // segment's cardinal toward `to` (steps rise that way) — the shared path-follow vocabulary.
@@ -98,62 +224,76 @@ function stairEntity(
   };
   const rb = resolveBlueprint([bp], 0);
   const e = blueprintEntity(id, rb, foot.x, foot.y);
-  if (liftElev !== undefined) (e.properties as Record<string, unknown>).liftElev = liftElev;
+  const props = e.properties as Record<string, unknown>;
+  if (liftElev !== undefined) props.liftElev = liftElev;
+  // The lint (`stair.connected`) reads these: the flight's foot/head tiles must be road-adjacent,
+  // and every emitted port must be consumed by exactly one flight structure.
+  props.stairFoot = { x: seg.from.x, y: seg.from.y };
+  props.stairHead = { x: seg.to.x, y: seg.to.y };
+  props.stairPorts = ports;
   return e;
 }
 
+export interface StairPlacementOptions {
+  /** Normalised [0,1] heightfield elevation at a tile — orients + sizes each stacked piece. */
+  elevAt: (x: number, y: number) => number;
+  /** Metres of relief per normalised elevation unit (`worldStyle.mountainRelief`). */
+  reliefM: number;
+  /** Render-space (curved) elevation at a tile, to seat each stacked piece's foot on the terrain
+   *  the way decks ride their banks (G4 liftElev). Omitted ⇒ the piece foot-samples (sinks). */
+  liftElevAt?: (x: number, y: number) => number;
+}
+
 /**
- * Site stair flights along every ROAD edge in the graph that FOLLOW the road and CONNECT to it at
- * both ends. The edge polyline is chunked into cardinal-colinear segments (`sampleSpanSegments`);
- * every segment that climbs steeper than its class walkability grade gets its own `stair_flight`,
- * footed at the segment's lower end and lifted to that tile's terrain — so a long climb becomes a
- * run of stacked flights riding the slope (not one billboard into the air), an L-bend gets a flight
- * per cardinal leg, and flat stretches between steep ones stay plain road. Because each segment is
- * cardinal-colinear, a flight foots on a road tile and its head reaches the road tile where the
- * climb continues — start/end both anchor to the road. A genuinely DIAGONAL (45°) stretch shatters
- * into single-tile pieces below `MIN_RUN_TILES`, so it gets NO stair rather than a floating,
- * disconnected one (the road's own carve still climbs the grade). Detection is pure terrain × class,
- * so stairs emerge wherever the connectome routes a road up too steep a slope on a cardinal run —
- * "all kinds of stairs, popping out of the connectome", exactly as bridges pop out of crossings.
+ * Instantiate stair flights from the matched `stair_anchor`↔`stair_anchor` links. Each link's two
+ * ports bound one over-grade run; the run is cardinal-colinear, so the between-path is a straight
+ * foot→head line that `sampleSpanSegments` stacks into `STAIR_STACK_SEG_TILES` pieces, EACH seated
+ * on its own terrain. Deterministic: links are ordered foot-first up each edge's climb.
+ */
+export function placeStairsFromLinks(
+  links: ReadonlyArray<AnchorLink>,
+  graph: RoadGraph | undefined,
+  opts: StairPlacementOptions,
+): Entity[] {
+  ensureBuildingTypesRegistered();   // inline stair_flight blueprint resolves directly
+  const classOf = new Map<string, RoadClass>((graph?.edges ?? []).map((e) => [e.id, e.class]));
+  // Gather stair links oriented foot→head, then sort into a stable per-edge climb order so the
+  // emitted entity sequence is deterministic (and the lowest foot of each edge comes first).
+  const runs = links
+    .filter((l) => l.a.kind === 'stair_anchor' && l.b.kind === 'stair_anchor')
+    .map((l) => {
+      const ea = opts.elevAt(l.a.x, l.a.y), eb = opts.elevAt(l.b.x, l.b.y);
+      const [foot, head] = ea <= eb ? [l.a, l.b] : [l.b, l.a];
+      const edge = foot.ownerId ?? head.ownerId ?? '';
+      return { edge, foot, head, footElev: Math.min(ea, eb), ports: [foot.id ?? '', head.id ?? ''] as [string, string] };
+    })
+    .sort((p, q) => p.edge.localeCompare(q.edge) || p.footElev - q.footElev || p.foot.x - q.foot.x || p.foot.y - q.foot.y);
+
+  const out: Entity[] = [];
+  for (const run of runs) {
+    const cls = classOf.get(run.edge) ?? 'path';
+    const subpath: SpanPoint[] = [{ x: run.foot.x, y: run.foot.y }, { x: run.head.x, y: run.head.y }];
+    const segs = sampleSpanSegments(subpath, { elevAt: opts.elevAt, reliefM: opts.reliefM, maxSegTiles: STAIR_STACK_SEG_TILES });
+    segs.forEach((seg, k) => {
+      const liftElev = opts.liftElevAt?.(seg.from.x, seg.from.y);
+      out.push(stairEntity(`${run.edge}:stair:${run.foot.x}_${run.foot.y}:${k}`, cls, seg, liftElev, run.ports));
+    });
+  }
+  return out;
+}
+
+export interface StairStructureOptions extends StairPortOptions, StairPlacementOptions {}
+
+/**
+ * Detect stair ports, match them, and place the flights — the full anchor-driven pipeline in
+ * miniature. Used by the synthetic harness + unit tests; the live world routes the same two stages
+ * through the GLOBAL anchor set (see map-generator). Pure + deterministic.
  */
 export function buildStairStructureEntities(
   graph: RoadGraph | undefined,
   opts: StairStructureOptions,
 ): Entity[] {
-  if (!graph) return [];
-  ensureBuildingTypesRegistered();   // inline stair_flight blueprint resolves directly
-  const out: Entity[] = [];
-  const usedTiles = new Set<string>();
-  // Feet already placed, with their owning edge — a later road's flight too close to an EARLIER
-  // road's flight is a pile-up and gets dropped (stacked flights on the same road are exempt).
-  const placedFeet: { x: number; y: number; edge: string }[] = [];
-  const tooCrowded = (fx: number, fy: number, edgeId: string): boolean =>
-    placedFeet.some((p) => p.edge !== edgeId && Math.max(Math.abs(p.x - fx), Math.abs(p.y - fy)) < MIN_CROSS_EDGE_SPACING);
-  for (const edge of graph.edges) {
-    if (edge.feature !== 'road') continue;
-    const poly = edge.polyline;
-    if (poly.length < MIN_RUN_TILES + 1) continue;
-    // The class's ACTUAL walkability grade (rise/run) above which it wants steps.
-    const classGrade = CLASS_STAIR[edge.class].grade;
-
-    // Follow the road: one flight per over-grade segment of its polyline. Each segment is cardinal-
-    // colinear (foot and head are the SAME road tiles the climb passes through), so a flight that
-    // exceeds the class grade connects to the road at both ends. A diagonal/zigzag stretch yields
-    // only sub-MIN_RUN pieces below, so it stays plain (carved) road — no floating stair.
-    const segs = sampleSpanSegments(poly, {
-      elevAt: opts.elevAt, reliefM: opts.reliefM, maxSegTiles: MAX_FLIGHT_RUN_TILES,
-    });
-    segs.forEach((seg, idx) => {
-      const actualGrade = seg.runTiles > 0 ? seg.riseM / (seg.runTiles * METRES_PER_TILE) : 0;
-      if (seg.runTiles < MIN_RUN_TILES || seg.riseM < MIN_RISE_M || actualGrade <= classGrade) return;
-      const fx = seg.from.x, fy = seg.from.y;   // foot = the segment's lower end (already integer)
-      const key = `${fx},${fy}`;
-      if (usedTiles.has(key) || opts.cellBlocked?.(fx, fy) || tooCrowded(fx, fy, edge.id)) return;
-      usedTiles.add(key);
-      placedFeet.push({ x: fx, y: fy, edge: edge.id });
-      const liftElev = opts.liftElevAt?.(fx, fy);
-      out.push(stairEntity(`${edge.id}:stair:${idx}`, edge.class, seg, liftElev));
-    });
-  }
-  return out;
+  const ports = collectStairPorts(graph, opts);
+  const links = matchAnchors(ports, {});   // the stair↔stair rule lives in DEFAULT_RULES
+  return placeStairsFromLinks(links, graph, opts);
 }

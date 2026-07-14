@@ -194,8 +194,9 @@ export function sampleSpanSegments(path: SpanPoint[], opts: SampleSpanOptions): 
 
 /** Densify a deduped integer vertex list so every consecutive pair differs by a single tile, using
  *  a greedy 8-connected line walk (diagonal where both axes move, cardinal otherwise). A path that
- *  is already unit-stepped passes through unchanged. */
-function densifyToUnitSteps(verts: SpanPoint[]): SpanPoint[] {
+ *  is already unit-stepped passes through unchanged. Exported for the stair-port grade scan, which
+ *  walks the SAME densified lattice to keep its runs colinear with the placement stacking. */
+export function densifyToUnitSteps(verts: SpanPoint[]): SpanPoint[] {
   const out: SpanPoint[] = [verts[0]];
   for (let k = 1; k < verts.length; k++) {
     let { x, y } = out[out.length - 1];

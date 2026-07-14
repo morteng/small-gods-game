@@ -19,7 +19,8 @@
 // SpritePack); per the 2026-06-24 "unified anchor, whole stack" decision the WORLD-space
 // anchor here is now canonical, and a sprite-normalised projection is a downstream lookup.
 export type ConnectionAnchorKind =
-  | 'door' | 'gate' | 'road' | 'wall_end' | 'water_edge' | 'frontage' | 'service' | 'bank';
+  | 'door' | 'gate' | 'road' | 'wall_end' | 'water_edge' | 'frontage' | 'service' | 'bank'
+  | 'stair_anchor';
 /** Where on a structure something can attach — a lintel over a door, the roof ridge, a
  *  gable peak, a chimney top, the eaves line, or a cone/dome apex. */
 export type MountAnchorKind =
@@ -42,6 +43,10 @@ export interface Anchor {
   id?: string;
   /** The feature that emitted this anchor — building entity id, road edge id, barrier id, … */
   ownerId?: string;
+  /** Groups two anchors that must snap to EACH OTHER and nothing else (a stair flight's foot +
+   *  head port share one `pair` key). A rule with `requireSamePair` only links anchors whose
+   *  `pair` matches — so adjacent runs that share a boundary tile can't cross-match. */
+  pair?: string;
   /** Free tags: 'approach', 'street', 'fortified', … */
   tags?: string[];
 }

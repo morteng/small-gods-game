@@ -6,7 +6,7 @@ describe('content-version constants', () => {
     expect(ART_RECIPE_VERSION).toBe('v31');
   });
 
-  it('declares the current world content version (95: flora density dial + ground-cover baseline)', () => {
-    expect(WORLD_CONTENT_VERSION).toBe(95);
+  it('declares the current world content version (96: anchor-driven stairs)', () => {
+    expect(WORLD_CONTENT_VERSION).toBe(96);
   });
 });

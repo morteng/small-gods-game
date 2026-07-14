@@ -26,9 +26,13 @@ function unit(ax: number, ay: number, bx: number, by: number): [number, number] 
 
 /**
  * Collect all anchors + road polylines from the live world.
- * Deterministic given the same world + road graph.
+ * Deterministic given the same world + road graph. `stairPorts` are the road-grade scan's
+ * foot/head `stair_anchor` ports (computed by the caller, which owns the composed heightfield the
+ * scan reads) — merged in here so they participate in the same `matchAnchors` pass as banks/doors.
  */
-export function collectAnchors(world: World, roadGraph: RoadGraph | undefined, width: number): CollectedAnchors {
+export function collectAnchors(
+  world: World, roadGraph: RoadGraph | undefined, width: number, stairPorts: ReadonlyArray<Anchor> = [],
+): CollectedAnchors {
   const anchors: Anchor[] = [];
 
   // 1) Entity-borne anchors (buildings: door/gate; barriers: wall_end/gate). Stamp owner + id.
@@ -66,6 +70,10 @@ export function collectAnchors(world: World, roadGraph: RoadGraph | undefined, w
       anchors.push({ kind: 'bank', x: f.x, y: f.y, facing: [-inward[0], -inward[1]], width: spec.spanTiles, ownerId: spec.id, id: `${spec.id}:bank-b`, tags: ['crossing'] });
     }
   }
+
+  // 4) Stair ports (foot/head pairs) from the road-grade scan — the matcher pairs each foot to its
+  //    own head via the stair↔stair snap rule (`requireSamePair`).
+  for (const p of stairPorts) anchors.push(p);
 
   return { anchors, roads };
 }

@@ -76,6 +76,7 @@ describe('matchAnchors — determinism', () => {
   it('DEFAULT_RULES are the documented kinds', () => {
     expect(DEFAULT_RULES.map((r) => `${r.a}->${r.b}`)).toEqual([
       'door->road', 'frontage->road', 'gate->road', 'service->road', 'wall_end->wall_end',
+      'stair_anchor->stair_anchor',
     ]);
   });
 });

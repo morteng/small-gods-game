@@ -40,7 +40,7 @@ import { stampFarmland } from '@/world/farmland';
 import { stampIrrigation } from '@/world/irrigation';
 import { buildCrossingStructureEntities } from '@/world/connectome/crossing-structures';
 import { deriveBuiltJunctions } from '@/world/junction-artifacts';
-import { buildStairStructureEntities } from '@/world/connectome/stair-structures';
+import { collectStairPorts, placeStairsFromLinks } from '@/world/connectome/stair-structures';
 import { buildEntranceStoopEntities } from '@/world/connectome/entrance-stoops';
 import { buildAqueductStructureEntities } from '@/world/connectome/aqueduct-structures';
 import { buildWaterNetwork, referenceFlow, reachHalfWidths } from '@/terrain/river-network';
@@ -649,7 +649,25 @@ export async function generateWithNoise(
   // barriers) is final by map assembly, and the fillet↔raster pass just below consumes
   // `map.anchorLinks` for its building-anchor arrival fillets.
   await report('Matching feature anchors...');
-  const { anchors, roads } = collectAnchors(world, roadGraph, width);
+  // STAIR PORTS (G3b, anchor-driven): the road-grade scan emits foot/head `stair_anchor` pairs on
+  // over-grade runs, matched into `spans` links alongside doors/banks. Computed HERE (before the
+  // match) off the COMPOSED heightfield (base ⊕ road cuts/embankments ⊕ river carve ⊕ wall
+  // footings) — the ground the renderer lifts entities by — so grade + placement read the same
+  // profile. The composed field + style are reused by the placement pass below.
+  const stairComposed = getComposedHeightfield(map);
+  const stairStyle = worldStyleOf(worldSeed ?? undefined);
+  const stairWallCells = roadGraph ? gateApproachPlan(barrierRuns, [], worldSeed?.pois ?? []).wallObstacles : new Set<string>();
+  const stairElevAt = (x: number, y: number): number => stairComposed[Math.round(y) * width + Math.round(x)] ?? ELEVATION_SEA_LEVEL;
+  const stairPorts = collectStairPorts(roadGraph, {
+    elevAt: stairElevAt,
+    reliefM: stairStyle.mountainRelief,
+    // Both endpoints must be a stamped ground-road tile — NOT a bridge (a stair never foots on a
+    // deck), and confirming this rejects a polyline point that rounded off the road.
+    isRoadTile: (x, y) => { const t = tiles[y]?.[x]?.type; return t === 'dirt_road' || t === 'stone_road'; },
+    // A flight must not stand on the VISIBLE water, a building, or a wall curtain (only openings).
+    cellBlocked: (x, y) => tileBlockedByBuilding(world, x, y) || renderWaterAt(x, y) || stairWallCells.has(`${x},${y}`),
+  });
+  const { anchors, roads } = collectAnchors(world, roadGraph, width, stairPorts);
   map.anchors = anchors;
   map.anchorLinks = matchAnchors(anchors, { roads });
 
@@ -734,29 +752,17 @@ export async function generateWithNoise(
     declarations: [...settlementRingContracts(barrierRuns), ...defenseRingContracts(barrierRuns)],
   };
 
-  // STAIR SITES (G3b): where a road's line climbs steeper than its class grade envelope,
-  // the connectome wants a stair flight (the envelope's named reconciliation structure).
-  // Sited AFTER map assembly so grade detection AND the foot lift read the COMPOSED
-  // heightfield (base ⊕ road cuts/embankments ⊕ river carve ⊕ wall footings) — the ground
-  // the renderer actually lifts entities by. Reading the raw field sited flights where the
-  // road's own cut had already eased the climb, and floated/sank them over carved corridors.
-  // A flight must not stand in water, on a building, or on a wall curtain (only openings).
+  // STAIR PLACEMENT (G3b): instantiate the flights BETWEEN the matched `stair_anchor` foot/head
+  // pairs (`map.anchorLinks`, computed in the anchor pass above). Each matched run stacks into
+  // pieces that EACH lift to their own COMPOSED-heightfield terrain (the ground the renderer lifts
+  // entities by) — no floating head. Detection already gated the ports (both endpoints road, net
+  // smoothed grade over class, off water/building/wall), so placement just realizes the geometry.
   if (roadGraph) {
     await report('Siting stairs...');
-    const composed = getComposedHeightfield(map);
-    const stairStyle = worldStyleOf(worldSeed ?? undefined);
-    const wallCells = gateApproachPlan(barrierRuns, [], worldSeed?.pois ?? []).wallObstacles;
-    for (const e of buildStairStructureEntities(roadGraph, {
-      elevAt: (x, y) => composed[Math.round(y) * width + Math.round(x)] ?? ELEVATION_SEA_LEVEL,
+    for (const e of placeStairsFromLinks(map.anchorLinks ?? [], roadGraph, {
+      elevAt: stairElevAt,
       reliefM: stairStyle.mountainRelief,
-      liftElevAt: (x, y) => curveRenderElev(composed[y * width + x] ?? ELEVATION_SEA_LEVEL, ELEVATION_SEA_LEVEL, stairStyle.terrainHeightGamma),
-      cellBlocked: (x, y) => {
-        const t = tiles[y]?.[x];
-        if (!t) return true;
-        // Keep a flight off the VISIBLE water (render-river mask), not just raster water — a
-        // meandered ribbon or a road-overwritten channel cell still reads as water on screen.
-        return tileBlockedByBuilding(world, x, y) || renderWaterAt(x, y) || wallCells.has(`${x},${y}`);
-      },
+      liftElevAt: (x, y) => curveRenderElev(stairComposed[y * width + x] ?? ELEVATION_SEA_LEVEL, ELEVATION_SEA_LEVEL, stairStyle.terrainHeightGamma),
     })) world.addEntity(e);
   }
 

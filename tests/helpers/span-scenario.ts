@@ -18,7 +18,9 @@
 import type { RoadClass, RoadEdge, RoadGraph } from '@/world/road-graph';
 import type { Entity } from '@/core/types';
 import { buildCrossingStructureEntities } from '@/world/connectome/crossing-structures';
-import { buildStairStructureEntities } from '@/world/connectome/stair-structures';
+import { collectStairPorts, placeStairsFromLinks } from '@/world/connectome/stair-structures';
+import { matchAnchors, type AnchorLink } from '@/world/anchor-rules';
+import type { Anchor } from '@/world/anchors';
 import { detectCrossings } from '@/world/connectome/detect-crossings';
 import type { CrossingSpec } from '@/world/connectome/crossing-builder';
 
@@ -80,6 +82,10 @@ export interface ScenarioResult {
   specs: CrossingSpec[];
   crossingEntities: Entity[];
   stairEntities: Entity[];
+  /** The stair-anchor foot/head PORTS the grade scan emitted, and the LINKS the matcher paired
+   *  them into — so a test can assert every port is consumed (no orphans). */
+  stairPorts: Anchor[];
+  stairLinks: AnchorLink[];
   /** Which water predicate the pipeline sited against (for reporting). */
   sitedOn: 'raster' | 'render';
 }
@@ -107,16 +113,23 @@ export function runScenario(sc: SpanScenario, opts: RunOptions = {}): ScenarioRe
     cellBlocked: isBlocked,
     defaults,
   });
-  const stairEntities = buildStairStructureEntities(graph, {
+  // Anchor-driven stairs, run as the live pipeline does: detect ports → match → place, so the test
+  // can interrogate the ports/links (orphan check) as well as the final entities.
+  const stairPorts = collectStairPorts(graph, {
+    elevAt: sc.elevAt,
+    reliefM: sc.reliefM,
+    cellBlocked: (x, y) => sc.renderWater(x, y),
+  });
+  const stairLinks = matchAnchors(stairPorts, {});
+  const stairEntities = placeStairsFromLinks(stairLinks, graph, {
     elevAt: sc.elevAt,
     reliefM: sc.reliefM,
     liftElevAt: sc.elevAt,
-    cellBlocked: (x, y) => sc.renderWater(x, y),
   });
   const specs = detectCrossings(graph, sc.width, {
     isWater: site, defaults, bridgeAt: which === 'render' ? sc.renderWater : undefined,
   });
-  return { graph, specs, crossingEntities, stairEntities, sitedOn: which };
+  return { graph, specs, crossingEntities, stairEntities, stairPorts, stairLinks, sitedOn: which };
 }
 
 // ── The structured checker ──────────────────────────────────────────────────────────────────
@@ -210,12 +223,25 @@ export function checkScenario(sc: SpanScenario, res: ScenarioResult, opts: Check
   // (contiguous flights, fine) from a PILE-UP of parallel roads' stairs crammed together (bad).
   const roadCells = new Set<string>();
   for (const e of res.graph.edges) for (const p of e.polyline) roadCells.add(`${p.x},${p.y}`);
-  const feet = res.stairEntities.map((e) => ({
-    x: Math.round(e.x), y: Math.round(e.y), edge: String(e.id).split(':stair:')[0],
-  }));
+  const feet = res.stairEntities.map((e) => {
+    const props = e.properties as { stairFoot?: Pt; stairHead?: Pt };
+    return {
+      x: Math.round(e.x), y: Math.round(e.y), edge: String(e.id).split(':stair:')[0],
+      head: props.stairHead,
+    };
+  });
   for (const f of feet) {
     if (!roadCells.has(`${f.x},${f.y}`)) v.push({ code: 'S-off-road', detail: `stair foot (${f.x},${f.y}) is not on a road cell` });
     if (wet(f.x, f.y)) v.push({ code: 'S-on-water', detail: `stair foot (${f.x},${f.y}) sits in visible water` });
+    // The head must ALSO land on the road — a flight bridges a grade IN the road line, so both
+    // ends connect back to it (the anchor-driven guarantee: foot + head are matched road ports).
+    if (f.head && !roadCells.has(`${f.head.x},${f.head.y}`)) v.push({ code: 'S-head-off-road', detail: `stair head (${f.head.x},${f.head.y}) is not on a road cell` });
+  }
+  // No orphan ports: every emitted stair_anchor port must be consumed by exactly one flight.
+  const consumed = new Set<string>();
+  for (const e of res.stairEntities) for (const id of (e.properties as { stairPorts?: string[] }).stairPorts ?? []) consumed.add(id);
+  for (const p of res.stairPorts) {
+    if (p.id && !consumed.has(p.id)) v.push({ code: 'S-orphan-port', detail: `stair port ${p.id} at (${p.x},${p.y}) is unconsumed` });
   }
   const spacing = opts.stairSpacing ?? 3;
   for (let i = 0; i < feet.length; i++) {

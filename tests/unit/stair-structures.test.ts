@@ -63,7 +63,7 @@ describe('buildStairStructureEntities — stairs pop out of the connectome', () 
     const field = ramp(0.008);
     const hw = buildStairStructureEntities(graph([edge('h', 'highway', poly)]), { elevAt: field, reliefM: RELIEF });
     const tr = buildStairStructureEntities(graph([edge('t', 'track', poly)]), { elevAt: field, reliefM: RELIEF });
-    expect(hw.length).toBe(1);   // a cart highway can't take this grade → stairs
+    expect(hw.length).toBeGreaterThanOrEqual(1);   // a cart highway can't take this grade → stairs (one run, sub-stacked)
     expect(tr.length).toBe(0);   // a track still rolls it → no stairs
   });
 
