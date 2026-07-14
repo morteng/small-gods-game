@@ -31,7 +31,7 @@
 import type { Connection, POI, Tile, TerrainField } from '@/core/types';
 import { WATER_TYPES } from '@/core/constants';
 import { walkRoad } from '@/terrain/road-walker';
-import { gradeEnvelope } from '@/world/road-state';
+import { gradeEnvelope, maxCarriageHalfWidth } from '@/world/road-state';
 
 /** Carved road/bridge tile types — the reuse-affinity set (new roads bundle onto these).
  *  Exported so other road-graph-adjacent modules (e.g. the fillet↔raster reconciliation in
@@ -231,7 +231,26 @@ export function buildRoadGraph(
       // Roads route AROUND buildings (placed before this carve) instead of
       // bulldozing them — they thread the settlement's streets to reach a
       // waypoint. Rivers/walls ignore the obstacle (only roads obey it).
-      const isObstacle = feature === 'road' ? opts.isObstacle : undefined;
+      //
+      // Widened by THIS edge's own worst-case carriageway half-width
+      // (`maxCarriageHalfWidth`, road-state.ts — the same source `road-occupancy-mask.ts`
+      // and `building-placer.ts` use): a bare 1-cell obstacle test let a new trunk edge's
+      // centerline route right beside a building's wall, and the renderer's analytic ribbon
+      // then painted pavement (up to ~1.44 tiles per side for a highway) INTO the building.
+      // The dilated test still only vetoes cells the caller's `isObstacle` already flags
+      // (a building/green), just checked over a square neighbourhood instead of one cell.
+      const baseObstacle = feature === 'road' ? opts.isObstacle : undefined;
+      const clearance = feature === 'road' ? Math.ceil(maxCarriageHalfWidth(roadClass)) : 0;
+      const isObstacle = baseObstacle && clearance > 0
+        ? (x: number, y: number): boolean => {
+            for (let dy = -clearance; dy <= clearance; dy++) {
+              for (let dx = -clearance; dx <= clearance; dx++) {
+                if (baseObstacle(x + dx, y + dy)) return true;
+              }
+            }
+            return false;
+          }
+        : baseObstacle;
       // Roads prefer to REUSE an already-carved road/bridge cell — so minor roads
       // bundle onto existing trunks and crossings concentrate at shared bridge sites
       // (walk-and-carve is interleaved, so earlier segments are already on `tiles`).

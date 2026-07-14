@@ -33,6 +33,8 @@ import type { Contract } from '@/world/connectome-contracts';
 import { registerContract } from '@/world/connectome-contracts';
 import { planFilletReconcile } from '@/world/road-deformation';
 import { ROAD_TILE_TYPES } from '@/world/road-graph';
+import { buildingStructureCells } from '@/world/connectome-diagnostics';
+import { getRoadFeatureGeometry, roadPavednessAt } from '@/render/gpu/feature-geometry';
 
 export const roadsRibbonLegal: Contract = {
   id: 'roads.ribbon-legal',
@@ -69,3 +71,50 @@ export const roadsRibbonLegal: Contract = {
 };
 
 registerContract(roadsRibbonLegal);
+
+// ── buildings.off-roads-ribbon ────────────────────────────────────────────────────
+//
+// The companion contract on the OTHER side of the same bug class: `roads.ribbon-legal`
+// catches the ribbon crossing a building's cells; this one catches a building's own
+// wall cells sitting inside the ribbon — the mechanism a completed investigation traced
+// to placement testing only the bare centerline tile-grid (`tile.type ∈ ROAD_TYPES`,
+// 1-cell occupancy) while the renderer paints an analytic ribbon with real width
+// (carriageHalf 0.35–1.1 tiles by class × up to 1.15 construction + a 0.18 shoulder
+// lip — up to ~1.44 tiles per side for a highway, `road-state.ts` / `feature-geometry.ts`).
+// `roadPavednessAt` is the SAME analytic test the GPU terrain pass paints from, so a
+// clean report here means "no building visibly sits under the road."
+
+export const buildingsOffRoadsRibbon: Contract = {
+  id: 'buildings.off-roads-ribbon',
+  level: 'world',
+  kind: 'invariant',
+  severity: 'error',
+  description: 'No building wall cell sits inside the rendered road ribbon (the analytic width the '
+    + 'GPU terrain pass paints, up to ~1.44 tiles beyond the bare centerline for a highway) — '
+    + 'placement must clear the ribbon, not just the 1-cell centerline tile-grid.',
+  evaluate(ctx) {
+    if (!ctx.map?.roadGraph) return [];
+    const geo = getRoadFeatureGeometry(ctx.map);
+    if (geo.segCount === 0) return [];
+    const out: Diagnostic[] = [];
+    for (const [entityId, cells] of buildingStructureCells(ctx.world)) {
+      const hits: { x: number; y: number }[] = [];
+      for (const key of cells) {
+        const ci = key.indexOf(',');
+        const x = Number(key.slice(0, ci)), y = Number(key.slice(ci + 1));
+        if (roadPavednessAt(geo, x, y) > 0) hits.push({ x, y });
+      }
+      if (hits.length === 0) continue;
+      out.push({
+        rule: 'buildings.off-roads-ribbon',
+        severity: 'error',
+        message: `building ${entityId} has ${hits.length} wall cell(s) inside the rendered road ribbon`,
+        locus: { entities: [entityId], tiles: hits.slice(0, 24) },
+        metrics: { cells: hits.length },
+      });
+    }
+    return out;
+  },
+};
+
+registerContract(buildingsOffRoadsRibbon);

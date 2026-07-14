@@ -62,6 +62,21 @@ const CLASS_RANK: Record<RoadClass, number> = { path: 0, track: 1, road: 2, high
  *  major road ≈ 4.4 m — narrower than the earlier values, which read as motorways. */
 const CLASS_HALF_WIDTH: Record<RoadClass, number> = { path: 0.35, track: 0.5, road: 0.8, highway: 1.1 };
 
+/** Construction multiplier at its ceiling (`0.85 + 0.3 * construction` with `construction` = 1) —
+ *  the WORST-CASE (widest) a class's carriageway ever gets. */
+const MAX_CONSTRUCTION_MULT = 1.15;
+
+/**
+ * The single authoritative WORST-CASE half-width (tiles) for a road class — the widest the
+ * rendered ribbon (`render/gpu/feature-geometry.ts`, `roadCrossSection().carriageHalf`) ever
+ * gets for this class, independent of any particular edge's live `construction`. Placement /
+ * occupancy code that must never plant a building where the ribbon COULD reach (not just where
+ * it happens to reach today) uses this instead of re-deriving `deriveRoadState`.
+ */
+export function maxCarriageHalfWidth(roadClass: RoadClass): number {
+  return CLASS_HALF_WIDTH[roadClass] * MAX_CONSTRUCTION_MULT;
+}
+
 /** Era → a 0..1 technology factor (primordial 0 … current 1) — engineering capability. */
 export function eraTech(era: Era): number {
   const i = ERAS.indexOf(era);
