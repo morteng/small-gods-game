@@ -298,7 +298,7 @@ export async function generateWithNoise(
   // tracks rivers + lakes but not the sea. In-bounds by construction; guard against
   // the rare id collision with a biome-brush entity on the same cell.
   await report('Dressing riverbanks...');
-  for (const e of buildRiparianEntities(hydrology, width, height, seed + 4242)) {
+  for (const e of buildRiparianEntities(hydrology, width, height, seed + 4242, biomeMap.biomes)) {
     if (!world.registry.has(e.id)) world.addEntity(e);
   }
 

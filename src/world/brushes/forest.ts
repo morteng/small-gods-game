@@ -22,6 +22,17 @@ const FOREST_PARAMS: import('./vegetation-placer').VegetationParams = {
   clumpScale: 5,
   undergrowth: undergrowthOf('forest'),
   openUndergrowth: 0.8,     // raised 0.35→0.8 (density pass): ferns/bramble fill clearings, not only tree shade
+  // TREELINE: broadleaf canopy is a LOWLAND cover — it thins out well below the
+  // conifer treeline, so the upper forest fringe reads as birch/pine then bare.
+  // (Forest tiles only classify below the 19 m mountain line, so these bands bite
+  // the cold upper-forest band before the rock brush takes over.)
+  altitude: {
+    'english-oak': { maxHeightM: 15, bandM: 6 },
+    'european-beech': { maxHeightM: 15, bandM: 6 },
+    'european-ash': { maxHeightM: 15, bandM: 6 },
+    'small-leaved-lime': { maxHeightM: 14, bandM: 5 },
+    'silver-birch': { maxHeightM: 19, bandM: 5 },   // hardy pioneer climbs higher
+  },
 };
 
 export function forestBrush(region: Region, seed: number, ctx: BrushContext): Entity[] {

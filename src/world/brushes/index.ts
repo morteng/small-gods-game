@@ -14,6 +14,9 @@ import './castle';
 import './dock';
 import './wilderness';
 import './grassland';
+import './desert';
+import './swamp';
+import './savanna';
 
 const BIOME_TO_BRUSH: Record<string, string | null> = {
   deep_ocean:          null,
@@ -27,11 +30,11 @@ const BIOME_TO_BRUSH: Record<string, string | null> = {
   temperate_grassland: 'scrubland',
   temperate_forest:    'forest',
   scrubland:           'scrubland',
-  tropical_grassland:  'scrubland',
-  savanna:             'scrubland',
-  tropical_forest:     'dense_forest',
-  desert:              'scrubland',
-  swamp:               'dense_forest',
+  tropical_grassland:  'savanna',   // warm grass sea — dry tussock, not temperate heath
+  savanna:             'savanna',
+  tropical_forest:     'dense_forest',   // deliberate cut: keeps temperate dense-forest pool for now
+  desert:              'desert',    // arid ecology (was scrubland → temperate thorns on sand)
+  swamp:               'swamp',     // wet ecology (was dense_forest → brush never fired)
   sacred_grove:        'sacred_grove',
 };
 

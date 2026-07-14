@@ -149,20 +149,81 @@ describe('riparian-scatter — interior boulders scale by local channel half-wid
   });
 });
 
-describe('riparian-scatter — lush bank ground cover (wetland undergrowth, dead-code reeds substitute)', () => {
+describe('riparian-scatter — lush bank ground cover', () => {
   const W = 5, H = 80, FLOW = 800, SEED = 99;
+  const GROUND = new Set(['heather', 'common-reed', 'carex-sedge']);
 
   it('places ground-layer entities from the wetland undergrowth pool on the bank rings, tagged waterPlaced', () => {
     const ents = buildRiparianEntities(riverColumn(W, H, 0.0, FLOW), W, H, SEED);
-    const ground = ents.filter((e) => e.kind === 'heather');
+    const ground = ents.filter((e) => GROUND.has(e.kind));
     expect(ground.length).toBeGreaterThan(0);
     expect(ground.every((e) => e.tags?.includes('waterPlaced'))).toBe(true);
     // Confined to the bank rings (dist 1-2 either side of the river column at x=1).
     expect(ground.every((e) => Math.floor(e.x) >= 0 && Math.floor(e.x) <= 3)).toBe(true);
   });
 
-  it('never places the art-less `reeds` kind (no parametric sprite — see BANK_UNDERGROWTH comment)', () => {
+  it('never places the art-less `reeds` placeholder kind — the real `common-reed` species carries the role', () => {
     const ents = buildRiparianEntities(riverColumn(W, H, 0.02, FLOW), W, H, SEED);
     expect(ents.some((e) => e.kind === 'reeds')).toBe(false);
+  });
+});
+
+describe('riparian-scatter — the bank assemblage is a function of the adjacent biome (WCV 97)', () => {
+  const W = 5, H = 120, FLOW = 800, SEED = 31;
+  const hydro = () => riverColumn(W, H, 0.0, FLOW);
+  /** Every cell tagged with one biome — the bank cells then all read that biome. */
+  const allBiome = (b: string): string[] => new Array(W * H).fill(b);
+  const kindsFor = (b: string | null): Set<string> =>
+    new Set(buildRiparianEntities(hydro(), W, H, SEED, b === null ? null : allBiome(b)).map((e) => e.kind));
+
+  it('a TEMPERATE bank keeps the willow gallery — and now gains common-alder in the pool', () => {
+    const k = kindsFor('temperate_forest');
+    expect([...k].some((x) => x === 'white-willow' || x === 'weeping-willow' || x === 'common-alder')).toBe(true);
+    expect(k.has('tamarisk')).toBe(false);
+  });
+
+  it('a DESERT bank is tamarisk + esparto, never willows', () => {
+    const k = kindsFor('desert');
+    expect([...k].some((x) => x === 'tamarisk' || x === 'esparto-grass')).toBe(true);
+    expect(k.has('white-willow')).toBe(false);
+    expect(k.has('weeping-willow')).toBe(false);
+  });
+
+  it('a SWAMP bank is reed/bulrush/sedge-heavy under alder', () => {
+    const k = kindsFor('swamp');
+    expect([...k].some((x) => x === 'common-reed' || x === 'bulrush' || x === 'carex-sedge')).toBe(true);
+    expect(k.has('tamarisk')).toBe(false);
+  });
+
+  it('a MOUNTAIN bank is sparse downy-birch, not a willow gallery', () => {
+    const k = kindsFor('mountain');
+    expect(k.has('weeping-willow')).toBe(false);
+    expect(k.has('tamarisk')).toBe(false);
+    // Sparse by design: fewer bank trees than the temperate reach on the same raster.
+    const trees = (b: string): number => buildRiparianEntities(hydro(), W, H, SEED, allBiome(b))
+      .filter((e) => e.kind === 'downy-birch' || e.kind === 'white-willow' || e.kind === 'weeping-willow'
+        || e.kind === 'black-poplar' || e.kind === 'weeping-ash' || e.kind === 'common-alder').length;
+    expect(trees('mountain')).toBeLessThan(trees('temperate_forest'));
+  });
+
+  it('desert / swamp / temperate banks emit genuinely DIFFERENT assemblages', () => {
+    const d = kindsFor('desert'), s = kindsFor('swamp'), t = kindsFor('temperate_forest');
+    expect([...d]).not.toEqual([...s]);
+    expect([...d]).not.toEqual([...t]);
+  });
+
+  it('INVARIANT: the STONE set is biome-INDEPENDENT — boulder-deformation re-derives it with no biome map', () => {
+    // `boulder-deformation.ts` re-runs this scatter WITHOUT biomes to settle each big bank
+    // boulder into a level pad; if a biome could shift the stone rolls the pads would drift
+    // off their rocks. Stones must be identical across every biome context, including null.
+    const stones = (b: string | null): string[] =>
+      buildRiparianEntities(hydro(), W, H, SEED, b === null ? null : allBiome(b))
+        .filter((e) => e.kind === 'granite-boulder' || e.kind === 'field-stone')
+        .map((e) => `${e.kind}@${e.x.toFixed(4)},${e.y.toFixed(4)}`);
+    const base = stones(null);
+    expect(base.length).toBeGreaterThan(0);
+    for (const b of ['temperate_forest', 'desert', 'swamp', 'mountain']) {
+      expect(stones(b)).toEqual(base);
+    }
   });
 });

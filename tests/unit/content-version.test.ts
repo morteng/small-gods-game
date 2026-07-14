@@ -6,7 +6,7 @@ describe('content-version constants', () => {
     expect(ART_RECIPE_VERSION).toBe('v32');
   });
 
-  it('declares the current world content version (97: gate/wall tile-exactness)', () => {
+  it('declares the current world content version (97: gate/bridge tile-exactness + biome ecology)', () => {
     expect(WORLD_CONTENT_VERSION).toBe(97);
   });
 });

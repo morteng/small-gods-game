@@ -22,20 +22,19 @@ describe('hills brush', () => {
     expect(hillsBrush({ x: 0, y: 0, w: 8, h: 8 }, 42, c)).toMatchSnapshot();
   });
   it('emits zero on non-hills tiles', () => {
-    // 'dirt' — a tile NO sub-brush covers (these brushes deliberately grass-cover
-    // 'grass'/'meadow'/'glen' tiles via placeGrassCover, so grass is not foreign).
+    // The alpine brush covers hills/mountain/peak/rocky ONLY — it no longer drapes the
+    // temperate grassland pool over its grass tiles (upland grass is tussock, not meadow).
     expect(hillsBrush({ x: 0, y: 0, w: 2, h: 2 }, 1, ctx([['dirt','dirt'],['dirt','dirt']]))).toEqual([]);
+    expect(hillsBrush({ x: 0, y: 0, w: 2, h: 2 }, 1, ctx([['grass','grass'],['grass','grass']]))).toEqual([]);
   });
   it('also fires on mountain tile type', () => {
     const c = ctx(Array.from({ length: 8 }, () => Array(8).fill('mountain')));
     const out = hillsBrush({ x: 0, y: 0, w: 8, h: 8 }, 11, c);
     expect(out.length).toBeGreaterThan(0);
   });
-  it('only emits allowed kinds', () => {
-    // tussock-grass replaced the billboard-only grass_tuft; the grassland
-    // ground-cover pass adds meadow species on any grass/meadow tiles in range.
-    const allowed = new Set(['boulder', 'rock_pile', 'tussock-grass', 'oxeye-daisy',
-      'common-poppy', 'foxglove', 'common-hawthorn', 'gorse', 'field-stone']);
+  it('only emits allowed kinds — the alpine rock vocabulary + tussock + hardy dwarf shrubs', () => {
+    const allowed = new Set(['tussock-grass', 'rock_pile', 'boulder', 'pebbles',
+      'standing_stone', 'heather', 'common-juniper', 'gorse']);
     const c = allHills(16, 16);
     for (const e of hillsBrush({ x: 0, y: 0, w: 16, h: 16 }, 3, c)) {
       expect(allowed.has(e.kind)).toBe(true);

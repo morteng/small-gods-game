@@ -1,6 +1,19 @@
 import { noise, smoothNoise } from '@/core/noise';
 import { defaultEntity } from '@/world/brush-helpers';
+import { getHeightfield, ELEVATION_SEA_LEVEL } from '@/world/heightfield';
+import { styledIslandSpec } from '@/terrain/island-mask';
+import { styledShapeSpec } from '@/terrain/terrain-shape';
+import { worldStyleOf } from '@/core/world-style';
 import type { Entity, Region, BrushContext } from '@/core/types';
+
+/** A species' altitude ceiling (metres above sea) with a smooth thinning band —
+ *  the TREELINE lever. Acceptance is 1 below `maxHeightM - bandM`, fades linearly
+ *  to 0 at `maxHeightM`, and is 0 above: a species peters out toward its limit
+ *  instead of stopping at a hard contour. `bandM` defaults to 15% of `maxHeightM`. */
+export interface AltitudeBand {
+  maxHeightM: number;
+  bandM?: number;
+}
 
 export interface VegetationParams {
   /** Brush name for entity ID generation */
@@ -45,6 +58,24 @@ export interface VegetationParams {
    * clearings or open ground.
    */
   openUndergrowth?: number;
+  /**
+   * Per-kind TREELINE bands (metres above sea): a primary kind listed here thins
+   * out as the cell's altitude climbs toward its ceiling (see {@link AltitudeBand}).
+   * Trees carry a ceiling so broadleaf stays low and conifers fade toward the
+   * treeline; tussock/rocks/alpine shrubs are omitted (they grow at any altitude).
+   * When present, the per-cell height is read once from the world heightfield —
+   * seed-deterministic, so placement stays pure.
+   */
+  altitude?: Record<string, AltitudeBand>;
+}
+
+/** Smooth treeline acceptance in [0,1] for a cell height against a species band. */
+function altitudeAccept(heightM: number, band: AltitudeBand): number {
+  const bandM = band.bandM ?? band.maxHeightM * 0.15;
+  const lo = band.maxHeightM - Math.max(0.01, bandM);
+  if (heightM <= lo) return 1;
+  if (heightM >= band.maxHeightM) return 0;
+  return (band.maxHeightM - heightM) / (band.maxHeightM - lo);
 }
 
 /**
@@ -98,6 +129,18 @@ export function placeVegetation(
   const density = params.density * floraDensity;
   const openUndergrowth = Math.min(1, (params.openUndergrowth ?? 0) * floraDensity);
 
+  // TREELINE: fetch the seed-deterministic base heightfield ONCE (memoised) so a
+  // per-species altitude ceiling can thin canopy toward the treeline. Skipped when
+  // no band is declared (zero cost) or on the flat studio ground (no real relief).
+  const m = ctx.tiles;
+  const useAltitude = !!params.altitude && !m.flatHeight;
+  const heightField = useAltitude
+    ? getHeightfield(m.seed, m.width, m.height, styledIslandSpec(m.worldSeed), m.worldSeed?.pois ?? null, styledShapeSpec(m.worldSeed))
+    : null;
+  const reliefM = useAltitude ? worldStyleOf(m.worldSeed).mountainRelief : 0;
+  const heightMAt = (x: number, y: number): number =>
+    heightField ? (heightField[y * m.width + x] - ELEVATION_SEA_LEVEL) * reliefM : 0;
+
   for (let y = region.y; y < yEnd; y++) {
     for (let x = region.x; x < xEnd; x++) {
       const tile = ctx.tiles.tiles[y]?.[x];
@@ -117,9 +160,17 @@ export function placeVegetation(
       for (let i = 0; i < maxPerTile; i++) {
         const s = seed + i * 101;
         if (hash01(x, y, s) >= perSlot) continue;
-        placedPrimary = true;
 
         const kind = pickWeighted(hash01(x, y, s + 1), params.kinds);
+        // Treeline: a species with an altitude band thins as the cell climbs toward
+        // its ceiling — a second decorrelated roll fades the slot out smoothly.
+        const band = params.altitude?.[kind];
+        if (band) {
+          const accept = altitudeAccept(heightMAt(x, y), band);
+          if (accept < 1 && hash01(x, y, s + 8) >= accept) continue;
+        }
+        placedPrimary = true;
+
         const fx = cellFrac(hash01(x, y, s + 3), params.offsetRange[0]);
         const fy = cellFrac(hash01(x, y, s + 4), params.offsetRange[1]);
         const scale = params.scaleRange[0] + hash01(x, y, s + 5) * (params.scaleRange[1] - params.scaleRange[0]);

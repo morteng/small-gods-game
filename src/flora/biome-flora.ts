@@ -107,14 +107,76 @@ export const BIOME_FLORA: Readonly<Record<string, FloraPool>> = {
   /** Riparian/wetland margins (swamp tiles, water-adjacent coastal). */
   wetland: {
     canopy: [
-      ['white-willow', 0.42],
-      ['weeping-willow', 0.3],
-      ['downy-birch', 0.13],
-      ['black-poplar', 0.15],
-      ['weeping-ash', 0.1],
+      ['white-willow', 0.36],
+      ['weeping-willow', 0.26],
+      ['common-alder', 0.16],   // the classic wet-woodland riverbank tree
+      ['downy-birch', 0.11],
+      ['black-poplar', 0.12],
+      ['weeping-ash', 0.08],
     ],
     undergrowth: [
-      ['heather', 1.0, 0.07],         // raised 0.04→0.07 (~1.75x, density pass)
+      ['common-reed', 0.4, 0.14],   // reedbeds fringe the wet margin
+      ['carex-sedge', 0.3, 0.10],
+      ['heather', 0.3, 0.05],
+    ],
+  },
+  /** Alpine dwarf-shrub layer — the hardy heath/scrub that survives above the
+   *  treeline on mountain/rocky/hills ground. The hills brush pairs this with its
+   *  own rock + tussock vocabulary (rocks aren't flora-DB species). */
+  alpine: {
+    canopy: [
+      ['heather', 0.5],
+      ['common-juniper', 0.32],   // prostrate montane juniper
+      ['gorse', 0.18],
+    ],
+    undergrowth: [
+      ['heather', 0.6, 0.18],
+      ['common-juniper', 0.4, 0.12],
+    ],
+  },
+  /** Hot arid ground — mostly BARE (deserts read empty). Sparse salt-tolerant
+   *  shrubs + esparto tussocks clumped around nothing in particular, the odd thistle. */
+  desert: {
+    canopy: [
+      ['esparto-grass', 0.44],
+      ['tamarisk', 0.2],
+      ['white-wormwood', 0.18],
+      ['common-juniper', 0.1],    // a lone juniper on rockier ground
+      ['cotton-thistle', 0.08],
+    ],
+    undergrowth: [
+      ['white-wormwood', 0.6, 0.05],
+      ['cotton-thistle', 0.4, 0.03],
+    ],
+  },
+  /** Wet lowland (swamp/fen) — alder + willow + downy-birch canopy over dense
+   *  reed/bulrush/sedge near standing water. */
+  swamp: {
+    canopy: [
+      ['common-alder', 0.34],
+      ['white-willow', 0.22],
+      ['weeping-willow', 0.2],
+      ['downy-birch', 0.14],
+      ['black-poplar', 0.1],
+    ],
+    undergrowth: [
+      ['common-reed', 0.4, 0.28],
+      ['bulrush', 0.3, 0.18],
+      ['carex-sedge', 0.3, 0.16],
+    ],
+  },
+  /** Tropical/temperate savanna — dry grass sea with very sparse thorn scrub
+   *  (differentiates the warm grasslands from temperate hedgerow scrub). */
+  savanna: {
+    canopy: [
+      ['tussock-grass', 0.62],
+      ['esparto-grass', 0.2],
+      ['common-hawthorn', 0.1],   // the lone thorn tree of the grass sea
+      ['blackthorn', 0.08],
+    ],
+    undergrowth: [
+      ['cotton-thistle', 0.5, 0.04],
+      ['common-poppy', 0.5, 0.04],
     ],
   },
 };

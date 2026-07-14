@@ -19,8 +19,13 @@ describe('brush dispatch', () => {
     expect(brushForBiome('scrubland')).toBe('scrubland');
     expect(brushForBiome('beach')).toBe('coastal');
     expect(brushForBiome('mountain')).toBe('hills');
-    expect(brushForBiome('savanna')).toBe('scrubland');
     expect(brushForBiome('tundra')).toBe('hills');
+    // WCV 97 — the arid / wet / warm-grass biomes got their own ecology brushes
+    // (desert and swamp used to borrow scrubland and dense_forest respectively).
+    expect(brushForBiome('savanna')).toBe('savanna');
+    expect(brushForBiome('tropical_grassland')).toBe('savanna');
+    expect(brushForBiome('desert')).toBe('desert');
+    expect(brushForBiome('swamp')).toBe('swamp');
   });
 
   it('brushForBiome returns null for ocean biomes', () => {

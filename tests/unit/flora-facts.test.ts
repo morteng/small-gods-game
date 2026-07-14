@@ -89,9 +89,9 @@ describe('deriveGenParams', () => {
 });
 
 describe('curated fact-DB integrity', () => {
-  it('has a healthy curated core (20–40 species)', () => {
+  it('has a healthy curated core (20–55 species)', () => {
     expect(FLORA_FACTS.length).toBeGreaterThanOrEqual(20);
-    expect(FLORA_FACTS.length).toBeLessThanOrEqual(40);
+    expect(FLORA_FACTS.length).toBeLessThanOrEqual(55);
   });
   it('ids are unique kebab-case slugs', () => {
     const ids = FLORA_FACTS.map(s => s.id);
