@@ -45,6 +45,24 @@ function matOf(ctx: CompileCtx): Mat {
   return WALL_MAT[ctx.materials.walls] ?? 'stone';
 }
 
+/** Masonry/timber coursing for the flight body (steps + nosing + blocks): a dressed flight
+ *  reads as ashlar, a cut-stone one as coursed rubble, a rough scramble as random rubble;
+ *  a timber flight is boarded. Feeds the analytic surface engine (per-stone tone + relief) so
+ *  the banded lighting has real coursing to shade instead of one flat grey face — the material
+ *  channel does the variation, no lighting is painted into the albedo. */
+function stairWork(mat: Mat, construction: number): string {
+  if (mat === 'timber') return 'plank';
+  if (mat === 'brick') return 'running';
+  // Dressed + cut-stone flights read cleaner as regular ashlar coursing (irregular rubble
+  // patterns alias into scribble on the small tread faces); only a rough scramble is rubble.
+  return construction >= 0.34 ? 'ashlar' : 'random_rubble';
+}
+/** Dressed flanking work for the side cheeks — a stringer/parapet is dressed even when the
+ *  treads are rough (coursed stone flank beside rubble steps; a vertical-board timber stringer). */
+function cheekWork(mat: Mat): string {
+  return mat === 'timber' ? 'plank_v' : mat === 'brick' ? 'running' : 'ashlar';
+}
+
 /** Step offset per tread along the climb axis (local tiles, signed) for a direction. */
 function axis(dir: Dir): { ax: 0 | 1; sign: 1 | -1 } {
   switch (dir) {
@@ -79,45 +97,108 @@ export const stairFlightPartType: PartType = {
   toPrims(p, ctx): Prim[] {
     const { treads, riserM, runM } = stairTreads(p.params as never);
     const mat = matOf(ctx);
+    const construction = clamp01((p.params.construction as number) ?? 0.5);
     const widthTiles = mToTiles((p.params.widthM as number) ?? 2);
     const runTiles = mToTiles(runM);
     const { ax, sign } = axis((p.params.dir as Dir) ?? 'south');
+    const work = stairWork(mat, construction);
     const out: Prim[] = [];
 
-    // Origin: when climbing toward -axis, anchor at the far edge so steps march inward.
-    const baseX = p.at.x;
-    const baseY = p.at.y;
+    const baseX = p.at.x, baseY = p.at.y;
     const spanTiles = treads * runTiles;
-    const startAlong = sign > 0 ? 0 : spanTiles;  // local along-axis start of tread 0
 
-    for (let i = 0; i < treads; i++) {
-      const stepTopTiles = mToTiles((i + 1) * riserM);   // solid step rises from ground
-      const a0 = startAlong + sign * (i * runTiles) - (sign < 0 ? runTiles : 0);
+    // One AABB in the flight's (along = climb axis, cross = width axis) frame → a world box.
+    // Keeps every part below coordinate-frame-agnostic; only this helper knows the dir mapping.
+    const box = (
+      along0: number, alongLen: number, cross0: number, crossLen: number,
+      z0: number, zTop: number, w: string, src: string,
+    ): void => {
+      const h = Math.max(1e-4, zTop - z0);
       const at: [number, number, number] = ax === 1
-        ? [baseX, baseY + a0, 0]
-        : [baseX + a0, baseY, 0];
+        ? [baseX + cross0, baseY + along0, z0]
+        : [baseX + along0, baseY + cross0, z0];
       const size: [number, number, number] = ax === 1
-        ? [widthTiles, runTiles, stepTopTiles]
-        : [runTiles, widthTiles, stepTopTiles];
-      out.push({ prim: 'box', at, size, material: mat });
+        ? [crossLen, alongLen, h]
+        : [alongLen, crossLen, h];
+      out.push({ prim: 'box', at, size, material: mat, work: w, srcId: src });
+    };
+
+    const treadTop = (i: number) => mToTiles((i + 1) * riserM);
+    const topZ = treadTop(treads - 1);
+    // Each step's smaller-along edge (sign>0 → climbs toward +along; sign<0 → toward −along).
+    const stepLo = (i: number) => (sign > 0 ? i * runTiles : spanTiles - (i + 1) * runTiles);
+    // The step's foot-facing (downhill) edge — where its exposed riser drops toward the foot.
+    const faceEdge = (i: number) => (sign > 0 ? i * runTiles : spanTiles - i * runTiles);
+
+    // 1. STEPS — a solid coursed block per tread, grade → its tread top (full walking width).
+    for (let i = 0; i < treads; i++) box(stepLo(i), runTiles, 0, widthTiles, 0, treadTop(i), work, 'flight');
+
+    // 2. NOSING — a slightly proud lip at each tread's leading edge, overhanging the riser below.
+    //    Its top face catches the band (a ~1–2 px highlight edge per step); its overhang shades
+    //    the riser beneath (AO), so the step rhythm reads even at native zoom. Skipped on a rough
+    //    scramble (no dressed nosing on hewn boulders).
+    if (construction >= 0.2) {
+      const noseProj = mToTiles(0.075), noseDrop = mToTiles(0.075), noseRaise = mToTiles(0.02);
+      for (let i = 0; i < treads; i++) {
+        const e = faceEdge(i);
+        const along0 = sign > 0 ? e - noseProj : e;
+        box(along0, noseProj, 0, widthTiles, treadTop(i) - noseDrop, treadTop(i) + noseRaise, work, 'flight/nose');
+      }
     }
 
+    // 3. SIDE CHEEKS — solid coursed flanks running the full climb so the flight has mass instead
+    //    of floating steps. A dressed/cut stone or any timber flight gets them; a rough scramble
+    //    keeps its bare hewn steps. A railed side (`railing`) grows its cheek into a raking parapet
+    //    (masonry) or keeps a low stringer under timber balusters; an unrailed side stays a low
+    //    stringer just proud of the treads.
     const railing = (p.params.railing as string) ?? 'none';
-    if (railing !== 'none') {
-      const postR = mToTiles(0.06);
-      const postH = mToTiles(0.95);
-      const sides = railing === 'both' ? [0, 1] : [1];  // 'one' = the +cross side
-      const crossLen = widthTiles;
-      // A post roughly every 1.2 m of run, riding each tread top.
+    const railSides = railing === 'both' ? [0, 1] : railing === 'one' ? [1] : [];
+    const hasCheeks = mat === 'timber' || construction >= 0.34;
+    const cheekW = mToTiles(0.34);
+    const stringerFree = mToTiles(0.15), parapetFree = mToTiles(0.85);
+    const cw = cheekWork(mat);
+    if (hasCheeks) {
+      for (const s of [0, 1]) {
+        const cross0 = s === 0 ? -cheekW : widthTiles;
+        const railed = railSides.includes(s);
+        const parapet = railed && mat !== 'timber';           // masonry parapet vs low stringer
+        const free = parapet ? parapetFree : stringerFree;
+        const src = parapet ? 'flight/rail' : 'flight/cheek';
+        for (let i = 0; i < treads; i++) box(stepLo(i), runTiles, cross0, cheekW, 0, treadTop(i) + free, cw, src);
+      }
+    }
+
+    // 4. FOOT & HEAD BLOCKS — a low plinth seating the flight into the ground at its foot, and a
+    //    coping at the head tucking into the slope it climbs, so the flight reads as built INTO
+    //    the terrain rather than floating on it.
+    const outerCross0 = hasCheeks ? -cheekW : 0;
+    const outerCrossLen = widthTiles + (hasCheeks ? 2 * cheekW : 0);
+    {
+      const footProj = mToTiles(0.24), footH = mToTiles(0.34), footInset = runTiles * 0.6;
+      const footEnd = sign > 0 ? 0 : spanTiles;
+      const along0 = sign > 0 ? footEnd - footProj : footEnd - footInset;
+      box(along0, footProj + footInset, outerCross0, outerCrossLen, 0, footH, work, 'flight/foot');
+    }
+    {
+      const headProj = mToTiles(0.20), copeDrop = mToTiles(0.12), headInset = runTiles * 0.5;
+      const headEnd = sign > 0 ? spanTiles : 0;
+      const along0 = sign > 0 ? headEnd - headInset : headEnd - headProj;
+      box(along0, headProj + headInset, outerCross0, outerCrossLen, topZ - copeDrop, topZ, work, 'flight/head');
+    }
+
+    // 5. TIMBER BALUSTERS — a wooden flight's railing is upright posts riding the stringer (a stone
+    //    flight uses its raised parapet instead). Roughly one post per 1.2 m of run.
+    if (mat === 'timber' && railSides.length) {
+      const postR = mToTiles(0.055), postH = mToTiles(0.85);
       const everyTreads = Math.max(1, Math.round(mToTiles(1.2) / runTiles));
-      for (let i = 0; i < treads; i += everyTreads) {
-        const along = startAlong + sign * (i * runTiles) - (sign < 0 ? runTiles : 0) + sign * runTiles / 2;
-        const z = mToTiles((i + 1) * riserM);
-        for (const s of sides) {
-          const cross = s === 0 ? 0 : crossLen;
-          const cx = ax === 1 ? baseX + cross : baseX + along;
-          const cy = ax === 1 ? baseY + along : baseY + cross;
-          out.push({ prim: 'cylinder', center: [cx, cy], baseZ: z, radius: postR, height: postH, material: mat });
+      for (const s of railSides) {
+        const crossC = s === 0 ? -cheekW / 2 : widthTiles + cheekW / 2;
+        for (let i = 0; i < treads; i += everyTreads) {
+          const alongC = stepLo(i) + runTiles / 2;
+          const z = treadTop(i) + stringerFree;
+          const cx = ax === 1 ? baseX + crossC : baseX + alongC;
+          const cy = ax === 1 ? baseY + alongC : baseY + crossC;
+          out.push({ prim: 'cylinder', center: [cx, cy], baseZ: z, radius: postR, height: postH, material: mat, srcId: 'flight/post' });
         }
       }
     }

@@ -32,36 +32,59 @@ export interface StairOpts {
   work?: string;
 }
 
-/** Build a straight stone flight climbing to `walkZ`, its foot at world (cx,cy). Reads as a solid
- *  coursed stair: a continuous ramp stringer under GENEROUS treads (each a full-height block to its
- *  going), so at game zoom it is unmistakably a flight — not the old ~0.2-tile rubble steps. */
+/** Build a straight stone flight climbing to `walkZ`, its foot at world (cx,cy). Reads as a built
+ *  coursed stair: every tread is exposed (each a full-height block to grade), a proud nosing lip
+ *  beads each step's leading edge (highlight over a shaded riser, so the rhythm reads at game
+ *  zoom), coursed stringer cheeks flank the flight for mass, and a plinth seats the foot into the
+ *  ground. Coursing + banded lighting do the shading — no lighting is painted into the albedo. */
 export function stairSpec(opts: StairOpts, cx = 0, cy = 0): StairSpec {
   const mat: Mat = opts.material ?? 'stone';
   const work = opts.work;
+  const cheekWork = mat === 'stone' || mat === 'brick' ? 'ashlar' : work;   // dressed flanks
   const [dx, dy] = opts.dir;
   const [ix, iy] = opts.inward;
   const yaw = (Math.atan2(dy, dx) * 180) / Math.PI;    // box yaw is about its own centre
   const target = Math.max(mToTiles(1.0), opts.walkZ);
-  const rise = mToTiles(0.7);                           // step rise (~1.4 m) — fewer, chunkier steps
-  const tread = mToTiles(0.62);                         // step going (~1.25 m inward depth per step)
+  const rise = mToTiles(0.36);                          // step rise (~0.72 m) — a readable mural step
+  const tread = mToTiles(0.48);                         // step going (~0.96 m inward depth per step)
   const width = mToTiles(1.7);                          // flight width along the wall
-  const n = Math.max(2, Math.ceil(target / rise));
+  const cheekW = mToTiles(0.32);                        // flanking stringer width
+  const stringerFree = mToTiles(0.16);                 // cheek stands this far proud of each tread
+  const noseProj = mToTiles(0.08), noseDrop = mToTiles(0.08), noseRaise = mToTiles(0.02);
+  const n = Math.max(3, Math.ceil(target / rise));
   const topInset = opts.thickness / 2;                 // top step meets the inner wall face
-  const box = (ax: number, ay: number, w: number, d: number, h: number): Part =>
-    ({ prim: 'box', at: [ax, ay, 0], size: [w, d, h], material: mat, yaw, ...(work ? { work } : {}) });
+
+  // A box centred at world (cx+dir·u+inward·v), sized `wDir` along the wall × `dInward` inward ×
+  // `h` tall from `z0`, yawed with the wall. u/v are the along-wall + inward offsets in tiles.
+  const box = (u: number, v: number, wDir: number, dInward: number, z0: number, h: number, wk?: string, src?: string): Part => {
+    const px = cx + dx * u + ix * v, py = cy + dy * u + iy * v;
+    return { prim: 'box', at: [px - wDir / 2, py - dInward / 2, z0], size: [wDir, dInward, h], material: mat, yaw,
+      ...(wk ? { work: wk } : {}), ...(src ? { srcId: src } : {}) };
+  };
+  // Inward distance of step i's centre. i=0 (shortest) foots FARTHEST inward; the flight climbs
+  // toward the wall, so the tallest step (i=n-1) meets the inner face at `topInset`.
+  const distOf = (i: number) => topInset + (n - 1 - i) * tread;
+  const topOf = (i: number) => (i + 1) * (target / n);
 
   const parts: Part[] = [];
-  const runDepth = topInset + n * tread;               // total inward footprint of the flight
-  // Solid stringer ramp: a continuous half-height mass under the whole flight so the steps sit on a
-  // built stair, not floating stones. Centred over the run, from grade up to ~half the climb.
-  const rampMid = topInset + runDepth / 2 - tread / 2;
-  parts.push(box(cx + ix * rampMid - width / 2, cy + iy * rampMid - runDepth / 2, width, runDepth, target * 0.5));
+  // 1. STEPS — a solid coursed block per tread, grade → its tread top.
+  for (let i = 0; i < n; i++) parts.push(box(0, distOf(i), width, tread, 0, topOf(i), work, 'stair'));
+  // 2. NOSING — a proud lip at each tread's downhill (inward-facing) edge: its top beads the light,
+  //    its overhang shades the riser below (AO), so each step separates cleanly.
   for (let i = 0; i < n; i++) {
-    const z = (i + 1) * (target / n);                  // this step's top height
-    // Bottom step (i=0) sits FARTHEST inward; the flight climbs toward the wall, top step at it.
-    const dist = topInset + (n - 1 - i) * tread;
-    const sx = cx + ix * dist, sy = cy + iy * dist;    // step centre (world)
-    parts.push(box(sx - width / 2, sy - tread / 2, width, tread, z));
+    const z = topOf(i);
+    parts.push(box(0, distOf(i) + tread / 2 + noseProj / 2, width, noseProj, z - noseDrop, noseDrop + noseRaise, work, 'stair/nose'));
   }
+  // 3. STRINGER CHEEKS — a coursed flank each side, stepping up with the flight, standing proud of
+  //    the treads so the stair has mass instead of floating steps.
+  for (const s of [-1, 1]) {
+    const u = s * (width / 2 + cheekW / 2);
+    for (let i = 0; i < n; i++) parts.push(box(u, distOf(i), cheekW, tread, 0, topOf(i) + stringerFree, cheekWork, 'stair/cheek'));
+  }
+  // 4. FOOT PLINTH — a low block seating the flight's foot into the ground (spans the cheeks).
+  const footProj = mToTiles(0.26), footH = mToTiles(0.32);
+  const footV = distOf(0);
+  parts.push(box(0, footV + footProj / 2, width + 2 * cheekW, tread + footProj, 0, footH, work, 'stair/foot'));
+
   return { parts, mountAnchors: [{ kind: 'lintel', x: cx, y: cy, facing: [0, 0], z: 0 }] };
 }
