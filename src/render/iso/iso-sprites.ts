@@ -115,6 +115,7 @@ export function plantSpriteItemFromPack(
   o: { originX: number; originY: number }, pack: import('./sprite-canvas').SpritePack, x: number, y: number,
   buryFrac = 0,
   noShadow = false,
+  whiten = 0,
 ): DrawItem {
   const { sx, sy } = worldToScreen(x, y, 0, o.originX, o.originY);
   const src = pack.albedo;
@@ -137,6 +138,12 @@ export function plantSpriteItemFromPack(
   // Ground-cover habits (grass/herb/fern) skip the cast-shadow pass — see
   // `isGroundCoverKind` / DrawItem.noShadow.
   if (noShadow) item.noShadow = true;
+  // Per-instance variety without fractional scaling (pixel-perfect rule): a seeded
+  // horizontal MIRROR. Plants/rocks carry no text or handed authored features, so a
+  // flip is free variety; foot anchor and native size are untouched.
+  if (plantMirror(x, y)) item.mirror = true;
+  // Alpine whiten (snow-mask driven) — the lit shader settles snow on up-facing texels.
+  if (whiten > 0) item.whiten = Math.min(1, whiten);
   if (buryPx > 0) item.frame = { sx: 0, sy: 0, sw: w, sh: visH };   // keep the TOP visH rows
   if (pack.shadow) {
     item.shadowSprite = { src: pack.shadow.canvas, dx: pack.shadow.dx, dy: pack.shadow.dy };
@@ -162,6 +169,13 @@ function posHash01(x: number, y: number): number {
   let h = Math.imul((Math.trunc(x * 97) * 374761393) ^ (Math.trunc(y * 71) * 668265263), 1274126177) >>> 0;
   h ^= h >>> 15; h = Math.imul(h, 2246822519) >>> 0; h ^= h >>> 13;
   return (h >>> 0) / 4294967296;
+}
+
+/** Deterministic horizontal-mirror pick for a plant/rock instance — stable per world
+ *  position (same hash family as the bury depth, offset inputs so the two don't
+ *  correlate). Exported for the determinism guard test. */
+export function plantMirror(x: number, y: number): boolean {
+  return posHash01(x + 31.7, y + 17.3) < 0.5;
 }
 
 /**

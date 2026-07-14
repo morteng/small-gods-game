@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { artBillboardItem, plantSpriteItemFromPack, natureBuryFrac } from '@/render/iso/iso-sprites';
+import { artBillboardItem, plantSpriteItemFromPack, natureBuryFrac, plantMirror } from '@/render/iso/iso-sprites';
 import type { SpritePack } from '@/render/iso/sprite-canvas';
 
 /** Minimal pack: only .albedo width/height are read by the bury path. */
@@ -52,5 +52,59 @@ describe('plantSpriteItemFromPack — rock bury (R5)', () => {
     expect(b).toBeLessThanOrEqual(0.20);
     expect(natureBuryFrac('boulder', 12, 7)).toBe(b);   // stable per position
     expect(natureBuryFrac('english-oak', 12, 7)).toBe(0);   // a tree does not bury here
+  });
+});
+
+describe('plantSpriteItemFromPack — seeded mirror + snow whiten (alpine fidelity)', () => {
+  const o = { originX: 0, originY: 0 };
+  const item = (x: number, y: number, whiten = 0) => {
+    const it = plantSpriteItemFromPack(o, pack(40, 40), x, y, 0, false, whiten);
+    if (it.t !== 'image') throw new Error('expected image');
+    return it;
+  };
+
+  it('the mirror is DETERMINISTIC: an instance at the same spot always flips the same way', () => {
+    for (const [x, y] of [[0, 0], [12, 7], [3.5, 91], [-4, 200]] as const) {
+      const m = plantMirror(x, y);
+      expect(plantMirror(x, y)).toBe(m);                 // stable across calls
+      expect(item(x, y).mirror ?? false).toBe(m);        // …and the draw item agrees
+    }
+  });
+
+  it('it is real variety, not a constant (both flips occur across a population)', () => {
+    let flipped = 0;
+    for (let i = 0; i < 400; i++) if (plantMirror(i % 20, Math.floor(i / 20))) flipped++;
+    expect(flipped).toBeGreaterThan(50);
+    expect(flipped).toBeLessThan(350);
+  });
+
+  it('mirroring is a FLAG only — native size and foot anchor are untouched (no scaling)', () => {
+    // Two tiles on the same ISO row (constant x+y → same screen y) that flip differently:
+    // the sprite geometry must match (the flip lives in the UV rect / shader, not the blit).
+    const SUM = 12;
+    const xs = Array.from({ length: SUM + 1 }, (_, i) => i);
+    const flipped = xs.find(x => plantMirror(x, SUM - x));
+    const plain = xs.find(x => !plantMirror(x, SUM - x));
+    expect(flipped).toBeDefined();
+    expect(plain).toBeDefined();
+
+    const a = item(flipped!, SUM - flipped!), b = item(plain!, SUM - plain!);
+    expect(a.mirror).toBe(true);
+    expect(b.mirror).toBeUndefined();
+    for (const it of [a, b]) {
+      expect(it.dw).toBe(40);        // native size (1 src px == 1 screen px)
+      expect(it.dh).toBe(40);
+    }
+    expect(a.dy).toBe(b.dy);         // same iso row → same foot line, flip or not
+    expect(a.dy + a.dh).toBe(b.dy + b.dh);
+  });
+
+  it('whiten 0 leaves the item untouched (byte-identical output for the unsnowed world)', () => {
+    expect(item(12, 7, 0).whiten).toBeUndefined();
+  });
+
+  it('whiten passes through and clamps to 1', () => {
+    expect(item(12, 7, 0.4).whiten).toBe(0.4);
+    expect(item(12, 7, 3).whiten).toBe(1);
   });
 });

@@ -32,6 +32,29 @@ const footprintCells = (p: { at: { x: number; y: number }; size: { w: number; h:
   return cells;
 };
 
+type Limb = { a: [number, number, number]; b: [number, number, number]; r0: number; r1: number };
+
+/** How far a bare crown's terminal limbs grow past their leafy length (fraction of
+ *  each tip limb's own length) — reads as fine winter twigs, not a pruned stump. */
+const BARE_TIP_EXTEND = 0.22;
+
+/** Extend TERMINAL limbs (no child limb starts at their b end) for the bare crown.
+ *  Tips are found by hashing quantized endpoints — O(n), deterministic. */
+function extendBareTips(limbs: Limb[]): Limb[] {
+  const q = (v: [number, number, number]): string =>
+    `${Math.round(v[0] * 512)},${Math.round(v[1] * 512)},${Math.round(v[2] * 512)}`;
+  const starts = new Set(limbs.map(l => q(l.a)));
+  return limbs.map(l => {
+    if (starts.has(q(l.b))) return l;
+    const b: [number, number, number] = [
+      l.b[0] + (l.b[0] - l.a[0]) * BARE_TIP_EXTEND,
+      l.b[1] + (l.b[1] - l.a[1]) * BARE_TIP_EXTEND,
+      l.b[2] + (l.b[2] - l.a[2]) * BARE_TIP_EXTEND,
+    ];
+    return { ...l, b };
+  });
+}
+
 const BRIEF: Record<FloraRecipeName, string> = {
   oak: 'a broad branching oak with a spreading leafy crown',
   pine: 'a tall conical pine with whorled evergreen branches',
@@ -63,11 +86,14 @@ export const branchPlantPartType: PartType = {
     trunkR: { kind: 'number', min: 0.02, max: 0.5, default: 0.16 },
     /** Flower-head tint, packed 0xRRGGBB (0 = none) — recolours the leaf whorl. */
     petalTint: { kind: 'number', min: 0, max: 0xffffff, default: 0 },
+    /** 1 = BARE crown (alpine/winter): same skeleton, leaves dropped, twig tips
+     *  extended a touch. Selected by the render layer's snow-mask variant. */
+    bare: { kind: 'number', min: 0, max: 1, default: 0 },
     seed: { kind: 'number', default: 0 },
   },
   resolve: (part, ctx) => ({
     params: {
-      generator: 'proctree', recipe: 'oak', crownShape: 'rounded', heightM: 10, trunkR: 0.16, petalTint: 0,
+      generator: 'proctree', recipe: 'oak', crownShape: 'rounded', heightM: 10, trunkR: 0.16, petalTint: 0, bare: 0,
       ...(part.params ?? {}),
       // Bake the blueprint seed in so toPrims (which has no ctx.seed) is deterministic.
       // A 0 param-seed is the schema-default SENTINEL (validateParams fills it before we
@@ -86,10 +112,14 @@ export const branchPlantPartType: PartType = {
     const baseRadius = (p.params.trunkR as number) * k;
     const rng = createRng((p.params.seed as number) >>> 0);
     const skel = buildFlora({ generator, recipe, crownShape, heightTiles, baseRadius, rng });
+    const bare = ((p.params.bare as number) ?? 0) > 0;
     // Offset the skeleton (built at origin) to the part's footprint centre.
     const cx = p.at.x + p.size.w / 2, cy = p.at.y + p.size.h / 2;
-    const limbs = skel.limbs.map(l => ({ a: [l.a[0] + cx, l.a[1] + cy, l.a[2]] as [number, number, number], b: [l.b[0] + cx, l.b[1] + cy, l.b[2]] as [number, number, number], r0: l.r0, r1: l.r1 }));
-    const leaves = skel.leaves.map(lf => ({ at: [lf.at[0] + cx, lf.at[1] + cy, lf.at[2]] as [number, number, number], r: lf.r }));
+    let limbs = skel.limbs.map(l => ({ a: [l.a[0] + cx, l.a[1] + cy, l.a[2]] as [number, number, number], b: [l.b[0] + cx, l.b[1] + cy, l.b[2]] as [number, number, number], r0: l.r0, r1: l.r1 }));
+    // BARE crown (alpine/winter variant): same skeleton, leaves dropped; terminal
+    // limbs extended a touch so the crown reads as fine twigs, not a pruned stump.
+    if (bare) limbs = extendBareTips(limbs);
+    const leaves = bare ? [] : skel.leaves.map(lf => ({ at: [lf.at[0] + cx, lf.at[1] + cy, lf.at[2]] as [number, number, number], r: lf.r }));
     // Ground-cover forms have green STEMS, not bark-brown trunks: grass limbs ARE
     // the blades, and a fern's rachis / a flower's stalk is herbaceous. A petalTint
     // (herbs) recolours the head whorl so a poppy reads red, a daisy white.
@@ -137,6 +167,20 @@ export const branchPlantPartType: PartType = {
  *  (TREE_GAME_SCALE 0.34 turned a 2.5 m boulder into a sub-metre pebble). */
 export const ROCK_GAME_SCALE = 0.55;
 
+/** ±fraction the seeded variant perturbs a rock's sizeM — the flora variants come out
+ *  at genuinely different NATIVE sprite sizes (pixel-perfect rule: several native sizes
+ *  beat one fractionally-scaled blit). */
+const ROCK_SIZE_JITTER = 0.2;
+
+/** Native-size factor for a rock seed. Seed 0 (the variant-0 / legacy sentinel) is
+ *  EXACTLY 1 — variant 0 stays byte-identical. Non-zero seeds draw from their OWN rng
+ *  stream (xor-spread) so the cluster-arrangement rng sequence is untouched. */
+export function rockSizeFactor(seed: number): number {
+  if ((seed >>> 0) === 0) return 1;
+  const rng = createRng(((seed >>> 0) ^ 0x9e3779b9) >>> 0);
+  return 1 - ROCK_SIZE_JITTER + rng.next() * 2 * ROCK_SIZE_JITTER;
+}
+
 /** A boulder/rock: noise-displaced spheroid(s) of stone. `sizeM` = diameter (metres);
  *  `aspect` stretches vertically (a standing stone / monolith); `cluster` scatters
  *  N sub-boulders of varied size around the footprint centre (a rock pile). */
@@ -159,11 +203,13 @@ export const rockPartType: PartType = {
     },
   }),
   toPrims(p): Prim[] {
-    const radius = mToTiles((p.params.sizeM as number) * ROCK_GAME_SCALE) / 2;
+    const seed = (p.params.seed as number) >>> 0;
+    // The variant seed perturbs sizeM ±20% (rockSizeFactor) so the seeded variants are
+    // genuinely different native sizes; seed 0 (variant 0) is exactly today's size.
+    const radius = mToTiles((p.params.sizeM as number) * ROCK_GAME_SCALE * rockSizeFactor(seed)) / 2;
     const jitter = p.params.jitter as number;
     const aspect = (p.params.aspect as number) ?? 1;
     const cluster = Math.max(1, Math.round((p.params.cluster as number) ?? 1));
-    const seed = (p.params.seed as number) >>> 0;
     const cx = p.at.x + p.size.w / 2, cy = p.at.y + p.size.h / 2;
     if (cluster === 1) {
       return [{ prim: 'rock', center: [cx, cy], baseZ: 0, radius, seed, jitter, aspect, mat: 'stone' }];

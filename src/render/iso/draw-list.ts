@@ -60,6 +60,20 @@ export type DrawItem =
        */
       foot?: { sx: number; sy: number };
       /**
+       * Per-instance snow whiten 0..1 (alpine fidelity): the lit shader mixes the
+       * albedo toward the terrain snow tone on up-facing texels by this amount,
+       * BEFORE band quantization. Set from `snowAmount01` at the entity's foot
+       * tile for parametric plant/rock sprites; absent/0 = byte-identical output.
+       */
+      whiten?: number;
+      /**
+       * Horizontal mirror (pixel-perfect variety): the GPU flips the instance's
+       * UV rect (and the shader negates the sampled normal's x) — no fractional
+       * scaling, one source px still lands on one screen px. Foot anchor
+       * unchanged. Set deterministically per plant/rock instance.
+       */
+      mirror?: boolean;
+      /**
        * Skip this item in the cast-shadow pass entirely. Ground-cover habits
        * (grass/herb/fern tufts) are too small to read a silhouette shadow and
        * their instance count dwarfs everything else once density rises — a

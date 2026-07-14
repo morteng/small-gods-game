@@ -129,6 +129,12 @@ export function buildRenderContext(deps: RenderContextDeps): RenderContext {
         if (g) return g;
         generatedFloraArtSource.warm(kind);
       }
+      // Warm the REQUESTED variant explicitly: warm(kind) only bakes the seeded
+      // silhouette buckets, so the lazily-composed bare slot (FLORA_BARE_VARIANT,
+      // snow-mask selection) would otherwise never compose — peek gracefully
+      // serves variant 0 in the meantime, masking the miss forever. No-op when
+      // the variant is already cached or in flight.
+      parametricPlantSource.warmVariant(kind, variant);
       const s = parametricPlantSource.peek(kind, variant);
       if (s) return s;
       parametricPlantSource.warm(kind); // fire-and-forget; never blocks the frame

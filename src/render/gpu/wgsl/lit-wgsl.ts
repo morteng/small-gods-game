@@ -47,6 +47,7 @@ struct Globals {
 struct VSOut {
   @builtin(position) pos : vec4<f32>,
   @location(0) vUV : vec2<f32>,
+  @location(1) vMisc : vec2<f32>,    // x: snow whiten 0..1, y: mirror flag 0/1
 };
 
 @vertex
@@ -55,6 +56,7 @@ fn vsMain(
   @location(1) iRect  : vec4<f32>,   // dx, dy, dw, dh  (WORLD px)
   @location(2) iUV    : vec4<f32>,   // u0, v0, u1, v1
   @location(3) iDepth : f32,         // painter-order depth, 0..1
+  @location(4) iMisc  : vec2<f32>,   // whiten, mirror (per-instance; see instance-buffer.ts)
 ) -> VSOut {
   // Instances are packed in WORLD px (camera-independent, so the static layer can
   // be packed once); the camera world→device affine is applied here in the VS.
@@ -68,11 +70,12 @@ fn vsMain(
   var out : VSOut;
   out.pos = vec4<f32>(ndc, iDepth, 1.0);
   out.vUV = mix(iUV.xy, iUV.zw, corner);
+  out.vMisc = iMisc;
   return out;
 }
 
 @fragment
-fn fsMain(@location(0) vUV : vec2<f32>) -> @location(0) vec4<f32> {
+fn fsMain(@location(0) vUV : vec2<f32>, @location(1) vMisc : vec2<f32>) -> @location(0) vec4<f32> {
   let albedo = textureSample(uAlbedo, uSampler, vUV);
   if (albedo.a < 0.5) { discard; }   // hard pixel-art cutout, not soft AA
 
@@ -80,6 +83,24 @@ fn fsMain(@location(0) vUV : vec2<f32>) -> @location(0) vec4<f32> {
   var n = vec3<f32>(0.0, 0.0, 1.0);
   if (nrm.a > 0.5) {
     n = normalize(nrm.rgb * 2.0 - 1.0);
+  }
+  // Mirrored instance (iMisc.y): the UV rect is u-flipped, so the sampled normal's
+  // screen-x component points the wrong way — negate it so lighting matches the flip.
+  if (vMisc.y > 0.5) {
+    n = vec3<f32>(-n.x, n.y, n.z);
+  }
+
+  // Snow whiten (iMisc.x, alpine fidelity): settle snow on UP-FACING texels — the
+  // crown-radial foliage normals make n.y meaningful — by mixing the albedo toward
+  // the terrain snow tone BEFORE the banded diffuse, so entity snow participates in
+  // the same band quantization as everything else (keeps the pixel-art look). The
+  // constant matches the terrain snow exemplar's mean tone (material-exemplar.ts
+  // buildSnow: v = 0.95, rgb = 0.99v / v / 1.02v) so tree snow and ground snow read
+  // as one material. At whiten 0 the mix is exact identity (byte-identical output).
+  var alb = albedo.rgb;
+  if (vMisc.x > 0.0) {
+    let topFacing = clamp(n.y * 0.5 + 0.5, 0.0, 1.0);
+    alb = mix(alb, vec3<f32>(0.94, 0.95, 0.97), vMisc.x * topFacing);
   }
 
   let mat = textureSample(uMaterialMap, uSampler, vUV);
@@ -99,13 +120,13 @@ fn fsMain(@location(0) vUV : vec2<f32>) -> @location(0) vec4<f32> {
   let specPower = pow(2.0, 2.0 + 9.0 * gloss);
   let specRaw = pow(ndh, specPower) * gloss * ao;
   let specBand = floor(specRaw * G.uBands + 0.5) / G.uBands;
-  let specTint = mix(vec3<f32>(1.0, 1.0, 1.0), albedo.rgb, metal);  // metals tint the highlight
+  let specTint = mix(vec3<f32>(1.0, 1.0, 1.0), alb, metal);  // metals tint the highlight
   let specular = G.uSunColor * specBand * specTint;
 
   // Self-illumination (lit window panes): added on top of the lit albedo and
   // faded in by the night factor, so panes are dark glass by day and glow at night.
   // Premultiplied: scale by alpha to stay consistent with the cutout output.
   let emissive = textureSample(uEmissiveMap, uSampler, vUV).rgb * G.uNight;
-  return vec4<f32>(albedo.rgb * diffuse + (specular + emissive) * albedo.a, albedo.a);
+  return vec4<f32>(alb * diffuse + (specular + emissive) * albedo.a, albedo.a);
 }
 `;
