@@ -51,6 +51,21 @@ function deckYaw(params: Record<string, unknown>): number {
   return ((params.dir as Dir) ?? 'ns') === 'ns' ? 90 : 0;
 }
 
+/** Thickness (m) of the roadway course laid on the deck — a surface course, not a second slab. */
+const ROADWAY_COURSE_M = 0.12;
+
+/** The road's running surface → the deck course that carries it (material + coursing). A masonry
+ *  deck's own stone is the STRUCTURE; the road ON it is a distinct surface, and without one a
+ *  bridge reads as a bare slab with the road stopping dead at each bank (the shipped bug). The
+ *  keys are `RoadState.surfaceMaterial` — the same value the painted ribbon's pavedness comes
+ *  from — so the surface that arrives at the bank is the surface that crosses. */
+const ROADWAY_SURFACE: Record<string, { mat: Mat; work?: string }> = {
+  dirt: { mat: 'earth' },
+  gravel: { mat: 'earth', work: 'random_rubble' },
+  cobble: { mat: 'stone', work: 'cobble' },
+  paved: { mat: 'stone', work: 'ashlar' },
+};
+
 /** A deck segment — the running surface. Spans along its yaw (any angle); optional side parapets. */
 export const deckPartType: PartType = {
   type: 'deck',
@@ -71,6 +86,11 @@ export const deckPartType: PartType = {
     // injected and shadow the dir-based bearing.
     yawDeg: { kind: 'any', doc: 'true bank→bank bearing °, CCW from +x; overrides dir' },
     parapet: { kind: 'enum', values: ['none', 'both'], default: 'none' },
+    // The ROAD the deck carries (a `RoadState.surfaceMaterial`). Laid as a thin surface course
+    // between the parapets, so the bridge visibly carries the road across instead of presenting a
+    // bare structural slab. `any` (not enum) so an unset caller injects NO default and keeps the
+    // bare deck byte-identical.
+    roadway: { kind: 'any', doc: "running surface carried across: dirt|gravel|cobble|paved; unset ⇒ bare structural deck" },
   },
   resolve: (part: Part) => ({ params: { ...(part.params ?? {}) } }),
   toPrims(p, ctx): Prim[] {
@@ -97,6 +117,14 @@ export const deckPartType: PartType = {
       ? Math.min(48, Math.max(DECK_CAMBER_SEGMENTS, Math.ceil((camberM * 4) / DECK_CAMBER_STEP_M)))
       : 1;
     const segLen = len / segs;
+    // The roadway course: the ROAD carried across, laid on the deck top between the parapets. The
+    // terrain's painted ribbon deliberately stops at the banks (the ground under the span is the
+    // carved channel bed, metres below the deck and under the water plane), so THIS is the road
+    // where it crosses the water — without it the ribbon simply ends at the river.
+    const road = ROADWAY_SURFACE[String(p.params.roadway ?? '')];
+    const roadT = mToTiles(ROADWAY_COURSE_M);
+    // Clear width between the parapets (a bare deck keeps a small verge either side).
+    const roadW = parapet ? Math.max(0, wid - 2 * pT) : wid * 0.9;
     const out: Prim[] = [];
     for (let i = 0; i < segs; i++) {
       const u = -len / 2 + (i + 0.5) * segLen;   // segment centre offset along the span
@@ -104,6 +132,12 @@ export const deckPartType: PartType = {
       const z0 = baseZ + camber * (1 - t * t);   // parabolic hump top
       const [dx, dy] = rotXY(u, 0, yaw);
       out.push(yawedBox(cx + dx, cy + dy, segLen, wid, z0, thick, yaw, mat));
+      if (road && roadW > 0) {
+        out.push({
+          ...yawedBox(cx + dx, cy + dy, segLen, roadW, z0 + thick, roadT, yaw, road.mat),
+          ...(road.work ? { work: road.work } : {}),
+        });
+      }
       if (parapet) {
         // The two parapets line the long edges: local cross-offset ±off from the centreline,
         // each riding the same segment top; rotating the offset by the SAME yaw seats them on
