@@ -45,18 +45,20 @@ describe('terrain WGSL — Slice-2 colour ground texture', () => {
     expect(TERRAIN_WGSL).toContain('textureNumLevels(matAtlas)');
   });
 
-  it('blends grass/dirt/sand detail by the climate fields on open ground', () => {
-    expect(TERRAIN_WGSL).toContain('wGrassG');
-    expect(TERRAIN_WGSL).toContain('wDirtG');
-    expect(TERRAIN_WGSL).toContain('wSandG');
-    // Grass keeps the mean-normalised grain over the biome hue (matDetail, layer 0);
-    // dirt (1) and sand (3) blend REAL swatch COLOUR (matColor) so dusty earth / tan
-    // sand read as distinct textures, not a brightness wash of the grass colour.
-    expect(TERRAIN_WGSL).toMatch(/matDetail\(0, muv, lod\)/);
-    expect(TERRAIN_WGSL).toMatch(/matColor\(1, muv, lod\)/);
-    expect(TERRAIN_WGSL).toMatch(/matColor\(3, muv, lod\)/);
-    // Scattered pebbles: real stone colour (layer 2) speckled on drier ground.
-    expect(TERRAIN_WGSL).toMatch(/matColor\(2, muv/);
+  it('splats grass/dry/dust/pebble ground patches terrain-aware on open ground', () => {
+    // Four real harvested swatches in a texture ARRAY, blended by wetness + a bare-patch field.
+    expect(TERRAIN_WGSL).toContain('groundTex  : texture_2d_array<f32>');
+    expect(TERRAIN_WGSL).toMatch(/textureSampleLevel\(groundTex, groundSamp, uv0, layer/);
+    expect(TERRAIN_WGSL).toContain('wGrass');
+    expect(TERRAIN_WGSL).toContain('wDry');
+    expect(TERRAIN_WGSL).toContain('wDust');
+    // Only the LUSH grass is mean-normalised (biome stays the hue authority); dust/dry/pebble
+    // keep their own real colour so drying ground genuinely turns earthy, not a green wash.
+    expect(TERRAIN_WGSL).toContain('GROUND_GRASS_MEAN');
+    expect(TERRAIN_WGSL).toMatch(/groundPatch\(GROUND_LAYER_GRASS/);
+    expect(TERRAIN_WGSL).toMatch(/groundPatch\(GROUND_LAYER_DUST/);
+    expect(TERRAIN_WGSL).toMatch(/groundPatch\(GROUND_LAYER_PEBBLE/);
+    expect(TERRAIN_WGSL).toMatch(/groundPatch\(GROUND_LAYER_DRY/);
   });
 
   it('band-limits with a footprint fade and skips the block entirely past it', () => {

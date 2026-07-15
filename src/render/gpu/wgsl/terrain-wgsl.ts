@@ -58,6 +58,29 @@ const NOISE_INV_TILE = 1.0 / 64.0;   // 1 / NOISE_TILE_UNITS — keep in step wi
 // (The harvested ground-cover CLUTTER atlas that used to bind here at 11/12 is retired:
 // ground cover is now the UPRIGHT billboard pass, grass-scatter.ts / passGrass. The old
 // in-shader flat-decal scatter smeared tall sprites into iso diagonal streaks.)
+// Seamless BASE-GROUND texture-patch ARRAY (real harvested top-down swatches, repeat sampler):
+// layer 0 lush grass · 1 bare dust · 2 pebble gravel · 3 dry parched grass. The shader SPLATS
+// them terrain-aware under the billboards (wet→grass, dry→dry-grass/dust, worn→pebble). Only the
+// LUSH grass is mean-normalised (biome stays its hue authority); the earthy patches keep their
+// own real colour so drying ground genuinely turns dusty/pebbly, not a tint of the biome green.
+@group(0) @binding(11) var groundTex  : texture_2d_array<f32>;
+@group(0) @binding(12) var groundSamp : sampler;
+const GROUND_GRASS_MEAN   : vec3<f32> = vec3<f32>(0.2046, 0.3363, 0.1911);  // avg RGB of grass.png
+const GROUND_REPEAT_TILES : f32 = 5.0;   // one swatch repeat spans ~5 world tiles (~10 m)
+const GROUND_LAYER_GRASS  : i32 = 0;
+const GROUND_LAYER_DUST   : i32 = 1;
+const GROUND_LAYER_PEBBLE : i32 = 2;
+const GROUND_LAYER_DRY    : i32 = 3;
+
+// Sample one ground-patch layer with a gentle domain warp + a light second octave so the
+// ~5-tile repeat never reads as a stamp while the crisp primary detail survives.
+fn groundPatch(layer : i32, grid : vec2<f32>, warp : f32, mixW : f32) -> vec3<f32> {
+  let uv0 = grid / GROUND_REPEAT_TILES + vec2<f32>(warp, warp * 0.6);
+  let uv1 = grid / (GROUND_REPEAT_TILES * 2.3) + vec2<f32>(0.37, 0.61);
+  let s0 = textureSampleLevel(groundTex, groundSamp, uv0, layer, 0.0).rgb;
+  let s1 = textureSampleLevel(groundTex, groundSamp, uv1, layer, 0.0).rgb;
+  return mix(s0, s1, mixW);   // crisp primary, light second octave breaks the repeat (mean-agnostic)
+}
 
 // How many world tiles one exemplar repeat spans (1 tile = 2 m). ~2.5 tiles → a 64px
 // swatch over ~5 m reads chunky-but-legible under the banded sun.
@@ -559,41 +582,37 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
     // ~4 texels/px (overview) — both the aesthetic (no fizz) and the perf guard.
     let texFade = smoothstep(4.0, 1.0, fwTexels);
     if (texFade > 0.0) {
-      let lod = clamp(log2(max(fwTexels, 1e-3)), 0.0, 16.0);
-      // Climate → ground-character weights, thresholds jittered (jit) so borders
-      // wander off the cell grid. Mirrors the overlay weights below in spirit.
-      let dry = 1.0 - moist;
-      let wSandG = smoothstep(0.55, 0.80, temp + jit * 0.08) * smoothstep(0.55, 0.85, dry + jit * 0.10);
-      let wDirtG = smoothstep(0.45, 0.80, dry + jit * 0.12) * (1.0 - wSandG);
-      let wGrassG = max(1.0 - wSandG - wDirtG, 0.0);
+      // GROUND-PATCH SPLAT under the billboards: four real harvested swatches — lush grass,
+      // dry parched grass, bare dust, pebble gravel — blended terrain-aware by WETNESS + a
+      // low-freq bare-patch field. Wet/vegetated → lush grass; drying → parched grass; driest &
+      // patchiest → bare dust; worn clumps → pebbles speckled over. The earthy patches keep
+      // their REAL colour so drying ground genuinely turns dusty/pebbly, not a tint of the green.
+      let dry   = 1.0 - moist;
+      let gvar  = vnoise(in.vGrid * 0.09 + vec2<f32>(5.0, 2.0));
+      let bareField = vnoise(in.vGrid * 0.06 + vec2<f32>(17.0, 4.0));   // low-freq bare-earth field
+      let gwarp = (vnoise(in.vGrid * 0.045 + vec2<f32>(3.0, 9.0)) - 0.5) * 0.18;
 
-      // GROUND = a real multi-texture SPLAT under the billboards: several subtle short
-      // grasses + dusty bare earth + tan sand + scattered pebbles, blended terrain-aware by
-      // WETNESS (moist→grass, dry→dust/sand) and low-freq clump fields. The dirt/sand/pebble
-      // layers use their REAL swatch COLOUR (matSample) so drying ground genuinely turns
-      // dusty/pebbly instead of merely darkening the biome green (the old mean-normalised
-      // grain read as one flat wash). The standing BILLBOARDS carry the tall blades on top.
-      //
-      // Short-grass VARIETY: two swatch phases mixed by a low-freq field, plus a patchy
-      // olive↔fresh tint, so the sward reads as many subtle grasses, not one green.
-      let gvar   = vnoise(in.vGrid * 0.09 + vec2<f32>(5.0, 2.0));
-      let gGrain = mix(matDetail(0, muv, lod), matDetail(0, muv * 1.7 + vec2<f32>(3.1, 7.9), lod), gvar);
-      let gTint  = mix(vec3<f32>(0.86, 1.05, 0.78), vec3<f32>(1.08, 1.0, 0.86), gvar);   // olive .. fresh green
-      let grassCol = biome * clamp(gGrain, vec3<f32>(0.78), vec3<f32>(1.24)) * gTint;
+      // Splat weights (jittered thresholds so borders wander off the tile grid).
+      let wDust  = smoothstep(0.58, 0.86, dry * 0.65 + bareField * 0.55 + jit * 0.10);   // bare earth
+      let wDry   = smoothstep(0.40, 0.68, dry + jit * 0.12) * (1.0 - wDust);         // parched grass
+      let wGrass = max(1.0 - wDust - wDry, 0.0);                                     // lush default
 
-      let dirtCol = matColor(1, muv, lod);                  // real brown dusty earth
-      let sandCol = matColor(3, muv, lod);                  // real tan sand
-      var gnd = grassCol * wGrassG + dirtCol * wDirtG + sandCol * wSandG;
+      // Lush grass: mean-normalised so the BIOME stays the hue authority; a patchy olive↔fresh
+      // tint gives many subtle greens. Dust/dry keep their own real earthy colour.
+      let gTint    = mix(vec3<f32>(0.90, 1.04, 0.86), vec3<f32>(1.06, 1.0, 0.90), gvar);
+      let grassRaw = groundPatch(GROUND_LAYER_GRASS, in.vGrid, gwarp, 0.28 + 0.16 * gvar);
+      let grassCol = biome * clamp(grassRaw / GROUND_GRASS_MEAN, vec3<f32>(0.55), vec3<f32>(1.7)) * gTint;
+      let dryCol   = groundPatch(GROUND_LAYER_DRY,  in.vGrid, gwarp, 0.22);
+      let dustCol  = groundPatch(GROUND_LAYER_DUST, in.vGrid, gwarp * 0.7, 0.20);
+      var gnd = grassCol * wGrass + dryCol * wDry + dustCol * wDust;
 
-      // SCATTERED PEBBLES baked into the ground: the rock swatch's bright stone bits, clumped
-      // by a low-freq field and denser on drier / worn ground — little grey stones dotting the
-      // dust between the tufts (complements the tiny pebble BILLBOARDS, which stand proud).
-      let pebRaw  = matColor(2, muv * 2.6 + vec2<f32>(9.0, 4.0), lod);
-      let pebLum  = dot(pebRaw, vec3<f32>(0.333));
-      let pebMask = smoothstep(0.44, 0.60, pebLum)
-                  * smoothstep(0.42, 0.72, vnoise(in.vGrid * 0.5 + vec2<f32>(21.0, 8.0)))
-                  * (0.30 + 0.55 * dry);
-      gnd = mix(gnd, pebRaw, clamp(pebMask, 0.0, 0.65));
+      // SCATTERED PEBBLES over the top: real pebble-gravel swatch, clumped by a low-freq field and
+      // denser on drier / worn ground — grey stones dotting the dust between the tufts (complements
+      // the standing pebble BILLBOARDS). Finer repeat so individual stones read at gameplay zoom.
+      let pebRaw  = groundPatch(GROUND_LAYER_PEBBLE, in.vGrid * 1.8, gwarp, 0.15);
+      let pebMask = smoothstep(0.40, 0.72, vnoise(in.vGrid * 0.5 + vec2<f32>(21.0, 8.0)))
+                  * (0.22 + 0.55 * dry);
+      gnd = mix(gnd, pebRaw, clamp(pebMask, 0.0, 0.6));
 
       ground = mix(biome, gnd, texFade);
     }

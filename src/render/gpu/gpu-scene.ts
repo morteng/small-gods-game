@@ -97,13 +97,18 @@ export class GpuScene {
   // bound into the terrain + detail passes (bindings 7/8) and sampled with a REPEAT sampler.
   private matAtlasView: GPUTextureView;
   private matSampler: GPUSampler;
-  // Harvested ground-cover clutter atlas (bindings 11/12): a grid of alpha sprites the
-  // terrain fragment scatter-stamps. A 1×1 transparent placeholder binds until the PNG
-  // loads (async); on load the bind groups rebuild. Nearest+clamp keeps sprites crisp.
+  // Harvested ground-cover clutter atlas: a grid of alpha sprites the standing-grass
+  // billboard pass (passGrass) stamps. A 1×1 transparent placeholder binds until the PNG
+  // loads (async); on load the grass bind group rebuilds. Nearest+clamp keeps sprites crisp.
   private clutterView: GPUTextureView;
   private clutterSampler: GPUSampler;
   private clutterLoaded = false;
   private clutterManifest: ClutterManifest | null = null;
+  // Seamless BASE-GROUND texture-patch ARRAY (terrain bindings 11/12): 4 tiling swatches
+  // (public/textures/ground/{grass,dust,pebble,dry}.png → layers 0..3) the terrain shader
+  // SPLATS terrain-aware (wet→grass, dry→dry-grass/dust, worn→pebble). 1×1×4 placeholder →
+  // real PNGs async (bind groups rebuild on load); reuses matSampler (repeat + linear + mip).
+  private groundView: GPUTextureView;
   // Standing-grass billboard pass (vegetation-billboard epic). The instance array is
   // memoised per world (rebuilt when the height-array identity changes) into a persistent
   // buffer; the camera rides uXform, so pan/zoom never re-packs.
@@ -331,6 +336,10 @@ export class GpuScene {
     });
     void this.loadClutterAtlas();
 
+    // Base-ground texture-patch array: per-layer flat fallback until the PNGs load.
+    this.groundView = this.makeGroundPlaceholder();
+    void this.loadGroundTexture();
+
     this.quadBuf = device.createBuffer({ size: QUAD_STRIP.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
     device.queue.writeBuffer(this.quadBuf, 0, QUAD_STRIP);
 
@@ -462,6 +471,48 @@ export class GpuScene {
         }
       } catch { /* no manifest ⇒ no standing grass */ }
     } catch { /* clutter is optional — no atlas ⇒ no ground-cover sprites */ }
+  }
+
+  /** A 1×1×4 array texture (per-layer fallback tones) bound until the ground PNGs load. */
+  private makeGroundPlaceholder(): GPUTextureView {
+    const fallback = [[52, 86, 49], [176, 130, 77], [112, 100, 86], [168, 151, 92]]; // grass/dust/pebble/dry
+    const tex = this.device.createTexture({
+      size: [1, 1, 4], format: 'rgba8unorm',
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+    });
+    for (let l = 0; l < 4; l++) {
+      const [r, g, b] = fallback[l];
+      this.device.queue.writeTexture(
+        { texture: tex, origin: [0, 0, l] },
+        new Uint8Array([r, g, b, 255]), { bytesPerRow: 4, rowsPerImage: 1 }, [1, 1, 1],
+      );
+    }
+    return tex.createView({ dimension: '2d-array' });
+  }
+
+  /** Load the 4 seamless base-ground patches (grass/dust/pebble/dry) into a texture array (optional).
+   *  On success the real array replaces the flat placeholder and the terrain bind groups rebuild.
+   *  A missing/failed set simply leaves the flat fallback tones. */
+  private async loadGroundTexture(): Promise<void> {
+    try {
+      const names = ['grass', 'dust', 'pebble', 'dry'] as const;
+      const bmps = await Promise.all(names.map(async (n) => {
+        const resp = await fetch(assetUrl(`textures/ground/${n}.png`));
+        if (!resp.ok) throw new Error(`ground/${n}.png ${resp.status}`);
+        return createImageBitmap(await resp.blob(), { colorSpaceConversion: 'none' });
+      }));
+      const size = bmps[0].width;
+      const tex = this.device.createTexture({
+        size: [size, size, names.length], format: 'rgba8unorm',
+        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT,
+      });
+      bmps.forEach((bmp, l) => this.device.queue.copyExternalImageToTexture(
+        { source: bmp, flipY: false }, { texture: tex, origin: [0, 0, l] }, [size, size, 1],
+      ));
+      this.groundView = tex.createView({ dimension: '2d-array' });
+      this.terrainBind = null;   // rebuild both bind groups with the real array
+      this.detailBind = null;
+    } catch { /* ground textures optional — flat fallback tones otherwise */ }
   }
 
   private uploadTexture(src: CanvasImageSource, premultiply: boolean): GPUTexture {
@@ -650,6 +701,8 @@ export class GpuScene {
           { binding: 8, resource: this.matSampler },
           { binding: 9, resource: this.noiseTexView },
           { binding: 10, resource: this.noiseSampler },
+          { binding: 11, resource: this.groundView },
+          { binding: 12, resource: this.matSampler },
         ],
       });
     }
@@ -715,6 +768,8 @@ export class GpuScene {
           { binding: 8, resource: this.matSampler },
           { binding: 9, resource: this.noiseTexView },
           { binding: 10, resource: this.noiseSampler },
+          { binding: 11, resource: this.groundView },
+          { binding: 12, resource: this.matSampler },
         ],
       });
       this.detailBoundHeights = this.terrainHeightsBuf;
