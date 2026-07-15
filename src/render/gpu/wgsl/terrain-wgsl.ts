@@ -59,18 +59,27 @@ const NOISE_INV_TILE = 1.0 / 64.0;   // 1 / NOISE_TILE_UNITS — keep in step wi
 // ground cover is now the UPRIGHT billboard pass, grass-scatter.ts / passGrass. The old
 // in-shader flat-decal scatter smeared tall sprites into iso diagonal streaks.)
 // Seamless BASE-GROUND texture-patch ARRAY (real harvested top-down swatches, repeat sampler):
-// layer 0 lush grass · 1 bare dust · 2 pebble gravel · 3 dry parched grass. The shader SPLATS
-// them terrain-aware under the billboards (wet→grass, dry→dry-grass/dust, worn→pebble). Only the
-// LUSH grass is mean-normalised (biome stays its hue authority); the earthy patches keep their
-// own real colour so drying ground genuinely turns dusty/pebbly, not a tint of the biome green.
+// 11 layers — open ground (0 lush grass · 1 bare dust · 2 pebble gravel · 3 dry parched grass),
+// 4 shallow seabed, beaches (5 white shell-sand · 6 grey shingle), drylands (7 desert dune ·
+// 8 cracked hardpan), 9 fresh snow, 10 forest-floor litter. The shader SPLATS them terrain-aware
+// keyed on the climate fields (wetness/temp/slope/depth). Only the LUSH grass is mean-normalised
+// (biome stays its hue authority); every other swatch keeps its OWN real colour so drying ground
+// genuinely turns dusty, a hot coast turns white-sand, a deep tile turns to seabed — not a tint.
 @group(0) @binding(11) var groundTex  : texture_2d_array<f32>;
 @group(0) @binding(12) var groundSamp : sampler;
 const GROUND_GRASS_MEAN   : vec3<f32> = vec3<f32>(0.2046, 0.3363, 0.1911);  // avg RGB of grass.png
-const GROUND_REPEAT_TILES : f32 = 5.0;   // one swatch repeat spans ~5 world tiles (~10 m)
-const GROUND_LAYER_GRASS  : i32 = 0;
-const GROUND_LAYER_DUST   : i32 = 1;
-const GROUND_LAYER_PEBBLE : i32 = 2;
-const GROUND_LAYER_DRY    : i32 = 3;
+const GROUND_REPEAT_TILES : f32 = 2.5;   // one swatch repeat spans ~2.5 world tiles (~5 m) — finer grain
+const GROUND_LAYER_GRASS       : i32 = 0;
+const GROUND_LAYER_DUST        : i32 = 1;
+const GROUND_LAYER_PEBBLE      : i32 = 2;
+const GROUND_LAYER_DRY         : i32 = 3;
+const GROUND_LAYER_SEABED      : i32 = 4;
+const GROUND_LAYER_SAND_WHITE  : i32 = 5;
+const GROUND_LAYER_SHINGLE     : i32 = 6;
+const GROUND_LAYER_DUNE        : i32 = 7;
+const GROUND_LAYER_HARDPAN     : i32 = 8;
+const GROUND_LAYER_SNOW        : i32 = 9;
+const GROUND_LAYER_LITTER      : i32 = 10;
 
 // Sample one ground-patch layer with a gentle domain warp + a light second octave so the
 // ~5-tile repeat never reads as a stamp while the crisp primary detail survives.
@@ -518,6 +527,14 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   // road materials can band-limit (and be guarded by a branch) without a derivative
   // builtin running in non-uniform flow.
   let fwTiles = fwidth(in.vGrid);
+  // Shared domain-warp + footprint fade for ALL ground-patch texturing (open-ground splat,
+  // beaches, snow, seabed). Hoisted to uniform flow so fwidth is taken once and every
+  // downstream ground-patch sample uses explicit-LOD (legal in the non-uniform texFade branch
+  // and reusable in the submarine section below). texFade decays every patch to the flat biome
+  // colour as a texel shrinks past the pixel footprint (no fizz + the px1 overview perf guard).
+  let gwarp = (vnoise(in.vGrid * 0.045 + vec2<f32>(3.0, 9.0)) - 0.5) * 0.18;
+  let fwTexels = max(fwTiles.x, fwTiles.y) / MAT_TILES * f32(textureDimensions(matAtlas).x);
+  let texFade = smoothstep(4.0, 1.0, fwTexels);
 
   let roadFE = roadPavedEdge(in.vGrid.x, in.vGrid.y);
   let road = roadFE.x;              // pavedness (dirt 0.2 · gravel 0.45 · cobble 0.75 · paved 1.0)
@@ -575,12 +592,6 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   // \`?groundtex=off\` (uFlags.x = 0) restores the pre-Slice-2 grayscale grain for A/B.
   var ground = biome;
   if (G.uFlags.x > 0.5) {
-    // Atlas texels per screen pixel at this fragment (footprint in texel units).
-    let texSize = f32(textureDimensions(matAtlas).x);
-    let fwTexels = max(fwTiles.x, fwTiles.y) / MAT_TILES * texSize;
-    // Full colour texture while a texel covers ≥ a pixel (gameplay zoom); gone by
-    // ~4 texels/px (overview) — both the aesthetic (no fizz) and the perf guard.
-    let texFade = smoothstep(4.0, 1.0, fwTexels);
     if (texFade > 0.0) {
       // GROUND-PATCH SPLAT under the billboards: four real harvested swatches — lush grass,
       // dry parched grass, bare dust, pebble gravel — blended terrain-aware by WETNESS + a
@@ -590,7 +601,6 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
       let dry   = 1.0 - moist;
       let gvar  = vnoise(in.vGrid * 0.09 + vec2<f32>(5.0, 2.0));
       let bareField = vnoise(in.vGrid * 0.06 + vec2<f32>(17.0, 4.0));   // low-freq bare-earth field
-      let gwarp = (vnoise(in.vGrid * 0.045 + vec2<f32>(3.0, 9.0)) - 0.5) * 0.18;
 
       // Splat weights (jittered thresholds so borders wander off the tile grid).
       let wDust  = smoothstep(0.58, 0.86, dry * 0.65 + bareField * 0.55 + jit * 0.10);   // bare earth
@@ -613,6 +623,28 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
       let pebMask = smoothstep(0.40, 0.72, vnoise(in.vGrid * 0.5 + vec2<f32>(21.0, 8.0)))
                   * (0.22 + 0.55 * dry);
       gnd = mix(gnd, pebRaw, clamp(pebMask, 0.0, 0.6));
+
+      // DESERT: hot + genuinely arid ground → warm wind-rippled dune sand, with cracked hardpan
+      // (dry clay playa) showing through the bare-field flats. Keyed on the climate fields (no
+      // biome id needed) — matches classifyBiome's Desert cell (hot, dry).
+      let hot     = smoothstep(0.60, 0.80, temp);
+      let arid    = smoothstep(0.70, 0.92, dry);
+      let desertW = hot * arid;
+      let duneCol = groundPatch(GROUND_LAYER_DUNE,    in.vGrid,       gwarp, 0.20);
+      let hardCol = groundPatch(GROUND_LAYER_HARDPAN, in.vGrid * 1.2, gwarp, 0.16);
+      let desertCol = mix(duneCol, hardCol, smoothstep(0.52, 0.80, bareField) * 0.75);
+      gnd = mix(gnd, desertCol, desertW);
+
+      // FOREST FLOOR: cool-to-temperate, WET, gentle ground → leaf-litter/moss over dark humus.
+      // Gated ABOVE the grass moisture zone, away from hot climates and steep faces, so open
+      // meadow (moderate moisture) stays green — this only dresses genuinely damp woodland ground.
+      let forestW = smoothstep(0.66, 0.86, moist)
+                  * smoothstep(0.62, 0.42, temp)
+                  * (1.0 - smoothstep(0.20, 0.42, slope))
+                  * smoothstep(0.02, 0.10, aboveSea)
+                  * (1.0 - desertW);
+      let litterCol = groundPatch(GROUND_LAYER_LITTER, in.vGrid * 1.3, gwarp, 0.24);
+      gnd = mix(gnd, litterCol, clamp(forestW, 0.0, 0.85));
 
       ground = mix(biome, gnd, texFade);
     }
@@ -654,8 +686,19 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   // rock faces; the baked rock swatch (layer 2) stays in the atlas as the img2img grey-init.
   var ROCK = vec3<f32>(0.42, 0.40, 0.37);
   if (wRock > 0.0) { ROCK = analyticRock(in.vGrid, fwTiles); }
-  let SNOW = matSample(4, muv);
-  let SAND = matSample(3, muv);
+  // Snow = the harvested fresh-snow swatch (drift bumps + sparkle + the odd rock tip), not the
+  // flat procedural grey-init — real character on every white crown and cold plain.
+  let SNOW = groundPatch(GROUND_LAYER_SNOW, in.vGrid * 1.2, gwarp, 0.25);
+  // BEACH character keys on climate + shore steepness (field-classifiable, no biome id): tropical
+  // WHITE shell-sand on hot coasts, temperate TAN sand (procedural default) on mild ones, grey
+  // SHINGLE where the strand is steep/rocky. Fed into the shore-band material weight (wSand) below.
+  let tanSand   = matSample(3, muv);
+  let whiteSand = groundPatch(GROUND_LAYER_SAND_WHITE, in.vGrid * 1.4, gwarp, 0.20);
+  let shingle   = groundPatch(GROUND_LAYER_SHINGLE,    in.vGrid * 1.1, gwarp, 0.18);
+  let hotCoast   = smoothstep(0.56, 0.76, temp);
+  let steepCoast = smoothstep(0.34, 0.58, slope);
+  var SAND = mix(tanSand, whiteSand, hotCoast);
+  SAND = mix(SAND, shingle, steepCoast);
   let MUD  = matSample(5, muv);
 
   // HEIGHT-BLEND composite (crisp, NOT linear-alpha mush): the biome base is the
@@ -749,7 +792,16 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   // above the waterline is untouched.
   let depthBelow = max(seaLevel - elev, 0.0);
   let submerge = smoothstep(0.0, 0.22, depthBelow);    // 0 at shore → ~1 a few m down
-  let lit = modeAlbedo * light;
+  // SEABED: the shallow submerged bottom shows a real sandy/seagrass bed near shore (rippled sand,
+  // seagrass tufts, coral nubs) instead of the darkened land colour, fading out as it deepens.
+  // Textured display mode only; deep water still darkens to the abyss via submerge below.
+  var bedAlbedo = modeAlbedo;
+  if (mode == 0u && G.uFlags.x > 0.5 && depthBelow > 0.0) {
+    let seabedTex  = groundPatch(GROUND_LAYER_SEABED, in.vGrid * 1.3, gwarp, 0.22);
+    let shallowVis = (1.0 - smoothstep(0.0, 0.14, depthBelow)) * texFade;   // near-shore + band-limited
+    bedAlbedo = mix(modeAlbedo, seabedTex, clamp(shallowVis, 0.0, 1.0));
+  }
+  let lit = bedAlbedo * light;
   return vec4<f32>(lit * (1.0 - submerge * 0.97), 1.0);
 }
 `;

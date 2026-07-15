@@ -61,6 +61,22 @@ describe('terrain WGSL — Slice-2 colour ground texture', () => {
     expect(TERRAIN_WGSL).toMatch(/groundPatch\(GROUND_LAYER_DRY/);
   });
 
+  it('extends the ground array to the biome swatches (seabed/beaches/desert/snow/litter)', () => {
+    // 11-layer array: the four open-ground patches plus seven climate-keyed biome swatches.
+    for (const layer of [
+      'GROUND_LAYER_SEABED', 'GROUND_LAYER_SAND_WHITE', 'GROUND_LAYER_SHINGLE',
+      'GROUND_LAYER_DUNE', 'GROUND_LAYER_HARDPAN', 'GROUND_LAYER_SNOW', 'GROUND_LAYER_LITTER',
+    ]) {
+      expect(TERRAIN_WGSL).toContain(layer);
+    }
+    // Seabed shows through the shallows; beaches key on climate/steepness; snow swaps the swatch.
+    expect(TERRAIN_WGSL).toMatch(/groundPatch\(GROUND_LAYER_SEABED/);
+    expect(TERRAIN_WGSL).toMatch(/groundPatch\(GROUND_LAYER_SAND_WHITE/);
+    expect(TERRAIN_WGSL).toMatch(/groundPatch\(GROUND_LAYER_SNOW/);
+    expect(TERRAIN_WGSL).toContain('hotCoast');   // tropical-white vs temperate-tan beach select
+    expect(TERRAIN_WGSL).toContain('desertW');    // hot + arid → dune/hardpan
+  });
+
   it('band-limits with a footprint fade and skips the block entirely past it', () => {
     expect(TERRAIN_WGSL).toContain('let texFade = smoothstep(');
     expect(TERRAIN_WGSL).toContain('if (texFade > 0.0)');

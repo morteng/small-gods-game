@@ -3,21 +3,23 @@ import { worldToScreen } from './iso-projection';
 
 // Loosened floor (was 0.5) so a large map can be zoomed all the way out to fit.
 export const ISO_ZOOM_MIN = 0.05;
-// Zoom-in stops at 1:1 (one art pixel per screen pixel). Was 4. See TOPDOWN_ZOOM_MAX.
-export const ISO_ZOOM_MAX = 1;
+// Zoom-in stops at 2:1 (two screen pixels per art pixel). 2× is a clean INTEGER
+// upscale — still pixel-perfect nearest-neighbour, no fractional shimmer — so it's
+// the one magnify rung above native. Was 1. See TOPDOWN_ZOOM_MAX.
+export const ISO_ZOOM_MAX = 2;
 
 /**
- * Pixel-perfect zoom ladder. 1:1 is the maximum — zooming past native resolution
- * only magnifies the pixel art, so there are no integer rungs above 1. Zooming
- * OUT snaps to unit fractions 1/n (down to 1/20 = ISO_ZOOM_MIN) so the downscale
- * is a uniform nearest-neighbour decimation — crisp. Continuous zoom is retired:
- * every sprite blits at an exact 1/integer scale, killing the fractional-upscale
- * shimmer. Ascending order.
+ * Pixel-perfect zoom ladder. Zooming OUT snaps to unit fractions 1/n (down to
+ * 1/20 = ISO_ZOOM_MIN) so the downscale is a uniform nearest-neighbour decimation;
+ * zooming IN tops out at an INTEGER 2× (a clean 2:1 magnify — the only rung above
+ * native that stays crisp). Every sprite blits at an exact integer-or-1/integer
+ * scale, killing the fractional-upscale shimmer. Ascending order.
  */
 export const ISO_ZOOM_RUNGS: number[] = (() => {
   const rungs: number[] = [];
   for (let n = 20; n >= 2; n--) rungs.push(1 / n); // 0.05 … 0.5
   rungs.push(1);
+  rungs.push(2);                                   // 2:1 integer magnify (the one rung above native)
   return rungs;
 })();
 

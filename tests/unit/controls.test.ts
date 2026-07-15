@@ -109,8 +109,8 @@ describe('attachControls keyboard', () => {
   });
 
   it('continuous zoom scales with wheel delta magnitude (not a fixed step)', () => {
-    // Zoom OUT — the camera starts at the 1:1 cap (TOPDOWN_ZOOM_MAX=1), so
-    // zoom-IN is pinned and only zoom-out exercises the magnitude mapping.
+    // Zoom OUT — the camera starts at native (zoom 1); this test only exercises the
+    // zoom-out magnitude mapping (both events drive factor < 1, landing below 1).
     const big = createCamera();
     const small = createCamera();
     const cb = { onRedraw: () => {} };

@@ -104,10 +104,11 @@ export class GpuScene {
   private clutterSampler: GPUSampler;
   private clutterLoaded = false;
   private clutterManifest: ClutterManifest | null = null;
-  // Seamless BASE-GROUND texture-patch ARRAY (terrain bindings 11/12): 4 tiling swatches
-  // (public/textures/ground/{grass,dust,pebble,dry}.png → layers 0..3) the terrain shader
-  // SPLATS terrain-aware (wet→grass, dry→dry-grass/dust, worn→pebble). 1×1×4 placeholder →
-  // real PNGs async (bind groups rebuild on load); reuses matSampler (repeat + linear + mip).
+  // Seamless BASE-GROUND texture-patch ARRAY (terrain bindings 11/12): 11 tiling swatches
+  // (public/textures/ground/*.png → layers 0..10) the terrain shader SPLATS terrain-aware —
+  // open ground (grass/dust/pebble/dry), shallow seabed, beaches (white-sand/shingle), drylands
+  // (desert-dune/cracked-hardpan), snow, and forest-litter, each keyed on the climate fields.
+  // 1×1×11 placeholder → real PNGs async (bind groups rebuild on load); reuses matSampler.
   private groundView: GPUTextureView;
   // Standing-grass billboard pass (vegetation-billboard epic). The instance array is
   // memoised per world (rebuilt when the height-array identity changes) into a persistent
@@ -475,12 +476,19 @@ export class GpuScene {
 
   /** A 1×1×4 array texture (per-layer fallback tones) bound until the ground PNGs load. */
   private makeGroundPlaceholder(): GPUTextureView {
-    const fallback = [[52, 86, 49], [176, 130, 77], [112, 100, 86], [168, 151, 92]]; // grass/dust/pebble/dry
+    // Per-layer mean tones (grass/dust/pebble/dry · seabed/white-sand/shingle · dune/hardpan · snow/litter) —
+    // shown until the real swatches load; order MUST match GROUND_LAYER_* in terrain-wgsl.ts.
+    const fallback = [
+      [52, 86, 49], [176, 130, 77], [112, 100, 86], [168, 151, 92],       // 0..3 grass/dust/pebble/dry
+      [219, 226, 178], [249, 245, 227], [126, 125, 118],                  // 4..6 seabed/white-sand/shingle
+      [228, 181, 107], [179, 158, 130],                                   // 7..8 dune/hardpan
+      [224, 241, 248], [56, 49, 39],                                      // 9..10 snow/forest-litter
+    ];
     const tex = this.device.createTexture({
-      size: [1, 1, 4], format: 'rgba8unorm',
+      size: [1, 1, fallback.length], format: 'rgba8unorm',
       usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
     });
-    for (let l = 0; l < 4; l++) {
+    for (let l = 0; l < fallback.length; l++) {
       const [r, g, b] = fallback[l];
       this.device.queue.writeTexture(
         { texture: tex, origin: [0, 0, l] },
@@ -490,12 +498,19 @@ export class GpuScene {
     return tex.createView({ dimension: '2d-array' });
   }
 
-  /** Load the 4 seamless base-ground patches (grass/dust/pebble/dry) into a texture array (optional).
-   *  On success the real array replaces the flat placeholder and the terrain bind groups rebuild.
-   *  A missing/failed set simply leaves the flat fallback tones. */
+  /** Load the seamless base-ground patches into a texture array (optional). 11 layers:
+   *  grass/dust/pebble/dry (open ground) · seabed (shallows) · white-sand/shingle (beaches) ·
+   *  desert-dune/cracked-hardpan (drylands) · snow · forest-litter. Order MUST match
+   *  GROUND_LAYER_* in terrain-wgsl.ts. On success the real array replaces the flat placeholder
+   *  and the terrain bind groups rebuild; a missing/failed set leaves the flat fallback tones. */
   private async loadGroundTexture(): Promise<void> {
     try {
-      const names = ['grass', 'dust', 'pebble', 'dry'] as const;
+      const names = [
+        'grass', 'dust', 'pebble', 'dry',
+        'seabed', 'sand-white', 'sand-shingle',
+        'desert-dune', 'cracked-hardpan',
+        'snow', 'forest-litter',
+      ] as const;
       const bmps = await Promise.all(names.map(async (n) => {
         const resp = await fetch(assetUrl(`textures/ground/${n}.png`));
         if (!resp.ok) throw new Error(`ground/${n}.png ${resp.status}`);
@@ -1187,7 +1202,7 @@ export class GpuScene {
     if (hasShadows) this.passShadows(ctx, !!staticItems, dynShadowBatches);
     if (hasWater) this.passWater(ctx, water!);
     if (hasStructures) this.passStructures(ctx, structures!);
-    if (hasGrass) this.passGrass(ctx);
+    if (hasGrass && !(globalThis as { __noGrass?: boolean }).__noGrass) this.passGrass(ctx);
     this.passEntities(ctx, P.entities, dynBatches, dynLifted, xform);
     if (out) this.passBlit(ctx, out, pixelOffset);
     if (P.ui && uiGroups && uiGroups.length > 0) this.passUi(ctx, uiGroups);
