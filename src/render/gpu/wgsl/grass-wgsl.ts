@@ -60,6 +60,8 @@ struct VOut {
   @location(0) uv    : vec2<f32>,
   @location(1) shade : f32,        // base self-shadow → tip lit
   @location(2) tint  : vec3<f32>,  // per-blade colour jitter (breaks tiling)
+  @location(3) tBury : f32,        // static clutter: sprite-height above the sand line
+                                   // (<0 = buried → discard); 1.0 for growing veg (no seat)
 };
 
 @vertex
@@ -89,6 +91,15 @@ fn vsMain(
   let isStatic = select(0.0, 1.0, (category > 1.5 && category < 2.5) || category > 4.5);
   let isWeed   = select(0.0, 1.0, category > 3.5 && category < 4.5);   // seaweed → current drift
   let notRock  = 1.0 - isStatic;
+
+  // STATIC ground clutter (rocks / pebbles / boulders / wrack-shells / driftwood) is PRESSED
+  // into the ground rather than pasted upright on it: sink each instance a RANDOM fraction of
+  // its height so the base buries in the sand and only the top emerges (discarded below the
+  // ground line in the fragment), plus a small random lean so no two sit at the same axis. A
+  // fragment contact-shadow seats it. buryFrac is 0 for growing veg, which is untouched.
+  let buryFrac = (0.12 + 0.30 * fract(seed * 91.7)) * isStatic;   // press depth 0.12..0.42 of height
+  let sink     = iA.w * buryFrac;                                 // screen px pushed DOWN into ground
+  let tiltTop  = (fract(seed * 53.1) - 0.5) * iA.w * 0.22 * isStatic; // top leans ± for varied set
   let hinge    = mix(0.30, 0.62, stiff);               // stiffer → bends higher up the blade
   // Floppy grass bends from a PLANTED base (shear along the blade — reads as organic sway).
   // Stiff sprites (flowers, reeds) instead TRANSLATE as a NEAR-RIGID whole (bendW→1 for all t,
@@ -133,7 +144,8 @@ fn vsMain(
   let ofs  = select(windOfs, weedOfs, isWeed > 0.5);
   let lean = select(windLean, weedBendW * abs(weedSway) * 0.5, isWeed > 0.5);
 
-  let scr = iA.xy + vec2<f32>(sx + ofs.x, sy + ofs.y + lean);
+  // Sink the static clutter into the ground (sy pushed down by sink); the top leans by tiltTop·t.
+  let scr = iA.xy + vec2<f32>(sx + ofs.x + tiltTop * t, sy + sink + ofs.y + lean);
   let dev = scr * G.uXform.xy + G.uXform.zw;
   let ndc = vec2<f32>(dev.x / (G.uViewport.x * 0.5) - 1.0, 1.0 - dev.y / (G.uViewport.y * 0.5));
 
@@ -152,6 +164,10 @@ fn vsMain(
   o.uv    = vec2<f32>(uu, vv);
   o.shade = mix(0.62, 0.93, t);
   o.tint  = tint;
+  // Sprite-height above the sand line for static clutter: t shifted down by the buried fraction
+  // (so t=buryFrac is the ground). <0 is below ground → the fragment discards it. Growing veg
+  // (buryFrac 0) but isStatic 0 passes 1.0 so it is never seated/clipped.
+  o.tBury = select(1.0, t - buryFrac, isStatic > 0.5);
   return o;
 }
 
@@ -159,10 +175,15 @@ fn vsMain(
 fn fsMain(i : VOut) -> @location(0) vec4<f32> {
   let c = textureSampleLevel(clutterTex, clutterSamp, i.uv, 0.0);
   if (c.a < 0.35) { discard; }                             // alpha test → crisp opaque edge
+  if (i.tBury < 0.0) { discard; }                          // static clutter below the sand line — buried
   let light = G.uAmbient + G.uSunColor * 0.9;
   // Seaweed no longer self-tints: it draws UNDER the water pass, so the real water shader
   // composites its depth-graded Beer-Lambert turquoise over the fronds (submerged read).
-  let rgb = c.rgb * i.shade * i.tint * light;
+  var rgb = c.rgb * i.shade * i.tint * light;
+  // Contact-shadow seat: darken the emerging base of PRESSED clutter where it meets the sand
+  // (ambient occlusion of a half-buried rock), fading out up the sprite. tBury=1 for growing
+  // veg → factor 1.0, so grass/flowers/reeds are untouched.
+  rgb = rgb * mix(0.45, 1.0, smoothstep(0.0, 0.24, i.tBury));
   return vec4<f32>(rgb, 1.0);
 }
 `;
