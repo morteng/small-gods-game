@@ -1202,20 +1202,24 @@ export class GpuScene {
     };
 
     // Ordered passes — each helper reads/sets `ctx.colorCleared` so the first
-    // colour pass clears and the rest load. terrain → shadows → water (all under
-    // the entities) → entities+shapes → blit (upscale) → UI (crisp, on top).
+    // colour pass clears and the rest load. terrain → ground veg → water → shadows
+    // (all under the entities) → entities+shapes → blit (upscale) → UI (crisp, on top).
     // Pass 0: open-ocean backdrop fills the viewport beyond the map (needs the water
     // globals, which are uploaded only when hasWater). Terrain then loads over it.
     if (hasWater) this.passBackdrop(ctx);
     if (hasTerrain) this.passTerrain(ctx, terrain!);
     if (hasDetail) this.passDetail(ctx, opts.detail!);
-    if (hasShadows) this.passShadows(ctx, !!staticItems, dynShadowBatches);
     const grassOn = hasGrass && !(globalThis as { __noGrass?: boolean }).__noGrass;
     // Submerged seaweed draws UNDER the water so the surface composites over it (submerged).
     if (grassOn) this.passGrassSubmerged(ctx);
     if (hasWater) this.passWater(ctx, water!);
     if (hasStructures) this.passStructures(ctx, structures!);
     if (grassOn) this.passGrass(ctx);
+    // Cast shadows LAST of the ground layers — after the terrain AND the standing veg — so a
+    // tree/building shadow darkens the grass, flowers and pressed clutter it falls across, not
+    // just the bare ground (grass used to overpaint the shadow and stay fully sunlit). Still
+    // below the entity depth-clear, so the casters themselves and NPCs stay lit.
+    if (hasShadows) this.passShadows(ctx, !!staticItems, dynShadowBatches);
     this.passEntities(ctx, P.entities, dynBatches, dynLifted, xform);
     if (out) this.passBlit(ctx, out, pixelOffset);
     if (P.ui && uiGroups && uiGroups.length > 0) this.passUi(ctx, uiGroups);
@@ -1277,7 +1281,8 @@ export class GpuScene {
    * at SHADOW_ALPHA straight onto the scene colour; the stencil (cleared to 0,
    * test `equal 0` + increment) makes each pixel darken at most once so overlaps
    * union instead of double-darkening — touching only shadow pixels, never the
-   * full screen. Between terrain and entities → shadows sit on the ground.
+   * full screen. After the terrain AND ground veg, before the entity depth-clear →
+   * shadows sit on the ground AND darken the grass/clutter standing in them.
    */
   private passShadows(ctx: PassCtx, hasStatic: boolean, dynShadowBatches: readonly ShadowBatch[]): void {
     const apass = ctx.enc.beginRenderPass({

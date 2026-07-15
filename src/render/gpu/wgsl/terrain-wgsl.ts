@@ -68,7 +68,7 @@ const NOISE_INV_TILE = 1.0 / 64.0;   // 1 / NOISE_TILE_UNITS — keep in step wi
 @group(0) @binding(11) var groundTex  : texture_2d_array<f32>;
 @group(0) @binding(12) var groundSamp : sampler;
 const GROUND_GRASS_MEAN   : vec3<f32> = vec3<f32>(0.2046, 0.3363, 0.1911);  // avg RGB of grass.png
-const GROUND_REPEAT_TILES : f32 = 2.5;   // one swatch repeat spans ~2.5 world tiles (~5 m) — finer grain
+const GROUND_REPEAT_TILES : f32 = 1.25;  // one swatch repeat spans ~1.25 world tiles (~2.5 m) — fine grain
 const GROUND_LAYER_GRASS       : i32 = 0;
 const GROUND_LAYER_DUST        : i32 = 1;
 const GROUND_LAYER_PEBBLE      : i32 = 2;
