@@ -283,6 +283,13 @@ The render/world/content engine is an active, multi-epic effort separate from th
 gameplay arc above. These live as topic files under the session memory; the
 current shortlist (see `MEMORY.md` for status & next slices):
 
+- **Structure-mesh rendering** — render ground-anchored structural geometry
+  (bridges + stairs first, walls/towers next) as real 3D meshes in a depth-tested
+  pass sharing the terrain depth buffer, instead of flat billboard sprites. Fixes
+  the bridge "float above the riverbed", wall/tower draw-order glitches, and
+  "structures sit *on* the world not *in* it" — reusing the manifold geometry we
+  already compute + discard. **$0, draw-only, no sim changes.** *Spec + plan, no
+  code:* `docs/superpowers/specs/2026-07-15-structure-mesh-rendering.md`.
 - **Terrain+Water shader system** — one per-cell field → texturing + water +
   scatter; zoom-LOD; pixel-perfect snap (also kills jerky-zoom). *Spec, no code.*
 - **Render-perf engine pass** — attack the overview fill-bound regime (deeper px
