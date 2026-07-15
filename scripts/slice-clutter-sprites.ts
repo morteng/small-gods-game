@@ -10,7 +10,7 @@
  * manifest.json giving CELL, cols, and the [start,count) layer range per category.
  * Pure offline (pngjs) — no GPU, no network.
  */
-import { writeFileSync, mkdirSync } from 'node:fs';
+import { writeFileSync, readFileSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
@@ -22,14 +22,20 @@ const COLS = 6;           // atlas grid width in cells
 const MIN_AREA = 300;     // drop keying specks smaller than this (px)
 const KEY_MAG = 24;       // (min(r,b) − g) above this = magenta background
 
-type Cat = 'grass' | 'flower' | 'reed' | 'rock';
+type Cat = 'grass' | 'flower' | 'reed' | 'rock' | 'seaweed' | 'wrack';
 
 /** One input sheet. `path` alone auto-categorises each blob by colour; `cat=path` FORCES
  *  every blob from that sheet into one category (dedicated boulder / reed / flower sheets). */
 interface Input { path: string; forced?: Cat }
 
+// --append preserves the existing atlas/manifest byte-for-byte and adds the given
+// forced-category sheets as NEW layers after it (COLS unchanged, so every existing
+// cell keeps its position). Used to graft the coastal sprites (seaweed/wrack) onto
+// the committed vegetation atlas without needing to re-slice from every source sheet.
+const APPEND = process.argv.includes('--append');
+
 function parseInputs(): Input[] {
-  const args = process.argv.slice(2);
+  const args = process.argv.slice(2).filter((a) => !a.startsWith('--'));
   if (args.length === 0) return [{ path: '.dev-grabs/clutter-sprites-01.png' }];
   return args.map((a) => {
     const eq = a.indexOf('=');
@@ -170,24 +176,53 @@ async function main(): Promise<void> {
   }
 
   // Order by category so each category is a contiguous layer range the shader gates on.
-  const order: Cat[] = ['grass', 'flower', 'reed', 'rock'];
-  sprites.sort((a, b) => order.indexOf(a.cat) - order.indexOf(b.cat));
-  const ranges: Record<Cat, { start: number; count: number }> = {
+  // seaweed/wrack sort AFTER the land categories so an --append run just extends the tail.
+  const order: Cat[] = ['grass', 'flower', 'reed', 'rock', 'seaweed', 'wrack'];
+  const emptyRanges = (): Record<Cat, { start: number; count: number }> => ({
     grass: { start: 0, count: 0 }, flower: { start: 0, count: 0 },
     reed: { start: 0, count: 0 }, rock: { start: 0, count: 0 },
-  };
+    seaweed: { start: 0, count: 0 }, wrack: { start: 0, count: 0 },
+  });
+
+  // APPEND: prepend the existing atlas's sprites (as opaque placeholder cells that carry
+  // only their category, plus the real existing atlas pixels copied wholesale below), so
+  // the new sheets slot in after them with COLS unchanged. Non-append rebuilds from scratch.
+  let baseCount = 0;
+  let baseCats: Cat[] = [];
+  let baseAtlas: { data: Uint8ClampedArray; w: number; h: number } | null = null;
+  if (APPEND) {
+    const mf = JSON.parse(readFileSync(join(OUT_DIR, 'manifest.json'), 'utf8')) as
+      { cols: number; rows: number; count: number; cats: Cat[] };
+    if (mf.cols !== COLS) throw new Error(`append: existing atlas cols ${mf.cols} != ${COLS}`);
+    baseCount = mf.count; baseCats = mf.cats;
+    baseAtlas = await loadImage('public/textures/clutter/atlas.png');
+    console.log(`[slice] append mode: preserving ${baseCount} existing sprites (${mf.rows} rows)`);
+  }
+
+  // New sprites keep their harvested order within each category; sort the NEW ones only.
+  sprites.sort((a, b) => order.indexOf(a.cat) - order.indexOf(b.cat));
+
+  const totalCount = baseCount + sprites.length;
+  const cats: Cat[] = [...baseCats, ...sprites.map((s) => s.cat)];
+  const ranges = emptyRanges();
   let idx = 0;
   for (const cat of order) {
     ranges[cat].start = idx;
-    for (const s of sprites) if (s.cat === cat) idx++;
+    for (const c of cats) if (c === cat) idx++;
     ranges[cat].count = idx - ranges[cat].start;
   }
 
-  // Pack into a COLS-wide grid atlas.
-  const rows = Math.max(1, Math.ceil(sprites.length / COLS));
+  // Pack into a COLS-wide grid atlas. Existing sprites keep their (col,row) since COLS is
+  // fixed, so copying the old atlas into the top preserves it exactly; new cells follow.
+  const rows = Math.max(1, Math.ceil(totalCount / COLS));
   const atlasW = COLS * CELL, atlasH = rows * CELL;
   const atlasData = new Uint8ClampedArray(atlasW * atlasH * 4);
-  sprites.forEach((s, i) => {
+  if (baseAtlas) {
+    // Copy the whole existing atlas buffer into the top-left (same width → identical layout).
+    atlasData.set(baseAtlas.data.subarray(0, Math.min(baseAtlas.data.length, atlasData.length)), 0);
+  }
+  sprites.forEach((s, k) => {
+    const i = baseCount + k;
     const cx = (i % COLS) * CELL, cy = ((i / COLS) | 0) * CELL;
     for (let y = 0; y < CELL; y++) {
       const srcOff = y * CELL * 4;
@@ -199,9 +234,9 @@ async function main(): Promise<void> {
   mkdirSync(OUT_DIR, { recursive: true });
   await sharp(Buffer.from(atlasData.buffer), { raw: { width: atlasW, height: atlasH, channels: 4 } })
     .png().toFile(join(OUT_DIR, 'atlas.png'));
-  const manifest = { cell: CELL, cols: COLS, rows, count: sprites.length, ranges, cats: sprites.map((s) => s.cat) };
+  const manifest = { cell: CELL, cols: COLS, rows, count: totalCount, ranges, cats };
   writeFileSync(join(OUT_DIR, 'manifest.json'), JSON.stringify(manifest, null, 2));
-  console.log(`[slice] ${sprites.length} sprites → public/textures/clutter/atlas.png (${atlasW}×${atlasH})`);
+  console.log(`[slice] ${totalCount} sprites → public/textures/clutter/atlas.png (${atlasW}×${atlasH})`);
   console.log(`[slice] categories:`, ranges);
 }
 

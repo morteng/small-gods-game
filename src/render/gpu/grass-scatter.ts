@@ -37,9 +37,13 @@ export interface ClutterManifest {
   cols: number;
   rows: number;
   count: number;
-  ranges: Record<'grass' | 'flower' | 'reed' | 'rock', { start: number; count: number }>;
-  cats: readonly ('grass' | 'flower' | 'reed' | 'rock')[];
+  ranges: Record<ClutterCat, { start: number; count: number }>;
+  cats: readonly ClutterCat[];
 }
+
+/** Ground-cover sprite categories in the atlas. Land: grass/flower/reed/rock. Coastal
+ *  (appended): seaweed (swaying in the shallows) + wrack (shells/driftwood at the tide line). */
+export type ClutterCat = 'grass' | 'flower' | 'reed' | 'rock' | 'seaweed' | 'wrack';
 
 const MAX_GRASS = 300_000;         // hard cap — big maps thin out rather than OOM
 const PER_TILE = 15;               // scatter attempts per land tile (jittered) — dense carpet
@@ -92,11 +96,39 @@ export function buildGrassInstances(
     const v0 = (row * m.cell + 0.5) / atlasH, v1 = ((row + 1) * m.cell - 0.5) / atlasH;
     return [u0, v0, u1, v1];
   };
-  const pickLayer = (cat: 'grass' | 'flower' | 'reed' | 'rock', r: number): number => {
+  const pickLayer = (cat: ClutterCat, r: number): number => {
     const rg = m.ranges[cat];
     if (!rg || rg.count === 0) return m.ranges.grass.start; // graceful: fall back to grass
     return rg.start + Math.min(rg.count - 1, (r * rg.count) | 0);
   };
+
+  const CAT_ID: Record<ClutterCat, number> = {
+    grass: 0, flower: 1, rock: 2, reed: 3, seaweed: 4, wrack: 5,
+  };
+  // Pack one billboard instance at tile coord (fx,fy) on the surface at elevation e.
+  // Shared by land veg + the coastal seaweed/wrack so placement stays one code path.
+  const emit = (
+    fx: number, fy: number, e: number, cat: ClutterCat,
+    size: number, widthMul: number, bendK: number,
+  ): void => {
+    if (n >= MAX_GRASS) return;
+    const [u0, v0, u1, v1] = cellRect(pickLayer(cat, hash2(fx * 8.1 + 3.3, fy * 5.9 + 7.7)));
+    const hPx = (e - sea) * relief * zPx;           // foot lift (negative below the waterline)
+    const footX = (fx - fy) * halfW;
+    const footY = (fx + fy) * halfH - hPx;
+    const depth = Math.min(0.999, Math.max(0, (fx + fy) / (W + H)));
+    const seed = hash2(fx * 12.9 + 2.2, fy * 7.3 + 9.9);
+    const o = n * GRASS_INSTANCE_FLOATS;
+    out[o] = footX; out[o + 1] = footY; out[o + 2] = depth; out[o + 3] = size;
+    out[o + 4] = u0; out[o + 5] = v0; out[o + 6] = u1; out[o + 7] = v1;
+    out[o + 8] = size * widthMul; out[o + 9] = seed; out[o + 10] = CAT_ID[cat]; out[o + 11] = bendK;
+    n++;
+  };
+
+  // Coastal placement bands (metres relative to the water surface).
+  const SEAWEED_MIN_DEPTH_M = 0.15;   // just under the surface
+  const SEAWEED_MAX_DEPTH_M = 3.5;    // seaweed beds hug the shallow near-shore shelf only
+  const WRACK_BAND_M = 1.5;           // the tide line: wet sand just above the water
 
   for (let ty = 0; ty < H && n < MAX_GRASS; ty++) {
     for (let tx = 0; tx < W && n < MAX_GRASS; tx++) {
@@ -105,7 +137,25 @@ export function buildGrassInstances(
         const jy = hash2(tx * 6.7 + k * 9.2, ty * 4.4 + k * 12.6);
         const fx = tx + jx, fy = ty + jy;
         const e = elevAt(fx, fy);
-        if (e <= sea + 0.002) continue;                 // underwater / beach line → bare
+        const aboveM = (e - sea) * relief;              // metres above the water (negative = submerged)
+
+        // ── SUBMERGED: seaweed beds on the shallow near-shore shelf; deeper water stays bare ──
+        if (aboveM <= 0.004) {
+          const depthM = -aboveM;
+          if (depthM > SEAWEED_MIN_DEPTH_M && depthM < SEAWEED_MAX_DEPTH_M) {
+            const weedField = vnoise(fx / 5.0 + 41.3, fy / 5.0 + 17.9);        // clumped into beds
+            // Thin out with depth so the shelf edge fades to bare sand, not a hard weed wall.
+            const depthFade = 1 - (depthM - SEAWEED_MIN_DEPTH_M) / (SEAWEED_MAX_DEPTH_M - SEAWEED_MIN_DEPTH_M);
+            // Density scales WITH the clump field so beds vary — sparse fringes, lush cores
+            // ("sometimes the shallows are more vegetated") rather than a uniform carpet.
+            const bedDensity = 0.14 + 0.78 * Math.max(0, (weedField - 0.46) / 0.54);
+            if (weedField > 0.46 && hash2(fx * 2.1 + 9.7, fy * 3.9 + 4.1) < bedDensity * depthFade) {
+              const sJitW = hash2(fx * 2.9 + 1.1, fy * 3.7 + 6.2);
+              emit(fx, fy, e, 'seaweed', 22 + 14 * sJitW, 0.9, 0.7);          // flexible frond, current-swayed
+            }
+          }
+          continue;
+        }
 
         // Slope from central differences (same frame as the terrain normal).
         const hL = elevAt(fx - 1, fy), hR = elevAt(fx + 1, fy);
@@ -116,6 +166,19 @@ export function buildGrassInstances(
 
         const moist = moisture[Math.min(H - 1, ty) * W + Math.min(W - 1, tx)] ?? 0.5;
         const rr = hash2(fx * 1.7, fy * 2.3);
+        const sJit = hash2(fx * 2.9 + 1.1, fy * 3.7 + 6.2);
+
+        // ── WRACK: the tide line — shells / driftwood / dried weed on the wet sand just above
+        //    the water. Densest right at the waterline, thinning up the beach — the strandline
+        //    that breaks the sterile sand strip. Occupies this attempt instead of land veg.
+        if (aboveM < WRACK_BAND_M) {
+          const wrackField = vnoise(fx / 4.0 + 61.7, fy / 4.0 + 88.3);
+          const nearLine = 1 - aboveM / WRACK_BAND_M;                     // 1 at the water → 0 up the beach
+          if (wrackField > 0.42 && hash2(fx * 3.3 + 12.1, fy * 1.9 + 7.7) < 0.85 * nearLine) {
+            emit(fx, fy, e, 'wrack', 10 + 7 * sJit, 1.25, 0.0);          // small flat shell/debris, static
+            continue;
+          }
+        }
 
         // Clumping fields — low-frequency, so a category gathers into patches/outcrops.
         const flowerField = vnoise(fx / 5.5 + 11.2, fy / 5.5 + 4.7);
@@ -125,7 +188,7 @@ export function buildGrassInstances(
         const nearWater = e < sea + 0.02;                              // TIGHT wet-shore band only (a low
                                                                        // island would otherwise carpet reeds inland)
 
-        let cat: 'grass' | 'flower' | 'rock' | 'reed';
+        let cat: ClutterCat;
         let boulder = false, pebble = false;
         const pebbleField = vnoise(fx / 3.5 + 5.5, fy / 3.5 + 88.1);                   // dusty-ground pebble clumps
         if (slope > 0.55) { if (rr > 0.5) continue; cat = 'rock'; }                    // steep: sparse rock only
@@ -136,44 +199,22 @@ export function buildGrassInstances(
         else if (moist > 0.30 && flowerField > 0.58) cat = 'flower';                   // more, wider-spread flower clumps
         else cat = 'grass';                                                            // grass is the dense default (full carpet)
 
-        const layer = pickLayer(cat, hash2(fx * 8.1 + 3.3, fy * 5.9 + 7.7));
-        const [u0, v0, u1, v1] = cellRect(layer);
-
-        // World-screen foot (pre-camera); height lifts -y like the terrain VS.
-        const hPx = (e - sea) * relief * zPx;
-        const footX = (fx - fy) * halfW;
-        const footY = (fx + fy) * halfH - hPx;
-        const depth = Math.min(0.999, Math.max(0, (fx + fy) / (W + H)));
-
         // Per-instance size (world px) + wind stiffness by category (bendK, the 12th float):
         // grass floppy (occasional TALL hero tuft), flowers stiffer with bigger blooms, REEDS
         // tall + STIFF (near-square billboard — the sprite's own alpha gives the narrow
         // stalks), tiny strewn PEBBLES, larger clustered BOULDERS — all stone rigid.
-        const sJit = hash2(fx * 2.9 + 1.1, fy * 3.7 + 6.2);
-        let base: number, widthMul: number, bendK: number, catId: number;
         if (cat === 'rock') {
-          if (pebble) { base = 6 + 6 * sJit; widthMul = 1.2; }         // tiny scattered pebble
-          else if (boulder) { base = 30 + 18 * sJit; widthMul = 1.25; } // hero boulder, clustered
-          else { base = 14 + 7 * sJit; widthMul = 1.15; }              // mid fieldstone
-          bendK = 0.0; catId = 2;
+          if (pebble) emit(fx, fy, e, 'rock', 6 + 6 * sJit, 1.2, 0.0);          // tiny scattered pebble
+          else if (boulder) emit(fx, fy, e, 'rock', 30 + 18 * sJit, 1.25, 0.0); // hero boulder, clustered
+          else emit(fx, fy, e, 'rock', 14 + 7 * sJit, 1.15, 0.0);               // mid fieldstone
         } else if (cat === 'reed') {
-          base = 52 + 20 * sJit; widthMul = 0.95; bendK = 0.85; catId = 3;   // real reed sprite: near-square billboard
+          emit(fx, fy, e, 'reed', 52 + 20 * sJit, 0.95, 0.85);                  // tall stiff reed at the water's edge
         } else if (cat === 'flower') {
-          base = 28 + 10 * sJit; widthMul = 0.9; bendK = 0.55; catId = 1;  // stiffer: a bloom on a stalk only nods, never smears
+          emit(fx, fy, e, 'flower', 28 + 10 * sJit, 0.9, 0.55);                 // a bloom on a stalk only nods
         } else {
-          const tall = hash2(fx * 4.3 + 5.5, fy * 9.1 + 2.2);         // hero-tuft field
-          base = (tall > 0.74 ? 29 : 23) * (0.85 + 0.4 * sJit);       // some blades stand taller (not so tall they streak)
-          widthMul = 0.85; bendK = 0.12; catId = 0;
+          const tall = hash2(fx * 4.3 + 5.5, fy * 9.1 + 2.2);                   // hero-tuft field
+          emit(fx, fy, e, 'grass', (tall > 0.74 ? 29 : 23) * (0.85 + 0.4 * sJit), 0.85, 0.12);
         }
-        const size = base;
-        const width = size * widthMul;
-        const seed = hash2(fx * 12.9 + 2.2, fy * 7.3 + 9.9);
-
-        const o = n * GRASS_INSTANCE_FLOATS;
-        out[o] = footX; out[o + 1] = footY; out[o + 2] = depth; out[o + 3] = size;
-        out[o + 4] = u0; out[o + 5] = v0; out[o + 6] = u1; out[o + 7] = v1;
-        out[o + 8] = width; out[o + 9] = seed; out[o + 10] = catId; out[o + 11] = bendK;
-        n++;
       }
     }
   }

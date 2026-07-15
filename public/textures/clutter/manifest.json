@@ -1,8 +1,8 @@
 {
   "cell": 64,
   "cols": 6,
-  "rows": 18,
-  "count": 107,
+  "rows": 23,
+  "count": 136,
   "ranges": {
     "grass": {
       "start": 0,
@@ -19,6 +19,14 @@
     "rock": {
       "start": 66,
       "count": 41
+    },
+    "seaweed": {
+      "start": 107,
+      "count": 13
+    },
+    "wrack": {
+      "start": 120,
+      "count": 16
     }
   },
   "cats": [
@@ -128,6 +136,35 @@
     "rock",
     "rock",
     "rock",
-    "rock"
+    "rock",
+    "seaweed",
+    "seaweed",
+    "seaweed",
+    "seaweed",
+    "seaweed",
+    "seaweed",
+    "seaweed",
+    "seaweed",
+    "seaweed",
+    "seaweed",
+    "seaweed",
+    "seaweed",
+    "seaweed",
+    "wrack",
+    "wrack",
+    "wrack",
+    "wrack",
+    "wrack",
+    "wrack",
+    "wrack",
+    "wrack",
+    "wrack",
+    "wrack",
+    "wrack",
+    "wrack",
+    "wrack",
+    "wrack",
+    "wrack",
+    "wrack"
   ]
 }

@@ -56,14 +56,16 @@ function makeField(
 
 function makeManifest(): ClutterManifest {
   return {
-    cell: 32, cols: 4, rows: 1, count: 4,
+    cell: 32, cols: 4, rows: 2, count: 6,
     ranges: {
       grass: { start: 0, count: 2 },
       flower: { start: 2, count: 1 },
       reed: { start: 3, count: 0 },
       rock: { start: 3, count: 1 },
+      seaweed: { start: 4, count: 1 },
+      wrack: { start: 5, count: 1 },
     },
-    cats: ['grass', 'flower', 'rock'],
+    cats: ['grass', 'flower', 'rock', 'seaweed', 'wrack'],
   };
 }
 
@@ -164,7 +166,7 @@ describe('buildGrassInstances — per-instance value ranges', () => {
       expect(size).toBeGreaterThan(0);
       expect(Number.isFinite(width)).toBe(true);
       expect(width).toBeGreaterThan(0);
-      expect([0, 1, 2, 3]).toContain(cat); // grass / flower / rock / reed
+      expect([0, 1, 2, 3, 4, 5]).toContain(cat); // grass / flower / rock / reed / seaweed / wrack
       expect(u0).toBeGreaterThanOrEqual(0); expect(u0).toBeLessThanOrEqual(1);
       expect(u1).toBeGreaterThanOrEqual(0); expect(u1).toBeLessThanOrEqual(1);
       expect(v0).toBeGreaterThanOrEqual(0); expect(v0).toBeLessThanOrEqual(1);
@@ -207,6 +209,23 @@ describe('buildGrassInstances — category selection vs manifest ranges', () => 
     expect(seen.has(2)).toBe(true); // rock
   });
 
+  it('places seaweed in the shallow submerged band and wrack at the tide line', () => {
+    // A shore ramping west→east: submerged shelf (seaweed) → wet sand (wrack) → dry land.
+    // With reliefM 48 / sea 0.35: e≈0.30 sits ~2.4 m under (seaweed band), e≈0.36 just above
+    // the waterline (wrack band), e≥0.38 is dry beach/land.
+    const shore = makeField(28, 28, (tx) => 0.30 + tx * 0.006, () => 0.5, 0.35);
+    const { data, count } = buildGrassInstances(shore, makeManifest());
+    let weed = 0, wrack = 0;
+    for (let i = 0; i < count; i++) {
+      const o = i * GRASS_INSTANCE_FLOATS;
+      const cat = data[o + 10], bendK = data[o + 11];
+      if (cat === 4) { weed++; expect(bendK).toBeGreaterThan(0); }   // seaweed drifts (current sway)
+      if (cat === 5) { wrack++; expect(bendK).toBe(0); }             // wrack is static beach debris
+    }
+    expect(weed).toBeGreaterThan(0);
+    expect(wrack).toBeGreaterThan(0);
+  });
+
   it('falls back to the grass atlas cell (UV) when a triggered category has zero manifest capacity', () => {
     // Isolate the flower band only, so every non-skipped instance is grass or flower.
     const flowerOnly = makeField(W, 10, () => 0.5, () => 0.9, sea);
@@ -217,6 +236,8 @@ describe('buildGrassInstances — category selection vs manifest ranges', () => 
         flower: { start: 2, count: 0 }, // no flower sprites sliced
         reed: { start: 3, count: 0 },
         rock: { start: 3, count: 1 },
+        seaweed: { start: 4, count: 0 },
+        wrack: { start: 4, count: 0 },
       },
       cats: ['grass', 'flower', 'rock'],
     };

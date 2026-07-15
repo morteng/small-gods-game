@@ -1,0 +1,11 @@
+A neat evenly-spaced GRID sprite sheet of BEACH SHELLS and SHORE DEBRIS for a top-down game, on a SOLID FLAT MAGENTA (#FF00FF) background — every sprite fully isolated with generous empty magenta space around it, nothing touching or overlapping, each centered in its own cell, small and resting flat as if lying on sand.
+
+The look is the tide-wrack line washed up on a beach, seen from slightly above. Small individual objects, one per cell, with variety:
+- Several SEASHELLS — a ridged scallop fan, a spiral conch/whelk, a small clam, a cockle, a pale spiral snail — in cream, white, pink, tan and pearly grey.
+- A few pieces of grey weathered DRIFTWOOD — short bleached twigs and a little worn plank.
+- A few small clumps of dried BROWN SEAWEED WRACK — tangled kelp ribbons and bladderwrack, brown and olive.
+- One small pale STARFISH and one or two tiny pebbles for variety.
+
+Keep every object SMALL, low and distinct — beach litter lying flat, not tall, not plants growing up. Muted natural beach palette (cream, tan, grey, brown, soft pink).
+
+Crisp clean pixel art, consistent soft even top-down lighting, NO baked sand, NO ground, NO water, NO drop shadows, NO gradients — pure #FF00FF magenta everywhere except the objects so the sheet can be chroma-keyed to transparency. Rows and columns evenly spaced with wide magenta gutters. Aim for at least sixteen distinct objects.

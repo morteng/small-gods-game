@@ -1,0 +1,9 @@
+A neat evenly-spaced GRID sprite sheet of SEAWEED and underwater plants for a top-down game, on a SOLID FLAT MAGENTA (#FF00FF) background — every sprite fully isolated with generous empty magenta space around it, nothing touching or overlapping, each centered in its cell and rooted at the bottom, growing STRAIGHT UP (tall and narrow, taller than they are wide).
+
+The look is a swaying underwater seaweed bed seen from the side: slender flexible fronds and blades of kelp, eelgrass and sea-lettuce standing upright and gently curved as if drifting in a current. Fresh sea-green and olive, some with deep red-brown or amber fronds, a few with tiny air-bladder beads along the stalk. Include variety, one per cell:
+- Several TALL KELP / eelgrass strands — bunches of long narrow ribbon blades, softly curved.
+- A few bushier bladderwrack / red-algae sprigs with small rounded tips.
+- One or two shorter tufts of sea-grass for variety.
+Keep them all TALL, NARROW, UPRIGHT and FLEXIBLE-looking — drifting vertical fronds, not bushy round clumps, not short grass.
+
+Crisp clean pixel art, consistent soft even top-lighting with a slight isometric tilt, NO baked ground, NO water, NO sand, NO drop shadows, NO gradients — pure #FF00FF magenta everywhere except the plants so the sheet can be chroma-keyed to transparency. Rows and columns evenly spaced with wide magenta gutters. Aim for at least sixteen distinct seaweed sprites.

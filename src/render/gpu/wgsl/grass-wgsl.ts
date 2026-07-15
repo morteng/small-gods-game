@@ -49,12 +49,18 @@ const SEG : u32 = 4u;
 const WAVE_FREQ   : f32 = 0.0055;  // rad per screen-px along wind (gust wavelength ~1100 px)
 const WAVE_SPEED  : f32 = 1.15;    // rad/s the gust front marches across the ground
 const BREEZE_FLOOR: f32 = 0.5;     // residual breeze between gust crests — always visibly alive
+// SEAWEED current drift (category 4): a slow, always-on sway independent of surface wind —
+// underwater fronds wave in the current even in still air. Direction is the drift, amplitude
+// the tip throw (screen px). Slower + rounder than the meadow's flutter, the way kelp moves.
+const WEED_DIR : vec2<f32> = vec2<f32>(0.82, 0.34);
+const WEED_AMP : f32 = 6.0;
 
 struct VOut {
   @builtin(position) pos : vec4<f32>,
   @location(0) uv    : vec2<f32>,
   @location(1) shade : f32,        // base self-shadow → tip lit
   @location(2) tint  : vec3<f32>,  // per-blade colour jitter (breaks tiling)
+  @location(3) @interpolate(flat) weed : f32,   // 1 = seaweed → submerged underwater tint
 };
 
 @vertex
@@ -70,7 +76,7 @@ fn vsMain(
 
   let width    = iP.x;
   let seed     = iP.y;
-  let category = iP.z;                  // 0 grass, 1 flower, 2 rock, 3 reed
+  let category = iP.z;                  // 0 grass, 1 flower, 2 rock, 3 reed, 4 seaweed, 5 wrack
   let stiff    = iP.w;                  // per-category wind stiffness (0 floppy grass .. 0.85 stiff reed)
   let sx = (f32(side) - 0.5) * width;   // rectangular billboard (constant width)
   let sy = -iA.w * t;                   // rise up-screen toward the tip
@@ -79,10 +85,11 @@ fn vsMain(
   //  • floppy grass (stiff≈0.1) hinges LOW (bends from t=0.30) with lively flutter;
   //  • a TALL REED (stiff≈0.85) is rigid — it hinges HIGH (only the top third moves),
   //    flutters little, and leans instead as a coherent whole-stalk sway;
-  //  • rocks (category 2) never move.
+  //  • rocks (category 2) AND wrack (category 5, beach shells/debris) never move.
   // Strength still pulses in GUSTS that roll across the field as a travelling wave.
-  let isRock   = select(0.0, 1.0, category > 1.5 && category < 2.5);
-  let notRock  = 1.0 - isRock;
+  let isStatic = select(0.0, 1.0, (category > 1.5 && category < 2.5) || category > 4.5);
+  let isWeed   = select(0.0, 1.0, category > 3.5 && category < 4.5);   // seaweed → current drift
+  let notRock  = 1.0 - isStatic;
   let hinge    = mix(0.30, 0.62, stiff);               // stiffer → bends higher up the blade
   // Floppy grass bends from a PLANTED base (shear along the blade — reads as organic sway).
   // Stiff sprites (flowers, reeds) instead TRANSLATE as a NEAR-RIGID whole (bendW→1 for all t,
@@ -114,9 +121,20 @@ fn vsMain(
   let idle     = sin(G.uTime * 0.9 + phase * 1.3) * 0.12 * notRock;
 
   let windOfs = windDir * (G.uWind.z * bendW * bend + idle * bendW);
-  let lean    = G.uWind.z * bendW * abs(bend) * 0.15;   // leans rather than stretches
+  let windLean = G.uWind.z * bendW * abs(bend) * 0.15;  // leans rather than stretches
 
-  let scr = iA.xy + vec2<f32>(sx + windOfs.x, sy + windOfs.y + lean);
+  // SEAWEED current drift: floppy shear from LOW on the frond (bends most at the tip), a slow
+  // rounded sway with a cross-harmonic so a bed drifts organically — NOT the wind path, so it
+  // waves underwater regardless of surface breeze. Selected in over the land wind offset.
+  let weedBendW = smoothstep(0.10, 1.0, t);
+  let weedPhase = dot(iA.xy, vec2<f32>(0.05, 0.045)) + seed * 6.28318;
+  let weedSway  = sin(G.uTime * 0.55 + weedPhase) + 0.4 * sin(G.uTime * 0.9 + weedPhase * 1.7);
+  let weedOfs   = WEED_DIR * (weedBendW * weedSway * WEED_AMP);
+
+  let ofs  = select(windOfs, weedOfs, isWeed > 0.5);
+  let lean = select(windLean, weedBendW * abs(weedSway) * 0.5, isWeed > 0.5);
+
+  let scr = iA.xy + vec2<f32>(sx + ofs.x, sy + ofs.y + lean);
   let dev = scr * G.uXform.xy + G.uXform.zw;
   let ndc = vec2<f32>(dev.x / (G.uViewport.x * 0.5) - 1.0, 1.0 - dev.y / (G.uViewport.y * 0.5));
 
@@ -135,6 +153,7 @@ fn vsMain(
   o.uv    = vec2<f32>(uu, vv);
   o.shade = mix(0.62, 0.93, t);
   o.tint  = tint;
+  o.weed  = isWeed;
   return o;
 }
 
@@ -143,6 +162,16 @@ fn fsMain(i : VOut) -> @location(0) vec4<f32> {
   let c = textureSampleLevel(clutterTex, clutterSamp, i.uv, 0.0);
   if (c.a < 0.35) { discard; }                             // alpha test → crisp opaque edge
   let light = G.uAmbient + G.uSunColor * 0.9;
-  return vec4<f32>(c.rgb * i.shade * i.tint * light, 1.0);
+  var rgb = c.rgb * i.shade * i.tint * light;
+  // SEAWEED submerged read: the frond draws over the water surface (pass order), so tint it as if
+  // seen THROUGH water — a teal-blue cast that deepens toward the base (near the seabed, where the
+  // light has fallen off), lightening toward the tip (nearer the surface). Red/amber algae goes
+  // muddy-green at depth, exactly as warm light is absorbed first underwater. Reads as submerged.
+  if (i.weed > 0.5) {
+    let depthT = clamp((i.shade - 0.62) / 0.31, 0.0, 1.0);            // 0 base(deep) .. 1 tip(surface)
+    let tealCast = mix(vec3<f32>(0.52, 0.80, 0.96), vec3<f32>(0.90, 0.98, 1.0), depthT);
+    rgb = rgb * tealCast * mix(0.55, 1.0, depthT);
+  }
+  return vec4<f32>(rgb, 1.0);
 }
 `;
