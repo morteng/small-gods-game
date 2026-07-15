@@ -214,7 +214,7 @@ describe('buildGrassInstances — category selection vs manifest ranges', () => 
     // With reliefM 48 / sea 0.35: e≈0.30 sits ~2.4 m under (seaweed band), e≈0.36 just above
     // the waterline (wrack band), e≥0.38 is dry beach/land.
     const shore = makeField(28, 28, (tx) => 0.30 + tx * 0.006, () => 0.5, 0.35);
-    const { data, count } = buildGrassInstances(shore, makeManifest());
+    const { data, count, seaweedCount } = buildGrassInstances(shore, makeManifest());
     let weed = 0, wrack = 0;
     for (let i = 0; i < count; i++) {
       const o = i * GRASS_INSTANCE_FLOATS;
@@ -224,6 +224,14 @@ describe('buildGrassInstances — category selection vs manifest ranges', () => 
     }
     expect(weed).toBeGreaterThan(0);
     expect(wrack).toBeGreaterThan(0);
+
+    // CONTRACT the renderer relies on: the leading `seaweedCount` instances are ALL seaweed
+    // (they draw as the pre-water submerged sub-pass), and none of the rest are.
+    expect(seaweedCount).toBe(weed);
+    for (let i = 0; i < count; i++) {
+      const isSeaweed = data[i * GRASS_INSTANCE_FLOATS + 10] === 4;
+      expect(isSeaweed).toBe(i < seaweedCount);
+    }
   });
 
   it('falls back to the grass atlas cell (UV) when a triggered category has zero manifest capacity', () => {

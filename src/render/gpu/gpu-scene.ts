@@ -114,9 +114,14 @@ export class GpuScene {
   // memoised per world (rebuilt when the height-array identity changes) into a persistent
   // buffer; the camera rides uXform, so pan/zoom never re-packs.
   private grassPipeline: GPURenderPipeline;
+  // Sibling pipeline for the SUBMERGED seaweed sub-pass — identical shader, but NO depth
+  // write, drawn before the water pass so the translucent water composites over the fronds.
+  private grassSubmergedPipeline: GPURenderPipeline;
   private grassBind: GPUBindGroup | null = null;
+  private grassSubmergedBind: GPUBindGroup | null = null;
   private grassBuf: GPUBuffer | null = null;
   private grassCount = 0;
+  private grassSeaweedCount = 0;   // leading instances (seaweed) drawn pre-water
   private grassSrcHeights: Float32Array | null = null;
   // Dedicated grass globals (step 3, wind): the shared 80-byte entity Globals has no
   // time/wind slot, so grass gets its own uniform packed once per frame.
@@ -368,6 +373,7 @@ export class GpuScene {
     this.detailPatchPipeline = createDetailPatchPipeline(device, gpu.format, terrainModule);
     this.structureMeshPipeline = createStructureMeshPipeline(device, gpu.format);
     this.grassPipeline = createGrassPipeline(device, gpu.format);
+    this.grassSubmergedPipeline = createGrassPipeline(device, gpu.format, false);
     // 112 bytes / 28 floats: mirrors the entity Globals viewport/ambient/sun/xform
     // block (80 B) plus uTime (padded to a 16-B boundary) + a uWind vec4 — see
     // `GGlobals` in grass-wgsl.ts and `packGrassGlobals` below.
@@ -855,23 +861,27 @@ export class GpuScene {
     if (!this.clutterLoaded || !this.clutterManifest) return false;
     if (terrain.heights === this.grassSrcHeights && this.grassBind) return this.grassCount > 0;
 
-    const { data, count } = buildGrassInstances(terrain, this.clutterManifest);
+    const { data, count, seaweedCount } = buildGrassInstances(terrain, this.clutterManifest);
     this.grassSrcHeights = terrain.heights;
     this.grassCount = count;
+    this.grassSeaweedCount = seaweedCount;
     if (count === 0) return false;
 
     const buf = this.dynBuf('grass', data.byteLength);
     this.device.queue.writeBuffer(buf, 0, data as GPUAllowSharedBufferSource);
     this.grassBuf = buf;
+    const entries: GPUBindGroupEntry[] = [
+      { binding: 0, resource: { buffer: this.grassGlobalsBuf } },
+      { binding: 1, resource: this.clutterView },
+      { binding: 2, resource: this.clutterSampler },
+    ];
+    // Two bind groups (one per pipeline) — layout:'auto' makes each pipeline's layout its
+    // own object, so a bind group built for one is not reusable on the other.
     if (!this.grassBind) {
-      this.grassBind = this.device.createBindGroup({
-        layout: this.grassPipeline.getBindGroupLayout(0),
-        entries: [
-          { binding: 0, resource: { buffer: this.grassGlobalsBuf } },
-          { binding: 1, resource: this.clutterView },
-          { binding: 2, resource: this.clutterSampler },
-        ],
-      });
+      this.grassBind = this.device.createBindGroup({ layout: this.grassPipeline.getBindGroupLayout(0), entries });
+    }
+    if (!this.grassSubmergedBind) {
+      this.grassSubmergedBind = this.device.createBindGroup({ layout: this.grassSubmergedPipeline.getBindGroupLayout(0), entries });
     }
     return true;
   }
@@ -1200,9 +1210,12 @@ export class GpuScene {
     if (hasTerrain) this.passTerrain(ctx, terrain!);
     if (hasDetail) this.passDetail(ctx, opts.detail!);
     if (hasShadows) this.passShadows(ctx, !!staticItems, dynShadowBatches);
+    const grassOn = hasGrass && !(globalThis as { __noGrass?: boolean }).__noGrass;
+    // Submerged seaweed draws UNDER the water so the surface composites over it (submerged).
+    if (grassOn) this.passGrassSubmerged(ctx);
     if (hasWater) this.passWater(ctx, water!);
     if (hasStructures) this.passStructures(ctx, structures!);
-    if (hasGrass && !(globalThis as { __noGrass?: boolean }).__noGrass) this.passGrass(ctx);
+    if (grassOn) this.passGrass(ctx);
     this.passEntities(ctx, P.entities, dynBatches, dynLifted, xform);
     if (out) this.passBlit(ctx, out, pixelOffset);
     if (P.ui && uiGroups && uiGroups.length > 0) this.passUi(ctx, uiGroups);
@@ -1352,6 +1365,8 @@ export class GpuScene {
    * alpha-tested. One instanced draw for the whole memoised instance buffer.
    */
   private passGrass(ctx: PassCtx): void {
+    const landCount = this.grassCount - this.grassSeaweedCount;
+    if (landCount <= 0) return;
     const gpass = ctx.enc.beginRenderPass({
       colorAttachments: [{ view: ctx.colorView, clearValue: ctx.ocean, loadOp: ctx.colorCleared ? 'load' : 'clear', storeOp: 'store' }],
       depthStencilAttachment: { view: ctx.depthView, depthLoadOp: 'load', depthStoreOp: 'store' },
@@ -1359,7 +1374,29 @@ export class GpuScene {
     gpass.setPipeline(this.grassPipeline);
     gpass.setBindGroup(0, this.grassBind!);
     gpass.setVertexBuffer(0, this.grassBuf!);
-    gpass.draw(GRASS_VERTEX_COUNT, this.grassCount);
+    // Land veg + wrack only — the leading seaweed instances drew pre-water (passGrassSubmerged).
+    gpass.draw(GRASS_VERTEX_COUNT, landCount, 0, this.grassSeaweedCount);
+    gpass.end();
+    ctx.colorCleared = true;
+  }
+
+  /**
+   * Pass 1.4 — SUBMERGED seaweed billboards, drawn BEFORE the water pass so the translucent
+   * water composites over them (real depth-graded Beer-Lambert tint = they read underwater).
+   * The leading `grassSeaweedCount` instances of the shared buffer are seaweed; NO depth write
+   * (siblings the water pass) so the fronds never reject the water above them. Terrain still
+   * occludes them (greater-equal). Skipped when there is no seaweed (inland worlds).
+   */
+  private passGrassSubmerged(ctx: PassCtx): void {
+    if (this.grassSeaweedCount <= 0 || !this.grassSubmergedBind) return;
+    const gpass = ctx.enc.beginRenderPass({
+      colorAttachments: [{ view: ctx.colorView, clearValue: ctx.ocean, loadOp: ctx.colorCleared ? 'load' : 'clear', storeOp: 'store' }],
+      depthStencilAttachment: { view: ctx.depthView, depthLoadOp: 'load', depthStoreOp: 'store' },
+    });
+    gpass.setPipeline(this.grassSubmergedPipeline);
+    gpass.setBindGroup(0, this.grassSubmergedBind);
+    gpass.setVertexBuffer(0, this.grassBuf!);
+    gpass.draw(GRASS_VERTEX_COUNT, this.grassSeaweedCount, 0, 0);
     gpass.end();
     ctx.colorCleared = true;
   }

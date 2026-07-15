@@ -151,7 +151,9 @@ export function createStructureMeshPipeline(device: GPUDevice, format: GPUTextur
  *  blades (larger foot depth) win over farther ones regardless of draw order. Opaque +
  *  alpha-tested (crisp pixel edges; transparent texels discard, never writing depth).
  *  Inserted after structures, before the entity depth-clear. */
-export function createGrassPipeline(device: GPUDevice, format: GPUTextureFormat): GPURenderPipeline {
+export function createGrassPipeline(
+  device: GPUDevice, format: GPUTextureFormat, depthWriteEnabled = true,
+): GPURenderPipeline {
   const module = device.createShaderModule({ code: GRASS_WGSL });
   return device.createRenderPipeline({
     layout: 'auto',
@@ -168,7 +170,10 @@ export function createGrassPipeline(device: GPUDevice, format: GPUTextureFormat)
     },
     fragment: { module, entryPoint: 'fsMain', targets: [{ format }] },
     primitive: { topology: 'triangle-strip' },
-    depthStencil: { format: DEPTH_FORMAT, depthWriteEnabled: true, depthCompare: 'greater-equal' },
+    // depthWriteEnabled=false for the SUBMERGED seaweed sub-pass drawn before water: it
+    // must not write a nearer depth that rejects the translucent water pass, so the water
+    // composites over it (real Beer-Lambert tint) exactly as it does the seabed floor.
+    depthStencil: { format: DEPTH_FORMAT, depthWriteEnabled, depthCompare: 'greater-equal' },
   });
 }
 

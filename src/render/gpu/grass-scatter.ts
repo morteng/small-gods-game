@@ -46,6 +46,7 @@ export interface ClutterManifest {
 export type ClutterCat = 'grass' | 'flower' | 'reed' | 'rock' | 'seaweed' | 'wrack';
 
 const MAX_GRASS = 300_000;         // hard cap — big maps thin out rather than OOM
+const MAX_WEED = 80_000;           // seaweed sub-buffer cap (shallow-shelf fringe only)
 const PER_TILE = 15;               // scatter attempts per land tile (jittered) — dense carpet
                                    // so the sward reads continuous, not sparse over base ground
 
@@ -69,7 +70,7 @@ function vnoise(x: number, y: number): number {
  *  Float32Array (sliced to `count` instances) + the instance count. */
 export function buildGrassInstances(
   field: TerrainField, m: ClutterManifest,
-): { data: Float32Array; count: number } {
+): { data: Float32Array; count: number; seaweedCount: number } {
   const { heights, moisture, globals: g } = field;
   const W = g.grid[0] | 0, H = g.grid[1] | 0;
   const halfW = g.half[0], halfH = g.half[1];
@@ -87,8 +88,13 @@ export function buildGrassInstances(
     return (h00 + (h10 - h00) * tx) * (1 - ty) + (h01 + (h11 - h01) * tx) * ty;
   };
 
-  const out = new Float32Array(MAX_GRASS * GRASS_INSTANCE_FLOATS);
-  let n = 0;
+  // Seaweed is emitted into a SEPARATE buffer so the final array can place it contiguously
+  // at the FRONT: the renderer draws that sub-range BEFORE the water pass (no depth write) so
+  // the translucent water composites over it (submerged), while land veg + wrack draw AFTER
+  // water as before. Seaweed is a thin shallow-shelf fringe, so a smaller cap suffices.
+  const land = new Float32Array(MAX_GRASS * GRASS_INSTANCE_FLOATS);
+  const weed = new Float32Array(MAX_WEED * GRASS_INSTANCE_FLOATS);
+  let nLand = 0, nWeed = 0;
 
   const cellRect = (layer: number): [number, number, number, number] => {
     const col = layer % m.cols, row = (layer / m.cols) | 0;
@@ -111,18 +117,20 @@ export function buildGrassInstances(
     fx: number, fy: number, e: number, cat: ClutterCat,
     size: number, widthMul: number, bendK: number,
   ): void => {
-    if (n >= MAX_GRASS) return;
+    const isWeed = cat === 'seaweed';
+    if (isWeed ? nWeed >= MAX_WEED : nLand >= MAX_GRASS) return;
     const [u0, v0, u1, v1] = cellRect(pickLayer(cat, hash2(fx * 8.1 + 3.3, fy * 5.9 + 7.7)));
     const hPx = (e - sea) * relief * zPx;           // foot lift (negative below the waterline)
     const footX = (fx - fy) * halfW;
     const footY = (fx + fy) * halfH - hPx;
     const depth = Math.min(0.999, Math.max(0, (fx + fy) / (W + H)));
     const seed = hash2(fx * 12.9 + 2.2, fy * 7.3 + 9.9);
-    const o = n * GRASS_INSTANCE_FLOATS;
-    out[o] = footX; out[o + 1] = footY; out[o + 2] = depth; out[o + 3] = size;
-    out[o + 4] = u0; out[o + 5] = v0; out[o + 6] = u1; out[o + 7] = v1;
-    out[o + 8] = size * widthMul; out[o + 9] = seed; out[o + 10] = CAT_ID[cat]; out[o + 11] = bendK;
-    n++;
+    const buf = isWeed ? weed : land;
+    const o = (isWeed ? nWeed : nLand) * GRASS_INSTANCE_FLOATS;
+    buf[o] = footX; buf[o + 1] = footY; buf[o + 2] = depth; buf[o + 3] = size;
+    buf[o + 4] = u0; buf[o + 5] = v0; buf[o + 6] = u1; buf[o + 7] = v1;
+    buf[o + 8] = size * widthMul; buf[o + 9] = seed; buf[o + 10] = CAT_ID[cat]; buf[o + 11] = bendK;
+    if (isWeed) nWeed++; else nLand++;
   };
 
   // Coastal placement bands (metres relative to the water surface).
@@ -130,9 +138,9 @@ export function buildGrassInstances(
   const SEAWEED_MAX_DEPTH_M = 3.5;    // seaweed beds hug the shallow near-shore shelf only
   const WRACK_BAND_M = 1.5;           // the tide line: wet sand just above the water
 
-  for (let ty = 0; ty < H && n < MAX_GRASS; ty++) {
-    for (let tx = 0; tx < W && n < MAX_GRASS; tx++) {
-      for (let k = 0; k < PER_TILE && n < MAX_GRASS; k++) {
+  for (let ty = 0; ty < H && nLand < MAX_GRASS; ty++) {
+    for (let tx = 0; tx < W && nLand < MAX_GRASS; tx++) {
+      for (let k = 0; k < PER_TILE && nLand < MAX_GRASS; k++) {
         const jx = hash2(tx * 3.1 + k * 17.3, ty * 2.7 + k * 5.1);
         const jy = hash2(tx * 6.7 + k * 9.2, ty * 4.4 + k * 12.6);
         const fx = tx + jx, fy = ty + jy;
@@ -218,5 +226,11 @@ export function buildGrassInstances(
       }
     }
   }
-  return { data: out.subarray(0, n * GRASS_INSTANCE_FLOATS), count: n };
+  // Concatenate with SEAWEED FIRST so the renderer can draw instances [0, seaweedCount) as
+  // the pre-water submerged sub-pass and [seaweedCount, count) as the over-water land pass.
+  const count = nWeed + nLand;
+  const data = new Float32Array(count * GRASS_INSTANCE_FLOATS);
+  data.set(weed.subarray(0, nWeed * GRASS_INSTANCE_FLOATS), 0);
+  data.set(land.subarray(0, nLand * GRASS_INSTANCE_FLOATS), nWeed * GRASS_INSTANCE_FLOATS);
+  return { data, count, seaweedCount: nWeed };
 }

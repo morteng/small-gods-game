@@ -60,7 +60,6 @@ struct VOut {
   @location(0) uv    : vec2<f32>,
   @location(1) shade : f32,        // base self-shadow → tip lit
   @location(2) tint  : vec3<f32>,  // per-blade colour jitter (breaks tiling)
-  @location(3) @interpolate(flat) weed : f32,   // 1 = seaweed → submerged underwater tint
 };
 
 @vertex
@@ -153,7 +152,6 @@ fn vsMain(
   o.uv    = vec2<f32>(uu, vv);
   o.shade = mix(0.62, 0.93, t);
   o.tint  = tint;
-  o.weed  = isWeed;
   return o;
 }
 
@@ -162,16 +160,9 @@ fn fsMain(i : VOut) -> @location(0) vec4<f32> {
   let c = textureSampleLevel(clutterTex, clutterSamp, i.uv, 0.0);
   if (c.a < 0.35) { discard; }                             // alpha test → crisp opaque edge
   let light = G.uAmbient + G.uSunColor * 0.9;
-  var rgb = c.rgb * i.shade * i.tint * light;
-  // SEAWEED submerged read: the frond draws over the water surface (pass order), so tint it as if
-  // seen THROUGH water — a teal-blue cast that deepens toward the base (near the seabed, where the
-  // light has fallen off), lightening toward the tip (nearer the surface). Red/amber algae goes
-  // muddy-green at depth, exactly as warm light is absorbed first underwater. Reads as submerged.
-  if (i.weed > 0.5) {
-    let depthT = clamp((i.shade - 0.62) / 0.31, 0.0, 1.0);            // 0 base(deep) .. 1 tip(surface)
-    let tealCast = mix(vec3<f32>(0.52, 0.80, 0.96), vec3<f32>(0.90, 0.98, 1.0), depthT);
-    rgb = rgb * tealCast * mix(0.55, 1.0, depthT);
-  }
+  // Seaweed no longer self-tints: it draws UNDER the water pass, so the real water shader
+  // composites its depth-graded Beer-Lambert turquoise over the fronds (submerged read).
+  let rgb = c.rgb * i.shade * i.tint * light;
   return vec4<f32>(rgb, 1.0);
 }
 `;
