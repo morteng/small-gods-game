@@ -229,6 +229,15 @@ export function buildEntityDrawList(
           const last = items[items.length - 1];
           if (last?.t === 'image') last.liftElev = liftElev;
         }
+        // Alpine fidelity: buildings (and bridges/props — anything drawn from a normal-mapped
+        // pack) settle snow on their up-facing texels through the SAME lit-shader whiten +
+        // CPU snow mask flora/rocks use, so a roof under snow reads as one material with the
+        // snowed ground it stands on. Sampled at the footprint centre (0 ⇒ byte-identical).
+        const bsnow = snowAmount01(rc.map, Math.floor(b.e.x) + fp.w / 2, Math.floor(b.e.y) + fp.h / 2);
+        if (bsnow > 0) {
+          const last = items[items.length - 1];
+          if (last?.t === 'image') last.whiten = Math.min(1, bsnow);
+        }
       }
     } else if (e.kind === 'barrier') {
       const slab = barrierSlabItems.get(e.id);
