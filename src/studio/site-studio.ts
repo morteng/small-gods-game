@@ -13,7 +13,7 @@
 // grammar (expandComplex/siteComplex/deriveEarthworks) was fully built + tested but never
 // rendered anywhere — this is where it first becomes visible.
 
-import type { RenderContext, Camera, GameMap, Entity, WorldSeed } from '@/core/types';
+import type { RenderContext, GameMap, Entity, WorldSeed } from '@/core/types';
 import { World } from '@/world/world';
 import { generateWithNoise } from '@/map/map-generator';
 import { Autotiler } from '@/map/autotiler';
@@ -24,7 +24,9 @@ import { ParametricBuildingSource } from '@/render/parametric-building-source';
 import { ParametricPlantSource } from '@/render/parametric-plant-source';
 import { ParametricBarrierSource } from '@/render/parametric-barrier-source';
 import { DEFAULT_LIGHTING } from '@/render/lighting-state';
-import { ISO_TILE_W, ISO_TILE_H } from '@/render/iso/iso-constants';
+import { createCamera } from '@/render/camera';
+import { attachControls } from '@/ui/controls';
+import { fitTilesToView, quantizeStudioZoom, STUDIO_ZOOM_MAX } from './studio-camera';
 import { evaluateConnectome, type Diagnostic } from '@/world/connectome-diagnostics';
 import { placeComplexOnPatch } from '@/world/place-complex';
 import { heightMetresAt } from '@/world/heightfield';
@@ -35,22 +37,8 @@ import { injectStudioTheme, COLORS, h } from './theme';
 
 export interface StudioHandle { dispose(): void; }
 
-const HALF_W = ISO_TILE_W / 2;
-const HALF_H = ISO_TILE_H / 2;
 const PATCH = 96; // tiles square — a generous landmass so the fort (outer ring ⌀~40) sits IN a
                   // landscape with room around it, not filling a tiny island.
-
-/** Iso screen extent (pre-camera) of a tile rect; fit the camera to it. */
-function fitTiles(cam: Camera, minTx: number, minTy: number, maxTx: number, maxTy: number, vw: number, vh: number, margin = 0.9): void {
-  const corners = [[minTx, minTy], [maxTx, minTy], [minTx, maxTy], [maxTx, maxTy]];
-  const xs = corners.map(([x, y]) => (x - y) * HALF_W);
-  const ys = corners.map(([x, y]) => (x + y) * HALF_H);
-  const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
-  const w = Math.max(1, maxX - minX), hh = Math.max(1, maxY - minY);
-  cam.zoom = Math.max(0.02, Math.min(8, Math.min(vw / w, vh / hh) * margin));
-  cam.x = (minX + maxX) / 2 - (vw / 2) / cam.zoom;
-  cam.y = (minY + maxY) / 2 - (vh / 2) / cam.zoom;
-}
 
 /** Is (x,y) open water on the map? */
 function isWater(map: GameMap, x: number, y: number): boolean {
@@ -149,9 +137,8 @@ export function mountSiteStudio(container: HTMLElement): StudioHandle {
   let disposed = false;
   let rafId = 0;
   let ro: ResizeObserver | null = null;
-  const ac = new AbortController();
-  const { signal } = ac;
-  const dispose = (): void => { disposed = true; cancelAnimationFrame(rafId); ac.abort(); ro?.disconnect(); };
+  let detachControls: (() => void) | null = null;
+  const dispose = (): void => { disposed = true; cancelAnimationFrame(rafId); detachControls?.(); ro?.disconnect(); };
 
   void (async () => {
     ensureBuildingTypesRegistered();
@@ -243,7 +230,7 @@ export function mountSiteStudio(container: HTMLElement): StudioHandle {
     let visualMap: ReturnType<typeof Autotiler.computeVisualMap> | null = null;
     let regenToken = 0;
     const lighting = { ...DEFAULT_LIGHTING };
-    const cam: Camera = { x: 0, y: 0, zoom: 1, dragging: false, lastX: 0, lastY: 0 };
+    const cam = createCamera();
     const dev: Record<string, unknown> = {};
 
     const buildingSource = new ParametricBuildingSource();
@@ -263,20 +250,12 @@ export function mountSiteStudio(container: HTMLElement): StudioHandle {
     resize();
     ro = new ResizeObserver(resize); ro.observe(viewPane);
 
-    // ── pan + zoom ───────────────────────────────────────────────────────────────
-    canvas.addEventListener('mousedown', (e) => { cam.dragging = true; cam.lastX = e.clientX; cam.lastY = e.clientY; canvas.style.cursor = 'grabbing'; }, { signal });
-    window.addEventListener('mouseup', () => { cam.dragging = false; canvas.style.cursor = 'grab'; }, { signal });
-    window.addEventListener('mousemove', (e) => {
-      if (!cam.dragging) return;
-      cam.x -= (e.clientX - cam.lastX) / cam.zoom;
-      cam.y -= (e.clientY - cam.lastY) / cam.zoom;
-      cam.lastX = e.clientX; cam.lastY = e.clientY;
-    }, { signal });
-    canvas.addEventListener('wheel', (e) => {
-      e.preventDefault();
-      const f = e.deltaY < 0 ? 1.1 : 1 / 1.1;
-      cam.zoom = Math.max(0.02, Math.min(8, cam.zoom * f));
-    }, { signal, passive: false });
+    // ── pan + zoom (shared game camera primitives — see ui/controls.ts) ─────────
+    detachControls = attachControls(canvas, cam, {
+      getZoomQuantize: () => quantizeStudioZoom,
+      getMaxZoom: () => STUDIO_ZOOM_MAX,
+      onRedraw: () => {},
+    });
 
     // ── regenerate ────────────────────────────────────────────────────────────────
     async function regenerate(refit = true): Promise<void> {
@@ -312,7 +291,7 @@ export function mountSiteStudio(container: HTMLElement): StudioHandle {
 
       const placed = placeComplexOnPatch(world, map, { complexTypeId: gen.archetype, centre, seed: gen.seed, era: 'medieval' });
       visualMap = Autotiler.computeVisualMap(map);
-      if (refit) fitTiles(cam, 0, 0, map.width, map.height, cssW, cssH);
+      if (refit) fitTilesToView(cam, 0, 0, map.width, map.height, cssW, cssH);
 
       const ew = placed.placed?.earthworks ?? [];
       const motte = ew.find((e) => e.kind === 'motte');

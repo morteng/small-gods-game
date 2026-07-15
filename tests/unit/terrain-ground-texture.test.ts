@@ -49,10 +49,14 @@ describe('terrain WGSL — Slice-2 colour ground texture', () => {
     expect(TERRAIN_WGSL).toContain('wGrassG');
     expect(TERRAIN_WGSL).toContain('wDirtG');
     expect(TERRAIN_WGSL).toContain('wSandG');
-    // Grass layer 0, dirt layer 1, sand layer 3 — the MATERIAL_LAYER order.
+    // Grass keeps the mean-normalised grain over the biome hue (matDetail, layer 0);
+    // dirt (1) and sand (3) blend REAL swatch COLOUR (matColor) so dusty earth / tan
+    // sand read as distinct textures, not a brightness wash of the grass colour.
     expect(TERRAIN_WGSL).toMatch(/matDetail\(0, muv, lod\)/);
-    expect(TERRAIN_WGSL).toMatch(/matDetail\(1, muv, lod\)/);
-    expect(TERRAIN_WGSL).toMatch(/matDetail\(3, muv, lod\)/);
+    expect(TERRAIN_WGSL).toMatch(/matColor\(1, muv, lod\)/);
+    expect(TERRAIN_WGSL).toMatch(/matColor\(3, muv, lod\)/);
+    // Scattered pebbles: real stone colour (layer 2) speckled on drier ground.
+    expect(TERRAIN_WGSL).toMatch(/matColor\(2, muv/);
   });
 
   it('band-limits with a footprint fade and skips the block entirely past it', () => {

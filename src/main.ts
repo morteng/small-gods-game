@@ -22,9 +22,15 @@ if (container && __DEV_TOOLS__ && new URLSearchParams(location.search).has('stud
   });
 } else if (container) {
   const game = new Game(container);
-  game.generateWorld().then(() => {
-    console.log('World generated');
-  });
+  // `?genome=<name>` runs a generated terrain GENOME through the real engine — a
+  // valid, buildings-free `WorldSeed` built to a stated need (e.g. a small grass
+  // island for terrain-shader work), rendered by the shipped path with no bespoke
+  // harness. The genome world is ephemeral (Game skips autosave under `?genome`).
+  const genomeName = __DEV_TOOLS__ ? new URLSearchParams(location.search).get('genome') : null;
+  const boot = genomeName
+    ? import('./world/genome').then(({ terrainGenomeByName }) => game.generateWorld(terrainGenomeByName(genomeName)))
+    : game.generateWorld();
+  boot.then(() => { console.log('World generated'); });
 
   if (__DEV_TOOLS__) {
     // Attach the dev/debug window globals (excluded from distribution builds).

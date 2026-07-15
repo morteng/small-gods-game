@@ -34,11 +34,18 @@ import {
   createSpritePipeline, createTerrainPipeline, createDetailPatchPipeline,
   createWaterPipeline, createOceanBackdropPipeline,
   createShadowPipeline, createShapePipeline, createBlitPipeline,
+  createStructureMeshPipeline, createGrassPipeline,
 } from '@/render/gpu/gpu-pipelines';
+import {
+  buildGrassInstances, GRASS_VERTEX_COUNT, GRASS_MIN_ZOOM,
+  type ClutterManifest,
+} from '@/render/gpu/grass-scatter';
+import type { StructureField } from '@/render/structure-mesh-field';
 import { liftDrawList } from '@/render/gpu/terrain-lift';
 import type { GpuContext } from '@/render/gpu/webgpu-context';
 import type { TerrainField } from '@/render/gpu/terrain-field';
 import { materialAtlas, buildMaterialAtlasMips } from '@/render/gpu/material-exemplar';
+import { assetUrl } from '@/core/asset-url';
 import type { WaterField } from '@/render/gpu/water-field';
 import { WATER_GLOBALS_FLOATS } from '@/render/gpu/water-field';
 import { createNoiseTexture } from '@/render/gpu/noise-texture';
@@ -53,6 +60,13 @@ const EMPTY_WATER_U32 = new Uint32Array(1);
  *  case — NPCs are image items), so the shape pass skips triangulation AND the
  *  per-frame empty Float32Array alloc. Never mutated. */
 const NO_SHAPES = { vertices: new Float32Array(0), vertexCount: 0 } as const;
+
+/** Gentle constant global breeze for the standing-grass sway (vegetation-billboard
+ *  epic, step 3). Not wired to weather/config — a subtle always-on animation is the
+ *  goal for this step; a later pass can drive strength/dir from wind state. */
+const GRASS_WIND_DIR: readonly [number, number] = [0.8, 0.6]; // ~unit screen-space direction
+const GRASS_WIND_STRENGTH = 5.0; // world px of tip sway at full amplitude (visible sway, no tip-smear streaks)
+const GRASS_WIND_FREQ = 1.3;      // rad/s — calmer than a fast flutter
 
 /** Shared per-frame render state threaded through the per-pass helpers (so they
  *  don't each take a dozen params). `colorCleared` is mutated as passes draw — the
@@ -83,6 +97,24 @@ export class GpuScene {
   // bound into the terrain + detail passes (bindings 7/8) and sampled with a REPEAT sampler.
   private matAtlasView: GPUTextureView;
   private matSampler: GPUSampler;
+  // Harvested ground-cover clutter atlas (bindings 11/12): a grid of alpha sprites the
+  // terrain fragment scatter-stamps. A 1×1 transparent placeholder binds until the PNG
+  // loads (async); on load the bind groups rebuild. Nearest+clamp keeps sprites crisp.
+  private clutterView: GPUTextureView;
+  private clutterSampler: GPUSampler;
+  private clutterLoaded = false;
+  private clutterManifest: ClutterManifest | null = null;
+  // Standing-grass billboard pass (vegetation-billboard epic). The instance array is
+  // memoised per world (rebuilt when the height-array identity changes) into a persistent
+  // buffer; the camera rides uXform, so pan/zoom never re-packs.
+  private grassPipeline: GPURenderPipeline;
+  private grassBind: GPUBindGroup | null = null;
+  private grassBuf: GPUBuffer | null = null;
+  private grassCount = 0;
+  private grassSrcHeights: Float32Array | null = null;
+  // Dedicated grass globals (step 3, wind): the shared 80-byte entity Globals has no
+  // time/wind slot, so grass gets its own uniform packed once per frame.
+  private grassGlobalsBuf: GPUBuffer;
   private quadBuf: GPUBuffer;
   private globalsBuf: GPUBuffer;
   private globalsBind: GPUBindGroup;
@@ -129,6 +161,15 @@ export class GpuScene {
   private detailBoundHeights: GPUBuffer | null = null;   // coarse-height identity at bind time
   private lastDetailHeights: Float32Array | null = null;
   private lastDetailOrigins: Float32Array | null = null;
+  // Structure-mesh pass (3D-structure epic, S1): depth-tested 3D masonry (bridges), sharing
+  // the terrain globals (bind group 0) + depth buffer so a structure interleaves with the
+  // heightfield (founding + mutual occlusion). One interleaved world-space vertex buffer,
+  // drawn after water, before the entity depth-clear. Grows on demand by byte capacity.
+  private structureMeshPipeline: GPURenderPipeline;
+  private structureVertexBuf: GPUBuffer | null = null;
+  private structureBind: GPUBindGroup | null = null;
+  private structureVertexCap = 0;                        // bytes
+  private lastStructureData: Float32Array | null = null;
   // Water pass (S2): one blended pass, all body types. Reads the SAME composed
   // terrain height buffer (depth = surface − terrain) + its own surface/type/flow
   // storage buffers; the bind group rebuilds whenever any of them (incl. the
@@ -282,6 +323,14 @@ export class GpuScene {
       });
     }
 
+    // Clutter atlas: transparent placeholder now, real sprites when the PNG loads.
+    this.clutterView = this.make1x1([0, 0, 0, 0]).createView();
+    this.clutterSampler = device.createSampler({
+      addressModeU: 'clamp-to-edge', addressModeV: 'clamp-to-edge',
+      magFilter: 'nearest', minFilter: 'nearest',
+    });
+    void this.loadClutterAtlas();
+
     this.quadBuf = device.createBuffer({ size: QUAD_STRIP.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
     device.queue.writeBuffer(this.quadBuf, 0, QUAD_STRIP);
 
@@ -307,6 +356,12 @@ export class GpuScene {
     this.terrainGlobalsBuf = device.createBuffer({ size: TERRAIN_PASS_GLOBALS_FLOATS * 4, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 
     this.detailPatchPipeline = createDetailPatchPipeline(device, gpu.format, terrainModule);
+    this.structureMeshPipeline = createStructureMeshPipeline(device, gpu.format);
+    this.grassPipeline = createGrassPipeline(device, gpu.format);
+    // 112 bytes / 28 floats: mirrors the entity Globals viewport/ambient/sun/xform
+    // block (80 B) plus uTime (padded to a 16-B boundary) + a uWind vec4 — see
+    // `GGlobals` in grass-wgsl.ts and `packGrassGlobals` below.
+    this.grassGlobalsBuf = device.createBuffer({ size: 112, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 
     this.waterPipeline = createWaterPipeline(device, gpu.format);
     // Sized from WATER_GLOBALS_FLOATS (was a hardcoded 128) so it tracks the struct —
@@ -381,6 +436,32 @@ export class GpuScene {
     });
     this.device.queue.writeTexture({ texture: tex }, new Uint8Array(rgba), { bytesPerRow: 4, rowsPerImage: 1 }, [1, 1, 1]);
     return tex;
+  }
+
+  /** Load the harvested clutter sprite atlas (optional). On success the real texture
+   *  replaces the transparent placeholder and the terrain bind groups rebuild so the
+   *  scatter pass samples it. A missing/failed atlas simply leaves the ground bare. */
+  private async loadClutterAtlas(): Promise<void> {
+    try {
+      const resp = await fetch(assetUrl('textures/clutter/atlas.png'));
+      if (!resp.ok) return;
+      const bmp = await createImageBitmap(await resp.blob(), { premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
+      this.clutterView = this.uploadTexture(bmp, false).createView();   // straight alpha
+      this.clutterLoaded = true;
+      this.terrainBind = null;   // rebuild both bind groups with the real texture
+      this.detailBind = null;
+      // The slicer's sidecar manifest drives the standing-grass pass (data-driven layer
+      // ranges — a re-slice with different sprite counts needs no code edit). Optional:
+      // absent manifest ⇒ the flat in-shader scatter still runs, just no billboards.
+      try {
+        const mResp = await fetch(assetUrl('textures/clutter/manifest.json'));
+        if (mResp.ok) {
+          this.clutterManifest = await mResp.json() as ClutterManifest;
+          this.grassBind = null;         // rebuild with the real texture view
+          this.grassSrcHeights = null;   // force an instance rebuild
+        }
+      } catch { /* no manifest ⇒ no standing grass */ }
+    } catch { /* clutter is optional — no atlas ⇒ no ground-cover sprites */ }
   }
 
   private uploadTexture(src: CanvasImageSource, premultiply: boolean): GPUTexture {
@@ -551,22 +632,26 @@ export class GpuScene {
       this.terrainFeatureBuf = storage(Math.max(featBytes, 16));
       this.terrainCellCap = cells;
       this.terrainFeatureCap = Math.max(featBytes, 16);
+      realloc = true;
+    }
+    // Built out of the realloc block so a clutter-atlas load (which nulls terrainBind)
+    // forces a rebuild that binds the real sprite texture.
+    if (realloc || !this.terrainBind) {
       this.terrainBind = device.createBindGroup({
         layout: this.terrainPipeline.getBindGroupLayout(0),
         entries: [
           { binding: 0, resource: { buffer: this.terrainGlobalsBuf } },
-          { binding: 1, resource: { buffer: this.terrainHeightsBuf } },
-          { binding: 2, resource: { buffer: this.terrainColorsBuf } },
-          { binding: 3, resource: { buffer: this.terrainMoistureBuf } },
-          { binding: 4, resource: { buffer: this.terrainTemperatureBuf } },
-          { binding: 6, resource: { buffer: this.terrainFeatureBuf } },
+          { binding: 1, resource: { buffer: this.terrainHeightsBuf! } },
+          { binding: 2, resource: { buffer: this.terrainColorsBuf! } },
+          { binding: 3, resource: { buffer: this.terrainMoistureBuf! } },
+          { binding: 4, resource: { buffer: this.terrainTemperatureBuf! } },
+          { binding: 6, resource: { buffer: this.terrainFeatureBuf! } },
           { binding: 7, resource: this.matAtlasView },
           { binding: 8, resource: this.matSampler },
           { binding: 9, resource: this.noiseTexView },
           { binding: 10, resource: this.noiseSampler },
         ],
       });
-      realloc = true;
     }
     if (realloc || heights !== this.lastHeights) {
       device.queue.writeBuffer(this.terrainHeightsBuf, 0, heights as GPUAllowSharedBufferSource);
@@ -641,6 +726,82 @@ export class GpuScene {
     if (realloc || detail.origins !== this.lastDetailOrigins) {
       device.queue.writeBuffer(this.detailOriginsBuf, 0, detail.origins as GPUAllowSharedBufferSource);
       this.lastDetailOrigins = detail.origins;
+    }
+    return true;
+  }
+
+  /** (Re)upload the structure-mesh vertex buffer + (re)bind the terrain globals. The bind
+   *  group reads ONLY the terrain globals uniform (binding 0), so it's built once and reused;
+   *  the vertex buffer grows on demand and re-uploads only when the array identity changes. */
+  private uploadStructures(field: StructureField): void {
+    const { device } = this;
+    const bytes = field.data.byteLength;
+    let realloc = false;
+    if (!this.structureVertexBuf || bytes > this.structureVertexCap) {
+      this.structureVertexBuf?.destroy();
+      this.structureVertexBuf = device.createBuffer({ size: Math.max(bytes, 36), usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+      this.structureVertexCap = Math.max(bytes, 36);
+      realloc = true;
+    }
+    if (!this.structureBind) {
+      this.structureBind = device.createBindGroup({
+        layout: this.structureMeshPipeline.getBindGroupLayout(0),
+        entries: [{ binding: 0, resource: { buffer: this.terrainGlobalsBuf } }],
+      });
+    }
+    if (realloc || field.data !== this.lastStructureData) {
+      device.queue.writeBuffer(this.structureVertexBuf, 0, field.data as GPUAllowSharedBufferSource);
+      this.lastStructureData = field.data;
+    }
+  }
+
+  /** Pack the dedicated grass Globals uniform (step 3: wind). Mirrors the entity
+   *  Globals viewport/ambient/sun/xform layout (so the FS lighting math is unchanged)
+   *  then appends `uTime` (padded to a 16-byte boundary) and `uWind` — see `GGlobals`
+   *  in grass-wgsl.ts. `timeSec` is wall-clock (render code, not `src/sim/`, so this
+   *  is exempt from the Math.random/Date.now sim ban); the water pass animates the
+   *  same way. */
+  private packGrassGlobals(
+    w: number, h: number, lighting: LightingState, xform: ViewTransform | undefined, timeSec: number,
+  ): Float32Array {
+    const b = new Float32Array(28);
+    b[0] = w; b[1] = h; b[2] = Math.max(1, lighting.bands); b[3] = 0;
+    b[4] = lighting.ambient[0]; b[5] = lighting.ambient[1]; b[6] = lighting.ambient[2]; b[7] = 0;
+    b[8] = lighting.sunDir[0]; b[9] = lighting.sunDir[1]; b[10] = lighting.sunDir[2]; b[11] = 0;
+    b[12] = lighting.sunColor[0]; b[13] = lighting.sunColor[1]; b[14] = lighting.sunColor[2];
+    b[15] = lighting.enabled ? (lighting.nightFactor ?? 0) : 0;
+    b[16] = xform?.sx ?? 1; b[17] = xform?.sy ?? 1; b[18] = xform?.ox ?? 0; b[19] = xform?.oy ?? 0;
+    b[20] = timeSec; b[21] = 0; b[22] = 0; b[23] = 0;
+    b[24] = GRASS_WIND_DIR[0]; b[25] = GRASS_WIND_DIR[1]; b[26] = GRASS_WIND_STRENGTH; b[27] = GRASS_WIND_FREQ;
+    return b;
+  }
+
+  /** Build (once per world) + bind the standing-grass instance buffer from the terrain
+   *  heightfield. Returns true when there are blades to draw. The instance array is
+   *  memoised on the height-array identity, so a static world re-packs nothing per frame;
+   *  the camera rides uXform so pan/zoom never invalidate it. Needs the clutter atlas +
+   *  its manifest (both async) — until they land, the pass simply does not run. */
+  private ensureGrass(terrain: TerrainField): boolean {
+    if (!this.clutterLoaded || !this.clutterManifest) return false;
+    if (terrain.heights === this.grassSrcHeights && this.grassBind) return this.grassCount > 0;
+
+    const { data, count } = buildGrassInstances(terrain, this.clutterManifest);
+    this.grassSrcHeights = terrain.heights;
+    this.grassCount = count;
+    if (count === 0) return false;
+
+    const buf = this.dynBuf('grass', data.byteLength);
+    this.device.queue.writeBuffer(buf, 0, data as GPUAllowSharedBufferSource);
+    this.grassBuf = buf;
+    if (!this.grassBind) {
+      this.grassBind = this.device.createBindGroup({
+        layout: this.grassPipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: this.grassGlobalsBuf } },
+          { binding: 1, resource: this.clutterView },
+          { binding: 2, resource: this.clutterSampler },
+        ],
+      });
     }
     return true;
   }
@@ -835,6 +996,10 @@ export class GpuScene {
     detail?: DetailField | null;
     /** Blended water surface (S2) — drawn over terrain, under entities. */
     water?: WaterField | null;
+    /** Depth-tested structure meshes (3D-structure epic, S1) — bridges founded against the
+     *  terrain, drawn after water, before the entity depth-clear. Needs terrain (shares its
+     *  globals + depth); null/absent ⇒ structures draw as sprites via the entity list. */
+    structures?: StructureField | null;
     /** Screen-space UI geometry (S1) — drawn in its own pass over the entities. */
     uiGroups?: readonly UiDrawGroup[];
     /** P-E: when set, the scene passes render into a low-res target sized `w×h`
@@ -851,7 +1016,7 @@ export class GpuScene {
     };
   }): void {
     const { device } = this;
-    const { items: rawItems, staticItems, lighting, w, h, xform, terrain, water, uiGroups, out, pixelOffset } = opts;
+    const { items: rawItems, staticItems, lighting, w, h, xform, terrain, water, structures, uiGroups, out, pixelOffset } = opts;
     const P = {
       terrain: opts.passes?.terrain ?? true,
       water: opts.passes?.water ?? true,
@@ -894,6 +1059,11 @@ export class GpuScene {
       sunDir: lighting.sunDir, sunColor: lighting.sunColor,
       night: lighting.enabled ? (lighting.nightFactor ?? 0) : 0, xform,
     }) as GPUAllowSharedBufferSource);
+    // Grass sway (step 3) needs wall-clock time; a non-browser host (SSR/tests) has
+    // no `performance`, so it falls back to a frozen 0 (still, not animated).
+    const grassTimeSec = typeof performance !== 'undefined' ? performance.now() / 1000 : 0;
+    device.queue.writeBuffer(this.grassGlobalsBuf, 0,
+      this.packGrassGlobals(w, h, lighting, xform, grassTimeSec) as GPUAllowSharedBufferSource);
     if (hasShadows) {
       const xf = xform ?? { sx: 1, sy: 1, ox: 0, oy: 0 };
       device.queue.writeBuffer(this.shadowGlobalsBuf, 0,
@@ -922,6 +1092,18 @@ export class GpuScene {
       }
     }
 
+    // Structure meshes (S1) borrow the terrain globals (camera + iso + z + sun), so they only
+    // run when terrain did. The vertex buffer is world-space; the pass just projects + depth-tests.
+    const hasStructures = !!(hasTerrain && structures && structures.vertexCount > 0);
+    if (hasStructures) this.uploadStructures(structures!);
+
+    // Standing-grass billboards (vegetation-billboard epic) — GPU-only ground cover from
+    // the terrain scatter, drawn between structures and the entity depth-clear so it shares
+    // the terrain depth. Gated to gameplay zoom (a full meadow is noise + fill cost at
+    // overview) and to a loaded clutter atlas + manifest.
+    const zoom = xform?.sx ?? 1;
+    const hasGrass = !!(hasTerrain && zoom >= GRASS_MIN_ZOOM && this.ensureGrass(terrain!));
+
     // P-E: the scene passes target the low-res offscreen when `out` is set, then
     // a blit upscales it to the swapchain; otherwise they draw straight to it.
     // The infinite-ocean backdrop (pass 0) paints uniform open sea over everything
@@ -949,6 +1131,8 @@ export class GpuScene {
     if (hasDetail) this.passDetail(ctx, opts.detail!);
     if (hasShadows) this.passShadows(ctx, !!staticItems, dynShadowBatches);
     if (hasWater) this.passWater(ctx, water!);
+    if (hasStructures) this.passStructures(ctx, structures!);
+    if (hasGrass) this.passGrass(ctx);
     this.passEntities(ctx, P.entities, dynBatches, dynLifted, xform);
     if (out) this.passBlit(ctx, out, pixelOffset);
     if (P.ui && uiGroups && uiGroups.length > 0) this.passUi(ctx, uiGroups);
@@ -1065,6 +1249,48 @@ export class GpuScene {
     wpass.setBindGroup(0, this.waterBind!);
     wpass.draw(water.vertexCount);
     wpass.end();
+    ctx.colorCleared = true;
+  }
+
+  /**
+   * Pass 1.9 — structure meshes (3D-structure epic, S1). Depth-tested masonry (bridges)
+   * over the terrain, AFTER water (so the deck reads over the surface) and BEFORE the entity
+   * depth-clear. Loads the terrain depth (greater, WRITE): a structure interleaves with the
+   * heightfield in the shared iso depth — masonry that plunges below the visible bed is
+   * occluded by nearer terrain (founding), and structures resolve each other by true depth.
+   * One draw for the whole world-space vertex buffer.
+   */
+  private passStructures(ctx: PassCtx, field: StructureField): void {
+    const spass = ctx.enc.beginRenderPass({
+      colorAttachments: [{ view: ctx.colorView, clearValue: ctx.ocean, loadOp: ctx.colorCleared ? 'load' : 'clear', storeOp: 'store' }],
+      depthStencilAttachment: { view: ctx.depthView, depthLoadOp: 'load', depthStoreOp: 'store' },
+    });
+    spass.setPipeline(this.structureMeshPipeline);
+    spass.setBindGroup(0, this.structureBind!);
+    spass.setVertexBuffer(0, this.structureVertexBuf!);
+    spass.draw(field.vertexCount);
+    spass.end();
+    ctx.colorCleared = true;
+  }
+
+  /**
+   * Pass 1.95 — standing-grass billboards (vegetation-billboard epic, S1). Upright
+   * ground-cover sprites over the terrain, AFTER structures and BEFORE the entity
+   * depth-clear. Loads the terrain depth (greater-equal, WRITE): each blade takes its
+   * foot's iso depth, so terrain in front occludes it (far-hill grass hidden by the near
+   * hill) and closer blades win over farther ones by depth, order-independent. Opaque +
+   * alpha-tested. One instanced draw for the whole memoised instance buffer.
+   */
+  private passGrass(ctx: PassCtx): void {
+    const gpass = ctx.enc.beginRenderPass({
+      colorAttachments: [{ view: ctx.colorView, clearValue: ctx.ocean, loadOp: ctx.colorCleared ? 'load' : 'clear', storeOp: 'store' }],
+      depthStencilAttachment: { view: ctx.depthView, depthLoadOp: 'load', depthStoreOp: 'store' },
+    });
+    gpass.setPipeline(this.grassPipeline);
+    gpass.setBindGroup(0, this.grassBind!);
+    gpass.setVertexBuffer(0, this.grassBuf!);
+    gpass.draw(GRASS_VERTEX_COUNT, this.grassCount);
+    gpass.end();
     ctx.colorCleared = true;
   }
 

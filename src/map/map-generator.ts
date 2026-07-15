@@ -76,6 +76,7 @@ import { TrampleGrid } from '@/sim/trample';
 import { applyPoiGroundPatches } from '@/world/poi-ground-patches';
 import { blueprintOf } from '@/blueprint/entity';
 import { clearObstructedVegetation } from '@/world/vegetation-clear';
+import { fillBareGround } from '@/world/vegetation-fill';
 import { getZoneRule } from '@/map/poi-zones';
 import { resolveSettlementEra } from '@/core/era';
 import { World } from '@/world/world';
@@ -863,6 +864,14 @@ export async function generateWithNoise(
   if (map.rockPads.length > 0) {
     await report(`Settled ${map.rockPads.length / ROCK_PAD_STRIDE} rocks into grade (${rockRings} contact rings)`);
   }
+
+  // Ground-cover FILL: sow a grass/wildflower tuft into every open-ground cell that came
+  // out bare, so meadows read as a continuous sward instead of a sparse sprinkle. Runs
+  // dead last — after every tile mutation and entity-clearing pass — so it reads the final
+  // world and only touches genuinely empty cells (occupancy-checked, not re-rolled).
+  await report('Sowing ground cover...');
+  const sown = fillBareGround(world, map, seed);
+  if (sown > 0) await report(`Sowed ${sown} ground-cover tufts`);
 
   // Contract DECLARATIONS the walled-town recipe commits: each defensive ring asks the connectome
   // for a landward gate reached by a road and a curtain crossed only at gates, PLUS (round 6,

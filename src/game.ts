@@ -178,6 +178,9 @@ export class Game {
   /** The barebones game (WebGPU UI only). `?legacyui` flips back to the old
    *  DOM/Canvas2D chrome. Single source of truth for chrome suppression. */
   private readonly barebones = !hasQueryFlag('legacyui');
+  /** Ephemeral world: a generated genome (`?genome=…`) is a throwaway terrain study,
+   *  so it must NOT autosave over the player's real save slot. */
+  private readonly ephemeral = hasQueryFlag('genome');
   /** Interior reveal (epic I-1…I-6): the SELECTED building renders as a roof-off cutaway
    *  (interior rooms, rood screen, stacked storeys, crypt). ON by default now that the cutaway
    *  is verified coherent in-game; `?noInterior` opts back to the solid-exterior render. (The
@@ -1366,7 +1369,7 @@ export class Game {
       onWorldReady: () => {
         if (!this.barebones) this.ui.spiritHud.show(); // barebones: orb replaces it
         this.dev.updateInspector();
-        this.persistence.start();
+        if (!this.ephemeral) this.persistence.start();
       },
     }, worldSeed);
     this.startLoop();

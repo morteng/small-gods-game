@@ -20,7 +20,8 @@ import { worldToScreen } from '@/render/iso/iso-projection';
 import { HUMAN_HEIGHT_M, METRES_PER_TILE } from '@/render/scale-contract';
 import { buildCharacterSpec } from '@/render/lpc';
 import { getOrGenerateSheet } from '@/render/lpc/spritesheet-cache';
-import { floorIsoZoom, quantizeToRungs, ISO_ZOOM_RUNGS, ISO_ZOOM_MIN, ISO_ZOOM_MAX } from '@/render/iso/iso-camera';
+import { floorIsoZoom, ISO_ZOOM_MIN, ISO_ZOOM_MAX } from '@/render/iso/iso-camera';
+import { STUDIO_ZOOM_MAX, quantizeStudioZoom } from './studio-camera';
 import { createCamera, zoomAt } from '@/render/camera';
 import { attachControls } from '@/ui/controls';
 import { DEFAULT_LIGHTING } from '@/render/lighting-state';
@@ -79,17 +80,11 @@ import { type StudioState, type Stage, type AbResult, AB_MODELS, AB_MIN_BORDER, 
 
 const MAP_W = 24, MAP_H = 24;
 const CENTER = { x: 12, y: 12 };
-// The studio is an inspection tool, so it zooms one rung PAST the game's 1:1 cap
-// (to 2× native) to scrutinise detail. Fit still snaps to ≤1:1 (pixel-perfect).
-const STUDIO_ZOOM_MAX = 2;
 // 'proper' scale anchor: the native sprite height (px) the fixed true-metric scale
 // is sized to fill the view at. Chosen to contain the tallest subjects (a spired
 // church/keep ≈ 900–1000 px) so every object shares ONE scale and none overflows —
 // smaller subjects then read honestly small. ~32 px/m, so this is ≈ 32 m of view.
 const PROPER_REF_PX = 1024;
-const STUDIO_ZOOM_RUNGS = [...ISO_ZOOM_RUNGS, STUDIO_ZOOM_MAX];
-const quantizeStudioZoom = (z: number, dir: -1 | 0 | 1 = 0): number =>
-  quantizeToRungs(STUDIO_ZOOM_RUNGS, z, dir);
 const MIN_DOCK = 90, MAX_DOCK_FRAC = 0.6, DEFAULT_DOCK = 170;
 const MIN_TREE_W = 200, MAX_TREE_W = 560, DEFAULT_TREE_W = 320;
 

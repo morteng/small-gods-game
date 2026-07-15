@@ -21,6 +21,9 @@ import { OCEAN_BACKDROP_WGSL } from '@/render/gpu/wgsl/ocean-backdrop-wgsl';
 import { SHADOW_WGSL } from '@/render/gpu/wgsl/shadow-wgsl';
 import { SHAPE_WGSL } from '@/render/gpu/wgsl/shape-wgsl';
 import { BLIT_WGSL } from '@/render/gpu/wgsl/blit-wgsl';
+import { STRUCTURE_MESH_WGSL } from '@/render/gpu/wgsl/structure-mesh-wgsl';
+import { GRASS_WGSL } from '@/render/gpu/wgsl/grass-wgsl';
+import { GRASS_INSTANCE_STRIDE } from '@/render/gpu/grass-scatter';
 import { SHADOW_INSTANCE_STRIDE } from '@/render/gpu/shadow-instance';
 import { SHAPE_VERTEX_STRIDE } from '@/render/gpu/shape-geometry';
 
@@ -111,6 +114,60 @@ export function createDetailPatchPipeline(
     },
     fragment: { module: terrainModule, entryPoint: 'fsMain', targets: [{ format }] },
     primitive: { topology: 'triangle-list' },
+    depthStencil: { format: DEPTH_FORMAT, depthWriteEnabled: true, depthCompare: 'greater-equal' },
+  });
+}
+
+/** Structure-mesh pipeline (3D-structure epic, S1): a depth-tested 3D pass for ground-anchored
+ *  structural geometry (bridges), sharing the TERRAIN globals + depth buffer so structures
+ *  interleave with the heightfield. Interleaved verts (pos + terrain-frame normal + albedo);
+ *  opaque, depth greater + write, same iso depth space as terrain (founding + mutual
+ *  occlusion). Drawn after water, before the entity depth-clear. */
+export function createStructureMeshPipeline(device: GPUDevice, format: GPUTextureFormat): GPURenderPipeline {
+  const module = device.createShaderModule({ code: STRUCTURE_MESH_WGSL });
+  return device.createRenderPipeline({
+    layout: 'auto',
+    vertex: {
+      module,
+      entryPoint: 'vsMain',
+      buffers: [{
+        arrayStride: 36, stepMode: 'vertex', attributes: [
+          { shaderLocation: 0, offset: 0, format: 'float32x3' },  // world pos (tile x,y; cube z)
+          { shaderLocation: 1, offset: 12, format: 'float32x3' }, // terrain-frame normal
+          { shaderLocation: 2, offset: 24, format: 'float32x3' }, // albedo rgb
+        ],
+      }],
+    },
+    fragment: { module, entryPoint: 'fsMain', targets: [{ format }] },
+    primitive: { topology: 'triangle-list' },
+    depthStencil: { format: DEPTH_FORMAT, depthWriteEnabled: true, depthCompare: 'greater' },
+  });
+}
+
+/** Standing-grass pipeline (vegetation-billboard epic, S1): instanced upright ground-cover
+ *  billboards. NO per-vertex buffer — the ribbon is generated from @builtin(vertex_index);
+ *  one instance buffer carries foot/size/UV/seed. Shares the TERRAIN depth (greater-equal +
+ *  WRITE): each blade takes its foot's iso depth, so terrain in front occludes it and closer
+ *  blades (larger foot depth) win over farther ones regardless of draw order. Opaque +
+ *  alpha-tested (crisp pixel edges; transparent texels discard, never writing depth).
+ *  Inserted after structures, before the entity depth-clear. */
+export function createGrassPipeline(device: GPUDevice, format: GPUTextureFormat): GPURenderPipeline {
+  const module = device.createShaderModule({ code: GRASS_WGSL });
+  return device.createRenderPipeline({
+    layout: 'auto',
+    vertex: {
+      module,
+      entryPoint: 'vsMain',
+      buffers: [{
+        arrayStride: GRASS_INSTANCE_STRIDE, stepMode: 'instance', attributes: [
+          { shaderLocation: 1, offset: 0, format: 'float32x4' },  // iA: footX, footY, depth, size
+          { shaderLocation: 2, offset: 16, format: 'float32x4' }, // iUV: u0, v0, u1, v1
+          { shaderLocation: 3, offset: 32, format: 'float32x4' }, // iP: width, seed, category, bendK
+        ],
+      }],
+    },
+    fragment: { module, entryPoint: 'fsMain', targets: [{ format }] },
+    primitive: { topology: 'triangle-strip' },
     depthStencil: { format: DEPTH_FORMAT, depthWriteEnabled: true, depthCompare: 'greater-equal' },
   });
 }

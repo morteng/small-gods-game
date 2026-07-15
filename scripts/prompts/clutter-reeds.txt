@@ -1,0 +1,9 @@
+A neat evenly-spaced GRID sprite sheet of TALL MARSH REEDS and waterside plants for a top-down game, on a SOLID FLAT MAGENTA (#FF00FF) background — every sprite fully isolated with generous empty magenta space around it, nothing touching or overlapping, each centered in its cell and rooted at the bottom, growing STRAIGHT UP (tall and narrow, taller than they are wide).
+
+The look is a lush waterside reed bed: clumps of tall slender vertical stalks and blades, fresh green with olive and a little golden-tan, standing upright and stiff. Include variety, one per cell:
+- Several TALL REED / bulrush clumps — bunches of straight vertical stalks, some tipped with a brown fuzzy CATTAIL seed-head, some with fine feathery seed plumes.
+- A few tall slender SEDGE and marsh-grass tufts, thin upright blades.
+- One or two shorter reed sprigs for variety.
+Keep them all TALL, NARROW and UPRIGHT — vertical stalks, not bushy round clumps, not short grass.
+
+Crisp clean pixel art, consistent soft even top-lighting with a slight isometric tilt, NO baked ground, NO water, NO drop shadows, NO gradients — pure #FF00FF magenta everywhere except the plants so the sheet can be chroma-keyed to transparency. Rows and columns evenly spaced with wide magenta gutters. Aim for at least sixteen distinct reed sprites.

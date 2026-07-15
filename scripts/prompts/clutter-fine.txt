@@ -1,0 +1,9 @@
+A neat evenly-spaced GRID sprite sheet of small ground-detail sprites for a top-down pixel-art game, on a SOLID FLAT MAGENTA (#FF00FF) background — every sprite fully isolated with generous empty magenta space all around it, nothing touching or overlapping, each sprite centered in its own cell and rooted at the bottom of the cell (base-anchored, growing upward).
+
+The sprites, one per cell, emphasizing SLENDER individual blades — NOT round bushes or shrubs:
+- Six or seven distinct GRASS TUFTS made of thin, fine, pointed individual blades fanning up and slightly outward: short wispy tufts, taller slender clumps, a few arched drooping blades, some upright spiky ones. Varied greens (fresh spring green, olive, yellow-green). Thin blades with clear gaps between them, never a solid blob.
+- A few tall thin REED / grass-flower stalks (single slim vertical stems with a small seed-head or tuft on top).
+- WILDFLOWERS as small clusters of a few thin green stems each topped with tiny blooms: white daisies, yellow buttercups, blue-purple bluebells, small pink clover heads. Keep them delicate — mostly slim green stem with a small flower head, not a dense bouquet.
+- Two or three small mossy PEBBLES / low rocks, grey with a hint of brown, sitting flat.
+
+Crisp clean pixel art, consistent soft even top-lighting with a slight isometric tilt, NO baked ground, NO drop shadows, NO gradients — pure #FF00FF magenta everywhere except the sprites so the sheet can be chroma-keyed to transparency. Rows and columns evenly spaced with wide magenta gutters.

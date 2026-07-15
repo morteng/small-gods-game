@@ -1,0 +1,12 @@
+A neat evenly-spaced GRID sprite sheet of pixel-art WILDFLOWER CLUMPS for a top-down game, on a SOLID FLAT MAGENTA (#FF00FF) background — every clump fully isolated with generous empty magenta space around it, nothing touching or overlapping, each centered in its cell and rooted at the bottom (growing upward out of a little green foliage).
+
+The look is a rich SPRING MEADOW in bloom: each sprite is a small clump of a few flowers nestled in leafy green grass, bright and cheerful. Give a wide COLOUR variety, one type per cell, several of each:
+- WHITE daisies with yellow centres.
+- YELLOW buttercups and dandelions.
+- BLUE cornflowers and forget-me-nots.
+- PURPLE / violet blooms and small lavender spikes.
+- PINK clover and little pink wildflowers.
+- A few RED poppies.
+Each clump is mostly green leafy foliage with a few clear coloured BLOOMS on top, bottom-rooted, a bit taller than wide.
+
+Crisp clean pixel art, consistent soft even top-lighting with a slight isometric tilt, NO baked ground, NO drop shadows, NO gradients — pure #FF00FF magenta everywhere except the flowers so the sheet can be chroma-keyed to transparency. Rows and columns evenly spaced with wide magenta gutters. Aim for at least twenty distinct flower clumps in varied colours.

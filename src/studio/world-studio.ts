@@ -49,9 +49,11 @@ import { buildLakeConformDeformations, LAKE_BASIN_SOURCE, LAKE_OUTLET_SOURCE } f
 import { getWorldDeformationStore } from '@/world/road-deformation';
 import { summarizeNetwork, affectedWaterCells } from '@/terrain/river-network';
 import { WaterDynamics, DEFAULT_WEATHER, type WeatherParams } from '@/render/gpu/water-dynamics';
-import { buildFloodWatch, type FloodWatch } from '@/world/flood-watch';
+import { buildFloodWatchForMap, type FloodWatch } from '@/world/flood-watch';
 import { DEFAULT_LIGHTING } from '@/render/lighting-state';
 import { ISO_TILE_W, ISO_TILE_H } from '@/render/iso/iso-constants';
+import { pan, zoomAt } from '@/render/camera';
+import { fitTilesToView, quantizeStudioZoom, STUDIO_ZOOM_MAX } from './studio-camera';
 import { injectStudioTheme, COLORS, h } from './theme';
 import { layerFlag, type RenderLayer } from '@/render/layer-visibility';
 import { TERRAIN_MODES, terrainModeValue, type TerrainModeId } from '@/render/gpu/terrain-field';
@@ -64,29 +66,6 @@ import { buildWorldBrowser, type InspectorModel, type CrumbLevel, type Inspector
 import { type Focus, planForPoi, buildingsOf, planBounds, pickPoi, pickBuilding } from './world-picking';
 import { emptyEdits, hasEdits, countEdits, applyEditsToSeed, makeAddedPoi, type PoiEdits } from './world-node-edits';
 import { ERAS, type Era } from '@/core/era';
-
-const HALF_W = ISO_TILE_W / 2;
-const HALF_H = ISO_TILE_H / 2;
-
-/** Iso screen extent (pre-camera) of a tile rect, sampling its four corners. */
-function tileRectScreen(minTx: number, minTy: number, maxTx: number, maxTy: number): {
-  minX: number; maxX: number; minY: number; maxY: number;
-} {
-  const corners = [[minTx, minTy], [maxTx, minTy], [minTx, maxTy], [maxTx, maxTy]];
-  const xs = corners.map(([x, y]) => (x - y) * HALF_W);
-  const ys = corners.map(([x, y]) => (x + y) * HALF_H);
-  return { minX: Math.min(...xs), maxX: Math.max(...xs), minY: Math.min(...ys), maxY: Math.max(...ys) };
-}
-
-/** Fit the camera to a tile-space rect (flat-plane bounds + margin). */
-function fitTiles(cam: Camera, minTx: number, minTy: number, maxTx: number, maxTy: number, vw: number, vh: number, margin = 0.86): void {
-  const r = tileRectScreen(minTx, minTy, maxTx, maxTy);
-  const w = Math.max(1, r.maxX - r.minX), hh = Math.max(1, r.maxY - r.minY);
-  const zoom = Math.min(vw / w, vh / hh) * margin;
-  cam.zoom = Math.max(0.02, Math.min(8, zoom));
-  cam.x = (r.minX + r.maxX) / 2 - (vw / 2) / cam.zoom;
-  cam.y = (r.minY + r.maxY) / 2 - (vh / 2) / cam.zoom;
-}
 
 export interface StudioHandle { dispose(): void; }
 export interface WorldStudioOpts {
@@ -343,18 +322,13 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
     world = w;
     waterDyn = new WaterDynamics(map);   // fresh climate state for the new world
     // W-F: watch the placed POIs for flooding (the "important places" Fate cares about).
-    floodWatch = buildFloodWatch(
-      (map.worldSeed?.pois ?? [])
-        .filter((p) => p.position)
-        .map((p) => ({ id: p.id, name: p.name ?? p.id, x: p.position!.x, y: p.position!.y, radius: 3 })),
-      map.width, map.height,
-    );
+    floodWatch = buildFloodWatchForMap(map);
     floodEventLog.length = 0;
     visualMap = Autotiler.computeVisualMap(map);
     focus = { level: 'world' };
     selectedPoi = null;
     focusFootprint = null;
-    if (refit) fitTiles(cam, 0, 0, map.width, map.height, cssW, cssH, 0.92);
+    if (refit) fitTilesToView(cam, 0, 0, map.width, map.height, cssW, cssH, 0.92);
     browser.refreshControls();
     syncInspector();
     refreshDiagnostics();   // re-lint the freshly-generated world (#30)
@@ -375,11 +349,7 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
     if (token !== regenToken) return;
     map = m; world = w;
     waterDyn = new WaterDynamics(map);
-    floodWatch = buildFloodWatch(
-      (map.worldSeed?.pois ?? []).filter((p) => p.position)
-        .map((p) => ({ id: p.id, name: p.name ?? p.id, x: p.position!.x, y: p.position!.y, radius: 3 })),
-      map.width, map.height,
-    );
+    floodWatch = buildFloodWatchForMap(map);
     floodEventLog.length = 0;
     visualMap = Autotiler.computeVisualMap(map);
     // Keep the current focus/selection where it still resolves; refresh the inspector.
@@ -415,7 +385,7 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
     if (level === 'world') {
       focus = { level: 'world' };
       selectedPoi = null; focusFootprint = null;
-      fitTiles(cam, 0, 0, map.width, map.height, cssW, cssH, 0.92);
+      fitTilesToView(cam, 0, 0, map.width, map.height, cssW, cssH, 0.92);
     } else if (level === 'settlement' && f.level === 'building' && f.plan) {
       const poi = (map.worldSeed?.pois ?? []).find((p) => p.id === f.plan!.poiId) ?? null;
       drillToSettlement(poi ?? ({ id: f.plan.poiId } as POI), f.plan);
@@ -481,8 +451,8 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
   /** Frame the camera on a node — its settlement footprint if built, else a box round it. */
   function frameNode(poi: POI): void {
     const plan = planForPoi(map, poi.id);
-    if (plan) { const b = planBounds(plan); fitTiles(cam, b.x - 4, b.y - 4, b.x + b.w + 4, b.y + b.h + 4, cssW, cssH, 0.8); }
-    else if (poi.position) { const { x, y } = poi.position; fitTiles(cam, x - 16, y - 16, x + 16, y + 16, cssW, cssH, 0.8); }
+    if (plan) { const b = planBounds(plan); fitTilesToView(cam, b.x - 4, b.y - 4, b.x + b.w + 4, b.y + b.h + 4, cssW, cssH, 0.8); }
+    else if (poi.position) { const { x, y } = poi.position; fitTilesToView(cam, x - 16, y - 16, x + 16, y + 16, cssW, cssH, 0.8); }
   }
   function removeNode(id: string): void {
     poiEdits.removed.add(id);
@@ -797,7 +767,7 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
       const e = map?.roadGraph?.edges.find((x) => x.id === d.locus.edges![0]);
       if (e?.polyline.length) { const m = e.polyline[Math.floor(e.polyline.length / 2)]; tx = m.x; ty = m.y; }
     }
-    if (tx !== undefined && ty !== undefined) fitTiles(cam, tx - 6, ty - 6, tx + 6, ty + 6, cssW, cssH, 0.9);
+    if (tx !== undefined && ty !== undefined) fitTilesToView(cam, tx - 6, ty - 6, tx + 6, ty + 6, cssW, cssH, 0.9);
   }
   function refreshDiagnostics(): void {
     diagBody.textContent = '';
@@ -1072,8 +1042,7 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
     }
     if (cam.dragging) {
       if (Math.abs(e.clientX - downX) + Math.abs(e.clientY - downY) > 3) moved = true;
-      cam.x -= (e.clientX - cam.lastX) / cam.zoom;
-      cam.y -= (e.clientY - cam.lastY) / cam.zoom;
+      pan(cam, e.clientX - cam.lastX, e.clientY - cam.lastY);
       cam.lastX = e.clientX; cam.lastY = e.clientY;
       hoverPanel.style.display = 'none';   // suppress the readout while panning
       hover = null;
@@ -1089,10 +1058,7 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
     e.preventDefault();
     const r = viewPane.getBoundingClientRect();
     const mx = e.clientX - r.left, my = e.clientY - r.top;
-    const wx = mx / cam.zoom + cam.x, wy = my / cam.zoom + cam.y;
-    const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
-    cam.zoom = Math.max(0.02, Math.min(8, cam.zoom * factor));
-    cam.x = wx - mx / cam.zoom; cam.y = wy - my / cam.zoom;
+    zoomAt(cam, e.deltaY < 0 ? 1.1 : 0.9, mx, my, quantizeStudioZoom, STUDIO_ZOOM_MAX);
   }, { passive: false, signal });
 
   // ── focus highlight overlay ──────────────────────────────────────────────────
@@ -1481,8 +1447,8 @@ export function mountWorldStudio(container: HTMLElement, opts: WorldStudioOpts =
     },
     // View helpers (for headed iteration): frame the whole map, toggle the backbone,
     // set terrain style, read/poke the camera.
-    fitAll: () => { if (map) fitTiles(cam, 0, 0, map.width, map.height, cssW, cssH, 0.94); },
-    lookAt: (tx: number, ty: number, span = 6) => { if (map) fitTiles(cam, tx - span, ty - span, tx + span, ty + span, cssW, cssH, 0.9); return { x: cam.x, y: cam.y, zoom: cam.zoom }; },
+    fitAll: () => { if (map) fitTilesToView(cam, 0, 0, map.width, map.height, cssW, cssH, 0.94); },
+    lookAt: (tx: number, ty: number, span = 6) => { if (map) fitTilesToView(cam, tx - span, ty - span, tx + span, ty + span, cssW, cssH, 0.9); return { x: cam.x, y: cam.y, zoom: cam.zoom }; },
     cam: () => ({ x: cam.x, y: cam.y, zoom: cam.zoom }),
     // Forward projection (tile → CSS-pixel screen), for round-trip alignment checks.
     projectTile: (tx: number, ty: number) => (map ? projectConnectome(map, tx, ty, cam) : null),

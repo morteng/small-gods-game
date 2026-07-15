@@ -25,6 +25,8 @@ import { createNullAtlas } from '@/render/iso/iso-atlas';
 import { visibleTileBounds } from '@/render/iso/iso-projection';
 import { isLayerHidden } from '@/render/layer-visibility';
 import { buildEntityDrawList } from '@/render/iso/entity-draw-list';
+import { buildStructureField } from '@/render/structure-mesh-field';
+import { structMeshEnabled } from '@/render/struct-mesh-flag';
 import { StaticDrawListCache } from '@/render/gpu/static-draw-list-cache';
 import { DEFAULT_LIGHTING } from '@/render/lighting-state';
 import { buildTerrainField, zoomSuperSample, zoomCoarsenMaxQuads, type TerrainField } from '@/render/gpu/terrain-field';
@@ -267,6 +269,15 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
       : null;
     const tWaterField = performance.now();
 
+    // Structure meshes (3D-structure epic, S1) — depth-tested bridges founded against the
+    // terrain, behind `?structmesh`. World-space verts (cached per bridge class); the pass
+    // shares the terrain globals + depth buffer. Null unless the flag is on and a bridge mesh
+    // has warmed. The continuous frame loop rebuilds this each frame, so a mesh that composes
+    // async appears on the next frame with no explicit invalidation.
+    const structures = (terrain && structMeshEnabled())
+      ? buildStructureField(rc, bounds)
+      : null;
+
     // RIBBONS RETIRED (2026-06-25): roads are no longer drawn as ribbons (the road/river
     // ribbon pass was removed as tech debt). A road IS the terrain — carved by
     // `road-deformation` and textured by the terrain shader from the analytic road
@@ -293,7 +304,7 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
     const tFields = performance.now();
 
     scene.renderFrame({
-      items: dynamicItems, staticItems: staticList, lighting, terrain, detail, water,
+      items: dynamicItems, staticItems: staticList, lighting, terrain, detail, water, structures,
       w: lowW, h: lowH, out: { w: target.width, h: target.height },
       xform, uiGroups,
       ...(chrome ? null : { passes: { ui: false } }),

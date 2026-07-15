@@ -105,7 +105,7 @@ export interface StructureResult {
 }
 
 /** Build one part's solid(s) → facets, plus any world-space anchors (buildings only). */
-async function partFacets(p: Part): Promise<{ facets: WorldFacet[]; anchors?: BuildingAnchors; linearAnchors?: LinearWorldAnchors }> {
+export async function partFacets(p: Part): Promise<{ facets: WorldFacet[]; anchors?: BuildingAnchors; linearAnchors?: LinearWorldAnchors }> {
   switch (p.prim) {
     case 'box': {
       // `flueTop`: an axis-aligned masonry flue stack gets the shared hollow-chimney top —
@@ -255,7 +255,7 @@ function applySkirtFade(
 /** Build a yaw rotor about the facets' world-XY centre, or null for yaw≈0. The
  *  returned fn rotates a point about that centre; pass `vector=true` to rotate a
  *  direction (normal) only (no translation). */
-function makeYawRotor(facets: WorldFacet[], yaw?: number): ((p: Vec3, vector?: boolean) => Vec3) | null {
+export function makeYawRotor(facets: WorldFacet[], yaw?: number): ((p: Vec3, vector?: boolean) => Vec3) | null {
   if (!yaw || Math.abs(yaw) < 1e-6 || facets.length === 0) return null;
   let minx = Infinity, maxx = -Infinity, miny = Infinity, maxy = -Infinity;
   for (const f of facets) for (const p of f.pts) {

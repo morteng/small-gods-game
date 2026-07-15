@@ -1,0 +1,11 @@
+A neat evenly-spaced GRID sprite sheet of pixel-art ROCKS and BOULDERS for a top-down game, on a SOLID FLAT MAGENTA (#FF00FF) background — every rock fully isolated with generous empty magenta space around it, nothing touching or overlapping, each centered in its cell and rooted at the bottom (sitting ON the ground).
+
+The look is natural weathered fieldstone: chunky rounded GREY GRANITE boulders, cool grey with subtle brown and blue-grey variation, soft patches of green MOSS and lichen on their tops and shaded sides, gentle top-lighting so each reads as a solid 3D stone with a lit top and a darker base. Slight isometric tilt.
+
+Include a clear range of SIZES, one per cell:
+- Several LARGE mossy boulders — big chunky rounded stones, the hero rocks, different silhouettes.
+- Several MEDIUM rocks — fist-to-head sized stones.
+- A few SMALL rocks and mossy pebbles for filling.
+- One or two little CLUSTERS of two or three stones piled together.
+
+Crisp clean pixel art, consistent soft even top-lighting, NO baked ground, NO drop shadows, NO cast shadows on the magenta, NO gradients in the background — pure #FF00FF magenta everywhere except the rocks so the sheet can be chroma-keyed to transparency. Rows and columns evenly spaced with wide magenta gutters. Aim for at least sixteen distinct rocks.

@@ -33,10 +33,15 @@ export function seedWorld(args: SeedWorldArgs): void {
   // 1. Mark every tile void
   for (const row of map.tiles) for (const t of row) t.state = 'void';
 
-  // 2. Pick seed POI (first one with NPCs and a position)
+  // 2. Pick seed POI (first one with NPCs and a position). A valid worldSeed may carry
+  //    NO settlements at all — a terrain-only GENOME is pure ground for shader/biome work.
+  //    That is not an error: seed no cradle band, reveal the whole map, and return.
   const seedPoi = worldSeed.pois.find(p => p.npcs && p.npcs.length > 0 && p.position);
   if (!seedPoi || !seedPoi.position) {
-    throw new Error('seedWorld: no POI with a seed NPC found in worldSeed');
+    for (const row of map.tiles) for (const t of row) t.state = 'realized';
+    if (worldSeed.connections) placeWallConnections(world, worldSeed);
+    log.append({ type: 'world_seeded', worldSeed, substrateSeed: map.seed });
+    return;
   }
 
   // 3. Spawn a band of ~6 NPCs around the seed POI. Varied roles → varied

@@ -30,6 +30,7 @@ import { structureResultToPack } from '@/render/parametric-building-source';
 import type { SpritePack } from '@/render/iso/sprite-canvas';
 import { MOUNT_ROLE_COLOR } from '@/render/mount-anchor-overlay';
 import { initManifoldWasm } from '@/assetgen/geometry/manifold-wasm-browser';
+import { sunDirFromAngles } from '@/render/solar';
 import { injectStudioTheme, COLORS, h } from './theme';
 
 export interface StudioHandle { dispose(): void; }
@@ -49,12 +50,7 @@ const ICON: Record<string, string> = { building: '🏠', prop: '🪧', plant: '�
 
 // A pleasant fixed 3/4 key light for thumbnails (az -35°, el 56°) — same convention
 // as the object editor's sunDir, but constant so cells bake identically.
-const SUN: [number, number, number] = (() => {
-  const a = (-35 * Math.PI) / 180, e = (56 * Math.PI) / 180;
-  const v: [number, number, number] = [-Math.sin(a) * Math.cos(e), Math.sin(e), Math.cos(a) * Math.cos(e)];
-  const len = Math.hypot(v[0], v[1], v[2]) || 1;
-  return [v[0] / len, v[1] / len, v[2] / len];
-})();
+const SUN: [number, number, number] = sunDirFromAngles(-35, 56);
 
 /** Resolve one (type, axis, value) into a concrete blueprint. A null axis → the
  *  default variant (works for buildings AND flora via synthesizeBlueprint); an axis

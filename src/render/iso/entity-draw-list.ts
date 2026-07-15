@@ -22,6 +22,7 @@ import { barrierSlabs, barrierPieceItem } from './iso-barrier';
 import { buildYSortBucket, buildingSortKey, type YSortEntry } from './iso-ysort';
 import { blueprintOf } from '@/blueprint/entity';
 import { structureBox, type StructureBox } from '@/blueprint/footprint';
+import { structMeshEnabled } from '@/render/struct-mesh-flag';
 import { isLayerHidden } from '@/render/layer-visibility';
 
 // Tie-break order at EQUAL iso-depth keys. Barrier sits ABOVE building deliberately:
@@ -199,6 +200,10 @@ export function buildEntityDrawList(
     if (e.kind === 'building') {
       const b = buildingById.get(e.id);
       if (b) {
+        // Structure-mesh divert (3D-structure epic, S1): with `?structmesh` on, bridges render
+        // as depth-tested 3D meshes in the structure pass — suppress their billboard here so the
+        // A/B is clean (the founded mesh vs the floating sprite).
+        if (structMeshEnabled() && blueprintOf(b.e)?.rb.preset === 'bridge') continue;
         const bx = Math.floor(b.e.x) + b.s.dx, by = Math.floor(b.e.y) + b.s.dy;
         const mode = rc.devMode?.buildingRenderMode ?? 'auto';
         const asset = () => rc.resolveBuildingArt?.(b.e) ?? null;

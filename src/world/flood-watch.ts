@@ -128,6 +128,29 @@ export interface PlaceSpec {
  * arriving at a settlement without demanding exact building geometry (that refinement
  * can swap in a real footprint later without changing the event contract).
  */
+/**
+ * The watched-place specs for a generated map: every positioned POI as a disc of
+ * radius 3. The one source of this list, shared by the game bootstrap
+ * (`installWeather`) and the world studio so the two can't drift (the studio once
+ * grew a subtly different copy of this glue).
+ */
+export function watchedPlaceSpecs(map: { worldSeed?: { pois?: PoiLike[] } | null }): PlaceSpec[] {
+  return (map.worldSeed?.pois ?? [])
+    .filter((p): p is PoiLike & { position: { x: number; y: number } } => !!p.position)
+    .map((p) => ({ id: p.id, name: p.name ?? p.id, x: p.position.x, y: p.position.y, radius: 3 }));
+}
+
+/** Build the per-world flood watch straight from a generated map's positioned POIs. */
+export function buildFloodWatchForMap(map: { width: number; height: number; worldSeed?: { pois?: PoiLike[] } | null }): FloodWatch {
+  return buildFloodWatch(watchedPlaceSpecs(map), map.width, map.height);
+}
+
+interface PoiLike {
+  id: string;
+  name?: string;
+  position?: { x: number; y: number } | null;
+}
+
 export function buildFloodWatch(
   specs: PlaceSpec[], width: number, height: number,
 ): FloodWatch {

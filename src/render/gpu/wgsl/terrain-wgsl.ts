@@ -55,6 +55,9 @@ struct TGlobals {
 @group(0) @binding(9) var noiseTex : texture_2d<f32>;
 @group(0) @binding(10) var noiseSmp : sampler;
 const NOISE_INV_TILE = 1.0 / 64.0;   // 1 / NOISE_TILE_UNITS — keep in step with noise-texture.ts
+// (The harvested ground-cover CLUTTER atlas that used to bind here at 11/12 is retired:
+// ground cover is now the UPRIGHT billboard pass, grass-scatter.ts / passGrass. The old
+// in-shader flat-decal scatter smeared tall sprites into iso diagonal streaks.)
 
 // How many world tiles one exemplar repeat spans (1 tile = 2 m). ~2.5 tiles → a 64px
 // swatch over ~5 m reads chunky-but-legible under the banded sun.
@@ -62,6 +65,14 @@ const MAT_TILES : f32 = 2.5;
 
 fn matSample(layer : i32, uv : vec2<f32>) -> vec3<f32> {
   return textureSample(matAtlas, matSamp, uv, layer).rgb;
+}
+
+// Real COLOUR of one exemplar layer with EXPLICIT LOD (no derivative builtin), so it is
+// legal inside the NON-uniform zoom-fade branch — used by the ground splat for the dust /
+// sand / pebble layers that need their true swatch colour, not the mean-normalised grain.
+fn matColor(layer : i32, uv : vec2<f32>, lod : f32) -> vec3<f32> {
+  let maxLod = f32(textureNumLevels(matAtlas) - 1u);
+  return textureSampleLevel(matAtlas, matSamp, uv, layer, min(lod, maxLod)).rgb;
 }
 
 // Mean-normalised COLOUR detail of one exemplar layer (Slice 2 ground texture):
@@ -77,6 +88,54 @@ fn matDetail(layer : i32, uv : vec2<f32>, lod : f32) -> vec3<f32> {
   let s = textureSampleLevel(matAtlas, matSamp, uv, layer, min(lod, maxLod)).rgb;
   let m = textureSampleLevel(matAtlas, matSamp, uv, layer, maxLod).rgb;
   return s / max(m, vec3<f32>(1e-3));
+}
+
+// Cheap 2D hash in [0,1). Grass can afford a couple of these per fragment (unlike the
+// per-fragment threshold wander, which uses the baked noise texture for perf) because it
+// only runs at gameplay zoom on grass-dominant ground.
+fn gHash(p : vec2<f32>) -> f32 {
+  let h = dot(p, vec2<f32>(127.1, 311.7));
+  return fract(sin(h) * 43758.5453);
+}
+
+// Analytic pixel-art GRASS: directional blade striations rising up-screen, each blade lit
+// from tip (bright) to base (self-shadow AO), with per-blade hue jitter. Returns an albedo
+// multiplier that grains the biome colour (same contract as matDetail). No true silhouette
+// height yet — the tip/base gradient gives IMPLIED height + self-shadow; a shell pass can
+// add real poke-above height later. Blade frame on the flat ground: up-screen is -(fx+fy),
+// across is (fx-fy), so blades stand vertically in the iso view.
+fn analyticGrass(fx : f32, fy : f32) -> vec3<f32> {
+  // Blade frame on the flat ground: across (fx-fy) runs screen-RIGHT (× ISO_TILE_W/2),
+  // up (fx+fy) runs screen-DOWN (× ISO_TILE_H/2). Blades stand screen-vertical, rooted at
+  // the base (larger up, down-screen) with the tip pointing up-screen (smaller up).
+  let across = fx - fy;
+  let up     = fx + fy;
+  let COLF = 5.0;                                  // blade columns per across-unit (thin blades)
+  let ROWF = 1.9;                                  // blade-cell bands per up-unit
+  let col  = across * COLF;
+  let ci   = floor(col);
+  let cf   = fract(col);                           // 0..1 within the column
+  // Per-column CONTINUOUS phase so blade baselines do NOT line up across columns — this is
+  // what breaks the quilted-grid read and makes the sward organic. (The old version shared
+  // one row lattice for every column, which is why it looked like bubble-wrap on a diamond.)
+  let colPhase = gHash(vec2<f32>(ci, 0.0)) * 3.17;
+  let up2  = up * ROWF + colPhase;
+  let rowB = floor(up2);
+  let uCell = fract(up2);                          // 0 at cell TOP (tip side) .. 1 at base
+  let seed = vec2<f32>(ci, rowB);
+  let h1   = gHash(seed);
+  let hgt  = 0.55 + 0.4 * h1;                      // blade height as a fraction of the cell
+  let cx    = 0.5 + (gHash(seed + vec2<f32>(7.0, 0.0)) - 0.5) * 0.7;   // centre jitter
+  let halfW = 0.22 + 0.14 * gHash(seed + vec2<f32>(19.0, 0.0));        // thin blade half-width
+  let inX   = step(abs(cf - cx), halfW);           // HARD edge (pixel-art, no AA smear)
+  let base0 = 1.0 - hgt;                            // only the lower hgt of the cell is blade
+  let inY   = step(base0, uCell);
+  let tipT  = clamp((uCell - base0) / max(hgt, 1e-3), 0.0, 1.0);       // 0 tip .. 1 base
+  let shade = mix(1.26, 0.60, tipT);              // bright tip .. base self-shadow AO
+  let hj  = gHash(seed + vec2<f32>(41.0, 3.0));
+  let hue = mix(vec3<f32>(0.90, 1.05, 0.94), vec3<f32>(1.12, 1.02, 0.82), hj);  // cool..warm green
+  let blade = inX * inY;
+  return mix(vec3<f32>(0.88, 0.91, 0.85), hue * shade, blade);  // gaps = packed ground
 }
 
 fn cellIdx(cx : u32, cy : u32) -> u32 { return cy * u32(G.uGrid.x) + cx; }
@@ -507,13 +566,36 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
       let wSandG = smoothstep(0.55, 0.80, temp + jit * 0.08) * smoothstep(0.55, 0.85, dry + jit * 0.10);
       let wDirtG = smoothstep(0.45, 0.80, dry + jit * 0.12) * (1.0 - wSandG);
       let wGrassG = max(1.0 - wSandG - wDirtG, 0.0);
-      let det = matDetail(0, muv, lod) * wGrassG    // grass
-              + matDetail(1, muv, lod) * wDirtG     // dirt
-              + matDetail(3, muv, lod) * wSandG;    // sand
-      // Conservative clamp (≈ the old ±28% grain) — an outlier texel can never
-      // blow out or crush the authored biome colour.
-      let detC = clamp(det, vec3<f32>(0.72), vec3<f32>(1.35));
-      ground = biome * mix(vec3<f32>(1.0), detC, texFade);
+
+      // GROUND = a real multi-texture SPLAT under the billboards: several subtle short
+      // grasses + dusty bare earth + tan sand + scattered pebbles, blended terrain-aware by
+      // WETNESS (moist→grass, dry→dust/sand) and low-freq clump fields. The dirt/sand/pebble
+      // layers use their REAL swatch COLOUR (matSample) so drying ground genuinely turns
+      // dusty/pebbly instead of merely darkening the biome green (the old mean-normalised
+      // grain read as one flat wash). The standing BILLBOARDS carry the tall blades on top.
+      //
+      // Short-grass VARIETY: two swatch phases mixed by a low-freq field, plus a patchy
+      // olive↔fresh tint, so the sward reads as many subtle grasses, not one green.
+      let gvar   = vnoise(in.vGrid * 0.09 + vec2<f32>(5.0, 2.0));
+      let gGrain = mix(matDetail(0, muv, lod), matDetail(0, muv * 1.7 + vec2<f32>(3.1, 7.9), lod), gvar);
+      let gTint  = mix(vec3<f32>(0.86, 1.05, 0.78), vec3<f32>(1.08, 1.0, 0.86), gvar);   // olive .. fresh green
+      let grassCol = biome * clamp(gGrain, vec3<f32>(0.78), vec3<f32>(1.24)) * gTint;
+
+      let dirtCol = matColor(1, muv, lod);                  // real brown dusty earth
+      let sandCol = matColor(3, muv, lod);                  // real tan sand
+      var gnd = grassCol * wGrassG + dirtCol * wDirtG + sandCol * wSandG;
+
+      // SCATTERED PEBBLES baked into the ground: the rock swatch's bright stone bits, clumped
+      // by a low-freq field and denser on drier / worn ground — little grey stones dotting the
+      // dust between the tufts (complements the tiny pebble BILLBOARDS, which stand proud).
+      let pebRaw  = matColor(2, muv * 2.6 + vec2<f32>(9.0, 4.0), lod);
+      let pebLum  = dot(pebRaw, vec3<f32>(0.333));
+      let pebMask = smoothstep(0.44, 0.60, pebLum)
+                  * smoothstep(0.42, 0.72, vnoise(in.vGrid * 0.5 + vec2<f32>(21.0, 8.0)))
+                  * (0.30 + 0.55 * dry);
+      gnd = mix(gnd, pebRaw, clamp(pebMask, 0.0, 0.65));
+
+      ground = mix(biome, gnd, texFade);
     }
   } else {
     // Pre-Slice-2 look: grass exemplar's grayscale detail (luminance / mean) only.
@@ -576,7 +658,12 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   // wet ground instead of a hard line. Land-only (step) — the bed under water keeps
   // its colour since the water pass draws over it.
   let wet = smoothstep(0.045, 0.0, aboveSea) * step(0.0, aboveSea);
-  let shoreAlbedo = albedo * mix(1.0, 0.6, wet);
+  let shoreBase = albedo * mix(1.0, 0.6, wet);
+  // Ground-cover clutter is now the UPRIGHT billboard pass (grass-scatter.ts / passGrass),
+  // which faces the camera. The old in-shader scatterClutter stamped the SAME sprites as
+  // FLAT tile-space decals — a tall reed/flower laid flat reads in iso as a diagonal streak
+  // (seen from top, not side), so it is retired here; the base albedo passes straight through.
+  let shoreAlbedo = shoreBase;
 
   // Banded diffuse so the lit relief stays pixel-art (matches the sprites).
   let ndl = max(dot(n, normalize(G.uSun.xyz)), 0.0);

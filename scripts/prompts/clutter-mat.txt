@@ -1,0 +1,10 @@
+A neat evenly-spaced GRID sprite sheet of VERY SMALL ground-hugging grass and ground-cover sprites for a top-down pixel-art game, on a SOLID FLAT MAGENTA (#FF00FF) background — every sprite fully isolated with generous empty magenta space around it, nothing touching or overlapping, each sprite centered in its cell and rooted at the bottom.
+
+Every sprite is SHORT and LOW — wider than it is tall, hugging the ground, meant to fill the gaps BETWEEN taller grass tufts (an undercover mat). Lots of subtle variety, one per cell:
+- Tiny grass sprigs of just two to five short blades, in many slightly different shapes and angles.
+- Small low turf clumps and mossy tufts.
+- Little clover / low weed rosettes lying flat.
+- Short soft patches of fine grass, some fresh green, some olive, some dry yellow-green, a few with a single tiny bloom.
+Keep them all SMALL and low-profile — no tall stalks, no reeds, no big bushes, no cattails.
+
+Crisp clean pixel art, consistent soft even top-lighting with a slight isometric tilt, NO baked ground, NO drop shadows, NO gradients — pure #FF00FF magenta everywhere except the sprites so the sheet can be chroma-keyed to transparency. Rows and columns evenly spaced with wide magenta gutters. Aim for at least twenty distinct small sprites.

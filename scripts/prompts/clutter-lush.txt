@@ -1,0 +1,13 @@
+A neat evenly-spaced GRID sprite sheet of LUSH pixel-art grass and ground-cover sprites for a top-down game, on a SOLID FLAT MAGENTA (#FF00FF) background — every sprite fully isolated with generous empty magenta space around it, nothing touching or overlapping, each sprite centered in its cell and rooted at the bottom (growing upward).
+
+The look is a healthy, RICH SPRING MEADOW: full, soft, leafy grass — dense clumps of MANY fine soft blades bunched together into rounded lush tufts, vivid fresh green with olive and yellow-green variation. Think thick lawn and wild meadow grass, NOT sparse or spiky.
+
+CRITICAL: absolutely NO reeds, NO cattails, NO bulrushes, NO tall thin single stalks, NO seed-head spikes. Every grass sprite must be a FULL BUSHY LEAFY CLUMP, not a few thin blades.
+
+Include a good variety, one per cell:
+- Several MEDIUM lush grass tufts — full rounded bunches of fine blades, slightly different shapes and greens.
+- Several SMALL low ground-hugging grass patches — short soft turf and little bunches for filling gaps between the bigger tufts (wider than tall).
+- A few small WILDFLOWER clumps nestled in grass: white daisies, yellow buttercups, small pink clover — mostly leafy green with a few tiny blooms.
+- Two or three small mossy PEBBLES.
+
+Crisp clean pixel art, consistent soft even top-lighting with a slight isometric tilt, NO baked ground, NO drop shadows, NO gradients — pure #FF00FF magenta everywhere except the sprites so it can be chroma-keyed to transparency. Rows and columns evenly spaced with wide magenta gutters. Aim for at least twenty-four distinct sprites.
