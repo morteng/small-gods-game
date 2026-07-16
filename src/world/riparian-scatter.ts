@@ -18,6 +18,7 @@
 
 import { defaultEntity } from '@/world/brush-helpers';
 import { canopyOf, undergrowthOf } from '@/flora/biome-flora';
+import { isEmergentSpecies } from '@/world/water-habitat';
 import { WaterType } from '@/core/types';
 import type { Entity, HydrologyResult } from '@/core/types';
 
@@ -71,6 +72,20 @@ function bankAssemblageFor(biome: string | undefined): BankAssemblage {
     default:                                    return BANK_TEMPERATE;
   }
 }
+/** The assemblage's EMERGENT subset — the feet-wet species `water-habitat.ts` licenses
+ *  to stand IN the shallow margin (reed/bulrush/sedge, derived from the flora DB, never
+ *  an allowlist). Desert (esparto/wormwood) and mountain (heather) filter to EMPTY, so a
+ *  dry wash and a stony brook grow no in-water fringe at all — for free. */
+const EMERGENT_POOLS = new WeakMap<BankAssemblage, [string, number][]>();
+function emergentPoolOf(asm: BankAssemblage): [string, number][] {
+  let p = EMERGENT_POOLS.get(asm);
+  if (!p) {
+    p = asm.undergrowth.filter(([k]) => isEmergentSpecies(k)).map(([k, w]) => [k, w] as [string, number]);
+    EMERGENT_POOLS.set(asm, p);
+  }
+  return p;
+}
+
 /** In-/at-water stones (→ `rock` prim). Cobble is the common river-margin stone; the
  *  boulder is the rarer feature reserved for cells carrying real discharge. */
 const COBBLE = 'field-stone';
@@ -102,6 +117,11 @@ const RIFFLE_FLOW_FLOOR = 0.45;
  *  so most margin reaches carry at least the odd visible stone, not just cascades. */
 const WATER_BOULDER_MIN = 0.02;
 const WATER_BOULDER_RIFFLE = 0.26;
+/** Emergent reeds/bulrush/sedge STANDING in the shallow-water margin — feet wet, bank
+ *  next door (the `emergent` habitat `water-habitat.ts` licenses). Density rides calm²,
+ *  the INVERSE of the riffle score: reeds root in slack water and are scoured off
+ *  rapids, so bulrushes fringe the pools while boulders stud the riffles. */
+const WATER_REED_DENSITY = 0.35;
 /** Interior (mid-channel, no land neighbour) boulders: riffle must clear this before
  *  ANY interior scatter is considered — keeps flat, deep pools clear (the intent the
  *  landNb margin gate originally protected). */
@@ -228,10 +248,12 @@ export function buildRiparianEntities(
         // A water cell on the SHALLOW MARGIN (touching land or the map edge) gets the
         // full riffle-scored density; mid-channel (interior) cells are gated further
         // below so the open water still mostly reads as water.
-        let landNb = false;
+        let landNb = false, bankNb = -1;
         for (const [dx, dy] of N4) {
           const nx = x + dx, ny = y + dy;
-          if (!inB(nx, ny) || wt[idx(nx, ny)] === WaterType.Dry) { landNb = true; break; }
+          if (!inB(nx, ny)) { landNb = true; continue; }   // map edge counts as land (no biome)
+          const ni = idx(nx, ny);
+          if (wt[ni] === WaterType.Dry) { landNb = true; if (bankNb < 0) bankNb = ni; }
         }
         // RIFFLE SCORE: steep, energetic reaches (riffles/cascades) cluster boulders;
         // flat deep pools stay clear. Slope dominates; flow (∝ discharge, a depth proxy
@@ -267,6 +289,23 @@ export function buildRiparianEntities(
           // honest size signal): brooks get cobbly boulders, rivers get big ones.
           const lo = 0.65 + 0.4 * flowF;
           place(out, BOULDER, x, y, s + 50, lo, lo + 0.45);
+        }
+
+        // EMERGENT FRINGE — reeds/bulrush/sedge standing IN the shallow margin, feet
+        // wet (margin cells only, never open water — the `emergent` habitat contract).
+        // Species come from the ADJACENT bank's assemblage: a swamp reach reads
+        // reed+bulrush-heavy, a temperate one reed+sedge, and a desert wash or mountain
+        // brook grows nothing in-water (their pools filter to empty). NEW hash keys
+        // only (s+20/21/130s) — the stone rolls above stay a pure function of
+        // (hydrology, seed), untouched.
+        if (landNb) {
+          const pool = emergentPoolOf(bankAssemblageFor(bankNb >= 0 ? biomes?.[bankNb] : undefined));
+          if (pool.length > 0) {
+            const calm = 1 - riffle;
+            if (hash01(x, y, s + 20) < WATER_REED_DENSITY * calm * calm) {
+              place(out, pickWeighted(hash01(x, y, s + 21), pool), x, y, s + 130, 0.55, 0.85);
+            }
+          }
         }
       } else if (wt[i] === WaterType.Dry && dist[i] >= 1 && dist[i] <= BANK_RINGS) {
         // The bank assemblage is chosen from THIS cell's own (dry-land) biome: willows/

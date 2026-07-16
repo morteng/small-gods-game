@@ -168,6 +168,41 @@ describe('riparian-scatter — lush bank ground cover', () => {
   });
 });
 
+describe('riparian-scatter — emergent fringe stands IN the shallow margin (WCV 100)', () => {
+  const W = 5, H = 160, FLOW = 2000, SEED = 4242;
+  const EMERGENT = new Set(['common-reed', 'bulrush', 'carex-sedge']);
+  /** Emergent entities standing ON the water column itself (x=1), not the dry banks. */
+  const inWaterReeds = (ents: ReturnType<typeof buildRiparianEntities>) =>
+    ents.filter((e) => EMERGENT.has(e.kind) && Math.floor(e.x) === 1);
+  const allBiome = (b: string): string[] => new Array(W * H).fill(b);
+
+  it('a calm reach grows a reed fringe in the water, tagged waterPlaced', () => {
+    const reeds = inWaterReeds(buildRiparianEntities(riverColumn(W, H, 0.0, FLOW), W, H, SEED));
+    expect(reeds.length).toBeGreaterThan(H * 0.15);   // a fringe, not the odd tuft
+    expect(reeds.every((e) => e.tags?.includes('waterPlaced'))).toBe(true);
+  });
+
+  it('a cascade is scoured clear of reeds — calm² inverts the riffle score', () => {
+    const calm = inWaterReeds(buildRiparianEntities(riverColumn(W, H, 0.0, FLOW), W, H, SEED)).length;
+    const steep = inWaterReeds(buildRiparianEntities(riverColumn(W, H, 0.02, FLOW), W, H, SEED)).length;
+    expect(steep).toBeLessThan(calm * 0.1);
+  });
+
+  it('a desert wash and a mountain brook grow NO in-water fringe (their pools are empty)', () => {
+    for (const b of ['desert', 'mountain']) {
+      const ents = buildRiparianEntities(riverColumn(W, H, 0.0, FLOW), W, H, SEED, allBiome(b));
+      expect(inWaterReeds(ents)).toEqual([]);
+    }
+  });
+
+  it('a swamp reach carries bulrush in its in-water fringe', () => {
+    const ents = buildRiparianEntities(riverColumn(W, H, 0.0, FLOW), W, H, SEED, allBiome('swamp'));
+    const kinds = new Set(inWaterReeds(ents).map((e) => e.kind));
+    expect(kinds.size).toBeGreaterThan(0);
+    expect([...kinds].every((k) => EMERGENT.has(k))).toBe(true);
+  });
+});
+
 describe('riparian-scatter — the bank assemblage is a function of the adjacent biome (WCV 97)', () => {
   const W = 5, H = 120, FLOW = 800, SEED = 31;
   const hydro = () => riverColumn(W, H, 0.0, FLOW);

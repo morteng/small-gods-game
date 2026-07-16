@@ -6,7 +6,7 @@ describe('content-version constants', () => {
     expect(ART_RECIPE_VERSION).toBe('v34');
   });
 
-  it('declares the current world content version (99: wooden arch bridges are the default crossing — timber class = hump-backed arch, stone footings on every class)', () => {
-    expect(WORLD_CONTENT_VERSION).toBe(99);
+  it('declares the current world content version (100: emergent fringe — reeds stand IN the shallow-water margin, calm² density, stone rolls untouched)', () => {
+    expect(WORLD_CONTENT_VERSION).toBe(100);
   });
 });
