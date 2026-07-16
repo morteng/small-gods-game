@@ -143,6 +143,40 @@ describe('fate arcs — snapshot round-trip', () => {
     expect(state.fateArcs.get(arc.id)!.abandonedReason).toBe('first fold');
   });
 
+  it('F4: the portent LEDGER round-trips — kind/text/beatId intact, discovered preserved as historical fact', () => {
+    const state = makeState();
+    const arc = openArcFromShape(
+      state.fateArcs, getArcShape('strongman_dies_abroad')!, { poiIds: ['p1'], npcIds: [] }, 0,
+    );
+    expect(state.fateArcs.plantPortent(arc.id, {
+      tick: 3, kind: 'dream', discovered: false, text: 'A black sail in every dream.', beatId: 11,
+    })).toBe(true);
+    expect(state.fateArcs.plantPortent(arc.id, {
+      tick: 5, kind: 'sky', discovered: false, text: 'The moon rises wrong.', beatId: 12,
+    })).toBe(true);
+    state.fateArcs.markPortentDiscovered(11);   // the first omen was found before the save
+
+    const snap = captureSnapshot(state);
+    state.fateArcs.hydrate([]);
+    restoreSnapshot(state, snap);
+
+    const restored = state.fateArcs.get(arc.id)!;
+    expect(restored.portents).toEqual([
+      { tick: 3, kind: 'dream', discovered: true, text: 'A black sail in every dream.', beatId: 11 },
+      { tick: 5, kind: 'sky', discovered: false, text: 'The moon rises wrong.', beatId: 12 },
+    ]);
+  });
+
+  it('F4: a scrub REWINDS the ledger with the arc (portents are sim truth)', () => {
+    const state = makeState();
+    const arc = openArc(state);
+    const before = captureSnapshot(state);   // arc live, ledger empty
+    state.fateArcs.plantPortent(arc.id, { tick: 9, kind: 'dream', discovered: false, beatId: 1 });
+    expect(state.fateArcs.get(arc.id)!.portents).toHaveLength(1);
+    restoreSnapshot(state, before);          // scrub back before the omen was planted
+    expect(state.fateArcs.get(arc.id)!.portents).toHaveLength(0);
+  });
+
   it('ArcGoal.met recomputes to FALSE when the predicate no longer holds', () => {
     const state = makeState();
     openArc(state);

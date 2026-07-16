@@ -6,7 +6,9 @@ import { StagingBuffer } from '@/sim/threads/staging-buffer';
 import { initNpcProps } from '@/world/npc-helpers';
 import type { GameMap, Tile, Entity, ActiveEvent } from '@/core/types';
 import type { GameState } from '@/core/state';
-import { buildFateContext, describeThreadsForFate, describeRivalsForFate, type FateFocus } from '@/game/fate/fate-context';
+import { buildFateContext, describeThreadsForFate, describeRivalsForFate, describeArcsForFate, type FateFocus } from '@/game/fate/fate-context';
+import { FateArcStore } from '@/sim/fate/arc-store';
+import { getArcShape, openArcFromShape } from '@/sim/fate/arc-library';
 import { CausalSiteStore } from '@/world/causal-site';
 import { EventLog } from '@/core/events';
 import type { Spirit } from '@/core/spirit';
@@ -122,7 +124,42 @@ describe('describeRivalsForFate', () => {
   });
 });
 
+describe('describeArcsForFate — F4 ledger visibility', () => {
+  it('shows an empty ledger as GATED with the shape\'s legal portent kinds', () => {
+    const s = state();
+    s.fateArcs = new FateArcStore();
+    openArcFromShape(s.fateArcs, getArcShape('strongman_dies_abroad')!, { poiIds: ['poi1'], npcIds: [] }, 0);
+    const text = describeArcsForFate(s);
+    expect(text).toContain('portents: NONE (heavy beats gated');
+    expect(text).toContain('dream, sky, beast');
+  });
+
+  it('shows planted + discovered counts once the ledger is non-empty', () => {
+    const s = state();
+    s.fateArcs = new FateArcStore();
+    const arc = openArcFromShape(s.fateArcs, getArcShape('strongman_dies_abroad')!, { poiIds: ['poi1'], npcIds: [] }, 0);
+    s.fateArcs.plantPortent(arc.id, { tick: 1, kind: 'dream', discovered: false, beatId: 4 });
+    s.fateArcs.markPortentDiscovered(4);
+    const text = describeArcsForFate(s);
+    expect(text).toContain('portents: 1 planted (1 discovered)');
+  });
+
+  it('a shape with no portent vocabulary reads as omen-less (the_null_event)', () => {
+    const s = state();
+    s.fateArcs = new FateArcStore();
+    openArcFromShape(s.fateArcs, getArcShape('the_null_event')!, { poiIds: [], npcIds: [] }, 0);
+    expect(describeArcsForFate(s)).toContain('portents: none (this shape carries no omens)');
+  });
+});
+
 describe('buildFateContext', () => {
+  it('the charter states the portents-first discipline (F4)', () => {
+    const focus: FateFocus = { kind: 'pulse' };
+    const { system } = buildFateContext(state(), focus);
+    expect(system).toContain('PORTENTS FIRST');
+    expect(system).toContain('plant_portent');
+  });
+
   it('produces a system charter and a user block with world + threads + the event, and valid poiIds', () => {
     const focus: FateFocus = { event: { type: 'thread_advanced', threadId: 1, phase: 'turning', weight: 'climax' }, threadId: 1 };
     const { system, user, validPoiIds } = buildFateContext(state(), focus);
