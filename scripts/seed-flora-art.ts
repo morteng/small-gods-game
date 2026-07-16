@@ -26,15 +26,14 @@ import { synthesizeBlueprint } from '../src/blueprint/presets';
 import type { ResolvedBlueprint } from '../src/blueprint/types';
 import { allFloraSpecies } from '../src/flora/flora-registry';
 import { deriveGenParams } from '../src/flora/flora-species';
-import { floraImagePrompt } from '../src/assetgen/flora-image-prompt';
+import { floraImagePrompt, FLORA_IMAGE_MODEL } from '../src/assetgen/flora-image-prompt';
 import { compositeOverChroma, chromaKeyMagenta } from '../src/render/chroma-key';
 import { canonicalJson, generatedArtKey } from '../src/render/generated-art-cache';
 import {
   type Raster, cropRaster, borderKeyedFraction, registerAlbedo, quantizePalette,
 } from '../src/render/sprite-postprocess';
-import {
-  MIN_BORDER_KEYED, MIN_SILHOUETTE_IOU, QUANT_COLORS,
-} from '../src/render/generated-building-art-source';
+import { MIN_BORDER_KEYED, QUANT_COLORS } from '../src/render/generated-building-art-source';
+import { FLORA_MIN_SILHOUETTE_IOU } from '../src/render/generated-flora-art-source';
 import { generateBuildingImage, BuildingImageError, BUILDING_IMAGE_MODEL } from '../src/llm/openrouter-image-client';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -55,6 +54,9 @@ const apiKey = process.env.OPENROUTER_API_KEY;
 if (!apiKey && !plan) { console.error('OPENROUTER_API_KEY not set. Aborting (use --plan for a dry run).'); process.exit(1); }
 
 const force = process.argv.includes('--force');
+// --model=<id> A/B a different img2img model (default Klein). The model rides in the
+// cache key, so each model writes its own sprite file — no clobber across models.
+const MODEL = process.argv.find((a) => a.startsWith('--model='))?.slice('--model='.length) ?? FLORA_IMAGE_MODEL;
 const wanted = process.argv.slice(2).filter((a) => !a.startsWith('--'));
 // Plant species only (rocks have no img2img recipe — they render from geometry).
 const allPlantIds = allFloraSpecies().filter((s) => deriveGenParams(s).kind === 'plant').map((s) => s.id);
@@ -78,7 +80,7 @@ async function loadManifest(): Promise<Manifest> {
 async function seed(speciesId: string, manifest: Manifest): Promise<number> {
   const rb: ResolvedBlueprint | undefined = synthesizeBlueprint(speciesId);
   if (!rb) { console.warn(`(skip ${speciesId}: not a plant species)`); return 0; }
-  const key = generatedArtKey(canonicalJson(rb), BUILDING_IMAGE_MODEL, rb.footprint);
+  const key = generatedArtKey(canonicalJson(rb), MODEL, rb.footprint);
   if (!force && manifest.entries[key]) { console.log(`${speciesId}: already seeded (${key})`); return 0; }
 
   const r = await composeStructure(toGeometry(rb));
@@ -89,7 +91,7 @@ async function seed(speciesId: string, manifest: Manifest): Promise<number> {
   const full = (buf: Uint8ClampedArray): Raster => ({ data: buf, w: r.size, h: r.size });
   const mask = cropRaster(full(r.grey), bb);
   const initDataUri = `data:image/png;base64,${toPng(compositeOverChroma(r.grey), r.size, r.size).toString('base64')}`;
-  const prompt = floraImagePrompt(rb, BUILDING_IMAGE_MODEL);
+  const prompt = floraImagePrompt(rb, MODEL);
   if (plan) {
     console.log(`${speciesId}: key ${key} · mask ${mask.w}×${mask.h} · init ${Math.round(initDataUri.length / 1024)}kB\n  prompt: ${prompt}`);
     return 0;
@@ -99,7 +101,7 @@ async function seed(speciesId: string, manifest: Manifest): Promise<number> {
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     let res: Awaited<ReturnType<typeof generateBuildingImage>>;
     try {
-      res = await generateBuildingImage({ apiKey: apiKey! }, { initImageDataUri: initDataUri, prompt });
+      res = await generateBuildingImage({ apiKey: apiKey! }, { initImageDataUri: initDataUri, prompt, model: MODEL });
     } catch (err) {
       if (err instanceof BuildingImageError && err.fatal) throw err;
       console.warn(`${speciesId}: attempt ${attempt} — generation error: ${(err as Error).message}`);
@@ -112,7 +114,7 @@ async function seed(speciesId: string, manifest: Manifest): Promise<number> {
     if (border < MIN_BORDER_KEYED) { console.warn(`${speciesId}: attempt ${attempt} — background did not key (ring ${border.toFixed(2)})`); continue; }
     const reg = registerAlbedo(raw, mask);
     if (!reg) { console.warn(`${speciesId}: attempt ${attempt} — nothing survived keying`); continue; }
-    if (reg.iou < MIN_SILHOUETTE_IOU) { console.warn(`${speciesId}: attempt ${attempt} — silhouette IoU ${reg.iou.toFixed(2)} < ${MIN_SILHOUETTE_IOU}`); continue; }
+    if (reg.iou < FLORA_MIN_SILHOUETTE_IOU) { console.warn(`${speciesId}: attempt ${attempt} — silhouette IoU ${reg.iou.toFixed(2)} < ${FLORA_MIN_SILHOUETTE_IOU}`); continue; }
     const sprite = quantizePalette(reg.sprite, QUANT_COLORS);
 
     const base = safeName(key);

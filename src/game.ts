@@ -41,6 +41,7 @@ import { ParametricBarrierSource } from '@/render/parametric-barrier-source';
 import { ParametricPlantSource } from '@/render/parametric-plant-source';
 import { GeneratedBuildingArtSource } from '@/render/generated-building-art-source';
 import { GeneratedFloraArtSource } from '@/render/generated-flora-art-source';
+import { FLORA_IMAGE_MODEL } from '@/assetgen/flora-image-prompt';
 import { AssetManager } from '@/render/asset-manager';
 import { Scheduler } from '@/core/scheduler';
 import { TimelineController } from '@/core/timeline';
@@ -224,9 +225,12 @@ export class Game {
   // the renderer shows grey parametric massing; a funded seed (scripts/seed-flora-art.ts)
   // + the flag turns it on. Reuses BUILDING_IMAGE_MODEL so keys match the seed run.
   private liveFloraArtEnabled = false; // setting `liveFloraArt`, default OFF
-  private readonly generatedFloraArtSource = new GeneratedFloraArtSource(
-    paidArtGenOptions({ enabled: () => this.liveFloraArtEnabled, costTracker: this.costTracker }),
-  );
+  private readonly generatedFloraArtSource = new GeneratedFloraArtSource({
+    ...paidArtGenOptions({ enabled: () => this.liveFloraArtEnabled, costTracker: this.costTracker, modelId: FLORA_IMAGE_MODEL }),
+    // Re-render as each skinned sprite lands, and bump the draw-cache art-rev so the
+    // tree layer rebuilds — else the vendored img2img sprite loads but never draws.
+    onWarm: () => this.requestRender(),
+  });
   private decorationImages = new ArtImageCache((id) => this.assetLibrary.resolveBlob(id));
   /** Resolved spritesheets keyed by NPC id */
   private sheets = new Map<string, HTMLCanvasElement>();

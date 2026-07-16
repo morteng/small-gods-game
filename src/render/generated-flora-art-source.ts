@@ -28,9 +28,20 @@ import {
 } from '@/render/sprite-postprocess';
 import { decodePngToRaster, rasterToSpriteCanvas, rasterToPngBlob } from '@/render/sprite-codec';
 import {
-  MIN_BORDER_KEYED, MIN_SILHOUETTE_IOU, QUANT_COLORS,
+  MIN_BORDER_KEYED, QUANT_COLORS,
   type ProducedPack, type CachedArt,
 } from '@/render/generated-building-art-source';
+
+/**
+ * Silhouette-IoU floor for FLORA — deliberately looser than the building gate (0.9).
+ * A building has a crisp rectilinear outline the img2img must preserve; foliage does
+ * NOT — the whole reason Klein wins for plants is that it reinterprets the geometry
+ * massing into organic leaf clumps, which legitimately shifts the silhouette (drooping
+ * willow streamers, spiny gorse, a broken conifer crown). At 0.9 those honest wins were
+ * being rejected AND we paid for the retries; 0.8 still guarantees the sprite occupies
+ * the geometry's footprint (no runaway hallucination) while allowing the reinterpretation.
+ */
+export const FLORA_MIN_SILHOUETTE_IOU = 0.8;
 
 /** Paid generation attempts per species before giving up for the session. */
 const MAX_ATTEMPTS = 2;
@@ -48,6 +59,12 @@ export interface GeneratedFloraSourceDeps {
   canSpend: () => boolean;
   /** Currently-selected image model id (drives prompt family + cache key). */
   model: () => string;
+  /** Called after EACH species' pack settles (also bumps version()). Wire to the
+   *  frame loop's requestRender so a lazily-loaded skinned sprite swaps in even on an
+   *  idle loop — the static draw cache folds version() into buildingArtRev, so WITHOUT
+   *  this a vendored/paid flora sprite lands in peek() but the frame never rebuilds and
+   *  the stale grey parametric massing shows until an unrelated invalidation. */
+  onWarm?: () => void;
   /** Generate a PNG blob from an init data-URI + prompt (wraps the client + cost tracking). */
   generate: (initDataUri: string, prompt: string, signal?: AbortSignal) => Promise<Blob>;
   // Seams below default to the real pipeline; overridden in tests.
@@ -72,9 +89,25 @@ export class GeneratedFloraArtSource {
   private readonly warned = new Set<string>();
   private readonly keyByKind = new Map<string, string>();
   private readonly d: Required<GeneratedFloraSourceDeps>;
+  /** Monotonic version — bumps as each species' pack settles. Folded into
+   *  buildingArtRev so the static draw cache rebuilds when a skinned sprite lands. */
+  private rev = 0;
+
+  /** Set a species' pack AND bump version() + fire onWarm, so a late-arriving skinned
+   *  sprite forces the static draw cache to rebuild instead of freezing the parametric
+   *  massing that was cached before it loaded. */
+  private settle(key: string, pack: SpritePack | null): void {
+    this.cache.set(key, pack);
+    this.rev++;
+    this.d.onWarm();
+  }
+
+  /** Monotonic art version (see {@link rev}). */
+  version(): number { return this.rev; }
 
   constructor(deps: GeneratedFloraSourceDeps) {
     this.d = {
+      onWarm: () => {},
       prompt: (rb) => floraImagePrompt(rb, deps.model()),
       produce: async (rb) => {
         const r = await composeStructure(toGeometry(rb));
@@ -200,8 +233,8 @@ export class GeneratedFloraArtSource {
     }
     const reg = registerAlbedo(raw, pack.mask);
     if (!reg) { this.note(key, `attempt ${n}: nothing survived chroma keying`); return null; }
-    if (reg.iou < MIN_SILHOUETTE_IOU) {
-      this.note(key, `attempt ${n}: silhouette IoU ${reg.iou.toFixed(2)} < ${MIN_SILHOUETTE_IOU}`);
+    if (reg.iou < FLORA_MIN_SILHOUETTE_IOU) {
+      this.note(key, `attempt ${n}: silhouette IoU ${reg.iou.toFixed(2)} < ${FLORA_MIN_SILHOUETTE_IOU}`);
       return null;
     }
     return quantizePalette(reg.sprite, QUANT_COLORS);
@@ -213,13 +246,20 @@ export class GeneratedFloraArtSource {
     return (r && this.d.rasterToSprite(r)) ?? undefined;
   }
 
-  private async toPack(albedo: Raster, normal?: Blob, material?: Blob): Promise<SpritePack | null> {
+  // NOTE: `material` (the geometry's AO/roughness G-buffer) is deliberately DROPPED.
+  // img2img REINTERPRETS the foliage — the painted crown spills past the original
+  // facets — but the material map is baked from the pre-paint geometry, so wherever
+  // the new leaves extend beyond it, material.G (ambient occlusion) is 0. The lit
+  // sprite path multiplies by that AO, blacking out the whole crown. Buildings escape
+  // this because img2img keeps their massing silhouette tight; flora doesn't. The
+  // parametric flora pack renders fine with albedo + normal and NO material — this
+  // matches it, letting the painted-in shading of the sprite carry the look.
+  private async toPack(albedo: Raster, normal?: Blob, _material?: Blob): Promise<SpritePack | null> {
     const sprite = this.d.rasterToSprite(albedo);
     if (!sprite) return null;
     return {
       albedo: sprite,
       normal: await this.decodeMap(normal),
-      material: await this.decodeMap(material),
     };
   }
 
@@ -228,19 +268,19 @@ export class GeneratedFloraArtSource {
       const hit = await this.d.cacheGet(key) ?? await this.d.baseGet(key);
       if (hit) {
         const r = await this.d.decodeImage(hit.blob);
-        this.cache.set(key, r ? await this.toPack(r, hit.normal, hit.material) : null);
+        this.settle(key, r ? await this.toPack(r, hit.normal, hit.material) : null);
         return;
       }
-      if (await this.d.cacheFailed(key)) { this.cache.set(key, null); return; }
+      if (await this.d.cacheFailed(key)) { this.settle(key, null); return; }
       // Free art was consulted above; gate only the PAID produce() path here.
-      if (!this.d.enabled() || !this.d.canSpend()) { this.cache.set(key, null); return; }
+      if (!this.d.enabled() || !this.d.canSpend()) { this.settle(key, null); return; }
       const prompt = this.d.prompt(rb);
       const pack = await this.d.produce(rb);
       let sprite: Raster | null = null;
       for (let n = 1; n <= MAX_ATTEMPTS && !sprite; n++) sprite = await this.attempt(pack, prompt, key, n);
       if (!sprite) {
         await this.d.recordFailure(key);
-        this.cache.set(key, null);
+        this.settle(key, null);
         return;
       }
       const png = await this.d.encodeRaster(sprite);
@@ -250,10 +290,10 @@ export class GeneratedFloraArtSource {
           normal: pack.normal, material: pack.material, emissive: pack.emissive, anchors: pack.anchors,
         });
       }
-      this.cache.set(key, await this.toPack(sprite, pack.normal, pack.material));
+      this.settle(key, await this.toPack(sprite, pack.normal, pack.material));
     } catch (err) {
       if (!this.warned.has(key)) { console.warn('[generated-flora] generation failed', err); this.warned.add(key); }
-      this.cache.set(key, null);
+      this.settle(key, null);
     }
   }
 

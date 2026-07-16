@@ -15,16 +15,32 @@ import { getFloraSpecies } from '@/flora/flora-registry';
 import type { Botanical } from '@/flora/flora-species';
 import { CHROMA_RGB } from '@/render/chroma-key';
 
+/** img2img model for FLORA. Deliberately NOT the building model (Qwen): buildings
+ *  want fidelity to their massing, but organic foliage reads best when the model is
+ *  free to reinterpret the crown into painterly leaf clumps — an A/B on the English
+ *  oak (2026-07-16) had FLUX.2 Klein clearly beat Gemini-flash (which stayed faithful
+ *  to the low-poly facets) at a third of the cost. The seeder AND the runtime lookup
+ *  key both read this, so a seeded flora sprite is found in-game by construction. */
+export const FLORA_IMAGE_MODEL = 'black-forest-labs/flux.2-klein-4b';
+
 const hex = (rgb: readonly number[]): string =>
   '#' + rgb.map((c) => Math.round(c).toString(16).padStart(2, '0')).join('');
 
-/** Foliage phrase from leaf facts — needled conifer, fronds, blades, or broadleaf. */
+/** Foliage phrase from leaf facts — needled conifer, fronds, blades, or broadleaf.
+ *  Evergreen colours are bound explicitly (blue/deep green): without it the img2img
+ *  model drifts a conifer toward autumn orange (scots-pine A/B, 2026-07-16). */
 function foliage(b: Botanical): string {
-  if (b.leafType === 'needle' || b.leafType === 'scale') return 'fine needled evergreen foliage';
-  if (b.leafType === 'frond') return 'arching feathery fronds';
+  if (b.leafType === 'needle' || b.leafType === 'scale') return 'fine blue-green needled evergreen foliage';
+  if (b.leafType === 'frond') return 'arching feathery green fronds';
   if (b.leafType === 'blade') return 'slender grassy blades';
-  if (b.leafPhenology === 'evergreen') return 'dense glossy evergreen leaves';
+  if (b.leafPhenology === 'evergreen') return 'dense deep-green glossy evergreen leaves';
   return 'soft broad green leaves';
+}
+
+/** An evergreen species must stay green year-round — the anti-autumn anchor that
+ *  keeps a conifer/holly from being repainted in seasonal yellow/orange/red. */
+function isEvergreen(b: Botanical): boolean {
+  return b.leafPhenology === 'evergreen' || b.leafType === 'needle' || b.leafType === 'scale';
 }
 
 /** Subject clause from habit + measured form. */
@@ -61,9 +77,12 @@ export function floraImagePrompt(rb: ResolvedBlueprint, _model?: string): string
   const chroma = hex(CHROMA_RGB);
   const sp = rb.preset ? getFloraSpecies(rb.preset) : undefined;
   const head = sp ? subject(sp.identity.commonName, sp.botanical) : 'A single plant';
+  const evergreen = sp && isEvergreen(sp.botanical)
+    ? ' Keep the foliage evergreen green all year — never autumn yellow, orange or red.'
+    : '';
   return [
     `${head}, painted as a crisp hand-painted pixel-art game sprite in three-quarter top-down view, soft natural daylight from the upper-left.`,
-    `Repaint the grey shape as this plant in realistic botanical colours, but PRESERVE its exact silhouette, height and proportions.`,
+    `Repaint the grey shape as this plant in realistic botanical colours, but PRESERVE its exact silhouette, height and proportions.${evergreen}`,
     `The background is solid flat ${chroma} magenta and stays solid ${chroma} magenta — no ground, no shadow, no scenery, no extra plants.`,
   ].join(' ');
 }

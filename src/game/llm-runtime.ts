@@ -60,16 +60,23 @@ export function bootLlmClients(costTracker: CostTracker): {
 /** The `enabled/canSpend/model/generate` head shared by both paid generated-art
  *  sources (building + flora): the session spend cap and the cost-tracked
  *  image call, wired once for both providers. */
-export function paidArtGenOptions(deps: { enabled: () => boolean; costTracker: CostTracker }): {
+export function paidArtGenOptions(deps: {
+  enabled: () => boolean;
+  costTracker: CostTracker;
+  /** img2img model id; defaults to the building model (Qwen). Flora passes
+   *  FLORA_IMAGE_MODEL so its base-library lookup key matches its seed run. */
+  modelId?: string;
+}): {
   enabled: () => boolean;
   canSpend: () => boolean;
   model: () => string;
   generate: (initImageDataUri: string, prompt: string) => Promise<Blob>;
 } {
+  const modelId = deps.modelId ?? BUILDING_IMAGE_MODEL;
   return {
     enabled: deps.enabled,
     canSpend: () => deps.costTracker.snapshot().sessionUsd < SESSION_CAP_USD,
-    model: () => BUILDING_IMAGE_MODEL,
+    model: () => modelId,
     generate: async (initImageDataUri, prompt) => {
       const cfg = loadProviderConfig();
       // Auto dispatch: qwen/* → Replicate (dev proxy injects the token; prod has
@@ -79,7 +86,7 @@ export function paidArtGenOptions(deps: { enabled: () => boolean; costTracker: C
         { openrouter: { apiKey: cfg.openrouterApiKey ?? '', baseUrl: openrouterImageBaseUrl(),
             siteName: cfg.openrouterSiteName },
           replicate: { baseUrl: replicateImageBaseUrl(), deliveryBaseUrl: replicateDeliveryBaseUrl() } },
-        { initImageDataUri, prompt, model: BUILDING_IMAGE_MODEL },
+        { initImageDataUri, prompt, model: modelId },
       );
       deps.costTracker.record({ cost: res.costUsd, cacheStatus: 'MISS' });
       return res.blob;
