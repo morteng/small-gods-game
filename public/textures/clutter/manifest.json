@@ -1,8 +1,8 @@
 {
   "cell": 64,
   "cols": 6,
-  "rows": 23,
-  "count": 136,
+  "rows": 25,
+  "count": 150,
   "ranges": {
     "grass": {
       "start": 0,
@@ -27,6 +27,10 @@
     "wrack": {
       "start": 120,
       "count": 16
+    },
+    "lilypad": {
+      "start": 136,
+      "count": 14
     }
   },
   "cats": [
@@ -165,6 +169,20 @@
     "wrack",
     "wrack",
     "wrack",
-    "wrack"
+    "wrack",
+    "lilypad",
+    "lilypad",
+    "lilypad",
+    "lilypad",
+    "lilypad",
+    "lilypad",
+    "lilypad",
+    "lilypad",
+    "lilypad",
+    "lilypad",
+    "lilypad",
+    "lilypad",
+    "lilypad",
+    "lilypad"
   ]
 }

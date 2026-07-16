@@ -56,7 +56,7 @@ function makeField(
 
 function makeManifest(): ClutterManifest {
   return {
-    cell: 32, cols: 4, rows: 2, count: 6,
+    cell: 32, cols: 4, rows: 2, count: 7,
     ranges: {
       grass: { start: 0, count: 2 },
       flower: { start: 2, count: 1 },
@@ -64,8 +64,9 @@ function makeManifest(): ClutterManifest {
       rock: { start: 3, count: 1 },
       seaweed: { start: 4, count: 1 },
       wrack: { start: 5, count: 1 },
+      lilypad: { start: 6, count: 1 },
     },
-    cats: ['grass', 'flower', 'rock', 'seaweed', 'wrack'],
+    cats: ['grass', 'flower', 'rock', 'seaweed', 'wrack', 'lilypad'],
   };
 }
 
@@ -166,7 +167,7 @@ describe('buildGrassInstances — per-instance value ranges', () => {
       expect(size).toBeGreaterThan(0);
       expect(Number.isFinite(width)).toBe(true);
       expect(width).toBeGreaterThan(0);
-      expect([0, 1, 2, 3, 4, 5]).toContain(cat); // grass / flower / rock / reed / seaweed / wrack
+      expect([0, 1, 2, 3, 4, 5, 6]).toContain(cat); // grass / flower / rock / reed / seaweed / wrack / lilypad
       expect(u0).toBeGreaterThanOrEqual(0); expect(u0).toBeLessThanOrEqual(1);
       expect(u1).toBeGreaterThanOrEqual(0); expect(u1).toBeLessThanOrEqual(1);
       expect(v0).toBeGreaterThanOrEqual(0); expect(v0).toBeLessThanOrEqual(1);
@@ -261,6 +262,61 @@ describe('buildGrassInstances — category selection vs manifest ranges', () => 
     expect(weedNone).toBe(0);
   });
 
+  it('floats lily pads ON the surface of a calm lake — land buffer, static, foot at the SURFACE', () => {
+    // A flat isle at 0.50 with a central LAKE block whose surface (0.52, ~1 m deep) is calm
+    // (uniform → zero surface gradient). Pads must appear, in the LAND sub-range (drawn AFTER
+    // the water pass), wind-static, with the foot lifted to the WATER SURFACE — not the bed.
+    const W = 24, H = 24;
+    const field = makeField(W, H, () => 0.50, () => 0.5, 0.35);
+    const surfaceW = new Float32Array(W * H).fill(-1);
+    const waterType = new Uint32Array(W * H);
+    for (let y = 6; y < 18; y++) for (let x = 6; x < 18; x++) {
+      const i = y * W + x;
+      waterType[i] = 2;        // WaterType.Lake
+      surfaceW[i] = 0.52;      // ~1 m over the 0.50 bed — inside the lily depth band
+    }
+    const { data, count, seaweedCount } = buildGrassInstances(field, makeManifest(), surfaceW, waterType);
+    const g = field.globals;
+    const halfH = g.half[1];
+    const surfLiftPx = (0.52 - g.seaLevel) * g.reliefM * g.zPxPerM;   // foot lift AT THE SURFACE
+    let pads = 0;
+    for (let i = 0; i < count; i++) {
+      const o = i * GRASS_INSTANCE_FLOATS;
+      if (data[o + 10] !== 6) continue;   // lilypad category
+      pads++;
+      expect(i).toBeGreaterThanOrEqual(seaweedCount);   // land buffer → post-water pass
+      expect(data[o + 11]).toBe(0);                     // no wind bend
+      // footY = (fx+fy)·halfH − lift. Reconstruct fx+fy from the depth float; the residual
+      // lift must equal the SURFACE lift (0.52), not the bed's (0.50 → 144 px vs 163.2 px).
+      const sum = data[o + 2] * (W + H);
+      expect(sum * halfH - data[o + 1]).toBeCloseTo(surfLiftPx, 3);
+    }
+    expect(pads).toBeGreaterThan(0);
+  });
+
+  it('grows NO lily pads on a descending river reach (current tears a floating leaf off)', () => {
+    // Same block, but the water surface FALLS along x (0.096 m/tile — a live current, well
+    // over the calm gate). The waterweed branch still fires; the lily branch must not.
+    const W = 24, H = 24;
+    const field = makeField(W, H, (tx) => 0.50 - tx * 0.002, () => 0.5, 0.35);
+    const surfaceW = new Float32Array(W * H).fill(-1);
+    const waterType = new Uint32Array(W * H);
+    for (let y = 6; y < 18; y++) for (let x = 6; x < 18; x++) {
+      const i = y * W + x;
+      waterType[i] = 3;                  // WaterType.River
+      surfaceW[i] = 0.52 - x * 0.002;    // surface tracks the bed downhill → constant ~1 m depth
+    }
+    const { data, count } = buildGrassInstances(field, makeManifest(), surfaceW, waterType);
+    let pads = 0, weed = 0;
+    for (let i = 0; i < count; i++) {
+      const cat = data[i * GRASS_INSTANCE_FLOATS + 10];
+      if (cat === 6) pads++;
+      if (cat === 4) weed++;
+    }
+    expect(pads).toBe(0);
+    expect(weed).toBeGreaterThan(0);     // the reach is still alive below the surface
+  });
+
   it('falls back to the grass atlas cell (UV) when a triggered category has zero manifest capacity', () => {
     // Isolate the flower band only, so every non-skipped instance is grass or flower.
     const flowerOnly = makeField(W, 10, () => 0.5, () => 0.9, sea);
@@ -273,6 +329,7 @@ describe('buildGrassInstances — category selection vs manifest ranges', () => 
         rock: { start: 3, count: 1 },
         seaweed: { start: 4, count: 0 },
         wrack: { start: 4, count: 0 },
+        lilypad: { start: 4, count: 0 },
       },
       cats: ['grass', 'flower', 'rock'],
     };

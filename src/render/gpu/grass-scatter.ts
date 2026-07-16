@@ -42,8 +42,10 @@ export interface ClutterManifest {
 }
 
 /** Ground-cover sprite categories in the atlas. Land: grass/flower/reed/rock. Coastal
- *  (appended): seaweed (swaying in the shallows) + wrack (shells/driftwood at the tide line). */
-export type ClutterCat = 'grass' | 'flower' | 'reed' | 'rock' | 'seaweed' | 'wrack';
+ *  (appended): seaweed (swaying in the shallows) + wrack (shells/driftwood at the tide line).
+ *  Aquatic (appended): lilypad — a FLAT pad floating ON calm fresh water (foot at the water
+ *  surface, drawn in the post-water pass; the shader lays the quad on the iso ground plane). */
+export type ClutterCat = 'grass' | 'flower' | 'reed' | 'rock' | 'seaweed' | 'wrack' | 'lilypad';
 
 const MAX_GRASS = 300_000;         // hard cap — big maps thin out rather than OOM
 const MAX_WEED = 80_000;           // seaweed sub-buffer cap (shallow-shelf fringe only)
@@ -110,7 +112,7 @@ export function buildGrassInstances(
   };
 
   const CAT_ID: Record<ClutterCat, number> = {
-    grass: 0, flower: 1, rock: 2, reed: 3, seaweed: 4, wrack: 5,
+    grass: 0, flower: 1, rock: 2, reed: 3, seaweed: 4, wrack: 5, lilypad: 6,
   };
   // Pack one billboard instance at tile coord (fx,fy) on the surface at elevation e.
   // Shared by land veg + the coastal seaweed/wrack so placement stays one code path.
@@ -146,6 +148,29 @@ export function buildGrassInstances(
   const FRESH_WEED_MIN_DEPTH_M = 0.10;
   const FRESH_WEED_MAX_DEPTH_M = 2.20;
   const freshOk = !!waterSurf && !!waterType && waterSurf.length === W * H;
+
+  // LILY PADS — flat pads floating ON calm fresh water. A pad roots in the bed, so it
+  // keeps the waterweed's shallow depth band, but it RENDERS at the water surface: the
+  // instance foot is the LOCAL surface elevation (not the bed), and the pad goes into
+  // the LAND buffer so it draws AFTER the water pass, sitting on top of it. Calm water
+  // only — pads grow on lakes and slack pools and are torn off anything with current,
+  // so any water-surface gradient at all disqualifies the cell (the riparian reeds'
+  // calm² rule, taken to its limit for a floating leaf).
+  const LILY_MIN_DEPTH_M = 0.20;
+  const LILY_MAX_DEPTH_M = 2.00;
+  const LILY_CALM_MAX_M = 0.05;      // max |surface drop| to any wet N4 neighbour (m/tile)
+  // Largest |water-surface step| (metres per tile) from cell (cx,cy) to its wet N4
+  // neighbours — 0 on a lake, >0 anywhere the river actually descends.
+  const surfDropM = (cx: number, cy: number): number => {
+    const c = waterSurf![cy * W + cx];
+    if (c < 0) return Infinity;
+    let d = 0;
+    if (cx > 0) { const n = waterSurf![cy * W + cx - 1]; if (n >= 0) d = Math.max(d, Math.abs(c - n)); }
+    if (cx < W - 1) { const n = waterSurf![cy * W + cx + 1]; if (n >= 0) d = Math.max(d, Math.abs(c - n)); }
+    if (cy > 0) { const n = waterSurf![(cy - 1) * W + cx]; if (n >= 0) d = Math.max(d, Math.abs(c - n)); }
+    if (cy < H - 1) { const n = waterSurf![(cy + 1) * W + cx]; if (n >= 0) d = Math.max(d, Math.abs(c - n)); }
+    return d * relief;
+  };
 
   for (let ty = 0; ty < H && nLand < MAX_GRASS; ty++) {
     for (let tx = 0; tx < W && nLand < MAX_GRASS; tx++) {
@@ -185,6 +210,19 @@ export function buildGrassInstances(
             const sw = waterSurf![ci];
             const submM = sw > 0 ? (sw - e) * relief : -1;  // metres below the local surface
             if (submM > 0) {                                // this sample sits under the water
+              // ── LILY PADS: flat pads ON the surface of calm, shallow fresh water —
+              //    clumped into colonies, emitted at the SURFACE elevation into the land
+              //    buffer (drawn after the water composites). A pad sample never also
+              //    grows waterweed under itself; the bed stays visible between colonies. ──
+              if (submM > LILY_MIN_DEPTH_M && submM < LILY_MAX_DEPTH_M) {
+                const padField = vnoise(fx / 3.5 + 91.7, fy / 3.5 + 47.3);   // clumped colonies
+                if (padField > 0.56 && hash2(fx * 4.1 + 8.3, fy * 2.7 + 15.9) < 0.60 &&
+                    surfDropM(Math.min(W - 1, tx), Math.min(H - 1, ty)) < LILY_CALM_MAX_M) {
+                  const sJitP = hash2(fx * 2.9 + 1.1, fy * 3.7 + 6.2);
+                  emit(fx, fy, sw, 'lilypad', 6 + 9 * sJitP, 1.0, 0.0);      // flat floating pad
+                  continue;
+                }
+              }
               if (submM > FRESH_WEED_MIN_DEPTH_M && submM < FRESH_WEED_MAX_DEPTH_M) {
                 const weedField = vnoise(fx / 4.0 + 33.7, fy / 4.0 + 12.1);   // clumped beds
                 if (weedField > 0.44 && hash2(fx * 2.3 + 5.1, fy * 3.1 + 2.7) < 0.55) {

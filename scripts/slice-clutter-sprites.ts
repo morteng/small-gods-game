@@ -22,7 +22,7 @@ const COLS = 6;           // atlas grid width in cells
 const MIN_AREA = 300;     // drop keying specks smaller than this (px)
 const KEY_MAG = 24;       // (min(r,b) − g) above this = magenta background
 
-type Cat = 'grass' | 'flower' | 'reed' | 'rock' | 'seaweed' | 'wrack';
+type Cat = 'grass' | 'flower' | 'reed' | 'rock' | 'seaweed' | 'wrack' | 'lilypad';
 
 /** One input sheet. `path` alone auto-categorises each blob by colour; `cat=path` FORCES
  *  every blob from that sheet into one category (dedicated boulder / reed / flower sheets). */
@@ -177,11 +177,12 @@ async function main(): Promise<void> {
 
   // Order by category so each category is a contiguous layer range the shader gates on.
   // seaweed/wrack sort AFTER the land categories so an --append run just extends the tail.
-  const order: Cat[] = ['grass', 'flower', 'reed', 'rock', 'seaweed', 'wrack'];
+  const order: Cat[] = ['grass', 'flower', 'reed', 'rock', 'seaweed', 'wrack', 'lilypad'];
   const emptyRanges = (): Record<Cat, { start: number; count: number }> => ({
     grass: { start: 0, count: 0 }, flower: { start: 0, count: 0 },
     reed: { start: 0, count: 0 }, rock: { start: 0, count: 0 },
     seaweed: { start: 0, count: 0 }, wrack: { start: 0, count: 0 },
+    lilypad: { start: 0, count: 0 },
   });
 
   // APPEND: prepend the existing atlas's sprites (as opaque placeholder cells that carry

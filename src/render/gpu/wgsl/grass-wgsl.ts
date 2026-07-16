@@ -77,10 +77,14 @@ fn vsMain(
 
   let width    = iP.x;
   let seed     = iP.y;
-  let category = iP.z;                  // 0 grass, 1 flower, 2 rock, 3 reed, 4 seaweed, 5 wrack
+  let category = iP.z;                  // 0 grass, 1 flower, 2 rock, 3 reed, 4 seaweed, 5 wrack, 6 lilypad
   let stiff    = iP.w;                  // per-category wind stiffness (0 floppy grass .. 0.85 stiff reed)
+  // FLAT mode (lilypad): the quad is LAID on the iso ground plane instead of standing
+  // upright — the up-sprite axis becomes the world depth axis, foreshortened by the iso
+  // half-ratio, so a top-down pad texture reads as an ellipse floating on the water.
+  let isFlat = select(0.0, 1.0, category > 5.5);
   let sx = (f32(side) - 0.5) * width;   // rectangular billboard (constant width)
-  let sy = -iA.w * t;                   // rise up-screen toward the tip
+  let sy = -iA.w * t * mix(1.0, 0.5, isFlat);   // upright rise, or flattened depth extent
 
   // Wind sway (step 3), now PER-CATEGORY via the instance stiffness (iP.w):
   //  • floppy grass (stiff≈0.1) hinges LOW (bends from t=0.30) with lively flutter;
@@ -88,7 +92,7 @@ fn vsMain(
   //    flutters little, and leans instead as a coherent whole-stalk sway;
   //  • rocks (category 2) AND wrack (category 5, beach shells/debris) never move.
   // Strength still pulses in GUSTS that roll across the field as a travelling wave.
-  let isStatic = select(0.0, 1.0, (category > 1.5 && category < 2.5) || category > 4.5);
+  let isStatic = select(0.0, 1.0, (category > 1.5 && category < 2.5) || (category > 4.5 && category < 5.5));
   let isWeed   = select(0.0, 1.0, category > 3.5 && category < 4.5);   // seaweed → current drift
   let notRock  = 1.0 - isStatic;
 
@@ -141,11 +145,14 @@ fn vsMain(
   let weedSway  = sin(G.uTime * 0.55 + weedPhase) + 0.4 * sin(G.uTime * 0.9 + weedPhase * 1.7);
   let weedOfs   = WEED_DIR * (weedBendW * weedSway * WEED_AMP);
 
-  let ofs  = select(windOfs, weedOfs, isWeed > 0.5);
-  let lean = select(windLean, weedBendW * abs(weedSway) * 0.5, isWeed > 0.5);
+  // A FLAT pad neither shears in the wind nor drifts like a frond — it BOBS: the whole
+  // quad rides a slow, per-pad-phased vertical swell, the way a leaf sits on still water.
+  let ofs  = select(windOfs, weedOfs, isWeed > 0.5) * (1.0 - isFlat);
+  let lean = select(windLean, weedBendW * abs(weedSway) * 0.5, isWeed > 0.5) * (1.0 - isFlat);
+  let bob  = sin(G.uTime * 0.9 + phase) * 0.7 * isFlat;
 
   // Sink the static clutter into the ground (sy pushed down by sink); the top leans by tiltTop·t.
-  let scr = iA.xy + vec2<f32>(sx + ofs.x + tiltTop * t, sy + sink + ofs.y + lean);
+  let scr = iA.xy + vec2<f32>(sx + ofs.x + tiltTop * t, sy + sink + ofs.y + lean + bob);
   let dev = scr * G.uXform.xy + G.uXform.zw;
   let ndc = vec2<f32>(dev.x / (G.uViewport.x * 0.5) - 1.0, 1.0 - dev.y / (G.uViewport.y * 0.5));
 
@@ -162,7 +169,8 @@ fn vsMain(
   var o : VOut;
   o.pos   = vec4<f32>(ndc, iA.z, 1.0);
   o.uv    = vec2<f32>(uu, vv);
-  o.shade = mix(0.62, 0.93, t);
+  // Upright blades self-shadow at the base; a FLAT pad faces the sky and is lit evenly.
+  o.shade = mix(mix(0.62, 0.93, t), 0.90, isFlat);
   o.tint  = tint;
   // Sprite-height above the sand line for static clutter: t shifted down by the buried fraction
   // (so t=buryFrac is the ground). <0 is below ground → the fragment discards it. Growing veg

@@ -65,14 +65,18 @@ const NO_SHAPES = { vertices: new Float32Array(0), vertexCount: 0 } as const;
  *  epic, step 3). Not wired to weather/config — a subtle always-on animation is the
  *  goal for this step; a later pass can drive strength/dir from wind state. */
 const GRASS_WIND_DIR: readonly [number, number] = [0.8, 0.6]; // ~unit screen-space direction
-const GRASS_WIND_STRENGTH = 5.0; // world px of tip sway at full amplitude (visible sway, no tip-smear streaks)
+/** WIND IS OFF FOR NOW (user directive 2026-07-16): 0 stills the grass/flower/reed
+ *  sway and the gust wave (zero tip offset; the vertex math runs either way, so this
+ *  costs nothing). Last live value: 5.0 (world px of tip sway at full amplitude). */
+const GRASS_WIND_STRENGTH = 0;
 const GRASS_WIND_FREQ = 1.3;      // rad/s — calmer than a fast flutter
 /** Tree/shrub billboard sway shares the grass wind DIRECTION + FREQ (so canopy and
  *  ground cover ripple together) but its own strength dial: the lit shader scales the
  *  tip offset by this × per-species flexibility × sprite height (see lit-wgsl.ts).
  *  Kept intentionally LOW so the default scene is near-still — a barely-perceptible
- *  drift, not a visible sway (a gust/weather pass can raise it later). 0 = frozen. */
-const TREE_WIND_STRENGTH = 1.5;
+ *  drift, not a visible sway (a gust/weather pass can raise it later). 0 = frozen.
+ *  WIND IS OFF FOR NOW (user directive 2026-07-16); last live value: 1.5. */
+const TREE_WIND_STRENGTH = 0;
 
 /** Shared per-frame render state threaded through the per-pass helpers (so they
  *  don't each take a dozen params). `colorCleared` is mutated as passes draw — the
