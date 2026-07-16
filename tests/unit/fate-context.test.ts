@@ -6,7 +6,7 @@ import { StagingBuffer } from '@/sim/threads/staging-buffer';
 import { initNpcProps } from '@/world/npc-helpers';
 import type { GameMap, Tile, Entity, ActiveEvent } from '@/core/types';
 import type { GameState } from '@/core/state';
-import { buildFateContext, describeThreadsForFate, describeRivalsForFate, describeArcsForFate, type FateFocus } from '@/game/fate/fate-context';
+import { buildFateContext, describeThreadsForFate, describeRivalsForFate, describeLordsForFate, describeArcsForFate, type FateFocus } from '@/game/fate/fate-context';
 import { FateArcStore } from '@/sim/fate/arc-store';
 import { getArcShape, openArcFromShape } from '@/sim/fate/arc-library';
 import { CausalSiteStore } from '@/world/causal-site';
@@ -121,6 +121,44 @@ describe('describeRivalsForFate', () => {
     const { text, rivalIds } = describeRivalsForFate(s);
     expect(text).toBe('');
     expect(rivalIds.size).toBe(0);
+  });
+});
+
+describe('describeLordsForFate (M3)', () => {
+  function lordState(): GameState {
+    const s = state();
+    const lord = initNpcProps('Aldric', 'noble', 11);
+    lord.homePoiId = 'poi1';
+    s.world!.addEntity({ id: 'lord-1', kind: 'npc', x: 2, y: 2, properties: lord as unknown as Record<string, unknown> });
+    s.world!.lords.set('poi1', { npcId: 'lord-1', lineageId: 'lord-1', tithe: 0.3, garrison: 2, unrest: 0.15, keepTier: 0 });
+    return s;
+  }
+
+  it('digests each seated lord with tithe/unrest/garrison and collects the seat poiIds', () => {
+    const { text, lordPoiIds } = describeLordsForFate(lordState());
+    expect(text).toContain('Aldric');
+    expect(text).toContain('Northvale');
+    expect(text).toContain('tithe 0.30');
+    expect(text).toContain('unrest 0.15');
+    expect(text).toContain('garrison 2');
+    expect(text).toContain('set_lord_stance');
+    expect([...lordPoiIds]).toEqual(['poi1']);
+  });
+
+  it('returns empty text + no ids when no settlement holds a lord', () => {
+    const { text, lordPoiIds } = describeLordsForFate(state());
+    expect(text).toBe('');
+    expect(lordPoiIds.size).toBe(0);
+  });
+
+  it('buildFateContext surfaces the lords digest and the validLordPoiIds drift-guard set', () => {
+    const focus: FateFocus = { kind: 'pulse' };
+    const { system, user, validLordPoiIds } = buildFateContext(lordState(), focus);
+    expect(system).toContain('set_lord_stance');
+    expect(user).toContain('Lords (mortal power');
+    expect([...validLordPoiIds]).toEqual(['poi1']);
+    // No seats ⇒ an empty guard set (every set_lord_stance call drops).
+    expect(buildFateContext(state(), focus).validLordPoiIds.size).toBe(0);
   });
 });
 

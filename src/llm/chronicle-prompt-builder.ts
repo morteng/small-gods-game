@@ -191,6 +191,8 @@ export function eventFactLine(a: AppendedEvent, world?: World | null): string {
       return ev.succession
         ? `${resolveNpcName(world, ev.npcId)} succeeded to the lordship of the settlement.`
         : `${resolveNpcName(world, ev.npcId)} rose as lord over the settlement.`;
+    case 'shrine_endowed':
+      return `The lord ${resolveNpcName(world, ev.lordNpcId)} endowed a shrine to another god (${ev.rivalId}).`;
     case 'thread_resolved':
       return `A thread of fate was ${ev.status}.`;
     case 'beat_fired':

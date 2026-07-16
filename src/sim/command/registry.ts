@@ -28,6 +28,7 @@ import {
 import {
   injectNpcPrecondition, injectNpcApply, biasEventPrecondition, biasEventApply,
   nudgeSeverityPrecondition, nudgeSeverityApply, setRivalStancePrecondition, setRivalStanceApply,
+  setLordStancePrecondition, setLordStanceApply,
 } from './authoring-verbs';
 import { placeBuildingPrecondition, placeBuildingApply } from './building-verbs';
 import { growSettlementPrecondition, growSettlementApply } from './settlement-verbs';
@@ -237,6 +238,13 @@ export const CAPABILITY_REGISTRY: Record<CommandVerb, CapabilityDef> = {
     precondition: setRivalStancePrecondition,
     apply: setRivalStanceApply,
     describe: (cmd) => `coach rival ${cmd.payload?.rivalId ?? '?'} stance`,
+  },
+  set_lord_stance: {
+    // M3: the lord's seat is settlement-scoped, so the settlement IS the target.
+    verb: 'set_lord_stance', tier: 'authoring', cost: 0, targetKind: 'settlement', implemented: true,
+    precondition: setLordStancePrecondition,
+    apply: setLordStanceApply,
+    describe: (cmd) => `coach the lord of ${targetLabel(cmd)}`,
   },
   place_building: {
     verb: 'place_building', tier: 'authoring', cost: 0, targetKind: 'settlement', implemented: true,

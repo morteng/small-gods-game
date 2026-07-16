@@ -13,6 +13,8 @@ import { buildWorldSummary } from '@/llm/world-summary';
 import { evaluateContracts } from '@/world/connectome-contracts';
 import { PLAYER_SPIRIT_ID } from '@/sim/believers';
 import { buildRivalSituation } from '@/sim/rival-claims';
+import { buildLordSituation } from '@/sim/lord';
+import { getNpc, npcProps } from '@/world/npc-helpers';
 import { TICKS_PER_DAY } from '@/core/calendar';
 import { MAX_LIVE_ARCS } from '@/sim/fate/arc-types';
 import { getArcShape, seedableShapes } from '@/sim/fate/arc-library';
@@ -43,7 +45,10 @@ const SYSTEM_CHARTER =
   'SOFT (atmosphere-only) beat at a transient causal site — a place the waters just made. And you may ' +
   'COACH a rival god\'s disposition (set_rival_stance) to keep the contest alive: turn a rival UP when the ' +
   'player is coasting and dwarfs it, DOWN when the player is drowning and losing prayers — the anti-snowball ' +
-  'counter-loop, never to crown a winner. When the story earns a LASTING mark, you may raise ONE building ' +
+  'counter-loop, never to crown a winner. Where a mortal LORD holds a settlement (the Lords list) you may ' +
+  'COACH HIS RULE (set_lord_stance): raise his tithe and want breeds prayer and unrest; lower it and the ' +
+  'land breathes — or have him endow a shrine to a rival god, granting it standing there. A lord is a ' +
+  'mortal: he competes for allegiance, never for belief. When the story earns a LASTING mark, you may raise ONE building ' +
   '(author_building) in a settlement already in play — a shrine after a miracle, a hall as a village grows — ' +
   'placed only if it is well-formed; this is a heavy hand, so do it rarely and only when it plainly fits. ' +
   'You also hold LONG-RANGE intentions as ARCS: seed_arc opens a story shape from the library — only a ' +
@@ -164,6 +169,45 @@ export function describeRivalsForFate(state: GameState): { text: string; rivalId
   return { text: `Rivals (competing gods):\n${lines.join('\n')}`, rivalIds };
 }
 
+/** Bound on how many lords the digest enumerates (it rides an LLM prompt). */
+const MAX_LORDS_IN_DIGEST = 6;
+
+/**
+ * M3: a compact, deterministic digest of the SEATED LORDS — mortal power — for
+ * Fate, reusing `buildLordSituation` (the `buildRivalSituation` pattern). Per
+ * seat: the lord's name, tithe/unrest/garrison, both population tiers, mean
+ * prosperity across both tiers, and standing prayer pressure. Empty string when
+ * no settlement holds a lord, and the enumerated poiIds are the only valid
+ * `poiId` for `set_lord_stance`.
+ */
+export function describeLordsForFate(state: GameState): { text: string; lordPoiIds: Set<string> } {
+  const lordPoiIds = new Set<string>();
+  const world = state.world;
+  if (!world || world.lords.size === 0) return { text: '', lordPoiIds };
+  const poiName = new Map<string, string>();
+  for (const p of state.worldSeed?.pois ?? []) poiName.set(p.id, p.name ?? p.id);
+  const now = state.clock.now();
+
+  const lines: string[] = [];
+  for (const poiId of [...world.lords.keys()].sort().slice(0, MAX_LORDS_IN_DIGEST)) {
+    const seat = world.lords.get(poiId)!;
+    lordPoiIds.add(poiId);
+    const sit = buildLordSituation(world, state.cohorts, poiId, seat, now);
+    const holder = getNpc(world, seat.npcId);
+    const lordName = holder ? npcProps(holder).name : seat.npcId;
+    const pop = sit.namedPopulation + sit.statPopulation;
+    const prosperity = pop > 0
+      ? (sit.meanProsperityNamed * sit.namedPopulation + sit.meanProsperityStat * sit.statPopulation) / pop
+      : 0;
+    lines.push(
+      `- ${lordName}, lord of "${poiName.get(poiId) ?? poiId}" (${poiId}): tithe ${seat.tithe.toFixed(2)}, ` +
+      `unrest ${seat.unrest.toFixed(2)}, garrison ${sit.garrison}; ${pop} soul(s), ` +
+      `mean prosperity ${prosperity.toFixed(2)}, ${sit.prayerPressure} standing plea(s) at risk.`,
+    );
+  }
+  return { text: `Lords (mortal power — coach via set_lord_stance):\n${lines.join('\n')}`, lordPoiIds };
+}
+
 /** Active causal sites as Fate-addressable subjects (ephemeral, but real while they last). */
 function describeSitesForFate(state: GameState): { text: string; siteIds: Set<string> } {
   const siteIds = new Set<string>();
@@ -235,7 +279,10 @@ export function describeSeedableShapesForFate(state: GameState): string {
 export function buildFateContext(
   state: GameState,
   focus: FateFocus,
-): { system: string; user: string; validPoiIds: Set<string>; validRivalIds: Set<string> } {
+): {
+  system: string; user: string;
+  validPoiIds: Set<string>; validRivalIds: Set<string>; validLordPoiIds: Set<string>;
+} {
   const isPulse = focus.kind === 'pulse';
   const { text: threadsText, poiIds } = describeThreadsForFate(state);
   // A flood is a beat-worthy event even at a settlement with no open thread, so the
@@ -247,6 +294,8 @@ export function buildFateContext(
   for (const id of siteIds) poiIds.add(id);
   // WP-L: the rivals digest + the ids the set_rival_stance drift-guard validates.
   const { text: rivalsText, rivalIds } = describeRivalsForFate(state);
+  // M3: the lords digest + the poiIds the set_lord_stance drift-guard validates.
+  const { text: lordsText, lordPoiIds } = describeLordsForFate(state);
   // F2: the pulse asks a DIFFERENT question than the event path — "nothing happened;
   // what are you building toward?" — and always shows Fate its own live arcs.
   const focusLine = isPulse
@@ -262,11 +311,12 @@ export function buildFateContext(
     threadsText,
     sitesText,
     rivalsText,
+    lordsText,                            // M3: seated lords (empty when none)
     describeWorldQualityForFate(state),   // connectome lint digest (empty when clean)
     describeArcsForFate(state),           // Fate's live arcs (empty when none)
     describeSeedableShapesForFate(state), // F3: shapes seed_arc may open now (empty when none)
     focusLine,
     closing,
   ].filter(Boolean).join('\n\n');
-  return { system: SYSTEM_CHARTER, user, validPoiIds: poiIds, validRivalIds: rivalIds };
+  return { system: SYSTEM_CHARTER, user, validPoiIds: poiIds, validRivalIds: rivalIds, validLordPoiIds: lordPoiIds };
 }

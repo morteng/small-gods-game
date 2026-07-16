@@ -12,7 +12,7 @@ describe('FATE_TOOLS', () => {
     const names = FATE_TOOLS.map((t) => t.name).sort();
     expect(names).toEqual([
       'abandon_arc', 'arm_staged_beat', 'author_building', 'force_next_event',
-      'nudge_event_severity', 'plant_portent', 'seed_arc', 'set_rival_stance',
+      'nudge_event_severity', 'plant_portent', 'seed_arc', 'set_lord_stance', 'set_rival_stance',
     ]);
   });
 });
@@ -152,6 +152,46 @@ describe('parseFateToolCalls — set_rival_stance', () => {
   it('drops every stance when the ctx supplies no validRivalIds set', () => {
     const noRivals = { validPoiIds: new Set(['poi1']), now: 5 };
     const { commands } = parseFateToolCalls([stance({ rivalId: 'rival-1', aggression: 0.1 })], noRivals);
+    expect(commands).toHaveLength(0);
+  });
+});
+
+describe('parseFateToolCalls — set_lord_stance (M3)', () => {
+  const lordStance = (args: Record<string, unknown>): LLMToolCall => ({ id: 'l0', name: 'set_lord_stance', arguments: args });
+  const lordCtx = () => ({ ...ctx(), validLordPoiIds: new Set(['poi1']) });
+
+  it('builds a settlement-targeted set_lord_stance command, capping the tithe delta to ±0.2', () => {
+    const { commands } = parseFateToolCalls([lordStance({ poiId: 'poi1', tithe: 0.9 })], lordCtx());
+    expect(commands).toHaveLength(1);
+    expect(commands[0]).toMatchObject({ verb: 'set_lord_stance', source: 'fate', target: { kind: 'settlement', poiId: 'poi1' } });
+    expect(commands[0].payload).toEqual({ tithe: 0.2 });
+  });
+
+  it('passes a grounded endowRival ref through as endowRivalId', () => {
+    const { commands } = parseFateToolCalls([lordStance({ poiId: 'poi1', tithe: -0.1, endowRival: 'rival-1' })], lordCtx());
+    expect(commands).toHaveLength(1);
+    expect(commands[0].payload).toEqual({ tithe: -0.1, endowRivalId: 'rival-1' });
+  });
+
+  it('drops an ungrounded endowRival ref but keeps the tithe coaching', () => {
+    const { commands } = parseFateToolCalls([lordStance({ poiId: 'poi1', tithe: 0.1, endowRival: 'ghost-god' })], lordCtx());
+    expect(commands).toHaveLength(1);
+    expect(commands[0].payload).toEqual({ tithe: 0.1 });
+  });
+
+  it('drops a call aimed at a settlement with no seated lord', () => {
+    // poi2 is a valid settlement (in validPoiIds) but holds no lord.
+    const { commands } = parseFateToolCalls([lordStance({ poiId: 'poi2', tithe: 0.1 })], lordCtx());
+    expect(commands).toHaveLength(0);
+  });
+
+  it('drops a call left with nothing to coach (endow ref hallucinated, no tithe)', () => {
+    const { commands } = parseFateToolCalls([lordStance({ poiId: 'poi1', endowRival: 'ghost-god' })], lordCtx());
+    expect(commands).toHaveLength(0);
+  });
+
+  it('drops every call when the ctx supplies no validLordPoiIds set (safe default)', () => {
+    const { commands } = parseFateToolCalls([lordStance({ poiId: 'poi1', tithe: 0.1 })], ctx());
     expect(commands).toHaveLength(0);
   });
 });

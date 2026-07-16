@@ -21,7 +21,7 @@ export type CommandVerb =
   | 'smite' | 'summon_storm'
   // authoring tier — DECLARED, executor pending (filled in by the Fate cycle)
   | 'bias_event' | 'inject_npc' | 'nudge_severity' | 'place_building' | 'grow_settlement'
-  | 'rename_ward' | 'retype_ward' | 'set_rival_stance'
+  | 'rename_ward' | 'retype_ward' | 'set_rival_stance' | 'set_lord_stance'
   // editor tier — god-mode world authoring (the Create panel; cost 0, no spirit)
   | 'author_spawn_npc' | 'author_remove_entity' | 'author_modify_npc'
   | 'author_place_object' | 'author_move_entity' | 'author_set_climate'

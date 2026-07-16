@@ -54,10 +54,10 @@ export class FateBrainService {
       // digest and the seedWhen gate see fresh state (met is never trusted stale).
       const arcStore = state.fateArcs ?? null;
       arcStore?.recomputeGoals(state);
-      const { system, user, validPoiIds, validRivalIds } = buildFateContext(state, focus);
+      const { system, user, validPoiIds, validRivalIds, validLordPoiIds } = buildFateContext(state, focus);
       const messages: LLMMessage[] = [{ role: 'system', content: system }, { role: 'user', content: user }];
       const buildToolCtx = (): FateToolCtx => ({
-        validPoiIds, validRivalIds, now: state.clock.now(),
+        validPoiIds, validRivalIds, validLordPoiIds, now: state.clock.now(),
         validStoryletIds: this.deps.getValidStoryletIds?.(),
         // Without an arc store (legacy/partial states) the arc tools stay disabled —
         // parse drops every seed_arc/abandon_arc/plant_portent, logged (safe default).
