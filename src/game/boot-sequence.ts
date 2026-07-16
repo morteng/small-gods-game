@@ -85,6 +85,11 @@ export async function runBootSequence(deps: BootSequenceDeps, worldSeed?: WorldS
     onReady: () => {
       bootMark('worldgen');
       deps.onWorldReady();
+      // M1: a restored world carries its chronicle (snapshot-backed ring) —
+      // read the recent annals aloud while the art settles. Fresh worlds have
+      // none and the block stays hidden.
+      const annals = state.chronicle?.entries() ?? [];
+      if (annals.length) loading.setChronicle(annals.slice(-5).map(e => e.text));
       // The fade waits for the building art to settle (composes drained + art
       // rev quiet) so the player never sees grey massing pop into textured
       // buildings — fire-and-forget: the frame loop starts beneath the overlay

@@ -22,35 +22,25 @@
  * silently dropped, never batched, so a big time-skip never floods the ring or
  * spams the LLM with a backlog.
  *
- * Cursor/ring are in-memory only — NOT part of `GameState` / the snapshot
- * `SystemStateRegistry`. On construction the cursor anchors to "today" (the
- * day containing the current tick), so a loaded save/scrub-commit narrates
- * forward from now rather than replaying the whole history in one entry. This
- * mirrors `FateTrigger`'s own throttle state (also unpersisted, reset-on-load,
+ * The RING lives on `state.chronicle` (`@/core/chronicle-store`) and rides the
+ * snapshot — the annals survive save/load (the boot loading screen reads them
+ * while the art settles) and scrub with the timeline. The CURSOR stays
+ * in-memory: on construction it anchors to "today" (the day containing the
+ * current tick), so a loaded save/scrub-commit narrates forward from now
+ * rather than replaying the whole history in one entry. This mirrors
+ * `FateTrigger`'s own throttle state (also unpersisted, reset-on-load,
  * documented there as harmless) — cheap because there is nothing to replay:
  * the next entry simply waits for the next day boundary.
  */
 import type { GameState } from '@/core/state';
 import type { LLMClient } from '@/llm/llm-client';
-import { TICKS_PER_DAY, SOLAR_START_HOUR, dayIndexForTick, formatCalendarTick, type Season } from '@/core/calendar';
+import { TICKS_PER_DAY, SOLAR_START_HOUR, dayIndexForTick, formatCalendarTick } from '@/core/calendar';
 import { buildChroniclePrompt, renderOfflineAnnal, type ChronicleWindow } from '@/llm/chronicle-prompt-builder';
+import type { ChronicleEntry } from '@/core/chronicle-store';
 
-/** Bounded ring of recent entries — exposed via `entries()`/`latest()` for the
- *  inbox seam (and any future dev/studio view) without growing unbounded. */
-export const CHRONICLE_RING_CAP = 30;
-
-export interface ChronicleEntry {
-  /** The 0-based calendar day index this entry covers (see `core/calendar.ts`). */
-  dayIndex: number;
-  year: number;
-  season: Season;
-  dayOfYear: number;
-  text: string;
-  /** True when produced by the deterministic offline template — either no LLM
-   *  client was configured, or the LLM call failed and this is the honest
-   *  fallback (never a silent swallow). */
-  offline: boolean;
-}
+// Re-exported for existing consumers; the definitions moved to the store when
+// the ring became snapshot state.
+export { CHRONICLE_RING_CAP, type ChronicleEntry } from '@/core/chronicle-store';
 
 export interface ChronicleServiceDeps {
   state: GameState;
@@ -75,25 +65,28 @@ export class ChronicleService {
    *  yet). Transient — see class doc for why this deliberately resets on load. */
   private lastChronicledDay: number;
   private inFlight = false;
-  private ring: ChronicleEntry[] = [];
 
   constructor(private readonly deps: ChronicleServiceDeps) {
     this.client = deps.client ?? null;
     // Anchor to "today" so a loaded save/scrub doesn't try to backfill history.
-    this.lastChronicledDay = dayIndexForTick(deps.state.clock.now()) - 1;
+    // A restored ring may already carry today's entry — never re-narrate it.
+    this.lastChronicledDay = Math.max(
+      dayIndexForTick(deps.state.clock.now()) - 1,
+      deps.state.chronicle?.latest()?.dayIndex ?? -1,
+    );
   }
 
   setClient(client: LLMClient | null): void {
     this.client = client;
   }
 
-  /** Bounded ring, oldest first. */
+  /** Bounded ring, oldest first (delegates to the snapshot-backed store). */
   entries(): readonly ChronicleEntry[] {
-    return this.ring;
+    return this.deps.state.chronicle?.entries() ?? [];
   }
 
   latest(): ChronicleEntry | null {
-    return this.ring.length ? this.ring[this.ring.length - 1] : null;
+    return this.deps.state.chronicle?.latest() ?? null;
   }
 
   /** Cheap per-frame check (an integer comparison); only generates — async, off
@@ -138,10 +131,9 @@ export class ChronicleService {
         offline = true;
       }
 
-      this.ring.push({
+      state.chronicle?.push({
         dayIndex, year: calendar.year, season: calendar.season, dayOfYear: calendar.dayOfYear, text, offline,
       });
-      if (this.ring.length > CHRONICLE_RING_CAP) this.ring.shift();
       this.lastChronicledDay = dayIndex;
     } finally {
       this.inFlight = false;

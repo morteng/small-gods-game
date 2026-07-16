@@ -10,6 +10,10 @@ export interface LoadingScreenHandle {
   element: HTMLElement;
   /** Set progress 0..1 and an optional status label. Clamps to [0,1]. */
   setProgress(fraction: number, label?: string): void;
+  /** M1: show excerpts from the restored world's chronicle while the world
+   *  wakes (rotates through `texts` if more than one). Empty array hides the
+   *  block — the fresh-world default. */
+  setChronicle(texts: readonly string[]): void;
   show(): void;
   /** Fade out, then detach from the DOM tree (kept removable via destroy()). */
   hide(): void;
@@ -62,7 +66,30 @@ const STYLE = `
   color: #8b8f9a;
   min-height: 14px;
 }
+.sg-loading__chronicle {
+  max-width: min(520px, 78vw);
+  margin-top: 18px;
+  text-align: center;
+  font-style: italic;
+  font-size: 14px;
+  line-height: 1.55;
+  color: #b8b2a2;
+  opacity: 0;
+  transition: opacity 600ms ease;
+}
+.sg-loading__chronicle--visible { opacity: 0.85; }
+.sg-loading__chronicle-caption {
+  margin-top: 8px;
+  font-style: normal;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #6d7078;
+}
 `;
+
+/** How long each chronicle excerpt holds before rotating to the next. */
+const CHRONICLE_ROTATE_MS = 9000;
 
 export function createLoadingScreen(container: HTMLElement): LoadingScreenHandle {
   if (!document.querySelector('#sg-loading-styles')) {
@@ -92,9 +119,26 @@ export function createLoadingScreen(container: HTMLElement): LoadingScreenHandle
   label.textContent = 'Loading…';
   element.appendChild(label);
 
+  // The chronicle block sits under the bar, hidden until setChronicle() gets
+  // a restored world's annals to read from.
+  const chronicle = document.createElement('div');
+  chronicle.className = 'sg-loading__chronicle';
+  const chronicleText = document.createElement('div');
+  const chronicleCaption = document.createElement('div');
+  chronicleCaption.className = 'sg-loading__chronicle-caption';
+  chronicleCaption.textContent = 'from the chronicle of this world';
+  chronicle.appendChild(chronicleText);
+  chronicle.appendChild(chronicleCaption);
+  element.appendChild(chronicle);
+
   container.appendChild(element);
 
   let hideTimer: ReturnType<typeof setTimeout> | null = null;
+  let rotateTimer: ReturnType<typeof setInterval> | null = null;
+
+  const stopRotation = (): void => {
+    if (rotateTimer) { clearInterval(rotateTimer); rotateTimer = null; }
+  };
 
   return {
     element,
@@ -103,16 +147,34 @@ export function createLoadingScreen(container: HTMLElement): LoadingScreenHandle
       fill.style.width = `${pct}%`;
       if (text !== undefined) label.textContent = text;
     },
+    setChronicle(texts: readonly string[]): void {
+      stopRotation();
+      if (!texts.length) {
+        chronicle.classList.remove('sg-loading__chronicle--visible');
+        return;
+      }
+      let i = texts.length - 1;               // start on the most recent annal
+      chronicleText.textContent = texts[i];
+      chronicle.classList.add('sg-loading__chronicle--visible');
+      if (texts.length > 1) {
+        rotateTimer = setInterval(() => {
+          i = (i + 1) % texts.length;
+          chronicleText.textContent = texts[i];
+        }, CHRONICLE_ROTATE_MS);
+      }
+    },
     show(): void {
       if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
       if (!element.isConnected) container.appendChild(element);
       element.classList.remove('sg-loading--hidden');
     },
     hide(): void {
+      stopRotation();
       element.classList.add('sg-loading--hidden');
       hideTimer = setTimeout(() => { element.remove(); hideTimer = null; }, 360);
     },
     destroy(): void {
+      stopRotation();
       if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
       element.remove();
     },

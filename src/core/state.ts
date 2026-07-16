@@ -9,6 +9,7 @@ import { createRng, type Rng } from '@/core/rng';
 import { PlotThreadStore } from '@/sim/threads/thread-store';
 import { StagingBuffer } from '@/sim/threads/staging-buffer';
 import { FateArcStore } from '@/sim/fate/arc-store';
+import { ChronicleStore } from '@/core/chronicle-store';
 import { SystemStateRegistry } from '@/core/system-state';
 import type { WeatherStepper } from '@/sim/water/weather-stepper';
 import type { FloodWatch } from '@/world/flood-watch';
@@ -61,6 +62,11 @@ export interface GameState {
    *  AND a timeline scrub. `ArcGoal.met` is recomputed each pulse, never trusted
    *  from disk. See `@/sim/fate/arc-store`. */
   fateArcs: FateArcStore;
+  /** M1 (the chronicler): the world's annals — a bounded ring of daily entries,
+   *  serialized in snapshots (no SAVE_VERSION bump) so the chronicle survives
+   *  save/load (the boot loader reads it) and scrubs WITH the timeline. Written
+   *  only by `ChronicleService`; see `@/core/chronicle-store`. */
+  chronicle: ChronicleStore;
   /** Fate-surfacing seam (Track B / B-E): divine-inbox item ids the director has
    *  promoted with intent. Read by `GameQuery.divineInbox` to boost salience +
    *  flag items. Transient exogenous intent (like the command queue), not core sim
@@ -144,6 +150,7 @@ export function createState(): GameState {
     plotThreads: new PlotThreadStore(),
     staging: new StagingBuffer(),
     fateArcs: new FateArcStore(),
+    chronicle: new ChronicleStore(),
     surfacedInbox: new Set<string>(),
     waterLevelM: 0,
     weather: null,

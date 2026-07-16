@@ -5,6 +5,7 @@ import type { Spirit } from '@/core/spirit';
 import type { PlotThread } from '@/sim/threads/thread-types';
 import type { StagedBeat } from '@/sim/threads/staging-types';
 import type { FateArc } from '@/sim/fate/arc-types';
+import type { ChronicleEntry } from '@/core/chronicle-store';
 import type { WeatherSnapshot } from '@/sim/water/weather-stepper';
 import type { CausalSiteSnapshot } from '@/world/causal-site';
 import type { TrampleSnapshot } from '@/sim/trample';
@@ -36,6 +37,9 @@ export interface Snapshot {
    *  hand-built test snapshots restore to an empty arc set. `ArcGoal.met` is NOT
    *  trusted from disk — it is recomputed against the restored world on restore. */
   fateArcs?: FateArc[];
+  /** M1: the chronicler's annals. Optional so pre-chronicle saves + hand-built
+   *  test snapshots restore to an empty ring. */
+  chronicle?: ChronicleEntry[];
   /** W-G: water/atmosphere fields (flood depth, lake offsets, humidity/cloud/temp).
    *  Optional so pre-weather saves + partial test states deserialize without it. */
   weather?: WeatherSnapshot;
@@ -110,6 +114,7 @@ function buildSnapshot(state: GameState, deep: boolean): Snapshot {
     threads: state.plotThreads?.serialize() ?? [],
     staging: state.staging?.serialize() ?? [],
     fateArcs: state.fateArcs?.serialize() ?? [],
+    chronicle: state.chronicle?.serialize() ?? [],
     weather: state.weather?.serialize(),
     floodedPlaces: state.floodWatch?.floodedPlaceIds(),
     causalSites: state.causalSites?.serialize(),
@@ -184,6 +189,10 @@ export function restoreSnapshot(state: GameState, snap: Snapshot): void {
   // — the persisted value is never trusted (spec §4.1).
   state.fateArcs?.hydrate(snap.fateArcs ?? []);
   state.fateArcs?.recomputeGoals(state);
+
+  // M1: the annals scrub WITH the timeline — an entry about a day that
+  // un-happened un-happens with it (pre-chronicle snapshots restore empty).
+  state.chronicle?.hydrate(snap.chronicle ?? []);
 
   // W-G: restore the water fields + flood-watch latch so scrub/replay reproduce the
   // exact flood state (and don't re-fire edges for places already under water).

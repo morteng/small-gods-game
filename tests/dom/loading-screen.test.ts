@@ -44,4 +44,31 @@ describe('loading-screen', () => {
     expect(el.classList.contains('sg-loading--hidden')).toBe(true);
     ls.destroy();
   });
+
+  it('setChronicle shows the most recent annal; empty hides the block', () => {
+    container = document.createElement('div');
+    const ls = createLoadingScreen(container);
+    const block = container.querySelector('.sg-loading__chronicle') as HTMLElement;
+    expect(block.classList.contains('sg-loading__chronicle--visible')).toBe(false);
+
+    ls.setChronicle(['In this year there was a drought.', 'In this year the drought broke, and two were born.']);
+    expect(block.classList.contains('sg-loading__chronicle--visible')).toBe(true);
+    // Starts on the MOST RECENT entry.
+    expect(block.textContent).toContain('the drought broke');
+    expect(block.textContent).toContain('from the chronicle of this world');
+
+    ls.setChronicle([]);
+    expect(block.classList.contains('sg-loading__chronicle--visible')).toBe(false);
+    ls.destroy();
+  });
+
+  it('setChronicle with one entry never arms a rotation timer (destroy-safe)', () => {
+    container = document.createElement('div');
+    const ls = createLoadingScreen(container);
+    ls.setChronicle(['A single annal.']);
+    const block = container.querySelector('.sg-loading__chronicle') as HTMLElement;
+    expect(block.textContent).toContain('A single annal.');
+    ls.destroy();   // must not throw with no interval armed
+    expect(container.querySelector('.sg-loading')).toBeNull();
+  });
 });
