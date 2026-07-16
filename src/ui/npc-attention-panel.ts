@@ -260,7 +260,7 @@ export function mountNpcAttentionPanel(
       const belief = sim.beliefs['player'] ?? { faith: 0, understanding: 0, devotion: 0 };
       const power = nextOpts.power ?? 0;
 
-      idName.textContent = sim.name;
+      idName.textContent = sim.epithet ? `${sim.name} ${sim.epithet}` : sim.name;
       idMeta.textContent = `${sim.role} · home: ${sim.homePoiId ?? '—'}`;
 
       renderPortrait(portrait, sim, nextOpts.portraitSheet ?? null);

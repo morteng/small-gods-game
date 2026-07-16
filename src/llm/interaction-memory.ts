@@ -66,17 +66,60 @@ export function computeSalience(kind: MemoryKind, beliefDelta?: BeliefDelta, moo
 }
 
 /** Push an entry; if over MEMORY_MAX, evict the entry minimizing (salience, tick)
- *  — lowest salience first, oldest as tiebreak. Mutates props.memories in place. */
+ *  — lowest salience first, oldest as tiebreak. Mutates props.memories in place.
+ *  The single ring-write chokepoint, so epithet conferral (M2) rides it — no
+ *  interaction site can forget to confer. */
 export function recordMemory(props: NpcProperties, entry: MemoryEntry): void {
   const mems = props.memories ?? (props.memories = []);
   mems.push(entry);
-  if (mems.length <= MEMORY_MAX) return;
-  let worst = 0;
-  for (let i = 1; i < mems.length; i++) {
-    const m = mems[i], w = mems[worst];
-    if (m.salience < w.salience || (m.salience === w.salience && m.tick < w.tick)) worst = i;
+  if (mems.length > MEMORY_MAX) {
+    let worst = 0;
+    for (let i = 1; i < mems.length; i++) {
+      const m = mems[i], w = mems[worst];
+      if (m.salience < w.salience || (m.salience === w.salience && m.tick < w.tick)) worst = i;
+    }
+    mems.splice(worst, 1);
   }
-  mems.splice(worst, 1);
+  conferEpithet(props);
+}
+
+// ── Epithets (M2 — deed-derived bynames; mortal-power spec) ──────────────────
+// "An epithet is a salience-argmax over that ring." Conferred by what a god
+// actually DID to this mortal; victory renames you. Deterministic, no LLM.
+
+/** A deed must be felt this strongly to earn a byname. A miracle (1.0) or an
+ *  answered prayer (0.6) qualifies outright; a dream or whisper only when it
+ *  moved the soul (kind weight + 2×belief-delta + mood-delta ≥ this). */
+export const EPITHET_THRESHOLD = 0.5;
+
+const EPITHET_BY_KIND: Record<MemoryKind, string | null> = {
+  miracle:  'Miracle-touched',
+  answer:   'the Answered',        // count-escalated below
+  dream:    'the God-dreamt',
+  whisper:  'the Whispered-to',
+  backfill: null,                  // ambient narration confers nothing
+};
+
+/** The byname this ring currently earns, or null. Argmax salience (oldest wins
+ *  ties — the same landmark rule as selectMemoriesForPrompt); answered prayers
+ *  escalate with repetition ("the Twice-Answered"). */
+export function epithetFor(memories: MemoryEntry[] | undefined): string | null {
+  if (!memories || memories.length === 0) return null;
+  const best = memories.reduce((b, m) =>
+    m.salience > b.salience || (m.salience === b.salience && m.tick < b.tick) ? m : b);
+  if (best.salience < EPITHET_THRESHOLD) return null;
+  if (best.kind === 'answer') {
+    const n = memories.filter(m => m.kind === 'answer').length;
+    return n >= 3 ? 'the Thrice-Answered' : n === 2 ? 'the Twice-Answered' : 'the Answered';
+  }
+  return EPITHET_BY_KIND[best.kind];
+}
+
+/** Confer/refresh the sticky byname: a ring that earns one names the mortal; a
+ *  ring that no longer does (eviction) never STRIPS an earned name. */
+export function conferEpithet(props: NpcProperties): void {
+  const e = epithetFor(props.memories);
+  if (e) props.epithet = e;
 }
 
 /** Select up to maxCount summaries for a prompt: always include the highest-salience

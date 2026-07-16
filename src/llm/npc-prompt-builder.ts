@@ -106,7 +106,8 @@ export function buildNpcPrompt(ctx: NpcPromptContext): BuiltPrompt {
 
 function formatNpcCard(props: NpcProperties): string {
   const lines = [
-    `Name: ${props.name}`,
+    // M2: the deed-earned byname reaches narration — the village knows them by it.
+    `Name: ${props.name}${props.epithet ? ` ${props.epithet}` : ''}`,
     `Role: ${props.role}`,
     `Personality: assertiveness=${(props.personality.assertiveness).toFixed(2)}, skepticism=${(props.personality.skepticism).toFixed(2)}, piety=${(props.personality.piety).toFixed(2)}, sociability=${(props.personality.sociability).toFixed(2)}`,
     `Beliefs about player: faith=${(props.beliefs['player']?.faith ?? 0).toFixed(2)}, understanding=${(props.beliefs['player']?.understanding ?? 0).toFixed(2)}, devotion=${(props.beliefs['player']?.devotion ?? 0).toFixed(2)}`,

@@ -70,6 +70,62 @@ describe('recordMemory', () => {
   });
 });
 
+import { epithetFor, conferEpithet, EPITHET_THRESHOLD } from '@/llm/interaction-memory';
+
+describe('epithets (M2 — deed-derived bynames)', () => {
+  const mem = (kind: MemoryEntry['kind'], tick: number, salience: number): MemoryEntry =>
+    ({ tick, salience, summary: 's', kind });
+
+  it('confers nothing on an empty or faint ring', () => {
+    expect(epithetFor(undefined)).toBeNull();
+    expect(epithetFor([])).toBeNull();
+    expect(epithetFor([mem('whisper', 1, EPITHET_THRESHOLD - 0.01)])).toBeNull();
+  });
+
+  it('names by the salience-argmax deed, not the most recent', () => {
+    const ring = [mem('miracle', 1, 1.0), mem('whisper', 9, 0.6)];
+    expect(epithetFor(ring)).toBe('Miracle-touched');
+  });
+
+  it('answered prayers escalate with repetition — victory renames you', () => {
+    const one = [mem('answer', 1, 0.6)];
+    expect(epithetFor(one)).toBe('the Answered');
+    const two = [...one, mem('answer', 5, 0.6)];
+    expect(epithetFor(two)).toBe('the Twice-Answered');
+    const four = [...two, mem('answer', 7, 0.6), mem('answer', 9, 0.6)];
+    expect(epithetFor(four)).toBe('the Thrice-Answered');
+  });
+
+  it('backfill narration never names anyone, however salient', () => {
+    expect(epithetFor([mem('backfill', 1, 0.9)])).toBeNull();
+  });
+
+  it('recordMemory confers via the chokepoint, and the name is stable under flooding', () => {
+    const p = props();
+    recordMemory(p, { tick: 1, salience: 0.7, summary: 'answered', kind: 'answer' });
+    expect(p.epithet).toBe('the Answered');
+    // Faint whispers flood the ring; the landmark answer survives eviction
+    // (lowest-salience-first) and the byname holds.
+    for (let i = 2; i < MEMORY_MAX + 5; i++) recordMemory(p, entry(i, 0.1));
+    expect(p.memories!.some(m => m.kind === 'answer')).toBe(true);
+    expect(p.epithet).toBe('the Answered');
+  });
+
+  it('a greater deed renames', () => {
+    const p = props();
+    recordMemory(p, { tick: 1, salience: 0.7, summary: 'answered', kind: 'answer' });
+    recordMemory(p, { tick: 2, salience: 1.0, summary: 'wonder', kind: 'miracle' });
+    expect(p.epithet).toBe('Miracle-touched');
+  });
+
+  it('conferEpithet never overwrites with null', () => {
+    const p = props();
+    p.epithet = 'the Answered';
+    conferEpithet(p);
+    expect(p.epithet).toBe('the Answered');
+  });
+});
+
 describe('selectMemoriesForPrompt', () => {
   it('returns all (chronological) when under the cap', () => {
     expect(selectMemoriesForPrompt([entry(2, 0.1, 'b'), entry(1, 0.1, 'a')], 6)).toEqual(['b', 'a']);

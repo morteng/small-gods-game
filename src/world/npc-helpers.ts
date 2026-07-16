@@ -156,6 +156,7 @@ export function simStateFromEntity(e: Entity): NpcSimState {
     whisperCooldown: p.whisperCooldown,
     homeBuildingId: p.homeBuildingId, homePoiId: p.homePoiId,
     activity: p.activity,
+    epithet: p.epithet,
   };
 }
 

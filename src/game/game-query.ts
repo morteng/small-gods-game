@@ -63,6 +63,8 @@ export interface NpcView {
   /** Faith toward the player spirit (0–1), the most-asked-for scalar. */
   faith: number;
   homePoiId?: string;
+  /** Deed-derived byname (M2), e.g. "the Twice-Answered". */
+  epithet?: string;
 }
 
 export interface NpcDetail extends NpcView {
@@ -266,6 +268,7 @@ export function createGameQuery(deps: GameQueryDeps): GameQuery {
       activity: p.activity,
       faith: p.beliefs[PLAYER_SPIRIT_ID]?.faith ?? 0,
       homePoiId: p.homePoiId,
+      epithet: p.epithet,
     };
   }
 
@@ -338,7 +341,8 @@ export function createGameQuery(deps: GameQueryDeps): GameQuery {
           : p.activity;
         return {
           kind: 'npc',
-          title: p.name,
+          // M2: a deed-earned byname joins the title — "Tola the Twice-Answered".
+          title: p.epithet ? `${p.name} ${p.epithet}` : p.name,
           subtitle: `${p.role} · age ${Math.floor(ageYears)} · ${doing}`,
           state: [
             { label: 'Faith', value: b.faith },

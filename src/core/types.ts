@@ -494,6 +494,8 @@ export interface NpcSimState {
   homeBuildingId?: string;
   homePoiId?:      string;
   activity:        NpcActivity;
+  /** Deed-derived byname (M2), carried through for the legacy panel. */
+  epithet?:        string;
 }
 
 /** What kind of interaction produced a memory. */
@@ -589,6 +591,11 @@ export interface NpcProperties {
   /** Distilled, salience-tagged episodic memory of interactions with gods (Track 2).
    *  Optional → old saves/snapshots without it read as []. */
   memories?: MemoryEntry[];
+  /** Deed-derived byname (M2 — "victory renames you"): conferred from the
+   *  salience-argmax of the memory ring (`conferEpithet`), sticky once earned
+   *  (ring eviction never strips it; a later, different argmax renames). Rendered
+   *  as "Tola the Twice-Answered". Optional → old saves read as un-named. */
+  epithet?: string;
 }
 
 /** NPC activity state */
