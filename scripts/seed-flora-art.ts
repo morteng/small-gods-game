@@ -30,7 +30,7 @@ import { floraImagePrompt, FLORA_IMAGE_MODEL } from '../src/assetgen/flora-image
 import { compositeOverChroma, chromaKeyMagenta } from '../src/render/chroma-key';
 import { canonicalJson, generatedArtKey } from '../src/render/generated-art-cache';
 import {
-  type Raster, cropRaster, borderKeyedFraction, registerAlbedo, quantizePalette,
+  type Raster, cropRaster, borderKeyedFraction, registerAlbedo, quantizePalette, boxDownscale,
 } from '../src/render/sprite-postprocess';
 import { MIN_BORDER_KEYED, QUANT_COLORS } from '../src/render/generated-building-art-source';
 import { FLORA_MIN_SILHOUETTE_IOU } from '../src/render/generated-flora-art-source';
@@ -57,6 +57,12 @@ const force = process.argv.includes('--force');
 // --model=<id> A/B a different img2img model (default Klein). The model rides in the
 // cache key, so each model writes its own sprite file — no clobber across models.
 const MODEL = process.argv.find((a) => a.startsWith('--model='))?.slice('--model='.length) ?? FLORA_IMAGE_MODEL;
+// --maxinit=<px> downscales the img2img INIT to at most N px on its longest side (the
+// final sprite still registers at full geometry resolution — registerAlbedo rescales
+// the result to the mask). Big dense crowns (beech/ash) preserve their low-poly facets
+// because the facets are large in the model's working space; shrinking the init makes
+// them sub-brush so Klein dissolves them into painterly foliage. 0/absent = no downscale.
+const MAX_INIT = Number(process.argv.find((a) => a.startsWith('--maxinit='))?.slice('--maxinit='.length) ?? 0) || 0;
 const wanted = process.argv.slice(2).filter((a) => !a.startsWith('--'));
 // Plant species only (rocks have no img2img recipe — they render from geometry).
 const allPlantIds = allFloraSpecies().filter((s) => deriveGenParams(s).kind === 'plant').map((s) => s.id);
@@ -90,7 +96,12 @@ async function seed(speciesId: string, manifest: Manifest): Promise<number> {
   };
   const full = (buf: Uint8ClampedArray): Raster => ({ data: buf, w: r.size, h: r.size });
   const mask = cropRaster(full(r.grey), bb);
-  const initDataUri = `data:image/png;base64,${toPng(compositeOverChroma(r.grey), r.size, r.size).toString('base64')}`;
+  // Composite the grey massing over the magenta chroma field, then optionally shrink it
+  // so large facets fall below the img2img brush size (see --maxinit). The result always
+  // re-registers at the full mask resolution, so the in-game sprite size is unchanged.
+  let init: Raster = { data: compositeOverChroma(r.grey), w: r.size, h: r.size };
+  if (MAX_INIT > 0 && r.size > MAX_INIT) init = boxDownscale(init, MAX_INIT, MAX_INIT);
+  const initDataUri = `data:image/png;base64,${toPng(init.data, init.w, init.h).toString('base64')}`;
   const prompt = floraImagePrompt(rb, MODEL);
   if (plan) {
     console.log(`${speciesId}: key ${key} · mask ${mask.w}×${mask.h} · init ${Math.round(initDataUri.length / 1024)}kB\n  prompt: ${prompt}`);
