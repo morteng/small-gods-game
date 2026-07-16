@@ -41,11 +41,13 @@ export function effectiveTech(i: EnvelopeInputs): number {
 }
 
 /** The grandest bridge a crossing may build — tech × economy × how busy it is (importance:
- *  0 footpath … 3 highway). Preserves crossing-builder's historic thresholds exactly when
- *  understanding = 0 (era replaces the old `era` rank one-for-one). */
+ *  0 footpath … 3 highway). WOODEN bridges are the early-medieval default: dressed stone is
+ *  reserved for the GRAND crossings — a busy road (importance ≥ 2) through a rich place
+ *  (economy ≥ 2), or any highway. (The old gate gave stone to every modest track, which put
+ *  masonry arcades over village brooks.) */
 export function bridgeClassFor(i: EnvelopeInputs, importance: number): BridgeClass {
   const tech = effectiveTech(i);
-  if (tech >= 2 && i.economy >= 1 && importance >= 1) return 'dressed-stone';
+  if (tech >= 2 && importance >= 2 && (i.economy >= 2 || importance >= 3)) return 'dressed-stone';
   if (tech >= 1 || i.economy >= 1) return 'timber';
   return 'log-plank';
 }

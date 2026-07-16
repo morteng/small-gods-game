@@ -63,7 +63,15 @@ async function main(): Promise<void> {
     const bridges = (world.query({}) as Entity[]).filter((e) => BRIDGE_KINDS.has(e.kind));
     if (!bridges.length) { console.log(`no bridge entities on seed ${seed}`); return; }
     // Production emits one 'bridge' entity per crossing — render the longest-span one.
-    const objs = bridges.filter((e) => e.kind === 'bridge');
+    let objs = bridges.filter((e) => e.kind === 'bridge');
+    // --walls=timber|stone narrows to one material class (e.g. inspect the timber-arch default).
+    const wallsArg = process.argv.find((a) => a.startsWith('--walls='))?.slice('--walls='.length);
+    if (wallsArg && objs.length) {
+      const byWalls = objs.filter((e) => blueprintOf(e)?.rb.materials?.walls === wallsArg);
+      console.log(`seed ${seed}: ${byWalls.length}/${objs.length} bridge objects have walls=${wallsArg}`);
+      if (!byWalls.length) return;   // nothing in that class on this seed — don't fall through to legacy
+      objs = byWalls;
+    }
     if (objs.length) {
       const size = (e: Entity) => { const fp = (e.properties as { footprint?: { w: number; h: number } }).footprint; return (fp?.w ?? 0) + (fp?.h ?? 0); };
       best = [objs.reduce((m, e) => (size(e) > size(m) ? e : m), objs[0])];

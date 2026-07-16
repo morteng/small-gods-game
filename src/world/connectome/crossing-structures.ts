@@ -68,6 +68,9 @@ const ARCH_RING_M = 0.9;
 const MAX_CLEARANCE_M = 20;
 /** One masonry arch per this many tiles of clear span (a packhorse over a brook = 1). */
 const TILES_PER_ARCH = 3.5;
+/** One timber arch per this many tiles — a laminated timber rib spans further than a masonry
+ *  bay, so most brook/stream crossings compose as ONE graceful hump-backed span. */
+const TILES_PER_ARCH_TIMBER = 5;
 
 /** The compressed metric height (object-space metres, rendered at PX_PER_METRE) that visually
  *  spans a normalised bank→bed elevation drop on the terrain (lifted at reliefM·zPxPerM). */
@@ -76,9 +79,10 @@ function clearanceMetresForScreen(dropNorm: number, reliefM: number, zPxPerM: nu
 }
 
 /**
- * Compose ONE crossing spec as a single coherent bridge entity: filled-spandrel stone arches
- * (or a timber trestle) with the parapeted, optionally hump-backed deck riding the crowns,
- * lifted once to the bed. Returns undefined when the spec lacks bank anchors. Pure + deterministic.
+ * Compose ONE crossing spec as a single coherent bridge entity: arch bays (filled-spandrel
+ * masonry for dressed-stone, hump-backed round timber ribs for the default timber class, a flat
+ * driven-pile trestle only for log-plank) with the parapeted deck riding the crowns, lifted once
+ * to the bed. Returns undefined when the spec lacks bank anchors. Pure + deterministic.
  */
 export function buildBridgeObject(spec: CrossingSpec, opts: SpanEntityOptions = {}): Entity | undefined {
   ensureBuildingTypesRegistered();
@@ -112,6 +116,10 @@ export function buildBridgeObject(spec: CrossingSpec, opts: SpanEntityOptions = 
   const env = { era: ERA_RANK_B[spec.era] ?? 1, economy: PROS_RANK_B[spec.prosperity] ?? 1, understanding: spec.understanding };
   const cls: BridgeClass = bridgeClassFor(env, ROAD_RANK_B[spec.roadClass]);
   const stone = cls === 'dressed-stone';
+  // Wooden ARCH bridges are the default early-medieval crossing (a hump-backed timber footbridge
+  // on stone footings); dressed stone is the grand tier, and only the crudest `log-plank` sites
+  // fall back to the flat driven-pile trestle.
+  const arched = cls !== 'log-plank';
   const walls = stone ? 'stone' : 'timber';
   const widthT = DECK_WIDTH_T[spec.roadClass];
   const archStyle = stone ? (archStylesFor(env).has('segmental') ? 'segmental' : 'round') : 'round';
@@ -129,7 +137,10 @@ export function buildBridgeObject(spec: CrossingSpec, opts: SpanEntityOptions = 
     clearZM = Math.min(8, Math.max(1.2, spanLen * 0.5 * (zPxPerM / PX_PER_METRE)));
     liftElev = undefined;
   }
-  const camberM = stone ? Math.min(1.2, spanLen * METRES_PER_TILE * 0.045) : 0;   // hump for masonry
+  // Hump: masonry gets a gentle camber; a timber arch gets the strongly hump-backed "moon bridge"
+  // profile (matches the bridge-timber-arch recipe: camber 1.2 over a 10 m span); log-plank is flat.
+  const camberM = stone ? Math.min(1.2, spanLen * METRES_PER_TILE * 0.045)
+    : arched ? Math.min(1.2, spanLen * METRES_PER_TILE * 0.12) : 0;
 
   // Footprint = the yawed span's AABB (+1 tile so the deck seats onto both banks as abutments),
   // origin rounded with the sub-tile remainder flowed into the part offsets (as deckEntity does).
@@ -169,14 +180,17 @@ export function buildBridgeObject(spec: CrossingSpec, opts: SpanEntityOptions = 
     const boxW = Math.max(1, Math.ceil(abutDepthT * ac + abutWidthT * as));
     const boxH = Math.max(1, Math.ceil(abutDepthT * as + abutWidthT * ac));
     parts[`abut${e < 0 ? 0 : 1}`] = {
-      type: 'abutment', at: { x: ex - boxW / 2, y: ey - boxH / 2 }, size: { w: boxW, h: boxH },
+      // Footings are ALWAYS dressed stone — even a timber bridge lands on masonry blocks (they
+      // take the water and the deck load; bare timber would rot). On a stone bridge this is a no-op.
+      type: 'abutment', material: 'stone', at: { x: ex - boxW / 2, y: ey - boxH / 2 }, size: { w: boxW, h: boxH },
       params: { heightM: clearZM, widthM: abutWidthM, depthM: abutDepthT * METRES_PER_TILE, batter: 0.2, yawDeg },
     };
   }
 
-  if (stone) {
-    // Filled-spandrel arcade: N abutting arch bays springing from the bed to the deck crown.
-    const bays = Math.max(1, Math.min(8, Math.round(spanLen / TILES_PER_ARCH)));
+  if (arched) {
+    // Arch bays springing from the bed to the deck crown: masonry composes as a filled-spandrel
+    // arcade (short bays), timber as fewer, longer round ribs — usually ONE per crossing.
+    const bays = Math.max(1, Math.min(8, Math.round(spanLen / (stone ? TILES_PER_ARCH : TILES_PER_ARCH_TIMBER))));
     const bayT = spanLen / bays;
     const riseM = Math.max(0.8, clearZM - ARCH_RING_M);   // crown meets the deck underside
     for (let i = 0; i < bays; i++) {
@@ -192,7 +206,7 @@ export function buildBridgeObject(spec: CrossingSpec, opts: SpanEntityOptions = 
       };
     }
   } else {
-    // Timber trestle: driven piles every ~2 tiles from the bed up to the deck underside.
+    // Log-plank trestle (the crudest tier): driven piles every ~2 tiles, bed to deck underside.
     const piles = Math.max(2, Math.round(spanLen / 2));
     for (let i = 0; i <= piles; i++) {
       const t = i / piles - 0.5;                          // −0.5 … +0.5 along the span

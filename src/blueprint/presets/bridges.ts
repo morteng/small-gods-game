@@ -37,7 +37,9 @@ export function addAbutments(
   const boxW = Math.max(1, Math.ceil(abutDepthT)), boxH = Math.max(1, Math.ceil(abutWidthM / M));
   for (const [key, cxT] of [['abut0', xLo], ['abut1', xHi]] as const) {
     parts[key] = {
-      type: 'abutment', at: { x: cxT - boxW / 2, y: cyT - boxH / 2 }, size: { w: boxW, h: boxH },
+      // Footings are ALWAYS dressed stone — even a timber bridge lands on masonry blocks (they take
+      // the water and the deck load; bare timber piles would rot). On a stone bridge this is a no-op.
+      type: 'abutment', material: 'stone', at: { x: cxT - boxW / 2, y: cyT - boxH / 2 }, size: { w: boxW, h: boxH },
       params: { heightM: topM, widthM: abutWidthM, depthM: abutDepthT * M, batter: 0.2, dir: 'ew' },
     };
   }
@@ -84,6 +86,35 @@ export const BRIDGE_RECIPES: Record<string, BridgeRecipe> = {
       'a gently hump-backed deck carried on a solid filled-spandrel wall, low stone parapets along ' +
       'both edges, and pointed cutwater piers between the arches; grey ashlar masonry',
     build: () => archBridge({ spanTiles: 12, roadTiles: 2, bays: 3, riseM: 3, style: 'segmental', parapet: true, camberM: 0.8 }),
+  },
+  // Timber arch footbridge — a graceful single-span wooden "moon" bridge: a strongly hump-backed
+  // plank deck carried on one round timber arch, low post-and-rail parapets, landing on stone
+  // footing blocks. The wooden analogue of the packhorse (single arch, one file wide), but timber.
+  'timber-arch': {
+    desc: 'timber arch footbridge (single hump-backed span, plank deck, post rails, stone footings)',
+    walls: 'timber',
+    ttiSubject: 'a graceful single-arch wooden footbridge over a stream, one gently curved timber ' +
+      'arch carrying a strongly hump-backed plank deck, slender post-and-rail wooden parapets along ' +
+      'both edges, landing on low grey stone footing blocks at each bank; weathered brown timber',
+    build: () => archBridge({ spanTiles: 5, roadTiles: 1, bays: 1, riseM: 1.8, style: 'round', parapet: true, camberM: 1.2 }),
+  },
+  // Timber beam bridge: the everyday small wooden crossing — a low, flat plank deck on beams
+  // between two stone footings, simple rails, no arch and no mid-stream piles.
+  'timber-beam': {
+    desc: 'timber beam footbridge (low flat plank deck on stone footings, rails)',
+    walls: 'timber',
+    ttiSubject: 'a small simple wooden beam footbridge over a stream, a low flat plank deck ' +
+      'carried on two heavy timber beams, plain post-and-rail wooden handrails along both edges, ' +
+      'resting on a low grey stone footing block at each bank, no arch and no piles in the water; ' +
+      'weathered brown timber',
+    build: () => {
+      const spanTiles = 4, roadTiles = 1, y0 = 1, deckZ = 1.4;
+      const parts: Record<string, BridgePart> = {
+        deck: { type: 'deck', at: { x: 0.5, y: y0 }, size: { w: spanTiles, h: roadTiles }, params: { lengthM: spanTiles * M, widthM: roadTiles * M, thicknessM: 0.5, dir: 'ew', parapet: 'both', baseZM: deckZ, camberM: 0.15 } },
+      };
+      addAbutments(parts, 0.5, 0.5 + spanTiles, y0 + roadTiles / 2, roadTiles, deckZ);
+      return parts;
+    },
   },
   // Timber trestle: a plank deck on driven piles, near-vertical, no masonry arch.
   'timber-trestle': {

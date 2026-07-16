@@ -6,7 +6,7 @@ describe('content-version constants', () => {
     expect(ART_RECIPE_VERSION).toBe('v34');
   });
 
-  it('declares the current world content version (98: bridge deck seats on composed terrain + carries road; ground-holds-it — water habitat, slope gate, rock pads)', () => {
-    expect(WORLD_CONTENT_VERSION).toBe(98);
+  it('declares the current world content version (99: wooden arch bridges are the default crossing — timber class = hump-backed arch, stone footings on every class)', () => {
+    expect(WORLD_CONTENT_VERSION).toBe(99);
   });
 });

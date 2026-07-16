@@ -16,13 +16,15 @@ describe('effectiveTech', () => {
   });
 });
 
-describe('bridgeClassFor (behaviour-preserving thresholds)', () => {
-  it('reproduces the historic era×prosperity×importance gate when understanding=0', () => {
-    // dressed stone needs era≥2, economy≥1, importance≥1
-    expect(bridgeClassFor({ era: 2, economy: 1 }, 1)).toBe('dressed-stone');
-    expect(bridgeClassFor({ era: 2, economy: 0 }, 1)).toBe('timber');     // poor → timber
-    expect(bridgeClassFor({ era: 2, economy: 1 }, 0)).toBe('timber');     // footpath → timber
-    // timber needs era≥1 OR economy≥1
+describe('bridgeClassFor (wooden bridges are the default; stone is the grand tier)', () => {
+  it('reserves dressed stone for grand crossings — busy road through a rich place, or a highway', () => {
+    expect(bridgeClassFor({ era: 2, economy: 2 }, 2)).toBe('dressed-stone');   // rich + busy road
+    expect(bridgeClassFor({ era: 2, economy: 1 }, 3)).toBe('dressed-stone');   // any highway
+    // …and everything short of grand is TIMBER, even late-medieval + modest:
+    expect(bridgeClassFor({ era: 3, economy: 1 }, 2)).toBe('timber');    // modest road → timber
+    expect(bridgeClassFor({ era: 2, economy: 1 }, 1)).toBe('timber');    // modest track → timber
+    expect(bridgeClassFor({ era: 2, economy: 2 }, 1)).toBe('timber');    // rich but quiet → timber
+    expect(bridgeClassFor({ era: 2, economy: 1 }, 0)).toBe('timber');    // footpath → timber
     expect(bridgeClassFor({ era: 1, economy: 0 }, 0)).toBe('timber');
     expect(bridgeClassFor({ era: 0, economy: 1 }, 0)).toBe('timber');
     // else the bare log-plank footbridge
@@ -30,10 +32,10 @@ describe('bridgeClassFor (behaviour-preserving thresholds)', () => {
   });
 
   it('aggregate understanding unlocks a stone bridge a settlement could not otherwise build', () => {
-    // era 1 + poor economy normally tops out at timber…
-    expect(bridgeClassFor({ era: 1, economy: 1 }, 2)).toBe('timber');
+    // era 1 + rich economy on a busy road normally tops out at timber (tech too low)…
+    expect(bridgeClassFor({ era: 1, economy: 2 }, 2)).toBe('timber');
     // …but a deeply-understanding people (tech → 2) earn the dressed-stone arch.
-    expect(bridgeClassFor({ era: 1, economy: 1, understanding: 1 }, 2)).toBe('dressed-stone');
+    expect(bridgeClassFor({ era: 1, economy: 2, understanding: 1 }, 2)).toBe('dressed-stone');
   });
 });
 
