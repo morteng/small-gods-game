@@ -13,7 +13,18 @@
  * `ArcGoal.met` is never trusted from disk.
  */
 
+import type { NpcId } from '@/core/types';
+
 export type ArcStage = 'seeded' | 'building' | 'imminent' | 'landed' | 'abandoned';
+
+/** Subject bindings: the settlements/mortals an arc is ABOUT. NPC ids are entity
+ *  ids (strings — `EntityId`), NOT numbers: the spec sketch wrote `number[]`, but
+ *  the shipped entity system keys NPCs by string id, and the seed_arc cast
+ *  drift-guard must validate against real live ids (F3). */
+export interface ArcCast {
+  poiIds: string[];
+  npcIds: NpcId[];
+}
 
 export interface ArcGoal {
   /** A pure predicate over GameState. Named, so it round-trips through the snapshot. */
@@ -57,7 +68,7 @@ export interface FateArc {
   /** Omens planted for this arc. A heavy beat may not land on an empty ledger (F4). */
   portents: ArcPortent[];
   /** Subject bindings: the mortals/settlements this arc is ABOUT. */
-  cast: { poiIds: string[]; npcIds: number[] };
+  cast: ArcCast;
   stage: ArcStage;
   abandonedReason?: string;
   /** Soft budget: how much more pressure this arc may spend before it must land or fold. */

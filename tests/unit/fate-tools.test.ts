@@ -8,10 +8,11 @@ function armCall(args: Record<string, unknown>): LLMToolCall {
 const ctx = () => ({ validPoiIds: new Set(['poi1', 'poi2']), validRivalIds: new Set(['rival-1']), now: 100 });
 
 describe('FATE_TOOLS', () => {
-  it('exposes the staged + immediate + rival-coaching + authoring tools', () => {
+  it('exposes the staged + immediate + rival-coaching + authoring + arc tools', () => {
     const names = FATE_TOOLS.map((t) => t.name).sort();
     expect(names).toEqual([
-      'arm_staged_beat', 'author_building', 'force_next_event', 'nudge_event_severity', 'set_rival_stance',
+      'abandon_arc', 'arm_staged_beat', 'author_building', 'force_next_event',
+      'nudge_event_severity', 'seed_arc', 'set_rival_stance',
     ]);
   });
 });
@@ -33,7 +34,9 @@ describe('parseFateToolCalls — staged beats', () => {
   });
 
   it('tolerates undefined calls', () => {
-    expect(parseFateToolCalls(undefined, ctx())).toEqual({ beats: [], commands: [], authoringRejections: [] });
+    expect(parseFateToolCalls(undefined, ctx())).toEqual({
+      beats: [], commands: [], authoringRejections: [], arcSeeds: [], arcAbandons: [],
+    });
   });
 
   it('W-I: arms a SOFT-only site beat for a causal subjectPoiId, dropping any inject_npc', () => {

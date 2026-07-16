@@ -1,18 +1,26 @@
 /**
  * fate-tools.ts — the LLM seam for the Fate brain.
  *
- * THREE constrained tools. `arm_staged_beat` prepares latent content discovered
+ * Constrained tools only. `arm_staged_beat` prepares latent content discovered
  * later; `nudge_event_severity` and `force_next_event` are IMMEDIATE levers over a
  * settlement's current/next event. Every tool can only target a settlement that is
  * already part of an active thread (validated against `validPoiIds` — a drift
  * guard, mirroring the Create panel) so Fate amplifies existing conditions and
- * never invents. `parseFateToolCalls` returns both staged beats (armed on
- * discovery) and immediate commands (emitted now onto the command channel).
+ * never invents. F3 adds the ARC tools: `seed_arc` opens a long-range intention
+ * from the shape library (gated on the shape's `seedWhen` predicates — the "no
+ * plot devices" gate — and MAX_LIVE_ARCS), `abandon_arc` folds an arc Fate can no
+ * longer reach. `parseFateToolCalls` returns staged beats (armed on discovery),
+ * immediate commands (emitted now onto the command channel), and validated arc
+ * operations (applied to the snapshot-backed FateArcStore by the brain). Any
+ * rejected call is DROPPED AND LOGGED — a bad call never kills the deliberation.
  */
 import type { LLMTool, LLMToolCall } from '@/llm/llm-client';
 import type { Command } from '@/sim/command/types';
 import type { StagedBeat } from '@/sim/threads/staging-types';
 import type { SettlementEventType } from '@/core/types';
+import type { ArcCast } from '@/sim/fate/arc-types';
+import { MAX_LIVE_ARCS } from '@/sim/fate/arc-types';
+import { ARC_SHAPE_KEYS, getArcShape } from '@/sim/fate/arc-library';
 import { authorBlueprint } from '@/blueprint/authoring';
 import { BUILDING_BLUEPRINTS } from '@/blueprint/presets';
 import type { BlueprintLint } from '@/blueprint/lint';
@@ -129,6 +137,45 @@ export const FATE_TOOLS: LLMTool[] = [
     },
   },
   {
+    name: 'seed_arc',
+    description:
+      'Open a LONG-RANGE story arc from the shape library — a standing intention you will build toward ' +
+      'across many days (it persists between deliberations). Only a shape listed as seedable in context: ' +
+      'its preconditions are re-checked and an unmet shape is REJECTED — you never get a plot device. ' +
+      `At most ${MAX_LIVE_ARCS} arcs may be live. Goals and budget come from the library, not from you; ` +
+      'you bind only the CAST — which settlements (and mortals) the arc is about.',
+    parameters: {
+      type: 'object',
+      properties: {
+        shape: { type: 'string', enum: [...ARC_SHAPE_KEYS], description: 'A shape key listed as seedable in context. Required.' },
+        castPoiIds: {
+          type: 'array', items: { type: 'string' },
+          description: 'Settlement ids (from the active threads / world summary) this arc is about. Unknown ids are dropped.',
+        },
+        castNpcIds: {
+          type: 'array', items: { type: 'string' },
+          description: 'Npc ids this arc is about (only ids named in context). Unknown ids are dropped.',
+        },
+      },
+      required: ['shape'],
+    },
+  },
+  {
+    name: 'abandon_arc',
+    description:
+      'Fold a live arc whose preconditions have become unreachable — you never force a beat through. ' +
+      'Name an arcId from your live arcs list and the reason it must fold; the reason is recorded ' +
+      'and feeds the chronicle.',
+    parameters: {
+      type: 'object',
+      properties: {
+        arcId: { type: 'integer', description: 'A live arc id from your arcs list. Required.' },
+        reason: { type: 'string', description: 'Why this arc can no longer be reached. Required.' },
+      },
+      required: ['arcId', 'reason'],
+    },
+  },
+  {
     name: 'author_building',
     description:
       'Raise a NEW building in a settlement the unfolding story already touches — a shrine after a miracle, ' +
@@ -185,6 +232,25 @@ export interface FateToolCtx {
   /** Drift guard for `arm_staged_beat`'s optional `storylet` ref — the loaded
    *  pack(s)' storylet ids. Omit (or empty) to disable storylet arming entirely. */
   validStoryletIds?: Set<string>;
+  /** F3: the arc-tool gate context. Optional so legacy callers need not supply it —
+   *  an absent field drops every seed_arc/abandon_arc call, logged (safe default,
+   *  same discipline as validRivalIds). */
+  arcs?: FateArcToolCtx;
+}
+
+/** What the seed_arc/abandon_arc guards validate against — a snapshot of the arc
+ *  store + a live seedWhen evaluator, taken at deliberation time by the brain. */
+export interface FateArcToolCtx {
+  /** Ids of the currently LIVE arcs — abandon_arc's drift guard. */
+  liveArcIds: Set<number>;
+  /** Live arc count at deliberation time (the MAX_LIVE_ARCS gate; multiple
+   *  seed_arc calls in ONE response are counted incrementally on top of it). */
+  liveArcCount: number;
+  /** The "no plot devices" gate: does the shape's `seedWhen` hold RIGHT NOW?
+   *  (Pure over GameState — see arc-library.isShapeSeedable.) */
+  isShapeSeedable: (shapeKey: string) => boolean;
+  /** Live npc entity ids for cast drift-guarding; absent ⇒ every npc cast ref drops. */
+  validNpcIds?: Set<string>;
 }
 
 /** An `author_building` call that resolved+linted to a REJECT (malformed geometry) —
@@ -201,14 +267,32 @@ export interface AuthoringRejection {
   lints: BlueprintLint[];
 }
 
+/** A validated seed_arc call — the shape key + the drift-guarded cast binding.
+ *  Goals/budget are NOT here: the brain reads them from the library at apply time. */
+export interface ArcSeedRequest {
+  shape: string;
+  cast: ArcCast;
+}
+
+/** A validated abandon_arc call. */
+export interface ArcAbandonRequest {
+  arcId: number;
+  reason: string;
+}
+
 export interface ParsedFateActions {
   beats: Array<Omit<StagedBeat, 'id' | 'status'>>;
   commands: Array<Omit<Command, 'seq'>>;
   /** author_building calls that failed the gate (empty when none) — see AuthoringRejection. */
   authoringRejections: AuthoringRejection[];
+  /** F3: validated seed_arc calls, gated on seedWhen + MAX_LIVE_ARCS. */
+  arcSeeds: ArcSeedRequest[];
+  /** F3: validated abandon_arc calls (live arc + non-empty reason). */
+  arcAbandons: ArcAbandonRequest[];
 }
 
-/** Validate the model's tool calls into armable beats + immediate commands; drop anything ungrounded. */
+/** Validate the model's tool calls into armable beats + immediate commands + arc
+ *  operations; drop anything ungrounded (logged) — a bad call never throws. */
 export function parseFateToolCalls(
   calls: LLMToolCall[] | undefined,
   ctx: FateToolCtx,
@@ -216,6 +300,8 @@ export function parseFateToolCalls(
   const beats: ParsedFateActions['beats'] = [];
   const commands: ParsedFateActions['commands'] = [];
   const authoringRejections: AuthoringRejection[] = [];
+  const arcSeeds: ArcSeedRequest[] = [];
+  const arcAbandons: ArcAbandonRequest[] = [];
   for (const c of calls ?? []) {
     if (c.name === 'arm_staged_beat') {
       const beat = parseArmBeat(c, ctx);
@@ -232,9 +318,17 @@ export function parseFateToolCalls(
     } else if (c.name === 'author_building') {
       const cmd = parseAuthorBuilding(c, ctx, authoringRejections);
       if (cmd) commands.push(cmd);
+    } else if (c.name === 'seed_arc') {
+      // Seeds within THIS response count against the cap incrementally, so two
+      // seed_arc calls cannot slip past MAX_LIVE_ARCS together.
+      const seed = parseSeedArc(c, ctx, arcSeeds.length);
+      if (seed) arcSeeds.push(seed);
+    } else if (c.name === 'abandon_arc') {
+      const ab = parseAbandonArc(c, ctx);
+      if (ab) arcAbandons.push(ab);
     }
   }
-  return { beats, commands, authoringRejections };
+  return { beats, commands, authoringRejections, arcSeeds, arcAbandons };
 }
 
 /** W-I: causal-site ids are poiId-compatible but name an ephemeral place, not a
@@ -313,6 +407,62 @@ function parseSetRivalStance(c: LLMToolCall, ctx: FateToolCtx): Omit<Command, 's
   }
   if (!any) { console.warn('[fate] dropped set_rival_stance: no finite deltas', rivalId); return null; }
   return { verb: 'set_rival_stance', source: 'fate', target: { kind: 'none' }, payload };
+}
+
+/**
+ * F3: open a long-range arc from the shape library. FOUR gates, every failure a
+ * logged drop (never a throw — spec §7: a rejection must not kill the deliberation):
+ *  1. an arc ctx must be supplied (absent ⇒ arc tools are disabled, safe default);
+ *  2. the shape must exist in ARC_LIBRARY;
+ *  3. live arcs (+ seeds already accepted from THIS response) must be under
+ *     MAX_LIVE_ARCS;
+ *  4. the shape's `seedWhen` predicates must hold RIGHT NOW — the "no plot
+ *     devices" gate (spec §5).
+ * The cast is drift-guarded: unknown poiIds / causal-site ids / unknown npc ids are
+ * filtered (logged), and the arc still seeds — same discipline as the storylet ref.
+ */
+function parseSeedArc(c: LLMToolCall, ctx: FateToolCtx, seededThisResponse: number): ArcSeedRequest | null {
+  const a = c.arguments as { shape?: unknown; castPoiIds?: unknown; castNpcIds?: unknown };
+  if (!ctx.arcs) { console.warn('[fate] dropped seed_arc: no arc context supplied'); return null; }
+  const shapeKey = typeof a.shape === 'string' ? a.shape : '';
+  if (!getArcShape(shapeKey)) { console.warn('[fate] dropped seed_arc: unknown shape', shapeKey); return null; }
+  if (ctx.arcs.liveArcCount + seededThisResponse >= MAX_LIVE_ARCS) {
+    console.warn('[fate] dropped seed_arc: already at MAX_LIVE_ARCS', shapeKey);
+    return null;
+  }
+  if (!ctx.arcs.isShapeSeedable(shapeKey)) {
+    console.warn('[fate] dropped seed_arc: seedWhen preconditions not met', shapeKey);
+    return null;
+  }
+  const poiIds: string[] = [];
+  if (Array.isArray(a.castPoiIds)) {
+    for (const id of a.castPoiIds) {
+      // An arc is about durable places: a causal site is transient and cannot anchor one.
+      if (typeof id === 'string' && ctx.validPoiIds.has(id) && !isSiteId(id)) poiIds.push(id);
+      else console.warn('[fate] seed_arc: dropped cast poiId', id);
+    }
+  }
+  const npcIds: string[] = [];
+  if (Array.isArray(a.castNpcIds)) {
+    for (const id of a.castNpcIds) {
+      if (typeof id === 'string' && ctx.arcs.validNpcIds?.has(id)) npcIds.push(id);
+      else console.warn('[fate] seed_arc: dropped cast npcId', id);
+    }
+  }
+  return { shape: shapeKey, cast: { poiIds, npcIds } };
+}
+
+/** F3: fold a live arc. The arcId must be LIVE (a stale/finished id is a logged
+ *  drop — abandonment can never resurrect) and the reason is REQUIRED, non-empty
+ *  (it feeds the chronicler). */
+function parseAbandonArc(c: LLMToolCall, ctx: FateToolCtx): ArcAbandonRequest | null {
+  const a = c.arguments as { arcId?: unknown; reason?: unknown };
+  if (!ctx.arcs) { console.warn('[fate] dropped abandon_arc: no arc context supplied'); return null; }
+  const arcId = typeof a.arcId === 'number' && Number.isInteger(a.arcId) ? a.arcId : NaN;
+  if (!ctx.arcs.liveArcIds.has(arcId)) { console.warn('[fate] dropped abandon_arc: not a live arc', a.arcId); return null; }
+  const reason = typeof a.reason === 'string' ? a.reason.trim() : '';
+  if (!reason) { console.warn('[fate] dropped abandon_arc: a reason is required', arcId); return null; }
+  return { arcId, reason };
 }
 
 /**

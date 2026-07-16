@@ -258,6 +258,36 @@ in the timeline `onRestore` hook beside `fateTrigger.reset()`.
 **One deviation:** `EventFocus.kind` is *optional* (`kind?: 'event'`)
 rather than required — the many existing `{ event, threadId }`
 construction sites keep compiling; discrimination is always via
-`focus.kind === 'pulse'`. **F3 note:** online, the pulse fires a
-pulse-framed deliberation but the brain has no arc tools yet — arcs open
-only via the offline stub until F3 lands `seed_arc`/`abandon_arc`.
+`focus.kind === 'pulse'`.
+
+## Reality check (2026-07-16, later) — F3 SHIPPED
+
+The arc library + `seed_arc`/`abandon_arc`, as specified.
+`src/sim/fate/arc-library.ts`: the seven §4.2 shapes (`ArcShape` with
+`logline` added for the prompt), `isShapeSeedable`/`seedableShapes`/
+`anySeedableShape`, and `openArcFromShape` — goals and budget always come
+from the library, the LLM binds only the cast. `arc-predicates.ts` grew
+the shapes' predicates (all pure over GameState, partial-state-safe);
+registry integrity is guarded by `tests/unit/fate-arc-guards.test.ts`
+(every `seedWhen`/goal predicate a shape names must exist — the
+sim-currency discipline). Both tools follow the constrained pattern:
+`seed_arc` is four-gated (arc ctx present; shape ∈ library; live count
++ same-response seeds < `MAX_LIVE_ARCS`; `seedWhen` holds NOW) with a
+drift-guarded cast (unknown poiIds / causal-site ids / unknown npc ids
+filtered, arc still seeds); `abandon_arc` requires a LIVE arcId + a
+non-empty reason (`FateArcStore.abandon` refuses re-folds). Every
+rejection is a logged drop — §7's "must NOT kill the deliberation" is
+test-proven end-to-end through `FateBrainService`. The online pulse's
+idle-skip now asks the library's own gate (`anySeedableShape`); offline
+keeps the stub condition. Context: charter mentions the arc tools; a
+"seedable shapes" digest (only shapes whose preconditions hold, hidden
+at the cap) joins the live-arcs digest.
+
+**Two deviations:** (1) `FateArc.cast.npcIds` is `string[]` (`NpcId` =
+`EntityId`), not the spec sketch's `number[]` — the shipped entity system
+keys NPCs by string id, and the cast drift-guard must validate against
+real live ids. (2) `the_null_event.seedWhen = ['has_settlements']` (not
+`always`) so a settled world is required before Fate may even decline —
+keeping the pulse's idle-skip meaningful pre-worldgen. **F4 note:** the
+portent ledger, `plant_portent`, and the heavy-beat gate remain; goal
+teeth (weaving/`advance_arc`) are F5.

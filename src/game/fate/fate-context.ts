@@ -14,6 +14,8 @@ import { evaluateContracts } from '@/world/connectome-contracts';
 import { PLAYER_SPIRIT_ID } from '@/sim/believers';
 import { buildRivalSituation } from '@/sim/rival-claims';
 import { TICKS_PER_DAY } from '@/core/calendar';
+import { MAX_LIVE_ARCS } from '@/sim/fate/arc-types';
+import { seedableShapes } from '@/sim/fate/arc-library';
 
 /**
  * What woke Fate. Two shapes, discriminated by `kind`:
@@ -44,6 +46,10 @@ const SYSTEM_CHARTER =
   'counter-loop, never to crown a winner. When the story earns a LASTING mark, you may raise ONE building ' +
   '(author_building) in a settlement already in play — a shrine after a miracle, a hall as a village grows — ' +
   'placed only if it is well-formed; this is a heavy hand, so do it rarely and only when it plainly fits. ' +
+  'You also hold LONG-RANGE intentions as ARCS: seed_arc opens a story shape from the library — only a ' +
+  'shape whose preconditions currently hold (an unmet shape is rejected; you never get a plot device) and ' +
+  'never beyond the live-arc cap — while abandon_arc folds a live arc whose preconditions have become ' +
+  'unreachable rather than forcing it through. ' +
   'Only ever use a subjectPoiId listed in the active threads, a ' +
   'flooded settlement, or a causal site, and only a rivalId from the Rivals list. Act sparingly — often the ' +
   'right choice is to call no tool.';
@@ -199,6 +205,21 @@ export function describeArcsForFate(state: GameState): string {
   return `Your live arcs (standing intentions):\n${lines.join('\n')}`;
 }
 
+/** F3: the shapes seed_arc may open RIGHT NOW — only those whose `seedWhen`
+ *  preconditions currently hold, and only while there is room under the live-arc
+ *  cap. Empty string when nothing is seedable (or the cap is reached), so an
+ *  unseedable world adds nothing to the prompt — and the model is never shown a
+ *  shape the parse-time gate would reject. */
+export function describeSeedableShapesForFate(state: GameState): string {
+  const store = state.fateArcs;
+  if (!store) return '';
+  if (store.live().length >= MAX_LIVE_ARCS) return '';
+  const shapes = seedableShapes(state);
+  if (shapes.length === 0) return '';
+  const lines = shapes.map((s) => `- ${s.key}: ${s.logline}`);
+  return `Story shapes seedable now (seed_arc — their preconditions currently hold):\n${lines.join('\n')}`;
+}
+
 export function buildFateContext(
   state: GameState,
   focus: FateFocus,
@@ -220,7 +241,9 @@ export function buildFateContext(
     ? 'Nothing in particular just happened. Consider the world as a whole and your standing intentions: what are you building toward?'
     : `Triggering event: ${describeEvent(focus.event)}`;
   const closing = isPulse
-    ? 'Decide what long-range intention to advance, if any. You may prepare one grounded beat to be discovered — or, just as often, do nothing this turn.'
+    ? 'Decide what long-range intention to advance, if any. You may open a new arc (seed_arc) from the ' +
+      'seedable shapes, fold one that has become unreachable (abandon_arc), or prepare one grounded beat ' +
+      'to be discovered — or, just as often, do nothing this turn.'
     : 'Decide whether to prepare one grounded beat to be discovered. Use a subjectPoiId from the active threads, a flooded settlement, or a causal site listed above.';
   const user = [
     buildWorldSummary(state),
@@ -229,6 +252,7 @@ export function buildFateContext(
     rivalsText,
     describeWorldQualityForFate(state),   // connectome lint digest (empty when clean)
     describeArcsForFate(state),           // Fate's live arcs (empty when none)
+    describeSeedableShapesForFate(state), // F3: shapes seed_arc may open now (empty when none)
     focusLine,
     closing,
   ].filter(Boolean).join('\n\n');

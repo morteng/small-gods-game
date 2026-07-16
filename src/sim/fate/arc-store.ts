@@ -40,6 +40,19 @@ export class FateArcStore {
   }
 
   /**
+   * Fold a live arc Fate can no longer reach (F3, `abandon_arc`). The reason is
+   * REQUIRED — it feeds the chronicler. Returns false (no mutation) for an
+   * unknown or already-finished arc, so a stale id can never resurrect one.
+   */
+  abandon(id: number, reason: string): boolean {
+    const arc = this.arcs.get(id);
+    if (!arc || !isArcLive(arc)) return false;
+    arc.stage = 'abandoned';
+    arc.abandonedReason = reason;
+    return true;
+  }
+
+  /**
    * Recompute every goal's `met` against the current world via the predicate
    * registry. The ONLY writer of `met`. Called each pulse and on snapshot restore.
    */
