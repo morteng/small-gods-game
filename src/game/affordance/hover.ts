@@ -74,6 +74,7 @@ function preferredVerb(sit: Situation | null): CommandVerb | null {
     case 'opportunity':      return 'omen';
     case 'threat':           return 'smite';
     case 'tiding':           return null;            // news, not a call to act (WP-C)
+    case 'chronicle':        return null;            // atmosphere, never a call to act (M1)
   }
 }
 

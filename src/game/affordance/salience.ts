@@ -38,7 +38,10 @@ export type Situation =
   // settlement. NEWS, not a call to act — scored strictly below every threat floor
   // (0.4) so tidings can never drown out threats or pleas. `count` = crossings folded
   // into the item.
-  | { kind: 'tiding'; count: number; surfaced?: boolean };
+  | { kind: 'tiding'; count: number; surfaced?: boolean }
+  // M1: the chronicler's daily annal. Pure atmosphere, never a call to act — fixed
+  // floor BELOW even an ordinary tiding, so it can never outrank real news.
+  | { kind: 'chronicle'; surfaced?: boolean };
 
 /**
  * Score how salient acting on a situation is right now (higher = more urgent).
@@ -57,6 +60,8 @@ export function scoreAffordance(sit: Situation): number {
     // Low-priority news: 0.1 floor, +0.05 per coalesced crossing, hard-capped at
     // 0.35 — always below the 0.4 threat floor.
     case 'tiding':           base = 0.1 + Math.min(0.25, 0.05 * sit.count); break;
+    // Below even the tiding floor — atmosphere, not news.
+    case 'chronicle':        base = 0.05; break;
   }
   return sit.surfaced ? base + FATE_SURFACE_BOOST : base;
 }

@@ -228,6 +228,9 @@ export interface GameQueryDeps {
   rate?: () => number;
   /** Scrub/tick window (TimelineController). Omit → live, no scrub. */
   timeline?: { readonly isScrubbed: boolean; readonly currentTick: number; readonly maxTick: number };
+  /** M1: the chronicler's most recent daily annal (`ChronicleService.latest()`).
+   *  Omit / return null ⇒ no chronicle item surfaces (golden-test default). */
+  chronicleLatest?: () => { text: string; year: number; season: string; dayOfYear: number } | null;
 }
 
 /** The spirit's belief-unlock vector (a domain's verb is unlocked once its
@@ -660,6 +663,23 @@ export function createGameQuery(deps: GameQueryDeps): GameQuery {
         // Cap the news: keep only the most salient buckets (stable id tiebreak).
         tidings.sort((a, b) => (b.salience - a.salience) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
         items.push(...tidings.slice(0, MAX_TIDING_ITEMS));
+      }
+
+      // ── M1: the chronicler's voice — the latest daily annal, surfaced as one
+      // low-salience inbox item (no new panel; reuses the existing tiding lens).
+      const chronicle = deps.chronicleLatest?.();
+      if (chronicle) {
+        const id = `chronicle:${chronicle.year}:${chronicle.dayOfYear}`;
+        const surfaced = surfacedSet.has(id);
+        items.push({
+          id,
+          kind: 'tiding',
+          title: `The chronicle of Y${chronicle.year} ${chronicle.season}, day ${chronicle.dayOfYear}`,
+          detail: chronicle.text,
+          salience: scoreAffordance({ kind: 'chronicle', surfaced }),
+          surfaced,
+          target: { kind: 'none' },
+        });
       }
 
       // Deterministic order: salience desc, then id asc as a stable tiebreak.

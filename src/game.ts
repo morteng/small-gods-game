@@ -68,6 +68,7 @@ import { zoomBand, type ZoomBand } from '@/game/affordance/zoom-band';
 import { projectAlertPins, projectPinCentre, PIN_SELECTION_ID } from '@/game/affordance/alert-pins';
 import type { AlertPinView } from '@/render/ui/ui-runtime';
 import { LlmBackfillService } from '@/game/llm-backfill';
+import { ChronicleService } from '@/game/chronicle-service';
 import { FateBrainService } from '@/game/fate/fate-brain-service';
 import { FateTrigger } from '@/game/fate/fate-trigger';
 import { FatePulse } from '@/game/fate/fate-pulse';
@@ -191,6 +192,7 @@ export class Game {
   private readonly interiorReveal = !hasQueryFlag('noInterior');
   private llmClient!: LLMClient;
   private llmBackfill!: LlmBackfillService;
+  private chronicleService!: ChronicleService;
   private fateBrain!: FateBrainService;
   private fateTrigger!: FateTrigger;
   private fatePulse!: FatePulse;
@@ -337,6 +339,11 @@ export class Game {
     const providerConfig = llm.config;
     this.llmClient = llm.client;
     this.llmClientCapable = llm.capable;
+    // M1: the chronicler's voice — fast/chat tier, off the sim tick, strictly
+    // read-only over the event log. Constructed before `createGameQuery` so its
+    // `chronicleLatest` dep closure below is wired the same way `rate`/`timeline`
+    // reference already-assigned fields.
+    this.chronicleService = new ChronicleService({ state: this.state, client: this.llmClient });
     // Scene canvas (bottom): the WebGPU swap chain renders straight to it — no
     // offscreen canvas, no per-frame drawImage copy. It is the interactive layer.
     this.canvas = document.createElement('canvas');
@@ -361,6 +368,7 @@ export class Game {
       capture: () => this.captureFrame(),
       rate: () => this.scheduler.getRate(),
       timeline: this.timeline,
+      chronicleLatest: () => this.chronicleService.latest(),
     });
     this.bus = createGameBus({
       queue: this.commandQueue, state: this.state, query: this.query,
@@ -805,6 +813,7 @@ export class Game {
     try {
       this.llmClient = buildChatClient(config, this.costTracker);
       this.llmBackfill.setClient(this.llmClient);
+      this.chronicleService.setClient(this.llmClient);
       this.llmClientCapable = buildCapableClient(config, this.costTracker);
       this.spendChip?.setVisible(config.type === 'openrouter');
     } catch (err) {
@@ -1437,6 +1446,10 @@ export class Game {
     if (!paused) this.presentation.update(deltaMs, { live: !!live, scrubbed: this.timeline.isScrubbed });
     if (live) {
       advanceNpcFrames(this.state.world!, deltaMs);  // presentation animation - not a scheduled system
+      // M1: the chronicler's voice — cheap per-frame day-boundary check; only
+      // generates (async, off the sim tick, read-only over the log) once a full
+      // game day has completed. Internally single-flight + skip-missed-days.
+      void this.chronicleService.checkAndGenerate();
       // Focusing a new NPC = the player's attention reaching it → a discovery
       // signal that can fire staged beats armed on that NPC.
       if (this.state.selectedNpcId && this.state.selectedNpcId !== this.lastDiscoveredNpcId) {
