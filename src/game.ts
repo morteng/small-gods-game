@@ -70,6 +70,7 @@ import type { AlertPinView } from '@/render/ui/ui-runtime';
 import { LlmBackfillService } from '@/game/llm-backfill';
 import { FateBrainService } from '@/game/fate/fate-brain-service';
 import { FateTrigger } from '@/game/fate/fate-trigger';
+import { FatePulse } from '@/game/fate/fate-pulse';
 import { DevModeController } from '@/game/dev-mode-controller';
 import { FrameRenderer } from '@/game/frame-renderer';
 import { PresentationDirector } from '@/presentation/presentation-director';
@@ -192,6 +193,7 @@ export class Game {
   private llmBackfill!: LlmBackfillService;
   private fateBrain!: FateBrainService;
   private fateTrigger!: FateTrigger;
+  private fatePulse!: FatePulse;
   private llmClientCapable: LLMClient | null = null;   // Tier-2 "key moments" — consumed by the Fate brain (+ structured-output fallbacks)
   private costTracker = new CostTracker();
   private spendChip: SpendChipHandle | null = null;
@@ -314,6 +316,9 @@ export class Game {
         // a scrub can put the clock BEFORE its lastTick, wedging the cooldown
         // gate shut. Reset — worst case Fate deliberates one cycle sooner.
         this.fateTrigger?.reset();
+        // The pulse's day-cadence anchor is runtime throttle state too (arc STATE
+        // itself rides the snapshot); a scrub can put the clock before it, so reset.
+        this.fatePulse?.reset();
       },
       authorLog: this.authorLog,
     });
@@ -547,6 +552,14 @@ export class Game {
       onTrigger: (focus) => { void this.fateBrain.deliberate(focus); },
     });
     this.fateTrigger.attach((fn) => this.state.eventLog.subscribe(fn));
+    // F2: Fate's heartbeat — wakes the brain once a game-day even when nothing
+    // happened ("what are you building toward?"), sharing FateTrigger's cooldown so
+    // a pulse can't pile onto a just-fired event deliberation. Ticked from onFrame.
+    this.fatePulse = new FatePulse({
+      getState: () => this.state,
+      isOffline: () => this.llmClientCapable === null,
+      fire: (focus) => { this.fateTrigger.pulse(focus, this.state.clock.now()); },
+    });
 
     this.divine = new DivineActionsController({ state: this.state, queue: this.commandQueue, divineEffects: this.ui.divineEffects });
 
@@ -1441,6 +1454,9 @@ export class Game {
         rng: this.state.rng,
       });
       this.timeline.onAfterLiveTick();
+      // F2: Fate's heartbeat. Cheap when idle; skips unless an arc is live or a seed
+      // condition is met, and shares FateTrigger's cooldown when it does fire.
+      this.fatePulse.tick(this.state.clock.now());
     }
     // The cinematic camera owns the view while active; stash it for onRender.
     this.lastCinematic = !paused && this.presentation.cameraActive();

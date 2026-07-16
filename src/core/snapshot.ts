@@ -4,6 +4,7 @@ import type { RngState } from '@/core/rng';
 import type { Spirit } from '@/core/spirit';
 import type { PlotThread } from '@/sim/threads/thread-types';
 import type { StagedBeat } from '@/sim/threads/staging-types';
+import type { FateArc } from '@/sim/fate/arc-types';
 import type { WeatherSnapshot } from '@/sim/water/weather-stepper';
 import type { CausalSiteSnapshot } from '@/world/causal-site';
 import type { TrampleSnapshot } from '@/sim/trample';
@@ -31,6 +32,10 @@ export interface Snapshot {
   threads?: PlotThread[];
   /** Narrative substrate: armed staged beats. Optional for the same reason. */
   staging?: StagedBeat[];
+  /** Track 4 (Proactive Fate): Fate's long-range arcs. Optional so pre-arc saves +
+   *  hand-built test snapshots restore to an empty arc set. `ArcGoal.met` is NOT
+   *  trusted from disk — it is recomputed against the restored world on restore. */
+  fateArcs?: FateArc[];
   /** W-G: water/atmosphere fields (flood depth, lake offsets, humidity/cloud/temp).
    *  Optional so pre-weather saves + partial test states deserialize without it. */
   weather?: WeatherSnapshot;
@@ -104,6 +109,7 @@ function buildSnapshot(state: GameState, deep: boolean): Snapshot {
     // test harnesses cast a partial GameState that omits the substrate stores.
     threads: state.plotThreads?.serialize() ?? [],
     staging: state.staging?.serialize() ?? [],
+    fateArcs: state.fateArcs?.serialize() ?? [],
     weather: state.weather?.serialize(),
     floodedPlaces: state.floodWatch?.floodedPlaceIds(),
     causalSites: state.causalSites?.serialize(),
@@ -171,6 +177,13 @@ export function restoreSnapshot(state: GameState, snap: Snapshot): void {
   // optional chaining tolerates partial test states that omit the substrate stores.
   state.plotThreads?.hydrate(snap.threads ?? []);
   state.staging?.hydrate(snap.staging ?? []);
+
+  // Track 4 (Proactive Fate): restore Fate's arcs (or clear them for a pre-arc
+  // snapshot). Arc state is sim truth, so a scrub un-happens any arc opened after
+  // the restore point. `ArcGoal.met` is recomputed against the just-restored world
+  // — the persisted value is never trusted (spec §4.1).
+  state.fateArcs?.hydrate(snap.fateArcs ?? []);
+  state.fateArcs?.recomputeGoals(state);
 
   // W-G: restore the water fields + flood-watch latch so scrub/replay reproduce the
   // exact flood state (and don't re-fire edges for places already under water).

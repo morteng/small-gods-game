@@ -15,10 +15,23 @@ import { PLAYER_SPIRIT_ID } from '@/sim/believers';
 import { buildRivalSituation } from '@/sim/rival-claims';
 import { TICKS_PER_DAY } from '@/core/calendar';
 
-export interface FateFocus {
+/**
+ * What woke Fate. Two shapes, discriminated by `kind`:
+ *  - EVENT (default): a story-significant event / rival pressure the FateTrigger saw.
+ *    `kind` is OPTIONAL here so the legacy `{ event, threadId }` shape still satisfies
+ *    it — absence means 'event'. Always test the special case (`kind === 'pulse'`).
+ *  - PULSE: the clock-driven heartbeat (F2). No event — "nothing happened; what are
+ *    you building toward?".
+ */
+export interface EventFocus {
+  kind?: 'event';
   event: SimEvent;
   threadId?: ThreadId;
 }
+export interface PulseFocus {
+  kind: 'pulse';
+}
+export type FateFocus = EventFocus | PulseFocus;
 
 const SYSTEM_CHARTER =
   'You are Fate — impersonal and reactive. You amplify, escalate, or let fade what the mortals\' story ' +
@@ -172,28 +185,52 @@ export function describeWorldQualityForFate(state: GameState): string {
   return `World quality (${report.counts.error} error / ${report.counts.warn} warn / ${report.counts.info} info) — fixable via the command channel:\n${top.join('\n')}`;
 }
 
+/** A compact digest of Fate's LIVE arcs — its own standing intentions — so a
+ *  deliberation (a pulse especially) can weave toward them rather than restart cold
+ *  each time. Empty string when Fate holds no arcs (the common early-game case). */
+export function describeArcsForFate(state: GameState): string {
+  const arcs = state.fateArcs?.live() ?? [];
+  if (arcs.length === 0) return '';
+  const lines = arcs.map((a) => {
+    const goals = a.goals.map((g) => `${g.predicate}${g.met ? ' ✓' : ''}`).join(', ') || 'none';
+    return `- arc ${a.id} "${a.shape}" (${a.stage}); goals: ${goals}; ` +
+      `${a.portents.length} portent(s), budget ${a.pressureBudget}`;
+  });
+  return `Your live arcs (standing intentions):\n${lines.join('\n')}`;
+}
+
 export function buildFateContext(
   state: GameState,
   focus: FateFocus,
 ): { system: string; user: string; validPoiIds: Set<string>; validRivalIds: Set<string> } {
+  const isPulse = focus.kind === 'pulse';
   const { text: threadsText, poiIds } = describeThreadsForFate(state);
   // A flood is a beat-worthy event even at a settlement with no open thread, so the
   // triggering flood's POI is a valid subject — let Fate respond to the deluge there.
-  if (focus.event.type === 'place_flooded') poiIds.add(focus.event.poiId);
+  if (!isPulse && focus.event.type === 'place_flooded') poiIds.add(focus.event.poiId);
   // W-I: causal sites are first-class Fate subjects while they live. Their ids join
   // validPoiIds, so `arm_staged_beat` can stage a (soft) beat at a drowned plain.
   const { text: sitesText, siteIds } = describeSitesForFate(state);
   for (const id of siteIds) poiIds.add(id);
   // WP-L: the rivals digest + the ids the set_rival_stance drift-guard validates.
   const { text: rivalsText, rivalIds } = describeRivalsForFate(state);
+  // F2: the pulse asks a DIFFERENT question than the event path — "nothing happened;
+  // what are you building toward?" — and always shows Fate its own live arcs.
+  const focusLine = isPulse
+    ? 'Nothing in particular just happened. Consider the world as a whole and your standing intentions: what are you building toward?'
+    : `Triggering event: ${describeEvent(focus.event)}`;
+  const closing = isPulse
+    ? 'Decide what long-range intention to advance, if any. You may prepare one grounded beat to be discovered — or, just as often, do nothing this turn.'
+    : 'Decide whether to prepare one grounded beat to be discovered. Use a subjectPoiId from the active threads, a flooded settlement, or a causal site listed above.';
   const user = [
     buildWorldSummary(state),
     threadsText,
     sitesText,
     rivalsText,
     describeWorldQualityForFate(state),   // connectome lint digest (empty when clean)
-    `Triggering event: ${describeEvent(focus.event)}`,
-    'Decide whether to prepare one grounded beat to be discovered. Use a subjectPoiId from the active threads, a flooded settlement, or a causal site listed above.',
+    describeArcsForFate(state),           // Fate's live arcs (empty when none)
+    focusLine,
+    closing,
   ].filter(Boolean).join('\n\n');
   return { system: SYSTEM_CHARTER, user, validPoiIds: poiIds, validRivalIds: rivalIds };
 }

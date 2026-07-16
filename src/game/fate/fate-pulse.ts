@@ -1,0 +1,81 @@
+/**
+ * fate-pulse.ts — Fate's heartbeat (Track 4, Proactive Fate F2).
+ *
+ * A low-frequency, clock-driven pulse (default: once per game-day) that wakes the
+ * brain EVEN WHEN NOTHING HAPPENED — the entire mechanical difference between a
+ * reactive Fate and a proactive one. Where `FateTrigger` asks "something happened,
+ * what do you make of it?", the pulse asks "nothing happened — what are you
+ * *building toward*?" (`FateFocus.kind === 'pulse'`).
+ *
+ * Two throttles, deliberately not merged:
+ *  - DAY CADENCE (this class): at most one pulse attempt per `intervalTicks`. This
+ *    MUST be a `TICKS_PER_DAY` multiple — fiction pacing under 1:1 realtime; never a
+ *    raw tick literal.
+ *  - SHARED COOLDOWN (FateTrigger): the actual deliberation runs through
+ *    `FateTrigger.pulse()` → the same readiness+cooldown gate the event path uses,
+ *    so a pulse cannot pile onto a just-fired event deliberation. NOT duplicated.
+ *
+ * IDLE: the pulse SKIPS entirely — without consuming the day cadence — when no arc
+ * is live AND no seed condition is met. Fate is allowed to do nothing.
+ *
+ * OFFLINE (no capable LLM): a deterministic stub arc is seeded (spec §8.5, the
+ * permanent fallback) so the plumbing works with no LLM; the gated deliberation
+ * then simply no-ops because the brain isn't ready. ONLINE: the LLM will seed arcs
+ * via `seed_arc` (F3); here the pulse just delivers the pulse-framed deliberation.
+ *
+ * `lastPulseTick` is RUNTIME throttle state, not sim truth — reset on timeline
+ * restore (same scrub-ghost discipline as `FateTrigger.reset()`).
+ */
+import type { GameState } from '@/core/state';
+import { TICKS_PER_DAY } from '@/core/calendar';
+import { stubSeedCondition, seedStubArc } from '@/sim/fate/arc-stub';
+import type { FateFocus } from './fate-context';
+
+export interface FatePulseDeps {
+  getState: () => GameState;
+  /** Run a deliberation through FateTrigger's SHARED readiness+cooldown gate. */
+  fire: (focus: FateFocus) => void;
+  /** True when no capable LLM is configured — enables the deterministic stub seeder. */
+  isOffline: () => boolean;
+  /** Pulse cadence. Default one game-day. MUST be a `TICKS_PER_DAY` multiple. */
+  intervalTicks?: number;
+}
+
+export class FatePulse {
+  private lastPulseTick = -Infinity;
+
+  constructor(private readonly deps: FatePulseDeps) {}
+
+  private get intervalTicks(): number { return this.deps.intervalTicks ?? TICKS_PER_DAY; }
+
+  /** Runtime-throttle reset (scrub-ghost): a scrub can move the clock BEFORE
+   *  `lastPulseTick`, wedging the day cadence shut; clear it. Called from the
+   *  game's timeline `onRestore` hook, alongside `FateTrigger.reset()`. */
+  reset(): void {
+    this.lastPulseTick = -Infinity;
+  }
+
+  /** Call once per live sim frame with the current tick. Cheap when idle. */
+  tick(now: number): void {
+    if (now - this.lastPulseTick < this.intervalTicks) return;   // day cadence gate
+    const state = this.deps.getState();
+    const arcs = state.fateArcs;
+    if (!arcs) return;
+    // Goals are recomputed every pulse — never trusted from disk.
+    arcs.recomputeGoals(state);
+    const anyLive = arcs.live().length > 0;
+    const canSeed = stubSeedCondition(state);
+    // IDLE: nothing to build toward, nothing to seed → skip WITHOUT consuming the
+    // cadence, so the check stays cheap and Fate wakes the instant work appears.
+    if (!anyLive && !canSeed) return;
+    this.lastPulseTick = now;   // consume this day's pulse
+    // OFFLINE fallback: deterministically seed one dull arc so a no-LLM Fate still
+    // holds an intention. Online, the LLM opens arcs via seed_arc (F3).
+    if (this.deps.isOffline() && !anyLive && canSeed) {
+      seedStubArc(state, now);
+    }
+    // Wake the brain with the pulse framing. Through the shared gate: offline this
+    // no-ops (brain not ready); online it deliberates.
+    this.deps.fire({ kind: 'pulse' });
+  }
+}

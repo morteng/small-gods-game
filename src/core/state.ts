@@ -8,6 +8,7 @@ import { createCamera } from '@/render/camera';
 import { createRng, type Rng } from '@/core/rng';
 import { PlotThreadStore } from '@/sim/threads/thread-store';
 import { StagingBuffer } from '@/sim/threads/staging-buffer';
+import { FateArcStore } from '@/sim/fate/arc-store';
 import { SystemStateRegistry } from '@/core/system-state';
 import type { WeatherStepper } from '@/sim/water/weather-stepper';
 import type { FloodWatch } from '@/world/flood-watch';
@@ -55,6 +56,11 @@ export interface GameState {
   plotThreads: PlotThreadStore;
   /** Narrative substrate: armed, dormant staged beats (serialized in snapshots). */
   staging: StagingBuffer;
+  /** Track 4 (Proactive Fate): Fate's long-range intentions (arcs). SIM state —
+   *  serialized in snapshots (no SAVE_VERSION bump) so intentions survive save/load
+   *  AND a timeline scrub. `ArcGoal.met` is recomputed each pulse, never trusted
+   *  from disk. See `@/sim/fate/arc-store`. */
+  fateArcs: FateArcStore;
   /** Fate-surfacing seam (Track B / B-E): divine-inbox item ids the director has
    *  promoted with intent. Read by `GameQuery.divineInbox` to boost salience +
    *  flag items. Transient exogenous intent (like the command queue), not core sim
@@ -137,6 +143,7 @@ export function createState(): GameState {
     systemState: new SystemStateRegistry(),
     plotThreads: new PlotThreadStore(),
     staging: new StagingBuffer(),
+    fateArcs: new FateArcStore(),
     surfacedInbox: new Set<string>(),
     waterLevelM: 0,
     weather: null,

@@ -88,7 +88,7 @@ export class FateTrigger {
     const ev = e.event;
     const now = this.deps.clock.now();
     if (isSignificant(ev)) {
-      this.maybeFire({ event: ev, threadId: threadIdOf(ev) }, now);
+      this.maybeFire({ kind: 'event', event: ev, threadId: threadIdOf(ev) }, now);
       return;
     }
     if (isRivalClaim(ev)) {
@@ -98,16 +98,27 @@ export class FateTrigger {
       const cutoff = now - this.rivalClaimWindowTicks;
       this.claimTicks = this.claimTicks.filter((t) => t >= cutoff);
       if (this.claimTicks.length >= this.rivalClaimThreshold) {
-        this.maybeFire({ event: ev }, now);
+        this.maybeFire({ kind: 'event', event: ev }, now);
       }
     }
   }
 
-  /** Shared readiness + cooldown gate; records lastTick only after all gates pass. */
-  private maybeFire(focus: FateFocus, now: number): void {
-    if (!this.deps.isReady()) return;
-    if (now - this.lastTick < this.deps.cooldownTicks) return;
+  /** F2 pulse path: run a clock-driven deliberation through the SAME readiness +
+   *  cooldown gate the event path uses, so the pulse can't double-fire on top of a
+   *  just-fired event deliberation. The pulse owns its own (day) cadence; this is
+   *  ONLY the shared throttle — the two are deliberately not duplicated. Returns
+   *  whether it actually fired. */
+  pulse(focus: FateFocus, now: number): boolean {
+    return this.maybeFire(focus, now);
+  }
+
+  /** Shared readiness + cooldown gate; records lastTick only after all gates pass.
+   *  Returns whether it fired (the pulse path reads it; the event path ignores it). */
+  private maybeFire(focus: FateFocus, now: number): boolean {
+    if (!this.deps.isReady()) return false;
+    if (now - this.lastTick < this.deps.cooldownTicks) return false;
     this.lastTick = now;
     this.deps.onTrigger(focus);
+    return true;
   }
 }
