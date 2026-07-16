@@ -9,7 +9,8 @@
 //   loc 3  iDepth  f32   depth                                 (offset 32,  4 bytes)
 //   loc 4  iMisc   vec4  whiten, mirror, contact, contactBand  (offset 36, 16 bytes)
 //   loc 5  iGround vec3  ground r, g, b (contact target)       (offset 52, 12 bytes)
-//                                                               stride = 64 bytes (16 floats)
+//   loc 6  iSway   f32   wind-sway amplitude 0..1 (0 = rigid)  (offset 64,  4 bytes)
+//                                                               stride = 68 bytes (17 floats)
 //
 // The unit quad (loc 0) is a static 4-vertex triangle-strip.
 
@@ -19,8 +20,8 @@ import type { InstanceAttrs } from '@/render/gpu/instance-batch';
 export const QUAD_STRIP = new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]);
 export const QUAD_VERTEX_COUNT = 4;
 
-/** Floats per instance (iRect 4 + iUV 4 + iDepth 1 + iMisc 4 + iGround 3). */
-export const INSTANCE_FLOATS = 16;
+/** Floats per instance (iRect 4 + iUV 4 + iDepth 1 + iMisc 4 + iGround 3 + iSway 1). */
+export const INSTANCE_FLOATS = 17;
 /** Instance vertex-buffer stride in bytes. */
 export const INSTANCE_STRIDE = INSTANCE_FLOATS * 4;
 
@@ -46,12 +47,13 @@ export function packInstances(instances: readonly InstanceAttrs[]): Float32Array
     buf[o + 13] = it.groundR;
     buf[o + 14] = it.groundG;
     buf[o + 15] = it.groundB;
+    buf[o + 16] = it.sway;
   }
   return buf;
 }
 
 /** Globals uniform buffer (std140-ish; matches the `Globals` struct in lit-wgsl). */
-export const GLOBALS_FLOATS = 20; // 5 vec4 slots: [vp.xy,bands,_], [amb,_], [sun,_], [col,night], [xform]
+export const GLOBALS_FLOATS = 28; // 7 vec4 slots: [vp.xy,bands,_], [amb,_], [sun,_], [col,night], [xform], [wind], [time,_,_,_]
 
 export interface GlobalsInput {
   viewport: [number, number];
@@ -64,6 +66,12 @@ export interface GlobalsInput {
   /** World→device affine applied in the VS (instances packed in world px).
    *  Omitted ⇒ identity (instances already in device px / no camera). */
   xform?: { sx: number; sy: number; ox: number; oy: number };
+  /** Global wind for the billboard sway: [dirX, dirY] screen-space unit direction,
+   *  strength (world px of full-amplitude tip sway) and freq (rad/s). Omitted ⇒ no
+   *  wind (strength 0 ⇒ every instance rigid, byte-identical to the pre-sway output). */
+  wind?: { dir: [number, number]; strength: number; freq: number };
+  /** Wall-clock seconds driving the sway phase. Omitted ⇒ 0 (frozen — tests/SSR). */
+  timeSec?: number;
 }
 
 /** Pack the per-frame Globals uniform (vec3s padded to 16-byte boundaries). */
@@ -74,6 +82,8 @@ export function packGlobals(g: GlobalsInput): Float32Array {
   b[8] = g.sunDir[0]; b[9] = g.sunDir[1]; b[10] = g.sunDir[2]; b[11] = 0;
   b[12] = g.sunColor[0]; b[13] = g.sunColor[1]; b[14] = g.sunColor[2]; b[15] = g.night ?? 0; // uNight
   b[16] = g.xform?.sx ?? 1; b[17] = g.xform?.sy ?? 1; b[18] = g.xform?.ox ?? 0; b[19] = g.xform?.oy ?? 0;
+  b[20] = g.wind?.dir[0] ?? 0; b[21] = g.wind?.dir[1] ?? 0; b[22] = g.wind?.strength ?? 0; b[23] = g.wind?.freq ?? 0; // uWind
+  b[24] = g.timeSec ?? 0; b[25] = 0; b[26] = 0; b[27] = 0; // uTime (+pad)
   return b;
 }
 

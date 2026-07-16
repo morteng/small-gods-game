@@ -7,7 +7,7 @@ import type { InstanceAttrs } from '@/render/gpu/instance-batch';
 
 const inst = (over: Partial<InstanceAttrs> = {}): InstanceAttrs => ({
   dx: 1, dy: 2, dw: 3, dh: 4, u0: 0, v0: 0, u1: 1, v1: 1, depth: 0.5, whiten: 0, mirror: 0,
-  contact: 0, contactBand: 0, groundR: 0, groundG: 0, groundB: 0, ...over,
+  contact: 0, contactBand: 0, groundR: 0, groundG: 0, groundB: 0, sway: 0, ...over,
 });
 
 describe('R2c — instance/globals buffer packing', () => {
@@ -16,41 +16,43 @@ describe('R2c — instance/globals buffer packing', () => {
     expect(Array.from(QUAD_STRIP)).toEqual([0, 0, 1, 0, 0, 1, 1, 1]);
   });
 
-  it('stride is 16 floats / 64 bytes (iRect 4 + iUV 4 + iDepth 1 + iMisc 4 + iGround 3)', () => {
-    expect(INSTANCE_FLOATS).toBe(16);
-    expect(INSTANCE_STRIDE).toBe(64);
+  it('stride is 17 floats / 68 bytes (iRect 4 + iUV 4 + iDepth 1 + iMisc 4 + iGround 3 + iSway 1)', () => {
+    expect(INSTANCE_FLOATS).toBe(17);
+    expect(INSTANCE_STRIDE).toBe(68);
   });
 
   it('packs instances interleaved in the documented field order', () => {
     const buf = packInstances([inst({
       dx: 10, dy: 20, dw: 30, dh: 40, u0: 0.125, v0: 0.25, u1: 0.75, v1: 0.5, depth: 0.25,
       whiten: 0.5, mirror: 1, contact: 0.75, contactBand: 0.25, groundR: 0.5, groundG: 0.25, groundB: 0.125,
+      sway: 0.375,
     })]);
-    expect(buf).toHaveLength(16);
+    expect(buf).toHaveLength(17);
     expect(Array.from(buf)).toEqual([
       10, 20, 30, 40, 0.125, 0.25, 0.75, 0.5, 0.25,
-      0.5, 1, 0.75, 0.25, 0.5, 0.25, 0.125,
+      0.5, 1, 0.75, 0.25, 0.5, 0.25, 0.125, 0.375,
     ]);
   });
 
   it('packs N instances contiguously', () => {
     const buf = packInstances([inst({ dx: 1 }), inst({ dx: 2 }), inst({ dx: 3 })]);
-    expect(buf).toHaveLength(48);
+    expect(buf).toHaveLength(51);
     expect(buf[0]).toBe(1);
-    expect(buf[16]).toBe(2);
-    expect(buf[32]).toBe(3);
+    expect(buf[17]).toBe(2);
+    expect(buf[34]).toBe(3);
   });
 
-  it('an unwhitened, unmirrored, unblended instance packs zeros in iMisc + iGround (identity)', () => {
+  it('an unwhitened, unmirrored, unblended, rigid instance packs zeros in iMisc + iGround + iSway (identity)', () => {
     const buf = packInstances([inst()]);
     expect(buf[9]).toBe(0);    // whiten
     expect(buf[10]).toBe(0);   // mirror
     expect(buf[11]).toBe(0);   // contact strength — 0 ⇒ the shader takes the identity path
     expect(buf[12]).toBe(0);   // contact band
     expect(Array.from(buf.slice(13, 16))).toEqual([0, 0, 0]); // ground colour
+    expect(buf[16]).toBe(0);   // sway — 0 ⇒ the shader takes the rigid (no-motion) path
   });
 
-  it('Globals is 16 floats with vec3 padding and clamped bands', () => {
+  it('Globals is 28 floats with vec3 padding and clamped bands', () => {
     // float32-exact fractions (powers of two) so the typed-array round-trips cleanly
     const g = packGlobals({
       viewport: [800, 600], bands: 0, // clamps to 1
@@ -66,6 +68,18 @@ describe('R2c — instance/globals buffer packing', () => {
     expect([g[8], g[9], g[10]]).toEqual([-0.5, 0.5, 0.25]);
     expect([g[12], g[13], g[14]]).toEqual([0.25, 0.5, 0.75]);
     expect(g[15]).toBe(0); // uNight defaults to 0 (day) when not passed
+    // uWind + uTime default to 0 (no wind ⇒ every instance rigid) when not passed.
+    expect(Array.from(g.slice(20, 28))).toEqual([0, 0, 0, 0, 0, 0, 0, 0]);
+  });
+
+  it('packGlobals writes wind (dir/strength/freq) + time into the uWind/uTime slots', () => {
+    const g = packGlobals({
+      viewport: [800, 600], bands: 4, ambient: [0.5, 0.5, 0.5],
+      sunDir: [0, 1, 0], sunColor: [0.25, 0.25, 0.25],
+      wind: { dir: [0.5, 0.75], strength: 8, freq: 1.5 }, timeSec: 3.5,
+    });
+    expect([g[20], g[21], g[22], g[23]]).toEqual([0.5, 0.75, 8, 1.5]); // uWind
+    expect(g[24]).toBe(3.5);                                            // uTime.x
   });
 
   it('packGlobals writes the night factor into the sunColor slot pad (uNight)', () => {

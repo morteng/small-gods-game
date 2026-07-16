@@ -89,6 +89,14 @@ export type DrawItem =
        * of stopping dead at the silhouette. Absent / strength 0 = byte-identical output.
        */
       contact?: { r: number; g: number; b: number; strength: number; band: number };
+      /**
+       * Wind-sway amplitude 0..1 (plants only; 0/absent = rigid ⇒ no motion). The lit
+       * shader shears the TOP of the billboard along the global wind each frame, foot
+       * fixed, quadratic in height — so a tree/shrub bends in the breeze while buildings
+       * (which never set this) stay byte-identical. Per-species flexibility drives it
+       * (`flora-registry.floraSwayAmplitude`).
+       */
+      sway?: number;
     }
   | { t: 'poly'; points: Array<{ x: number; y: number }>; color: string }
   | { t: 'circle'; cx: number; cy: number; r: number; color: string };

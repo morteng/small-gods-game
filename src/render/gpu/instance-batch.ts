@@ -42,6 +42,9 @@ export interface InstanceAttrs {
   groundR: number;
   groundG: number;
   groundB: number;
+  /** Wind-sway amplitude 0..1 (DrawItem.sway; 0 = rigid ⇒ no motion). Only plant
+   *  billboards set it; the shader shears the quad top along the global wind. */
+  sway: number;
 }
 
 /** One instanced draw: a texture (+ optional PBR maps) and its instances. */
@@ -130,6 +133,7 @@ export function buildInstanceBatches(items: readonly DrawItem[]): {
       whiten: it.whiten ?? 0, mirror: it.mirror ? 1 : 0,
       contact: c?.strength ?? 0, contactBand: c?.band ?? 0,
       groundR: c?.r ?? 0, groundG: c?.g ?? 0, groundB: c?.b ?? 0,
+      sway: it.sway ?? 0,
     });
   });
 

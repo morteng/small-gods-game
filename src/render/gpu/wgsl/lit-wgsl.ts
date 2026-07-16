@@ -34,6 +34,8 @@ struct Globals {
   uSunColor : vec3<f32>,
   uNight    : f32,         // 0 = day (no emissive), 1 = night (full window glow)
   uXform    : vec4<f32>,   // world→device affine: sx, sy, ox, oy (applied in VS)
+  uWind     : vec4<f32>,   // billboard sway: dirX, dirY (screen unit), strength (world px), freq (rad/s)
+  uTime     : vec4<f32>,   // x: wall-clock seconds (drives the sway phase); yzw pad
 };
 
 @group(0) @binding(0) var<uniform> G : Globals;
@@ -60,10 +62,34 @@ fn vsMain(
   @location(3) iDepth : f32,         // painter-order depth, 0..1
   @location(4) iMisc  : vec4<f32>,   // whiten, mirror, contact, contactBand (see instance-buffer.ts)
   @location(5) iGround : vec3<f32>,  // contact target colour
+  @location(6) iSway  : f32,         // wind-sway amplitude 0..1 (0 = rigid; buildings pack 0)
 ) -> VSOut {
   // Instances are packed in WORLD px (camera-independent, so the static layer can
   // be packed once); the camera world→device affine is applied here in the VS.
-  let world = iRect.xy + corner * iRect.zw;
+  var world = iRect.xy + corner * iRect.zw;
+  // WIND SWAY (billboard shear): plant billboards bend the TOP of the quad along the
+  // global wind, the foot (corner.y = 1) pinned. Amplitude is quadratic in height so
+  // the bend curves like a bough rather than shearing as a rigid parallelogram. A
+  // per-instance phase from the foot position makes a stand ripple as a travelling
+  // gust instead of moving in lockstep; a small idle term keeps a windless scene alive.
+  // iSway = 0 (every non-plant instance) ⇒ zero offset ⇒ byte-identical to no sway.
+  if (iSway > 0.0 && G.uWind.z > 0.0) {
+    let t = G.uTime.x;
+    let dir = normalize(G.uWind.xy + vec2<f32>(1e-5, 0.0));
+    // Foot position (bottom-centre) seeds both the gust wave and the flutter phase.
+    let foot = iRect.xy + vec2<f32>(iRect.z * 0.5, iRect.w);
+    let along = dot(foot, dir);
+    let gust = pow(0.5 + 0.5 * sin(along * 0.0055 - t * 0.35), 1.6);      // rolling gust front
+    let phase = dot(foot, vec2<f32>(0.05, 0.045));
+    let flutter = sin(t * G.uWind.w + phase) + 0.25 * sin(t * G.uWind.w * 2.3 + phase * 1.7);
+    let idle = 0.35 * sin(t * 0.6 + phase);                              // always-on breeze
+    let bend = flutter * (0.35 + 0.65 * gust) + idle;
+    let heightF = 1.0 - corner.y;                                        // 0 at foot, 1 at top
+    // Amplitude scales with the sprite's own height (a tall oak leans farther than a
+    // sapling) and the species flexibility; uWind.z is the global strength dial.
+    let amp = G.uWind.z * iSway * iRect.w * 0.012 * heightF * heightF;
+    world = world + dir * amp * bend;
+  }
   let px = world * G.uXform.xy + G.uXform.zw;
   // screen px (y down, origin top-left) → clip NDC (y up)
   let ndc = vec2<f32>(

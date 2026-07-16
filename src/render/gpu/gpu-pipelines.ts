@@ -54,6 +54,7 @@ export function createSpritePipeline(device: GPUDevice, format: GPUTextureFormat
             { shaderLocation: 3, offset: 32, format: 'float32' },   // iDepth
             { shaderLocation: 4, offset: 36, format: 'float32x4' }, // iMisc (whiten, mirror, contact, band)
             { shaderLocation: 5, offset: 52, format: 'float32x3' }, // iGround (contact target rgb)
+            { shaderLocation: 6, offset: 64, format: 'float32' },   // iSway (wind amplitude 0..1)
           ],
         },
       ],

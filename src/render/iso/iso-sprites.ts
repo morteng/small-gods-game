@@ -118,6 +118,7 @@ export function plantSpriteItemFromPack(
   noShadow = false,
   whiten = 0,
   contact?: ContactBlend,
+  sway = 0,
 ): DrawItem {
   const { sx, sy } = worldToScreen(x, y, 0, o.originX, o.originY);
   const src = pack.albedo;
@@ -151,6 +152,9 @@ export function plantSpriteItemFromPack(
   // stopping dead at the silhouette. The band is expressed against the DRAWN (post-bury)
   // height, which is what the shader interpolates over.
   if (contact && contact.strength > 0) item.contact = contact;
+  // Wind sway (billboard shear): the lit shader bends the top of the quad along the
+  // global wind, foot fixed. Amplitude is per-species (flexibility); 0 ⇒ rigid.
+  if (sway > 0) item.sway = Math.min(1, sway);
   if (buryPx > 0) item.frame = { sx: 0, sy: 0, sw: w, sh: visH };   // keep the TOP visH rows
   if (pack.shadow) {
     item.shadowSprite = { src: pack.shadow.canvas, dx: pack.shadow.dx, dy: pack.shadow.dy };

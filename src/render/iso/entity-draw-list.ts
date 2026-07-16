@@ -15,6 +15,7 @@ import { npcItems, vegetationItems, artBillboardItem, plantSpriteItemFromPack, n
 import { isPlantPreset } from '@/blueprint/presets';
 import { snowAmount01 } from '@/render/snow-mask';
 import { floraVariantForSnow } from '@/render/flora-phenology';
+import { floraSwayAmplitude } from '@/flora/flora-registry';
 import {
   buildingSpriteItemFromImage, buildingSpriteItemFromPack, flatBlockItems, pickBuildingSource,
 } from './iso-building';
@@ -274,6 +275,7 @@ export function buildEntityDrawList(
             ic, pack, v.x, v.y,
             natureBuryFrac(v.kind, v.x, v.y, scale), isGroundCoverKind(v.kind), snow,
             natureContact(rc.map, v.kind, v.x, v.y, snow),
+            floraSwayAmplitude(v.kind),
           ));
         } else {
           const art = rc.resolveEntityArt?.(v) ?? null;

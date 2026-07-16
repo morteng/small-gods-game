@@ -21,7 +21,7 @@ import {
 } from '@/render/gpu/instance-batch';
 import {
   packInstances, packGlobals, packTerrainPassGlobals, TERRAIN_PASS_GLOBALS_FLOATS,
-  QUAD_STRIP, QUAD_VERTEX_COUNT, INSTANCE_STRIDE,
+  QUAD_STRIP, QUAD_VERTEX_COUNT, INSTANCE_STRIDE, GLOBALS_FLOATS,
 } from '@/render/gpu/instance-buffer';
 import type { DetailField } from '@/render/gpu/detail-field';
 import {
@@ -67,6 +67,10 @@ const NO_SHAPES = { vertices: new Float32Array(0), vertexCount: 0 } as const;
 const GRASS_WIND_DIR: readonly [number, number] = [0.8, 0.6]; // ~unit screen-space direction
 const GRASS_WIND_STRENGTH = 5.0; // world px of tip sway at full amplitude (visible sway, no tip-smear streaks)
 const GRASS_WIND_FREQ = 1.3;      // rad/s — calmer than a fast flutter
+/** Tree/shrub billboard sway shares the grass wind DIRECTION + FREQ (so canopy and
+ *  ground cover ripple together) but its own strength dial: the lit shader scales the
+ *  tip offset by this × per-species flexibility × sprite height (see lit-wgsl.ts). */
+const TREE_WIND_STRENGTH = 9.0;
 
 /** Shared per-frame render state threaded through the per-pass helpers (so they
  *  don't each take a dozen params). `colorCleared` is mutated as passes draw — the
@@ -350,7 +354,7 @@ export class GpuScene {
     this.quadBuf = device.createBuffer({ size: QUAD_STRIP.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
     device.queue.writeBuffer(this.quadBuf, 0, QUAD_STRIP);
 
-    this.globalsBuf = device.createBuffer({ size: 80, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    this.globalsBuf = device.createBuffer({ size: GLOBALS_FLOATS * 4, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.globalsBind = device.createBindGroup({
       layout: this.pipeline.getBindGroupLayout(0),
       entries: [{ binding: 0, resource: { buffer: this.globalsBuf } }],
@@ -1143,14 +1147,19 @@ export class GpuScene {
       ? this.staticShadowBundle.reduce((s, b) => s + b.count, 0) : 0;
     const hasShadows = staticShadowCount > 0 || dynShadowBatches.length > 0;
 
+    // Wall-clock seconds drive both the grass and the tree-billboard sway phase; a
+    // non-browser host (SSR/tests) has no `performance`, so it falls back to a frozen
+    // 0 (still, not animated — keeps the golden-image tests deterministic).
+    const grassTimeSec = typeof performance !== 'undefined' ? performance.now() / 1000 : 0;
     device.queue.writeBuffer(this.globalsBuf, 0, packGlobals({
       viewport: [w, h], bands: lighting.bands, ambient: lighting.ambient,
       sunDir: lighting.sunDir, sunColor: lighting.sunColor,
       night: lighting.enabled ? (lighting.nightFactor ?? 0) : 0, xform,
+      wind: { dir: [GRASS_WIND_DIR[0], GRASS_WIND_DIR[1]],
+              strength: (globalThis as { __treeWind?: number }).__treeWind ?? TREE_WIND_STRENGTH,
+              freq: GRASS_WIND_FREQ },
+      timeSec: grassTimeSec,
     }) as GPUAllowSharedBufferSource);
-    // Grass sway (step 3) needs wall-clock time; a non-browser host (SSR/tests) has
-    // no `performance`, so it falls back to a frozen 0 (still, not animated).
-    const grassTimeSec = typeof performance !== 'undefined' ? performance.now() / 1000 : 0;
     device.queue.writeBuffer(this.grassGlobalsBuf, 0,
       this.packGrassGlobals(w, h, lighting, xform, grassTimeSec) as GPUAllowSharedBufferSource);
     if (hasShadows) {

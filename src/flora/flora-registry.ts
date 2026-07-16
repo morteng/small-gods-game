@@ -65,6 +65,26 @@ export function floraGenParams(id: string): FloraGenParams | undefined {
   return params;
 }
 
+/** Wind-sway amplitude 0..1 for a species (0 = rigid). Uses the curated
+ *  botanical `flexibility` when authored, else a per-habit default (a spruce
+ *  barely stirs, a birch or fern whips). Feeds the lit-sprite sway in the
+ *  renderer — see `render/gpu/wgsl/lit-wgsl.ts`. Unknown/absent ⇒ 0. */
+export function floraSwayAmplitude(id: string): number {
+  const species = getFloraSpecies(id);
+  if (!species) return 0;
+  const b = species.botanical;
+  if (typeof b.flexibility === 'number') return Math.max(0, Math.min(1, b.flexibility));
+  switch (b.habit) {
+    case 'tree': return b.leafType === 'needle' ? 0.18 : 0.35;
+    case 'shrub': return 0.55;
+    case 'herb': return 0.8;
+    case 'fern': return 0.85;
+    case 'grass': return 1;
+    case 'rock': return 0;
+    default: return 0.3;
+  }
+}
+
 /** TEST-ONLY: drop all runtime lazy-fills + caches + provider (curated core stays). */
 export function __resetFloraRuntime(): void {
   runtime.clear();
