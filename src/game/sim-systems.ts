@@ -147,5 +147,7 @@ export function registerSimSystems(deps: SimSystemsDeps): void {
     (subject, storyletId) => deps.onBeatFired(subject, storyletId),
     // W-I: reap beats armed at a causal site once it has faded.
     () => state.causalSites,
+    // F4: a fired portent beat flips its arc-ledger entry to discovered.
+    () => state.fateArcs ?? null,
   ));
 }
