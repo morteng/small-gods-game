@@ -163,13 +163,17 @@ claims/sim-day window), cooldown-throttled. **5** constrained, drift-guarded too
 both sides of the LLM boundary — VISION §4), `author_building` (structural lint gate
 + one bounded self-correction retry).
 
-**NEXT — 📋 [spec: Proactive Fate — arcs, portents, weaving](superpowers/specs/2026-07-14-proactive-fate-arcs-portents.md).**
-The gap is architectural, not a prompt: `FateBrainService.deliberate()` is
-**stateless** (arms one beat, forgets), and `FateTrigger` only wakes on an incoming
+**IN FLIGHT — 📋 [spec: Proactive Fate — arcs, portents, weaving](superpowers/specs/2026-07-14-proactive-fate-arcs-portents.md).**
+The gap was architectural, not a prompt: `FateBrainService.deliberate()` was
+**stateless** (arms one beat, forgets), and `FateTrigger` only woke on an incoming
 event (**no heartbeat** ⇒ no initiative). Fate needs **memory**, **a pulse**, and **a
-vocabulary for intent**. Slices F1 (arc state, snapshot-backed, scrub-aware) and F2
-(the pulse) *are* the whole architectural change; F3–F6 are content on top. **This
-single spec closes both remaining Track-4 items below.**
+vocabulary for intent**. ✅ **F1+F2 SHIPPED (2026-07-16)** — `FateArcStore` rides the
+snapshot (scrubbing rewinds Fate's plan; `ArcGoal.met` recomputed, never trusted from
+disk) and `FatePulse` wakes the brain once per game-day through the trigger's shared
+cooldown, with a deterministic stub arc as the permanent offline fallback. F3–F6
+(arc library + `seed_arc`/`plant_portent`/`advance_arc` tools, portent gate, weaving,
+era-authoring) are content on top. **This single spec closes both remaining Track-4
+items below.**
 
 - ~~Pacing/plot intelligence beyond single-beat reactions~~ → **arcs + weaving (F3/F5).**
 - ~~Owns the LLM era-authoring half of the D2 time-skip loop~~ → **F6.**
@@ -242,12 +246,17 @@ the entire belief economy runs on **one need out of four**. M0 (worship fires on
 *lowest* need; a prayer gets a *subject*) is ~10 lines for the decisive half, and it
 **also unblocks Track 3's stated rival domain-matching deferral** as a side effect.
 
-- **M0 — need gets a direction** ⭐ *(do this first, independent of everything)*
-- **M1 — the chronicler's voice** — a monastic-register narrator. *A narrator who
-  explains everything by sin and portent **cannot contradict the sim**, because he
-  isn't making causal claims about it — he annotates outcomes.* Cheapest
-  atmosphere-per-token in the game; strictly read-only over the event log.
-- **M2 — epithets** — deed-derived, conferred, contested (*victory renames you*).
+- **M0 — need gets a direction** ⭐ — ✅ **SHIPPED 2026-07-16** (M0.a+b: worship on
+  the lowest need, prayers carry a subject end-to-end; M0.c tithe deferred to M3 —
+  see the spec's reality-check). **Also closed Track 3's rival domain-matching
+  deferral** (rivals carry a need-domain vector; matched pleas claimable at the
+  normal window, mismatched at 2×).
+- **M1 — the chronicler's voice** — ✅ **SHIPPED 2026-07-16.** Monastic-register
+  annalist over the event log (fast tier, strictly read-only — guard-tested), one
+  entry per game day, deterministic offline fallback; surfaces as a low-salience
+  inbox tiding, persists in the snapshot, and reads aloud on the boot loading screen.
+- **M2 — epithets** — ✅ **SHIPPED 2026-07-16** — deed-derived, salience-argmax over
+  the memory ring, escalating for answered prayers (*victory renames you*).
 - **M3 — the lord** — a `noble` NPC (role exists). **Never** gets a `beliefs[]`
   entry — he competes for *allegiance*, not *belief* (that would invent a fifth
   category of god). He can fight you **by proxy** by endowing a rival's shrine.

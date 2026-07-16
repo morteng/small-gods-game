@@ -235,3 +235,29 @@ loop that `author_building` already proves works.
    Guard: `advances()` must check a *goal*, not mere subject overlap.
 5. **Offline/stub path.** `llmClientCapable === null` must still produce a coherent (if dull) Fate. F1's
    deterministic stub is not scaffolding to throw away — it is the **permanent offline fallback**.
+
+---
+
+## Reality check (2026-07-16) — F1 + F2 SHIPPED
+
+Implemented as specified. `src/sim/fate/`: `arc-types.ts` (§4.1 shapes +
+`MAX_LIVE_ARCS = 4`), `arc-predicates.ts` (named pure-predicate registry —
+unknown predicate evaluates to an honest `false`), `arc-store.ts`
+(`FateArcStore`, a direct mirror of `StagingBuffer`), `arc-stub.ts` (the
+deterministic offline seeder, shape `stub_vigil` — the permanent no-LLM
+fallback per §8.5). `state.fateArcs` rides the snapshot with no
+`SAVE_VERSION` bump; `restoreSnapshot` hydrates with every `goal.met`
+forced false then `recomputeGoals(state)` — `met` is never trusted from
+disk, and a scrub un-happens arcs opened after the restore point (§4.3,
+test-proven). `FatePulse` (`src/game/fate/fate-pulse.ts`) ticks once per
+game-day (`TICKS_PER_DAY` multiple), routes through `FateTrigger`'s OWN
+readiness+cooldown gate (`fateTrigger.pulse()`), skips entirely when no
+arc is live and no seed condition holds, and its runtime throttle resets
+in the timeline `onRestore` hook beside `fateTrigger.reset()`.
+
+**One deviation:** `EventFocus.kind` is *optional* (`kind?: 'event'`)
+rather than required — the many existing `{ event, threadId }`
+construction sites keep compiling; discrimination is always via
+`focus.kind === 'pulse'`. **F3 note:** online, the pulse fires a
+pulse-framed deliberation but the brain has no arc tools yet — arcs open
+only via the offline stub until F3 lands `seed_arc`/`abandon_arc`.
