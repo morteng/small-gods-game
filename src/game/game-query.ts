@@ -170,6 +170,21 @@ export const CROSSING_NOTICE_HORIZON_TICKS = TICKS_PER_DAY;
  *  most this many buckets surface, so news can never drown threats or pleas. */
 export const MAX_TIDING_ITEMS = 3;
 
+// ── F4 (proactive Fate): planted portents as transient inbox tidings ─────────
+/** How long "an omen gathers" stays news. Same fiction intent as the crossings:
+ *  omens from the last day are news; the omen itself waits on the world to be
+ *  DISCOVERED regardless (the staged beat has no expiry). */
+export const PORTENT_NOTICE_HORIZON_TICKS = TICKS_PER_DAY;
+/** The player-facing wording per portent flavour (the arc library owns the kinds;
+ *  fallback text covers any future addition so nothing renders blank). */
+const PORTENT_KIND_TEXT: Record<string, string> = {
+  dream:  'Sleepers there share one uneasy dream.',
+  sky:    'The sky over the place has turned strange.',
+  beast:  'The beasts grow restless and will not be calmed.',
+  rumor:  'A rumor passes from mouth to mouth and will not die.',
+  sign:   'Small wrongnesses accumulate — signs, for those who read them.',
+};
+
 /** One triageable item in the divine inbox. Deterministic id so the UI can carry
  *  ignore/surface state across frames. The target routes the "Act" verb. */
 export interface InboxItem {
@@ -664,6 +679,28 @@ export function createGameQuery(deps: GameQueryDeps): GameQuery {
         // Cap the news: keep only the most salient buckets (stable id tiebreak).
         tidings.sort((a, b) => (b.salience - a.salience) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
         items.push(...tidings.slice(0, MAX_TIDING_ITEMS));
+      }
+
+      // ── F4 (proactive Fate): a freshly planted portent reaches the player as a
+      // tiding — "an omen gathers" — the readable foreshadowing the spec demands.
+      // Event-log windowed like the crossings (auto-expiring, no stored state).
+      const portents = state.eventLog.range(now - PORTENT_NOTICE_HORIZON_TICKS, now + 1)
+        .filter(a => a.event.type === 'portent_planted');
+      for (const a of portents) {
+        const ev = a.event as { type: 'portent_planted'; arcId: number; kind: string; poiId: string };
+        const poi = state.worldSeed?.pois.find(pp => pp.id === ev.poiId);
+        const id = `portent:${a.id}`;
+        const surfaced = surfacedSet.has(id);
+        items.push({
+          id,
+          kind: 'tiding',
+          title: `An omen gathers over ${poi?.name ?? ev.poiId}`,
+          detail: PORTENT_KIND_TEXT[ev.kind] ?? 'Signs accumulate; something is building there.',
+          salience: scoreAffordance({ kind: 'tiding', count: 1, surfaced }),
+          surfaced,
+          target: { kind: 'settlement', poiId: ev.poiId },
+          ...(poi?.position ? { anchor: { x: poi.position.x, y: poi.position.y } } : {}),
+        });
       }
 
       // ── M1: the chronicler's voice — the latest daily annal, surfaced as one

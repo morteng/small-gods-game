@@ -20,7 +20,7 @@ import type { StagedBeat } from '@/sim/threads/staging-types';
 import type { SettlementEventType } from '@/core/types';
 import type { ArcCast } from '@/sim/fate/arc-types';
 import { MAX_LIVE_ARCS } from '@/sim/fate/arc-types';
-import { ARC_SHAPE_KEYS, getArcShape } from '@/sim/fate/arc-library';
+import { ARC_SHAPE_KEYS, ARC_PORTENT_KINDS, getArcShape } from '@/sim/fate/arc-library';
 import { authorBlueprint } from '@/blueprint/authoring';
 import { BUILDING_BLUEPRINTS } from '@/blueprint/presets';
 import type { BlueprintLint } from '@/blueprint/lint';
@@ -83,8 +83,43 @@ export const FATE_TOOLS: LLMTool[] = [
             'Optional: id of a loaded storylet to open as an interactive card on discovery ' +
             '(from the storylets listed in context). Dropped silently if unrecognized.',
         },
+        arcId: {
+          type: 'integer',
+          description:
+            'Optional: the live arc (from your arcs list) this beat serves. PORTENTS-FIRST GATE: a HEAVY ' +
+            'beat (hard=inject_npc) on an arc whose portent ledger is EMPTY is rejected — plant_portent ' +
+            'first (in the same response works), then land the blow.',
+        },
       },
       required: ['subjectPoiId', 'hard'],
+    },
+  },
+  {
+    name: 'plant_portent',
+    description:
+      "Lay an OMEN on a live arc's ledger — the foreshadowing that must precede any heavy beat on that " +
+      "arc (heavy beats on an empty ledger are rejected). Pick a kind from THAT ARC's portent kinds " +
+      'listed in context; the omen materializes as a soft (atmosphere) beat discovered at the named ' +
+      'settlement, and word of it reaches the player as a tiding. At most one per deliberation.',
+    parameters: {
+      type: 'object',
+      properties: {
+        arcId: { type: 'integer', description: 'A live arc id from your arcs list. Required.' },
+        kind: {
+          type: 'string', enum: [...ARC_PORTENT_KINDS],
+          description: "The portent flavour — must be one of the named arc's own portent kinds.",
+        },
+        omen: {
+          type: 'string',
+          description: 'One line of foreshadowing — what is seen/dreamt/rumored. Required.',
+        },
+        subjectPoiId: {
+          type: 'string',
+          description: "Optional: where the omen is found — a settlement from the threads list or the arc's " +
+            "own cast. Defaults to the arc's first cast settlement.",
+        },
+      },
+      required: ['arcId', 'kind', 'omen'],
     },
   },
   {
@@ -204,6 +239,15 @@ export const FATE_TOOLS: LLMTool[] = [
  *  re-emit a beat/nudge/stance (so the retry never duplicates turn-1 actions). */
 export const AUTHOR_BUILDING_TOOL: LLMTool = FATE_TOOLS.find((t) => t.name === 'author_building')!;
 
+/** F4: the foreshadow-then-retry toolset for the portent-gate self-correction pass.
+ *  The model may plant the missing omen AND re-arm the beat in the SAME response
+ *  (the parser counts same-response portents toward the gate) but physically cannot
+ *  re-emit a nudge/stance/building — the retry never duplicates turn-1 actions. */
+export const PORTENT_RETRY_TOOLS: LLMTool[] = [
+  FATE_TOOLS.find((t) => t.name === 'plant_portent')!,
+  FATE_TOOLS.find((t) => t.name === 'arm_staged_beat')!,
+];
+
 /** Build the corrective user turn for one bounded self-correction pass: each rejected
  *  building + its error-severity lints (or the resolve-failure summary), and a request to
  *  re-attempt ONLY those buildings or call nothing. Pure/deterministic — unit-testable. */
@@ -219,6 +263,22 @@ export function authoringRetryPrompt(rejections: AuthoringRejection[]): string {
     '\n\nCall author_building once more with corrected descriptors or a simpler, well-formed preset so it ' +
     'passes the gate — or call no tool if you cannot make it fit. Address ONLY the building(s) listed above; ' +
     'do not repeat any other action.'
+  );
+}
+
+/** F4: the corrective user turn when the portents-first gate rejected a heavy beat.
+ *  Carries each rejection's reason back so the model can FORESHADOW first (plant a
+ *  portent) and then re-arm — the gate counts same-response omens. Pure/deterministic. */
+export function portentGateRetryPrompt(rejections: PortentGateRejection[]): string {
+  const lines = rejections.map((r) =>
+    `- arm_staged_beat at ${r.subjectPoiId} (arc ${r.arcId} "${r.shape}") was REJECTED: ${r.reason}`);
+  return (
+    'The portents-first gate rejected the heavy beat(s) you tried to arm:\n' +
+    lines.join('\n') +
+    '\n\nEvery heavy blow must be foreshadowed. Call plant_portent to lay an omen on that arc (pick a kind ' +
+    "from the arc's portent kinds), and you may re-arm the SAME beat in this response — the gate counts the " +
+    'fresh omen. Or arm it soft (hard=none), or call no tool. Address ONLY the beat(s) listed above; do not ' +
+    'repeat any other action.'
   );
 }
 
@@ -251,6 +311,19 @@ export interface FateArcToolCtx {
   isShapeSeedable: (shapeKey: string) => boolean;
   /** Live npc entity ids for cast drift-guarding; absent ⇒ every npc cast ref drops. */
   validNpcIds?: Set<string>;
+  /** F4: per-LIVE-arc metadata the portent tools validate against — the shape key
+   *  (whose library entry owns the legal portent kinds), the cast settlements (a
+   *  portent's default home), and the current ledger size (the heavy-beat gate's
+   *  input). Absent ⇒ plant_portent drops and arm_staged_beat arc refs drop —
+   *  the safe default, same discipline as validNpcIds. */
+  arcMeta?: Map<number, ArcToolMeta>;
+}
+
+/** What the F4 portent tools know about one live arc at deliberation time. */
+export interface ArcToolMeta {
+  shape: string;
+  castPoiIds: readonly string[];
+  portentCount: number;
 }
 
 /** An `author_building` call that resolved+linted to a REJECT (malformed geometry) —
@@ -280,6 +353,30 @@ export interface ArcAbandonRequest {
   reason: string;
 }
 
+/** F4: a validated plant_portent call — the ledger entry's raw material. The brain
+ *  arms the soft beat, writes the ledger entry (with the armed beat's id), and
+ *  appends the `portent_planted` tiding event. */
+export interface ArcPortentRequest {
+  arcId: number;
+  kind: string;
+  /** The omen's wording — the soft beat's narration. */
+  text: string;
+  /** Where the omen will be discovered. */
+  subjectPoiId: string;
+}
+
+/** F4: a heavy beat the portents-first gate REJECTED (empty ledger on its named
+ *  arc). Carried out of the parser so the brain can feed the reason back through
+ *  the bounded self-correction retry — the model foreshadows first, then re-arms. */
+export interface PortentGateRejection {
+  callId: string;
+  arcId: number;
+  shape: string;
+  subjectPoiId: string;
+  /** Why the beat was rejected — this text reaches the retry prompt verbatim. */
+  reason: string;
+}
+
 export interface ParsedFateActions {
   beats: Array<Omit<StagedBeat, 'id' | 'status'>>;
   commands: Array<Omit<Command, 'seq'>>;
@@ -289,6 +386,10 @@ export interface ParsedFateActions {
   arcSeeds: ArcSeedRequest[];
   /** F3: validated abandon_arc calls (live arc + non-empty reason). */
   arcAbandons: ArcAbandonRequest[];
+  /** F4: validated plant_portent calls (≤1 per deliberation, kind ∈ the shape's own). */
+  arcPortents: ArcPortentRequest[];
+  /** F4: heavy beats rejected by the portents-first gate (empty when none). */
+  portentRejections: PortentGateRejection[];
 }
 
 /** Validate the model's tool calls into armable beats + immediate commands + arc
@@ -302,10 +403,21 @@ export function parseFateToolCalls(
   const authoringRejections: AuthoringRejection[] = [];
   const arcSeeds: ArcSeedRequest[] = [];
   const arcAbandons: ArcAbandonRequest[] = [];
+  const arcPortents: ArcPortentRequest[] = [];
+  const portentRejections: PortentGateRejection[] = [];
+  // F4: portents planted earlier in THIS response count toward the heavy-beat gate,
+  // so a single "plant, then land" response passes — foreshadow-first is rewarded.
+  const plantedThisResponse = new Map<number, number>();
   for (const c of calls ?? []) {
     if (c.name === 'arm_staged_beat') {
-      const beat = parseArmBeat(c, ctx);
+      const beat = parseArmBeat(c, ctx, plantedThisResponse, portentRejections);
       if (beat) beats.push(beat);
+    } else if (c.name === 'plant_portent') {
+      const p = parsePlantPortent(c, ctx, arcPortents.length);
+      if (p) {
+        arcPortents.push(p);
+        plantedThisResponse.set(p.arcId, (plantedThisResponse.get(p.arcId) ?? 0) + 1);
+      }
     } else if (c.name === 'nudge_event_severity') {
       const cmd = parseNudge(c, ctx);
       if (cmd) commands.push(cmd);
@@ -328,17 +440,22 @@ export function parseFateToolCalls(
       if (ab) arcAbandons.push(ab);
     }
   }
-  return { beats, commands, authoringRejections, arcSeeds, arcAbandons };
+  return { beats, commands, authoringRejections, arcSeeds, arcAbandons, arcPortents, portentRejections };
 }
 
 /** W-I: causal-site ids are poiId-compatible but name an ephemeral place, not a
  *  settlement — so they only accept SOFT staged beats, never settlement-event verbs. */
 function isSiteId(id: string): boolean { return id.startsWith('causal:'); }
 
-function parseArmBeat(c: LLMToolCall, ctx: FateToolCtx): Omit<StagedBeat, 'id' | 'status'> | null {
+function parseArmBeat(
+  c: LLMToolCall,
+  ctx: FateToolCtx,
+  plantedThisResponse?: Map<number, number>,
+  portentRejections?: PortentGateRejection[],
+): Omit<StagedBeat, 'id' | 'status'> | null {
   const a = c.arguments as {
     subjectPoiId?: unknown; threadId?: unknown; hard?: unknown; role?: unknown; soft?: unknown; musicCue?: unknown;
-    storylet?: unknown;
+    storylet?: unknown; arcId?: unknown;
   };
   const poiId = typeof a.subjectPoiId === 'string' ? a.subjectPoiId : '';
   if (!ctx.validPoiIds.has(poiId)) { console.warn('[fate] dropped beat: unknown subjectPoiId', poiId); return null; }
@@ -349,6 +466,28 @@ function parseArmBeat(c: LLMToolCall, ctx: FateToolCtx): Omit<StagedBeat, 'id' |
   if (a.hard === 'inject_npc' && !onSite) {
     const role = typeof a.role === 'string' && (FATE_ROLES as readonly string[]).includes(a.role) ? a.role : 'refugee';
     hard.push({ verb: 'inject_npc', source: 'fate', target: { kind: 'settlement', poiId }, payload: { role }, seq: 0 });
+  }
+  // F4: arc linkage + the PORTENTS-FIRST gate. A hallucinated/stale arcId is dropped
+  // (logged) and the beat still arms — the drift-guard discipline, like storylet refs.
+  // But a REAL arc ref makes a HEAVY beat (one landing a hard blow) answerable to that
+  // arc's portent ledger: empty (counting omens planted earlier in this response) ⇒
+  // the whole beat is REJECTED, and the reason rides back through the retry prompt.
+  let arcId: number | undefined;
+  if (a.arcId !== undefined) {
+    const meta = typeof a.arcId === 'number' && Number.isInteger(a.arcId)
+      ? ctx.arcs?.arcMeta?.get(a.arcId) : undefined;
+    if (!meta) {
+      console.warn('[fate] dropped beat arc ref: not a live arc', a.arcId);
+    } else {
+      arcId = a.arcId as number;
+      const ledger = meta.portentCount + (plantedThisResponse?.get(arcId) ?? 0);
+      if (hard.length > 0 && ledger === 0) {
+        const reason = `arc ${arcId} "${meta.shape}" has an EMPTY portent ledger — a heavy beat may not land unforeshadowed`;
+        console.warn('[fate] rejected heavy beat (portents-first gate):', reason);
+        portentRejections?.push({ callId: c.id, arcId, shape: meta.shape, subjectPoiId: poiId, reason });
+        return null;
+      }
+    }
   }
   const beat: Omit<StagedBeat, 'id' | 'status'> = {
     subject: onSite ? { kind: 'site', siteId: poiId } : { kind: 'settlement', poiId },
@@ -364,7 +503,49 @@ function parseArmBeat(c: LLMToolCall, ctx: FateToolCtx): Omit<StagedBeat, 'id' |
     if (ctx.validStoryletIds?.has(a.storylet)) beat.storylet = a.storylet;
     else console.warn('[fate] dropped storylet ref: unknown storylet id', a.storylet);
   }
+  if (arcId !== undefined) beat.arcId = arcId;
   return beat;
+}
+
+/**
+ * F4: lay an omen on a live arc's ledger. Guards (every failure a logged drop,
+ * never a throw): arc meta present (absent ⇒ the tool is disabled, safe default);
+ * at most ONE portent per deliberation; the arcId must be LIVE; the kind must be
+ * one of the arc SHAPE's library-owned portentKinds (the model picks among them,
+ * never invents — a shape with no portent vocabulary, like the_null_event or the
+ * offline stub, accepts none); the omen line is required. The subject drift-guard
+ * is soft: an unknown/site subjectPoiId falls back to the arc's first cast
+ * settlement (a portent must land somewhere durable, or it drops).
+ */
+function parsePlantPortent(
+  c: LLMToolCall, ctx: FateToolCtx, plantedThisDeliberation: number,
+): ArcPortentRequest | null {
+  const a = c.arguments as { arcId?: unknown; kind?: unknown; omen?: unknown; subjectPoiId?: unknown };
+  if (!ctx.arcs?.arcMeta) { console.warn('[fate] dropped plant_portent: no arc context supplied'); return null; }
+  if (plantedThisDeliberation >= 1) { console.warn('[fate] dropped plant_portent: at most one per deliberation'); return null; }
+  const arcId = typeof a.arcId === 'number' && Number.isInteger(a.arcId) ? a.arcId : NaN;
+  const meta = ctx.arcs.arcMeta.get(arcId);
+  if (!meta) { console.warn('[fate] dropped plant_portent: not a live arc', a.arcId); return null; }
+  const kinds = getArcShape(meta.shape)?.portentKinds ?? [];
+  const kind = typeof a.kind === 'string' ? a.kind : '';
+  if (!kinds.includes(kind)) {
+    console.warn(`[fate] dropped plant_portent: kind "${kind}" is not in shape "${meta.shape}" portentKinds`);
+    return null;
+  }
+  const text = typeof a.omen === 'string' ? a.omen.trim() : '';
+  if (!text) { console.warn('[fate] dropped plant_portent: an omen line is required', arcId); return null; }
+  let poiId = '';
+  if (typeof a.subjectPoiId === 'string' && a.subjectPoiId && !isSiteId(a.subjectPoiId)
+      && (ctx.validPoiIds.has(a.subjectPoiId) || meta.castPoiIds.includes(a.subjectPoiId))) {
+    poiId = a.subjectPoiId;
+  } else {
+    if (typeof a.subjectPoiId === 'string' && a.subjectPoiId) {
+      console.warn('[fate] plant_portent: dropped subjectPoiId, falling back to the arc cast', a.subjectPoiId);
+    }
+    poiId = meta.castPoiIds[0] ?? '';
+  }
+  if (!poiId) { console.warn('[fate] dropped plant_portent: nowhere to land (no subject, empty cast)', arcId); return null; }
+  return { arcId, kind, text, subjectPoiId: poiId };
 }
 
 function parseNudge(c: LLMToolCall, ctx: FateToolCtx): Omit<Command, 'seq'> | null {

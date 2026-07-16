@@ -105,6 +105,13 @@ export const ARC_LIBRARY: Record<string, ArcShape> = {
 /** The seedable shape keys — the seed_arc tool's enum (single source of truth). */
 export const ARC_SHAPE_KEYS: readonly string[] = Object.keys(ARC_LIBRARY);
 
+/** F4: every portent flavour the library owns — the plant_portent tool's `kind`
+ *  enum (the union; per-ARC validity is narrowed at parse time to the arc shape's
+ *  own portentKinds). Derived, so the enum can never drift from the library. */
+export const ARC_PORTENT_KINDS: readonly string[] = [
+  ...new Set(Object.values(ARC_LIBRARY).flatMap((s) => s.portentKinds)),
+];
+
 export function getArcShape(key: string): ArcShape | undefined {
   return ARC_LIBRARY[key];
 }
