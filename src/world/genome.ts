@@ -15,6 +15,7 @@
 
 import type { WorldSeed } from '@/core/types';
 import type { ClimateSpec } from '@/terrain/climate';
+import { CLIMATE_PRESETS } from '@/terrain/climate';
 import type { TerrainShapeSpec } from '@/terrain/terrain-shape';
 import { validateWorldSeed } from '@/core/schema';
 
@@ -102,6 +103,50 @@ export const TERRAIN_GENOMES: Record<string, TerrainGenomeSpec> = {
     climate: { tempNorth: 0.55, tempSouth: 0.68, elevationLapse: 0.08 },
     terrainShape: { kind: 'plain', strength: 0.9 },
     styleOverrides: { mountainRelief: 6, coastDrama: 0.5, riverDensity: 0.85 },
+  },
+  // DESERT work: hot + genuinely arid — the FULL `arid` climate preset (moistureBias
+  // −0.35 is the part a partial climate would silently drop, so the dune/hardpan splat
+  // never fired before). A low, gently-rolling isle so bare-earth flats dominate and the
+  // wind-rippled dune sand + cracked-hardpan playa read across the whole ground.
+  'desert-island': {
+    name: 'desert-island', size: GENOME_4K_TILES, island: true, biome: 'temperate',
+    // The `arid` PRESET (moistureBias −0.35) only drops the moisture field to ~0.3, which
+    // barely crosses the shader's `arid = smoothstep(0.70, 0.92, dry)` gate — a real arid
+    // world reads as dry grassland, not dune. This study pushes moisture to the extreme so
+    // the dune/hardpan ART itself is judgeable; the SHADER-GATE calibration is separate.
+    climate: { tempNorth: 0.66, tempSouth: 0.92, eastWarmLean: 0.06, westWetLean: 0.06, elevationLapse: 0.8, moistureBias: -0.62 },
+    terrainShape: { kind: 'knoll', strength: 0.4 },
+    styleOverrides: { mountainRelief: 10, coastDrama: 0.45, riverDensity: 0.05, floraDensity: 0.02 },
+  },
+  // TROPICAL work: hot + WET — the full `tropical` preset (moistureBias +0.20). Verifies
+  // the white shell-sand beaches on hot coasts (the `hotCoast` key) and a lush green
+  // interior. A soft knoll gives shore → jungle-floor → rise on one frame.
+  'tropical-island': {
+    name: 'tropical-island', size: GENOME_4K_TILES, island: true, biome: 'temperate',
+    climate: CLIMATE_PRESETS.tropical,
+    terrainShape: { kind: 'knoll', strength: 0.55 },
+    styleOverrides: { mountainRelief: 14, coastDrama: 0.5, riverDensity: 0.5, floraDensity: 0.14 },
+  },
+  // FOREST-FLOOR work: wet BUT cool-temperate (temp ≤0.62, moist >0.66) — the litter
+  // splat's gate. No preset fits (boreal is too cold and snows), so hand-tune: mild
+  // temps + a strong moisture bias + a west-wet lean, gentle relief so the damp woodland
+  // floor (leaf-litter/moss over humus) dresses the flats without snow or dune stealing it.
+  'woodland': {
+    name: 'woodland', size: GENOME_4K_TILES, island: true, biome: 'temperate',
+    // Warm enough to stay green (temp ≥0.48 keeps the shader's snow-cold gate shut) but
+    // still under the litter gate's 0.62 ceiling; a GENTLE knoll + low lapse so the rise
+    // never reaches the altitude snowline (an earlier colder cut snow-capped the top).
+    climate: { tempNorth: 0.50, tempSouth: 0.60, eastWarmLean: 0.04, westWetLean: 0.18, elevationLapse: 0.35, moistureBias: 0.30 },
+    terrainShape: { kind: 'knoll', strength: 0.45 },
+    styleOverrides: { mountainRelief: 8, coastDrama: 0.35, riverDensity: 0.45, floraDensity: 0.22 },
+  },
+  // RIVER work: a temperate VALE (valley) that funnels a strong river down the middle,
+  // so the riverbed + wet bank ground and riparian clutter are the subject on one frame.
+  'river-vale': {
+    name: 'river-vale', size: GENOME_4K_TILES, island: true, biome: 'temperate',
+    climate: { tempNorth: 0.5, tempSouth: 0.62, eastWarmLean: 0.05, westWetLean: 0.14, elevationLapse: 0.3, moistureBias: 0.12 },
+    terrainShape: { kind: 'vale', strength: 0.85 },
+    styleOverrides: { mountainRelief: 16, coastDrama: 0.35, riverDensity: 0.9, floraDensity: 0.12 },
   },
 };
 

@@ -71,7 +71,7 @@ function vnoise(x: number, y: number): number {
 export function buildGrassInstances(
   field: TerrainField, m: ClutterManifest,
 ): { data: Float32Array; count: number; seaweedCount: number } {
-  const { heights, moisture, globals: g } = field;
+  const { heights, moisture, temperature, globals: g } = field;
   const W = g.grid[0] | 0, H = g.grid[1] | 0;
   const halfW = g.half[0], halfH = g.half[1];
   const sea = g.seaLevel, relief = g.reliefM, zPx = g.zPxPerM;
@@ -172,9 +172,20 @@ export function buildGrassInstances(
         const normY = halfH / Math.sqrt(dx * dx + halfH * halfH + dz * dz);
         const slope = 1 - normY;                        // 0 flat .. →1 cliff
 
-        const moist = moisture[Math.min(H - 1, ty) * W + Math.min(W - 1, tx)] ?? 0.5;
+        const mIdx = Math.min(H - 1, ty) * W + Math.min(W - 1, tx);
+        const moist = moisture[mIdx] ?? 0.5;
+        const temp = temperature[mIdx] ?? 0.5;
         const rr = hash2(fx * 1.7, fy * 2.3);
         const sJit = hash2(fx * 2.9 + 1.1, fy * 3.7 + 6.2);
+
+        // ARIDITY THINNING: hot, dry ground carries sparse xerophytic scrub, not a meadow —
+        // grass cover falls toward bare dune/hardpan as moisture drops, mirroring the terrain
+        // splat that already turns arid there (before this the billboard grass carpeted a
+        // desert bright green, fighting the sand). Heat sharpens it: a hot desert is barest,
+        // a cool dry steppe keeps more hardy tussock. Wet biomes (moist ≳ 0.32) are untouched.
+        const dryness = Math.max(0, Math.min(1, (0.32 - moist) / 0.30));  // 0 lush .. 1 arid
+        const heat = Math.max(0, Math.min(1, (temp - 0.45) / 0.25));      // 0 cool .. 1 hot
+        const keepGrass = Math.max(0.05, Math.pow(1 - dryness, 1.3 + 0.9 * heat));
 
         // ── WRACK: the tide line — shells / driftwood / dried weed on the wet sand just above
         //    the water. Densest right at the waterline, thinning up the beach — the strandline
@@ -220,6 +231,9 @@ export function buildGrassInstances(
         } else if (cat === 'flower') {
           emit(fx, fy, e, 'flower', 28 + 10 * sJit, 0.9, 0.55);                 // a bloom on a stalk only nods
         } else {
+          // Thin the grass carpet on arid ground (see keepGrass above) — dropped attempts
+          // leave bare dune/hardpan showing, so a desert reads as sparse scrub, not meadow.
+          if (keepGrass < 0.999 && hash2(fx * 5.7 + 3.1, fy * 8.3 + 1.9) > keepGrass) continue;
           const tall = hash2(fx * 4.3 + 5.5, fy * 9.1 + 2.2);                   // hero-tuft field
           emit(fx, fy, e, 'grass', (tall > 0.74 ? 29 : 23) * (0.85 + 0.4 * sJit), 0.85, 0.12);
         }

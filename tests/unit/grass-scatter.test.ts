@@ -273,8 +273,10 @@ describe('buildGrassInstances — category selection vs manifest ranges', () => 
 describe('buildGrassInstances — hard cap', () => {
   it('plateaus at the same instance count on two grids of different (large) size, and stays byte-consistent', () => {
     const manifest = makeManifest();
-    const big = buildGrassInstances(makeField(170, 170, () => 0.6, () => 0.2), manifest);
-    const bigger = buildGrassInstances(makeField(260, 260, () => 0.6, () => 0.2), manifest);
+    // Lush moisture (≥ the aridity-thinning threshold) so the grass carpet saturates the
+    // MAX_GRASS cap — the point of this test. A dry field would thin below the cap and mask it.
+    const big = buildGrassInstances(makeField(170, 170, () => 0.6, () => 0.6), manifest);
+    const bigger = buildGrassInstances(makeField(260, 260, () => 0.6, () => 0.6), manifest);
     expect(big.data.length).toBe(big.count * GRASS_INSTANCE_FLOATS);
     expect(bigger.data.length).toBe(bigger.count * GRASS_INSTANCE_FLOATS);
     expect(Number.isFinite(big.count)).toBe(true);
