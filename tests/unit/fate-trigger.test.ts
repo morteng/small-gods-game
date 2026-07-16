@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { SimClock } from '@/core/clock';
 import type { AppendedEvent, SimEvent } from '@/core/events';
-import type { FateFocus } from '@/game/fate/fate-context';
+import type { EventFocus } from '@/game/fate/fate-context';
 import { FateTrigger } from '@/game/fate/fate-trigger';
 
 let nextId = 1;
@@ -21,12 +21,14 @@ function harness(opts?: {
   const clock = new SimClock();
   let now = opts?.now ?? 1000;
   clock.now = () => now;                      // controllable clock for the test
-  const fired: FateFocus[] = [];
+  // The event path only ever produces EventFocus (the pulse path is covered in
+  // fate-pulse.test.ts), so the harness narrows to keep assertions direct.
+  const fired: EventFocus[] = [];
   const trig = new FateTrigger({
     clock,
     cooldownTicks: opts?.cooldown ?? 480,
     isReady: () => opts?.ready ?? true,
-    onTrigger: (f) => fired.push(f),
+    onTrigger: (f) => fired.push(f as EventFocus),
     rivalClaimThreshold: opts?.rivalClaimThreshold,
     rivalClaimWindowTicks: opts?.rivalClaimWindowTicks,
   });
