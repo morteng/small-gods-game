@@ -12,7 +12,7 @@
  * the read side that `GameBus` unifies with the existing command channel.
  */
 import type { GameState } from '@/core/state';
-import type { Entity, EntityId } from '@/core/types';
+import type { Entity, EntityId, NpcNeeds } from '@/core/types';
 import type { QueryOpts } from '@/world/world';
 import type { SpiritId } from '@/core/spirit';
 import type { AppendedEvent } from '@/core/events';
@@ -589,17 +589,18 @@ export function createGameQuery(deps: GameQueryDeps): GameQuery {
       if (recent.length > 0) {
         const npcById = new Map(world.query({ kind: 'npc' }).map(n => [n.id, n]));
         for (const a of recent) {
-          const ev = a.event as { type: 'answer_prayer'; spiritId: SpiritId; npcId: string };
+          const ev = a.event as { type: 'answer_prayer'; spiritId: SpiritId; npcId: string; need?: keyof NpcNeeds };
           const rival = state.spirits.get(ev.spiritId);
           const npc = npcById.get(ev.npcId);
           const faith = npc ? (npcProps(npc).beliefs[spiritId]?.faith ?? 0) : 0;
           const id = `claimed:${a.id}`;
           const surfaced = surfacedSet.has(id);
+          const subject = PRAYER_SUBJECT_TEXT[ev.need ?? 'meaning'];
           items.push({
             id,
             kind: 'threat',
             title: `${rival?.name ?? 'A rival'} answered a prayer you ignored`,
-            detail: 'A plea you left unanswered was taken up by another — that soul now leans away.',
+            detail: `A plea for ${subject} you left unanswered was taken up by another — that soul now leans away.`,
             salience: scoreAffordance({ kind: 'prayer_claimed', faith, surfaced }),
             surfaced,
             target: npc ? { kind: 'npc', npcId: ev.npcId } : { kind: 'none' },

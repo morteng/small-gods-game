@@ -13,6 +13,7 @@ import {
   defendStrategy,
   undermineStrategy,
   coexistStrategy,
+  assignRivalDomains,
 } from '@/sim/rival-spirit';
 import type { SpiritBelief } from '@/core/types';
 import type { RivalSituation } from '@/sim/rival-claims';
@@ -91,6 +92,32 @@ describe('Rival Spirit Creation', () => {
     expect(rivals1[0].name).toBe(rivals2[0].name);
     expect(rivals1[0].personality.aggression).toBe(rivals2[0].personality.aggression);
     expect(rivals1[1].color).toBe(rivals2[1].color);
+  });
+
+  it('assigns a 1–2 need-domain vector to every generated rival, deterministically', () => {
+    const settlementIds = ['village-1', 'village-2'];
+    const rivals1 = generateRivalSpirits(999, settlementIds, 2);
+    const rivals2 = generateRivalSpirits(999, settlementIds, 2);
+
+    for (const r of rivals1) {
+      expect(r.domains).toBeDefined();
+      expect(r.domains!.length).toBeGreaterThanOrEqual(1);
+      expect(r.domains!.length).toBeLessThanOrEqual(2);
+      for (const d of r.domains!) {
+        expect(['safety', 'prosperity', 'community', 'meaning']).toContain(d);
+      }
+    }
+    // Same seed ⇒ same domains, rival-by-rival.
+    expect(rivals1.map(r => r.domains)).toEqual(rivals2.map(r => r.domains));
+  });
+
+  it('assignRivalDomains itself is deterministic for a given rng seed', () => {
+    expect(assignRivalDomains(createTestRng(42))).toEqual(assignRivalDomains(createTestRng(42)));
+    // A different seed is free to (but need not) differ; just assert it stays
+    // in-range so the test isn't tautological about shape only.
+    const d = assignRivalDomains(createTestRng(7));
+    expect(d.length).toBeGreaterThanOrEqual(1);
+    expect(d.length).toBeLessThanOrEqual(2);
   });
 });
 

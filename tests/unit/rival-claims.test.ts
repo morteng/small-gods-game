@@ -10,8 +10,9 @@ import { createRng, type Rng } from '@/core/rng';
 import {
   buildRivalSituation, updatePrayerLedger, prayerAge, eligibleClaimants,
   findClaimablePrayers, PRAYER_CLAIM_WINDOW_TICKS, PRAYER_CLAIM_WARNING_TICKS,
+  DOMAIN_MISMATCH_WINDOW_MULT, domainMatches, claimWindowTicksFor,
 } from '@/sim/rival-claims';
-import type { Entity, GameMap, NpcProperties } from '@/core/types';
+import type { Entity, GameMap, NpcNeeds, NpcProperties } from '@/core/types';
 import type { Spirit, SpiritId } from '@/core/spirit';
 import type { SystemContext } from '@/core/scheduler';
 
@@ -34,13 +35,17 @@ function npc(id: string, poiId: string, patch: Partial<NpcProperties> = {}): Ent
 }
 function P(e: Entity): NpcProperties { return e.properties as unknown as NpcProperties; }
 
-function rival(id: string, power: number, settlements: string[]): Spirit {
+function rival(
+  id: string, power: number, settlements: string[],
+  domains?: readonly (keyof NpcNeeds)[],
+): Spirit {
   return {
     id, name: 'Sablethorn', sigil: '◆', color: '#a0f', isPlayer: false, power, manifestation: null,
     ai: {
       policy: 'coexist', cooldowns: {},
       personality: { aggression: 0.2, subtlety: 0.5, territoriality: 0.5, assertiveness: 0.3, jealousy: 0.3 },
       settlements, lastActionTick: 0, actionCooldown: 0,
+      domains,
     },
   };
 }
@@ -164,6 +169,106 @@ describe('prayer claim ledger', () => {
     };
     expect(build()).toEqual(build());
     expect(['rival-1', 'rival-2']).toContain(build()[0].rivalId);
+  });
+});
+
+// ── domain-matched prayer claiming (M0.b closes the Track-3 deferral) ─────────
+describe('domain-matched prayer claiming', () => {
+  it('domainMatches / claimWindowTicksFor: match, mismatch, universal-rival, subject-less plea', () => {
+    const specialist = rival('rival-1', 10, ['poi1'], ['prosperity']);
+    const universal = rival('rival-2', 10, ['poi1']); // no domains ⇒ legacy universal
+
+    expect(domainMatches(specialist, 'prosperity')).toBe(true);
+    expect(domainMatches(specialist, 'safety')).toBe(false);
+    expect(domainMatches(specialist, undefined)).toBe(true);       // subject-less plea matches anyone
+    expect(domainMatches(universal, 'safety')).toBe(true);         // no domains ⇒ matches everything
+
+    expect(claimWindowTicksFor(specialist, 'prosperity')).toBe(PRAYER_CLAIM_WINDOW_TICKS);
+    expect(claimWindowTicksFor(specialist, 'safety'))
+      .toBe(PRAYER_CLAIM_WINDOW_TICKS * DOMAIN_MISMATCH_WINDOW_MULT);
+    expect(claimWindowTicksFor(universal, 'safety')).toBe(PRAYER_CLAIM_WINDOW_TICKS);
+  });
+
+  it('a domain-matching plea is claimable at the normal window', () => {
+    const world = new World(tinyMap());
+    world.addEntity(npc('a', 'poi1', { activity: 'worship', prayerSince: 0, prayerNeed: 'prosperity' }));
+    const spirits = new Map<SpiritId, Spirit>([
+      ['player', player()],
+      ['rival-1', rival('rival-1', 10, ['poi1'], ['prosperity'])],
+    ]);
+    const claims = findClaimablePrayers(world, spirits, PRAYER_CLAIM_WINDOW_TICKS, createRng(1));
+    expect(claims).toEqual([{ npcId: 'a', rivalId: 'rival-1', poiId: 'poi1' }]);
+  });
+
+  it('a domain-mismatched plea is NOT claimable at the normal window, but IS at 2× the window', () => {
+    const world = new World(tinyMap());
+    world.addEntity(npc('a', 'poi1', { activity: 'worship', prayerSince: 0, prayerNeed: 'safety' }));
+    const spirits = new Map<SpiritId, Spirit>([
+      ['player', player()],
+      ['rival-1', rival('rival-1', 10, ['poi1'], ['prosperity'])], // does not cover 'safety'
+    ]);
+    expect(findClaimablePrayers(world, spirits, PRAYER_CLAIM_WINDOW_TICKS, createRng(1))).toEqual([]);
+    expect(findClaimablePrayers(
+      world, spirits, PRAYER_CLAIM_WINDOW_TICKS * DOMAIN_MISMATCH_WINDOW_MULT - 1, createRng(1),
+    )).toEqual([]);
+    const claims = findClaimablePrayers(
+      world, spirits, PRAYER_CLAIM_WINDOW_TICKS * DOMAIN_MISMATCH_WINDOW_MULT, createRng(1),
+    );
+    expect(claims).toEqual([{ npcId: 'a', rivalId: 'rival-1', poiId: 'poi1' }]);
+  });
+
+  it('a plea with no recorded subject stays claimable by a domain-restricted rival at the normal window', () => {
+    const world = new World(tinyMap());
+    world.addEntity(npc('a', 'poi1', { activity: 'worship', prayerSince: 0 })); // no prayerNeed
+    const spirits = new Map<SpiritId, Spirit>([
+      ['player', player()],
+      ['rival-1', rival('rival-1', 10, ['poi1'], ['safety'])],
+    ]);
+    const claims = findClaimablePrayers(world, spirits, PRAYER_CLAIM_WINDOW_TICKS, createRng(1));
+    expect(claims).toEqual([{ npcId: 'a', rivalId: 'rival-1', poiId: 'poi1' }]);
+  });
+
+  it('prefers the domain-matching plea over a mismatch when the same rival is the only claimant for both', () => {
+    // NPC ids are chosen so a plain alphabetical sort would put the MISMATCH
+    // ('a') first — proving the match/mismatch tie-break drives the order, not
+    // id-order luck.
+    const world = new World(tinyMap());
+    world.addEntity(npc('a', 'poi1', { activity: 'worship', prayerSince: 0, prayerNeed: 'safety' }));
+    world.addEntity(npc('z', 'poi1', {
+      activity: 'worship',
+      prayerSince: PRAYER_CLAIM_WINDOW_TICKS * (DOMAIN_MISMATCH_WINDOW_MULT - 1),
+      prayerNeed: 'prosperity',
+    }));
+    const spirits = new Map<SpiritId, Spirit>([
+      ['player', player()],
+      ['rival-1', rival('rival-1', 10, ['poi1'], ['prosperity'])],
+    ]);
+    const now = PRAYER_CLAIM_WINDOW_TICKS * DOMAIN_MISMATCH_WINDOW_MULT; // both cleared their window
+    const claims = findClaimablePrayers(world, spirits, now, createRng(1));
+    expect(claims.map(c => c.npcId)).toEqual(['z', 'a']);
+  });
+
+  it('end-to-end: when a rival can only afford one claim, the domain match is the one that actually lands', () => {
+    const world = new World(tinyMap());
+    world.addEntity(npc('a', 'poi1', { activity: 'worship', prayerSince: 0, prayerNeed: 'safety' }));
+    world.addEntity(npc('z', 'poi1', { activity: 'worship', prayerSince: 0, prayerNeed: 'prosperity' }));
+    // Power covers exactly ONE answer_prayer (ANSWER_PRAYER_COST = 2).
+    const spirits = new Map<SpiritId, Spirit>([
+      ['player', player()],
+      ['rival-1', rival('rival-1', 2, ['poi1'], ['prosperity'])],
+    ]);
+    const queue = new CommandQueue();
+    const rng = createRng(1);
+    const now = PRAYER_CLAIM_WINDOW_TICKS * DOMAIN_MISMATCH_WINDOW_MULT; // both pleas claimable
+    new RivalSystem(queue).tick(ctx(world, spirits, rng, now));
+
+    const log = new EventLog(new SimClock());
+    new CommandExecutorSystem(queue).tick({ world, spirits, log, clock: new SimClock(), rng, dt: 16, now } as SystemContext);
+
+    const npcById = new Map(world.query({ kind: 'npc' }).map(n => [n.id, n]));
+    expect(P(npcById.get('z')!).beliefs['rival-1']?.faith).toBeGreaterThan(0); // domain match: claimed
+    expect(P(npcById.get('a')!).activity).toBe('worship');                    // mismatch: rejected, still standing
+    expect(P(npcById.get('a')!).beliefs['rival-1']).toBeUndefined();
   });
 });
 

@@ -31,6 +31,7 @@ export function rivalToSpirit(r: RivalSpirit): Spirit {
       settlements: r.settlements,
       lastActionTick: r.lastActionTick,
       actionCooldown: r.actionCooldown,
+      domains: r.domains,
     },
   };
 }
@@ -55,5 +56,6 @@ export function spiritToRivalView(s: Spirit): RivalSpirit | null {
     createdTick: 0,
     lastActionTick: s.ai.lastActionTick ?? 0,
     actionCooldown: s.ai.actionCooldown ?? DEFAULT_COOLDOWN,
+    domains: s.ai.domains,
   };
 }

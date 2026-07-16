@@ -2,10 +2,14 @@
  * Rival Spirit System — spirits that compete with the player for believers.
  */
 import type { SpiritId } from '@/core/spirit';
-import type { SpiritBelief } from '@/core/types';
+import type { NpcNeeds, SpiritBelief } from '@/core/types';
 import type { RivalSituation } from '@/sim/rival-claims';
 import { PLAYER_SPIRIT_ID } from '@/sim/believers';
 import { WHISPER_COST, OMEN_COST, MIRACLE_COST } from '@/sim/divine-actions';
+
+/** The four prayer subjects, in a fixed order — the pool `assignRivalDomains`
+ *  shuffles deterministically. Mirrors `NpcNeeds`' field order. */
+const NEED_DOMAINS: readonly (keyof NpcNeeds)[] = ['safety', 'prosperity', 'community', 'meaning'];
 
 export type RivalStrategy = 'expand' | 'defend' | 'undermine' | 'coexist';
 
@@ -32,6 +36,26 @@ export interface RivalSpirit {
   lastActionTick: number;
   actionCooldown: number;
   actionHistory?: RivalAction[];
+  /** Need-domain affinity (Track 3 prayer domain-matching) — see the field of the
+   *  same name on `Spirit['ai']` (`src/core/spirit.ts`) for the semantics. Optional
+   *  so a `RivalSpirit` view reconstructed from a legacy Spirit (no stored
+   *  domains) degrades to universal, exactly like the stored field. */
+  domains?: readonly (keyof NpcNeeds)[];
+}
+
+/** Deterministically pick 1–2 need-domains for a new rival from `rng` — the SAME
+ *  closure-scoped rng already threaded through `createRivalSpirit` (a seeded LCG
+ *  derived from `worldSeed` in `generateRivalSpirits`, never `Math.random`). A
+ *  Fisher-Yates shuffle of the 4 needs, then a length draw, keeps every need
+ *  reachable and the choice reproducible for a given seed + call order. */
+export function assignRivalDomains(rng: () => number): readonly (keyof NpcNeeds)[] {
+  const pool = [...NEED_DOMAINS];
+  for (let i = pool.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  const count = 1 + Math.floor(rng() * 2); // 1 or 2 domains
+  return pool.slice(0, count);
 }
 
 export interface RivalAction {
@@ -50,7 +74,13 @@ export function createRivalSpirit(
   id: SpiritId,
   name: string,
   rng: () => number,
-  options: { title?: string; personality?: Partial<RivalPersonality>; settlements?: string[]; color?: string } = {},
+  options: {
+    title?: string;
+    personality?: Partial<RivalPersonality>;
+    settlements?: string[];
+    color?: string;
+    domains?: readonly (keyof NpcNeeds)[];
+  } = {},
 ): RivalSpirit {
   const personality: RivalPersonality = {
     aggression: 0.3 + rng() * 0.4,
@@ -75,6 +105,10 @@ export function createRivalSpirit(
     createdTick: 0,
     lastActionTick: 0,
     actionCooldown: 100 + Math.floor(rng() * 200),
+    // Domain draw runs AFTER every other rng() call above so existing fields
+    // (power/color/cooldown/personality) keep drawing in their old order —
+    // inserting it earlier would silently reroll every downstream value.
+    domains: options.domains ?? assignRivalDomains(rng),
   };
 }
 

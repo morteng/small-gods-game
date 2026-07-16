@@ -1,4 +1,4 @@
-import type { EntityId } from '@/core/types';
+import type { EntityId, NpcNeeds } from '@/core/types';
 import type { RivalPersonality } from '@/sim/rival-spirit';
 
 export type SpiritId = string;
@@ -32,5 +32,11 @@ export interface Spirit {
      *  anchor `RivalSystem` diffs against to detect "losing ground". */
     followerBaseline?: Record<string, number>;
     baselineTick?: number;
+    /** Need-domain affinity (Track 3 deferral, closed by M0 `prayerNeed`): the
+     *  need(s) this rival specializes in answering. Assigned deterministically at
+     *  creation (see `assignRivalDomains`, `src/sim/rival-spirit.ts`). Absent or
+     *  empty ⇒ legacy/universal — the rival competes for every prayer subject
+     *  exactly as before this field existed (old saves degrade here for free). */
+    domains?: readonly (keyof NpcNeeds)[];
   };
 }

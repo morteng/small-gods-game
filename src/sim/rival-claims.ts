@@ -18,16 +18,24 @@
  *     already use (`answer_prayer`), so belief shifts toward the rival via the
  *     existing `answerPrayer` loop with no new write path.
  *
- * The claim rule (eligibility) is deliberately simple and defensible: since
- * rivals carry no domain vector today and answering a plea is the *universal*
- * divine competency (the player's `answer_prayer` is itself un-domain-gated), the
- * "compatible domain" test collapses to TERRITORIAL PRESENCE — a rival may only
- * claim pleas in a settlement it holds (`ai.settlements`) and must be able to
- * afford the answer. Prayers in settlements no rival holds are never poachable.
+ * The claim rule (eligibility) is TERRITORIAL PRESENCE plus a DOMAIN WINDOW
+ * (M0.b closed the "rivals can domain-match their claims" deferral): a rival may
+ * only claim pleas in a settlement it holds (`ai.settlements`) and must be able
+ * to afford the answer — presence + affordability is still the hard gate, never
+ * relaxed by domain. On TOP of that, each rival carries an optional need-domain
+ * affinity (`ai.domains`, assigned once at creation — see `assignRivalDomains`,
+ * `src/sim/rival-spirit.ts`) scoring how it "specializes." A plea whose
+ * `prayerNeed` (M0.b) matches one of the rival's domains is claimable at the
+ * normal `PRAYER_CLAIM_WINDOW_TICKS`; a mismatched plea only becomes claimable to
+ * that SAME rival after `DOMAIN_MISMATCH_WINDOW_MULT` × the window — neglect
+ * eventually invites ANY present, funded rival, but a domain match gets there
+ * first. Rivals with no `domains` (legacy saves, or a rival never given one) and
+ * pleas with no `prayerNeed` (legacy worship / scripted) both read as "matches
+ * everyone" — the universal fallback from before this feature never regresses.
  */
 import type { World } from '@/world/world';
 import type { Spirit, SpiritId } from '@/core/spirit';
-import type { Entity, NpcProperties, SpiritBelief } from '@/core/types';
+import type { Entity, NpcNeeds, NpcProperties, SpiritBelief } from '@/core/types';
 import type { Rng } from '@/core/rng';
 import { forEachNpc, npcProps } from '@/world/npc-helpers';
 import { BELIEVER_THRESHOLD, PLAYER_SPIRIT_ID } from '@/sim/believers';
@@ -42,6 +50,13 @@ import { TICKS_PER_DAY } from '@/core/calendar';
  *  unchanged from the compressed-clock era (it was 120 of the old 240-tick
  *  day); only the tick denomination moved. */
 export const PRAYER_CLAIM_WINDOW_TICKS = TICKS_PER_DAY / 2;
+
+/** A plea outside a rival's need-domain still becomes claimable to it — just
+ *  later: `DOMAIN_MISMATCH_WINDOW_MULT × PRAYER_CLAIM_WINDOW_TICKS` (a full
+ *  fiction-day of neglect) instead of the normal half-day. Keeps the universal
+ *  fallback (no plea rots forever) while a domain-matched rival gets there
+ *  first. Expressed as a multiplier of the tick constant, never a raw literal. */
+export const DOMAIN_MISMATCH_WINDOW_MULT = 2;
 
 /** A plea older than this (0.6 × the window) is "contested" — surfaced to the
  *  player as a threat while there is still time to answer before the loss. */
@@ -181,7 +196,9 @@ export function isRivalPresent(spirit: Spirit, poiId: string | undefined): boole
 }
 
 /** Rivals eligible to claim a given worshipper: present in its settlement AND able
- *  to afford the answer. Returned in a deterministic (id-sorted) order. */
+ *  to afford the answer. Returned in a deterministic (id-sorted) order. This is
+ *  the PRESENCE gate only — domain affinity never widens or narrows it, it only
+ *  changes WHEN (see `claimWindowTicksFor`) a present, funded rival may act. */
 export function eligibleClaimants(npc: Entity, spirits: Map<SpiritId, Spirit>): SpiritId[] {
   const poi = npcProps(npc).homePoiId;
   const out: SpiritId[] = [];
@@ -192,6 +209,28 @@ export function eligibleClaimants(npc: Entity, spirits: Map<SpiritId, Spirit>): 
   return out;
 }
 
+/** Does `spirit`'s need-domain affinity cover `need`? A rival with no `domains`
+ *  (legacy save, or never assigned one) is universal — matches everything, same
+ *  as before this field existed. A plea with no `prayerNeed` (legacy worship /
+ *  scripted, `undefined`) likewise matches every rival — it has no subject to
+ *  mismatch against. */
+export function domainMatches(spirit: Spirit, need: keyof NpcNeeds | undefined): boolean {
+  if (need === undefined) return true;
+  const domains = spirit.ai?.domains;
+  if (!domains || domains.length === 0) return true;
+  return domains.includes(need);
+}
+
+/** How long a plea with subject `need` must stand before `spirit` may claim it:
+ *  the normal window on a domain match (or no domain/no subject to check), else
+ *  `DOMAIN_MISMATCH_WINDOW_MULT ×` that — a rival still gets to every neglected
+ *  soul eventually, just later outside its specialty. */
+export function claimWindowTicksFor(spirit: Spirit, need: keyof NpcNeeds | undefined): number {
+  return domainMatches(spirit, need)
+    ? PRAYER_CLAIM_WINDOW_TICKS
+    : PRAYER_CLAIM_WINDOW_TICKS * DOMAIN_MISMATCH_WINDOW_MULT;
+}
+
 export interface PrayerClaim {
   npcId: string;
   rivalId: SpiritId;
@@ -200,14 +239,20 @@ export interface PrayerClaim {
 
 /**
  * Every claimable plea this tick, each assigned to exactly one eligible rival.
- * A plea is claimable once its age clears `PRAYER_CLAIM_WINDOW_TICKS`. When more
- * than one rival is eligible, the claimant is chosen with `ctx.rng` (deterministic
- * / replay-safe); a single eligible rival is chosen without touching the RNG so
- * the common case never perturbs the shared stream.
+ * A plea is claimable once its age clears its per-rival domain window (the base
+ * `PRAYER_CLAIM_WINDOW_TICKS` on a domain match, `DOMAIN_MISMATCH_WINDOW_MULT×`
+ * that otherwise — see `claimWindowTicksFor`). Among the rivals actually
+ * eligible THIS tick, a domain match is always preferred over a mismatch that
+ * only cleared its longer window; ties within that preferred set are broken
+ * with `ctx.rng` (deterministic / replay-safe), and a single candidate is chosen
+ * without touching the RNG so the common case never perturbs the shared stream.
  *
  * A rival may be assigned several claims in one tick even if it can only afford
  * one — the surplus commands are safely rejected (`insufficient_power`) at
  * execution, so there is no double-spend and no need to pre-reserve power here.
+ * Domain-matched claims sort BEFORE mismatched ones in the returned/emitted
+ * order, so when a rival's power can only cover one of its assigned claims this
+ * tick, the specialty plea is the one that actually lands.
  */
 export function findClaimablePrayers(
   world: World,
@@ -215,16 +260,24 @@ export function findClaimablePrayers(
   now: number,
   rng: Rng,
 ): PrayerClaim[] {
-  const claims: PrayerClaim[] = [];
+  const claims: (PrayerClaim & { matched: boolean })[] = [];
   forEachNpc(world, (e) => {
     const p = npcProps(e);
     if (p.activity !== 'worship') return;
-    if (prayerAge(p, now) < PRAYER_CLAIM_WINDOW_TICKS) return;
-    const eligible = eligibleClaimants(e, spirits);
-    if (eligible.length === 0) return;
-    const rivalId = eligible.length === 1 ? eligible[0] : eligible[rng.nextInt(eligible.length)];
-    claims.push({ npcId: e.id, rivalId, poiId: p.homePoiId });
+    const age = prayerAge(p, now);
+    if (age < PRAYER_CLAIM_WINDOW_TICKS) return;   // base window: nobody clears sooner
+    const need = p.prayerNeed;
+    const candidates = eligibleClaimants(e, spirits)
+      .filter(id => age >= claimWindowTicksFor(spirits.get(id)!, need));
+    if (candidates.length === 0) return;
+    const matching = candidates.filter(id => domainMatches(spirits.get(id)!, need));
+    const pool = matching.length > 0 ? matching : candidates;
+    const rivalId = pool.length === 1 ? pool[0] : pool[rng.nextInt(pool.length)];
+    claims.push({ npcId: e.id, rivalId, poiId: p.homePoiId, matched: matching.includes(rivalId) });
   });
-  claims.sort((a, b) => (a.npcId < b.npcId ? -1 : a.npcId > b.npcId ? 1 : 0));
-  return claims;
+  claims.sort((a, b) => {
+    if (a.matched !== b.matched) return a.matched ? -1 : 1;
+    return a.npcId < b.npcId ? -1 : a.npcId > b.npcId ? 1 : 0;
+  });
+  return claims.map(({ matched: _matched, ...c }) => c);
 }
