@@ -52,19 +52,40 @@ export function addAbutments(
  *  pier parts (they'd be buried in the spandrel). */
 export function archBridge(opts: {
   spanTiles: number; roadTiles: number; bays: number; riseM: number;
-  style: 'round' | 'segmental' | 'pointed'; parapet: boolean; camberM: number;
+  style: 'round' | 'segmental' | 'pointed'; parapet: 'none' | 'both' | 'rails'; camberM: number;
+  /** Multi-bay TIMBER composition (the two-rib TTI reference): one hump-backed deck PER bay
+   *  (camber returns to 0 at each bay joint, so the deck seats on the structure instead of
+   *  floating over the mid-span cusp) and a stout pier at each joint. Masonry keeps the single
+   *  continuous deck — a stone viaduct has one road profile, not a hump per arch. */
+  perBayHump?: boolean;
 }): Record<string, BridgePart> {
-  const { spanTiles, roadTiles, bays, riseM, style, parapet, camberM } = opts;
+  const { spanTiles, roadTiles, bays, riseM, style, parapet, camberM, perBayHump } = opts;
   const bay = spanTiles / bays;
   const y0 = 1;                       // deck/arch band starts 1 tile in (montage breathing room)
   const deckBaseZM = riseM + ARCH_RING_M;   // deck underside sits on the arch crown
-  const parts: Record<string, BridgePart> = {
-    deck: {
+  const parts: Record<string, BridgePart> = {};
+  if (perBayHump && bays >= 2) {
+    for (let i = 0; i < bays; i++) {
+      parts[i === 0 ? 'deck' : `deck${i + 1}`] = {
+        type: 'deck', at: { x: 0.5 + i * bay, y: y0 }, size: { w: Math.ceil(bay), h: roadTiles },
+        params: { lengthM: bay * M, widthM: roadTiles * M, thicknessM: 0.6, dir: 'ew',
+          parapet, baseZM: deckBaseZM, camberM },
+      };
+    }
+    for (let j = 1; j < bays; j++) {   // a stout pier lands each bay joint
+      const pw = 0.7, pt = pw / M;
+      parts[`jointpier${j}`] = {
+        type: 'pier', at: { x: 0.5 + j * bay - pt / 2, y: y0 + roadTiles / 2 - pt / 2 }, size: { w: 1, h: 1 },
+        params: { heightM: deckBaseZM, widthM: pw, batter: 0 },
+      };
+    }
+  } else {
+    parts.deck = {
       type: 'deck', at: { x: 0.5, y: y0 }, size: { w: spanTiles, h: roadTiles },
       params: { lengthM: spanTiles * M, widthM: roadTiles * M, thicknessM: 0.6, dir: 'ew',
-        parapet: parapet ? 'both' : 'none', baseZM: deckBaseZM, camberM },
-    },
-  };
+        parapet, baseZM: deckBaseZM, camberM },
+    };
+  }
   for (let i = 0; i < bays; i++) {    // arches abut edge-to-edge → continuous spandrel wall
     parts[`arch${i + 1}`] = {
       type: 'arch_span', at: { x: 0.5 + i * bay, y: y0 }, size: { w: Math.ceil(bay), h: roadTiles },
@@ -85,7 +106,7 @@ export const BRIDGE_RECIPES: Record<string, BridgeRecipe> = {
     ttiSubject: 'medieval dressed-stone road bridge with THREE segmental arches spanning a river, ' +
       'a gently hump-backed deck carried on a solid filled-spandrel wall, low stone parapets along ' +
       'both edges, and pointed cutwater piers between the arches; grey ashlar masonry',
-    build: () => archBridge({ spanTiles: 12, roadTiles: 2, bays: 3, riseM: 3, style: 'segmental', parapet: true, camberM: 0.8 }),
+    build: () => archBridge({ spanTiles: 12, roadTiles: 2, bays: 3, riseM: 3, style: 'segmental', parapet: 'both', camberM: 0.8 }),
   },
   // Timber arch footbridge — a graceful single-span wooden "moon" bridge: a strongly hump-backed
   // plank deck carried on one round timber arch, low post-and-rail parapets, landing on stone
@@ -96,7 +117,7 @@ export const BRIDGE_RECIPES: Record<string, BridgeRecipe> = {
     ttiSubject: 'a graceful single-arch wooden footbridge over a stream, one gently curved timber ' +
       'arch carrying a strongly hump-backed plank deck, slender post-and-rail wooden parapets along ' +
       'both edges, landing on low grey stone footing blocks at each bank; weathered brown timber',
-    build: () => archBridge({ spanTiles: 5, roadTiles: 1, bays: 1, riseM: 1.8, style: 'round', parapet: true, camberM: 1.2 }),
+    build: () => archBridge({ spanTiles: 5, roadTiles: 1, bays: 1, riseM: 1.8, style: 'round', parapet: 'rails', camberM: 1.2 }),
   },
   // Timber beam bridge: the everyday small wooden crossing — a low, flat plank deck on beams
   // between two stone footings, simple rails, no arch and no mid-stream piles.
@@ -110,27 +131,47 @@ export const BRIDGE_RECIPES: Record<string, BridgeRecipe> = {
     build: () => {
       const spanTiles = 4, roadTiles = 1, y0 = 1, deckZ = 1.4;
       const parts: Record<string, BridgePart> = {
-        deck: { type: 'deck', at: { x: 0.5, y: y0 }, size: { w: spanTiles, h: roadTiles }, params: { lengthM: spanTiles * M, widthM: roadTiles * M, thicknessM: 0.5, dir: 'ew', parapet: 'both', baseZM: deckZ, camberM: 0.15 } },
+        deck: { type: 'deck', at: { x: 0.5, y: y0 }, size: { w: spanTiles, h: roadTiles }, params: { lengthM: spanTiles * M, widthM: roadTiles * M, thicknessM: 0.5, dir: 'ew', parapet: 'rails', baseZM: deckZ, camberM: 0.15 } },
       };
       addAbutments(parts, 0.5, 0.5 + spanTiles, y0 + roadTiles / 2, roadTiles, deckZ);
       return parts;
     },
   },
-  // Timber trestle: a plank deck on driven piles, near-vertical, no masonry arch.
+  // Timber trestle: a plank deck on BENTS — pile PAIRS at the deck edges whose chunky heads
+  // stand proud of the deck, a cap beam across each bent under the deck. The single-centreline
+  // stick-per-bent it replaced read as a dock on stilts (spindly, no visible structure).
   'timber-trestle': {
-    desc: 'timber trestle footbridge (driven piles, plank deck)',
+    desc: 'timber trestle footbridge (bents of paired piles, proud pile heads, cap beams, plank deck)',
     walls: 'timber',
-    ttiSubject: 'medieval timber trestle footbridge, a flat plank deck carried on three bents of ' +
-      'driven vertical timber piles, no masonry and no arches, sitting low over the water; ' +
-      'weathered brown wood',
+    ttiSubject: 'medieval timber trestle footbridge, a flat plank deck carried on three bents, ' +
+      'each bent a PAIR of stout driven timber piles at the deck edges with a heavy cap beam ' +
+      'across under the deck, the square pile heads standing proud above the deck, no masonry ' +
+      'and no arches, sitting low over the water; weathered brown wood',
     build: () => {
       const spanTiles = 8, roadTiles = 1, y0 = 1, pierH = 3;
+      const deckT = 0.4, roadM = roadTiles * M;
       const parts: Record<string, BridgePart> = {
-        // The plank deck RIDES ON the pile tops (baseZM = pier height), so the piles hang below
+        // The plank deck RIDES ON the bents (baseZM = pier height), so the piles hang below
         // it like a real trestle rather than sticking up through it.
-        deck: { type: 'deck', at: { x: 0.5, y: y0 }, size: { w: spanTiles, h: roadTiles }, params: { lengthM: spanTiles * M, widthM: roadTiles * M, thicknessM: 0.4, dir: 'ew', parapet: 'none', baseZM: pierH } },
+        deck: { type: 'deck', at: { x: 0.5, y: y0 }, size: { w: spanTiles, h: roadTiles }, params: { lengthM: spanTiles * M, widthM: roadM, thicknessM: deckT, dir: 'ew', parapet: 'none', baseZM: pierH } },
       };
-      for (let i = 1; i <= 3; i++) parts[`pier${i}`] = { type: 'pier', at: { x: i * 2 - 0.5, y: y0 }, size: { w: 1, h: 1 }, params: { heightM: pierH, widthM: 0.6, batter: 0.05 } };
+      const pileW = 0.35, pileT = pileW / M;               // stout pile, in tiles
+      const edgeOff = roadTiles / 2 - pileT / 2;           // pile centreline on the deck edge
+      for (let i = 1; i <= 3; i++) {
+        const bx = i * 2 + 0.5, cy = y0 + roadTiles / 2;   // bent centre (tiles)
+        for (const [tag, s] of [['a', -1], ['b', 1]] as const) {
+          parts[`pile${i}${tag}`] = {
+            type: 'pier', at: { x: bx - pileT / 2, y: cy + s * edgeOff - pileT / 2 }, size: { w: 1, h: 1 },
+            // Piles run bed → PROUD of the deck (head top ≈ deck top + 0.35 m), capped square.
+            params: { heightM: pierH + deckT + 0.35, widthM: pileW, batter: 0, headM: 0.22 },
+          };
+        }
+        // Cap beam: a thin ns "deck" slab across the bent, right under the deck planks.
+        parts[`cap${i}`] = {
+          type: 'deck', at: { x: bx - 0.5, y: cy - roadTiles / 2 - 0.15 }, size: { w: 1, h: roadTiles + 0.3 },
+          params: { lengthM: roadM + 0.5, widthM: 0.35, thicknessM: 0.3, dir: 'ns', parapet: 'none', baseZM: pierH - 0.3 },
+        };
+      }
       addAbutments(parts, 0.5, 0.5 + spanTiles, y0 + roadTiles / 2, roadTiles, pierH);
       return parts;
     },
@@ -142,7 +183,7 @@ export const BRIDGE_RECIPES: Record<string, BridgeRecipe> = {
     ttiSubject: 'narrow single-arch stone packhorse bridge over a brook, one round arch, a steep ' +
       'strongly hump-backed cobbled deck only a single file wide, low stone parapets, ' +
       'no interior piers; grey fieldstone',
-    build: () => archBridge({ spanTiles: 5, roadTiles: 1, bays: 1, riseM: 2.5, style: 'round', parapet: true, camberM: 1.0 }),
+    build: () => archBridge({ spanTiles: 5, roadTiles: 1, bays: 1, riseM: 2.5, style: 'round', parapet: 'both', camberM: 1.0 }),
   },
 };
 

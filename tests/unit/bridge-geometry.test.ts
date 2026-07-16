@@ -56,6 +56,25 @@ describe('bridge parts compile to geometry', () => {
     for (const b of boxes) expect(b.yaw).toBeCloseTo(45, 3);
   });
 
+  it("parapet:'rails' composes an OPEN post-and-rail — rails per side plus PROUD posts (WCV 101)", () => {
+    // The wooden-bridge edge every TTI reference draws: a top handrail + mid rail per side,
+    // square posts whose heads stand proud of the top rail. A flat 8 m deck = 1 slab + 2 sides
+    // × 2 rails + posts on both sides.
+    const railed = compile({ d: { type: 'deck', size: { w: 4, h: 4 }, params: { lengthM: 8, widthM: 3, thicknessM: 0.5, parapet: 'rails' } } });
+    const boxes = prims(railed, 'box') as any[];
+    const rails = boxes.filter((b) => b.size[2] <= 0.1 / 2 + 1e-6);        // thin horizontal bars
+    const posts = boxes.filter((b) => Math.abs(b.size[0] - b.size[1]) < 1e-6 && b.size[2] > 0.4);
+    expect(rails.length).toBe(4);                                          // 2 sides × (top + mid)
+    expect(posts.length).toBeGreaterThanOrEqual(2 * 2);                    // ≥2 stations, both sides
+    // Post heads stand PROUD of the top rail (post top above rail top).
+    const postTop = Math.max(...posts.map((b) => b.at[2] + b.size[2]));
+    const railTop = Math.max(...rails.map((b) => b.at[2] + b.size[2]));
+    expect(postTop).toBeGreaterThan(railTop);
+    // Additive: 'none' and 'both' are byte-identical to the pre-rails deck.
+    const plain = compile({ d: { type: 'deck', size: { w: 4, h: 4 }, params: { lengthM: 8, widthM: 3, thicknessM: 0.5, parapet: 'none' } } });
+    expect(prims(plain, 'box').length).toBe(1);
+  });
+
   it('a pier IS a square Column; batter is a TRUE taper (top half-width shrinks)', () => {
     const straight = compile({ p: { type: 'pier', size: { w: 1, h: 1 }, params: { heightM: 4, widthM: 1, batter: 0 } } });
     const battered = compile({ p: { type: 'pier', size: { w: 1, h: 1 }, params: { heightM: 4, widthM: 1, batter: 0.3 } } });
@@ -67,6 +86,18 @@ describe('bridge parts compile to geometry', () => {
     expect(sCol.topRadius).toBeCloseTo(sCol.radius, 6);
     expect(bCol.topRadius).toBeLessThan(bCol.radius);
     expect(bCol.topRadius).toBeCloseTo(bCol.radius * 0.7, 6);
+  });
+
+  it('pier.headM caps the pile with a chunky proud head; unset stays a bare column (WCV 101)', () => {
+    const bare = compile({ p: { type: 'pier', size: { w: 1, h: 1 }, params: { heightM: 3, widthM: 0.35 } } });
+    const headed = compile({ p: { type: 'pier', size: { w: 1, h: 1 }, params: { heightM: 3, widthM: 0.35, headM: 0.22 } } });
+    expect(prims(bare, 'box').length).toBe(0);                 // byte-identical historic pier
+    const head = prims(headed, 'box')[0] as any;
+    expect(head).toBeDefined();
+    const shaft = prims(headed, 'column')[0] as any;
+    // Head sits ON the shaft top and overhangs it on every side (1.4× the shaft width).
+    expect(head.at[2]).toBeCloseTo(shaft.height, 6);
+    expect(head.size[0]).toBeCloseTo(shaft.radius * 2 * 1.4, 6);
   });
 
   it('arch_span emits an arch prim, curved (round) by default', () => {

@@ -159,16 +159,61 @@ export function buildBridgeObject(spec: CrossingSpec, opts: SpanEntityOptions = 
   // the SAME `RoadState.surfaceMaterial` the ribbon paints with (resolved by the caller from
   // `edgeRoadProfile`), so the cobble that arrives at the bank is the cobble that crosses.
   const roadway = opts.roadSurfaceFor?.(edgeIdOf(spec.id));
-  const parts: Record<string, NonNullable<Blueprint['parts']>[string]> = {
-    deck: {
+  // Edge treatment by class: masonry gets solid parapet walls; the default timber arch gets the
+  // open post-and-rail every wooden reference draws; the crude log-plank trestle has no rails at
+  // all — its proud pile heads are the only thing breaking the deck line.
+  const parapet = widthT < 1 ? 'none' : stone ? 'both' : arched ? 'rails' : 'none';
+  // Arch bays springing from the bed to the deck crown: masonry composes as a filled-spandrel
+  // arcade (short bays), timber as fewer, longer round ribs — usually ONE per crossing.
+  const bays = arched
+    ? Math.max(1, Math.min(8, Math.round(spanLen / (stone ? TILES_PER_ARCH : TILES_PER_ARCH_TIMBER))))
+    : 0;
+  // Multi-bay TIMBER (the two-rib TTI reference): one hump-backed deck PER bay — the camber
+  // returns to 0 at each bay joint so the deck seats on the structure there instead of floating
+  // a full hump above the mid-span cusp — with a stout timber pier landing each joint. Masonry
+  // keeps the single continuous deck (a stone viaduct has one road profile, not a hump per arch).
+  const perBay = arched && !stone && bays >= 2;
+  const parts: Record<string, NonNullable<Blueprint['parts']>[string]> = {};
+  if (perBay) {
+    const bayT = spanLen / bays;
+    const bayCamberM = Math.min(1.2, bayT * METRES_PER_TILE * 0.12);
+    for (let i = 0; i < bays; i++) {
+      // Outer bays run 0.5 tile past the clear span so the deck seats onto both banks (the same
+      // +1 tile the single-deck path spreads over its whole length).
+      const ext0 = i === 0 ? 0.5 : 0, ext1 = i === bays - 1 ? 0.5 : 0;
+      const bLen = bayT + ext0 + ext1;
+      const uC = ((i + 0.5) - bays / 2) * bayT + (ext1 - ext0) / 2;   // bay-deck centre along the span
+      const px = cxL + uC * cs, py = cyL + uC * sn;
+      const bw = Math.max(1, Math.ceil(bLen * ac + widthT * as));
+      const bh = Math.max(1, Math.ceil(bLen * as + widthT * ac));
+      parts[i === 0 ? 'deck' : `deck${i + 1}`] = {
+        type: 'deck', at: { x: px - bw / 2, y: py - bh / 2 }, size: { w: bw, h: bh },
+        params: {
+          lengthM: bLen * METRES_PER_TILE, widthM: widthT * METRES_PER_TILE, thicknessM: 0.6,
+          yawDeg, parapet, baseZM: clearZM, camberM: bayCamberM,
+          ...(roadway ? { roadway } : {}),
+        },
+      };
+    }
+    for (let j = 1; j < bays; j++) {
+      const u = (j - bays / 2) * bayT;
+      const px = cxL + u * cs, py = cyL + u * sn;
+      const pw = 0.7, pt = pw / METRES_PER_TILE;
+      parts[`jointpier${j}`] = {
+        type: 'pier', at: { x: px - pt / 2, y: py - pt / 2 }, size: { w: 1, h: 1 },
+        params: { heightM: clearZM, widthM: pw, batter: 0 },
+      };
+    }
+  } else {
+    parts.deck = {
       type: 'deck', at: { x: cxL - fpW / 2, y: cyL - fpH / 2 }, size: { w: fpW, h: fpH },
       params: {
         lengthM: lengthT * METRES_PER_TILE, widthM: widthT * METRES_PER_TILE, thicknessM: 0.6,
-        yawDeg, parapet: widthT >= 1 ? 'both' : 'none', baseZM: clearZM, camberM,
+        yawDeg, parapet, baseZM: clearZM, camberM,
         ...(roadway ? { roadway } : {}),
       },
-    },
-  };
+    };
+  }
 
   // Abutments — a battered masonry end-block at each bank grounds the span (P1 TTI finding: without
   // them the deck ends flush at the footprint edge and reads as a floating slab). They sit at the
@@ -188,9 +233,6 @@ export function buildBridgeObject(spec: CrossingSpec, opts: SpanEntityOptions = 
   }
 
   if (arched) {
-    // Arch bays springing from the bed to the deck crown: masonry composes as a filled-spandrel
-    // arcade (short bays), timber as fewer, longer round ribs — usually ONE per crossing.
-    const bays = Math.max(1, Math.min(8, Math.round(spanLen / (stone ? TILES_PER_ARCH : TILES_PER_ARCH_TIMBER))));
     const bayT = spanLen / bays;
     const riseM = Math.max(0.8, clearZM - ARCH_RING_M);   // crown meets the deck underside
     for (let i = 0; i < bays; i++) {
@@ -206,14 +248,28 @@ export function buildBridgeObject(spec: CrossingSpec, opts: SpanEntityOptions = 
       };
     }
   } else {
-    // Log-plank trestle (the crudest tier): driven piles every ~2 tiles, bed to deck underside.
-    const piles = Math.max(2, Math.round(spanLen / 2));
-    for (let i = 0; i <= piles; i++) {
-      const t = i / piles - 0.5;                          // −0.5 … +0.5 along the span
+    // Log-plank trestle (the crudest tier): BENTS every ~2 tiles — a pile PAIR at the deck
+    // edges whose chunky heads stand proud of the deck, with a cap beam across under it. The
+    // single centreline pile it replaced read as a dock on stilts.
+    const bents = Math.max(2, Math.round(spanLen / 2));
+    const pileW = 0.35, pileT = pileW / METRES_PER_TILE;
+    const edgeOff = widthT / 2 - pileT / 2;               // pile centreline on the deck edge
+    const deckT = 0.6;                                    // the deck's thicknessM above
+    for (let i = 0; i <= bents; i++) {
+      const t = i / bents - 0.5;                          // −0.5 … +0.5 along the span
       const px = cxL + t * spanLen * cs, py = cyL + t * spanLen * sn;
-      parts[`pile${i}`] = {
-        type: 'pier', at: { x: px - 0.5, y: py - 0.5 }, size: { w: 1, h: 1 },
-        params: { heightM: clearZM, widthM: 0.6, batter: 0.05 },
+      for (const [tag, s] of [['a', -1], ['b', 1]] as const) {
+        // Cross-offset ±edgeOff perpendicular to the span (rotate the local (0,±off) by yaw).
+        const ox = -s * edgeOff * sn, oy = s * edgeOff * cs;
+        parts[`pile${i}${tag}`] = {
+          type: 'pier', at: { x: px + ox - pileT / 2, y: py + oy - pileT / 2 }, size: { w: 1, h: 1 },
+          params: { heightM: clearZM + deckT + 0.35, widthM: pileW, batter: 0, headM: 0.22 },
+        };
+      }
+      // Cap beam: a thin deck slab across the bent (yawed 90° off the span), under the planks.
+      parts[`cap${i}`] = {
+        type: 'deck', at: { x: px - 0.5, y: py - 0.5 }, size: { w: 1, h: 1 },
+        params: { lengthM: widthT * METRES_PER_TILE + 0.5, widthM: 0.35, thicknessM: 0.3, yawDeg: yawDeg + 90, parapet: 'none', baseZM: clearZM - 0.3 },
       };
     }
   }

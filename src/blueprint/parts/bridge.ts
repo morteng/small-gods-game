@@ -54,6 +54,19 @@ function deckYaw(params: Record<string, unknown>): number {
 /** Thickness (m) of the roadway course laid on the deck — a surface course, not a second slab. */
 const ROADWAY_COURSE_M = 0.12;
 
+// Open post-and-rail parapet (`parapet:'rails'`) — the timber-bridge edge every TTI reference
+// draws: square posts whose heads stand PROUD of a top handrail, with a mid rail below. Rails are
+// per-segment boxes so they follow the deck camber the way the solid parapet does; posts are
+// placed independently along the span, their feet on the parabola at their own station.
+const RAIL_POST_W_M = 0.18;      // square post side
+const RAIL_POST_H_M = 1.0;       // post height above the deck top (proud of the top rail)
+const RAIL_POST_SPACING_M = 1.8; // one post roughly every this much span
+const RAIL_BAR_T_M = 0.12;       // rail thickness across the deck edge
+const RAIL_TOP_Z_M = 0.75;       // top handrail underside above the deck top
+const RAIL_TOP_H_M = 0.1;
+const RAIL_MID_Z_M = 0.35;       // mid rail underside above the deck top
+const RAIL_MID_H_M = 0.08;
+
 /** The road's running surface → the deck course that carries it (material + coursing). A masonry
  *  deck's own stone is the STRUCTURE; the road ON it is a distinct surface, and without one a
  *  bridge reads as a bare slab with the road stopping dead at each bank (the shipped bug). The
@@ -85,7 +98,9 @@ export const deckPartType: PartType = {
     // (not `number`) so it stays UNSET when a caller passes only `dir` — a number default would be
     // injected and shadow the dir-based bearing.
     yawDeg: { kind: 'any', doc: 'true bank→bank bearing °, CCW from +x; overrides dir' },
-    parapet: { kind: 'enum', values: ['none', 'both'], default: 'none' },
+    // `both` = solid masonry parapet walls; `rails` = open post-and-rail (timber bridges — posts
+    // proud of a top handrail + mid rail, the profile every wooden TTI reference draws).
+    parapet: { kind: 'enum', values: ['none', 'both', 'rails'], default: 'none' },
     // The ROAD the deck carries (a `RoadState.surfaceMaterial`). Laid as a thin surface course
     // between the parapets, so the bridge visibly carries the road across instead of presenting a
     // bare structural slab. `any` (not enum) so an unset caller injects NO default and keeps the
@@ -105,8 +120,11 @@ export const deckPartType: PartType = {
     // crossing sizes for it. Local frame: long axis +x (len), width +y (wid).
     const cx = p.at.x + (p.size?.w ?? len) / 2, cy = p.at.y + (p.size?.h ?? wid) / 2;
     const parapet = (p.params.parapet as string) === 'both';
+    const rails = (p.params.parapet as string) === 'rails';
     const pH = mToTiles(0.9), pT = mToTiles(0.25);
     const off = (wid - pT) / 2;   // parapet cross-offset from the centreline
+    const railT = mToTiles(RAIL_BAR_T_M);
+    const railOff = (wid - railT) / 2;   // rail band cross-offset (on the deck edge)
     // A flat deck is ONE slab (segs=1, byte-identical to the historic single box). A cambered
     // deck is a short run of segments whose tops follow a shallow parabola (crown = camber at
     // mid-span, 0 at the abutments), so a hump-backed bridge reads without a curved-slab prim.
@@ -124,7 +142,9 @@ export const deckPartType: PartType = {
     const road = ROADWAY_SURFACE[String(p.params.roadway ?? '')];
     const roadT = mToTiles(ROADWAY_COURSE_M);
     // Clear width between the parapets (a bare deck keeps a small verge either side).
-    const roadW = parapet ? Math.max(0, wid - 2 * pT) : wid * 0.9;
+    const roadW = parapet ? Math.max(0, wid - 2 * pT)
+      : rails ? Math.max(0, wid - 2 * mToTiles(RAIL_POST_W_M))
+      : wid * 0.9;
     const out: Prim[] = [];
     for (let i = 0; i < segs; i++) {
       const u = -len / 2 + (i + 0.5) * segLen;   // segment centre offset along the span
@@ -147,6 +167,31 @@ export const deckPartType: PartType = {
           out.push(yawedBox(cx + ox, cy + oy, segLen, pT, z0 + thick, pH, yaw, mat));
         }
       }
+      if (rails) {
+        // Open rails ride the segment tops like the solid parapet does, so they follow the
+        // camber: a top handrail + a mid rail per side, per segment.
+        for (const s of [-1, 1]) {
+          const [ox, oy] = rotXY(u, s * railOff, yaw);
+          out.push(yawedBox(cx + ox, cy + oy, segLen, railT, z0 + thick + mToTiles(RAIL_TOP_Z_M), mToTiles(RAIL_TOP_H_M), yaw, mat));
+          out.push(yawedBox(cx + ox, cy + oy, segLen, railT, z0 + thick + mToTiles(RAIL_MID_Z_M), mToTiles(RAIL_MID_H_M), yaw, mat));
+        }
+      }
+    }
+    if (rails) {
+      // Posts are stationed along the span independent of the segmenting, each footed on the
+      // camber parabola at its own station; taller than the top rail so the heads stand PROUD
+      // (the square post-head silhouette every wooden reference shows).
+      const postW = mToTiles(RAIL_POST_W_M);
+      const nPosts = Math.max(1, Math.round(((p.params.lengthM as number) ?? 4) / RAIL_POST_SPACING_M));
+      for (let k = 0; k <= nPosts; k++) {
+        const u = Math.max(-len / 2 + postW / 2, Math.min(len / 2 - postW / 2, -len / 2 + (k / nPosts) * len));
+        const t = (2 * u) / len;
+        const z0 = baseZ + camber * (1 - t * t);
+        for (const s of [-1, 1]) {
+          const [ox, oy] = rotXY(u, s * railOff, yaw);
+          out.push(yawedBox(cx + ox, cy + oy, postW, postW, z0 + thick, mToTiles(RAIL_POST_H_M), yaw, mat));
+        }
+      }
     }
     return out;
   },
@@ -154,7 +199,10 @@ export const deckPartType: PartType = {
   // rides the carved road/bridge tiles beneath; the deck is the massing above them).
   toCollision: () => [],
   toAnchors: () => [],
-  toBrief(p) { return `${(p.params.parapet as string) === 'both' ? 'parapeted ' : ''}deck`; },
+  toBrief(p) {
+    const par = p.params.parapet as string;
+    return `${par === 'both' ? 'parapeted ' : par === 'rails' ? 'railed ' : ''}deck`;
+  },
 };
 
 /** A pier — a vertical support standing from the riverbed up to the deck underside.
@@ -168,6 +216,10 @@ export const pierPartType: PartType = {
     widthM: { kind: 'number', min: 0.3, max: 8, default: 1 },
     /** Top-vs-base taper, 0 = straight, 0.5 = top half the base width. */
     batter: { kind: 'number', min: 0, max: 0.6, default: 0 },
+    // A chunky square pile HEAD capping the column, headM tall and wider than the shaft — the
+    // proud pile-head every timber-trestle reference draws. `any` so an unset caller (all
+    // masonry piers, the historic path) emits the bare column, byte-identical.
+    headM: { kind: 'any', doc: 'square pile-head cap height (m), ~1.4× the shaft width; unset ⇒ bare column' },
   },
   resolve: (part: Part) => ({ params: { ...(part.params ?? {}) } }),
   toPrims(p, ctx): Prim[] {
@@ -176,7 +228,7 @@ export const pierPartType: PartType = {
     const h = mToTiles((p.params.heightM as number) ?? 3);
     const batter = (p.params.batter as number) ?? 0;
     const r = w / 2;
-    return [{
+    const out: Prim[] = [{
       prim: 'column',
       center: [p.at.x + r, p.at.y + r],
       baseZ: 0,
@@ -186,6 +238,12 @@ export const pierPartType: PartType = {
       height: h,
       material: mat,
     }];
+    const headM = p.params.headM as number | undefined | null;
+    if (headM !== undefined && headM !== null && headM > 0) {
+      const hw = w * 1.4;   // head sits proud of the shaft on every side
+      out.push({ prim: 'box', at: [p.at.x + r - hw / 2, p.at.y + r - hw / 2, h], size: [hw, hw, mToTiles(headM)], material: mat });
+    }
+    return out;
   },
   toCollision: () => [],   // stands in the watercourse below the deck — blocks no land cell
   toAnchors: () => [],

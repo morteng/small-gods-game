@@ -6,7 +6,7 @@ describe('content-version constants', () => {
     expect(ART_RECIPE_VERSION).toBe('v34');
   });
 
-  it('declares the current world content version (100: emergent fringe — reeds stand IN the shallow-water margin, calm² density, stone rolls untouched)', () => {
-    expect(WORLD_CONTENT_VERSION).toBe(100);
+  it('declares the current world content version (101: timber bridges get their carpentry — post-and-rail parapets, a hump per rib, trestle bents)', () => {
+    expect(WORLD_CONTENT_VERSION).toBe(101);
   });
 });

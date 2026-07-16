@@ -22,7 +22,7 @@ import { lintBlueprint, summarizeLint } from '../src/blueprint/lint';
 import { ensureBuildingTypesRegistered } from '../src/blueprint/register-buildings';
 // The bridge geometry is GAME CODE (studio + synthesizeBlueprint('bridge-*') share it) — this dev
 // script is a thin consumer of that one source of truth, plus a couple of local diagnostics recipes.
-import { BRIDGE_RECIPES, bridgeBlueprint as buildBridgeBlueprint, type BridgeRecipe } from '../src/blueprint/presets/bridges';
+import { BRIDGE_RECIPES, archBridge, bridgeBlueprint as buildBridgeBlueprint, type BridgeRecipe } from '../src/blueprint/presets/bridges';
 // Reuse the ONE TTI call path (no duplicate OpenRouter client) — see scripts/tti-probe.ts.
 import { apiKey, generateTti, TTI_MODEL, REF } from './tti-probe';
 
@@ -38,6 +38,17 @@ const DIAG_RECIPES: Record<string, BridgeRecipe> = {
     build: () => ({
       arch1: { type: 'arch_span', at: { x: 0.5, y: 1 }, size: { w: 5, h: 1 }, params: { spanM: 10, riseM: 3, thicknessM: 1.5, dir: 'ew', style: 'round' } },
     }),
+  },
+  // Diagnostics: the LONG timber crossing — two ribs, rails — the in-world composition a wide
+  // river produces (spanLen > TILES_PER_ARCH_TIMBER·1.5 ⇒ 2 bays). Guides how bays should repeat.
+  'timber-arch-long': {
+    desc: 'DIAG: two-rib timber arch bridge (long span, rails)',
+    walls: 'timber',
+    ttiSubject: 'a long wooden bridge over a wide river, TWO gently curved timber arch spans in a ' +
+      'row carrying a hump-backed plank deck, a stout timber pier between the two arches, slender ' +
+      'post-and-rail wooden parapets along both edges, landing on low grey stone footing blocks ' +
+      'at each bank; weathered brown timber',
+    build: () => archBridge({ spanTiles: 10, roadTiles: 1, bays: 2, riseM: 1.8, style: 'round', parapet: 'rails', camberM: 1.2, perBayHump: true }),
   },
   // Diagnostics: same arch spanning the OTHER axis (opening faces ±x instead of ±y).
   'arch-ns': {
