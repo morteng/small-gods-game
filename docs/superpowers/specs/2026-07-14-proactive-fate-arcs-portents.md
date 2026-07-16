@@ -291,3 +291,45 @@ real live ids. (2) `the_null_event.seedWhen = ['has_settlements']` (not
 keeping the pulse's idle-skip meaningful pre-worldgen. **F4 note:** the
 portent ledger, `plant_portent`, and the heavy-beat gate remain; goal
 teeth (weaving/`advance_arc`) are F5.
+
+## Reality check (2026-07-16, later still) — F4 SHIPPED
+
+Portents + the gate, as specified. `plant_portent` follows the constrained
+pattern: `kind` is schema-constrained to `ARC_PORTENT_KINDS` (the derived
+union of every shape's `portentKinds`) and parse-narrowed to the NAMED
+arc's own shape's kinds — the model picks among library flavours, never
+invents; live-arc drift guard; required omen line; ≤1 per parse turn;
+subject falls back to the arc's first cast settlement (causal sites
+refused — an omen lands somewhere durable). It materializes exactly per
+§5: a soft discovery beat (`StagedBeat` gained an optional `arcId`) + a
+`beatId`-linked ledger entry + a new `portent_planted` SimEvent that
+surfaces as an "An omen gathers over …" inbox tiding (event-log windowed,
+`game-query.ts`) and a chronicler line. Firing the beat flips the entry
+to `discovered` (StagingActivationSystem → `markPortentDiscovered`).
+The gate: `arm_staged_beat` gained an optional `arcId`; a HEAVY beat on a
+live arc whose ledger is empty is REJECTED and the reason rides
+`portentGateRetryPrompt` through ONE bounded retry scoped to
+`[plant_portent, arm_staged_beat]` — same-response omens count toward the
+gate, so foreshadow-then-land in a single reply passes (test-proven end
+to end; §7's `fate-portent-gate.test.ts`).
+
+**Resolved ambiguities.** (1) *"Gravity"*: `StagedBeat` has no numeric
+gravity field, so `PORTENT_GATE` is realized as HEAVY ⇔ the beat lands a
+hard command (`inject_npc`); atmosphere-only beats pass ungated. (2) The
+§3 constraint table's stronger form ("…and at least one portent has been
+**discovered**") vs §5/§6/§7's empty-ledger wording: F4 ships the
+§5/§6/§7 gate (non-empty ledger). The `discovered` plumbing is live and
+truthful (writeback + digest show `N planted (M discovered)`), so
+tightening to discovered-required is a one-line change if play wants it.
+(3) A beat naming a hallucinated/stale `arcId` drops the REF (logged) and
+still arms ungated — drift-guard discipline (same as storylet refs), not
+a rejection; only a REAL live-arc ref submits a heavy beat to the gate.
+(4) "≤1 portent per deliberation" is enforced per parse turn; a
+deliberation whose gate-retry also plants can total 2 (main + retry),
+each turn individually capped. (5) Shapes with no portent vocabulary
+(`the_null_event`; the offline `stub_vigil`) accept no portents, so a
+heavy beat on such an arc can never pass the gate — read as intended:
+Fate declining to author lands no heavy blows. (6) `ArcPortent.discovered`
+is a HISTORICAL fact and round-trips trusted from disk (unlike
+`ArcGoal.met`), matching beat-status persistence; the ledger scrubs with
+its arc (test-proven).
