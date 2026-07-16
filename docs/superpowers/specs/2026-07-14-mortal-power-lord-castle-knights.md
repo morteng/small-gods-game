@@ -262,3 +262,55 @@ why-tag, inspector subtitle, NPC LLM prompt).
 zero non-barn `tithe` references), so the `SELF_AGENCY_RESTORE` scaling would be dead code
 with no honest test. It stays the recommended model (c) and is a one-line change inside the
 activity system's self-agency switch once `LordState.tithe` exists.
+
+---
+
+## Reality check (2026-07-17) — M3 SHIPPED (the lord + `set_lord_stance` + M0.c closed)
+
+Implemented per the slice table: **the lord = `noble` role + `LordState` + `set_lord_stance`**,
+plus the M0.c tithe scaling this section deferred here. No new entity kind, no new belief
+category, no M4/M5/M6 work.
+
+- **`LordState { npcId, lineageId, tithe, garrison, unrest, keepTier }`** lives on
+  `World.lords` (keyed by poiId), captured/restored by the snapshot exactly like
+  `activeEvents` — a scrub un-seats a lord who rose after the restore point; pre-lord saves
+  restore to no seats and re-attach within a game hour. `lineageId` was ADDED to the spec's
+  field list: succession needs the vacated seat's house after the holder's entity has flipped
+  to `remains` (dynasty preference is unimplementable without it).
+- **`LordSystem`** (`GAME_HOUR_HZ`, rng-free — selection is an argmin, the economy is
+  relaxation arithmetic): eldest resident noble takes a vacant seat (`lord_risen`, chronicler-
+  consumed); succession prefers the seat's lineage, falls back to the eldest noble of any
+  house, and the seat **lapses** when no noble remains; `garrison` = hourly headcount of
+  resident soldiers (derived truth, M5 gives them patrols); `unrest` relaxes toward the tithe
+  (0.02/game-hour — sim history, persisted).
+- **M0.c closed, model (c) as recommended:** the `work` self-restore is scaled by
+  `1 − tithe` (`workRestoreScale`/`titheRateFor`, one read in the activity system's
+  self-agency switch). No lord ⇒ the pre-M3 economy bit-for-bit.
+- **The cohort double-accounting warning honoured:** `applyCohortTithe` (in `cohorts.ts`,
+  the single mutation choke point) relaxes each occupied statistical band's prosperity MEAN
+  toward the same tithed equilibrium `0.5 × (1 − tithe)` per game hour — recovery when the
+  tithe eases is free, counts never move (the P1 conservation audit is over counts).
+  *Resolution note:* statistical BELIEF response to the extraction is deliberately absent —
+  statistical belief drift and statistical pleas are P2 of the two-tier-population epic, not
+  M3's to build; the statistical tier feels the tithe in its recorded needs, and the named
+  tier carries the full pray-answer-claim loop.
+- **`set_lord_stance`** follows `set_rival_stance` line-for-line: authoring-tier verb
+  (settlement target — the seat is settlement-scoped), tithe delta capped ±0.2 at the LLM
+  boundary AND in the verb apply, clamped [0,1]; parser drift-guarded against
+  `validLordPoiIds` (absent set ⇒ every call drops, logged — the safe default); rejections
+  log-and-drop, never killing a deliberation.
+- **The shrine-endowment proxy shipped** as the second `set_lord_stance` lever
+  (`endowRival`): the lord endows a rival's shrine → the settlement joins the rival's
+  `ai.settlements` → `isRivalPresent()` → prayer-claiming rights, logged `shrine_endowed`.
+  The player's spirit is rejected `invalid_target` — a mortal's patronage never feeds the
+  player belief-side (⛔ the lord himself never enters the belief table, brainstorm §6).
+- **Fate sees the seats:** `describeLordsForFate` (via `buildLordSituation` — the
+  `buildRivalSituation` pure-function pattern, counting BOTH population tiers) rides the
+  prompt; its enumerated poiIds are the drift-guard set.
+
+**Ambiguities resolved (minimal honest slice):** unrest is a plain relaxation toward the
+tithe (no revolt mechanics — a consumer for `unrest` beyond the Fate digest is future work);
+`keepTier` is persisted but always 0 until M4 resolves the runtime-POI blocker; `garrison`
+is an honest headcount only (knights/patrols are M5); no worldgen-time seeding — seats
+attach lazily on the first hourly fire, which also covers strangers/births growing a noble
+line later.

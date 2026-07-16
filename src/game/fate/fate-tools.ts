@@ -52,6 +52,9 @@ export const FATE_MUSIC_CUES = ['swell_miracle', 'dirge_death', 'fanfare_settlem
  *  a nudge, not a switch); the verb's apply clamps the resulting field to [0,1]. */
 export const FATE_STANCE_FIELDS = ['aggression', 'subtlety', 'territoriality', 'assertiveness', 'jealousy'] as const;
 const MAX_STANCE_DELTA = 0.2;
+/** M3: per-call cap on a set_lord_stance tithe delta — same magnitude discipline
+ *  as the rival stance fields (the verb's apply independently re-caps). */
+const MAX_TITHE_DELTA = 0.2;
 
 export const FATE_TOOLS: LLMTool[] = [
   {
@@ -172,6 +175,26 @@ export const FATE_TOOLS: LLMTool[] = [
     },
   },
   {
+    name: 'set_lord_stance',
+    description:
+      "Coach a mortal LORD's rule at his settlement (only a poiId from the Lords list). `tithe` is a " +
+      'DELTA on his extraction rate (-0.2…0.2 per call; the rate lives in 0…1): raise it and his ' +
+      'peasants keep less of what they work for — want breeds prayer, and unrest; lower it and the ' +
+      'land breathes (and safety makes them forget the gods). `endowRival` makes the lord endow a ' +
+      'shrine to that rival god (a rivalId from the Rivals list), granting it standing in his ' +
+      'settlement — he fights by proxy; a mortal never wields divine power himself. ' +
+      'Use at most one per deliberation.',
+    parameters: {
+      type: 'object',
+      properties: {
+        poiId: { type: 'string', description: 'A settlement id from the Lords list. Required.' },
+        tithe: { type: 'number', description: 'Delta to the tithe rate, -0.2…0.2.' },
+        endowRival: { type: 'string', description: 'Optional: a rival god id from the Rivals list whose shrine the lord endows.' },
+      },
+      required: ['poiId'],
+    },
+  },
+  {
     name: 'seed_arc',
     description:
       'Open a LONG-RANGE story arc from the shape library — a standing intention you will build toward ' +
@@ -289,6 +312,11 @@ export interface FateToolCtx {
    *  every set_rival_stance call, logged — the safe default). */
   validRivalIds?: Set<string>;
   now: number;
+  /** M3: settlement ids with a SEATED lord — the set_lord_stance drift guard.
+   *  Optional so read-only/legacy callers need not supply it (an absent set
+   *  drops every set_lord_stance call, logged — the safe default, mirroring
+   *  validRivalIds). */
+  validLordPoiIds?: Set<string>;
   /** Drift guard for `arm_staged_beat`'s optional `storylet` ref — the loaded
    *  pack(s)' storylet ids. Omit (or empty) to disable storylet arming entirely. */
   validStoryletIds?: Set<string>;
@@ -426,6 +454,9 @@ export function parseFateToolCalls(
       if (cmd) commands.push(cmd);
     } else if (c.name === 'set_rival_stance') {
       const cmd = parseSetRivalStance(c, ctx);
+      if (cmd) commands.push(cmd);
+    } else if (c.name === 'set_lord_stance') {
+      const cmd = parseSetLordStance(c, ctx);
       if (cmd) commands.push(cmd);
     } else if (c.name === 'author_building') {
       const cmd = parseAuthorBuilding(c, ctx, authoringRejections);
@@ -588,6 +619,29 @@ function parseSetRivalStance(c: LLMToolCall, ctx: FateToolCtx): Omit<Command, 's
   }
   if (!any) { console.warn('[fate] dropped set_rival_stance: no finite deltas', rivalId); return null; }
   return { verb: 'set_rival_stance', source: 'fate', target: { kind: 'none' }, payload };
+}
+
+/** M3: coach a settlement's seated lord — set_rival_stance's pattern, one seam
+ *  over. Drift-guarded against the settlements that actually HOLD a lord (an
+ *  absent validLordPoiIds set drops every call — the safe default); the tithe
+ *  delta is capped ±0.2 here AND in the verb's apply (defence-in-depth); an
+ *  endowRival ref outside the Rivals list is dropped (logged) while the rest of
+ *  the call survives — the storylet-ref discipline. A call left with nothing to
+ *  coach is dropped whole. */
+function parseSetLordStance(c: LLMToolCall, ctx: FateToolCtx): Omit<Command, 'seq'> | null {
+  const a = c.arguments as { poiId?: unknown; tithe?: unknown; endowRival?: unknown };
+  const poiId = typeof a.poiId === 'string' ? a.poiId : '';
+  if (!ctx.validLordPoiIds?.has(poiId)) { console.warn('[fate] dropped set_lord_stance: no seated lord at', poiId); return null; }
+  const payload: Record<string, unknown> = {};
+  if (typeof a.tithe === 'number' && Number.isFinite(a.tithe)) {
+    payload.tithe = Math.max(-MAX_TITHE_DELTA, Math.min(MAX_TITHE_DELTA, a.tithe));
+  }
+  if (typeof a.endowRival === 'string' && a.endowRival) {
+    if (ctx.validRivalIds?.has(a.endowRival)) payload.endowRivalId = a.endowRival;
+    else console.warn('[fate] set_lord_stance: dropped endowRival ref, unknown rival', a.endowRival);
+  }
+  if (Object.keys(payload).length === 0) { console.warn('[fate] dropped set_lord_stance: nothing to coach', poiId); return null; }
+  return { verb: 'set_lord_stance', source: 'fate', target: { kind: 'settlement', poiId }, payload };
 }
 
 /**

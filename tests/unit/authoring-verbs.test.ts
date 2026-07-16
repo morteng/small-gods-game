@@ -9,6 +9,7 @@ import { initNpcProps, npcProps, queryNpcs } from '@/world/npc-helpers';
 import type { Entity, GameMap, NpcProperties, Tile } from '@/core/types';
 import type { Spirit, SpiritId } from '@/core/spirit';
 import { FATE_ROLE_MAP } from '@/sim/command/authoring-verbs';
+import type { LordState } from '@/sim/lord';
 
 function bigMap(n = 12): GameMap {
   const tiles: GameMap['tiles'] = [];
@@ -202,6 +203,82 @@ describe('set_rival_stance', () => {
 
   it('rejects a non-finite delta as invalid_payload', () => {
     const res = executeCommand(stanceCmd({ rivalId: 'rival-1', aggression: 'lots' }), stanceCtx(new Map([['rival-1', rivalSpirit()]])));
+    expect(res).toMatchObject({ status: 'rejected', reason: 'invalid_payload' });
+  });
+});
+
+// ── set_lord_stance (M3, mortal power) ───────────────────────────────────────
+function seatedWorld(tithe = 0.1): World {
+  const world = new World(bigMap());
+  const seat: LordState = { npcId: 'lord-1', lineageId: 'lord-1', tithe, garrison: 0, unrest: 0, keepTier: 0 };
+  world.lords.set('poi1', seat);
+  return world;
+}
+function lordCtx(world: World, spirits: Map<SpiritId, Spirit> = new Map()): ApplyCtx {
+  return { world, spirits, log: new EventLog(new SimClock()), rng: createRng(1), now: 0 };
+}
+function lordCmd(poiId: string, payload: Record<string, unknown>): Command {
+  return { verb: 'set_lord_stance', source: 'fate', target: { kind: 'settlement', poiId }, payload, seq: 0 };
+}
+
+describe('set_lord_stance', () => {
+  it('nudges the seated lord\'s tithe by a signed delta', () => {
+    const world = seatedWorld(0.1);
+    const res = executeCommand(lordCmd('poi1', { tithe: 0.15 }), lordCtx(world));
+    expect(res.status).toBe('applied');
+    expect(world.lords.get('poi1')!.tithe).toBe(0.25);
+  });
+
+  it('caps a per-call tithe delta at ±0.2 and clamps the rate to [0,1]', () => {
+    const world = seatedWorld(0.1);
+    executeCommand(lordCmd('poi1', { tithe: 5 }), lordCtx(world));
+    expect(world.lords.get('poi1')!.tithe).toBe(0.3);   // 0.1 + capped 0.2, not 5.1
+    executeCommand(lordCmd('poi1', { tithe: -0.2 }), lordCtx(world));
+    executeCommand(lordCmd('poi1', { tithe: -0.2 }), lordCtx(world));
+    expect(world.lords.get('poi1')!.tithe).toBe(0);     // floored, never negative
+  });
+
+  it('endowRivalId grants the rival territorial presence and logs shrine_endowed', () => {
+    const world = seatedWorld();
+    const rival = rivalSpirit();          // holds poi1 already? settlements: ['poi1'] — use a fresh one
+    rival.ai!.settlements = [];
+    const ctx = lordCtx(world, new Map([['rival-1', rival]]));
+    const res = executeCommand(lordCmd('poi1', { endowRivalId: 'rival-1' }), ctx);
+    expect(res.status).toBe('applied');
+    expect(rival.ai!.settlements).toEqual(['poi1']);    // → isRivalPresent → prayer-claiming rights
+    const logged = ctx.log.range(0, 1).map(a => a.event);
+    expect(logged).toContainEqual({ type: 'shrine_endowed', poiId: 'poi1', rivalId: 'rival-1', lordNpcId: 'lord-1' });
+  });
+
+  it('endowing twice does not duplicate the settlement claim', () => {
+    const world = seatedWorld();
+    const rival = rivalSpirit();
+    rival.ai!.settlements = ['poi1'];
+    const ctx = lordCtx(world, new Map([['rival-1', rival]]));
+    expect(executeCommand(lordCmd('poi1', { endowRivalId: 'rival-1' }), ctx).status).toBe('applied');
+    expect(rival.ai!.settlements).toEqual(['poi1']);
+    expect(ctx.log.range(0, 1)).toHaveLength(0);        // no second shrine, no event
+  });
+
+  it('rejects a settlement with no seated lord as invalid_target', () => {
+    const world = new World(bigMap());
+    const res = executeCommand(lordCmd('poi1', { tithe: 0.1 }), lordCtx(world));
+    expect(res).toMatchObject({ status: 'rejected', reason: 'invalid_target' });
+  });
+
+  it('refuses an endowment to the PLAYER spirit (a lord never feeds the player belief-side)', () => {
+    const world = seatedWorld();
+    const res = executeCommand(lordCmd('poi1', { endowRivalId: 'player' }), lordCtx(world, new Map([['player', playerSpirit()]])));
+    expect(res).toMatchObject({ status: 'rejected', reason: 'invalid_target' });
+  });
+
+  it('rejects a call with nothing to coach as invalid_payload', () => {
+    const res = executeCommand(lordCmd('poi1', {}), lordCtx(seatedWorld()));
+    expect(res).toMatchObject({ status: 'rejected', reason: 'invalid_payload' });
+  });
+
+  it('rejects a non-finite tithe delta as invalid_payload', () => {
+    const res = executeCommand(lordCmd('poi1', { tithe: 'lots' }), lordCtx(seatedWorld()));
     expect(res).toMatchObject({ status: 'rejected', reason: 'invalid_payload' });
   });
 });

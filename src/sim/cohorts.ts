@@ -187,6 +187,29 @@ export function removeSoul(sc: SettlementCohorts, soul: SoulObservation): void {
   }
 }
 
+/** The statistical tier's untithed prosperity equilibrium — the value
+ *  `seedStatisticalCohorts` seeds every occupied band with. */
+export const STAT_UNTITHED_PROSPERITY = 0.5;
+
+/**
+ * M3 / M0.c — the lord's tithe pressed onto the STATISTICAL tier (the spec's
+ * cohort double-accounting warning: every lord effect must hit both tiers).
+ * The named tier feels the tithe as a scaled `work` self-restore; the mirror
+ * here relaxes each occupied band's prosperity MEAN toward the same tithed
+ * equilibrium, `STAT_UNTITHED_PROSPERITY × (1 − tithe)`, by `alpha` per call.
+ * Relaxation (not a raw drain) so the tier recovers when the tithe is eased —
+ * and a tithe of 0 holds the band at its seeded level. Deterministic, no rng;
+ * counts are untouched (the P1 conservation audit is over counts).
+ */
+export function applyCohortTithe(sc: SettlementCohorts, tithe: number, alpha: number): void {
+  const t = Math.max(0, Math.min(1, tithe));
+  const target = STAT_UNTITHED_PROSPERITY * (1 - t);
+  for (const band of sc.bands) {
+    if (band.count <= 0) continue;
+    band.needs.prosperity += (target - band.needs.prosperity) * alpha;
+  }
+}
+
 /** Total souls across a settlement's bands. */
 export function cohortPopulation(sc: SettlementCohorts): number {
   let n = 0;

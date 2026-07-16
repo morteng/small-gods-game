@@ -155,3 +155,58 @@ export function setRivalStanceApply(cmd: Command, ctx: ApplyCtx): boolean {
   ai.policy = strategyForPersonality(pers);
   return true;
 }
+
+// ── set_lord_stance ──────────────────────────────────────────────────────────
+// M3 (mortal power): Fate coaches a settlement's seated LORD, line-for-line the
+// set_rival_stance pattern — clamped deltas, defence-in-depth caps, rejections
+// never applied. Two levers:
+//   • `tithe` — a signed delta on the seat's extraction rate (per-call ±0.2,
+//     clamped to [0,1]): the named tier feels it as a scaled work restore
+//     (M0.c), the statistical tier via applyCohortTithe.
+//   • `endowRivalId` — the lord endows a shrine to that RIVAL god, granting it
+//     territorial presence (ai.settlements → isRivalPresent → prayer-claiming
+//     rights). Proxy competition through machinery that already ships; ⛔ the
+//     lord himself never enters the belief table (brainstorm §6).
+// Pure mutation — no RNG. Never targets the player's spirit (precondition).
+const MAX_TITHE_DELTA = 0.2;   // per-call magnitude cap
+
+export function setLordStancePrecondition(cmd: Command, ctx: CommandCtx): RejectionReason | null {
+  const poiId = poiOf(cmd);
+  if (!poiId) return 'invalid_target';
+  if (!ctx.world.lords.get(poiId)) return 'invalid_target';   // no seated lord there
+  const t = P(cmd).tithe;
+  if (t !== undefined && (typeof t !== 'number' || !Number.isFinite(t))) return 'invalid_payload';
+  const endow = P(cmd).endowRivalId;
+  if (endow !== undefined) {
+    if (typeof endow !== 'string' || !endow) return 'invalid_payload';
+    const spirit = ctx.spirits.get(endow);
+    // Rivals only — a lord endows a RIVAL's shrine; the player's cult grows
+    // through belief, never through a mortal's patronage decree.
+    if (!spirit || spirit.isPlayer || !spirit.ai?.personality) return 'invalid_target';
+  }
+  if (t === undefined && endow === undefined) return 'invalid_payload';   // nothing to coach
+  return null;
+}
+
+export function setLordStanceApply(cmd: Command, ctx: ApplyCtx): boolean {
+  const poiId = poiOf(cmd)!;                                 // validated in precondition
+  const seat = ctx.world.lords.get(poiId);
+  if (!seat) return false;                                   // seat lapsed after the pre-gate
+  const t = P(cmd).tithe;
+  if (typeof t === 'number' && Number.isFinite(t)) {
+    const delta = Math.max(-MAX_TITHE_DELTA, Math.min(MAX_TITHE_DELTA, t));
+    seat.tithe = Math.round(Math.max(0, Math.min(1, seat.tithe + delta)) * 100) / 100;
+  }
+  const endow = P(cmd).endowRivalId;
+  if (typeof endow === 'string' && endow) {
+    const ai = ctx.spirits.get(endow)?.ai;
+    if (ai) {
+      ai.settlements ??= [];
+      if (!ai.settlements.includes(poiId)) {
+        ai.settlements.push(poiId);
+        ctx.log.append({ type: 'shrine_endowed', poiId, rivalId: endow, lordNpcId: seat.npcId });
+      }
+    }
+  }
+  return true;
+}

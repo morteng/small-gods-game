@@ -17,14 +17,14 @@ const META_VERBS: CommandVerb[] = ['set_time_rate', 'skip_to_next_event', 'cance
 const ALL_VERBS: CommandVerb[] = [
   'whisper', 'omen', 'dream', 'miracle', 'answer_prayer', 'probe_mind', 'smite', 'summon_storm',
   'bias_event', 'inject_npc', 'nudge_severity', 'place_building', 'grow_settlement',
-  'rename_ward', 'retype_ward', 'set_rival_stance',
+  'rename_ward', 'retype_ward', 'set_rival_stance', 'set_lord_stance',
   ...EDITOR_VERBS,
   ...META_VERBS,
 ];
 
 describe('capability registry', () => {
-  it('declares all 25 verbs', () => {
-    expect(listCapabilities()).toHaveLength(25);
+  it('declares all 26 verbs', () => {
+    expect(listCapabilities()).toHaveLength(26);
     for (const v of ALL_VERBS) {
       expect(getCapability(v)).toBeDefined();
       expect(CAPABILITY_REGISTRY[v].verb).toBe(v);
@@ -75,7 +75,7 @@ describe('capability registry', () => {
   });
 
   it('wires every authoring verb as implemented (executor in place)', () => {
-    for (const v of ['bias_event', 'inject_npc', 'nudge_severity', 'place_building', 'grow_settlement', 'rename_ward', 'retype_ward'] as CommandVerb[]) {
+    for (const v of ['bias_event', 'inject_npc', 'nudge_severity', 'place_building', 'grow_settlement', 'rename_ward', 'retype_ward', 'set_lord_stance'] as CommandVerb[]) {
       const def = CAPABILITY_REGISTRY[v];
       expect(def.tier).toBe('authoring');
       expect(def.implemented).toBe(true);

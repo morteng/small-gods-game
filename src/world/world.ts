@@ -23,6 +23,12 @@ export class World {
   /** Fate's one-shot forced next-event per POI (authoring verb bias_event). */
   readonly forcedEvents = new Map<string, import('@/core/types').SettlementEventType>();
 
+  /** M3 (mortal power): the lord's seat per settlement, keyed by POI id. Sim
+   *  truth — captured/restored by the snapshot exactly like activeEvents, so a
+   *  scrub un-seats a lord who rose after the restore point. Maintained by
+   *  LordSystem; coached by the set_lord_stance authoring verb. */
+  readonly lords = new Map<string, import('@/sim/lord').LordState>();
+
   constructor(public readonly tiles: GameMap) {}
 
   addEntity(e: Entity): void {
