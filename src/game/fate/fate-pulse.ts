@@ -20,8 +20,9 @@
  *
  * OFFLINE (no capable LLM): a deterministic stub arc is seeded (spec §8.5, the
  * permanent fallback) so the plumbing works with no LLM; the gated deliberation
- * then simply no-ops because the brain isn't ready. ONLINE: the LLM will seed arcs
- * via `seed_arc` (F3); here the pulse just delivers the pulse-framed deliberation.
+ * then simply no-ops because the brain isn't ready. ONLINE: the LLM seeds arcs
+ * via `seed_arc` (F3) — the pulse just delivers the pulse-framed deliberation,
+ * and its idle-skip asks the library's own seedWhen gate.
  *
  * `lastPulseTick` is RUNTIME throttle state, not sim truth — reset on timeline
  * restore (same scrub-ghost discipline as `FateTrigger.reset()`).
@@ -29,6 +30,7 @@
 import type { GameState } from '@/core/state';
 import { TICKS_PER_DAY } from '@/core/calendar';
 import { stubSeedCondition, seedStubArc } from '@/sim/fate/arc-stub';
+import { anySeedableShape } from '@/sim/fate/arc-library';
 import type { FateFocus } from './fate-context';
 
 export interface FatePulseDeps {
@@ -64,7 +66,10 @@ export class FatePulse {
     // Goals are recomputed every pulse — never trusted from disk.
     arcs.recomputeGoals(state);
     const anyLive = arcs.live().length > 0;
-    const canSeed = stubSeedCondition(state);
+    // Seedability is path-honest (F3): offline, the deterministic stub's own
+    // condition; online, whether ANY library shape's `seedWhen` currently holds
+    // (the same gate seed_arc will apply) — spec §8.2's "no seedWhen met ⇒ skip".
+    const canSeed = this.deps.isOffline() ? stubSeedCondition(state) : anySeedableShape(state);
     // IDLE: nothing to build toward, nothing to seed → skip WITHOUT consuming the
     // cadence, so the check stays cheap and Fate wakes the instant work appears.
     if (!anyLive && !canSeed) return;
