@@ -15,7 +15,7 @@ import { PLAYER_SPIRIT_ID } from '@/sim/believers';
 import { buildRivalSituation } from '@/sim/rival-claims';
 import { TICKS_PER_DAY } from '@/core/calendar';
 import { MAX_LIVE_ARCS } from '@/sim/fate/arc-types';
-import { seedableShapes } from '@/sim/fate/arc-library';
+import { getArcShape, seedableShapes } from '@/sim/fate/arc-library';
 
 /**
  * What woke Fate. Two shapes, discriminated by `kind`:
@@ -49,7 +49,10 @@ const SYSTEM_CHARTER =
   'You also hold LONG-RANGE intentions as ARCS: seed_arc opens a story shape from the library — only a ' +
   'shape whose preconditions currently hold (an unmet shape is rejected; you never get a plot device) and ' +
   'never beyond the live-arc cap — while abandon_arc folds a live arc whose preconditions have become ' +
-  'unreachable rather than forcing it through. ' +
+  'unreachable rather than forcing it through. PORTENTS FIRST: every heavy blow must be foreshadowed. ' +
+  'plant_portent lays an omen on a live arc (kind from that arc\'s listed portent kinds; at most one per ' +
+  'deliberation); a HEAVY beat (hard=inject_npc) armed on an arc whose portent ledger is empty is ' +
+  'REJECTED — omens make you readable. ' +
   'Only ever use a subjectPoiId listed in the active threads, a ' +
   'flooded settlement, or a causal site, and only a rivalId from the Rivals list. Act sparingly — often the ' +
   'right choice is to call no tool.';
@@ -199,8 +202,17 @@ export function describeArcsForFate(state: GameState): string {
   if (arcs.length === 0) return '';
   const lines = arcs.map((a) => {
     const goals = a.goals.map((g) => `${g.predicate}${g.met ? ' ✓' : ''}`).join(', ') || 'none';
-    return `- arc ${a.id} "${a.shape}" (${a.stage}); goals: ${goals}; ` +
-      `${a.portents.length} portent(s), budget ${a.pressureBudget}`;
+    // F4: the ledger state + the shape's legal portent kinds ride the digest, so the
+    // model knows a heavy beat is gated and which flavours plant_portent may pick.
+    const kinds = getArcShape(a.shape)?.portentKinds ?? [];
+    const discovered = a.portents.filter((p) => p.discovered).length;
+    const portents = a.portents.length === 0
+      ? (kinds.length
+          ? `portents: NONE (heavy beats gated — plant one of: ${kinds.join(', ')})`
+          : 'portents: none (this shape carries no omens)')
+      : `portents: ${a.portents.length} planted (${discovered} discovered)` +
+        (kinds.length ? `; kinds: ${kinds.join(', ')}` : '');
+    return `- arc ${a.id} "${a.shape}" (${a.stage}); goals: ${goals}; ${portents}; budget ${a.pressureBudget}`;
   });
   return `Your live arcs (standing intentions):\n${lines.join('\n')}`;
 }

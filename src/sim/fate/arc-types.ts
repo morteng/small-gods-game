@@ -47,14 +47,20 @@ export interface ArcPressure {
 }
 
 /**
- * Minimal F1 shape — enough to persist a ledger entry and gate a heavy beat on a
- * non-empty, discovered ledger (F4 fleshes out kind flavours + the discovery →
- * materialize path).
+ * One planted omen (F4). `kind` comes from the arc shape's library-owned
+ * `portentKinds` — the model picks among them, never invents. A portent
+ * materializes as a SOFT staged beat (discovered on player attention); `beatId`
+ * links the ledger entry to that beat so firing flips `discovered` (a historical
+ * fact — unlike `ArcGoal.met` it IS trusted from disk, same as a beat's status).
  */
 export interface ArcPortent {
   tick: number;
   kind: string;
   discovered: boolean;
+  /** The omen's wording (the soft beat's narration; feeds the chronicler). */
+  text?: string;
+  /** The staged beat that carries this omen into the world (discovery linkage). */
+  beatId?: number;
 }
 
 export interface FateArc {

@@ -50,6 +50,13 @@ export interface StagedBeat {
    * src/presentation/cue-types.ts.
    */
   musicCue?: string;
+  /**
+   * Optional id of the FateArc this beat serves (F4). A portent's soft beat
+   * carries its arc so firing can flip the ledger entry to discovered; a heavy
+   * beat carries it as the audit trail of which intention it landed. Absent on
+   * arc-less beats (the stub producer, pre-F4 saves) — everything still works.
+   */
+  arcId?: number;
   status: BeatStatus;
   stagedTick: number;
 }

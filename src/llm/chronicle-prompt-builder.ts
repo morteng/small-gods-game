@@ -85,6 +85,7 @@ const EVENT_WEIGHT: Partial<Record<SimEvent['type'], number>> = {
   power_depleted: 7,
   thread_resolved: 6,
   beat_fired: 6,
+  portent_planted: 6,
   believer_lost: 6,
   site_born: 6,
   settlement_upgraded: 5,
@@ -190,6 +191,8 @@ export function eventFactLine(a: AppendedEvent, world?: World | null): string {
       return `A thread of fate was ${ev.status}.`;
     case 'beat_fired':
       return 'A fated beat came to pass.';
+    case 'portent_planted':
+      return `An omen (a ${ev.kind}) gathered over the place — a portent of things building.`;
     case 'summon_storm':
       return `A storm was summoned, ${ev.depthM.toFixed(1)}m deep over ${ev.cells} cells.`;
     case 'place_flooded':

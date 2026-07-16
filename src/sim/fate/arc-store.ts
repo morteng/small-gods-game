@@ -11,7 +11,7 @@
  * sets it true, from the pure predicate registry.
  */
 import type { GameState } from '@/core/state';
-import type { FateArc } from './arc-types';
+import type { ArcPortent, FateArc } from './arc-types';
 import { isArcLive } from './arc-types';
 import { evalArcPredicate } from './arc-predicates';
 
@@ -50,6 +50,30 @@ export class FateArcStore {
     arc.stage = 'abandoned';
     arc.abandonedReason = reason;
     return true;
+  }
+
+  /**
+   * F4: add an omen to a LIVE arc's ledger. Returns false (no mutation) for an
+   * unknown or finished arc — a stale id can never grow a dead arc's ledger.
+   */
+  plantPortent(arcId: number, portent: ArcPortent): boolean {
+    const arc = this.arcs.get(arcId);
+    if (!arc || !isArcLive(arc)) return false;
+    arc.portents.push(structuredClone(portent));
+    return true;
+  }
+
+  /**
+   * F4: a staged beat fired — if it was carrying a portent, the omen is now
+   * DISCOVERED. Matched by `beatId` across ALL arcs (marking a folded arc's
+   * portent discovered is harmless truth). Called by the activation system.
+   */
+  markPortentDiscovered(beatId: number): void {
+    for (const arc of this.arcs.values()) {
+      for (const p of arc.portents) {
+        if (p.beatId === beatId) p.discovered = true;
+      }
+    }
   }
 
   /**

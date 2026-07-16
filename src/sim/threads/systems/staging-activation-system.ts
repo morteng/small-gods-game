@@ -19,6 +19,7 @@ import type { StagedBeat } from '../staging-types';
 import type { ThreadSubject } from '../thread-types';
 import { subjectKey } from '../thread-types';
 import type { CausalSiteStore } from '@/world/causal-site';
+import type { FateArcStore } from '@/sim/fate/arc-store';
 
 /** Named world predicates for `sim_condition` triggers (extend as needed). */
 export type SimPredicate = (ctx: SystemContext) => boolean;
@@ -39,6 +40,9 @@ export class StagingActivationSystem implements System {
     private readonly onStoryletBeat?: (subject: ThreadSubject, storyletId: string, beat: StagedBeat) => void,
     /** W-I: lets the system reap beats armed at a causal site once it has faded. */
     private readonly getSites?: () => CausalSiteStore | null,
+    /** F4: a fired beat that was carrying a portent flips its arc-ledger entry to
+     *  DISCOVERED (matched by beatId). Optional — absent means no arc plumbing. */
+    private readonly getArcs?: () => FateArcStore | null,
   ) {}
 
   tick(ctx: SystemContext): void {
@@ -92,6 +96,8 @@ export class StagingActivationSystem implements System {
     if (beat.soft) this.onSoftBeat?.(beat.subject, beat.soft);
     if (beat.storylet) this.onStoryletBeat?.(beat.subject, beat.storylet, beat);
     if (beat.threadId !== undefined) threads.activate(beat.threadId, ctx.now);
+    // F4: an omen the player just found is a DISCOVERED portent on its arc's ledger.
+    if (beat.arcId !== undefined) this.getArcs?.()?.markPortentDiscovered(beat.id);
     staging.markFired(beat.id);
     ctx.log.append({
       type: 'beat_fired', beatId: beat.id, subject: beat.subject,
