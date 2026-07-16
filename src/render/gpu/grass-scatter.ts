@@ -70,6 +70,7 @@ function vnoise(x: number, y: number): number {
  *  Float32Array (sliced to `count` instances) + the instance count. */
 export function buildGrassInstances(
   field: TerrainField, m: ClutterManifest,
+  waterSurf: Float32Array | null = null, waterType: Uint32Array | null = null,
 ): { data: Float32Array; count: number; seaweedCount: number } {
   const { heights, moisture, temperature, globals: g } = field;
   const W = g.grid[0] | 0, H = g.grid[1] | 0;
@@ -138,6 +139,14 @@ export function buildGrassInstances(
   const SEAWEED_MAX_DEPTH_M = 3.5;    // seaweed beds hug the shallow near-shore shelf only
   const WRACK_BAND_M = 1.5;           // the tide line: wet sand just above the water
 
+  // FRESHWATER submerged band (river/lake beds) — shallower than the marine shelf: waterweed
+  // roots in the top ~2 m of a channel/pool, keyed on the LOCAL water surface (below) so an
+  // inland river above sea level still reads as a living bed. Only usable when the water
+  // fields align cell-for-cell with the height grid (same super-sample); else skip safely.
+  const FRESH_WEED_MIN_DEPTH_M = 0.10;
+  const FRESH_WEED_MAX_DEPTH_M = 2.20;
+  const freshOk = !!waterSurf && !!waterType && waterSurf.length === W * H;
+
   for (let ty = 0; ty < H && nLand < MAX_GRASS; ty++) {
     for (let tx = 0; tx < W && nLand < MAX_GRASS; tx++) {
       for (let k = 0; k < PER_TILE && nLand < MAX_GRASS; k++) {
@@ -163,6 +172,29 @@ export function buildGrassInstances(
             }
           }
           continue;
+        }
+
+        // ── FRESHWATER SUBMERGED: waterweed on a river/lake bed, keyed on the LOCAL water
+        //    surface (not the global sea) so an inland channel above sea level still grows a
+        //    living bed. Drawn as seaweed-category into the pre-water sub-pass so the real
+        //    translucent water composites over it — the ocean's shelf treatment, for rivers. ──
+        if (freshOk) {
+          const ci = Math.min(H - 1, ty) * W + Math.min(W - 1, tx);
+          const wt = waterType![ci];
+          if (wt === 2 || wt === 3) {                       // WaterType.Lake | WaterType.River
+            const sw = waterSurf![ci];
+            const submM = sw > 0 ? (sw - e) * relief : -1;  // metres below the local surface
+            if (submM > 0) {                                // this sample sits under the water
+              if (submM > FRESH_WEED_MIN_DEPTH_M && submM < FRESH_WEED_MAX_DEPTH_M) {
+                const weedField = vnoise(fx / 4.0 + 33.7, fy / 4.0 + 12.1);   // clumped beds
+                if (weedField > 0.44 && hash2(fx * 2.3 + 5.1, fy * 3.1 + 2.7) < 0.55) {
+                  const sJitW = hash2(fx * 2.9 + 1.1, fy * 3.7 + 6.2);
+                  emit(fx, fy, e, 'seaweed', 16 + 12 * sJitW, 0.8, 0.7);      // submerged frond, current-swayed
+                }
+              }
+              continue;   // a submerged fresh-water sample carries no land veg
+            }
+          }
         }
 
         // Slope from central differences (same frame as the terrain normal).

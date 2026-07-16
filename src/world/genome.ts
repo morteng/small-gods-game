@@ -140,13 +140,15 @@ export const TERRAIN_GENOMES: Record<string, TerrainGenomeSpec> = {
     terrainShape: { kind: 'knoll', strength: 0.45 },
     styleOverrides: { mountainRelief: 8, coastDrama: 0.35, riverDensity: 0.45, floraDensity: 0.22 },
   },
-  // RIVER work: a temperate VALE (valley) that funnels a strong river down the middle,
-  // so the riverbed + wet bank ground and riparian clutter are the subject on one frame.
+  // RIVER work: a temperate VALE (valley) that funnels a river down the middle, so the
+  // riverbed + wet banks + riparian clutter are the subject. A river needs DRAINAGE AREA —
+  // a 32-tile isle is too small (the flow never accumulates past the stream threshold), so
+  // this study runs LARGER (56 tiles) with real relief for the uplands to shed into the vale.
   'river-vale': {
-    name: 'river-vale', size: GENOME_4K_TILES, island: true, biome: 'temperate',
-    climate: { tempNorth: 0.5, tempSouth: 0.62, eastWarmLean: 0.05, westWetLean: 0.14, elevationLapse: 0.3, moistureBias: 0.12 },
-    terrainShape: { kind: 'vale', strength: 0.85 },
-    styleOverrides: { mountainRelief: 16, coastDrama: 0.35, riverDensity: 0.9, floraDensity: 0.12 },
+    name: 'river-vale', size: 56, island: true, biome: 'temperate',
+    climate: { tempNorth: 0.5, tempSouth: 0.62, eastWarmLean: 0.05, westWetLean: 0.14, elevationLapse: 0.35, moistureBias: 0.14 },
+    terrainShape: { kind: 'vale', strength: 0.95 },
+    styleOverrides: { mountainRelief: 26, coastDrama: 0.3, riverDensity: 1.0, floraDensity: 0.1 },
   },
 };
 

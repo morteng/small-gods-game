@@ -123,6 +123,7 @@ export class GpuScene {
   private grassCount = 0;
   private grassSeaweedCount = 0;   // leading instances (seaweed) drawn pre-water
   private grassSrcHeights: Float32Array | null = null;
+  private grassSrcWaterSurf: Float32Array | null = null;
   // Dedicated grass globals (step 3, wind): the shared 80-byte entity Globals has no
   // time/wind slot, so grass gets its own uniform packed once per frame.
   private grassGlobalsBuf: GPUBuffer;
@@ -857,12 +858,20 @@ export class GpuScene {
    *  memoised on the height-array identity, so a static world re-packs nothing per frame;
    *  the camera rides uXform so pan/zoom never invalidate it. Needs the clutter atlas +
    *  its manifest (both async) — until they land, the pass simply does not run. */
-  private ensureGrass(terrain: TerrainField): boolean {
+  private ensureGrass(terrain: TerrainField, water: WaterField | null): boolean {
     if (!this.clutterLoaded || !this.clutterManifest) return false;
-    if (terrain.heights === this.grassSrcHeights && this.grassBind) return this.grassCount > 0;
+    // Memoised on the height array AND the water-surface array (which arrives a frame or two
+    // after terrain, and shifts on drought/flood) so river/lake weed re-packs when it lands.
+    const waterSurf = water?.surfaceW ?? null;
+    if (terrain.heights === this.grassSrcHeights && this.grassSrcWaterSurf === waterSurf && this.grassBind) {
+      return this.grassCount > 0;
+    }
 
-    const { data, count, seaweedCount } = buildGrassInstances(terrain, this.clutterManifest);
+    const { data, count, seaweedCount } = buildGrassInstances(
+      terrain, this.clutterManifest, waterSurf, water?.waterType ?? null,
+    );
     this.grassSrcHeights = terrain.heights;
+    this.grassSrcWaterSurf = waterSurf;
     this.grassCount = count;
     this.grassSeaweedCount = seaweedCount;
     if (count === 0) return false;
@@ -1182,7 +1191,7 @@ export class GpuScene {
     // the terrain depth. Gated to gameplay zoom (a full meadow is noise + fill cost at
     // overview) and to a loaded clutter atlas + manifest.
     const zoom = xform?.sx ?? 1;
-    const hasGrass = !!(hasTerrain && zoom >= GRASS_MIN_ZOOM && this.ensureGrass(terrain!));
+    const hasGrass = !!(hasTerrain && zoom >= GRASS_MIN_ZOOM && this.ensureGrass(terrain!, water ?? null));
 
     // P-E: the scene passes target the low-res offscreen when `out` is set, then
     // a blit upscales it to the swapchain; otherwise they draw straight to it.

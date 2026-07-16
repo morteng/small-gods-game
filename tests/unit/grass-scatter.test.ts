@@ -234,6 +234,33 @@ describe('buildGrassInstances — category selection vs manifest ranges', () => 
     }
   });
 
+  it('grows submerged weed on a river/lake bed ABOVE sea level, keyed on the local water surface', () => {
+    // A flat isle at height 0.50 — 7.2 m ABOVE the sea (0.35, relief 48), so the ocean
+    // submerged branch never fires here. A central block is a River (waterType 3) whose local
+    // surface (0.52) sits ~1 m over the bed → the freshwater branch should plant seaweed-
+    // category weed there. Without the water fields the same field grows ZERO weed (proof the
+    // weed comes from the fresh-water surface, not the global sea).
+    const W = 24, H = 24;
+    const field = makeField(W, H, () => 0.50, () => 0.5, 0.35);
+    const surfaceW = new Float32Array(W * H).fill(-1);
+    const waterType = new Uint32Array(W * H); // 0 = Dry
+    for (let y = 8; y < 16; y++) for (let x = 8; x < 16; x++) {
+      const i = y * W + x;
+      waterType[i] = 3;        // WaterType.River
+      surfaceW[i] = 0.52;      // ~1 m above the 0.50 bed
+    }
+    let weedWith = 0;
+    const withWater = buildGrassInstances(field, makeManifest(), surfaceW, waterType);
+    for (let i = 0; i < withWater.count; i++) if (withWater.data[i * GRASS_INSTANCE_FLOATS + 10] === 4) weedWith++;
+    expect(weedWith).toBeGreaterThan(0);
+    expect(withWater.seaweedCount).toBe(weedWith);   // contiguous at the front (pre-water sub-pass)
+
+    let weedNone = 0;
+    const noWater = buildGrassInstances(field, makeManifest());
+    for (let i = 0; i < noWater.count; i++) if (noWater.data[i * GRASS_INSTANCE_FLOATS + 10] === 4) weedNone++;
+    expect(weedNone).toBe(0);
+  });
+
   it('falls back to the grass atlas cell (UV) when a triggered category has zero manifest capacity', () => {
     // Isolate the flower band only, so every non-skipped instance is grass or flower.
     const flowerOnly = makeField(W, 10, () => 0.5, () => 0.9, sea);
