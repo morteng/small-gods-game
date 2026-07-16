@@ -5,7 +5,7 @@ import { World } from '@/world/world';
 import { createRng } from '@/core/rng';
 import { SilentEventLog } from '@/core/events';
 import { tickAtSolarHour } from '@/core/calendar';
-import type { Entity, GameMap, Tile, NpcActivity } from '@/core/types';
+import type { Entity, GameMap, Tile } from '@/core/types';
 
 function makeMap(w = 20, h = 20): GameMap {
   const tiles: Tile[][] = [];
@@ -123,6 +123,80 @@ describe('NpcActivitySystem', () => {
 
     system.tick(createContext(world, 50));
     expect(npcProps(e).activity).toBe('worship');
+    expect(npcProps(e).prayerNeed).toBe('meaning');
+  });
+
+  // ── M0.a/M0.b — worship fires on the LOWEST need, and the plea has a SUBJECT ──
+
+  it('a starving NPC prays — for bread (prosperity below its worship threshold)', () => {
+    const map = makeMap();
+    const world = new World(map);
+    const e = makeNpc(world, 'grim', 'farmer', {
+      needs: { safety: 0.8, prosperity: 0.1, community: 0.6, meaning: 0.7 },
+    });
+
+    system.tick(createContext(world, 50));
+    expect(npcProps(e).activity).toBe('worship');
+    expect(npcProps(e).prayerNeed).toBe('prosperity');
+  });
+
+  it('an endangered NPC prays for safety, and the LOWEST qualifying need wins', () => {
+    const map = makeMap();
+    const world = new World(map);
+    const e = makeNpc(world, 'hild', 'farmer', {
+      needs: { safety: 0.05, prosperity: 0.1, community: 0.6, meaning: 0.7 },
+    });
+
+    system.tick(createContext(world, 50));
+    expect(npcProps(e).activity).toBe('worship');
+    expect(npcProps(e).prayerNeed).toBe('safety');
+  });
+
+  it('worship is no longer pre-empted by the socialize branch', () => {
+    // Pre-M0: community 0.2 (< 0.35) chose socialize even with meaning 0.2 (< 0.3).
+    const map = makeMap();
+    const world = new World(map);
+    const e = makeNpc(world, 'iona', 'farmer', {
+      needs: { safety: 0.8, prosperity: 0.8, community: 0.2, meaning: 0.2 },
+    });
+
+    system.tick(createContext(world, 50));
+    expect(npcProps(e).activity).toBe('worship');
+    expect(npcProps(e).prayerNeed).toBe('meaning'); // community 0.2 is above ITS worship line (0.15)
+  });
+
+  it('mildly low community still self-serves (socialize), desperation prays', () => {
+    const map = makeMap();
+    const world = new World(map);
+    const mild = makeNpc(world, 'jo', 'farmer', {
+      needs: { safety: 0.8, prosperity: 0.8, community: 0.2, meaning: 0.7 },
+    });
+    const desperate = makeNpc(world, 'kel', 'farmer', {
+      needs: { safety: 0.8, prosperity: 0.8, community: 0.1, meaning: 0.7 },
+    });
+
+    system.tick(createContext(world, 50));
+    expect(npcProps(mild).activity).toBe('socialize');
+    expect(npcProps(desperate).activity).toBe('worship');
+    expect(npcProps(desperate).prayerNeed).toBe('community');
+  });
+
+  it('clears prayerNeed when the next re-evaluation picks a different activity', () => {
+    const map = makeMap();
+    const world = new World(map);
+    const e = makeNpc(world, 'lars', 'farmer', {
+      needs: { safety: 0.8, prosperity: 0.1, community: 0.6, meaning: 0.7 },
+    });
+
+    system.tick(createContext(world, 50));
+    expect(npcProps(e).prayerNeed).toBe('prosperity');
+
+    // The plea is met off-screen; when the activity expires, work resumes.
+    npcProps(e).needs.prosperity = 0.9;
+    npcProps(e).activityDuration = 0;
+    system.tick(createContext(world, 51));
+    expect(npcProps(e).activity).toBe('work');
+    expect(npcProps(e).prayerNeed).toBeUndefined();
   });
 
   it('activity has a duration > 0 and decrements each tick', () => {

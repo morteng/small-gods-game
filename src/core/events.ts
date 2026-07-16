@@ -1,5 +1,5 @@
 import type { SimClock } from '@/core/clock';
-import type { EntityId, NpcRole, Region, WorldSeed, SettlementEventType } from '@/core/types';
+import type { EntityId, NpcNeeds, NpcRole, Region, WorldSeed, SettlementEventType } from '@/core/types';
 import type { SpiritId } from '@/core/spirit';
 import type { ThreadId, ShapeId, ThreadSubject, NarrativeWeight } from '@/sim/threads/thread-types';
 import type { BeatId } from '@/sim/threads/staging-types';
@@ -19,7 +19,9 @@ export type SimEvent =
   // claim variant will mark its answers true so Fate's rival-pressure trigger can
   // EXEMPT statistical claims — Fate paces on named-tier pressure (what the
   // player sees). Named-tier answers leave it unset.
-  | { type: 'answer_prayer';      spiritId: SpiritId; npcId: EntityId; statistical?: boolean }
+  // `need` (M0.b): the SUBJECT the plea asked for — what the answer restored.
+  // Optional → pre-M0 events read as the classic meaning-answer.
+  | { type: 'answer_prayer';      spiritId: SpiritId; npcId: EntityId; need?: keyof NpcNeeds; statistical?: boolean }
   | { type: 'smite';              spiritId: SpiritId; npcId?: EntityId; poiId?: string; x?: number; y?: number; witnesses: number }
   | { type: 'mind_probed';        spiritId: SpiritId; npcId: EntityId; depth: number }
   | { type: 'believer_lost';      npcId: EntityId }

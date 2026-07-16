@@ -9,13 +9,24 @@
 /** Fate's promotion boost — a surfaced item jumps a full band above the pack. */
 export const FATE_SURFACE_BOOST = 1;
 
+/** What a plea over each need is FOR, in the player's inbox/hover/inspector
+ *  language (M0.b). Shared here so every lens words a plea identically. */
+export const PRAYER_SUBJECT_TEXT: Record<keyof import('@/core/types').NpcNeeds, string> = {
+  safety:     'protection',
+  prosperity: 'bread',
+  community:  'fellowship',
+  meaning:    'an answer',
+};
+
 /**
  * The read-only signal bundle behind one salient act. Discriminated by the
  * situation kind the inbox already recognises. Hover (P3) builds the same signals
  * per (verb, target), so the two lenses share one scoring function.
  */
 export type Situation =
-  | { kind: 'prayer'; faith: number; meaningDeficit: number; surfaced?: boolean }
+  // `needDeficit` (M0.b): deficit of the plea's SUBJECT need — pre-M0 this was
+  // always the meaning deficit; now a starving peasant's bread-plea scores by hunger.
+  | { kind: 'prayer'; faith: number; needDeficit: number; surfaced?: boolean }
   | { kind: 'opportunity'; severity: number; surfaced?: boolean }
   | { kind: 'threat'; rivalBelievers: number; surfaced?: boolean }
   // Track-3 rival claims (both surface as inbox `threat` items):
@@ -36,7 +47,7 @@ export type Situation =
 export function scoreAffordance(sit: Situation): number {
   let base: number;
   switch (sit.kind) {
-    case 'prayer':      base = sit.faith * (0.4 + 0.6 * sit.meaningDeficit); break;
+    case 'prayer':      base = sit.faith * (0.4 + 0.6 * sit.needDeficit); break;
     case 'opportunity': base = 0.5 + 0.5 * sit.severity; break;
     case 'threat':      base = 0.4 + Math.min(0.5, sit.rivalBelievers * 0.05); break;
     // A contested plea outranks an ordinary one (a rival is circling) and climbs

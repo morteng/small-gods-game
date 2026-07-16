@@ -56,6 +56,39 @@ describe('Answer', () => {
     const e = npc((p) => { p.activity = 'idle'; });
     expect(answerPrayer(spirit(), e, log())).toBe(false);
   });
+
+  // M0.b — a prayer has a SUBJECT: the answer restores the need actually asked for.
+  it('restores the need the plea asked for, logs it, and clears the plea fields', () => {
+    const e = npc((p) => {
+      p.activity = 'worship';
+      p.prayerNeed = 'prosperity';
+      p.prayerSince = 40;
+      p.needs.prosperity = 0.1;
+      p.needs.meaning = 0.7;
+      p.beliefs['player'] = { faith: 0.3, understanding: 0.2, devotion: 0.2 };
+    });
+    const l = log();
+    expect(answerPrayer(spirit(), e, l)).toBe(true);
+    expect(P(e).needs.prosperity).toBeCloseTo(0.4, 5);  // the bread-plea was answered with bread
+    expect(P(e).needs.meaning).toBeCloseTo(0.7, 5);     // meaning untouched
+    expect(P(e).prayerNeed).toBeUndefined();
+    expect(P(e).prayerSince).toBeUndefined();
+    const ev = l.since(0).find(a => a.event.type === 'answer_prayer')?.event as { need?: string };
+    expect(ev?.need).toBe('prosperity');
+  });
+
+  it('a plea without a recorded subject falls back to the classic meaning-answer', () => {
+    const e = npc((p) => {
+      p.activity = 'worship';
+      p.needs.meaning = 0.1;
+      p.beliefs['player'] = { faith: 0.3, understanding: 0.2, devotion: 0.2 };
+    });
+    const l = log();
+    answerPrayer(spirit(), e, l);
+    expect(P(e).needs.meaning).toBeCloseTo(0.4, 5);
+    const ev = l.since(0).find(a => a.event.type === 'answer_prayer')?.event as { need?: string };
+    expect(ev?.need).toBe('meaning');
+  });
 });
 
 describe('Deepen (dream)', () => {

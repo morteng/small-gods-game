@@ -161,6 +161,7 @@ export function updatePrayerLedger(world: World, now: number): void {
       if (p.prayerSince === undefined) p.prayerSince = now;
     } else if (p.prayerSince !== undefined) {
       delete p.prayerSince;
+      delete p.prayerNeed;  // the plea's SUBJECT (M0.b) lifts with the plea
     }
   });
 }

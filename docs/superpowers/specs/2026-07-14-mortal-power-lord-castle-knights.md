@@ -244,3 +244,21 @@ window, and a window is a gift to a small god.**
 | **M6** | the Peace of God | Needs M3 (something to bind) and gives `devotion` a job. |
 
 **M0 · M1 · M2 are independent of the castle and can ship immediately.** M0 is the one that matters.
+
+---
+
+## Reality check (2026-07-16) — M0.a + M0.b SHIPPED
+
+Implemented as specified (branch `feat/m0-need-direction`): `worship` now fires on the lowest
+need via per-need `WORSHIP_THRESHOLDS` (`meaning` 0.3 unchanged; material needs 0.15 —
+desperation-only, so ambient behavior barely drifts until an extractor exists), the plea check
+now PRECEDES the socialize branch (the pre-emption bug), `prayerNeed` rides `NpcProperties`
+(set by the activity system, cleared by the ledger/answer), `answerPrayer` restores the need
+actually asked for and logs `need` on the `answer_prayer` event, and every player lens words
+the subject identically via `PRAYER_SUBJECT_TEXT` (inbox detail + salience deficit, hover
+why-tag, inspector subtitle, NPC LLM prompt).
+
+**M0.c deliberately deferred to M3:** no tithe producer exists anywhere yet (verified —
+zero non-barn `tithe` references), so the `SELF_AGENCY_RESTORE` scaling would be dead code
+with no honest test. It stays the recommended model (c) and is a one-line change inside the
+activity system's self-agency switch once `LordState.tithe` exists.

@@ -14,7 +14,7 @@
  *   - Current context: activity, location, nearby NPCs (~50 tokens)
  */
 
-import type { Entity, NpcProperties, NpcActivity, SettlementEventType } from '@/core/types';
+import type { Entity, NpcProperties, SettlementEventType } from '@/core/types';
 import { npcProps } from '@/world/npc-helpers';
 import type { World } from '@/world/world';
 import type { SpiritId } from '@/core/spirit';
@@ -112,7 +112,7 @@ function formatNpcCard(props: NpcProperties): string {
     `Beliefs about player: faith=${(props.beliefs['player']?.faith ?? 0).toFixed(2)}, understanding=${(props.beliefs['player']?.understanding ?? 0).toFixed(2)}, devotion=${(props.beliefs['player']?.devotion ?? 0).toFixed(2)}`,
     `Needs: safety=${(props.needs.safety).toFixed(2)}, prosperity=${(props.needs.prosperity).toFixed(2)}, community=${(props.needs.community).toFixed(2)}, meaning=${(props.needs.meaning).toFixed(2)}`,
     `Mood: ${props.mood.toFixed(2)}`,
-    `Activity: ${props.activity}`,
+    `Activity: ${formatActivity(props)}`,
   ];
 
   if (props.homePoiId) {
@@ -127,10 +127,19 @@ function formatNpcCard(props: NpcProperties): string {
 function buildSimStateSummary(props: NpcProperties): string {
   const lines = [
     `Mood: ${props.mood.toFixed(2)} (${(props.mood > 0.6 ? 'content' : props.mood > 0.4 ? 'neutral' : 'troubled')})`,
-    `Activity: ${props.activity}`,
+    `Activity: ${formatActivity(props)}`,
     `Whisper cooldown: ${props.whisperCooldown} ticks`,
   ];
   return lines.join('\n');
+}
+
+/** M0.b: a worshipping NPC's prompt names the plea's subject, so narration can
+ *  voice what was actually asked for ("she prays over an empty larder"). */
+function formatActivity(props: NpcProperties): string {
+  if (props.activity === 'worship') {
+    return `worship (praying about their ${props.prayerNeed ?? 'meaning'} need)`;
+  }
+  return props.activity;
 }
 
 // ─── Events Section ───────────────────────────────────────────

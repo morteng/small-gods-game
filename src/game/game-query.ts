@@ -21,7 +21,7 @@ import { evaluateContracts, type ContractReport } from '@/world/connectome-contr
 import { isDurable } from '@/sim/believers';
 import { ALL_DOMAINS, DOMAIN_DEFS, aggregateDomain, isOminous, getDomainBelief } from '@/sim/belief-domains';
 import { getCapability } from '@/sim/command/registry';
-import { scoreAffordance } from '@/game/affordance/salience';
+import { scoreAffordance, PRAYER_SUBJECT_TEXT } from '@/game/affordance/salience';
 import { affordancesForTarget, type VerbUnlock } from '@/game/affordance/derive';
 import type { CommandCtx, CommandTarget } from '@/sim/command/types';
 import type { World } from '@/world/world';
@@ -332,10 +332,14 @@ export function createGameQuery(deps: GameQueryDeps): GameQuery {
         const p = npcProps(e);
         const b = p.beliefs[spiritId] ?? { faith: 0, understanding: 0, devotion: 0 };
         const ageYears = Math.max(0, (state.clock.now() - p.birthTick) / TICKS_PER_YEAR);
+        // M0.b: a praying soul's inspector line names the plea's subject.
+        const doing = p.activity === 'worship'
+          ? `praying for ${PRAYER_SUBJECT_TEXT[p.prayerNeed ?? 'meaning']}`
+          : p.activity;
         return {
           kind: 'npc',
           title: p.name,
-          subtitle: `${p.role} · age ${Math.floor(ageYears)} · ${p.activity}`,
+          subtitle: `${p.role} · age ${Math.floor(ageYears)} · ${doing}`,
           state: [
             { label: 'Faith', value: b.faith },
             { label: 'Understanding', value: b.understanding },
@@ -477,15 +481,18 @@ export function createGameQuery(deps: GameQueryDeps): GameQuery {
         if (p.activity !== 'worship') continue;
         const faith = p.beliefs[spiritId]?.faith ?? 0;
         if (faith <= 0) continue;
-        const meaningDeficit = 1 - p.needs.meaning;
+        // M0.b: the plea has a SUBJECT — weight + word the item by the need
+        // actually asked for (fallback: the classic meaning-plea).
+        const need = p.prayerNeed ?? 'meaning';
+        const needDeficit = 1 - p.needs[need];
         const id = `prayer:${e.id}`;
         const surfaced = surfacedSet.has(id);
         items.push({
           id,
           kind: 'prayer',
           title: `${p.name} is praying`,
-          detail: `A ${p.role} pleads for an answer.`,
-          salience: scoreAffordance({ kind: 'prayer', faith, meaningDeficit, surfaced }),
+          detail: `A ${p.role} pleads for ${PRAYER_SUBJECT_TEXT[need]}.`,
+          salience: scoreAffordance({ kind: 'prayer', faith, needDeficit, surfaced }),
           surfaced,
           target: { kind: 'npc', npcId: e.id },
           anchor: { x: e.x, y: e.y },

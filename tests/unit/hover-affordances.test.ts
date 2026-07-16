@@ -38,8 +38,19 @@ describe('buildSituation — the hover local lens mirrors the inbox', () => {
     const e = addNpc(world, 'n1', { worship: true, faith: 0.8, meaning: 0.25 });
     const tag = buildSituation({ kind: 'npc', npcId: e.id }, ctxWith(world), 'player');
     expect(tag).not.toBeNull();
-    expect(tag!.situation).toEqual({ kind: 'prayer', faith: 0.8, meaningDeficit: 0.75 });
+    expect(tag!.situation).toEqual({ kind: 'prayer', faith: 0.8, needDeficit: 0.75 });
     expect(tag!.why).toBe('praying');
+  });
+
+  it('a plea with a SUBJECT (M0.b) scores by that need and names it in the why-tag', () => {
+    const world = makeWorld();
+    const e = addNpc(world, 'n1', { worship: true, faith: 0.8, meaning: 0.9 });
+    const p = e.properties as unknown as NpcProperties;
+    p.prayerNeed = 'prosperity';
+    p.needs.prosperity = 0.1;
+    const tag = buildSituation({ kind: 'npc', npcId: e.id }, ctxWith(world), 'player');
+    expect(tag!.situation).toEqual({ kind: 'prayer', faith: 0.8, needDeficit: 0.9 });
+    expect(tag!.why).toBe('prays for bread');
   });
 
   it('an idle (non-worshipping) NPC carries no situation', () => {

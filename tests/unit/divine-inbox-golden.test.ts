@@ -182,7 +182,7 @@ describe('divineInbox — rival prayer claims (Track 3)', () => {
 // ── the extracted salience brain, directly (shared by inbox + hover P3) ─────────
 describe('scoreAffordance — the shared salience brain', () => {
   it('reproduces the inbox formulas per situation kind', () => {
-    expect(scoreAffordance({ kind: 'prayer', faith: 0.8, meaningDeficit: 0.5 }))
+    expect(scoreAffordance({ kind: 'prayer', faith: 0.8, needDeficit: 0.5 }))
       .toBeCloseTo(0.8 * (0.4 + 0.6 * 0.5), 12);
     expect(scoreAffordance({ kind: 'opportunity', severity: 0.9 })).toBeCloseTo(0.95, 12);
     expect(scoreAffordance({ kind: 'threat', rivalBelievers: 1 })).toBeCloseTo(0.45, 12);

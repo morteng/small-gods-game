@@ -110,6 +110,20 @@ describe('prayer claim ledger', () => {
     expect(prayerAge(P(e), 140)).toBe(0);
   });
 
+  it('clears the plea SUBJECT (prayerNeed, M0.b) together with the timestamp', () => {
+    const world = new World(tinyMap());
+    const e = npc('a', 'poi1', { activity: 'worship' });
+    P(e).prayerNeed = 'safety';
+    world.addEntity(e);
+
+    updatePrayerLedger(world, 100);
+    expect(P(e).prayerNeed).toBe('safety');  // standing plea keeps its subject
+
+    P(e).activity = 'idle';                  // plea lifts
+    updatePrayerLedger(world, 140);
+    expect(P(e).prayerNeed).toBeUndefined();
+  });
+
   it('a prayer is claimable only after the window, by a present + funded rival', () => {
     const world = new World(tinyMap());
     const e = npc('a', 'poi1', { activity: 'worship', prayerSince: 0 });

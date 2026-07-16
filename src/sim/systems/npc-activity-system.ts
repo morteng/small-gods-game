@@ -46,9 +46,35 @@ const ACTIVITY_DURATION_MAX = 12;
 const COMMUNITY_THRESHOLD = 0.35;
 
 /**
- * For day-mode activity: weight threshold for "worship" (meaning < this → worship).
+ * M0.a — worship fires on the LOWEST need, per-need thresholds (VISION §9 rows
+ * 11–12; mortal-power spec M0). `meaning` has no mortal channel at all — only a
+ * god Answers — so it prays early (the classic 0.3). The material needs have
+ * self-serve channels (`work`/`sleep`/`socialize` restore them, tenet 9:
+ * "mortals act first; the god is the margin"), so only DESPERATION — self-service
+ * failing to keep up (raiders, extraction, a lord's tithe) — sends a mortal to
+ * their knees over bread or safety. This is what lets a starving peasant pray.
  */
-const MEANING_THRESHOLD = 0.3;
+export const WORSHIP_THRESHOLDS: Record<keyof NpcNeeds, number> = {
+  meaning:    0.3,
+  safety:     0.15,
+  prosperity: 0.15,
+  community:  0.15,
+};
+
+/** Fixed iteration order → deterministic argmin tie-break. */
+const NEED_KEYS: readonly (keyof NpcNeeds)[] = ['safety', 'prosperity', 'community', 'meaning'];
+
+/** The need this mortal would pray about right now: the lowest need that has
+ *  crossed its worship threshold, or null when none has (no plea). */
+export function prayerSubject(needs: NpcNeeds): keyof NpcNeeds | null {
+  let subject: keyof NpcNeeds | null = null;
+  let lowest = Infinity;
+  for (const k of NEED_KEYS) {
+    const v = needs[k];
+    if (v < WORSHIP_THRESHOLDS[k] && v < lowest) { lowest = v; subject = k; }
+  }
+  return subject;
+}
 
 /** Need restored when an NPC completes a self-serviced activity. */
 const SELF_AGENCY_RESTORE = 0.3;
@@ -90,21 +116,26 @@ export class NpcActivitySystem implements System {
     let targetX: number | undefined;
     let targetY: number | undefined;
 
+    // M0.a: the plea check runs FIRST — desperation outranks the social calendar
+    // (pre-M0, low community pre-empted worship and only `meaning` could pray).
+    const plea = isNight ? null : prayerSubject(props.needs);
+
     if (isNight) {
       // Night: everybody sleeps at home
       activity = 'sleep';
+      targetX = props.homeX;
+      targetY = props.homeY;
+    } else if (plea !== null) {
+      // A need crossed its worship threshold → pray, ABOUT that need (M0.b).
+      activity = 'worship';
+      props.prayerNeed = plea;
+      // Worship at home (placeholder — future: go to temple/altar)
       targetX = props.homeX;
       targetY = props.homeY;
     } else if (this.hasLowNeed(props.needs.community, COMMUNITY_THRESHOLD)) {
       // Low community → socialize
       activity = 'socialize';
       // Socialize near home
-      targetX = props.homeX;
-      targetY = props.homeY;
-    } else if (this.hasLowNeed(props.needs.meaning, MEANING_THRESHOLD)) {
-      // Low meaning → worship
-      activity = 'worship';
-      // Worship at home (placeholder — future: go to temple/altar)
       targetX = props.homeX;
       targetY = props.homeY;
     } else if (WORKING_ROLES.has(props.role)) {
@@ -129,6 +160,7 @@ export class NpcActivitySystem implements System {
     }
 
     props.activity = activity;
+    if (activity !== 'worship' && props.prayerNeed !== undefined) delete props.prayerNeed;
     props.activityTargetX = targetX;
     props.activityTargetY = targetY;
     // Set duration for the new activity

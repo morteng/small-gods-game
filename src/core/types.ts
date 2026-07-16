@@ -574,6 +574,12 @@ export interface NpcProperties {
    *  the plea lifts, so `now - prayerSince` is the prayer's age. Optional → old
    *  saves/snapshots read as "no standing plea"; rides the snapshot on properties. */
   prayerSince?: number;
+  /** The SUBJECT of the standing plea (M0.b — "a prayer gets a subject"): which
+   *  need sent this mortal to their knees. Set by the activity system when
+   *  `worship` is chosen (the argmin need that crossed its worship threshold),
+   *  cleared with `prayerSince` when the plea lifts. Consumers fall back to
+   *  `'meaning'` when absent (old saves / directly-scripted worship). */
+  prayerNeed?: keyof NpcNeeds;
   // social graph
   relationships: Relationship[];
   // possession marker

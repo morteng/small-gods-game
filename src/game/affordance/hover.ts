@@ -8,7 +8,7 @@ import type { SpiritId } from '@/core/spirit';
 import { getNpc, npcProps } from '@/world/npc-helpers';
 import { isOminous } from '@/sim/belief-domains';
 import { affordancesForTarget, type VerbUnlock } from './derive';
-import type { Situation } from './salience';
+import { PRAYER_SUBJECT_TEXT, type Situation } from './salience';
 
 /** A hovered target's situation signal + a short human "why" tag ("praying"). */
 export interface SituationTag {
@@ -31,7 +31,12 @@ export function buildSituation(target: CommandTarget, ctx: CommandCtx, source: S
     if (p.activity !== 'worship') return null;
     const faith = p.beliefs[source]?.faith ?? 0;
     if (faith <= 0) return null;
-    return { situation: { kind: 'prayer', faith, meaningDeficit: 1 - p.needs.meaning }, why: 'praying' };
+    // M0.b: score + label by the plea's SUBJECT need (fallback: the classic meaning-plea).
+    const need = p.prayerNeed ?? 'meaning';
+    return {
+      situation: { kind: 'prayer', faith, needDeficit: 1 - p.needs[need] },
+      why: need === 'meaning' ? 'praying' : `prays for ${PRAYER_SUBJECT_TEXT[need]}`,
+    };
   }
   if (target.kind === 'settlement') {
     const evs = ctx.world.activeEvents.get(target.poiId) ?? [];

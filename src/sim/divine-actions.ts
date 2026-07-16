@@ -1,5 +1,5 @@
 import type { Spirit, SpiritId } from '@/core/spirit';
-import type { Entity, SettlementEventType, NpcActivity } from '@/core/types';
+import type { Entity } from '@/core/types';
 import type { EventLog } from '@/core/events';
 import { npcProps, forEachNpc, rememberEvent } from '@/world/npc-helpers';
 import { clamp01, signResponse } from '@/sim/npc-sim';
@@ -45,7 +45,7 @@ const MIRACLE_FAITH_BOOST = 0.3;   // per NPC in settlement
 const MIRACLE_UNDERSTANDING_BOOST = 0.05;
 
 const ANSWER_PRAYER_FAITH_BOOST = 0.2;
-const ANSWER_PRAYER_MEANING_BOOST = 0.3; // Answer restores the divine need specifically
+const ANSWER_PRAYER_NEED_BOOST = 0.3; // Answer restores the need the plea asked for (M0.b)
 const ANSWER_UNDERSTANDING_BOOST = 0.04; // a heard prayer teaches a little of your form
 
 // ── Belief-content attribution (Track B) ─────────────────────────────────────
@@ -295,12 +295,17 @@ export function answerPrayer(spirit: Spirit, npc: Entity, log: EventLog): boolea
     };
   }
 
-  // Restore the divine need and clear the worship state so the 🙏 lifts.
-  p.needs.meaning = clamp01(p.needs.meaning + ANSWER_PRAYER_MEANING_BOOST);
+  // Restore the need ACTUALLY ASKED FOR (M0.b — a prayer has a subject) and
+  // clear the worship state so the 🙏 lifts. Pleas without a recorded subject
+  // (old saves, scripted worship) fall back to the classic meaning-answer.
+  const need = p.prayerNeed ?? 'meaning';
+  p.needs[need] = clamp01(p.needs[need] + ANSWER_PRAYER_NEED_BOOST);
   p.activity = 'idle';
   p.activityDuration = 0;
+  delete p.prayerSince;
+  delete p.prayerNeed;
 
-  const appended = log.append({ type: 'answer_prayer', spiritId: spirit.id, npcId: npc.id });
+  const appended = log.append({ type: 'answer_prayer', spiritId: spirit.id, npcId: npc.id, need });
   rememberEvent(p, appended.id);
 
   return true;
