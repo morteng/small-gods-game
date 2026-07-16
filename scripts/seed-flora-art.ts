@@ -63,6 +63,12 @@ const MODEL = process.argv.find((a) => a.startsWith('--model='))?.slice('--model
 // because the facets are large in the model's working space; shrinking the init makes
 // them sub-brush so Klein dissolves them into painterly foliage. 0/absent = no downscale.
 const MAX_INIT = Number(process.argv.find((a) => a.startsWith('--maxinit='))?.slice('--maxinit='.length) ?? 0) || 0;
+// --minioou=<n> lowers the silhouette-IoU acceptance floor for THIS seed run only
+// (default FLORA_MIN_SILHOUETTE_IOU). Wispy species — weeping canopies, sparse
+// columnar junipers — have inherently loose silhouettes that Klein legitimately
+// reinterprets below the general floor; vendored sprites load by key with no runtime
+// re-check (fetchFromBaseLibrary), so a per-run floor only affects what we accept here.
+const MIN_IOU = Number(process.argv.find((a) => a.startsWith('--minioou='))?.slice('--minioou='.length) ?? 0) || FLORA_MIN_SILHOUETTE_IOU;
 const wanted = process.argv.slice(2).filter((a) => !a.startsWith('--'));
 // Plant species only (rocks have no img2img recipe — they render from geometry).
 const allPlantIds = allFloraSpecies().filter((s) => deriveGenParams(s).kind === 'plant').map((s) => s.id);
@@ -125,7 +131,7 @@ async function seed(speciesId: string, manifest: Manifest): Promise<number> {
     if (border < MIN_BORDER_KEYED) { console.warn(`${speciesId}: attempt ${attempt} — background did not key (ring ${border.toFixed(2)})`); continue; }
     const reg = registerAlbedo(raw, mask);
     if (!reg) { console.warn(`${speciesId}: attempt ${attempt} — nothing survived keying`); continue; }
-    if (reg.iou < FLORA_MIN_SILHOUETTE_IOU) { console.warn(`${speciesId}: attempt ${attempt} — silhouette IoU ${reg.iou.toFixed(2)} < ${FLORA_MIN_SILHOUETTE_IOU}`); continue; }
+    if (reg.iou < MIN_IOU) { console.warn(`${speciesId}: attempt ${attempt} — silhouette IoU ${reg.iou.toFixed(2)} < ${MIN_IOU}`); continue; }
     const sprite = quantizePalette(reg.sprite, QUANT_COLORS);
 
     const base = safeName(key);

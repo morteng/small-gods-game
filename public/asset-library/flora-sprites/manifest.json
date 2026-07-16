@@ -225,6 +225,24 @@
       "normal": "v34_black-forest-labs_flux.2-klein-4b_1x1_rk3zvf.normal.png",
       "material": "v34_black-forest-labs_flux.2-klein-4b_1x1_rk3zvf.material.png",
       "emissive": "v34_black-forest-labs_flux.2-klein-4b_1x1_rk3zvf.emissive.png"
+    },
+    "v34:black-forest-labs/flux.2-klein-4b:1x1:lazu3d": {
+      "file": "v34_black-forest-labs_flux.2-klein-4b_1x1_lazu3d.png",
+      "targetWidth": 91,
+      "species": "weeping-birch",
+      "anchors": "{\"doors\":[],\"vents\":[]}",
+      "normal": "v34_black-forest-labs_flux.2-klein-4b_1x1_lazu3d.normal.png",
+      "material": "v34_black-forest-labs_flux.2-klein-4b_1x1_lazu3d.material.png",
+      "emissive": "v34_black-forest-labs_flux.2-klein-4b_1x1_lazu3d.emissive.png"
+    },
+    "v34:black-forest-labs/flux.2-klein-4b:1x1:b5293m": {
+      "file": "v34_black-forest-labs_flux.2-klein-4b_1x1_b5293m.png",
+      "targetWidth": 29,
+      "species": "common-juniper",
+      "anchors": "{\"doors\":[],\"vents\":[]}",
+      "normal": "v34_black-forest-labs_flux.2-klein-4b_1x1_b5293m.normal.png",
+      "material": "v34_black-forest-labs_flux.2-klein-4b_1x1_b5293m.material.png",
+      "emissive": "v34_black-forest-labs_flux.2-klein-4b_1x1_b5293m.emissive.png"
     }
   }
 }
