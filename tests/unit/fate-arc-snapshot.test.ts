@@ -5,6 +5,7 @@ import { createRng } from '@/core/rng';
 import { PlotThreadStore } from '@/sim/threads/thread-store';
 import { StagingBuffer } from '@/sim/threads/staging-buffer';
 import { FateArcStore } from '@/sim/fate/arc-store';
+import { ARC_LIBRARY, getArcShape, openArcFromShape } from '@/sim/fate/arc-library';
 import { EventLog } from '@/core/events';
 import { captureSnapshot, restoreSnapshot, type Snapshot } from '@/core/snapshot';
 import { FatePulse } from '@/game/fate/fate-pulse';
@@ -101,6 +102,45 @@ describe('fate arcs — snapshot round-trip', () => {
     restoreSnapshot(state, snap);
     // Recomputed against the restored world (one POI) ⇒ has_settlements === true.
     expect(state.fateArcs.all()[0].goals[0].met).toBe(true);
+  });
+
+  it('F3: a library-seeded arc round-trips — goals/budget from the shape, cast binding intact', () => {
+    const state = makeState();
+    const arc = openArcFromShape(
+      state.fateArcs, getArcShape('strongman_dies_abroad')!, { poiIds: ['p1'], npcIds: ['n1'] }, 5,
+    );
+    const snap = captureSnapshot(state);
+    state.fateArcs.hydrate([]);
+    restoreSnapshot(state, snap);
+    const restored = state.fateArcs.get(arc.id)!;
+    expect(restored.shape).toBe('strongman_dies_abroad');
+    expect(restored.pressureBudget).toBe(ARC_LIBRARY.strongman_dies_abroad.budget);
+    expect(restored.goals.map((g) => g.predicate)).toEqual(
+      ARC_LIBRARY.strongman_dies_abroad.goals.map((g) => g.predicate),
+    );
+    expect(restored.cast).toEqual({ poiIds: ['p1'], npcIds: ['n1'] });
+  });
+
+  it('F3: an ABANDONED arc round-trips with its stage and reason (it feeds the chronicler)', () => {
+    const state = makeState();
+    const arc = openArc(state);
+    expect(state.fateArcs.abandon(arc.id, 'the heir came home')).toBe(true);
+    const snap = captureSnapshot(state);
+    state.fateArcs.hydrate([]);
+    restoreSnapshot(state, snap);
+    const restored = state.fateArcs.get(arc.id)!;
+    expect(restored.stage).toBe('abandoned');
+    expect(restored.abandonedReason).toBe('the heir came home');
+    expect(state.fateArcs.live()).toHaveLength(0);           // stays folded — never resurrects
+  });
+
+  it('F3: abandon() refuses an unknown or already-folded arc', () => {
+    const state = makeState();
+    const arc = openArc(state);
+    expect(state.fateArcs.abandon(999, 'x')).toBe(false);
+    expect(state.fateArcs.abandon(arc.id, 'first fold')).toBe(true);
+    expect(state.fateArcs.abandon(arc.id, 'second fold')).toBe(false);   // cannot re-fold / overwrite
+    expect(state.fateArcs.get(arc.id)!.abandonedReason).toBe('first fold');
   });
 
   it('ArcGoal.met recomputes to FALSE when the predicate no longer holds', () => {

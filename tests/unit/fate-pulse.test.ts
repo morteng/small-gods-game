@@ -62,6 +62,24 @@ describe('FatePulse — cadence + idle', () => {
     expect(fired[0].kind).toBe('pulse');
   });
 
+  it('F3 online: fires when a library shape is seedable (no live arc, no stub seeded)', () => {
+    const s = state();                           // one settlement ⇒ the_null_event's seedWhen holds
+    const fired: FateFocus[] = [];
+    const pulse = new FatePulse({ getState: () => s, isOffline: () => false, fire: (f) => fired.push(f), intervalTicks: 1000 });
+    pulse.tick(5000);
+    expect(fired).toHaveLength(1);               // the LLM gets its chance to seed_arc
+    expect(fired[0].kind).toBe('pulse');
+    expect(s.fateArcs.all()).toHaveLength(0);    // online never seeds the deterministic stub
+  });
+
+  it('F3 online: skips entirely when NO library shape is seedable and no arc is live', () => {
+    const s = state({ settlements: false });     // no POIs ⇒ every seedWhen fails
+    const fired: FateFocus[] = [];
+    const pulse = new FatePulse({ getState: () => s, isOffline: () => false, fire: (f) => fired.push(f), intervalTicks: 1000 });
+    pulse.tick(5000);
+    expect(fired).toHaveLength(0);
+  });
+
   it('fires ~once per game day (default cadence = TICKS_PER_DAY)', () => {
     const s = state();
     const fired: FateFocus[] = [];
