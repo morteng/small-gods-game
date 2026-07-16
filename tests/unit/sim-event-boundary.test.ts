@@ -32,8 +32,8 @@ const KNOWN_UNEMITTED: string[] = [];
  *  describeEvent clause / MCP `events()` / dev tools) — an audit-trail tier, not
  *  dead weight. Each entry documents WHY it stays. (2026-07-04, WP-C) */
 const KNOWN_GENERIC_ONLY: Record<string, string> = {
-  world_seeded:    'genesis marker — anchors the log; read by generic feeds only',
-  spirit_birth:    'genesis marker for spirits; generic feeds only',
+  // world_seeded / spirit_birth moved out 2026-07-16: the chronicler
+  // (chronicle-prompt-builder.ts) narrates genesis — a real consumer.
   // npc_spawn / authored_spawn / authored_remove / authored_place moved out
   // 2026-07-13: the cohort ledger (cohort-system.ts) reads them as lifecycle
   // flow explanations — a real consumer.
