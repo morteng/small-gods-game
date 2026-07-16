@@ -14,11 +14,13 @@
  */
 
 import type { Entity, NpcActivity, NpcNeeds } from '@/core/types';
+import type { World } from '@/world/world';
 import { npcProps, forEachNpc } from '@/world/npc-helpers';
 import { Random } from '@/core/noise';
 import type { System, SystemContext } from '@/core/scheduler';
 import { clamp01 } from '@/sim/npc-sim';
 import { solarHourForTick } from '@/core/calendar';
+import { titheRateFor, workRestoreScale } from '@/sim/lord';
 
 /** Sleep window (solar hours): from NIGHT_START_HOUR to NIGHT_END_HOUR. */
 export const NIGHT_START_HOUR = 21;
@@ -88,10 +90,10 @@ export class NpcActivitySystem implements System {
     this.rng = new Random(ctx.rng.next() * 0x7fffffff);
     const solarHour = solarHourForTick(ctx.clock.now());
 
-    forEachNpc(ctx.world, (e) => this.tickNpcActivity(e, solarHour));
+    forEachNpc(ctx.world, (e) => this.tickNpcActivity(e, solarHour, ctx.world));
   }
 
-  private tickNpcActivity(e: Entity, solarHour: number): void {
+  private tickNpcActivity(e: Entity, solarHour: number, world: World): void {
     const props = npcProps(e);
 
     // If the current activity hasn't expired yet, don't re-evaluate
@@ -102,8 +104,13 @@ export class NpcActivitySystem implements System {
 
     // Self-agency: the finished activity restores its own need (the god is the margin).
     // `worship` is excluded — meaning is restored only when a god Answers.
+    // M0.c (mortal-power spec, model (c)): a seated lord's tithe scales the WORK
+    // restore — you work as hard and you get less. No lord ⇒ scale 1 (unchanged).
     switch (props.activity) {
-      case 'work':      props.needs.prosperity = clamp01(props.needs.prosperity + SELF_AGENCY_RESTORE); break;
+      case 'work':
+        props.needs.prosperity = clamp01(props.needs.prosperity +
+          SELF_AGENCY_RESTORE * workRestoreScale(titheRateFor(world, props.homePoiId)));
+        break;
       case 'socialize': props.needs.community  = clamp01(props.needs.community  + SELF_AGENCY_RESTORE); break;
       case 'sleep':     props.needs.safety     = clamp01(props.needs.safety     + SELF_AGENCY_RESTORE); break;
       default: break; // idle, wander, worship → no self-restore

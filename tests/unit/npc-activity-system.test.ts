@@ -199,6 +199,57 @@ describe('NpcActivitySystem', () => {
     expect(npcProps(e).prayerNeed).toBeUndefined();
   });
 
+  // ── M0.c — the lord's tithe scales the work self-restore (model (c)) ────────
+
+  it('an untithed worker keeps the full work restore (no lord ⇒ scale 1, pre-M3 economy)', () => {
+    const map = makeMap();
+    const world = new World(map);
+    const e = makeNpc(world, 'moth', 'farmer');
+    const props = npcProps(e);
+    props.homePoiId = 'poi1';
+    props.activity = 'work';
+    props.activityDuration = 0;
+    props.needs.prosperity = 0.4;
+
+    system.tick(createContext(world, 50));
+    expect(props.needs.prosperity).toBeCloseTo(0.7, 10);   // + SELF_AGENCY_RESTORE (0.3), untouched
+  });
+
+  it('a seated lord\'s tithe scales the work restore down — you work as hard and get less', () => {
+    const map = makeMap();
+    const world = new World(map);
+    world.lords.set('poi1', { npcId: 'lord-1', lineageId: 'lord-1', tithe: 0.5, garrison: 0, unrest: 0, keepTier: 0 });
+    const e = makeNpc(world, 'nell', 'farmer');
+    const props = npcProps(e);
+    props.homePoiId = 'poi1';
+    props.activity = 'work';
+    props.activityDuration = 0;
+    props.needs.prosperity = 0.4;
+
+    system.tick(createContext(world, 50));
+    expect(props.needs.prosperity).toBeCloseTo(0.4 + 0.3 * 0.5, 10);   // restore × (1 − tithe)
+  });
+
+  it('the tithe only touches its own settlement — a neighbour\'s workers keep the full restore', () => {
+    const map = makeMap();
+    const world = new World(map);
+    world.lords.set('poi1', { npcId: 'lord-1', lineageId: 'lord-1', tithe: 1, garrison: 0, unrest: 0, keepTier: 0 });
+    const taxed = makeNpc(world, 'oda', 'farmer');
+    npcProps(taxed).homePoiId = 'poi1';
+    const free = makeNpc(world, 'pim', 'farmer');
+    npcProps(free).homePoiId = 'poi2';
+    for (const e of [taxed, free]) {
+      const p = npcProps(e);
+      p.activity = 'work';
+      p.activityDuration = 0;
+      p.needs.prosperity = 0.4;
+    }
+
+    system.tick(createContext(world, 50));
+    expect(npcProps(taxed).needs.prosperity).toBeCloseTo(0.4, 10);   // full extraction: nothing kept
+    expect(npcProps(free).needs.prosperity).toBeCloseTo(0.7, 10);
+  });
+
   it('activity has a duration > 0 and decrements each tick', () => {
     const map = makeMap();
     const world = new World(map);

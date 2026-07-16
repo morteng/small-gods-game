@@ -44,6 +44,7 @@ export type SimEvent =
   | { type: 'settlement_upgraded'; poiId: string; entityId: EntityId; from: string; to: string; lotId: string }
   | { type: 'settlement_begin';   poiId: string; eventType: SettlementEventType; severity: number; durationTicks: number }
   | { type: 'settlement_end';     poiId: string; eventType: SettlementEventType }
+  | { type: 'lord_risen';         poiId: string; npcId: EntityId; lineageId: EntityId; succession: boolean }
   | { type: 'thread_opened';      threadId: ThreadId; shapeId: ShapeId; subject: ThreadSubject }
   | { type: 'thread_advanced';    threadId: ThreadId; phase: string; weight: NarrativeWeight }
   | { type: 'thread_resolved';    threadId: ThreadId; status: 'resolved' | 'abandoned' }

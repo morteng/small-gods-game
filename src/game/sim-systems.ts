@@ -28,6 +28,7 @@ import { SettlementGrowthSystem, housingCapacityByPoi } from '@/sim/systems/sett
 import { RoadEvolutionSystem } from '@/sim/systems/road-evolution-system';
 import { TrampleDepositSystem, TramplePromoteDecaySystem } from '@/sim/systems/trample-system';
 import { BirthSystem } from '@/sim/systems/birth-system';
+import { LordSystem } from '@/sim/systems/lord-system';
 import { CohortSystem } from '@/sim/systems/cohort-system';
 import { WeatherSystem } from '@/sim/systems/weather-system';
 import { StagingActivationSystem } from '@/sim/threads/systems/staging-activation-system';
@@ -105,6 +106,12 @@ export function registerSimSystems(deps: SimSystemsDeps): void {
     cohorts: getCohorts,
     housingCapacity: housingCapacityByPoi,   // §5.2: housing gates births (slack × capacity)
   }));
+  // M3 (mortal power): seats, succession, and the tithe economy — hourly, like
+  // the other day-keyed lifecycle systems. Reads the statistical tier so the
+  // tithe hits BOTH population tiers (the named tier feels it in
+  // NpcActivitySystem's work restore). LordState rides the snapshot on
+  // World.lords — no system-state registration needed.
+  scheduler.register(new LordSystem(getCohorts));
   // Two-tier population P0+P1: shadow cohort ledger — observes the named tier
   // hourly + audits conservation of souls, and (P1) audits that the statistical
   // tier's counts never change outside ledgered flows. Stateful (baseline

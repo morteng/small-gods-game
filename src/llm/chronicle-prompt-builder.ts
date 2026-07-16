@@ -187,6 +187,10 @@ export function eventFactLine(a: AppendedEvent, world?: World | null): string {
       return `${(SETTLEMENT_EVENT_TEXT[ev.eventType] ?? `${ev.eventType} came to`)} the settlement, severity ${ev.severity.toFixed(2)}.`;
     case 'settlement_end':
       return `The ${ev.eventType.replace(/_/g, ' ')} ended.`;
+    case 'lord_risen':
+      return ev.succession
+        ? `${resolveNpcName(world, ev.npcId)} succeeded to the lordship of the settlement.`
+        : `${resolveNpcName(world, ev.npcId)} rose as lord over the settlement.`;
     case 'thread_resolved':
       return `A thread of fate was ${ev.status}.`;
     case 'beat_fired':

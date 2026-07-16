@@ -10,6 +10,7 @@ import type { WeatherSnapshot } from '@/sim/water/weather-stepper';
 import type { CausalSiteSnapshot } from '@/world/causal-site';
 import type { TrampleSnapshot } from '@/sim/trample';
 import type { SettlementCohorts } from '@/sim/cohorts';
+import type { LordState } from '@/sim/lord';
 import { fromState } from '@/core/rng';
 import { World } from '@/world/world';
 import { TrampleGrid } from '@/sim/trample';
@@ -26,6 +27,10 @@ export interface Snapshot {
   activeEvents: [string, ActiveEvent[]][];
   /** Fate's forced next-event per POI. Optional so older saves restore via `?? []`. */
   forcedEvents?: [string, SettlementEventType][];
+  /** M3 (mortal power): the lord's seat per settlement. Optional so pre-lord
+   *  saves + hand-built test snapshots restore to no seated lords (LordSystem
+   *  re-attaches from the living nobles within a game hour). */
+  lords?: [string, LordState][];
   /** Complete deep-cloned copies of every spirit. Snapshot is authoritative. */
   spirits: Spirit[];
   /** Narrative substrate: recognized plot threads. Optional so pre-substrate
@@ -102,12 +107,17 @@ function buildSnapshot(state: GameState, deep: boolean): Snapshot {
   }
   const forcedEvents: [string, SettlementEventType][] = [];
   for (const [poiId, type] of state.world.forcedEvents) forcedEvents.push([poiId, type]);
+  const lords: [string, LordState][] = [];
+  for (const [poiId, seat] of state.world.lords) {
+    lords.push([poiId, deep ? structuredClone(seat) : seat]);
+  }
   return {
     tick: state.clock.now(),
     rng: state.rng.getState(),
     entities,
     activeEvents,
     forcedEvents,
+    lords,
     spirits,
     // Optional access: production states (createState) always have these; some
     // test harnesses cast a partial GameState that omits the substrate stores.
@@ -155,6 +165,9 @@ export function restoreSnapshot(state: GameState, snap: Snapshot): void {
     fresh.activeEvents.set(poiId, structuredClone(events));
   }
   for (const [poiId, type] of snap.forcedEvents ?? []) fresh.forcedEvents.set(poiId, type);
+  // M3: the lord's seats restore with the world (a scrub un-seats a lord who
+  // rose after the restore point); pre-lord snapshots restore to no seats.
+  for (const [poiId, seat] of snap.lords ?? []) fresh.lords.set(poiId, structuredClone(seat));
   state.world = fresh;
 
   // Runtime growth mutates tiles + lot claims AFTER snapshots are taken;
